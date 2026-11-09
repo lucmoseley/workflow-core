@@ -249,15 +249,17 @@ function stopPark(l, why, mode, seen) {
  * from which it has the listing's grace. Where the job is a copy, `l` tracks
  * the copy's job and session id, its dispatch-ledger hold still the job
  * first launched (#2963), and `fromSessionId`, the session it resumed, kept
- * among its past ones for actsOf (#2969); a job woken in place keeps both,
- * and a headless resume keeps its session under the new run's job id (#4580).
+ * among its past ones for actsOf (#2969), with any original whose job would
+ * not retire (withUnretired); a job woken in place keeps both, and a headless
+ * resume keeps its session under the new run's job id (#4580).
  * @param {JobLaunch} l
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} resumed
  * @param {number} now
  * @returns {JobLaunch}
  */
-function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
-	if (!copy)
+function relaunched(l, resumed, now) {
+	const { jobId, sessionId, fromSessionId } = resumed;
+	if (!resumed.copy)
 		return {
 			...l,
 			jobId,
@@ -266,15 +268,31 @@ function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
 		};
 	const { sessionId: _, ...rest } = l;
 	const past = new Set([...(l.pastSessionIds ?? []), fromSessionId]);
-	return {
-		...rest,
-		jobId,
-		copiedFrom: l.copiedFrom ?? l.jobId,
-		relaunchedAt: now,
-		...(sessionId ? { sessionId } : {}),
-		pastSessionIds: [...past],
-	};
+	return withUnretired(
+		{
+			...rest,
+			jobId,
+			copiedFrom: l.copiedFrom ?? l.jobId,
+			relaunchedAt: now,
+			...(sessionId ? { sessionId } : {}),
+			pastSessionIds: [...past],
+		},
+		resumed,
+	);
 }
+
+/**
+ * `l` with copy `r`'s original, where its job would not retire, added to
+ * those a later tick retries (lib/refill-retire.js's retireOriginals, #4646).
+ * @template {LoopLaunch} L
+ * @param {L} l
+ * @param {Extract<Resumed, {failed: null}>} r
+ * @returns {L}
+ */
+const withUnretired = (l, r) =>
+	r.copy && r.unretired
+		? { ...l, unretired: [...(l.unretired ?? []), r.unretired] }
+		: l;
 
 /**
  * How resume `r` started its job: woken in place, or as a copy with the
@@ -300,4 +318,5 @@ module.exports = {
 	relaunched,
 	stopJob,
 	stopPark,
+	withUnretired,
 };

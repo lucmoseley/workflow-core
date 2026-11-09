@@ -98,9 +98,7 @@ const CLI = {
  * @typedef {{uses: Uses, shapes: Uses, sessions: Map<string, Set<string>>}} ScanAcc
  * @typedef {{seenUse: Set<string>, seenShape: Set<string>, sessionKey: string}} SessionSeen
  *   one session's dedupe sets: a tool call split across records is one use
- * @typedef {Record<string, any>} TranscriptRecord One parsed transcript line.
- *   `any` because JSON.parse types nothing and each field is read and guarded
- *   where it is used.
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
  */
 
 /**

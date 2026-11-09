@@ -74,8 +74,7 @@ const HOOK_ATTACHMENTS = new Set([
  * @typedef {{subject: string, needle: string, route: string,
  *   at: string|null, key: string}} Fire
  * @typedef {{file: string, tier: "main" | "subagent"}} TranscriptFile
- * @typedef {Record<string, any>} LogRecord One parsed transcript line. `any`
- *   because JSON.parse types nothing and each field is guarded where it is read.
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
  */
 
 /**
@@ -232,7 +231,7 @@ function stringsIn(v) {
 
 /**
  * The `hook` route: each string a hook attachment record carries.
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @returns {Span[]}
  */
 function hookSpans(record) {
@@ -259,7 +258,7 @@ function hookSpans(record) {
 
 /**
  * The `deny` route: the text of each `tool_result` flagged `is_error`.
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @returns {Span[]}
  */
 function denySpans(record) {
@@ -308,7 +307,7 @@ function resultTexts(c) {
  * span to the ONE call it came from instead of to all of them (mantahostels#3311, tightening
  * `lost-deny-rates.js` `callIds`'s bounded over-count).
  *
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @returns {Span[]}
  */
 function fireSpans(record) {
@@ -364,7 +363,7 @@ function spanFires(span, subject, stamp) {
  * stdout) and a `hook_additional_context` (the message the model sees),
  * sharing a `toolUseID`.
  *
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @param {Subject[]} subjects
  * @returns {Fire[]}
  */
@@ -415,7 +414,7 @@ function transcriptFires(text, subjects, tier) {
  * reading of "the text is present". A needle's own `routes` is ignored here, and
  * the subject's too: a mention has no route by construction.
  *
- * @param {Record<string, any>} record
+ * @param {TranscriptRecord} record
  * @param {Subject[]} subjects
  * @returns {Array<{subject: string, needle: string, at: string|null}>}
  */

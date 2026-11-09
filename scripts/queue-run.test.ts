@@ -117,6 +117,26 @@ describe("queue-run.js", () => {
 		]);
 	});
 
+	it("stamps its marker with its runner's measured peak (#4648)", async () => {
+		const f = fixture();
+		const chargeOf = async (words: string[]) => {
+			const done = main(["--", ...words], f.options());
+			await tick();
+			const [marker] = f.readMarkers();
+			const { chargeMb } = JSON.parse(
+				fs.readFileSync(path.join(f.dir, marker as string), "utf8"),
+			);
+			f.spawned.at(-1)?.child.emit("exit", 0, null);
+			await done;
+			return chargeMb;
+		};
+		expect(await chargeOf(["env", "CI=1", "pytest", "-n", "4"])).toBe(
+			150 + 4 * 75,
+		);
+		expect(await chargeOf(["node", "--test", "a.test.js"])).toBe(381);
+		expect(await chargeOf(["python3", "scripts/x.test.py"])).toBe(150);
+	});
+
 	it("puts on its exit line the older part-suites its turn passed (#3115)", async () => {
 		const f = fixture();
 		const older = path.join(f.dir, "wfc-suite-queue-1.json");

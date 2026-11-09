@@ -151,7 +151,8 @@ const PART_FILE_MB = 3;
 
 /**
  * The peak a marker in queue `name` is charged against: one carrying its own
- * measured charge, a lander's (#3973), that; a part-suite's by the test files
+ * measured charge, a lander's (#3973) or a queued non-vitest runner's (#4648),
+ * that; a part-suite's by the test files
  * it resolved to; any other's its queue's. A part marker with no file count, a
  * run not counted at admission, takes its queue's.
  *
@@ -462,6 +463,26 @@ const RUNNERS = [
 
 /** @param {string} args */
 const runnerOf = (args) => RUNNERS.find((r) => r.isRunner(args));
+
+/**
+ * The measured peak a `queue-run.js` launch of `words` stamps on its marker
+ * as `chargeMb` (#4648): its runner class's, as one holding no marker is
+ * charged. Undefined for a vitest line, a runner of another queue's class, or
+ * one no class matches, a host's declared runner among them: its marker takes
+ * the queue's peak. Residual: a host's `npm test` whose script runs pytest or
+ * `node --test`, queued through `queue-run.js`, reads as no class and is
+ * charged the queue's peak.
+ * @param {string[]} words the command, wrappers taken off
+ * @returns {number | undefined}
+ */
+function queuedRunnerPeakMb(words) {
+	const args = words.join(" ");
+	const runner = runnerOf(args);
+	if (runner?.queue !== QUEUE_NAME || runner.isRunner === isVitestRunnerLine)
+		return;
+	/* No pid: only the vitest class, left out above, reads one. */
+	return runner.peakMbOf({ pid: 0, args }, readCarriedWeightOf);
+}
 
 /**
  * The running launches of a `RUNNERS` class in no queue (#3615, #4112): a bare
@@ -1950,6 +1971,7 @@ module.exports = {
 	readMarkers,
 	readLiveRoleMarkers,
 	readQueuesClimbMb,
+	queuedRunnerPeakMb,
 	gateDenies,
 	waitForGate,
 	peerClimbTurn,

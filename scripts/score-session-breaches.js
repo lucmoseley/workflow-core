@@ -121,7 +121,7 @@ function parseResultText(c) {
 /**
  * The Stop refusal and PreToolUse denies one record carries, each with the
  * key it dedupes on.
- * @param {import("./lib/guard-fires").LogRecord} record
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {Refusal[]}
  */
 function refusalsIn(record) {

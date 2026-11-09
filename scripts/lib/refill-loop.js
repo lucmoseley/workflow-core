@@ -91,7 +91,9 @@ const { buildSeatName } = require("./refill-seats.js");
  * `nothingToRepeat`, on one parked on an API error or a limit (#3949). `keyVar`,
  * the overflow seat it runs on (#4147); `movedAt`, when a limit last moved it
  * to another seat (#4257). `leftListing`, on a finish the listing's absence
- * made, as a manager restart reopens only those (#4145).
+ * made, as a manager restart reopens only those (#4145). `unretired`, the
+ * originals of its copies whose jobs would not retire, retried each tick
+ * (#4646).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -106,6 +108,7 @@ const { buildSeatName } = require("./refill-seats.js");
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, movedAt?: number, pastSessionIds?: string[],
  *   resumeStarted?: import("./refill-blocks.js").ResumeStarted, leftListing?: true,
+ *   unretired?: import("./refill-blocks.js").Unretired[],
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's

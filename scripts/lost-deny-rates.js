@@ -249,7 +249,7 @@ function addCall(into, guard, id) {
  * with no `tool_use_id` at all, where the record's uuid is the only identity
  * available.
  *
- * @param {Record<string, any>} record
+ * @param {TranscriptRecord} record
  * @returns {string[]}
  */
 function callIds(record) {
@@ -332,7 +332,7 @@ function wilson(hits, n) {
  *
  * `classify` null means the caller wants no split at all.
  *
- * @param {Record<string, any>} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a the record's `attachment`
  * @param {Map<string, Map<string, boolean>> | null} classify event -> (guard
  *   basename -> deny-capable), over every registered guard of that event
  * @param {{failures: Map<string, number>}} acc accumulator: the record's bucket is counted in failures
@@ -347,16 +347,14 @@ function bucketFailure(a, classify, acc) {
 
 /**
  * @typedef {import("./lib/guard-fires.js").Needle} Needle
- * @typedef {Record<string, any>} TranscriptPart One object from a parsed
- * transcript line — a record, its `attachment`, or a content block. `any`
- * because JSON.parse types nothing and each field is type-checked where it
- * is read.
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
  * The bucket of a failure record on an event that fires on tool calls — the
  * split `bucketFailure`'s docstring lists.
- * @param {TranscriptPart} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a the record's `attachment`
  * @param {string} event
  * @param {Map<string, boolean>} guards guard basename -> deny-capable
  * @returns {string}
@@ -373,7 +371,7 @@ function guardBucket(a, event, guards) {
  * The guard basename a failure record names and the call id it is pinned to,
  * each `""` where absent — a record missing either is unattributed, in the
  * `--failures` split and the `--union` count alike.
- * @param {Record<string, any>} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a the record's `attachment`
  * @returns {{named: string, pinned: string}}
  */
 function attribution(a) {
@@ -418,7 +416,7 @@ function unionEntry(into, tool) {
 /**
  * The tool a failure record's `hookName` names — `"PostToolUse:Bash"` → `Bash`
  * — or `"(no tool)"` where it names none for this event.
- * @param {Record<string, any>} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a the record's `attachment`
  * @param {string} event
  * @returns {string}
  */
@@ -520,7 +518,7 @@ function creditCores(acc, triggers, calls, { id, at }) {
 /**
  * One hook-failure record's share of the LOST count, the `--failures` split
  * and the `--union` count; nothing for a record that is no hook failure.
- * @param {TranscriptPart | undefined} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"] | undefined} a the record's `attachment`
  * @param {string | null} at the record's timestamp
  * @param {ScanAcc} acc accumulator: the failure's counts are added
  * @param {{event: string, classify: Map<string, Map<string, boolean>> | null,
@@ -551,7 +549,7 @@ function countFailure(a, at, acc, ctx) {
 /**
  * A failure record naming no guard, or pinned to no call, into its tool's
  * `--union` counts.
- * @param {TranscriptPart} a the record's `attachment`
+ * @param {TranscriptRecord["attachment"]} a the record's `attachment`
  * @param {string} event
  * @param {ScanAcc} acc accumulator: the failure is counted in its tool's union entry
  */
@@ -581,7 +579,7 @@ function recordLoss(acc, guard, id, at) {
 
 /**
  * One record's DENY EVENTS: each needle-matched span credited to its calls.
- * @param {TranscriptPart} record
+ * @param {TranscriptRecord} record
  * @param {Map<string, Needle[]>} needles
  * @param {ScanAcc} acc accumulator: matched call ids are added to anyCalls and denyCalls
  */
@@ -629,7 +627,7 @@ function addCalls(into, guard, ids) {
 /**
  * One assistant record's TRUE POPULATION: each `tool_use` block credited to
  * every guard it routes to, and to its tool's `--union` calls.
- * @param {TranscriptPart} record
+ * @param {TranscriptRecord} record
  * @param {ScanAcc} acc accumulator: population and the union calls are counted
  * @param {{triggers: Map<string, import("./lib/guard-triggers.js").Trigger>,
  *   union: boolean}} ctx
@@ -662,7 +660,7 @@ function countPopulation(record, acc, ctx) {
 
 /**
  * An assistant record's `tool_use` blocks as calls; none for any other record.
- * @param {TranscriptPart} record
+ * @param {TranscriptRecord} record
  * @returns {ToolCall[]}
  */
 function toolCalls(record) {
@@ -674,7 +672,7 @@ function toolCalls(record) {
 /**
  * A `tool_use` block's tool name and Bash command, each `""` where absent, and
  * its id, null where absent.
- * @param {TranscriptPart} block
+ * @param {TranscriptBlock} block
  * @returns {ToolCall}
  */
 function toolCall(block) {
