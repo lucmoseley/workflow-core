@@ -22,8 +22,8 @@
  * TOP_BASELINE the share of tops at `LOW_TOP` + 5 or more that sit at exactly
  * `LOW_TOP` + 5 (#2260, #4536). Conditioning on passing tops means a refusal
  * that removes mass below the line moves nothing; the share rises only where
- * mass piles onto the first passing step (Kleven & Waseem, QJE 2013;
- * docs/practice/llm-evaluation.md §Bunching at a threshold).
+ * mass piles onto the first passing step (docs/practice/llm-evaluation.md
+ * §Bunching at a threshold).
  *
  * ONE PARSER. Every question is read by the guard's own exported `rivalPair`
  * and `topOf`, so a drift report reflects agents' behaviour, never a gap

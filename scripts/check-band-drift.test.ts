@@ -338,12 +338,6 @@ describe("tops bunching at 70", () => {
 	});
 
 	describe("a notch's own renormalisation (#4536)", () => {
-		/*
-		 * A notch's own renormalisation: a corpus where the share at the
-		 * line sits at baseline among passing tops, with `under` more rounds under
-		 * the line. Here those rounds have moved over it, proportionally or all
-		 * onto the line.
-		 */
 		const under = T;
 		const atBaseline = atLineAt(T, 1);
 
