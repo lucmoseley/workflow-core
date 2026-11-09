@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LANDER_SKIP } from "./precommit-gate-harness";
+import { GATES } from "./precommit-gates.js";
 import {
 	buildInfixTestName,
 	COLLECTED_TEST,
@@ -355,12 +356,17 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 	])(
 		"opens .husky/pre-commit's %s gate on every test file vitest collects",
 		(checker, opening) => {
-			const arm = hook().match(
-				new RegExp(
-					String.raw`^if ${LANDER_SKIP}armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
-					"m",
-				),
-			)?.[1];
+			/* A registry gate's ERE is its row's; generate-precommit-gates.test.ts
+			 * holds the hook to the row's render (#4597). */
+			const row = GATES.find((g) => g.script === `scripts/${checker}.js`);
+			const arm = row
+				? row.ere
+				: hook().match(
+						new RegExp(
+							String.raw`^if ${LANDER_SKIP}armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
+							"m",
+						),
+					)?.[1];
 			expect(arm?.split("|^")[0]).toBe(opening);
 		},
 	);

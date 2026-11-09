@@ -15,6 +15,7 @@ const {
 	PRICED,
 	CONFIDENCE_ANY,
 } = require("./round-marker.js");
+const { GATES } = require("./precommit-gates.js");
 
 /** The line husky prints whenever any pre-commit gate exits non-zero. */
 const HUSKY_REFUSAL = "husky - pre-commit script failed";
@@ -27,12 +28,13 @@ const UNATTRIBUTED_GATE = "unattributed";
  * before husky's line. A refusal whose output the harness cut off names none.
  * @type {readonly {id: string, lines: readonly string[]}[]}
  */
-const COMMIT_GATES = require("../commit-gate-refusals.json").gates.map(
-	(/** @type {{id: string, lines: (string | {text: string})[]}} */ g) => ({
-		id: g.id,
-		lines: g.lines.map((l) => (typeof l === "string" ? l : l.text)),
-	}),
-);
+const COMMIT_GATES = [
+	...require("../commit-gate-refusals.json").gates,
+	...GATES.map((g) => ({ id: g.id, lines: g.refusals })),
+].map((/** @type {{id: string, lines: (string | {text: string})[]}} */ g) => ({
+	id: g.id,
+	lines: g.lines.map((l) => (typeof l === "string" ? l : l.text)),
+}));
 
 /**
  * @typedef {import("./guard-fires").Subject} Subject

@@ -1,6 +1,7 @@
 /*
  * fault-profiles.js — each direction-gated checker's rule for what makes two
- * of its faults the same fault (mantahostels#1688). checker-new-faults.js,
+ * of its faults the same fault (mantahostels#1688). A whole-repo pre-commit
+ * gate's identity fields, and why, sit on its lib/precommit-gates.js row. checker-new-faults.js,
  * report-new-shared-faults.js and lib/check.js's `--against` limb read
  * PROFILES; why a gate asks at all: lib/fault-diff.js.
  */
@@ -14,6 +15,7 @@ const {
 } = require("./context-budget-tags");
 
 const { REFUSES_COMMIT } = require("./refuses-commit.js");
+const { GATES, SITE_IDENTITY } = require("./precommit-gates.js");
 
 /** A finding's identity as the named fields, in the order given. */
 const on =
@@ -154,18 +156,33 @@ function surfaceTotal(surface, envelope) {
 }
 
 /** @type {Record<string, import("./fault-diff").FaultDiffProfile>} */
+const GATE_PROFILES = Object.fromEntries(
+	GATES.map((g) => [
+		g.id,
+		findingsProfile(on(...(g.identity ?? SITE_IDENTITY))),
+	]),
+);
+
+/**
+ * @param {string} id a lib/precommit-gates.js row's id
+ * @returns {import("./fault-diff").FaultDiffProfile}
+ */
+function gateProfile(id) {
+	const profile = GATE_PROFILES[id];
+	if (!profile) throw new Error(`lib/precommit-gates.js has no ${id} row`);
+	return profile;
+}
+
+/** @type {Record<string, import("./fault-diff").FaultDiffProfile>} */
 const PROFILES = {
+	...GATE_PROFILES,
 	/*
-	 * `file` + `rule` rather than the whole object: every FAIL kind this checker
-	 * raises carries both, and together they name which rule in which file is
-	 * unbacked. A staleness warning carries neither, and `guard` names its path.
-	 *
-	 * It gates a WARN too (#2617): a commit that leaves an anchor expired is
-	 * refused, while the full run only warns. The checker marks which
-	 * warnings those are, so REPRINTED stays a note.
+	 * guard-registry gates a WARN too (#2617): a commit that leaves an anchor
+	 * expired is refused, while the full run only warns. The checker marks
+	 * which warnings those are, so REPRINTED stays a note.
 	 */
 	"guard-registry": {
-		...findingsProfile(on("severity", "tag", "file", "rule", "guard")),
+		...gateProfile("guard-registry"),
 		gating: (/** @type {unknown} */ item) =>
 			failsOnly(item) ||
 			(typeof item === "object" &&
@@ -173,82 +190,6 @@ const PROFILES = {
 				Object.hasOwn(item, REFUSES_COMMIT) &&
 				/** @type {Record<string, unknown>} */ (item)[REFUSES_COMMIT] === true),
 	},
-	/*
-	 * The subject is the test file. `guards` is excluded deliberately: the list
-	 * grows when an unrelated guard starts sourcing lib/guard-log.sh, and that
-	 * must not turn an inherited fault into a new one.
-	 */
-	"guard-test-isolation": findingsProfile(on("severity", "tag", "file")),
-	/*
-	 * The subject is the test file, matching `guard-test-isolation` above.
-	 * `scripts` is excluded deliberately: the list grows when an unrelated
-	 * script starts requiring lib/host-root.js, and that must not turn an
-	 * inherited fault into a new one (#160).
-	 */
-	"host-root-test-isolation": findingsProfile(on("severity", "tag", "file")),
-	/*
-	 * The subject is the script file (#917). `line` is excluded: an edit
-	 * higher in the file moves an inherited fault, and that is no new one.
-	 */
-	"host-root": findingsProfile(on("severity", "tag", "file")),
-	/*
-	 * The subject is the test file (mantahostels#2355). `repos` is excluded deliberately,
-	 * matching `guard-test-isolation`'s `guards` exclusion above: a second repo
-	 * key joining an already-faulted file's finding must not read as a new
-	 * fault.
-	 */
-	"git-fixture-identity": findingsProfile(on("severity", "tag", "file")),
-	/*
-	 * The subject is one variable written in one test file (#4019). `line` is
-	 * excluded for the reason above.
-	 */
-	"test-env-writes": findingsProfile(on("severity", "tag", "file", "name")),
-	/*
-	 * The subject is one banned tell in one file. `line` is excluded for the
-	 * reason above — an edit higher up the file moves every tell below it — and
-	 * `context` with it, that being the surrounding words, which a rewrite of the
-	 * neighbouring sentence changes without touching the tell.
-	 *
-	 * Two identical tells in one file therefore share an identity, so removing
-	 * one of them alone reads as unchanged. That is the right answer here: what
-	 * refuses a commit is introducing a tell, and the file still carries it.
-	 */
-	"website-copy": findingsProfile(on("severity", "tag", "file", "match")),
-	/*
-	 * The subject is the skill file (#887). `at` is excluded: a line added
-	 * above an inherited parse error moves it, and that is no new fault.
-	 */
-	"skill-frontmatter": findingsProfile(on("severity", "tag", "file")),
-	/* `key` names the member and what it lacks, so an adopter's inherited gaps
-	 * never refuse and a new one does (#1456). */
-	registrations: findingsProfile(on("severity", "tag", "key")),
-	/*
-	 * The subject is the script file AT ITS CONTENT (#920): `content` is the
-	 * file's hash, so a commit editing an inherited script still on no strict
-	 * parser refuses — the ratchet that moves each onto one when next touched.
-	 */
-	"cli-args": findingsProfile(on("severity", "tag", "file", "content")),
-	/*
-	 * The subject is one hand-parse site (#3452). `match` is the split line's
-	 * text and its occurrence number in the file, so a line added above an
-	 * inherited site leaves it inherited and a second copy of one is new.
-	 */
-	"jsonl-reads": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One second `gh` route, keyed as jsonl-reads' sites are (#3455). */
-	"gh-route": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One hand-spelt arbiter command, keyed as jsonl-reads' sites are (#3990). */
-	"arbiter-commands": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One WFC_NOW read, keyed as jsonl-reads' sites are (#3457). */
-	"clock-copies": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One create per finding, keyed as jsonl-reads is (#3454). */
-	"report-programs": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One write past writeFd per finding, keyed as jsonl-reads is (#4018). */
-	"program-output": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One checker line exiting 1, keyed on its text, never its line (#3456). */
-	"precommit-exit": findingsProfile(on("severity", "tag", "file", "match")),
-	/* One spawn per finding, at its call's first line, never its line number:
-	 * an edit above an inherited spawn must not read as adding it (#3458). */
-	"test-spawn": findingsProfile(on("severity", "tag", "file", "call", "nth")),
 	/*
 	 * check-doc-map.js (mantahostels#1688), whose envelope is the other shape: the faults are
 	 * the TOP-LEVEL lists — `uncovered`, `dead`, `pointerFaults`, the route lists —

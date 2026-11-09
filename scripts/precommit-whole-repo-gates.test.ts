@@ -1,8 +1,7 @@
 // @vitest-environment node
 /*
- * Pins the whole-repo pre-commit gates (mantahostels#1753) — guard-registry,
- * guard-test-isolation, git-fixture-identity, test-env-writes, jsonl-reads, report-programs, program-output, cli-args, test-spawn and gh-route — exercised as the
- * shell they are: each one call, `--against HEAD` for a direction-gated gate
+ * Pins the whole-repo pre-commit gates (mantahostels#1753), every row of
+ * lib/precommit-gates.js (#4597), exercised as the shell they are: each one call, `--against HEAD` for a direction-gated gate
  * and `--index` for a whole-tree one, refusing with the checker's own exit code,
  * and, for a direction-gated one, the `--root` each side of the comparison is
  * read through.
@@ -29,75 +28,22 @@ import {
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
 import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { FLAG_ARGS, GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
 
-const GATES = [
-	{
-		profile: "guard-registry",
-		checker: "scripts/check-guard-registry.js",
-		/** A path in this gate's `git diff --cached` condition. */
-		staged: "scripts/guard-x.sh",
-		/** What the hook line hands the checker. */
-		args: "--against HEAD",
-	},
-	{
-		profile: "guard-test-isolation",
-		checker: "scripts/check-guard-test-isolation.js",
-		staged: "scripts/a.test.ts",
-		args: "--against HEAD",
-	},
-	{
-		profile: "git-fixture-identity",
-		checker: "scripts/check-git-fixture-identity.js",
-		staged: "scripts/a.test.ts",
-		args: "--against HEAD",
-	},
-	{
-		profile: "test-env-writes",
-		checker: "scripts/check-test-env-writes.js",
-		// A helper alone, not a test: test-kind.test.ts pins the test-file arm.
-		staged: "scripts/lib/a-testkit.ts",
-		args: "--against HEAD",
-	},
-	{
-		profile: "jsonl-reads",
-		checker: "scripts/check-jsonl-reads.js",
-		staged: "scripts/a.js",
-		args: "--index",
-	},
-	{
-		profile: "report-programs",
-		checker: "scripts/check-report-programs.js",
-		staged: "scripts/report-a.js",
-		args: "--index",
-	},
-	{
-		profile: "program-output",
-		checker: "scripts/check-program-output.js",
-		staged: ".claude/skills/s/scripts/a.js",
-		args: "--index",
-	},
-	{
-		profile: "cli-args",
-		checker: "scripts/check-cli-args.js",
-		staged: "scripts/a.js",
-		args: "--against HEAD",
-	},
-	{
-		profile: "test-spawn",
-		checker: "scripts/check-test-spawn.js",
-		staged: "scripts/a.test.ts",
-		args: "--index",
-	},
-	{
-		profile: "gh-route",
-		checker: "scripts/check-gh-route.js",
-		staged: "scripts/a.sh",
-		args: "--index",
-	},
-];
+const GATES = PRECOMMIT_GATES.map((g) => ({
+	profile: g.id,
+	checker: g.script,
+	/** A path in this gate's `armed` condition. */
+	staged: g.staged,
+	/** What the hook line hands the checker. */
+	args: FLAG_ARGS[g.flag],
+}));
+
+/** A path no gate's condition holds, and where a rename of it goes. */
+const OUTSIDE = "lib/page.tsx";
 
 const STUB_MARKER = "STUB-CHECK-RAN";
 
@@ -227,7 +173,7 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 	});
 
 	it("does not fire on a rename with neither end in its condition", () => {
-		const root = renamed(gate.checker, "app/page.tsx", "bin/page.tsx");
+		const root = renamed(gate.checker, OUTSIDE, "bin/page.tsx");
 
 		const { code, output } = runGate(root, fragment());
 
@@ -238,7 +184,7 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 	it("does not fire on a commit outside its condition", () => {
 		const { root } = fixture({
 			checker: gate.checker,
-			staged: "app/page.tsx",
+			staged: OUTSIDE,
 			checkerExit: 1,
 		});
 
@@ -246,6 +192,64 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 
 		expect(code).toBe(0);
 		expect(output).not.toContain(STUB_MARKER);
+	});
+});
+
+/* The regions above are rendered from lib/precommit-gates.js, so a stale one
+ * runs gates the registry no longer holds: the hook's own gate refuses it,
+ * running the real generator against the fixture's index (#4597). */
+describe("the pre-commit's precommit-gates region gate", () => {
+	const registrySource = fs.readFileSync(
+		path.join(ROOT, "scripts", "lib", "precommit-gates.js"),
+		"utf8",
+	);
+	const stale = HOOK.replace(
+		"check-jsonl-reads.js --index",
+		"check-x.js --index",
+	);
+	/* `alone`, where given, is staged over a HEAD already holding both files. */
+	const run = (hook: string, alone?: Record<string, string>) => {
+		const files = {
+			".husky/pre-commit": hook,
+			"scripts/lib/precommit-gates.js": registrySource,
+		};
+		const { root } = stagedRepo(
+			"precommit-gates-region-",
+			temps,
+			alone ? files : {},
+			alone ?? files,
+		);
+		const r = spawnSync(
+			"sh",
+			["-ec", cutGateScript("generate-precommit-gates.js")],
+			{
+				cwd: root,
+				encoding: "utf8",
+				env: { ...process.env, GITHUB_ACTIONS: "", WFC_PLUGIN_ROOT: ROOT },
+			},
+		);
+		return { code: r.status ?? 1, output: `${r.stdout}${r.stderr}` };
+	};
+
+	it("refuses a commit staging a stale region", () => {
+		const { code, output } = run(stale);
+
+		expect(code).toBe(1);
+		expect(output).toContain("precommit-gates regions are stale");
+		expect(output).toContain("generate-precommit-gates.js, then stage");
+	});
+
+	it("arms on a commit staging the renderer alone", () => {
+		const { code, output } = run(stale, {
+			"scripts/lib/precommit-gates-render.js": "",
+		});
+
+		expect(code).toBe(1);
+		expect(output).toContain("precommit-gates regions are stale");
+	});
+
+	it("passes a commit staging the registry's render", () => {
+		expect(run(HOOK).code).toBe(0);
 	});
 });
 
