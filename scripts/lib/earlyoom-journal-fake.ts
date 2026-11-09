@@ -89,12 +89,19 @@ since=
 boots=
 next=
 for x in "$@"; do
-	[ -n "$next" ] && [ -z "$since" ] && since=\${x#@}
+	[ -n "$next" ] && since=$x
 	next=
 	case $x in --list-boots) boots=1 ;; --since) next=1 ;; esac
 done
 if [ -n "$boots" ]; then ${listBootsReply}; fi
-exec awk -v s="$since" 'BEGIN { bad = s != "" && s !~ /^-?[0-9]+(\\.[0-9]+)?$/ } !bad { if (s == "" || $1 + 0 >= s * 1000) { print substr($0, index($0, "\\t") + 1); n++ } } END { if (!n) print "-- No entries --" }' ${shellQuote(journal)}
+# As the real one: the last --since wins, and one not @<digits> is refused.
+case $since in
+'') ;;
+@*[!0-9]* | @) echo "Failed to parse timestamp: $since" >&2; exit 1 ;;
+@*) since=\${since#@} ;;
+*) echo "journalctl fake: serves only --since @<s>, not $since" >&2; exit 1 ;;
+esac
+exec awk -v s="$since" '{ if (s == "" || $1 + 0 >= s * 1000) { print substr($0, index($0, "\\t") + 1); n++ } } END { if (!n) print "-- No entries --" }' ${shellQuote(journal)}
 `,
 		{ mode: 0o755 },
 	);

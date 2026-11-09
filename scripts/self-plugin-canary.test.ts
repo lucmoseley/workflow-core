@@ -5,11 +5,9 @@
  * hook, writes the marker that lets a loaded session through (#2438, spec
  * #2295 seam 2).
  *
- * Break the canary and a session missing the self-plugin works the repo with
- * no guards and nothing said, or a guarded one is refused at every call.
- *
- * The setup-line cases build real git checkouts and a worktree, since the
- * canary resolves the main checkout from git's own common dir (#2461).
+ * The session's project dir is a real git checkout, and some cases add a
+ * worktree, since the canary resolves the main checkout from git's own common
+ * dir (#2461).
  */
 
 import { spawnSync } from "node:child_process";
@@ -28,11 +26,13 @@ const ROOT = path.resolve(__dirname, "..");
 const SID = "aaaaaaaa-1111-2222-3333-444444444444";
 
 let dir: string;
+let base: string;
 let repo: string;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "self-plugin-canary-"));
-	repo = fs.realpathSync(dir);
+	base = fs.realpathSync(dir);
+	repo = checkout("repo");
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -45,6 +45,7 @@ function run(script: string, input: string, env: NodeJS.ProcessEnv = {}) {
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: repo,
+			CLAUDE_PLUGIN_ROOT: path.join(repo, "self-plugin"),
 			// Unset, a fail-open record would append to the founder's own log.
 			CLAUDE_CONFIG_DIR: path.join(repo, "config"),
 			...env,
@@ -52,7 +53,11 @@ function run(script: string, input: string, env: NodeJS.ProcessEnv = {}) {
 	});
 }
 
-function startSession(source: string, session = SID) {
+function startSession(
+	source: string,
+	session = SID,
+	env: NodeJS.ProcessEnv = {},
+) {
 	const r = run(
 		WRITER,
 		JSON.stringify({
@@ -60,6 +65,7 @@ function startSession(source: string, session = SID) {
 			hook_event_name: "SessionStart",
 			source,
 		}),
+		env,
 	);
 	expect(r.status).toBe(0);
 	expect(r.stdout + r.stderr).toBe("");
@@ -96,7 +102,7 @@ function pastedArgs(stderr: string) {
 	return r.stdout.split("\0").slice(0, -1);
 }
 
-function expectRefused(r: ReturnType<typeof call>, main = PLACEHOLDER) {
+function expectRefused(r: ReturnType<typeof call>, main = repo) {
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain("the wfc-self self-plugin did not load");
 	expect(pastedArgs(r.stderr)).toEqual([
@@ -163,11 +169,29 @@ describe("a session the self-plugin did not load", () => {
 });
 
 function checkout(name: string) {
-	const at = path.join(repo, name);
-	const hooks = path.join(repo, "no-hooks");
+	const at = path.join(base, name);
+	const hooks = path.join(base, "no-hooks");
 	fs.mkdirSync(hooks, { recursive: true });
 	initGitRepo(at, hooks);
 	return at;
+}
+
+const markerOf = (projectDir: string) =>
+	path.join(
+		projectDir,
+		".claude",
+		"tmp",
+		"markers",
+		`.self-plugin-loaded-${SID}`,
+	);
+
+function worktreeOf(main: string) {
+	const worktree = path.join(main, ".claude", "worktrees", "wt");
+	spawnSync("git", ["-C", main, "worktree", "add", "-q", worktree], {
+		encoding: "utf8",
+	});
+	expect(fs.existsSync(path.join(worktree, ".git"))).toBe(true);
+	return worktree;
 }
 
 describe("the setup line", () => {
@@ -180,15 +204,6 @@ describe("the setup line", () => {
 		);
 	});
 
-	function worktreeOf(main: string) {
-		const worktree = path.join(repo, "main", ".claude", "worktrees", "wt");
-		spawnSync("git", ["-C", main, "worktree", "add", "-q", worktree], {
-			encoding: "utf8",
-		});
-		expect(fs.existsSync(path.join(worktree, ".git"))).toBe(true);
-		return worktree;
-	}
-
 	it("names the main checkout from a worktree session (#2461)", () => {
 		const main = checkout("main");
 		const worktree = worktreeOf(main);
@@ -199,8 +214,12 @@ describe("the setup line", () => {
 	 * main checkout: a session whose start wrote it under its worktree, then
 	 * merged the re-point in, was refused every call. */
 	it("lets a worktree session through on the marker its start wrote there (#4487)", () => {
-		const worktree = worktreeOf(checkout("main"));
-		const env = { CLAUDE_PROJECT_DIR: worktree };
+		const main = checkout("main");
+		const worktree = worktreeOf(main);
+		const env = {
+			CLAUDE_PROJECT_DIR: worktree,
+			CLAUDE_PLUGIN_ROOT: path.join(main, "self-plugin"),
+		};
 		const start = run(
 			WRITER,
 			JSON.stringify({
@@ -211,17 +230,7 @@ describe("the setup line", () => {
 			env,
 		);
 		expect(start.status).toBe(0);
-		expect(
-			fs.existsSync(
-				path.join(
-					worktree,
-					".claude",
-					"tmp",
-					"markers",
-					`.self-plugin-loaded-${SID}`,
-				),
-			),
-		).toBe(true);
+		expect(fs.existsSync(markerOf(worktree))).toBe(true);
 		const r = call(bash(SID), env);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
@@ -233,19 +242,21 @@ describe("the setup line", () => {
 	});
 
 	it("carries the placeholder where the common dir is not named .git", () => {
-		const sep = path.join(repo, "sep");
+		const sep = path.join(base, "sep");
 		const r = spawnSync(
 			"git",
-			["init", "-q", "--separate-git-dir", path.join(repo, "sep.git"), sep],
+			["init", "-q", "--separate-git-dir", path.join(base, "sep.git"), sep],
 			{ encoding: "utf8" },
 		);
 		expect(r.status).toBe(0);
-		expectRefused(call(bash(SID), { CLAUDE_PROJECT_DIR: sep }));
+		expectRefused(call(bash(SID), { CLAUDE_PROJECT_DIR: sep }), PLACEHOLDER);
 	});
 
 	it("carries the placeholder where the root is no git checkout", () => {
-		const r = call(bash(SID));
-		expectRefused(r);
+		const plain = path.join(base, "plain");
+		fs.mkdirSync(plain);
+		const r = call(bash(SID), { CLAUDE_PROJECT_DIR: plain });
+		expectRefused(r, PLACEHOLDER);
 		expect(r.stderr).toContain(`'${PLACEHOLDER}/self-plugin'`);
 	});
 });
@@ -275,7 +286,7 @@ describe("failing closed", () => {
 describe("with lib/script-path.sh not loading (#3798)", () => {
 	/** The canary and its libraries, script-path.sh holding `quoter` or absent. */
 	function canaryWithQuoter(quoter: string | null) {
-		const scripts = path.join(repo, "core", "scripts");
+		const scripts = path.join(base, "core", "scripts");
 		const lib = path.join(scripts, "lib");
 		fs.mkdirSync(lib, { recursive: true });
 		for (const from of [
@@ -309,6 +320,92 @@ describe("with lib/script-path.sh not loading (#3798)", () => {
 		expect(r.stderr).toMatch(/^Refused: /);
 		expect(r.stderr).toContain("lib/script-path.sh did not load");
 	});
+});
+
+describe("a session the self-plugin loaded from another root (#4712)", () => {
+	function expectMismatch(r: ReturnType<typeof call>, loaded: string) {
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			`the wfc-self self-plugin loaded in this session from ${loaded}, not from the main checkout's ${repo}/self-plugin`,
+		);
+		expect(r.stderr).toContain("running another tree's scripts");
+		expect(r.stderr).not.toContain("did not load");
+		expect(pastedArgs(r.stderr)).toContain(`${repo}/self-plugin`);
+		expect(r.stderr).toContain("Then restart the session");
+	}
+
+	it("records the plugin root it was handed in the marker", () => {
+		const root = path.join(base, "elsewhere", "self-plugin");
+		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: root });
+		expect(fs.readFileSync(markerOf(repo), "utf8")).toBe(root);
+	});
+
+	it("is refused where the plugin root is inside a linked worktree, naming both trees", () => {
+		const worktree = worktreeOf(repo);
+		const root = path.join(worktree, "self-plugin");
+		const env = { CLAUDE_PROJECT_DIR: worktree, CLAUDE_PLUGIN_ROOT: root };
+		startSession("startup", SID, env);
+		expectMismatch(call(bash(SID), env), root);
+	});
+
+	it("is allowed from a worktree where the plugin root is the main checkout's self-plugin", () => {
+		const env = {
+			CLAUDE_PROJECT_DIR: worktreeOf(repo),
+			CLAUDE_PLUGIN_ROOT: `${repo}/self-plugin/`,
+		};
+		startSession("startup", SID, env);
+		expect(call(bash(SID), env).status).toBe(0);
+	});
+
+	it("is allowed where the plugin root reaches the main checkout through a symlink", () => {
+		const link = path.join(base, "link");
+		fs.symlinkSync(repo, link);
+		startSession("startup", SID, {
+			CLAUDE_PLUGIN_ROOT: path.join(link, "self-plugin"),
+		});
+		expect(call(bash(SID)).status).toBe(0);
+	});
+
+	it("is refused where the root's last part is not self-plugin", () => {
+		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: repo });
+		expectMismatch(call(bash(SID)), repo);
+	});
+
+	it("is refused on an empty marker newer than the canary, naming the restart first", () => {
+		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: "" });
+		expect(fs.readFileSync(markerOf(repo), "utf8")).toBe("");
+		const r = call(bash(SID));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(
+			/^Refused: this session's self-plugin marker records no plugin root/,
+		);
+		expect(r.stderr).toContain("Restart the session first.");
+		expect(pastedArgs(r.stderr)).toContain(`${repo}/self-plugin`);
+	});
+
+	/* A marker a writer from before #4712 wrote, at a session still live. */
+	it("allows an empty marker older than the canary", () => {
+		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: "" });
+		const before = fs.statSync(CANARY).mtime.getTime() / 1000 - 60;
+		fs.utimesSync(markerOf(repo), before, before);
+		const r = call(bash(SID));
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+	});
+
+	/* chmod binds nobody as root, so this says nothing there. */
+	it.skipIf(process.getuid?.() === 0)(
+		"refuses an unreadable marker with no stray error line (#2626)",
+		() => {
+			startSession("startup");
+			fs.chmodSync(markerOf(repo), 0o000);
+			const r = call(bash(SID));
+			expect(r.status).toBe(2);
+			expect(r.stderr).toMatch(
+				/^The self-plugin canary could not check this session \(\S+ unreadable\)/,
+			);
+		},
+	);
 });
 
 describe("the marker", () => {

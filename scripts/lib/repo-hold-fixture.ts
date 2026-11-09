@@ -22,7 +22,9 @@ export const GUARD_HOOKS_JSON = JSON.stringify({
 				hooks: [
 					{
 						type: "command",
-						command: 'node "$CLAUDE_PLUGIN_ROOT"/../scripts/guard-dispatch.js',
+						command:
+							// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+							'node "${CLAUDE_PLUGIN_ROOT}"/../scripts/guard-dispatch.js',
 					},
 				],
 			},

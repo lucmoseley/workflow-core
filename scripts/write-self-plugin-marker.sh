@@ -23,8 +23,13 @@
 # A marker it fails to write is recorded through lib/guard-log.sh; the canary
 # then refuses the session's first tool call.
 #
-# IMPLICIT:  writes an empty `.self-plugin-loaded-<session id>` marker under `.claude/tmp/markers/` at every session start, unasked (#2438).
-# JUSTIFIED: fail-safe — the marker is the canary's only proof the self-plugin's guards loaded; without it every session is refused.
+# The marker's body is the CLAUDE_PLUGIN_ROOT the harness handed this hook,
+# which the canary compares with the main checkout (#4712). It records rather
+# than judges: a copy of this writer run from the wrong root would be that
+# root's own copy, so a check here could not catch the case it exists for.
+#
+# IMPLICIT:  writes a `.self-plugin-loaded-<session id>` marker holding CLAUDE_PLUGIN_ROOT under `.claude/tmp/markers/` at every session start, unasked (#2438).
+# JUSTIFIED: fail-safe — the marker is the canary's only proof the self-plugin's guards loaded, and from where; without it every session is refused.
 # DEFEAT:    none
 # TREE:      host — writes this session's self-plugin marker into the host root's markers
 
@@ -47,5 +52,5 @@ marker=""
 spm_marker_path marker || unwritten "$marker"
 # Braced so 2>/dev/null is in force before `>` fails: bash redirects left to
 # right, and its own error line would otherwise reach stderr (#2626).
-{ : >"$marker"; } 2>/dev/null || unwritten "$marker unwritable"
+{ printf '%s' "${CLAUDE_PLUGIN_ROOT:-}" >"$marker"; } 2>/dev/null || unwritten "$marker unwritable"
 exit 0
