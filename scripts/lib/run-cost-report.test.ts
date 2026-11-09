@@ -2,7 +2,8 @@
 
 /*
  * Pins the run-cost report's lines (#1880): which test files it names over the
- * 10 s budget, new against pre-existing, growth past the CI record (#4289),
+ * 10 s budget, new against pre-existing, growth past the CI record (#4289,
+ * #4579),
  * the summary beside load and memory, its silences, and the program entry an
  * adopter's runner calls.
  *
@@ -10,7 +11,8 @@
  * the core's runners call it in-process, or the program entry through
  * runInProcess. Both read one throwaway git repo built once for the file,
  * which no case writes to — each program case's timings file sits in its own
- * temp directory outside it. Load and memory come in through `reportForRun`'s
+ * temp directory outside it, and the CI record in one more, named by
+ * `WFC_SHARD_TIMINGS` as a CI shard names its own. Load and memory come in through `reportForRun`'s
  * `machine` seam, faked per case, so the lines are exact on any machine; the
  * tracker through its `findTicket` seam, or a stub `gh` for the program.
  */
@@ -42,6 +44,7 @@ const LOADED = {
 
 let repo: string;
 let base: string;
+let record: string;
 
 /* No GIT_* from a hook running this suite, and no session root: the program
  * must find the repo from its cwd as an adopter's runner leaves it. */
@@ -59,35 +62,32 @@ const git = (...args: string[]) =>
 		env: cleanEnv(),
 	}).trim();
 const put = (rel: string) => fs.writeFileSync(path.join(repo, rel), "x\n");
-const RECORD = "docs/data/ci-shard-timings.csv";
 const CI_RUN = "CI run 41 at a21957804bab";
-const writeRecord = (rows: string) => {
-	fs.mkdirSync(path.join(repo, "docs/data"), { recursive: true });
-	fs.writeFileSync(
-		path.join(repo, RECORD),
-		`# run: 41\n# sha: a21957804bab1b9a5f2cad86422dda877968fdae\nfile,seconds,tests,status\n${rows}`,
-	);
-};
 
 /* `old`, `bare` and `same` at the base, with a CI record holding `old` at 8 s
- * and `same` at 5 s; `old` and `bare` edited, the record raised and
- * `committed`, `a`, `b` added in a commit since; `fresh` untracked. `same` is
- * a file the run only selected as a reader. The raised record is never read:
- * the base's is. */
+ * and `same` at 5 s; `old` and `bare` edited and `committed`, `a`, `b` added
+ * in a commit since; `fresh` untracked. `same` is a file the run only
+ * selected as a reader. */
 beforeAll(() => {
 	repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "run-cost-")));
+	record = path.join(
+		fs.mkdtempSync(path.join(os.tmpdir(), "run-cost-record-")),
+		"timings.csv",
+	);
+	fs.writeFileSync(
+		record,
+		"# run: 41\n# sha: a21957804bab1b9a5f2cad86422dda877968fdae\nfile,seconds,tests,status\nold.test.ts,8.00,3,passed\nsame.test.ts,5.00,2,passed\n",
+	);
 	git("init", "-q", "-b", "main");
 	put("old.test.ts");
 	put("bare.test.ts");
 	put("same.test.ts");
-	writeRecord("old.test.ts,8.00,3,passed\nsame.test.ts,5.00,2,passed\n");
 	git("add", ".");
 	git("commit", "-qm", "base");
 	base = git("rev-parse", "HEAD");
 	git("update-ref", "refs/remotes/origin/main", base);
 	fs.appendFileSync(path.join(repo, "old.test.ts"), "y\n");
 	fs.appendFileSync(path.join(repo, "bare.test.ts"), "y\n");
-	writeRecord("old.test.ts,99.00,3,passed\nsame.test.ts,99.00,2,passed\n");
 	put("committed.test.ts");
 	put("a.test.ts");
 	put("b.test.ts");
@@ -95,13 +95,17 @@ beforeAll(() => {
 	git("commit", "-qm", "since");
 	put("fresh.test.ts");
 });
-afterAll(() => fs.rmSync(repo, { recursive: true, force: true }));
+afterAll(() => {
+	fs.rmSync(repo, { recursive: true, force: true });
+	fs.rmSync(path.dirname(record), { recursive: true, force: true });
+});
 
 describe("reportForRun", () => {
 	beforeEach(() => {
 		for (const key of Object.keys(process.env))
 			if (key.startsWith("GIT_")) vi.stubEnv(key, undefined);
 		vi.stubEnv("CI", "");
+		vi.stubEnv("WFC_SHARD_TIMINGS", record);
 	});
 
 	type Found =
@@ -136,7 +140,7 @@ describe("reportForRun", () => {
 		expect(report({ "a.test.ts": 10 })).toHaveLength(1);
 	});
 
-	it("excepts a pre-existing file at exactly 2.5x its CI record at the base, naming its open ticket, and marks a file absent from the base new", () => {
+	it("excepts a pre-existing file at exactly 2.5x its CI record, naming its open ticket, and marks a file absent from the base new", () => {
 		const lines = report(
 			{ "old.test.ts": 20, "a.test.ts": 12 },
 			{
@@ -152,7 +156,7 @@ describe("reportForRun", () => {
 		expect(lines[1]).toContain(`new since ${base}`);
 	});
 
-	it("names a pre-existing file past 2.5x its CI record at the base as grown, with both times, and counts it", () => {
+	it("names a pre-existing file past 2.5x its CI record as grown, with both times, and counts it", () => {
 		const lines = report({ "old.test.ts": 20.1 });
 		expect(lines).toEqual([
 			`RUN COST: old.test.ts took 20.1 s, 2.51x its 8.0 s on ${CI_RUN} — grown past the 2.5x noise band: make it cheaper, or say why in its header (base §X8 (5)).`,
@@ -168,7 +172,14 @@ describe("reportForRun", () => {
 
 	it("calls a pre-existing file with no record unjudged, never excepted, and says no open ticket's title names it", () => {
 		expect(report({ "bare.test.ts": 15 })[0]).toBe(
-			`RUN COST: bare.test.ts took 15.0 s, over the 10 s budget — pre-existing at ${base}, unjudged, ${RECORD} holding no row for it there; its speed-up's open ticket: none: no open issue's title names it.`,
+			`RUN COST: bare.test.ts took 15.0 s, over the 10 s budget — pre-existing at ${base}, unjudged, ${CI_RUN} holding no row for it; its speed-up's open ticket: none: no open issue's title names it.`,
+		);
+	});
+
+	it("calls a pre-existing file unjudged, saying no record was read, where none can be", () => {
+		vi.stubEnv("WFC_SHARD_TIMINGS", path.join(repo, "absent.csv"));
+		expect(report({ "old.test.ts": 25 })[0]).toBe(
+			`RUN COST: old.test.ts took 25.0 s, over the 10 s budget — pre-existing at ${base}, unjudged, no CI record read; its speed-up's open ticket: none: no open issue's title names it.`,
 		);
 	});
 
@@ -242,7 +253,7 @@ describe("reportForRun", () => {
 		);
 		expect(lines).toEqual([
 			`RUN COST: same.test.ts took 12.6 s, 2.52x its 5.0 s on ${CI_RUN} — grown past the 2.5x noise band: make it cheaper, or say why in its header (base §X8 (5)).`,
-			`RUN COST: 1 of 2 test file(s) in ${RECORD} grown past 2.5x their ${CI_RUN}, against ${base}; load 1.50 (1 min), 4.0 GB available. A report, never a refusal (mantahostels#2255).`,
+			`RUN COST: 1 of 2 test file(s) in ${CI_RUN} grown past 2.5x their row, against ${base}; load 1.50 (1 min), 4.0 GB available. A report, never a refusal (mantahostels#2255).`,
 		]);
 		expect(findTicket).not.toHaveBeenCalled();
 	});
@@ -294,7 +305,12 @@ describe("the program entry", () => {
 		const stub = stubGhRoutes(scratch, routes, { failing: ghFailing });
 		return runInProcess(PROGRAM, argv ?? [file], {
 			cwd: repo,
-			env: { ...cleanEnv(), ...stub.env, ...extraEnv },
+			env: {
+				...cleanEnv(),
+				...stub.env,
+				WFC_SHARD_TIMINGS: record,
+				...extraEnv,
+			},
 		});
 	};
 

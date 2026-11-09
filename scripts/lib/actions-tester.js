@@ -41,6 +41,7 @@ const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
+const { SUITE_WORKFLOW } = require("./suite-timings.js");
 const { CLEARED, STILL_FAILING } = require("../retry-failed-files.js");
 const {
 	LANDER_BATCH_PREFIX,
@@ -57,9 +58,6 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
-/* scheduled-checks.yml carries the `lander/batch-*` push trigger, as it calls
- * every job `main`'s sweep judges by. */
-const SUITE_WORKFLOW = "scheduled-checks.yml";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
 /* The aggregate job #2414's ruleset on `main` requires. */
@@ -890,4 +888,4 @@ function repushFailure({ reads, branch }, sha) {
 			};
 }
 
-module.exports = { SUITE_WORKFLOW, queueTester };
+module.exports = { queueTester };

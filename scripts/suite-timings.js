@@ -6,10 +6,10 @@
  * plans by (#4574); `shares` recomputes the percentile table from a dataset
  * already committed.
  *
- * `latest` WRITES THE COMMITTED RECORD'S COPY where it cannot read a run: no
- * green run with reports, or GitHub failing twice. Every shard meeting the
- * same failure so still plans as one; a shard meeting it alone plans apart,
- * which the verdict job's comparison of the shards' `# run:` lines turns red.
+ * `latest` WRITES AN EMPTY DATASET where it cannot read a run: no green run
+ * with reports, or GitHub failing twice. Every shard meeting the same failure
+ * so still plans as one, by file count; a shard meeting it alone plans apart,
+ * which the verdict job's comparison of the shards' records turns red.
  *
  * IT JOINS NO FAMILY (§G4, §N3, mantahostels#2039). It gates nothing, so it is no
  * `check-*` and owes none of that alphabet; it is not a hook, so it is no
@@ -19,18 +19,14 @@
  */
 
 const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { ghJson, retryingOnceSync } = require("./lib/gh.js");
+const { ghJson } = require("./lib/gh.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
-	CI_RECORD,
-	downloadReports,
-	timingSources,
+	newestRun,
+	readOrThrow,
+	suiteRepo,
 	readReports,
 	shares,
 	toCsv,
@@ -77,33 +73,13 @@ const err = (s) => writeFd(2, `${s}\n`);
  * not that tree. */
 const ROOT = worktreeRoot();
 
-/* Candidates tried for reports, newest first. Untraced: a green run
- * uploads its reports, so past the first few none is coming. */
-const SOURCES_TRIED = 5;
-/* Runs listed. */
-const RUNS_LISTED = 30;
-
-/**
- * @template T
- * @param {() => T} read
- * @returns {T}
- */
-function readOrThrow(read) {
-	const r = retryingOnceSync(read);
-	if (!r.ok) throw new Error(r.error);
-	return r.out;
-}
-
 /**
  * The newest green suite run finished before `beforeRun` was created, and its
- * rows; null where none of the newest SOURCES_TRIED holds reports.
+ * rows; null where none of the newest holds reports.
  * @param {string|undefined} beforeRun
- * @returns {{ run: number, sha: string, rows: ReturnType<typeof readReports> }|null}
  */
 function latestRows(beforeRun) {
-	const repo =
-		resolveKey("codeRepo", { root: ROOT }) || process.env.GITHUB_REPOSITORY;
-	if (!repo) throw new Error("no codeRepo configured and no GITHUB_REPOSITORY");
+	const repo = suiteRepo(ROOT);
 	const before =
 		beforeRun === undefined
 			? Date.now()
@@ -114,28 +90,7 @@ function latestRows(beforeRun) {
 				);
 	if (!Number.isFinite(before))
 		throw new Error(`run ${beforeRun} has no creation time`);
-	const iso = new Date(before).toISOString().replace(/\.\d{3}Z$/, "Z");
-	/** @type {(import("./lib/suite-timings.js").ListedRun & { head_sha: string })[]} */
-	const runs = readOrThrow(
-		() =>
-			ghJson([
-				"api",
-				`repos/${repo}/actions/workflows/${SUITE_WORKFLOW}/runs?status=success&exclude_pull_requests=true&per_page=${RUNS_LISTED}&created=%3C${iso}`,
-			]).workflow_runs,
-	);
-	const sha = new Map(runs.map((r) => [r.id, r.head_sha]));
-	const work = fs.mkdtempSync(path.join(os.tmpdir(), "suite-timings-"));
-	try {
-		for (const run of timingSources(runs, before).slice(0, SOURCES_TRIED)) {
-			const dir = path.join(work, String(run));
-			if (!readOrThrow(() => downloadReports(String(run), dir))) continue;
-			const rows = readReports(dir, ROOT);
-			if (rows.length > 0) return { run, sha: sha.get(run) ?? "", rows };
-		}
-		return null;
-	} finally {
-		fs.rmSync(work, { recursive: true, force: true });
-	}
+	return newestRun(repo, before, ROOT);
 }
 
 /* Under Actions, a fallback shows on the run's summary, not in its log alone. */
@@ -152,18 +107,16 @@ function latest(target, beforeRun) {
 		found = latestRows(beforeRun);
 	} catch (e) {
 		err(
-			`${annotation}suite-timings: no run read (${caught(e).message.trim()}) — writing ${CI_RECORD} instead`,
+			`${annotation}suite-timings: no run read (${caught(e).message.trim()})`,
 		);
 		found = null;
 	}
-	if (found === null) {
-		err(`${annotation}suite-timings: this shard plans by ${CI_RECORD}`);
-		if (!fs.existsSync(path.join(ROOT, CI_RECORD))) {
-			err(`suite-timings: no ${CI_RECORD} to fall back on — wrote nothing`);
-			return 1;
-		}
-		fs.copyFileSync(path.join(ROOT, CI_RECORD), target);
-		out(`${CI_RECORD} → ${target}`);
+	if (found === null || found.rows === null) {
+		err(
+			`${annotation}suite-timings: no timings read — this shard plans by file count`,
+		);
+		fs.writeFileSync(target, toCsv([], { run: "none" }));
+		out(`an empty dataset → ${target}`);
 		return 0;
 	}
 	fs.writeFileSync(

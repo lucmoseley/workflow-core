@@ -30,13 +30,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { runCheck } = require("./lib/check.js");
-const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
 const { SWEEPS_JUDGED, collect, judge } = require("./lib/file-ci-time.js");
 const { ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
-const { downloadReports, readReports } = require("./lib/suite-timings.js");
+const {
+	SUITE_WORKFLOW,
+	downloadReports,
+	readReports,
+} = require("./lib/suite-timings.js");
 
 /* Untraced: a week of sweeps at four a day, past the eight `collect` reads,
  * for runs with no reports in between. */
