@@ -128,8 +128,8 @@ const stdinGit = (root, input) =>
 	gitSpawnOptions({
 		cwd: root,
 		input,
-		encoding: "utf8",
-		stdio: ["pipe", "pipe", "ignore"],
+		encoding: /** @type {const} */ ("utf8"),
+		stdio: /** @type {const} */ (["pipe", "pipe", "ignore"]),
 		timeout: GIT_TIMEOUT_MS,
 		maxBuffer: CHILD_MAX_BUFFER,
 	});

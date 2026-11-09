@@ -54,7 +54,6 @@ const racing = () => {
 	};
 };
 
-/* A writer outside the lock appending `n` the moment `step` first runs. */
 function lateWriterAt(step: "renameSync" | "rmSync", n: string) {
 	const real = fs[step] as (...a: unknown[]) => void;
 	let fired = false;

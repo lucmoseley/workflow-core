@@ -3,8 +3,7 @@
  * history by age: lines whose `at` is older than the caller's retention go.
  *
  * NO APPEND IS LOST TO A PRUNE (#4819). Every append, prune and removal of a
- * log runs under a lock directory beside it (lib/dir-lock.js), so no writer
- * appends between a prune's read and its rewrite. A writer that waits the lock
+ * log runs under a lock directory beside it (lib/dir-lock.js). A writer that waits the lock
  * out appends anyway and prunes nothing; a holder stalled past that wait, or
  * past the lock's stale takeover, carries over whatever such a writer
  * appended after its read (`replaceCarrying`). The rewrite is an atomic
@@ -66,7 +65,7 @@ function appendRetained(
 
 /**
  * Rewrite `file` without its lines past `retainMs`, once its oldest is a day
- * past it, so a log is rewritten about once a day rather than on every append.
+ * past it.
  * @param {string} file
  * @param {number} retainMs
  * @param {number} now
@@ -153,8 +152,7 @@ const writtenBefore = (file, beforeMs) => {
 };
 
 /**
- * Delete `file` where it was last written before `beforeMs`, under its lock;
- * a lock not got removes nothing.
+ * Delete `file` where it was last written before `beforeMs`, under its lock.
  * @param {string} file
  * @param {number} beforeMs
  * @param {() => number} now
