@@ -2,7 +2,7 @@
 name: research
 ---
 
-Spin up a **background agent** to do the research, so you keep working while it reads. A subagent does the job below itself (`rule:dispatch-grandchild`), appending to the file its own dispatch's `Artefact:` line names.
+Spin up a **background agent** to do the research, so you keep working while it reads. Start it with a fresh context window. A subagent does the job below itself (`rule:dispatch-grandchild`), appending to the file its own dispatch's `Artefact:` line names.
 
 Its job:
 

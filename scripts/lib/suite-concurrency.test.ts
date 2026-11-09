@@ -50,7 +50,13 @@ import type { WindowsRead } from "./windows-memory.js";
 
 type Gate =
 	| { limb: "count" }
-	| { limb: "memory"; mb: number; rungMb: number; climbMb?: number }
+	| {
+			limb: "memory";
+			mb: number;
+			rungMb: number;
+			climbMb?: number;
+			busy?: number;
+	  }
 	| { limb: "windows"; mb: number; needMb: number };
 type Verdict = {
 	deny?: string;
@@ -405,10 +411,22 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 			limb: "memory",
 			mb: 1000,
 			rungMb: 3350,
+			busy: 0,
 		});
 		expect(
 			gated("npm run test", ROOMY_MB, NEIGHBOURS_AT_CAP).verdict?.gate,
 		).toEqual({ limb: "count" });
+	});
+
+	/* A head its rung holds with none running is held at rest, which a
+	 * younger part-suite may pass (#4783); an unread `ps` leaves it unknown. */
+	it("gives the vitest workers it read running, and none where `ps` went unread (#4783)", () => {
+		expect(gated("npm run test", 1000, 0).verdict?.gate).toMatchObject({
+			busy: 0,
+		});
+		expect(
+			gatedOn("npm run test", 1000, null).verdict?.gate,
+		).not.toHaveProperty("busy");
 	});
 
 	it("charges a suite only the climb its rung does not count (#3488, #4111)", () => {
@@ -421,6 +439,7 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 			mb: 3500,
 			rungMb: 3350,
 			climbMb: 500,
+			busy: 0,
 		});
 		expect(text).toContain(
 			"MemAvailable is 3500 MB, less 500 MB the queues' running launches its rung does not count have yet to draw, under the ~3350 MB",

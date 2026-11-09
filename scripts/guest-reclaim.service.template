@@ -1,0 +1,6 @@
+[Unit]
+Description=Reclaim cold guest page cache when Windows runs short (#4791)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I "@SCRIPT@" tick --minute-log "@MINUTE_LOG@" --log "@LOG@" --cgroup "@CGROUP@"

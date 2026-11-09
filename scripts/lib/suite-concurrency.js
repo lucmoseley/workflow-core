@@ -167,7 +167,7 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {import("./suite-ladder.js").Running} Running
  * @typedef {import("./suite-queue.js").ClimbScope} ClimbScope
  * @typedef {import("./shell-parse.js").Command} Command
- * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number } | import("./suite-queue.js").WindowsHold} Gate
+ * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number, busy?: number } | import("./suite-queue.js").WindowsHold} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
@@ -1052,6 +1052,7 @@ function memoryVerdict(st, j) {
 					mb: j.readMb,
 					rungMb: j.floor,
 					...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
+					...(j.running ? { busy: j.busy } : {}),
 				},
 				watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.floor} MB`,
 				why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
