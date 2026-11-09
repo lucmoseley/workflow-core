@@ -1,0 +1,12 @@
+[Unit]
+Description=Drop the guest page cache when Windows runs short (#4759)
+
+[Timer]
+# OnUnitInactiveSec= alone never fires on a unit that has never run.
+OnActiveSec=1min
+OnUnitInactiveSec=1min
+# The default 1min accuracy measured a firing every 120 s.
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
