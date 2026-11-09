@@ -10,6 +10,7 @@
  */
 
 const blockerGraph = require("./blocker-graph.js");
+const { isRouteStep } = require("./decision-labels.js");
 const { compareLevels, WAITING_LABEL } = require("./frontier-order.js");
 const { resolveGate } = require("./issue-gate.js");
 const { parseIssueRef } = require("./issue-ref.js");
@@ -262,7 +263,7 @@ const WAYFINDER_LABEL = takesLabel("wayfinder");
 const isQuestionType = (issue) =>
 	issue.labels.includes(WAYFINDER_LABEL) &&
 	(issue.labels.some((l) => QUESTION_TYPES.includes(l)) ||
-		!issue.labels.some((l) => l.startsWith("wayfinder:")));
+		!isRouteStep(issue.labels));
 
 /**
  * What `enrichIssue` reads besides the issue itself.
@@ -294,6 +295,11 @@ const EXCLUSION_CATEGORIES = /** @type {const} */ ([
 	"gated",
 ]);
 /** @typedef {typeof EXCLUSION_CATEGORIES[number]} ExclusionCategory */
+
+/* A `takes:to-spec` map is itself the work, its children sitting beside the
+ * spec it files (#4767); `takes:children` and `takes:wayfinder` children are
+ * the work, so those stay held. */
+const TO_SPEC_LABEL = takesLabel("to-spec");
 
 /**
  * Why an issue is held out of the frontier, earliest-applicable first, or
@@ -335,7 +341,7 @@ function exclusionOf(i, ctx, facts) {
 		};
 	if (dispatchReason)
 		return { category: "already dispatched", text: dispatchReason };
-	if (openChildren.get(i.number)) {
+	if (openChildren.get(i.number) && !i.labels.includes(TO_SPEC_LABEL)) {
 		const unread = ctx.blockers.childrenUnread.get(i.number);
 		return {
 			category: "container",
