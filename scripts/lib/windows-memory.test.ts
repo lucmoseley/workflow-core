@@ -1,0 +1,135 @@
+// @vitest-environment node
+/*
+ * lib/windows-memory.js (#4557): Windows' free memory off memwatch's newest
+ * minute line, and the hold it puts on a launch. Break it and a launch the
+ * guest admits pages Windows, as the 6 Nov 2026 freeze did, or a stale reading
+ * holds the machine on a figure minutes old.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+type WindowsRead =
+	| { state: "fresh"; mb: number; ageS: number }
+	| { state: "absent" }
+	| { state: "stale"; why: string };
+
+const {
+	WINDOWS_FRESH_S,
+	minuteLogPath,
+	readWindowsMemory,
+	windowsNeedMb,
+	windowsShortfall,
+	windowsUnreadNote,
+} = require("./windows-memory.js") as {
+	WINDOWS_FRESH_S: number;
+	minuteLogPath: () => string;
+	readWindowsMemory: (o?: { file?: string; now?: number }) => WindowsRead;
+	windowsNeedMb: (drawMb: number) => number;
+	windowsShortfall: (
+		read: WindowsRead,
+		needMb: number,
+	) => { mb: number; needMb: number } | null;
+	windowsUnreadNote: (read: WindowsRead, what: string) => string | null;
+};
+
+const NOW = Date.parse("2026-11-06T05:12:19Z");
+let dir: string;
+let file: string;
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "windows-memory-"));
+	file = path.join(dir, "memwatch-minute.jsonl");
+});
+afterEach(() => {
+	fs.rmSync(dir, { recursive: true, force: true });
+	vi.unstubAllEnvs();
+});
+
+/** A minute line as memwatch writes it, `secsAgo` before NOW. */
+const line = (secsAgo: number, win: number | null, winAgeS: number | null) =>
+	`${JSON.stringify({
+		ts: new Date(NOW - secsAgo * 1000).toISOString().replace("Z", "+0000"),
+		mem_avail_mb: 6896,
+		win_avail_mb: win,
+		win_age_s: winAgeS,
+	})}\n`;
+
+describe("lib/windows-memory.js", () => {
+	it("reads the newest Windows reading, its age the line's plus the reading's own", () => {
+		fs.writeFileSync(file, line(120, 2748, 5) + line(60, 2638, 10));
+		expect(readWindowsMemory({ file, now: NOW })).toEqual({
+			state: "fresh",
+			mb: 2638,
+			ageS: 70,
+		});
+	});
+
+	it("passes over a newest line whose Windows read came back null, as after a freeze", () => {
+		fs.writeFileSync(file, line(70, 1944, 5) + line(10, null, null));
+		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({
+			state: "fresh",
+			mb: 1944,
+		});
+	});
+
+	it("skips a last line memwatch has not finished writing", () => {
+		fs.writeFileSync(file, `${line(30, 2000, 0)}{"ts":"2026-11-06T05:12`);
+		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({ mb: 2000 });
+	});
+
+	it(`calls a reading past ${180} s stale, failing open with the reason`, () => {
+		expect(WINDOWS_FRESH_S).toBe(180);
+		fs.writeFileSync(file, line(170, 900, 11));
+		const read = readWindowsMemory({ file, now: NOW });
+		expect(read).toEqual({
+			state: "stale",
+			why: `the newest Windows reading in ${file} is 181 s old, past 180 s`,
+		});
+		expect(windowsShortfall(read, 5000)).toBeNull();
+		expect(windowsUnreadNote(read, "a test launch")).toBe(
+			`Windows memory unread — the newest Windows reading in ${file} is 181 s old, past 180 s; a test launch not held on it (#4557)`,
+		);
+	});
+
+	it("calls a log with no Windows reading in its tail stale", () => {
+		fs.writeFileSync(file, line(10, null, null));
+		expect(readWindowsMemory({ file, now: NOW })).toEqual({
+			state: "stale",
+			why: `no Windows reading in ${file}'s last lines`,
+		});
+	});
+
+	it("is silent where no memwatch runs: no log, no hold, nothing to record", () => {
+		const read = readWindowsMemory({ file, now: NOW });
+		expect(read).toEqual({ state: "absent" });
+		expect(windowsShortfall(read, 5000)).toBeNull();
+		expect(windowsUnreadNote(read, "a test launch")).toBeNull();
+	});
+
+	it("reads only the tail of a long log", () => {
+		const old = line(4000, 9999, 0).repeat(40_000);
+		fs.writeFileSync(file, old + line(20, 1500, 3));
+		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({ mb: 1500 });
+	});
+
+	it("holds a launch whose draw and the 300 MB margin exceed Windows' free memory, and admits one that fits", () => {
+		const fresh: WindowsRead = { state: "fresh", mb: 1906, ageS: 30 };
+		expect(windowsNeedMb(1607)).toBe(1907);
+		expect(windowsShortfall(fresh, windowsNeedMb(1607))).toEqual({
+			mb: 1906,
+			needMb: 1907,
+		});
+		expect(windowsShortfall(fresh, windowsNeedMb(1606))).toBeNull();
+	});
+
+	it("resolves the log as memwatch does, MEMWATCH_MINUTE_LOG first", () => {
+		vi.stubEnv("MEMWATCH_MINUTE_LOG", file);
+		expect(minuteLogPath()).toBe(file);
+		vi.stubEnv("MEMWATCH_MINUTE_LOG", "");
+		expect(minuteLogPath()).toBe(
+			path.join(os.homedir(), "memwatch-minute.jsonl"),
+		);
+	});
+});

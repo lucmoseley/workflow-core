@@ -66,6 +66,7 @@ const {
 	defaultTscQueueDir,
 	tscDenial,
 } = require("./lib/tsc-slot.js");
+const { windowsUnreadNote } = require("./lib/windows-memory.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const LABEL = "queue-run.js";
@@ -98,7 +99,7 @@ const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
 
 /* What a `--tsc` wait prints in place of a suite's (#3163). */
 const TSC_WAIT = {
-	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung`,
+	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)`,
 	cap: "one `tsc` runs at a time (#3163)",
 	traceLimbs: true,
 };
@@ -117,7 +118,10 @@ function tscGate(climbMb) {
 	const mb = ports.availableMb();
 	if (rows === null) log("ps unreadable — the type-check slot read as free");
 	if (mb === null) log("MemAvailable unreadable — the type-check rung unread");
-	return tscDenial(rows, mb, climbMb);
+	const windows = ports.windowsMemory();
+	const unread = windowsUnreadNote(windows, "the type-check slot");
+	if (unread) log(unread);
+	return tscDenial(rows, mb, climbMb, windows);
 }
 
 /* The weight a seat joins and asks the gate with: one test file, a part-suite

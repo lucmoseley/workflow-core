@@ -153,6 +153,12 @@ const {
 } = require("./suite-launch.js");
 const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
+const {
+	windowsNeedMb,
+	windowsShortText,
+	windowsShortfall,
+	windowsUnreadNote,
+} = require("./windows-memory.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
 const { treeOrHost } = require("./tree-or.js");
 
@@ -161,10 +167,12 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {import("./suite-ladder.js").Running} Running
  * @typedef {import("./suite-queue.js").ClimbScope} ClimbScope
  * @typedef {import("./shell-parse.js").Command} Command
- * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number }} Gate
+ * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number } | import("./suite-queue.js").WindowsHold} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
+ * @property {() => import("./windows-memory.js").WindowsRead} windowsMemory
+ *   Windows' own free memory, off memwatch's newest reading (#4557)
  * @property {(scope: ClimbScope) => number} climbMb what the queues'
  *   running launches in `scope` have yet to draw, in MB, which MemAvailable
  *   does not yet count (#3488, #4111)
@@ -677,7 +685,15 @@ function denyBareTsc(st, segment) {
 		st.ctx.log(
 			"MemAvailable unreadable — a `tsc` launch judged off its count alone",
 		);
-	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb("all"));
+	const windows = st.ctx.windowsMemory();
+	const unread = windowsUnreadNote(windows, "a `tsc` launch");
+	if (unread) st.ctx.log(unread);
+	const denial = tscDenial(
+		ps,
+		mb,
+		mb === null ? 0 : st.readClimb("all"),
+		windows,
+	);
 	if (denial === null) return;
 	const launch = queuedLaunch(
 		segment,
@@ -685,15 +701,23 @@ function denyBareTsc(st, segment) {
 		`${st.ctx.scriptPath("queue-run.js")} --tsc`,
 	);
 	const line = insteadLine(st, typedLaunchOf(st, segment), launch);
-	const why =
-		denial.limb === "count"
-			? "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163)."
-			: `${readingOf(denial.mb, denial.climbMb)}, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
+	const why = tscWhy(denial);
 	return {
 		deny: st.ctx.corePaths(
 			`${line}\n${why} \`queue-run.js --tsc\` waits for the type-check slot, then runs that command.`,
 		),
 	};
+}
+
+/**
+ * Why the type-check slot holds a bare `tsc`, by limb.
+ * @param {import("./suite-queue.js").GateDenial} denial
+ */
+function tscWhy(denial) {
+	if (denial.limb === "count")
+		return "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163).";
+	if (denial.limb === "windows") return `${windowsShortText(denial)}.`;
+	return `${readingOf(denial.mb, denial.climbMb)}, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
 }
 
 /**
@@ -873,7 +897,7 @@ const buildWarnVerdict = (st, text) => ({
  * `command` is the segment as the parser rendered it, each quoted span `"…"`.
  * @param {St} st
  * @param {Judged} j
- * @param {"count" | "memory"} limb
+ * @param {"count" | "memory" | "windows"} limb
  */
 function logStanddown(st, j, limb) {
 	if (st.standdownLogged) return;
@@ -1045,6 +1069,42 @@ function memoryVerdict(st, j) {
 }
 
 /**
+ * THE WINDOWS-MEMORY HOLD (#4557): a launch its guest rung admits that would
+ * draw more than Windows has free, beside the margin, is sent to the queue as
+ * a memory shortfall is; anything else is warned. Its draw is its own
+ * workers' share of the ladder, what the suites running already hold being in
+ * `vmmemWSL`, and the climb its rung charges. No fresh reading fails open,
+ * recorded.
+ * @param {St} st
+ * @param {Judged} j
+ * @returns {Verdict | undefined}
+ */
+function windowsVerdict(st, j) {
+	const read = st.ctx.windowsMemory();
+	const unread = windowsUnreadNote(read, `a ${j.s.kind} launch`);
+	if (unread) st.ctx.log(unread);
+	const drawMb = j.floor - suiteRungMb(j.busy) + j.climbMb;
+	const short = windowsShortfall(read, windowsNeedMb(drawMb));
+	if (!short) return;
+	const why = windowsShortText(short);
+	if (j.refusable) {
+		if (!st.escaped)
+			return denyToQueue(st, j, {
+				gate: { limb: "windows", ...short },
+				watchLever: "Wait for Windows' free memory to recover",
+				why: `${why}.`,
+				waiter: "Do not write your own waiter.",
+				escapeLead: "Genuinely need it now?",
+			});
+		logStanddown(st, j, "windows");
+	}
+	return buildWarnVerdict(
+		st,
+		`${why}. Wait for it to recover, ${j.lever}${j.tail}`,
+	);
+}
+
+/**
  * A build or a whole-suite run owes a before-and-after reading (#2024); a
  * non-vitest runner and a watcher do not. The first such launch in the
  * command is the one the injection reports.
@@ -1080,7 +1140,8 @@ function judge(st, cmd) {
 	}
 	noteMemoryFigure(st, s, mb);
 	const j = judgedOf(st, { segment: cmd.segment, words }, s, mb);
-	const verdict = countVerdict(st, j) ?? memoryVerdict(st, j);
+	const verdict =
+		countVerdict(st, j) ?? memoryVerdict(st, j) ?? windowsVerdict(st, j);
 	if (verdict !== undefined) return verdict;
 	/* The watcher limb, on the watcher's OWN segment alone. */
 	return st.watcherSegment === cmd.segment

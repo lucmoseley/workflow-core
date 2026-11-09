@@ -23,7 +23,8 @@
  * `empty` (the run left because its selection had emptied), `pid`,
  * `signal` on a kill, `skipped` on a run that left before it queued
  * (#1221), and `limb` where the wait ended held at the queue's bound: what
- * held it, `count`, `memory` or `turn`. A `timeout` ran anyway, a part-suite
+ * held it, `count`, `memory`, `windows` (the Windows-memory hold, #4557)
+ * or `turn`. A `timeout` ran anyway, a part-suite
  * past the bound; a `refused` did not run, and carries no `limb` where the
  * load hold refused it (#2421, #2714).
  * `climbMb` is the highest charge for other launches'
@@ -38,7 +39,7 @@
  */
 
 /** @typedef {"opened"|"left"|"timeout"|"refused"|"killed"} QueueExitReason */
-/** @typedef {"count"|"memory"|"turn"} HeldLimb */
+/** @typedef {"count"|"memory"|"windows"|"turn"} HeldLimb */
 
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");

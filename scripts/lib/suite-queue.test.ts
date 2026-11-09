@@ -2210,6 +2210,75 @@ describe("gateDenies, against the real gate (#2421)", () => {
 	});
 });
 
+describe("the Windows-memory hold, against the real gate (#4557)", () => {
+	const { readGate } = require("./suite-concurrency-host.js");
+
+	/** A suite's wait at a roomy guest, Windows' free memory read off a
+	 * minute log each poll as memwatch leaves it; `frees` is what each sleep
+	 * writes next. */
+	const waitOn = async (first: number, frees: number[], timeoutMs = 60_000) => {
+		const dir = qdir();
+		const meminfo = path.join(dir, "meminfo");
+		fs.writeFileSync(meminfo, `MemAvailable: ${20_000 * 1024} kB\n`);
+		vi.stubEnv("WFC_MEMINFO", meminfo);
+		vi.stubEnv("WFC_PS", writePsStub(dir, []));
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
+		const log = path.join(dir, "memwatch-minute.jsonl");
+		vi.stubEnv("MEMWATCH_MINUTE_LOG", log);
+		const write = (mb: number) =>
+			fs.appendFileSync(
+				log,
+				`${JSON.stringify({ ts: new Date().toISOString(), win_avail_mb: mb, win_age_s: 5 })}\n`,
+			);
+		write(first);
+		const said: string[] = [];
+		let clock = 0;
+		const outcome = await waitForGate({
+			gate: (climbMb: number) =>
+				gateDenies(
+					[],
+					(command: string, carried: null, climb: number) =>
+						readGate(command, dir, carried, climb),
+					null,
+					climbMb,
+				),
+			admit: noQueue,
+			timeoutMs,
+			clock: () => clock,
+			sleepFn: (ms: number) => {
+				clock += ms;
+				const next = frees.shift();
+				if (next !== undefined) write(next);
+				return Promise.resolve();
+			},
+			traceLimbs: true,
+			out: { write: (s: string) => said.push(s) },
+		});
+		return { outcome, said: said.join("") };
+	};
+
+	/* A whole suite draws 2250 MB, its 3350 MB rung less the empty ladder's
+	 * 1100, and Windows must hold that and the 300 MB margin. */
+	it("holds a suite launch while Windows is short, and admits it once Windows clears", async () => {
+		const { outcome, said } = await waitOn(1440, [2549, 2550]);
+		expect(outcome).toBe("run");
+		expect(said).toContain(
+			"held on the Windows-memory hold, Windows free 1440 MB against ~2550 MB",
+		);
+		expect(said).toMatch(
+			/gate opened after 20s — held 20s on the Windows-memory hold/,
+		);
+	});
+
+	it("refuses at the bound, not run, where Windows never clears", async () => {
+		const { outcome, said } = await waitOn(900, [900, 900], 20_000);
+		expect(outcome).toBe("refused");
+		expect(said).toContain(
+			"the Windows-memory hold still holds after 20s (Windows free 900 MB against ~2550 MB) — refused, not run.",
+		);
+	});
+});
+
 describe("queueSeat, one seat's lifecycle end to end (#4240)", () => {
 	const markersIn = (dir: string) =>
 		fs.readdirSync(dir).filter((f) => f.startsWith("wfc-suite-queue-"));

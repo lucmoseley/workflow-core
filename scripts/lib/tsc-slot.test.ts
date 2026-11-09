@@ -12,6 +12,10 @@ const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
 		rows: { pid: number | null; args: string }[] | null,
 		mb: number | null,
 		climbMb?: number,
+		windows?:
+			| { state: "fresh"; mb: number; ageS: number }
+			| { state: "absent" }
+			| { state: "stale"; why: string },
 	) => {
 		limb: string;
 		pids?: (number | null)[];
@@ -19,6 +23,7 @@ const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
 		mb?: number;
 		rungMb?: number;
 		climbMb?: number;
+		needMb?: number;
 	} | null;
 	isTscLaunch: (words: string[]) => boolean;
 };
@@ -85,6 +90,29 @@ describe("lib/tsc-slot.js", () => {
 			climbMb: 251,
 		});
 		expect(tscDenial(rows("bash -l"), 3000, 250)).toBeNull();
+	});
+
+	it("holds a `tsc` the guest admits while Windows has less free than its peak, the climb and the margin (#4557)", () => {
+		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
+		// 1638 peak + 100 climb + 300 margin.
+		expect(tscDenial(rows("bash -l"), 9000, 100, windows(2037))).toEqual({
+			limb: "windows",
+			mb: 2037,
+			needMb: 2038,
+		});
+		expect(tscDenial(rows("bash -l"), 9000, 100, windows(2038))).toBeNull();
+		// The guest rung is named first.
+		expect(tscDenial(rows("bash -l"), 2749, 0, windows(10))).toMatchObject({
+			limb: "memory",
+		});
+	});
+
+	it("fails open on a Windows reading that is stale or absent (#4557)", () => {
+		for (const windows of [
+			{ state: "absent" as const },
+			{ state: "stale" as const, why: "old" },
+		])
+			expect(tscDenial(rows("bash -l"), 9000, 0, windows)).toBeNull();
 	});
 
 	it.each([

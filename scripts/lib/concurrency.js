@@ -25,8 +25,6 @@
  * never throw, so a broken record costs a reading, never a tick.
  */
 
-const os = require("node:os");
-const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const {
@@ -41,6 +39,7 @@ const {
 } = require("./refill-decide.js");
 const { refillPath } = require("./refill-dir.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+const { minuteLogPath } = require("./windows-memory.js");
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -433,9 +432,7 @@ function buildUnlistedLine(r, readLive) {
 function concurrencyFiles() {
 	return {
 		record: refillPath("concurrency.jsonl"),
-		minutes:
-			process.env.MEMWATCH_MINUTE_LOG ||
-			path.join(os.homedir(), "memwatch-minute.jsonl"),
+		minutes: minuteLogPath(),
 	};
 }
 
