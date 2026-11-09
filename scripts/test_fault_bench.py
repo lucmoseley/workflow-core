@@ -1,8 +1,7 @@
 """Tests for scripts/fault_bench.py — #3246's bench at 28 h uptime (#4768).
 
 Each run case points the script at literal /proc stand-ins and a temp log, and
-benches `true` in place of python. Loosen one and the bench runs short of 28 h
-or 1,900 MB, runs twice in a boot, or #3246's check reads a NO BENCH as met.
+benches `true` in place of python.
 """
 
 import json

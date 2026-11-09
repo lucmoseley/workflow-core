@@ -2,8 +2,8 @@
 """fault_bench.py — #3246's page-fault bench, run by a user timer at 28 h uptime (#4768).
 
 #3246 needs the bench at 28 h up, and a session must happen to read its gate
-while the boot is that old; three boots passed 28 h unbenched. fault-bench.timer
-runs it instead, and the log outlives the boot.
+while the boot is that old. fault-bench.timer runs it instead, and the log
+outlives the boot.
 
   run      run by fault-bench.service. Once this boot has a bench line, does
            nothing. Otherwise, at 28 h up and 1,900 MB available, runs 1, 2, 4,
@@ -37,8 +37,7 @@ from pathlib import Path
 # earlyoom's 794 + the bench's 800 + a 300 margin.
 MIN_UPTIME_S = 100_800
 MIN_AVAIL_MB = 1_900
-# #3246's bench shape: concurrent 100 MB allocations, its repeated 8 the
-# burst that read 37.9 s under `gradual`.
+# #3246's bench shape: rounds of concurrent 100 MB allocations.
 ROUNDS = (1, 2, 4, 8, 8)
 ALLOC = "b=bytearray(100*1024*1024)"
 NO_BENCH = "NO BENCH"
