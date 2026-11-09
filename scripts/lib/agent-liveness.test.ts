@@ -318,6 +318,15 @@ describe("the array is empty", () => {
 		);
 	});
 
+	it("reads as nothing live to a levelling pass, outside a session alone", () => {
+		fakeClaude("[]");
+		expect(liveness.readAgentsForLevelling().agents).toEqual([]);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
+		expect(liveness.readAgentsForLevelling().why).toContain(
+			"listed no agents at all",
+		);
+	});
+
 	it("still refuses to admission inside a session, and to every other reader however asked", () => {
 		fakeClaude("[]");
 		expect(

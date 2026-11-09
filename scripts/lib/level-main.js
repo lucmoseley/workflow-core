@@ -5,8 +5,7 @@
  *
  * ONE PASS fetches `main`, then fast-forwards the main checkout's `main` to
  * `origin/main` where it is behind. It never merges, rebases or resets: a
- * local commit or a blocking edit is reported, never moved or discarded,
- * because under the worktree model nothing should be written here at all. A
+ * local commit or a blocking edit is reported, never moved or discarded. A
  * failed fetch is reported, and the pass levels against the `origin/main` last
  * fetched. A main checkout not yet cut over (lib/cutover.js) is refused, never
  * moved.
