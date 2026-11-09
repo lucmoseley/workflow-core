@@ -3,7 +3,8 @@
  * would not retire when the copy started (#4646). lib/refill-resume.js's
  * settleCopy stops the original's job and removes its row so one row of the
  * work is left to revive (#4098); one refused, as by a busy daemon, rides on
- * the launch the copy runs as, and each tick tries it again.
+ * the launch the copy runs as, or the outside session's record (#4829), and
+ * each tick tries it again.
  */
 
 const { shortJobId } = require("./job-paths.js");
@@ -23,25 +24,48 @@ const RETIRE_TRIES = 3;
  * @returns {LoopLaunch[]}
  */
 function retireOriginals(launches, io) {
-	return launches.map((l) => {
-		if (!l.unretired) return l;
-		const left = l.unretired.flatMap((u) => retireOriginal(l, u, io));
-		const { unretired: _, ...rest } = l;
-		return left.length > 0 ? { ...rest, unretired: left } : rest;
-	});
+	return launches.map((l) =>
+		withRetried(l, launchName(l), io, (u, original, failed) =>
+			io.comment(
+				l,
+				`Refill loop: two rows of this session are live in \`claude agents\` on ${u.seat}: original job ${original} and its copy ${u.copyJobId}. The original would not retire after ${RETIRE_TRIES} tries (${failed}); stop and remove it by hand (\`claude stop ${original}\`, then \`claude rm ${original}\`) so only the copy is revived.`,
+			),
+		),
+	);
 }
 
 /**
- * Original `u` of launch `l`'s copy tried again: nothing once retired, else
- * `u` with the try counted, or nothing once out of tries, its issue told.
- * @param {LoopLaunch} l
+ * `r` with each of its copy's unretired originals tried again, those retired
+ * or out of tries dropped (retireOriginal); `r` itself where it has none.
+ * @template {{unretired?: Unretired[]}} R
+ * @param {R} r
+ * @param {string} name  whose copy it is, for the log
+ * @param {Pick<BlockIo, "retireJob"|"log">} io
+ * @param {(u: Unretired, original: string, failed: string) => void} giveUp
+ *   told of an original out of tries
+ * @returns {R}
+ */
+function withRetried(r, name, io, giveUp) {
+	if (!r.unretired) return r;
+	const left = r.unretired.flatMap((u) => retireOriginal(u, name, io, giveUp));
+	const { unretired: _, ...rest } = r;
+	return /** @type {R} */ (
+		left.length > 0 ? { ...rest, unretired: left } : rest
+	);
+}
+
+/**
+ * Original `u` of `name`'s copy tried again: nothing once retired, else `u`
+ * with the try counted, or nothing once out of tries, `giveUp` told.
  * @param {Unretired} u
- * @param {Pick<BlockIo, "retireJob"|"comment"|"log">} io
+ * @param {string} name
+ * @param {Pick<BlockIo, "retireJob"|"log">} io
+ * @param {(u: Unretired, original: string, failed: string) => void} giveUp
  * @returns {Unretired[]}
  */
-function retireOriginal(l, u, io) {
+function retireOriginal(u, name, io, giveUp) {
 	const original = shortJobId(u.sessionId);
-	const what = `original ${original} of ${launchName(l)}'s copy ${u.copyJobId}`;
+	const what = `original ${original} of ${name}'s copy ${u.copyJobId}`;
 	const failed = io.retireJob(u.seat, u.sessionId, u.cwd);
 	if (!failed) {
 		io.log(`retired ${what}`);
@@ -50,11 +74,8 @@ function retireOriginal(l, u, io) {
 	const tries = u.tries + 1;
 	io.log(`${what} not retired, try ${tries} of ${RETIRE_TRIES}: ${failed}`);
 	if (tries < RETIRE_TRIES) return [{ ...u, tries }];
-	io.comment(
-		l,
-		`Refill loop: two rows of this session are live in \`claude agents\` on ${u.seat}: original job ${original} and its copy ${u.copyJobId}. The original would not retire after ${RETIRE_TRIES} tries (${failed}); stop and remove it by hand (\`claude stop ${original}\`, then \`claude rm ${original}\`) so only the copy is revived.`,
-	);
+	giveUp(u, original, failed);
 	return [];
 }
 
-module.exports = { retireOriginals };
+module.exports = { RETIRE_TRIES, retireOriginals, withRetried };

@@ -323,7 +323,7 @@ function recordParkedResume(l, target, r, { launchedAt, actsBefore, io }) {
  */
 function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 	return withUnretired(
-		{
+		/** @type {import("./refill-loop.js").LoopLaunch} */ ({
 			root: l.root,
 			issues: l.issues,
 			prompt: l.prompt,
@@ -339,7 +339,7 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 				? { nothingToRepeat: true }
 				: {}),
 			...limitParksOf(l),
-		},
+		}),
 		r,
 	);
 }

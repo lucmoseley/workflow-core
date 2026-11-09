@@ -269,3 +269,49 @@ it("starts afresh on a later stop once a capped session took a turn", () => {
 	l.tick(now + MIN);
 	expect(typed(l.calls)).toBe(RESUME_CAP + 1);
 });
+
+it("retries, on later ticks, the retirement of a copy's original that would not retire, keeping the record until it is retired", () => {
+	const unretired = {
+		seat: SEAT,
+		sessionId: "sess-f1-full",
+		cwd: "/home/u/work",
+		copyJobId: "f1-copy",
+		tries: 1,
+	};
+	const answers: (string | null)[] = ["the daemon is busy", null];
+	const retires: string[] = [];
+	const l = loop({
+		resumeStopped: () => ({
+			failed: null,
+			jobId: "f1-copy",
+			sessionId: "s",
+			copy: true,
+			why: COPY_WHY,
+			unretired,
+		}),
+		retireJob: (_seat, sessionId) => {
+			retires.push(sessionId);
+			return answers.shift() ?? null;
+		},
+	});
+	l.tick(NOW);
+	l.tick(NOW + 2 * MIN);
+	expect(l.io.readOutside()).toMatchObject([
+		{ jobId: "f1-copy", unretired: [unretired] },
+	]);
+	expect(retires).toEqual([]);
+	/* The copy is not listed, yet its record stays for the retirement. */
+	l.tick(NOW + 3 * MIN, { rows: [] });
+	expect(retires).toEqual(["sess-f1-full"]);
+	expect(l.io.readOutside()).toMatchObject([
+		{ jobId: "f1-copy", unretired: [{ ...unretired, tries: 2 }] },
+	]);
+	l.tick(NOW + 4 * MIN, { rows: [] });
+	expect(retires).toEqual(["sess-f1-full", "sess-f1-full"]);
+	expect(logs(l.calls)).toContain(
+		"retired original sess-f1- of founder-session (f1-copy, started outside the loop)'s copy f1-copy",
+	);
+	expect(l.io.readOutside()).toEqual([]);
+	l.tick(NOW + 5 * MIN, { rows: [] });
+	expect(retires).toHaveLength(2);
+});
