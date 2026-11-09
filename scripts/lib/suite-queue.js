@@ -1313,7 +1313,7 @@ function memoryRefusal(label, secs, { mb, rungMb, climbMb }) {
  * @returns {string}
  */
 function windowsRefusal(label, secs, { mb, needMb }) {
-	return `${label}: the Windows-memory hold still holds after ${secs}s (Windows free ${mb} MB against ~${needMb} MB) — refused, not run. Close what Windows runs beside the VM, or wait for it to free, and run it again (docs/environment.md §6, #4557).\n`;
+	return `${label}: the Windows-memory hold still holds after ${secs}s (Windows free ${mb} MB against ~${needMb} MB) — refused, not run. Close what Windows runs beside the VM, or wait for it to free, and run it again (#4557).\n`;
 }
 
 /**
