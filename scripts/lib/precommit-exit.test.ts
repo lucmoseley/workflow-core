@@ -81,6 +81,88 @@ describe("parseBreaches", () => {
 	it("reads a substitution holding a pipeline as no checker", () => {
 		expect(lines('out="$(node scripts/a.js | head -1)" || exit 1')).toEqual([]);
 	});
+
+	it.each([
+		["a bash script", 'bash "$WFC_PLUGIN_ROOT"/scripts/gate.sh || exit 1', 1],
+		["an sh script", "sh scripts/gate.sh || exit 1", 1],
+		["a script run directly", "./scripts/check-b.js || exit 1", 1],
+		[
+			"node past its flags",
+			"node --no-warnings scripts/check-b.js || exit 1",
+			1,
+		],
+		[
+			"an indented line in an if",
+			"if armed x; then\n  node scripts/c.js || exit 1\nfi",
+			2,
+		],
+		["a trailing comment", "node scripts/c.js || exit 1 # why", 1],
+		["a case arm's terminator", "node scripts/c.js || exit 1 ;; # why", 1],
+		["a variable assignment", "X=1 node scripts/c.js || exit 1", 1],
+		["a bash script run under errexit", "bash -e scripts/gate.sh || exit 1", 1],
+	])("names %s exiting 1", (_, body, line) => {
+		expect(lines(`${body}\n`)).toEqual([line]);
+	});
+
+	it("names a block whose exit 1 carries a semicolon and a comment", () => {
+		expect(lines("node scripts/c.js || {\n  exit 1 ; # why\n}\n")).toEqual([1]);
+	});
+
+	it("passes a block exiting 1 only after its close", () => {
+		expect(lines("node scripts/d.js || {\n  echo x\n}\nexit 1\n")).toEqual([]);
+	});
+
+	it.each([
+		[
+			"a binary",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'"${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1',
+		],
+		["a declared command", 'sh -c "$declared_command" || exit 1'],
+		["inline node", "node -e 'process.exit(0)' || exit 1"],
+	])("passes %s, an outside command", (_, line) => {
+		expect(lines(`${line}\n`)).toEqual([]);
+	});
+
+	// A named arm is the checker's own answer, and a probe of an outside command
+	// runs no checker (#3808).
+	it.each([
+		[
+			"a named arm exiting 1 and a catch-all exiting 2",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  bad) exit 1 ;;\n  *) exit 2 ;;\nesac\n',
+		],
+		[
+			"a catch-all exiting 2 ahead of an exit 1 past its commented terminator",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  *)\n    exit 2\n    ;; # why\n  bad) exit 1 ;;\nesac\n',
+		],
+		[
+			"a nested case's catch-all exiting 1 beside an outer one exiting 2",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  a)\n    case "$q" in\n      *) exit 1 ;;\n    esac\n    ;;\n  *) exit 2 ;;\nesac\n',
+		],
+		[
+			"a nested esac ending its arm ahead of an exit 1 in the next",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  *)\n    case "$q" in\n      a) exit 2 ;;\n    esac ;;\n  bad) exit 1 ;;\nesac\n',
+		],
+		[
+			"an outside command's substitution",
+			'p="$(git rev-parse HEAD)" || p=""\ncase "$p" in\n  *) exit 1 ;;\nesac\n',
+		],
+		[
+			"a pipeline's substitution, its last command's status deciding",
+			'p="$(node scripts/probe.js | head -1)" || exit 1\n',
+		],
+		["a probe no case reads", 'p="$(node scripts/probe.js)" || p=""\nexit 1\n'],
+		[
+			"a catch-all exiting 1 on another variable's case",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$q" in\n  *) exit 1 ;;\nesac\n',
+		],
+		[
+			"a fallback assigned again before its case",
+			'a="$(node scripts/a.js)" || rc=$?\nrc=0\nb="$(git x)" || rc=$?\ncase "$rc" in\n  *) exit 1 ;;\nesac\n',
+		],
+	])("passes %s", (_, body) => {
+		expect(lines(body)).toEqual([]);
+	});
 });
 
 describe("judgeHook", () => {
@@ -97,4 +179,38 @@ describe("judgeHook", () => {
 			},
 		]);
 	});
+
+	it("names a lister's block exiting 1 on its substitution at its opening line, its fix saying a crash exits 2 (#3808)", () => {
+		const found = judgeHook(
+			".husky/pre-commit",
+			'x="$(node scripts/list.js --sources)" || {\n  echo "refused" >&2\n  exit 1\n}\n',
+		);
+		expect(found.map((f) => f.line)).toEqual([1]);
+		expect(found[0]?.message).toContain("its crash exits 2");
+	});
+
+	it.each([
+		[
+			"its own variable, on the arm's second line",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  ok:*) ;;\n  *)\n    echo "crashed" >&2\n    exit 1\n    ;;\nesac\n',
+			1,
+		],
+		[
+			"another variable, on the arm's own line",
+			'rc=0\np="$(node scripts/probe.js)" || rc=$?\n# why\ncase "$rc" in\n  0) ;;\n  *) exit 1 ;;\nesac\n',
+			2,
+		],
+		[
+			"an arm following a nested case's own catch-all",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  a)\n    case "$q" in\n      *) exit 2 ;;\n    esac\n    ;;\n  *) exit 1 ;;\nesac\n',
+			1,
+		],
+	])(
+		"names a probe whose catch-all arm exits 1, through %s, its fix saying a crash exits 2 (#3808)",
+		(_, body, line) => {
+			const found = judgeHook(".husky/pre-commit", body);
+			expect(found.map((f) => f.line)).toEqual([line]);
+			expect(found[0]?.message).toContain("its crash exits 2");
+		},
+	);
 });
