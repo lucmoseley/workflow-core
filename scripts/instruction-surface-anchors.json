@@ -445,8 +445,8 @@
 			"source": "#3143"
 		},
 		"scripts/self-plugin-canary.sh": {
-			"digest": "d063cded52b2f799",
-			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (585 B on stderr in this checkout, the figures carrying its path; 730 B with the could-not-check line where the input carries no session id; 648 B with the closing line naming lib/script-path.sh where that library will not load, the setup path always quoted there; fed under #3798); silent once write-self-plugin-marker.sh has written the marker",
+			"digest": "289291c752dce3b9",
+			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (585 B on stderr in this checkout, the figures carrying its path; 730 B with the could-not-check line where the input carries no session id; 648 B with the closing line naming lib/script-path.sh where that library will not load, the setup path always quoted there; fed under #3798); silent once write-self-plugin-marker.sh has written a marker naming the main checkout's self-plugin, from the main checkout or a linked worktree. Re-fed under #4712 in a scratch checkout whose path is 100 characters: no marker 660 B; a marker naming a linked worktree's self-plugin exits 2, 856 B, opening \"Refused: the wfc-self self-plugin loaded in this session from <worktree>/self-plugin, not from the main checkout's <main>/self-plugin, so this session's hooks are running another tree's scripts.\" with the same setup line and restart; an empty marker 775 B, naming \"no recorded root (an empty marker)\"; an empty session id 805 B",
 			"selfSufficient": "yes — the cause, the literal `! claude plugin marketplace add '<main checkout>/self-plugin' --scope user` for the founder and the restart inline",
 			"source": "#2586"
 		},
