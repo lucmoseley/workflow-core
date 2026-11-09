@@ -622,7 +622,7 @@ function commentOn(l, body) {
 /**
  * `l`'s job's timeline rows. Null where the file will not read, which
  * reads as the typed resume unseen and falls back to stop and resume, logged.
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {import("./refill-blocks.js").SessionRef} l
  */
 function readTimelineOf(l) {
 	const file = path.join(jobDirPath(l.seat, l.jobId), "timeline.jsonl");
@@ -644,7 +644,7 @@ const readJobRecordOf = buildLaunchRecordReader(resumeIo);
 /**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
  * `claude attach` (#2354 F6). Null once typed, else why not.
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {import("./refill-blocks.js").SessionRef} l
  * @param {string} prompt
  */
 function typeResume(l, prompt) {
@@ -672,7 +672,7 @@ function readOutside() {
  * Whether `l`'s session took a turn after its API-error stop: its tempo
  * `active`, or block-cause.js's hasTurnSinceApiStop (BlockReads'
  * isResumedSinceStop, #4815).
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {import("./refill-blocks.js").SessionRef} l
  */
 function isResumedSinceStop(l) {
 	const job = readJobRecordOf(l);
@@ -835,7 +835,7 @@ function readMainChain(file, who) {
 /**
  * Every main-chain row of `l`'s transcript, at the path its job record
  * `job` names; null, logged where the file will not read.
- * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {{jobId: string|null}} l
  * @param {unknown} job
  * @returns {Record<string, unknown>[]|null}
  */

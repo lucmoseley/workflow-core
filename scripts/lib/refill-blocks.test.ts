@@ -1499,16 +1499,17 @@ describe("causeReader (#3200, #2358 F9)", () => {
 			readTail: () => tail,
 			log: (line) => lines.push(line),
 		});
-		const l = record();
+		const l = { ...record(), jobId: "job42" };
+		const name = "design-vault /implement 42";
 		const row = agent("job42", "blocked") as never;
-		expect(causeOf(l, row).cause).toBe("UNKNOWN");
-		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row, name).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row, name).cause).toBe("UNKNOWN");
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toMatch(
 			/^block unread design-vault \/implement 42: .+; row \{.*"sessionId":"s-job42".*\}; job \{"state":"blocked","tempo":"idle"\}$/,
 		);
 		tail = [{ type: "system" }];
-		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row, name).cause).toBe("UNKNOWN");
 		expect(lines).toHaveLength(2);
 		expect(lines[1]).not.toBe(lines[0]);
 	});
