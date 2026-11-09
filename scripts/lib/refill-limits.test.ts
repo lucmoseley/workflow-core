@@ -1517,11 +1517,11 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 
 		it("counts a held one resumed into a slot from its resume", () => {
 			const { launches } = limits(
-				[...unproven, held({ launchedAt: Act - 60 * MIN })],
+				[...unproven.slice(1), held({ launchedAt: Act - 60 * MIN })],
 				[],
 				{ slots: 1 },
 			);
-			expect(launches[3]).toMatchObject({ slotTakenAt: NOW });
+			expect(launches[2]).toMatchObject({ slotTakenAt: NOW });
 			expect(room(launches)).toBe(0);
 		});
 	});

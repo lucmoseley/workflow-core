@@ -231,7 +231,7 @@ function holdForLimit(l, limit, { now, io }) {
 /**
  * Limit act `act` on `l`: its session stopped, unless held already, and held
  * from now on, then `resume` run on it and the launch it leaves written, told
- * whether a restart takes a slot, as one from held does (limitWorkingChange). Where
+ * takesSlot. Where
  * no session id read or the stop failed, `l` after that failed try, reported
  * under `failedLine` of the limit it is held at.
  * @param {JobLaunch} l
@@ -265,7 +265,7 @@ function runLimitAct(l, limit, { act, failedLine, resume }, { now, io }) {
 	const out = resume(
 		{ ...l, limitHeld: { ...held, sessionId } },
 		{ sessionId, cwd },
-		isLimitHeld(l),
+		takesSlot(l),
 	);
 	io.writeLaunch(out);
 	return out;
@@ -524,7 +524,7 @@ function settleStartedLimit(l, act, r, { what, at, io }) {
 		return l;
 	}
 	const held = { ...l, block: l.block, limitHeld: act.held };
-	const seen = { now: at, io, tookSlot: isLimitHeld(l) };
+	const seen = { now: at, io, tookSlot: takesSlot(l) };
 	return syncLedgerHold(
 		act.kind === "in-place"
 			? settleInPlace(held, r, seen)
@@ -857,9 +857,15 @@ function limitWorkingChange(l, out) {
 	if (!isLimitHeld(out))
 		return out.parkStopped !== undefined && !isLimitHeld(l) ? -1 : 0;
 	const resumed = out.limitHeld.resumedAt !== undefined;
-	if (isLimitHeld(l)) return resumed ? 1 : 0;
+	if (takesSlot(l)) return resumed ? 1 : 0;
 	return resumed ? 0 : -1;
 }
+
+/**
+ * Whether a resume of `l` takes a slot: one from held does (#3730).
+ * @param {LoopLaunch} l  as it was before the act
+ */
+const takesSlot = (l) => isLimitHeld(l);
 
 /**
  * The tick's acts on limit-blocked launches, on the seats they read (#3735):

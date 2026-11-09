@@ -402,7 +402,8 @@ function unprovenRoom({ history, lastActAt, resumable = [] }) {
 /**
  * When `l` last took a slot, from which the unproven cap counts it: a restart
  * that kept its slot, in place, moved or typed-resume's fallback, adds no
- * session, so leaves its date (#4684).
+ * session, so leaves its date (#4684). Residual: a launch resumed from held
+ * before slotTakenAt was written counts from its launch until it finishes.
  * @param {{launchedAt: number, slotTakenAt?: number}} l */
 const unprovenFrom = (l) => Math.max(l.launchedAt, l.slotTakenAt ?? 0);
 
