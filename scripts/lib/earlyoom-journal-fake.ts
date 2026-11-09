@@ -62,7 +62,7 @@ export function writeJournalctl(
 	/* Each line's time, read once here, so the stub filters with awk and starts
 	 * no node per call; a line with no readable time is never served. */
 	const timed = lines.flatMap((l) => {
-		const ms = Date.parse(l.split(" ")[0]);
+		const ms = Date.parse(l.split(" ")[0] ?? "");
 		return l && !Number.isNaN(ms) ? [`${ms}\t${l}\n`] : [];
 	});
 	fs.writeFileSync(journal, timed.join(""));
