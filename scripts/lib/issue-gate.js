@@ -42,7 +42,7 @@ const TAIL = `${EDGE}(?:.*${EDGE})?`;
 /* A tail of blanks alone is read as its last blank, so the marker is reported
  * malformed rather than read as absent. */
 const GATE_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text (64 KB at most) from the repo's own writers; a crafted one slows a local hook, nothing worse (#4642)
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	`${AT_LINE_HEAD}\\*\\*Gated until:\\*\\*[ \\t]*(${TAIL}|[ \\t])[ \\t]*$`,
 	"gim",
 );
@@ -92,7 +92,7 @@ function gateOf(body, at = Date.now()) {
 }
 
 const GATE_ON_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text (64 KB at most) from the repo's own writers; a crafted one slows a local hook, nothing worse (#4642)
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	`${AT_LINE_HEAD}\\*\\*Gated on:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
 	"gim",
 );
@@ -234,7 +234,7 @@ function gateOnOf(body) {
 }
 
 const BASIS_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text (64 KB at most) from the repo's own writers; a crafted one slows a local hook, nothing worse (#4642)
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
 	"gim",
 );

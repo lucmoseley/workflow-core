@@ -477,7 +477,7 @@ function commitSubjectOf({ call, flag, word }, command, cwd) {
  */
 function heredocOf(command, call) {
 	const heredoc = command.slice(Math.max(command.indexOf(call), 0)).match(
-		// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is a Bash command a session sends; a crafted one slows a local hook, nothing worse (#4642)
+		// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
 		/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?(?:[^\S\n]*\n)+([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
 	);
 	if (!heredoc) return null;

@@ -100,7 +100,7 @@ class GitUnanswered extends Error {}
  * on the next pass.
  */
 const RE_SPAN = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows a local hook, nothing worse (#4642)
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
 	[
 		"\\$\\{[^{}]*\\}",
 		"\\$\\([^()]*\\)",

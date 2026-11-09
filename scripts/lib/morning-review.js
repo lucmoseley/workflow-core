@@ -142,7 +142,7 @@ function parseHistoryCursor(reviews, repo) {
  * @param {{body: string}[]} comments oldest first
  */
 function parseOneWayDoor(comments) {
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text (64 KB at most) from the repo's own writers; a crafted one slows a local hook, nothing worse (#4642)
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	const door = /^[ \t]*\*\*Door:\*\*[ \t]*(.*)$/m;
 	for (const { body } of [...comments].reverse()) {
 		const m = door.exec(body ?? "");

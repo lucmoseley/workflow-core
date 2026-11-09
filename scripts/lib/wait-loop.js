@@ -85,7 +85,7 @@ const LOOP_RE = new RegExp(`${SEP}(while|until|for)[${SP}]`);
 /* The loop's end: `done` closing a command, never `done` as an argument to
  * one. It carries its own trailing delimiter, which is what the truncation
  * cuts on; a quote is one, closing a `bash -c '…; done'` script (#1808). */
-// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows a local hook, nothing worse (#4642)
+// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
 const DONE_RE = new RegExp(`[;&|)}\\n][${SP}]*done[;&|)}${SP}'"]`);
 const SLEEP_RE = new RegExp(`${SEP}sleep[${SP}]`);
 const SLEEP_RUN_RE = new RegExp(`${SEP}sleep[${SP}][${SP}]*`);
@@ -100,7 +100,7 @@ const CAP_RE = new RegExp(
 );
 /* Where the condition ends, so the cap is read from the condition, not the
  * body. */
-// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows a local hook, nothing worse (#4642)
+// eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
 const DO_RE = new RegExp(`[;&|)}\\n][${SP}]*do[${SP}]`);
 const TIMEOUT_RE = new RegExp(`${SEP}timeout[${SP}]`);
 const TIMEOUT_RUN_RE = new RegExp(`${SEP}timeout[${SP}]+`);

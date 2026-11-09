@@ -210,7 +210,7 @@
 		{
 			"id": "eslint",
 			"lines": [
-				"pre-commit: ESLint failed on this commit's own app/ or lib/ paths."
+				"pre-commit: ESLint failed on this commit's own app/, lib/ or scripts/ paths."
 			]
 		},
 		{

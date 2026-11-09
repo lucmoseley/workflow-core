@@ -127,7 +127,7 @@ const EXEC_ARRAY_CALL = new RegExp(
 );
 const CWD_VAR = new RegExp(`\\bcwd:\\s*(${REPO_VAR})`);
 /** `git init`'s directory, where the array ends on a bare variable. */
-// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows a local check, nothing worse (#4642)
+// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const INIT_PATH_VAR = new RegExp(`,\\s*(${REPO_VAR})\\s*,?\\s*$`);
 
 /**

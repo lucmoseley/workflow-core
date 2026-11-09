@@ -388,7 +388,7 @@ function importsOf(
  * right before it, so a URL-bearing string can swallow the rest of its line.
  */
 const stripComments = (/** @type {string} */ s) =>
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows a local check, nothing worse (#4642)
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 
 /** `CLAUDE_CONFIG_DIR` set as an env key, assigned or stubbed — never merely read or typed. */
