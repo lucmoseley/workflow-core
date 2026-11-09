@@ -28,6 +28,7 @@ import {
 	stopIn,
 	write,
 } from "./lib/concision-backstop-testkit";
+import { declareArea } from "./lib/declare-area-testkit";
 import { cutWorktree } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 
@@ -37,18 +38,8 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 	const policy =
 		"create policy own_rows on bookings using (guest = auth.uid());\n";
 
-	/** Declare one area over `globs` in `tree`'s working copy. */
-	const declare = (globs: string[], tree = repo, name = "RLS") => {
-		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tree, ".claude", "workflow-core.json"),
-			JSON.stringify({
-				sensitivePaths: [
-					{ name, description: "who may read or write what", globs },
-				],
-			}),
-		);
-	};
+	const declare = (globs: string[], tree = repo, name = "RLS") =>
+		declareArea(tree, name, globs);
 
 	const wroteSql = () => {
 		write("supabase/migrations/001_rls.sql", policy);

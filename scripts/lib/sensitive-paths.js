@@ -203,9 +203,10 @@ function readNarrowingCopies(root, since, to) {
 }
 
 /**
- * The working directory's git top level, else the directory itself: not
- * `worktreeRoot()`, whose host answer for a repository unrelated to the host
- * would read the declaration at revisions the caller took from its own tree.
+ * The working directory's git top level, else the directory itself, as its
+ * callers cd into the tree they diff: not `worktreeRoot()`, whose host answer
+ * for a repository unrelated to the host would read the declaration at
+ * revisions the caller took from its own tree (#4615).
  */
 function ownTree() {
 	const { gitTopLevel } = require("./host-root.js");

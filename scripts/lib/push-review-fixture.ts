@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { ledgerHead } from "./arbiter-testkit";
+import { declareArea } from "./declare-area-testkit";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
 import { readShellConst } from "./shell-const-testkit";
 
@@ -100,18 +101,6 @@ export function reviewFixture() {
 			cwd: tree,
 		});
 
-	const declareArea = (tree: string, name: string, globs: string[]) => {
-		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tree, ".claude", "workflow-core.json"),
-			JSON.stringify({
-				sensitivePaths: [
-					{ name, description: "who may read or write what", globs },
-				],
-			}),
-		);
-	};
-
 	return {
 		f,
 		git,
@@ -143,7 +132,6 @@ export function reviewFixture() {
 			ledgerHead(tree, arbiterEnv(sid)),
 		marker: (body: string) =>
 			fs.writeFileSync(path.join(markers(), `.codereview-pass-${ME}`), body),
-		/** Declare one area over `globs` in `tree`'s working copy. */
 		declareArea,
 		/** Declare RLS over supabase/migrations/** in `tree`. */
 		declareRls: (tree = f.shared) =>
