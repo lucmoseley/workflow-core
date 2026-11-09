@@ -459,6 +459,7 @@
 		".gitattributes": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-format-staged.test.ts",
+			"scripts/check-gh-route.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
 			"scripts/file-morning-review.test.ts",

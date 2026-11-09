@@ -381,6 +381,27 @@ describe("check-gh-route", () => {
 	});
 });
 
+describe("--root from outside the tree (#4824)", () => {
+	it("reads the root's vendored marks, not the working directory's", () => {
+		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-cwd-"));
+		try {
+			file(".gitattributes", "scripts/vendor/** linguist-vendored\n");
+			file("scripts/vendor/lib.sh", "#!/usr/bin/env bash\ngh api user\n");
+			file("scripts/hook.sh", "#!/usr/bin/env bash\ngh api user\n");
+			const r = runInProcess(SCRIPT, ["--root", root], {
+				cwd: elsewhere,
+				env: { ...process.env, GITHUB_ACTIONS: "" },
+			});
+			expect(r.status).toBe(1);
+			expect(`${r.stdout}${r.stderr}`).toContain(
+				"1 second binary route(s): scripts/hook.sh:2.",
+			);
+		} finally {
+			fs.rmSync(elsewhere, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("--index (#3687)", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });

@@ -275,11 +275,13 @@ function indexHead() {
  * The paths .gitattributes marks vendored or generated. Throws where git
  * cannot read the attributes.
  * @param {string[]} paths
- * @param {boolean} cached read .gitattributes from the index, as a commit carries it
- * @param {number | undefined} timeout the git call's ceiling, none where undefined
+ * @param {{ cached: boolean, timeout?: number, cwd?: string }} opts cached:
+ *   read .gitattributes from the index, as a commit carries it; timeout: the
+ *   git call's ceiling, none where undefined; cwd: the checkout read, the
+ *   working directory's where undefined
  * @returns {Set<string>}
  */
-function readAttributeExcluded(paths, cached, timeout) {
+function readAttributeExcluded(paths, { cached, timeout, cwd }) {
 	if (paths.length === 0) return new Set();
 	const r = spawnGitSync(
 		[
@@ -293,6 +295,7 @@ function readAttributeExcluded(paths, cached, timeout) {
 			input: paths.map((p) => `${p}\0`).join(""),
 			encoding: "utf8",
 			...(timeout === undefined ? {} : { timeout }),
+			...(cwd === undefined ? {} : { cwd }),
 		},
 	);
 	if (r.status !== 0)
@@ -312,18 +315,20 @@ function readAttributeExcluded(paths, cached, timeout) {
  * @param {string[]} paths repo-relative, read from the host root
  * @param {(p: string) => string | null} head a path's opening text, null
  *   where it is no regular file, which drops it
- * @param {{ cached?: boolean, timeout?: number }} [opts] cached: read
- *   .gitattributes from the index; timeout: the attribute read's ceiling
+ * @param {{ cached?: boolean, timeout?: number, cwd?: string }} [opts]
+ *   cached: read .gitattributes from the index; timeout: the attribute read's
+ *   ceiling; cwd: the checkout whose attributes are read, the working
+ *   directory's where undefined
  * @returns {string[]}
  */
-function shellFiles(paths, head, { cached = false, timeout } = {}) {
+function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {
 	const shell = paths.filter((p) => {
 		const named = SHELL_NAME.test(p);
 		if (!named && !NO_EXTENSION.test(p)) return false;
 		const text = head(p);
 		return text !== null && (named || SHELL_SHEBANG.test(text));
 	});
-	const excluded = readAttributeExcluded(shell, cached, timeout);
+	const excluded = readAttributeExcluded(shell, { cached, timeout, cwd });
 	return shell.filter((p) => !excluded.has(p));
 }
 

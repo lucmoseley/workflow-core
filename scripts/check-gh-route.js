@@ -62,11 +62,16 @@ runCheck({
 		const rootFlag = ctx.value("--root");
 		const root = path.resolve(rootFlag ?? hostRoot());
 		const files = listTreeFiles(root, ROOTS).sort();
-		/* A materialised tree's vendored marks are the index's .gitattributes,
-		 * never an unstaged edit to it (#3687). */
+		/* A root that is a checkout reads its own .gitattributes, whatever the
+		 * working directory (#4824). One that is not is a tree --against or
+		 * --index materialised, whose vendored marks are the index's
+		 * .gitattributes in the checkout this runs in, never an unstaged edit
+		 * to it (#3687). */
+		const checkout = fs.existsSync(path.join(root, ".git"));
 		const shell = new Set(
 			shellFiles(files, (rel) => readWorktreeHead(path.join(root, rel)), {
-				cached: rootFlag !== null,
+				cached: !checkout,
+				...(checkout ? { cwd: root } : {}),
 			}),
 		);
 		const { scanned, findings, fixes } = judgeTree(files, shell, (rel) =>
