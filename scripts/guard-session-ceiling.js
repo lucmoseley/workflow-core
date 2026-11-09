@@ -560,3 +560,6 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 }
 
 if (require.main === module) stopGuard.onPayload({ review, record: true });
+
+/* guard-held-ticket.js passes a session past the tripwire. */
+module.exports = { TRIPWIRE };

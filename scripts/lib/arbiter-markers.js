@@ -124,6 +124,7 @@ const MARKER_PREFIXES = [
 	".unpushed-nagged-",
 	".unpushed-seen-",
 	".exhausted-map-nagged-",
+	".held-ticket-nagged-",
 	".paste-self-match-nagged-",
 	".session-id-prose-nagged-",
 	".parked-blocked-",

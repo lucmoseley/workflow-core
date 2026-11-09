@@ -6880,6 +6880,25 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/guard-held-ticket.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/guard-held-ticket.test.ts",
+			"scripts/hook-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/core-deny-text.live.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/guard-held-ticket.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/guard-hook-escape.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
@@ -13370,6 +13389,7 @@
 			"scripts/concision-backstop-sensitive.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-held-ticket.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -17043,6 +17063,7 @@
 			"scripts/file-memory-kill-tickets.test.ts",
 			"scripts/file-process-runaway-tickets.test.ts",
 			"scripts/guard-exhausted-map.test.ts",
+			"scripts/guard-held-ticket.test.ts",
 			"scripts/guard-inventory.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -20514,6 +20535,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-held-ticket.test.ts",
 			"scripts/guard-jev-advisory.test.ts",
 			"scripts/guard-typecheck-owed.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
@@ -44793,6 +44815,7 @@
 			"scripts/file-process-runaway-tickets.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
 			"scripts/guard-exhausted-map.test.ts",
+			"scripts/guard-held-ticket.test.ts",
 			"scripts/guard-inventory.test.ts",
 			"scripts/guard-priced-options-close-rivals.test.ts",
 			"scripts/guard-priced-options-round-check.test.ts",

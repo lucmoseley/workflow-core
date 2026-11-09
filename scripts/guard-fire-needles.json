@@ -1809,6 +1809,15 @@
 				}
 			]
 		},
+		"guard-held-ticket.js": {
+			"needles": [
+				{
+					"id": "held-ticket-unfinished",
+					"kind": "block",
+					"text": "so the build unit is not finished, and this turn would end the session on it"
+				}
+			]
+		},
 		"guard-exhausted-map.js": {
 			"needles": [
 				{

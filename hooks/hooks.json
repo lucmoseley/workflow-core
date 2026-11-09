@@ -202,6 +202,11 @@
 					},
 					{
 						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-held-ticket.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-paste-self-match.js || true",
 						"timeout": 15
 					},

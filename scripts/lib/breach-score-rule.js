@@ -32,6 +32,7 @@ const STOP_CLASS = {
 	"guard-selection-sum": "breach",
 	"guard-uncommitted-work": "breach",
 	"guard-exhausted-map": "breach",
+	"guard-held-ticket": "breach",
 	"guard-paste-self-match": "breach",
 	"guard-session-id-prose": "breach",
 	"guard-session-ceiling": "notice",
