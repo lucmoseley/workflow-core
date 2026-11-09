@@ -128,7 +128,7 @@ describe("check-file-ci-time.js", () => {
 		);
 	});
 
-	it("judges the last three sweeps on main while a full list of lander runs is newer, listing each sweep branch by --branch (#4559)", () => {
+	it("judges the last three sweeps on main while a full list of lander runs is newer, listing main by --branch (#4559)", () => {
 		const sweeps = { "103": 340, "102": 61, "101": 89 };
 		for (const [id, seconds] of Object.entries(sweeps))
 			writeSweep(id, { [SLOW]: seconds });
@@ -174,10 +174,7 @@ exit(1);`,
 			.split("\n")
 			.map((l) => JSON.parse(l) as string[])
 			.filter((a) => a[1] === "list");
-		expect(lists.map((a) => a[a.indexOf("--branch") + 1]).sort()).toEqual([
-			"landing",
-			"main",
-		]);
+		expect(lists.map((a) => a[a.indexOf("--branch") + 1])).toEqual(["main"]);
 	});
 
 	it("is BROKEN on a bad invocation", () => {

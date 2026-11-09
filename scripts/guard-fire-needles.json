@@ -610,38 +610,6 @@
 					]
 				},
 				{
-					"id": "landing-force-push",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": ["force-pushes", "NEVER FORCE-PUSH OR DELETE `landing`"]
-				},
-				{
-					"id": "landing-remote-delete",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": ["` on the remote", "NEVER FORCE-PUSH OR DELETE `landing`"]
-				},
-				{
-					"id": "landing-force-push-fallback",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": [
-						"force-pushes",
-						"Never force-push or delete `landing`",
-						"the rule could not be read from"
-					]
-				},
-				{
-					"id": "landing-remote-delete-fallback",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": [
-						"` on the remote",
-						"Never force-push or delete `landing`",
-						"the rule could not be read from"
-					]
-				},
-				{
 					"id": "write-reformatted",
 					"core": "post-write",
 					"kind": "inject",

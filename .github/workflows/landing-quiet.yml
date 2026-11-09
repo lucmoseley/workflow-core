@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       force_failure:
-        description: "Fail whatever landing's age, to test the failure email."
+        description: "Fail whatever the newest push's age, to test the failure email."
         type: boolean
         default: false
 
@@ -49,7 +49,7 @@ jobs:
           # An untraced margin (#3964).
           QUIET_HOURS: 14
         # The push time, not the tip's commit date: a push of an older commit
-        # moves landing and must turn this green. curl for --retry-all-errors,
+        # moves the branch and must turn this green. curl for --retry-all-errors,
         # which `gh api` lacks; 3 retries is a guess.
         run: |
           if ! branch=$(node scripts/lib/landing-refs.js pushed-branch); then
