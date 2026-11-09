@@ -32,7 +32,6 @@ const REGISTRY_SOURCE = fs.readFileSync(
 	"utf8",
 );
 
-/** A hook carrying both empty regions around the merge-set exit. */
 const SKELETON = [
 	"#!/bin/sh",
 	beginMarker("merge"),

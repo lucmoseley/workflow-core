@@ -1,7 +1,6 @@
 /*
  * precommit-gates-render.js — renders lib/precommit-gates.js's GATES into
- * .husky/pre-commit's two `precommit-gates` regions (#4597). The generator,
- * scripts/generate-precommit-gates.js, writes and checks the hook with it.
+ * .husky/pre-commit's two `precommit-gates` regions (#4597).
  *
  * TWO REGIONS, because the hook exits on `--gates=merge` between them: the
  * `merge` region holds the gates the lander's merge set runs, the `batch`
@@ -23,7 +22,8 @@ const endMarker = (region) => `# precommit-gates:${region}:end`;
 
 /**
  * The shell word `armed` takes: the ERE quoted, each `$JS_TEST_ERE` in it
- * left to the shell as the double-quoted hook variable.
+ * left to the shell as the double-quoted hook variable, which shellQuote
+ * cannot emit.
  * @param {string} ere
  */
 const quoteEre = (ere) =>
@@ -53,7 +53,6 @@ const renderRegionBody = ({ GATES, FLAG_ARGS }, region) =>
 		.join("\n\n");
 
 /**
- * The hook with each region re-rendered.
  * @param {string} hook
  * @param {Registry} registry
  * @returns {string}

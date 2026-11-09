@@ -1,7 +1,6 @@
 /*
  * precommit-gates.js — the pre-commit's whole-repo checker gates, one row per
- * gate (#4597). Each row is the gate's one registration: what follows reads it
- * rather than restating it.
+ * gate (#4597). Each row is the gate's one registration, read by:
  *
  * - .husky/pre-commit's two `precommit-gates` regions, rendered by
  *   scripts/generate-precommit-gates.js, whose `--check` refuses a stale one.

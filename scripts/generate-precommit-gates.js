@@ -4,9 +4,6 @@
  * `precommit-gates` regions, rendered by lib/precommit-gates-render.js from
  * lib/precommit-gates.js's GATES (#4597).
  *
- * Usage:
- *   node scripts/generate-precommit-gates.js [--check]
- *
  * --check  render the index's registry and diff it against the index's hook;
  *          exit 1 where a region is stale, 2 where either file cannot be read
  *          or the hook lacks a region's marker pair. A repo whose index holds
@@ -57,7 +54,7 @@ function loadRegistry(source) {
 	const file = path.join(__dirname, "lib", "precommit-gates.js");
 	const m = new Module(file);
 	m.filename = file;
-	// @ts-expect-error _compile is Node's own loader, undeclared in its types
+	// @ts-expect-error undeclared in Node's types
 	m._compile(source, file);
 	return m.exports;
 }
