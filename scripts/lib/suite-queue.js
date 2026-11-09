@@ -49,7 +49,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * Why a turn is closed, by whom (#4359): `fifo`, the waiters joined ahead,
  * by PID; `admitted`, the launches admitted and not yet up, by PID and queue;
  * `peer`, the other queue's older waiters the climb charge holds (#4760).
- * @typedef {{ limb: "fifo", pids: number[] } | { limb: "admitted", admissions: { pid: number, queue: string }[] } | { limb: "peer", waiters: { pid: number, queue: string }[] }} TurnHold
+ * @typedef {{ limb: "fifo", pids: number[] } | { limb: "admitted" | "peer", holders: { pid: number, queue: string }[] }} TurnHold
  */
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
@@ -166,22 +166,29 @@ function isUnspawnedAdmission(record) {
 }
 
 /**
- * The live unspawned admissions in `queueDir`'s peer queues (#3203). Sweeps
- * nothing, a peer queue's stale markers being its own `readTurn`'s to remove.
+ * The live markers in `queueDir`'s peer queues that `keep` accepts, each with
+ * its queue's name. Sweeps nothing, a peer queue's stale markers being its own
+ * `readTurn`'s to remove.
  *
  * A PEER DIRECTORY THAT WILL NOT READ CONTRIBUTES NONE, failing open as an
- * unreadable own queue does: the peer's gate still reads
- * MemAvailable live, so what is lost is the same-poll yield, never the rung.
+ * unreadable own queue does. What is lost is the ordering against that queue:
+ * the same-poll yield (#3203) and the climb yield (#4760). Each gate still
+ * reads MemAvailable live, so the rung itself is never lost.
  *
  * @param {string} queueDir
+ * @param {(record: QueueRecord) => boolean} keep
  * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
  * @returns {(QueueRecord & { queue: string })[]}
  */
-function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
+function readPeerMarkers(
+	queueDir,
+	keep,
+	{ queueFs = fs, alive = pidAlive } = {},
+) {
 	return peerQueueDirs(queueDir).flatMap((dir) =>
 		readMarkers(dir, queueFs)
 			.markers.map((m) => ({ ...m.record, queue: path.basename(dir) }))
-			.filter((r) => isUnspawnedAdmission(r) && !isMarkerStale(r, { alive })),
+			.filter((r) => keep(r) && !isMarkerStale(r, { alive })),
 	);
 }
 
@@ -205,37 +212,31 @@ function openAdmissions(records, queueDir, { pid, queueFs, alive }) {
 				!isMarkerStale(r, { alive }),
 		)
 		.map((r) => ({ ...r, queue }))
-		.concat(readPeerAdmissions(queueDir, { queueFs, alive }));
+		.concat(
+			readPeerMarkers(queueDir, isUnspawnedAdmission, { queueFs, alive }),
+		);
 }
 
 /**
  * The live waiters in `queueDir`'s peer queues that joined before `mine` and
  * that the climb charge holds (#4760): stamped `climbHeld`, neither admitted
- * nor spawned. Sweeps nothing, as `readPeerAdmissions`.
+ * nor spawned (`readPeerMarkers`).
  *
  * @param {string} queueDir
  * @param {Pick<QueueRecord, "pid" | "at">} mine
  * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
  * @returns {{ pid: number, queue: string }[]}
  */
-function readPeerClimbHeld(
-	queueDir,
-	mine,
-	{ queueFs = fs, alive = pidAlive } = {},
-) {
-	return peerQueueDirs(queueDir).flatMap((dir) =>
-		readMarkers(dir, queueFs)
-			.markers.map((m) => m.record)
-			.filter(
-				(r) =>
-					r.climbHeld === true &&
-					r.admitted !== true &&
-					r.spawned !== true &&
-					joinedBefore(r, mine) &&
-					!isMarkerStale(r, { alive }),
-			)
-			.map((r) => ({ pid: r.pid, queue: path.basename(dir) })),
-	);
+function readPeerClimbHeld(queueDir, mine, options = {}) {
+	return readPeerMarkers(
+		queueDir,
+		(r) =>
+			r.climbHeld === true &&
+			r.admitted !== true &&
+			r.spawned !== true &&
+			joinedBefore(r, mine),
+		options,
+	).map(({ pid, queue }) => ({ pid, queue }));
 }
 
 /**
@@ -755,14 +756,14 @@ function queueSpawned(file, options = {}) {
  * What a queued waiter's `waitForGate` reads and writes through its queue,
  * spread into its options as one, so no queued caller wires one without the
  * others: `admit` (`queueAdmit`), `onMemoryHeld`, the `memoryHeld` stamp
- * (#3058), `onClimbHolds`, the `climbHeld` stamp (#4760), and `climbMb`, what
+ * (#3058), `onClimbStamp`, the `climbHeld` stamp (#4760), and `climbMb`, what
  * its peer queues' launches have yet to draw (#3416). `onClimbHeld` keeps the highest charge that held the wait, for
  * `killedHold` to give a killed wait's exit line, which `waitForGate` never
  * reaches (#3806).
  *
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, onMemoryHeld: (memoryHeld: boolean) => void, onClimbHolds: (climbHeld: boolean) => void, climbMb: () => number, onClimbHeld: (climbMb: number) => void, killedHold: () => WaitHold }}
+ * @returns {{ admit: () => Admission, onMemoryHeld: (memoryHeld: boolean) => void, onClimbStamp: (climbHeld: boolean) => void, climbMb: () => number, onClimbHeld: (climbMb: number) => void, killedHold: () => WaitHold }}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
@@ -773,7 +774,7 @@ function queueStamps(file, options = {}) {
 		killedHold: () => (climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 		admit: () => queueAdmit(file, options),
 		onMemoryHeld: (memoryHeld) => stampMarker(file, { memoryHeld }, options),
-		onClimbHolds: (climbHeld) => stampMarker(file, { climbHeld }, options),
+		onClimbStamp: (climbHeld) => stampMarker(file, { climbHeld }, options),
 		climbMb: () =>
 			readPeerClimbMb(options.queueDir ?? defaultQueueDir(), options),
 	};
@@ -929,9 +930,11 @@ function readTurn({
 	/* An open admission closes every turn, the waiters ahead's too, so it
 	 * names the hold over them. */
 	if (reasons.includes("admitted"))
-		return { open: false, hold: { limb: "admitted", admissions } };
+		return { open: false, hold: { limb: "admitted", holders: admissions } };
+	/* The waiters ahead in this queue are named over a peer: they hold the
+	 * turn after the peer has spawned too, so they are the longer hold. */
 	if (reasons.length === 1 && reasons[0] === "peer-climb")
-		return { open: false, hold: { limb: "peer", waiters: peers } };
+		return { open: false, hold: { limb: "peer", holders: peers } };
 	return { open: false, hold: { limb: "fifo", pids: ahead.map((r) => r.pid) } };
 }
 
@@ -1177,10 +1180,8 @@ const pidList = (pids) =>
 function limbHolder(hold) {
 	if (hold.limb === "count") return pidList(hold.pids ?? []);
 	if (hold.limb === "fifo") return pidList(hold.pids);
-	if (hold.limb === "admitted" || hold.limb === "peer") {
-		const held = hold.limb === "admitted" ? hold.admissions : hold.waiters;
-		return `, ${held.map(({ pid, queue }) => `PID ${pid} in ${queue}`).join(", ")}`;
-	}
+	if (hold.limb === "admitted" || hold.limb === "peer")
+		return `, ${hold.holders.map(({ pid, queue }) => `PID ${pid} in ${queue}`).join(", ")}`;
 	return "";
 }
 
@@ -1380,12 +1381,13 @@ function heldOnClimbMb(denial) {
 }
 
 /**
- * `listener`, called only when the flag it is handed changes, from false.
+ * A setter that hands `listener` its flag only when the flag changes,
+ * starting from false.
  *
  * @param {(held: boolean) => void} listener
  * @returns {(held: boolean) => void}
  */
-function onChange(listener) {
+function changesOnly(listener) {
 	let last = false;
 	return (held) => {
 		if (held === last) return;
@@ -1424,7 +1426,7 @@ function onChange(listener) {
  *
  * `onMemoryHeld` hears whether the memory rung holds the wait, each time that
  * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
- * `onClimbHolds` hears the same of the climb charge alone (`heldOnClimbMb`),
+ * `onClimbStamp` hears the same of the climb charge alone (`heldOnClimbMb`),
  * which the other queue's waiters yield to (#4760).
  *
  * `climbMb` is read each poll and handed to `gate` to charge on its memory
@@ -1433,7 +1435,7 @@ function onChange(listener) {
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
  * changes, and the time held on each limb as the wait ends (#4359).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onClimbHolds?: (held: boolean) => void, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined }} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onClimbStamp?: (held: boolean) => void, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined }} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1458,7 +1460,7 @@ function waitForGate({
 	onMemoryHeld = () => {
 		/* no marker to stamp */
 	},
-	onClimbHolds = () => {
+	onClimbStamp = () => {
 		/* no marker to stamp */
 	},
 	onClimbHeld = () => {
@@ -1479,8 +1481,8 @@ function waitForGate({
 	/* Whether `hold` has run since the last sleep: a reading taken after it
 	 * is still fresh. */
 	let held = false;
-	const stampMemoryHeld = onChange(onMemoryHeld);
-	const stampClimbHolds = onChange(onClimbHolds);
+	const stampMemoryHeld = changesOnly(onMemoryHeld);
+	const stampClimbHolds = changesOnly(onClimbStamp);
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock, started);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
