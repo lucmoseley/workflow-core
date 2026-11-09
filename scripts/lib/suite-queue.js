@@ -1016,7 +1016,8 @@ function readTurn({
  *
  * Residual: the stamp is a poll old, so a part-suite may pass one whose
  * memory freed since; and a drop that will not write leaves the stamp, letting
- * younger ones pass until the age bound.
+ * younger ones pass until the age bound, or a `windowsHeld` one for as long
+ * as its marker lives.
  *
  * @param {TurnSnapshot} snapshot
  * @param {{ partPass?: boolean }} [options]

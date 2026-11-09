@@ -34,6 +34,7 @@ import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
 import { TSC_PEAK_MB, tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
+import { windowsNeedMb, windowsShortfall } from "./windows-memory";
 
 const {
 	isMarkerStale,
@@ -666,18 +667,30 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		/* 9 Nov 2026: the head waited out its 40 minutes on the Windows hold
 		 * while Windows' free memory cleared the 2-file run behind it. */
 		const late = 5 * PART_PASS_AGE_MS;
-		const headHeldOn = async (denial: object) => {
+		/* One Windows reading, each run judged on its own workers' draw. */
+		const windowsGate = (workers: number) => () => {
+			const short = windowsShortfall(
+				{ state: "fresh", mb: 1700, ageS: 0 },
+				windowsNeedMb(suiteRungMb(workers) - suiteRungMb(0)),
+			);
+			return short ? { limb: "windows" as const, ...short } : null;
+		};
+		/** A 6-file head held on `headGate`, and a 1-file run behind it. */
+		const headHeldOn = async (headGate: () => object | null) => {
 			const queueDir = qdir();
-			const head = joined(queueDir, 11, 0, { weight: PART });
-			joined(queueDir, 99, 1000, { weight: PART });
+			const head = joined(queueDir, 11, 0, { weight: weighed(6) });
+			joined(queueDir, 99, 1000, { weight: weighed(1) });
 			let t = 0;
 			let behind: object | undefined;
 			const outcome = await head.wait({
-				gate: () => denial as never,
+				gate: headGate as never,
 				clock: () => t,
 				timeoutMs: late,
 				sleepFn: async () => {
-					behind = await polled({ queueDir, pid: 99, clock: () => late });
+					behind = await polled(
+						{ queueDir, pid: 99, clock: () => late },
+						{ gate: windowsGate(1) },
+					);
 					t = late;
 				},
 				out: { write: () => true },
@@ -686,20 +699,18 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		};
 
 		it("admits a smaller part-suite that fits past a head the hold keeps out, past the memory age bound", async () => {
-			expect(
-				await headHeldOn({ limb: "windows", mb: 1700, needMb: 2900 }),
-			).toEqual({
+			expect(await headHeldOn(windowsGate(6))).toEqual({
 				outcome: "refused",
 				behind: { reason: "opened", passed: 1 },
 			});
 		});
 
 		it("holds it behind a head the memory rung keeps out that long", async () => {
-			const { behind } = await headHeldOn({
+			const { behind } = await headHeldOn(() => ({
 				limb: "memory",
 				mb: 1000,
 				rungMb: 2000,
-			});
+			}));
 			expect(behind).toMatchObject({ reason: "refused" });
 		});
 

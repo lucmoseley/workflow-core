@@ -160,10 +160,10 @@ const isoAt = (s) => {
 /**
  * The logs the replay reads, cut to what can touch [since, until].
  *
- * @param {{ markers: string, memwatch: string[], minuteLog?: string | null, since: number, until: number }} o
+ * @param {{ markers: string, memwatch: string[], minuteLog: string, since: number, until: number }} o
  * @returns {Logs}
  */
-function readLogs({ markers, memwatch, minuteLog = null, since, until }) {
+function readLogs({ markers, memwatch, minuteLog, since, until }) {
 	const lo = new Date(since - PAD_MS).toISOString();
 	const hi = new Date(until + PAD_MS).toISOString();
 	const inRange = (/** @type {string} */ line) => {
@@ -197,9 +197,12 @@ function readLogs({ markers, memwatch, minuteLog = null, since, until }) {
 		? withModuleCounts(logged, readModuleCounts(markers, unread, inRange))
 		: logged;
 	const mem = readMemwatch(memwatch, unread);
-	const windows = minuteLog
-		? readWindowsMinutes(minuteLog, unread, since - PAD_MS, until + PAD_MS)
-		: new Map();
+	const windows = readWindowsMinutes(
+		minuteLog,
+		unread,
+		since - PAD_MS,
+		until + PAD_MS,
+	);
 	return { exits, runs, mem, windows, unread };
 }
 

@@ -521,6 +521,7 @@ describe("reading the logs", () => {
 		const logs = readLogs({
 			markers: dir,
 			memwatch: [memwatch, path.join(dir, "absent.log")],
+			minuteLog: path.join(dir, "memwatch-minute.jsonl"),
 			since: T0,
 			until: T0 + 60 * MIN,
 		});
@@ -568,6 +569,7 @@ describe("reading the logs", () => {
 		const logs = readLogs({
 			markers: dir,
 			memwatch: [],
+			minuteLog: path.join(dir, "memwatch-minute.jsonl"),
 			since: st,
 			until: st + 10 * MIN,
 		});
