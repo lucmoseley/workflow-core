@@ -26,11 +26,6 @@ const { parseErrLine } = require("./gh");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot } = require("./proc-root.js");
 const { availableFrom, readMeminfoKb } = require("./meminfo.js");
-const {
-	WINDOWS_PAGING_WHY,
-	buildWindowsUnreadNote,
-	readWindowsMemory,
-} = require("./windows-memory.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -1351,13 +1346,6 @@ function admissionFrom(mem, procs, readings = {}) {
 			admit: false,
 			reason: buildSessionCeilingText(cpu),
 		};
-	if (f.memRead && f.onWindows && f.onWindows.windowsSlots < 1)
-		return {
-			freeSlots,
-			...shared,
-			admit: false,
-			reason: buildWindowsHoldText(f.onWindows),
-		};
 	/*
 	 * The guaranteed slot keys off the SESSION count with this run's own session
 	 * subtracted, never off whether any claude process is alive: the host process
@@ -1396,15 +1384,12 @@ function admissionFrom(mem, procs, readings = {}) {
 
 /**
  * What capped `admissionFrom`'s admitting slots below the p95 memory slots:
- * the Windows-memory hold where it binds them, else the CPU; empty where
- * neither did.
+ * the CPU; empty where it did not.
  * @param {AdmissionFigures} f
  * @param {CpuSlots} cpu
  */
 function buildCapNote(f, cpu) {
 	if (f.freeSlots === f.byMemory) return "";
-	if (f.onWindows && f.onWindows.windowsSlots === f.freeSlots)
-		return `; capped by Windows: ${buildWindowsHoldText(f.onWindows)}`;
 	return `; capped by the CPU: ${buildSessionCeilingText(cpu)}`;
 }
 
@@ -1477,44 +1462,18 @@ function buildStrictMemoryReason({
  */
 
 /**
- * `strictAdmission`'s reason: the load hold, else the Windows-memory hold or
- * the CPU cap, whichever binds tighter, where one binds.
- * @param {Pick<AdmissionFigures, "load" | "cpu" | "onWindows" | "memorySlots">} f
+ * `strictAdmission`'s reason: the load hold, else the CPU cap where it binds.
+ * @param {Pick<AdmissionFigures, "load" | "cpu" | "memorySlots">} f
  * @param {string} memoryReason
  */
-function buildStrictReason(
-	{ load, cpu, onWindows, memorySlots },
-	memoryReason,
-) {
+function buildStrictReason({ load, cpu, memorySlots }, memoryReason) {
 	if (load.overloaded)
 		return `${buildOverloadText(load)}; were it not for the load, ${memoryReason}`;
 	const cpuCap = cpu.slots ?? Number.POSITIVE_INFINITY;
-	if (onWindows && onWindows.windowsSlots < Math.min(memorySlots, cpuCap))
-		return `${buildWindowsHoldText(onWindows)}; were it not for Windows, ${memoryReason}`;
 	if (cpuCap < memorySlots)
 		return `${buildSessionCeilingText(cpu)}; were it not for the CPU, ${memoryReason}`;
 	return memoryReason;
 }
-
-/**
- * The ADMISSION block's Windows line (#4557): the reading and its slots, the
- * fail-open where no fresh reading exists, null on a machine with no memwatch.
- * @param {import("./windows-memory.js").WindowsRead} windows
- * @param {AdmissionFigures["onWindows"]} onWindows
- * @returns {string | null}
- */
-function buildWindowsLine(windows, onWindows) {
-	if (windows.state !== "fresh" || onWindows === null)
-		return buildWindowsUnreadNote(windows, "sessions");
-	return `${windows.mb} MB free on Windows (memwatch, ${windows.ageS} s old), ${onWindows.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${onWindows.windowsSlots} slot(s) (#4557)`;
-}
-
-/**
- * The Windows-memory hold on sessions (#4557).
- * @param {NonNullable<AdmissionFigures["onWindows"]>} w
- */
-const buildWindowsHoldText = (w) =>
-	`Windows itself has ${w.windowsMb} MB free, ${w.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${w.windowsSlots} slot(s): ${WINDOWS_PAGING_WHY} (#4557)`;
 
 /**
  * The dispatch-time verdict: `admissionFigures`, refused where memory or the
@@ -1525,9 +1484,7 @@ const buildWindowsHoldText = (w) =>
  * credit in full, from `reclaimedMb`; `suites` takes it only to lift 0 to 1,
  * for the reasons on `suiteCapacity` (mantahostels#1930). `byMemory` and
  * `memorySlots` keep the memory figures under a load or CPU hold, and
- * `cpuIsSoleHold` says memory and Windows would admit and only the CPU limb
- * holds. `windows` is the Windows reading and `onWindows` its slots, null
- * where no fresh reading holds them (#4557).
+ * `cpuIsSoleHold` says memory would admit and only the CPU limb holds.
  * @param {MbResult} mem
  * @param {LiveSessionsResult} procs
  * @param {import("./admission-figures.js").AdmissionReadings} [readings]
@@ -1553,8 +1510,6 @@ const buildWindowsHoldText = (w) =>
  *   load: LoadReading,
  *   cpu: CpuSlots,
  *   cpuIsSoleHold: boolean,
- *   windows: import("./windows-memory.js").WindowsRead,
- *   onWindows: AdmissionFigures["onWindows"],
  *   admit: boolean,
  *   reason: string,
  *   suites: number,
@@ -1604,12 +1559,7 @@ function strictAdmission(mem, procs, readings = {}) {
 		slots: f.slots,
 		load,
 		cpu,
-		cpuIsSoleHold:
-			f.slots === 0 &&
-			f.memorySlots > 0 &&
-			(f.onWindows === null || f.onWindows.windowsSlots > 0),
-		windows: f.windows,
-		onWindows: f.onWindows,
+		cpuIsSoleHold: f.slots === 0 && f.memorySlots > 0,
 		admit: f.slots > 0,
 		reason: buildStrictReason(f, memoryReason),
 		suites: suiteCapacity(f.effectiveMb, reclaimedMb, f.availableMb),
@@ -1645,7 +1595,6 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 	const live = liveDraw(listed, { pairs, pssKbOf: readPssKb, children });
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
-	const windows = readWindowsMemory();
 	const landerMb = landerHeldMb(landers, {
 		pssKbOf: readPssKb,
 		children,
@@ -1660,7 +1609,6 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		cpu,
 		landerMb,
 		launchMb,
-		windows,
 	});
 	const memory = memoryBreakdown({
 		meminfo,
@@ -1690,7 +1638,6 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		cpu,
 		landerMb,
 		launchMb,
-		windows,
 		verdict,
 		memory,
 	};
@@ -1727,7 +1674,6 @@ function selectionAdmission({ listed, reclaimable, landers }) {
 		cpu: readings.cpu,
 		landerMb: readings.landerMb,
 		launchMb: readings.launchMb,
-		windows: readings.windows,
 	});
 	return { ...readings, admission };
 }
@@ -1747,7 +1693,6 @@ module.exports = {
 	selectionAdmission,
 	LAUNCH_SPARES,
 	buildSessionDrawLine,
-	buildWindowsLine,
 	SWAP_HOLD_AVAILABLE_MB,
 	readSwapHold,
 	swapHoldText,

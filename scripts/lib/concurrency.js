@@ -172,11 +172,6 @@ function resourceFailing(a) {
 		const top = largestHolder(a);
 		out.push({ limit: "memory", why: `${top.name} holds most (${top.mb} MB)` });
 	}
-	if (a.onWindows?.windowsSlots === 0)
-		out.push({
-			limit: "Windows memory",
-			why: `Windows itself has ${a.onWindows.windowsMb} MB free, ${a.onWindows.windowsBudgetMb} MB after the reserve and margin`,
-		});
 	const { load, cpu } = a;
 	if (!load || !cpu)
 		out.push({
@@ -238,20 +233,6 @@ function buildTickRecord(tick) {
 }
 
 /**
- * Windows' free memory as admission read it (#4557): its slots where fresh,
- * the fail-open's reason where stale, null where no memwatch runs.
- * @param {AdmissionJson} a
- * @returns {{mb: number, slots: number|null} | {unread: string} | null}
- */
-function buildTickWindows(a) {
-	const w = a.windows;
-	if (w?.state === "fresh")
-		return { mb: w.mb, slots: a.onWindows?.windowsSlots ?? null };
-	if (w?.state === "stale") return { unread: w.why };
-	return null;
-}
-
-/**
  * The memory figures a tick keeps from admission's verdict.
  * @param {AdmissionJson} a
  */
@@ -266,7 +247,6 @@ function buildTickMemory(a) {
 		floorMb: a.floorMb,
 		marginMb: a.marginMb,
 		memorySlots: a.memorySlots,
-		windows: buildTickWindows(a),
 		rows: {
 			working: a.memory?.working?.mb ?? null,
 			finished: a.memory?.finished?.mb ?? null,

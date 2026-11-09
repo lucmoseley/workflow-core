@@ -15,7 +15,6 @@ const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
  * @typedef {{ sessions: number, unvouched?: boolean }} SessionCount
  * @typedef {(SessionCount & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {import("./admission.js").LiveSessionsResult} LiveSessionsResult
- * @typedef {import("./windows-memory.js").WindowsRead} WindowsRead
  */
 
 /* The default for a caller that has not read the load: no hold. */
@@ -76,11 +75,9 @@ const NO_LIVE_DRAW = {
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
  * `landerMb`, from `landerHeldMb`, is held back for the lander's suite;
  * `load` comes from `overloadReading`, and an overload holds
- * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), and so does
- * `windows`, from `readWindowsMemory`, a fresh reading holding them to what
- * Windows' own free memory admits (#4557), the always-admit-one guarantee
- * included in all three.
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, launchMb?: number, windows?: WindowsRead }} AdmissionReadings
+ * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
+ * always-admit-one guarantee included in both.
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, launchMb?: number }} AdmissionReadings
  */
 
 /* The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
@@ -149,29 +146,6 @@ function drawSlots(budgetMb, live, host, launchMb) {
 }
 
 /**
- * The slots Windows' own free memory admits, null where no fresh reading
- * holds them (#4557). The same aggregate draw as the guest's, against Windows'
- * free memory less the pool reserve, the lander's suite and DRAW_MARGIN_MB:
- * earlyoom's line is the guest's, and a reclaim's freed pages return to
- * Windows on no schedule, so earn no credit.
- * @param {WindowsRead} windows
- * @param {{ reservedMb: number, landerMb: number, live: LiveDraw, host: SessionDraw, launchMb: number }} draw
- * @returns {{ windowsMb: number, windowsBudgetMb: number, windowsSlots: number } | null}
- */
-function windowsSlotsOf(
-	windows,
-	{ reservedMb, landerMb, live, host, launchMb },
-) {
-	if (windows.state !== "fresh") return null;
-	const windowsBudgetMb = windows.mb - reservedMb - landerMb - DRAW_MARGIN_MB;
-	return {
-		windowsMb: windows.mb,
-		windowsBudgetMb,
-		windowsSlots: drawSlots(windowsBudgetMb, live, host, launchMb),
-	};
-}
-
-/**
  * Whether the always-admit-one guarantee holds: nothing of ours running and
  * memory admitting none. A zero count no listing vouched for never unlocks it
  * (#2180).
@@ -190,8 +164,8 @@ function isGuaranteed(procs, byMemory) {
  * no guarantee; unread memory yields no figures, only its error.
  *
  * `byMemory` is the p95 pricing alone, and `memorySlots` lifts it to the
- * guarantee's slot. `freeSlots` and `slots` are those two under the CPU cap,
- * the Windows hold and the load hold.
+ * guarantee's slot. `freeSlots` and `slots` are those two under the CPU cap
+ * and the load hold.
  * @param {MbResult} mem
  * @param {LenientProcs | LiveSessionsResult} procs
  * @param {AdmissionReadings} [readings]
@@ -208,7 +182,6 @@ function admissionFigures(
 		cpu = CPU_UNREAD,
 		landerMb = 0,
 		launchMb = 0,
-		windows = { state: "absent" },
 	} = {},
 ) {
 	const inputs = {
@@ -220,7 +193,6 @@ function admissionFigures(
 		launchMb,
 		reservedError: overhead.ok ? null : overhead.error,
 		reclaimableError: reclaimable.ok ? null : reclaimable.error,
-		windows,
 	};
 	if (!mem.ok)
 		return {
@@ -237,20 +209,8 @@ function admissionFigures(
 	const byMemory = drawSlots(budgetMb, live, host, launchMb);
 	const guaranteed = procs.ok && isGuaranteed(procs, byMemory);
 	const memorySlots = guaranteed ? 1 : byMemory;
-	const onWindows = windowsSlotsOf(windows, {
-		reservedMb,
-		landerMb,
-		live,
-		host,
-		launchMb,
-	});
 	const held = (/** @type {number} */ n) =>
-		load.overloaded
-			? 0
-			: Math.min(
-					cpuCapped(n, cpu),
-					onWindows ? onWindows.windowsSlots : Number.POSITIVE_INFINITY,
-				);
+		load.overloaded ? 0 : cpuCapped(n, cpu);
 	return {
 		...inputs,
 		memRead: /** @type {const} */ (true),
@@ -266,7 +226,6 @@ function admissionFigures(
 		guaranteed,
 		freeSlots: held(byMemory),
 		memorySlots,
-		onWindows,
 		slots: held(memorySlots),
 	};
 }

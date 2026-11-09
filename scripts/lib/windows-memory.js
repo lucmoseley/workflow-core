@@ -186,7 +186,6 @@ const buildWindowsShortText = (short) =>
 	`Windows itself has ${short.mb} MB free (memwatch's win_avail_mb), under the ~${short.needMb} MB this launch draws plus the margin; ${WINDOWS_PAGING_WHY}, so a guest reading plenty can still page Windows (#4557)`;
 
 module.exports = {
-	WINDOWS_PAGING_WHY,
 	buildWindowsShortText,
 	buildWindowsUnreadNote,
 	minuteLogPath,

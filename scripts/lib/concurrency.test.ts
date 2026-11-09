@@ -525,37 +525,6 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		});
 	});
 
-	it("records the Windows-memory hold as binding where it alone holds every slot (#4557)", () => {
-		const r = record({
-			input: input(),
-			decision: idle("no free slot"),
-			admission: admission({
-				windows: { state: "fresh", mb: 2129, ageS: 40 },
-				onWindows: { windowsMb: 2129, windowsBudgetMb: 1029, windowsSlots: 0 },
-			}),
-		});
-		expect(r).toMatchObject({
-			binding: {
-				limit: "Windows memory",
-				why: "Windows itself has 2129 MB free, 1029 MB after the reserve and margin",
-			},
-			memory: { windows: { mb: 2129, slots: 0 } },
-		});
-	});
-
-	it("keeps a stale Windows reading's fail-open on the record, and none where no memwatch runs (#4557)", () => {
-		const tick = (windows?: unknown) =>
-			record({
-				input: input(),
-				decision: idle("no free slot"),
-				admission: admission(windows ? { windows } : {}),
-			});
-		expect(
-			tick({ state: "stale", why: "memwatch stopped" }).memory.windows,
-		).toEqual({ unread: "memwatch stopped" });
-		expect(tick().memory.windows).toBeNull();
-	});
-
 	it("carries the breakdown's unlisted row (#3322)", () => {
 		const unlisted = {
 			count: 1,
