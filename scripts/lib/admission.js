@@ -1586,7 +1586,7 @@ function buildWindowsLine(windows, onWindows) {
  * @param {NonNullable<AdmissionFigures["onWindows"]>} w
  */
 const buildWindowsHoldText = (w) =>
-	`Windows itself has ${w.windowsMb} MB free, ${w.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${w.windowsSlots} slot(s): ${WINDOWS_PAGING_WHY} (docs/environment.md §6, #4557)`;
+	`Windows itself has ${w.windowsMb} MB free, ${w.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${w.windowsSlots} slot(s): ${WINDOWS_PAGING_WHY} (#4557)`;
 
 /**
  * The dispatch-time verdict: `admissionFigures`, refused where memory or the
