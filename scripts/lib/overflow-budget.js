@@ -12,12 +12,16 @@
  * A SHOWN READ REUSES THE LAST (#4669): every sized budget is kept beside the
  * ledger, and `refill-loop.js status`, which the panel polls every few seconds,
  * takes it while it is no older than a shown listing may be and neither the
- * ledger nor the Console log has changed since. Pricing every poll cost ~0.2
- * CPU-s a run, most of it `stat`s of every transcript.
+ * ledger, the Console log nor the cost table has changed since. Pricing every
+ * poll cost ~0.2 CPU-s a run, most of it `stat`s of every transcript.
+ * Residual: a shown figure leaves out up to DISPLAY_MAX_AGE_MS of transcript
+ * growth no other read has priced, and a ledger write landing between a sizing's
+ * pricing and its reading of the ledger's time goes unseen until that age.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { isDeepStrictEqual } = require("node:util");
 const { parseArgs } = require("node:util");
 const {
 	DISPLAY_MAX_AGE_MS,
@@ -50,6 +54,7 @@ const {
 	settleChainsOnce,
 } = require("./overflow-budget-core.js");
 const {
+	SESSION_COST_TABLE,
 	readChainSpendUsd,
 	readCostTableIn,
 	readSessionFiles,
@@ -307,52 +312,62 @@ function priceRunning(sessionIds, ledger, chainPriced) {
  * @returns {SeatBudget|{why: string}}
  */
 function seatBudget(seat, root, readAgents = readAgentsForBudget) {
-	const budget = sizeSeat(seat, root, readAgents);
-	if (!("why" in budget)) keepShown(seat, root, budget);
-	return budget;
+	if (root === undefined)
+		return { why: "the loop serves no checkout to read the cost table in" };
+	const at = Date.now();
+	const sized = sizeSeat(seat, root, readAgents);
+	if ("why" in sized) return sized;
+	keepShown({ at, root, seat, inputs: sized.inputs, budget: sized.budget });
+	return sized.budget;
 }
 
 /**
- * When each file a kept budget was sized from last changed, ms; 0 for absent.
- * @param {OverflowSeat} seat
+ * When a file whose change voids a kept budget last changed, ms; 0 for absent.
+ * @param {string} file
  */
-const readInputTimes = (seat) =>
-	[ledgerFile(seat), consoleLogFile(seat)].map(
-		(f) => fs.statSync(f, { throwIfNoEntry: false })?.mtimeMs ?? 0,
-	);
+const readChangedAt = (file) =>
+	fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
 
 /**
- * @typedef {{at: number, root: string|undefined, seat: OverflowSeat,
- *   inputs: number[], budget: SeatBudget}} KeptBudget
+ * Those files: the ledger, the Console log and the cost table, in that order.
+ * @param {OverflowSeat} seat
+ * @param {string} root
+ * @returns {[string, string, string]}
+ */
+const inputFilesOf = (seat, root) => [
+	ledgerFile(seat),
+	consoleLogFile(seat),
+	path.join(root, SESSION_COST_TABLE),
+];
+
+/**
+ * @typedef {{at: number, root: string, seat: OverflowSeat, inputs: number[],
+ *   budget: SeatBudget}} KeptBudget `at`, ms, when its sizing began
  */
 
 /**
- * Keep the budget for shownSeatBudget.
- * @param {OverflowSeat} seat
- * @param {string|undefined} root
- * @param {SeatBudget} budget
+ * Keep the budget for shownSeatBudget, unless one sized later is kept already:
+ * a slow shown sizing must not write over the tick's newer one.
+ * @param {KeptBudget} kept
  */
-function keepShown(seat, root, budget) {
-	/** @type {KeptBudget} */
-	const kept = {
-		at: Date.now(),
-		root,
-		seat,
-		inputs: readInputTimes(seat),
-		budget,
-	};
+function keepShown(kept) {
+	const file = shownFile(kept.seat);
+	const held = /** @type {KeptBudget|null} */ (readJsonOutcome(file).value);
+	if ((held?.at ?? 0) > kept.at) return;
 	try {
-		writeFileAtomic(shownFile(seat), JSON.stringify(kept));
+		writeFileAtomic(file, JSON.stringify(kept));
 	} catch {
-		/* Only the next shown read's reuse is lost: not the sizing's failure. */
+		/* Only the next shown read's reuse is lost: not the sizing's failure (#4669). */
 	}
 }
 
 /**
  * The key's budget for a reader that only shows it: the last one sized, by the
- * tick or a shown read, while it is no older than DISPLAY_MAX_AGE_MS, sized
- * for this seat and root, and its ledger and Console log are unchanged since;
- * else sized again off the shared listing (`readAgentsForDisplay`, #4169).
+ * tick or a shown read, while neither it nor the listing it counted running
+ * sessions off is older than DISPLAY_MAX_AGE_MS, its cycle has not turned, it
+ * was sized for this seat and root, and none of its input files has changed
+ * since; else sized again off the shared listing (`readAgentsForDisplay`,
+ * #4169).
  * @param {OverflowSeat} seat
  * @param {string|undefined} root
  * @returns {SeatBudget|{why: string}}
@@ -361,29 +376,39 @@ function shownSeatBudget(seat, root) {
 	const kept = /** @type {KeptBudget|null} */ (
 		readJsonOutcome(shownFile(seat)).value
 	);
-	const age = Date.now() - (kept?.at ?? Number.NaN);
+	const now = Date.now();
 	if (
 		kept !== null &&
-		age >= 0 &&
-		age <= DISPLAY_MAX_AGE_MS &&
+		root !== undefined &&
 		kept.root === root &&
-		JSON.stringify(kept.seat) === JSON.stringify(seat) &&
-		JSON.stringify(kept.inputs) === JSON.stringify(readInputTimes(seat))
-	)
-		return kept.budget;
+		isDeepStrictEqual(kept.seat, seat)
+	) {
+		const age = now - Math.min(kept.at, kept.budget.runningReadAt ?? kept.at);
+		if (
+			age >= 0 &&
+			age <= DISPLAY_MAX_AGE_MS &&
+			now < kept.budget.nextCycleStart &&
+			isDeepStrictEqual(
+				kept.inputs,
+				inputFilesOf(seat, root).map(readChangedAt),
+			)
+		)
+			return kept.budget;
+	}
 	return seatBudget(seat, root, readAgentsForDisplay);
 }
 
 /**
- * seatBudget's sizing, before it is kept.
+ * seatBudget's sizing, with its input files' change times: each taken before
+ * its file is read, the ledger's once its pricing has written it.
  * @param {OverflowSeat} seat
- * @param {string|undefined} root
+ * @param {string} root
  * @param {() => import("./agent-liveness.js").Listing} readAgents
- * @returns {SeatBudget|{why: string}}
+ * @returns {{budget: SeatBudget, inputs: number[]}|{why: string}}
  */
 function sizeSeat(seat, root, readAgents) {
-	if (root === undefined)
-		return { why: "the loop serves no checkout to read the cost table in" };
+	const [ledgerAt, logAt, tableAt] = inputFilesOf(seat, root);
+	const tableChangedAt = readChangedAt(tableAt);
 	const table = readCostTableIn(root);
 	if (!table) return { why: "the session cost table is unreadable" };
 	let ledger;
@@ -391,29 +416,36 @@ function sizeSeat(seat, root, readAgents) {
 	let settled;
 	let log;
 	let listed;
+	let ledgerChangedAt;
+	let logChangedAt;
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
+		ledgerChangedAt = readChangedAt(ledgerAt);
 		settled = settleChainsOnce(ledger);
 		listed = readRunning(seat, lookup, readAgents);
 		running = priceRunning(listed.sessionIds, ledger, settled);
+		logChangedAt = readChangedAt(logAt);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
 	}
 	return {
-		...budgetOf({
-			grantUsd: seat.grantUsd,
-			cycleDay: seat.cycleDay,
-			table,
-			now: Date.now(),
-			reading: log.reading,
-			ledger: settled,
-			running,
-		}),
-		readFailure: log.failure,
-		lastAttemptAt: log.lastAttemptAt,
-		runningReadAt: listed.readAt,
+		budget: {
+			...budgetOf({
+				grantUsd: seat.grantUsd,
+				cycleDay: seat.cycleDay,
+				table,
+				now: Date.now(),
+				reading: log.reading,
+				ledger: settled,
+				running,
+			}),
+			readFailure: log.failure,
+			lastAttemptAt: log.lastAttemptAt,
+			runningReadAt: listed.readAt,
+		},
+		inputs: [ledgerChangedAt, logChangedAt, tableChangedAt],
 	};
 }
 

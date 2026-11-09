@@ -24,6 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DISPLAY_MAX_AGE_MS } from "./agent-liveness.js";
 import { buildStopBranch, type StopKind } from "./agents-stop-fake";
 import { readProcStartOf } from "./arbiter-proc.js";
 import { writeClaudeStub } from "./claude-stub";
@@ -35,6 +36,7 @@ import { seatBudget, shownSeatBudget } from "./overflow-budget.js";
 import { stopOverAllowance } from "./overflow-cap.js";
 import { killGroup, readStat, startOrphan } from "./process-fixture";
 import { runInProcess } from "./run-in-process.js";
+import { SESSION_COST_TABLE } from "./session-spend.js";
 import { shellQuote } from "./sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "overflow-budget.js");
@@ -509,14 +511,59 @@ describe("a shown read (#4669)", () => {
 		expect(shown()).toMatchObject({ settledUsd: 12 });
 	});
 
-	it("sizes again once the kept budget is past a shown listing's 120 s", () => {
+	/* The kept budget, with `at` or its listing's `runningReadAt` aged. */
+	function ageKept(field: "at" | "runningReadAt", ms: number) {
+		const kept = JSON.parse(fs.readFileSync(keptPath(), "utf8"));
+		const aged = Date.now() - ms;
+		fs.writeFileSync(
+			keptPath(),
+			JSON.stringify(
+				field === "at"
+					? { ...kept, at: aged }
+					: { ...kept, budget: { ...kept.budget, runningReadAt: aged } },
+			),
+		);
+	}
+
+	it("reuses a kept budget just inside a shown listing's age", () => {
+		growAfterSizing();
+		ageKept("at", DISPLAY_MAX_AGE_MS - 5000);
+		expect(shown()).toMatchObject({ settledUsd: 8 });
+	});
+
+	it("sizes again once the kept budget is past a shown listing's age", () => {
+		growAfterSizing();
+		ageKept("at", DISPLAY_MAX_AGE_MS + 1000);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	it("sizes again once the listing it counted running sessions off is past that age", () => {
+		growAfterSizing();
+		ageKept("runningReadAt", DISPLAY_MAX_AGE_MS + 1000);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	it("sizes again once the cost table has changed", () => {
+		growAfterSizing();
+		writeCostTable(root, { ...TABLE, meanUsd: 5 });
+		const later = new Date(Date.now() + 5000);
+		fs.utimesSync(path.join(root, SESSION_COST_TABLE), later, later);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	it("keeps the later sizing where an earlier one finishes after it", () => {
 		growAfterSizing();
 		const kept = JSON.parse(fs.readFileSync(keptPath(), "utf8"));
 		fs.writeFileSync(
 			keptPath(),
-			JSON.stringify({ ...kept, at: Date.now() - 121_000 }),
+			JSON.stringify({ ...kept, at: Date.now() + 60_000 }),
 		);
-		expect(shown()).toMatchObject({ settledUsd: 12 });
+		budget();
+		expect(
+			JSON.parse(fs.readFileSync(keptPath(), "utf8")).budget,
+		).toMatchObject({
+			settledUsd: 8,
+		});
 	});
 
 	it("sizes again once the ledger or the Console log has changed", () => {

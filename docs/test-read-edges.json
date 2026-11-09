@@ -2865,6 +2865,7 @@
 			"scripts/dispatch-sessions.test.ts",
 			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/doc-map.test.ts",
+			"scripts/lib/overflow-budget.test.ts",
 			"scripts/lib/session-spend.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/refill-loop.test.ts",
