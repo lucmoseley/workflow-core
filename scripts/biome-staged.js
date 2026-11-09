@@ -21,8 +21,7 @@
  * Biome's project (biomejs/biome#12934), so neither the bare tree nor a
  * symlink into it raises them (#4085). So the caller's node_modules, a
  * worktree's out-of-tree dependency store included, is bind-mounted onto the
- * tree's inside a private mount namespace (`unshare -rm`), copying nothing
- * (#4639). Off Linux, or where the mount fails, those rules go quiet here
+ * tree's inside a private mount namespace (`unshare -rm`) (#4639). Off Linux, or where the mount fails, those rules go quiet here
  * and `biome ci .` in CI raises them.
  *
  * Not a check-*.js: Biome's own report is the verdict, any failing exit
@@ -72,9 +71,7 @@ const MOUNT_FAILED = 125;
 const NOT_STARTED = new Set([126, 127]);
 
 /**
- * How to run `biome check`: inside a private mount namespace (`unshare -rm`)
- * that bind-mounts the repo's node_modules onto `tree`'s, so the rules
- * reading it see each dependency inside the project (#4639). Plain Biome
+ * How to run `biome check`: mounted, as the header says, or plain Biome
  * where the repo has no node_modules, the tree carries its own, or the host
  * cannot mount: off Linux, silently; on Linux, saying so.
  * @param {string} tree

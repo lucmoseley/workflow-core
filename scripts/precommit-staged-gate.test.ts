@@ -311,8 +311,8 @@ describe("the pre-commit Biome gate", () => {
 		"noDeprecatedImports",
 	];
 
-	// A host refusing a mount in an unprivileged user namespace, as AppArmor's
-	// userns restriction does, takes the unmounted route the next case pins.
+	// Skipped where the host refuses a mount in an unprivileged user
+	// namespace, as AppArmor's userns restriction does.
 	const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-mount-"));
 	temps.push(probeDir);
 	const canMount =
