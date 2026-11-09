@@ -594,6 +594,25 @@ describe("the unproven cap through the tick (#4223)", () => {
 	});
 });
 
+describe("a copy's unretired original through the tick (#4646)", () => {
+	it("tries it again and writes the launch without it once retired", async () => {
+		const unretired = {
+			seat: SEAT,
+			sessionId: "s-original",
+			cwd: WFC,
+			copyJobId: "job42",
+			tries: 1,
+		};
+		const { io, calls, disk } = fakeIo(
+			stateOf({ launches: [record({ unretired: [unretired] })] }),
+		);
+		await tickOf(io);
+		expect(calls).toContain("blockIo.retireJob");
+		expectOrder(calls, "blockIo.retireJob", "actOnBlocks");
+		expect(disk().launches[0]).not.toHaveProperty("unretired");
+	});
+});
+
 describe("a limit-held launch through the tick (#3735)", () => {
 	const held = record({
 		seat: SEAT,

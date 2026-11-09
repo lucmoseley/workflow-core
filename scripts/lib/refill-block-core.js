@@ -283,7 +283,7 @@ function relaunched(l, resumed, now) {
 
 /**
  * `l` with copy `r`'s original, where its job would not retire, added to
- * those a later tick retries (lib/refill-blocks.js's retireOriginals, #4646).
+ * those a later tick retries (lib/refill-retire.js's retireOriginals, #4646).
  * @template {LoopLaunch} L
  * @param {L} l
  * @param {Extract<Resumed, {failed: null}>} r
@@ -316,7 +316,7 @@ module.exports = {
 	ledgerOf,
 	parkOnceStopped,
 	relaunched,
-	withUnretired,
 	stopJob,
 	stopPark,
+	withUnretired,
 };

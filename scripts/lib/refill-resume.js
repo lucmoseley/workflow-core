@@ -341,25 +341,21 @@ function resumeSteps(io) {
 			);
 		moveParked(l, from, copy);
 		nameCopy(l.seat, from, copy);
+		/** @type {Resumed} */
+		const settled = { failed: null, jobId, sessionId, copy: true, why };
 		const retired = retireJob(l.seat, from, copy.cwd);
-		if (!retired) return { failed: null, jobId, sessionId, copy: true, why };
+		if (!retired) return settled;
 		log(
 			`original ${shortJobId(from)} of copy ${jobId} not retired: ${retired}`,
 		);
-		return {
-			failed: null,
-			jobId,
-			sessionId,
-			copy: true,
-			why,
-			unretired: {
-				seat: l.seat,
-				sessionId: from,
-				cwd: copy.cwd,
-				copyJobId: jobId,
-				tries: 1,
-			},
+		const unretired = {
+			seat: l.seat,
+			sessionId: from,
+			cwd: copy.cwd,
+			copyJobId: jobId,
+			tries: 1,
 		};
+		return { ...settled, unretired };
 	}
 
 	/**

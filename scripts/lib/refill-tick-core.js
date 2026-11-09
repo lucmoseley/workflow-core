@@ -455,9 +455,9 @@ function parkSweepRootsOf(io, served) {
 function actOnLaunches(io, listed, { mode, served, broken, seen }) {
 	io.unparkAnswered(parkSweepRootsOf(io, served), seen);
 	io.tendClosedParks(served);
-	const retired = retireOriginals(listed, seen.io);
+	const tried = retireOriginals(listed, seen.io);
 	const acted = io.releaseAwayParks(
-		io.actOnIdle(io.actOnBlocks(retired, mode, seen), mode, seen),
+		io.actOnIdle(io.actOnBlocks(tried, mode, seen), mode, seen),
 		mode,
 		served,
 		seen,

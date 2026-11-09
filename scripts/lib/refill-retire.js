@@ -61,4 +61,4 @@ function retireOriginal(l, u, io) {
 	return [];
 }
 
-module.exports = { RETIRE_TRIES, retireOriginals };
+module.exports = { retireOriginals };

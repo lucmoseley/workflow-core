@@ -10,9 +10,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { relaunched } from "./refill-block-core.js";
-import { RETIRE_TRIES, retireOriginals } from "./refill-retire.js";
+import { fakeIo, logs, record } from "./refill-blocks-fixture";
+import { retireOriginals } from "./refill-retire.js";
 
-type Launch = import("./refill-loop.js").LoopLaunch;
 type JobLaunch = import("./refill-blocks.js").JobLaunch;
 type Unretired = import("./refill-blocks.js").Unretired;
 
@@ -29,103 +29,90 @@ const UNRETIRED: Unretired = {
 	tries: 1,
 };
 
-const launch = (over: Partial<JobLaunch> = {}): JobLaunch => ({
-	root: "/home/u/repo",
-	issues: [7],
-	prompt: "/implement 7",
-	seat: SEAT,
-	reason: "parked session's seat",
-	jobId: COPY_JOB,
-	launchedAt: 0,
-	finishedAt: null,
-	...over,
-});
+const copyLaunch = (over: Record<string, unknown> = {}) =>
+	record({ jobId: COPY_JOB, ...over }) as JobLaunch;
 
-/** An io whose retireJob answers `answers` in turn, and what it was asked. */
-function fakeIo(...answers: (string | null)[]) {
-	const retired: string[][] = [];
-	const comments: string[] = [];
-	const lines: string[] = [];
-	const io = {
-		retireJob: (seat: string, sessionId: string, cwd: string) => {
-			retired.push([seat, sessionId, cwd]);
-			return answers.shift() ?? null;
-		},
-		comment: (_: Launch, body: string) => comments.push(body),
-		log: (line: string) => lines.push(line),
-	};
-	return { io, retired, comments, lines };
-}
+/** The fixture's io, its retireJob answering `answers` in turn. */
+const ioAnswering = (...answers: (string | null)[]) =>
+	fakeIo({ retireJob: () => answers.shift() ?? null });
+
+const comments = (calls: string[]) =>
+	calls.filter((c) => c.startsWith("comment "));
 
 describe("retireOriginals (#4646)", () => {
 	it("retires an original whose stop was refused on a later tick, leaving the launch without it", () => {
-		const { io, retired, comments } = fakeIo(null);
-		const [out] = retireOriginals([launch({ unretired: [UNRETIRED] })], io);
+		const retired: string[][] = [];
+		const { io, calls } = fakeIo({
+			retireJob: (seat, sessionId, cwd) => {
+				retired.push([seat, sessionId, cwd]);
+				return null;
+			},
+		});
+		const [out] = retireOriginals([copyLaunch({ unretired: [UNRETIRED] })], io);
 		expect(retired).toEqual([[SEAT, ORIGINAL_SESSION, "/home/u/repo"]]);
 		expect(out).not.toHaveProperty("unretired");
-		expect(comments).toEqual([]);
+		expect(comments(calls)).toEqual([]);
 	});
 
 	it("counts a refused try and keeps the original for the next tick", () => {
-		const { io, comments, lines } = fakeIo("daemon busy");
-		const [out] = retireOriginals([launch({ unretired: [UNRETIRED] })], io);
+		const { io, calls } = ioAnswering("daemon busy");
+		const [out] = retireOriginals([copyLaunch({ unretired: [UNRETIRED] })], io);
 		expect(out?.unretired).toEqual([{ ...UNRETIRED, tries: 2 }]);
-		expect(comments).toEqual([]);
-		expect(lines.at(-1)).toContain(`try 2 of ${RETIRE_TRIES}: daemon busy`);
+		expect(comments(calls)).toEqual([]);
+		expect(logs(calls).at(-1)).toContain("try 2 of 3: daemon busy");
 	});
 
-	it("comments naming both job ids once the tries run out, and stops trying", () => {
-		const { io, comments } = fakeIo("daemon busy");
-		const [out] = retireOriginals(
-			[launch({ unretired: [{ ...UNRETIRED, tries: RETIRE_TRIES - 1 }] })],
+	it("comments naming both job ids on the third refusal, and stops trying", () => {
+		const { io, calls } = ioAnswering("daemon busy", "daemon busy");
+		let launches = retireOriginals(
+			[copyLaunch({ unretired: [UNRETIRED] })],
 			io,
 		);
-		expect(out).not.toHaveProperty("unretired");
-		expect(comments).toHaveLength(1);
-		expect(comments[0]).toContain(ORIGINAL_JOB);
-		expect(comments[0]).toContain(COPY_JOB);
+		expect(comments(calls)).toEqual([]);
+		launches = retireOriginals(launches, io);
+		expect(launches[0]).not.toHaveProperty("unretired");
+		const said = comments(calls);
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain(ORIGINAL_JOB);
+		expect(said[0]).toContain(COPY_JOB);
 	});
 
 	it("leaves a launch with no unretired original untouched, retiring nothing", () => {
-		const { io, retired } = fakeIo();
-		const l = launch();
+		const retired: string[] = [];
+		const { io } = fakeIo({
+			retireJob: (_, sessionId) => {
+				retired.push(sessionId);
+				return null;
+			},
+		});
+		const l = copyLaunch();
 		expect(retireOriginals([l], io)).toEqual([l]);
 		expect(retired).toEqual([]);
 	});
 });
 
 describe("relaunched carries a copy's unretired original (#4646)", () => {
+	const copied = {
+		failed: null,
+		jobId: COPY_JOB,
+		sessionId: "copy-session",
+		copy: true,
+		why: "copied",
+		fromSessionId: ORIGINAL_SESSION,
+	} as const;
+
 	it("adds it to those the launch already holds", () => {
 		const earlier = { ...UNRETIRED, copyJobId: "cccccccc" };
 		const out = relaunched(
-			launch({ jobId: "cccccccc", unretired: [earlier] }),
-			{
-				failed: null,
-				jobId: COPY_JOB,
-				sessionId: "copy-session",
-				copy: true,
-				why: "copied",
-				unretired: UNRETIRED,
-				fromSessionId: ORIGINAL_SESSION,
-			},
+			copyLaunch({ jobId: "cccccccc", unretired: [earlier] }),
+			{ ...copied, unretired: UNRETIRED },
 			1,
 		);
 		expect(out.unretired).toEqual([earlier, UNRETIRED]);
 	});
 
 	it("adds nothing for a copy whose original retired", () => {
-		const out = relaunched(
-			launch({ jobId: "cccccccc" }),
-			{
-				failed: null,
-				jobId: COPY_JOB,
-				sessionId: "copy-session",
-				copy: true,
-				why: "copied",
-				fromSessionId: ORIGINAL_SESSION,
-			},
-			1,
-		);
+		const out = relaunched(copyLaunch({ jobId: "cccccccc" }), copied, 1);
 		expect(out).not.toHaveProperty("unretired");
 	});
 });
