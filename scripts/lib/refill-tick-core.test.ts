@@ -89,6 +89,7 @@ const BLOCK_ACTS = {
 	stagger: true,
 	moveSession: true,
 	removeJobRecord: true,
+	retireJob: true,
 	writeLedgerHold: true,
 	holdLockedOut: true,
 	labelParked: true,

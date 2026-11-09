@@ -320,7 +320,8 @@ function resumeSteps(io) {
 	 * @param {MoveTarget} [move] a move onto the key, whose allowance the copy,
 	 *   that key's first launch of the session, runs at (#3736)
 	 * @returns {Resumed} failed only where a move's job will not record, and is
-	 *   stopped
+	 *   stopped; `unretired`, the original whose job would not retire, for a
+	 *   later tick's retireOriginals (#4646)
 	 */
 	function settleCopy(l, from, copy, move) {
 		const { jobId, sessionId, why } = copy;
@@ -341,11 +342,24 @@ function resumeSteps(io) {
 		moveParked(l, from, copy);
 		nameCopy(l.seat, from, copy);
 		const retired = retireJob(l.seat, from, copy.cwd);
-		if (retired)
-			log(
-				`original ${shortJobId(from)} of copy ${jobId} not retired: ${retired}`,
-			);
-		return { failed: null, jobId, sessionId, copy: true, why };
+		if (!retired) return { failed: null, jobId, sessionId, copy: true, why };
+		log(
+			`original ${shortJobId(from)} of copy ${jobId} not retired: ${retired}`,
+		);
+		return {
+			failed: null,
+			jobId,
+			sessionId,
+			copy: true,
+			why,
+			unretired: {
+				seat: l.seat,
+				sessionId: from,
+				cwd: copy.cwd,
+				copyJobId: jobId,
+				tries: 1,
+			},
+		};
 	}
 
 	/**
@@ -709,6 +723,7 @@ function resumeSteps(io) {
 		removeJobRecord,
 		resumeOwnId,
 		resumeStopped,
+		retireJob,
 	};
 }
 

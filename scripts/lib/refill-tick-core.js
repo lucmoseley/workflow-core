@@ -32,6 +32,7 @@ const { neverStartedJobs } = require("./hung-jobs.js");
 const blocks = require("./refill-blocks.js");
 const { isLimitHeld, launchName } = require("./refill-block-core.js");
 const limits = require("./refill-limits.js");
+const { retireOriginals } = require("./refill-retire.js");
 const { declaresOverflowSeat } = require("./refill-seats.js");
 const {
 	bootSparedJobs,
@@ -440,7 +441,8 @@ function parkSweepRootsOf(io, served) {
 
 /**
  * The tick's acts on its launches: the answered parks taken off, the closed
- * issues' parks cleared (#3940), the blocked and idle launches acted on, then
+ * issues' parks cleared (#3940), each copy's unretired original tried again
+ * (#4646), the blocked and idle launches acted on, then
  * each away park's ledger row released once normal mode is live, ahead of the
  * shortlist read (#3872).
  * Then each served checkout's broken probe has the parks made meanwhile
@@ -453,8 +455,9 @@ function parkSweepRootsOf(io, served) {
 function actOnLaunches(io, listed, { mode, served, broken, seen }) {
 	io.unparkAnswered(parkSweepRootsOf(io, served), seen);
 	io.tendClosedParks(served);
+	const retired = retireOriginals(listed, seen.io);
 	const acted = io.releaseAwayParks(
-		io.actOnIdle(io.actOnBlocks(listed, mode, seen), mode, seen),
+		io.actOnIdle(io.actOnBlocks(retired, mode, seen), mode, seen),
 		mode,
 		served,
 		seen,
@@ -896,6 +899,7 @@ const DRY_BLOCK_ACTS = {
 	stagger: doNothing,
 	moveSession: () => ({ failed: DRY_RUN_WHY }),
 	removeJobRecord: () => DRY_RUN_WHY,
+	retireJob: () => DRY_RUN_WHY,
 	writeLedgerHold: () => false,
 	holdLockedOut: () => ({ why: DRY_RUN_WHY }),
 	labelParked: (l) => l.issues.map((n) => ({ n, why: DRY_RUN_WHY })),
