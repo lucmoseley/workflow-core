@@ -32,7 +32,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildAgentsBranch, buildJobRow } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import {
-	BACKSTOP,
 	BIG_CODE,
 	backstopFixture,
 	cfg,
@@ -51,6 +50,7 @@ import {
 	repo,
 	run,
 	spawnBackstop,
+	stopIn,
 	storePath,
 	template,
 	write,
@@ -62,17 +62,6 @@ import { installLib } from "./lib/lib-install-testkit";
 backstopFixture();
 
 describe("the session's own worktree (#4243)", () => {
-	/** A Stop whose payload names `cwd`, the hook run from `from`. */
-	const stopIn = (cwd: string, from = cwd) => {
-		const r = spawnSync(BACKSTOP, ["stop"], {
-			cwd: from,
-			encoding: "utf8",
-			input: JSON.stringify({ session_id: ME, cwd }),
-			env: env(),
-		});
-		return r.stdout?.trim() ? (JSON.parse(r.stdout).reason as string) : null;
-	};
-
 	it("reads the payload's worktree, not the main checkout the hook runs from (#4271)", () => {
 		const wt = cutWorktree(repo);
 		fs.mkdirSync(path.join(wt, "docs"));

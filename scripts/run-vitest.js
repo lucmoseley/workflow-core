@@ -121,6 +121,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const {
 	CHANGED_FLAG,
 	PACKAGE_JSON,
+	REGENERATE_EDGES,
 	SelectionFailed,
 	changedFlag,
 	readChangedPaths,
@@ -530,7 +531,7 @@ function withLaunch(options, fields) {
  * slow-reading `head`.
  *
  * The default `inflightFile` and `timingsFile` are paths of this run's own,
- * never the repo-root one: 2-3 concurrent suites are sanctioned here, and one
+ * never the repo-root one: part-suites run beside a whole suite, and one
  * shared name means a neighbour's run end deletes the rows this run's stall
  * would be named from.
  *
@@ -1290,9 +1291,12 @@ function planDefault(rest, at, options) {
 			renderEdges,
 			ownWork,
 		});
-		/* Null only where the manifest is unreadable, which the reason above
-		 * has already escalated. */
-		if (!plan) return { base, reason: "stale-manifest" };
+		/* Null only where the manifest turned unreadable after the reason
+		 * above read it: a failed narrowing, never widened (#2698). */
+		if (!plan)
+			throw new SelectionFailed(
+				`${EDGES_FILE} became unreadable between the escalation check and the narrowing. ${REGENERATE_EDGES}`,
+			);
 		return { base, argv, plan, dropped: ownWork?.dropped ?? [] };
 	} catch (error) {
 		if (error instanceof SelectionFailed) throw error;

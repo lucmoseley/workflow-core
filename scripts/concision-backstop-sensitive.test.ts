@@ -25,8 +25,11 @@ import {
 	record,
 	repo,
 	run,
+	stopIn,
 	write,
 } from "./lib/concision-backstop-testkit";
+import { declareArea } from "./lib/declare-area-testkit";
+import { cutWorktree } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 
 backstopFixture();
@@ -35,15 +38,8 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 	const policy =
 		"create policy own_rows on bookings using (guest = auth.uid());\n";
 
-	const declare = (globs: string[]) =>
-		write(
-			".claude/workflow-core.json",
-			JSON.stringify({
-				sensitivePaths: [
-					{ name: "RLS", description: "who may read or write what", globs },
-				],
-			}),
-		);
+	const declare = (globs: string[], tree = repo, name = "RLS") =>
+		declareArea(tree, name, globs);
 
 	const wroteSql = () => {
 		write("supabase/migrations/001_rls.sql", policy);
@@ -271,6 +267,24 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 			expect(reason).toContain("`escalated` review tier is owed");
 			expect(reason).toContain(rel);
 			expect(reason).toContain("was rejected — its tier= is 'standard'");
+		});
+
+		// #4615: the globs matched are the session tree's, as skill load reads them.
+		it("names a worktree's own declared areas, not the shared tree's", () => {
+			declare(["supabase/migrations/**"]);
+			const wt = cutWorktree(repo);
+			declare(["app/money/**"], wt, "money");
+			for (const rel of [
+				"supabase/migrations/001_rls.sql",
+				"app/money/pay.ts",
+			]) {
+				fs.mkdirSync(path.dirname(path.join(wt, rel)), { recursive: true });
+				fs.writeFileSync(path.join(wt, rel), policy);
+				record(rel, ME, wt);
+			}
+			const reason = stopIn(wt) ?? "";
+			expect(reason).toContain("declared sensitive paths (money)");
+			expect(reason).not.toContain("RLS");
 		});
 
 		it.each([

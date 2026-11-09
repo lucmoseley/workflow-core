@@ -291,6 +291,7 @@ function isReadable(p) {
 }
 
 module.exports = {
+	isInsideAnyRepo,
 	treeClassifier,
 	readSymbolicName,
 	readTopLevel,

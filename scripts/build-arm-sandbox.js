@@ -407,9 +407,19 @@ function readHooksPath(repo) {
  * @param {string} rev
  */
 function hasCommit(repo, rev) {
+	return readCommitSha(repo, rev) !== null;
+}
+
+/**
+ * The sha `rev` names in `repo`, or null; a git that will not answer throws.
+ * @param {string} repo
+ * @param {string} rev
+ * @returns {string | null}
+ */
+function readCommitSha(repo, rev) {
 	const r = readCommit(gitReader(repo), rev);
 	if (!r.ok) throw new Error(`git rev-parse ${rev}: ${r.why}`);
-	return r.sha !== null;
+	return r.sha;
 }
 
 /**
@@ -602,7 +612,8 @@ function buildTask({ flags, lists }) {
 	const unapplied = (lists["--unapply"] ?? []).map((p) => path.resolve(p));
 	const refusal = taskRefusal({ repo, at, to, reverts, unapplied });
 	if (refusal) return refuse(refusal);
-	const base = git(repo, ["rev-parse", "--verify", `${at}^{commit}`]);
+	const base = readCommitSha(repo, at);
+	if (base === null) throw new Error(`${at} names no commit in ${repo}`);
 
 	const root = path.resolve(to);
 	const preexisting = fs.existsSync(root);

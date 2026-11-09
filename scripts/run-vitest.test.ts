@@ -5607,6 +5607,35 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(diffArgs).toContain("old-sha");
 			});
 
+			it("refuses, never widens, where the manifest turns unreadable after the escalation check read it (#2698)", async () => {
+				let reads = 0;
+				let spawned = false;
+				const err = {
+					text: [] as string[],
+					write: (s: string) => err.text.push(s),
+				};
+				const code = await main([SHARED_FLAG], {
+					root: repo(),
+					execFn: fakeExec({ diff: ["a.test.ts"] }),
+					loadEdges: () => {
+						reads += 1;
+						if (reads > 1) throw new Error("gone");
+						return {};
+					},
+					renderEdges: () => ({}),
+					out: { write: () => true },
+					err,
+					spawnFn: () => {
+						spawned = true;
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(code).toBe(1);
+				expect(spawned).toBe(false);
+				expect(err.text.join("")).toContain("NARROWING FAILED, SO NOTHING RAN");
+				expect(err.text.join("")).toContain("became unreadable");
+			});
+
 			for (const [reason, exec] of [
 				["stale-manifest", () => fakeExec({ diff: ["a.test.ts"] })],
 				["dependency-root", () => fakeExec({ diff: ["package.json"] })],
