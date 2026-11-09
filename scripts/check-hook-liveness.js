@@ -1897,7 +1897,7 @@ const REAP_INFLIGHT_MS = 300_000;
  * counts only once a whole grace has passed since `openedSince`, not
  * `startedAt`, at most one per grace window, and a close resets the count to
  * zero — lib/detached-run.js's `deathCount` gives each limb. A healthy `live`
- * close takes about 5 s (5.1 s measured, mantahostels#1952), so a row still
+ * close takes about 5 s (mantahostels#1952), so a row still
  * open a whole grace later is not a run merely running long.
  *
  * `live` ONLY, THOUGH `openRun` CARRIES `deaths` FOR EITHER MODE. `dry` is not
