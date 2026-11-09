@@ -19,8 +19,8 @@
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
  * one. Asked again, a failed run has its failed jobs rerun; any other run at
- * the sha is never read, its ref deleted and created again so a run starts
- * after the ask (#4524). Where none at the sha is listed, as when its ref was
+ * the sha, or a failed one GitHub refuses to retry, is never read, its ref
+ * deleted and created again so a run starts after the ask (#4524, #4823). Where none at the sha is listed, as when its ref was
  * pushed while Actions fired nothing, the ref is pushed again once before
  * the tree is read as firing none (#4572). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
@@ -76,6 +76,8 @@ const POLL_MS = 15 * 1000;
  * batch tip a few later pushes have buried. */
 const RUN_LIST_LIMIT = 50;
 const NAMED_WORKFLOW = "named-rerun.yml";
+/* `gh run rerun`'s refusal of a run GitHub will not retry. */
+const NOT_RETRIABLE = /cannot be retried/;
 const NAMED_JOB = "Named files";
 /* Untraced: a runaway's stop, minutes being free on the public repo (#1930). */
 const NAMED_DAILY_CAP = 12;
@@ -818,14 +820,8 @@ async function rerunVerdict(sha, files, on, named) {
 		return unreadable(err);
 	}
 	const run = newestRun(sha, listed);
-	if (run?.conclusion === "failure") {
-		try {
-			reads.rerun(run.databaseId);
-		} catch (err) {
-			return unreadable(err);
-		}
-		return suiteVerdict(sha, run.attempt, on);
-	}
+	if (run?.conclusion === "failure")
+		return failedRunVerdict(sha, run, on, listed);
 	if (files.length > 0)
 		return run === undefined
 			? namedVerdict(named, sha, files, false)
@@ -843,6 +839,27 @@ async function rerunVerdict(sha, files, on, named) {
 		return unreadable(err);
 	}
 	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
+}
+
+/**
+ * The verdict at `sha` off the failed `run` with its failed jobs rerun, or,
+ * where GitHub will not retry it, as a run that failed before some of its
+ * jobs were created, off a fresh push run: read as no verdict, the lander
+ * asks again forever (#4823).
+ * @param {string} sha
+ * @param {Run} run
+ * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {readonly Run[]} listed
+ * @returns {Promise<Verdict>}
+ */
+async function failedRunVerdict(sha, run, on, listed) {
+	try {
+		on.reads.rerun(run.databaseId);
+	} catch (err) {
+		if (!NOT_RETRIABLE.test(parseErrorText(err))) return unreadable(err);
+		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
+	}
+	return suiteVerdict(sha, run.attempt, on);
 }
 
 /**

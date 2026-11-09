@@ -910,6 +910,24 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 	expect(first.reran).toEqual([]);
 });
 
+it("pushes the ref again for the whole suite asked again over a failed run GitHub will not retry, judging only a newer run (#4823)", async () => {
+	const failed = run(4, "failure");
+	const refused = queueReads([
+		() =>
+			refused.repushed.length === 0 ? [failed] : [run(5, "success"), failed],
+	]);
+	refused.rerun = () => {
+		throw Object.assign(new Error("gh failed"), {
+			stderr: "run 4 cannot be rerun; This workflow run cannot be retried",
+		});
+	};
+	expect(await queueOf(refused).verdict(SHA, [], true)).toEqual({
+		kind: "green",
+		run: 5,
+	});
+	expect(refused.repushed).toEqual([`lander/batch-0@${SHA}`]);
+});
+
 it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {
 	const SuiteBase = "lander/iso-suite-base";
 	const atBase = () => [{ branch: SuiteBase, sha: SHA }];
