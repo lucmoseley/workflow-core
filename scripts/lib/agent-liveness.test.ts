@@ -17,10 +17,15 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	type AgentsAnswer,
+	buildAgentsBranch,
+	buildListedRow,
+	buildUnrecordedRow,
+} from "./agents-stop-fake";
 import { writeClaudeStub } from "./claude-stub";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { withStopClockLeft } from "./hook-deadline-testkit";
-import { shellQuote } from "./sh-quote.js";
 
 // The module is CommonJS and stays that way — it is required by plain node
 // scripts that a bash hook spawns.
@@ -41,45 +46,49 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A `claude` stand-in: `agents --json` prints `body`, then exits `code`. */
-function fakeClaude(body: string, code = 0) {
-	const bin = writeClaudeStub(
-		path.join(dir, "claude"),
-		[`cat <<'EOF'\n${body}\nEOF`],
-		code,
-	);
+/** A `claude` stand-in whose `agents --json` answers `answer`, or, on a seat
+ * `bySeat` maps, that seat's. */
+function fakeClaude(
+	answer: AgentsAnswer,
+	bySeat?: Record<string, AgentsAnswer>,
+) {
+	const bin = writeClaudeStub(path.join(dir, "claude"), [
+		buildAgentsBranch(answer, bySeat),
+	]);
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return bin;
 }
 
+/** Output no harness prints, for the reader's malformed-listing cases. */
+const malformed = (text: string) => ({ malformed: text });
+
 const listing = (...sessionIds: string[]) =>
-	JSON.stringify(
-		sessionIds.map((sessionId, i) => ({
+	sessionIds.map((sessionId, i) =>
+		buildListedRow({
 			pid: 100 + i,
 			sessionId,
 			status: "busy",
 			state: "working",
 			kind: "session",
-		})),
+		}),
 	);
 
 describe("one seat's own listing (#3512)", () => {
 	it("answers the seat's records where it lists an array", () => {
-		fakeClaude(JSON.stringify([{ id: "abc12345", state: "working" }]));
-		expect(liveness.readSeatListing(dir, 1000)).toEqual({
-			agents: [{ id: "abc12345", state: "working" }],
-		});
+		const row = buildListedRow({ id: "abc12345" });
+		fakeClaude([row]);
+		expect(liveness.readSeatListing(dir, 1000)).toEqual({ agents: [row] });
 	});
 
 	it("answers why where the listing is not JSON", () => {
-		fakeClaude("not json");
+		fakeClaude(malformed("not json"));
 		expect(liveness.readSeatListing(dir, 1000).why).toContain(
 			"did not return JSON",
 		);
 	});
 
 	it("answers why where the listing is not an array", () => {
-		fakeClaude("{}");
+		fakeClaude(malformed("{}"));
 		expect(liveness.readSeatListing(dir, 1000).why).toContain(
 			"not the expected array",
 		);
@@ -96,7 +105,7 @@ describe("the binary will not run", () => {
 	});
 
 	it("refuses with the exit status when it runs and fails", () => {
-		fakeClaude("[]", 3);
+		fakeClaude({ exit: 3 });
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("would not run");
@@ -118,18 +127,6 @@ describe("the binary will not run", () => {
 });
 
 /*
- * A `claude` stand-in that hangs on every call.
- *
- * `exec sleep` matters — the cap signals the process it spawned, and a plain
- * `sleep` would leave the shell to be signalled while the sleep ran on, so the
- * fake would outlive the test.
- */
-function hangingClaude() {
-	const bin = writeClaudeStub(path.join(dir, "claude"), ["exec sleep 30"]);
-	vi.stubEnv("WFC_CLAUDE_BIN", bin);
-}
-
-/*
  * A stand-in for runOracle, passed as `opts.run`, that throws `failure` (a
  * timeout unless given) on its first `hangs` calls and answers a listing after
  * that, recording each call's cap. The count pins "exactly one retry".
@@ -145,7 +142,7 @@ function fakeRun(
 	const run = (_bin: string, timeoutMs: number, dirs: string[]) => {
 		caps.push(timeoutMs);
 		if (caps.length <= hangs) throw failure();
-		return dirs.map(() => listing("aaaa"));
+		return dirs.map(() => JSON.stringify(listing("aaaa")));
 	};
 	return { caps, run };
 }
@@ -196,7 +193,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		// §X9: a process timeout: the one case crossing spawnSync's real cap, so
 		// the fake's ETIMEDOUT above is what a hung child really throws. The fake
 		// sleeps far past both caps, so the cap fires however slowly it starts.
-		hangingClaude();
+		fakeClaude("hang");
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("would not run (ETIMEDOUT)");
@@ -214,14 +211,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
 		const pids = path.join(dir, "pids");
-		const bin = writeClaudeStub(path.join(dir, "claude"), [
-			"sleep 30 &",
-			`echo $! >> ${shellQuote(pids)}`,
-			"sleep 30 &",
-			`echo $! >> ${shellQuote(pids)}`,
-			"wait",
-		]);
-		vi.stubEnv("WFC_CLAUDE_BIN", bin);
+		fakeClaude({ hangsWithChildren: pids });
 		expect(liveness.listedAgents().why).toContain("ETIMEDOUT");
 		const children = fs.readFileSync(pids, "utf8").trim().split("\n");
 		// Two children a read, two seats a call, and two calls: the first and
@@ -275,7 +265,7 @@ describe("a hook's time budget (#4115)", () => {
 
 describe("the output is not JSON", () => {
 	it("refuses on output that does not parse", () => {
-		fakeClaude("not json at all");
+		fakeClaude(malformed("not json at all"));
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("did not return JSON");
@@ -284,33 +274,33 @@ describe("the output is not JSON", () => {
 
 describe("the output is JSON but not an array", () => {
 	it("refuses on an object, naming what it got", () => {
-		fakeClaude('{"agents":[{"sessionId":"a"}]}');
+		fakeClaude(malformed('{"agents":[{"sessionId":"a"}]}'));
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("returned object, not the expected array");
 	});
 
 	it("refuses on a bare JSON scalar", () => {
-		fakeClaude("null");
+		fakeClaude(malformed("null"));
 		expect(liveness.listedAgents().why).toContain("not the expected array");
 	});
 });
 
 describe("the array is empty", () => {
 	it("refuses, because a running daemon lists at least this session", () => {
-		fakeClaude("[]");
+		fakeClaude([]);
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("listed no agents at all");
 	});
 
 	it("reads as nothing live to admission outside a session (#2180)", () => {
-		fakeClaude("[]");
+		fakeClaude([]);
 		expect(liveness.admissionSessionIds().ids?.size).toBe(0);
 	});
 
 	it("reads as nothing live after a boot, outside a session alone (#3880)", () => {
-		fakeClaude("[]");
+		fakeClaude([]);
 		expect(liveness.readAgentsAfterBoot().agents).toEqual([]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect(liveness.readAgentsAfterBoot().why).toContain(
@@ -319,7 +309,7 @@ describe("the array is empty", () => {
 	});
 
 	it("reads as nothing live to a levelling pass, outside a session alone", () => {
-		fakeClaude("[]");
+		fakeClaude([]);
 		expect(liveness.readAgentsForLevelling().agents).toEqual([]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect(liveness.readAgentsForLevelling().why).toContain(
@@ -328,7 +318,7 @@ describe("the array is empty", () => {
 	});
 
 	it("still refuses to admission inside a session, and to every other reader however asked", () => {
-		fakeClaude("[]");
+		fakeClaude([]);
 		expect(
 			liveness.listedSessionIds({ allowEmpty: true } as never).why,
 		).toContain("listed no agents at all");
@@ -344,21 +334,23 @@ describe("the array is empty", () => {
 
 describe("no record carries a sessionId", () => {
 	it("refuses when every record lacks the field, naming sessionId and the record count", () => {
-		fakeClaude('[{"pid":1,"status":"busy"},{"pid":2}]');
+		fakeClaude(malformed('[{"pid":1,"status":"busy"},{"pid":2}]'));
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("2 agent(s), none of them carrying a sessionId");
 	});
 
 	it("refuses when the field is present but empty or not a string", () => {
-		fakeClaude('[{"sessionId":""},{"sessionId":7},{"sessionId":null}]');
+		fakeClaude(
+			malformed('[{"sessionId":""},{"sessionId":7},{"sessionId":null}]'),
+		);
 		expect(liveness.listedAgents().why).toContain(
 			"none of them carrying a sessionId",
 		);
 	});
 
 	it("does not refuse when only some records lack it, and drops those", () => {
-		fakeClaude('[{"pid":1},{"pid":2,"sessionId":"a"}]');
+		fakeClaude(malformed('[{"pid":1},{"pid":2,"sessionId":"a"}]'));
 		const r = liveness.listedAgents();
 		expect(r.why).toBeUndefined();
 		expect(r.agents.map((a: { sessionId: string }) => a.sessionId)).toEqual([
@@ -420,21 +412,21 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 
 	/* It suppresses ONE test, not the oracle's judgement. */
 	it.each([
-		["the binary will not run", () => fakeClaude("[]", 3), "would not run"],
+		["the binary will not run", () => fakeClaude({ exit: 3 }), "would not run"],
 		[
 			"the output is not JSON",
-			() => fakeClaude("not json"),
+			() => fakeClaude(malformed("not json")),
 			"did not return JSON",
 		],
 		[
 			"the output is not an array",
-			() => fakeClaude('{"a":1}'),
+			() => fakeClaude(malformed('{"a":1}')),
 			"not the expected array",
 		],
-		["the array is empty", () => fakeClaude("[]"), "listed no agents at all"],
+		["the array is empty", () => fakeClaude([]), "listed no agents at all"],
 		[
 			"no record carries a sessionId",
-			() => fakeClaude('[{"pid":1}]'),
+			() => fakeClaude(malformed('[{"pid":1}]')),
 			"none of them carrying a sessionId",
 		],
 	])("still refuses when %s", (_name, arrange, fragment) => {
@@ -477,8 +469,9 @@ describe("what it returns when it can answer", () => {
 });
 
 describe("every plan's listing (#3512)", () => {
-	/** Seats A and B beside this caller's own dir, each listing its own ids. */
-	function seats() {
+	/** Seats A and B beside this caller's own dir, each listing its own ids;
+	 * B failing with exit 4 where `bFails`. */
+	function seats({ bFails = false } = {}) {
 		const a = path.join(dir, "seat-a");
 		const b = path.join(dir, "seat-b");
 		fs.mkdirSync(a);
@@ -487,19 +480,11 @@ describe("every plan's listing (#3512)", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", b);
 		const absent = path.join(dir, "no-such-seat");
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", absent);
-		const bin = writeClaudeStub(
-			path.join(dir, "claude"),
-			[
-				`case "$CLAUDE_CONFIG_DIR" in`,
-				`  ${shellQuote(a)}) echo ${shellQuote(listing("a1", "shared"))} ;;`,
-				`  ${shellQuote(b)}) [ -e ${shellQuote(path.join(dir, "b-fails"))} ] && exit 4; echo ${shellQuote(listing("b1", "shared"))} ;;`,
-				`  ${shellQuote(absent)}) echo ${shellQuote(listing("absent"))} ;;`,
-				`  *) echo ${shellQuote(listing("own"))} ;;`,
-				"esac",
-			],
-			0,
-		);
-		vi.stubEnv("WFC_CLAUDE_BIN", bin);
+		fakeClaude(listing("own"), {
+			[a]: listing("a1", "shared"),
+			[b]: bFails ? { exit: 4 } : listing("b1", "shared"),
+			[absent]: listing("absent"),
+		});
 	}
 
 	it("unions every existing seat's listing, one record per session, reading no absent seat", () => {
@@ -516,29 +501,17 @@ describe("every plan's listing (#3512)", () => {
 		vi.stubEnv("WFC_CLAUDE_CONFIG_A", a);
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
-		const row = (state: string) =>
-			JSON.stringify([
-				{ sessionId: "moved", id: "moved", kind: "background", state },
-			]);
-		const bin = writeClaudeStub(
-			path.join(dir, "claude"),
-			[
-				`case "$CLAUDE_CONFIG_DIR" in`,
-				`  ${shellQuote(a)}) echo ${shellQuote(row("working"))} ;;`,
-				`  *) echo ${shellQuote(row("stopped"))} ;;`,
-				"esac",
-			],
-			0,
-		);
-		vi.stubEnv("WFC_CLAUDE_BIN", bin);
+		const moved = { sessionId: "moved", id: "moved", kind: "background" };
+		fakeClaude([buildUnrecordedRow({ ...moved, state: "stopped" })], {
+			[a]: [buildListedRow({ ...moved, state: "working" })],
+		});
 		expect(liveness.listedAgents({ requireSelf: false }).agents).toMatchObject([
 			{ sessionId: "moved", state: "working" },
 		]);
 	});
 
 	it("refuses the whole listing where any one seat's read fails", () => {
-		seats();
-		fs.writeFileSync(path.join(dir, "b-fails"), "");
+		seats({ bFails: true });
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("exit 4");
@@ -574,12 +547,10 @@ describe("headless runs (#2608)", () => {
 	});
 
 	it("lists a run once, though the oracle derives an interactive row from its transcript (#4588)", () => {
-		fakeClaude(
-			JSON.stringify([
-				{ pid: 100, sessionId: "a", state: "working", kind: "session" },
-				{ pid: 101, sessionId: "h", state: "working", kind: "interactive" },
-			]),
-		);
+		fakeClaude([
+			...listing("a"),
+			buildListedRow({ pid: 101, sessionId: "h", kind: "interactive" }),
+		]);
 		headlessRun("0123abcd", "h");
 		expect(liveness.listedAgents().agents).toEqual([
 			expect.objectContaining({ sessionId: "a" }),
@@ -589,23 +560,16 @@ describe("headless runs (#2608)", () => {
 
 	it("drops a live oracle row sharing a run's pid under another session id, never a dead one (#4588)", () => {
 		// writeHeadlessRun records this process as the run's pid.
-		fakeClaude(
-			JSON.stringify([
-				{ pid: 100, sessionId: "a", state: "working", kind: "session" },
-				{
-					pid: process.pid,
-					sessionId: "x",
-					state: "working",
-					kind: "interactive",
-				},
-				{
-					pid: process.pid,
-					sessionId: "old",
-					state: "failed",
-					kind: "background",
-				},
-			]),
-		);
+		fakeClaude([
+			...listing("a"),
+			buildListedRow({ pid: process.pid, sessionId: "x", kind: "interactive" }),
+			buildUnrecordedRow({
+				pid: process.pid,
+				sessionId: "old",
+				state: "failed",
+				kind: "background",
+			}),
+		]);
 		headlessRun("0123abcd", "h");
 		expect(
 			liveness
@@ -655,7 +619,7 @@ describe("headless runs (#2608)", () => {
 		fakeClaude(listing("a"));
 		expect(liveness.listedSessionIds().ids.has("h")).toBe(true);
 		// The daemon may have nothing of its own to list beside it.
-		fakeClaude("[]");
+		fakeClaude([]);
 		expect(liveness.listedSessionIds().ids).toEqual(new Set(["h"]));
 	});
 
@@ -688,14 +652,12 @@ describe("listedSessionIds", () => {
 
 	/* Every session's cwd, whatever its state, for its repo's draw (#2221). */
 	it("maps each session to its cwd, whatever its state", () => {
-		fakeClaude(
-			JSON.stringify([
-				{ sessionId: "me", state: "working", cwd: "/r/a" },
-				{ sessionId: "w", state: "working", cwd: "/r/b" },
-				{ sessionId: "d", kind: "background", state: "done", cwd: "/r/c" },
-				{ sessionId: "nocwd", state: "working" },
-			]),
-		);
+		fakeClaude([
+			buildListedRow({ sessionId: "me", cwd: "/r/a" }),
+			buildListedRow({ sessionId: "w", cwd: "/r/b" }),
+			buildListedRow({ sessionId: "d", state: "done", cwd: "/r/c" }),
+			buildUnrecordedRow({ sessionId: "nocwd", state: "working" }),
+		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect([...liveness.listedSessionIds().cwds]).toEqual([
 			["me", "/r/a"],
@@ -706,19 +668,22 @@ describe("listedSessionIds", () => {
 	});
 
 	it("leaves a record with no pid absent from the map", () => {
-		fakeClaude(JSON.stringify([{ sessionId: "me" }]));
+		fakeClaude([buildListedRow({ sessionId: "me" }, ["pid", "status"])]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect(liveness.listedSessionIds().pids.has("me")).toBe(false);
 	});
 
 	it("derives the finished and terminal sets from the oracle's own state", () => {
-		const records = [
-			{ sessionId: "me", kind: "session", state: "working" },
-			{ sessionId: "done-1", kind: "background", state: "done" },
-			{ sessionId: "fail-1", kind: "background", state: "failed" },
-			{ sessionId: "bare" },
-		];
-		fakeClaude(JSON.stringify(records));
+		fakeClaude([
+			buildListedRow({ sessionId: "me", kind: "session" }),
+			buildListedRow({ sessionId: "done-1", state: "done" }),
+			buildUnrecordedRow({
+				sessionId: "fail-1",
+				kind: "background",
+				state: "failed",
+			}),
+			buildUnrecordedRow({ sessionId: "bare" }),
+		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const r = liveness.listedSessionIds();
 		expect([...r.finished]).toEqual(["done-1"]);
@@ -728,12 +693,10 @@ describe("listedSessionIds", () => {
 	/* `finished` — the pool a caller reports as reclaimable, off this same read
 	 * (mantahostels#653). */
 	it("holds the background sessions the oracle calls done", () => {
-		fakeClaude(
-			JSON.stringify([
-				{ sessionId: "me", kind: "session", state: "working" },
-				{ sessionId: "done-1", kind: "background", state: "done" },
-			]),
-		);
+		fakeClaude([
+			buildListedRow({ sessionId: "me", kind: "session" }),
+			buildListedRow({ sessionId: "done-1", state: "done" }),
+		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect([...liveness.listedSessionIds().finished]).toEqual(["done-1"]);
 	});
@@ -742,17 +705,15 @@ describe("listedSessionIds", () => {
 	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md). A `shell` session pairs `state: done` with `status: busy`, and must
 	 * still count here. */
 	it("reads kind and state alone, never status", () => {
-		fakeClaude(
-			JSON.stringify([
-				{ sessionId: "me", kind: "session", state: "working" },
-				{
-					sessionId: "shell",
-					kind: "background",
-					state: "done",
-					status: "busy",
-				},
-			]),
-		);
+		fakeClaude([
+			buildListedRow({ sessionId: "me", kind: "session" }),
+			buildUnrecordedRow({
+				sessionId: "shell",
+				kind: "background",
+				state: "done",
+				status: "busy",
+			}),
+		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		expect([...liveness.listedSessionIds().finished]).toEqual(["shell"]);
 	});
@@ -765,7 +726,7 @@ describe("listedSessionIds", () => {
 		["a foreground session that is done", { kind: "session", state: "done" }],
 		["a record whose state the oracle omitted", { kind: "background" }],
 	])("leaves out %s", (_name, extra: Record<string, string>) => {
-		fakeClaude(JSON.stringify([{ sessionId: "me", ...extra }]));
+		fakeClaude([buildUnrecordedRow({ sessionId: "me", ...extra })]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const r = liveness.listedSessionIds();
 		expect(r.finished.size).toBe(0);
@@ -774,11 +735,14 @@ describe("listedSessionIds", () => {
 	/* Every refusal reaches the callers through this wrapper, so a wrapper that
 	 * dropped `why` would hand them an empty Set — every claim reading dead. */
 	it.each([
-		["the binary will not run", () => fakeClaude("[]", 3)],
-		["the output is not JSON", () => fakeClaude("not json")],
-		["the output is not an array", () => fakeClaude('{"a":1}')],
-		["the array is empty", () => fakeClaude("[]")],
-		["no record carries a sessionId", () => fakeClaude('[{"pid":1}]')],
+		["the binary will not run", () => fakeClaude({ exit: 3 })],
+		["the output is not JSON", () => fakeClaude(malformed("not json"))],
+		["the output is not an array", () => fakeClaude(malformed('{"a":1}'))],
+		["the array is empty", () => fakeClaude([])],
+		[
+			"no record carries a sessionId",
+			() => fakeClaude(malformed('[{"pid":1}]')),
+		],
 		[
 			"the self-test fails",
 			() => {
@@ -837,11 +801,14 @@ describe("sweepSessionIds", () => {
 	/* The waiver reaches the self-test and nothing else: every other refusal
 	 * still refuses, or a sweep would run on an oracle that said nothing. */
 	it.each([
-		["the binary will not run", () => fakeClaude("[]", 3)],
-		["the output is not JSON", () => fakeClaude("not json")],
-		["the output is not an array", () => fakeClaude('{"a":1}')],
-		["the array is empty", () => fakeClaude("[]")],
-		["no record carries a sessionId", () => fakeClaude('[{"pid":1}]')],
+		["the binary will not run", () => fakeClaude({ exit: 3 })],
+		["the output is not JSON", () => fakeClaude(malformed("not json"))],
+		["the output is not an array", () => fakeClaude(malformed('{"a":1}'))],
+		["the array is empty", () => fakeClaude([])],
+		[
+			"no record carries a sessionId",
+			() => fakeClaude(malformed('[{"pid":1}]')),
+		],
 	])("still refuses when %s", (_name, arrange) => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		arrange();
@@ -855,12 +822,10 @@ describe("sweepSessionIds", () => {
 	 * the oracle did not list it. */
 	it("carries display names, minus the caller it added back", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		fakeClaude(
-			JSON.stringify([
-				{ pid: 1, sessionId: "other", name: "Implement 1924", kind: "session" },
-				{ pid: 2, sessionId: "nameless", kind: "session" },
-			]),
-		);
+		fakeClaude([
+			buildListedRow({ sessionId: "other", name: "Implement 1924" }),
+			buildUnrecordedRow({ pid: 2, sessionId: "nameless", kind: "session" }),
+		]);
 		const r = liveness.sweepSessionIds();
 		expect(r.names.get("other")).toBe("Implement 1924");
 		expect(r.names.has("nameless")).toBe(false);
@@ -880,12 +845,10 @@ describe("sweepSessionIds", () => {
 	 * waived list still needs to tell a listed-but-done holder from a live one. */
 	it("holds the background sessions the oracle calls done, like listedSessionIds", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		fakeClaude(
-			JSON.stringify([
-				{ sessionId: "me", kind: "session", state: "working" },
-				{ sessionId: "done-1", kind: "background", state: "done" },
-			]),
-		);
+		fakeClaude([
+			buildListedRow({ sessionId: "me", kind: "session" }),
+			buildListedRow({ sessionId: "done-1", state: "done" }),
+		]);
 		expect([...liveness.sweepSessionIds().finished]).toEqual(["done-1"]);
 	});
 
@@ -902,12 +865,10 @@ describe("sweepSessionIds", () => {
 		"holds a background session the oracle calls %s",
 		(state) => {
 			vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-			fakeClaude(
-				JSON.stringify([
-					{ sessionId: "me", kind: "session", state: "working" },
-					{ sessionId: "ended", kind: "background", state },
-				]),
-			);
+			fakeClaude([
+				buildListedRow({ sessionId: "me", kind: "session" }),
+				buildUnrecordedRow({ sessionId: "ended", kind: "background", state }),
+			]);
 			expect([...liveness.sweepSessionIds().terminal]).toEqual(["ended"]);
 		},
 	);
@@ -917,12 +878,14 @@ describe("sweepSessionIds", () => {
 	 * alone. Merging the two predicates would widen what it kills. */
 	it("leaves a failed session out of `finished` while holding it in `terminal`", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		fakeClaude(
-			JSON.stringify([
-				{ sessionId: "me", kind: "session", state: "working" },
-				{ sessionId: "failed-1", kind: "background", state: "failed" },
-			]),
-		);
+		fakeClaude([
+			buildListedRow({ sessionId: "me", kind: "session" }),
+			buildUnrecordedRow({
+				sessionId: "failed-1",
+				kind: "background",
+				state: "failed",
+			}),
+		]);
 		const r = liveness.sweepSessionIds();
 		expect(r.finished.has("failed-1")).toBe(false);
 		expect(r.terminal.has("failed-1")).toBe(true);
@@ -937,7 +900,7 @@ describe("sweepSessionIds", () => {
 		["a record whose state the oracle omitted", { kind: "background" }],
 	])("leaves %s out of `terminal`", (_name, extra: Record<string, string>) => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		fakeClaude(JSON.stringify([{ sessionId: "me", ...extra }]));
+		fakeClaude([buildUnrecordedRow({ sessionId: "me", ...extra })]);
 		expect(liveness.sweepSessionIds().terminal.size).toBe(0);
 	});
 
@@ -969,7 +932,7 @@ describe("totality", () => {
 	];
 
 	it.each(payloads)("answers or refuses on %s, never throws", (_n, body) => {
-		fakeClaude(body);
+		fakeClaude(malformed(body));
 		for (const call of [liveness.listedAgents, liveness.listedSessionIds]) {
 			const r = call();
 			expect(r).toBeTypeOf("object");
@@ -981,7 +944,7 @@ describe("totality", () => {
 
 	it.each(payloads)("refuses on %s inside a session too", (_n, body) => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		fakeClaude(body);
+		fakeClaude(malformed(body));
 		expect(typeof liveness.listedAgents().why).toBe("string");
 		expect(typeof liveness.listedSessionIds().why).toBe("string");
 	});

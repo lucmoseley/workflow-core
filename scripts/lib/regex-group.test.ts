@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { requiredGroup } from "./regex-group.js";
+import { escapeRe, requiredGroup } from "./regex-group.js";
 
 describe("requiredGroup", () => {
 	it("returns the string a participating group matched", () => {
@@ -55,5 +55,21 @@ describe("requiredGroup", () => {
 		if (!m) throw new Error("fixture did not match");
 
 		expect(() => requiredGroup(m, 2, re)).toThrow(/group 2/);
+	});
+});
+
+describe("escapeRe", () => {
+	const specials = ".*+?^{}$()|[]\\/";
+
+	it("gives a source matching the literal whole and nothing else", () => {
+		const re = new RegExp(`^${escapeRe(specials)}$`);
+		expect(re.test(specials)).toBe(true);
+		expect(re.test(`${specials}x`)).toBe(false);
+		expect(new RegExp(escapeRe("a.b")).test("axb")).toBe(false);
+	});
+
+	it("gives a source that stands inside a `/…/` literal", () => {
+		const re = new Function(`return /^${escapeRe(specials)}$/;`)();
+		expect(re.test(specials)).toBe(true);
 	});
 });

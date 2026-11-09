@@ -6,7 +6,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { escapeRe, isGlobPattern } = require("./shell-words.js");
+const { escapeRe } = require("./regex-group.js");
+const { isGlobPattern } = require("./shell-words.js");
 
 /**
  * How much of a file one read takes while counting a line window: 64 KiB,

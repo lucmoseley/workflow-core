@@ -49,13 +49,6 @@ const absolute = (p, pwd) =>
 const isGlobPattern = (s) => /[*?[]/.test(s);
 
 /**
- * A literal string as the regex source that matches it, `/` escaped too so
- * the source also stands inside a `/…/` literal.
- * @param {string} s
- */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-
-/**
  * The one walk over a masked text's span sentinels (#2785): `onSpan` is
  * handed the text before each sentinel and the span index read up to its
  * closing `\x01` — null where no index stands there — and answers what to
@@ -1330,7 +1323,6 @@ module.exports = {
 	hasExpansion,
 	isBareSpan,
 	isGlobPattern,
-	escapeRe,
 	readSentinels,
 	literal,
 	unwrap,

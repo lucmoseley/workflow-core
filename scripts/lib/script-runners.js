@@ -334,20 +334,15 @@ const runPackageDirs = (run, dirs, root) => [
  * @param {string[]} dirs
  * @param {PackageTree} tree
  */
-function resolveRunDirs(run, dirs, { root, readCachedPackage }) {
+function resolveRunDirs(run, dirs, tree) {
 	const { selection } = run;
 	if (!selection)
 		return {
-			dirs: runPackageDirs(run, dirs, root),
+			dirs: runPackageDirs(run, dirs, tree.root),
 			unresolvedMembers: undefined,
 		};
 	const picks = dirs.map((d) =>
-		resolveSelection(
-			selection,
-			path.resolve(d, run.dir),
-			root,
-			readCachedPackage,
-		),
+		resolveSelection(selection, path.resolve(d, run.dir), tree),
 	);
 	return {
 		dirs: [...new Set(picks.flatMap((p) => p.dirs))],

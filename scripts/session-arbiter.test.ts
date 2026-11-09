@@ -121,7 +121,7 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	});
 
 	it("routes an unstubbed gh call to a stub that refuses", () => {
-		const unstubbed = sandboxOf("gh-unstubbed");
+		const unstubbed = sandboxOf("bin/gh");
 		expect(process.env.WFC_GH).toBe(unstubbed);
 		const r = spawnSync(unstubbed, ["issue", "view", "1"], {
 			encoding: "utf8",

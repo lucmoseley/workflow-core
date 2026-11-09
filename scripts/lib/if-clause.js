@@ -9,7 +9,7 @@
  * reaches into `$()` and backticks) and some it would not.
  */
 
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 
 /**
  * A permission-rule glob as an anchored RegExp.
@@ -21,10 +21,7 @@ const { requiredGroup } = require("./regex-group.js");
  * @returns {RegExp}
  */
 function globToRegExp(glob) {
-	const body = String(glob)
-		.split("*")
-		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-		.join("[\\s\\S]*");
+	const body = String(glob).split("*").map(escapeRe).join("[\\s\\S]*");
 	return new RegExp(`^${body}$`);
 }
 

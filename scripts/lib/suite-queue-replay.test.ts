@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WHOLE_SUITE_MAX } from "./suite-ladder";
+import { suiteRungMb, WHOLE_SUITE_MAX } from "./suite-ladder";
 import { PART_PASS_AGE_MS, turnOf } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
 
@@ -457,6 +457,144 @@ describe("the windows limb, the Windows-memory hold (#4782)", () => {
 			);
 		expect(limbsOf("s-0")).toEqual({ windows: 1800 });
 		expect(limbsOf("s-1")).toEqual({ open: 480 });
+	});
+});
+
+describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4760, #4799)", () => {
+	/* A whole head charged a 1,587 MB climb against its 3,650 MB rung, a
+	 * 1-worker run beside it, a `tsc` running, and a younger `tsc` waiting.
+	 * Each 10 minutes the head is held on another limb: the climb (4,000 MB
+	 * available), the Windows hold alone (5,500 MB, Windows' 2,100 MB free
+	 * under its ~2,300 MB need and over the `tsc`'s ~1,938 MB), then the rung
+	 * itself (3,000 MB, over the `tsc`'s 2,750 MB rung). */
+	const head = (at: string, { tsc = 1, wholeSlot = false } = {}) => {
+		const base = Date.parse(at);
+		const shift = (t: number) => t - T0 + base;
+		const minute = (m: number) => Math.floor(base / MIN) + m;
+		const used = (m: number) => [6000, 4500, 7000][Math.floor(m / 10)];
+		const w = window();
+		const r = replay(
+			{
+				exits: [
+					{ from: 0, to: 30, slotFree: false, climbMb: 1587 },
+					{ from: 2, to: 30, kind: "tsc", reason: "opened" },
+				].map((waiter, i) => {
+					const e = exit(waiter, i);
+					return { ...e, at: iso(shift(Date.parse(e.at))) };
+				}),
+				runs: [{ from: 0, to: 30, session: "s-9", wholeSlot }].map((spec) => {
+					const x = run(spec);
+					return { ...x, st: shift(x.st), en: shift(x.en) };
+				}),
+				mem: new Map(
+					Array.from({ length: 30 }, (_, m) => [
+						minute(m),
+						{ used: used(m), load: 1, tsc },
+					]),
+				),
+				windows: new Map(
+					Array.from({ length: 30 }, (_, m) => [minute(m), 2100]),
+				),
+				unread: { absent: [], unparsed: 0 },
+			},
+			{ ...w, since: shift(w.since), until: shift(w.until) },
+		);
+		return {
+			limbsOf: (session: string) =>
+				Object.fromEntries(
+					r.sessions.find((s) => s.session === session)?.limbs ?? [],
+				),
+			peerS: r.limbAlso.get("tsc-count / peer-climb") ?? 0,
+		};
+	};
+
+	it("holds the `tsc` back throughout, the head's stamp kept on the Windows hold and the rung", () => {
+		const { limbsOf, peerS } = head("2026-11-10T00:00:00Z");
+		expect(limbsOf("s-0")).toEqual({ climb: 600, windows: 600, memory: 600 });
+		expect(peerS).toBe(1680);
+	});
+
+	it("keeps no stamp where only the head's own queue runs, which charges it nothing", () => {
+		const { limbsOf } = head("2026-11-10T00:00:00Z", { tsc: 0 });
+		expect(limbsOf("s-1")).toEqual({ "peer-climb": 480, open: 1200 });
+	});
+
+	it("stamps no head the count limb holds first", () => {
+		const { limbsOf, peerS } = head("2026-11-10T00:00:00Z", {
+			wholeSlot: true,
+		});
+		expect(limbsOf("s-0")).toEqual({ count: 1800 });
+		expect(peerS).toBe(0);
+	});
+
+	it("lets the `tsc` go once the climb limb clears, before #4799's commit", () => {
+		expect(head("2026-11-09T09:00:00Z").peerS).toBe(480);
+	});
+
+	it("reads no peer-climb before #4760's commit", () => {
+		expect(head("2026-11-09T07:00:00Z").peerS).toBe(0);
+	});
+});
+
+describe("the pass past a head the memory rung holds at rest (#4783)", () => {
+	/* A 4-file head held from minute 0 to its bound with no run alive, and a
+	 * 1-file part waiting from minute 10, past PART_PASS_AGE_MS, that fits:
+	 * MemAvailable between the two rungs. */
+	const held = (shift: number, alongside: Run[] = []) => {
+		const later = (t: number) => t + shift;
+		const used = 10_000 - (suiteRungMb(1) + suiteRungMb(4)) / 2;
+		const r = replay(
+			{
+				exits: [
+					{ from: 0, to: 30, slotFree: true, reason: "timeout" },
+					{ from: 10, to: 12, slotFree: true, reason: "opened" },
+				].map((waiter, i) => {
+					const e = exit(waiter, i);
+					return { ...e, at: iso(later(Date.parse(e.at))) };
+				}),
+				runs: [
+					{ from: 30, to: 35, session: "s-0", resolvedFiles: 4 },
+					{ from: 12, to: 13, session: "s-1", resolvedFiles: 1 },
+					...alongside,
+				].map((spec) => {
+					const x = run(spec);
+					return { ...x, st: later(x.st), en: later(x.en) };
+				}),
+				mem: new Map(
+					Array.from({ length: 60 }, (_, m) => [
+						Math.floor(later(T0) / MIN) + m,
+						{ used, load: 1, tsc: 0 },
+					]),
+				),
+				windows: new Map(),
+				unread: { absent: [], unparsed: 0 },
+			},
+			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
+		);
+		return Object.fromEntries(
+			r.sessions.find((x) => x.session === "s-1")?.limbs ?? [],
+		);
+	};
+
+	/* Any tick after #4783's commit. */
+	it("lets the part that fits pass, from #4783's commit", () => {
+		expect(held(Date.parse("2026-11-10T00:00:00Z") - T0)).toEqual({
+			open: 120,
+		});
+	});
+
+	/* One worker running: the part still fits its rung, but that run's end
+	 * could let the head in, so the head is not at rest. */
+	it("holds the part behind a head a running run's end could let in", () => {
+		expect(
+			held(Date.parse("2026-11-10T00:00:00Z") - T0, [
+				{ from: 0, to: 40, session: "s-9", resolvedFiles: 1 },
+			]),
+		).toEqual({ "fifo-part": 120 });
+	});
+
+	it("held it behind the head before", () => {
+		expect(held(0)).toEqual({ "fifo-part": 120 });
 	});
 });
 

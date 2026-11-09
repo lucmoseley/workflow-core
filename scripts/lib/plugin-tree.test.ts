@@ -30,6 +30,7 @@ import {
 	CITATION_CEILING,
 	qualifyCitations,
 } from "./qualify-citations.js";
+import { escapeRe } from "./regex-group.js";
 import { runInProcess } from "./run-in-process.js";
 import { isCollectedTestOrConftest } from "./test-kind.js";
 
@@ -410,10 +411,9 @@ const readLeftBehindReferences = (root: string, out: string) => {
 		.map((rel) => ({
 			rel,
 			pattern: new RegExp(
-				`(?<![\\w-])${path
-					.basename(rel)
-					.replace(/\.(c|m)?(js|sh|py)$/, "")
-					.replace(/\./g, "\\.")}(?![\\w-])`,
+				`(?<![\\w-])${escapeRe(
+					path.basename(rel).replace(/\.(c|m)?(js|sh|py)$/, ""),
+				)}(?![\\w-])`,
 			),
 		}));
 	return readFiles(out)

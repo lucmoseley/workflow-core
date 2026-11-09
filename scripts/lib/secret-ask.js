@@ -25,6 +25,7 @@ const FENCE = String.raw`${FENCE_OPEN}(?:\n[\s\S]*?^[ \t]*\1(?:(?<=\`)\`*|(?<=~)
 
 const INLINE_SPAN = /`[^`\n]+`/g;
 /* Inline code spans and fenced blocks alike: where a pasteable text sits. */
+// eslint-disable-next-line regexp/no-super-linear-backtracking, regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 const CODE_SPAN = new RegExp(`${FENCE}|${INLINE_SPAN.source}`, "gm");
 
 /* How far, in characters, a cue reaches from its verb or noun to the word that
@@ -45,6 +46,7 @@ const NEGATED = String.raw`\b(?:cannot|can't|won't|couldn't|wouldn't)\s+`;
 const AGENT = String.raw`\b(?:I|I'll|I'd|we|we'll)\s+(?:(?:can't|cannot|can|won't|will|would|could|don't|do not|also|just|then)\s+)?`;
 const DETERMINER = String.raw`\b(?:the|a|an|what|which|this|that|each|any|its|their)\s+`;
 const SECRET_ASK = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	String.raw`(?<!${AGENT})(?<!${NEGATED})(?<!${DETERMINER})\b(?:paste|enter|type(?!\s+(?:of|warnings?)\b)|supply|provide|send|share(?!\s+of\b)|(?:give|hand)\s+(?:me|us|over))\b(?!-)(?:(?!\b(?:and|then|so)\b)[^.,;\n]){0,${CLAUSE_REACH}}?(?<!\b(?:output|input|cache|context|design|\d+k?)\s+)\b${SECRET_NOUN}\b`,
 	"i",
 );
@@ -240,6 +242,7 @@ const askPhrase = (text) => text.replace(/’/g, "'").match(SECRET_ASK)?.[0];
 
 /* A fenced block or a `>` quote line: text the message shows rather than
  * says — a prompt for another session, a quoted log. */
+// eslint-disable-next-line regexp/no-super-linear-backtracking, regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 const SHOWN = new RegExp(String.raw`${FENCE_CLOSED}|^\s*>.*$`, "gm");
 
 /**

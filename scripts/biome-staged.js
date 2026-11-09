@@ -15,12 +15,14 @@
  * Biome runs there: whole, as its project rules (noImportCycles,
  * noFloatingPromises) read the files a staged one imports.
  *
- * The tree has no node_modules, so a rule that reads one goes quiet here:
- * noUntrustedLicenses, and noFloatingPromises, noMisusedPromises and
- * noDeprecatedImports on a third-party import. Local types still fire, and
- * `biome ci .` in CI, which installs node_modules, raises the rest. A
- * symlinked node_modules does not restore them: a link whose target lies
- * outside the tree stays silent (#4085). Restoring them is #4639.
+ * The rules that read node_modules — noUntrustedLicenses, and
+ * noFloatingPromises, noMisusedPromises and noDeprecatedImports on a
+ * third-party import — see only a dependency whose real path lies inside
+ * Biome's project (biomejs/biome#12934), so neither the bare tree nor a
+ * symlink into it raises them (#4085). So the caller's node_modules, a
+ * worktree's out-of-tree dependency store included, is bind-mounted onto the
+ * tree's inside a private mount namespace (`unshare -rm`) (#4639). Off Linux, or where the mount fails, those rules go quiet here
+ * and `biome ci .` in CI raises them.
  *
  * Not a check-*.js: Biome's own report is the verdict, any failing exit
  * reading as 1. `biome` is found on PATH, which `npm run` and the hook both
@@ -63,6 +65,57 @@ function readStagedPaths() {
 		.filter(Boolean);
 }
 
+/* The launch's own exits, apart from Biome's 0 and 1: the mount failing,
+ * and sh's "cannot execute" and "not found". */
+const MOUNT_FAILED = 125;
+const NOT_STARTED = new Set([126, 127]);
+
+/**
+ * How to run `biome check`: mounted, as the header says, or plain Biome
+ * where the repo has no node_modules, the tree carries its own, or the host
+ * cannot mount: off Linux, silently; on Linux, saying so.
+ * @param {string} tree
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string[]} check `biome check`'s arguments
+ * @returns {{ command: string, args: string[] }}
+ */
+function buildBiomeLaunch(tree, env, check) {
+	const plain = { command: "biome", args: check };
+	if (process.platform !== "linux") return plain;
+	const target = path.join(tree, "node_modules");
+	if (fs.existsSync(target)) return plain;
+	let source;
+	try {
+		source = fs.realpathSync("node_modules");
+	} catch (e) {
+		if (caught(e).code === "ENOENT") return plain;
+		throw e;
+	}
+	fs.mkdirSync(target);
+	const mount = [
+		"-rm",
+		"sh",
+		"-c",
+		`mount --bind "$1" node_modules || exit ${MOUNT_FAILED}; shift; exec "$@"`,
+		"sh",
+		source,
+	];
+	/* `unshare` refused exits 1, as Biome's findings do, so the host is
+	 * probed in a namespace that dies with the probe. */
+	const probe = spawnSync("unshare", [...mount, "true"], {
+		cwd: tree,
+		env,
+		encoding: "utf8",
+	});
+	if (probe.status === 0)
+		return { command: "unshare", args: [...mount, "biome", ...check] };
+	fs.rmdirSync(target);
+	process.stderr.write(
+		`biome-staged: could not mount node_modules into the extracted tree (${(probe.error?.message ?? probe.stderr).trim()}), so noUntrustedLicenses and the type rules on third-party imports are off for this commit\n`,
+	);
+	return plain;
+}
+
 /** @returns {number} the exit code */
 function main() {
 	const paths = readStagedPaths();
@@ -94,12 +147,17 @@ function main() {
 				.join(path.delimiter);
 		git(["init", "-q", tree], "making the extracted tree a repo", env);
 
-		const r = spawnSync(
-			"biome",
-			["check", ...process.argv.slice(2), ...present],
-			{ cwd: tree, env, stdio: "inherit" },
-		);
+		const { command, args } = buildBiomeLaunch(tree, env, [
+			"check",
+			...process.argv.slice(2),
+			...present,
+		]);
+		const r = spawnSync(command, args, { cwd: tree, env, stdio: "inherit" });
 		if (r.error) throw new Error(`biome would not start: ${r.error.message}`);
+		if (r.status === MOUNT_FAILED)
+			throw new Error("could not mount node_modules into the extracted tree");
+		if (NOT_STARTED.has(r.status ?? 0))
+			throw new Error(`biome would not start: exit ${r.status}`);
 		return r.status === 0 ? 0 : 1;
 	} finally {
 		fs.rmSync(work, { recursive: true, force: true });

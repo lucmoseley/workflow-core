@@ -37,6 +37,7 @@ const { runCommand } = require("./lib/run-command.js");
 const { systemctl, systemdRun } = require("./lib/systemd-bins.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { relativeUnder } = require("./lib/is-under.js");
+const { escapeRe } = require("./lib/regex-group.js");
 
 const UNIT = "wfc-orphan-sweep";
 const TIMER_UNIT = `${UNIT}.timer`;
@@ -66,9 +67,7 @@ function sweepScript() {
  * @param {string} exec `systemctl show -p ExecStart --value`'s text
  */
 const scriptInExecStart = (exec) =>
-	new RegExp(`argv\\[\\]=\\S+ (\\S+/${SWEEP.replace(".", "\\.")})`).exec(
-		exec,
-	)?.[1] ?? "";
+	new RegExp(`argv\\[\\]=\\S+ (\\S+/${escapeRe(SWEEP)})`).exec(exec)?.[1] ?? "";
 
 /**
  * The script path the running timer's service names: null where no timer is

@@ -28,6 +28,7 @@ import {
 	buildListedRow,
 	buildPermissionRow,
 	buildStopBranch,
+	buildUnrecordedRow,
 	isPermissionRow,
 	type Row,
 	recorded,
@@ -143,6 +144,45 @@ it("refuses a status and state the harness never lists together", () => {
 	expect(() => buildListedRow({ status: "busy", state: "blocked" })).toThrow(
 		/lists no busy\/blocked row/,
 	);
+});
+
+it("refuses to leave out a field the harness always lists", () => {
+	expect(() => buildListedRow({}, ["sessionId"])).toThrow(
+		/never leaves out "sessionId"/,
+	);
+});
+
+it("holds an unrecorded row to the harness's field names alone", () => {
+	expect(buildUnrecordedRow({ state: "failed" })).toEqual({ state: "failed" });
+	expect(() => buildUnrecordedRow({ tempo: "active" })).toThrow(
+		/lists no "tempo"/,
+	);
+});
+
+/* The fake's listing answers no recording holds. */
+describe("the fake's listing answers", () => {
+	it("fails with the exit status it is given", () => {
+		vi.stubEnv("WFC_CLAUDE_BIN", claudeOf(buildAgentsBranch({ exit: 4 })));
+		expect(listedAgents({ requireSelf: false }).why).toContain("exit 4");
+	});
+
+	it("answers a seat it maps as that seat's, any other as the fallback", () => {
+		const seat = path.join(dir, "seat-a");
+		fs.mkdirSync(seat);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_A", seat);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
+		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
+		const bin = claudeOf(
+			buildAgentsBranch([buildJobRow("own", "working")], {
+				[seat]: [buildJobRow("a1", "working")],
+			}),
+		);
+		expect(
+			readListing(bin)
+				.map((r) => r.id)
+				.sort(),
+		).toEqual(["a1", "own"]);
+	});
 });
 
 const stopCases: { kind: StopKind; outcome: object }[] = [

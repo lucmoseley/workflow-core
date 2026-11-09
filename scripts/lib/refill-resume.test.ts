@@ -201,7 +201,7 @@ describe("a copy's original retired (#4098)", () => {
 		expect(callsTo("runClaude")).toHaveLength(1);
 	});
 
-	it("keeps an original it could not stop, and a copy it could not name, logging both", () => {
+	it("keeps an original it could not stop for a later tick, and a copy it could not name, logging both (#4646)", () => {
 		const { steps, callsTo, lines } = fakeIo({
 			readJobRecord: ["copyWorking", "working"],
 			hasJobRecord: "present",
@@ -209,7 +209,18 @@ describe("a copy's original retired (#4098)", () => {
 			sessionName: "named",
 			writeJobName: "unwritable",
 		});
-		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS).failed).toBeNull();
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toMatchObject({
+			failed: null,
+			jobId: FAKE_COPY,
+			copy: true,
+			unretired: {
+				seat: SEAT,
+				sessionId: SESSION,
+				cwd: ROOT,
+				copyJobId: FAKE_COPY,
+				tries: 1,
+			},
+		});
 		expect(callsTo("runClaude")).toHaveLength(1);
 		expect(lines).toContain(
 			`copy ${FAKE_COPY} of ${SESSION} not named: ${ANSWERS.writeJobName.unwritable}`,

@@ -96,3 +96,25 @@ Researched: 2026-10-21
 - False positives, and no cheap way to silence them, are the main reason developers stop using a static-analysis tool. Johnson et al., "Why Don't Software Developers Use Static Analysis Tools to Find Bugs?", ICSE 2013 [named expert]
 - SonarQube Cloud's quality gate judges new code only ("Clean as You Code"). SonarQube Cloud docs, "Clean as You Code" and quality gates [standard or field body]
 - SonarQube Cloud switches off a rule class for a project, optionally for a path pattern, under Administration > General Settings > Analysis scope > Issues > Ignore Issues on Multiple Criteria (rule-key pattern plus file-path pattern). Under automatic analysis `.sonarcloud.properties` takes only the scope keys, not `sonar.issue.ignore.multicriteria`. A single finding is closed by marking it False positive with a comment. SonarQube Cloud docs, "Automatic analysis" §Additional analysis configuration; "Advanced exclusions"; "Editing issues" [standard or field body]
+
+## Accepting one finding a check reports
+
+Researched: 2026-11-09 for this section.
+
+- Key each acceptance to one finding's identity, rule plus target plus a fingerprint, so a later finding of the same kind on the same target still fails. SARIF 2.1.0 §3.27.16 `fingerprints` and §3.27.24 `baselineState` (OASIS) [standard or field body]; GitHub code scanning `primaryLocationLineHash`, detekt baseline `RuleID:File:Signature`, PHPStan baseline message plus path plus count, Snyk advisory ID plus dependency path, each for its own product [standard or field body]
+- A suppression that names no rule is reported or refused: PHPStan's `@phpstan-ignore` needs an identifier; `eslint-comments/no-unlimited-disable`; Semgrep's org switch that turns inline ignores off. Each for its own product [standard or field body]
+- Each acceptance carries a reason. Server tools require one from a fixed list (false positive, accepted risk, used in tests, mitigated): GitHub `dismissed_reason`, GitLab reason plus a required comment, SonarQube Accepted or False positive, Semgrep ignore reason; in-repo tools make free text an opt-in requirement: PHPStan `reportIgnoresWithoutComments`, ESLint `require-description`, Snyk "Require reason for each ignore". Each for its own product [standard or field body]. SARIF §3.35.5 `justification` is only MAY [standard or field body]
+- Acceptances stay auditable: in an in-repo file, whose who and when are version-control history and review (SARIF `kind` inSource), or in a server store that records them (`kind` external) [standard or field body]. Record exceptions in the workflow and review approved ones at intervals. NIST SP 800-218 SSDF PO.4.1 Ex. 5, PO.1.2 Ex. 7 [standard or field body]
+- An acceptance matching no finding is reported: PHPStan `reportUnmatchedIgnoredErrors` (on by default), ESLint `reportUnusedDisableDirectives` (`warn` by default), Ruff `RUF100`; Snyk `expires` and OWASP Dependency-Check `until` end one by date. Each for its own product [standard or field body]
+- A failing or high-severity finding may be accepted: no surveyed tool limits acceptance to warnings (SARIF, GitHub, GitLab, SonarQube, Snyk, ESLint, each for its own product), and SSDF RV.2.2 names risk acceptance a valid response to each vulnerability [standard or field body]. The control is who may accept and for how long. Full survey: #4636.
+
+## Routing a change a merge queue ejects
+
+Researched: 2026-11-09 for this section.
+
+- An ejected change goes back to its owner, and its state stays on the change: no surveyed queue opens a ticket or issue for an ejection. GitHub merge queue (timeline event), GitLab merge trains (system note), Mergify (status comment, check run, `dequeued` label), bors-ng ("kicked back to the creator"), Zuul (failure reporter on the change), Aviator (sticky comment, `merge_failed` label), Graphite and Shopify (PR comments); Trunk adds an opt-in direct message to the author. Each for its own product [standard or field body]
+- Repeat ejections of one change update one record: Aviator's sticky comment and Mergify's check run are edited in place; Trunk's Failure tab holds one entry per PR, cleared on resubmit, after the full history "made it difficult to identify current failures requiring action" (changelog 2025-05-28). Each for its own product [standard or field body]
+- Where the owner does not watch the change (a bot), a separate list of ejected-and-unmerged changes, one row per change, reaches a human. Jamie Tanna, jvt.me 2026-08-11 [named expert]
+- A shared owner takes breakage only once it is on the main branch; a change not yet landed stays with its author. SWE at Google ch. 23 (Build Cop); Fowler, "Continuous Integration" [named expert]
+- Retry on a flake signal before ejecting: Shopify ejects after 3 successive failures, because "legitimate failures will propagate to all later CI runs" (Jack Li [named expert]); GitLab, Mergify `max_checks_retries`, Trunk (1 to 3, flaky patterns only), each for its own product [standard or field body]
+- No source compares owner routing with a shared ticket queue directly. Uber's EuroSys 2019 paper unread (too large to fetch). Full survey: #4794.

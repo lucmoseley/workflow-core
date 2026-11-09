@@ -10,6 +10,7 @@
 const { MOVED_LINE } = require("./land-refusal.js");
 const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
+const { escapeRe } = require("./regex-group.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -31,8 +32,6 @@ const NOT_MOVED = /^(?:refused: |level main: failed)/;
 const HEADER = /^levelling (\S.*)$/;
 const STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s/;
 const LAND = /\bsession-checkout\.js\s+land\b/;
-/** @param {string} text */
-const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 /* scripts/session-checkout.js's land line, which names the session's queue
  * ref and the verified ref it merged. */
 const PUSHED_TO = `pushed ([0-9a-f]{7,40}) to ${escapeRe(QUEUE_PREFIX)}\\S+`;
@@ -193,16 +192,15 @@ function resultText(content) {
 
 /**
  * @typedef {{ name: string, input: Record<string, unknown>, start: number }} OpenCall
- * A transcript record is the harness's JSON, read field by field with
- * optional chaining; no schema of it is kept here to type it by, hence `any`.
- * @typedef {Record<string, any>} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
  * One content block of a record: a call opened, or the span a result closes.
  * accumulator: adds to and removes from `open`, the calls awaiting a result.
  * @param {TranscriptRecord} rec
- * @param {TranscriptRecord} block
+ * @param {TranscriptBlock} block
  * @param {number} t
  * @param {Map<string, OpenCall>} open
  * @returns {ToolSpan | null}

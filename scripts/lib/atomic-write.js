@@ -15,6 +15,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { escapeRe } = require("./regex-group.js");
 
 /**
  * @typedef {object} AtomicWriteOptions
@@ -44,7 +45,7 @@ function asidePath(file, pid, tag) {
  * @returns {number | null}
  */
 function asidePid(base, name) {
-	const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const escaped = escapeRe(base);
 	const m = name.match(new RegExp(`^${escaped}\\.(\\d+)\\.[0-9a-f]{8}\\.tmp$`));
 	return m ? Number(m[1]) : null;
 }
