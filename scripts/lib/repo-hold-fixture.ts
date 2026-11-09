@@ -12,7 +12,8 @@ export const NOW = 1_800_000_000_000;
 export const MIN = 60_000;
 
 /* A self-plugin hooks.json whose guard hook line runs the checkout's own
- * scripts/guard-dispatch.js, for the guard-load probe to run (#4226, #4228). */
+ * scripts/guard-dispatch.js, spelt off the plugin root as the real lines are,
+ * for the guard-load probe to run (#4226, #4228, #4716). */
 export const GUARD_HOOKS_JSON = JSON.stringify({
 	hooks: {
 		PreToolUse: [
@@ -21,7 +22,7 @@ export const GUARD_HOOKS_JSON = JSON.stringify({
 				hooks: [
 					{
 						type: "command",
-						command: 'node "$CLAUDE_PROJECT_DIR"/scripts/guard-dispatch.js',
+						command: 'node "$CLAUDE_PLUGIN_ROOT"/../scripts/guard-dispatch.js',
 					},
 				],
 			},

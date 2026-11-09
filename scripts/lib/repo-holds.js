@@ -991,10 +991,15 @@ const buildBenignRead = (root) => ({
 function readGuardRunFailure(root, call, isAnyDeny) {
 	const hookLine = readGuardHookLine(root, String(call.tool_name));
 	if ("why" in hookLine) return hookLine.why;
-	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it. */
+	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it.
+	 * The plugin root is the harness's to set, and the hook lines spell their
+	 * scripts off it (#4701, #4716). */
 	const run = spawnChild("sh", ["-c", hookLine.line], {
 		cwd: root,
-		env: buildCheckoutEnv(root),
+		env: {
+			...buildCheckoutEnv(root),
+			CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
+		},
 		input: JSON.stringify({
 			session_id: GUARD_PROBE_SESSION,
 			hook_event_name: "PreToolUse",
