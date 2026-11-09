@@ -200,6 +200,43 @@ it("leaves alone an interactive session, a job already in a worktree, a compacti
 	expect(cutNames()).toEqual(["already-here"]);
 });
 
+it("carries a file the prompt names in the job's directory into the worktree, since removing the original deletes that directory", () => {
+	const pasted = path.join(jobDir, "tmp", "pasted-9f0c82a3.png");
+	fs.mkdirSync(path.dirname(pasted), { recursive: true });
+	fs.writeFileSync(pasted, "png bytes");
+	writeRecord({ ...RECORD, intent: `/wayfinder why? ${pasted}` });
+
+	const r = run(startup());
+
+	expect(r.status, r.stderr).toBe(0);
+	const [name] = cutNames();
+	const carried = path.join(
+		worktrees(),
+		name,
+		".claude",
+		"tmp",
+		"attachments",
+		"tmp",
+		"pasted-9f0c82a3.png",
+	);
+	expect(fs.readFileSync(carried, "utf8")).toBe("png bytes");
+	const [launch, removal] = readCalls();
+	expect(launch.args.at(-1)).toBe(`/wayfinder why? ${carried}`);
+	expect(removal.args).toEqual(["rm", RECORD.daemonShort]);
+});
+
+it("relaunches nothing where a file the prompt names in the job's directory cannot be carried, so removal never deletes it", () => {
+	const missing = path.join(jobDir, "tmp", "pasted-gone.png");
+	writeRecord({ ...RECORD, intent: `/wayfinder why? ${missing}` });
+
+	const r = run(startup());
+
+	expect(r.status, r.stderr).toBe(0);
+	const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+	expect(told).toContain(`carrying ${missing} into its worktree failed`);
+	expect(readCalls()).toEqual([]);
+});
+
 it("tells the session to work in the cut worktree where the relaunch fails, and removes nothing", () => {
 	writeFakeClaude({ bgFail: "daemon unreachable" });
 	const r = run(startup());
@@ -256,6 +293,7 @@ it("launches nothing where the cut leaves too little of the hook's timeout for b
 		job: () => ({ root: "/r", intent: "x" }),
 		cut: () => "/r/.claude/worktrees/x-1",
 		msLeft: () => msLeft,
+		carry: () => "x",
 		launch: () => {
 			made.push("launch");
 			return { ok: true, output: "" };
