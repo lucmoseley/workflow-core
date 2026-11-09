@@ -1,22 +1,18 @@
 /*
  * windows-memory.js — the Windows-memory hold (#4557): Windows' own free
  * memory, off memwatch's newest `win_avail_mb` reading, and whether a launch
- * fits in it. One definition for the suite gate, the type-check slot and
- * session admission, beside their guest rungs.
+ * fits in it.
  *
  * WHY A GUEST RUNG CANNOT SEE IT. The guest takes new pages from its own
  * unbacked free memory before it evicts page cache, growing `vmmemWSL` on
- * Windows, so a guest reading 8 GB available can still draw more than Windows
- * has. On 6 Nov 2026 a test run froze the VM with the guest never short and
- * Windows paging 172k pages a minute (docs/environment.md §7).
+ * Windows (docs/environment.md §7, 6 Nov 2026).
  *
  * IT READS memwatch's FILE, NEVER WINDOWS: a `powershell.exe` call costs host
- * CPU and seconds, and a freeze has begun during one (#4557). memwatch reads
- * Windows in the background each minute (docs/environment.md §4).
+ * CPU and seconds, and a freeze has begun during one (#4557).
  *
  * FAILS OPEN where no fresh reading exists. A machine with no minute log runs
- * no memwatch, as an adopter's need not, and is silent; a log with no fresh
- * reading is named, for the caller to record.
+ * no memwatch and is silent; a log with no fresh reading is named, for the
+ * caller to record.
  */
 
 const fs = require("node:fs");
@@ -180,12 +176,10 @@ function readWindowsRecorded(readWindows, log, what) {
 	return read;
 }
 
-/** Why the hold reads Windows, as every text naming it says. */
 const WINDOWS_PAGING_WHY =
 	"the VM grows into Windows' memory before the guest evicts its page cache";
 
 /**
- * The hold as a deny or a wait line names it.
  * @param {{ mb: number, needMb: number }} short
  */
 const buildWindowsShortText = (short) =>

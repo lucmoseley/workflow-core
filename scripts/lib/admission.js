@@ -1582,7 +1582,7 @@ function buildWindowsLine(windows, onWindows) {
 }
 
 /**
- * The Windows-memory hold on sessions, as both verdicts name it (#4557).
+ * The Windows-memory hold on sessions (#4557).
  * @param {NonNullable<AdmissionFigures["onWindows"]>} w
  */
 const buildWindowsHoldText = (w) =>

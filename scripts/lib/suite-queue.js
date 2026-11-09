@@ -41,8 +41,6 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * the rung where the guard gave them, and what the other queue's launches have
  * yet to draw where the gate charged it (#3416).
  * A count denial carries the memory reading where the rung fails too (#4359).
- * Or the Windows-memory hold, with Windows' free memory and what the launch
- * needs of it (#4557).
  * @typedef {{ mb?: number, rungMb?: number, climbMb?: number }} MemoryReading
  * @typedef {{ limb: "windows", mb: number, needMb: number }} WindowsHold
  * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading) | WindowsHold} GateDenial
