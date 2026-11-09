@@ -2,8 +2,7 @@
  * binary-read.js — reads of the installed Claude Code binary: the file a
  * command name runs, and the text around a literal in it. Its minified names
  * change every release, so a reader anchors on a literal (lib/agent-id-probe.js)
- * or asks only whether a name is there (check-retry-watchdog.js). Moved out of
- * lib/agent-id-probe.js (#1837) for the retry-watchdog check (#4815).
+ * or asks only whether a name is there (check-retry-watchdog.js, #4815).
  */
 
 const fs = require("node:fs");

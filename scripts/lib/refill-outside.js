@@ -1,16 +1,15 @@
 /*
  * refill-outside.js — the refill loop's resumes of background sessions it did
  * not launch, the founder's and a dispatcher's (#4815): each blocked on a
- * transient API error is typed into on #2359's schedule (#2359 (the
- * API-error resume schedule)), through the tick's network gate, and falls
+ * transient API error is typed into on the schedule of #2359 (the API-error
+ * resume schedule), through the tick's network gate, and falls
  * back to a stop and `claude --bg --resume` under its own id where the typed
  * one is unseen; where that resume fails after the stop, it is tried again
  * when next due. Unlike a loop launch it is never held stopped between tries,
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
  * job list shows as needs input (#4689). Where the founder has typed into it
- * since its stop the loop leaves that stop alone. Print-mode runs and
- * subagents are no background jobs, so none is read.
+ * since its stop the loop leaves that stop alone.
  *
  * Its records live in their own file, OUTSIDE_FILE, as they are no launches:
  * nothing that counts, ranks or finishes launches reads them.
@@ -51,7 +50,7 @@ const OUTSIDE_FILE = ".refill-outside.json";
 
 /**
  * The launch-shaped record the BlockIo ports read for an outside session: its
- * seat, job, session and cwd, on no issue.
+ * seat, job, session and cwd.
  * @param {Outside} o
  * @returns {JobLaunch}
  */
@@ -71,7 +70,7 @@ const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
 
 /**
  * `o` between stops: its resume count kept, its stop's fields dropped; none
- * where it was capped, so a later stop starts afresh.
+ * where it was capped.
  * @param {Outside} o
  * @returns {Outside|null}
  */
@@ -114,7 +113,7 @@ function takenUp(a, now) {
 /**
  * `claude --bg --resume` of `o`'s stopped session `target` with the resume
  * prompt: `o` moved onto the job it runs as, else marked `held` for a retry
- * when next due, as nothing else would wake it.
+ * when next due.
  * @param {Outside} o
  * @param {{sessionId: string, cwd: string}} target
  * @param {Tick} seen
@@ -294,7 +293,7 @@ function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
  * transient API error taken up and acted on, every record of one no longer
  * listed dropped, save one the loop stopped and holds for a retry (retryHeld).
  * None off an unread listing, which cannot tell blocked from working; a
- * barred tick types nothing, as a resume spends allowance.
+ * barred tick types nothing.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {AgentRecord[]} registry  the registry listing's agents
  * @param {CauseOf} causeOf

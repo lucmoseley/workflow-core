@@ -27,7 +27,6 @@ const { runCheck } = require("./lib/check");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 
-/** The variables and values the live settings' `env` block carries (#4815). */
 const WATCHDOG_ENV = {
 	CLAUDE_CODE_RETRY_WATCHDOG: "1",
 	CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS: "1",

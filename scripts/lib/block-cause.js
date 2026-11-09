@@ -518,7 +518,6 @@ function promptsAfterApiStop(rows) {
 /**
  * Whether the founder typed into a session after its last API-error stop: a
  * prompt promptsAfterApiStop reads that no machine wrote (lib/founder-typing.js).
- * Null where that read is null.
  * @param {unknown} rows
  * @returns {boolean|null}
  */

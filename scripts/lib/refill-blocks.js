@@ -124,8 +124,7 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   net?: NetGate}} Tick  a
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
  *   (#2690) as read this tick; whether launching is barred, by a pause or a
- *   live launch hold (#4354); its network gate, made on the first ask
- *   (netGateOf)
+ *   live launch hold (#4354); its network gate (netGateOf)
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: true, why: string}} Resumed  a
@@ -297,7 +296,7 @@ const isStepResumeFor = (l, cause) => l.stepResume?.cause === cause;
 /**
  * @typedef {{admit: (name: string) => boolean, waitedLine: () => string|null}}
  *   NetGate  a tick's one network probe (#4815): `admit`, whether a due
- *   resume named `name` may go ahead, the probe run on the first ask; and the
+ *   resume named `name` may go ahead; and the
  *   log line naming each that waited, null where none did
  */
 
@@ -770,8 +769,7 @@ function afterFallBack(l, now, { failed, again }) {
 /**
  * Resume `l`'s API-error stop by stop and `--bg --resume`, never off an
  * unread listing ("doubt never stops a session"), nor where its session took a
- * prompt since the stop, the founder's own resume or a typed one the arrival
- * check missed, which would make two sessions of one (#4815). One whose
+ * prompt since the stop (isTakenSinceStop). One whose
  * resume failed is held, its `heldAt` set, for the next on the schedule.
  * @param {JobLaunch} l
  * @param {Tick} seen
@@ -871,7 +869,7 @@ function typedVerdict(attachAt, l, { now, io }) {
  * Whether `l`'s session, told as `name`, took a prompt since its API-error
  * stop: the founder's own resume, or a typed one the arrival check missed. A
  * stop and relaunch then would make two sessions of one (#4815), so the
- * resume counts as arrived, as the log says.
+ * resume counts as arrived.
  * @param {JobLaunch} l
  * @param {string} name
  * @param {BlockIo} io
@@ -895,8 +893,7 @@ const isLiveIn = (l, agents) =>
 /**
  * Resume `l`'s API-error stop (#2705): typed into its session where it is
  * live or the listing is unread; else, or where the typing failed, by
- * fallBack. Never while the network is down: the resume waits for a tick that
- * finds it up, no try spent (#4815).
+ * fallBack. Never while the network is down (#4815).
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {LoopLaunch}

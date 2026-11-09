@@ -43,7 +43,6 @@ function probeNetwork(env = process.env) {
 	return r.stderr.trim() || `the probe exited ${r.status ?? r.signal}`;
 }
 
-/** Look the host up, then connect to it; exit 0 once connected. */
 function main() {
 	const fail = (/** @type {string} */ why) => {
 		writeFd(2, `${why}\n`);
