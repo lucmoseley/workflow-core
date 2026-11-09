@@ -122,13 +122,8 @@ const {
 	unmask,
 	walkCommands,
 } = require("./shell-parse.js");
-const {
-	escapeRe,
-	findStarts,
-	literal,
-	scanFlags,
-	unwrap,
-} = require("./shell-words.js");
+const { escapeRe } = require("./regex-group.js");
+const { findStarts, literal, scanFlags, unwrap } = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
 

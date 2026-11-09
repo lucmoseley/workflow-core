@@ -50,7 +50,7 @@ const {
 	wordOf,
 	writtenCommands,
 } = require("./shell-tokens.js");
-const { escapeRe } = require("./shell-words.js");
+const { escapeRe } = require("./regex-group.js");
 const { writeFd } = require("./write-fd.js");
 
 /** @typedef {import("./shell-tokens.js").Word} Word */

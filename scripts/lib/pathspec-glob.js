@@ -13,7 +13,7 @@
  * A leading `./` and a doubled `/` are dropped from glob and path alike.
  */
 
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 
 /** @param {string} p */
 const normalise = (p) => p.replace(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
@@ -79,9 +79,6 @@ function parseBracketMember(glob, j) {
 	return ["\\]^".includes(c) ? `\\${c}` : c, 1];
 }
 
-/** @param {string} c */
-const regexLiteral = (c) => c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-
 /**
  * A wildcard glob as an anchored RegExp over the whole path.
  * @param {string} glob
@@ -110,8 +107,8 @@ function parseWildcardToken(glob, i) {
 	if (c === "?") return ["[^/]", i + 1];
 	if (c === "[") return parseBracket(glob, i) ?? ["\\[", i + 1];
 	if (c === "\\" && i + 1 < glob.length)
-		return [regexLiteral(glob.charAt(i + 1)), i + 2];
-	return [regexLiteral(c), i + 1];
+		return [escapeRe(glob.charAt(i + 1)), i + 2];
+	return [escapeRe(c), i + 1];
 }
 
 /**

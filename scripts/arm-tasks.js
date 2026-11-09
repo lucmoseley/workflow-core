@@ -60,6 +60,7 @@ const { readText } = require("./lib/file-read.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
+const { escapeRe } = require("./lib/regex-group.js");
 const {
 	SELF_PLUGIN_MARKETPLACE,
 	buildSelfMarketplaceEntry,
@@ -357,9 +358,6 @@ function build({ flags, positionals }) {
 const formatResult = (r) =>
 	`${r.ok ? "✓" : "✗"} ${r.check}${r.detail ? ` — ${r.detail}` : ""}`;
 
-/** @param {string} text */
-const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 /**
  * `text` with `patch` applied, or null where it no longer applies.
  * @param {string} text
@@ -431,7 +429,7 @@ function runHiddenTests(task, repo, base) {
 					"run",
 					path.relative(repo, hidden),
 					"-t",
-					names.map(escapeRegExp).join("|"),
+					names.map(escapeRe).join("|"),
 					"--reporter=json",
 					`--outputFile=${report}`,
 				],
