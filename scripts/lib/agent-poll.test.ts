@@ -319,15 +319,19 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		"truex",
 		"exit 1",
 		":; npm run build",
-		"true#x",
-		":#x",
-		"exit 0#x",
-		"exit#x",
 	])("leaves %j alone — it does real work", (command) => {
 		expectNotCounted(bash(command));
 		expectNotCounted(bash(command));
 		expectNotCounted(bash(command));
 	});
+
+	it.each(["true#x", ":#x", "exit 0#x", "exit#x"])(
+		"reads a `#` glued to the no-op word as no comment, so %j does real work (#4610)",
+		(command) => {
+			expectNotCounted(bash(command));
+			expectNotCounted(bash(command));
+		},
+	);
 
 	it.each(["true;\n# a\nb", "true # a\rb\nc", "true\n# a\n# b\nc"])(
 		"ends a comment at the newline, so %j runs its last line (#4037)",
