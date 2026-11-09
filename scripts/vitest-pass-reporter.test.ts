@@ -752,6 +752,65 @@ describe("the closure the reporter records (#189)", () => {
 		});
 	});
 
+	it("hands the pass store each file's own outcome and imports, and the config and setup closure (#4790)", async () => {
+		const graph: Record<string, Node> = {};
+		const { withProject } = scratch({}, graph);
+		const a = path.join(root, "a.test.ts");
+		const setup = path.join(root, "vitest.setup.ts");
+		graph[a] = node(a, node(path.join(root, "lib", "helper.ts")));
+		graph[setup] = node(setup, node(path.join(root, "lib", "env.ts")));
+		const r = new TestPassReporter();
+		r.onInit(
+			vitest({
+				config: { testNamePattern: undefined, root, setupFiles: [setup] },
+			}),
+		);
+		await captured(() =>
+			run(
+				r,
+				[
+					withProject(a, ["passed", "skipped"]),
+					withProject(path.join(root, "b.test.ts"), ["passed", "failed"]),
+				],
+				"failed",
+			),
+		);
+		expect(takeRunReport().files).toEqual({
+			results: [
+				{ file: "a.test.ts", outcome: "pass", imports: ["lib/helper.ts"] },
+				{ file: "b.test.ts", outcome: "fail", imports: [] },
+			],
+			shared: ["lib/env.ts", "vitest.config.ts", "vitest.setup.ts"],
+			clean: true,
+		});
+	});
+
+	it.each([
+		["interrupted", "interrupted", [], {}],
+		["errored outside its files", "failed", [new Error("boom")], {}],
+		["filtered by name", "passed", [], { testNamePattern: "only this" }],
+		["stopped by a bail", "failed", [], { bail: 1 }],
+		["updating snapshots", "passed", [], { update: true }],
+	])(
+		"marks a run %s as untrusted per file (#4790)",
+		async (_name, reason, errors, config) => {
+			const { withProject } = scratch({});
+			const r = new TestPassReporter();
+			r.onInit(
+				vitest({ config: { testNamePattern: undefined, root, ...config } }),
+			);
+			await captured(() =>
+				run(
+					r,
+					[withProject(path.join(root, "a.test.ts"), ["passed"])],
+					reason,
+					errors,
+				),
+			);
+			expect(takeRunReport().files.clean).toBe(false);
+		},
+	);
+
 	it("carries the manifest where a selected test reads it, as no root does (#799)", async () => {
 		const { withProject } = scratch({
 			"docs/test-read-edges.json": ["a.test.ts"],

@@ -2135,6 +2135,7 @@ function dirtyWarning(sha, marker, suite = DEFAULT_SUITE) {
 }
 
 module.exports = {
+	ARCHIVE_MS,
 	STORE,
 	EDGES_FILE,
 	FAIL_STORE,

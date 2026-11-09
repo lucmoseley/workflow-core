@@ -5,7 +5,7 @@
  * the policy. In short — mantahostels#273, where a suite imported half-written
  * source and went red with a different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
  * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
@@ -31,6 +31,7 @@ const {
 const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
 const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 const { readAlreadyRedLines } = require("./lib/already-red.js");
+const { record: recordFileResults } = require("./lib/pass-store.js");
 
 /*
  * The tree under test: vitest's own root, handed to `setup`. Never this file's
@@ -49,6 +50,43 @@ export function setup(project?: { config?: { root?: string } }) {
 
 export function teardown() {
 	runTeardown();
+}
+
+/**
+ * The run's per-file rows in the pass store (#4790), off the marker's sha,
+ * time and tree. A run whose tree drift is unknown, or whose HEAD moved,
+ * says nothing of the content each file read, and records none.
+ */
+function recordFiles(
+	marker: { sha: string; at?: string; treeAtEnd?: string },
+	files: { results: unknown[]; shared: string[]; clean: boolean } | null,
+	{
+		drifted,
+		capped,
+		root,
+	}: {
+		drifted: { headMoved: boolean; moved: { path: string }[] } | null;
+		capped: boolean;
+		root: string | null;
+	},
+) {
+	if (!files || !marker.at) return;
+	recordFileResults(
+		{
+			sha: marker.sha,
+			at: marker.at,
+			tree: marker.treeAtEnd ?? null,
+			root: treeRoot,
+			files: files.results,
+			shared: files.shared,
+			clean: files.clean && !capped,
+			drifted:
+				before === null || drifted?.headMoved
+					? null
+					: (drifted?.moved ?? []).map((e) => e.path),
+		},
+		{ storeRoot: root },
+	);
 }
 
 /*
@@ -100,8 +138,12 @@ export function runTeardown(rootOverride?: string | null) {
 	/* A run that hit its scope's task cap fails, however green (#3401); the
 	 * wrapper names the cap. Read here, inside the scope, which the manager
 	 * collects once the run's last process exits. */
-	if (outcome === true && after && !hasOwnScopeHitCap())
-		record(markerFrom(before, after, drifted, buildMarkerRun()), { root });
+	const capped = outcome === true && hasOwnScopeHitCap();
+	if (outcome === true && after && !capped) {
+		const marker = markerFrom(before, after, drifted, buildMarkerRun());
+		record(marker, { root });
+		recordFiles(marker, report.files, { drifted, capped, root });
+	}
 
 	/*
 	 * The red half (mantahostels#1942), carrying the failing names in `scope.failures`. It
@@ -115,6 +157,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
+		recordFiles(marker, report.files, { drifted, capped: false, root });
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run
