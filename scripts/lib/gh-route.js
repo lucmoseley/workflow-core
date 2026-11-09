@@ -11,6 +11,7 @@
 
 const { blankComments } = require("./strip-comments.js");
 const { requiredGroup } = require("./regex-group.js");
+const { cutAt } = require("./cut-at.js");
 const { isTestKind } = require("./test-kind.js");
 
 /**
@@ -145,15 +146,14 @@ function findBodyEnd(code, from) {
 }
 
 /**
- * A parameter's name: the text before its first `:`, a `?` just before that
- * colon dropped with it, so `dir?: string` and `dir: string` both give `dir`.
+ * A parameter's name, its type annotation and optional mark cut: `dir?: string`
+ * and `dir: string` both give `dir`.
  * @param {string} param
  * @returns {string}
  */
-function beforeColon(param) {
-	const colon = param.indexOf(":");
-	if (colon < 0) return param;
-	const head = param.slice(0, colon);
+function paramName(param) {
+	if (!param.includes(":")) return param;
+	const [head] = cutAt(param, ":");
 	return head.endsWith("?") ? head.slice(0, -1) : head;
 }
 
@@ -174,7 +174,7 @@ function parseHelperDirs(bin, code) {
 			const at = p.indexOf("=");
 			const id = at < 0 ? p : p.slice(0, at);
 			return {
-				id: beforeColon(id).trim(),
+				id: paramName(id).trim(),
 				fallback: at < 0 ? "" : p.slice(at + 1).trim(),
 			};
 		});

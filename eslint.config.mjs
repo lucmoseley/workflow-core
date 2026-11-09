@@ -27,6 +27,9 @@ import regexp from "eslint-plugin-regexp";
 // is not used: from 3.0 it is under the Sonar Source-Available License, whose
 // §1(c) excludes use by AI tooling, and this repo is worked by agents (#4642).
 // Sonar skips test files for these rules, and so does the block.
+// A finding you will not fix takes `// eslint-disable-next-line <rule> --
+// <reason>` on the line above, and where Sonar also raises that line, a
+// `// NOSONAR <reason>` at its end: neither tool reads the other's comment.
 const eslintConfig = defineConfig([
 	{
 		files: ["app/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}"],

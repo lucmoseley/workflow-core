@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
  * Pins which files eslint.config.mjs's Next.js and React Hooks presets reach:
- * app/ and lib/ get their rules, scripts/ gets none, and a .tsx parses. And
- * that scripts/ outside its tests gets the two super-linear regex rules, which
- * name themselves on a finding (#4642).
+ * app/ and lib/ get their rules, scripts/ gets none of them, and a .tsx
+ * parses. And that scripts/ outside its tests gets the two super-linear regex
+ * rules, which name themselves on a finding (#4642).
  *
  * It asks ESLint's own calculateConfigForFile for each path rather than
  * linting a fixture, because a preset aimed at the wrong files fails silently:

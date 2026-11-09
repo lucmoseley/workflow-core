@@ -21,6 +21,7 @@
 const { globMatches } = require("./pathspec-glob.js");
 const { PYTHON_KINDS } = require("./workflow-core-config.js");
 const { requiredGroup } = require("./regex-group.js");
+const { beforeMatch } = require("./cut-at.js");
 
 /** @typedef {import("./workflow-core-config.js").PythonKind} PythonKind */
 /** @typedef {{ glob: string, kind: string, line: number }} RouteRow */
@@ -38,8 +39,7 @@ const kindOf = (cell) => {
 	const base = [...BASE_KINDS, "none"].find(
 		(k) => c.startsWith(k) && !/^\w/.test(c.slice(k.length)),
 	);
-	const end = c.search(/[:,(]/);
-	return base ?? (end < 0 ? c : c.slice(0, end)).trim();
+	return base ?? beforeMatch(c, /[:,(]/).trim();
 };
 
 /** @param {string} glob */

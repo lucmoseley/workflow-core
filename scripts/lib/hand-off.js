@@ -31,7 +31,7 @@ const FIELDS = /** @type {const} */ ([
 const SHA = "[0-9a-f]{7,40}";
 const SHA_RE = new RegExp(`^${SHA}$`, "i");
 const FIELD_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text (64 KB at most) from the repo's own writers; a crafted one slows a local hook, nothing worse (#4642)
 	String.raw`^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?(${FIELDS.join("|")}):(?:\*\*)?[ \t]*(.*)$`,
 );
 /* The header opening a line: one quoted mid-sentence opens no block. */
