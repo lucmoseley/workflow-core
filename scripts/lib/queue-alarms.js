@@ -127,5 +127,4 @@ module.exports = {
 	buildAlarmLine,
 	firingAlarm,
 	readFiringAlarms,
-	readRemoteMain,
 };
