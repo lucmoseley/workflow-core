@@ -13,8 +13,6 @@ import { judgeHook, parseBreaches } from "./precommit-exit.js";
 const lines = (...text: string[]) =>
 	parseBreaches(text.join("\n")).map((b) => b.line);
 
-const breachLines = (body: string) => parseBreaches(body).map((b) => b.line);
-
 describe("parseBreaches", () => {
 	it("names a checker line exiting 1, by interpreter or a script run directly", () => {
 		expect(
@@ -103,19 +101,15 @@ describe("parseBreaches", () => {
 		["a variable assignment", "X=1 node scripts/c.js || exit 1", 1],
 		["a bash script run under errexit", "bash -e scripts/gate.sh || exit 1", 1],
 	])("names %s exiting 1", (_, body, line) => {
-		expect(breachLines(`${body}\n`)).toEqual([line]);
+		expect(lines(`${body}\n`)).toEqual([line]);
 	});
 
 	it("names a block whose exit 1 carries a semicolon and a comment", () => {
-		expect(
-			breachLines("node scripts/c.js || {\n  exit 1 ; # why\n}\n"),
-		).toEqual([1]);
+		expect(lines("node scripts/c.js || {\n  exit 1 ; # why\n}\n")).toEqual([1]);
 	});
 
 	it("passes a block exiting 1 only after its close", () => {
-		expect(
-			breachLines("node scripts/d.js || {\n  echo x\n}\nexit 1\n"),
-		).toEqual([]);
+		expect(lines("node scripts/d.js || {\n  echo x\n}\nexit 1\n")).toEqual([]);
 	});
 
 	it.each([
@@ -127,7 +121,7 @@ describe("parseBreaches", () => {
 		["a declared command", 'sh -c "$declared_command" || exit 1'],
 		["inline node", "node -e 'process.exit(0)' || exit 1"],
 	])("passes %s, an outside command", (_, line) => {
-		expect(breachLines(`${line}\n`)).toEqual([]);
+		expect(lines(`${line}\n`)).toEqual([]);
 	});
 
 	// A named arm is the checker's own answer, and a probe of an outside command
@@ -167,7 +161,7 @@ describe("parseBreaches", () => {
 			'a="$(node scripts/a.js)" || rc=$?\nrc=0\nb="$(git x)" || rc=$?\ncase "$rc" in\n  *) exit 1 ;;\nesac\n',
 		],
 	])("passes %s", (_, body) => {
-		expect(breachLines(body)).toEqual([]);
+		expect(lines(body)).toEqual([]);
 	});
 });
 

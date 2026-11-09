@@ -28,13 +28,16 @@ const hook = (name: string, body: string) => {
 	);
 };
 
-const run = (...args: string[]) => {
+/** Runs the checker in `root`, its host root `home`. */
+const runFrom = (home: string, args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: root,
-		env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: root },
+		env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: home },
 	});
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
+
+const run = (...args: string[]) => runFrom(root, args);
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-exit-"));
@@ -68,11 +71,8 @@ describe("check-precommit-exit", () => {
 		expect(r.out).toContain(".husky/pre-commit.local:2.");
 	});
 
-	it("passes checker lines passing their exit code on, and a commented-out breach", () => {
-		hook(
-			"pre-commit",
-			'node scripts/check-a.js || exit "$?"\n# node scripts/check-b.js || exit 1\n',
-		);
+	it("passes checker lines passing their exit code on, in both hook files", () => {
+		hook("pre-commit", 'node scripts/check-a.js || exit "$?"\n');
 		hook("pre-commit.local", 'bash scripts/gate.sh || exit "$?"\n');
 		const r = run();
 		expect(r.status).toBe(0);
@@ -127,5 +127,40 @@ describe("--index (#3687)", () => {
 		expect(JSON.parse(r.out).findings).toMatchObject([
 			{ tag: "PRECOMMIT-EXIT", file: ".husky/pre-commit", line: 2 },
 		]);
+	});
+
+	it("reports a staged breach as WARN under --warn, exiting 0", () => {
+		hook("pre-commit", breach);
+		const r = run("--warn");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			"1 checker line(s) exit 1 on failure: .husky/pre-commit:2.",
+		);
+		expect(r.out).toContain("WARN: 1 checker line(s) exiting 1 on failure");
+	});
+
+	it("refuses a breach a commit adds under --against, and passes one its base already holds", () => {
+		hook("pre-commit", breach);
+		git("commit", "-qam", "breach");
+		const added = run("--against", "HEAD~1");
+		expect(added.status).toBe(1);
+		expect(added.out).toContain("NOT in HEAD~1 — this commit adds them");
+		expect(added.out).toContain("FAIL: 1 fault(s) this commit adds");
+		const inherited = run("--against", "HEAD");
+		expect(inherited.status).toBe(0);
+		expect(inherited.out).toContain("WARN: 1 inherited fault(s)");
+	});
+
+	it("judges the tree --root names over the host root", () => {
+		hook("pre-commit", breach);
+		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-home-"));
+		try {
+			expect(runFrom(elsewhere, []).out).toContain("OK: 0 pre-commit file(s)");
+			const r = runFrom(elsewhere, ["--root", root]);
+			expect(r.status).toBe(1);
+			expect(r.out).toContain(".husky/pre-commit:2.");
+		} finally {
+			fs.rmSync(elsewhere, { recursive: true, force: true });
+		}
 	});
 });

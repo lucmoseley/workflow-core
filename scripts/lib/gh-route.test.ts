@@ -131,6 +131,16 @@ const GH_FIX = {
 		"gh NODE-COPY Fix: call `gh`, `ghJson` or their kin from scripts/lib/gh.js, as scripts/check-issue-orphans.js does.",
 };
 
+const CLAUDE_FIX = {
+	"SECOND-VAR":
+		"claude SECOND-VAR Fix: name the binary through WFC_CLAUDE_BIN, the one var scripts/lib/claude-bin.js reads, as scripts/run-mod-tests.js and scripts/dispatch-sessions.sh do.",
+	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/dispatch-sessions.sh does; or mark it \`claude-route-exempt: <why>\` where \`claude\` is only text.`,
+	"PATH-STUB":
+		"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
+	"NODE-COPY":
+		"claude NODE-COPY Fix: call `claudeBin()` from scripts/lib/claude-bin.js, as scripts/run-mod-tests.js does.",
+};
+
 const TEXT_ONLY = 'msg="Apply it; gh issue edit 7"\n';
 
 /* Spelt apart, so check-gh-route does not read this test as naming one. */
@@ -205,10 +215,7 @@ describe("judgeTree", () => {
 			"scripts/lib/arbiter-testkit.ts:14",
 			"scripts/lib/kit-testkit.ts:3",
 		]);
-		expect(r.fixes).toEqual([
-			"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
-			GH_FIX["PATH-STUB"],
-		]);
+		expect(r.fixes).toEqual([CLAUDE_FIX["PATH-STUB"], GH_FIX["PATH-STUB"]]);
 	});
 
 	it("names a non-test .ts prepending PATH with its gh stub's directory, itself or through a helper, and leaves a non-test .js alone (#4089)", () => {
@@ -290,10 +297,10 @@ describe("judgeTree", () => {
 			"scripts/lib/arm.js:1",
 		]);
 		expect(r.fixes).toEqual([
-			"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
-			"claude NODE-COPY Fix: call `claudeBin()` from scripts/lib/claude-bin.js, as scripts/run-mod-tests.js does.",
-			`claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/dispatch-sessions.sh does; or mark it \`claude-route-exempt: <why>\` where \`claude\` is only text.`,
-			"claude SECOND-VAR Fix: name the binary through WFC_CLAUDE_BIN, the one var scripts/lib/claude-bin.js reads, as scripts/run-mod-tests.js and scripts/dispatch-sessions.sh do.",
+			CLAUDE_FIX["PATH-STUB"],
+			CLAUDE_FIX["NODE-COPY"],
+			CLAUDE_FIX["SHELL-BARE"],
+			CLAUDE_FIX["SECOND-VAR"],
 		]);
 	});
 

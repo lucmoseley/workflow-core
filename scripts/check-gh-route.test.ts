@@ -49,13 +49,16 @@ const FIXTURE = {
 const fixture = (rel: string, name: keyof typeof FIXTURE) =>
 	file(rel, fs.readFileSync(FIXTURE[name], "utf8"));
 
-const run = (...args: string[]) => {
+/** Runs the checker in `root`, its host root `home`. */
+const runFrom = (home: string, args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: root,
-		env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: root },
+		env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: home },
 	});
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
+
+const run = (...args: string[]) => runFrom(root, args);
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-"));
@@ -152,5 +155,37 @@ describe("--index (#3687)", () => {
 		expect(JSON.parse(r.out).findings[0].message).toContain(
 			`Fix: run "\${WFC_GH:-gh}"`,
 		);
+	});
+
+	it("reports a staged bare `gh` as WARN under --warn, exiting 0", () => {
+		file("scripts/hook.sh", bare);
+		const r = run("--warn");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("1 second binary route(s): scripts/hook.sh:2.");
+		expect(r.out).toContain("WARN: 1 second binary route(s)");
+	});
+
+	it("refuses a bare `gh` a commit adds under --against, and passes one its base already holds", () => {
+		file("scripts/hook.sh", bare);
+		git("commit", "-qam", "bare");
+		const added = run("--against", "HEAD~1");
+		expect(added.status).toBe(1);
+		expect(added.out).toContain("NOT in HEAD~1 — this commit adds them");
+		const inherited = run("--against", "HEAD");
+		expect(inherited.status).toBe(0);
+		expect(inherited.out).toContain("already in HEAD");
+	});
+
+	it("judges the tree --root names over the host root", () => {
+		file("scripts/hook.sh", bare);
+		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-home-"));
+		try {
+			expect(runFrom(elsewhere, []).out).toContain("OK: 0 file(s)");
+			const r = runFrom(elsewhere, ["--root", root]);
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("1 second binary route(s): scripts/hook.sh:2.");
+		} finally {
+			fs.rmSync(elsewhere, { recursive: true, force: true });
+		}
 	});
 });
