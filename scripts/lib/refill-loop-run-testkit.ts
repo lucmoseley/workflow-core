@@ -102,9 +102,16 @@ export const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	WFC_PRESENCE_MARKER: at("no-presence"),
 	WFC_DISPATCH_STAGGER_SECONDS: "0",
 	WFC_GUARD_PROBE_RETRY_MS: "0",
+	WFC_NET_PROBE: at("net-probe"),
 	GITHUB_ACTIONS: "",
 	...over,
 });
+
+/** Takes the API host down for the network probe's stand-in, or back up. */
+export const setOffline = (offline: boolean) =>
+	offline
+		? fs.writeFileSync(at("offline"), "")
+		: fs.rmSync(at("offline"), { force: true });
 
 export const markerPath = (session: string, root = repo) =>
 	path.join(root, ".claude", "tmp", "markers", `.parked-${session}`);
@@ -147,6 +154,12 @@ export function refillSandbox() {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-run-"));
 		/* The swap hold off, so no run reads the machine's own memory (#3093). */
 		fs.writeFileSync(at("meminfo"), MEMINFO_NO_HOLD);
+		/* The network probe's stand-in: up, unless setOffline took it down. */
+		fs.writeFileSync(
+			at("net-probe"),
+			`#!/bin/bash\n[ -e ${shellQuote(at("offline"))} ] && { echo "api.anthropic.com did not resolve: EAI_AGAIN" >&2; exit 1; }\nexit 0\n`,
+			{ mode: 0o755 },
+		);
 		scripts = at("code/scripts");
 		fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
 		for (const f of SANDBOX_FILES)

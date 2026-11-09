@@ -4,7 +4,9 @@
 The refill loop types its API-error resume into a live background session
 through `claude attach`, which needs a TTY (#2354 F6, #2705). This runs the
 command on a pseudo-terminal, waits for its screen to settle, types the text
-and Enter, then ends the command with SIGTERM. `claude attach` leaves the
+as a bracketed paste and then Enter in a separate write, then ends the command
+with SIGTERM. Text and Enter in one chunk of about 61 bytes or more is taken as
+a paste, its Enter a newline, and nothing is sent (#4659 F7). `claude attach` leaves the
 session running either way. It drives a TUI by keys, so a change to that TUI
 can break it: the caller checks the session's timeline for the typed line.
 
@@ -29,6 +31,11 @@ SETTLE_S = 1.0
 DRAW_MAX_S = 15.0
 # Untraced: time for the TUI to hand the line on before the command is ended.
 AFTER_ENTER_S = 2.0
+# The gap between the paste and its Enter, as Claude Code's own `[bg]` reply
+# code writes them (#4659 F7).
+PASTE_TO_ENTER_S = 0.01
+PASTE_OPEN = b"\x1b[200~"
+PASTE_CLOSE = b"\x1b[201~"
 # Untraced: how often the read wakes to check the clocks, well under SETTLE_S.
 POLL_S = 0.1
 
@@ -72,7 +79,8 @@ def main(argv):
         if not seen or not alive:
             sys.stderr.write(f"{cmd[0]} drew nothing or exited before the text\n")
             return 1
-        os.write(fd, text.encode())
+        os.write(fd, PASTE_OPEN + text.encode() + PASTE_CLOSE)
+        time.sleep(PASTE_TO_ENTER_S)
         os.write(fd, b"\r")
         drain(fd, AFTER_ENTER_S, AFTER_ENTER_S)
         return 0
