@@ -968,6 +968,20 @@ function readGuardHookLine(root, tool) {
 }
 
 /**
+ * The environment the harness gives a self-plugin hook in checkout `root`: its
+ * project dir and plugin root, which the hook lines spell their scripts off
+ * (#4701, #4716). The probe runs every hook line under it, and a test holds it
+ * to every variable those lines read (#4736).
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {NodeJS.ProcessEnv}
+ */
+const buildHookEnv = (root, env = process.env) => ({
+	...buildCheckoutEnv(root, env),
+	CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
+});
+
+/**
  * The benign `Read` the probe runs in `root`.
  * @param {string} root
  * @returns {RefusedCall}
@@ -991,15 +1005,10 @@ const buildBenignRead = (root) => ({
 function readGuardRunFailure(root, call, isAnyDeny) {
 	const hookLine = readGuardHookLine(root, String(call.tool_name));
 	if ("why" in hookLine) return hookLine.why;
-	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it.
-	 * The plugin root is the harness's to set, and the hook lines spell their
-	 * scripts off it (#4701, #4716). */
+	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it. */
 	const run = spawnChild("sh", ["-c", hookLine.line], {
 		cwd: root,
-		env: {
-			...buildCheckoutEnv(root),
-			CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
-		},
+		env: buildHookEnv(root),
 		input: JSON.stringify({
 			session_id: GUARD_PROBE_SESSION,
 			hook_event_name: "PreToolUse",
@@ -1626,6 +1635,7 @@ function buildHoldLines(roots, now) {
 
 module.exports = {
 	buildAgeText,
+	buildHookEnv,
 	attachHold,
 	attachProbeParks,
 	buildNoticeName,

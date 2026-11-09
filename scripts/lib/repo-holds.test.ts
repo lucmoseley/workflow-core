@@ -31,6 +31,7 @@ import {
 import {
 	attachProbeParks,
 	buildHoldLines,
+	buildHookEnv,
 	dropLiftedJobs,
 	holdLockedOut,
 	holdsDir,
@@ -43,6 +44,9 @@ import {
 	writeNotice,
 } from "./repo-holds.js";
 import { runInProcess } from "./run-in-process.js";
+
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
 
 const PROBE_TITLE = "Refill loop probe: shared .git failing in repo";
 
@@ -579,6 +583,67 @@ describe("the probe hold (#3860)", () => {
 		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
+	describe("the hook environment (#4736)", () => {
+		/* What a login shell already holds, which the harness need not give. */
+		const LoginVars = new Set(["HOME", "PATH"]);
+		/* Each variable a hooks.json's command lines read with no default of their own. */
+		const readRequiredVars = (hooksJson: string) => {
+			const commands: string[] = [];
+			JSON.parse(hooksJson, (key, value) => {
+				if (key === "command" && typeof value === "string")
+					commands.push(value);
+				return value;
+			});
+			return new Set(
+				commands.flatMap((c) =>
+					[
+						...c.matchAll(
+							/\$\{([A-Za-z_]\w*)(:?[-=?+])?[^}]*\}|\$([A-Za-z_]\w*)/g,
+						),
+					]
+						.filter(
+							([, , op]) =>
+								op !== "-" && op !== ":-" && op !== "=" && op !== ":=",
+						)
+						.map(([, braced, , bare]) => String(braced ?? bare)),
+				),
+			);
+		};
+		const readMissing = (hooksJson: string) => {
+			const env = buildHookEnv(repo, {});
+			return [...readRequiredVars(hooksJson)].filter(
+				(v) => !LoginVars.has(v) && env[v] === undefined,
+			);
+		};
+
+		it("sets every variable this repo's self-plugin hook lines read", () => {
+			const real = fs.readFileSync(
+				path.join(REPO_ROOT, SELF_PLUGIN_HOOKS),
+				"utf8",
+			);
+
+			expect(readRequiredVars(real)).toContain("CLAUDE_PLUGIN_ROOT");
+			expect(readMissing(real)).toEqual([]);
+		});
+
+		it("sets every variable the probe fixture's hook line reads", () => {
+			expect(readMissing(GUARD_HOOKS_JSON)).toEqual([]);
+		});
+
+		it("names a variable a hook line reads that it does not set", () => {
+			const drifted = JSON.stringify({
+				hooks: {
+					Stop: [
+						// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+						{ hooks: [{ command: 'node "${CLAUDE_ENV_FILE}" "${WFC_X:-y}"' }] },
+					],
+				},
+			});
+
+			expect(readMissing(drifted)).toEqual(["CLAUDE_ENV_FILE"]);
+		});
+	});
+
 	describe("a guard entry that will not load (#4226)", () => {
 		const guardEntry = () => path.join(repo, "scripts", "guard-dispatch.js");
 		/* The shared tree's own entry, under the served checkout. */
@@ -605,6 +670,40 @@ ${body}`,
 			const hooks = path.join(repo, "self-plugin", "hooks", "hooks.json");
 			fs.mkdirSync(path.dirname(hooks), { recursive: true });
 			fs.writeFileSync(hooks, GUARD_HOOKS_JSON);
+		});
+
+		/* The checkout registers this repo's own hook lines, run as written: the
+		 * pinned guard code's link names the served checkout, so its entry is the
+		 * one each case writes. */
+		const registerRealHooks = () => {
+			const scripts = path.join(repo, "scripts");
+			fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
+			fs.copyFileSync(
+				path.join(REPO_ROOT, "scripts", "run-pinned-guards.js"),
+				path.join(scripts, "run-pinned-guards.js"),
+			);
+			fs.writeFileSync(path.join(scripts, "lib", "guard-dispatch.js"), "");
+			fs.copyFileSync(
+				path.join(REPO_ROOT, SELF_PLUGIN_HOOKS),
+				path.join(repo, SELF_PLUGIN_HOOKS),
+			);
+			fs.symlinkSync(repo, `${at("guard-code")}.current`);
+			vi.stubEnv("WFC_GUARD_CODE_DIR", at("guard-code"));
+		};
+
+		it("passes this repo's own hook lines over a healthy entry, and fails them over a broken one", () => {
+			serve();
+			registerRealHooks();
+			writeGuardEntry(Healthy);
+
+			expect(tick().broken).toEqual([]);
+			expect(guardRuns()).toHaveLength(1);
+
+			writeGuardEntry(Failing);
+
+			expect(tick(NOW + MIN).text).toContain(
+				"guard entry: Lexer is not defined",
+			);
 		});
 
 		it("reads a deny of its benign Read as a failure", () => {
