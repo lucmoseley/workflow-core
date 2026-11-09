@@ -44,7 +44,7 @@ index d05049a82d3d37315bf6d303ea52016940687b57..95526348bdfe5d5cbec568a119944392
   */
  function needlePattern(needle) {
 @@ -2405,7 +2407,7 @@ function needlePattern(needle) {
- 		.replace(/[–—-]/g, "[–—-]");
+ 	const body = escapeRe(needle.replace(/^~/, "")).replace(/[–—-]/g, "[–—-]");
  	if (!/\d/.test(needle)) return new RegExp(`\\b${body}\\b`, "gi");
  	const tail = /[a-z]$/i.test(needle) ? "\\w" : "\\d";
 -	return new RegExp(`(?<![\\w.,])~?${body}(?![${tail}]|\\.\\d)`, "gi");

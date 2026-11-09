@@ -141,7 +141,7 @@ const { closeOf, inertSpans, topLevelArgs } = require("./js-lex.js");
 const { blankComments } = require("./strip-comments.js");
 const { parseEdges } = require("./guard-reach.js");
 const { shellOperands } = require("./shell-operands.js");
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
@@ -1112,9 +1112,6 @@ function scriptDeps(file, source, tracked) {
 	}
 	return { deps, warnings };
 }
-
-/** @param {string} s */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const SHAPE = {
 	variable: (/** @type {string} */ name) =>

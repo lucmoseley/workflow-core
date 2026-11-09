@@ -82,7 +82,7 @@ const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
-const { requiredGroup } = require("./lib/regex-group.js");
+const { escapeRe, requiredGroup } = require("./lib/regex-group.js");
 
 /** The comment that drops a file, with its reason: `git-identity-exempt: <why>`. */
 const EXEMPT = /git-identity-exempt:[ \t]*[A-Za-z0-9]/;
@@ -204,7 +204,7 @@ function hasKeyedTokenEvidence(
 	/** @type {RegExp} */ token,
 ) {
 	if (key === "__default__") return token.test(text);
-	const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+	const re = new RegExp(`\\b${escapeRe(key)}\\b`);
 	return statements(text).some((stmt) => re.test(stmt) && token.test(stmt));
 }
 

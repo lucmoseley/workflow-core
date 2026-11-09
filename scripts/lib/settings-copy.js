@@ -7,6 +7,8 @@
  * and both global hooks' tests run the doc's copy, so all three read a block
  * through this one pattern (#2324).
  */
+const { escapeRe } = require("./regex-group.js");
+
 /**
  * The pattern matching the doc block holding one file's copy; its first group
  * is the file.
@@ -15,7 +17,7 @@
  */
 const copyBlockPattern = (name, fence) => {
 	const n = name.replace(/\./g, "\\.");
-	const open = fence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const open = escapeRe(fence);
 	const close = fence.replace(/[^`]/g, "");
 	return new RegExp(
 		`<!-- BEGIN ${n} -->\\n${open}\\n([\\s\\S]*?)\\n${close}\\n<!-- END ${n} -->`,

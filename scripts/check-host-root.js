@@ -102,7 +102,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
-const { requiredGroup } = require("./lib/regex-group");
+const { escapeRe, requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
 const { readHookCode } = require("./lib/hook-code.js");
 const { isJsExt } = require("./lib/test-kind.js");
@@ -503,9 +503,6 @@ function parseBoundNames(text) {
 		}
 	return out;
 }
-
-/** @param {string} s */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * The spellings of every root a core file must not be reached through in
