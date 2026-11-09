@@ -59,7 +59,7 @@ describe("requiredGroup", () => {
 });
 
 describe("escapeRe", () => {
-	const specials = ".*+?^$\x7b}()|[]\\/";
+	const specials = ".*+?^{}$()|[]\\/";
 
 	it("gives a source matching the literal whole and nothing else", () => {
 		const re = new RegExp(`^${escapeRe(specials)}$`);
