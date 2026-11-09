@@ -6568,9 +6568,11 @@
 		],
 		"scripts/fixtures/agents-stop.json": [
 			"scripts/agents-listing-count.test.ts",
+			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/concurrency-readout.test.ts",
 			"scripts/lib/admission-verdict.contract.test.ts",
+			"scripts/lib/agent-liveness.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/lib/claude-stop.test.ts",
 			"scripts/lib/console-credit.test.ts",
