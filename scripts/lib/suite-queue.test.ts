@@ -665,11 +665,15 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 
 	describe("the Windows-held stamp an older part-suite's wait writes (#4782)", () => {
 		const late = 5 * PART_PASS_AGE_MS;
-		/* One Windows reading, each run judged on its own workers' draw. */
-		const windowsGate = (workers: number) => () => {
+		const needOf = (files: number) =>
+			windowsNeedMb(suiteRungMb(weighFiles(files).workers) - suiteRungMb(0));
+		/* One Windows reading, between the 1-file run's need and the 6-file
+		 * head's, each run judged on its own workers' draw. */
+		const windowsMb = (needOf(1) + needOf(6)) / 2;
+		const windowsGate = (files: number) => () => {
 			const short = windowsShortfall(
-				{ state: "fresh", mb: 1700, ageS: 0 },
-				windowsNeedMb(suiteRungMb(workers) - suiteRungMb(0)),
+				{ state: "fresh", mb: windowsMb, ageS: 0 },
+				needOf(files),
 			);
 			return short ? { limb: "windows" as const, ...short } : null;
 		};
