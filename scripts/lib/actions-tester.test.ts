@@ -910,6 +910,54 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 	expect(first.reran).toEqual([]);
 });
 
+it("pushes the ref again over a failed run GitHub will not retry, judging only a newer run: asked again, for named files, or a runner that failed to ready (#4823)", async () => {
+	const refusal = (runnerFault: boolean) => {
+		const failed = run(4, "failure");
+		const r = queueReads([
+			() => (r.repushed.length === 0 ? [failed] : [run(5, "success"), failed]),
+		]);
+		r.jobsOf = (id: number) =>
+			runnerFault && id === 4
+				? unreadied("Install test tools", "failure")
+				: [...shards("success", "success"), SUITE_PASSED];
+		r.rerun = () => {
+			throw Object.assign(new Error("gh failed"), {
+				stderr: "run 4 cannot be rerun; This workflow run cannot be retried",
+			});
+		};
+		return r;
+	};
+	const asks: [
+		boolean,
+		(r: ReturnType<typeof queueReads>) => Promise<unknown>,
+	][] = [
+		[false, (r) => queueOf(r).verdict(SHA, [], true)],
+		[false, (r) => queueOf(r).verdict(SHA, ["scripts/lib/a.test.ts"])],
+		[true, (r) => queueOf(r).verdict(SHA)],
+	];
+	for (const [runnerFault, ask] of asks) {
+		const r = refusal(runnerFault);
+		expect(await ask(r)).toEqual({ kind: "green", run: 5 });
+		expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+		expect(r.dispatched).toEqual([]);
+	}
+});
+
+it("counts each push again for a runner GitHub will not retry against the runner's rerun bound (#4823)", async () => {
+	const r = queueReads([() => [run(10 + r.repushed.length, "failure")]]);
+	r.jobsOf = () => unreadied("Install test tools", "failure");
+	r.rerun = () => {
+		throw Object.assign(new Error("gh failed"), {
+			stderr: "run 10 cannot be rerun; This workflow run cannot be retried",
+		});
+	};
+	expect(await queueOf(r).verdict(SHA)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/on 3 attempts$/),
+	});
+	expect(r.repushed).toHaveLength(2);
+});
+
 it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {
 	const SuiteBase = "lander/iso-suite-base";
 	const atBase = () => [{ branch: SuiteBase, sha: SHA }];
