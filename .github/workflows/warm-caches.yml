@@ -1,0 +1,45 @@
+name: Warm caches
+
+# Saves node-deps' node_modules cache in `main`'s scope as soon as a landing
+# changes its key (#4661). A run restores caches from its own ref or the
+# default branch only, and a `lander/batch-<k>` run saves to its own ref, which
+# no later batch reads; without this, every batch runs a full `npm ci` until
+# the next scheduled main run saves the entry.
+#
+# The paths are the key's inputs: the lockfile, the action that builds the key,
+# and the workflows that set each caller's Node major. A key already saved
+# restores and stops there, so a run that changed nothing costs a restore.
+on:
+  push:
+    branches: [main]
+    paths:
+      - package-lock.json
+      - .github/actions/node-deps/**
+      - .github/workflows/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-deps:
+    name: node_modules on Node ${{ matrix.node }}
+    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    # A guess: an `npm ci` measured at 30-53 s (#4545), and a save.
+    timeout-minutes: 10
+    strategy:
+      # Every Node major a job calling node-deps sets up;
+      # scripts/warm-caches-workflow.test.ts holds the two lists equal.
+      matrix:
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - uses: ./.github/actions/node-deps

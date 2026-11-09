@@ -17,8 +17,7 @@
  *              "fixed"
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
+const { binaryOf, readWindowsOf } = require("./binary-read.js");
 const { caught } = require("./caught.js");
 
 const EVENTS = ["PreCompact", "SessionStart"];
@@ -27,68 +26,10 @@ const EVENTS = ["PreCompact", "SessionStart"];
  * `Vu`'s whole body, which must fit, in 619; a guess. */
 const WINDOW = 4096;
 
-/** The binary is read in pieces, as 2.1.310's is 291 MB; the size is a guess. */
-const CHUNK = 16 * 1024 * 1024;
-
 /**
  * @typedef {{ verdict: "fixed" | "not fixed" | "unprobed", reasons: string[] }} Finding
  * @typedef {{ builder?: string, args?: number, agentId: boolean }} Site
  */
-
-/**
- * The file `bin` runs, as `readlink -f $(which <bin>)` gives it; null where
- * none is found.
- * @param {string} bin
- */
-function binaryOf(bin) {
-	const dirs = bin.includes("/")
-		? [""]
-		: (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
-	for (const d of dirs) {
-		try {
-			return fs.realpathSync(d ? path.join(d, bin) : bin);
-		} catch {
-			/* Not in this PATH entry. */
-		}
-	}
-	return null;
-}
-
-/**
- * The text around each occurrence of `needle` in the file, with the
- * needle's offset in it.
- * @param {string} file
- * @param {string} needle
- * @returns {{ text: string, at: number }[]}
- */
-function readWindowsOf(file, needle) {
-	const want = Buffer.from(needle, "latin1");
-	const fd = fs.openSync(file, "r");
-	try {
-		const size = fs.fstatSync(fd).size;
-		const buf = Buffer.alloc(CHUNK + want.length - 1);
-		/** @type {number[]} */
-		const hits = [];
-		for (let off = 0; off < size; off += CHUNK) {
-			const n = fs.readSync(fd, buf, 0, buf.length, off);
-			const view = buf.subarray(0, n);
-			/* A hit starting in the overlap is the next chunk's to find. */
-			let i = view.indexOf(want);
-			while (i !== -1 && i < CHUNK) {
-				hits.push(off + i);
-				i = view.indexOf(want, i + 1);
-			}
-		}
-		return hits.map((hit) => {
-			const start = Math.max(0, hit - WINDOW);
-			const out = Buffer.alloc(Math.min(size, hit + WINDOW) - start);
-			fs.readSync(fd, out, 0, out.length, start);
-			return { text: out.toString("latin1"), at: hit - start };
-		});
-	} finally {
-		fs.closeSync(fd);
-	}
-}
 
 /**
  * Where the bracket opened at `open` closes, or -1 within the text.
@@ -166,7 +107,7 @@ function siteOf(text, at) {
  */
 function readContextIndexOf(file, builder) {
 	const found = new Set();
-	for (const w of readWindowsOf(file, `function ${builder}(`)) {
+	for (const w of readWindowsOf(file, `function ${builder}(`, WINDOW)) {
 		const def = w.text.slice(w.at);
 		const head = /^function [\w$]+\(([^)]*)\)\{/.exec(def);
 		if (!head) continue;
@@ -259,7 +200,7 @@ function probeAgentId(bin) {
 		found = EVENTS.map((e) =>
 			judgeEvent(
 				e,
-				readWindowsOf(file, `hook_event_name:"${e}"`),
+				readWindowsOf(file, `hook_event_name:"${e}"`, WINDOW),
 				readContextIndex,
 			),
 		);

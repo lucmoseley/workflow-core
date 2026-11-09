@@ -127,6 +127,9 @@ function launch({
 			...(name === undefined ? [] : ["-n", buildOverflowName(name)]),
 			"--append-system-prompt",
 			fs.readFileSync(CONTRACT, "utf8"),
+			// A prompt opening with `-`, as a founder's bulleted reply does, is
+			// otherwise read as an unknown option (#4671).
+			"--",
 			prompt,
 		],
 		{ cwd, env, detached: true, stdio: ["ignore", out, err] },
@@ -168,7 +171,7 @@ module.exports = { launch, main };
  * prints `REFUSED:` first, any other fault its message alone.
  *
  *   launch --key <key var> --cwd <dir> --budget <usd> [--name <name>]
- *          [--resume <session id>] <prompt>
+ *          [--resume <session id>] [--] <prompt>
  *                      first line the job id; second `session <uuid>`
  *   list               the live runs, as a JSON array of liveness records
  *   stop <job id>      `stopped`, `killed`, `not running` or `unknown`
@@ -177,7 +180,7 @@ module.exports = { launch, main };
 const usage = () => {
 	writeFd(
 		2,
-		`usage: node ${scriptPath("lib/headless-sessions.js")} launch --key <key var> --cwd <dir> --budget <usd> [--name <name>] [--resume <session id>] <prompt>\n` +
+		`usage: node ${scriptPath("lib/headless-sessions.js")} launch --key <key var> --cwd <dir> --budget <usd> [--name <name>] [--resume <session id>] [--] <prompt>\n` +
 			"       … list | stop <job id> | result <job id>\n",
 	);
 	return 2;

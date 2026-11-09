@@ -51,7 +51,8 @@ const headless = require("./headless-runs.js");
 const KIND_NAMES = new Map([["bg", "background"]]);
 
 /**
- * One registry entry as an AgentRecord, or null where its shape is not the
+ * One registry entry as an AgentRecord on `seat`, the config dir whose registry
+ * listed it, or null where its shape is not the
  * one this reads or its process is not the one it recorded.
  * @param {string} seat
  * @param {RegistryEntry} entry
@@ -66,7 +67,7 @@ function agentOf(seat, entry) {
 		return null;
 	if (readProcStartOf(pid) !== String(procStart)) return null;
 	/** @type {AgentRecord} */
-	const agent = { sessionId, pid };
+	const agent = { sessionId, pid, seat };
 	const { name, cwd, kind, startedAt } = entry;
 	if (typeof name === "string" && name) agent.name = name;
 	if (typeof cwd === "string" && cwd) agent.cwd = cwd;
