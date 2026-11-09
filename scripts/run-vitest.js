@@ -376,8 +376,9 @@ function neverStarted(record) {
  * refuse it, and one whose every file was cached runs nothing.
  * @param {string[]} argv
  * @param {() => ReturnType<typeof expandChanged>} expand
+ * An `emptyOnly` launch with a file still to run requeues.
  * @param {{ root: string, launch: LauncherLaunch, out: Writer, err: Writer,
- *   session: string|null, execFn?: ExecFn }} run
+ *   session: string|null, emptyOnly: boolean, execFn?: ExecFn }} run
  * @returns {{ code: Promise<number>, looked?: undefined }
  *   | { code: null, looked: LookedPlan }}
  */
@@ -400,6 +401,11 @@ function planRun(argv, expand, run) {
 	if (looked.notice) err.write(`${looked.notice}\n`);
 	if (looked.allCached)
 		return { code: Promise.resolve(finishAllCached(looked, run)) };
+	if (
+		run.emptyOnly &&
+		(looked.cached !== null || (plan?.files.length ?? 0) > 0)
+	)
+		return { code: Promise.resolve(REQUEUE) };
 	return { code: null, looked };
 }
 
@@ -425,8 +431,8 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 	});
 	out.write(
 		landed
-			? "Every selected file was cached: nothing ran, and the pass record is written (#4790).\n"
-			: "Every selected file was cached: nothing ran, but the pass record could not be written (#4790).\n",
+			? "Every selected file was cached: nothing ran, and the certificate is written (#4790).\n"
+			: "Every selected file was cached: nothing ran, but the certificate could not be written (#4790).\n",
 	);
 	return 0;
 }
@@ -612,7 +618,7 @@ function withLaunch(options, fields) {
  * would be named from.
  *
  * @param {string[]} argv
- * @param {{ spawnFn?: typeof import("node:child_process").spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string, cachedFile?: string,
+ * @param {{ spawnFn?: typeof import("node:child_process").spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string,
  *   expand?: typeof expandChanged, out?: { write: (s: string) => unknown },
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
  *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
@@ -636,7 +642,6 @@ function runOnce(
 		ceiling = ceilingMs(),
 		inflightFile = path.join(os.tmpdir(), `wfc-inflight-${process.pid}.json`),
 		timingsFile = path.join(os.tmpdir(), `wfc-timings-${process.pid}.json`),
-		cachedFile = path.join(os.tmpdir(), `wfc-cached-${process.pid}.json`),
 		expand = expandChanged,
 		out = process.stdout,
 		launch = {},
@@ -667,15 +672,21 @@ function runOnce(
 	const planned = planRun(
 		argv,
 		() => expand(argv, { root, bin, err, ...expandOptions }),
-		{ root, launch, out, err, session, execFn: expandOptions.execFn },
+		{
+			root,
+			launch,
+			out,
+			err,
+			session,
+			emptyOnly,
+			execFn: expandOptions.execFn,
+		},
 	);
 	if (planned.code !== null) return planned.code;
 	const { looked } = planned;
 	argv = looked.argv;
 	/** @type {ReturnType<typeof expandChanged>} */
 	const plan = looked.plan;
-	if (emptyOnly && plan && plan.files.length > 0)
-		return Promise.resolve(REQUEUE);
 	const weighed =
 		launch.wholeSlot === undefined || escalationRequeues
 			? {
@@ -721,6 +732,7 @@ function runOnce(
 		out.write(looked.banner);
 		stream?.write(looked.banner);
 	}
+	const cachedFile = path.join(os.tmpdir(), `wfc-cached-${process.pid}.json`);
 	const cached = writeCachedHandoff(looked.cached, cachedFile);
 	stream?.on("error", (error) => {
 		stream = null;
@@ -2112,24 +2124,58 @@ function probeSelection(route, options, own) {
 }
 
 /**
- * A queued launch's probe with what the pass store covers taken out (#4790),
+ * A queued launch whose probe selects nothing to run, run outside the queue.
+ * One the pass store cached whole looks the store up again in its own tree,
+ * which may differ from the probe's: one left with a file to run joins the
+ * queue for it (#4790).
+ * @param {string} source what the probe found empty, for the skip line
+ * @param {boolean} allCached
+ * @param {{ options: { out?: Writer, err?: Writer, root?: string },
+ *   logExit: ReturnType<typeof queueExitLogger>,
+ *   run: (extra?: { emptyOnly?: boolean }) => Promise<number>,
+ *   queued: () => Promise<number> }} seat
+ */
+async function leaveQueue(
+	source,
+	allCached,
+	{ options, logExit, run, queued },
+) {
+	(options.out ?? process.stdout).write(
+		buildQueueSkipLine(source, options.root ?? TREE_ROOT),
+	);
+	logExit("left", 0, { skipped: true });
+	if (!allCached) return run();
+	const code = await run({ emptyOnly: true });
+	if (code !== REQUEUE) return code;
+	(options.err ?? process.stderr).write(
+		"--queue: the run's own tree holds a file the pass store does not cache — joining the queue (#4790).\n",
+	);
+	return queued();
+}
+
+/**
+ * A queued launch's probe with what the pass store caches taken out (#4790),
  * so the weight it queues on counts only the files it will run, and one it
- * covers whole reaches no test file.
+ * caches whole reaches no test file.
  * @param {ReturnType<typeof probeSelection>} probe
  * @param {string[]} rest
  * @param {LauncherLaunch} launch
  * @param {string} [root]
  */
 function lookupProbe(probe, rest, launch, root = TREE_ROOT) {
-	if (!probe.probed) return { probe, argv: rest };
+	if (!probe.probed) return { probe, argv: rest, allCached: false };
 	const looked = lookupLaunch(rest, probe.plan, {
 		root,
 		on: launch.passStore === true,
 	});
 	const source = looked.allCached
-		? "a selection the pass store covers whole (#4790)"
+		? "a selection the pass store caches whole (#4790)"
 		: probe.source;
-	return { probe: { ...probe, plan: looked.plan, source }, argv: looked.argv };
+	return {
+		probe: { ...probe, plan: looked.plan, source },
+		argv: looked.argv,
+		allCached: looked.allCached,
+	};
 }
 
 /**
@@ -2560,7 +2606,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 		 * escalation `full` names (#182). */
 		fullCause: fullCauseOf(fullWord),
 		argv,
-		/* What a recorded pass covers is not run (#4790), save where the
+		/* What a recorded pass attests is not run (#4790), save where the
 		 * launch asks every file to run: a full run, a retest, `--no-cache`. */
 		passStore: looksUpPassStore(route, argv),
 	};
@@ -2581,7 +2627,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 	} catch (error) {
 		return refuseNarrowing(options, error);
 	}
-	/* What the run will not run weighs nothing (#4790); one the store covers
+	/* What the run will not run weighs nothing (#4790); one the store caches
 	 * whole joins no queue. */
 	const looked = lookupProbe(probe, rest, launch, options.root);
 	const emptySource = looked.probe.source;
@@ -2605,13 +2651,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 		label: "--queue",
 		err: options.err ?? process.stderr,
 	});
-	if (emptySource !== null) {
-		(options.out ?? process.stdout).write(
-			buildQueueSkipLine(emptySource, options.root ?? TREE_ROOT),
-		);
-		logExit("left", 0, { skipped: true });
-		return run();
-	}
 	const requeueWhole = () => {
 		reweigh({ resolvedFiles: null, wholeSlot: true });
 		return queued();
@@ -2674,6 +2713,13 @@ function main(argv = process.argv.slice(2), options = {}) {
 			seat.leave();
 		}
 	};
+	if (emptySource !== null)
+		return leaveQueue(emptySource, looked.allCached, {
+			options,
+			logExit,
+			run,
+			queued,
+		});
 	return runSeated({
 		options,
 		words: rest,

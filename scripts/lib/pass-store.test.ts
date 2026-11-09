@@ -7,6 +7,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -14,7 +15,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { lookup, record, storeFile } = require("./pass-store.js");
+const { lookup, record } = require("./pass-store.js");
+const { markersDir } = require("./marker-root.js");
 const { EDGES_FILE, repoRoot } = require("./test-pass-marker.js");
 
 const dirs: string[] = [];
@@ -29,6 +31,14 @@ const git = (dir: string, ...args: string[]) =>
 const A = "scripts/a.test.ts";
 const B = "scripts/b.test.ts";
 const VALUES = { node: "v22.0.0", arch: "arm64" };
+
+/** The shard holding `file`'s rows in the store at `dir`. */
+const shardOf = (dir: string, file: string) =>
+	path.join(
+		markersDir(dir),
+		".test-file-results",
+		`${createHash("sha256").update(file).digest("hex").slice(0, 16)}.jsonl`,
+	);
 
 /** A repository whose tests read `lib.js` and `doc.md`, committed. */
 function repo(edges: Record<string, string[]> = { "doc.md": [A] }) {
@@ -62,7 +72,9 @@ function write(dir: string, file: string, text: string) {
 	fs.writeFileSync(path.join(dir, file), text);
 }
 
-let clock = Date.parse("2026-11-09T10:00:00Z");
+const DAY = 24 * 60 * 60 * 1000;
+/* A day back, so every row sits inside the retention whenever this runs. */
+let clock = Date.now() - DAY;
 const nextAt = () => {
 	clock += 60_000;
 	return new Date(clock).toISOString();
@@ -183,7 +195,7 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A], { values })).toEqual([]);
 	});
 
-	it("a document the manifest now maps to the file and the row never read", () => {
+	it("voids it when the manifest now maps a document to the file the row never read", () => {
 		const dir = repo();
 		run(dir, [A]);
 		write(
@@ -194,7 +206,7 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	it("a module reached through a require no graph records, however deep", () => {
+	it("voids it when a module changes that a require no graph records reaches, however deep", () => {
 		const dir = repo();
 		write(dir, A, 'const { x } = require("../lib.js");\n');
 		write(dir, "lib.js", 'module.exports = require("./deep");\n');
@@ -205,7 +217,7 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	it("an input deleted since", () => {
+	it("voids it when an input is deleted since", () => {
 		const dir = repo();
 		run(dir, [A]);
 		fs.rmSync(path.join(dir, "lib.js"));
@@ -245,15 +257,30 @@ describe("the newest result on the same content decides", () => {
 });
 
 describe("a run whose per-file verdicts cannot be trusted records nothing", () => {
-	it("one that errored outside its files", () => {
+	it("records nothing of a run that errored outside its files", () => {
 		const dir = repo();
 		expect(run(dir, [A], { clean: false })).toBe(0);
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	it("one whose tree drift is unknown", () => {
+	it("records nothing of a run whose tree drift is unknown", () => {
 		const dir = repo();
 		expect(run(dir, [A], { drifted: null })).toBe(0);
+	});
+
+	it("records no row for a file reaching a module that will not read", () => {
+		const dir = repo();
+		write(dir, A, 'require("./x.js");\n');
+		write(dir, "scripts/x.js", 'require("./deep.js");\n');
+		write(dir, "scripts/deep.js", "module.exports = 1;\n");
+		const deep = path.join(dir, "scripts/deep.js");
+		fs.chmodSync(deep, 0o000);
+		try {
+			expect(run(dir, [A, B])).toBe(1);
+		} finally {
+			fs.chmodSync(deep, 0o644);
+		}
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
 	it("records no row for a file whose input was rewritten mid-run", () => {
@@ -262,7 +289,7 @@ describe("a run whose per-file verdicts cannot be trusted records nothing", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	it("the lander's tester, which neither writes nor reads the store", () => {
+	it("neither writes nor reads the store from the lander's tester", () => {
 		const dir = repo();
 		const files = [{ file: A, outcome: "pass", imports: [] }];
 		const base = {
@@ -322,7 +349,7 @@ describe("the uncached pragma", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
-	it("an absent store, silently", () => {
+	it("runs every file of an absent store, silently", () => {
 		const dir = repo();
 		const found = lookup([A], {
 			root: dir,
@@ -333,9 +360,9 @@ describe("a store it cannot trust runs every file", () => {
 		expect(found).toMatchObject({ cached: [], run: [A], notice: null });
 	});
 
-	it("an unreadable store, with a notice", () => {
+	it("runs every file of an unreadable store, with a notice", () => {
 		const dir = repo();
-		fs.mkdirSync(storeFile(dir));
+		fs.mkdirSync(shardOf(dir, A), { recursive: true });
 		const found = lookup([A], {
 			root: dir,
 			storeRoot: dir,
@@ -346,18 +373,18 @@ describe("a store it cannot trust runs every file", () => {
 		expect(found.notice).toMatch(/could not be read/);
 	});
 
-	it("a row that will not parse, with a notice", () => {
+	it("runs the file a line that will not parse names, with a notice, and caches the rest", () => {
 		const dir = repo();
-		run(dir, [A]);
-		fs.appendFileSync(storeFile(dir), `{"files":[{"file":"${A}"\n`);
-		const found = lookup([A], {
+		run(dir, [A, B]);
+		fs.appendFileSync(shardOf(dir, A), `{"files":[{"file":"${A}"\n`);
+		const found = lookup([A, B], {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
 			lander: false,
 		});
-		expect(found.cached).toEqual([]);
-		expect(found.notice).toMatch(/would not parse/);
+		expect(found.run).toEqual([A]);
+		expect(found.notice).toMatch(/would not parse names scripts\/a\.test\.ts/);
 	});
 
 	it.each([
@@ -365,8 +392,9 @@ describe("a store it cannot trust runs every file", () => {
 		["empty", { inputs: {} }],
 	])("a row whose input list is %s never matches", (_name, inputs) => {
 		const dir = repo();
+		fs.mkdirSync(path.dirname(shardOf(dir, A)), { recursive: true });
 		fs.appendFileSync(
-			storeFile(dir),
+			shardOf(dir, A),
 			`${JSON.stringify({
 				at: nextAt(),
 				sha: "abc",
@@ -380,18 +408,26 @@ describe("a store it cannot trust runs every file", () => {
 });
 
 describe("where the store lives", () => {
-	it("prunes rows past the pass-marker archive's retention", () => {
+	it("lets no row past the pass-marker archive's retention decide", () => {
 		const dir = repo();
-		const old = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString();
-		run(dir, [A]);
-		const line = JSON.parse(fs.readFileSync(storeFile(dir), "utf8"));
+		const old = new Date(Date.now() - 8 * DAY).toISOString();
+		run(dir, [A, B]);
+		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
 		fs.writeFileSync(
-			storeFile(dir),
+			shardOf(dir, A),
 			`${JSON.stringify({ ...line, at: old })}\n`,
 		);
-		expect(cachedOf(dir, [A])).toEqual([A]);
-		run(dir, [B], { at: new Date().toISOString() });
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	it("deletes a shard untouched for a day past the retention on the next record", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const stale = (Date.now() - 9 * DAY) / 1000;
+		fs.utimesSync(shardOf(dir, A), stale, stale);
+		run(dir, [B]);
+		expect(fs.existsSync(shardOf(dir, A))).toBe(false);
+		expect(fs.existsSync(shardOf(dir, B))).toBe(true);
 	});
 
 	it("is the canonical checkout's, so a linked worktree's pass serves the main tree", () => {

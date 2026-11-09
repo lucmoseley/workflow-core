@@ -3,7 +3,9 @@
  * Pins check-pass-store.js, the `npm run status` reading of the pass store's
  * hits and misses (#4790): the files cached and the files run over the last
  * week's runs that looked the store up, a run that looked nothing up and an
- * older one counting toward neither.
+ * older one counting toward neither. Loosen a case and the status line
+ * misreports how often the store saves a run, the one reading of whether
+ * it earns its keep.
  */
 
 import { spawnSync } from "node:child_process";

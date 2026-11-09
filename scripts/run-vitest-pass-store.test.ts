@@ -2,9 +2,9 @@
 /*
  * The launcher's half of the per-file pass store (#4790), through
  * run-vitest.js's `main` and its injected spawn: a file a recorded pass
- * covers on identical inputs is taken out of what vitest is handed, a
- * launch the store covers whole spawns nothing and joins no queue yet leaves
- * its pass record and ledger line, and the launches that ask every file to
+ * attests on identical inputs is taken out of what vitest is handed, a
+ * launch the store caches whole spawns nothing and joins no queue yet leaves
+ * its certificate and ledger line, and the launches that ask every file to
  * run look nothing up. The store itself — what a row holds, what voids it —
  * is lib/pass-store.test.ts's.
  *
@@ -32,6 +32,7 @@ const { looksUpPassStore } = require("./lib/launch-route.js");
 const { EDGES_FILE, storePath } = require("./lib/test-pass-marker.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { RUN_LEDGER } = require("./lib/run-ledger.js");
+const { readLaunch } = require("./lib/suite-handoff.js");
 
 const A = "scripts/a.test.ts";
 const B = "scripts/b.test.ts";
@@ -143,7 +144,7 @@ const lastLine = (file: string) => {
 	return JSON.parse(lines.at(-1) as string);
 };
 
-describe("a named launch the pass store partly covers", () => {
+describe("a named launch the pass store partly caches", () => {
 	it("hands vitest only the files it does not cover, names each it does, and hands the child what it cached", async () => {
 		const dir = repo();
 		passed(dir, [A]);
@@ -167,8 +168,31 @@ describe("a named launch the pass store partly covers", () => {
 	});
 });
 
-describe("a launch the pass store covers whole", () => {
-	it("spawns nothing, exits 0, and leaves a pass record and ledger line naming what it cached", async () => {
+describe("a planned launch the pass store partly caches", () => {
+	it("hands vitest only the rest, weighed on those alone", async () => {
+		const dir = repo();
+		passed(dir, [A]);
+		const ran = await launch(dir, ["--changed"], {
+			expand: () => ({
+				argv: [A, B],
+				files: [A, B],
+				own: [A, B],
+				added: [],
+				admissible: true,
+				changed: ["scripts/lib.js"],
+				base: null,
+				banner: "PLAN\n",
+			}),
+		});
+		expect(ran.calls[0]?.args).toContain(B);
+		expect(ran.calls[0]?.args).not.toContain(A);
+		expect(ran.out).toMatch(/PLAN\nCACHED — 1 selected file/);
+		expect(readLaunch(ran.calls[0]?.env)).toMatchObject({ resolvedFiles: 1 });
+	});
+});
+
+describe("a launch the pass store caches whole", () => {
+	it("spawns nothing, exits 0, and leaves a certificate and ledger line naming what it cached", async () => {
 		const dir = repo();
 		passed(dir, [A, B]);
 		const ran = await launch(dir, [A, B]);
@@ -195,6 +219,29 @@ describe("a launch the pass store covers whole", () => {
 		expect(ran.calls).toEqual([]);
 		expect(gate).not.toHaveBeenCalled();
 	});
+
+	it("joins the queue where its own run finds a file the probe did not", async () => {
+		const dir = repo();
+		passed(dir, [A]);
+		/* False: the gate stands open. */
+		const gate = vi.fn(() => false);
+		const queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "rvps-q-"));
+		dirs.push(queueDir);
+		/* The skip line is written between the probe's lookup and the run's:
+		 * an edit landing there is the tree the two read apart. */
+		const out = {
+			write: (s: string) => {
+				if (s.includes("caches whole"))
+					fs.writeFileSync(path.join(dir, A), "edited\n");
+				return true;
+			},
+		};
+		const ran = await launch(dir, [A, "--queue"], { gate, queueDir, out });
+		expect(ran.err).toMatch(/joining the queue \(#4790\)/);
+		expect(gate).toHaveBeenCalled();
+		expect(ran.calls).toHaveLength(1);
+		expect(ran.calls[0]?.args).toContain(A);
+	});
 });
 
 describe("launches that look nothing up", () => {
@@ -207,15 +254,24 @@ describe("launches that look nothing up", () => {
 		expect(ran.calls[0]?.env).not.toHaveProperty(CACHED_ENV);
 	});
 
+	it("runs `--full=<cause>` whole, handing the child no cache", async () => {
+		const dir = repo();
+		passed(dir, [A, B]);
+		const ran = await launch(dir, ["--full=coverage"]);
+		expect(ran.calls).toHaveLength(1);
+		expect(ran.out).not.toMatch(/CACHED/);
+		expect(ran.handoffs[0]).toBeNull();
+	});
+
 	it.each([
 		["a full run", { kind: "full", source: "full" }, []],
 		["a retest", { kind: "named", source: "retest" }, []],
 		["`--no-cache`", { kind: "named", source: "named" }, ["--no-cache"]],
-	])("%s", (_name, route, argv) => {
+	])("looks nothing up for %s", (_name, route, argv) => {
 		expect(looksUpPassStore(route, argv)).toBe(false);
 	});
 
-	it("a named run otherwise", () => {
+	it("looks up a named run otherwise", () => {
 		expect(looksUpPassStore({ kind: "named", source: "named" }, [A])).toBe(
 			true,
 		);

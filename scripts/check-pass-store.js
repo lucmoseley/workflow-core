@@ -18,10 +18,10 @@ const { readJsonl } = require("./lib/jsonl.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { RUN_LEDGER } = require("./lib/run-ledger.js");
-const { repoRoot } = require("./lib/test-pass-marker.js");
+const { ARCHIVE_MS, repoRoot } = require("./lib/test-pass-marker.js");
 
-/* Untraced: the store's own retention, ARCHIVE_MS. */
-const WINDOW_DAYS = 7;
+/* The store's own retention. */
+const WINDOW_DAYS = ARCHIVE_MS / DAY_MS;
 
 runCheck({
 	name: "pass-store",

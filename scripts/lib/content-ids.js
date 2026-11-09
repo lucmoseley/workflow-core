@@ -94,7 +94,7 @@ function readWorkingIds(hashObjects, root, paths) {
 	return ids;
 }
 
-/* Paths per git call, below any argv limit. */
+/* Paths per git call, below any argv limit. Untraced: chosen, not measured. */
 const CHUNK = 500;
 
 /**

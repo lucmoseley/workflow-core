@@ -1,12 +1,22 @@
 /*
- * IMPLICIT:  narrows a vitest launch by the per-file pass store (#4790) — the files a recorded pass covers on identical inputs leave the plan or argv, a banner names each — and writes the pass record of a launch whose every file was cached, which spawns nothing.
+ * cached-plan.js — the launcher's lookup in the per-file pass store (#4790),
+ * kept out of run-vitest.js so the plan, the named launch and the queued
+ * probe narrow one way.
+ *
+ * IMPLICIT:  narrows a vitest launch by the per-file pass store (#4790) — the files a recorded pass attests on identical inputs leave the plan or argv, a banner names each — and writes the certificate of a launch whose every file was cached, which spawns nothing.
  */
 const fs = require("node:fs");
 const path = require("node:path");
 const { buildCachedBanner, foldCached, lookup } = require("./pass-store.js");
 const { bareWords } = require("./suite-bounded.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
-const { markerFrom, record, repoRoot } = require("./test-pass-marker.js");
+const { relativeUnder } = require("./is-under.js");
+const {
+	CLOSURE_ROOTS,
+	markerFrom,
+	record,
+	repoRoot,
+} = require("./test-pass-marker.js");
 const { readTreeSnapshot, endOfRunTreeIdentity } = require("./tree-drift.js");
 
 /**
@@ -26,7 +36,7 @@ const { readTreeSnapshot, endOfRunTreeIdentity } = require("./tree-drift.js");
 const UNNAMED = new Set(["--changed", "--adopt", "--retest"]);
 
 /**
- * The launch with every file a recorded pass covers taken out of it. A plan
+ * The launch with every file a recorded pass attests taken out of it. A plan
  * keeps its order and loses those files from `files` and `argv`; a named
  * launch — every bare word an existing test file — loses those words. Any
  * other launch, or one `on` is false for, is looked nothing up: `cached`
@@ -40,11 +50,10 @@ const UNNAMED = new Set(["--changed", "--adopt", "--retest"]);
  * @template {Plan} P
  * @param {string[]} argv
  * @param {P|null} plan
- * @param {{ root: string, on: boolean, now?: number,
- *   seams?: Omit<Parameters<typeof lookup>[1], "root"|"storeRoot"> }} options
+ * @param {{ root: string, on: boolean }} options
  * @returns {Looked<P>}
  */
-function lookupLaunch(argv, plan, { root, on, now = Date.now(), seams = {} }) {
+function lookupLaunch(argv, plan, { root, on }) {
 	/** @type {Looked<P>} */
 	const unlooked = {
 		argv,
@@ -58,21 +67,17 @@ function lookupLaunch(argv, plan, { root, on, now = Date.now(), seams = {} }) {
 	if (!on) return unlooked;
 	const files = plan ? plan.files : namedTestFiles(argv, root);
 	if (!files || files.length === 0) return unlooked;
-	const found = lookup(files, {
-		root,
-		storeRoot: repoRoot(root) || null,
-		...seams,
-	});
+	const found = lookup(files, { root, storeRoot: repoRoot(root) || null });
 	if (found.refused.length > 0) return { ...unlooked, refused: found.refused };
 	const looked = { ...unlooked, cached: found.cached, notice: found.notice };
 	if (found.cached.length === 0) return looked;
 	const hit = new Set(found.cached.map((c) => c.file));
-	const banner = buildCachedBanner(found.cached, now);
+	const banner = buildCachedBanner(found.cached, Date.now());
 	const allCached = found.run.length === 0;
 	if (!plan)
 		return {
 			...looked,
-			argv: argv.filter((w) => !hit.has(relativeTo(root, w))),
+			argv: argv.filter((w) => !hit.has(relativeTo(root, w) ?? "")),
 			allCached,
 			banner,
 		};
@@ -105,26 +110,27 @@ function namedTestFiles(argv, root) {
 	const files = words.map((w) => relativeTo(root, w));
 	return files.every(
 		(f) =>
-			!f.startsWith("../") &&
-			JS_TEST_FILE.test(f) &&
-			fs.existsSync(path.join(root, f)),
+			f !== null && JS_TEST_FILE.test(f) && fs.existsSync(path.join(root, f)),
 	)
-		? [...new Set(files)]
+		? [...new Set(/** @type {string[]} */ (files))]
 		: null;
 }
 
 /**
+ * `word` repo-relative in `/` form, or null where it lies outside `root`.
  * @param {string} root
  * @param {string} word
+ * @returns {string|null}
  */
 const relativeTo = (root, word) =>
-	path.relative(root, path.resolve(root, word)).split(path.sep).join("/");
+	relativeUnder(root, path.resolve(root, word))?.split(path.sep).join("/") ??
+	null;
 
 /**
- * The pass record of a launch whose every file a recorded pass covered: the
- * run's certificate as its vitest teardown would have written it, no file
+ * The certificate of a launch whose every file a recorded pass attested, as
+ * its vitest teardown would have written it, no file
  * run and each cached file folded in, so the push gate reads it as it reads
- * any narrowed run (#4790). Returns whether the record landed.
+ * any narrowed run (#4790). Returns whether it landed.
  * @param {Cached[]} cached
  * @param {{ root: string, launch: Partial<import("./suite-handoff.js").Launch>,
  *   changedPaths: string[]|null, base: string|null, startedAtMs: number,
@@ -137,7 +143,7 @@ function recordAllCached(
 ) {
 	const snapshot = readTreeSnapshot(root);
 	if (!snapshot) return false;
-	const roots = ["package.json"];
+	const roots = [...CLOSURE_ROOTS];
 	const marker = markerFrom(snapshot, snapshot, null, {
 		scope: {
 			modulesRun: 0,

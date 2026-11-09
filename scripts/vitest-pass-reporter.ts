@@ -43,6 +43,7 @@ const {
 	EDGES_FILE,
 	docsReadBy,
 	fullAttestationOf,
+	CLOSURE_ROOTS,
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
@@ -50,19 +51,15 @@ const { relativeUnder } = require("./lib/is-under.js");
 const { foldCached, readCachedHandoff } = require("./lib/pass-store.js");
 
 /*
- * The dependency-graph roots every narrowed closure carries (#189): what the
- * selection rests on without a graph edge to show it — `package.json`,
- * vitest's own force-rerun trigger — so a sha differing from the tree read
- * only there is never cleared by a narrowed certificate. The vitest config
- * file joins them at run time, resolved off the instance rather than spelled
- * here; a sibling `vite.config.*` the instance did not load is outside the
- * closure.
+ * `CLOSURE_ROOTS` (lib/test-pass-marker.js) every narrowed closure carries;
+ * the vitest config file joins them at run time, resolved off the instance
+ * rather than spelled there; a sibling `vite.config.*` the instance did not
+ * load is outside the closure.
  *
  * NOT THE MANIFEST (#799, #795): it matters only through the documents it
  * maps to the run's tests, so `holdsAt` re-reads it at the sha judged,
  * off the `selected` list recorded beside the closure.
  */
-const CLOSURE_ROOTS = ["package.json"];
 
 /**
  * Who writes the marker for a run that selected NOTHING (#189 §6). Vitest
@@ -87,6 +84,10 @@ interface ModuleNodeLike {
 interface ModuleGraphLike {
 	getModuleById: (id: string) => ModuleNodeLike | undefined;
 }
+
+/** The SSR module graph vitest built `module` in, where it carries one. */
+const graphOf = (module: TestModuleLike) =>
+	module.project?.vite?.environments?.ssr?.moduleGraph;
 
 interface TestModuleLike {
 	moduleId?: string;
@@ -191,9 +192,7 @@ function fileVerdicts(
 		const test = paths.rel(module.moduleId);
 		const entry = files.get(test) ?? { failed: false, imports: new Set() };
 		addImportClosure(
-			module.project?.vite?.environments?.ssr?.moduleGraph?.getModuleById(
-				module.moduleId,
-			),
+			graphOf(module)?.getModuleById(module.moduleId),
 			entry.imports,
 			paths,
 		);
@@ -381,7 +380,7 @@ export default class TestPassReporter {
 			if (!module.moduleId) continue;
 			const test = rel(module.moduleId);
 			const reached = imports.get(test) ?? new Set<string>();
-			const graph = module.project?.vite?.environments?.ssr?.moduleGraph;
+			const graph = graphOf(module);
 			addImportClosure(graph?.getModuleById(module.moduleId), reached, {
 				inside,
 				rel,
@@ -398,7 +397,7 @@ export default class TestPassReporter {
 		);
 		if (!docs) throw new Error(`${EDGES_FILE} is not {edges: {doc: [test]}}`);
 		for (const doc of docs) closure.add(doc);
-		const roots = new Set(CLOSURE_ROOTS);
+		const roots = new Set<string>(CLOSURE_ROOTS);
 		const configFile = this.vitest?.vite?.config?.configFile;
 		if (configFile && inside(configFile)) roots.add(rel(configFile));
 		for (const r of roots) closure.add(r);
@@ -461,9 +460,7 @@ export default class TestPassReporter {
 				path.relative(root, file).split(path.sep).join("/"),
 			inside: (file: string) => relativeUnder(root, file) !== null,
 		};
-		const graph = testModules.find(
-			(m) => m.project?.vite?.environments?.ssr?.moduleGraph,
-		)?.project?.vite?.environments?.ssr?.moduleGraph;
+		const graph = testModules.map(graphOf).find(Boolean);
 		const shared = new Set<string>();
 		const configFile = this.vitest?.vite?.config?.configFile;
 		if (configFile && paths.inside(configFile))

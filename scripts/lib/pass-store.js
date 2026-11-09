@@ -8,8 +8,8 @@
  * of their inputs).
  *
  * A FILE'S INPUTS are the file; its runtime import closure off vitest's
- * module graph, with every file it reaches through a relative require,
- * import or `__dirname`-spelled spawn, read lexically and transitively, since
+ * module graph, with every file it or that closure reaches through a relative
+ * require, import or `__dirname`-spelled spawn, read lexically and transitively, since
  * the graph records no `createRequire` load; the documents the read-edge manifest maps to it, spawned
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
  * closure, `package.json` and the lockfiles; a snapshot file beside it; and,
@@ -23,26 +23,33 @@
  * re-read at lookup, so a read it maps to the file now and the row never
  * recorded holds nothing.
  *
- * EVERY DOUBT RUNS THE FILE. An unreadable store, row, tree or manifest gives
- * "run" with one notice; a row whose input list is missing or empty never
- * matches; a run that errored outside its files, was interrupted or filtered
- * by name records no row; an input rewritten while the run ran records none
- * for the files it reaches. A file whose header carries `uncached: <reason>`
+ * EVERY DOUBT RUNS THE FILE. An unreadable store, tree or manifest gives
+ * "run" with one notice, and a line that will not parse runs the files it
+ * names; a row whose input list is missing or empty never matches; a run
+ * that errored outside its files, was interrupted or filtered by name
+ * records no row; an input rewritten while the run ran, untracked or that
+ * will not read records none for the files it reaches. A file whose header carries `uncached: <reason>`
  * is never cached; one carrying the pragma with no reason refuses the run.
  *
- * THE STORE is one append-only JSONL beside the marker stores, in the
- * canonical checkout's `.claude/tmp/markers`, so every worktree shares it:
- * one line per run, holding a row per file it ran. Appended and pruned as
- * the run ledger is (lib/retained-jsonl.js), on the pass-marker archive's
- * retention. The lander's tester neither reads nor writes it.
+ * THE STORE is a directory beside the marker stores, in the canonical
+ * checkout's `.claude/tmp/markers`, so every worktree shares it: one
+ * append-only JSONL shard per test file, a line per run that ran it. A
+ * lookup reads only the selected files' shards: one shared log of every
+ * file's full input list would reach about a gigabyte inside the retention
+ * at 2026-11's 79,000 file-runs a week, re-parsed whole on every append.
+ * Each shard is appended and pruned as the run ledger is
+ * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
  */
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { markersDir } = require("./marker-root.js");
-const { appendRetained } = require("./retained-jsonl.js");
+const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
+const { readText } = require("./file-read.js");
+const { relativeUnder } = require("./is-under.js");
 const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
@@ -60,7 +67,7 @@ const {
 } = require("./test-pass-marker.js");
 const idSeam = require("./session-id.js");
 
-const STORE = ".test-file-results.jsonl";
+const STORE = ".test-file-results";
 
 /* The paths every file's verdict rests on beside its own, where they exist. */
 const PACKAGE_INPUTS = [
@@ -93,13 +100,23 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  *   `reads` the row's input paths, the file's own and the shared ones
  * @typedef {{cached: Cached[], run: string[], refused: string[],
  *   notice: string|null}} Lookup
- * @typedef {(args: string[], input: string) => string} HashObjects
- * @typedef {{hashObjects?: HashObjects, values?: Record<string, string>,
- *   lander?: boolean}} Seams
+ * @typedef {{values?: Record<string, string>, lander?: boolean}} Seams
  */
 
 /** @param {string} storeRoot the canonical checkout */
-const storeFile = (storeRoot) => path.join(markersDir(storeRoot), STORE);
+const storeDir = (storeRoot) => path.join(markersDir(storeRoot), STORE);
+
+/**
+ * The shard holding `file`'s rows: named by a hash of its path, so any path
+ * makes one flat, safe file name.
+ * @param {string} storeRoot
+ * @param {string} file repo-relative
+ */
+const shardFile = (storeRoot, file) =>
+	path.join(
+		storeDir(storeRoot),
+		`${crypto.createHash("sha256").update(file).digest("hex").slice(0, 16)}.jsonl`,
+	);
 
 /** @returns {Record<string, string>} */
 const currentValues = () => ({ node: process.version, arch: process.arch });
@@ -107,7 +124,7 @@ const currentValues = () => ({ node: process.version, arch: process.arch });
 /**
  * `git hash-object --stdin-paths` in `root`.
  * @param {string} root
- * @returns {HashObjects}
+ * @returns {(args: string[], input: string) => string}
  */
 const gitHasher = (root) => (args, input) =>
 	String(
@@ -172,51 +189,62 @@ const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh)$/;
  * `__dirname`-spelled spawns, transitively, read lexically off the working
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
  * records, since this repo's tests reach their subjects through
- * `createRequire` and spawns. Memoised across the files of one run.
+ * `createRequire` and spawns. Memoised across the files of one run. Null
+ * where any file on the way will not read: an input left unknown records no
+ * row.
  * @param {string} root
- * @returns {(file: string) => string[]} repo-relative, `file` left out
+ * @returns {(file: string) => string[]|null} repo-relative, `file` left out
  */
 function lexicalReach(root) {
-	/** @type {Map<string, string[]>} */
+	/** @type {Map<string, string[]|null>} */
 	const edges = new Map();
 	/** @param {string} rel */
 	const edgesFrom = (rel) => {
-		const hit = edges.get(rel);
-		if (hit) return hit;
-		const abs = path.join(root, rel);
-		/** @type {string[]} */
-		let found = [];
-		if (FOLLOWED.test(rel))
-			try {
-				found = edgesOf(abs, fs.readFileSync(abs, "utf8"), ignoreFault)
-					.map((e) => path.relative(root, e).split(path.sep).join("/"))
-					.filter(
-						(e) =>
-							!e.startsWith("..") &&
-							!path.isAbsolute(e) &&
-							!e.split("/").includes("node_modules") &&
-							fs
-								.statSync(path.join(root, e), { throwIfNoEntry: false })
-								?.isFile(),
-					);
-			} catch {
-				found = [];
-			}
+		if (edges.has(rel)) return edges.get(rel) ?? null;
+		const found = FOLLOWED.test(rel) ? readEdges(root, rel) : [];
 		edges.set(rel, found);
 		return found;
 	};
 	return (file) => {
 		const seen = new Set([file]);
 		const queue = [file];
-		while (queue.length > 0)
-			for (const next of edgesFrom(/** @type {string} */ (queue.shift())))
+		while (queue.length > 0) {
+			const found = edgesFrom(/** @type {string} */ (queue.shift()));
+			if (!found) return null;
+			for (const next of found)
 				if (!seen.has(next)) {
 					seen.add(next);
 					queue.push(next);
 				}
+		}
 		seen.delete(file);
 		return [...seen];
 	};
+}
+
+/**
+ * The in-repo files `rel` names lexically, or null where it will not read.
+ * @param {string} root
+ * @param {string} rel
+ * @returns {string[]|null}
+ */
+function readEdges(root, rel) {
+	const abs = path.join(root, rel);
+	const read = readText(abs);
+	if (read.state !== "read") return null;
+	try {
+		return edgesOf(abs, read.data, ignoreFault).flatMap((e) => {
+			const under = relativeUnder(root, e);
+			if (!under) return [];
+			const posix = under.split(path.sep).join("/");
+			return !posix.split("/").includes("node_modules") &&
+				fs.statSync(e, { throwIfNoEntry: false })?.isFile()
+				? [posix]
+				: [];
+		});
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -234,12 +262,14 @@ const sharedInputs = (root, shared) => [
 
 /**
  * Append one row per file `run` ran. Never throws: a store that cannot be
- * written costs the rows, never the run. Returns how many rows landed.
+ * written costs the rows, never the run, and says why on `err`. Returns how
+ * many rows landed.
  * @param {Run} run
- * @param {{storeRoot: string|null} & Seams} options
+ * @param {{storeRoot: string|null,
+ *   err?: {write: (s: string) => unknown}} & Seams} options
  * @returns {number}
  */
-function record(run, { storeRoot, ...seams }) {
+function record(run, { storeRoot, err = process.stderr, ...seams }) {
 	if (!storeRoot || !run.clean || run.files.length === 0) return 0;
 	if (seams.lander ?? idSeam.isLanderRun()) return 0;
 	try {
@@ -249,23 +279,25 @@ function record(run, { storeRoot, ...seams }) {
 		);
 		const shared = sharedInputs(run.root, run.shared);
 		const reach = lexicalReach(run.root);
-		const own = run.files.map((f) => ({
-			...f,
-			paths: [
+		const own = run.files.flatMap((f) => {
+			const reaches = [f.file, ...f.imports].map(reach);
+			if (reaches.includes(null)) return [];
+			const reached = /** @type {string[][]} */ (reaches).flat();
+			const paths = [
 				...new Set([
 					f.file,
 					...f.imports,
-					...reach(f.file),
+					...reached,
 					...(reads.get(f.file) ?? []),
 					...snapshotOf(run.root, f.file),
 				]),
-			],
-		}));
-		const ids = readWorkingIds(
-			seams.hashObjects ?? gitHasher(run.root),
-			run.root,
-			[...shared, ...own.flatMap((f) => f.paths)],
-		);
+			];
+			return [{ ...f, paths }];
+		});
+		const ids = readWorkingIds(gitHasher(run.root), run.root, [
+			...shared,
+			...own.flatMap((f) => f.paths),
+		]);
 		const drifted = run.drifted === null ? null : new Set(run.drifted);
 		const known = (/** @type {string[]} */ paths) =>
 			drifted !== null &&
@@ -279,21 +311,43 @@ function record(run, { storeRoot, ...seams }) {
 				inputs: Object.fromEntries(f.paths.map((p) => [p, ids.get(p)])),
 			}));
 		if (rows.length === 0) return 0;
-		const landed = appendRetained(
-			storeFile(storeRoot),
-			{
-				at: run.at,
-				sha: run.sha,
-				tree: run.tree,
-				values: seams.values ?? currentValues(),
-				shared: Object.fromEntries(shared.map((p) => [p, ids.get(p)])),
-				files: rows,
-			},
-			ARCHIVE_MS,
+		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
+		const line = {
+			at: run.at,
+			sha: run.sha,
+			tree: run.tree,
+			values: seams.values ?? currentValues(),
+			shared: Object.fromEntries(shared.map((p) => [p, ids.get(p)])),
+		};
+		const landed = rows.filter((row) =>
+			appendRetained(
+				shardFile(storeRoot, row.file),
+				{ ...line, files: [row] },
+				ARCHIVE_MS,
+			),
+		).length;
+		sweepShards(storeRoot);
+		return landed;
+	} catch (e) {
+		err.write(
+			`pass-store.js: no row recorded for this run (${caught(e).message ?? e}) (#4790)\n`,
 		);
-		return landed ? rows.length : 0;
-	} catch {
 		return 0;
+	}
+}
+
+/**
+ * Delete every shard untouched for a day past the retention: a test file
+ * deleted or never run again leaves one, which no append would prune.
+ * @param {string} storeRoot
+ */
+function sweepShards(storeRoot) {
+	const dir = storeDir(storeRoot);
+	const before = Date.now() - ARCHIVE_MS - DAY_MS;
+	for (const name of fs.readdirSync(dir)) {
+		const shard = path.join(dir, name);
+		const stat = fs.statSync(shard, { throwIfNoEntry: false });
+		if (stat && stat.mtimeMs < before) fs.rmSync(shard, { force: true });
 	}
 }
 
@@ -306,13 +360,9 @@ function record(run, { storeRoot, ...seams }) {
  * @returns {"none"|"reasoned"|"bare"}
  */
 function readPragma(root, file) {
-	let text;
-	try {
-		text = fs.readFileSync(path.join(root, file), "utf8");
-	} catch {
-		return "reasoned";
-	}
-	for (const line of text.split("\n")) {
+	const read = readText(path.join(root, file));
+	if (read.state !== "read") return "reasoned";
+	for (const line of read.data.split("\n")) {
 		const t = line.trim();
 		if (t && !/^(?:\/\/|\/\*|\*|#!)/.test(t)) break;
 		const m = PRAGMA.exec(t);
@@ -322,7 +372,7 @@ function readPragma(root, file) {
 }
 
 /**
- * Which of `files` a recorded pass covers on the working tree at `root`.
+ * Which of `files` a recorded pass attests on the working tree at `root`.
  * Never throws: every fault runs the files it reaches and says so once.
  * @param {string[]} files repo-relative test files, in plan order
  * @param {{root: string, storeRoot: string|null} & Seams} options
@@ -338,17 +388,22 @@ function lookup(files, { root, storeRoot, ...seams }) {
 	if (refused.length > 0) return { ...none, refused };
 	const candidates = files.filter((f) => pragmas.get(f) === "none");
 	if (candidates.length === 0) return none;
-	let cached;
+	let found;
 	try {
-		cached = readCached(candidates, { root, storeRoot, ...seams });
+		found = readCached(candidates, { root, storeRoot, ...seams });
 	} catch (e) {
 		return {
 			...none,
 			notice: `pass store: ${caught(e).message ?? e} — every selected file runs (#4790).`,
 		};
 	}
-	const hit = new Set(cached.map((c) => c.file));
-	return { ...none, cached, run: files.filter((f) => !hit.has(f)) };
+	const hit = new Set(found.cached.map((c) => c.file));
+	return {
+		...none,
+		cached: found.cached,
+		run: files.filter((f) => !hit.has(f)),
+		notice: found.notice,
+	};
 }
 
 /**
@@ -358,27 +413,19 @@ function lookup(files, { root, storeRoot, ...seams }) {
 
 /**
  * The cached files among `candidates`. Throws, naming the cause, where the
- * store, a row, the working tree or the manifest will not read.
+ * store, the working tree or the manifest will not read; a line that will
+ * not parse runs the files it names, with `notice` saying so.
  * @param {string[]} candidates
  * @param {{root: string, storeRoot: string} & Seams} options
- * @returns {Cached[]}
+ * @returns {{cached: Cached[], notice: string|null}}
  */
 function readCached(candidates, { root, storeRoot, ...seams }) {
-	const byFile = readEntries(storeRoot, candidates);
-	const wanted = new Set(
-		[...byFile.values()]
-			.flat()
-			.flatMap(({ row, run }) => [
-				...inputPaths(row.inputs),
-				...inputPaths(run.shared),
-			]),
-	);
+	const { byFile, unparsed } = readEntries(storeRoot, candidates);
+	const wanted = new Set([...byFile.values()].flat().flatMap(entryReads));
 	let now;
 	let reads;
 	try {
-		now = readWorkingIds(seams.hashObjects ?? gitHasher(root), root, [
-			...wanted,
-		]);
+		now = readWorkingIds(gitHasher(root), root, [...wanted]);
 		reads = readManifestReads(root, candidates);
 	} catch (e) {
 		throw new Error(
@@ -387,37 +434,53 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 		);
 	}
 	const values = seams.values ?? currentValues();
-	return candidates.flatMap((file) => {
+	const cached = candidates.flatMap((file) => {
+		if (unparsed.has(file)) return [];
 		const held = (byFile.get(file) ?? []).find(({ row, run }) =>
 			holds(row, run, { file, now, values, reads: reads.get(file) ?? [] }),
 		);
 		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
 	});
+	const notice =
+		unparsed.size > 0
+			? `pass store: a line that would not parse names ${[...unparsed].join(", ")}, which run (#4790).`
+			: null;
+	return { cached, notice };
 }
 
 /**
- * Each candidate's recorded rows, newest first. Throws where the store will
- * not read or a line naming a candidate will not parse; an absent store
- * holds none.
+ * Each candidate's recorded rows inside the retention, newest first, and the
+ * candidates whose shard holds a line that will not parse: its lost row may
+ * be the file's newest, so none of its older rows may decide. Throws where
+ * the store will not read; an absent shard holds none.
  * @param {string} storeRoot
  * @param {string[]} candidates
- * @returns {Map<string, Entry[]>}
+ * @returns {{byFile: Map<string, Entry[]>, unparsed: Set<string>}}
  */
 function readEntries(storeRoot, candidates) {
-	const keys = candidates.map((f) => `"file":${JSON.stringify(f)}`);
-	let read;
-	try {
-		read = readJsonl(storeFile(storeRoot), (line) =>
-			keys.some((k) => line.includes(k)),
+	/** @type {Record<string, unknown>[]} */
+	const runs = [];
+	/** @type {Set<string>} */
+	const unparsed = new Set();
+	for (const file of candidates) {
+		let read;
+		try {
+			read = readJsonl(shardFile(storeRoot, file));
+		} catch (e) {
+			throw new Error(
+				`the store could not be read (${caught(e).message ?? e})`,
+				{ cause: e },
+			);
+		}
+		if (read && read.bad.length > 0) unparsed.add(file);
+		/* A shard prunes only when appended, so a file left unrun keeps rows
+		 * past the retention: none of them decides. */
+		const since = Date.now() - ARCHIVE_MS;
+		runs.push(
+			...(read?.rows ?? []).filter((r) => Date.parse(String(r.at)) >= since),
 		);
-	} catch (e) {
-		throw new Error(`the store could not be read (${caught(e).message ?? e})`, {
-			cause: e,
-		});
 	}
-	if (read && read.bad.length > 0)
-		throw new Error(`${read.bad.length} store line(s) would not parse`);
-	return groupByFile(read?.rows ?? []);
+	return { byFile: groupByFile(runs), unparsed };
 }
 
 /**
@@ -450,8 +513,17 @@ const cachedFrom = (file, { row, run }) => ({
 		at: String(run.at),
 		tree: typeof run.tree === "string" ? run.tree : null,
 	},
-	reads: [...new Set([...inputPaths(row.inputs), ...inputPaths(run.shared)])],
+	reads: [...new Set(entryReads({ row, run }))],
 });
+
+/**
+ * A recorded row's input paths, its own and its run's shared ones.
+ * @param {Entry} entry
+ */
+const entryReads = ({ row, run }) => [
+	...inputPaths(row.inputs),
+	...inputPaths(run.shared),
+];
 
 /** @param {unknown} v */
 const inputPaths = (v) =>
@@ -500,7 +572,7 @@ function asIds(v) {
  */
 function buildCachedBanner(cached, nowMs = Date.now()) {
 	if (cached.length === 0) return "";
-	return `CACHED — ${cached.length} selected file(s) not run: a recorded pass covers each on identical inputs (#4790; \`--no-cache\` runs them):\n${cached
+	return `CACHED — ${cached.length} selected file(s) not run: a recorded pass attests each on identical inputs (#4790; \`--no-cache\` runs them):\n${cached
 		.map(
 			({ file, source }) =>
 				`  ${file} — passed at ${shortSha(source.sha)}, ${age(nowMs - Date.parse(source.at))} ago\n`,
@@ -629,8 +701,8 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 	const held = new Map();
 	if (!storeRoot || files.length === 0) return held;
 	try {
-		const byFile = readEntries(storeRoot, files);
-		for (const file of files) {
+		const { byFile, unparsed } = readEntries(storeRoot, files);
+		for (const file of files.filter((f) => !unparsed.has(f))) {
 			const hit = heldRow(file, byFile.get(file) ?? [], {
 				sha,
 				before,
@@ -659,14 +731,7 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
  */
 function heldRow(file, entries, { sha, before, git, values }) {
 	const earlier = entries.filter(({ run }) => String(run.at) < before);
-	const paths = [
-		...new Set(
-			earlier.flatMap(({ row, run }) => [
-				...inputPaths(row.inputs),
-				...inputPaths(run.shared),
-			]),
-		),
-	];
+	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
 	const now = readTreeIds(git, `${sha}^{tree}`, paths);
 	return earlier.find(({ row, run }) =>
@@ -678,12 +743,10 @@ module.exports = {
 	heldAtSha,
 	CACHED_ENV,
 	foldCached,
-	STORE,
 	buildCachedBanner,
 	buildPragmaRefusal,
 	lookup,
 	readCachedHandoff,
 	record,
-	storeFile,
 	writeCachedHandoff,
 };

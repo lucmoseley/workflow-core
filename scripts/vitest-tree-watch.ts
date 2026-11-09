@@ -55,18 +55,20 @@ export function teardown() {
 /**
  * The run's per-file rows in the pass store (#4790), off the marker's sha,
  * time and tree. A run whose tree drift is unknown, or whose HEAD moved,
- * says nothing of the content each file read, and records none.
+ * says nothing of the content each file read, and records none. An
+ * untracked path counts as moved: drift watches tracked files alone, so one
+ * rewritten mid-run would be recorded with content the run never read.
  */
 function recordFiles(
 	marker: { sha: string; at?: string; treeAtEnd?: string },
 	files: { results: unknown[]; shared: string[]; clean: boolean } | null,
 	{
 		drifted,
-		capped,
+		untracked,
 		root,
 	}: {
 		drifted: { headMoved: boolean; moved: { path: string }[] } | null;
-		capped: boolean;
+		untracked: string[];
 		root: string | null;
 	},
 ) {
@@ -79,11 +81,11 @@ function recordFiles(
 			root: treeRoot,
 			files: files.results,
 			shared: files.shared,
-			clean: files.clean && !capped,
+			clean: files.clean,
 			drifted:
 				before === null || drifted?.headMoved
 					? null
-					: (drifted?.moved ?? []).map((e) => e.path),
+					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
 		},
 		{ storeRoot: root },
 	);
@@ -101,6 +103,9 @@ function recordFiles(
 export function runTeardown(rootOverride?: string | null) {
 	const after = readTreeSnapshot(treeRoot);
 	const drifted = drift(before, after);
+	const untracked = [before, after].flatMap(
+		(s) => (s as { untracked?: string[] } | null)?.untracked ?? [],
+	);
 
 	// stderr, so it survives a reporter writing the summary to stdout.
 	const moved = format(drifted);
@@ -142,7 +147,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === true && after && !capped) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		record(marker, { root });
-		recordFiles(marker, report.files, { drifted, capped, root });
+		recordFiles(marker, report.files, { drifted, untracked, root });
 	}
 
 	/*
@@ -157,7 +162,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
-		recordFiles(marker, report.files, { drifted, capped: false, root });
+		recordFiles(marker, report.files, { drifted, untracked, root });
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run

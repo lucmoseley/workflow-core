@@ -186,6 +186,14 @@ const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
  * exists where `full === "flag"`: an escalation's cause is the escalation
  * already named in `full`, so its `fullCause` is always `null`.
  */
+/*
+ * The dependency-graph roots every narrowed closure carries (#189): what the
+ * selection rests on without a graph edge to show it — `package.json`,
+ * vitest's own force-rerun trigger — so a sha differing from the tree read
+ * only there is never cleared by a narrowed certificate.
+ */
+const CLOSURE_ROOTS = ["package.json"];
+
 const FULL_CAUSES = [
 	"push-gate",
 	"coverage",
@@ -2140,6 +2148,7 @@ function dirtyWarning(sha, marker, suite = DEFAULT_SUITE) {
 }
 
 module.exports = {
+	CLOSURE_ROOTS,
 	ARCHIVE_MS,
 	STORE,
 	EDGES_FILE,
