@@ -2332,6 +2332,138 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 	});
 });
 
+describe("release-issue on an unfinished build unit, and move-issue (#4535)", () => {
+	const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
+	const At = "repos/acme/widgets/issues/645";
+	const Unmet = "## Acceptance criteria\n\n- [x] one\n- [ ] two\n";
+	const unit = ({
+		state = "open",
+		labels = ["kind:ticket", "takes:implement"],
+		body = Unmet,
+	} = {}) => ({
+		kind: "issue",
+		value: {
+			number: 645,
+			state,
+			labels: labels.map((name) => ({ name })),
+			body,
+		},
+	});
+	/** `sid` claims #645 and, unless `started` is false, commits citing it. */
+	const claimAs = (sid: string, { started = true } = {}) => {
+		fs.mkdirSync(path.join(sb.repo, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(sb.repo, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, founder: "T", tracker: "acme/widgets" }),
+		);
+		registerSession(sb, sid, process.pid);
+		cli(["claim-issue", "645"], { CLAUDE_CODE_SESSION_ID: sid });
+		if (!started) return;
+		gitRepo(sb);
+		fs.writeFileSync(inRepo("docs/b.md"), "slice one\n");
+		commitAll(sb, "Do slice one (Refs #645)");
+		const head = execFileSync("git", ["rev-parse", "HEAD"], {
+			cwd: sb.repo,
+			encoding: "utf8",
+		}).trim();
+		store.recordCommit(head, sid);
+	};
+	const release = () =>
+		cli(["release-issue", "645"], { CLAUDE_CODE_SESSION_ID: "alice" });
+
+	it("refuses an open, unparked kind:ticket with an unmet criterion, naming the four exits and keeping the claim", () => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: unit() });
+		const r = release();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("refusing to release #645");
+		expect(r.stderr).toContain("No ticket comment or body note moves");
+		for (const exit of [
+			"scripts/park-blocked.sh",
+			"a `needs input:` park with its `**Hand-off:**` block",
+			"the 300,000 tripwire",
+			"the compaction backstop's hand-off",
+		])
+			expect(r.stderr).toContain(exit);
+		expect(out(["issue-claims"])).toMatch(/^#645\talice/m);
+	});
+
+	it.each([
+		["parked", unit({ labels: ["kind:ticket", "parked"] })],
+		["closed", unit({ state: "closed" })],
+		[
+			"every criterion met",
+			unit({ body: "## Acceptance criteria\n\n- [x] one\n" }),
+		],
+		[
+			"its open criterion waived",
+			unit({
+				body: "## Acceptance criteria\n\n- [ ] two **waived:** out of scope\n",
+			}),
+		],
+		["not a kind:ticket", unit({ labels: ["kind:brief"] })],
+	])("releases where the issue is %s", (_, answer) => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: answer });
+		const r = release();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Released the claim on #645/);
+	});
+
+	it("releases the claim park-blocked.sh's record names, reading nothing", () => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: unit() });
+		fs.mkdirSync(markersDir(sb.repo), { recursive: true });
+		fs.writeFileSync(
+			path.join(markersDir(sb.repo), ".parked-blocked-alice"),
+			JSON.stringify({ outcome: "blocked", issue: 645, session: "alice" }),
+		);
+		const r = release();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Released the claim on #645/);
+		expect(ghCallCount(sb)).toBe(0);
+	});
+
+	it("releases a unit no commit of this session cites, as a bundle's unstarted member, reading nothing", () => {
+		claimAs("alice", { started: false });
+		fakeGh(sb, { [At]: unit() });
+		const r = release();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Released the claim on #645/);
+		expect(ghCallCount(sb)).toBe(0);
+	});
+
+	it("fails open where the issue will not read", () => {
+		claimAs("alice");
+		const r = release();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Released the claim on #645/);
+	});
+
+	it("moves the claim to another session, the gate aside", () => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: unit() });
+		const r = cli(["move-issue", "645", "copy"], {
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("Moved the claim on #645 to session copy.");
+		expect(out(["issue-claims"])).toMatch(/^#645\tcopy/m);
+		expect(out(["issue-claims"])).not.toMatch(/alice/);
+		expect(ghCallCount(sb)).toBe(0);
+	});
+
+	it("moves nothing where this session holds no claim", () => {
+		registerSession(sb, "alice", process.pid);
+		const r = cli(["move-issue", "645", "copy"], {
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("No claim of this session's on #645.");
+		expect(out(["issue-claims"])).toBe("No issues are claimed.\n");
+	});
+});
+
 describe("claim-issue / release-issue — the selection claim (mantahostels#645)", () => {
 	it("records the claim against the session in the environment", () => {
 		registerSession(sb, "alice", process.pid);

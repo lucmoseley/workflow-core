@@ -137,7 +137,7 @@ describe("resumeStopped", () => {
 			[{ keyVar: KEY_VAR, cwd: ROOT, prompt: PROMPT, resume: SESSION }],
 		]);
 		expect(callsTo("recordLaunch")).toEqual([]);
-		expect(callsTo("runArbiter")).toEqual([]);
+		expect(callsTo("moveIssueClaim")).toEqual([]);
 		expect(callsTo("moveParkedBy")).toEqual([]);
 	});
 
@@ -152,9 +152,8 @@ describe("resumeStopped", () => {
 	it("hands a plan seat's copy its claims and pass markers, recording no ledger row (#2963, #4105)", () => {
 		const { steps, callsTo } = fakeIo();
 		steps.resumeStopped(LAUNCH, PROMPT, IDS);
-		expect(callsTo("runArbiter")).toEqual([
-			[ROOT, "release-issue", 7, SESSION],
-			[ROOT, "claim-issue", 7, COPY_SESSION],
+		expect(callsTo("moveIssueClaim")).toEqual([
+			[ROOT, 7, SESSION, COPY_SESSION],
 		]);
 		expect(callsTo("movePassMarkers")).toEqual([[ROOT, SESSION, COPY_SESSION]]);
 		expect(callsTo("recordLaunch")).toEqual([]);
@@ -375,7 +374,7 @@ describe("moveSession (#3734, #3736)", () => {
 		);
 		expect(r.failed).toContain(FAULTS.overflowLookup.unreadable);
 		expect(callsTo("stop")).toContainEqual([SEAT, HEADLESS_JOB]);
-		expect(callsTo("runArbiter")).toEqual([]);
+		expect(callsTo("moveIssueClaim")).toEqual([]);
 	});
 
 	/** The name a move onto `target` gives, its transcript read as `name`: a
@@ -444,7 +443,7 @@ describe("moveSession (#3734, #3736)", () => {
 		);
 		expect(r.failed).toContain("not recorded in the dispatch ledger");
 		expect(callsTo("stop")).toContainEqual([SEAT, HEADLESS_JOB]);
-		expect(callsTo("runArbiter")).toEqual([]);
+		expect(callsTo("moveIssueClaim")).toEqual([]);
 		expect(callsTo("moveParkedBy")).toEqual([]);
 	});
 });

@@ -170,7 +170,9 @@ export const ANSWERS = {
 			why: "reading /a: EISDIR: illegal operation on a directory, read",
 		},
 	},
-	runArbiter: { released: ran("Released the claim on #7.") },
+	moveIssueClaim: {
+		moved: ran(`Moved the claim on #7 to session ${COPY_SESSION}.`),
+	},
 	movePassMarkers: {
 		moved: null,
 		live: `${SESSION} is still live`,
@@ -239,7 +241,7 @@ export function fakeResumeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 		copySpendUsd: served("copySpendUsd"),
 		sessionSpendUsd: served("sessionSpendUsd"),
 		sessionName: served("sessionName"),
-		runArbiter: served("runArbiter"),
+		moveIssueClaim: served("moveIssueClaim"),
 		movePassMarkers: served("movePassMarkers"),
 		moveParkedBy: served("moveParkedBy"),
 	};

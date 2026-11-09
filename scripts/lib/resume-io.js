@@ -57,13 +57,13 @@ const buildResumeIo = (log) => ({
 	copySpendUsd: (file) => fileSpend(file).usd,
 	sessionSpendUsd,
 	sessionName: readSessionName,
-	runArbiter: (root, cmd, n, sessionId) =>
+	moveIssueClaim: (root, n, from, to) =>
 		runChild(
 			process.execPath,
-			[path.join(SCRIPTS, "session-arbiter.js"), cmd, String(n)],
+			[path.join(SCRIPTS, "session-arbiter.js"), "move-issue", String(n), to],
 			{
 				cwd: root,
-				env: { ...buildCheckoutEnv(root), CLAUDE_CODE_SESSION_ID: sessionId },
+				env: { ...buildCheckoutEnv(root), CLAUDE_CODE_SESSION_ID: from },
 			},
 		),
 	movePassMarkers,

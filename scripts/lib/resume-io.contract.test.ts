@@ -32,6 +32,7 @@ import { writeHeadlessRun } from "./headless-runs-testkit";
 import { jobDirPath, jobStatePath } from "./job-paths.js";
 import { markersDir, PASS_MARKER_PREFIXES } from "./marker-root.js";
 import { transcriptPath } from "./project-slug.js";
+import { buildCheckoutEnv } from "./refill-repos.js";
 import { buildResumeIo } from "./resume-io.js";
 import {
 	ALLOWANCE_USD,
@@ -43,6 +44,7 @@ import {
 	KEY_VAR,
 	SESSION,
 } from "./resume-io-fake";
+import { runInProcess } from "./run-in-process.js";
 
 type ResumeIo = import("./refill-resume.js").ResumeIo;
 type ChildRun = ReturnType<ResumeIo["runClaude"]>;
@@ -206,7 +208,7 @@ function thrownMessage(act: () => unknown) {
 	}
 }
 
-/* Named for the test selector (§X10): runArbiter runs it. */
+/* Named for the test selector (§X10): moveIssueClaim runs it. */
 const ARBITER = path.resolve(__dirname, "../session-arbiter.js");
 
 /** An answer less its situation's values, keyed by port. */
@@ -278,9 +280,9 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 		const r = v as ReturnType<ResumeIo["sessionName"]>;
 		return "why" in r ? { why: typeof r.why } : r;
 	},
-	runArbiter: (v) => ({
+	moveIssueClaim: (v) => ({
 		...childShape(v),
-		released: (v as ChildRun).out.startsWith("Released"),
+		moved: (v as ChildRun).out.startsWith("Moved"),
 	}),
 	movePassMarkers: (v) =>
 		v === null ? null : (v as string).replace(/^\S+ /, ""),
@@ -445,14 +447,15 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			return io().sessionName(transcriptPath(seat, root, SESSION));
 		},
 	},
-	runArbiter: {
-		released: () => {
+	moveIssueClaim: {
+		moved: () => {
 			expect(fs.existsSync(ARBITER)).toBe(true);
-			const real = io();
-			expect(
-				real.runArbiter(root, "claim-issue", 7, SESSION).failed,
-			).toBeNull();
-			return real.runArbiter(root, "release-issue", 7, SESSION);
+			const claimed = runInProcess(ARBITER, ["claim-issue", "7"], {
+				cwd: root,
+				env: { ...buildCheckoutEnv(root), CLAUDE_CODE_SESSION_ID: SESSION },
+			});
+			expect(claimed.status).toBe(0);
+			return io().moveIssueClaim(root, 7, SESSION, COPY_SESSION);
 		},
 	},
 	movePassMarkers: {

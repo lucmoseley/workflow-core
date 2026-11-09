@@ -54,8 +54,8 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  *   copySpendUsd: (file: string) => number,
  *   sessionSpendUsd: (file: string) => number,
  *   sessionName: typeof import("./session-name.js").readSessionName,
- *   runArbiter: (root: string, cmd: "claim-issue"|"release-issue", n: number,
- *     sessionId: string) => ChildRun,
+ *   moveIssueClaim: (root: string, n: number, from: string, to: string)
+ *     => ChildRun,
  *   movePassMarkers: typeof import("./move-pass-markers.js").movePassMarkers,
  *   moveParkedBy: typeof import("./parked.js").moveParkedBy,
  * }} ResumeIo
@@ -87,21 +87,6 @@ function resumeSteps(io) {
 	const readLaunchRecord = buildLaunchRecordReader(io);
 
 	/**
-	 * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `root`; what it
-	 * printed, or null where it failed, logged.
-	 * @param {string} root
-	 * @param {"claim-issue"|"release-issue"} cmd
-	 * @param {number} n
-	 * @param {string} sessionId
-	 */
-	function arbiterAs(root, cmd, n, sessionId) {
-		const r = io.runArbiter(root, cmd, n, sessionId);
-		if (!r.failed) return r.out;
-		log(`${cmd} #${n} as ${sessionId} failed: ${childFailure(r)}`);
-		return null;
-	}
-
-	/**
 	 * Move each issue claim session `from` holds on `l`'s issues to its copy's
 	 * session `to` (#2963).
 	 * @param {{root: string, issues: number[]}} l
@@ -109,9 +94,13 @@ function resumeSteps(io) {
 	 * @param {string} to
 	 */
 	function moveClaims({ root, issues }, from, to) {
-		for (const n of issues)
-			if (arbiterAs(root, "release-issue", n, from)?.startsWith("Released"))
-				arbiterAs(root, "claim-issue", n, to);
+		for (const n of issues) {
+			const r = io.moveIssueClaim(root, n, from, to);
+			if (r.failed)
+				log(
+					`move-issue #${n} from ${from} to ${to} failed: ${childFailure(r)}`,
+				);
+		}
 	}
 
 	/**

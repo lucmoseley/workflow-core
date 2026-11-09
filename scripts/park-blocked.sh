@@ -5,8 +5,8 @@
 # Usage:
 #   park-blocked.sh <issue> takes:wayfinder|waiting:external|keep "<why>"
 #
-# Apply the label, post the comment, release the issue claim, leave a local
-# `.parked-blocked-<sid>` record, then print the wait-for-your-own-work step
+# Apply the label, post the comment, leave a local `.parked-blocked-<sid>`
+# record, release the issue claim, then print the wait-for-your-own-work step
 # (#1179 Q1 (A)).
 # A `takes:*` value REPLACES the issue's existing one; `waiting:external` is
 # ADDED alongside it (blocked on an outside party, the
@@ -138,9 +138,10 @@ apply_label_and_stop() {
   fi
   gh_issue_comment "$issue" "$why" ||
     printf 'WARNING: could not comment on #%s.\n' "$issue" >&2
+  # The record goes first: release-issue passes the claim it names (#4535).
+  write_blocked_record "$issue" "$label"
   release_issue_claim "$issue" ||
     printf 'WARNING: could not release the issue claim on #%s.\n' "$issue" >&2
-  write_blocked_record "$issue" "$label"
   if [[ -n "$label" ]]; then
     printf 'blocked: #%s labelled %s.\n' "$issue" "$label"
   else

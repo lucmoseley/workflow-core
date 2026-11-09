@@ -13,7 +13,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshSandbox, gitRepo } from "./lib/arbiter-testkit";
+import { freshSandbox, gitRepo, store } from "./lib/arbiter-testkit";
 import { GH_NOT_FOUND } from "./lib/gh-fake";
 import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -188,6 +188,53 @@ describe("parking", () => {
 		expect(edit).toContain("--remove-label takes:implement");
 		const comment = ghCalls().find((c) => c.startsWith("issue comment"));
 		expect(comment).toContain("waiting on the founder");
+		expect(heldIssue(9)).toBe(false);
+	});
+
+	it("releases the claim on an unfinished kind:ticket, which release-issue alone refuses (#4535)", () => {
+		fs.mkdirSync(path.join(sb.repo, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(sb.repo, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, founder: "T", tracker: "acme/app" }),
+		);
+		claimIssue(9);
+		fs.writeFileSync(path.join(sb.repo, "slice.md"), "one\n");
+		const git = (...args: string[]) =>
+			spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+				cwd: sb.repo,
+				encoding: "utf8",
+			}).stdout.trim();
+		git("add", "-A");
+		git("commit", "-qm", "Do slice one (Refs #9)");
+		store.recordCommit(git("rev-parse", "HEAD"), SID);
+		const unitDir = path.join(sb.dir, "unit");
+		fs.mkdirSync(unitDir, { recursive: true });
+		const gh = stubGhRoutes(unitDir, {
+			"*/issues/9": {
+				kind: "issue",
+				value: {
+					number: 9,
+					state: "open",
+					labels: [{ name: "kind:ticket" }],
+					body: "## Acceptance criteria\n\n- [ ] unmet\n",
+				},
+			},
+			"repo view*": { kind: "repoView", value: { nameWithOwner: "acme/app" } },
+			"issue view * --json labels *": printed("takes:implement\n"),
+			"issue comment *": printed(),
+			"issue edit *": printed(),
+		}).gh;
+		const bare = runInProcess(ARBITER, ["release-issue", "9"], {
+			cwd: sb.repo,
+			env: { ...arbiterEnv(), WFC_GH: gh },
+			stdin: "",
+		});
+		expect(bare.status).toBe(2);
+		expect(heldIssue(9)).toBe(true);
+		const r = run(["9", "takes:wayfinder", "waiting on the founder"], {
+			WFC_GH: gh,
+		});
+		expect(r.code).toBe(0);
 		expect(heldIssue(9)).toBe(false);
 	});
 
