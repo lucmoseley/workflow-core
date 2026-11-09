@@ -888,22 +888,32 @@ function runAgainst(spec, ctx) {
 			["rev-parse", "--verify", `${head}^{tree}`],
 			`resolving ${head}`,
 		).trim();
+	const others = otherParents(ctx, rev, head);
 
 	const sides = compareSides(spec, ctx, {
 		against,
 		profile,
 		materialise,
-		revs: { rev, baseRev, head, headTree },
+		revs: { rev, baseRev, head, headTree, others },
 	});
 	const { added, inherited, notes, commit, baselineSummary } = sides;
 
 	/** The measurement both sides carry, where the profile can read one. */
+	/* Measured from the nearest parent: a merge adds over the side it is
+	 * closest to, never over HEAD alone. */
 	const measured = (/** @type {FaultItem} */ f) =>
-		measuredDelta(profile, f, {
-			staged: commit.envelope,
-			baseline: sides.baselineEnvelope,
-			rev,
-		});
+		[
+			{ baseline: sides.baselineEnvelope, rev },
+			...sides.otherEnvelopes.map((o) => ({
+				baseline: o.envelope,
+				rev: o.rev,
+			})),
+		]
+			.map((b) => measuredDelta(profile, f, { staged: commit.envelope, ...b }))
+			.reduce(
+				(near, d) => (d && (!near || d.delta < near.delta) ? d : near),
+				undefined,
+			);
 
 	/* The checker's own last word on what it adds, run in the PARENT, where the
 	 * live tree and the session's claims are readable: the exemptions only it
@@ -923,13 +933,20 @@ function runAgainst(spec, ctx) {
 	const judged = head ?? "this commit";
 	reportAgainst(
 		ctx,
-		{ added: refuse, inherited, notes, rev, judged },
+		{
+			added: refuse,
+			inherited,
+			notes,
+			rev,
+			base: [rev, ...others].join(" or "),
+			judged,
+		},
 		measured,
 	);
 	for (const line of refuse.length > 0 ? remedy : []) ctx.say(line);
 
 	return {
-		okLine: `no gating fault in ${head ?? "the index"} that ${rev} does not already carry.`,
+		okLine: `no gating fault in ${head ?? "the index"} that ${[rev, ...others].join(" or ")} does not already carry.`,
 		noun: refuse.length > 0 ? `fault(s) ${judged} adds` : "inherited fault(s)",
 		data: {
 			...settled,
@@ -1128,20 +1145,81 @@ function readAgainst(spec, ctx) {
 	return { against, rev, head };
 }
 
+/* The refs whose history counts as landed: work there already passed the
+ * gates. */
+const LANDED_REFS = ["refs/remotes/origin/main", "refs/heads/main"];
+
+/**
+ * A LANDED MERGED-IN HEAD IS A BASELINE TOO (#4582). The index of a merge in
+ * flight becomes a commit whose parents are HEAD and each head it brings in,
+ * so a fault a landed one already carries is inherited, not added: judged
+ * against HEAD alone, every fault `main` holds reads as added by the commit
+ * merging it in. Landed only: an unlanded head is a queue member, whose faults the
+ * lander's merge gate exists to refuse (.husky/pre-commit, `--gates=merge`).
+ * Only the pre-commit form, whose baseline is HEAD: a `--head` judges a
+ * commit already made, and any other rev is no parent of the index.
+ *
+ * @param {CheckContext} ctx
+ * @param {string} rev
+ * @param {string | undefined} head
+ * @returns {string[]} the full shas, HEAD's own left out
+ */
+function otherParents(ctx, rev, head) {
+	if (head || rev !== "HEAD") return [];
+	const { readMergingHeads } = require("./merge-heads.js");
+	const heads = readMergingHeads();
+	if (heads.length === 0) return [];
+	const ours = readCommitOrBroken("HEAD");
+	const shas = heads.map((h) =>
+		git(
+			["rev-parse", "--verify", `${h}^{commit}`],
+			`resolving the merged-in ${h}`,
+		).trim(),
+	);
+	const landed = LANDED_REFS.filter((ref) => readCommitOrBroken(ref) !== null);
+	return [...new Set(shas)].filter((sha) => {
+		if (sha === ours) return false;
+		if (landed.some((ref) => isAncestor(sha, ref))) return true;
+		ctx.say(
+			`judged against HEAD alone for ${sha}: it is on no landed ref (${LANDED_REFS.join(", ")}).`,
+		);
+		return false;
+	});
+}
+
+/**
+ * Whether `sha` is in `ref`'s history. BROKEN where git cannot say.
+ *
+ * @param {string} sha
+ * @param {string} ref
+ */
+function isAncestor(sha, ref) {
+	const r = spawnGitSync(["merge-base", "--is-ancestor", sha, ref], {
+		encoding: "utf8",
+	});
+	if (r.status === 0) return true;
+	if (r.status === 1) return false;
+	throw brokenError(
+		`git merge-base --is-ancestor ${sha} ${ref} failed: ${(r.stderr || "").trim() || r.error?.message || `exit ${r.status}`}`,
+	);
+}
+
 /**
  * Re-runs the checker over the index and, where there is a gating fault to
- * attribute, over the baseline, and diffs the two.
+ * attribute, over the baseline, and diffs the two. A fault left new is then
+ * diffed against each of a merge's `others` in turn, and stays added only
+ * where none of them carries it.
  *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
  * @param {{ against: AgainstSpec,
  *   profile: import("./fault-diff.js").FaultDiffProfile,
  *   materialise: (rev: string, dir: string, pathspecs: string[]) => void,
- *   revs: { rev: string, baseRev: string, head?: string, headTree?: string } }} at
+ *   revs: { rev: string, baseRev: string, head?: string, headTree?: string, others: string[] } }} at
  */
 function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	const { newFaultItems } = require("./fault-diff.js");
-	const { rev, baseRev, head, headTree } = revs;
+	const { rev, baseRev, head, headTree, others } = revs;
 	const gate = profile.gating ?? (() => true);
 	const work = fs.mkdtempSync(
 		path.join(os.tmpdir(), `check-against-${spec.name}-`),
@@ -1163,6 +1241,8 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	);
 	let baselineSummary =
 		"unread — the index carries no gating fault to attribute";
+	/** @type {{ rev: string, envelope: Record<string, unknown> }[]} */
+	const otherEnvelopes = [];
 	try {
 		/* Unreferenced, and collected with every other loose object. */
 		const commitSide = headTree ?? indexTree(path.join(work, "index-copy"));
@@ -1192,20 +1272,30 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 				ctx.broken(
 					`no readable ${rev} baseline to compare against — ${baseline.summary}`,
 				);
+			const notGating = {
+				...profile,
+				gating: (/** @type {unknown} */ item, /** @type {string} */ key) =>
+					!gate(item, key),
+			};
 			added = newFaultItems(commit.envelope, baseline.envelope, profile);
+			/* The same diff over what the profile does NOT gate on. A non-gating
+			 * finding says something true about the commit — that the pool grew —
+			 * and dropping it silently would lose mantahostels#1177's prompt. It warns
+			 * and never refuses. */
+			notes = newFaultItems(commit.envelope, baseline.envelope, notGating);
+			({ added, notes } = narrowToOthers(ctx, {
+				others,
+				read: (other) => read(other, other, "baseline"),
+				staged: commit.envelope,
+				profiles: { gating: profile, notes: notGating },
+				found: { added, notes },
+				envelopes: otherEnvelopes,
+			}));
 			const addedLines = added.map((f) => f.line);
 			inherited = gating
 				.filter((f) => !profile.newOnly?.(f.key))
 				.map((f) => f.line)
 				.filter((line) => !addedLines.includes(line));
-			/* The same diff over what the profile does NOT gate on. A non-gating
-			 * finding says something true about the commit — that the pool grew —
-			 * and dropping it silently would lose mantahostels#1177's prompt. It warns
-			 * and never refuses. */
-			notes = newFaultItems(commit.envelope, baseline.envelope, {
-				...profile,
-				gating: (item, key) => !gate(item, key),
-			});
 		}
 		return {
 			added,
@@ -1213,6 +1303,7 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 			notes,
 			commit,
 			baselineEnvelope,
+			otherEnvelopes,
 			baselineSummary,
 		};
 	} finally {
@@ -1221,21 +1312,62 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 }
 
 /**
+ * `found` less each fault a merge's `others` already carries. Each envelope
+ * read is pushed onto
+ * `envelopes`. BROKEN where a parent cannot be read: that is no "inherited".
+ *
+ * @param {CheckContext} ctx
+ * @param {{ others: string[],
+ *   read: (rev: string) => { outcome: Outcome, summary: string, envelope: Record<string, unknown> },
+ *   staged: Record<string, unknown>,
+ *   profiles: { gating: import("./fault-diff.js").FaultDiffProfile, notes: import("./fault-diff.js").FaultDiffProfile },
+ *   found: { added: FaultItem[], notes: FaultItem[] },
+ *   envelopes: { rev: string, envelope: Record<string, unknown> }[] }} at
+ * @returns {{ added: FaultItem[], notes: FaultItem[] }}
+ */
+function narrowToOthers(
+	ctx,
+	{ others, read, staged, profiles, found, envelopes },
+) {
+	const { newFaultItems } = require("./fault-diff.js");
+	let { added, notes } = found;
+	for (const other of others) {
+		if (added.length === 0 && notes.length === 0) break;
+		const side = read(other);
+		if (side.outcome === "BROKEN" || side.outcome === "SKIP")
+			ctx.broken(
+				`no readable baseline at ${other}, the merge's other parent — ${side.summary}`,
+			);
+		envelopes.push({ rev: other, envelope: side.envelope });
+		/* Both lists hold the staged envelope's own item objects. */
+		const newAt = (
+			/** @type {import("./fault-diff.js").FaultDiffProfile} */ p,
+		) => new Set(newFaultItems(staged, side.envelope, p).map((f) => f.item));
+		const gatingNew = newAt(profiles.gating);
+		const notesNew = newAt(profiles.notes);
+		added = added.filter((f) => gatingNew.has(f.item));
+		notes = notes.filter((f) => notesNew.has(f.item));
+	}
+	return { added, notes };
+}
+
+/**
  * Says what the diff found: faults this commit adds, else the inherited ones
  * it passes over, and every non-gating note.
  *
  * @param {CheckContext} ctx
  * @param {{ added: FaultItem[], inherited: string[], notes: FaultItem[],
- *   rev: string, judged: string }} found
+ *   rev: string, base: string, judged: string }} found `base` names every
+ *   parent judged against, `rev` and a merge's others
  * @param {(f: FaultItem) => { base: number, delta: number, line: string } | undefined} measured
  */
 function reportAgainst(
 	ctx,
-	{ added, inherited, notes, rev, judged },
+	{ added, inherited, notes, rev, base, judged },
 	measured,
 ) {
 	if (added.length > 0) {
-		ctx.say(`The fault(s) below are NOT in ${rev} — ${judged} adds them:`);
+		ctx.say(`The fault(s) below are NOT in ${base} — ${judged} adds them:`);
 		for (const f of added) {
 			const d = measured(f);
 			ctx.fail("NEW-FAULT", f.line, {
@@ -1247,9 +1379,9 @@ function reportAgainst(
 		}
 	} else if (inherited.length > 0) {
 		for (const line of inherited)
-			ctx.warn("INHERITED-FAULT", line, { against: rev });
+			ctx.warn("INHERITED-FAULT", line, { against: base });
 		ctx.say(
-			`Every gating fault reported above is already in ${rev}, so ${judged} did not cause one — passing (mantahostels#1753).`,
+			`Every gating fault reported above is already in ${base}, so ${judged} did not cause one — passing (mantahostels#1753).`,
 		);
 		ctx.say(
 			"  They still FAIL the scheduled sweeps, which run a clean checkout, and block nothing here only because they are inherited.",
