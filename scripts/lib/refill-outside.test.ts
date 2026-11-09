@@ -75,7 +75,7 @@ function loop(over: Partial<BlockIo> = {}) {
 
 const typed = (calls: string[]) => calls.filter((c) => c === "type f1").length;
 
-it("reads the cause of a session it did not launch under that session's own name", () => {
+it("reads the cause of a session it did not launch under that session's own name (#4825)", () => {
 	const { io } = fakeIo();
 	const names: string[] = [];
 	actOnOutside(

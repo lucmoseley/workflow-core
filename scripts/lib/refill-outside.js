@@ -60,7 +60,7 @@ const OUTSIDE_FILE = ".refill-outside.json";
  * @param {Outside} o
  * @returns {SessionRef}
  */
-const refOf = (o) => ({
+const sessionRefOf = (o) => ({
 	root: o.cwd,
 	seat: o.seat,
 	jobId: o.jobId,
@@ -143,7 +143,7 @@ function takenUp(a, now) {
  * @returns {Outside}
  */
 function relaunch(o, target, { io }) {
-	const r = io.resumeStopped(refOf(o), API_PROMPT, target);
+	const r = io.resumeStopped(sessionRefOf(o), API_PROMPT, target);
 	if (r.failed !== null) {
 		io.log(
 			`could not resume ${nameOf(o)} by --bg --resume: ${r.failed}; it stays stopped until the next try, due ${iso(o.nextAt ?? 0)}`,
@@ -167,7 +167,7 @@ function relaunch(o, target, { io }) {
  */
 function fallBack(o, seen) {
 	const { io } = seen;
-	const ref = refOf(o);
+	const ref = sessionRefOf(o);
 	if (isTakenSinceStop(ref, nameOf(o), io)) return o;
 	const { sessionId, cwd } = io.resumeTargetOf(ref);
 	const what = `${nameOf(o)} by stop and --bg --resume, the typed one unseen`;
@@ -219,7 +219,7 @@ function resume(o, seen) {
 	const { io, now } = seen;
 	const tries = o.tries + 1;
 	const tried = { ...o, tries, triedAt: now, nextAt: nextTryAt(tries, now) };
-	const failed = io.type(refOf(o), API_PROMPT);
+	const failed = io.type(sessionRefOf(o), API_PROMPT);
 	if (failed) {
 		io.log(`could not type the resume into ${nameOf(o)}: ${failed}`);
 		return fallBack(tried, seen);
@@ -239,7 +239,7 @@ function resume(o, seen) {
 function actOn(o, seen) {
 	const { now, io } = seen;
 	if (o.attachAt !== undefined) {
-		const verdict = typedVerdict(o.attachAt, refOf(o), seen);
+		const verdict = typedVerdict(o.attachAt, sessionRefOf(o), seen);
 		if (verdict === "pending") return o;
 		const { attachAt: _, ...settled } = o;
 		if (verdict === "arrived") return settled;
@@ -281,7 +281,7 @@ function actOn(o, seen) {
  */
 function judge(o, row, causeOf, seen) {
 	const { io, now } = seen;
-	const ref = refOf(o);
+	const ref = sessionRefOf(o);
 	const reading = causeOf(ref, row, nameOf(o));
 	if (reading.cause !== "API_ERROR" || reading.sub !== "transient")
 		return o.tries > 0 ? betweenStops(o) : null;
