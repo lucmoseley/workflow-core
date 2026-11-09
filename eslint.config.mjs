@@ -22,9 +22,8 @@ import regexp from "eslint-plugin-regexp";
 //
 // scripts/ carries the second block: eslint-plugin-regexp's two super-linear
 // regex rules, the class SonarQube Cloud raises there as S8786 and S5852, so a
-// commit refuses one before Sonar opens it (#4642). Together they hit every
-// line Sonar raised on main and more. SonarSource's own eslint-plugin-sonarjs
-// is not used: from 3.0 it is under the Sonar Source-Available License, whose
+// commit refuses one before Sonar opens it (#4642). SonarSource's own
+// eslint-plugin-sonarjs is not used: from 3.0 it is under the Sonar Source-Available License, whose
 // §1(c) excludes use by AI tooling, and this repo is worked by agents (#4642).
 // Sonar skips test files for these rules, and so does the block.
 // A finding you will not fix takes `// eslint-disable-next-line <rule> --
