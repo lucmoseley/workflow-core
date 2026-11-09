@@ -16,7 +16,7 @@
 
 const path = require("node:path");
 const { scriptPath } = require("./script-path.js");
-const { corePath, GATES } = require("./precommit-gates.js");
+const { fromCoreRoot, GATES } = require("./precommit-gates.js");
 
 /** @typedef {"against" | "index"} Gate */
 
@@ -63,7 +63,7 @@ const NOTICES = Object.fromEntries(
 	Object.entries(ROWS).map(([profile, { script, gate, scope, cite, cost }]) => [
 		profile,
 		{
-			script: corePath(script),
+			script: fromCoreRoot(script),
 			gate,
 			why: `${scope}, ${GATE_CLAUSE[gate]}${cite ? ` ${cite}` : ""}`,
 			cost,

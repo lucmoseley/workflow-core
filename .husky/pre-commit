@@ -329,19 +329,19 @@ fi
 
 # The rest of the whole-repo checker gates, rendered as the merge region above.
 # precommit-gates:batch:begin
-if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)\$"; then
+if ! lander_batch && armed '^scripts/.*'"$JS_TEST_ERE"'|^scripts/.*\.(ts|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
 
-if armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(js|sh)\$"; then
+if armed '^scripts/.*'"$JS_TEST_ERE"'|^scripts/.*\.(js|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root-test-isolation.js --against HEAD || exit "$?"
 fi
 
-if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE"; then
+if ! lander_batch && armed '^scripts/.*'"$JS_TEST_ERE"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
 fi
 
-if ! lander_batch && armed "$JS_TEST_ERE|^scripts/.*\.ts\$"; then
+if ! lander_batch && armed "$JS_TEST_ERE"'|^scripts/.*\.ts$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-env-writes.js --against HEAD || exit "$?"
 fi
 
@@ -365,7 +365,7 @@ if armed '^scripts/[^/]+\.js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
 fi
 
-if armed "^(scripts|\.claude/skills)/.*$JS_TEST_ERE"; then
+if armed '^(scripts|\.claude/skills)/.*'"$JS_TEST_ERE"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js --index || exit "$?"
 fi
 

@@ -16,11 +16,7 @@ import { describe, expect, it } from "vitest";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
 import { HOOK, ROOT } from "./lib/precommit-gate-testkit";
 import { FLAG_ARGS, GATES, type PrecommitGate } from "./lib/precommit-gates.js";
-import {
-	beginMarker,
-	endMarker,
-	render,
-} from "./lib/precommit-gates-render.js";
+import { render } from "./lib/precommit-gates-render.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
@@ -28,6 +24,8 @@ const registry = { FLAG_ARGS, GATES };
 /* Interpolated: a shell `${...}` in a plain string trips Biome's
  * noTemplateCurlyInString. */
 const DOLLAR = "$";
+const beginMarker = (region: string) => `# precommit-gates:${region}:begin`;
+const endMarker = (region: string) => `# precommit-gates:${region}:end`;
 const SCRIPT = path.join(ROOT, "scripts", "generate-precommit-gates.js");
 const REGISTRY_SOURCE = fs.readFileSync(
 	path.join(ROOT, "scripts", "lib", "precommit-gates.js"),
@@ -102,10 +100,10 @@ describe("a registry row", () => {
 		);
 	});
 
-	it("double-quotes an ERE naming $JS_TEST_ERE, escaping every other $", () => {
+	it("leaves only $JS_TEST_ERE to the shell, quoting the rest", () => {
 		expect(
 			renderOf(row({ ere: String.raw`^a/.*$JS_TEST_ERE|\.ts$` })),
-		).toContain(String.raw`if armed "^a/.*$JS_TEST_ERE|\.ts\$"; then`);
+		).toContain(String.raw`if armed '^a/.*'"$JS_TEST_ERE"'|\.ts$'; then`);
 	});
 
 	it("puts a blank line between blocks", () => {

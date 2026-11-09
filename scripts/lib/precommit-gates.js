@@ -28,7 +28,7 @@
  * unstaged file outside it, and still refuses a breach HEAD already carries
  * (#3687).
  *
- * `script` and `sources` are spelt from the core root, and `corePath` reads
+ * `script` and `sources` are spelt from the core root, and `fromCoreRoot` reads
  * them there through coreRoot(), the anchor under which the read-edge
  * extractor attributes them to a test importing this module (base §X10).
  * The generator's `--check` compiles the index's copy of this file at this
@@ -514,10 +514,11 @@ const GATES = [
 const FLAG_ARGS = { against: "--against HEAD", index: "--index" };
 
 /**
- * A path from the core root, absolute, in the core the running code sits in.
+ * A path from the core root, absolute, in the core the running code sits in:
+ * not script-path.js's corePath, which spells one for a command line.
  * @param {string} rel
  * @returns {string}
  */
-const corePath = (rel) => path.join(coreRoot(), rel);
+const fromCoreRoot = (rel) => path.join(coreRoot(), rel);
 
-module.exports = { corePath, FLAG_ARGS, GATES, SITE_IDENTITY };
+module.exports = { FLAG_ARGS, GATES, fromCoreRoot, SITE_IDENTITY };

@@ -47,7 +47,9 @@ const GIT_READ = {
 /**
  * The registry's source, loaded as a module resolving from its own path.
  * `--check` must judge the index's copy, which no file on disk holds, and
- * compiling it at the real path lets its `./script-path.js` require resolve.
+ * compiling it at the real path lets its `./script-path.js` require resolve
+ * (#4597). Module#_compile is Node's private loader: a Node that drops it
+ * fails `--check` with exit 2, refusing every commit staging the hook.
  * @param {string} source
  * @returns {import("./lib/precommit-gates-render").Registry}
  */

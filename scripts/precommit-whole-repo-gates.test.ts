@@ -240,9 +240,12 @@ describe("the pre-commit's precommit-gates region gate", () => {
 	});
 
 	it("arms on a commit staging the renderer alone", () => {
-		expect(
-			run(stale, { "scripts/lib/precommit-gates-render.js": "" }).code,
-		).toBe(1);
+		const { code, output } = run(stale, {
+			"scripts/lib/precommit-gates-render.js": "",
+		});
+
+		expect(code).toBe(1);
+		expect(output).toContain("precommit-gates regions are stale");
 	});
 
 	it("passes a commit staging the registry's render", () => {

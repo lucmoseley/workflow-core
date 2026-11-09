@@ -22,14 +22,15 @@ const beginMarker = (region) => `# precommit-gates:${region}:begin`;
 const endMarker = (region) => `# precommit-gates:${region}:end`;
 
 /**
- * The shell word `armed` takes: single-quoted, unless the ERE names the
- * hook's `$JS_TEST_ERE`, which double quotes let the shell expand.
+ * The shell word `armed` takes: the ERE quoted, each `$JS_TEST_ERE` in it
+ * left to the shell as the double-quoted hook variable.
  * @param {string} ere
  */
 const quoteEre = (ere) =>
-	ere.includes("$JS_TEST_ERE")
-		? `"${ere.replace(/\$(?!JS_TEST_ERE)/g, "\\$")}"`
-		: shellQuote(ere);
+	ere
+		.split("$JS_TEST_ERE")
+		.map((piece) => (piece ? shellQuote(piece) : ""))
+		.join('"$JS_TEST_ERE"');
 
 /**
  * @param {PrecommitGate} gate
@@ -77,4 +78,4 @@ function render(hook, registry) {
 	return out;
 }
 
-module.exports = { beginMarker, endMarker, HOOK, render };
+module.exports = { HOOK, render };
