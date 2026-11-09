@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * The boot unit's installer (#3878) against a fake systemctl at WFC_SYSTEMCTL
- * (#3970) and a fake loginctl at WFC_LOGINCTL, its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
+ * (#3970), loginctl at WFC_LOGINCTL and journalctl at WFC_JOURNALCTL (#4594),
+ * its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
  * can believe the loop returns at boot with the unit disabled or linger off,
  * a unit can run the loop without the installer's seat and PATH, can start from
  * a working copy mid-edit, or a failed boot can leave the loop's log silent. And
@@ -13,8 +14,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { journalLine, writeJournalctl } from "./lib/earlyoom-journal-fake";
+import { type LoginctlAnswers, writeLoginctl } from "./lib/loginctl-fake";
 import { runInProcess } from "./lib/run-in-process.js";
-import { shellQuote } from "./lib/sh-quote.js";
 import { writeSystemctl } from "./lib/systemctl-fake";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture.js";
 
@@ -31,15 +33,8 @@ const timerFile = () => path.join(unitDir(), "refill-loop-watch.timer");
 const bootLink = () => at(".claude/.refill-loop-code.current");
 const logFile = () => at(".claude/.refill-loop.log");
 
-function writeFake(name: string, body: string) {
-	fs.writeFileSync(
-		at(`bin/${name}`),
-		`#!/bin/sh\necho ${shellQuote(`${name} `)}"$*" >> ${shellQuote(at("calls"))}\n${body}\n`,
-		{ mode: 0o755 },
-	);
-}
-
 let systemctl: string;
+let loginctl: string;
 
 const writeUnitStates = (boot: string, timer = "enabled") => {
 	systemctl = writeSystemctl(dir, {
@@ -50,18 +45,18 @@ const writeUnitStates = (boot: string, timer = "enabled") => {
 	});
 };
 
-function writeFakes({ enabled = "enabled", linger = "yes" } = {}) {
+function writeFakes({
+	enabled = "enabled",
+	...logind
+}: { enabled?: string } & LoginctlAnswers = {}) {
 	writeUnitStates(enabled);
-	writeFake(
-		"loginctl",
-		`case "$*" in show-user*) echo Linger=${linger};; esac`,
-	);
+	loginctl = writeLoginctl(dir, logind);
 }
 
 const buildInstallEnv = (env: NodeJS.ProcessEnv = {}) => ({
-	PATH: `${at("bin")}:/usr/bin:/bin`,
+	PATH: "/usr/bin:/bin",
 	WFC_SYSTEMCTL: systemctl,
-	WFC_LOGINCTL: at("bin/loginctl"),
+	WFC_LOGINCTL: loginctl,
 	HOME: dir,
 	XDG_CONFIG_HOME: at("config"),
 	SHELL: "/bin/bash",
@@ -87,7 +82,6 @@ function readStopPostCommand(file = unitFile()) {
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "install-refill-boot-"));
-	fs.mkdirSync(at("bin"));
 	fs.mkdirSync(path.join(bootLink(), "scripts"), { recursive: true });
 	fs.writeFileSync(path.join(bootLink(), "scripts/refill-loop.js"), "");
 	writeFakes();
@@ -195,12 +189,15 @@ describe("install-refill-boot-unit", () => {
 
 	const runStopPost = (result: string) => {
 		expect(install().status).toBe(0);
-		writeFake("journalctl", "echo SyntaxError: boom");
+		const journalctl = writeJournalctl(at("journal"), [
+			journalLine(Date.now(), "node[12]", "SyntaxError: boom"),
+		]);
 		fs.mkdirSync(path.dirname(logFile()), { recursive: true });
 		fs.writeFileSync(logFile(), "");
 		const r = spawnSync("/bin/sh", ["-c", readStopPostCommand()], {
 			env: {
-				PATH: `${at("bin")}:/usr/bin:/bin`,
+				PATH: "/usr/bin:/bin",
+				WFC_JOURNALCTL: journalctl,
 				SERVICE_RESULT: result,
 				EXIT_CODE: "exited",
 				EXIT_STATUS: "1",
@@ -222,18 +219,18 @@ describe("install-refill-boot-unit", () => {
 	});
 
 	it("escapes the captured values for systemd and carries a listing wrapper", () => {
-		const Path = `${at("bin")}:/usr/bin:/bin:/mnt/c/Program Files/a%b$c"d`;
+		const Path = `/usr/bin:/bin:/mnt/c/Program Files/a%b$c"d`;
 		expect(
 			install({ PATH: Path, WFC_CLAUDE_BIN: "/home/x/union" }).status,
 		).toBe(0);
 		const unit = fs.readFileSync(unitFile(), "utf8");
 		expect(unit).toContain(
-			`Environment="PATH=${at("bin")}:/usr/bin:/bin:/mnt/c/Program Files/a%%b$$c\\"d"`,
+			'Environment="PATH=/usr/bin:/bin:/mnt/c/Program Files/a%%b$$c\\"d"',
 		);
 		expect(unit).toContain('Environment="WFC_CLAUDE_BIN=/home/x/union"');
 	});
 
-	it.each([
+	it.each<[string, Parameters<typeof writeFakes>[0], string]>([
 		[
 			"the unit reads back disabled",
 			{ enabled: "disabled" },
@@ -248,20 +245,14 @@ describe("install-refill-boot-unit", () => {
 	});
 
 	it("fails naming a systemd call that fails", () => {
-		writeFake(
-			"loginctl",
-			'case "$*" in enable-linger*) echo denied >&2; exit 1;; show-user*) echo Linger=yes;; esac',
-		);
+		writeFakes({ fails: { "enable-linger": { exit: 1, says: "denied" } } });
 		const r = install();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("denied");
 	});
 
 	it("names a read-back that fails", () => {
-		writeFake(
-			"loginctl",
-			'case "$*" in show-user*) echo gone >&2; exit 1;; esac',
-		);
+		writeFakes({ fails: { "show-user": { exit: 1, says: "gone" } } });
 		const r = install();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("gone");

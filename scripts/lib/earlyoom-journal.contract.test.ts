@@ -4,7 +4,8 @@
  * #3105): each case runs against the fake and the machine's own journal and
  * checks shape and verdict, never values. A week of the earlyoom journal is
  * read through lib/earlyoom-kills.js's readIncidents, the kernel log through
- * check-kernel-stall.js, each case checking the text the reader was served.
+ * check-kernel-stall.js, each case checking the text the reader was served,
+ * and its tail in `-o cat` as the boot unit's ExecStopPost= logs it.
  * Loosened, every incident-filer and kernel-stall test stays green on the fake
  * while production reads nothing from what a new earlyoom or journalctl
  * prints.
@@ -19,6 +20,7 @@
  * or IGNORED below for a line the reader has no use for.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -110,6 +112,9 @@ interface Side {
 	kernel: { outcome: string; lines: string[] };
 	/** readBoots' reading of `--list-boots -o json`. */
 	boots: { boots: FakeBoot[]; why: string | null };
+	/** The earlyoom unit's last lines in `-o short-iso`, then in `-o cat`, as
+	 * the boot unit's ExecStopPost= logs them (#4594). */
+	tail: { short: string[]; cat: string[] };
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-contract-"));
@@ -169,6 +174,18 @@ function readKernel(bin: string, name: string): Side["kernel"] {
 	};
 }
 
+function readTail(bin: string): Side["tail"] {
+	const read = (output: string) =>
+		lineList(
+			spawnSync(
+				bin,
+				["-u", "earlyoom", "-n", "5", "--no-pager", "-o", output],
+				{ encoding: "utf8", timeout: 5000 },
+			).stdout ?? "",
+		);
+	return { short: read("short-iso"), cat: read("cat") };
+}
+
 /**
  * One side, its earlyoom journal read through `bin` and its kernel log through
  * `kernelBin`; `why` where readIncidents could not read.
@@ -196,6 +213,7 @@ function readSide(
 			empty: t.last().trim(),
 			kernel: readKernel(kernelBin, name),
 			boots: readBoots(),
+			tail: readTail(bin),
 		},
 	};
 }
@@ -336,6 +354,13 @@ const CASES: Case[] = [
 				expect(b.to).toBeGreaterThanOrEqual(b.from);
 				after = b.to;
 			}
+		},
+	},
+	{
+		name: "-o cat prints each line's message alone, less its stamp, host and ident",
+		check({ tail }: Side) {
+			expect(tail.cat.length).toBeGreaterThan(0);
+			expect(tail.cat).toEqual(tail.short.map((l) => l.replace(KERNEL, "")));
 		},
 	},
 ];
