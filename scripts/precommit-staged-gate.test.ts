@@ -266,6 +266,49 @@ describe("the pre-commit Biome gate", () => {
 		expect(output).toContain("noImportCycles");
 	});
 
+	// A worktree's node_modules links a dependency store outside it, and Biome
+	// ignores a dependency whose real path lies outside its project (#4639).
+	it("reads a third-party import's licence and types through an out-of-tree node_modules (#4639)", () => {
+		const store = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-store-"));
+		temps.push(store);
+		const pkg = path.join(store, "node_modules", "fakepkg");
+		fs.mkdirSync(pkg, { recursive: true });
+		fs.writeFileSync(
+			path.join(pkg, "package.json"),
+			JSON.stringify({
+				name: "fakepkg",
+				version: "1.0.0",
+				license: "GPL-3.0-only",
+				types: "index.d.ts",
+				main: "index.js",
+			}),
+		);
+		fs.writeFileSync(
+			path.join(pkg, "index.d.ts"),
+			"export declare function later(): Promise<number>;\n/** @deprecated */\nexport declare function old(): number;\n",
+		);
+		fs.writeFileSync(path.join(pkg, "index.js"), "");
+		const repo = fixture({
+			"package.json":
+				'{ "name": "r", "dependencies": { "fakepkg": "1.0.0" } }\n',
+			"scripts/use.ts":
+				'import { later, old } from "fakepkg";\n\nexport function run(): number {\n\tlater();\n\treturn old();\n}\n',
+		});
+		fs.symlinkSync(
+			path.join(store, "node_modules"),
+			path.join(repo, "node_modules"),
+		);
+
+		const { code, output } = run(repo, CHECK_STAGED);
+		expect(code).toBe(1);
+		for (const rule of [
+			"noUntrustedLicenses",
+			"noFloatingPromises",
+			"noDeprecatedImports",
+		])
+			expect(output).toContain(rule);
+	});
+
 	it("passes an intent-to-add path, which the commit does not carry", () => {
 		const repo = fixture({});
 		fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });

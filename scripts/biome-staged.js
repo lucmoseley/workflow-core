@@ -15,12 +15,15 @@
  * Biome runs there: whole, as its project rules (noImportCycles,
  * noFloatingPromises) read the files a staged one imports.
  *
- * The tree has no node_modules, so a rule that reads one goes quiet here:
- * noUntrustedLicenses, and noFloatingPromises, noMisusedPromises and
- * noDeprecatedImports on a third-party import. Local types still fire, and
- * `biome ci .` in CI, which installs node_modules, raises the rest. A
- * symlinked node_modules does not restore them: a link whose target lies
- * outside the tree stays silent (#4085). Restoring them is #4639.
+ * The rules that read node_modules — noUntrustedLicenses, and
+ * noFloatingPromises, noMisusedPromises and noDeprecatedImports on a
+ * third-party import — see only a dependency whose real path lies inside
+ * Biome's project (biomejs/biome#12934), so neither the bare tree nor a
+ * symlink into it raises them (#4085). So the caller's node_modules, a
+ * worktree's out-of-tree dependency store included, is bind-mounted onto the
+ * tree's inside a private mount namespace (`unshare -rm`), copying nothing
+ * (#4639). Off Linux, or where the mount fails, those rules go quiet here
+ * and `biome ci .` in CI raises them.
  *
  * Not a check-*.js: Biome's own report is the verdict, any failing exit
  * reading as 1. `biome` is found on PATH, which `npm run` and the hook both
@@ -63,6 +66,49 @@ function readStagedPaths() {
 		.filter(Boolean);
 }
 
+/**
+ * The `unshare` arguments that bind-mount the repo's node_modules onto
+ * `tree`'s and then run the command appended to them, or null where the
+ * repo has no node_modules, the tree carries its own, or the host cannot
+ * mount: off Linux, silently; on Linux, saying so.
+ * @param {string} tree
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string[] | null}
+ */
+function mountNodeModules(tree, env) {
+	if (process.platform !== "linux") return null;
+	const target = path.join(tree, "node_modules");
+	if (fs.existsSync(target)) return null;
+	let source;
+	try {
+		source = fs.realpathSync("node_modules");
+	} catch (e) {
+		if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT") return null;
+		throw e;
+	}
+	fs.mkdirSync(target);
+	const mount = [
+		"-rm",
+		"sh",
+		"-c",
+		'mount --bind "$0" node_modules && exec "$@"',
+		source,
+	];
+	/* A probe whose namespace dies with it: the real run's own mount failing
+	 * would exit as Biome's findings do. */
+	const probe = spawnSync("unshare", [...mount, "true"], {
+		cwd: tree,
+		env,
+		encoding: "utf8",
+	});
+	if (probe.status === 0) return mount;
+	fs.rmdirSync(target);
+	process.stderr.write(
+		`biome-staged: could not mount node_modules into the extracted tree (${(probe.error?.message ?? probe.stderr).trim()}), so noUntrustedLicenses and the type rules on third-party imports are off for this commit\n`,
+	);
+	return null;
+}
+
 /** @returns {number} the exit code */
 function main() {
 	const paths = readStagedPaths();
@@ -94,9 +140,11 @@ function main() {
 				.join(path.delimiter);
 		git(["init", "-q", tree], "making the extracted tree a repo", env);
 
+		const check = ["check", ...process.argv.slice(2), ...present];
+		const mount = mountNodeModules(tree, env);
 		const r = spawnSync(
-			"biome",
-			["check", ...process.argv.slice(2), ...present],
+			mount ? "unshare" : "biome",
+			mount ? [...mount, "biome", ...check] : check,
 			{ cwd: tree, env, stdio: "inherit" },
 		);
 		if (r.error) throw new Error(`biome would not start: ${r.error.message}`);
