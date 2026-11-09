@@ -46,6 +46,7 @@ import {
 	writeHeadlessFake,
 } from "./headless-run-fake";
 import { buildMeminfo } from "./meminfo-fake";
+import { writeNetProbeFake } from "./net-probe-fake";
 import { REAL_PROC } from "./proc-root.js";
 import { probedCheckout } from "./repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./run-in-process.js";
@@ -155,11 +156,7 @@ export function refillSandbox() {
 		/* The swap hold off, so no run reads the machine's own memory (#3093). */
 		fs.writeFileSync(at("meminfo"), MEMINFO_NO_HOLD);
 		/* The network probe's stand-in: up, unless setOffline took it down. */
-		fs.writeFileSync(
-			at("net-probe"),
-			`#!/bin/bash\n[ -e ${shellQuote(at("offline"))} ] && { echo "api.anthropic.com did not resolve: EAI_AGAIN" >&2; exit 1; }\nexit 0\n`,
-			{ mode: 0o755 },
-		);
+		writeNetProbeFake(at("net-probe"), at("offline"));
 		scripts = at("code/scripts");
 		fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
 		for (const f of SANDBOX_FILES)

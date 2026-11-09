@@ -26,6 +26,7 @@ import { freshSandbox, issueClaims, store } from "./lib/arbiter-testkit";
 import { buildJqLines } from "./lib/gh-fake";
 import { buildLinkReadArms, stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION as UNFILLED } from "./lib/issue-gate";
+import { ORIGINS } from "./lib/issue-origin";
 import { MARKERS_REL } from "./lib/marker-root";
 import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
@@ -67,7 +68,12 @@ const LABELS = [
 	"wayfinder:grilling",
 	"wayfinder:research",
 	"urgent",
+	...ORIGINS.map((o: string) => `origin:${o}`),
 ];
+
+/* Every filing's declarations (#4796), added to a call that names none. */
+const DECLARED = ["--origin", "triage", "--no-fault"];
+const DECLARATION_FLAGS = ["--origin", "--no-fault", "--fault-signature"];
 
 const issue = (number: number, labels: string[], over: object = {}) => ({
 	number,
@@ -144,7 +150,14 @@ const run = (
 	{
 		stdin = "Ticket body.\n",
 		sessionId = ME as string | null,
-	}: { stdin?: string; sessionId?: string | null } = {},
+		bare = false,
+		cwd,
+	}: {
+		stdin?: string;
+		sessionId?: string | null;
+		bare?: boolean;
+		cwd?: string;
+	} = {},
 ) => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
@@ -155,7 +168,13 @@ const run = (
 		CLAUDE_CODE_SESSION_ID: sessionId ?? "",
 	};
 	if (sessionId === null) delete env.CLAUDE_CODE_SESSION_ID;
-	return runInProcess(SCRIPT, args, { env, stdin });
+	const declared =
+		bare ||
+		args.includes("--check") ||
+		args.some((a) => DECLARATION_FLAGS.includes(a))
+			? args
+			: [...args, ...DECLARED];
+	return runInProcess(SCRIPT, declared, { env, stdin, cwd });
 };
 
 const filing = (labels: string[], placement = ["--parent", "528"]) => [
@@ -615,7 +634,7 @@ describe("the family label the parent implies", () => {
 		const r = run(filing(["takes:implement"]));
 		expect(r.status).toBe(0);
 		expect(readCreates()[0]).toContain(
-			"--label takes:implement --label kind:ticket",
+			"--label takes:implement --label origin:triage --label kind:ticket",
 		);
 		expect(r.stdout).toContain("kind:ticket added: #528 is a spec");
 	});
@@ -748,10 +767,14 @@ describe("create, then link", () => {
 			at("alt"),
 			`#!/bin/sh\necho "$*" >> ${shellQuote(at("gh-calls"))}\ncase "$*" in "issue create"*) cat >/dev/null; exit 0;; esac\ncat ${shellQuote(at("api"))}/"$(echo "$2" | tr / _)"\n`,
 		);
-		const r = runInProcess(SCRIPT, filing(["takes:implement"]), {
-			env: { ...process.env, ...silent.env },
-			stdin: "Body.\n",
-		});
+		const r = runInProcess(
+			SCRIPT,
+			[...filing(["takes:implement"]), ...DECLARED],
+			{
+				env: { ...process.env, ...silent.env },
+				stdin: "Body.\n",
+			},
+		);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("printed no issue URL");
 		expect(r.stderr).toContain("Search acme/widgets's open issues");
@@ -1286,5 +1309,275 @@ describe("the #500 dataset", () => {
 	it("shows, for every query, exactly what the research's ranking showed", () => {
 		for (const q of queries)
 			expect([q.number, check(q)]).toEqual([q.number, q.shown]);
+	});
+});
+
+describe("the filing declarations (#4796)", () => {
+	const Session = "11111111-2222-3333-4444-555555555555";
+	const Slug = "-home-u-repo";
+	const DenyText =
+		"docs/doc-map.md is held by session 735db33b (pid 1), which is still running.";
+	/* A record the case names: a guard's deny, as a tool_result flagged is_error. */
+	const caseRecord = {
+		type: "user",
+		uuid: "u-case",
+		timestamp: "2026-11-01T10:00:00.000Z",
+		message: {
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "toolu_1",
+					is_error: true,
+					content: DenyText,
+				},
+			],
+		},
+	};
+	/** The session's transcript on the second seat, the case record on line 2. */
+	const seatTranscript = () => {
+		const dir = path.join(path.dirname(sb.home), ".claude2", "projects", Slug);
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, `${Session}.jsonl`),
+			`${JSON.stringify({ type: "user", uuid: "u0", message: { content: "hi" } })}\n${JSON.stringify(caseRecord)}\n`,
+		);
+	};
+	const sigFile = (content: unknown) => {
+		const f = at("sig.json");
+		fs.writeFileSync(f, JSON.stringify(content));
+		return f;
+	};
+	const declaring = (extra: string[]) => [
+		...filing(["takes:implement"]),
+		"--origin",
+		"code-review",
+		...extra,
+	];
+	const log = () =>
+		path.join(sb.repo, "docs", "data", "outcome-signatures.jsonl");
+	const readLog = () =>
+		fs.existsSync(log())
+			? fs
+					.readFileSync(log(), "utf8")
+					.split("\n")
+					.filter(Boolean)
+					.map((l) => JSON.parse(l))
+			: [];
+	const regexSig = (pattern: string, scope = "main") => ({
+		signature: { kind: "regex", pattern, scope },
+		prediction: "the hold denials stop",
+		case: { session: Session, line: 2 },
+	});
+
+	it("refuses a filing with no --origin, naming the list, and creates nothing", () => {
+		setUp();
+		const r = run([...filing(["takes:implement"]), "--no-fault"], {
+			bare: true,
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--origin is required");
+		expect(r.stderr).toContain("lander-script");
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("refuses an --origin off the list", () => {
+		setUp();
+		const r = run(
+			declaring(["--no-fault"]).map((a) => (a === "code-review" ? "vibes" : a)),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--origin 'vibes' is not on the list");
+		expect(readCreates()).toEqual([]);
+	});
+
+	it.each([
+		["neither", []],
+		["both", ["--no-fault", "--fault-signature", "x.json"]],
+	])("refuses %s of --fault-signature and --no-fault", (_, extra) => {
+		setUp();
+		const r = run(declaring(extra));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			"give exactly one of --fault-signature <file> or --no-fault",
+		);
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("stamps origin:<class> on the create and logs nothing for --no-fault", () => {
+		setUp();
+		const r = run(declaring(["--no-fault"]), { cwd: sb.repo });
+		expect(r.status).toBe(0);
+		expect(readCreates()[0]).toContain("--label origin:code-review");
+		expect(readLog()).toEqual([]);
+	});
+
+	it.each([
+		[
+			"an unknown needle key",
+			{ signature: { kind: "needle", key: "no-such-guard.js" } },
+			"is not a guard with needles",
+		],
+		[
+			"a regex with no scope",
+			{ signature: { kind: "regex", pattern: "x" } },
+			'"scope" is one of main, subagent, both',
+		],
+		[
+			"a pattern that does not compile",
+			{ signature: { kind: "regex", pattern: "(", scope: "main" } },
+			"the pattern does not compile",
+		],
+		[
+			"null with no why",
+			{ signature: null },
+			'"signature": null needs a "why"',
+		],
+		[
+			"no prediction",
+			{ signature: { kind: "regex", pattern: "x", scope: "main" } },
+			'has no "prediction"',
+		],
+		[
+			"no case",
+			{
+				signature: { kind: "regex", pattern: "x", scope: "main" },
+				prediction: "fewer",
+			},
+			'has no usable "case"',
+		],
+	])("refuses a signature file with %s", (_, content, said) => {
+		setUp();
+		const r = run(declaring(["--fault-signature", sigFile(content)]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(said);
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("refuses a signature that does not match its case, read off another seat", () => {
+		setUp();
+		seatTranscript();
+		const r = run(
+			declaring(["--fault-signature", sigFile(regexSig("never printed"))]),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("does not match its case");
+		expect(r.stderr).toContain(".claude2");
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("refuses a regex scoped to subagents against a main-session case", () => {
+		setUp();
+		seatTranscript();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile(regexSig("is held by session", "subagent")),
+			]),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("does not match its case");
+	});
+
+	it("refuses a case no seat keeps", () => {
+		setUp();
+		const r = run(
+			declaring(["--fault-signature", sigFile(regexSig("is held by session"))]),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			`no seat keeps a transcript for session ${Session}`,
+		);
+	});
+
+	it("files a matching regex signature and appends its line", () => {
+		setUp();
+		seatTranscript();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile(regexSig("is held by session \\w+")),
+			]),
+			{ cwd: sb.repo },
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("Signature logged");
+		const [line, ...more] = readLog();
+		expect(more).toEqual([]);
+		expect(line).toMatchObject({
+			issue: `acme/widgets#${NEW}`,
+			signature: {
+				kind: "regex",
+				pattern: "is held by session \\w+",
+				scope: "main",
+			},
+			prediction: "the hold denials stop",
+			case: { session: Session, line: 2 },
+		});
+		expect(Number.isNaN(Date.parse(line.filedAt))).toBe(false);
+	});
+
+	it("files a needle signature whose guard fired on the case", () => {
+		setUp();
+		seatTranscript();
+		const needles = JSON.parse(
+			fs.readFileSync(path.join(__dirname, "guard-fire-needles.json"), "utf8"),
+		);
+		const host = path.join(sb.repo, ".claude", "guard-fire-needles.json");
+		fs.writeFileSync(
+			host,
+			JSON.stringify({
+				guards: {
+					"host-hold-guard.js": {
+						needles: [
+							{ id: "held", text: ["is held by session", "still running."] },
+						],
+					},
+				},
+			}),
+		);
+		expect(needles.guards["host-hold-guard.js"]).toBeUndefined();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile({
+					signature: {
+						kind: "needle",
+						key: "host-hold-guard.js",
+						needle: "held",
+					},
+					prediction: "fewer hold denials",
+					case: { session: Session, line: 2 },
+				}),
+			]),
+			{ cwd: sb.repo },
+		);
+		expect(r.status).toBe(0);
+		expect(readLog()[0].signature).toEqual({
+			kind: "needle",
+			key: "host-hold-guard.js",
+			needle: "held",
+		});
+	});
+
+	it("accepts null with a why, logging it with no case", () => {
+		setUp();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile({
+					signature: null,
+					why: "the fault leaves no transcript trace",
+				}),
+			]),
+			{ cwd: sb.repo },
+		);
+		expect(r.status).toBe(0);
+		expect(readLog()).toEqual([
+			expect.objectContaining({
+				issue: `acme/widgets#${NEW}`,
+				signature: null,
+				why: "the fault leaves no transcript trace",
+			}),
+		]);
 	});
 });
