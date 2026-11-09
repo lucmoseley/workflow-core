@@ -40,6 +40,10 @@ function writeLedger(lines: object[]) {
 	);
 }
 
+/** The ledger's one row, parsed. */
+const readLedgerRow = () =>
+	JSON.parse(fs.readFileSync(ledger.ledgerPath(root), "utf8").trim());
+
 /**
  * A stub `claude`, injected at WFC_CLAUDE_BIN, reporting these sessions.
  * Each record carries a `sessionId`: the lib drops one without it (mantahostels#1400).
@@ -751,8 +755,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 			"/implement 341",
 		]);
 		expect(r.status).toBe(0);
-		const written = fs.readFileSync(ledger.ledgerPath(root), "utf8").trim();
-		expect(JSON.parse(written)).toMatchObject({
+		expect(readLedgerRow()).toMatchObject({
 			issues: [341],
 			model: "opus",
 			prompt: "/implement 341",
@@ -771,6 +774,10 @@ describe("the CLI — §N4's outcome alphabet", () => {
 			"opus",
 			"--prompt",
 			prompt,
+			"--job-id",
+			"efbb4e5e",
+			"--seat-reason",
+			"overflow",
 			"--overflow-key",
 			"OVERFLOW_KEY_A",
 			"--allowance-usd",
@@ -780,10 +787,11 @@ describe("the CLI — §N4's outcome alphabet", () => {
 		]);
 		expect(r.status).toBe(0);
 		expect(`${r.stdout}${r.stderr}`).not.toContain("BROKEN");
-		const written = fs.readFileSync(ledger.ledgerPath(root), "utf8").trim();
-		expect(JSON.parse(written)).toMatchObject({
+		expect(readLedgerRow()).toMatchObject({
 			issues: [],
 			prompt,
+			jobId: "efbb4e5e",
+			seatReason: "overflow",
 			kind: "overflow",
 			keyVar: "OVERFLOW_KEY_A",
 			allowanceUsd: 12.5,
@@ -807,8 +815,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 			"--job-id",
 			"efbb4e5e",
 		]);
-		const written = fs.readFileSync(ledger.ledgerPath(root), "utf8").trim();
-		expect(JSON.parse(written)).toMatchObject({ jobId: "efbb4e5e" });
+		expect(readLedgerRow()).toMatchObject({ jobId: "efbb4e5e" });
 	});
 
 	it("--record with no --job-id writes jobId: null, not an absent field", () => {
@@ -822,8 +829,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 			"--prompt",
 			"/implement 341",
 		]);
-		const written = fs.readFileSync(ledger.ledgerPath(root), "utf8").trim();
-		expect(JSON.parse(written).jobId).toBeNull();
+		expect(readLedgerRow().jobId).toBeNull();
 	});
 
 	it("refuses the recorded set on the next run (mantahostels#1337)", () => {

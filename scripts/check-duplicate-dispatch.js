@@ -543,6 +543,8 @@ const USAGE =
 
 function main() {
 	const opts = parseArgs(process.argv.slice(2));
+	/* A numberless prompt still records, as `issues: []`: the row refuses no
+	 * later launch, but it is what ties an overflow run to its key (#4585). */
 	if (opts?.record) recordMain(opts);
 
 	runCheck({
