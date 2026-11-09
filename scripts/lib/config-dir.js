@@ -19,6 +19,7 @@
 
 const os = require("node:os");
 const path = require("node:path");
+const { expandHome } = require("./home-path.js");
 
 /**
  * The config dir a CLAUDE_CONFIG_DIR value names: this process's own, or one
@@ -37,7 +38,7 @@ function configDirFrom(value, home = os.homedir()) {
  * @param {string} p @param {string} home
  */
 function seatDir(p, home) {
-	return path.resolve(p.startsWith("~/") ? path.join(home, p.slice(2)) : p);
+	return path.resolve(expandHome(p, home) ?? p);
 }
 
 function configDir() {
