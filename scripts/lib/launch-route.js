@@ -66,19 +66,24 @@ function fullFlagWord(argv) {
 	return argv.find((w) => w === FULL_FLAG || w.startsWith(FULL_PREFIX)) ?? null;
 }
 
+/* `--no-cache`: run every selected file, whatever the pass store holds
+ * (#4790). */
+const NO_CACHE_FLAG = "--no-cache";
+
 /**
- * The four wrapper flags run-vitest.js consumes, none of which reaches vitest.
+ * The wrapper flags run-vitest.js consumes, none of which reaches vitest.
  * `--full=<cause>` is matched by prefix, the rest by the whole word.
  *
  * THE ONE LIST (#188): the guard-suite-concurrency core's plain-`--full` limb
- * requires `stripWrapperFlags` rather than keeping a copy, so a fifth flag
- * added here reaches it unedited.
+ * requires `stripWrapperFlags` rather than keeping a copy, so a flag added
+ * here reaches it unedited.
  */
 const WRAPPER_FLAGS = new Set([
 	QUEUE_FLAG,
 	ISOLATED_FLAG,
 	SHARED_FLAG,
 	FULL_FLAG,
+	NO_CACHE_FLAG,
 ]);
 
 /**
@@ -133,7 +138,7 @@ function isFullRunArgv(argv) {
 
 /**
  * @typedef {object} LaunchRoute
- * @property {string[]} rest argv stripped of the four wrapper flags
+ * @property {string[]} rest argv stripped of the wrapper flags
  * @property {"full"|"bare"|"touched"|"changed"|"named"} kind the launch's
  *   shape, which the run and the probe dispatch on and the queue-exit log
  *   names: `touched` is bare argv under the `landing` module (#2930)
@@ -300,7 +305,20 @@ function npmSwallowedRefusal(argv, env) {
 	);
 }
 
+/**
+ * Whether a launch looks its files up in the pass store (#4790): never where
+ * it asks every file to run — a typed full run, a retest, `--no-cache`.
+ * @param {Pick<LaunchRoute, "kind"|"source">} route
+ * @param {string[]} argv the launch's own words, wrapper flags included
+ */
+const looksUpPassStore = (route, argv) =>
+	route.kind !== "full" &&
+	route.source !== "retest" &&
+	!argv.includes(NO_CACHE_FLAG);
+
 module.exports = {
+	looksUpPassStore,
+	NO_CACHE_FLAG,
 	QUEUE_FLAG,
 	FULL_FLAG,
 	FULL_PREFIX,

@@ -19,6 +19,9 @@
  * `resolvedFiles` and `wholeSlot` are the admission weight the run carried
  * (#2931): null and false on a marker that carries none.
  *
+ * `cachedFiles` and `ranFiles` are the pass store's hits and misses (#4790):
+ * cachedFiles null on a run that looked nothing up.
+ *
  * `kind` and `fullCause` are #2812's rules; `runs.py` reads them, with
  * `verdict`, from here. `kind` is `lander` where the marker carries the
  * lander's mark and its argv a `--full` flag (#4757). `lander` is that mark on
@@ -116,6 +119,9 @@ function buildLedgerLine(m, { green, root }) {
 		argv: m.argv ?? null,
 		resolvedFiles: m.scope?.resolvedFiles ?? null,
 		wholeSlot: m.scope?.wholeSlot === true,
+		/* Null where the run looked nothing up in the pass store (#4790). */
+		cachedFiles: Array.isArray(m.cached) ? m.cached.length : null,
+		ranFiles: m.scope?.modulesRun ?? null,
 		repo: path.basename(root),
 	};
 }
@@ -175,4 +181,4 @@ function appendEmptyTouchedLine(root, tree, { suite, sessionId, argv }) {
 	);
 }
 
-module.exports = { appendEmptyTouchedLine, appendLedgerLine };
+module.exports = { RUN_LEDGER, appendEmptyTouchedLine, appendLedgerLine };

@@ -38,7 +38,6 @@
  */
 
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { markersDir } = require("./marker-root.js");
@@ -46,7 +45,11 @@ const { appendRetained } = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
 const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { readWorkingIds, sameContent } = require("./content-ids.js");
+const {
+	readTreeIds,
+	readWorkingIds,
+	sameContent,
+} = require("./content-ids.js");
 const { caught } = require("./caught.js");
 const { edgesOf } = require("./code-edges.js");
 const {
@@ -522,19 +525,17 @@ const buildPragmaRefusal = (files) =>
 	`\nUNCACHED PRAGMA WITH NO REASON — ${files.join(", ")}: \`uncached:\` keeps a file from ever being cached, and must say why, as \`uncached: <reason>\` (#4790). Nothing ran.\n\n`;
 
 /**
- * Write the cached files a run carries for its vitest child, and the
- * environment entry naming them. Null where none are cached or the file
- * cannot be written, which leaves the cached files out of the certificate:
- * the unattested direction.
- * @param {Cached[]} cached
- * @param {string} [file]
+ * Write the cached files a run that looked the store up carries for its
+ * vitest child — none cached included, which the run's records count — and
+ * the environment entry naming them. Null where the file cannot be written,
+ * which leaves the cached files out of the certificate: the unattested
+ * direction.
+ * @param {Cached[]|null} cached null where the run looked nothing up
+ * @param {string} file
  * @returns {Record<string, string>|null}
  */
-function writeCachedHandoff(
-	cached,
-	file = path.join(os.tmpdir(), `wfc-cached-${process.pid}.json`),
-) {
-	if (cached.length === 0) return null;
+function writeCachedHandoff(cached, file) {
+	if (cached === null) return null;
 	try {
 		fs.writeFileSync(file, JSON.stringify(cached));
 		return { [CACHED_ENV]: file };
@@ -544,33 +545,139 @@ function writeCachedHandoff(
 }
 
 /**
- * The cached files the launcher handed this vitest child; none where it
- * handed none or the hand-off will not read.
+ * The cached files the launcher handed this vitest child, or null where it
+ * looked nothing up or the hand-off will not read.
  * @param {Record<string, string|undefined>} [env]
- * @returns {Cached[]}
+ * @returns {Cached[]|null}
  */
 function readCachedHandoff(env = process.env) {
 	const file = env[CACHED_ENV];
-	if (!file) return [];
+	if (!file) return null;
 	try {
 		const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-		return Array.isArray(parsed)
-			? parsed.filter(
-					(c) =>
-						c &&
-						typeof c.file === "string" &&
-						Array.isArray(c.reads) &&
-						c.source &&
-						typeof c.source.sha === "string",
-				)
-			: [];
+		return Array.isArray(parsed) ? parsed.filter(isCached) : null;
 	} catch {
-		return [];
+		return null;
 	}
 }
 
+/**
+ * @param {unknown} c
+ * @returns {c is Cached}
+ */
+const isCached = (c) => {
+	const v = /** @type {Partial<Cached>|null} */ (c);
+	return (
+		typeof v?.file === "string" &&
+		Array.isArray(v.reads) &&
+		typeof v.source?.sha === "string" &&
+		typeof v.source?.at === "string"
+	);
+};
+
+/**
+ * A narrowed run's attestation with its cached files folded in, each as a
+ * selected test whose imports are the reads its source row held (#4790).
+ * The certificate readers then judge a cached file by content against this
+ * run's tree, as they judge one it ran: lookup found every one of those
+ * reads unchanged in the tree this run read. `cached` names each file's
+ * source. A full run's, or one that looked nothing up, is returned as is.
+ * @template {import("./test-pass-marker.js").Attestation} A
+ * @param {A} attestation
+ * @param {Cached[]|null} cached
+ * @returns {A}
+ */
+function foldCached(attestation, cached) {
+	if (cached === null || attestation.closure === "*") return attestation;
+	const closure = new Set(attestation.closure);
+	const selected = new Set(attestation.selected ?? []);
+	const imports = { ...(attestation.imports ?? {}) };
+	for (const { file, reads } of cached) {
+		selected.add(file);
+		imports[file] = reads.filter((p) => p !== file).sort();
+		for (const p of [file, ...reads]) closure.add(p);
+	}
+	return {
+		...attestation,
+		closure: [...closure].sort(),
+		selected: [...selected].sort(),
+		imports: Object.fromEntries(
+			Object.entries(imports).sort(([a], [b]) => a.localeCompare(b)),
+		),
+		cached: cached.map(({ file, source }) => ({
+			file,
+			sha: source.sha,
+			at: source.at,
+		})),
+	};
+}
+
+/**
+ * Each of `files`' newest row, recorded before `before`, whose verdict holds
+ * at `sha`'s tree by content under this machine's values: the per-file
+ * evidence the already-red classifier reads beside the marker stores
+ * (#4790). The manifest's reads at `sha` go unasked, the row's own inputs
+ * standing for them. Empty on any fault: the store is evidence, never a
+ * licence, and its loss costs only what it would have shown.
+ * @param {string[]} files
+ * @param {{ storeRoot: string|null, sha: string, before: string,
+ *   git: (args: string[]) => string, values?: Record<string, string> }} at
+ * @returns {Map<string, {sha: string, at: string, red: boolean}>}
+ */
+function heldAtSha(files, { storeRoot, sha, before, git, values }) {
+	/** @type {Map<string, {sha: string, at: string, red: boolean}>} */
+	const held = new Map();
+	if (!storeRoot || files.length === 0) return held;
+	try {
+		const byFile = readEntries(storeRoot, files);
+		for (const file of files) {
+			const hit = heldRow(file, byFile.get(file) ?? [], {
+				sha,
+				before,
+				git,
+				values: values ?? currentValues(),
+			});
+			if (hit)
+				held.set(file, {
+					sha: String(hit.run.sha),
+					at: String(hit.run.at),
+					red: hit.row.outcome === "fail",
+				});
+		}
+	} catch {
+		return new Map();
+	}
+	return held;
+}
+
+/**
+ * The newest of `entries` before `before` that holds at `sha`'s tree.
+ * @param {string} file
+ * @param {Entry[]} entries newest first
+ * @param {{ sha: string, before: string, git: (args: string[]) => string,
+ *   values: Record<string, string> }} at
+ */
+function heldRow(file, entries, { sha, before, git, values }) {
+	const earlier = entries.filter(({ run }) => String(run.at) < before);
+	const paths = [
+		...new Set(
+			earlier.flatMap(({ row, run }) => [
+				...inputPaths(row.inputs),
+				...inputPaths(run.shared),
+			]),
+		),
+	];
+	if (paths.length === 0) return;
+	const now = readTreeIds(git, `${sha}^{tree}`, paths);
+	return earlier.find(({ row, run }) =>
+		holds(row, run, { file, now, values, reads: [] }),
+	);
+}
+
 module.exports = {
+	heldAtSha,
 	CACHED_ENV,
+	foldCached,
 	STORE,
 	buildCachedBanner,
 	buildPragmaRefusal,

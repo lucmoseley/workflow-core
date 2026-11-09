@@ -19,7 +19,7 @@
  * records no scope, which reads as unknown at the push (mantahostels#1230), and says so on
  * stdout so the unknown met hours later is traceable to this run.
  *
- * IMPLICIT:  records every suite run's verdict, scope and closure for the globalSetup teardown to stamp into the pre-push marker, and each file's own verdict and imports for the pass store (#4790), writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.
+ * IMPLICIT:  records every suite run's verdict, scope and closure, the files the launcher's pass store cached folded in, for the globalSetup teardown to stamp into the pre-push marker, and each file's own verdict and imports for the pass store (#4790), writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.
  * JUSTIFIED: fail-safe — that marker is the only thing keyed to a sha (mantahostels#910), and any doubt leaves no certificate.
  * DEFEAT:    none — naming any reporter replaces the default set, so dropping it means editing vitest.config.ts.
  */
@@ -47,6 +47,7 @@ const {
 const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
 const { relativeUnder } = require("./lib/is-under.js");
+const { foldCached, readCachedHandoff } = require("./lib/pass-store.js");
 
 /*
  * The dependency-graph roots every narrowed closure carries (#189): what the
@@ -356,6 +357,9 @@ export default class TestPassReporter {
 	 * only against the fake graph the tests drive: a narrowed `npm run test` on
 	 * this checkout stamped a 161-path closure through this walk (#189).
 	 *
+	 * The files the launcher's pass store cached fold in as selected tests
+	 * whose imports are their source rows' reads (#4790).
+	 *
 	 * Throws where the manifest cannot be read or is malformed: a closure missing its
 	 * manifest half would attest a sha it never read.
 	 */
@@ -399,18 +403,21 @@ export default class TestPassReporter {
 		if (configFile && inside(configFile)) roots.add(rel(configFile));
 		for (const r of roots) closure.add(r);
 		const launch = readLaunch();
-		return {
-			closure: [...closure].sort(),
-			selected: [...selected].sort(),
-			changedPaths: launch.changedPaths,
-			base: launch.base,
-			imports: Object.fromEntries(
-				[...imports]
-					.sort(([a], [b]) => a.localeCompare(b))
-					.map(([test, reached]) => [test, [...reached].sort()]),
-			),
-			roots: [...roots].sort(),
-		};
+		return foldCached(
+			{
+				closure: [...closure].sort(),
+				selected: [...selected].sort(),
+				changedPaths: launch.changedPaths,
+				base: launch.base,
+				imports: Object.fromEntries(
+					[...imports]
+						.sort(([a], [b]) => a.localeCompare(b))
+						.map(([test, reached]) => [test, [...reached].sort()]),
+				),
+				roots: [...roots].sort(),
+			},
+			readCachedHandoff(),
+		);
 	}
 
 	/* Each file's own verdict and imports, for the pass store (#4790). */

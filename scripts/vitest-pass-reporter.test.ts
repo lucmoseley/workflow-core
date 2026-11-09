@@ -25,6 +25,9 @@ import TestPassReporter from "./vitest-pass-reporter.js";
 const { readMarkers, readFailures } = createRequire(import.meta.url)(
 	"./lib/test-pass-marker.js",
 );
+const { CACHED_ENV, writeCachedHandoff } = createRequire(import.meta.url)(
+	"./lib/pass-store.js",
+);
 const { takeRunReport, fillRunReport } = createRequire(import.meta.url)(
 	"./lib/suite-handoff.js",
 );
@@ -749,6 +752,34 @@ describe("the closure the reporter records (#189)", () => {
 			/* The same closure split by test, so a diff voids only its readers (#1860). */
 			imports: { "a.test.ts": ["lib/helper.ts"] },
 			roots: ["package.json", "vitest.config.ts"],
+		});
+	});
+
+	it("folds the files the launcher cached in as selected tests reading their source rows' inputs (#4790)", async () => {
+		const graph: Record<string, Node> = {};
+		const { withProject } = scratch({}, graph);
+		const id = path.join(root, "a.test.ts");
+		graph[id] = node(id);
+		const handoff = path.join(root, "cached.json");
+		const source = {
+			sha: "c".repeat(40),
+			at: "2026-11-09T10:00:00.000Z",
+			tree: null,
+		};
+		const env = writeCachedHandoff(
+			[{ file: "b.test.ts", reads: ["b.test.ts", "lib/b.js"], source }],
+			handoff,
+		);
+		vi.stubEnv(CACHED_ENV, env[CACHED_ENV]);
+		const r = new TestPassReporter();
+		r.onInit(vitest());
+		stubLaunch({ changedPaths: [], base: null });
+		await captured(() => run(r, [withProject(id, ["passed"])]));
+		expect(takeRunReport().attestation).toMatchObject({
+			closure: expect.arrayContaining(["a.test.ts", "b.test.ts", "lib/b.js"]),
+			selected: ["a.test.ts", "b.test.ts"],
+			imports: { "a.test.ts": [], "b.test.ts": ["lib/b.js"] },
+			cached: [{ file: "b.test.ts", sha: source.sha, at: source.at }],
 		});
 	});
 

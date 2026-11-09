@@ -93,6 +93,7 @@ const { readTreeIds, sameContent } = require("./content-ids.js");
  *   treeAtEnd?: string, sessionId?: string|null, lander?: boolean, argv?: string[],
  *   closure?: "*"|string[], selected?: string[], changedPaths?: string[],
  *   imports?: Record<string, string[]>, roots?: string[],
+ *   cached?: CachedSource[],
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
@@ -101,7 +102,9 @@ const { readTreeIds, sameContent } = require("./content-ids.js");
  *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
- *   imports?: Record<string, string[]>, roots?: string[]}} Attestation
+ *   imports?: Record<string, string[]>, roots?: string[],
+ *   cached?: CachedSource[]}} Attestation
+ * @typedef {{file: string, sha: string, at: string}} CachedSource
  * @typedef {{root?: string|null, execFn?: typeof execProgram,
  *   cache?: Map<string, string>}} GitOptions
  * @typedef {GitOptions & {countedPaths?: Set<string>|null}} JudgeOptions
@@ -649,11 +652,12 @@ function fullAttestationOf({ base }) {
  * beside any closure, so a full red can be classed against it (#3646), and
  * beside a narrowed one the well-formed fields saying what narrowed it.
  * @param {Attestation|null} attestation
- * @returns {Pick<Marker, "closure"|"selected"|"changedPaths"|"base"|"imports"|"roots">}
+ * @returns {Pick<Marker, "closure"|"selected"|"changedPaths"|"base"|"imports"|"roots"|"cached">}
  */
 function attestedFields(attestation) {
 	if (!attestation || !isClosure(attestation.closure)) return {};
-	const { closure, selected, changedPaths, base, imports, roots } = attestation;
+	const { closure, selected, changedPaths, base, imports, roots, cached } =
+		attestation;
 	const based = typeof base === "string" && base ? { base } : {};
 	if (closure === "*") return { closure, ...based };
 	return {
@@ -662,6 +666,7 @@ function attestedFields(attestation) {
 		...(Array.isArray(changedPaths) ? { changedPaths } : {}),
 		...based,
 		...(isImportMap(imports) && isStringList(roots) ? { imports, roots } : {}),
+		...(Array.isArray(cached) ? { cached } : {}),
 	};
 }
 
@@ -2159,6 +2164,7 @@ module.exports = {
 	fullAttestationOf,
 	isUnnarrowedScope,
 	holdsAt,
+	gitReader,
 	holdsTestByTree,
 	docsReadBy,
 	attestationOf,
