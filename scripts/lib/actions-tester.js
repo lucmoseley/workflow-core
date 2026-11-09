@@ -14,10 +14,12 @@
  * A failed run where a job failed at a step that only readies the runner
  * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
  * jobs are rerun, up to `RUNNER_RERUNS` times, and the last attempt still
- * failing so is no verdict, never a red to isolate. A failed run listing no
- * failed job, as when GitHub never created some of its jobs, judges no code
- * either: its ref is pushed again once and only a newer run judged, a second
- * such run no verdict (#4827).
+ * failing so is no verdict, never a red to isolate. A failed run whose
+ * listed jobs all passed but `Suite passed`, as when GitHub never created
+ * some of them, judges no code either: its ref is pushed again once and
+ * only a newer run judged, a second such run, or none, no verdict (#4827).
+ * Residual: where GitHub keeps failing to create jobs, the lander exits on
+ * that no verdict, never dropping a member.
  *
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
@@ -219,13 +221,23 @@ function runVerdict(sha, reads, after) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const failed = jobs.filter((j) => j.conclusion === "failure");
-	if (failed.length === 0)
+	/* `Suite passed` fails beside any job not passing, a never-created one
+	 * included. A cancelled or timed-out job is a red, a hang being the
+	 * code's. */
+	if (
+		jobs.every(
+			(j) =>
+				j.name === SUITE_PASSED_JOB ||
+				j.conclusion === "success" ||
+				j.conclusion === "skipped",
+		)
+	)
 		return {
 			kind: "jobless",
 			run: id,
 			reason: `run ${id} failed listing no failed job, which judges no code`,
 		};
+	const failed = jobs.filter((j) => j.conclusion === "failure");
 	const fault = runnerFault(failed);
 	if (fault !== null)
 		return {
@@ -522,13 +534,22 @@ async function suiteVerdict(
 		unreadable,
 		suite,
 	);
-	if (v.kind === "jobless")
-		return repushed
+	if (v.kind === "jobless") {
+		if (repushed)
+			return {
+				kind: "unknown",
+				reason: `${v.reason}, after ${suite.branch} was pushed again`,
+			};
+		/* A run at the sha was listed, so none after the push is GitHub's
+		 * fault, never the tree firing none (#4571). */
+		const next = await repushedVerdict(sha, suite, v.run);
+		return next.kind === "red" && next.noRun
 			? {
 					kind: "unknown",
-					reason: `${v.reason}, after ${suite.branch} was pushed again`,
+					reason: `${v.reason}, and no run followed ${suite.branch} pushed again`,
 				}
-			: (repushFailure(suite, sha) ?? newerVerdict(sha, suite, v.run, true));
+			: next;
+	}
 	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
 		return {
@@ -857,9 +878,7 @@ async function rerunVerdict(sha, files, on, named) {
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
 	if (run !== undefined) {
-		return (
-			repushFailure(on, sha) ?? newerVerdict(sha, on, newestId(listed), true)
-		);
+		return repushedVerdict(sha, on, newestId(listed));
 	}
 	const v = await newerVerdict(sha, on, newestId(listed), false);
 	if (v.kind !== "red" || !v.noRun) return v;
@@ -870,7 +889,19 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return repushFailure(on, sha) ?? newerVerdict(sha, on, newestId(again), true);
+	return repushedVerdict(sha, on, newestId(again));
+}
+
+/**
+ * The whole suite at `sha` read off a run newer than run `bound`, once
+ * `on`'s branch is pushed again.
+ * @param {string} sha
+ * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {number} bound
+ * @returns {Promise<Verdict>}
+ */
+async function repushedVerdict(sha, on, bound) {
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, bound, true);
 }
 
 /** @param {readonly Run[]} listed */
