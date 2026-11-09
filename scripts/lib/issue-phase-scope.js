@@ -116,7 +116,7 @@ const CARD_ID = /^[a-z0-9][a-z0-9-]*$/;
  * @typedef {object} Run one call's judging
  * @property {Parsed} parsed
  * @property {PhaseContext} ctx
- * @property {string | null} [roadmap] the roadmap's text, read once a call
+ * @property {string} [roadmap] the roadmap's text, read once a call
  */
 
 /**
@@ -159,7 +159,7 @@ function judge(run, cmd) {
 	if (head === undefined || !isGhCommand(head)) return;
 	if (sub === "issue") {
 		if (verb !== "create") return;
-		openIfRoadmapUnreadable(run);
+		readRoadmapOrOpen(run);
 		judgeCreate(run, cmd, words.slice(3));
 	} else if (sub === "api") judgeApi(run, cmd, words.slice(2));
 }
@@ -169,17 +169,20 @@ function judge(run, cmd) {
  * own authority allows the work. Asked only once the command is known to be a
  * creation, or one that may be: asked of every `gh` call, a port fault would
  * refuse plain reads and a missing roadmap would log creations that never were
- * (#3426).
+ * (#3426). Read once per run; an unreadable one ends the run open.
  * @param {Run} run
+ * @returns {string}
  */
-function openIfRoadmapUnreadable(run) {
-	if (run.roadmap === undefined)
-		run.roadmap = readOrNull(run.ctx.tree(), ROADMAP);
-	if (run.roadmap === null)
+function readRoadmapOrOpen(run) {
+	if (typeof run.roadmap === "string") return run.roadmap;
+	const text = readOrNull(run.ctx.tree(), ROADMAP);
+	if (text === null)
 		open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
 		);
+	run.roadmap = text;
+	return text;
 }
 
 /**
@@ -251,7 +254,7 @@ function judgeApi(run, cmd, args) {
 	if (method.known && !isPost(method.text, call)) return;
 	/* GraphQL is no issue collection, so it leaves here (LIMITS). */
 	if (endpoint.known && !isIssueCollection(endpoint.text)) return;
-	openIfRoadmapUnreadable(run);
+	readRoadmapOrOpen(run);
 	if (!method.known || !endpoint.known || call.input)
 		open(
 			run.ctx,
@@ -325,9 +328,9 @@ function cardOf(title) {
  * @param {string} card
  */
 function phaseOf(run, card) {
-	openIfRoadmapUnreadable(run);
+	const roadmap = readRoadmapOrOpen(run);
 	const re = new RegExp(`id:"${card}",p:([0-9])`);
-	const hit = re.exec(run.roadmap ?? "");
+	const hit = re.exec(roadmap);
 	return hit ? requiredGroup(hit, 1, re) : null;
 }
 

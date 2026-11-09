@@ -12,9 +12,6 @@
  * not move `main`. A session the current canary already refuses gets no
  * marker: one would vouch for a session whose self-plugin never loaded.
  *
- * The markers are written before the fast-forward, so the new canary never
- * meets a session without one. The old ones stay for pruneMarkers's age sweep.
- *
  * A SESSION THAT STARTS, or clears to a new id, after that listing is marked
  * by the old writer, since the main checkout is still at `from` (#4734). So
  * after the fast-forward the sessions are listed again, and each one the first
@@ -29,9 +26,9 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { listedAgents } = require("./agent-liveness.js");
+const { readAgentsForLevelling } = require("./agent-liveness.js");
 const { caught } = require("./caught.js");
-const { SELF_PLUGIN_DIR } = require("./core-hooks.js");
+const { selfPluginRoot } = require("./hook-env.js");
 const { deref } = require("./deref.js");
 const { gitRead } = require("./dirty-tree.js");
 const { isUnder } = require("./is-under.js");
@@ -66,7 +63,7 @@ const HOOK_TIMEOUT_MS = 10_000;
  * @param {string} text
  * @returns {{ sourced: string[] } | { why: string }}
  */
-function readSourced(file, text) {
+function parseSourced(file, text) {
 	/** @type {string[]} */
 	const sourced = [];
 	for (const line of text.split("\n")) {
@@ -94,8 +91,7 @@ function readClosure(root, rev) {
 	/** @type {Map<string, string>} */
 	const files = new Map();
 	const queue = [CANARY, WRITER];
-	while (queue.length > 0) {
-		const file = /** @type {string} */ (queue.pop());
+	for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
 		if (files.has(file)) continue;
 		const text = gitRead(["show", `${rev}:${file}`], root);
 		if (text === null) {
@@ -105,7 +101,7 @@ function readClosure(root, rev) {
 			return { why: `git could not read ${file} at ${rev}` };
 		}
 		files.set(file, text);
-		const read = readSourced(file, text);
+		const read = parseSourced(file, text);
 		if ("why" in read) return read;
 		queue.push(...read.sourced);
 	}
@@ -119,7 +115,7 @@ function readClosure(root, rev) {
  * @type {ListSessions}
  */
 function listLiveSessions() {
-	const listed = listedAgents({ requireSelf: false });
+	const listed = readAgentsForLevelling();
 	if (listed.why !== undefined) return { why: listed.why };
 	const blind = listed.agents.find((a) => !a.cwd);
 	if (blind)
@@ -169,13 +165,13 @@ function writeTree(files, dir) {
 
 /**
  * The sessions `listSessions` lists working in one of `root`'s worktrees, each
- * once and none in `skip`, that `root`'s canary passes or, where `refused`,
- * refuses — or a `why`.
+ * once and none in `skip`, whose verdict from `root`'s canary `keep` takes —
+ * or a `why`.
  * @param {string} root
- * @param {{ listSessions: ListSessions, skip: Set<string>, refused: boolean }} pick
+ * @param {{ listSessions: ListSessions, skip: Set<string>, keep: (passed: boolean) => boolean }} pick
  * @returns {{ sessions: LiveSession[] } | { why: string }}
  */
-function readRepoSessions(root, { listSessions, skip, refused }) {
+function readRepoSessions(root, { listSessions, skip, keep }) {
 	const listed = listSessions();
 	if ("why" in listed) return listed;
 	const out = gitRead(["worktree", "list", "--porcelain", "-z"], root);
@@ -189,7 +185,7 @@ function readRepoSessions(root, { listSessions, skip, refused }) {
 	for (const s of listed.sessions) {
 		if (ids.has(s.sessionId) || !isUnder(deref(s.cwd), trees)) continue;
 		ids.add(s.sessionId);
-		if (isPassedBy(canary, s) !== refused) sessions.push(s);
+		if (keep(isPassedBy(canary, s))) sessions.push(s);
 	}
 	return { sessions };
 }
@@ -219,7 +215,7 @@ function remarkEach(root, dir, sessions) {
 	const stranded = [];
 	for (const s of sessions) {
 		runHook(path.join(dir, WRITER), s, {
-			CLAUDE_PLUGIN_ROOT: path.join(root, SELF_PLUGIN_DIR),
+			CLAUDE_PLUGIN_ROOT: selfPluginRoot(root),
 		});
 		const check = runHook(path.join(dir, CANARY), s);
 		if (!check.ok)
@@ -278,7 +274,7 @@ function remarkAroundMove(
 	const vouched = readRepoSessions(root, {
 		listSessions,
 		skip: new Set(),
-		refused: false,
+		keep: (passed) => passed,
 	});
 	if ("why" in vouched) return { status: "stranding", stranding: vouched };
 	const stranded = inScratch(after.files, scratch, () =>
@@ -298,7 +294,7 @@ function remarkAroundMove(
 			}),
 		};
 	} catch (err) {
-		/* `main` has moved: the pass's install and report still owe it. */
+		/* `main` has moved: the pass's install and report still owe it (#4734). */
 		return { status: "moved", late: { why: caught(err).message } };
 	}
 }
@@ -317,7 +313,7 @@ function remarkLatecomers(root, before, remarked, { scratch, listSessions }) {
 	const refused = readRepoSessions(root, {
 		listSessions,
 		skip: remarked,
-		refused: true,
+		keep: (passed) => !passed,
 	});
 	if ("why" in refused) return refused;
 	if (refused.sessions.length === 0) return null;
