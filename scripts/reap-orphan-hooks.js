@@ -182,7 +182,7 @@ function unseenSessionKills(canonical, log) {
 	try {
 		read = readJsonl(log);
 	} catch (err) {
-		/* Said, not stamped, so the next start reads it again (#4706). */
+		/* Warned, not stamped, so the next start reads it again (#4706). */
 		return { rows: [], stamp, unreadable: `${log}: ${parseErrorText(err)}` };
 	}
 	const rows = (read?.rows ?? []).filter(
@@ -198,10 +198,11 @@ function unseenSessionKills(canonical, log) {
  * @param {{ rows: Record<string, unknown>[], stamp: string, unreadable: string|null }} unseen
  */
 function reportUnseen(ctx, { rows, stamp, unreadable }) {
-	if (unreadable !== null)
-		ctx.say(
-			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${unreadable}`,
-		);
+	if (unreadable !== null) {
+		const line = `will not read the timer's kill log, so its kills go unnamed — ${unreadable}. Repair the file or move it aside; the next session start reads it again.`;
+		ctx.warn("ORPHAN-SESSION", line);
+		ctx.say(`ORPHAN-SESSION: ${line}`);
+	}
 	if (rows.length === 0) return;
 	ctx.say(
 		`ORPHAN-SESSION, since this checkout's last session start (${rows.length}) — killed with no session open:`,
@@ -343,7 +344,7 @@ runCheck({
 
 		return {
 			okLine: `no orphaned hook run past ${ceilingS}s, and no process of an ended session, in ${read.procs.size} process(es).`,
-			noun: "orphaned hook run(s), suite run(s) or session process(es)",
+			noun: "orphaned hook run(s), suite run(s), session process(es) or unread kill log(s)",
 			data: {
 				reaps: done.map((r) => ({
 					...r,

@@ -1061,6 +1061,105 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 	});
 });
 
+describe("the queues ordered against each other where the climb decides (#4760)", () => {
+	/** Both queues as siblings under one root, as under the temp root. */
+	const both = () => {
+		const root = qdir();
+		return {
+			suiteDir: path.join(root, "wfc-suite-queue"),
+			tscDir: path.join(root, "wfc-tsc-queue"),
+		};
+	};
+
+	it("closes every class of turn on a peer the climb holds, and none without", () => {
+		for (const waiter of ["whole", "part", "tsc"] as const) {
+			const snapshot = {
+				waiter,
+				ahead: [],
+				admissionOpen: false,
+				slots: WHOLE_SUITE_MAX,
+				now: 0,
+			};
+			expect(turnOf({ ...snapshot, peerClimbHeld: true }).reasons).toEqual([
+				"peer-climb",
+			]);
+			expect(turnOf(snapshot).reasons).toEqual([]);
+		}
+	});
+
+	it("holds a younger suite behind an older `tsc` the climb holds, until it spawns", async () => {
+		const { suiteDir, tscDir } = both();
+		const tsc = joined(tscDir, 22, 5);
+		joined(suiteDir, 11, 10);
+		const suiteTurn = () => turnOpen({ queueDir: suiteDir, pid: 11 });
+		expect(await suiteTurn()).toBe(true);
+		tsc.stamps.onClimbHolds(true);
+		expect(await suiteTurn()).toBe(false);
+		tsc.spawned();
+		expect(await suiteTurn()).toBe(true);
+	});
+
+	it("releases the suite once the climb no longer holds the `tsc`", async () => {
+		const { suiteDir, tscDir } = both();
+		const tsc = joined(tscDir, 22, 5);
+		joined(suiteDir, 11, 10);
+		tsc.stamps.onClimbHolds(true);
+		tsc.stamps.onClimbHolds(false);
+		expect(JSON.parse(fs.readFileSync(tsc.ticket, "utf8")).climbHeld).toBe(
+			undefined,
+		);
+		expect(await turnOpen({ queueDir: suiteDir, pid: 11 })).toBe(true);
+	});
+
+	it("never holds a waiter behind a younger peer, so the oldest never yields", async () => {
+		const { suiteDir, tscDir } = both();
+		joined(tscDir, 22, 20).stamps.onClimbHolds(true);
+		joined(suiteDir, 11, 10).stamps.onClimbHolds(true);
+		expect(await turnOpen({ queueDir: suiteDir, pid: 11 })).toBe(true);
+		expect(await turnOpen({ queueDir: tscDir, pid: 22 })).toBe(false);
+	});
+
+	it("names the peer that holds a traced wait", async () => {
+		const { suiteDir, tscDir } = both();
+		const tsc = joined(tscDir, 22, 5);
+		tsc.stamps.onClimbHolds(true);
+		const suite = joined(suiteDir, 11, 10);
+		const lines: string[] = [];
+		const outcome = await suite.wait({
+			gate: () => null,
+			traceLimbs: true,
+			label: "q",
+			waiting: "waiting",
+			sleepFn: () => {
+				tsc.spawned();
+				return Promise.resolve();
+			},
+			out: { write: (line: string) => lines.push(line) },
+		});
+		expect(outcome).toBe("run");
+		expect(lines[1]).toBe(
+			"q: after 0s, held on an older waiter in the other queue the climb charge holds, PID 22 in wfc-tsc-queue\n",
+		);
+	});
+
+	it("stamps a wait the climb alone holds, never one MemAvailable itself fails", async () => {
+		const heard: boolean[] = [];
+		const polls = [
+			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
+			{ limb: "memory", mb: 2000, rungMb: 2750, climbMb: 500 },
+			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
+		];
+		await waitForGate({
+			gate: () => polls.shift() ?? null,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+			onClimbHolds: (held: boolean) => heard.push(held),
+		});
+		expect(heard).toEqual([true, false, true, false]);
+	});
+});
+
 describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	const alive = () => true;
 	/** A process table holding no runner: the machine's own are no fixture's. */

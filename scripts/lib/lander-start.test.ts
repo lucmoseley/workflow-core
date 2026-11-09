@@ -94,6 +94,14 @@ describe("launcherName (#2478)", () => {
 		);
 	});
 
+	it("names the session start that launched it as an outliving job, which carries no session id (#4706)", () => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
+		vi.stubEnv("WFC_REPORT_OWNER", "aaaaaaaa-1");
+		expect(launcherName(listing, undefined, noPause)).toBe(
+			"Implement 2478: Restore the rule",
+		);
+	});
+
 	it("says no session launched it, reading no oracle, outside a session", () => {
 		const read = vi.fn(listing);
 		expect(launcherName(read, null, noPause)).toBe("no session");

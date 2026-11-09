@@ -47,17 +47,16 @@ outlive_probe() {
   fi
 }
 
-# outlive [--log <file>] <owner> <ceiling-s> <command> [<args>…] — detach
+# outlive <owner> <ceiling-s> [--log <file>] <command> [<args>…] — detach
 # <command> as an outliving job; an empty <owner> names none, an empty
 # <ceiling-s> sets none.
 outlive() {
-  local log=()
+  local owner="$1" ceiling="$2" key log=()
+  shift 2
   if [[ "${1-}" == --log ]]; then
     log=(--log "$2")
     shift 2
   fi
-  local owner="$1" ceiling="$2" key
-  shift 2
   [[ -n "${OUTLIVE_MANAGER-}" ]] || outlive_probe
   local run=(env)
   for key in "${OUTLIVE_STRIPPED[@]}"; do run+=(-u "$key"); done

@@ -9,20 +9,18 @@
  * per file, by blob id at the base and at each parent. A clean textual merge of
  * one file is two changes all the same. Every other stale row is refused.
  *
- * Every git failure carries nothing.
+ * Every git failure carries nothing, bar a MERGE_HEAD git will not read, which
+ * is BROKEN.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 
 const { GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
+const { githeadShas, readMergeHeadLines } = require("./merge-heads.js");
 const { buildAnchorsText, parseRows } = require("./registry-anchors-file.js");
 
 const CARRIED_KINDS = new Set(["UNANCHORED", "STALE-PROSE"]);
-
-/* git exports one per merged head to the hooks a `git merge` runs (its
- * conflict-marker labels), before MERGE_HEAD exists. */
-const GITHEAD_ENV = /^GITHEAD_([0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
  * @typedef {{ theirs: string[], lands: boolean }} Merge `lands`: an index edit
@@ -64,29 +62,18 @@ function git(root, args, input) {
 }
 
 /**
- * The merge this commit makes, or null where it makes none.
+ * The merge this commit makes, or null where it makes none. BROKEN as
+ * `readMergeHeadLines` is.
  *
  * @param {string} root
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {Merge | null}
  */
 function readMerge(root, env = process.env) {
-	const at = git(root, ["rev-parse", "--git-path", "MERGE_HEAD"]);
-	if (at.error === null) {
-		const file = path.resolve(root, at.out.trim());
-		if (fs.existsSync(file)) {
-			const theirs = fs
-				.readFileSync(file, "utf8")
-				.split("\n")
-				.map((l) => l.trim())
-				.filter(Boolean);
-			return { theirs, lands: env.WFC_INDEX_FROZEN !== "1" };
-		}
-	}
-	const theirs = Object.keys(env).flatMap((k) => {
-		const m = GITHEAD_ENV.exec(k);
-		return m?.[1] ? [m[1]] : [];
-	});
+	const lines = readMergeHeadLines(root);
+	if (lines.length > 0)
+		return { theirs: lines, lands: env.WFC_INDEX_FROZEN !== "1" };
+	const theirs = githeadShas(env);
 	return theirs.length > 0 ? { theirs, lands: false } : null;
 }
 

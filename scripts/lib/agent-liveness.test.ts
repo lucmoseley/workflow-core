@@ -802,6 +802,15 @@ describe("listedSessionIds", () => {
  * hook, where the starting session is not yet listed.
  */
 describe("sweepSessionIds", () => {
+	it("adds the starting session it is handed, run with no session id of its own (#4706)", () => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
+		fakeClaude(listing("other"));
+		expect([...liveness.sweepSessionIds(undefined, "me").ids].sort()).toEqual([
+			"me",
+			"other",
+		]);
+	});
+
 	it("answers where the only omission is the calling session", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));

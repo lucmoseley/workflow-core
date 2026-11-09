@@ -26,8 +26,7 @@
  * keeps no such reading and has no filer to launch.
  */
 
-const { reportOwner } = require("./session-id.js");
-const { OUTLIVE_CEILING_S, spawnOutliving } = require("./user-scope.js");
+const { spawnOutliving } = require("./user-scope.js");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -118,8 +117,6 @@ function launchFiler(root, dir, nowMs) {
 		const child = spawnOutliving(process.execPath, [filer], {
 			cwd: root,
 			stdio: ["ignore", fd, fd],
-			owner: reportOwner(),
-			ceilingS: OUTLIVE_CEILING_S,
 		});
 		/* An async spawn fault would otherwise throw in the caller. */
 		child.on("error", (e) =>
