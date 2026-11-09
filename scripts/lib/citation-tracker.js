@@ -66,6 +66,7 @@ const CITE = new RegExp(`${PREFIX}#(\\d+)`, "g");
 const OWNER = "lucmoseley";
 
 const OWNED_CITE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	`(?:(?<owner>[\\w.-]+)/)?${PREFIX}#(?<n>\\d+)`,
 	"g",
 );

@@ -565,7 +565,7 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 });
 
 describe("§W — which checker sees which surface", () => {
-	it("matches ESLint to app/ and lib/ TypeScript and to nothing under scripts/", async () => {
+	it("matches ESLint's presets to app/ and lib/ TypeScript and only the regex rules to scripts/", async () => {
 		const { ESLint } = require("eslint") as typeof import("eslint");
 		const eslint = new ESLint({ cwd: ROOT });
 		for (const file of [
@@ -578,12 +578,13 @@ describe("§W — which checker sees which surface", () => {
 			};
 			expect(Object.keys(config.rules ?? {}), file).toHaveLength(38);
 		}
-		// Not null: flat config still returns a config object for an unmatched
-		// path. What makes it unmatched is that no rule survives into it.
 		const scriptConfig = (await eslint.calculateConfigForFile(
 			"scripts/pick-next.js",
 		)) as { rules?: Record<string, unknown> };
-		expect(Object.keys(scriptConfig.rules ?? {})).toHaveLength(0);
+		expect(Object.keys(scriptConfig.rules ?? {}).sort()).toEqual([
+			"regexp/no-super-linear-backtracking",
+			"regexp/no-super-linear-move",
+		]);
 	});
 
 	it("keeps the 15 React Compiler rules that are ESLint's whole remaining reason to exist", () => {

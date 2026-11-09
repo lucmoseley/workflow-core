@@ -25,6 +25,7 @@ const { requiredGroup } = require("./regex-group.js");
 const MAX_HOPS = 5;
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const CODE_SPAN = /(`+)[^`]*?\1/g;
 const IMPORT = /(?:^|\s)@(\S+)/g;
 

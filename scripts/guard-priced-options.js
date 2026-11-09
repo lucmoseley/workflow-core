@@ -442,6 +442,7 @@ const disarmLoadFailure =
 const hookMessage = require("./lib/hook-message");
 const hookBlock = require("./lib/hook-block");
 const { founderPointer } = require("./lib/founder-pointer.js");
+const { beforeMatch } = require("./lib/cut-at.js");
 const {
 	groupByPrefix,
 	isLive,
@@ -1135,8 +1136,8 @@ function buildFounderLead() {
 	try {
 		const declared = resolveKey("founder");
 		if (typeof declared === "string" && declared.trim()) {
-			names.push(declared.trim());
-			names.push(declared.trim().replace(/\s.*$/s, ""));
+			const name = declared.trim();
+			names.push(name, beforeMatch(name, /\s/));
 		}
 	} catch (e) {
 		/* An unreadable config costs the name, never the limb (#598). */

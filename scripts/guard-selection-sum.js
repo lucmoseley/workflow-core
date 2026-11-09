@@ -206,6 +206,7 @@ const NOT_LAUNCHED_HEAD = new RegExp(
 		space: String.raw`[ \t]`,
 		blank: String.raw`[ \t]`,
 		bullet: "(?:#{1,6}|[-*>])",
+		// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 	}) + /Not[ -]launched[ \t]*(?:\*+[ \t]*)?(?:[-–—:][ \t]*\**)?(.*)$/.source,
 	"gim",
 );
