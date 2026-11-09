@@ -62,11 +62,20 @@ function probeUserScope() {
 }
 
 /* The probe's answer, taken once per process by `spawnInRunScope` and
- * `spawnOutliving`. */
+ * `spawnOutliving` — or once per launcher run, where the session-start
+ * launcher hands its own answer down as USER_MANAGER_ENV, `yes` or `no`
+ * (#4706): session-start-sweeps.sh spells it out where it runs the throttling
+ * check. */
+const USER_MANAGER_ENV = "WFC_USER_MANAGER";
 /** @type {boolean|null} */
 let managerAnswers = null;
 const managerAnswersOnce = () => {
-	if (managerAnswers === null) managerAnswers = probeUserScope().length > 0;
+	if (managerAnswers !== null) return managerAnswers;
+	const handed = process.env[USER_MANAGER_ENV];
+	managerAnswers =
+		handed === "yes" || handed === "no"
+			? handed === "yes"
+			: probeUserScope().length > 0;
 	return managerAnswers;
 };
 
@@ -109,9 +118,9 @@ function spawnOutliving(
 	args,
 	{ owner, ceilingS = OUTLIVE_CEILING_S, wrap, ...options },
 ) {
-	const starter = options.env ?? process.env;
-	const env = { ...starter };
-	const named = owner === undefined ? reportOwner(starter) : owner;
+	const starterEnv = options.env ?? process.env;
+	const env = { ...starterEnv };
+	const named = owner === undefined ? reportOwner(starterEnv) : owner;
 	forgetSession(env);
 	if (named) env[REPORT_OWNER] = named;
 	const [cmd, ...pre] = wrap ?? buildOutlivingScope(ceilingS);

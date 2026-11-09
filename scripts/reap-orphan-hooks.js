@@ -182,7 +182,7 @@ function unseenSessionKills(canonical, log) {
 	try {
 		read = readJsonl(log);
 	} catch (err) {
-		/* Said, not stamped, so the next start reads it again (#4706). */
+		/* Warned, not stamped, so the next start reads it again (#4706). */
 		return { rows: [], stamp, unreadable: `${log}: ${parseErrorText(err)}` };
 	}
 	const rows = (read?.rows ?? []).filter(
@@ -344,7 +344,7 @@ runCheck({
 
 		return {
 			okLine: `no orphaned hook run past ${ceilingS}s, and no process of an ended session, in ${read.procs.size} process(es).`,
-			noun: "orphaned hook run(s), suite run(s) or session process(es)",
+			noun: "orphaned hook run(s), suite run(s), session process(es) or unread kill log(s)",
 			data: {
 				reaps: done.map((r) => ({
 					...r,

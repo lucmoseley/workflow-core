@@ -8,7 +8,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { fromEnv } = require("./session-id.js");
+const { reportOwner } = require("./session-id.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { probeUserScope, spawnOutliving } = require("./user-scope.js");
 
@@ -46,12 +46,18 @@ const NAME_PAUSE_MS = 2000;
  * where the oracle still names none after NAME_TRIES reads, the short id
  * `claude agents` itself prints (the first 8 characters), with the oracle's
  * last refusal where it could not be read; "no session" where none launched it.
+ * A session start's outliving launch strips the session id, so the starter is
+ * read as the report owner (#4706).
  * @param {() => import("./agent-liveness.js").Listing} listAgents
  * @param {string|null} [sessionId]
  * @param {(ms: number) => void} [pause]
  * @returns {string}
  */
-function launcherName(listAgents, sessionId = fromEnv(), pause = sleepSync) {
+function launcherName(
+	listAgents,
+	sessionId = reportOwner(),
+	pause = sleepSync,
+) {
 	if (sessionId === null) return "no session";
 	for (let tries = 1; ; tries++) {
 		const { agents, why } = listAgents();
@@ -101,10 +107,11 @@ function runStartLander(
 
 /**
  * `node <script> run [--tester <command>]` in `root`, through the outliving
- * launch with no report owner and no ceiling (#4706), appending its output to
- * `log`, behind `wrap`'s words. It runs as no session: under the starting one's id and
- * root, admission counts that session as itself, the fix tickets it files are
- * claimed for it, and its suite read the main checkout (#2410).
+ * launch with no report owner (#4706), appending its output to `log`, behind
+ * `wrap`'s words — by default `probeUserScope`'s, which set no ceiling. It
+ * runs as no session: under the starting one's id and root, admission counts
+ * that session as itself, the fix tickets it files are claimed for it, and its
+ * suite read the main checkout (#2410).
  * Residual: a scope the probe allowed can still fail to start, and then
  * systemd-run's refusal lands in the log and the returned pid exits at once.
  * @param {{root: string, script: string, tester?: string, log: string,
@@ -136,7 +143,6 @@ function spawnDetachedRun({
 			env: buildCheckoutEnv(root),
 			stdio: ["ignore", fd, fd],
 			owner: null,
-			ceilingS: null,
 			wrap,
 		});
 		if (child.pid === undefined) throw new Error(`could not start ${script}`);

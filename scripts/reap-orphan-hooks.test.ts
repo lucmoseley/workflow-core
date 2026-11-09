@@ -502,6 +502,6 @@ describe("a session start after the timer's kills", () => {
 			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${log}: `,
 		);
 		expect(res.stdout).toContain("Repair the file or move it aside");
-		expect(res.stdout).toMatch(/WARN/);
+		expect(res.stdout).toMatch(/^WARN: 1 .*unread kill log/m);
 	});
 });

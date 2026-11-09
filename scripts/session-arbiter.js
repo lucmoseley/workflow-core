@@ -34,7 +34,7 @@
  * is not given a timeout: any expiry is the timeout mantahostels#104 rejected wearing another
  * name, and it would fire on precisely the long tool calls.
  *
- * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which launches a detached `prune-markers` as no session's process, naming this session as its report owner, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants and issue claims — not just this session's.
+ * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which launches a detached `prune-markers` as no session's process, naming this session as its report owner, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), told to count this session live, and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants and issue claims — not just this session's.
  * JUSTIFIED: fail-safe — each record pins a git blob open, so an unswept store grows without bound; a run that cannot tell live from finished deletes nothing.
  * DEFEAT:    `--detach` is the registration's only flag and changes who runs the sweep, never what it sweeps; the sweep always exits 0.
  * TREE:      host — every record it sweeps is the host root's store.
@@ -83,9 +83,12 @@ const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
 function detachPrune() {
 	try {
 		const { spawnOutliving } = require("./lib/user-scope.js");
+		/* The child runs as no session, so it is told which session to spare
+		 * as the one starting (mantahostels#710). */
+		const starter = require("./lib/session-id.js").fromEnv();
 		const child = spawnOutliving(
 			process.execPath,
-			[__filename, "prune-markers"],
+			[__filename, "prune-markers", ...(starter ? ["--spare", starter] : [])],
 			{ stdio: "ignore" },
 		);
 		child.unref();
@@ -2498,7 +2501,7 @@ const PASS_THROUGH = {
 };
 
 /**
- * @typedef {{ line: string, flags?: Record<string, "boolean">, max?: number }} Form
+ * @typedef {{ line: string, flags?: Record<string, "boolean" | "value">, max?: number }} Form
  *   `line` is the usage after `session-arbiter.js `. `min` is left at 0
  *   throughout: each handler answers a missing argument itself, some of them on
  *   a hook path that must not change its exit code.
@@ -2543,8 +2546,8 @@ const COMMANDS = {
 	versions: { line: "versions <path>", max: 1 },
 	"alloc-entry": { line: "alloc-entry [docs/doc-map.md]", max: 1 },
 	"prune-markers": {
-		line: "prune-markers [--detach]",
-		flags: { "--detach": "boolean" },
+		line: "prune-markers [--detach] [--spare <session-id>]",
+		flags: { "--detach": "boolean", "--spare": "value" },
 	},
 };
 
@@ -2579,10 +2582,12 @@ function refuseUnhandled() {
 }
 
 /**
- * `prune-markers [--detach]`: sweep the stores, or launch a detached sweep.
+ * `prune-markers [--detach] [--spare <session-id>]`: sweep the stores, or
+ * launch a detached sweep.
  * @param {unknown} detach the `--detach` flag
+ * @param {unknown} spare the `--spare` flag: the starting session, live
  */
-function cmdPruneMarkers(detach) {
+function cmdPruneMarkers(detach, spare) {
 	/*
 	 * `--detach` is the SessionStart registration, and it does no sweeping:
 	 * it launches a `prune-markers` of its own and returns (mantahostels#1899).
@@ -2608,7 +2613,10 @@ function cmdPruneMarkers(detach) {
 	// Wrapped so the detached child leaves a record of having returned: this
 	// is the branch --detach spawns, and nothing else can see whether it
 	// finished (mantahostels#1910, lib/detached-run.js).
-	recordRun(JOB_PRUNE_MARKERS, () => store.pruneAll(sweepSessionIds));
+	const starter = typeof spare === "string" ? spare : undefined;
+	recordRun(JOB_PRUNE_MARKERS, () =>
+		store.pruneAll(() => sweepSessionIds(undefined, starter)),
+	);
 	return 0;
 }
 
@@ -2680,7 +2688,7 @@ function main(argv) {
 			return cmdVersions(rest[0], sessionId);
 		// Always 0: a session start must not break on housekeeping.
 		case "prune-markers":
-			return cmdPruneMarkers(flags["--detach"]);
+			return cmdPruneMarkers(flags["--detach"], flags["--spare"]);
 		// No positional session id, for release's reason: the slot is claimed for
 		// the session doing the allocating and nobody else.
 		case "alloc-entry":
