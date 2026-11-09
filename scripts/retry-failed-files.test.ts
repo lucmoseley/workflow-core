@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
  * retry-failed-files.js end to end (#4545): it re-runs once the files a
- * Vitest report marks failed and names, last, the files still failing,
- * which lib/actions-tester.js takes as the batch's failing files.
+ * Vitest report marks failed and names, last, the files it cleared and the
+ * files still failing, which lib/actions-tester.js takes as the batch's
+ * flakes (#4558) and failing files.
  *
  * Each case runs the program in a throwaway directory whose `npm test` is a
  * stub that fails the files `STUB_FAIL` names and writes its own report, so
@@ -81,7 +82,7 @@ it("re-runs only the failed files once, exiting 0 and naming none still failing 
 		"a.test.ts b.test.ts\n",
 	);
 	expect(r.stdout).toContain(
-		"retry-failed-files: still failing after one retry: none",
+		"retry-failed-files: cleared by one retry: a.test.ts, b.test.ts\nretry-failed-files: still failing after one retry: none",
 	);
 });
 
@@ -90,7 +91,7 @@ it("names only the files the retry failed again, exiting with the re-run's code"
 	const r = run(root, report, "b.test.ts");
 	expect(r.status).toBe(1);
 	expect(r.stdout).toContain(
-		"retry-failed-files: still failing after one retry: b.test.ts",
+		"retry-failed-files: cleared by one retry: a.test.ts\nretry-failed-files: still failing after one retry: b.test.ts",
 	);
 	expect(JSON.parse(fs.readFileSync(report, "utf8")).testResults).toHaveLength(
 		3,
