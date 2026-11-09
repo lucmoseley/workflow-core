@@ -96,3 +96,14 @@ Researched: 2026-10-21
 - False positives, and no cheap way to silence them, are the main reason developers stop using a static-analysis tool. Johnson et al., "Why Don't Software Developers Use Static Analysis Tools to Find Bugs?", ICSE 2013 [named expert]
 - SonarQube Cloud's quality gate judges new code only ("Clean as You Code"). SonarQube Cloud docs, "Clean as You Code" and quality gates [standard or field body]
 - SonarQube Cloud switches off a rule class for a project, optionally for a path pattern, under Administration > General Settings > Analysis scope > Issues > Ignore Issues on Multiple Criteria (rule-key pattern plus file-path pattern). Under automatic analysis `.sonarcloud.properties` takes only the scope keys, not `sonar.issue.ignore.multicriteria`. A single finding is closed by marking it False positive with a comment. SonarQube Cloud docs, "Automatic analysis" §Additional analysis configuration; "Advanced exclusions"; "Editing issues" [standard or field body]
+
+## Routing a change a merge queue ejects
+
+Researched: 2026-11-09 for this section.
+
+- An ejected change goes back to its owner, and its state stays on the change: no surveyed queue opens a ticket or issue for an ejection. GitHub merge queue (timeline event), GitLab merge trains (system note), Mergify (status comment, check run, `dequeued` label), bors-ng ("kicked back to the creator"), Zuul (failure reporter on the change), Aviator (sticky comment, `merge_failed` label), Graphite and Shopify (PR comments); Trunk adds an opt-in direct message to the author. Each for its own product [standard or field body]
+- Repeat ejections of one change update one record: Aviator's sticky comment and Mergify's check run are edited in place; Trunk's Failure tab holds one entry per PR, cleared on resubmit, after the full history "made it difficult to identify current failures requiring action" (changelog 2025-05-28). Each for its own product [standard or field body]
+- Where the owner does not watch the change (a bot), a separate list of ejected-and-unmerged changes, one row per change, reaches a human. Jamie Tanna, jvt.me 2026-08-11 [named expert]
+- A shared owner takes breakage only once it is on the main branch; a change not yet landed stays with its author. SWE at Google ch. 23 (Build Cop); Fowler, "Continuous Integration" [named expert]
+- Retry on a flake signal before ejecting: Shopify ejects after 3 successive failures, because "legitimate failures will propagate to all later CI runs" (Jack Li [named expert]); GitLab, Mergify `max_checks_retries`, Trunk (1 to 3, flaky patterns only), each for its own product [standard or field body]
+- No source compares owner routing with a shared ticket queue directly. Uber's EuroSys 2019 paper unread (too large to fetch). Full survey: #4794.

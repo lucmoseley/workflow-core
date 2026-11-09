@@ -10,11 +10,9 @@
  * from another checkout of the same repo is closed only by that one.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
-const { writeFileAtomic } = require("./atomic-write.js");
-const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
-const { ALARM_TITLE: TITLE, readTicketRecord } = require("./queue-tickets.js");
+const { ALARM_TITLE: TITLE } = require("./queue-tickets.js");
+const { recordTicket } = require("./record-ticket.js");
 
 const RECORD = ".landing-alarm-ticket.json";
 
@@ -38,22 +36,21 @@ ${alarms.map((a) => `- \`${a.name}\`: run ${a.run}, created ${new Date(a.at).toI
 }
 
 /**
- * The stall on record's `main` sha; null where none is, "torn" where the file
- * will not parse.
- * @param {string} file
- * @returns {string|null|"torn"}
+ * @typedef {{main: string}} AlarmRecord the `main` sha the ticket was filed
+ *   at
  */
-const readAlarmRecord = (file) =>
-	readTicketRecord(file, (rec) => {
-		const { main } = /** @type {{main?: unknown}} */ (rec ?? {});
-		return typeof main === "string" ? main : null;
-	});
+
+/** @param {unknown} rec @returns {AlarmRecord|null} */
+function parseAlarmRecord(rec) {
+	const { main } = /** @type {{main?: unknown}} */ (rec ?? {});
+	return typeof main === "string" ? { main } : null;
+}
 
 /**
  * Why the recorded stall's ticket closes this pass, or null where it stays:
  * no alarm fires, or `main` has moved. A torn record names no stall, so its
  * ticket closes only where no alarm fires (#4772).
- * @param {string|"torn"} rec
+ * @param {AlarmRecord|"torn"} rec
  * @param {string|null} main
  * @param {boolean} firing
  * @returns {string|null}
@@ -61,7 +58,8 @@ const readAlarmRecord = (file) =>
 function buildCloseComment(rec, main, firing) {
 	if (rec === "torn")
 		return firing ? null : "No queue alarm fires; its record had torn.";
-	if (main !== rec) return `\`main\` moved from \`${rec}\` to \`${main}\`.`;
+	if (main !== rec.main)
+		return `\`main\` moved from \`${rec.main}\` to \`${main}\`.`;
 	return firing
 		? null
 		: `No queue alarm fails at \`main\`'s \`${main}\` any more.`;
@@ -79,42 +77,22 @@ function buildCloseComment(rec, main, firing) {
  *   lines naming what it did
  */
 function alarmTicketTender(deps, markers) {
-	const file = queueIssueFiler(deps);
-	const close = queueIssueCloser(deps);
-	const recordFile = path.join(markers, RECORD);
+	const ticket = recordTicket(deps, {
+		record: path.join(markers, RECORD),
+		parse: parseAlarmRecord,
+		noun: "alarm ticket",
+		subject: "the firing queue alarm",
+	});
 	return ({ main, alarms }) => {
 		/** @type {string[]} */
-		const lines = [];
-		const rec = readAlarmRecord(recordFile);
-		if (rec === "torn") {
-			fs.rmSync(recordFile, { force: true });
-			lines.push(`alarm ticket: ${recordFile} would not parse and is dropped.`);
-		}
+		const said = [];
+		const rec = ticket.read(said);
 		const why =
 			rec === null ? null : buildCloseComment(rec, main, alarms.length > 0);
-		if (why !== null) {
-			const closed = close(TITLE, () => why);
-			fs.rmSync(recordFile, { force: true });
-			if (closed !== null) lines.push(`alarm ticket: closed #${closed}.`);
-		}
-		if (alarms.length > 0 && main !== null) {
-			lines.push(
-				file(
-					{
-						title: TITLE,
-						standalone:
-							"The alarm ticket tracks the landing queue, not one ticket's work.",
-						noun: "alarm ticket",
-						subject: "the firing queue alarm",
-					},
-					buildAlarmBody(main, alarms),
-				),
-			);
-			writeFileAtomic(recordFile, `${JSON.stringify({ main })}\n`, {
-				mkdir: true,
-			});
-		}
-		return lines;
+		if (why !== null) ticket.close(TITLE, () => why, null, said);
+		if (alarms.length > 0 && main !== null)
+			ticket.file(TITLE, buildAlarmBody(main, alarms), { main }, said);
+		return said;
 	};
 }
 
