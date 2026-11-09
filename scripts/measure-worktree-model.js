@@ -140,7 +140,7 @@ const readLines = (file) =>
  * @param {string} file
  */
 async function readRecords(file) {
-	/** @type {import("./lib/worktree-model-reading.js").TranscriptRecord[]} */
+	/** @type {import("./lib/transcript.js").TranscriptRecord[]} */
 	const records = [];
 	let unparsed = 0;
 	for await (const line of readLines(file)) {

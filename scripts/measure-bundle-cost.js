@@ -113,16 +113,14 @@ function sessionRow(text) {
  */
 
 /**
- * @typedef {Record<string, any>} TranscriptPart One object from a parsed
- * transcript line — an assistant message, its `usage`, or a content block.
- * `any` because JSON.parse types nothing and each field is read with a
- * fallback or a type check where it is used.
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
  * Bill one assistant message, unless its key was billed already.
  * @param {Bill} bill accumulator: the turn's key, cost and context are added
- * @param {TranscriptPart} message one carrying `usage`
+ * @param {TranscriptRecord["message"]} message one carrying `usage`
  */
 function billTurn(bill, message) {
 	const usage = message.usage;
@@ -141,7 +139,7 @@ function billTurn(bill, message) {
 
 /**
  * One turn's cost-equivalent in dollars, at RATES.
- * @param {TranscriptPart} usage
+ * @param {TranscriptRecord["message"]["usage"]} usage
  * @returns {number}
  */
 function turnCost(usage) {
@@ -163,7 +161,7 @@ function turnCost(usage) {
 /**
  * Add every issue number a Bash `gh issue close` in `content` names.
  * @param {Set<string | undefined>} closed accumulator: each closed issue number is added
- * @param {TranscriptPart[]} content
+ * @param {TranscriptBlock[]} content
  */
 function addClosures(closed, content) {
 	for (const block of content) {

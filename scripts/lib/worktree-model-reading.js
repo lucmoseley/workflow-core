@@ -193,16 +193,15 @@ function resultText(content) {
 
 /**
  * @typedef {{ name: string, input: Record<string, unknown>, start: number }} OpenCall
- * A transcript record is the harness's JSON, read field by field with
- * optional chaining; no schema of it is kept here to type it by, hence `any`.
- * @typedef {Record<string, any>} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
  * One content block of a record: a call opened, or the span a result closes.
  * accumulator: adds to and removes from `open`, the calls awaiting a result.
  * @param {TranscriptRecord} rec
- * @param {TranscriptRecord} block
+ * @param {TranscriptBlock} block
  * @param {number} t
  * @param {Map<string, OpenCall>} open
  * @returns {ToolSpan | null}
