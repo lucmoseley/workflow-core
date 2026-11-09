@@ -7,7 +7,7 @@
  * read-back the installer misreads, or a failed read it misses.
  *
  * The real side runs where logind answers, never in CI (§G7 item 2):
- * `show-user` is a free read. `enable-linger` changes state, so no case runs it.
+ * `enable-linger` changes state, so no case runs it.
  */
 
 import { spawnSync } from "node:child_process";
@@ -16,13 +16,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { writeLoginctl } from "./loginctl-fake";
-import { loginctl } from "./systemd-bins.js";
+import { loginctl, MANAGER_TIMEOUT_MS } from "./systemd-bins.js";
 
 const USER = os.userInfo().username;
 const UNKNOWN = "wfc-contract-no-such-user";
 
 const run = (bin: string, args: string[]) => {
-	const r = spawnSync(bin, args, { encoding: "utf8", timeout: 5000 });
+	const r = spawnSync(bin, args, {
+		encoding: "utf8",
+		timeout: MANAGER_TIMEOUT_MS,
+	});
 	if (r.error) throw r.error;
 	return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr.trim() };
 };

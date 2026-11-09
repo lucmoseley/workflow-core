@@ -29,12 +29,12 @@ export const otherLine = (ms: number) =>
 	`${stamp(ms)} Luctop earlyoom[180]: sending SIGTERM when mem <=  8.00% and swap <= 100.00%,`;
 
 /** A line as `-o short-iso` prints it: its stamp, host and ident, then `msg`. */
-export const journalLine = (ms: number, ident: string, msg: string) =>
+export const buildJournalLine = (ms: number, ident: string, msg: string) =>
 	`${stamp(ms)} Luctop ${ident}: ${msg}`;
 
 /** A kernel line, as `journalctl -k` prints it. */
 export const kernelLine = (ms: number, msg: string) =>
-	journalLine(ms, "kernel", msg);
+	buildJournalLine(ms, "kernel", msg);
 
 /** A boot as the fake lists it: journalctl's undashed id and its span, ms. */
 export interface FakeBoot {

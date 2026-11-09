@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { journalLine, writeJournalctl } from "./lib/earlyoom-journal-fake";
+import { buildJournalLine, writeJournalctl } from "./lib/earlyoom-journal-fake";
 import { type LoginctlAnswers, writeLoginctl } from "./lib/loginctl-fake";
 import { runInProcess } from "./lib/run-in-process.js";
 import { writeSystemctl } from "./lib/systemctl-fake";
@@ -190,7 +190,7 @@ describe("install-refill-boot-unit", () => {
 	const runStopPost = (result: string) => {
 		expect(install().status).toBe(0);
 		const journalctl = writeJournalctl(at("journal"), [
-			journalLine(Date.now(), "node[12]", "SyntaxError: boom"),
+			buildJournalLine(Date.now(), "node[12]", "SyntaxError: boom"),
 		]);
 		fs.mkdirSync(path.dirname(logFile()), { recursive: true });
 		fs.writeFileSync(logFile(), "");

@@ -11,8 +11,6 @@ import path from "node:path";
 import { shellQuote } from "./sh-quote.js";
 
 export interface LoginctlAnswers {
-	/** The user `show-user` knows; any other is looked up and not found. */
-	user?: string;
 	/** `show-user`'s Linger property. */
 	linger?: "yes" | "no";
 	/** A verb that fails, with its exit code and stderr. */
@@ -21,11 +19,7 @@ export interface LoginctlAnswers {
 
 function buildScript(
 	log: string,
-	{
-		user = os.userInfo().username,
-		linger = "yes",
-		fails = {},
-	}: LoginctlAnswers,
+	{ linger = "yes", fails = {} }: LoginctlAnswers,
 ): string {
 	const failing = Object.entries(fails)
 		.map(
@@ -50,7 +44,7 @@ ${failing}
 esac
 case "$verb" in
 show-user)
-  if [ "$who" != ${shellQuote(user)} ]; then
+  if [ "$who" != ${shellQuote(os.userInfo().username)} ]; then
     echo "Failed to look up user $who: No such process" >&2; exit 1
   fi
   IFS=,
@@ -63,7 +57,7 @@ exit 0
 }
 
 /**
- * A loginctl in `dir`, appending each call's `loginctl <args>` to `dir/calls`.
+ * A loginctl in `dir` that knows only the running user, appending each call's `loginctl <args>` to `dir/calls`.
  * A verb neither failed nor modelled, `enable-linger` among them, prints
  * nothing and exits 0, as does `show-user` for a property other than Linger.
  * Its path, for WFC_LOGINCTL.
