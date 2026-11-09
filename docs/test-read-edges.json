@@ -6598,6 +6598,7 @@
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop.test.ts",
@@ -8122,6 +8123,7 @@
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -8575,6 +8577,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -20283,6 +20286,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -24646,6 +24650,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -31744,6 +31749,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -36655,6 +36661,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -44356,6 +44363,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -44668,6 +44676,12 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/refill-loop-run-outside.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/refill-loop-run-recovery.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
@@ -44710,6 +44724,7 @@
 			"scripts/lib/refill-code.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop-usage-probe.test.ts",
@@ -45725,6 +45740,7 @@
 			"scripts/record-delegated-decision.test.ts",
 			"scripts/record-issue-claim.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/register-doc.test.ts",

@@ -30,14 +30,14 @@ const SEAT = "/home/u/.claude";
 const row = (state = "blocked") => ({
 	sessionId: "sess-f1",
 	id: "f1",
-	name: "his-session",
+	name: "founder-session",
 	kind: "background",
 	state,
 	seat: SEAT,
 	cwd: "/home/u/work",
 });
 const TRANSIENT: Reading = { cause: "API_ERROR", sub: "transient" };
-const NAME = "his-session (f1, started outside the loop)";
+const NAME = "founder-session (f1, started outside the loop)";
 
 /** One loop process: its records and call log kept across ticks. */
 function loop(over: Partial<BlockIo> = {}) {
