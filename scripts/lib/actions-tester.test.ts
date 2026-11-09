@@ -414,7 +414,7 @@ it("is no verdict where the runner fails to ready on every attempt, naming the s
 	expect(r.reran).toEqual([5, 5]);
 });
 
-/* Run 42671573799: GitHub created 6 of its 12 jobs, all passed, and
+/* GitHub created 6 of its 12 jobs, all passed, and
  * concluded the run `failure`. */
 const partlyCreated = (): Job[] => shards("success", "success", "success");
 

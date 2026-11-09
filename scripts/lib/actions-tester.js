@@ -511,9 +511,7 @@ function settle(v) {
 /**
  * The verdict of the push run at `sha` on `branch`, judging only an attempt
  * after `after`; a runner that failed to ready has its failed jobs rerun, up
- * to RUNNER_RERUNS times, before it is no verdict. A failed run listing no
- * failed job has the branch pushed again, unless `repushed` says it was, and
- * only a newer run judged.
+ * to RUNNER_RERUNS times, before it is no verdict.
  * @param {string} sha
  * @param {number} after
  * @param {{reads: Reads, branch: string} & Poll} suite
