@@ -42,7 +42,9 @@ const path = require("node:path");
 const {
 	guardKeys,
 	keyOrigins,
-	mergeNeedles,
+	CORE_NEEDLES,
+	hostNeedlesFile,
+	readNeedles,
 	registeredGuards,
 	registryDrift,
 	subjectsFor,
@@ -60,7 +62,6 @@ const {
 } = require("./lib/core-hooks.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
-const { caught } = require("./lib/caught.js");
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
@@ -74,36 +75,10 @@ const CLI = {
 	},
 };
 
-/* Core content: the needles file ships beside this script, so it is named from
- * THIS DIRECTORY and never through the host root (#1) — a plugin install keeps
- * it beside the caller. */
-const NEEDLES = path.join(__dirname, "guard-fire-needles.json");
 const CORE = path.join(__dirname, "..");
 const PLUGIN_HOOKS = pluginHooksFile(CORE);
 const CORE_IS_HOST = fs.realpathSync(CORE) === hostRoot();
-const HOST_NEEDLES = path.join(
-	hostRoot(),
-	".claude",
-	"guard-fire-needles.json",
-);
-
-/** @param {string} p */
-const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
-
-/**
- * Absent is the common case, an adopter with no guards of its own, so it is
- * silent.
- * @param {string} p
- * @returns {Record<string, any> | null}
- */
-function readHostNeedles(p) {
-	try {
-		return readJson(p);
-	} catch (e) {
-		if (caught(e).code !== "ENOENT") throw e;
-		return null;
-	}
-}
+const HOST_NEEDLES = hostNeedlesFile(hostRoot());
 
 /**
  * Straight to the fd, never `console`: node buffers writes to a PIPE and drops
@@ -632,7 +607,7 @@ function refuseHostNeedles(extra, clashes) {
 		for (const key of clashes)
 			writeFd(
 				2,
-				`${key} is keyed in both ${NEEDLES} and ${HOST_NEEDLES} — the core owns its own guards' words, so remove it from the host file.\n`,
+				`${key} is keyed in both ${CORE_NEEDLES} and ${HOST_NEEDLES} — the core owns its own guards' words, so remove it from the host file.\n`,
 			);
 		return true;
 	}
@@ -653,7 +628,7 @@ function warnDrift(drift, origins, hostKeys) {
 		// from the core's own checkout; one only an adopter registers can only
 		// be worded in the adopter's file.
 		const home =
-			CORE_IS_HOST || from.includes(PLUGIN_HOOKS) ? NEEDLES : HOST_NEEDLES;
+			CORE_IS_HOST || from.includes(PLUGIN_HOOKS) ? CORE_NEEDLES : HOST_NEEDLES;
 		writeFd(
 			2,
 			`⚠ ${key} is registered in ${from.join(" and ")} with no entry in ${home} — it is not counted at all, and its absence below is not a zero.\n`,
@@ -662,7 +637,7 @@ function warnDrift(drift, origins, hostKeys) {
 	for (const key of drift.stale)
 		writeFd(
 			2,
-			`⚠ ${key} has an entry in ${hostKeys.includes(key) ? HOST_NEEDLES : NEEDLES} but no hook file here registers it — its needles are scanned for nothing. Remove the entry, or register the hook.\n`,
+			`⚠ ${key} has an entry in ${hostKeys.includes(key) ? HOST_NEEDLES : CORE_NEEDLES} but no hook file here registers it — its needles are scanned for nothing. Remove the entry, or register the hook.\n`,
 		);
 }
 
@@ -692,10 +667,7 @@ function main(argv) {
 	 * the repository being worked on, so both read the host root (#1). */
 	const given = flagValue(flags, "--dir");
 	const dirs = given ? [given] : transcriptDirs();
-	const { needles, hostKeys, clashes, extra } = mergeNeedles(
-		readJson(NEEDLES),
-		readHostNeedles(HOST_NEEDLES),
-	);
+	const { needles, hostKeys, clashes, extra } = readNeedles(hostRoot());
 	if (refuseHostNeedles(extra, clashes)) return 2;
 	const sources = readHostHookSources(hostRoot(), { core: CORE });
 	const settings = mergeHooks(sources);

@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { probeNetwork } from "./net-probe.js";
+import { NET_PROBE_OFFLINE_LINE } from "./net-probe-fake";
 
 let dir: string;
 
@@ -37,9 +38,9 @@ it("reads exit 0 as reachable", () => {
 });
 
 it("gives the child's stderr as the reason, else its exit", () => {
-	expect(
-		probeNetwork(probe(1, "api.anthropic.com did not resolve: EAI_AGAIN")),
-	).toBe("api.anthropic.com did not resolve: EAI_AGAIN");
+	expect(probeNetwork(probe(1, NET_PROBE_OFFLINE_LINE))).toBe(
+		NET_PROBE_OFFLINE_LINE,
+	);
 	expect(probeNetwork(probe(3))).toBe("the probe exited 3");
 });
 

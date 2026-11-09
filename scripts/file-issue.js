@@ -7,9 +7,17 @@
  *
  *   node scripts/file-issue.js --title T --label L [--label L…]
  *     (--parent P | --standalone "<why>") --body-file F|- [--assign-self]
+ *     --origin <class> (--fault-signature <file> | --no-fault)
  *     [--distinct-from N[,N…]]
  *     [--size-line-checked N[,N…]]
  *   node scripts/file-issue.js --check "<title>"
+ *
+ * Every filing names the flow that filed it, `--origin`, from
+ * lib/issue-origin.js's fixed list, and is labelled `origin:<class>`; and
+ * declares whether it claims to stop a recurring fault: `--fault-signature`
+ * names a signature file (lib/fault-signature.js holds its shape), checked
+ * against the transcript record that triggered it, and appended to
+ * docs/data/outcome-signatures.jsonl for the weekly outcome review (#4796).
  *
  * Before every create it lists up to three open issues whose titles most
  * resemble the new one, so a duplicate or its natural parent is noticed
@@ -99,11 +107,19 @@ const {
 	similarTitles,
 } = require("./lib/tracker-ops.js");
 const { caught } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
 const { buildFiledLine } = require("./lib/filed-line.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
+const { ORIGINS, isOrigin, originLabel } = require("./lib/issue-origin.js");
+const {
+	appendSignatureLine,
+	buildSignatureLine,
+	readDeclared,
+} = require("./lib/fault-signature.js");
+const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 
 const USAGE =
-	'usage: node scripts/file-issue.js --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node scripts/file-issue.js --check "<title>"';
+	'usage: node scripts/file-issue.js --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- --origin <class> (--fault-signature <file> | --no-fault) [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node scripts/file-issue.js --check "<title>"';
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const SPEC = {
@@ -117,6 +133,9 @@ const SPEC = {
 		"--distinct-from": "list",
 		"--size-line-checked": "list",
 		"--assign-self": "boolean",
+		"--origin": "value",
+		"--fault-signature": "value",
+		"--no-fault": "boolean",
 		"--check": "list",
 	},
 };
@@ -126,9 +145,12 @@ const io = scriptIo("file-issue");
 
 /** @param {import("./lib/cli-args.js").Parsed} parsed */
 function readOpts({ flags, lists }) {
-	/** @type {{title?: string, labels: string[], parent?: number, standalone?: string, bodyFile?: string, assignSelf: boolean, distinct: Set<number>, sizeChecked: Set<number>}} */
+	/** @type {{title?: string, labels: string[], parent?: number, standalone?: string, bodyFile?: string, assignSelf: boolean, distinct: Set<number>, sizeChecked: Set<number>, origin?: string, signatureFile?: string, noFault: boolean}} */
 	const opts = {
 		title: flagValue(flags, "--title"),
+		origin: flagValue(flags, "--origin"),
+		signatureFile: flagValue(flags, "--fault-signature"),
+		noFault: flags["--no-fault"] === true,
 		labels: lists["--label"] ?? [],
 		standalone: flagValue(flags, "--standalone"),
 		bodyFile: flagValue(flags, "--body-file"),
@@ -163,7 +185,25 @@ function readOpts({ flags, lists }) {
 			"--standalone needs its reason, written into the body unless it carries its own Standalone: line.",
 			2,
 		);
+	checkDeclarations(opts);
 	return opts;
+}
+
+/**
+ * The origin and the fault declaration every filing carries (#4796).
+ * @param {{origin?: string, signatureFile?: string, noFault: boolean}} opts
+ */
+function checkDeclarations({ origin, signatureFile, noFault }) {
+	if (origin === undefined || !isOrigin(origin))
+		io.fail(
+			`${origin === undefined ? "--origin is required" : `--origin '${origin}' is not on the list`}: name the flow filing this, one of ${ORIGINS.join(", ")}. Nothing filed.`,
+			2,
+		);
+	if ((signatureFile === undefined) === !noFault)
+		io.fail(
+			"give exactly one of --fault-signature <file> or --no-fault: does this ticket claim to stop a recurring fault? --no-fault is a cut, refactor, rename or new capability. The file's shape: scripts/lib/fault-signature.js. Nothing filed.",
+			2,
+		);
 }
 
 /**
@@ -252,11 +292,17 @@ function main() {
 			2,
 		);
 	checkBody(opts.labels, body);
+	const declared = checkSignatureFile(opts.signatureFile);
 
 	const repo = io.trackerOrFail();
 	checkSecondMap(repo, opts.labels);
 
-	const given = [...new Set(opts.labels)];
+	const given = [
+		...new Set([
+			...opts.labels,
+			originLabel(/** @type {string} */ (opts.origin)),
+		]),
+	];
 	const read =
 		opts.parent === undefined
 			? undefined
@@ -285,6 +331,7 @@ function main() {
 	io.out(
 		`${buildFiledLine(n, url)}\nlabels: ${labels.join(", ")}${added.length > 0 ? ` (${added.join(", ")} added: #${opts.parent} is a spec)` : ""}\n`,
 	);
+	logSignature(`${repo}#${n}`, declared);
 
 	const sessionId = fromEnv();
 	// Residual (#2314): a map filed with no session id is held by nobody, so
@@ -308,6 +355,48 @@ function main() {
 		return;
 	}
 	claimFiled(repo, n, sessionId);
+}
+
+/**
+ * The signature file, checked for shape and against its case, or refused;
+ * null under --no-fault.
+ * @param {string|undefined} file
+ * @returns {import("./lib/fault-signature.js").Declared | null}
+ */
+function checkSignatureFile(file) {
+	if (file === undefined) return null;
+	const read = readDeclared(file, { root: hostRoot() });
+	if ("error" in read)
+		return io.fail(`--fault-signature ${read.error} Nothing filed.`, 2);
+	return read.declared;
+}
+
+/**
+ * The filed ticket's line in the signature log, which the caller commits;
+ * nothing under --no-fault.
+ * @param {string} issue
+ * @param {import("./lib/fault-signature.js").Declared | null} declared
+ */
+function logSignature(issue, declared) {
+	if (declared === null) return;
+	/* A stray WFC_NOW in the session's env skews this durable stamp (check.js `now`). */
+	const line = buildSignatureLine({
+		issue,
+		filedAt: new Date(now()).toISOString(),
+		declared,
+	});
+	try {
+		const root = worktreeRoot();
+		const file = appendSignatureLine(root, line);
+		io.out(
+			`Signature logged in ${file} — commit it with your work: node scripts/commit-paths.js -m "<what>" -- ${path.relative(root, file)}\n`,
+		);
+	} catch (e) {
+		io.fail(
+			`${issue} was filed, but its signature line was not written (${caught(e).message}). Do NOT file it again: append ${JSON.stringify(line)} to docs/data/outcome-signatures.jsonl by hand.`,
+			1,
+		);
+	}
 }
 
 /**

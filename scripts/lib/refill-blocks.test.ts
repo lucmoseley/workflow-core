@@ -25,6 +25,7 @@ import {
 	BOOT_UNREAD_PROMPT,
 	IDLE_PROMPT,
 } from "./loop-prompts.js";
+import { NET_PROBE_OFFLINE_LINE } from "./net-probe-fake";
 import { isHeld } from "./refill-block-core.js";
 import {
 	actOnBlocks,
@@ -2910,7 +2911,7 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 			...over,
 		});
 	const blocked = [agent("p", "blocked")];
-	const Offline = "api.anthropic.com did not resolve: EAI_AGAIN";
+	const Offline = NET_PROBE_OFFLINE_LINE;
 	const typedUnseen = () =>
 		resuming({
 			resumes: {

@@ -46,6 +46,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { mainChainRecords, isSubagentTranscript } = require("./transcript");
+const { readText } = require("./file-read.js");
 const { corpusDirs } = require("./project-dirs.js");
 const { coreRoot } = require("./script-path.js");
 const { readRunningHooks } = require("./core-hooks.js");
@@ -452,6 +453,71 @@ function transcriptMentions(text, subjects, tier) {
 }
 
 /**
+ * Every string anywhere in a value, however deep.
+ * @param {unknown} v
+ * @returns {Generator<string>}
+ */
+function* deepStrings(v) {
+	if (typeof v === "string") {
+		if (v) yield v;
+		return;
+	}
+	if (v && typeof v === "object")
+		for (const x of Object.values(v)) yield* deepStrings(x);
+}
+
+/**
+ * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
+ * reads every string from its start.
+ * @param {RegExp} pattern
+ */
+const stateless = (pattern) =>
+	new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
+
+/**
+ * @param {TranscriptRecord} record
+ * @param {RegExp} re  a `stateless` copy
+ */
+function anyStringMatches(record, re) {
+	for (const s of deepStrings(record)) if (re.test(s)) return true;
+	return false;
+}
+
+/**
+ * Does one record carry a match for `pattern` in any of its strings? Each
+ * string is tested whole, as the record holds it, never the record
+ * serialised, so a pattern is written against the text a session saw rather
+ * than against JSON escapes. Like `recordMentions`, it reads the whole record.
+ * @param {TranscriptRecord} record
+ * @param {RegExp} pattern
+ * @returns {boolean}
+ */
+function recordMatches(record, pattern) {
+	return anyStringMatches(record, stateless(pattern));
+}
+
+/**
+ * Every record in one transcript whose strings match `pattern`, one per
+ * record — the regex route beside `transcriptMentions`, for a fault no guard
+ * prints (#4796). Same parsing and the same `tier` as `transcriptFires`, so a
+ * main-tier read never counts a subagent's inline turn.
+ * @param {string} text
+ * @param {RegExp} pattern
+ * @param {"main" | "subagent"} tier
+ * @returns {Array<{at: string|null}>}
+ */
+function transcriptMatches(text, pattern, tier) {
+	const re = stateless(pattern);
+	const out = [];
+	for (const record of mainChainRecords(text, tier))
+		if (anyStringMatches(record, re))
+			out.push({
+				at: typeof record.timestamp === "string" ? record.timestamp : null,
+			});
+	return out;
+}
+
+/**
  * Roll fires up per subject: how many, by which route and needle, and when last.
  *
  * @param {Array<{subject: string, needle: string, route: string, at: string|null}>} fires
@@ -536,6 +602,32 @@ function mergeNeedles(core, host) {
 	};
 }
 
+/** The core's needles file, shipped beside the scripts. */
+const CORE_NEEDLES = path.join(__dirname, "..", "guard-fire-needles.json");
+
+/**
+ * Where a host keys the guards it registers itself (#1267).
+ * @param {string} root
+ */
+const hostNeedlesFile = (root) =>
+	path.join(root, ".claude", "guard-fire-needles.json");
+
+/**
+ * The core's needles merged with `root`'s own (`mergeNeedles`, whose refusals
+ * come back with them).
+ * @param {string} root
+ * @returns {ReturnType<typeof mergeNeedles>}
+ * @throws where either file will not read or parse
+ */
+function readNeedles(root) {
+	const host = readText(hostNeedlesFile(root));
+	if (host.state === "unreadable") throw host.error;
+	return mergeNeedles(
+		JSON.parse(fs.readFileSync(CORE_NEEDLES, "utf8")),
+		host.state === "read" ? JSON.parse(host.data) : null,
+	);
+}
+
 /**
  * The subjects to scan for: every registration the registry gives words to,
  * plus every shed candidate that has any.
@@ -613,14 +705,13 @@ function isMissingDir(e) {
 }
 
 /**
- * The subagent transcripts under one session's directory, or that
- * `subagents/` directory itself where it will not read (`readTranscriptFiles`
- * says why).
- * @param {string} sessionDir
+ * The subagent transcripts in one session's `subagents/` directory
+ * (`subagentDirOf`), or that directory itself where it will not read
+ * (`readTranscriptFiles` says why). None where it is absent or not a directory.
+ * @param {string} subDir
  * @returns {TranscriptFile[]}
  */
-function readSubagentFiles(sessionDir) {
-	const subDir = path.join(sessionDir, "subagents");
+function readSubagentFiles(subDir) {
 	let subFiles;
 	try {
 		subFiles = fs.readdirSync(subDir);
@@ -670,7 +761,7 @@ function readTranscriptFiles(dir) {
 			});
 		}
 		if (entry.isDirectory())
-			out.push(...readSubagentFiles(path.join(dir, entry.name)));
+			out.push(...readSubagentFiles(path.join(dir, entry.name, "subagents")));
 	}
 	return out;
 }
@@ -715,7 +806,10 @@ module.exports = {
 	guardKey,
 	guardKeys,
 	keyOrigins,
+	CORE_NEEDLES,
+	hostNeedlesFile,
 	mergeNeedles,
+	readNeedles,
 	registeredGuards,
 	registryDrift,
 	subjectsFor,
@@ -724,9 +818,13 @@ module.exports = {
 	fireSpans,
 	transcriptFires,
 	transcriptMentions,
+	recordFires,
+	recordMatches,
+	transcriptMatches,
 	tally,
 	transcriptDirs,
 	readTranscriptCorpus,
+	readSubagentFiles,
 	readTranscriptFiles,
 	sessionKeyFor,
 };

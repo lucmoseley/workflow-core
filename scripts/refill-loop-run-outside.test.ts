@@ -20,6 +20,7 @@ import { expect, it } from "vitest";
 import { buildJobRow } from "./lib/agents-stop-fake";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { API_PROMPT } from "./lib/loop-prompts.js";
+import { NET_PROBE_OFFLINE_LINE } from "./lib/net-probe-fake";
 import { ATTACH_VERDICT_MS } from "./lib/refill-blocks.js";
 import {
 	at,
@@ -94,7 +95,7 @@ it("takes a founder-started session through a drop, an offline wait, a typed res
 	expect(off.status).toBe(0);
 	expect(readLines(at("calls"))).toEqual([]);
 	expect(off.stdout).toContain(
-		`the API host is unreachable (api.anthropic.com did not resolve: EAI_AGAIN), so these due resumes wait for the next tick, no try spent: ${name}`,
+		`the API host is unreachable (${NET_PROBE_OFFLINE_LINE}), so these due resumes wait for the next tick, no try spent: ${name}`,
 	);
 	expect(outside()).toMatchObject([{ jobId: Job, tries: 0 }]);
 

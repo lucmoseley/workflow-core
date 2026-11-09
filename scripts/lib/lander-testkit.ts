@@ -200,7 +200,7 @@ if (is("issue", "list")) {
 	const rows = read().filter((i) => state === "all" || i.state === state.toUpperCase());
 	out(asRecorded("issueListRows", rows.map((r) => askedFields(a, r))) + "\\n");
 } else if (is("api") && a[1].endsWith("/labels")) {
-	const labels = ["urgent", "bug", "takes:implement", "kind:ticket"].map((name) => ({ name }));
+	const labels = ["urgent", "bug", "takes:implement", "kind:ticket", "origin:lander-script", "origin:ci-red"].map((name) => ({ name }));
 	out(asRecorded("labelsPage", [labels]));
 } else if (is("issue", "create")) {
 	if (flag("--title").startsWith("Re-land") && fs.existsSync(${JSON.stringify(refuseReland)})) {

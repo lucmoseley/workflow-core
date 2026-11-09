@@ -4,3 +4,6 @@
 # Merged per row by scripts/merge-registry-anchors.js, which install-hooks.js
 # defines; the gate then names each row both sides moved (#4171).
 .claude/guard-registry-anchors.json merge=registry-anchors
+# Appended by file-issue.js from many sessions at once; a union merge keeps
+# every side's lines (#4796).
+docs/data/outcome-signatures.jsonl merge=union

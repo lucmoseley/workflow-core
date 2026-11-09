@@ -127,7 +127,11 @@ describe("new-repo.js on an empty project", () => {
 			const [map] = gh.issues;
 			expect(map.number).toBe(1);
 			expect(map.title).toBe("tides: a tide-table app");
-			expect(map.labels.sort()).toEqual(["takes:wayfinder", "wayfinder:map"]);
+			expect(map.labels.sort()).toEqual([
+				"origin:wayfinder",
+				"takes:wayfinder",
+				"wayfinder:map",
+			]);
 			expect(map.assignees).toEqual([]);
 			expect(map.body).toMatch(
 				/## Destination\n\nNot named yet — the first session grills it\n/,

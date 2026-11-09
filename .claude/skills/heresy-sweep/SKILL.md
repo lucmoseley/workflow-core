@@ -108,7 +108,7 @@ Worst first:
 ```
 node scripts/file-issue.js --title "<the primitive to move onto, and the heresy it stops>" \
   --label takes:triage --standalone "Heresy sweep finding (<owner/name>#<due-issue>)" \
-  --body-file "$R/heresy-<k>.md"
+  --origin heresy-sweep --no-fault --body-file "$R/heresy-<k>.md"
 ```
 
 Exit 1 is a `gh` call that did not land. Read its message before re-running:

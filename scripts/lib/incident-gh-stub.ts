@@ -18,7 +18,7 @@ const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
 const say = (o) => { process.stdout.write(JSON.stringify(o)); process.exit(0); };
 fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
 if (fs.existsSync(f("down"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
-if (a[0] === "api" && a[1] === "repos/acme/wfc/labels") say([[{ name: "takes:triage" }]]);
+if (a[0] === "api" && a[1] === "repos/acme/wfc/labels") say([[{ name: "takes:triage" }, { name: "origin:incident" }]]);
 if (a[0] === "issue" && a[1] === "list" && a.includes("--search")) say(read("tickets.json"));
 if (a[0] === "issue" && a[1] === "list") say([
 	...read("tickets.json"),

@@ -54,7 +54,7 @@ For each:
 
 ```
 gh issue list --repo <owner/name> --state all --limit 10000 \
-  --json number,title,body,state,closedAt,labels > "$R/snapshot/<owner>-<name>.json"
+  --json number,title,body,state,closedAt,createdAt,labels > "$R/snapshot/<owner>-<name>.json"
 gh api --paginate "repos/<owner/name>/issues/comments?per_page=100" \
   --jq '.[] | {issue: (.issue_url|split("/")|last|tonumber), created_at, body}' \
   > "$R/snapshot/<owner>-<name>.comments.jsonl"
@@ -162,8 +162,17 @@ alias.
 
    ```
    node scripts/file-issue.js --title "<the change, and the fault it stops>" \
-     --label takes:triage --standalone "retro-sweep finding (<spec>)" --body-file <f>
+     --label takes:triage --standalone "retro-sweep finding (<spec>)" \
+     --origin retro --fault-signature "$R/sig-<k>.json" --body-file <f>
    ```
+
+   `$R/sig-<k>.json` is the finding's fault signature, shaped as
+   `scripts/lib/fault-signature.js` says: a guard needle key or a transcript
+   regex with its scope, a prediction, and the `case` — the session id and
+   raw-log line the brief's evidence cites (`agent` where it is a subagent's
+   line). `"signature": null` with a `why` where the fault leaves no
+   countable trace. file-issue.js refuses a signature that misses its case:
+   fix the signature, never the case.
 
    `<spec>` is `#948` in workflow-core. Exit 1 is a `gh` call that did not
    land: re-run once, reading its message first, since a create that landed
@@ -185,6 +194,97 @@ alias.
    quotes, it quotes whole; a body written outside a candidate files no
    remediation the founder waived in that session (`brief.md` §4).
 
+## 6a. Outcome review — weekly only
+
+Judges each fault-stopping fix due a reading (#4796). Budget 30k tokens; record what the step spent. Closes
+per hour (#3212) is read only as a trend over 25 or more days and never
+decides a verdict.
+
+```
+node scripts/measure-outcome-review.js --json > "$R/outcomes.json"
+```
+
+Exit 1 still writes the report, naming each failed read; a reading it could
+not take stays `waiting`. Then:
+
+1. **Copy** each entry of `.outcomes` into the record's `outcomes[]` (§7)
+   as it stands. Never change a verdict.
+2. **File each unwind** in `.unwinds.file` (at most 5, ranked harm first),
+   after the §2 snapshot search for an open one:
+
+   ```
+   node scripts/file-issue.js --title "Unwind <fix sha>: <what it changed>, which did not stop <fault>" \
+     --label takes:implement --standalone "retro-sweep outcome review (#4796)" \
+     --origin retro --no-fault --body-file "$R/unwind-<k>.md"
+   ```
+
+   The body names the finding, the fix sha, the signature, the observed and
+   expected counts over the window and sessions, and the guardrail readings
+   (reverts, follow-on tickets). Write its number into that outcome's
+   `unwindIssue`. **An adjust** — the fault is real and the fix was wrong — is
+   an unwind plus a new finding filed as in §6, with its own signature and
+   prediction. `.unwinds.carried` goes to `outcomeStep.backlog` unfiled.
+3. **Confirm each miss** in `.misses` and each `.noFaultBug` ticket against its
+   body and closing commit. For each confirmed miss, write its signature as
+   in §6, its `case` the record that triggered it, and log it late, checked
+   against that case as a filing is:
+
+   ```
+   node scripts/log-late-signature.js --issue <owner/name>#<n> \
+     --filed-at <the ticket's createdAt> --fault-signature "$R/late-<k>.json"
+   ```
+4. **Flip check:** where `.flipDue.due`, and no open or closed
+   "outcome review flip check" issue covers this run (§2 snapshot), file a
+   `takes:wayfinder` issue,
+   `--standalone "retro-sweep outcome review flip check (#4796)" --origin retro --no-fault`,
+   giving `.flipDue.why`.
+
+## 6b. Ticket mix — weekly only
+
+Reads the week's filed issues (#4796, #4629). Budget
+60–70k tokens; record what the step spent.
+
+1. **Count**, over every §2 snapshot, for the picker's `window`:
+
+   ```
+   node scripts/measure-ticket-mix.js --issues <owner/name>=$R/snapshot/<owner>-<name>.json [--issues …] \
+     --week-start <window.start> --week-end <window.end> --json > "$R/mix-counts.json"
+   ```
+
+   Exit 1 with a report written names
+   each run line it could not read; repair that line in the record.
+2. **Assign** every title of the week, in batches, to one kind in
+   `docs/data/ticket-kinds.json`, reading titles only. Add a kind —
+   `{id, meaning, firstSeen}` with this week's date — only where none fits;
+   never re-cluster. Write `$R/assigned.json`, `{"<owner/name>#<n>": "<kind id>"}`.
+3. **Trigger**:
+
+   ```
+   node scripts/measure-ticket-mix.js … --assigned "$R/assigned.json" --this-run --json > "$R/mix.json"
+   ```
+
+   `.triggers.candidates` are the candidates.
+4. **Before filing a candidate**, search the whole tracker, open and closed
+   at all dates (§2 snapshot, then `gh search issues` as a second look), and
+   read the candidate's cases' bodies to confirm the grouping. Where a closed
+   issue covers the kind, its fix did not hold: reopen it, or file a follow-up
+   citing it. Where an open one covers it, add to it.
+5. **File at most 2**, ranked by count × cost (what a ticket of that kind
+   costs the queue), each:
+
+   ```
+   node scripts/file-issue.js --title "<the kind, and the systemic cause it points to>" \
+     --label takes:triage --standalone "retro-sweep ticket mix (#4796)" \
+     --origin retro --no-fault --body-file "$R/mix-<k>.md"
+   ```
+
+   The body gives the kind, its weekly counts and limit, the trigger, the
+   cases read, and the searches. Every other candidate is watch-only: it
+   joins `ticketMixStep.watch` (§7) and is listed in the close comment.
+6. **Flip check:** where `.flip.due`, and no "ticket mix flip check" issue
+   covers it (§2 snapshot), file a `takes:wayfinder` issue,
+   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`.
+
 ## 7. Run record
 
 Build one compact JSON line (`jq -c`) in `$R/record.json`:
@@ -194,9 +294,26 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
  "picks":[{"sessionId","repo","release","pick":"rank"|"control","rank","score",
    "signals":{…},"classes":{"NEW","OPEN","FIXED-SINCE","COVERED-THEN","DECLINED","WRONG"},
    "ticketWorthy","tokens","model","stalled","dropped"}],
- "filed":["<owner/name>#<n>"],"lowValue":["<one line each>"],
+ "findings":[{"issue","class","cites","signature","why","baseline","prediction"}],
+ "lowValue":["<one line each>"],
+ "outcomes":[…],"outcomeStep":{"tokens","misses","backlog"},
+ "kinds":{"<kind id>":{"count","share"}},
+ "ticketMixStep":{"tokens","total","filed","watch"},
  "tokenMeasure":"final-context","medianTokens"}
 ```
+
+- `findings` has one entry per merged candidate, filed or not: `issue` the
+  filed `<owner/name>#<n>` or `null`; `class` its §6 class (`NEW`, `OPEN`, …);
+  `cites` the earlier issue or commit it pointed at; `signature` (or `null`
+  and `why`) and `prediction` as filed; `baseline` the signature's count and
+  sessions over the 4 weeks before filing, the trigger week excluded, with its
+  per-session rate: `.baseline` of `node scripts/measure-outcome-review.js
+  --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
+  a null signature.
+- `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
+  and `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
+  `ticketMixStep` its cost, the week's total, the issues it filed and the
+  watch kinds. A calibrate line carries none of the four.
 
 - `week` is the picker's `window`; `seed` is `null` in weekly mode; `wfcHead`
   is `$H`.
@@ -213,7 +330,7 @@ Then append, commit and push:
 ```
 node scripts/session-arbiter.js claim docs/data/retro-runs.jsonl
 jq -c . "$R/record.json" >> docs/data/retro-runs.jsonl
-node scripts/commit-paths.js -m "<what changed>" -m "<why, then the tally>" -- docs/data/retro-runs.jsonl
+node scripts/commit-paths.js -m "<what changed>" -m "<why, then the tally>" -- docs/data/retro-runs.jsonl docs/data/outcome-signatures.jsonl docs/data/ticket-kinds.json
 ```
 
 Push by the repo's push rule.
@@ -237,7 +354,10 @@ the run met with `node scripts/issue-body.js tick <issue> --match "<criterion>"`
 first.
 
 **weekly** adds each pick's class tally, the filed issues and the low-value
-count.
+count; from §6a, the verdict table (finding, fix sha, observed against
+expected, verdict), late verdicts listed apart, the unwinds filed, the carried
+backlog and the miss count; from §6b, the tickets filed and the kinds on
+watch; and each new step's token cost against its budget.
 
 **Flip check:** where the line just appended is the **fourth** `weekly` line
 in `docs/data/retro-runs.jsonl`, file a `takes:wayfinder` issue,

@@ -81,7 +81,12 @@ function recordTicket(deps, { record, parse, noun, subject, tornNote = "" }) {
 			if (closed !== null) said.push(`${noun}: closed #${closed}.`);
 		},
 		file(title, body, next, said) {
-			said.push(fileIssue({ title, standalone, noun, subject }, body));
+			said.push(
+				fileIssue(
+					{ title, standalone, noun, subject, origin: "lander-script" },
+					body,
+				),
+			);
 			save(next);
 		},
 	};
