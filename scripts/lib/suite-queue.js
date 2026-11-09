@@ -1452,10 +1452,8 @@ function heldOnClimbMb(denial) {
  * Whether a wait the climb charge held keeps its `climbHeld` stamp on this
  * poll (#4799): its rung or the Windows hold still denies it, and launches
  * already running are still charged. Their draw moves from the charge into
- * MemAvailable as they climb, and into what Windows has free, so a wait the
- * climb held goes on being held by them on either limb; dropping the stamp
- * there lets the other queue launch into the same memory. Once nothing is
- * charged, what holds it is no running launch, and the stamp goes.
+ * MemAvailable as they climb, and into what Windows has free; dropping the
+ * stamp there lets the other queue launch into the same memory.
  *
  * The queue-wait replay asks it too, so a change to the rule reaches both
  * (#4260).
@@ -1510,7 +1508,7 @@ function changesOnly(listener) {
  * anything is admitted (#2622); a hold that refuses returns `refused`. `admit` stamps the launch (`queueAdmit`), and a yield goes back
  * to waiting: at once where an open turn yielded `ahead`, else after a poll.
  * `admit` is REQUIRED, and refused at entry when missing, so no launch goes
- * unstamped (#2742); a caller with no queue passes its stub on purpose.
+ * unstamped (#2742).
  *
  * `onMemoryHeld` hears whether the memory rung holds the wait, each time that
  * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).

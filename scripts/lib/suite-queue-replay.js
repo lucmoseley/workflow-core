@@ -20,10 +20,8 @@
  *   tsc-fifo    an older `tsc` waiter, its queue being its own
  * then `admitted`, a suite's admission holding its turn (#3203), `peer-climb`,
  * and `open`:
- *   peer-climb  an older waiter in the other queue stamped `climbHeld`, from
- *               #4760's commit: one the climb limb holds, its stamp kept from
- *               #4799's while a launch of the other queue runs and its
- *               memory or windows limb still holds it
+ *   peer-climb  an older waiter in the other queue stamped `climbHeld`
+ *               (`climbStampsAt`)
  * In either class, directly after the memory limb and ahead of the fifos:
  *   climb       MemAvailable clears the rung, but not less the climb the wait's
  *               exit line says held it (#3416, #3806)
@@ -566,9 +564,8 @@ function tickAt(t, s, w, stamped) {
 /**
  * The waiters `tick` stamps `climbHeld`, as `waitForGate` does: of those the
  * count limb, read first, leaves to the rest, each the climb limb holds, and
- * from #4799's commit each `stamped` on the last tick that its memory or
- * windows limb still holds while a launch of the other queue runs, which the
- * gate's charge needs (`isClimbKept` in lib/suite-queue.js).
+ * from #4799's commit each `stamped` on the last tick that `isClimbKept` in
+ * lib/suite-queue.js keeps.
  *
  * @param {GateTick} tick
  * @param {Window} w
@@ -708,8 +705,8 @@ const isRungHeld = (e, tick, w) =>
  * spawned, each stamped `memoryHeld` where its rung holds it, else
  * `windowsHeld` where the Windows hold does; another waiter between its
  * `opened` exit and its spawn; and an older waiter in the other queue the
- * tick stamps `climbHeld`. #3058's pass is on from its commit, the Windows
- * stamp from #4782's, and the yield to that waiter from #4760's.
+ * tick stamps `climbHeld`. #3058's pass is on from its commit, and the
+ * Windows stamp from #4782's.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -1058,7 +1055,7 @@ function render(r, w) {
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
 		"- The climb limb tries each tick against the highest charge the wait's exit line recorded, so it can overstate a wait whose charge fell. A minute with no memwatch block counts as climb open.",
-		"- The peer-climb limb reads the `climbHeld` stamp off the climb limb, and from #4799's commit keeps it while a launch of the other queue runs, where the gate keeps it while that queue's charge is above zero; it inherits the climb limb's overstatement.",
+		"- The peer-climb limb reads the `climbHeld` stamp off the climb limb, and from #4799's commit keeps it while a launch of the other queue runs; it inherits the climb limb's overstatement.",
 		"- The windows limb is a lower bound too: it charges a waiter no climb, and a minute with no fresh Windows reading in memwatch's minute log counts as open.",
 		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short.",
 		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since 27 Oct 2026 15:26 UTC (#3276); before then the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
