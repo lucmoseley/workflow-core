@@ -228,7 +228,8 @@ for iss in $created_all; do
     # never asked for its wayfinder type — silent here, flagged by the weekly check.
     if [[ -n "$new_json" && $card_title -eq 0 && -n "$mine" ]]; then
       # A spec or brief under a map takes no type — check-issue-labels.js's map
-      # exemption (#578).
+      # exemption (#578). Both wayfinder: tests hand-copy lib/decision-labels.js
+      # isRouteStep.
       if [[ "$mine" == *"wayfinder:"* && "$new_labels" != *"wayfinder:"* &&
         "$new_labels" != *"kind:spec"* && "$new_labels" != *"kind:brief"* ]]; then
         label="${label:+${label}
