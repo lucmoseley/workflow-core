@@ -53,6 +53,7 @@ const READS_ARGV = /process\.argv(?!\s*\[\s*[01]\s*\])/;
 const USES_HELPER = /require\(\s*["']\.\/lib\/cli-args(?:\.js)?["']\s*\)/;
 const UTIL_SPECIFIER = `["'](?:node:)?util["']`;
 const PARSE_ARGS = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	[
 		String.raw`\{[^}]*\bparseArgs\b[^}]*\}\s*=\s*require\(\s*${UTIL_SPECIFIER}\s*\)`,
 		String.raw`import\s*\{[^}]*\bparseArgs\b[^}]*\}\s*from\s*${UTIL_SPECIFIER}`,

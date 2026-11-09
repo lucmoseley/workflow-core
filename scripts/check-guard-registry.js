@@ -1426,6 +1426,7 @@ const TREE_EXEMPT = "scripts/guard-dispatch.js";
 const COMMENT_LEAD = "^\\s*(?:#+|\\*|//)\\s*";
 
 const ANNOTATION_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	`${COMMENT_LEAD}(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
 );
 /* The reason is required, not decoration: "fail-safe" alone asserts a verdict

@@ -515,6 +515,7 @@ const MEMBER_RE = /\.\s*([A-Za-z_$][\w$]*)/g;
 const PATH_TAIL_RE = /(?:([/"'`])|(?<![\w-]))([\w-]+(?:\.[\w-]+)*)(?![\w/-])/g;
 const SCRIPT_EXT = /\.[cm]?[jt]sx?$/;
 /** The opening comment block, shebang and blank lines included — a file's header. */
+// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const HEADER = /^(?:#![^\n]*\n)?(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*))*/;
 /**
  * A header line naming the unbuilt caller a module was built ahead of, and
