@@ -268,7 +268,6 @@ describe("with the landing module off", () => {
 		expect(queueRules()).toEqual(
 			expect.arrayContaining([
 				"queue-ref",
-				"landing-rewind",
 				"branch-publish-landing",
 				"push-cadence-landing",
 				"review-ultra-axis-landing",

@@ -34,16 +34,13 @@ const { SUITE_WORKFLOW } = require("./lib/actions-tester.js");
 const { SWEEPS_JUDGED, collect, judge } = require("./lib/file-ci-time.js");
 const { ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { LANDING_BRANCH, VERIFIED_BRANCH } = require("./lib/landing-refs.js");
+const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
 const { downloadReports, readReports } = require("./lib/suite-timings.js");
 
-/* Per sweep branch. Untraced: a week of sweeps at four a day, past the eight
- * `collect` reads, for runs with no reports in between. */
+/* Untraced: a week of sweeps at four a day, past the eight `collect` reads,
+ * for runs with no reports in between. */
 const RUNS_LISTED = 30;
-
-/* A manual run on a feature branch tests a tree `main` never held. */
-const SWEEP_BRANCHES = new Set([VERIFIED_BRANCH, LANDING_BRANCH]);
 
 const ROOT = hostRoot();
 
@@ -77,34 +74,34 @@ function localSweeps(dir) {
  * @param {import("./lib/check.js").Ctx} ctx
  */
 function remoteSweeps(ctx) {
-	/* Listed per branch at the source: the lander's pushes run the same
+	/* Listed by branch at the source: the lander's pushes run the same
 	 * workflow, and enough of them push every sweep out of a mixed window
-	 * (#4559). Any branch failing to list skips the whole check. */
-	/** @type {number[]} */
-	const ids = [];
-	for (const branch of SWEEP_BRANCHES) {
-		try {
-			/** @type {{ databaseId: number }[]} */
-			const listed = ghJson([
-				"run",
-				"list",
-				"--workflow",
-				SUITE_WORKFLOW,
-				"--branch",
-				branch,
-				"--limit",
-				String(RUNS_LISTED),
-				"--json",
-				"databaseId",
-			]);
-			for (const r of listed) ids.push(r.databaseId);
-		} catch (e) {
-			ctx.skip(
-				`GitHub unreachable listing ${SUITE_WORKFLOW} runs on ${branch}: ${String(e)}`,
-			);
-		}
+	 * (#4559); a manual run on a feature branch tests a tree `main` never
+	 * held. */
+	/** @type {{ databaseId: number }[]} */
+	let listed;
+	try {
+		listed = ghJson([
+			"run",
+			"list",
+			"--workflow",
+			SUITE_WORKFLOW,
+			"--branch",
+			VERIFIED_BRANCH,
+			"--limit",
+			String(RUNS_LISTED),
+			"--json",
+			"databaseId",
+		]);
+	} catch (e) {
+		ctx.skip(
+			`GitHub unreachable listing ${SUITE_WORKFLOW} runs on ${VERIFIED_BRANCH}: ${String(e)}`,
+		);
 	}
-	const runs = ids.sort((a, b) => b - a).map(String);
+	const runs = listed
+		.map((r) => r.databaseId)
+		.sort((a, b) => b - a)
+		.map(String);
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "file-ci-time-"));
 	try {
 		return collect(runs, (run) => {
