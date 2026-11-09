@@ -5,8 +5,7 @@
  * (lib/refill-block-core.js's relaunched).
  *
  * Loosen one and an original whose stop a busy daemon refused stays
- * revivable beside its copy, the double-run #4098 set out to prevent, with
- * nobody told two rows are live.
+ * revivable beside its copy, with nobody told two rows are live.
  */
 import { describe, expect, it } from "vitest";
 import { relaunched } from "./refill-block-core.js";
@@ -32,7 +31,6 @@ const UNRETIRED: Unretired = {
 const copyLaunch = (over: Record<string, unknown> = {}) =>
 	record({ jobId: COPY_JOB, ...over }) as JobLaunch;
 
-/** The fixture's io, its retireJob answering `answers` in turn. */
 const ioAnswering = (...answers: (string | null)[]) =>
 	fakeIo({ retireJob: () => answers.shift() ?? null });
 
@@ -78,16 +76,10 @@ describe("retireOriginals (#4646)", () => {
 	});
 
 	it("leaves a launch with no unretired original untouched, retiring nothing", () => {
-		const retired: string[] = [];
-		const { io } = fakeIo({
-			retireJob: (_, sessionId) => {
-				retired.push(sessionId);
-				return null;
-			},
-		});
+		const { io, calls } = fakeIo();
 		const l = copyLaunch();
 		expect(retireOriginals([l], io)).toEqual([l]);
-		expect(retired).toEqual([]);
+		expect(calls.filter((c) => c.startsWith("retire "))).toEqual([]);
 	});
 });
 
