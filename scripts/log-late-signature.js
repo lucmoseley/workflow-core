@@ -8,8 +8,7 @@
  *   node scripts/log-late-signature.js --issue <owner/name>#<n>
  *     --filed-at <iso> --fault-signature <file>
  *
- * `--filed-at` is the ticket's own `createdAt`, so the baseline is read over
- * the weeks before it was filed. The line lands in the worktree's
+ * `--filed-at` is the ticket's own `createdAt`. The line lands in the worktree's
  * docs/data/outcome-signatures.jsonl, for the caller to commit.
  * Exits: 0 logged, 2 a usage error or a signature refused.
  */

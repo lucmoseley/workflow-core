@@ -17,9 +17,7 @@
  * declares whether it claims to stop a recurring fault: `--fault-signature`
  * names a signature file (lib/fault-signature.js holds its shape), checked
  * against the transcript record that triggered it, and appended to
- * docs/data/outcome-signatures.jsonl for the weekly outcome review;
- * `--no-fault` is a cut, refactor, rename or new capability, and leaves no
- * line (#4796). The line is the caller's to commit with its work.
+ * docs/data/outcome-signatures.jsonl for the weekly outcome review (#4796).
  *
  * Before every create it lists up to three open issues whose titles most
  * resemble the new one, so a duplicate or its natural parent is noticed
@@ -198,12 +196,12 @@ function readOpts({ flags, lists }) {
 function checkDeclarations({ origin, signatureFile, noFault }) {
 	if (origin === undefined || !isOrigin(origin))
 		io.fail(
-			`${origin === undefined ? "--origin is required" : `--origin '${origin}' is not on the list`}: name the flow filing this, one of ${ORIGINS.join(", ")}. The weekly ticket-mix review counts it (#4796). Nothing filed.`,
+			`${origin === undefined ? "--origin is required" : `--origin '${origin}' is not on the list`}: name the flow filing this, one of ${ORIGINS.join(", ")}. Nothing filed.`,
 			2,
 		);
 	if ((signatureFile === undefined) === !noFault)
 		io.fail(
-			"give exactly one of --fault-signature <file> or --no-fault: does this ticket claim to stop a recurring fault? A fault's signature is what the weekly outcome review counts to judge the fix; --no-fault is a cut, refactor, rename or new capability. The file's shape: scripts/lib/fault-signature.js. Nothing filed.",
+			"give exactly one of --fault-signature <file> or --no-fault: does this ticket claim to stop a recurring fault? --no-fault is a cut, refactor, rename or new capability. The file's shape: scripts/lib/fault-signature.js. Nothing filed.",
 			2,
 		);
 }

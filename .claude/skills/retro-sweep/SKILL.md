@@ -172,8 +172,7 @@ alias.
    raw-log line the brief's evidence cites (`agent` where it is a subagent's
    line). `"signature": null` with a `why` where the fault leaves no
    countable trace. file-issue.js refuses a signature that misses its case:
-   fix the signature, never the case. Commit the signature log with the run
-   record (§7).
+   fix the signature, never the case.
 
    `<spec>` is `#948` in workflow-core. Exit 1 is a `gh` call that did not
    land: re-run once, reading its message first, since a create that landed
@@ -197,10 +196,9 @@ alias.
 
 ## 6a. Outcome review — weekly only
 
-Judges each fault-stopping fix due a reading, by a script the run never
-overrides (#4796). Budget 30k tokens; record what the step spent. Closes
+Judges each fault-stopping fix due a reading (#4796). Budget 30k tokens; record what the step spent. Closes
 per hour (#3212) is read only as a trend over 25 or more days and never
-decides a verdict; no script reads that trend yet.
+decides a verdict.
 
 ```
 node scripts/measure-outcome-review.js --json > "$R/outcomes.json"
@@ -210,8 +208,7 @@ Exit 1 still writes the report, naming each failed read; a reading it could
 not take stays `waiting`. Then:
 
 1. **Copy** each entry of `.outcomes` into the record's `outcomes[]` (§7)
-   as it stands. Never change a verdict: the script is the judge, and the
-   session that made a fix never gives one.
+   as it stands. Never change a verdict.
 2. **File each unwind** in `.unwinds.file` (at most 5, ranked harm first),
    after the §2 snapshot search for an open one:
 
@@ -227,8 +224,7 @@ not take stays `waiting`. Then:
    `unwindIssue`. **An adjust** — the fault is real and the fix was wrong — is
    an unwind plus a new finding filed as in §6, with its own signature and
    prediction. `.unwinds.carried` goes to `outcomeStep.backlog` unfiled.
-3. **Confirm each miss** in `.misses` (closed this week, landed a commit,
-   fault-shaped, declared nothing) and each `.noFaultBug` ticket against its
+3. **Confirm each miss** in `.misses` and each `.noFaultBug` ticket against its
    body and closing commit. For each confirmed miss, write its signature as
    in §6, its `case` the record that triggered it, and log it late, checked
    against that case as a filing is:
@@ -237,19 +233,15 @@ not take stays `waiting`. Then:
    node scripts/log-late-signature.js --issue <owner/name>#<n> \
      --filed-at <the ticket's createdAt> --fault-signature "$R/late-<k>.json"
    ```
-
-   The count confirmed is `outcomeStep.misses`.
 4. **Flip check:** where `.flipDue.due`, and no open or closed
    "outcome review flip check" issue covers this run (§2 snapshot), file a
    `takes:wayfinder` issue,
    `--standalone "retro-sweep outcome review flip check (#4796)" --origin retro --no-fault`,
-   giving `.flipDue.why`. The review drops to on-demand where fewer than half
-   of the closed unwind tickets landed a revert that held 14 days, any
-   unwound change was landed again, or fewer than 5 verdicts were reached.
+   giving `.flipDue.why`.
 
 ## 6b. Ticket mix — weekly only
 
-Reads the week's filed issues as one body of data (#4796, #4629). Budget
+Reads the week's filed issues (#4796, #4629). Budget
 60–70k tokens; record what the step spent.
 
 1. **Count**, over every §2 snapshot, for the picker's `window`:
@@ -259,9 +251,7 @@ Reads the week's filed issues as one body of data (#4796, #4629). Budget
      --week-start <window.start> --week-end <window.end> --json > "$R/mix-counts.json"
    ```
 
-   It gives the week's total, per-origin counts (the `origin:*` label, else
-   the keyword fallback), masked title templates, and each kept kind's prior
-   weekly counts with its control limit. Exit 1 with a report written names
+   Exit 1 with a report written names
    each run line it could not read; repair that line in the record.
 2. **Assign** every title of the week, in batches, to one kind in
    `docs/data/ticket-kinds.json`, reading titles only. Add a kind —
@@ -273,10 +263,7 @@ Reads the week's filed issues as one body of data (#4796, #4629). Budget
    node scripts/measure-ticket-mix.js … --assigned "$R/assigned.json" --this-run --json > "$R/mix.json"
    ```
 
-   `.triggers.candidates` are the kinds with a real signal, each gated on 10
-   or more tickets this week: a new kind, a count over its control limit, a
-   six-week rising trend, or a top steady kind (Pareto). A kind with under 6
-   weekly points shows its direction as watch-only.
+   `.triggers.candidates` are the candidates.
 4. **Before filing a candidate**, search the whole tracker, open and closed
    at all dates (§2 snapshot, then `gh search issues` as a second look), and
    read the candidate's cases' bodies to confirm the grouping. Where a closed
@@ -296,9 +283,7 @@ Reads the week's filed issues as one body of data (#4796, #4629). Budget
    joins `ticketMixStep.watch` (§7) and is listed in the close comment.
 6. **Flip check:** where `.flip.due`, and no "ticket mix flip check" issue
    covers it (§2 snapshot), file a `takes:wayfinder` issue,
-   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`:
-   the step drops to on-demand where fewer than 2 of the tickets it filed
-   closed with a landed commit.
+   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`.
 
 ## 7. Run record
 
@@ -324,8 +309,7 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   sessions over the 4 weeks before filing, the trigger week excluded, with its
   per-session rate: `.baseline` of `node scripts/measure-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
-  a null signature. An older
-  line carries `filed` in its place.
+  a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
   and `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
   `ticketMixStep` its cost, the week's total, the issues it filed and the
@@ -373,7 +357,7 @@ first.
 count; from §6a, the verdict table (finding, fix sha, observed against
 expected, verdict), late verdicts listed apart, the unwinds filed, the carried
 backlog and the miss count; from §6b, the tickets filed and the kinds on
-watch; and each new step's token cost against its budget (30k and 60–70k).
+watch; and each new step's token cost against its budget.
 
 **Flip check:** where the line just appended is the **fourth** `weekly` line
 in `docs/data/retro-runs.jsonl`, file a `takes:wayfinder` issue,

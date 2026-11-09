@@ -5,23 +5,17 @@
  * file-issue.js's `--origin`, and every issue filed before it has none.
  *
  * A PORT of the trial's `bin/classify.py` `origin()`: the same tests in the
- * same order, the same regexes and the same provenance text (`prov()`), so a
- * count read here matches the trial's. Its outputs are mapped onto
+ * same order, the same regexes and the same provenance text (`prov()`). Its outputs are mapped onto
  * lib/issue-origin.js's fixed list by OUTPUT_MAP below; `unmarked` is no
  * signal at all. Two departures, both outside any regex: the trial's
  * `daily-report-script` is split by its title (a morning review is
  * `morning-review-script`, the other two daily reports are `incident`), and
  * the provenance line's `.` is `[^\n]`, because Python's `.` takes a `\r`
  * and JavaScript's does not.
- *
- * Reads only the title, the labels, the `Standalone:` or `Part of` line, the
- * body before its first heading and the head of its first two sections.
  */
 
 const { isOrigin } = require("./issue-origin");
 
-/* The trial's classes that are not on the fixed list, and the class each
- * counts as. */
 const OUTPUT_MAP = /** @type {const} */ ({
 	"retro-sweep": "retro",
 	"founder-raised": "founder",
@@ -30,7 +24,6 @@ const OUTPUT_MAP = /** @type {const} */ ({
 
 const UNMARKED = "unmarked";
 
-/** The cut lengths classify.py reads the body at. */
 const PRE_CHARS = 600;
 const SECTION_CHARS = 260;
 const SECTIONS_READ = 2;
@@ -46,7 +39,7 @@ const MORNING_HEAD = 60;
  */
 
 /**
- * The provenance line and the lowered provenance text (classify.py `prov`).
+ * The provenance line and the lowered provenance text.
  * @param {string} b
  * @returns {{ sl: string, p: string }}
  */
@@ -66,7 +59,6 @@ function prov(b) {
 }
 
 /**
- * classify.py's `R`: a case-blind search.
  * @param {string} pattern
  * @param {string} s
  */
@@ -80,8 +72,6 @@ const labelName = (l) => (typeof l === "string" ? l : l.name);
  * @typedef {[string, (r: Read) => boolean]} Rule
  */
 
-/* classify.py's `origin()` tests, in its order: the first that holds names
- * the class. */
 /** @type {Rule[]} */
 const RULES = [
 	["morning-review-script", ({ t }) => R("^Morning review — ", t)],

@@ -469,7 +469,7 @@ function* deepStrings(v) {
 
 /**
  * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
- * reads every string from its start, and the caller's regex is never touched.
+ * reads every string from its start.
  * @param {RegExp} pattern
  */
 const stateless = (pattern) =>
@@ -488,8 +488,7 @@ function anyStringMatches(record, re) {
  * Does one record carry a match for `pattern` in any of its strings? Each
  * string is tested whole, as the record holds it, never the record
  * serialised, so a pattern is written against the text a session saw rather
- * than against JSON escapes. Like `recordMentions`, it reads the whole record:
- * a regex signature names a fault by its words wherever they land.
+ * than against JSON escapes. Like `recordMentions`, it reads the whole record.
  * @param {LogRecord} record
  * @param {RegExp} pattern
  * @returns {boolean}
@@ -616,8 +615,7 @@ const hostNeedlesFile = (root) =>
 
 /**
  * The core's needles merged with `root`'s own (`mergeNeedles`, whose refusals
- * come back with them). A host with no file is the common case, an adopter
- * with no guards of its own.
+ * come back with them).
  * @param {string} root
  * @returns {ReturnType<typeof mergeNeedles>}
  * @throws where either file will not read or parse

@@ -5,10 +5,6 @@
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
  * dropped, or a missed signature goes unlisted.
- *
- * Each case builds a scratch repo (a git history whose `origin/main` holds the
- * fix commits, a signature log and a run record), two seats of transcripts,
- * and a stubbed `gh`, then runs the CLI with `--json` and asserts its output.
  */
 
 import { execFileSync } from "node:child_process";
@@ -24,7 +20,6 @@ const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
-/** Day `n` of the fixture calendar, as an ISO string. */
 const d = (n: number) => new Date(T0 + n * DAY).toISOString();
 /* The finding is filed on day 35: its trigger week is days 28-35 and its
  * baseline days 0-28. The fix lands on day 40; the run reads on day 60. */
@@ -80,7 +75,6 @@ function scratch() {
 		root,
 		seats,
 		issues,
-		/** A commit on origin/main at day `day`; its sha. */
 		commit(message: string, day: number) {
 			git(["commit", "-q", "--allow-empty", "-m", message], d(day));
 			const sha = git(["rev-parse", "HEAD"]);
@@ -174,19 +168,16 @@ if (argv[0] === "issue" && argv[1] === "view") {
 
 type Fixture = ReturnType<typeof scratch>;
 
-/** Four baseline sessions, one hit each: a rate of 1 a session. */
 function baselineOfOne(f: Fixture) {
 	for (const [i, day] of [2, 9, 16, 23].entries()) f.session(`b${i}`, day, 1);
 }
 
-/** Finding #1 filed with a signature, closed, fixed on day FIXED. */
 function fixedFinding(f: Fixture) {
 	f.issues.push({ number: 1, title: "BOOM in the lander" });
 	f.signatureLine(1);
 	return f.commit("Stop the boom (#1)", FIXED);
 }
 
-/** `n` sessions after the fix, each with `hits` hits. */
 function afterFix(f: Fixture, n: number, hits: number, from = 0) {
 	for (let i = 0; i < n; i++)
 		f.session(`a${from + i}`, FIXED + 1 + from + i, hits);
@@ -609,7 +600,6 @@ describe("measure-outcome-review.js", () => {
 });
 
 describe("--baseline, a finding's baseline at filing", () => {
-	/** Runs baseline mode on a signature file holding `content`. */
 	function runBaseline(f: Fixture, content: unknown) {
 		const file = path.join(home, "sig.json");
 		fs.writeFileSync(file, JSON.stringify(content));

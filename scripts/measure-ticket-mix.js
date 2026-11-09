@@ -2,12 +2,10 @@
 /*
  * measure-ticket-mix.js — the counting half of retro-sweep's weekly ticket-mix
  * review (spec #4796 §Ticket-mix review, #4797). The model assigns titles to
- * kinds; this script does every count, limit and trigger, so the session
- * spends tokens only on assigning and on reading candidates.
+ * kinds; this script does every count, limit and trigger.
  *
  * IN NO §N3 FAMILY: it gates nothing, writes no file and files no issue (the
- * retro files the candidates), and it exits 1 on a failed read so a gap never
- * reads as a zero count.
+ * retro files the candidates).
  *
  * INPUT. One tracker snapshot per repo (`--issues <owner/name>=<file>`, the
  * array `gh issue list --json number,title,body,state,closedAt,labels,createdAt`
@@ -44,8 +42,7 @@
  *               total moved sharply (outside the totals' own limits either
  *               way), its share is over its share's upper limit;
  *   trend       its last TREND_POINTS weekly points, this week the last, each
- *               rise on the one before (Nelson's rule 3, rising side: a
- *               falling kind is no filing candidate). Under TREND_POINTS
+ *               rise on the one before (Nelson's rule 3, rising side). Under TREND_POINTS
  *               points its direction is `watch-only`, never a trigger;
  *   level       the Pareto level: kinds ranked by count, those that reach
  *               PARETO_SHARE of the week's total, at most PARETO_MAX, steady
@@ -78,7 +75,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const CONSTANTS = /** @type {const} */ ({
 	/* Spec #4796: every trigger waits for 10 tickets of the kind in a week. */
 	FLOOR: 10,
-	/* The c-chart's and p-chart's sigmas. */
 	SIGMAS: 3,
 	/* XmR's 3 / d2 (d2 = 1.128 for a moving range of 2). */
 	XMR_FACTOR: 2.66,
@@ -104,8 +100,7 @@ const DEFAULT_KINDS = "docs/data/ticket-kinds.json";
 
 /* Drain-style masks, applied in this order: refs and branches before paths,
  * which would take their `/`; shas before numbers, which would take their
- * digits. Backticks are dropped first. A sha needs a digit and a hex letter, so neither a word nor a
- * plain number reads as one. */
+ * digits. Backticks are dropped first. */
 const MASKS = /** @type {const} */ ([
 	[/\b[\w.-]+\/[\w.-]+#\d+\b|#\d+\b/g, "<issue>"],
 	[/\b(?:refs|q)\/[^\s`'"()<>,;]+|\bimplement-[\w.-]+/g, "<branch>"],
@@ -163,7 +158,6 @@ function readJson(file, what) {
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 /**
- * The mean moving range of consecutive points.
  * @param {number[]} xs
  */
 const meanMovingRange = (xs) =>
@@ -194,7 +188,6 @@ const noLimits = (points) => ({
 });
 
 /**
- * A count's limits: the c-chart under XMR_FROM points, XmR from there.
  * @param {number[]} xs
  * @returns {Limits}
  */
@@ -207,8 +200,6 @@ function countLimits(xs) {
 }
 
 /**
- * A share's limits: the p-chart at this week's total under XMR_FROM points,
- * XmR from there.
  * @param {number[]} xs
  * @param {number} total
  * @returns {Limits}
@@ -227,7 +218,6 @@ function shareLimits(xs, total) {
 }
 
 /**
- * A title with its variable parts masked.
  * @param {string} title
  */
 function template(title) {
@@ -413,7 +403,6 @@ function countTemplates(week) {
 }
 
 /**
- * The last TREND_POINTS points' direction, or watch-only under that many.
  * @param {number[]} series prior points then this week
  * @returns {"watch-only" | "up" | "down" | "none"}
  */
@@ -433,7 +422,6 @@ function direction(series) {
  */
 
 /**
- * The whole report.
  * @param {Options} o
  */
 function buildReport(o) {
@@ -505,7 +493,6 @@ function buildReport(o) {
 }
 
 /**
- * The triggers half.
  * @param {{ assigned: Record<string, string>, week: {ref: string}[],
  *   kindRows: {id: string, points: number[], limits: Limits, shareLimits: Limits}[],
  *   kinds: Kind[], total: number, sharp: boolean, window: Week, file: string }} a
@@ -542,7 +529,6 @@ function buildTriggers({
 		const refs = refsOf.get(k.id) ?? [];
 		return { ...k, refs, count: refs.length };
 	});
-	/* The Pareto level: ranked by count, those that reach the cut. */
 	const level = new Set();
 	let cum = 0;
 	for (const k of [...counted].sort(
@@ -605,7 +591,6 @@ function buildTriggers({
 }
 
 /**
- * One kind's week: its count, share, limits, direction and triggers.
  * @param {{id: string, points: number[], limits: Limits, shareLimits: Limits,
  *   refs: string[], count: number}} k
  * @param {{total: number, sharp: boolean, window: Week, level: boolean,

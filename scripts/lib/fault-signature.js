@@ -1,7 +1,6 @@
 /*
  * fault-signature.js — the fault signature a ticket claiming to stop a fault
- * declares at filing (#4796, #4640): its shape, the case it must match, how it
- * is counted in a transcript, and the log line file-issue.js appends.
+ * declares at filing (#4796, #4640).
  *
  * A signature file is JSON:
  *
@@ -17,8 +16,7 @@
  * (lib/guard-fires.js `mergeNeedles`), and carries needles. The case names the
  * transcript record that triggered the ticket: `agent` names a subagent's own
  * log under that session. It is read across every seat, one copy each
- * (lib/project-dirs.js), and a signature that does not match it is refused, so
- * a filer learns at filing that it would count nothing (#4635).
+ * (lib/project-dirs.js), and a signature that does not match it is refused (#4635).
  *
  * A needle counts as lib/guard-fires.js counts a guard's fires, on both tiers;
  * a regex through its regex route, on the tiers its scope names.

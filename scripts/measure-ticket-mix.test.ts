@@ -5,9 +5,6 @@
  * origin or a template wrongly, sets a kind's limit wrongly, fires a trigger
  * under the 10-ticket floor or on a trend it cannot yet read, misses the
  * Pareto level, or judges a kind on count alone when the week's total moved.
- *
- * Each case writes a snapshot, a run record and a kept list into a scratch
- * directory and runs the CLI in-process with --json, asserting its output.
  */
 
 import fs from "node:fs";
@@ -53,7 +50,6 @@ const write = (name: string, data: unknown) => {
 	return f;
 };
 
-/** A weekly run line `weeksBack` weeks before this one. */
 const weekly = (weeksBack: number, extra: Line): Line => {
 	const s = new Date(Date.parse(START) - weeksBack * 7 * DAY);
 	return {
@@ -67,7 +63,7 @@ const weekly = (weeksBack: number, extra: Line): Line => {
 	};
 };
 
-/** Weekly lines, oldest first, one per prior count of kind `id`. */
+/** Weekly lines, oldest first. */
 const history = (id: string, counts: number[], totals?: number[]) =>
 	counts.map((c, i) =>
 		weekly(counts.length - i, {
@@ -76,7 +72,6 @@ const history = (id: string, counts: number[], totals?: number[]) =>
 		}),
 	);
 
-/** `n` issues of one title stem, numbered from `from`. */
 const issues = (from: number, n: number, title = "Some fault") =>
 	Array.from(
 		{ length: n },
@@ -88,7 +83,6 @@ const issues = (from: number, n: number, title = "Some fault") =>
 		}),
 	);
 
-/** The assignment of every issue in `list` to `kind`. */
 const assign = (list: Issue[], id: string) =>
 	Object.fromEntries(list.map((i) => [`${REPO}#${i.number}`, id]));
 
@@ -130,7 +124,6 @@ function run(o: {
 	};
 }
 
-/** The trigger row for one kind. */
 const rowOf = (r: ReturnType<typeof run>, id: string) =>
 	r.json.triggers.kinds.find((k: { id: string }) => k.id === id);
 

@@ -3,11 +3,10 @@
  * measure-outcome-review.js — the outcome review of fault-stopping changes,
  * retro-sweep weekly mode's step (spec #4796 §Outcome review, ticket #4797).
  * It gives every verdict; the retro copies `--json` into its run line's
- * `outcomes[]` and never overrides one. It files nothing and writes nothing.
+ * `outcomes[]` and never overrides one.
  *
  * IN NO §N3 FAMILY: it gates nothing, writes no file and files no issue (the
- * retro files the unwinds), and it exits 1 on a failed read so a gap never
- * reads as a zero count.
+ * retro files the unwinds).
  *
  * FINDINGS are every line of the signature log (lib/fault-signature.js's
  * SIGNATURE_LOG) with a signature, and every `findings[]` entry with an issue
@@ -38,7 +37,7 @@
  * THE WINDOW is the sessions starting after the fix, in time order, grown
  * until rate × sessions reaches EXPECTED_FLOOR or the sessions run out at
  * `now`. A finding a prior run extended reads every session from the fix to
- * `now`, so its second reading holds the sessions since the first.
+ * `now`.
  * `expected` is rate × sessions, `observed` the hits in them.
  *
  * VERDICTS: guardrail harm (a revert of the fix on origin/main, or a `bug`
@@ -112,7 +111,7 @@ const TRIGGER_DAYS = 7;
 const BASELINE_WEEKS = 4;
 /** Days after the fix's commit before the first reading (#4796). */
 const INTERVAL_DAYS = 7;
-/** Expected recurrences the window grows to (#4796: 3; e^-3 ≈ 5%). */
+/** Expected recurrences the window grows to (#4796: 3). */
 const EXPECTED_FLOOR = 3;
 /** Poisson P(X ≤ observed | expected) at or under which the count fell. */
 const KEEP_P = 0.05;

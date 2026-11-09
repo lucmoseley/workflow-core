@@ -3,9 +3,7 @@
  * `--origin`, and the `origin:<class>` label each stamps, so the weekly
  * ticket-mix review counts origins without a model (#4796, #4629).
  *
- * The list is #4627's (the ticket-mix trial's) origin classes, with its
- * `morning-review-script` kept: file-morning-review.js files through
- * file-issue.js and is no other class. A new flow takes a new entry here; the
+ * A new flow takes a new entry here; the
  * labels reach each adopter through lib/adopter-skeleton.js's label plan.
  */
 

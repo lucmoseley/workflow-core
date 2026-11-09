@@ -134,7 +134,7 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 ## `origin:<class>`
 
-**Names the flow that filed the issue**, so the weekly ticket-mix review counts origins without a model (#4796). `scripts/file-issue.js --origin <class>` stamps it on every filing, from the fixed list in `scripts/lib/issue-origin.js`; a new filing flow adds its class there, and `lib/adopter-skeleton.js`'s label plan carries every class to each adopter's tracker. A hand `gh issue create` stamps none, and the review's keyword fallback (`scripts/lib/origin-fallback.js`) classes it instead. Provenance, not state: nothing routes on it.
+**Names the flow that filed the issue**, so the weekly ticket-mix review counts origins (#4796). `scripts/file-issue.js --origin <class>` stamps it on every filing, from the fixed list in `scripts/lib/issue-origin.js`; a new filing flow adds its class there, and `lib/adopter-skeleton.js`'s label plan carries every class to each adopter's tracker. Provenance, not state: nothing routes on it.
 
 ## `card:<card-id>`
 
