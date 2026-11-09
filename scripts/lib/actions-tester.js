@@ -287,8 +287,9 @@ function readFailed(sha, run, reads, atRetry = false) {
 
 /**
  * The tree's files the in-job retry cleared on a passed run's shards, read
- * off the log of each shard whose retry step ran and passed. A log that
- * cannot be read costs the record, never the green.
+ * off the log of each shard whose retry step ran and passed. A read that
+ * fails costs the record, never the green (#4558), and says so on stderr,
+ * which the lander's log takes.
  * @param {string} sha
  * @param {readonly Job[]} jobs
  * @param {Pick<Reads, "jobLogOf" | "presentAt">} reads
@@ -300,18 +301,28 @@ function readCleared(sha, jobs, reads) {
 			(s) => s.conclusion === "success" && s.name === RETRY_STEP,
 		),
 	);
-	const files = retried.flatMap((j) => {
-		if (j.databaseId === undefined) return [];
-		try {
-			return parseRetryLine(
-				stripLogPrefix(reads.jobLogOf(j.databaseId)),
-				CLEARED,
-			);
-		} catch {
-			return [];
-		}
-	});
-	return files.length > 0 ? reads.presentAt(sha, [...new Set(files)]) : [];
+	if (retried.length === 0) return [];
+	try {
+		const files = retried.flatMap((j) => {
+			if (j.databaseId === undefined)
+				throw new Error(`job ${j.name} lists no id`);
+			/* The retry step's own lines: a test's output can print the
+			 * cleared line as its fixture. */
+			const own = reads
+				.jobLogOf(j.databaseId)
+				.split("\n")
+				.filter((line) => line.split("\t")[1] === RETRY_STEP)
+				.join("\n");
+			return parseRetryLine(stripLogPrefix(own), CLEARED);
+		});
+		return files.length > 0 ? reads.presentAt(sha, [...new Set(files)]) : [];
+	} catch (err) {
+		writeFd(
+			2,
+			`lander: flakes at ${sha.slice(0, SHORT_SHA)} unread: ${parseErrorText(err)}\n`,
+		);
+		return [];
+	}
 }
 
 /**
@@ -741,7 +752,13 @@ function queueTester({
 				reads: { ...reads, runs: () => reads.runsOn(branch) },
 			};
 			if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
-			return rerunVerdict(sha, files, on, named);
+			/* The batch's flakes are its first whole-suite ask's to record: a
+			 * later ask read off the same run would record them again. */
+			const { cleared: _, ...v } =
+				/** @type {Verdict & {cleared?: string[]}} */ (
+					await rerunVerdict(sha, files, on, named)
+				);
+			return v;
 		},
 		cancel(sha, branch) {
 			const run = newestRun(sha, reads.runsOn(branch));

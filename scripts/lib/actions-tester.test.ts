@@ -205,7 +205,7 @@ x\tRetry failed files\tT retry-failed-files: still failing after one retry: none
 	).not.toHaveProperty("retried");
 });
 
-it("names on a green the files its in-job retry cleared, off each retried shard's log, as its flakes (#4558)", async () => {
+it("names on a batch's whole-suite green the files its in-job retry cleared, off each retried shard's retry step, as its flakes (#4558)", async () => {
 	const shard = (k: number, retry: string | null): Job => ({
 		name: `Full suite / Vitest (${k}/2)`,
 		conclusion: "success",
@@ -216,7 +216,11 @@ it("names on a green the files its in-job retry cleared, off each retried shard'
 		],
 	});
 	const logs: Record<number, string> = {
-		101: "Full suite / Vitest (1/2)\tRetry failed files\t2026-11-09T04:00:00.0Z retry-failed-files: cleared by one retry: scripts/lib/a.test.ts, scripts/fixture-only.test.ts",
+		101: [
+			/* A test printing the line as its fixture, in the Vitest step. */
+			"Full suite / Vitest (1/2)\tVitest\t2026-11-09T03:59:00.0Z retry-failed-files: cleared by one retry: scripts/test_b.py",
+			"Full suite / Vitest (1/2)\tRetry failed files\t2026-11-09T04:00:00.0Z retry-failed-files: cleared by one retry: scripts/lib/a.test.ts, scripts/fixture-only.test.ts",
+		].join("\n"),
 	};
 	const r = reads(
 		[() => [run(1, "success")]],
@@ -234,6 +238,22 @@ it("names on a green the files its in-job retry cleared, off each retried shard'
 		cleared: ["scripts/lib/a.test.ts"],
 	});
 	expect(read).toEqual([101]);
+	/* A later ask read off the same run records none: the batch's whole
+	 * suite ask did. */
+	expect(
+		await queueTester({
+			root: "/",
+			reads: {
+				...r,
+				landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }],
+				runsOn: () => r.runs(),
+				cancel: () => undefined,
+				namedRuns: () => [],
+				dispatch: () => undefined,
+			},
+			...clock(),
+		}).verdict(SHA, ["scripts/lib/a.test.ts"]),
+	).toEqual({ kind: "green", run: 1 });
 	r.jobLogOf = () => {
 		throw new Error("HTTP 502");
 	};

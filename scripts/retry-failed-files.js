@@ -32,7 +32,7 @@ const CLEARED = "retry-failed-files: cleared by one retry:";
 const STILL_FAILING = "retry-failed-files: still failing after one retry:";
 
 /** @param {string[]} files */
-const named = (files) => (files.length > 0 ? files.join(", ") : "none");
+const buildFileList = (files) => (files.length > 0 ? files.join(", ") : "none");
 
 /**
  * The repo-relative files the report at `file` marks failed, else why none.
@@ -97,7 +97,7 @@ function main(argv = process.argv.slice(2)) {
 	const cleared = first.files.filter((f) => !still.includes(f));
 	writeFd(
 		1,
-		`${CLEARED} ${named(cleared)}\n${STILL_FAILING} ${named(still)}\n`,
+		`${CLEARED} ${buildFileList(cleared)}\n${STILL_FAILING} ${buildFileList(still)}\n`,
 	);
 	return code;
 }

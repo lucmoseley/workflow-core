@@ -1939,7 +1939,7 @@ function testSha(deps, sha, run) {
  * @param {readonly string[]} files
  */
 const buildClearedLine = (sha, run, files) =>
-	`flake ${sha}${run === undefined ? "" : ` run ${run}`}: green after its retry cleared ${files.join(", ")}`;
+	`flake ${short(sha)}${run === undefined ? "" : ` run ${run}`}: green after its retry cleared ${files.join(", ")}`;
 
 /**
  * Pushes each run's sha to its `lander/iso-*` ref, then starts an ask of
