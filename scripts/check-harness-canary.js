@@ -66,8 +66,7 @@ const { isCoreRoot } = require("./lib/core-hooks.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { reportOwner } = require("./lib/session-id.js");
-const { OUTLIVE_CEILING_S, spawnOutliving } = require("./lib/user-scope.js");
+const { spawnOutliving } = require("./lib/user-scope.js");
 
 const PLUGIN = "wfccanary";
 const BARE = `${PLUGIN}:bare`;
@@ -402,7 +401,7 @@ function detachProbe(flag, write) {
 		spawnOutliving(
 			process.execPath,
 			[__filename, flag, ...(write ? ["--write"] : [])],
-			{ stdio: "ignore", owner: reportOwner(), ceilingS: OUTLIVE_CEILING_S },
+			{ stdio: "ignore" },
 		).unref();
 	} catch {
 		/* The next session start retries (#2037). */

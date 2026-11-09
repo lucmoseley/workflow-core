@@ -198,10 +198,11 @@ function unseenSessionKills(canonical, log) {
  * @param {{ rows: Record<string, unknown>[], stamp: string, unreadable: string|null }} unseen
  */
 function reportUnseen(ctx, { rows, stamp, unreadable }) {
-	if (unreadable !== null)
-		ctx.say(
-			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${unreadable}`,
-		);
+	if (unreadable !== null) {
+		const line = `will not read the timer's kill log, so its kills go unnamed — ${unreadable}. Repair the file or move it aside; the next session start reads it again.`;
+		ctx.warn("ORPHAN-SESSION", line);
+		ctx.say(`ORPHAN-SESSION: ${line}`);
+	}
 	if (rows.length === 0) return;
 	ctx.say(
 		`ORPHAN-SESSION, since this checkout's last session start (${rows.length}) — killed with no session open:`,

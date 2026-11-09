@@ -59,12 +59,7 @@ source "$here/lib/detach.sh"
 # directory, and has no test redirection here.
 outlive_live() {
   [[ -z "${VITEST:-}" ]] || return 0
-  local log=()
-  if [[ "${1-}" == --log ]]; then
-    log=(--log "$2")
-    shift 2
-  fi
-  outlive "${log[@]}" "${CLAUDE_CODE_SESSION_ID:-}" "$OUTLIVE_CEILING_S" "$@"
+  outlive "${CLAUDE_CODE_SESSION_ID:-}" "$OUTLIVE_CEILING_S" "$@"
 }
 
 # SECOND JOB, SAME HOOK ENTRY (mantahostels#1175). refs/arbiter/<uuid> content pins — one per

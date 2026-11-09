@@ -192,8 +192,19 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		expect(shellCeiling).toBe(String(OUTLIVE_CEILING_S));
 	});
 
-	it("names no owner and sets no ceiling where it is given neither", () => {
+	it("names the starter's report owner and stops at the shared ceiling where it is given neither", () => {
 		const { ran, scoped } = launch(true, "{}");
+		expect(scoped).toEqual([
+			{
+				words: `--user --scope --quiet -p RuntimeMaxSec=${OUTLIVE_CEILING_S} --`,
+				owner: "inherited",
+			},
+		]);
+		expect(ran).toBe("job sid= job= owner=inherited");
+	});
+
+	it("names no owner and sets no ceiling where both are null, as the lander's start does", () => {
+		const { ran, scoped } = launch(true, "{ owner: null, ceilingS: null }");
 		expect(scoped).toEqual([{ words: "--user --scope --quiet --", owner: "" }]);
 		expect(ran).toBe("job sid= job= owner=");
 	});

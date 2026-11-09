@@ -135,6 +135,8 @@ function spawnDetachedRun({
 			cwd: root,
 			env: buildCheckoutEnv(root),
 			stdio: ["ignore", fd, fd],
+			owner: null,
+			ceilingS: null,
 			wrap,
 		});
 		if (child.pid === undefined) throw new Error(`could not start ${script}`);

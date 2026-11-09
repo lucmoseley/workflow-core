@@ -82,15 +82,11 @@ const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
  */
 function detachPrune() {
 	try {
-		const {
-			OUTLIVE_CEILING_S,
-			spawnOutliving,
-		} = require("./lib/user-scope.js");
-		const { reportOwner } = require("./lib/session-id.js");
+		const { spawnOutliving } = require("./lib/user-scope.js");
 		const child = spawnOutliving(
 			process.execPath,
 			[__filename, "prune-markers"],
-			{ stdio: "ignore", owner: reportOwner(), ceilingS: OUTLIVE_CEILING_S },
+			{ stdio: "ignore" },
 		);
 		child.unref();
 		/* An ENOENT on the spawn itself surfaces asynchronously, so it is caught

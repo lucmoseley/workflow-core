@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { systemdRun } from "./systemd-bins.js";
+import { MANAGER_TIMEOUT_MS, systemdRun } from "./systemd-bins.js";
 import { writeSystemdRun } from "./systemd-run-fake";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "systemd-run-contract-"));
@@ -25,8 +25,7 @@ const fake = writeSystemdRun(dir).bin;
 const call = (bin: string, args: string[]) => {
 	const r = spawnSync(bin, args, {
 		encoding: "utf8",
-		/* A guess: a user manager answers a scope in well under a second. */
-		timeout: 5000,
+		timeout: MANAGER_TIMEOUT_MS,
 		env: { ...process.env, WFC_REPORT_OWNER: "contract-owner" },
 	});
 	return { status: r.status, stdout: r.stdout.trim() };
