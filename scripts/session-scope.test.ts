@@ -127,6 +127,9 @@ describe("session-scope.js", () => {
 		expect(start).toMatch(
 			/StartTransientUnit .* PIDs au 1 500 Slice s wfc-sessions\.slice/,
 		);
+		expect(start).toMatch(
+			/ 7 PIDs .* MemoryMax t 3221225472 MemorySwapMax t 0 OOMPolicy s continue 0 $/,
+		);
 		expect(attach).toMatch(
 			/AttachProcessesToUnit ssau wfc-session-500-\d+\.scope {2}2 501 600 $/,
 		);

@@ -181,6 +181,17 @@ describe("the watcher", () => {
 		);
 	});
 
+	it("journals the scope's peak and OOM kills once its leader is gone", () => {
+		const m = fakeMachine({});
+		fs.writeFileSync(path.join(m.dir, "memory.peak"), "3221225472\n");
+		fs.writeFileSync(
+			path.join(m.dir, "memory.events"),
+			"low 0\nhigh 0\nmax 4\noom 2\noom_kill 2\noom_group_kill 0\n",
+		);
+		const r = watch(m.env, "4000", "0");
+		expect(r.stdout).toBe("u.scope peaked at 3072 MiB, oom_kill 2\n");
+	});
+
 	it("reads a leader on a reused pid, its start time changed, as ended", () => {
 		const m = fakeMachine({ 4242: "sleep\x00900\x00" });
 		fs.mkdirSync(path.join(m.proc, "4000"), { recursive: true });
