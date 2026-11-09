@@ -34,6 +34,7 @@ const { DAY_MS } = require("./retained-jsonl.js");
 const { rowChanges } = require("./primitives-table.js");
 const { buildIdleLines } = require("./idle-efforts.js");
 const { renderReadLine, renderUnreadLine } = require("./review-carry.js");
+const { buildAlarmLine } = require("./queue-alarms.js");
 const { buildStandaloneLine } = require("./standalone-line.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
@@ -179,12 +180,14 @@ function parseOneWayDoor(comments) {
  *   commit time where they were; or why either did not read
  * @typedef {{checkout: string, repo: string, closesSince: string,
  *   decisionsSince: string, entries: LedgerLine[] | null,
- *   closed: ClosedIssue[] | null, stalls: OpenIssue[], urgent: UrgentIssue[],
+ *   closed: ClosedIssue[] | null, stalls: OpenIssue[],
+ *   alarms: import("./queue-alarms.js").FiringAlarm[], urgent: UrgentIssue[],
  *   parked: ParkedIssue[], primitives: PrimitivesReading}}
  *   RepoReading its directory name, which the next review looks it up by; its
  *   tracker; where its closes and its decisions start (lib/review-carry.js's buildRepoStart), its ledger
  *   and its closes, each null where it did not read, its
- *   open stall ticket (lib/stall-ticket.js, #2692), its urgent issues and its
+ *   open stall ticket (lib/stall-ticket.js, #2692), its off-machine queue
+ *   alarms firing (lib/queue-alarms.js, #4772), its urgent issues and its
  *   parked ones
  * @typedef {{checkout: string, repo: string | null, act: string, issue: number | null,
  *   kind: import("./repo-holds.js").RepoHold["kind"], age: string,
@@ -668,9 +671,10 @@ function renderReview({
 				: [];
 		}),
 	);
-	const stalls = repos.flatMap(({ repo, stalls: open }) =>
-		open.map((i) => `- ${repo}#${i.number} — ${quoted(i.title)}`),
-	);
+	const stalls = repos.flatMap(({ repo, stalls: open, alarms }) => [
+		...open.map((i) => `- ${repo}#${i.number} — ${quoted(i.title)}`),
+		...alarms.map((a) => `- ${repo} — ${buildAlarmLine(a, hi)}`),
+	]);
 	const parked = repos.flatMap(({ repo, parked: open }) =>
 		open.map(
 			(i) =>

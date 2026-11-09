@@ -3,7 +3,8 @@
  * file-morning-review.js — file the day's morning review issue (#2011, spec
  * #1995 §The morning review issue): the still-caught delegated decisions, the
  * clear ones counted, the closes since the previous review issue with every
- * one-way close listed, each repo's open stall ticket, the issues
+ * one-way close listed, each repo's open stall ticket and off-machine queue
+ * alarms firing (lib/queue-alarms.js, #4772), the issues
  * `urgent` for over 7 days, and every open `parked` issue with its age.
  *
  *   node scripts/file-morning-review.js [--dry-run]
@@ -130,6 +131,7 @@ const {
 const { labelAge } = require("./lib/label-age.js");
 const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
+const { readFiringAlarms } = require("./lib/queue-alarms.js");
 const { STALL_TITLE } = require("./lib/queue-tickets.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 const { buildAgeText } = require("./lib/hold-age.js");
@@ -191,6 +193,7 @@ function readRepo(root, windowSince, reads, reviews) {
 		const ledger = readDecisions(root, repo);
 		const closes = readCloses(repo, start.closes);
 		const stalls = readStalls(repo);
+		const alarms = readAlarms(root, repo);
 		const urgent = readUrgent(root, repo, reads);
 		const parked = readParked(repo, reads);
 		const primitives = readPrimitives(
@@ -208,6 +211,7 @@ function readRepo(root, windowSince, reads, reviews) {
 				entries: ledger.entries,
 				closed: closes.closed,
 				stalls: stalls.read,
+				alarms: alarms.read,
 				urgent: urgent.read,
 				parked: parked.read,
 				primitives,
@@ -217,6 +221,7 @@ function readRepo(root, windowSince, reads, reviews) {
 				...ledger.unread,
 				...closes.unread,
 				...stalls.unread,
+				...alarms.unread,
 				...urgent.unread,
 				...parked.unread,
 			],
@@ -590,6 +595,24 @@ function readStalls(repo) {
 		return {
 			read: [],
 			unread: [{ repo, why: `stall tickets: ${parseErrLine(e)}` }],
+		};
+	}
+}
+
+/**
+ * The checkout's off-machine queue alarms firing (lib/queue-alarms.js,
+ * #4772); a failed read is unread, as readStalls'.
+ * @param {string} root
+ * @param {string} repo
+ * @returns {{read: import("./lib/queue-alarms.js").FiringAlarm[], unread: Unread[]}}
+ */
+function readAlarms(root, repo) {
+	try {
+		return { read: readFiringAlarms(root).alarms, unread: [] };
+	} catch (e) {
+		return {
+			read: [],
+			unread: [{ repo, why: `queue alarms: ${parseErrLine(e)}` }],
 		};
 	}
 }
