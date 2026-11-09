@@ -66,6 +66,7 @@ const { landingOn, VERIFIED_REF } = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
+const { readTreeIds, sameContent } = require("./content-ids.js");
 
 /**
  * One run as either store records it, and how much of the suite it covered.
@@ -1262,8 +1263,9 @@ function testsHeldAt(m, view) {
  * Whether `m`'s verdict on `test` holds at `sha` BY CONTENT ALONE (#3624):
  * the tree the run read against `sha`'s, never the sha stamped on it, which
  * is HEAD and says nothing of the uncommitted files the run also read. Test
- * by test where the run recorded its imports (`testsHeldAt`'s reads), else
- * `holdsAt`'s whole-run judgement. A run recording no tree, and every git
+ * by test where the run recorded its imports (`testsHeldAt`'s reads, judged
+ * by lib/content-ids.js, the judge the pass store shares), else `holdsAt`'s
+ * whole-run judgement. A run recording no tree, and every git
  * fault, holds nothing.
  *
  * @param {Marker} m
@@ -1280,14 +1282,17 @@ function holdsTestByTree(m, test, sha, options = {}) {
 	if (!root) return false;
 	try {
 		const view = shaView(sha, { git, countedPaths: null });
-		const touched = view.touched(m.treeAtEnd);
 		const reads = [
 			test,
 			...m.imports[test],
 			...(view.docsOf().get(test) ?? []),
 			...m.roots,
 		];
-		return !reads.some((p) => touched.has(p));
+		return sameContent(
+			reads,
+			readTreeIds(git, m.treeAtEnd, reads),
+			readTreeIds(git, `${sha}^{tree}`, reads),
+		);
 	} catch {
 		return false;
 	}
