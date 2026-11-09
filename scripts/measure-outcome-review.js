@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * report-outcome-review.js — the outcome review of fault-stopping changes,
+ * measure-outcome-review.js — the outcome review of fault-stopping changes,
  * retro-sweep weekly mode's step (spec #4796 §Outcome review, ticket #4797).
  * It gives every verdict; the retro copies `--json` into its run line's
  * `outcomes[]` and never overrides one.
@@ -133,8 +133,8 @@ const FLIP_OVER_BUDGET_RUNS = 2;
 /** Bytes read from a transcript's head to find its first timestamp. */
 const START_PROBE_BYTES = 65_536;
 
-const USAGE = `usage: node scripts/report-outcome-review.js [--now <iso>] [--json] [--root <dir>] [--config-dir <dir>]...
-       node scripts/report-outcome-review.js --baseline <signature file> --filed-at <iso> [--json] [--root <dir>] [--config-dir <dir>]...
+const USAGE = `usage: node scripts/measure-outcome-review.js [--now <iso>] [--json] [--root <dir>] [--config-dir <dir>]...
+       node scripts/measure-outcome-review.js --baseline <signature file> --filed-at <iso> [--json] [--root <dir>] [--config-dir <dir>]...
   --now         the reading instant (default: WFC_NOW, else the clock)
   --baseline    a finding's signature file: print its baseline at filing
   --filed-at    with --baseline, when the finding was filed
@@ -1165,13 +1165,13 @@ function baselineMain({ file, filedAt, root, seats, json }) {
 	if (typeof file !== "string" || Number.isNaN(at)) {
 		writeFd(
 			2,
-			`report-outcome-review: --baseline and --filed-at go together, --filed-at an ISO time.\n${USAGE}\n`,
+			`measure-outcome-review: --baseline and --filed-at go together, --filed-at an ISO time.\n${USAGE}\n`,
 		);
 		return 2;
 	}
 	const r = readFilingBaseline({ file, filedAt: at, root, seats });
 	if ("error" in r) {
-		writeFd(2, `report-outcome-review: ${r.error}\n`);
+		writeFd(2, `measure-outcome-review: ${r.error}\n`);
 		return 2;
 	}
 	writeFd(1, json ? `${JSON.stringify(r, null, 2)}\n` : buildBaselineText(r));
@@ -1190,17 +1190,17 @@ function reviewMain({ now, root, seats, json }) {
 		nowMs = typeof now === "string" ? Date.parse(now) : clockNow();
 	} catch (e) {
 		nowMs = Number.NaN;
-		writeFd(2, `report-outcome-review: ${caught(e).message}\n`);
+		writeFd(2, `measure-outcome-review: ${caught(e).message}\n`);
 	}
 	if (Number.isNaN(nowMs)) {
-		writeFd(2, `report-outcome-review: --now is not a date.\n${USAGE}\n`);
+		writeFd(2, `measure-outcome-review: --now is not a date.\n${USAGE}\n`);
 		return 2;
 	}
 	let tracker;
 	try {
 		tracker = requireKey("tracker", { root });
 	} catch (e) {
-		writeFd(2, `report-outcome-review: ${caught(e).message}\n`);
+		writeFd(2, `measure-outcome-review: ${caught(e).message}\n`);
 		return 2;
 	}
 	const r = review({ root, seats, nowMs, tracker });

@@ -17347,6 +17347,7 @@
 			"scripts/lib/run-cost-report.test.ts",
 			"scripts/link-sub-issue.test.ts",
 			"scripts/measure-ci-billing.test.ts",
+			"scripts/measure-outcome-review.test.ts",
 			"scripts/name-issue-session.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
@@ -17371,7 +17372,6 @@
 			"scripts/report-flip-line-reading.test.ts",
 			"scripts/report-heresy-sweep-due.test.ts",
 			"scripts/report-manual-staleness.test.ts",
-			"scripts/report-outcome-review.test.ts",
 			"scripts/report-remeasure-due.test.ts",
 			"scripts/report-round-check-reading.test.ts",
 			"scripts/report-suite-queue-wait.test.ts",
@@ -43739,6 +43739,22 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/measure-outcome-review.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/measure-outcome-review.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/measure-outcome-review.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/measure-points-per-usd.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -43934,6 +43950,22 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/measure-ticket-mix.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/measure-ticket-mix.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/measure-ticket-mix.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/measure-turn-band.js": [
 			"scripts/checker-registrations.test.ts",
@@ -45261,22 +45293,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/report-outcome-review.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-outcome-review.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/report-outcome-review.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/report-red-suite.js": [
 			"scripts/check-ci-status.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -45380,22 +45396,6 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/report-suite-queue-wait.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/report-ticket-mix.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-ticket-mix.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/report-ticket-mix.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
