@@ -320,9 +320,10 @@ if armed '^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|script
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit "$?"
 fi
 
-# The precommit-gates regions are rendered from the registry, so an edit to
-# either without a re-render runs gates the registry no longer holds (#4597).
-if armed '^(\.husky/pre-commit|scripts/lib/precommit-gates\.js)$'; then
+# The precommit-gates regions are rendered from the registry, so an edit to the
+# hook, the registry or its renderer without a re-render runs gates the registry
+# no longer holds (#4597).
+if armed '^(\.husky/pre-commit|scripts/(generate-precommit-gates|lib/precommit-gates(-render)?)\.js)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-precommit-gates.js --check || exit "$?"
 fi
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
- * generate-precommit-gates.js — renders .husky/pre-commit's two
- * `precommit-gates` regions from lib/precommit-gates.js's GATES (#4597).
+ * generate-precommit-gates.js — writes .husky/pre-commit's two
+ * `precommit-gates` regions, rendered by lib/precommit-gates-render.js from
+ * lib/precommit-gates.js's GATES (#4597).
  *
  * Usage:
  *   node scripts/generate-precommit-gates.js [--check]
@@ -13,10 +14,6 @@
  *
  * --check JUDGES THE INDEX, so a neighbour's unstaged edit to either file
  * cannot refuse a commit that stages neither (#2901).
- *
- * TWO REGIONS, because the hook exits on `--gates=merge` between them: the
- * `merge` region holds the gates the lander's merge set runs, the `batch`
- * region the rest (#4545).
  *
  * A RUN WRITES THE SESSION'S OWN TREE, `worktreeRoot()` (#4438).
  */
@@ -30,8 +27,8 @@ const { worktreeRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { HOOK, render } = require("./lib/precommit-gates-render.js");
 
-const HOOK = ".husky/pre-commit";
 const REGISTRY = "scripts/lib/precommit-gates.js";
 
 /** @type {import("./lib/cli-args").CliSpec} */
@@ -40,68 +37,19 @@ const CLI = {
 	flags: { "--check": "boolean" },
 };
 
-/** @typedef {import("./lib/precommit-gates").PrecommitGate} PrecommitGate */
-/** @typedef {{ GATES: PrecommitGate[], FLAG_ARGS: Record<string, string> }} Registry */
-
-const REGIONS = /** @type {const} */ (["merge", "batch"]);
-
-/** @param {string} region */
-const begin = (region) => `# precommit-gates:${region}:begin`;
-/** @param {string} region */
-const end = (region) => `# precommit-gates:${region}:end`;
-
-/**
- * One gate's block.
- * @param {PrecommitGate} gate
- * @param {Record<string, string>} flagArgs
- */
-const block = (gate, flagArgs) =>
-	[
-		`if ${gate.lander === "batch" ? "" : "! lander_batch && "}armed ${gate.arm}; then`,
-		`  node "\${WFC_PLUGIN_ROOT:-.}"/${gate.script} ${flagArgs[gate.flag]} || exit "$?"`,
-		"fi",
-	].join("\n");
-
-/**
- * A region's lines between its markers.
- * @param {Registry} registry
- * @param {string} region
- */
-const regionBody = ({ GATES, FLAG_ARGS }, region) =>
-	GATES.filter((g) => (g.lander === "merge") === (region === "merge"))
-		.map((g) => block(g, FLAG_ARGS))
-		.join("\n\n");
-
-/**
- * The hook with each region re-rendered.
- * @param {string} hook
- * @param {Registry} registry
- * @returns {string}
- */
-function render(hook, registry) {
-	let out = hook;
-	for (const region of REGIONS) {
-		const lines = out.split("\n");
-		const from = lines.indexOf(begin(region));
-		const to = lines.indexOf(end(region));
-		if (from === -1 || to < from)
-			throw new Error(
-				`${HOOK} has no \`${begin(region)}\` … \`${end(region)}\` pair`,
-			);
-		const body = regionBody(registry, region);
-		out = [
-			...lines.slice(0, from + 1),
-			...(body ? [body] : []),
-			...lines.slice(to),
-		].join("\n");
-	}
-	return out;
-}
+/** @type {import("node:child_process").ExecFileSyncOptionsWithStringEncoding} */
+const GIT_READ = {
+	encoding: "utf8",
+	timeout: GIT_TIMEOUT_MS,
+	stdio: ["ignore", "pipe", "pipe"],
+};
 
 /**
  * The registry's source, loaded as a module resolving from its own path.
+ * `--check` must judge the index's copy, which no file on disk holds, and
+ * compiling it at the real path lets its `./script-path.js` require resolve.
  * @param {string} source
- * @returns {Registry}
+ * @returns {import("./lib/precommit-gates-render").Registry}
  */
 function loadRegistry(source) {
 	const file = path.join(__dirname, "lib", "precommit-gates.js");
@@ -113,26 +61,17 @@ function loadRegistry(source) {
 }
 
 /** @param {string} rel */
-const indexBlob = (rel) =>
-	execGit(["show", `:${rel}`], {
-		encoding: "utf8",
-		timeout: GIT_TIMEOUT_MS,
-		stdio: ["ignore", "pipe", "pipe"],
-	});
+const readIndexBlob = (rel) => execGit(["show", `:${rel}`], GIT_READ);
 
-/** @returns {boolean} */
-const indexHolds = (/** @type {string} */ rel) =>
-	execGit(["ls-files", "--", rel], {
-		encoding: "utf8",
-		timeout: GIT_TIMEOUT_MS,
-		stdio: ["ignore", "pipe", "pipe"],
-	}).trim() !== "";
+/** @param {string} rel */
+const isInIndex = (rel) =>
+	execGit(["ls-files", "--", rel], GIT_READ).trim() !== "";
 
 /** @returns {number} */
 function checkIndex() {
-	if (!indexHolds(REGISTRY)) return 0;
-	const hook = indexBlob(HOOK);
-	if (render(hook, loadRegistry(indexBlob(REGISTRY))) === hook) return 0;
+	if (!isInIndex(REGISTRY)) return 0;
+	const hook = readIndexBlob(HOOK);
+	if (render(hook, loadRegistry(readIndexBlob(REGISTRY))) === hook) return 0;
 	writeFd(
 		2,
 		`generate-precommit-gates: ${HOOK}'s precommit-gates regions are stale against ${REGISTRY}\n` +
@@ -167,5 +106,3 @@ function main() {
 }
 
 if (require.main === module) process.exit(main());
-
-module.exports = { begin, end, render };

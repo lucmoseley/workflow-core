@@ -1,25 +1,33 @@
 // @vitest-environment node
 /*
- * generate-precommit-gates.js (#4597): the live hook is the render of the
- * live registry, a new row is one block in its region, and `--check` judges
- * the index. The hook gate running `--check` is pinned in
+ * generate-precommit-gates.js and its renderer, lib/precommit-gates-render.js
+ * (#4597). The render tests run against a two-region skeleton, so a new row's
+ * whole effect on the hook is one exact string; the `--check` tests run the
+ * real generator over a fixture repo's index, the only place a stale region
+ * is judged. A render that drifts from the hand-written gate shape, or a
+ * `--check` that reads the worktree, lets the hook run gates the registry no
+ * longer holds. The hook gate running `--check` is pinned in
  * precommit-whole-repo-gates.test.ts.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { begin, end, render } from "./generate-precommit-gates.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
 import { HOOK, ROOT } from "./lib/precommit-gate-testkit";
 import { FLAG_ARGS, GATES, type PrecommitGate } from "./lib/precommit-gates.js";
+import {
+	beginMarker,
+	endMarker,
+	render,
+} from "./lib/precommit-gates-render.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
 const registry = { FLAG_ARGS, GATES };
 /* Interpolated: a shell `${...}` in a plain string trips Biome's
  * noTemplateCurlyInString. */
-const Dollar = "$";
+const DOLLAR = "$";
 const SCRIPT = path.join(ROOT, "scripts", "generate-precommit-gates.js");
 const REGISTRY_SOURCE = fs.readFileSync(
 	path.join(ROOT, "scripts", "lib", "precommit-gates.js"),
@@ -29,13 +37,13 @@ const REGISTRY_SOURCE = fs.readFileSync(
 /** A hook carrying both empty regions around the merge-set exit. */
 const SKELETON = [
 	"#!/bin/sh",
-	begin("merge"),
-	end("merge"),
+	beginMarker("merge"),
+	endMarker("merge"),
 	'if [ "$wfc_gates" = merge ]; then',
 	"  exit 0",
 	"fi",
-	begin("batch"),
-	end("batch"),
+	beginMarker("batch"),
+	endMarker("batch"),
 	"",
 ].join("\n");
 
@@ -43,7 +51,7 @@ const row = (over: Partial<PrecommitGate>): PrecommitGate => ({
 	id: "new-gate",
 	script: "scripts/check-new-gate.js",
 	flag: "index",
-	arm: String.raw`'^scripts/.+\.js$'`,
+	ere: String.raw`^scripts/.+\.js$`,
 	lander: "batch",
 	staged: "scripts/a.js",
 	refusals: ["a new fault"],
@@ -62,8 +70,8 @@ describe("the live hook", () => {
 
 	it("renders the merge region before the merge set's exit, the batch region after", () => {
 		const exit = HOOK.indexOf('if [ "$wfc_gates" = merge ]; then');
-		expect(HOOK.indexOf(end("merge"))).toBeLessThan(exit);
-		expect(HOOK.indexOf(begin("batch"))).toBeGreaterThan(exit);
+		expect(HOOK.indexOf(endMarker("merge"))).toBeLessThan(exit);
+		expect(HOOK.indexOf(beginMarker("batch"))).toBeGreaterThan(exit);
 	});
 });
 
@@ -71,11 +79,11 @@ describe("a registry row", () => {
 	it("renders as one gate block in the batch region, with no other edit", () => {
 		expect(renderOf(row({}))).toBe(
 			SKELETON.replace(
-				`${begin("batch")}\n`,
+				`${beginMarker("batch")}\n`,
 				() =>
-					`${begin("batch")}\n` +
+					`${beginMarker("batch")}\n` +
 					"if armed '^scripts/.+\\.js$'; then\n" +
-					`  node "${Dollar}{WFC_PLUGIN_ROOT:-.}"/scripts/check-new-gate.js --index || exit "$?"\n` +
+					`  node "${DOLLAR}{WFC_PLUGIN_ROOT:-.}"/scripts/check-new-gate.js --index || exit "$?"\n` +
 					"fi\n",
 			),
 		);
@@ -90,8 +98,14 @@ describe("a registry row", () => {
 	it("renders in the merge region where the merge set runs it", () => {
 		const out = renderOf(row({ lander: "merge", flag: "against" }));
 		expect(out.indexOf("check-new-gate.js --against HEAD")).toBeLessThan(
-			out.indexOf(end("merge")),
+			out.indexOf(endMarker("merge")),
 		);
+	});
+
+	it("double-quotes an ERE naming $JS_TEST_ERE, escaping every other $", () => {
+		expect(
+			renderOf(row({ ere: String.raw`^a/.*$JS_TEST_ERE|\.ts$` })),
+		).toContain(String.raw`if armed "^a/.*$JS_TEST_ERE|\.ts\$"; then`);
 	});
 
 	it("puts a blank line between blocks", () => {
@@ -103,7 +117,7 @@ describe("a registry row", () => {
 
 it("refuses a hook missing a region's marker pair", () => {
 	expect(() =>
-		render(SKELETON.replace(`${end("batch")}\n`, ""), registry),
+		render(SKELETON.replace(`${endMarker("batch")}\n`, ""), registry),
 	).toThrow(/precommit-gates:batch/);
 });
 

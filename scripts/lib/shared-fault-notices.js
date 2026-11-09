@@ -16,7 +16,7 @@
 
 const path = require("node:path");
 const { scriptPath } = require("./script-path.js");
-const { GATES, scriptAt } = require("./precommit-gates.js");
+const { corePath, GATES } = require("./precommit-gates.js");
 
 /** @typedef {"against" | "index"} Gate */
 
@@ -27,9 +27,6 @@ const GATE_CLAUSE = {
 	index: "judged on the index in .husky/pre-commit",
 };
 
-/* Every checker ships in scripts/, beside this lib's directory (#1). */
-const CORE_SCRIPTS = path.join(__dirname, "..");
-
 /**
  * The two direction-gated checkers whose hook block is not a whole-repo gate
  * row: doc-map's staged-vs-HEAD block and context-budget's.
@@ -37,13 +34,13 @@ const CORE_SCRIPTS = path.join(__dirname, "..");
  */
 const OWN_BLOCK_ROWS = {
 	"doc-map": {
-		script: path.join(CORE_SCRIPTS, "check-doc-map.js"),
+		script: "scripts/check-doc-map.js",
 		gate: "against",
 		scope: "whole-repo assertion",
 		cost: "fails the scheduled sweeps, and warns every other session's docs commit",
 	},
 	"context-budget": {
-		script: path.join(CORE_SCRIPTS, "check-context-budget.js"),
+		script: "scripts/check-context-budget.js",
 		gate: "against",
 		scope: "whole-repo surface",
 		cite: "(mantahostels#1834)",
@@ -56,10 +53,7 @@ const OWN_BLOCK_ROWS = {
 
 const ROWS = {
 	...Object.fromEntries(
-		GATES.map((g) => [
-			g.id,
-			{ script: scriptAt(g), gate: g.flag, ...g.notice },
-		]),
+		GATES.map((g) => [g.id, { script: g.script, gate: g.flag, ...g.notice }]),
 	),
 	...OWN_BLOCK_ROWS,
 };
@@ -69,7 +63,7 @@ const NOTICES = Object.fromEntries(
 	Object.entries(ROWS).map(([profile, { script, gate, scope, cite, cost }]) => [
 		profile,
 		{
-			script,
+			script: corePath(script),
 			gate,
 			why: `${scope}, ${GATE_CLAUSE[gate]}${cite ? ` ${cite}` : ""}`,
 			cost,

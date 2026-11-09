@@ -203,15 +203,21 @@ describe("the pre-commit's precommit-gates region gate", () => {
 		path.join(ROOT, "scripts", "lib", "precommit-gates.js"),
 		"utf8",
 	);
-	const run = (hook: string) => {
+	const stale = HOOK.replace(
+		"check-jsonl-reads.js --index",
+		"check-x.js --index",
+	);
+	/* `alone`, where given, is staged over a HEAD already holding both files. */
+	const run = (hook: string, alone?: Record<string, string>) => {
+		const files = {
+			".husky/pre-commit": hook,
+			"scripts/lib/precommit-gates.js": registrySource,
+		};
 		const { root } = stagedRepo(
 			"precommit-gates-region-",
 			temps,
-			{},
-			{
-				".husky/pre-commit": hook,
-				"scripts/lib/precommit-gates.js": registrySource,
-			},
+			alone ? files : {},
+			alone ?? files,
 		);
 		const r = spawnSync(
 			"sh",
@@ -226,12 +232,17 @@ describe("the pre-commit's precommit-gates region gate", () => {
 	};
 
 	it("refuses a commit staging a stale region", () => {
-		const { code, output } = run(
-			HOOK.replace("check-jsonl-reads.js --index", "check-x.js --index"),
-		);
+		const { code, output } = run(stale);
 
 		expect(code).toBe(1);
 		expect(output).toContain("precommit-gates regions are stale");
+		expect(output).toContain("generate-precommit-gates.js, then stage");
+	});
+
+	it("arms on a commit staging the renderer alone", () => {
+		expect(
+			run(stale, { "scripts/lib/precommit-gates-render.js": "" }).code,
+		).toBe(1);
 	});
 
 	it("passes a commit staging the registry's render", () => {
