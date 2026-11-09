@@ -1,6 +1,7 @@
 /*
  * journalctl's `-o short-iso` output, for tests of lib/earlyoom-kills.js's
- * readers (#3094) and check-kernel-stall.js's kernel reader: the line builders
+ * readers (#3094), check-kernel-stall.js's kernel reader and the boot unit's
+ * ExecStopPost= (install-refill-boot-unit.js, #4594): the line builders
  * and a stub journalctl honouring `--since @<s>`, injected at WFC_JOURNALCTL.
  * Held to the real journalctl by earlyoom-journal.contract.test.ts (#3105).
  */
@@ -27,9 +28,13 @@ export const signalLine = (
 export const otherLine = (ms: number) =>
 	`${stamp(ms)} Luctop earlyoom[180]: sending SIGTERM when mem <=  8.00% and swap <= 100.00%,`;
 
+/** A line as `-o short-iso` prints it: its stamp, host and ident, then `msg`. */
+export const buildJournalLine = (ms: number, ident: string, msg: string) =>
+	`${stamp(ms)} Luctop ${ident}: ${msg}`;
+
 /** A kernel line, as `journalctl -k` prints it. */
 export const kernelLine = (ms: number, msg: string) =>
-	`${stamp(ms)} Luctop kernel: ${msg}`;
+	buildJournalLine(ms, "kernel", msg);
 
 /** A boot as the fake lists it: journalctl's undashed id and its span, ms. */
 export interface FakeBoot {
@@ -48,7 +53,8 @@ export const ONE_BOOT: FakeBoot = {
 /**
  * A journalctl in `dir` serving `lines` from `--since` on, or all of them
  * without one, and `-- No entries --` where none is served, as the real one
- * does; `--list-boots -o json` serves `boots`, or refuses where `boots` is
+ * does; `-o cat` serves each line's message alone, less its stamp, host and
+ * ident, and nothing where none is served; `--list-boots -o json` serves `boots`, or refuses where `boots` is
  * null. It appends each call's `journalctl <args>` to `dir/calls`. Its path,
  * for WFC_JOURNALCTL.
  */
@@ -87,11 +93,12 @@ export function writeJournalctl(
 if [ $# -eq 0 ]; then printf '%s\\n' journalctl; else printf '%s\\n' "journalctl $*"; fi >> ${shellQuote(path.join(dir, "calls"))}
 since=
 boots=
+cat=
 next=
 for x in "$@"; do
-	[ -n "$next" ] && since=$x
+	case $next in since) since=$x ;; output) [ "$x" = cat ] && cat=1 || cat= ;; esac
 	next=
-	case $x in --list-boots) boots=1 ;; --since) next=1 ;; esac
+	case $x in --list-boots) boots=1 ;; --since) next=since ;; -o | --output) next=output ;; --output=cat) cat=1 ;; --output=*) cat= ;; esac
 done
 if [ -n "$boots" ]; then ${listBootsReply}; fi
 # As the real one: the last --since wins, and one not @<digits> is refused.
@@ -101,7 +108,7 @@ case $since in
 @*) since=\${since#@} ;;
 *) echo "journalctl fake: serves only --since @<s>, not $since" >&2; exit 1 ;;
 esac
-exec awk -v s="$since" '{ if (s == "" || $1 + 0 >= s * 1000) { print substr($0, index($0, "\\t") + 1); n++ } } END { if (!n) print "-- No entries --" }' ${shellQuote(journal)}
+exec awk -v s="$since" -v cat="$cat" '{ if (s == "" || $1 + 0 >= s * 1000) { l = substr($0, index($0, "\\t") + 1); if (cat) sub(/^[^ ]+ [^ ]+ [^ :]+: /, "", l); print l; n++ } } END { if (!n && !cat) print "-- No entries --" }' ${shellQuote(journal)}
 `,
 		{ mode: 0o755 },
 	);
