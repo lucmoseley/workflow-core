@@ -38,6 +38,7 @@ it.each([
 	".github/workflows/named-rerun.yml",
 	".github/workflows/landing-quiet.yml",
 	".github/workflows/main-lag.yml",
+	".github/workflows/warm-caches.yml",
 ])("denylists %s by the name GitHub reports for it", (file) => {
 	const name = fs
 		.readFileSync(path.join(ROOT, file), "utf8")

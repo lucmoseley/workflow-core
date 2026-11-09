@@ -483,6 +483,7 @@
 			"scripts/bisect-step.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/ci-verdict.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/ci.yml": [
@@ -508,23 +509,27 @@
 			"scripts/precommit-shellcheck-gate.test.ts",
 			"scripts/repo-checks.test.ts",
 			"scripts/tooling-matrix.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/landing-quiet.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/ci-verdict.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/main-lag.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/ci-verdict.test.ts",
 			"scripts/main-lag-alarm.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/named-rerun.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/ci-verdict.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/roadmap-digest.yml": [
@@ -532,12 +537,20 @@
 			"scripts/check-workflow-permissions.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/scheduled-checks.yml": [
 			"scripts/check-ci-status.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/repair-sweep-slot.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		".github/workflows/warm-caches.yml": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/ci-verdict.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".gitignore": [
@@ -662,6 +675,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/post-merge": [
@@ -793,6 +807,7 @@
 			"scripts/session-arbiter.test.ts",
 			"scripts/tooling-matrix.test.ts",
 			"scripts/upgrade.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/pre-merge-commit": [
@@ -11454,6 +11469,7 @@
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -12028,6 +12044,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/ci-runs.test.ts": [
@@ -13386,6 +13403,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/commit-route.test.ts": [
@@ -17544,6 +17562,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/tooling-matrix.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/formatters.test.ts": [
@@ -18756,6 +18775,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/git-objects.js": [
@@ -19081,6 +19101,7 @@
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -20937,6 +20958,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/hook-bound.test.ts": [
@@ -28744,6 +28766,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/precommit-gate.test.ts": [
@@ -30832,6 +30855,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/read-hidden.js": [
@@ -32973,6 +32997,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/regex-group.test.ts": [
@@ -37925,6 +37950,7 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/stall-ticket.js": [
@@ -42520,6 +42546,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/workflow-core-config.test.ts": [
@@ -42785,6 +42812,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -46430,6 +46458,12 @@
 			"scripts/run-vitest.test.ts",
 			"scripts/session-checkout.test.ts",
 			"scripts/vitest-tree-watch.test.ts"
+		],
+		"scripts/warm-caches-workflow.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/warm-fraction.js": [
 			"scripts/checker-registrations.test.ts",
