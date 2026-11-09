@@ -8,8 +8,8 @@
  * Usage:  node scripts/check-husky-shim.js [--notify] [--json]
  *
  * husky rewrites `.husky/_/h` to its stock form every time it runs, so an
- * `npm install` where package.json predates #3138 (the main checkout while its
- * `main` is behind `landing`, #3106) silently sends every worktree's commit
+ * `npm install` where package.json predates #3138 (a main checkout behind
+ * `origin/main`, #3106) silently sends every worktree's commit
  * and push back to the main checkout's hook copy (#3125). husky run bare
  * does that and writes core.hooksPath relative too (#3819).
  */

@@ -1795,18 +1795,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"docs/agents/rules/landing-rewind.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/branch-publish.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"docs/agents/rules/lockfile-sync.txt": [
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-lockfile-sync.test.ts",

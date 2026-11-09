@@ -115,9 +115,9 @@
 			"why": "a fact-finding sub-agent dispatch names an Artefact: line, one being supplied under .claude/tmp/agents/ where it is missing (#515, #928); v1.3.1's --- between questions in the round template declined, which scripts/guard-priced-options.js refuses (#879 Q3); the decisions-are-the-user's line split, a decision research settles being the session's to treat as settled and report with its source and only a house decision the user's, the frontier round asking house decisions alone (#1701, built at #1706); the frontmatter description removed, so the skill leaves the start listing (#2036)"
 		},
 		".agents/skills/implement/SKILL.md": {
-			"editedHash": "54ede39bfccc4863b4e2e6fd14f6600a9265acf1377b3d5eaf285c35f04bab18",
-			"issue": 4244,
-			"why": "the hand-off check names the pushed ref (origin/landing with the landing module on) for each Done sha (#4244)"
+			"editedHash": "6d739c0f4f0a101b4703a6766218ea203accbcb14212321dfdd9bba1b85e91a0",
+			"issue": 4506,
+			"why": "the hand-off check names the pushed ref (the session's own queue ref with the landing module on) for each Done sha (#4244, #4506)"
 		},
 		".agents/skills/prototype/SKILL.md": {
 			"editedHash": "eb787032b8449d81bb5d41022a26fefbd7bfa0e582b8834fe3e5ec4666a2687e",
@@ -165,9 +165,9 @@
 			"why": "an out-of-scope entry states the current rule citing the requesting issues by number, with no prior-requests list (#2259 row 1, #3358)"
 		},
 		".agents/skills/wayfinder/SKILL.md": {
-			"editedHash": "4bebc44b9af92bfc72311802d410db082d271c6729a24d851f344fc40901e421",
-			"issue": 4244,
-			"why": "the hand-off check names the pushed ref (origin/landing with the landing module on) for each Done sha (#4244)"
+			"editedHash": "609809870c23f113dae3965a7906bddb76c48ef0016690b42ba9d8477b4643f8",
+			"issue": 4506,
+			"why": "the hand-off check names the pushed ref (the session's own queue ref with the landing module on) for each Done sha (#4244, #4506)"
 		},
 		".agents/skills/writing-for-agents/SKILL.md": {
 			"editedHash": "132fe4536311a1f8c04ea6343104bed4d05a3402cb711474828d75bb4605280b",
