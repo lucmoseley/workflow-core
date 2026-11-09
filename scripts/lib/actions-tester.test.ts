@@ -948,7 +948,7 @@ it("counts each push again for a runner GitHub will not retry against the runner
 	r.jobsOf = () => unreadied("Install test tools", "failure");
 	r.rerun = () => {
 		throw Object.assign(new Error("gh failed"), {
-			stderr: "This workflow run cannot be retried",
+			stderr: "run 10 cannot be rerun; This workflow run cannot be retried",
 		});
 	};
 	expect(await queueOf(r).verdict(SHA)).toMatchObject({
@@ -1060,6 +1060,73 @@ it("reads a ref moved, refused or cut off by the network on pushing it again as 
 			throw Object.assign(new Error("push"), { code: "ETIMEDOUT" });
 		}),
 	).toMatchObject({ kind: "unknown", transient: true });
+});
+
+const REFUSED =
+	"run 42671573799 cannot be rerun; This workflow run cannot be retried";
+
+it("pushes the ref again where GitHub refuses to rerun a failed batch run, judging only the newer run that push starts (#4822)", async () => {
+	for (const files of [[], ["scripts/lib/a.test.ts"]]) {
+		const failed = run(4, "failure");
+		const r = queueReads([]);
+		r.runsOn = () =>
+			r.repushed.length === 0 ? [failed] : [run(9, "success"), failed];
+		r.rerun = () => {
+			throw new Error(REFUSED);
+		};
+		expect(await queueOf(r).verdict(SHA, files, true)).toEqual({
+			kind: "green",
+			run: 9,
+		});
+		expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+		expect(r.dispatched).toEqual([]);
+	}
+});
+
+it("pushes the ref again where GitHub refuses to rerun a run whose runner failed to ready, counting it an attempt, and reads any other rerun fault as no verdict (#4822)", async () => {
+	const r = queueReads([]);
+	r.runsOn = () =>
+		r.repushed.length === 0
+			? [run(5, "failure")]
+			: [run(9, "success"), run(5, "failure")];
+	r.jobsOf = (id: number) =>
+		id === 5
+			? unreadied("Install test tools", "failure")
+			: [...shards("success", "success"), SUITE_PASSED];
+	r.rerun = () => {
+		throw new Error(REFUSED);
+	};
+	expect(await queueOf(r).verdict(SHA)).toEqual({ kind: "green", run: 9 });
+	expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+
+	const stuck = queueReads([]);
+	let newest = 5;
+	stuck.runsOn = () => [run(newest, "failure")];
+	stuck.jobsOf = () => unreadied("Install test tools", "failure");
+	stuck.repush = (branch: string, sha: string) => {
+		stuck.repushed.push(`${branch}@${sha}`);
+		newest++;
+		return true;
+	};
+	stuck.rerun = () => {
+		throw new Error(REFUSED);
+	};
+	expect(await queueOf(stuck).verdict(SHA)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/Install test tools.*on 3 attempts/),
+	});
+	expect(stuck.repushed).toHaveLength(2);
+
+	const forbidden = queueReads([() => [run(5, "failure")]]);
+	forbidden.jobsOf = () => unreadied("Install test tools", "failure");
+	forbidden.rerun = () => {
+		throw new Error("failed to rerun: HTTP 500");
+	};
+	expect(await queueOf(forbidden).verdict(SHA)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/HTTP 500/),
+	});
+	expect(forbidden.repushed).toEqual([]);
 });
 
 it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
