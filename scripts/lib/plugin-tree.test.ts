@@ -461,9 +461,6 @@ describe("the core-only class (#440)", () => {
 		// release-plugin.js, run in the core, files into each adopter tracker it
 		// is named, so triage-labels.md's census is true there (#1692).
 		"docs/agents/triage-labels.md -> scripts/release-plugin.js",
-		// The skill runs from the core checkout alone (#4831).
-		".claude/skills/retro-sweep/SKILL.md -> scripts/measure-outcome-review.js",
-		".claude/skills/retro-sweep/SKILL.md -> scripts/measure-ticket-mix.js",
 	];
 
 	it("ships nothing that names a left-behind script, bar the pairs excused", () => {

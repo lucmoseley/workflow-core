@@ -178,6 +178,9 @@ const KEPT = new Set([
 	"scripts/measure-bundle-cost.js",
 	// allowance.js's missing-table refusal, and the table core-owned-files.js builds (#1734)
 	"scripts/measure-session-cost.js",
+	// retro-sweep's outcome and ticket-mix reviews (#4796)
+	"scripts/measure-outcome-review.js",
+	"scripts/measure-ticket-mix.js",
 ]);
 /**
  * @param {string} rel repo-relative path
