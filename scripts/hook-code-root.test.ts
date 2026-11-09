@@ -42,6 +42,7 @@ const registered = [
 	},
 ].flatMap(({ file, text }) =>
 	flattenHooks(JSON.parse(text).hooks).map((h) => ({
+		...h,
 		file,
 		command: String(h.command),
 	})),
@@ -178,5 +179,40 @@ describe("an edited hook script in the session's worktree (#4701)", () => {
 		const marked = runHook(worktree, canary, bash);
 		expect(marked.stderr).toBe("");
 		expect(marked.status).toBe(0);
+	});
+});
+
+/* The worktree's own `.claude/settings.json` is the canary line the harness
+ * runs, and a session is cut only from `origin/main`, which only the lander
+ * moves, on this whole suite green. So a canary line that cannot reach both
+ * verdicts in time fails here, before any session reads it (#4745). */
+describe("the canary registration the harness reads", () => {
+	const line = registered.find(({ file }) => file === SETTINGS);
+
+	it("is a command hook that reaches both verdicts inside its timeout (#4745)", () => {
+		expect(line).toMatchObject({ type: "command", onFailure: "block" });
+		const worktree = cutWorktree("timed");
+		const timed = () => {
+			const at = performance.now();
+			const r = runHook(worktree, String(line?.command), {
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "ls" },
+			});
+			return { status: r.status, ms: performance.now() - at };
+		};
+		const refused = timed();
+		const writer = registered.find(({ command }) =>
+			command.includes(MARKER_WRITER),
+		);
+		runHook(worktree, String(writer?.command), {
+			hook_event_name: "SessionStart",
+			source: "startup",
+		});
+		const allowed = timed();
+		expect([refused.status, allowed.status]).toEqual([2, 0]);
+		expect(Math.max(refused.ms, allowed.ms)).toBeLessThan(
+			Number(line?.timeout) * 1000,
+		);
 	});
 });
