@@ -4,8 +4,7 @@
  * each rule once, on its figures. Loosen a case and a session can be admitted
  * past the machine's 10 GB cap, which freezes it, or a free slot held shut.
  *
- * A 3700 MB budget fits 4 at 3058, not 5 at 3736; a 1300 MB budget fits 1 at
- * p95 (929, not 1666) and 2 at the 600 MB mean.
+ * A 3700 MB budget fits 4 at 3058, not 5 at 3736.
  */
 import { describe, expect, it } from "vitest";
 import { admissionFigures } from "./admission-figures";
@@ -29,11 +28,9 @@ const measured = (mem: Mem, procs: Procs, readings?: Readings) => {
 };
 
 const roomy = { ok: true as const, mb: 4000 + FLOOR };
-const tight = { ok: true as const, mb: 1300 + HELD };
 const scant = { ok: true as const, mb: 100 };
-const one = { ok: true as const, sessions: 1, working: 0 };
-const none = { ok: true as const, sessions: 0, working: 0 };
-const working = { ok: true as const, sessions: 3, working: 2, self: true };
+const one = { ok: true as const, sessions: 1 };
+const none = { ok: true as const, sessions: 0 };
 const over = { overloaded: true, load1: 60, ceiling: 48 };
 const capped = {
 	ceiling: 3,
@@ -50,7 +47,7 @@ describe("the CPU limb (#830, #834)", () => {
 		expect(f.byMemory).toBe(4);
 		expect(f.memorySlots).toBe(4);
 		expect(f.slots).toBe(0);
-		expect(f.liftedCapped).toBe(0);
+		expect(f.freeSlots).toBe(0);
 		const alone = measured(scant, none, { load: over });
 		expect(alone.guaranteed).toBe(true);
 		expect(alone.memorySlots).toBe(1);
@@ -60,7 +57,7 @@ describe("the CPU limb (#830, #834)", () => {
 	it("caps the slots at the session ceiling, the guarantee included (#2141)", () => {
 		const f = measured(roomy, one, { cpu: capped });
 		expect(f.slots).toBe(1);
-		expect(f.liftedCapped).toBe(1);
+		expect(f.freeSlots).toBe(1);
 		const full = { ...capped, sessions: 3, slots: 0, full: true };
 		expect(measured(scant, none, { cpu: full }).slots).toBe(0);
 	});
@@ -68,82 +65,21 @@ describe("the CPU limb (#830, #834)", () => {
 	it("changes nothing where the load and ps are unread", () => {
 		const f = measured(roomy, one);
 		expect(f.slots).toBe(4);
-		expect(f.liftedCapped).toBe(4);
+		expect(f.freeSlots).toBe(4);
 	});
 });
 
-describe("the session floor (#2501, #2507)", () => {
-	it("lifts the slots toward the floor, counting working sessions and this one", () => {
-		const f = measured(tight, working, { sessionFloor: 6 });
-		expect(f.byMemory).toBe(1);
-		expect(f.floor).toMatchObject({
-			sessionFloorWorking: 3,
-			sessionFloorSlots: 2,
-			sessionFloorLifted: true,
-		});
-		expect(f.liftedSlots).toBe(2);
-		expect(f.slots).toBe(2);
-	});
-
-	it("never lowers the p95 slots, and grants none where none is declared", () => {
-		const met = measured(tight, working, { sessionFloor: 3 });
-		expect(met.slots).toBe(1);
-		expect(met.floor.sessionFloorLifted).toBe(false);
-		expect(measured(tight, working).floor.sessionFloorSlots).toBe(0);
-	});
-
-	it("names no lift where the always-admit-one guarantee already gives the slot", () => {
-		const alone = { ok: true as const, sessions: 0, working: 0, self: true };
-		const f = measured({ ok: true, mb: 700 + HELD }, alone, {
-			sessionFloor: 2,
-		});
-		expect(f.guaranteed).toBe(true);
-		expect(f.floor.sessionFloorSlots).toBe(1);
-		expect(f.floor.sessionFloorLifted).toBe(false);
-		expect(f.liftedSlots).toBe(1);
-	});
-
-	it("is capped by the CPU, and held at 0 by an overload", () => {
-		const cpu = measured(tight, working, { cpu: capped, sessionFloor: 6 });
-		expect(cpu.memorySlots).toBe(2);
-		expect(cpu.slots).toBe(1);
-		const load = measured(tight, working, { load: over, sessionFloor: 6 });
-		expect(load.floor.sessionFloorSlots).toBe(2);
-		expect(load.slots).toBe(0);
-	});
-
-	it("grants no floor slot while the swap hold binds, keeping the p95 slot (#2690)", () => {
-		const swapHold = {
-			held: true as const,
-			swapFreeMb: 245,
-			swapTotalMb: 2048,
-			availableMb: 1300 + HELD,
-		};
-		const f = measured(tight, working, { sessionFloor: 6, swapHold });
-		expect(f.slots).toBe(1);
-		expect(f.floor.sessionFloorSlots).toBe(0);
-		expect(f.floor.sessionFloorLifted).toBe(false);
-		expect(f.floor.swapHold).toEqual(swapHold);
-	});
-
-	it("grants no floor and no guarantee where the session count is unread", () => {
-		const f = measured(
-			scant,
-			{ ok: false, error: "x" },
-			{
-				sessionFloor: 6,
-			},
-		);
+describe("unread readings", () => {
+	it("grants no guarantee where the session count is unread", () => {
+		const f = measured(scant, { ok: false, error: "x" });
 		expect(f.guaranteed).toBe(false);
-		expect(f.floor.sessionFloorSlots).toBe(0);
 		expect(f.slots).toBe(0);
 	});
 
 	it("yields no figures where memory is unread, only its error", () => {
-		const f = figures({ ok: false, error: "x" }, working, { sessionFloor: 6 });
+		const f = figures({ ok: false, error: "x" }, one);
 		expect(f.memRead).toBe(false);
 		expect(f).toMatchObject({ error: "x" });
-		expect(f.floor.sessionFloorSlots).toBe(0);
 	});
 });
 

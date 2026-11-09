@@ -64,7 +64,6 @@ const {
 	readCpuSlots,
 	buildSessionCeilingText,
 	buildSessionDrawLine,
-	buildSessionFloorLine,
 	buildLiveDrawLine,
 	SUITE_GATE_MB,
 	buildMemoryBreakdownLines,
@@ -171,13 +170,14 @@ function main() {
 	// (mantahostels#2598) — `dispatch-sessions.sh`'s per-member re-read must not double it.
 	// Empty outside a session reads as nothing live (#2180).
 	const listed = admissionSessionIds();
-	const { overhead, host, live, load, cpu, floorRead, verdict, memory } =
-		machineAdmission({
+	const { overhead, host, live, load, cpu, verdict, memory } = machineAdmission(
+		{
 			listed,
 			reclaimable: reclaimableMb(),
 			pendingSpares: spares,
 			landers: readLiveLanders(),
-		});
+		},
+	);
 	/* Between the figures and the hung-job section, never after it:
 	 * `dispatch-sessions.sh` reads from `^hung job(s)` to the end. */
 	const memoryText = `\n\n${buildMemoryBreakdownLines(memory).join("\n")}`;
@@ -208,15 +208,13 @@ function main() {
 	 * writes and drops whatever is still buffered at `process.exit`, and
 	 * stdout is a pipe under dispatch.
 	 */
-	if (json)
-		return writeJson({ verdict, hungJobs, allowance, memory, floorRead });
+	if (json) return writeJson({ verdict, hungJobs, allowance, memory });
 
 	if (!verdict.ok)
 		return writeRefusal({ verdict, load, cpu, memoryText, hungJobs });
 	const lines = buildReportLines({
 		verdict,
 		host,
-		floorRead,
 		live,
 		overhead,
 		spares,
@@ -271,17 +269,17 @@ function readHungJobs(listed) {
 
 /**
  * The `--json` report; exit 2 on an unreadable verdict, else 0 or 1.
- * @param {{verdict: Admission["verdict"], hungJobs: ReturnType<typeof findHungJobs>, allowance: AllowanceRead, memory: Admission["memory"], floorRead: Admission["floorRead"]}} a
+ * @param {{verdict: Admission["verdict"], hungJobs: ReturnType<typeof findHungJobs>, allowance: AllowanceRead, memory: Admission["memory"]}} a
  * @returns {number}
  */
-function writeJson({ verdict, hungJobs, allowance, memory, floorRead }) {
-	// `hungJobs`, `allowanceWarning` and `sessionFloorProblem` ride alongside
+function writeJson({ verdict, hungJobs, allowance, memory }) {
+	// `hungJobs` and `allowanceWarning` ride alongside
 	// `verdict` rather than inside it: `verdict` is `lib/admission.js#strictAdmission`'s own return
 	// shape, and widening it here would drift the two from what that lib's
 	// own tests assert.
 	writeFd(
 		1,
-		`${JSON.stringify({ ...verdict, hungJobs, allowanceWarning: allowance.warning, sessionFloorProblem: floorRead.problem ?? null, memory }, null, 2)}\n`,
+		`${JSON.stringify({ ...verdict, hungJobs, allowanceWarning: allowance.warning, memory }, null, 2)}\n`,
 	);
 	if (!verdict.ok) return 2;
 	return verdict.admit ? 0 : 1;
@@ -307,24 +305,21 @@ function writeRefusal({ verdict, load, cpu, memoryText, hungJobs }) {
 
 /**
  * The text-mode report's figure lines, ahead of the memory breakdown.
- * @param {{verdict: Extract<Admission["verdict"], {ok: true}>, host: Admission["host"], floorRead: Admission["floorRead"], live: Admission["live"], overhead: Admission["overhead"], spares: number, allowance: AllowanceRead}} a
+ * @param {{verdict: Extract<Admission["verdict"], {ok: true}>, host: Admission["host"], live: Admission["live"], overhead: Admission["overhead"], spares: number, allowance: AllowanceRead}} a
  * @returns {string[]}
  */
 function buildReportLines({
 	verdict,
 	host,
-	floorRead,
 	live,
 	overhead,
 	spares,
 	allowance,
 }) {
-	const floorLine = buildSessionFloorLine(floorRead, verdict);
 	return [
 		`available memory   ${verdict.availableMb} MB`,
 		`live sessions      ${verdict.sessions} alongside this one`,
 		`session draw       ${buildSessionDrawLine(host)}`,
-		...(floorLine ? [`session floor      ${floorLine}`] : []),
 		`live draw          ${buildLiveDrawLine(live)}`,
 		/* Silent at 0, so a caller not passing the flag reads exactly what it
 		 * always has. */

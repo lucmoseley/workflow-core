@@ -23,7 +23,6 @@ const fs = require("node:fs");
 const nodePath = require("node:path");
 const os = require("node:os");
 const { parseErrLine } = require("./gh");
-const { readMachineSetting } = require("./machine-setting.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot } = require("./proc-root.js");
 const { availableFrom, readMeminfoKb } = require("./meminfo.js");
@@ -65,7 +64,6 @@ const {
 	DEFAULT_SESSION_DRAW,
 	DRAW_Z,
 	NO_LIVE_DRAW,
-	NO_SWAP_HOLD,
 	UNDECLARED_DRAW,
 	admissionFigures,
 } = require("./admission-figures.js");
@@ -156,12 +154,10 @@ function cpuSlotsRow(cpu) {
 /**
  * @typedef {import("./meminfo.js").MbResult} MbResult
  * @typedef {import("./claude-sessions.js").SparePair} SparePair
- * @typedef {import("./admission-figures.js").SessionFloorFigures} SessionFloorFigures
  * @typedef {import("./admission-figures.js").LenientProcs} LenientProcs
  * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null, drift: string[] }) | { ok: false, error: string }} SpareOverhead
  * @typedef {({ ok: true, mb: number, perPairMb: number, pendingMb: number }) | { ok: false, error: string }} PoolReserve
- * @typedef {{ ok: true, sessions: number, working: number, self?: boolean, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
- * @typedef {{ sessions: number, problem?: string }} SessionFloor
+ * @typedef {{ ok: true, sessions: number, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ held: false } | { held: true, swapFreeMb: number, swapTotalMb: number, availableMb: number }} SwapHold
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
@@ -221,58 +217,6 @@ function readDeclaredMb(key, fallback, root) {
 	} catch (e) {
 		return { mb: fallback, declared: false, problem: parseErrLine(e) };
 	}
-}
-
-/**
- * The working sessions this machine keeps over the p95 pricing: the integer in
- * `~/.claude/session-floor`, a machine setting like `~/.claude/refill-seats`
- * since every repo's sessions share the machine, or `WFC_SESSION_FLOOR` in its
- * place, the suite's injection point. A stopgap the founder
- * ruled on 22 Oct 2026, removed when #2495's spec lands (#2501).
- *
- * No file, or an empty `WFC_SESSION_FLOOR`, is no floor. A file that will not
- * read or holds no non-negative integer is no floor too, and `problem` says
- * why.
- * @returns {SessionFloor}
- */
-function readDeclaredSessionFloor() {
-	const { text, source, problem } = readMachineSetting(
-		"session-floor",
-		"WFC_SESSION_FLOOR",
-	);
-	if (text === undefined)
-		return problem ? { sessions: 0, problem } : { sessions: 0 };
-	const n = Number(text.trim());
-	if (text.trim() !== "" && Number.isInteger(n) && n >= 0)
-		return { sessions: n };
-	return {
-		sessions: 0,
-		problem: `${source} holds ${JSON.stringify(text.trim())}, not a non-negative integer`,
-	};
-}
-
-/**
- * The session floor as the ADMISSION blocks print it, or null where none is
- * declared and none went unread.
- * @param {SessionFloor} floor
- * @param {{ sessionFloorWorking: number, sessionFloorSlots: number, swapHold: SwapHold }} verdict
- */
-function buildSessionFloorLine(floor, verdict) {
-	if (floor.problem)
-		return `none — the declared floor went unread: ${floor.problem}`;
-	if (floor.sessions === 0) return null;
-	const head = `${floor.sessions} working sessions (~/.claude/session-floor, #2501); ${verdict.sessionFloorWorking} working, this run's own counted, so ${verdict.sessionFloorSlots} floor slot(s)`;
-	const hold = verdict.swapHold;
-	if (!hold.held) return head;
-	return `${head}, held while ${swapHoldText(hold)}, under ${SWAP_HOLD_FREE_FRACTION * 100}% and ${SWAP_HOLD_AVAILABLE_MB} MB (#2690)`;
-}
-
-/**
- * A floor lift as both verdicts' reasons name it.
- * @param {SessionFloorFigures} floor
- */
-function floorClause(floor) {
-	return `FLOOR: ${floor.sessionFloorSlots} slot(s) toward the ${floor.sessionFloor} working sessions ~/.claude/session-floor keeps (#2501), ${floor.sessionFloorWorking} working, over the p95 pricing`;
 }
 
 /**
@@ -696,8 +640,8 @@ function readPssKb(pid) {
  * free, and MemAvailable under the default session's p95 above earlyoom's line
  * and the margin, rounded up to 100 MB: `WFC_HEADROOM_FLOOR_MB`'s derivation
  * in docs/environment.md, whose default in `scripts/shell-start-warn.sh` the
- * suite holds equal. Residual: the hold goes with the floor when #2495's spec
- * removes it.
+ * suite holds equal. The refill loop stops a host-restarted session under it
+ * (#3093).
  */
 const SWAP_HOLD_FREE_FRACTION = 0.25;
 const SWAP_HOLD_AVAILABLE_MB =
@@ -708,6 +652,9 @@ const SWAP_HOLD_AVAILABLE_MB =
 			Math.ceil(DRAW_Z * DEFAULT_SESSION_DRAW.sigmaMb)) /
 			100,
 	) * 100;
+
+/** @type {SwapHold} */
+const NO_SWAP_HOLD = { held: false };
 
 /**
  * Whether the swap hold binds: both lines crossed at once. No swap, or a
@@ -756,7 +703,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   pool: MemRow & { drift: string[] },
  *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
- *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, sessionFloor?: number, sessionFloorLifted?: boolean, slots?: number, overloaded?: boolean },
+ *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean },
  *   cpu: CpuSlots,
  * }} MemoryBreakdown
  */
@@ -992,8 +939,6 @@ function slotsRow(verdict) {
 				launchMb: verdict.launchMb,
 				byMemory: verdict.byMemory,
 				memorySlots: verdict.memorySlots,
-				sessionFloor: verdict.sessionFloor,
-				sessionFloorLifted: verdict.sessionFloorLifted,
 				slots: verdict.slots,
 				overloaded: verdict.load.overloaded,
 			}
@@ -1227,9 +1172,7 @@ function buildMemoryBreakdownLines(m) {
 		r.unknown === null ? text : `unknown (${r.unknown})`;
 	const s = m.slots;
 	let slotsNote = "";
-	if (s.sessionFloorLifted)
-		slotsNote = `, raised to ${s.memorySlots} by the session floor of ${s.sessionFloor} working sessions (#2501)`;
-	else if (s.memorySlots !== s.byMemory)
+	if (s.memorySlots !== s.byMemory)
 		slotsNote = `, raised to ${s.memorySlots} as no session is running`;
 	if (s.overloaded) slotsNote += ", held to 0 on CPU load (#830)";
 	else if (s.slots !== s.memorySlots)
@@ -1315,11 +1258,7 @@ function claudeProcessCount() {
  * (mantahostels#594); the one shape it does not list is a claude spawned with
  * another session's CLAUDE* env inherited, which a fresh terminal launch does
  * not do.
- *
- * `working` counts the others the oracle reads `state: working`: idle,
- * waiting, blocked, ended and stateless records are live but not working,
- * and only working ones count toward the session floor (#2505).
- * @param {{ why: string } | { ids: Set<string>, states?: Map<string, string>, unvouched?: boolean }} listed
+ * @param {{ why: string } | { ids: Set<string>, unvouched?: boolean }} listed
  * @returns {LiveSessionsResult}
  */
 function liveSessions(listed) {
@@ -1336,14 +1275,9 @@ function liveSessions(listed) {
 	const ids = listed.ids;
 	const me = selfId(ids);
 	const selfListed = me !== undefined && ids.has(me);
-	const working = [...ids].filter(
-		(id) => id !== me && listed.states?.get(id) === "working",
-	).length;
 	return {
 		ok: true,
 		sessions: ids.size - (selfListed ? 1 : 0),
-		working,
-		self: selfListed,
 		unvouched: listed.unvouched === true,
 		processes,
 		processesError,
@@ -1373,21 +1307,20 @@ function lenientNotes(reserved, credited, landerMb) {
 /**
  * pick-next's own verdict — lenient; see the header: `admissionFigures`, and
  * where memory is unread an admit naming the headroom unmeasured. `freeSlots`
- * is the floor-lifted slots before the guarantee, which admits on its own
- * branch.
+ * is the p95 slots before the guarantee, which admits on its own branch.
  * @param {MbResult} mem
  * @param {LenientProcs} procs
  * @param {import("./admission-figures.js").AdmissionReadings} [readings]
  */
 function admissionFrom(mem, procs, readings = {}) {
 	const f = admissionFigures(mem, procs, readings);
-	const { floor, load, cpu, landerMb } = f;
+	const { load, cpu, landerMb } = f;
 	const { reservedNote, creditedNote } = lenientNotes(
 		f.memRead ? f.reservedMb : 0,
 		f.memRead ? f.reclaimedMb : 0,
 		landerMb,
 	);
-	const freeSlots = f.memRead ? f.liftedCapped : null;
+	const freeSlots = f.memRead ? f.freeSlots : null;
 	/* `null` where memory is unread, exactly as `strictAdmission` reports it —
 	 * so a machine reader of pick-next's own --json can reconstruct `freeSlots`
 	 * the same way a human reads the reservedNote in `reason` (mantahostels#1295). */
@@ -1396,7 +1329,6 @@ function admissionFrom(mem, procs, readings = {}) {
 		reservedError: f.reservedError,
 		budgetMb: f.memRead ? f.budgetMb : null,
 		drawNeedMb: f.memRead ? f.drawNeedMb : null,
-		...floor,
 		load,
 		cpu,
 	};
@@ -1435,7 +1367,7 @@ function admissionFrom(mem, procs, readings = {}) {
 			admit: true,
 			reason: "headroom unmeasured — check `free -h` before starting a second",
 		};
-	if (f.liftedCapped < 1)
+	if (f.freeSlots < 1)
 		return {
 			freeSlots,
 			...shared,
@@ -1446,8 +1378,8 @@ function admissionFrom(mem, procs, readings = {}) {
 		freeSlots,
 		...shared,
 		admit: true,
-		reason: `${slotsClause(f.liftedCapped, floor, f.launchMb)}${reservedNote}${creditedNote}${
-			f.liftedCapped === f.liftedSlots
+		reason: `${slotsClause(f.freeSlots, f.launchMb)}${reservedNote}${creditedNote}${
+			f.freeSlots === f.byMemory
 				? ""
 				: `; capped by the CPU: ${buildSessionCeilingText(cpu)}`
 		}`,
@@ -1457,15 +1389,11 @@ function admissionFrom(mem, procs, readings = {}) {
 /**
  * `admissionFrom`'s admitting clause: the free slots and what priced them.
  * @param {number} freeSlots
- * @param {SessionFloorFigures} floor
  * @param {number} launchMb
  */
-function slotsClause(freeSlots, floor, launchMb) {
-	const head = `${freeSlots} free slot${freeSlots === 1 ? "" : "s"}`;
+function slotsClause(freeSlots, launchMb) {
 	const pairs = buildPairsText(freeSlots, launchMb);
-	return floor.sessionFloorLifted
-		? `${head}, ${floorClause(floor)}`
-		: `${head} on the live sessions' draw at p95${pairs ? ` and ${pairs}` : ""}`;
+	return `${freeSlots} free slot${freeSlots === 1 ? "" : "s"} on the live sessions' draw at p95${pairs ? ` and ${pairs}` : ""}`;
 }
 
 /**
@@ -1564,11 +1492,6 @@ function buildStrictReason(load, cpu, memorySlots, memoryReason) {
  *   launchMb: number,
  *   byMemory: number,
  *   memorySlots: number,
- *   sessionFloor: number,
- *   sessionFloorWorking: number,
- *   sessionFloorSlots: number,
- *   sessionFloorLifted: boolean,
- *   swapHold: SwapHold,
  *   reclaimableError: string | null,
  *   sessions: number,
  *   processes: number | null,
@@ -1587,13 +1510,12 @@ function strictAdmission(mem, procs, readings = {}) {
 	if (!f.memRead) return { ok: false, error: `memory unreadable: ${f.error}` };
 	if (!procs.ok)
 		return { ok: false, error: `session count unreadable: ${procs.error}` };
-	const { floor, load, cpu, landerMb, launchMb, reservedMb, reclaimedMb } = f;
+	const { load, cpu, landerMb, launchMb, reservedMb, reclaimedMb } = f;
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
 	}${buildLanderNote(landerMb)}${HELD_NOTE}`;
-	/* The guarantee's "so one is admitted" would contradict a floor lift past it. */
-	const pricedReason = buildStrictMemoryReason({
-		guaranteed: f.guaranteed && !floor.sessionFloorLifted,
+	const memoryReason = buildStrictMemoryReason({
+		guaranteed: f.guaranteed,
 		memorySlots: f.byMemory,
 		budgetMb: f.budgetMb,
 		reservedMb,
@@ -1602,9 +1524,6 @@ function strictAdmission(mem, procs, readings = {}) {
 		nextNeedMb: f.nextNeedMb,
 		launchMb,
 	});
-	const memoryReason = floor.sessionFloorLifted
-		? `${floorClause(floor)}, where ${pricedReason}`
-		: pricedReason;
 	return {
 		ok: /** @type {const} */ (true),
 		availableMb: f.availableMb,
@@ -1621,7 +1540,6 @@ function strictAdmission(mem, procs, readings = {}) {
 		launchMb,
 		byMemory: f.byMemory,
 		memorySlots: f.memorySlots,
-		...floor,
 		/* Each error field keeps a failed read visible: a broken reap plan is
 		 * not nothing-to-reclaim, and a failed ps scan is not zero claude processes. */
 		reclaimableError: f.reclaimableError,
@@ -1667,8 +1585,6 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 	const live = liveDraw(listed, { pairs, pssKbOf: readPssKb, children });
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
-	const floorRead = readDeclaredSessionFloor();
-	const swapHold = swapHoldOf(meminfo);
 	const landerMb = landerHeldMb(landers, {
 		pssKbOf: readPssKb,
 		children,
@@ -1682,8 +1598,6 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		load,
 		cpu,
 		landerMb,
-		sessionFloor: floorRead.sessions,
-		swapHold,
 		launchMb,
 	});
 	const memory = memoryBreakdown({
@@ -1713,8 +1627,6 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		load,
 		cpu,
 		landerMb,
-		floorRead,
-		swapHold,
 		launchMb,
 		verdict,
 		memory,
@@ -1751,8 +1663,6 @@ function selectionAdmission({ listed, reclaimable, landers }) {
 		load: readings.load,
 		cpu: readings.cpu,
 		landerMb: readings.landerMb,
-		sessionFloor: readings.floorRead.sessions,
-		swapHold: readings.swapHold,
 		launchMb: readings.launchMb,
 	});
 	return { ...readings, admission };
@@ -1765,7 +1675,6 @@ function selectionAdmission({ listed, reclaimable, landers }) {
  *   memory: MemoryBreakdown,
  *   hungJobs: ReturnType<typeof import("./hung-jobs.js").findHungJobs>,
  *   allowanceWarning: string | null,
- *   sessionFloorProblem: string | null,
  * }} AdmissionJson
  */
 
@@ -1774,7 +1683,6 @@ module.exports = {
 	selectionAdmission,
 	LAUNCH_SPARES,
 	buildSessionDrawLine,
-	buildSessionFloorLine,
 	SWAP_HOLD_AVAILABLE_MB,
 	readSwapHold,
 	swapHoldText,

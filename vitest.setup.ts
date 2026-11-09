@@ -173,12 +173,7 @@ process.env.WFC_MODULES ??= config.MODULES.filter(
 	(m: string) => m !== "landing",
 ).join(",");
 
-/* NO SESSION FLOOR, outright: the machine's `~/.claude/session-floor` (#2501)
- * would lift every admission case's slots. A case testing the floor sets its
- * own in the child's env. */
-process.env.WFC_SESSION_FLOOR = "";
-
-/* NO HOST LOAD CEILING, by the same shape: `~/.claude/load-ceiling` (#3223)
+/* NO HOST LOAD CEILING, outright: `~/.claude/load-ceiling` (#3223)
  * would move every load-hold case's ceiling. */
 process.env.WFC_LOAD_CEILING = "";
 

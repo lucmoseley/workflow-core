@@ -541,7 +541,6 @@ function chunk(items, n) {
 const {
 	selectionAdmission,
 	buildSessionDrawLine,
-	buildSessionFloorLine,
 	buildLiveDrawLine,
 	buildMemoryBreakdownLines,
 	buildSessionCeilingText,
@@ -728,7 +727,6 @@ function writeRunSnapshot(payload) {
  * @property {Machine["memory"]} memory
  * @property {Machine["host"]} host
  * @property {Machine["live"]} live
- * @property {Machine["floorRead"]} floorRead
  * @property {ReturnType<typeof reclaimableFrom>} reclaimable
  * @property {ReturnType<typeof strandedClaimCount>} stranded
  * `waitingAll`/`gatedAll`/`gatedOnAll` are `enriched.filter(hasWait|hasGate|hasGateOn)`
@@ -1259,14 +1257,8 @@ function renderAdmission(state) {
 		memory,
 		host,
 		live,
-		floorRead,
 		dispatchableFloor,
 	} = state;
-	// An unread verdict applied no floor, so names none but a floor that went unread.
-	const floorLine =
-		(mem.ok && procs.ok) || floorRead.problem
-			? buildSessionFloorLine(floorRead, admission)
-			: null;
 	writeFd(1, "\nADMISSION — measured headroom, not a fixed slot count\n\n");
 	writeFd(
 		1,
@@ -1287,7 +1279,6 @@ function renderAdmission(state) {
 	printCpuLimb(admission);
 	printReclaimable(reclaimable);
 	writeFd(1, `  session draw       ${buildSessionDrawLine(host)}\n`);
-	if (floorLine) writeFd(1, `  session floor      ${floorLine}\n`);
 	writeFd(1, `  live draw          ${buildLiveDrawLine(live)}\n`);
 	writeFd(
 		1,
@@ -2586,19 +2577,17 @@ function logWarmFraction(cacheUsable, run) {
  */
 function admissionOf(listed) {
 	const reclaimable = reclaimableFrom(listed, idSeam.fromEnv());
-	const { mem, procs, host, live, floorRead, memory, admission } =
-		selectionAdmission({
-			listed,
-			reclaimable,
-			landers: readLiveLanders(),
-		});
+	const { mem, procs, host, live, memory, admission } = selectionAdmission({
+		listed,
+		reclaimable,
+		landers: readLiveLanders(),
+	});
 	return {
 		reclaimable,
 		mem,
 		procs,
 		host,
 		live,
-		floorRead,
 		memory,
 		admission,
 	};
@@ -2755,7 +2744,7 @@ async function main() {
 		putsSince,
 	});
 
-	const { reclaimable, mem, procs, host, live, floorRead, memory, admission } =
+	const { reclaimable, mem, procs, host, live, memory, admission } =
 		admissionOf(listed);
 
 	/*
@@ -2827,7 +2816,6 @@ async function main() {
 		memory,
 		host,
 		live,
-		floorRead,
 		reclaimable,
 		stranded,
 		waitingAll,

@@ -85,7 +85,6 @@ const buildMachineEnv = (): NodeJS.ProcessEnv => ({
 	WFC_REAP_SCRIPT: undefined,
 	WFC_LOAD_CEILING: "",
 	WFC_SESSION_CEILING: "0",
-	WFC_SESSION_FLOOR: "",
 	GITHUB_ACTIONS: "",
 });
 

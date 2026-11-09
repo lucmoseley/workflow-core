@@ -24764,7 +24764,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/machine-setting.js": [
-			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -24775,7 +24774,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-suite-size-drift.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -24783,16 +24781,10 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/machine-setting.test.ts",
-			"scripts/lib/meminfo.contract.test.ts",
-			"scripts/lib/proc.contract.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/refill-blocks.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pretest-reap.test.ts",
 			"scripts/queue-lander.test.ts",
-			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
