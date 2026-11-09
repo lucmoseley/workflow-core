@@ -64,8 +64,7 @@ const PAUSED = "paused by";
 const LAUNCH_HELD = "launches held by a manual /pick-next";
 /* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
-/* The idle reason of a tick whose every skipped row a probe hold skipped,
- * named over "nothing launchable", as rows stood ready behind it (#4736). */
+/* The idle reason of a tick whose every skipped row a probe hold skipped (#4736). */
 const PROBE_HOLD_WAIT = "a probe hold stops every launch";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
@@ -622,8 +621,7 @@ const buildProbeHeldRoots = (holds = []) =>
 	new Set(holds.filter((h) => h.kind === "probe").map((h) => h.root));
 
 /**
- * Each probe hold's checkout, issue and age, one per checkout, its stored
- * record's over a broken probe's not yet stored.
+ * Each probe hold's checkout, issue and age, one per checkout.
  * @param {TickHold[]} holds
  * @param {number} now
  */

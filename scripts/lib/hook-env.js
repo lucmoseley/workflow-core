@@ -7,9 +7,8 @@ const path = require("node:path");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 
 /**
- * The environment the harness gives a self-plugin hook in checkout `root`: its
- * project dir and plugin root, which the hook lines spell their scripts off
- * (#4701, #4716).
+ * `root`'s project dir and plugin root, which the hook lines spell their
+ * scripts off (#4701).
  * @param {string} root
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {NodeJS.ProcessEnv}

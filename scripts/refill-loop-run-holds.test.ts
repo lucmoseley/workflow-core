@@ -21,8 +21,7 @@
  * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
  *   broken .git A, the other checkout A, the state's probe A, its parked
  *   resumed A, a stored hold left out of a dry run's preview A (the hold
- *   store read), the panel's waiting row naming it (#4736) A (the stored
- *   issue and raise time reach the tick). Guard entry (#4226): raises and files A, attaches and
+ *   store read), the panel's waiting row naming it (#4736) A. Guard entry (#4226): raises and files A, attaches and
  *   resumes A. Locked out (#4228): raises, attaches, holds and resumes A.
  * - cleared repo hold (#3863): its raiser and attached resumed off a hand
  *   lift A (repo-hold.js lift).
