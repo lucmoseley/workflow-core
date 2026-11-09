@@ -4,10 +4,11 @@
  * filed and closed as lib/queue-issue.js does. The tender decides when to
  * close and what to file; this reads the record, drops a torn one and names
  * it, and writes the record only once the issue act has succeeded, so an act
- * that throws keeps the old record and the next pass retries it.
+ * that throws keeps the old record and the next pass retries it (#4778).
  */
 
 const fs = require("node:fs");
+const { readText } = require("./file-read.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
 
@@ -20,15 +21,11 @@ const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
  * @returns {T|null|"torn"}
  */
 function readTicketRecord(file, parse) {
-	let text;
+	const read = readText(file);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") throw read.error;
 	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		if (/** @type {{code?: unknown}} */ (e).code === "ENOENT") return null;
-		throw e;
-	}
-	try {
-		return parse(JSON.parse(text)) ?? "torn";
+		return parse(JSON.parse(read.data)) ?? "torn";
 	} catch {
 		/* Torn by a hand edit: the caller names it and drops it (#4485). */
 		return "torn";
@@ -37,7 +34,8 @@ function readTicketRecord(file, parse) {
 
 /**
  * @template T
- * @typedef {object} RecordTicket
+ * @typedef {object} RecordTicket Each act pushes the lines naming what it
+ *   did onto `said`, the caller's accumulator for the pass.
  * @property {(said: string[]) => T|null|"torn"} read the record, a torn one
  *   removed and named in `said`
  * @property {(title: string, why: (body: string) => string|null,
@@ -54,18 +52,15 @@ function readTicketRecord(file, parse) {
  * @param {string} spec.record the record's path
  * @param {(rec: unknown) => T|null} spec.parse null where the record is torn
  * @param {string} spec.noun what its lines and refreshes call the ticket
- * @param {string} spec.standalone why it sits under no parent
  * @param {string} spec.subject what a refusal names it filed for
  * @param {string} [spec.tornNote] what a dropped record leaves open, after
  *   the line naming it
  * @returns {RecordTicket<T>}
  */
-function recordTicket(
-	deps,
-	{ record, parse, noun, standalone, subject, tornNote = "" },
-) {
+function recordTicket(deps, { record, parse, noun, subject, tornNote = "" }) {
 	const fileIssue = queueIssueFiler(deps);
 	const closeIssue = queueIssueCloser(deps);
+	const standalone = `The ${noun} tracks the landing queue, not one ticket's work.`;
 	/** @param {T|null} next */
 	const save = (next) =>
 		next === null

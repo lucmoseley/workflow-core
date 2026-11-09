@@ -54,10 +54,9 @@ function parseStallRecord(rec) {
 	const { main, movedAt } = /** @type {{main?: unknown, movedAt?: unknown}} */ (
 		rec ?? {}
 	);
-	return typeof main === "string" &&
-		typeof movedAt === "string" &&
-		Number.isFinite(Date.parse(movedAt))
-		? { main, movedAt }
+	const at = String(movedAt);
+	return typeof main === "string" && Number.isFinite(Date.parse(at))
+		? { main, movedAt: at }
 		: null;
 }
 
@@ -88,8 +87,6 @@ function stallTicketTender(deps, markers) {
 		record: path.join(markers, RECORD),
 		parse: parseStallRecord,
 		noun: "stall ticket",
-		standalone:
-			"The stall ticket tracks the landing queue, not one ticket's work.",
 		subject: "the stalled queue",
 		/* Fail-open (#4443): the ticket stays open, and the next stall's
 		 * filing refreshes it and writes a fresh record. */

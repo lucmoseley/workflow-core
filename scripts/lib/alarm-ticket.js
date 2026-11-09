@@ -81,8 +81,6 @@ function alarmTicketTender(deps, markers) {
 		record: path.join(markers, RECORD),
 		parse: parseAlarmRecord,
 		noun: "alarm ticket",
-		standalone:
-			"The alarm ticket tracks the landing queue, not one ticket's work.",
 		subject: "the firing queue alarm",
 	});
 	return ({ main, alarms }) => {

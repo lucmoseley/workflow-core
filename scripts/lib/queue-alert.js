@@ -98,10 +98,8 @@ function queueAlertTender(deps, markers) {
 		record: path.join(markers, RECORD),
 		parse: parseAlertRecord,
 		noun: "queue alert",
-		standalone:
-			"The queue alert tracks the landing queue, not one ticket's work.",
 		subject: "the queue's crossing",
-		/* Fail-open, as the stall ticket's record: a crossing still standing
+		/* Fail-open (#4485), as the stall ticket's record: a crossing still standing
 		 * is filed again, and a ticket open over a queue back within its
 		 * limit stays open until its next crossing. */
 		tornNote: "; an open queue alert stays open until its next crossing",
