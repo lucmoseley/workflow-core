@@ -46,6 +46,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { mainChainRecords, isSubagentTranscript } = require("./transcript");
+const { readText } = require("./file-read.js");
 const { corpusDirs } = require("./project-dirs.js");
 const { coreRoot } = require("./script-path.js");
 const { readRunningHooks } = require("./core-hooks.js");
@@ -467,6 +468,23 @@ function* deepStrings(v) {
 }
 
 /**
+ * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
+ * reads every string from its start, and the caller's regex is never touched.
+ * @param {RegExp} pattern
+ */
+const stateless = (pattern) =>
+	new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
+
+/**
+ * @param {LogRecord} record
+ * @param {RegExp} re  a `stateless` copy
+ */
+function anyStringMatches(record, re) {
+	for (const s of deepStrings(record)) if (re.test(s)) return true;
+	return false;
+}
+
+/**
  * Does one record carry a match for `pattern` in any of its strings? Each
  * string is tested whole, as the record holds it, never the record
  * serialised, so a pattern is written against the text a session saw rather
@@ -477,11 +495,7 @@ function* deepStrings(v) {
  * @returns {boolean}
  */
 function recordMatches(record, pattern) {
-	for (const s of deepStrings(record)) {
-		pattern.lastIndex = 0;
-		if (pattern.test(s)) return true;
-	}
-	return false;
+	return anyStringMatches(record, stateless(pattern));
 }
 
 /**
@@ -495,9 +509,10 @@ function recordMatches(record, pattern) {
  * @returns {Array<{at: string|null}>}
  */
 function transcriptMatches(text, pattern, tier) {
+	const re = stateless(pattern);
 	const out = [];
 	for (const record of mainChainRecords(text, tier))
-		if (recordMatches(record, pattern))
+		if (anyStringMatches(record, re))
 			out.push({
 				at: typeof record.timestamp === "string" ? record.timestamp : null,
 			});
@@ -589,6 +604,33 @@ function mergeNeedles(core, host) {
 	};
 }
 
+/** The core's needles file, shipped beside the scripts. */
+const CORE_NEEDLES = path.join(__dirname, "..", "guard-fire-needles.json");
+
+/**
+ * Where a host keys the guards it registers itself (#1267).
+ * @param {string} root
+ */
+const hostNeedlesFile = (root) =>
+	path.join(root, ".claude", "guard-fire-needles.json");
+
+/**
+ * The core's needles merged with `root`'s own (`mergeNeedles`, whose refusals
+ * come back with them). A host with no file is the common case, an adopter
+ * with no guards of its own.
+ * @param {string} root
+ * @returns {ReturnType<typeof mergeNeedles>}
+ * @throws where either file will not read or parse
+ */
+function readNeedles(root) {
+	const host = readText(hostNeedlesFile(root));
+	if (host.state === "unreadable") throw host.error;
+	return mergeNeedles(
+		JSON.parse(fs.readFileSync(CORE_NEEDLES, "utf8")),
+		host.state === "read" ? JSON.parse(host.data) : null,
+	);
+}
+
 /**
  * The subjects to scan for: every registration the registry gives words to,
  * plus every shed candidate that has any.
@@ -666,14 +708,13 @@ function isMissingDir(e) {
 }
 
 /**
- * The subagent transcripts under one session's directory, or that
- * `subagents/` directory itself where it will not read (`readTranscriptFiles`
- * says why).
- * @param {string} sessionDir
+ * The subagent transcripts in one session's `subagents/` directory
+ * (`subagentDirOf`), or that directory itself where it will not read
+ * (`readTranscriptFiles` says why). None where it is absent or not a directory.
+ * @param {string} subDir
  * @returns {TranscriptFile[]}
  */
-function readSubagentFiles(sessionDir) {
-	const subDir = path.join(sessionDir, "subagents");
+function readSubagentFiles(subDir) {
 	let subFiles;
 	try {
 		subFiles = fs.readdirSync(subDir);
@@ -723,7 +764,7 @@ function readTranscriptFiles(dir) {
 			});
 		}
 		if (entry.isDirectory())
-			out.push(...readSubagentFiles(path.join(dir, entry.name)));
+			out.push(...readSubagentFiles(path.join(dir, entry.name, "subagents")));
 	}
 	return out;
 }
@@ -768,7 +809,10 @@ module.exports = {
 	guardKey,
 	guardKeys,
 	keyOrigins,
+	CORE_NEEDLES,
+	hostNeedlesFile,
 	mergeNeedles,
+	readNeedles,
 	registeredGuards,
 	registryDrift,
 	subjectsFor,
@@ -783,6 +827,7 @@ module.exports = {
 	tally,
 	transcriptDirs,
 	readTranscriptCorpus,
+	readSubagentFiles,
 	readTranscriptFiles,
 	sessionKeyFor,
 };

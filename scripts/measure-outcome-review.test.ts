@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * report-outcome-review.test.ts — the weekly outcome review's verdicts
+ * measure-outcome-review.test.ts — the weekly outcome review's verdicts
  * (#4797, spec #4796 §Testing Decisions, Seam 2). Break it and a fix is kept
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
@@ -20,7 +20,7 @@ import { stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
-const SCRIPT = path.join(__dirname, "report-outcome-review.js");
+const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
@@ -197,7 +197,7 @@ const outcome = (
 	n = 1,
 ) => out.outcomes.find((o) => o.finding === `${TRACKER}#${n}`);
 
-describe("report-outcome-review.js", () => {
+describe("measure-outcome-review.js", () => {
 	it("waits on an open finding, an unfixed one, and a fix under a week old", () => {
 		const f = scratch();
 		f.commit("Initial", 1);
@@ -264,18 +264,47 @@ describe("report-outcome-review.js", () => {
 		);
 	});
 
-	it("extends an inconclusive reading once, then unwinds the second", () => {
+	/** Finding #1 read once inconclusive: 1 hit in its first 3 sessions. */
+	function extendedOnce() {
 		const f = scratch();
 		baselineOfOne(f);
 		fixedFinding(f);
 		afterFix(f, 3, 0);
 		f.session("a-hit", FIXED + 1, 1);
 		const first = f.run().out;
-		expect(outcome(first)).toMatchObject({ verdict: "extend", observed: 1 });
+		expect(outcome(first)).toMatchObject({
+			verdict: "extend",
+			sessions: 3,
+			observed: 1,
+		});
 		f.runLine({ outcomes: [outcome(first)] });
-		const second = f.run().out;
-		expect(outcome(second)).toMatchObject({ verdict: "unwind", observed: 1 });
-		expect(outcome(second)?.why).toMatch(/inconclusive a second time/);
+		return f;
+	}
+
+	it("reads an extended finding again over every session since its fix, keeping it where the count fell", () => {
+		const f = extendedOnce();
+		afterFix(f, 5, 0, 3);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "keep",
+			sessions: 9,
+			observed: 1,
+			expected: 9,
+			window: { start: d(FIXED), end: NOW },
+		});
+	});
+
+	it("unwinds an extended finding read inconclusive a second time, over the grown window", () => {
+		const f = extendedOnce();
+		afterFix(f, 5, 1, 3);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "unwind",
+			sessions: 9,
+			observed: 6,
+			expected: 9,
+		});
+		expect(outcome(out)?.why).toMatch(/inconclusive a second time/);
 	});
 
 	it("extends where the sessions run out before 3 expected", () => {
@@ -487,7 +516,7 @@ describe("report-outcome-review.js", () => {
 		expect(out.flipDue.why).toMatch(/carried backlog 12 is over 10/);
 	});
 
-	it("lists the week's landed fault-shaped closes with no signature, and bug tickets declared no-fault", () => {
+	it("lists the week's landed fault-shaped closes with no signature, and the week's bug closes declared no-fault", () => {
 		const f = scratch();
 		f.commit("Initial", 1);
 		const closed = (
@@ -510,11 +539,16 @@ describe("report-outcome-review.js", () => {
 		f.commit("Old (#25)", 48);
 		f.commit("Fix the dropped ref (#26)", 56);
 		f.signatureLine(24, { signature: null, why: "no trace" });
-		f.issues.push(
-			{ number: 40, title: "no-fault bug", labels: ["bug", "origin:triage"] },
-			{ number: 41, title: "signed bug", labels: ["bug", "origin:audit"] },
-			{ number: 42, title: "hand-filed bug", labels: ["bug"] },
-		);
+		closed(40, "no-fault bug", 57, ["bug", "origin:triage"]);
+		closed(41, "signed bug", 57, ["bug", "origin:audit"]);
+		closed(42, "hand-filed bug", 57, ["bug"]);
+		closed(43, "no-fault bug closed long ago", 40, ["bug", "origin:triage"]);
+		closed(44, "no-fault non-bug", 57, ["origin:triage"]);
+		f.issues.push({
+			number: 45,
+			title: "open no-fault bug",
+			labels: ["bug", "origin:triage"],
+		});
 		f.signatureLine(41, { signature: null, why: "no trace" });
 		const { status, out } = f.run();
 		expect(status).toBe(0);
@@ -526,15 +560,10 @@ describe("report-outcome-review.js", () => {
 			}),
 		]);
 		expect(out.outcomeStep.misses).toBe(2);
-		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).toContain(
+		/* Only the week's closes: #43 closed long ago and #45 is open. */
+		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).toEqual([
 			`${TRACKER}#40`,
-		);
-		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).not.toContain(
-			`${TRACKER}#41`,
-		);
-		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).not.toContain(
-			`${TRACKER}#42`,
-		);
+		]);
 	});
 
 	it("is due its flip check at the 4th run to reach a verdict, or 2 over budget", () => {
@@ -576,5 +605,70 @@ describe("report-outcome-review.js", () => {
 		expect(outcome(out)).toMatchObject({ verdict: "waiting" });
 		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: HTTP 502/);
 		expect(out.failures.join("\n")).toMatch(/HTTP 502/);
+	});
+});
+
+describe("--baseline, a finding's baseline at filing", () => {
+	/** Runs baseline mode on a signature file holding `content`. */
+	function runBaseline(f: Fixture, content: unknown) {
+		const file = path.join(home, "sig.json");
+		fs.writeFileSync(file, JSON.stringify(content));
+		const r = runInProcess(
+			SCRIPT,
+			[
+				"--baseline",
+				file,
+				"--filed-at",
+				d(FILED),
+				"--json",
+				"--root",
+				f.root,
+				...f.seats.flatMap((s) => ["--config-dir", s]),
+			],
+			{ env: { ...process.env, CLAUDE_PROJECT_DIR: f.root } },
+		);
+		return {
+			status: r.status,
+			stderr: r.stderr,
+			out: r.status === 2 ? null : JSON.parse(r.stdout),
+		};
+	}
+	/* The triggering session, in the trigger week: its line 2 is a BOOM. */
+	const declared = {
+		signature: SIG,
+		prediction: "the boom stops",
+		case: { session: "trig", line: 2 },
+	};
+
+	it("counts the four weeks before the trigger week as a per-session rate", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		f.session("trig", 30, 5);
+		const { status, out } = runBaseline(f, declared);
+		expect(status).toBe(0);
+		expect(out).toMatchObject({
+			filedAt: d(FILED),
+			window: { start: d(0), end: d(28) },
+			baseline: { count: 4, sessions: 4, rate: 1 },
+			failures: [],
+		});
+	});
+
+	it("gives a null baseline for a null signature", () => {
+		const f = scratch();
+		const { status, out } = runBaseline(f, {
+			signature: null,
+			why: "no trace",
+		});
+		expect(status).toBe(0);
+		expect(out.baseline).toBeNull();
+	});
+
+	it("refuses a signature that misses its case, exit 2, as a filing is refused", () => {
+		const f = scratch();
+		f.session("trig", 30, 0);
+		const { status, stderr } = runBaseline(f, declared);
+		expect(status).toBe(2);
+		expect(stderr).toMatch(/does not match its case/);
 	});
 });

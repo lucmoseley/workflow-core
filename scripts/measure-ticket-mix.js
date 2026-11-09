@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 /*
- * report-ticket-mix.js — the counting half of retro-sweep's weekly ticket-mix
+ * measure-ticket-mix.js — the counting half of retro-sweep's weekly ticket-mix
  * review (spec #4796 §Ticket-mix review, #4797). The model assigns titles to
  * kinds; this script does every count, limit and trigger, so the session
  * spends tokens only on assigning and on reading candidates.
+ *
+ * IN NO §N3 FAMILY: it gates nothing, writes no file and files no issue (the
+ * retro files the candidates), and it exits 1 on a failed read so a gap never
+ * reads as a zero count.
  *
  * INPUT. One tracker snapshot per repo (`--issues <owner/name>=<file>`, the
  * array `gh issue list --json number,title,body,state,closedAt,labels,createdAt`
@@ -56,7 +60,9 @@
  *
  * Exit 0 done; 1 a file will not read, an issue has no `createdAt`, or an
  * assignment names a kind off the kept list, each named on stderr and never
- * counted as zero; 2 a command line lib/cli-args.js or the week refuses.
+ * counted as zero; 1 also where a run line will not parse or carries counts
+ * with no readable week, each named on stderr after the report, which counts
+ * without it; 2 a command line lib/cli-args.js or the week refuses.
  */
 
 const fs = require("node:fs");
@@ -64,6 +70,7 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
 const { worktreeRoot } = require("./lib/host-root");
+const { readLog } = require("./lib/fault-signature");
 const { originOfLabels } = require("./lib/issue-origin");
 const { classifyOrigin } = require("./lib/origin-fallback");
 const { writeFd } = require("./lib/write-fd.js");
@@ -79,12 +86,16 @@ const CONSTANTS = /** @type {const} */ ({
 	XMR_FROM: 20,
 	/* Spec: a trend of 6 weeks running. */
 	TREND_POINTS: 6,
-	/* The Pareto level trigger's cut and cap. */
+	/* The Pareto level trigger's cut: Pareto analysis's 80/20 convention, the
+	 * few kinds that make up 80% of the whole (Juran's "vital few"). */
 	PARETO_SHARE: 0.8,
+	/* A guess, and stated as one: no source sets how many steady kinds the
+	 * level trigger names. */
 	PARETO_MAX: 3,
 	/* Spec: the flip check after 4 weekly runs with the step. */
 	FLIP_RUNS: 4,
-	/* Templates the human-readable output lists; --json lists all. */
+	/* Templates the human-readable output lists; --json lists all. A guess,
+	 * and stated as one: a screenful, never measured against a week's spread. */
 	TEMPLATES_SHOWN: 30,
 });
 
@@ -106,7 +117,7 @@ const MASKS = /** @type {const} */ ([
 	[/\d+(?:[.,]\d+)*/g, "<n>"],
 ]);
 
-const USAGE = `usage: node scripts/report-ticket-mix.js --issues <owner/name>=<file> [--issues ...]
+const USAGE = `usage: node scripts/measure-ticket-mix.js --issues <owner/name>=<file> [--issues ...]
     --week-start <iso> --week-end <iso> [--runs <file>] [--kinds <file>]
     [--assigned <file>] [--this-run] [--json]
   --issues      one repo's tracker snapshot (gh issue list --json ...,createdAt); repeat per repo
@@ -270,63 +281,61 @@ function readWeek(specs, week) {
 }
 
 /**
- * The run record's weekly lines before this week, in week order, and how
- * many weekly lines carry the step.
+ * The run record's weekly lines before this week, in week order, how many
+ * weekly lines carry the step, and each line read as nothing, named.
  * @param {string} file
  * @param {number} weekStart
- * @returns {{prior: RunPoint[], stepRuns: number}}
+ * @returns {{prior: RunPoint[], stepRuns: number, bad: string[]}}
  */
 function readRuns(file, weekStart) {
-	let text;
+	let log;
 	try {
-		text = fs.readFileSync(file, "utf8");
+		log = readLog(file);
 	} catch (e) {
 		throw new ReadFailure(
 			`the run record ${file} will not read: ${errMessage(e)}`,
 			{ cause: e },
 		);
 	}
+	if (log === null)
+		throw new ReadFailure(`the run record ${file} will not read: absent`);
+	const where = (/** @type {number} */ n) => `the run record ${file} line ${n}`;
+	const bad = log.bad.map((n) => `${where(n)} will not parse`);
 	/** @type {RunPoint[]} */
 	const prior = [];
 	let stepRuns = 0;
-	for (const [i, raw] of text.split("\n").entries()) {
-		const read = readRunLine(raw, `the run record ${file} line ${i + 1}`);
-		if (!read) continue;
+	log.rows.forEach((line, i) => {
+		const read = readRunLine(line);
+		if (read === "no week") {
+			bad.push(
+				`${where(log.rowLines[i] ?? 0)} carries ticket-mix counts but no readable week.start`,
+			);
+			return;
+		}
+		if (!read) return;
 		if (read.step) stepRuns += 1;
 		if (read.point && read.point.start < weekStart) prior.push(read.point);
-	}
+	});
 	prior.sort((a, b) => a.start - b.start);
-	return { prior, stepRuns };
+	return { prior, stepRuns, bad };
 }
 
 /**
  * One run line: whether it is a weekly line carrying the step, and its
- * ticket-mix point where it has one; null for a blank or non-weekly line.
- * @param {string} raw
- * @param {string} where
- * @returns {{step: boolean, point: RunPoint | null} | null}
+ * ticket-mix point where it has one; null for a non-weekly line, "no week"
+ * for counts with no readable `week.start`.
+ * @param {import("./lib/fault-signature").Row} line
+ * @returns {{step: boolean, point: RunPoint | null} | null | "no week"}
  */
-function readRunLine(raw, where) {
-	if (!raw.trim()) return null;
-	let line;
-	try {
-		line = JSON.parse(raw);
-	} catch (e) {
-		throw new ReadFailure(`${where} will not parse: ${errMessage(e)}`, {
-			cause: e,
-		});
-	}
-	if (line?.mode !== "weekly") return null;
+function readRunLine(line) {
+	if (line.mode !== "weekly") return null;
 	const step = line.ticketMixStep;
 	const kinds =
 		line.kinds && typeof line.kinds === "object" ? line.kinds : null;
 	const total = typeof step?.total === "number" ? step.total : null;
 	if (!kinds && total === null) return { step: Boolean(step), point: null };
 	const start = isoMs(String(line.week?.start ?? ""));
-	if (Number.isNaN(start))
-		throw new ReadFailure(
-			`${where} carries ticket-mix counts but no readable week.start`,
-		);
+	if (Number.isNaN(start)) return "no week";
 	return { step: Boolean(step), point: { start, kinds, total } };
 }
 
@@ -429,7 +438,7 @@ function direction(series) {
  */
 function buildReport(o) {
 	const week = readWeek(o.issues, o.week);
-	const { prior, stepRuns } = readRuns(o.runs, o.week.start);
+	const { prior, stepRuns, bad } = readRuns(o.runs, o.week.start);
 	const kinds = readKinds(o.kinds);
 	const assigned = o.assigned === null ? null : readAssigned(o.assigned);
 	const total = week.length;
@@ -477,6 +486,7 @@ function buildReport(o) {
 			limits,
 		})),
 		flip: { runs, due: runs >= CONSTANTS.FLIP_RUNS },
+		badRunLines: bad,
 		/** @type {ReturnType<typeof buildTriggers> | null} */
 		triggers: null,
 	};
@@ -762,7 +772,7 @@ function main(argv) {
 		});
 	} catch (e) {
 		if (!(e instanceof ReadFailure)) throw e;
-		writeFd(2, `report-ticket-mix: ${e.message}\n`);
+		writeFd(2, `measure-ticket-mix: ${e.message}\n`);
 		return 1;
 	}
 	writeFd(
@@ -771,9 +781,14 @@ function main(argv) {
 			? `${JSON.stringify(report, null, 2)}\n`
 			: render(report),
 	);
-	return 0;
+	if (report.badRunLines.length === 0) return 0;
+	writeFd(
+		2,
+		report.badRunLines.map((b) => `measure-ticket-mix: ${b}\n`).join(""),
+	);
+	return 1;
 }
 
-module.exports = { CONSTANTS, main };
+module.exports = { main };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

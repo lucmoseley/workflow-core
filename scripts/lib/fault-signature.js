@@ -27,19 +27,23 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const {
-	mergeNeedles,
+	readNeedles,
 	recordFires,
 	recordMatches,
 	transcriptFires,
 	transcriptMatches,
 } = require("./guard-fires.js");
 const { readSeatTranscripts } = require("./project-dirs.js");
+const { subagentDirOf } = require("./transcript.js");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { parseJsonlRow, readJsonl } = require("./jsonl.js");
 
 /** The append-only log, at a repo's root; `merge=union` in .gitattributes. */
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
+/** The retro's run record, at a repo's root. */
+const RUN_RECORD = "docs/data/retro-runs.jsonl";
 
 const SCOPES = ["main", "subagent", "both"];
 const REGEX_FLAGS = /^[imsu]*$/;
@@ -51,34 +55,11 @@ const REGEX_FLAGS = /^[imsu]*$/;
  * @typedef {{session: string, line: number, agent?: string}} Case
  * @typedef {{signature: Signature, prediction: string, case: Case}
  *   | {signature: null, why: string}} Declared
- * @typedef {Record<string, any>} Registry the merged guard-fire needles
+ * @typedef {Record<string, any>} Row  parsed JSON: a signature file, a log
+ *   line, a transcript record or the needles registry. `any` because
+ *   JSON.parse types nothing; each field is checked where it is read.
+ * @typedef {Row} Registry the merged guard-fire needles
  */
-
-/**
- * The core registry with the host's `guards` folded in.
- * @param {string} hostRoot
- * @returns {Registry}
- */
-function readRegistry(hostRoot) {
-	const core = JSON.parse(
-		fs.readFileSync(
-			path.join(__dirname, "..", "guard-fire-needles.json"),
-			"utf8",
-		),
-	);
-	let host = null;
-	try {
-		host = JSON.parse(
-			fs.readFileSync(
-				path.join(hostRoot, ".claude", "guard-fire-needles.json"),
-				"utf8",
-			),
-		);
-	} catch (e) {
-		if (caught(e).code !== "ENOENT") throw e;
-	}
-	return mergeNeedles(core, host).needles;
-}
 
 /** @param {unknown} v */
 const isText = (v) => typeof v === "string" && v.trim() !== "";
@@ -92,7 +73,7 @@ const isText = (v) => typeof v === "string" && v.trim() !== "";
 function checkDeclared(raw, registry) {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw))
 		return { error: "the signature file is not a JSON object." };
-	const d = /** @type {Record<string, any>} */ (raw);
+	const d = /** @type {Row} */ (raw);
 	if (!("signature" in d))
 		return {
 			error:
@@ -129,7 +110,7 @@ function checkDeclared(raw, registry) {
  * @returns {{signature: Signature} | {error: string}}
  */
 function checkSignature(raw, registry) {
-	const s = /** @type {Record<string, any>} */ (raw ?? {});
+	const s = /** @type {Row} */ (raw ?? {});
 	if (s.kind === "needle") return checkNeedle(s, registry);
 	if (s.kind === "regex") return checkRegex(s);
 	return {
@@ -138,7 +119,7 @@ function checkSignature(raw, registry) {
 }
 
 /**
- * @param {Record<string, any>} s
+ * @param {Row} s
  * @param {Registry} registry
  * @returns {{signature: Signature} | {error: string}}
  */
@@ -174,7 +155,7 @@ function tryCompile(pattern, flags) {
 }
 
 /**
- * @param {Record<string, any>} s
+ * @param {Row} s
  * @returns {{signature: Signature} | {error: string}}
  */
 function checkRegex(s) {
@@ -207,7 +188,7 @@ function checkRegex(s) {
  * @returns {{case: Case} | {error: string}}
  */
 function checkCase(raw) {
-	const c = /** @type {Record<string, any>} */ (raw ?? {});
+	const c = /** @type {Row} */ (raw ?? {});
 	if (!isText(c.session) || !Number.isInteger(c.line) || c.line < 1)
 		return {
 			error:
@@ -274,10 +255,10 @@ function signatureHits(text, sig, tier, registry) {
 /**
  * The case's record, read across every seat, or why it cannot be.
  * @param {Case} c
- * @param {string[]} [seats]
- * @returns {{record: Record<string, any>, tier: "main" | "subagent", file: string} | {error: string}}
+ * @param {string[]} seats
+ * @returns {{record: Row, tier: "main" | "subagent", file: string} | {error: string}}
  */
-function readCaseRecord(c, seats = configDirs()) {
+function readCaseRecord(c, seats) {
 	const main = readSeatTranscripts(seats).files.find(
 		(f) => path.basename(f) === `${c.session}.jsonl`,
 	);
@@ -286,20 +267,14 @@ function readCaseRecord(c, seats = configDirs()) {
 			error: `no seat keeps a transcript for session ${c.session}.`,
 		};
 	const file = c.agent
-		? path.join(
-				path.dirname(main),
-				c.session,
-				"subagents",
-				`agent-${c.agent}.jsonl`,
-			)
+		? path.join(subagentDirOf(main), `agent-${c.agent}.jsonl`)
 		: main;
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		return { error: `could not read ${file} (${caught(e).code ?? "error"}).` };
-	}
-	const line = text.split("\n")[c.line - 1];
+	const read = readText(file);
+	if (read.state !== "read")
+		return {
+			error: `could not read ${file} (${read.state === "absent" ? "absent" : read.message}).`,
+		};
+	const line = read.data.split("\n")[c.line - 1];
 	if (line === undefined || !line.trim())
 		return { error: `${file} has no line ${c.line}.` };
 	const record = parseJsonlRow(line);
@@ -310,7 +285,7 @@ function readCaseRecord(c, seats = configDirs()) {
 /**
  * Whether a signature matches the record that triggered the ticket.
  * @param {Signature} sig
- * @param {{record: Record<string, any>, tier: "main" | "subagent"}} at
+ * @param {{record: Row, tier: "main" | "subagent"}} at
  * @param {Registry} registry
  */
 function matchesCase(sig, { record, tier }, registry) {
@@ -318,6 +293,46 @@ function matchesCase(sig, { record, tier }, registry) {
 	if (sig.kind === "needle")
 		return recordFires(record, [needleSubject(sig, registry)]).length > 0;
 	return recordMatches(record, compile(sig));
+}
+
+/**
+ * A signature file read, checked for shape and, where it declares a
+ * signature, matched against its case, or why it is refused. Each error names
+ * the file and reads whole, for a caller to print as it stands.
+ * @param {string} file
+ * @param {{root: string, seats?: string[]}} at  `root` keys the host's needles
+ * @returns {{declared: Declared, registry: Registry} | {error: string}}
+ */
+function readDeclared(file, { root, seats = configDirs() }) {
+	const text = readText(file);
+	if (text.state !== "read")
+		return {
+			error: `could not read ${file} (${text.state === "absent" ? "absent" : text.message}).`,
+		};
+	let raw;
+	try {
+		raw = JSON.parse(text.data);
+	} catch (e) {
+		return { error: `${file} is not JSON (${caught(e).message}).` };
+	}
+	const registry = readNeedles(root).needles;
+	const checked = checkDeclared(raw, registry);
+	if ("error" in checked)
+		return {
+			error: `${file}: ${checked.error} The shape: scripts/lib/fault-signature.js.`,
+		};
+	const { declared } = checked;
+	if (declared.signature === null) return { declared, registry };
+	const at = readCaseRecord(declared.case, seats);
+	if ("error" in at)
+		return {
+			error: `${file}: its case cannot be read — ${at.error} Name the session and line of the record that triggered the ticket.`,
+		};
+	if (!matchesCase(declared.signature, at, registry))
+		return {
+			error: `${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing (#4635). Fix the signature, or the case.`,
+		};
+	return { declared, registry };
 }
 
 /**
@@ -351,27 +366,24 @@ function appendSignatureLine(root, line) {
 }
 
 /**
- * Every line of the log under `root`; a line that does not parse is named.
- * @param {string} root
- * @returns {{lines: Array<Record<string, any>>, bad: number[]}}
+ * Every row of a JSONL log the outcome review or the ticket mix reads (the
+ * signature log, the run record); a line that does not parse is in `bad`, for
+ * the caller to name. Null where the file is absent.
+ * @param {string} file
+ * @returns {{rows: Row[], rowLines: number[], bad: number[]} | null}
+ * @throws where it will not read
  */
-function readSignatureLog(root) {
-	const read = readJsonl(path.join(root, SIGNATURE_LOG));
-	return {
-		lines: /** @type {Array<Record<string, any>>} */ (read?.rows ?? []),
-		bad: read?.bad ?? [],
-	};
+function readLog(file) {
+	const read = readJsonl(file);
+	return read && { rows: read.rows, rowLines: read.rowLines, bad: read.bad };
 }
 
 module.exports = {
+	RUN_RECORD,
 	SIGNATURE_LOG,
 	appendSignatureLine,
 	buildSignatureLine,
-	checkDeclared,
-	matchesCase,
-	readCaseRecord,
-	readRegistry,
-	readSignatureLog,
-	readsTier,
+	readDeclared,
+	readLog,
 	signatureHits,
 };

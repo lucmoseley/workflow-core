@@ -109,16 +109,14 @@ const {
 	similarTitles,
 } = require("./lib/tracker-ops.js");
 const { caught } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
 const { buildFiledLine } = require("./lib/filed-line.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { ORIGINS, isOrigin, originLabel } = require("./lib/issue-origin.js");
 const {
 	appendSignatureLine,
 	buildSignatureLine,
-	checkDeclared,
-	matchesCase,
-	readCaseRecord,
-	readRegistry,
+	readDeclared,
 } = require("./lib/fault-signature.js");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 
@@ -369,37 +367,10 @@ function main() {
  */
 function checkSignatureFile(file) {
 	if (file === undefined) return null;
-	let raw;
-	try {
-		raw = JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch (e) {
-		const { code, message } = caught(e);
-		return io.fail(
-			`could not read the fault signature from ${file} (${code ?? message}). Nothing filed.`,
-			2,
-		);
-	}
-	const registry = readRegistry(hostRoot());
-	const checked = checkDeclared(raw, registry);
-	if ("error" in checked)
-		return io.fail(
-			`--fault-signature ${file}: ${checked.error} The shape: scripts/lib/fault-signature.js. Nothing filed.`,
-			2,
-		);
-	const { declared } = checked;
-	if (declared.signature === null) return declared;
-	const at = readCaseRecord(declared.case);
-	if ("error" in at)
-		return io.fail(
-			`--fault-signature ${file}: its case cannot be read — ${at.error} Name the session and line of the record that triggered this ticket. Nothing filed.`,
-			2,
-		);
-	if (!matchesCase(declared.signature, at, registry))
-		return io.fail(
-			`--fault-signature ${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing (#4635). Fix the signature, or the case. Nothing filed.`,
-			2,
-		);
-	return declared;
+	const read = readDeclared(file, { root: hostRoot() });
+	if ("error" in read)
+		return io.fail(`--fault-signature ${read.error} Nothing filed.`, 2);
+	return read.declared;
 }
 
 /**
@@ -410,22 +381,21 @@ function checkSignatureFile(file) {
  */
 function logSignature(issue, declared) {
 	if (declared === null) return;
+	/* A stray WFC_NOW in the session's env skews this durable stamp (check.js `now`). */
+	const line = buildSignatureLine({
+		issue,
+		filedAt: new Date(now()).toISOString(),
+		declared,
+	});
 	try {
 		const root = worktreeRoot();
-		const file = appendSignatureLine(
-			root,
-			buildSignatureLine({
-				issue,
-				filedAt: new Date().toISOString(),
-				declared,
-			}),
-		);
+		const file = appendSignatureLine(root, line);
 		io.out(
 			`Signature logged in ${file} — commit it with your work: node scripts/commit-paths.js -m "<what>" -- ${path.relative(root, file)}\n`,
 		);
 	} catch (e) {
 		io.fail(
-			`${issue} was filed, but its signature line was not written (${caught(e).message}). Do NOT file it again: append ${JSON.stringify(buildSignatureLine({ issue, filedAt: new Date().toISOString(), declared }))} to docs/data/outcome-signatures.jsonl by hand.`,
+			`${issue} was filed, but its signature line was not written (${caught(e).message}). Do NOT file it again: append ${JSON.stringify(line)} to docs/data/outcome-signatures.jsonl by hand.`,
 			1,
 		);
 	}

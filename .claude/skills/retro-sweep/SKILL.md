@@ -198,10 +198,12 @@ alias.
 ## 6a. Outcome review — weekly only
 
 Judges each fault-stopping fix due a reading, by a script the run never
-overrides (#4796). Budget 30k tokens; record what the step spent.
+overrides (#4796). Budget 30k tokens; record what the step spent. Closes
+per hour (#3212) is read only as a trend over 25 or more days and never
+decides a verdict; no script reads that trend yet.
 
 ```
-node scripts/report-outcome-review.js --json > "$R/outcomes.json"
+node scripts/measure-outcome-review.js --json > "$R/outcomes.json"
 ```
 
 Exit 1 still writes the report, naming each failed read; a reading it could
@@ -253,13 +255,14 @@ Reads the week's filed issues as one body of data (#4796, #4629). Budget
 1. **Count**, over every §2 snapshot, for the picker's `window`:
 
    ```
-   node scripts/report-ticket-mix.js --issues <owner/name>=$R/snapshot/<owner>-<name>.json [--issues …] \
+   node scripts/measure-ticket-mix.js --issues <owner/name>=$R/snapshot/<owner>-<name>.json [--issues …] \
      --week-start <window.start> --week-end <window.end> --json > "$R/mix-counts.json"
    ```
 
    It gives the week's total, per-origin counts (the `origin:*` label, else
    the keyword fallback), masked title templates, and each kept kind's prior
-   weekly counts with its control limit.
+   weekly counts with its control limit. Exit 1 with a report written names
+   each run line it could not read; repair that line in the record.
 2. **Assign** every title of the week, in batches, to one kind in
    `docs/data/ticket-kinds.json`, reading titles only. Add a kind —
    `{id, meaning, firstSeen}` with this week's date — only where none fits;
@@ -267,7 +270,7 @@ Reads the week's filed issues as one body of data (#4796, #4629). Budget
 3. **Trigger**:
 
    ```
-   node scripts/report-ticket-mix.js … --assigned "$R/assigned.json" --this-run --json > "$R/mix.json"
+   node scripts/measure-ticket-mix.js … --assigned "$R/assigned.json" --this-run --json > "$R/mix.json"
    ```
 
    `.triggers.candidates` are the kinds with a real signal, each gated on 10
@@ -289,8 +292,8 @@ Reads the week's filed issues as one body of data (#4796, #4629). Budget
    ```
 
    The body gives the kind, its weekly counts and limit, the trigger, the
-   cases read, and the searches. Every other candidate is watch-only, listed
-   in the close comment.
+   cases read, and the searches. Every other candidate is watch-only: it
+   joins `ticketMixStep.watch` (§7) and is listed in the close comment.
 6. **Flip check:** where `.flip.due`, and no "ticket mix flip check" issue
    covers it (§2 snapshot), file a `takes:wayfinder` issue,
    `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`:
@@ -319,7 +322,9 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   `cites` the earlier issue or commit it pointed at; `signature` (or `null`
   and `why`) and `prediction` as filed; `baseline` the signature's count and
   sessions over the 4 weeks before filing, the trigger week excluded, with its
-  per-session rate (`report-outcome-review.js`'s reading), or `null`. An older
+  per-session rate: `.baseline` of `node scripts/measure-outcome-review.js
+  --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
+  a null signature. An older
   line carries `filed` in its place.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
   and `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;

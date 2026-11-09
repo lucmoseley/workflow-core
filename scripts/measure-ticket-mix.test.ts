@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * report-ticket-mix.test.ts — the ticket-mix counting script (#4797, spec
+ * measure-ticket-mix.test.ts — the ticket-mix counting script (#4797, spec
  * #4796 §Testing Decisions Seam 3). Break it and the weekly review counts an
  * origin or a template wrongly, sets a kind's limit wrongly, fires a trigger
  * under the 10-ticket floor or on a trend it cannot yet read, misses the
@@ -16,7 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 
-const SCRIPT = path.join(__dirname, "report-ticket-mix.js");
+const SCRIPT = path.join(__dirname, "measure-ticket-mix.js");
 const REPO = "lucmoseley/workflow-core-tracker";
 const START = "2026-11-02T00:00:00.000Z";
 const END = "2026-11-09T00:00:00.000Z";
@@ -311,7 +311,7 @@ describe("counting", () => {
 		);
 	});
 
-	it("names a run line that will not parse and exits 1", () => {
+	it("names a run line that will not parse and exits 1, still counting the rest", () => {
 		const f = write("runs.jsonl", '{"mode":"weekly"}\n{not json\n');
 		const r = runInProcess(
 			SCRIPT,
@@ -331,6 +331,7 @@ describe("counting", () => {
 		);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(/line 2 will not parse/);
+		expect(r.stdout).toMatch(/^Ticket mix, .*: 1 issue\(s\)/);
 	});
 
 	it("refuses a week whose end is not after its start, exit 2", () => {

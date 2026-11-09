@@ -64,7 +64,6 @@ const ORIGIN_LABELS = ORIGINS.map((o) => ({
 module.exports = {
 	ORIGINS,
 	ORIGIN_LABELS,
-	ORIGIN_PREFIX,
 	isOrigin,
 	originLabel,
 	originOfLabels,

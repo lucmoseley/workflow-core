@@ -14,18 +14,14 @@
  * Exits: 0 logged, 2 a usage error or a signature refused.
  */
 
-const fs = require("node:fs");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
-const { caught } = require("./lib/caught.js");
 const {
 	appendSignatureLine,
 	buildSignatureLine,
-	checkDeclared,
-	matchesCase,
-	readCaseRecord,
-	readRegistry,
+	readDeclared,
 } = require("./lib/fault-signature.js");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
+const { parseQualifiedRef } = require("./lib/issue-ref.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE =
@@ -49,29 +45,14 @@ function main() {
 	const issue = flagValue(flags, "--issue");
 	const filedAt = flagValue(flags, "--filed-at");
 	const file = flagValue(flags, "--fault-signature");
-	if (!issue || !/^[\w.-]+\/[\w.-]+#\d+$/.test(issue))
+	if (!issue || !parseQualifiedRef(issue))
 		refuse(`--issue is <owner/name>#<n>. ${USAGE}`);
 	if (!filedAt || Number.isNaN(Date.parse(filedAt)))
 		refuse(`--filed-at is the ticket's createdAt, an ISO time. ${USAGE}`);
 	if (!file) refuse(`--fault-signature is required. ${USAGE}`);
-	let raw;
-	try {
-		raw = JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch (e) {
-		refuse(`could not read ${file} (${caught(e).code ?? caught(e).message}).`);
-	}
-	const registry = readRegistry(hostRoot());
-	const checked = checkDeclared(raw, registry);
-	if ("error" in checked) refuse(`${file}: ${checked.error}`);
-	const { declared } = checked;
-	if (declared.signature !== null) {
-		const at = readCaseRecord(declared.case);
-		if ("error" in at) refuse(`${file}: its case cannot be read — ${at.error}`);
-		if (!matchesCase(declared.signature, at, registry))
-			refuse(
-				`${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing. Fix the signature.`,
-			);
-	}
+	const read = readDeclared(file, { root: hostRoot() });
+	if ("error" in read) refuse(read.error);
+	const { declared } = read;
 	const logged = appendSignatureLine(
 		worktreeRoot(),
 		buildSignatureLine({ issue, filedAt, declared, late: true }),
