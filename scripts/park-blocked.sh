@@ -83,7 +83,8 @@ takes_labels() {
 # guard-session-ceiling.js reads without gh (#53). Every soft
 # failure warns to stderr, same as apply_label_and_stop's other best-effort
 # steps: a parked session whose record is MISSING hears the ceiling guard's
-# wind-up text, not silence — a real residual.
+# wind-up text, not silence, and has its release refused on a unit it started
+# — a real residual.
 write_blocked_record() {
   local issue="$1" label="$2"
   local dir
@@ -92,15 +93,14 @@ write_blocked_record() {
     printf 'WARNING: blocked record not written (no markers directory).\n' >&2
     return 0
   fi
-  if ! command -v jq >/dev/null 2>&1; then
-    printf 'WARNING: blocked record not written (no jq).\n' >&2
-    return 0
-  fi
   local file="$dir/.parked-blocked-${SID:-unknown}"
-  if ! jq -n --arg issue "$issue" --arg label "$label" \
-    --arg sid "${SID:-}" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{outcome: "blocked", issue: ($issue | tonumber), session: $sid, ts: $ts, label: $label}' \
-    >"$file" 2>/dev/null; then
+  if ! node -e '
+    const [file, issue, sid, label] = process.argv.slice(1);
+    require("node:fs").writeFileSync(file, JSON.stringify({
+      outcome: "blocked", issue: Number(issue), session: sid,
+      ts: new Date().toISOString().replace(/\.\d+Z$/, "Z"), label,
+    }));
+  ' "$file" "$issue" "${SID:-}" "$label" 2>/dev/null; then
     printf 'WARNING: blocked record write failed: %s\n' "$file" >&2
   fi
 }

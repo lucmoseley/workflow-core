@@ -50,10 +50,8 @@ const stopGuard = require("./lib/stop-guard");
 const TAKES_WAYFINDER = "takes:wayfinder";
 const EXHAUSTED_MAP_PREFIX = ".exhausted-map-nagged-";
 
-/* Every read's cap together: the registration's timeout is 15 s, and the rest
- * holds node's start and the block's write. A session claims the one issue it
- * works (`rule:issue-claim-scope`), so a map takes two reads. */
-const READ_BUDGET_MS = 10_000;
+/* A session claims the one issue it works (`rule:issue-claim-scope`), so a map
+ * takes two reads under lib/stop-guard.js's READ_BUDGET_MS. */
 
 /**
  * Whether `n` in `tracker` is an exhausted map. Throws on a read error, and
@@ -122,7 +120,7 @@ function judge({ sessionId: sid, payload }) {
 	if (claimed.length === 0 || !tracker) return;
 	if (hookBlock.capSpent({ prefix: EXHAUSTED_MAP_PREFIX, sessionId: sid }))
 		return;
-	const deadline = Date.now() + READ_BUDGET_MS;
+	const deadline = Date.now() + stopGuard.READ_BUDGET_MS;
 	let exhausted;
 	try {
 		exhausted = claimed.filter((n) => isExhaustedMap(tracker, n, deadline));

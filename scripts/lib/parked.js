@@ -90,6 +90,32 @@ const markerOf = (sessionId, root) =>
 	path.join(markersDir(root), `${MARKER_PREFIX}${sessionId}`);
 
 /**
+ * park-blocked.sh's `.parked-blocked-<sid>` record for `sessionId`.
+ * @param {string} sessionId
+ * @param {string} [root]  the session's checkout; the caller's host by default
+ */
+const blockedRecordOf = (sessionId, root) =>
+	path.join(markersDir(root), `${BLOCKED_PREFIX}${sessionId}`);
+
+/**
+ * The issue `sessionId`'s park-blocked.sh record names, or null where none
+ * reads. park-blocked.sh writes it before it releases the claim.
+ * @param {string} sessionId
+ * @param {string} [root]
+ * @returns {number|null}
+ */
+function readParkedBlockedIssue(sessionId, root) {
+	try {
+		const rec = JSON.parse(
+			fs.readFileSync(blockedRecordOf(sessionId, root), "utf8"),
+		);
+		return Number.isInteger(rec?.issue) ? rec.issue : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * @param {string} text
  * @returns {ParkMarker}
  */
@@ -338,11 +364,13 @@ function unparkClosed(repo) {
 }
 
 module.exports = {
+	blockedRecordOf,
 	PARKED_LABEL,
 	readParkMarkersOrThrow,
 	newestMarkerListing,
 	moveParkedBy,
 	readParkMarkers,
+	readParkedBlockedIssue,
 	readParkedBy,
 	setParked,
 	unparkClosed,

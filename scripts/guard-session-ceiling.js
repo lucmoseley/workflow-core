@@ -92,16 +92,21 @@
  */
 
 const fs = require("node:fs");
-const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
 const { readMessageText } = require("./lib/hook-message");
-const { markersDir } = require("./lib/marker-root");
 const {
 	buildCompactionSentence,
 	COMPACTION_BACKSTOP,
 	recordCompactions,
 } = require("./lib/compaction-set");
+const { EXITS } = require("./lib/held-unit");
+const { blockedRecordOf } = require("./lib/parked");
 const { scriptPath } = require("./lib/script-path");
+const {
+	isTripwireSpent,
+	TRIPWIRE,
+	TRIPWIRE_PREFIX,
+} = require("./lib/session-tripwire");
 const sessionTranscript = require("./lib/session-transcript");
 const { INVENTORY } = require("./lib/inventory-format");
 const { readPendingTasks } = require("./lib/pending-tasks");
@@ -134,7 +139,6 @@ const {
  * `scripts/measure-turn-band.js` reports all three scales; re-run that instead.
  */
 const WIND_UP = 200_000;
-const TRIPWIRE = 300_000;
 const TURN_BAND = 100;
 
 /* #958 ruled this wording. Its format pieces live in lib/inventory-format.js,
@@ -245,7 +249,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
 			reason: [
 				`Standing context is ${n(tokens)} tokens — past the ${n(WIND_UP)} WIND-UP NOTICE in docs/effort-guide.md, and a floor, being one turn stale.`,
 				"",
-				`This is not a stop. Finish the unit of work in flight — one build-unit ticket, however many compactions finishing it takes short of the ${COMPACTION_BACKSTOP}th, where the compaction hook's hand-off governs, or one bundle member — even if a compaction fires while you do, and start no new one. A review's fix-here findings are part of that unit: ticketing one does not finish it (#4492). Commit. A unit with an unticked criterion is not finished, and no ticket comment or body note moves its boundary (#4495): the only exits before its close are \`scripts/park-blocked.sh\`, a \`needs input:\` park with its \`**Hand-off:**\` block, the ${n(TRIPWIRE)} tripwire, and the compaction backstop's hand-off. Only once the unit is finished, comment its state on a still-open parent of it — spec, map or bundle — and leave that parent open. The next unit goes to a fresh session.`,
+				`This is not a stop. Finish the unit of work in flight — one build-unit ticket, however many compactions finishing it takes short of the ${COMPACTION_BACKSTOP}th, where the compaction hook's hand-off governs, or one bundle member — even if a compaction fires while you do, and start no new one. A review's fix-here findings are part of that unit: ticketing one does not finish it (#4492). Commit. A unit with an unticked criterion is not finished, and no ticket comment or body note moves its boundary (#4495): the only exits before its close are ${EXITS}. Only once the unit is finished, comment its state on a still-open parent of it — spec, map or bundle — and leave that parent open. The next unit goes to a fresh session.`,
 				"",
 				closing,
 				"",
@@ -331,9 +335,7 @@ function logFailOpen(what, err) {
  */
 function hasParkedBlocked(sid, tier) {
 	if (tier !== "main") return false;
-	return fs.existsSync(
-		path.join(markersDir(hookBlock.repoRoot()), `.parked-blocked-${sid}`),
-	);
+	return fs.existsSync(blockedRecordOf(sid, hookBlock.repoRoot()));
 }
 
 /**
@@ -472,11 +474,7 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 
 	/* The tripwire blocks once; past it the wind-up band governs, its first
 	 * block taking the pointer because the tripwire already printed the rule. */
-	const tripwireSpent = hookBlock.capSpent({
-		prefix: ".session-ceiling-nagged-hard-",
-		sessionId: sid,
-		max: 1,
-	});
+	const tripwireSpent = isTripwireSpent(sid);
 	const pending =
 		read.tokens >= WIND_UP || turns >= TURN_BAND
 			? readPendingLaunches(file)
@@ -504,7 +502,7 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 	if (!band) return "message";
 	if (band.band === "tripwire") {
 		hookBlock.blockStop({
-			prefix: ".session-ceiling-nagged-hard-",
+			prefix: TRIPWIRE_PREFIX,
 			sessionId: sid,
 			reason: withCount(band.reason),
 			max: 1,
@@ -560,6 +558,3 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 }
 
 if (require.main === module) stopGuard.onPayload({ review, record: true });
-
-/* guard-held-ticket.js passes a session past the tripwire. */
-module.exports = { TRIPWIRE };

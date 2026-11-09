@@ -1767,17 +1767,17 @@ function cmdClaimIssue(issue, sessionId) {
 	return 0;
 }
 
-/* The one read the release gate makes. A session runs release-issue for
- * itself, so this bounds a hung `gh`, not a hook budget. */
+/* A session runs release-issue for itself, so this bounds a hung `gh`, not a
+ * hook budget. A first guess, unmeasured. */
 const UNIT_READ_MS = 10_000;
 
 /**
  * The refusal for dropping this session's claim on issue `n` while it is an
- * unfinished build unit it has started (lib/held-unit.js, #4535), or null
- * where the release goes ahead: the session holds no claim on it, no commit of
- * its own cites it, park-blocked.sh is parking it (its record, written first,
- * names `n`), no tracker is declared, or the issue will not read — which fails
- * open, since a release changes no file.
+ * unfinished build unit it has started, or null where the release goes ahead:
+ * the session holds no claim on it, no commit of its own cites it,
+ * park-blocked.sh is parking it (its record, written first, names `n`), no
+ * tracker is declared, or the issue will not read — which fails open, saying
+ * so on stderr.
  * @param {number} n
  * @param {string|null} sid
  * @returns {string|null}
@@ -1785,18 +1785,21 @@ const UNIT_READ_MS = 10_000;
 function heldUnitRefusal(n, sid) {
 	if (!sid || !store.readClaimedIssues(sid).includes(n)) return null;
 	const heldUnit = require("./lib/held-unit.js");
-	if (heldUnit.parkedBlockedIssue(sid) === n) return null;
-	if (!heldUnit.citedByOwnCommit(sid, n)) return null;
+	if (require("./lib/parked.js").readParkedBlockedIssue(sid) === n) return null;
+	if (!heldUnit.isCitedByOwnCommit(sid, n)) return null;
 	const tracker = require("./lib/outstanding-line.js").trackerOf();
 	if (!tracker) return null;
 	try {
-		if (!heldUnit.readUnfinishedUnit(tracker, n, { timeout: UNIT_READ_MS }))
+		if (!heldUnit.isUnfinishedUnitIn(tracker, n, { timeout: UNIT_READ_MS }))
 			return null;
 	} catch (e) {
 		store.logError(`release-issue ${n} read`, e);
+		writeStderr(
+			`session-arbiter: #${n} would not read, so whether it is an unfinished build unit went unchecked.\n`,
+		);
 		return null;
 	}
-	return `session-arbiter: refusing to release #${n}: it is an open \`kind:ticket\` with an unticked, unwaived acceptance criterion and no \`parked\` label, so the build unit this session claimed is not finished (#4495). No ticket comment or body note moves a unit's boundary. Finish it and close it with ${scriptPath("resolve-ticket.js")}, which releases the claim itself; or leave it by one of the four exits: ${heldUnit.EXITS}.\n`;
+	return `session-arbiter: refusing to release #${n}: it is an open \`kind:ticket\` with an unticked, unwaived acceptance criterion and no \`parked\` label (#4495). No ticket comment or body note moves a unit's boundary. Finish it and close it with ${scriptPath("resolve-ticket.js")}, which releases the claim itself; or leave it by one of the four exits: ${heldUnit.EXITS}.\n`;
 }
 
 /**
@@ -1833,9 +1836,10 @@ function cmdReleaseIssue(issue, sessionId) {
 }
 
 /**
- * Move this session's own claim on an issue to session `to`, which the
- * refill loop's resume runs as the stopped session for its copy (#2963). The
- * issue stays claimed throughout, so it takes none of release-issue's gate.
+ * Move this session's own claim on an issue to session `to`. The issue stays
+ * claimed, so a move to a running session takes none of release-issue's gate;
+ * a move to one the sessions registry shows not running would let go of the
+ * unit, and takes it.
  * @param {string|undefined} issue
  * @param {string|undefined} to
  * @param {string} sessionId
@@ -1853,6 +1857,15 @@ function cmdMoveIssue(issue, to, sessionId) {
 	if (!me.sessionId || !store.readClaimedIssues(me.sessionId).includes(n)) {
 		writeStdout(`No claim of this session's on #${issue}.\n`);
 		return 0;
+	}
+	const live = require("./lib/arbiter-core.js").readLiveSessionIds();
+	const refusal =
+		live && !live.has(to) ? heldUnitRefusal(n, me.sessionId) : null;
+	if (refusal) {
+		writeStderr(
+			`session-arbiter: session ${to} is not running, so moving the claim to it would drop it. ${refusal.replace(/^session-arbiter: /, "")}`,
+		);
+		return 2;
 	}
 	const claimed = store.claimIssue(issue, { sessionId: to });
 	if (claimed.status !== "claimed") {
@@ -2641,7 +2654,7 @@ function main(argv) {
 		case "release-issue":
 			return cmdReleaseIssue(rest[0], sessionId);
 		// The target session is positional: the caller can move only its own
-		// claim, and the issue stays claimed.
+		// claim.
 		case "move-issue":
 			return cmdMoveIssue(rest[0], rest[1], sessionId);
 		case "issue-claims":

@@ -2332,7 +2332,7 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 	});
 });
 
-describe("release-issue on an unfinished build unit, and move-issue (#4535)", () => {
+describe("release-issue on an unfinished build unit, and move-issue (#4535, on #4495)", () => {
 	const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 	const At = "repos/acme/widgets/issues/645";
 	const Unmet = "## Acceptance criteria\n\n- [x] one\n- [ ] two\n";
@@ -2350,7 +2350,10 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535)", ()
 		},
 	});
 	/** `sid` claims #645 and, unless `started` is false, commits citing it. */
-	const claimAs = (sid: string, { started = true } = {}) => {
+	const claimAs = (
+		sid: string,
+		{ started = true, cites = "Refs #645" } = {},
+	) => {
 		fs.mkdirSync(path.join(sb.repo, ".claude"), { recursive: true });
 		fs.writeFileSync(
 			path.join(sb.repo, ".claude", "workflow-core.json"),
@@ -2361,7 +2364,7 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535)", ()
 		if (!started) return;
 		gitRepo(sb);
 		fs.writeFileSync(inRepo("docs/b.md"), "slice one\n");
-		commitAll(sb, "Do slice one (Refs #645)");
+		commitAll(sb, `Do slice one (${cites})`);
 		const head = execFileSync("git", ["rev-parse", "HEAD"], {
 			cwd: sb.repo,
 			encoding: "utf8",
@@ -2433,15 +2436,25 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535)", ()
 		expect(ghCallCount(sb)).toBe(0);
 	});
 
-	it("fails open where the issue will not read", () => {
+	it("releases a unit only another repo's issue of that number cites as started", () => {
+		claimAs("alice", { cites: "Refs mantahostels#645" });
+		fakeGh(sb, { [At]: unit() });
+		const r = release();
+		expect(r.status).toBe(0);
+		expect(ghCallCount(sb)).toBe(0);
+	});
+
+	it("fails open where the issue will not read, saying the check went unrun", () => {
 		claimAs("alice");
 		const r = release();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/Released the claim on #645/);
+		expect(r.stderr).toContain("went unchecked");
 	});
 
-	it("moves the claim to another session, the gate aside", () => {
+	it("moves the claim to a running session, the gate aside", () => {
 		claimAs("alice");
+		registerSession(sb, "copy", process.pid);
 		fakeGh(sb, { [At]: unit() });
 		const r = cli(["move-issue", "645", "copy"], {
 			CLAUDE_CODE_SESSION_ID: "alice",
@@ -2451,6 +2464,18 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535)", ()
 		expect(out(["issue-claims"])).toMatch(/^#645\tcopy/m);
 		expect(out(["issue-claims"])).not.toMatch(/alice/);
 		expect(ghCallCount(sb)).toBe(0);
+	});
+
+	it("refuses to move a started unit's claim to a session not running, keeping it", () => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: unit() });
+		const r = cli(["move-issue", "645", "nobody"], {
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("session nobody is not running");
+		expect(r.stderr).toContain("refusing to release #645");
+		expect(out(["issue-claims"])).toMatch(/^#645\talice/m);
 	});
 
 	it("moves nothing where this session holds no claim", () => {

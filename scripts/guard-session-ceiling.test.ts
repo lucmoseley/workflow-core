@@ -507,14 +507,14 @@ describe("no hand-off in any band (#1178 Q1 (A) and Q4 (B))", () => {
 			"A review's fix-here findings are part of that unit: ticketing one does not finish it",
 		);
 		expect(windUp).toContain("The next unit goes to a fresh session");
-		expect(windUp).not.toMatch(
-			/issue you were working is still open, comment its state on it and leave it open/,
-		);
+		expect(windUp.match(/\bleave\b[^.]*?\bopen\b/g)).toEqual([
+			"leave that parent open",
+		]);
 		expect(windUp).toContain(
 			"A unit with an unticked criterion is not finished, and no ticket comment or body note moves its boundary",
 		);
 		for (const exit of [
-			"`scripts/park-blocked.sh`",
+			"scripts/park-blocked.sh",
 			"a `needs input:` park with its `**Hand-off:**` block",
 			"the 300,000 tripwire",
 			"the compaction backstop's hand-off",

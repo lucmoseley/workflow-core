@@ -72,7 +72,7 @@
  * (#2325, spec #2258). **Enforced** here for a non-empty line only; its
  * form is unchecked, save that a decision ticket — `takes:wayfinder` or any
  * `wayfinder:` label — may not declare `skipped` as a reply that only answers
- * a question: its resolution is a decision (#4495, #4535).
+ * a question (#4495, #4535).
  *
  * Residual: `**Bound:**`, `**Values:**` and `**Practice:**` are held here
  * alone, so a hand close through the guard-issue-close core owes none of them.
@@ -272,8 +272,6 @@ const REPLY_SKIP = buildLineRe(
 );
 
 /**
- * Refuses a decision ticket's close that declares its practice skipped as a
- * reply that only answers a question (#4535).
  * @param {string} comment
  * @param {Issue} issue
  */

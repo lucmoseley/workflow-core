@@ -39,6 +39,10 @@ const hookRecord = require("./hook-record");
 const sessionId = require("./session-id");
 const { guardDisabled } = require("./workflow-core-config");
 
+/* Every tracker read's cap together, for a Stop guard registered with a 15 s
+ * timeout: the rest holds node's start and the block's write. */
+const READ_BUDGET_MS = 10_000;
+
 /**
  * @typedef {{session_id?: string, hook_event_name?: string,
  *   last_assistant_message?: string, transcript_path?: string,
@@ -175,4 +179,4 @@ function onPayload({ review, record = false }) {
 	}
 }
 
-module.exports = { onMessage, onMessageAsync, onPayload };
+module.exports = { onMessage, onMessageAsync, onPayload, READ_BUDGET_MS };
