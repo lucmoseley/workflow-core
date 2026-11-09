@@ -35,6 +35,7 @@ const {
 	budgetOf,
 	offKeyOf,
 	readSharedUsd,
+	replyWindowsOf,
 	settleChainsOnce,
 } = require("./overflow-budget-core.js");
 const {
@@ -103,6 +104,13 @@ function readTranscripts(dir) {
 		file,
 	}));
 }
+
+/**
+ * @param {{sessionId: string, file: string}[]} transcripts readTranscripts'
+ * @returns {Map<string, string>} each session's main transcript
+ */
+const filesBySession = (transcripts) =>
+	new Map(transcripts.map((t) => [t.sessionId, t.file]));
 
 /**
  * The session's transcripts' size, and their latest write.
@@ -215,7 +223,7 @@ function priceSessions(seat, lookup) {
 			});
 			changed = true;
 		}
-		const files = new Map(transcripts.map((t) => [t.sessionId, t.file]));
+		const files = filesBySession(transcripts);
 		for (const [row, sharedUsd] of readSharedUsd(
 			lookup,
 			ledger.values(),
@@ -239,42 +247,28 @@ function priceSessions(seat, lookup) {
 
 /**
  * What the founder's replies on the key spent, by the session each resumed
- * (#4668): its transcripts' requests from the reply's launch to the next run
- * of that session, or to now. A request with no timestamp counts as the
- * session's own.
+ * (#4668), over replyWindowsOf's windows. A request with no timestamp counts
+ * as the session's own.
  * @param {OverflowSeat} seat
  * @returns {Map<string, number>}
  * @throws where the run store or a transcript dir cannot be read
  */
 function readReplyUsd(seat) {
-	const runs = readStoredRuns().filter((r) => r.keyVar === seat.keyVar);
-	const replies = runs.filter((r) => r.founderReply === true);
+	const windows = replyWindowsOf(
+		readStoredRuns().filter((r) => r.keyVar === seat.keyVar),
+	);
 	/** @type {Map<string, number>} */
 	const usd = new Map();
-	if (replies.length === 0) return usd;
-	const files = new Map(
-		readTranscripts(seat.dir).map((t) => [t.sessionId, t.file]),
-	);
-	for (const reply of replies) {
-		const file = files.get(reply.sessionId);
+	if (windows.length === 0) return usd;
+	const files = filesBySession(readTranscripts(seat.dir));
+	for (const { sessionId, ...window } of windows) {
+		const file = files.get(sessionId);
 		if (file === undefined) continue;
-		const window = {
-			fromMs: reply.launchedAt,
-			toMs: Math.min(
-				...runs
-					.filter(
-						(r) =>
-							r.sessionId === reply.sessionId &&
-							r.launchedAt > reply.launchedAt,
-					)
-					.map((r) => r.launchedAt),
-			),
-		};
 		const spent = readSessionFiles(file).reduce(
 			(t, f) => t + fileSpend(f, { window }).usd,
 			0,
 		);
-		usd.set(reply.sessionId, (usd.get(reply.sessionId) ?? 0) + spent);
+		usd.set(sessionId, (usd.get(sessionId) ?? 0) + spent);
 	}
 	return usd;
 }

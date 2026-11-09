@@ -348,6 +348,31 @@ function chainSpendOf(lookup, ledger, replyUsd = new Map()) {
 }
 
 /**
+ * Each founder's reply's span of its session (#4668): from its launch to just
+ * before the next run of that session, open-ended where none follows. A
+ * resume of the session is always a run of its own (lib/refill-resume.js).
+ * @param {{sessionId: string, launchedAt: number, founderReply?: true}[]} runs
+ * @returns {{sessionId: string, fromMs: number, toMs: number}[]}
+ */
+const replyWindowsOf = (runs) =>
+	runs
+		.filter((r) => r.founderReply === true)
+		.map((reply) => ({
+			sessionId: reply.sessionId,
+			fromMs: reply.launchedAt,
+			toMs:
+				Math.min(
+					...runs
+						.filter(
+							(r) =>
+								r.sessionId === reply.sessionId &&
+								r.launchedAt > reply.launchedAt,
+						)
+						.map((r) => r.launchedAt),
+				) - 1,
+		}));
+
+/**
  * The ledger with each row at its chain share, so a parent and its copies
  * settle the requests they share once (#4208), with one row per session.
  * @param {LedgerEntry[]} ledger
@@ -371,5 +396,6 @@ module.exports = {
 	isBudgetSpent,
 	offKeyOf,
 	readSharedUsd,
+	replyWindowsOf,
 	settleChainsOnce,
 };
