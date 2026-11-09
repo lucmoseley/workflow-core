@@ -21,13 +21,13 @@ const path = require("node:path");
 const { ghJson } = require("./gh");
 const { markersDir } = require("./marker-root");
 const { PARKED_LABEL } = require("./parked");
+const { scriptPath } = require("./script-path");
 const { unmetCriteria } = require("./ticket-criteria");
 
 const KIND_TICKET = "kind:ticket";
 
 /* The four exits #4495 names, in both refusals' text. */
-const EXITS =
-	'`scripts/park-blocked.sh <n> takes:wayfinder|waiting:external|keep "<why>"` for a ticket blocked on the founder or an outside party; a `needs input:` park with its `**Hand-off:**` block; the 300,000 tripwire; or the compaction backstop\'s hand-off';
+const EXITS = `\`${scriptPath("park-blocked.sh")} <n> takes:wayfinder|waiting:external|keep "<why>"\` for a ticket blocked on the founder or an outside party; a \`needs input:\` park with its \`**Hand-off:**\` block; the 300,000 tripwire; or the compaction backstop's hand-off`;
 
 /**
  * Whether `issue`, as the REST API reads it, is an unfinished build unit.
