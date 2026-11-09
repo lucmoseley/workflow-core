@@ -1207,6 +1207,13 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 		);
 	});
 
+	it("reads a `~/` --body-file under an empty HOME as bash does (#4611)", () => {
+		vi.stubEnv("HOME", "");
+		expect(readDenyReason(`${create} --body-file ~/gone.md`)).toContain(
+			`${blank} is read from a file that does not exist: \`~/gone.md\``,
+		);
+	});
+
 	it("denies a --body-file naming a file absent from disk", () => {
 		fs.writeFileSync(path.join(shared, "present.md"), "why\n");
 		for (const [call, named] of [

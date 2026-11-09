@@ -787,6 +787,18 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 		expect(edges["docs/zz/b.md"]).toEqual([T]);
 	});
 
+	it("credits a helper's core-root paths, anchored on coreRoot(), to the test importing it (#4597)", () => {
+		const { edges } = build({
+			"scripts/zz/a.test.ts": `import { ROWS } from "./table.js";`,
+			"scripts/zz/table.js": [
+				`const ROWS = [{ script: "scripts/zz/check-a.js" }];`,
+				"const at = (row) => path.join(coreRoot(), row.script);",
+			].join("\n"),
+			"scripts/zz/check-a.js": "",
+		});
+		expect(edges["scripts/zz/check-a.js"]).toEqual(["scripts/zz/a.test.ts"]);
+	});
+
 	it("reads a shell script's path operands, never its comments, heredocs or prose", () => {
 		/* Interpolated: a shell `${...}` written in a plain string trips
 		 * Biome's noTemplateCurlyInString. */

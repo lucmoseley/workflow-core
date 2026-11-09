@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { GATES as PRECOMMIT_GATES } from "./precommit-gates.js";
 
 const { secondaryOf, summariseSecondary } = require("./arm-secondary.js");
 const { readRegisteredGuardSubjects } = require("./guard-fires.js");
@@ -214,18 +215,26 @@ describe("commit-gate refusals", () => {
 type GateLine =
 	| string
 	| { text: string; sites?: number; from?: string; via?: string };
-const { gates } = JSON.parse(
-	fs.readFileSync(
-		path.join(ROOT, "scripts", "commit-gate-refusals.json"),
-		"utf8",
-	),
-) as { gates: { id: string; tool?: string; lines: GateLine[] }[] };
+const gates: { id: string; tool?: string; lines: GateLine[] }[] = [
+	...(
+		JSON.parse(
+			fs.readFileSync(
+				path.join(ROOT, "scripts", "commit-gate-refusals.json"),
+				"utf8",
+			),
+		) as { gates: { id: string; tool?: string; lines: GateLine[] }[] }
+	).gates,
+	...PRECOMMIT_GATES.map((g) => ({ id: g.id, lines: g.refusals })),
+];
 /**
  * The files each in-repo gate prints its refusal lines from, spelt here as
  * literals rather than in the JSON so a change to a gate's source selects this
- * test (base §X10).
+ * test (base §X10); a whole-repo checker gate's are its registry row's.
  */
 const GATE_SOURCES: Record<string, string[]> = {
+	...Object.fromEntries(
+		PRECOMMIT_GATES.map((g) => [g.id, g.sources ?? [g.script]]),
+	),
 	branch: [".husky/pre-commit"],
 	"check-staged-biome": ["scripts/lib/infer-commands.js"],
 	"review-hold": ["scripts/review-hold-gate.sh"],
@@ -246,34 +255,14 @@ const GATE_SOURCES: Record<string, string[]> = {
 		"scripts/check-vendored-skills.js",
 		"scripts/lib/precommit-gate.sh",
 	],
-	"guard-registry": ["scripts/check-guard-registry.js"],
 	"hook-liveness": ["scripts/check-hook-liveness.js"],
 	"plugin-hooks": ["scripts/generate-plugin-hooks.js"],
-	"guard-test-isolation": ["scripts/check-guard-test-isolation.js"],
-	"host-root-test-isolation": ["scripts/check-host-root-test-isolation.js"],
-	"git-fixture-identity": ["scripts/check-git-fixture-identity.js"],
-	"test-env-writes": ["scripts/check-test-env-writes.js"],
-	"host-root": ["scripts/check-host-root.js"],
+	"precommit-gates": ["scripts/generate-precommit-gates.js"],
 	"test-read-edges": ["scripts/generate-test-read-edges.js"],
 	"rule-fragments": ["scripts/generate-rule-fragments.js", ".husky/pre-commit"],
-	"website-copy": ["scripts/check-website-copy.js"],
 	"skill-body-size": ["scripts/check-skill-body-size.js"],
-	"skill-frontmatter": ["scripts/check-skill-frontmatter.js"],
-	registrations: ["scripts/lib/registrations.js"],
 	"workflow-permissions": ["scripts/check-workflow-permissions.js"],
-	"cli-args": ["scripts/check-cli-args.js"],
-	"jsonl-reads": ["scripts/check-jsonl-reads.js"],
-	"gh-route": ["scripts/check-gh-route.js", "scripts/lib/gh-route.js"],
-	"arbiter-commands": ["scripts/check-arbiter-commands.js"],
-	"clock-copies": ["scripts/check-clock-copies.js"],
-	"report-programs": ["scripts/check-report-programs.js"],
-	"program-output": ["scripts/check-program-output.js"],
 	primitives: ["scripts/check-primitives.js"],
-	"test-spawn": ["scripts/check-test-spawn.js"],
-	"precommit-exit": [
-		"scripts/check-precommit-exit.js",
-		"scripts/lib/precommit-exit.js",
-	],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.sh"],
@@ -349,11 +338,11 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
  * unattributed.
  */
 const HOOK_CALLS: Record<string, (string | null)[]> = {
+	...Object.fromEntries(PRECOMMIT_GATES.map((g) => [g.script, [g.id]])),
 	"scripts/lib/workflow-core-config.js": [null, null, null],
 	"scripts/check-digest-render.js": ["digest-render"],
 	"scripts/check-doc-map.js": ["doc-map", "doc-map", "doc-map"],
 	"scripts/checker-new-faults.js": ["doc-map"],
-	"scripts/check-registrations.js": ["registrations"],
 	"scripts/check-user-settings-drift.js": [null],
 	"scripts/check-code-standards.js": [null],
 	"scripts/lib/always-loaded-pool.js": [null],

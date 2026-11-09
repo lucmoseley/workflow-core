@@ -318,6 +318,15 @@ describe("the array is empty", () => {
 		);
 	});
 
+	it("reads as nothing live to a levelling pass, outside a session alone", () => {
+		fakeClaude("[]");
+		expect(liveness.readAgentsForLevelling().agents).toEqual([]);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
+		expect(liveness.readAgentsForLevelling().why).toContain(
+			"listed no agents at all",
+		);
+	});
+
 	it("still refuses to admission inside a session, and to every other reader however asked", () => {
 		fakeClaude("[]");
 		expect(
@@ -561,7 +570,6 @@ describe("headless runs (#2608)", () => {
 		]);
 		const ids = liveness.listedSessionIds();
 		expect([...ids.ids]).toEqual(["a", "h"]);
-		expect(ids.kinds.get("h")).toBe("headless");
 		expect([...liveness.sweepSessionIds().ids]).toContain("h");
 	});
 
@@ -703,8 +711,7 @@ describe("listedSessionIds", () => {
 		expect(liveness.listedSessionIds().pids.has("me")).toBe(false);
 	});
 
-	/* The derived sets must not move beside the raw fields (#588). */
-	it("maps each session to the oracle's own state and kind", () => {
+	it("derives the finished and terminal sets from the oracle's own state", () => {
 		const records = [
 			{ sessionId: "me", kind: "session", state: "working" },
 			{ sessionId: "done-1", kind: "background", state: "done" },
@@ -714,12 +721,6 @@ describe("listedSessionIds", () => {
 		fakeClaude(JSON.stringify(records));
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		const r = liveness.listedSessionIds();
-		for (const a of records) {
-			expect(r.states.get(a.sessionId)).toBe(a.state);
-			expect(r.kinds.get(a.sessionId)).toBe(a.kind);
-		}
-		expect(r.states.has("bare")).toBe(false);
-		expect(r.kinds.has("bare")).toBe(false);
 		expect([...r.finished]).toEqual(["done-1"]);
 		expect([...r.terminal]).toEqual(["done-1", "fail-1"]);
 	});
@@ -801,6 +802,15 @@ describe("listedSessionIds", () => {
  * hook, where the starting session is not yet listed.
  */
 describe("sweepSessionIds", () => {
+	it("adds the starting session it is handed, run with no session id of its own (#4706)", () => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
+		fakeClaude(listing("other"));
+		expect([...liveness.sweepSessionIds(undefined, "me").ids].sort()).toEqual([
+			"me",
+			"other",
+		]);
+	});
+
 	it("answers where the only omission is the calling session", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));

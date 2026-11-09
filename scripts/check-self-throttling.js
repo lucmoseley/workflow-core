@@ -44,8 +44,7 @@
 
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
-const { reportOwner } = require("./lib/session-id.js");
-const { OUTLIVE_CEILING_S, spawnOutliving } = require("./lib/user-scope.js");
+const { spawnOutliving } = require("./lib/user-scope.js");
 
 const { configDirs } = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
@@ -259,8 +258,6 @@ function kickRefresh() {
 		 * once-a-day walk (#4706). */
 		spawnOutliving(process.execPath, [__filename, "--refresh"], {
 			stdio: "ignore",
-			owner: reportOwner(),
-			ceilingS: OUTLIVE_CEILING_S,
 		}).unref();
 		return true;
 	} catch {

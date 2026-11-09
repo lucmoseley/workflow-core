@@ -2,8 +2,9 @@
 	"_comment": [
 		"commit-gate-refusals.json — each pre-commit gate's own refusal lines, any one of",
 		"which names it, read by scripts/lib/arm-secondary.js to say which gate refused a commit",
-		"(#2175). scripts/lib/arm-secondary.test.ts counts each line in the gate's source, so",
-		"rewording a refusal at any of its sites fails it until this file follows (#2298).",
+		"(#2175). A whole-repo checker gate's lines sit on its scripts/lib/precommit-gates.js row",
+		"instead (#4597). scripts/lib/arm-secondary.test.ts counts each line in the gate's source,",
+		"so rewording a refusal at any of its sites fails it until the table follows (#2298).",
 		"",
 		"A line is a literal string printed at one site, or an object: `sites` where it prints",
 		"at more than one; `from` and `via` where the source builds it, `from` being the",
@@ -111,15 +112,6 @@
 			]
 		},
 		{
-			"id": "guard-registry",
-			"lines": [
-				"Fix the rule or fix the claim",
-				"so its own header must say what",
-				"has two parts that must agree",
-				"decides whether the script runs at all"
-			]
-		},
-		{
 			"id": "hook-liveness",
 			"lines": ["hook that is wired and not running"]
 		},
@@ -133,33 +125,12 @@
 			]
 		},
 		{
-			"id": "guard-test-isolation",
-			"lines": ["without setting CLAUDE_CONFIG_DIR, so a fail-open it provokes"]
-		},
-		{
-			"id": "host-root-test-isolation",
-			"lines": ["without setting CLAUDE_PROJECT_DIR, so the child roots itself"]
-		},
-		{
-			"id": "git-fixture-identity",
-			"lines": ["with no identity set for it, so it fails on a runner"]
-		},
-		{
-			"id": "test-env-writes",
-			"lines": [
-				"which unstubEnvs never restores, so the change outlives its case"
-			]
-		},
-		{
-			"id": "host-root",
+			"id": "precommit-gates",
 			"lines": [
 				{
-					"text": "Use hostRoot() from lib/host-root.js",
-					"sites": 2
-				},
-				"Source lib/guard-root.sh and call gr_root.",
-				"reached through the host root",
-				"reached through the HOST root"
+					"text": "generate-precommit-gates: ",
+					"sites": 3
+				}
 			]
 		},
 		{
@@ -177,71 +148,16 @@
 			]
 		},
 		{
-			"id": "website-copy",
-			"lines": ["These are banned tells from"]
-		},
-		{
 			"id": "skill-body-size",
 			"lines": ["unescaped $<digit> token(s) in a skill or command body"]
-		},
-		{
-			"id": "skill-frontmatter",
-			"lines": ["A strict YAML reader drops this skill (#887)."]
-		},
-		{
-			"id": "registrations",
-			"lines": [
-				"is run by no hook in .claude/settings.json",
-				"is run by no husky hook, workflow,",
-				"has no `hooks` row",
-				"the `hooks` row for ",
-				"has no sibling test (",
-				"`calledElsewhere` names "
-			]
 		},
 		{
 			"id": "workflow-permissions",
 			"lines": ["workflow autonomy finding(s)"]
 		},
 		{
-			"id": "cli-args",
-			"lines": ["fall through to the default action"]
-		},
-		{
-			"id": "jsonl-reads",
-			"lines": ["hand-parses JSONL"]
-		},
-		{
-			"id": "gh-route",
-			"lines": ["off its one route"]
-		},
-		{
-			"id": "arbiter-commands",
-			"lines": ["spells an arbiter command by hand"]
-		},
-		{
-			"id": "clock-copies",
-			"lines": ["reads WFC_NOW itself"]
-		},
-		{
-			"id": "report-programs",
-			"lines": ["report-program breach(es)"]
-		},
-		{
-			"id": "program-output",
-			"lines": ["write(s) past writeFd"]
-		},
-		{
 			"id": "primitives",
 			"lines": ["primitives table fault(s)"]
-		},
-		{
-			"id": "test-spawn",
-			"lines": ["spawns node on the program under test"]
-		},
-		{
-			"id": "precommit-exit",
-			"lines": ["exits 1 on a checker's failure"]
 		},
 		{
 			"id": "doc-map",

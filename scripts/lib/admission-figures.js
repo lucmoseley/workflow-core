@@ -12,11 +12,10 @@ const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
  * @typedef {import("./admission.js").CpuSlots} CpuSlots
  * @typedef {import("./admission.js").SessionDraw} SessionDraw
  * @typedef {import("./admission.js").LiveDraw} LiveDraw
- * @typedef {import("./admission.js").SwapHold} SwapHold
- * @typedef {{ sessionFloor: number, sessionFloorWorking: number, sessionFloorSlots: number, sessionFloorLifted: boolean, swapHold: SwapHold }} SessionFloorFigures
- * @typedef {{ sessions: number, working: number, self?: boolean, unvouched?: boolean }} FloorProcs
- * @typedef {(FloorProcs & { ok: true }) | { ok: false, error: string }} LenientProcs
+ * @typedef {{ sessions: number, unvouched?: boolean }} SessionCount
+ * @typedef {(SessionCount & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {import("./admission.js").LiveSessionsResult} LiveSessionsResult
+ * @typedef {import("./windows-memory.js").WindowsRead} WindowsRead
  */
 
 /* The default for a caller that has not read the load: no hold. */
@@ -67,8 +66,6 @@ const NO_LIVE_DRAW = {
 	noProcess: 0,
 	problems: [],
 };
-/** @type {SwapHold} */
-const NO_SWAP_HOLD = { held: false };
 
 /**
  * The readings beside memory and the session count, each read by
@@ -78,12 +75,12 @@ const NO_SWAP_HOLD = { held: false };
  * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
  * `landerMb`, from `landerHeldMb`, is held back for the lander's suite;
- * `sessionFloor`, from `readDeclaredSessionFloor`, lifts the memory slots to
- * `sessionFloorSlotsOf`'s, none while `swapHold`, from `swapHoldOf`, binds
- * (#2501, #2690); `load` comes from `overloadReading`, and an overload holds
- * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
- * always-admit-one guarantee included in both.
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, sessionFloor?: number, swapHold?: SwapHold, launchMb?: number }} AdmissionReadings
+ * `load` comes from `overloadReading`, and an overload holds
+ * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), and so does
+ * `windows`, from `readWindowsMemory`, a fresh reading holding them to what
+ * Windows' own free memory admits (#4557), the always-admit-one guarantee
+ * included in all three.
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, launchMb?: number, windows?: WindowsRead }} AdmissionReadings
  */
 
 /* The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
@@ -152,32 +149,33 @@ function drawSlots(budgetMb, live, host, launchMb) {
 }
 
 /**
- * The session floor's slots: those `sessionFloor` wants past the `working`
- * sessions, each granted only while `effectiveMb` still holds one more
- * session's mean above earlyoom's line and the margin, the machine's hard
- * limit (CLAUDE.md §Machine limits).
- *
- * Priced at the mean, not the p95 aggregate the draw slots use, and against
- * memory the lander's suite reserve (#2416) is NOT taken from: a floor slot
- * may admit into the lander's hold. The residual risk is a floor slot's
- * session plus a lander's suite eating into the margin above earlyoom's line,
- * which the founder's floor accepts until #2495.
- * @param {number} sessionFloor
- * @param {number} working the sessions in a working state, the caller included
- * @param {number} effectiveMb free memory less the spare pool's reserve
- * @param {SessionDraw} host
+ * The slots Windows' own free memory admits, null where no fresh reading
+ * holds them (#4557). The same aggregate draw as the guest's, against Windows'
+ * free memory less the pool reserve, the lander's suite and DRAW_MARGIN_MB:
+ * earlyoom's line is the guest's, and a reclaim's freed pages return to
+ * Windows on no schedule, so earn no credit.
+ * @param {WindowsRead} windows
+ * @param {{ reservedMb: number, landerMb: number, live: LiveDraw, host: SessionDraw, launchMb: number }} draw
+ * @returns {{ windowsMb: number, windowsBudgetMb: number, windowsSlots: number } | null}
  */
-function sessionFloorSlotsOf(sessionFloor, working, effectiveMb, host) {
-	const wanted = Math.max(0, sessionFloor - working);
-	const room = Math.floor(sessionBudgetMb(effectiveMb, 0, 0) / host.meanMb);
-	return Math.max(0, Math.min(wanted, room));
+function windowsSlotsOf(
+	windows,
+	{ reservedMb, landerMb, live, host, launchMb },
+) {
+	if (windows.state !== "fresh") return null;
+	const windowsBudgetMb = windows.mb - reservedMb - landerMb - DRAW_MARGIN_MB;
+	return {
+		windowsMb: windows.mb,
+		windowsBudgetMb,
+		windowsSlots: drawSlots(windowsBudgetMb, live, host, launchMb),
+	};
 }
 
 /**
  * Whether the always-admit-one guarantee holds: nothing of ours running and
  * memory admitting none. A zero count no listing vouched for never unlocks it
  * (#2180).
- * @param {FloorProcs} procs
+ * @param {SessionCount} procs
  * @param {number} byMemory
  */
 function isGuaranteed(procs, byMemory) {
@@ -185,44 +183,15 @@ function isGuaranteed(procs, byMemory) {
 }
 
 /**
- * The session floor's figures both verdicts report: the working sessions,
- * this run's own counted, the floor slots, none while `swapHold` binds
- * (#2690), and whether they lift `priced`, the slots the p95 pricing and the
- * guarantee give.
- * @param {{ sessionFloor: number, procs: FloorProcs, effectiveMb: number, host: SessionDraw, priced: number, swapHold: SwapHold }} input
- * @returns {SessionFloorFigures}
- */
-function sessionFloorFigures({
-	sessionFloor,
-	procs,
-	effectiveMb,
-	host,
-	priced,
-	swapHold,
-}) {
-	const sessionFloorWorking = procs.working + (procs.self ? 1 : 0);
-	const sessionFloorSlots = swapHold.held
-		? 0
-		: sessionFloorSlotsOf(sessionFloor, sessionFloorWorking, effectiveMb, host);
-	return {
-		sessionFloor,
-		sessionFloorWorking,
-		sessionFloorSlots,
-		sessionFloorLifted: sessionFloorSlots > priced,
-		swapHold,
-	};
-}
-
-/**
  * `overhead` FAILS OPEN to no reservation where it cannot be read: it refines
  * the memory/session gate, which already fails closed. `reclaimable` FAILS
  * CLOSED to no credit: crediting memory that never materialises is the
  * over-admission this gate exists to prevent. An unread session count yields
- * no floor and no guarantee; unread memory yields no figures, only its error.
+ * no guarantee; unread memory yields no figures, only its error.
  *
- * `byMemory` is the p95 pricing alone; `liftedSlots` lifts it to the floor,
- * and `memorySlots` lifts the guarantee's slot too. `liftedCapped` and
- * `slots` are those two under the CPU cap and the load hold.
+ * `byMemory` is the p95 pricing alone, and `memorySlots` lifts it to the
+ * guarantee's slot. `freeSlots` and `slots` are those two under the CPU cap,
+ * the Windows hold and the load hold.
  * @param {MbResult} mem
  * @param {LenientProcs | LiveSessionsResult} procs
  * @param {AdmissionReadings} [readings]
@@ -238,9 +207,8 @@ function admissionFigures(
 		load = LOAD_UNREAD,
 		cpu = CPU_UNREAD,
 		landerMb = 0,
-		sessionFloor = 0,
-		swapHold = NO_SWAP_HOLD,
 		launchMb = 0,
+		windows = { state: "absent" },
 	} = {},
 ) {
 	const inputs = {
@@ -252,21 +220,13 @@ function admissionFigures(
 		launchMb,
 		reservedError: overhead.ok ? null : overhead.error,
 		reclaimableError: reclaimable.ok ? null : reclaimable.error,
-	};
-	/** @type {SessionFloorFigures} */
-	const noFloor = {
-		sessionFloor,
-		sessionFloorWorking: 0,
-		sessionFloorSlots: 0,
-		sessionFloorLifted: false,
-		swapHold,
+		windows,
 	};
 	if (!mem.ok)
 		return {
 			...inputs,
 			memRead: /** @type {const} */ (false),
 			error: mem.error,
-			floor: noFloor,
 		};
 	const reservedMb = overhead.ok ? overhead.mb : 0;
 	const effectiveMb = Math.max(0, mem.mb - reservedMb);
@@ -276,21 +236,21 @@ function admissionFigures(
 	const budgetMb = sessionBudgetMb(effectiveMb, landerMb, reclaimedMb);
 	const byMemory = drawSlots(budgetMb, live, host, launchMb);
 	const guaranteed = procs.ok && isGuaranteed(procs, byMemory);
-	const priced = guaranteed ? 1 : byMemory;
-	const floor = procs.ok
-		? sessionFloorFigures({
-				sessionFloor,
-				procs,
-				effectiveMb,
-				host,
-				priced,
-				swapHold,
-			})
-		: noFloor;
-	const liftedSlots = Math.max(byMemory, floor.sessionFloorSlots);
-	const memorySlots = Math.max(priced, floor.sessionFloorSlots);
+	const memorySlots = guaranteed ? 1 : byMemory;
+	const onWindows = windowsSlotsOf(windows, {
+		reservedMb,
+		landerMb,
+		live,
+		host,
+		launchMb,
+	});
 	const held = (/** @type {number} */ n) =>
-		load.overloaded ? 0 : cpuCapped(n, cpu);
+		load.overloaded
+			? 0
+			: Math.min(
+					cpuCapped(n, cpu),
+					onWindows ? onWindows.windowsSlots : Number.POSITIVE_INFINITY,
+				);
 	return {
 		...inputs,
 		memRead: /** @type {const} */ (true),
@@ -304,10 +264,9 @@ function admissionFigures(
 		needAtMb: launchNeedFor(live, host, byMemory, launchMb),
 		nextNeedMb: launchNeedFor(live, host, byMemory + 1, launchMb),
 		guaranteed,
-		floor,
-		liftedSlots,
-		liftedCapped: held(liftedSlots),
+		freeSlots: held(byMemory),
 		memorySlots,
+		onWindows,
 		slots: held(memorySlots),
 	};
 }
@@ -316,7 +275,6 @@ module.exports = {
 	DEFAULT_SESSION_DRAW,
 	DRAW_Z,
 	NO_LIVE_DRAW,
-	NO_SWAP_HOLD,
 	UNDECLARED_DRAW,
 	admissionFigures,
 };

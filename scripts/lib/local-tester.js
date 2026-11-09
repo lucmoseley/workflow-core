@@ -38,6 +38,7 @@ const {
 } = require("./suite-queue.js");
 const { LANDER_WORKTREE } = require("./lander-worktree.js");
 const { readConfig } = require("./workflow-core-config.js");
+const { latestTimings } = require("./latest-timings.js");
 
 /**
  * The lander's environment less every variable a root lookup answers before
@@ -118,8 +119,10 @@ const SIGNATURE_HEX = 16;
  * @typedef {{code: number|null, signal: string|null, out: string,
  *   error: string|null, peakKb: number, samples: number}} RunResult
  *   `peakKb` the run's tree-PSS peak over `samples` reads
- * @typedef {{command: string, args: string[], label?: string}} Run `label`
- *   names the run in a reason where `command` alone would not, as a shard's
+ * @typedef {{command: string, args: string[], label?: string,
+ *   env?: Record<string, string>}} Run `label` names the run in a reason
+ *   where `command` alone would not, as a shard's; `env` adds to its
+ *   environment
  * @typedef {(bin: string, args: string[], cwd: string,
  *   opts?: {timeout?: number, maxBuffer?: number}) => void} Exec
  *   git or npm, throwing on failure
@@ -131,6 +134,8 @@ const SIGNATURE_HEX = 16;
  * @property {Exec} [exec]
  * @property {string} [pytest] the Python suite's runner
  * @property {(pid: number) => number} [treePss] the tree PSS under `pid`, kB
+ * @property {(dir: string) => string|null} [timings] the per-file timings
+ *   file every shard of one whole run at `dir` packs by, null for none
  */
 
 /**
@@ -361,11 +366,11 @@ function readLiveLanders({ queueDir } = {}) {
  * @param {(pid: number) => number} treePss
  * @returns {Promise<RunResult>}
  */
-const shellRun = ({ command, args }, cwd, onSpawn, treePss) =>
+const shellRun = ({ command, args, env }, cwd, onSpawn, treePss) =>
 	new Promise((resolve) => {
 		const child = spawn("sh", ["-c", `${command} "$@"`, "tester", ...args], {
 			cwd,
-			env: rootlessEnv(),
+			env: { ...rootlessEnv(), ...env },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let out = "";
@@ -510,7 +515,8 @@ function rerunsOf(files, test, python) {
  * and no group where it holds none. A declared
  * `fullTestShards` splits the whole run into that many `--shard=k/n` groups,
  * each under its own suite ceiling, the Python runner joining the last
- * (#2996). Where neither `full_test` nor `test` is declared, the Python runner
+ * (#2996), all packing by the one file `timings` names through
+ * `WFC_SHARD_TIMINGS` (#4579). Where neither `full_test` nor `test` is declared, the Python runner
  * alone, and where that is unrouted too, no group: a repo declaring no suite
  * has nothing to fail, so its sha is green, which the commit gate keeps true
  * by refusing a test file while no test command is declared (#2412). Read
@@ -518,9 +524,10 @@ function rerunsOf(files, test, python) {
  * @param {string} dir
  * @param {string} pytest
  * @param {string[]} files
+ * @param {(dir: string) => string|null} timings
  * @returns {Run[][] | string} the groups, or why none can be had
  */
-function readRunsAt(dir, pytest, files) {
+function readRunsAt(dir, pytest, files, timings) {
 	let config;
 	try {
 		config = readConfig({ root: dir, quiet: true });
@@ -559,11 +566,13 @@ function readRunsAt(dir, pytest, files) {
 	const whole = full_test ?? test;
 	if (!whole) return routesPython ? [[wholePython]] : [];
 	const shards = config.fullTestShards ?? 1;
+	const packedBy = shards > 1 ? timings(dir) : null;
+	const env = packedBy === null ? {} : { env: { WFC_SHARD_TIMINGS: packedBy } };
 	return Array.from({ length: shards }, (_, i) => {
 		const shard = `--shard=${i + 1}/${shards}`;
 		return [
 			shards > 1
-				? { command: whole, args: [shard], label: `${whole} ${shard}` }
+				? { command: whole, args: [shard], label: `${whole} ${shard}`, ...env }
 				: { command: whole, args: [] },
 			...(routesPython && i === shards - 1 ? [wholePython] : []),
 		];
@@ -764,10 +773,28 @@ function recordHolders(root, sha, ps) {
  * @param {Checkout} checkout
  * @param {string} pytest
  * @param {string[]} files
+ * @param {(dir: string) => string|null} timings
  * @returns {Run[][] | string} the groups, or why none can be had
  */
-function checkedOutRuns(checkout, pytest, files) {
-	return checkOutOrWhy(checkout) ?? readRunsAt(checkout.dir, pytest, files);
+function checkedOutRuns(checkout, pytest, files, timings) {
+	return (
+		checkOutOrWhy(checkout) ?? readRunsAt(checkout.dir, pytest, files, timings)
+	);
+}
+
+/**
+ * The cached newest green run's timings.
+ * @param {string} dir
+ * @returns {string|null}
+ */
+function readLatestTimings(dir) {
+	const { file, failed } = latestTimings(dir);
+	if (failed !== null)
+		writeFd(
+			2,
+			`lander: shard timings not refreshed (${failed}) — ${file ?? "splitting by file count"}\n`,
+		);
+	return file;
 }
 
 /**
@@ -798,13 +825,14 @@ function localTester({
 	exec = execOrThrow,
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
 	treePss = readTreePssKb,
+	timings = readLatestTimings,
 }) {
 	const dir = path.join(root, LANDER_WORKTREE);
 	return {
 		async verdict(sha, files = []) {
 			/** @type {Checkout} */
 			const checkout = { root, dir, sha, exec };
-			const groups = checkedOutRuns(checkout, pytest, files);
+			const groups = checkedOutRuns(checkout, pytest, files, timings);
 			if (typeof groups === "string")
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";

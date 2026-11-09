@@ -10,6 +10,20 @@ const { isClaudeArgv0 } = require("./claude-argv0.js");
 
 const UNIT_PREFIX = "wfc-session-";
 const SLICE = "wfc-sessions.slice";
+/* The scope's hard memory bound, past which the kernel kills the scope's
+ * largest process inside it; its derivation is docs/environment.md §6 (#4590).
+ * Residual: where every runaway child is smaller than the session's own
+ * process, that process is the one killed. */
+const MEMORY_MAX_BYTES = 3.5 * 1024 ** 3;
+/* The bound's properties, each `[name, signature, value]`: swap barred, so a
+ * capped scope meets the OOM kill rather than paging, and `OOMPolicy`
+ * `continue`, since the manager's default `stop` answers one OOM-killed
+ * child by stopping the scope, the session's own process with it (#4590). */
+const MEMORY_BOUND = [
+	["MemoryMax", "t", String(MEMORY_MAX_BYTES)],
+	["MemorySwapMax", "t", "0"],
+	["OOMPolicy", "s", "continue"],
+];
 /* A guess at how often the watcher looks at its leader; a leftover spins at
  * most this long before the kill. */
 const POLL_S = 2;
@@ -108,6 +122,10 @@ function attachAll(left, call) {
  * and 20th words after the comm's closing `) `. A cgroup file's size reads 0
  * whatever it holds, so `left` reads its text, never `-s`.
  *
+ * `sample_memory` reads the scope's `memory.peak` and `memory.events`
+ * oom_kill count at each poll, since a scope its processes all left is gone
+ * by the time the leader's end is seen.
+ *
  * KEPT: a Claude daemon, pty host or spare. A session's `claude --bg` starts
  * the daemon where none runs, so the daemon, and every pty host and spare it
  * forks, is born in that session's scope; killing it would end every session
@@ -125,10 +143,26 @@ alive() {
   set -- \${s##*) }
   [ "$1" != Z ] && [ "$1" != X ] && [ "\${20}" = "$start" ]
 }
-while alive; do sleep ${POLL_S}; done
-cg=$("$ctl" --user show -p ControlGroup --value "$unit" 2>/dev/null)
-[ -n "$cg" ] || exit 0
-d="$root$cg"
+d= peak= oom=
+sample_memory() {
+  [ -n "$d" ] || return 0
+  { read -r v < "$d/memory.peak"; } 2>/dev/null && peak=$v
+  { while read -r k v; do [ "$k" = oom_kill ] && oom=$v; done < "$d/memory.events"; } 2>/dev/null
+}
+find_cgroup() {
+  cg=$("$ctl" --user show -p ControlGroup --value "$unit" 2>/dev/null)
+  [ -n "$cg" ] && d="$root$cg"
+}
+find_cgroup
+while alive; do sample_memory; sleep ${POLL_S}; done
+[ -n "$d" ] || find_cgroup
+sample_memory
+if [ -n "$peak" ]; then
+  echo "$unit peaked at $((peak / 1048576)) MiB, oom_kill \${oom:-0}"
+elif [ -n "$d" ]; then
+  echo "$unit peak unreadable at $d"
+fi
+[ -n "$d" ] || exit 0
 for q in $(cat "$d/cgroup.procs" 2>/dev/null); do
   a=$(tr '\\0' ' ' < "$proc/$q/cmdline" 2>/dev/null)
   case "$a" in
@@ -181,6 +215,7 @@ function parseWatcherArgv(argv) {
 
 module.exports = {
 	SLICE,
+	MEMORY_BOUND,
 	WATCH,
 	watcherArgv,
 	parseWatcherArgv,

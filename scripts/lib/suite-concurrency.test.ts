@@ -46,10 +46,12 @@ import {
 import { kitContextFake } from "./kit-context-fake";
 import type { ClimbScope } from "./suite-queue.js";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
+import type { WindowsRead } from "./windows-memory.js";
 
 type Gate =
 	| { limb: "count" }
-	| { limb: "memory"; mb: number; rungMb: number; climbMb?: number };
+	| { limb: "memory"; mb: number; rungMb: number; climbMb?: number }
+	| { limb: "windows"; mb: number; needMb: number };
 type Verdict = {
 	deny?: string;
 	gate?: Gate;
@@ -176,6 +178,7 @@ interface Over {
 	plain?: Plain;
 	carriedOf?: (pid: number | null) => Weight | null;
 	launchWeight?: Weight | null;
+	windows?: WindowsRead;
 }
 
 /** A context of fakes: a quiet machine, no package.json, no config. */
@@ -189,6 +192,7 @@ function harness(over: Over = {}) {
 		told: (id: string) => (over.told ?? []).includes(id),
 		readLatch: (name: string) => (over.latches ?? LADDER_LATCHES)[name] ?? null,
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
+		windowsMemory: () => over.windows ?? { state: "absent" },
 		climbMb: (scope: ClimbScope) => over.climb?.[scope] ?? 0,
 		psRows: () => {
 			const text = over.ps === undefined ? psWith(0) : over.ps;
@@ -3084,5 +3088,90 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 			modules: ["suites"],
 		});
 		expect(told()).not.toContain(readRuleText("targeted-runs"));
+	});
+});
+
+describe("the Windows-memory hold (#4557)", () => {
+	const windows = (mb: number): WindowsRead => ({
+		state: "fresh",
+		mb,
+		ageS: 30,
+	});
+
+	/* A lone whole suite's rung is 3350 MB, the empty ladder's 1100, so it
+	 * draws 2250 MB, and Windows must hold that and the 300 MB margin. */
+	it("sends a launch the guest admits to the queue while Windows is short, naming the limb", () => {
+		const { verdict: v, text } = judge("npm run test", ROOMY_MB, psWith(0), {
+			windows: windows(2549),
+		});
+		expect(v?.gate).toEqual({ limb: "windows", mb: 2549, needMb: 2550 });
+		expect(text.split("\n")[0]).toBe("Run instead: npm run test -- --queue");
+		expect(text).toContain(
+			"Windows itself has 2549 MB free (memwatch's win_avail_mb), under the ~2550 MB this launch draws plus the margin",
+		);
+		expect(
+			outcome(
+				judge("npm run test", ROOMY_MB, psWith(0), { windows: windows(2550) })
+					.verdict,
+			),
+		).toBe("allow");
+	});
+
+	it("charges the climb the rung charges, and only the launch's own share of the ladder", () => {
+		expect(
+			judge("npm run test", ROOMY_MB, psWith(0), {
+				windows: windows(2649),
+				climb: { "off-rung": 100 },
+			}).verdict?.gate,
+		).toEqual({ limb: "windows", mb: 2649, needMb: 2650 });
+		/* Beside a running whole suite, a part-suite draws its own step up the
+		 * ladder, not the whole rung: the running workers already hold their
+		 * pages. */
+		const beside = judge(
+			"npm run test -- --changed",
+			ROOMY_MB,
+			psListing(["node /r/node_modules/.bin/vitest run"]),
+			{
+				windows: windows(100),
+				launchWeight: { resolvedFiles: 40, wholeSlot: false },
+			},
+		).verdict?.gate as { limb: string; needMb: number };
+		expect(beside.limb).toBe("windows");
+		expect(beside.needMb).toBeGreaterThan(300);
+		expect(beside.needMb).toBeLessThan(2550);
+	});
+
+	it("records an escaped launch as a Windows stand-down", () => {
+		const { verdict: v } = judge("npm run test", ROOMY_MB, psWith(0), {
+			windows: windows(100),
+			vars: ESCAPED,
+		});
+		expect(outcome(v)).toBe("warn");
+		expect(readStanddowns()[0]).toMatchObject({ limb: "windows" });
+	});
+
+	it("fails open on a stale reading, recording it", () => {
+		const { verdict: v } = judge("npm run test", ROOMY_MB, psWith(0), {
+			windows: { state: "stale", why: "the newest reading is 400 s old" },
+		});
+		expect(outcome(v)).toBe("allow");
+		expect(logs).toContain(
+			"Windows memory unread — the newest reading is 400 s old; a test launch not held on it (#4557)",
+		);
+	});
+
+	it("is silent where no memwatch runs", () => {
+		expect(outcome(judge("npm run test", ROOMY_MB, psWith(0)).verdict)).toBe(
+			"allow",
+		);
+		expect(logs).toEqual([]);
+	});
+
+	it("holds a bare `tsc` the slot's Windows limb holds, handing it the queue", () => {
+		const { text } = judge("tsc --noEmit", ROOMY_MB, psWith(0), {
+			windows: windows(1000),
+		});
+		expect(text).toMatch(/queue-run\.js --tsc/);
+		expect(text).toContain("Windows itself has 1000 MB free");
 	});
 });

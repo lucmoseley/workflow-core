@@ -51,8 +51,8 @@
  * outside a session only, where nothing says the list must name anyone
  * (#2180). Inside a session an empty list is still a fault. It is its own
  * export, never an option, so no reader judging by absence can pass it. The
- * readers that may are `readAgentsAfterBoot` and `readAgentsForBudget`, whose
- * names say when (#3880, #3695).
+ * readers that may are `readAgentsAfterBoot`, `readAgentsForBudget` and
+ * `readAgentsForLevelling`, whose names say when (#3880, #3695, #4229).
  *
  * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
@@ -112,11 +112,10 @@ const headless = require("./headless-runs.js");
  *   headless runs merged in are read now, so they may be fresher than it.
  * @typedef {{why: string, ids?: undefined, names?: undefined,
  *   finished?: undefined, terminal?: undefined, pids?: undefined,
- *   cwds?: undefined, states?: undefined, kinds?: undefined}} SessionsRefused
+ *   cwds?: undefined}} SessionsRefused
  * @typedef {{why?: undefined, ids: Set<string>, names: Map<string, string>,
  *   finished: Set<string>, terminal: Set<string>,
  *   pids: Map<string, number>, cwds: Map<string, string>,
- *   states: Map<string, string>, kinds: Map<string, string>,
  *   unvouched?: boolean}} SessionsListed
  * @typedef {SessionsRefused|SessionsListed} ListedSessions
  * @typedef {(bin: string, timeoutMs: number, dirs: string[]) => string[]} RunOracle
@@ -708,6 +707,15 @@ function checkedListing(listed) {
 }
 
 /**
+ * `listedAgents` waiving the self-test, reading an empty listing outside a
+ * session as nothing live: the one body the three readers below share.
+ * @returns {Listing}
+ */
+function readAgentsAllowingEmpty() {
+	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+}
+
+/**
  * `listedAgents` waiving the self-test, for a refill-loop tick with a boot's
  * killed launches still to bring back, reading an empty listing outside a session
  * as nothing live (#3880): a restart leaves no session for the listing to name, so
@@ -716,7 +724,7 @@ function checkedListing(listed) {
  * @returns {Listing}
  */
 function readAgentsAfterBoot() {
-	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+	return readAgentsAllowingEmpty();
 }
 
 /**
@@ -727,7 +735,18 @@ function readAgentsAfterBoot() {
  * @returns {Listing}
  */
 function readAgentsForBudget() {
-	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+	return readAgentsAllowingEmpty();
+}
+
+/**
+ * `listedAgents` for a levelling pass's canary re-mark (lib/canary-remark.js),
+ * waiving the self-test, reading an empty listing outside a session as nothing
+ * live: a pass with no session running must still move `main` (#4229). Its
+ * residual is `admissionSessionIds`'s.
+ * @returns {Listing}
+ */
+function readAgentsForLevelling() {
+	return readAgentsAllowingEmpty();
 }
 
 /*
@@ -828,24 +847,17 @@ function agentFieldMaps(agents) {
 	const pids = new Map();
 	/** @type {Map<string, string>} */
 	const cwds = new Map();
-	/** @type {Map<string, string>} */
-	const states = new Map();
-	/** @type {Map<string, string>} */
-	const kinds = new Map();
 	for (const a of agents) {
 		if (a.name) names.set(a.sessionId, a.name);
 		if (a.pid) pids.set(a.sessionId, a.pid);
-		if (a.state) states.set(a.sessionId, a.state);
-		if (a.kind) kinds.set(a.sessionId, a.kind);
 		cwds.set(a.sessionId, a.cwd ?? "");
 	}
-	return { names, pids, cwds, states, kinds };
+	return { names, pids, cwds };
 }
 
 /**
  * The session ids `claude agents --json` lists, as `{ids}` — with `names`
- * mapping each to its display name, `pids` mapping each to its pid, `states`
- * and `kinds` each to the oracle's own field,
+ * mapping each to its display name, `pids` mapping each to its pid,
  * `finished` holding the subset that has FINISHED but is still resident, and
  * `terminal` the wider subset that has stopped working however it ended
  * (mantahostels#2774) — or `{why}`, the sentence explaining why nothing can be said.
@@ -899,9 +911,7 @@ function sessionIdsOf(opts, how = {}) {
 			 * rather than leaving it to a TypeError raised further down. */
 			if (!listed.agents)
 				throw new TypeError("answered with neither agents nor a why");
-			const { names, pids, cwds, states, kinds } = agentFieldMaps(
-				listed.agents,
-			);
+			const { names, pids, cwds } = agentFieldMaps(listed.agents);
 			return {
 				ids: new Set(listed.agents.map((a) => a.sessionId)),
 				/* Of these readers only `admissionSessionIds` lets an empty listing through, taken
@@ -933,10 +943,6 @@ function sessionIdsOf(opts, how = {}) {
 				/* Each session's cwd, "" where the oracle gave none, for the repo
 				 * whose session draw admission charges it (#2221). */
 				cwds,
-				/* Each session's own `state` and `kind`, for the memory breakdown's
-				 * finished-but-resident row (#588). */
-				states,
-				kinds,
 			};
 		},
 		how,
@@ -976,10 +982,12 @@ function sessionIdsOf(opts, how = {}) {
  * the shortlist while its session works on — a deliberate fail-open (.claude/skills/pick-next/SKILL.md).
  *
  * @param {Opts} [opts]
+ * @param {string} [starter] the starting session, for a caller launched with
+ *   its session id stripped (#4706)
  * @returns {{ids: Set<string>, names: Map<string, string>, finished: Set<string>, terminal: Set<string>, cwds: Map<string, string>, why?: undefined}
  *   | {why: string, ids?: undefined, names?: undefined, finished?: undefined, terminal?: undefined, cwds?: undefined}}
  */
-function sweepSessionIds(opts) {
+function sweepSessionIds(opts, starter) {
 	return refuseOnThrow(opts, false, (listed) => {
 		if (listed.why) return { why: listed.why };
 		if (!listed.agents)
@@ -988,7 +996,7 @@ function sweepSessionIds(opts) {
 		/** @type {Map<string, string>} */
 		const names = new Map();
 		for (const a of listed.agents) if (a.name) names.set(a.sessionId, a.name);
-		const me = process.env.CLAUDE_CODE_SESSION_ID;
+		const me = starter || process.env.CLAUDE_CODE_SESSION_ID;
 		if (me) ids.add(me);
 		// `me` is added to `ids` only, never to `finished` or `terminal`: this
 		// caller is running.
@@ -1012,6 +1020,7 @@ module.exports = {
 	listedAgents,
 	readAgentsAfterBoot,
 	readAgentsForBudget,
+	readAgentsForLevelling,
 	readAgentsForDisplay,
 	readEverySeat,
 	listedSessionIds,

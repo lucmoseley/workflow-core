@@ -4,7 +4,8 @@
  * #3105): each case runs against the fake and the machine's own journal and
  * checks shape and verdict, never values. A week of the earlyoom journal is
  * read through lib/earlyoom-kills.js's readIncidents, the kernel log through
- * check-kernel-stall.js, each case checking the text the reader was served.
+ * check-kernel-stall.js, each case checking the text the reader was served,
+ * and its tail in `-o cat` as the boot unit's ExecStopPost= logs it.
  * Loosened, every incident-filer and kernel-stall test stays green on the fake
  * while production reads nothing from what a new earlyoom or journalctl
  * prints.
@@ -19,6 +20,7 @@
  * or IGNORED below for a line the reader has no use for.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -35,7 +37,7 @@ import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
 const { readIncidents } = require("./earlyoom-kills.js");
-const { readBoots } = require("./journalctl.js");
+const { READ_TIMEOUT_MS, readBoots } = require("./journalctl.js");
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 const MIN = 60 * 1000;
@@ -110,6 +112,8 @@ interface Side {
 	kernel: { outcome: string; lines: string[] };
 	/** readBoots' reading of `--list-boots -o json`. */
 	boots: { boots: FakeBoot[]; why: string | null };
+	/** The earlyoom unit's last lines in `-o short-iso`, then in `-o cat`. */
+	tail: { short: string[]; cat: string[] };
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-contract-"));
@@ -169,6 +173,28 @@ function readKernel(bin: string, name: string): Side["kernel"] {
 	};
 }
 
+/* Lines enough to hold a multi-line message and its neighbours. */
+const TAIL_LINES = "5";
+
+/** The two reads are a pair unless earlyoom logged between them, so a
+ * mismatched pair is read once more. */
+function readTail(bin: string): Side["tail"] {
+	const read = (output: string) =>
+		lineList(
+			spawnSync(
+				bin,
+				["-u", "earlyoom", "-n", TAIL_LINES, "--no-pager", "-o", output],
+				{ encoding: "utf8", timeout: READ_TIMEOUT_MS },
+			).stdout ?? "",
+		);
+	const pair = () => ({ short: read("short-iso"), cat: read("cat") });
+	const first = pair();
+	const stripped = first.short.map((l) => l.replace(KERNEL, ""));
+	return JSON.stringify(stripped) === JSON.stringify(first.cat)
+		? first
+		: pair();
+}
+
 /**
  * One side, its earlyoom journal read through `bin` and its kernel log through
  * `kernelBin`; `why` where readIncidents could not read.
@@ -196,6 +222,7 @@ function readSide(
 			empty: t.last().trim(),
 			kernel: readKernel(kernelBin, name),
 			boots: readBoots(),
+			tail: readTail(bin),
 		},
 	};
 }
@@ -338,6 +365,14 @@ const CASES: Case[] = [
 			}
 		},
 	},
+	{
+		name: "-o cat prints each line's message alone, less its stamp, host and ident",
+		check(side: Side, skip: Skip) {
+			const { tail } = side;
+			holds(side, tail.cat.length, "earlyoom line", skip);
+			expect(tail.cat).toEqual(tail.short.map((l) => l.replace(KERNEL, "")));
+		},
+	},
 ];
 
 let fake: Side | undefined;
@@ -364,10 +399,11 @@ describe.each(CASES)("$name", (c) => {
 	});
 
 	/* The first runs every real read, each under its reader's 5 s timeout:
-	 * readIncidents' week, its empty read and the kernel log. */
+	 * readIncidents' week, its empty read, the kernel log, the boot list and
+	 * the tail's two reads. */
 	it("on the real journal", ({ skip }) => {
 		real ??= readReal();
 		if (!real.side) return skip(real.skip);
 		c.check(real.side, skip);
-	}, 25_000);
+	}, 45_000);
 });

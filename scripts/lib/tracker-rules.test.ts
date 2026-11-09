@@ -397,6 +397,16 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 			expect(logs).toEqual([]);
 		});
 
+		it("judges a ~/ job-dir path on its shape where HOME is empty (#4611)", () => {
+			const out = emission(
+				bash("gh issue comment 5 --body-file ~/.claude2/jobs/abc/tmp/b.md"),
+				{ cwd: dir, env: { HOME: "" } },
+			);
+			expect(idsIn(out?.additionalContext ?? "")).toContain(
+				"gh-job-dir-unreadable",
+			);
+		});
+
 		it("follows a cd into the job tree from outside it", () => {
 			const out = emission(
 				bash("cd $CLAUDE_JOB_DIR && gh issue comment 5 --body-file tmp/b.md"),

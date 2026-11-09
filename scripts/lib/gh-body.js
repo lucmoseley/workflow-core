@@ -5,6 +5,7 @@
  * A CORE: the file read is the caller's `readFile` port.
  */
 
+const { expandTildeWord } = require("./home-path.js");
 const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -179,11 +180,7 @@ function diskBody(body, { at, before, tilde }, env) {
  * @returns {string | null}
  */
 function resolvePath(at, tilde, env) {
-	if (tilde) {
-		if (at === "~") return env.home;
-		if (at.startsWith("~/")) return `${env.home}/${at.slice(2)}`;
-		if (at.startsWith("~")) return null;
-	}
+	if (tilde && at.startsWith("~")) return expandTildeWord(at, env.home);
 	if (at.startsWith("/")) return at;
 	return env.cwd ? `${env.cwd}/${at}` : null;
 }

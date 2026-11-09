@@ -181,6 +181,50 @@ describe("the watcher", () => {
 		);
 	});
 
+	it("journals the scope's peak and OOM kills once its leader is gone", () => {
+		const m = fakeMachine({});
+		fs.writeFileSync(path.join(m.dir, "memory.peak"), "3221225472\n");
+		fs.writeFileSync(
+			path.join(m.dir, "memory.events"),
+			"low 0\nhigh 0\nmax 4\noom 2\noom_kill 2\noom_group_kill 0\n",
+		);
+		const r = watch(m.env, "4000", "0");
+		expect(r.stdout).toBe("u.scope peaked at 3072 MiB, oom_kill 2\n");
+	});
+
+	/* Crosses the real clock (§X9), as the test below does. */
+	it("journals the peak it polled while its leader lived, the scope gone since", async () => {
+		const m = fakeMachine({});
+		fs.mkdirSync(path.join(m.proc, "4000"), { recursive: true });
+		const stat = path.join(m.proc, "4000", "stat");
+		fs.writeFileSync(stat, `4000 (a) S ${"0 ".repeat(18)}555 0\n`);
+		fs.writeFileSync(path.join(m.dir, "memory.peak"), "1073741824\n");
+		fs.writeFileSync(path.join(m.dir, "memory.events"), "oom_kill 1\n");
+		const watcher = spawn("sh", ["-c", WATCH, "sh", "4000", "555", "u.scope"], {
+			env: m.env,
+		});
+		cleanups.push(() => watcher.kill("SIGKILL"));
+		let out = "";
+		watcher.stdout.on("data", (b) => {
+			out += String(b);
+		});
+		const exited = new Promise<number | null>((resolve) =>
+			watcher.on("exit", resolve),
+		);
+		await new Promise((r) => setTimeout(r, 500));
+		fs.rmSync(path.join(m.dir, "memory.peak"));
+		fs.rmSync(path.join(m.dir, "memory.events"));
+		fs.rmSync(stat);
+		expect(await exited).toBe(0);
+		expect(out).toBe("u.scope peaked at 1024 MiB, oom_kill 1\n");
+	});
+
+	it("says the peak was unreadable where the scope held none", () => {
+		const m = fakeMachine({});
+		const r = watch(m.env, "4000", "0");
+		expect(r.stdout).toMatch(/^u\.scope peak unreadable at .*\/scope$/m);
+	});
+
 	it("reads a leader on a reused pid, its start time changed, as ended", () => {
 		const m = fakeMachine({ 4242: "sleep\x00900\x00" });
 		fs.mkdirSync(path.join(m.proc, "4000"), { recursive: true });

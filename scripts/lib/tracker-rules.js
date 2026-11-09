@@ -80,6 +80,7 @@
 
 const { SPACE, bodyFileWord, bodyWord, newBody } = require("./gh-body.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
+const { expandHome } = require("./home-path.js");
 const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
@@ -394,6 +395,8 @@ function bodyPathWords([head = "", ...args], spans) {
  *
  * A word opening on any other expansion (`$HOME/b.md`) could land anywhere, so
  * it is not resolved against the working directory; `~/` expands to HOME.
+ * Where HOME is empty or relative the rest of the word is judged on the job
+ * dir's shape alone, which needs no home (#4611).
  * @param {Parsed} parsed
  * @param {TrackerContext} ctx
  */
@@ -409,8 +412,7 @@ function scanJobDir(parsed, ctx) {
 			seen ||= bodyPathWords(words, parsed.spans).some((text) => {
 				if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
 					return false;
-				const p = text.startsWith("~/") ? `${home}${text.slice(1)}` : text;
-				return isJobDir(p, where);
+				return isJobDir(expandHome(text, home) ?? text.slice(1), where);
 			});
 		},
 		ctx,

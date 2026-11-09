@@ -4,8 +4,7 @@
  * each rule once, on its figures. Loosen a case and a session can be admitted
  * past the machine's 10 GB cap, which freezes it, or a free slot held shut.
  *
- * A 3700 MB budget fits 4 at 3058, not 5 at 3736; a 1300 MB budget fits 1 at
- * p95 (929, not 1666) and 2 at the 600 MB mean.
+ * A 3700 MB budget fits 4 at 3058, not 5 at 3736.
  */
 import { describe, expect, it } from "vitest";
 import { admissionFigures } from "./admission-figures";
@@ -29,11 +28,9 @@ const measured = (mem: Mem, procs: Procs, readings?: Readings) => {
 };
 
 const roomy = { ok: true as const, mb: 4000 + FLOOR };
-const tight = { ok: true as const, mb: 1300 + HELD };
 const scant = { ok: true as const, mb: 100 };
-const one = { ok: true as const, sessions: 1, working: 0 };
-const none = { ok: true as const, sessions: 0, working: 0 };
-const working = { ok: true as const, sessions: 3, working: 2, self: true };
+const one = { ok: true as const, sessions: 1 };
+const none = { ok: true as const, sessions: 0 };
 const over = { overloaded: true, load1: 60, ceiling: 48 };
 const capped = {
 	ceiling: 3,
@@ -50,7 +47,7 @@ describe("the CPU limb (#830, #834)", () => {
 		expect(f.byMemory).toBe(4);
 		expect(f.memorySlots).toBe(4);
 		expect(f.slots).toBe(0);
-		expect(f.liftedCapped).toBe(0);
+		expect(f.freeSlots).toBe(0);
 		const alone = measured(scant, none, { load: over });
 		expect(alone.guaranteed).toBe(true);
 		expect(alone.memorySlots).toBe(1);
@@ -60,7 +57,7 @@ describe("the CPU limb (#830, #834)", () => {
 	it("caps the slots at the session ceiling, the guarantee included (#2141)", () => {
 		const f = measured(roomy, one, { cpu: capped });
 		expect(f.slots).toBe(1);
-		expect(f.liftedCapped).toBe(1);
+		expect(f.freeSlots).toBe(1);
 		const full = { ...capped, sessions: 3, slots: 0, full: true };
 		expect(measured(scant, none, { cpu: full }).slots).toBe(0);
 	});
@@ -68,82 +65,21 @@ describe("the CPU limb (#830, #834)", () => {
 	it("changes nothing where the load and ps are unread", () => {
 		const f = measured(roomy, one);
 		expect(f.slots).toBe(4);
-		expect(f.liftedCapped).toBe(4);
+		expect(f.freeSlots).toBe(4);
 	});
 });
 
-describe("the session floor (#2501, #2507)", () => {
-	it("lifts the slots toward the floor, counting working sessions and this one", () => {
-		const f = measured(tight, working, { sessionFloor: 6 });
-		expect(f.byMemory).toBe(1);
-		expect(f.floor).toMatchObject({
-			sessionFloorWorking: 3,
-			sessionFloorSlots: 2,
-			sessionFloorLifted: true,
-		});
-		expect(f.liftedSlots).toBe(2);
-		expect(f.slots).toBe(2);
-	});
-
-	it("never lowers the p95 slots, and grants none where none is declared", () => {
-		const met = measured(tight, working, { sessionFloor: 3 });
-		expect(met.slots).toBe(1);
-		expect(met.floor.sessionFloorLifted).toBe(false);
-		expect(measured(tight, working).floor.sessionFloorSlots).toBe(0);
-	});
-
-	it("names no lift where the always-admit-one guarantee already gives the slot", () => {
-		const alone = { ok: true as const, sessions: 0, working: 0, self: true };
-		const f = measured({ ok: true, mb: 700 + HELD }, alone, {
-			sessionFloor: 2,
-		});
-		expect(f.guaranteed).toBe(true);
-		expect(f.floor.sessionFloorSlots).toBe(1);
-		expect(f.floor.sessionFloorLifted).toBe(false);
-		expect(f.liftedSlots).toBe(1);
-	});
-
-	it("is capped by the CPU, and held at 0 by an overload", () => {
-		const cpu = measured(tight, working, { cpu: capped, sessionFloor: 6 });
-		expect(cpu.memorySlots).toBe(2);
-		expect(cpu.slots).toBe(1);
-		const load = measured(tight, working, { load: over, sessionFloor: 6 });
-		expect(load.floor.sessionFloorSlots).toBe(2);
-		expect(load.slots).toBe(0);
-	});
-
-	it("grants no floor slot while the swap hold binds, keeping the p95 slot (#2690)", () => {
-		const swapHold = {
-			held: true as const,
-			swapFreeMb: 245,
-			swapTotalMb: 2048,
-			availableMb: 1300 + HELD,
-		};
-		const f = measured(tight, working, { sessionFloor: 6, swapHold });
-		expect(f.slots).toBe(1);
-		expect(f.floor.sessionFloorSlots).toBe(0);
-		expect(f.floor.sessionFloorLifted).toBe(false);
-		expect(f.floor.swapHold).toEqual(swapHold);
-	});
-
-	it("grants no floor and no guarantee where the session count is unread", () => {
-		const f = measured(
-			scant,
-			{ ok: false, error: "x" },
-			{
-				sessionFloor: 6,
-			},
-		);
+describe("unread readings", () => {
+	it("grants no guarantee where the session count is unread", () => {
+		const f = measured(scant, { ok: false, error: "x" });
 		expect(f.guaranteed).toBe(false);
-		expect(f.floor.sessionFloorSlots).toBe(0);
 		expect(f.slots).toBe(0);
 	});
 
 	it("yields no figures where memory is unread, only its error", () => {
-		const f = figures({ ok: false, error: "x" }, working, { sessionFloor: 6 });
+		const f = figures({ ok: false, error: "x" }, one);
 		expect(f.memRead).toBe(false);
 		expect(f).toMatchObject({ error: "x" });
-		expect(f.floor.sessionFloorSlots).toBe(0);
 	});
 });
 
@@ -177,5 +113,53 @@ describe("the readings' failed reads", () => {
 		const f = measured(scant, one, { overhead: { ok: true, mb: 800 } });
 		expect(f.effectiveMb).toBe(0);
 		expect(f.budgetMb).toBe(-HELD);
+	});
+});
+
+/* Windows must hold the new sessions' p95 draw and the 300 MB margin: one
+ * session's 929 MB at 1229 MB free, two's 1666 MB at 1966. */
+describe("the Windows-memory hold (#4557)", () => {
+	const windows = (mb: number) => ({
+		state: "fresh" as const,
+		mb,
+		ageS: 30,
+	});
+
+	it("holds the slots to what Windows' free memory admits, the guarantee included, keeping the memory figures", () => {
+		const short = measured(roomy, one, { windows: windows(1228) });
+		expect(short.byMemory).toBe(4);
+		expect(short.onWindows).toEqual({
+			windowsMb: 1228,
+			windowsBudgetMb: 928,
+			windowsSlots: 0,
+		});
+		expect(short.slots).toBe(0);
+		expect(measured(roomy, one, { windows: windows(1229) }).slots).toBe(1);
+		expect(measured(roomy, one, { windows: windows(1966) }).slots).toBe(2);
+		const alone = measured(scant, none, { windows: windows(100) });
+		expect(alone.guaranteed).toBe(true);
+		expect(alone.slots).toBe(0);
+	});
+
+	it("takes the pool reserve and the lander's suite off Windows' memory too, crediting no reclaim", () => {
+		const f = measured(roomy, one, {
+			windows: windows(1229),
+			overhead: { ok: true, mb: 50 },
+			landerMb: 50,
+			reclaimable: { ok: true, mb: 2000 },
+		});
+		expect(f.onWindows?.windowsBudgetMb).toBe(829);
+		expect(f.slots).toBe(0);
+	});
+
+	it("holds nothing on a stale reading or where no memwatch runs", () => {
+		for (const read of [
+			{ state: "stale" as const, why: "old" },
+			{ state: "absent" as const },
+		]) {
+			const f = measured(roomy, one, { windows: read });
+			expect(f.onWindows).toBeNull();
+			expect(f.slots).toBe(4);
+		}
 	});
 });

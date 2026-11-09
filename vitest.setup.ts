@@ -92,6 +92,17 @@ process.env.WFC_CLAUDE_CONFIG_B = path.join(testConfigDir, "no-seat-b");
 process.env.WFC_CLAUDE_CONFIG_C = path.join(testConfigDir, "no-seat-c");
 
 /*
+ * NO TEST READS THIS MACHINE'S MEMWATCH LOG (#4557): the suite gate, the
+ * type-check slot and admission hold on its Windows reading, so a guard run
+ * through its real ports would answer to the machine's memory. Pinned to a path
+ * that does not exist, which reads as no memwatch; an override, as above.
+ */
+process.env.MEMWATCH_MINUTE_LOG = path.join(
+	testConfigDir,
+	"no-memwatch-minute.jsonl",
+);
+
+/*
  * NO TEST REACHES THE SESSION'S HOST THROUGH CLAUDE_PROJECT_DIR (#3334).
  * Pointed at an empty dir that is no repository, a test that drops its pin, or
  * reaches hostRoot() in process, is red in CI and locally alike. An override,
@@ -127,6 +138,14 @@ const testSecretsDir = fs.mkdtempSync(
 );
 process.env.WFC_SECRETS_FILE = path.join(testSecretsDir, "secrets.env");
 afterAll(() => fs.rmSync(testSecretsDir, { recursive: true, force: true }));
+
+/*
+ * NO TEST READS THE NEWEST GREEN RUN'S TIMINGS (#4579): the run-cost report
+ * and the local tester would fetch them from GitHub into the machine's
+ * cache. Named at a file that never exists, so they read none, in CI and
+ * locally alike. An override, as above; a case that names its own wins.
+ */
+process.env.WFC_SHARD_TIMINGS = path.join(testSecretsDir, "no-timings.csv");
 
 /*
  * THE RULE STORE THE SUITE READS IS THIS CHECKOUT'S.
@@ -165,12 +184,7 @@ process.env.WFC_MODULES ??= config.MODULES.filter(
 	(m: string) => m !== "landing",
 ).join(",");
 
-/* NO SESSION FLOOR, outright: the machine's `~/.claude/session-floor` (#2501)
- * would lift every admission case's slots. A case testing the floor sets its
- * own in the child's env. */
-process.env.WFC_SESSION_FLOOR = "";
-
-/* NO HOST LOAD CEILING, by the same shape: `~/.claude/load-ceiling` (#3223)
+/* NO HOST LOAD CEILING, outright: `~/.claude/load-ceiling` (#3223)
  * would move every load-hold case's ceiling. */
 process.env.WFC_LOAD_CEILING = "";
 

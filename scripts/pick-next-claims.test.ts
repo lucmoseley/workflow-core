@@ -71,26 +71,6 @@ describe("admission", () => {
 		expect(r.out).toMatch(/START ONE NOW/);
 	});
 
-	it("lifts the free slots to the session floor and names it (#2507)", async () => {
-		kit.oracleSessions = ["self", "a@601", "b@602"];
-		kit.oracleWorking = ["a", "b"];
-		kit.procPssKb = { "601": WORKING_PAIR_KB, "602": WORKING_PAIR_KB };
-		kit.psOut = [...sessionProcs("a"), ...sessionProcs("b")].join("\n");
-		kit.memAvailableKb = 3072 * 1024;
-		kit.sessionFloor = "8";
-		const r = await run({ issues: [{ number: 1 }] });
-		// 3 working with this run, so 5 wanted; 1872 MB holds 4 at the 429 MB
-		// mean, over the 3 the p95 draw leaves.
-		expect(r.out).toMatch(
-			/session floor\s+8 working sessions \(~\/\.claude\/session-floor, #2501\); 3 working, this run's own counted, so 4 floor slot\(s\)/,
-		);
-		expect(r.out).toMatch(/free slots\s+4/);
-		expect(r.out).toMatch(
-			/START ONE NOW — 4 free slots, FLOOR: 4 slot\(s\) toward the 8 working sessions .*, 3 working, over the p95 pricing/,
-		);
-		expect(r.out).toMatch(/raised to 4 by the session floor of 8/);
-	});
-
 	it("holds every slot at the load ceiling, naming the load (#834)", async () => {
 		kit.oracleSessions = ["self", "a"];
 		kit.psOut = sessionProcs("a").join("\n");

@@ -42,6 +42,7 @@ const {
 } = require("./lib/agent-liveness");
 const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
+const { expandHome } = require("./lib/home-path.js");
 const { caught } = require("./lib/caught.js");
 const { parseJsonl } = require("./lib/jsonl.js");
 const { isLoopPrompt } = require("./lib/loop-prompts.js");
@@ -197,9 +198,10 @@ function configDir(args) {
 			"--from needs a config dir, e.g. --from ~/.claude3 (or set $CLAUDE_CONFIG_DIR)",
 		);
 	}
-	// `~` only, and only leading: os.homedir() rather than $HOME, which an
-	// `env -i` invocation leaves unset. `~user` is not expanded.
-	const resolved = d.startsWith("~/") ? path.join(os.homedir(), d.slice(2)) : d;
+	// os.homedir() rather than $HOME, which an `env -i` invocation leaves unset.
+	const resolved = expandHome(d, os.homedir());
+	if (resolved === null)
+		die(`cannot expand ${d}: the home directory is unset or not absolute`);
 	if (!fs.existsSync(jobStorePath(resolved))) {
 		die(`${resolved} has no jobs/ directory — is that a Claude config dir?`);
 	}

@@ -85,31 +85,15 @@ case "${1-}" in
   --gates=merge | --gates=batch) wfc_gates="${1#--gates=}" ;;
 esac
 
-# Every parallel-safety rule in CLAUDE.md's guard-registry region must state a
-# backing that holds — an **Enforced** claim naming a guard that exists and is
-# wired — and a commit must not leave a registry anchor expired that HEAD did
-# not (#2617): the way out is the `--review` re-anchor, staged with it.
-#
-# scripts/ and .husky/ are in the condition because a guard is a file: deleting
-# .husky/pre-commit falsifies an **Enforced** claim without any document changing.
-# self-plugin/ holds the core's wiring, which an UNWIRED claim is judged against.
-#
-# --against HEAD is the whole gate (mantahostels#1801, mantahostels#1833). scripts/lib/check.js reads
-# the INDEX and HEAD, each materialised, and refuses only on a fault this commit
-# ADDS: an unstaged rule edit is not visible to it at all.
-# Its exit code is the checker's own
-# alphabet: 1 a fault this commit adds, 2 a comparison that could not answer, and
-# both refuse. The checker's own report streams past on the way, so a session
-# still meets the implicit-behaviour roster mantahostels#1261 put here.
-#
-# THAT BASELINE MUST EXIST, and this binds every --against gate in this file.
-# lib/check.js resolves HEAD^{tree} before it reads anything, so in a repo with
-# no commit yet HEAD does not resolve and the gate is BROKEN — exit 2, refusing
-# the very first commit. Nothing in this repo hits it; installing these hooks
-# into a fresh repo would (mantahostels#1940).
+# The whole-repo checker gates the lander's merge set runs, before its exit
+# below. Both precommit-gates regions are rendered from scripts/lib/precommit-gates.js,
+# whose rows hold each gate's why, by scripts/generate-precommit-gates.js:
+# edit the registry and re-run it, never the region (#4597).
+# precommit-gates:merge:begin
 if ! lander_batch && armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
 fi
+# precommit-gates:merge:end
 
 # docs/test-read-edges.json is what lets `--changed` select the tests that READ a
 # document rather than import it. It is derived from the test corpus, so a
@@ -336,73 +320,83 @@ if armed '^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|script
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit "$?"
 fi
 
-# A scripts/ test that spawns a guard sourcing lib/guard-log.sh must redirect
-# CLAUDE_CONFIG_DIR, or every fail-open it provokes on purpose is appended to the
-# developer's real guard-errors.log, where it reads as a guard failing in
-# production (mantahostels#1452).
-#
-# Conditioned on every scripts/ .ts, not only tests, since a shared helper can
-# spawn the guard (#837), and on shell files: the breach also arrives from the
-# guard's side, when a guard some test already spawns starts sourcing
-# guard-log.sh. Whole-repo, not staged-scoped, for the same reason as the
-# guard-registry gate above — the finding is a relationship between a test and a
-# script, and either half can be the one this commit stages — and on --against
-# for the same reason too (mantahostels#1753, mantahostels#1833).
-#
-# This gate, host-root-test-isolation's, git-fixture-identity's,
-# test-env-writes', test-read-edges' and test-spawn's open on JS_TEST_ERE, set
-# at the top.
-if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)\$"; then
+# The precommit-gates regions are rendered from the registry, so an edit to the
+# hook, the registry or its renderer without a re-render runs gates the registry
+# no longer holds (#4597).
+if armed '^(\.husky/pre-commit|scripts/(generate-precommit-gates|lib/precommit-gates(-render)?)\.js)$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-precommit-gates.js --check || exit "$?"
+fi
+
+# The rest of the whole-repo checker gates, rendered as the merge region above.
+# precommit-gates:batch:begin
+if ! lander_batch && armed '^scripts/.*'"$JS_TEST_ERE"'|^scripts/.*\.(ts|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
 
-# A scripts/ test that spawns a hostRoot()- or gr_root-rooted script must
-# redirect CLAUDE_PROJECT_DIR, or the child roots itself in the real repo
-# (#160, #154's fixed instance; #3311, a bash checker).
-#
-# Whole-repo and on --against for the same reason as the guard-test-isolation
-# gate above: the finding pairs a test with whatever script it spawns, and
-# either half can be the one this commit stages.
-if armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(js|sh)\$"; then
+if armed '^scripts/.*'"$JS_TEST_ERE"'|^scripts/.*\.(js|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root-test-isolation.js --against HEAD || exit "$?"
 fi
 
-# A scripts/ test that raw-inits and raw-commits a git repo must give that
-# repo its own identity, or it passes on every developer machine — which
-# carries a global git identity — and fails on a runner with none (mantahostels#2310's
-# shape, mantahostels#2355).
-#
-# Whole-repo and on --against for the same reason as the guard-test-isolation
-# gate above: the finding pairs an init site with a commit site anywhere in
-# the same file, and a pathspec commit's staged-paths-only view could hold one
-# half without the other.
-if ! lander_batch && armed "^scripts/.*$JS_TEST_ERE"; then
+if ! lander_batch && armed '^scripts/.*'"$JS_TEST_ERE"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
 fi
 
-# A JS test file sets or unsets an env var through vi.stubEnv, never a direct
-# process.env write or delete, which vitest.config.ts's unstubEnvs never
-# restores, so it outlives its case (#4019).
-#
-# Every test file vitest collects and every scripts/ .ts helper, and on
-# --against for the same reason as the git-fixture-identity gate above.
-if ! lander_batch && armed "$JS_TEST_ERE|^scripts/.*\.ts\$"; then
+if ! lander_batch && armed "$JS_TEST_ERE"'|^scripts/.*\.ts$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-env-writes.js --against HEAD || exit "$?"
 fi
 
-# Every script in the core finds the HOST repository through the one seam (#1),
-# and never by walking up from its own file: installed as a plugin the core sits
-# in the plugin cache, so a self-rooted script reads the cache and every host
-# read lands in the wrong tree. The mirror fault is gated too — a file that
-# ships WITH the core reached through the host root, which the host does not
-# have. A repo shipping no plugin SKIPs: its own scripts run in place (#83).
-#
-# Whole-repo, because a site is judged against core-path constants other
-# scanned modules export; and on --against, so it judges this commit's bytes
-# rather than an untracked script in the working tree (#917).
 if armed '^(scripts/|\.claude/|\.husky/)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root.js --against HEAD || exit "$?"
 fi
+
+if ! lander_batch && armed '^app/'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-website-copy.js --against HEAD || exit "$?"
+fi
+
+if ! lander_batch && armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-frontmatter.js --against HEAD || exit "$?"
+fi
+
+if armed '^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-registrations.js --against HEAD || exit "$?"
+fi
+
+if armed '^scripts/[^/]+\.js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
+fi
+
+if armed '^(scripts|\.claude/skills)/.*'"$JS_TEST_ERE"; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js --index || exit "$?"
+fi
+
+if armed '^scripts/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --index || exit "$?"
+fi
+
+if armed '^(scripts|\.claude/skills|\.husky|hooks)/'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js --index || exit "$?"
+fi
+
+if armed '^scripts/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-arbiter-commands.js --index || exit "$?"
+fi
+
+if armed '^scripts/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js --index || exit "$?"
+fi
+
+if armed '^scripts/report-[^/]+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js --index || exit "$?"
+fi
+
+if armed '^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-program-output.js --index || exit "$?"
+fi
+
+if armed '^\.husky/pre-commit(\.local)?$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-precommit-exit.js --index || exit "$?"
+fi
+# precommit-gates:batch:end
 
 # docs/agents/rules/<id>.txt is rendered from an anchor pair in the document
 # that authors the rule, so an edit inside those anchors makes the fragment
@@ -422,18 +416,6 @@ if armed '^docs/agents/rules/' || {
   armed -F "$rf_sources"
 }; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit "$?"
-fi
-
-# The brand sheet's §11 banned tells, on the copy strings under app/ (mantahostels#858).
-# Scoped to commits that touch app/, so a docs-only commit never pays for it.
-#
-# --against HEAD (mantahostels#1834): the whole root is scanned at both revisions
-# and only a tell HEAD does not already carry refuses the commit, so a
-# pre-existing one still reports without blocking a bystander, and a tell in a
-# file this commit does not stage is seen. Repo prose and
-# source comments are out of scope and keep their em dashes.
-if ! lander_batch && armed '^app/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-website-copy.js --against HEAD || exit "$?"
 fi
 
 # The user-settings snapshot is checked here, not in CI: its source lives
@@ -472,22 +454,6 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-primitives.js --paths-only || exit "$
 # the token limb refuse — accepted, the fix being one escape.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-body-size.js --touching HEAD
 
-# An own skill whose frontmatter js-yaml rejects, which a strict reader drops
-# silently (#887). js-yaml comes from the repo's own install, and its absence
-# refuses the commit, naming the install (#1380).
-if ! lander_batch && armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-frontmatter.js --against HEAD || exit "$?"
-fi
-
-# A hook, guard or checker of the repo's own left unregistered, untested or
-# uncounted (#1456): the host-side form of the core's registration tests, which
-# stands down wherever the repo carries those tests; there it refuses any
-# settings hook but the self-plugin canary (#2447). Direction-gated, so an
-# adopter's inherited gaps warn and only a commit adding one refuses.
-if armed '^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-registrations.js --against HEAD || exit "$?"
-fi
-
 # A workflow job reaching past the timer-triggered autonomy ceiling, R1
 # (docs/agents/autonomy-ceiling.md). Added or modified files only: a commit
 # deleting the last workflow would otherwise refuse on NOTHING-INSPECTED. It
@@ -495,70 +461,6 @@ fi
 # carry can surface here (#1380).
 if ! lander_batch && armed '^\.github/workflows/[^/]+\.ya?ml$' && [ -n "$(armed_live)" ]; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-workflow-permissions.js || exit "$?"
-fi
-
-# A script reading its command line without a strict parser, which ignores an
-# unknown flag and so runs its side effect on `--help` (#920, #1532).
-# Direction-gated: an inherited script warns, and one this commit adds or
-# edits refuses.
-if armed '^scripts/[^/]+\.js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
-fi
-
-# The five whole-tree heresy gates below, and the pre-commit exit gate after
-# them, run on --index, so each judges the tree this commit makes, never an
-# untracked or unstaged file outside it, and still refuses a breach HEAD
-# already carries (#3687).
-
-# A test spawning node on the program under test rather than running it
-# through runInProcess, with no `spawn-kept: <why>` (§X3), judging the whole
-# tree (#3458).
-if armed "^(scripts|\.claude/skills)/.*$JS_TEST_ERE"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js --index || exit "$?"
-fi
-
-# A hand split-and-parse of JSONL rather than lib/jsonl.js, judging the whole
-# tree (#3452, #3453).
-if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --index || exit "$?"
-fi
-
-# A `gh` call off lib/gh.js and WFC_GH, or a `claude` call off
-# lib/claude-bin.js and WFC_CLAUDE_BIN: a second var, a local spawn, a bare
-# shell call or a test's PATH stub (§X2, §N7), judging the whole tree (#3455,
-# #3559).
-if armed '^(scripts|\.claude/skills|\.husky|hooks)/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js --index || exit "$?"
-fi
-
-# An arbiter command spelt by hand rather than through buildArbiterCommand,
-# judging the whole tree (#3990).
-if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-arbiter-commands.js --index || exit "$?"
-fi
-
-# A program reading WFC_NOW itself rather than lib/check.js's now(), judging
-# the whole tree (#3457).
-if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js --index || exit "$?"
-fi
-
-# A report-* program filing past createIssue, judging the whole tree (#3454).
-# Only a report-* holds the breach, so only staging one arms it.
-if armed '^scripts/report-[^/]+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js --index || exit "$?"
-fi
-
-# A program ending in process.exit writing past writeFd, judging the whole
-# tree (§N6, #4018).
-if armed '^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-program-output.js --index || exit "$?"
-fi
-
-# A checker line here or in .husky/pre-commit.local exiting 1 on its failure,
-# which turns its BROKEN into a finding (§N4, #3456).
-if armed '^\.husky/pre-commit(\.local)?$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-precommit-exit.js --index || exit "$?"
 fi
 
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml

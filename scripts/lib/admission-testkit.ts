@@ -152,6 +152,4 @@ export const buildIsolatedEnv = (
 	WFC_LOAD_CEILING: "",
 	// Set so neither the runner's core count nor an override moves it.
 	WFC_SESSION_CEILING: "0",
-	// Set, as unset reads `$HOME/.claude/session-floor` (#2501).
-	WFC_SESSION_FLOOR: "",
 });

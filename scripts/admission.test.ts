@@ -26,8 +26,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	admissionFrom,
 	buildMemoryBreakdownLines,
-	buildSessionFloorLine,
 	readRunningVitestSuites,
+	readSwapHold,
 	readTreePssKb,
 	SUITE_RESTING_MB,
 	SWAP_HOLD_AVAILABLE_MB,
@@ -178,11 +178,9 @@ interface Machine {
 	landers?: Lander[];
 	/** Each listed session's oracle `state`, by id; none where absent. */
 	states?: Record<string, string>;
-	/** `WFC_SESSION_FLOOR`, the machine's session floor (#2501); null unsets it,
-	 * so `$HOME/.claude/session-floor` is read, `$HOME` the case's dir. */
-	sessionFloor?: string | null;
-	/** Swap in MB, as `/proc/meminfo` reports it; null writes no swap lines. */
-	swap?: { totalMb: number; freeMb: number } | null;
+	/** Windows' free memory on memwatch's newest minute line, `ageS` old;
+	 * none writes no log, as on a machine with no memwatch (#4557). */
+	windows?: { mb: number; ageS?: number };
 }
 
 /* This process as a lander holding a whole suite, at its charge (#3323). */
@@ -210,13 +208,24 @@ const machineEnv = (m: Machine = {}) => {
 		sessionCeiling = "0",
 		landers = [],
 		states = {},
-		sessionFloor = "",
-		swap = null,
+		windows,
 	} = m;
 	const host = writeHostRepo(dir, hostConfig);
+	const minuteLog = path.join(dir, "memwatch-minute.jsonl");
+	if (windows)
+		fs.writeFileSync(
+			minuteLog,
+			`${JSON.stringify({
+				ts: new Date(Date.now() - (windows.ageS ?? 10) * 1000).toISOString(),
+				win_avail_mb: windows.mb,
+				win_age_s: 0,
+			})}\n`,
+		);
+	else fs.rmSync(minuteLog, { force: true });
 	return {
+		MEMWATCH_MINUTE_LOG: minuteLog,
 		...buildIsolatedEnv(dir, { landers }),
-		WFC_MEMINFO: meminfo(mb, swap),
+		WFC_MEMINFO: meminfo(mb),
 		WFC_PS: ps(psLines, { fails: psFails }),
 		WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
 		WFC_PROC: writeProcRoot(dir, { pss, parents, cwds, environs }),
@@ -226,9 +235,6 @@ const machineEnv = (m: Machine = {}) => {
 		}),
 		WFC_LOADAVG: writeLoadavg(dir, load),
 		WFC_SESSION_CEILING: sessionCeiling,
-		...(sessionFloor === null
-			? { WFC_SESSION_FLOOR: undefined, HOME: dir }
-			: { WFC_SESSION_FLOOR: sessionFloor }),
 		CLAUDE_CODE_SESSION_ID: self,
 		CLAUDE_PROJECT_DIR: host,
 	};
@@ -315,207 +321,22 @@ describe("slot arithmetic", () => {
 	});
 });
 
-describe("the session floor (#2501)", () => {
-	/* Two neighbours working beside this run, so 3 of a floor of 6 are
-	 * working; p95 prices one more, and 4 means of 600 fit above the 794 + 300. */
-	const three = {
-		mb: 500 + 4 * 600 + HELD + PAIR,
-		sessions: [SELF, "a", "b"],
-		states: { a: "working", b: "working" },
-		sessionFloor: "6",
+describe("the swap hold (#2690)", () => {
+	const holdAt = (
+		mb: number,
+		swap: { totalMb: number; freeMb: number } | null,
+	) => {
+		vi.stubEnv("WFC_MEMINFO", meminfo(mb, swap));
+		return readSwapHold();
 	};
 
-	it("lifts the slots to the floor's working sessions, this run's own counted", () => {
-		const { json, status } = run(three);
-		expect(json.byMemory).toBe(1);
-		expect(json.sessionFloorWorking).toBe(3);
-		expect(json.sessionFloorSlots).toBe(3);
-		expect(json.slots).toBe(3);
-		expect(json.reason).toMatch(
-			/^FLOOR: 3 slot\(s\) toward the 6 working sessions ~\/\.claude\/session-floor keeps \(#2501\), 3 working,/,
-		);
-		expect(status).toBe(0);
-	});
-
-	it("counts only sessions the oracle reads as working toward the floor (#2505)", () => {
-		const { json, status } = run({
-			...three,
-			sessions: [SELF, "a", "b", "c", "d", "e"],
-			states: { a: "working", b: "idle", c: "blocked", d: "done" },
-		});
-		// a and this run work; idle, blocked, done and stateless e do not
-		expect(json.sessions).toBe(5);
-		expect(json.sessionFloorWorking).toBe(2);
-		expect(json.sessionFloorSlots).toBe(4);
-		expect(status).toBe(0);
-	});
-
-	it("names the floor where it lifts the guaranteed slot, no session running (#2505)", () => {
-		/* σ 600 prices one session at 1587 MB p95, over the 1300 left, while
-		 * two means of 600 still fit. */
-		const { json, status } = run({
-			mb: 1300 + HELD + PAIR,
-			sessions: [SELF],
-			hostConfig: { sessionMeanMb: 600, sessionSigmaMb: 600 },
-			sessionFloor: "4",
-		});
-		expect(json.byMemory).toBe(0);
-		expect(json.slots).toBe(2);
-		expect(json.reason).toMatch(
-			/^FLOOR: 2 slot\(s\) toward the 4 working sessions .*, under the \d+ MB the live sessions' draw and one more need/,
-		);
-		expect(json.reason).not.toMatch(/so one is admitted/);
-		expect(status).toBe(0);
-	});
-
-	it("names the floor in the slot arithmetic and its own line (#2505)", () => {
-		const { stdout, status } = run({ ...three, json: false });
-		expect(stdout).toMatch(
-			/^ {2}slot arithmetic .*, so 1 slot\(s\), raised to 3 by the session floor of 6 working sessions \(#2501\)$/m,
-		);
-		expect(stdout).toMatch(
-			/^session floor {6}6 working sessions \(~\/\.claude\/session-floor, #2501\); 3 working, this run's own counted, so 3 floor slot\(s\)$/m,
-		);
-		expect(status).toBe(0);
-	});
-
-	it("grants a floor slot only where free memory holds one more session's mean", () => {
-		const { json, status } = run({
-			mb: 599 + HELD + PAIR,
-			sessions: [SELF, "a"],
-			states: { a: "working" },
-			sessionFloor: "8",
-		});
-		expect(json.sessionFloorSlots).toBe(0);
-		expect(json.slots).toBe(0);
-		expect(status).toBe(1);
-	});
-
-	it("is capped by the CPU ceiling", () => {
-		const { json, status } = run({
-			...three,
-			psLines: ["900 1000 claude bg-pty-host --session x0"],
-			sessionCeiling: "3",
-		});
-		expect(json.sessionFloorSlots).toBe(3);
-		expect(json.memorySlots).toBe(3);
-		expect(json.slots).toBe(2);
-		expect(status).toBe(0);
-	});
-
-	it("is held at 0 by an overload", () => {
-		const { json, status } = run({ ...three, load: 6 * os.cpus().length });
-		expect(json.sessionFloorSlots).toBe(3);
-		expect(json.slots).toBe(0);
-		expect(status).toBe(1);
-	});
-
-	it("prices against memory the lander's suite reserve is not taken from (#2416)", () => {
-		const roomy = { ...three, mb: 6000 + HELD + PAIR };
-		const without = run(roomy).json;
-		const withLander = run({ ...roomy, landers: [WHOLE_LANDER] }).json;
-		expect(withLander.landerMb).toBeGreaterThan(0);
-		expect(withLander.budgetMb).toBeLessThan(without.budgetMb);
-		expect(withLander.sessionFloorSlots).toBe(without.sessionFloorSlots);
-		expect(withLander.sessionFloorSlots).toBe(3);
-	});
-
-	it("adds nothing once the floor's sessions are working, or where none is declared", () => {
-		const working = {
-			mb: 8000,
-			sessions: [SELF, "a", "b", "c"],
-			states: { a: "working", b: "working", c: "working" },
-		};
-		const met = run({ ...working, sessionFloor: "4" });
-		expect(met.json.sessionFloorSlots).toBe(0);
-		expect(met.status).toBe(0);
-		const none = run({ ...working, mb: 500 });
-		expect(none.json.sessionFloorSlots).toBe(0);
-		expect(none.json.sessionFloorProblem).toBe(null);
-		expect(none.stdout).not.toMatch(/session floor/);
-		expect(none.status).toBe(1);
-		const absent = run({ ...working, mb: 500, sessionFloor: null });
-		expect(absent.json.sessionFloorProblem).toBe(null);
-		expect(absent.status).toBe(1);
-	});
-
-	it.each([
-		["eight", /WFC_SESSION_FLOOR holds "eight", not a non-negative integer/],
-		["8.5", /WFC_SESSION_FLOOR holds "8\.5", not a non-negative integer/],
-	])("reads a malformed floor %s as none, printing why (#2505)", (raw, why) => {
-		const r = run({ ...three, sessionFloor: raw });
-		expect(r.json.sessionFloorSlots).toBe(0);
-		expect(r.json.slots).toBe(1);
-		expect(r.json.sessionFloorProblem).toMatch(why);
-		expect(r.status).toBe(0);
-		const text = run({ ...three, sessionFloor: raw, json: false });
-		expect(text.stdout).toMatch(
-			new RegExp(
-				`^session floor {6}none — the declared floor went unread: ${why.source}$`,
-				"m",
-			),
-		);
-		expect(text.status).toBe(0);
-	});
-
-	it("reads an unreadable floor file as none, printing why (#2505)", () => {
-		fs.mkdirSync(path.join(dir, ".claude", "session-floor"), {
-			recursive: true,
-		});
-		const r = run({ ...three, sessionFloor: null });
-		expect(r.json.sessionFloorSlots).toBe(0);
-		expect(r.json.sessionFloorProblem).toMatch(
-			/\.claude\/session-floor: EISDIR/,
-		);
-		expect(r.status).toBe(0);
-	});
-
-	it("reads the floor from $HOME/.claude/session-floor where no override is set", () => {
-		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
-		fs.writeFileSync(path.join(dir, ".claude", "session-floor"), "6\n");
-		const r = run({ ...three, sessionFloor: null });
-		expect(r.json.sessionFloorSlots).toBe(3);
-		expect(r.status).toBe(0);
-	});
-});
-
-describe("the swap hold on the session floor (#2690)", () => {
-	/* One neighbour working, so 2 of a floor of 4; 900 MB above the 794 + 300
-	 * holds one mean of 600 and no p95 slot, and 2100 MB is under 2200. */
-	const short = {
-		mb: 900 + HELD + PAIR,
-		sessions: [SELF, "a"],
-		states: { a: "working" },
-		sessionFloor: "4",
-	};
-
-	it("grants no floor slot while swap is under 25% free and memory under 2200 MB", () => {
-		const free = run(short);
-		expect(free.json.sessionFloorSlots).toBe(1);
-		expect(free.json.swapHold).toEqual({ held: false });
-		const held = run({ ...short, swap: { totalMb: 2048, freeMb: 245 } });
-		expect(held.json.byMemory).toBe(0);
-		expect(held.json.sessionFloorSlots).toBe(0);
-		expect(held.json.slots).toBe(0);
-		expect(held.json.swapHold).toEqual({
+	it("binds while swap is under 25% free and memory under 2200 MB", () => {
+		expect(holdAt(2100, { totalMb: 2048, freeMb: 245 })).toEqual({
 			held: true,
 			swapFreeMb: 245,
 			swapTotalMb: 2048,
 			availableMb: 2100,
 		});
-		expect(held.status).toBe(1);
-	});
-
-	it("names the hold on the session floor line, with the swap and available figures", () => {
-		const { stdout, status } = run({
-			...short,
-			swap: { totalMb: 2048, freeMb: 245 },
-			json: false,
-		});
-		expect(status).toBe(1);
-		expect(stdout).toMatch(
-			/^session floor {6}4 working sessions \(~\/\.claude\/session-floor, #2501\); 2 working, this run's own counted, so 0 floor slot\(s\), held while swap is 245 of 2048 MB free and 2100 MB available, under 25% and 2200 MB \(#2690\)$/m,
-		);
 	});
 
 	it("holds its memory line equal to the shell-start warning's default floor", () => {
@@ -529,16 +350,12 @@ describe("the swap hold on the session floor (#2690)", () => {
 	});
 
 	it.each([
-		[
-			"swap a quarter free",
-			{ mb: short.mb, swap: { totalMb: 2048, freeMb: 512 } },
-		],
-		["2200 MB available", { mb: 2200, swap: { totalMb: 2048, freeMb: 0 } }],
-		["no swap", { mb: short.mb, swap: { totalMb: 0, freeMb: 0 } }],
-	])("holds nothing at %s", (_, m) => {
-		const { json } = run({ ...short, ...m });
-		expect(json.swapHold).toEqual({ held: false });
-		expect(json.sessionFloorSlots).toBe(1);
+		["swap a quarter free", 2100, { totalMb: 2048, freeMb: 512 }],
+		["2200 MB available", 2200, { totalMb: 2048, freeMb: 0 }],
+		["no swap", 2100, { totalMb: 0, freeMb: 0 }],
+		["no swap lines", 2100, null],
+	])("holds nothing at %s", (_, mb, swap) => {
+		expect(holdAt(mb, swap)).toEqual({ held: false });
 	});
 });
 
@@ -1193,7 +1010,7 @@ describe("aggregate session draw (#2221)", () => {
 
 	it("gives the admission verdict pick-next sizes a burst with the same answer", () => {
 		const mem = { ok: true as const, mb: 4962 };
-		const procs = { ok: true as const, sessions: 10, working: 0 };
+		const procs = { ok: true as const, sessions: 10 };
 		const a = admissionFrom(mem, procs, {
 			live: {
 				sessions: 10,
@@ -1708,13 +1525,56 @@ describe("the CPU limb (#830)", () => {
 	});
 });
 
+describe("the Windows-memory hold (#4557)", () => {
+	const machine = { mb: 4000 + HELD, sessions: [SELF, "other"] };
+
+	it("holds the slots memory admits while Windows is short, naming it, and admits once it clears", () => {
+		const held = run({ ...machine, windows: { mb: 400 } });
+		expect(held.status).toBe(1);
+		expect(held.json.byMemory).toBeGreaterThan(0);
+		expect(held.json.slots).toBe(0);
+		expect(held.json.cpuIsSoleHold).toBe(false);
+		expect(held.json.onWindows).toEqual({
+			windowsMb: 400,
+			windowsBudgetMb: expect.any(Number),
+			windowsSlots: 0,
+		});
+		expect(held.json.reason).toMatch(
+			/^Windows itself has 400 MB free, .* so 0 slot\(s\): .*; were it not for Windows, /,
+		);
+		const clear = run({ ...machine, windows: { mb: 20_000 } });
+		expect(clear.status).toBe(0);
+		expect(clear.json.slots).toBe(clear.json.byMemory);
+	});
+
+	it("prints the reading on the ADMISSION block, the fail-open where it is stale, and nothing with no memwatch", () => {
+		expect(
+			run({ ...machine, json: false, windows: { mb: 400 } }).stdout,
+		).toMatch(
+			/^windows memory +400 MB free on Windows \(memwatch, 10 s old\), .* so 0 slot\(s\) \(#4557\)$/m,
+		);
+		const stale = run({
+			...machine,
+			json: false,
+			windows: { mb: 400, ageS: 600 },
+		});
+		expect(stale.stdout).toMatch(
+			/^windows memory +Windows memory unread — the newest Windows reading in .* is 600 s old, past 180 s; sessions not held on it \(#4557\)$/m,
+		);
+		expect(stale.status).toBe(0);
+		expect(run({ ...machine, json: false }).stdout).not.toMatch(
+			/^windows memory/m,
+		);
+	});
+});
+
 /* pick-next's verdict over those figures: its fallback and its wording. */
 describe("admissionFrom's own fallback and wording", () => {
 	const host = { meanMb: 600, sigmaMb: 200, declared: true };
 	const roomy = { ok: true as const, mb: 4000 + FLOOR };
 	const tight = { ok: true as const, mb: 1300 + HELD };
-	const one = { ok: true as const, sessions: 1, working: 0 };
-	const working = { ok: true as const, sessions: 3, working: 2, self: true };
+	const one = { ok: true as const, sessions: 1 };
+	const three = { ok: true as const, sessions: 3 };
 	const over = { overloaded: true, load1: 60, ceiling: 48 };
 	const capped = {
 		ceiling: 3,
@@ -1726,12 +1586,8 @@ describe("admissionFrom's own fallback and wording", () => {
 	};
 
 	it("admits on unread memory, naming the headroom unmeasured, its slots unknown", () => {
-		const a = admissionFrom({ ok: false, error: "x" }, working, {
-			host,
-			sessionFloor: 6,
-		});
+		const a = admissionFrom({ ok: false, error: "x" }, three, { host });
 		expect(a.freeSlots).toBeNull();
-		expect(a.sessionFloorSlots).toBe(0);
 		expect(a.admit).toBe(true);
 		expect(a.reason).toMatch(/^headroom unmeasured/);
 	});
@@ -1742,11 +1598,8 @@ describe("admissionFrom's own fallback and wording", () => {
 		expect(a.admit).toBe(false);
 		expect(a.reason).toMatch(/load1 60 is at or above the 48 ceiling/);
 		expect(
-			admissionFrom(
-				roomy,
-				{ ok: true, sessions: 0, working: 0 },
-				{ host, load: over },
-			).admit,
+			admissionFrom(roomy, { ok: true, sessions: 0 }, { host, load: over })
+				.admit,
 		).toBe(false);
 		const unread = admissionFrom({ ok: false, error: "x" }, one, {
 			host,
@@ -1763,16 +1616,32 @@ describe("admissionFrom's own fallback and wording", () => {
 		const full = { ...capped, sessions: 3, slots: 0, full: true };
 		const held = admissionFrom(
 			roomy,
-			{ ok: true, sessions: 0, working: 0 },
+			{ ok: true, sessions: 0 },
 			{ host, cpu: full },
 		);
 		expect(held.freeSlots).toBe(0);
 		expect(held.admit).toBe(false);
 		expect(held.reason).toMatch(/3-session CPU ceiling \(#2141\)/);
-		expect(
-			admissionFrom(tight, working, { host, cpu: capped, sessionFloor: 6 })
-				.reason,
-		).toMatch(/; capped by the CPU: /);
+	});
+
+	it("names the Windows-memory hold, holding the guarantee too, and a cap it sets (#4557)", () => {
+		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
+		const held = admissionFrom(
+			roomy,
+			{ ok: true, sessions: 0 },
+			{ host, windows: windows(100) },
+		);
+		expect(held.freeSlots).toBe(0);
+		expect(held.admit).toBe(false);
+		expect(held.reason).toMatch(/^Windows itself has 100 MB free/);
+		const onWindows = admissionFrom(roomy, one, {
+			host,
+			windows: windows(1229),
+		});
+		expect(onWindows.freeSlots).toBe(1);
+		expect(onWindows.reason).toMatch(
+			/; capped by Windows: Windows itself has 1229 MB free/,
+		);
 	});
 
 	it("names the pending pairs past the first slot, and none without a launch price", () => {
@@ -1786,15 +1655,10 @@ describe("admissionFrom's own fallback and wording", () => {
 		);
 	});
 
-	it("names a floor lift, and the p95 slot where the floor is met", () => {
-		const a = admissionFrom(tight, working, { host, sessionFloor: 6 });
-		expect(a.freeSlots).toBe(2);
-		expect(a.reason).toMatch(
-			/^2 free slots, FLOOR: 2 slot\(s\) toward the 6 working sessions ~\/\.claude\/session-floor keeps \(#2501\), 3 working, over the p95 pricing/,
-		);
-		const met = admissionFrom(tight, working, { host, sessionFloor: 3 });
-		expect(met.freeSlots).toBe(1);
-		expect(met.reason).toMatch(/^1 free slot on the live sessions' draw/);
+	it("names a single free slot in the singular", () => {
+		const a = admissionFrom(tight, three, { host });
+		expect(a.freeSlots).toBe(1);
+		expect(a.reason).toMatch(/^1 free slot on the live sessions' draw/);
 	});
 
 	it("clamps memory less a reserve larger than it at 0", () => {
@@ -1813,7 +1677,7 @@ describe("admissionFrom's own fallback and wording", () => {
 	it("reports freeSlots before the guarantee, which admits on its own branch", () => {
 		const a = admissionFrom(
 			{ ok: true, mb: 100 },
-			{ ok: true, sessions: 0, working: 0 },
+			{ ok: true, sessions: 0 },
 			{ host },
 		);
 		expect(a.freeSlots).toBe(0);
@@ -1951,20 +1815,6 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 		const { admission } = machine({ sessions: [SELF, "a"], psFails: true });
 		expect(admission.reservedMb).toBe(0);
 		expect(admission.reservedError).toEqual(expect.any(String));
-	});
-
-	it("names the swap hold on the session floor line, holding the floor's slots (#2690)", () => {
-		const { floorRead, admission } = machine({
-			mb: 2100,
-			swap: { totalMb: 2048, freeMb: 245 },
-			sessions: [SELF, "a", "b"],
-			states: { a: "working", b: "working" },
-			sessionFloor: "8",
-		});
-		expect(admission.sessionFloorSlots).toBe(0);
-		expect(buildSessionFloorLine(floorRead, admission)).toMatch(
-			/; 3 working, this run's own counted, so 0 floor slot\(s\), held while swap is 245 of 2048 MB free and 2100 MB available, under 25% and 2200 MB \(#2690\)$/,
-		);
 	});
 
 	it("prints an unreadable session reading in the breakdown as unknown, and the remainder with it, never 0", () => {

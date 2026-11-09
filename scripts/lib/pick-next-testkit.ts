@@ -52,8 +52,6 @@ const kitDefaults = () => ({
 	load1: 0.5,
 	/** WFC_SESSION_CEILING (#2141); off unless set, so the runner's core count never holds a slot. */
 	sessionCeiling: "0",
-	/** WFC_SESSION_FLOOR (#2501); empty is no floor, so the host's ~/.claude/session-floor is never read. */
-	sessionFloor: "",
 	/** The tree the path annotation resolves backticked tokens against. */
 	repoRoot: null as string | null,
 	/*
@@ -74,8 +72,6 @@ const kitDefaults = () => ({
 	 * says which of them carry `kind: background` / `state: done`.
 	 */
 	oracleFinished: [] as string[],
-	/** The listed sessions the oracle reads `state: working`, which the session floor counts (#2505). */
-	oracleWorking: [] as string[],
 	/* Pair PSS in kB by pid, written under the stub /proc. */
 	procPssKb: {} as Record<string, number>,
 	/* Each pid's cwd, a `cwd` symlink under the stub /proc: a `bg-spare` in its
@@ -428,7 +424,6 @@ const stubOracle = () => {
 					...(kit.oracleFinished.includes(id)
 						? { kind: "background", state: "done", status: "busy" }
 						: {}),
-					...(kit.oracleWorking.includes(id) ? { state: "working" } : {}),
 				};
 			}),
 		),
@@ -589,7 +584,6 @@ const stubMachine = () => {
 		WFC_LOADAVG: loadavg,
 		WFC_LOAD_CEILING: "48",
 		WFC_SESSION_CEILING: kit.sessionCeiling,
-		WFC_SESSION_FLOOR: kit.sessionFloor,
 		// The suite queue's dir, so no live lander's marker here holds memory (#2416).
 		TMPDIR: kit.dir,
 	};
