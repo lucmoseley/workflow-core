@@ -16,7 +16,7 @@ const { escapeRe } = require("./regex-group.js");
  * @param {string} fence the opening fence, info string included
  */
 const copyBlockPattern = (name, fence) => {
-	const n = name.replace(/\./g, "\\.");
+	const n = escapeRe(name);
 	const open = escapeRe(fence);
 	const close = fence.replace(/[^`]/g, "");
 	return new RegExp(

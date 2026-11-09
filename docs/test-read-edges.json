@@ -32855,6 +32855,7 @@
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/session-start-roster.test.ts",
 			"scripts/lib/suite-queue.test.ts",
+			"scripts/lib/systemctl.contract.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/test-read-edges.test.ts",
 			"scripts/main-lag-alarm.test.ts",
