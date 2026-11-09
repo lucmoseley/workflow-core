@@ -1132,10 +1132,10 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(suiteDir, 1700)).toBe(0);
 	});
 
-	it("charges a spawned suite its measured 2,248 MB peak less its tree", () => {
+	it("charges a spawned suite its measured 1,929 MB peak less its tree", () => {
 		const { suiteDir, tscDir } = queues();
 		spawnedIn(suiteDir, 11);
-		expect(climbOf(tscDir, 100)).toBe(2148);
+		expect(climbOf(tscDir, 100)).toBe(1829);
 	});
 
 	const partIn = (
@@ -1161,7 +1161,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	it("never charges a part-suite above a whole suite's peak", () => {
 		const { suiteDir, tscDir } = queues();
 		partIn(suiteDir, 11, 500);
-		expect(climbOf(tscDir, 100)).toBe(2148);
+		expect(climbOf(tscDir, 100)).toBe(1829);
 	});
 
 	it("charges a lander marker the charge it carries (#3973)", () => {
@@ -1179,13 +1179,13 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	it("charges a lander marker carrying no charge its queue's peak", () => {
 		const { suiteDir, tscDir } = queues();
 		joined(suiteDir, 11, 0, { role: "lander" }).spawned();
-		expect(climbOf(tscDir, 100)).toBe(2148);
+		expect(climbOf(tscDir, 100)).toBe(1829);
 	});
 
 	it("charges a part marker with no file count its queue's peak", () => {
 		const { suiteDir, tscDir } = queues();
 		partIn(suiteDir, 11, null);
-		expect(climbOf(tscDir, 100)).toBe(2148);
+		expect(climbOf(tscDir, 100)).toBe(1829);
 	});
 
 	/* 4,000 MB available against the 2,750 MB `tsc` rung, each launch's tree at
@@ -1216,7 +1216,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		spawnedIn(suiteDir, 13);
 		const beside = await waitOnce();
 		expect(beside.outcome).toBe("refused");
-		expect(beside.exits[0][2]).toEqual({ limb: "memory", climbMb: 1748 });
+		expect(beside.exits[0][2]).toEqual({ limb: "memory", climbMb: 1429 });
 	});
 
 	it("charges none for a launch unspawned or stale, nor for its own queue's", () => {
@@ -1234,9 +1234,9 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		spawnedIn(tscDir, 22);
 		vi.stubEnv("TMPDIR", path.dirname(suiteDir));
 		const options = { alive, ps: noRunners, treePssKb: () => 100 * 1024 };
-		expect(readQueuesClimbMb("all", options)).toBe(2148 + 1538);
+		expect(readQueuesClimbMb("all", options)).toBe(1829 + 1538);
 		/* A spawned suite not yet on `ps` is on no rung (#4111). */
-		expect(readQueuesClimbMb("off-rung", options)).toBe(2148 + 1538);
+		expect(readQueuesClimbMb("off-rung", options)).toBe(1829 + 1538);
 	});
 
 	it("holds a suite admitted just after a `tsc` spawns until that `tsc`'s remaining climb fits", async () => {
@@ -1348,9 +1348,9 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			const { suiteDir, tscDir } = queues();
 			const m = machine({ 22: Tsc, 33: Vitest });
 			expect(climbOn(suiteDir, m)).toBe(TSC_PEAK_MB - 400);
-			expect(climbOn(tscDir, m)).toBe(2248 - 400);
+			expect(climbOn(tscDir, m)).toBe(1929 - 400);
 			vi.stubEnv("TMPDIR", path.dirname(suiteDir));
-			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
+			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 1929 - 400);
 			expect(readQueuesClimbMb("off-rung", m)).toBe(TSC_PEAK_MB - 400);
 		});
 
@@ -1419,7 +1419,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			spawnedIn(tscDir, 22);
 			const m = machine({ 22: Tsc, 33: Vitest }, { 33: 11 });
 			vi.stubEnv("TMPDIR", path.dirname(suiteDir));
-			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
+			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 1929 - 400);
 			expect(readQueuesClimbMb("off-rung", m)).toBe(TSC_PEAK_MB - 400);
 		});
 
@@ -1444,7 +1444,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			expect(climbOn(suiteDir, inSlot)).toBe(TSC_PEAK_MB - 400);
 			spawnedIn(suiteDir, 50);
 			const underSuite = machine({ 33: Tsc }, { 33: 50 });
-			expect(climbOn(tscDir, underSuite)).toBe(2248 - 400);
+			expect(climbOn(tscDir, underSuite)).toBe(1929 - 400);
 		});
 
 		it("charges a runner whose marker's holder is dead", () => {

@@ -2573,5 +2573,17 @@
 				"scanned": true
 			}
 		]
+	},
+	"suite-climb-whole-peak": {
+		"needles": [
+			{
+				"needle": "2,248 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2248 MB",
+				"scanned": true
+			}
+		]
 	}
 }

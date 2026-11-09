@@ -92,13 +92,18 @@ function defaultQueueDir() {
 /*
  * The queues admitting against one MemAvailable reading, the suite queue and
  * the type-check slot's (#3203), each with the peak a launch in it is charged
- * on the other's rung while it climbs (#3416). A whole suite's is off one
- * `--full --shared` run's process tree, its RSS summed each second, 28 Oct
- * 2026: 2,248 MB. One run, on a loaded machine; MOVE IT ONLY WITH A
- * RE-MEASUREMENT.
+ * on the other's rung while it climbs (#3416). A whole suite's is the highest
+ * of six `npm run test -- --full --shared --shard=k/2` runs, three of each
+ * shard, 9 Nov 2026 at c8ddd878a on a loaded machine, each run's process
+ * tree PSS sampled each second from its spawn: 1,208-1,929 MB (#4592). A
+ * shard, since an unsharded whole run meets the 840 s suite ceiling halfway
+ * and each shard queues under its own marker. The lander record's whole runs,
+ * 28 Oct - 5 Nov, peaked at most 1,820 MB on any day but 4 Nov; that day's
+ * 2,087-2,627 MB was its tree, which reproduced at 2,632-2,743 MB. No margin,
+ * the rung holding DRAW_MARGIN_MB. MOVE IT ONLY WITH A RE-MEASUREMENT.
  */
 /** @type {Record<string, number>} */
-const PEAK_MB = { [QUEUE_NAME]: 2248, [TSC_QUEUE_NAME]: TSC_PEAK_MB };
+const PEAK_MB = { [QUEUE_NAME]: 1929, [TSC_QUEUE_NAME]: TSC_PEAK_MB };
 const ADMITTING_QUEUES = Object.keys(PEAK_MB);
 
 /*

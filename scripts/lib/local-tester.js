@@ -64,10 +64,9 @@ const rootlessEnv = () => {
  * tester's own tree peak, never a machine-wide MemAvailable dip (#2508). Off
  * the lander run record, each run's tree PSS sampled every 2 s from its
  * spawn, 28 Oct - 5 Nov 2026, with no margin, the rung holding
- * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB. Above the climb's
- * whole-suite peak (suite-queue.js `PEAK_MB`): 4 runs passed it, all red on
- * 4 Nov, the highest on any other day 1,820 MB, so its one 28 Oct run is the
- * low figure, its re-measurement #4592's. Named: the highest of 341 runs of
+ * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB, on 4 Nov, whose
+ * tree drove its runs above the climb's whole-suite peak (suite-queue.js
+ * `PEAK_MB`, #4592); the highest on any other day was 1,820 MB. Named: the highest of 341 runs of
  * 1-6 files, 937 MB. A named run past those 6 files is unmeasured and charged
  * whole. Residual: a spike between two samples is charged short. */
 const CHARGE_MB = { whole: 2630, named: 940 };
