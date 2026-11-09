@@ -91,9 +91,9 @@ function filterRuns(runs, excluded = []) {
  * therefore the billable unit. One push fires several, so runs are collapsed to
  * their head_sha, and only push-triggered runs count: a schedule or a
  * workflow_dispatch costs minutes but is not a push anyone could have held
- * back. Since mantahostels#910 nothing runs on a push to `main`, so a window after
- * it has no push-triggered runs on `main` to collapse; a push to a lander ref
- * fires the lander's run (#2413).
+ * back. Since mantahostels#910 a push to `main` runs only warm-caches.yml, and
+ * that only where it changes a cache key (#4661), so a window after it counts
+ * few of `main`'s pushes; a push to a lander ref fires the lander's run (#2413).
  */
 const PUSH_EVENTS = new Set(["push"]);
 

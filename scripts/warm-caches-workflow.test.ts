@@ -14,7 +14,9 @@ import { expect, it } from "vitest";
 import { ROOT } from "./lib/precommit-gate-testkit";
 
 // Through `require`: js-yaml ships no types.
-const yaml = createRequire(import.meta.url)("js-yaml");
+const yaml: { load: (text: string) => unknown } = createRequire(
+	import.meta.url,
+)("js-yaml");
 
 interface Step {
 	uses?: string;
