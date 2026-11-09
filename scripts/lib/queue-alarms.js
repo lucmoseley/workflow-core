@@ -1,8 +1,7 @@
 /*
  * queue-alarms.js — the agent-side reader of the two off-machine queue alarms
- * (#4772): .github/workflows/landing-quiet.yml and main-lag.yml go red on
- * GitHub, whose failure email the founder rarely reads. The morning review
- * lists each alarm firing, and the refill loop's landing supervision keeps the
+ * (#4772), .github/workflows/landing-quiet.yml and main-lag.yml. The morning
+ * review lists each alarm firing, and the refill loop's landing supervision keeps the
  * alarm ticket (lib/alarm-ticket.js) open while one fires.
  *
  * FIRING means a failed scheduled run at `main`'s current sha with no
@@ -24,7 +23,7 @@ const RUN_LIMIT = 24;
 
 /**
  * @typedef {{databaseId: number, conclusion: string|null, createdAt: string,
- *   headSha: string}} AlarmRun a `gh run list` row, newest first
+ *   headSha: string}} AlarmRun a `gh run list` row
  * @typedef {{name: string, run: number, at: number, count: number}}
  *   FiringAlarm the newest failed run, when it was created in ms, and how
  *   many failed since `main` last moved

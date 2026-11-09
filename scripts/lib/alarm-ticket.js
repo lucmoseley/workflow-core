@@ -1,9 +1,8 @@
 /*
  * alarm-ticket.js — the one ticket the refill loop keeps open while an
  * off-machine queue alarm fires (lib/queue-alarms.js, #4772), filed as
- * lib/queue-issue.js files it, so the next /pick-next takes it first. One per
- * stall: it is closed once no alarm fires or `main` moves, so a later stall
- * files a new one.
+ * lib/queue-issue.js files it, so the next /pick-next takes it first. One
+ * per stall.
  *
  * Its body changes only with a new failed run. A record in the markers
  * directory names the `main` sha a ticket was filed at, so a pass with no
@@ -30,7 +29,7 @@ An off-machine queue alarm has failed with \`main\` at \`${main}\` (#4772):
 
 ${alarms.map((a) => `- \`${a.name}\`: run ${a.run}, created ${new Date(a.at).toISOString()}${a.count > 1 ? `, ${a.count} failed runs at this sha` : ""}`).join("\n")}
 
-Each run's log names where to look first: \`gh run view <run> --log-failed\`.
+\`gh run view <run> --log-failed\`
 
 ## Acceptance criteria
 
@@ -69,10 +68,10 @@ function buildCloseComment(rec, main, firing) {
 }
 
 /**
- * One supervision pass's act on the alarm ticket: close the recorded stall's
- * ticket where buildCloseComment gives a reason, then file or refresh one for
- * the alarms firing. A close that throws keeps the record, so the next pass
- * retries it; a torn record is dropped and named first.
+ * One supervision pass's act on the alarm ticket: close the recorded stall's,
+ * then file or refresh one for the alarms firing. A close that throws keeps
+ * the record, so the next pass retries it; a torn record is dropped and named
+ * first.
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
  * @param {string} markers the markers directory
  * @returns {(pass: {main: string|null,

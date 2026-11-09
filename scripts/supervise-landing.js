@@ -18,9 +18,9 @@
  * module is off or the queue needs nothing. Joins no §N3 family: it gates
  * nothing and is no hook.
  *
- * Exit codes: 0 on a pass; 1 on a throw, an alarm read that failed, an unreadable remote or queue log,
- * a failed start or a refused filing among them; 2 on a command line it
- * refuses.
+ * Exit codes: 0 on a pass; 1 on a throw, an alarm read that failed, an
+ * unreadable remote or queue log, a failed start or a refused filing among
+ * them; 2 on a command line it refuses.
  */
 
 const { alarmTicketTender } = require("./lib/alarm-ticket.js");
