@@ -56,7 +56,12 @@ const {
 	buildLaunchPorts,
 } = require("./lib/suite-concurrency-host.js");
 const { isQueueable, suiteLaunchKind } = require("./lib/suite-launch.js");
-const { SEAT_ENV, heldMarker, queueSeat } = require("./lib/suite-queue.js");
+const {
+	SEAT_ENV,
+	heldMarker,
+	queueSeat,
+	queuedRunnerPeakMb,
+} = require("./lib/suite-queue.js");
 const { unwrap } = require("./lib/shell-words.js");
 const {
 	TSC_BUSY_EXIT,
@@ -267,12 +272,14 @@ function sayTscHeld(err) {
 /**
  * What a slot flag changes about the wait: the queue it joins, the weight it
  * joins with, the wait options it builds from its marker's stamps, and the
- * exit a refusal takes (#2918, #3163, #3278).
+ * exit a refusal takes (#2918, #3163, #3278). With no slot the marker carries
+ * the command's runner peak where one is measured (#4648).
  *
  * @param {Slot} slot
  * @param {Options} options
+ * @param {string[]} words
  */
-function slotWait(slot, options) {
+function slotWait(slot, options, words) {
 	if (slot === "seat")
 		return {
 			queue: options,
@@ -297,9 +304,10 @@ function slotWait(slot, options) {
 			};
 		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
 	}
+	const chargeMb = queuedRunnerPeakMb(unwrap(words, []).words);
 	return {
 		queue: options,
-		join: options,
+		join: chargeMb === undefined ? options : { ...options, chargeMb },
 		wait: waitOn({}),
 		refused: refusedRun,
 	};
@@ -374,7 +382,11 @@ async function run(words, slot, options, err) {
 	/* A `--tsc` launch inside a `--tsc` command's process tree: its slot is
 	 * held already, and queueing would wait behind it forever (#3404). */
 	const held = slot === "tsc" && heldMarker(TSC_SLOT_ENV, options) !== null;
-	const { queue, join, wait, refused, exitExtra } = slotWait(slot, options);
+	const { queue, join, wait, refused, exitExtra } = slotWait(
+		slot,
+		options,
+		words,
+	);
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
 	/* A killed waiter exits on the spot: its poll would otherwise run on. Once
