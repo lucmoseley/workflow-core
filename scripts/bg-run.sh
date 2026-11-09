@@ -114,11 +114,13 @@
 # clock steps forward on resume, and would kill a run for time it never spent
 # (#2886).
 #
-# THE BACKSTOP'S RESIDUAL (#4774): four test seams, each unset in production,
-# can keep it from firing — WFC_BG_MONO pinned short of the deadline, a
-# WFC_BG_HEARTBEAT_S or WFC_BG_WATCH_FORK_DELAY_S long enough to outlast it,
-# and a PATH with no `setsid`, which starts no watcher. None raises the
-# ceiling: the runner's own timer still kills the run, and only a wedged
+# THE BACKSTOP'S RESIDUAL (#4774): values a caller sets, each unset or
+# default in production, can keep it from firing — WFC_BG_MONO pinned short
+# of the deadline or non-numeric; WFC_BG_NOW set ahead, which reads the
+# runner's group as a recycled pid and spares it; WFC_BG_MAX_DESCENDANTS=0,
+# which kills no tree; a WFC_BG_HEARTBEAT_S or WFC_BG_WATCH_FORK_DELAY_S long
+# enough to outlast it; and a PATH with no `setsid`, which starts no watcher.
+# None raises the ceiling: the runner's own timer still kills the run, and only a wedged
 # runner escapes. They stay unconfined because any marker that confined them
 # would be one more value the same caller sets, and a caller that sets them
 # can as easily run the suite without bg-run at all.
@@ -1105,18 +1107,14 @@ record_kill() {
 
 # THE WATCHER (mantahostels#2691). Launched detached (setsid --fork) by cmd_run, one per
 # run, so it survives whatever kills $parent. Polls $parent's liveness, not
-# the beat file's staleness: checking `status` before `kill -0` on every pass
+# the beat file's staleness: checking `status` before liveness on every pass
 # means a run that finishes cleanly can never be seen as killed, however the
 # two events interleave, since cmd_run always writes `status` before the
-# process that would make `kill -0 "$parent"` fail.
+# process whose exit fails that liveness read.
 #
-# BOUNDED BY $parent'S LIFE, NOT BY WALL TIME (#4774), as the toucher's loop
-# is: each pass ends the watcher on `status`, on $parent's death, or on the
-# ceiling kill. A wall-clock bound, the wait-loop rule's usual ceiling
-# (mantahostels#2012), ended the watcher of a queued suite before its runner
-# spawned and wrote the deadline file, which left that run no backstop. The
-# rule's concern is a loop that outlives its purpose; this one's purpose is
-# $parent, so it cannot.
+# BOUNDED BY $parent'S LIFE (#4774), the wait-loop rule's ceiling here
+# (mantahostels#2012): each pass ends the watcher on `status`, on $parent's
+# death, or on the ceiling kill.
 #
 # CARRIES ITS OWN RUN TOKEN (mantahostels#2691; the token at mantahostels#3147): `run <name>` on a name
 # already alive renames aside and republishes `$dir` (cmd_run), which the OLD
@@ -1152,12 +1150,13 @@ cmd_watch() {
   # WATCH_READY_S, `$tmp` is already published away and the touch fails, unread.
   : >"$ready" 2>/dev/null
   WFC_BG_KILL_LOG="$(kill_log_path)"
-  local mono_unread_logged=""
+  local mono_unread_logged="" parent_start=""
+  proc_start_of "$parent" && parent_start="$proc_start"
   while :; do
     [[ -f "$dir/status" ]] && exit 0
-    if ! kill -0 "$parent" 2>/dev/null; then
+    if ! { proc_start_of "$parent" && [[ "$proc_start" = "$parent_start" ]]; }; then
       # LOAD-BEARING, not belt and braces (mantahostels#2691):
-      # the loop-top check above and this `kill -0` read are two
+      # the loop-top check above and this liveness read are two
       # separate lines with nothing synchronising them, so `status`
       # can be written and the wrapper can exit in the gap between
       # them. A coarse mutation run (multi-second sleeps) never lands
@@ -1200,6 +1199,19 @@ note_mono_unread() {
   [[ "$(cat token 2>/dev/null)" = "$2" ]] &&
     printf '\n%s\n' "bg-run: the monotonic clock would not read (#2886), so the suite ceiling's backstop skips each poll it fails on (#3160)" >>out
   cd "$OLDPWD" 2>/dev/null || :
+}
+
+# Sets proc_start to pid $1's start time, in clock ticks since boot, so a
+# recycled pid reads as another process. Fails where the pid is gone or a
+# zombie. Reads the real /proc, as group_is_runs does.
+proc_start=""
+proc_start_of() {
+  local stat
+  IFS= read -r stat 2>/dev/null <"/proc/$1/stat" || return 1
+  local -a fields
+  read -ra fields <<<"${stat##*) }"
+  [[ "${fields[0]}" != Z ]] || return 1
+  proc_start="${fields[19]}"
 }
 
 # Sets deadline_s and deadline_pgid from a runner's deadline file. Fails
