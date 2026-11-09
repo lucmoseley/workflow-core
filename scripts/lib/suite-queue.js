@@ -1041,7 +1041,7 @@ function peerClimbTurn(
  * no turn comes while the other queue holds an older waiter stamped
  * `climbHeld`, one whose wait the climb charge of launches already running
  * has held, and holds still on its rung or the Windows hold while they are
- * charged (`keepsClimb`, #4799). The oldest such waiter yields to nobody, and
+ * charged (`isClimbKept`, #4799). The oldest such waiter yields to nobody, and
  * what holds it is running and ends, so the yield cannot deadlock.
  *
  * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
@@ -1457,14 +1457,15 @@ function heldOnClimbMb(denial) {
  * there lets the other queue launch into the same memory. Once nothing is
  * charged, what holds it is no running launch, and the stamp goes.
  *
- * @param {GateDenial | null} denial
- * @param {number} chargedMb the climb charge this poll's gate read
+ * The queue-wait replay asks it too, so a change to the rule reaches both
+ * (#4260).
+ *
+ * @param {string | undefined} limb the limb that denied this poll
+ * @param {boolean} charged whether launches are charged this poll
  * @returns {boolean}
  */
-function keepsClimb(denial, chargedMb) {
-	return (
-		chargedMb > 0 && (denial?.limb === "memory" || denial?.limb === "windows")
-	);
+function isClimbKept(limb, charged) {
+	return charged && (limb === "memory" || limb === "windows");
 }
 
 /**
@@ -1515,7 +1516,7 @@ function changesOnly(listener) {
  * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
  * `onWindowsHeld` hears the same of the Windows-memory hold (#4782).
  * `onClimbStamp` hears the same of the climb charge alone (`heldOnClimbMb`),
- * which the other queue's waiters yield to (#4760), kept while `keepsClimb`
+ * which the other queue's waiters yield to (#4760), kept while `isClimbKept`
  * holds (#4799).
  *
  * `climbMb` is read each poll and handed to `gate` to charge on its memory
@@ -1696,7 +1697,8 @@ function waitForGate({
 		}
 		stampMemoryHeld(denial?.limb === "memory");
 		stampWindowsHeld(denial?.limb === "windows");
-		climbKept = heldOn > 0 || (climbKept && keepsClimb(denial, charged));
+		climbKept =
+			heldOn > 0 || (climbKept && isClimbKept(denial?.limb, charged > 0));
 		stampClimbHeld(climbKept);
 		const open = !denial && turn();
 		see(denial, open);
@@ -1891,6 +1893,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 module.exports = {
 	PART_PASS_AGE_MS,
 	turnOf,
+	isClimbKept,
 	SEAT_ENV,
 	heldMarker,
 	heldSeat,
