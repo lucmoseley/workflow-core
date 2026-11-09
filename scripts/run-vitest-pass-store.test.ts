@@ -5,11 +5,8 @@
  * attests on identical inputs is taken out of what vitest is handed, a
  * launch the store caches whole spawns nothing and joins no queue yet leaves
  * its certificate and ledger line, and the launches that ask every file to
- * run look nothing up. The store itself — what a row holds, what voids it —
- * is lib/pass-store.test.ts's.
- *
- * Loosen a case and a file is skipped on a run that asked for it, or a run
- * that skipped one attests nothing of it.
+ * run look nothing up. Loosen a case and a file is skipped on a run that
+ * asked for it, or a run that skipped one attests nothing of it.
  */
 
 import { execFileSync } from "node:child_process";

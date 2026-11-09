@@ -2153,8 +2153,7 @@ async function leaveQueue(
 
 /**
  * A queued launch's probe with what the pass store caches taken out (#4790),
- * so the weight it queues on counts only the files it will run, and one it
- * caches whole reaches no test file.
+ * so the weight it queues on counts only the files it will run.
  * @param {ReturnType<typeof probeSelection>} probe
  * @param {string[]} rest
  * @param {LauncherLaunch} launch
@@ -2604,8 +2603,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 		 * escalation `full` names (#182). */
 		fullCause: fullCauseOf(fullWord),
 		argv,
-		/* What a recorded pass attests is not run (#4790), save where the
-		 * launch asks every file to run: a full run, a retest, `--no-cache`. */
 		passStore: looksUpPassStore(route, argv),
 	};
 	const runOptions = { ...options, launch };
@@ -2625,8 +2622,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 	} catch (error) {
 		return refuseNarrowing(options, error);
 	}
-	/* What the run will not run weighs nothing (#4790); one the store caches
-	 * whole joins no queue. */
 	const looked = lookupProbe(probe, rest, launch, options.root);
 	const emptySource = looked.probe.source;
 	/* The queue, the gate and the `ps` weighers all read this one weight

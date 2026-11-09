@@ -119,7 +119,6 @@ function buildLedgerLine(m, { green, root }) {
 		argv: m.argv ?? null,
 		resolvedFiles: m.scope?.resolvedFiles ?? null,
 		wholeSlot: m.scope?.wholeSlot === true,
-		/* Null where the run looked nothing up in the pass store (#4790). */
 		cachedFiles: Array.isArray(m.cached) ? m.cached.length : null,
 		ranFiles: m.scope?.modulesRun ?? null,
 		repo: path.basename(root),

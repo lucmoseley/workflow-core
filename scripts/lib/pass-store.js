@@ -2,10 +2,7 @@
  * pass-store.js — the per-file pass store (#4790): every vitest run records
  * each file it ran with that file's outcome and the content of every input
  * its verdict rests on, and `npm run test` skips a file whose newest
- * recorded result on identical inputs is a pass. Bazel, Gradle and
- * Turborepo cache a test's result on a hash of its inputs the same way
- * (`docs/practice/test-and-ci-performance.md` §Cache test results by a hash
- * of their inputs).
+ * recorded result on identical inputs is a pass.
  *
  * A FILE'S INPUTS are the file; its runtime import closure off vitest's
  * module graph, with every file it or that closure reaches through a relative
@@ -14,14 +11,11 @@
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
  * closure, `package.json` and the lockfiles; a snapshot file beside it; and,
  * as values, the Node version and the architecture. `globalSetup`'s closure
- * is in no row (#2818: it decided 85% of all misses and runs once, outside
- * every file); a test that breaks only through it is the lander's to catch.
+ * is in no row (#2818: it runs once, outside every file); a test that breaks only through it is the lander's to catch.
  *
  * THE LOOKUP IS BY CONTENT (lib/content-ids.js, the classifier's judge): the
  * newest result whose every input holds unchanged in the working tree
- * decides, a pass caching the file and a fail running it. The manifest is
- * re-read at lookup, so a read it maps to the file now and the row never
- * recorded holds nothing.
+ * decides, a pass caching the file and a fail running it.
  *
  * EVERY DOUBT RUNS THE FILE. An unreadable store, tree or manifest gives
  * "run" with one notice, and a line that will not parse runs the files it
@@ -34,9 +28,7 @@
  * THE STORE is a directory beside the marker stores, in the canonical
  * checkout's `.claude/tmp/markers`, so every worktree shares it: one
  * append-only JSONL shard per test file, a line per run that ran it. A
- * lookup reads only the selected files' shards: one shared log of every
- * file's full input list would pass 500 MB inside the retention
- * at 2026-11's 79,000 file-runs a week, re-parsed whole on every append.
+ * lookup reads only the selected files' shards (#4792).
  * Each shard is appended and pruned as the run ledger is
  * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
  */
@@ -243,8 +235,7 @@ function readEdges(root, rel) {
 				: [];
 		});
 	} catch {
-		/* A fault in the read leaves an input unknown: null records no row
-		 * (#4792), as EVERY DOUBT RUNS THE FILE asks. */
+		/* A fault in the read leaves an input unknown: null records no row. */
 		return null;
 	}
 }
@@ -682,8 +673,7 @@ const isCached = (c) => {
  * selected test whose imports are the reads its source row held (#4790).
  * The certificate readers then judge a cached file by content against this
  * run's tree, as they judge one it ran: lookup found every one of those
- * reads unchanged in the tree this run read. `cached` names each file's
- * source. A full run's, or one that looked nothing up, is returned as is.
+ * reads unchanged in the tree this run read. A full run's, or one that looked nothing up, is returned as is.
  * @template {import("./test-pass-marker.js").Attestation} A
  * @param {A} attestation
  * @param {Cached[]|null} cached
@@ -719,8 +709,7 @@ function foldCached(attestation, cached) {
  * at `sha`'s tree by content under this machine's values: the per-file
  * evidence the already-red classifier reads beside the marker stores
  * (#4790). The manifest's reads at `sha` go unasked, the row's own inputs
- * standing for them. Empty on any fault: the store is evidence, never a
- * licence, and its loss costs only what it would have shown.
+ * standing for them. Empty on any fault.
  * @param {string[]} files
  * @param {{ storeRoot: string|null, sha: string, before: string,
  *   git: (args: string[]) => string, values?: Record<string, string> }} at

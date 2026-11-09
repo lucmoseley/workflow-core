@@ -58,7 +58,7 @@ function readTreeIds(git, treeish, paths) {
  * file stands there. A symlink is left unanswered, holding nothing. Throws
  * where git does.
  * @param {(args: string[], input: string) => string} hashObjects
- *   `git hash-object --stdin-paths` in `root`, handed the paths on stdin
+ *   `git hash-object --stdin-paths` in `root`
  * @param {string} root
  * @param {string[]} paths
  * @returns {ContentIds}

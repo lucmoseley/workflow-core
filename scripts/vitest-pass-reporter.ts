@@ -74,7 +74,6 @@ interface ModuleGraphLike {
 	getModuleById: (id: string) => ModuleNodeLike | undefined;
 }
 
-/** The SSR module graph vitest built `module` in, where it carries one. */
 const graphOf = (module: TestModuleLike) =>
 	module.project?.vite?.environments?.ssr?.moduleGraph;
 
@@ -413,7 +412,6 @@ export default class TestPassReporter {
 		);
 	}
 
-	/* Each file's own verdict and imports, for the pass store (#4790). */
 	private handFiles(
 		testModules: TestModuleLike[],
 		unhandledErrors: readonly unknown[],
@@ -435,7 +433,7 @@ export default class TestPassReporter {
 	}
 
 	/**
-	 * Each file the run ran with its own outcome and imports, the config file
+	 * The config file
 	 * and its `setupFiles` closure every file's verdict rests on, and whether
 	 * the per-file verdicts can be trusted at all: not where the run was
 	 * interrupted, errored outside its files, or ran part of a file — a name

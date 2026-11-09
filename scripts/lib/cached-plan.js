@@ -32,7 +32,7 @@ const { readTreeSnapshot, endOfRunTreeIdentity } = require("./tree-drift.js");
  */
 
 /* Selection flags whose argv no lookup narrows: what they select is
- * expanded elsewhere, or not a list of files. */
+ * expanded elsewhere. */
 const UNNAMED = new Set(["--changed", "--adopt", "--retest"]);
 
 /**
@@ -41,9 +41,6 @@ const UNNAMED = new Set(["--changed", "--adopt", "--retest"]);
  * launch — every bare word an existing test file — loses those words. Any
  * other launch, or one `on` is false for, is looked nothing up: `cached`
  * is then null, which the run's records keep apart from none cached.
- *
- * `banner` is what the launch prints of it: a plan's own banner, with the
- * cached files named after it.
  *
  * `allCached` is a launch whose every file was cached: it must spawn
  * nothing, its argv narrowed to no file reading as the whole suite.
@@ -97,7 +94,7 @@ function lookupLaunch(argv, plan, { root, on }) {
 /**
  * The repo-relative test files a named launch's bare words are, or null
  * where any word is something else — a filter vitest matches as a
- * substring, a directory, a missing file — or a selection flag expands it.
+ * substring, a directory, a missing file.
  * @param {string[]} argv
  * @param {string} root
  * @returns {string[]|null}
@@ -130,7 +127,7 @@ const relativeTo = (root, word) =>
  * The certificate of a launch whose every file a recorded pass attested, as
  * its vitest teardown would have written it, no file
  * run and each cached file folded in, so the push gate reads it as it reads
- * any narrowed run (#4790). Returns whether it landed.
+ * any narrowed run (#4790).
  * @param {Cached[]} cached
  * @param {{ root: string, launch: Partial<import("./suite-handoff.js").Launch>,
  *   changedPaths: string[]|null, base: string|null, startedAtMs: number,
