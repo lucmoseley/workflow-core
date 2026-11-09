@@ -38,7 +38,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync, spawnSync } = require("node:child_process");
 const { markersDir } = require("./marker-root.js");
 const {
 	DAY_MS,
@@ -48,7 +47,7 @@ const {
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { relativeUnder } = require("./is-under.js");
-const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
+const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
 	readTreeIds,
@@ -143,9 +142,7 @@ const stdinOptions = (root, input) => ({
  * @returns {(args: string[], input: string) => string}
  */
 const gitHasher = (root) => (args, input) =>
-	String(
-		execFileSync(gitBinary(), args, gitSpawnOptions(stdinOptions(root, input))),
-	);
+	String(execGit(args, stdinOptions(root, input)));
 
 /**
  * Which of `paths` git ignores at `root`, or will not judge: a path through a
@@ -158,15 +155,19 @@ const gitHasher = (root) => (args, input) =>
  */
 function readIgnored(root, paths) {
 	const ask = (/** @type {string[]} */ some) => {
-		const r = spawnSync(
-			gitBinary(),
-			["check-ignore", "--stdin", "-z"],
-			gitSpawnOptions(stdinOptions(root, some.map((p) => `${p}\0`).join(""))),
-		);
-		// 0: some path is ignored; 1: none is.
-		return r.error || (r.status !== 0 && r.status !== 1)
-			? null
-			: String(r.stdout).split("\0").filter(Boolean);
+		try {
+			return String(
+				execGit(
+					["check-ignore", "--stdin", "-z"],
+					stdinOptions(root, some.map((p) => `${p}\0`).join("")),
+				),
+			)
+				.split("\0")
+				.filter(Boolean);
+		} catch (e) {
+			// 1: none of them is ignored.
+			return caught(e).status === 1 ? [] : null;
+		}
 	};
 	const all = ask(paths);
 	if (all) return new Set(all);
