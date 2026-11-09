@@ -97,7 +97,7 @@ describe("check-precommit-exit", () => {
 	});
 });
 
-describe("--index (#3687)", () => {
+describe("a seeded repo: --index (#3687), --warn, --against and --root", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });
 	const breach = "node scripts/check-x.js || exit 1\n";
@@ -129,7 +129,7 @@ describe("--index (#3687)", () => {
 		]);
 	});
 
-	it("reports a staged breach as WARN under --warn, exiting 0", () => {
+	it("reports a breach as WARN under --warn, exiting 0", () => {
 		hook("pre-commit", breach);
 		const r = run("--warn");
 		expect(r.status).toBe(0);
@@ -155,7 +155,9 @@ describe("--index (#3687)", () => {
 		hook("pre-commit", breach);
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-home-"));
 		try {
-			expect(runFrom(elsewhere, []).out).toContain("OK: 0 pre-commit file(s)");
+			const home = runFrom(elsewhere, []);
+			expect(home.status).toBe(0);
+			expect(home.out).toContain("OK: 0 pre-commit file(s)");
 			const r = runFrom(elsewhere, ["--root", root]);
 			expect(r.status).toBe(1);
 			expect(r.out).toContain(".husky/pre-commit:2.");

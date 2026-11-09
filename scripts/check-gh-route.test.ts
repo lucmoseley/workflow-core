@@ -119,7 +119,7 @@ describe("check-gh-route", () => {
 	});
 });
 
-describe("--index (#3687)", () => {
+describe("a seeded repo: --index (#3687), --warn, --against and --root", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });
 	const bare = "#!/usr/bin/env bash\ngh issue list\n";
@@ -157,7 +157,7 @@ describe("--index (#3687)", () => {
 		);
 	});
 
-	it("reports a staged bare `gh` as WARN under --warn, exiting 0", () => {
+	it("reports a bare `gh` as WARN under --warn, exiting 0", () => {
 		file("scripts/hook.sh", bare);
 		const r = run("--warn");
 		expect(r.status).toBe(0);
@@ -174,13 +174,16 @@ describe("--index (#3687)", () => {
 		const inherited = run("--against", "HEAD");
 		expect(inherited.status).toBe(0);
 		expect(inherited.out).toContain("already in HEAD");
+		expect(inherited.out).toContain("WARN: 1 inherited fault(s)");
 	});
 
 	it("judges the tree --root names over the host root", () => {
 		file("scripts/hook.sh", bare);
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-home-"));
 		try {
-			expect(runFrom(elsewhere, []).out).toContain("OK: 0 file(s)");
+			const home = runFrom(elsewhere, []);
+			expect(home.status).toBe(0);
+			expect(home.out).toContain("OK: 0 file(s)");
 			const r = runFrom(elsewhere, ["--root", root]);
 			expect(r.status).toBe(1);
 			expect(r.out).toContain("1 second binary route(s): scripts/hook.sh:2.");
