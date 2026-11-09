@@ -23,8 +23,7 @@ const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
 /* A finding ticketed here: the word then the issue it went to, as in
  * `TICKETED #4491`, `**TICKETED** (#4491)`, `TICKETED on #4491`,
  * `TICKETED → owner/repo#7` or an issue URL, and not one an earlier pass
- * ticketed. Read by index, each character a fixed number of times: as one
- * regex, a line of `TICKETED-` repeated read the line once per word (#4647). */
+ * ticketed. Read by index, each character a fixed number of times (#4647). */
 const WORD = "TICKETED";
 const EARLIER = ["previously", "already", "earlier"];
 const SEPARATOR = /[\s,:;*_`(\u2014\u2013\u2192>-]/;
@@ -74,10 +73,9 @@ function buildTargetTables(line) {
 }
 
 /**
- * Whether `line` marks a finding ticketed: the word, no letter before it and
- * no `previously`, `already` or `earlier` and whitespace; a run of separators;
- * an optional `on`, `in`, `as`, `under` or `to`; then `#<n>`, `owner/repo#<n>`
- * or an issue URL. An owner may open in the separators' trailing `_` or `-`.
+ * Whether `line` marks a finding ticketed: the word, no letter or EARLIER
+ * word and whitespace before it; a run of separators; an optional LINK_WORD;
+ * then an issue. An owner may open in the separators' trailing `_` or `-`.
  * @param {string} line
  */
 function hasTicketing(line) {
@@ -116,7 +114,6 @@ function isTicketedEarlier(
 }
 
 /**
- * Whether `#<n>`, `owner/repo#<n>` or an issue URL starts at `at`.
  * @param {string} line
  * @param {number} at
  * @param {ReturnType<typeof buildTargetTables>} tables

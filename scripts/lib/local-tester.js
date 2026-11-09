@@ -2,8 +2,7 @@
  * local-tester.js — the landing queue's local tester (#2403, spec #2261): the
  * lander's tester on a private adopter and on the core's trial. It runs the
  * suite at a sha in a detached worktree the lander owns, never the shared
- * tree, so no session's unsaved edit is ever tested (mantahostels#908's
- * reason).
+ * tree, so no session's unsaved edit is ever tested.
  *
  * Each group of runs holds one suite slot from a fresh checkout and install to
  * its last command; a sharded whole run takes one slot per shard. A slot still shut at
@@ -13,8 +12,7 @@
  * Any step that fails before the suite reports — the checkout, the slot, the
  * install, a command that will not start, is killed, or fails naming no
  * failing file — is no verdict, never green or red.
- *
- * commandTester is the tester queue-lander.js's `--tester <command>` swaps in.
+
  */
 
 const { execFileSync, spawn } = require("node:child_process");
@@ -317,8 +315,7 @@ function parsePytestTest(line) {
  * character, and whose message after it, trimmed, hold no line terminator.
  * @param {string} rest
  * @param {number} end
- * @returns {{testEnd: number, messageStart: number} | null} the test's end and the
- *   message's start
+ * @returns {{testEnd: number, messageStart: number} | null}
  */
 function messageSplit(rest, end) {
 	const firstBreak = firstLineTerminator(rest);
