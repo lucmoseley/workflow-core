@@ -321,17 +321,28 @@ const chainShareOf = (e) => Math.max(0, e.costUsd - (e.sharedUsd ?? 0));
  * Each session's spend with every copy in its chain, by session: a copy
  * repeats its parent's main-thread requests up to the fork, but neither the
  * parent's subagents nor what the parent spends after it, so a copy priced
- * alone could spend its allowance again (#4195).
+ * alone could spend its allowance again (#4195). A founder's reply spends
+ * outside the allowance (#4668): each chain's figure is less its members'
+ * `replyUsd`, taken once, as a copy's repeat of a reply is no share of it.
  * @param {OverflowLookup} lookup
  * @param {LedgerEntry[]} ledger
+ * @param {Map<string, number>} [replyUsd] by session, what its founder's
+ *   replies spent in it
  * @returns {Map<string, number>}
  */
-function chainSpendOf(lookup, ledger) {
-	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+function chainSpendOf(lookup, ledger, replyUsd = new Map()) {
+	const spent = new Map();
 	for (const members of groupByChain(lookup, ledger).values()) {
-		if (members.length < 2) continue;
-		const usd = members.reduce((t, e) => t + chainShareOf(e), 0);
-		for (const e of members) spent.set(e.sessionId, Math.max(usd, e.costUsd));
+		const replies = members.reduce(
+			(t, e) => t + (replyUsd.get(e.sessionId) ?? 0),
+			0,
+		);
+		const usd =
+			members.length < 2
+				? 0
+				: members.reduce((t, e) => t + chainShareOf(e), 0) - replies;
+		for (const e of members)
+			spent.set(e.sessionId, Math.max(0, usd, e.costUsd - replies));
 	}
 	return spent;
 }

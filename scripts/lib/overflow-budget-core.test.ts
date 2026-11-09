@@ -344,4 +344,17 @@ describe("the chain of resumed copies", () => {
 			d: 5,
 		});
 	});
+
+	it("takes a founder's reply spend off its chain's figure once (#4668)", () => {
+		const ledger = [row("a", 8), row("b", 12, 6), row("d", 5)];
+		const replies = new Map([
+			["a", 3],
+			["d", 2],
+		]);
+		expect(Object.fromEntries(chainSpendOf(lookup, ledger, replies))).toEqual({
+			a: 11,
+			b: 11,
+			d: 3,
+		});
+	});
 });

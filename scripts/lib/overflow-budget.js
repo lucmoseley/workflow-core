@@ -14,7 +14,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
-const { CREDIT_REFUSAL } = require("./headless-runs.js");
+const { CREDIT_REFUSAL, readStoredRuns } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readConsoleLog } = require("./console-credit.js");
@@ -38,6 +38,7 @@ const {
 	settleChainsOnce,
 } = require("./overflow-budget-core.js");
 const {
+	fileSpend,
 	readChainSpendUsd,
 	readCostTableIn,
 	readSessionFiles,
@@ -237,6 +238,48 @@ function priceSessions(seat, lookup) {
 }
 
 /**
+ * What the founder's replies on the key spent, by the session each resumed
+ * (#4668): its transcripts' requests from the reply's launch to the next run
+ * of that session, or to now. A request with no timestamp counts as the
+ * session's own.
+ * @param {OverflowSeat} seat
+ * @returns {Map<string, number>}
+ * @throws where the run store or a transcript dir cannot be read
+ */
+function readReplyUsd(seat) {
+	const runs = readStoredRuns().filter((r) => r.keyVar === seat.keyVar);
+	const replies = runs.filter((r) => r.founderReply === true);
+	/** @type {Map<string, number>} */
+	const usd = new Map();
+	if (replies.length === 0) return usd;
+	const files = new Map(
+		readTranscripts(seat.dir).map((t) => [t.sessionId, t.file]),
+	);
+	for (const reply of replies) {
+		const file = files.get(reply.sessionId);
+		if (file === undefined) continue;
+		const window = {
+			fromMs: reply.launchedAt,
+			toMs: Math.min(
+				...runs
+					.filter(
+						(r) =>
+							r.sessionId === reply.sessionId &&
+							r.launchedAt > reply.launchedAt,
+					)
+					.map((r) => r.launchedAt),
+			),
+		};
+		const spent = readSessionFiles(file).reduce(
+			(t, f) => t + fileSpend(f, { window }).usd,
+			0,
+		);
+		usd.set(reply.sessionId, (usd.get(reply.sessionId) ?? 0) + spent);
+	}
+	return usd;
+}
+
+/**
  * The key's sessions the listing holds running, and when it was read.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
@@ -410,5 +453,6 @@ module.exports = {
 	buildBudgetLine,
 	dollars,
 	priceSessions,
+	readReplyUsd,
 	seatBudget,
 };
