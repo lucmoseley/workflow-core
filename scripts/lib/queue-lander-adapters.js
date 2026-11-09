@@ -500,6 +500,20 @@ const isStringList = (list) =>
 	Array.isArray(list) && list.every((f) => typeof f === "string");
 
 /**
+ * A green row's verdict: the run that passed it and the files its in-job
+ * retry cleared, its flakes (#4558), where the row names them.
+ * @param {Record<string, unknown>} o
+ * @returns {Verdict}
+ */
+const parseGreen = (o) => ({
+	kind: "green",
+	...(typeof o.run === "number" ? { run: o.run } : {}),
+	...(isStringList(o.cleared) && o.cleared.length > 0
+		? { cleared: o.cleared }
+		: {}),
+});
+
+/**
  * The row's verdict where it is a green or a red, else null.
  * @param {unknown} v
  * @returns {Verdict|null}
@@ -508,10 +522,7 @@ function parseVerdict(v) {
 	const o = /** @type {Record<string, unknown>|null} */ (
 		v !== null && typeof v === "object" ? v : null
 	);
-	if (o?.kind === "green")
-		return typeof o.run === "number"
-			? { kind: "green", run: o.run }
-			: { kind: "green" };
+	if (o?.kind === "green") return parseGreen(o);
 	if (o?.kind === "red" && isStringList(o.files))
 		return {
 			kind: "red",
