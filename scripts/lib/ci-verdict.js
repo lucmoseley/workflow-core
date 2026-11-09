@@ -8,6 +8,8 @@
  * costs one full check; none it would report goes unseen.
  */
 
+const { ALARM_NAMES } = require("./queue-alarms.js");
+
 /* Workflows whose red or green says nothing about whether `main` is healthy, so
  * none of them may become the run this keys on. A denylist: a workflow added
  * later counts as verifying and so surfaces, rather than being ignored.
@@ -19,17 +21,17 @@
  * the tracker, not the tree. `Named rerun` is dispatched on ref `main` with the
  * tree under test as an input, so GitHub stamps `main`'s sha on a queue tree's
  * verdict; the lander reads those runs by title instead (#4676). The two queue
- * alarms run on `main` and go red on a stalled queue, not a faulty tree.
+ * alarms run on `main` and go red on a stalled queue, not a faulty tree;
+ * lib/queue-alarms.js reads their red for the morning review and the refill
+ * loop's alarm ticket (#4772).
  * Residual: a named rerun of `main`'s own base check no longer keys either
- * reader, which leaves `main`'s own CI runs to carry its verdict; an alarm's
- * red reaches only its failure email. */
+ * reader, which leaves `main`'s own CI runs to carry its verdict. */
 const NOT_A_TREE_VERDICT = new Set([
 	"bisect",
 	"Dependency Graph",
 	"issue-card-drift",
 	"Named rerun",
-	"Landing quiet 14h",
-	"Queue ref waiting 2h",
+	...ALARM_NAMES,
 ]);
 
 /* A run has FINISHED when it has a conclusion — never when `status` says so.

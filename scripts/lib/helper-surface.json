@@ -36,6 +36,20 @@
 		"scripts/vitest-tree-watch.ts": ["setup", "teardown"]
 	},
 	"commands": {
+		"scripts/biome-staged.js": {
+			"positionals": [
+				{
+					"name": "biome-args",
+					"meaning": "zero or more arguments, each handed unread to `biome check` ahead of the paths this commit adds, modifies or retypes; `biome` is found on PATH"
+				}
+			],
+			"flags": [],
+			"exit": {
+				"0": "the commit adds, modifies or retypes no path, or `biome check` passed",
+				"1": "`biome check` exited non-zero or was killed; Biome's own report says why",
+				"2": "git could not extract the index, or `biome` would not start"
+			}
+		},
 		"scripts/checker-new-faults.js": {
 			"positionals": [
 				{
