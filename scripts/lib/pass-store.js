@@ -124,19 +124,18 @@ const currentValues = () => ({ node: process.version, arch: process.arch });
  * @param {string} root
  * @param {string} input
  */
-const stdinGit = (root, input) =>
-	gitSpawnOptions({
-		cwd: root,
-		input,
-		encoding: /** @type {const} */ ("utf8"),
-		stdio: /** @type {import("node:child_process").StdioOptions} */ ([
-			"pipe",
-			"pipe",
-			"ignore",
-		]),
-		timeout: GIT_TIMEOUT_MS,
-		maxBuffer: CHILD_MAX_BUFFER,
-	});
+const stdinOptions = (root, input) => ({
+	cwd: root,
+	input,
+	encoding: /** @type {const} */ ("utf8"),
+	stdio: /** @type {import("node:child_process").StdioOptions} */ ([
+		"pipe",
+		"pipe",
+		"ignore",
+	]),
+	timeout: GIT_TIMEOUT_MS,
+	maxBuffer: CHILD_MAX_BUFFER,
+});
 
 /**
  * `git hash-object --stdin-paths` in `root`.
@@ -144,7 +143,9 @@ const stdinGit = (root, input) =>
  * @returns {(args: string[], input: string) => string}
  */
 const gitHasher = (root) => (args, input) =>
-	String(execFileSync(gitBinary(), args, stdinGit(root, input)));
+	String(
+		execFileSync(gitBinary(), args, gitSpawnOptions(stdinOptions(root, input))),
+	);
 
 /**
  * Which of `paths` git ignores at `root`, or will not judge: a path through a
@@ -160,7 +161,7 @@ function readIgnored(root, paths) {
 		const r = spawnSync(
 			gitBinary(),
 			["check-ignore", "--stdin", "-z"],
-			stdinGit(root, some.map((p) => `${p}\0`).join("")),
+			gitSpawnOptions(stdinOptions(root, some.map((p) => `${p}\0`).join(""))),
 		);
 		// 0: some path is ignored; 1: none is.
 		return r.error || (r.status !== 0 && r.status !== 1)
