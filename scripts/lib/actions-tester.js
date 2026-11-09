@@ -26,8 +26,9 @@
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
  * rerunning its failed jobs; elsewhere they go to named-rerun.yml too, under
- * its daily cap. Its `cancel` cancels the newest unfinished run at a sha on
- * a batch ref, one the lander no longer wants (#4556).
+ * its daily cap. Its `cancel` cancels every unfinished run on a batch ref
+ * but the one at the sha the lander is about to test, naming the shas it
+ * cancelled (#4556, #4576).
  */
 
 const { execFileSync } = require("node:child_process");
@@ -704,9 +705,12 @@ function queueTester({
 			if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
 			return rerunVerdict(sha, files, on, named);
 		},
-		cancel(sha, branch) {
-			const run = newestRun(sha, reads.runsOn(branch));
-			if (run && !run.conclusion) reads.cancel(run.databaseId);
+		cancel(branch, keep) {
+			const stale = reads
+				.runsOn(branch)
+				.filter((r) => !r.conclusion && r.headSha !== keep);
+			for (const r of stale) reads.cancel(r.databaseId);
+			return [...new Set(stale.map((r) => r.headSha))];
 		},
 	};
 }

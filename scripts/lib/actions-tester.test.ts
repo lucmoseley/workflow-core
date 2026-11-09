@@ -1105,24 +1105,26 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	expect(
 		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
 	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
-	tester.cancel?.(OTHER, "lander/batch-1");
+	expect(tester.cancel?.("lander/batch-1", batch)).toEqual([OTHER]);
 	expect(fs.readFileSync(cancelFile, "utf8")).toBe("4");
 });
 
-it("cancels only the newest unfinished run at a sha on its batch ref (#4556)", () => {
+it("cancels every unfinished run on a batch ref but those at the sha kept, naming the shas it cancelled (#4556, #4576)", () => {
+	const Third = "c".repeat(40);
 	const r = queueReads([
 		() => [
-			run(1, "success"),
+			run(1, "success", { headSha: OTHER }),
 			run(2, null),
-			{ ...run(3, null), headSha: OTHER },
+			run(3, null, { headSha: OTHER }),
+			run(4, null, { headSha: OTHER, attempt: 2 }),
+			run(5, null, { headSha: Third }),
 		],
 	]);
-	const tester = queueOf(r);
-	tester.cancel?.(SHA, "lander/batch-0");
-	expect(r.cancelled).toEqual([2]);
-	const done = queueReads([() => [run(1, "failure")]]);
-	queueOf(done).cancel?.(SHA, "lander/batch-0");
-	expect(done.cancelled).toEqual([]);
+	expect(queueOf(r).cancel?.("lander/batch-0", SHA)).toEqual([OTHER, Third]);
+	expect(r.cancelled).toEqual([3, 4, 5]);
+	const all = queueReads([() => [run(1, "failure"), run(2, null)]]);
+	expect(queueOf(all).cancel?.("lander/batch-0", null)).toEqual([SHA]);
+	expect(all.cancelled).toEqual([2]);
 });
 
 it("reads a whole suite at a sha no lander/batch-* or iso-suite ref holds as unknown (#4556)", async () => {

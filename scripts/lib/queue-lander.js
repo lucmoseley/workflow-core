@@ -21,8 +21,10 @@
  *   queue order, each tip on its own green. Depth starts at DEPTH_START and
  *   rises by one per landing to DEPTH_CEILING; a red drops it to one. A
  *   tester that is not `parallel` runs one ask at a time, at depth one. A
- *   batch whose base moved is merged again onto it, its run in flight
- *   cancelled through the tester's `cancel`.
+ *   batch whose base moved is merged again onto it. Each merge on a slot has
+ *   the tester's `cancel` stop every unfinished run on its batch ref but the
+ *   one at the sha it tests, so a run GitHub listed too late for an earlier
+ *   cancel, or one a crash left unrecorded, stops there (#4576).
  * - **Search.** A head red on its whole suite leaves the line as its search,
  *   and the batches behind it are cancelled and merged again onto `main`
  *   without it. One search runs at a time: a second red head waits for it, and a
@@ -160,13 +162,13 @@ class TransientFault extends Error {}
  *   stayed shut
  * @typedef {{verdict: (sha: string, files?: string[], again?: boolean) =>
  *   Promise<Verdict>, requiresRun?: boolean, parallel?: boolean,
- *   cancel?: (sha: string, branch: string) => void}} QueueTester
+ *   cancel?: (branch: string, keep: string|null) => string[]}} QueueTester
  *   the whole suite at `sha` where `files` is absent or empty, else only
  *   `files`, `again` where a verdict reached there is to be had anew, as a
  *   rerun or confirm; `requiresRun` where `main` takes only a sha a CI run
  *   passed, so only a green naming its `run` lands; `parallel` where it can
- *   be asked several verdicts at once; `cancel` stops the run at `sha` on the
- *   batch ref `branch`, whose verdict is no longer wanted
+ *   be asked several verdicts at once; `cancel` stops every unfinished run
+ *   on the batch ref `branch` not at `keep`, returning the shas it stopped
  * @typedef {import("./lander-files.js").Ledger} Ledger
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
@@ -1887,25 +1889,45 @@ async function awaitVerdict(deps, run) {
 }
 
 /**
- * Forgets each ask in flight at `sha` and has the tester cancel its run on
- * the batch ref of `slot`; a cancel that throws is reported and stops
- * nothing, as the run's verdict is only unwanted (#4556).
- * @param {Pick<QueueLanderDeps, "tester" | "say">} deps
+ * Forgets each ask in flight at `sha`.
  * @param {QueueRun} run accumulator: the asks at `sha` are deleted from its
  *   `pending`
- * @param {{sha: string, slot: number}} at
+ * @param {string} sha
  */
-function cancelAsk(deps, run, { sha, slot }) {
-	const { say = () => undefined } = deps;
+function forgetAsks(run, sha) {
 	for (const [k, p] of run.pending)
 		if (p.runs.some((r) => r.sha === sha)) run.pending.delete(k);
+}
+
+/**
+ * Has the tester cancel every unfinished run on the batch ref of `slot` not
+ * at `keep`, saying each sha of `expected` it found no such run at; a cancel
+ * that throws is reported and stops nothing, as the runs' verdicts are only
+ * unwanted (#4556, #4576).
+ * @param {Pick<QueueLanderDeps, "tester" | "say">} deps
+ * @param {number} slot
+ * @param {string|null} keep
+ * @param {readonly string[]} expected
+ */
+function cancelRuns(deps, slot, keep, expected) {
+	const { say = () => undefined } = deps;
+	const branch = batchBranch(slot);
+	/** @type {string[]|undefined} */
+	let cancelled;
 	try {
-		deps.tester.cancel?.(sha, batchBranch(slot));
+		cancelled = deps.tester.cancel?.(branch, keep);
 	} catch (err) {
 		say(
-			`run at ${short(sha)} not cancelled: ${parseRefusal(parseErrorText(err))}`,
+			`runs on ${branch} not cancelled: ${parseRefusal(parseErrorText(err))}`,
 		);
+		return;
 	}
+	if (cancelled === undefined) return;
+	for (const sha of expected)
+		if (sha !== keep && !cancelled.includes(sha))
+			say(
+				`no unfinished run at ${short(sha)} listed on ${branch} to cancel; the next merge there cancels one listed later`,
+			);
 }
 
 /**
@@ -2058,6 +2080,59 @@ function recordLanded(deps, run) {
 }
 
 /**
+ * Merges the batch's members onto `action.onto`, pushing the merges to the
+ * batch's ref before its gate pass, and records it testing where they merge.
+ * Every unfinished run on the ref but the one at the sha it tests is
+ * cancelled (#4573, #4576).
+ * @param {BatchDeps} deps
+ * @param {Extract<QueueAction, {kind: "merge-members"}>} action
+ * @param {QueueRun} run
+ * @returns {QueueRun}
+ */
+function mergeBatch(deps, action, run) {
+	const { git, record } = deps;
+	const { integration: was, slot } = batchOf(run);
+	if (was !== null) forgetAsks(run, was);
+	const expected = was === null ? [] : [was];
+	/** @type {string|null} */
+	let started = null;
+	/* A failed early push leaves the push to test-sha (#4573). */
+	const merged = git.mergeMembers(
+		action.onto,
+		action.members,
+		action.fresh,
+		(sha) => {
+			try {
+				git.pushBatch(slot, sha);
+				started = sha;
+			} catch (err) {
+				deps.say?.(
+					`${short(sha)} not pushed before its gate pass: ${parseRefusal(parseErrorText(err))}`,
+				);
+				return;
+			}
+			cancelRuns(deps, slot, sha, expected);
+		},
+	);
+	/* The run the merges started before the batch's gates is unwanted
+	 * where the gates refused or committed edits on top (#4573). */
+	const kept = merged.kind === "merged" ? merged.sha : null;
+	if (started === null || kept !== started)
+		cancelRuns(deps, slot, kept, started === null ? expected : [started]);
+	if (merged.kind !== "merged")
+		return { ...run, unmerged: { onto: action.onto, result: merged } };
+	/** @type {Batch} */
+	const batch = {
+		...batchOf(run),
+		onto: action.onto,
+		integration: merged.sha,
+		phase: "testing",
+	};
+	record.write(batch);
+	return { ...run, acting: batch };
+}
+
+/**
  * @param {BatchDeps} deps
  * @param {Exclude<QueueAction, QueueEnd | {kind: PipelineKind}>} action
  * @param {QueueRun} run
@@ -2066,46 +2141,8 @@ function recordLanded(deps, run) {
 async function act(deps, action, run) {
 	const { git, record } = deps;
 	switch (action.kind) {
-		case "merge-members": {
-			const { integration: was, slot } = batchOf(run);
-			if (was !== null) cancelAsk(deps, run, { sha: was, slot });
-			/** @type {string|null} */
-			let started = null;
-			/* A failed early push leaves the push to test-sha (#4573). */
-			const merged = git.mergeMembers(
-				action.onto,
-				action.members,
-				action.fresh,
-				(sha) => {
-					try {
-						git.pushBatch(slot, sha);
-						started = sha;
-					} catch (err) {
-						deps.say?.(
-							`${short(sha)} not pushed before its gate pass: ${parseRefusal(parseErrorText(err))}`,
-						);
-					}
-				},
-			);
-			/* The run the merges started before the batch's gates, unwanted
-			 * where the gates refused or committed edits on top (#4573). */
-			if (
-				started !== null &&
-				(merged.kind !== "merged" || merged.sha !== started)
-			)
-				cancelAsk(deps, run, { sha: started, slot });
-			if (merged.kind !== "merged")
-				return { ...run, unmerged: { onto: action.onto, result: merged } };
-			/** @type {Batch} */
-			const batch = {
-				...batchOf(run),
-				onto: action.onto,
-				integration: merged.sha,
-				phase: "testing",
-			};
-			record.write(batch);
-			return { ...run, acting: batch };
-		}
+		case "merge-members":
+			return mergeBatch(deps, action, run);
 		case "merge-alone": {
 			const { member, onto } = action;
 			const result = git.mergeMembers(onto, [member]);
@@ -2345,7 +2382,10 @@ async function actOnPipeline(deps, action, run) {
 		}
 		case "detach":
 			/* Cancelled first: the record written drops the shas to cancel. */
-			for (const c of action.cancel) cancelAsk(deps, run, c);
+			for (const c of action.cancel) {
+				forgetAsks(run, c.sha);
+				cancelRuns(deps, c.slot, null, [c.sha]);
+			}
 			return writePipeline(deps, run, action.pipeline);
 		case "await-verdict":
 			return awaitVerdict(deps, run);
