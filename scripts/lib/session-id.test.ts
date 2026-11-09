@@ -84,11 +84,11 @@ describe("the report owner", () => {
 });
 
 /* The ledger's `lander` kind rests on this mark alone (#4757). */
-describe("startedByLander", () => {
+describe("isLanderRun", () => {
 	it("is true only where the tester's mark is set", () => {
-		expect(sessionId.startedByLander({ WFC_LANDER_RUN: "1" })).toBe(true);
-		expect(sessionId.startedByLander({ WFC_LANDER_RUN: "" })).toBe(false);
-		expect(sessionId.startedByLander({})).toBe(false);
+		expect(sessionId.isLanderRun({ WFC_LANDER_RUN: "1" })).toBe(true);
+		expect(sessionId.isLanderRun({ WFC_LANDER_RUN: "" })).toBe(false);
+		expect(sessionId.isLanderRun({})).toBe(false);
 	});
 });
 

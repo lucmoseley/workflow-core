@@ -76,6 +76,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 				verdict: "green",
 				suite: "vitest",
 				session: "s-1",
+				lander: false,
 				sha: SHA,
 				treeAtEnd: TREE,
 				argv: [],
@@ -85,6 +86,13 @@ describe("the ledger beside the marker stores (#2824)", () => {
 			},
 			expect.objectContaining({ verdict: "red", session: null }),
 		]);
+	});
+
+	it("carries the lander's mark, which runs.py reads its reruns off (#4757)", () => {
+		expect(lineFor({ argv: ["--retest"], lander: true })).toMatchObject({
+			kind: "named",
+			lander: true,
+		});
 	});
 
 	it("leaves no line for a refused launch, which ran nothing", () => {

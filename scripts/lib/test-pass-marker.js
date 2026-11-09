@@ -538,7 +538,7 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  *   one environment read here. A pointer into a transcript that expires,
  *   never a certificate.
  * @param {boolean} [run.lander] Whether the lander's tester started the run
- *   (#4757), off `session-id.js`'s `startedByLander()` by default.
+ *   (#4757), off `session-id.js`'s `isLanderRun()` by default.
  * @param {string[]|null} [run.argv] The launch's own argv (#182), off the
  *   launch record (`suite-handoff.js`) — `process.argv.slice(2)` as `main()`
  *   first saw it, before any flag was stripped.
@@ -565,7 +565,7 @@ function markerFrom(
 		isolated = false,
 		treeAtEnd = null,
 		sessionId = idSeam.fromEnv(),
-		lander = idSeam.startedByLander(),
+		lander = idSeam.isLanderRun(),
 		argv = null,
 		attestation = null,
 		slowest = null,

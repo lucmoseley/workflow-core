@@ -753,7 +753,7 @@ function runOnce(
 			inflight: record.open,
 			finished: record.finished,
 			argv: launch.argv ?? [],
-			...(idSeam.startedByLander() ? { lander: true } : {}),
+			...(idSeam.isLanderRun() ? { lander: true } : {}),
 			/* A killed run writes no scope, and an escalated whole run's argv
 			 * names no `--full=`; the margin check reads this (#3237). */
 			...(weighed.full ? { full: weighed.full } : {}),

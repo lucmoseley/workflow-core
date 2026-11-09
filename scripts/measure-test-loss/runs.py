@@ -3,7 +3,8 @@ Counting rules: #2812 (the baseline)'s, unchanged.
 Usage: python3 -I runs.py <markers-dir> [start_iso] [end_iso] [--dump runs.jsonl]
 Each ledger line is one run; (startedAt, session, suite) stays unique only as a guard.
 Kind, verdict and fullCause are the ledger's, except one rule applied here:
-  lander-rerun  any vitest line other than a lander's with no session after the lander's first run
+  lander-rerun  any vitest line other than a lander's that carries the lander's mark (#4757);
+          on a line older than the mark, one with no session after the lander's first run
           (inferred: the lander's isolation and confirm re-runs run with no session id)"""
 
 import collections
@@ -35,6 +36,9 @@ LANDER_START = "2026-10-22T01:55:00Z"
 
 
 def kind_with_lander_rerun(r):
+    if "lander" in r:
+        rerun = r["lander"] and r["kind"] not in ("pytest", "lander")
+        return "lander-rerun" if rerun else r["kind"]
     unsessioned = r["kind"] not in ("pytest", "lander") and not r.get("session")
     return (
         "lander-rerun" if unsessioned and r["startedAt"] >= LANDER_START else r["kind"]

@@ -11,6 +11,9 @@
  *
  * Both are read at call time and never cached: a hook is handed a fresh
  * environment and a fresh payload per invocation.
+ *
+ * It also answers who started a run that is no session's: a report owner
+ * (#4706) and the lander's mark (#4757).
  */
 
 /**
@@ -57,7 +60,7 @@ const LANDER_RUN = "WFC_LANDER_RUN";
  * @param {Record<string, string|undefined>} [env]
  * @returns {boolean}
  */
-function startedByLander(env = process.env) {
+function isLanderRun(env = process.env) {
 	return env[LANDER_RUN] === "1";
 }
 
@@ -87,6 +90,6 @@ module.exports = {
 	reportOwner,
 	forgetSession,
 	REPORT_OWNER,
-	startedByLander,
+	isLanderRun,
 	LANDER_RUN,
 };
