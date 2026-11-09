@@ -59,12 +59,7 @@ source "$here/lib/detach.sh"
 # directory, and has no test redirection here.
 outlive_live() {
   [[ -z "${VITEST:-}" ]] || return 0
-  local log=()
-  if [[ "${1-}" == --log ]]; then
-    log=(--log "$2")
-    shift 2
-  fi
-  outlive "${log[@]}" "${CLAUDE_CODE_SESSION_ID:-}" "$OUTLIVE_CEILING_S" "$@"
+  outlive "${CLAUDE_CODE_SESSION_ID:-}" "$OUTLIVE_CEILING_S" "$@"
 }
 
 # SECOND JOB, SAME HOOK ENTRY (mantahostels#1175). refs/arbiter/<uuid> content pins — one per
@@ -195,8 +190,10 @@ outlive_live node "$here/start-orphan-sweep-timer.js"
 # the detached ones. The throttling sweep, on the state file only — a file read and, once a day, a
 # detached sweep of its own, whose reading is appended to the history. It prints
 # nothing while the notice is off; turn it back on the day a seat is cut, and
-# stdout here is what a SessionStart hook injects.
-node "$here/check-self-throttling.js" --notify || true
+# stdout here is what a SessionStart hook injects. It is handed the launcher's
+# probe answer, so its daily kick does not probe again (#4706): the variable is
+# lib/user-scope.js's USER_MANAGER_ENV.
+WFC_USER_MANAGER="${OUTLIVE_MANAGER-}" node "$here/check-self-throttling.js" --notify || true
 
 # Always green: a session start must never go red on a sweep nobody is waiting
 # for, nor on a report.

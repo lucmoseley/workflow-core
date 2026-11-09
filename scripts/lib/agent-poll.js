@@ -131,11 +131,13 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** The window as the texts say it: `five minutes`. */
 const WINDOW_TEXT = `${spelt(WINDOW / 60)} minutes`;
 
-/* Bash ends a comment only at a newline, so every line after the first `#`
+/* Bash opens a comment only at a word start, so whitespace or `;` must part
+ * the `#` from the no-op word: `true#x` runs the command `true#x` (#4610).
+ * It ends a comment only at a newline, so every line after the first `#`
  * must be blank or a comment too (#4037). Each comment ends at a newline or
  * the end, so no two quantifiers share a span: the match stays linear. */
 const NOOP =
-	/^[ \t\n\v\f\r]*(true|:|exit([ \t\n\v\f\r]+0)?)[ \t\n\v\f\r]*(?:;[ \t\n\v\f\r]*)?(?:#[^\n]*(?:\n[ \t\n\v\f\r]*|$))*$/;
+	/^[ \t\n\v\f\r]*(true|:|exit([ \t\n\v\f\r]+0)?)(?:(?:[ \t\n\v\f\r]+|[ \t\n\v\f\r]*;[ \t\n\v\f\r]*)(?:#[^\n]*(?:\n[ \t\n\v\f\r]*|$))*)?$/;
 const SLEEP = /^[ \t\n\v\f\r]*sleep[ \t\n\v\f\r]+[0-9]/;
 const JOB_BEAT = /bg-run\.sh[ \t\n\v\f\r]+check([ \t\n\v\f\r]|$)/;
 

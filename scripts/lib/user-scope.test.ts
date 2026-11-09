@@ -107,7 +107,11 @@ next();
  * records what reaches it.
  */
 describe("the outliving launch", () => {
-	function launch(answers: boolean, opts: string) {
+	function launch(
+		answers: boolean,
+		opts: string,
+		extra: Record<string, string> = {},
+	) {
 		const dir = scratch();
 		const rec = path.join(dir, "rec.log");
 		const recorder = path.join(dir, "rec.sh");
@@ -127,12 +131,14 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 				CLAUDE_CODE_SESSION_ID: "starter",
 				CLAUDE_JOB_DIR: "/the/job",
 				WFC_REPORT_OWNER: "inherited",
+				...extra,
 			},
 		});
 		expect(r.status, r.stderr).toBe(0);
 		return {
 			ran: fs.readFileSync(rec, "utf8").trim(),
 			scoped: fake.calls().map(({ words, owner }) => ({ words, owner })),
+			probes: fake.probes(),
 			recorder,
 		};
 	}
@@ -150,6 +156,20 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		]);
 		expect(ran).toBe("job sid= job= owner=starter");
 	});
+
+	it.each([
+		["yes", 1],
+		["no", 0],
+	])(
+		"takes the launcher's handed answer %s without probing again",
+		(handed, scopes) => {
+			const { probes, scoped } = launch(true, "{}", {
+				WFC_USER_MANAGER: handed,
+			});
+			expect(probes).toBe(0);
+			expect(scoped).toHaveLength(scopes);
+		},
+	);
 
 	it("starts it unscoped, still stripped and owner-tagged, where no manager answers", () => {
 		const { ran, scoped } = launch(
@@ -192,8 +212,19 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		expect(shellCeiling).toBe(String(OUTLIVE_CEILING_S));
 	});
 
-	it("names no owner and sets no ceiling where it is given neither", () => {
+	it("names the starter's report owner and stops at the shared ceiling where it is given neither", () => {
 		const { ran, scoped } = launch(true, "{}");
+		expect(scoped).toEqual([
+			{
+				words: `--user --scope --quiet -p RuntimeMaxSec=${OUTLIVE_CEILING_S} --`,
+				owner: "inherited",
+			},
+		]);
+		expect(ran).toBe("job sid= job= owner=inherited");
+	});
+
+	it("names no owner and sets no ceiling where both are null", () => {
+		const { ran, scoped } = launch(true, "{ owner: null, ceilingS: null }");
 		expect(scoped).toEqual([{ words: "--user --scope --quiet --", owner: "" }]);
 		expect(ran).toBe("job sid= job= owner=");
 	});
