@@ -175,3 +175,11 @@ _Avoid_: anti-pattern, code smell (neither says it spreads by copying), drift (t
 **Heresy sweep**:
 A recurring agent pass over one repo's code and docs that looks for heresies not yet named and files each as a ticket.
 _Avoid_: architecture scan (it hunts deepening, not copied patterns), audit, review (one diff, not the standing tree)
+
+**Drop**:
+A queue member the queue lander removes without landing, for a red test run, a gate's refusal or a conflict with `main`.
+_Avoid_: ejection, rejection, failed landing, hand-back (a session's report to the founder)
+
+**Owning session**:
+The session whose worktree a queue ref is named after: the one that pushed it and owes its drops.
+_Avoid_: author, owner (a person), pusher

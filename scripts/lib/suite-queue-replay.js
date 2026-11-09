@@ -109,6 +109,9 @@ const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
 /* #4782's commit, from which a part waiter passes an older one that hold
  * keeps out. */
 const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
+/* #4783's commit, from which a part waiter passes an older one held at rest
+ * past PART_PASS_AGE_MS. */
+const REST_PASS_FROM = Date.parse("2026-11-09T15:00:37Z");
 /* #4760's commit, from which a waiter yields to an older one in the other
  * queue stamped `climbHeld`. */
 const PEER_CLIMB_FROM = Date.parse("2026-11-09T08:18:51Z");
@@ -702,11 +705,12 @@ const isRungHeld = (e, tick, w) =>
 /**
  * The gate's own turn for `e` at this tick (`turnOf`, #4260), from a snapshot
  * of the waits the logs show: the older waiters in its queue, none yet
- * spawned, each stamped `memoryHeld` where its rung holds it, else
+ * spawned, each stamped `memoryHeld` where its rung holds it, `restHeld`
+ * where its memory rung does at a tick no test worker runs, else
  * `windowsHeld` where the Windows hold does; another waiter between its
  * `opened` exit and its spawn; and an older waiter in the other queue the
- * tick stamps `climbHeld`. #3058's pass is on from its commit, and the
- * Windows stamp from #4782's.
+ * tick stamps `climbHeld`. #3058's pass is on from its commit, the Windows
+ * stamp from #4782's, and the rest stamp from #4783's.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -721,6 +725,11 @@ function turnReasonsOf(e, tick, w) {
 			part: !tsc && !o.whole,
 			spawned: false,
 			memoryHeld: isRungHeld(o, tick, w),
+			restHeld:
+				tick.t >= REST_PASS_FROM &&
+				tick.busy === 0 &&
+				!o.climbMb &&
+				isMemoryHeld(o, tick, w),
 			windowsHeld:
 				tick.t >= WINDOWS_PASS_FROM &&
 				!isRungHeld(o, tick, w) &&
