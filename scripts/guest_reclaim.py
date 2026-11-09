@@ -4,8 +4,7 @@
 With `autoMemoryReclaim=disabled` (#3246) the guest's page cache stays backed in
 `vmmemWSL`, and WSL's own reclaim runs only on a near-idle VM. This writes
 `<bytes> swappiness=0` to the user manager's cgroup `memory.reclaim`, which
-evicts cold page cache first; page reporting hands the freed pages to Windows
-in about 2 s. The user's own cgroup, so no root.
+evicts cold page cache first; page reporting hands the freed pages to Windows.
 
   tick     run each minute by guest-reclaim.timer. Reads the newest line of
            memwatch's minute log; when its Windows sample is fresh, reads
@@ -19,7 +18,7 @@ in about 2 s. The user's own cgroup, so no root.
   report   the share of minute lines whose Windows reading is under
            TRIGGER_MB, and their mean guest memory stall, over a window.
   install  installs it as a user timer (lib/user_timer.py). Re-run it to take
-           up a change to this script or lib/memwatch_minute.py. No sudo.
+           up a change to this script or lib/memwatch_minute.py.
              python3 scripts/guest_reclaim.py install
 
 Exit codes: 0; 1 where a read, write or systemctl call fails; 2 on a command line.
@@ -247,7 +246,6 @@ def tick(
         pass_log,
         {
             "kind": "pass",
-            # When the freed pages have reached Windows.
             "ts": format_ts(now + took_s + REPORTING_DELAY_S),
             **reading(line, sample),
             **figures,
