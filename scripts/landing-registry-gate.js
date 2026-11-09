@@ -17,8 +17,9 @@
  *
  * FAILS OPEN: 2 refuses on the checker's own FAIL alone, and a checker that
  * cannot answer — a BROKEN reading — passes the push, printed, as does a push
- * in a clone holding no `origin/main` or whose git will not resolve it, since
- * a refusal there would refuse every push for a fault that is not the push's.
+ * in a clone holding no `origin/main` or whose git will not resolve it (#4613),
+ * since a refusal there would refuse every push for a fault that is not the
+ * push's.
  */
 
 const path = require("node:path");

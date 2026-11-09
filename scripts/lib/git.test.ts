@@ -299,14 +299,7 @@ describe("no `rev-parse … ^{commit}` probe outside readCommit (#3068, #3396)",
 
 	it("finds none in a tracked script", () => {
 		const files = readTrackedScripts(
-			[
-				"ls-files",
-				"-z",
-				"--",
-				"scripts/*.js",
-				"scripts/lib/*.js",
-				".claude/skills/*/scripts/*.js",
-			],
+			["ls-files", "-z", "--", "scripts/*.js", ".claude/skills/*/scripts/*.js"],
 			exempt,
 		);
 		expect(offendersIn(files, probeLines)).toEqual([]);

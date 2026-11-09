@@ -407,7 +407,7 @@ function readHooksPath(repo) {
  * @param {string} rev
  */
 function hasCommit(repo, rev) {
-	return commitOf(repo, rev) !== null;
+	return readCommitSha(repo, rev) !== null;
 }
 
 /**
@@ -416,7 +416,7 @@ function hasCommit(repo, rev) {
  * @param {string} rev
  * @returns {string | null}
  */
-function commitOf(repo, rev) {
+function readCommitSha(repo, rev) {
 	const r = readCommit(gitReader(repo), rev);
 	if (!r.ok) throw new Error(`git rev-parse ${rev}: ${r.why}`);
 	return r.sha;
@@ -612,7 +612,7 @@ function buildTask({ flags, lists }) {
 	const unapplied = (lists["--unapply"] ?? []).map((p) => path.resolve(p));
 	const refusal = taskRefusal({ repo, at, to, reverts, unapplied });
 	if (refusal) return refuse(refusal);
-	const base = commitOf(repo, at);
+	const base = readCommitSha(repo, at);
 	if (base === null) throw new Error(`${at} names no commit in ${repo}`);
 
 	const root = path.resolve(to);

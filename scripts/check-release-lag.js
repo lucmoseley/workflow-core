@@ -28,8 +28,8 @@
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
-const { readCommit, readCommitOrBroken } = require("./lib/commit-sha.js");
-const { execGit, gitReader } = require("./lib/git.js");
+const { readCommitOrBroken } = require("./lib/commit-sha.js");
+const { execGit } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
@@ -91,9 +91,7 @@ runCheck({
 		const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
 		const tag = readReleaseTags(root).at(-1);
 		if (!tag) ctx.skip("no release tag in this clone.");
-		const main = readCommit(gitReader(root), MAIN);
-		if (!main.ok) ctx.broken(`git would not resolve ${MAIN}: ${main.why}`);
-		const tip = main.sha;
+		const tip = readCommitOrBroken(MAIN, root);
 		if (!tip)
 			ctx.skip(`no ${MAIN} in this clone; \`git fetch origin\` makes one.`);
 		/** @type {import("./lib/release-lag").Reading} */
