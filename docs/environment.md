@@ -19,13 +19,18 @@ defaults where that profile is absent. Read your own with `free -m`, `nproc` and
 
 ```ini
 [wsl2]
+maxCrashDumpCount=2
 memory=10GB
 swap=2GB
 processors=8
 [experimental]
-autoMemoryReclaim=gradual
+autoMemoryReclaim=disabled
 sparseVhd=true
+[general]
+instanceIdleTimeout=-1
 ```
+
+`instanceIdleTimeout=-1`: background sessions and the refill loop are not WSL clients, so the distro must not idle-stop when the last terminal closes (#3196, #3199).
 
 **Do not raise memory or swap without a measured peak.** An earlier 8 GB swap caused an unrecoverable page-fault loop lasting over an hour, so swap stays at 2 GB — it converts a clean `earlyoom` kill into thrashing, and more RAM reduces the need for it rather than pairing with it.
 
@@ -43,7 +48,7 @@ sparseVhd=true
 
 ⚠ **`.wslconfig` is read at VM boot, so a change to either needs a `wsl --shutdown`** — which kills every WSL process, agent sessions included. `nproc` and `free -m` are the tests that it took.
 
-**`autoMemoryReclaim=gradual` means dynamic reclaim is already handled** (mantahostels#421). So memory that stays occupied is memory something is still holding: look for the holder, and **never propose a reclaim setting as the fix**. The holder measured to date is the pool of finished-but-resumable Claude sessions, which `scripts/reap-finished-sessions.js` stops (§5, mantahostels#421).
+**`autoMemoryReclaim=disabled`** (#3246): `gradual` made concurrent page faults hundreds of times slower. With reclaim off, the guest's page cache stays backed in `vmmemWSL`, so the VM holds near its 10 GB however little the guest uses, and Windows runs short. `dropCache` and `gradual` would not fix it: WSL reclaims only when the whole VM is at most 0.5% busy for 2 minutes (#4759). **`drop-guest-cache.timer` drops the guest page cache instead**: a root timer, each minute, running `scripts/drop_guest_cache.py tick`, which syncs and writes `1` to `/proc/sys/vm/drop_caches` when memwatch's newest `win_avail_mb` reads under 1,500 MB, at most once in 5 minutes. Both figures are first guesses. Each drop and the Windows reading after it go to `~/guest-cache-drops.jsonl`. Install with `sudo /usr/bin/python3 scripts/drop_guest_cache.py install`, which copies the script to a root-owned `/usr/local/lib/workflow-core/`; re-run it after any change to the script. Memory the guest itself holds is still found at its holder: the pool of finished-but-resumable Claude sessions, which `scripts/reap-finished-sessions.js` stops (§5, mantahostels#421).
 
 **`/etc/wsl.conf`** — `[boot] systemd=true`, `[user] default=<login>`, `[network] generateResolvConf = false`. `systemd=true` is load-bearing: both guards below are systemd units, and `systemd-sysctl` applies the file below at boot.
 

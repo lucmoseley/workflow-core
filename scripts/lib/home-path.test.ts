@@ -43,7 +43,15 @@ describe("expandTildeWord", () => {
 	it("refuses ~user and an unexpandable ~, passes other words through", () => {
 		expect(expandTildeWord("~user/x", "/home/u")).toBeNull();
 		expect(expandTildeWord("~/x", undefined)).toBeNull();
+		expect(expandTildeWord("~/x", null)).toBeNull();
 		expect(expandTildeWord("~/x", "/home/u")).toBe("/home/u/x");
 		expect(expandTildeWord("a/~", "/home/u")).toBe("a/~");
+	});
+
+	it("expands against an empty or relative HOME, as bash does", () => {
+		expect(expandTildeWord("~/x", "")).toBe("/x");
+		expect(expandTildeWord("~", "")).toBe("");
+		expect(expandTildeWord("~/x", "rel")).toBe("rel/x");
+		expect(expandTildeWord("~/a/../b", "/h")).toBe("/h/a/../b");
 	});
 });
