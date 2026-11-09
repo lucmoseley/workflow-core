@@ -192,7 +192,7 @@ describe("launch", () => {
 		expect(seen.argv).not.toContain("--resume");
 	});
 
-	it("resumes a session on the same seat and key, under the name given with the overflow prefix once (#4580, #3701)", async () => {
+	it("resumes a session on the same seat and key, under the name given with the overflow prefix once, a dash-led reply reaching claude as the prompt (#4580, #3701, #4671)", async () => {
 		const r = await cli([
 			"launch",
 			"--key",
@@ -205,7 +205,8 @@ describe("launch", () => {
 			"Overflow · /implement 7",
 			"--resume",
 			"0f0e0d0c-0000-4000-8000-000000000000",
-			"the answer",
+			"--",
+			"- go with (A)",
 		]);
 		expect(r.status).toBe(0);
 		expect(r.stdout.split("\n")[1]).toBe(
@@ -226,7 +227,7 @@ describe("launch", () => {
 		);
 		expect(seen.helped).toBe(KEY);
 		expect(seen.env.CLAUDE_CONFIG_DIR).toBe(seat);
-		expect(seen.argv.at(-1)).toBe("the answer");
+		expect(seen.argv.slice(-2)).toEqual(["--", "- go with (A)"]);
 	});
 
 	it("hands the key through the settings' apiKeyHelper alone: in neither the child's environment nor the caller's", async () => {
