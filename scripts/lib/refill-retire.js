@@ -12,11 +12,21 @@ const { launchName } = require("./refill-block-core.js");
 
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /** @typedef {import("./refill-blocks.js").Unretired} Unretired */
+/** @typedef {import("./refill-blocks.js").HasUnretired} HasUnretired */
 /** @typedef {import("./refill-blocks.js").BlockIo} BlockIo */
 
 /* The retirements of a copy's original tried, settleCopy's first among them,
  * before the loop gives up and comments; untraced. */
 const RETIRE_TRIES = 3;
+
+/**
+ * What to do by hand about original `original` of copy `u` once out of tries.
+ * @param {Unretired} u
+ * @param {string} original  its short job id
+ * @param {string} failed  the last refusal
+ */
+const buildGiveUpFix = (u, original, failed) =>
+	`two rows of this session are live in \`claude agents\` on ${u.seat}: original job ${original} and its copy ${u.copyJobId}. The original would not retire after ${RETIRE_TRIES} tries (${failed}); stop and remove it by hand (\`claude stop ${original}\`, then \`claude rm ${original}\`) so only the copy is revived.`;
 
 /**
  * @param {LoopLaunch[]} launches
@@ -26,10 +36,7 @@ const RETIRE_TRIES = 3;
 function retireOriginals(launches, io) {
 	return launches.map((l) =>
 		withRetried(l, launchName(l), io, (u, original, failed) =>
-			io.comment(
-				l,
-				`Refill loop: two rows of this session are live in \`claude agents\` on ${u.seat}: original job ${original} and its copy ${u.copyJobId}. The original would not retire after ${RETIRE_TRIES} tries (${failed}); stop and remove it by hand (\`claude stop ${original}\`, then \`claude rm ${original}\`) so only the copy is revived.`,
-			),
+			io.comment(l, `Refill loop: ${buildGiveUpFix(u, original, failed)}`),
 		),
 	);
 }
@@ -37,7 +44,7 @@ function retireOriginals(launches, io) {
 /**
  * `r` with each of its copy's unretired originals tried again, those retired
  * or out of tries dropped (retireOriginal); `r` itself where it has none.
- * @template {{unretired?: Unretired[]}} R
+ * @template {HasUnretired} R
  * @param {R} r
  * @param {string} name  whose copy it is, for the log
  * @param {Pick<BlockIo, "retireJob"|"log">} io
@@ -78,4 +85,4 @@ function retireOriginal(u, name, io, giveUp) {
 	return [];
 }
 
-module.exports = { RETIRE_TRIES, retireOriginals, withRetried };
+module.exports = { buildGiveUpFix, retireOriginals, withRetried };

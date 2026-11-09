@@ -5,9 +5,12 @@
  * typed into on #2359's schedule, left alone once the founder types, held
  * back while the network is down with no try spent, fallen back to a stop and
  * --bg --resume only where no prompt reached them since the stop, and at the
- * cap left blocked with no park, label, comment or stop. Loosen it and the
- * loop talks over the founder, burns its tries offline, starts a second
- * session beside one already resumed, or parks a ticket it does not own.
+ * cap left blocked with no park, label, comment or stop; a copy's original
+ * that would not retire tried again on later ticks, its record kept until
+ * then (#4829). Loosen it and the loop talks over the founder, burns its tries
+ * offline, starts a second session beside one already resumed, leaves an
+ * original live as a second row beside its copy, or parks a ticket it does
+ * not own.
  */
 import { expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
@@ -314,4 +317,82 @@ it("retries, on later ticks, the retirement of a copy's original that would not 
 	expect(l.io.readOutside()).toEqual([]);
 	l.tick(NOW + 5 * MIN, { rows: [] });
 	expect(retires).toHaveLength(2);
+});
+
+const UNRETIRED = {
+	seat: SEAT,
+	sessionId: "sess-f1-full",
+	cwd: "/home/u/work",
+	copyJobId: "f1-copy",
+	tries: 1,
+};
+const COPY_NAME = "founder-session (f1-copy, started outside the loop)";
+const copyRow = (state = "blocked") => ({
+	...row(state),
+	id: "f1-copy",
+	sessionId: "s",
+});
+
+it("gives up on an original out of tries with a log, no comment, and drops the record", () => {
+	const l = loop({ retireJob: () => "the daemon is busy" });
+	l.io.writeOutside([
+		{
+			seat: SEAT,
+			jobId: "f1-copy",
+			name: "founder-session",
+			cwd: "/home/u/work",
+			sessionId: "s",
+			tries: 1,
+			unretired: [UNRETIRED],
+		},
+	]);
+	l.tick(NOW, { rows: [] });
+	expect(l.io.readOutside()).toHaveLength(1);
+	l.tick(NOW + MIN, { rows: [] });
+	expect(l.io.readOutside()).toEqual([]);
+	expect(logs(l.calls)).toContain(
+		`${COPY_NAME}: two rows of this session are live in \`claude agents\` on ${SEAT}: original job sess-f1- and its copy f1-copy. The original would not retire after 3 tries (the daemon is busy); stop and remove it by hand (\`claude stop sess-f1-\`, then \`claude rm sess-f1-\`) so only the copy is revived.`,
+	);
+	expect(l.calls.filter((c) => c.startsWith("comment"))).toEqual([]);
+});
+
+it("keeps a capped copy's record for its unretired original, yet resumes the copy's next stop afresh", () => {
+	const l = loop({ retireJob: () => "the daemon is busy" });
+	l.io.writeOutside([
+		{
+			seat: SEAT,
+			jobId: "f1-copy",
+			name: "founder-session",
+			cwd: "/home/u/work",
+			sessionId: "s",
+			since: NOW - 60 * MIN,
+			tries: RESUME_CAP,
+			capped: true,
+			unretired: [{ ...UNRETIRED, tries: 0 }],
+		},
+	]);
+	l.tick(NOW, { rows: [copyRow("working")] });
+	expect(l.io.readOutside()).toEqual([
+		expect.objectContaining({ jobId: "f1-copy", tries: 0 }),
+	]);
+	expect(l.io.readOutside()[0]).not.toHaveProperty("capped");
+	l.tick(NOW + MIN, { rows: [copyRow()] });
+	expect(l.calls).toContain("type f1-copy");
+});
+
+it("takes up no copy's unretired original as a session of its own", () => {
+	const l = loop({ retireJob: () => "the daemon is busy" });
+	l.io.writeOutside([
+		{
+			seat: SEAT,
+			jobId: "f1-copy",
+			name: "founder-session",
+			cwd: "/home/u/work",
+			sessionId: "s",
+			tries: 1,
+			unretired: [{ ...UNRETIRED, tries: 0 }],
+		},
+	]);
+	l.tick(NOW, { rows: [{ ...row(), id: "sess-f1-" }] });
+	expect(l.calls.filter((c) => c.startsWith("type"))).toEqual([]);
 });

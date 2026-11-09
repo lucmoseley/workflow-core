@@ -9,7 +9,9 @@
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
  * job list shows as needs input (#4689). Where the founder has typed into it
- * since its stop the loop leaves that stop alone.
+ * since its stop the loop leaves that stop alone. Where its fallback started
+ * a copy whose original would not retire, each tick tries that retirement
+ * again as for a launch's copy (#4829), keeping the record until it is done.
  *
  * Its records live in their own file, OUTSIDE_FILE, as they are no launches:
  * nothing that counts, ranks or finishes launches reads them.
@@ -28,7 +30,8 @@ const {
 	netGateOf,
 	typedVerdict,
 } = require("./refill-blocks.js");
-const { RETIRE_TRIES, withRetried } = require("./refill-retire.js");
+const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
+const { shortJobId } = require("./job-paths.js");
 
 const OUTSIDE_FILE = ".refill-outside.json";
 
@@ -83,6 +86,27 @@ function betweenStops(o) {
 	if (o.capped) return null;
 	const { since: _, attachAt: __, handsOff: ___, held: ____, ...rest } = o;
 	return rest;
+}
+
+/**
+ * `o` kept only for its unretired originals: between stops, afresh where it
+ * was capped.
+ * @param {Outside} o
+ * @returns {Outside}
+ */
+function retiringOnly(o) {
+	const { seat, jobId, name, cwd, sessionId, unretired } = o;
+	return (
+		betweenStops(o) ?? {
+			seat,
+			jobId,
+			name,
+			cwd,
+			sessionId,
+			tries: 0,
+			unretired,
+		}
+	);
 }
 
 /**
@@ -303,11 +327,9 @@ function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
  * @param {Tick["io"]} io
  * @returns {Outside}
  */
-const retried = (o, io) =>
+const withOriginalsRetried = (o, io) =>
 	withRetried(o, nameOf(o), io, (u, original, failed) =>
-		io.log(
-			`gave up retiring original ${original} of ${nameOf(o)}'s copy ${u.copyJobId} after ${RETIRE_TRIES} tries (${failed}): two rows of it stay live on ${u.seat} until \`claude stop ${original}\` and \`claude rm ${original}\` by hand`,
-		),
+		io.log(`${nameOf(o)}: ${buildGiveUpFix(u, original, failed)}`),
 	);
 
 /**
@@ -326,14 +348,11 @@ const retried = (o, io) =>
  */
 function actOnOutside(launches, registry, causeOf, seen) {
 	const had = seen.io.readOutside();
+	const retried = had.map((o) => withOriginalsRetried(o, seen.io));
 	const { agents } = seen;
 	const kept = agents
-		? turnOutside(
-				had.map((o) => retried(o, seen.io)),
-				{ launches, registry, causeOf, agents },
-				seen,
-			)
-		: had.map((o) => retried(o, seen.io));
+		? turnOutside(retried, { launches, registry, causeOf, agents }, seen)
+		: retried;
 	if (JSON.stringify(kept) !== JSON.stringify(had)) seen.io.writeOutside(kept);
 }
 
@@ -347,16 +366,19 @@ function actOnOutside(launches, registry, causeOf, seen) {
  * @returns {Outside[]}
  */
 function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
-	const known = new Set(
-		launches.flatMap((l) => [l.jobId, l.copiedFrom].filter(Boolean)),
-	);
+	const known = new Set([
+		...launches.flatMap((l) => [l.jobId, l.copiedFrom].filter(Boolean)),
+		...had.flatMap((o) =>
+			(o.unretired ?? []).map((u) => shortJobId(u.sessionId)),
+		),
+	]);
 	const blocked = blockedIdsOf(agents);
 	const byJob = new Map(had.map((o) => [`${o.seat}\0${o.jobId}`, o]));
 	/** @type {Outside[]} */
 	const next = [];
 	/** @param {Outside|null} turned @param {Outside} o */
 	const keep = (turned, o) => {
-		const k = turned ?? (o.unretired ? withoutHeld(o) : null);
+		const k = turned ?? (o.unretired ? retiringOnly(o) : null);
 		if (k) next.push(k);
 	};
 	for (const row of registry) {
