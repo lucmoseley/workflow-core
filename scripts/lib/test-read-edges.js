@@ -188,6 +188,7 @@ const LITERAL = /["'`]([A-Za-z0-9_./-]+)["'`]/g;
  * the call itself, not to any comma-separated literals: an unrelated array
  * joined with "/" outside such a call must not be read as a path (mantahostels#2441). */
 const COMPOSED_CALL = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	`\\bpath\\.(?:resolve|join)\\(\\s*(${CALL_ANCHOR})\\s*,\\s*((?:["'\`][A-Za-z0-9_./-]+["'\`]\\s*,\\s*)*["'\`][A-Za-z0-9_./-]+["'\`])\\s*,?\\s*\\)`,
 	"g",
 );
@@ -203,6 +204,7 @@ const COMPOSED_CALL = new RegExp(
  * accepts: it is reserved for the final interpolated argument, so a segment
  * written in backticks never gets read twice under two different rules. */
 const DIR_CLASS = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	`\\bpath\\.(?:resolve|join)\\(\\s*(${CALL_ANCHOR})\\s*,\\s*((?:["'][A-Za-z0-9_./-]+["']\\s*,\\s*)+)\`[A-Za-z0-9_./-]*\\$\\{[^}\`]+\\}[A-Za-z0-9_./-]*\`\\s*,?\\s*\\)`,
 	"g",
 );
@@ -1167,6 +1169,7 @@ const FULL_SWEEP_ONLY = /^(?:[^\S\n\r\u2028\u2029]|[/*])*full-sweep-only:/m;
 const MAX_ALTERNATIVES = 256;
 
 /** `DIR_CLASS` over a whole call, which the extractor attributes. */
+// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const DIR_CLASS_CALL = new RegExp(`^${DIR_CLASS.source}$`);
 
 /** @param {[number, number][]} spans @param {number} i */
@@ -1990,6 +1993,7 @@ function isRunInRepo(scan, after) {
 function optionCwd(opts) {
 	if (!opts.startsWith("{")) return null;
 	for (const entry of topLevelArgs(opts.slice(1, -1))) {
+		// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 		const cwd = /^cwd\b\s*(?::\s*([\s\S]+))?$/.exec(entry);
 		if (cwd) return cwd[1] ?? "cwd";
 	}

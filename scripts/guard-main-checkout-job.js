@@ -68,6 +68,7 @@ const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { escapeRe } = require("./lib/regex-group.js");
 const { relativeUnder } = require("./lib/is-under.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
@@ -161,7 +162,7 @@ function carryJobFiles(job, dir) {
 	const named = new RegExp(`(?:${unders.join("|")})[^\\s'"\`<>|]+`, "g");
 	const into = path.join(dir, ".claude", "tmp", "attachments");
 	return job.intent.replace(named, (token) => {
-		const bare = token.replace(/[.,;:)\]]+$/, "");
+		const bare = trimEndRun(token, ".,;:)]");
 		const from = fs.existsSync(token) ? token : bare;
 		try {
 			const rel = relativeUnder(job.jobDir, fs.realpathSync(from));

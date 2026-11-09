@@ -2,7 +2,7 @@ diff --git a/scripts/check-issue-citations.js b/scripts/check-issue-citations.js
 index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547bd453d122 100644
 --- a/scripts/check-issue-citations.js
 +++ b/scripts/check-issue-citations.js
-@@ -82,6 +82,34 @@ const HEADING = /^\s{0,3}#{1,6}\s/;
+@@ -82,6 +82,35 @@ const HEADING = /^\s{0,3}#{1,6}\s/;
  const CITED = /#\d+\s*(?:\([^)]*\))?/g;
  const REFERRING_PHRASE =
  	/\bthe\s+[\w'-]+(?:\s+[\w'-]+){0,3}\s+(ticket|decision|route|question|audit|check|clean|issue)\b/i;
@@ -19,6 +19,7 @@ index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547b
 + * test is as narrow here as above: "Blocked by nothing, except upstream" passes.
 + */
 +const NO_BLOCKER = new RegExp(
++	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
 +	`${BLOCKER_LINE.source}(?:(?<!by)\\s+\\w+(?=[*_]*:))?[\\s:*_\`'"(\\[—–-]*` +
 +		`(?:none|nothing|no blockers?)\\b[*_\`'")\\]]*\\s*(?:$|([.;:,(—–-]))`,
 +	"i",
@@ -37,7 +38,7 @@ index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547b
  
  /** @param {string} text */
  function numberlessBlockers(text) {
-@@ -90,7 +118,7 @@ function numberlessBlockers(text) {
+@@ -90,7 +119,7 @@ function numberlessBlockers(text) {
  		const line = raw.trim();
  		if (!line || HEADING.test(line)) continue;
  		if (!BLOCKER_LINE.test(line)) continue;
