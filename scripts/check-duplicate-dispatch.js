@@ -539,11 +539,11 @@ function writeDropIndex(ctx, path, drop) {
 
 const USAGE =
 	"node check-duplicate-dispatch.js --issues <n,n> [--window-hours <h>] [--drop-index-out <path>]\n" +
-	"       node check-duplicate-dispatch.js --record --issues <n,n> --model <m> --prompt <p> [--job-id <id>] [--overflow-key <var> --allowance-usd <usd> [--session-id <id>]]";
+	"       node check-duplicate-dispatch.js --record [--issues <n,n>] --model <m> --prompt <p> [--job-id <id>] [--overflow-key <var> --allowance-usd <usd> [--session-id <id>]]";
 
 function main() {
 	const opts = parseArgs(process.argv.slice(2));
-	if (opts?.record && opts.issues.length > 0) recordMain(opts);
+	if (opts?.record) recordMain(opts);
 
 	runCheck({
 		name: "duplicate-dispatch",

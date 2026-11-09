@@ -759,6 +759,38 @@ describe("the CLI — §N4's outcome alphabet", () => {
 		});
 	});
 
+	it("--record of a numberless prompt writes its row, overflow fields included (#4585)", () => {
+		stubOracle(idle);
+		const prompt =
+			"Reply with the single word ok and nothing else, using no tools.";
+		const r = runCli([
+			"--record",
+			"--issues",
+			prompt,
+			"--model",
+			"opus",
+			"--prompt",
+			prompt,
+			"--overflow-key",
+			"OVERFLOW_KEY_A",
+			"--allowance-usd",
+			"12.5",
+			"--session-id",
+			"sess-1",
+		]);
+		expect(r.status).toBe(0);
+		expect(`${r.stdout}${r.stderr}`).not.toContain("BROKEN");
+		const written = fs.readFileSync(ledger.ledgerPath(root), "utf8").trim();
+		expect(JSON.parse(written)).toMatchObject({
+			issues: [],
+			prompt,
+			kind: "overflow",
+			keyVar: "OVERFLOW_KEY_A",
+			allowanceUsd: 12.5,
+			sessionId: "sess-1",
+		});
+	});
+
 	/* mantahostels#3488: the launched job's own id, distinct from `session` (the launcher's
 	 * own id) — the field pick-next.js reads to say whether that launch is
 	 * still alive. */
