@@ -14,8 +14,7 @@
  *
  * Loosen one and a session's spend goes uncounted or counted twice, a plan
  * session is charged to the key, the CLI reports a figure the gate did not
- * size (#2609), a session past its allowance runs on unstopped (#3698), or the
- * panel prices every transcript on each poll or shows a stale figure (#4669).
+ * size (#2609), or a session past its allowance runs on unstopped (#3698).
  *
  * Launches are rows in a fixture checkout's dispatch ledger; `claude` is a stub
  * printing a fixture listing.

@@ -12,8 +12,7 @@
  * A SHOWN READ REUSES THE LAST (#4669): every sized budget is kept beside the
  * ledger, and `refill-loop.js status`, which the panel polls every few seconds,
  * takes it while it is no older than a shown listing may be and neither the
- * ledger, the Console log nor the cost table has changed since. Pricing every
- * poll cost ~0.2 CPU-s a run, most of it `stat`s of every transcript.
+ * ledger, the Console log nor the cost table has changed since.
  * Residual: a shown figure leaves out up to DISPLAY_MAX_AGE_MS of transcript
  * growth no other read has priced, and a ledger write landing between a sizing's
  * pricing and its reading of the ledger's time goes unseen until that age.
@@ -329,7 +328,6 @@ const readChangedAt = (file) =>
 	fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
 
 /**
- * Those files: the ledger, the Console log and the cost table, in that order.
  * @param {OverflowSeat} seat
  * @param {string} root
  * @returns {[string, string, string]}
@@ -366,8 +364,7 @@ function keepShown(kept) {
  * tick or a shown read, while neither it nor the listing it counted running
  * sessions off is older than DISPLAY_MAX_AGE_MS, its cycle has not turned, it
  * was sized for this seat and root, and none of its input files has changed
- * since; else sized again off the shared listing (`readAgentsForDisplay`,
- * #4169).
+ * since.
  * @param {OverflowSeat} seat
  * @param {string|undefined} root
  * @returns {SeatBudget|{why: string}}
