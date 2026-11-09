@@ -8,9 +8,10 @@
  *
  * ci.yml's "Retry failed files" step runs it on a `lander/batch-<k>` push after
  * a failed Vitest step. The re-run writes its own report beside the first,
- * which stays the uploaded one. Its last line
- * names the files still failing, `STILL_FAILING` below: lib/actions-tester.js
- * takes the batch's failing files from that line alone, since `--log-failed`
+ * which stays the uploaded one. It ends on two lines: the files the retry
+ * cleared, `CLEARED` below, which lib/actions-tester.js records on a green
+ * batch as its flakes (#4558); and the files still failing, `STILL_FAILING`,
+ * which it takes a red batch's failing files from alone, since `--log-failed`
  * also prints the first run's failures from the step that went on past them.
  *
  * In no family: it gates nothing itself, its exit being the re-run's, and
@@ -27,7 +28,11 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { reportRoot } = require("./lib/suite-timings.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+const CLEARED = "retry-failed-files: cleared by one retry:";
 const STILL_FAILING = "retry-failed-files: still failing after one retry:";
+
+/** @param {string[]} files */
+const buildFileList = (files) => (files.length > 0 ? files.join(", ") : "none");
 
 /**
  * The repo-relative files the report at `file` marks failed, else why none.
@@ -89,13 +94,14 @@ function main(argv = process.argv.slice(2)) {
 	let still = code === 0 ? [] : first.files;
 	if (code !== 0 && !("why" in again) && again.files.length > 0)
 		still = again.files;
+	const cleared = first.files.filter((f) => !still.includes(f));
 	writeFd(
 		1,
-		`${STILL_FAILING} ${still.length > 0 ? still.join(", ") : "none"}\n`,
+		`${CLEARED} ${buildFileList(cleared)}\n${STILL_FAILING} ${buildFileList(still)}\n`,
 	);
 	return code;
 }
 
 if (require.main === module) process.exit(main());
 
-module.exports = { main, STILL_FAILING };
+module.exports = { main, CLEARED, STILL_FAILING };

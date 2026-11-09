@@ -65,6 +65,7 @@ const reads = (
 		},
 		jobsOf: (_run: number) => jobs,
 		failedLogOf: () => FAILED_LOG,
+		jobLogOf: (_job: number) => "",
 		presentAt: (_: string, files: string[]) =>
 			files.filter((f) => present.includes(f)),
 		rerun: (id: number) => {
@@ -202,6 +203,61 @@ x\tRetry failed files\tT retry-failed-files: still failing after one retry: none
 	expect(
 		await verdictWith(retry("Retry failed files"), crashed),
 	).not.toHaveProperty("retried");
+});
+
+it("names on a batch's whole-suite green the files its in-job retry cleared, off each retried shard's retry step, as its flakes (#4558)", async () => {
+	const shard = (k: number, retry: string | null): Job => ({
+		name: `Full suite / Vitest (${k}/2)`,
+		conclusion: "success",
+		databaseId: 100 + k,
+		steps: [
+			{ name: "Vitest", conclusion: "success" },
+			{ name: "Retry failed files", conclusion: retry },
+		],
+	});
+	const logs: Record<number, string> = {
+		101: [
+			/* A test printing the line as its fixture, in the Vitest step. */
+			"Full suite / Vitest (1/2)\tVitest\t2026-11-09T03:59:00.0Z retry-failed-files: cleared by one retry: scripts/test_b.py",
+			"Full suite / Vitest (1/2)\tRetry failed files\t2026-11-09T04:00:00.0Z retry-failed-files: cleared by one retry: scripts/lib/a.test.ts, scripts/fixture-only.test.ts",
+		].join("\n"),
+	};
+	const r = reads(
+		[() => [run(1, "success")]],
+		[shard(1, "success"), shard(2, "skipped"), SUITE_PASSED],
+	);
+	const read: number[] = [];
+	r.jobLogOf = (job: number) => {
+		read.push(job);
+		return logs[job] ?? "";
+	};
+	/* The file the tree lacks is a fixture's text, never a flake. */
+	expect(await verdictOf(r)).toEqual({
+		kind: "green",
+		run: 1,
+		cleared: ["scripts/lib/a.test.ts"],
+	});
+	expect(read).toEqual([101]);
+	/* A later ask read off the same run records none: the batch's whole
+	 * suite ask did. */
+	expect(
+		await queueTester({
+			root: "/",
+			reads: {
+				...r,
+				landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }],
+				runsOn: () => r.runs(),
+				cancel: () => undefined,
+				namedRuns: () => [],
+				dispatch: () => undefined,
+			},
+			...clock(),
+		}).verdict(SHA, ["scripts/lib/a.test.ts"]),
+	).toEqual({ kind: "green", run: 1 });
+	r.jobLogOf = () => {
+		throw new Error("HTTP 502");
+	};
+	expect(await verdictOf(r)).toEqual({ kind: "green", run: 1 });
 });
 
 it("names a failing file from a log whose colour codes gh printed as literal caret text (#3529)", async () => {
@@ -439,6 +495,7 @@ const fakeNamedReads = (
 						],
 			jobsOf: () => jobs,
 			failedLogOf: () => log,
+			jobLogOf: () => "",
 			presentAt: (_: string, files: string[]) =>
 				files.filter((f) => f !== "scripts/fixture-only.test.ts"),
 		},

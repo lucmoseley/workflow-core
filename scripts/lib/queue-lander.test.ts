@@ -425,6 +425,29 @@ const NOW = Date.parse("2026-11-06T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
 
 describe("the green path", () => {
+	it("ledgers a batch green after its in-job retry with the files it cleared, and logs one line for the batch (#4558)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		const disk = freshDisk();
+		const cleared = ["scripts/x.test.ts", "scripts/y.test.ts"];
+
+		const { end, said } = await land(remote, disk, {
+			verdict: () => ({ kind: "green", run: 42, cleared }),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(remote.main).toBe("a1");
+		expect(disk.verdicts.get(verdictKey("a1", [], 1))).toEqual({
+			kind: "green",
+			run: 42,
+			cleared,
+		});
+		expect(said.filter((l) => l.startsWith("flake "))).toEqual([
+			"flake a1 run 42: green after its retry cleared scripts/x.test.ts, scripts/y.test.ts",
+		]);
+	});
+
 	it("lands a lone ref as the integration commit its merge names, and deletes it", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
