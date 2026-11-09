@@ -154,10 +154,10 @@ const {
 const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 const {
+	buildWindowsShortText,
+	readWindowsRecorded,
 	windowsNeedMb,
-	windowsShortText,
 	windowsShortfall,
-	windowsUnreadNote,
 } = require("./windows-memory.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
 const { treeOrHost } = require("./tree-or.js");
@@ -685,9 +685,11 @@ function denyBareTsc(st, segment) {
 		st.ctx.log(
 			"MemAvailable unreadable — a `tsc` launch judged off its count alone",
 		);
-	const windows = st.ctx.windowsMemory();
-	const unread = windowsUnreadNote(windows, "a `tsc` launch");
-	if (unread) st.ctx.log(unread);
+	const windows = readWindowsRecorded(
+		st.ctx.windowsMemory,
+		st.ctx.log,
+		"a `tsc` launch",
+	);
 	const denial = tscDenial(
 		ps,
 		mb,
@@ -701,7 +703,7 @@ function denyBareTsc(st, segment) {
 		`${st.ctx.scriptPath("queue-run.js")} --tsc`,
 	);
 	const line = insteadLine(st, typedLaunchOf(st, segment), launch);
-	const why = tscWhy(denial);
+	const why = buildTscWhy(denial);
 	return {
 		deny: st.ctx.corePaths(
 			`${line}\n${why} \`queue-run.js --tsc\` waits for the type-check slot, then runs that command.`,
@@ -713,10 +715,10 @@ function denyBareTsc(st, segment) {
  * Why the type-check slot holds a bare `tsc`, by limb.
  * @param {import("./suite-queue.js").GateDenial} denial
  */
-function tscWhy(denial) {
+function buildTscWhy(denial) {
 	if (denial.limb === "count")
 		return "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163).";
-	if (denial.limb === "windows") return `${windowsShortText(denial)}.`;
+	if (denial.limb === "windows") return `${buildWindowsShortText(denial)}.`;
 	return `${readingOf(denial.mb, denial.climbMb)}, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
 }
 
@@ -1080,13 +1082,15 @@ function memoryVerdict(st, j) {
  * @returns {Verdict | undefined}
  */
 function windowsVerdict(st, j) {
-	const read = st.ctx.windowsMemory();
-	const unread = windowsUnreadNote(read, `a ${j.s.kind} launch`);
-	if (unread) st.ctx.log(unread);
+	const read = readWindowsRecorded(
+		st.ctx.windowsMemory,
+		st.ctx.log,
+		`a ${j.s.kind} launch`,
+	);
 	const drawMb = j.floor - suiteRungMb(j.busy) + j.climbMb;
 	const short = windowsShortfall(read, windowsNeedMb(drawMb));
 	if (!short) return;
-	const why = windowsShortText(short);
+	const why = buildWindowsShortText(short);
 	if (j.refusable) {
 		if (!st.escaped)
 			return denyToQueue(st, j, {

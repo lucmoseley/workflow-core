@@ -66,7 +66,7 @@ const {
 	defaultTscQueueDir,
 	tscDenial,
 } = require("./lib/tsc-slot.js");
-const { windowsUnreadNote } = require("./lib/windows-memory.js");
+const { readWindowsRecorded } = require("./lib/windows-memory.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const LABEL = "queue-run.js";
@@ -118,9 +118,11 @@ function tscGate(climbMb) {
 	const mb = ports.availableMb();
 	if (rows === null) log("ps unreadable — the type-check slot read as free");
 	if (mb === null) log("MemAvailable unreadable — the type-check rung unread");
-	const windows = ports.windowsMemory();
-	const unread = windowsUnreadNote(windows, "the type-check slot");
-	if (unread) log(unread);
+	const windows = readWindowsRecorded(
+		ports.windowsMemory,
+		log,
+		"the type-check slot",
+	);
 	return tscDenial(rows, mb, climbMb, windows);
 }
 

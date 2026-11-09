@@ -16,22 +16,26 @@ type WindowsRead =
 	| { state: "stale"; why: string };
 
 const {
-	WINDOWS_FRESH_S,
+	buildWindowsUnreadNote,
 	minuteLogPath,
 	readWindowsMemory,
+	readWindowsRecorded,
 	windowsNeedMb,
 	windowsShortfall,
-	windowsUnreadNote,
 } = require("./windows-memory.js") as {
-	WINDOWS_FRESH_S: number;
+	buildWindowsUnreadNote: (read: WindowsRead, what: string) => string | null;
 	minuteLogPath: () => string;
 	readWindowsMemory: (o?: { file?: string; now?: number }) => WindowsRead;
+	readWindowsRecorded: (
+		read: () => WindowsRead,
+		log: (what: string) => void,
+		what: string,
+	) => WindowsRead;
 	windowsNeedMb: (drawMb: number) => number;
 	windowsShortfall: (
 		read: WindowsRead,
 		needMb: number,
 	) => { mb: number; needMb: number } | null;
-	windowsUnreadNote: (read: WindowsRead, what: string) => string | null;
 };
 
 const NOW = Date.parse("2026-11-06T05:12:19Z");
@@ -44,7 +48,6 @@ beforeEach(() => {
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
-	vi.unstubAllEnvs();
 });
 
 /** A minute line as memwatch writes it, `secsAgo` before NOW. */
@@ -79,8 +82,7 @@ describe("lib/windows-memory.js", () => {
 		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({ mb: 2000 });
 	});
 
-	it(`calls a reading past ${180} s stale, failing open with the reason`, () => {
-		expect(WINDOWS_FRESH_S).toBe(180);
+	it("calls a reading past 180 s stale, failing open with the reason", () => {
 		fs.writeFileSync(file, line(170, 900, 11));
 		const read = readWindowsMemory({ file, now: NOW });
 		expect(read).toEqual({
@@ -88,9 +90,25 @@ describe("lib/windows-memory.js", () => {
 			why: `the newest Windows reading in ${file} is 181 s old, past 180 s`,
 		});
 		expect(windowsShortfall(read, 5000)).toBeNull();
-		expect(windowsUnreadNote(read, "a test launch")).toBe(
+		expect(buildWindowsUnreadNote(read, "a test launch")).toBe(
 			`Windows memory unread — the newest Windows reading in ${file} is 181 s old, past 180 s; a test launch not held on it (#4557)`,
 		);
+	});
+
+	it("records a stale reading's fail-open, and nothing for a fresh or absent one", () => {
+		const logged: string[] = [];
+		const log = (what: string) => logged.push(what);
+		const stale: WindowsRead = { state: "stale", why: "memwatch stopped" };
+		expect(readWindowsRecorded(() => stale, log, "sessions")).toBe(stale);
+		readWindowsRecorded(() => ({ state: "absent" }), log, "sessions");
+		readWindowsRecorded(
+			() => ({ state: "fresh", mb: 3000, ageS: 5 }),
+			log,
+			"sessions",
+		);
+		expect(logged).toEqual([
+			"Windows memory unread — memwatch stopped; sessions not held on it (#4557)",
+		]);
 	});
 
 	it("calls a log with no Windows reading in its tail stale", () => {
@@ -105,7 +123,7 @@ describe("lib/windows-memory.js", () => {
 		const read = readWindowsMemory({ file, now: NOW });
 		expect(read).toEqual({ state: "absent" });
 		expect(windowsShortfall(read, 5000)).toBeNull();
-		expect(windowsUnreadNote(read, "a test launch")).toBeNull();
+		expect(buildWindowsUnreadNote(read, "a test launch")).toBeNull();
 	});
 
 	it("reads only the tail of a long log", () => {

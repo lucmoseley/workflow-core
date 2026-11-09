@@ -22,6 +22,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { parseJsonl } = require("./jsonl.js");
 const { DRAW_MARGIN_MB } = require("./suite-ladder.js");
 
@@ -53,7 +54,8 @@ function minuteLogPath() {
  */
 
 /**
- * The last TAIL_BYTES of `file`, null where it does not exist.
+ * The last TAIL_BYTES of `file`, null where it does not exist. Its own read,
+ * not file-read.js's: that reads a whole file, and the log runs to tens of MB.
  * @param {string} file
  * @returns {string | null}
  */
@@ -62,7 +64,7 @@ function readTail(file) {
 	try {
 		fd = fs.openSync(file, "r");
 	} catch (e) {
-		if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT") return null;
+		if (caught(e).code === "ENOENT") return null;
 		throw e;
 	}
 	try {
@@ -83,17 +85,19 @@ function readTail(file) {
  * @returns {{ ts: string, mb: number, winAgeS: number } | null}
  */
 function newestReading(tail) {
-	const { rows } = parseJsonl(tail);
-	for (let i = rows.length - 1; i >= 0; i--) {
-		const r = /** @type {Record<string, unknown>} */ (rows[i]);
-		if (
-			typeof r.ts === "string" &&
-			typeof r.win_avail_mb === "number" &&
-			typeof r.win_age_s === "number"
-		)
-			return { ts: r.ts, mb: r.win_avail_mb, winAgeS: r.win_age_s };
-	}
-	return null;
+	const r = parseJsonl(tail).rows.findLast(
+		(row) =>
+			typeof row.ts === "string" &&
+			typeof row.win_avail_mb === "number" &&
+			typeof row.win_age_s === "number",
+	);
+	return r
+		? {
+				ts: String(r.ts),
+				mb: Number(r.win_avail_mb),
+				winAgeS: Number(r.win_age_s),
+			}
+		: null;
 }
 
 /**
@@ -108,7 +112,7 @@ function readWindowsMemory({ file = minuteLogPath(), now = Date.now() } = {}) {
 	} catch (e) {
 		return {
 			state: "stale",
-			why: `${file} unreadable: ${/** @type {Error} */ (e).message}`,
+			why: `${file} unreadable: ${caught(e).message}`,
 		};
 	}
 	if (tail === null) return { state: "absent" };
@@ -157,24 +161,43 @@ function windowsShortfall(read, needMb) {
  * @param {WindowsRead} read
  * @param {string} what the launch the hold let through
  */
-const windowsUnreadNote = (read, what) =>
+const buildWindowsUnreadNote = (read, what) =>
 	read.state === "stale"
 		? `Windows memory unread — ${read.why}; ${what} not held on it (#4557)`
 		: null;
 
 /**
+ * A reading off `readWindows`, its fail-open written to `log`.
+ * @param {() => WindowsRead} readWindows
+ * @param {(what: string) => void} log
+ * @param {string} what the launch the hold would let through
+ * @returns {WindowsRead}
+ */
+function readWindowsRecorded(readWindows, log, what) {
+	const read = readWindows();
+	const note = buildWindowsUnreadNote(read, what);
+	if (note) log(note);
+	return read;
+}
+
+/** Why the hold reads Windows, as every text naming it says. */
+const WINDOWS_PAGING_WHY =
+	"the VM grows into Windows' memory before the guest evicts its page cache";
+
+/**
  * The hold as a deny or a wait line names it.
  * @param {{ mb: number, needMb: number }} short
  */
-const windowsShortText = (short) =>
-	`Windows itself has ${short.mb} MB free (memwatch's win_avail_mb), under the ~${short.needMb} MB this launch draws plus the margin; the VM grows into Windows' memory before the guest evicts its page cache, so a guest reading plenty can still page Windows (docs/environment.md §6, #4557)`;
+const buildWindowsShortText = (short) =>
+	`Windows itself has ${short.mb} MB free (memwatch's win_avail_mb), under the ~${short.needMb} MB this launch draws plus the margin; ${WINDOWS_PAGING_WHY}, so a guest reading plenty can still page Windows (docs/environment.md §6, #4557)`;
 
 module.exports = {
-	WINDOWS_FRESH_S,
+	WINDOWS_PAGING_WHY,
+	buildWindowsShortText,
+	buildWindowsUnreadNote,
 	minuteLogPath,
 	readWindowsMemory,
+	readWindowsRecorded,
 	windowsNeedMb,
 	windowsShortfall,
-	windowsShortText,
-	windowsUnreadNote,
 };

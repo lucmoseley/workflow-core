@@ -27,7 +27,11 @@ const { readMachineSetting } = require("./machine-setting.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot } = require("./proc-root.js");
 const { availableFrom, readMeminfoKb } = require("./meminfo.js");
-const { readWindowsMemory, windowsUnreadNote } = require("./windows-memory.js");
+const {
+	WINDOWS_PAGING_WHY,
+	buildWindowsUnreadNote,
+	readWindowsMemory,
+} = require("./windows-memory.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -1454,7 +1458,7 @@ function admissionFrom(mem, procs, readings = {}) {
 		freeSlots,
 		...shared,
 		admit: true,
-		reason: `${slotsClause(f.liftedCapped, floor, f.launchMb)}${reservedNote}${creditedNote}${capNote(f, cpu)}`,
+		reason: `${slotsClause(f.liftedCapped, floor, f.launchMb)}${reservedNote}${creditedNote}${buildCapNote(f, cpu)}`,
 	};
 }
 
@@ -1465,7 +1469,7 @@ function admissionFrom(mem, procs, readings = {}) {
  * @param {AdmissionFigures} f
  * @param {CpuSlots} cpu
  */
-function capNote(f, cpu) {
+function buildCapNote(f, cpu) {
 	if (f.liftedCapped === f.liftedSlots) return "";
 	if (f.onWindows && f.onWindows.windowsSlots === f.liftedCapped)
 		return `; capped by Windows: ${buildWindowsHoldText(f.onWindows)}`;
@@ -1573,7 +1577,7 @@ function buildStrictReason(
  */
 function buildWindowsLine(windows, onWindows) {
 	if (windows.state !== "fresh" || onWindows === null)
-		return windowsUnreadNote(windows, "sessions");
+		return buildWindowsUnreadNote(windows, "sessions");
 	return `${windows.mb} MB free on Windows (memwatch, ${windows.ageS} s old), ${onWindows.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${onWindows.windowsSlots} slot(s) (#4557)`;
 }
 
@@ -1582,7 +1586,7 @@ function buildWindowsLine(windows, onWindows) {
  * @param {NonNullable<AdmissionFigures["onWindows"]>} w
  */
 const buildWindowsHoldText = (w) =>
-	`Windows itself has ${w.windowsMb} MB free, ${w.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${w.windowsSlots} slot(s): the VM grows into Windows' memory before the guest evicts its page cache (docs/environment.md §6, #4557)`;
+	`Windows itself has ${w.windowsMb} MB free, ${w.windowsBudgetMb} MB after the pool reserve, the lander's suite and the margin, so ${w.windowsSlots} slot(s): ${WINDOWS_PAGING_WHY} (docs/environment.md §6, #4557)`;
 
 /**
  * The dispatch-time verdict: `admissionFigures`, refused where memory or the
