@@ -491,8 +491,9 @@ it("re-marks a session that starts under the old writer after the pass lists ses
 it("re-marks a session listed before its writer ran, then marked by the old writer before the fast-forward", () => {
 	const files = seedCanary();
 	landOnMain(movedMarkerPath(files));
-	/* The old writer's marker, landing after the first pass checked s-slow
-	 * and before `main` moves: git runs this as it prepares that ref update. */
+	/* The old writer's marker, recording the plugin root as every writer
+	 * since #4712 does, landing after the first pass checked s-slow and
+	 * before `main` moves: git runs this as it prepares that ref update. */
 	const oldMarker = path.join(
 		worktree,
 		".claude",
@@ -510,7 +511,7 @@ it("re-marks a session listed before its writer ran, then marked by the old writ
 	fs.mkdirSync(path.dirname(refHook), { recursive: true });
 	fs.writeFileSync(
 		refHook,
-		`#!/bin/sh\n[ "$1" = prepared ] && grep -q ' refs/heads/main$' && : > ${shellQuote(oldMarker)}\nexit 0\n`,
+		`#!/bin/sh\n[ "$1" = prepared ] && grep -q ' refs/heads/main$' && printf %s ${shellQuote(path.join(main, "self-plugin"))} > ${shellQuote(oldMarker)}\nexit 0\n`,
 		{ mode: 0o755 },
 	);
 	let listed = 0;

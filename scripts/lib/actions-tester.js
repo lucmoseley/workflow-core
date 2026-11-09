@@ -27,8 +27,9 @@
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
  * rerunning its failed jobs; elsewhere they go to named-rerun.yml too, under
- * its daily cap. Its `cancel` cancels the newest unfinished run at a sha on
- * a batch ref, one the lander no longer wants (#4556).
+ * its daily cap. Its `cancel` cancels every unfinished run on a batch ref
+ * but the one at the sha the lander is about to test, naming every sha the
+ * ref lists a run at (#4556, #4576).
  */
 
 const { execFileSync } = require("node:child_process");
@@ -41,6 +42,7 @@ const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
+const { SUITE_WORKFLOW } = require("./suite-timings.js");
 const { CLEARED, STILL_FAILING } = require("../retry-failed-files.js");
 const {
 	LANDER_BATCH_PREFIX,
@@ -57,9 +59,6 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
-/* scheduled-checks.yml carries the `lander/batch-*` push trigger, as it calls
- * every job `main`'s sweep judges by. */
-const SUITE_WORKFLOW = "scheduled-checks.yml";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
 /* The aggregate job #2414's ruleset on `main` requires. */
@@ -760,9 +759,11 @@ function queueTester({
 				);
 			return v;
 		},
-		cancel(sha, branch) {
-			const run = newestRun(sha, reads.runsOn(branch));
-			if (run && !run.conclusion) reads.cancel(run.databaseId);
+		cancel(branch, keep) {
+			const listed = reads.runsOn(branch);
+			for (const r of listed)
+				if (!r.conclusion && r.headSha !== keep) reads.cancel(r.databaseId);
+			return [...new Set(listed.map((r) => r.headSha))];
 		},
 	};
 }
@@ -890,4 +891,4 @@ function repushFailure({ reads, branch }, sha) {
 			};
 }
 
-module.exports = { SUITE_WORKFLOW, queueTester };
+module.exports = { queueTester };

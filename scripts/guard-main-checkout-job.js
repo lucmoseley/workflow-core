@@ -15,8 +15,11 @@
  * harness saves a pasted image and names it in the prompt. Each file the
  * prompt names under that directory is copied to the worktree's ignored
  * `.claude/tmp/attachments/`, at its path below the job directory, and the
- * copy's path replaces it in the relaunched prompt. Where one cannot be
- * copied nothing is relaunched, so nothing is removed.
+ * copy's path replaces it in the relaunched prompt (#4750). The directory
+ * matches as the job was given it or resolved; punctuation glued after a path
+ * that does not exist is dropped. Where one cannot be copied, or resolves
+ * outside the job directory, nothing is relaunched. Residual: a path holding a
+ * space is cut there, so its copy fails and the job stays put.
  *
  * WHY A RELAUNCH. The harness's own isolation (`worktree.bgIsolation`) sends
  * a background job to `EnterWorktree`, which 2.1.318 does not offer one, and
@@ -64,6 +67,7 @@ const { mainCheckout } = require("./lib/main-checkout.js");
 const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { escapeRe } = require("./lib/shell-words.js");
+const { relativeUnder } = require("./lib/is-under.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
@@ -77,7 +81,7 @@ const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + 10_000;
 
 /**
  * @typedef {{ root: string, seat: string, jobId: string, jobDir: string,
- *   intent: string, name: string, flags: string[], short: string,
+ *   jobDirs: string[], intent: string, name: string, flags: string[], short: string,
  *   providerEnv: Record<string, string> }} Job
  * @typedef {{ ok: boolean, output: string }} Ran
  * @typedef {{
@@ -124,6 +128,7 @@ function decide(source, io) {
 			context: `${STARTED_HERE} and its worktree, ${dir}, was cut too late to relaunch the job there. ${workThere(dir)}`,
 		};
 	let intent;
+	/* A file not carried is deleted by the removal below (#4750). */
 	try {
 		intent = io.carry(job, dir);
 	} catch (err) {
@@ -146,27 +151,31 @@ function decide(source, io) {
 
 /**
  * `job`'s prompt with each file it names under the job directory copied into
- * `dir` and named there instead; throws naming a file it cannot copy.
+ * `dir` and named there instead; throws naming a path it cannot carry.
  * @param {Job} job
  * @param {string} dir
  * @returns {string}
  */
 function carryJobFiles(job, dir) {
-	const under = `${job.jobDir}${path.sep}`;
-	const named = new RegExp(`${escapeRe(under)}[^\\s'"\`<>|]+`, "g");
+	const unders = job.jobDirs.map((d) => escapeRe(`${d}${path.sep}`));
+	const named = new RegExp(`(?:${unders.join("|")})[^\\s'"\`<>|]+`, "g");
 	const into = path.join(dir, ".claude", "tmp", "attachments");
-	return job.intent.replace(named, (from) => {
-		const to = path.join(into, from.slice(under.length));
+	return job.intent.replace(named, (token) => {
+		const bare = token.replace(/[.,;:)\]]+$/, "");
+		const from = fs.existsSync(token) ? token : bare;
 		try {
+			const rel = relativeUnder(job.jobDir, fs.realpathSync(from));
+			if (!rel) throw new Error("it is not inside the job directory");
+			const to = path.join(into, rel);
 			fs.mkdirSync(path.dirname(to), { recursive: true });
 			fs.copyFileSync(from, to);
+			return `${to}${token.slice(from.length)}`;
 		} catch (err) {
 			throw new Error(
 				`carrying ${from} into its worktree failed: ${caught(err).message}`,
 				{ cause: err },
 			);
 		}
-		return to;
 	});
 }
 
@@ -212,6 +221,12 @@ function readJob(payload, env) {
 		seat: where.seat,
 		jobId: where.jobId,
 		jobDir: fs.realpathSync(String(env.CLAUDE_JOB_DIR)),
+		jobDirs: [
+			...new Set([
+				path.resolve(String(env.CLAUDE_JOB_DIR)),
+				fs.realpathSync(String(env.CLAUDE_JOB_DIR)),
+			]),
+		],
 		intent: typeof record.intent === "string" ? record.intent : "",
 		name: String(record.name ?? "session"),
 		flags: Array.isArray(record.respawnFlags)

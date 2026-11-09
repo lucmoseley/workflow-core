@@ -13,15 +13,17 @@
  * absolute, to its seconds.
  *
  * AN EXISTING FILE IS JUDGED ON ITS GROWTH (#4289): against its row in the CI
- * per-file record (`RECORD`) as committed at the base, so a change that
- * refreshes the record never excuses itself. Past `GROWTH_BAND` times that row
- * it is named as grown; within it, it is excepted, and the line names the open
- * ticket for its speed-up or says none is open.
+ * record, the newest green suite run's per-file timings
+ * (scripts/lib/latest-timings.js, #4579). A change is judged before it lands,
+ * so that run never holds it. Past `GROWTH_BAND` times that row it is named
+ * as grown; within it, it is excepted, and the line names the open ticket for
+ * its speed-up or says none is open.
  *
  * UNDER `CI` IT JUDGES EVERY TIMED FILE THE RECORD HOLDS, not the diff's
  * files alone, and prints only the grown ones and its summary: there the run
  * and the record are the same kind of machine, and growth from any change
- * since the record shows. It looks up no ticket there.
+ * since the record shows. Its record there is the one the shard planned by.
+ * It looks up no ticket there.
  *
  * IT NEVER REFUSES (mantahostels#2255). Timings move with load, so a line here is
  * evidence for base §X8 (5), never a verdict: any failure inside prints one
@@ -40,7 +42,9 @@ const { ghJson, parseErrLine } = require("./gh.js");
 const { hostRoot } = require("./host-root.js");
 const { scriptPath } = require("./script-path.js");
 const { escapeRe } = require("./shell-words.js");
-const { CI_RECORD: RECORD, parseCsv } = require("./suite-timings.js");
+const { latestTimings } = require("./latest-timings.js");
+const { readText } = require("./file-read.js");
+const { parseCsv } = require("./suite-timings.js");
 const { writeFd } = require("./write-fd.js");
 
 /* 10 s of a file's own wall time: the founder's ruling at #1797 Q4 (A). */
@@ -54,7 +58,6 @@ const GROWTH_BAND = 2.5;
  * ticket, which then reads unknown, never the run its end. */
 const TICKET_TIMEOUT_MS = 20_000;
 
-/** Every line opens with this. */
 const PREFIX = "RUN COST:";
 
 const GB = 1024 ** 3;
@@ -70,7 +73,9 @@ const GB = 1024 ** 3;
  * @property {number|null} availableBytes available memory, null where unknown
  * @property {"seconds"|"worker-seconds"} [unit] worker-seconds for pytest,
  *   whose per-file figure is summed across xdist workers (#1797)
- * @property {CiRecord|null} record the CI record at `base`, null where absent
+ * @property {CiRecord|null} record the CI record, null where none was read
+ * @property {string|null} [stale] why the record was not refreshed, null
+ *   where it was or none was due
  * @property {boolean} ci judging under `CI`: grown files and the summary only
  * @property {TicketFinder} findTicket the open tickets naming a file: a seam
  *   beside `WFC_GH`, so the in-process cases spawn no gh
@@ -78,6 +83,7 @@ const GB = 1024 ** 3;
 
 /**
  * @typedef {{ run: string, sha: string, seconds: Map<string, number> }} CiRecord
+ * @typedef {Parameters<typeof latestTimings>[1]} TimingsSeams
  * @typedef {(file: string) => { tickets: { number: number, title: string }[] } | { failed: string }} TicketFinder
  */
 
@@ -103,6 +109,7 @@ function linesFor({
 	availableBytes,
 	unit = "seconds",
 	record,
+	stale = null,
 	ci,
 	findTicket,
 }) {
@@ -134,7 +141,7 @@ function linesFor({
 			return `${took}, ${(seconds / recorded).toFixed(2)}x its ${fixed1(recorded)} s on ${ciRun} — grown past the ${GROWTH_BAND}x noise band: make it cheaper, or say why in its header (base §X8 (5)).`;
 		const judged =
 			recorded === undefined
-				? `unjudged, ${RECORD} holding no row for it there`
+				? `unjudged, ${record ? `${ciRun} holding no row for it` : "no CI record read"}`
 				: `within ${GROWTH_BAND}x of its ${fixed1(recorded)} s on ${ciRun}, so base §X8 (5) excepts it`;
 		return `${took}, over the ${BUDGET_SECONDS} s budget — pre-existing at ${base}, ${judged}; its speed-up's open ticket: ${ticketText(findTicket(file))}.`;
 	});
@@ -148,10 +155,12 @@ function linesFor({
 			? "available memory unknown"
 			: `${fixed1(availableBytes / GB)} GB available`;
 	const judgedText = ci
-		? `${grownCount} of ${timed.length} test file(s) in ${RECORD} grown past ${GROWTH_BAND}x their ${ciRun}, against ${base}`
+		? `${grownCount} of ${timed.length} test file(s) in ${ciRun || "no CI record"} grown past ${GROWTH_BAND}x their row, against ${base}`
 		: `${over.length} of ${timed.length} new or changed test file(s) over the ${BUDGET_SECONDS} s budget, ${grownCount} grown past ${GROWTH_BAND}x their CI record and ${unjudged} pre-existing without one, against ${base}`;
+	const staleText =
+		stale === null ? "" : `; CI record not refreshed (${stale})`;
 	lines.push(
-		`${PREFIX} ${judgedText}; ${loadText} (1 min), ${memText}. A report, never a refusal (mantahostels#2255).`,
+		`${PREFIX} ${judgedText}${staleText}; ${loadText} (1 min), ${memText}. A report, never a refusal (mantahostels#2255).`,
 	);
 	return lines;
 }
@@ -188,20 +197,32 @@ function readChangedAgainst(root, base, files) {
 }
 
 /**
- * The CI record as committed at `base`, or null where `base` holds none.
+ * The CI record, null where none is held or it holds no row: CI's shard
+ * writes an empty one where it read no run (#4574). A failed refresh still
+ * reads the last one held, a day at most (#4579).
  * @param {string} root
- * @param {string} base
- * @returns {CiRecord|null}
+ * @param {TimingsSeams} timings
+ * @returns {{ record: CiRecord|null, stale: string|null }}
  */
-function readRecordAt(root, base) {
-	const text = gitRead(["show", `${base}:${RECORD}`], root);
-	if (text === null) return null;
-	const { meta, rows } = parseCsv(text);
+function readCiRecord(root, timings) {
+	const { file, failed } = latestTimings(root, timings);
+	const read = file === null ? null : readText(file);
+	if (read === null || read.state !== "read")
+		return { record: null, stale: failed };
+	const { meta, rows } = parseCsv(read.data);
 	/** @type {Map<string, number>} */
 	const seconds = new Map();
 	for (const row of rows)
 		if (row.seconds !== null) seconds.set(row.file, row.seconds);
-	return { run: meta.run ?? "unknown", sha: meta.sha ?? "unknown", seconds };
+	if (seconds.size === 0) return { record: null, stale: failed };
+	return {
+		record: {
+			run: meta.run ?? "unknown",
+			sha: meta.sha ?? "unknown",
+			seconds,
+		},
+		stale: failed,
+	};
 }
 
 /**
@@ -288,21 +309,27 @@ function timingsFrom(parsed, root) {
  * a runner calls once its suite has finished. Never throws.
  * @param {string} root
  * @param {unknown} raw
- * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams, findTicket?: TicketFinder }} [options]
- *   `machine` and `findTicket` are a test's fakes for the platform, load and
- *   memory, and for the tracker
+ * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams, findTicket?: TicketFinder, timings?: TimingsSeams }} [options]
+ *   `machine`, `findTicket` and `timings` are a test's fakes for the
+ *   platform, load and memory, for the tracker, and for the CI record's
+ *   clock and GitHub
  * @returns {string[]}
  */
 function reportForRun(
 	root,
 	raw,
-	{ unit = "seconds", machine = {}, findTicket = openTicketFinder(root) } = {},
+	{
+		unit = "seconds",
+		machine = {},
+		findTicket = openTicketFinder(root),
+		timings = {},
+	} = {},
 ) {
 	try {
 		const read = timingsFrom(raw, root);
 		if ("bad" in read) return [buildFailOpenLine(read.bad)];
 		const base = readDefaultChangedBase(root, execFileSync);
-		const record = readRecordAt(root, base);
+		const { record, stale } = readCiRecord(root, timings);
 		const ci = Boolean(process.env.CI);
 		const changed = ci
 			? Object.keys(read.timings)
@@ -317,6 +344,7 @@ function reportForRun(
 			base,
 			unit,
 			record,
+			stale,
 			ci,
 			findTicket,
 			...machineState(machine),

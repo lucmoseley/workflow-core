@@ -97,8 +97,13 @@ const AGENTS_DIR = "agents";
  * agree with: the `.hook-ran-*` breadcrumbs are kept 7 days on purpose
  * (mantahostels#1278), and a 24 h scratch sweep would delete a live one
  * whose writing session had merely gone quiet since.
+ *
+ * `attachments` holds the files `guard-main-checkout-job.js` carried out of a
+ * removed job's directory (#4750). The relaunched session starts after the
+ * copy, so the live-session limb never shields it; the worktree's removal
+ * clears it.
  */
-const EXEMPT_TOP_LEVEL = new Set(["markers"]);
+const EXEMPT_TOP_LEVEL = new Set(["markers", "attachments"]);
 
 /**
  * The floor a given entry answers to, a directory included — the header's
