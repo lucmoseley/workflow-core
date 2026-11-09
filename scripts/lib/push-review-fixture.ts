@@ -100,6 +100,18 @@ export function reviewFixture() {
 			cwd: tree,
 		});
 
+	const declareArea = (tree: string, name: string, globs: string[]) => {
+		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tree, ".claude", "workflow-core.json"),
+			JSON.stringify({
+				sensitivePaths: [
+					{ name, description: "who may read or write what", globs },
+				],
+			}),
+		);
+	};
+
 	return {
 		f,
 		git,
@@ -132,21 +144,10 @@ export function reviewFixture() {
 		marker: (body: string) =>
 			fs.writeFileSync(path.join(markers(), `.codereview-pass-${ME}`), body),
 		/** Declare one area over `globs` in `tree`'s working copy. */
-		declareRls: (
-			tree = f.shared,
-			name = "RLS",
-			globs = ["supabase/migrations/**"],
-		) => {
-			fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
-			fs.writeFileSync(
-				path.join(tree, ".claude", "workflow-core.json"),
-				JSON.stringify({
-					sensitivePaths: [
-						{ name, description: "who may read or write what", globs },
-					],
-				}),
-			);
-		},
+		declareArea,
+		/** Declare RLS over supabase/migrations/** in `tree`. */
+		declareRls: (tree = f.shared) =>
+			declareArea(tree, "RLS", ["supabase/migrations/**"]),
 		owed: (tree = f.shared) =>
 			reviewOwed({
 				sessionId: ME,

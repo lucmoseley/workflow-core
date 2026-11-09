@@ -7,9 +7,9 @@
  * GLOBS MATCH AS `git diff -- ':(glob)<glob>'` DOES, through
  * lib/pathspec-glob.js, whose semantics this file's suite checks against git.
  *
- * RUN AS A SCRIPT it prints the match as JSON for the config in the session's
- * tree — the working directory's linked worktree of the host, else the host,
- * as skill load reads it (#4615) — or with
+ * RUN AS A SCRIPT it prints the match as JSON for the config in the working
+ * directory's own tree — its git top level, else itself — the tree its callers
+ * cd into and diff, which in a linked worktree is skill load's too (#4615) — or with
  * `--names` the matched areas' names one per line, exit 0; a config warning
  * reaches stderr and never changes the exit. `--narrowed-from <rev>`, which
  * repeats, adds each area the declaration narrows from its copy at <rev>;
@@ -202,6 +202,20 @@ function readNarrowingCopies(root, since, to) {
 	return { befores, after, fault };
 }
 
+/**
+ * The working directory's git top level, else the directory itself: not
+ * `worktreeRoot()`, whose host answer for a repository unrelated to the host
+ * would read the declaration at revisions the caller took from its own tree.
+ */
+function ownTree() {
+	const { gitTopLevel } = require("./host-root.js");
+	try {
+		return gitTopLevel(process.cwd());
+	} catch {
+		return process.cwd();
+	}
+}
+
 /** @param {number} fd */
 const readPaths = (fd) =>
 	readFdAll(fd)
@@ -244,7 +258,7 @@ if (require.main === module) {
 	}
 	const paths = [...positionals];
 	if (flags["--stdin"]) paths.push(...readPaths(0));
-	const root = require("./host-root.js").worktreeRoot();
+	const root = ownTree();
 	let config;
 	try {
 		config = readConfig({ root });

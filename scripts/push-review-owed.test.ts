@@ -25,6 +25,7 @@ const {
 	ledgerHead,
 	marker,
 	recordWrite,
+	declareArea,
 	declareRls,
 	owed,
 } = reviewFixture();
@@ -200,7 +201,7 @@ describe("what the adapter answers (#1163)", () => {
 	// #4615: the globs matched are the session tree's, as skill load reads them.
 	it("matches a worktree's own declared globs, not the shared tree's", () => {
 		declareRls();
-		declareRls(f.worktree, "money", ["app/money/**"]);
+		declareArea(f.worktree, "money", ["app/money/**"]);
 		commitBy(
 			"supabase/migrations/001_rls.sql",
 			"create policy p on t;\n",

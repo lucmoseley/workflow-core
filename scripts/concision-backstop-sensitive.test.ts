@@ -9,17 +9,14 @@
  * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	BACKSTOP,
 	BIG_CODE,
 	backstopFixture,
 	cfg,
 	dir,
-	env,
 	git,
 	gitAt,
 	ME,
@@ -28,6 +25,7 @@ import {
 	record,
 	repo,
 	run,
+	stopIn,
 	write,
 } from "./lib/concision-backstop-testkit";
 import { cutWorktree } from "./lib/git-fixture";
@@ -39,15 +37,18 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 	const policy =
 		"create policy own_rows on bookings using (guest = auth.uid());\n";
 
-	const declare = (globs: string[]) =>
-		write(
-			".claude/workflow-core.json",
+	/** Declare one area over `globs` in `tree`'s working copy. */
+	const declare = (globs: string[], tree = repo, name = "RLS") => {
+		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tree, ".claude", "workflow-core.json"),
 			JSON.stringify({
 				sensitivePaths: [
-					{ name: "RLS", description: "who may read or write what", globs },
+					{ name, description: "who may read or write what", globs },
 				],
 			}),
 		);
+	};
 
 	const wroteSql = () => {
 		write("supabase/migrations/001_rls.sql", policy);
@@ -281,15 +282,7 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 		it("names a worktree's own declared areas, not the shared tree's", () => {
 			declare(["supabase/migrations/**"]);
 			const wt = cutWorktree(repo);
-			fs.mkdirSync(path.join(wt, ".claude"), { recursive: true });
-			fs.writeFileSync(
-				path.join(wt, ".claude", "workflow-core.json"),
-				JSON.stringify({
-					sensitivePaths: [
-						{ name: "money", description: "payments", globs: ["app/money/**"] },
-					],
-				}),
-			);
+			declare(["app/money/**"], wt, "money");
 			for (const rel of [
 				"supabase/migrations/001_rls.sql",
 				"app/money/pay.ts",
@@ -298,15 +291,7 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 				fs.writeFileSync(path.join(wt, rel), policy);
 				record(rel, ME, wt);
 			}
-			const r = spawnSync(BACKSTOP, ["stop"], {
-				cwd: wt,
-				encoding: "utf8",
-				input: JSON.stringify({ session_id: ME, cwd: wt }),
-				env: env(),
-			});
-			const reason = r.stdout?.trim()
-				? (JSON.parse(r.stdout).reason as string)
-				: "";
+			const reason = stopIn(wt) ?? "";
 			expect(reason).toContain("declared sensitive paths (money)");
 			expect(reason).not.toContain("RLS");
 		});
