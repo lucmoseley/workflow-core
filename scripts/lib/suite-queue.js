@@ -66,7 +66,29 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * queues' climb, or `"off-rung"`, what its suite rung does not count already.
  * @typedef {"all" | "off-rung"} ClimbScope
  */
-/** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean, restHeld?: boolean, windowsHeld?: boolean, climbHeld?: boolean, yielding?: boolean }} QueueRecord */
+/**
+ * The stamps `waitForGate` sets on a queued waiter's marker each poll, each
+ * against the option that hears it (#4798).
+ */
+const HOLD_STAMPS = /** @type {const} */ ({
+	memoryHeld: "onMemoryHeld",
+	restHeld: "onRestHeld",
+	windowsHeld: "onWindowsHeld",
+	climbHeld: "onClimbStamp",
+});
+/** @typedef {keyof typeof HOLD_STAMPS} HoldStamp */
+/** @typedef {{ [K in HoldStamp as (typeof HOLD_STAMPS)[K]]?: (held: boolean) => void }} HoldListeners */
+/** @typedef {"admitted" | "yielding" | HoldStamp} MarkerStamp */
+/**
+ * The marker stamps written only while true: `stampMarker` drops one set false.
+ * @type {readonly MarkerStamp[]}
+ */
+const MARKER_STAMPS = [
+	"admitted",
+	"yielding",
+	.../** @type {HoldStamp[]} */ (Object.keys(HOLD_STAMPS)),
+];
+/** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, spawned?: boolean } & { [K in MarkerStamp]?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
  * admitted on the same poll, which joined `behind` or `ahead` of it (#2622).
@@ -668,41 +690,21 @@ function queueJoin({
 }
 
 /**
- * Merge `fields` into this waiter's marker, or with `admitted: false`,
- * `memoryHeld: false`, `restHeld: false`, `windowsHeld: false`, `climbHeld: false` or
- * `yielding: false` drop that stamp. Fails silent, like `queueJoin`.
+ * Merge `fields` into this waiter's marker, dropping any `MARKER_STAMPS`
+ * stamp set false. Fails silent, like `queueJoin`.
  *
  * @param {string} file
- * @param {{ admitted?: boolean, spawned?: true, memoryHeld?: boolean, restHeld?: boolean, windowsHeld?: boolean, climbHeld?: boolean, yielding?: boolean }} fields
+ * @param {{ spawned?: true } & { [K in MarkerStamp]?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
 	try {
-		const record = JSON.parse(String(queueFs.readFileSync(file, "utf8")));
-		const {
-			admitted,
-			memoryHeld,
-			restHeld,
-			windowsHeld,
-			climbHeld,
-			yielding,
-			...rest
-		} = {
-			...record,
+		const record = {
+			...JSON.parse(String(queueFs.readFileSync(file, "utf8"))),
 			...fields,
 		};
-		queueFs.writeFileSync(
-			file,
-			JSON.stringify({
-				...rest,
-				...(admitted ? { admitted } : {}),
-				...(memoryHeld ? { memoryHeld } : {}),
-				...(restHeld ? { restHeld } : {}),
-				...(windowsHeld ? { windowsHeld } : {}),
-				...(climbHeld ? { climbHeld } : {}),
-				...(yielding ? { yielding } : {}),
-			}),
-		);
+		for (const stamp of MARKER_STAMPS) if (!record[stamp]) delete record[stamp];
+		queueFs.writeFileSync(file, JSON.stringify(record));
 	} catch {
 		/* the ordering degrades to the gate alone */
 	}
@@ -775,17 +777,34 @@ function queueSpawned(file, options = {}) {
 }
 
 /**
+ * One listener per `HOLD_STAMPS` stamp, under the option name it is heard by.
+ *
+ * @param {(stamp: HoldStamp) => (held: boolean) => void} listen
+ * @returns {Required<HoldListeners>}
+ */
+function holdListeners(listen) {
+	return /** @type {Required<HoldListeners>} */ (
+		Object.fromEntries(
+			Object.entries(HOLD_STAMPS).map(([stamp, option]) => [
+				option,
+				listen(/** @type {HoldStamp} */ (stamp)),
+			]),
+		)
+	);
+}
+
+/**
  * What a queued waiter's `waitForGate` reads and writes through its queue,
  * spread into its options as one, so no queued caller wires one without the
- * others: `admit` (`queueAdmit`), `onMemoryHeld`, the `memoryHeld` stamp
- * (#3058), `onRestHeld`, the `restHeld` stamp (#4783), `onWindowsHeld`, the `windowsHeld` stamp (#4782), `onClimbStamp`, the `climbHeld` stamp (#4760), and `climbMb`, what
+ * others: `admit` (`queueAdmit`), a listener per `HOLD_STAMPS` stamp that
+ * writes it to the marker, and `climbMb`, what
  * its peer queues' launches have yet to draw (#3416). `onClimbHeld` keeps the highest charge that held the wait, for
  * `killedHold` to give a killed wait's exit line, which `waitForGate` never
  * reaches (#3806).
  *
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, onMemoryHeld: (memoryHeld: boolean) => void, onRestHeld: (restHeld: boolean) => void, onWindowsHeld: (windowsHeld: boolean) => void, onClimbStamp: (climbHeld: boolean) => void, climbMb: () => number, onClimbHeld: (climbMb: number) => void, killedHold: () => WaitHold }}
+ * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, killedHold: () => WaitHold } & Required<HoldListeners>}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
@@ -795,10 +814,9 @@ function queueStamps(file, options = {}) {
 		},
 		killedHold: () => (climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 		admit: () => queueAdmit(file, options),
-		onMemoryHeld: (memoryHeld) => stampMarker(file, { memoryHeld }, options),
-		onRestHeld: (restHeld) => stampMarker(file, { restHeld }, options),
-		onWindowsHeld: (windowsHeld) => stampMarker(file, { windowsHeld }, options),
-		onClimbStamp: (climbHeld) => stampMarker(file, { climbHeld }, options),
+		...holdListeners(
+			(stamp) => (held) => stampMarker(file, { [stamp]: held }, options),
+		),
 		climbMb: () =>
 			readPeerClimbMb(options.queueDir ?? defaultQueueDir(), options),
 	};
@@ -1020,7 +1038,7 @@ function peerClimbTurn(
  * joined ahead of it, whether another launch in this queue or a peer is
  * admitted and unspawned, and whether the other queue holds an older waiter
  * the climb charge holds (#4760).
- * @typedef {{ waiter: "whole" | "part" | "tsc", ahead: Pick<QueueRecord, "at" | "part" | "spawned" | "memoryHeld" | "restHeld" | "windowsHeld">[], admissionOpen: boolean, peerClimbHeld?: boolean, slots: number, now: number }} TurnSnapshot
+ * @typedef {{ waiter: "whole" | "part" | "tsc", ahead: Pick<QueueRecord, "at" | "part" | "spawned" | HoldStamp>[], admissionOpen: boolean, peerClimbHeld?: boolean, slots: number, now: number }} TurnSnapshot
  */
 
 /**
@@ -1510,13 +1528,8 @@ function changesOnly(listener) {
  * `admit` is REQUIRED, and refused at entry when missing, so no launch goes
  * unstamped (#2742); a caller with no queue passes its stub on purpose.
  *
- * `onMemoryHeld` hears whether the memory rung holds the wait, each time that
- * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
- * `onRestHeld` hears whether it holds the wait at rest, `busy` read as 0 and
- * no climb charged (#4783).
- * `onWindowsHeld` hears the same of the Windows-memory hold (#4782).
- * `onClimbStamp` hears the same of the climb charge alone (`heldOnClimbMb`),
- * which the other queue's waiters yield to (#4760).
+ * Each `HOLD_STAMPS` listener hears its stamp each time it changes, starting
+ * from false: a queued caller stamps its marker with it (`queueStamps`).
  *
  * `climbMb` is read each poll and handed to `gate` to charge on its memory
  * rung (#3416).
@@ -1524,7 +1537,7 @@ function changesOnly(listener) {
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
  * changes, and the time held on each limb as the wait ends (#4359).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onRestHeld?: (held: boolean) => void, onWindowsHeld?: (held: boolean) => void, onClimbStamp?: (held: boolean) => void, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined }} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1546,18 +1559,6 @@ function waitForGate({
 	waiting = "a suite is already running; waiting for it",
 	cap = "one whole suite runs at a time (#2714)",
 	part = false,
-	onMemoryHeld = () => {
-		/* no marker to stamp */
-	},
-	onRestHeld = () => {
-		/* no marker to stamp */
-	},
-	onWindowsHeld = () => {
-		/* no marker to stamp */
-	},
-	onClimbStamp = () => {
-		/* no marker to stamp */
-	},
 	onClimbHeld = () => {
 		/* no killed line to give it to */
 	},
@@ -1567,6 +1568,7 @@ function waitForGate({
 	clock = Date.now,
 	traceLimbs = false,
 	turnHold = () => undefined,
+	...listeners
 }) {
 	if (typeof admit !== "function")
 		throw new TypeError("waitForGate: `admit` is required (#2742)");
@@ -1576,10 +1578,19 @@ function waitForGate({
 	/* Whether `hold` has run since the last sleep: a reading taken after it
 	 * is still fresh. */
 	let held = false;
-	const stampMemoryHeld = changesOnly(onMemoryHeld);
-	const stampRestHeld = changesOnly(onRestHeld);
-	const stampWindowsHeld = changesOnly(onWindowsHeld);
-	const stampClimbHeld = changesOnly(onClimbStamp);
+	const stamp = /** @type {Record<HoldStamp, (held: boolean) => void>} */ (
+		Object.fromEntries(
+			Object.entries(HOLD_STAMPS).map(([name, option]) => [
+				name,
+				changesOnly(
+					listeners[option] ??
+						(() => {
+							/* no marker to stamp */
+						}),
+				),
+			]),
+		)
+	);
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock, started);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
@@ -1696,12 +1707,17 @@ function waitForGate({
 			climbHeldMb = heldOn;
 			onClimbHeld(heldOn);
 		}
-		stampMemoryHeld(denial?.limb === "memory");
-		stampRestHeld(
+		/* The memory rung holds the wait (#3058). */
+		stamp.memoryHeld(denial?.limb === "memory");
+		/* It holds it at rest, `busy` read as 0 and no climb charged (#4783). */
+		stamp.restHeld(
 			denial?.limb === "memory" && denial.busy === 0 && !denial.climbMb,
 		);
-		stampWindowsHeld(denial?.limb === "windows");
-		stampClimbHeld(heldOn > 0);
+		/* The Windows-memory hold holds it (#4782). */
+		stamp.windowsHeld(denial?.limb === "windows");
+		/* The climb charge alone holds it, which the other queue's waiters
+		 * yield to (#4760). */
+		stamp.climbHeld(heldOn > 0);
 		const open = !denial && turn();
 		see(denial, open);
 		if (!open && clock() - started >= timeoutMs)
