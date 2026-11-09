@@ -18,8 +18,12 @@
  * The same limb refuses a question whose top figure is `LOW_TOP` or less
  * (#2228, #2519), and the way round that is writing 70, the first step that
  * passes.
- * A third reading, over priced questions of every shape, compares the share
- * whose top figure is exactly `LOW_TOP` + 5 with TOP_BASELINE (#2260).
+ * A third reading, over priced questions of every shape, compares with
+ * TOP_BASELINE the share of tops at `LOW_TOP` + 5 or more that sit at exactly
+ * `LOW_TOP` + 5 (#2260, #4536). Conditioning on passing tops means a refusal
+ * that removes mass below the line moves nothing; the share rises only where
+ * mass piles onto the first passing step (Kleven & Waseem, QJE 2013;
+ * docs/practice/llm-evaluation.md §Bunching at a threshold).
  *
  * ONE PARSER. Every question is read by the guard's own exported `rivalPair`
  * and `topOf`, so a drift report reflects agents' behaviour, never a gap
@@ -39,14 +43,14 @@
  * reports each issue once its readings recover.
  *
  * TOO FEW QUESTIONS FILES NOTHING. Under MIN_BAND_SAMPLE questions in the
- * 26-30 band, or MIN_TOP_SAMPLE priced tops, the share is noise (#487, #2260).
+ * 26-30 band, or MIN_TOP_SAMPLE passing tops, the share is noise (#487, #2260).
  *
  * AN UNREADABLE CORPUS IS A SKIP, never "no drift": the transcripts live under
  * the config seats, outside the repo (lib/check.js's subject-vs-apparatus
  * split). A seat that is simply absent is skipped quietly; a CI runner has
  * none at all and reports SKIP.
  *
- * IMPLICIT:  on `npm run status -- --write`, reads 14 days of session transcripts across every seat and files or refreshes one tracking issue when price bands have narrowed by more than half, and another when top figures bunch at 70 by more than half again.
+ * IMPLICIT:  on `npm run status -- --write`, reads 14 days of session transcripts across every seat and files or refreshes one tracking issue when price bands have narrowed by more than half, and another when top figures bunch at 70 by more than half again among tops of 70 or more.
  * JUSTIFIED: fail-safe — band-narrowing spreads across sessions, so no per-turn guard sees it; a run that cannot read the corpus or holds too few questions files nothing rather than guessing.
  * DEFEAT:    --days <n> moves the window on a hand run, and editing lib/band-baseline.js's BAND_BASELINE or TOP_BASELINE moves the thresholds; its comment forbids that without a re-measurement, and nothing enforces it.
  */
@@ -101,6 +105,7 @@ const TOP_TITLE = `Top figures are bunching at ${FIRST_PASSING_TOP} — the low-
  *   overlapping: number,
  *   halfWidths: number[],
  *   tops: number,
+ *   passingTops: number,
  *   atFirstPassingTop: number,
  *   listed: number,
  *   absent: string[],
@@ -180,6 +185,7 @@ function measure({ days = DEFAULT_DAYS, at = now() } = {}) {
 		overlapping: 0,
 		halfWidths: [],
 		tops: 0,
+		passingTops: 0,
 		atFirstPassingTop: 0,
 		listed,
 		absent,
@@ -231,6 +237,7 @@ function tallyBlock(r, block) {
 	const top = topOf(block);
 	if (top) {
 		r.tops++;
+		if (top.figure >= FIRST_PASSING_TOP) r.passingTops++;
 		if (top.figure === FIRST_PASSING_TOP) r.atFirstPassingTop++;
 	}
 	const pair = rivalPair(block);
@@ -275,14 +282,14 @@ function bandReading(r) {
 }
 
 /**
- * The top-figure reading: the share at FIRST_PASSING_TOP against CEILING_RATIO
- * times its baseline.
+ * The top-figure reading: the share of passing tops at FIRST_PASSING_TOP
+ * against CEILING_RATIO times its baseline.
  *
  * @param {Reading} r
  */
 function topReading(r) {
-	const share = r.tops ? r.atFirstPassingTop / r.tops : null;
-	const baseline = TOP_BASELINE.atLine / TOP_BASELINE.tops;
+	const share = r.passingTops ? r.atFirstPassingTop / r.passingTops : null;
+	const baseline = TOP_BASELINE.atLine / TOP_BASELINE.passing;
 	const ceiling = baseline * CEILING_RATIO;
 	return { share, baseline, ceiling };
 }
@@ -322,7 +329,7 @@ function summary(r, v, days = DEFAULT_DAYS) {
  */
 function buildTopSummary(r, v, days = DEFAULT_DAYS) {
 	const share = v.share === null ? "none" : pct(v.share);
-	return `${r.tops} priced top(s) in the last ${days}d, ${r.atFirstPassingTop} at exactly ${FIRST_PASSING_TOP}: ${share} (baseline ${pct(v.baseline)}, ceiling ${pct(v.ceiling)}).`;
+	return `${r.passingTops} of ${r.tops} priced top(s) in the last ${days}d at ${FIRST_PASSING_TOP} or more, ${r.atFirstPassingTop} of them at exactly ${FIRST_PASSING_TOP}: ${share} (baseline ${pct(v.baseline)}, ceiling ${pct(v.ceiling)}).`;
 }
 
 /**
@@ -389,16 +396,20 @@ const TOP_WATCH = {
 	code: "TOP-BUNCHING",
 	headline: `top figures are bunching at ${FIRST_PASSING_TOP}`,
 	prefix: "Top figures: ",
-	sample: { count: (r) => r.tops, min: MIN_TOP_SAMPLE, noun: "priced top(s)" },
+	sample: {
+		count: (r) => r.passingTops,
+		min: MIN_TOP_SAMPLE,
+		noun: `priced top(s) at ${FIRST_PASSING_TOP} or more`,
+	},
 	assess(r, days) {
 		const v = topReading(r);
 		return {
 			drifted: v.share !== null && v.share > v.ceiling,
 			summary: buildTopSummary(r, v, days),
 			findings: [],
-			baseline: `Baseline: ${TOP_BASELINE.atLine} of ${TOP_BASELINE.tops} priced tops at ${FIRST_PASSING_TOP}, every round shape, window ${TOP_BASELINE.window}, before the low-top test was live (#2519).`,
-			decide: `The close-rivals limb of \`scripts/guard-priced-options.js\` refuses a round whose top figure is ${LOW_TOP} or less (#2228, #2519); ${FIRST_PASSING_TOP} is the first figure that passes. Decide whether more rounds topping at ${FIRST_PASSING_TOP} is agents pricing more confidently or pricing around the test, and what, if anything, changes.`,
-			clearsWhen: "once the share is back at or under its ceiling",
+			baseline: `Baseline: ${TOP_BASELINE.atLine} of ${TOP_BASELINE.passing} priced tops at ${FIRST_PASSING_TOP} or more sat at exactly ${FIRST_PASSING_TOP}, every round shape, window ${TOP_BASELINE.window}, before the low-top test was live (#2519, #4536).`,
+			decide: `The close-rivals limb of \`scripts/guard-priced-options.js\` refuses a round whose top figure is ${LOW_TOP} or less (#2228, #2519); ${FIRST_PASSING_TOP} is the first figure that passes. The share is read among passing tops only, so rounds the refusal pushes above the line spread over every passing figure and move nothing; it rises only where they pile onto ${FIRST_PASSING_TOP} (#4536). Decide whether that pile is agents pricing more confidently or pricing around the test, and what, if anything, changes.`,
+			clearsWhen: `once the share of passing tops at ${FIRST_PASSING_TOP} is back at or under its ceiling`,
 			data: { topShare: v.share },
 		};
 	},
@@ -508,6 +519,7 @@ const SPEC = {
 			...band.data,
 			kind: band.kind,
 			tops: r.tops,
+			passingTops: r.passingTops,
 			atFirstPassingTop: r.atFirstPassingTop,
 			...top.data,
 			topKind: top.kind,

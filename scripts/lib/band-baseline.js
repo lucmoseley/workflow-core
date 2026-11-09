@@ -30,19 +30,20 @@ const MIN_BAND_SAMPLE = 100;
 
 /*
  * MOVE IT ONLY WITH A RE-MEASUREMENT, taken by check-band-drift.js's reading
- * over a 14-day window with no low-top test live: the priced question blocks
- * of every shape whose top figure sits at exactly `LOW_TOP` + 5 (#2519).
+ * over a 14-day window with no low-top test live: of the priced question
+ * blocks of every shape whose top figure is `LOW_TOP` + 5 or more, those at
+ * exactly `LOW_TOP` + 5 (#2519, re-read at #4536).
  */
 const TOP_BASELINE = {
 	atLine: 527,
-	tops: 3067,
+	passing: 1817,
 	window: "5–19 Oct 2026",
 };
 
 /*
- * Under this many priced tops the share is noise: at 300, a true baseline
- * share reads over 1.5 times itself by chance 0.008% of the time (binomial,
- * #2260, #2519).
+ * Under this many passing tops the share is noise: at 300, a true baseline
+ * share reads over 1.5 times itself by chance 0.000005% of the time, and at
+ * 150 0.007% (binomial, #2260, #4536).
  */
 const MIN_TOP_SAMPLE = 300;
 

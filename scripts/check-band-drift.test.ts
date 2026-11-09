@@ -2,7 +2,8 @@
 /*
  * Pins that check-band-drift.js files or refreshes one tracking issue only when
  * a band reading falls below half its baseline on a large enough sample, and
- * another only when the share of tops at 70 rises above 1.5 times its own,
+ * another only when the share at 70 among tops of 70 or more rises above 1.5
+ * times its own,
  * which questions it reads across the seats, and that it never fails.
  *
  * Drives the real script through lib/run-in-process.js, CLAUDE_CONFIG_DIR and
@@ -30,6 +31,7 @@ import {
 	round,
 	times,
 	topQuestions,
+	underLineQuestions,
 	WIDE_CLEAR,
 	writeTranscript,
 } from "./lib/band-drift-fixture";
@@ -72,9 +74,10 @@ const transcript = (
 const overlapsAt = (n: number, ratio: number) =>
 	Math.round(n * BAND_BASELINE.overlapShare * ratio);
 
-/** How many of `n` tops sit at the line, at most `ratio` of baseline's share. */
+/** How many of `n` passing tops sit at the line, at most `ratio` of
+ * baseline's share. */
 const atLineAt = (n: number, ratio: number) =>
-	Math.floor((n * TOP_BASELINE.atLine * ratio) / TOP_BASELINE.tops);
+	Math.floor((n * TOP_BASELINE.atLine * ratio) / TOP_BASELINE.passing);
 
 /*
  * A stub `gh` that records its argv and answers the three calls
@@ -309,7 +312,7 @@ describe("tops bunching at 70", () => {
 		const gh = stubGh();
 		const r = run(gh);
 		expect(r.out).toContain("OK: ");
-		expect(r.out).toContain(`Top figures: ${T} priced top(s)`);
+		expect(r.out).toContain(`Top figures: ${T} of ${T} priced top(s)`);
 		expect(gh.calls()).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -332,6 +335,50 @@ describe("tops bunching at 70", () => {
 		const gh = stubGh();
 		run(gh);
 		expect(gh.calls()).toContain(TOP_TITLE);
+	});
+
+	/*
+	 * A notch's own renormalisation (#4536): a corpus where the share at the
+	 * line sits at baseline among passing tops, with `under` more rounds under
+	 * the line. Here those rounds have moved over it, proportionally or all
+	 * onto the line.
+	 */
+	const under = T;
+	const atBaseline = atLineAt(T, 1);
+
+	it("reads steady over the same corpus with rounds still under the line", () => {
+		transcript([...underLineQuestions(under), ...topQuestions(T, atBaseline)]);
+		const gh = stubGh();
+		const r = run(gh);
+		expect(r.out).toContain(`Top figures: ${T} of ${T + under} priced top(s)`);
+		expect(gh.calls()).toBe("");
+	});
+
+	it("reads steady when rounds under the line move over it in proportion", () => {
+		transcript(topQuestions(T + under, atLineAt(T + under, 1)));
+		const gh = stubGh();
+		const r = run(gh);
+		expect(r.out).toContain("OK: ");
+		expect(gh.calls()).toBe("");
+	});
+
+	it("files when rounds under the line move onto the line alone", () => {
+		transcript(topQuestions(T + under, atBaseline + under));
+		const gh = stubGh();
+		const r = run(gh);
+		expect(r.out).toContain("top figures are bunching at 70");
+		expect(gh.calls()).toContain(TOP_TITLE);
+	});
+
+	it("counts only tops of 70 or more toward its sample", () => {
+		transcript([
+			...underLineQuestions(MIN_TOP_SAMPLE),
+			...topQuestions(MIN_TOP_SAMPLE - 1, MIN_TOP_SAMPLE - 1),
+		]);
+		const gh = stubGh();
+		const r = run(gh);
+		expect(r.out).toContain("Top figures: insufficient sample");
+		expect(gh.calls()).toBe("");
 	});
 
 	it("refreshes its open issue, and reports the band reading beside it", () => {

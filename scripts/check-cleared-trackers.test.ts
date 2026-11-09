@@ -455,7 +455,7 @@ describe("check-cleared-trackers", () => {
 		const n = MIN_TOP_SAMPLE + 20;
 		writeTopCorpus(
 			n,
-			Math.floor((n * TOP_BASELINE.atLine) / TOP_BASELINE.tops),
+			Math.floor((n * TOP_BASELINE.atLine) / TOP_BASELINE.passing),
 		);
 		const r = run([TOP_ISSUE]);
 		expect(r.out).toContain("CLEARED TRACKER (");

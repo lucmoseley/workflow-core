@@ -2457,6 +2457,34 @@
 			}
 		]
 	},
+	"top-baseline-all-tops": {
+		"needles": [
+			{
+				"needle": "527 of 3,067",
+				"scanned": true
+			},
+			{
+				"needle": "tops: 3067",
+				"scanned": true
+			},
+			{
+				"needle": "17.2%",
+				"scanned": true
+			},
+			{
+				"needle": "0.172",
+				"scanned": true
+			},
+			{
+				"needle": "25.8%",
+				"scanned": true
+			},
+			{
+				"needle": "0.258",
+				"scanned": true
+			}
+		]
+	},
 	"load-ceiling": {
 		"needles": [
 			{
