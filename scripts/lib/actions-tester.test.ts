@@ -127,7 +127,7 @@ it("retries a run read the network dropped, never reading it as no verdict", asy
 });
 
 it("reads a run read that fails on anything but the network as no verdict", async () => {
-	const r = reads([() => [run(1, "failure")]]);
+	const r = reads([() => [run(1, "failure")]], shards("failure"));
 	r.failedLogOf = () => {
 		throw Object.assign(new Error("gh failed"), {
 			stderr: "HTTP 404: Not Found",
@@ -284,7 +284,9 @@ it("judges the newest run at the sha, never another sha's", async () => {
 		run(1, "success"),
 		run(2, "failure"),
 	];
-	expect((await verdictOf(reads([() => runs]))).kind).toBe("red");
+	expect((await verdictOf(reads([() => runs], shards("failure")))).kind).toBe(
+		"red",
+	);
 });
 
 it.each(["cancelled", "timed_out", "startup_failure", "skipped"])(
@@ -410,6 +412,62 @@ it("is no verdict where the runner fails to ready on every attempt, naming the s
 			"run 5's Full suite / Vitest (1/2) job failed at its 'Install test tools' step, which judges no code, on 3 attempts",
 	});
 	expect(r.reran).toEqual([5, 5]);
+});
+
+/* GitHub created 6 of its 12 jobs, all passed, and
+ * concluded the run `failure`. */
+const partlyCreated = (): Job[] => shards("success", "success", "success");
+
+it("pushes the ref again over a failed run whose created jobs all passed, judging only the newer run and never a red (#4827)", async () => {
+	const r = reads([
+		() => [run(5, "failure")],
+		() => [run(9, "success"), run(5, "failure")],
+	]);
+	r.jobsOf = (id: number) =>
+		id === 5
+			? partlyCreated()
+			: [...shards("success", "success"), SUITE_PASSED];
+	expect(await verdictOf(r)).toEqual({ kind: "green", run: 9 });
+	expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+	expect(r.reran).toEqual([]);
+});
+
+it("is no verdict where the run after the push again also fails listing no failed job (#4827)", async () => {
+	const r = reads(
+		[() => [run(5, "failure")], () => [run(9, "failure"), run(5, "failure")]],
+		partlyCreated(),
+	);
+	expect(await verdictOf(r)).toEqual({
+		kind: "unknown",
+		reason:
+			"run 9 failed listing no failed job, which judges no code, after lander/batch-0 was pushed again",
+	});
+	expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+});
+
+it("pushes the ref again over a failed run whose only failed job is Suite passed, and reads no run after it as no verdict, never a red (#4827)", async () => {
+	const r = reads(
+		[() => [run(5, "failure")]],
+		[...shards("success"), { name: "Suite passed", conclusion: "failure" }],
+	);
+	expect(await verdictOf(r)).toEqual({
+		kind: "unknown",
+		reason:
+			"run 5 failed listing no failed job, which judges no code, and no run followed lander/batch-0 pushed again",
+	});
+	expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+});
+
+it("reads a failed run whose job was cancelled as red, a hang being the code's (#4827)", async () => {
+	const r = reads(
+		[() => [run(5, "failure")]],
+		[
+			...shards("success", "cancelled"),
+			{ name: "Suite passed", conclusion: "failure" },
+		],
+	);
+	expect(await verdictOf(r)).toMatchObject({ kind: "red" });
+	expect(r.repushed).toEqual([]);
 });
 
 it("reads a failed dependency install as red, a broken lockfile being the code's", async () => {
@@ -906,6 +964,7 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 	});
 	expect(again.reran).toEqual([4]);
 	const first = queueReads([() => [run(4, "failure")]]);
+	first.jobsOf = () => shards("failure");
 	expect(await queueOf(first).verdict(SHA, [])).toMatchObject({ kind: "red" });
 	expect(first.reran).toEqual([]);
 });

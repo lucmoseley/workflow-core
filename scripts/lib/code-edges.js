@@ -30,6 +30,11 @@ const CODE_FILE = /\.(?:[cm]?js|sh|py)$/;
  * scan reads the same. */
 const JS_SPEC =
 	/\brequire(?:\.resolve)?\(\s*["']([^"']+)["']\s*\)|\bfrom\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\bimport\s+["']([^"']+)["']/g;
+/* A relative specifier a test loads straight through `createRequire(…)(…)`,
+ * which no `require(` precedes. Out of `JS_SPEC`: the package scan must not
+ * read a lazy optional load as a dependency. */
+const CREATE_REQUIRE_SPEC =
+	/\bcreateRequire\([^()]*(?:\([^()]*\)[^()]*)?\)\(\s*["'](\.[^"']*)["']\s*(?:,\s*)?\)/g;
 
 /**
  * The specifier a `JS_SPEC` match captured: each of its four branches has one
@@ -61,8 +66,9 @@ const parseCodeLines = (text, comment) =>
 	text.split("\n").filter((line) => !comment.test(line));
 
 /**
- * The file node would load for a relative specifier, or the bare join where
- * none exists — so a miss names the path as written.
+ * The file node would load for a relative specifier, or vitest would where a
+ * `.js` specifier names a `.ts` source; the bare join where none exists — so
+ * a miss names the path as written.
  * @param {string} abs
  */
 function resolveJs(abs) {
@@ -71,6 +77,7 @@ function resolveJs(abs) {
 		`${abs}.js`,
 		`${abs}.json`,
 		`${abs}.ts`,
+		...(abs.endsWith(".js") ? [`${abs.slice(0, -3)}.ts`] : []),
 		path.join(abs, "index.js"),
 	])
 		if (fs.statSync(c, { throwIfNoEntry: false })?.isFile()) return c;
@@ -122,6 +129,10 @@ function jsEdges(dir, text) {
 		const spec = jsSpecifier(m);
 		if (spec.startsWith(".")) edges.push(resolveJs(path.join(dir, spec)));
 	}
+	for (const m of code.matchAll(CREATE_REQUIRE_SPEC))
+		edges.push(
+			resolveJs(path.join(dir, requiredGroup(m, 1, CREATE_REQUIRE_SPEC))),
+		);
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
 		const parts = [...requiredGroup(m, 1, DIRNAME_JOIN).matchAll(QUOTED)].map(
 			(p) => requiredGroup(p, 1, QUOTED),

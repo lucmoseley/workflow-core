@@ -232,6 +232,7 @@ function vitestLineSize(line, carried = null) {
 }
 
 module.exports = {
+	bareWords,
 	WHOLE_SLOT_FILES,
 	WHOLE_SUITE_WORKERS,
 	SUITE_VALUED_FLAGS,

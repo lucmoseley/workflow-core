@@ -82,6 +82,8 @@ describe("the ledger beside the marker stores (#2824)", () => {
 				argv: [],
 				resolvedFiles: null,
 				wholeSlot: false,
+				cachedFiles: null,
+				ranFiles: 3,
 				repo: path.basename(root),
 			},
 			expect.objectContaining({ verdict: "red", session: null }),
@@ -197,6 +199,21 @@ describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 		expect(
 			lineFor({ scope: { ...scope, resolvedFiles: 300, wholeSlot: true } }),
 		).toMatchObject({ resolvedFiles: 300, wholeSlot: true });
+	});
+
+	it("counts the files the pass store cached and those the run ran (#4790)", () => {
+		const scope = { modulesRun: 2, modulesTotal: 300, tests: 9, skipped: 0 };
+		const cached = [
+			{ file: "a.test.ts", sha: SHA, at: "2026-10-24T09:00:00.000Z" },
+		];
+		expect(lineFor({ scope, cached })).toMatchObject({
+			cachedFiles: 1,
+			ranFiles: 2,
+		});
+		expect(lineFor({ scope })).toMatchObject({
+			cachedFiles: null,
+			ranFiles: 2,
+		});
 	});
 
 	it("reads a ceiling kill and a stall over the store's verdict", () => {
