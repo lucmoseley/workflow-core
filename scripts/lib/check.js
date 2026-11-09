@@ -1170,12 +1170,12 @@ function otherParents(ctx, rev, head) {
 	const heads = readMergingHeads();
 	if (heads.length === 0) return [];
 	const ours = readCommitOrBroken("HEAD");
-	const shas = heads.map((h) =>
-		git(
-			["rev-parse", "--verify", `${h}^{commit}`],
-			`resolving the merged-in ${h}`,
-		).trim(),
-	);
+	const shas = heads.map((h) => {
+		const sha = readCommitOrBroken(h);
+		if (sha === null)
+			throw brokenError(`resolving the merged-in ${h}: it names no commit.`);
+		return sha;
+	});
 	const landed = LANDED_REFS.filter((ref) => readCommitOrBroken(ref) !== null);
 	return [...new Set(shas)].filter((sha) => {
 		if (sha === ours) return false;
