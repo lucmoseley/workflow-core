@@ -20,7 +20,8 @@
  * (#2931): null and false on a marker that carries none.
  *
  * `kind` and `fullCause` are #2812's rules; `runs.py` reads them, with
- * `verdict`, from here. Its `lander-rerun` (no session, after the lander's first run) is a
+ * `verdict`, from here. `kind` is `lander` only off the marker's `lander`
+ * mark, which the lander's tester sets at spawn (#4757). Its `lander-rerun` (no session, after the lander's first run) is a
  * dated inference it applies itself, off `session`.
  */
 
@@ -56,7 +57,7 @@ function kindOf(m) {
 	if (scope?.touched) return "touched";
 	if (m.suite === "pytest") return "pytest";
 	const fullFlag = argv?.some((a) => a.startsWith("--full")) ?? false;
-	if (argv?.includes("--shared") && fullFlag && !m.sessionId) return "lander";
+	if (m.lander && fullFlag) return "lander";
 	if (ranFull(m, fullFlag)) return "full";
 	if (argv?.includes("--adopt")) return "adopt";
 	if (argv?.includes("--changed") || scope?.viaChanged) return "changed";

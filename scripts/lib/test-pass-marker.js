@@ -86,9 +86,10 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   startStateUnknown?: boolean, dirtyAtStart?: boolean, dirtyCount?: number,
  *   headMovedDuringRun?: boolean, startedAt?: string, durationMs?: number,
  *   machine?: {ceilingPct: number, busyPct: number, systemPct: number,
- *     nicePct: number, userPct: number, iowaitPct: number, load1: number|null},
+ *     nicePct: number, userPct: number, iowaitPct: number, load1: number|null,
+ *     load1AtStart?: number|null},
  *   foreign?: {path: string, why: string}[], isolated?: boolean,
- *   treeAtEnd?: string, sessionId?: string|null, argv?: string[],
+ *   treeAtEnd?: string, sessionId?: string|null, lander?: boolean, argv?: string[],
  *   closure?: "*"|string[], selected?: string[], changedPaths?: string[],
  *   imports?: Record<string, string[]>, roots?: string[],
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
@@ -536,6 +537,8 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  *   `session-id.js`'s `fromEnv()` by default — the harness's variable, the
  *   one environment read here. A pointer into a transcript that expires,
  *   never a certificate.
+ * @param {boolean} [run.lander] Whether the lander's tester started the run
+ *   (#4757), off `session-id.js`'s `startedByLander()` by default.
  * @param {string[]|null} [run.argv] The launch's own argv (#182), off the
  *   launch record (`suite-handoff.js`) — `process.argv.slice(2)` as `main()`
  *   first saw it, before any flag was stripped.
@@ -562,6 +565,7 @@ function markerFrom(
 		isolated = false,
 		treeAtEnd = null,
 		sessionId = idSeam.fromEnv(),
+		lander = idSeam.startedByLander(),
 		argv = null,
 		attestation = null,
 		slowest = null,
@@ -624,6 +628,7 @@ function markerFrom(
 		isolated: Boolean(isolated),
 		...(treeAtEnd ? { treeAtEnd } : {}),
 		...(sessionId ? { sessionId } : {}),
+		...(lander ? { lander: true } : {}),
 		...(argv ? { argv } : {}),
 		...attested,
 		...(slowest?.length ? { slowest } : {}),

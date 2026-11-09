@@ -653,6 +653,13 @@ describe("markerFrom", () => {
 		expect(m).not.toHaveProperty("argv");
 	});
 
+	it("marks a run the lander started, and only that run (#4757)", () => {
+		const of = (lander: boolean) =>
+			markerFrom({ head: "old", files: {} }, after, null, { lander });
+		expect(of(true).lander).toBe(true);
+		expect(of(false)).not.toHaveProperty("lander");
+	});
+
 	it("carries the run's slowest files where it timed any, and no field where it timed none (#2770)", () => {
 		const slowest = [{ file: "scripts/a.test.ts", seconds: 12.5 }];
 		expect(

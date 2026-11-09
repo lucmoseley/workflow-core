@@ -128,8 +128,13 @@ describe("the ledger beside the marker stores (#2824)", () => {
 describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 	it.each([
 		["pytest", { suite: "pytest", argv: ["--full"] }],
-		["lander", { argv: ["--shared", "--full=push-gate"], sessionId: null }],
+		[
+			"lander",
+			{ argv: ["--shared", "--full=push-gate"], sessionId: null, lander: true },
+		],
 		["full", { argv: ["--shared", "--full=push-gate"] }],
+		/* A script copying the lander's argv is no lander (#4757). */
+		["full", { argv: ["--full=other", "--shared"], sessionId: null }],
 		[
 			"full",
 			{ argv: undefined, scope: { modulesRun: 270, modulesTotal: 300 } },

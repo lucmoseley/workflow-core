@@ -83,6 +83,15 @@ describe("the report owner", () => {
 	});
 });
 
+/* The ledger's `lander` kind rests on this mark alone (#4757). */
+describe("startedByLander", () => {
+	it("is true only where the tester's mark is set", () => {
+		expect(sessionId.startedByLander({ WFC_LANDER_RUN: "1" })).toBe(true);
+		expect(sessionId.startedByLander({ WFC_LANDER_RUN: "" })).toBe(false);
+		expect(sessionId.startedByLander({})).toBe(false);
+	});
+});
+
 describe("forgetSession", () => {
 	it("strips the session id, job dir and report owner, and nothing else", () => {
 		const env: Record<string, string | undefined> = {
