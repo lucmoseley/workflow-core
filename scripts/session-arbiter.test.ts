@@ -1248,7 +1248,10 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 	});
 
 	it.each([
-		[["prune-markers", "--detatch"], "prune-markers [--detach]"],
+		[
+			["prune-markers", "--detatch"],
+			"prune-markers [--detach] [--spare <session-id>]",
+		],
 		[["claim-issue", "--force", "12"], "claim-issue <issue-number>"],
 	])("refuses %j with that subcommand's usage", (args, usage) => {
 		const r = cli(args);
@@ -2188,7 +2191,9 @@ describe("prune-markers --detach, the SessionStart form", () => {
 		await vi.waitFor(() => expect(fake.calls()).toHaveLength(1));
 		expect(fake.calls()[0]).toMatchObject({
 			words: "--user --scope --quiet -p RuntimeMaxSec=2700 --",
-			command: expect.stringMatching(/session-arbiter\.js prune-markers$/),
+			command: expect.stringMatching(
+				/session-arbiter\.js prune-markers --spare starter$/,
+			),
 			sid: "",
 			job: "",
 			owner: "starter",
@@ -2657,6 +2662,19 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 		aged();
 		expect(cli(["prune-markers"], fakePrune(["someone-else"])).status).toBe(0);
 		expect(fs.existsSync(f)).toBe(true);
+	});
+
+	it("spares the starting session --spare names, run as no session (#4706)", () => {
+		registerSession(sb, "sweeper", process.pid, { procStart: "999999999" });
+		cli(["claim-issue", "710"], { CLAUDE_CODE_SESSION_ID: "sweeper" });
+		const f = path.join(store.paths.issueClaimsDir(), "710-sweeper.json");
+		const t = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+		fs.utimesSync(f, t, t);
+		const other = aged();
+		const env = { ...fakePrune(["someone-else"]), CLAUDE_CODE_SESSION_ID: "" };
+		expect(cli(["prune-markers", "--spare", "sweeper"], env).status).toBe(0);
+		expect(fs.existsSync(f)).toBe(true);
+		expect(fs.existsSync(other)).toBe(false);
 	});
 });
 
