@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { RUFF_INSTALL, SHFMT_INSTALL } from "./formatters.js";
+import { RUFF_INSTALL, SHFMT_INSTALL, shellFiles } from "./formatters.js";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
 import { runInProcess } from "./run-in-process.js";
@@ -128,6 +128,18 @@ describe("the shell file set (#1828)", () => {
 		});
 		expect(r.stdout).toBe("bin/run\n");
 		expect(r.status).toBe(0);
+	});
+
+	it("reads .gitattributes in the checkout cwd names, not this process's own (#4824)", () => {
+		const { root } = newRepo("formatters-cwd-", temps);
+		fs.writeFileSync(
+			path.join(root, ".gitattributes"),
+			"vendor/** linguist-vendored\n",
+		);
+		const paths = ["vendor/x.sh", "hook.sh"];
+		const head = () => "";
+		expect(shellFiles(paths, head, { cwd: root })).toEqual(["hook.sh"]);
+		expect(shellFiles(paths, head)).toEqual(paths);
 	});
 
 	/** This checkout's tracked shell files, as check:sh lists them. */

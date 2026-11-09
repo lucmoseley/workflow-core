@@ -49,10 +49,10 @@ const FIXTURE = {
 const fixture = (rel: string, name: keyof typeof FIXTURE) =>
 	file(rel, fs.readFileSync(FIXTURE[name], "utf8"));
 
-/** Runs the checker in `root`, its host root `home`. */
-const runFrom = (home: string, args: string[]) => {
+/** Runs the checker in `cwd`, its host root `home`. */
+const runFrom = (home: string, args: string[], cwd = root) => {
 	const r = runInProcess(SCRIPT, args, {
-		cwd: root,
+		cwd,
 		env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: home },
 	});
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
@@ -116,37 +116,6 @@ describe("check-gh-route", () => {
 		expect(r.out).toContain(
 			"usage: node check-gh-route.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
 		);
-	});
-});
-
-describe("--root from outside the tree (#4824)", () => {
-	it.each([
-		["outside any repository", ""],
-		[
-			"inside another repository marking other files vendored",
-			"scripts/hook.sh linguist-vendored\n",
-		],
-	])("reads the root's vendored marks from a cwd %s", (_, theirs) => {
-		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-cwd-"));
-		try {
-			if (theirs) {
-				execFileSync("git", ["init", "-q"], { cwd: elsewhere });
-				fs.writeFileSync(path.join(elsewhere, ".gitattributes"), theirs);
-			}
-			file(".gitattributes", "scripts/vendor/** linguist-vendored\n");
-			file("scripts/vendor/lib.sh", "#!/usr/bin/env bash\ngh api user\n");
-			file("scripts/hook.sh", "#!/usr/bin/env bash\ngh api user\n");
-			const r = runInProcess(SCRIPT, ["--root", root], {
-				cwd: elsewhere,
-				env: { ...process.env, GITHUB_ACTIONS: "" },
-			});
-			expect(r.status).toBe(1);
-			expect(`${r.stdout}${r.stderr}`).toContain(
-				"1 second binary route(s): scripts/hook.sh:2.",
-			);
-		} finally {
-			fs.rmSync(elsewhere, { recursive: true, force: true });
-		}
 	});
 });
 
@@ -218,16 +187,19 @@ describe("a seeded repo: --index (#3687), --warn, --against and --root", () => {
 		expect(inherited.out).toContain("WARN: 1 inherited fault(s)");
 	});
 
-	it("judges the tree --root names over the host root", () => {
+	it("judges the tree and vendored marks --root names, from a cwd outside any repository (#4824)", () => {
+		file(".gitattributes", "scripts/vendor/** linguist-vendored\n");
+		file("scripts/vendor/lib.sh", bare);
 		file("scripts/hook.sh", bare);
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-home-"));
 		try {
-			const home = runFrom(elsewhere, []);
+			const home = runFrom(elsewhere, [], elsewhere);
 			expect(home.status).toBe(0);
 			expect(home.out).toContain("OK: 0 file(s)");
-			const r = runFrom(elsewhere, ["--root", root]);
+			const r = runFrom(elsewhere, ["--root", root], elsewhere);
 			expect(r.status).toBe(1);
 			expect(r.out).toContain("1 second binary route(s): scripts/hook.sh:2.");
+			expect(r.out).toContain(`Fix: run "\${WFC_GH:-gh}"`);
 		} finally {
 			fs.rmSync(elsewhere, { recursive: true, force: true });
 		}

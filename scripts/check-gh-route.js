@@ -70,11 +70,11 @@ runCheck({
 		 * to it (#3687). RESIDUAL: a --root naming a subdirectory of a
 		 * checkout has no .git of its own, so it takes the index read too,
 		 * against paths relative to itself. */
-		const checkout = hasOwnGit(root);
+		const isCheckout = hasOwnGit(root);
 		const shell = new Set(
 			shellFiles(files, (rel) => readWorktreeHead(path.join(root, rel)), {
-				cached: !checkout,
-				...(checkout ? { cwd: root } : {}),
+				cached: !isCheckout,
+				...(isCheckout ? { cwd: root } : {}),
 			}),
 		);
 		const { scanned, findings, fixes } = judgeTree(files, shell, (rel) =>
