@@ -59,6 +59,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
+const { isRouteStep } = require("./lib/decision-labels.js");
 const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { buildDistinctFromHint } = require("./lib/similar-titles.js");
 const {
@@ -458,9 +459,10 @@ function readParent({ repo, number, labels }) {
 			: [];
 	// A spec or brief under a map takes no type — place-new-issue.sh's
 	// exemption (#578, #714), hand-copied: nothing keeps the two in step.
+	// `isRouteStep`, not `isDecisionTicket`: the frontier reads the type.
 	if (
-		parent.labels.some((l) => l.startsWith("wayfinder:")) &&
-		!labels.some((l) => l.startsWith("wayfinder:")) &&
+		isRouteStep(parent.labels) &&
+		!isRouteStep(labels) &&
 		!labels.includes("kind:spec") &&
 		!labels.includes("kind:brief")
 	)
