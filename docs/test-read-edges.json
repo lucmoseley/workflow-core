@@ -45778,6 +45778,7 @@
 			"scripts/lib/hook-deadline.test.ts",
 			"scripts/lib/persist-replay.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
+			"scripts/lib/repo-holds.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/surface-closure.test.ts",
 			"scripts/lost-deny-rates.test.ts",

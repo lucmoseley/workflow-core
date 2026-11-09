@@ -45,8 +45,10 @@ import {
 } from "./repo-holds.js";
 import { runInProcess } from "./run-in-process.js";
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..");
-const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
+/* This repo's own hook lines and the runner they name, spelt whole so a
+ * change to either selects this file. */
+const REAL_HOOKS = path.join(__dirname, "../../self-plugin/hooks/hooks.json");
+const REAL_RUNNER = path.join(__dirname, "../run-pinned-guards.js");
 
 const PROBE_TITLE = "Refill loop probe: shared .git failing in repo";
 
@@ -523,7 +525,7 @@ describe("the probe hold (#3860)", () => {
 		expect(text).toContain(`repo hold probe in ${repo}: not kept:`);
 		expect(broken).toEqual([repo]);
 		expect(readTickHolds([repo], broken).holds).toEqual([
-			{ root: repo, kind: "probe" },
+			{ root: repo, kind: "probe", issue: null, raisedAt: null },
 		]);
 		expect(readFiled()).toHaveLength(0);
 	});
@@ -617,10 +619,7 @@ describe("the probe hold (#3860)", () => {
 		};
 
 		it("sets every variable this repo's self-plugin hook lines read", () => {
-			const real = fs.readFileSync(
-				path.join(REPO_ROOT, SELF_PLUGIN_HOOKS),
-				"utf8",
-			);
+			const real = fs.readFileSync(REAL_HOOKS, "utf8");
 
 			expect(readRequiredVars(real)).toContain("CLAUDE_PLUGIN_ROOT");
 			expect(readMissing(real)).toEqual([]);
@@ -678,14 +677,11 @@ ${body}`,
 		const registerRealHooks = () => {
 			const scripts = path.join(repo, "scripts");
 			fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
-			fs.copyFileSync(
-				path.join(REPO_ROOT, "scripts", "run-pinned-guards.js"),
-				path.join(scripts, "run-pinned-guards.js"),
-			);
+			fs.copyFileSync(REAL_RUNNER, path.join(scripts, "run-pinned-guards.js"));
 			fs.writeFileSync(path.join(scripts, "lib", "guard-dispatch.js"), "");
 			fs.copyFileSync(
-				path.join(REPO_ROOT, SELF_PLUGIN_HOOKS),
-				path.join(repo, SELF_PLUGIN_HOOKS),
+				REAL_HOOKS,
+				path.join(repo, "self-plugin", "hooks", "hooks.json"),
 			);
 			fs.symlinkSync(repo, `${at("guard-code")}.current`);
 			vi.stubEnv("WFC_GUARD_CODE_DIR", at("guard-code"));
