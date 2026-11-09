@@ -1,10 +1,8 @@
 /*
  * record-ticket.js — a landing-queue ticket keyed by a record in the markers
- * directory (lib/stall-ticket.js, lib/alarm-ticket.js, lib/queue-alert.js),
- * filed and closed as lib/queue-issue.js does. The tender decides when to
- * close and what to file; this reads the record, drops a torn one and names
- * it, and writes the record only once the issue act has succeeded, so an act
- * that throws keeps the old record and the next pass retries it (#4778).
+ * directory. The tender decides when to close and what to file; this writes
+ * the record only once the issue act has succeeded, so an act that throws
+ * keeps the old record and the next pass retries it (#4778).
  */
 
 const fs = require("node:fs");
@@ -34,8 +32,8 @@ function readTicketRecord(file, parse) {
 
 /**
  * @template T
- * @typedef {object} RecordTicket Each act pushes the lines naming what it
- *   did onto `said`, the caller's accumulator for the pass.
+ * @typedef {object} RecordTicket `said` is each act's accumulator: it
+ *   pushes the lines naming what it did.
  * @property {(said: string[]) => T|null|"torn"} read the record, a torn one
  *   removed and named in `said`
  * @property {(title: string, why: (body: string) => string|null,
