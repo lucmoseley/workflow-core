@@ -140,6 +140,14 @@ process.env.WFC_SECRETS_FILE = path.join(testSecretsDir, "secrets.env");
 afterAll(() => fs.rmSync(testSecretsDir, { recursive: true, force: true }));
 
 /*
+ * NO TEST READS THE NEWEST GREEN RUN'S TIMINGS (#4579): the run-cost report
+ * and the local tester would fetch them from GitHub into the machine's
+ * cache. Named at a file that never exists, so they read none, in CI and
+ * locally alike. An override, as above; a case that names its own wins.
+ */
+process.env.WFC_SHARD_TIMINGS = path.join(testSecretsDir, "no-timings.csv");
+
+/*
  * THE RULE STORE THE SUITE READS IS THIS CHECKOUT'S.
  *
  * Almost every guard test spawns its guard with `CLAUDE_PROJECT_DIR` pointed at

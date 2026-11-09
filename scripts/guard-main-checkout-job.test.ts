@@ -200,6 +200,89 @@ it("leaves alone an interactive session, a job already in a worktree, a compacti
 	expect(cutNames()).toEqual(["already-here"]);
 });
 
+const paste = (name: string, under = jobDir) => {
+	const file = path.join(under, "tmp", name);
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, `bytes of ${name}`);
+	return file;
+};
+
+const carriedPath = (name: string) =>
+	path.join(
+		worktrees(),
+		cutNames()[0],
+		".claude",
+		"tmp",
+		"attachments",
+		"tmp",
+		name,
+	);
+
+it("carries each file the prompt names in the job's directory into the worktree, since removing the original deletes that directory (#4750)", () => {
+	const a = paste("pasted-9f0c82a3.png");
+	const b = paste("pasted-1d2e3f40.png");
+	writeRecord({ ...RECORD, intent: `/wayfinder why? ${a} and (see ${b}).` });
+
+	const r = run(startup());
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+	expect(fs.readFileSync(carriedPath("pasted-1d2e3f40.png"), "utf8")).toBe(
+		"bytes of pasted-1d2e3f40.png",
+	);
+	const [launch, removal] = readCalls();
+	expect(launch.args.at(-1)).toBe(
+		`/wayfinder why? ${carriedPath("pasted-9f0c82a3.png")} and (see ${carriedPath("pasted-1d2e3f40.png")}).`,
+	);
+	expect(removal.args).toEqual(["rm", RECORD.daemonShort]);
+});
+
+it("carries a file the prompt names through a symlinked spelling of the job's directory (#4750)", () => {
+	const linkedSeat = path.join(tmp, "seat-link");
+	fs.symlinkSync(seat, linkedSeat);
+	const linkedJob = path.join(linkedSeat, "jobs", RECORD.daemonShort);
+	paste("pasted-9f0c82a3.png");
+	const named = path.join(linkedJob, "tmp", "pasted-9f0c82a3.png");
+	writeRecord({ ...RECORD, intent: `/wayfinder why? ${named}` });
+
+	const r = run(startup(), { CLAUDE_JOB_DIR: linkedJob });
+
+	expect(r.status, r.stderr).toBe(0);
+	const [launch] = readCalls();
+	expect(launch.args.at(-1)).toBe(
+		`/wayfinder why? ${carriedPath("pasted-9f0c82a3.png")}`,
+	);
+});
+
+/* A program case, not a module one on `decide`: it pins the real copy's
+ * failure and the real `..` resolution, which a stubbed `carry` would not. */
+it.each([
+	["a file that is gone", () => path.join(jobDir, "tmp", "pasted-gone.png")],
+	[
+		"a path that climbs out of the job's directory",
+		() => {
+			fs.writeFileSync(path.join(seat, "outside.txt"), "x");
+			return `${jobDir}/../../outside.txt`;
+		},
+	],
+])(
+	"relaunches nothing where the prompt names %s, so removal never deletes it (#4750)",
+	(_, named) => {
+		const file = named();
+		writeRecord({ ...RECORD, intent: `/wayfinder why? ${file}` });
+
+		const r = run(startup());
+
+		expect(r.status, r.stderr).toBe(0);
+		const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+		expect(told).toContain(`carrying ${file} into its worktree failed`);
+		expect(told).toContain(
+			`Bash \`cd ${path.join(worktrees(), cutNames()[0])}\``,
+		);
+		expect(readCalls()).toEqual([]);
+	},
+);
+
 it("tells the session to work in the cut worktree where the relaunch fails, and removes nothing", () => {
 	writeFakeClaude({ bgFail: "daemon unreachable" });
 	const r = run(startup());
@@ -256,6 +339,7 @@ it("launches nothing where the cut leaves too little of the hook's timeout for b
 		job: () => ({ root: "/r", intent: "x" }),
 		cut: () => "/r/.claude/worktrees/x-1",
 		msLeft: () => msLeft,
+		carry: () => "x",
 		launch: () => {
 			made.push("launch");
 			return { ok: true, output: "" };

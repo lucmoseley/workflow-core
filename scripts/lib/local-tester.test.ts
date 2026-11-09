@@ -885,6 +885,40 @@ it("splits the whole run into fullTestShards shards, each in a slot of its own, 
 	);
 });
 
+it("hands every shard of a whole run the one timings file it resolved once, and a named run none (#4579)", async () => {
+	write(
+		"packs.js",
+		`require("node:fs").appendFileSync("../packs.log", (process.argv[2] ?? "whole") + " " + (process.env.WFC_SHARD_TIMINGS ?? "none") + "\\n");`,
+	);
+	config({ commands: { test: "node packs.js" }, fullTestShards: 2 });
+	const sharded = commit("packed");
+	const asked: string[] = [];
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+		timings: (dir) => {
+			asked.push(dir);
+			return `/timings/${asked.length}.csv`;
+		},
+	});
+	vi.stubEnv("WFC_SHARD_TIMINGS", undefined);
+
+	expect(await tester.verdict(sharded)).toEqual({ kind: "green" });
+	expect(await tester.verdict(sharded, ["packs.js"])).toEqual({
+		kind: "green",
+	});
+	expect(asked).toEqual([path.join(work, LANDER_WORKTREE)]);
+	expect(
+		fs.readFileSync(
+			path.join(work, ".claude", "worktrees", "packs.log"),
+			"utf8",
+		),
+	).toBe(
+		"--shard=1/2 /timings/1.csv\n--shard=2/2 /timings/1.csv\npacks.js none\n",
+	);
+});
+
 it("runs the Python suite after the last shard alone, where Python is routed (#2996)", async () => {
 	write("shard.js", SHARDED_RUNNER);
 	const pytest = path.join(tmp, "fake-pytest.js");

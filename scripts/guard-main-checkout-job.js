@@ -11,6 +11,16 @@
  * plan its job directory sits under; then the original is removed with
  * `claude rm` while its SessionStart hooks still hold back its first turn.
  *
+ * CARRIED FILES. `claude rm` deletes the original's job directory, where the
+ * harness saves a pasted image and names it in the prompt. Each file the
+ * prompt names under that directory is copied to the worktree's ignored
+ * `.claude/tmp/attachments/`, at its path below the job directory, and the
+ * copy's path replaces it in the relaunched prompt (#4750). The directory
+ * matches as the job was given it or resolved; punctuation glued after a path
+ * that does not exist is dropped. Where one cannot be copied, or resolves
+ * outside the job directory, nothing is relaunched. Residual: a path holding a
+ * space is cut there, so its copy fails and the job stays put.
+ *
  * WHY A RELAUNCH. The harness's own isolation (`worktree.bgIsolation`) sends
  * a background job to `EnterWorktree`, which 2.1.318 does not offer one, and
  * no hook output moves a session's cwd or ends it (#4340).
@@ -33,8 +43,9 @@
  * in instead.
  *
  * IMPLICIT:  at every startup or resume of a background job in the main
- *            checkout, cuts a worktree; at a startup with a prompt, starts a
- *            second job there and removes the first.
+ *            checkout, cuts a worktree; at a startup with a prompt, copies
+ *            the files it names in the job directory there, starts a second
+ *            job there and removes the first.
  * JUSTIFIED: fail-safe — a job left in the main checkout edits and commits
  *            where every session's dirt blocks `main` following the lander.
  * DEFEAT:    a fault anywhere leaves the job in the main checkout, saying why
@@ -55,6 +66,8 @@ const {
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { escapeRe } = require("./lib/shell-words.js");
+const { relativeUnder } = require("./lib/is-under.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
@@ -67,15 +80,16 @@ const HOOK_TIMEOUT_MS = 1_200_000;
 const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + 10_000;
 
 /**
- * @typedef {{ root: string, seat: string, jobId: string, intent: string,
- *   name: string, flags: string[], short: string,
+ * @typedef {{ root: string, seat: string, jobId: string, jobDir: string,
+ *   jobDirs: string[], intent: string, name: string, flags: string[], short: string,
  *   providerEnv: Record<string, string> }} Job
  * @typedef {{ ok: boolean, output: string }} Ran
  * @typedef {{
  *   job: () => Job | null,
  *   cut: (job: Job) => string,
  *   msLeft: () => number,
- *   launch: (job: Job, dir: string) => Ran,
+ *   carry: (job: Job, dir: string) => string,
+ *   launch: (job: Job, intent: string, dir: string) => Ran,
  *   remove: (job: Job) => Ran,
  * }} Ports
  */
@@ -113,7 +127,16 @@ function decide(source, io) {
 		return {
 			context: `${STARTED_HERE} and its worktree, ${dir}, was cut too late to relaunch the job there. ${workThere(dir)}`,
 		};
-	const launched = io.launch(job, dir);
+	let intent;
+	/* A file not carried is deleted by the removal below (#4750). */
+	try {
+		intent = io.carry(job, dir);
+	} catch (err) {
+		return {
+			context: `${STARTED_HERE} and ${caught(err).message}, so it is not relaunched there. ${workThere(dir)}`,
+		};
+	}
+	const launched = io.launch(job, intent, dir);
 	if (!launched.ok)
 		return {
 			context: `${STARTED_HERE} and its relaunch in its own worktree failed: ${launched.output || "no output"}. That worktree is cut at ${dir}. ${workThere(dir)}`,
@@ -124,6 +147,36 @@ function decide(source, io) {
 			context: `This background job was relaunched in its own worktree, ${dir}, as: ${launched.output}. Removing this original copy failed (${removed.output || "no output"}). Do nothing for the prompt: end this turn at once with the line \`result: relaunched in ${path.basename(dir)}\`.`,
 		};
 	return null;
+}
+
+/**
+ * `job`'s prompt with each file it names under the job directory copied into
+ * `dir` and named there instead; throws naming a path it cannot carry.
+ * @param {Job} job
+ * @param {string} dir
+ * @returns {string}
+ */
+function carryJobFiles(job, dir) {
+	const unders = job.jobDirs.map((d) => escapeRe(`${d}${path.sep}`));
+	const named = new RegExp(`(?:${unders.join("|")})[^\\s'"\`<>|]+`, "g");
+	const into = path.join(dir, ".claude", "tmp", "attachments");
+	return job.intent.replace(named, (token) => {
+		const bare = token.replace(/[.,;:)\]]+$/, "");
+		const from = fs.existsSync(token) ? token : bare;
+		try {
+			const rel = relativeUnder(job.jobDir, fs.realpathSync(from));
+			if (!rel) throw new Error("it is not inside the job directory");
+			const to = path.join(into, rel);
+			fs.mkdirSync(path.dirname(to), { recursive: true });
+			fs.copyFileSync(from, to);
+			return `${to}${token.slice(from.length)}`;
+		} catch (err) {
+			throw new Error(
+				`carrying ${from} into its worktree failed: ${caught(err).message}`,
+				{ cause: err },
+			);
+		}
+	});
 }
 
 /**
@@ -167,6 +220,13 @@ function readJob(payload, env) {
 		root: cwd,
 		seat: where.seat,
 		jobId: where.jobId,
+		jobDir: fs.realpathSync(String(env.CLAUDE_JOB_DIR)),
+		jobDirs: [
+			...new Set([
+				path.resolve(String(env.CLAUDE_JOB_DIR)),
+				fs.realpathSync(String(env.CLAUDE_JOB_DIR)),
+			]),
+		],
 		intent: typeof record.intent === "string" ? record.intent : "",
 		name: String(record.name ?? "session"),
 		flags: Array.isArray(record.respawnFlags)
@@ -194,8 +254,9 @@ function ports(at) {
 		job: () => readJob(at.payload, env),
 		cut: (job) => launchDir(job.root, job.intent || job.name),
 		msLeft: () => HOOK_TIMEOUT_MS - (Date.now() - started),
-		launch: (job, dir) =>
-			runOnJobSeat(["--bg", ...job.flags, "--", job.intent], dir, env, job),
+		carry: carryJobFiles,
+		launch: (job, intent, dir) =>
+			runOnJobSeat(["--bg", ...job.flags, "--", intent], dir, env, job),
 		remove: (job) => runOnJobSeat(["rm", job.short], job.root, env, job),
 	};
 }

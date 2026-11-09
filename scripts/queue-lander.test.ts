@@ -974,6 +974,13 @@ describe("the adapters", () => {
 			noRun: true,
 		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
+		/* A green its in-job retry reached keeps the files it cleared, the
+		 * batch's flakes (#4558). */
+		verdictLedger(verdicts).add("s6", [], {
+			kind: "green",
+			run: 8,
+			cleared: ["a.ts"],
+		});
 		verdictLedger(verdicts).add("s1", ["a.ts"], { kind: "green" }, 2);
 		const noFile = {
 			kind: "red" as const,
@@ -1015,6 +1022,11 @@ describe("the adapters", () => {
 		expect(verdictLedger(verdicts).get("s1", [])?.verdict).toEqual({
 			kind: "green",
 			run: 7,
+		});
+		expect(verdictLedger(verdicts).get("s6", [])?.verdict).toEqual({
+			kind: "green",
+			run: 8,
+			cleared: ["a.ts"],
 		});
 		expect(verdictLedger(verdicts).get("s3", [])?.verdict).toEqual({
 			kind: "red",

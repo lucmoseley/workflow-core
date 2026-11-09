@@ -1704,14 +1704,6 @@
 			}
 		]
 	},
-	"docs/data/ci-shard-timings.csv": {
-		"section": "Evidence & data",
-		"class": "derived",
-		"classQualifier": null,
-		"role": "The per-file seconds `scripts/vitest-shard-sequencer.ts` packs a `--shard` run by where no newer run is read: a local sharded run, or a CI shard that cannot read the newest green run's reports (#2413, #4574); and the record `scripts/lib/run-cost-report.js` judges a file's growth against.",
-		"route": "Regenerated whole from one Actions run's shard reports: `gh run download <run-id> -R lucmoseley/workflow-core -p 'vitest-report-*' -D <dir>`, then `node scripts/suite-timings.js extract <dir> docs/data/ci-shard-timings.csv run=<run-id> sha=<sha>`",
-		"consumes": null
-	},
 	"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",

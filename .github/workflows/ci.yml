@@ -237,8 +237,11 @@ jobs:
           WFC_CLAUDE_BIN="$dir/claude" node scripts/run-mod-tests.js --all
 
   # One job per shard; the matrix's length is the shard count, read back
-  # through `strategy`. Sized so each shard's job, setup included, stays under
-  # 180 s (#2413). Shards are packed by
+  # through `strategy`. Ten (#4575): one run at 12 was no faster beyond 8's
+  # own p10-p90 spread, and two overlapping batch runs at 12 would use 30
+  # jobs (each shard, Lint, Python and the caller's document guards), past
+  # the 27 measured running at once with no runner wait. GitHub documents 20
+  # concurrent jobs on the Free plan. Shards are packed by
   # recorded file times, not file count (scripts/vitest-shard-sequencer.ts).
   # A batch is green only where every shard is.
   vitest:
@@ -251,7 +254,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v4
 

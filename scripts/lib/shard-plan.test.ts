@@ -105,10 +105,12 @@ describe("the sequencer", () => {
 		);
 	const names = (list: TestSpecification[]) =>
 		list.map((s) => path.relative(root ?? "", s.moduleId));
+	/** The dataset `WFC_SHARD_TIMINGS` names, as a CI shard or the lander
+	 * names one (#4574, #4579). */
 	const writeDataset = (rows: string) => {
-		const at = path.join(root ?? "", "docs/data/ci-shard-timings.csv");
-		fs.mkdirSync(path.dirname(at), { recursive: true });
+		const at = path.join(root ?? "", "timings.csv");
 		fs.writeFileSync(at, `file,seconds,tests,status\n${rows}`);
+		vi.stubEnv("WFC_SHARD_TIMINGS", at);
 	};
 
 	it("splits by the dataset's timings and starts the longest first", async () => {
@@ -126,25 +128,12 @@ describe("the sequencer", () => {
 		]);
 	});
 
-	it("plans by the CSV WFC_SHARD_TIMINGS names over the committed one (#4574)", async () => {
-		const seq = sequencer({ index: 2, count: 2 });
-		writeDataset(
-			"a.test.ts,9.00,1,passed\nb.test.ts,5.00,1,passed\nc.test.ts,4.00,1,passed\n",
-		);
-		const named = path.join(root ?? "", "named.csv");
-		fs.writeFileSync(
-			named,
-			"file,seconds,tests,status\nc.test.ts,9.00,1,passed\nb.test.ts,5.00,1,passed\na.test.ts,4.00,1,passed\n",
-		);
-		vi.stubEnv("WFC_SHARD_TIMINGS", named);
-		const mine = await seq.shard(
-			specs(["a.test.ts", "b.test.ts", "c.test.ts"]),
-		);
-		expect(names(mine)).toEqual(["b.test.ts", "a.test.ts"]);
-	});
-
-	it("falls back to vitest's own split where the dataset is unreadable", async () => {
+	it.each([
+		["none is named", () => ""],
+		["the one named is unreadable", () => path.join(root ?? "", "absent.csv")],
+	])("falls back to vitest's own split where %s", async (_, named) => {
 		const seq = sequencer({ index: 1, count: 2 });
+		vi.stubEnv("WFC_SHARD_TIMINGS", named());
 		const all = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
 		const one = names(await seq.shard(specs(all)));
 		const two = names(

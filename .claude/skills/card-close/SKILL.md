@@ -74,11 +74,11 @@ The roadmap goes first and the issue closes last, so a validation failure leaves
 ### 1. Preflight — wait or abort before touching anything
 
 ```bash
-git status --porcelain docs/reference-roadmap.html   # empty, or poll below
+git status --porcelain docs/reference-roadmap.html   # empty, or see below
 gh issue view $ARGUMENTS --json number,title,state,body,comments
 ```
 
-- Roadmap working copy dirty → **poll and retry; this is not a stop and never an escalation to the founder** (mantahostels#1074). Run the `roadmap-edit` skill's step 1 poll-and-claim loop, which owns the recipe, and on its non-zero exit report the card left unmarked, naming it and this issue.
+- Roadmap working copy dirty → an unfinished roadmap edit of this session's own, **never an escalation to the founder**: finish or drop it, then claim the file, both as the `roadmap-edit` skill's step 1 says.
 - Issue not found, or already `CLOSED` → **stop.** Report which.
 
 ### 2. Resolve the card id
@@ -118,7 +118,7 @@ Also apply the skill's own discipline check: re-read the card's `b` and `mn` for
 
 ### 5. Validate — this is the refusal point
 
-Take the baseline snapshot first. It is **skill-owned and HEAD-derived**: this skill creates it, at its own gitignored, **session-scoped** in-repo path, immediately before validating. The session id keeps two parallel runs from overwriting and deleting each other's snapshot; `CLAUDE_CODE_SESSION_ID` is in every `Bash` call's environment, so use it inline rather than via a shell variable that will not survive to the next call. Do not substitute the `roadmap-edit` skill's baseline and do not assume any snapshot already exists — step 4's skill writes its own, but relying on that couples this skill's refusal to another file's step ordering.
+Take the baseline snapshot first. It is **skill-owned and HEAD-derived**: this skill creates it, at its own gitignored, **session-scoped** in-repo path, immediately before validating. `CLAUDE_CODE_SESSION_ID` is in every `Bash` call's environment, so use it inline rather than via a shell variable that will not survive to the next call. Do not substitute the `roadmap-edit` skill's baseline and do not assume any snapshot already exists — step 4's skill writes its own, but relying on that couples this skill's refusal to another file's step ordering.
 
 ```bash
 mkdir -p .claude/tmp/markers && git show HEAD:docs/reference-roadmap.html \

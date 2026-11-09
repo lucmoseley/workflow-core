@@ -26,6 +26,7 @@
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import { SHORT_SHA } from "./git.js";
 import {
 	type Batch,
 	type Drop,
@@ -138,6 +139,10 @@ interface Options {
 	refuse?: (sha: string) => string | undefined;
 	/** Throws in place of filing a fix ticket while it returns an error. */
 	fileFault?: () => Error | undefined;
+	/** Unfinished runs on batch refs before the run starts, as a crash leaves. */
+	runs?: readonly { branch: string; sha: string }[];
+	/** The cancels a run pushed at `sha` goes unlisted for; none where absent. */
+	unlisted?: (sha: string) => number;
 	/** Throws in place of the fix ticket search, while it returns an error. */
 	findFault?: () => Error | undefined;
 	/** The shas `main` holds, beyond `main` itself. */
@@ -197,6 +202,11 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		const err = o.fault?.(name);
 		if (err) throw err;
 	};
+	/** The Actions runs on batch refs. */
+	const runs = (o.runs ?? []).map((r) => ({ ...r, done: false, unlisted: 0 }));
+	const finish = (sha: string) => {
+		for (const r of runs) if (r.sha === sha) r.done = true;
+	};
 	const deps: QueueLanderDeps = {
 		git: {
 			refs: () => {
@@ -221,6 +231,12 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			pushBatch: (slot, sha) => {
 				call("pushBatch");
 				events.push(`push ${sha} on lander/batch-${slot}`);
+				runs.push({
+					branch: `lander/batch-${slot}`,
+					sha,
+					done: false,
+					unlisted: o.unlisted?.(sha) ?? 0,
+				});
 			},
 			pushIso: (branch, sha) => {
 				call("pushIso");
@@ -275,12 +291,25 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				}
 				inFlight--;
 				events.push(`verdict ${ask}`);
+				if (files.length === 0) finish(sha);
 				return (
 					o.verdict?.(sha, remote, files, nth) ?? { kind: "green", run: 1 }
 				);
 			},
-			cancel: (sha, branch) => {
-				events.push(`cancel ${sha} on ${branch}`);
+			cancel: (branch, keep) => {
+				const listed: string[] = [];
+				for (const r of runs) {
+					if (r.branch !== branch) continue;
+					if (r.unlisted > 0) {
+						r.unlisted--;
+						continue;
+					}
+					listed.push(r.sha);
+					if (r.done || r.sha === keep) continue;
+					r.done = true;
+					events.push(`cancel ${r.sha} on ${branch}`);
+				}
+				return listed;
 			},
 		},
 		ledger: {
@@ -396,6 +425,29 @@ const NOW = Date.parse("2026-11-06T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
 
 describe("the green path", () => {
+	it("ledgers a batch green after its in-job retry with the files it cleared, and logs one line for the batch (#4558)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, onMain: true },
+		});
+		const disk = freshDisk();
+		const cleared = ["scripts/x.test.ts", "scripts/y.test.ts"];
+
+		const { end, said } = await land(remote, disk, {
+			verdict: () => ({ kind: "green", run: 42, cleared }),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(remote.main).toBe("a1");
+		expect(disk.verdicts.get(verdictKey("a1", [], 1))).toEqual({
+			kind: "green",
+			run: 42,
+			cleared,
+		});
+		expect(said.filter((l) => l.startsWith("flake "))).toEqual([
+			"flake a1 run 42: green after its retry cleared scripts/x.test.ts, scripts/y.test.ts",
+		]);
+	});
+
 	it("lands a lone ref as the integration commit its merge names, and deletes it", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },
@@ -549,6 +601,45 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 		expect(events).toContain(`cancel ${merges} on lander/batch-0`);
 		expect(disk.drops.map((d) => d.name)).toEqual(["b"]);
 		expect(remoteNow.main).toBe(mergeSha("m0", [members[0] as Member]));
+	});
+
+	it("cancels at the next merge on the slot a run unlisted when the gates refused, saying it found none then (#4576)", async () => {
+		const remoteNow = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2, refused: "rule:size-line refused it" },
+		});
+		const { events, said } = await land(remoteNow, freshDisk(), {
+			merge: (onto, ms, fresh, started) => {
+				started?.(mergeSha(onto, ms));
+				return fakeMerge(remoteNow, onto, ms, fresh);
+			},
+			unlisted: (sha) => (sha === merges ? 2 : 0),
+		});
+
+		const alone = mergeSha("m0", [members[0] as Member]);
+		expect(said).toEqual([
+			`no run at ${merges.slice(0, SHORT_SHA)} listed on lander/batch-0 to cancel; the next merge there, if any, cancels one listed later`,
+			"Filed #100: https://x/100",
+		]);
+		expect(
+			events.indexOf(`cancel ${merges} on lander/batch-0`),
+		).toBeGreaterThan(events.indexOf(`push ${alone} on lander/batch-0`));
+		expect(events.some((e) => e.startsWith(`cancel ${alone}`))).toBe(false);
+		expect(remoteNow.main).toBe(alone);
+	});
+
+	it("cancels on a restart's merge a run a crash left unrecorded, keeping the one it tests (#4576)", async () => {
+		const { events, asked } = await land(remote(), freshDisk(), {
+			merge: (onto, ms, _fresh, started) => {
+				started?.(mergeSha(onto, ms));
+				return { kind: "merged", sha: mergeSha(onto, ms) };
+			},
+			runs: [{ branch: "lander/batch-0", sha: "orphan" }],
+		});
+
+		expect(events).toContain("cancel orphan on lander/batch-0");
+		expect(events.some((e) => e.startsWith(`cancel ${merges}`))).toBe(false);
+		expect(asked).toEqual([merges]);
 	});
 });
 
@@ -2500,6 +2591,7 @@ describe("the pipeline (#4556)", () => {
 		const { end, actions, events } = await land(remote, disk, {
 			parallel: true,
 			verdict: redWhereA,
+			runs: [{ branch: "lander/batch-1", sha: B }],
 		});
 
 		expect(end).toEqual(NO_QUEUE);
