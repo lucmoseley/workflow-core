@@ -20,6 +20,7 @@ import { CORE_FAULT_TEXT } from "./core-fault.js";
 import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
 import { writeFaultyGit } from "./git-fault-fake";
+import { buildHookEnv } from "./hook-env.js";
 import {
 	GUARD_HOOKS_JSON,
 	ISSUE,
@@ -31,7 +32,6 @@ import {
 import {
 	attachProbeParks,
 	buildHoldLines,
-	buildHookEnv,
 	dropLiftedJobs,
 	holdLockedOut,
 	holdsDir,
@@ -588,8 +588,8 @@ describe("the probe hold (#3860)", () => {
 	describe("the hook environment (#4736)", () => {
 		/* What a login shell already holds, which the harness need not give. */
 		const LoginVars = new Set(["HOME", "PATH"]);
-		/* Each variable a hooks.json's command lines read with no default of their own. */
-		const readRequiredVars = (hooksJson: string) => {
+		/* Each variable a hooks.json's command lines need set: none behind a default or an alternate. */
+		const parseRequiredVars = (hooksJson: string) => {
 			const commands: string[] = [];
 			JSON.parse(hooksJson, (key, value) => {
 				if (key === "command" && typeof value === "string")
@@ -605,15 +605,15 @@ describe("the probe hold (#3860)", () => {
 					]
 						.filter(
 							([, , op]) =>
-								op !== "-" && op !== ":-" && op !== "=" && op !== ":=",
+								!["-", ":-", "=", ":=", "+", ":+"].includes(String(op)),
 						)
 						.map(([, braced, , bare]) => String(braced ?? bare)),
 				),
 			);
 		};
-		const readMissing = (hooksJson: string) => {
+		const findUnsetVars = (hooksJson: string) => {
 			const env = buildHookEnv(repo, {});
-			return [...readRequiredVars(hooksJson)].filter(
+			return [...parseRequiredVars(hooksJson)].filter(
 				(v) => !LoginVars.has(v) && env[v] === undefined,
 			);
 		};
@@ -621,25 +621,22 @@ describe("the probe hold (#3860)", () => {
 		it("sets every variable this repo's self-plugin hook lines read", () => {
 			const real = fs.readFileSync(REAL_HOOKS, "utf8");
 
-			expect(readRequiredVars(real)).toContain("CLAUDE_PLUGIN_ROOT");
-			expect(readMissing(real)).toEqual([]);
+			expect(parseRequiredVars(real)).toContain("CLAUDE_PLUGIN_ROOT");
+			expect(findUnsetVars(real)).toEqual([]);
 		});
 
 		it("sets every variable the probe fixture's hook line reads", () => {
-			expect(readMissing(GUARD_HOOKS_JSON)).toEqual([]);
+			expect(findUnsetVars(GUARD_HOOKS_JSON)).toEqual([]);
 		});
 
 		it("names a variable a hook line reads that it does not set", () => {
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			const command = 'node "${CLAUDE_ENV_FILE}" "${WFC_X:-y}" ${WFC_Y:+z}';
 			const drifted = JSON.stringify({
-				hooks: {
-					Stop: [
-						// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-						{ hooks: [{ command: 'node "${CLAUDE_ENV_FILE}" "${WFC_X:-y}"' }] },
-					],
-				},
+				hooks: { Stop: [{ hooks: [{ command }] }] },
 			});
 
-			expect(readMissing(drifted)).toEqual(["CLAUDE_ENV_FILE"]);
+			expect(findUnsetVars(drifted)).toEqual(["CLAUDE_ENV_FILE"]);
 		});
 	});
 

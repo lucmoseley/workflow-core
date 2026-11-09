@@ -95,6 +95,8 @@ const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { FETCH_TIMEOUT_MS } = require("./pinned-code.js");
 const { refillPath } = require("./refill-dir.js");
+const { buildAgeText } = require("./hold-age.js");
+const { buildHookEnv } = require("./hook-env.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { sleepSync } = require("./sleep-sync.js");
 const {
@@ -968,20 +970,6 @@ function readGuardHookLine(root, tool) {
 }
 
 /**
- * The environment the harness gives a self-plugin hook in checkout `root`: its
- * project dir and plugin root, which the hook lines spell their scripts off
- * (#4701, #4716). The probe runs every hook line under it, and a test holds it
- * to every variable those lines read (#4736).
- * @param {string} root
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {NodeJS.ProcessEnv}
- */
-const buildHookEnv = (root, env = process.env) => ({
-	...buildCheckoutEnv(root, env),
-	CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
-});
-
-/**
  * The benign `Read` the probe runs in `root`.
  * @param {string} root
  * @returns {RefusedCall}
@@ -1613,16 +1601,6 @@ const buildNoticeText = ({ raise, clear }) =>
 	`raise ${buildPhaseText(raise)}, clear ${buildPhaseText(clear)}`;
 
 /**
- * @param {number} ms
- */
-function buildAgeText(ms) {
-	const minutes = Math.max(0, Math.round(ms / 60_000));
-	return minutes < 60
-		? `${minutes}m`
-		: `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-/**
  * What the founder reads of each open hold, and of any store that would not read.
  * @param {string[]} roots
  * @param {number} now
@@ -1644,8 +1622,6 @@ function buildHoldLines(roots, now) {
 }
 
 module.exports = {
-	buildAgeText,
-	buildHookEnv,
 	attachHold,
 	attachProbeParks,
 	buildNoticeName,

@@ -220,7 +220,7 @@ describe("a repo hold (#3860)", () => {
 		});
 
 		expect(d.idle).toEqual(
-			buildIdle("a probe hold stops every launch", ": wfc #4716, held 6h"),
+			buildIdle("a probe hold stops every launch", ": wfc #4716, held 6h 0m"),
 		);
 	});
 
@@ -979,6 +979,14 @@ describe("buildLoopWait, the idle alarm's reason no rank launches (#3920)", () =
 		["no free slot", { freeSlots: 0 }, false],
 		["resumes taking every slot", { freeSlots: 1, resumable: [due] }, false],
 		["nothing launchable", { frontier: [] }, false],
+		[
+			"a probe hold over every row (#4736)",
+			{
+				frontier: [row("/r/wfc", 1)],
+				holds: [{ root: "/r/wfc", kind: "probe", issue: 9, raisedAt: NOW }],
+			},
+			true,
+		],
 		[
 			"a failed shortlist",
 			{ frontier: [], failedShortlists: [{ root: "/r", error: "boom" }] },

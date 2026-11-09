@@ -7,11 +7,11 @@
 
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
+const { buildAgeText } = require("./hold-age.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
-const { describeAge } = require("./proc-table.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
 
@@ -638,7 +638,7 @@ function buildProbeHoldDetail(holds, now) {
 		const age =
 			raisedAt === null
 				? "raised this tick"
-				: `held ${describeAge(Math.max(0, Math.floor((now - raisedAt) / 1000)))}`;
+				: `held ${buildAgeText(now - raisedAt)}`;
 		return `${path.basename(root)} ${filed}, ${age}`;
 	});
 	return `: ${parts.join("; ")}`;

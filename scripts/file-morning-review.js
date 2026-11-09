@@ -131,11 +131,8 @@ const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
 const { STALL_TITLE } = require("./lib/queue-tickets.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
-const {
-	buildAgeText,
-	buildNoticeText,
-	readHolds,
-} = require("./lib/repo-holds.js");
+const { buildAgeText } = require("./lib/hold-age.js");
+const { buildNoticeText, readHolds } = require("./lib/repo-holds.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { refillPath } = require("./lib/refill-dir.js");
