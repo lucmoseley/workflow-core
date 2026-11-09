@@ -996,10 +996,12 @@ function sessionIdsOf(opts, how = {}) {
  * the shortlist while its session works on — a deliberate fail-open (.claude/skills/pick-next/SKILL.md).
  *
  * @param {Opts} [opts]
+ * @param {string} [starter] the starting session, for a caller launched with
+ *   its session id stripped (#4706)
  * @returns {{ids: Set<string>, names: Map<string, string>, finished: Set<string>, terminal: Set<string>, cwds: Map<string, string>, why?: undefined}
  *   | {why: string, ids?: undefined, names?: undefined, finished?: undefined, terminal?: undefined, cwds?: undefined}}
  */
-function sweepSessionIds(opts) {
+function sweepSessionIds(opts, starter) {
 	return refuseOnThrow(opts, false, (listed) => {
 		if (listed.why) return { why: listed.why };
 		if (!listed.agents)
@@ -1008,7 +1010,7 @@ function sweepSessionIds(opts) {
 		/** @type {Map<string, string>} */
 		const names = new Map();
 		for (const a of listed.agents) if (a.name) names.set(a.sessionId, a.name);
-		const me = process.env.CLAUDE_CODE_SESSION_ID;
+		const me = starter || process.env.CLAUDE_CODE_SESSION_ID;
 		if (me) ids.add(me);
 		// `me` is added to `ids` only, never to `finished` or `terminal`: this
 		// caller is running.

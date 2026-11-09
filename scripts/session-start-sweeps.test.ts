@@ -296,7 +296,7 @@ describe("the SessionStart housekeeping launcher", () => {
 		for (const name of ["node", "git"])
 			fs.writeFileSync(
 				path.join(bin, name),
-				`#!/bin/sh\necho "${name} $* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-}" >> ${shellQuote(log)}\n`,
+				`#!/bin/sh\necho "${name} $* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-} manager=\${WFC_USER_MANAGER-}" >> ${shellQuote(log)}\necho "stdout of ${name} $*"\n`,
 				{ mode: 0o755 },
 			);
 		const fake = writeSystemdRun(bin, { answers });
@@ -325,12 +325,25 @@ describe("the SessionStart housekeeping launcher", () => {
 				).toBe(true),
 			{ timeout: 5000, interval: 50 },
 		);
-		return { lines: reachedLines(), fake };
+		return { lines: reachedLines(), fake, project };
 	}
+
+	it("appends the lander start's output to the lander's log (#4706)", async () => {
+		const { project } = await launchOutliving(true);
+		const logs = (fs.readdirSync(project, { recursive: true }) as string[])
+			.filter((f) => path.basename(f) === ".lander.log")
+			.map((f) => fs.readFileSync(path.join(project, f), "utf8"));
+		expect(logs).toEqual([
+			expect.stringMatching(/^stdout of node \S*start-lander\.js/m),
+		]);
+	});
 
 	it("launches every job but the session's scope as no session, owned by the starter, capped at 45 minutes (#4706)", async () => {
 		const { lines, fake } = await launchOutliving(true);
 		expect(fake.probes()).toBe(1);
+		expect(lines.find((l) => l.includes("check-self-throttling.js"))).toMatch(
+			/ manager=yes$/,
+		);
 		const calls = fake.calls();
 		for (const job of Outliving)
 			expect(calls.find((c) => c.command.includes(job))).toMatchObject({
@@ -343,17 +356,20 @@ describe("the SessionStart housekeeping launcher", () => {
 			false,
 		);
 		expect(lines.find((l) => l.includes("session-scope.js"))).toMatch(
-			/ sid=starter job=\/the\/job owner=stale$/,
+			/ sid=starter job=\/the\/job owner=stale manager=$/,
 		);
 	});
 
 	it("starts each job unscoped, still stripped and owner-tagged, where no manager answers (#4706)", async () => {
 		const { lines, fake } = await launchOutliving(false);
 		expect(fake.probes()).toBe(1);
+		expect(lines.find((l) => l.includes("check-self-throttling.js"))).toMatch(
+			/ manager=no$/,
+		);
 		expect(fake.calls()).toEqual([]);
 		for (const job of Outliving)
 			expect(lines.find((l) => l.includes(job))).toMatch(
-				/ sid= job= owner=starter$/,
+				/ sid= job= owner=starter manager=$/,
 			);
 	});
 

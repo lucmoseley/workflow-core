@@ -1086,6 +1086,86 @@ runCheck({
 		expect(`${r.stdout}${r.stderr}`).not.toContain("findings: b");
 	});
 
+	describe("a merge in flight (#4582)", () => {
+		/** A `topic` branch at HEAD, and `main` moved on to carry `landed`. */
+		const merging = (head: string, landed: string) => {
+			const { root, git } = repo(head);
+			git("branch", "-M", "main");
+			git("checkout", "-q", "-b", "topic");
+			fs.writeFileSync(path.join(root, "other.txt"), "x\n");
+			git("add", "--", "other.txt");
+			git("commit", "-qm", "topic");
+			git("checkout", "-q", "main");
+			fs.writeFileSync(path.join(root, "faults.txt"), landed);
+			git("commit", "-qam", "main");
+			git("checkout", "-q", "topic");
+			const mainSha = git("rev-parse", "main").stdout.trim();
+			const judge = (env: Record<string, string> = {}) => {
+				const r = runInProcess(
+					path.join(root, "fixture-check.js"),
+					["--against", "HEAD"],
+					{ cwd: root, env: { ...process.env, GITHUB_ACTIONS: "", ...env } },
+				);
+				return { status: r.status, out: `${r.stdout}${r.stderr}` };
+			};
+			return { root, git, mainSha, judge };
+		};
+
+		it("passes a merge of main whose every fault main already carries", () => {
+			const { git, mainSha, judge } = merging("a\n", "a\nb\n");
+			git("merge", "--no-ff", "--no-commit", "main");
+			const r = judge();
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(`already in HEAD or ${mainSha}`);
+		});
+
+		it("refuses a fault neither parent carries, naming both", () => {
+			const { root, git, mainSha, judge } = merging("a\n", "a\nb\n");
+			git("merge", "--no-ff", "--no-commit", "main");
+			fs.writeFileSync(path.join(root, "faults.txt"), "a\nb\nc\n");
+			git("add", "--", "faults.txt");
+			const r = judge();
+			expect(r.status).toBe(1);
+			expect(r.out).toContain(`are NOT in HEAD or ${mainSha}`);
+			expect(r.out).toContain("findings: c");
+			expect(r.out).not.toContain("findings: b");
+		});
+
+		/* The queue lander's shape: an unlanded member merged into the batch. */
+		it("judges against HEAD alone a merged-in head on no landed ref, refusing what it brings", () => {
+			const { root, git, judge } = merging("a\n", "a\n");
+			fs.writeFileSync(path.join(root, "faults.txt"), "a\nz\n");
+			git("commit", "-qam", "topic brings z");
+			git("checkout", "-q", "main");
+			git("merge", "--no-ff", "--no-commit", "topic");
+			const r = judge();
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("findings: z");
+			expect(r.out).toContain("it is on no landed ref");
+		});
+
+		/* pre-merge-commit runs before git writes MERGE_HEAD. */
+		it("reads the merged-in head from GITHEAD_<sha> where MERGE_HEAD is not yet written", () => {
+			const { root, git, mainSha, judge } = merging("a\n", "a\nb\n");
+			fs.writeFileSync(path.join(root, "faults.txt"), "a\nb\n");
+			git("add", "--", "faults.txt");
+			expect(judge().status).toBe(1);
+			const r = judge({ [`GITHEAD_${mainSha}`]: "main" });
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(`already in HEAD or ${mainSha}`);
+		});
+
+		it("fails closed where a merged-in head names no commit", () => {
+			const { root, git, judge } = merging("a\n", "a\nb\n");
+			fs.writeFileSync(path.join(root, "faults.txt"), "a\nb\n");
+			git("add", "--", "faults.txt");
+			const gone = "f".repeat(40);
+			const r = judge({ [`GITHEAD_${gone}`]: "gone" });
+			expect(r.status).toBe(2);
+			expect(r.out).toContain(`resolving the merged-in ${gone}`);
+		});
+	});
+
 	describe("--index (#3687)", () => {
 		const index = (head: string, staged?: string, worktree?: string) =>
 			gate(head, staged, { worktree, args: ["--index"] });

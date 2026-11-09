@@ -1,7 +1,8 @@
 /*
  * merge-heads.js — the commits an unfinished merge is bringing in, read from
- * `$GIT_DIR/MERGE_HEAD`. Apart from git.js so that a change here re-anchors
- * only the guards that read a merge's sides (#4529).
+ * `$GIT_DIR/MERGE_HEAD` or, before git writes it, the GITHEAD_<sha> exports.
+ * Apart from git.js so that a change here re-anchors only the guards that
+ * read a merge's sides (#4529).
  */
 
 const fs = require("node:fs");
@@ -54,4 +55,33 @@ function readMergeHeadLines(cwd) {
 		.filter(Boolean);
 }
 
-module.exports = { readMergeHeadLines };
+/* git exports one per merged head to the hooks a `git merge` runs (its
+ * conflict-marker labels), before MERGE_HEAD exists. */
+const GITHEAD_ENV = /^GITHEAD_([0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * The shas `env`'s GITHEAD_<sha> names, as a hook `git merge` runs sees them.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string[]}
+ */
+function githeadShas(env) {
+	return Object.keys(env).flatMap((k) => {
+		const m = GITHEAD_ENV.exec(k);
+		return m?.[1] ? [m[1]] : [];
+	});
+}
+
+/**
+ * The commits a merge in flight brings in: MERGE_HEAD's lines, or, in a hook
+ * `git merge` runs before writing that file, its GITHEAD_<sha> exports. None
+ * where no merge is in flight. BROKEN as `readMergeHeadLines` is.
+ * @param {string} [cwd]
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
+ */
+function readMergingHeads(cwd, env = process.env) {
+	const lines = readMergeHeadLines(cwd);
+	return lines.length > 0 ? lines : githeadShas(env);
+}
+
+module.exports = { githeadShas, readMergeHeadLines, readMergingHeads };

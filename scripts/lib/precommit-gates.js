@@ -23,6 +23,8 @@
  * THE BASELINE MUST EXIST for an `against` gate: lib/check.js resolves
  * HEAD^{tree} before it reads anything, so in a repo with no commit yet the
  * gate is BROKEN, exit 2, refusing the very first commit (mantahostels#1940).
+ * Mid-merge, an `against` gate also inherits a fault a merged-in head already
+ * on `main` carries (#4582).
  * An `index` gate judges the tree this commit makes, never an untracked or
  * unstaged file outside it, and still refuses a breach HEAD already carries
  * (#3687).

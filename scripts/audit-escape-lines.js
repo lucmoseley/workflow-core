@@ -42,8 +42,7 @@
  * TREE:      host — judges escape lines in transcripts filed under the host root's project slug
  */
 
-const { reportOwner } = require("./lib/session-id.js");
-const { OUTLIVE_CEILING_S, spawnOutliving } = require("./lib/user-scope.js");
+const { spawnOutliving } = require("./lib/user-scope.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
@@ -293,8 +292,6 @@ function kick(root) {
 		spawnOutliving(process.execPath, [__filename, "--judge", "--root", root], {
 			cwd: root,
 			stdio: "ignore",
-			owner: reportOwner(),
-			ceilingS: OUTLIVE_CEILING_S,
 		}).unref();
 	} catch {
 		/* the next session start tries again (#671) */

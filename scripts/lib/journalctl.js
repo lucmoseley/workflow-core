@@ -83,4 +83,10 @@ function readBoots() {
 /** /proc's boot_id carries dashes; journalctl's does not. */
 const bootKey = (/** @type {string} */ id) => id.replace(/-/g, "");
 
-module.exports = { bootKey, readBoots, runJournalctl, toSecond };
+module.exports = {
+	READ_TIMEOUT_MS,
+	bootKey,
+	readBoots,
+	runJournalctl,
+	toSecond,
+};

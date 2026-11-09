@@ -482,7 +482,7 @@ describe("a session start after the timer's kills", () => {
 		expect(second.stdout).not.toContain("sess-gone");
 	});
 
-	it("says it will not read an unreadable kill log, naming it, and still sweeps", () => {
+	it("warns of an unreadable kill log, naming it and the remedy, and finishes its run", () => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-"));
 		spawnSync("git", ["init", "-q", dir]);
 		const log = path.join(dir, ".git/HEAD/session-reaps.jsonl");
@@ -501,5 +501,7 @@ describe("a session start after the timer's kills", () => {
 		expect(res.stdout).toContain(
 			`ORPHAN-SESSION: will not read the timer's kill log, so its kills go unnamed — ${log}: `,
 		);
+		expect(res.stdout).toContain("Repair the file or move it aside");
+		expect(res.stdout).toMatch(/^WARN: 1 .*unread kill log/m);
 	});
 });

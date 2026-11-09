@@ -14,6 +14,7 @@
 const os = require("node:os");
 const path = require("node:path");
 const { rungMb } = require("./suite-ladder.js");
+const { windowsNeedMb, windowsShortfall } = require("./windows-memory.js");
 
 /* The peak single `tsc` RSS in `~/memwatch-archive.log`, 23–27 Oct 2026
  * (#3163), off its `^ *PID RSS node .*\/tsc` lines. MOVE IT ONLY WITH A
@@ -75,17 +76,19 @@ function runningTsc(rows) {
 /**
  * Whether the slot would refuse a `tsc` now, and on which limb: the count cap
  * with the running `tsc`s' PIDs, and the memory reading where the rung fails
- * too (#4359), or the memory rung. Null where it
- * would not, and on an unread `ps` or MemAvailable that limb fails open
- * (mantahostels#103 §6). `climbMb`, what the suite queue's launches have yet
- * to draw (#3416), comes off MemAvailable before the rung reads it.
+ * too (#4359), the memory rung, or the Windows-memory hold (#4557). Null where
+ * it would not, and on an unread `ps`, MemAvailable or Windows reading that
+ * limb fails open (mantahostels#103 §6). `climbMb`, what the suite queue's
+ * launches have yet to draw (#3416), comes off MemAvailable before the rung
+ * reads it, and is charged on Windows beside the `tsc`'s own peak.
  *
  * @param {import("./suite-ladder.js").PsRow[] | null} rows
  * @param {number | null} mb
  * @param {number} [climbMb]
+ * @param {import("./windows-memory.js").WindowsRead} [windows]
  * @returns {import("./suite-queue.js").GateDenial | null}
  */
-function tscDenial(rows, mb, climbMb = 0) {
+function tscDenial(rows, mb, climbMb = 0, windows = { state: "absent" }) {
 	const running = rows === null ? [] : runningTsc(rows);
 	const memory =
 		mb !== null && mb - climbMb < TSC_RUNG_MB
@@ -93,7 +96,9 @@ function tscDenial(rows, mb, climbMb = 0) {
 			: null;
 	if (running.length >= TSC_MAX)
 		return { limb: "count", pids: running, ...(memory ? { memory } : {}) };
-	return memory ? { limb: "memory", ...memory } : null;
+	if (memory) return { limb: "memory", ...memory };
+	const short = windowsShortfall(windows, windowsNeedMb(TSC_PEAK_MB + climbMb));
+	return short ? { limb: "windows", ...short } : null;
 }
 
 /**
