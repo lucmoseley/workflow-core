@@ -246,7 +246,8 @@ function stopPark(l, why, mode, seen) {
 
 /**
  * `l` after a resume that restarted its job at `now`: `relaunchedAt` set,
- * from which it has the listing's grace. Where the job is a copy, `l` tracks
+ * from which it has the listing's grace, and `slotTakenAt` where the resume
+ * took a slot, from which the unproven cap counts it (#4684). Where the job is a copy, `l` tracks
  * the copy's job and session id, its dispatch-ledger hold still the job
  * first launched (#2963), and `fromSessionId`, the session it resumed, kept
  * among its past ones for actsOf (#2969), with any original whose job would
@@ -255,16 +256,18 @@ function stopPark(l, why, mode, seen) {
  * @param {JobLaunch} l
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} resumed
  * @param {number} now
+ * @param {{tookSlot: boolean}} how
  * @returns {JobLaunch}
  */
-function relaunched(l, resumed, now) {
+function relaunched(l, resumed, now, { tookSlot }) {
 	const { jobId, sessionId, fromSessionId } = resumed;
+	const at = { relaunchedAt: now, ...(tookSlot ? { slotTakenAt: now } : {}) };
 	if (!resumed.copy)
 		return {
 			...l,
 			jobId,
 			...(sessionId ? { sessionId } : {}),
-			relaunchedAt: now,
+			...at,
 		};
 	const { sessionId: _, ...rest } = l;
 	const past = new Set([...(l.pastSessionIds ?? []), fromSessionId]);
@@ -273,7 +276,7 @@ function relaunched(l, resumed, now) {
 			...rest,
 			jobId,
 			copiedFrom: l.copiedFrom ?? l.jobId,
-			relaunchedAt: now,
+			...at,
 			...(sessionId ? { sessionId } : {}),
 			pastSessionIds: [...past],
 		},

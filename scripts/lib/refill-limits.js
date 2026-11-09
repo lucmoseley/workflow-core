@@ -230,14 +230,15 @@ function holdForLimit(l, limit, { now, io }) {
 
 /**
  * Limit act `act` on `l`: its session stopped, unless held already, and held
- * from now on, then `resume` run on it and the launch it leaves written. Where
+ * from now on, then `resume` run on it and the launch it leaves written, told
+ * whether a restart takes a slot, as one from held does (limitWorkingChange). Where
  * no session id read or the stop failed, `l` after that failed try, reported
  * under `failedLine` of the limit it is held at.
  * @param {JobLaunch} l
  * @param {LimitRead} limit  what a live session's seat reads now
  * @param {{act: LimitAct, failedLine: (held: LimitRead) => string,
  *   resume: (stopped: JobLaunch & {limitHeld: LimitHeld},
- *   ids: ResumeTarget & {sessionId: string}) => LoopLaunch}} how
+ *   ids: ResumeTarget & {sessionId: string}, tookSlot: boolean) => LoopLaunch}} how
  * @param {LimitTick} seen
  * @returns {LoopLaunch}
  */
@@ -264,6 +265,7 @@ function runLimitAct(l, limit, { act, failedLine, resume }, { now, io }) {
 	const out = resume(
 		{ ...l, limitHeld: { ...held, sessionId } },
 		{ sessionId, cwd },
+		isLimitHeld(l),
 	);
 	io.writeLaunch(out);
 	return out;
@@ -288,15 +290,14 @@ function resumeInPlace(l, limit, seen) {
 		{
 			act: { kind: "in-place" },
 			failedLine: (at) => `could not resume ${buildInPlaceWhat(l, at)}`,
-			resume: (stopped, ids) =>
+			resume: (stopped, ids, tookSlot) =>
 				settleInPlace(
 					stopped,
 					{
 						...io.resumeStopped(stopped, LIMIT_PROMPT, ids),
 						fromSessionId: ids.sessionId,
 					},
-					now,
-					io,
+					{ now, io, tookSlot },
 				),
 		},
 		seen,
@@ -312,14 +313,14 @@ const buildInPlaceWhat = (l, limit) =>
 	`${l.jobId} ${launchName(l)} on ${l.seat}, after its ${buildLimitText(limit)}`;
 
 /**
- * `l`, stopped, after resumeInPlace's resume `r` at `now`, reported.
+ * `l`, stopped, after resumeInPlace's resume `r` at `now`, reported;
+ * `tookSlot` where it was held before.
  * @param {JobLaunch & {limitHeld: LimitHeld}} l
  * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
- * @param {number} now
- * @param {BlockIo} io
+ * @param {{now: number, io: BlockIo, tookSlot: boolean}} seen
  * @returns {LoopLaunch}
  */
-function settleInPlace(l, r, now, io) {
+function settleInPlace(l, r, { now, io, tookSlot }) {
 	const limitText = buildLimitText(l.limitHeld.limit);
 	const what = buildInPlaceWhat(l, l.limitHeld.limit);
 	if (r.failed !== null) {
@@ -334,6 +335,7 @@ function settleInPlace(l, r, now, io) {
 		},
 		r,
 		now,
+		{ tookSlot },
 	);
 	const how = buildResumedHow(r);
 	io.log(`resumed ${what}: same seat, ${how}`);
@@ -419,7 +421,7 @@ function moveToSeat(l, target, limit, seen) {
 		{
 			act: { kind: "move", to: target },
 			failedLine: (at) => `could not move ${buildMoveWhat(l, target, at)}`,
-			resume: (stopped, ids) =>
+			resume: (stopped, ids, tookSlot) =>
 				settleMove(
 					{ ...stopped, block: l.block },
 					target,
@@ -427,7 +429,7 @@ function moveToSeat(l, target, limit, seen) {
 						...io.moveSession(stopped, target, MOVED_PROMPT, ids),
 						fromSessionId: ids.sessionId,
 					},
-					{ now, io },
+					{ now, io, tookSlot },
 				),
 		},
 		seen,
@@ -444,15 +446,16 @@ const buildMoveWhat = (l, target, limit) =>
 	`${l.jobId} ${launchName(l)} from ${l.seat} to ${buildTargetText(target)}, at its ${buildLimitText(limit)}`;
 
 /**
- * `l`, stopped, after moveToSeat's resume `r` on `target` at `now`, reported.
+ * `l`, stopped, after moveToSeat's resume `r` on `target` at `now`, reported;
+ * `tookSlot` where it was held before.
  * @param {JobLaunch & {block: import("./block-act.js").Block,
  *   limitHeld: LimitHeld}} l
  * @param {MoveTarget} target
  * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
- * @param {{now: number, io: BlockIo}} seen
+ * @param {{now: number, io: BlockIo, tookSlot: boolean}} seen
  * @returns {LoopLaunch}
  */
-function settleMove(l, target, r, { now, io }) {
+function settleMove(l, target, r, { now, io, tookSlot }) {
 	const limitText = buildLimitText(l.limitHeld.limit);
 	const what = buildMoveWhat(l, target, l.limitHeld.limit);
 	if (r.failed !== null) {
@@ -478,6 +481,7 @@ function settleMove(l, target, r, { now, io }) {
 		},
 		r,
 		now,
+		{ tookSlot },
 	);
 	const how = r.copy ? buildResumedHow(r) : "under its own session id";
 	const charged =
@@ -520,10 +524,11 @@ function settleStartedLimit(l, act, r, { what, at, io }) {
 		return l;
 	}
 	const held = { ...l, block: l.block, limitHeld: act.held };
+	const seen = { now: at, io, tookSlot: isLimitHeld(l) };
 	return syncLedgerHold(
 		act.kind === "in-place"
-			? settleInPlace(held, r, at, io)
-			: settleMove(held, act.to, r, { now: at, io }),
+			? settleInPlace(held, r, seen)
+			: settleMove(held, act.to, r, seen),
 		io,
 	);
 }

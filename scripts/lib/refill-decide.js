@@ -138,6 +138,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {string} [prompt] what it launched on
  * @property {number} launchedAt ms
  * @property {number} [relaunchedAt] ms, when a resume last restarted its job
+ * @property {number} [slotTakenAt] ms, when a resume that took a slot last
+ *   restarted it
  * @property {string|null} [jobId]
  * @property {{resumedAt?: number}} [limitHeld] where the loop stopped it on its
  *   seat's limit, with `resumedAt` once a resume restarted it
@@ -377,8 +379,8 @@ function noProgressRun({ history, noProgressFrom }) {
 
 /**
  * How many more launches and resumes may start before an act proves one
- * (#4223): NO_PROGRESS_RUN less the running launches started after
- * `lastActAt`, every one where it is null, a launch with no job yet among them
+ * (#4223): NO_PROGRESS_RUN less the running launches launched, or resumed
+ * into a slot, after `lastActAt`, every one where it is null, a launch with no job yet among them
  * (so not refill-blocks' isActionable). One the loop stopped, for a park or
  * on its seat's limit and not since resumed, runs no session, and one due back
  * this tick is counted as its resume.
@@ -392,10 +394,17 @@ function unprovenRoom({ history, lastActAt, resumable = [] }) {
 			l.parkStopped === undefined &&
 			!(l.limitHeld && l.limitHeld.resumedAt === undefined) &&
 			!(l.jobId && due.has(l.jobId)) &&
-			(lastActAt === null || startedAt(l) > lastActAt),
+			(lastActAt === null || unprovenFrom(l) > lastActAt),
 	).length;
 	return Math.max(0, NO_PROGRESS_RUN - unproven);
 }
+
+/**
+ * When `l` last took a slot, from which the unproven cap counts it: a restart
+ * that kept its slot, in place, moved or typed-resume's fallback, adds no
+ * session, so leaves its date (#4684).
+ * @param {{launchedAt: number, slotTakenAt?: number}} l */
+const unprovenFrom = (l) => Math.max(l.launchedAt, l.slotTakenAt ?? 0);
 
 /**
  * The unproven cap's idle, naming the act it counts from.

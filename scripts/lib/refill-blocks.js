@@ -819,7 +819,7 @@ function settleFallBack(l, r, { now, io }, { route, again }) {
 	let resumed = l;
 	let told = route;
 	if (r.failed === null) {
-		resumed = relaunched(l, r, now);
+		resumed = relaunched(l, r, now, { tookSlot: false });
 		told = `${route}, ${buildResumedHow(r)}`;
 	}
 	const tried = {
@@ -1241,7 +1241,7 @@ function resumableOf(launches, { agents, io, swapHold }) {
  * @returns {LoopLaunch}
  */
 function afterStepResume(l, { rest, watchesTurn }, r, at) {
-	const resumed = relaunched(rest, r, at);
+	const resumed = relaunched(rest, r, at, { tookSlot: true });
 	return watchesTurn || l.bootResumedAt !== undefined
 		? { ...resumed, bootResumedAt: at }
 		: resumed;

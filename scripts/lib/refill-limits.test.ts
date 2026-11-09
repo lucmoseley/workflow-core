@@ -27,7 +27,7 @@ import {
 	NOW,
 	record,
 } from "./refill-blocks-fixture";
-import { buildLimitCapText } from "./refill-decide.js";
+import { buildLimitCapText, unprovenRoom } from "./refill-decide.js";
 import {
 	actOnLimits,
 	buildHeldStopText,
@@ -1484,6 +1484,46 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 	it("leaves the other acts' pass alone: actOnBlocks takes no limit block", () => {
 		const { calls } = blocks([blocked()], [agent("job42", "blocked")], "away");
 		expect(calls).toEqual([]);
+	});
+
+	describe("the unproven cap across a limit restart (#4684)", () => {
+		const Act = NOW - 30 * MIN;
+		const unproven = [0, 1, 2].map((i) =>
+			record({ jobId: `u${i}`, launchedAt: Act + 1 + i }),
+		);
+		const room = (launches: Launch[]) =>
+			unprovenRoom({
+				/* One unproven launch finishes: its room comes back. */
+				history: launches.map((l) =>
+					l.jobId === "u0" ? { ...l, finishedAt: NOW } : l,
+				),
+				lastActAt: Act,
+			});
+
+		it("leaves a live one resumed in place, with three unproven running, dated by its launch", () => {
+			const { launches, workingChange } = limits(
+				[...unproven, blocked({ launchedAt: Act - 60 * MIN })],
+				[agent("job42", "blocked")],
+				{ slots: 0 },
+			);
+			expect(launches[3]).toMatchObject({
+				relaunchedAt: NOW,
+				limitHeld: { resumedAt: NOW },
+			});
+			expect(launches[3]).not.toHaveProperty("slotTakenAt");
+			expect(workingChange).toBe(0);
+			expect(room(launches)).toBe(1);
+		});
+
+		it("counts a held one resumed into a slot from its resume", () => {
+			const { launches } = limits(
+				[...unproven, held({ launchedAt: Act - 60 * MIN })],
+				[],
+				{ slots: 1 },
+			);
+			expect(launches[3]).toMatchObject({ slotTakenAt: NOW });
+			expect(room(launches)).toBe(0);
+		});
 	});
 
 	it("reads a held one neither resumed-idle nor owed anything by actOnIdle", () => {

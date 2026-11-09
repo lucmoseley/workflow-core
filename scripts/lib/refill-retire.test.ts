@@ -99,12 +99,15 @@ describe("relaunched carries a copy's unretired original (#4646)", () => {
 			copyLaunch({ jobId: "cccccccc", unretired: [earlier] }),
 			{ ...copied, unretired: UNRETIRED },
 			1,
+			{ tookSlot: false },
 		);
 		expect(out.unretired).toEqual([earlier, UNRETIRED]);
 	});
 
 	it("adds nothing for a copy whose original retired", () => {
-		const out = relaunched(copyLaunch({ jobId: "cccccccc" }), copied, 1);
+		const out = relaunched(copyLaunch({ jobId: "cccccccc" }), copied, 1, {
+			tookSlot: false,
+		});
 		expect(out).not.toHaveProperty("unretired");
 	});
 });
