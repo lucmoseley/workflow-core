@@ -147,12 +147,12 @@ const canary = String(canaryLine?.command);
 const writer = registered.find(({ command }) =>
 	command.includes(MARKER_WRITER),
 );
-const bash = {
+const BASH_LS = {
 	hook_event_name: "PreToolUse",
 	tool_name: "Bash",
 	tool_input: { command: "ls" },
 };
-const sessionStart = { hook_event_name: "SessionStart", source: "startup" };
+const SESSION_START = { hook_event_name: "SessionStart", source: "startup" };
 
 describe("an edited hook script in the session's worktree (#4701)", () => {
 	it("does not change the canary's verdict, either way (#4701)", () => {
@@ -166,20 +166,20 @@ describe("an edited hook script in the session's worktree (#4701)", () => {
 			path.join(worktree, "scripts", MARKER_WRITER),
 			"#!/bin/sh\nexit 0\n",
 		);
-		const unmarked = runHook(worktree, canary, bash);
+		const unmarked = runHook(worktree, canary, BASH_LS);
 		expect(unmarked.status).toBe(2);
 		expect(unmarked.stderr).toContain("the wfc-self self-plugin did not load");
 		expect(unmarked.stderr).toContain(
 			`\n! claude plugin marketplace add ${shellQuote(`${main}/self-plugin`)} --scope user\n`,
 		);
 
-		const start = runHook(worktree, String(writer?.command), sessionStart);
+		const start = runHook(worktree, String(writer?.command), SESSION_START);
 		expect(start.status).toBe(0);
 		fs.writeFileSync(
 			path.join(worktree, "scripts", "self-plugin-canary.sh"),
 			"#!/bin/sh\necho 'Refused: broken' >&2\nexit 2\n",
 		);
-		const marked = runHook(worktree, canary, bash);
+		const marked = runHook(worktree, canary, BASH_LS);
 		expect(marked.stderr).toBe("");
 		expect(marked.status).toBe(0);
 	});
@@ -200,11 +200,11 @@ describe("the canary registration the harness reads", () => {
 		 * and the line runs in `sh`, where no clock seam reaches. */
 		const timed = () => {
 			const at = performance.now();
-			const r = runHook(worktree, canary, bash);
+			const r = runHook(worktree, canary, BASH_LS);
 			return { ...r, ms: performance.now() - at };
 		};
 		const refused = timed();
-		runHook(worktree, String(writer?.command), sessionStart);
+		runHook(worktree, String(writer?.command), SESSION_START);
 		const allowed = timed();
 		expect(refused.status).toBe(2);
 		expect(refused.stderr).toContain("the wfc-self self-plugin did not load");
