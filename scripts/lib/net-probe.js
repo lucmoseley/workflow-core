@@ -8,7 +8,8 @@
  *
  * Run as a child, so the loop's synchronous acts can ask it: `node
  * net-probe.js` exits 0 reachable, else 1 with why on stderr. WFC_NET_PROBE
- * names a program run in its place, for a suite's stand-in (§N7).
+ * names a program run in its place, for a suite's stand-in (§N7):
+ * lib/net-probe-fake.ts's, held to this one by lib/net-probe.contract.test.ts.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -43,30 +44,62 @@ function probeNetwork(env = process.env) {
 	return r.stderr.trim() || `the probe exited ${r.status ?? r.signal}`;
 }
 
-function main() {
-	const fail = (/** @type {string} */ why) => {
-		writeFd(2, `${why}\n`);
-		process.exit(1);
-	};
-	const timer = setTimeout(
-		() => fail(`${HOST} gave no answer in ${STEP_TIMEOUT_MS} ms`),
-		STEP_TIMEOUT_MS,
-	);
-	dns.lookup(HOST, (err, address) => {
-		clearTimeout(timer);
-		if (err) return fail(`${HOST} did not resolve: ${err.code ?? err.message}`);
-		const socket = net.connect({ host: address, port: PORT });
-		socket.setTimeout(STEP_TIMEOUT_MS, () =>
-			fail(`${HOST}:${PORT} took no connection in ${STEP_TIMEOUT_MS} ms`),
+/**
+ * The child's work: null where the host is reachable, else the line it
+ * prints. The seams let lib/net-probe.contract.test.ts run it offline (#4826).
+ * @param {object} [seams]
+ * @param {(host: string, cb: (err: NodeJS.ErrnoException|null, address: string) => void) => void} [seams.lookup]
+ * @param {number} [seams.port]
+ * @param {number} [seams.timeoutMs]
+ * @returns {Promise<string|null>}
+ */
+function main({
+	lookup = dns.lookup,
+	port = PORT,
+	timeoutMs = STEP_TIMEOUT_MS,
+} = {}) {
+	return new Promise((resolve) => {
+		/** @type {import("node:net").Socket|undefined} */
+		let socket;
+		let settled = false;
+		const settle = (/** @type {string|null} */ why) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket?.destroy();
+			resolve(why);
+		};
+		const timer = setTimeout(
+			() => settle(`${HOST} gave no answer in ${timeoutMs} ms`),
+			timeoutMs,
 		);
-		socket.on("connect", () => {
-			socket.destroy();
-			process.exit(0);
+		lookup(HOST, (err, address) => {
+			if (settled) return;
+			clearTimeout(timer);
+			if (err)
+				return settle(`${HOST} did not resolve: ${err.code ?? err.message}`);
+			socket = net.connect({ host: address, port });
+			socket.setTimeout(timeoutMs, () =>
+				settle(`${HOST}:${port} took no connection in ${timeoutMs} ms`),
+			);
+			socket.on("connect", () => settle(null));
+			socket.on("error", (e) =>
+				settle(`${HOST}:${port} refused: ${e.message}`),
+			);
 		});
-		socket.on("error", (e) => fail(`${HOST}:${PORT} refused: ${e.message}`));
 	});
 }
 
-if (require.main === module) main();
+if (require.main === module)
+	main().then(
+		(why) => {
+			if (why) writeFd(2, `${why}\n`);
+			process.exit(why ? 1 : 0);
+		},
+		(/** @type {Error} */ e) => {
+			writeFd(2, `the probe failed: ${e.message}\n`);
+			process.exit(1);
+		},
+	);
 
-module.exports = { probeNetwork };
+module.exports = { probeNetwork, main };
