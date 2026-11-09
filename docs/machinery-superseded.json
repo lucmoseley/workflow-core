@@ -2482,6 +2482,10 @@
 			{
 				"needle": "0.258",
 				"scanned": true
+			},
+			{
+				"needle": "0.008%",
+				"scanned": true
 			}
 		]
 	},

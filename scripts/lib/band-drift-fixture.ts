@@ -46,7 +46,7 @@ const buildAtLine = (relation?: string) =>
 	round([AT_LINE, AT_LINE - 5, AT_LINE + 5], [25, 20, 30], relation);
 const buildOverLine = () =>
 	round([AT_LINE + 10, AT_LINE + 5, AT_LINE + 15], [20, 15, 25]);
-/* Topped one step under the line, with a 45-point gap: a round the low-top
+/* Topped two steps under the line, with a 45-point gap: a round the low-top
  * test refuses. */
 const UNDER_LINE = round(
 	[AT_LINE - 10, AT_LINE - 15, AT_LINE - 5],

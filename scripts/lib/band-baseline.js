@@ -36,14 +36,14 @@ const MIN_BAND_SAMPLE = 100;
  */
 const TOP_BASELINE = {
 	atLine: 527,
-	passing: 1817,
+	passingTops: 1817,
 	window: "5–19 Oct 2026",
 };
 
 /*
  * Under this many passing tops the share is noise: at 300, a true baseline
- * share reads over 1.5 times itself by chance 0.000005% of the time, and at
- * 150 0.007% (binomial, #2260, #4536).
+ * share reads over 1.5 times itself by chance 0.000005% of the time
+ * (binomial). 300 is #2260's figure, kept at #4536, not re-chosen.
  */
 const MIN_TOP_SAMPLE = 300;
 

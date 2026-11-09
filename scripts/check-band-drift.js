@@ -289,7 +289,7 @@ function bandReading(r) {
  */
 function topReading(r) {
 	const share = r.passingTops ? r.atFirstPassingTop / r.passingTops : null;
-	const baseline = TOP_BASELINE.atLine / TOP_BASELINE.passing;
+	const baseline = TOP_BASELINE.atLine / TOP_BASELINE.passingTops;
 	const ceiling = baseline * CEILING_RATIO;
 	return { share, baseline, ceiling };
 }
@@ -407,7 +407,7 @@ const TOP_WATCH = {
 			drifted: v.share !== null && v.share > v.ceiling,
 			summary: buildTopSummary(r, v, days),
 			findings: [],
-			baseline: `Baseline: ${TOP_BASELINE.atLine} of ${TOP_BASELINE.passing} priced tops at ${FIRST_PASSING_TOP} or more sat at exactly ${FIRST_PASSING_TOP}, every round shape, window ${TOP_BASELINE.window}, before the low-top test was live (#2519, #4536).`,
+			baseline: `Baseline: ${TOP_BASELINE.atLine} of ${TOP_BASELINE.passingTops} priced tops at ${FIRST_PASSING_TOP} or more sat at exactly ${FIRST_PASSING_TOP}, every round shape, window ${TOP_BASELINE.window}, before the low-top test was live (#2519, #4536).`,
 			decide: `The close-rivals limb of \`scripts/guard-priced-options.js\` refuses a round whose top figure is ${LOW_TOP} or less (#2228, #2519); ${FIRST_PASSING_TOP} is the first figure that passes. The share is read among passing tops only, so rounds the refusal pushes above the line spread over every passing figure and move nothing; it rises only where they pile onto ${FIRST_PASSING_TOP} (#4536). Decide whether that pile is agents pricing more confidently or pricing around the test, and what, if anything, changes.`,
 			clearsWhen: `once the share of passing tops at ${FIRST_PASSING_TOP} is back at or under its ceiling`,
 			data: { topShare: v.share },
