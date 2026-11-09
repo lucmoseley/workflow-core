@@ -187,8 +187,7 @@ describe("an edited hook script in the session's worktree (#4701)", () => {
 
 /* The worktree's own `.claude/settings.json` is the canary line the harness
  * runs, and a session is cut only from `origin/main`, which only the lander
- * moves, on this whole suite green. So a canary line that cannot reach both
- * verdicts in time fails here, before any session reads it (#4745). */
+ * moves, on this whole suite green (#4745). */
 describe("the canary registration the harness reads", () => {
 	it("is a command hook that reaches both verdicts inside its timeout (#4745)", () => {
 		expect(canaryLine).toMatchObject({
