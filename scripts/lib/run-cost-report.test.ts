@@ -183,6 +183,44 @@ describe("reportForRun", () => {
 		);
 	});
 
+	it("reads CI's empty dataset as no record, never as a run named none", () => {
+		const empty = path.join(path.dirname(record), "empty.csv");
+		fs.writeFileSync(empty, "# run: none\nfile,seconds,tests,status\n");
+		vi.stubEnv("WFC_SHARD_TIMINGS", empty);
+		expect(report({ "old.test.ts": 25 })[0]).toContain(
+			"unjudged, no CI record read;",
+		);
+	});
+
+	it("says why the CI record was not refreshed, in its summary", () => {
+		vi.stubEnv("WFC_SHARD_TIMINGS", "");
+		const lines = reportForRun(
+			repo,
+			{ "old.test.ts": 25 },
+			{
+				machine: LOADED,
+				findTicket: () => None,
+				timings: {
+					now: Date.parse("2026-11-09T00:00:00Z"),
+					fetch: () => {
+						throw new Error("HTTP 502: Bad Gateway");
+					},
+				},
+			},
+		);
+		expect(lines[0]).toContain("unjudged, no CI record read;");
+		expect(lines[1]).toContain(
+			"against " +
+				base +
+				"; CI record not refreshed (HTTP 502: Bad Gateway); load 1.50",
+		);
+		/* The failed check's stamp, so the repo stays as every case found it. */
+		fs.rmSync(path.join(repo, ".git", "workflow-core"), {
+			recursive: true,
+			force: true,
+		});
+	});
+
 	it("names every open ticket, and says so where the lookup failed", () => {
 		const two = {
 			tickets: [

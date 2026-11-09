@@ -10,10 +10,15 @@
  * gives them one dataset though another checkout refreshes the cache between
  * them. The newest KEPT stay.
  *
- * CHECKED AT MOST ONCE PER CHECK_MS, by the first reader after it. The stamp
- * is set before the check, so readers at once do not all fetch, and a failed
- * check is retried a window later. A check lists the runs and downloads only
- * a run not yet held: about 10 s for one, measured 9 Nov 2026.
+ * CHECKED AT MOST ONCE PER CHECK_MS, by the first reader after it; a failed
+ * or abandoned check is retried RETRY_MS later. The attempt is stamped
+ * before the check, so readers at once do not all fetch. A check lists the
+ * runs and downloads only a run not yet held: about 10 s for one, measured
+ * 9 Nov 2026.
+ *
+ * NO FILE ONCE THE LAST PASSED CHECK IS STALE_MS OLD: #4579's bound of a day
+ * behind the newest green run. The lander then splits by file count and the
+ * run-cost report reads no record, rather than judging by an old one.
  *
  * WFC_SHARD_TIMINGS, WHERE SET, IS THE FILE: a CI shard's own (#4574), or a
  * test's. Under `CI` without it nothing is fetched: only a shard reads
@@ -24,34 +29,41 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { gitCommonDir } = require("./git.js");
-const { newestRun, suiteRepo, toCsv } = require("./suite-timings.js");
+const { readNewestRun, readSuiteRepo, toCsv } = require("./suite-timings.js");
 
-/* A guess inside #4579's bound of a day behind the newest green run: four
- * checks a day, each a listing and at most one download. */
-const CHECK_MS = 6 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+/* A guess inside STALE_MS: four checks a day, each a listing and at most one
+ * download. */
+const CHECK_MS = 6 * HOUR_MS;
+/* A guess: GitHub's outages mostly clear within the hour. */
+const RETRY_MS = HOUR_MS / 2;
+/* #4579's acceptance criterion. */
+const STALE_MS = 24 * HOUR_MS;
 /* Untraced: more than the refreshes one lander batch can straddle. */
 const KEPT = 5;
-const STAMP = "checked";
+/* The last check begun, and the last that passed, by their mtimes. */
+const ATTEMPTED = "attempted";
+const PASSED = "passed";
 const HELD = /^(\d+)\.csv$/;
 
 /**
  * @typedef {{ file: string|null, failed: string|null }} Timings
  *   `file` the newest held timings, null where none is; `failed` why this
  *   read's check failed, null where it passed or none was due
- * @typedef {(root: string, held: (run: number) => boolean) =>
- *   { run: number, sha: string, rows: ReturnType<typeof import("./suite-timings.js").readReports>|null }|null} Fetch
+ * @typedef {(root: string, now: number, held: (run: number) => boolean) =>
+ *   ReturnType<typeof readNewestRun>} Fetch
  */
 
 /** @type {Fetch} */
-const fetchNewest = (root, held) =>
-	newestRun(suiteRepo(root), Date.now(), root, held);
+const fetchNewest = (root, now, held) =>
+	readNewestRun(readSuiteRepo(root), now, root, held);
 
 /**
  * The run ids `dir` holds, newest first.
  * @param {string} dir
  * @returns {number[]}
  */
-function heldRuns(dir) {
+function readHeldRuns(dir) {
 	let names;
 	try {
 		names = fs.readdirSync(dir);
@@ -66,34 +78,59 @@ function heldRuns(dir) {
 }
 
 /**
- * Whether the last check is CHECK_MS old or there was none; marks a check
- * as begun where it is.
+ * When `name`'s stamp in `dir` was last set, or null where it never was.
  * @param {string} dir
+ * @param {string} name
+ * @returns {number|null}
+ */
+function readStamp(dir, name) {
+	try {
+		return fs.statSync(path.join(dir, name)).mtimeMs;
+	} catch {
+		/* No stamp: never set. */
+		return null;
+	}
+}
+
+/**
+ * Sets `name`'s stamp in `dir` to `now`.
+ * @param {string} dir
+ * @param {string} name
  * @param {number} now
  */
-function checkDue(dir, now) {
-	const stamp = path.join(dir, STAMP);
-	try {
-		if (now - fs.statSync(stamp).mtimeMs < CHECK_MS) return false;
-	} catch {
-		/* No stamp: never checked. */
-	}
+function writeStamp(dir, name, now) {
+	const stamp = path.join(dir, name);
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(stamp, "");
 	const at = new Date(now);
 	fs.utimesSync(stamp, at, at);
+}
+
+/**
+ * Whether a check is due — the last pass CHECK_MS old, and the last attempt
+ * RETRY_MS — stamping the attempt where it is.
+ * @param {string} dir
+ * @param {number} now
+ */
+function claimDueCheck(dir, now) {
+	const passed = readStamp(dir, PASSED);
+	const attempted = readStamp(dir, ATTEMPTED);
+	if (passed !== null && now - passed < CHECK_MS) return false;
+	if (attempted !== null && now - attempted < RETRY_MS) return false;
+	writeStamp(dir, ATTEMPTED, now);
 	return true;
 }
 
 /**
  * The newest run's file written into `dir` where not yet held, and all but
- * the newest KEPT dropped.
+ * the newest KEPT dropped, and the pass stamped.
  * @param {string} dir
  * @param {string} root
+ * @param {number} now
  * @param {Fetch} fetch
  */
-function refresh(dir, root, fetch) {
-	const found = fetch(root, (run) =>
+function refresh(dir, root, now, fetch) {
+	const found = fetch(root, now, (run) =>
 		fs.existsSync(path.join(dir, `${run}.csv`)),
 	);
 	if (found === null) throw new Error("no green suite run holds reports");
@@ -105,8 +142,9 @@ function refresh(dir, root, fetch) {
 		);
 		fs.renameSync(tmp, path.join(dir, `${found.run}.csv`));
 	}
-	for (const run of heldRuns(dir).slice(KEPT))
+	for (const run of readHeldRuns(dir).slice(KEPT))
 		fs.rmSync(path.join(dir, `${run}.csv`), { force: true });
+	writeStamp(dir, PASSED, now);
 }
 
 /**
@@ -125,15 +163,21 @@ function latestTimings(root, { now = Date.now(), fetch = fetchNewest } = {}) {
 	const dir = path.join(common, "workflow-core", "suite-timings");
 	let failed = null;
 	try {
-		if (checkDue(dir, now)) refresh(dir, root, fetch);
+		if (claimDueCheck(dir, now)) refresh(dir, root, now, fetch);
 	} catch (error) {
 		failed = caught(error).message.trim();
 	}
-	const [newest] = heldRuns(dir);
+	const passed = readStamp(dir, PASSED);
+	if (passed === null || now - passed >= STALE_MS)
+		return {
+			file: null,
+			failed: failed ?? "the last passed check is a day old",
+		};
+	const [newest] = readHeldRuns(dir);
 	return {
 		file: newest === undefined ? null : path.join(dir, `${newest}.csv`),
 		failed,
 	};
 }
 
-module.exports = { CHECK_MS, latestTimings };
+module.exports = { latestTimings };

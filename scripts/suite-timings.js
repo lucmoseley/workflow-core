@@ -24,9 +24,9 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { ghJson } = require("./lib/gh.js");
 const { writeFd } = require("./lib/write-fd.js");
 const {
-	newestRun,
+	readNewestRun,
 	readOrThrow,
-	suiteRepo,
+	readSuiteRepo,
 	readReports,
 	shares,
 	toCsv,
@@ -79,7 +79,7 @@ const ROOT = worktreeRoot();
  * @param {string|undefined} beforeRun
  */
 function latestRows(beforeRun) {
-	const repo = suiteRepo(ROOT);
+	const repo = readSuiteRepo(ROOT);
 	const before =
 		beforeRun === undefined
 			? Date.now()
@@ -90,7 +90,7 @@ function latestRows(beforeRun) {
 				);
 	if (!Number.isFinite(before))
 		throw new Error(`run ${beforeRun} has no creation time`);
-	return newestRun(repo, before, ROOT);
+	return readNewestRun(repo, before, ROOT);
 }
 
 /* Under Actions, a fallback shows on the run's summary, not in its log alone. */

@@ -3,7 +3,7 @@
  * out, from one report or every report under a directory as one sharded
  * Actions run's shards upload them (`vitest-report-*`, #2413); rows in,
  * percentile shares out; and the CSV serialisation between them.
- * `readReports` reads the filesystem, and `downloadReports` and `newestRun`
+ * `readReports` reads the filesystem, and `downloadReports` and `readNewestRun`
  * GitHub; the rest are pure (#4320). `scripts/suite-timings.js` is the CLI
  * over it, and `scripts/lib/latest-timings.js` this machine's copy.
  *
@@ -203,7 +203,7 @@ function readOrThrow(read) {
  * @param {string} root
  * @returns {string}
  */
-function suiteRepo(root) {
+function readSuiteRepo(root) {
 	const configured = resolveKey("codeRepo", { root });
 	const repo =
 		(typeof configured === "string" && configured) ||
@@ -223,7 +223,7 @@ function suiteRepo(root) {
  * @param {(run: number) => boolean} [held]
  * @returns {{ run: number, sha: string, rows: ReturnType<typeof readReports>|null }|null}
  */
-function newestRun(repo, before, root, held = () => false) {
+function readNewestRun(repo, before, root, held = () => false) {
 	const iso = new Date(before).toISOString().replace(/\.\d{3}Z$/, "Z");
 	/** @type {(ListedRun & { head_sha: string })[]} */
 	const runs = readOrThrow(
@@ -384,9 +384,9 @@ function parseMeta(pairs) {
 module.exports = {
 	SUITE_WORKFLOW,
 	downloadReports,
-	newestRun,
+	readNewestRun,
 	readOrThrow,
-	suiteRepo,
+	readSuiteRepo,
 	timingSources,
 	reportRoot,
 	rowsFrom,

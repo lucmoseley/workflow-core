@@ -43,6 +43,7 @@ const { hostRoot } = require("./host-root.js");
 const { scriptPath } = require("./script-path.js");
 const { escapeRe } = require("./shell-words.js");
 const { latestTimings } = require("./latest-timings.js");
+const { readText } = require("./file-read.js");
 const { parseCsv } = require("./suite-timings.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -74,6 +75,8 @@ const GB = 1024 ** 3;
  * @property {"seconds"|"worker-seconds"} [unit] worker-seconds for pytest,
  *   whose per-file figure is summed across xdist workers (#1797)
  * @property {CiRecord|null} record the CI record, null where none was read
+ * @property {string|null} [stale] why the record was not refreshed, null
+ *   where it was or none was due
  * @property {boolean} ci judging under `CI`: grown files and the summary only
  * @property {TicketFinder} findTicket the open tickets naming a file: a seam
  *   beside `WFC_GH`, so the in-process cases spawn no gh
@@ -81,6 +84,7 @@ const GB = 1024 ** 3;
 
 /**
  * @typedef {{ run: string, sha: string, seconds: Map<string, number> }} CiRecord
+ * @typedef {Parameters<typeof latestTimings>[1]} TimingsSeams
  * @typedef {(file: string) => { tickets: { number: number, title: string }[] } | { failed: string }} TicketFinder
  */
 
@@ -106,6 +110,7 @@ function linesFor({
 	availableBytes,
 	unit = "seconds",
 	record,
+	stale = null,
 	ci,
 	findTicket,
 }) {
@@ -153,8 +158,10 @@ function linesFor({
 	const judgedText = ci
 		? `${grownCount} of ${timed.length} test file(s) in ${ciRun || "no CI record"} grown past ${GROWTH_BAND}x their row, against ${base}`
 		: `${over.length} of ${timed.length} new or changed test file(s) over the ${BUDGET_SECONDS} s budget, ${grownCount} grown past ${GROWTH_BAND}x their CI record and ${unjudged} pre-existing without one, against ${base}`;
+	const staleText =
+		stale === null ? "" : `; CI record not refreshed (${stale})`;
 	lines.push(
-		`${PREFIX} ${judgedText}; ${loadText} (1 min), ${memText}. A report, never a refusal (mantahostels#2255).`,
+		`${PREFIX} ${judgedText}${staleText}; ${loadText} (1 min), ${memText}. A report, never a refusal (mantahostels#2255).`,
 	);
 	return lines;
 }
@@ -191,26 +198,33 @@ function readChangedAgainst(root, base, files) {
 }
 
 /**
- * The CI record, or null where none can be read. A failed refresh reads the
- * last one held.
+ * The CI record, null where none is held or it holds no row: CI's shard
+ * writes an empty one where it read no run (#4574). `stale` says why it was
+ * not refreshed; a failed refresh still reads the last one held, a day at
+ * most (#4579).
  * @param {string} root
- * @returns {CiRecord|null}
+ * @param {TimingsSeams} timings
+ * @returns {{ record: CiRecord|null, stale: string|null }}
  */
-function readRecord(root) {
-	const { file } = latestTimings(root);
-	if (file === null) return null;
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch {
-		return null;
-	}
-	const { meta, rows } = parseCsv(text);
+function readCiRecord(root, timings) {
+	const { file, failed } = latestTimings(root, timings);
+	const read = file === null ? null : readText(file);
+	if (read === null || read.state !== "read")
+		return { record: null, stale: failed };
+	const { meta, rows } = parseCsv(read.data);
 	/** @type {Map<string, number>} */
 	const seconds = new Map();
 	for (const row of rows)
 		if (row.seconds !== null) seconds.set(row.file, row.seconds);
-	return { run: meta.run ?? "unknown", sha: meta.sha ?? "unknown", seconds };
+	if (seconds.size === 0) return { record: null, stale: failed };
+	return {
+		record: {
+			run: meta.run ?? "unknown",
+			sha: meta.sha ?? "unknown",
+			seconds,
+		},
+		stale: failed,
+	};
 }
 
 /**
@@ -297,21 +311,27 @@ function timingsFrom(parsed, root) {
  * a runner calls once its suite has finished. Never throws.
  * @param {string} root
  * @param {unknown} raw
- * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams, findTicket?: TicketFinder }} [options]
- *   `machine` and `findTicket` are a test's fakes for the platform, load and
- *   memory, and for the tracker
+ * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams, findTicket?: TicketFinder, timings?: TimingsSeams }} [options]
+ *   `machine`, `findTicket` and `timings` are a test's fakes for the
+ *   platform, load and memory, for the tracker, and for the CI record's
+ *   clock and GitHub
  * @returns {string[]}
  */
 function reportForRun(
 	root,
 	raw,
-	{ unit = "seconds", machine = {}, findTicket = openTicketFinder(root) } = {},
+	{
+		unit = "seconds",
+		machine = {},
+		findTicket = openTicketFinder(root),
+		timings = {},
+	} = {},
 ) {
 	try {
 		const read = timingsFrom(raw, root);
 		if ("bad" in read) return [buildFailOpenLine(read.bad)];
 		const base = readDefaultChangedBase(root, execFileSync);
-		const record = readRecord(root);
+		const { record, stale } = readCiRecord(root, timings);
 		const ci = Boolean(process.env.CI);
 		const changed = ci
 			? Object.keys(read.timings)
@@ -326,6 +346,7 @@ function reportForRun(
 			base,
 			unit,
 			record,
+			stale,
 			ci,
 			findTicket,
 			...machineState(machine),

@@ -1,9 +1,14 @@
 // @vitest-environment node
 /*
  * Pins latest-timings.js (#4579): the newest green run's timings cached once
- * per source run under the git common dir, checked at most once per
- * CHECK_MS, a failed check leaving the held file standing, and the named
- * file or none where `WFC_SHARD_TIMINGS` or `CI` is set.
+ * per source run under the git common dir, checked at most every 6 hours and
+ * retried half an hour after a failure, the held file read until its last
+ * passed check is a day old and none after, and the named file or none where
+ * `WFC_SHARD_TIMINGS` or `CI` is set.
+ *
+ * WHAT BREAKING THIS COSTS: the lander's shards and the run-cost report would
+ * pack and judge by timings days old, the fault #4579 closed, or fetch for
+ * 10 s on every local run.
  *
  * GitHub comes in through `latestTimings`'s `fetch` seam and time through its
  * `now`, so no case reaches the network or the clock (§X9). git is real, in a
@@ -15,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHECK_MS, latestTimings } from "./latest-timings.js";
+import { latestTimings } from "./latest-timings.js";
 
 let repo: string;
 let cache: string;
@@ -30,6 +35,11 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
 const T0 = Date.parse("2026-11-09T00:00:00Z");
+const HOUR = 60 * 60 * 1000;
+/* latest-timings.js's windows, spelt here so a change to one fails a case. */
+const CHECK_MS = 6 * HOUR;
+const RETRY_MS = HOUR / 2;
+const STALE_MS = 24 * HOUR;
 const row = (seconds: number) => [
 	{ file: "a.test.ts", seconds, tests: 1, status: "passed" },
 ];
@@ -40,7 +50,7 @@ const github = (run: number, rows = row(2)) => {
 	const calls: boolean[] = [];
 	return {
 		calls,
-		fetch: (_root: string, held: (r: number) => boolean) => {
+		fetch: (_root: string, _now: number, held: (r: number) => boolean) => {
 			const have = held(run);
 			calls.push(have);
 			return { run, sha: `sha${run}`, rows: have ? null : rows };
@@ -91,17 +101,38 @@ describe("latestTimings", () => {
 		).toEqual(["3.csv", "4.csv", "5.csv", "6.csv", "7.csv"]);
 	});
 
-	it("reads the held file where the check fails, saying why, and retries a window later", () => {
+	const failing = () => {
+		throw new Error("HTTP 502: Bad Gateway");
+	};
+
+	it("reads the held file where the check fails, saying why, and retries half an hour later", () => {
 		latestTimings(repo, { now: T0, fetch: github(7).fetch });
-		const failing = () => {
-			throw new Error("HTTP 502: Bad Gateway");
-		};
 		expect(latestTimings(repo, { now: T0 + CHECK_MS, fetch: failing })).toEqual(
 			{ file: path.join(cache, "7.csv"), failed: "HTTP 502: Bad Gateway" },
 		);
 		const gh = github(8);
-		latestTimings(repo, { now: T0 + CHECK_MS + 1, fetch: gh.fetch });
+		latestTimings(repo, {
+			now: T0 + CHECK_MS + RETRY_MS - 1,
+			fetch: gh.fetch,
+		});
 		expect(gh.calls).toEqual([]);
+		expect(
+			latestTimings(repo, { now: T0 + CHECK_MS + RETRY_MS, fetch: gh.fetch })
+				.file,
+		).toBe(path.join(cache, "8.csv"));
+	});
+
+	it("reads none once the last passed check is a day old, though a file is held", () => {
+		latestTimings(repo, { now: T0, fetch: github(7).fetch });
+		expect(
+			latestTimings(repo, { now: T0 + STALE_MS - 1, fetch: failing }).file,
+		).toBe(path.join(cache, "7.csv"));
+		expect(latestTimings(repo, { now: T0 + STALE_MS, fetch: failing })).toEqual(
+			{ file: null, failed: "the last passed check is a day old" },
+		);
+		expect(
+			latestTimings(repo, { now: T0 + STALE_MS + RETRY_MS, fetch: failing }),
+		).toEqual({ file: null, failed: "HTTP 502: Bad Gateway" });
 	});
 
 	it("reads none where nothing is held and no green run holds reports", () => {
