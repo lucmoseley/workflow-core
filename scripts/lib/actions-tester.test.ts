@@ -910,22 +910,37 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 	expect(first.reran).toEqual([]);
 });
 
-it("pushes the ref again for the whole suite asked again over a failed run GitHub will not retry, judging only a newer run (#4823)", async () => {
-	const failed = run(4, "failure");
-	const refused = queueReads([
-		() =>
-			refused.repushed.length === 0 ? [failed] : [run(5, "success"), failed],
-	]);
-	refused.rerun = () => {
-		throw Object.assign(new Error("gh failed"), {
-			stderr: "run 4 cannot be rerun; This workflow run cannot be retried",
-		});
+it("pushes the ref again over a failed run GitHub will not retry, judging only a newer run: asked again, for named files, or a runner that failed to ready (#4823)", async () => {
+	const refusal = (runnerFault: boolean) => {
+		const failed = run(4, "failure");
+		const r = queueReads([
+			() => (r.repushed.length === 0 ? [failed] : [run(5, "success"), failed]),
+		]);
+		r.jobsOf = (id: number) =>
+			runnerFault && id === 4
+				? unreadied("Install test tools", "failure")
+				: [...shards("success", "success"), SUITE_PASSED];
+		r.rerun = () => {
+			throw Object.assign(new Error("gh failed"), {
+				stderr: "run 4 cannot be rerun; This workflow run cannot be retried",
+			});
+		};
+		return r;
 	};
-	expect(await queueOf(refused).verdict(SHA, [], true)).toEqual({
-		kind: "green",
-		run: 5,
-	});
-	expect(refused.repushed).toEqual([`lander/batch-0@${SHA}`]);
+	const asks: [
+		boolean,
+		(r: ReturnType<typeof queueReads>) => Promise<unknown>,
+	][] = [
+		[false, (r) => queueOf(r).verdict(SHA, [], true)],
+		[false, (r) => queueOf(r).verdict(SHA, ["scripts/lib/a.test.ts"])],
+		[true, (r) => queueOf(r).verdict(SHA)],
+	];
+	for (const [runnerFault, ask] of asks) {
+		const r = refusal(runnerFault);
+		expect(await ask(r)).toEqual({ kind: "green", run: 5 });
+		expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
+		expect(r.dispatched).toEqual([]);
+	}
 });
 
 it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {

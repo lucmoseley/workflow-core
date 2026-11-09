@@ -20,9 +20,10 @@
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
  * one. Asked again, a failed run has its failed jobs rerun; any other run at
  * the sha, or a failed one GitHub refuses to retry, is never read, its ref
- * deleted and created again so a run starts after the ask (#4524, #4823). Where none at the sha is listed, as when its ref was
- * pushed while Actions fired nothing, the ref is pushed again once before
- * the tree is read as firing none (#4572). Named files at a sha a
+ * deleted and created again so a run starts after the ask (#4524, #4823).
+ * Where none at the sha is listed, as when its ref was pushed while Actions
+ * fired nothing, the ref is pushed again once before the tree is read as
+ * firing none (#4572). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
@@ -511,12 +512,10 @@ async function suiteVerdict(sha, after, suite, reruns = 0) {
 			kind: "unknown",
 			reason: `${v.reason}, on ${reruns + 1} attempts`,
 		};
-	try {
-		reads.rerun(v.run);
-	} catch (err) {
-		return unreadable(err);
-	}
-	return suiteVerdict(sha, v.attempt, suite, reruns + 1);
+	return (
+		refusedRerun(sha, v.run, suite) ??
+		suiteVerdict(sha, v.attempt, suite, reruns + 1)
+	);
 }
 
 /**
@@ -821,15 +820,16 @@ async function rerunVerdict(sha, files, on, named) {
 	}
 	const run = newestRun(sha, listed);
 	if (run?.conclusion === "failure")
-		return failedRunVerdict(sha, run, on, listed);
+		return (
+			refusedRerun(sha, run.databaseId, on) ??
+			suiteVerdict(sha, run.attempt, on)
+		);
 	if (files.length > 0)
 		return run === undefined
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
-	if (run !== undefined) {
-		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
-	}
-	const v = await newerVerdict(sha, on, listed);
+	if (run !== undefined) return repushedVerdict(sha, on, newestId(listed));
+	const v = await newerVerdict(sha, on, newestId(listed));
 	if (v.kind !== "red" || !v.noRun) return v;
 	/** @type {Run[]} */
 	let again;
@@ -838,40 +838,56 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
+	return repushedVerdict(sha, on, newestId(again));
 }
 
+/** @param {readonly Run[]} runs @returns {number} */
+const newestId = (runs) => Math.max(0, ...runs.map((r) => r.databaseId));
+
 /**
- * The verdict at `sha` off the failed `run` with its failed jobs rerun, or,
- * where GitHub will not retry it, as a run that failed before some of its
- * jobs were created, off a fresh push run: read as no verdict, the lander
- * asks again forever (#4823).
+ * Starts a new attempt of run `id`'s failed jobs: null where it did. Where
+ * GitHub will not retry the run, as one that failed before some of its jobs
+ * were created, the verdict is off a fresh push run instead, since read as
+ * no verdict the lander asks again forever (#4823); any other refusal is no
+ * verdict. Residual: the refusal is known by gh's wording alone, so a
+ * rewording stalls the queue again.
  * @param {string} sha
- * @param {Run} run
+ * @param {number} id
  * @param {{reads: Reads, branch: string} & Poll} on
- * @param {readonly Run[]} listed
- * @returns {Promise<Verdict>}
+ * @returns {Promise<Verdict>|null}
  */
-async function failedRunVerdict(sha, run, on, listed) {
+function refusedRerun(sha, id, on) {
 	try {
-		on.reads.rerun(run.databaseId);
+		on.reads.rerun(id);
+		return null;
 	} catch (err) {
-		if (!NOT_RETRIABLE.test(parseErrorText(err))) return unreadable(err);
-		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
+		return NOT_RETRIABLE.test(parseErrorText(err))
+			? repushedVerdict(sha, on, id)
+			: Promise.resolve(unreadable(err));
 	}
-	return suiteVerdict(sha, run.attempt, on);
 }
 
 /**
- * The whole suite at `sha` read off a run on `on`'s branch newer than every
- * one in `listed`.
+ * The whole suite at `sha` off a run newer than run `bound`, `on`'s branch
+ * deleted and created again first so one starts.
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
- * @param {readonly Run[]} listed
+ * @param {number} bound
  * @returns {Promise<Verdict>}
  */
-function newerVerdict(sha, on, listed) {
-	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
+async function repushedVerdict(sha, on, bound) {
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, bound);
+}
+
+/**
+ * The whole suite at `sha` read off a run on `on`'s branch newer than run
+ * `bound`.
+ * @param {string} sha
+ * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {number} bound
+ * @returns {Promise<Verdict>}
+ */
+function newerVerdict(sha, on, bound) {
 	const { reads } = on;
 	return suiteVerdict(sha, 0, {
 		...on,
