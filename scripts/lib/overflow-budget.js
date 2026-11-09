@@ -105,10 +105,7 @@ function readTranscripts(dir) {
 	}));
 }
 
-/**
- * @param {{sessionId: string, file: string}[]} transcripts readTranscripts'
- * @returns {Map<string, string>} each session's main transcript
- */
+/** @param {{sessionId: string, file: string}[]} transcripts */
 const filesBySession = (transcripts) =>
 	new Map(transcripts.map((t) => [t.sessionId, t.file]));
 
