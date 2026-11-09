@@ -23,6 +23,7 @@ let tmp: string;
 let work: string;
 let remote: string;
 let store: string;
+let runs: string;
 let ghEnv: NodeJS.ProcessEnv;
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
@@ -115,6 +116,8 @@ beforeEach(() => {
 	git(work, ["add", "-A"]);
 	store = path.join(tmp, "issues.json");
 	fs.writeFileSync(store, "[]");
+	runs = path.join(tmp, "runs.json");
+	fs.writeFileSync(runs, "[]");
 	ghEnv = stubGhScript(
 		tmp,
 		`#!/usr/bin/env node
@@ -152,6 +155,8 @@ if (is("issue", "list")) {
 	issue.state = "CLOSED";
 	issue.closeComment = flag("--comment");
 	write(all);
+} else if (is("run", "list")) {
+	out(fs.readFileSync(${JSON.stringify(runs)}, "utf8"));
 } else out("[]");
 `,
 	).env;
@@ -366,4 +371,94 @@ it("fails the pass on a queue log it cannot read, naming it and filing nothing",
 	expect(r.status).toBe(1);
 	expect(r.stderr).toMatch(/EISDIR/);
 	expect(readIssues()).toEqual([]);
+});
+
+it("files one urgent alarm ticket for two failed Landing quiet 14h runs at main's sha, and closes it, filing none, once main moves (#4772)", () => {
+	const main = commit("seed", 15 * 60 * MIN, "main");
+	const workflows = path.join(work, ".github", "workflows");
+	fs.mkdirSync(workflows, { recursive: true });
+	fs.writeFileSync(path.join(workflows, "landing-quiet.yml"), "");
+	const failed = (id: number, headSha: string) => ({
+		databaseId: id,
+		conclusion: "failure",
+		createdAt: new Date(Date.now() - (60 - id) * MIN).toISOString(),
+		headSha,
+	});
+	fs.writeFileSync(runs, JSON.stringify([failed(1, main)]));
+	const first = supervise();
+	fs.writeFileSync(runs, JSON.stringify([failed(2, main), failed(1, main)]));
+	const second = supervise();
+
+	expect(first.status, first.stderr).toBe(0);
+	expect(first.stdout).toContain("Filed #100");
+	expect(second.status, second.stderr).toBe(0);
+	const [ticket, ...more] = readIssues();
+	expect(more).toEqual([]);
+	expect(ticket.title).toBe(
+		"Landing alarm red: an off-machine queue alarm failed since main last moved",
+	);
+	expect(ticket.labels.map((l: { name: string }) => l.name)).toContain(
+		"urgent",
+	);
+	expect(ticket.body).toContain("- `Landing quiet 14h`: run 2, created ");
+	expect(ticket.body).toContain("2 failed runs at this sha");
+
+	const moved = commit("next", 0, "main");
+	const after = supervise();
+
+	expect(after.status, after.stderr).toBe(0);
+	expect(after.stdout).toBe("alarm ticket: closed #100.\n");
+	expect(readIssues()).toHaveLength(1);
+	expect(readIssues()[0].closeComment).toBe(
+		`\`main\` moved from \`${main}\` to \`${moved}\`.`,
+	);
+});
+
+it("names an alarm read that fails and fails the pass, the queue's acts still made (#4772)", () => {
+	commit("seed", 0, "main");
+	const workflows = path.join(work, ".github", "workflows");
+	fs.mkdirSync(workflows, { recursive: true });
+	fs.writeFileSync(path.join(workflows, "main-lag.yml"), "");
+	fs.writeFileSync(runs, "not json");
+
+	const r = supervise();
+
+	expect(r.status).toBe(1);
+	expect(r.stdout).toMatch(/^queue alarms: not read: /);
+	expect(readIssues()).toEqual([]);
+});
+
+it("drops a torn alarm record, saying so, and closes the open alarm ticket where no alarm fires (#4772)", () => {
+	commit("seed", 0, "main");
+	const workflows = path.join(work, ".github", "workflows");
+	fs.mkdirSync(workflows, { recursive: true });
+	fs.writeFileSync(path.join(workflows, "landing-quiet.yml"), "");
+	fs.writeFileSync(
+		store,
+		JSON.stringify([
+			{
+				number: 100,
+				title:
+					"Landing alarm red: an off-machine queue alarm failed since main last moved",
+				state: "OPEN",
+				labels: [],
+				body: "",
+			},
+		]),
+	);
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(path.join(markers(), ".landing-alarm-ticket.json"), "{");
+
+	const r = supervise();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toMatch(
+		/would not parse and is dropped\.\nalarm ticket: closed #100\.\n$/,
+	);
+	expect(readIssues()[0].closeComment).toBe(
+		"No queue alarm fires; its record had torn.",
+	);
+	expect(
+		fs.existsSync(path.join(markers(), ".landing-alarm-ticket.json")),
+	).toBe(false);
 });
