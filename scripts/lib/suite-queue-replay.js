@@ -104,7 +104,7 @@ const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
 const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
 /* #4782's commit, from which a part waiter passes an older one that hold
  * keeps out. */
-const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:30:00Z");
+const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
 /* A process line of a memwatch block: `PID RSS COMMAND`, or
