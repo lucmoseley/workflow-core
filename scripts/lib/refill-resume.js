@@ -32,6 +32,9 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  *   & {issues: number[]}} Resumable  the session a resume runs on: its
  *   checkout, its seat and any overflow key, and the issues whose claims
  *   follow a copy
+ * @typedef {Omit<Resumable, "issues"> & {issues?: number[]}} StoppedResumable
+ *   a stopped session, whose issues one the loop did not launch leaves out:
+ *   none, so a copy of it moves no claims (#4825)
  */
 /** @typedef {ReturnType<typeof import("./child-spawn.js").spawnChild>} ChildRun */
 /** @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup */
@@ -433,9 +436,8 @@ function resumeSteps(io) {
 	 * claims (#2963, #2968). The resume counts where the launcher named the
 	 * job it started (lib/bg-resume.js) and that job's state.json does not
 	 * read failed; a later tick judges the resumed turn. A session on an
-	 * overflow key resumes headless instead (resumeHeadless). A session the
-	 * loop did not launch names no issues, and a copy of it moves no claims.
-	 * @param {Omit<Resumable, "issues"> & {issues?: number[]}} session
+	 * overflow key resumes headless instead (resumeHeadless).
+	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
 	 * @param {{move?: MoveTarget, name?: string, flags?: string[]}} [moved]
