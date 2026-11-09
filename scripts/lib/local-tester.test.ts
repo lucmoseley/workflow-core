@@ -210,6 +210,23 @@ it("hands the suite a variable it does not strip, so the env probe can fail", as
 	});
 });
 
+it("marks the suite it spawns as the lander's run (#4757)", async () => {
+	config({
+		commands: {
+			test: `node -e 'process.exit(process.env.WFC_LANDER_RUN === "1" ? 0 : 1)'`,
+		},
+	});
+	const probing = commit("probes the lander mark");
+	vi.stubEnv("WFC_LANDER_RUN", undefined);
+	expect(
+		await localTester({
+			root: work,
+			admit: admitted().admit,
+			exec: recordingExec().exec,
+		}).verdict(probing),
+	).toEqual({ kind: "green" });
+});
+
 it("returns unknown, never green, where it cannot check out, install or start", async () => {
 	const { admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });

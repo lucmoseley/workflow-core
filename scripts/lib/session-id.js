@@ -11,6 +11,9 @@
  *
  * Both are read at call time and never cached: a hook is handed a fresh
  * environment and a fresh payload per invocation.
+ *
+ * It also answers who started a run that is no session's: a report owner
+ * (#4706) and the lander's mark (#4757).
  */
 
 /**
@@ -48,6 +51,19 @@ function reportOwner(env = process.env) {
 	return env[REPORT_OWNER] || fromEnv(env);
 }
 
+/* Set on every run the lander's tester spawns, so a run's record names the
+ * lander from its source, never from an argv another script can copy (#4757). */
+const LANDER_RUN = "WFC_LANDER_RUN";
+
+/**
+ * Whether the lander started this process's run.
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {boolean}
+ */
+function isLanderRun(env = process.env) {
+	return env[LANDER_RUN] === "1";
+}
+
 /** The keys `forgetSession` strips, which lib/detach.sh's `outlive` mirrors. */
 const FORGOTTEN_KEYS = Object.freeze([
 	"CLAUDE_CODE_SESSION_ID",
@@ -74,4 +90,6 @@ module.exports = {
 	reportOwner,
 	forgetSession,
 	REPORT_OWNER,
+	isLanderRun,
+	LANDER_RUN,
 };

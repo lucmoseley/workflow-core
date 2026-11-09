@@ -91,6 +91,18 @@ def test_an_unsessioned_run_after_the_lander_start_is_a_lander_rerun(tmp_path):
     assert "('lander-rerun', 'flake') 1" in out
 
 
+def test_the_lander_mark_outranks_the_dated_inference(tmp_path):
+    _, dump = run(
+        tmp_path,
+        [
+            line("2026-10-23T00:00:00Z", "full", "killed", session=None, lander=False),
+            line("2026-10-23T01:00:00Z", "named", "red", session=None, lander=True),
+            line("2026-10-23T02:00:00Z", "lander", "green", session=None, lander=True),
+        ],
+    )
+    assert [r["_k"] for r in dump] == ["full", "lander-rerun", "lander"]
+
+
 def test_a_full_run_with_no_cause_prints_as_the_whole_selection(tmp_path):
     out, _ = run(tmp_path, [line("2026-10-21T00:00:00Z", "full", "green")])
     assert "('full', 'no flag (whole selection)') 1" in out

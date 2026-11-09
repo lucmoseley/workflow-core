@@ -39,6 +39,7 @@ const {
 const { LANDER_WORKTREE } = require("./lander-worktree.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { latestTimings } = require("./latest-timings.js");
+const { LANDER_RUN } = require("./session-id.js");
 
 /**
  * The lander's environment less every variable a root lookup answers before
@@ -358,8 +359,9 @@ function readLiveLanders({ queueDir } = {}) {
 }
 
 /**
- * `command "$@"` under `sh` in `cwd`, its stdout and stderr passed through to
- * stderr and kept, its tree PSS sampled for the peak.
+ * `command "$@"` under `sh` in `cwd`, marked the lander's run (#4757), its
+ * stdout and stderr passed through to stderr and kept, its tree PSS sampled
+ * for the peak.
  * @param {Run} run
  * @param {string} cwd
  * @param {() => void} onSpawn
@@ -370,7 +372,7 @@ const shellRun = ({ command, args, env }, cwd, onSpawn, treePss) =>
 	new Promise((resolve) => {
 		const child = spawn("sh", ["-c", `${command} "$@"`, "tester", ...args], {
 			cwd,
-			env: { ...rootlessEnv(), ...env },
+			env: { ...rootlessEnv(), ...env, [LANDER_RUN]: "1" },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let out = "";

@@ -20,8 +20,11 @@
  * (#2931): null and false on a marker that carries none.
  *
  * `kind` and `fullCause` are #2812's rules; `runs.py` reads them, with
- * `verdict`, from here. Its `lander-rerun` (no session, after the lander's first run) is a
- * dated inference it applies itself, off `session`.
+ * `verdict`, from here. `kind` is `lander` where the marker carries the
+ * lander's mark and its argv a `--full` flag (#4757). `lander` is that mark on
+ * every line, so `runs.py` tells the lander's reruns from it; on a line older
+ * than the field, `runs.py`'s `lander-rerun` stays a dated inference off
+ * `session`.
  */
 
 const path = require("node:path");
@@ -56,7 +59,7 @@ function kindOf(m) {
 	if (scope?.touched) return "touched";
 	if (m.suite === "pytest") return "pytest";
 	const fullFlag = argv?.some((a) => a.startsWith("--full")) ?? false;
-	if (argv?.includes("--shared") && fullFlag && !m.sessionId) return "lander";
+	if (m.lander && fullFlag) return "lander";
 	if (ranFull(m, fullFlag)) return "full";
 	if (argv?.includes("--adopt")) return "adopt";
 	if (argv?.includes("--changed") || scope?.viaChanged) return "changed";
@@ -107,6 +110,7 @@ function buildLedgerLine(m, { green, root }) {
 		verdict: verdictOf(m, green),
 		suite: m.suite ?? "vitest",
 		session: m.sessionId ?? null,
+		lander: m.lander === true,
 		sha: m.sha,
 		treeAtEnd: m.treeAtEnd ?? null,
 		argv: m.argv ?? null,

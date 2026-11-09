@@ -76,6 +76,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 				verdict: "green",
 				suite: "vitest",
 				session: "s-1",
+				lander: false,
 				sha: SHA,
 				treeAtEnd: TREE,
 				argv: [],
@@ -85,6 +86,13 @@ describe("the ledger beside the marker stores (#2824)", () => {
 			},
 			expect.objectContaining({ verdict: "red", session: null }),
 		]);
+	});
+
+	it("carries the lander's mark, which runs.py reads its reruns off (#4757)", () => {
+		expect(lineFor({ argv: ["--retest"], lander: true })).toMatchObject({
+			kind: "named",
+			lander: true,
+		});
 	});
 
 	it("leaves no line for a refused launch, which ran nothing", () => {
@@ -128,8 +136,13 @@ describe("the ledger beside the marker stores (#2824)", () => {
 describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 	it.each([
 		["pytest", { suite: "pytest", argv: ["--full"] }],
-		["lander", { argv: ["--shared", "--full=push-gate"], sessionId: null }],
+		[
+			"lander",
+			{ argv: ["--shared", "--full=push-gate"], sessionId: null, lander: true },
+		],
 		["full", { argv: ["--shared", "--full=push-gate"] }],
+		/* A script copying the lander's argv is no lander (#4757). */
+		["full", { argv: ["--full=other", "--shared"], sessionId: null }],
 		[
 			"full",
 			{ argv: undefined, scope: { modulesRun: 270, modulesTotal: 300 } },

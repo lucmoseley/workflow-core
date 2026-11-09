@@ -140,7 +140,7 @@ function sample() {
  * @param {CpuSample|null} before
  * @param {CpuSample|null} after
  * @param {number} [cores]
- * @returns {{ceilingPct: number, busyPct: number, systemPct: number, nicePct: number, userPct: number, iowaitPct: number, load1: number|null}|null}
+ * @returns {{ceilingPct: number, busyPct: number, systemPct: number, nicePct: number, userPct: number, iowaitPct: number, load1: number|null, load1AtStart: number|null}|null}
  */
 function delta(before, after, cores = os.cpus()?.length || 0) {
 	if (!before || !after || !cores) return null;
@@ -179,6 +179,9 @@ function delta(before, after, cores = os.cpus()?.length || 0) {
 		/* The END sample's: it describes the window the run competed in, where the
 		 * start reading describes the minute before it launched. */
 		load1: after.load1,
+		/* The load a run was admitted into, before its own workers raise it:
+		 * recorded for #4757's whole-suite load ceiling, which has no reader yet. */
+		load1AtStart: before.load1,
 	};
 }
 

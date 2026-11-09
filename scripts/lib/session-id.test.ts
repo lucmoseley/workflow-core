@@ -83,6 +83,14 @@ describe("the report owner", () => {
 	});
 });
 
+describe("isLanderRun", () => {
+	it("is true only where the tester's mark is set", () => {
+		expect(sessionId.isLanderRun({ WFC_LANDER_RUN: "1" })).toBe(true);
+		expect(sessionId.isLanderRun({ WFC_LANDER_RUN: "" })).toBe(false);
+		expect(sessionId.isLanderRun({})).toBe(false);
+	});
+});
+
 describe("forgetSession", () => {
 	it("strips the session id, job dir and report owner, and nothing else", () => {
 		const env: Record<string, string | undefined> = {

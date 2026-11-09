@@ -30,6 +30,11 @@ for (const name of [
 ])
 	delete process.env[name];
 
+/* A run a case starts is no lander's, though the lander started the suite
+ * (#4757). Deleted in the worker, so vitest's own process still marks the
+ * suite's marker. */
+delete process.env.WFC_LANDER_RUN;
+
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
  * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on

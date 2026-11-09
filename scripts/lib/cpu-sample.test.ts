@@ -86,6 +86,11 @@ describe("delta — the arithmetic", () => {
 		expect(d.load1).toBe(42.5);
 	});
 
+	it("keeps the start sample's load1 too, the load the run was admitted into (#4757)", () => {
+		const d = delta(fab({}, 2), fab({ idle: 100 }, 42.5), 8);
+		expect(d.load1AtStart).toBe(2);
+	});
+
 	it("scales the ceiling with the core count", () => {
 		const before = fab({});
 		const after = fab({ system: 500, idle: 500 });
