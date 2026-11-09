@@ -44,6 +44,7 @@ const {
 	turnOf,
 	readLiveRoleMarkers,
 	readQueuesClimbMb,
+	queuedRunnerPeakMb,
 	gateDenies,
 	heldSeat,
 	SEAT_ENV,
@@ -1516,6 +1517,28 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		const { suiteDir, tscDir } = queues();
 		joined(suiteDir, 11, 0, { role: "lander", chargeMb: 2630 }).spawned();
 		expect(climbOf(tscDir, 100)).toBe(2530);
+	});
+
+	it("charges a queued pytest its runner's peak, not a whole suite's (#4648)", () => {
+		const { suiteDir, tscDir } = queues();
+		const chargeMb = queuedRunnerPeakMb(["python3", "-m", "pytest", "-n", "2"]);
+		joined(suiteDir, 11, 0, { chargeMb }).spawned();
+		expect(climbOf(tscDir, 100)).toBe(150 + 2 * 75 - 100);
+	});
+
+	it("reads a queued launch's peak off its runner class (#4648)", () => {
+		expect(queuedRunnerPeakMb(["pytest", "-n", "8"])).toBe(150 + 8 * 75);
+		expect(queuedRunnerPeakMb(["python3", "a.test.py"])).toBe(150);
+		expect(queuedRunnerPeakMb(["node", "--test", "a.test.js"])).toBe(381);
+		expect(queuedRunnerPeakMb(["node", "scripts/run-host-suite.js"])).toBe(
+			undefined,
+		);
+		expect(queuedRunnerPeakMb(["node", "node_modules/.bin/tsc"])).toBe(
+			undefined,
+		);
+		expect(
+			queuedRunnerPeakMb(["node", "node_modules/.bin/vitest", "run"]),
+		).toBe(undefined);
 	});
 
 	it("charges a lander marker carrying no charge its queue's peak", () => {
