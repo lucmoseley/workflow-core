@@ -90,7 +90,6 @@ def last_line(path):
 
 
 def win_sample(line):
-    """The line's Windows sample, or None."""
     if not line:
         return None
     avail, age, ts = line.get("win_avail_mb"), line.get("win_age_s"), line.get("ts")
@@ -136,8 +135,7 @@ def cached_mb(meminfo):
 
 def drop(drop_caches, meminfo):
     """Sync, drop the page cache; returns guest Cached MB before and after.
-    `1` drops the page cache alone, the memory #4759 measured held in vmmemWSL;
-    `3` would also drop dentries and inodes, which every session re-reads."""
+    `1` drops the page cache alone; `3` would also drop dentries and inodes, which every session re-reads."""
     before = cached_mb(meminfo)
     os.sync()
     Path(drop_caches).write_text("1")
@@ -207,8 +205,6 @@ def under(root, path):
 
 
 def install(root):
-    """Copy the script, write both units, create the drop log, start the timer.
-    Returns an exit code."""
     # Imported here: the installed copy runs `tick` alone, with no lib/ beside it.
     sys.path.insert(0, str(HERE / "lib"))
     from wfc_bin import bin_path

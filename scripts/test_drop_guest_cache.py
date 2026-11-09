@@ -148,7 +148,6 @@ def test_cli_tick_with_no_minute_log_does_nothing(tmp_path):
 
 
 def _checkout(tmp_path):
-    """A copy of the script, its templates and the lib it imports."""
     root = tmp_path / "repo"
     (root / "scripts/lib").mkdir(parents=True)
     for name in (
