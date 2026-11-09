@@ -263,6 +263,7 @@ const WAYFINDER_LABEL = takesLabel("wayfinder");
 const isQuestionType = (issue) =>
 	issue.labels.includes(WAYFINDER_LABEL) &&
 	(issue.labels.some((l) => QUESTION_TYPES.includes(l)) ||
+		// The type alone, not isDecisionTicket: takes:wayfinder is required above.
 		!isRouteStep(issue.labels));
 
 /**
@@ -298,7 +299,8 @@ const EXCLUSION_CATEGORIES = /** @type {const} */ ([
 
 /* A `takes:to-spec` map is itself the work, its children sitting beside the
  * spec it files (#4767); `takes:children` and `takes:wayfinder` children are
- * the work, so those stay held. */
+ * the work, so those stay held.
+ * Residual: a to-spec map is offered beside a runnable child of its own. */
 const TO_SPEC_LABEL = takesLabel("to-spec");
 
 /**

@@ -2,7 +2,8 @@
 /*
  * Pins the decision-ticket predicate (#4740). Loosen it and a build ticket
  * is refused a reply-only Practice skip; tighten it and a decision ticket
- * closes on one, or drops off /wayfinder's frontier.
+ * closes on one, or drops off /wayfinder's frontier. Pure functions of a
+ * label list, so plain in-process calls with no fixture.
  */
 import { describe, expect, it } from "vitest";
 
