@@ -1,5 +1,6 @@
 """memwatch_minute.py — the user timers' one reader of memwatch's minute log,
-`~/memwatch-minute.jsonl` (docs/environment.md §4).
+`~/memwatch-minute.jsonl` (docs/environment.md §4), shared so the timers parse
+it alike (#4791).
 """
 
 import json

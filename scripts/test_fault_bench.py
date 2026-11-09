@@ -152,10 +152,12 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
         env=env,
     )
     assert done.returncode == 0, done.stderr
-    installed = home / ".local/lib/workflow-core/fault_bench.py"
+    installed = home / ".local/lib/workflow-core/fault-bench/fault_bench.py"
     assert installed.read_text() == (HERE / "fault_bench.py").read_text()
     # The copy reads the minute log through its own lib/ at run time.
-    assert (home / ".local/lib/workflow-core/lib/memwatch_minute.py").exists()
+    assert (
+        home / ".local/lib/workflow-core/fault-bench/lib/memwatch_minute.py"
+    ).exists()
     units = home / ".config/systemd/user"
     service = (units / "fault-bench.service").read_text()
     # The unit runs the installed copy, which outlives any worktree.

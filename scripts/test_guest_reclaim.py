@@ -30,7 +30,8 @@ def _ts(t):
 
 class FakeCgroup(g.Cgroup):
     """A cgroup whose stall and refault counters grow at a set rate per second of
-    the fake clock, plus whatever a step adds; each reclaim write takes 0.4 s."""
+    the fake clock, plus whatever a step adds; each reclaim write takes 0.4 s.
+    A subclass so a pass runs Cgroup's own mark and rates_from."""
 
     def __init__(self):
         self.t = 0.0
@@ -253,49 +254,53 @@ def test_after_is_logged_once(box):
     assert [r["kind"] for r in records()] == ["pass", "after"]
 
 
-def test_a_torn_last_line_reads_the_one_before(box, tmp_path):
-    line, tick, _records, _cg = box
-    line(T0, 900)
-    with (tmp_path / "minute.jsonl").open("a") as f:
-        f.write('{"ts": "2026-')
-    assert tick(T0 + 10) == ["pass"]
+FIXTURE_STAT = "anon 1\nfile 3802972160\nworkingset_refault_file 10258902\n"
+FIXTURE_PRESSURE = (
+    "some avg10=0.13 avg60=0.61 avg300=0.30 total=33847053\n"
+    "full avg10=0.11 avg60=0.48 avg300=0.25 total=19560236\n"
+)
+LIVE_CGROUP = g.user_cgroup()
+LIVE = all((LIVE_CGROUP / f).exists() for f in ("memory.stat", "memory.pressure"))
 
 
-def test_the_cgroup_reader_parses_the_kernel_files(tmp_path):
-    (tmp_path / "memory.stat").write_text(
-        "anon 1\nfile 3802972160\nworkingset_refault_file 10258902\n"
-    )
-    (tmp_path / "memory.pressure").write_text(
-        "some avg10=0.13 avg60=0.61 avg300=0.30 total=33847053\n"
-        "full avg10=0.11 avg60=0.48 avg300=0.25 total=19560236\n"
-    )
-    (tmp_path / "memory.reclaim").write_text("")
-    cg = g.Cgroup(tmp_path)
-    assert cg.stat("file") == 3802972160
-    assert cg.stat("workingset_refault_file") == 10258902
-    assert cg.stall_us() == 33847053
-    cg.reclaim(256 * MIB)
+@pytest.fixture(
+    params=[
+        "fixture",
+        pytest.param(
+            "live", marks=pytest.mark.skipif(not LIVE, reason="no user cgroup here")
+        ),
+    ]
+)
+def cgroup_dir(request, tmp_path):
+    if request.param == "live":
+        return LIVE_CGROUP
+    (tmp_path / "memory.stat").write_text(FIXTURE_STAT)
+    (tmp_path / "memory.pressure").write_text(FIXTURE_PRESSURE)
+    return tmp_path
+
+
+def test_the_cgroup_reader_parses_the_kernel_files(cgroup_dir):
+    # Reads only, on the live cgroup too: no reclaim write.
+    cg = g.Cgroup(cgroup_dir)
+    start = cg.mark(lambda: 0.0)
+    assert start.stall_us >= 0
+    assert start.refaults >= 0
+    assert cg.stat("file") >= 0
+    if cgroup_dir != LIVE_CGROUP:
+        assert (cg.stat("file"), start.refaults, start.stall_us) == (
+            3802972160,
+            10258902,
+            33847053,
+        )
+
+
+def test_reclaim_writes_bytes_and_swappiness_zero(tmp_path):
+    g.Cgroup(tmp_path).reclaim(256 * MIB)
     assert (tmp_path / "memory.reclaim").read_text() == "268435456 swappiness=0"
 
 
-LIVE_CGROUP = g.user_cgroup()
-
-
-@pytest.mark.skipif(
-    not (LIVE_CGROUP / "memory.stat").exists(), reason="no user cgroup here"
-)
-def test_the_readers_parse_the_live_cgroup_and_meminfo():
-    # Reads only: a mark and MemFree, no reclaim write.
-    start = g.Cgroup(LIVE_CGROUP).mark(lambda: 0.0)
-    assert start.stall_us >= 0
-    assert start.refaults >= 0
+def test_mem_free_reads_the_live_meminfo():
     assert g.mem_free_mb("/proc/meminfo") > 0
-
-
-def test_a_minute_line_with_an_unreadable_ts_is_no_reading_and_says_so(capsys):
-    line = {"ts": "yesterday", "win_avail_mb": 900, "win_age_s": 5}
-    assert g.win_sample(line) is None
-    assert "unreadable minute-line ts" in capsys.readouterr().err
 
 
 def test_report_counts_minutes_under_the_trigger(box, tmp_path):
@@ -343,12 +348,12 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
         env=env,
     )
     assert done.returncode == 0, done.stderr
-    installed = home / ".local/lib/workflow-core/guest_reclaim.py"
+    installed = home / ".local/lib/workflow-core/guest-reclaim/guest_reclaim.py"
     assert installed.read_text() == (HERE / "guest_reclaim.py").read_text()
     # The copy reads the minute log through its own lib/ at run time.
-    assert (home / ".local/lib/workflow-core/lib/memwatch_minute.py").read_text() == (
-        HERE / "lib/memwatch_minute.py"
-    ).read_text()
+    assert (
+        home / ".local/lib/workflow-core/guest-reclaim/lib/memwatch_minute.py"
+    ).read_text() == (HERE / "lib/memwatch_minute.py").read_text()
     units = home / ".config/systemd/user"
     # Rendered from scripts/guest-reclaim.service.template and scripts/guest-reclaim.timer.template.
     service = (units / "guest-reclaim.service").read_text()

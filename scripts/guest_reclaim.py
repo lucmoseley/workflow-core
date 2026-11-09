@@ -147,10 +147,17 @@ def mem_free_mb(meminfo):
     return None
 
 
+class PassError(Exception):
+    """A write error other than EAGAIN ended a pass; `figures` holds what the
+    steps before it reclaimed."""
+
+    def __init__(self, figures):
+        super().__init__(figures["stop"])
+        self.figures = figures
+
+
 def run_pass(cgroup, deficit_bytes, clock, sleep):
-    """Reclaim up to `deficit_bytes` in steps. Returns the record's figures, the
-    pass's length in seconds, and a write error other than EAGAIN, if one ended it."""
-    began = clock()
+    """Reclaim up to `deficit_bytes` in steps. Returns the record's figures."""
     failure = None
     start = cgroup.mark(clock)
     sleep(BASELINE_S)
@@ -164,9 +171,10 @@ def run_pass(cgroup, deficit_bytes, clock, sleep):
         try:
             cgroup.reclaim(step)
         except OSError as err:
+            # EAGAIN ends the pass; any other error is raised once the steps
+            # before it are counted (#4791).
             asked += step
             if err.errno != errno.EAGAIN:
-                # Logged with what earlier steps freed, then raised by tick (#4791).
                 failure = err
                 stop = errno.errorcode.get(err.errno, "error")
             else:
@@ -191,7 +199,9 @@ def run_pass(cgroup, deficit_bytes, clock, sleep):
         "base_stall_share": round(base.stall_share, 4),
         "base_refaults_per_s": round(base.refaults_per_s),
     }
-    return figures, clock() - began, failure
+    if failure:
+        raise PassError(figures) from failure
+    return figures
 
 
 def reading(line, sample):
@@ -227,7 +237,9 @@ def tick(
     logged = []
     # A sample taken before the last pass's pages reached Windows still counts
     # what that pass freed.
-    fresh = sample and (not last or sample.taken_at > parse_ts(last["ts"]))
+    fresh = sample and (
+        not last or sample.taken_at > parse_ts(last["reaches_windows_at"])
+    )
     if last and last["ts"] not in afters and fresh:
         append_record(
             pass_log, {"kind": "after", "pass": last["ts"], **reading(line, sample)}
@@ -239,14 +251,20 @@ def tick(
         or sample.avail_mb >= TRIGGER_MB
     ):
         return logged
-    figures, took_s, failure = run_pass(
-        cgroup, (TRIGGER_MB - sample.avail_mb) * MIB, clock, sleep
-    )
+    began = clock()
+    failure = None
+    try:
+        figures = run_pass(cgroup, (TRIGGER_MB - sample.avail_mb) * MIB, clock, sleep)
+    except PassError as err:
+        # Logged with what earlier steps freed, then raised (#4791).
+        figures, failure = err.figures, err.__cause__
+    took_s = clock() - began
     append_record(
         pass_log,
         {
             "kind": "pass",
-            "ts": format_ts(now + took_s + REPORTING_DELAY_S),
+            "ts": format_ts(now),
+            "reaches_windows_at": format_ts(now + took_s + REPORTING_DELAY_S),
             **reading(line, sample),
             **figures,
             "mem_free_mb_after": mem_free_mb(meminfo),
