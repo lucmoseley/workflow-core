@@ -35,6 +35,7 @@ const {
 } = require("./issue-ref.js");
 
 const BLOCKED_ON_RE =
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	/^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*((?:(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?)+)/gim;
 
 /*

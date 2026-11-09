@@ -42,6 +42,7 @@ const TAIL = `${EDGE}(?:.*${EDGE})?`;
 /* A tail of blanks alone is read as its last blank, so the marker is reported
  * malformed rather than read as absent. */
 const GATE_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`${AT_LINE_HEAD}\\*\\*Gated until:\\*\\*[ \\t]*(${TAIL}|[ \\t])[ \\t]*$`,
 	"gim",
 );
@@ -91,6 +92,7 @@ function gateOf(body, at = Date.now()) {
 }
 
 const GATE_ON_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`${AT_LINE_HEAD}\\*\\*Gated on:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
 	"gim",
 );
@@ -232,6 +234,7 @@ function gateOnOf(body) {
 }
 
 const BASIS_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
 	"gim",
 );

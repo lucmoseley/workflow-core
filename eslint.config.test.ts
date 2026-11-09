@@ -1,7 +1,9 @@
 // @vitest-environment node
 /*
  * Pins which files eslint.config.mjs's Next.js and React Hooks presets reach:
- * app/ and lib/ get their rules, scripts/ gets none, and a .tsx parses.
+ * app/ and lib/ get their rules, scripts/ gets none, and a .tsx parses. And
+ * that scripts/ outside its tests gets the two super-linear regex rules, which
+ * name themselves on a finding (#4642).
  *
  * It asks ESLint's own calculateConfigForFile for each path rather than
  * linting a fixture, because a preset aimed at the wrong files fails silently:
@@ -63,6 +65,26 @@ describe("eslint.config.mjs", () => {
 		expect(
 			(await severities("app/page.tsx"))["@next/next/no-img-element"],
 		).toBe(0);
+	});
+
+	it.each(["scripts/pick-next.js", "scripts/lib/session-checkout.ts"])(
+		"refuses a super-linear regex in %s, naming the rule",
+		async (filePath) => {
+			const [result] = await eslint.lintText(
+				"export const R = /a\\s*\\s*b/;\n",
+				{ filePath },
+			);
+			expect(result.messages.map((m) => m.ruleId)).toContain(
+				"regexp/no-super-linear-backtracking",
+			);
+		},
+	);
+
+	it("leaves scripts/ test files out of the regex rules, as Sonar does", async () => {
+		const rules = Object.keys(
+			await severities("scripts/check-doc-map.test.ts"),
+		);
+		expect(rules.filter((r) => r.startsWith("regexp/"))).toEqual([]);
 	});
 
 	it("parses TSX syntax", async () => {

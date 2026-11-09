@@ -27,6 +27,7 @@ const REPO = "(?:[a-z0-9._-]+/[a-z0-9._-]+)?";
 const URL =
 	"https?://github\\.com/[a-z0-9._-]+/[a-z0-9._-]+/issues/[0-9]+(?:[^0-9]|$)";
 const CLOSING_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`(?:^|[^a-z])${KEYWORD}(?:${REPO}#[0-9]+|${URL})`,
 	"i",
 );

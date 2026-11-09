@@ -34,6 +34,7 @@ const EMISSION_NAMES = {
  * must be quoted literals in the array: one held in a constant is invisible.
  */
 const INJECT_RULES_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads this repo's own tracked files, a few KB each, which only its sessions write
 	`\\b${EMISSION_NAMES.inject.join("|")}:\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
 	"g",
 );
@@ -47,6 +48,7 @@ const INJECT_RULES_KEY_RE = /(?<![\w$.])injectRules(?=\s*[:,}])/g;
 /* INJECT_RULES_RE admits no empty array, which emits nothing and is no
  * unread injection either. */
 const LITERAL_INJECTION_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads this repo's own tracked files, a few KB each, which only its sessions write
 	`(?:${INJECT_RULES_RE.source}|injectRules:\\s*\\[\\s*\\])`,
 	"y",
 );

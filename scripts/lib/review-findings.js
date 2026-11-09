@@ -38,11 +38,13 @@ const LIST_LINE = new RegExp(`^\\s*${LIST_MARKER}`);
 const SPELLING = "(?:FIX(?:E[DS]|ING)?|TICKET(?:ED|S|ING)?)(?![A-Za-z])";
 const UPPER_WORD = new RegExp(`(?<![A-Za-z])${SPELLING}`);
 const MARKED_SPELLING = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`^\\s*${LIST_MARKER}\\s*[^A-Za-z]*${SPELLING}`,
 	"i",
 );
 const BARE_SPELLING = new RegExp(`^\\s*[*_\`]*${SPELLING}`);
 const DECLINED_SPELLING = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`^\\s*(?:${LIST_MARKER})?\\s*[^A-Za-z]*declined(?![A-Za-z])`,
 	"i",
 );
@@ -67,6 +69,7 @@ const QUOTE_LINE = /^ {0,3}>/;
  * word so an apostrophe opens none, or a backtick opening straight onto a head
  * and never closed. */
 const QUOTED_SPAN = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`(?<!\`)(\`+)(?!\`).*?(?<!\`)\\1(?!\`)|"[^"]*"|“[^”]*”|(?<!\\w)'[^']*'(?!\\w)|‘[^’]*’|\`+(?=${FORM_HEAD.source}).*`,
 	"g",
 );

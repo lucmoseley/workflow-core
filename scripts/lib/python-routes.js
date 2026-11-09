@@ -38,7 +38,8 @@ const kindOf = (cell) => {
 	const base = [...BASE_KINDS, "none"].find(
 		(k) => c.startsWith(k) && !/^\w/.test(c.slice(k.length)),
 	);
-	return base ?? c.replace(/[:,(][\s\S]*$/, "").trim();
+	const end = c.search(/[:,(]/);
+	return base ?? (end < 0 ? c : c.slice(0, end)).trim();
 };
 
 /** @param {string} glob */

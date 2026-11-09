@@ -95,6 +95,7 @@ const REFERRING_PHRASE =
  * test is as narrow here as above: "Blocked by nothing, except upstream" passes.
  */
 const NO_BLOCKER = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`${BLOCKER_LINE.source}(?:(?<!by)\\s+\\w+(?=[*_]*:))?[\\s:*_\`'"(\\[—–-]*` +
 		`(?:none|nothing|no blockers?)\\b[*_\`'")\\]]*\\s*(?:$|([.;:,(—–-]))`,
 	"i",

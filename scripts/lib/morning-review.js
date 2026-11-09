@@ -142,6 +142,7 @@ function parseHistoryCursor(reviews, repo) {
  * @param {{body: string}[]} comments oldest first
  */
 function parseOneWayDoor(comments) {
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	const door = /^[ \t]*\*\*Door:\*\*[ \t]*(.*)$/m;
 	for (const { body } of [...comments].reverse()) {
 		const m = door.exec(body ?? "");

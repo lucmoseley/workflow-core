@@ -70,6 +70,7 @@ const RANGE_RE =
  * rule, which lib/unlanded-commits.js reads (#3230). */
 const HEX_WORD_RE = /(?<![\w-])[0-9a-f]{7,40}(?![\w-])/;
 const SHA_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- reads issue, comment, commit or reply text this repo's own sessions write, a few KB at most
 	`(?=[0-9a-f]*\\d)(?=[0-9a-f]*[a-f])${HEX_WORD_RE.source}`,
 );
 const MARKER_RE = /^[ \t]*\*\*Outstanding:\*\*(.*)$/;

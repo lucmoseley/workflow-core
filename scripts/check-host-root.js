@@ -332,6 +332,7 @@ const JS_CWD_DEFAULT = /[(,]\s*([A-Za-z_$][\w$]*)\s*=\s*process\.cwd\(\)/g;
 /** Any hook-only spelling, which alone makes a lone file's hook scope worth
  * computing. */
 const HOOK_ROOT_ANY = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- reads this repo's own tracked files, a few KB each, which only its sessions write
 	[...HOOK_ROOT_CALLS, String.raw`\bcwd\b`].join("|"),
 );
 

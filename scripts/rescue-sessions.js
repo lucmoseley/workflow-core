@@ -476,11 +476,10 @@ function commitSubjectOf({ call, flag, word }, command, cwd) {
  * @param {string} call
  */
 function heredocOf(command, call) {
-	const heredoc = command
-		.slice(Math.max(command.indexOf(call), 0))
-		.match(
-			/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?(?:[^\S\n]*\n)+([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
-		);
+	const heredoc = command.slice(Math.max(command.indexOf(call), 0)).match(
+		// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads one Bash command a session sends, a few KB at most
+		/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?(?:[^\S\n]*\n)+([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
+	);
 	if (!heredoc) return null;
 	const raw = heredoc[3] ?? "";
 	return heredoc[1] ? raw.replace(/^\t+/gm, "") : raw;

@@ -100,6 +100,7 @@ class GitUnanswered extends Error {}
  * on the next pass.
  */
 const RE_SPAN = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-move -- reads one Bash command a session sends, a few KB at most
 	[
 		"\\$\\{[^{}]*\\}",
 		"\\$\\([^()]*\\)",

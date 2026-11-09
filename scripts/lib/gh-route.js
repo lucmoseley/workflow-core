@@ -145,6 +145,19 @@ function findBodyEnd(code, from) {
 }
 
 /**
+ * A parameter's name: the text before its first `:`, a `?` just before that
+ * colon dropped with it, so `dir?: string` and `dir: string` both give `dir`.
+ * @param {string} param
+ * @returns {string}
+ */
+function beforeColon(param) {
+	const colon = param.indexOf(":");
+	if (colon < 0) return param;
+	const head = param.slice(0, colon);
+	return head.endsWith("?") ? head.slice(0, -1) : head;
+}
+
+/**
  * The directories local helpers join their first parameter onto, a directory
  * that is itself a parameter read off its default, for each helper a call
  * passes `bin` first.
@@ -161,7 +174,7 @@ function parseHelperDirs(bin, code) {
 			const at = p.indexOf("=");
 			const id = at < 0 ? p : p.slice(0, at);
 			return {
-				id: id.replace(/[?]?:.*$/s, "").trim(),
+				id: beforeColon(id).trim(),
 				fallback: at < 0 ? "" : p.slice(at + 1).trim(),
 			};
 		});

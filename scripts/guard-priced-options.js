@@ -1135,8 +1135,9 @@ function buildFounderLead() {
 	try {
 		const declared = resolveKey("founder");
 		if (typeof declared === "string" && declared.trim()) {
-			names.push(declared.trim());
-			names.push(declared.trim().replace(/\s.*$/s, ""));
+			const name = declared.trim();
+			const gap = name.search(/\s/);
+			names.push(name, gap < 0 ? name : name.slice(0, gap));
 		}
 	} catch (e) {
 		/* An unreadable config costs the name, never the limb (#598). */

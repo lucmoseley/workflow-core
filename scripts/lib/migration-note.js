@@ -46,6 +46,7 @@ const BULLET_START = /^[-*]\s/;
 
 /** A top-level bullet naming a known step type; group 2 is its text. */
 const TYPED_BULLET = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- reads this repo's own tracked files, a few KB each, which only its sessions write
 	`^[-*]\\s+\\[(${STEP_TYPES.join("|")})\\]\\s*(.*)$`,
 );
 
