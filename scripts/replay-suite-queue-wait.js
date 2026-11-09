@@ -16,6 +16,7 @@ const { loadCeiling } = require("./lib/cpu-sample");
 const { hostRoot } = require("./lib/host-root");
 const { queueExitLogPath } = require("./lib/queue-exit-log");
 const { readLogs, render, replay } = require("./lib/suite-queue-replay");
+const { minuteLogPath } = require("./lib/windows-memory");
 const { writeFd } = require("./lib/write-fd");
 
 const USAGE = `usage: node scripts/replay-suite-queue-wait.js --since <utc> --until <utc> [options]
@@ -25,6 +26,8 @@ const USAGE = `usage: node scripts/replay-suite-queue-wait.js --since <utc> --un
   --markers <dir>    the marker stores (default: the canonical checkout's)
   --memwatch <file>  a memwatch log, local time; repeatable (default:
                      ~/memwatch-archive.log and ~/memwatch.log)
+  --minute-log <file> memwatch's minute log, the windows limb's
+                     (default: ~/memwatch-minute.jsonl)
   --mem-total-mb <n> MemTotal the memwatch \`used\` is taken from (default: this machine's)
   --load-ceiling <n> the load1 hold (default: this machine's)`;
 
@@ -46,6 +49,21 @@ function refuse(message) {
 	return 2;
 }
 
+/**
+ * The memwatch logs the flags name, else memwatch's own.
+ * @param {Parameters<typeof flagValue>[0]} flags
+ * @param {Record<string, string[]>} lists
+ */
+function memwatchLogs(flags, lists) {
+	return {
+		memwatch: lists["--memwatch"] ?? [
+			path.join(os.homedir(), "memwatch-archive.log"),
+			path.join(os.homedir(), "memwatch.log"),
+		],
+		minuteLog: flagValue(flags, "--minute-log") ?? minuteLogPath(),
+	};
+}
+
 /** @returns {0 | 2} */
 function main() {
 	const parsed = parseOrCode(process.argv.slice(2), {
@@ -56,6 +74,7 @@ function main() {
 			"--era": "list",
 			"--markers": "value",
 			"--memwatch": "list",
+			"--minute-log": "value",
 			"--mem-total-mb": "value",
 			"--load-ceiling": "value",
 		},
@@ -79,10 +98,6 @@ function main() {
 	const markers = given ?? (exitLog && path.dirname(exitLog));
 	if (!markers)
 		return refuse("git names no canonical checkout; pass --markers");
-	const memwatch = lists["--memwatch"] ?? [
-		path.join(os.homedir(), "memwatch-archive.log"),
-		path.join(os.homedir(), "memwatch.log"),
-	];
 	const memTotal = flagValue(flags, "--mem-total-mb");
 	const ceiling = flagValue(flags, "--load-ceiling");
 	/** @type {import("./lib/suite-queue-replay").Window} */
@@ -95,7 +110,12 @@ function main() {
 			: Math.floor(os.totalmem() / 1_048_576),
 		loadCeiling: ceiling ? Number(ceiling) : loadCeiling(),
 	};
-	const logs = readLogs({ markers, memwatch, since, until });
+	const logs = readLogs({
+		markers,
+		...memwatchLogs(flags, lists),
+		since,
+		until,
+	});
 	writeFd(1, `${render(replay(logs, w), w)}\n`);
 	return 0;
 }
