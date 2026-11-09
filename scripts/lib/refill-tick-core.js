@@ -275,6 +275,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *     LoopLaunch[],
  *   actOnIdle: (launches: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
  *     LoopLaunch[],
+ *   actOnOutside: (launches: LoopLaunch[], registry: AgentRecord[],
+ *     seen: Seen) => void,
  *   releaseAwayParks: (launches: LoopLaunch[], mode: "normal"|"away",
  *     served: string[], seen: Seen) => LoopLaunch[],
  *   attachProbeParks: (broken: string[], launches: LoopLaunch[]) => void,
@@ -446,13 +448,15 @@ function parkSweepRootsOf(io, served) {
  * each away park's ledger row released once normal mode is live, ahead of the
  * shortlist read (#3872).
  * Then each served checkout's broken probe has the parks made meanwhile
- * attached to its hold.
+ * attached to its hold, the background sessions the loop did not launch are
+ * resumed where an API error blocks them (#4815), and the due resumes the
+ * network held back are logged.
  * @param {TickIo} io
  * @param {LoopLaunch[]} listed
  * @param {{mode: "normal"|"away", served: string[], broken: string[],
- *   seen: Seen}} tick
+ *   seen: Seen, registry: RegistryListing}} tick
  */
-function actOnLaunches(io, listed, { mode, served, broken, seen }) {
+function actOnLaunches(io, listed, { mode, served, broken, seen, registry }) {
 	io.unparkAnswered(parkSweepRootsOf(io, served), seen);
 	io.tendClosedParks(served);
 	const tried = retireOriginals(listed, seen.io);
@@ -463,6 +467,8 @@ function actOnLaunches(io, listed, { mode, served, broken, seen }) {
 		seen,
 	);
 	io.attachProbeParks(broken, acted);
+	io.actOnOutside(acted, registry.agents, seen);
+	blocks.logNetWaits(seen);
 	return acted;
 }
 
@@ -852,6 +858,7 @@ const buildDryActs = (io) => ({
 	tendClosedParks: doNothing,
 	actOnBlocks: (listed) => listed,
 	actOnIdle: (launches) => launches,
+	actOnOutside: doNothing,
 	releaseAwayParks: (launches) => launches,
 	attachProbeParks: doNothing,
 	actOnLimits: (judged, _mode, { slots }) => ({
@@ -908,6 +915,7 @@ const DRY_BLOCK_ACTS = {
 	comment: doNothing,
 	postHandOff: () => ({ failed: DRY_RUN_WHY, out: "" }),
 	release: () => false,
+	writeOutside: doNothing,
 };
 
 /**
@@ -1016,6 +1024,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		served,
 		broken,
 		seen,
+		registry,
 	});
 	/* A dry run, a barred tick or a stopping one sets nothing running, and the
 	 * lifted holds keep for a later tick. */

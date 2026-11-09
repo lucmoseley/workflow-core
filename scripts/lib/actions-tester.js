@@ -19,10 +19,11 @@
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
  * one. Asked again, a failed run has its failed jobs rerun; any other run at
- * the sha is never read, its ref deleted and created again so a run starts
- * after the ask (#4524). Where none at the sha is listed, as when its ref was
- * pushed while Actions fired nothing, the ref is pushed again once before
- * the tree is read as firing none (#4572). Named files at a sha a
+ * the sha, or a failed one whose rerun GitHub refuses (#4822), is never
+ * read, its ref deleted and created again so a run starts after the ask
+ * (#4524). Where none at the sha is listed, as when its ref was pushed
+ * while Actions fired nothing, the ref is pushed again once before the
+ * tree is read as firing none (#4572). Named files at a sha a
  * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
@@ -460,6 +461,15 @@ async function pollRun(read, unread, { wait, now }) {
 	}
 }
 
+/* `gh run rerun` prints every HTTP 403 as "run <id> cannot be rerun;
+ * <message>", "This workflow run cannot be retried" among them (#4822). No
+ * 403 starts an attempt, and pushing the ref again needs only git's push
+ * access, so every one is replaced that way. */
+const RERUN_REFUSED = /cannot be rerun/;
+
+/** @param {unknown} err */
+const isRerunRefused = (err) => RERUN_REFUSED.test(parseErrorText(err));
+
 /** @param {unknown} err @returns {Verdict} */
 const unreadable = (err) => ({
 	kind: "unknown",
@@ -489,7 +499,8 @@ function settle(v) {
 /**
  * The verdict of the push run at `sha` on `branch`, judging only an attempt
  * after `after`; a runner that failed to ready has its failed jobs rerun, up
- * to RUNNER_RERUNS times, before it is no verdict.
+ * to RUNNER_RERUNS times, before it is no verdict. A rerun GitHub refuses
+ * has the branch pushed again, counted as an attempt (#4822).
  * @param {string} sha
  * @param {number} after
  * @param {{reads: Reads, branch: string} & Poll} suite
@@ -512,7 +523,8 @@ async function suiteVerdict(sha, after, suite, reruns = 0) {
 	try {
 		reads.rerun(v.run);
 	} catch (err) {
-		return unreadable(err);
+		if (!isRerunRefused(err)) return unreadable(err);
+		return repushedVerdict(sha, suite, [{ databaseId: v.run }], reruns + 1);
 	}
 	return suiteVerdict(sha, v.attempt, suite, reruns + 1);
 }
@@ -797,7 +809,8 @@ const heldBy = (reads, sha) =>
  * rerun where it failed: on `files`, which it judges too, else the whole
  * suite. Files at a sha no run covers are run alone. The whole suite is
  * never read off a run listed before the ask (#4524): any other run at
- * `sha` has the branch pushed again, and only a run newer than every one
+ * `sha`, or a failed one whose rerun GitHub refuses (#4822), has the
+ * branch pushed again, and only a run newer than every one
  * the branch listed is judged. Where no run at `sha` was listed and none
  * newer appears, the branch is pushed again and waited on once more before
  * a no-run red (#4572). Residual: a run the lander's own push started
@@ -822,7 +835,8 @@ async function rerunVerdict(sha, files, on, named) {
 		try {
 			reads.rerun(run.databaseId);
 		} catch (err) {
-			return unreadable(err);
+			if (!isRerunRefused(err)) return unreadable(err);
+			return repushedVerdict(sha, on, listed);
 		}
 		return suiteVerdict(sha, run.attempt, on);
 	}
@@ -830,9 +844,7 @@ async function rerunVerdict(sha, files, on, named) {
 		return run === undefined
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
-	if (run !== undefined) {
-		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
-	}
+	if (run !== undefined) return repushedVerdict(sha, on, listed);
 	const v = await newerVerdict(sha, on, listed);
 	if (v.kind !== "red" || !v.noRun) return v;
 	/** @type {Run[]} */
@@ -842,27 +854,45 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
+	return repushedVerdict(sha, on, again);
 }
+
+/**
+ * `newerVerdict` once `on`'s branch is pushed again at `sha`.
+ * @param {string} sha
+ * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {readonly Pick<Run, "databaseId">[]} listed
+ * @param {number} [reruns]
+ * @returns {Promise<Verdict>}
+ */
+const repushedVerdict = async (sha, on, listed, reruns = 0) =>
+	repushFailure(on, sha) ?? newerVerdict(sha, on, listed, reruns);
 
 /**
  * The whole suite at `sha` read off a run on `on`'s branch newer than every
  * one in `listed`.
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
- * @param {readonly Run[]} listed
+ * @param {readonly Pick<Run, "databaseId">[]} listed
+ * @param {number} [reruns] attempts already started for a runner that
+ *   failed to ready
  * @returns {Promise<Verdict>}
  */
-function newerVerdict(sha, on, listed) {
+function newerVerdict(sha, on, listed, reruns = 0) {
 	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
 	const { reads } = on;
-	return suiteVerdict(sha, 0, {
-		...on,
-		reads: {
-			...reads,
-			runs: () => reads.runs().filter((r) => r.databaseId > bound),
+	return suiteVerdict(
+		sha,
+		0,
+		{
+			...on,
+			reads: {
+				...reads,
+				runs: () => reads.runs().filter((r) => r.databaseId > bound),
+			},
 		},
-	});
+		reruns,
+	);
 }
 
 /**

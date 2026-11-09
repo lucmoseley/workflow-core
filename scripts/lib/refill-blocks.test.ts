@@ -564,6 +564,7 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 		const { out, calls } = blocks([typed], blocked, "normal");
 		const line = `resume 1 of ${RESUME_CAP} after an API error, design-vault /implement 42, by stop and --bg --resume, the typed one unseen, as its copy p-copy (${COPY_WHY}); next due ${new Date(NOW + 2 * MIN).toISOString()}`;
 		expect(calls).toEqual([
+			"probe",
 			"stop p",
 			"resume p",
 			`log ${line}`,
@@ -600,6 +601,7 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 	it("logs and comments a resume with its count, route and next due time, and a morning park as such", () => {
 		const line = `resume 1 of ${RESUME_CAP} after an API error, design-vault /implement 42, by typing into the live session; next due ${new Date(NOW + 4 * MIN).toISOString()}`;
 		expect(blocks([resuming()], blocked, "away").calls).toEqual([
+			"probe",
 			"type p",
 			`log ${line}`,
 			`comment Refill loop: ${line}.`,
@@ -2407,7 +2409,8 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 				io,
 				swapHold: NO_HOLD,
 			});
-			expect(calls.slice(0, 3)).toEqual([
+			expect(calls.slice(0, 4)).toEqual([
+				"probe",
 				"recorded",
 				"stop job42",
 				"resume job42",
@@ -2895,4 +2898,81 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			expect(limits(roundTrip(due), Later, full).cwds).toEqual([act]);
 		},
 	);
+});
+
+describe("a loop launch's API-error resume and the network and duplicate checks (#4815)", () => {
+	const resuming = (over = {}): Launch =>
+		record({
+			jobId: "p",
+			parked: true,
+			block: { cause: "API_ERROR", sub: "transient", since: NOW - 2 * MIN },
+			...over,
+		});
+	const blocked = [agent("p", "blocked")];
+	const Offline = "api.anthropic.com did not resolve: EAI_AGAIN";
+	const typedUnseen = () =>
+		resuming({
+			resumes: {
+				tries: 1,
+				triedAt: NOW - 2 * MIN,
+				nextAt: NOW + 2 * MIN,
+				attachAt: NOW - 2 * MIN,
+			},
+		});
+	const acts = (calls: string[]) =>
+		calls.filter((c) => /^(type|stop|resume) /.test(c));
+
+	it("holds a due resume back while the network is down, no try spent, and types it once the network is up", () => {
+		const offline = blocks([resuming()], blocked, "away", {
+			io: { probeNetwork: () => Offline },
+		});
+		expect(acts(offline.calls)).toEqual([]);
+		expect(logs(offline.calls)).toEqual([
+			`the API host is unreachable (${Offline}), so these due resumes wait for the next tick, no try spent: design-vault /implement 42`,
+		]);
+		const online = blocks(offline.out, blocked, "away", { now: NOW + MIN });
+		expect(acts(online.calls)).toEqual(["type p"]);
+		expect(logs(online.calls)[0]).toMatch(/^resume 1 of /);
+	});
+
+	it("holds an unseen typed resume's fallback back while the network is down, then falls back", () => {
+		const offline = blocks([typedUnseen()], blocked, "normal", {
+			io: { probeNetwork: () => Offline },
+		});
+		expect(acts(offline.calls)).toEqual([]);
+		const online = blocks(offline.out, blocked, "normal", { now: NOW + MIN });
+		expect(acts(online.calls)).toEqual(["stop p", "resume p"]);
+	});
+
+	it("neither stops nor copies a session that took a prompt since its stop, and counts the resume arrived", () => {
+		const cases: [Launch, Agents][] = [
+			[typedUnseen(), blocked],
+			/* Held stopped between tries; a resume is due, by stop and --bg --resume. */
+			[
+				resuming({
+					resumes: {
+						tries: 1,
+						triedAt: NOW - 30 * MIN,
+						nextAt: NOW,
+						heldAt: NOW - 25 * MIN,
+					},
+				}),
+				[agent("p", "stopped")],
+			],
+		];
+		for (const [l, agents] of cases) {
+			const { out, calls } = blocks([l], agents, "normal", {
+				io: { isResumedSinceStop: () => true },
+			});
+			expect(acts(calls)).toEqual([]);
+			expect(logs(calls)).toContain(
+				"design-vault /implement 42's session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived",
+			);
+			/* Resumed, the listing reads it working: nothing more is owed. */
+			const working = [agent("p", "working")];
+			expect(
+				acts(blocks(out, working, "normal", { now: NOW + MIN }).calls),
+			).toEqual([]);
+		}
+	});
 });

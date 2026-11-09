@@ -137,6 +137,7 @@ const CHECKS = [
 	["interop-latency", "check-interop-latency.js"],
 	["kernel-stall", "check-kernel-stall.js"],
 	["wsl-currency", "check-wsl-currency.js"],
+	["retry-watchdog", "check-retry-watchdog.js"],
 	["idle-efforts", "check-idle-efforts.js"],
 	["unclosed-launches", "check-unclosed-launches.js"],
 	["compaction-backstop", "check-compaction-backstop.js"],
