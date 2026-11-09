@@ -105,6 +105,9 @@ const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
 /* #4782's commit, from which a part waiter passes an older one that hold
  * keeps out. */
 const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
+/* #4783's commit, from which a part waiter passes an older one held at rest
+ * past PART_PASS_AGE_MS. */
+const REST_PASS_FROM = Date.parse("2026-11-09T14:55:12Z");
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
 /* A process line of a memwatch block: `PID RSS COMMAND`, or
@@ -645,10 +648,12 @@ const isRungHeld = (e, tick, w) =>
 /**
  * The gate's own turn for `e` at this tick (`turnOf`, #4260), from a snapshot
  * of the waits the logs show: the older waiters in its queue, none yet
- * spawned, each stamped `memoryHeld` where its rung holds it, else
+ * spawned, each stamped `memoryHeld` where its rung holds it, `restHeld`
+ * where its memory rung does at a tick no test worker runs, else
  * `windowsHeld` where the Windows hold does; and another waiter between its
- * `opened` exit and its spawn. #3058's pass is on from its commit, and the
- * Windows stamp from #4782's.
+ * `opened` exit and its spawn. #3058's pass is on from its commit, the
+ * Windows stamp from #4782's, and the rest stamp from #4783's. The replay
+ * reads no climb charge per tick, so a climb never ends a rest here.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -663,6 +668,8 @@ function turnReasonsOf(e, tick, w) {
 			part: !tsc && !o.whole,
 			spawned: false,
 			memoryHeld: isRungHeld(o, tick, w),
+			restHeld:
+				tick.t >= REST_PASS_FROM && tick.busy === 0 && isMemoryHeld(o, tick, w),
 			windowsHeld:
 				tick.t >= WINDOWS_PASS_FROM &&
 				!isRungHeld(o, tick, w) &&

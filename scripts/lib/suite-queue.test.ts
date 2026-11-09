@@ -402,6 +402,7 @@ describe("turnOf, the turn's rule (#4260)", () => {
 		part?: boolean;
 		spawned?: boolean;
 		memoryHeld?: boolean;
+		restHeld?: boolean;
 		windowsHeld?: boolean;
 	}
 	const turn = (
@@ -513,6 +514,33 @@ describe("turnOf, the turn's rule (#4260)", () => {
 				expect(
 					reasons({ waiter: "part", ahead: [held] }, { partPass: false }),
 				).toEqual(["fifo-part"]);
+			});
+		});
+
+		describe("passing an older part-suite the memory rung holds at rest (#4783)", () => {
+			const atRest = { ...partAhead, memoryHeld: true, restHeld: true };
+
+			it("passes it past the age bound", () => {
+				expect(
+					turn({ waiter: "part", ahead: [atRest], now: 5 * PART_PASS_AGE_MS }),
+				).toEqual({ reasons: [], passed: 1 });
+			});
+
+			it("stops passing it once a run that ends could let it in", () => {
+				expect(
+					reasons({
+						waiter: "part",
+						ahead: [{ ...partAhead, memoryHeld: true }],
+						now: 5 * PART_PASS_AGE_MS,
+					}),
+				).toEqual(["fifo-part"]);
+			});
+
+			it("passes none with the switch off, and never for a whole suite", () => {
+				expect(
+					reasons({ waiter: "part", ahead: [atRest] }, { partPass: false }),
+				).toEqual(["fifo-part"]);
+				expect(reasons({ ahead: [atRest] })).toEqual(["fifo-whole"]);
 			});
 		});
 
@@ -726,6 +754,57 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			head.stamps.onWindowsHeld(true);
 			expect(read()).toBe(true);
 			head.stamps.onWindowsHeld(false);
+			expect(read()).toBeUndefined();
+		});
+	});
+
+	describe("the rest stamp an older part-suite's wait writes (#4783)", () => {
+		const late = 5 * PART_PASS_AGE_MS;
+		/** A head its memory rung holds on `denial` past the age bound, and a run behind it that fits. */
+		const behindHeadHeldOn = async (denial: object) => {
+			const queueDir = qdir();
+			const head = joined(queueDir, 11, 0, { weight: PART });
+			joined(queueDir, 99, 1000, { weight: PART });
+			let t = 0;
+			let behind: object | undefined;
+			await head.wait({
+				gate: () => ({ limb: "memory", mb: 1000, rungMb: 2550, ...denial }),
+				clock: () => t,
+				timeoutMs: late,
+				sleepFn: async () => {
+					behind = await polled({ queueDir, pid: 99, clock: () => late });
+					t = late;
+				},
+				out: { write: () => true },
+			});
+			return behind;
+		};
+
+		it("admits a part-suite that fits past a head held with nothing running", async () => {
+			expect(await behindHeadHeldOn({ busy: 0 })).toEqual({
+				reason: "opened",
+				passed: 1,
+			});
+		});
+
+		it.each([
+			["vitest workers running", { busy: 2 }],
+			["a climb charged", { busy: 0, climbMb: 400 }],
+			["`ps` unread", {}],
+		])("holds it behind a head held with %s", async (_what, denial) => {
+			expect(await behindHeadHeldOn(denial)).toMatchObject({
+				reason: "refused",
+			});
+		});
+
+		it("drops the stamp once the rest ends", () => {
+			const queueDir = qdir();
+			const head = joined(queueDir, 11, 0, { weight: PART });
+			const read = () =>
+				JSON.parse(fs.readFileSync(head.ticket, "utf8")).restHeld;
+			head.stamps.onRestHeld(true);
+			expect(read()).toBe(true);
+			head.stamps.onRestHeld(false);
 			expect(read()).toBeUndefined();
 		});
 	});
