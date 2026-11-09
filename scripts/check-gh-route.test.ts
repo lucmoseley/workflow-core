@@ -193,7 +193,7 @@ describe("a seeded repo: --index (#3687), --warn, --against and --root", () => {
 		file("scripts/hook.sh", bare);
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-home-"));
 		try {
-			const home = runFrom(elsewhere, [], elsewhere);
+			const home = runFrom(elsewhere, []);
 			expect(home.status).toBe(0);
 			expect(home.out).toContain("OK: 0 file(s)");
 			const r = runFrom(elsewhere, ["--root", root], elsewhere);
