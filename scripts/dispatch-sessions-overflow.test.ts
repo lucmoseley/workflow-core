@@ -495,7 +495,7 @@ describe("an overflow seat (#2610)", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(
-			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 --name \/implement\\ 341 -- \/implement\\ 341$/m,
+			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 --name=\/implement\\ 341 -- \/implement\\ 341$/m,
 		);
 		expect(readAnyLaunches()).toEqual([]);
 	});
