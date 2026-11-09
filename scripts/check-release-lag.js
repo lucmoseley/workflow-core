@@ -28,6 +28,7 @@
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
+const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { execGit } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
@@ -51,15 +52,6 @@ const git = (root, args) =>
 		stdio: ["ignore", "pipe", "pipe"],
 	}).trim();
 
-/** @param {string} root @param {string} ref @returns {string|null} */
-function resolveCommit(root, ref) {
-	try {
-		return git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
-	} catch {
-		return null;
-	}
-}
-
 /**
  * @param {string} root
  * @param {RegExp} renderedFrom
@@ -69,7 +61,7 @@ const gitPort = (root, renderedFrom) => ({
 	sourceOf: (tag) =>
 		renderedFrom.exec(git(root, ["log", "-1", "--format=%B", tag]))?.[1] ??
 		null,
-	hasCommit: (sha) => resolveCommit(root, sha) !== null,
+	hasCommit: (sha) => readCommitOrBroken(sha, root) !== null,
 	count: (range) => Number(git(root, ["rev-list", "--count", range])),
 	time: (rev) => Number(git(root, ["log", "-1", "--format=%ct", rev])),
 });
@@ -99,7 +91,7 @@ runCheck({
 		const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
 		const tag = readReleaseTags(root).at(-1);
 		if (!tag) ctx.skip("no release tag in this clone.");
-		const tip = resolveCommit(root, MAIN);
+		const tip = readCommitOrBroken(MAIN, root);
 		if (!tip)
 			ctx.skip(`no ${MAIN} in this clone; \`git fetch origin\` makes one.`);
 		/** @type {import("./lib/release-lag").Reading} */

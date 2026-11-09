@@ -36,7 +36,8 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
-const { execGit } = require("../../../../scripts/lib/git.js");
+const { readCommit } = require("../../../../scripts/lib/commit-sha.js");
+const { execGit, gitReader } = require("../../../../scripts/lib/git.js");
 const { shellQuote } = require("../../../../scripts/lib/sh-quote.js");
 
 /**
@@ -214,10 +215,12 @@ function main(argv) {
 		);
 		return 1;
 	}
-	if (
-		run(["rev-parse", "--verify", "--quiet", `${fixedPoint}^{commit}`])
-			.status !== 0
-	) {
+	const point = readCommit(gitReader(), fixedPoint);
+	if (!point.ok) {
+		out(`git would not resolve ${fixedPoint}: ${point.why}\n`);
+		return 1;
+	}
+	if (point.sha === null) {
 		out(
 			`${fixedPoint} is not a commit this repository can resolve.\n` +
 				"  A baseline FILE is a legal fixed point for the pass but not for this\n" +
