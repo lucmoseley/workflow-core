@@ -4,7 +4,7 @@
  * day, settled spend by cycle, reservations at and above Q, Q read from the
  * table, the exhausted mark set by a credit refusal and cleared at the next
  * cycle, and when a spent key frees; and the chain arithmetic over resumed
- * copies, through a fake launch lookup and transcript reader.
+ * copies.
  *
  * Loosen one and the loop launches on a key past its grant, keeps retrying a
  * spent key, counts a cycle's spend from the wrong day (#2609), or counts a

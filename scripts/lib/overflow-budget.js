@@ -8,9 +8,6 @@
  * included, prices again each session on the key whose transcript has grown,
  * into a durable per-key ledger of one row per session beside the refill loop's
  * files. Only the launch record marks a session in the seat's dir as on the key.
- *
- * The chain arithmetic is lib/overflow-budget-core.js's; the per-session cap is
- * lib/overflow-cap.js's.
  */
 
 const fs = require("node:fs");

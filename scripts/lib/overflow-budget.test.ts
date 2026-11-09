@@ -6,14 +6,13 @@
  * marks on the key counted, from any checkout; the exhausted mark from a credit
  * refusal in a transcript; a listed session held, not settled; a resumed copy's
  * shared requests settled once (#4208), its transcript gone or not (#4370);
- * and the CLI's JSON
- * and status line for a fixture seat, every figure read from a fixed cost table
- * in a fixture checkout, and read there from a working directory that is no
- * checkout (#3683, #3695).
+ * and the CLI's JSON and status line for a fixture seat, every figure read
+ * from a fixed cost table in a fixture checkout, and read there from a working
+ * directory that is no checkout (#3683, #3695).
  *
  * Loosen one and a session's spend goes uncounted or counted twice, a plan
- * session is charged to the key, or the CLI reports a figure the gate did not
- * size (#2609).
+ * session is charged to the key, the CLI reports a figure the gate did not
+ * size (#2609), or a session past its allowance runs on unstopped (#3698).
  *
  * Launches are rows in a fixture checkout's dispatch ledger; `claude` is a stub
  * printing a fixture listing.
