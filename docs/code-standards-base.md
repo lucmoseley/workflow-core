@@ -151,7 +151,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 
 A decision that could reasonably have gone the other way carries, in a comment beside the code: what was chosen, the issue number that settled it, and what the choice leaves broken.
 
-The corpus does this three ways: `scripts/check-restatement-edges.js:52-55` cites the ticket beside the choice it made, *"reading those would silence the exceptions they were written to flag (mantahostels#1472)"*; residuals are headed `Residual:` (`scripts/check-self-throttling.js:238-240`); and the counterfactual is stated — `scripts/pick-next.js:1998-1999` *"a probe that could not run would read as 0 to anyone who cannot see the JSON"*.
+The corpus does this three ways: `scripts/check-restatement-edges.js:52-55` cites the ticket beside the choice it made, *"reading those would silence the exceptions they were written to flag (mantahostels#1472)"*; residuals are headed `Residual:` (`scripts/check-self-throttling.js:238-240`); and the counterfactual is stated — `scripts/pick-next.js:1228-1229` *"a probe that could not run would read as 0 to anyone who cannot see the JSON"*.
 
 ### §G2 · A magic value carries its derivation — **hard**
 
@@ -188,7 +188,7 @@ The fixes, best first: the test drives the program end to end through `run-in-pr
 
 Three kinds of export are not test-only:
 
-- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:431` does — *"module.exports = { main };"*.
+- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:432` does — *"module.exports = { main };"*.
 - **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js:2` is *"the machinery the .husky/pre-commit gate suites share"*.
 - **A module built ahead of its caller**, whose opening comment names that caller and its ticket on a line spelt `Unbuilt caller: <caller> (#N)`.
 
@@ -198,7 +198,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise a comment at the seam names the caller that will supply one.
 
-`scripts/lib/suite-queue.js:494` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:168` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:561` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:168` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -220,15 +220,15 @@ Where neither fits, remove the seam: create the dependency in place, and let the
 
 **Every code kind.** Where the repo has a `GLOSSARY.md`, a new name for a concept the glossary defines uses the glossary's term and none of its *Avoid* words.
 
-A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:341` names GitHub not answering, not the glossary's *Unreachable* page.
+A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:370` names GitHub not answering, not the glossary's *Unreachable* page.
 
-The push gate asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:1256`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:176`), never `parsePins` (#1373).
+The push gate asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:1352`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:176`), never `parsePins` (#1373).
 
 ### §G9 · State kept between calls has one writer, or writers named for what each does to it — **judgement**
 
 **Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (#1308, #1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
 
-`scripts/lib/suite-handoff.js:200-219` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:148-168` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:389`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+`scripts/lib/suite-handoff.js:203-222` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:145-158` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:389`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
 
 The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
 
@@ -344,7 +344,7 @@ Every other library module stays under the rule, and a client component is never
 
 *House, Node programs only*. Every `.js` program uses `require`, never `import`, and an executable carries `#!/usr/bin/env node` as line 1.
 
-A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:23` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
+A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:25` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
 
 ### §N2 · Every program, library module, hook module, shell script and test opens with a header block saying why — **hard**
 
@@ -376,10 +376,10 @@ A checking program's body returns a result and never ends the process itself; on
 Three sub-rules a reviewer may cite directly against a program reporting in the five-outcome alphabet below:
 
 - **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-23`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
-- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:29-32`).
-- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:327` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
+- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:25-28`).
+- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:342` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
 
-*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:197-198`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:203-204`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
 
 ```
 OK      ran, found nothing                            exit 0
@@ -395,11 +395,11 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises nor exits and cites no ticket, so (b) is a duplicate finding there. Whether (a)'s comment gives a reason, and (c), stay review's.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:366-362`) — and `scripts/session-arbiter.js:2398` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:366-367`) — and `scripts/session-arbiter.js:1550` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:435` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
-Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: `scripts/lib/check.js:353-354` *"node buffers writes to a PIPE and drops whatever is still buffered at process.exit — and a hook's stdout is always a pipe."* The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
+Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: `scripts/lib/check.js:372-373` *"node buffers writes to a PIPE and drops whatever is still buffered at process.exit — and a hook's stdout is always a pipe."* The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
@@ -407,7 +407,7 @@ A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops
 
 *House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` stays only where a comment says why. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
-Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1635-1638`).
+Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1955-1958`).
 
 ### §N7 · An export nothing consumes is a breach, and a binary a test stubs or a machine may lack is injected at one named var — **judgement**
 
@@ -443,11 +443,11 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 **Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:132` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
 
-**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said at the parameter: in JS the `@param` description opens `accumulator:`, as at `scripts/lib/arbiter-core.js:1057` *"accumulator: each readable entry is pushed here"*; in Python a docstring sentence opens with the backticked parameter and calls it the caller's accumulator, as at `scripts/lib/transcript_corpus.py:232-233` *"accumulator: the skips are counted into it"* (#1375). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the note names it. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
+**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said at the parameter: in JS the `@param` description opens `accumulator:`, as at `scripts/lib/arbiter-core.js:1148` *"accumulator: each readable entry is pushed here"*; in Python a docstring sentence opens with the backticked parameter and calls it the caller's accumulator, as at `scripts/lib/transcript_corpus.py:262-263` *"accumulator: the skips are counted into it"* (#1375). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the note names it. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
 
 ### §N10 · An arbiter record is reached through the arbiter's one reader and one writer — **hard**
 
-*House*. The session arbiter keeps its records (file claims, issue claims, wants, observations, breaks) as JSON files in its state directory, and what a reader does with a torn, absent or refused record is decided once: absent and torn read as no record, a refused read throws (mantahostels#174, `scripts/lib/arbiter-core.js:428-436`). A record's path comes from `paths` in `scripts/lib/arbiter-core.js`, or joins one of its directories to a name that directory's listing returned; its bytes are read through `readRecord`, `probeRecord`, `readRecordOrLog` or `readRecordOrFlag` and written through `writeRecord` or `createOnce`, there or through an arbiter family function built on them, such as `heldIssues` in `scripts/lib/arbiter-issue-claims.js`. A path to a record built by hand, or a record opened with `fs` and parsed in place, is the breach.
+*House*. The session arbiter keeps its records (file claims, issue claims, wants, observations, breaks) as JSON files in its state directory, and what a reader does with a torn, absent or refused record is decided once: absent and torn read as no record, a refused read throws (mantahostels#174, `scripts/lib/arbiter-core.js:399-407`). A record's path comes from `paths` in `scripts/lib/arbiter-core.js`, or joins one of its directories to a name that directory's listing returned; its bytes are read through `readRecord`, `probeRecord`, `readRecordOrLog` or `readRecordOrFlag` and written through `writeRecord` or `createOnce`, there or through an arbiter family function built on them, such as `heldIssues` in `scripts/lib/arbiter-issue-claims.js`. A path to a record built by hand, or a record opened with `fs` and parsed in place, is the breach.
 
 **Outside the rule:** a file in the state directory that holds no arbiter record, read and written by the one module that names its path, such as the ledgers, the error log, `firstSay`'s sentinels, `scripts/lib/notify-report.js`'s reports and `scripts/check-hook-liveness.js`'s state.
 
