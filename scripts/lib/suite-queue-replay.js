@@ -22,6 +22,8 @@
  * In either class, directly after the memory limb and ahead of the fifos:
  *   climb       MemAvailable clears the rung, but not less the climb the wait's
  *               exit line says held it (#3416, #3806)
+ *   windows     memwatch's minute log's win_avail_mb under the waiter's draw
+ *               plus the margin, from #4557's commit (#4782)
  * The fifos and `admitted` are the gate's own turn, `turnOf` in
  * lib/suite-queue.js, asked of each tick's waits (#4260).
  * Every later limb holding the same waiter-tick is tallied too, since one
@@ -47,7 +49,13 @@ const { docPath } = require("./script-path.js");
 const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
 const { WHOLE_SUITE_MAX, suiteRungMb } = require("./suite-ladder");
 const { PART_PASS_AGE_MS, turnOf } = require("./suite-queue");
-const { TSC_MAX, TSC_RUNG_MB, isTscRunner } = require("./tsc-slot");
+const {
+	TSC_MAX,
+	TSC_PEAK_MB,
+	TSC_RUNG_MB,
+	isTscRunner,
+} = require("./tsc-slot");
+const { WINDOWS_FRESH_S, windowsNeedMb } = require("./windows-memory");
 
 /* #2909's tick; the figures #3047 reports are at it. */
 const TICK_S = 10;
@@ -71,6 +79,7 @@ const LIMBS = [
 	"tsc-count",
 	"tsc-memory",
 	"climb",
+	"windows",
 	"fifo-whole",
 	"fifo-part",
 	"tsc-fifo",
@@ -91,6 +100,11 @@ const PRE_FIELDS_GATE = {
 /* #3058's commit, from which a part waiter passes an older one the memory
  * rung holds. */
 const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
+/* #4557's commit, from which the Windows-memory hold holds a launch. */
+const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
+/* #4782's commit, from which a part waiter passes an older one that hold
+ * keeps out. */
+const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:30:00Z");
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
 /* A process line of a memwatch block: `PID RSS COMMAND`, or
@@ -106,7 +120,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   modulesRun: number | null, modulesTotal: number | null }} Run
  * @typedef {{ used: number, load: number, tsc: number }} MemBlock
  * @typedef {{ exits: Exit[], runs: Run[], mem: Map<number, MemBlock>,
- *   unread: Unread }} Logs
+ *   windows: Map<number, number>, unread: Unread }} Logs
  * @typedef {{ since: number, until: number, eras: { label: string, from: number }[],
  *   memTotalMb: number, loadCeiling: number | null }} Window
  */
@@ -146,10 +160,10 @@ const isoAt = (s) => {
 /**
  * The logs the replay reads, cut to what can touch [since, until].
  *
- * @param {{ markers: string, memwatch: string[], since: number, until: number }} o
+ * @param {{ markers: string, memwatch: string[], minuteLog?: string | null, since: number, until: number }} o
  * @returns {Logs}
  */
-function readLogs({ markers, memwatch, since, until }) {
+function readLogs({ markers, memwatch, minuteLog = null, since, until }) {
 	const lo = new Date(since - PAD_MS).toISOString();
 	const hi = new Date(until + PAD_MS).toISOString();
 	const inRange = (/** @type {string} */ line) => {
@@ -183,7 +197,36 @@ function readLogs({ markers, memwatch, since, until }) {
 		? withModuleCounts(logged, readModuleCounts(markers, unread, inRange))
 		: logged;
 	const mem = readMemwatch(memwatch, unread);
-	return { exits, runs, mem, unread };
+	const windows = minuteLog
+		? readWindowsMinutes(minuteLog, unread, since - PAD_MS, until + PAD_MS)
+		: new Map();
+	return { exits, runs, mem, windows, unread };
+}
+
+/**
+ * memwatch's minute log's Windows free memory, keyed by minute, from each
+ * row in [lo, hi] whose reading the gate would take as fresh.
+ *
+ * @param {string} file
+ * @param {Unread} unread  accumulator: the absent log and the torn lines
+ * @param {number} lo
+ * @param {number} hi
+ */
+function readWindowsMinutes(file, unread, lo, hi) {
+	/** @type {Map<number, number>} */
+	const windows = new Map();
+	const inRange = (/** @type {string} */ line) => {
+		const t = Date.parse(/"ts":"([^"]+)"/.exec(line)?.[1] ?? "");
+		return lo <= t && t <= hi;
+	};
+	for (const row of readRows(file, unread, inRange))
+		if (
+			typeof row.win_avail_mb === "number" &&
+			typeof row.win_age_s === "number" &&
+			row.win_age_s <= WINDOWS_FRESH_S
+		)
+			windows.set(Math.floor(Date.parse(row.ts) / 60_000), row.win_avail_mb);
+	return windows;
 }
 
 /**
@@ -473,8 +516,8 @@ function toWaiters(queued, runs) {
 
 /**
  * @typedef {{ t: number, whole: WeighedRun[], busy: number,
- *   mem: MemBlock | undefined, waiting: Waiter[], admitting: Waiter[],
- *   era: string }} Tick
+ *   mem: MemBlock | undefined, win: number | undefined, waiting: Waiter[],
+ *   admitting: Waiter[], era: string }} Tick
  */
 
 /**
@@ -483,7 +526,7 @@ function toWaiters(queued, runs) {
  *
  * @param {number} t
  * @param {{ runs: WeighedRun[], waiters: Waiter[], admitting: Waiter[],
- *   mem: Logs["mem"], eraOf: (t: number) => string }} s
+ *   mem: Logs["mem"], windows: Logs["windows"], eraOf: (t: number) => string }} s
  * @returns {Tick}
  */
 function tickAt(t, s) {
@@ -493,6 +536,7 @@ function tickAt(t, s) {
 		whole: live.filter((r) => r.whole),
 		busy: live.reduce((n, r) => n + r.workers, 0),
 		mem: s.mem.get(Math.floor(t / 60_000)),
+		win: s.windows.get(Math.floor(t / 60_000)),
 		waiting: s.waiters.filter((e) => e.st <= t && t < e.en),
 		admitting: s.admitting,
 		era: s.eraOf(t),
@@ -574,6 +618,19 @@ function isClimbHeld(e, tick, w) {
 }
 
 /**
+ * The Windows-memory hold (#4557): Windows' free memory under what `e` would
+ * draw, its own workers' share of the rung or a `tsc`'s peak, plus the margin.
+ * @param {Waiter} e
+ * @param {Tick} tick
+ */
+function isWindowsHeld(e, tick) {
+	if (tick.win === undefined || tick.t < WINDOWS_HOLD_FROM) return false;
+	const drawMb =
+		e.kind === "tsc" ? TSC_PEAK_MB : rungOf(e, tick) - suiteRungMb(tick.busy);
+	return tick.win < windowsNeedMb(drawMb);
+}
+
+/**
  * What stamps a marker `memoryHeld`.
  * @param {Waiter} e
  * @param {Tick} tick
@@ -585,9 +642,10 @@ const isRungHeld = (e, tick, w) =>
 /**
  * The gate's own turn for `e` at this tick (`turnOf`, #4260), from a snapshot
  * of the waits the logs show: the older waiters in its queue, none yet
- * spawned, each stamped `memoryHeld` where its rung holds it; and another
- * waiter between its `opened` exit and its spawn. #3058's pass is on from
- * its commit.
+ * spawned, each stamped `memoryHeld` where its rung holds it, else
+ * `windowsHeld` where the Windows hold does; and another waiter between its
+ * `opened` exit and its spawn. #3058's pass is on from its commit, and the
+ * Windows stamp from #4782's.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -602,6 +660,10 @@ function turnReasonsOf(e, tick, w) {
 			part: !tsc && !o.whole,
 			spawned: false,
 			memoryHeld: isRungHeld(o, tick, w),
+			windowsHeld:
+				tick.t >= WINDOWS_PASS_FROM &&
+				!isRungHeld(o, tick, w) &&
+				isWindowsHeld(o, tick),
 		}));
 	const suite = e.whole ? "whole" : "part";
 	const admissionOpen = tick.admitting.some(
@@ -629,6 +691,7 @@ function turnReasonsOf(e, tick, w) {
 function limbsOf(e, tick, w) {
 	const memory = isMemoryHeld(e, tick, w);
 	const climb = isClimbHeld(e, tick, w);
+	const windows = isWindowsHeld(e, tick);
 	/** @type {Record<string, boolean>} */
 	const held =
 		e.kind === "tsc"
@@ -636,11 +699,13 @@ function limbsOf(e, tick, w) {
 					"tsc-count": (tick.mem?.tsc ?? 0) >= TSC_MAX,
 					"tsc-memory": memory,
 					climb,
+					windows,
 				}
 			: {
 					count: e.whole && tick.whole.length >= WHOLE_SUITE_MAX,
 					memory,
 					climb,
+					windows,
 					load:
 						w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
 				};
@@ -753,7 +818,14 @@ function replay(logs, w) {
 		eras.findLast((e) => t >= e.from)?.label ?? "";
 
 	const acc = buildTallies();
-	const state = { runs, waiters, admitting, mem: logs.mem, eraOf };
+	const state = {
+		runs,
+		waiters,
+		admitting,
+		mem: logs.mem,
+		windows: logs.windows,
+		eraOf,
+	};
 	for (let t = w.since; t < w.until; t += TICK_S * 1000)
 		tallyTick(tickAt(t, state), w, acc);
 	const eraWait = eras.map((era, i) => {
@@ -910,6 +982,7 @@ function render(r, w) {
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
 		"- The climb limb tries each tick against the highest charge the wait's exit line recorded, so it can overstate a wait whose charge fell. A minute with no memwatch block counts as climb open.",
+		"- The windows limb is a lower bound too: it charges a waiter no climb, and a minute with no fresh Windows reading in memwatch's minute log counts as open.",
 		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short.",
 		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since 27 Oct 2026 15:26 UTC (#3276); before then the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
 		"- A `tsc` admission is matched to no run, so it holds no `admitted` limb, neither a younger `tsc` waiter's nor a suite waiter's (#3203).",
