@@ -371,9 +371,11 @@ describe("a session the self-plugin loaded from another root (#4712)", () => {
 		expectMismatch(call(bash(SID)), repo);
 	});
 
-	it("is refused on an empty marker newer than the canary, naming the restart first", () => {
+	it("is refused on an empty marker, however old, naming the restart first", () => {
 		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: "" });
 		expect(fs.readFileSync(markerOf(repo), "utf8")).toBe("");
+		const before = fs.statSync(CANARY).mtime.getTime() / 1000 - 60;
+		fs.utimesSync(markerOf(repo), before, before);
 		const r = call(bash(SID));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
@@ -381,16 +383,6 @@ describe("a session the self-plugin loaded from another root (#4712)", () => {
 		);
 		expect(r.stderr).toContain("Restart the session first.");
 		expect(pastedArgs(r.stderr)).toContain(`${repo}/self-plugin`);
-	});
-
-	/* A marker a writer from before #4712 wrote, at a session still live. */
-	it("allows an empty marker older than the canary", () => {
-		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: "" });
-		const before = fs.statSync(CANARY).mtime.getTime() / 1000 - 60;
-		fs.utimesSync(markerOf(repo), before, before);
-		const r = call(bash(SID));
-		expect(r.status).toBe(0);
-		expect(r.stderr).toBe("");
 	});
 
 	/* chmod binds nobody as root, so this says nothing there. */

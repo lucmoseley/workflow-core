@@ -2136,9 +2136,9 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 			require("node:child_process").spawnSync("git", args, { cwd: tree });
 		fs.writeFileSync(path.join(tree, "old.test.ts"), "// old\n");
 		fs.writeFileSync(path.join(tree, "reader.test.ts"), "// reader\n");
-		fs.mkdirSync(path.join(tree, "docs/data"), { recursive: true });
+		/* The CI record, named as a CI shard names its own (#4579). */
 		fs.writeFileSync(
-			path.join(tree, "docs/data/ci-shard-timings.csv"),
+			path.join(ghDir, "timings.csv"),
 			"# run: 41\n# sha: a21957804bab\nfile,seconds,tests,status\nreader.test.ts,5.00,1,passed\n",
 		);
 		git("add", ".");
@@ -2200,6 +2200,7 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 	beforeEach(() => {
 		vi.stubEnv("CI", "");
 		vi.stubEnv("WFC_GH", ghStub);
+		vi.stubEnv("WFC_SHARD_TIMINGS", path.join(ghDir, "timings.csv"));
 	});
 
 	it.each([0, 3])(

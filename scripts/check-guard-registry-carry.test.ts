@@ -228,6 +228,36 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(before);
 	});
 
+	it("passes a merge of main into a branch, carrying nothing, where main already holds the row stale (#4582)", () => {
+		const { git, tryGit, change, hooks } = mergeRepo();
+		change("main", { [LIB_B]: lines("b() { exit 1; }") }, { stale: true });
+		change("side", { [LIB_A]: lines("a() { exit 1; }") });
+		hooks();
+		git("checkout", "-q", "side");
+
+		git("merge", "--no-ff", "--no-commit", "main");
+		const merged = JSON.parse(git("show", `:${ANCHORS}`))[GUARD];
+		const r = tryGit("commit", "--no-edit");
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toMatch(/already in HEAD or [0-9a-f]{40}/);
+		expect(r.stderr).not.toContain(`carried ${GUARD}`);
+		expect(JSON.parse(git("show", `HEAD:${ANCHORS}`))[GUARD]).toBe(merged);
+	});
+
+	it("passes a plain `git merge` of main at pre-merge-commit where main already holds the row stale (#4582)", () => {
+		const { git, tryGit, change, hooks } = mergeRepo();
+		change("main", { [LIB_B]: lines("b() { exit 1; }") }, { stale: true });
+		change("side", { [LIB_A]: lines("a() { exit 1; }") });
+		hooks();
+		git("checkout", "-q", "side");
+
+		const r = tryGit("merge", "--no-ff", "--no-edit", "main");
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(git("log", "-1", "--format=%P").trim().split(" ")).toHaveLength(2);
+	});
+
 	it("never carries a row HEAD left stale", () => {
 		const { root, git, change } = mergeRepo();
 		change("main", { [LIB_A]: lines("a() { exit 1; }") }, { stale: true });
@@ -262,6 +292,8 @@ describe("a merge carries a row whose sides changed different files of its closu
 			path.join(root, SELF_PLUGIN_HOOKS),
 			hooksWiring(GUARD, added),
 		);
+		/* --review skips a guard git's index does not hold. */
+		git("add", "-A");
 		reviewIn(root, [added], ownClaims(root));
 		git("add", "-A");
 		git("commit", "-qm", "side adds a guard");
