@@ -36,7 +36,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { remarkForCanary, remarkLatecomers } = require("./canary-remark.js");
+const { remarkAroundMove } = require("./canary-remark.js");
 const { caught } = require("./caught.js");
 const {
 	execGit,
@@ -350,31 +350,26 @@ function forward(root, { now, lastWriter, work, listSessions }) {
 		.sort()
 		.map((p) => readBlocker(root, p, now, lastWriter));
 	if (blockers.length > 0) return { status: "blocked", from, to, blockers };
-	const scratch = path.join(work, "canary");
-	const remark = remarkForCanary(root, {
-		from,
-		to,
-		changed,
-		scratch,
-		listSessions,
-	});
-	if (remark !== null && !("owed" in remark))
-		return { status: "stranding", from, to, ...remark };
-	try {
-		git(["merge", "--ff-only", "--quiet", to], root);
-	} catch (err) {
-		return {
-			status: "refused",
-			from,
-			to,
-			why: (caught(err).stderr || caught(err).message).trim(),
-		};
+	const moved = remarkAroundMove(
+		root,
+		{ from, to, changed, scratch: path.join(work, "canary"), listSessions },
+		() => {
+			try {
+				git(["merge", "--ff-only", "--quiet", to], root);
+				return null;
+			} catch (err) {
+				return (caught(err).stderr || caught(err).message).trim();
+			}
+		},
+	);
+	switch (moved.status) {
+		case "stranding":
+			return { status: "stranding", from, to, ...moved.stranding };
+		case "refused":
+			return { status: "refused", from, to, why: moved.why };
+		case "moved":
+			return { status: "forwarded", from, head: to, late: moved.late };
 	}
-	const late =
-		remark === null
-			? null
-			: remarkLatecomers(root, { owed: remark.owed, scratch, listSessions });
-	return { status: "forwarded", from, head: to, late };
 }
 
 /**
@@ -437,7 +432,10 @@ const isAtUpstream = (o) => o.status === "level" || o.status === "forwarded";
  * Whether the fetch and any install went through.
  * @param {Outcome} o
  */
-const isFaultless = (o) => o.fetchError === null && !o.install.error;
+const isFaultless = (o) =>
+	o.fetchError === null &&
+	!o.install.error &&
+	(o.status !== "forwarded" || o.late === null);
 
 /**
  * Whether the pass has nothing to report under `--quiet`: `main` already
@@ -455,7 +453,8 @@ const isRoutine = (o) =>
  * under a `levelling <root>` line, which tells one checkout's report from
  * another's in the refill loop's log (scripts/measure-worktree-model.js), or
  * nothing where `quiet` and the pass was routine; exit 0 where `main` sits at
- * `origin/main` with the fetch and any install done, else 1.
+ * `origin/main` with the fetch and any install done and no session left
+ * refused by a canary it moved, else 1.
  * @param {string} root
  * @param {Outcome} o
  * @param {{ now: number, quiet: boolean }} how

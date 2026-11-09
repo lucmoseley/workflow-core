@@ -21,14 +21,17 @@
  * pass did not re-mark that `to`'s canary, now the main checkout's, refuses
  * and `from`'s, taken into scratch, passes is re-marked by the main checkout's
  * writer. The residual is a session whose old writer was spawned before the
- * move but which that second listing does not show: the listing took 0.5 to
- * 0.6 s and the writer 0.01 s, measured 9 Nov 2026.
+ * move but which that second listing does not show. Its window is how long a
+ * session takes to appear in `claude agents --json` after its SessionStart
+ * hooks spawn, unmeasured; the listing itself took 0.5 to 0.6 s and the writer
+ * 0.01 s, measured 9 Nov 2026.
  */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./agent-liveness.js");
+const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { gitRead } = require("./dirty-tree.js");
 const { isUnder } = require("./is-under.js");
@@ -49,9 +52,11 @@ const HOOK_TIMEOUT_MS = 10_000;
  * @typedef {() => { sessions: LiveSession[] } | { why: string }} ListSessions
  * @typedef {{ sessionId: string, projectDir: string, refusal: string }} Stranded
  * @typedef {{ why: string } | { stranded: Stranded[] }} Stranding
- * @typedef {{ remarked: Set<string>, before: Map<string, string> }} Owed
- *   what `remarkLatecomers` needs: the sessions already re-marked, and
- *   `from`'s closure
+ * @typedef {(
+ *   | { status: "stranding", stranding: Stranding }
+ *   | { status: "refused", why: string }
+ *   | { status: "moved", late: Stranding | null }
+ * )} Remarked `stranding` and `refused` leave `main` where it was
  */
 
 /**
@@ -162,24 +167,28 @@ function writeTree(files, dir) {
 }
 
 /**
- * The listed sessions working in one of `root`'s worktrees, each once — or a
- * `why`.
+ * The sessions `listSessions` lists working in one of `root`'s worktrees, each
+ * once and none in `skip`, that `root`'s canary passes or, where `refused`,
+ * refuses — or a `why`.
  * @param {string} root
- * @param {LiveSession[]} listed
+ * @param {{ listSessions: ListSessions, skip: Set<string>, refused: boolean }} pick
  * @returns {{ sessions: LiveSession[] } | { why: string }}
  */
-function repoSessions(root, listed) {
+function readRepoSessions(root, { listSessions, skip, refused }) {
+	const listed = listSessions();
+	if ("why" in listed) return listed;
 	const out = gitRead(["worktree", "list", "--porcelain", "-z"], root);
 	if (out === null)
 		return { why: `git would not list the worktrees of ${root}` };
 	const trees = worktreePaths(() => out).map(deref);
-	const ids = new Set();
+	const canary = path.join(root, CANARY);
+	const ids = new Set(skip);
 	/** @type {LiveSession[]} */
 	const sessions = [];
-	for (const s of listed) {
+	for (const s of listed.sessions) {
 		if (ids.has(s.sessionId) || !isUnder(deref(s.cwd), trees)) continue;
 		ids.add(s.sessionId);
-		sessions.push(s);
+		if (isPassedBy(canary, s) !== refused) sessions.push(s);
 	}
 	return { sessions };
 }
@@ -190,7 +199,7 @@ function repoSessions(root, listed) {
  * @param {string} canary
  * @param {LiveSession} s
  */
-function passes(canary, s) {
+function isPassedBy(canary, s) {
 	return fs.existsSync(canary) && runHook(canary, s).ok;
 }
 
@@ -235,69 +244,82 @@ function inScratch(files, scratch, run) {
 }
 
 /**
- * Re-mark the live sessions of `root`'s repository for `to`'s canary, where
- * `from..to` changes it. Null where the fast-forward may go ahead with nothing
- * owed after it; `owed` where `remarkLatecomers` is owed once it has.
+ * Fast-forward the main checkout by `move` where every live session of `root`'s
+ * repository would pass `to`'s canary, re-marking each first where `from..to`
+ * changes it, and each session that started meanwhile after.
  * @param {string} root the main checkout, at `from`
  * @param {{ from: string, to: string, changed: string[], scratch: string,
  *   listSessions?: ListSessions }} pass `scratch`, a directory this call may
  *   fill and remove
- * @returns {Stranding | { owed: Owed } | null}
+ * @param {() => string | null} move the fast-forward: git's refusal, or null
+ * @returns {Remarked}
  */
-function remarkForCanary(
+function remarkAroundMove(
 	root,
 	{ from, to, changed, scratch, listSessions = listLiveSessions },
+	move,
 ) {
 	const before = readClosure(root, from);
-	if ("why" in before) return before;
+	if ("why" in before) return { status: "stranding", stranding: before };
 	const after = readClosure(root, to);
-	if ("why" in after) return after;
-	if (!changed.some((c) => before.files.has(c) || after.files.has(c)))
-		return null;
-	const listed = listSessions();
-	if ("why" in listed) return listed;
-	const inRepo = repoSessions(root, listed.sessions);
-	if ("why" in inRepo) return inRepo;
-	const current = path.join(root, CANARY);
-	const vouched = inRepo.sessions.filter((s) => passes(current, s));
-	const owed = {
-		remarked: new Set(vouched.map((s) => s.sessionId)),
-		before: before.files,
-	};
-	if (vouched.length === 0) return { owed };
+	if ("why" in after) return { status: "stranding", stranding: after };
+	if (!changed.some((c) => before.files.has(c) || after.files.has(c))) {
+		const why = move();
+		return why === null
+			? { status: "moved", late: null }
+			: { status: "refused", why };
+	}
+	const vouched = readRepoSessions(root, {
+		listSessions,
+		skip: new Set(),
+		refused: false,
+	});
+	if ("why" in vouched) return { status: "stranding", stranding: vouched };
 	const stranded = inScratch(after.files, scratch, () =>
-		remarkEach(scratch, vouched),
+		remarkEach(scratch, vouched.sessions),
 	);
-	return stranded.length > 0 ? { stranded } : { owed };
+	if (stranded.length > 0)
+		return { status: "stranding", stranding: { stranded } };
+	const why = move();
+	if (why !== null) return { status: "refused", why };
+	const remarked = new Set(vouched.sessions.map((s) => s.sessionId));
+	try {
+		return {
+			status: "moved",
+			late: remarkLatecomers(root, before.files, remarked, {
+				scratch,
+				listSessions,
+			}),
+		};
+	} catch (err) {
+		/* `main` has moved: the pass's install and report still owe it. */
+		return { status: "moved", late: { why: caught(err).message } };
+	}
 }
 
 /**
- * After the fast-forward, re-mark each live session `remarkForCanary` did not
- * that the main checkout's canary, now `to`'s, refuses and `from`'s passes.
- * Null where none is left refused.
+ * After the fast-forward, re-mark each live session not in `remarked` that the
+ * main checkout's canary, now `to`'s, refuses and `from`'s passes. Null where
+ * none is left refused.
  * @param {string} root the main checkout, now at `to`
- * @param {{ owed: Owed, scratch: string, listSessions?: ListSessions }} pass
+ * @param {Map<string, string>} before `from`'s closure
+ * @param {Set<string>} remarked
+ * @param {{ scratch: string, listSessions: ListSessions }} pass
  * @returns {Stranding | null}
  */
-function remarkLatecomers(
-	root,
-	{ owed, scratch, listSessions = listLiveSessions },
-) {
-	const listed = listSessions();
-	if ("why" in listed) return listed;
-	const inRepo = repoSessions(
-		root,
-		listed.sessions.filter((s) => !owed.remarked.has(s.sessionId)),
-	);
-	if ("why" in inRepo) return inRepo;
-	const current = path.join(root, CANARY);
-	const refused = inRepo.sessions.filter((s) => !passes(current, s));
-	if (refused.length === 0) return null;
-	const passedBefore = inScratch(owed.before, scratch, () =>
-		refused.filter((s) => passes(path.join(scratch, CANARY), s)),
+function remarkLatecomers(root, before, remarked, { scratch, listSessions }) {
+	const refused = readRepoSessions(root, {
+		listSessions,
+		skip: remarked,
+		refused: true,
+	});
+	if ("why" in refused) return refused;
+	if (refused.sessions.length === 0) return null;
+	const passedBefore = inScratch(before, scratch, () =>
+		refused.sessions.filter((s) => isPassedBy(path.join(scratch, CANARY), s)),
 	);
 	const stranded = remarkEach(root, passedBefore);
 	return stranded.length > 0 ? { stranded } : null;
 }
 
-module.exports = { remarkForCanary, remarkLatecomers };
+module.exports = { remarkAroundMove };

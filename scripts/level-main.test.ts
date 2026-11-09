@@ -19,7 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { level, renderOutcome } from "./lib/level-main.js";
+import { buildReport, level, renderOutcome } from "./lib/level-main.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -481,6 +481,62 @@ it("re-marks a session that starts under the old writer after the pass lists ses
 	expect(listings).toEqual([]);
 	expect(canaryPasses("s-new")).toBe(true);
 	expect(canaryPasses("s-unloaded")).toBe(false);
+});
+
+it("re-marks a session listed before its writer ran, then marked by the old writer before the fast-forward", () => {
+	const files = seedCanary();
+	landOnMain(movedMarkerPath(files));
+	/* The old writer's marker, landing after the first pass checked s-slow
+	 * and before `main` moves: git runs this as it prepares that ref update. */
+	const oldMarker = path.join(
+		worktree,
+		".claude",
+		"tmp",
+		"markers",
+		".self-plugin-loaded-s-slow",
+	);
+	const refHook = path.resolve(
+		main,
+		path.join(
+			git(main, "rev-parse", "--git-path", "hooks"),
+			"reference-transaction",
+		),
+	);
+	fs.mkdirSync(path.dirname(refHook), { recursive: true });
+	fs.writeFileSync(
+		refHook,
+		`#!/bin/sh\n[ "$1" = prepared ] && grep -q ' refs/heads/main$' && : > ${shellQuote(oldMarker)}\nexit 0\n`,
+		{ mode: 0o755 },
+	);
+	let listed = 0;
+	const listSessions = () => {
+		listed += 1;
+		return live("s-slow")();
+	};
+
+	expect(pass({ listSessions })).toMatchObject({
+		status: "forwarded",
+		late: null,
+	});
+	expect(listed).toBe(2);
+	expect(fs.existsSync(oldMarker)).toBe(true);
+	expect(canaryPasses("s-slow")).toBe(true);
+});
+
+it("warns, and exits 1, where the sessions that started during the re-mark could not be listed after the fast-forward", () => {
+	const o = {
+		status: "forwarded" as const,
+		from: "a".repeat(40),
+		head: "b".repeat(40),
+		late: { why: "the oracle is down" },
+		fetchError: null,
+		install: { installed: false },
+	};
+
+	expect(renderOutcome(o, Date.now())[1]).toMatch(
+		/^warning: the sessions that started during the canary re-mark could not be re-marked, .*: the oracle is down$/,
+	);
+	expect(buildReport(main, o, { now: Date.now(), quiet: false }).code).toBe(1);
 });
 
 it("names each session that started during the re-mark and is still refused after the fast-forward", () => {
