@@ -95,6 +95,7 @@ function replayOf({
 			exits: waiters.map(exit),
 			runs: runs.map(run),
 			mem: new Map(mem),
+			windows: new Map(),
 			unread: { absent: [], unparsed: 0 },
 		},
 		window(until, eras),
@@ -233,10 +234,10 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		const eras = [{ label: "later", from: 4 }];
 		const out = render(replayOf({ ...cfg, eras }), window(60, eras));
 		expect(out).toContain(
-			"| tsc-count | tsc-memory | climb | fifo-whole | fifo-part | tsc-fifo |",
+			"| tsc-count | tsc-memory | climb | windows | fifo-whole | fifo-part | tsc-fifo |",
 		);
 		expect(out).toContain(
-			"| window start | 0.07 | 0.12 | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — |",
+			"| window start | 0.07 | 0.12 | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — | — |",
 		);
 	});
 
@@ -414,6 +415,51 @@ it("sums a session's waits and their union apart", () => {
 	expect(r.peak.n).toBe(2);
 });
 
+describe("the windows limb, the Windows-memory hold (#4782)", () => {
+	/* A day after both #4557's hold and #4782's pass took effect. */
+	const Shift = Date.parse("2026-11-10T00:00:00Z") - T0;
+	const later = (t: number) => t + Shift;
+	it("holds a 4-file head on Windows' free memory and lets a 1-file part wait that fits pass it", () => {
+		const exits = [
+			{ from: 0, to: 30, slotFree: true, reason: "timeout" },
+			{ from: 2, to: 10, slotFree: true, reason: "opened" },
+		].map((waiter, i) => {
+			const e = exit(waiter, i);
+			return { ...e, at: iso(later(Date.parse(e.at))) };
+		});
+		const runs = [
+			{ from: 30, to: 35, session: "s-0", resolvedFiles: 4 },
+			{ from: 10, to: 11, session: "s-1", resolvedFiles: 1 },
+		].map((spec) => {
+			const x = run(spec);
+			return { ...x, st: later(x.st), en: later(x.en) };
+		});
+		const w = window();
+		const r = replay(
+			{
+				exits,
+				runs,
+				mem: new Map(),
+				/* 1,500 MB: under a 4-worker draw plus the margin, over a 1-worker one. */
+				windows: new Map(
+					Array.from({ length: 60 }, (_, m) => [
+						Math.floor(later(T0) / MIN) + m,
+						1500,
+					]),
+				),
+				unread: { absent: [], unparsed: 0 },
+			},
+			{ ...w, since: later(w.since), until: later(w.until) },
+		);
+		const limbsOf = (session: string) =>
+			Object.fromEntries(
+				r.sessions.find((s) => s.session === session)?.limbs ?? [],
+			);
+		expect(limbsOf("s-0")).toEqual({ windows: 1800 });
+		expect(limbsOf("s-1")).toEqual({ open: 480 });
+	});
+});
+
 describe("reading the logs", () => {
 	let dir: string;
 	beforeEach(() => {
@@ -475,6 +521,7 @@ describe("reading the logs", () => {
 		const logs = readLogs({
 			markers: dir,
 			memwatch: [memwatch, path.join(dir, "absent.log")],
+			minuteLog: path.join(dir, "memwatch-minute.jsonl"),
 			since: T0,
 			until: T0 + 60 * MIN,
 		});
@@ -522,6 +569,7 @@ describe("reading the logs", () => {
 		const logs = readLogs({
 			markers: dir,
 			memwatch: [],
+			minuteLog: path.join(dir, "memwatch-minute.jsonl"),
 			since: st,
 			until: st + 10 * MIN,
 		});
