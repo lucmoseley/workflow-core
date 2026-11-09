@@ -270,6 +270,12 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			"psi_io_some",
 			"psi_io_full",
 			"mem_avail_mb",
+			"anon_mb",
+			"shmem_mb",
+			"slab_unreclaim_mb",
+			"kernel_stack_mb",
+			"page_tables_mb",
+			"unevictable_mb",
 			"cpu_busy_pct",
 			"cpu_sys_pct",
 			"procs",
@@ -304,6 +310,57 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(row.uptime_s).toBeGreaterThan(0);
 		// The test's own node process is running.
 		expect(row.node).toBeGreaterThan(0);
+	});
+
+	// Memory no process listing shows, named by /proc/meminfo (#4641).
+	const meminfoFields = [
+		"anon_mb",
+		"shmem_mb",
+		"slab_unreclaim_mb",
+		"kernel_stack_mb",
+		"page_tables_mb",
+		"unevictable_mb",
+	];
+	it("carries the meminfo breakdown in whole MB", () => {
+		const meminfo = path.join(tmp, "meminfo");
+		fs.writeFileSync(
+			meminfo,
+			[
+				"MemAvailable:    2048000 kB",
+				"AnonPages:       3145728 kB",
+				"Shmem:           1048576 kB",
+				"SUnreclaim:       204900 kB",
+				"KernelStack:       20480 kB",
+				"PageTables:        51200 kB",
+				"Unevictable:        1023 kB",
+				"",
+			].join("\n"),
+		);
+		const { lines } = quietPass("minute-meminfo", {
+			MEMWATCH_MEMINFO: meminfo,
+		});
+		const row = JSON.parse(lines[0]);
+		expect(meminfoFields.map((k) => row[k])).toEqual([
+			3072, 1024, 200, 20, 50, 0,
+		]);
+		expect(row.mem_avail_mb).toBe(2000);
+	});
+
+	it("writes null for a meminfo key the kernel does not report", () => {
+		const meminfo = path.join(tmp, "meminfo-sparse");
+		fs.writeFileSync(meminfo, "MemAvailable:    2048000 kB\nShmem: 1024 kB\n");
+		const { lines } = quietPass("minute-meminfo-sparse", {
+			MEMWATCH_MEMINFO: meminfo,
+		});
+		const row = JSON.parse(lines[0]);
+		expect(meminfoFields.map((k) => row[k])).toEqual([
+			null,
+			1,
+			null,
+			null,
+			null,
+			null,
+		]);
 	});
 
 	// A freeze the state line misses recomputes from these (#4081).
