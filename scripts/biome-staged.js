@@ -66,24 +66,32 @@ function readStagedPaths() {
 		.filter(Boolean);
 }
 
+/* The launch's own exits, apart from Biome's 0 and 1: the mount failing,
+ * and sh's "cannot execute" and "not found". */
+const MOUNT_FAILED = 125;
+const NOT_STARTED = new Set([126, 127]);
+
 /**
- * The `unshare` arguments that bind-mount the repo's node_modules onto
- * `tree`'s and then run the command appended to them, or null where the
- * repo has no node_modules, the tree carries its own, or the host cannot
- * mount: off Linux, silently; on Linux, saying so.
+ * How to run `biome check`: inside a private mount namespace (`unshare -rm`)
+ * that bind-mounts the repo's node_modules onto `tree`'s, so the rules
+ * reading it see each dependency inside the project (#4639). Plain Biome
+ * where the repo has no node_modules, the tree carries its own, or the host
+ * cannot mount: off Linux, silently; on Linux, saying so.
  * @param {string} tree
  * @param {NodeJS.ProcessEnv} env
- * @returns {string[] | null}
+ * @param {string[]} check `biome check`'s arguments
+ * @returns {{ command: string, args: string[] }}
  */
-function mountNodeModules(tree, env) {
-	if (process.platform !== "linux") return null;
+function buildBiomeLaunch(tree, env, check) {
+	const plain = { command: "biome", args: check };
+	if (process.platform !== "linux") return plain;
 	const target = path.join(tree, "node_modules");
-	if (fs.existsSync(target)) return null;
+	if (fs.existsSync(target)) return plain;
 	let source;
 	try {
 		source = fs.realpathSync("node_modules");
 	} catch (e) {
-		if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT") return null;
+		if (caught(e).code === "ENOENT") return plain;
 		throw e;
 	}
 	fs.mkdirSync(target);
@@ -91,22 +99,24 @@ function mountNodeModules(tree, env) {
 		"-rm",
 		"sh",
 		"-c",
-		'mount --bind "$0" node_modules && exec "$@"',
+		`mount --bind "$1" node_modules || exit ${MOUNT_FAILED}; shift; exec "$@"`,
+		"sh",
 		source,
 	];
-	/* A probe whose namespace dies with it: the real run's own mount failing
-	 * would exit as Biome's findings do. */
+	/* `unshare` refused exits 1, as Biome's findings do, so the host is
+	 * probed in a namespace that dies with the probe. */
 	const probe = spawnSync("unshare", [...mount, "true"], {
 		cwd: tree,
 		env,
 		encoding: "utf8",
 	});
-	if (probe.status === 0) return mount;
+	if (probe.status === 0)
+		return { command: "unshare", args: [...mount, "biome", ...check] };
 	fs.rmdirSync(target);
 	process.stderr.write(
 		`biome-staged: could not mount node_modules into the extracted tree (${(probe.error?.message ?? probe.stderr).trim()}), so noUntrustedLicenses and the type rules on third-party imports are off for this commit\n`,
 	);
-	return null;
+	return plain;
 }
 
 /** @returns {number} the exit code */
@@ -140,14 +150,17 @@ function main() {
 				.join(path.delimiter);
 		git(["init", "-q", tree], "making the extracted tree a repo", env);
 
-		const check = ["check", ...process.argv.slice(2), ...present];
-		const mount = mountNodeModules(tree, env);
-		const r = spawnSync(
-			mount ? "unshare" : "biome",
-			mount ? [...mount, "biome", ...check] : check,
-			{ cwd: tree, env, stdio: "inherit" },
-		);
+		const { command, args } = buildBiomeLaunch(tree, env, [
+			"check",
+			...process.argv.slice(2),
+			...present,
+		]);
+		const r = spawnSync(command, args, { cwd: tree, env, stdio: "inherit" });
 		if (r.error) throw new Error(`biome would not start: ${r.error.message}`);
+		if (r.status === MOUNT_FAILED)
+			throw new Error("could not mount node_modules into the extracted tree");
+		if (NOT_STARTED.has(r.status ?? 0))
+			throw new Error(`biome would not start: exit ${r.status}`);
 		return r.status === 0 ? 0 : 1;
 	} finally {
 		fs.rmSync(work, { recursive: true, force: true });
