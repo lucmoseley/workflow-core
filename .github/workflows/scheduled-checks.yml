@@ -64,16 +64,17 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 # (mantahostels#314). Time a job from its own started_at/completed_at — never the
 # /timing endpoint, which returns total_ms: 0 here. And pushes/day is not
 # derivable from the runs API at all: a push to `main` leaves a run behind only
-# where it changes a cache key (warm-caches.yml, #4661), so a census of the runs
-# listing undercounts pushes.
+# where it touches a cache key's inputs (warm-caches.yml, #4661), so a census of
+# the runs listing undercounts pushes.
 # Any future push-rate figure must come from git history.
 #
 # VERIFY A TRIGGER WAS NOT MISSED:
 #   node scripts/measure-ci-billing.js --since <d> --until <d> --branch all \
 #     --exclude-event pull_request
-# over a full day — on `main` the `event` split must read `schedule` ~100%,
-# `push` only `Warm caches` runs; `lander/batch-*`'s and `lander/iso-suite-*`'s push runs are the
-# queue lander's tester (#4458).
+# over a full day — on `main` the `event` split must read `schedule` near 100%
+# and `push` small, its runs all `Warm caches` in the `workflow` split;
+# `lander/batch-*`'s and `lander/iso-suite-*`'s push runs are the queue
+# lander's tester (#4458).
 on:
   push:
     branches: ["lander/batch*", "lander/iso-suite-*"]
