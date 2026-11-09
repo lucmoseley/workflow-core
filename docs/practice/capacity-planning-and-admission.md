@@ -88,3 +88,9 @@ Researched: 2026-10-23
 - A cgroup `memory.high` on the guest's workload is a cap in another form: over it, tasks are throttled and "put under heavy reclaim pressure". `cgroup-v2.rst` [standard or field body]; commit 94968384dde1, "Why memory.high is not enough?" [named expert]
 - Freed guest pages reach the host only through free page reporting, in blocks of at least `page_reporting_order`, about 2 s after the free; a page left in the guest's cache is never reported. Linux `mm/page_reporting.c` [standard or field body]
 - Research: #4784, its 2026-11-09 research comment.
+
+## Passing a queue head that cannot fit
+
+- Let a later job that fits start past a head that cannot, but only where it cannot delay the head: reserve for the head alone, at the *shadow time* when enough running jobs have ended for it to fit, and pass a job that fits now and either ends by then or uses only resources the head will not need (EASY backfilling). Mu'alem and Feitelson, IEEE TPDS 12(6), 2001 [named expert]; Slurm, "Scheduling Configuration Guide" (backfill starts a job only "if doing so does not delay the expected start time" of a higher-priority one), one adopter [unverified]
+- Where no running job's end could let the head in, its shadow time is infinite and any job that fits may pass. Once a running job's end could, stop passing and let the running work drain to the head. HTCondor admin manual, §Defragmenting Dynamic Slots (`condor_defrag` drains machines because "frequent draining of machines reduces the chance of starvation of large jobs"), one adopter [unverified]; Kueue, "Cluster Queue" (`StrictFIFO` lets an inadmissible head block newer workloads "even if the newer workloads fit"; `BestEffortFIFO` does not, with no starvation guard), one adopter [unverified]
+- Research: #4783, its 2026-11-09 research comment (issuecomment-6743116307).
