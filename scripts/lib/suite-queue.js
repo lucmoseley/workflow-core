@@ -1039,9 +1039,10 @@ function peerClimbTurn(
  *
  * THE QUEUES ARE ORDERED AGAINST EACH OTHER WHERE THE CLIMB DECIDES (#4760):
  * no turn comes while the other queue holds an older waiter stamped
- * `climbHeld`, one whose MemAvailable clears its rung and whose wait only the
- * climb charge of launches already running holds. The oldest such waiter yields to nobody, and what holds
- * it is running and ends, so the yield cannot deadlock.
+ * `climbHeld`, one whose wait the climb charge of launches already running
+ * has held, and holds still on its rung or the Windows hold while they are
+ * charged (`keepsClimb`, #4799). The oldest such waiter yields to nobody, and
+ * what holds it is running and ends, so the yield cannot deadlock.
  *
  * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
  * carried weight resolves below the whole-slot bound (#2931), which the guard
@@ -1448,6 +1449,25 @@ function heldOnClimbMb(denial) {
 }
 
 /**
+ * Whether a wait the climb charge held keeps its `climbHeld` stamp on this
+ * poll (#4799): its rung or the Windows hold still denies it, and launches
+ * already running are still charged. Their draw moves from the charge into
+ * MemAvailable as they climb, and into what Windows has free, so a wait the
+ * climb held goes on being held by them on either limb; dropping the stamp
+ * there lets the other queue launch into the same memory. Once nothing is
+ * charged, what holds it is no running launch, and the stamp goes.
+ *
+ * @param {GateDenial | null} denial
+ * @param {number} chargedMb the climb charge this poll's gate read
+ * @returns {boolean}
+ */
+function keepsClimb(denial, chargedMb) {
+	return (
+		chargedMb > 0 && (denial?.limb === "memory" || denial?.limb === "windows")
+	);
+}
+
+/**
  * A setter that hands `listener` its flag only when the flag changes,
  * starting from false.
  *
@@ -1495,7 +1515,8 @@ function changesOnly(listener) {
  * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
  * `onWindowsHeld` hears the same of the Windows-memory hold (#4782).
  * `onClimbStamp` hears the same of the climb charge alone (`heldOnClimbMb`),
- * which the other queue's waiters yield to (#4760).
+ * which the other queue's waiters yield to (#4760), kept while `keepsClimb`
+ * holds (#4799).
  *
  * `climbMb` is read each poll and handed to `gate` to charge on its memory
  * rung (#3416).
@@ -1555,6 +1576,7 @@ function waitForGate({
 	const stampMemoryHeld = changesOnly(onMemoryHeld);
 	const stampWindowsHeld = changesOnly(onWindowsHeld);
 	const stampClimbHeld = changesOnly(onClimbStamp);
+	let climbKept = false;
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock, started);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
@@ -1665,7 +1687,8 @@ function waitForGate({
 		/* BOTH conditions, not either. The gate answers "is the machine free",
 		 * the queue answers "is it my turn" — and a waiter that checks only the
 		 * gate joins a stampede the moment the machine frees up. */
-		const denial = gate(climbMb());
+		const charged = climbMb();
+		const denial = gate(charged);
 		const heldOn = heldOnClimbMb(denial);
 		if (heldOn > climbHeldMb) {
 			climbHeldMb = heldOn;
@@ -1673,7 +1696,8 @@ function waitForGate({
 		}
 		stampMemoryHeld(denial?.limb === "memory");
 		stampWindowsHeld(denial?.limb === "windows");
-		stampClimbHeld(heldOn > 0);
+		climbKept = heldOn > 0 || (climbKept && keepsClimb(denial, charged));
+		stampClimbHeld(climbKept);
 		const open = !denial && turn();
 		see(denial, open);
 		if (!open && clock() - started >= timeoutMs)

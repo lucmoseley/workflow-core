@@ -1249,6 +1249,68 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 	});
 });
 
+describe("a stamp the climb set, kept while running launches hold the wait (#4799)", () => {
+	const climbed = { limb: "memory", mb: 3666, rungMb: 3350, climbMb: 1587 };
+	const windows = { limb: "windows", mb: 2045, needMb: 2550 };
+	const drawn = { limb: "memory", mb: 3100, rungMb: 3350, climbMb: 1587 };
+
+	it("keeps it on the rung or the Windows hold while charged, and drops it once nothing is", async () => {
+		const polls = [
+			{ denial: climbed, charged: 1587 },
+			{ denial: windows, charged: 1200 },
+			{ denial: drawn, charged: 900 },
+			{ denial: drawn, charged: 0 },
+			{ denial: windows, charged: 400 },
+		];
+		let poll: { denial: object | null; charged: number } = {
+			denial: null,
+			charged: 0,
+		};
+		let held = false;
+		const stampAtPoll: boolean[] = [];
+		await waitForGate({
+			climbMb: () => {
+				poll = polls.shift() ?? { denial: null, charged: 0 };
+				return poll.charged;
+			},
+			gate: () => poll.denial,
+			admit: noQueue,
+			sleepFn: () => {
+				stampAtPoll.push(held);
+				return Promise.resolve();
+			},
+			out: { write: () => true },
+			onClimbStamp: (stamp: boolean) => {
+				held = stamp;
+			},
+		});
+		expect(stampAtPoll).toEqual([true, true, true, false, false]);
+	});
+
+	it("holds a younger `tsc` back throughout a head the memory and Windows limbs deny in turn", async () => {
+		const root = qdir();
+		const suiteDir = path.join(root, "wfc-suite-queue");
+		const tscDir = path.join(root, "wfc-tsc-queue");
+		const head = joined(suiteDir, 11, 5);
+		joined(tscDir, 22, 10);
+		const polls = [climbed, windows, drawn, windows, climbed];
+		const tscTurns: boolean[] = [];
+		const outcome = await waitForGate({
+			climbMb: () => 1500,
+			gate: () => polls.shift() ?? null,
+			admit: noQueue,
+			sleepFn: async () => {
+				tscTurns.push(await turnOpen({ queueDir: tscDir, pid: 22 }));
+			},
+			out: { write: () => true },
+			onClimbStamp: head.stamps.onClimbStamp,
+		});
+		expect(outcome).toBe("run");
+		expect(tscTurns).toEqual([false, false, false, false, false]);
+		expect(await turnOpen({ queueDir: tscDir, pid: 22 })).toBe(true);
+	});
+});
+
 describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	const alive = () => true;
 	/** A process table holding no runner: the machine's own are no fixture's. */
