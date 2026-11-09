@@ -53,7 +53,7 @@ const { caught } = require("./lib/caught.js");
 const { recordedLines } = require("./lib/commit-message.js");
 const { runCheck } = require("./lib/check.js");
 const { readCommit } = require("./lib/commit-sha.js");
-const { requiredGroup } = require("./lib/regex-group.js");
+const { escapeRe, requiredGroup } = require("./lib/regex-group.js");
 const { readRuleTextOr } = require("./lib/rule-text");
 const { COLLECTED_TEST } = require("./lib/test-kind.js");
 const { gitReader, spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
@@ -327,7 +327,7 @@ function weakenings(ctx, changes) {
  * @param {string} name
  */
 function names(line, name) {
-	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const escaped = escapeRe(name);
 	return new RegExp(`(?<![\\w.:-])${escaped}(?![\\w.:-])`).test(line);
 }
 

@@ -18,7 +18,7 @@ const {
 	entryIssue: ledgerEntryIssue,
 	entryLabel: ledgerEntryLabel,
 } = require("./always-loaded-pool.js");
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { trimEndRun } = require("./trim-run.js");
 const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
@@ -749,9 +749,7 @@ const SKELETON_FIELDS = [
  * (mantahostels#1317).
  */
 const SKELETON_LABEL = new RegExp(
-	`^[-*]\\s+\\*{0,2}(?:${SKELETON_FIELDS.map((f) =>
-		f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-	).join("|")})\\b`,
+	`^[-*]\\s+\\*{0,2}(?:${SKELETON_FIELDS.map(escapeRe).join("|")})\\b`,
 );
 
 /**
@@ -2382,10 +2380,7 @@ function headingWords(heading) {
  * @param {string} needle
  */
 function needlePattern(needle) {
-	const body = needle
-		.replace(/^~/, "")
-		.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-		.replace(/[–—-]/g, "[–—-]");
+	const body = escapeRe(needle.replace(/^~/, "")).replace(/[–—-]/g, "[–—-]");
 	if (!/\d/.test(needle)) return new RegExp(`\\b${body}\\b`, "gi");
 	const tail = /[a-z]$/i.test(needle) ? "\\w" : "\\d";
 	return new RegExp(`(?<![\\w.,#])~?${body}(?![${tail}]|[.,]\\d)`, "gi");

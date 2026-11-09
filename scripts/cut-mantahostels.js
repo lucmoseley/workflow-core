@@ -42,6 +42,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
+const { cutAt } = require("./lib/cut-at.js");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -522,9 +523,7 @@ function readProcessesInside(root) {
 		if (!inside(cwd)) continue;
 		let argv0 = "?";
 		try {
-			argv0 = fs
-				.readFileSync(`${proc}/${pid}/cmdline`, "utf8")
-				.replace(/\0.*$/s, "");
+			[argv0] = cutAt(fs.readFileSync(`${proc}/${pid}/cmdline`, "utf8"), "\0");
 		} catch {} // exited between the two reads; the cwd line still names it
 		hits.push(`pid ${pid} (${argv0}) in ${cwd}`);
 	}

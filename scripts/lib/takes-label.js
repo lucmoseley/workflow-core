@@ -164,7 +164,8 @@ const SCREEN_DOABLE =
  * verb and no `to`, `me` anywhere, or ending on here or this or the issue,
  * ticket, session or thread. A send to someone outside ("then reply with it
  * to the hostel", "post the review here on Google Maps") stays. */
-const CLAUSE_BREAK = /(?:[,;—]\s*|\s+(?=(?:and|then)\s))(?:(?:and|then)\s+)*/gi;
+const CLAUSE_BREAK =
+	/(?:[,;—]\s*|(?<!\s)\s+(?=(?:and|then)\s))(?:(?:and|then)\s+)*/gi;
 const REPORT_BACK =
 	/^(?:reply|replies|report|post|comment|log|record|paste|message|note|send|share|tell)\b(?:\s+with\b(?![^,;—]*\bto\b)|[^,;—]*\bme\b|[^,;—]*\b(?:here|(?:this|the) (?:issue|ticket|session|thread))[\s.]*$)/i;
 

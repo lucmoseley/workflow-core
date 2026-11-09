@@ -102,10 +102,8 @@ const LIVENESS_ASK_MAX = 200;
  *   release: string|null}} Candidate */
 
 /**
- * @typedef {Record<string, any>} LogPart One parsed session-log record, or one
- * content block inside its message. `any` because streamRecords hands back
- * JSON.parse's output untyped, and each field is read through `?.` or a type
- * test where it is used.
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /** lib/check.js's clock, a malformed WFC_NOW exiting 2. @returns {number} */
@@ -201,7 +199,7 @@ function countSignals(file, tier, { signals, requests }) {
 }
 
 /**
- * @param {LogPart} r
+ * @param {TranscriptRecord} r
  * @param {Signals} signals accumulator: counts stop blocks, liveness asks and tool errors
  */
 function countUserSignals(r, signals) {
@@ -219,7 +217,7 @@ function countUserSignals(r, signals) {
 }
 
 /**
- * @param {LogPart[]} content
+ * @param {TranscriptBlock[]} content
  * @param {Signals} signals accumulator: counts classifier denials and other tool errors
  */
 function countToolErrors(content, signals) {

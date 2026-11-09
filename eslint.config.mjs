@@ -2,6 +2,7 @@ import next from "@next/eslint-plugin-next";
 import tsParser from "@typescript-eslint/parser";
 import { defineConfig, globalIgnores } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
+import regexp from "eslint-plugin-regexp";
 
 // Biome is the primary tool: it owns formatting and general linting.
 // ESLint is kept ONLY for the gap Biome does not fully cover, and that gap is
@@ -18,8 +19,16 @@ import reactHooks from "eslint-plugin-react-hooks";
 //
 // Both presets ship without a `files` key, so on their own they inherit flat
 // config's `**/*.js` default (mantahostels#999); the scope below is written for them.
-// TypeScript elsewhere — scripts/, the root config files — therefore matches
-// no ESLint config at all, deliberately: Biome and tsc cover it.
+//
+// scripts/ carries the second block: eslint-plugin-regexp's two super-linear
+// regex rules, the class SonarQube Cloud raises there as S8786 and S5852, so a
+// commit refuses one before Sonar opens it (#4642). SonarSource's own
+// eslint-plugin-sonarjs is not used: from 3.0 it is under the Sonar Source-Available License, whose
+// §1(c) excludes use by AI tooling, and this repo is worked by agents (#4642).
+// Sonar skips test files for these rules, and so does the block.
+// A finding you will not fix takes `// eslint-disable-next-line <rule> --
+// <reason>` on the line above, and where Sonar also raises that line, a
+// `// NOSONAR <reason>` at its end: neither tool reads the other's comment.
 const eslintConfig = defineConfig([
 	{
 		files: ["app/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}"],
@@ -38,6 +47,17 @@ const eslintConfig = defineConfig([
 			// files, so leaving this on means every deliberate <img> needs two
 			// suppression comments.
 			"@next/next/no-img-element": "off",
+		},
+	},
+	{
+		files: ["scripts/**/*.{js,mjs,cjs,ts}"],
+		ignores: ["**/*.test.{js,mjs,cjs,ts}"],
+		plugins: { regexp },
+		languageOptions: { parser: tsParser },
+		linterOptions: { reportUnusedDisableDirectives: "error" },
+		rules: {
+			"regexp/no-super-linear-backtracking": "error",
+			"regexp/no-super-linear-move": "error",
 		},
 	},
 	globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),

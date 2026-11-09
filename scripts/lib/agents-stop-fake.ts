@@ -45,17 +45,33 @@ const pairOf = (row: Row) => `${row.status}/${row.state}`;
 const pairs = new Set(recorded.rows.map(pairOf));
 
 /**
- * A listing row of the recording's shape with `over`'s values. A field the
- * harness never printed throws, as does a status and state it never printed
- * together.
+ * A listing row of the recording's shape with `over`'s values, less `omit`'s
+ * fields. A field the harness never printed throws, as does one it never left
+ * out, and a status and state it never printed together.
  */
-export function buildListedRow(over: Row): Row {
+export function buildListedRow(over: Row, omit: string[] = []): Row {
 	for (const key of Object.keys(over))
 		if (!printed.has(key))
 			throw new Error(`${recorded.harness} lists no "${key}"`);
+	for (const key of omit)
+		if (recorded.rows.every((r) => key in r))
+			throw new Error(`${recorded.harness} never leaves out "${key}"`);
 	const row = { ...fullest, ...over };
+	for (const key of omit) delete row[key];
 	if (!pairs.has(pairOf(row)))
 		throw new Error(`${recorded.harness} lists no ${pairOf(row)} row`);
+	return row;
+}
+
+/**
+ * A row of a shape no recording holds, as given: a `failed` or `stopped`
+ * state, a status and state never seen together, a field left out. Only its
+ * field names are held to the harness's.
+ */
+export function buildUnrecordedRow(row: Row): Row {
+	for (const key of Object.keys(row))
+		if (!printed.has(key))
+			throw new Error(`${recorded.harness} lists no "${key}"`);
 	return row;
 }
 
@@ -77,9 +93,59 @@ export const buildPermissionRow = (id: string): Row =>
 		waitingFor: "permission prompt",
 	});
 
-/** The `agents` branch: prints `listing`, or fails where it is null. */
-export const buildAgentsBranch = (listing: Row[] | null) =>
-	`if [ "$1" = "agents" ]; then ${listing ? `printf '%s' ${shellQuote(JSON.stringify(listing))}; exit 0` : "exit 1"}; fi`;
+/**
+ * One `agents --json` answer: the rows printed; a failure, exit 1 where null;
+ * text no harness prints; a hang; or a hang that first starts two children,
+ * appending each pid to the file named.
+ */
+export type AgentsAnswer =
+	| Row[]
+	| null
+	| { exit: number }
+	| { malformed: string }
+	| "hang"
+	| { hangsWithChildren: string };
+
+/* Seconds a hung answer sleeps: past agent-liveness.js's default 20 s retry
+ * cap, so the cap fires first. */
+const HANG_S = 30;
+
+const buildListingAnswer = (answer: AgentsAnswer): string => {
+	if (answer === null) return "exit 1";
+	/* `exec`, so the cap's signal reaches the sleep, not a shell it outlives. */
+	if (answer === "hang") return `exec sleep ${HANG_S}`;
+	if (Array.isArray(answer))
+		return `printf '%s' ${shellQuote(JSON.stringify(answer))}; exit 0`;
+	if ("exit" in answer) return `exit ${answer.exit}`;
+	if ("malformed" in answer)
+		return `printf '%s' ${shellQuote(answer.malformed)}; exit 0`;
+	const log = shellQuote(answer.hangsWithChildren);
+	const child = `sleep ${HANG_S} & echo $! >> ${log}`;
+	return `${child}; ${child}; wait; exit 0`;
+};
+
+/**
+ * The `agents` branch: answers as `answer`, or, where `bySeat` maps the
+ * call's CLAUDE_CONFIG_DIR, as that seat's answer.
+ */
+export function buildAgentsBranch(
+	answer: AgentsAnswer,
+	bySeat: Record<string, AgentsAnswer> = {},
+) {
+	const seatCases = Object.entries(bySeat).map(
+		([seat, a]) => `${shellQuote(seat)}) ${buildListingAnswer(a)} ;;`,
+	);
+	return [
+		'if [ "$1" = "agents" ]; then',
+		seatCases.length > 0
+			? `case "$CLAUDE_CONFIG_DIR" in\n${seatCases.join("\n")}\nesac`
+			: "",
+		buildListingAnswer(answer),
+		"fi",
+	]
+		.filter(Boolean)
+		.join("\n");
+}
 
 /* Stop answers no daemon gives on demand, so none is recorded. */
 const noJob = recorded.stops.noJob;
