@@ -256,7 +256,7 @@ fi
 # DEFEAT: HUSKY=0 and `core.hooksPath` pointed off .husky/_ (the whole list:
 # scripts/lib/commit-form.js's LIMITS, #800). A commit landing by either route
 # is unchecked until roadmap-digest.yml's own digest-render step reaches it, on
-# the next `landing` push run or scheduled sweep (#2413, mantahostels#2895);
+# the next `lander/batch-<k>` push run or scheduled sweep (#2413, mantahostels#2895);
 # `npm run check:digest-render` answers sooner.
 if ! lander_batch && armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$'; then
   # IN AN ADOPTER THE GENERATOR IS THE PLUGIN'S (#551): $WFC_PLUGIN_ROOT set

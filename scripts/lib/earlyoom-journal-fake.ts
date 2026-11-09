@@ -6,6 +6,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 const stamp = (ms: number) =>
 	new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
@@ -58,7 +59,14 @@ export function writeJournalctl(
 ): string {
 	fs.mkdirSync(dir, { recursive: true });
 	const journal = path.join(dir, "journal");
-	fs.writeFileSync(journal, `${lines.join("\n")}\n`);
+	/* Each line's time, read once here, so the stub filters with awk and starts
+	 * no node per call (#4601); a line with no readable time is never served.
+	 * Residual: a line holding a newline serves its second half untimed. */
+	const timed = lines.flatMap((l) => {
+		const ms = Date.parse(l.split(" ")[0] ?? "");
+		return l && !Number.isNaN(ms) ? [`${ms}\t${l}\n`] : [];
+	});
+	fs.writeFileSync(journal, timed.join(""));
 	const listed =
 		boots === null
 			? null
@@ -69,28 +77,31 @@ export function writeJournalctl(
 					last_entry: b.to * 1000,
 				}));
 	const bin = path.join(dir, "journalctl");
+	const listBootsReply =
+		listed === null
+			? "echo 'no boots' >&2; exit 1"
+			: `printf '%s\\n' ${shellQuote(JSON.stringify(listed))}; exit 0`;
 	fs.writeFileSync(
 		bin,
-		`#!/usr/bin/env node
-const fs = require("node:fs");
-const a = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(path.join(dir, "calls"))}, ["journalctl", ...a].join(" ") + "\\n");
-if (a.includes("--list-boots")) {
-	const listed = ${JSON.stringify(listed)};
-	if (listed === null) {
-		process.stderr.write("no boots\\n");
-		process.exit(1);
-	}
-	process.stdout.write(JSON.stringify(listed) + "\\n");
-	process.exit(0);
-}
-const at = a.indexOf("--since");
-const since = at < 0 ? -Infinity : Number(a[at + 1].slice(1)) * 1000;
-const out = fs
-	.readFileSync(${JSON.stringify(journal)}, "utf8")
-	.split("\\n")
-	.filter((l) => l && Date.parse(l.split(" ")[0]) >= since);
-process.stdout.write((out.length ? out : ["-- No entries --"]).join("\\n") + "\\n");
+		`#!/bin/sh
+if [ $# -eq 0 ]; then printf '%s\\n' journalctl; else printf '%s\\n' "journalctl $*"; fi >> ${shellQuote(path.join(dir, "calls"))}
+since=
+boots=
+next=
+for x in "$@"; do
+	[ -n "$next" ] && since=$x
+	next=
+	case $x in --list-boots) boots=1 ;; --since) next=1 ;; esac
+done
+if [ -n "$boots" ]; then ${listBootsReply}; fi
+# As the real one: the last --since wins, and one not @<digits> is refused.
+case $since in
+'') ;;
+@*[!0-9]* | @) echo "Failed to parse timestamp: $since" >&2; exit 1 ;;
+@*) since=\${since#@} ;;
+*) echo "journalctl fake: serves only --since @<s>, not $since" >&2; exit 1 ;;
+esac
+exec awk -v s="$since" '{ if (s == "" || $1 + 0 >= s * 1000) { print substr($0, index($0, "\\t") + 1); n++ } } END { if (!n) print "-- No entries --" }' ${shellQuote(journal)}
 `,
 		{ mode: 0o755 },
 	);

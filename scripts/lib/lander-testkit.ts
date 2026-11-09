@@ -1,8 +1,8 @@
 /*
  * lander-testkit.ts — the sandbox the real-git lander suites stand on: a bare
- * `remote.git` and its clone `work`, `main` and `landing` both on one seed
- * commit, with the tester, tracker and run helpers that drive
- * scripts/queue-lander.js against it.
+ * `remote.git` and its clone `work`, `main` on one seed commit, with the
+ * tester, tracker and run helpers that drive scripts/queue-lander.js against
+ * it.
  *
  * Break it and every lander suite fails at once, or runs against a repo whose
  * `origin` is another case's.
@@ -85,7 +85,7 @@ export function landerSandbox(): void {
 		git(clone, "config", "user.email", "t@t");
 		git(clone, "config", "user.name", "t");
 		commitIn(clone, "seed");
-		git(clone, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+		git(clone, "push", "-q", "origin", "HEAD:main");
 	});
 
 	beforeEach(() => {

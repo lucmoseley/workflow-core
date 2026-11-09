@@ -366,7 +366,7 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 	});
 });
 
-describe("with the landing module on, work lands through queue refs, never main or landing (#4485)", () => {
+describe("with the landing module on, work lands through queue refs, never main (#4485)", () => {
 	beforeEach(() => {
 		vi.stubEnv("WFC_MODULES", "landing");
 	});
@@ -384,36 +384,12 @@ describe("with the landing module on, work lands through queue refs, never main 
 	});
 
 	it.each([
-		"git push origin HEAD:landing",
-		"git -C ../wt push origin HEAD:landing",
-		"git push origin refs/heads/main:refs/heads/landing",
-	])("%s is denied, as landing takes no push", (command) => {
-		const why = denial(command);
-		expect(why).toContain(
-			"This pushes to `landing`, which takes no push: work lands through queue refs",
-		);
-		expect(why).toContain("so it has no queue ref");
-		expect(why).toContain(readRuleText("branch-publish-landing"));
-	});
-
-	it.each([
 		"git push origin spike/x",
 		"git push origin -f spike/x",
 		"git push origin v1.2.3",
 		"git push origin --delete feature-x",
 	])("%s passes", (command) => {
 		expect(denial(command)).toBeNull();
-	});
-
-	it.each([
-		["git push -f origin HEAD:landing", "force-pushes `landing`"],
-		["git push origin +HEAD:landing", "force-pushes `landing`"],
-		["git push origin --delete landing", "deletes `landing` on the remote"],
-		["git push origin :landing", "deletes `landing` on the remote"],
-	])("%s is denied, naming that it %s", (command, what) => {
-		const why = denial(command);
-		expect(why).toContain(what);
-		expect(why).toContain(readRuleText("landing-rewind"));
 	});
 
 	it("still denies a feature branch, with the landing route's text", () => {
@@ -556,10 +532,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 
 	it.each([
 		["git push origin HEAD:main", "branch-publish-landing"],
-		["git push origin HEAD:landing", "branch-publish-landing"],
 		["git push origin feature-x", "branch-publish-landing"],
-		["git push -f origin HEAD:landing", "landing-rewind"],
-		["git push origin --delete landing", "landing-rewind"],
 	])(
 		"%s is refused from the worktree, naming its own queue ref",
 		(command, rule) => {
@@ -579,11 +552,8 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 	});
 });
 
-it("leaves main's pushes and landing's refusal as they were with landing off", () => {
+it("passes a push to main with landing off", () => {
 	expect(denial("git push origin main")).toBeNull();
-	expect(denial("git push origin HEAD:landing")).toContain(
-		readRuleText("branch-publish"),
-	);
 });
 
 describe("an adopter", () => {
@@ -665,21 +635,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		"git push origin :refs/heads/main",
 	])("%s is denied as a deletion of main", (command) => {
 		expect(denial(command)).toContain("deletes `main` on the remote");
-	});
-
-	it.each([
-		"git push origin :heads/landing",
-		"git push origin --delete refs/heads/landing",
-	])("%s is denied as a deletion of landing, with landing on", (command) => {
-		vi.stubEnv("WFC_MODULES", "landing");
-		expect(denial(command)).toContain("deletes `landing` on the remote");
-	});
-
-	it("passes a deletion of landing, and refuses a forced push to it as any branch, with landing off", () => {
-		expect(denial("git push origin --delete landing")).toBeNull();
-		const why = denial("git push -f origin HEAD:landing");
-		expect(why).toContain("a branch other than main, landing");
-		expect(why).toContain(readRuleText("branch-publish"));
 	});
 
 	it("reads a -R stuck on between pr and its verb", () => {
@@ -798,12 +753,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		[
 			"git push origin main",
 			"landing",
-			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main` or `landing`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
-		],
-		[
-			"git push origin :landing",
-			"landing",
-			"This deletes `landing` on the remote: git push origin :landing\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nNever force-push or delete `landing` or a queue ref; the rule could not be read from docs/agents/rules/landing-rewind.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin HEAD:lander/batch-0",

@@ -33,9 +33,9 @@
  *   `--help`, `--dry-run`.
  *
  * WITH THE `landing` MODULE ON (spec #4458), sessions push their own
- *   queue refs and only the queue lander moves `main`: any push to `main` or
- *   `landing` is denied, a forced one or a deletion included. Each refusal
- *   names the session's own queue ref, or the launch where it has none.
+ *   queue refs and only the queue lander moves `main`: any push to `main` is
+ *   denied, a forced one or a deletion included. Each refusal names the
+ *   session's own queue ref, or the launch where it has none.
  *
  * QUEUE REFS, WITH `landing` ON (#4458): a session's own queue ref is
  *   `queue/<name>`, `<name>` its worktree's under `.claude/worktrees/` of the
@@ -86,7 +86,7 @@
  *
  * The rules it prints are docs/agents/rules/branch-publish.txt, main-rewind.txt
  * and dependabot-merge.txt, and with `landing` on branch-publish-landing.txt in
- * place of the first, landing-rewind.txt and queue-ref.txt. A refusal whose
+ * place of the first, and queue-ref.txt. A refusal whose
  * fragment cannot be read still refuses, naming the file (mantahostels#1648's
  * store rule), and logs nothing: an unreadable fragment is
  * check-guard-registry.js's assertion.
@@ -97,7 +97,6 @@ const path = require("node:path");
 const {
 	DROPPED_PREFIX,
 	LANDER_PREFIX,
-	LANDING_BRANCH,
 	QUEUE_PREFIX,
 	queueRefOf,
 } = require("./landing-refs.js");
@@ -144,8 +143,6 @@ const API_VALUE_FLAGS =
 const DEPENDABOT_JQ =
 	'(.headRefName | startswith("dependabot/")) or (.author.login | test("^(app/)?dependabot(\\\\[bot\\\\])?$"))';
 
-const LANDING_HEAD = `refs/heads/${LANDING_BRANCH}`;
-
 const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 
 /* Each id spelt whole at its own call, so the registry's emitter scan reads
@@ -157,7 +154,7 @@ const publishRule = (ctx) =>
 		? ruleOrFallback(
 				ctx,
 				"branch-publish-landing",
-				"Work lands through your session's queue ref — never a push to `main` or `landing`, no other branch on the remote, and never a pull request",
+				"Work lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request",
 			)
 		: ruleOrFallback(
 				ctx,
@@ -211,25 +208,6 @@ const refusePush = (ctx, what, segment) =>
 	ctx.moduleOn("landing")
 		? { reason: buildOwnRefReason(ctx, what, publishRule(ctx)), segment }
 		: refuse(ctx, what, segment);
-
-/**
- * @param {BranchPublishContext} ctx
- * @param {string} what completing "This …"
- * @param {string} segment
- * @returns {Refusal}
- */
-const landingRewind = (ctx, what, segment) => ({
-	reason: buildOwnRefReason(
-		ctx,
-		`This ${what}`,
-		ruleOrFallback(
-			ctx,
-			"landing-rewind",
-			"Never force-push or delete `landing` or a queue ref",
-		),
-	),
-	segment,
-});
 
 /**
  * The session's own queue ref, or null where its tree is no worktree under
@@ -328,12 +306,6 @@ function decide(command, ctx) {
 /** @param {string} ref as written */
 const isMain = (ref) =>
 	ref === "main" || ref === "heads/main" || ref === "refs/heads/main";
-
-/** @param {string} ref as written */
-const isLanding = (ref) =>
-	ref === LANDING_BRANCH ||
-	ref === `heads/${LANDING_BRANCH}` ||
-	ref === LANDING_HEAD;
 
 const MANAGED = [QUEUE_PREFIX, LANDER_PREFIX, DROPPED_PREFIX];
 
@@ -462,12 +434,6 @@ function judgeDelete(ctx, segment, ref) {
 	if (managed !== undefined) return managed;
 	if (isMain(ref))
 		return mainRewind(ctx, "deletes `main` on the remote", segment);
-	if (isLanding(ref) && ctx.moduleOn("landing"))
-		return landingRewind(
-			ctx,
-			`deletes \`${LANDING_BRANCH}\` on the remote`,
-			segment,
-		);
 	return null;
 }
 
@@ -480,8 +446,6 @@ function judgeDelete(ctx, segment, ref) {
 function judgeDestination(ctx, segment, { ref, forced, bare }) {
 	if (forced && ref === "refs/heads/main")
 		return mainRewind(ctx, "force-pushes `main`", segment);
-	if (forced && ref === LANDING_HEAD && ctx.moduleOn("landing"))
-		return landingRewind(ctx, `force-pushes \`${LANDING_BRANCH}\``, segment);
 	if (ref.startsWith("refs/heads/")) {
 		const managed = judgeManaged(ctx, segment, {
 			branch: branchNamed(ref),
@@ -496,12 +460,6 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 		return refusePush(
 			ctx,
 			"This pushes to main, which only the lander moves",
-			segment,
-		);
-	if (ref === LANDING_HEAD && ctx.moduleOn("landing"))
-		return refusePush(
-			ctx,
-			`This pushes to \`${LANDING_BRANCH}\`, which takes no push: work lands through queue refs`,
 			segment,
 		);
 	if (bare)

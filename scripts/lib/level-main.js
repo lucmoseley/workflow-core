@@ -13,7 +13,8 @@
  *
  * A FAST-FORWARD THAT CHANGES THE SELF-PLUGIN CANARY first re-marks every live
  * session for the target's canary (lib/canary-remark.js), and is refused where
- * that canary would still refuse one, naming each.
+ * that canary would still refuse one, naming each. After it, the sessions that
+ * started meanwhile are re-marked, and any still refused is named.
  *
  * A REFUSAL NAMES EACH BLOCKING FILE — a tracked edit, staged or not, or an
  * untracked file, at a path the fast-forward changes or at a directory above
@@ -35,7 +36,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { remarkForCanary } = require("./canary-remark.js");
+const { remarkAroundMove } = require("./canary-remark.js");
 const { caught } = require("./caught.js");
 const {
 	execGit,
@@ -71,7 +72,7 @@ const HOLDERS = ["level-main.js", "refill-loop.js"];
  * @typedef {{ installed: boolean, error?: string }} InstallResult
  * @typedef {(
  *   | { status: "level", head: string }
- *   | { status: "forwarded", from: string, head: string }
+ *   | { status: "forwarded", from: string, head: string, late: Stranding | null }
  *   | { status: "off-branch", branch: string | null }
  *   | { status: "shared" }
  *   | { status: "ahead", local: string[], unqueued: string[] }
@@ -349,26 +350,26 @@ function forward(root, { now, lastWriter, work, listSessions }) {
 		.sort()
 		.map((p) => readBlocker(root, p, now, lastWriter));
 	if (blockers.length > 0) return { status: "blocked", from, to, blockers };
-	const stranding = remarkForCanary(root, {
-		from,
-		to,
-		changed,
-		scratch: path.join(work, "canary"),
-		listSessions,
-	});
-	if (stranding !== null)
-		return { status: "stranding", from, to, ...stranding };
-	try {
-		git(["merge", "--ff-only", "--quiet", to], root);
-	} catch (err) {
-		return {
-			status: "refused",
-			from,
-			to,
-			why: (caught(err).stderr || caught(err).message).trim(),
-		};
+	const moved = remarkAroundMove(
+		root,
+		{ from, to, changed, scratch: path.join(work, "canary"), listSessions },
+		() => {
+			try {
+				git(["merge", "--ff-only", "--quiet", to], root);
+				return null;
+			} catch (err) {
+				return (caught(err).stderr || caught(err).message).trim();
+			}
+		},
+	);
+	switch (moved.status) {
+		case "stranding":
+			return { status: "stranding", from, to, ...moved.stranding };
+		case "refused":
+			return { status: "refused", from, to, why: moved.why };
+		case "moved":
+			return { status: "forwarded", from, head: to, late: moved.late };
 	}
-	return { status: "forwarded", from, head: to };
 }
 
 /**
@@ -431,7 +432,10 @@ const isAtUpstream = (o) => o.status === "level" || o.status === "forwarded";
  * Whether the fetch and any install went through.
  * @param {Outcome} o
  */
-const isFaultless = (o) => o.fetchError === null && !o.install.error;
+const isFaultless = (o) =>
+	o.fetchError === null &&
+	!o.install.error &&
+	(o.status !== "forwarded" || o.late === null);
 
 /**
  * Whether the pass has nothing to report under `--quiet`: `main` already
@@ -449,7 +453,8 @@ const isRoutine = (o) =>
  * under a `levelling <root>` line, which tells one checkout's report from
  * another's in the refill loop's log (scripts/measure-worktree-model.js), or
  * nothing where `quiet` and the pass was routine; exit 0 where `main` sits at
- * `origin/main` with the fetch and any install done, else 1.
+ * `origin/main` with the fetch and any install done and no session left
+ * refused by a canary it moved, else 1.
  * @param {string} root
  * @param {Outcome} o
  * @param {{ now: number, quiet: boolean }} how
@@ -519,6 +524,28 @@ function describeAge(ms) {
 	return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
+/** @param {import("./canary-remark.js").Stranded} s */
+const renderStranded = (s) =>
+	`  session ${s.sessionId} in ${s.projectDir} — ${s.refusal}`;
+
+/**
+ * The sessions that started during the canary re-mark, where any is left
+ * refused after the fast-forward.
+ * @param {Stranding | null} late
+ * @returns {string[]}
+ */
+function renderLate(late) {
+	if (late === null) return [];
+	if ("why" in late)
+		return [
+			`warning: the sessions that started during the canary re-mark could not be re-marked, so any the old writer marked is refused from now on — end and restart each such session: ${late.why}`,
+		];
+	return [
+		`warning: ${late.stranded.length} session(s) that started during the canary re-mark are refused by the new canary even after re-marking — end and restart each:`,
+		...late.stranded.map(renderStranded),
+	];
+}
+
 /**
  * The outcome as report lines, the first naming what happened to `main`, each
  * refusal with its way out.
@@ -544,6 +571,7 @@ function renderOutcome(o, now) {
 			lines.push(
 				`main fast-forwarded ${short(o.from)}..${short(o.head)} to ${UPSTREAM}`,
 			);
+			lines.push(...renderLate(o.late));
 			break;
 		case "off-branch":
 			lines.push(
@@ -581,9 +609,7 @@ function renderOutcome(o, now) {
 			}
 			lines.push(
 				`refused: ${short(o.from)}..${short(o.to)} changes the self-plugin canary, which would still refuse ${o.stranded.length} live session(s) after re-marking them, so main was not moved — land a canary that passes them, or end them, ${next}:`,
-				...o.stranded.map(
-					(s) => `  session ${s.sessionId} in ${s.projectDir} — ${s.refusal}`,
-				),
+				...o.stranded.map(renderStranded),
 			);
 			break;
 		case "refused":
