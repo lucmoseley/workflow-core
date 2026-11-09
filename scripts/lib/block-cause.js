@@ -457,6 +457,78 @@ function hasRepliedSince(rows, at) {
 }
 
 /**
+ * When the newest API-error row the harness wrote in `rows` was stamped, ms;
+ * null where `rows` is unread or holds no such row.
+ * @param {unknown} rows
+ * @returns {number|null}
+ */
+function apiStopAt(rows) {
+	if (!Array.isArray(rows)) return null;
+	const stop = rows.findLast(
+		(r) =>
+			isObject(r) && r.type === "assistant" && r.isApiErrorMessage === true,
+	);
+	return stop && typeof stop.timestamp === "string"
+		? Date.parse(stop.timestamp)
+		: null;
+}
+
+/**
+ * Whether a session took a turn after its last API-error stop, which a stop
+ * and relaunch would copy (#4815): a prompt in its transcript after the stop,
+ * or a `working` row on its job's timeline stamped after it. False where
+ * either read finds no stop.
+ * @param {unknown} rows  its transcript's rows
+ * @param {unknown} timeline  its job's timeline rows, null unread
+ */
+function hasTurnSinceApiStop(rows, timeline) {
+	if ((promptsAfterApiStop(rows)?.length ?? 0) > 0) return true;
+	const at = apiStopAt(rows);
+	return (
+		at !== null &&
+		Array.isArray(timeline) &&
+		timeline.some(
+			(r) =>
+				isObject(r) &&
+				r.state === "working" &&
+				typeof r.at === "string" &&
+				Date.parse(r.at) > at,
+		)
+	);
+}
+
+/**
+ * The prompts a session took after its last API-error stop (#4815): the text of
+ * each user row, machine-written or not, stamped after the newest API-error
+ * row the harness wrote, a tool result aside. Null where `rows` is unread or
+ * holds no such row.
+ * @param {unknown} rows  as resumedIdleSince's
+ * @returns {string[]|null}
+ */
+function promptsAfterApiStop(rows) {
+	const at = apiStopAt(rows);
+	if (at === null || !Array.isArray(rows)) return null;
+	return rows.flatMap((r) =>
+		isRowAfter(r, at) && r.type === "user" && r.isMeta !== true
+			? [rowText(r)].filter((t) => t.trim() !== "")
+			: [],
+	);
+}
+
+/**
+ * Whether the founder typed into a session after its last API-error stop: a
+ * prompt promptsAfterApiStop reads that no machine wrote (lib/founder-typing.js).
+ * @param {unknown} rows
+ * @returns {boolean|null}
+ */
+function hasFounderTypedSinceApiStop(rows) {
+	const prompts = promptsAfterApiStop(rows);
+	return prompts === null
+		? null
+		: prompts.some((t) => !isMachineWrittenPrompt(t));
+}
+
+/**
  * Whether a session no longer running took a turn after `since`, ms, and that turn
  * left it unblocked (#3940): its last user or assistant row, machine-written
  * prompts aside (lib/founder-typing.js), a reply the model wrote after `since`,
@@ -485,7 +557,10 @@ function hasEndedUnblocked(rows, since) {
 module.exports = {
 	blockCause,
 	hasEndedUnblocked,
+	hasFounderTypedSinceApiStop,
+	hasTurnSinceApiStop,
 	hasRepliedSince,
 	hasTurnedSince,
+	promptsAfterApiStop,
 	resumedIdleSince,
 };
