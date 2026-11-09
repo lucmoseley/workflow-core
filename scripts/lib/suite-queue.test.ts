@@ -1093,7 +1093,7 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 		joined(suiteDir, 11, 10);
 		const suiteTurn = () => turnOpen({ queueDir: suiteDir, pid: 11 });
 		expect(await suiteTurn()).toBe(true);
-		tsc.stamps.onClimbHolds(true);
+		tsc.stamps.onClimbStamp(true);
 		expect(await suiteTurn()).toBe(false);
 		tsc.spawned();
 		expect(await suiteTurn()).toBe(true);
@@ -1103,8 +1103,8 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 		const { suiteDir, tscDir } = both();
 		const tsc = joined(tscDir, 22, 5);
 		joined(suiteDir, 11, 10);
-		tsc.stamps.onClimbHolds(true);
-		tsc.stamps.onClimbHolds(false);
+		tsc.stamps.onClimbStamp(true);
+		tsc.stamps.onClimbStamp(false);
 		expect(JSON.parse(fs.readFileSync(tsc.ticket, "utf8")).climbHeld).toBe(
 			undefined,
 		);
@@ -1113,8 +1113,8 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 
 	it("never holds a waiter behind a younger peer, so the oldest never yields", async () => {
 		const { suiteDir, tscDir } = both();
-		joined(tscDir, 22, 20).stamps.onClimbHolds(true);
-		joined(suiteDir, 11, 10).stamps.onClimbHolds(true);
+		joined(tscDir, 22, 20).stamps.onClimbStamp(true);
+		joined(suiteDir, 11, 10).stamps.onClimbStamp(true);
 		expect(await turnOpen({ queueDir: suiteDir, pid: 11 })).toBe(true);
 		expect(await turnOpen({ queueDir: tscDir, pid: 22 })).toBe(false);
 	});
@@ -1122,7 +1122,7 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 	it("names the peer that holds a traced wait", async () => {
 		const { suiteDir, tscDir } = both();
 		const tsc = joined(tscDir, 22, 5);
-		tsc.stamps.onClimbHolds(true);
+		tsc.stamps.onClimbStamp(true);
 		const suite = joined(suiteDir, 11, 10);
 		const lines: string[] = [];
 		const outcome = await suite.wait({
@@ -1154,7 +1154,7 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 			admit: noQueue,
 			sleepFn: () => Promise.resolve(),
 			out: { write: () => true },
-			onClimbHolds: (held: boolean) => heard.push(held),
+			onClimbStamp: (held: boolean) => heard.push(held),
 		});
 		expect(heard).toEqual([true, false, true, false]);
 	});
