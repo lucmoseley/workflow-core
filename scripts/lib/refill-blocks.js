@@ -68,6 +68,10 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
 /**
  * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
  * @typedef {LoopLaunch & {jobId: string}} JobLaunch
+ * @typedef {{seat: string, jobId: string, root: string, sessionId?: string,
+ *   keyVar?: string}} SessionRef  the session a port reads or acts on, a
+ *   loop launch's or one the loop did not launch: its seat, job, checkout,
+ *   full id where known, and the overflow key it runs on, if any
  * @typedef {JobLaunch & {block: import("./block-act.js").Block}} BlockedLaunch
  * @typedef {import("./block-act.js").Act} Act
  * @typedef {{id: string, issue: number|null}} HoldRef  a repo hold a park is
@@ -106,8 +110,9 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   launch flags, read on the tick it is queued, before any resume removes its
  *   job record (#4098)
  * @typedef {keyof StepPayloads} StepCause
- * @typedef {(l: LoopLaunch, row: AgentRecord) =>
- *   import("./block-cause.js").Reading} CauseOf
+ * @typedef {(l: SessionRef, row: AgentRecord, name: string) =>
+ *   import("./block-cause.js").Reading} CauseOf  `name`, how a log line
+ *   names the session
  * @typedef {{root: string, job: import("./parked.js").ParkJob|null,
  *   limitParks?: number, cause?: string}} ParkRecord  what a park marker
  *   records: the seat, job and cwd a normal-mode loop resumes (#3709), a
@@ -164,20 +169,20 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * The program's reads for the acts on blocked and resumed-idle launches. A
  * port that writes or spawns goes in BlockActs, where a dry tick answers it.
  * @typedef {object} BlockReads
- * @property {(l: JobLaunch) => ResumeTarget} resumeTargetOf  read before
+ * @property {(l: SessionRef) => ResumeTarget} resumeTargetOf  read before
  *   its stop, which may rewrite the job record
  * @property {() => string|null} admitResume  the dispatcher's per-member
  *   memory, load and session-ceiling re-read: null where it admits one more
  *   session, else why not
- * @property {(l: JobLaunch) => {state?: unknown, detail?: unknown}|null}
+ * @property {(l: SessionRef) => {state?: unknown, detail?: unknown}|null}
  *   jobStateOf  its job's state.json, null unread
- * @property {(l: JobLaunch) => unknown[]|null} readTimeline  its job's
+ * @property {(l: SessionRef) => unknown[]|null} readTimeline  its job's
  *   timeline rows, null unread
  * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
  *   idleSince  lib/block-cause.js's resumedIdleSince on its records
- * @property {(l: JobLaunch, at: number) => boolean} hasTurnedSince
+ * @property {(l: SessionRef, at: number) => boolean} hasTurnedSince
  *   lib/block-cause.js's hasTurnedSince on its transcript, false unread
- * @property {(l: JobLaunch, at: number) => boolean|null} hasRepliedSince
+ * @property {(l: SessionRef, at: number) => boolean|null} hasRepliedSince
  *   lib/block-cause.js's hasRepliedSince on its transcript, null unread
  * @property {(seat: string, jobId: string) => string|null} readJobCwd  the cwd
  *   job `jobId`'s record on `seat` names, null where it names none
@@ -193,14 +198,14 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @property {ReadActsBefore} readActsBefore
  * @property {() => string|null} probeNetwork  lib/net-probe.js's: null where
  *   the API host is reachable, else why not
- * @property {(l: JobLaunch) => boolean} isResumedSinceStop  whether its
+ * @property {(l: SessionRef) => boolean} isResumedSinceStop  whether its
  *   session took a prompt after its API-error stop: its job's `tempo` reads
  *   `active`, or lib/block-cause.js's promptsAfterApiStop reads one; false
  *   unread
  * @property {() => import("./refill-outside.js").Outside[]} readOutside
  *   lib/refill-outside.js's records, none where its file is absent or will
  *   not read
- * @property {(l: JobLaunch) => boolean|null} hasFounderTypedSinceStop
+ * @property {(l: SessionRef) => boolean|null} hasFounderTypedSinceStop
  *   lib/block-cause.js's hasFounderTypedSinceApiStop on its transcript, null
  *   unread
  * @property {(line: string) => void} log
@@ -217,11 +222,11 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @property {(seat: string, jobId: string) =>
  *   import("./claude-stop.js").StopOutcome} stop  `claude stop` on a seat's
  *   job (lib/claude-stop.js's stopOn)
- * @property {(l: JobLaunch, prompt: string) => string|null} type  type
+ * @property {(l: SessionRef, prompt: string) => string|null} type  type
  *   `prompt` into the live session
- * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
- *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
- *   --resume` of the stopped job
+ * @property {(l: SessionRef & import("./refill-resume.js").StoppedResumable,
+ *   prompt: string, target: ResumeTarget & {sessionId: string}) => Resumed}
+ *   resumeStopped  `claude --bg --resume` of the stopped job
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeOwnId  `claude --bg --resume` of
  *   a job a restart killed, its record removed first so it keeps its id
@@ -389,18 +394,20 @@ function markParked(launches, agents, causeOf, now) {
 	if (!agents) return launches;
 	const rows = new Map(agents.flatMap((a) => (a.id ? [[a.id, a]] : [])));
 	return launches.map((l) => {
-		const row = l.jobId === null ? undefined : rows.get(l.jobId);
-		if (l.finishedAt !== null || !row) return l;
+		const { jobId } = l;
+		const row = jobId === null ? undefined : rows.get(jobId);
+		if (l.finishedAt !== null || jobId === null || !row) return l;
 		if (isHeld(l) && isTerminalAgent(row)) return l;
+		const ref = { ...l, jobId };
 		/* causeOf reads a row carrying no `state` UNKNOWN, and logs why
 		 * (#3200). */
 		if (row.state == null) {
-			causeOf(l, row);
+			causeOf(ref, row, launchName(l));
 			return l;
 		}
 		const { block: _, stepResume: __, limitHeld: ___, ...rest } = l;
 		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
-		const reading = causeOf(l, row);
+		const reading = causeOf(ref, row, launchName(l));
 		return {
 			...rest,
 			parked: true,
@@ -865,7 +872,7 @@ function settleTyped(launches, seen) {
  * `pending` inside the verdict window, `arrived` where the timeline shows it,
  * else `unseen`, for its fallback.
  * @param {number} attachAt
- * @param {JobLaunch} l
+ * @param {SessionRef} l
  * @param {{now: number, io: BlockIo}} seen
  * @returns {"pending"|"arrived"|"unseen"}
  */
@@ -881,7 +888,7 @@ function typedVerdict(attachAt, l, { now, io }) {
  * stop: the founder's own resume, or a typed one the arrival check missed. A
  * stop and relaunch then would make two sessions of one (#4815), so the
  * resume counts as arrived.
- * @param {JobLaunch} l
+ * @param {SessionRef} l
  * @param {string} name
  * @param {BlockIo} io
  */
@@ -1915,8 +1922,8 @@ function jobShape(job) {
  * its listing row, its job record and its transcript's user and assistant
  * rows; an unread transcript reads UNKNOWN and acts on nothing (#2358 F9),
  * and an UNKNOWN is logged with why, once per launch for each why (#3200).
- * @param {{readJob: (l: LoopLaunch) => unknown,
- *   readTail: (l: LoopLaunch, job: unknown) => Record<string, unknown>[]|null,
+ * @param {{readJob: (l: SessionRef) => unknown,
+ *   readTail: (l: SessionRef, job: unknown) => Record<string, unknown>[]|null,
  *   log: (line: string) => void}} io  the job record, null unread; its
  *   transcript's rows, null unread
  * @returns {CauseOf}
@@ -1924,7 +1931,7 @@ function jobShape(job) {
 function causeReader(io) {
 	/** @type {Map<string, string>} */
 	const logged = new Map();
-	return (l, row) => {
+	return (l, row, name) => {
 		const job = io.readJob(l);
 		const tail =
 			io
@@ -1935,10 +1942,10 @@ function causeReader(io) {
 			job: /** @type {Parameters<typeof blockCause>[0]["job"]} */ (job),
 			tail,
 		});
-		const why = unknownNews(logged, l.jobId ?? launchName(l), reading);
+		const why = unknownNews(logged, l.jobId, reading);
 		if (why !== null)
 			io.log(
-				`block unread ${launchName(l)}: ${why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
+				`block unread ${name}: ${why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
 			);
 		return reading;
 	};
