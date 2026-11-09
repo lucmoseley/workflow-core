@@ -1069,10 +1069,9 @@ function peerClimbTurn(
  *
  * PAST THAT AGE, ONLY WHILE IT IS HELD AT REST (#4783): stamped `restHeld`,
  * its rung refused with no vitest worker running and no climb charge. Then no
- * run that ends can let it in, so a pass cannot delay it: EASY backfilling's
- * condition, the head's shadow time infinite (Mu'alem and Feitelson, 2001).
- * A pass that starts a run ends the rest at the head's next poll, so the
- * passes stop and the runs drain to it, as HTCondor's `condor_defrag` drains.
+ * run that ends can let it in, so a pass cannot delay it. A pass that starts
+ * a run ends the rest at the head's next poll, so the passes stop and the
+ * runs drain to it.
  *
  * AND PAST ONE THE WINDOWS-MEMORY HOLD KEEPS OUT (#4782): one stamped
  * `windowsHeld`, at any age. Each waiter's Windows need is its own draw, so a
