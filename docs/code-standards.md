@@ -57,7 +57,7 @@ Outside it: a stub program held in a string and run as its own process, such as 
 
 **Every code kind but shell.** Code that writes a literal string into a JavaScript regex source escapes it with `escapeRe` in `scripts/lib/regex-group.js`. A hand-written escaping `replace` is the breach (#4644).
 
-Outside it: escaping for another syntax or a narrower slot — a POSIX ERE (`scripts/lib/posix-ere.js`), a bracket expression's body, a Markdown table cell, a systemd line — and a glob translator that escapes only what its glob leaves literal (`scripts/lib/self-match.js`).
+Outside it: escaping for another syntax or a narrower slot — a POSIX ERE (`scripts/lib/posix-ere.js`) or a bracket expression's body — and a glob translator that escapes only what its glob leaves literal (`scripts/lib/self-match.js`).
 
 ---
 
