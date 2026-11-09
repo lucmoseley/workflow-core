@@ -588,7 +588,7 @@ ${valuesLine()}
 
   ${fix}
 
-Or file, label and place it in one checked call: node ${run.ctx.scriptPath("file-issue.js")} --title "…" --label takes:… (--parent <n> | --standalone "<why>") --body-file - (#533).`,
+Or file, label and place it in one checked call: node ${run.ctx.scriptPath("file-issue.js")} --title "…" --label takes:… (--parent <n> | --standalone "<why>") --origin <class> (--fault-signature <file> | --no-fault) --body-file - (#533, #4796).`,
 	);
 }
 

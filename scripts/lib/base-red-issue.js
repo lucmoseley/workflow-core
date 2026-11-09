@@ -46,6 +46,7 @@ function baseRedFiler(deps) {
 					standalone:
 						"The base-red ticket tracks `main` itself, not one ticket's work.",
 					noun: "base-red ticket",
+					origin: "ci-red",
 					subject: `main at ${sha.slice(0, 9)}`,
 				},
 				buildBaseRedBody(sha, files),

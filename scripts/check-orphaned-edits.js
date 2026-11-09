@@ -549,6 +549,9 @@ function fileOne(f, root, supersedes) {
 		ORPHAN_LABEL,
 		"--standalone",
 		"cross-cutting: an orphaned edit has no single originating issue (#813)",
+		"--origin",
+		"orphaned-edit-script",
+		"--no-fault",
 		"--body-file",
 		"-",
 	];

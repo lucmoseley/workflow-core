@@ -1751,11 +1751,19 @@
 		],
 		"reader": "agent"
 	},
+	"docs/data/outcome-signatures.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "One JSON line per fault signature declared at filing, oldest first (#4796): the issue, when filed, the signature (a guard needle or a transcript regex with its tier) or null with why, the prediction and the triggering case; a late line carries late. The weekly outcome review counts each due one before and after its fix.",
+		"route": "Appended by scripts/file-issue.js --fault-signature, and by retro-sweep's late-signature backstop; committed by the filing session. merge=union in .gitattributes.",
+		"consumes": null
+	},
 	"docs/data/retro-runs.jsonl": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "One JSON line per retro-sweep run, oldest first: mode, week, each pick with its signals, class counts and token cost, the issues filed and the low-value findings recorded unfiled (#964, spec #948). The weekly due reporter reads the newest weekly line's date; the fourth weekly line triggers the flip check.",
+		"role": "One JSON line per retro-sweep run, oldest first: mode, week, each pick with its signals, class counts and token cost, the low-value findings recorded unfiled, and on weekly lines the findings ledger (filed or not, each with its signature and baseline), the outcome verdicts, the outcome step's cost, miss count and carried unwinds, and the ticket-mix kinds with the step's cost (#964, spec #948; #4796). An older line carries filed in place of findings. The weekly due reporter reads the newest weekly line's date; report-outcome-review.js and report-ticket-mix.js read the prior lines; the fourth weekly line triggers the flip check.",
 		"route": "Appended by the retro-sweep run that produced it, committed by pathspec in that session",
 		"consumes": [
 			{
@@ -1827,6 +1835,14 @@
 		"classQualifier": null,
 		"role": "#2821's test-loss base (#2823): per UTC day 10-19 Oct 2026, WFC main sessions' blocked and active hours and their share (median 19.9%).",
 		"route": "`python3 -I scripts/measure-test-loss/report.py --start 2026-10-10T04:10:00Z --end 2026-10-20T00:00:00Z --csv <path>`; never hand-edited, a re-measure lands its own dated file",
+		"consumes": null
+	},
+	"docs/data/ticket-kinds.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The kept list of ticket kinds the weekly ticket-mix review assigns titles to (#4796): each kind's id, one-line meaning and first-seen date. scripts/report-ticket-mix.js reads it.",
+		"route": "Appended by retro-sweep's ticket-mix step, a new kind in the same commit as its run line.",
 		"consumes": null
 	},
 	"docs/doc-map-admissions.json": {

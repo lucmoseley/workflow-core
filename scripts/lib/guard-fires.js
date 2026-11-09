@@ -453,6 +453,58 @@ function transcriptMentions(text, subjects, tier) {
 }
 
 /**
+ * Every string anywhere in a value, however deep.
+ * @param {unknown} v
+ * @returns {Generator<string>}
+ */
+function* deepStrings(v) {
+	if (typeof v === "string") {
+		if (v) yield v;
+		return;
+	}
+	if (v && typeof v === "object")
+		for (const x of Object.values(v)) yield* deepStrings(x);
+}
+
+/**
+ * Does one record carry a match for `pattern` in any of its strings? Each
+ * string is tested whole, as the record holds it, never the record
+ * serialised, so a pattern is written against the text a session saw rather
+ * than against JSON escapes. Like `recordMentions`, it reads the whole record:
+ * a regex signature names a fault by its words wherever they land.
+ * @param {LogRecord} record
+ * @param {RegExp} pattern
+ * @returns {boolean}
+ */
+function recordMatches(record, pattern) {
+	for (const s of deepStrings(record)) {
+		pattern.lastIndex = 0;
+		if (pattern.test(s)) return true;
+	}
+	return false;
+}
+
+/**
+ * Every record in one transcript whose strings match `pattern`, one per
+ * record — the regex route beside `transcriptMentions`, for a fault no guard
+ * prints (#4796). Same parsing and the same `tier` as `transcriptFires`, so a
+ * main-tier read never counts a subagent's inline turn.
+ * @param {string} text
+ * @param {RegExp} pattern
+ * @param {"main" | "subagent"} tier
+ * @returns {Array<{at: string|null}>}
+ */
+function transcriptMatches(text, pattern, tier) {
+	const out = [];
+	for (const record of mainChainRecords(text, tier))
+		if (recordMatches(record, pattern))
+			out.push({
+				at: typeof record.timestamp === "string" ? record.timestamp : null,
+			});
+	return out;
+}
+
+/**
  * Roll fires up per subject: how many, by which route and needle, and when last.
  *
  * @param {Array<{subject: string, needle: string, route: string, at: string|null}>} fires
@@ -725,6 +777,9 @@ module.exports = {
 	fireSpans,
 	transcriptFires,
 	transcriptMentions,
+	recordFires,
+	recordMatches,
+	transcriptMatches,
 	tally,
 	transcriptDirs,
 	readTranscriptCorpus,

@@ -132,7 +132,7 @@ if (is("issue", "list")) {
 	const state = flag("--state");
 	out(read().filter((i) => state === "all" || i.state === state.toUpperCase()));
 } else if (is("api") && a[1].endsWith("/labels")) {
-	out([["urgent", "bug", "takes:implement", "kind:ticket"].map((name) => ({ name }))]);
+	out([["urgent", "bug", "takes:implement", "kind:ticket", "origin:lander-script", "origin:ci-red"].map((name) => ({ name }))]);
 } else if (is("issue", "create")) {
 	const all = read();
 	const number = 100 + all.length;
@@ -219,6 +219,7 @@ it("files one urgent bug stall ticket for a running lander whose main has stood 
 		"bug",
 		"takes:implement",
 		"kind:ticket",
+		"origin:lander-script",
 	]);
 	expect(ticket.body).toContain(`with \`queue/work at ${tip}\` waiting`);
 	expect(ticket.body).toContain(`Batch under test: \`${tip}\``);

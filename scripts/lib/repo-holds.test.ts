@@ -110,7 +110,10 @@ const serve = ({
 		{
 			"issue list *": printed(JSON.stringify(open)),
 			"repos/o/r/labels": isFiling
-				? page("labelsPage", [{ name: "takes:triage" }])
+				? page("labelsPage", [
+						{ name: "takes:triage" },
+						{ name: "origin:incident" },
+					])
 				: readGhAnswer(LOGGED_OUT),
 			"issue create *": printed(`https://github.com/o/r/issues/${ISSUE}\n`),
 			...(isClosing ? { [`issue close ${ISSUE} *`]: printed("") } : {}),

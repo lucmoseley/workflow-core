@@ -132,6 +132,10 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 **A spec's `takes:` moves the moment its tickets exist** — `takes:to-tickets` → `takes:children`, since the work now sits on the tickets. `/to-tickets` won't do it: its instructions end *"Do NOT close or modify any parent issue."* The sweep above makes the move, within one session start; move it by hand if you want it now. Left unmoved, the label invites a second `/to-tickets` run that duplicates tickets already created (mantahostels#1663).
 
+## `origin:<class>`
+
+**Names the flow that filed the issue**, so the weekly ticket-mix review counts origins without a model (#4796). `scripts/file-issue.js --origin <class>` stamps it on every filing, from the fixed list in `scripts/lib/issue-origin.js`; a new filing flow adds its class there, and `lib/adopter-skeleton.js`'s label plan carries every class to each adopter's tracker. A hand `gh issue create` stamps none, and the review's keyword fallback (`scripts/lib/origin-fallback.js`) classes it instead. Provenance, not state: nothing routes on it.
+
 ## `card:<card-id>`
 
 **Marks a closed issue as a parked re-file trigger for one roadmap card** — the question or task it raised waits on that card being taken, and is not written onto the card as prose (`docs/agents/issue-tracker.md` §Gating an issue, `rule:roadmap-gating`; ruled at mantahostels#3291, applied at mantahostels#3320). It says nothing about disposition or provenance, so it sits alongside `takes:`/`kind:` on a closed issue, never in place of one, and is applied only at close — never to an open issue. An issue relevant to more than one card carries more than one `card:<card-id>` label.

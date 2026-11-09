@@ -83,7 +83,7 @@ describe("file-process-runaway-tickets.js (#3807)", () => {
 		expect(created).toHaveLength(2);
 		for (const c of created) {
 			expect(c.title).toMatch(/^Process runaway from .* UTC \([0-9a-f]{8}\)$/);
-			expect(c.labels).toEqual(["takes:triage"]);
+			expect(c.labels).toEqual(["takes:triage", "origin:incident"]);
 			expect(c.body).toContain("Standalone: a process runaway");
 		}
 		expect(created[0].body).toContain("SIGKILL to 3 processes");

@@ -94,7 +94,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect(r.status).toBe(0);
 		const [ticket, ...more] = readCreated();
 		expect(more).toHaveLength(0);
-		expect(ticket.labels).toEqual(["takes:implement"]);
+		expect(ticket.labels).toEqual(["takes:implement", "origin:founder"]);
 		expect(ticket.title).toBe(
 			"Reverse a delegated decision on #2: Inside the window",
 		);
@@ -125,7 +125,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect(r.status).toBe(0);
 		const [ticket, ...more] = readCreated();
 		expect(more).toHaveLength(0);
-		expect(ticket.labels).toEqual(["takes:implement"]);
+		expect(ticket.labels).toEqual(["takes:implement", "origin:founder"]);
 		expect(ticket.title).toBe(
 			"Reverse a primitives-table change in fff6666: 'cli-args.js'",
 		);
