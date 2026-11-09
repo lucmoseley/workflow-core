@@ -19,7 +19,7 @@
 	"scripts/check-harness-canary.js": "5974e6dbcd851e62",
 	"scripts/check-idle-efforts.js": "647e1123b0f2a56f",
 	"scripts/check-interop-latency.js": "785e8dba2190e045",
-	"scripts/check-issue-labels.js": "e476b6007a5abc97",
+	"scripts/check-issue-labels.js": "5bec06e4af8d33e8",
 	"scripts/check-jev-flags.js": "b2673c1f3f88b3ff",
 	"scripts/check-kernel-stall.js": "ee94bf641174e569",
 	"scripts/check-landing-switch-on.js": "e757e062c4106ac7",

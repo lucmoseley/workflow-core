@@ -24,7 +24,6 @@ const isRouteStep = (labels) =>
 	labels.some((l) => l.startsWith(WAYFINDER_PREFIX));
 
 /**
- * The labels that make `labels` a decision ticket, in their own order.
  * @param {string[]} labels
  * @returns {string[]}
  */
