@@ -5,12 +5,9 @@
  * hook, writes the marker that lets a loaded session through (#2438, spec
  * #2295 seam 2).
  *
- * Break the canary and a session missing the self-plugin works the repo with
- * no guards and nothing said, or a guarded one is refused at every call.
- *
  * The session's project dir is a real git checkout, and some cases add a
  * worktree, since the canary resolves the main checkout from git's own common
- * dir (#2461) and allows only a marker naming its self-plugin (#4712).
+ * dir (#2461).
  */
 
 import { spawnSync } from "node:child_process";

@@ -9,9 +9,7 @@
 # ALLOWS a call when this input's session has a marker (lib/self-plugin-marker.sh),
 # which scripts/write-self-plugin-marker.sh writes at the self-plugin's
 # SessionStart, and the CLAUDE_PLUGIN_ROOT the marker records is the main
-# checkout's self-plugin (#4712). Every self-plugin hook runs from that root's
-# parent (#4701), so a root anywhere else, a worktree's copy or the plugin
-# cache, runs every guard from another tree's scripts. A subagent's calls carry
+# checkout's self-plugin (#4712). A subagent's calls carry
 # its parent's session id, so it is covered.
 #
 # FAILS CLOSED, unlike every other guard here (mantahostels#103 §6): an
@@ -77,7 +75,7 @@ refuse() {
   [[ -n "$fault" ]] && printf 'The self-plugin canary could not check this session (%s), so it refuses as if the self-plugin had not loaded.\n\n' "$fault" >&2
   if [[ -n "$unrooted" ]]; then
     cat >&2 <<EOF
-Refused: this session's self-plugin marker records no plugin root, so the canary cannot tell which tree its hooks are running from. The self-plugin's SessionStart hook was handed no CLAUDE_PLUGIN_ROOT.
+Refused: this session's self-plugin marker records no plugin root, so the canary cannot tell which tree its hooks are running from.
 
 Restart the session first. Where the new session is refused the same way, have the founder run this once per machine:
 EOF
@@ -136,8 +134,7 @@ if [[ -z "$body" ]]; then
 fi
 main="$(main_checkout)"
 # A checkout whose common dir is not named .git, a --separate-git-dir one or a
-# submodule, is refused with a valid marker too: it has no main checkout the
-# plugin root could be checked against (#4712).
+# submodule, is refused with a valid marker too (#4712).
 [[ -n "$main" ]] || {
   fault="git named no main checkout for this session's project directory"
   exit
