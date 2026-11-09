@@ -24,6 +24,7 @@ The core's own primitives, beside the base's table.
 | Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
 | Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
+| Escaping a literal into a regex | `escapeRe` in `scripts/lib/regex-group.js` | `scripts/lib/run-cost-report.js` | §LG5 | Standards axis criterion |
 | Setting an environment variable in a test | `vi.stubEnv`, `undefined` to unset, undone before each test by `unstubEnvs: true` in `vitest.config.ts` | `scripts/lib/wait-loop.test.ts` | §X2 | `scripts/check-test-env-writes.js` |
 
 ## Local rules
@@ -52,6 +53,12 @@ Outside it: a glob or pathspec match, such as the sensitive-paths match (#1654);
 
 Outside it: a stub program held in a string and run as its own process, such as the `Hold` stub in `scripts/lib/morning-review-fixture.ts`, which stays self-contained so it runs from wherever the test writes it.
 
+### §LG5 · A literal put into a regex goes through the one escaper — **hard**
+
+**Every code kind but shell.** Code that writes a literal string into a JavaScript regex source escapes it with `escapeRe` in `scripts/lib/regex-group.js`. A hand-written escaping `replace` is the breach (#4644).
+
+Outside it: escaping for another syntax or a narrower slot — a POSIX ERE (`scripts/lib/posix-ere.js`) or a bracket expression's body — and a glob translator that escapes only what its glob leaves literal (`scripts/lib/self-match.js`).
+
 ---
 
 ## §W — what tooling already enforces
@@ -73,8 +80,8 @@ A rule can be on and never run (nothing gated ESLint until mantahostels#1133), o
 | Surface | Biome | ESLint | `tsc` |
 |---|---|---|---|
 | `app/**`, `lib/**` `.ts`/`.tsx` | yes | **yes — 38 rules** (mantahostels#999, mantahostels#1133) | yes, plus `noUncheckedIndexedAccess` via `tsconfig.strict.json` (mantahostels#1064) |
-| `scripts/**` `.js`, `.claude/skills/*/scripts/*.js` | yes | **no — zero rules survive into its config** | in the program (mantahostels#1067) and checked, `checkJs` being on across it (mantahostels#1464, §N8), plus `noUncheckedIndexedAccess` via `tsconfig.strict.json` outside test files (#1336) |
-| `scripts/**` `.ts`, `.claude/skills/*/scripts/*.ts` | yes | no | yes (mantahostels#1138), plus `noUncheckedIndexedAccess` via `tsconfig.strict.json` outside test files (#1336) |
+| `scripts/**` `.js`, `.claude/skills/*/scripts/*.js` | yes | `scripts/**` outside tests: **2 rules**, eslint-plugin-regexp's super-linear pair, Sonar's S8786 and S5852 class (#4642); none elsewhere | in the program (mantahostels#1067) and checked, `checkJs` being on across it (mantahostels#1464, §N8), plus `noUncheckedIndexedAccess` via `tsconfig.strict.json` outside test files (#1336) |
+| `scripts/**` `.ts`, `.claude/skills/*/scripts/*.ts` | yes | as the `.js` row | yes (mantahostels#1138), plus `noUncheckedIndexedAccess` via `tsconfig.strict.json` outside test files (#1336) |
 | `.claude/skills/wfc-delivery/{hooks,tests}/*.ts`, the delivery mod | yes | no | yes locally, against its own `tsconfig.json` and an untracked copy of the engine's declarations: `npm run typecheck`'s third pass (#854), skipped on CI, which has no copy (#1960) |
 | `.claude/skills/wfc-liveness/{hooks,tests,types}/*.{ts,tsx}`, the liveness mod | yes | no | yes locally, as the delivery mod: `npm run typecheck`'s fourth pass (#865), skipped on CI (#1960) |
 | `hooks/register.ts`, the plugin's entry module | yes | no | yes locally, against `hooks/tsconfig.json` with the liveness mod's engine declarations and the liveness and delivery mods' state contracts: `npm run typecheck`'s fifth pass (#946), skipped on CI (#1960) |
@@ -117,6 +124,8 @@ Every push to a `lander/batch-<k>` ref, a queue lander batch, runs the full suit
 `biome.json` names `recommended` plus 223 explicit entries, 28 of them `nursery`. **On top of that, Biome 2.5's `react` and `next` domains auto-enable off the installed dependencies**, so rules fire that the config never names: `correctness/useHookAtTopLevel` and `correctness/useExhaustiveDependencies` both fire at `error` on `app/**/*.tsx`, deliberately kept out of `biome.json` since they already fire this way (mantahostels#1616). Read the effective set, never the config file.
 
 Deriving it: `biome lint --only=<rule>` **cannot** verify a rule's config took effect — it forces the rule on globally and ignores both configured severity and `overrides` (mantahostels#1518). Write a probe file at a real repo path and read `biome lint --reporter=json`. `--stdin-file-path` does not work with that reporter, and a probe outside the repo matches no `overrides` glob, so neither can test a path-scoped rule.
+
+**A plain `biome check` or `biome lint` in a session worktree misses the rules that read `node_modules`**: noFloatingPromises and noMisusedPromises on a third-party import, measured in a worktree (#4639), and by the same cause noUntrustedLicenses and noDeprecatedImports, measured on an out-of-root link (#4085). The worktree's `node_modules` links a dependency store outside it, and Biome reads no dependency whose real path lies outside its project (biomejs/biome#12934). `check_staged` raises them where the host allows a mount in an unprivileged user namespace, bind-mounting the store into the tree it lints; CI's real install raises them too.
 
 **Path scope follows #1318's merit ruling** (the re-judge of rules declined on corpus or fix-up cost). The `app/**`+`lib/**` override holds 15 rules today, each product-only on merit: `noImplicitCoercions`, `useMaxParams` (which `scripts/` carries under its own override, below), `useSimplifiedLogicExpression`, `noGlobalDirnameFilename`, `noProcessGlobal`, `noAwaitInLoops`, `noDelete`, `noCommonJs`, `noParameterAssign`, `noProcessEnv`, `noConsole`, `noEqualsToNull`, `noMisplacedAssertion`, `noUnnecessaryConditions` and `useArraySortCompare`. Cognitive complexity covers four paths under its own override, below. `nursery/noImpliedEval` is the reverse case: on repo-wide, off under `scripts/**` and `.claude/**`.
 

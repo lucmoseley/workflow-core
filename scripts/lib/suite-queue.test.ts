@@ -44,6 +44,7 @@ const {
 	turnOf,
 	readLiveRoleMarkers,
 	readQueuesClimbMb,
+	queuedRunnerPeakMb,
 	gateDenies,
 	heldSeat,
 	SEAT_ENV,
@@ -402,6 +403,7 @@ describe("turnOf, the turn's rule (#4260)", () => {
 		part?: boolean;
 		spawned?: boolean;
 		memoryHeld?: boolean;
+		restHeld?: boolean;
 		windowsHeld?: boolean;
 	}
 	const turn = (
@@ -513,6 +515,33 @@ describe("turnOf, the turn's rule (#4260)", () => {
 				expect(
 					reasons({ waiter: "part", ahead: [held] }, { partPass: false }),
 				).toEqual(["fifo-part"]);
+			});
+		});
+
+		describe("passing an older part-suite the memory rung holds at rest (#4783)", () => {
+			const atRest = { ...partAhead, memoryHeld: true, restHeld: true };
+
+			it("passes it past the age bound", () => {
+				expect(
+					turn({ waiter: "part", ahead: [atRest], now: 5 * PART_PASS_AGE_MS }),
+				).toEqual({ reasons: [], passed: 1 });
+			});
+
+			it("stops passing it once a run that ends could let it in", () => {
+				expect(
+					reasons({
+						waiter: "part",
+						ahead: [{ ...partAhead, memoryHeld: true }],
+						now: 5 * PART_PASS_AGE_MS,
+					}),
+				).toEqual(["fifo-part"]);
+			});
+
+			it("passes none with the switch off, and never for a whole suite", () => {
+				expect(
+					reasons({ waiter: "part", ahead: [atRest] }, { partPass: false }),
+				).toEqual(["fifo-part"]);
+				expect(reasons({ ahead: [atRest] })).toEqual(["fifo-whole"]);
 			});
 		});
 
@@ -726,6 +755,57 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			head.stamps.onWindowsHeld(true);
 			expect(read()).toBe(true);
 			head.stamps.onWindowsHeld(false);
+			expect(read()).toBeUndefined();
+		});
+	});
+
+	describe("the rest stamp an older part-suite's wait writes (#4783)", () => {
+		const late = 5 * PART_PASS_AGE_MS;
+		/** A head its memory rung holds on `denial` past the age bound, and a run behind it that fits. */
+		const behindHeadHeldOn = async (denial: object) => {
+			const queueDir = qdir();
+			const head = joined(queueDir, 11, 0, { weight: PART });
+			joined(queueDir, 99, 1000, { weight: PART });
+			let t = 0;
+			let behind: object | undefined;
+			await head.wait({
+				gate: () => ({ limb: "memory", mb: 1000, rungMb: 2550, ...denial }),
+				clock: () => t,
+				timeoutMs: late,
+				sleepFn: async () => {
+					behind = await polled({ queueDir, pid: 99, clock: () => late });
+					t = late;
+				},
+				out: { write: () => true },
+			});
+			return behind;
+		};
+
+		it("admits a part-suite that fits past a head held with nothing running", async () => {
+			expect(await behindHeadHeldOn({ busy: 0 })).toEqual({
+				reason: "opened",
+				passed: 1,
+			});
+		});
+
+		it.each([
+			["vitest workers running", { busy: 2 }],
+			["a climb charged", { busy: 0, climbMb: 400 }],
+			["`ps` unread", {}],
+		])("holds it behind a head held with %s", async (_what, denial) => {
+			expect(await behindHeadHeldOn(denial)).toMatchObject({
+				reason: "refused",
+			});
+		});
+
+		it("drops the stamp once the rest ends", () => {
+			const queueDir = qdir();
+			const head = joined(queueDir, 11, 0, { weight: PART });
+			const read = () =>
+				JSON.parse(fs.readFileSync(head.ticket, "utf8")).restHeld;
+			head.stamps.onRestHeld(true);
+			expect(read()).toBe(true);
+			head.stamps.onRestHeld(false);
 			expect(read()).toBeUndefined();
 		});
 	});
@@ -1249,6 +1329,68 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 	});
 });
 
+describe("a stamp the climb set, kept while running launches hold the wait (#4799)", () => {
+	const climbed = { limb: "memory", mb: 3666, rungMb: 3350, climbMb: 1587 };
+	const windows = { limb: "windows", mb: 2045, needMb: 2550 };
+	const drawn = { limb: "memory", mb: 3100, rungMb: 3350, climbMb: 1587 };
+
+	it("keeps it on the rung or the Windows hold while charged, and drops it once nothing is", async () => {
+		const polls = [
+			{ denial: climbed, charged: 1587 },
+			{ denial: windows, charged: 1200 },
+			{ denial: drawn, charged: 900 },
+			{ denial: drawn, charged: 0 },
+			{ denial: windows, charged: 400 },
+		];
+		let poll: { denial: object | null; charged: number } = {
+			denial: null,
+			charged: 0,
+		};
+		let held = false;
+		const stampAtPoll: boolean[] = [];
+		await waitForGate({
+			climbMb: () => {
+				poll = polls.shift() ?? { denial: null, charged: 0 };
+				return poll.charged;
+			},
+			gate: () => poll.denial,
+			admit: noQueue,
+			sleepFn: () => {
+				stampAtPoll.push(held);
+				return Promise.resolve();
+			},
+			out: { write: () => true },
+			onClimbStamp: (stamp: boolean) => {
+				held = stamp;
+			},
+		});
+		expect(stampAtPoll).toEqual([true, true, true, false, false]);
+	});
+
+	it("holds a younger `tsc` back throughout a head the memory and Windows limbs deny in turn", async () => {
+		const root = qdir();
+		const suiteDir = path.join(root, "wfc-suite-queue");
+		const tscDir = path.join(root, "wfc-tsc-queue");
+		const head = joined(suiteDir, 11, 5);
+		joined(tscDir, 22, 10);
+		const polls = [climbed, windows, drawn, windows, climbed];
+		const tscTurns: boolean[] = [];
+		const outcome = await waitForGate({
+			climbMb: () => 1500,
+			gate: () => polls.shift() ?? null,
+			admit: noQueue,
+			sleepFn: async () => {
+				tscTurns.push(await turnOpen({ queueDir: tscDir, pid: 22 }));
+			},
+			out: { write: () => true },
+			onClimbStamp: head.stamps.onClimbStamp,
+		});
+		expect(outcome).toBe("run");
+		expect(tscTurns).toEqual([false, false, false, false, false]);
+		expect(await turnOpen({ queueDir: tscDir, pid: 22 })).toBe(true);
+	});
+});
+
 describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	const alive = () => true;
 	/** A process table holding no runner: the machine's own are no fixture's. */
@@ -1375,6 +1517,28 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		const { suiteDir, tscDir } = queues();
 		joined(suiteDir, 11, 0, { role: "lander", chargeMb: 2630 }).spawned();
 		expect(climbOf(tscDir, 100)).toBe(2530);
+	});
+
+	it("charges a queued pytest its runner's peak, not a whole suite's (#4648)", () => {
+		const { suiteDir, tscDir } = queues();
+		const chargeMb = queuedRunnerPeakMb(["python3", "-m", "pytest", "-n", "2"]);
+		joined(suiteDir, 11, 0, { chargeMb }).spawned();
+		expect(climbOf(tscDir, 100)).toBe(150 + 2 * 75 - 100);
+	});
+
+	it("reads a queued launch's peak off its runner class (#4648)", () => {
+		expect(queuedRunnerPeakMb(["pytest", "-n", "8"])).toBe(150 + 8 * 75);
+		expect(queuedRunnerPeakMb(["python3", "a.test.py"])).toBe(150);
+		expect(queuedRunnerPeakMb(["node", "--test", "a.test.js"])).toBe(381);
+		expect(queuedRunnerPeakMb(["node", "scripts/run-host-suite.js"])).toBe(
+			undefined,
+		);
+		expect(queuedRunnerPeakMb(["node", "node_modules/.bin/tsc"])).toBe(
+			undefined,
+		);
+		expect(
+			queuedRunnerPeakMb(["node", "node_modules/.bin/vitest", "run"]),
+		).toBe(undefined);
 	});
 
 	it("charges a lander marker carrying no charge its queue's peak", () => {
@@ -1655,6 +1819,14 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			spawnedIn(suiteDir, 50);
 			const underSuite = machine({ 33: Tsc }, { 33: 50 });
 			expect(climbOn(tscDir, underSuite)).toBe(SUITE_PEAK_MB - 400);
+		});
+
+		it("charges a queued pytest once, on its marker's stamp (#4648)", () => {
+			const { suiteDir, tscDir } = queues();
+			const chargeMb = queuedRunnerPeakMb(["pytest", "-n", "2"]);
+			joined(suiteDir, 50, 0, { chargeMb }).spawned();
+			const m = machine({ 33: "pytest -n 2" }, { 33: 50 });
+			expect(climbOn(tscDir, { ...m, treePssKb: () => 0 })).toBe(150 + 2 * 75);
 		});
 
 		it("charges a runner whose marker's holder is dead", () => {

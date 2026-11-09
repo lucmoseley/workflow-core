@@ -6,7 +6,8 @@
 // Drives the two home-directory watchdog scripts (~/memcheck.sh, ~/memwatch.sh)
 // from outside, per mantahostels#544's testing decisions: fabricated sources in, printed
 // output asserted. Skips wherever the scripts are absent — CI runners carry
-// neither.
+// neither. Many cases wait out real 1-2 s passes, so the file runs ~50 s
+// against the 10 s budget; #4804 tracks the speed-up.
 // Break it and `memcheck`, where CLAUDE.md sends a session whose build died
 // with no error, reports a threshold or a culprit the watchdog never used.
 import { execFileSync, spawn } from "node:child_process";
@@ -15,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -232,6 +234,15 @@ describe.skipIf(!present)("memwatch incident block", () => {
  * trigger fires, so a quiet hour still leaves rows.
  */
 describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
+	// Memory no process listing shows, from /proc/meminfo (#4641).
+	const meminfoFields = [
+		"anon_mb",
+		"shmem_mb",
+		"slab_unreclaim_mb",
+		"kernel_stack_mb",
+		"page_tables_mb",
+		"unevictable_mb",
+	];
 	function quietPass(name: string, env: Record<string, string> = {}) {
 		const minute = path.join(tmp, `${name}.jsonl`);
 		const log = path.join(tmp, `${name}.log`);
@@ -270,6 +281,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			"psi_io_some",
 			"psi_io_full",
 			"mem_avail_mb",
+			...meminfoFields,
 			"cpu_busy_pct",
 			"cpu_sys_pct",
 			"procs",
@@ -302,8 +314,59 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(row.refault_file).toBeNull();
 		expect(row.swap_used_mb).toBeGreaterThanOrEqual(0);
 		expect(row.uptime_s).toBeGreaterThan(0);
+		// The real kernel reports every breakdown key.
+		for (const k of meminfoFields) expect(typeof row[k]).toBe("number");
 		// The test's own node process is running.
 		expect(row.node).toBeGreaterThan(0);
+	});
+
+	it("carries the meminfo breakdown in whole MB", () => {
+		const meminfo = path.join(tmp, "meminfo");
+		fs.writeFileSync(
+			meminfo,
+			buildMeminfo(
+				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
+				{
+					AnonPages: 3_145_728,
+					Shmem: 1_048_576,
+					SUnreclaim: 204_900,
+					KernelStack: 20_480,
+					PageTables: 51_200,
+					Unevictable: 1023,
+				},
+			),
+		);
+		const { lines } = quietPass("minute-meminfo", {
+			MEMWATCH_MEMINFO: meminfo,
+		});
+		const row = JSON.parse(lines[0]);
+		expect(meminfoFields.map((k) => row[k])).toEqual([
+			3072, 1024, 200, 20, 50, 0,
+		]);
+		expect(row.mem_avail_mb).toBe(2000);
+	});
+
+	it("writes null for a meminfo key the kernel does not report", () => {
+		const meminfo = path.join(tmp, "meminfo-sparse");
+		fs.writeFileSync(
+			meminfo,
+			buildMeminfo(
+				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
+				{ Shmem: 1024 },
+			),
+		);
+		const { lines } = quietPass("minute-meminfo-sparse", {
+			MEMWATCH_MEMINFO: meminfo,
+		});
+		const row = JSON.parse(lines[0]);
+		expect(meminfoFields.map((k) => row[k])).toEqual([
+			null,
+			1,
+			null,
+			null,
+			null,
+			null,
+		]);
 	});
 
 	// A freeze the state line misses recomputes from these (#4081).

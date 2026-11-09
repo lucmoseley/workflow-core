@@ -19,7 +19,7 @@ const { mainCheckout } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
 const { execGit } = require("./git.js");
 const { shellQuote } = require("./sh-quote.js");
-const { escapeRe } = require("./shell-words.js");
+const { escapeRe } = require("./regex-group.js");
 
 const SELF_PLUGIN_DIR = "self-plugin";
 const SELF_PLUGIN_HOOKS = `${SELF_PLUGIN_DIR}/hooks/hooks.json`;

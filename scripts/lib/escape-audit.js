@@ -88,8 +88,7 @@ function escapesIn(lines) {
  */
 
 /**
- * @typedef {Record<string, any>} LogRecord One parsed transcript line. `any`
- *   because JSON.parse types nothing and each field is guarded where it is read.
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
  * @typedef {{ rivalPair: Function, splitQuestions: Function }} Deps
  * @typedef {{ pending: Item[], refused: boolean }} Turn
  *   `pending` holds the rounds of the turn's latest question, committed once a
@@ -98,7 +97,7 @@ function escapesIn(lines) {
  */
 
 /**
- * @param {LogRecord} rec
+ * @param {TranscriptRecord} rec
  * @returns {string}
  */
 function textOf(rec) {
@@ -112,7 +111,7 @@ function textOf(rec) {
 }
 
 /**
- * @param {LogRecord} rec
+ * @param {TranscriptRecord} rec
  * @returns {boolean}
  */
 function isToolResult(rec) {
@@ -179,7 +178,7 @@ function escapedRounds(said, at, ctx) {
  * A user record: Stop feedback drops the turn's pending rounds and may mark
  * the turn refused; any other record that is not a tool result commits them
  * to `out` and opens a new turn.
- * @param {LogRecord} rec
+ * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
  * @param {Item[]} out accumulator: each committed item is pushed here
  * @returns {void}
@@ -200,7 +199,7 @@ function readUser(rec, turn, out) {
 /**
  * An assistant record: a tool call drops the pending rounds, as the turn did
  * not end there; a text carrying a question replaces them with its own.
- * @param {LogRecord} rec
+ * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
  * @param {{session: string, deps: Deps}} ctx
  * @returns {void}

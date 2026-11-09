@@ -3,8 +3,8 @@
  * The pre-commit ESLint gate (mantahostels#1133), exercised as the shell it is.
  *
  * `.husky/pre-commit` runs ESLint only when the commit stages an `app/` or
- * `lib/` `.ts`/`.tsx` file, hands it exactly those paths, and fails the commit
- * when ESLint exits non-zero.
+ * `lib/` `.ts`/`.tsx` file or a `scripts/` `.js`/`.ts` one (#4642), hands it
+ * exactly those paths, and fails the commit when ESLint exits non-zero.
  *
  * The gate is HARD-FAILING, unlike the tsc gate directly above it in the hook,
  * because ESLint takes explicit paths and so never reads a parallel session's
@@ -116,10 +116,10 @@ function runGate(
 
 /** A file ESLint would match, and one it would not, for the scope cases. */
 const INSIDE = "app/page.tsx";
-const OUTSIDE = "scripts/thing.ts";
+const OUTSIDE = "hooks/thing.ts";
 
 describe("the pre-commit ESLint gate", () => {
-	it("does not run ESLint when the commit stages nothing under app/ or lib/", () => {
+	it("does not run ESLint when the commit stages nothing under app/, lib/ or scripts/", () => {
 		const repo = fixture({
 			staged: { [OUTSIDE]: "export const a = 1;\n", "docs/x.md": "# x\n" },
 			// Red, so a gate that fired anyway would fail the case rather than
@@ -148,6 +148,17 @@ describe("the pre-commit ESLint gate", () => {
 		});
 		expect(runGate(repo).args).toContain("lib/review-strip/x.ts");
 	});
+
+	it.each(["scripts/thing.js", "scripts/lib/thing.ts"])(
+		"runs ESLint on the staged scripts/ path %s",
+		(file) => {
+			const repo = fixture({
+				staged: { [file]: "export const a = 1;\n" },
+				eslintExit: 0,
+			});
+			expect(runGate(repo).args).toContain(file);
+		},
+	);
 
 	it("fails the commit when ESLint exits non-zero", () => {
 		const repo = fixture({
@@ -217,6 +228,12 @@ describe("the pre-commit ESLint gate", () => {
 		expect(gateFragment()).toContain("--max-warnings 0");
 	});
 
+	// A staged path no config block takes, a scripts/ test file among them, is
+	// a warning to ESLint, which --max-warnings 0 would turn into a refusal.
+	it("carries --no-warn-ignored, without which a scripts/ test file refuses the commit", () => {
+		expect(gateFragment()).toContain("--no-warn-ignored");
+	});
+
 	// Two spellings of one scope: widening eslint.config.mjs alone would leave a
 	// gate that silently never fires on the new directory.
 	it("scopes to the same directories eslint.config.mjs declares", () => {
@@ -224,16 +241,27 @@ describe("the pre-commit ESLint gate", () => {
 			path.join(ROOT, "eslint.config.mjs"),
 			"utf8",
 		);
-		const declared = [...config.matchAll(/"(\w+)\/\*\*\/\*\.\{ts,tsx\}"/g)]
-			.map((m) => m[1])
-			.sort();
+		const declared = [...config.matchAll(/files: \[([^\]]*)\]/g)].flatMap((m) =>
+			[...(m[1] ?? "").matchAll(/"(\w+)\/\*\*\/\*\.\{([^}]*)\}"/g)].flatMap(
+				(g) => (g[2] ?? "").split(",").map((ext) => `${g[1]}/*.${ext}`),
+			),
+		);
 		expect(declared.length).toBeGreaterThan(0);
 
-		const grep = /^\^\(([^)]*)\)/.exec(
-			armingPattern("--no-error-on-unmatched-pattern"),
-		);
-		expect(grep, "the gate's arming pattern no longer parses").not.toBeNull();
-		expect((grep as RegExpExecArray)[1].split("|").sort()).toEqual(declared);
+		const branches = armingPattern("--no-error-on-unmatched-pattern")
+			.split("|^")
+			.map((b) => /^\^?\(?([^)]*)\)?\/\.\*\\\.\(([^)]*)\)\$$/.exec(b));
+		expect(
+			branches.every(Boolean),
+			"the gate's arming pattern no longer parses",
+		).toBe(true);
+		const armed = branches.flatMap((b) => {
+			const [, dirs = "", exts = ""] = b as RegExpExecArray;
+			return dirs
+				.split("|")
+				.flatMap((d) => exts.split("|").map((ext) => `${d}/*.${ext}`));
+		});
+		expect(armed.sort()).toEqual(declared.sort());
 	});
 });
 

@@ -27,7 +27,10 @@ const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 const { execFileSync } = require("node:child_process");
 const { execGit } = require("../../../../scripts/lib/git.js");
 const { gh: runGh } = require("../../../../scripts/lib/gh.js");
-const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
+const {
+	escapeRe,
+	requiredGroup,
+} = require("../../../../scripts/lib/regex-group.js");
 const { caught } = require("../../../../scripts/lib/caught.js");
 
 /**
@@ -125,8 +128,6 @@ function settle(read) {
 	}
 }
 
-/** @param {string} s */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** @param {string} s @param {number} n */
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
 /** @param {string} s */

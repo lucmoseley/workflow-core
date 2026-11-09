@@ -442,6 +442,7 @@ const disarmLoadFailure =
 const hookMessage = require("./lib/hook-message");
 const hookBlock = require("./lib/hook-block");
 const { founderPointer } = require("./lib/founder-pointer.js");
+const { beforeMatch } = require("./lib/cut-at.js");
 const {
 	groupByPrefix,
 	isLive,
@@ -454,7 +455,7 @@ const stopGuard = require("./lib/stop-guard");
 const { parseStatus } = require("./lib/status-marker");
 const { INVENTORY } = require("./lib/inventory-format");
 /** @typedef {import("./lib/status-marker").StatusReading} StatusReading */
-const { requiredGroup } = require("./lib/regex-group");
+const { escapeRe, requiredGroup } = require("./lib/regex-group");
 const {
 	OPTION_LABEL_PREFIX,
 	OPTION_LABEL,
@@ -1103,9 +1104,6 @@ const AGENT_ABANDONS =
 const BLOCKED_LINE =
 	/^\s{0,3}(?:\*\*)?Blocked(?:\*\*)?:(?:\*\*)?\s*(?!\*\*\s*$)\S/i;
 
-/** @param {string} s */
-const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 /**
  * The trackers a past-rulings search must reach, for the research-ladder
  * limb (#2006); null where the config will not read, which lets any tracker
@@ -1135,8 +1133,8 @@ function buildFounderLead() {
 	try {
 		const declared = resolveKey("founder");
 		if (typeof declared === "string" && declared.trim()) {
-			names.push(declared.trim());
-			names.push(declared.trim().replace(/\s.*$/s, ""));
+			const name = declared.trim();
+			names.push(name, beforeMatch(name, /\s/));
 		}
 	} catch (e) {
 		/* An unreadable config costs the name, never the limb (#598). */
@@ -1144,7 +1142,7 @@ function buildFounderLead() {
 			`founder name unreadable: ${e} — You/Founder only`,
 		);
 	}
-	return new RegExp(`^(?:${names.map(escapeRegExp).join("|")})(?![\\w])`);
+	return new RegExp(`^(?:${names.map(escapeRe).join("|")})(?![\\w])`);
 }
 
 /**

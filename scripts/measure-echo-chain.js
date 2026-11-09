@@ -154,10 +154,8 @@ function readTranscript(file) {
 }
 
 /**
- * @typedef {any} TranscriptRecord One parsed transcript line. `any` because
- * JSON.parse types nothing and each field is read and guarded where it is used.
- * @typedef {any} ContentBlock One block of a record's `message.content`,
- * `any` for the same reason: its shape varies by `type`, checked before use.
+ * @typedef {import("./lib/transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./lib/transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
@@ -194,7 +192,7 @@ function readRows(file) {
  * null.
  *
  * @param {TranscriptRecord} d
- * @returns {TranscriptRecord}
+ * @returns {TranscriptRecord | null}
  */
 function mainThreadRecord(d) {
 	if (d.isSidechain) return null;
@@ -207,7 +205,7 @@ function mainThreadRecord(d) {
  * One assistant content block: a file-writing call into `edits`, a measured
  * Bash or Read call into `calls`.
  *
- * @param {ContentBlock} b
+ * @param {TranscriptBlock} b
  * @param {number} turn
  * @param {{ edits: Map<string, number[]>, calls: { turn: number, sig: string, id: string, path?: string }[] }} into accumulator: the edit's turn and the measured call are added
  */
@@ -230,7 +228,7 @@ function recordToolUse(b, turn, { edits, calls }) {
  * One user content block: a tool_result's response hash, and whether it was
  * the harness's short circuit. The echo guard's own refusal is dropped.
  *
- * @param {ContentBlock} b
+ * @param {TranscriptBlock} b
  * @param {{ results: Map<string, string>, shortCircuits: Set<string> }} into accumulator: the result's hash and any short circuit are added
  */
 function recordToolResult(b, { results, shortCircuits }) {

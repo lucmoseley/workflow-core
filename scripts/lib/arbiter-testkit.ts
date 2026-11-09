@@ -11,8 +11,10 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
+import { buildAgentsBranch, buildListedRow } from "./agents-stop-fake";
 import { caught } from "./caught.js";
-import { type RouteAnswer, stubGhRoutes } from "./gh-stub";
+import { writeClaudeStub } from "./claude-stub";
+import { type RouteAnswer, stubGhRoutes, stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
 import { sleepSync } from "./sleep-sync.js";
 
@@ -95,9 +97,11 @@ const BELT = path.join(__dirname, "arbiter-belt");
  * is unset too, falling every `gh` call back on the real `gh`. NEITHER BINARY
  * IS REACHABLE IN CI, so a green CI run says nothing about this.
  *
- * THE AGENTS STUB LISTS THE CALLER AND NOBODY ELSE, which is what the real
- * oracle said. An empty array is NOT that: `agent-liveness.js` reads `[]` as a
- * refusal ("listed no agents at all"), and its self-test refuses again unless
+ * THE AGENTS STUB LISTS `sandbox` AND NOBODY ELSE, the caller this sets, as
+ * the real oracle would. A fixed id, since the oracle's child runs with the
+ * session id forgotten (lib/seat-claude.js's buildSeatEnv). An empty array
+ * is NOT that: `agent-liveness.js` reads `[]` as a refusal ("listed no agents
+ * at all"), and its self-test refuses again unless
  * the list names `CLAUDE_CODE_SESSION_ID` — so a stub echoing `[]` would send
  * every unshimmed case down the refusal branch the real oracle never took.
  *
@@ -123,13 +127,6 @@ function stubOracles(sb: Sandbox) {
 	const dir = path.join(sb.dir, "stubs");
 	fs.mkdirSync(dir, { recursive: true });
 
-	const write = (name: string, body: string) => {
-		const bin = path.join(dir, name);
-		fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`);
-		fs.chmodSync(bin, 0o755);
-		return bin;
-	};
-
 	// A sandbox id of its own, so the oracle's self-test is not answered with
 	// the founder's live session id (agent-liveness.js's `me`).
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "sandbox");
@@ -142,20 +139,18 @@ function stubOracles(sb: Sandbox) {
 
 	vi.stubEnv(
 		"WFC_CLAUDE_BIN",
-		write(
-			"claude",
-			// `${...}` spelt out longhand: Biome reads the shell form as a stray
-			// template placeholder (lint/suspicious/noTemplateCurlyInString).
-			'sid=$CLAUDE_CODE_SESSION_ID\n[ -n "$sid" ] || sid=sandbox\n' +
-				'printf \'[{"sessionId":"%s"}]\\n\' "$sid"',
-		),
+		writeClaudeStub(path.join(dir, "claude"), [
+			buildAgentsBranch([
+				buildListedRow({ sessionId: "sandbox" }, ["pid", "status"]),
+			]),
+		]),
 	);
 	vi.stubEnv(
 		"WFC_GH",
-		write(
-			"gh-unstubbed",
-			'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
-		),
+		stubGhScript(
+			dir,
+			'#!/bin/sh\necho "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1\n',
+		).gh,
 	);
 
 	vi.stubEnv("PATH", `${BELT}${path.delimiter}${process.env.PATH}`);

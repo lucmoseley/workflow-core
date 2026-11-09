@@ -11,6 +11,7 @@ import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { escapeRe } from "./regex-group.js";
 
 type Answer =
 	| "none"
@@ -316,7 +317,7 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 		const d = run("git push origin main", { answer: "rejected" });
 		expect(d?.prelude).toMatch(
 			new RegExp(
-				`^The marker ${marker.replaceAll(".", "\\.")} was rejected — its base= is not a 40-hex sha, 'main' — so it counts as no review\\. This push`,
+				`^The marker ${escapeRe(marker)} was rejected — its base= is not a 40-hex sha, 'main' — so it counts as no review\\. This push`,
 			),
 		);
 	});

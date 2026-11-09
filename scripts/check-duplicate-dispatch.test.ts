@@ -19,14 +19,20 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type AgentsAnswer,
+	buildAgentsBranch,
+	buildListedRow,
+	buildUnrecordedRow,
+} from "./lib/agents-stop-fake";
+import {
 	writeAdopterCheckout as writeCheckout,
 	writeIssueClaim,
 	writeTornClaim,
 } from "./lib/claim-store-testkit";
+import { writeClaudeStub } from "./lib/claude-stub";
 import ledger from "./lib/dispatch-ledger";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-duplicate-dispatch.js");
 
@@ -44,29 +50,22 @@ function writeLedger(lines: object[]) {
 const readLedgerRow = () =>
 	JSON.parse(fs.readFileSync(ledger.ledgerPath(root), "utf8").trim());
 
-/**
- * A stub `claude`, injected at WFC_CLAUDE_BIN, reporting these sessions.
- * Each record carries a `sessionId`: the lib drops one without it (mantahostels#1400).
- */
-function stubOracle(names: string[]) {
-	stubOracleRaw(names.map((name, i) => ({ sessionId: `s${i}`, name })));
-}
+/** A stub `claude`, injected at WFC_CLAUDE_BIN, answering `agents --json` as
+ * `answer`. */
+const stubListing = (answer: AgentsAnswer) =>
+	writeClaudeStub(path.join(root, "claude"), [buildAgentsBranch(answer)]);
 
-/** The same stub, with the records given verbatim — for a malformed shape. */
-function stubOracleRaw(records: unknown) {
-	fs.writeFileSync(
-		path.join(root, "claude"),
-		`#!/bin/sh\nprintf '%s' ${shellQuote(JSON.stringify(records))}\n`,
-		{ mode: 0o755 },
+/**
+ * The stub reporting these sessions. Each record carries a `sessionId`: the
+ * lib drops one without it (mantahostels#1400).
+ */
+const stubOracle = (names: string[]) =>
+	stubListing(
+		names.map((name, i) => buildListedRow({ sessionId: `s${i}`, name })),
 	);
-}
 
 /** A stub `claude` that will not run, so the live limb goes blind. */
-function stubOracleDown() {
-	fs.writeFileSync(path.join(root, "claude"), "#!/bin/sh\nexit 1\n", {
-		mode: 0o755,
-	});
-}
+const stubOracleDown = () => stubListing(null);
 
 /*
  * One session, naming no issue — what an otherwise idle machine reports, and
@@ -350,8 +349,12 @@ describe("the live limb — catches a launch made outside this script", () => {
 
 	/* #1989: a rescuer titled after the ticket it re-dispatches. */
 	it("never counts the calling session, by session id or by job dir", () => {
-		stubOracleRaw([
-			{ sessionId: "me-1", id: "job00001", name: "Rescue-sessions 1878: x" },
+		stubListing([
+			buildListedRow({
+				sessionId: "me-1",
+				id: "job00001",
+				name: "Rescue-sessions 1878: x",
+			}),
 		]);
 		const bySession = runCli(["--issues", "1878"], {
 			CLAUDE_CODE_SESSION_ID: "me-1",
@@ -387,9 +390,12 @@ describe("the claim limb — refuses an issue a live session holds, directly or 
 	const hereUrl = "https://api.github.com/repos/o/here";
 	beforeEach(() => {
 		writeCheckout(root, "o/here");
-		stubOracleRaw([
-			{ sessionId: "holder", name: "Wayfinder 20: chart the map" },
-			{ sessionId: "ended", name: "Old", kind: "background", state: "done" },
+		stubListing([
+			buildListedRow({
+				sessionId: "holder",
+				name: "Wayfinder 20: chart the map",
+			}),
+			buildListedRow({ sessionId: "ended", name: "Old", state: "done" }),
 		]);
 	});
 
@@ -667,9 +673,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 		 * would read this one and wave mantahostels#972 through. */
 		const shadow = path.join(root, "shadow"); // under root, so afterEach takes it
 		fs.mkdirSync(shadow);
-		fs.writeFileSync(path.join(shadow, "claude"), "#!/bin/sh\nprintf '[]'\n", {
-			mode: 0o755,
-		});
+		writeClaudeStub(path.join(shadow, "claude"), [buildAgentsBranch([])]);
 		const r = runCli(["--issues", "972"], {
 			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
 			PATH: `${shadow}:${process.env.PATH}`,
@@ -686,7 +690,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 	});
 
 	it("warns rather than reading an EMPTY list as an idle machine, saying a session launched elsewhere would not be caught (mantahostels#1400)", () => {
-		stubOracleRaw([]);
+		stubListing([]);
 		const r = runCli(["--issues", "341"]);
 		const out = `${r.stdout}${r.stderr}`;
 		expect(r.status).toBe(0);
@@ -695,16 +699,16 @@ describe("the CLI — §N4's outcome alphabet", () => {
 	});
 
 	it("warns when no record carries a sessionId — the shape has moved (mantahostels#1400)", () => {
-		stubOracleRaw([{ name: "Implement 972: something" }]);
+		stubListing([buildUnrecordedRow({ name: "Implement 972: something" })]);
 		const r = runCli(["--issues", "972"]);
 		expect(r.status).toBe(0);
 		expect(`${r.stdout}${r.stderr}`).toContain("sessionId");
 	});
 
 	it("still catches a duplicate named by a surviving record when a sibling is dropped (mantahostels#1400)", () => {
-		stubOracleRaw([
-			{ name: "Implement 111: no sessionId, so dropped" },
-			{ sessionId: "s1", name: "Implement 972: something" },
+		stubListing([
+			buildUnrecordedRow({ name: "Implement 111: no sessionId, so dropped" }),
+			buildListedRow({ sessionId: "s1", name: "Implement 972: something" }),
 		]);
 		const r = runCli(["--issues", "972"]);
 		expect(r.status).toBe(1);
@@ -712,9 +716,12 @@ describe("the CLI — §N4's outcome alphabet", () => {
 	});
 
 	it("misses one named ONLY by a dropped record, and says nothing — the mantahostels#1400 residual", () => {
-		stubOracleRaw([
-			{ name: "Implement 111: no sessionId, so dropped" },
-			{ sessionId: "s1", name: "Idle harness: nothing running" },
+		stubListing([
+			buildUnrecordedRow({ name: "Implement 111: no sessionId, so dropped" }),
+			buildListedRow({
+				sessionId: "s1",
+				name: "Idle harness: nothing running",
+			}),
 		]);
 		const r = runCli(["--issues", "111"]);
 		expect(r.status).toBe(0);

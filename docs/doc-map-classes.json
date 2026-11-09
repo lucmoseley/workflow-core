@@ -1662,8 +1662,8 @@
 		"section": "Governance & process docs",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "This repo's settled issue-body clobber SUSPECTs, keyed by the check's `#N<TAB><edit time>` identity, each value naming what the deliberate rewrite did (#1700, #1877). `scripts/check-clobbered-bodies.js`'s header owns the shape.",
-		"route": "Direct, one entry per SUSPECT judged a rewrite from the issue's `userContentEdits`; a race is restored on the issue instead",
+		"role": "This repo's settled issue-body clobber findings, CLOBBERED and SUSPECT alike, keyed by the check's `#N<TAB><edit time>` identity, each value naming what the deliberate rewrite did (#1700, #1877, #4636). `scripts/check-clobbered-bodies.js`'s header owns the shape.",
+		"route": "Direct, one entry per CLOBBERED or SUSPECT judged a rewrite from the issue's `userContentEdits`; a race is restored on the issue instead",
 		"consumes": [
 			{
 				"kind": "path",

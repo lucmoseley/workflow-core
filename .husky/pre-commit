@@ -849,16 +849,18 @@ if ! lander_batch && armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
 fi
 
 # ESLint, HARD-FAILING and scoped to the commit's own staged app/ and lib/ TS
-# paths (mantahostels#1133). Do not soften it to match the warn-only tsc gate above: that
-# one reads a whole program and so every half-written file with it, where this
-# one reads only the paths it is handed. eslint.config.mjs declares
-# `files` for app/ and lib/ alone, so the pattern mirrors that scope; a third
-# directory added there must be added here too, or the gate silently never
-# fires on it.
+# and scripts/ JS and TS paths (mantahostels#1133, #4642). Do not soften it to
+# match the warn-only tsc gate above: that one reads a whole program and so
+# every half-written file with it, where this one reads only the paths it is
+# handed. eslint.config.mjs declares `files` for those directories alone, so
+# the pattern mirrors that scope; a directory added there must be added here
+# too, or the gate silently never fires on it.
 #
 # armed_live keeps deletions, and paths gone from the worktree, out of the path
 # list; --no-error-on-unmatched-pattern covers one that goes between that read
 # and ESLint's, where ESLint would otherwise exit 2 rather than on a finding.
+# --no-warn-ignored keeps a path no config block takes, a scripts/ test file or
+# an adopter's scripts/ with no block of its own, from failing as a warning.
 #
 # --max-warnings 0 because ESLint exits 0 on a warning — see package.json's
 # comments["scripts.check:eslint"]. Spelled here rather than calling `npm run
@@ -873,7 +875,7 @@ fi
 # declared command lints the whole scope, where this gate lints the commit's
 # own paths, so the gate keeps its own eslint call — and skips, saying so,
 # where eslint is not on PATH.
-if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$'; then
+if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$|^scripts/.*\.(js|mjs|cjs|ts)$'; then
   eslint_paths="$(armed_live)"
   if [ -n "$eslint_paths" ] &&
     declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command lint; then
@@ -881,8 +883,8 @@ if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$'; then
       echo "SKIP: commands.lint is declared, but eslint is not on PATH" >&2
     else
       # shellcheck disable=SC2086 # deliberate word-splitting: one path per line.
-      eslint --max-warnings 0 --no-error-on-unmatched-pattern $eslint_paths || {
-        echo "pre-commit: ESLint failed on this commit's own app/ or lib/ paths." >&2
+      eslint --max-warnings 0 --no-warn-ignored --no-error-on-unmatched-pattern $eslint_paths || {
+        echo "pre-commit: ESLint failed on this commit's own app/, lib/ or scripts/ paths." >&2
         echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1133)." >&2
         exit 1
       }
