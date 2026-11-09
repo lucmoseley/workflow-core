@@ -168,7 +168,8 @@ class TransientFault extends Error {}
  *   rerun or confirm; `requiresRun` where `main` takes only a sha a CI run
  *   passed, so only a green naming its `run` lands; `parallel` where it can
  *   be asked several verdicts at once; `cancel` stops every unfinished run
- *   on the batch ref `branch` not at `keep`, returning the shas it stopped
+ *   on the batch ref `branch` not at `keep`, returning every sha `branch`
+ *   lists a run at, finished or not
  * @typedef {import("./lander-files.js").Ledger} Ledger
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
@@ -1901,7 +1902,7 @@ function forgetAsks(run, sha) {
 
 /**
  * Has the tester cancel every unfinished run on the batch ref of `slot` not
- * at `keep`, saying each sha of `expected` it found no such run at; a cancel
+ * at `keep`, saying each sha of `expected` it listed no run at; a cancel
  * that throws is reported and stops nothing, as the runs' verdicts are only
  * unwanted (#4556, #4576).
  * @param {Pick<QueueLanderDeps, "tester" | "say">} deps
@@ -1913,20 +1914,20 @@ function cancelRuns(deps, slot, keep, expected) {
 	const { say = () => undefined } = deps;
 	const branch = batchBranch(slot);
 	/** @type {string[]|undefined} */
-	let cancelled;
+	let listed;
 	try {
-		cancelled = deps.tester.cancel?.(branch, keep);
+		listed = deps.tester.cancel?.(branch, keep);
 	} catch (err) {
 		say(
 			`runs on ${branch} not cancelled: ${parseRefusal(parseErrorText(err))}`,
 		);
 		return;
 	}
-	if (cancelled === undefined) return;
+	if (listed === undefined) return;
 	for (const sha of expected)
-		if (sha !== keep && !cancelled.includes(sha))
+		if (sha !== keep && !listed.includes(sha))
 			say(
-				`no unfinished run at ${short(sha)} listed on ${branch} to cancel; the next merge there cancels one listed later`,
+				`no run at ${short(sha)} listed on ${branch} to cancel; the next merge there, if any, cancels one listed later`,
 			);
 }
 
@@ -2083,10 +2084,12 @@ function recordLanded(deps, run) {
  * Merges the batch's members onto `action.onto`, pushing the merges to the
  * batch's ref before its gate pass, and records it testing where they merge.
  * Every unfinished run on the ref but the one at the sha it tests is
- * cancelled (#4573, #4576).
+ * cancelled (#4573, #4576): never that one, as a restart's merge may
+ * reproduce the sha a crash left pushed, and its push then fires no new run.
  * @param {BatchDeps} deps
  * @param {Extract<QueueAction, {kind: "merge-members"}>} action
- * @param {QueueRun} run
+ * @param {QueueRun} run accumulator: the asks at the batch's recorded
+ *   integration are deleted from its `pending`
  * @returns {QueueRun}
  */
 function mergeBatch(deps, action, run) {

@@ -27,8 +27,8 @@
  * `lander/batch-<k>` run covers they are read off that run, a failed one
  * rerunning its failed jobs; elsewhere they go to named-rerun.yml too, under
  * its daily cap. Its `cancel` cancels every unfinished run on a batch ref
- * but the one at the sha the lander is about to test, naming the shas it
- * cancelled (#4556, #4576).
+ * but the one at the sha the lander is about to test, naming every sha the
+ * ref lists a run at (#4556, #4576).
  */
 
 const { execFileSync } = require("node:child_process");
@@ -706,11 +706,10 @@ function queueTester({
 			return rerunVerdict(sha, files, on, named);
 		},
 		cancel(branch, keep) {
-			const stale = reads
-				.runsOn(branch)
-				.filter((r) => !r.conclusion && r.headSha !== keep);
-			for (const r of stale) reads.cancel(r.databaseId);
-			return [...new Set(stale.map((r) => r.headSha))];
+			const listed = reads.runsOn(branch);
+			for (const r of listed)
+				if (!r.conclusion && r.headSha !== keep) reads.cancel(r.databaseId);
+			return [...new Set(listed.map((r) => r.headSha))];
 		},
 	};
 }

@@ -297,19 +297,19 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				);
 			},
 			cancel: (branch, keep) => {
-				const cancelled: string[] = [];
+				const listed: string[] = [];
 				for (const r of runs) {
-					if (r.branch !== branch || r.done) continue;
+					if (r.branch !== branch) continue;
 					if (r.unlisted > 0) {
 						r.unlisted--;
 						continue;
 					}
-					if (r.sha === keep) continue;
+					listed.push(r.sha);
+					if (r.done || r.sha === keep) continue;
 					r.done = true;
-					cancelled.push(r.sha);
 					events.push(`cancel ${r.sha} on ${branch}`);
 				}
-				return cancelled;
+				return listed;
 			},
 		},
 		ledger: {
@@ -595,7 +595,7 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 
 		const alone = mergeSha("m0", [members[0] as Member]);
 		expect(said).toEqual([
-			`no unfinished run at ${merges.slice(0, SHORT_SHA)} listed on lander/batch-0 to cancel; the next merge there cancels one listed later`,
+			`no run at ${merges.slice(0, SHORT_SHA)} listed on lander/batch-0 to cancel; the next merge there, if any, cancels one listed later`,
 			"Filed #100: https://x/100",
 		]);
 		expect(
