@@ -87,7 +87,7 @@
 		".agents/skills/code-review/SKILL.md": {
 			"editedHash": "57277efd6d8bfde42593a5b82fd8057acd1833a0ff8863454dd35193ec6322b2",
 			"issue": 4633,
-			"why": "mantahostels#766 requires an Artefact: line in both review sub-agent prompts — the reason this file diverges from upstream at all; both paths sit under .claude/tmp/, mantahostels#2089's sanctioned scratch directory (mantahostels#2093), suffixed with the dispatching session's id since a bare filename collides across concurrent /code-review dispatches (mantahostels#2220); this file's tracker cites spelled mantahostels#n (mantahostels#3568); the frontmatter description removed, so the skill leaves the start listing (#2036); the Standards brief asks whether the diff weakens a check and names it on a Weakens: line (#2235); v1.3.2's \"Issue both sub-agent calls together, in the foreground, and aggregate the reports they return\" declined, since the aggregation reads the sub-agents' Artefact: files and this harness runs every sub-agent in the background (#4633)"
+			"why": "mantahostels#766 requires an Artefact: line in both review sub-agent prompts — the reason this file diverges from upstream at all; both paths sit under .claude/tmp/, mantahostels#2089's sanctioned scratch directory (mantahostels#2093), suffixed with the dispatching session's id since a bare filename collides across concurrent /code-review dispatches (mantahostels#2220); this file's tracker cites spelled mantahostels#n (mantahostels#3568); the frontmatter description removed, so the skill leaves the start listing (#2036); the Standards brief asks whether the diff weakens a check and names it on a Weakens: line (#2235); v1.3.2's \"Issue both sub-agent calls together, in the foreground\" declined, since the aggregation reads the sub-agents' Artefact: files and this harness runs every sub-agent in the background (#4633)"
 		},
 		".agents/skills/codebase-design/SKILL.md": {
 			"editedHash": "7a5cf36d2d3eaebd036ae43ccbe69894ab97272ee6e343d242112b07b2a4e887",
@@ -112,12 +112,12 @@
 		".agents/skills/grilling/SKILL.md": {
 			"editedHash": "31930f77c987cc0ac3ec398d8d0fc07db03a272df8e800ea4d8385b794a1c4c8",
 			"issue": 4633,
-			"why": "a fact-finding sub-agent dispatch names an Artefact: line, one being supplied under .claude/tmp/agents/ where it is missing (#515, #928); v1.3.1's --- between questions in the round template declined, which scripts/guard-priced-options.js refuses (#879 Q3); the decisions-are-the-user's line split, a decision research settles being the session's to treat as settled and report with its source and only a house decision the user's, the frontier round asking house decisions alone (#1701, built at #1706); the frontmatter description removed, so the skill leaves the start listing (#2036); v1.3.2's \"Word each question so 'yes' accepts your recommended answer\" declined, since rounds are lettered rivals answered by letter and a yes-shaped question has no rival to price (#4633)"
+			"why": "a fact-finding sub-agent dispatch names an Artefact: line, one being supplied under .claude/tmp/agents/ where it is missing (#515, #928); v1.3.1's --- between questions in the round template declined, which scripts/guard-priced-options.js refuses (#879 Q3); the decisions-are-the-user's line split, a decision research settles being the session's to treat as settled and report with its source and only a house decision the user's, the frontier round asking house decisions alone (#1701, built at #1706); the frontmatter description removed, so the skill leaves the start listing (#2036); v1.3.2's \"Word each question so 'yes' accepts your recommended answer\" declined, since a yes-shaped question has no rival to price (#4633)"
 		},
 		".agents/skills/implement/SKILL.md": {
 			"editedHash": "f2d165bbd1fe275a025f8ee758d7a7ffeafa15660f2b90d1a6a15338059d0191",
 			"issue": 4633,
-			"why": "the hand-off check after claiming, naming the pushed ref for each Done sha (#2391, #4244, #4506); npm run test's narrowing and test selection (#1216, #2182, mantahostels#2095, #1147); a dispatched subagent's one batched test call (#1517); /code-review through the Skill tool, workflow-core:code-review where the project has none of its own (#1165); upstream's tdd Skill-tool line deleted (#1777, kept out at #4633)"
+			"why": "the hand-off check after claiming (#2391, #4244, #4506); npm run test's narrowing and test selection (#1216, #2182, mantahostels#2095, #1147); a dispatched subagent's one batched test call (#1517); the /code-review line (#1165); upstream's tdd Skill-tool line omitted (#1777)"
 		},
 		".agents/skills/prototype/SKILL.md": {
 			"editedHash": "eb787032b8449d81bb5d41022a26fefbd7bfa0e582b8834fe3e5ec4666a2687e",
@@ -167,7 +167,7 @@
 		".agents/skills/wayfinder/SKILL.md": {
 			"editedHash": "5e0542194257275c80b396a085e6aea2359aa50bb09e752726c0ef7e2941f0b2",
 			"issue": 4633,
-			"why": "the hand-off check names the pushed ref (the session's own queue ref with the landing module on) for each Done sha (#2391, #4244, #4506); v1.3.2's line that wayfinder: labels are the only labels a map and its tickets carry declined, since every map and ticket here also carries a takes: label (docs/agents/triage-labels.md); step 5's research subagent appends to .claude/tmp/research-<name>.md, posted on the ticket, in place of a pushed research/<name> branch, which branch-publish-landing refuses (#2335, #4633)"
+			"why": "the hand-off check after claiming (#2391, #4244, #4506); the HITL paragraph's house-decision gloss and its research-settled ticket line (#1701, #1706); v1.3.2's line that wayfinder: labels are the only labels a map and its tickets carry declined, since every map and ticket here also carries a takes: label (docs/agents/triage-labels.md); step 5's research subagent appends to .claude/tmp/research-<name>.md, posted on the ticket, in place of a pushed research/<name> branch, which branch-publish-landing refuses (#2335, #4633)"
 		},
 		".agents/skills/writing-for-agents/SKILL.md": {
 			"editedHash": "132fe4536311a1f8c04ea6343104bed4d05a3402cb711474828d75bb4605280b",

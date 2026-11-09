@@ -36,7 +36,7 @@
 	"scripts/check-seat-utilisation.js": "c968c4837267a8ef",
 	"scripts/check-stray-scratch.js": "64cedea6272e9369",
 	"scripts/check-superseded-values.js": "83f5b88dbcf51a3c",
-	"scripts/check-vendored-skills.js": "72d11f73ea1c550c",
+	"scripts/check-vendored-skills.js": "2a1296c431906350",
 	"scripts/check-weakens-line.js": "336ae9870cc9eb67",
 	"scripts/check-website-copy.js": "3ee757579149b97b",
 	"scripts/check-workflow-permissions.js": "968e6e9049890ffd",

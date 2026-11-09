@@ -130,10 +130,10 @@
  * `Weakens:` line names the variable.
  *
  * RESIDUAL: `vendoredAt` is single-provenance and the manifest is not.
- * It names upstream's v1.3.1 commit for every file, but `animate`'s two
+ * It names one mattpocock/skills commit for every file, but `animate`'s two
  * arrived at f13eec839, so every verdict line quoting the field misdescribes
  * those two. Nothing compares against it, so no gate is wrong, and every file
- * of every skill vendored outside a --revendor joins it. #906 set it by hand;
+ * of every skill vendored outside a --revendor joins it. #906 and #4633 set it by hand;
  * the next --revendor writes a revision of this repo instead. Per-path
  * provenance, a data-format change plus a write command, was declined at
  * mantahostels#3025; revisit at a third upstream, when the field misdescribes
