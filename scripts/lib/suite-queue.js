@@ -42,7 +42,8 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * yet to draw where the gate charged it (#3416).
  * A count denial carries the memory reading where the rung fails too (#4359).
  * @typedef {{ mb?: number, rungMb?: number, climbMb?: number }} MemoryReading
- * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading)} GateDenial
+ * @typedef {{ limb: "windows", mb: number, needMb: number }} WindowsHold
+ * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading) | WindowsHold} GateDenial
  */
 /**
  * Why a turn is closed, by whom (#4359): `fifo`, the waiters joined ahead,
@@ -1130,11 +1131,11 @@ function gateDenies(
 }
 
 /**
- * What held a wait the gate's memory rung did not: the count cap where the
+ * What held a wait neither memory limb did: the count cap where the
  * gate denied, else the queue's turn.
  *
  * @param {GateDenial | null} denial
- * @returns {Exclude<HeldLimb, "memory">}
+ * @returns {Exclude<HeldLimb, "memory" | "windows">}
  */
 function heldLimb(denial) {
 	return denial ? "count" : "turn";
@@ -1155,6 +1156,7 @@ const HELD_LINE = {
 const LIMB_NAMES = {
 	count: "the count cap",
 	memory: "the memory rung",
+	windows: "the Windows-memory hold",
 	fifo: "the waiters ahead",
 	admitted: "a launch admitted and not yet up",
 	peer: "an older waiter in the other queue the climb charge holds",
@@ -1187,6 +1189,8 @@ function limbHolder(hold) {
  * @returns {string}
  */
 function describeLimb(hold) {
+	if (hold.limb === "windows")
+		return `${LIMB_NAMES.windows}, Windows free ${hold.mb} MB against ~${hold.needMb} MB`;
 	if (hold.limb !== "memory")
 		return `${LIMB_NAMES[hold.limb]}${limbHolder(hold)}`;
 	const { mb, rungMb, climbMb } = hold;
@@ -1346,6 +1350,20 @@ function memoryRefusal(label, secs, { mb, rungMb, climbMb }) {
 	const reading =
 		mb === undefined ? "" : ` (MemAvailable ${mb} MB${climb}${rung})`;
 	return `${label}: gate still denies on memory after ${secs}s${reading} — refused, not run. Reap finished sessions (\`node ${scriptPath("reap-finished-sessions.js")}\`) and run it again (#2421).\n`;
+}
+
+/**
+ * The line a wait the Windows-memory hold still holds at its timeout ends on
+ * (#4557): refused, as a memory wait is, since running it is what pages
+ * Windows.
+ *
+ * @param {string} label
+ * @param {number} secs
+ * @param {WindowsHold} denial
+ * @returns {string}
+ */
+function windowsRefusal(label, secs, { mb, needMb }) {
+	return `${label}: the Windows-memory hold still holds after ${secs}s (Windows free ${mb} MB against ~${needMb} MB) — refused, not run. Close what Windows runs beside the VM, or wait for it to free, and run it again (#4557).\n`;
 }
 
 /**
@@ -1524,6 +1542,10 @@ function waitForGate({
 			out.write(memoryRefusal(label, secs(), denial));
 			return exit("refused", "refused", "memory");
 		}
+		if (denial?.limb === "windows") {
+			out.write(windowsRefusal(label, secs(), denial));
+			return exit("refused", "refused", "windows");
+		}
 		const limb = heldLimb(denial);
 		out.write(
 			`${label}: ${HELD_LINE[limb]} after ${secs()}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: ${cap}.\n`,
@@ -1552,7 +1574,9 @@ function waitForGate({
 			return hold().then((go) => (go ? step() : exit("refused", "refused")));
 		}
 		if (!open)
-			return denial?.limb === "memory" ? refuse(denial) : runAnyway(denial);
+			return denial?.limb === "memory" || denial?.limb === "windows"
+				? refuse(denial)
+				: runAnyway(denial);
 		return admitOrYield(() => {
 			const spent = breakdown();
 			if (announced)

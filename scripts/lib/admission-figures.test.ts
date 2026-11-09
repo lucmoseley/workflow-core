@@ -115,3 +115,51 @@ describe("the readings' failed reads", () => {
 		expect(f.budgetMb).toBe(-HELD);
 	});
 });
+
+/* Windows must hold the new sessions' p95 draw and the 300 MB margin: one
+ * session's 929 MB at 1229 MB free, two's 1666 MB at 1966. */
+describe("the Windows-memory hold (#4557)", () => {
+	const windows = (mb: number) => ({
+		state: "fresh" as const,
+		mb,
+		ageS: 30,
+	});
+
+	it("holds the slots to what Windows' free memory admits, the guarantee included, keeping the memory figures", () => {
+		const short = measured(roomy, one, { windows: windows(1228) });
+		expect(short.byMemory).toBe(4);
+		expect(short.onWindows).toEqual({
+			windowsMb: 1228,
+			windowsBudgetMb: 928,
+			windowsSlots: 0,
+		});
+		expect(short.slots).toBe(0);
+		expect(measured(roomy, one, { windows: windows(1229) }).slots).toBe(1);
+		expect(measured(roomy, one, { windows: windows(1966) }).slots).toBe(2);
+		const alone = measured(scant, none, { windows: windows(100) });
+		expect(alone.guaranteed).toBe(true);
+		expect(alone.slots).toBe(0);
+	});
+
+	it("takes the pool reserve and the lander's suite off Windows' memory too, crediting no reclaim", () => {
+		const f = measured(roomy, one, {
+			windows: windows(1229),
+			overhead: { ok: true, mb: 50 },
+			landerMb: 50,
+			reclaimable: { ok: true, mb: 2000 },
+		});
+		expect(f.onWindows?.windowsBudgetMb).toBe(829);
+		expect(f.slots).toBe(0);
+	});
+
+	it("holds nothing on a stale reading or where no memwatch runs", () => {
+		for (const read of [
+			{ state: "stale" as const, why: "old" },
+			{ state: "absent" as const },
+		]) {
+			const f = measured(roomy, one, { windows: read });
+			expect(f.onWindows).toBeNull();
+			expect(f.slots).toBe(4);
+		}
+	});
+});

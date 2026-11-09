@@ -64,6 +64,7 @@ const {
 	readCpuSlots,
 	buildSessionCeilingText,
 	buildSessionDrawLine,
+	buildWindowsLine,
 	buildLiveDrawLine,
 	SUITE_GATE_MB,
 	buildMemoryBreakdownLines,
@@ -316,6 +317,7 @@ function buildReportLines({
 	spares,
 	allowance,
 }) {
+	const windowsLine = buildWindowsLine(verdict.windows, verdict.onWindows);
 	return [
 		`available memory   ${verdict.availableMb} MB`,
 		`live sessions      ${verdict.sessions} alongside this one`,
@@ -329,6 +331,7 @@ function buildReportLines({
 				]
 			: []),
 		`reclaimable        ${verdict.reclaimedMb} MB about to be reaped`,
+		...(windowsLine ? [`windows memory     ${windowsLine}`] : []),
 		`slots              ${verdict.slots} — ${verdict.admit ? "ADMIT" : "HOLD"}: ${verdict.reason}`,
 		/* dispatch-sessions.sh relays the unknown line on its admit path. */
 		...(verdict.load.load1 === null ? [CPU_LOAD_UNKNOWN] : []),
