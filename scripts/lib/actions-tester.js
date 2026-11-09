@@ -77,7 +77,6 @@ const POLL_MS = 15 * 1000;
  * batch tip a few later pushes have buried. */
 const RUN_LIST_LIMIT = 50;
 const NAMED_WORKFLOW = "named-rerun.yml";
-/* `gh run rerun`'s refusal of a run GitHub will not retry. */
 const NOT_RETRIABLE = /cannot be retried/;
 const NAMED_JOB = "Named files";
 /* Untraced: a runaway's stop, minutes being free on the public repo (#1930). */
@@ -491,8 +490,9 @@ function settle(v) {
 
 /**
  * The verdict of the push run at `sha` on `branch`, judging only an attempt
- * after `after`; a runner that failed to ready has its failed jobs rerun, up
- * to RUNNER_RERUNS times, before it is no verdict.
+ * after `after`; a runner that failed to ready has its failed jobs rerun, or
+ * its ref pushed again where GitHub will not retry it, up to RUNNER_RERUNS
+ * times, before it is no verdict.
  * @param {string} sha
  * @param {number} after
  * @param {{reads: Reads, branch: string} & Poll} suite
@@ -513,7 +513,7 @@ async function suiteVerdict(sha, after, suite, reruns = 0) {
 			reason: `${v.reason}, on ${reruns + 1} attempts`,
 		};
 	return (
-		refusedRerun(sha, v.run, suite) ??
+		refusedRerun(sha, v.run, suite, reruns + 1) ??
 		suiteVerdict(sha, v.attempt, suite, reruns + 1)
 	);
 }
@@ -847,22 +847,22 @@ const newestId = (runs) => Math.max(0, ...runs.map((r) => r.databaseId));
 /**
  * Starts a new attempt of run `id`'s failed jobs: null where it did. Where
  * GitHub will not retry the run, as one that failed before some of its jobs
- * were created, the verdict is off a fresh push run instead, since read as
- * no verdict the lander asks again forever (#4823); any other refusal is no
- * verdict. Residual: the refusal is known by gh's wording alone, so a
- * rewording stalls the queue again.
+ * were created, the verdict is off a fresh push run instead (#4823); any
+ * other refusal is no verdict. Residual: the refusal is known by gh's
+ * wording alone, so a rewording stalls the queue again.
  * @param {string} sha
  * @param {number} id
  * @param {{reads: Reads, branch: string} & Poll} on
+ * @param {number} [reruns] runner reruns already started, the fresh run's too
  * @returns {Promise<Verdict>|null}
  */
-function refusedRerun(sha, id, on) {
+function refusedRerun(sha, id, on, reruns = 0) {
 	try {
 		on.reads.rerun(id);
 		return null;
 	} catch (err) {
 		return NOT_RETRIABLE.test(parseErrorText(err))
-			? repushedVerdict(sha, on, id)
+			? repushedVerdict(sha, on, id, reruns)
 			: Promise.resolve(unreadable(err));
 	}
 }
@@ -873,10 +873,11 @@ function refusedRerun(sha, id, on) {
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
  * @param {number} bound
+ * @param {number} [reruns] runner reruns already started
  * @returns {Promise<Verdict>}
  */
-async function repushedVerdict(sha, on, bound) {
-	return repushFailure(on, sha) ?? newerVerdict(sha, on, bound);
+async function repushedVerdict(sha, on, bound, reruns = 0) {
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, bound, reruns);
 }
 
 /**
@@ -885,17 +886,23 @@ async function repushedVerdict(sha, on, bound) {
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
  * @param {number} bound
+ * @param {number} [reruns] runner reruns already started
  * @returns {Promise<Verdict>}
  */
-function newerVerdict(sha, on, bound) {
+function newerVerdict(sha, on, bound, reruns = 0) {
 	const { reads } = on;
-	return suiteVerdict(sha, 0, {
-		...on,
-		reads: {
-			...reads,
-			runs: () => reads.runs().filter((r) => r.databaseId > bound),
+	return suiteVerdict(
+		sha,
+		0,
+		{
+			...on,
+			reads: {
+				...reads,
+				runs: () => reads.runs().filter((r) => r.databaseId > bound),
+			},
 		},
-	});
+		reruns,
+	);
 }
 
 /**

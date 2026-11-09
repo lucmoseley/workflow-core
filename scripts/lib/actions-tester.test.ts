@@ -943,6 +943,21 @@ it("pushes the ref again over a failed run GitHub will not retry, judging only a
 	}
 });
 
+it("counts each push again for a runner GitHub will not retry against the runner's rerun bound (#4823)", async () => {
+	const r = queueReads([() => [run(10 + r.repushed.length, "failure")]]);
+	r.jobsOf = () => unreadied("Install test tools", "failure");
+	r.rerun = () => {
+		throw Object.assign(new Error("gh failed"), {
+			stderr: "This workflow run cannot be retried",
+		});
+	};
+	expect(await queueOf(r).verdict(SHA)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/on 3 attempts$/),
+	});
+	expect(r.repushed).toHaveLength(2);
+});
+
 it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {
 	const SuiteBase = "lander/iso-suite-base";
 	const atBase = () => [{ branch: SuiteBase, sha: SHA }];
