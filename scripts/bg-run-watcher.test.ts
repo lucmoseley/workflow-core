@@ -768,10 +768,10 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		expect(check("stretched").stdout).toContain("killed it 60s past");
 	});
 
-	it("kills on time whatever the heartbeat, never a heartbeat late", async () => {
-		/* A deadline 2 s ahead and a heartbeat far past the test's bound: a
+	it("polls at most every 5 s and never past the kill's due time, whatever the heartbeat (#2680)", async () => {
+		/* A deadline 3 s ahead and a heartbeat far past the test's bound: a
 		 * watcher sleeping the heartbeat would never reach the kill. */
-		const child = spawn(SCRIPT, wedged("slowbeat", -2), {
+		const child = spawn(SCRIPT, wedged("slowbeat", -3), {
 			env: env({ WFC_BG_CEILING_GRACE_S: "0", WFC_BG_HEARTBEAT_S: "600" }),
 		});
 		try {
@@ -784,6 +784,12 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		}
 
 		expect(check("slowbeat").stdout).toContain("ceiling-kill");
+		const naps = readFileSync(join(root, "polls.log"), "utf8")
+			.split("\n")
+			.filter((l) => l.startsWith("nap "))
+			.map((l) => Number(l.slice(4)));
+		expect(naps.length).toBeGreaterThan(0);
+		expect(Math.max(...naps)).toBeLessThanOrEqual(3);
 	});
 
 	it("never kills a run whose deadline the wall clock has passed but the monotonic clock has not (#2886)", () => {

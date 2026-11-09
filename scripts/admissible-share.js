@@ -254,7 +254,7 @@ function earliestAt({ markers, failures }) {
 }
 
 /**
- * Which of the four mantahostels#3207 reasons a full run's scope names — absent or
+ * Which of the three mantahostels#3207 reasons a full run's scope names — absent or
  * forged (not one of `FULL_REASONS`) reads as `"unknown"`, never as `"flag"`
  * (the ticket's AC-2).
  * @param {import("./lib/test-pass-marker.js").Marker} m

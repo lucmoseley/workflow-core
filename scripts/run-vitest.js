@@ -121,6 +121,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const {
 	CHANGED_FLAG,
 	PACKAGE_JSON,
+	REGENERATE_EDGES,
 	SelectionFailed,
 	changedFlag,
 	readChangedPaths,
@@ -1294,7 +1295,7 @@ function planDefault(rest, at, options) {
 		 * above read it: a failed narrowing, never widened (#2698). */
 		if (!plan)
 			throw new SelectionFailed(
-				`${EDGES_FILE} became unreadable between the escalation check and the narrowing`,
+				`${EDGES_FILE} became unreadable between the escalation check and the narrowing. ${REGENERATE_EDGES}`,
 			);
 		return { base, argv, plan, dropped: ownWork?.dropped ?? [] };
 	} catch (error) {

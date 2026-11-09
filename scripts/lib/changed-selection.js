@@ -1187,6 +1187,7 @@ module.exports = {
 	ADOPT_FLAG,
 	CHANGED_FLAG,
 	PACKAGE_JSON,
+	REGENERATE_EDGES,
 	SelectionFailed,
 	adoptFlag,
 	retestFlag,

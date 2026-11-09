@@ -5607,7 +5607,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(diffArgs).toContain("old-sha");
 			});
 
-			it("refuses, never widens, where the manifest turns unreadable after the escalation check read it", async () => {
+			it("refuses, never widens, where the manifest turns unreadable after the escalation check read it (#2698)", async () => {
 				let reads = 0;
 				let spawned = false;
 				const err = {
@@ -5633,6 +5633,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(code).toBe(1);
 				expect(spawned).toBe(false);
 				expect(err.text.join("")).toContain("NARROWING FAILED, SO NOTHING RAN");
+				expect(err.text.join("")).toContain("became unreadable");
 			});
 
 			for (const [reason, exec] of [
