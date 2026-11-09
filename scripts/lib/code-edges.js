@@ -34,7 +34,7 @@ const JS_SPEC =
  * which no `require(` precedes. Out of `JS_SPEC`: the package scan must not
  * read a lazy optional load as a dependency. */
 const CREATE_REQUIRE_SPEC =
-	/\bcreateRequire\([^()]*(?:\([^()]*\))?[^()]*\)\(\s*["'](\.[^"']*)["']\s*,?\s*\)/g;
+	/\bcreateRequire\([^()]*(?:\([^()]*\)[^()]*)?\)\(\s*["'](\.[^"']*)["']\s*(?:,\s*)?\)/g;
 
 /**
  * The specifier a `JS_SPEC` match captured: each of its four branches has one
