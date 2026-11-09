@@ -147,49 +147,53 @@ def test_cli_tick_with_no_minute_log_does_nothing(tmp_path):
     assert not (tmp_path / "drops").exists()
 
 
-def _checkout(tmp_path, git_dir=True):
-    """A copy of the script and its templates under a fake main checkout."""
+def _checkout(tmp_path):
+    """A copy of the script, its templates and the lib it imports."""
     root = tmp_path / "repo"
-    (root / "scripts").mkdir(parents=True)
+    (root / "scripts/lib").mkdir(parents=True)
     for name in (
         "drop_guest_cache.py",
         "drop-guest-cache.service.template",
         "drop-guest-cache.timer.template",
+        "lib/wfc_bin.py",
     ):
         shutil.copy(HERE / name, root / "scripts" / name)
-    if git_dir:
-        (root / ".git").mkdir()
-    else:
-        (root / ".git").write_text("gitdir: elsewhere\n")
     return root
 
 
-def _install(root, target, env):
+def _install(root, target, env, *extra):
     return subprocess.run(
-        [
-            sys.executable,
-            str(root / "scripts/drop_guest_cache.py"),
-            "install",
-            "--root",
-            str(target),
-        ],
+        [sys.executable, str(root / "scripts/drop_guest_cache.py"), "install", *extra]
+        + (["--root", str(target)] if target else []),
         capture_output=True,
         text=True,
         env=env,
     )
 
 
-def test_install_writes_both_units_and_starts_the_timer(tmp_path, stub_bin):
+def _env(systemctl):
+    return {
+        **os.environ,
+        "SUDO_USER": os.environ.get("USER") or "nobody",
+        "WFC_SYSTEMCTL": systemctl,
+    }
+
+
+def test_install_copies_the_script_writes_both_units_and_starts_the_timer(
+    tmp_path, stub_bin
+):
     root = _checkout(tmp_path)
     target = tmp_path / "target"
     systemctl, calls = stub_bin("systemctl", "active\n")
-    user = os.environ.get("USER") or "root"
-    env = {**os.environ, "SUDO_USER": user, "WFC_SYSTEMCTL": systemctl}
+    env = _env(systemctl)
     run = _install(root, target, env)
     assert run.returncode == 0, run.stderr
+    installed = target / str(d.INSTALLED).lstrip("/")
+    assert installed.read_text() == (root / "scripts/drop_guest_cache.py").read_text()
     service = (target / "etc/systemd/system/drop-guest-cache.service").read_text()
-    assert f'"{root / "scripts/drop_guest_cache.py"}" tick' in service
-    home = Path(os.path.expanduser(f"~{user}"))
+    # Root runs the root-owned copy, never the checkout's file a session can edit.
+    assert f'"{d.INSTALLED}" tick' in service
+    home = Path(os.path.expanduser(f"~{env['SUDO_USER']}"))
     assert f'--minute-log "{home / "memwatch-minute.jsonl"}"' in service
     assert "@" not in service
     assert (target / "etc/systemd/system/drop-guest-cache.timer").exists()
@@ -201,18 +205,14 @@ def test_install_writes_both_units_and_starts_the_timer(tmp_path, stub_bin):
     ]
 
 
-def test_install_refuses_a_linked_worktree(tmp_path, stub_bin):
-    root = _checkout(tmp_path, git_dir=False)
-    systemctl, calls = stub_bin("systemctl", "active\n")
-    env = {
-        **os.environ,
-        "SUDO_USER": os.environ.get("USER") or "root",
-        "WFC_SYSTEMCTL": systemctl,
-    }
-    run = _install(root, tmp_path / "target", env)
-    assert run.returncode == 2
-    assert "linked worktree" in run.stderr
-    assert calls() == []
+def test_install_names_the_rerun_when_systemctl_fails(tmp_path):
+    root = _checkout(tmp_path)
+    run = _install(root, tmp_path / "target", _env("false"))
+    assert run.returncode == 1
+    assert (
+        "re-run: sudo /usr/bin/python3 scripts/drop_guest_cache.py install"
+        in run.stderr
+    )
 
 
 def test_install_refuses_with_no_sudo_user(tmp_path):
@@ -220,4 +220,24 @@ def test_install_refuses_with_no_sudo_user(tmp_path):
     env = {k: v for k, v in os.environ.items() if k != "SUDO_USER"}
     run = _install(root, tmp_path / "target", env)
     assert run.returncode == 2
-    assert "SUDO_USER" in run.stderr
+    assert "run it as sudo /usr/bin/python3" in run.stderr
+
+
+def test_install_refuses_without_root(tmp_path, stub_bin):
+    root = _checkout(tmp_path)
+    systemctl, calls = stub_bin("systemctl", "active\n")
+    run = _install(root, None, _env(systemctl))
+    assert run.returncode == 2
+    assert "needs root: run it as sudo" in run.stderr
+    assert calls() == []
+
+
+def test_the_drop_log_is_never_written_through_a_symlink(box, tmp_path):
+    line, tick, _records, _sink = box
+    target = tmp_path / "elsewhere"
+    target.write_text("")
+    (tmp_path / "drops.jsonl").symlink_to(target)
+    line(T0, 900)
+    with pytest.raises(OSError):
+        tick(T0 + 10)
+    assert target.read_text() == ""
