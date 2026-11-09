@@ -19,6 +19,7 @@
 
 const os = require("node:os");
 const path = require("node:path");
+const { expandHome } = require("./home-path.js");
 
 /**
  * The config dir a CLAUDE_CONFIG_DIR value names: this process's own, or one
@@ -33,11 +34,12 @@ function configDirFrom(value, home = os.homedir()) {
 
 /**
  * A config dir in the form `~/.claude/refill-seats` entries take, so two
- * spellings of one dir compare equal.
+ * spellings of one dir compare equal. Where `home` is not absolute a `~/` path
+ * stays literal and resolves under the cwd, matching no seat (#4611).
  * @param {string} p @param {string} home
  */
 function seatDir(p, home) {
-	return path.resolve(p.startsWith("~/") ? path.join(home, p.slice(2)) : p);
+	return path.resolve(expandHome(p, home) ?? p);
 }
 
 function configDir() {
