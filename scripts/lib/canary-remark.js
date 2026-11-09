@@ -31,6 +31,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./agent-liveness.js");
 const { caught } = require("./caught.js");
+const { SELF_PLUGIN_DIR } = require("./core-hooks.js");
 const { deref } = require("./deref.js");
 const { gitRead } = require("./dirty-tree.js");
 const { isUnder } = require("./is-under.js");
@@ -137,13 +138,14 @@ function listLiveSessions() {
  * Run a canary or writer for one session, as its hook would.
  * @param {string} script
  * @param {LiveSession} s
+ * @param {NodeJS.ProcessEnv} [env] added to the hook's environment
  * @returns {{ ok: boolean, said: string }}
  */
-function runHook(script, s) {
+function runHook(script, s, env = {}) {
 	const r = spawnSync("bash", [script], {
 		cwd: s.cwd,
 		input: JSON.stringify({ session_id: s.sessionId }),
-		env: { ...process.env, CLAUDE_PROJECT_DIR: s.cwd },
+		env: { ...process.env, CLAUDE_PROJECT_DIR: s.cwd, ...env },
 		encoding: "utf8",
 		timeout: HOOK_TIMEOUT_MS,
 	});
@@ -204,16 +206,21 @@ function isPassedBy(canary, s) {
 
 /**
  * Re-mark each session with the writer under `dir`, then check it with the
- * canary there: those it would still refuse.
+ * canary there: those it would still refuse. The writer records `root`'s
+ * self-plugin as the plugin root: the only one the current canary vouches for
+ * (#4712), so a re-mark records no root the session did not already have.
+ * @param {string} root the main checkout
  * @param {string} dir
  * @param {LiveSession[]} sessions
  * @returns {Stranded[]}
  */
-function remarkEach(dir, sessions) {
+function remarkEach(root, dir, sessions) {
 	/** @type {Stranded[]} */
 	const stranded = [];
 	for (const s of sessions) {
-		runHook(path.join(dir, WRITER), s);
+		runHook(path.join(dir, WRITER), s, {
+			CLAUDE_PLUGIN_ROOT: path.join(root, SELF_PLUGIN_DIR),
+		});
 		const check = runHook(path.join(dir, CANARY), s);
 		if (!check.ok)
 			stranded.push({
@@ -275,7 +282,7 @@ function remarkAroundMove(
 	});
 	if ("why" in vouched) return { status: "stranding", stranding: vouched };
 	const stranded = inScratch(after.files, scratch, () =>
-		remarkEach(scratch, vouched.sessions),
+		remarkEach(root, scratch, vouched.sessions),
 	);
 	if (stranded.length > 0)
 		return { status: "stranding", stranding: { stranded } };
@@ -317,7 +324,7 @@ function remarkLatecomers(root, before, remarked, { scratch, listSessions }) {
 	const passedBefore = inScratch(before, scratch, () =>
 		refused.sessions.filter((s) => isPassedBy(path.join(scratch, CANARY), s)),
 	);
-	const stranded = remarkEach(root, passedBefore);
+	const stranded = remarkEach(root, root, passedBefore);
 	return stranded.length > 0 ? { stranded } : null;
 }
 

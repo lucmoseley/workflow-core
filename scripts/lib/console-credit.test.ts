@@ -152,6 +152,7 @@ describe("isConsoleReadDue", () => {
 		cycleStart: 0,
 		nextCycleStart: Now + Day,
 		exhausted: false,
+		freeAgain: "a newer Console reading",
 		readFailure: null,
 		lastAttemptAt: null,
 		runningReadAt: null,

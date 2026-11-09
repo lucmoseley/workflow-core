@@ -408,6 +408,7 @@ describe("an overflow seat (#2610)", () => {
 				`^REFUSED: overflow seat ${label()}: its key is exhausted until \\d{4}-\\d{2}-\\d{2}`,
 			),
 		);
+		expect(r.out).toMatch(/the budget resets at \d{4}-\d{2}-\d{2}\./);
 		expect(readAnyLaunches()).toEqual([]);
 	});
 

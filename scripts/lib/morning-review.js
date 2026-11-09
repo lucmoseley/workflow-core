@@ -58,12 +58,6 @@ const CONCURRENCY_WINDOWS = {
 /* Untraced: spec #1995's "first tick after 07:00", machine-local. */
 const REVIEW_HOUR = 7;
 
-/** @param {Date} d @returns {string} its machine-local `YYYY-MM-DD` */
-const localDate = (d) =>
-	[d.getFullYear(), d.getMonth() + 1, d.getDate()]
-		.map((v) => String(v).padStart(2, "0"))
-		.join("-");
-
 /** @param {string} date machine-local `YYYY-MM-DD` */
 const buildReviewTitle = (date) => `Morning review — ${date}`;
 
@@ -846,7 +840,6 @@ module.exports = {
 	CONCURRENCY_WINDOWS,
 	REVIEW_HOUR,
 	commentLink,
-	localDate,
 	parseEntries,
 	parseReviewDate,
 	quoted,

@@ -14,7 +14,7 @@
 
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { localDate } = require("./morning-review.js");
+const { localDate } = require("./local-date.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
 const { describeAge } = require("./proc-table.js");
@@ -26,6 +26,7 @@ const {
 	NO_PROGRESS_PAUSE,
 	QUIET_BENCH_PAUSE,
 	NOTHING_LAUNCHABLE,
+	PROBE_HOLD_WAIT,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
@@ -278,6 +279,9 @@ function buildWaitingRowText(status, now) {
 	const reason = tick?.idle?.reason;
 	/* Line 1's count already says no slot is free, or `?` where it went unread (#4118). */
 	if (!reason || reason === NO_FREE_SLOT) return "";
+	/* Its detail names each hold, the one thing the founder acts on (#4736). */
+	if (reason === PROBE_HOLD_WAIT)
+		return `Probe hold${tick?.idle?.detail ?? ""}`;
 	return WAITING_WORDS.get(reason) ?? reason;
 }
 

@@ -21,7 +21,7 @@
  * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
  *   broken .git A, the other checkout A, the state's probe A, its parked
  *   resumed A, a stored hold left out of a dry run's preview A (the hold
- *   store read). Guard entry (#4226): raises and files A, attaches and
+ *   store read), the panel's waiting row naming it (#4736) A. Guard entry (#4226): raises and files A, attaches and
  *   resumes A. Locked out (#4228): raises, attaches, holds and resumes A.
  * - cleared repo hold (#3863): its raiser and attached resumed off a hand
  *   lift A (repo-hold.js lift).
@@ -30,6 +30,7 @@
  *   swap A; moved to another plan seat A; onto a key A, its first overflow
  *   start A.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -77,6 +78,7 @@ import {
 	writeKeyCostTable,
 	writesWokenRecord,
 } from "./lib/refill-loop-run-testkit";
+import { createPanel } from "./lib/refill-panel.js";
 import {
 	GUARD_HOOKS_JSON,
 	LOGGED_OUT,
@@ -202,13 +204,22 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 	});
 
 	/** One run whose stop follows its first tick's state: two real ticks. */
-	const tickRun = async (gh = "", over: NodeJS.ProcessEnv = {}) => {
+	const tickRun = async (
+		gh = "",
+		over: NodeJS.ProcessEnv = {},
+		onTicked: () => Promise<void> = async () => undefined,
+	) => {
 		fs.rmSync(stateFile(), { force: true });
-		return tickOnState(gh, over);
+		return tickOnState(gh, over, onTicked);
 	};
 
-	/* The state file must read no lastTick, or the wait below ends at once. */
-	const tickOnState = async (gh = "", over: NodeJS.ProcessEnv = {}) => {
+	/* The state file must read no lastTick, or the wait below ends at once.
+	 * `onTicked` runs between the first tick and the stop tick that replaces it. */
+	const tickOnState = async (
+		gh = "",
+		over: NodeJS.ProcessEnv = {},
+		onTicked: () => Promise<void> = async () => undefined,
+	) => {
 		updateControl({ stopRequested: false });
 		const running = run(1, { ...over, ...(gh ? { WFC_GH: gh } : {}) });
 		await polled(
@@ -217,6 +228,7 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 				Boolean(JSON.parse(fs.readFileSync(stateFile(), "utf8")).lastTick),
 			"no tick wrote its state",
 		);
+		await onTicked();
 		requestStop();
 		return settled(running, "run with a probe hold");
 	};
@@ -232,6 +244,50 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 				},
 			)
 		).stdout;
+
+	/* The waiting row the loop's panel draws off `status --json`, read while the
+	 * run is live. Live too to the panel: the run is in this process, which
+	 * status reads as no loop's (#3861). */
+	const readWaitingRow = async () => {
+		// spawn-kept: two processes at once — the run beside it holds the in-process runner.
+		const shown = execFileSync(
+			process.execPath,
+			[path.join(scripts, "refill-loop.js"), "status", "--json"],
+			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
+		);
+		const status = { ...JSON.parse(shown), running: true, crashed: false };
+		const answer = async () => ({
+			code: 0,
+			stdout: JSON.stringify(status),
+			stderr: "",
+		});
+		const panel = createPanel({
+			run: answer,
+			runBurn: answer,
+			now: Date.now,
+			resolveTopic: async () => ({ why: "unused" }),
+			returnFocus: answer,
+			height: () => 200,
+			columns: () => 200,
+			onChange: () => undefined,
+		});
+		await panel.refreshStatus();
+		return panel.buildViewRows()[3]?.text;
+	};
+
+	it("names the probe hold on the panel's waiting row, never no ticket ready (#4736)", async () => {
+		breakHead();
+		let waiting: string | undefined;
+
+		await tickRun(serveClose().gh, {}, async () => {
+			waiting = await readWaitingRow();
+		});
+
+		expect(waiting).toMatch(
+			new RegExp(`^Probe hold: repo #${Issue}, held \\d+m$`),
+		);
+		expect(waiting).not.toContain("No ticket ready");
+	});
 
 	it("stops launches within a tick of a broken .git, and the tick after its repair clears it, closes its issue and launches", async () => {
 		const close = serveClose();

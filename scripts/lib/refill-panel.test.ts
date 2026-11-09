@@ -334,6 +334,18 @@ describe("the panel's rows", () => {
 		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(words);
 	});
 
+	it("names the probe hold a tick idled on, never as no ticket ready (#4736)", () => {
+		const idle = {
+			reason: "a probe hold stops every launch",
+			detail: ": workflow-core #4716, held 6h",
+		};
+		const lastTick = { at: AT, summary: "", idle, paused: false };
+
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(
+			"Probe hold: workflow-core #4716, held 6h",
+		);
+	});
+
 	it.each([
 		["an unmapped reason", "a reason unmapped"],
 		["one opening with a mapped reason's text", "nothing launchable yet"],

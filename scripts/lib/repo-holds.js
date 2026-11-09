@@ -95,6 +95,8 @@ const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { FETCH_TIMEOUT_MS } = require("./pinned-code.js");
 const { refillPath } = require("./refill-dir.js");
+const { buildAgeText } = require("./hold-age.js");
+const { buildHookEnv } = require("./hook-env.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { sleepSync } = require("./sleep-sync.js");
 const {
@@ -991,15 +993,10 @@ const buildBenignRead = (root) => ({
 function readGuardRunFailure(root, call, isAnyDeny) {
 	const hookLine = readGuardHookLine(root, String(call.tool_name));
 	if ("why" in hookLine) return hookLine.why;
-	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it.
-	 * The plugin root is the harness's to set, and the hook lines spell their
-	 * scripts off it (#4701, #4716). */
+	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it. */
 	const run = spawnChild("sh", ["-c", hookLine.line], {
 		cwd: root,
-		env: {
-			...buildCheckoutEnv(root),
-			CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
-		},
+		env: buildHookEnv(root),
 		input: JSON.stringify({
 			session_id: GUARD_PROBE_SESSION,
 			hook_event_name: "PreToolUse",
@@ -1560,16 +1557,26 @@ function tendHolds(roots, served, now, log) {
  * not read, whole or in part, with its lines.
  * @param {string[]} roots
  * @param {string[]} broken  tendHolds's answer
- * @returns {{holds: {root: string, kind: RepoHold["kind"]}[],
+ * @returns {{holds: import("./refill-decide.js").TickHold[],
  *   unread: {root: string, lines: string[]}[]}}
  */
 const readTickHolds = (roots, broken) => {
 	const reads = roots.map((root) => ({ root, ...readHolds(root) }));
 	return {
 		holds: [
-			...broken.map((root) => ({ root, kind: /** @type {const} */ ("probe") })),
+			...broken.map((root) => ({
+				root,
+				kind: /** @type {const} */ ("probe"),
+				issue: null,
+				raisedAt: null,
+			})),
 			...reads.flatMap(({ root, holds }) =>
-				holds.map(({ kind }) => ({ root, kind })),
+				holds.map(({ kind, issue, raisedAt }) => ({
+					root,
+					kind,
+					issue,
+					raisedAt,
+				})),
 			),
 		],
 		unread: reads
@@ -1594,16 +1601,6 @@ const buildNoticeText = ({ raise, clear }) =>
 	`raise ${buildPhaseText(raise)}, clear ${buildPhaseText(clear)}`;
 
 /**
- * @param {number} ms
- */
-function buildAgeText(ms) {
-	const minutes = Math.max(0, Math.round(ms / 60_000));
-	return minutes < 60
-		? `${minutes}m`
-		: `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-/**
  * What the founder reads of each open hold, and of any store that would not read.
  * @param {string[]} roots
  * @param {number} now
@@ -1625,7 +1622,6 @@ function buildHoldLines(roots, now) {
 }
 
 module.exports = {
-	buildAgeText,
 	attachHold,
 	attachProbeParks,
 	buildNoticeName,

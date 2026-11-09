@@ -9,7 +9,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { FULL, NOTHING_LAUNCHABLE } = require("./refill-decide.js");
+const {
+	FULL,
+	NOTHING_LAUNCHABLE,
+	PROBE_HOLD_WAIT,
+} = require("./refill-decide.js");
 const {
 	buildBlockText,
 	buildVerdict,
@@ -407,6 +411,15 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 				admission: admission({ memorySlots: 0 }),
 			},
 			limits: ["empty frontier", "allowance", "memory"],
+		},
+		{
+			name: "reads a tick a probe hold idled as the probe hold, never an empty frontier (#4736)",
+			tick: {
+				input: input({ freeSlots: 1 }),
+				decision: idle(PROBE_HOLD_WAIT),
+				admission: admission({ memorySlots: 0 }),
+			},
+			limits: ["probe hold", "memory"],
 		},
 		{
 			name: "reads a pause as the loop not running, no resource known to bind (#3856)",

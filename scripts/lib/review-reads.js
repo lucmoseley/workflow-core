@@ -41,7 +41,7 @@ function load(file, day) {
 /**
  * The day's kept reads: `read(key, fresh, keep)` answers the kept value under
  * `key`, else runs `fresh` and keeps its value where `keep` accepts it.
- * @param {string} day machine-local date (lib/morning-review.js's localDate)
+ * @param {string} day machine-local date (lib/local-date.js)
  * @param {string} [file]
  */
 function reviewReads(day, file = refillPath(READS_FILE)) {

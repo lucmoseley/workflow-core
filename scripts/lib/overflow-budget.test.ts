@@ -1,18 +1,18 @@
 // @vitest-environment node
 /*
- * Pins lib/overflow-budget.js: a session on the key priced from its transcript,
+ * Pins lib/overflow-budget.js, and lib/overflow-cap.js's per-session cap
+ * (#3698) on the same fixtures: a session on the key priced from its transcript,
  * priced again as it grows and counted once; only sessions the launch record
  * marks on the key counted, from any checkout; the exhausted mark from a credit
  * refusal in a transcript; a listed session held, not settled; a resumed copy's
  * shared requests settled once (#4208), its transcript gone or not (#4370);
- * and the CLI's JSON
- * and status line for a fixture seat, every figure read from a fixed cost table
- * in a fixture checkout, and read there from a working directory that is no
- * checkout (#3683, #3695).
+ * and the CLI's JSON and status line for a fixture seat, every figure read
+ * from a fixed cost table in a fixture checkout, and read there from a working
+ * directory that is no checkout (#3683, #3695).
  *
  * Loosen one and a session's spend goes uncounted or counted twice, a plan
- * session is charged to the key, or the CLI reports a figure the gate did not
- * size (#2609).
+ * session is charged to the key, the CLI reports a figure the gate did not
+ * size (#2609), or a session past its allowance runs on unstopped (#3698).
  *
  * Launches are rows in a fixture checkout's dispatch ledger; `claude` is a stub
  * printing a fixture listing.
@@ -27,7 +27,9 @@ import { writeClaudeStub } from "./claude-stub";
 import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
-import { seatBudget, stopOverAllowance } from "./overflow-budget.js";
+import { localDate } from "./local-date.js";
+import { seatBudget } from "./overflow-budget.js";
+import { stopOverAllowance } from "./overflow-cap.js";
 import { killGroup, readStat, startOrphan } from "./process-fixture";
 import { runInProcess } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
@@ -698,6 +700,7 @@ describe("the CLI", () => {
 			qUsd: 4,
 			running: 0,
 			exhausted: false,
+			freeAgain: localDate(new Date(nextCycleStart)),
 			readFailure: null,
 			lastAttemptAt: null,
 			runningReadAt: expect.any(Number),

@@ -60,6 +60,7 @@ const budget = (over: Record<string, unknown> = {}) => ({
 	cycleStart: new Date(2026, 9, 20).getTime(),
 	nextCycleStart: new Date(2026, 10, 20).getTime(),
 	exhausted: false,
+	freeAgain: "2026-11-20",
 	...over,
 });
 
@@ -1029,7 +1030,13 @@ describe("a spent key anchored to a Console reading", () => {
 		const [reading] = overflowReadings(
 			{ seats: [overflowSeat(dir)], errors: [] },
 			[{ weekFull: true } as never],
-			() => budget({ readAt: 1, creditUsd: 2, settledUsd: 0 }) as never,
+			() =>
+				budget({
+					readAt: 1,
+					creditUsd: 2,
+					settledUsd: 0,
+					freeAgain: "a newer Console reading",
+				}) as never,
 		);
 		expect(reading.spentUntil).toBe("a newer Console reading");
 	});

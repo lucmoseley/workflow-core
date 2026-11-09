@@ -205,6 +205,49 @@ describe("a repo hold (#3860)", () => {
 		expect(launched(d)).toEqual(["other#2"]);
 	});
 
+	it("idles on the probe hold, naming its checkout, issue and age, where it alone skipped every row (#4736)", () => {
+		const d = tick({
+			frontier: [row("/r/wfc", 1)],
+			holds: [
+				{ root: "/r/wfc", kind: "probe", issue: null, raisedAt: null },
+				{
+					root: "/r/wfc",
+					kind: "probe",
+					issue: 4716,
+					raisedAt: NOW - 6 * HOUR,
+				},
+			],
+		});
+
+		expect(d.idle).toEqual(
+			buildIdle("a probe hold stops every launch", ": wfc #4716, held 6h 0m"),
+		);
+	});
+
+	it("names a probe not yet stored as raised this tick, its issue unfiled", () => {
+		const d = tick({
+			frontier: [row("/r/wfc", 1)],
+			holds: [{ root: "/r/wfc", kind: "probe", issue: null, raisedAt: null }],
+		});
+
+		expect(d.idle).toEqual(
+			buildIdle(
+				"a probe hold stops every launch",
+				": wfc no issue filed yet, raised this tick",
+			),
+		);
+	});
+
+	it("idles on nothing launchable where a row was skipped for more than the hold", () => {
+		const d = tick({
+			frontier,
+			running: [{ root: "other", issues: [2] }],
+			holds: [{ root: "wfc", kind: "probe", issue: 9, raisedAt: NOW }],
+		});
+
+		expect(d.idle).toEqual(buildIdle("nothing launchable"));
+	});
+
 	it("withholds nothing for a park hold", () => {
 		const d = tick({ frontier, holds: [{ root: "wfc", kind: "park" }] });
 
@@ -936,6 +979,14 @@ describe("buildLoopWait, the idle alarm's reason no rank launches (#3920)", () =
 		["no free slot", { freeSlots: 0 }, false],
 		["resumes taking every slot", { freeSlots: 1, resumable: [due] }, false],
 		["nothing launchable", { frontier: [] }, false],
+		[
+			"a probe hold over every row (#4736)",
+			{
+				frontier: [row("/r/wfc", 1)],
+				holds: [{ root: "/r/wfc", kind: "probe", issue: 9, raisedAt: NOW }],
+			},
+			true,
+		],
 		[
 			"a failed shortlist",
 			{ frontier: [], failedShortlists: [{ root: "/r", error: "boom" }] },

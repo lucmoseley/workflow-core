@@ -7,7 +7,8 @@
 
 const path = require("node:path");
 const { parseAct } = require("./act-line.js");
-const { REVIEW_HOUR, localDate } = require("./morning-review.js");
+const { localDate } = require("./local-date.js");
+const { REVIEW_HOUR } = require("./morning-review.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const {
 	EXPLICIT_STOP_DETAIL,

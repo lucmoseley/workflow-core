@@ -20,6 +20,7 @@ import { CORE_FAULT_TEXT } from "./core-fault.js";
 import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
 import { writeFaultyGit } from "./git-fault-fake";
+import { buildHookEnv } from "./hook-env.js";
 import {
 	GUARD_HOOKS_JSON,
 	ISSUE,
@@ -43,6 +44,11 @@ import {
 	writeNotice,
 } from "./repo-holds.js";
 import { runInProcess } from "./run-in-process.js";
+
+/* This repo's own hook lines and the runner they name, spelt whole so a
+ * change to either selects this file. */
+const REAL_HOOKS = path.join(__dirname, "../../self-plugin/hooks/hooks.json");
+const REAL_RUNNER = path.join(__dirname, "../run-pinned-guards.js");
 
 const PROBE_TITLE = "Refill loop probe: shared .git failing in repo";
 
@@ -519,7 +525,7 @@ describe("the probe hold (#3860)", () => {
 		expect(text).toContain(`repo hold probe in ${repo}: not kept:`);
 		expect(broken).toEqual([repo]);
 		expect(readTickHolds([repo], broken).holds).toEqual([
-			{ root: repo, kind: "probe" },
+			{ root: repo, kind: "probe", issue: null, raisedAt: null },
 		]);
 		expect(readFiled()).toHaveLength(0);
 	});
@@ -579,6 +585,61 @@ describe("the probe hold (#3860)", () => {
 		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
+	describe("the hook environment (#4736)", () => {
+		/* What a login shell already holds, which the harness need not give. */
+		const LoginVars = new Set(["HOME", "PATH"]);
+		/* Each variable a hooks.json's command lines need set: none behind a default or an alternate. */
+		const parseRequiredVars = (hooksJson: string) => {
+			const commands: string[] = [];
+			JSON.parse(hooksJson, (key, value) => {
+				if (key === "command" && typeof value === "string")
+					commands.push(value);
+				return value;
+			});
+			return new Set(
+				commands.flatMap((c) =>
+					[
+						...c.matchAll(
+							/\$\{([A-Za-z_]\w*)(:?[-=?+])?[^}]*\}|\$([A-Za-z_]\w*)/g,
+						),
+					]
+						.filter(
+							([, , op]) =>
+								!["-", ":-", "=", ":=", "+", ":+"].includes(String(op)),
+						)
+						.map(([, braced, , bare]) => String(braced ?? bare)),
+				),
+			);
+		};
+		const findUnsetVars = (hooksJson: string) => {
+			const env = buildHookEnv(repo, {});
+			return [...parseRequiredVars(hooksJson)].filter(
+				(v) => !LoginVars.has(v) && env[v] === undefined,
+			);
+		};
+
+		it("sets every variable this repo's self-plugin hook lines read", () => {
+			const real = fs.readFileSync(REAL_HOOKS, "utf8");
+
+			expect(parseRequiredVars(real)).toContain("CLAUDE_PLUGIN_ROOT");
+			expect(findUnsetVars(real)).toEqual([]);
+		});
+
+		it("sets every variable the probe fixture's hook line reads", () => {
+			expect(findUnsetVars(GUARD_HOOKS_JSON)).toEqual([]);
+		});
+
+		it("names a variable a hook line reads that it does not set", () => {
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			const command = 'node "${CLAUDE_ENV_FILE}" "${WFC_X:-y}" ${WFC_Y:+z}';
+			const drifted = JSON.stringify({
+				hooks: { Stop: [{ hooks: [{ command }] }] },
+			});
+
+			expect(findUnsetVars(drifted)).toEqual(["CLAUDE_ENV_FILE"]);
+		});
+	});
+
 	describe("a guard entry that will not load (#4226)", () => {
 		const guardEntry = () => path.join(repo, "scripts", "guard-dispatch.js");
 		/* The shared tree's own entry, under the served checkout. */
@@ -605,6 +666,37 @@ ${body}`,
 			const hooks = path.join(repo, "self-plugin", "hooks", "hooks.json");
 			fs.mkdirSync(path.dirname(hooks), { recursive: true });
 			fs.writeFileSync(hooks, GUARD_HOOKS_JSON);
+		});
+
+		/* The checkout registers this repo's own hook lines, run as written: the
+		 * pinned guard code's link names the served checkout, so its entry is the
+		 * one each case writes. */
+		const registerRealHooks = () => {
+			const scripts = path.join(repo, "scripts");
+			fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
+			fs.copyFileSync(REAL_RUNNER, path.join(scripts, "run-pinned-guards.js"));
+			fs.writeFileSync(path.join(scripts, "lib", "guard-dispatch.js"), "");
+			fs.copyFileSync(
+				REAL_HOOKS,
+				path.join(repo, "self-plugin", "hooks", "hooks.json"),
+			);
+			fs.symlinkSync(repo, `${at("guard-code")}.current`);
+			vi.stubEnv("WFC_GUARD_CODE_DIR", at("guard-code"));
+		};
+
+		it("passes this repo's own hook lines over a healthy entry, and fails them over a broken one", () => {
+			serve();
+			registerRealHooks();
+			writeGuardEntry(Healthy);
+
+			expect(tick().broken).toEqual([]);
+			expect(guardRuns()).toHaveLength(1);
+
+			writeGuardEntry(Failing);
+
+			expect(tick(NOW + MIN).text).toContain(
+				"guard entry: Lexer is not defined",
+			);
 		});
 
 		it("reads a deny of its benign Read as a failure", () => {

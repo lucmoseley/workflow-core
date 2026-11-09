@@ -119,6 +119,7 @@ const { readLedger } = require("./lib/delegated-decision.js");
 const concurrency = require("./lib/concurrency.js");
 const kills = require("./lib/earlyoom-kills.js");
 const runaways = require("./lib/process-runaways.js");
+const { localDate } = require("./lib/local-date.js");
 const review = require("./lib/morning-review.js");
 const carry = require("./lib/review-carry.js");
 const {
@@ -131,11 +132,8 @@ const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
 const { STALL_TITLE } = require("./lib/queue-tickets.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
-const {
-	buildAgeText,
-	buildNoticeText,
-	readHolds,
-} = require("./lib/repo-holds.js");
+const { buildAgeText } = require("./lib/hold-age.js");
+const { buildNoticeText, readHolds } = require("./lib/repo-holds.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { refillPath } = require("./lib/refill-dir.js");
@@ -843,7 +841,7 @@ async function renderWindow({
 	idle,
 	wslCurrency,
 }) {
-	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
+	const reads = dryRun ? freshReads() : reviewReads(localDate(now));
 	const home = homeDir();
 	const { included, faulted } = discoverRepos(home);
 	const read = [
@@ -894,7 +892,7 @@ async function renderWindow({
  */
 async function fileUnlessFiledToday(tracker, dryRun) {
 	const now = new Date();
-	const title = review.buildReviewTitle(review.localDate(now));
+	const title = review.buildReviewTitle(localDate(now));
 
 	let reviews;
 	try {

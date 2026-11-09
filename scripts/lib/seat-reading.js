@@ -20,7 +20,6 @@ const {
 	sizedPercent,
 } = require("./allowance.js");
 const { capOf } = require("./allowance-cap.js");
-const { localDate } = require("./morning-review.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const {
 	FULL,
@@ -349,11 +348,6 @@ const seatTriedAfter = (
  * @returns {import("./refill-decide.js").OverflowReading[]}
  */
 function overflowReadings(list, plan, budgetOf) {
-	/** @param {import("./overflow-budget-core.js").Budget} b */
-	const spentUntilText = (b) =>
-		b.readAt === null
-			? localDate(new Date(b.nextCycleStart))
-			: "a newer Console reading";
 	if (list.errors.length > 0)
 		return [
 			{
@@ -381,7 +375,7 @@ function overflowReadings(list, plan, budgetOf) {
 			keyVar: seat.keyVar,
 			fits: b.fit,
 			headroomUsd: b.headroomUsd,
-			spentUntil: isBudgetSpent(b) ? spentUntilText(b) : null,
+			spentUntil: isBudgetSpent(b) ? b.freeAgain : null,
 			why: null,
 		};
 	});
