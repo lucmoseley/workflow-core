@@ -8,8 +8,7 @@
  * lib/pathspec-glob.js, whose semantics this file's suite checks against git.
  *
  * RUN AS A SCRIPT it prints the match as JSON for the config in the working
- * directory's own tree — its git top level, else itself — the tree its callers
- * cd into and diff, which in a linked worktree is skill load's too (#4615) — or with
+ * directory's own tree (`ownTree()`), or with
  * `--names` the matched areas' names one per line, exit 0; a config warning
  * reaches stderr and never changes the exit. `--narrowed-from <rev>`, which
  * repeats, adds each area the declaration narrows from its copy at <rev>;

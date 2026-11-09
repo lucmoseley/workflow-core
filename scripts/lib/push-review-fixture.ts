@@ -133,7 +133,6 @@ export function reviewFixture() {
 		marker: (body: string) =>
 			fs.writeFileSync(path.join(markers(), `.codereview-pass-${ME}`), body),
 		declareArea,
-		/** Declare RLS over supabase/migrations/** in `tree`. */
 		declareRls: (tree = f.shared) =>
 			declareArea(tree, "RLS", ["supabase/migrations/**"]),
 		owed: (tree = f.shared) =>

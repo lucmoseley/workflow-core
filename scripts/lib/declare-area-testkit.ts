@@ -6,7 +6,6 @@
 import fs from "node:fs";
 import path from "node:path";
 
-/** Write `tree`'s `.claude/workflow-core.json` declaring `name` over `globs`. */
 export function declareArea(tree: string, name: string, globs: string[]) {
 	fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
 	fs.writeFileSync(
