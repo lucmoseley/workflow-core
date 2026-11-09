@@ -3,7 +3,8 @@
  * on each file's median over the last SWEEPS_JUDGED sweeps it ran in (#4292,
  * on #4283's 4 Nov ruling).
  *
- * A SWEEP IS ONE RUN OF THE SUITE WORKFLOW ON `main` WITH VITEST REPORTS.
+ * A SWEEP IS ONE RUN OF THE SUITE WORKFLOW WITH VITEST REPORTS, listed off
+ * `main` alone by check-file-ci-time.js (#4559).
  *
  * THE FILES JUDGED are those timed in the latest SWEEPS_JUDGED sweeps. A file missing from one of them, its shard
  * cancelled say, is judged on the latest SWEEPS_JUDGED sweeps it was timed in,
