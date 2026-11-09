@@ -532,21 +532,27 @@ describe("repo-checks: the clobbers window", () => {
 		clobbersArgv(f).map((argv) =>
 			argv.includes("--rescan") ? argv[argv.indexOf("--rescan") + 1] : null,
 		);
-	it("re-scans a reviewed SUSPECT's issue, whose key the standing issue leaves out (#1700)", () => {
-		const f = fixture({
-			config: trackerOnly,
-			stubs: {
-				clobbers: findings(
-					"clobbers",
-					["SUSPECT-REVIEWED\t#34\t2026-10-01T06:00:00Z"],
-					"WARN",
-				),
-			},
-		});
-		run(f);
-		at(f, "2026-10-14T06:00:00Z");
-		expect(rescans(f)).toEqual([null, "34"]);
-	});
+	it.each([
+		["SUSPECT-REVIEWED", "#1700"],
+		["CLOBBERED-REVIEWED", "#4636"],
+	])(
+		"re-scans a %s finding's issue, whose key the standing issue leaves out (%s)",
+		(tag) => {
+			const f = fixture({
+				config: trackerOnly,
+				stubs: {
+					clobbers: findings(
+						"clobbers",
+						[`${tag}\t#34\t2026-10-01T06:00:00Z`],
+						"WARN",
+					),
+				},
+			});
+			run(f);
+			at(f, "2026-10-14T06:00:00Z");
+			expect(rescans(f)).toEqual([null, "34"]);
+		},
+	);
 
 	it("re-scans nothing on a re-scan file that will not parse, and logs it", () => {
 		const f = fixture({ config: trackerOnly });
@@ -855,6 +861,14 @@ describe("repo-checks: the notify report (#1553)", () => {
 					["NO-CRITERIA\t#2", "WAIVED\t#1"],
 					"WARN",
 				),
+				clobbers: findings(
+					"clobbers",
+					[
+						"CLOBBERED-REVIEWED\t#6\t2026-10-01T06:00:00Z",
+						"SUSPECT-REVIEWED\t#3\t2026-10-01T06:00:00Z",
+					],
+					"WARN",
+				),
 			},
 		});
 		runOk(f);
@@ -1104,7 +1118,10 @@ describe("repo-checks: the standing issue (#1554)", () => {
 				criteria: findings("criteria", [...settled, "UNVERIFIED\t#5"]),
 				clobbers: findings(
 					"clobbers",
-					["SUSPECT-REVIEWED\t#3\t2026-10-01T06:00:00Z"],
+					[
+						"CLOBBERED-REVIEWED\t#6\t2026-10-01T06:00:00Z",
+						"SUSPECT-REVIEWED\t#3\t2026-10-01T06:00:00Z",
+					],
 					"WARN",
 				),
 			},
@@ -1129,6 +1146,7 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		const listed = `${sweep.stdout}${sweep.stderr}`;
 		expect(listed).toContain("    WAIVED  #1");
 		expect(listed).toContain("    SUSPECT-REVIEWED  #3");
+		expect(listed).toContain("    CLOBBERED-REVIEWED  #6");
 	});
 
 	it("rewrites the issue, never refiling it, where the landed record will not parse, and logs it", () => {

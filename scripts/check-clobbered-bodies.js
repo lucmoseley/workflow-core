@@ -61,14 +61,17 @@
  *              two on record: mantahostels#302).
  *   SUSPECT-REVIEWED  a SUSPECT judged a deliberate rewrite in the host's
  *              docs/clobber-reviewed.json (#1700). WARN, reported only.
- *   REVIEWED-STALE  an entry in that file matching no SUSPECT on an issue this
- *              run scanned. WARN: the edit it names no longer reads as one.
- *              An entry whose issue went unscanned is not judged.
+ *   CLOBBERED-REVIEWED  a CLOBBERED judged a deliberate rewrite in that file
+ *              (#4636). WARN, reported only.
+ *   REVIEWED-STALE  an entry in that file matching no finding of either kind
+ *              on an issue this run scanned. WARN: the edit it names no longer
+ *              reads as one. An entry whose issue went unscanned is not judged.
  *
  * THE REVIEWED FILE IS THE HOST'S OWN, read by lib/host-settled-file.js.
- * Each key is a SUSPECT's identity, `#N<TAB><edit time>`, and each value the
- * reason, so a later SUSPECT on the same issue still reports. A CLOBBERED finding is
- * never accepted.
+ * Each key is a CLOBBERED's or a SUSPECT's identity, `#N<TAB><edit time>`, and
+ * each value the reason, so a later finding on the same issue still reports.
+ * An edit time is one kind or the other, never both, so the key names no kind
+ * and an entry still matches a finding that changes kind between runs.
  *
  * Outside that 15-minute window a partial overlap is an ordinary edit — someone
  * reworking a section a day later — and is not reported at all.
@@ -184,7 +187,7 @@ const showIdentity = (id) => {
 };
 
 /**
- * The host's reviewed SUSPECTs, identity to reason; empty where it keeps none.
+ * The host's reviewed findings, identity to reason; empty where it keeps none.
  *
  * @param {Ctx} ctx
  * @returns {Map<string, string>}
@@ -770,21 +773,36 @@ function reportSuspect(ctx, suspect) {
 const identityOf = (i) => `#${i.number}\t${i.at}`;
 
 /**
- * The SUSPECTs the host reviewed, with their reasons, those it did not, and
- * its entries matching no SUSPECT on an issue this run scanned.
+ * The findings of one kind the host reviewed, with their reasons, and those
+ * it did not.
  *
- * @param {Row[]} suspect
+ * @param {Row[]} rows
  * @param {Map<string, string>} reviewedReasons
- * @param {IssueNode[]} scannedIssues
  */
-function splitReviewed(suspect, reviewedReasons, scannedIssues) {
-	const reviewed = suspect.flatMap((i) => {
+function splitKind(rows, reviewedReasons) {
+	const reviewed = rows.flatMap((i) => {
 		const reason = reviewedReasons.get(identityOf(i));
 		return reason === undefined ? [] : [{ ...i, reason }];
 	});
-	const unreviewed = suspect.filter((i) => !reviewedReasons.has(identityOf(i)));
+	const unreviewed = rows.filter((i) => !reviewedReasons.has(identityOf(i)));
+	return { reviewed, unreviewed };
+}
+
+/**
+ * Each kind's findings split into reviewed and unreviewed, and the host's
+ * entries matching a finding of neither kind on an issue this run scanned.
+ *
+ * @param {{ clobbered: Row[], suspect: Row[] }} found
+ * @param {Map<string, string>} reviewedReasons
+ * @param {IssueNode[]} scannedIssues
+ */
+function splitReviewed(found, reviewedReasons, scannedIssues) {
+	const clobbered = splitKind(found.clobbered, reviewedReasons);
+	const suspect = splitKind(found.suspect, reviewedReasons);
 	const scanned = new Set(scannedIssues.map((i) => `#${i.number}`));
-	const matched = new Set(reviewed.map(identityOf));
+	const matched = new Set(
+		[...clobbered.reviewed, ...suspect.reviewed].map(identityOf),
+	);
 	const stale = [...reviewedReasons.keys()]
 		.filter((id) => {
 			const parsed = parseIdentity(id);
@@ -794,7 +812,7 @@ function splitReviewed(suspect, reviewedReasons, scannedIssues) {
 			return scanned.has(parsed.issue) && !matched.has(id);
 		})
 		.sort();
-	return { reviewed, unreviewed, stale };
+	return { clobbered, suspect, stale };
 }
 
 /** @param {Row} i */
@@ -803,26 +821,39 @@ const where = (i) =>
 	(i.gapMin === null ? "" : `, ${i.gapMin} min after the edit it dropped`);
 
 /**
- * @param {Ctx} ctx
- * @param {{ clobbered: Row[], unreviewed: Row[],
- *   reviewed: (Row & {reason: string})[], stale: string[] }} opts
+ * @typedef {Row & {reason: string}} ReviewedRow
+ * @typedef {{ reviewed: ReviewedRow[], unreviewed: Row[] }} KindSplit
+ * @typedef {{ clobbered: KindSplit, suspect: KindSplit, stale: string[] }} Split
  */
-function raiseFindings(ctx, { clobbered, unreviewed, reviewed, stale }) {
-	for (const i of clobbered)
+
+/**
+ * Each kind's reviewed findings under the tag they report as.
+ *
+ * @param {Split} split
+ * @returns {Array<[string, ReviewedRow[]]>}
+ */
+const reviewedByTag = ({ clobbered, suspect }) => [
+	["CLOBBERED-REVIEWED", clobbered.reviewed],
+	["SUSPECT-REVIEWED", suspect.reviewed],
+];
+
+/**
+ * @param {Ctx} ctx
+ * @param {Split} split
+ */
+function raiseFindings(ctx, split) {
+	const { clobbered, suspect, stale } = split;
+	for (const i of clobbered.unreviewed)
 		ctx.fail("CLOBBERED", where(i), i, `CLOBBERED\t${identityOf(i)}`);
-	for (const i of unreviewed)
+	for (const i of suspect.unreviewed)
 		ctx.warn("SUSPECT", where(i), i, `SUSPECT\t${identityOf(i)}`);
-	for (const i of reviewed)
-		ctx.warn(
-			"SUSPECT-REVIEWED",
-			where(i),
-			i,
-			`SUSPECT-REVIEWED\t${identityOf(i)}`,
-		);
+	for (const [tag, rows] of reviewedByTag(split))
+		for (const i of rows)
+			ctx.warn(tag, where(i), i, `${tag}\t${identityOf(i)}`);
 	for (const id of stale)
 		ctx.warn(
 			"REVIEWED-STALE",
-			`${showIdentity(id)} — ${REVIEWED_FILE} entry matching no SUSPECT this run`,
+			`${showIdentity(id)} — ${REVIEWED_FILE} entry matching no finding this run`,
 			{ id },
 			`REVIEWED-STALE\t${id}`,
 		);
@@ -830,25 +861,27 @@ function raiseFindings(ctx, { clobbered, unreviewed, reviewed, stale }) {
 
 /**
  * @param {Ctx} ctx
- * @param {{ reviewed: (Row & {reason: string})[], stale: string[] }} opts
+ * @param {Split} split
  */
-function reportReviewed(ctx, { reviewed, stale }) {
-	if (reviewed.length > 0) {
+function reportReviewed(ctx, split) {
+	for (const [tag, rows] of reviewedByTag(split)) {
+		if (rows.length === 0) continue;
 		ctx.say(
-			`SUSPECT-REVIEWED (${reviewed.length}) — judged a deliberate rewrite in ${REVIEWED_FILE}:`,
+			`${tag} (${rows.length}) — judged a deliberate rewrite in ${REVIEWED_FILE}:`,
 		);
-		for (const i of reviewed)
+		for (const i of rows)
 			ctx.say(`  #${i.number} ${i.title} at ${i.at}\n      ${i.reason}`);
 		ctx.say("  Reported only.\n");
 	}
+	const { stale } = split;
 	if (stale.length > 0) {
 		ctx.say(
-			`REVIEWED-STALE (${stale.length}) — an entry in ${REVIEWED_FILE} matching no SUSPECT on an issue this run scanned:`,
+			`REVIEWED-STALE (${stale.length}) — an entry in ${REVIEWED_FILE} matching no finding on an issue this run scanned:`,
 		);
 		for (const id of stale) ctx.say(`  ${showIdentity(id)}`);
 		ctx.say(
-			"  The edit it names no longer reads as SUSPECT: its text is back, or it is\n" +
-				"  now CLOBBERED. Read the entry before deleting it. Reported only.\n",
+			"  The edit it names no longer reads as CLOBBERED or SUSPECT: its text is\n" +
+				"  back. Read the entry before deleting it. Reported only.\n",
 		);
 	}
 }
@@ -905,12 +938,12 @@ runCheck({
 			}
 		}
 
-		const { reviewed, unreviewed, stale } = splitReviewed(
-			suspect,
+		const split = splitReviewed(
+			{ clobbered, suspect },
 			reviewedReasons,
 			candidates,
 		);
-		raiseFindings(ctx, { clobbered, unreviewed, reviewed, stale });
+		raiseFindings(ctx, split);
 
 		ctx.say(
 			`Examined ${transitions} body transition(s) across ${candidates.length} issue(s)` +
@@ -918,24 +951,26 @@ runCheck({
 				`${rescan.length > 0 ? ` or among the ${rescan.length} named to re-scan` : ""}.\n`,
 		);
 
-		reportClobbered(ctx, clobbered);
-		reportSuspect(ctx, unreviewed);
-		reportReviewed(ctx, { reviewed, stale });
+		const failing = split.clobbered.unreviewed;
+		reportClobbered(ctx, failing);
+		reportSuspect(ctx, split.suspect.unreviewed);
+		reportReviewed(ctx, split);
 
 		return {
 			okLine: `no body lost text to a competing write across ${transitions} transition(s).`,
 			noun:
-				clobbered.length > 0
+				failing.length > 0
 					? "issue body/bodies clobbered by a competing write"
 					: "ambiguous transition(s) that lost text",
 			data: {
 				window: all ? "all" : `${days}d`,
 				transitions,
 				examined: candidates.length,
-				clobbered,
-				suspect: unreviewed,
-				reviewed,
-				staleReviewed: stale,
+				clobbered: failing,
+				suspect: split.suspect.unreviewed,
+				clobberedReviewed: split.clobbered.reviewed,
+				suspectReviewed: split.suspect.reviewed,
+				staleReviewed: split.stale,
 			},
 		};
 	},
