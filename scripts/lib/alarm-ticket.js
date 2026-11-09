@@ -7,7 +7,8 @@
  *
  * Its body changes only with a new failed run. A record in the markers
  * directory names the `main` sha a ticket was filed at, so a pass with no
- * alarm firing and none on record reads no tracker.
+ * alarm firing and none on record reads no tracker. Residual: a ticket filed
+ * from another checkout of the same repo is closed only by that one.
  */
 
 const fs = require("node:fs");
@@ -50,10 +51,28 @@ const readAlarmRecord = (file) =>
 	});
 
 /**
+ * Why the recorded stall's ticket closes this pass, or null where it stays:
+ * no alarm fires, or `main` has moved. A torn record names no stall, so its
+ * ticket closes only where no alarm fires (#4772).
+ * @param {string|"torn"} rec
+ * @param {string|null} main
+ * @param {boolean} firing
+ * @returns {string|null}
+ */
+function buildCloseComment(rec, main, firing) {
+	if (rec === "torn")
+		return firing ? null : "No queue alarm fires; its record had torn.";
+	if (main !== rec) return `\`main\` moved from \`${rec}\` to \`${main}\`.`;
+	return firing
+		? null
+		: `No queue alarm fails at \`main\`'s \`${main}\` any more.`;
+}
+
+/**
  * One supervision pass's act on the alarm ticket: close the recorded stall's
- * ticket where no alarm fires or `main` has moved, then file or refresh one
- * for the alarms firing. A close that throws keeps the record, so the next
- * pass retries it.
+ * ticket where buildCloseComment gives a reason, then file or refresh one for
+ * the alarms firing. A close that throws keeps the record, so the next pass
+ * retries it; a torn record is dropped and named first.
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
  * @param {string} markers the markers directory
  * @returns {(pass: {main: string|null,
@@ -70,15 +89,12 @@ function alarmTicketTender(deps, markers) {
 		const rec = readAlarmRecord(recordFile);
 		if (rec === "torn") {
 			fs.rmSync(recordFile, { force: true });
-			lines.push(
-				`alarm ticket: ${recordFile} would not parse and is dropped; an open alarm ticket stays open until the next alarm.`,
-			);
-		} else if (rec !== null && (alarms.length === 0 || main !== rec)) {
-			const closed = close(TITLE, () =>
-				main === rec
-					? `No queue alarm fails at \`main\`'s \`${main}\` any more.`
-					: `\`main\` moved from \`${rec}\` to \`${main}\`.`,
-			);
+			lines.push(`alarm ticket: ${recordFile} would not parse and is dropped.`);
+		}
+		const why =
+			rec === null ? null : buildCloseComment(rec, main, alarms.length > 0);
+		if (why !== null) {
+			const closed = close(TITLE, () => why);
 			fs.rmSync(recordFile, { force: true });
 			if (closed !== null) lines.push(`alarm ticket: closed #${closed}.`);
 		}

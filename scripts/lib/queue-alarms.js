@@ -20,7 +20,7 @@ const ALARMS = /** @type {const} */ ([
 ]);
 
 /* A guess: a day of hourly runs, past which a stall has long been ticketed. */
-const RUN_LIMIT = 30;
+const RUN_LIMIT = 24;
 
 /**
  * @typedef {{databaseId: number, conclusion: string|null, createdAt: string,
@@ -77,23 +77,23 @@ function readRemoteMain(root) {
 }
 
 /**
- * The alarms firing for the checkout at `root`, read from its code repo's
- * runs; throws where a read fails. `main` is read only where an alarm's
- * workflow file is present, and none fires where the remote has no `main`.
+ * `main`'s sha and the alarms firing at it for the checkout at `root`, read
+ * from its code repo's runs; throws where a read fails. `main` is read only
+ * where an alarm's workflow file is present, null otherwise or where the
+ * remote has none, and no alarm fires then.
  * @param {string} root
- * @param {() => string|null} readMain `main`'s current sha
- * @returns {FiringAlarm[]}
+ * @returns {{main: string|null, alarms: FiringAlarm[]}}
  */
-function readFiringAlarms(root, readMain = () => readRemoteMain(root)) {
+function readFiringAlarms(root) {
 	const present = ALARMS.filter(({ file }) =>
 		fs.existsSync(path.join(root, ".github", "workflows", file)),
 	);
-	const main = present.length === 0 ? null : readMain();
-	if (main === null) return [];
+	const main = present.length === 0 ? null : readRemoteMain(root);
+	if (main === null) return { main, alarms: [] };
 	const { gh } = require("./gh.js");
 	const { VERIFIED_BRANCH } = require("./landing-refs.js");
 	const { codeRepoArgs } = require("./workflow-core-config.js");
-	return present.flatMap(({ name, file }) => {
+	const alarms = present.flatMap(({ name, file }) => {
 		/** @type {AlarmRun[]} */
 		const runs = JSON.parse(
 			gh(
@@ -118,6 +118,7 @@ function readFiringAlarms(root, readMain = () => readRemoteMain(root)) {
 		const firing = firingAlarm(name, runs, main);
 		return firing === null ? [] : [firing];
 	});
+	return { main, alarms };
 }
 
 const ALARM_NAMES = ALARMS.map((a) => a.name);
@@ -125,6 +126,5 @@ const ALARM_NAMES = ALARMS.map((a) => a.name);
 module.exports = {
 	ALARM_NAMES,
 	buildAlarmLine,
-	firingAlarm,
 	readFiringAlarms,
 };

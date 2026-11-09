@@ -608,7 +608,7 @@ function readStalls(repo) {
  */
 function readAlarms(root, repo) {
 	try {
-		return { read: readFiringAlarms(root), unread: [] };
+		return { read: readFiringAlarms(root).alarms, unread: [] };
 	} catch (e) {
 		return {
 			read: [],

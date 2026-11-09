@@ -414,7 +414,7 @@ it("files one urgent alarm ticket for two failed Landing quiet 14h runs at main'
 	);
 });
 
-it("names an alarm read that fails and keeps the pass's exit 0 (#4772)", () => {
+it("names an alarm read that fails and fails the pass, the queue's acts still made (#4772)", () => {
 	commit("seed", 0, "main");
 	const workflows = path.join(work, ".github", "workflows");
 	fs.mkdirSync(workflows, { recursive: true });
@@ -423,7 +423,42 @@ it("names an alarm read that fails and keeps the pass's exit 0 (#4772)", () => {
 
 	const r = supervise();
 
-	expect(r.status, r.stderr).toBe(0);
+	expect(r.status).toBe(1);
 	expect(r.stdout).toMatch(/^queue alarms: not read: /);
 	expect(readIssues()).toEqual([]);
+});
+
+it("drops a torn alarm record, saying so, and closes the open alarm ticket where no alarm fires (#4772)", () => {
+	commit("seed", 0, "main");
+	const workflows = path.join(work, ".github", "workflows");
+	fs.mkdirSync(workflows, { recursive: true });
+	fs.writeFileSync(path.join(workflows, "landing-quiet.yml"), "");
+	fs.writeFileSync(
+		store,
+		JSON.stringify([
+			{
+				number: 100,
+				title:
+					"Landing alarm red: an off-machine queue alarm failed since main last moved",
+				state: "OPEN",
+				labels: [],
+				body: "",
+			},
+		]),
+	);
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(path.join(markers(), ".landing-alarm-ticket.json"), "{");
+
+	const r = supervise();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toMatch(
+		/would not parse and is dropped\.\nalarm ticket: closed #100\.\n$/,
+	);
+	expect(readIssues()[0].closeComment).toBe(
+		"No queue alarm fires; its record had torn.",
+	);
+	expect(
+		fs.existsSync(path.join(markers(), ".landing-alarm-ticket.json")),
+	).toBe(false);
 });

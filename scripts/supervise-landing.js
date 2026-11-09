@@ -18,7 +18,7 @@
  * module is off or the queue needs nothing. Joins no §N3 family: it gates
  * nothing and is no hook.
  *
- * Exit codes: 0 on a pass, an unread alarm included; 1 on a throw, an unreadable remote or queue log,
+ * Exit codes: 0 on a pass; 1 on a throw, an alarm read that failed, an unreadable remote or queue log,
  * a failed start or a refused filing among them; 2 on a command line it
  * refuses.
  */
@@ -59,10 +59,13 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	if (!moduleOn("landing", { root })) return 0;
+	const deps = liveQueueDeps(root);
+	/* First and off the queue's reads, so a broken queue, when the alarms
+	 * matter most, cannot skip them (#4772). */
+	const alarmsRead = tendAlarms(root, deps);
 	const queue = readQueue(root, now());
 	const { start, ticket } = supervision(queue);
 	if (start) startLander(root, flagValue(parsed.flags, "--tester"));
-	const deps = liveQueueDeps(root);
 	const tend = stallTicketTender(deps, markersDir(root));
 	for (const line of tend({
 		main: queue.main,
@@ -76,27 +79,27 @@ function main(argv = process.argv.slice(2)) {
 		say(line);
 	const alert = queueAlertTender(deps, markersDir(root));
 	for (const line of alert(queue.gauge, queueCrossings(queue.gauge))) say(line);
-	if (queue.main !== null) tendAlarms(root, deps, queue.main);
-	return 0;
+	return alarmsRead ? 0 : 1;
 }
 
 /**
  * The alarm ticket's pass. An unread alarm is named and leaves the ticket as
- * it stands, so the queue's own acts above still count.
+ * it stands; the pass goes on, and fails at its end (#4772).
  * @param {string} root
  * @param {import("./lib/queue-issue.js").QueueIssueDeps} deps
- * @param {string} sha `main`'s sha
+ * @returns {boolean} whether the alarms read
  */
-function tendAlarms(root, deps, sha) {
+function tendAlarms(root, deps) {
 	let alarms;
 	try {
-		alarms = readFiringAlarms(root, () => sha);
+		alarms = readFiringAlarms(root);
 	} catch (e) {
 		say(`queue alarms: not read: ${parseFirstLine(parseErrorText(e))}`);
-		return;
+		return false;
 	}
 	const tend = alarmTicketTender(deps, markersDir(root));
-	for (const line of tend({ main: sha, alarms })) say(line);
+	for (const line of tend(alarms)) say(line);
+	return true;
 }
 
 /**

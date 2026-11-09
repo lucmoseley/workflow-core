@@ -20,7 +20,6 @@ const { buildAbsentRepos, buildRepoStart } = require("./review-carry.js");
 const { basisFaults } = require("./issue-gate.js");
 const { readout } = require("./concurrency.js");
 const { titleFirstLinks } = require("./title-first-links.js");
-const { firingAlarm } = require("./queue-alarms.js");
 
 const SINCE = "2026-10-17T07:00:00Z";
 const NOW = "2026-10-18T07:00:00Z";
@@ -355,22 +354,12 @@ describe("renderReview (#2011)", () => {
 	});
 
 	it("lists a queue alarm failed since main's last push under Landing stalls, with its run id and age (#4772)", () => {
-		const main = "b".repeat(40);
-		const run = (id: number, ago: number, headSha: string) => ({
-			databaseId: id,
-			conclusion: "failure",
-			createdAt: new Date(Date.parse(NOW) - ago).toISOString(),
-			headSha,
-		});
-		const alarm = firingAlarm(
-			"Landing quiet 14h",
-			[
-				run(3, 65 * 60 * 1000, main),
-				run(2, 125 * 60 * 1000, main),
-				run(1, 185 * 60 * 1000, "c".repeat(40)),
-			],
-			main,
-		);
+		const alarm = {
+			name: "Landing quiet 14h",
+			run: 3,
+			at: Date.parse(NOW) - 65 * 60 * 1000,
+			count: 2,
+		};
 		const body = render([
 			{ repo: "acme/a", entries: [], stalls: [], closed: [], alarms: [alarm] },
 		]);
