@@ -175,9 +175,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * catching a second boundary (#1337). And the relaunch publishes BEFORE the
 		 * kill: killed first, the old watcher could wake before the
 		 * republish and record the old run's own true kill, which shares
-		 * this name and `started` and so reads as the false one. Residual:
-		 * the pin also freezes the watcher's WATCH_CEILING_S deadline, which
-		 * this case never needs. */
+		 * this name and `started` and so reads as the false one. */
 		const pinnedClockEnv = env({ WFC_BG_NOW: "1700000000" });
 
 		const { pid: firstPid } = spawnDetached(
@@ -666,13 +664,15 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	/* A runner that wedged past its deadline: it starts a plain child and a
 	 * group outside its own tree, as a SIGKILLed runner's orphaned vitest is,
 	 * writes `<deadline> <pgid>` with the deadline `ago` seconds past, prints
-	 * its report, then waits. */
-	const wedged = (name: string, ago: number) => [
+	 * its report, then waits. `spawnDelayS` holds it that long first, as a
+	 * queued runner's spawn is held; absent, it starts at once. */
+	const wedged = (name: string, ago: number, spawnDelayS = 0) => [
 		"run",
 		name,
 		"sh",
 		"-c",
 		[
+			`sleep ${spawnDelayS}`,
 			`setsid --fork sh -c ${shellQuote(`echo $$ > ${shellQuote(`${root}/group`)}; exec sleep ${KILLED_LIFETIME_S}`)}`,
 			`sleep ${KILLED_LIFETIME_S} & echo $! > ${shellQuote(`${root}/child`)}`,
 			shWaitFor(`[ -s ${shellQuote(`${root}/group`)} ]`),
@@ -714,6 +714,30 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		expect(
 			readJsonLines(join(root, "kills.jsonl")).map((l) => l.reason),
 		).toEqual(["ceiling"]);
+	});
+
+	it("still polls when a late spawn's deadline file lands three polls after launch, and kills the run (#4774)", async () => {
+		/* Pins the late file's kill, not the absence of a wall-clock bound:
+		 * no test can wait out an hours-long one. */
+		const child = spawn(SCRIPT, wedged("late", 1, THREE_BEATS_S), {
+			env: env({ WFC_BG_CEILING_GRACE_S: "0" }),
+		});
+		try {
+			await waitFor("the run's status", () => runFile("late", "status") !== "");
+		} finally {
+			child.kill("SIGKILL");
+		}
+
+		expect(check("late").stdout).toMatch(
+			/^DONE exit=137 ceiling-kill: bg-run killed it 0s past its suite deadline$/m,
+		);
+		/* The watcher records after the kill, so after the `status` it causes. */
+		const kills = join(root, "kills.jsonl");
+		await waitFor(
+			"the kill record",
+			() => existsSync(kills) && readFileSync(kills, "utf8").endsWith("\n"),
+		);
+		expect(readJsonLines(kills).map((l) => l.reason)).toEqual(["ceiling"]);
 	});
 
 	it("spares a group whose leader started before the launch, a recycled pid", async () => {

@@ -65,7 +65,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * queues' climb, or `"off-rung"`, what its suite rung does not count already.
  * @typedef {"all" | "off-rung"} ClimbScope
  */
-/** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean, windowsHeld?: boolean, climbHeld?: boolean }} QueueRecord */
+/** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean, windowsHeld?: boolean, climbHeld?: boolean, yielding?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
  * admitted on the same poll, which joined `behind` or `ahead` of it (#2622).
@@ -255,7 +255,9 @@ function readPeerClimbHeld(queueDir, mine, options = {}) {
  *
  * CHARGED FOR AS LONG AS ITS MARKER LIVES, not for a climb window: a `tsc`
  * peaks at its end, a marker may hold several in series, and a suite's draw
- * swings back to near its peak late in its run. A tree's PSS reads at most
+ * swings back to near its peak late in its run. Save a held seat stamped
+ * `yielding` (#4766): its next run waits on a peer the climb holds, nothing
+ * of its tree climbs, and its charge would hold that peer in turn. A tree's PSS reads at most
  * its RSS, against peaks measured as RSS, so the charge errs high. A
  * directory that will not read charges none, handed to `onUnread`.
  *
@@ -302,6 +304,7 @@ function readClimbMb(
 			.filter(
 				(r) =>
 					r.spawned === true &&
+					r.yielding !== true &&
 					!isMarkerStale(r, { alive }) &&
 					!(name === rungQueue && onRung.has(r.pid)),
 			)
@@ -665,20 +668,21 @@ function queueJoin({
 
 /**
  * Merge `fields` into this waiter's marker, or with `admitted: false`,
- * `memoryHeld: false`, `windowsHeld: false` or `climbHeld: false` drop that
- * stamp. Fails silent, like `queueJoin`.
+ * `memoryHeld: false`, `windowsHeld: false`, `climbHeld: false` or
+ * `yielding: false` drop that stamp. Fails silent, like `queueJoin`.
  *
  * @param {string} file
- * @param {{ admitted?: boolean, spawned?: true, memoryHeld?: boolean, windowsHeld?: boolean, climbHeld?: boolean }} fields
+ * @param {{ admitted?: boolean, spawned?: true, memoryHeld?: boolean, windowsHeld?: boolean, climbHeld?: boolean, yielding?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
 	try {
 		const record = JSON.parse(String(queueFs.readFileSync(file, "utf8")));
-		const { admitted, memoryHeld, windowsHeld, climbHeld, ...rest } = {
-			...record,
-			...fields,
-		};
+		const { admitted, memoryHeld, windowsHeld, climbHeld, yielding, ...rest } =
+			{
+				...record,
+				...fields,
+			};
 		queueFs.writeFileSync(
 			file,
 			JSON.stringify({
@@ -687,6 +691,7 @@ function stampMarker(file, fields, { queueFs = fs } = {}) {
 				...(memoryHeld ? { memoryHeld } : {}),
 				...(windowsHeld ? { windowsHeld } : {}),
 				...(climbHeld ? { climbHeld } : {}),
+				...(yielding ? { yielding } : {}),
 			}),
 		);
 	} catch {
@@ -946,6 +951,51 @@ function readTurn({
 	if (reasons.length === 1 && reasons[0] === "peer-climb")
 		return { open: false, hold: { limb: "peer", holders: peers } };
 	return { open: false, hold: { limb: "fifo", pids: ahead.map((r) => r.pid) } };
+}
+
+/**
+ * A held seat's turn (#4766): closed while the other queue holds an older
+ * waiter the climb charge holds (`readPeerClimbHeld`), and on nothing else, a
+ * seat skipping its own queue's order (#2918). Fails open on a queue directory that cannot be read, as `readTurn` does.
+ *
+ * While closed it stamps the seat's marker `yielding`, which takes the seat's
+ * charge off the climb (`readClimbMb`). `release` drops
+ * the stamp, on every path out of the wait.
+ *
+ * @param {string} seat the held seat's marker file
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive }} [options]
+ * @returns {{ turn: () => boolean, turnHold: () => TurnHold | undefined, release: () => void }}
+ */
+function peerClimbTurn(
+	seat,
+	{
+		queueDir = defaultQueueDir(),
+		queueFs = fs,
+		pid = process.pid,
+		alive = pidAlive,
+	} = {},
+) {
+	/** @type {{ pid: number, queue: string }[]} */
+	let holders = [];
+	const read = () => {
+		const { markers, error } = readMarkers(queueDir, queueFs);
+		if (error) return [];
+		const mine = markers.find(({ record }) => record.pid === pid)?.record ?? {
+			pid,
+			at: Number.POSITIVE_INFINITY,
+		};
+		return readPeerClimbHeld(queueDir, mine, { queueFs, alive });
+	};
+	return {
+		turn: () => {
+			holders = read();
+			stampMarker(seat, { yielding: holders.length > 0 }, { queueFs });
+			return holders.length === 0;
+		},
+		turnHold: () =>
+			holders.length > 0 ? { limb: "peer", holders } : undefined,
+		release: () => stampMarker(seat, { yielding: false }, { queueFs }),
+	};
 }
 
 /**
@@ -1828,6 +1878,7 @@ module.exports = {
 	readQueuesClimbMb,
 	gateDenies,
 	waitForGate,
+	peerClimbTurn,
 	queueSeat,
 	armSeatSignals,
 };

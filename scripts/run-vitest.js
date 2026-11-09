@@ -87,6 +87,7 @@ const {
 	armSeatSignals,
 	gateDenies,
 	heldSeat,
+	peerClimbTurn,
 	queueSeat,
 } = require("./lib/suite-queue.js");
 const { readOwnPaths, readOwnWork } = require("./lib/own-work.js");
@@ -2319,9 +2320,11 @@ function buildQueueSkipLine(emptySource, root) {
 }
 
 /**
- * A part-suite inside a held seat (#2918): no turn, the seat having waited
- * once for the loop, and the memory rung alone holds it, refusing at the
- * bound. Its marker carries the admitted and spawned stamps, so no two
+ * A part-suite inside a held seat (#2918): no turn in its own queue, the
+ * seat having waited once for the loop, and the memory rung alone holds it,
+ * refusing at the bound. Its turn waits only on an older waiter in the other
+ * queue the climb charge holds (#4766), so a loop of runs in one seat yields
+ * to a `tsc` between runs. Its marker carries the admitted and spawned stamps, so no two
  * launches pass the rung on one reading before either shows in `ps` (#2622),
  * and the memoryHeld stamp, so a younger part-suite passes it while the rung
  * holds it (#3058).
@@ -2340,7 +2343,8 @@ async function runSeated({
 	queued,
 	requeueWhole,
 }) {
-	if (weight.wholeSlot || !heldSeat(options)) return queued();
+	const seatFile = weight.wholeSlot ? null : heldSeat(options);
+	if (!seatFile) return queued();
 	const gate =
 		options.gate ??
 		((/** @type {number} */ climbMb) =>
@@ -2357,30 +2361,34 @@ async function runSeated({
 		((/** @type {number} */ ms) =>
 			new Promise((resolve) => setTimeout(resolve, ms)));
 	let slept = false;
+	const peer = peerClimbTurn(seatFile, options);
 	const seat = queueSeat({
 		queue: options,
 		join: { weight },
-		turn: () => true,
+		turn: peer.turn,
 		logExit: (reason, waitMs, extra) => {
 			if (reason !== "opened" || slept) logExit(reason, waitMs, extra);
 		},
 		signals: true,
 	});
 	try {
-		const outcome = await seat.wait({
-			hold: options.loadHold,
-			...options,
-			gate: (climbMb) => {
-				const denial = gate(climbMb);
-				return denial?.limb === "memory" ? denial : null;
-			},
-			turn: () => true,
-			part: true,
-			sleepFn: (ms) => {
-				slept = true;
-				return sleep(ms);
-			},
-		});
+		const outcome = await seat
+			.wait({
+				hold: options.loadHold,
+				...options,
+				gate: (climbMb) => {
+					const denial = gate(climbMb);
+					return denial?.limb === "memory" ? denial : null;
+				},
+				turn: peer.turn,
+				turnHold: peer.turnHold,
+				part: true,
+				sleepFn: (ms) => {
+					slept = true;
+					return sleep(ms);
+				},
+			})
+			.finally(peer.release);
 		if (outcome === "refused") return 1;
 		const code = await run({
 			escalationRequeues: true,
