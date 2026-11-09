@@ -16,6 +16,7 @@ const ISSUE = {
 	standalone: "It tracks the queue.",
 	noun: "queue issue",
 	subject: "the queue",
+	origin: "lander-script",
 };
 
 const filer = (

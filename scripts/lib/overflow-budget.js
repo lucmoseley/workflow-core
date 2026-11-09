@@ -4,23 +4,38 @@
  * lib/overflow-budget-core.js from the key's Console reading where it has one
  * (lib/console-credit.js).
  *
- * SPEND IS TRANSCRIPTS ALONE (#3695): every read, `refill-loop.js status`
- * included, prices again each session on the key whose transcript has grown,
- * into a durable per-key ledger of one row per session beside the refill loop's
- * files. Only the launch record marks a session in the seat's dir as on the key.
+ * SPEND IS TRANSCRIPTS ALONE (#3695): every read prices again each session on
+ * the key whose transcript has grown, into a durable per-key ledger of one row
+ * per session beside the refill loop's files. Only the launch record marks a
+ * session in the seat's dir as on the key.
+ *
+ * A SHOWN READ REUSES THE LAST (#4669): every sized budget is kept beside the
+ * ledger, and `refill-loop.js status`, which the panel polls every few seconds,
+ * takes it while it is no older than a shown listing may be and neither the
+ * ledger, the Console log nor the cost table has changed since.
+ * Residual: a shown figure leaves out up to DISPLAY_MAX_AGE_MS of transcript
+ * growth no other read has priced, and a ledger write landing between a sizing's
+ * pricing and its reading of the ledger's time goes unseen until that age.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { isDeepStrictEqual } = require("node:util");
 const { parseArgs } = require("node:util");
-const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
+const {
+	DISPLAY_MAX_AGE_MS,
+	isTerminalAgent,
+	readAgentsForBudget,
+	readAgentsForDisplay,
+} = require("./agent-liveness.js");
 const { CREDIT_REFUSAL, readStoredRuns } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
-const { readConsoleLog } = require("./console-credit.js");
+const { consoleLogFile, readConsoleLog } = require("./console-credit.js");
 const { readEveryOverflowLookup } = require("./dispatch-ledger.js");
 const { hostRoot } = require("./host-root.js");
 const { readJsonl } = require("./jsonl.js");
+const { readJsonOutcome } = require("./refill-json.js");
 const { localDate } = require("./local-date.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
 const { readSeatTranscripts } = require("./project-dirs.js");
@@ -40,6 +55,7 @@ const {
 } = require("./overflow-budget-core.js");
 const {
 	fileSpend,
+	SESSION_COST_TABLE,
 	readChainSpendUsd,
 	readCostTableIn,
 	readSessionFiles,
@@ -76,6 +92,10 @@ const BUDGET_READERS = [
 /** @param {OverflowSeat} seat */
 const ledgerFile = (seat) =>
 	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.jsonl`));
+
+/** @param {OverflowSeat} seat */
+const shownFile = (seat) =>
+	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.shown.json`));
 
 /**
  * The key's ledger, by session.
@@ -314,9 +334,10 @@ function priceRunning(sessionIds, ledger, chainPriced) {
 }
 
 /**
- * Price the seat, then size its budget; why not where either cannot be read.
- * The cost table is read in `root`, never the working directory's checkout:
- * the loop's daemon runs from the home directory (#3683).
+ * Price the seat, then size its budget and keep it for shownSeatBudget; why
+ * not where either cannot be read. The cost table is read in `root`, never the
+ * working directory's checkout: the loop's daemon runs from the home directory
+ * (#3683).
  * @param {OverflowSeat} seat
  * @param {string|undefined} root the checkout whose cost table sizes the seat
  * @param {() => import("./agent-liveness.js").Listing} [readAgents] the
@@ -326,6 +347,99 @@ function priceRunning(sessionIds, ledger, chainPriced) {
 function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	if (root === undefined)
 		return { why: "the loop serves no checkout to read the cost table in" };
+	const at = Date.now();
+	const sized = sizeSeat(seat, root, readAgents);
+	if ("why" in sized) return sized;
+	keepShown({ at, root, seat, inputs: sized.inputs, budget: sized.budget });
+	return sized.budget;
+}
+
+/**
+ * When a file whose change voids a kept budget last changed, ms; 0 for absent.
+ * @param {string} file
+ */
+const readChangedAt = (file) =>
+	fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+
+/**
+ * @param {OverflowSeat} seat
+ * @param {string} root
+ * @returns {[string, string, string]}
+ */
+const inputFilesOf = (seat, root) => [
+	ledgerFile(seat),
+	consoleLogFile(seat),
+	path.join(root, SESSION_COST_TABLE),
+];
+
+/**
+ * @typedef {{at: number, root: string, seat: OverflowSeat, inputs: number[],
+ *   budget: SeatBudget}} KeptBudget `at`, ms, when its sizing began
+ */
+
+/**
+ * Keep the budget for shownSeatBudget, unless one sized later is kept already:
+ * a slow shown sizing must not write over the tick's newer one.
+ * @param {KeptBudget} kept
+ */
+function keepShown(kept) {
+	const file = shownFile(kept.seat);
+	const held = /** @type {KeptBudget|null} */ (readJsonOutcome(file).value);
+	if ((held?.at ?? 0) > kept.at) return;
+	try {
+		writeFileAtomic(file, JSON.stringify(kept));
+	} catch {
+		/* Only the next shown read's reuse is lost: not the sizing's failure (#4669). */
+	}
+}
+
+/**
+ * The key's budget for a reader that only shows it: the last one sized, by the
+ * tick or a shown read, while neither it nor the listing it counted running
+ * sessions off is older than DISPLAY_MAX_AGE_MS, its cycle has not turned, it
+ * was sized for this seat and root, and none of its input files has changed
+ * since.
+ * @param {OverflowSeat} seat
+ * @param {string|undefined} root
+ * @returns {SeatBudget|{why: string}}
+ */
+function shownSeatBudget(seat, root) {
+	const kept = /** @type {KeptBudget|null} */ (
+		readJsonOutcome(shownFile(seat)).value
+	);
+	const now = Date.now();
+	if (
+		kept !== null &&
+		root !== undefined &&
+		kept.root === root &&
+		isDeepStrictEqual(kept.seat, seat)
+	) {
+		const age = now - Math.min(kept.at, kept.budget.runningReadAt ?? kept.at);
+		if (
+			age >= 0 &&
+			age <= DISPLAY_MAX_AGE_MS &&
+			now < kept.budget.nextCycleStart &&
+			isDeepStrictEqual(
+				kept.inputs,
+				inputFilesOf(seat, root).map(readChangedAt),
+			)
+		)
+			return kept.budget;
+	}
+	return seatBudget(seat, root, readAgentsForDisplay);
+}
+
+/**
+ * seatBudget's sizing, with its input files' change times: each taken before
+ * its file is read, the ledger's once its pricing has written it.
+ * @param {OverflowSeat} seat
+ * @param {string} root
+ * @param {() => import("./agent-liveness.js").Listing} readAgents
+ * @returns {{budget: SeatBudget, inputs: number[]}|{why: string}}
+ */
+function sizeSeat(seat, root, readAgents) {
+	const [ledgerAt, logAt, tableAt] = inputFilesOf(seat, root);
+	const tableChangedAt = readChangedAt(tableAt);
 	const table = readCostTableIn(root);
 	if (!table) return { why: "the session cost table is unreadable" };
 	let ledger;
@@ -333,29 +447,36 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	let settled;
 	let log;
 	let listed;
+	let ledgerChangedAt;
+	let logChangedAt;
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
+		ledgerChangedAt = readChangedAt(ledgerAt);
 		settled = settleChainsOnce(ledger);
 		listed = readRunning(seat, lookup, readAgents);
 		running = priceRunning(listed.sessionIds, ledger, settled);
+		logChangedAt = readChangedAt(logAt);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
 	}
 	return {
-		...budgetOf({
-			grantUsd: seat.grantUsd,
-			cycleDay: seat.cycleDay,
-			table,
-			now: Date.now(),
-			reading: log.reading,
-			ledger: settled,
-			running,
-		}),
-		readFailure: log.failure,
-		lastAttemptAt: log.lastAttemptAt,
-		runningReadAt: listed.readAt,
+		budget: {
+			...budgetOf({
+				grantUsd: seat.grantUsd,
+				cycleDay: seat.cycleDay,
+				table,
+				now: Date.now(),
+				reading: log.reading,
+				ledger: settled,
+				running,
+			}),
+			readFailure: log.failure,
+			lastAttemptAt: log.lastAttemptAt,
+			runningReadAt: listed.readAt,
+		},
+		inputs: [ledgerChangedAt, logChangedAt, tableChangedAt],
 	};
 }
 
@@ -446,4 +567,5 @@ module.exports = {
 	priceSessions,
 	readReplyUsd,
 	seatBudget,
+	shownSeatBudget,
 };

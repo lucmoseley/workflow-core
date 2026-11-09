@@ -8,7 +8,9 @@
  * shared requests settled once (#4208), its transcript gone or not (#4370);
  * and the CLI's JSON and status line for a fixture seat, every figure read
  * from a fixed cost table in a fixture checkout, and read there from a working
- * directory that is no checkout (#3683, #3695).
+ * directory that is no checkout (#3683, #3695); a shown read reusing the last
+ * budget sized until it ages past a shown listing's limit or its ledger, Console
+ * log, seat or root changes (#4669).
  *
  * Loosen one and a session's spend goes uncounted or counted twice, a plan
  * session is charged to the key, the CLI reports a figure the gate did not
@@ -21,6 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DISPLAY_MAX_AGE_MS } from "./agent-liveness.js";
 import { buildStopBranch, type StopKind } from "./agents-stop-fake";
 import { readProcStartOf } from "./arbiter-proc.js";
 import { writeClaudeStub } from "./claude-stub";
@@ -28,10 +31,11 @@ import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { localDate } from "./local-date.js";
-import { seatBudget } from "./overflow-budget.js";
+import { seatBudget, shownSeatBudget } from "./overflow-budget.js";
 import { stopOverAllowance } from "./overflow-cap.js";
 import { killGroup, readStat, startOrphan } from "./process-fixture";
 import { runInProcess } from "./run-in-process.js";
+import { SESSION_COST_TABLE } from "./session-spend.js";
 import { shellQuote } from "./sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "overflow-budget.js");
@@ -484,6 +488,110 @@ describe("a listed session", () => {
 				readAt,
 			})),
 		).toMatchObject({ running: 0, runningReadAt: readAt });
+	});
+});
+
+describe("a shown read (#4669)", () => {
+	const shown = () => shownSeatBudget({ ...seat, dir: seatDir }, root);
+	const keptPath = () =>
+		path.join(refill, ".overflow-ledger", "WFC_TEST_KEY.shown.json");
+	/* A session priced at US$8, then grown to US$12 unpriced. */
+	function growAfterSizing() {
+		const id = recordLaunch("0000000b");
+		appendTranscript(id, buildModelTurn(2_000_000));
+		expect(budget()).toMatchObject({ settledUsd: 8 });
+		appendTranscript(id, buildModelTurn(1_000_000, "r2"));
+	}
+
+	it("reuses the last budget sized, pricing nothing", () => {
+		growAfterSizing();
+		expect(shown()).toMatchObject({ settledUsd: 8 });
+		expect(budget()).toMatchObject({ settledUsd: 12 });
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	/* The kept budget, with `at` or its listing's `runningReadAt` aged. */
+	function ageKept(field: "at" | "runningReadAt", ms: number) {
+		const kept = JSON.parse(fs.readFileSync(keptPath(), "utf8"));
+		const aged = Date.now() - ms;
+		fs.writeFileSync(
+			keptPath(),
+			JSON.stringify(
+				field === "at"
+					? { ...kept, at: aged }
+					: { ...kept, budget: { ...kept.budget, runningReadAt: aged } },
+			),
+		);
+	}
+
+	it("reuses a kept budget just inside a shown listing's age", () => {
+		growAfterSizing();
+		ageKept("at", DISPLAY_MAX_AGE_MS - 5000);
+		expect(shown()).toMatchObject({ settledUsd: 8 });
+	});
+
+	it("sizes again once the kept budget is past a shown listing's age", () => {
+		growAfterSizing();
+		ageKept("at", DISPLAY_MAX_AGE_MS + 1000);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	it("sizes again once the listing it counted running sessions off is past that age", () => {
+		growAfterSizing();
+		ageKept("runningReadAt", DISPLAY_MAX_AGE_MS + 1000);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	it("sizes again once the cost table has changed", () => {
+		growAfterSizing();
+		writeCostTable(root, { ...TABLE, meanUsd: 5 });
+		const later = new Date(Date.now() + 5000);
+		fs.utimesSync(path.join(root, SESSION_COST_TABLE), later, later);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+	});
+
+	it("keeps the later sizing where an earlier one finishes after it", () => {
+		growAfterSizing();
+		const kept = JSON.parse(fs.readFileSync(keptPath(), "utf8"));
+		fs.writeFileSync(
+			keptPath(),
+			JSON.stringify({ ...kept, at: Date.now() + 60_000 }),
+		);
+		budget();
+		expect(
+			JSON.parse(fs.readFileSync(keptPath(), "utf8")).budget,
+		).toMatchObject({
+			settledUsd: 8,
+		});
+	});
+
+	it("sizes again once the ledger or the Console log has changed", () => {
+		growAfterSizing();
+		const later = new Date(Date.now() + 5000);
+		fs.utimesSync(ledgerPath(), later, later);
+		expect(shown()).toMatchObject({ settledUsd: 12 });
+		appendTranscript(sessionIdOf("0000000b"), buildModelTurn(1_000_000, "r3"));
+		fs.appendFileSync(
+			path.join(refill, ".overflow-ledger", "WFC_TEST_KEY.console.jsonl"),
+			`${JSON.stringify({ at: Date.now(), started: true })}\n`,
+		);
+		expect(shown()).toMatchObject({ settledUsd: 16 });
+	});
+
+	it("sizes again for another seat declaration or root", () => {
+		growAfterSizing();
+		expect(
+			shownSeatBudget({ ...seat, dir: seatDir, grantUsd: 300 }, root),
+		).toMatchObject({ settledUsd: 12, grantUsd: 300 });
+		expect(shownSeatBudget({ ...seat, dir: seatDir }, tmp)).toEqual({
+			why: "the session cost table is unreadable",
+		});
+	});
+
+	it("keeps no budget that would not size", () => {
+		fs.writeFileSync(stub, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+		expect(budget()).toHaveProperty("why");
+		expect(fs.existsSync(keptPath())).toBe(false);
 	});
 });
 

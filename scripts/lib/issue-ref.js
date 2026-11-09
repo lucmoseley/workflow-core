@@ -25,6 +25,17 @@ function parseIssueRef(url) {
 }
 
 /**
+ * The issue a whole `owner/name#n` string names, or null.
+ * @param {unknown} text
+ * @returns {{repo: string, number: number} | null}
+ */
+function parseQualifiedRef(text) {
+	const m =
+		typeof text === "string" ? /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(text) : null;
+	return m?.[1] && m[2] ? { repo: m[1], number: Number(m[2]) } : null;
+}
+
+/**
  * `owner/name` from a `repository_url`, or null.
  * @param {string|null|undefined} url
  */
@@ -214,6 +225,7 @@ module.exports = {
 	isInOtherRepo,
 	isSameRepo,
 	parseIssueRef,
+	parseQualifiedRef,
 	parseRepoOfUrl,
 	refKey,
 	REF_FORMS,

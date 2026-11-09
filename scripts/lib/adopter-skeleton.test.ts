@@ -36,6 +36,7 @@ import {
 	TOOLS,
 	withIgnoreBlock,
 } from "./adopter-skeleton.js";
+import { ORIGINS } from "./issue-origin.js";
 import { readPluginStyles } from "./output-styles.js";
 import { CORE_ROOT, cutLocalGateBlock } from "./precommit-gate-testkit";
 import { runInProcess } from "./run-in-process";
@@ -988,9 +989,12 @@ describe("the settings keys", () => {
 });
 
 describe("the label plan", () => {
-	it("is the core's nineteen with no module on", () => {
+	it("is the core's nineteen and one origin label per class with no module on", () => {
 		const plan = labelPlan({ modules: [], categories: {} });
-		expect(plan).toHaveLength(19);
+		expect(plan).toHaveLength(19 + ORIGINS.length);
+		expect(plan.map((l) => l.name)).toEqual(
+			expect.arrayContaining(ORIGINS.map((o: string) => `origin:${o}`)),
+		);
 		expect(plan.map((l) => l.name)).toContain("parked");
 		expect(plan.map((l) => l.name)).not.toContain("manual-finding");
 		expect(plan.map((l) => l.name)).not.toContain("ci-red");
@@ -1008,7 +1012,7 @@ describe("the label plan", () => {
 			labelPlan({ modules, categories: {} }).map((l) => l.name);
 		expect(names(["governance"])).toContain("manual-finding");
 		expect(names(["suites"])).toContain("ci-red");
-		expect(names(["roadmap"])).toHaveLength(19);
+		expect(names(["roadmap"])).toHaveLength(19 + ORIGINS.length);
 	});
 
 	it("adds one label per category, even with the roadmap off", () => {
@@ -1019,7 +1023,7 @@ describe("the label plan", () => {
 		expect(plan.map((l) => l.name)).toEqual(
 			expect.arrayContaining(["tech", "ops"]),
 		);
-		expect(plan).toHaveLength(21);
+		expect(plan).toHaveLength(21 + ORIGINS.length);
 	});
 
 	it("has a description and a colour on every label", () => {

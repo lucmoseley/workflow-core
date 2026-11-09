@@ -204,6 +204,7 @@ function readSeatAccount(planDir) {
 
 module.exports = {
 	appendConsoleRow,
+	consoleLogFile,
 	isConsoleReadDue,
 	parseConsoleRead,
 	readConsoleLog,

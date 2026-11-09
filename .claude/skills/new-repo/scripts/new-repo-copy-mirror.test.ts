@@ -157,6 +157,7 @@ describe("new-repo.js copying a source repo", () => {
 				"Reconcile octo/surf-lib's agent instructions with the core's",
 			);
 			expect(ticket.labels.sort()).toEqual([
+				"origin:wayfinder",
 				"takes:wayfinder",
 				"wayfinder:grilling",
 			]);
