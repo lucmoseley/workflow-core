@@ -26,7 +26,7 @@
 # cannot load a repo-declared plugin's hooks (#1892), so it is refused like any
 # unguarded session.
 #
-# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent, names a root other than the main checkout's self-plugin, or is empty and newer than this script
+# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent, names a root other than the main checkout's self-plugin, or is empty
 # JUSTIFIED: fail-safe — a session the self-plugin did not load, or loaded from another tree, would otherwise run with no guards or another tree's, and nothing said
 # DEFEAT: none
 # TREE:   host — checks this session's self-plugin marker in the host root's markers against the main checkout
@@ -38,7 +38,7 @@ here="${BASH_SOURCE[0]%/*}"
 fault=""
 # The root a marker records where it is not the main checkout's self-plugin.
 loaded=""
-# Set where the marker records no root and is newer than this script.
+# Set where the marker records no root.
 unrooted=""
 
 # main_checkout — the parent of git's common dir for CLAUDE_PROJECT_DIR,
@@ -121,17 +121,10 @@ spm_marker_path marker || {
   fault="$marker unreadable"
   exit
 }
-# An empty marker older than this script is a writer's from before it
-# recorded the root (#4712): the levelling re-mark (#4711) does not cover a
-# main checkout moved by another route, nor a session started mid-pass (#4734).
-if [[ -z "$body" ]]; then
-  [[ "$marker" -ot "${BASH_SOURCE[0]}" ]] || {
-    unrooted=1
-    exit
-  }
-  trap - EXIT
-  exit 0
-fi
+[[ -n "$body" ]] || {
+  unrooted=1
+  exit
+}
 main="$(main_checkout)"
 # A checkout whose common dir is not named .git, a --separate-git-dir one or a
 # submodule, is refused with a valid marker too (#4712).
