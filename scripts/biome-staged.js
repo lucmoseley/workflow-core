@@ -22,12 +22,12 @@
  * symlinked node_modules does not restore them: a link whose target lies
  * outside the tree stays silent (#4085). Restoring them is #4639.
  *
- * Not a check-*.js: Biome's own report and exit code are the verdict. `biome`
- * is found on PATH, which `npm run` and the hook both point at
- * node_modules/.bin; a relative entry, as husky writes, is resolved against
- * the caller's directory, since Biome runs from the temp tree (#4079). A
- * commit adding, modifying or retyping no
- * path runs nothing and exits 0. Exits 2, BROKEN's code, where git cannot
+ * Not a check-*.js: Biome's own report is the verdict, any failing exit
+ * reading as 1. `biome` is found on PATH, which `npm run` and the hook both
+ * point at node_modules/.bin; a relative entry, as husky writes, is resolved
+ * against the caller's directory, since Biome runs from the temp tree
+ * (#4079). A commit adding, modifying or retyping no path runs nothing and
+ * exits 0. Exits 2, BROKEN's code, where git cannot
  * extract the index or biome will not start.
  *
  * cli-args-exempt: a pass-through wrapper; its argv is `biome check`'s.
@@ -100,7 +100,7 @@ function main() {
 			{ cwd: tree, env, stdio: "inherit" },
 		);
 		if (r.error) throw new Error(`biome would not start: ${r.error.message}`);
-		return r.status ?? 1;
+		return r.status === 0 ? 0 : 1;
 	} finally {
 		fs.rmSync(work, { recursive: true, force: true });
 	}

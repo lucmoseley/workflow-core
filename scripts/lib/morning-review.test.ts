@@ -86,6 +86,7 @@ const renderWith = (overrides: object) =>
 
 const QUIET_READING = {
 	checkout: "wfc",
+	alarms: [],
 	closesSince: SINCE,
 	decisionsSince: SINCE,
 	urgent: [],
@@ -349,6 +350,21 @@ describe("renderReview (#2011)", () => {
 		]);
 		expect(body).toContain(
 			"## Landing stalls\n\n- acme/a#41 — `Landing queue stalled`\n",
+		);
+	});
+
+	it("lists a queue alarm failed since main's last push under Landing stalls, with its run id and age (#4772)", () => {
+		const alarm = {
+			name: "Landing quiet 14h",
+			run: 3,
+			at: Date.parse(NOW) - 65 * 60 * 1000,
+			count: 2,
+		};
+		const body = render([
+			{ repo: "acme/a", entries: [], stalls: [], closed: [], alarms: [alarm] },
+		]);
+		expect(body).toContain(
+			"## Landing stalls\n\n- acme/a — `Landing quiet 14h` failed on run 3, 1 h 5 min ago, 2 failed runs since `main` last moved\n",
 		);
 	});
 
