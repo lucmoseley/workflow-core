@@ -3068,7 +3068,8 @@ const {
 	emissionMatches,
 	RULE_ARG_RE,
 } = require("./lib/rule-emission-calls.js");
-const { spawnGitSync } = require("./lib/git.js");
+const { readCommit } = require("./lib/commit-sha.js");
+const { gitReader, spawnGitSync } = require("./lib/git.js");
 const { readMergeHeadLines } = require("./lib/merge-heads.js");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -3731,12 +3732,9 @@ function sortClaims(found, snap, wanted, ours) {
  */
 function readDirtyInputs(inputs) {
 	if (inputs.length === 0) return { paths: [], error: null };
-	const head = spawnGitSync(
-		["-C", root, "rev-parse", "--verify", "-q", "HEAD^{commit}"],
-		{ encoding: "utf8" },
-	);
-	if (head.error) return { paths: [], error: head.error.message };
-	if (head.status !== 0) return { paths: [], error: null };
+	const head = readCommit(gitReader(root), "HEAD");
+	if (!head.ok) return { paths: [], error: head.why };
+	if (head.sha === null) return { paths: [], error: null };
 	const scope = ["--", ...inputs];
 	const tracked = gitPaths([
 		"--literal-pathspecs",
