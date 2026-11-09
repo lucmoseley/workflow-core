@@ -23,11 +23,106 @@ const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
 /* A finding ticketed here: the word then the issue it went to, as in
  * `TICKETED #4491`, `**TICKETED** (#4491)`, `TICKETED on #4491`,
  * `TICKETED → owner/repo#7` or an issue URL, and not one an earlier pass
- * ticketed. The separator is taken whole (`(?=(…))\k<…>`, an atomic group),
- * and an owner may start in its trailing `_`/`-` run, so no run is re-split at
- * every length (#4109). */
-const TICKETING =
-	/TICKETED(?<!(?:previously|already|earlier)\s+TICKETED)(?<![A-Za-z]TICKETED)(?=(?<sep>[\s,:;*_`(\u2014\u2013\u2192>-]*))\k<sep>(?:(?:(?:on|in|as|under|to)\s+)?(?:[\w.-]+\/[\w.-]+#\d|#\d|https?:\/\/\S+\/issues\/\d)|(?<=[_-])[\w.-]*\/[\w.-]+#\d)/;
+ * ticketed. Read by index, each character a fixed number of times: as one
+ * regex, a line of `TICKETED-` repeated read the line once per word (#4647). */
+const WORD = "TICKETED";
+const EARLIER = ["previously", "already", "earlier"];
+const SEPARATOR = /[\s,:;*_`(\u2014\u2013\u2192>-]/;
+const LINK_WORD = /(?:on|in|as|under|to)\s+/y;
+const OWNER_CHAR = /[\w.-]/;
+/* What ends an `owner/repo#<n>` past the owner, from its `/`. */
+const REPO_TAIL = /\/[\w.-]+#\d/y;
+const URL_HEAD = /https?:\/\//y;
+const ISSUE_PATH = /\/issues\/\d/y;
+
+const LETTER = /[A-Za-z]/;
+
+/** Whether sticky `re` matches `text` at `at`; its end, where it does. */
+function stickyEnd(
+	/** @type {RegExp} */ re,
+	/** @type {string} */ text,
+	/** @type {number} */ at,
+) {
+	re.lastIndex = at;
+	return re.test(text) ? re.lastIndex : -1;
+}
+
+/**
+ * Per position of `line`, plus its end: `owner`, whether an `owner/repo#<n>`
+ * starts there; `issue`, the last `/issues/<digit>` starting at or after it
+ * before the next whitespace, -1 for none.
+ * @param {string} line
+ */
+function targetTables(line) {
+	const owner = new Uint8Array(line.length + 1);
+	const issue = new Int32Array(line.length + 1).fill(-1);
+	for (let i = line.length - 1; i >= 0; i--) {
+		const c = line.charAt(i);
+		if (OWNER_CHAR.test(c))
+			owner[i] = OWNER_CHAR.test(line.charAt(i + 1))
+				? (owner[i + 1] ?? 0)
+				: Number(stickyEnd(REPO_TAIL, line, i + 1) !== -1);
+		if (/\S/.test(c)) {
+			const later = issue[i + 1] ?? -1;
+			issue[i] =
+				later !== -1 || stickyEnd(ISSUE_PATH, line, i) === -1 ? later : i;
+		}
+	}
+	return { owner, issue };
+}
+
+/**
+ * Whether `line` marks a finding ticketed: the word, no letter before it and
+ * no `previously`, `already` or `earlier` and whitespace; a run of separators;
+ * an optional `on`, `in`, `as`, `under` or `to`; then `#<n>`, `owner/repo#<n>`
+ * or an issue URL. An owner may open in the separators' trailing `_` or `-`.
+ * @param {string} line
+ */
+function namesTicketing(line) {
+	/** @type {ReturnType<typeof targetTables> | undefined} */
+	let tables;
+	for (
+		let at = line.indexOf(WORD);
+		at !== -1;
+		at = line.indexOf(WORD, at + 1)
+	) {
+		if (LETTER.test(line.charAt(at - 1)) || ticketedEarlier(line, at)) continue;
+		let end = at + WORD.length;
+		while (end < line.length && SEPARATOR.test(line.charAt(end))) end++;
+		tables ??= targetTables(line);
+		const linked = stickyEnd(LINK_WORD, line, end);
+		if (
+			issueAt(line, end, tables) ||
+			(linked !== -1 && issueAt(line, linked, tables)) ||
+			(/[_-]/.test(line.charAt(end - 1)) &&
+				stickyEnd(REPO_TAIL, line, end) !== -1)
+		)
+			return true;
+	}
+	return false;
+}
+
+/* Whether `previously`, `already` or `earlier` and any whitespace end at `at`:
+ * with none, the letter before `at` already refuses it. */
+function ticketedEarlier(/** @type {string} */ line, /** @type {number} */ at) {
+	let word = at;
+	while (word > 0 && /\s/.test(line.charAt(word - 1))) word--;
+	return EARLIER.some((w) => line.endsWith(w, word));
+}
+
+/**
+ * Whether `#<n>`, `owner/repo#<n>` or an issue URL starts at `at`.
+ * @param {string} line
+ * @param {number} at
+ * @param {ReturnType<typeof targetTables>} tables
+ */
+function issueAt(line, at, { owner, issue }) {
+	if (line.charAt(at) === "#" && /\d/.test(line.charAt(at + 1))) return true;
+	if (owner[at]) return true;
+	const path = stickyEnd(URL_HEAD, line, at);
+	return path !== -1 && (issue[path] ?? -1) > path;
+}
+
 const HEADS = new RegExp(`${REVIEWED_THROUGH.source}|${TICKETED.source}`);
 const TAG =
 	/\bclaimed by\s+\S|\bneeds its own design:\s*\S|\bexposed, not caused\b/i;
@@ -51,7 +146,7 @@ function untaggedTicketed(comment) {
 	if (!masked.some((line) => REVIEWED_THROUGH.test(line))) return [];
 	const raw = comment.split("\n");
 	return masked.flatMap((line, i) => {
-		if (!TICKETING.test(line)) return [];
+		if (!namesTicketing(line)) return [];
 		const text = raw[i];
 		if (text === undefined)
 			throw new Error(

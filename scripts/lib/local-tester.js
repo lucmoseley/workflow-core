@@ -29,6 +29,10 @@ const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
 const { writeFd } = require("./write-fd.js");
+const {
+	hasLineTerminator,
+	LINE_TERMINATORS,
+} = require("./line-terminators.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const { rungMb } = require("./suite-ladder.js");
 const {
@@ -98,12 +102,11 @@ const STAMP = path.join("node_modules", ".lander-lock-hash");
 const LOCKFILE = "package-lock.json";
 const VITEST_FAIL = /^\s*FAIL\s+(\S+)/;
 const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
-/* A name ends on a non-space, or is one space where nothing else is left;
- * `(.+?)\s*$` would retry the trailing match from every character (#4109). */
-const VITEST_TEST =
-	/^\s*FAIL\s+(\S+)\s+(?:>\s+)?(\S(?:.*\S)?|[^\S\n\r\u2028\u2029](?=[\n\r\u2028\u2029]*$))\s*$/;
-const PYTEST_TEST =
-	/^(?:FAILED|ERROR)\s+([^\s:]+)::(.(?:.*?\S)??)(?:\s+-\s+(\S(?:.*\S)?|(?=$)))?\s*$/;
+/* The heads of a failing test's line; the name after each is read by index,
+ * as a regex ending `(.+?)\s*$` retries its tail from every character (#4647). */
+const VITEST_TEST = /^\s*FAIL\s+(\S+)(\s+)/;
+const PYTEST_TEST = /^(?:FAILED|ERROR)\s+([^\s:]+)::/;
+const VITEST_ARROW = /^>(\s+)/;
 const VITEST_END = /^[✓×❯⎯↓]/;
 const DIFF_LINE = /^[-+]\s/;
 const DIFF_HEADER = /^(?:- Expected|\+ Received)\b/;
@@ -206,10 +209,8 @@ const buildSignature = (text) =>
 function parseFailingTests(out) {
 	/** @type {Map<string, import("./queue-lander.js").Failure>} */
 	const tests = new Map();
-	/** @param {RegExpMatchArray} m @param {RegExp} re */
-	const named = (m, re) => {
-		const file = requiredGroup(m, 1, re);
-		const test = requiredGroup(m, 2, re);
+	/** @param {FailingTest} t */
+	const named = ({ file, test }) => {
 		const key = `${file}\0${test}`;
 		const failure = tests.get(key) ?? { file, test };
 		tests.set(key, failure);
@@ -218,19 +219,128 @@ function parseFailingTests(out) {
 	/** @type {OpenError} */
 	const open = { unread: [], lines: [] };
 	for (const line of parsePlainLines(out)) {
-		const v = line.match(VITEST_TEST);
-		const p = line.match(PYTEST_TEST);
+		const v = vitestTest(line);
+		const p = v ? null : pytestTest(line);
 		if (v) {
 			if (open.lines.length > 0) closeError(open);
-			open.unread.push(named(v, VITEST_TEST));
+			open.unread.push(named(v));
 		} else if (p) {
 			closeError(open);
-			if (p[3]) withError(named(p, PYTEST_TEST), p[3]);
-			else named(p, PYTEST_TEST);
+			if (p.message) withError(named(p), p.message);
+			else named(p);
 		} else readErrorLine(open, line);
 	}
 	closeError(open);
 	return [...tests.values()];
+}
+
+/**
+ * @typedef {{file: string, test: string, message?: string}} FailingTest
+ *   `message` pytest's, after ` - ` on the test's line
+ */
+
+const isSpace = (/** @type {string | undefined} */ c) =>
+	c !== undefined && c.trim() === "";
+
+/**
+ * A test name read from `after`, the line past its head's whitespace `gap`:
+ * `after` less its trailing whitespace, holding no line terminator. Where
+ * nothing follows the gap, the name is the gap's last character other than a
+ * line terminator, past its first.
+ * @param {string} gap
+ * @param {string} after
+ * @returns {string | null}
+ */
+function nameAfter(gap, after) {
+	if (after === "")
+		return (
+			[...gap.slice(1)].findLast((c) => !LINE_TERMINATORS.includes(c)) ?? null
+		);
+	const name = after.trimEnd();
+	return hasLineTerminator(name) ? null : name;
+}
+
+/**
+ * The test a vitest `FAIL  <file> > <test>` line names, the `> ` optional;
+ * where a lone `>` is all that follows, that `>` is the name.
+ * @param {string} line
+ * @returns {FailingTest | null}
+ */
+function vitestTest(line) {
+	const head = VITEST_TEST.exec(line);
+	if (!head) return null;
+	const rest = line.slice(head[0].length);
+	const arrow = VITEST_ARROW.exec(rest);
+	const test =
+		(arrow &&
+			nameAfter(
+				requiredGroup(arrow, 1, VITEST_ARROW),
+				rest.slice(arrow[0].length),
+			)) ??
+		nameAfter(requiredGroup(head, 2, VITEST_TEST), rest);
+	return test === null
+		? null
+		: { file: requiredGroup(head, 1, VITEST_TEST), test };
+}
+
+/**
+ * The test a pytest `FAILED <file>::<test> - <message>` line names, the
+ * message optional; without one, the test runs to the line's trailing
+ * whitespace and holds no line terminator.
+ * @param {string} line
+ * @returns {FailingTest | null}
+ */
+function pytestTest(line) {
+	const head = PYTEST_TEST.exec(line);
+	if (!head) return null;
+	const file = requiredGroup(head, 1, PYTEST_TEST);
+	const rest = line.slice(head[0].length);
+	const end = rest.trimEnd().length;
+	const split = messageSplit(rest, end);
+	if (split)
+		return {
+			file,
+			test: rest.slice(0, split.testEnd),
+			message: rest.slice(split.from, end),
+		};
+	const test = rest.slice(0, Math.max(end, 1));
+	return test === "" || hasLineTerminator(test)
+		? null
+		: { file, test, message: "" };
+}
+
+/**
+ * Where pytest's ` - ` splits `rest`, the line past `<file>::`, whose text
+ * ends at `end`: the first one whose test before it, of at least one
+ * character, and whose message after it, trimmed, hold no line terminator.
+ * @param {string} rest
+ * @param {number} end
+ * @returns {{testEnd: number, from: number} | null} the test's end and the
+ *   message's start
+ */
+function messageSplit(rest, end) {
+	const firstBreak = Math.min(
+		rest.length,
+		...LINE_TERMINATORS.map((c) => rest.indexOf(c)).filter((i) => i !== -1),
+	);
+	const text = rest.slice(0, end);
+	const lastBreak = Math.max(
+		...LINE_TERMINATORS.map((c) => text.lastIndexOf(c)),
+	);
+	for (
+		let dash = rest.indexOf("-", 2);
+		dash !== -1;
+		dash = rest.indexOf("-", dash + 1)
+	) {
+		if (!isSpace(rest[dash - 1]) || !isSpace(rest[dash + 1])) continue;
+		let testEnd = dash - 1;
+		while (testEnd > 1 && isSpace(rest[testEnd - 1])) testEnd--;
+		if (testEnd > firstBreak) return null;
+		let from = dash + 1;
+		while (isSpace(rest[from])) from++;
+		if (lastBreak < from) return { testEnd, from };
+	}
+	return null;
 }
 
 /**

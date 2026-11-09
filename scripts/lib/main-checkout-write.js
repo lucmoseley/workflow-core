@@ -46,6 +46,7 @@ const { caught } = require("./caught.js");
 const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
+const { LINE_TERMINATORS } = require("./line-terminators.js");
 const {
 	absolute,
 	literal,
@@ -138,9 +139,7 @@ function restoreSource(w, next) {
  */
 function shortClusterRest(w) {
 	if (!w.startsWith("-")) return null;
-	const lastBreak = Math.max(
-		...["\n", "\r", "\u2028", "\u2029"].map((c) => w.lastIndexOf(c)),
-	);
+	const lastBreak = Math.max(...LINE_TERMINATORS.map((c) => w.lastIndexOf(c)));
 	const s = w.indexOf("s", Math.max(1, lastBreak + 1));
 	return s === -1 || w.slice(1, s).includes("-") ? null : w.slice(s + 1);
 }
