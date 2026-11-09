@@ -129,7 +129,11 @@ const stdinGit = (root, input) =>
 		cwd: root,
 		input,
 		encoding: /** @type {const} */ ("utf8"),
-		stdio: /** @type {const} */ (["pipe", "pipe", "ignore"]),
+		stdio: /** @type {import("node:child_process").StdioOptions} */ ([
+			"pipe",
+			"pipe",
+			"ignore",
+		]),
 		timeout: GIT_TIMEOUT_MS,
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
