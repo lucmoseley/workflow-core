@@ -721,7 +721,6 @@
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-format-staged.test.ts",
-			"scripts/check-gh-route.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
 			"scripts/check-guard-registry-expiry.test.ts",
@@ -9567,7 +9566,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/arbiter-testkit.ts": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -9584,6 +9582,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/arbiter-testkit.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
@@ -12525,7 +12524,6 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/allowance.test.ts",
-			"scripts/check-gh-route.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -12553,6 +12551,7 @@
 			"scripts/launch.test.ts",
 			"scripts/lib/claude-attach.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -17040,123 +17039,126 @@
 			"scripts/usage-probe.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/cites.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-copies.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-helper-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-lib.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-on-primitive.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-path-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-second-var.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-wfc-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/env-read.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/gh-lib.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/helper-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/literal-spawn-marked.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/literal-spawn.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/on-primitive.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/other-helper-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/other-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/path-stub-exempt.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/path-stub-joined.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/path-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/second-var-marked.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/second-var.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/second-var.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/sets.js.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/wfc-stub.ts.txt": [
-			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/blocked-by-page.json": [
@@ -18375,7 +18377,6 @@
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
-			"scripts/check-gh-route.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -18415,6 +18416,7 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh-route.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",
 			"scripts/lib/git.test.ts",
