@@ -4,7 +4,8 @@
  * through `gh` with the read access the token already has.
  *
  * Green only on a finished, successful run whose every Vitest shard job and
- * whose `Suite passed` job passed, naming the run; red on a failed one, with
+ * whose `Suite passed` job passed, naming the run and the files its in-job
+ * retry cleared, the batch's flakes (#4558); red on a failed one, with
  * its failing jobs and the test files their logs name. A push run that
  * never appears is a red naming no file, marked `noRun`: the tree fires no
  * run on the ref (#4571). A run in progress at the wait bound, ended any
@@ -26,8 +27,9 @@
  * check, are run alone by named-rerun.yml. At any other sha a
  * `lander/batch-<k>` run covers they are read off that run, a failed one
  * rerunning its failed jobs; elsewhere they go to named-rerun.yml too, under
- * its daily cap. Its `cancel` cancels the newest unfinished run at a sha on
- * a batch ref, one the lander no longer wants (#4556).
+ * its daily cap. Its `cancel` cancels every unfinished run on a batch ref
+ * but the one at the sha the lander is about to test, naming every sha the
+ * ref lists a run at (#4556, #4576).
  */
 
 const { execFileSync } = require("node:child_process");
@@ -40,7 +42,7 @@ const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
-const { STILL_FAILING } = require("../retry-failed-files.js");
+const { CLEARED, STILL_FAILING } = require("../retry-failed-files.js");
 const {
 	LANDER_BATCH_PREFIX,
 	LANDER_ISO_PREFIX,
@@ -96,8 +98,9 @@ const RUNNER_STEPS = new Set([
 	"Install test tools",
 	"Full history",
 ]);
-/* ci.yml's step re-running a lander batch's failed files once, and the line
- * it ends on naming those still failing (retry-failed-files.js, #4545). */
+/* ci.yml's step re-running a lander batch's failed files once, and the lines
+ * it ends on naming those it cleared and those still failing
+ * (retry-failed-files.js, #4545). */
 const RETRY_STEP = "Retry failed files";
 /* New attempts of a run whose runner failed to ready, before no verdict. A
  * first guess, and stated as one. */
@@ -106,12 +109,13 @@ const RUNNER_RERUNS = 2;
 /**
  * @typedef {{databaseId: number, headSha: string, attempt: number,
  *   conclusion: string|null}} Run a `gh run list` row
- * @typedef {{name: string, conclusion: string|null,
+ * @typedef {{name: string, conclusion: string|null, databaseId?: number,
  *   steps?: {name: string, conclusion: string|null}[]}} Job
  * @typedef {object} Reads
  * @property {() => Run[]} runs the push runs on the tested branch
  * @property {(run: number) => Job[]} jobsOf
  * @property {(run: number) => string} failedLogOf `gh run view --log-failed`
+ * @property {(job: number) => string} jobLogOf `gh run view --job <id> --log`
  * @property {(sha: string, files: string[]) => string[]} presentAt those of
  *   `files` the tree at `sha` holds
  * @property {(run: number) => void} rerun starts a new attempt of the run's
@@ -202,9 +206,14 @@ function runVerdict(sha, reads, after) {
 	if (run.conclusion === "success") {
 		/* GitHub concludes `success` over jobs that all skipped. */
 		const gap = greenGap(jobs);
-		return gap === null
-			? { kind: "green", run: id }
-			: { kind: "unknown", reason: `run ${id} passed, but ${gap}` };
+		if (gap !== null)
+			return { kind: "unknown", reason: `run ${id} passed, but ${gap}` };
+		const cleared = readCleared(sha, jobs, reads);
+		return {
+			kind: "green",
+			run: id,
+			...(cleared.length > 0 ? { cleared } : {}),
+		};
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
@@ -271,22 +280,63 @@ function readFailed(sha, run, reads, atRetry = false) {
 	const log = stripLogPrefix(reads.failedLogOf(run));
 	const files = reads.presentAt(
 		sha,
-		atRetry ? parseStillFailing(log) : parseFailingFiles(log),
+		atRetry ? parseRetryLine(log, STILL_FAILING) : parseFailingFiles(log),
 	);
 	const failures = parseFailingTests(log).filter((t) => files.includes(t.file));
 	return { files, ...(failures.length > 0 ? { failures } : {}) };
 }
 
 /**
- * The files each retry step's last line names still failing, across shards.
- * @param {string} log
+ * The tree's files the in-job retry cleared on a passed run's shards, read
+ * off the log of each shard whose retry step ran and passed. A read that
+ * fails costs the record, never the green (#4558), and says so on stderr,
+ * which the lander's log takes.
+ * @param {string} sha
+ * @param {readonly Job[]} jobs
+ * @param {Pick<Reads, "jobLogOf" | "presentAt">} reads
  * @returns {string[]}
  */
-function parseStillFailing(log) {
+function readCleared(sha, jobs, reads) {
+	const retried = jobs.filter((j) =>
+		(j.steps ?? []).some(
+			(s) => s.conclusion === "success" && s.name === RETRY_STEP,
+		),
+	);
+	if (retried.length === 0) return [];
+	try {
+		const files = retried.flatMap((j) => {
+			if (j.databaseId === undefined)
+				throw new Error(`job ${j.name} lists no id`);
+			/* The retry step's own lines: a test's output can print the
+			 * cleared line as its fixture. */
+			const own = reads
+				.jobLogOf(j.databaseId)
+				.split("\n")
+				.filter((line) => line.split("\t")[1] === RETRY_STEP)
+				.join("\n");
+			return parseRetryLine(stripLogPrefix(own), CLEARED);
+		});
+		return files.length > 0 ? reads.presentAt(sha, [...new Set(files)]) : [];
+	} catch (err) {
+		writeFd(
+			2,
+			`lander: flakes at ${sha.slice(0, SHORT_SHA)} unread: ${parseErrorText(err)}\n`,
+		);
+		return [];
+	}
+}
+
+/**
+ * The files each retry step's line opening `prefix` names, across shards.
+ * @param {string} log
+ * @param {string} prefix
+ * @returns {string[]}
+ */
+function parseRetryLine(log, prefix) {
 	const files = log.split("\n").flatMap((line) => {
-		const at = line.indexOf(STILL_FAILING);
+		const at = line.indexOf(prefix);
 		if (at === -1) return [];
-		const named = line.slice(at + STILL_FAILING.length).trim();
+		const named = line.slice(at + prefix.length).trim();
 		return named === "none" ? [] : named.split(", ");
 	});
 	return [...new Set(files)];
@@ -344,6 +394,7 @@ function liveReads(root) {
 		jobsOf: (run) =>
 			JSON.parse(gh(["run", "view", String(run), "--json", "jobs"])).jobs,
 		failedLogOf: (run) => gh(["run", "view", String(run), "--log-failed"]),
+		jobLogOf: (job) => gh(["run", "view", "--job", String(job), "--log"]),
 		/* ls-tree lists only the paths present and exits 0 either way, so a
 		 * throw is a failed read, never a missing file. */
 		presentAt: (sha, files) => {
@@ -702,11 +753,19 @@ function queueTester({
 				reads: { ...reads, runs: () => reads.runsOn(branch) },
 			};
 			if (files.length === 0 && !again) return suiteVerdict(sha, 0, on);
-			return rerunVerdict(sha, files, on, named);
+			/* The batch's flakes are its first whole-suite ask's to record: a
+			 * later ask read off the same run would record them again. */
+			const { cleared: _, ...v } =
+				/** @type {Verdict & {cleared?: string[]}} */ (
+					await rerunVerdict(sha, files, on, named)
+				);
+			return v;
 		},
-		cancel(sha, branch) {
-			const run = newestRun(sha, reads.runsOn(branch));
-			if (run && !run.conclusion) reads.cancel(run.databaseId);
+		cancel(branch, keep) {
+			const listed = reads.runsOn(branch);
+			for (const r of listed)
+				if (!r.conclusion && r.headSha !== keep) reads.cancel(r.databaseId);
+			return [...new Set(listed.map((r) => r.headSha))];
 		},
 	};
 }
