@@ -9,7 +9,6 @@ runs it instead, and the log outlives the boot.
            nothing. Otherwise, at 28 h up and 1,900 MB available, runs 1, 2, 4,
            8 and 8 concurrent 100 MB allocations and appends their times; short
            of either, appends a `NO BENCH` line, and the timer retries.
-  latest   prints the newest bench line, or `no 28 h bench yet`: #3246's check.
   install  copies this script to INSTALLED, so removing a worktree leaves the
            unit whole; writes the service and timer to the user's systemd dir
            from the templates beside it; enables the timer. Re-run it to take
@@ -17,13 +16,15 @@ runs it instead, and the log outlives the boot.
              python3 scripts/fault_bench.py install
            WFC_SYSTEMCTL names the systemctl to call.
 
-Each line carries the boot's start (`uptime -s`), its uptime, the guest's
-MemAvailable and Windows' free memory off memwatch's newest minute line.
+Each line carries the boot's start (`uptime -s`), its uptime, `.wslconfig`'s
+autoMemoryReclaim, the guest's MemAvailable and Windows' free memory off
+memwatch's newest minute line. #3246 gates on a line reading `reclaim disabled`.
 
 Exit codes: 0; 1 where a read, write or systemctl call fails; 2 on a command line.
 """
 
 import argparse
+import glob
 import json
 import os
 import subprocess
@@ -36,10 +37,11 @@ from pathlib import Path
 # earlyoom's 794 + the bench's 800 + a 300 margin.
 MIN_UPTIME_S = 100_800
 MIN_AVAIL_MB = 1_900
+# #3246's bench shape: concurrent 100 MB allocations, its repeated 8 the
+# burst that read 37.9 s under `gradual`.
 ROUNDS = (1, 2, 4, 8, 8)
 ALLOC = "b=bytearray(100*1024*1024)"
 NO_BENCH = "NO BENCH"
-NONE_YET = "no 28 h bench yet"
 # Read from the minute log's end: a line is ~800 bytes, so this holds several
 # whole lines, a torn last one included.
 TAIL_BYTES = 16384
@@ -53,6 +55,7 @@ MINUTE_LOG = HOME / "memwatch-minute.jsonl"
 UPTIME = "/proc/uptime"
 MEMINFO = "/proc/meminfo"
 BOOT_ID = "/proc/sys/kernel/random/boot_id"
+WSLCONFIGS = "/mnt/c/Users/*/.wslconfig"
 
 
 def read_uptime_s(path=UPTIME):
@@ -68,6 +71,18 @@ def read_avail_mb(path=MEMINFO):
 
 def read_boot_id(path=BOOT_ID):
     return Path(path).read_text().strip()[:8]
+
+
+def reclaim_mode(pattern=WSLCONFIGS):
+    """`.wslconfig`'s autoMemoryReclaim, `unread` where no one file names it.
+    The file as it reads now: a change takes at the next boot, not this one."""
+    modes = set()
+    for path in glob.glob(pattern):
+        for raw in Path(path).read_text(errors="replace").splitlines():
+            key, _, value = raw.partition("=")
+            if key.strip().lower() == "automemoryreclaim":
+                modes.add(value.strip())
+    return modes.pop() if len(modes) == 1 else "unread"
 
 
 def windows_reading(minute_log, now):
@@ -104,9 +119,10 @@ def bench(python):
     for n in ROUNDS:
         start = time.monotonic_ns()
         procs = [subprocess.Popen([python, "-I", "-c", ALLOC]) for _ in range(n)]
-        for p in procs:
-            p.wait()
-        out.append(f"{n} x 100 MB: {(time.monotonic_ns() - start) // 1_000_000} ms")
+        failed = sum(p.wait() != 0 for p in procs)
+        ms = (time.monotonic_ns() - start) // 1_000_000
+        # A killed allocation's time understates the round, so it is named (#4768).
+        out.append(f"{n} x 100 MB: {ms} ms" + (f" ({failed} failed)" if failed else ""))
     return out
 
 
@@ -127,6 +143,7 @@ def run(
     uptime=UPTIME,
     meminfo=MEMINFO,
     boot_id=BOOT_ID,
+    wslconfigs=WSLCONFIGS,
     python=sys.executable,
 ):
     """One timer firing. Returns the line it appended, or None."""
@@ -142,6 +159,7 @@ def run(
     head = (
         f"{datetime.fromtimestamp(now).astimezone().strftime('%Y-%m-%dT%H:%M:%S%z')}"
         f" boot {boot} up since {started} ({up / 3600:.1f} h),"
+        f" reclaim {reclaim_mode(wslconfigs)},"
         f" MemAvailable {avail:,} MB, {windows_reading(minute_log, now)}"
     )
     if up < MIN_UPTIME_S or avail < MIN_AVAIL_MB:
@@ -153,21 +171,12 @@ def run(
     return line
 
 
-def latest(log):
-    try:
-        lines = Path(log).read_text().splitlines()
-    except FileNotFoundError:
-        # No log yet: the timer has not fired on any boot (#4768).
-        return NONE_YET
-    benches = [line for line in lines if " boot " in line and NO_BENCH not in line]
-    return benches[-1] if benches else NONE_YET
-
-
 def render(template, script, log, minute_log):
     return (
         template.replace("@SCRIPT@", str(script))
         .replace("@LOG@", str(log))
         .replace("@MINUTE_LOG@", str(minute_log))
+        .replace("@BOOT_SEC@", f"{MIN_UPTIME_S}s")
     )
 
 
@@ -216,8 +225,6 @@ def main(argv=None):
     r = sub.add_parser("run")
     r.add_argument("--log", default=str(LOG))
     r.add_argument("--minute-log", default=str(MINUTE_LOG))
-    lt = sub.add_parser("latest")
-    lt.add_argument("--log", default=str(LOG))
     sub.add_parser("install")
     args = parser.parse_args(argv)
     try:
@@ -225,9 +232,6 @@ def main(argv=None):
             line = run(args.log, args.minute_log)
             if line:
                 print(line)
-            return 0
-        if args.cmd == "latest":
-            print(latest(args.log))
             return 0
         return install(INSTALLED, user_units(), LOG, MINUTE_LOG)
     except OSError as err:

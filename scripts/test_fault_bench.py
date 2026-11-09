@@ -28,6 +28,11 @@ def box(tmp_path):
     log = tmp_path / "fault-bench.log"
     minute = tmp_path / "minute.jsonl"
     boot_id.write_text("abcdef12-3456\n")
+    (tmp_path / "Users/luc").mkdir(parents=True)
+    wslconfig = tmp_path / "Users/luc/.wslconfig"
+    wslconfig.write_text(
+        "[wsl2]\nmemory=10GB\n[experimental]\nautoMemoryReclaim=disabled\n"
+    )
 
     def run(up_s, avail_mb):
         uptime.write_text(f"{up_s} 1.00\n")
@@ -35,7 +40,13 @@ def box(tmp_path):
             f"MemTotal: 10000000 kB\nMemAvailable: {avail_mb * 1024} kB\n"
         )
         return f.run(
-            log, minute, uptime=uptime, meminfo=meminfo, boot_id=boot_id, python=TRUE
+            log,
+            minute,
+            uptime=uptime,
+            meminfo=meminfo,
+            boot_id=boot_id,
+            wslconfigs=str(tmp_path / "Users/*/.wslconfig"),
+            python=TRUE,
         )
 
     def lines():
@@ -49,7 +60,10 @@ def test_benches_at_28_h_and_1900_mb(box):
     line = run(100_800, 1_900)
     assert lines() == [line]
     assert " boot abcdef12 up since " in line
-    assert "(28.0 h), MemAvailable 1,900 MB, Windows unread: 1 x 100 MB: " in line
+    assert (
+        "(28.0 h), reclaim disabled, MemAvailable 1,900 MB, Windows unread: 1 x 100 MB: "
+        in line
+    )
     assert line.count(" x 100 MB: ") == 5
     assert f.NO_BENCH not in line
 
@@ -66,6 +80,43 @@ def test_no_bench_under_1900_mb_and_the_next_firing_retries(box):
 def test_no_bench_under_28_h(box):
     run, *_ = box
     assert f.NO_BENCH in run(100_799, 8_000)
+
+
+def test_a_failed_allocation_is_named(box, tmp_path):
+    run, *_ = box
+    false = shutil.which("false")
+    up, mem = tmp_path / "uptime", tmp_path / "meminfo"
+    up.write_text("100800 1.00\n")
+    mem.write_text("MemAvailable: 4096000 kB\n")
+    line = f.run(
+        tmp_path / "log",
+        tmp_path / "none",
+        uptime=up,
+        meminfo=mem,
+        boot_id=tmp_path / "boot_id",
+        wslconfigs=str(tmp_path / "none/*"),
+        python=false,
+    )
+    assert "8 x 100 MB: " in line and "(8 failed)" in line
+
+
+def test_the_proc_readers_parse_the_real_files():
+    for path in (f.UPTIME, f.MEMINFO, f.BOOT_ID):
+        if not Path(path).exists():
+            pytest.skip(f"no {path}")
+    assert f.read_uptime_s() > 0
+    assert f.read_avail_mb() > 0
+    assert len(f.read_boot_id()) == 8
+
+
+def test_reclaim_reads_unread_with_no_file_or_two_that_disagree(tmp_path):
+    assert f.reclaim_mode(str(tmp_path / "*/.wslconfig")) == "unread"
+    for user, mode in (("a", "disabled"), ("b", "gradual")):
+        (tmp_path / user).mkdir()
+        (tmp_path / user / ".wslconfig").write_text(f"autoMemoryReclaim = {mode}\n")
+    assert f.reclaim_mode(str(tmp_path / "*/.wslconfig")) == "unread"
+    (tmp_path / "b/.wslconfig").write_text("AutoMemoryReclaim=disabled\n")
+    assert f.reclaim_mode(str(tmp_path / "*/.wslconfig")) == "disabled"
 
 
 def test_one_bench_a_boot(box):
@@ -86,32 +137,6 @@ def test_windows_figure_reads_memwatch_and_skips_a_torn_line(box):
         + '\n{"ts": "2026-11-09T20:1'
     )
     assert ", Windows 2,239 MB (" in run(100_800, 4_000)
-
-
-def test_latest_skips_no_bench_lines(box):
-    run, _, boot_id, log, _ = box
-    assert f.latest(log) == f.NONE_YET
-    run(100_000, 4_000)
-    assert f.latest(log) == f.NONE_YET
-    bench = run(100_800, 4_000)
-    boot_id.write_text("99999999-0000\n")
-    run(100_800, 1_000)
-    assert f.latest(log) == bench
-
-
-def test_cli_latest_with_no_log(tmp_path):
-    done = subprocess.run(
-        [
-            sys.executable,
-            str(HERE / "fault_bench.py"),
-            "latest",
-            "--log",
-            str(tmp_path / "none"),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert (done.returncode, done.stdout) == (0, f"{f.NONE_YET}\n")
 
 
 def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
@@ -135,7 +160,8 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
     # The unit runs the installed copy, which outlives any worktree.
     assert f'"{installed}" run --log "{home / "fault-bench.log"}"' in service
     assert "@" not in service
-    assert "OnBootSec=28h" in (units / "fault-bench.timer").read_text()
+    # Rendered from scripts/fault-bench.service.template and scripts/fault-bench.timer.template.
+    assert "OnBootSec=100800s" in (units / "fault-bench.timer").read_text()
     assert calls() == [
         "--user daemon-reload",
         "--user enable --now fault-bench.timer",
