@@ -464,7 +464,7 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 	/* A 4-file head held from minute 0 to its bound with no run alive, and a
 	 * 1-file part waiting from minute 10, past PART_PASS_AGE_MS, that fits:
 	 * MemAvailable between the two rungs. */
-	const held = (shift: number) => {
+	const held = (shift: number, alongside: Run[] = []) => {
 		const later = (t: number) => t + shift;
 		const used = 10_000 - (suiteRungMb(1) + suiteRungMb(4)) / 2;
 		const r = replay(
@@ -479,6 +479,7 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 				runs: [
 					{ from: 30, to: 35, session: "s-0", resolvedFiles: 4 },
 					{ from: 12, to: 13, session: "s-1", resolvedFiles: 1 },
+					...alongside,
 				].map((spec) => {
 					const x = run(spec);
 					return { ...x, st: later(x.st), en: later(x.en) };
@@ -499,10 +500,21 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 		);
 	};
 
+	/* Any tick after #4783's commit. */
 	it("lets the part that fits pass, from #4783's commit", () => {
 		expect(held(Date.parse("2026-11-10T00:00:00Z") - T0)).toEqual({
 			open: 120,
 		});
+	});
+
+	/* One worker running: the part still fits its rung, but that run's end
+	 * could let the head in, so the head is not at rest. */
+	it("holds the part behind a head a running run's end could let in", () => {
+		expect(
+			held(Date.parse("2026-11-10T00:00:00Z") - T0, [
+				{ from: 0, to: 40, session: "s-9", resolvedFiles: 1 },
+			]),
+		).toEqual({ "fifo-part": 120 });
 	});
 
 	it("held it behind the head before", () => {

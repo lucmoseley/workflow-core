@@ -1081,8 +1081,9 @@ function peerClimbTurn(
  * back gains it nothing.
  *
  * Residual: the stamp is a poll old, so a part-suite may pass one whose
- * memory freed or whose rest ended since; memory freed outside the queue while
- * a passer runs waits on that passer's end; and a drop that will not write leaves the stamp, letting
+ * memory freed or whose rest ended since; memory freed outside the queue, or
+ * by a `tsc` or build past its climb, which `busy` does not count, while a
+ * passer runs waits on that passer's end; and a drop that will not write leaves the stamp, letting
  * younger ones pass until the age bound, or a `windowsHeld` one for as long
  * as its marker lives.
  *

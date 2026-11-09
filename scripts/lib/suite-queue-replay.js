@@ -107,7 +107,7 @@ const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
 const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
 /* #4783's commit, from which a part waiter passes an older one held at rest
  * past PART_PASS_AGE_MS. */
-const REST_PASS_FROM = Date.parse("2026-11-09T14:55:12Z");
+const REST_PASS_FROM = Date.parse("2026-11-09T15:00:37Z");
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
 /* A process line of a memwatch block: `PID RSS COMMAND`, or
@@ -652,8 +652,7 @@ const isRungHeld = (e, tick, w) =>
  * where its memory rung does at a tick no test worker runs, else
  * `windowsHeld` where the Windows hold does; and another waiter between its
  * `opened` exit and its spawn. #3058's pass is on from its commit, the
- * Windows stamp from #4782's, and the rest stamp from #4783's. The replay
- * reads no climb charge per tick, so a climb never ends a rest here.
+ * Windows stamp from #4782's, and the rest stamp from #4783's.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -669,7 +668,10 @@ function turnReasonsOf(e, tick, w) {
 			spawned: false,
 			memoryHeld: isRungHeld(o, tick, w),
 			restHeld:
-				tick.t >= REST_PASS_FROM && tick.busy === 0 && isMemoryHeld(o, tick, w),
+				tick.t >= REST_PASS_FROM &&
+				tick.busy === 0 &&
+				!o.climbMb &&
+				isMemoryHeld(o, tick, w),
 			windowsHeld:
 				tick.t >= WINDOWS_PASS_FROM &&
 				!isRungHeld(o, tick, w) &&
