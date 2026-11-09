@@ -84,6 +84,7 @@ const {
 	mapSkipLine,
 } = require("./lib/doc-map");
 const { caught } = require("./lib/caught.js");
+const { escapeRe } = require("./lib/regex-group.js");
 const { reportGroupedHits } = require("./lib/grouped-hits");
 
 /**
@@ -91,11 +92,10 @@ const { reportGroupedHits } = require("./lib/grouped-hits");
  * @param {string} literal
  */
 function fromLiteral(literal) {
-	const body = literal
-		.replace(/`/g, "")
-		.trim()
-		.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-		.replace(/\s+/g, "[\\s`]+");
+	const body = escapeRe(literal.replace(/`/g, "").trim()).replace(
+		/\s+/g,
+		"[\\s`]+",
+	);
 	return body ? new RegExp(body, "i") : null;
 }
 

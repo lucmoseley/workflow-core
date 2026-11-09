@@ -56,8 +56,7 @@ const select = (top: string, flags: string, from = ".", prefix = "") => {
 	const { dirs } = resolveSelection(
 		selection,
 		path.join(top, from),
-		top,
-		buildPackageTree(top).readCachedPackage,
+		buildPackageTree(top),
 	);
 	return dirs.map((d: string) => path.relative(top, d) || ".");
 };

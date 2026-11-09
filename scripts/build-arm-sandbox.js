@@ -65,6 +65,7 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
 const { jobStorePath } = require("./lib/job-paths.js");
 const { isUnder, relativeUnder } = require("./lib/is-under.js");
+const { escapeRe } = require("./lib/regex-group.js");
 const {
 	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_ID,
@@ -195,9 +196,6 @@ function readRealOrNull(p) {
 		return null;
 	}
 }
-
-/** @param {string} s */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Copy each config entry into `dest`, from the source dir or, failing that,

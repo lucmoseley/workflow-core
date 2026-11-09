@@ -10,6 +10,7 @@
 const { MOVED_LINE } = require("./land-refusal.js");
 const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
+const { escapeRe } = require("./regex-group.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -31,8 +32,6 @@ const NOT_MOVED = /^(?:refused: |level main: failed)/;
 const HEADER = /^levelling (\S.*)$/;
 const STAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\s/;
 const LAND = /\bsession-checkout\.js\s+land\b/;
-/** @param {string} text */
-const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 /* scripts/session-checkout.js's land line, which names the session's queue
  * ref and the verified ref it merged. */
 const PUSHED_TO = `pushed ([0-9a-f]{7,40}) to ${escapeRe(QUEUE_PREFIX)}\\S+`;

@@ -24,6 +24,7 @@ The core's own primitives, beside the base's table.
 | Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
 | Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
+| Escaping a literal into a regex | `escapeRe` in `scripts/lib/regex-group.js` | `scripts/lib/run-cost-report.js` | §LG5 | Standards axis criterion |
 | Setting an environment variable in a test | `vi.stubEnv`, `undefined` to unset, undone before each test by `unstubEnvs: true` in `vitest.config.ts` | `scripts/lib/wait-loop.test.ts` | §X2 | `scripts/check-test-env-writes.js` |
 
 ## Local rules
@@ -51,6 +52,12 @@ Outside it: a glob or pathspec match, such as the sensitive-paths match (#1654);
 **Every code kind but shell.** Code that blocks its thread for a wait calls `sleepSync` in `scripts/lib/sleep-sync.js`. An `Atomics.wait` written outside it is the breach (#4029).
 
 Outside it: a stub program held in a string and run as its own process, such as the `Hold` stub in `scripts/lib/morning-review-fixture.ts`, which stays self-contained so it runs from wherever the test writes it.
+
+### §LG5 · A literal put into a regex goes through the one escaper — **hard**
+
+**Every code kind but shell.** Code that writes a literal string into a JavaScript regex source escapes it with `escapeRe` in `scripts/lib/regex-group.js`. A hand-written escaping `replace` is the breach (#4644).
+
+Outside it: escaping for another syntax or a narrower slot — a POSIX ERE (`scripts/lib/posix-ere.js`) or a bracket expression's body — and a glob translator that escapes only what its glob leaves literal (`scripts/lib/self-match.js`).
 
 ---
 
