@@ -230,7 +230,7 @@ const REPO_CHECKS = [
 		since: true,
 		rescan: true,
 		ceilingScale: 2,
-		settled: ["SUSPECT-REVIEWED"],
+		settled: ["SUSPECT-REVIEWED", "CLOBBERED-REVIEWED"],
 		gate: TRACKER,
 	},
 ];

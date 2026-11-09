@@ -799,7 +799,7 @@ describe("fetching (#1628)", () => {
 
 /* #1700: a SUSPECT judged a deliberate rewrite stays reported under its own
  * tag, so the daily run can leave it off the standing issue. */
-describe("reviewed SUSPECTs", () => {
+describe("reviewed findings", () => {
 	const reviewedFile = () =>
 		path.join(hostRoot(), "docs", "clobber-reviewed.json");
 	const review = (entries: Record<string, string> | string) => {
@@ -864,6 +864,48 @@ describe("reviewed SUSPECTs", () => {
 	it("keeps matching a reviewed issue the window has passed once --rescan names it", () => {
 		review({ [`#24\t${editAt}`]: "a deliberate rewrite" });
 		expect(keys(["--since", "1", "--rescan", "24"], [passed(24)])).toEqual([
+			`SUSPECT-REVIEWED\t#24\t${editAt}`,
+		]);
+	});
+
+	/* #4636: a CLOBBERED judged a deliberate rewrite settles the same way. */
+	const clobberAt = "2026-08-01T06:03:16Z";
+	it("reports a CLOBBERED whose identity the host reviewed as CLOBBERED-REVIEWED, naming the reason, and exits clean", () => {
+		review({ [`#8\t${clobberAt}`]: "rewrote the plan in plain words" });
+		const json = run(["--json"], stubGh([CLOBBER])).out;
+		const data = JSON.parse(json.slice(0, json.lastIndexOf("}") + 1));
+		expect(data.findings.map((f: { key: string }) => f.key)).toEqual([
+			`CLOBBERED-REVIEWED\t#8\t${clobberAt}`,
+		]);
+		expect(data.clobbered).toEqual([]);
+		expect(data.clobberedReviewed.map((i: { at: string }) => i.at)).toEqual([
+			clobberAt,
+		]);
+		const r = run([], stubGh([CLOBBER]));
+		expect(r.out).toContain("CLOBBERED-REVIEWED (1)");
+		expect(r.out).toContain("rewrote the plan in plain words");
+		expect(r.out).not.toContain("CLOBBERED (1)");
+		expect(r.status).toBe(0);
+	});
+
+	it("still FAILs a CLOBBERED on the same issue at another edit time, and calls the entry stale", () => {
+		review({ "#8\t2026-07-01T00:00:00Z": "an earlier edit" });
+		expect(keys([], [CLOBBER])).toEqual([
+			`CLOBBERED\t#8\t${clobberAt}`,
+			"REVIEWED-STALE\t#8\t2026-07-01T00:00:00Z",
+		]);
+		expect(run([], stubGh([CLOBBER])).status).toBe(1);
+	});
+
+	it("matches entries against both kinds in one run, staling only the entry that matches neither", () => {
+		review({
+			[`#8\t${clobberAt}`]: "a deliberate rewrite",
+			[`#24\t${editAt}`]: "another deliberate rewrite",
+			"#24\t2026-07-01T00:00:00Z": "matches nothing",
+		});
+		expect(keys([], [CLOBBER, suspect(24)])).toEqual([
+			`CLOBBERED-REVIEWED\t#8\t${clobberAt}`,
+			"REVIEWED-STALE\t#24\t2026-07-01T00:00:00Z",
 			`SUSPECT-REVIEWED\t#24\t${editAt}`,
 		]);
 	});
