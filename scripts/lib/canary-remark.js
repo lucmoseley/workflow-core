@@ -14,12 +14,23 @@
  *
  * The markers are written before the fast-forward, so the new canary never
  * meets a session without one. The old ones stay for pruneMarkers's age sweep.
+ *
+ * A SESSION THAT STARTS, or clears to a new id, after that listing is marked
+ * by the old writer, since the main checkout is still at `from` (#4734). So
+ * after the fast-forward the sessions are listed again, and each one the first
+ * pass did not re-mark that `to`'s canary, now the main checkout's, refuses
+ * and `from`'s, taken into scratch, passes is re-marked by the main checkout's
+ * writer. The residual is a session whose old writer was spawned before the
+ * move but which that second listing does not show. Its window is how long a
+ * session takes to appear in `claude agents --json` after its SessionStart
+ * hooks spawn, unmeasured.
  */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./agent-liveness.js");
+const { caught } = require("./caught.js");
 const { SELF_PLUGIN_DIR } = require("./core-hooks.js");
 const { deref } = require("./deref.js");
 const { gitRead } = require("./dirty-tree.js");
@@ -41,6 +52,11 @@ const HOOK_TIMEOUT_MS = 10_000;
  * @typedef {() => { sessions: LiveSession[] } | { why: string }} ListSessions
  * @typedef {{ sessionId: string, projectDir: string, refusal: string }} Stranded
  * @typedef {{ why: string } | { stranded: Stranded[] }} Stranding
+ * @typedef {(
+ *   | { status: "stranding", stranding: Stranding }
+ *   | { status: "refused", why: string }
+ *   | { status: "moved", late: Stranding | null }
+ * )} Remarked `stranding` and `refused` leave `main` where it was
  */
 
 /**
@@ -119,23 +135,17 @@ function listLiveSessions() {
 }
 
 /**
- * Run a canary or writer for one session, as its hook would. The plugin root
- * is the main checkout's self-plugin: the only one the current canary vouches
- * for (#4712), so a re-mark records no root the session did not already have.
+ * Run a canary or writer for one session, as its hook would.
  * @param {string} script
  * @param {LiveSession} s
- * @param {string} root the main checkout
+ * @param {NodeJS.ProcessEnv} [env] added to the hook's environment
  * @returns {{ ok: boolean, said: string }}
  */
-function runHook(script, s, root) {
+function runHook(script, s, env = {}) {
 	const r = spawnSync("bash", [script], {
 		cwd: s.cwd,
 		input: JSON.stringify({ session_id: s.sessionId }),
-		env: {
-			...process.env,
-			CLAUDE_PROJECT_DIR: s.cwd,
-			CLAUDE_PLUGIN_ROOT: path.join(root, SELF_PLUGIN_DIR),
-		},
+		env: { ...process.env, CLAUDE_PROJECT_DIR: s.cwd, ...env },
 		encoding: "utf8",
 		timeout: HOOK_TIMEOUT_MS,
 	});
@@ -158,45 +168,60 @@ function writeTree(files, dir) {
 }
 
 /**
- * The listed sessions working in one of `root`'s worktrees that the main
- * checkout's canary passes, each once — or a `why`.
+ * The sessions `listSessions` lists working in one of `root`'s worktrees, each
+ * once and none in `skip`, that `root`'s canary passes or, where `refused`,
+ * refuses — or a `why`.
  * @param {string} root
- * @param {LiveSession[]} listed
+ * @param {{ listSessions: ListSessions, skip: Set<string>, refused: boolean }} pick
  * @returns {{ sessions: LiveSession[] } | { why: string }}
  */
-function vouchedSessions(root, listed) {
+function readRepoSessions(root, { listSessions, skip, refused }) {
+	const listed = listSessions();
+	if ("why" in listed) return listed;
 	const out = gitRead(["worktree", "list", "--porcelain", "-z"], root);
 	if (out === null)
 		return { why: `git would not list the worktrees of ${root}` };
 	const trees = worktreePaths(() => out).map(deref);
-	const current = path.join(root, CANARY);
-	const ids = new Set();
+	const canary = path.join(root, CANARY);
+	const ids = new Set(skip);
 	/** @type {LiveSession[]} */
 	const sessions = [];
-	/* No canary there: its hook cannot start, so it refuses every session. */
-	if (!fs.existsSync(current)) return { sessions };
-	for (const s of listed) {
+	for (const s of listed.sessions) {
 		if (ids.has(s.sessionId) || !isUnder(deref(s.cwd), trees)) continue;
 		ids.add(s.sessionId);
-		if (runHook(current, s, root).ok) sessions.push(s);
+		if (isPassedBy(canary, s) !== refused) sessions.push(s);
 	}
 	return { sessions };
 }
 
 /**
- * Re-mark each session with the writer under `scratch`, then check it with the
- * canary there: those it would still refuse.
- * @param {string} root
- * @param {string} scratch
+ * Whether `canary` passes `s`. No canary there: its hook cannot start, so it
+ * refuses every session.
+ * @param {string} canary
+ * @param {LiveSession} s
+ */
+function isPassedBy(canary, s) {
+	return fs.existsSync(canary) && runHook(canary, s).ok;
+}
+
+/**
+ * Re-mark each session with the writer under `dir`, then check it with the
+ * canary there: those it would still refuse. The writer records `root`'s
+ * self-plugin as the plugin root: the only one the current canary vouches for
+ * (#4712), so a re-mark records no root the session did not already have.
+ * @param {string} root the main checkout
+ * @param {string} dir
  * @param {LiveSession[]} sessions
  * @returns {Stranded[]}
  */
-function remarkEach(root, scratch, sessions) {
+function remarkEach(root, dir, sessions) {
 	/** @type {Stranded[]} */
 	const stranded = [];
 	for (const s of sessions) {
-		runHook(path.join(scratch, WRITER), s, root);
-		const check = runHook(path.join(scratch, CANARY), s, root);
+		runHook(path.join(dir, WRITER), s, {
+			CLAUDE_PLUGIN_ROOT: path.join(root, SELF_PLUGIN_DIR),
+		});
+		const check = runHook(path.join(dir, CANARY), s);
 		if (!check.ok)
 			stranded.push({
 				sessionId: s.sessionId,
@@ -208,37 +233,99 @@ function remarkEach(root, scratch, sessions) {
 }
 
 /**
- * Re-mark the live sessions of `root`'s repository for `to`'s canary, where
- * `from..to` changes it. Null where the fast-forward may go ahead.
- * @param {string} root the main checkout, at `from`
- * @param {{ from: string, to: string, changed: string[], scratch: string,
- *   listSessions?: ListSessions }} pass `scratch`, a directory this call may
- *   fill and remove
- * @returns {Stranding | null}
+ * @template T
+ * @param {Map<string, string>} files
+ * @param {string} scratch
+ * @param {() => T} run
+ * @returns {T}
  */
-function remarkForCanary(
-	root,
-	{ from, to, changed, scratch, listSessions = listLiveSessions },
-) {
-	const before = readClosure(root, from);
-	if ("why" in before) return before;
-	const after = readClosure(root, to);
-	if ("why" in after) return after;
-	if (!changed.some((c) => before.files.has(c) || after.files.has(c)))
-		return null;
-	const listed = listSessions();
-	if ("why" in listed) return listed;
-	const vouched = vouchedSessions(root, listed.sessions);
-	if ("why" in vouched) return vouched;
-	if (vouched.sessions.length === 0) return null;
+function inScratch(files, scratch, run) {
 	fs.rmSync(scratch, { recursive: true, force: true });
 	try {
-		writeTree(after.files, scratch);
-		const stranded = remarkEach(root, scratch, vouched.sessions);
-		return stranded.length > 0 ? { stranded } : null;
+		writeTree(files, scratch);
+		return run();
 	} finally {
 		fs.rmSync(scratch, { recursive: true, force: true });
 	}
 }
 
-module.exports = { remarkForCanary };
+/**
+ * Fast-forward the main checkout by `move` where every live session of `root`'s
+ * repository would pass `to`'s canary, re-marking each first where `from..to`
+ * changes it, and each session that started meanwhile after.
+ * @param {string} root the main checkout, at `from`
+ * @param {{ from: string, to: string, changed: string[], scratch: string,
+ *   listSessions?: ListSessions }} pass `scratch`, a directory this call may
+ *   fill and remove
+ * @param {() => string | null} move the fast-forward: git's refusal, or null
+ * @returns {Remarked}
+ */
+function remarkAroundMove(
+	root,
+	{ from, to, changed, scratch, listSessions = listLiveSessions },
+	move,
+) {
+	const before = readClosure(root, from);
+	if ("why" in before) return { status: "stranding", stranding: before };
+	const after = readClosure(root, to);
+	if ("why" in after) return { status: "stranding", stranding: after };
+	if (!changed.some((c) => before.files.has(c) || after.files.has(c))) {
+		const why = move();
+		return why === null
+			? { status: "moved", late: null }
+			: { status: "refused", why };
+	}
+	const vouched = readRepoSessions(root, {
+		listSessions,
+		skip: new Set(),
+		refused: false,
+	});
+	if ("why" in vouched) return { status: "stranding", stranding: vouched };
+	const stranded = inScratch(after.files, scratch, () =>
+		remarkEach(root, scratch, vouched.sessions),
+	);
+	if (stranded.length > 0)
+		return { status: "stranding", stranding: { stranded } };
+	const why = move();
+	if (why !== null) return { status: "refused", why };
+	const remarked = new Set(vouched.sessions.map((s) => s.sessionId));
+	try {
+		return {
+			status: "moved",
+			late: remarkLatecomers(root, before.files, remarked, {
+				scratch,
+				listSessions,
+			}),
+		};
+	} catch (err) {
+		/* `main` has moved: the pass's install and report still owe it. */
+		return { status: "moved", late: { why: caught(err).message } };
+	}
+}
+
+/**
+ * After the fast-forward, re-mark each live session not in `remarked` that the
+ * main checkout's canary, now `to`'s, refuses and `from`'s passes. Null where
+ * none is left refused.
+ * @param {string} root the main checkout, now at `to`
+ * @param {Map<string, string>} before `from`'s closure
+ * @param {Set<string>} remarked
+ * @param {{ scratch: string, listSessions: ListSessions }} pass
+ * @returns {Stranding | null}
+ */
+function remarkLatecomers(root, before, remarked, { scratch, listSessions }) {
+	const refused = readRepoSessions(root, {
+		listSessions,
+		skip: remarked,
+		refused: true,
+	});
+	if ("why" in refused) return refused;
+	if (refused.sessions.length === 0) return null;
+	const passedBefore = inScratch(before, scratch, () =>
+		refused.sessions.filter((s) => isPassedBy(path.join(scratch, CANARY), s)),
+	);
+	const stranded = remarkEach(root, root, passedBefore);
+	return stranded.length > 0 ? { stranded } : null;
+}
+
+module.exports = { remarkAroundMove };

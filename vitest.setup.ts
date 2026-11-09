@@ -154,7 +154,7 @@ process.env.WFC_RULES_DIR ??= path.resolve(
  * `.claude/workflow-core.json`, so a module-gated checker would SKIP on every
  * case that has nothing to do with the gate. A test of the skip deletes
  * `WFC_MODULES` from its child's env, or sets its own. `landing` moves every
- * reader of the pushed base from `origin/main` to `origin/landing`
+ * reader of the pushed base from `origin/main` to the session's queue ref
  * (lib/landing-refs.js), which no fixture's remote holds, so a test of it sets
  * its own (#2408).
  */

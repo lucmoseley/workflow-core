@@ -1,5 +1,5 @@
-WORK LANDS THROUGH YOUR SESSION'S QUEUE REF — NEVER A PUSH TO `main` OR
-`landing`, NO OTHER BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST.
+WORK LANDS THROUGH YOUR SESSION'S QUEUE REF — NEVER A PUSH TO `main`, NO
+OTHER BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST.
 
 Each session pushes its own queue ref, `queue/<worktree name>`, and the queue
 lander alone moves `main`. A pull request is refused through `gh pr create` and
@@ -13,8 +13,8 @@ After the push, `node scripts/landing-status.js` reads each commit as landed,
 or queued on your queue ref.
 
 WHAT PASSES: a push creating or fast-forwarding your own queue ref, a tag
-(`git push origin v1.2.3`, `--tags`), a deletion of any branch but `main`,
-`landing`, a queue ref and the lander's own, and a branch under `spike/` — a
+(`git push origin v1.2.3`, `--tags`), a deletion of any branch but `main`, a
+queue ref and the lander's own, and a branch under `spike/` — a
 data branch kept off `main` on purpose and never merged. A bare tag name passes
 only where the tag already exists locally when the push is judged: push it as
 `refs/tags/<name>`, or create the tag in a separate call first.
