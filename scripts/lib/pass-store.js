@@ -35,7 +35,7 @@
  * checkout's `.claude/tmp/markers`, so every worktree shares it: one
  * append-only JSONL shard per test file, a line per run that ran it. A
  * lookup reads only the selected files' shards: one shared log of every
- * file's full input list would reach about a gigabyte inside the retention
+ * file's full input list would pass 500 MB inside the retention
  * at 2026-11's 79,000 file-runs a week, re-parsed whole on every append.
  * Each shard is appended and pruned as the run ledger is
  * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
@@ -243,6 +243,8 @@ function readEdges(root, rel) {
 				: [];
 		});
 	} catch {
+		/* A fault in the read leaves an input unknown: null records no row
+		 * (#4792), as EVERY DOUBT RUNS THE FILE asks. */
 		return null;
 	}
 }
@@ -312,6 +314,7 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 			}));
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
+		for (const row of rows) dropUnparsed(shardFile(storeRoot, row.file));
 		const line = {
 			at: run.at,
 			sha: run.sha,
@@ -326,13 +329,40 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 				ARCHIVE_MS,
 			),
 		).length;
-		sweepShards(storeRoot);
+		sweepOrSay(storeRoot, err);
 		return landed;
 	} catch (e) {
 		err.write(
 			`pass-store.js: no row recorded for this run (${caught(e).message ?? e}) (#4790)\n`,
 		);
 		return 0;
+	}
+}
+
+/**
+ * Delete `shard` where a line in it will not parse. The prune rewrites a
+ * shard without its bad lines, after which the rows older than a lost one
+ * would decide again: that lost row may be a newer fail.
+ * @param {string} shard
+ */
+function dropUnparsed(shard) {
+	const read = readJsonl(shard);
+	if (read && read.bad.length > 0) fs.rmSync(shard, { force: true });
+}
+
+/**
+ * `sweepShards`, a fault said on `err`: the rows have landed by then, and a
+ * failed sweep costs only disk.
+ * @param {string} storeRoot
+ * @param {{write: (s: string) => unknown}} err
+ */
+function sweepOrSay(storeRoot, err) {
+	try {
+		sweepShards(storeRoot);
+	} catch (e) {
+		err.write(
+			`pass-store.js: stale shards not swept (${caught(e).message ?? e}) (#4790)\n`,
+		);
 	}
 }
 

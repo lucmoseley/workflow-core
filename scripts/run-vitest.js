@@ -373,10 +373,10 @@ function neverStarted(record) {
 /**
  * `argv`'s plan, looked up in the pass store (#4790), or the exit code of a
  * launch that ends here: a failed narrowing and a bare `uncached:` pragma
- * refuse it, and one whose every file was cached runs nothing.
+ * refuse it, and one whose every file was cached runs nothing. An
+ * `emptyOnly` launch with a file still to run requeues.
  * @param {string[]} argv
  * @param {() => ReturnType<typeof expandChanged>} expand
- * An `emptyOnly` launch with a file still to run requeues.
  * @param {{ root: string, launch: LauncherLaunch, out: Writer, err: Writer,
  *   session: string|null, emptyOnly: boolean, execFn?: ExecFn }} run
  * @returns {{ code: Promise<number>, looked?: undefined }
@@ -401,18 +401,16 @@ function planRun(argv, expand, run) {
 	if (looked.notice) err.write(`${looked.notice}\n`);
 	if (looked.allCached)
 		return { code: Promise.resolve(finishAllCached(looked, run)) };
-	if (
-		run.emptyOnly &&
-		(looked.cached !== null || (plan?.files.length ?? 0) > 0)
-	)
-		return { code: Promise.resolve(REQUEUE) };
+	/* Past a lookup that cached not all, or a plan with files, one runs. */
+	const leftToRun = looked.cached !== null || (plan?.files.length ?? 0) > 0;
+	if (run.emptyOnly && leftToRun) return { code: Promise.resolve(REQUEUE) };
 	return { code: null, looked };
 }
 
 /**
- * A launch whose every file a recorded pass covered (#4790): nothing is
- * spawned or queued, its banner names each file's source, and its pass
- * record is written as a narrowed run's.
+ * A launch whose every file a recorded pass attested (#4790): nothing is
+ * spawned or queued, its banner names each file's source, and its
+ * certificate is written as a narrowed run's.
  * @param {LookedPlan} looked
  * @param {{ root: string, launch: LauncherLaunch, out: Writer,
  *   session: string|null, execFn?: ExecFn }} run
@@ -2133,7 +2131,7 @@ function probeSelection(route, options, own) {
  * @param {{ options: { out?: Writer, err?: Writer, root?: string },
  *   logExit: ReturnType<typeof queueExitLogger>,
  *   run: (extra?: { emptyOnly?: boolean }) => Promise<number>,
- *   queued: () => Promise<number> }} seat
+ *   queued: () => Promise<number> }} exits
  */
 async function leaveQueue(
 	source,

@@ -50,17 +50,6 @@ const { sample: sampleCpu } = require("./lib/cpu-sample.js");
 const { relativeUnder } = require("./lib/is-under.js");
 const { foldCached, readCachedHandoff } = require("./lib/pass-store.js");
 
-/*
- * `CLOSURE_ROOTS` (lib/test-pass-marker.js) every narrowed closure carries;
- * the vitest config file joins them at run time, resolved off the instance
- * rather than spelled there; a sibling `vite.config.*` the instance did not
- * load is outside the closure.
- *
- * NOT THE MANIFEST (#799, #795): it matters only through the documents it
- * maps to the run's tests, so `holdsAt` re-reads it at the sha judged,
- * off the `selected` list recorded beside the closure.
- */
-
 /**
  * Who writes the marker for a run that selected NOTHING (#189 §6). Vitest
  * 4.1 runs globalSetup only on its way to running files, so with zero
@@ -397,6 +386,11 @@ export default class TestPassReporter {
 		);
 		if (!docs) throw new Error(`${EDGES_FILE} is not {edges: {doc: [test]}}`);
 		for (const doc of docs) closure.add(doc);
+		/* `CLOSURE_ROOTS`, with the vitest config file resolved off the
+		 * instance: a sibling `vite.config.*` it did not load is outside the
+		 * closure. NOT THE MANIFEST (#799, #795): it matters only through the
+		 * documents it maps to the run's tests, so `holdsAt` re-reads it at
+		 * the sha judged, off the `selected` list recorded beside the closure. */
 		const roots = new Set<string>(CLOSURE_ROOTS);
 		const configFile = this.vitest?.vite?.config?.configFile;
 		if (configFile && inside(configFile)) roots.add(rel(configFile));

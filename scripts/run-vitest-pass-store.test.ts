@@ -145,7 +145,7 @@ const lastLine = (file: string) => {
 };
 
 describe("a named launch the pass store partly caches", () => {
-	it("hands vitest only the files it does not cover, names each it does, and hands the child what it cached", async () => {
+	it("hands vitest only the files it does not cache, names each it does, and hands the child what it cached", async () => {
 		const dir = repo();
 		passed(dir, [A]);
 		const ran = await launch(dir, [A, B]);

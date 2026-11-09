@@ -206,6 +206,40 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	it.each([
+		[
+			"a `createRequire(…)(…)` load split over lines",
+			'createRequire(import.meta.url)(\n\t"./x.js",\n);\n',
+			"scripts/x.js",
+		],
+		[
+			"a `.js` specifier naming a `.ts` source",
+			'require("./y.js");\n',
+			"scripts/y.ts",
+		],
+	])(
+		"voids it when a module changes that %s reaches",
+		(_name, text, module) => {
+			const dir = repo();
+			write(dir, A, text);
+			write(dir, module, "v0\n");
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			write(dir, module, "v1\n");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		},
+	);
+
+	it("voids it when a module changes that a graph import reaches lexically", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./far.js");\n');
+		write(dir, "far.js", "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "far.js", "v1\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("voids it when a module changes that a require no graph records reaches, however deep", () => {
 		const dir = repo();
 		write(dir, A, 'const { x } = require("../lib.js");\n');
@@ -418,6 +452,16 @@ describe("where the store lives", () => {
 			`${JSON.stringify({ ...line, at: old })}\n`,
 		);
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	it("drops a shard holding a line that will not parse on its next record, so the prune never lets an older row decide again", () => {
+		const dir = repo();
+		run(dir, [A]);
+		fs.appendFileSync(shardOf(dir, A), `{"files":[{"file":"${A}"\n`);
+		run(dir, [A], { failing: [A] });
+		const lines = fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n");
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0] as string).files[0].outcome).toBe("fail");
 	});
 
 	it("deletes a shard untouched for a day past the retention on the next record", () => {
