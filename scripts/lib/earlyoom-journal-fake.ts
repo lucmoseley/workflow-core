@@ -60,7 +60,8 @@ export function writeJournalctl(
 	fs.mkdirSync(dir, { recursive: true });
 	const journal = path.join(dir, "journal");
 	/* Each line's time, read once here, so the stub filters with awk and starts
-	 * no node per call; a line with no readable time is never served. */
+	 * no node per call (#4601); a line with no readable time is never served.
+	 * Residual: a line holding a newline serves its second half untimed. */
 	const timed = lines.flatMap((l) => {
 		const ms = Date.parse(l.split(" ")[0] ?? "");
 		return l && !Number.isNaN(ms) ? [`${ms}\t${l}\n`] : [];
@@ -76,7 +77,7 @@ export function writeJournalctl(
 					last_entry: b.to * 1000,
 				}));
 	const bin = path.join(dir, "journalctl");
-	const boots_ =
+	const listBootsReply =
 		listed === null
 			? "echo 'no boots' >&2; exit 1"
 			: `printf '%s\\n' ${shellQuote(JSON.stringify(listed))}; exit 0`;
@@ -88,12 +89,12 @@ since=
 boots=
 next=
 for x in "$@"; do
-	[ -n "$next" ] && since=\${x#@}
+	[ -n "$next" ] && [ -z "$since" ] && since=\${x#@}
 	next=
 	case $x in --list-boots) boots=1 ;; --since) next=1 ;; esac
 done
-if [ -n "$boots" ]; then ${boots_}; fi
-exec awk -v s="$since" '{ if (s == "" || $1 + 0 >= s * 1000) { print substr($0, index($0, "\\t") + 1); n++ } } END { if (!n) print "-- No entries --" }' ${shellQuote(journal)}
+if [ -n "$boots" ]; then ${listBootsReply}; fi
+exec awk -v s="$since" 'BEGIN { bad = s != "" && s !~ /^-?[0-9]+(\\.[0-9]+)?$/ } !bad { if (s == "" || $1 + 0 >= s * 1000) { print substr($0, index($0, "\\t") + 1); n++ } } END { if (!n) print "-- No entries --" }' ${shellQuote(journal)}
 `,
 		{ mode: 0o755 },
 	);
