@@ -66,7 +66,7 @@ const {
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { escapeRe } = require("./lib/shell-words.js");
+const { escapeRe } = require("./lib/regex-group.js");
 const { relativeUnder } = require("./lib/is-under.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");

@@ -13,6 +13,7 @@ const { findPackageDir, hasPackage } = require("./package-reader.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
+/** @typedef {import("./package-reader.js").PackageTree} PackageTree */
 /** @typedef {{filters: string[], all: boolean, withRoot: boolean,
  *  noAncestors: boolean}} Selection `filters` each `-w`'s value, which outrank
  *  `all`; `all` `-ws`; `withRoot` `-iwr`, which adds the root; `noAncestors`
@@ -152,11 +153,14 @@ function listMembers(dir, patterns, read) {
  * the nearest ancestor up to `root` with `own` a member, else `own` where it
  * declares workspaces.
  * @param {string} own
- * @param {string} root
  * @param {boolean} noAncestors
- * @param {PackageReader} read
+ * @param {PackageTree} tree
  */
-function findWorkspaceRoot(own, root, noAncestors, read) {
+function findWorkspaceRoot(
+	own,
+	noAncestors,
+	{ root, readCachedPackage: read },
+) {
 	const list = (/** @type {string} */ d) =>
 		listMembers(d, read(d).workspaces, read);
 	for (let d = own; !noAncestors && d !== root && d !== path.dirname(d); ) {
@@ -197,19 +201,13 @@ function isSelected(filter, member, from) {
  * member, no filter is that member alone; `-iwr` alone at the root runs the root.
  * @param {Selection} selection
  * @param {string} from the directory the run starts in
- * @param {string} root
- * @param {PackageReader} read
+ * @param {PackageTree} tree
  * @returns {{dirs: string[], members: string[], unresolved: boolean}}
  */
-function resolveSelection(
-	{ filters, all, withRoot, noAncestors },
-	from,
-	root,
-	read,
-) {
+function resolveSelection({ filters, all, withRoot, noAncestors }, from, tree) {
 	if (!path.matchesGlob) throw new Error(NEEDS_NODE);
-	const own = findPackageDir(from, root);
-	const found = findWorkspaceRoot(own, root, noAncestors, read);
+	const own = findPackageDir(from, tree.root);
+	const found = findWorkspaceRoot(own, noAncestors, tree);
 	const listed = found?.members ?? [];
 	const members = listed.map((m) => m.dir);
 	const hits = (/** @type {string} */ filter) =>
@@ -225,7 +223,9 @@ function resolveSelection(
 	];
 	const undercounts =
 		found !== undefined &&
-		read(found.dir).workspaces.some((p) => MAY_UNDERCOUNT.test(p));
+		tree
+			.readCachedPackage(found.dir)
+			.workspaces.some((p) => MAY_UNDERCOUNT.test(p));
 	const mayReachMore = (/** @type {string} */ filter) =>
 		filter !== "" &&
 		hits(filter).length === 0 &&
