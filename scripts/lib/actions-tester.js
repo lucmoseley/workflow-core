@@ -14,7 +14,10 @@
  * A failed run where a job failed at a step that only readies the runner
  * (`RUNNER_STEPS`) is neither: its tests ran without their tools. Its failed
  * jobs are rerun, up to `RUNNER_RERUNS` times, and the last attempt still
- * failing so is no verdict, never a red to isolate.
+ * failing so is no verdict, never a red to isolate. A failed run listing no
+ * failed job, as when GitHub never created some of its jobs, judges no code
+ * either: its ref is pushed again once and only a newer run judged, a second
+ * such run no verdict (#4827).
  *
  * `queueTester`'s whole suite is the push run at the sha, read as above, on
  * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
@@ -123,7 +126,8 @@ const RUNNER_RERUNS = 2;
  *   at `sha`; false where it moved
  * @typedef {Verdict | {kind: "pending", run: number|null}} RunVerdict
  * @typedef {RunVerdict
- *   | {kind: "runner", run: number, attempt: number, reason: string}} SuiteRunVerdict
+ *   | {kind: "runner", run: number, attempt: number, reason: string}
+ *   | {kind: "jobless", run: number, reason: string}} SuiteRunVerdict
  * @typedef {{databaseId: number, displayTitle: string,
  *   conclusion: string|null}} NamedRun
  * @typedef {Pick<Reads, "jobsOf" | "failedLogOf" | "presentAt"> & {
@@ -216,6 +220,12 @@ function runVerdict(sha, reads, after) {
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
 	const failed = jobs.filter((j) => j.conclusion === "failure");
+	if (failed.length === 0)
+		return {
+			kind: "jobless",
+			run: id,
+			reason: `run ${id} failed listing no failed job, which judges no code`,
+		};
 	const fault = runnerFault(failed);
 	if (fault !== null)
 		return {
@@ -489,20 +499,36 @@ function settle(v) {
 /**
  * The verdict of the push run at `sha` on `branch`, judging only an attempt
  * after `after`; a runner that failed to ready has its failed jobs rerun, up
- * to RUNNER_RERUNS times, before it is no verdict.
+ * to RUNNER_RERUNS times, before it is no verdict. A failed run listing no
+ * failed job has the branch pushed again, unless `repushed` says it was, and
+ * only a newer run judged.
  * @param {string} sha
  * @param {number} after
  * @param {{reads: Reads, branch: string} & Poll} suite
- * @param {number} [reruns] attempts started for a runner that failed to ready
+ * @param {{reruns?: number, repushed?: boolean}} [ask] `reruns` attempts
+ *   started for a runner that failed to ready; `repushed` the branch was
+ *   pushed again for this ask
  * @returns {Promise<Verdict>}
  */
-async function suiteVerdict(sha, after, suite, reruns = 0) {
+async function suiteVerdict(
+	sha,
+	after,
+	suite,
+	{ reruns = 0, repushed = false } = {},
+) {
 	const { reads } = suite;
 	const v = await pollRun(
 		() => runVerdict(sha, reads, after),
 		unreadable,
 		suite,
 	);
+	if (v.kind === "jobless")
+		return repushed
+			? {
+					kind: "unknown",
+					reason: `${v.reason}, after ${suite.branch} was pushed again`,
+				}
+			: (repushFailure(suite, sha) ?? newerVerdict(sha, suite, v.run, true));
 	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
 		return {
@@ -514,7 +540,7 @@ async function suiteVerdict(sha, after, suite, reruns = 0) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return suiteVerdict(sha, v.attempt, suite, reruns + 1);
+	return suiteVerdict(sha, v.attempt, suite, { reruns: reruns + 1, repushed });
 }
 
 /**
@@ -831,9 +857,11 @@ async function rerunVerdict(sha, files, on, named) {
 			? namedVerdict(named, sha, files, false)
 			: suiteVerdict(sha, 0, on);
 	if (run !== undefined) {
-		return repushFailure(on, sha) ?? newerVerdict(sha, on, listed);
+		return (
+			repushFailure(on, sha) ?? newerVerdict(sha, on, newestId(listed), true)
+		);
 	}
-	const v = await newerVerdict(sha, on, listed);
+	const v = await newerVerdict(sha, on, newestId(listed), false);
 	if (v.kind !== "red" || !v.noRun) return v;
 	/** @type {Run[]} */
 	let again;
@@ -842,27 +870,35 @@ async function rerunVerdict(sha, files, on, named) {
 	} catch (err) {
 		return unreadable(err);
 	}
-	return repushFailure(on, sha) ?? newerVerdict(sha, on, again);
+	return repushFailure(on, sha) ?? newerVerdict(sha, on, newestId(again), true);
 }
 
+/** @param {readonly Run[]} listed */
+const newestId = (listed) => Math.max(0, ...listed.map((r) => r.databaseId));
+
 /**
- * The whole suite at `sha` read off a run on `on`'s branch newer than every
- * one in `listed`.
+ * The whole suite at `sha` read off a run on `on`'s branch newer than run
+ * `bound`.
  * @param {string} sha
  * @param {{reads: Reads, branch: string} & Poll} on
- * @param {readonly Run[]} listed
+ * @param {number} bound
+ * @param {boolean} repushed the branch was pushed again for this ask
  * @returns {Promise<Verdict>}
  */
-function newerVerdict(sha, on, listed) {
-	const bound = Math.max(0, ...listed.map((r) => r.databaseId));
+function newerVerdict(sha, on, bound, repushed) {
 	const { reads } = on;
-	return suiteVerdict(sha, 0, {
-		...on,
-		reads: {
-			...reads,
-			runs: () => reads.runs().filter((r) => r.databaseId > bound),
+	return suiteVerdict(
+		sha,
+		0,
+		{
+			...on,
+			reads: {
+				...reads,
+				runs: () => reads.runs().filter((r) => r.databaseId > bound),
+			},
 		},
-	});
+		{ repushed },
+	);
 }
 
 /**
