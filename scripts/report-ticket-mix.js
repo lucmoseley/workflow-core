@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * measure-ticket-mix.js — the counting half of retro-sweep's weekly ticket-mix
+ * report-ticket-mix.js — the counting half of retro-sweep's weekly ticket-mix
  * review (spec #4796 §Ticket-mix review, #4797). The model assigns titles to
  * kinds; this script does every count, limit and trigger.
  *
@@ -105,14 +105,14 @@ const MASKS = /** @type {const} */ ([
 	[/\b[\w.-]+\/[\w.-]+#\d+\b|#\d+\b/g, "<issue>"],
 	[/\b(?:refs|q)\/[^\s`'"()<>,;]+|\bimplement-[\w.-]+/g, "<branch>"],
 	[
-		/[^\s`'"()<>,;]*\/[^\s`'"()<>,;]*[^\s`'"()<>,;:.]|\b[\w-]{2,}(?:\.[\w-]+)*\.[A-Za-z][A-Za-z0-9]{0,5}\b/g,
+		/(?<![^\s`'"()<>,;])[^\s`'"()<>,;]*\/[^\s`'"()<>,;]*[^\s`'"()<>,;:.]|\b[\w-]{2,}(?:\.[\w-]+)*\.[A-Za-z][A-Za-z0-9]{0,5}\b/g,
 		"<path>",
 	],
 	[/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/gi, "<sha>"],
 	[/\d+(?:[.,]\d+)*/g, "<n>"],
 ]);
 
-const USAGE = `usage: node scripts/measure-ticket-mix.js --issues <owner/name>=<file> [--issues ...]
+const USAGE = `usage: node scripts/report-ticket-mix.js --issues <owner/name>=<file> [--issues ...]
     --week-start <iso> --week-end <iso> [--runs <file>] [--kinds <file>]
     [--assigned <file>] [--this-run] [--json]
   --issues      one repo's tracker snapshot (gh issue list --json ...,createdAt); repeat per repo
@@ -757,7 +757,7 @@ function main(argv) {
 		});
 	} catch (e) {
 		if (!(e instanceof ReadFailure)) throw e;
-		writeFd(2, `measure-ticket-mix: ${e.message}\n`);
+		writeFd(2, `report-ticket-mix: ${e.message}\n`);
 		return 1;
 	}
 	writeFd(
@@ -769,7 +769,7 @@ function main(argv) {
 	if (report.badRunLines.length === 0) return 0;
 	writeFd(
 		2,
-		report.badRunLines.map((b) => `measure-ticket-mix: ${b}\n`).join(""),
+		report.badRunLines.map((b) => `report-ticket-mix: ${b}\n`).join(""),
 	);
 	return 1;
 }

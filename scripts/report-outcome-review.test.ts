@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * measure-outcome-review.test.ts — the weekly outcome review's verdicts
+ * report-outcome-review.test.ts — the weekly outcome review's verdicts
  * (#4797, spec #4796 §Testing Decisions, Seam 2). Break it and a fix is kept
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
@@ -16,7 +16,7 @@ import { stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
-const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
+const SCRIPT = path.join(__dirname, "report-outcome-review.js");
 const TRACKER = "o/t";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
@@ -188,7 +188,7 @@ const outcome = (
 	n = 1,
 ) => out.outcomes.find((o) => o.finding === `${TRACKER}#${n}`);
 
-describe("measure-outcome-review.js", () => {
+describe("report-outcome-review.js", () => {
 	it("waits on an open finding, an unfixed one, and a fix under a week old", () => {
 		const f = scratch();
 		f.commit("Initial", 1);

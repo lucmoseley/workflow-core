@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * measure-ticket-mix.test.ts — the ticket-mix counting script (#4797, spec
+ * report-ticket-mix.test.ts — the ticket-mix counting script (#4797, spec
  * #4796 §Testing Decisions Seam 3). Break it and the weekly review counts an
  * origin or a template wrongly, sets a kind's limit wrongly, fires a trigger
  * under the 10-ticket floor or on a trend it cannot yet read, misses the
@@ -13,7 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 
-const SCRIPT = path.join(__dirname, "measure-ticket-mix.js");
+const SCRIPT = path.join(__dirname, "report-ticket-mix.js");
 const REPO = "lucmoseley/workflow-core-tracker";
 const START = "2026-11-02T00:00:00.000Z";
 const END = "2026-11-09T00:00:00.000Z";

@@ -1763,7 +1763,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "One JSON line per retro-sweep run, oldest first: mode, week, each pick with its signals, class counts and token cost, the low-value findings recorded unfiled (#964, spec #948; #4796). The weekly due reporter reads the newest weekly line's date; measure-outcome-review.js and measure-ticket-mix.js read the prior lines; the fourth weekly line triggers the flip check.",
+		"role": "One JSON line per retro-sweep run, oldest first: mode, week, each pick with its signals, class counts and token cost, the low-value findings recorded unfiled (#964, spec #948; #4796). The weekly due reporter reads the newest weekly line's date; report-outcome-review.js and report-ticket-mix.js read the prior lines; the fourth weekly line triggers the flip check.",
 		"route": "Appended by the retro-sweep run that produced it, committed by pathspec in that session",
 		"consumes": [
 			{
@@ -1841,7 +1841,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "The kept list of ticket kinds the weekly ticket-mix review assigns titles to (#4796). scripts/measure-ticket-mix.js reads it.",
+		"role": "The kept list of ticket kinds the weekly ticket-mix review assigns titles to (#4796). scripts/report-ticket-mix.js reads it.",
 		"route": "Appended by retro-sweep's ticket-mix step, a new kind in the same commit as its run line.",
 		"consumes": null
 	},

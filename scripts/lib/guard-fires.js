@@ -475,7 +475,7 @@ const stateless = (pattern) =>
 	new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
 
 /**
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @param {RegExp} re  a `stateless` copy
  */
 function anyStringMatches(record, re) {
@@ -488,7 +488,7 @@ function anyStringMatches(record, re) {
  * string is tested whole, as the record holds it, never the record
  * serialised, so a pattern is written against the text a session saw rather
  * than against JSON escapes. Like `recordMentions`, it reads the whole record.
- * @param {LogRecord} record
+ * @param {TranscriptRecord} record
  * @param {RegExp} pattern
  * @returns {boolean}
  */

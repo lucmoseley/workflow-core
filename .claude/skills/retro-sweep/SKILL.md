@@ -201,7 +201,7 @@ per hour (#3212) is read only as a trend over 25 or more days and never
 decides a verdict.
 
 ```
-node scripts/measure-outcome-review.js --json > "$R/outcomes.json"
+node scripts/report-outcome-review.js --json > "$R/outcomes.json"
 ```
 
 Exit 1 still writes the report, naming each failed read; a reading it could
@@ -247,7 +247,7 @@ Reads the week's filed issues (#4796, #4629). Budget
 1. **Count**, over every §2 snapshot, for the picker's `window`:
 
    ```
-   node scripts/measure-ticket-mix.js --issues <owner/name>=$R/snapshot/<owner>-<name>.json [--issues …] \
+   node scripts/report-ticket-mix.js --issues <owner/name>=$R/snapshot/<owner>-<name>.json [--issues …] \
      --week-start <window.start> --week-end <window.end> --json > "$R/mix-counts.json"
    ```
 
@@ -260,7 +260,7 @@ Reads the week's filed issues (#4796, #4629). Budget
 3. **Trigger**:
 
    ```
-   node scripts/measure-ticket-mix.js … --assigned "$R/assigned.json" --this-run --json > "$R/mix.json"
+   node scripts/report-ticket-mix.js … --assigned "$R/assigned.json" --this-run --json > "$R/mix.json"
    ```
 
    `.triggers.candidates` are the candidates.
@@ -307,7 +307,7 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   `cites` the earlier issue or commit it pointed at; `signature` (or `null`
   and `why`) and `prediction` as filed; `baseline` the signature's count and
   sessions over the 4 weeks before filing, the trigger week excluded, with its
-  per-session rate: `.baseline` of `node scripts/measure-outcome-review.js
+  per-session rate: `.baseline` of `node scripts/report-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
