@@ -51,8 +51,8 @@
  * outside a session only, where nothing says the list must name anyone
  * (#2180). Inside a session an empty list is still a fault. It is its own
  * export, never an option, so no reader judging by absence can pass it. The
- * readers that may are `readAgentsAfterBoot` and `readAgentsForBudget`, whose
- * names say when (#3880, #3695).
+ * readers that may are `readAgentsAfterBoot`, `readAgentsForBudget` and
+ * `readAgentsForLevelling`, whose names say when (#3880, #3695, #4229).
  *
  * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
@@ -708,6 +708,15 @@ function checkedListing(listed) {
 }
 
 /**
+ * `listedAgents` waiving the self-test, reading an empty listing outside a
+ * session as nothing live: the one body the three readers below share.
+ * @returns {Listing}
+ */
+function readAgentsAllowingEmpty() {
+	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+}
+
+/**
  * `listedAgents` waiving the self-test, for a refill-loop tick with a boot's
  * killed launches still to bring back, reading an empty listing outside a session
  * as nothing live (#3880): a restart leaves no session for the listing to name, so
@@ -716,7 +725,7 @@ function checkedListing(listed) {
  * @returns {Listing}
  */
 function readAgentsAfterBoot() {
-	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+	return readAgentsAllowingEmpty();
 }
 
 /**
@@ -727,7 +736,18 @@ function readAgentsAfterBoot() {
  * @returns {Listing}
  */
 function readAgentsForBudget() {
-	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+	return readAgentsAllowingEmpty();
+}
+
+/**
+ * `listedAgents` for a levelling pass's canary re-mark (lib/canary-remark.js),
+ * waiving the self-test, reading an empty listing outside a session as nothing
+ * live: a pass with no session running must still move `main` (#4229). Its
+ * residual is `admissionSessionIds`'s.
+ * @returns {Listing}
+ */
+function readAgentsForLevelling() {
+	return readAgentsAllowingEmpty();
 }
 
 /*
@@ -1012,6 +1032,7 @@ module.exports = {
 	listedAgents,
 	readAgentsAfterBoot,
 	readAgentsForBudget,
+	readAgentsForLevelling,
 	readAgentsForDisplay,
 	readEverySeat,
 	listedSessionIds,

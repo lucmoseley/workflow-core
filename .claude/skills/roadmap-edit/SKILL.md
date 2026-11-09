@@ -117,48 +117,33 @@ never skip them.
    path `.claude/tmp/markers/.roadmap-baseline-$CLAUDE_CODE_SESSION_ID.html` — the same shape
    `/card-close` uses for its own baseline (see `.claude/skills/card-close/SKILL.md`
    step 5).
+   **If `git status` below is not empty, the edit is an unfinished one of this
+   session's own** — finish it through steps 5-8, or drop it with
+   `git restore docs/reference-roadmap.html` where you mean to, before taking
+   the snapshot: a baseline from `HEAD` beside it would make step 6's scope
+   diff count it as this edit's.
    ```bash
-   git status --porcelain docs/reference-roadmap.html   # empty, or poll below
+   git status --porcelain docs/reference-roadmap.html   # empty, or see above
    mkdir -p .claude/tmp/markers && git show HEAD:docs/reference-roadmap.html \
      > ".claude/tmp/markers/.roadmap-baseline-$CLAUDE_CODE_SESSION_ID.html" || exit 1
    ```
-   **Session-scoped because sessions run in parallel in one working tree.** A
-   fixed filename is shared state: a second loop overwrites it, then deletes it
-   on finishing, and step 6 fails with `No such file or directory` through no
-   fault of yours. `CLAUDE_CODE_SESSION_ID` is in the environment of every
-   `Bash` call, so use it inline — never assign it to a shell variable, which
-   would not survive to the next call.
-   **If `git status` is not empty, poll and retry — do not stop.** Uncommitted
-   roadmap changes mean the scope diff would baseline against the wrong file,
-   and a parallel roadmap edit usually clears within a minute (mantahostels#1074). Run
-   this **as a background Bash job** — a foreground `sleep` is blocked, and 5 minutes
-   outruns the default tool timeout. Its completion wakes the session; end the
-   turn meanwhile (`docs/agents/guard-registry.md` §Conventions).
+   `CLAUDE_CODE_SESSION_ID` is in the environment of every `Bash` call, so use
+   it inline — never assign it to a shell variable, which would not survive to
+   the next call.
+   Then claim the file:
    ```bash
-   for _ in $(seq 10); do
-     if [ -z "$(git status --porcelain docs/reference-roadmap.html)" ]; then
-       out="$(node scripts/session-arbiter.js claim docs/reference-roadmap.html 2>&1)" &&
-         [[ $out != *"is also held by session"* ]] && exit 0
-     fi
-     sleep 30
-   done
-   exit 1
+   node scripts/session-arbiter.js claim docs/reference-roadmap.html
    ```
-   It takes the claim in the same run it sees the file clean, and retries while
-   a live neighbour holds it, which the arbiter warns of rather than refuses
-   (#4249). **Exit 0 →
-   proceed to the `git show` above. Non-zero (all 10 attempts exhausted) →
-   abandon the edit**, and report it naming the card and the edit, so the
-   collision is countable rather than vanishing. Then carry on with the rest of
-   the ticket.
+   A warning that it is also held by another session means your merge at
+   landing will likely conflict on it (#4249): proceed, and resolve that
+   conflict when you land. A non-zero exit is a fault in the arbiter, not a
+   neighbour: report it, naming the card and the edit, and proceed.
    `git show` failing is a hard stop, not a retry: no baseline means step 6's
    scope diff is unverifiable.
 
    **In the repo, not `/tmp`** — `/tmp` does not survive a WSL2 restart. The
    directory is in `.gitignore`, so it never enters a commit; leave it in place
-   until the loop finishes, then delete it by its session-scoped name — a bare
-   `.roadmap-baseline*` glob would take a parallel session's live baseline with
-   it.
+   until the loop finishes, then delete it by its session-scoped name.
 
 2. **Establish the blast radius before the first `str_replace`.**
    Grep for every card the change touches — the target card, every card whose
@@ -224,7 +209,8 @@ never skip them.
    git show HEAD:docs/reference-roadmap.html | diff -q - "$B" \
      || { echo "BASELINE IS NOT HEAD — redo step 1"; exit 1; }
    ```
-   On either `exit 1` above, retake the baseline from HEAD per step 1 — safe
+   On either `exit 1` above, retake the baseline with step 1's `git show` line
+   alone — safe
    at this point, because HEAD is still the pre-edit roadmap until step 8
    commits — then re-run this step.
 
@@ -301,8 +287,7 @@ never skip them.
    (mantahostels#1130): flipping a `validate-pN` card to `done` re-opens the agent-spend
    ladder, and the warning names what to read. Relay it. A host that does not
    declare `"capacityLadder": true` gets a skip line instead (#748). It reads the
-   **staged blob** against `HEAD`'s, never the working tree, so a neighbour's
-   half-saved roadmap cannot fail your commit.
+   **staged blob** against `HEAD`'s, never the working tree.
    The scheduled `Document guards` job re-runs the same checker in `--tree`
    mode (mantahostels#974), judging the roadmap as it stands. That is what catches a break
    arriving by a route no commit gate sees — a `--no-verify` commit typed in the
