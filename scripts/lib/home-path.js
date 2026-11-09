@@ -1,8 +1,9 @@
 /*
  * home-path.js — the one reading of a leading `~` against a home directory
  * (#4611). Six sites once spelt it their own way and disagreed on an unset or
- * relative HOME; here an unknown home is null, and each caller decides what an
- * unknown path means to it.
+ * relative HOME. `expandHome` wants an absolute path or nothing, and each caller
+ * decides what nothing means to it; `expandTildeWord` reads a shell word as
+ * bash will run it.
  */
 
 const path = require("node:path");
@@ -25,16 +26,18 @@ function expandHome(p, home) {
 }
 
 /**
- * A shell word's leading `~`, as a parser that never looks up `~user` reads
- * it: null for any leading `~` that will not expand, `~user` included.
+ * A shell word's leading `~` as bash expands it: against any set HOME, empty
+ * or relative included, so a guard reads the path the command will. Null
+ * where HOME is unset, or for `~user`, which is never looked up.
  *
  * @param {string} word
  * @param {string | null | undefined} home
  * @returns {string | null}
  */
 function expandTildeWord(word, home) {
-	const out = expandHome(word, home);
-	return word.startsWith("~") && out === word ? null : out;
+	if (!word.startsWith("~")) return word;
+	if (word !== "~" && !word.startsWith("~/")) return null;
+	return home == null ? null : home + word.slice(1);
 }
 
 module.exports = { expandHome, expandTildeWord };
