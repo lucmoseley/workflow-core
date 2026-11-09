@@ -66,6 +66,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
+const { isRouteStep } = require("./lib/decision-labels");
 const { hostRoot } = require("./lib/host-root");
 const { resolveGate } = require("./lib/issue-gate");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
@@ -188,12 +189,10 @@ const ageDays = (iso) => (Date.now() - Date.parse(iso)) / 86_400_000;
 /*
  * Each rule: a label on the parent that fixes a family, and the prefix a child
  * must carry from it. `kind:ticket` is an exact name rather than a prefix
- * because `kind:` has other members a child of a spec must not take.
+ * because `kind:` has other members a child of a spec must not take. A map's
+ * child is read through `isRouteStep`, not `isDecisionTicket`: its type, not
+ * `takes:wayfinder`, is what the map's frontier reads.
  */
-/** A step on a map's route: any `wayfinder:` label. */
-const isRouteStep = (/** @type {string[]} */ l) =>
-	l.some((n) => n.startsWith("wayfinder:"));
-
 const RULES = [
 	{
 		parent: "wayfinder:map",
