@@ -179,6 +179,15 @@ function checkout(name: string) {
 	return at;
 }
 
+const markerOf = (projectDir: string) =>
+	path.join(
+		projectDir,
+		".claude",
+		"tmp",
+		"markers",
+		`.self-plugin-loaded-${SID}`,
+	);
+
 function worktreeOf(main: string) {
 	const worktree = path.join(main, ".claude", "worktrees", "wt");
 	spawnSync("git", ["-C", main, "worktree", "add", "-q", worktree], {
@@ -224,17 +233,7 @@ describe("the setup line", () => {
 			env,
 		);
 		expect(start.status).toBe(0);
-		expect(
-			fs.existsSync(
-				path.join(
-					worktree,
-					".claude",
-					"tmp",
-					"markers",
-					`.self-plugin-loaded-${SID}`,
-				),
-			),
-		).toBe(true);
+		expect(fs.existsSync(markerOf(worktree))).toBe(true);
 		const r = call(bash(SID), env);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
@@ -327,15 +326,6 @@ describe("with lib/script-path.sh not loading (#3798)", () => {
 });
 
 describe("a session the self-plugin loaded from another root (#4712)", () => {
-	const markerOf = (projectDir: string) =>
-		path.join(
-			projectDir,
-			".claude",
-			"tmp",
-			"markers",
-			`.self-plugin-loaded-${SID}`,
-		);
-
 	function expectMismatch(r: ReturnType<typeof call>, loaded: string) {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
@@ -384,11 +374,41 @@ describe("a session the self-plugin loaded from another root (#4712)", () => {
 		expectMismatch(call(bash(SID)), repo);
 	});
 
-	it("is refused on an empty marker, the writer having been handed no root", () => {
+	it("is refused on an empty marker newer than the canary, naming the restart first", () => {
 		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: "" });
 		expect(fs.readFileSync(markerOf(repo), "utf8")).toBe("");
-		expectMismatch(call(bash(SID)), "no recorded root (an empty marker)");
+		const r = call(bash(SID));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(
+			/^Refused: this session's self-plugin marker records no plugin root/,
+		);
+		expect(r.stderr).toContain("Restart the session first.");
+		expect(pastedArgs(r.stderr)).toContain(`${repo}/self-plugin`);
 	});
+
+	/* A marker a writer from before #4712 wrote, at a session still live. */
+	it("allows an empty marker older than the canary", () => {
+		startSession("startup", SID, { CLAUDE_PLUGIN_ROOT: "" });
+		const before = fs.statSync(CANARY).mtime.getTime() / 1000 - 60;
+		fs.utimesSync(markerOf(repo), before, before);
+		const r = call(bash(SID));
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+	});
+
+	/* chmod binds nobody as root, so this says nothing there. */
+	it.skipIf(process.getuid?.() === 0)(
+		"refuses an unreadable marker with no stray error line (#2626)",
+		() => {
+			startSession("startup");
+			fs.chmodSync(markerOf(repo), 0o000);
+			const r = call(bash(SID));
+			expect(r.status).toBe(2);
+			expect(r.stderr).toMatch(
+				/^The self-plugin canary could not check this session \(\S+ unreadable\)/,
+			);
+		},
+	);
 });
 
 describe("the marker", () => {

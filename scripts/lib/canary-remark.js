@@ -20,6 +20,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./agent-liveness.js");
+const { SELF_PLUGIN_DIR } = require("./core-hooks.js");
 const { deref } = require("./deref.js");
 const { gitRead } = require("./dirty-tree.js");
 const { isUnder } = require("./is-under.js");
@@ -133,7 +134,7 @@ function runHook(script, s, root) {
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: s.cwd,
-			CLAUDE_PLUGIN_ROOT: path.join(root, "self-plugin"),
+			CLAUDE_PLUGIN_ROOT: path.join(root, SELF_PLUGIN_DIR),
 		},
 		encoding: "utf8",
 		timeout: HOOK_TIMEOUT_MS,

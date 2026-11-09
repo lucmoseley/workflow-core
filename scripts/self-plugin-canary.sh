@@ -15,8 +15,8 @@
 # its parent's session id, so it is covered.
 #
 # FAILS CLOSED, unlike every other guard here (mantahostels#103 §6): an
-# unreadable input, an empty session id, a missing jq or an unresolved root
-# denies, and so does any exit this script did not choose — the EXIT trap turns
+# unreadable input, an empty session id, a missing jq, an unresolved root, an
+# unreadable marker or a project dir git names no main checkout for denies, and so does any exit this script did not choose — the EXIT trap turns
 # it into exit 2, which Claude Code treats as a refusal. The deny goes out on
 # stderr, so it needs no jq; no guard-log line is kept.
 #
@@ -28,7 +28,7 @@
 # cannot load a repo-declared plugin's hooks (#1892), so it is refused like any
 # unguarded session.
 #
-# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent or names a root other than the main checkout's self-plugin
+# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent, names a root other than the main checkout's self-plugin, or is empty and newer than this script
 # JUSTIFIED: fail-safe — a session the self-plugin did not load, or loaded from another tree, would otherwise run with no guards or another tree's, and nothing said
 # DEFEAT: none
 # TREE:   host — checks this session's self-plugin marker in the host root's markers against the main checkout
@@ -40,6 +40,8 @@ here="${BASH_SOURCE[0]%/*}"
 fault=""
 # The root a marker records where it is not the main checkout's self-plugin.
 loaded=""
+# Set where the marker records no root and is newer than this script.
+unrooted=""
 
 # main_checkout — the parent of git's common dir for CLAUDE_PROJECT_DIR,
 # symlinks resolved, never a worktree: a marketplace registered at a worktree
@@ -48,6 +50,8 @@ loaded=""
 # nothing where git names no common dir ending in .git.
 main_checkout() {
   local at="${CLAUDE_PROJECT_DIR:-}" common
+  # Not gr_root alone: in a worktree it runs git itself, a second process on
+  # every allowed call, for a common dir the call below reads from any tree.
   [[ -n "$at" ]] || at="$(gr_root)"
   common="$(git -C "$at" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" &&
     [[ "$common" == */.git ]] && gr_physical "${common%/.git}"
@@ -71,7 +75,13 @@ refuse() {
   # DUPLICATED BY HAND as lib/core-hooks.js's selfPluginSetup.
   setup="claude plugin marketplace add $word --scope user"
   [[ -n "$fault" ]] && printf 'The self-plugin canary could not check this session (%s), so it refuses as if the self-plugin had not loaded.\n\n' "$fault" >&2
-  if [[ -n "$loaded" ]]; then
+  if [[ -n "$unrooted" ]]; then
+    cat >&2 <<EOF
+Refused: this session's self-plugin marker records no plugin root, so the canary cannot tell which tree its hooks are running from. The self-plugin's SessionStart hook was handed no CLAUDE_PLUGIN_ROOT.
+
+Restart the session first. Where the new session is refused the same way, have the founder run this once per machine:
+EOF
+  elif [[ -n "$loaded" ]]; then
     cat >&2 <<EOF
 Refused: the wfc-self self-plugin loaded in this session from $loaded, not from the main checkout's $dir, so this session's hooks are running another tree's scripts.
 
@@ -108,18 +118,33 @@ spm_marker_path marker || {
   exit
 }
 [[ -e "$marker" ]] || exit
-body="$(<"$marker")" 2>/dev/null || {
+# Braced so 2>/dev/null covers the read's own error line (#2626).
+{ body="$(<"$marker")"; } 2>/dev/null || {
   fault="$marker unreadable"
   exit
 }
+# An empty marker older than this script is a writer's from before it
+# recorded the root (#4712): the levelling re-mark (#4711) does not cover a
+# main checkout moved by another route, nor a session started mid-pass (#4734).
+if [[ -z "$body" ]]; then
+  [[ "$marker" -ot "${BASH_SOURCE[0]}" ]] || {
+    unrooted=1
+    exit
+  }
+  trap - EXIT
+  exit 0
+fi
 main="$(main_checkout)"
+# A checkout whose common dir is not named .git, a --separate-git-dir one or a
+# submodule, is refused with a valid marker too: it has no main checkout the
+# plugin root could be checked against (#4712).
 [[ -n "$main" ]] || {
   fault="git named no main checkout for this session's project directory"
   exit
 }
 body="${body%/}"
 if [[ "${body##*/}" != self-plugin || "$(gr_physical "${body%/*}")" != "$main" ]]; then
-  loaded="${body:-no recorded root (an empty marker)}"
+  loaded="$body"
   exit
 fi
 
