@@ -124,8 +124,7 @@ function attachAll(left, call) {
  *
  * `sample_memory` reads the scope's `memory.peak` and `memory.events`
  * oom_kill count at each poll, since a scope its processes all left is gone
- * by the time the leader's end is seen; the journal takes one line of them
- * per scope, or says the peak was unreadable.
+ * by the time the leader's end is seen.
  *
  * KEPT: a Claude daemon, pty host or spare. A session's `claude --bg` starts
  * the daemon where none runs, so the daemon, and every pty host and spare it

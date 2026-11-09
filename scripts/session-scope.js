@@ -28,8 +28,7 @@
  * THE BOUND. The scope is made with lib's MEMORY_BOUND, so a runaway child
  * is OOM-killed inside its own session before earlyoom's machine-wide line
  * is reached (#4590). The user manager takes its `OOMPolicy` only at
- * creation, so a scope made before the bound stays unbound: bounded under
- * the default `stop`, one child's OOM kill would end the whole session.
+ * creation, so a scope made before the bound stays unbound.
  *
  * THE KILL. A scope outlives its first process (#4334 P5), and a session can
  * end with no SessionEnd (`claude stop` kills `bg-spare` and its pty host,
