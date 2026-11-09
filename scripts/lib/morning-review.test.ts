@@ -20,6 +20,7 @@ const { buildAbsentRepos, buildRepoStart } = require("./review-carry.js");
 const { basisFaults } = require("./issue-gate.js");
 const { readout } = require("./concurrency.js");
 const { titleFirstLinks } = require("./title-first-links.js");
+const { firingAlarm } = require("./queue-alarms.js");
 
 const SINCE = "2026-10-17T07:00:00Z";
 const NOW = "2026-10-18T07:00:00Z";
@@ -86,6 +87,7 @@ const renderWith = (overrides: object) =>
 
 const QUIET_READING = {
 	checkout: "wfc",
+	alarms: [],
 	closesSince: SINCE,
 	decisionsSince: SINCE,
 	urgent: [],
@@ -349,6 +351,31 @@ describe("renderReview (#2011)", () => {
 		]);
 		expect(body).toContain(
 			"## Landing stalls\n\n- acme/a#41 — `Landing queue stalled`\n",
+		);
+	});
+
+	it("lists a queue alarm failed since main's last push under Landing stalls, with its run id and age (#4772)", () => {
+		const main = "b".repeat(40);
+		const run = (id: number, ago: number, headSha: string) => ({
+			databaseId: id,
+			conclusion: "failure",
+			createdAt: new Date(Date.parse(NOW) - ago).toISOString(),
+			headSha,
+		});
+		const alarm = firingAlarm(
+			"Landing quiet 14h",
+			[
+				run(3, 65 * 60 * 1000, main),
+				run(2, 125 * 60 * 1000, main),
+				run(1, 185 * 60 * 1000, "c".repeat(40)),
+			],
+			main,
+		);
+		const body = render([
+			{ repo: "acme/a", entries: [], stalls: [], closed: [], alarms: [alarm] },
+		]);
+		expect(body).toContain(
+			"## Landing stalls\n\n- acme/a — `Landing quiet 14h` failed on run 3, 1 h 5 min ago, 2 failed runs since `main` last moved\n",
 		);
 	});
 

@@ -7,7 +7,8 @@
  * starts one through start-lander.js, the one launcher; where `main` has not
  * moved for STALL_MS with a queue ref waiting, it files or refreshes the
  * stall ticket (lib/stall-ticket.js), which it closes once `main` moves. It
- * files and closes the queue alert (lib/queue-alert.js).
+ * files and closes the queue alert (lib/queue-alert.js), and the alarm ticket
+ * while an off-machine queue alarm fires (lib/alarm-ticket.js, #4772).
  *
  *   node scripts/supervise-landing.js [--tester <command>]
  *
@@ -17,19 +18,22 @@
  * module is off or the queue needs nothing. Joins no §N3 family: it gates
  * nothing and is no hook.
  *
- * Exit codes: 0 on a pass; 1 on a throw, an unreadable remote or queue log,
+ * Exit codes: 0 on a pass, an unread alarm included; 1 on a throw, an unreadable remote or queue log,
  * a failed start or a refused filing among them; 2 on a command line it
  * refuses.
  */
 
+const { alarmTicketTender } = require("./lib/alarm-ticket.js");
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { parseFirstLine } = require("./lib/first-line.js");
 const { runStartLander } = require("./lib/lander-start.js");
 const { readQueue, supervision } = require("./lib/landing-stall.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { queueAlertTender } = require("./lib/queue-alert.js");
 const { queueCrossings } = require("./lib/queue-gauge.js");
+const { readFiringAlarms } = require("./lib/queue-alarms.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { stallTicketTender } = require("./lib/stall-ticket.js");
@@ -72,7 +76,27 @@ function main(argv = process.argv.slice(2)) {
 		say(line);
 	const alert = queueAlertTender(deps, markersDir(root));
 	for (const line of alert(queue.gauge, queueCrossings(queue.gauge))) say(line);
+	if (queue.main !== null) tendAlarms(root, deps, queue.main);
 	return 0;
+}
+
+/**
+ * The alarm ticket's pass. An unread alarm is named and leaves the ticket as
+ * it stands, so the queue's own acts above still count.
+ * @param {string} root
+ * @param {import("./lib/queue-issue.js").QueueIssueDeps} deps
+ * @param {string} sha `main`'s sha
+ */
+function tendAlarms(root, deps, sha) {
+	let alarms;
+	try {
+		alarms = readFiringAlarms(root, () => sha);
+	} catch (e) {
+		say(`queue alarms: not read: ${parseFirstLine(parseErrorText(e))}`);
+		return;
+	}
+	const tend = alarmTicketTender(deps, markersDir(root));
+	for (const line of tend({ main: sha, alarms })) say(line);
 }
 
 /**
