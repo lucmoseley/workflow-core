@@ -407,7 +407,7 @@ function tendCheckouts(io, served, launches, now) {
 }
 
 /**
- * Stop each overflow session past its allowance (lib/overflow-budget.js,
+ * Stop each overflow session past its allowance (lib/overflow-cap.js,
  * #3698), logged, first giving each overflow launch the session id the listing
  * shows for it (#3701), where the listing read and the seat file declares an
  * overflow seat without fault, paused or stopping alike.

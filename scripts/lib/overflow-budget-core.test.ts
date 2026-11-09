@@ -1,15 +1,25 @@
 // @vitest-environment node
 /*
- * Pins lib/overflow-budget-core.js's budgetOf: the cycle on and around the
- * cycle day, settled spend by cycle, reservations at and above Q, Q read from
- * the table, and the exhausted mark set by a credit refusal and cleared at
- * the next cycle.
+ * Pins lib/overflow-budget-core.js: budgetOf's cycle on and around the cycle
+ * day, settled spend by cycle, reservations at and above Q, Q read from the
+ * table, the exhausted mark set by a credit refusal and cleared at the next
+ * cycle, and when a spent key frees; and the chain arithmetic over resumed
+ * copies, through a fake launch lookup and transcript reader.
  *
  * Loosen one and the loop launches on a key past its grant, keeps retrying a
- * spent key, or counts a cycle's spend from the wrong day (#2609).
+ * spent key, counts a cycle's spend from the wrong day (#2609), or counts a
+ * chain's shared requests twice (#4195, #4208, #4370).
  */
 import { describe, expect, it } from "vitest";
-import { budgetOf, isBudgetSpent } from "./overflow-budget-core.js";
+import {
+	budgetOf,
+	chainRootOf,
+	chainSpendOf,
+	isBudgetSpent,
+	offKeyOf,
+	readSharedUsd,
+	settleChainsOnce,
+} from "./overflow-budget-core.js";
 
 /* Mean 4; a run 0.5 in has an expected remainder of (0.5 + 2.5 + 9.5) / 3,
  * the top point standing at u 3 + tail 7; one 5 in, past u, the tail's 7. */
@@ -253,5 +263,85 @@ describe("anchored to a Console reading", () => {
 			reading: { at: readAt, credits: [credit(3, "2026-12-01")] },
 		});
 		expect(isBudgetSpent(b)).toBe(true);
+	});
+});
+
+describe("when a spent key frees", () => {
+	it("names the next cycle's local date with no reading", () => {
+		expect(budgetOf(base).freeAgain).toBe("2026-11-20");
+	});
+
+	it("waits on a newer reading with one", () => {
+		const reading = { at: now - 1, credits: [] };
+		expect(budgetOf({ ...base, reading }).freeAgain).toBe(
+			"a newer Console reading",
+		);
+	});
+});
+
+describe("the chain of resumed copies", () => {
+	/* a ← b ← c, each a `--resume` copy of the one before; d alone. a's move
+	 * onto the key repeats $2 a plan paid. */
+	const parents: Record<string, { copyOf?: string; offKeyUsd?: number }> = {
+		a: { offKeyUsd: 2 },
+		b: { copyOf: "a" },
+		c: { copyOf: "b" },
+		d: {},
+	};
+	const lookup = ({ sessionId }: { sessionId?: string | null }) =>
+		(parents[sessionId ?? ""] ?? null) as never;
+	const row = (sessionId: string, costUsd: number, sharedUsd?: number) => ({
+		...entry(1, costUsd),
+		sessionId,
+		...(sharedUsd === undefined ? {} : { sharedUsd }),
+	});
+
+	it("finds a chain's root, and stops on a loop in the records", () => {
+		expect(chainRootOf(lookup, "c")).toBe("a");
+		expect(chainRootOf(lookup, "d")).toBe("d");
+		const loop = ({ sessionId }: { sessionId?: string | null }) =>
+			({ copyOf: sessionId === "x" ? "y" : "x" }) as never;
+		expect(["x", "y"]).toContain(chainRootOf(loop, "x"));
+	});
+
+	it("reads a copy's off-key spend from its chain's root", () => {
+		expect(offKeyOf(lookup, "c")).toBe(2);
+		expect(offKeyOf(lookup, "d")).toBe(0);
+	});
+
+	it("prices what each copy repeats from the transcripts before it", () => {
+		const spend: Record<string, number> = { a: 10, "a,b": 16, "a,b,c": 25 };
+		const files = new Map(["a", "b", "c"].map((id) => [id, id]));
+		const shared = readSharedUsd(
+			lookup,
+			[row("c", 18), row("a", 8), row("b", 12), row("d", 5)],
+			files,
+			(listed) => spend[listed.join(",")],
+		);
+		expect(shared.map(([r, usd]) => [r.sessionId, usd])).toEqual([
+			["b", 6],
+			["c", 9],
+		]);
+	});
+
+	it("keeps a copy's last figure once a transcript before it has gone", () => {
+		const files = new Map([["b", "b"]]);
+		const shared = readSharedUsd(
+			lookup,
+			[row("a", 8), row("b", 12, 6)],
+			files,
+			() => 99,
+		);
+		expect(shared.map(([r, usd]) => [r.sessionId, usd])).toEqual([["b", 6]]);
+	});
+
+	it("settles a chain's shared requests once and caps each member on the chain's spend", () => {
+		const ledger = [row("a", 8), row("b", 12, 6), row("d", 5)];
+		expect(settleChainsOnce(ledger).map((e) => e.costUsd)).toEqual([8, 6, 5]);
+		expect(Object.fromEntries(chainSpendOf(lookup, ledger))).toEqual({
+			a: 14,
+			b: 14,
+			d: 5,
+		});
 	});
 });

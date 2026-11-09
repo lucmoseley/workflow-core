@@ -26,10 +26,14 @@
  *   fit      = floor(headroom / Q), or 0 on an exhausted key
  */
 
+const { localDate } = require("./morning-review.js");
 const { expectedRemainderUsd } = require("./session-spend.js");
 
 /**
  * @typedef {import("./session-spend.js").CostTable} CostTable
+ * @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup
+ * @typedef {(mainFiles: string[]) => number} ReadChainSpendUsd the spend of
+ *   transcripts, each request once: session-spend.js's readChainSpendUsd
  *
  * @typedef {object} LedgerEntry
  * @property {string} sessionId
@@ -68,6 +72,8 @@ const { expectedRemainderUsd } = require("./session-spend.js");
  * @property {number} cycleStart ms
  * @property {number} nextCycleStart ms
  * @property {boolean} exhausted
+ * @property {string} freeAgain when a spent key frees: the next cycle's local
+ *   date, YYYY-MM-DD, with no reading, else `a newer Console reading`
  */
 
 /**
@@ -170,8 +176,169 @@ function budgetOf({
 		cycleStart: cycle.start,
 		nextCycleStart: cycle.next,
 		exhausted,
+		freeAgain: reading
+			? "a newer Console reading"
+			: localDate(new Date(cycle.next)),
 	};
 }
+
+/**
+ * The session a chain of `--bg --resume` copies started from, and how many
+ * copies deep a session is in it (#4195).
+ * @param {OverflowLookup} lookup
+ * @param {string} sessionId
+ * @returns {{root: string, depth: number}}
+ */
+function chainOf(lookup, sessionId) {
+	const seen = new Set([sessionId]);
+	let id = sessionId;
+	for (;;) {
+		const parent = lookup({ sessionId: id })?.copyOf;
+		if (!parent || seen.has(parent)) return { root: id, depth: seen.size - 1 };
+		seen.add(parent);
+		id = parent;
+	}
+}
+
+/**
+ * The session a chain of `--bg --resume` copies started from (#4195).
+ * @param {OverflowLookup} lookup
+ * @param {string} sessionId
+ */
+const chainRootOf = (lookup, sessionId) => chainOf(lookup, sessionId).root;
+
+/**
+ * What a session's transcript repeats from before a move put its chain on the
+ * key, which a plan paid: its chain root's record, as each copy repeats the
+ * root's history (#3736).
+ * @param {OverflowLookup} lookup
+ * @param {string} sessionId
+ */
+const offKeyOf = (lookup, sessionId) =>
+	lookup({ sessionId: chainRootOf(lookup, sessionId) })?.offKeyUsd ?? 0;
+
+/**
+ * The ledger's rows grouped by chain root, each chain's root first and every
+ * copy after its parent; copies at one depth by session id.
+ * @param {OverflowLookup} lookup
+ * @param {Iterable<LedgerEntry>} rows
+ * @returns {Map<string, LedgerEntry[]>}
+ */
+function groupByChain(lookup, rows) {
+	/** @type {Map<string, {row: LedgerEntry, depth: number}[]>} */
+	const byRoot = new Map();
+	for (const row of rows) {
+		const { root, depth } = chainOf(lookup, row.sessionId);
+		byRoot.set(root, [...(byRoot.get(root) ?? []), { row, depth }]);
+	}
+	/** @type {Map<string, LedgerEntry[]>} */
+	const chains = new Map();
+	for (const [root, members] of byRoot)
+		chains.set(
+			root,
+			members
+				.sort(
+					(x, y) =>
+						x.depth - y.depth || x.row.sessionId.localeCompare(y.row.sessionId),
+				)
+				.map((m) => m.row),
+		);
+	return chains;
+}
+
+/**
+ * What each listed chain member's cost repeats from the members before it. A
+ * copy repeats only history from before its fork, so the figure is fixed once
+ * read with every member before it listed: where one of those has gone, the
+ * row's last figure stands (#4370). A chain's root repeats nothing and gets
+ * none. Residual: a member first read after an earlier member's transcript
+ * went, or gone before it was ever read with them, has no figure, so its
+ * repeated requests count twice.
+ * @param {OverflowLookup} lookup
+ * @param {Iterable<LedgerEntry>} rows
+ * @param {Map<string, string>} files each listed session's main transcript
+ * @param {ReadChainSpendUsd} readChainSpendUsd
+ * @returns {[LedgerEntry, number][]}
+ */
+function readSharedUsd(lookup, rows, files, readChainSpendUsd) {
+	return [...groupByChain(lookup, rows)].flatMap(([root, members]) => {
+		if (members.length < 2) return [];
+		const offKeyUsd = offKeyOf(lookup, root);
+		return readChainSharedUsd(root, members, files, (listed) =>
+			Math.max(0, readChainSpendUsd(listed) - offKeyUsd),
+		);
+	});
+}
+
+/**
+ * `readSharedUsd` for one chain, its members in chain order.
+ * @param {string} root
+ * @param {LedgerEntry[]} members
+ * @param {Map<string, string>} files
+ * @param {ReadChainSpendUsd} readListedUsd the listed transcripts' spend, each
+ *   request once, less what the root's move repeats from off the key
+ * @returns {[LedgerEntry, number][]}
+ */
+function readChainSharedUsd(root, members, files, readListedUsd) {
+	/** @type {[LedgerEntry, number][]} */
+	const shared = [];
+	/** @type {string[]} */
+	const listed = [];
+	let before = 0;
+	let everyEarlierListed = true;
+	for (const row of members) {
+		const file = files.get(row.sessionId);
+		if (file === undefined) {
+			everyEarlierListed = false;
+			continue;
+		}
+		listed.push(file);
+		const after = readListedUsd(listed);
+		if (row.sessionId !== root)
+			shared.push([
+				row,
+				everyEarlierListed || row.sharedUsd === undefined
+					? row.costUsd - (after - before)
+					: row.sharedUsd,
+			]);
+		before = after;
+	}
+	return shared;
+}
+
+/**
+ * A row's spend less what it repeats from its chain.
+ * @param {LedgerEntry} e
+ */
+const chainShareOf = (e) => Math.max(0, e.costUsd - (e.sharedUsd ?? 0));
+
+/**
+ * Each session's spend with every copy in its chain, by session: a copy
+ * repeats its parent's main-thread requests up to the fork, but neither the
+ * parent's subagents nor what the parent spends after it, so a copy priced
+ * alone could spend its allowance again (#4195).
+ * @param {OverflowLookup} lookup
+ * @param {LedgerEntry[]} ledger
+ * @returns {Map<string, number>}
+ */
+function chainSpendOf(lookup, ledger) {
+	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+	for (const members of groupByChain(lookup, ledger).values()) {
+		if (members.length < 2) continue;
+		const usd = members.reduce((t, e) => t + chainShareOf(e), 0);
+		for (const e of members) spent.set(e.sessionId, Math.max(usd, e.costUsd));
+	}
+	return spent;
+}
+
+/**
+ * The ledger with each row at its chain share, so a parent and its copies
+ * settle the requests they share once (#4208), with one row per session.
+ * @param {LedgerEntry[]} ledger
+ * @returns {LedgerEntry[]}
+ */
+const settleChainsOnce = (ledger) =>
+	ledger.map((e) => ({ ...e, costUsd: chainShareOf(e) }));
 
 /**
  * Whether the key has no launch left, running runs aside: a credit refusal, or
@@ -181,4 +348,12 @@ function budgetOf({
 const isBudgetSpent = ({ exhausted, creditUsd, settledUsd, qUsd }) =>
 	exhausted || creditUsd - settledUsd < qUsd;
 
-module.exports = { budgetOf, isBudgetSpent };
+module.exports = {
+	budgetOf,
+	chainRootOf,
+	chainSpendOf,
+	isBudgetSpent,
+	offKeyOf,
+	readSharedUsd,
+	settleChainsOnce,
+};

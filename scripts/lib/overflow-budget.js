@@ -9,13 +9,8 @@
  * into a durable per-key ledger of one row per session beside the refill loop's
  * files. Only the launch record marks a session in the seat's dir as on the key.
  *
- * THE PER-SESSION CAP (#3698): `--max-budget-usd` works only with `--print`, so
- * each refill tick stops a listed session whose spend, with its chain of
- * resumed copies' (#4195), has reached the allowance its launch recorded, with
- * `claude stop` on the seat's dir, which keeps the conversation. Each chain is
- * capped once, and a founder's reply to it runs uncapped (spec #3691 §Out of
- * Scope): the reply is a headless run of its own, which its run record marks
- * (lib/overflow-actions.js, #4174); the loop's resumes carry no mark.
+ * The chain arithmetic is lib/overflow-budget-core.js's; the per-session cap is
+ * lib/overflow-cap.js's.
  */
 
 const fs = require("node:fs");
@@ -25,11 +20,9 @@ const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
 const { CREDIT_REFUSAL } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
-const { stopOn } = require("./claude-stop.js");
 const { readConsoleLog } = require("./console-credit.js");
 const { readEveryOverflowLookup } = require("./dispatch-ledger.js");
 const { hostRoot } = require("./host-root.js");
-const { shortJobId } = require("./job-paths.js");
 const { readJsonl } = require("./jsonl.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
@@ -38,11 +31,15 @@ const { refillPath } = require("./refill-dir.js");
 const {
 	buildSeatLabel,
 	findOverflowSeat,
-	overflowSeatsOf,
 	readDeclaredSeats,
 } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
-const { budgetOf } = require("./overflow-budget-core.js");
+const {
+	budgetOf,
+	offKeyOf,
+	readSharedUsd,
+	settleChainsOnce,
+} = require("./overflow-budget-core.js");
 const {
 	readChainSpendUsd,
 	readCostTableIn,
@@ -70,10 +67,6 @@ const { writeFd } = require("./write-fd.js");
  * 2026-11-06). */
 const INTERACTIVE_ENTRYPOINT = "cli";
 
-/* The listing kinds an overflow launch runs as: a `--bg` job, or a headless
- * run (lib/headless-runs.js, #4580), which lib/claude-stop.js also stops. */
-const LAUNCHED_KINDS = new Set(["background", "headless"]);
-
 /* The scripts a ledger's lock holder runs; any other's lock reads as stale. */
 const BUDGET_READERS = [
 	"overflow-budget.js",
@@ -84,10 +77,6 @@ const BUDGET_READERS = [
 /** @param {OverflowSeat} seat */
 const ledgerFile = (seat) =>
 	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.jsonl`));
-
-/** @param {OverflowSeat} seat */
-const cappedFile = (seat) =>
-	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.capped.jsonl`));
 
 /**
  * The key's ledger, by session.
@@ -233,6 +222,7 @@ function priceSessions(seat, lookup) {
 			lookup,
 			ledger.values(),
 			files,
+			readChainSpendUsd,
 		)) {
 			if (row.sharedUsd === sharedUsd) continue;
 			ledger.set(row.sessionId, { ...row, sharedUsd });
@@ -342,281 +332,6 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 const dollars = (usd) => `$${usd.toFixed(2)}`;
 
 /**
- * The session a chain of `--bg --resume` copies started from, and how many
- * copies deep a session is in it (#4195).
- * @param {OverflowLookup} lookup
- * @param {string} sessionId
- * @returns {{root: string, depth: number}}
- */
-function chainOf(lookup, sessionId) {
-	const seen = new Set([sessionId]);
-	let id = sessionId;
-	for (;;) {
-		const parent = lookup({ sessionId: id })?.copyOf;
-		if (!parent || seen.has(parent)) return { root: id, depth: seen.size - 1 };
-		seen.add(parent);
-		id = parent;
-	}
-}
-
-/**
- * The session a chain of `--bg --resume` copies started from (#4195).
- * @param {OverflowLookup} lookup
- * @param {string} sessionId
- */
-const chainRootOf = (lookup, sessionId) => chainOf(lookup, sessionId).root;
-
-/**
- * What a session's transcript repeats from before a move put its chain on the
- * key, which a plan paid: its chain root's record, as each copy repeats the
- * root's history (#3736).
- * @param {OverflowLookup} lookup
- * @param {string} sessionId
- */
-const offKeyOf = (lookup, sessionId) =>
-	lookup({ sessionId: chainRootOf(lookup, sessionId) })?.offKeyUsd ?? 0;
-
-/**
- * The ledger's rows grouped by chain root, each chain's root first and every
- * copy after its parent; copies at one depth by session id.
- * @param {OverflowLookup} lookup
- * @param {Iterable<LedgerEntry>} rows
- * @returns {Map<string, LedgerEntry[]>}
- */
-function groupByChain(lookup, rows) {
-	/** @type {Map<string, {row: LedgerEntry, depth: number}[]>} */
-	const byRoot = new Map();
-	for (const row of rows) {
-		const { root, depth } = chainOf(lookup, row.sessionId);
-		byRoot.set(root, [...(byRoot.get(root) ?? []), { row, depth }]);
-	}
-	/** @type {Map<string, LedgerEntry[]>} */
-	const chains = new Map();
-	for (const [root, members] of byRoot)
-		chains.set(
-			root,
-			members
-				.sort(
-					(x, y) =>
-						x.depth - y.depth || x.row.sessionId.localeCompare(y.row.sessionId),
-				)
-				.map((m) => m.row),
-		);
-	return chains;
-}
-
-/**
- * The spend of a chain's listed transcripts, each request once, less what its
- * root's move repeats from off the key.
- * @param {OverflowLookup} lookup
- * @param {string} root
- * @param {string[]} listed
- */
-const readListedChainUsd = (lookup, root, listed) =>
-	Math.max(0, readChainSpendUsd(listed) - offKeyOf(lookup, root));
-
-/**
- * What each listed chain member's cost repeats from the members before it. A
- * copy repeats only history from before its fork, so the figure is fixed once
- * read with every member before it listed: where one of those has gone, the
- * row's last figure stands (#4370). A chain's root repeats nothing and gets
- * none. Residual: a member first read after an earlier member's transcript
- * went, or gone before it was ever read with them, has no figure, so its
- * repeated requests count twice.
- * @param {OverflowLookup} lookup
- * @param {Iterable<LedgerEntry>} rows
- * @param {Map<string, string>} files each listed session's main transcript
- * @returns {[LedgerEntry, number][]}
- */
-function readSharedUsd(lookup, rows, files) {
-	return [...groupByChain(lookup, rows)].flatMap(([root, members]) =>
-		members.length < 2 ? [] : readChainSharedUsd(lookup, root, members, files),
-	);
-}
-
-/**
- * `readSharedUsd` for one chain, its members in chain order.
- * @param {OverflowLookup} lookup
- * @param {string} root
- * @param {LedgerEntry[]} members
- * @param {Map<string, string>} files
- * @returns {[LedgerEntry, number][]}
- */
-function readChainSharedUsd(lookup, root, members, files) {
-	/** @type {[LedgerEntry, number][]} */
-	const shared = [];
-	/** @type {string[]} */
-	const listed = [];
-	let before = 0;
-	let everyEarlierListed = true;
-	for (const row of members) {
-		const file = files.get(row.sessionId);
-		if (file === undefined) {
-			everyEarlierListed = false;
-			continue;
-		}
-		listed.push(file);
-		const after = readListedChainUsd(lookup, root, listed);
-		if (row.sessionId !== root)
-			shared.push([
-				row,
-				everyEarlierListed || row.sharedUsd === undefined
-					? row.costUsd - (after - before)
-					: row.sharedUsd,
-			]);
-		before = after;
-	}
-	return shared;
-}
-
-/**
- * A row's spend less what it repeats from its chain.
- * @param {LedgerEntry} e
- */
-const chainShareOf = (e) => Math.max(0, e.costUsd - (e.sharedUsd ?? 0));
-
-/**
- * Each session's spend with every copy in its chain, by session: a copy
- * repeats its parent's main-thread requests up to the fork, but neither the
- * parent's subagents nor what the parent spends after it, so a copy priced
- * alone could spend its allowance again (#4195).
- * @param {OverflowLookup} lookup
- * @param {LedgerEntry[]} ledger
- * @returns {Map<string, number>}
- */
-function chainSpendOf(lookup, ledger) {
-	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
-	for (const members of groupByChain(lookup, ledger).values()) {
-		if (members.length < 2) continue;
-		const usd = members.reduce((t, e) => t + chainShareOf(e), 0);
-		for (const e of members) spent.set(e.sessionId, Math.max(usd, e.costUsd));
-	}
-	return spent;
-}
-
-/**
- * The ledger with each row at its chain share, so a parent and its copies
- * settle the requests they share once (#4208), with one row per session.
- * @param {LedgerEntry[]} ledger
- * @returns {LedgerEntry[]}
- */
-const settleChainsOnce = (ledger) =>
-	ledger.map((e) => ({ ...e, costUsd: chainShareOf(e) }));
-
-/**
- * The key's listed background sessions and headless runs whose chain's spend
- * has reached the allowance their launch recorded, a founder's reply aside,
- * once priceSessions has priced the key's ledger again. An `ended` one is past
- * it but no longer running: capped without a stop.
- * @param {OverflowSeat} seat
- * @param {import("./agent-liveness.js").AgentRecord[]} agents
- * @param {OverflowLookup} lookup
- * @throws where a transcript or the ledger cannot be read, written or locked
- */
-function priceOverAllowance(seat, agents, lookup) {
-	const spent = chainSpendOf(lookup, priceSessions(seat, lookup));
-	const capped = new Set(
-		(readJsonl(cappedFile(seat))?.rows ?? []).map((r) =>
-			chainRootOf(lookup, String(r.sessionId)),
-		),
-	);
-	return agents.flatMap((a) => {
-		if (
-			!LAUNCHED_KINDS.has(a.kind ?? "") ||
-			capped.has(chainRootOf(lookup, a.sessionId)) ||
-			a.founderReply === true
-		)
-			return [];
-		const launch = lookup({ jobId: a.id, sessionId: a.sessionId });
-		const spentUsd = spent.get(a.sessionId);
-		if (
-			launch?.keyVar !== seat.keyVar ||
-			spentUsd === undefined ||
-			spentUsd < launch.allowanceUsd
-		)
-			return [];
-		return [
-			{
-				jobId: a.id ?? shortJobId(a.sessionId),
-				sessionId: a.sessionId,
-				name: a.name ?? null,
-				spentUsd,
-				allowanceUsd: launch.allowanceUsd,
-				ended: isTerminalAgent(a),
-			},
-		];
-	});
-}
-
-/**
- * Stop every listed overflow session past its allowance (#3698): one log line
- * per stop and one per seat that could not be judged.
- * A failed stop is not marked capped, so the next tick tries again. Residual:
- * one the daemon holds no job for ("No job matching") logs its failure every
- * tick for as long as the listing shows it.
- * @param {import("./refill-seats.js").SeatList} declared
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents the tick's
- *   listing, null where it is unread
- * @returns {string[]}
- */
-function stopOverAllowance(declared, agents) {
-	if (declared.errors.length > 0)
-		return [`overflow allowances unjudged: ${declared.errors.join("; ")}`];
-	const seats = overflowSeatsOf(declared.seats);
-	if (seats.length === 0) return [];
-	if (!agents) return ["overflow allowances unjudged: the listing is unread"];
-	let lookup;
-	try {
-		lookup = readEveryOverflowLookup();
-	} catch (err) {
-		return [`overflow allowances unjudged: ${caught(err).message}`];
-	}
-	return seats.flatMap((seat) => {
-		let over;
-		try {
-			over = priceOverAllowance(seat, agents, lookup);
-		} catch (err) {
-			return [
-				`overflow allowances on ${buildSeatLabel(seat)} unjudged: ${caught(err).message}`,
-			];
-		}
-		return over.flatMap((s) => capSession(seat, s));
-	});
-}
-
-/**
- * Stop one session at or past its allowance, unless it has ended, and mark
- * it capped.
- * @param {OverflowSeat} seat
- * @param {ReturnType<typeof priceOverAllowance>[number]} s
- * @returns {string[]}
- */
-function capSession(seat, s) {
-	const who = `overflow session ${s.name ? `${s.name} (${s.jobId})` : s.jobId} on ${buildSeatLabel(seat)}`;
-	/* A malformed launch row must not read as an allowance of nothing. */
-	if (!Number.isFinite(s.allowanceUsd))
-		return [`${who} unjudged: its launch records no allowance`];
-	const r = s.ended ? null : stopOn(seat.dir, s.jobId);
-	const figures = `spent ${dollars(s.spentUsd)} of its ${dollars(s.allowanceUsd)} allowance`;
-	if (r && !r.ok) return [`could not stop ${who}, ${figures}: ${r.why}`];
-	const row = {
-		sessionId: s.sessionId,
-		jobId: s.jobId,
-		at: new Date().toISOString(),
-		spentUsd: s.spentUsd,
-		allowanceUsd: s.allowanceUsd,
-	};
-	try {
-		fs.appendFileSync(cappedFile(seat), `${JSON.stringify(row)}\n`);
-	} catch (err) {
-		return [
-			`${r ? "stopped" : "ended"} ${who}, ${figures}, not marked capped: ${caught(err).message}`,
-		];
-	}
-	return r ? [`stopped ${who}: ${figures}`] : [];
-}
-
-/**
  * @param {OverflowSeat} seat
  * @param {SeatBudget|{why: string}} budget
  */
@@ -631,15 +346,14 @@ function buildBudgetLine(seat, budget) {
 		const spent = `${dollars(budget.creditUsd)} of ${dollars(budget.grantUsd)} on the Console at ${new Date(budget.readAt).toISOString()}, ${dollars(budget.settledUsd)} spent since`;
 		const expires = budget.expiresOn ? `; expires ${budget.expiresOn}` : "";
 		const state = budget.exhausted
-			? "exhausted until a newer Console reading"
+			? `exhausted until ${budget.freeAgain}`
 			: `fits ${budget.fit}`;
 		return `${label}: ${state}; ${headroom}; ${spent}${expires}${failed}`;
 	}
-	const resets = localDate(new Date(budget.nextCycleStart));
 	const spent = `spent ${dollars(budget.settledUsd)} of ${dollars(budget.grantUsd)} since ${localDate(new Date(budget.cycleStart))}`;
 	if (budget.exhausted)
-		return `${label}: exhausted until ${resets}; headroom ${dollars(budget.headroomUsd)}; ${spent}${failed}`;
-	return `${label}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${resets}${failed}`;
+		return `${label}: exhausted until ${budget.freeAgain}; headroom ${dollars(budget.headroomUsd)}; ${spent}${failed}`;
+	return `${label}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${budget.freeAgain}${failed}`;
 }
 
 /*
@@ -695,4 +409,9 @@ function main(args) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { buildBudgetLine, seatBudget, stopOverAllowance };
+module.exports = {
+	buildBudgetLine,
+	dollars,
+	priceSessions,
+	seatBudget,
+};

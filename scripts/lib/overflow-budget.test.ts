@@ -27,7 +27,9 @@ import { writeClaudeStub } from "./claude-stub";
 import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
-import { seatBudget, stopOverAllowance } from "./overflow-budget.js";
+import { localDate } from "./morning-review.js";
+import { seatBudget } from "./overflow-budget.js";
+import { stopOverAllowance } from "./overflow-cap.js";
 import { killGroup, readStat, startOrphan } from "./process-fixture";
 import { runInProcess } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
@@ -698,6 +700,7 @@ describe("the CLI", () => {
 			qUsd: 4,
 			running: 0,
 			exhausted: false,
+			freeAgain: localDate(new Date(nextCycleStart)),
 			readFailure: null,
 			lastAttemptAt: null,
 			runningReadAt: expect.any(Number),

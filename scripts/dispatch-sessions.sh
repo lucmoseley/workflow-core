@@ -632,15 +632,11 @@ fi
 # many more sessions its headroom holds at one mean session each. Fails CLOSED
 # like the allowance gate.
 # $1: the budget JSON. Prints the fields the refusals below name, tab-separated;
-# the last two say when the key is free again: its next cycle, or, where the
-# key has a Console reading, a newer reading (lib/overflow-budget-core.js).
+# the last two say when the key is free again, as the budget's `freeAgain`
+# words it (lib/overflow-budget-core.js).
 budget_fields() {
-  jq -r '(if .readAt == null
-      then .nextCycleStart / 1000 | strflocaltime("%Y-%m-%d")
-      else null end) as $next |
-    [.fit, .headroomUsd, .qUsd, .running, .reservedUsd, .exhausted,
-    ($next | if . then "until \(.)" else "until a newer Console reading" end),
-    ($next | if . then "resets \(.)" else "resets at a newer Console reading" end)] | @tsv' <<<"$1"
+  jq -r '[.fit, .headroomUsd, .qUsd, .running, .reservedUsd, .exhausted,
+    "until \(.freeAgain)", "resets at \(.freeAgain)"] | @tsv' <<<"$1"
 }
 # Why the seat fits no session, from the fields budget_fields last read.
 no_fit_line() {

@@ -75,7 +75,8 @@ const { MODEL } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const { appendTick, concurrencyFiles } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
-const { seatBudget, stopOverAllowance } = require("./overflow-budget.js");
+const { seatBudget } = require("./overflow-budget.js");
+const { stopOverAllowance } = require("./overflow-cap.js");
 const {
 	buildSeatLabel,
 	overflowSeatsOf,
