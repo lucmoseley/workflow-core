@@ -301,7 +301,7 @@ describe("the chain of resumed copies", () => {
 		expect(chainRootOf(lookup, "d")).toBe("d");
 		const loop = ({ sessionId }: { sessionId?: string | null }) =>
 			({ copyOf: sessionId === "x" ? "y" : "x" }) as never;
-		expect(["x", "y"]).toContain(chainRootOf(loop, "x"));
+		expect(chainRootOf(loop, "x")).toBe("y");
 	});
 
 	it("reads a copy's off-key spend from its chain's root", () => {

@@ -10,7 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { endedPid, freshSandbox } from "./lib/arbiter-testkit";
-import { buildReviewTitle, localDate } from "./lib/morning-review.js";
+import { localDate } from "./lib/local-date.js";
+import { buildReviewTitle } from "./lib/morning-review.js";
 import { morningReviewFixture } from "./lib/morning-review-fixture";
 import { runInProcess } from "./lib/run-in-process";
 

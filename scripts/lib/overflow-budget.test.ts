@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * Pins lib/overflow-budget.js: a session on the key priced from its transcript,
+ * Pins lib/overflow-budget.js, and lib/overflow-cap.js's per-session cap
+ * (#3698) on the same fixtures: a session on the key priced from its transcript,
  * priced again as it grows and counted once; only sessions the launch record
  * marks on the key counted, from any checkout; the exhausted mark from a credit
  * refusal in a transcript; a listed session held, not settled; a resumed copy's
@@ -27,7 +28,7 @@ import { writeClaudeStub } from "./claude-stub";
 import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
-import { localDate } from "./morning-review.js";
+import { localDate } from "./local-date.js";
 import { seatBudget } from "./overflow-budget.js";
 import { stopOverAllowance } from "./overflow-cap.js";
 import { killGroup, readStat, startOrphan } from "./process-fixture";

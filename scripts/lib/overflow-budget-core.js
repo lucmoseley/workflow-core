@@ -23,10 +23,15 @@
  * that spend came off another cycle or is already in the reading.
  *
  *   headroom = credit − settled spend − Σ running reservations
- *   fit      = floor(headroom / Q), or 0 on an exhausted key
+ *   fit      = floor(headroom / Q), or 0 on an exhausted key *
+ * CHAINS: a `--bg --resume` copy repeats its parent's history up to the fork,
+ * so a chain of copies settles its shared requests once (#4208), each copy
+ * capped on the chain's spend (#4195), and what a copy repeats is fixed once
+ * read with every member before it (#4370). The transcripts' spend comes in
+ * through a reader, session-spend.js's readChainSpendUsd in production.
  */
 
-const { localDate } = require("./morning-review.js");
+const { localDate } = require("./local-date.js");
 const { expectedRemainderUsd } = require("./session-spend.js");
 
 /**

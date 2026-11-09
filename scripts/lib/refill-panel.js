@@ -14,7 +14,7 @@
 
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { localDate } = require("./morning-review.js");
+const { localDate } = require("./local-date.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
 const { describeAge } = require("./proc-table.js");
