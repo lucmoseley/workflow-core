@@ -25285,6 +25285,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/merge-heads.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",

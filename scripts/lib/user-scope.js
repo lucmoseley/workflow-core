@@ -21,7 +21,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { forgetSession, REPORT_OWNER } = require("./session-id.js");
+const { forgetSession, REPORT_OWNER, reportOwner } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
 const {
 	MANAGER_TIMEOUT_MS,
@@ -62,11 +62,20 @@ function probeUserScope() {
 }
 
 /* The probe's answer, taken once per process by `spawnInRunScope` and
- * `spawnOutliving`. */
+ * `spawnOutliving` — or once per launcher run, where the session-start
+ * launcher hands its own answer down as USER_MANAGER_ENV, `yes` or `no`
+ * (#4706): session-start-sweeps.sh spells it out where it runs the throttling
+ * check. */
+const USER_MANAGER_ENV = "WFC_USER_MANAGER";
 /** @type {boolean|null} */
 let managerAnswers = null;
 const managerAnswersOnce = () => {
-	if (managerAnswers === null) managerAnswers = probeUserScope().length > 0;
+	if (managerAnswers !== null) return managerAnswers;
+	const handed = process.env[USER_MANAGER_ENV];
+	managerAnswers =
+		handed === "yes" || handed === "no"
+			? handed === "yes"
+			: probeUserScope().length > 0;
 	return managerAnswers;
 };
 
@@ -94,6 +103,8 @@ function buildOutlivingScope(ceilingS) {
  * stripped), naming `owner` as its notify reports' owner, in a user scope
  * outside the session's own and so outside its watcher's kill, stopped at
  * `ceilingS`. Where no user manager answers it starts the same way, unscoped.
+ * `owner` defaults to the starter's report owner and `ceilingS` to
+ * OUTLIVE_CEILING_S; null names no owner or sets no ceiling.
  * The caller unrefs the child. `wrap` replaces the scope words, for a test or
  * a caller that probed already.
  * @param {string} command
@@ -105,11 +116,13 @@ function buildOutlivingScope(ceilingS) {
 function spawnOutliving(
 	command,
 	args,
-	{ owner = null, ceilingS = null, wrap, ...options },
+	{ owner, ceilingS = OUTLIVE_CEILING_S, wrap, ...options },
 ) {
-	const env = { ...(options.env ?? process.env) };
+	const starterEnv = options.env ?? process.env;
+	const env = { ...starterEnv };
+	const named = owner === undefined ? reportOwner(starterEnv) : owner;
 	forgetSession(env);
-	if (owner) env[REPORT_OWNER] = owner;
+	if (named) env[REPORT_OWNER] = named;
 	const [cmd, ...pre] = wrap ?? buildOutlivingScope(ceilingS);
 	const spawnOptions = { ...options, env, detached: true };
 	return cmd === undefined
