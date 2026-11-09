@@ -14,7 +14,7 @@
  * only commit is refused, or a staged file Biome covers lands unchecked.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -264,6 +264,90 @@ describe("the pre-commit Biome gate", () => {
 		const { code, output } = run(repo, CHECK_STAGED);
 		expect(code).not.toBe(0);
 		expect(output).toContain("noImportCycles");
+	});
+
+	// A worktree's node_modules links a dependency store outside it, and Biome
+	// ignores a dependency whose real path lies outside its project (#4639).
+	function outOfTreeStoreRepo(): string {
+		const store = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-store-"));
+		temps.push(store);
+		const pkg = path.join(store, "node_modules", "fakepkg");
+		fs.mkdirSync(pkg, { recursive: true });
+		fs.writeFileSync(
+			path.join(pkg, "package.json"),
+			JSON.stringify({
+				name: "fakepkg",
+				version: "1.0.0",
+				license: "GPL-3.0-only",
+				types: "index.d.ts",
+				main: "index.js",
+			}),
+		);
+		fs.writeFileSync(
+			path.join(pkg, "index.d.ts"),
+			"export declare function later(): Promise<number>;\n/** @deprecated */\nexport declare function old(): number;\n",
+		);
+		fs.writeFileSync(path.join(pkg, "index.js"), "");
+		const repo = fixture({
+			"package.json": `${JSON.stringify(
+				{ name: "r", dependencies: { fakepkg: "1.0.0" } },
+				null,
+				"\t",
+			)}\n`,
+			"scripts/use.ts":
+				'import { later, old } from "fakepkg";\n\nexport function run(): number {\n\tlater();\n\tif (later()) return 0;\n\treturn old();\n}\n',
+		});
+		fs.symlinkSync(
+			path.join(store, "node_modules"),
+			path.join(repo, "node_modules"),
+		);
+		return repo;
+	}
+
+	const NodeModulesRules = [
+		"noUntrustedLicenses",
+		"noFloatingPromises",
+		"noMisusedPromises",
+		"noDeprecatedImports",
+	];
+
+	// Skipped where the host refuses a mount in an unprivileged user
+	// namespace, as AppArmor's userns restriction does.
+	const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-mount-"));
+	temps.push(probeDir);
+	const canMount =
+		spawnSync("unshare", ["-rm", "mount", "--bind", probeDir, probeDir])
+			.status === 0;
+
+	it.skipIf(!canMount)(
+		"reads a third-party import's licence and types through an out-of-tree node_modules (#4639)",
+		() => {
+			const { code, output } = run(outOfTreeStoreRepo(), CHECK_STAGED);
+			expect(code).toBe(1);
+			for (const rule of NodeModulesRules)
+				expect(output).toContain(`/${rule} `);
+		},
+	);
+
+	it("runs unmounted, saying so, where the host refuses the mount (#4639)", () => {
+		const repo = outOfTreeStoreRepo();
+		const bin = path.join(repo, ".refusing-bin");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "unshare"),
+			"#!/bin/sh\necho 'unshare failed: Operation not permitted' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+
+		// run() keeps stderr only on a failing exit, and this one passes.
+		const { code, output } = run(repo, `${CHECK_STAGED} 2>&1`, {
+			PATH: `${bin}:${path.join(ROOT, "node_modules", ".bin")}:${process.env.PATH}`,
+		});
+		expect(output).toContain("could not mount node_modules");
+		// The rule's diagnostic header, `lint/<group>/<rule> `, not the notice.
+		for (const rule of NodeModulesRules)
+			expect(output).not.toContain(`/${rule} `);
+		expect(code).toBe(0);
 	});
 
 	it("passes an intent-to-add path, which the commit does not carry", () => {
