@@ -784,7 +784,7 @@ function checkedOutRuns(checkout, pytest, files, timings) {
 }
 
 /**
- * The cached newest green run's timings, a failed refresh said on stderr.
+ * The cached newest green run's timings.
  * @param {string} dir
  * @returns {string|null}
  */

@@ -13,12 +13,11 @@
  * CHECKED AT MOST ONCE PER CHECK_MS, by the first reader after it; a failed
  * or abandoned check is retried RETRY_MS later. The attempt is stamped
  * before the check, so readers at once do not all fetch. A check lists the
- * runs and downloads only a run not yet held: about 10 s for one, measured
- * 9 Nov 2026.
+ * runs and downloads only a run not yet held: about 10 s for one.
  *
  * NO FILE ONCE THE LAST PASSED CHECK IS STALE_MS OLD: #4579's bound of a day
  * behind the newest green run. The lander then splits by file count and the
- * run-cost report reads no record, rather than judging by an old one.
+ * run-cost report reads no record.
  *
  * WFC_SHARD_TIMINGS, WHERE SET, IS THE FILE: a CI shard's own (#4574), or a
  * test's. Under `CI` without it nothing is fetched: only a shard reads
@@ -37,7 +36,6 @@ const HOUR_MS = 60 * 60 * 1000;
 const CHECK_MS = 6 * HOUR_MS;
 /* A guess: GitHub's outages mostly clear within the hour. */
 const RETRY_MS = HOUR_MS / 2;
-/* #4579's acceptance criterion. */
 const STALE_MS = 24 * HOUR_MS;
 /* Untraced: more than the refreshes one lander batch can straddle. */
 const KEPT = 5;
@@ -87,7 +85,6 @@ function readStamp(dir, name) {
 	try {
 		return fs.statSync(path.join(dir, name)).mtimeMs;
 	} catch {
-		/* No stamp: never set. */
 		return null;
 	}
 }

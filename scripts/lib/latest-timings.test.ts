@@ -11,8 +11,7 @@
  * 10 s on every local run.
  *
  * GitHub comes in through `latestTimings`'s `fetch` seam and time through its
- * `now`, so no case reaches the network or the clock (§X9). git is real, in a
- * throwaway repository per case.
+ * `now` (§X9). git is real, in a throwaway repository per case.
  */
 
 import { execFileSync } from "node:child_process";

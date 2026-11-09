@@ -58,7 +58,6 @@ const GROWTH_BAND = 2.5;
  * ticket, which then reads unknown, never the run its end. */
 const TICKET_TIMEOUT_MS = 20_000;
 
-/** Every line opens with this. */
 const PREFIX = "RUN COST:";
 
 const GB = 1024 ** 3;
@@ -199,9 +198,8 @@ function readChangedAgainst(root, base, files) {
 
 /**
  * The CI record, null where none is held or it holds no row: CI's shard
- * writes an empty one where it read no run (#4574). `stale` says why it was
- * not refreshed; a failed refresh still reads the last one held, a day at
- * most (#4579).
+ * writes an empty one where it read no run (#4574). A failed refresh still
+ * reads the last one held, a day at most (#4579).
  * @param {string} root
  * @param {TimingsSeams} timings
  * @returns {{ record: CiRecord|null, stale: string|null }}

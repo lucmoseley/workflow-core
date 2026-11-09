@@ -34,7 +34,6 @@ const SUITE_WORKFLOW = "scheduled-checks.yml";
 /* Candidates tried for reports, newest first. Untraced: a green run
  * uploads its reports, so past the first few none is coming. */
 const SOURCES_TRIED = 5;
-/* Runs listed. */
 const RUNS_LISTED = 30;
 
 /** Metadata lines are `# key: value` above the header row. */
@@ -199,7 +198,6 @@ function readOrThrow(read) {
 }
 
 /**
- * The repository whose suite runs the timings come from, read from `root`.
  * @param {string} root
  * @returns {string}
  */
