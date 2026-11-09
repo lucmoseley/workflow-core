@@ -30,8 +30,10 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
 const { writeFd } = require("./write-fd.js");
 const {
+	firstLineTerminator,
 	hasLineTerminator,
 	LINE_TERMINATORS,
+	lastLineTerminator,
 } = require("./line-terminators.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const { rungMb } = require("./suite-ladder.js");
@@ -219,8 +221,8 @@ function parseFailingTests(out) {
 	/** @type {OpenError} */
 	const open = { unread: [], lines: [] };
 	for (const line of parsePlainLines(out)) {
-		const v = vitestTest(line);
-		const p = v ? null : pytestTest(line);
+		const v = parseVitestTest(line);
+		const p = v ? null : parsePytestTest(line);
 		if (v) {
 			if (open.lines.length > 0) closeError(open);
 			open.unread.push(named(v));
@@ -266,7 +268,7 @@ function nameAfter(gap, after) {
  * @param {string} line
  * @returns {FailingTest | null}
  */
-function vitestTest(line) {
+function parseVitestTest(line) {
 	const head = VITEST_TEST.exec(line);
 	if (!head) return null;
 	const rest = line.slice(head[0].length);
@@ -290,7 +292,7 @@ function vitestTest(line) {
  * @param {string} line
  * @returns {FailingTest | null}
  */
-function pytestTest(line) {
+function parsePytestTest(line) {
 	const head = PYTEST_TEST.exec(line);
 	if (!head) return null;
 	const file = requiredGroup(head, 1, PYTEST_TEST);
@@ -301,7 +303,7 @@ function pytestTest(line) {
 		return {
 			file,
 			test: rest.slice(0, split.testEnd),
-			message: rest.slice(split.from, end),
+			message: rest.slice(split.messageStart, end),
 		};
 	const test = rest.slice(0, Math.max(end, 1));
 	return test === "" || hasLineTerminator(test)
@@ -315,18 +317,12 @@ function pytestTest(line) {
  * character, and whose message after it, trimmed, hold no line terminator.
  * @param {string} rest
  * @param {number} end
- * @returns {{testEnd: number, from: number} | null} the test's end and the
+ * @returns {{testEnd: number, messageStart: number} | null} the test's end and the
  *   message's start
  */
 function messageSplit(rest, end) {
-	const firstBreak = Math.min(
-		rest.length,
-		...LINE_TERMINATORS.map((c) => rest.indexOf(c)).filter((i) => i !== -1),
-	);
-	const text = rest.slice(0, end);
-	const lastBreak = Math.max(
-		...LINE_TERMINATORS.map((c) => text.lastIndexOf(c)),
-	);
+	const firstBreak = firstLineTerminator(rest);
+	const lastBreak = lastLineTerminator(rest.slice(0, end));
 	for (
 		let dash = rest.indexOf("-", 2);
 		dash !== -1;
@@ -336,9 +332,9 @@ function messageSplit(rest, end) {
 		let testEnd = dash - 1;
 		while (testEnd > 1 && isSpace(rest[testEnd - 1])) testEnd--;
 		if (testEnd > firstBreak) return null;
-		let from = dash + 1;
-		while (isSpace(rest[from])) from++;
-		if (lastBreak < from) return { testEnd, from };
+		let messageStart = dash + 1;
+		while (isSpace(rest[messageStart])) messageStart++;
+		if (lastBreak < messageStart) return { testEnd, messageStart };
 	}
 	return null;
 }

@@ -28,23 +28,25 @@ const TICKETED = /(?<![A-Za-z])TICKETED(?![A-Za-z])/;
 const WORD = "TICKETED";
 const EARLIER = ["previously", "already", "earlier"];
 const SEPARATOR = /[\s,:;*_`(\u2014\u2013\u2192>-]/;
-const LINK_WORD = /(?:on|in|as|under|to)\s+/y;
+const LINK_WORD = sticky(/(?:on|in|as|under|to)\s+/y);
 const OWNER_CHAR = /[\w.-]/;
 /* What ends an `owner/repo#<n>` past the owner, from its `/`. */
-const REPO_TAIL = /\/[\w.-]+#\d/y;
-const URL_HEAD = /https?:\/\//y;
-const ISSUE_PATH = /\/issues\/\d/y;
+const REPO_TAIL = sticky(/\/[\w.-]+#\d/y);
+const URL_HEAD = sticky(/https?:\/\//y);
+const ISSUE_PATH = sticky(/\/issues\/\d/y);
 
 const LETTER = /[A-Za-z]/;
 
-/** Whether sticky `re` matches `text` at `at`; its end, where it does. */
-function stickyEnd(
-	/** @type {RegExp} */ re,
-	/** @type {string} */ text,
-	/** @type {number} */ at,
-) {
-	re.lastIndex = at;
-	return re.test(text) ? re.lastIndex : -1;
+/**
+ * A matcher for sticky `re`, which only it may hold: the end of `re`'s match
+ * in `text` at `at`, or -1.
+ * @param {RegExp} re
+ */
+function sticky(re) {
+	return (/** @type {string} */ text, /** @type {number} */ at) => {
+		re.lastIndex = at;
+		return re.test(text) ? re.lastIndex : -1;
+	};
 }
 
 /**
@@ -53,20 +55,20 @@ function stickyEnd(
  * before the next whitespace, -1 for none.
  * @param {string} line
  */
-function targetTables(line) {
+function buildTargetTables(line) {
 	const owner = new Uint8Array(line.length + 1);
 	const issue = new Int32Array(line.length + 1).fill(-1);
+	let laterOwner = 0;
+	let laterIssue = -1;
 	for (let i = line.length - 1; i >= 0; i--) {
 		const c = line.charAt(i);
-		if (OWNER_CHAR.test(c))
-			owner[i] = OWNER_CHAR.test(line.charAt(i + 1))
-				? (owner[i + 1] ?? 0)
-				: Number(stickyEnd(REPO_TAIL, line, i + 1) !== -1);
-		if (/\S/.test(c)) {
-			const later = issue[i + 1] ?? -1;
-			issue[i] =
-				later !== -1 || stickyEnd(ISSUE_PATH, line, i) === -1 ? later : i;
-		}
+		if (!OWNER_CHAR.test(c)) laterOwner = 0;
+		else if (!OWNER_CHAR.test(line.charAt(i + 1)))
+			laterOwner = Number(REPO_TAIL(line, i + 1) !== -1);
+		owner[i] = laterOwner;
+		if (/\s/.test(c)) laterIssue = -1;
+		else if (laterIssue === -1 && ISSUE_PATH(line, i) !== -1) laterIssue = i;
+		issue[i] = laterIssue;
 	}
 	return { owner, issue };
 }
@@ -78,24 +80,24 @@ function targetTables(line) {
  * or an issue URL. An owner may open in the separators' trailing `_` or `-`.
  * @param {string} line
  */
-function namesTicketing(line) {
-	/** @type {ReturnType<typeof targetTables> | undefined} */
+function hasTicketing(line) {
+	/** @type {ReturnType<typeof buildTargetTables> | undefined} */
 	let tables;
 	for (
 		let at = line.indexOf(WORD);
 		at !== -1;
 		at = line.indexOf(WORD, at + 1)
 	) {
-		if (LETTER.test(line.charAt(at - 1)) || ticketedEarlier(line, at)) continue;
+		if (LETTER.test(line.charAt(at - 1)) || isTicketedEarlier(line, at))
+			continue;
 		let end = at + WORD.length;
 		while (end < line.length && SEPARATOR.test(line.charAt(end))) end++;
-		tables ??= targetTables(line);
-		const linked = stickyEnd(LINK_WORD, line, end);
+		tables ??= buildTargetTables(line);
+		const linked = LINK_WORD(line, end);
 		if (
-			issueAt(line, end, tables) ||
-			(linked !== -1 && issueAt(line, linked, tables)) ||
-			(/[_-]/.test(line.charAt(end - 1)) &&
-				stickyEnd(REPO_TAIL, line, end) !== -1)
+			isIssueAt(line, end, tables) ||
+			(linked !== -1 && isIssueAt(line, linked, tables)) ||
+			(/[_-]/.test(line.charAt(end - 1)) && REPO_TAIL(line, end) !== -1)
 		)
 			return true;
 	}
@@ -104,7 +106,10 @@ function namesTicketing(line) {
 
 /* Whether `previously`, `already` or `earlier` and any whitespace end at `at`:
  * with none, the letter before `at` already refuses it. */
-function ticketedEarlier(/** @type {string} */ line, /** @type {number} */ at) {
+function isTicketedEarlier(
+	/** @type {string} */ line,
+	/** @type {number} */ at,
+) {
 	let word = at;
 	while (word > 0 && /\s/.test(line.charAt(word - 1))) word--;
 	return EARLIER.some((w) => line.endsWith(w, word));
@@ -114,13 +119,17 @@ function ticketedEarlier(/** @type {string} */ line, /** @type {number} */ at) {
  * Whether `#<n>`, `owner/repo#<n>` or an issue URL starts at `at`.
  * @param {string} line
  * @param {number} at
- * @param {ReturnType<typeof targetTables>} tables
+ * @param {ReturnType<typeof buildTargetTables>} tables
  */
-function issueAt(line, at, { owner, issue }) {
+function isIssueAt(line, at, { owner, issue }) {
 	if (line.charAt(at) === "#" && /\d/.test(line.charAt(at + 1))) return true;
 	if (owner[at]) return true;
-	const path = stickyEnd(URL_HEAD, line, at);
-	return path !== -1 && (issue[path] ?? -1) > path;
+	const path = URL_HEAD(line, at);
+	if (path === -1) return false;
+	const last = issue[path];
+	if (last === undefined)
+		throw new Error(`ticketed-tags: no issue-table entry at ${path}`);
+	return last > path;
 }
 
 const HEADS = new RegExp(`${REVIEWED_THROUGH.source}|${TICKETED.source}`);
@@ -146,7 +155,7 @@ function untaggedTicketed(comment) {
 	if (!masked.some((line) => REVIEWED_THROUGH.test(line))) return [];
 	const raw = comment.split("\n");
 	return masked.flatMap((line, i) => {
-		if (!namesTicketing(line)) return [];
+		if (!hasTicketing(line)) return [];
 		const text = raw[i];
 		if (text === undefined)
 			throw new Error(
