@@ -303,6 +303,10 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		"true;\n# a\n",
 		"true\n# a\n# b",
 		"true # a\n\n  # b\n",
+		"true #x",
+		"true;#x",
+		": #x",
+		"exit 0;#x",
 	])("reads %j as inert", (spelling) => {
 		expectSilentAllow(bash(spelling));
 		expectDeny(bash(spelling));
@@ -320,6 +324,14 @@ describe("a no-op Bash call is not a way to end a turn (mantahostels#659)", () =
 		expectNotCounted(bash(command));
 		expectNotCounted(bash(command));
 	});
+
+	it.each(["true#x", ":#x", "exit 0#x", "exit#x"])(
+		"reads a `#` glued to the no-op word as no comment, so %j does real work (#4610)",
+		(command) => {
+			expectNotCounted(bash(command));
+			expectNotCounted(bash(command));
+		},
+	);
 
 	it.each(["true;\n# a\nb", "true # a\rb\nc", "true\n# a\n# b\nc"])(
 		"ends a comment at the newline, so %j runs its last line (#4037)",

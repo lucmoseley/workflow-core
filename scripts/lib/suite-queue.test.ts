@@ -1061,6 +1061,105 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 	});
 });
 
+describe("the queues ordered against each other where the climb decides (#4760)", () => {
+	/** Both queues as siblings under one root, as under the temp root. */
+	const both = () => {
+		const root = qdir();
+		return {
+			suiteDir: path.join(root, "wfc-suite-queue"),
+			tscDir: path.join(root, "wfc-tsc-queue"),
+		};
+	};
+
+	it("closes every class of turn on a peer the climb holds, and none without", () => {
+		for (const waiter of ["whole", "part", "tsc"] as const) {
+			const snapshot = {
+				waiter,
+				ahead: [],
+				admissionOpen: false,
+				slots: WHOLE_SUITE_MAX,
+				now: 0,
+			};
+			expect(turnOf({ ...snapshot, peerClimbHeld: true }).reasons).toEqual([
+				"peer-climb",
+			]);
+			expect(turnOf(snapshot).reasons).toEqual([]);
+		}
+	});
+
+	it("holds a younger suite behind an older `tsc` the climb holds, until it spawns", async () => {
+		const { suiteDir, tscDir } = both();
+		const tsc = joined(tscDir, 22, 5);
+		joined(suiteDir, 11, 10);
+		const suiteTurn = () => turnOpen({ queueDir: suiteDir, pid: 11 });
+		expect(await suiteTurn()).toBe(true);
+		tsc.stamps.onClimbHolds(true);
+		expect(await suiteTurn()).toBe(false);
+		tsc.spawned();
+		expect(await suiteTurn()).toBe(true);
+	});
+
+	it("releases the suite once the climb no longer holds the `tsc`", async () => {
+		const { suiteDir, tscDir } = both();
+		const tsc = joined(tscDir, 22, 5);
+		joined(suiteDir, 11, 10);
+		tsc.stamps.onClimbHolds(true);
+		tsc.stamps.onClimbHolds(false);
+		expect(JSON.parse(fs.readFileSync(tsc.ticket, "utf8")).climbHeld).toBe(
+			undefined,
+		);
+		expect(await turnOpen({ queueDir: suiteDir, pid: 11 })).toBe(true);
+	});
+
+	it("never holds a waiter behind a younger peer, so the oldest never yields", async () => {
+		const { suiteDir, tscDir } = both();
+		joined(tscDir, 22, 20).stamps.onClimbHolds(true);
+		joined(suiteDir, 11, 10).stamps.onClimbHolds(true);
+		expect(await turnOpen({ queueDir: suiteDir, pid: 11 })).toBe(true);
+		expect(await turnOpen({ queueDir: tscDir, pid: 22 })).toBe(false);
+	});
+
+	it("names the peer that holds a traced wait", async () => {
+		const { suiteDir, tscDir } = both();
+		const tsc = joined(tscDir, 22, 5);
+		tsc.stamps.onClimbHolds(true);
+		const suite = joined(suiteDir, 11, 10);
+		const lines: string[] = [];
+		const outcome = await suite.wait({
+			gate: () => null,
+			traceLimbs: true,
+			label: "q",
+			waiting: "waiting",
+			sleepFn: () => {
+				tsc.spawned();
+				return Promise.resolve();
+			},
+			out: { write: (line: string) => lines.push(line) },
+		});
+		expect(outcome).toBe("run");
+		expect(lines[1]).toBe(
+			"q: after 0s, held on an older waiter in the other queue the climb charge holds, PID 22 in wfc-tsc-queue\n",
+		);
+	});
+
+	it("stamps a wait the climb alone holds, never one MemAvailable itself fails", async () => {
+		const heard: boolean[] = [];
+		const polls = [
+			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
+			{ limb: "memory", mb: 2000, rungMb: 2750, climbMb: 500 },
+			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
+		];
+		await waitForGate({
+			gate: () => polls.shift() ?? null,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+			onClimbHolds: (held: boolean) => heard.push(held),
+		});
+		expect(heard).toEqual([true, false, true, false]);
+	});
+});
+
 describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	const alive = () => true;
 	/** A process table holding no runner: the machine's own are no fixture's. */
@@ -2207,6 +2306,75 @@ describe("gateDenies, against the real gate (#2421)", () => {
 			limb: "memory",
 			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
 		});
+	});
+});
+
+describe("the Windows-memory hold, against the real gate (#4557)", () => {
+	const { readGate } = require("./suite-concurrency-host.js");
+
+	/** A suite's wait at a roomy guest, Windows' free memory read off a
+	 * minute log each poll as memwatch leaves it; `frees` is what each sleep
+	 * writes next. */
+	const waitOn = async (first: number, frees: number[], timeoutMs = 60_000) => {
+		const dir = qdir();
+		const meminfo = path.join(dir, "meminfo");
+		fs.writeFileSync(meminfo, `MemAvailable: ${20_000 * 1024} kB\n`);
+		vi.stubEnv("WFC_MEMINFO", meminfo);
+		vi.stubEnv("WFC_PS", writePsStub(dir, []));
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
+		const log = path.join(dir, "memwatch-minute.jsonl");
+		vi.stubEnv("MEMWATCH_MINUTE_LOG", log);
+		const write = (mb: number) =>
+			fs.appendFileSync(
+				log,
+				`${JSON.stringify({ ts: new Date().toISOString(), win_avail_mb: mb, win_age_s: 5 })}\n`,
+			);
+		write(first);
+		const said: string[] = [];
+		let clock = 0;
+		const outcome = await waitForGate({
+			gate: (climbMb: number) =>
+				gateDenies(
+					[],
+					(command: string, carried: null, climb: number) =>
+						readGate(command, dir, carried, climb),
+					null,
+					climbMb,
+				),
+			admit: noQueue,
+			timeoutMs,
+			clock: () => clock,
+			sleepFn: (ms: number) => {
+				clock += ms;
+				const next = frees.shift();
+				if (next !== undefined) write(next);
+				return Promise.resolve();
+			},
+			traceLimbs: true,
+			out: { write: (s: string) => said.push(s) },
+		});
+		return { outcome, said: said.join("") };
+	};
+
+	/* A whole suite draws 2250 MB, its 3350 MB rung less the empty ladder's
+	 * 1100, and Windows must hold that and the 300 MB margin. */
+	it("holds a suite launch while Windows is short, and admits it once Windows clears", async () => {
+		const { outcome, said } = await waitOn(1440, [2549, 2550]);
+		expect(outcome).toBe("run");
+		expect(said).toContain(
+			"held on the Windows-memory hold, Windows free 1440 MB against ~2550 MB",
+		);
+		expect(said).toMatch(
+			/gate opened after 20s — held 20s on the Windows-memory hold/,
+		);
+	});
+
+	it("refuses at the bound, not run, where Windows never clears", async () => {
+		const { outcome, said } = await waitOn(900, [900, 900], 20_000);
+		expect(outcome).toBe("refused");
+		expect(said).toContain(
+			"the Windows-memory hold still holds after 20s (Windows free 900 MB against ~2550 MB) — refused, not run.",
+		);
 	});
 });
 
