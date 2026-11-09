@@ -23,8 +23,7 @@
  * writer. The residual is a session whose old writer was spawned before the
  * move but which that second listing does not show. Its window is how long a
  * session takes to appear in `claude agents --json` after its SessionStart
- * hooks spawn, unmeasured; the listing itself took 0.5 to 0.6 s and the writer
- * 0.01 s, measured 9 Nov 2026.
+ * hooks spawn, unmeasured.
  */
 
 const { spawnSync } = require("node:child_process");
