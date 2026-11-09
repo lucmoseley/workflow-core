@@ -1320,6 +1320,19 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(suiteDir, 1700)).toBe(0);
 	});
 
+	it("charges nothing for a held seat stamped `yielding`, and its peak once the stamp drops (#4766)", () => {
+		const { suiteDir, tscDir } = queues();
+		const seat = spawnedIn(suiteDir, 11);
+		const stamp = (yielding: boolean) => {
+			const record = JSON.parse(fs.readFileSync(seat.ticket, "utf8"));
+			fs.writeFileSync(seat.ticket, JSON.stringify({ ...record, yielding }));
+		};
+		stamp(true);
+		expect(climbOf(tscDir, 100)).toBe(0);
+		stamp(false);
+		expect(climbOf(tscDir, 100)).toBe(1829);
+	});
+
 	it("charges a spawned suite its measured 1,929 MB peak less its tree", () => {
 		const { suiteDir, tscDir } = queues();
 		spawnedIn(suiteDir, 11);
