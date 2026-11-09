@@ -870,13 +870,13 @@ describe("reviewed findings", () => {
 
 	/* #4636: a CLOBBERED judged a deliberate rewrite settles the same way. */
 	const clobberAt = "2026-08-01T06:03:16Z";
-	it("reports a CLOBBERED whose identity the host reviewed as CLOBBERED-REVIEWED, naming the reason, and exits clean, keeping it out of --json's failing list", () => {
+	it("reports a CLOBBERED whose identity the host reviewed as CLOBBERED-REVIEWED, naming the reason, and exits clean", () => {
 		review({ [`#8\t${clobberAt}`]: "rewrote the plan in plain words" });
-		expect(keys([], [CLOBBER])).toEqual([
-			`CLOBBERED-REVIEWED\t#8\t${clobberAt}`,
-		]);
 		const json = run(["--json"], stubGh([CLOBBER])).out;
 		const data = JSON.parse(json.slice(0, json.lastIndexOf("}") + 1));
+		expect(data.findings.map((f: { key: string }) => f.key)).toEqual([
+			`CLOBBERED-REVIEWED\t#8\t${clobberAt}`,
+		]);
 		expect(data.clobbered).toEqual([]);
 		expect(data.clobberedReviewed.map((i: { at: string }) => i.at)).toEqual([
 			clobberAt,

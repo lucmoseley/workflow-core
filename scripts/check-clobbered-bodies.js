@@ -827,8 +827,6 @@ const where = (i) =>
  */
 
 /**
- * Each kind's reviewed findings under the tag they report as.
- *
  * @param {Split} split
  * @returns {Array<[string, ReviewedRow[]]>}
  */
