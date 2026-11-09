@@ -80,7 +80,7 @@
 # dedup lock and everything it reads — started, out, mem, .signal, beat —
 # still live under the job-scoped $dir, which the harness deletes with the
 # job. Durability holds only if that deletion doesn't land inside the
-# HEARTBEAT_S window between the watcher noticing a kill and finishing its
+# watcher's poll (watch_nap) between noticing a kill and finishing its
 # write; how long a job dir actually survives its own kill is not established
 # anywhere in this repo. Unverified either way — moving the lock and the
 # inputs it needs beside the durable log is the fix if it turns out to bite.
@@ -138,7 +138,8 @@ source "$SCRIPT_DIR/lib/guard-root.sh"
 # shellcheck source=scripts/lib/atomic-write.sh
 source "$SCRIPT_DIR/lib/atomic-write.sh"
 
-HEARTBEAT_S="${WFC_BG_HEARTBEAT_S:-5}"
+HEARTBEAT_DEFAULT_S=5
+HEARTBEAT_S="${WFC_BG_HEARTBEAT_S:-$HEARTBEAT_DEFAULT_S}"
 # A beat older than this with no status file means the writer is gone. Three
 # missed beats, so a machine briefly too loaded to schedule the toucher is not
 # read as a kill.
@@ -1144,7 +1145,7 @@ cmd_watch() {
   # WATCH_READY_S, `$tmp` is already published away and the touch fails, unread.
   : >"$ready" 2>/dev/null
   WFC_BG_KILL_LOG="$(kill_log_path)"
-  local watch_until mono_unread_logged=""
+  local watch_until mono_unread_logged="" due_in
   clock_now
   watch_until=$((clock_s + WATCH_CEILING_S))
   while :; do
@@ -1171,9 +1172,11 @@ cmd_watch() {
       exit 0
     fi
     clock_now
+    due_in=""
     if read_deadline "$dir/deadline-$launched_for"; then
       if mono_now; then
-        [[ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ]] &&
+        due_in="$((deadline_s + CEILING_GRACE_S - mono_s))"
+        [[ "$due_in" -le 0 ]] &&
           ceiling_kill "$dir" "$name" "$parent" "$launched_for"
       else
         [[ -z "$POLL_LOG" ]] || printf 'mono-unread\n' >>"$POLL_LOG"
@@ -1183,8 +1186,23 @@ cmd_watch() {
     elif [[ "$clock_s" -ge "$watch_until" ]]; then
       exit 0
     fi
-    sleep "$HEARTBEAT_S"
+    watch_nap "$due_in"
+    [[ -z "$POLL_LOG" || -z "$due_in" ]] || printf 'nap %s\n' "$nap" >>"$POLL_LOG"
+    sleep "$nap"
   done
+}
+
+# Sets nap to the watcher's next sleep: the heartbeat, but never over its
+# default nor past $1, the seconds left before the backstop's kill is due
+# (positive where given), so no heartbeat setting stretches #2667's 15
+# minutes. A heartbeat that is no plain decimal sleeps the default.
+nap=""
+watch_nap() {
+  local cap="$HEARTBEAT_DEFAULT_S"
+  [[ -n "${1:-}" && "$1" -lt "$cap" ]] && cap="$1"
+  nap="$HEARTBEAT_S"
+  [[ "$HEARTBEAT_S" =~ ^([0-9]{0,9})(\.[0-9]*)?$ ]] &&
+    ((10#${BASH_REMATCH[1]:-0} < cap)) || nap="$cap"
 }
 
 # The once-a-run line a poll that cannot read the monotonic clock leaves in

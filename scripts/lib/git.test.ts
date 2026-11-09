@@ -297,9 +297,9 @@ describe("no `rev-parse … ^{commit}` probe outside readCommit (#3068, #3396)",
 		expect(probeLines('// ["rev-parse", "HEAD^{commit}"]')).toEqual([]);
 	});
 
-	it("finds none in a tracked lib", () => {
+	it("finds none in a tracked script", () => {
 		const files = readTrackedScripts(
-			["ls-files", "-z", "--", "scripts/lib/*.js"],
+			["ls-files", "-z", "--", "scripts/*.js", ".claude/skills/*/scripts/*.js"],
 			exempt,
 		);
 		expect(offendersIn(files, probeLines)).toEqual([]);

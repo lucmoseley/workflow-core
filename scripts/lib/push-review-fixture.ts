@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { ledgerHead } from "./arbiter-testkit";
+import { declareArea } from "./declare-area-testkit";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
 import { readShellConst } from "./shell-const-testkit";
 
@@ -131,19 +132,9 @@ export function reviewFixture() {
 			ledgerHead(tree, arbiterEnv(sid)),
 		marker: (body: string) =>
 			fs.writeFileSync(path.join(markers(), `.codereview-pass-${ME}`), body),
-		declareRls: () =>
-			fs.writeFileSync(
-				path.join(f.shared, ".claude", "workflow-core.json"),
-				JSON.stringify({
-					sensitivePaths: [
-						{
-							name: "RLS",
-							description: "who may read or write what",
-							globs: ["supabase/migrations/**"],
-						},
-					],
-				}),
-			),
+		declareArea,
+		declareRls: (tree = f.shared) =>
+			declareArea(tree, "RLS", ["supabase/migrations/**"]),
 		owed: (tree = f.shared) =>
 			reviewOwed({
 				sessionId: ME,

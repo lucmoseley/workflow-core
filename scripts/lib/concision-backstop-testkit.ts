@@ -158,6 +158,18 @@ export const run = (
 	return JSON.parse(r.stdout).reason as string;
 };
 
+/** A Stop whose payload names `cwd`, the hook run from `from`; its block reason. */
+export const stopIn = (cwd: string, from = cwd) => {
+	const r = spawnSync(BACKSTOP, ["stop"], {
+		cwd: from,
+		encoding: "utf8",
+		input: JSON.stringify({ session_id: ME, cwd }),
+		env: env(),
+	});
+	if (r.status === null) throw new Error(`backstop did not run: ${r.error}`);
+	return r.stdout?.trim() ? (JSON.parse(r.stdout).reason as string) : null;
+};
+
 /** 60 words — comfortably over the script's THRESHOLD of 50. */
 export const PARAGRAPH = `${Array.from({ length: 60 }, (_, i) => `word${i}`).join(" ")}\n`;
 

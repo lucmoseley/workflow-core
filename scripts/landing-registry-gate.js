@@ -17,13 +17,15 @@
  *
  * FAILS OPEN: 2 refuses on the checker's own FAIL alone, and a checker that
  * cannot answer — a BROKEN reading — passes the push, printed, as does a push
- * in a clone holding no `origin/main`, since a refusal there would refuse
- * every push for a fault that is not the push's.
+ * in a clone holding no `origin/main` or whose git will not resolve it (#4613),
+ * since a refusal there would refuse every push for a fault that is not the
+ * push's.
  */
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { gitOrNull } = require("./lib/git.js");
+const { readCommit } = require("./lib/commit-sha.js");
+const { gitReader } = require("./lib/git.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
@@ -64,25 +66,18 @@ function parseJudgedPushes(stdin) {
 }
 
 /**
- * @param {string} tree
- * @returns {string | null}
- */
-function readMainTip(tree) {
-	return (
-		gitOrNull(["rev-parse", "--verify", "-q", `${VERIFIED_REF}^{commit}`], {
-			cwd: tree,
-		})?.trim() || null
-	);
-}
-
-/**
  * @param {JudgedPush} push
  * @param {string} tree the pushing tree
  * @returns {number}
  */
 function judgeOne(push, tree) {
 	const { sha } = push;
-	const tip = readMainTip(tree);
+	const read = readCommit(gitReader(tree), VERIFIED_REF);
+	if (!read.ok) {
+		unchecked(`git would not resolve ${VERIFIED_REF}: ${read.why}`);
+		return 0;
+	}
+	const tip = read.sha;
 	if (tip === null) {
 		unchecked(
 			`this clone holds no ${VERIFIED_REF} to judge ${push.ref} against`,
