@@ -197,7 +197,7 @@ function adopt(env) {
 		"ssa(sv)a(sa(sv))",
 		unit,
 		"fail",
-		String(4 + MEMORY_BOUND.length / 3),
+		String(4 + MEMORY_BOUND.length),
 		"PIDs",
 		"au",
 		"1",
@@ -211,7 +211,7 @@ function adopt(env) {
 		"Description",
 		"s",
 		description,
-		...MEMORY_BOUND,
+		...MEMORY_BOUND.flat(),
 		"0",
 	]);
 	if (!started.ok)

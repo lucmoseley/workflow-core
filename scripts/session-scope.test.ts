@@ -127,9 +127,6 @@ describe("session-scope.js", () => {
 		expect(start).toMatch(
 			/StartTransientUnit .* PIDs au 1 500 Slice s wfc-sessions\.slice/,
 		);
-		expect(start).toMatch(
-			/ 7 PIDs .* MemoryMax t 3221225472 MemorySwapMax t 0 OOMPolicy s continue 0 $/,
-		);
 		expect(attach).toMatch(
 			/AttachProcessesToUnit ssau wfc-session-500-\d+\.scope {2}2 501 600 $/,
 		);
@@ -138,6 +135,17 @@ describe("session-scope.js", () => {
 			/^systemd-run --user .*--expand-environment=no --unit=wfc-session-500-\d+-watch\.service/,
 		);
 		expect(watch).toMatch(/ sh 500 \d+ wfc-session-500-\d+\.scope ?$/);
+	});
+
+	/* #4590: under the manager's default OOMPolicy `stop`, the bound's first
+	 * OOM kill stopped the whole scope and the session's own process with it. */
+	it("makes the scope with its memory bound, no swap and OOMPolicy continue", () => {
+		const proc = fakeProc();
+		const { env, calls } = fakeTools(proc.root);
+		adopt({ CLAUDE_PID: "500" }, env, proc.root);
+		expect(calls()[0]).toMatch(
+			/ 7 PIDs .* MemoryMax t 3758096384 MemorySwapMax t 0 OOMPolicy s continue 0 $/,
+		);
 	});
 
 	it("moves a session born in another session's scope into one of its own", () => {
