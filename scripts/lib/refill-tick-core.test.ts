@@ -89,6 +89,7 @@ const BLOCK_ACTS = {
 	stagger: true,
 	moveSession: true,
 	removeJobRecord: true,
+	retireJob: true,
 	writeLedgerHold: true,
 	holdLockedOut: true,
 	labelParked: true,
@@ -590,6 +591,25 @@ describe("the unproven cap through the tick (#4223)", () => {
 		const { handed, decision } = await limitSlotsOf(NOW - 1000);
 		expect(handed).toEqual([3]);
 		expect(decision).toMatchObject({ idle: null });
+	});
+});
+
+describe("a copy's unretired original through the tick (#4646)", () => {
+	it("tries it again and writes the launch without it once retired", async () => {
+		const unretired = {
+			seat: SEAT,
+			sessionId: "s-original",
+			cwd: WFC,
+			copyJobId: "job42",
+			tries: 1,
+		};
+		const { io, calls, disk } = fakeIo(
+			stateOf({ launches: [record({ unretired: [unretired] })] }),
+		);
+		await tickOf(io);
+		expect(calls).toContain("blockIo.retireJob");
+		expectOrder(calls, "blockIo.retireJob", "actOnBlocks");
+		expect(disk().launches[0]).not.toHaveProperty("unretired");
 	});
 });
 

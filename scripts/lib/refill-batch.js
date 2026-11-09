@@ -6,7 +6,11 @@
  */
 
 const { hasNothingToRepeat } = require("./loop-prompts.js");
-const { buildResumedHow, launchName } = require("./refill-block-core.js");
+const {
+	buildResumedHow,
+	launchName,
+	withUnretired,
+} = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { seatIdOf } = require("./refill-seats.js");
 
@@ -318,21 +322,26 @@ function recordParkedResume(l, target, r, { launchedAt, actsBefore, io }) {
  * @returns {import("./refill-loop.js").LoopLaunch}
  */
 function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
-	return {
-		root: l.root,
-		issues: l.issues,
-		prompt: l.prompt,
-		seat: target.seat,
-		reason: "parked session's seat",
-		jobId: r.jobId,
-		launchedAt,
-		finishedAt: null,
-		...(r.sessionId ? { sessionId: r.sessionId } : {}),
-		...(r.copy ? { pastSessionIds: [target.sessionId] } : {}),
-		actsBefore,
-		...(hasNothingToRepeat(target.parkCause) ? { nothingToRepeat: true } : {}),
-		...limitParksOf(l),
-	};
+	return withUnretired(
+		{
+			root: l.root,
+			issues: l.issues,
+			prompt: l.prompt,
+			seat: target.seat,
+			reason: "parked session's seat",
+			jobId: r.jobId,
+			launchedAt,
+			finishedAt: null,
+			...(r.sessionId ? { sessionId: r.sessionId } : {}),
+			...(r.copy ? { pastSessionIds: [target.sessionId] } : {}),
+			actsBefore,
+			...(hasNothingToRepeat(target.parkCause)
+				? { nothingToRepeat: true }
+				: {}),
+			...limitParksOf(l),
+		},
+		r,
+	);
 }
 
 /**

@@ -513,6 +513,26 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		});
 	});
 
+	it("carries a copy's original that would not retire onto the parked launch (#4646)", () => {
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const unretired = {
+			seat: target.seat,
+			sessionId: target.sessionId,
+			cwd: "/r",
+			copyJobId: "j-9",
+			tries: 1,
+		};
+		const copied = run([parked], () => ({
+			failed: null,
+			jobId: "j-9",
+			sessionId: "s-copy",
+			copy: true,
+			why: COPY_WHY,
+			unretired,
+		}));
+		expect(copied.out.launched[0]).toHaveProperty("unretired", [unretired]);
+	});
+
 	it("resumes a member routed to its parker on the parker's seat, the rest through one dispatcher call", () => {
 		const parked = member(1, { parkedRoute: { resume: target } });
 		const { out, lines, fresh, resumed } = run([parked, member(2)], ok);

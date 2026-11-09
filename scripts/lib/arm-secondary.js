@@ -38,12 +38,13 @@ const COMMIT_GATES = [
 
 /**
  * @typedef {import("./guard-fires").Subject} Subject
- * @typedef {import("./guard-fires").LogRecord} LogRecord
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptBlock} TranscriptBlock
  */
 
 /**
- * @param {LogRecord} record
- * @returns {LogRecord[]}
+ * @param {TranscriptRecord} record
+ * @returns {TranscriptBlock[]}
  */
 const blocksOf = (record) =>
 	Array.isArray(record?.message?.content) ? record.message.content : [];
@@ -66,7 +67,7 @@ function targetOf({ name, input }) {
  * draws the same warn again. A call counts once however many warns it drew,
  * and once however many times the transcript writes its record; a warn counts
  * where its text carries a registered guard's `warn` needle.
- * @param {LogRecord[]} records
+ * @param {TranscriptRecord[]} records
  * @param {Subject[]} subjects
  */
 function warnsActedAgainst(records, subjects) {
@@ -140,7 +141,7 @@ function gateBefore(output) {
 /**
  * Pre-commit refusals in Bash results, one per husky line, by the gate that
  * refused each. A Read or a subagent's report quoting the line is no refusal.
- * @param {LogRecord[]} records
+ * @param {TranscriptRecord[]} records
  */
 function commitGateRefusals(records) {
 	/** @type {Record<string, number>} */
@@ -189,7 +190,7 @@ const CODE_SPAN = /`[^`\n]*`/g;
 /**
  * The session's last assistant message: the text blocks of the last
  * `message.id` that carried text.
- * @param {LogRecord[]} records
+ * @param {TranscriptRecord[]} records
  */
 function parseFinalMessage(records) {
 	let id = null;
