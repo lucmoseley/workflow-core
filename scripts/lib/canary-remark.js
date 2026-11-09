@@ -14,6 +14,15 @@
  *
  * The markers are written before the fast-forward, so the new canary never
  * meets a session without one. The old ones stay for pruneMarkers's age sweep.
+ *
+ * A SESSION THAT STARTS, or clears to a new id, after that listing is marked
+ * by the old writer, since the main checkout is still at `from` (#4734). So
+ * after the fast-forward the sessions are listed again, and each one the first
+ * pass did not re-mark that `to`'s canary, now the main checkout's, refuses
+ * and `from`'s, taken into scratch, passes is re-marked by the main checkout's
+ * writer. The residual is a session whose old writer was spawned before the
+ * move but which that second listing does not show: the listing took 0.5 to
+ * 0.6 s and the writer 0.01 s, measured 9 Nov 2026.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -40,6 +49,9 @@ const HOOK_TIMEOUT_MS = 10_000;
  * @typedef {() => { sessions: LiveSession[] } | { why: string }} ListSessions
  * @typedef {{ sessionId: string, projectDir: string, refusal: string }} Stranded
  * @typedef {{ why: string } | { stranded: Stranded[] }} Stranding
+ * @typedef {{ remarked: Set<string>, before: Map<string, string> }} Owed
+ *   what `remarkLatecomers` needs: the sessions already re-marked, and
+ *   `from`'s closure
  */
 
 /**
@@ -150,44 +162,51 @@ function writeTree(files, dir) {
 }
 
 /**
- * The listed sessions working in one of `root`'s worktrees that the main
- * checkout's canary passes, each once — or a `why`.
+ * The listed sessions working in one of `root`'s worktrees, each once — or a
+ * `why`.
  * @param {string} root
  * @param {LiveSession[]} listed
  * @returns {{ sessions: LiveSession[] } | { why: string }}
  */
-function vouchedSessions(root, listed) {
+function repoSessions(root, listed) {
 	const out = gitRead(["worktree", "list", "--porcelain", "-z"], root);
 	if (out === null)
 		return { why: `git would not list the worktrees of ${root}` };
 	const trees = worktreePaths(() => out).map(deref);
-	const current = path.join(root, CANARY);
 	const ids = new Set();
 	/** @type {LiveSession[]} */
 	const sessions = [];
-	/* No canary there: its hook cannot start, so it refuses every session. */
-	if (!fs.existsSync(current)) return { sessions };
 	for (const s of listed) {
 		if (ids.has(s.sessionId) || !isUnder(deref(s.cwd), trees)) continue;
 		ids.add(s.sessionId);
-		if (runHook(current, s).ok) sessions.push(s);
+		sessions.push(s);
 	}
 	return { sessions };
 }
 
 /**
- * Re-mark each session with the writer under `scratch`, then check it with the
+ * Whether `canary` passes `s`. No canary there: its hook cannot start, so it
+ * refuses every session.
+ * @param {string} canary
+ * @param {LiveSession} s
+ */
+function passes(canary, s) {
+	return fs.existsSync(canary) && runHook(canary, s).ok;
+}
+
+/**
+ * Re-mark each session with the writer under `dir`, then check it with the
  * canary there: those it would still refuse.
- * @param {string} scratch
+ * @param {string} dir
  * @param {LiveSession[]} sessions
  * @returns {Stranded[]}
  */
-function remarkEach(scratch, sessions) {
+function remarkEach(dir, sessions) {
 	/** @type {Stranded[]} */
 	const stranded = [];
 	for (const s of sessions) {
-		runHook(path.join(scratch, WRITER), s);
-		const check = runHook(path.join(scratch, CANARY), s);
+		runHook(path.join(dir, WRITER), s);
+		const check = runHook(path.join(dir, CANARY), s);
 		if (!check.ok)
 			stranded.push({
 				sessionId: s.sessionId,
@@ -199,13 +218,31 @@ function remarkEach(scratch, sessions) {
 }
 
 /**
+ * @template T
+ * @param {Map<string, string>} files
+ * @param {string} scratch
+ * @param {() => T} run
+ * @returns {T}
+ */
+function inScratch(files, scratch, run) {
+	fs.rmSync(scratch, { recursive: true, force: true });
+	try {
+		writeTree(files, scratch);
+		return run();
+	} finally {
+		fs.rmSync(scratch, { recursive: true, force: true });
+	}
+}
+
+/**
  * Re-mark the live sessions of `root`'s repository for `to`'s canary, where
- * `from..to` changes it. Null where the fast-forward may go ahead.
+ * `from..to` changes it. Null where the fast-forward may go ahead with nothing
+ * owed after it; `owed` where `remarkLatecomers` is owed once it has.
  * @param {string} root the main checkout, at `from`
  * @param {{ from: string, to: string, changed: string[], scratch: string,
  *   listSessions?: ListSessions }} pass `scratch`, a directory this call may
  *   fill and remove
- * @returns {Stranding | null}
+ * @returns {Stranding | { owed: Owed } | null}
  */
 function remarkForCanary(
 	root,
@@ -219,17 +256,48 @@ function remarkForCanary(
 		return null;
 	const listed = listSessions();
 	if ("why" in listed) return listed;
-	const vouched = vouchedSessions(root, listed.sessions);
-	if ("why" in vouched) return vouched;
-	if (vouched.sessions.length === 0) return null;
-	fs.rmSync(scratch, { recursive: true, force: true });
-	try {
-		writeTree(after.files, scratch);
-		const stranded = remarkEach(scratch, vouched.sessions);
-		return stranded.length > 0 ? { stranded } : null;
-	} finally {
-		fs.rmSync(scratch, { recursive: true, force: true });
-	}
+	const inRepo = repoSessions(root, listed.sessions);
+	if ("why" in inRepo) return inRepo;
+	const current = path.join(root, CANARY);
+	const vouched = inRepo.sessions.filter((s) => passes(current, s));
+	const owed = {
+		remarked: new Set(vouched.map((s) => s.sessionId)),
+		before: before.files,
+	};
+	if (vouched.length === 0) return { owed };
+	const stranded = inScratch(after.files, scratch, () =>
+		remarkEach(scratch, vouched),
+	);
+	return stranded.length > 0 ? { stranded } : { owed };
 }
 
-module.exports = { remarkForCanary };
+/**
+ * After the fast-forward, re-mark each live session `remarkForCanary` did not
+ * that the main checkout's canary, now `to`'s, refuses and `from`'s passes.
+ * Null where none is left refused.
+ * @param {string} root the main checkout, now at `to`
+ * @param {{ owed: Owed, scratch: string, listSessions?: ListSessions }} pass
+ * @returns {Stranding | null}
+ */
+function remarkLatecomers(
+	root,
+	{ owed, scratch, listSessions = listLiveSessions },
+) {
+	const listed = listSessions();
+	if ("why" in listed) return listed;
+	const inRepo = repoSessions(
+		root,
+		listed.sessions.filter((s) => !owed.remarked.has(s.sessionId)),
+	);
+	if ("why" in inRepo) return inRepo;
+	const current = path.join(root, CANARY);
+	const refused = inRepo.sessions.filter((s) => !passes(current, s));
+	if (refused.length === 0) return null;
+	const passedBefore = inScratch(owed.before, scratch, () =>
+		refused.filter((s) => passes(path.join(scratch, CANARY), s)),
+	);
+	const stranded = remarkEach(root, passedBefore);
+	return stranded.length > 0 ? { stranded } : null;
+}
+
+module.exports = { remarkForCanary, remarkLatecomers };

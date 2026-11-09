@@ -462,6 +462,50 @@ it("re-marks a live session before a fast-forward that moves its marker path, so
 	expect(canaryPasses("s-old")).toBe(true);
 });
 
+it("re-marks a session that starts under the old writer after the pass lists sessions, so its next canary call passes (#4734)", () => {
+	const files = seedCanary();
+	startSession("s-old");
+	landOnMain(movedMarkerPath(files));
+	const listings: string[][] = [["s-old"], ["s-old", "s-new", "s-unloaded"]];
+	const listSessions = () => {
+		const ids = listings.shift() ?? [];
+		/* After the first listing, before the fast-forward: the main
+		 * checkout's writer is still the old one. */
+		if (listings.length === 1) startSession("s-new");
+		return live(...ids)();
+	};
+
+	const o = pass({ listSessions });
+
+	expect(o).toMatchObject({ status: "forwarded", late: null });
+	expect(listings).toEqual([]);
+	expect(canaryPasses("s-new")).toBe(true);
+	expect(canaryPasses("s-unloaded")).toBe(false);
+});
+
+it("names each session that started during the re-mark and is still refused after the fast-forward", () => {
+	const lines = renderOutcome(
+		{
+			status: "forwarded",
+			from: "a".repeat(40),
+			head: "b".repeat(40),
+			late: {
+				stranded: [
+					{ sessionId: "s-new", projectDir: "/w", refusal: "no marker" },
+				],
+			},
+			fetchError: null,
+			install: { installed: false },
+		},
+		Date.now(),
+	);
+
+	expect(lines.slice(1)).toEqual([
+		"warning: 1 session(s) that started during the canary re-mark are refused by the new canary even after re-marking — end and restart each:",
+		"  session s-new in /w — no marker",
+	]);
+});
+
 it("does not fast-forward where the target canary still refuses a re-marked session, and names the session", () => {
 	seedCanary();
 	startSession("s-live");
