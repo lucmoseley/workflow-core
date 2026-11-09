@@ -74,18 +74,20 @@ const HOLD_STAMPS = /** @type {const} */ ({
 	memoryHeld: "onMemoryHeld",
 	restHeld: "onRestHeld",
 	windowsHeld: "onWindowsHeld",
+	/* `onClimbHeld` already hears the climb charge's MB (#3806). */
 	climbHeld: "onClimbStamp",
 });
 /** @typedef {keyof typeof HOLD_STAMPS} HoldStamp */
 /** @typedef {{ [K in HoldStamp as (typeof HOLD_STAMPS)[K]]?: (held: boolean) => void }} HoldListeners */
-/** @typedef {"admitted" | "yielding" | HoldStamp} MarkerStamp */
+/** The marker stamps set outside `waitForGate`. */
+const OTHER_STAMPS = /** @type {const} */ (["admitted", "yielding"]);
+/** @typedef {(typeof OTHER_STAMPS)[number] | HoldStamp} MarkerStamp */
 /**
  * The marker stamps written only while true: `stampMarker` drops one set false.
  * @type {readonly MarkerStamp[]}
  */
 const MARKER_STAMPS = [
-	"admitted",
-	"yielding",
+	...OTHER_STAMPS,
 	.../** @type {HoldStamp[]} */ (Object.keys(HOLD_STAMPS)),
 ];
 /** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, spawned?: boolean } & { [K in MarkerStamp]?: boolean }} QueueRecord */
@@ -782,7 +784,7 @@ function queueSpawned(file, options = {}) {
  * @param {(stamp: HoldStamp) => (held: boolean) => void} listen
  * @returns {Required<HoldListeners>}
  */
-function holdListeners(listen) {
+function buildHoldListeners(listen) {
 	return /** @type {Required<HoldListeners>} */ (
 		Object.fromEntries(
 			Object.entries(HOLD_STAMPS).map(([stamp, option]) => [
@@ -814,7 +816,7 @@ function queueStamps(file, options = {}) {
 		},
 		killedHold: () => (climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 		admit: () => queueAdmit(file, options),
-		...holdListeners(
+		...buildHoldListeners(
 			(stamp) => (held) => stampMarker(file, { [stamp]: held }, options),
 		),
 		climbMb: () =>
@@ -1038,7 +1040,7 @@ function peerClimbTurn(
  * joined ahead of it, whether another launch in this queue or a peer is
  * admitted and unspawned, and whether the other queue holds an older waiter
  * the climb charge holds (#4760).
- * @typedef {{ waiter: "whole" | "part" | "tsc", ahead: Pick<QueueRecord, "at" | "part" | "spawned" | HoldStamp>[], admissionOpen: boolean, peerClimbHeld?: boolean, slots: number, now: number }} TurnSnapshot
+ * @typedef {{ waiter: "whole" | "part" | "tsc", ahead: Pick<QueueRecord, "at" | "part" | "spawned" | "memoryHeld" | "restHeld" | "windowsHeld">[], admissionOpen: boolean, peerClimbHeld?: boolean, slots: number, now: number }} TurnSnapshot
  */
 
 /**
@@ -1568,7 +1570,7 @@ function waitForGate({
 	clock = Date.now,
 	traceLimbs = false,
 	turnHold = () => undefined,
-	...listeners
+	...holdOptions
 }) {
 	if (typeof admit !== "function")
 		throw new TypeError("waitForGate: `admit` is required (#2742)");
@@ -1578,18 +1580,13 @@ function waitForGate({
 	/* Whether `hold` has run since the last sleep: a reading taken after it
 	 * is still fresh. */
 	let held = false;
-	const stamp = /** @type {Record<HoldStamp, (held: boolean) => void>} */ (
-		Object.fromEntries(
-			Object.entries(HOLD_STAMPS).map(([name, option]) => [
-				name,
-				changesOnly(
-					listeners[option] ??
-						(() => {
-							/* no marker to stamp */
-						}),
-				),
-			]),
-		)
+	const hear = buildHoldListeners((stamp) =>
+		changesOnly(
+			holdOptions[HOLD_STAMPS[stamp]] ??
+				(() => {
+					/* no marker to stamp */
+				}),
+		),
 	);
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock, started);
@@ -1708,16 +1705,16 @@ function waitForGate({
 			onClimbHeld(heldOn);
 		}
 		/* The memory rung holds the wait (#3058). */
-		stamp.memoryHeld(denial?.limb === "memory");
+		hear.onMemoryHeld(denial?.limb === "memory");
 		/* It holds it at rest, `busy` read as 0 and no climb charged (#4783). */
-		stamp.restHeld(
+		hear.onRestHeld(
 			denial?.limb === "memory" && denial.busy === 0 && !denial.climbMb,
 		);
 		/* The Windows-memory hold holds it (#4782). */
-		stamp.windowsHeld(denial?.limb === "windows");
+		hear.onWindowsHeld(denial?.limb === "windows");
 		/* The climb charge alone holds it, which the other queue's waiters
 		 * yield to (#4760). */
-		stamp.climbHeld(heldOn > 0);
+		hear.onClimbStamp(heldOn > 0);
 		const open = !denial && turn();
 		see(denial, open);
 		if (!open && clock() - started >= timeoutMs)
