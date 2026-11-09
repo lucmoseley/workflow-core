@@ -1569,16 +1569,26 @@ function tendHolds(roots, served, now, log) {
  * not read, whole or in part, with its lines.
  * @param {string[]} roots
  * @param {string[]} broken  tendHolds's answer
- * @returns {{holds: {root: string, kind: RepoHold["kind"]}[],
+ * @returns {{holds: import("./refill-decide.js").TickHold[],
  *   unread: {root: string, lines: string[]}[]}}
  */
 const readTickHolds = (roots, broken) => {
 	const reads = roots.map((root) => ({ root, ...readHolds(root) }));
 	return {
 		holds: [
-			...broken.map((root) => ({ root, kind: /** @type {const} */ ("probe") })),
+			...broken.map((root) => ({
+				root,
+				kind: /** @type {const} */ ("probe"),
+				issue: null,
+				raisedAt: null,
+			})),
 			...reads.flatMap(({ root, holds }) =>
-				holds.map(({ kind }) => ({ root, kind })),
+				holds.map(({ kind, issue, raisedAt }) => ({
+					root,
+					kind,
+					issue,
+					raisedAt,
+				})),
 			),
 		],
 		unread: reads

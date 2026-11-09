@@ -16,7 +16,7 @@
  * minutes some session works (GLOSSARY.md, Sustained concurrency).
  *
  * THE VERDICT is the first failing limit in a fixed order, the order the
- * checks below run in: loop not running, empty frontier, allowance,
+ * checks below run in: loop not running, empty frontier or probe hold, allowance,
  * memory, CPU: gates on the loop and on policy before resource
  * fit, as Kubernetes' PreFilter and Borg's quota check run (#2497's
  * research). Every other failing limit follows it as "also".
@@ -31,6 +31,7 @@ const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const {
 	NOTHING_LAUNCHABLE,
+	PROBE_HOLD_WAIT,
 	buildIdleText,
 	buildPauseText,
 	buildLaunchHoldText,
@@ -129,6 +130,8 @@ function policyFailing(input, decision) {
 			limit: "empty frontier",
 			why: "nothing in the frontier is launchable",
 		});
+	if (decision.idle?.reason === PROBE_HOLD_WAIT)
+		out.push({ limit: "probe hold", why: buildIdleText(decision.idle) });
 	const pick = input.freeSlots > 0 ? pickSeat(input) : null;
 	if (pick && pick.seat === null)
 		out.push({

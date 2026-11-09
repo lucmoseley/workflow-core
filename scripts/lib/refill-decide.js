@@ -11,6 +11,7 @@ const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
+const { describeAge } = require("./proc-table.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
 
@@ -63,6 +64,9 @@ const PAUSED = "paused by";
 const LAUNCH_HELD = "launches held by a manual /pick-next";
 /* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
+/* The idle reason of a tick whose every skipped row a probe hold skipped,
+ * named over "nothing launchable", as rows stood ready behind it (#4736). */
+const PROBE_HOLD_WAIT = "a probe hold stops every launch";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
@@ -203,7 +207,10 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  */
 
 /**
- * @typedef {{root: string, kind: "probe"|"park"}} TickHold
+ * `issue` and `raisedAt` are its stored record's, null on a probe this tick
+ * found broken before its store took it.
+ * @typedef {{root: string, kind: "probe"|"park", issue: number|null,
+ *   raisedAt: number|null}} TickHold
  */
 
 /**
@@ -613,6 +620,29 @@ function seatHold(s) {
  */
 const buildProbeHeldRoots = (holds = []) =>
 	new Set(holds.filter((h) => h.kind === "probe").map((h) => h.root));
+
+/**
+ * Each probe hold's checkout, issue and age, one per checkout, its stored
+ * record's over a broken probe's not yet stored.
+ * @param {TickHold[]} holds
+ * @param {number} now
+ */
+function buildProbeHoldDetail(holds, now) {
+	/** @type {Map<string, TickHold>} */
+	const byRoot = new Map();
+	for (const h of holds)
+		if (h.kind === "probe" && (h.raisedAt !== null || !byRoot.has(h.root)))
+			byRoot.set(h.root, h);
+	const parts = [...byRoot.values()].map(({ root, issue, raisedAt }) => {
+		const filed = issue === null ? "no issue filed yet" : `#${issue}`;
+		const age =
+			raisedAt === null
+				? "raised this tick"
+				: `held ${describeAge(Math.max(0, Math.floor((now - raisedAt) / 1000)))}`;
+		return `${path.basename(root)} ${filed}, ${age}`;
+	});
+	return `: ${parts.join("; ")}`;
+}
 
 /** @param {{labels: string[]}} row */
 const isParked = (row) => row.labels.includes(PARKED_LABEL);
@@ -1280,21 +1310,36 @@ function decideLaunches(input, { free, spent, held, resumes, seatsLeft }) {
 		Math.min(launchPick.fits, launchSlots),
 	);
 	if (out.launches.length > 0) return { ...out, idle: null, held, resumes };
-	const failed = input.failedShortlists ?? [];
 	return {
 		...out,
-		idle:
-			failed.length > 0
-				? buildIdle(
-						SHORTLIST_FAILED,
-						` ${failed
-							.map((f) => `${path.basename(f.root)}: ${f.error}`)
-							.join(`; ${SHORTLIST_FAILED} `)}`,
-					)
-				: buildIdle(NOTHING_LAUNCHABLE),
+		idle: buildUnlaunchedIdle(input, out.skipped),
 		held,
 		resumes,
 	};
+}
+
+/**
+ * Why a tick that walked its frontier launched nothing: a shortlist it could
+ * not read, a probe hold that skipped every row it skipped, or nothing launchable.
+ * @param {TickInput} input
+ * @param {Skip[]} skipped
+ * @returns {Idle}
+ */
+function buildUnlaunchedIdle(input, skipped) {
+	const failed = input.failedShortlists ?? [];
+	if (failed.length > 0)
+		return buildIdle(
+			SHORTLIST_FAILED,
+			` ${failed
+				.map((f) => `${path.basename(f.root)}: ${f.error}`)
+				.join(`; ${SHORTLIST_FAILED} `)}`,
+		);
+	if (skipped.length > 0 && skipped.every((s) => s.why === PROBE_HELD))
+		return buildIdle(
+			PROBE_HOLD_WAIT,
+			buildProbeHoldDetail(input.holds ?? [], input.now),
+		);
+	return buildIdle(NOTHING_LAUNCHABLE);
 }
 
 /**
@@ -1382,6 +1427,7 @@ module.exports = {
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
+	PROBE_HOLD_WAIT,
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildResumeWaitLine,
