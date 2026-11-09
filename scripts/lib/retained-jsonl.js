@@ -4,9 +4,11 @@
  *
  * NO APPEND IS LOST TO A PRUNE (#4819). Every append, prune and removal of a
  * log runs under a lock directory beside it (lib/dir-lock.js), so no writer
- * appends between a prune's read and its rewrite. A writer that cannot get
- * the lock still appends, which is safe on its own, and prunes nothing. The
- * rewrite is an atomic rename, so a reader never sees a log cut short.
+ * appends between a prune's read and its rewrite. A writer that waits the lock
+ * out appends anyway and prunes nothing; a holder stalled past that wait, or
+ * past the lock's stale takeover, carries over whatever such a writer
+ * appended after its read (`replaceCarrying`). The rewrite is an atomic
+ * rename, so a reader never sees a log cut short.
  *
  * NEVER THROWS: an unwritable log costs the line, never the caller's run.
  * Synchronous throughout, because the queue's signal handler calls it on its
@@ -14,7 +16,9 @@
  */
 
 const fs = require("node:fs");
-const { readJsonl } = require("./jsonl.js");
+const path = require("node:path");
+const { caught } = require("./caught.js");
+const { parseJsonl } = require("./jsonl.js");
 const { withDirLock } = require("./dir-lock.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 
@@ -39,34 +43,25 @@ function appendRetained(
 	{ dropOnBadLine = false, now = Date.now } = {},
 ) {
 	if (!file) return false;
+	let landed = false;
 	try {
-		return withDirLock(
+		withDirLock(
 			lockOf(file),
 			(held) => {
-				if (held && dropOnBadLine) dropIfBad(file);
-				try {
-					fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
-				} catch {
-					return false;
-				}
+				if (held && dropOnBadLine)
+					replaceCarrying(file, (text) =>
+						parseJsonl(text).bad.length > 0 ? null : undefined,
+					);
+				fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
+				landed = true;
 				if (held) prune(file, retainMs, now());
-				return true;
 			},
 			now,
 		);
 	} catch {
-		return false;
+		/* a log that will not take the line costs the line */
 	}
-}
-
-/** @param {string} file */
-function dropIfBad(file) {
-	try {
-		const read = readJsonl(file);
-		if (read && read.bad.length > 0) fs.rmSync(file, { force: true });
-	} catch {
-		/* an unreadable log fails the append that follows */
-	}
+	return landed;
 }
 
 /**
@@ -78,42 +73,101 @@ function dropIfBad(file) {
  */
 function prune(file, retainMs, now) {
 	try {
-		const read = readJsonl(file);
-		if (!read) return;
-		const ageOf = (/** @type {Record<string, unknown>} */ row) =>
-			now - Date.parse(String(row.at));
-		const [oldest] = read.rows;
-		if (oldest === undefined || !(ageOf(oldest) > retainMs + DAY_MS)) return;
-		writeFileAtomic(
-			file,
-			read.rows
+		replaceCarrying(file, (text) => {
+			const { rows } = parseJsonl(text);
+			const ageOf = (/** @type {Record<string, unknown>} */ row) =>
+				now - Date.parse(String(row.at));
+			const [oldest] = rows;
+			if (oldest === undefined || !(ageOf(oldest) > retainMs + DAY_MS)) return;
+			return rows
 				.filter((row) => ageOf(row) <= retainMs)
 				.map((row) => `${JSON.stringify(row)}\n`)
-				.join(""),
-		);
+				.join("");
+		});
 	} catch {
 		/* the line is written; a failed prune costs disk, not the record */
 	}
 }
 
 /**
- * Delete `file` where it was last written before `beforeMs`, under its lock,
- * so an append landing as it goes is never deleted with it. Throws where the
- * removal does; a lock not got removes nothing.
+ * Replace `file` with what `next` makes of its text, deleting it on null and
+ * leaving it on undefined, then append to the new file any bytes written to
+ * the old one after it was read. Leaves a file another holder has already
+ * replaced. Throws where a step does.
  * @param {string} file
+ * @param {(text: string) => string | null | undefined} next
+ */
+function replaceCarrying(file, next) {
+	let fd;
+	try {
+		fd = fs.openSync(file, "r");
+	} catch (e) {
+		if (caught(e).code === "ENOENT") return;
+		throw e;
+	}
+	try {
+		const { ino } = fs.fstatSync(fd);
+		const text = fs.readFileSync(fd);
+		const out = next(text.toString("utf8"));
+		if (out === undefined) return;
+		if (fs.statSync(file, { throwIfNoEntry: false })?.ino !== ino) return;
+		if (out === null) fs.rmSync(file, { force: true });
+		else writeFileAtomic(file, out);
+		for (let read = text.length; ; ) {
+			const { size } = fs.fstatSync(fd);
+			if (size <= read) break;
+			const tail = Buffer.alloc(size - read);
+			fs.readSync(fd, tail, 0, tail.length, read);
+			fs.appendFileSync(file, tail);
+			read = size;
+		}
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+/**
+ * Delete every log in `dir` last written before `beforeMs`, under its lock,
+ * and any lock or rewrite aside a crashed writer left beside one. Throws
+ * where a removal does.
+ * @param {string} dir
  * @param {number} beforeMs
  * @param {() => number} [now]
  */
-function removeUntouched(file, beforeMs, now = Date.now) {
+function sweepRetained(dir, beforeMs, now = Date.now) {
+	for (const name of fs.readdirSync(dir)) {
+		const entry = path.join(dir, name);
+		if (name.endsWith(".jsonl")) removeUntouched(entry, beforeMs, now);
+		else if (name.includes(".jsonl.") && writtenBefore(entry, beforeMs))
+			fs.rmSync(entry, { recursive: true, force: true });
+	}
+}
+
+/**
+ * @param {string} file
+ * @param {number} beforeMs
+ */
+const writtenBefore = (file, beforeMs) => {
+	const stat = fs.statSync(file, { throwIfNoEntry: false });
+	return stat !== undefined && stat.mtimeMs < beforeMs;
+};
+
+/**
+ * Delete `file` where it was last written before `beforeMs`, under its lock;
+ * a lock not got removes nothing.
+ * @param {string} file
+ * @param {number} beforeMs
+ * @param {() => number} now
+ */
+function removeUntouched(file, beforeMs, now) {
 	withDirLock(
 		lockOf(file),
 		(held) => {
-			const stat = fs.statSync(file, { throwIfNoEntry: false });
-			if (held && stat && stat.mtimeMs < beforeMs)
-				fs.rmSync(file, { force: true });
+			if (held && writtenBefore(file, beforeMs))
+				replaceCarrying(file, () => null);
 		},
 		now,
 	);
 }
 
-module.exports = { DAY_MS, appendRetained, removeUntouched };
+module.exports = { DAY_MS, appendRetained, sweepRetained };

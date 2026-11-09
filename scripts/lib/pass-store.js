@@ -43,7 +43,7 @@ const { markersDir } = require("./marker-root.js");
 const {
 	DAY_MS,
 	appendRetained,
-	removeUntouched,
+	sweepRetained,
 } = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
@@ -120,50 +120,52 @@ const shardFile = (storeRoot, file) =>
 const currentValues = () => ({ node: process.version, arch: process.arch });
 
 /**
+ * Options for a git in `root` fed `input` on stdin.
+ * @param {string} root
+ * @param {string} input
+ */
+const stdinGit = (root, input) =>
+	gitSpawnOptions({
+		cwd: root,
+		input,
+		encoding: "utf8",
+		stdio: ["pipe", "pipe", "ignore"],
+		timeout: GIT_TIMEOUT_MS,
+		maxBuffer: CHILD_MAX_BUFFER,
+	});
+
+/**
  * `git hash-object --stdin-paths` in `root`.
  * @param {string} root
  * @returns {(args: string[], input: string) => string}
  */
 const gitHasher = (root) => (args, input) =>
-	String(
-		execFileSync(
-			gitBinary(),
-			args,
-			gitSpawnOptions({
-				cwd: root,
-				input,
-				encoding: "utf8",
-				stdio: ["pipe", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-				maxBuffer: CHILD_MAX_BUFFER,
-			}),
-		),
-	);
+	String(execFileSync(gitBinary(), args, stdinGit(root, input)));
 
 /**
- * Which of `paths` git ignores at `root`. A tracked path is never one. Throws
- * where git cannot say.
+ * Which of `paths` git ignores at `root`, or will not judge: a path through a
+ * tracked symlink fails the whole call, so a failed call is asked again a path
+ * at a time, and only the paths git refuses count. A tracked path is never
+ * ignored.
  * @param {string} root
  * @param {string[]} paths
  * @returns {Set<string>}
  */
 function readIgnored(root, paths) {
-	const r = spawnSync(
-		gitBinary(),
-		["check-ignore", "--stdin", "-z"],
-		gitSpawnOptions({
-			cwd: root,
-			input: paths.map((p) => `${p}\0`).join(""),
-			encoding: "utf8",
-			stdio: ["pipe", "pipe", "ignore"],
-			timeout: GIT_TIMEOUT_MS,
-			maxBuffer: CHILD_MAX_BUFFER,
-		}),
-	);
-	// 0: some path is ignored; 1: none is.
-	if (r.error || (r.status !== 0 && r.status !== 1))
-		throw new Error(`git check-ignore exited ${r.status ?? r.error}`);
-	return new Set(String(r.stdout).split("\0").filter(Boolean));
+	const ask = (/** @type {string[]} */ some) => {
+		const r = spawnSync(
+			gitBinary(),
+			["check-ignore", "--stdin", "-z"],
+			stdinGit(root, some.map((p) => `${p}\0`).join("")),
+		);
+		// 0: some path is ignored; 1: none is.
+		return r.error || (r.status !== 0 && r.status !== 1)
+			? null
+			: String(r.stdout).split("\0").filter(Boolean);
+	};
+	const all = ask(paths);
+	if (all) return new Set(all);
+	return new Set(paths.filter((p) => (ask([p])?.length ?? 1) > 0));
 }
 
 /**
@@ -388,18 +390,7 @@ function sweepOrSay(storeRoot, err) {
  * @param {string} storeRoot
  */
 function sweepShards(storeRoot) {
-	const dir = storeDir(storeRoot);
-	const before = Date.now() - ARCHIVE_MS - DAY_MS;
-	for (const name of fs.readdirSync(dir)) {
-		const entry = path.join(dir, name);
-		if (name.endsWith(".jsonl")) removeUntouched(entry, before);
-		// A crashed writer's lock or rewrite aside.
-		else if (
-			(fs.statSync(entry, { throwIfNoEntry: false })?.mtimeMs ?? before) <
-			before
-		)
-			fs.rmSync(entry, { recursive: true, force: true });
-	}
+	sweepRetained(storeDir(storeRoot), Date.now() - ARCHIVE_MS - DAY_MS);
 }
 
 /**

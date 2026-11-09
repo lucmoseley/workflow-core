@@ -323,11 +323,23 @@ describe("a run whose per-file verdicts cannot be trusted records nothing", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	it("records no row for a file reaching a gitignored input, which no drift watch sees rewritten", () => {
+	it("records no row for a file reaching a gitignored input, which no drift watch sees rewritten (#4819)", () => {
 		const dir = repo();
 		fs.appendFileSync(path.join(dir, ".gitignore"), "gen.json\n");
 		write(dir, "gen.json", "{}\n");
 		write(dir, A, 'require("../gen.json");\n');
+		expect(run(dir, [A, B])).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	it("costs only the rows reaching a path through a tracked symlink, which git will not judge for ignores (#4819)", () => {
+		const dir = repo();
+		fs.mkdirSync(path.join(dir, "real"));
+		write(dir, "real/x.js", "module.exports = 1;\n");
+		fs.symlinkSync("real", path.join(dir, "link"));
+		write(dir, A, 'require("../link/x.js");\n');
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "link");
 		expect(run(dir, [A, B])).toBe(1);
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
