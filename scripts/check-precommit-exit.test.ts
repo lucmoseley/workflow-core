@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
- * Pins which pre-commit lines check-precommit-exit.js finds exiting 1 on a
- * checker's failure, in .husky/pre-commit and .husky/pre-commit.local, which
- * outside commands it leaves alone, and that its refusal names the primitive
- * and its exemplar (§N4, #3456).
+ * Pins check-precommit-exit.js's boundary set (base §X11): each exit, argv
+ * and --index, and the real reads of .husky/pre-commit and
+ * .husky/pre-commit.local. Which lines exit 1 on a checker's failure is
+ * lib/precommit-exit.test.ts's (§N4, #3456, #4652).
  *
  * .husky/pre-commit refuses on this checker, so loosening a case here lets a
  * checker that could not run reach the committer as a finding again.
@@ -61,166 +61,11 @@ describe("check-precommit-exit", () => {
 		);
 	});
 
-	it.each([
-		["a bash script", 'bash "$WFC_PLUGIN_ROOT"/scripts/gate.sh || exit 1'],
-		["an sh script", "sh scripts/gate.sh || exit 1"],
-		["a script run directly", "./scripts/check-b.js || exit 1"],
-		["node past its flags", "node --no-warnings scripts/check-b.js || exit 1"],
-		[
-			"an indented line in an if",
-			"if armed x; then\n  node scripts/c.js || exit 1\nfi",
-		],
-		["a trailing comment", "node scripts/c.js || exit 1 # why"],
-		["a case arm's terminator", "node scripts/c.js || exit 1 ;; # why"],
-		["a variable assignment", "X=1 node scripts/c.js || exit 1"],
-	])("FAILs %s", (_, line) => {
-		hook("pre-commit", `${line}\n`);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain("FAIL: 1 checker line(s) exiting 1 on failure");
-	});
-
-	it("FAILs a bash script run under errexit", () => {
-		hook("pre-commit", "bash -e scripts/gate.sh || exit 1\n");
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(".husky/pre-commit:2.");
-	});
-
-	it("FAILs a block exiting 1 after a checker, at its opening line", () => {
-		hook(
-			"pre-commit",
-			'node scripts/c.js || {\n  echo "refused" >&2\n  exit 1\n}\n',
-		);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(".husky/pre-commit:2.");
-	});
-
-	it("FAILs a block whose exit 1 carries a semicolon and a comment", () => {
-		hook("pre-commit", "node scripts/c.js || {\n  exit 1 ; # why\n}\n");
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(".husky/pre-commit:2.");
-	});
-
-	it("passes a block passing the checker's exit code on, and one exiting 1 after its close", () => {
-		hook(
-			"pre-commit",
-			'node scripts/c.js || {\n  rc=$?\n  exit "$rc"\n}\nnode scripts/d.js || {\n  echo x\n}\nexit 1\n',
-		);
-		const r = run();
-		expect(r.status).toBe(0);
-	});
-
-	it("FAILs a backslash-continued line at its first line", () => {
-		hook("pre-commit", "node scripts/c.js \\\n  --flag || exit 1\n");
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(".husky/pre-commit:2.");
-	});
-
-	it("FAILs a lister's block exiting 1 on its substitution, at its opening line (#3808)", () => {
-		hook(
-			"pre-commit",
-			'x="$(node scripts/list.js --sources)" || {\n  echo "refused" >&2\n  exit 1\n}\n',
-		);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(".husky/pre-commit:2.");
-		expect(r.out).toContain("its crash exits 2");
-	});
-
-	it.each([
-		[
-			"its own variable, on the arm's second line",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  ok:*) ;;\n  *)\n    echo "crashed" >&2\n    exit 1\n    ;;\nesac\n',
-			2,
-		],
-		[
-			"another variable, on the arm's own line",
-			'rc=0\np="$(node scripts/probe.js)" || rc=$?\n# why\ncase "$rc" in\n  0) ;;\n  *) exit 1 ;;\nesac\n',
-			3,
-		],
-		[
-			"an arm following a nested case's own catch-all",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  a)\n    case "$q" in\n      *) exit 2 ;;\n    esac\n    ;;\n  *) exit 1 ;;\nesac\n',
-			2,
-		],
-	])(
-		"FAILs a probe whose catch-all arm exits 1, through %s (#3808)",
-		(_, body, line) => {
-			hook("pre-commit", body);
-			const r = run();
-			expect(r.status).toBe(1);
-			expect(r.out).toContain(`.husky/pre-commit:${line}.`);
-			expect(r.out).toContain("its crash exits 2");
-		},
-	);
-
-	// A named arm is the checker's own answer, and a probe of an outside command
-	// runs no checker (#3808).
-	it.each([
-		[
-			"a named arm exiting 1 and a catch-all exiting 2",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  bad) exit 1 ;;\n  *) exit 2 ;;\nesac\n',
-		],
-		[
-			"a catch-all exiting 2 ahead of an exit 1 past its commented terminator",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  *)\n    exit 2\n    ;; # why\n  bad) exit 1 ;;\nesac\n',
-		],
-		[
-			"a nested case's catch-all exiting 1 beside an outer one exiting 2",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  a)\n    case "$q" in\n      *) exit 1 ;;\n    esac\n    ;;\n  *) exit 2 ;;\nesac\n',
-		],
-		[
-			"a nested esac ending its arm ahead of an exit 1 in the next",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  *)\n    case "$q" in\n      a) exit 2 ;;\n    esac ;;\n  bad) exit 1 ;;\nesac\n',
-		],
-		[
-			"an outside command's substitution",
-			'p="$(git rev-parse HEAD)" || p=""\ncase "$p" in\n  *) exit 1 ;;\nesac\n',
-		],
-		[
-			"a pipeline's substitution, its last command's status deciding",
-			'p="$(node scripts/probe.js | head -1)" || exit 1\n',
-		],
-		["a probe no case reads", 'p="$(node scripts/probe.js)" || p=""\nexit 1\n'],
-		[
-			"a catch-all exiting 1 on another variable's case",
-			'p="$(node scripts/probe.js)" || p=""\ncase "$q" in\n  *) exit 1 ;;\nesac\n',
-		],
-		[
-			"a fallback assigned again before its case",
-			'a="$(node scripts/a.js)" || rc=$?\nrc=0\nb="$(git x)" || rc=$?\ncase "$rc" in\n  *) exit 1 ;;\nesac\n',
-		],
-	])("passes %s", (_, body) => {
-		hook("pre-commit", body);
-		const r = run();
-		expect(r.out).toContain("OK: 1 pre-commit file(s)");
-		expect(r.status).toBe(0);
-	});
-
 	it("FAILs a breach in .husky/pre-commit.local", () => {
 		hook("pre-commit.local", "node scripts/check-own.js || exit 1\n");
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(".husky/pre-commit.local:2.");
-	});
-
-	it.each([
-		[
-			"a binary",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'"${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1',
-		],
-		["a declared command", 'sh -c "$declared_command" || exit 1'],
-		["inline node", "node -e 'process.exit(0)' || exit 1"],
-	])("passes %s, an outside command", (_, line) => {
-		hook("pre-commit", `${line}\n`);
-		const r = run();
-		expect(r.status).toBe(0);
-		expect(r.out).toContain("OK: 1 pre-commit file(s)");
 	});
 
 	it("passes checker lines passing their exit code on, and a commented-out breach", () => {
@@ -240,6 +85,15 @@ describe("check-precommit-exit", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 0 pre-commit file(s)");
+	});
+
+	it("exits 2 on an unknown flag, naming it and the usage", () => {
+		const r = run("--bogus");
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("BROKEN: unknown flag: --bogus");
+		expect(r.out).toContain(
+			"usage: node check-precommit-exit.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
+		);
 	});
 });
 
