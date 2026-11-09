@@ -46,6 +46,7 @@ import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { FLAG_ARGS, GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { testGate } from "./lib/test-gate.js";
 
@@ -789,34 +790,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["actionlint", /actionlint \$tool_paths/],
 		["ruff", /check-ruff-introduced\.js/],
 		["`scripts/check-swallowed-errors.js`", /check-swallowed-errors\.js \|\|/],
-		["`scripts/check-cli-args.js`", /check-cli-args\.js --against HEAD/],
-		[
-			"`scripts/check-precommit-exit.js`",
-			/check-precommit-exit\.js --index \|\| exit/,
-		],
-		["`scripts/check-test-spawn.js`", /check-test-spawn\.js --index \|\| exit/],
-		[
-			"`scripts/check-jsonl-reads.js`",
-			/check-jsonl-reads\.js --index \|\| exit/,
-		],
-		[
-			"`scripts/check-arbiter-commands.js`",
-			/check-arbiter-commands\.js --index \|\| exit/,
-		],
-		[
-			"`scripts/check-clock-copies.js`",
-			/check-clock-copies\.js --index \|\| exit/,
-		],
-		[
-			"`scripts/check-report-programs.js`",
-			/check-report-programs\.js --index \|\| exit/,
-		],
-		[
-			"`scripts/check-program-output.js`",
-			/check-program-output\.js --index \|\| exit/,
-		],
-		["`scripts/check-gh-route.js`", /check-gh-route\.js --index \|\| exit/],
-		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[
 			"`scripts/check-workflow-permissions.js`",
 			/check-workflow-permissions\.js \|\|/,
@@ -828,16 +801,11 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		expect(hook).toMatch(call);
 	});
 
-	it("names the four test-isolation checkers in one row, all four still run", () => {
-		for (const checker of [
-			"check-guard-test-isolation",
-			"check-host-root-test-isolation",
-			"check-git-fixture-identity",
-			"check-test-env-writes",
-		]) {
-			expect(floor).toContain(`scripts/${checker}.js`);
-			expect(hook).toMatch(new RegExp(`${checker}\\.js --against HEAD`));
-		}
+	it.each(
+		PRECOMMIT_GATES.filter((g) => g.floor).map((g) => [g.script, g] as const),
+	)("names %s, which the hook still runs", (script, g) => {
+		expect(floor).toContain(`\`${script}\``);
+		expect(hook).toContain(`${script} ${FLAG_ARGS[g.flag]} || exit "$?"`);
 	});
 
 	it("gives shfmt the flags the format gate passes it", () => {
@@ -865,6 +833,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			// Helpers the gates call.
 			"record-typecheck-red",
 			"lib/precommit-gate",
+			"lib/precommit-gates",
 			"lib/hook-root",
 			"lib/hook-bound",
 			"lib/serialised",
@@ -898,15 +867,17 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"check-digest-render",
 			"gen-roadmap-digest",
 			"check-vendored-skills",
-			"check-guard-registry",
 			"check-hook-liveness",
 			"generate-plugin-hooks",
 			"generate-rule-fragments",
-			"check-website-copy",
 			"check-doc-map",
 			"check-context-budget",
 			"check-injector-margin",
 			"check-superseded-values",
+			"generate-precommit-gates",
+			...PRECOMMIT_GATES.filter((g) => !g.floor).map((g) =>
+				g.script.slice("scripts/".length).replace(/\.js$/, ""),
+			),
 		]);
 		const run = new Set(hook.match(/scripts\/[\w/-]+\.(?:js|sh)/g));
 		expect(run.size).toBeGreaterThan(0);

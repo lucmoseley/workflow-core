@@ -165,7 +165,10 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-output-style.test.ts",
+			"scripts/check-registrations.test.ts",
 			"scripts/count-guard-fires.test.ts",
+			"scripts/generate-plugin-hooks.test.ts",
+			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/hook-registrations.test.ts",
@@ -176,6 +179,7 @@
 			"scripts/lib/claimed-bash-write.test.ts",
 			"scripts/lib/core-hooks.test.ts",
 			"scripts/lib/file-claim.test.ts",
+			"scripts/lib/guard-fires.test.ts",
 			"scripts/lib/marker-root.test.ts",
 			"scripts/lib/persist-mode.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
@@ -187,8 +191,11 @@
 			"scripts/pick-retro-sessions.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
+			"scripts/reap-orphan-hooks.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/replay-notify-reports.test.ts",
+			"scripts/run-pinned-guards.test.ts",
+			"scripts/score-session-breaches.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/upgrade.test.ts"
 		],
@@ -610,6 +617,7 @@
 			"scripts/check-swallowed-errors.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -723,6 +731,7 @@
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
@@ -3940,12 +3949,14 @@
 		"scripts/check-arbiter-commands.js": [
 			"scripts/check-arbiter-commands.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4067,6 +4078,7 @@
 			"scripts/check-cli-args.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4102,12 +4114,14 @@
 		"scripts/check-clock-copies.js": [
 			"scripts/check-clock-copies.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4437,6 +4451,7 @@
 		"scripts/check-gh-route.js": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4472,6 +4487,7 @@
 		"scripts/check-git-fixture-identity.js": [
 			"scripts/check-git-fixture-identity.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4479,7 +4495,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-git-fixture-identity.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4566,6 +4583,7 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/install-hooks.test.ts",
@@ -4580,7 +4598,8 @@
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-guard-registry.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4592,6 +4611,7 @@
 			"scripts/check-guard-test-isolation.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4600,7 +4620,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-guard-test-isolation.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4662,13 +4683,16 @@
 		"scripts/check-host-root-test-isolation.js": [
 			"scripts/check-host-root-test-isolation.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-host-root-test-isolation.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4679,13 +4703,16 @@
 		"scripts/check-host-root.js": [
 			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-host-root.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4880,6 +4907,7 @@
 		"scripts/check-jsonl-reads.js": [
 			"scripts/check-jsonl-reads.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5176,12 +5204,14 @@
 		"scripts/check-precommit-exit.js": [
 			"scripts/check-precommit-exit.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5213,6 +5243,7 @@
 		"scripts/check-program-output.js": [
 			"scripts/check-program-output.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5249,12 +5280,14 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/check-registrations.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5299,6 +5332,7 @@
 		"scripts/check-report-programs.js": [
 			"scripts/check-report-programs.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5532,6 +5566,7 @@
 		"scripts/check-skill-frontmatter.js": [
 			"scripts/check-skill-frontmatter.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5539,7 +5574,9 @@
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-skill-frontmatter.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5738,6 +5775,7 @@
 		"scripts/check-test-env-writes.js": [
 			"scripts/check-test-env-writes.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5745,7 +5783,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-test-env-writes.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5776,6 +5815,7 @@
 		"scripts/check-test-spawn.js": [
 			"scripts/check-test-spawn.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5901,13 +5941,16 @@
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-website-copy.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -6655,6 +6698,23 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/generate-precommit-gates.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/generate-precommit-gates.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/generate-rule-fragments.js": [
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -6863,12 +6923,17 @@
 		"scripts/guard-fire-needles.json": [
 			"scripts/check-registrations.test.ts",
 			"scripts/count-guard-fires.test.ts",
+			"scripts/generate-plugin-hooks.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/guard-fires.test.ts",
 			"scripts/lib/injection-scan.test.ts",
+			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/registry-atomicity.test.ts",
 			"scripts/lost-deny-rates.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/score-session-breaches.test.ts"
 		],
 		"scripts/guard-headroom-read.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -11160,6 +11225,7 @@
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
 			"scripts/file-issue.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
@@ -11831,6 +11897,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
@@ -12644,6 +12711,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
@@ -13194,6 +13262,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
@@ -17258,6 +17327,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
@@ -17973,6 +18043,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
@@ -17980,9 +18051,11 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/lib/gh-route.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -18467,6 +18540,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
@@ -18763,6 +18837,7 @@
 			"scripts/concision-backstop-sensitive.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-disabled.test.ts",
@@ -20607,6 +20682,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
@@ -21326,6 +21402,7 @@
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
 			"scripts/file-issue.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
 			"scripts/guard-branch.test.ts",
@@ -28197,6 +28274,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -28204,9 +28282,11 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/lib/precommit-exit.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -28322,6 +28402,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
@@ -28395,6 +28476,33 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/precommit-gates.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/presence.js": [
@@ -30299,6 +30407,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
@@ -32353,6 +32462,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/guard-push-rules.test.ts",
@@ -32472,15 +32582,18 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/lib/registry-agents.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -35340,6 +35453,7 @@
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
 			"scripts/file-issue.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
 			"scripts/guard-branch.test.ts",
 			"scripts/guard-check-sh.test.ts",
@@ -37329,6 +37443,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-code-root.test.ts",
@@ -41782,6 +41897,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/file-issue.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/governance-empty-corpus.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
@@ -42077,6 +42193,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
+			"scripts/generate-precommit-gates.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-disabled.test.ts",
@@ -44803,15 +44920,21 @@
 		],
 		"scripts/run-pinned-guards.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/count-guard-fires.test.ts",
+			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/guard-dispatch.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/guard-fires.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/repo-holds.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/run-pinned-guards.test.ts"
+			"scripts/run-pinned-guards.test.ts",
+			"scripts/score-session-breaches.test.ts"
 		],
 		"scripts/run-pinned-guards.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",

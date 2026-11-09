@@ -151,8 +151,9 @@ const ROOT_NAMES =
 	"ROOT|REPO|repoRoot|projectRoot|REPO_ROOT|PROJECT_ROOT|HOST_ROOT";
 
 /** The calls answering a repo root: `worktreeRoot()` is what a tracked-file
- * writer reads through (#4438). */
-const ROOT_CALLS = "hostRoot\\(\\)|worktreeRoot\\(\\)";
+ * writer reads through (#4438), and `coreRoot()` what a helper naming core
+ * files reads them under (#4597). */
+const ROOT_CALLS = "hostRoot\\(\\)|worktreeRoot\\(\\)|coreRoot\\(\\)";
 
 /** What a `path.resolve`/`path.join` call may open on: either kind of anchor. */
 const CALL_ANCHOR = `__dirname|CORE_SCRIPTS|${ROOT_NAMES}|${ROOT_CALLS}`;
