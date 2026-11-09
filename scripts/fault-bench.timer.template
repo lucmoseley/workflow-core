@@ -1,0 +1,13 @@
+[Unit]
+Description=Run #3246's page-fault bench at 28 h uptime (#4768)
+
+[Timer]
+# The machine's boot, not the user manager's start, so a manager restart does
+# not move it.
+OnBootSec=28h
+# A firing short of 1,900 MB logs NO BENCH and retries; once the boot has a bench
+# each firing does nothing. Untraced: 15 minutes is a first guess.
+OnUnitInactiveSec=15min
+
+[Install]
+WantedBy=timers.target
