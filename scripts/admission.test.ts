@@ -183,6 +183,9 @@ interface Machine {
 	sessionFloor?: string | null;
 	/** Swap in MB, as `/proc/meminfo` reports it; null writes no swap lines. */
 	swap?: { totalMb: number; freeMb: number } | null;
+	/** Windows' free memory on memwatch's newest minute line, `ageS` old;
+	 * none writes no log, as on a machine with no memwatch (#4557). */
+	windows?: { mb: number; ageS?: number };
 }
 
 /* This process as a lander holding a whole suite, at its charge (#3323). */
@@ -212,9 +215,22 @@ const machineEnv = (m: Machine = {}) => {
 		states = {},
 		sessionFloor = "",
 		swap = null,
+		windows,
 	} = m;
 	const host = writeHostRepo(dir, hostConfig);
+	const minuteLog = path.join(dir, "memwatch-minute.jsonl");
+	if (windows)
+		fs.writeFileSync(
+			minuteLog,
+			`${JSON.stringify({
+				ts: new Date(Date.now() - (windows.ageS ?? 10) * 1000).toISOString(),
+				win_avail_mb: windows.mb,
+				win_age_s: 0,
+			})}\n`,
+		);
+	else fs.rmSync(minuteLog, { force: true });
 	return {
+		MEMWATCH_MINUTE_LOG: minuteLog,
 		...buildIsolatedEnv(dir, { landers }),
 		WFC_MEMINFO: meminfo(mb, swap),
 		WFC_PS: ps(psLines, { fails: psFails }),
@@ -1708,6 +1724,49 @@ describe("the CPU limb (#830)", () => {
 	});
 });
 
+describe("the Windows-memory hold (#4557)", () => {
+	const machine = { mb: 4000 + HELD, sessions: [SELF, "other"] };
+
+	it("holds the slots memory admits while Windows is short, naming it, and admits once it clears", () => {
+		const held = run({ ...machine, windows: { mb: 400 } });
+		expect(held.status).toBe(1);
+		expect(held.json.byMemory).toBeGreaterThan(0);
+		expect(held.json.slots).toBe(0);
+		expect(held.json.cpuIsSoleHold).toBe(false);
+		expect(held.json.onWindows).toEqual({
+			windowsMb: 400,
+			windowsBudgetMb: expect.any(Number),
+			windowsSlots: 0,
+		});
+		expect(held.json.reason).toMatch(
+			/^Windows itself has 400 MB free, .* so 0 slot\(s\): .*; were it not for Windows, /,
+		);
+		const clear = run({ ...machine, windows: { mb: 20_000 } });
+		expect(clear.status).toBe(0);
+		expect(clear.json.slots).toBe(clear.json.byMemory);
+	});
+
+	it("prints the reading on the ADMISSION block, the fail-open where it is stale, and nothing with no memwatch", () => {
+		expect(
+			run({ ...machine, json: false, windows: { mb: 400 } }).stdout,
+		).toMatch(
+			/^windows memory +400 MB free on Windows \(memwatch, 10 s old\), .* so 0 slot\(s\) \(#4557\)$/m,
+		);
+		const stale = run({
+			...machine,
+			json: false,
+			windows: { mb: 400, ageS: 600 },
+		});
+		expect(stale.stdout).toMatch(
+			/^windows memory +Windows memory unread — the newest Windows reading in .* is 600 s old, past 180 s; sessions not held on it \(#4557\)$/m,
+		);
+		expect(stale.status).toBe(0);
+		expect(run({ ...machine, json: false }).stdout).not.toMatch(
+			/^windows memory/m,
+		);
+	});
+});
+
 /* pick-next's verdict over those figures: its fallback and its wording. */
 describe("admissionFrom's own fallback and wording", () => {
 	const host = { meanMb: 600, sigmaMb: 200, declared: true };
@@ -1773,6 +1832,26 @@ describe("admissionFrom's own fallback and wording", () => {
 			admissionFrom(tight, working, { host, cpu: capped, sessionFloor: 6 })
 				.reason,
 		).toMatch(/; capped by the CPU: /);
+	});
+
+	it("names the Windows-memory hold, holding the guarantee too, and a cap it sets (#4557)", () => {
+		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
+		const held = admissionFrom(
+			roomy,
+			{ ok: true, sessions: 0, working: 0 },
+			{ host, windows: windows(100) },
+		);
+		expect(held.freeSlots).toBe(0);
+		expect(held.admit).toBe(false);
+		expect(held.reason).toMatch(/^Windows itself has 100 MB free/);
+		const onWindows = admissionFrom(roomy, one, {
+			host,
+			windows: windows(1229),
+		});
+		expect(onWindows.freeSlots).toBe(1);
+		expect(onWindows.reason).toMatch(
+			/; capped by Windows: Windows itself has 1229 MB free/,
+		);
 	});
 
 	it("names the pending pairs past the first slot, and none without a launch price", () => {
