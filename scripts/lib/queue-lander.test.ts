@@ -202,7 +202,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		const err = o.fault?.(name);
 		if (err) throw err;
 	};
-	/** The Actions runs on batch refs, `unlisted` counting down per cancel. */
+	/** The Actions runs on batch refs. */
 	const runs = (o.runs ?? []).map((r) => ({ ...r, done: false, unlisted: 0 }));
 	const finish = (sha: string) => {
 		for (const r of runs) if (r.sha === sha) r.done = true;
