@@ -8,6 +8,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { JS_TEST_FILE } = require("./test-kind.js");
+const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
@@ -37,7 +38,7 @@ function vitestList(bin, root, execFn, args) {
 			timeout: LIST_TIMEOUT_MS,
 		});
 	} catch (error) {
-		if (/** @type {{ code?: string }} */ (error)?.code === "ETIMEDOUT")
+		if (caught(error).code === "ETIMEDOUT")
 			throw new Error(
 				`vitest list timed out after ${LIST_TIMEOUT_MS / 1000} s`,
 				{ cause: error },

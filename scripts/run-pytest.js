@@ -29,7 +29,7 @@
  *
  * THE SUITE CEILING (#2702, ruled at #2667). pytest leads a process group of
  * its own, and at the ceiling `lib/suite-ceiling.js` sets, the whole group is
- * killed, xdist workers included: the run exits 1 and records no marker. The
+ * killed, xdist workers included: the run exits 1 and records no certificate. The
  * group is not the terminal's foreground one, so a Ctrl-C reaches this
  * wrapper alone and is passed on to the group. RESIDUAL: a pytest that reads
  * the terminal (`--pdb`, `breakpoint()`, `input()` under `-s`) is stopped by

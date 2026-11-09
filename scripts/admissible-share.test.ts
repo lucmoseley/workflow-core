@@ -189,7 +189,6 @@ describe("full runs a day", () => {
 		expect(p.byReason.flag).toEqual({ count: 2, perDay: 1 });
 		expect(p.byReason["stale-manifest"]).toEqual({ count: 1, perDay: 0.5 });
 		expect(p.byReason["dependency-root"]).toEqual({ count: 0, perDay: 0 });
-		expect(p.byReason["expansion-failed"]).toEqual({ count: 0, perDay: 0 });
 		expect(p.byReason.unknown).toEqual({ count: 2, perDay: 1 });
 	});
 
@@ -412,7 +411,6 @@ describe("main (CLI, run through runInProcess)", () => {
 			flag: { count: 0, perDay: 0 },
 			"stale-manifest": { count: 0, perDay: 0 },
 			"dependency-root": { count: 0, perDay: 0 },
-			"expansion-failed": { count: 0, perDay: 0 },
 			unknown: { count: 0, perDay: 0 },
 		});
 	});

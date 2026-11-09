@@ -762,7 +762,7 @@ function readEdges(loadEdges, diffOf, err) {
 	} catch (error) {
 		/* The diff is not computed yet on this path — the manifest read comes
 		 * first — so the package.json warning runs its own readChangedPaths call,
-		 * un-narrowed as in reportUnexpanded (mantahostels#2151). A diff that
+		 * un-narrowed (mantahostels#2151). A diff that
 		 * cannot be read either is silently no warning. */
 		try {
 			const warning = packageJsonWarning(diffOf());

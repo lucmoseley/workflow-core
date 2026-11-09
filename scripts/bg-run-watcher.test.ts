@@ -768,6 +768,24 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		expect(check("stretched").stdout).toContain("killed it 60s past");
 	});
 
+	it("kills on time whatever the heartbeat, never a heartbeat late", async () => {
+		/* A deadline 2 s ahead and a heartbeat far past the test's bound: a
+		 * watcher sleeping the heartbeat would never reach the kill. */
+		const child = spawn(SCRIPT, wedged("slowbeat", -2), {
+			env: env({ WFC_BG_CEILING_GRACE_S: "0", WFC_BG_HEARTBEAT_S: "600" }),
+		});
+		try {
+			await waitFor(
+				"the run's status",
+				() => runFile("slowbeat", "status") !== "",
+			);
+		} finally {
+			child.kill("SIGKILL");
+		}
+
+		expect(check("slowbeat").stdout).toContain("ceiling-kill");
+	});
+
 	it("never kills a run whose deadline the wall clock has passed but the monotonic clock has not (#2886)", () => {
 		/* A host suspend steps the wall clock forward on resume while no
 		 * monotonic time passes: the wall clock is pinned a day on, the
