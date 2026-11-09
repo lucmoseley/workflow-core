@@ -1,7 +1,16 @@
 {
 	"recordedBy": "node scripts/record-claude-responses.js",
-	"harness": "2.1.319",
+	"harness": "2.1.318",
 	"rows": [
+		{
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"state": "working"
+		},
 		{
 			"pid": 4242,
 			"id": "5e55101d",
@@ -10,6 +19,7 @@
 			"startedAt": 1700000000000,
 			"sessionId": "5e55101d-0000-4000-8000-000000000000",
 			"name": "a recorded session",
+			"status": "idle",
 			"state": "working"
 		},
 		{
@@ -36,16 +46,6 @@
 		},
 		{
 			"pid": 4242,
-			"id": "5e55101d",
-			"cwd": "/repo",
-			"kind": "background",
-			"startedAt": 1700000000000,
-			"sessionId": "5e55101d-0000-4000-8000-000000000000",
-			"name": "a recorded session",
-			"status": "idle",
-			"state": "working"
-		},
-		{
 			"id": "5e55101d",
 			"cwd": "/repo",
 			"kind": "background",

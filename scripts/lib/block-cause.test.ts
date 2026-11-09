@@ -19,6 +19,7 @@ import {
 	hasEndedUnblocked,
 	hasFounderTypedSinceApiStop,
 	hasRepliedSince,
+	hasTurnSinceApiStop,
 	promptsAfterApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
@@ -911,5 +912,17 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 		expect(hasFounderTypedSinceApiStop([typed(2, "resume"), stop(3)])).toBe(
 			false,
 		);
+	});
+	it("reads a turn after the stop off the transcript or the job's timeline, before it never", () => {
+		const working = (min: number) => ({ at: at(min), state: "working" });
+		expect(hasTurnSinceApiStop([stop(1), typed(2, "go on")], null)).toBe(true);
+		expect(hasTurnSinceApiStop([stop(1)], [working(0), working(2)])).toBe(true);
+		expect(
+			hasTurnSinceApiStop(
+				[stop(1)],
+				[working(0), { at: at(2), state: "blocked" }],
+			),
+		).toBe(false);
+		expect(hasTurnSinceApiStop([typed(0, "hi")], [working(2)])).toBe(false);
 	});
 });

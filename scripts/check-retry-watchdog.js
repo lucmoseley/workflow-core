@@ -9,22 +9,23 @@
  * stopping (#4682).
  *
  * Usage: node check-retry-watchdog.js [<settings.json>]
- *   (default ~/.claude/settings.json)
+ *   (default the seat's settings.json, lib/config-dir.js)
  *
  * A missing settings file or binary is SKIP, neither being the repo's
  * (mantahostels#155 (the checker family's exit-code and severity model)); a
- * settings fault found before the binary is missed still reports.
+ * settings file that will not parse is a fault, as is one a settings fault
+ * found before the binary is missed.
  *
  * WFC_CLAUDE_BIN injects the binary (§N7).
  */
 
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { binaryOf, readWindowsOf } = require("./lib/binary-read.js");
 const { caught } = require("./lib/caught.js");
 const { runCheck } = require("./lib/check");
 const { claudeBin } = require("./lib/claude-bin.js");
+const { configDir } = require("./lib/config-dir.js");
 
 /** The variables and values the live settings' `env` block carries (#4815). */
 const WATCHDOG_ENV = {
@@ -38,44 +39,99 @@ const WATCHDOG_ENV = {
  * @param {string} file
  * @param {string} name
  */
-const holdsName = (file, name) =>
+const hasWholeName = (file, name) =>
 	readWindowsOf(file, name, name.length + 1).some(
 		({ text, at }) => !/[A-Z0-9_]/.test(text[at + name.length] ?? ""),
 	);
 
 /**
- * The settings file's `env` block, or why it will not read.
+ * The settings file's `env` block; `{absent}` where there is no file, `{bad}`
+ * where it will not read or parse.
  * @param {string} file
- * @returns {Record<string, unknown>|string}
+ * @returns {{env: Record<string, unknown>}|{absent: string}|{bad: string}}
  */
 function readEnv(file) {
+	let text;
 	try {
-		return JSON.parse(fs.readFileSync(file, "utf8")).env ?? {};
+		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		return `${file} could not be read: ${caught(e).message}`;
+		const why = `${file} could not be read: ${caught(e).message}`;
+		return caught(e).code === "ENOENT" ? { absent: why } : { bad: why };
+	}
+	try {
+		return { env: JSON.parse(text).env ?? {} };
+	} catch (e) {
+		return { bad: `${file} does not parse: ${caught(e).message}` };
 	}
 }
+
+/**
+ * @typedef {{tag: string, message: string, key: string}} Fault
+ */
+
+/**
+ * The faults of the settings `read` at `file`: one where it will not read,
+ * else one per WATCHDOG_ENV variable its env block lacks at its value.
+ * @param {string} file
+ * @param {{env: Record<string, unknown>}|{bad: string}} read
+ * @returns {Fault[]}
+ */
+function settingsFaults(file, read) {
+	if ("bad" in read)
+		return [
+			{
+				tag: "SETTINGS-UNREAD",
+				message: `${read.bad}; fix the file, then add ${Object.keys(WATCHDOG_ENV).join(" and ")} to its env block at "1"`,
+				key: "settings:unread",
+			},
+		];
+	return Object.entries(WATCHDOG_ENV).flatMap(([name, value]) =>
+		read.env[name] === value
+			? []
+			: [
+					{
+						tag: "SETTINGS-MISSING",
+						message: `${file}'s env block has ${name}=${JSON.stringify(read.env[name] ?? null)}, not "${value}"; every session started since rides out no dropped connection in its turn: set it to "${value}" there, as docs/claude-user-settings.md's block does`,
+						key: `settings:${name}`,
+					},
+				],
+	);
+}
+
+/**
+ * The faults of the binary `file`: one per WATCHDOG_ENV name it no longer
+ * holds. Throws where the file will not read.
+ * @param {string} file
+ * @returns {Fault[]}
+ */
+const binaryFaults = (file) =>
+	Object.keys(WATCHDOG_ENV).flatMap((name) =>
+		hasWholeName(file, name)
+			? []
+			: [
+					{
+						tag: "CLI-DROPPED",
+						message: `${file} no longer holds ${name}; the installed Claude Code ignores it: find the variable that replaced it in the CLI's changelog, then update WATCHDOG_ENV, the live settings and docs/claude-user-settings.md together`,
+						key: `cli:${name}`,
+					},
+				],
+	);
 
 runCheck({
 	name: "retry-watchdog",
 	usage: "node check-retry-watchdog.js [<settings.json>]",
 	run(ctx) {
-		/** @type {(tag: string, message: string, key: string) => void} */
-		const fault = (tag, message, key) => {
-			ctx.fail(tag, message, {}, key);
-			ctx.say(message);
+		/** @param {Fault[]} faults */
+		const report = (faults) => {
+			for (const { tag, message, key } of faults) {
+				ctx.fail(tag, message, {}, key);
+				ctx.say(message);
+			}
 		};
-		const settingsPath =
-			ctx.args[0] ?? path.join(os.homedir(), ".claude", "settings.json");
-		const env = readEnv(settingsPath);
-		if (typeof env === "string") return ctx.skip(env);
-		for (const [name, value] of Object.entries(WATCHDOG_ENV))
-			if (env[name] !== value)
-				fault(
-					"SETTINGS-MISSING",
-					`${settingsPath}'s env block has ${name}=${JSON.stringify(env[name] ?? null)}, not "${value}"; every session started since rides out no dropped connection in its turn`,
-					`settings:${name}`,
-				);
+		const settingsPath = ctx.args[0] ?? path.join(configDir(), "settings.json");
+		const read = readEnv(settingsPath);
+		if ("absent" in read) return ctx.skip(read.absent);
+		report(settingsFaults(settingsPath, read));
 		const bin = claudeBin();
 		const file = binaryOf(bin);
 		if (file === null) {
@@ -85,19 +141,10 @@ runCheck({
 			}
 			return ctx.skip(`no \`${bin}\` binary was found`);
 		}
-		for (const name of Object.keys(WATCHDOG_ENV)) {
-			let held;
-			try {
-				held = holdsName(file, name);
-			} catch (e) {
-				return ctx.skip(`${file} could not be read: ${caught(e).message}`);
-			}
-			if (!held)
-				fault(
-					"CLI-DROPPED",
-					`${file} no longer holds ${name}; the installed Claude Code ignores it`,
-					`cli:${name}`,
-				);
+		try {
+			report(binaryFaults(file));
+		} catch (e) {
+			return ctx.skip(`${file} could not be read: ${caught(e).message}`);
 		}
 		return {
 			okLine: `${settingsPath} and ${file} both carry ${Object.keys(WATCHDOG_ENV).join(" and ")}`,

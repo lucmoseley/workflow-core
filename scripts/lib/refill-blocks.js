@@ -304,7 +304,7 @@ const isStepResumeFor = (l, cause) => l.stepResume?.cause === cause;
 /**
  * Tick `seen`'s NetGate, made on the first ask and kept on `seen`, so one
  * probe serves the tick.
- * @param {Tick} seen
+ * @param {Tick} seen accumulator: the gate is kept on its `net`
  * @returns {NetGate}
  */
 function netGateOf(seen) {
@@ -789,10 +789,7 @@ function fallBack(l, seen, { route, again }) {
 		);
 		return l;
 	}
-	if (seen.io.isResumedSinceStop(l)) {
-		seen.io.log(
-			`${launchName(l)}'s session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
-		);
+	if (isTakenSinceStop(l, launchName(l), seen.io)) {
 		if (!l.resumes) return l;
 		const { heldAt: _, ...resumes } = l.resumes;
 		return { ...l, resumes };
@@ -840,26 +837,51 @@ function settleTyped(launches, seen) {
 	return launches.map((l) => {
 		const resumes = l.resumes;
 		const at = resumes?.attachAt;
-		if (
-			!resumes ||
-			at === undefined ||
-			now - at < ATTACH_VERDICT_MS ||
-			!isActionable(l)
-		)
-			return l;
+		if (!resumes || at === undefined || !isActionable(l)) return l;
+		const verdict = typedVerdict(at, l, { now, io });
+		if (verdict === "pending") return l;
 		const { attachAt: _, ...rest } = resumes;
 		const settled = /** @type {JobLaunch} */ ({ ...l, resumes: rest });
-		if (
-			!isResuming(settled) ||
-			isResumeArrived(at, API_PROMPT, io.readTimeline(settled))
-		)
-			return settled;
+		if (!isResuming(settled) || verdict === "arrived") return settled;
 		if (!netGateOf(seen).admit(launchName(l))) return l;
 		return fallBack(settled, seen, {
 			route: `${FALLBACK_ROUTE}, the typed one unseen`,
 			again: true,
 		});
 	});
+}
+
+/**
+ * A resume typed into `l`'s session at `attachAt`, judged (#2354 F8):
+ * `pending` inside the verdict window, `arrived` where the timeline shows it,
+ * else `unseen`, for its fallback.
+ * @param {number} attachAt
+ * @param {JobLaunch} l
+ * @param {{now: number, io: BlockIo}} seen
+ * @returns {"pending"|"arrived"|"unseen"}
+ */
+function typedVerdict(attachAt, l, { now, io }) {
+	if (now - attachAt < ATTACH_VERDICT_MS) return "pending";
+	return isResumeArrived(attachAt, API_PROMPT, io.readTimeline(l))
+		? "arrived"
+		: "unseen";
+}
+
+/**
+ * Whether `l`'s session, told as `name`, took a prompt since its API-error
+ * stop: the founder's own resume, or a typed one the arrival check missed. A
+ * stop and relaunch then would make two sessions of one (#4815), so the
+ * resume counts as arrived, as the log says.
+ * @param {JobLaunch} l
+ * @param {string} name
+ * @param {BlockIo} io
+ */
+function isTakenSinceStop(l, name, io) {
+	if (!io.isResumedSinceStop(l)) return false;
+	io.log(
+		`${name}'s session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
+	);
+	return true;
 }
 
 /**
@@ -1916,7 +1938,8 @@ function causeReader(io) {
 
 module.exports = {
 	ATTACH_VERDICT_MS,
-	isResumeArrived,
+	isTakenSinceStop,
+	typedVerdict,
 	causeReader,
 	actOnBlocks,
 	logNetWaits,

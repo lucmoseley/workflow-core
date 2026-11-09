@@ -20,6 +20,7 @@ import { expect, it } from "vitest";
 import { buildJobRow } from "./lib/agents-stop-fake";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { API_PROMPT } from "./lib/loop-prompts.js";
+import { ATTACH_VERDICT_MS } from "./lib/refill-blocks.js";
 import {
 	at,
 	buildBlockedJobRecord,
@@ -107,7 +108,7 @@ it("takes a founder-started session through a drop, an offline wait, a typed res
 	expect(typed).toMatchObject({ tries: 1, attachAt: expect.any(Number) });
 
 	/* Past the verdict window, with the typed line on the job's timeline. */
-	const attachAt = Date.now() - 2 * 60 * 1000;
+	const attachAt = Date.now() - 2 * ATTACH_VERDICT_MS;
 	fs.writeFileSync(
 		at(".refill-outside.json"),
 		JSON.stringify([{ ...typed, attachAt }]),

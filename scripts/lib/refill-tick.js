@@ -51,7 +51,7 @@ const { readSwapHold } = require("./admission.js");
 const {
 	resumedIdleSince,
 	hasRepliedSince,
-	promptsAfterApiStop,
+	hasTurnSinceApiStop,
 	hasFounderTypedSinceApiStop,
 	hasTurnedSince,
 } = require("./block-cause.js");
@@ -669,7 +669,8 @@ function readOutside() {
 }
 
 /**
- * Whether `l`'s session took a prompt after its API-error stop (BlockReads'
+ * Whether `l`'s session took a turn after its API-error stop: its tempo
+ * `active`, or block-cause.js's hasTurnSinceApiStop (BlockReads'
  * isResumedSinceStop, #4815).
  * @param {import("./refill-blocks.js").JobLaunch} l
  */
@@ -677,7 +678,7 @@ function isResumedSinceStop(l) {
 	const job = readJobRecordOf(l);
 	if (/** @type {{tempo?: unknown}|null} */ (job)?.tempo === "active")
 		return true;
-	return (promptsAfterApiStop(readTranscriptRows(l, job))?.length ?? 0) > 0;
+	return hasTurnSinceApiStop(readTranscriptRows(l, job), readTimelineOf(l));
 }
 
 /** @param {import("./refill-loop.js").LoopLaunch} l */
@@ -911,7 +912,7 @@ const blockIo = (served) => ({
 	hasRepliedSince: (l, at) =>
 		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	probeNetwork,
-	isResumedSinceStop: (l) => isResumedSinceStop(l),
+	isResumedSinceStop,
 	hasFounderTypedSinceStop: (l) =>
 		hasFounderTypedSinceApiStop(readTranscriptRows(l, readJobRecordOf(l))),
 	readOutside,

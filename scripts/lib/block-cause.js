@@ -457,6 +457,47 @@ function hasRepliedSince(rows, at) {
 }
 
 /**
+ * When the newest API-error row the harness wrote in `rows` was stamped, ms;
+ * null where `rows` is unread or holds no such row.
+ * @param {unknown} rows
+ * @returns {number|null}
+ */
+function apiStopAt(rows) {
+	if (!Array.isArray(rows)) return null;
+	const stop = rows.findLast(
+		(r) =>
+			isObject(r) && r.type === "assistant" && r.isApiErrorMessage === true,
+	);
+	return stop && typeof stop.timestamp === "string"
+		? Date.parse(stop.timestamp)
+		: null;
+}
+
+/**
+ * Whether a session took a turn after its last API-error stop, which a stop
+ * and relaunch would copy (#4815): a prompt in its transcript after the stop,
+ * or a `working` row on its job's timeline stamped after it. False where
+ * either read finds no stop.
+ * @param {unknown} rows  its transcript's rows
+ * @param {unknown} timeline  its job's timeline rows, null unread
+ */
+function hasTurnSinceApiStop(rows, timeline) {
+	if ((promptsAfterApiStop(rows)?.length ?? 0) > 0) return true;
+	const at = apiStopAt(rows);
+	return (
+		at !== null &&
+		Array.isArray(timeline) &&
+		timeline.some(
+			(r) =>
+				isObject(r) &&
+				r.state === "working" &&
+				typeof r.at === "string" &&
+				Date.parse(r.at) > at,
+		)
+	);
+}
+
+/**
  * The prompts a session took after its last API-error stop (#4815): the text of
  * each user row, machine-written or not, stamped after the newest API-error
  * row the harness wrote, a tool result aside. Null where `rows` is unread or
@@ -465,13 +506,8 @@ function hasRepliedSince(rows, at) {
  * @returns {string[]|null}
  */
 function promptsAfterApiStop(rows) {
-	if (!Array.isArray(rows)) return null;
-	const stop = rows.findLast(
-		(r) =>
-			isObject(r) && r.type === "assistant" && r.isApiErrorMessage === true,
-	);
-	if (!stop || typeof stop.timestamp !== "string") return null;
-	const at = Date.parse(stop.timestamp);
+	const at = apiStopAt(rows);
+	if (at === null || !Array.isArray(rows)) return null;
 	return rows.flatMap((r) =>
 		isRowAfter(r, at) && r.type === "user" && r.isMeta !== true
 			? [rowText(r)].filter((t) => t.trim() !== "")
@@ -523,6 +559,7 @@ module.exports = {
 	blockCause,
 	hasEndedUnblocked,
 	hasFounderTypedSinceApiStop,
+	hasTurnSinceApiStop,
 	hasRepliedSince,
 	hasTurnedSince,
 	promptsAfterApiStop,

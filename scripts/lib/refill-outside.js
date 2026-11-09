@@ -4,7 +4,8 @@
  * transient API error is typed into on #2359's schedule (#2359 (the
  * API-error resume schedule)), through the tick's network gate, and falls
  * back to a stop and `claude --bg --resume` under its own id where the typed
- * one is unseen. Unlike a loop launch it is never held stopped between tries,
+ * one is unseen; where that resume fails after the stop, it is tried again
+ * when next due. Unlike a loop launch it is never held stopped between tries,
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
  * job list shows as needs input (#4689). Where the founder has typed into it
@@ -17,11 +18,15 @@
 
 const { API_PROMPT } = require("./loop-prompts.js");
 const { RESUME_CAP, blockAct, nextTryAt } = require("./block-act.js");
-const { blockedIdsOf, iso } = require("./refill-block-core.js");
 const {
-	ATTACH_VERDICT_MS,
-	isResumeArrived,
+	blockedIdsOf,
+	buildResumedHow,
+	iso,
+} = require("./refill-block-core.js");
+const {
+	isTakenSinceStop,
 	netGateOf,
+	typedVerdict,
 } = require("./refill-blocks.js");
 
 const OUTSIDE_FILE = ".refill-outside.json";
@@ -33,13 +38,15 @@ const OUTSIDE_FILE = ".refill-outside.json";
  * @typedef {import("./refill-blocks.js").CauseOf} CauseOf
  * @typedef {{seat: string, jobId: string, name: string, cwd: string,
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
- *   nextAt?: number, attachAt?: number, handsOff?: true, capped?: true}}
+ *   nextAt?: number, attachAt?: number, handsOff?: true, capped?: true,
+ *   held?: {sessionId: string, cwd: string}}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
  *   `attachAt`, a typed resume not yet seen arrive; `handsOff`, the founder
  *   typed into it since this stop; `capped`, its resumes reached the cap,
- *   after which the loop never acts on it again
+ *   after which the loop leaves this stop alone; `held`, the session the
+ *   loop stopped whose `--bg --resume` failed, resumed when next due
  */
 
 /**
@@ -63,12 +70,24 @@ const launchOf = (o) => ({
 const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
 
 /**
- * `o` between stops: its resume count kept, its stop's fields dropped.
+ * `o` between stops: its resume count kept, its stop's fields dropped; none
+ * where it was capped, so a later stop starts afresh.
+ * @param {Outside} o
+ * @returns {Outside|null}
+ */
+function betweenStops(o) {
+	if (o.capped) return null;
+	const { since: _, attachAt: __, handsOff: ___, held: ____, ...rest } = o;
+	return rest;
+}
+
+/**
+ * `o`, listed live again, so no longer held for a retry.
  * @param {Outside} o
  * @returns {Outside}
  */
-function betweenStops(o) {
-	const { since: _, attachAt: __, handsOff: ___, ...rest } = o;
+function withoutHeld(o) {
+	const { held: _, ...rest } = o;
 	return rest;
 }
 
@@ -93,40 +112,75 @@ function takenUp(a, now) {
 }
 
 /**
- * Stop `o`'s session and `--bg --resume` it under its full id with the resume
- * prompt; never where it took a prompt since its stop, which counts the
- * resume arrived (#4815's duplicate check). `o`, its typed resume settled.
+ * `claude --bg --resume` of `o`'s stopped session `target` with the resume
+ * prompt: `o` moved onto the job it runs as, else marked `held` for a retry
+ * when next due, as nothing else would wake it.
  * @param {Outside} o
+ * @param {{sessionId: string, cwd: string}} target
  * @param {Tick} seen
  * @returns {Outside}
  */
-function fallBack(o, { io }) {
-	const { attachAt: _, ...settled } = o;
-	const l = launchOf(o);
-	if (io.isResumedSinceStop(l)) {
+function relaunch(o, target, { io }) {
+	const r = io.resumeStopped(launchOf(o), API_PROMPT, target);
+	if (r.failed !== null) {
 		io.log(
-			`${nameOf(o)} took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
+			`could not resume ${nameOf(o)} by --bg --resume: ${r.failed}; it stays stopped until the next try, due ${iso(o.nextAt ?? 0)}`,
 		);
-		return settled;
+		return { ...o, held: target };
 	}
+	io.log(`resumed ${nameOf(o)} by --bg --resume, ${buildResumedHow(r)}`);
+	const { held: _, ...rest } = o;
+	return { ...rest, jobId: r.jobId, sessionId: r.sessionId ?? o.sessionId };
+}
+
+/**
+ * Stop `o`'s session and relaunch it under its full id, its typed resume
+ * unseen; never where it took a prompt since its stop (isTakenSinceStop).
+ * @param {Outside} o  its typed resume settled
+ * @param {Tick} seen
+ * @returns {Outside}
+ */
+function fallBack(o, seen) {
+	const { io } = seen;
+	const l = launchOf(o);
+	if (isTakenSinceStop(l, nameOf(o), io)) return o;
 	const { sessionId, cwd } = io.resumeTargetOf(l);
 	const what = `${nameOf(o)} by stop and --bg --resume, the typed one unseen`;
 	if (!sessionId) {
 		io.log(`could not resume ${what}: no session id read for it`);
-		return settled;
+		return o;
 	}
 	const stop = io.stop(o.seat, o.jobId);
 	if (!stop.ok) {
 		io.log(`could not resume ${what}: stop: ${stop.why}`);
-		return settled;
+		return o;
 	}
-	const r = io.resumeStopped(l, API_PROMPT, { sessionId, cwd });
-	if (r.failed !== null) {
-		io.log(`could not resume ${what}: ${r.failed}`);
-		return settled;
+	return relaunch(o, { sessionId, cwd }, seen);
+}
+
+/**
+ * `o`, stopped by the loop with its relaunch failed, tried again once due: a
+ * try of its own; at the cap, logged and dropped, left stopped.
+ * @param {Outside & {held: {sessionId: string, cwd: string}}} o
+ * @param {Tick} seen
+ * @returns {Outside|null}
+ */
+function retryHeld(o, seen) {
+	const { now, io } = seen;
+	if (o.tries >= RESUME_CAP) {
+		io.log(
+			`stopped trying to resume ${nameOf(o)} after ${o.tries} resumes: it stays stopped on its last error`,
+		);
+		return null;
 	}
-	io.log(`resumed ${what}, as job ${r.jobId}`);
-	return { ...settled, jobId: r.jobId };
+	if ((o.nextAt ?? 0) > now || seen.barred || !netGateOf(seen).admit(nameOf(o)))
+		return o;
+	const tries = o.tries + 1;
+	return relaunch(
+		{ ...o, tries, triedAt: now, nextAt: nextTryAt(tries, now) },
+		o.held,
+		seen,
+	);
 }
 
 /**
@@ -152,21 +206,6 @@ function resume(o, seen) {
 }
 
 /**
- * `o`'s typed resume judged once the verdict window has passed: arrived,
- * else the same try's fallback, once the network is up.
- * @param {Outside & {attachAt: number}} o
- * @param {Tick} seen
- * @returns {Outside}
- */
-function settleTyped(o, seen) {
-	const { attachAt, ...settled } = o;
-	if (isResumeArrived(attachAt, API_PROMPT, seen.io.readTimeline(launchOf(o))))
-		return settled;
-	if (seen.barred || !netGateOf(seen).admit(nameOf(o))) return o;
-	return fallBack(o, seen);
-}
-
-/**
  * The tick's act on `o`, blocked on a transient API error this tick.
  * @param {Outside & {since: number}} o
  * @param {Tick} seen
@@ -174,10 +213,14 @@ function settleTyped(o, seen) {
  */
 function actOn(o, seen) {
 	const { now, io } = seen;
-	if (o.attachAt !== undefined)
-		return now - o.attachAt < ATTACH_VERDICT_MS
-			? o
-			: settleTyped({ ...o, attachAt: o.attachAt }, seen);
+	if (o.attachAt !== undefined) {
+		const verdict = typedVerdict(o.attachAt, launchOf(o), seen);
+		if (verdict === "pending") return o;
+		const { attachAt: _, ...settled } = o;
+		if (verdict === "arrived") return settled;
+		if (seen.barred || !netGateOf(seen).admit(nameOf(o))) return o;
+		return fallBack(settled, seen);
+	}
 	const act = blockAct(
 		{
 			cause: "API_ERROR",
@@ -229,11 +272,29 @@ function judge(o, row, causeOf, seen) {
 }
 
 /**
+ * The record of a session the registry lists live, `o` where the loop had
+ * one, else `fresh`: judged where the listing shows it blocked, else between
+ * stops.
+ * @param {Outside|undefined} o
+ * @param {Outside} fresh
+ * @param {{row: AgentRecord, blocked: Set<string|undefined>, causeOf: CauseOf}}
+ *   listed
+ * @param {Tick} seen
+ * @returns {Outside|null}
+ */
+function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
+	if (blocked.has(fresh.jobId))
+		return judge(o ? withoutHeld(o) : fresh, row, causeOf, seen);
+	return o ? betweenStops(o) : null;
+}
+
+/**
  * The tick's resumes of the background sessions on every seat the registry
  * lists live that no launch in `launches` is (#4815): each blocked on a
  * transient API error taken up and acted on, every record of one no longer
- * listed dropped. None off an unread listing, which cannot tell blocked from
- * working; a barred tick types nothing, as a resume spends allowance.
+ * listed dropped, save one the loop stopped and holds for a retry (retryHeld).
+ * None off an unread listing, which cannot tell blocked from working; a
+ * barred tick types nothing, as a resume spends allowance.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {AgentRecord[]} registry  the registry listing's agents
  * @param {CauseOf} causeOf
@@ -247,20 +308,20 @@ function actOnOutside(launches, registry, causeOf, seen) {
 	const blocked = blockedIdsOf(seen.agents);
 	const had = seen.io.readOutside();
 	const byJob = new Map(had.map((o) => [`${o.seat}\0${o.jobId}`, o]));
-	/** @type {Outside[]} */
+	/** @type {(Outside|null)[]} */
 	const next = [];
 	for (const row of registry) {
 		const fresh = takenUp(row, seen.now);
 		if (!fresh || known.has(fresh.jobId)) continue;
-		const o = byJob.get(`${fresh.seat}\0${fresh.jobId}`);
-		if (!blocked.has(fresh.jobId)) {
-			if (o) next.push(betweenStops(o));
-			continue;
-		}
-		const judged = judge(o ?? fresh, row, causeOf, seen);
-		if (judged) next.push(judged);
+		const key = `${fresh.seat}\0${fresh.jobId}`;
+		const o = byJob.get(key);
+		byJob.delete(key);
+		next.push(listedTurn(o, fresh, { row, blocked, causeOf }, seen));
 	}
-	if (JSON.stringify(next) !== JSON.stringify(had)) seen.io.writeOutside(next);
+	for (const o of byJob.values())
+		if (o.held) next.push(retryHeld({ ...o, held: o.held }, seen));
+	const kept = next.filter((o) => o !== null);
+	if (JSON.stringify(kept) !== JSON.stringify(had)) seen.io.writeOutside(kept);
 }
 
 module.exports = { OUTSIDE_FILE, actOnOutside };

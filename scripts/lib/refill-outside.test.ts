@@ -10,7 +10,8 @@
  * session beside one already resumed, or parks a ticket it does not own.
  */
 import { expect, it } from "vitest";
-import { RESUME_CAP } from "./block-act.js";
+import { COPY_WHY } from "./bg-resume-fake";
+import { nextTryAt, RESUME_CAP } from "./block-act.js";
 import type { Reading } from "./block-cause.js";
 import { API_PROMPT } from "./loop-prompts.js";
 import { logNetWaits } from "./refill-blocks.js";
@@ -140,7 +141,7 @@ it("falls back to a stop and --bg --resume under its own id where the typed resu
 	expect(l.calls).toContain("stop f1");
 	expect(resumes).toEqual(["f1 sess-f1-full true"]);
 	expect(logs(l.calls)).toContain(
-		`resumed ${NAME} by stop and --bg --resume, the typed one unseen, as job f1`,
+		`resumed ${NAME} by --bg --resume, woken in place`,
 	);
 });
 
@@ -151,7 +152,7 @@ it("neither stops nor copies one that took a prompt since its stop, and counts t
 	expect(l.calls).not.toContain("stop f1");
 	expect(l.calls.some((c) => c.startsWith("resume "))).toBe(false);
 	expect(logs(l.calls)).toContain(
-		`${NAME} took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
+		`${NAME}'s session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
 	);
 });
 
@@ -210,4 +211,61 @@ it("types nothing on a barred tick, nor off an unread listing", () => {
 		swapHold: NO_HOLD,
 	});
 	expect(typed(l.calls) + typed(calls)).toBe(0);
+});
+
+it("names a copy its fallback started, and follows the session onto it", () => {
+	const l = loop();
+	l.tick(NOW);
+	l.tick(NOW + 2 * MIN);
+	expect(logs(l.calls)).toContain(
+		`resumed ${NAME} by --bg --resume, as its copy f1-copy (${COPY_WHY})`,
+	);
+	expect(l.io.readOutside()).toMatchObject([{ jobId: "f1-copy", tries: 1 }]);
+});
+
+it("tries again, when next due, the --bg --resume of a session it stopped whose relaunch failed", () => {
+	let fail = true;
+	const l = loop({
+		resumeStopped: (launch) => {
+			l.calls.push(`resume ${launch.jobId}`);
+			return fail
+				? { failed: "the launcher named no job" }
+				: { failed: null, jobId: "f1", sessionId: "s", copy: false };
+		},
+	});
+	l.tick(NOW);
+	l.tick(NOW + 2 * MIN);
+	expect(l.calls.filter((c) => c === "resume f1")).toHaveLength(1);
+	/* Stopped, so no longer listed: held, not dropped. */
+	const due = nextTryAt(1, NOW);
+	l.tick(due - 1, { rows: [] });
+	expect(l.calls.filter((c) => c === "resume f1")).toHaveLength(1);
+	fail = false;
+	l.tick(due, { rows: [] });
+	expect(l.calls.filter((c) => c === "resume f1")).toHaveLength(2);
+	expect(l.calls).toEqual(expect.arrayContaining(["stop f1"]));
+	expect(l.calls.filter((c) => c === "stop f1")).toHaveLength(1);
+	expect(logs(l.calls)).toContain(
+		`resumed ${NAME} by --bg --resume, woken in place`,
+	);
+	expect(l.io.readOutside()).toEqual([expect.objectContaining({ tries: 2 })]);
+	expect(l.io.readOutside()[0]).not.toHaveProperty("held");
+});
+
+it("starts afresh on a later stop once a capped session took a turn", () => {
+	const l = loop({
+		readTimeline: () => [
+			{
+				at: new Date(NOW + 365 * 24 * 60 * MIN).toISOString(),
+				detail: API_PROMPT,
+			},
+		],
+	});
+	let now = NOW;
+	for (let i = 0; i < 40; i++, now += 30 * MIN) l.tick(now);
+	expect(typed(l.calls)).toBe(RESUME_CAP);
+	l.tick(now, { rows: [row("working")] });
+	expect(l.io.readOutside()).toEqual([]);
+	l.tick(now + MIN);
+	expect(typed(l.calls)).toBe(RESUME_CAP + 1);
 });

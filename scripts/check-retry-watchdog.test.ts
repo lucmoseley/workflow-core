@@ -2,8 +2,8 @@
 /*
  * Holds check-retry-watchdog.js's verdicts: a binary and settings carrying
  * both watchdog variables pass; a binary missing one, or holding only a longer
- * name it prefixes, or settings missing one, fail; no binary or no settings
- * SKIPs. Loosen it and a CLI update or settings edit that turns the in-turn
+ * name it prefixes, or settings missing one or not parsing, fail, each naming
+ * its way out; no binary or no settings SKIPs. Loosen it and a CLI update or settings edit that turns the in-turn
  * retry off (#4815) goes unsaid on `npm run status`.
  */
 
@@ -54,6 +54,7 @@ it("fails a binary missing the usage-limit cap's name", () => {
 	const { status, out } = run(binary(WATCHDOG), BOTH_ENV);
 	expect(status).toBe(1);
 	expect(out).toContain(`no longer holds ${CAP}`);
+	expect(out).toContain("then update WATCHDOG_ENV, the live settings");
 });
 
 it("fails a binary holding the watchdog name only as a prefix of another", () => {
@@ -66,6 +67,7 @@ it("fails settings missing a variable", () => {
 	const { status, out } = run(binary(WATCHDOG, CAP), { [WATCHDOG]: "1" });
 	expect(status).toBe(1);
 	expect(out).toContain(`${CAP}=null, not "1"`);
+	expect(out).toContain(`set it to "1" there`);
 });
 
 it("skips where no binary is found", () => {
@@ -85,4 +87,16 @@ it("skips where the settings file is missing", () => {
 	const { status, out } = run(binary(WATCHDOG, CAP), null);
 	expect(status).toBe(0);
 	expect(out).toMatch(/^SKIP:.*could not be read/m);
+});
+
+it("fails a settings file that does not parse, naming the fix", () => {
+	const settings = path.join(dir, "settings.json");
+	fs.writeFileSync(settings, "{");
+	fs.writeFileSync(path.join(dir, "claude"), binary(WATCHDOG, CAP));
+	const r = runInProcess(SCRIPT, [settings], {
+		env: { ...process.env, WFC_CLAUDE_BIN: path.join(dir, "claude") },
+	});
+	expect(r.status).not.toBe(0);
+	expect(`${r.stdout}${r.stderr}`).toContain(`${settings} does not parse`);
+	expect(`${r.stdout}${r.stderr}`).toContain("fix the file, then add");
 });
