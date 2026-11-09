@@ -149,12 +149,13 @@ class TransientFault extends Error {}
  *   signature?: string}} Failure a failing test; where the runner printed its
  *   error, `message` to read and `signature` to compare, the same across runs
  *   of one failure
- * @typedef {{kind: "green", run?: number}
+ * @typedef {{kind: "green", run?: number, cleared?: string[]}
  *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
  *      retried?: boolean, noRun?: true}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
  *   CI run that passed it and `jobs` the failing CI jobs, where the tester
- *   read a CI run; `failures` where it named the failing tests; `noRun`
+ *   read a CI run; `cleared` the files that run's in-job retry cleared, its
+ *   flakes (#4558); `failures` where it named the failing tests; `noRun`
  *   where no CI run fired for the tree at all, naming no file; `transient`
  *   where asking again shortly can reach a verdict, as when its suite slot
  *   stayed shut
@@ -1922,9 +1923,23 @@ function testSha(deps, sha, run) {
 		run,
 		[r],
 		() => verdictAt(deps, sha),
-		(d, next, v) => writeVerdict(d, { ...r, v }, next),
+		(d, next, v) => {
+			if (v.kind === "green" && v.cleared)
+				d.say?.(buildClearedLine(sha, v.run, v.cleared));
+			return writeVerdict(d, { ...r, v }, next);
+		},
 	);
 }
+
+/**
+ * The lander log's line for a batch green after its in-job retry cleared
+ * `files`, its flakes, which the verdict ledger keeps on the green (#4558).
+ * @param {string} sha
+ * @param {number|undefined} run
+ * @param {readonly string[]} files
+ */
+const buildClearedLine = (sha, run, files) =>
+	`flake ${short(sha)}${run === undefined ? "" : ` run ${run}`}: green after its retry cleared ${files.join(", ")}`;
 
 /**
  * Pushes each run's sha to its `lander/iso-*` ref, then starts an ask of

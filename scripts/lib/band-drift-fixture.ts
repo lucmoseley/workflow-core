@@ -46,12 +46,22 @@ const buildAtLine = (relation?: string) =>
 	round([AT_LINE, AT_LINE - 5, AT_LINE + 5], [25, 20, 30], relation);
 const buildOverLine = () =>
 	round([AT_LINE + 10, AT_LINE + 5, AT_LINE + 15], [20, 15, 25]);
+/* Topped two steps under the line, with a 45-point gap: a round the low-top
+ * test refuses. */
+const UNDER_LINE = round(
+	[AT_LINE - 10, AT_LINE - 15, AT_LINE - 5],
+	[15, 10, 20],
+);
 
-/** `n` priced tops, `at` of them at the line in `relation`'s shape. */
+/** `n` priced tops at the line or over it, `at` of them at the line in
+ * `relation`'s shape. */
 export const topQuestions = (n: number, at: number, relation?: string) => [
 	...times(at, buildAtLine(relation)),
 	...times(n - at, buildOverLine()),
 ];
+
+/** `n` priced tops under the line. */
+export const underLineQuestions = (n: number) => times(n, UNDER_LINE);
 
 /** `n` band questions, `overlapping` of them with overlapping bands. */
 export const bandQuestions = (n: number, overlapping: number) => [

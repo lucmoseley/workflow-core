@@ -684,3 +684,12 @@ describe("earliestStart", () => {
 		expect(earliestStart([])).toBe(Number.NEGATIVE_INFINITY);
 	});
 });
+
+describe("the attachments directory is exempt (#4750)", () => {
+	it("never deletes a file carried into attachments/, however old, with no live session", () => {
+		const dir = freshDir();
+		const f = aged(dir, "attachments/tmp/pasted-1.png", 30 * 24 * HOUR);
+		expect(run(dir, () => started(1 * HOUR)).deleted).toEqual([]);
+		expect(fs.existsSync(f)).toBe(true);
+	});
+});
