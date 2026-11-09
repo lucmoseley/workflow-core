@@ -665,19 +665,25 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 
 	describe("the Windows-held stamp an older part-suite's wait writes (#4782)", () => {
 		const late = 5 * PART_PASS_AGE_MS;
-		/* One Windows reading, each run judged on its own workers' draw. */
-		const windowsGate = (workers: number) => () => {
+		const needOf = (files: number) =>
+			windowsNeedMb(suiteRungMb(weighFiles(files).workers) - suiteRungMb(0));
+		const HeadFiles = 6;
+		const BehindFiles = 1;
+		/* One Windows reading, between the run behind's need and the head's,
+		 * each run judged on its own workers' draw. */
+		const windowsMb = (needOf(BehindFiles) + needOf(HeadFiles)) / 2;
+		const windowsGate = (files: number) => () => {
 			const short = windowsShortfall(
-				{ state: "fresh", mb: 1700, ageS: 0 },
-				windowsNeedMb(suiteRungMb(workers) - suiteRungMb(0)),
+				{ state: "fresh", mb: windowsMb, ageS: 0 },
+				needOf(files),
 			);
 			return short ? { limb: "windows" as const, ...short } : null;
 		};
-		/** A 6-file head held on `headGate`, and a 1-file run behind it. */
+		/** A head held on `headGate`, and a smaller run behind it. */
 		const headHeldOn = async (headGate: () => object | null) => {
 			const queueDir = qdir();
-			const head = joined(queueDir, 11, 0, { weight: weighed(6) });
-			joined(queueDir, 99, 1000, { weight: weighed(1) });
+			const head = joined(queueDir, 11, 0, { weight: weighed(HeadFiles) });
+			joined(queueDir, 99, 1000, { weight: weighed(BehindFiles) });
 			let t = 0;
 			let behind: object | undefined;
 			const outcome = await head.wait({
@@ -687,7 +693,7 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 				sleepFn: async () => {
 					behind = await polled(
 						{ queueDir, pid: 99, clock: () => late },
-						{ gate: windowsGate(1) },
+						{ gate: windowsGate(BehindFiles) },
 					);
 					t = late;
 				},
@@ -697,7 +703,7 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		};
 
 		it("admits a smaller part-suite that fits past a head the hold keeps out, past the memory age bound", async () => {
-			expect(await headHeldOn(windowsGate(6))).toEqual({
+			expect(await headHeldOn(windowsGate(HeadFiles))).toEqual({
 				outcome: "refused",
 				behind: { reason: "opened", passed: 1 },
 			});
