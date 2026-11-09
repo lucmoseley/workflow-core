@@ -172,8 +172,7 @@ function isUnspawnedAdmission(record) {
  *
  * A PEER DIRECTORY THAT WILL NOT READ CONTRIBUTES NONE, failing open as an
  * unreadable own queue does. What is lost is the ordering against that queue:
- * the same-poll yield (#3203) and the climb yield (#4760). Each gate still
- * reads MemAvailable live, so the rung itself is never lost.
+ * the same-poll yield (#3203) and the climb yield (#4760).
  *
  * @param {string} queueDir
  * @param {(record: QueueRecord) => boolean} keep
@@ -931,8 +930,9 @@ function readTurn({
 	 * names the hold over them. */
 	if (reasons.includes("admitted"))
 		return { open: false, hold: { limb: "admitted", holders: admissions } };
-	/* The waiters ahead in this queue are named over a peer: they hold the
-	 * turn after the peer has spawned too, so they are the longer hold. */
+	/* The waiters ahead in this queue are named over a peer (#4760).
+	 * Residual: where the peer outlasts them, a trace names it only once
+	 * they have cleared. */
 	if (reasons.length === 1 && reasons[0] === "peer-climb")
 		return { open: false, hold: { limb: "peer", holders: peers } };
 	return { open: false, hold: { limb: "fifo", pids: ahead.map((r) => r.pid) } };
@@ -980,9 +980,7 @@ function readTurn({
  * THE QUEUES ARE ORDERED AGAINST EACH OTHER WHERE THE CLIMB DECIDES (#4760):
  * no turn comes while the other queue holds an older waiter stamped
  * `climbHeld`, one whose MemAvailable clears its rung and whose wait only the
- * climb charge of launches already running holds. Without it a stream of
- * suites, each charged on a `tsc`'s rung for its whole run, holds the `tsc`
- * to its wait bound. The oldest such waiter yields to nobody, and what holds
+ * climb charge of launches already running holds. The oldest such waiter yields to nobody, and what holds
  * it is running and ends, so the yield cannot deadlock.
  *
  * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
@@ -1482,7 +1480,7 @@ function waitForGate({
 	 * is still fresh. */
 	let held = false;
 	const stampMemoryHeld = changesOnly(onMemoryHeld);
-	const stampClimbHolds = changesOnly(onClimbStamp);
+	const stampClimbHeld = changesOnly(onClimbStamp);
 	let climbHeldMb = 0;
 	const trace = limbTrace(clock, started);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
@@ -1600,7 +1598,7 @@ function waitForGate({
 			onClimbHeld(heldOn);
 		}
 		stampMemoryHeld(denial?.limb === "memory");
-		stampClimbHolds(heldOn > 0);
+		stampClimbHeld(heldOn > 0);
 		const open = !denial && turn();
 		see(denial, open);
 		if (!open && clock() - started >= timeoutMs)
