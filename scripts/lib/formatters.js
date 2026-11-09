@@ -272,13 +272,17 @@ function indexHead() {
 }
 
 /**
+ * How the attribute read runs. cached: read .gitattributes from the index, as
+ * a commit carries it; timeout: the git call's ceiling, none where undefined;
+ * cwd: the checkout read, the working directory's where undefined.
+ * @typedef {{ cached?: boolean, timeout?: number, cwd?: string }} AttributeRead
+ */
+
+/**
  * The paths .gitattributes marks vendored or generated. Throws where git
  * cannot read the attributes.
  * @param {string[]} paths
- * @param {{ cached: boolean, timeout?: number, cwd?: string }} opts cached:
- *   read .gitattributes from the index, as a commit carries it; timeout: the
- *   git call's ceiling, none where undefined; cwd: the checkout read, the
- *   working directory's where undefined
+ * @param {AttributeRead} read
  * @returns {Set<string>}
  */
 function readAttributeExcluded(paths, { cached, timeout, cwd }) {
@@ -315,10 +319,7 @@ function readAttributeExcluded(paths, { cached, timeout, cwd }) {
  * @param {string[]} paths repo-relative, read from the host root
  * @param {(p: string) => string | null} head a path's opening text, null
  *   where it is no regular file, which drops it
- * @param {{ cached?: boolean, timeout?: number, cwd?: string }} [opts]
- *   cached: read .gitattributes from the index; timeout: the attribute read's
- *   ceiling; cwd: the checkout whose attributes are read, the working
- *   directory's where undefined
+ * @param {AttributeRead} [read]
  * @returns {string[]}
  */
 function shellFiles(paths, head, { cached = false, timeout, cwd } = {}) {

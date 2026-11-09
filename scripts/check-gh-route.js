@@ -42,6 +42,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { readWorktreeHead, shellFiles } = require("./lib/formatters.js");
 const { judgeTree } = require("./lib/gh-route.js");
 const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
+const { hasOwnGit } = require("./lib/tree-members.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
@@ -66,8 +67,10 @@ runCheck({
 		 * working directory (#4824). One that is not is a tree --against or
 		 * --index materialised, whose vendored marks are the index's
 		 * .gitattributes in the checkout this runs in, never an unstaged edit
-		 * to it (#3687). */
-		const checkout = fs.existsSync(path.join(root, ".git"));
+		 * to it (#3687). RESIDUAL: a --root naming a subdirectory of a
+		 * checkout has no .git of its own, so it takes the index read too,
+		 * against paths relative to itself. */
+		const checkout = hasOwnGit(root);
 		const shell = new Set(
 			shellFiles(files, (rel) => readWorktreeHead(path.join(root, rel)), {
 				cached: !checkout,

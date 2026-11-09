@@ -382,9 +382,19 @@ describe("check-gh-route", () => {
 });
 
 describe("--root from outside the tree (#4824)", () => {
-	it("reads the root's vendored marks, not the working directory's", () => {
+	it.each([
+		["outside any repository", ""],
+		[
+			"inside another repository marking other files vendored",
+			"scripts/hook.sh linguist-vendored\n",
+		],
+	])("reads the root's vendored marks from a cwd %s", (_, theirs) => {
 		const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-cwd-"));
 		try {
+			if (theirs) {
+				execFileSync("git", ["init", "-q"], { cwd: elsewhere });
+				fs.writeFileSync(path.join(elsewhere, ".gitattributes"), theirs);
+			}
 			file(".gitattributes", "scripts/vendor/** linguist-vendored\n");
 			file("scripts/vendor/lib.sh", "#!/usr/bin/env bash\ngh api user\n");
 			file("scripts/hook.sh", "#!/usr/bin/env bash\ngh api user\n");
@@ -422,6 +432,16 @@ describe("--index (#3687)", () => {
 		file(".husky/loose.sh", bare);
 		file("scripts/hook.sh", bare);
 		expect(run().status).toBe(1);
+		const r = run("--index");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("OK: 1 file(s)");
+	});
+
+	it("reads vendored marks from the staged .gitattributes, not an unstaged edit", () => {
+		file(".gitattributes", "scripts/vendor/** linguist-vendored\n");
+		file("scripts/vendor/lib.sh", bare);
+		git("add", ".");
+		file(".gitattributes", "");
 		const r = run("--index");
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 1 file(s)");
