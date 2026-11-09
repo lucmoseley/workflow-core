@@ -15,6 +15,7 @@
 const { spawnSync } = require("node:child_process");
 const dns = require("node:dns");
 const net = require("node:net");
+const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
 const HOST = "api.anthropic.com";
@@ -96,8 +97,9 @@ if (require.main === module)
 			if (why) writeFd(2, `${why}\n`);
 			process.exit(why ? 1 : 0);
 		},
-		(/** @type {Error} */ e) => {
-			writeFd(2, `the probe failed: ${e.message}\n`);
+		/* Only a lookup that throws rather than calling back lands here. */
+		(e) => {
+			writeFd(2, `the probe failed: ${caught(e).message}\n`);
 			process.exit(1);
 		},
 	);

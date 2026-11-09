@@ -14,6 +14,7 @@ import { COPY_WHY } from "./bg-resume-fake";
 import { nextTryAt, RESUME_CAP } from "./block-act.js";
 import type { Reading } from "./block-cause.js";
 import { API_PROMPT } from "./loop-prompts.js";
+import { NET_PROBE_OFFLINE_LINE } from "./net-probe-fake";
 import { logNetWaits } from "./refill-blocks.js";
 import {
 	type BlockIo,
@@ -102,13 +103,13 @@ it("leaves one the founder typed into since its stop alone, and says why once", 
 });
 
 it("holds a due resume back while the network is down, no try spent, then types once it is up", () => {
-	let why: string | null = "api.anthropic.com did not resolve: EAI_AGAIN";
+	let why: string | null = NET_PROBE_OFFLINE_LINE;
 	const l = loop({ probeNetwork: () => why });
 	l.tick(NOW);
 	l.tick(NOW + 10 * MIN);
 	expect(typed(l.calls)).toBe(0);
 	expect(logs(l.calls)).toContain(
-		`the API host is unreachable (api.anthropic.com did not resolve: EAI_AGAIN), so these due resumes wait for the next tick, no try spent: ${NAME}`,
+		`the API host is unreachable (${NET_PROBE_OFFLINE_LINE}), so these due resumes wait for the next tick, no try spent: ${NAME}`,
 	);
 	why = null;
 	l.tick(NOW + 11 * MIN);
