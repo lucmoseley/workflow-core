@@ -2338,7 +2338,8 @@ async function runSeated({
 	queued,
 	requeueWhole,
 }) {
-	if (weight.wholeSlot || !heldSeat(options)) return queued();
+	const seatFile = weight.wholeSlot ? null : heldSeat(options);
+	if (!seatFile) return queued();
 	const gate =
 		options.gate ??
 		((/** @type {number} */ climbMb) =>
@@ -2355,7 +2356,7 @@ async function runSeated({
 		((/** @type {number} */ ms) =>
 			new Promise((resolve) => setTimeout(resolve, ms)));
 	let slept = false;
-	const peer = peerClimbTurn(options);
+	const peer = peerClimbTurn(seatFile, options);
 	const seat = queueSeat({
 		queue: options,
 		join: { weight },
@@ -2366,21 +2367,23 @@ async function runSeated({
 		signals: true,
 	});
 	try {
-		const outcome = await seat.wait({
-			hold: options.loadHold,
-			...options,
-			gate: (climbMb) => {
-				const denial = gate(climbMb);
-				return denial?.limb === "memory" ? denial : null;
-			},
-			turn: peer.turn,
-			turnHold: peer.turnHold,
-			part: true,
-			sleepFn: (ms) => {
-				slept = true;
-				return sleep(ms);
-			},
-		});
+		const outcome = await seat
+			.wait({
+				hold: options.loadHold,
+				...options,
+				gate: (climbMb) => {
+					const denial = gate(climbMb);
+					return denial?.limb === "memory" ? denial : null;
+				},
+				turn: peer.turn,
+				turnHold: peer.turnHold,
+				part: true,
+				sleepFn: (ms) => {
+					slept = true;
+					return sleep(ms);
+				},
+			})
+			.finally(peer.release);
 		if (outcome === "refused") return 1;
 		const code = await run({
 			escalationRequeues: true,

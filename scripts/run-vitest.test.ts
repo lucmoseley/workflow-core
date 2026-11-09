@@ -757,7 +757,9 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 			]);
 		});
 
-		it("waits while an older `tsc` the climb holds is stamped, and runs once it spawns (#4766)", async () => {
+		/** A `tsc` waiter in the sibling queue, joined at `at`, stamped
+		 * climbHeld, beside a seat in a suite queue named as the gate names it. */
+		const beside = (at: number) => {
 			const queueDir = path.join(qdir(), "wfc-suite-queue");
 			fs.mkdirSync(queueDir);
 			const o = seated({ queueDir, gate: () => false });
@@ -765,23 +767,55 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 				queue: {
 					queueDir: path.join(path.dirname(queueDir), "wfc-tsc-queue"),
 					pid: 22,
-					clock: () => 0,
+					clock: () => at,
 					alive: () => true,
 				},
 			});
 			tsc.stamps.onClimbStamp(true);
-			const held: boolean[] = [];
-			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
-				...o,
-				sleepFn: () => {
-					held.push(true);
-					tsc.spawned();
-					return Promise.resolve();
-				},
-			});
-			tsc.leave();
-			expect(held).toEqual([true]);
-			expect(calls).toHaveLength(1);
+			const readSeat = () =>
+				JSON.parse(fs.readFileSync(o.env.WFC_SUITE_SEAT, "utf8"));
+			return { o, tsc, readSeat };
+		};
+
+		it("waits while an older `tsc` the climb holds is stamped, yielding its charge, and runs once it spawns (#4766)", async () => {
+			const { o, tsc, readSeat } = beside(0);
+			const yielding: unknown[] = [];
+			try {
+				const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
+					...o,
+					sleepFn: () => {
+						yielding.push(readSeat().yielding);
+						tsc.spawned();
+						return Promise.resolve();
+					},
+				});
+				expect(yielding).toEqual([true]);
+				expect(calls).toHaveLength(1);
+				expect(readSeat().yielding).toBe(undefined);
+				expect(readJsonl(o.queueLog)).toMatchObject([
+					{ reason: "opened", kind: "seat" },
+				]);
+			} finally {
+				tsc.leave();
+			}
+		});
+
+		it("never waits on a `tsc` that joined after its run (#4766)", async () => {
+			const { o, tsc } = beside(Date.now() + 60_000);
+			let slept = false;
+			try {
+				const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
+					...o,
+					sleepFn: () => {
+						slept = true;
+						return Promise.resolve();
+					},
+				});
+				expect(slept).toBe(false);
+				expect(calls).toHaveLength(1);
+			} finally {
+				tsc.leave();
+			}
 		});
 
 		it("queues a whole suite as any other, the seat being part", async () => {
