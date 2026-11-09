@@ -895,6 +895,7 @@ const blockIo = (served) => ({
 	stagger: staggerResume,
 	moveSession: resume.moveSession,
 	removeJobRecord: resume.removeJobRecord,
+	retireJob: resume.retireJob,
 	jobStateOf: readJobRecordOf,
 	writeLedgerHold: (l, until) =>
 		recordLaunch({

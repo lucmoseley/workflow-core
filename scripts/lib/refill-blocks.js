@@ -125,12 +125,18 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
  *   (#2690) as read this tick; whether launching is barred, by a pause or a
  *   live launch hold (#4354); its network gate (netGateOf)
+ * @typedef {{seat: string, sessionId: string, cwd: string,
+ *   copyJobId: string, tries: number}} Unretired  a copy's original whose job
+ *   would not stop or leave the job store (#4646): its seat, session and cwd,
+ *   the copy it left, and the retirements tried
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: false}|{failed: null, jobId: string,
- *   sessionId: string|null, copy: true, why: string}} Resumed  a
+ *   sessionId: string|null, copy: true, why: string,
+ *   unretired?: Unretired}} Resumed  a
  *   `--bg --resume`: why it failed, else the job it runs on as, its full
  *   session id, null unread, and whether that job is a copy (#2963), with the
- *   reason the harness gave for it (#4098), rather than the one woken in place
+ *   reason the harness gave for it (#4098) and its original where that would
+ *   not retire, rather than the one woken in place
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
  *   the job a resume started, woken in place or a copy handed what the session
  *   held; why the job store could not tell, or null where it holds neither
@@ -230,6 +236,9 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @property {(seat: string, sessionId: string, cwd: string) => string|null}
  *   removeJobRecord  `claude rm` of any job record for it on `seat`, which
  *   keeps transcripts
+ * @property {(seat: string, sessionId: string, cwd: string) => string|null}
+ *   retireJob  its own job on `seat` stopped and its record removed, unless
+ *   that record names another session (lib/refill-resume.js's retireJob)
  * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold  a
  *   dispatch-ledger row on its issues, held past the window to `until` where
  *   given; whether it was written

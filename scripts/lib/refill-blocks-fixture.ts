@@ -83,6 +83,10 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 			calls.push(`rm on ${seat}`);
 			return null;
 		},
+		retireJob: (seat, sessionId) => {
+			calls.push(`retire ${sessionId} on ${seat}`);
+			return null;
+		},
 		findParkTranscript: () => null,
 		readMainChain: () => null,
 		jobStateOf: () => ({ state: "working" }),

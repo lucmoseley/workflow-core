@@ -46,9 +46,7 @@ const COMMAND_RE =
 
 /**
  * @typedef {{ name: string, test: (path: string) => boolean }} Rule
- * @typedef {Record<string, any>} TranscriptRecord
- *   a parsed transcript line, untyped because `mainChainRecords` yields it
- *   untyped: its fields vary by record type and Claude Code version
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
  */
 
 /** @type {Rule[]} */

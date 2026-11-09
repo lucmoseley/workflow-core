@@ -26,9 +26,10 @@ const { STOP_FEEDBACK, mainChainRecords } = require("./transcript");
 const { roundNumber } = require("./round-marker");
 const { isLoopPrompt } = require("./loop-prompts");
 
-/* A parsed transcript line, typed as loosely as `mainChainRecords` yields it:
- * the harness's record shapes are undocumented and vary by record type. */
-/** @typedef {Record<string, any>} TranscriptRecord */
+/**
+ * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
+ * @typedef {import("./transcript.js").TranscriptBlock} TranscriptBlock
+ */
 
 /* Origin-less text the harness wrote rather than the founder, bar Stop
  * feedback (`STOP_FEEDBACK`). */
@@ -41,7 +42,9 @@ const HARNESS_TEXT =
  */
 const isToolResult = (rec) =>
 	Array.isArray(rec.message?.content) &&
-	rec.message.content.some((/** @type {any} */ p) => p?.type === "tool_result");
+	rec.message.content.some(
+		(/** @type {TranscriptBlock} */ p) => p?.type === "tool_result",
+	);
 
 /**
  * Whether `rec` opens a turn: a user record, but no tool result, meta record
