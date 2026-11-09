@@ -66,9 +66,9 @@ const rootlessEnv = () => {
  * spawn, 28 Oct - 5 Nov 2026, with no margin, the rung holding
  * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB, from the 4 Nov
  * tree suite-queue.js `PEAK_MB` reads as an outlier; #4771 re-derives it.
- * Named: the highest of 341 runs of
- * 1-6 files, 937 MB. A named run past those 6 files is unmeasured and charged
- * whole. Residual: a spike between two samples is charged short. */
+ * Named: the highest of 341 runs of 1-6 files, 937 MB. A named run past
+ * those 6 files is unmeasured and charged whole. Residual: a spike between
+ * two samples is charged short. */
 const CHARGE_MB = { whole: 2630, named: 940 };
 const NAMED_MEASURED_FILES = 6;
 /* The queue marker's role, which session admission reads (#2416). */

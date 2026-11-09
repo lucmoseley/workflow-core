@@ -54,8 +54,6 @@ const { yieldToWhole } = require("./cpu-yield.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const { readLiveLanders } = require("./local-tester.js");
 const { SUITE_MAX, WHOLE_SUITE_MAX } = require("./admission.js");
-/* `PEAK_MB` for the suite queue (#4592), pinned by "charges a spawned suite its measured 1,929 MB peak". */
-const SUITE_PEAK_MB = 1929;
 const { resolvedFileCount, weighFiles } = require("./suite-bounded.js") as {
 	resolvedFileCount: (
 		argv: string[],
@@ -71,6 +69,9 @@ const weighed = (files: number | null) => ({
 });
 /** A part-suite's carried weight. */
 const PART = weighed(2);
+/** `PEAK_MB` for the suite queue (#4592), pinned by "charges a spawned
+ * suite its measured 1,929 MB peak less its tree". */
+const SUITE_PEAK_MB = 1929;
 /** A 200-file named run: past the whole-slot bound, still a touched run. */
 const NAMED_200 = Array.from(
 	{ length: 200 },
