@@ -237,13 +237,11 @@ jobs:
           WFC_CLAUDE_BIN="$dir/claude" node scripts/run-mod-tests.js --all
 
   # One job per shard; the matrix's length is the shard count, read back
-  # through `strategy`. Ten, measured against 97 batch runs at 8 and one
-  # branch run each at 10 and 12 (#4575): the slowest shard's job fell from
-  # 162 s (median at 8) to 138 s, and 12's further 9 s is inside 8's own
-  # 22 s run-to-run spread. Two overlapping runs at 10 use 26 jobs, within the
-  # 27 seen running at once with no job waiting over 8 s for a runner,
-  # though GitHub documents a 20-job cap; two at 12 would use 30, unmeasured.
-  # Each shard's job spends ~31 s (median) on setup. Shards are packed by
+  # through `strategy`. Ten (#4575): one run at 12 was no faster beyond 8's
+  # own p10-p90 spread, and two overlapping batch runs at 12 would use 30
+  # jobs (each shard, Lint, Python and the caller's document guards), past
+  # the 27 measured running at once with no runner wait. GitHub documents 20
+  # concurrent jobs on the Free plan. Shards are packed by
   # recorded file times, not file count (scripts/vitest-shard-sequencer.ts).
   # A batch is green only where every shard is.
   vitest:
