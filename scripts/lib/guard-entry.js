@@ -57,11 +57,9 @@ const {
  *   envelope is written (mantahostels#2528)
  * @property {{ name: string, text: string }[]} [latchWrites] latches of the
  *   guard's own, at latchPath, written with the envelope
- * @typedef {{ launch: { script: string, log: string } }} Launch a program,
- *   its absolute path joined off the core's own directory so the pass
- *   store's walk reads it there (lib/code-edges.js), run by node in a
- *   session of its own, its output appended to `log` under the markers
- *   directory
+ * @typedef {{ launch: { script: string, log: string } }} Launch a program
+ *   by its absolute path, run by node in a session of its own, its output
+ *   appended to `log` under the markers directory
  * @typedef {{ context: string, latchWrites?: { name: string, text: string }[] }} Context
  *   text handed the session as additionalContext as it stands, and latches of
  *   the guard's own written once it is out
@@ -373,11 +371,14 @@ function writeLatches({ root, payload, log }, latches) {
 /**
  * The detached start a Launch asks for: node in a session of its own, as
  * lib/detach.sh's setsid does, so no hook's process-group kill reaches it.
+ * A script given by any but an absolute path throws, logged as the guard's.
  * @param {Launch["launch"]} launch
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log
  */
 function startDetached({ script, log: logName }, root, log) {
+	if (!path.isAbsolute(script))
+		throw new Error(`launch script ${script} is no absolute path`);
 	const fd = fs.openSync(path.join(markersDir(root), logName), "a");
 	try {
 		const child = spawn("node", [script], {

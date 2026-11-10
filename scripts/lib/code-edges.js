@@ -28,8 +28,9 @@
  *     property (`corePath(row.core)`). Residual: a declaration is the
  *     file's word for what its key's loads load, and corePath's own
  *     directory argument is taken to be the declaring file's; code-edges'
- *     live-repo test holds each declaration in the repo to files that exist
- *     and to a load it explains, not a later caller passing corePath another
+ *     live-repo tests hold each declaration in the repo to files that exist
+ *     and to a load it explains, a keyless one only to a target its file's
+ *     code still spells, not a later caller passing corePath another
  *     directory.
  *   shell, a `.sh` file or one with no extension and a shell `#!` line,
  *     cut into simple commands (lib/shell-script-lexer.js) — every word
@@ -56,7 +57,7 @@
  *     `-c` command, and a module an interpreter finds on its own search path
  *     (`python3 -m`). Residual: a `caller:` line is the file's word for
  *     every value its variable takes, a later assignment included; the
- *     live-repo test holds each in the repo to a load it explains. A
+ *     live-repo tests hold each in the repo to a load it explains. A
  *     caller's load is read only where the
  *     caller spells it in a way this walk reads (the JS residual below), and
  *     a function running its arguments is read only where an interpreter
@@ -81,6 +82,12 @@
  * is handed to the caller's `fault`, as is a JSX or TSX file. Residual: a
  * module is walked on its own directory and edits, not on the sys.path of
  * the script that imports it (#4870).
+ *
+ * WHOLE PATHS: a join of a parameter is one the walk declines to read, by
+ * design (#4790), so a module whose files a test's reach must hold spells
+ * each path whole off `__dirname`, its key beside it: adopter-skeleton.js's
+ * templates, pretool-guard-testkit.ts's hooks files, and lander-on-push.js's
+ * lander script, which guard-entry.js's Launch takes by its absolute path.
  *
  * INLINE CODE: a spawn of python, node, perl or ruby handed its program
  * inline (`-c`, `-e`, `-p`, `--eval`, `--print`) or on stdin (`-`), in JS,
@@ -233,7 +240,7 @@ function jsSpecifier(m) {
 }
 
 /* A join's opening, through any binding of node's path module:
- * `path.join(`, `nodePath.resolve(`; group 1 is the method. `joinOf` reads
+ * `path.join(`, `nodePath.resolve(`; group 1 is the method. `parseJoin` reads
  * its arguments. */
 const PATH_JOIN = /\b[A-Za-z_$][\w$]*\.(join|resolve)\(/g;
 const PATH_JOIN_HEAD = /^[A-Za-z_$][\w$]*\.(join|resolve)\(/;
@@ -483,7 +490,7 @@ function jsReach(file, text, code) {
 		const join = code.slice(at, close);
 		const target = joinedPath(file, code, join);
 		if (target === null) {
-			const base = joinOf(join)?.args[0];
+			const base = parseJoin(join)?.args[0];
 			if (base !== undefined && joinedPath(file, code, base) !== null)
 				unknown.push(`joins ${join.replace(/\s+/g, " ")} off its directory`);
 		} else if (isCodeFile(target)) edges.push(target);
@@ -495,7 +502,7 @@ function jsReach(file, text, code) {
 	const unread = [
 		...declared.unread,
 		...unreadLoads(file, code)
-			.filter((l) => !declared.keys.some((k) => readsKey(l.arg, k)))
+			.filter((l) => !declared.keys.some((k) => isKeyRead(l.arg, k)))
 			.map((l) => l.said),
 	];
 	return {
@@ -523,7 +530,7 @@ function unreadLoads(file, code) {
 	for (const m of code.matchAll(LOAD_CALL)) {
 		const open = (m.index ?? 0) + m[0].length - 1;
 		const close = closeOf(code, open);
-		if (isInertAt(spans, m.index ?? 0) || close === -1) continue;
+		if (close === -1 || isProse(code, spans, m.index ?? 0)) continue;
 		const arg = code.slice(open + 1, close - 1).trim();
 		if (LOAD_LITERAL.test(arg) || isReadConst(file, code, arg)) continue;
 		unread.push({
@@ -535,17 +542,9 @@ function unreadLoads(file, code) {
 }
 
 /**
- * Whether offset `i` falls in one of `spans`, a string's or a comment's.
- * @param {[number, number][]} spans `inertSpans`'s
- * @param {number} i
- */
-const isInertAt = (spans, i) =>
-	spans.some(([first, last]) => i >= first && i <= last);
-
-/**
  * Whether offset `i` falls in a string or a comment, not in a template's
  * `${…}`, which is code: headless-run-fake.ts writes a script whose require
- * path is such a join.
+ * path is such a join, and a load there is code like any other.
  * @param {string} code
  * @param {[number, number][]} spans `inertSpans`'s
  * @param {number} i
@@ -574,7 +573,7 @@ function isProse(code, spans, i) {
  * @param {string} arg
  * @param {string} key
  */
-const readsKey = (arg, key) =>
+const isKeyRead = (arg, key) =>
 	new RegExp(String.raw`\.${escapeRe(key)}(?![\w$])`).test(arg);
 
 /**
@@ -628,7 +627,7 @@ function constOrSelf(code, expr) {
  * @param {string} expr
  * @returns {{method: string, args: string[]} | null}
  */
-function joinOf(expr) {
+function parseJoin(expr) {
 	const m = expr.match(PATH_JOIN_HEAD);
 	if (!m) return null;
 	const open = m[0].length - 1;
@@ -657,7 +656,7 @@ function joinOf(expr) {
 function joinedPath(file, code, expr, through = new Set()) {
 	const value = constOrSelf(code, expr);
 	if (value === "__dirname") return path.dirname(file);
-	const join = joinOf(value);
+	const join = parseJoin(value);
 	const [base, ...rest] = join?.args ?? [];
 	if (!join || base === undefined || base === expr || through.has(base))
 		return null;

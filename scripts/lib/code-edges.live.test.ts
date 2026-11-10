@@ -3,90 +3,84 @@
  * The live tree's `code-edges loads:` and `code-edges caller:` lines
  * (lib/code-edges.js, #4790): each is a file's word for what a load the walk
  * cannot read loads, which a later edit may leave stale. Each one in the repo
- * must name files that exist and explain a load the walk would otherwise
- * hold unread; break one and the pass store caches a test on an input it
- * never read.
+ * must be a line the walk reads, name files that exist, and explain what it
+ * declares; break one and the pass store caches a test on an input it never
+ * read. A `caller:` line, or a `loads:` line with a key, explains a load the
+ * walk would otherwise hold unread. A keyless `loads:` line declares a load
+ * the walk cannot see at all (vitest.setup.ts puts the git shim on `PATH`),
+ * so its case holds only that the file's code still spells the target or
+ * its directory. Which files hold one is code-edges.inventory.live.test.ts's.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { expect, it } from "vitest";
+import {
+	DECLARING,
+	markerLines,
+	ROOT,
+	reach,
+} from "./code-edges-declaring-testkit";
 
-const require = createRequire(import.meta.url);
-const { reachOf } = require("./code-edges.js");
+/* The manifest the keyed lines name, read two hops in: guard-core-load.js's
+ * declaration, then the cores its `core` values name. */
+const GUARD_CORES = path.join(ROOT, "scripts/lib/guard-cores.json");
 
-const ROOT = path.resolve(__dirname, "..", "..");
+const files = Object.entries(DECLARING).map(([rel, at]) => ({
+	rel,
+	at,
+	text: fs.readFileSync(at, "utf8"),
+	lines: markerLines(at),
+}));
 
-/* A declaration line, as code-edges.js's LOADS_PRAGMA and SH_CALLER_PRAGMA
- * read one: group 1 the kind, group 2 what it names. */
-const DECLARATION =
-	/^[ \t]*(?:\/\/|\/?\*|#)[ \t]*code-edges (loads|caller): (\S+(?:[ \t]+\S+)*)[ \t]*$/gm;
-
-/* Every file in the repo holding a declaration, each spelled whole so a
- * change to it selects this test. */
-const DECLARING: Record<string, string> = {
-	"scripts/lib/guard-core-load.js": path.join(
-		ROOT,
-		"scripts/lib/guard-core-load.js",
-	),
-	"scripts/lib/guard-judge.js": path.join(ROOT, "scripts/lib/guard-judge.js"),
-	"scripts/lib/host-git-guard/git": path.join(
-		ROOT,
-		"scripts/lib/host-git-guard/git",
-	),
-	"vitest.setup.ts": path.join(ROOT, "vitest.setup.ts"),
-};
-
-const files = Object.entries(DECLARING).map(([rel, at]) => {
-	const text = fs.readFileSync(at, "utf8");
-	const lines = [...text.matchAll(DECLARATION)].map((m) => ({
-		line: m[0],
-		named: m[2] ?? "",
-	}));
-	return { rel, at, text, lines };
-});
-
-const reach = (at: string, text: string) => reachOf(at, text, () => undefined);
-
-it("knows every file in the repo holding a declaration", () => {
-	const holding = execFileSync(
-		"git",
-		["grep", "-l", "-E", "code-edges (loads|caller): "],
-		{ cwd: ROOT, encoding: "utf8" },
-	)
-		.split("\n")
-		.filter((rel) => rel !== "" && !(rel in DECLARING))
-		.filter(
-			(rel) =>
-				execFileSync("git", ["show", `:${rel}`], {
-					cwd: ROOT,
-					encoding: "utf8",
-				}).match(DECLARATION) !== null,
-		);
-	expect(holding).toEqual([]);
-	for (const f of files) expect(f.lines.length).toBeGreaterThan(0);
-});
+/* A comment line, which a keyless line's target must be spelled outside. */
+const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 
 it.each(files.map((f) => [f.rel, f]))(
-	"%s's declarations name files that exist and leave no load unread",
-	(_rel, { at, text }) => {
+	"%s holds a declaration, and its declarations name files that exist and leave no load unread",
+	(_rel, { at, text, lines }) => {
+		expect(lines.length).toBeGreaterThan(0);
 		expect(reach(at, text).unread).toEqual([]);
 	},
 );
 
-it.each(
-	files.flatMap((f) =>
-		f.lines.map((l) => [`${f.rel}: ${l.line.trim()}`, f, l] as const),
-	),
-)("%s explains what it declares", (_name, { at, text }, { line, named }) => {
-	const without = reach(at, text.replace(line, ""));
-	const [target, key] = named.split(/\s+/);
-	if (line.includes("caller:") || key !== undefined)
-		expect(without.unread.length).toBeGreaterThan(0);
-	else
-		expect(reach(at, text).edges).toContain(
-			path.join(path.dirname(at), target ?? ""),
-		);
+it("holds guard-cores.json, the keyed lines' manifest, as a read", () => {
+	const core = DECLARING["scripts/lib/guard-core-load.js"] ?? "";
+	expect(reach(core, fs.readFileSync(core, "utf8")).reads).toEqual([
+		GUARD_CORES,
+	]);
 });
+
+const declared = files.flatMap((f) =>
+	f.lines.map((l) => [`${f.rel}: ${l.line.trim()}`, f, l] as const),
+);
+
+it.each(declared)(
+	"%s is a line the walk reads",
+	(_name, _file, { isDeclaration }) => {
+		expect(isDeclaration).toBe(true);
+	},
+);
+
+it.each(
+	declared.filter(([, , l]) => l.kind === "caller" || l.words.length > 1),
+)(
+	"%s explains a load the walk would otherwise hold unread",
+	(_name, { at }, { without }) => {
+		expect(reach(at, without).unread.length).toBeGreaterThan(0);
+	},
+);
+
+it.each(
+	declared.filter(([, , l]) => l.kind === "loads" && l.words.length === 1),
+)(
+	"%s names a target its file's code still spells, itself or its directory",
+	(_name, _file, { without, words: [target = ""] }) => {
+		const code = without
+			.split("\n")
+			.filter((l) => !COMMENT_LINE.test(l))
+			.join("\n");
+		const spellings = [target, path.dirname(target)].filter((t) => t !== ".");
+		expect(spellings.some((t) => code.includes(t))).toBe(true);
+	},
+);

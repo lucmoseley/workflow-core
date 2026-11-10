@@ -52,7 +52,7 @@
  *
  * A DIRECTORY LISTING — `fs.readdirSync(<dir>)` with `<dir>` traced through
  * `const` declarations and `path.join` to an anchor, or a `git ls-files`
- * argument list's literal pathspecs, a helper parameter's call-site literals
+ * argument list's literal pathspecs, or a `git grep`'s after its `--`, a helper parameter's call-site literals
  * included — attributes what the listing returns (#1770). A readdir is one
  * level, narrowed by a `.filter` regex or string test chained onto it
  * (#1770). A pathspec is matched as git matches it, `:!` excludes
@@ -109,11 +109,11 @@
  * `rule-text.js` for the test, a file inside a subdirectory a plain readdir
  * returns, a listing's directory reached any way but a `const` or a `path`
  * call, a pathspec reached any way but a literal in the list or at a
- * helper's call site, and a `git ls-files` naming no pathspec — the whole
- * tree, left unattributed.
+ * helper's call site, and a `git ls-files` naming no pathspec or a
+ * `git grep` none after `--` — the whole tree, left unattributed.
  *
  * UNSEEN READ SITES — the second output, asked for with `sites` (#1881).
- * Every read call, listing and in-repo `git ls-files` in a test whose
+ * Every read call, listing and in-repo `git ls-files` or `git grep` in a test whose
  * argument traces to an anchor yet mints no edge is reported by line and
  * shape, so its author can name the path literally or mark the test
  * `full-sweep-only:` in its header, which silences it. A spawned script's dependency and a two-hop chain
@@ -813,23 +813,41 @@ function pathspecMatcher(spec) {
 }
 
 /**
- * The literal pathspecs reaching a `["ls-files", …]` argument list: a quoted
+ * The literal pathspecs reaching a git listing's argument list: a quoted
  * element itself, or — where an element is a parameter of the function the
  * list sits in — the literal each call of that function passes in its place,
  * the shape of a `tracked(glob)` helper (#1770).
  * @param {string} source
- * @param {string[]} elements
+ * @param {string[]} elements  the list's, its subcommand first
  * @returns {string[]}
  */
 function pathspecsOf(source, elements) {
 	const specs = [];
-	for (const el of elements) {
+	for (const el of pathspecElements(elements)) {
 		const lit = PATHSPEC.exec(el)?.[1];
 		if (lit !== undefined) {
-			if (!lit.startsWith("-") && lit !== "ls-files") specs.push(lit);
+			if (!lit.startsWith("-")) specs.push(lit);
 		} else if (IDENT.test(el)) specs.push(...argsFor(source, el));
 	}
 	return specs;
+}
+
+/** A git call listing tracked files, the list opening its arguments:
+ * `ls-files`, or `grep`, which reads every file its pathspecs name (#4790). */
+const GIT_LISTING = /\[\s*["'](?:ls-files|grep)["']/g;
+
+/**
+ * The elements of a git listing's argument list that may name pathspecs:
+ * every one after `ls-files`, and each after `grep`'s `--`, its pattern and
+ * flags standing before; a `grep` with no `--` reads the whole tree.
+ * @param {string[]} elements  the list's, its subcommand first
+ * @returns {string[]}
+ */
+function pathspecElements(elements) {
+	const [subcommand, ...rest] = elements;
+	if (!/^["']grep["']$/.test(subcommand ?? "")) return rest;
+	const dashes = rest.findIndex((el) => /^["']--["']$/.test(el));
+	return dashes === -1 ? [] : rest.slice(dashes + 1);
 }
 
 /** A quoted pathspec, an exclude's `:!`, `:^` or `:(exclude)` included. */
@@ -926,7 +944,8 @@ function argsFor(source, param) {
 }
 
 /**
- * Every tracked file a `git ls-files <pathspec>` lists, the pathspec read as
+ * Every tracked file a `git ls-files <pathspec>` or `git grep … -- <pathspec>`
+ * lists, the pathspec read as
  * root-relative — the `cwd` such a call runs in is never read, so the root
  * anchor licenses it (#1770).
  * @param {EdgeScan} scan accumulator: each edge found is added to it
@@ -935,7 +954,7 @@ function argsFor(source, param) {
  */
 function addLsFilesEdges(scan, source) {
 	if (!scan.root) return;
-	for (const m of source.matchAll(/\[\s*["']ls-files["']/g)) {
+	for (const m of source.matchAll(GIT_LISTING)) {
 		const open = m.index ?? 0;
 		const close = closeOf(source, open);
 		if (close === -1) continue;
@@ -1124,8 +1143,9 @@ const SHAPE = {
 	otherCall: "a path run spread across an array `join` or `+`",
 	composed: "a path composed through a declared name",
 	listing: "a listing whose directory it cannot trace",
-	pathspec: "a `git ls-files` pathspec that is not a literal",
-	wholeTree: "a `git ls-files` naming no pathspec, the whole tree",
+	pathspec: "a `git ls-files` or `git grep` pathspec that is not a literal",
+	wholeTree:
+		"a `git ls-files` naming no pathspec, or a `git grep` none after `--`, the whole tree",
 };
 
 /**
@@ -1160,7 +1180,9 @@ const FILE_READ = new RegExp(`\\b(?:${FILE_READS})\\(`);
 
 const READ_CALL = new RegExp(`\\b(${FILE_READS}|readdirSync|readdir)\\(`, "g");
 
-const READ_OR_LIST = new RegExp(`${READ_CALL.source}|["']ls-files["']`);
+const READ_OR_LIST = new RegExp(
+	`${READ_CALL.source}|["'](?:ls-files|grep)["']`,
+);
 
 const FULL_SWEEP_ONLY = /^(?:[^\S\n\r\u2028\u2029]|[/*])*full-sweep-only:/m;
 
@@ -2001,26 +2023,23 @@ function optionCwd(opts) {
 }
 
 /**
- * The shape of a `git ls-files` argument list run in the repo whose
+ * The shape of a git listing's argument list run in the repo whose
  * pathspecs the selector cannot read, or null.
  * @param {SiteScan} scan
- * @param {string[]} elements
+ * @param {string[]} elements  the list's, its subcommand first
  * @returns {string | null}
  */
-function lsFilesShape(scan, elements) {
+function listingShape(scan, elements) {
 	let specs = 0;
-	for (const el of elements) {
+	for (const el of pathspecElements(elements)) {
 		const lit = PATHSPEC.exec(el)?.[1];
 		if (lit !== undefined) {
-			if (!lit.startsWith("-") && lit !== "ls-files") specs++;
+			if (!lit.startsWith("-")) specs++;
 		} else if (IDENT.test(el) && argsFor(scan.source, el).length > 0) specs++;
 		else return SHAPE.pathspec;
 	}
 	return specs === 0 ? SHAPE.wholeTree : null;
 }
-
-/** A `git ls-files` argument list's opening. */
-const LS_FILES = /\[\s*["']ls-files["']/g;
 
 /**
  * Where an unattributed site sits, and its shape.
@@ -2060,26 +2079,26 @@ function readCallArg(scan, m) {
 }
 
 /**
- * A `git ls-files` list's unseen shape, where git runs it in the repo.
+ * A git listing's unseen shape, where git runs it in the repo.
  * @param {SiteScan} test
- * @param {RegExpExecArray} m  an `LS_FILES` match
+ * @param {RegExpExecArray} m  a `GIT_LISTING` match
  * @returns {Found}
  */
-function lsFilesCallShape(test, m) {
+function listingCallShape(test, m) {
 	const scan = { ...test, site: m.index ?? 0 };
 	const close = closeOf(scan.source, scan.site);
 	if (!isCode(scan.spans, scan.site) || close === -1) return null;
 	if (!GIT_CALL.test(scan.source.slice(0, scan.site))) return null;
 	if (!isRunInRepo(scan, close)) return null;
 	const elements = topLevelArgs(scan.source.slice(scan.site + 1, close - 1));
-	const shape = lsFilesShape(scan, elements);
+	const shape = listingShape(scan, elements);
 	return shape ? { at: scan.site, shape } : null;
 }
 
 /**
  * Every read in a test the selector cannot attribute (#1881): a read or a
  * listing whose argument traces to an anchor yet resolves to no edge, and a
- * `git ls-files` run in the repo on a pathspec no literal names, whatever
+ * git listing run in the repo on a pathspec no literal names, whatever
  * the test's header says.
  * @param {string} source
  * @param {Set<string>} tracked
@@ -2097,7 +2116,7 @@ function unseenSitesFor(source, tracked, self, seen) {
 	const scan = { source, spans, dir, tracked, seen, site: 0, decls: new Map() };
 	const found = [
 		...[...source.matchAll(READ_CALL)].map((m) => readCallShape(scan, m)),
-		...[...source.matchAll(LS_FILES)].map((m) => lsFilesCallShape(scan, m)),
+		...[...source.matchAll(GIT_LISTING)].map((m) => listingCallShape(scan, m)),
 	];
 	return found
 		.filter((f) => f !== null)

@@ -422,6 +422,19 @@ describe("a test's direct reads through git ls-files (#1770)", () => {
 			reads(`execFileSync("git", ["${LS_FILES}", "-z"], { cwd: ROOT });`),
 		).toEqual([]);
 	});
+
+	it("lists what a git grep's pathspecs after its `--` name, never its pattern (#4790)", () => {
+		expect(
+			reads(
+				`execFileSync("git", ["grep", "-l", "x", "--", "docs/zzz-specs/*.txt"], { cwd: ROOT });`,
+			),
+		).toEqual(["docs/zzz-specs/a.txt", "docs/zzz-specs/deep/b.txt"]);
+		expect(
+			reads(
+				`execFileSync("git", ["grep", "-l", "docs/zzz-specs"], { cwd: ROOT });`,
+			),
+		).toEqual([]);
+	});
 });
 
 describe("resolving a test's import to the helper it hops through", () => {
@@ -1020,12 +1033,13 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 			literal: `fs.readFileSync(path.join(ROOT, "${dir}", "${file}"));`,
 		},
 		{
-			shape: "a `git ls-files` pathspec that is not a literal",
+			shape: "a `git ls-files` or `git grep` pathspec that is not a literal",
 			unseen: 'execFileSync("git", ["ls-files", spec()]);',
 			literal: `execFileSync("git", ["ls-files", "${dir}"]);`,
 		},
 		{
-			shape: "a `git ls-files` naming no pathspec, the whole tree",
+			shape:
+				"a `git ls-files` naming no pathspec, or a `git grep` none after `--`, the whole tree",
 			unseen: 'execFileSync("git", ["ls-files", "-z"]);',
 			literal: `execFileSync("git", ["ls-files", "-z", "${dir}"]);`,
 		},
@@ -1049,6 +1063,22 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 			});
 		});
 	}
+
+	it("reports a git grep with no pathspec after its `--` as the whole tree (#4790)", () => {
+		const body = `${anchored}execFileSync("git", ["grep", "-l", "x"], { cwd: ROOT });`;
+		expect(sitesOf(body)).toEqual([
+			{
+				line: body.split("\n").length,
+				shape:
+					"a `git ls-files` naming no pathspec, or a `git grep` none after `--`, the whole tree",
+			},
+		]);
+		expect(
+			sitesOf(
+				`${anchored}execFileSync("git", ["grep", "-l", "x", "--", "${dir}"], { cwd: ROOT });`,
+			),
+		).toEqual([]);
+	});
 
 	it("reports a path run spread across a + chain from an anchor", () => {
 		const body = `${anchored}fs.readFileSync(ROOT + "/${dir}/" + name);`;

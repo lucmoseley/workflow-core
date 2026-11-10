@@ -595,8 +595,7 @@ describe("a PostToolUse guard (#2785)", () => {
 			script,
 			`console.log("ran"); require("fs").writeFileSync(${JSON.stringify(done)}, "");\n`,
 		);
-		const rel = path.relative(path.resolve(__dirname, ".."), script);
-		const r = call({ launch: { script: rel, log: ".launch.log" } }, post);
+		const r = call({ launch: { script, log: ".launch.log" } }, post);
 		expect(r.status).toBe(0);
 		expect(r.out).toBeNull();
 		/* Crosses the real clock: the launch is a detached child. */
@@ -608,6 +607,21 @@ describe("a PostToolUse guard (#2785)", () => {
 				"utf8",
 			),
 		).toBe("ran\n");
+	});
+
+	it("starts no launch whose script is no absolute path, logging it as the guard's throw (#4790)", () => {
+		const r = call(
+			{ launch: { script: "launch.js", log: ".launch.log" } },
+			post,
+		);
+		expect(r.status).toBe(0);
+		expect(r.out).toBeNull();
+		expect(readGuardErrorsLog(config)).toContain(
+			"launch script launch.js is no absolute path",
+		);
+		expect(
+			fs.existsSync(path.join(dir, ".claude/tmp/markers/.launch.log")),
+		).toBe(false);
 	});
 });
 

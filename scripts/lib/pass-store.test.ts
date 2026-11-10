@@ -296,7 +296,7 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* Round 5, finding 2: a path two joins off __dirname, as
+	/* #4790: a path two joins off __dirname, as
 	 * pretool-guard-testkit.ts's DISPATCH off CHECKOUT, was no input. */
 	it("voids it when a script a module joins off a __dirname-joined const changes", () => {
 		const dir = repo();
@@ -312,7 +312,7 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	/* Round 5, findings 1 and 7: the setup exports the plugin config to every
+	/* #4790: the setup exports the plugin config to every
 	 * test, and vite reads tsconfig.json for every file. */
 	it.each(["tsconfig.json", ".claude/workflow-core.json"])(
 		"voids it when %s changes",
@@ -696,7 +696,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(run(dir, [A])).toBe(0);
 	});
 
-	/* Round 5, finding 2: a join off __dirname of a parameter names a file
+	/* #4790: a join off __dirname of a parameter names a file
 	 * in the tree the walk cannot tell. */
 	it("records no row for a file reaching a join off __dirname it cannot tell", () => {
 		const dir = repo();

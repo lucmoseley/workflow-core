@@ -523,9 +523,9 @@ describe("a shell script's loads", () => {
 		["a heredoc's body", 'cat <<EOF\nsource "$X/a.sh"\nEOF\n'],
 		["an array of data", "PROSE=(\n  . ':(exclude)*.js'\n)\n"],
 		["arithmetic", "if (( $# > 0 )); then :; fi\n"],
-		/* R4-ST5: a definition's brackets may hold any run of blanks. */
+		/* #4790: a definition's brackets may hold any run of blanks. */
 		["a function defined with spaced brackets", "./x.sh (        ) { :; }\n"],
-		/* R4-SP2: the git shim's real git, found off PATH, is the caller's. */
+		/* #4790: the git shim's real git, found off PATH, is the caller's. */
 		[
 			"a program a `code-edges caller:` line declares found off PATH",
 			'# code-edges caller: real\nfor d in $PATH; do real="$d/git"; done\n"$real" status\n',
@@ -551,7 +551,7 @@ describe("a shell script's loads", () => {
 		expect(read.shadows).toEqual(["/x/s/b.sh"]);
 	});
 
-	/* R4-ST1: a code path inside a message word is an edge, as
+	/* #4790: a code path inside a message word is an edge, as
 	 * park-blocked.sh's `refuse "… node $SELF_DIR/issue-body.js …"`. */
 	it("reaches a code path a message spells inside a quoted word", () => {
 		expect(
@@ -561,7 +561,7 @@ describe("a shell script's loads", () => {
 		).toEqual(["/x/s/issue-body.js", "/x/s/x.sh"]);
 	});
 
-	/* R4-ST2: one interpreter table, so a versioned python3 is Python. */
+	/* #4790: one interpreter table, so a versioned python3 is Python. */
 	it("walks a script whose #! line names a versioned python3 as Python", () => {
 		const faults: string[] = [];
 		reachOf(
@@ -579,7 +579,7 @@ describe("a shell script's loads", () => {
 		).toHaveLength(1);
 	});
 
-	/* R5-SP6: a git hook is executed, never sourced, so its `$0` is itself. */
+	/* #4790: a git hook is executed, never sourced, so its `$0` is itself. */
 	it("reads `$0` as the file itself in a script with no extension alone", () => {
 		const code =
 			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
@@ -597,7 +597,7 @@ describe("a shell script's loads", () => {
 		).toHaveLength(1);
 	});
 
-	/* Finding R3-ST1: a walk for edges alone must not need python3 to read a
+	/* #4790: a walk for edges alone must not need python3 to read a
 	 * shell script's inline Python program. */
 	it("reads a shell script's edges where no python3 is on PATH", () => {
 		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
@@ -641,7 +641,7 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		};
 	}
 
-	/* R4-SP3: a non-literal load is unread, never dropped. */
+	/* #4790: a non-literal load is unread, never dropped. */
 	it.each([
 		[
 			"a name bound to nothing it reads",
@@ -651,6 +651,10 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		["a template", ["require(`./lib/$", "{name}`);\n"].join("")],
 		["a spread", "const c = { ...require(file) };\n"],
 		["a dynamic import", "await import(pathToFileURL(file).href);\n"],
+		[
+			"a template's interpolation, which is code",
+			["const s = `$", "{require(file)}`;\n"].join(""),
+		],
 	])("names a load of %s unread", (_what, code) => {
 		expect(js(code).unread).toHaveLength(1);
 	});
@@ -672,7 +676,7 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(js(code).unread).toEqual([]);
 	});
 
-	/* R4-SP4: a data file joined off __dirname is a read, any path binding. */
+	/* #4790: a data file joined off __dirname is a read, any path binding. */
 	it("reads a data file joined off __dirname, through any binding of path", () => {
 		const r = js(
 			'const M = nodePath.join(__dirname, "m.json");\nconst C = path.join(__dirname, "c.js");\nconst G = path.join(__dirname, "gone.json");\n',
@@ -682,7 +686,7 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(r.edges).toEqual(["lib/c.js"]);
 	});
 
-	/* R4-SP3: guard-core-load.js's cores, off guard-cores.json. */
+	/* #4790: guard-core-load.js's cores, off guard-cores.json. */
 	it("reaches each script a declared manifest's key names, and reads the manifest", () => {
 		const r = js(
 			"// code-edges loads: m.json core\nconst load = (row) => require(corePath(row.core));\n",
@@ -708,7 +712,7 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		).toHaveLength(1);
 	});
 
-	/* R5-SP5: a declared value naming no file is unread, never dropped. */
+	/* #4790: a declared value naming no file is unread, never dropped. */
 	it("names a declared manifest value that is no file unread", () => {
 		const r = js(
 			"// code-edges loads: m.json core\nconst load = (row) => require(corePath(row.core));\n",
@@ -722,7 +726,7 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		]);
 	});
 
-	/* R5-SP5: a declaration explains only the loads reading its key. */
+	/* #4790: a declaration explains only the loads reading its key. */
 	it("leaves a load its declaration does not explain unread", () => {
 		const files = { "lib/m.json": '[{"core": "a.js"}]', "lib/a.js": "" };
 		const declared = "// code-edges loads: m.json core\n";
@@ -738,7 +742,7 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		).toEqual(["loads require(process.argv[9])"]);
 	});
 
-	/* R5-SP2: a path two joins off __dirname, as pretool-guard-testkit's
+	/* #4790: a path two joins off __dirname, as pretool-guard-testkit's
 	 * DISPATCH off CHECKOUT, is an edge; a part bound to a literal is read. */
 	it("reaches a file joined off a const bound to a __dirname join", () => {
 		const r = js(

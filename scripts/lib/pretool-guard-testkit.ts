@@ -135,8 +135,8 @@ export function nodeGuardOutput(
 /** The checkout's root: the plugin root a hook line is run against. */
 const CHECKOUT = path.resolve(__dirname, "..", "..");
 
-/* The plugin's hooks file and the self-plugin's, each a path the pass
- * store's walk reads (lib/code-edges.js). */
+/* The plugin's hooks file and the self-plugin's, each spelled whole
+ * (lib/code-edges.js's WHOLE PATHS). */
 const HOOKS_FILES = {
 	"hooks/hooks.json": path.join(CHECKOUT, "hooks", "hooks.json"),
 	"self-plugin/hooks/hooks.json": path.join(
