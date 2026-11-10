@@ -1,8 +1,6 @@
 /*
  * whole-suite-runs.js — which pass and fail markers record a whole vitest
- * suite, or a shard of one, and how long it took: the read
- * `check-suite-margin.js` judges the target on and the quiet bench's due read
- * (lib/quiet-bench-tick.js, #4931) times the ladder bench on.
+ * suite, or a shard of one, and how long it took (#4931).
  */
 
 const {
@@ -81,9 +79,8 @@ function byAt(a, b) {
 }
 
 /**
- * Run at the whole suite's own worker count: a launch that typed its own
- * `--maxWorkers` (or vitest's `--max-workers`), as each bench suite does,
- * was sized for something else.
+ * A launch that typed its own `--maxWorkers` (or vitest's `--max-workers`),
+ * as each bench suite does, was sized for something else.
  * @param {Marker} m
  */
 const isDefaultWorkers = (m) =>

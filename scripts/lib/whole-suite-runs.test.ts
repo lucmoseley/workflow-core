@@ -31,7 +31,7 @@ it("takes the latest green lone whole suite", () => {
 	expect(lone?.durationMs).toBe(400_000);
 });
 
-it("passes over a shard and a run sized by its own --maxWorkers", () => {
+it("passes over a shard and a run sized by its own worker count, either spelling", () => {
 	const lone = latestLoneSuite(
 		[
 			green("2026-11-01", 700_000),
