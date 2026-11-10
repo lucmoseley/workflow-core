@@ -57,9 +57,11 @@ const {
  *   envelope is written (mantahostels#2528)
  * @property {{ name: string, text: string }[]} [latchWrites] latches of the
  *   guard's own, at latchPath, written with the envelope
- * @typedef {{ launch: { script: string, log: string } }} Launch a program
- *   under scripts/, run by node in a session of its own, its output appended
- *   to `log` under the markers directory
+ * @typedef {{ launch: { script: string, log: string } }} Launch a program,
+ *   its absolute path joined off the core's own directory so the pass
+ *   store's walk reads it there (lib/code-edges.js), run by node in a
+ *   session of its own, its output appended to `log` under the markers
+ *   directory
  * @typedef {{ context: string, latchWrites?: { name: string, text: string }[] }} Context
  *   text handed the session as additionalContext as it stands, and latches of
  *   the guard's own written once it is out
@@ -378,7 +380,7 @@ function writeLatches({ root, payload, log }, latches) {
 function startDetached({ script, log: logName }, root, log) {
 	const fd = fs.openSync(path.join(markersDir(root), logName), "a");
 	try {
-		const child = spawn("node", [path.join(__dirname, "..", script)], {
+		const child = spawn("node", [script], {
 			detached: true,
 			stdio: ["ignore", fd, fd],
 		});

@@ -265,6 +265,7 @@ describe("a file the walk cannot read", () => {
 			shadows: [],
 			reads: [],
 			unread: [],
+			unknown: [],
 			python: false,
 		});
 		expect(faults).toEqual([]);
@@ -578,6 +579,24 @@ describe("a shell script's loads", () => {
 		).toHaveLength(1);
 	});
 
+	/* R5-SP6: a git hook is executed, never sourced, so its `$0` is itself. */
+	it("reads `$0` as the file itself in a script with no extension alone", () => {
+		const code =
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'#!/usr/bin/env sh\nnode "${WFC_ROOT:-$(dirname "$0")/..}/s/x.js"\n';
+		const hook = sh(code, "/x/.husky/pre-commit");
+		expect(hook.unread).toEqual([]);
+		expect(hook.shadows).toEqual(["/x/s/x.js"]);
+		expect(sh(code, "/x/.husky/pre-commit.sh").unread).toHaveLength(1);
+	});
+
+	it("names a `source` of a script with no extension unread", () => {
+		expect(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			sh('. "${BASH_SOURCE[0]%/*}/pre-commit"\n', "/x/.husky/lib.sh").unread,
+		).toHaveLength(1);
+	});
+
 	/* Finding R3-ST1: a walk for edges alone must not need python3 to read a
 	 * shell script's inline Python program. */
 	it("reads a shell script's edges where no python3 is on PATH", () => {
@@ -614,7 +633,12 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		}
 		const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
 		const r = reachOf(path.join(root, "lib/l.js"), code, () => undefined);
-		return { edges: rel(r.edges), reads: rel(r.reads), unread: r.unread };
+		return {
+			edges: rel(r.edges),
+			reads: rel(r.reads),
+			unread: r.unread,
+			unknown: r.unknown,
+		};
 	}
 
 	/* R4-SP3: a non-literal load is unread, never dropped. */
@@ -665,12 +689,15 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 			{
 				"lib/m.json":
 					'{"Pre": [{"core": "a.js"}, {"core": "b.js", "host": "h.js"}]}',
+				"lib/a.js": "",
+				"lib/b.js": "",
 			},
 		);
 		expect(r).toEqual({
 			edges: ["lib/a.js", "lib/b.js"],
 			reads: ["lib/m.json"],
 			unread: [],
+			unknown: [],
 		});
 	});
 
@@ -679,6 +706,85 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 		expect(
 			js("// code-edges loads: m.json core\n", { "lib/m.json": "{" }).unread,
 		).toHaveLength(1);
+	});
+
+	/* R5-SP5: a declared value naming no file is unread, never dropped. */
+	it("names a declared manifest value that is no file unread", () => {
+		const r = js(
+			"// code-edges loads: m.json core\nconst load = (row) => require(corePath(row.core));\n",
+			{
+				"lib/m.json": '[{"core": "a.js"}, {"core": "gone.js"}]',
+				"lib/a.js": "",
+			},
+		);
+		expect(r.unread).toEqual([
+			"declares // code-edges loads: m.json core, whose gone.js is no file",
+		]);
+	});
+
+	/* R5-SP5: a declaration explains only the loads reading its key. */
+	it("leaves a load its declaration does not explain unread", () => {
+		const files = { "lib/m.json": '[{"core": "a.js"}]', "lib/a.js": "" };
+		const declared = "// code-edges loads: m.json core\n";
+		expect(
+			js(`${declared}const file = corePath(row.core);\nrequire(file);\n`, files)
+				.unread,
+		).toEqual([]);
+		expect(
+			js(
+				`${declared}require(corePath(row.core));\nconst extra = require(process.argv[9]);\n`,
+				files,
+			).unread,
+		).toEqual(["loads require(process.argv[9])"]);
+	});
+
+	/* R5-SP2: a path two joins off __dirname, as pretool-guard-testkit's
+	 * DISPATCH off CHECKOUT, is an edge; a part bound to a literal is read. */
+	it("reaches a file joined off a const bound to a __dirname join", () => {
+		const r = js(
+			'const ROOT = path.resolve(__dirname, "..");\nconst NAME = "d.js";\nconst D = path.join(ROOT, "s", NAME);\nconst J = path.join(\n\tROOT,\n\t"s",\n\t"j.json",\n);\n',
+			{ "s/d.js": "", "s/j.json": "{}" },
+		);
+		expect(r.edges).toEqual(["s/d.js"]);
+		expect(r.reads).toEqual(["s/j.json"]);
+		expect(r.unknown).toEqual([]);
+	});
+
+	/* headless-run-fake.ts writes a script requiring such a join. */
+	it("reaches a join inside a template's interpolation, which is code", () => {
+		const r = js(
+			[
+				"const SRC = `require($",
+				'{JSON.stringify(path.join(__dirname, "s.js"))})`;\n',
+			].join(""),
+			{ "lib/s.js": "" },
+		);
+		expect(r.edges).toEqual(["lib/s.js"]);
+	});
+
+	it.each([
+		[
+			"a parameter",
+			'const ROOT = path.resolve(__dirname, "..");\nconst read = (f) => path.join(ROOT, f);\n',
+		],
+		[
+			"a property",
+			'spawn("node", [path.join(__dirname, "..", row.script)]);\n',
+		],
+		[
+			"a template",
+			["const at = path.join(__dirname, `$", "{name}.txt`);\n"].join(""),
+		],
+	])("names a join off __dirname holding %s unknown", (_what, code) => {
+		expect(js(code).unknown).toHaveLength(1);
+	});
+
+	it.each([
+		["a temporary directory", "const at = path.join(tmp, name);\n"],
+		["a string", 'const SRC = "path.join(__dirname, name)";\n'],
+		["an array's join", 'const s = parts.join(", ");\n'],
+	])("reads a join off %s as none of the tree's", (_what, code) => {
+		expect(js(code).unknown).toEqual([]);
 	});
 
 	/* claimed-bash-write-host.js's ledger writer. */

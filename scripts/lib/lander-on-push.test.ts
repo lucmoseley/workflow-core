@@ -7,6 +7,7 @@
  * and a queue ref sits untested until some later session starts.
  */
 
+import path from "node:path";
 import { expect, it } from "vitest";
 import { fakeSymbolicName, fakeTreeClassifier } from "./git-tree-fake.js";
 import { kitContextFake } from "./kit-context-fake";
@@ -16,7 +17,12 @@ const { decide } = require("./lander-on-push.js") as {
 };
 
 const REPO = "/repo";
-const LAUNCH = { launch: { script: "start-lander.js", log: ".lander.log" } };
+const LAUNCH = {
+	launch: {
+		script: path.join(__dirname, "..", "start-lander.js"),
+		log: ".lander.log",
+	},
+};
 
 function harness({ branch = "topic", landing = true, cwd = REPO } = {}) {
 	const asked: string[] = [];

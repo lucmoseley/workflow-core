@@ -2366,13 +2366,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 		for (const p of ownModules(t, tracked)) found.add(p);
 		for (const p of found) addReader(byDoc, p, t);
 		if (!findSites || isFullSweepOnly(source)) continue;
-		/** @type {Set<string> | undefined} */
-		let imports;
-		const sites = unseenSitesFor(source, tracked, t, (p) => {
-			if (found.has(p)) return true;
-			imports ??= vitestImports(source, t, tracked);
-			return imports.has(p);
-		});
+		const sites = unseenReadsOf(t, source, tracked, found);
 		if (sites.length > 0) unseen[t] = sites;
 	}
 	addNearestReaders(byDoc, byClosure, esmReach(tests, tracked, read));
