@@ -2585,5 +2585,25 @@
 				"scanned": true
 			}
 		]
+	},
+	"tsc-slot-peak": {
+		"needles": [
+			{
+				"needle": "1,638 MB",
+				"scanned": true
+			},
+			{
+				"needle": "1638 MB",
+				"scanned": true
+			},
+			{
+				"needle": "~2.75 GB",
+				"scanned": true
+			},
+			{
+				"needle": "1,938 MB",
+				"scanned": true
+			}
+		]
 	}
 }

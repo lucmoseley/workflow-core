@@ -30,9 +30,9 @@ const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
 const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 
 describe("lib/tsc-slot.js", () => {
-	it("prices the rung at the measured 1,638 MB peak above earlyoom's floor and the margin", () => {
-		// 794 + 1638 + 300 = 2732, up to the next 50.
-		expect(TSC_RUNG_MB).toBe(2750);
+	it("prices the rung at the measured 2,045 MB peak above earlyoom's floor and the margin", () => {
+		// 794 + 2045 + 300 = 3139, up to the next 50.
+		expect(TSC_RUNG_MB).toBe(3150);
 	});
 
 	it("counts a `tsc` by its runner path, never npm's, a shell's, a wrapper's or a queued waiter's line", () => {
@@ -66,29 +66,34 @@ describe("lib/tsc-slot.js", () => {
 		[
 			"MemAvailable under the rung",
 			rows("bash -l"),
-			2749,
-			{ limb: "memory", mb: 2749, rungMb: 2750 },
+			TSC_RUNG_MB - 1,
+			{ limb: "memory", mb: TSC_RUNG_MB - 1, rungMb: TSC_RUNG_MB },
 		],
 		[
 			"one running under the rung, naming both (#4359)",
 			[{ pid: 4242, args: "node /r/node_modules/.bin/tsc" }],
-			2749,
-			{ limb: "count", pids: [4242], memory: { mb: 2749, rungMb: 2750 } },
+			TSC_RUNG_MB - 1,
+			{
+				limb: "count",
+				pids: [4242],
+				memory: { mb: TSC_RUNG_MB - 1, rungMb: TSC_RUNG_MB },
+			},
 		],
-		["neither", rows("bash -l"), 2750, null],
+		["neither", rows("bash -l"), TSC_RUNG_MB, null],
 		["`ps` and MemAvailable both unread", null, null, null],
 	])("denies on %s", (_label, ps, mb, expected) => {
 		expect(tscDenial(ps, mb)).toEqual(expected);
 	});
 
 	it("charges what a climbing suite has yet to draw on the rung, naming it apart (#3416)", () => {
-		expect(tscDenial(rows("bash -l"), 3000, 251)).toEqual({
+		const mb = TSC_RUNG_MB + 250;
+		expect(tscDenial(rows("bash -l"), mb, 251)).toEqual({
 			limb: "memory",
-			mb: 3000,
-			rungMb: 2750,
+			mb,
+			rungMb: TSC_RUNG_MB,
 			climbMb: 251,
 		});
-		expect(tscDenial(rows("bash -l"), 3000, 250)).toBeNull();
+		expect(tscDenial(rows("bash -l"), mb, 250)).toBeNull();
 	});
 
 	it("holds a `tsc` the guest admits while Windows is under its floor (#4557, #4850)", () => {
@@ -99,7 +104,9 @@ describe("lib/tsc-slot.js", () => {
 		});
 		expect(tscDenial(rows("bash -l"), 9000, 100, windows(1000))).toBeNull();
 		// The guest rung is named first.
-		expect(tscDenial(rows("bash -l"), 2749, 0, windows(10))).toMatchObject({
+		expect(
+			tscDenial(rows("bash -l"), TSC_RUNG_MB - 1, 0, windows(10)),
+		).toMatchObject({
 			limb: "memory",
 		});
 	});

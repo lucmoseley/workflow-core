@@ -1443,11 +1443,11 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			treePssKb: () => mb * 1024,
 		}).climbMb();
 
-	it("charges a spawned `tsc` its 1,638 MB peak less its tree, never below 0", () => {
+	it("charges a spawned `tsc` its peak less its tree, never below 0", () => {
 		const { suiteDir, tscDir } = queues();
 		spawnedIn(tscDir, 22);
-		expect(climbOf(suiteDir, 400)).toBe(1238);
-		expect(climbOf(suiteDir, 1700)).toBe(0);
+		expect(climbOf(suiteDir, 400)).toBe(TSC_PEAK_MB - 400);
+		expect(climbOf(suiteDir, TSC_PEAK_MB + 1)).toBe(0);
 	});
 
 	it("charges nothing for a held seat stamped `yielding`, and its peak once the stamp drops (#4766)", () => {
@@ -1541,7 +1541,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(tscDir, 100)).toBe(SUITE_PEAK_MB - 100);
 	});
 
-	/* 4,000 MB available against the 2,750 MB `tsc` rung, each launch's tree at
+	/* 4,000 MB available against the 3,150 MB `tsc` rung, each launch's tree at
 	 * 500 MB. */
 	it("admits a `tsc` beside two small part-suites and holds it beside a whole suite still climbing (#3806)", async () => {
 		const { suiteDir, tscDir } = queues();
@@ -1590,10 +1590,12 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		spawnedIn(tscDir, 22);
 		vi.stubEnv("TMPDIR", path.dirname(suiteDir));
 		const options = { alive, ps: noRunners, treePssKb: () => 100 * 1024 };
-		expect(readQueuesClimbMb("all", options)).toBe(SUITE_PEAK_MB - 100 + 1538);
+		expect(readQueuesClimbMb("all", options)).toBe(
+			SUITE_PEAK_MB - 100 + TSC_PEAK_MB - 100,
+		);
 		/* A spawned suite not yet on `ps` is on no rung (#4111). */
 		expect(readQueuesClimbMb("off-rung", options)).toBe(
-			SUITE_PEAK_MB - 100 + 1538,
+			SUITE_PEAK_MB - 100 + TSC_PEAK_MB - 100,
 		);
 	});
 

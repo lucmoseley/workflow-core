@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { TSC_RUNG_MB } from "./lib/tsc-slot";
 
 const { main } = require("./queue-run.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
@@ -404,7 +405,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out).toEqual([
-				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung, or Windows' own free memory under what it draws (#4557)\n",
+				`queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
 				"queue-run.js: after 0s, held on the count cap, PID 4242\n",
 			]);
 		});
@@ -417,8 +418,8 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out).toEqual([
-				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung, or Windows' own free memory under what it draws (#4557)\n",
-				"queue-run.js: after 0s, held on the memory rung, MemAvailable 1000 MB against ~2750 MB\n",
+				`queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
+				`queue-run.js: after 0s, held on the memory rung, MemAvailable 1000 MB against ~${TSC_RUNG_MB} MB\n`,
 			]);
 		});
 
@@ -436,7 +437,7 @@ describe("queue-run.js", () => {
 			expect(code).toBe(1);
 			expect(f.spawned).toEqual([]);
 			expect(out.join("")).toMatch(
-				/MemAvailable 1000 MB against the ~2750 MB rung/,
+				new RegExp(`MemAvailable 1000 MB against the ~${TSC_RUNG_MB} MB rung`),
 			);
 			expect(f.readLog()).toEqual([
 				expect.objectContaining({
@@ -577,7 +578,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 			expect(out).toEqual([
-				"102: queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung, or Windows' own free memory under what it draws (#4557)\n",
+				`102: queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
 				"102: queue-run.js: after 0s, held on the waiters ahead, PID 101\n",
 			]);
 			f.spawned[0].child.emit("exit", 0, null);
