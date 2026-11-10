@@ -118,6 +118,7 @@ function buildLedgerLine(m, { green, root }) {
 		treeAtEnd: m.treeAtEnd ?? null,
 		argv: m.argv ?? null,
 		resolvedFiles: m.scope?.resolvedFiles ?? null,
+		leftOut: m.scope?.leftOut ?? null,
 		wholeSlot: m.scope?.wholeSlot === true,
 		cachedFiles: Array.isArray(m.cached) ? m.cached.length : null,
 		ranFiles: m.scope?.modulesRun ?? null,
@@ -153,9 +154,14 @@ function appendLedgerLine(root, marker, green) {
  *
  * @param {string} root the canonical checkout
  * @param {string} tree the tree the run selected in, whose HEAD it records
- * @param {{ suite: string, sessionId?: string|null, argv: string[] }} run
+ * @param {{ suite: string, sessionId?: string|null, argv: string[],
+ *   leftOut: string[] }} run `leftOut` the tests left to the lander (#4967)
  */
-function appendEmptyTouchedLine(root, tree, { suite, sessionId, argv }) {
+function appendEmptyTouchedLine(
+	root,
+	tree,
+	{ suite, sessionId, argv, leftOut },
+) {
 	const at = new Date().toISOString();
 	appendLedgerLine(
 		root,
@@ -172,6 +178,7 @@ function appendEmptyTouchedLine(root, tree, { suite, sessionId, argv }) {
 				skipped: 0,
 				touched: true,
 				resolvedFiles: 0,
+				...(leftOut.length > 0 ? { leftOut } : {}),
 			},
 			sessionId,
 			argv,

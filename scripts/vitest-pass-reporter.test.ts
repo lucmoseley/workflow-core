@@ -624,6 +624,16 @@ describe("which command started the run (mantahostels#2303)", () => {
 		expect(await scopeWith({})).not.toHaveProperty("touched");
 	});
 
+	it("records the tests a touched run left to the lander, and no empty list (#4967)", async () => {
+		expect(
+			await scopeWith({ touched: true, leftOut: ["lib/b.test.ts"] }),
+		).toMatchObject({ leftOut: ["lib/b.test.ts"] });
+		expect(await scopeWith({ touched: true, leftOut: [] })).not.toHaveProperty(
+			"leftOut",
+		);
+		expect(await scopeWith({})).not.toHaveProperty("leftOut");
+	});
+
 	it("records the admission weight the run carried, for the ledger (#2931)", async () => {
 		expect(
 			await scopeWith({ resolvedFiles: 485, wholeSlot: true }),

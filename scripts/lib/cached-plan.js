@@ -153,6 +153,7 @@ function recordAllCached(
 			...(launch.admissible ? { admissible: true } : {}),
 			...(launch.viaChanged ? { viaChanged: true } : {}),
 			...(launch.touched ? { touched: true } : {}),
+			...(launch.leftOut?.length ? { leftOut: launch.leftOut } : {}),
 			resolvedFiles: 0,
 		},
 		startedAtMs,

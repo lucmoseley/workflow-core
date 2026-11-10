@@ -303,6 +303,71 @@ describe("a bare run under landing", () => {
 		]);
 	});
 
+	describe("with a narrowed file in the session's diff (#4967)", () => {
+		const Anchors = "scripts/instruction-surface-anchors.json";
+		const Reader = "scripts/test_anchors.py";
+		/** `pyRepo()` with the anchors file, its checker test and a pytest
+		 * file naming it, the anchors file then regenerated. */
+		function regenerated() {
+			const root = pyRepo();
+			fs.mkdirSync(path.join(root, "docs"));
+			for (const [f, text] of Object.entries({
+				/* A readable manifest: the fallback narrows nothing. */
+				"docs/test-read-edges.json": '{ "edges": {} }\n',
+				[Anchors]: "{}\n",
+				"scripts/check-instruction-surface.test.ts": "export {};\n",
+				[Reader]: 'ANCHORS = HERE / "instruction-surface-anchors.json"\n',
+			}))
+				fs.writeFileSync(path.join(root, f), text);
+			for (const args of [
+				["add", "."],
+				["commit", "-qm", "anchors"],
+			])
+				spawnSync("git", args, { cwd: root });
+			fs.appendFileSync(path.join(root, Anchors), "\n");
+			return root;
+		}
+
+		it("spawns nothing where only the anchors file changed, and its ledger line lists the reader left out", async () => {
+			const root = regenerated();
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], Landing);
+
+			expect(readCalls()).toEqual([]);
+			expect(r.stdout).toContain("LEFT TO THE LANDER — 1 test file(s)");
+			expect(readLedger(root)).toMatchObject([
+				{
+					kind: "touched",
+					suite: "pytest",
+					resolvedFiles: 0,
+					leftOut: [Reader],
+				},
+			]);
+		});
+
+		it("lists the reader left out on the record of a run that ran another test", async () => {
+			const root = regenerated();
+			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			await wrap(python, root, [], Landing);
+
+			expect(readCalls()[0]?.args.at(-1)).toBe("scripts/test_scan.py");
+			expect(readCalls()[0]?.args).not.toContain(Reader);
+			expect(readMarkers({ root })).toMatchObject([
+				{ scope: { touched: true, leftOut: [Reader] } },
+			]);
+			expect(readLedger(root)).toMatchObject([
+				{ kind: "touched", resolvedFiles: 1, leftOut: [Reader] },
+			]);
+		});
+	});
+
 	/* The write ledger, in the sandbox's config dir, says which dirt is whose. */
 	describe("with a session id, in the shared tree", () => {
 		const sb = freshSandbox();
