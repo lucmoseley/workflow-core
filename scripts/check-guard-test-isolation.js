@@ -43,7 +43,9 @@
  * A HELPER'S process.env REDIRECT COUNTS FOR ITS CALLERS. A test calling a
  * helper function that stubs process.env.CLAUDE_CONFIG_DIR — arbiter-testkit.ts's
  * freshSandbox — and spreading process.env into some spawn's env is
- * redirected without naming it.
+ * redirected without naming it. So is a test giving a spawn `env: <fn>(…)`,
+ * where an imported helper's `<fn>` builds an env with a CLAUDE_CONFIG_DIR key
+ * (mutation-hold-testkit.ts's `env`, #4943).
  *
  * NOT SEEN: a test that spawns a node script which itself invokes a guard, a
  * guard reached through a shell fragment (`sh -c`), a `.js` helper, a helper a
@@ -402,13 +404,17 @@ const SETS_PROCESS_CONFIG_DIR = /\bstubEnv\(\s*["']CLAUDE_CONFIG_DIR["']\s*,/g;
 /** A function's name at its definition, group 1 or 2. */
 const DEFINED = /\bfunction\s+(\w+)|\bconst\s+(\w+)\s*=\s*(?:async\s*)?\(/g;
 
-/** The functions in helper `source` that set process.env.CLAUDE_CONFIG_DIR:
- * each assignment's nearest enclosing definition, read as the last before it. */
-function processRedirectors(/** @type {string} */ source) {
+/** An env object's `CLAUDE_CONFIG_DIR` key given a value — never typed. */
+const KEYS_CONFIG_DIR =
+	/(?:\bCLAUDE_CONFIG_DIR|["']CLAUDE_CONFIG_DIR["'])\s*:(?!\s*(?:string|undefined)\b)/g;
+
+/** The functions in helper `source` holding a `re` match: each match's
+ * nearest enclosing definition, read as the last before it. */
+function definersOf(/** @type {string} */ source, /** @type {RegExp} */ re) {
 	const code = stripComments(source);
 	const defs = [...code.matchAll(DEFINED)];
 	const out = new Set();
-	for (const m of code.matchAll(SETS_PROCESS_CONFIG_DIR)) {
+	for (const m of code.matchAll(re)) {
 		const def = defs.filter((d) => d.index < m.index).at(-1);
 		const name = def?.[1] ?? def?.[2];
 		if (name) out.add(name);
@@ -416,20 +422,34 @@ function processRedirectors(/** @type {string} */ source) {
 	return out;
 }
 
-/** Whether test `source` calls a function a helper it imports redirects
- * process.env through, and spreads process.env into a spawn's env. */
+/** Whether test `source` reaches a redirect through a helper it imports:
+ * calling a function that stubs process.env.CLAUDE_CONFIG_DIR while spreading
+ * process.env into a spawn's env, or giving a spawn the env a function builds
+ * with a CLAUDE_CONFIG_DIR key (mutation-hold-testkit.ts's `env`, #4943). */
 function redirectsThroughHelper(
 	/** @type {string} */ rel,
 	/** @type {string} */ source,
 	/** @type {{helpers: Set<string>, sources: Map<string, string>}} */ scan,
 ) {
-	if (!/\.\.\.process\.env\b|\benv:\s*process\.env\b/.test(source))
-		return false;
+	const code = stripComments(source);
+	const spreads = /\.\.\.process\.env\b|\benv:\s*process\.env\b/.test(source);
+	const calls = (
+		/** @type {Set<string>} */ names,
+		/** @type {(name: string) => string} */ shape,
+	) => [...names].some((name) => new RegExp(shape(name)).test(code));
 	return importsOf(rel, source, scan.helpers).some((h) => {
 		const helper = scan.sources.get(h);
 		if (helper === undefined) return false;
-		return [...processRedirectors(helper)].some((name) =>
-			new RegExp(`\\b${name}\\s*\\(`).test(stripComments(source)),
+		return (
+			(spreads &&
+				calls(
+					definersOf(helper, SETS_PROCESS_CONFIG_DIR),
+					(name) => `\\b${name}\\s*\\(`,
+				)) ||
+			calls(
+				definersOf(helper, KEYS_CONFIG_DIR),
+				(name) => `\\benv:\\s*${name}\\s*\\(`,
+			)
 		);
 	});
 }

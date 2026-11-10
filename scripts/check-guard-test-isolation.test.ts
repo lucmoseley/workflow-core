@@ -426,6 +426,42 @@ describe("a test that runs a Node guard entry (#2898)", () => {
 			expect(run().status).toBe(1);
 		});
 	});
+
+	describe("a test giving a spawn the env a helper builds with CLAUDE_CONFIG_DIR, as mutation-hold-testkit's env does (#4943)", () => {
+		const kit = (body: string) =>
+			track(
+				"scripts/lib/hold-testkit.ts",
+				`export const env = (extra = {}) => ({\n\t...process.env,\n\t${body}\n\t...extra,\n});\nexport const other = () => ({});\n`,
+			);
+		const test = (env: string) =>
+			track(
+				"scripts/guard-n.test.ts",
+				'import { env, other } from "./lib/hold-testkit";\n' +
+					'const GUARD = path.resolve(__dirname, "guard-n.js");\n' +
+					`runInProcess(GUARD, [], { env: ${env} });\n`,
+			);
+
+		it("passes where the spawn's env is the builder's", () => {
+			nodeGuard("guard-n.js");
+			kit("CLAUDE_CONFIG_DIR: scratch,");
+			test("env()");
+			expect(run().status).toBe(0);
+		});
+
+		it("fails where the key is only a comment", () => {
+			nodeGuard("guard-n.js");
+			kit("// CLAUDE_CONFIG_DIR: scratch,");
+			test("env()");
+			expect(run().status).toBe(1);
+		});
+
+		it("fails where the spawn's env is another export's", () => {
+			nodeGuard("guard-n.js");
+			kit("CLAUDE_CONFIG_DIR: scratch,");
+			test("other()");
+			expect(run().status).toBe(1);
+		});
+	});
 });
 
 describe("indirection, assumed guilty", () => {
