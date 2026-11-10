@@ -349,7 +349,7 @@ class TransientFault extends Error {}
  * @property {readonly string[]} leftToNextRun dropped refs this run leaves to the
  *   next: a filing failed twice, a ticket not searched for or not closed
  * @property {(sha: string) => boolean} isOnMain whether `main` holds `sha`
- * @property {(name: string, at: number) => boolean} landedAfter whether a
+ * @property {(name: string, at: number) => boolean} hasLandedAfter whether a
  *   push of `queue/<name>` landed after `at`, in ms
  * @property {(name: string) => OwnerRead} ownerOf whether the owning session
  *   of `queue/<name>` is working
@@ -1342,14 +1342,37 @@ function heldExit({ hold, members }, now, main, waiting) {
 }
 
 /**
- * Whether the drop is still to be decided: neither settled nor reaped.
+ * Whether the drop is neither settled nor reaped.
  * @param {Drop} d
  */
-const isUndecided = (d) => d.state !== "settled" && d.reapedAt === undefined;
+const isUnsettled = (d) => d.state !== "settled" && d.reapedAt === undefined;
+
+/**
+ * Whether the drop is unsettled and its fix ticket, where it has one, is not
+ * closed.
+ * @param {Drop} d
+ * @param {(ticket: number) => boolean} isClosed
+ */
+const isStanding = (d, isClosed) =>
+	isUnsettled(d) && !(d.ticket !== null && isClosed(d.ticket));
+
+/**
+ * @param {Pick<Drop, "ref" | "sha">} d
+ * @returns {(x: Pick<Drop, "ref" | "sha">) => boolean} whether `x` is the
+ *   drop `d`
+ */
+const sameDropAs = (d) => (x) => x.ref === d.ref && x.sha === d.sha;
+
+/**
+ * @template {{at: number}} T
+ * @param {readonly T[]} drops
+ * @returns {T[]}
+ */
+const newestFirst = (drops) => [...drops].sort((a, b) => b.at - a.at);
 
 /**
  * The settling of `d` on `main`: its ticket closes where it has one and no
- * newer undecided drop shares it; where one does, the ticket's body is
+ * newer unsettled drop shares it; where one does, the ticket's body is
  * refreshed to that drop and the dropped refs left standing.
  * @param {QueueState} s
  * @param {Drop} d
@@ -1357,15 +1380,15 @@ const isUndecided = (d) => d.state !== "settled" && d.reapedAt === undefined;
  * @returns {QueueAction}
  */
 function settleAction(s, d, main) {
-	const [newer] = s.drops
-		.filter(
+	const [newer] = newestFirst(
+		s.drops.filter(
 			(x) =>
 				d.ticket !== null &&
 				x.ticket === d.ticket &&
-				isUndecided(x) &&
+				isUnsettled(x) &&
 				x.at > d.at,
-		)
-		.sort((a, b) => b.at - a.at);
+		),
+	);
 	return {
 		kind: "settle-drop",
 		drop: d,
@@ -1380,7 +1403,7 @@ function settleAction(s, d, main) {
 
 /**
  * The dropped refs the branch of `name` holds, newest first: those of its
- * undecided drops, bar `settling` and any whose closed ticket awaits its
+ * unsettled drops, bar `settling` and any whose closed ticket awaits its
  * reap.
  * @param {QueueState} s
  * @param {string} name
@@ -1388,28 +1411,23 @@ function settleAction(s, d, main) {
  * @returns {DroppedRef[]}
  */
 const heldBy = (s, name, settling) =>
-	s.drops
-		.filter(
-			(x) =>
-				x.name === name &&
-				x !== settling &&
-				isUndecided(x) &&
-				!(x.ticket !== null && s.isClosed(x.ticket)),
-		)
-		.sort((a, b) => b.at - a.at)
-		.map(({ ref, sha }) => ({ ref, sha }));
+	newestFirst(
+		s.drops.filter(
+			(x) => x.name === name && x !== settling && isStanding(x, s.isClosed),
+		),
+	).map(({ ref, sha }) => ({ ref, sha }));
 
 /**
- * The filing owed to the branch of `d`: its newest undecided drop, and every
+ * The filing owed to the branch of `d`: its newest unsettled drop, and every
  * dropped ref the branch holds.
  * @param {QueueState} s
  * @param {Drop} d
  * @returns {Extract<QueueAction, {kind: "file-fix-ticket"}>}
  */
 function filingOf(s, d) {
-	const [newest] = s.drops
-		.filter((x) => x.name === d.name && isUndecided(x))
-		.sort((a, b) => b.at - a.at);
+	const [newest] = newestFirst(
+		s.drops.filter((x) => x.name === d.name && isUnsettled(x)),
+	);
 	return {
 		kind: "file-fix-ticket",
 		drop: newest ?? d,
@@ -1418,7 +1436,7 @@ function filingOf(s, d) {
 }
 
 /**
- * The decision an undecided drop is owed (#4950), the newest first: settled
+ * The decision an unsettled drop is owed (#4950), the newest first: settled
  * where `main` holds its sha or a push of its queue ref landed since; with
  * no ticket, held behind a push of its queue ref still waiting, deferred
  * while its owning session works, else its branch's fix ticket filed or
@@ -1429,19 +1447,16 @@ function filingOf(s, d) {
  * @returns {QueueAction|null}
  */
 function dropDecision(s, main, skip) {
-	const undecided = s.drops
-		.filter(
-			(d) =>
-				isUndecided(d) &&
-				!s.leftToNextRun.includes(d.ref) &&
-				!(d.ticket !== null && s.isClosed(d.ticket)),
-		)
-		.sort((a, b) => b.at - a.at);
-	for (const d of undecided) {
+	const standing = newestFirst(
+		s.drops.filter(
+			(d) => isStanding(d, s.isClosed) && !s.leftToNextRun.includes(d.ref),
+		),
+	);
+	for (const d of standing) {
 		if (s.isOnMain(d.sha)) return settleAction(s, d, main);
 		const ticketed = d.ticket !== null;
 		if (!ticketed && s.queue.some((q) => q.name === d.name)) continue;
-		if (s.landedAfter(d.name, d.at)) return settleAction(s, d, main);
+		if (s.hasLandedAfter(d.name, d.at)) return settleAction(s, d, main);
 		if (ticketed || s.ownerOf(d.name) === "working") continue;
 		const filing = filingOf(s, d);
 		if (!skip.includes(filing.drop.ref)) return filing;
@@ -1467,9 +1482,8 @@ function owedAction(s) {
 		return settleAction(s, unreaped, unreaped.settledOn ?? s.main);
 	const cut = s.drops.find(
 		(d) =>
-			isUndecided(d) &&
-			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha) &&
-			!(d.ticket !== null && s.isClosed(d.ticket)),
+			isStanding(d, s.isClosed) &&
+			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha),
 	);
 	if (cut) return { kind: "drop-member", drop: cut };
 	const orphan = s.dropped.find(
@@ -1667,16 +1681,21 @@ function stepOrEnd(s) {
 		);
 		return { action: owed, slot: holder?.slot ?? null };
 	}
+	/* A filing that failed once this run, filed again before the run ends. */
+	const again = () => dropDecision(s, main, s.leftToNextRun);
 	const live = liveOf(s);
 	const stepped = batchStep(s, main, live);
+	if (stepped?.action.kind === "exit" && !s.busy) {
+		const retried = again();
+		if (retried) return unslotted(retried);
+	}
 	if (stepped) return stepped;
 	const { flying, waiting } = waitingOf(s, live);
 	const fill = fillAction(s, main, live, waiting);
 	if (fill) return unslotted(fill);
 	if (s.busy) return unslotted({ kind: "await-verdict" });
-	/* A filing that failed once this run, filed again before the run ends. */
-	const again = dropDecision(s, main, s.leftToNextRun);
-	if (again) return unslotted(again);
+	const retried = again();
+	if (retried) return unslotted(retried);
 	if (flying.size > 0)
 		return unslotted(
 			exit("no batch in flight has a step, and no verdict awaits"),
@@ -1840,7 +1859,8 @@ function batchOf(run) {
  * after a crash finishes the drop and never lands the member: the drop
  * record first, whose row a rerun finishes before the batch goes on. A step
  * repeated after a crash finds its ref already made, and keeps its ticket
- * and state.
+ * and state; a sha dropped again after its earlier drop was settled, reaped
+ * or its ticket closed is a fresh drop.
  * @param {BatchDeps} deps
  * @param {Drop} d
  * @param {QueueRun} run
@@ -1856,10 +1876,14 @@ function dropMember(deps, d, run) {
 			? droppedFrom(batch, d.name)
 			: batch;
 	const drops = deps.drops.read();
-	const was = drops.find((x) => x.ref === d.ref && x.sha === d.sha);
+	const was = drops.find(sameDropAs(d));
+	/* Its ticket read now: one closed since the run began is no ticket. */
+	const stands =
+		was !== undefined &&
+		isStanding(was, (ticket) => readClosed(deps, ticket, was.ref));
 	deps.drops.write([
 		...drops.filter((x) => x !== was),
-		was ? { ...d, ticket: was.ticket, state: was.state } : d,
+		stands ? { ...d, ticket: was.ticket, state: was.state } : d,
 	]);
 	if (left && left !== batch) deps.record.write(left);
 	deps.git.createRef(d.ref, d.sha);
@@ -1880,7 +1904,7 @@ function rewriteDrops(deps, pick, to) {
 
 /**
  * Files the branch's fix ticket, or updates its open one, then records its
- * number on each of the branch's undecided entries with none. The number is
+ * number on each of the branch's unsettled entries with none. The number is
  * known only once filed, so a crash before it is recorded converges on the
  * tracker: the next run finds the open ticket and records it. A filing
  * refused for good is recorded on the entry, which then starts no lander of
@@ -1893,8 +1917,6 @@ function rewriteDrops(deps, pick, to) {
  */
 function fileFixTicket(deps, { drop: d, held }, run) {
 	const { say = () => undefined } = deps;
-	/** @param {Drop} x */
-	const isIt = (x) => x.ref === d.ref && x.sha === d.sha;
 	let filed;
 	try {
 		filed = deps.tracker.fileDropTicket(d, held);
@@ -1902,7 +1924,7 @@ function fileFixTicket(deps, { drop: d, held }, run) {
 		if (isTransientFault(err)) throw err;
 		const why = parseRefusal(parseErrorText(err));
 		if (err instanceof FilingRefusedError) {
-			rewriteDrops(deps, isIt, (x) => ({ ...x, filingRefused: why }));
+			rewriteDrops(deps, sameDropAs(d), (x) => ({ ...x, filingRefused: why }));
 			throw err;
 		}
 		if (run.unfiled.includes(d.ref))
@@ -1915,7 +1937,7 @@ function fileFixTicket(deps, { drop: d, held }, run) {
 	const at = deps.now();
 	rewriteDrops(
 		deps,
-		(x) => x.name === d.name && isUndecided(x) && x.ticket === null,
+		(x) => x.name === d.name && isUnsettled(x) && x.ticket === null,
 		(x) => ({
 			...x,
 			filingRefused: undefined,
@@ -1978,10 +2000,8 @@ function refreshTicket(deps, ticket, reaped, { drop, held }) {
  */
 function settleDrop(deps, { drop: d, main, close, refresh }, run) {
 	const at = deps.now();
-	/** @param {Drop} x */
-	const isIt = (x) => x.ref === d.ref && x.sha === d.sha;
 	if (d.state !== "settled")
-		rewriteDrops(deps, isIt, (x) => ({
+		rewriteDrops(deps, sameDropAs(d), (x) => ({
 			...x,
 			state: "settled",
 			decidedAt: at,
@@ -2003,7 +2023,7 @@ function settleDrop(deps, { drop: d, main, close, refresh }, run) {
 		deps.logQueue("close", d);
 	} else deps.logQueue("settle", d);
 	deps.git.deleteRef(d.ref, d.sha);
-	rewriteDrops(deps, isIt, (x) => ({ ...x, reapedAt: at }));
+	rewriteDrops(deps, sameDropAs(d), (x) => ({ ...x, reapedAt: at }));
 	if (refresh && ticket !== null) refreshTicket(deps, ticket, d.ref, refresh);
 	const { isClosed } = run;
 	return close && ticket !== null
@@ -2757,7 +2777,8 @@ async function actOnPipeline(deps, action, run) {
  * run's end where it is an exit. Waiting on a verdict is no action, so it is
  * not logged.
  * @param {QueueLanderDeps} deps
- * @param {QueueRun} before
+ * @param {QueueRun} before accumulator: each owner read is set in its
+ *   `owners`
  * @param {(action: QueueAction) => void} log
  * @returns {Promise<QueueRun | QueueEnd>}
  */
@@ -2774,7 +2795,7 @@ async function step(deps, before, log) {
 		drops: deps.drops.read(),
 		isOnMain: (sha) =>
 			refs.main !== null && deps.git.isAncestor(sha, refs.main),
-		landedAfter: (name, at) => {
+		hasLandedAfter: (name, at) => {
 			landings ??= deps.landings();
 			return landings.some((l) => l.name === name && l.at > at);
 		},

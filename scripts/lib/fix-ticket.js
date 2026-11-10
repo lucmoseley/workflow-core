@@ -14,7 +14,7 @@
  */
 
 const { citedIssues } = require("./cited-issues.js");
-const { buildDropEvidence } = require("./drop-evidence.js");
+const { buildCauseLine, buildDropEvidence } = require("./drop-evidence.js");
 const { parseFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { FilingRefusedError } = require("./filing-refused.js");
@@ -106,29 +106,6 @@ function buildDropAcceptance({ sha, name, cause }) {
 const dropTicketPrefix = (name) => `Fix ${QUEUE_PREFIX}${name},`;
 
 /**
- * Why the drop was made, in a few words, for a comment.
- * @param {Drop["cause"]} cause
- */
-function buildCauseLine(cause) {
-	switch (cause.kind) {
-		case "conflict":
-			return "it conflicts with `main`";
-		case "refused":
-			return "a commit gate refused its merge";
-		case "red":
-			return cause.noRun
-				? "no CI run fired for its tree"
-				: "it failed alone, twice";
-		case "collision":
-			return cause.noRun
-				? "no CI run fired for its serial step"
-				: "its serial step failed twice";
-		case "unrecorded":
-			return "why is unknown";
-	}
-}
-
-/**
  * @param {Drop} d the branch's newest drop
  * @param {readonly DroppedRef[]} held every dropped ref the branch holds
  * @param {string} subject its tip commit's
@@ -174,15 +151,31 @@ Tip commit: ${quoteSubject(subject)}
  *   openTitled: (prefix: string) => OpenTicket[],
  *   refresh: (n: number, body: string) => void,
  *   comment: (n: number, text: string) => void,
- *   commented: (n: number, text: string) => boolean,
+ *   hasComment: (n: number, text: string) => boolean,
  *   close: (n: number, comment: string) => void}} DropFilerDeps `subjectsOf`
  *   the subjects of the commits on `tip` and not on `base`, newest first;
  *   `openUnits` the tickets rule:size-line weighs a new one under `parent`
  *   against: its sub-issues and this session's filings; `openTitled` the
  *   open issues whose titles start with `prefix`, read live; `refresh`
- *   replaces the issue's body; `comment` adds one; `commented` is whether
+ *   replaces the issue's body; `comment` adds one; `hasComment` whether
  *   a comment on it holds `text`; `close` closes it with `comment`
  */
+
+/**
+ * The subjects of the drop's commits off the `main` it was merged onto,
+ * newest first; throws where it has none.
+ * @param {DropFilerDeps} deps
+ * @param {Drop} d
+ * @returns {[string, ...string[]]}
+ */
+function readDropSubjects(deps, d) {
+	const [tip, ...rest] = deps.subjectsOf(d.onto, d.sha);
+	if (tip === undefined)
+		throw new Error(
+			`${QUEUE_PREFIX}${d.name} at ${short(d.sha)} has no commit off ${short(d.onto)}`,
+		);
+	return [tip, ...rest];
+}
 
 /**
  * The lowest-numbered open ticket of the branch.
@@ -211,12 +204,8 @@ function dropTicketFiler(deps) {
 	return {
 		findDropTicket: (name) => readOpenDropTicket(deps, name)?.number ?? null,
 		fileDropTicket(d, held) {
-			const subjects = deps.subjectsOf(d.onto, d.sha);
+			const subjects = readDropSubjects(deps, d);
 			const [subject] = subjects;
-			if (subject === undefined)
-				throw new Error(
-					`${QUEUE_PREFIX}${d.name} at ${short(d.sha)} has no commit off ${short(d.onto)}`,
-				);
 			const issue = dropTicketIssue(d, held, subject);
 			const open = readOpenDropTicket(deps, d.name);
 			if (open !== null) return updateTicket(deps, open, d, issue.body);
@@ -228,7 +217,7 @@ function dropTicketFiler(deps) {
 			return { number: n, line };
 		},
 		refreshDropTicket(ticket, d, held) {
-			const [subject = ""] = deps.subjectsOf(d.onto, d.sha);
+			const [subject] = readDropSubjects(deps, d);
 			deps.refresh(ticket, dropTicketIssue(d, held, subject).body);
 		},
 		closeDropTicket(ticket, d, main) {
@@ -256,7 +245,7 @@ function updateTicket(deps, open, d, body) {
 	const { number } = open;
 	if (open.body.includes(d.sha))
 		return { number, line: `fix ticket already open: #${number}` };
-	if (!deps.commented(number, d.sha))
+	if (!deps.hasComment(number, d.sha))
 		deps.comment(
 			number,
 			`The queue lander dropped \`${QUEUE_PREFIX}${d.name}\` again, at ${d.sha}: ${buildCauseLine(d.cause)}. This ticket's body now describes that drop.`,
@@ -396,7 +385,7 @@ function liveFilerDeps(root) {
 		comment: (n, text) => {
 			gh(["issue", "comment", String(n), "--repo", repo(), "--body", text]);
 		},
-		commented: (n, text) =>
+		hasComment: (n, text) =>
 			gh([
 				"issue",
 				"view",
