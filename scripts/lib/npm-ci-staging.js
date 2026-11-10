@@ -4,6 +4,8 @@
  * stores (lib/session-checkout.js), #4261. Each swaps the result into place by rename:
  * `npm ci` into a live tree deletes it first, and hook code loads from it.
  * `npm ci --ignore-scripts`: docs/practice/dependency-and-release-management.md.
+ * The lander's local tester (lib/local-tester.js) installs in place but takes
+ * its lockfile name and install timeout from here (#4693).
  */
 
 const { spawnSync } = require("node:child_process");
