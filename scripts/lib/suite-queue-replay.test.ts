@@ -241,7 +241,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		);
 	});
 
-	/* 4,000 MB available against the 2,750 MB `tsc` rung, which clears it alone
+	/* 4,000 MB available against the 3,150 MB `tsc` rung, which clears it alone
 	 * and not less the 2,000 MB the exit line recorded (#3806). */
 	it("names the climb limb where the charge held a wait the reading clears, ahead of the `tsc` fifo", () => {
 		const r = replayOf({
@@ -464,14 +464,16 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 	/* A whole head charged a 1,587 MB climb against its 3,650 MB rung, a
 	 * 1-worker run beside it, a `tsc` running, and a younger `tsc` waiting.
 	 * Each 10 minutes the head is held on another limb: the climb (4,000 MB
-	 * available), the Windows hold alone (5,500 MB, Windows' 2,100 MB free
-	 * under its ~2,300 MB need and over the `tsc`'s ~1,938 MB), then the rung
-	 * itself (3,000 MB, over the `tsc`'s 2,750 MB rung). */
+	 * available, Windows 2,400 MB free), the Windows hold alone (5,500 MB,
+	 * Windows' 2,100 MB free under its ~2,300 MB need and the `tsc`'s
+	 * ~2,345 MB), then the rung itself (3,500 MB, over the `tsc`'s 3,150 MB
+	 * rung, Windows 2,400 MB). */
 	const head = (at: string, { tsc = 1, wholeSlot = false } = {}) => {
 		const base = Date.parse(at);
 		const shift = (t: number) => t - T0 + base;
 		const minute = (m: number) => Math.floor(base / MIN) + m;
-		const used = (m: number) => [6000, 4500, 7000][Math.floor(m / 10)];
+		const used = (m: number) => [6000, 4500, 6500][Math.floor(m / 10)];
+		const win = (m: number) => [2400, 2100, 2400][Math.floor(m / 10)];
 		const w = window();
 		const r = replay(
 			{
@@ -493,7 +495,7 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 					]),
 				),
 				windows: new Map(
-					Array.from({ length: 30 }, (_, m) => [minute(m), 2100]),
+					Array.from({ length: 30 }, (_, m) => [minute(m), win(m)]),
 				),
 				unread: { absent: [], unparsed: 0 },
 			},
@@ -516,7 +518,11 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 
 	it("keeps no stamp where only the head's own queue runs, which charges it nothing", () => {
 		const { limbsOf } = head("2026-11-10T00:00:00Z", { tsc: 0 });
-		expect(limbsOf("s-1")).toEqual({ "peer-climb": 480, open: 1200 });
+		expect(limbsOf("s-1")).toEqual({
+			"peer-climb": 480,
+			windows: 600,
+			open: 600,
+		});
 	});
 
 	it("stamps no head the count limb holds first", () => {
