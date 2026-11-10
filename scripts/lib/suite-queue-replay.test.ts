@@ -283,8 +283,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 	/* Available memory between the two compilers' rungs: a logged TypeScript 7
 	 * type-check clears its rung, a 5.x one, charged 2,045 MB or logged before
 	 * #4892 with no charge, is held on its own (#4892). A killed line is read by
-	 * its charge alone; that queue-run.js logs one is queue-run.test.ts's to
-	 * pin (#4921). */
+	 * its charge alone (#4921). */
 	it("charges each logged type-check the peak of the compiler it ran", () => {
 		const between = 10_000 - (rungMb(peak7) + rung5) / 2;
 		const limbsOf = (logged?: number, reason = "refused") =>
