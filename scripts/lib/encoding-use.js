@@ -56,7 +56,7 @@ const TYPED_COMMAND = /<command-name>\/([\w:-]+)<\/command-name>/g;
  * @param {string} file
  * @param {"main" | "subagent"} tier
  * @param {number} [chunkSize]
- * @returns {Generator<Record<string, any>>}
+ * @returns {Generator<import("./transcript.js").TranscriptRecord>}
  */
 function* streamRecords(file, tier, chunkSize = 1 << 20) {
 	const fd = fs.openSync(file, "r");
@@ -402,7 +402,7 @@ function npmRunNames(command) {
  * One assistant turn writes one JSONL line PER CONTENT BLOCK (mantahostels#1141), so the
  * same `tool_use` id can arrive more than once; the key is that id.
  *
- * @param {Record<string, any>} record
+ * @param {import("./transcript.js").TranscriptRecord} record
  * @returns {Array<{kind: "skill"|"npm", name: string, route: string, at: string|null, key: string}>}
  */
 function recordUses(record) {
@@ -481,7 +481,7 @@ function parseUserText(content) {
  * The tool_use input only — a shape read off stdout would count whatever a
  * session `cat`ed.
  *
- * @param {Record<string, any>} record
+ * @param {import("./transcript.js").TranscriptRecord} record
  * @returns {Array<{shape: string, at: string|null, key: string}>}
  */
 function recordShapes(record) {

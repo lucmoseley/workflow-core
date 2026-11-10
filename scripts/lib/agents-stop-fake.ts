@@ -94,14 +94,14 @@ export const buildPermissionRow = (id: string): Row =>
 	});
 
 /**
- * One `agents --json` answer: the rows printed; a failure, exit 1 where null;
- * text no harness prints; a hang; or a hang that first starts two children,
- * appending each pid to the file named.
+ * One `agents --json` answer: the rows printed; a failure, exit 1 where null,
+ * after printing `rows` where given; text no harness prints; a hang; or a
+ * hang that first starts two children, appending each pid to the file named.
  */
 export type AgentsAnswer =
 	| Row[]
 	| null
-	| { exit: number }
+	| { exit: number; rows?: Row[] }
 	| { malformed: string }
 	| "hang"
 	| { hangsWithChildren: string };
@@ -110,13 +110,18 @@ export type AgentsAnswer =
  * cap, so the cap fires first. */
 const HANG_S = 30;
 
+const printRows = (rows: Row[]) =>
+	`printf '%s' ${shellQuote(JSON.stringify(rows))}`;
+
 const buildListingAnswer = (answer: AgentsAnswer): string => {
 	if (answer === null) return "exit 1";
 	/* `exec`, so the cap's signal reaches the sleep, not a shell it outlives. */
 	if (answer === "hang") return `exec sleep ${HANG_S}`;
-	if (Array.isArray(answer))
-		return `printf '%s' ${shellQuote(JSON.stringify(answer))}; exit 0`;
-	if ("exit" in answer) return `exit ${answer.exit}`;
+	if (Array.isArray(answer)) return `${printRows(answer)}; exit 0`;
+	if ("exit" in answer)
+		return answer.rows
+			? `${printRows(answer.rows)}; exit ${answer.exit}`
+			: `exit ${answer.exit}`;
 	if ("malformed" in answer)
 		return `printf '%s' ${shellQuote(answer.malformed)}; exit 0`;
 	const log = shellQuote(answer.hangsWithChildren);
@@ -126,17 +131,20 @@ const buildListingAnswer = (answer: AgentsAnswer): string => {
 
 /**
  * The `agents` branch: answers as `answer`, or, where `bySeat` maps the
- * call's CLAUDE_CONFIG_DIR, as that seat's answer.
+ * call's CLAUDE_CONFIG_DIR, as that seat's answer. Where `callLog` is given,
+ * it first appends the call's argv to that file.
  */
 export function buildAgentsBranch(
 	answer: AgentsAnswer,
 	bySeat: Record<string, AgentsAnswer> = {},
+	callLog?: string,
 ) {
 	const seatCases = Object.entries(bySeat).map(
 		([seat, a]) => `${shellQuote(seat)}) ${buildListingAnswer(a)} ;;`,
 	);
 	return [
 		'if [ "$1" = "agents" ]; then',
+		callLog ? `echo "$*" >> ${shellQuote(callLog)}` : "",
 		seatCases.length > 0
 			? `case "$CLAUDE_CONFIG_DIR" in\n${seatCases.join("\n")}\nesac`
 			: "",

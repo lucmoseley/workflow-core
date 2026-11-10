@@ -81,6 +81,22 @@ Researched: 2026-10-22
 - Restore the terminal on every exit, a crash included: leave the alternate screen, show the cursor, turn raw mode and mouse modes off, and never throw while restoring. ratatui.rs/recipes/apps/panic-hooks/ [named expert]; github.com/vadimdemedes/ink README, one adopter [unverified]
 - Thus, for a panel over a daemon: draw the observed value as the fact with a pending mark beside it (elapsed time after 10 s; a second press undoes); clear the mark only when a status read shows the change; acknowledge a key within 0.1 s; act on mouse release in the pressed cell and ignore the press that focused the pane; keep every control on a key; confirm only a stop, with result-labelled keys. Derived from the rows above, so it sets no default [unverified]
 
+## Start-up cost of a command run often
+
+Researched: 2026-11-11 for this section.
+
+- Deferred `require()`: "some style guides prescribe that it should be called only in the top level of a module", "to make it easier to identify dependencies"; the exception is a module "only used in very rare situations and will cause significant overhead to load it." eslint.org/docs/latest/rules/global-require [named expert]
+- Rush Stack `Import.lazy()`: "Provides a way to improve process startup times by lazy-loading imported modules"; the load "occurs here, only if needed". "Never apply lazy-loading in a way that would convert the module's type to any." Lazy imports go in one group after the normal ones. api.rushstack.io/pages/node-core-library.import.lazy/ [named expert]
+- Babel's `lazy` option: "evaluating dependencies up front is sometimes entirely un-necessary." "Local paths are much more likely to have circular dependencies, which may break if loaded lazily"; a side-effect import is never lazy. babeljs.io/docs/babel-plugin-transform-modules-commonjs [named expert]
+- React Native: "Inlining `require` calls changes the order in which modules are evaluated, and can even cause some modules to _never_ be evaluated." reactnative.dev/docs/optimizing-javascript-loading [named expert]
+- Shopify CLI: "the more significant the graph is, the more the CLI takes to load"; its decision is to "lazily import the module when needed". shopify.github.io/cli/decision-record/2022-12-21-dynamically-importing-lodash-using-commonjs.html [named expert]
+- A later `require()` of a loaded module is free: "Modules are cached after the first time they are loaded." nodejs.org/api/modules.html [standard or field body]
+- Compile cache (`NODE_COMPILE_CACHE`, v22.1.0; `module.enableCompileCache()`, v22.8.0; stable from v24.15.0): it "may slow down the first load of a module graph, but subsequent loads of the same module graph may get a significant speedup". It stores only "the result of parsing + compilation"; resolution, file reads and execution remain. "there is no substitute for profiling." nodejs.org/docs/latest-v24.x/api/module.html [standard or field body]; v8.dev/blog/code-caching-for-devs [named expert].
+- Measure with `--cpu-prof`, stable since v22.4.0: it "Starts the V8 CPU profiler on start up, and writes the CPU profile to disk before exit"; `--cpu-prof-interval` defaults to 1000 microseconds. nodejs.org/api/cli.html [standard or field body]
+- A log's newest line: `fs.read` at a non-negative `position` reads from there; "it is better to use `fs.read()` directly" when speed matters. nodejs.org/api/fs.html [standard or field body]
+- Budget: "Print something to the user in <100ms." clig.dev [named expert]. No source gives a budget for a polled command.
+- Thus: keep `require()` at the top level by default. For a command run every few seconds, profile first; then move what it never calls out of its load path, by a module split where the code divides cleanly and by a `require()` inside the one function that uses a rare, heavy module, with a comment saying why. Never defer a module loaded for its side effects. Pin the load set with a test, because a later top-level `require` undoes the cut unseen. Read a large append-only log's last row from its end.
+
 ## Tools
 
 - clig.dev names these libraries: "Node: oclif", "Python: Argparse, Click, Typer"; argparse ships with Python 3. clig.dev §Arguments and flags [named expert]

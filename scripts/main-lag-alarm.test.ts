@@ -9,9 +9,7 @@
  * applies.
  */
 
-import fs from "node:fs";
 import http from "node:http";
-import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,9 +17,7 @@ import { runAlarm } from "./lib/main-lag-alarm.js";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { QUEUE_ALERT_TITLES, STALL_TITLE } from "./lib/queue-tickets.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-
-// Through `require`: js-yaml ships no types.
-const yaml = createRequire(import.meta.url)("js-yaml");
+import { loadWorkflow } from "./lib/workflow-yaml-testkit";
 
 const MIN = 60_000;
 const NOW = Date.parse("2026-11-05T12:00:00Z");
@@ -188,27 +184,16 @@ describe("main-lag-alarm.js through fetch", () => {
 	});
 });
 
-interface Workflow {
-	name: string;
-	on: {
-		schedule: { cron: string }[];
-		workflow_dispatch: { inputs: { force_failure: { type: string } } };
-	};
-	jobs: {
-		lag: { name: string; if: string; steps: { run?: string }[] };
-	};
-}
-
 describe("main-lag.yml", () => {
-	const workflow = yaml.load(
-		fs.readFileSync(path.join(ROOT, ".github/workflows/main-lag.yml"), "utf8"),
-	) as Workflow;
+	const workflow = loadWorkflow(
+		path.join(ROOT, ".github/workflows/main-lag.yml"),
+	);
 	const job = workflow.jobs.lag;
 
 	it("runs the check hourly, in the code repo alone", () => {
-		expect(workflow.on.schedule).toEqual([{ cron: "47 * * * *" }]);
-		expect(job.if).toContain("lucmoseley/workflow-core");
-		expect(job.steps.map((s) => s.run).filter(Boolean)).toEqual([
+		expect(workflow.on?.schedule).toEqual([{ cron: "47 * * * *" }]);
+		expect(job?.if).toContain("lucmoseley/workflow-core");
+		expect((job?.steps ?? []).map((s) => s.run).filter(Boolean)).toEqual([
 			[
 				"node scripts/main-lag-alarm.js || exit",
 				'if [ "$FORCE_FAILURE" = true ]; then',
@@ -221,7 +206,7 @@ describe("main-lag.yml", () => {
 	});
 
 	it("takes a boolean forced failure, failed only after the check itself passed", () => {
-		expect(workflow.on.workflow_dispatch.inputs.force_failure.type).toBe(
+		expect(workflow.on?.workflow_dispatch?.inputs?.force_failure?.type).toBe(
 			"boolean",
 		);
 	});
@@ -231,7 +216,7 @@ describe("main-lag.yml", () => {
 		const hours = Number(/against (\d+) h 0 min\.$/.exec(out)?.[1]);
 		expect(hours).toBeGreaterThan(0);
 		expect(workflow.name).toContain(`${hours}h`);
-		expect(job.name).toContain(`No queue ref waited over ${hours} hours`);
-		expect(job.name.replace(/\b2 hours\b/g, "")).not.toMatch(/\d/);
+		expect(job?.name).toContain(`No queue ref waited over ${hours} hours`);
+		expect(job?.name?.replace(/\b2 hours\b/g, "")).not.toMatch(/\d/);
 	});
 });

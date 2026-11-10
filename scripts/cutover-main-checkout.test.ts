@@ -15,6 +15,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import {
+	buildAgentsBranch,
+	buildListedRow,
+	type Row,
+} from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "cutover-main-checkout.js");
@@ -37,16 +43,14 @@ const commitIn = (cwd: string, files: Record<string, string>, msg: string) => {
 };
 
 /** The listing `claude agents --json` answers. */
-const listAgents = (records: object[]) => {
-	const bin = path.join(config, "bin", "claude");
-	const body = JSON.stringify(records);
-	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\n`);
-	fs.chmodSync(bin, 0o755);
-};
+const listAgents = (rows: Row[]) =>
+	writeClaudeStub(path.join(config, "bin", "claude"), [
+		buildAgentsBranch(rows),
+	]);
 
 /** One session, in `cwd`. */
 const listSessionIn = (cwd: string) =>
-	listAgents([{ name: "live", sessionId: "s-1", cwd }]);
+	listAgents([buildListedRow({ name: "live", sessionId: "s-1", cwd })]);
 
 const run = (cwd: string, ...args: string[]) => {
 	const env: NodeJS.ProcessEnv = {

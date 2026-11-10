@@ -3,7 +3,7 @@
  * mode (#2699, spec #2695). Pure: the caller does the act it gets back.
  */
 
-const { REVIEW_HOUR } = require("./morning-review.js");
+const { REVIEW_HOUR } = require("./review-hour.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const MIN_MS = 60 * 1000;

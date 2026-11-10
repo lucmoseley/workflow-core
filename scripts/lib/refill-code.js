@@ -192,9 +192,12 @@ function readRunningCode(pid, codeDir) {
 		const program = readRunningProgram(pid);
 		if (program === null) return null;
 		const root = rootOf(program);
+		/* One of `codeDir`'s is named for the sha it is detached at
+		 * (lib/pinned-code.js's worktreeAt), so no git runs for it: the panel
+		 * polls `status` every few seconds (#4821). */
+		if (path.dirname(root) === codeDir) return short(path.basename(root));
 		if (checkoutOf(root) === null) return "a plugin install";
-		const sha = short(git(root, ["rev-parse", "HEAD"]));
-		return path.dirname(root) === codeDir ? sha : `${sha} in ${root}`;
+		return `${short(git(root, ["rev-parse", "HEAD"]))} in ${root}`;
 	} catch {
 		// A process unreadable or a git read failed mid-status: nothing to name.
 		return null;

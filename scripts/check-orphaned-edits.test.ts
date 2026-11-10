@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import {
 	AS_ROOT,
 	commitAll,
@@ -29,6 +30,7 @@ import {
 	proc,
 	store,
 } from "./lib/arbiter-testkit";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { readWorktreeEdits, readWorktreeFiling } from "./lib/orphan-filings.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { worktreeLabel } from "./lib/session-worktrees.js";
@@ -51,16 +53,13 @@ const sb = freshSandbox((fresh) => {
 
 /** A `claude` stand-in whose `agents --json` lists `sessionIds`, all working. */
 function fakeClaude(...sessionIds: string[]) {
-	const body = JSON.stringify(
-		sessionIds.map((sessionId, i) => ({
-			pid: 100 + i,
-			sessionId,
-			state: "working",
-		})),
-	);
-	const bin = path.join(sb.dir, "bin", "claude");
-	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\n`);
-	fs.chmodSync(bin, 0o755);
+	const bin = writeClaudeStub(path.join(sb.dir, "bin", "claude"), [
+		buildAgentsBranch(
+			sessionIds.map((sessionId, i) =>
+				buildListedRow({ pid: 100 + i, sessionId }),
+			),
+		),
+	]);
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 }
 
@@ -247,8 +246,9 @@ describe("check-orphaned-edits", () => {
 
 	it("reports nothing where liveness cannot be read", async () => {
 		dirty("a.txt", 30);
-		const bin = path.join(sb.dir, "bin", "claude");
-		fs.writeFileSync(bin, "#!/bin/sh\nexit 1\n");
+		writeClaudeStub(path.join(sb.dir, "bin", "claude"), [
+			buildAgentsBranch(null),
+		]);
 
 		const r = await run(["--json"]);
 		expect(JSON.parse(r.stdout).outcome).toBe("SKIP");
