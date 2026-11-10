@@ -7,7 +7,7 @@
  *   {"signature": {"kind": "needle", "key": "<guard key>", "needle": "<id>"?}
  *                | {"kind": "regex", "pattern": "<re>", "flags": "i"?,
  *                   "scope": "main" | "subagent" | "both",
- *                   "reads": "output" | "call"?},
+ *                   "reads": "output" | "call"?, "tool": "<name>"?},
  *    "prediction": "<plain words>",
  *    "case": {"session": "<session id>", "line": <1-based>, "agent": "<id>"?}}
  *
@@ -17,7 +17,8 @@
  * (lib/guard-fires.js `mergeNeedles`), and carries needles. A regex's `reads`
  * is `output`, left out, for a fault a session is shown — a tool result, a
  * hook's output, Stop hook feedback, a system record — or `call` for one whose
- * only trace is a tool call the session made.
+ * only trace is a tool call the session made; `tool` then limits it to one
+ * tool's calls, such as `Bash`.
  *
  * The case names the transcript record where the fault surfaces: the output
  * record a needle or an `output` regex reads, the `tool_use` record for a
@@ -55,7 +56,7 @@ const REGEX_FLAGS = /^[imsu]*$/;
 /**
  * @typedef {{kind: "needle", key: string, needle?: string}
  *   | {kind: "regex", pattern: string, flags?: string,
- *      scope: "main" | "subagent" | "both", reads?: "call"}} Signature
+ *      scope: "main" | "subagent" | "both", reads?: "call", tool?: string}} Signature
  * @typedef {{session: string, line: number, agent?: string}} Case
  * @typedef {{signature: Signature, prediction: string, case: Case}
  *   | {signature: null, why: string}} Declared
@@ -186,6 +187,11 @@ function checkRegex(s) {
 		return {
 			error: `a regex signature's "reads" is "output" (left out: where the fault surfaces — a tool result, a hook's output, Stop hook feedback) or "call" (the tool calls a session made).`,
 		};
+	const { tool } = s;
+	if (tool !== undefined && (reads !== "call" || !isText(tool)))
+		return {
+			error: `a regex signature's "tool" names the one tool whose calls a "reads": "call" regex reads, such as "Bash"; it takes no other form.`,
+		};
 	return {
 		signature: {
 			kind: "regex",
@@ -193,6 +199,7 @@ function checkRegex(s) {
 			...(flags ? { flags } : {}),
 			scope,
 			...(reads === "call" ? { reads } : {}),
+			...(tool === undefined ? {} : { tool }),
 		},
 	};
 }
@@ -268,7 +275,7 @@ function signatureHits(text, sig, tier, registry) {
 		return transcriptFires(text, [needleSubject(sig, registry)], tier).map(
 			(f) => ({ at: f.at }),
 		);
-	return transcriptMatches(text, compile(sig), tier, sig.reads);
+	return transcriptMatches(text, compile(sig), tier, sig);
 }
 
 /**
@@ -311,7 +318,7 @@ function matchesCase(sig, { record, tier }, registry) {
 	if (!readsTier(sig, tier)) return false;
 	if (sig.kind === "needle")
 		return recordFires(record, [needleSubject(sig, registry)]).length > 0;
-	return recordMatches(record, compile(sig), sig.reads);
+	return recordMatches(record, compile(sig), sig);
 }
 
 /**

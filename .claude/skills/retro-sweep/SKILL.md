@@ -173,7 +173,8 @@ alias.
    line). A regex reads `output` by default: the case is then the output
    record — a tool_result, a hook attachment, a Stop hook feedback `user`
    record, a system record. Give `"reads": "call"` for a fault whose only
-   trace is a tool call the session made; the case is then that `tool_use`
+   trace is a tool call the session made, with `"tool"` naming the tool
+   (`"Bash"`); the case is then that `tool_use`
    record, never the session's prose about it. `"signature": null`
    with a `why` where the fault leaves no countable trace. file-issue.js
    refuses a signature that misses its case: fix the signature, or move the

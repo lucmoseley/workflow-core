@@ -568,7 +568,9 @@ describe("transcriptMatches — the regex route", () => {
 			),
 		].join("\n");
 		expect(
-			transcriptMatches(text, /lander dropped "?q\/\d/, "main", "output"),
+			transcriptMatches(text, /lander dropped "?q\/\d/, "main", {
+				reads: "output",
+			}),
 		).toEqual([
 			{ at: "2026-08-20T10:00:00.000Z" },
 			{ at: "2026-08-21T10:00:00.000Z" },
@@ -577,9 +579,11 @@ describe("transcriptMatches — the regex route", () => {
 
 	it("respects the tier: a main read skips a subagent's inline turn, a subagent read keeps it", () => {
 		const text = said("u1", "2026-08-20T10:00:00.000Z", "stall seen", true);
-		expect(transcriptMatches(text, /stall seen/, "main", "output")).toEqual([]);
 		expect(
-			transcriptMatches(text, /stall seen/, "subagent", "output"),
+			transcriptMatches(text, /stall seen/, "main", { reads: "output" }),
+		).toEqual([]);
+		expect(
+			transcriptMatches(text, /stall seen/, "subagent", { reads: "output" }),
 		).toHaveLength(1);
 	});
 
@@ -608,7 +612,9 @@ describe("transcriptMatches — the regex route", () => {
 			}),
 			line({ type: "system", uuid: "u4", timestamp: At, content: "BOOM" }),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main", "output")).toHaveLength(4);
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
+		).toHaveLength(4);
 	});
 
 	it("never counts a session quoting the fault: assistant prose, a prompt, a tool call's input", () => {
@@ -641,7 +647,9 @@ describe("transcriptMatches — the regex route", () => {
 				message: { content: [{ type: "text", text: "why BOOM?" }] },
 			}),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main", "output")).toEqual([]);
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
+		).toEqual([]);
 	});
 
 	const typed = (uuid: string, content: string, extra: object = {}) =>
@@ -653,7 +661,9 @@ describe("transcriptMatches — the regex route", () => {
 			typed("u2", "<bash-stdout>BOOM</bash-stdout><bash-stderr></bash-stderr>"),
 			typed("u3", "<local-command-stdout>BOOM</local-command-stdout>"),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main", "output")).toHaveLength(3);
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
+		).toHaveLength(3);
 	});
 
 	it("never counts a plain-text prompt a person typed, old or new, a `!` command's input or a peer's message", () => {
@@ -667,7 +677,9 @@ describe("transcriptMatches — the regex route", () => {
 				origin: { kind: "peer" },
 			}),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main", "output")).toEqual([]);
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
+		).toEqual([]);
 	});
 
 	it('reads only tool calls\' input under "call": the command a session ran, not its prose or the output', () => {
@@ -696,10 +708,55 @@ describe("transcriptMatches — the regex route", () => {
 				message: { content: [{ type: "text", text: "BOOM" }] },
 			}),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main", "call")).toEqual([
+		expect(transcriptMatches(text, /BOOM/, "main", { reads: "call" })).toEqual([
 			{ at: At },
 		]);
-		expect(transcriptMatches(text, /rm -rf/, "main", "output")).toEqual([]);
+		expect(
+			transcriptMatches(text, /rm -rf/, "main", { reads: "output" }),
+		).toEqual([]);
+	});
+
+	it('reads only the named tool\'s calls under "call" with a tool, never a file write carrying the same text', () => {
+		const call = (uuid: string, name: string, input: object) =>
+			line({
+				type: "assistant",
+				uuid,
+				timestamp: At,
+				message: { content: [{ type: "tool_use", id: uuid, name, input }] },
+			});
+		const text = [
+			call("a1", "Bash", { command: "rm -rf BOOM" }),
+			call("a2", "Write", { file_path: "x.md", content: "rm -rf BOOM" }),
+		].join("\n");
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "call" }),
+		).toHaveLength(2);
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "call", tool: "Bash" }),
+		).toHaveLength(1);
+	});
+
+	it("counts a hook's block once, not again as the Stop hook feedback the harness writes from it", () => {
+		const block = (uuid: string) =>
+			line({
+				type: "attachment",
+				uuid,
+				timestamp: At,
+				attachment: {
+					type: "hook_blocking_error",
+					blockingError: { blockingError: "BOOM refused", command: "x" },
+				},
+			});
+		const text = [
+			block("h1"),
+			typed("u1", "Stop hook feedback:\nBOOM refused", { isMeta: true }),
+			block("h2"),
+			typed("u2", "Stop hook feedback:\nBOOM refused", { isMeta: true }),
+			typed("u3", "Stop hook feedback:\nBOOM refused", { isMeta: true }),
+		].join("\n");
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
+		).toHaveLength(3);
 	});
 
 	it("reads a global pattern from the start of every string, leaving the caller's lastIndex alone", () => {
@@ -709,7 +766,9 @@ describe("transcriptMatches — the regex route", () => {
 		].join("\n");
 		const re = /boom/g;
 		re.lastIndex = 3;
-		expect(transcriptMatches(text, re, "main", "output")).toHaveLength(2);
+		expect(
+			transcriptMatches(text, re, "main", { reads: "output" }),
+		).toHaveLength(2);
 		expect(re.lastIndex).toBe(3);
 	});
 });

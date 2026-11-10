@@ -1457,6 +1457,18 @@ describe("the filing declarations (#4796)", () => {
 			'"reads" is "output"',
 		],
 		[
+			"a tool named on an output regex",
+			{
+				signature: {
+					kind: "regex",
+					pattern: "x",
+					scope: "main",
+					tool: "Bash",
+				},
+			},
+			'"tool" names the one tool',
+		],
+		[
 			"a pattern that does not compile",
 			{ signature: { kind: "regex", pattern: "(", scope: "main" } },
 			"the pattern does not compile",

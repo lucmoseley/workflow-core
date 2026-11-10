@@ -496,25 +496,29 @@ function isHarnessText(record, content) {
 /**
  * The strings of one record's tool calls: each `tool_use` block's input
  * values one level deep, such as a Bash command or an Edit's new text — for a
- * fault whose only trace is the call a session made.
+ * fault whose only trace is the call a session made. Given `tool`, only that
+ * tool's calls, so a fault in a Bash command is not counted again where a
+ * session writes the same text into a file or a dispatch prompt.
  * @param {TranscriptRecord} record
+ * @param {string} [tool]
  * @returns {Generator<string>}
  */
-function* callStrings(record) {
+function* callStrings(record, tool) {
 	const content = record?.message?.content;
 	if (record?.type !== "assistant" || !Array.isArray(content)) return;
 	for (const part of content)
-		if (part?.type === "tool_use") yield* stringsIn(part.input);
+		if (part?.type === "tool_use" && (tool === undefined || part.name === tool))
+			yield* stringsIn(part.input);
 }
 
 /**
  * What a regex signature reads: where a fault surfaces, or the calls made.
  * @typedef {"output" | "call"} Reads
+ * @typedef {{reads?: Reads, tool?: string}} Read  `tool`: for `call`, the one
+ *   tool whose calls it reads
  */
-const READS = { output: outputStrings, call: callStrings };
-
 /** Every `Reads` kind, for a reader that checks a signature's own. */
-const READ_KINDS = /** @type {Reads[]} */ (Object.keys(READS));
+const READ_KINDS = /** @type {const} */ (["output", "call"]);
 
 /**
  * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
@@ -528,9 +532,12 @@ const stateless = (pattern) =>
  * @param {TranscriptRecord} record
  * @param {RegExp} re  a `stateless` copy
  * @param {Reads} reads
+ * @param {string} [tool]  for `call`, the one tool whose calls it reads
  */
-function stringsMatch(record, re, reads) {
-	for (const s of READS[reads](record)) if (re.test(s)) return true;
+function stringsMatch(record, re, reads, tool) {
+	const strings =
+		reads === "call" ? callStrings(record, tool) : outputStrings(record);
+	for (const s of strings) if (re.test(s)) return true;
 	return false;
 }
 
@@ -541,11 +548,11 @@ function stringsMatch(record, re, reads) {
  * against the text a session saw or typed rather than against JSON escapes.
  * @param {TranscriptRecord} record
  * @param {RegExp} pattern
- * @param {Reads} [reads]
+ * @param {Read} [how]
  * @returns {boolean}
  */
-function recordMatches(record, pattern, reads = "output") {
-	return stringsMatch(record, stateless(pattern), reads);
+function recordMatches(record, pattern, { reads = "output", tool } = {}) {
+	return stringsMatch(record, stateless(pattern), reads, tool);
 }
 
 /**
@@ -553,21 +560,34 @@ function recordMatches(record, pattern, reads = "output") {
  * `pattern`, one per record — the regex route beside `transcriptMentions`,
  * for a fault no guard prints (#4796). Same parsing and the same `tier` as
  * `transcriptFires`, so a main-tier read never counts a subagent's inline
- * turn.
+ * turn. A hook's block reaches the transcript twice, as its attachment and
+ * then as the Stop hook feedback `user` record the harness writes from it, so
+ * a feedback record straight after a matching attachment is the same firing
+ * and is not counted again.
  * @param {string} text
  * @param {RegExp} pattern
  * @param {"main" | "subagent"} tier
- * @param {Reads} [reads]
+ * @param {Read} [how]
  * @returns {Array<{at: string|null}>}
  */
-function transcriptMatches(text, pattern, tier, reads = "output") {
+function transcriptMatches(
+	text,
+	pattern,
+	tier,
+	{ reads = "output", tool } = {},
+) {
 	const re = stateless(pattern);
 	const out = [];
-	for (const record of mainChainRecords(text, tier))
-		if (stringsMatch(record, re, reads))
+	let hookHit = false;
+	for (const record of mainChainRecords(text, tier)) {
+		const hit = stringsMatch(record, re, reads, tool);
+		const echo = hookHit && record?.type === "user" && record.isMeta === true;
+		hookHit = hit && hookSpans(record).length > 0;
+		if (hit && !echo)
 			out.push({
 				at: typeof record.timestamp === "string" ? record.timestamp : null,
 			});
+	}
 	return out;
 }
 
