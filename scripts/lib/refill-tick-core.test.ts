@@ -869,6 +869,24 @@ describe("the tick's concurrency row (#3770)", () => {
 			expect.objectContaining({ working: count + 1, ceiling: count + 1 }),
 		]);
 	});
+
+	it("counts the tick's listing in state working, the agents view's figure (#4747)", async () => {
+		const records: { stateWorking: number | null }[] = [];
+		const agents = ["working", "idle", "working", "blocked"].map(
+			(state, i) => ({
+				sessionId: `s${i}`,
+				state,
+			}),
+		);
+		const { io } = fakeIo(stateOf(), {
+			readListing: () => ({ agents, why: null }),
+			appendTick: (tickRecord) => {
+				records.push(tickRecord);
+			},
+		});
+		await tickOf(io);
+		expect(records).toEqual([expect.objectContaining({ stateWorking: 2 })]);
+	});
 });
 
 describe("the room a stopping tick reads (#4071)", () => {

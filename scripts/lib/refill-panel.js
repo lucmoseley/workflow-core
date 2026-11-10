@@ -361,8 +361,8 @@ const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
  * calm.
  * @param {PanelStatus} status
  */
-const buildRunningText = ({ concurrency: { working, ceiling } }) =>
-	`${working ?? "?"} of ${ceiling ?? "?"} running`;
+const buildCountText = ({ concurrency: { stateWorking, working, ceiling } }) =>
+	`${stateWorking ?? "?"} working · ${working ?? "?"} of ${ceiling ?? "?"} slots taken`;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
@@ -405,7 +405,7 @@ function buildObservedLines(status, now) {
 			{ text: "Stopping: sessions running finish", role: "secondary" },
 		];
 	return [
-		{ text: buildRunningText(status), role: "value" },
+		{ text: buildCountText(status), role: "value" },
 		{
 			text: buildWaitingRowText(status, now),
 			role: "secondary",
