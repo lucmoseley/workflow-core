@@ -132,6 +132,20 @@ export const ANSWERS = {
 			"copying its transcript /a to /b: EISDIR: illegal operation on a directory",
 	},
 	hasJobRecord: { none: false, present: true },
+	carryJobFiles: {
+		none: { carried: [] },
+		carried: {
+			carried: [
+				{
+					from: `/home/u/.claude3/jobs/${JOB}/tmp/pasted-1.png`,
+					to: `/home/u/repo/.claude/tmp/attachments/${JOB}/tmp/pasted-1.png`,
+				},
+			],
+		},
+		uncopyable: {
+			why: `carrying /home/u/.claude3/jobs/${JOB}/tmp/shots out of its job directory failed: EISDIR: illegal operation on a directory, copyfile`,
+		},
+	},
 	writeJobName: {
 		written: null,
 		unwritable:
@@ -234,6 +248,7 @@ export function fakeResumeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 		findResumed: served("findResumed"),
 		copyTranscript: served("copyTranscript"),
 		hasJobRecord: served("hasJobRecord"),
+		carryJobFiles: served("carryJobFiles"),
 		writeJobName: served("writeJobName"),
 		stop: served("stop"),
 		overflowLookup: served("overflowLookup"),

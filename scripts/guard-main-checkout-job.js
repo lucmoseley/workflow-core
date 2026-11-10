@@ -13,13 +13,9 @@
  *
  * CARRIED FILES. `claude rm` deletes the original's job directory, where the
  * harness saves a pasted image and names it in the prompt. Each file the
- * prompt names under that directory is copied to the worktree's ignored
- * `.claude/tmp/attachments/`, at its path below the job directory, and the
- * copy's path replaces it in the relaunched prompt (#4750). The directory
- * matches as the job was given it or resolved; punctuation glued after a path
- * that does not exist is dropped. Where one cannot be copied, or resolves
- * outside the job directory, nothing is relaunched. Residual: a path holding a
- * space is cut there, so its copy fails and the job stays put.
+ * prompt names there is copied into the worktree and named there in the
+ * relaunched prompt (lib/carry-job-files.js, #4750); where one cannot be
+ * copied, nothing is relaunched.
  *
  * WHY A RELAUNCH. The harness's own isolation (`worktree.bgIsolation`) sends
  * a background job to `EnterWorktree`, which 2.1.318 does not offer one, and
@@ -66,9 +62,7 @@ const {
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { escapeRe } = require("./lib/regex-group.js");
-const { relativeUnder } = require("./lib/is-under.js");
-const { trimEndRun } = require("./lib/trim-run.js");
+const { carryJobFiles } = require("./lib/carry-job-files.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
@@ -82,7 +76,7 @@ const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + 10_000;
 
 /**
  * @typedef {{ root: string, seat: string, jobId: string, jobDir: string,
- *   jobDirs: string[], intent: string, name: string, flags: string[], short: string,
+ *   intent: string, name: string, flags: string[], short: string,
  *   providerEnv: Record<string, string> }} Job
  * @typedef {{ ok: boolean, output: string }} Ran
  * @typedef {{
@@ -151,36 +145,6 @@ function decide(source, io) {
 }
 
 /**
- * `job`'s prompt with each file it names under the job directory copied into
- * `dir` and named there instead; throws naming a path it cannot carry.
- * @param {Job} job
- * @param {string} dir
- * @returns {string}
- */
-function carryJobFiles(job, dir) {
-	const unders = job.jobDirs.map((d) => escapeRe(`${d}${path.sep}`));
-	const named = new RegExp(`(?:${unders.join("|")})[^\\s'"\`<>|]+`, "g");
-	const into = path.join(dir, ".claude", "tmp", "attachments");
-	return job.intent.replace(named, (token) => {
-		const bare = trimEndRun(token, ".,;:)]");
-		const from = fs.existsSync(token) ? token : bare;
-		try {
-			const rel = relativeUnder(job.jobDir, fs.realpathSync(from));
-			if (!rel) throw new Error("it is not inside the job directory");
-			const to = path.join(into, rel);
-			fs.mkdirSync(path.dirname(to), { recursive: true });
-			fs.copyFileSync(from, to);
-			return `${to}${token.slice(from.length)}`;
-		} catch (err) {
-			throw new Error(
-				`carrying ${from} into its worktree failed: ${caught(err).message}`,
-				{ cause: err },
-			);
-		}
-	});
-}
-
-/**
  * `claude <args>` on `job`'s seat in `cwd`, in the environment the daemon
  * gave the job.
  * @param {string[]} args
@@ -221,13 +185,7 @@ function readJob(payload, env) {
 		root: cwd,
 		seat: where.seat,
 		jobId: where.jobId,
-		jobDir: fs.realpathSync(String(env.CLAUDE_JOB_DIR)),
-		jobDirs: [
-			...new Set([
-				path.resolve(String(env.CLAUDE_JOB_DIR)),
-				fs.realpathSync(String(env.CLAUDE_JOB_DIR)),
-			]),
-		],
+		jobDir: path.resolve(String(env.CLAUDE_JOB_DIR)),
 		intent: typeof record.intent === "string" ? record.intent : "",
 		name: String(record.name ?? "session"),
 		flags: Array.isArray(record.respawnFlags)
@@ -255,7 +213,13 @@ function ports(at) {
 		job: () => readJob(at.payload, env),
 		cut: (job) => launchDir(job.root, job.intent || job.name),
 		msLeft: () => HOOK_TIMEOUT_MS - (Date.now() - started),
-		carry: carryJobFiles,
+		carry: (job, dir) =>
+			carryJobFiles({
+				text: job.intent,
+				jobDir: job.jobDir,
+				jobId: job.short,
+				checkout: dir,
+			}).text,
 		launch: (job, intent, dir) =>
 			runOnJobSeat(["--bg", ...job.flags, "--", intent], dir, env, job),
 		remove: (job) => runOnJobSeat(["rm", job.short], job.root, env, job),

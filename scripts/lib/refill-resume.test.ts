@@ -500,3 +500,85 @@ describe("adoptResumed on a key (#4580)", () => {
 		expect(steps.adoptResumed(keyed, IDS, 1000)).toBeNull();
 	});
 });
+
+describe("a job's named files carried before its record is removed (#4750)", () => {
+	const Carried = ANSWERS.carryJobFiles.carried.carried[0];
+	const Why = ANSWERS.carryJobFiles.uncopyable.why;
+	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
+	const told = (argv: unknown) => String((argv as string[]).at(-1));
+
+	it("tells a resumed copy where its job's files went, and carries them again before removing its original", () => {
+		const { steps, callsTo } = fakeIo({
+			carryJobFiles: "carried",
+			runClaude: ["copy", "removed"],
+			readJobRecord: ["copyWorking", "working"],
+			hasJobRecord: "present",
+		});
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS).failed).toBeNull();
+		const [resume, rm] = argvs(callsTo("runClaude"));
+		expect(told(resume)).toBe(
+			`${PROMPT}\n\nFiles an earlier prompt named in this job's directory, which removing the job deletes, were copied out: ${Carried?.from} is now ${Carried?.to}.`,
+		);
+		expect(rm).toEqual(["rm", JOB]);
+		expect(callsTo("carryJobFiles")).toEqual([
+			[SEAT, JOB, ROOT],
+			[SEAT, JOB, ROOT],
+		]);
+	});
+
+	it("resumes nothing where a file will not carry", () => {
+		const { steps, callsTo } = fakeIo({ carryJobFiles: "uncopyable" });
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({ failed: Why });
+		expect(callsTo("runClaude")).toEqual([]);
+	});
+
+	it("never removes a record whose job's files will not carry", () => {
+		const { steps, callsTo } = fakeIo({
+			carryJobFiles: "uncopyable",
+			hasJobRecord: "present",
+		});
+		expect(steps.removeJobRecord(SEAT, SESSION, ROOT)).toBe(
+			`keeping its job's files on ${SEAT}: ${Why}`,
+		);
+		expect(callsTo("runClaude")).toEqual([]);
+	});
+
+	it("carries a killed job's files before retiring it, and tells its resume under its own id where", () => {
+		const { steps, callsTo } = fakeIo({
+			carryJobFiles: "carried",
+			readJobRecord: ["saved", "saved", "working"],
+			hasJobRecord: "present",
+			runClaude: ["removed", "ownId"],
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS).failed).toBeNull();
+		const [rm, resume] = argvs(callsTo("runClaude"));
+		expect(rm).toEqual(["rm", JOB]);
+		expect(told(resume)).toContain(`${Carried?.from} is now ${Carried?.to}`);
+	});
+
+	it("stops and removes nothing of a killed job whose files will not carry", () => {
+		const { steps, callsTo } = fakeIo({
+			carryJobFiles: "uncopyable",
+			hasJobRecord: "present",
+		});
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS)).toEqual({ failed: Why });
+		expect(callsTo("stop")).toEqual([]);
+		expect(callsTo("runClaude")).toEqual([]);
+	});
+
+	it("carries a moved session's files from the seat it left, telling its resume on the target where", () => {
+		const { steps, callsTo } = fakeIo({
+			carryJobFiles: "carried",
+			runClaude: "woke",
+			readJobRecord: "working",
+		});
+		const job = { ...LAUNCH, jobId: JOB, prompt: "/implement 7" } as never;
+		expect(steps.moveSession(job, { seat: TARGET }, PROMPT, IDS).failed).toBe(
+			null,
+		);
+		expect(callsTo("carryJobFiles")[0]).toEqual([SEAT, JOB, ROOT]);
+		expect(told(argvs(callsTo("runClaude")).at(-1))).toContain(
+			`${Carried?.from} is now ${Carried?.to}`,
+		);
+	});
+});

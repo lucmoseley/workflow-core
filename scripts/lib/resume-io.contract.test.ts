@@ -244,6 +244,19 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 	findResumed: (v) => v,
 	copyTranscript: errnoOf,
 	hasJobRecord: (v) => v,
+	carryJobFiles: (v) => {
+		const r = v as ReturnType<ResumeIo["carryJobFiles"]>;
+		return "why" in r
+			? {
+					errno: r.why.match(
+						/^carrying \S+ out of its job directory failed: ([A-Z]+):/,
+					)?.[1],
+				}
+			: r.carried.map((c) => ({
+					from: path.basename(c.from),
+					to: c.to.split(`${path.sep}.claude${path.sep}`)[1],
+				}));
+	},
 	writeJobName: errnoOf,
 	stop: (v) => {
 		const r = v as ReturnType<ResumeIo["stop"]>;
@@ -389,6 +402,22 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 				sessionId: SESSION,
 				cwd: root,
 			});
+		},
+	},
+	carryJobFiles: {
+		none: () => io().carryJobFiles(seat, JOB, root),
+		carried: () => {
+			const file = path.join(jobDirPath(seat, JOB), "tmp", "pasted-1.png");
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, "png");
+			writeJobRecord(JOB, { sessionId: SESSION, intent: `look at ${file}` });
+			return io().carryJobFiles(seat, JOB, root);
+		},
+		uncopyable: () => {
+			const shots = path.join(jobDirPath(seat, JOB), "tmp", "shots");
+			fs.mkdirSync(shots, { recursive: true });
+			writeJobRecord(JOB, { sessionId: SESSION, intent: `look at ${shots}` });
+			return io().carryJobFiles(seat, JOB, root);
 		},
 	},
 	hasJobRecord: {
