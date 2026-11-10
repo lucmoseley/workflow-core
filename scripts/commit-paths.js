@@ -15,8 +15,8 @@
  * `tree=` and the `refs/reviewed/` pin both take — and writes nothing. It is
  * built by the same private-index code and refused on the same grounds, save
  * that a set changing nothing prints HEAD's own tree, so a change already
- * committed can still be named (#4288) — a patch whose every section's
- * postimage HEAD already holds among them (#4700). It takes no message, runs no tests,
+ * committed can still be named (#4288) — a patch HEAD already holds every
+ * section's postimage of included (#4700). It takes no message, runs no tests,
  * and logs no outcome line.
  *
  * --CHECK (#4207) gives the verdict that commit would get and makes none: it
@@ -670,32 +670,53 @@ function readPatchSections(root, patch) {
 function stalePreimages(sections, base) {
 	const stale = [];
 	for (const { section, file } of sections) {
-		const pre = /^index ([0-9a-f]+)\.\./m.exec(section)?.[1];
-		if (!pre || /^0+$/.test(pre)) continue;
+		const pre = readIndexLine(section)?.pre;
+		if (!pre || /^0+$/.test(pre) || isBlobAt(base, file, pre)) continue;
 		const blob = readBlobSha(base, file);
-		if (!blob.startsWith(pre))
-			stale.push(
-				`${file} (cut against ${pre}, HEAD holds ${blob ? blob.slice(0, pre.length) : "no such file"})`,
-			);
+		stale.push(
+			`${file} (cut against ${pre}, HEAD holds ${blob ? blob.slice(0, pre.length) : "no such file"})`,
+		);
 	}
 	return stale;
 }
 
 /**
  * Whether `base` holds every section's postimage — the patch already
- * committed. A section with no `index` line cannot be told apart from a stale
- * one, so it answers no; an all-zero postimage is a deletion, held where
- * `base` has no such file.
+ * committed (#4700). A pure rename, which has no `index` line, is held where
+ * `base` has its new name and not its old; any other section with none, or a
+ * typechange's delete half, answers no.
  * @param {PatchSection[]} sections
  * @param {string} base
  */
-function holdsPostimages(sections, base) {
+function isPatchCommitted(sections, base) {
 	return sections.every(({ section, file }) => {
-		const post = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(section)?.[1];
-		if (!post) return false;
-		const blob = readBlobSha(base, file);
-		return /^0+$/.test(post) ? blob === "" : blob.startsWith(post);
+		const post = readIndexLine(section)?.post;
+		if (post) return isBlobAt(base, file, post);
+		const from = /^rename from (.+)$/m.exec(section)?.[1];
+		return (
+			from !== undefined &&
+			readBlobSha(base, from) === "" &&
+			readBlobSha(base, file) !== ""
+		);
 	});
+}
+
+/** A section's `index <pre>..<post>` shas, null where it has no such line. @param {string} section */
+function readIndexLine(section) {
+	const m = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/m.exec(section);
+	return m ? { pre: m[1], post: m[2] } : null;
+}
+
+/**
+ * Whether `file` at `base` is the blob `sha` abbreviates; an all-zero `sha`
+ * means no such file.
+ * @param {string} base
+ * @param {string} file
+ * @param {string} sha
+ */
+function isBlobAt(base, file, sha) {
+	const blob = readBlobSha(base, file);
+	return /^0+$/.test(sha) ? blob === "" : blob.startsWith(sha);
 }
 
 /** `path`'s blob sha at `rev`, or "" where it has none. @type {(rev: string, file: string) => string} */
@@ -1193,10 +1214,9 @@ function buildIndex(
 				2,
 			);
 	}
-	const stale = stalePreimages(sections, base);
 	// --tree after the commit landed: HEAD's tree, the whole paths staged.
-	if (stale.length > 0 && !refuseUnchanged && holdsPostimages(sections, base))
-		return;
+	if (!refuseUnchanged && isPatchCommitted(sections, base)) return;
+	const stale = stalePreimages(sections, base);
 	if (stale.length > 0)
 		fail(
 			`the patch was not cut against HEAD for ${stale.join("; ")}. Where this command already committed it, it is done; otherwise cut it again from \`git diff HEAD -U0 -- <path>\`. Nothing written.`,

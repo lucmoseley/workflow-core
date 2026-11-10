@@ -1187,36 +1187,81 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 		expect(readLog()).toBe(before);
 	});
 
-	it("prints HEAD's tree for a patch already committed, a deletion included, where the commit refuses (#4700)", () => {
+	it("prints HEAD's tree for a patch already committed — an edit and a deletion, a whole path beside it — where the commit refuses (#4700)", () => {
 		write("gone.md");
 		git("add", "gone.md");
 		git("commit", "-qm", "seed");
 		write("a.md", "mine\na\n");
 		fs.rmSync(path.join(sb.repo, "gone.md"));
+		write("whole.md");
 		const patch = path.join(sb.dir, "mine.patch");
 		fs.writeFileSync(
 			patch,
 			git("diff", "HEAD", "-U0", "--", "a.md", "gone.md"),
 		);
-		expect(run(["-m", "x", "--patch", patch]).status).toBe(0);
-		expect(tree(["--patch", patch])).toBe(
+		expect(run(["-m", "x", "--patch", patch, "--", "whole.md"]).status).toBe(0);
+		expect(tree(["--patch", patch, "--", "whole.md"])).toBe(
 			git("rev-parse", "HEAD^{tree}").trim(),
 		);
 		const r = run(["-m", "x", "--patch", patch]);
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("was not cut against HEAD");
+		expect(r.stderr).toContain("was not cut against HEAD for a.md");
 	});
 
-	it("refuses a patch cut against neither HEAD nor its commit", () => {
+	it.each([
+		[
+			"a new file",
+			() => {
+				write("new.md");
+				git("add", "-N", "new.md");
+				return git("diff", "HEAD", "-U0", "--", "new.md");
+			},
+		],
+		[
+			"a pure rename",
+			() => {
+				git("mv", "a.md", "moved.md");
+				return git("diff", "--cached", "-M", "HEAD", "--", "a.md", "moved.md");
+			},
+		],
+	])(
+		"prints HEAD's tree for %s already committed, which no preimage marks stale (#4700)",
+		(_, cut) => {
+			fs.writeFileSync(path.join(sb.dir, "mine.patch"), cut());
+			git("add", "-A");
+			git("commit", "-qm", "x");
+			expect(tree(["--patch", path.join(sb.dir, "mine.patch")])).toBe(
+				git("rev-parse", "HEAD^{tree}").trim(),
+			);
+		},
+	);
+
+	it.each([
+		[
+			"cut against neither HEAD nor its commit",
+			() => {
+				write("a.md", "other\n");
+				git("commit", "-qam", "other");
+			},
+		],
+		[
+			"committed for only some of its files",
+			() => git("commit", "-qm", "part", "--", "a.md"),
+		],
+	])("refuses a patch %s, naming the file and the re-cut", (_, land) => {
+		write("b.md");
+		git("add", "b.md");
+		git("commit", "-qm", "seed");
 		write("a.md", "mine\na\n");
+		write("b.md", "mine\nb.md\n");
 		const patch = path.join(sb.dir, "mine.patch");
-		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md"));
-		write("a.md", "other\n");
-		git("commit", "-qam", "other");
+		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md", "b.md"));
+		land();
 		write("a.md", "mine\na\n");
 		const r = run(["--tree", "--patch", patch]);
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("was not cut against HEAD");
+		expect(r.stderr).toContain("was not cut against HEAD for a.md");
+		expect(r.stderr).toContain("git diff HEAD -U0 -- <path>");
 	});
 });
 
