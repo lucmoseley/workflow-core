@@ -486,7 +486,7 @@ describe("check-vendored-skills", () => {
 		expect(r.tags).toEqual(["LOCK-HASH"]);
 		expect(r.stderr).toContain(".agents/skills/a/");
 		expect(r.stderr).toContain("The manifest is the first suspect");
-		expect(r.stderr).toContain("--revendor at the vendoring commit");
+		expect(r.stderr).toContain("--revendor at what was pulled");
 	});
 
 	it("says so when the lock is on disk and will not parse (mantahostels#3522)", () => {
@@ -1306,7 +1306,7 @@ const readJson = (root: string, rel: string) =>
 
 /**
  * A tree vendoring `a` from mattpocock/skills, with a declared edit, and `z`
- * from emilkowalski/skills — the repo's own shape, two sources under one record.
+ * from emilkowalski/skills.
  */
 function twoSourceRoot() {
 	const root = build({
@@ -1435,6 +1435,29 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 				),
 			"has no skills/engineering/a/ at v9.9.9",
 		],
+		[
+			"the clone has no origin",
+			() => {
+				const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+				up.git("remote", "remove", "origin");
+				return up;
+			},
+			"has no `origin` remote",
+		],
+		[
+			"the clone's origin is not on GitHub",
+			() => {
+				const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+				up.git(
+					"remote",
+					"set-url",
+					"origin",
+					"https://example.invalid/a/b.git",
+				);
+				return up;
+			},
+			"is not a GitHub repo",
+		],
 	])("refuses and writes nothing where %s", (_name, clone, says) => {
 		const root = twoSourceRoot();
 		const files = [SIDECAR, "skills-lock.json"].map((rel) =>
@@ -1450,9 +1473,15 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 			clone().clone,
 		]);
 
-		expect(r.code).not.toBe(0);
+		expect(r.code).toBe(2);
 		expect(r.out).toContain(says);
 		expect(files.map((f) => fs.readFileSync(f, "utf8"))).toEqual(before);
+	});
+
+	it("refuses --from without --revendor as a usage error", () => {
+		const r = runText(twoSourceRoot(), ["--from", "/nowhere"]);
+		expect(r.code).toBe(2);
+		expect(r.out).toContain("it needs --revendor");
 	});
 
 	it("names the --from route in the advice under an UPSTREAM-MOVED", () => {

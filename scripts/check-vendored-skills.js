@@ -69,9 +69,10 @@
  * carries no declared edit — anywhere else the two are expected to disagree and
  * the digest cannot say why. So it fires where the per-file check is blind: the
  * MANIFEST is wrong, because `--revendor --at <rev>` was pointed at a commit
- * where an undeclared edit had already landed, which bakes those bytes in as
- * "what the vendor supplied" and silences every later verdict on that file. The
- * lock is the installer's own witness of the pull, so it disagrees.
+ * where an undeclared edit had already landed, or `--from` at a tag other than
+ * the one pulled, which bakes those bytes in as "what the vendor supplied" and
+ * silences every later verdict on that file. The lock is the installer's own
+ * witness of the pull, so it disagrees.
  *
  * That needs the per-file gate to have been defeated first — `HUSKY=0`, a
  * `--warn` run, or the edit riding a commit staging no path this check is scoped
@@ -176,16 +177,21 @@ const {
 const { landingCutOver } = require("./lib/cutover.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
+const { isUnder } = require("./lib/is-under.js");
 
 const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
 const RECORD = ".agents/vendored-upstream-pass.json";
 const STAND_DOWN = "WFC_UPSTREAM_RECORD_OFF";
+/** Hex digits of the sha `vendoredAt` names. A first choice, the width the
+ * record already held (`d1478fcb`); git lengthens it where that is ambiguous. */
+const VENDORED_AT_SHA_WIDTH = 8;
 /** The files the upstream record vouches for, by their repo paths. */
 const COVERED = [LOCK, NOTICES];
 
 /**
  * @typedef {{ editedHash: string, issue: number, why: string }} EditEntry
+ * @typedef {{ rel: string, content: Buffer }} SkillFile one file of a skill folder, `rel` relative to it
  * @typedef {{
  *   ranOn: string,
  *   sha256: Record<string, string | null>,
@@ -280,7 +286,7 @@ function readVendoredFilesOnDisk(root) {
  * @returns {string}
  */
 function skillFolderHash(dir) {
-	/** @type {{ rel: string, content: Buffer }[]} */
+	/** @type {SkillFile[]} */
 	const files = [];
 	collectSkillFiles(dir, dir, files);
 	return hashSkillFiles(files);
@@ -290,7 +296,7 @@ function skillFolderHash(dir) {
  * `skillFolderHash`'s digest, over one skill folder's files however they were
  * read: off disk, or out of an upstream clone's blobs.
  *
- * @param {{ rel: string, content: Buffer }[]} files each `rel` relative to the skill folder
+ * @param {SkillFile[]} files each `rel` relative to the skill folder
  * @returns {string}
  */
 function hashSkillFiles(files) {
@@ -309,7 +315,7 @@ function hashSkillFiles(files) {
  *
  * @param {string} dir
  * @param {string} cur
- * @param {{ rel: string, content: Buffer }[]} files accumulator: each file found is pushed here
+ * @param {SkillFile[]} files accumulator: each file found is pushed here
  */
 function collectSkillFiles(dir, cur, files) {
 	for (const e of fs.readdirSync(cur, { withFileTypes: true })) {
@@ -444,10 +450,35 @@ function forget(root, rel) {
 }
 
 /**
- * Rebuild the `vendored` manifest from a commit — what a re-pull ends with.
+ * Every regular file under `dir` as `rev` holds it in the repository at `cwd`.
+ * A symlink or submodule is skipped: the walks over a skill folder on disk skip
+ * them too.
  *
- * Reads the blobs at `rev`, not the working tree: the point is to record what
- * the vendor supplied, and the working tree is exactly where local edits live.
+ * @param {string} cwd
+ * @param {string} rev
+ * @param {string} dir repo-relative, POSIX
+ * @returns {{ file: string, content: Buffer }[]} `file` repo-relative
+ */
+function readBlobsAt(cwd, rev, dir) {
+	const rows = execGit(
+		["ls-tree", "-r", "-z", "--full-tree", rev, "--", `${dir}/`],
+		{ cwd, encoding: "utf8" },
+	)
+		.split("\0")
+		.filter(Boolean);
+	const blobs = [];
+	for (const row of rows) {
+		const mode = row.slice(0, 6);
+		if (mode !== "100644" && mode !== "100755") continue;
+		const file = row.slice(row.indexOf("\t") + 1);
+		blobs.push({ file, content: execGit(["show", `${rev}:${file}`], { cwd }) });
+	}
+	return blobs;
+}
+
+/**
+ * Rebuild the `vendored` manifest from a commit of this repo holding the
+ * vendor's bytes pristine: the first vendoring.
  *
  * @param {string} root
  * @param {string} rev
@@ -457,30 +488,19 @@ function revendor(root, rev) {
 		cwd: root,
 		encoding: "utf8",
 	}).trim();
-	const listed = execGit(
-		["ls-tree", "-r", "--name-only", at, "--", SKILLS_DIR],
-		{ cwd: root, encoding: "utf8" },
-	)
-		.split("\n")
-		.filter(Boolean)
-		.sort();
-	if (listed.length === 0)
+	const blobs = readBlobsAt(root, at, SKILLS_DIR);
+	if (blobs.length === 0)
 		throw new Error(`${at} has no files under ${SKILLS_DIR}/.`);
 	/** @type {Record<string, string>} */
 	const vendored = {};
-	for (const rel of listed)
-		vendored[rel] = sha256(
-			execGit(["show", `${at}:${rel}`], {
-				cwd: root,
-			}),
-		);
+	for (const b of blobs) vendored[b.file] = sha256(b.content);
 	const sidecar = fs.existsSync(path.join(root, SIDECAR))
 		? loadSidecar(root)
 		: /** @type {Sidecar} */ ({ vendoredAt: at, vendored: {}, edits: {} });
 	sidecar.vendoredAt = at;
-	sidecar.vendored = vendored;
+	sidecar.vendored = sortKeys(vendored);
 	writeJson(path.join(root, SIDECAR), sidecar);
-	return `recorded ${listed.length} vendored file(s) as supplied at ${at}`;
+	return `recorded ${blobs.length} vendored file(s) as supplied at ${at}`;
 }
 
 /**
@@ -513,57 +533,37 @@ function readCloneSource(clone) {
 }
 
 /**
- * One skill folder's files as `sha` holds them in `clone`, each path relative
- * to the folder. Regular files only, and none under `node_modules`: what
- * `collectSkillFiles` reads of the same folder once installed.
+ * One skill folder's files as `sha` holds them in `clone`, none under
+ * `node_modules`: what `collectSkillFiles` reads of the same folder once
+ * installed.
  *
  * @param {string} clone
  * @param {string} sha
  * @param {string} folder repo-relative, POSIX
- * @returns {{ rel: string, content: Buffer }[]}
+ * @returns {SkillFile[]}
  */
 function readUpstreamFolder(clone, sha, folder) {
-	const listed = execGit(
-		["ls-tree", "-r", "-z", "--full-tree", sha, "--", `${folder}/`],
-		{ cwd: clone, encoding: "utf8" },
-	)
-		.split("\0")
-		.filter(Boolean);
-	/** @type {{ rel: string, content: Buffer }[]} */
-	const files = [];
-	for (const row of listed) {
-		const tab = row.indexOf("\t");
-		const mode = row.slice(0, 6);
-		const file = row.slice(tab + 1);
-		if (mode !== "100644" && mode !== "100755") continue;
-		const rel = file.slice(folder.length + 1);
-		if (rel.split("/").includes("node_modules")) continue;
-		files.push({
-			rel,
-			content: execGit(["show", `${sha}:${file}`], { cwd: clone }),
-		});
-	}
-	return files;
+	return readBlobsAt(clone, sha, folder)
+		.map((b) => ({ rel: b.file.slice(folder.length + 1), content: b.content }))
+		.filter((f) => !f.rel.split("/").includes("node_modules"));
 }
 
 /**
  * Swap one skill's manifest rows for the files upstream supplied.
  *
- * @param {Record<string, string>} vendored mutated in place
+ * @param {Record<string, string>} vendored accumulator: the skill's rows are swapped here
  * @param {string} name
- * @param {{ rel: string, content: Buffer }[]} supplied
+ * @param {SkillFile[]} supplied
  */
 function replaceSkillRows(vendored, name, supplied) {
-	const prefix = `${SKILLS_DIR}/${name}/`;
+	const dir = `${SKILLS_DIR}/${name}`;
 	for (const rel of Object.keys(vendored))
-		if (rel.startsWith(prefix)) delete vendored[rel];
-	for (const f of supplied) vendored[prefix + f.rel] = sha256(f.content);
+		if (isUnder(rel, [dir])) delete vendored[rel];
+	for (const f of supplied) vendored[`${dir}/${f.rel}`] = sha256(f.content);
 }
 
 /**
- * Record a re-pull from a clone of the upstream repo (#4802): for each skill
- * the lock sources from that repo, the manifest rows and the lock's
- * `computedHash` as the clone's `rev` supplies them, and `vendoredAt`.
+ * `--revendor --from` (#4802), as the header's RECORDING A PULL has it.
  *
  * Everything is read and hashed before either file is written, so a refusal
  * leaves both as they were.
@@ -608,7 +608,7 @@ function revendorFrom(root, rev, from) {
 		const supplied = readUpstreamFolder(clone, sha, folder);
 		if (supplied.length === 0)
 			throw new Error(
-				`${source} has no ${folder}/ at ${rev}, where ${LOCK} places "${name}" — renamed or dropped upstream. Nothing was written.`,
+				`${source} has no ${folder}/ at ${rev}, where ${LOCK} places "${name}" — renamed or dropped upstream. Nothing was written: correct its skillPath in ${LOCK}, or de-vendor it, then run this again.`,
 			);
 		replaceSkillRows(vendored, name, supplied);
 		files += supplied.length;
@@ -616,10 +616,13 @@ function revendorFrom(root, rev, from) {
 		if (entry.computedHash !== hash) moved.push(name);
 		entry.computedHash = hash;
 	}
-	const short = execGit(["rev-parse", "--short=8", sha], {
-		cwd: clone,
-		encoding: "utf8",
-	}).trim();
+	const short = execGit(
+		["rev-parse", `--short=${VENDORED_AT_SHA_WIDTH}`, sha],
+		{
+			cwd: clone,
+			encoding: "utf8",
+		},
+	).trim();
 	sidecar.vendoredAt = `${source}@${short}${sha.startsWith(rev) ? "" : ` (${rev})`}`;
 	sidecar.vendored = sortKeys(vendored);
 	writeJson(path.join(root, SIDECAR), sidecar);
@@ -1020,7 +1023,7 @@ function lockHashFinding(ctx, { root, name, locked, notClean }) {
 	if (got !== locked)
 		ctx.warn(
 			"LOCK-HASH",
-			`${SKILLS_DIR}/${name}/ matches the manifest and carries no declared edit, yet its folder hash (${got.slice(0, 12)}) differs from the ${locked.slice(0, 12)} ${LOCK} recorded at install. The manifest is the first suspect, not the files: a --revendor pointed at a commit that already carried an undeclared edit would read exactly like this. Re-run --revendor at the vendoring commit, or re-install the skill. But where several clean skills say this at once, suspect the port instead — this checker's copy of upstream's construction, or the locale it sorts paths under.`,
+			`${SKILLS_DIR}/${name}/ matches the manifest and carries no declared edit, yet its folder hash (${got.slice(0, 12)}) differs from the ${locked.slice(0, 12)} ${LOCK} recorded at install. The manifest is the first suspect, not the files: a --revendor pointed at a commit that already carried an undeclared edit would read exactly like this. Re-run --revendor at what was pulled (--at <tag> --from <a clone of the upstream repo>, or --at <the vendoring commit>), or re-install the skill. But where several clean skills say this at once, suspect the port instead — this checker's copy of upstream's construction, or the locale it sorts paths under.`,
 			{ skill: name },
 		);
 }
