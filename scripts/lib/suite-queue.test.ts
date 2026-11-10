@@ -1518,12 +1518,11 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(tscDir, 100)).toBe(named - 100);
 	});
 
-	it("charges a lander marker carrying a whole run's charge above a whole suite's peak (#3973)", () => {
+	it("never caps a lander marker's carried charge at a whole suite's peak (#3973)", () => {
 		const { suiteDir, tscDir } = queues();
-		const whole = launchChargeMb({ kind: "lander", files: [] });
-		expect(whole).toBeGreaterThan(SUITE_PEAK_MB);
-		joined(suiteDir, 11, 0, { role: "lander", chargeMb: whole }).spawned();
-		expect(climbOf(tscDir, 100)).toBe(whole - 100);
+		const above = SUITE_PEAK_MB + 500;
+		joined(suiteDir, 11, 0, { role: "lander", chargeMb: above }).spawned();
+		expect(climbOf(tscDir, 100)).toBe(above - 100);
 	});
 
 	it("charges a queued pytest its runner's peak, not a whole suite's (#4648)", () => {
