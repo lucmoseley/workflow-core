@@ -26,9 +26,8 @@ const { readRunCode, readSupersededFiles } = require("./lander-code.js");
 const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
+const { dropRecord, pipelineRecord } = require("./lander-records.js");
 const {
-	pipelineRecord,
-	dropRecord,
 	queueGit,
 	queueLogger,
 	refusedRecord,

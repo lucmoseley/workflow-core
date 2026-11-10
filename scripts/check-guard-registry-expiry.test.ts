@@ -262,17 +262,17 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 
 describe("--against HEAD reads HEAD under HEAD's own checker, so a digest-code change that expires a row is refused (#4807)", () => {
 	const { stagingRepo, gate, review, added } = anchorExpiryKit();
-	const checker = "scripts/check-guard-registry.js";
-	const loop = "for (const lib of sourcedBy(rel, text, root, !stack).sort())";
-	/* The fixture's own checker, its digest of guard-branch.sh widened to fold
-	 * guard-amend.sh in, every anchor and guard as committed. */
+	const digestCode = "scripts/lib/guard-digest.js";
+	const loop = "for (const lib of sourcedBy(base, rel, text, !stack).sort())";
+	/* The fixture's own digest code, its digest of guard-branch.sh widened to
+	 * fold guard-amend.sh in, every anchor and guard as committed. */
 	const widen = (root: string) => {
-		const code = fs.readFileSync(path.join(root, checker), "utf8");
-		if (!code.includes(loop)) throw new Error(`no ${loop} in ${checker}`);
+		const code = fs.readFileSync(path.join(root, digestCode), "utf8");
+		if (!code.includes(loop)) throw new Error(`no ${loop} in ${digestCode}`);
 		return {
-			[checker]: code.replace(
+			[digestCode]: code.replace(
 				loop,
-				'for (const lib of [...sourcedBy(rel, text, root, !stack), ...(rel === "scripts/guard-branch.sh" ? ["scripts/guard-amend.sh"] : [])].sort())',
+				'for (const lib of [...sourcedBy(base, rel, text, !stack), ...(rel === "scripts/guard-branch.sh" ? ["scripts/guard-amend.sh"] : [])].sort())',
 			),
 		};
 	};
