@@ -1,7 +1,7 @@
 /*
  * presence.js — whether the founder is at the laptop (#2004, spec #1995):
  * present means he typed a prompt in some session, on any seat, within the
- * last PRESENT_WINDOW_MS. Away mode returns to normal on it.
+ * last PRESENT_WINDOW_MS.
  *
  * ONE MARKER PER MACHINE, `~/.claude/.founder-presence` (lib/machine-marker.js),
  * because a per-checkout or per-seat file would miss his prompts in every
@@ -12,10 +12,10 @@
  * config dir, in the seat file's form. Line one is the time, line two the seat.
  */
 
-const fs = require("node:fs");
 const os = require("node:os");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { configDirFrom, seatDir } = require("./config-dir.js");
+const { readText } = require("./file-read.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 const { planSeatsOf } = require("./refill-seats.js");
 
@@ -41,6 +41,20 @@ function markPresent(now, env = process.env) {
 }
 
 /**
+ * The marker's time in ms, null where none is recorded, and the seat it names.
+ * @param {Record<string, string | undefined>} env
+ * @returns {{at: number|null, recorded: string}}
+ */
+function readMarker(env) {
+	/* Fails open to no record, which reads as away (#2004). */
+	const read = readText(markerPath(env));
+	const text = read.state === "read" ? read.data : "";
+	const [time = "", recorded = ""] = text.split("\n").map((l) => l.trim());
+	const at = Date.parse(time);
+	return { at: Number.isNaN(at) ? null : at, recorded };
+}
+
+/**
  * The last typed prompt's time in ms and the plan seat it was typed on. `at`
  * is null where no time is recorded or the marker is unreadable; `seat` is
  * null where none is recorded, it is not a plan seat `list` declares, or the
@@ -50,23 +64,18 @@ function markPresent(now, env = process.env) {
  * @returns {{at: number|null, seat: string|null}}
  */
 function readLastTyped(list, env = process.env) {
-	let text;
-	try {
-		text = fs.readFileSync(markerPath(env), "utf8");
-	} catch {
-		/* Fails open to no record, which reads as away (#2004). */
-		return { at: null, seat: null };
-	}
-	const [time = "", recorded = ""] = text.split("\n").map((l) => l.trim());
-	const at = Date.parse(time);
+	const { at, recorded } = readMarker(env);
 	const listed =
 		list.errors.length === 0 &&
 		planSeatsOf(list.seats).some((s) => s.dir === recorded);
-	return {
-		at: Number.isNaN(at) ? null : at,
-		seat: recorded && listed ? recorded : null,
-	};
+	return { at, seat: recorded && listed ? recorded : null };
 }
+
+/**
+ * The last typed prompt's time in ms, null as readLastTyped's `at` is.
+ * @param {Record<string, string | undefined>} [env]
+ */
+const readLastTypedAt = (env = process.env) => readMarker(env).at;
 
 /**
  * "present" where the last typed prompt falls within the window before `now`,
@@ -83,6 +92,7 @@ function presenceAt(lastTyped, now) {
 
 module.exports = {
 	readLastTyped,
+	readLastTypedAt,
 	markPresent,
 	presenceAt,
 };

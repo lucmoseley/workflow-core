@@ -13,7 +13,10 @@
  *     mod's delivery. The payload carries no origin field, and at this hook
  *     the transcript does not yet hold the prompt's record, so the text is
  *     all there is to read.
- *   - the refill loop's own resume prompts (lib/loop-prompts.js).
+ *   - the refill loop's own resume prompts, and a prompt another script
+ *     types through `claude attach` or resumes a job with: each opens with
+ *     its prefix (lib/loop-prompts.js), which lib/claude-attach.js's typed
+ *     attach refuses to go without (#4844).
  *   - a print-mode run (`claude -p`, `CLAUDE_CODE_ENTRYPOINT` `sdk-cli`): a
  *     script's prompt. It inherits its parent's `CLAUDE_JOB_DIR`, so the
  *     intent test alone would count it.
@@ -26,11 +29,13 @@
  *
  * BLIND SPOTS: a scheduled task's or `/loop` iteration's prompt is its own
  * text, and counts. A `claude --bg` he types himself reads as a dispatcher's.
+ * A script that types into a session by a route of its own, with no prefix,
+ * counts. A prompt he types or pastes that opens with either prefix does not.
  */
 
 const { isHisJobRecord } = require("./background-start.js");
 const { readJobRecordIn } = require("./job-paths.js");
-const { isLoopPrompt } = require("./loop-prompts.js");
+const { isPrefixedPrompt } = require("./loop-prompts.js");
 const { isSubagentPayload } = require("./subagent-payload.js");
 
 const HARNESS_PROMPT =
@@ -51,11 +56,12 @@ function isDispatchedLaunchPrompt(prompt) {
 }
 
 /**
- * Whether a prompt's text alone marks it the harness's or the loop's.
+ * Whether a prompt's text alone marks it the harness's, the loop's or
+ * another script's.
  * @param {string} prompt
  */
 const isMachineWrittenPrompt = (prompt) =>
-	HARNESS_PROMPT.test(prompt) || isLoopPrompt(prompt);
+	HARNESS_PROMPT.test(prompt) || isPrefixedPrompt(prompt);
 
 /** @param {unknown} payload  the hook's parsed stdin */
 function isFounderTyping(payload) {

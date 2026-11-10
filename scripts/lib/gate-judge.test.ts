@@ -12,7 +12,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { judgedBasisFaults } from "./gate-judge.js";
+import {
+	JUDGE_BOUND_MS,
+	judgedBasisFaults,
+	LAUNCHER_GRACE_MS,
+} from "./gate-judge.js";
 import {
 	type JudgeFakePlan,
 	readJudgeCalls,
@@ -299,6 +303,17 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 		const r = judge(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
+	});
+
+	it("the default bound and its grace end inside the guard's hook limit", () => {
+		const hooks = JSON.parse(
+			fs.readFileSync(
+				path.join(__dirname, "..", "..", "hooks", "hooks.json"),
+				"utf8",
+			),
+		);
+		const limitMs = hooks.hooks.PreToolUse[0].hooks[0].timeout * 1000;
+		expect(JUDGE_BOUND_MS + LAUNCHER_GRACE_MS).toBeLessThan(limitMs);
 	});
 
 	it("a launch that would not bill the subscription, launching nothing", () => {

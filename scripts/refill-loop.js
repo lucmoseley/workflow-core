@@ -184,7 +184,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --quiet-bench | --no-quiet-bench         let a due quiet-gated bench pause launches while the founder is absent, as it does by default; or never
   set --hold-launches <minutes> | --release-launches  launch nothing for this long, up to ${HOLD_MAX_MINUTES}, keeping housekeeping and leaving any pause as it is, while a manual /pick-next dispatches; or launch again now
-  set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
+  set --away | --normal                        hand a session at a question off to its issue, until set --normal or the panel's Away switch; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal

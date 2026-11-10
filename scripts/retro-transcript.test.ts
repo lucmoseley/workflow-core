@@ -19,7 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -209,6 +209,25 @@ describe("reduction", () => {
 		expect(out).toEqual([
 			`L1 09:00:00 LOOP: ${API_PROMPT}`,
 			`L2 09:00:00 LOOP queued: ${IDLE_PROMPT}`,
+		]);
+	});
+
+	it("labels a script's typed prompt SCRIPT, never FOUNDER, though its origin is human (#4844)", () => {
+		const typed = scriptPrompt("carry on");
+		const log = sessionLog([
+			user(typed, { origin: { kind: "human" } }),
+			attachment({
+				type: "queued_command",
+				commandMode: "prompt",
+				prompt: typed,
+				origin: { kind: "human" },
+			}),
+		]);
+		const r = run([log]);
+		expect(r.status).toBe(0);
+		expect(readTranscript(r.stdout)).toEqual([
+			`L1 09:00:00 SCRIPT: ${typed}`,
+			`L2 09:00:00 SCRIPT queued: ${typed}`,
 		]);
 	});
 

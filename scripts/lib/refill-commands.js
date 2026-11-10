@@ -45,7 +45,6 @@ const {
 	controlWithoutOptedOut,
 	scopeRoots,
 	handedOffSince,
-	withAbsentRead,
 	launchesSince,
 	recordedStop,
 } = require("./refill-loop.js");
@@ -480,9 +479,7 @@ function buildQuietBenchChange(control, on) {
 }
 
 /**
- * Only the mode changed. A repeat `--away` keeps the switch's time but clears
- * its absent read, so a tick that has yet to see the prompt behind this ask does
- * not take that prompt for his return (#3870).
+ * Only the mode changed.
  * @param {Control} control
  * @param {Scope["mode"]} mode
  * @param {SetContext} context
@@ -494,12 +491,7 @@ function buildModeChange(control, mode, { now }) {
 			write: controlInMode(control, mode, now),
 			lines: [`mode:      ${mode}`],
 		};
-	return {
-		write: control.away?.absentSeen
-			? withAbsentRead(control, false, now)
-			: null,
-		lines: [`unchanged: mode ${mode}`],
-	};
+	return { write: null, lines: [`unchanged: mode ${mode}`] };
 }
 
 /**

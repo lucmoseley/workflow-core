@@ -1,14 +1,17 @@
 /*
- * loop-prompts.js — the prompts the refill loop types into, or resumes, a
- * session it launched. Each opens with LOOP_PROMPT_PREFIX, so `isLoopPrompt`
- * tells lib/founder-typing.js, lib/tool-calls-since.js, retro-transcript.js
- * and pick-retro-sessions.js it is not the founder's typing (#3369, #3378,
- * #3381).
+ * loop-prompts.js — the prompts a script types into, or resumes, a session
+ * with, each opening with a prefix that marks it no typing of the founder's:
+ * the refill loop's with LOOP_PROMPT_PREFIX (#3369, #3378, #3381), any other
+ * script's with SCRIPT_PROMPT_PREFIX, through `scriptPrompt` (#4844).
+ * `isPrefixedPrompt` reads either, for lib/founder-typing.js,
+ * lib/tool-calls-since.js, lib/claude-attach.js, pick-retro-sessions.js and
+ * rescue-sessions.js; retro-transcript.js labels each by its own.
  */
 
 const { scriptPath } = require("./script-path.js");
 
 const LOOP_PROMPT_PREFIX = "[refill loop] ";
+const SCRIPT_PROMPT_PREFIX = "[script] ";
 
 /* #2359's wording. */
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
@@ -57,6 +60,19 @@ function parkedPromptOf(cause) {
 /** @param {string} text */
 const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);
 
+/** @param {string} text  what a script, not the loop, types or resumes with */
+const scriptPrompt = (text) => `${SCRIPT_PROMPT_PREFIX}${text}`;
+
+/** @param {string} text */
+const isScriptPrompt = (text) =>
+	text.trimStart().startsWith(SCRIPT_PROMPT_PREFIX);
+
+/**
+ * Whether `text` opens with the loop's prefix or a script's.
+ * @param {string} text
+ */
+const isPrefixedPrompt = (text) => isLoopPrompt(text) || isScriptPrompt(text);
+
 module.exports = {
 	API_PROMPT,
 	BOOT_PROMPT,
@@ -67,5 +83,8 @@ module.exports = {
 	MOVED_PROMPT,
 	hasNothingToRepeat,
 	isLoopPrompt,
+	isPrefixedPrompt,
+	isScriptPrompt,
 	parkedPromptOf,
+	scriptPrompt,
 };

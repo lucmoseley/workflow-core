@@ -171,7 +171,8 @@ function readLanding(root, sessionId) {
 		}
 		lines.push(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
 	} catch (err) {
-		/* Fail-open (#4485). */
+		/* Fail-open (#4485): the queue's lines are a second reading, and
+		 * the commit states above stand without them. */
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);
 	}
 	/** @type {Map<string, ShaState>} */

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /*
- * main-lag-alarm.js — the off-machine stall check (#4443, #4458), run hourly
- * on GitHub by .github/workflows/main-lag.yml: fails where the oldest
- * `queue/<name>` ref on the remote has waited past lib/main-lag-alarm.js's
+ * queue-wait-alarm.js — the off-machine stall check (#4443, #4458), run hourly
+ * on GitHub by .github/workflows/queue-wait.yml: fails where the oldest
+ * `queue/<name>` ref on the remote has waited past lib/queue-wait-alarm.js's
  * QUEUE_BACKSTOP_MS, so a stall is caught with the machine off or the refill
  * loop dead.
  *
- *   node scripts/main-lag-alarm.js
+ *   node scripts/queue-wait-alarm.js
  *
  * Reads GITHUB_API_URL, GITHUB_REPOSITORY and GH_TOKEN, as Actions sets them.
  *
@@ -25,7 +25,7 @@
  */
 
 const { buildActionsApi } = require("./lib/actions-api.js");
-const { runAlarm } = require("./lib/main-lag-alarm.js");
+const { runAlarm } = require("./lib/queue-wait-alarm.js");
 
 /** @returns {Promise<number>} */
 const main = () =>
@@ -44,7 +44,7 @@ if (require.main === module)
 			process.exitCode = code;
 		},
 		(e) => {
-			process.stderr.write(`main-lag-alarm: ${e}\n`);
+			process.stderr.write(`queue-wait-alarm: ${e}\n`);
 			process.exitCode = 2;
 		},
 	);

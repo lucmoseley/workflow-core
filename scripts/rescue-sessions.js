@@ -46,7 +46,7 @@ const { requiredGroup } = require("./lib/regex-group");
 const { expandHome } = require("./lib/home-path.js");
 const { caught } = require("./lib/caught.js");
 const { parseJsonl } = require("./lib/jsonl.js");
-const { isLoopPrompt } = require("./lib/loop-prompts.js");
+const { isPrefixedPrompt } = require("./lib/loop-prompts.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
@@ -326,7 +326,7 @@ function buildNarrationLines(j) {
 		j.message &&
 		typeof j.message.content === "string" &&
 		!j.message.content.startsWith("<") &&
-		!isLoopPrompt(j.message.content)
+		!isPrefixedPrompt(j.message.content)
 	) {
 		out.push(`USER: ${j.message.content.slice(0, USER_TURN_CHARS)}`);
 	}

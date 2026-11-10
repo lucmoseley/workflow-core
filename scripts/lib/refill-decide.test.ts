@@ -15,7 +15,7 @@ import { row } from "./refill-loop-fixture";
 
 const {
 	FULL,
-	awayChangeOf,
+	isFirstAbsentRead,
 	buildLimitCapText,
 	buildLoopWait,
 	buildIdleText,
@@ -82,88 +82,86 @@ const tick = (over: Record<string, unknown> = {}) =>
 const launched = (d: { launches?: { root: string; issues: number[] }[] }) =>
 	(d.launches ?? []).map((l) => `${l.root}#${l.issues.join("+")}`);
 
-describe("away mode's return (#3870)", () => {
+describe("away mode's first absent read (#4846)", () => {
 	const Switched = NOW - 8 * HOUR;
 	const PromptBeforeSwitch = Switched - 5 * 60 * 1000;
-	/** Each tick's change, a mode and absent read carried over as the tick writes them; the switch at `since`, Switched where omitted. */
-	const changesOver = (
+	/** Whether each tick's read is the first absent one, carried over as the tick writes it; the switch at `since`, Switched where omitted. */
+	const readsOver = (
 		ticks: { now: number; lastPromptAt: number | null }[],
 		since = Switched,
 	) => {
-		let control = {
-			mode: "away",
-			away: { since, absentSeen: false },
-		};
+		let absentSeen = false;
 		return ticks.map(({ now, lastPromptAt }) => {
-			const change = awayChangeOf(control, lastPromptAt, now);
-			if (change === "absent")
-				control = { ...control, away: { ...control.away, absentSeen: true } };
-			if (change === "return") control = { ...control, mode: "normal" };
-			return change;
+			const first = isFirstAbsentRead(
+				{ mode: "away", away: { since, absentSeen } },
+				lastPromptAt,
+				now,
+			);
+			absentSeen ||= first;
+			return first;
 		});
 	};
 
-	it("returns on the first present read after an absent one", () => {
+	it("marks the first absent read only, a present read after it changing nothing", () => {
 		expect(
-			changesOver([
+			readsOver([
 				{ now: Switched + HOUR, lastPromptAt: PromptBeforeSwitch },
 				{ now: Switched + 2 * HOUR, lastPromptAt: PromptBeforeSwitch },
 				{ now: NOW, lastPromptAt: NOW - 1000 },
-				{ now: NOW + 1000, lastPromptAt: NOW - 1000 },
+				{ now: NOW + HOUR, lastPromptAt: NOW - 1000 },
 			]),
-		).toEqual(["absent", null, "return", null]);
+		).toEqual([true, false, false, false]);
 	});
 
-	it("stays away while every read since the switch is present", () => {
+	it("marks none while every read since the switch is present", () => {
 		const typing = [1, 10, 20, 29].map((minutes) => {
 			const now = Switched + minutes * 60 * 1000;
 			return { now, lastPromptAt: now - 1000 };
 		});
-		expect(changesOver(typing)).toEqual([null, null, null, null]);
+		expect(readsOver(typing)).toEqual([false, false, false, false]);
 	});
 
-	it("returns from a switch made while present, once an absent read follows", () => {
+	it("marks the absent read that follows a switch made while present", () => {
 		const typedAfterSwitch = Switched + 60 * 1000;
 		expect(
-			changesOver([
+			readsOver([
 				{ now: Switched + 2 * 60 * 1000, lastPromptAt: typedAfterSwitch },
 				{
 					now: typedAfterSwitch + PRESENT_WINDOW_MS,
 					lastPromptAt: typedAfterSwitch,
 				},
-				{ now: NOW, lastPromptAt: NOW - 1000 },
 			]),
-		).toEqual([null, "absent", "return"]);
+		).toEqual([false, true]);
 	});
 
-	it("stays away through a prompt soon after a switch made long after the last one (#4184)", () => {
+	it("marks none for a prompt soon after a switch made long after the last one (#4184)", () => {
 		const oneMinuteOn = NOW + 60 * 1000;
 		expect(
-			changesOver(
+			readsOver(
 				[
 					{ now: NOW, lastPromptAt: NOW - PRESENT_WINDOW_MS - 10 * 60 * 1000 },
 					{ now: oneMinuteOn, lastPromptAt: oneMinuteOn },
 				],
 				NOW,
 			),
-		).toEqual([null, null]);
+		).toEqual([false, false]);
 	});
 
 	it("reads no record of a prompt as present for one window after the switch (#4184)", () => {
 		expect(
-			changesOver(
+			readsOver(
 				[
 					{ now: NOW, lastPromptAt: null },
 					{ now: NOW + PRESENT_WINDOW_MS, lastPromptAt: null },
 				],
 				NOW,
 			),
-		).toEqual([null, "absent"]);
+		).toEqual([false, true]);
 	});
 
-	it("reads no record of a prompt as absent, and changes nothing in normal mode", () => {
-		expect(changesOver([{ now: NOW, lastPromptAt: null }])).toEqual(["absent"]);
-		expect(awayChangeOf({ mode: "normal" }, NOW - 1000, NOW)).toBeNull();
+	it("reads no record of a prompt as absent, and marks nothing in normal mode", () => {
+		expect(readsOver([{ now: NOW, lastPromptAt: null }])).toEqual([true]);
+		expect(isFirstAbsentRead({ mode: "normal" }, null, NOW)).toBe(false);
 	});
 });
 

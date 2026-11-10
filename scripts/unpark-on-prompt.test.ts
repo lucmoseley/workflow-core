@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
-import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -131,6 +131,7 @@ describe("a prompt that unparks nothing", () => {
 		["a mod's delivery", "Delivered by the wfc-delivery mod: a report"],
 		["the loop's API-error resume", API_PROMPT],
 		["the loop's resumed-idle prompt", IDLE_PROMPT],
+		["a script's typed prompt", scriptPrompt("go with (A)")],
 	])("leaves the label for %s (#3369)", (_, prompt) => {
 		park(31);
 		run({ prompt });

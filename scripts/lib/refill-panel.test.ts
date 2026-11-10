@@ -1906,7 +1906,7 @@ describe("the Away switch", () => {
 		expect(calls).toEqual([["status", "--json"]]);
 	});
 
-	it("reads normal once a status read shows the automatic return, and turns on again", async () => {
+	it("reads normal once a status read shows another writer's switch, and turns on again", async () => {
 		let shown: object = { ...Away, handedOffSinceAway: 2 };
 		const { calls, run } = runnerOf({
 			"set --away --json": () => ({}),

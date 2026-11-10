@@ -9,8 +9,8 @@
  * ci.yml's "Retry failed files" step runs it on a `lander/batch-<k>` push after
  * a failed Vitest step. The re-run writes its own report beside the first,
  * which stays the uploaded one. It ends on two lines: the files the retry
- * cleared, `CLEARED` below, which lib/actions-tester.js records on a green
- * batch as its flakes (#4558); and the files still failing, `STILL_FAILING`,
+ * cleared, lib/suite-output.js's `CLEARED`, which lib/actions-tester.js records
+ * on a green batch as its flakes (#4558); and the files still failing, `STILL_FAILING`,
  * which it takes a red batch's failing files from alone, since `--log-failed`
  * also prints the first run's failures from the step that went on past them.
  *
@@ -26,11 +26,10 @@ const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { readText } = require("./lib/file-read.js");
+const { CLEARED, STILL_FAILING } = require("./lib/suite-output.js");
 const { reportRoot } = require("./lib/suite-timings.js");
 const { writeFd } = require("./lib/write-fd.js");
-
-const CLEARED = "retry-failed-files: cleared by one retry:";
-const STILL_FAILING = "retry-failed-files: still failing after one retry:";
 
 /** @param {string[]} files */
 const buildFileList = (files) => (files.length > 0 ? files.join(", ") : "none");
@@ -42,11 +41,13 @@ const buildFileList = (files) => (files.length > 0 ? files.join(", ") : "none");
  * @returns {{files: string[]} | {why: string}}
  */
 function readFailedFiles(file, root) {
-	if (!fs.existsSync(file)) return { why: `no report at ${file}` };
+	const read = readText(file);
+	if (read.state === "absent") return { why: `no report at ${file}` };
 	/** @type {{testResults?: {name?: unknown, status?: unknown}[]}} */
 	let parsed;
 	try {
-		parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+		if (read.state === "unreadable") throw read.error;
+		parsed = JSON.parse(read.data);
 	} catch {
 		return { why: `the report at ${file} does not parse` };
 	}
@@ -105,4 +106,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exit(main());
 
-module.exports = { main, CLEARED, STILL_FAILING };
+module.exports = { main };

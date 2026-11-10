@@ -68,6 +68,12 @@ const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const {
+	ASK,
+	PERMISSION_ASK,
+	PROMPT,
+	SCRIPTED_PROMPT,
+} = require("./lib/recorder-prompts.js");
+const {
 	PROBE_ARGV,
 	PROBE_CWD,
 	PROBE_TIMEOUT_MS,
@@ -87,12 +93,6 @@ const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
  * "No job matching". */
 const NO_JOB = "00000000";
-const PROMPT = "Reply with the single word ok. Use no tools.";
-const ASK =
-	"Ask me one question, whether I prefer red or blue, with the AskUserQuestion tool. Use no other tool.";
-/* Under `--permission-mode manual` a Bash write prompts. */
-const PERMISSION_ASK =
-	"Run exactly this Bash command and nothing else: touch /tmp/wfc-permission-probe. Use no other tool.";
 /* A guess: one such Haiku turn took about 25 s here, under load. */
 const WAIT_MS = 180_000;
 /* A guess: lib/reaper.js stops a done job within a tick, so the poll is
@@ -323,7 +323,7 @@ function launchArgv(argv) {
  * @param {string[]} [flags]
  */
 function resume(sessionId, original, copy, flags = []) {
-	const r = claude(["--bg", "--resume", sessionId, ...flags, PROMPT]);
+	const r = claude(["--bg", "--resume", sessionId, ...flags, SCRIPTED_PROMPT]);
 	const started = parseResumed(r);
 	if (r.status !== 0 || !started)
 		throw new Error(
@@ -353,7 +353,7 @@ function attachExits(id) {
 	 * typed line is waited on, so only `claude attach`'s start-up runs, which
 	 * that bound's margin covers. */
 	const offTerminal = claude(["attach", id], ATTACH_TIMEOUT_MS);
-	const [file, args, opts] = buildTypedAttach(id, PROMPT);
+	const [file, args, opts] = buildTypedAttach(id, SCRIPTED_PROMPT);
 	const onTerminal = spawnSync(file, args, { ...opts, encoding: "utf8" });
 	if (onTerminal.error) throw onTerminal.error;
 	return {

@@ -1549,32 +1549,27 @@ describe("a ticked repo its owner opts out, on the real tick (#4188)", () => {
 	});
 });
 
-describe("away mode's return on the real tick (#3870)", () => {
+describe("away mode's absent read on the real tick (#4846)", () => {
 	const controlFile = () => at(".refill-loop-control.json");
 	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
 	/* Paused, so each tick dispatches nothing and the run outlasts it. */
-	const seedAway = (absentSeen: boolean) => {
+	const seedAway = () => {
 		const control = readControl();
 		fs.writeFileSync(
 			controlFile(),
 			JSON.stringify({
 				...control,
 				paused: { by: "founder", at: 7 },
-				away: { since: 7, absentSeen },
+				away: { since: 7, absentSeen: false },
 				scope: { ...control.scope, mode: "away" },
 			}),
 		);
 	};
-	const typedAt = (ms: number) =>
-		fs.writeFileSync(at("no-presence"), `${new Date(ms).toISOString()}\n`);
 	const wake = () =>
 		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
-	const modeIs = (mode: string) =>
-		polled(() => readControl().scope.mode === mode, `no tick read ${mode}`);
 
-	it("leaves the return to the next tick while another writer holds the lock", async () => {
-		seedAway(true);
-		typedAt(Date.now());
+	it("leaves the absent read to the next tick while another writer holds the lock", async () => {
+		seedAway();
 		const holder = spawnIdleHolder(loopEnv({}));
 		try {
 			fs.writeFileSync(`${controlFile()}.lock`, String(holder.pid));
@@ -1583,15 +1578,21 @@ describe("away mode's return on the real tick (#3870)", () => {
 				() => fs.existsSync(at(".refill-loop-state.json")),
 				"no tick wrote its state",
 			);
-			expect(readControl().scope.mode).toBe("away");
+			expect(readControl().away.absentSeen).toBe(false);
 
 			holder.kill();
 			wake();
-			await modeIs("normal");
+			await polled(
+				() => readControl().away.absentSeen === true,
+				"no tick recorded the absent read",
+			);
+			expect(readControl().scope.mode).toBe("away");
 			requestStop();
 			const r = await settled(running, "run past a held lock");
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("away mode's change waits for the next tick");
+			expect(r.stdout).toContain(
+				"away mode's absent read waits for the next tick",
+			);
 		} finally {
 			holder.kill();
 		}

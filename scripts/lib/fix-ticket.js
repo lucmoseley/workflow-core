@@ -22,7 +22,7 @@ const { gh, ghIssueListAll, parseErrLine } = require("./gh.js");
 const { spawnGitSync } = require("./git.js");
 const { parseMessageLine } = require("./first-line.js");
 const { short } = require("./lander-git.js");
-const { QUEUE_PREFIX } = require("./landing-refs.js");
+const { queueBranch } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { takesLabel } = require("./takes-label.js");
 const { readOwnFilings, similarTitles } = require("./tracker-ops.js");
@@ -95,7 +95,7 @@ function buildOwedPass({ files, typecheck }) {
 
 /** @param {Drop} d */
 function buildDropAcceptance({ sha, name, cause }) {
-	const queued = `\`${QUEUE_PREFIX}${name}\``;
+	const queued = `\`${queueBranch(name)}\``;
 	switch (cause.kind) {
 		case "conflict":
 			return `${short(sha)}'s change merges onto \`main\`, each file above settled, and is pushed to ${queued} again.`;
@@ -115,7 +115,7 @@ function buildDropAcceptance({ sha, name, cause }) {
  * name's prefix opens another's.
  * @param {string} name after `queue/`
  */
-const dropTicketPrefix = (name) => `Fix ${QUEUE_PREFIX}${name},`;
+const dropTicketPrefix = (name) => `Fix ${queueBranch(name)},`;
 
 /**
  * @param {Drop} d the branch's newest drop
@@ -125,7 +125,7 @@ const dropTicketPrefix = (name) => `Fix ${QUEUE_PREFIX}${name},`;
  */
 function dropTicketIssue(d, held, subject) {
 	const { name, sha } = d;
-	const queued = `${QUEUE_PREFIX}${name}`;
+	const queued = queueBranch(name);
 	const kept = held
 		.map(
 			(h) => `- \`${h.ref}\` at ${h.sha}${h.sha === sha ? ", this drop" : ""}`,
@@ -184,7 +184,7 @@ function readDropSubjects(deps, d) {
 	const [tip, ...rest] = deps.subjectsOf(d.onto, d.sha);
 	if (tip === undefined)
 		throw new Error(
-			`${QUEUE_PREFIX}${d.name} at ${short(d.sha)} has no commit off ${short(d.onto)}`,
+			`${queueBranch(d.name)} at ${short(d.sha)} has no commit off ${short(d.onto)}`,
 		);
 	return [tip, ...rest];
 }
@@ -236,7 +236,7 @@ function dropTicketFiler(deps) {
 			if (deps.stateOf(ticket) === "closed") return;
 			deps.close(
 				ticket,
-				`Closed by the queue lander: \`main\` at ${main} holds the work of \`${QUEUE_PREFIX}${d.name}\` dropped at ${d.sha}.`,
+				`Closed by the queue lander: \`main\` at ${main} holds the work of \`${queueBranch(d.name)}\` dropped at ${d.sha}.`,
 			);
 		},
 	};
@@ -260,12 +260,12 @@ function updateTicket(deps, open, d, body) {
 	if (!deps.hasComment(number, d.sha))
 		deps.comment(
 			number,
-			`The queue lander dropped \`${QUEUE_PREFIX}${d.name}\` again, at ${d.sha}: ${buildCauseLine(d.cause)}. This ticket's body now describes that drop.`,
+			`The queue lander dropped \`${queueBranch(d.name)}\` again, at ${d.sha}: ${buildCauseLine(d.cause)}. This ticket's body now describes that drop.`,
 		);
 	deps.refresh(number, body);
 	return {
 		number,
-		line: `fix ticket updated: #${number} now names ${QUEUE_PREFIX}${d.name} at ${short(d.sha)}`,
+		line: `fix ticket updated: #${number} now names ${queueBranch(d.name)} at ${short(d.sha)}`,
 	};
 }
 

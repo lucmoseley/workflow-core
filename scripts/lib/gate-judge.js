@@ -31,6 +31,13 @@ const LAUNCHER = path.join(__dirname, "..", "claude-child.js");
  * wedged; a guess. */
 const LAUNCHER_GRACE_MS = 5000;
 
+/* The child's kill bound where a caller gives none. Measured (#4968): of
+ * 4,973 corpus bodies read four at once the slowest took 52.1 s, 6 passed
+ * 30 s and the 99th centile was 16.5 s. At 30 s about 1 call in 800 falls
+ * back to the patterns, and bound plus grace leave 25 s of the create
+ * guard's 60 s hook limit (hooks/hooks.json). */
+const JUDGE_BOUND_MS = 30_000;
+
 const BODY_OPEN = "<issue-body>";
 const BODY_CLOSE = "</issue-body>";
 
@@ -346,13 +353,18 @@ function mergeFaults(patterns, model, before) {
  * patterns' alone; null where it ran.
  *
  * @param {string} body the body written
- * @param {{own?: number, before?: string, boundMs: number, env?: NodeJS.ProcessEnv}} opts
+ * @param {{own?: number, before?: string, boundMs?: number, env?: NodeJS.ProcessEnv}} opts
+ *   `boundMs`: the child is killed once it has passed, JUDGE_BOUND_MS by
+ *   default
  * @returns {{faults: JudgedFault[], fallback: string|null, reading: Reading|null,
  *   dropped: number, ms: number}} `reading` as the model gave it, null with
  *   `fallback`; `dropped`, its quotes the code dropped; `ms`, the call's wall
  *   time
  */
-function judgedBasisFaults(body, { own, before, boundMs, env }) {
+function judgedBasisFaults(
+	body,
+	{ own, before, boundMs = JUDGE_BOUND_MS, env } = {},
+) {
 	const text = String(body || "");
 	const patterns =
 		before === undefined
@@ -380,6 +392,8 @@ function judgedBasisFaults(body, { own, before, boundMs, env }) {
 }
 
 module.exports = {
+	JUDGE_BOUND_MS,
+	LAUNCHER_GRACE_MS,
 	buildPrompt,
 	holdsOther,
 	judgedBasisFaults,

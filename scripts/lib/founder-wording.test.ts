@@ -45,7 +45,7 @@ const { buildHostPorts } = require("./founder-wording-host.js") as {
 	};
 };
 const { CONTRACT, UPSTREAM_TRACKER } = require("./workflow-core-config.js");
-const { API_PROMPT } = require("./loop-prompts.js");
+const { API_PROMPT, scriptPrompt } = require("./loop-prompts.js");
 
 const ENTRY = path.resolve(__dirname, "../inject-founder-wording.js");
 const SKILL_FILE = path.resolve(
@@ -384,6 +384,7 @@ describe("a harness-delivered prompt quoting the phrases stays silent (#652, #33
 		],
 		["Delivered by the wfc-delivery mod: simpler please"],
 		[API_PROMPT],
+		[scriptPrompt("simpler please")],
 	])("stays silent on %s", (prompt) => {
 		expect(injected(`${prompt} — this keeps happening`)).toBeUndefined();
 	});
