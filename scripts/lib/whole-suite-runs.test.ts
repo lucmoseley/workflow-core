@@ -41,6 +41,9 @@ it("passes over a shard and a run sized by its own --maxWorkers", () => {
 			green("2026-11-03", 900_000, {
 				argv: ["--full=other", "--maxWorkers=3"],
 			}),
+			green("2026-11-04", 900_000, {
+				argv: ["--full=other", "--max-workers=8"],
+			}),
 		],
 		[],
 	);

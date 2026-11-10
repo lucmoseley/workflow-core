@@ -82,11 +82,12 @@ function byAt(a, b) {
 
 /**
  * Run at the whole suite's own worker count: a launch that typed its own
- * `--maxWorkers`, as each bench suite does, was sized for something else.
+ * `--maxWorkers` (or vitest's `--max-workers`), as each bench suite does,
+ * was sized for something else.
  * @param {Marker} m
  */
 const isDefaultWorkers = (m) =>
-	!(m.argv ?? []).some((w) => w.startsWith("--maxWorkers"));
+	!(m.argv ?? []).some((w) => /^--max-?workers/i.test(w));
 
 /**
  * The latest lone whole suite — unsharded, at the default worker count —

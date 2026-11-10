@@ -14,7 +14,7 @@ import { GH_FAILING_SCRIPT, stubGhScript } from "./gh-stub";
 import { markersDir } from "./marker-root.js";
 import { buildMeminfo } from "./meminfo-fake";
 import { writePsStub } from "./ps-stub";
-import { LADDER_BENCH, loneSuiteFitMs } from "./quiet-bench.js";
+import { LADDER_BENCH } from "./quiet-bench.js";
 import {
 	createRun,
 	quietBenchFiles,
@@ -24,6 +24,7 @@ import { tendQuietBench } from "./quiet-bench-tick.js";
 import { QUIET_BENCH_PAUSE } from "./refill-decide.js";
 import { loopFiles, writeControlFile } from "./refill-files.js";
 import { parseControl } from "./refill-loop.js";
+import { STORE } from "./test-pass-marker.js";
 
 const NOW = 1_800_000_000_000;
 const OURS = { by: QUIET_BENCH_PAUSE, at: NOW - 1000, why: "held" };
@@ -180,7 +181,8 @@ it("keeps its runs outside what the scratch sweep reaps", () => {
 });
 
 /* An empty checkout's suite has drifted -100% from the ladder's, so the lone
- * whole suite in its markers decides. */
+ * whole suite in its markers decides. The fit runs 280–504 s across core
+ * counts, so 1 s and 600 s fall either side on any machine. */
 const tendOnLoneSuite = (seconds: number) => {
 	execFileSync("git", ["init", "-q", checkout]);
 	const markers = markersDir(checkout);
@@ -198,24 +200,17 @@ const tendOnLoneSuite = (seconds: number) => {
 		scope,
 		durationMs: seconds * 1000,
 	};
-	fs.writeFileSync(
-		path.join(markers, ".test-pass-markers.jsonl"),
-		`${JSON.stringify(lone)}\n`,
-	);
+	fs.writeFileSync(path.join(markers, STORE), `${JSON.stringify(lone)}\n`);
 	writeControlFile(baseControl);
 	return tend(baseControl);
 };
 
 it("is due on a lone whole suite short enough for the top row to finish (#4931)", () => {
-	expect(
-		tendOnLoneSuite(loneSuiteFitMs(os.cpus().length) / 1000).next.paused?.by,
-	).toBe(QUIET_BENCH_PAUSE);
+	expect(tendOnLoneSuite(1).next.paused?.by).toBe(QUIET_BENCH_PAUSE);
 	expect(readState().due.value).toBe(true);
 });
 
 it("is not due on a lone whole suite too long for the top row (#4931)", () => {
-	expect(
-		tendOnLoneSuite(loneSuiteFitMs(os.cpus().length) / 1000 + 1).next.paused,
-	).toBeUndefined();
+	expect(tendOnLoneSuite(600).next.paused).toBeUndefined();
 	expect(readState().due.value).toBe(false);
 });

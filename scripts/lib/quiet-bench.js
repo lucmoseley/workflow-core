@@ -511,7 +511,6 @@ module.exports = {
 	decideQuietBench,
 	isLoneSuiteFit,
 	isRunAnswering,
-	loneSuiteFitMs,
 	parseBenchState,
 	parseFree,
 };

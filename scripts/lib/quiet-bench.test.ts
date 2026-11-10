@@ -16,7 +16,6 @@ import {
 	isRunAnswering,
 	LADDER_BENCH,
 	LADDER_STAMP,
-	loneSuiteFitMs,
 	parseBenchState,
 	parseFree,
 } from "./quiet-bench.js";
@@ -292,11 +291,7 @@ describe("the founder back, or the route off", () => {
 });
 
 describe("the lone whole suite the bench waits for (#4931)", () => {
-	it("fits 3 suites at 3 workers in the ceiling on 8 cores at 1.875 times a lone 5-worker suite", () => {
-		expect(loneSuiteFitMs(8)).toBe(448_000);
-	});
-
-	it("is due at the fit and not past it", () => {
+	it("is due at 448 s on 8 cores, where 3 suites at 3 workers take 1.875 times a lone 5-worker suite, and not past it", () => {
 		expect(isLoneSuiteFit({ durationMs: 448_000 }, 8)).toBe(true);
 		expect(isLoneSuiteFit({ durationMs: 448_001 }, 8)).toBe(false);
 	});
