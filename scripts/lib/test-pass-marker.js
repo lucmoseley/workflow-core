@@ -99,7 +99,12 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
  *   full?: string|null,
  *   inflight?: {module: string, stage: string}[], finished?: string[],
+ *   testsInFlight?: {nodeid: string, stage: string}[]|null,
+ *   testsNeverStarted?: number|null, testsFinished?: number|null,
  *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
+ * @typedef {Marker & {sha: string, at: string, suite: string,
+ *   startedAt: string, durationMs: number, argv: string[]}} KillRow the
+ *   fields every stall or ceiling kill's fail-store row carries
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
  *   imports?: Record<string, string[]>, roots?: string[],
@@ -373,6 +378,31 @@ function record(entry, options) {
  */
 function recordFailure(entry, options) {
 	return append(FAIL_STORE, entry, options);
+}
+
+/**
+ * Records a stall or ceiling kill to the fail store (#1149, #2696, #4776). It
+ * carries no `scope`, so no reader of red runs mistakes it for a verdict on
+ * any file.
+ *
+ * NEVER THROWS: a store this cannot write to costs the count, never the kill,
+ * and says so through `say`, since a missing record reads as no kill. A kill
+ * with no sha is such a store miss.
+ *
+ * @param {KillRow} kill
+ * @param {{root: string|null, say: (text: string) => void}} options
+ */
+function recordKill(kill, { root, say }) {
+	let landed = false;
+	try {
+		landed = recordFailure(kill, { root });
+	} catch {
+		/* reported below with the false return */
+	}
+	if (!landed)
+		say(
+			"This kill was not recorded to the fail store, so it will not be counted.\n",
+		);
 }
 
 /**
@@ -2203,6 +2233,7 @@ module.exports = {
 	EVIDENCE_NOT_LICENCE,
 	FLAKE_NOTE,
 	recordFailure,
+	recordKill,
 	failureRecoveryCommand,
 	KEEP,
 	repoRoot,

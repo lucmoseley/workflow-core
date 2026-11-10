@@ -54,6 +54,7 @@ const {
 	formatFilteredRun,
 	markerFrom,
 	record,
+	recordKill,
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { worktreeRoot } = require("./lib/host-root.js");
@@ -66,7 +67,7 @@ const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
 const { monotonicMs } = require("./lib/suite-ceiling.js");
-const { runPytest } = require("./lib/pytest-child.js");
+const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 
 /* Resolved through the host-root seam (#1), never `__dirname`: the pytest suite,
  * its `scripts/` on PYTHONPATH and the tree-drift snapshot all belong to the
@@ -114,6 +115,12 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 			`pytest could not be run: ${run.error}\n${pythonSpawnRemedy(run.error)}`,
 		);
 	const result = handOff ? readHandOff(handOff) : null;
+	if (run.ceilingKill)
+		recordCeilingKill(root, run.ceilingKill, {
+			sha: before?.head,
+			startedAtMs,
+			argv: args,
+		});
 
 	const after = readTreeSnapshot(root);
 	const drifted = drift(before, after);
@@ -153,6 +160,27 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 	}
 
 	process.exitCode = run.forcedRed || run.status === null ? 1 : run.status;
+}
+
+/**
+ * Leaves the kill's row in the fail store; a row that cannot land is said,
+ * never failing the run.
+ *
+ * @param {string} root
+ * @param {import("./lib/pytest-child.js").CeilingKill} kill
+ * @param {{ sha: string|undefined, startedAtMs: number, argv: string[] }} run
+ */
+function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
+	recordKill(
+		ceilingKillRow(kill, {
+			sha: sha ?? "",
+			startedAtMs,
+			argv,
+			sessionId: idSeam.fromEnv() || null,
+			lander: idSeam.isLanderRun(),
+		}),
+		{ root: repoRoot(root), say: (text) => writeFd(2, text) },
+	);
 }
 
 /**

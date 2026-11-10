@@ -61,6 +61,7 @@ const {
 	EDGES_FILE,
 	DEFAULT_SUITE,
 	recordFailure,
+	recordKill,
 	shortSha,
 	formatCachedClause,
 } = require("./lib/test-pass-marker.js");
@@ -862,13 +863,16 @@ function runOnce(
 			if (beat > since) return arm(beat);
 			const record = inflight.readRecord(inflightFile);
 			announce(buildStallReport(record.open, stall, target));
-			recordKill(target, err, {
-				...killed(record),
-				startedAt: startedAt.toISOString(),
-				durationMs: performance.now() - startedAtMono,
-				stalled: true,
-				stallMs: stall,
-			});
+			recordKill(
+				{
+					...killed(record),
+					startedAt: startedAt.toISOString(),
+					durationMs: performance.now() - startedAtMono,
+					stalled: true,
+					stallMs: stall,
+				},
+				{ root: target, say: (text) => err.write(text) },
+			);
 			kill("stall");
 		};
 		const onCeiling = () => {
@@ -879,15 +883,18 @@ function runOnce(
 			announce(
 				buildCeilingReport(record, { ceiling, elapsed, root: target, machine }),
 			);
-			recordKill(target, err, {
-				...killed(record),
-				startedAt: new Date(spawnedAt).toISOString(),
-				durationMs: elapsed,
-				ceilingKill: true,
-				ceilingMs: ceiling,
-				neverStarted: neverStarted(record),
-				...(machine ? { machine } : {}),
-			});
+			recordKill(
+				{
+					...killed(record),
+					startedAt: new Date(spawnedAt).toISOString(),
+					durationMs: elapsed,
+					ceilingKill: true,
+					ceilingMs: ceiling,
+					neverStarted: neverStarted(record),
+					...(machine ? { machine } : {}),
+				},
+				{ root: target, say: (text) => err.write(text) },
+			);
 			kill("ceiling");
 		};
 		const held = armCeiling({
@@ -1112,40 +1119,6 @@ function recordFullRefusal(root, word, argv) {
 	} catch {
 		/* a store this cannot write to costs the count, never the refusal */
 	}
-}
-
-/**
- * A kill's fail record: the fields both kills carry, required.
- * @typedef {import("./lib/test-pass-marker.js").Marker & { sha: string,
- *   at: string, startedAt: string, durationMs: number, suite: string,
- *   inflight: { module: string, stage: string }[], finished: string[],
- *   argv: string[] }} KillRecord
- */
-
-/**
- * Records a stall or ceiling kill to the fail store (#1149, #2696), which a
- * killed run otherwise never reaches: the pass reporter writes only at
- * `onTestRunEnd`. It carries no `scope`, so no reader of red runs mistakes it
- * for a verdict on any file.
- *
- * NEVER THROWS: a store this cannot write to costs the count, never the kill,
- * and says so, since a missing record reads as no kill.
- *
- * @param {string} root
- * @param {Writer} err
- * @param {KillRecord} kill
- */
-function recordKill(root, err, kill) {
-	let landed = false;
-	try {
-		landed = recordFailure(kill, { root });
-	} catch {
-		/* reported below with the false return */
-	}
-	if (!landed)
-		err.write(
-			"This kill was not recorded to the fail store, so it will not be counted.\n",
-		);
 }
 
 /**
