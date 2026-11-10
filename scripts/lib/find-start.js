@@ -20,9 +20,9 @@
  *  - A RELATIVE start point, or none at all (`find` defaults to `.`), is
  *    resolved against the walk's cwd — the payload's, moved by any `cd` before
  *    it and by each directory its launchers move to (`env -C /`, a `flock -c`
- *    string's `cd`). So `cd / && find . -name x` is refused, and a session
- *    standing in `/` is refused `find . -name x`. Where the cwd is unknown, it
- *    passes.
+ *    string's `cd`), as lib/shell-words.js's runCwd reads them, its residual
+ *    included. So `cd / && find . -name x` is refused, and a session standing
+ *    in `/` is refused `find . -name x`. Where the cwd is unknown, it passes.
  *  - The command word must be `find`, by basename, after shell-words.js's
  *    launcher unwrapping. `sh -c "find / …"`, a heredoc fed to a shell, `fd`,
  *    `locate`, `du /`, `ls -R /` and `grep -r … /` are all unjudged (#1006
@@ -39,7 +39,7 @@ const {
 	parseCommand,
 	walkCommands,
 } = require("./shell-parse.js");
-const { findStarts, literal, unwrap } = require("./shell-words.js");
+const { findStarts, literal, runCwd, unwrap } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -106,7 +106,7 @@ function startsAtRoot(cmd, spans) {
 	return unwrap(cmd.words, spans).some(({ words: [head, ...rest], chdirs }) => {
 		if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
 			return false;
-		const cwd = cmd.cwdThrough(chdirs);
+		const cwd = runCwd(cmd.cwd, chdirs, spans);
 		const starts = findStarts(rest, spans);
 		return (starts.length > 0 ? starts : ["."]).some((start) =>
 			isRoot(start, cwd, spans),

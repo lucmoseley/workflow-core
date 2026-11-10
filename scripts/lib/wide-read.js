@@ -53,7 +53,8 @@
  *    (lib/shell-parse.js).
  *  - Relative paths resolve against the walk's cwd — the payload's, moved by
  *    any `cd` before the dumper and by each directory its launchers move to
- *    (`env -C dir`, a `flock -c` string's `cd`). Where that cwd is unknown a
+ *    (`env -C dir`, a `flock -c` string's `cd`), as lib/shell-words.js's
+ *    runCwd reads them. Where that cwd is unknown a
  *    relative path is not measured. The file must EXIST to be measured, which
  *    makes a wrong cwd a silent failure rather than a false warning.
  *  - `sed` is judged on its LINE span, never on the bytes those lines hold, so
@@ -100,7 +101,7 @@
 
 const path = require("node:path");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { isGlobPattern, literal, unwrap } = require("./shell-words.js");
+const { isGlobPattern, literal, runCwd, unwrap } = require("./shell-words.js");
 
 /**
  * @typedef {object} WideReadPorts
@@ -116,8 +117,8 @@ const { isGlobPattern, literal, unwrap } = require("./shell-words.js");
  *   & WideReadPorts} WideReadContext
  * @typedef {{ bytes: number, lines: number, matches: number, readBytes: number,
  *   cutBytes: number }} Thresholds
- * @typedef {{ ctx: WideReadContext, cwd: string }} Standing a run's ports and
- *   the directory it stands in, "" where unknown
+ * @typedef {{ ctx: WideReadContext, cwd: string }} DumperRun the ports a run
+ *   is judged through and the directory it stands in, "" where unknown
  */
 
 /**
@@ -129,11 +130,11 @@ const DUMPERS = ["cat", "sed", "awk"];
 
 /**
  * The limb a dumper has of its own, beside the glob limb every one gets.
- * @type {Record<string, (lits: string[], at: Standing, t: Thresholds) => string | null>}
+ * @type {Record<string, (lits: string[], run: DumperRun, t: Thresholds) => string | null>}
  */
 const OWN_LIMB = {
-	cat: (lits, at, t) => judgeCat(lits, at, t),
-	sed: (lits, _at, t) => judgeSed(lits, t),
+	cat: (lits, run, t) => judgeCat(lits, run, t),
+	sed: (lits, _run, t) => judgeSed(lits, t),
 };
 
 /** What `Read` itself stops at. Measuring past it would warn on a long file
@@ -221,18 +222,23 @@ function decide(subject, ctx) {
  */
 const judge = (cmd, spans, ctx, t) =>
 	unwrap(cmd.words, spans).flatMap((run) =>
-		judgeRun(run.words, spans, { ctx, cwd: cmd.cwdThrough(run.chdirs) }, t),
+		judgeRun(
+			run.words,
+			spans,
+			{ ctx, cwd: runCwd(cmd.cwd, run.chdirs, spans) },
+			t,
+		),
 	);
 
 /**
  * One unwrap run's findings.
  * @param {string[]} words the run's words
  * @param {string[]} spans
- * @param {Standing} at
+ * @param {DumperRun} run
  * @param {Thresholds} t
  * @returns {string[]}
  */
-function judgeRun(words, spans, at, t) {
+function judgeRun(words, spans, run, t) {
 	const [head, ...args] = words;
 	if (head === undefined) return [];
 	const base = literal(head, spans);
@@ -246,9 +252,9 @@ function judgeRun(words, spans, at, t) {
 	});
 	/** @type {string[]} */
 	const out = [];
-	const own = OWN_LIMB[name]?.(lits, at, t);
+	const own = OWN_LIMB[name]?.(lits, run, t);
 	if (own) out.push(own);
-	const globbed = judgeGlob(lits, at, t);
+	const globbed = judgeGlob(lits, run, t);
 	if (globbed) out.push(globbed);
 	return out;
 }
@@ -266,7 +272,7 @@ const cutNote = (bytes, t) =>
 /**
  * A file argument's bytes; null too for a relative one from an unknown cwd.
  * @param {string} lit
- * @param {Standing} at
+ * @param {DumperRun} run
  */
 const bytesOf = (lit, { ctx, cwd }) =>
 	cwd || path.isAbsolute(lit) ? ctx.fileBytes(path.resolve(cwd, lit)) : null;
@@ -276,17 +282,17 @@ const bytesOf = (lit, { ctx, cwd }) =>
  * an existing file count, so `cat` on stdin, on a flag, or on a path that will
  * not resolve produces nothing.
  * @param {string[]} lits
- * @param {Standing} at
+ * @param {DumperRun} run
  * @param {Thresholds} t
  * @returns {string | null}
  */
-function judgeCat(lits, at, t) {
+function judgeCat(lits, run, t) {
 	let total = 0;
 	/** @type {string[]} */
 	const named = [];
 	for (const lit of lits) {
 		if (!lit || lit.startsWith("-")) continue;
-		const bytes = bytesOf(lit, at);
+		const bytes = bytesOf(lit, run);
 		if (bytes === null) continue;
 		total += bytes;
 		named.push(lit);
@@ -336,14 +342,14 @@ function judgeSed(lits, t) {
  * threshold is crossed, so a glob over node_modules costs no more than that
  * inside a hook the session waits on; the count reported is the count reached.
  * @param {string[]} lits
- * @param {Standing} at
+ * @param {DumperRun} run
  * @param {Thresholds} t
  * @returns {string | null}
  */
-function judgeGlob(lits, at, t) {
+function judgeGlob(lits, run, t) {
 	for (const lit of lits) {
 		if (!lit || lit.startsWith("-") || !isGlobPattern(lit)) continue;
-		const { n, total } = countGlob(lit, at, t);
+		const { n, total } = countGlob(lit, run, t);
 		if (n >= t.matches || total >= t.bytes)
 			return `This glob's match count is unknown to you but not to the shell: \`${lit}\` matches at least ${n} files, ${total} characters or more — the count stops at the threshold rather than walking the whole expansion.${cutNote(total, t)} Count first (\`ls ${lit} | wc -l\`), narrow the pattern, or send the output to a file and read the slice that matters.`;
 	}
@@ -354,7 +360,7 @@ function judgeGlob(lits, at, t) {
  * The readable files a glob matches and their bytes, counted until either
  * threshold is crossed; none for a relative glob from an unknown cwd.
  * @param {string} lit
- * @param {Standing} at
+ * @param {DumperRun} run
  * @param {Thresholds} t
  */
 function countGlob(lit, { ctx, cwd }, t) {

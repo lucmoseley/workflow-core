@@ -599,11 +599,39 @@ function unwrapArgv(argv) {
  * @typedef {object} Chdir one directory a run moves to before its command
  * @property {string} dir as written: a wrapper's read through literal, a
  *   `cd`'s masked
+ * @property {boolean} read whether `dir` is text literal read whole, to take
+ *   as it stands; false for a `cd`'s masked word and a wrapper's word literal
+ *   could not fully read
  * @property {"always" | "if-dir" | "maybe"} holds whether the run surely
  *   stands there: "always" for a wrapper's, whose failure runs nothing, and a
  *   `cd` a `&&` chains it off; "if-dir" where the `cd` surely ran had its
  *   directory been there; "maybe" where it may not have run
  */
+
+/**
+ * The directory a run stands in: `cwd` moved through its `chdirs`, an
+ * absolute one replacing it, a relative one joined to it and `""` staying
+ * put (#4869). Unknown past a directory no word gives whole: one reading a
+ * variable, which a `-c` string may set itself, a `~`, or a `-` flag.
+ *
+ * Residual: each move is taken as made whatever its `holds`, as a walk's cwd
+ * takes a `cd` (#4980).
+ * @param {string} cwd "" where unknown
+ * @param {Chdir[]} chdirs
+ * @param {string[]} spans
+ * @returns {string} "" where unknown
+ */
+function runCwd(cwd, chdirs, spans) {
+	let at = cwd;
+	for (const { dir, read } of chdirs) {
+		const word = read ? { text: dir, known: true } : literal(dir, spans);
+		const tilde = !read && dir.startsWith("~");
+		if (!word.known || tilde || word.text.startsWith("-")) at = "";
+		else if (word.text.startsWith("/")) at = word.text;
+		else if (at && word.text) at = `${at}/${word.text}`;
+	}
+	return at;
+}
 
 /**
  * Strip one run's wrappers.
@@ -756,24 +784,23 @@ function runScript(st, script, spans) {
  * @param {string[]} spans
  */
 function sweepFlags(st, wrapper, spans) {
-	/** @param {string} w */
-	const read = (w) => literal(w, spans).text;
 	for (let raw = st.ws[0]; raw !== undefined; raw = st.ws[0]) {
-		const f = read(raw);
+		const flag = literal(raw, spans);
+		const f = flag.text;
 		if (!f.startsWith("-") || (f === "-" && !wrapper.splits)) break;
 		if (f === "--") {
 			st.ws = st.ws.slice(1);
 			break;
 		}
 		const next = st.ws[1];
-		const { options, taken } = scanWrapperFlag(
+		const { options, taken, read } = scanWrapperFlag(
 			wrapper,
-			f,
-			next === undefined ? undefined : read(next),
+			flag,
+			next === undefined ? undefined : literal(next, spans),
 		);
 		st.ws = st.ws.slice(1 + taken);
 		for (const option of options)
-			if (!takeOption(st, wrapper, option)) return false;
+			if (!takeOption(st, wrapper, option, read)) return false;
 	}
 	return true;
 }
@@ -786,24 +813,25 @@ function sweepFlags(st, wrapper, spans) {
  */
 
 /**
- * What the flag word `f` says under a wrapper's grammar, and how many words after
- * it it took.
+ * What a flag word says under a wrapper's grammar, how many words after it it
+ * took, and whether literal read every word of it whole.
  * @param {WrapperGrammar} wrapper
- * @param {string} f
- * @param {string | undefined} next
+ * @param {ReturnType<typeof literal>} flag the flag word, read
+ * @param {ReturnType<typeof literal> | undefined} next the word after it, read
  */
-function scanWrapperFlag(wrapper, f, next) {
+function scanWrapperFlag(wrapper, flag, next) {
 	/** @type {WrapperOption[]} */
 	const options = [];
-	const taken = scanWord(f, next, {
+	const taken = scanWord(flag.text, next?.text, {
 		has: specHas(wrapper.values),
-		expandLong: (flag) => wholeLongName(wrapper.long, flag),
+		expandLong: (long) => wholeLongName(wrapper.long, long),
 		endsAtEndOfOptions: false,
 		emit: (kind, name, value) => options.push({ kind, name, value }),
 		ended: false,
 		stopped: false,
 	});
-	return { options, taken };
+	const read = flag.known && (taken === 0 || next?.known === true);
+	return { options, taken, read };
 }
 
 /**
@@ -826,8 +854,9 @@ function wholeLongName(long, flag) {
  * @param {Strip} st accumulator: its `ws`, `chdirs` and `execs` are written
  * @param {WrapperGrammar} wrapper
  * @param {WrapperOption} option
+ * @param {boolean} read whether literal read the option's words whole
  */
-function takeOption(st, wrapper, { kind, name, value }) {
+function takeOption(st, wrapper, { kind, name, value }, read) {
 	if (kind === "dangling") return false;
 	if (wrapper.command === "sh-string" && (name === "-x" || name === "--exec"))
 		st.execs = true;
@@ -835,7 +864,7 @@ function takeOption(st, wrapper, { kind, name, value }) {
 	if (wrapper.splits && (name === "-S" || name === "--split-string"))
 		st.ws = [...splitEnvString(value), ...st.ws];
 	else if (name === wrapper.chdir || name === "--chdir")
-		st.chdirs.push({ dir: value, holds: "always" });
+		st.chdirs.push({ dir: value, read, holds: "always" });
 	return true;
 }
 
@@ -1444,6 +1473,7 @@ module.exports = {
 	literal,
 	unwrap,
 	unwrapArgv,
+	runCwd,
 	carriesVar,
 	commandName,
 	isGhCommand,

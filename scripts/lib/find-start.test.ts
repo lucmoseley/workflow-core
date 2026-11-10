@@ -111,10 +111,32 @@ describe("a find started at / is refused (#1006)", () => {
 		'flock /l -c "cd / && find -name x"',
 		'watch "cd /tmp; cd ..; find . -x"',
 		'env -C /tmp flock /l -c "cd ..; find . -x"',
+		'env -C "/" find . -x',
+		"env --chdir=/ find . -x",
+		"flock /l -c 'cd \"/\"; find . -x'",
 	])(
 		"resolves a relative start through the directory a launcher moves to: %s (#4869)",
 		(command) => {
 			expect(judge(command)?.deny).toBeDefined();
+		},
+	);
+
+	it.each([
+		"env -C '$X' find . -x",
+		"env -C $X find . -x",
+		"env -C '~' find . -x",
+		"env -C \\~ find . -x",
+		"flock /l -c 'cd $X; find . -x'",
+		"flock /l -c 'X=/usr; cd $X; find . -x'",
+		"X=/; flock /l -c 'cd $X; find . -x'",
+		"flock /l -c 'cd ~; find . -x'",
+		"flock /l -c 'cd /usr; cd $PWD; find . -x'",
+	])(
+		"guesses no directory a launcher's word does not give whole: %s (#4869)",
+		(command) => {
+			expect(
+				judge(command, { vars: { X: "/", HOME: "/", PWD: "/" } }),
+			).toBeNull();
 		},
 	);
 

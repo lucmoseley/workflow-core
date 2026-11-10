@@ -613,11 +613,29 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(later).toEqual({
 			words: ["git", "push"],
 			wrapperWords: ["A=1"],
-			chdirs: [{ dir: "/d", holds: "always" }],
+			chdirs: [{ dir: "/d", read: true, holds: "always" }],
 			unread: [],
 			watched: false,
 		});
 	});
+
+	it.each([
+		["env -C /d git status", true],
+		["env -C '$X' git status", true],
+		["env --chdir='~' git status", true],
+		["env -C $X git status", false],
+		['env -C "$X/d" git status', false],
+		["env --chdir=$X git status", false],
+		['flock /l -c "cd /d; git status"', false],
+	])(
+		"says whether %s names its directory in words read whole (#4869)",
+		(command, whole) => {
+			const chdirs = one(command, (c, spans) =>
+				unwrap(c.words, spans).flatMap((r) => r.chdirs),
+			);
+			expect(chdirs.map((c) => c.read)).toEqual([whole]);
+		},
+	);
 
 	it("keeps a first run's own env off the runs after it", () => {
 		const later = one(`flock /l -c "env A=1 true; git push"`, (c, spans) =>

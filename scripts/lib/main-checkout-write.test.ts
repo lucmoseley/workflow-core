@@ -246,6 +246,7 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 			`env -C ${at.worktree} python3 -c 'x'`,
 			`flock /l -c "cd ${at.worktree}; python3 -c 'x'"`,
 			`env -C $UNSET python3 -c 'x'`,
+			`flock /l -c "cd $HOME; python3 -c 'x'"`,
 		])
 			expect(fromMain(command), command).toBeNull();
 	});
