@@ -211,6 +211,7 @@ const {
 	readMerge,
 	writeCarried,
 } = require("./lib/registry-carry.js");
+const { readStaleAtHead } = require("./lib/stale-at-head.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -2811,7 +2812,7 @@ const {
 	RULE_ARG_RE,
 } = require("./lib/rule-emission-calls.js");
 const { readCommit } = require("./lib/commit-sha.js");
-const { gitReader, spawnGitSync } = require("./lib/git.js");
+const { gitReader, SHORT_SHA, spawnGitSync } = require("./lib/git.js");
 const { isInsideAnyRepo } = require("./lib/git-tree.js");
 const { readMergeHeadLines } = require("./lib/merge-heads.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -3758,9 +3759,12 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		anyGone: false,
 		unclaimedSeen: new Set(),
 		written: 0,
+		anchored: [],
 	};
 
 	for (const g of targets) reanchorTarget(run, g);
+	for (const l of buildStaleAtHeadLines(readStaleAtHead(root, run.anchored)))
+		printLine(l);
 
 	const { next, missing, written } = run;
 	const dropped =
@@ -3977,6 +3981,7 @@ function readTreeBlobs(sha, paths) {
  *   anyGone: boolean,
  *   unclaimedSeen: Set<string>,
  *   written: number,
+ *   anchored: import("./lib/stale-at-head.js").Anchored[],
  * }} ReviewRun
  */
 
@@ -3986,7 +3991,7 @@ function readTreeBlobs(sha, paths) {
  * gate's stand-down reads it (#2853), so a held shared library leaves every
  * guard sourcing it unanchored.
  *
- * @param {ReviewRun} run accumulator: next, missing, skipped, the any* flags and written are filled; the rest is read
+ * @param {ReviewRun} run accumulator: next, missing, skipped, the any* flags, written and anchored are filled; the rest is read
  * @param {string} g
  */
 function reanchorTarget(run, g) {
@@ -4028,6 +4033,7 @@ function reanchorTarget(run, g) {
 	}
 	run.next[g] = d;
 	run.written++;
+	run.anchored.push({ guard: g, digest: d, inputs: [...(inputs ?? [])] });
 	printLine(`anchored ${g} @ ${d}`);
 	printDescriptions(run, g);
 }
@@ -4046,6 +4052,54 @@ function printDescriptions({ describedBy, implicitScripts }, g) {
 	if (wired)
 		for (const l of buildImplicitLines(wired, "  implicit: ", { detail: true }))
 			printLine(l);
+}
+
+/**
+ * The rows this run re-anchored that were already stale at HEAD, each with
+ * what changed under it before this commit (#4756).
+ *
+ * @param {import("./lib/stale-at-head.js").StaleRead} read
+ * @returns {string[]}
+ */
+function buildStaleAtHeadLines({ stale, error }) {
+	if (error)
+		return [
+			"",
+			`Rows already stale at HEAD not named — git failed (${error}), so a row re-anchored here may carry changes made before this commit unread (#4756).`,
+		];
+	if (stale.length === 0) return [];
+	const one = stale.length === 1;
+	const lines = [
+		"",
+		`Already stale at HEAD — re-anchoring ${one ? "this row" : "these rows"} also asserts a re-read of what changed under ${one ? "it" : "them"} before this commit (#4756):`,
+	];
+	for (const s of stale) lines.push(...buildStaleAtHeadRow(s));
+	lines.push(
+		`Read each against the rules printed for its row, or leave the row stale: restore its HEAD anchor in ${ANCHORS} before committing.`,
+	);
+	return lines;
+}
+
+/** @param {import("./lib/stale-at-head.js").StaleAtHead} s */
+function buildStaleAtHeadRow(s) {
+	const lead = `  ${s.guard} — HEAD's anchor ${s.anchor}`;
+	if (s.error)
+		return [
+			`${lead}: what changed since it was written not named — git failed (${s.error}).`,
+		];
+	if (s.writer === null)
+		return [
+			`${lead} was written by no commit in the history this clone holds, so what changed since is not named.`,
+		];
+	const at = s.writer.slice(0, SHORT_SHA);
+	if (s.changed.length === 0)
+		return [
+			`${lead}, written at ${at}, was already stale there: no input changed since, so what made it stale is not named.`,
+		];
+	return [
+		`  ${s.guard} — anchored at ${at}; changed since: ${s.changed.join(", ")}`,
+		`    git diff ${at} HEAD -- ${s.changed.map(shellQuote).join(" ")}`,
+	];
 }
 
 /**
