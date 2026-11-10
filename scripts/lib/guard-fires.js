@@ -453,17 +453,21 @@ function transcriptMentions(text, subjects, tier) {
 }
 
 /**
- * Every string anywhere in a value, however deep.
- * @param {unknown} v
+ * The strings of one record where a fault surfaces: each `tool_result`
+ * block's text, each hook attachment's output (the `hook` route's spans) and
+ * a system record's content. Never assistant prose, a prompt or a tool call's
+ * input, so a session that quotes a fault in its own words or its commands is
+ * no hit; a tool's output that prints the quote, such as a grep, still is.
+ * @param {TranscriptRecord} record
  * @returns {Generator<string>}
  */
-function* deepStrings(v) {
-	if (typeof v === "string") {
-		if (v) yield v;
-		return;
-	}
-	if (v && typeof v === "object")
-		for (const x of Object.values(v)) yield* deepStrings(x);
+function* outputStrings(record) {
+	for (const span of hookSpans(record)) yield span.text;
+	const content = record?.message?.content;
+	if (Array.isArray(content))
+		for (const part of content)
+			if (part?.type === "tool_result") yield* resultTexts(part.content);
+	if (record?.type === "system") yield* stringsIn(record.content);
 }
 
 /**
@@ -478,26 +482,26 @@ const stateless = (pattern) =>
  * @param {TranscriptRecord} record
  * @param {RegExp} re  a `stateless` copy
  */
-function anyStringMatches(record, re) {
-	for (const s of deepStrings(record)) if (re.test(s)) return true;
+function outputMatches(record, re) {
+	for (const s of outputStrings(record)) if (re.test(s)) return true;
 	return false;
 }
 
 /**
- * Does one record carry a match for `pattern` in any of its strings? Each
+ * Does one record carry a match for `pattern` in its `outputStrings`? Each
  * string is tested whole, as the record holds it, never the record
  * serialised, so a pattern is written against the text a session saw rather
- * than against JSON escapes. Like `recordMentions`, it reads the whole record.
+ * than against JSON escapes.
  * @param {TranscriptRecord} record
  * @param {RegExp} pattern
  * @returns {boolean}
  */
 function recordMatches(record, pattern) {
-	return anyStringMatches(record, stateless(pattern));
+	return outputMatches(record, stateless(pattern));
 }
 
 /**
- * Every record in one transcript whose strings match `pattern`, one per
+ * Every record in one transcript whose `outputStrings` match `pattern`, one per
  * record — the regex route beside `transcriptMentions`, for a fault no guard
  * prints (#4796). Same parsing and the same `tier` as `transcriptFires`, so a
  * main-tier read never counts a subagent's inline turn.
@@ -510,7 +514,7 @@ function transcriptMatches(text, pattern, tier) {
 	const re = stateless(pattern);
 	const out = [];
 	for (const record of mainChainRecords(text, tier))
-		if (anyStringMatches(record, re))
+		if (outputMatches(record, re))
 			out.push({
 				at: typeof record.timestamp === "string" ? record.timestamp : null,
 			});

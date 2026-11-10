@@ -28,7 +28,15 @@ beforeEach(() => {
 		`${JSON.stringify({
 			type: "user",
 			uuid: "u1",
-			message: { content: [{ type: "text", text: "lander dropped q/7" }] },
+			message: {
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "t1",
+						content: "lander dropped q/7",
+					},
+				],
+			},
 		})}\n`,
 	);
 });

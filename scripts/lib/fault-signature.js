@@ -36,14 +36,12 @@ const { subagentDirOf } = require("./transcript.js");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const { parseJsonlRow, readJsonl } = require("./jsonl.js");
+const { parseJsonlRow } = require("./jsonl.js");
 
 /** The append-only log, at a repo's root; `merge=union` in .gitattributes. */
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
-/** The retro's run record, at a repo's root. */
-const RUN_RECORD = "docs/data/retro-runs.jsonl";
 
-const SCOPES = ["main", "subagent", "both"];
+const SCOPES = /** @type {const} */ (["main", "subagent", "both"]);
 const REGEX_FLAGS = /^[imsu]*$/;
 
 /**
@@ -53,13 +51,13 @@ const REGEX_FLAGS = /^[imsu]*$/;
  * @typedef {{session: string, line: number, agent?: string}} Case
  * @typedef {{signature: Signature, prediction: string, case: Case}
  *   | {signature: null, why: string}} Declared
- * @typedef {Record<string, any>} Row  parsed JSON: a signature file, a log
- *   line, a transcript record or the needles registry. `any` because
- *   JSON.parse types nothing; each field is checked where it is read.
- * @typedef {Row} Registry the merged guard-fire needles
+ * @typedef {Record<string, unknown>} Row  parsed JSON: a signature file, a
+ *   log line or a transcript record, each field narrowed where it is read
+ * @typedef {ReturnType<typeof readNeedles>["needles"]} Registry  the merged
+ *   guard-fire needles
  */
 
-/** @param {unknown} v */
+/** @param {unknown} v @returns {v is string} */
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -122,21 +120,23 @@ function checkSignature(raw, registry) {
  * @returns {{signature: Signature} | {error: string}}
  */
 function checkNeedle(s, registry) {
-	const entry = registry.guards?.[s.key];
-	const ids = (entry?.needles ?? []).map(
-		(/** @type {{id: string}} */ n) => n.id,
-	);
-	if (!isText(s.key) || ids.length === 0)
+	const { key, needle } = s;
+	/** @type {string[]} */
+	const ids = isText(key)
+		? (registry.guards?.[key]?.needles ?? []).map(
+				(/** @type {{id: string}} */ n) => n.id,
+			)
+		: [];
+	if (!isText(key) || ids.length === 0)
 		return {
-			error: `needle key ${JSON.stringify(s.key)} is not a guard with needles in the guard-fire registry (scripts/guard-fire-needles.json).`,
+			error: `needle key ${JSON.stringify(key)} is not a guard with needles in the guard-fire registry (scripts/guard-fire-needles.json).`,
 		};
-	if (s.needle === undefined)
-		return { signature: { kind: "needle", key: s.key } };
-	if (!ids.includes(s.needle))
+	if (needle === undefined) return { signature: { kind: "needle", key } };
+	if (typeof needle !== "string" || !ids.includes(needle))
 		return {
-			error: `${s.key} has no needle ${JSON.stringify(s.needle)}; it has ${ids.join(", ")}.`,
+			error: `${key} has no needle ${JSON.stringify(needle)}; it has ${ids.join(", ")}.`,
 		};
-	return { signature: { kind: "needle", key: s.key, needle: s.needle } };
+	return { signature: { kind: "needle", key, needle } };
 }
 
 /**
@@ -157,26 +157,28 @@ function tryCompile(pattern, flags) {
  * @returns {{signature: Signature} | {error: string}}
  */
 function checkRegex(s) {
-	if (!isText(s.pattern))
+	const { pattern } = s;
+	if (!isText(pattern))
 		return { error: 'a regex signature needs a non-empty "pattern".' };
 	const flags = s.flags ?? "";
 	if (typeof flags !== "string" || !REGEX_FLAGS.test(flags))
 		return {
 			error: `regex flags ${JSON.stringify(s.flags)} are not among i, m, s, u.`,
 		};
-	const compiled = tryCompile(s.pattern, flags);
+	const compiled = tryCompile(pattern, flags);
 	if (typeof compiled === "string")
 		return { error: `the pattern does not compile: ${compiled}` };
-	if (!SCOPES.includes(s.scope))
+	const scope = SCOPES.find((x) => x === s.scope);
+	if (!scope)
 		return {
 			error: `a regex signature's "scope" is one of ${SCOPES.join(", ")}: the transcript tier it reads.`,
 		};
 	return {
 		signature: {
 			kind: "regex",
-			pattern: s.pattern,
+			pattern,
 			...(flags ? { flags } : {}),
-			scope: s.scope,
+			scope,
 		},
 	};
 }
@@ -186,19 +188,24 @@ function checkRegex(s) {
  * @returns {{case: Case} | {error: string}}
  */
 function checkCase(raw) {
-	const c = /** @type {Row} */ (raw ?? {});
-	if (!isText(c.session) || !Number.isInteger(c.line) || c.line < 1)
+	const { session, line, agent } = /** @type {Row} */ (raw ?? {});
+	if (
+		!isText(session) ||
+		typeof line !== "number" ||
+		!Number.isInteger(line) ||
+		line < 1
+	)
 		return {
 			error:
 				'it has no usable "case": {"session": "<session id>", "line": <1-based line>} naming the transcript record that triggered the ticket.',
 		};
-	if (c.agent !== undefined && !isText(c.agent))
+	if (agent !== undefined && !isText(agent))
 		return { error: '"case.agent" names a subagent id, or is left out.' };
 	return {
 		case: {
-			session: c.session,
-			line: c.line,
-			...(c.agent ? { agent: c.agent } : {}),
+			session,
+			line,
+			...(agent ? { agent } : {}),
 		},
 	};
 }
@@ -363,25 +370,11 @@ function appendSignatureLine(root, line) {
 	return file;
 }
 
-/**
- * Every row of a JSONL log the outcome review or the ticket mix reads (the
- * signature log, the run record); a line that does not parse is in `bad`, for
- * the caller to name. Null where the file is absent.
- * @param {string} file
- * @returns {{rows: Row[], rowLines: number[], bad: number[]} | null}
- * @throws where it will not read
- */
-function readLog(file) {
-	const read = readJsonl(file);
-	return read && { rows: read.rows, rowLines: read.rowLines, bad: read.bad };
-}
-
 module.exports = {
-	RUN_RECORD,
 	SIGNATURE_LOG,
 	appendSignatureLine,
 	buildSignatureLine,
+	checkSignature,
 	readDeclared,
-	readLog,
 	signatureHits,
 };

@@ -37,7 +37,10 @@
  * mean; from XMR_FROM points on, XmR over the shares. No points, no limit.
  *
  * TRIGGERS, each held unless the kind has FLOOR or more tickets this week:
- *   new-kind    the kind's `firstSeen` falls in this week;
+ *   new-kind    the kind's `firstSeen`, the UTC date of the run that added
+ *               it, is after the week's start date: added this week, this
+ *               run included. Dates are compared, never instants, so a run
+ *               late in its UTC day still counts the kind it adds;
  *   over-limit  its count is over its upper limit, or, where this week's
  *               total moved sharply (outside the totals' own limits either
  *               way), its share is over its share's upper limit;
@@ -53,7 +56,8 @@
  * FLIP. `flip.due` once the run record holds FLIP_RUNS weekly lines that
  * carry `ticketMixStep`, this run counted where `--this-run` is given (pass
  * it before the run line is appended, never after). The retro searches the
- * tracker for an existing flip check before filing one.
+ * tracker for an existing flip check before filing one, its body naming
+ * `flip.bar`.
  *
  * Exit 0 done; 1 a file will not read, an issue has no `createdAt`, or an
  * assignment names a kind off the kept list, each named on stderr and never
@@ -67,7 +71,8 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
 const { worktreeRoot } = require("./lib/host-root");
-const { readLog } = require("./lib/fault-signature");
+const { readJsonl } = require("./lib/jsonl.js");
+const { RUN_RECORD } = require("./lib/retro-record");
 const { originOfLabels } = require("./lib/issue-origin");
 const { classifyOrigin } = require("./lib/origin-fallback");
 const { writeFd } = require("./lib/write-fd.js");
@@ -95,8 +100,11 @@ const CONSTANTS = /** @type {const} */ ({
 	TEMPLATES_SHOWN: 30,
 });
 
-const DEFAULT_RUNS = "docs/data/retro-runs.jsonl";
 const DEFAULT_KINDS = "docs/data/ticket-kinds.json";
+/** The flip check's bar: the review drops to on-demand where it holds
+ * (#4796 §Ticket-mix review). */
+const DROP_BAR =
+	"fewer than 2 of the tickets it filed closed with a landed commit";
 
 /* Drain-style masks, applied in this order: refs and branches before paths,
  * which would take their `/`; shas before numbers, which would take their
@@ -117,7 +125,7 @@ const USAGE = `usage: node scripts/measure-ticket-mix.js --issues <owner/name>=<
     [--assigned <file>] [--this-run] [--json]
   --issues      one repo's tracker snapshot (gh issue list --json ...,createdAt); repeat per repo
   --week-start  first instant of the week; --week-end the instant after its last
-  --runs        the run record (default ${DEFAULT_RUNS})
+  --runs        the run record (default ${RUN_RECORD})
   --kinds       the kept list of kinds (default ${DEFAULT_KINDS})
   --assigned    the model's assignment {"<owner/name>#<n>": "<kind id>"}: adds the triggers
   --this-run    count this run toward the flip check
@@ -158,10 +166,26 @@ function readJson(file, what) {
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 /**
+ * Each point less the one before it.
+ * @param {number[]} xs
+ * @returns {number[]}
+ */
+function successiveDiffs(xs) {
+	/** @type {number[]} */
+	const out = [];
+	/** @type {number | undefined} */
+	let prev;
+	for (const x of xs) {
+		if (prev !== undefined) out.push(x - prev);
+		prev = x;
+	}
+	return out;
+}
+
+/**
  * @param {number[]} xs
  */
-const meanMovingRange = (xs) =>
-	mean(xs.slice(1).map((x, i) => Math.abs(x - /** @type {number} */ (xs[i]))));
+const meanMovingRange = (xs) => mean(successiveDiffs(xs).map(Math.abs));
 
 /**
  * @param {number} m
@@ -236,17 +260,14 @@ const isoMs = (s) =>
 
 /**
  * Each `--issues` snapshot, as the week's issues with their refs.
- * @param {string[]} specs `<owner/name>=<file>`
+ * @param {Snapshot[]} snapshots
  * @param {{start: number, end: number}} week
  * @returns {{ref: string, repo: string, issue: Issue}[]}
  */
-function readWeek(specs, week) {
+function readWeek(snapshots, week) {
 	/** @type {{ref: string, repo: string, issue: Issue}[]} */
 	const out = [];
-	for (const spec of specs) {
-		const eq = spec.indexOf("=");
-		const repo = spec.slice(0, eq);
-		const file = path.resolve(spec.slice(eq + 1));
+	for (const { repo, file } of snapshots) {
 		const data = readJson(file, `the ${repo} snapshot`);
 		if (!Array.isArray(data))
 			throw new ReadFailure(
@@ -280,7 +301,7 @@ function readWeek(specs, week) {
 function readRuns(file, weekStart) {
 	let log;
 	try {
-		log = readLog(file);
+		log = readJsonl(file);
 	} catch (e) {
 		throw new ReadFailure(
 			`the run record ${file} will not read: ${errMessage(e)}`,
@@ -294,18 +315,23 @@ function readRuns(file, weekStart) {
 	/** @type {RunPoint[]} */
 	const prior = [];
 	let stepRuns = 0;
-	log.rows.forEach((line, i) => {
-		const read = readRunLine(line);
+	const { rows } = log;
+	const numbered = log.rowLines.flatMap((lineNo, i) => {
+		const row = rows[i];
+		return row ? [{ row, lineNo }] : [];
+	});
+	for (const { row, lineNo } of numbered) {
+		const read = readRunLine(row);
 		if (read === "no week") {
 			bad.push(
-				`${where(log.rowLines[i] ?? 0)} carries ticket-mix counts but no readable week.start`,
+				`${where(lineNo)} carries ticket-mix counts but no readable week.start`,
 			);
-			return;
+			continue;
 		}
-		if (!read) return;
+		if (!read) continue;
 		if (read.step) stepRuns += 1;
 		if (read.point && read.point.start < weekStart) prior.push(read.point);
-	});
+	}
 	prior.sort((a, b) => a.start - b.start);
 	return { prior, stepRuns, bad };
 }
@@ -314,19 +340,47 @@ function readRuns(file, weekStart) {
  * One run line: whether it is a weekly line carrying the step, and its
  * ticket-mix point where it has one; null for a non-weekly line, "no week"
  * for counts with no readable `week.start`.
- * @param {import("./lib/fault-signature").Row} line
+ * @param {Record<string, unknown>} line
  * @returns {{step: boolean, point: RunPoint | null} | null | "no week"}
  */
 function readRunLine(line) {
 	if (line.mode !== "weekly") return null;
-	const step = line.ticketMixStep;
-	const kinds =
-		line.kinds && typeof line.kinds === "object" ? line.kinds : null;
+	const step = asObject(line.ticketMixStep);
+	const kinds = readPointKinds(line.kinds);
 	const total = typeof step?.total === "number" ? step.total : null;
 	if (!kinds && total === null) return { step: Boolean(step), point: null };
-	const start = isoMs(String(line.week?.start ?? ""));
+	const start = isoMs(String(asObject(line.week)?.start ?? ""));
 	if (Number.isNaN(start)) return "no week";
 	return { step: Boolean(step), point: { start, kinds, total } };
+}
+
+/**
+ * @param {unknown} v
+ * @returns {Record<string, unknown> | null}
+ */
+const asObject = (v) =>
+	v !== null && typeof v === "object" && !Array.isArray(v)
+		? /** @type {Record<string, unknown>} */ (v)
+		: null;
+
+/** @param {unknown} v @returns {number | undefined} */
+const numberOr = (v) => (typeof v === "number" ? v : undefined);
+
+/**
+ * A run line's `kinds`, each kind's count and share kept where it is a
+ * number; null where the line carries none.
+ * @param {unknown} v
+ * @returns {RunPoint["kinds"]}
+ */
+function readPointKinds(v) {
+	const kinds = asObject(v);
+	if (!kinds) return null;
+	return Object.fromEntries(
+		Object.entries(kinds).map(([id, k]) => {
+			const row = asObject(k);
+			return [id, { count: numberOr(row?.count), share: numberOr(row?.share) }];
+		}),
+	);
 }
 
 /**
@@ -408,8 +462,7 @@ function countTemplates(week) {
  */
 function direction(series) {
 	if (series.length < CONSTANTS.TREND_POINTS) return "watch-only";
-	const run = series.slice(-CONSTANTS.TREND_POINTS);
-	const steps = run.slice(1).map((x, i) => x - /** @type {number} */ (run[i]));
+	const steps = successiveDiffs(series.slice(-CONSTANTS.TREND_POINTS));
 	if (steps.every((d) => d > 0)) return "up";
 	if (steps.every((d) => d < 0)) return "down";
 	return "none";
@@ -417,7 +470,8 @@ function direction(series) {
 
 /**
  * @typedef {{ start: number, end: number, startIso: string, endIso: string }} Week
- * @typedef {{ issues: string[], week: Week, runs: string, kinds: string,
+ * @typedef {{ repo: string, file: string }} Snapshot  one `--issues`
+ * @typedef {{ issues: Snapshot[], week: Week, runs: string, kinds: string,
  *   assigned: string | null, thisRun: boolean }} Options
  */
 
@@ -458,10 +512,10 @@ function buildReport(o) {
 		week: { start: o.week.startIso, end: o.week.endIso },
 		total,
 		repos: Object.fromEntries(
-			o.issues.map((s) => {
-				const repo = s.slice(0, s.indexOf("="));
-				return [repo, week.filter((w) => w.repo === repo).length];
-			}),
+			o.issues.map(({ repo }) => [
+				repo,
+				week.filter((w) => w.repo === repo).length,
+			]),
 		),
 		origins: countOrigins(week),
 		templates: countTemplates(week),
@@ -473,7 +527,7 @@ function buildReport(o) {
 			points,
 			limits,
 		})),
-		flip: { runs, due: runs >= CONSTANTS.FLIP_RUNS },
+		flip: { runs, due: runs >= CONSTANTS.FLIP_RUNS, bar: DROP_BAR },
 		badRunLines: bad,
 		/** @type {ReturnType<typeof buildTriggers> | null} */
 		triggers: null,
@@ -542,7 +596,7 @@ function buildTriggers({
 			level.add(k.id);
 		cum += k.count;
 	}
-	const firstSeenOf = new Map(kinds.map((k) => [k.id, k.firstSeen ?? ""]));
+	const firstSeenOf = new Map(kinds.map((k) => [k.id, k.firstSeen ?? null]));
 
 	const rows = counted.map((k) =>
 		buildKindRow(k, {
@@ -550,7 +604,7 @@ function buildTriggers({
 			sharp,
 			window,
 			level: level.has(k.id),
-			seen: isoMs(firstSeenOf.get(k.id) ?? ""),
+			firstSeen: firstSeenOf.get(k.id) ?? null,
 		}),
 	);
 	const candidates = rows
@@ -591,19 +645,32 @@ function buildTriggers({
 }
 
 /**
+ * Whether a kind's `firstSeen` date is after the week's start date.
+ * @param {string | null} firstSeen  YYYY-MM-DD
+ * @param {Week} window
+ */
+function isNewKind(firstSeen, window) {
+	const date = /^\d{4}-\d{2}-\d{2}/.exec(firstSeen ?? "")?.[0];
+	return (
+		date !== undefined &&
+		date > new Date(window.start).toISOString().slice(0, 10)
+	);
+}
+
+/**
  * @param {{id: string, points: number[], limits: Limits, shareLimits: Limits,
  *   refs: string[], count: number}} k
  * @param {{total: number, sharp: boolean, window: Week, level: boolean,
- *   seen: number}} at
+ *   firstSeen: string | null}} at
  */
-function buildKindRow(k, { total, sharp, window, level, seen }) {
+function buildKindRow(k, { total, sharp, window, level, firstSeen }) {
 	const share = total === 0 ? 0 : k.count / total;
 	const dir = direction([...k.points, k.count]);
 	const overCount = k.limits.upper !== null && k.count > k.limits.upper;
 	const overShare =
 		sharp && k.shareLimits.upper !== null && share > k.shareLimits.upper;
 	const would = /** @type {[string, boolean][]} */ ([
-		["new-kind", seen >= window.start && seen < window.end],
+		["new-kind", isNewKind(firstSeen, window)],
 		["over-limit", overCount || overShare],
 		["trend", dir === "up"],
 		["level", level],
@@ -693,9 +760,25 @@ function render(r) {
 	}
 	out.push(
 		"",
-		`Flip check: ${r.flip.runs} of ${CONSTANTS.FLIP_RUNS} weekly runs with the step — ${r.flip.due ? "DUE" : "not due"}.`,
+		`Flip check: ${r.flip.runs} of ${CONSTANTS.FLIP_RUNS} weekly runs with the step — ${r.flip.due ? "DUE" : "not due"}; drops to on-demand if ${r.flip.bar}.`,
 	);
 	return `${out.join("\n")}\n`;
+}
+
+/**
+ * Each `--issues <owner/name>=<file>`, or the first that is not one.
+ * @param {string[]} specs
+ * @returns {Snapshot[] | string}
+ */
+function parseSnapshots(specs) {
+	/** @type {Snapshot[]} */
+	const out = [];
+	for (const spec of specs) {
+		const m = /^([^/=\s]+\/[^/=\s]+)=(.+)$/.exec(spec);
+		if (!m?.[1] || !m[2]) return spec;
+		out.push({ repo: m[1], file: path.resolve(m[2]) });
+	}
+	return out;
 }
 
 /**
@@ -722,11 +805,11 @@ function main(argv) {
 		writeFd(2, `${msg}\n\n${USAGE}\n`);
 		return 2;
 	};
-	const issues = parsed.lists["--issues"] ?? [];
-	if (issues.length === 0) return usage("--issues is required");
-	const bad = issues.find((s) => !/^[^/=\s]+\/[^/=\s]+=.+$/.test(s));
-	if (bad !== undefined)
-		return usage(`--issues takes <owner/name>=<file>, not ${bad}`);
+	const specs = parsed.lists["--issues"] ?? [];
+	if (specs.length === 0) return usage("--issues is required");
+	const issues = parseSnapshots(specs);
+	if (typeof issues === "string")
+		return usage(`--issues takes <owner/name>=<file>, not ${issues}`);
 	const startIso = parsed.flags["--week-start"];
 	const endIso = parsed.flags["--week-end"];
 	if (typeof startIso !== "string" || typeof endIso !== "string")
@@ -750,7 +833,7 @@ function main(argv) {
 		report = buildReport({
 			issues,
 			week: { start, end, startIso, endIso },
-			runs: file("--runs", DEFAULT_RUNS),
+			runs: file("--runs", RUN_RECORD),
 			kinds: file("--kinds", DEFAULT_KINDS),
 			assigned: typeof assigned === "string" ? path.resolve(assigned) : null,
 			thisRun: parsed.flags["--this-run"] === true,

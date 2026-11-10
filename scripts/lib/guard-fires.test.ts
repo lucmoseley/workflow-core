@@ -551,8 +551,11 @@ describe("transcriptMatches — the regex route", () => {
 			uuid,
 			timestamp: at,
 			isSidechain: sidechain,
-			message: { content: [{ type: "text", text }] },
+			message: {
+				content: [{ type: "tool_result", tool_use_id: "t1", content: text }],
+			},
 		});
+	const At = "2026-08-20T10:00:00.000Z";
 
 	it("gives one hit per matching record, at its own time, against the text as written", () => {
 		const text = [
@@ -574,6 +577,67 @@ describe("transcriptMatches — the regex route", () => {
 		const text = said("u1", "2026-08-20T10:00:00.000Z", "stall seen", true);
 		expect(transcriptMatches(text, /stall seen/, "main")).toEqual([]);
 		expect(transcriptMatches(text, /stall seen/, "subagent")).toHaveLength(1);
+	});
+
+	it("counts a fault where it surfaces: a tool result, a hook's output, a system record", () => {
+		const text = [
+			said("u1", At, "fatal: BOOM"),
+			line({
+				type: "user",
+				uuid: "u2",
+				timestamp: At,
+				message: {
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: "t2",
+							content: [{ type: "text", text: "BOOM in a part" }],
+						},
+					],
+				},
+			}),
+			line({
+				type: "attachment",
+				uuid: "u3",
+				timestamp: At,
+				attachment: { type: "hook_system_message", content: "BOOM held" },
+			}),
+			line({ type: "system", uuid: "u4", timestamp: At, content: "BOOM" }),
+		].join("\n");
+		expect(transcriptMatches(text, /BOOM/, "main")).toHaveLength(4);
+	});
+
+	it("never counts a session quoting the fault: assistant prose, a prompt, a tool call's input", () => {
+		const text = [
+			line({
+				type: "assistant",
+				uuid: "a1",
+				timestamp: At,
+				message: { content: [{ type: "text", text: "the BOOM fault again" }] },
+			}),
+			line({
+				type: "assistant",
+				uuid: "a2",
+				timestamp: At,
+				message: {
+					content: [
+						{
+							type: "tool_use",
+							id: "t1",
+							name: "Bash",
+							input: { command: "gh issue create --title 'Stop BOOM'" },
+						},
+					],
+				},
+			}),
+			line({
+				type: "user",
+				uuid: "u1",
+				timestamp: At,
+				message: { content: [{ type: "text", text: "why BOOM?" }] },
+			}),
+		].join("\n");
+		expect(transcriptMatches(text, /BOOM/, "main")).toEqual([]);
 	});
 
 	it("reads a global pattern from the start of every string, leaving the caller's lastIndex alone", () => {

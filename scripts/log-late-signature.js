@@ -11,6 +11,9 @@
  * `--filed-at` is the ticket's own `createdAt`. The line lands in the worktree's
  * docs/data/outcome-signatures.jsonl, for the caller to commit.
  * Exits: 0 logged, 2 a usage error or a signature refused.
+ *
+ * IN NO §N3 FAMILY: it gates nothing and files no issue, and it appends one
+ * line to a log rather than writing a file whole, so it is no `generate-*`.
  */
 
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");

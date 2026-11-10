@@ -32,6 +32,21 @@ const ORIGINS = /** @type {const} */ ([
 	"founder",
 ]);
 
+/**
+ * The origins only a script files under, declaring `--no-fault` in code: the
+ * outcome review's miss backstop passes them over, and holds every other
+ * origin's undeclared fault-shaped ticket to account.
+ */
+const SCRIPT_ORIGINS = /** @type {const} */ ([
+	"lander-script",
+	"orphaned-edit-script",
+	"ci-red",
+	"incident",
+	"morning-review-script",
+	"repo-checks-script",
+	"release-bump",
+]);
+
 const ORIGIN_PREFIX = "origin:";
 
 /** @param {string} origin */
@@ -62,6 +77,7 @@ const ORIGIN_LABELS = ORIGINS.map((o) => ({
 module.exports = {
 	ORIGINS,
 	ORIGIN_LABELS,
+	SCRIPT_ORIGINS,
 	isOrigin,
 	originLabel,
 	originOfLabels,

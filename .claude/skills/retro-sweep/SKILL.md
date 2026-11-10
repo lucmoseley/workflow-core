@@ -237,7 +237,7 @@ not take stays `waiting`. Then:
    "outcome review flip check" issue covers this run (§2 snapshot), file a
    `takes:wayfinder` issue,
    `--standalone "retro-sweep outcome review flip check (#4796)" --origin retro --no-fault`,
-   giving `.flipDue.why`.
+   giving `.flipDue.why` and, as the bars it judges, each of `.flipDue.bars`.
 
 ## 6b. Ticket mix — weekly only
 
@@ -255,7 +255,7 @@ Reads the week's filed issues (#4796, #4629). Budget
    each run line it could not read; repair that line in the record.
 2. **Assign** every title of the week, in batches, to one kind in
    `docs/data/ticket-kinds.json`, reading titles only. Add a kind —
-   `{id, meaning, firstSeen}` with this week's date — only where none fits;
+   `{id, meaning, firstSeen}`, `firstSeen` today's UTC date (`date -u +%F`) — only where none fits;
    never re-cluster. Write `$R/assigned.json`, `{"<owner/name>#<n>": "<kind id>"}`.
 3. **Trigger**:
 
@@ -283,7 +283,8 @@ Reads the week's filed issues (#4796, #4629). Budget
    joins `ticketMixStep.watch` (§7) and is listed in the close comment.
 6. **Flip check:** where `.flip.due`, and no "ticket mix flip check" issue
    covers it (§2 snapshot), file a `takes:wayfinder` issue,
-   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`.
+   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`,
+   giving `.flip.bar` as the bar it judges.
 
 ## 7. Run record
 
@@ -306,8 +307,8 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   filed `<owner/name>#<n>` or `null`; `class` its §6 class (`NEW`, `OPEN`, …);
   `cites` the earlier issue or commit it pointed at; `signature` (or `null`
   and `why`) and `prediction` as filed; `baseline` the signature's count and
-  sessions over the 4 weeks before filing, the trigger week excluded, with its
-  per-session rate: `.baseline` of `node scripts/measure-outcome-review.js
+  sessions over the 4 weeks before filing, the trigger week excluded, its
+  per-session rate worked out from them at each reading: `.baseline` of `node scripts/measure-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
