@@ -11,10 +11,19 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chargeMb } from "./launch-charge";
-import { DRAW_MARGIN_MB, suiteRungMb, WHOLE_SUITE_MAX } from "./suite-ladder";
+import {
+	DRAW_MARGIN_MB,
+	rungMb,
+	suiteRungMb,
+	WHOLE_SUITE_MAX,
+} from "./suite-ladder";
 import { PART_PASS_AGE_MS, turnOf } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
-import { TSC_RUNG_MB } from "./tsc-slot";
+
+const peak5 = chargeMb({ kind: "tsc", major: 5 });
+const peak7 = chargeMb({ kind: "tsc", major: 7 });
+/* A logged line with no `chargeMb` ran on TypeScript 5. */
+const rung5 = rungMb(peak5);
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-10-27T00:00:00Z");
@@ -30,6 +39,7 @@ interface Waiter {
 	slotFree?: boolean;
 	passed?: number;
 	climbMb?: number;
+	chargeMb?: number;
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",
@@ -270,6 +280,33 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		expect(hoursOf(clear.limb)).toEqual({ open: 300 });
 	});
 
+	/* Available memory between the two compilers' rungs: a logged TypeScript 7
+	 * type-check clears its rung, a 5.x one, charged 2,045 MB or logged before
+	 * #4892 with no charge, is held on its own (#4892). A killed line is read by
+	 * its charge alone (#4921). */
+	it("charges each logged type-check the peak of the compiler it ran", () => {
+		const between = 10_000 - (rungMb(peak7) + rung5) / 2;
+		const limbsOf = (logged?: number, reason = "refused") =>
+			hoursOf(
+				replayOf({
+					waiters: [
+						{
+							from: 0,
+							to: 5,
+							kind: "tsc",
+							reason,
+							...(logged ? { chargeMb: logged } : {}),
+						},
+					],
+					mem: blocks(0, 5, between),
+				}).limb,
+			);
+		expect(limbsOf(peak7)).toEqual({ open: 300 });
+		expect(limbsOf(peak7, "killed")).toEqual({ open: 300 });
+		expect(limbsOf(peak5)).toEqual({ "tsc-memory": 300 });
+		expect(limbsOf()).toEqual({ "tsc-memory": 300 });
+	});
+
 	it("names the climb limb on a suite waiter too", () => {
 		const r = replayOf({
 			waiters: [{ from: 0, to: 5, slotFree: true, climbMb: 4500 }],
@@ -503,7 +540,7 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 		const shift = (t: number) => t - T0 + base;
 		const minute = (m: number) => Math.floor(base / MIN) + m;
 		const used = (m: number) =>
-			[6000, 4500, 10_000 - TSC_RUNG_MB][Math.floor(m / 10)];
+			[6000, 4500, 10_000 - rung5][Math.floor(m / 10)];
 		const tscWin = chargeMb({ kind: "tsc" }) + DRAW_MARGIN_MB;
 		const win = (m: number) => [tscWin, 2100, tscWin][Math.floor(m / 10)];
 		const w = window();

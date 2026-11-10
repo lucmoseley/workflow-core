@@ -354,7 +354,7 @@ node scripts/pick-next-cache.js put <n> \
 the directory the run's `BODIES DUMPED — <n> to <dir>` line names. The prompt is
 text, not a shell, so a variable in it is never interpolated.
 
-**Name `model: "sonnet"` on every band-read `Agent` call** — `docs/effort-guide.md` routes a band read (file reads and write-set derivation) to Sonnet.
+**Name `model: "haiku"` on every band-read `Agent` call** — `docs/effort-guide.md` routes a band read (file reads and write-set derivation) to Haiku.
 
 This command is the only thing that writes a *band read* into the store, and a
 `put` clears an issue's provisional flag by storing over it. Prefer
@@ -754,21 +754,21 @@ the merge rationale are never printed.
 
 > **341, 353, 366** - takes:implement · opus. mantahostels#341 first: it blocks mantahostels#412.
 
-**The model follows from the `takes:` value** (mantahostels#1093; #354). Sonnet is allowed only where a check would catch its error
-before it lands. A `sonnet`
+**The model follows from the `takes:` value** (mantahostels#1093; #354). Haiku is allowed only where a check would catch its error
+before it lands. A `haiku`
 line also gets an Opus advisor (mantahostels#1102) — print the bare model name, and §7's
 script attaches it. Models come from `scripts/lib/launch-models.sh`, and a
 test fails where this table disagrees with it (#361):
 
-| `takes:` | Model | The check that catches a Sonnet error |
+| `takes:` | Model | The check that catches a Haiku error |
 | --- | --- | --- |
-| `implement` | `opus` | Not routed down: at Opus 5.5 prices Sonnet saves too little (`docs/effort-guide.md` §Model ids and prices) |
-| `to-tickets` | `opus` | Not routed down (#1920): the founder check that justified Sonnet does not happen while the refill loop launches it |
-| `triage` | `opus` | Not routed down (#1920): the founder check that justified Sonnet does not happen while the refill loop launches it |
+| `implement` | `opus` | Not routed down: #4919 moved only the kinds routed to the cheap tier (`docs/effort-guide.md` §Which model to launch each session on) |
+| `to-tickets` | `opus` | Not routed down (#1920): the founder check that justified routing down does not happen while the refill loop launches it |
+| `triage` | `opus` | Not routed down (#1920): the founder check that justified routing down does not happen while the refill loop launches it |
 | `wayfinder` | `opus` | **None exists** — the output is a decision, and no gate reads prose |
 | `to-spec` | `opus` | **None exists** — same |
 
-An unclassified session gets `opus`, not `sonnet` (mantahostels#1088).
+An unclassified session gets `opus`, not `haiku` (mantahostels#1088).
 
 Essential info is a blocker: a self-gate to check first, a file a running
 session holds, a decision or measurement it needs, a sequencing constraint
@@ -910,11 +910,11 @@ hand-typed launch does not:
   `--force`), distinguishing a broken check from a real limit. A bar the
   account does not report, as on a plan with no 5-hour bar, is no failed
   reading: the cap runs on the bars it does, so long as one reads fresh (#3758).
-- **Attaches `--advisor opus` to every `sonnet` line** (mantahostels#1102). Never type the
+- **Attaches `--advisor opus` to every `haiku` line** (mantahostels#1102). Never type the
   advisor into a §6 line; never set `advisorModel` in settings, which would
   attach one to every session in the repo and to their subagents too.
 - **Says whether the advisor is live on this machine.** It is behind an
-  experimental feature flag, and off it reports nothing at all — so a Sonnet
+  experimental feature flag, and off it reports nothing at all — so a Haiku
   session would otherwise run bare, with no escalation path. It reads the flag,
   not the sessions it starts: a launched session reports its own advisor
   nowhere.
@@ -935,7 +935,7 @@ hand-typed launch does not:
 advisor line and never the memory re-read before each member's spawn — an
 over-admission freezes the machine. `--force-memory` skips that re-read and
 nothing else (#299) — the CPU load ceiling still holds each member (#834).
-`--no-advisor` launches Sonnet bare and silences that line — for when the flag
+`--no-advisor` launches Haiku bare and silences that line — for when the flag
 is off and the warning is noise. `--dry-run` prints the commands without
 starting anything.
 

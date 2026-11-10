@@ -66,11 +66,13 @@ const { unwrapArgv } = require("./lib/shell-words.js");
 const {
 	TSC_BUSY_EXIT,
 	TSC_NO_WAIT_ENV,
-	TSC_RUNG_MB,
 	TSC_SLOT_ENV,
 	defaultTscQueueDir,
+	launchPeakMb,
 	tscDenial,
+	tscLaunchBin,
 } = require("./lib/tsc-slot.js");
+const { rungMb } = require("./lib/suite-ladder.js");
 const { readWindowsRecorded } = require("./lib/windows-memory.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -102,21 +104,27 @@ const TSC_REFUSAL =
 /* Why a slot refuses a command that is itself a suite. */
 const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
 
-/* What a `--tsc` wait prints in place of a suite's (#3163). */
-const TSC_WAIT = {
-	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)`,
+/**
+ * What a `--tsc` wait prints in place of a suite's (#3163), on the rung of
+ * the launch's own compiler (#4892).
+ * @param {number} peakMb
+ */
+const buildTscWait = (peakMb) => ({
+	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${rungMb(peakMb)} MB rung, or Windows' own free memory under what it draws (#4557)`,
 	cap: "one `tsc` runs at a time (#3163)",
 	traceLimbs: true,
-};
+});
 
 /**
  * The type-check slot's gate, off the guard's own `ps` and MemAvailable
  * readers (#3163); an unread one is logged and fails open. `climbMb` is what
- * the suite queue's launches have yet to draw (#3416).
+ * the suite queue's launches have yet to draw (#3416); `peakMb` the launch's
+ * compiler's (#4892).
  *
  * @param {number} climbMb
+ * @param {number} peakMb
  */
-function tscGate(climbMb) {
+function tscGate(climbMb, peakMb) {
 	const log = logger(LABEL);
 	const ports = buildHostPorts(hostRoot(), log);
 	const rows = ports.psRows();
@@ -128,7 +136,7 @@ function tscGate(climbMb) {
 		log,
 		"the type-check slot",
 	);
-	return tscDenial(rows, mb, climbMb, windows);
+	return tscDenial(rows, mb, climbMb, { windows, peakMb });
 }
 
 /* The weight a seat joins and asks the gate with: one test file, a part-suite
@@ -218,6 +226,7 @@ function refusalOf(words, slot) {
  *   queueLog?: string | null,
  *   sessionId?: string | null,
  *   err?: Out,
+ *   tscPeakMb?: number,
  * }} Options
  */
 
@@ -305,21 +314,39 @@ function slotWait(slot, options, words) {
 			refused: refusedRun,
 		};
 	if (slot === "tsc") {
-		/* The type-check slot's queue is a directory of its own. */
+		/* The type-check slot's queue is a directory of its own. The launch is
+		 * charged the peak of the compiler its `tsc` resolves to from here, stamped on its
+		 * marker for the suite queue's climb and on its exit line for the
+		 * replay (#4892). */
 		const queue = {
 			...options,
 			queueDir: options.queueDir ?? defaultTscQueueDir(),
 		};
-		const gate = { gate: options.gate ?? tscGate, ...TSC_WAIT };
+		const chargeMb =
+			options.tscPeakMb ??
+			launchPeakMb(process.cwd(), { bin: tscLaunchBin(words) ?? "tsc" });
+		const gate = {
+			gate:
+				options.gate ??
+				((/** @type {number} */ climbMb) => tscGate(climbMb, chargeMb)),
+			...buildTscWait(chargeMb),
+		};
+		const join = { ...queue, chargeMb };
 		if (process.env[TSC_NO_WAIT_ENV] === "1")
 			return {
 				queue,
-				join: queue,
+				join,
 				wait: tryOn(gate),
 				refused: sayTscHeld,
-				exitExtra: { noWait: true },
+				exitExtra: { noWait: true, chargeMb },
 			};
-		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
+		return {
+			queue,
+			join,
+			wait: waitOn(gate),
+			refused: refusedRun,
+			exitExtra: { chargeMb },
+		};
 	}
 	const charges = unwrapArgv(words).flatMap(({ words: inner }) => {
 		const mb = queuedRunnerPeakMb(inner);
@@ -419,11 +446,16 @@ async function run(words, slot, options, err) {
 		queue,
 		join: held ? false : join,
 		logExit: exitExtra
-			? (reason, waitMs, extra) =>
+			? (reason, waitMs, extra) => {
+					/* A killed line keeps the charge the replay reads (#4921), but
+					 * not `noWait`, which marks a try's verdict, refused or
+					 * opened, for guard-typecheck-owed.js. */
+					const { noWait: _noWait, ...charge } = exitExtra;
 					logExit(reason, waitMs, {
 						...extra,
-						...(reason === "killed" ? {} : exitExtra),
-					})
+						...(reason === "killed" ? charge : exitExtra),
+					});
+				}
 			: logExit,
 		signals: {
 			...(options.signals ? { emitter: options.signals } : {}),

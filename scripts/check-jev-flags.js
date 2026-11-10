@@ -259,7 +259,7 @@ function pendingSince(all, since) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {LogLine[]} pending
  * @param {Record<string, number>} counts by `REPORTED`'s `count` field
  * @param {Map<string, {verdict: string}>} verdicts

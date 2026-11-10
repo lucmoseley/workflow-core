@@ -6,7 +6,8 @@
  * (TickActs). A dry run takes the same adapter's reads, each act swapped for
  * its dry answer (buildDryIo), and differs in the policy branches here: it
  * previews over no control as over a stopped one, judges no listing by a
- * boot's kills, and stops at its decision.
+ * boot's kills, skips the block and limit acts (SKIPPED_LAUNCH_ACTS), and
+ * stops at its decision.
  *
  * A TICK: read founder presence, and in away mode write what it changes under
  * the control lock (#2522), untick each repo its owner opted out (#4188), reap,
@@ -254,8 +255,6 @@ function stopNeverStarted(registry, jobs, stop) {
  *   tendQuietBench: (control: Control,
  *     tick: {lastTypedAt: number|null, now: number}) => Control,
  *   adoptKilledLaunches: (state: LoopState, served: string[]) => LoopState,
- *   settleStartedResumes: (launches: LoopLaunch[], served: string[]) =>
- *     {launches: LoopLaunch[], settled: boolean},
  *   stopNeverStarted: (registry: RegistryListing, spared: Set<string>) => string[],
  *   superviseLanding: (root: string) => void,
  *   levelMain: (root: string) => void,
@@ -269,30 +268,17 @@ function stopNeverStarted(registry, jobs, stop) {
  *     seen: {agents: AgentRecord[]|null, isPaused: boolean}, now: number) => void,
  *   sendPauseNotices: (paused: import("./refill-decide.js").Pause|undefined,
  *     now: number) => void,
- *   unparkAnswered: (roots: string[], seen: Seen) => void,
  *   tendClosedParks: (served: string[]) => void,
- *   actOnBlocks: (listed: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
- *     LoopLaunch[],
- *   actOnIdle: (launches: LoopLaunch[], mode: "normal"|"away", seen: Seen) =>
- *     LoopLaunch[],
  *   actOnOutside: (launches: LoopLaunch[], registry: AgentRecord[],
  *     seen: Seen) => void,
  *   releaseAwayParks: (launches: LoopLaunch[], mode: "normal"|"away",
  *     served: string[], seen: Seen) => LoopLaunch[],
  *   attachProbeParks: (broken: string[], launches: LoopLaunch[]) => void,
- *   actOnLimits: (judged: LoopLaunch[], mode: "normal"|"away",
- *     seen: Parameters<typeof limits.actOnLimits>[2]) =>
- *     {launches: LoopLaunch[], slots: number, workingChange: number},
- *   releaseEndedHolds: (before: LoopLaunch[], after: LoopLaunch[], io: BlockIo) => void,
  *   probeDueSeats: (seats: string[], triedAt: Record<string, number>) => Probe[],
  *   startDueConsoleReads: (declared: DeclaredSeats,
  *     seats: import("./refill-decide.js").SeatReading[], root: string|undefined) => void,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[], served: string[]) =>
  *     BatchOutcome,
- *   resumeHeld: (resumes: import("./refill-decide.js").HeldResume[],
- *     held: LoopLaunch[], seen: Seen,
- *     how: {isStopped: () => boolean, record: (launches: LoopLaunch[]) => void}) =>
- *     {launches: LoopLaunch[], started: number, waiting: boolean},
  *   writePause: (pause: import("./refill-decide.js").Pause, noProgressFrom: number) => boolean,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   updateState: (transition: import("./refill-state.js").Transition) => LoopState,
@@ -454,14 +440,18 @@ function parkSweepRootsOf(io, served) {
  * @param {TickIo} io
  * @param {LoopLaunch[]} listed
  * @param {{mode: "normal"|"away", served: string[], broken: string[],
- *   seen: Seen, registry: RegistryListing}} tick
+ *   seen: Seen, registry: RegistryListing, acts: LaunchActs}} tick
  */
-function actOnLaunches(io, listed, { mode, served, broken, seen, registry }) {
-	io.unparkAnswered(parkSweepRootsOf(io, served), seen);
+function actOnLaunches(
+	io,
+	listed,
+	{ mode, served, broken, seen, registry, acts },
+) {
+	acts.unparkAnswered(parkSweepRootsOf(io, served), seen);
 	io.tendClosedParks(served);
 	const tried = retireOriginals(listed, seen.io);
 	const acted = io.releaseAwayParks(
-		io.actOnIdle(io.actOnBlocks(tried, mode, seen), mode, seen),
+		acts.actOnIdle(acts.actOnBlocks(tried, mode, seen), mode, seen),
 		mode,
 		served,
 		seen,
@@ -534,13 +524,13 @@ const stepQuietBench = (io, { parsed, unsettled, typedAt, now }) =>
  * the tick reads on from the file (#4232).
  * @param {TickIo} io
  * @param {LoopState} read
- * @param {string[]} served
+ * @param {{served: string[], acts: LaunchActs}} tick
  */
-function settleKilled(io, read, served) {
+function settleKilled(io, read, { served, acts }) {
 	const adopted = io.adoptKilledLaunches(read, served);
-	const { launches, settled } = io.settleStartedResumes(
+	const { launches, settled } = acts.settleStartedResumes(
 		adopted.launches,
-		served,
+		io.blockIo(served),
 	);
 	if (adopted === read && !settled) return read;
 	return io.updateState(
@@ -598,7 +588,8 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  * @param {{control: Control, seatListRead: boolean,
  *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
  *   declared: DeclaredSeats, typedSeat: string|null,
- *   seatTriedAt: Record<string, number>, lastActAt: number|null}} tick
+ *   seatTriedAt: Record<string, number>, lastActAt: number|null,
+ *   acts: LaunchActs}} tick
  */
 function settleRoom(
 	io,
@@ -613,10 +604,11 @@ function settleRoom(
 		typedSeat,
 		seatTriedAt,
 		lastActAt,
+		acts,
 	},
 ) {
 	if (seen.barred) {
-		io.releaseEndedHolds(before, judged, seen.io);
+		acts.releaseEndedHolds(before, judged, seen.io);
 		return {
 			launches: judged,
 			slots: 0,
@@ -641,7 +633,7 @@ function settleRoom(
 		launches,
 		slots: limitLeft,
 		workingChange,
-	} = io.actOnLimits(judged, control.scope.mode, {
+	} = acts.actOnLimits(judged, control.scope.mode, {
 		...seen,
 		typedSeat,
 		readMoveSeats: () => {
@@ -657,7 +649,7 @@ function settleRoom(
 		slots: limitSlots,
 	});
 	const slots = free - (limitSlots - limitLeft);
-	io.releaseEndedHolds(before, launches, seen.io);
+	acts.releaseEndedHolds(before, launches, seen.io);
 	const { seats, probes: walked } = io.readSeats(
 		control.seats,
 		slots,
@@ -800,8 +792,9 @@ function settleDecided(
 		{
 			readControl: io.readControl,
 			launchBatch: (batch) => io.launchBatch(batch, served),
+			/* Outside LaunchActs: a dry tick returns before settleDecided. */
 			resumeHeld: (resumes, held, isStopped, record) =>
-				io.resumeHeld(resumes, held, seen, { isStopped, record }),
+				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
 			/* The raise goes the tick the pause is written, not the next. */
 			writePause: (pause) => {
 				if (io.writePause(pause, control.noProgressFrom))
@@ -822,6 +815,7 @@ function settleDecided(
 			decision: settled,
 			admission,
 			workingChange: limitChange + launched,
+			agents: seen.agents,
 		}),
 	);
 	return settled;
@@ -842,7 +836,6 @@ const buildDryActs = (io) => ({
 	reap: io.previewReap,
 	tendQuietBench: (control) => control,
 	adoptKilledLaunches: (state) => state,
-	settleStartedResumes: (launches) => ({ launches, settled: false }),
 	stopNeverStarted: () => [],
 	superviseLanding: doNothing,
 	levelMain: doNothing,
@@ -854,27 +847,13 @@ const buildDryActs = (io) => ({
 	stopOverAllowance: () => [],
 	sendHoldNotices: doNothing,
 	sendPauseNotices: doNothing,
-	unparkAnswered: doNothing,
 	tendClosedParks: doNothing,
-	actOnBlocks: (listed) => listed,
-	actOnIdle: (launches) => launches,
 	actOnOutside: doNothing,
 	releaseAwayParks: (launches) => launches,
 	attachProbeParks: doNothing,
-	actOnLimits: (judged, _mode, { slots }) => ({
-		launches: judged,
-		slots,
-		workingChange: 0,
-	}),
-	releaseEndedHolds: doNothing,
 	probeDueSeats: () => [],
 	startDueConsoleReads: doNothing,
 	launchBatch: () => ({ launched: [], refused: [] }),
-	resumeHeld: (_resumes, held) => ({
-		launches: held,
-		started: 0,
-		waiting: false,
-	}),
 	writePause: () => false,
 	runReview: (lastRunOn) => lastRunOn,
 	updateState: (transition) => transition(io.readState()),
@@ -919,6 +898,48 @@ const DRY_BLOCK_ACTS = {
 };
 
 /**
+ * The block and limit acts a tick makes on its launches (#4913): the modules'
+ * own on a live tick.
+ * @typedef {{
+ *   settleStartedResumes: typeof blocks.settleStartedResumes,
+ *   unparkAnswered: typeof blocks.unparkAnswered,
+ *   actOnBlocks: typeof blocks.actOnBlocks,
+ *   actOnIdle: typeof blocks.actOnIdle,
+ *   actOnLimits: typeof limits.actOnLimits,
+ *   releaseEndedHolds: typeof limits.releaseEndedHolds,
+ * }} LaunchActs
+ * @type {LaunchActs}
+ */
+const LIVE_LAUNCH_ACTS = {
+	settleStartedResumes: blocks.settleStartedResumes,
+	unparkAnswered: blocks.unparkAnswered,
+	actOnBlocks: blocks.actOnBlocks,
+	actOnIdle: blocks.actOnIdle,
+	actOnLimits: limits.actOnLimits,
+	releaseEndedHolds: limits.releaseEndedHolds,
+};
+
+/**
+ * A dry tick's: skipped, the launches returned as read. Not previewed through
+ * the dry BlockIo, where each resume fails and lib/refill-blocks.js's
+ * afterResume stamps a try on it, so the dry decision would judge launches the
+ * live tick would not. Typed over every one, so a new act needs its dry answer.
+ * @type {LaunchActs}
+ */
+const SKIPPED_LAUNCH_ACTS = {
+	settleStartedResumes: (launches) => ({ launches, settled: false }),
+	unparkAnswered: doNothing,
+	actOnBlocks: (launches) => launches,
+	actOnIdle: (launches) => launches,
+	actOnLimits: (launches, _mode, { slots }) => ({
+		launches,
+		slots,
+		workingChange: 0,
+	}),
+	releaseEndedHolds: doNothing,
+};
+
+/**
  * @param {TickIo} adapter
  * @returns {TickIo}
  */
@@ -958,6 +979,7 @@ const buildStandInControl = (io, dryRun, now) => ({
 async function runTick(adapter, { dryRun, now, opening }) {
 	/** @type {TickIo} */
 	const io = dryRun ? buildDryIo(adapter) : adapter;
+	const acts = dryRun ? SKIPPED_LAUNCH_ACTS : LIVE_LAUNCH_ACTS;
 	const { control: stored, damaged } = opening.control;
 	const { declared, typed } = opening;
 	const parsed = settleOptedOut(
@@ -978,7 +1000,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const managerRestart = dryRun ? null : io.readManagerRestart();
 	const served = io.servedRoots(control.scope).roots;
 	const state = withManagerRestart(
-		settleKilled(io, io.readState(), served),
+		settleKilled(io, io.readState(), { served, acts }),
 		managerRestart,
 		io.readCurrentBootId(),
 		io.blockIo(served),
@@ -1025,6 +1047,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		broken,
 		seen,
 		registry,
+		acts,
 	});
 	/* A dry run, a barred tick or a stopping one sets nothing running, and the
 	 * lifted holds keep for a later tick. */
@@ -1052,6 +1075,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		typedSeat: typed.seat,
 		seatTriedAt: state.seatTriedAt,
 		lastActAt,
+		acts,
 	});
 	const resumable = dueResumes(control, launches, seen);
 	/** @type {import("./refill-decide.js").TickInput} */

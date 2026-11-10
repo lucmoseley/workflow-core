@@ -11,7 +11,8 @@
  * the graph records no `createRequire` load; the documents the read-edge manifest maps to it, spawned
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
  * closure and what those reach lexically, as the git shim the setup puts on
- * every test's `PATH`; `package.json` and the lockfiles; a snapshot file beside it; and,
+ * every test's `PATH`; `package.json`, the lockfiles, `tsconfig.json` and
+ * `.claude/workflow-core.json`, which the setup exports to every test; a snapshot file beside it; and,
  * as values, the Node version and the architecture, and python3's version
  * where its inputs hold a Python file or a file on its reach runs Python
  * inline. Each path a relative
@@ -41,7 +42,9 @@
  * place, a JSX or TSX file on the reach, or a load on it the walk cannot
  * read (lib/code-edges.js's `unread`: an inline program's, a JS load of no
  * literal, or a shell load spelled off anything but the script's own
- * directory), records no row for the files it reaches; a file the audit
+ * directory), or a join off a file's own directory naming a file the walk
+ * cannot tell (its `unknown`), records no row for the files it reaches,
+ * a test file's own such join aside, which its audit saw; a file the audit
  * holds no reads for, or doubts, records none; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
@@ -103,13 +106,19 @@ const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
 
-/* The paths every file's verdict rests on beside its own, where they exist. */
-const PACKAGE_INPUTS = [
+/* The paths every file's verdict rests on beside its own, where they exist:
+ * the package files; `tsconfig.json`, which vite's transform reads for every
+ * file; and `.claude/workflow-core.json`, which vitest.setup.ts reads through
+ * `readConfig` off a root no walk reads, and exports to every test as
+ * `WFC_ALWAYS_LOADED` and `WFC_OUTPUT_STYLE`. */
+const RUN_INPUTS = [
 	"package.json",
 	"package-lock.json",
 	"npm-shrinkwrap.json",
 	"pnpm-lock.yaml",
 	"yarn.lock",
+	"tsconfig.json",
+	".claude/workflow-core.json",
 ];
 
 /* The header pragma: `uncached: <reason>`, a reason being a word. */
@@ -303,6 +312,9 @@ const refuseFault = (/** @type {string} */ why) => {
  *   repo-relative: the files reached, the paths a specifier on the way tried
  *   before the file it resolved to, and whether a file on the way runs inline
  *   Python
+ * @typedef {Reach & {unknown: boolean}} FileReach one file's own: with
+ *   whether it joins a path off its directory the walk cannot tell
+ *   (lib/code-edges.js's `unknown`)
  */
 
 /**
@@ -311,52 +323,76 @@ const refuseFault = (/** @type {string} */ why) => {
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
  * records, since this repo's tests reach their subjects through
  * `createRequire` and spawns. Memoised across the files of one run. Null
- * where any file on the way will not read: an input left unknown records no
- * row.
+ * where any file on the way will not read, or joins a path off its own
+ * directory the walk cannot tell: an input left unknown records no row. A
+ * test file's own such join is excused (`ownReadsJudged`): the read audit
+ * saw its reads.
  * @param {string} root
- * @returns {(file: string) => Reach|null} `file` left out of `edges`
+ * @returns {(file: string, ownReadsJudged?: boolean) => Reach|null} `file`
+ *   left out of `edges`
  */
 function lexicalReach(root) {
-	/** @type {Map<string, Reach|null>} */
+	/** @type {Map<string, FileReach|null>} */
 	const memo = new Map();
 	/** @param {string} rel */
-	const reachFrom = (rel) => {
+	const readFrom = (rel) => {
 		if (memo.has(rel)) return memo.get(rel) ?? null;
 		const found = isScript(path.join(root, rel))
 			? readEdges(root, rel)
-			: { edges: [], shadows: [], python: false };
+			: { edges: [], shadows: [], python: false, unknown: false };
 		memo.set(rel, found);
 		return found;
 	};
-	return (file) => {
-		const seen = new Set([file]);
-		/** @type {Set<string>} */
-		const shadows = new Set();
-		const queue = [file];
-		let python = false;
-		for (const rel of queue) {
-			const found = reachFrom(rel);
-			if (!found) return null;
-			python ||= found.python;
-			for (const p of found.shadows) shadows.add(p);
-			for (const next of found.edges)
-				if (!seen.has(next)) {
-					seen.add(next);
-					queue.push(next);
-				}
-		}
-		seen.delete(file);
-		return { edges: [...seen], shadows: [...shadows], python };
+	/**
+	 * `rel`'s own reach, null where it will not read or, its reads not
+	 * `judged` by the selector, it joins a path the walk cannot tell.
+	 * @param {string} rel
+	 * @param {boolean} judged
+	 */
+	const reachFrom = (rel, judged) => {
+		const found = readFrom(rel);
+		return found?.unknown && !judged ? null : found;
 	};
+	return (file, ownReadsJudged = false) =>
+		walkReach(file, (rel) => reachFrom(rel, ownReadsJudged && rel === file));
+}
+
+/**
+ * The files `file` reaches, each file's own reach read by `reachOne`; null
+ * where any is null.
+ * @param {string} file
+ * @param {(rel: string) => FileReach|null} reachOne
+ * @returns {Reach|null} `file` left out of `edges`
+ */
+function walkReach(file, reachOne) {
+	const seen = new Set([file]);
+	/** @type {Set<string>} */
+	const shadows = new Set();
+	const queue = [file];
+	let python = false;
+	for (const rel of queue) {
+		const found = reachOne(rel);
+		if (!found) return null;
+		python ||= found.python;
+		for (const p of found.shadows) shadows.add(p);
+		for (const next of found.edges)
+			if (!seen.has(next)) {
+				seen.add(next);
+				queue.push(next);
+			}
+	}
+	seen.delete(file);
+	return { edges: [...seen], shadows: [...shadows], python };
 }
 
 /**
  * The in-repo files `rel` names lexically, the paths its specifiers tried
- * before them, and whether it runs inline Python; or null where it will not
- * read, faults, or holds a load the walk cannot read.
+ * before them, whether it runs inline Python and whether it joins a path
+ * the walk cannot tell; or null where it will not read, faults, or holds a
+ * load the walk cannot read.
  * @param {string} root
  * @param {string} rel
- * @returns {Reach|null}
+ * @returns {FileReach|null}
  */
 function readEdges(root, rel) {
 	const abs = path.join(root, rel);
@@ -372,6 +408,7 @@ function readEdges(root, rel) {
 			),
 			shadows: repoRelative(root, reach.shadows),
 			python: reach.python,
+			unknown: reach.unknown.length > 0,
 		};
 	} catch {
 		return null;
@@ -393,14 +430,14 @@ const repoRelative = (root, paths) =>
 
 /**
  * The input paths beside every file's own: the run's shared inputs and the
- * package files that exist at `root`.
+ * `RUN_INPUTS` that exist at `root`.
  * @param {string} root
  * @param {string[]} shared
  */
 const sharedInputs = (root, shared) => [
 	...new Set([
 		...shared,
-		...PACKAGE_INPUTS.filter((p) => fs.existsSync(path.join(root, p))),
+		...RUN_INPUTS.filter((p) => fs.existsSync(path.join(root, p))),
 	]),
 ];
 
@@ -647,7 +684,7 @@ function treeInputs(top, tracked, working) {
  * its reach will not read.
  * @param {FileResult} f
  * @param {{run: Run, reads: Map<string, string[]>,
- *   reach: (file: string) => Reach|null,
+ *   reach: (file: string, ownReadsJudged?: boolean) => Reach|null,
  *   listings: () => Map<string, Set<string>>, working: TreeAt}} ctx
  */
 function fileInputs(f, { run, reads, reach, listings, working }) {
@@ -663,12 +700,11 @@ function fileInputs(f, { run, reads, reach, listings, working }) {
 	 * is what a script the audit saw a child run reaches. */
 	const spawned = reads.get(f.file) ?? [];
 	const reaches = [
-		f.file,
-		...f.imports,
-		...spawned,
-		...run.shared,
-		...audit.reads.scripts,
-	].map(reach);
+		reach(f.file, true),
+		...[...f.imports, ...spawned, ...run.shared, ...audit.reads.scripts].map(
+			(p) => reach(p),
+		),
+	];
 	if (reaches.includes(null)) return null;
 	const reached = /** @type {Reach[]} */ (reaches);
 	const paths = [

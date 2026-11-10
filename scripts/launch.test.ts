@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * launch.sh hands each hand-launched command the model its kind calls for —
- * Sonnet rows, Opus rows, plain Opus for an unmapped kind, and a `--model`
+ * Haiku rows, Opus rows, plain Opus for an unmapped kind, and a `--model`
  * override in either direction (mantahostels#1334, mantahostels#1088).
  *
  * launch.sh resolves scripts/dispatch-sessions.sh relative to its own
@@ -79,12 +79,12 @@ const dispatchArgv = (): string | undefined => {
 	return fs.readFileSync(f, "utf8").trim();
 };
 
-describe("the sonnet row", () => {
-	it("launches pick-next on sonnet", () => {
+describe("the haiku row", () => {
+	it("launches pick-next on haiku", () => {
 		stubDispatch();
 		const r = run(["pick-next", "1353"]);
 		expect(r.code).toBe(0);
-		expect(dispatchArgv()).toBe("sonnet /pick-next 1353");
+		expect(dispatchArgv()).toBe("haiku /pick-next 1353");
 	});
 });
 
@@ -112,7 +112,7 @@ describe("commands with no argv", () => {
 		stubDispatch();
 		const r = run(["pick-next"]);
 		expect(r.code).toBe(0);
-		expect(dispatchArgv()).toBe("sonnet /pick-next");
+		expect(dispatchArgv()).toBe("haiku /pick-next");
 	});
 });
 
@@ -140,13 +140,13 @@ describe("an unrecognised command", () => {
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("NOTE");
 		expect(r.stderr).toContain("some-future-kind");
-		expect(r.stderr).toContain("not one of the Sonnet-table kinds");
+		expect(r.stderr).toContain("not one of the Haiku-table kinds");
 		expect(dispatchArgv()).toBe("opus /some-future-kind 42");
 	});
 });
 
 describe("--model override", () => {
-	it("escalates a Sonnet-table kind to Opus (mantahostels#1334's Q2)", () => {
+	it("escalates a Haiku-table kind to Opus (mantahostels#1334's Q2)", () => {
 		stubDispatch();
 		const r = run(["--model", "opus", "pick-next", "1352"]);
 		expect(r.code).toBe(0);
@@ -174,7 +174,7 @@ describe("flag passthrough", () => {
 		stubDispatch();
 		const r = run(["--dry-run", "--no-advisor", "pick-next", "341"]);
 		expect(r.code).toBe(0);
-		expect(dispatchArgv()).toBe("--dry-run --no-advisor sonnet /pick-next 341");
+		expect(dispatchArgv()).toBe("--dry-run --no-advisor haiku /pick-next 341");
 	});
 
 	it("forwards --into with its worktree as one pair (#4385)", () => {

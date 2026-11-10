@@ -102,7 +102,7 @@ function refuseRepo(run, segment, repo) {
 		"anthropic-report",
 		"Nothing is reported or requested to Anthropic",
 	);
-	deny(
+	return deny(
 		run.ctx,
 		segment,
 		`This writes to an Anthropic repo (${repo}): @CMD@\n\n${rule}`,
@@ -202,7 +202,7 @@ function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {
 	}
 	if (!scan.named) return judgeUnnamed(run, cmd);
 	if (scan.hidden || scan.repo.includes("$"))
-		open(
+		return open(
 			run.ctx,
 			`could not read the --repo of a gh ${group} ${sub} — allowed unchecked for an Anthropic repo`,
 		);
@@ -272,7 +272,7 @@ function readRepoFlag(scan, i, word) {
 function judgeUnnamed(run, cmd) {
 	const env = ghRepoEnv(run, cmd);
 	if (env === null)
-		open(
+		return open(
 			run.ctx,
 			"could not read GH_REPO on a gh write — allowed unchecked for an Anthropic repo",
 		);
@@ -309,7 +309,7 @@ function ghRepoEnv(run, cmd) {
  */
 function cloneRepo(run, cmd) {
 	if (!cmd.cwd)
-		open(
+		return open(
 			run.ctx,
 			"could not tell which directory a gh write runs in — its clone's remotes unchecked for an Anthropic repo",
 		);
@@ -338,7 +338,7 @@ function judgeApi(run, cmd, args) {
 	if (method && !WRITE_METHODS.includes(method.toUpperCase())) return;
 	const endpoint = captured(run, call.endpoint);
 	if (endpoint === null)
-		open(
+		return open(
 			run.ctx,
 			"could not read a gh api endpoint — allowed unchecked for an Anthropic repo",
 		);
@@ -374,7 +374,7 @@ function judgeGraphql(run, cmd, args, call) {
 	if (!m) return;
 	if (mutation)
 		refuseRepo(run, cmd.segment, requiredGroup(m, 2, NAMES_ANTHROPICS_RE));
-	open(
+	return open(
 		run.ctx,
 		"a gh api graphql call naming anthropics carries a query the guard cannot read — allowed unchecked",
 	);

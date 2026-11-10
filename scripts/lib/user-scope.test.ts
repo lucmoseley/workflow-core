@@ -117,7 +117,7 @@ describe("the outliving launch", () => {
 		const recorder = path.join(dir, "rec.sh");
 		fs.writeFileSync(
 			recorder,
-			`#!/bin/sh\nprintf '%s\\n' "$* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-}" >> "${rec}"\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-} outlives=\${WFC_OUTLIVES-}" >> "${rec}"\n`,
 			{ mode: 0o755 },
 		);
 		const fake = writeSystemdRun(dir, { answers });
@@ -131,6 +131,7 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 				CLAUDE_CODE_SESSION_ID: "starter",
 				CLAUDE_JOB_DIR: "/the/job",
 				WFC_REPORT_OWNER: "inherited",
+				CLAUDE_PID: "4242",
 				...extra,
 			},
 		});
@@ -154,7 +155,7 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 				owner: "starter",
 			},
 		]);
-		expect(ran).toBe("job sid= job= owner=starter");
+		expect(ran).toBe("job sid= job= owner=starter outlives=4242:2700");
 	});
 
 	it.each([
@@ -177,7 +178,7 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 			'{ owner: "starter", ceilingS: 2700 }',
 		);
 		expect(scoped).toEqual([]);
-		expect(ran).toBe("job sid= job= owner=starter");
+		expect(ran).toBe("job sid= job= owner=starter outlives=");
 	});
 
 	/* lib/detach.sh's `outlive` is this face's twin: drift, and the shell
@@ -220,12 +221,21 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 				owner: "inherited",
 			},
 		]);
-		expect(ran).toBe("job sid= job= owner=inherited");
+		expect(ran).toBe(
+			`job sid= job= owner=inherited outlives=4242:${OUTLIVE_CEILING_S}`,
+		);
 	});
 
 	it("names no owner and sets no ceiling where both are null", () => {
 		const { ran, scoped } = launch(true, "{ owner: null, ceilingS: null }");
 		expect(scoped).toEqual([{ words: "--user --scope --quiet --", owner: "" }]);
-		expect(ran).toBe("job sid= job= owner=");
+		expect(ran).toBe("job sid= job= owner= outlives=4242:");
+	});
+
+	it("marks no job outliving where its starter is no session", () => {
+		const { ran } = launch(true, '{ owner: "starter", ceilingS: 2700 }', {
+			CLAUDE_PID: "",
+		});
+		expect(ran).toBe("job sid= job= owner=starter outlives=");
 	});
 });

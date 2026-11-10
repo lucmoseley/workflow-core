@@ -17,9 +17,11 @@
  * session found then: the leader's descendants, and every process whose
  * environ carries `CLAUDE_PID=<leader>`, which reaches the detached jobs of
  * this same hook phase that have already been reparented to `/init`. Pass
- * follows pass until none finds a process left behind (lib's attachAll). A
- * session born inside another's scope (a nested `claude`, or a spare of a
- * daemon a session started) moves to a scope of its own the same way.
+ * follows pass until none finds a process left behind, and then any job the
+ * outliving launch started that a pass pulled in is moved back out (lib's
+ * attachThenRelease). A session born inside another's scope (a nested
+ * `claude`, or a spare of a daemon a session started) moves to a scope of its
+ * own the same way.
  *
  * ITS OWN SLICE. The scope sits in `wfc-sessions.slice`, not `app.slice`,
  * so CFS weighs every session together against the lander's scope as one
@@ -65,11 +67,14 @@ const { readEnvironVar } = require("./lib/proc-environ.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readProcTable } = require("./lib/proc-table.js");
 const {
-	MEMORY_BOUND,
-	SLICE,
-	attachAll,
+	OUTLIVES_KEY,
+	adoptedLine,
+	attachThenRelease,
 	isSessionProcess,
 	membersOf,
+	releaseUnitArgs,
+	sessionUnitArgs,
+	straysOf,
 	unitOf,
 	watcherArgv,
 	watcherOf,
@@ -196,53 +201,48 @@ function adopt(env) {
 	}
 
 	const description = `Claude session ${env.CLAUDE_CODE_SESSION_ID ?? String(leader)}`;
-	const started = busCall([
-		"StartTransientUnit",
-		"ssa(sv)a(sa(sv))",
-		unit,
-		"fail",
-		String(4 + MEMORY_BOUND.length),
-		"PIDs",
-		"au",
-		"1",
-		String(leader),
-		"Slice",
-		"s",
-		SLICE,
-		"CollectMode",
-		"s",
-		"inactive-or-failed",
-		"Description",
-		"s",
-		description,
-		...MEMORY_BOUND.flat(),
-		"0",
-	]);
+	const started = busCall(sessionUnitArgs(unit, leader, description));
 	if (!started.ok)
 		return fault(
 			`the user manager refused ${unit} (${started.err}): ${UNCONTAINED}`,
 		);
 
-	const left = () => {
-		const now = readProcTable(proc);
-		if (!now) return [];
-		return membersOf({
-			procs: now.procs,
-			leader,
-			home,
-			self: process.pid,
-			readCgroup: (pid) => readCgroup(proc, pid),
-			readClaudePid: (pid) => {
-				const r = readEnvironVar(pid, "CLAUDE_PID", proc);
-				return r.ok ? r.value : null;
-			},
-		});
+	/** @param {string} key */
+	const environOf = (key) => (/** @type {number} */ pid) => {
+		const r = readEnvironVar(pid, key, proc);
+		return r.ok ? r.value : null;
 	};
-	const moved = attachAll(
-		left,
-		(pids) =>
+	const readOutlives = environOf(OUTLIVES_KEY);
+	const counts = attachThenRelease({
+		left: () => {
+			const now = readProcTable(proc);
+			if (!now) return [];
+			return membersOf({
+				procs: now.procs,
+				leader,
+				home,
+				self: process.pid,
+				readCgroup: (pid) => readCgroup(proc, pid),
+				readClaudePid: environOf("CLAUDE_PID"),
+				readOutlives,
+			});
+		},
+		attach: (pids) =>
 			busCall(["AttachProcessesToUnit", "ssau", unit, "", ...pidArgs(pids)]).ok,
-	);
+		strays: () => {
+			const now = readProcTable(proc);
+			const scope = readCgroup(proc, leader);
+			if (!now || !scope) return [];
+			return straysOf({
+				procs: now.procs,
+				leader,
+				scope,
+				readCgroup: (pid) => readCgroup(proc, pid),
+				readOutlives,
+			});
+		},
+		release: (group) => busCall(releaseUnitArgs(group)).ok,
+	});
 	const watch = startWatcher(unit, leader, self.startTicks);
 	if (!watch.ok) {
 		/* The move cannot be undone: `/non-systemd` takes no pid back (#4334 P1). */
@@ -250,9 +250,7 @@ function adopt(env) {
 			`no session watcher for ${unit} (${watch.err}): ${UNCONTAINED}`,
 		);
 	}
-	return done(
-		`session ${String(leader)} in ${unit}, with ${String(moved)} other process(es)`,
-	);
+	return adoptedLine(leader, unit, counts);
 }
 
 if (require.main === module) {

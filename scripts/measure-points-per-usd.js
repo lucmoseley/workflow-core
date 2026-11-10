@@ -158,7 +158,7 @@ function spendIn(files, window) {
 
 /**
  * Print one seat's rate for one bar.
- * @param {{ seat: string, bar: keyof SPANS, bars: ReturnType<typeof readAllowance>, now: number, overflowLaunchOf: OverflowLookup }} reading
+ * @param {{ seat: string, bar: keyof typeof SPANS, bars: ReturnType<typeof readAllowance>, now: number, overflowLaunchOf: OverflowLookup }} reading
  * @returns {boolean} whether a rate printed — spend above zero
  */
 function printBar({ seat, bar, bars, now, overflowLaunchOf }) {
@@ -206,7 +206,9 @@ function main() {
 	let printed = 0;
 	for (const seat of seats) {
 		const bars = readAllowance({ configDir: seat, now });
-		for (const bar of /** @type {(keyof SPANS)[]} */ (Object.keys(SPANS))) {
+		for (const bar of /** @type {(keyof typeof SPANS)[]} */ (
+			Object.keys(SPANS)
+		)) {
 			if (printBar({ seat, bar, bars, now, overflowLaunchOf })) printed++;
 		}
 	}

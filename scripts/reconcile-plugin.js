@@ -487,7 +487,7 @@ const WARNING_ACTIONS = new Set([
 const QUIET_STOPS = new Map([
 	[
 		"no-plugin",
-		(pluginRoot) =>
+		(/** @type {string} */ pluginRoot) =>
 			`no .claude-plugin/plugin.json under ${pluginRoot}. Run by hand, set CLAUDE_PLUGIN_ROOT to the installed plugin's root.`,
 	],
 	["no-pin", () => "this repo pins no git-sourced plugin to reconcile."],

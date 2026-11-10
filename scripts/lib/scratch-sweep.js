@@ -98,10 +98,10 @@ const AGENTS_DIR = "agents";
  * (mantahostels#1278), and a 24 h scratch sweep would delete a live one
  * whose writing session had merely gone quiet since.
  *
- * `attachments` holds the files `guard-main-checkout-job.js` carried out of a
- * removed job's directory (#4750). The relaunched session starts after the
- * copy, so the live-session limb never shields it; the worktree's removal
- * clears it.
+ * `attachments` holds the files lib/carry-job-files.js carried out of a
+ * removed job's directory (#4750). The relaunched or resumed session starts
+ * after the copy, so the live-session limb never shields it; the worktree's
+ * removal clears it.
  */
 const EXEMPT_TOP_LEVEL = new Set(["markers", "attachments"]);
 

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Holds lib/earlyoom-journal-fake.ts to the real journalctl (§G7, #2207,
+ * Holds lib/journalctl-fake.ts to the real journalctl (§G7, #2207,
  * #3105): each case runs against the fake and the machine's own journal and
  * checks shape and verdict, never values. A week of the earlyoom journal is
  * read through lib/earlyoom-kills.js's readIncidents, the kernel log through
@@ -26,13 +26,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import {
+	buildEarlyoomBannerLine,
+	buildEarlyoomReadingLine,
+	buildEarlyoomSignalLine,
+	buildKernelLine,
 	type FakeBoot,
-	kernelLine,
-	otherLine,
-	readingLine,
-	signalLine,
 	writeJournalctl,
-} from "./earlyoom-journal-fake";
+} from "./journalctl-fake";
 import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
@@ -50,15 +50,15 @@ const T0 = Math.floor((Date.now() - 60 * MIN) / 1000) * 1000;
 const WINDOW_MS = 7 * 24 * 60 * MIN;
 
 const FAKE_JOURNAL = [
-	signalLine(T0 - 2 * MIN, 77, "dbus-daemon", { rss: 1 }),
-	otherLine(T0 - MIN),
-	readingLine(T0, 776),
-	signalLine(T0, 658_446, "MainThread"),
-	signalLine(T0 + 3000, 658_446, "MainThread", { sig: "SIGKILL" }),
-	readingLine(T0 + MIN, 790, 12),
-	signalLine(T0 + MIN, 369_866, "2.1.310", { rss: 450 }),
+	buildEarlyoomSignalLine(T0 - 2 * MIN, 77, "dbus-daemon", { rss: 1 }),
+	buildEarlyoomBannerLine(T0 - MIN),
+	buildEarlyoomReadingLine(T0, 776),
+	buildEarlyoomSignalLine(T0, 658_446, "MainThread"),
+	buildEarlyoomSignalLine(T0 + 3000, 658_446, "MainThread", { sig: "SIGKILL" }),
+	buildEarlyoomReadingLine(T0 + MIN, 790, 12),
+	buildEarlyoomSignalLine(T0 + MIN, 369_866, "2.1.310", { rss: 450 }),
 ];
-const FAKE_KERNEL = [kernelLine(T0, "Booting Linux on physical CPU 0x0")];
+const FAKE_KERNEL = [buildKernelLine(T0, "Booting Linux on physical CPU 0x0")];
 
 const SIGNAL = /^sending SIG\w+ to process (\d+) /;
 const READING = /^mem avail:\s*(\d+)\D.*swap free:\s*(\d+)/;
@@ -77,7 +77,7 @@ const IGNORED = [
 ];
 /** `<stamp> <host> <ident>: `, the ident mostly `kernel`. */
 const KERNEL = /^\S+ \S+ [^\s:]+: /;
-/** The ident kernelLine writes. */
+/** The ident buildKernelLine writes. */
 const KERNEL_IDENT = /^\S+ \S+ kernel: /;
 
 /** earlyoom's own words: the line less its stamp, host and `earlyoom[pid]: `. */
@@ -116,7 +116,7 @@ interface Side {
 	tail: { short: string[]; cat: string[] };
 }
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-contract-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "journalctl-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /**
@@ -260,9 +260,9 @@ const CASES: Case[] = [
 		name: "every earlyoom line is a shape the fake builds or one the reader ignores",
 		check({ lines }: Side) {
 			const built = [
-				signalLine(T0, 1, "x"),
-				readingLine(T0),
-				otherLine(T0),
+				buildEarlyoomSignalLine(T0, 1, "x"),
+				buildEarlyoomReadingLine(T0),
+				buildEarlyoomBannerLine(T0),
 			].map((l) => shape(message(l) ?? ""));
 			/* Since earlyoom last started: the journal's past holds what older
 			 * versions printed. */
@@ -339,7 +339,7 @@ const CASES: Case[] = [
 		},
 	},
 	{
-		name: "the kernel log reads in check-kernel-stall.js, in kernelLine's shape",
+		name: "the kernel log reads in check-kernel-stall.js, in buildKernelLine's shape",
 		check({ kernel }: Side) {
 			expect(kernel.outcome).not.toBe("SKIP");
 			/* A message's later lines come indented under its first. */

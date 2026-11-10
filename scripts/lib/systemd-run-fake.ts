@@ -23,6 +23,8 @@ export interface SystemdRunCall {
 	sid: string;
 	job: string;
 	owner: string;
+	/** Its outliving mark, lib/session-scope.js's OUTLIVES_KEY, "" where unset. */
+	outlives: string;
 }
 
 /**
@@ -39,7 +41,7 @@ export function writeSystemdRun(dir: string, { answers = true } = {}) {
 ${answers ? "" : "exit 1\n"}words=
 while [ $# -gt 0 ] && [ "$1" != -- ]; do words="$words$1 "; shift; done
 shift
-printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$words--" "$*" "\${CLAUDE_CODE_SESSION_ID-}" "\${CLAUDE_JOB_DIR-}" "\${WFC_REPORT_OWNER-}" >> ${q}
+printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$words--" "$*" "\${CLAUDE_CODE_SESSION_ID-}" "\${CLAUDE_JOB_DIR-}" "\${WFC_REPORT_OWNER-}" "\${WFC_OUTLIVES-}" >> ${q}
 exec "$@"
 `,
 		{ mode: 0o755 },
@@ -58,9 +60,15 @@ exec "$@"
 			lines()
 				.filter((l) => l !== "probe")
 				.map((l) => {
-					const [words = "", command = "", sid = "", job = "", owner = ""] =
-						l.split("\t");
-					return { words, command, sid, job, owner };
+					const [
+						words = "",
+						command = "",
+						sid = "",
+						job = "",
+						owner = "",
+						outlives = "",
+					] = l.split("\t");
+					return { words, command, sid, job, owner, outlives };
 				}),
 	};
 }

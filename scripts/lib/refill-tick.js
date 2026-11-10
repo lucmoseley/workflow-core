@@ -125,7 +125,6 @@ const {
 const refillBatch = require("./refill-batch.js");
 const { iso, launchName } = require("./refill-block-core.js");
 const blocks = require("./refill-blocks.js");
-const limits = require("./refill-limits.js");
 const {
 	attachProbeParks,
 	holdLockedOut,
@@ -1020,8 +1019,6 @@ const productionIo = {
 	readCurrentBootId,
 	readState: () => readState(log),
 	adoptKilledLaunches,
-	settleStartedResumes: (launches, served) =>
-		blocks.settleStartedResumes(launches, blockIo(served)),
 	readRegistry: readRegistryAgents,
 	stopNeverStarted,
 	hasConfig,
@@ -1030,7 +1027,7 @@ const productionIo = {
 	startReapPass,
 	startWarmPass,
 	runMachineChild,
-	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
+	tendHolds: (roots, served, now) => tendHolds(roots, served, now, { log }),
 	readListing: (trusted) =>
 		trusted ? readAgentsAfterBoot() : listedAgents({ requireSelf: false }),
 	recordListedOverflowSessions,
@@ -1043,10 +1040,7 @@ const productionIo = {
 	readProgress,
 	readLoopLastActAt,
 	readCause,
-	unparkAnswered: blocks.unparkAnswered,
 	tendClosedParks,
-	actOnBlocks: blocks.actOnBlocks,
-	actOnIdle: blocks.actOnIdle,
 	actOnOutside: (launches, registry, seen) =>
 		actOnOutside(launches, registry, readCause, seen),
 	releaseAwayParks: (launches, mode, served, seen) =>
@@ -1054,9 +1048,7 @@ const productionIo = {
 	attachProbeParks: (broken, launches) =>
 		attachProbeParks(broken, launches, log),
 	readLiftedHolds: (roots) => readLiftedHolds(roots, log),
-	releaseEndedHolds: limits.releaseEndedHolds,
 	readFreeSlots,
-	actOnLimits: limits.actOnLimits,
 	readSeats,
 	probeDueSeats,
 	seatBudget,
@@ -1067,8 +1059,6 @@ const productionIo = {
 	readFrontier: refillFrontier,
 	readParkMarkers,
 	launchBatch: launchOrResume,
-	resumeHeld: (resumes, held, seen, how) =>
-		blocks.resumeHeldLaunches(resumes, held, seen, how),
 	writePause: (pause, noProgressFrom) =>
 		writeLoopPause(pause, noProgressFrom, log),
 	runReview,

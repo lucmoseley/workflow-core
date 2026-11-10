@@ -31,8 +31,8 @@ function tmp(prefix: string) {
 
 /** Stubs that log their argv, one call a line; `refuse` fails a busctl call
  * whose words hold it, `active` answers `is-active` yes for session 500's watcher
- * (wfc-session-500-19640000-watch.service). An attach moves its
- * pids out of `/non-systemd` in the fake /proc, as the manager would. */
+ * (wfc-session-500-19640000-watch.service). A unit's start or an attach moves
+ * the pids it names to `/<unit>` in the fake /proc, as the manager would. */
 function fakeTools(procRoot: string, { refuse = "", active = false } = {}) {
 	const dir = tmp("session-scope-bin-");
 	const log = path.join(dir, "calls");
@@ -49,9 +49,17 @@ function fakeTools(procRoot: string, { refuse = "", active = false } = {}) {
 		WFC_BUSCTL: tool(
 			"busctl",
 			`${refuse ? `case "$*" in *"${refuse}"*) echo "Call failed: No such process" >&2; exit 1;; esac` : ""}
-case "$1 $6 $7" in "--user AttachProcessesToUnit ssau")
-  shift 10; for q in "$@"; do echo "0::/scoped" > "${procRoot}/$q/cgroup"; done;;
-esac`,
+unit=$8
+case "$1 $6 $7" in
+  "--user AttachProcessesToUnit ssau") shift 10 ;;
+  "--user StartTransientUnit ssa(sv)a(sa(sv))") n=\${13}; shift 13 ;;
+  *) exit 0 ;;
+esac
+for q in "$@"; do
+  [ "\${n:-1}" -gt 0 ] || break
+  echo "0::/$unit" > "${procRoot}/$q/cgroup"
+  [ -z "\${n:-}" ] || n=$((n - 1))
+done`,
 		),
 		WFC_SYSTEMD_RUN: tool("systemd-run", "exit 0"),
 		WFC_SYSTEMCTL: writeSystemctl(dir, {
@@ -198,6 +206,46 @@ describe("session-scope.js", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(said);
 		expect(calls()).toEqual([]);
+	});
+
+	/* #4749: a job the outliving launch started that a pass pulled back in. */
+	function withPulledBackJob() {
+		const proc = fakeProc();
+		const dir = path.join(proc.root, "800");
+		proc.proc(800, { ppid: 1, argv: ["node"] });
+		fs.writeFileSync(
+			path.join(dir, "cgroup"),
+			"0::/wfc-session-500-19640000.scope\n",
+		);
+		fs.writeFileSync(
+			path.join(dir, "environ"),
+			"CLAUDE_PID=500\0WFC_OUTLIVES=500:2700\0",
+		);
+		return proc;
+	}
+
+	it("moves an outliving job it finds in the scope out to one of its own, at its ceiling", () => {
+		const proc = withPulledBackJob();
+		const { env, calls } = fakeTools(proc.root);
+		const r = adopt({ CLAUDE_PID: "500" }, env, proc.root);
+		expect(r.stderr).toMatch(
+			/with 2 other process\(es\), 1 outliving job process\(es\) moved back out/,
+		);
+		expect(calls()).toContainEqual(
+			expect.stringMatching(
+				/StartTransientUnit ssa\(sv\)a\(sa\(sv\)\) wfc-outlive-800-\d+\.scope fail 3 PIDs au 1 800 CollectMode s inactive-or-failed RuntimeMaxUSec t 2700000000 0 $/,
+			),
+		);
+		expect(
+			fs.readFileSync(path.join(proc.root, "800", "cgroup"), "utf8"),
+		).toMatch(/wfc-outlive-800-/);
+	});
+
+	it("names an outliving job the manager would not move out", () => {
+		const proc = withPulledBackJob();
+		const { env } = fakeTools(proc.root, { refuse: "wfc-outlive-" });
+		const r = adopt({ CLAUDE_PID: "500" }, env, proc.root);
+		expect(r.stderr).toMatch(/outliving job process\(es\) 800 left in it/);
 	});
 
 	it("says so where the user manager refuses the scope", () => {

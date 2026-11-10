@@ -36,6 +36,30 @@ const MAX_PASSES = 5;
 const unitOf = (leader, startTicks) =>
 	`${UNIT_PREFIX}${String(leader)}-${String(startTicks)}.scope`;
 
+/* The environ mark of an outliving job (#4749), `<leader>:<ceiling-s>`: the
+ * session it was launched to outlive, and its scope's RuntimeMaxSec, empty
+ * for none. lib/user-scope.js's spawnOutliving and lib/detach.sh's `outlive`
+ * set it wherever they start the job in a user scope. */
+const OUTLIVES_KEY = "WFC_OUTLIVES";
+
+/** @param {number|string} leader @param {number|null} ceilingS */
+const outlivesMark = (leader, ceilingS) =>
+	`${String(leader)}:${ceilingS === null ? "" : String(ceilingS)}`;
+
+/**
+ * @param {string|null} value an OUTLIVES_KEY value
+ * @returns {{ leader: number, ceilingS: number|null }|null}
+ */
+function parseOutlives(value) {
+	const m = /^(\d+):(\d*)$/.exec(value ?? "");
+	if (!m) return null;
+	return { leader: Number(m[1]), ceilingS: m[2] === "" ? null : Number(m[2]) };
+}
+
+/** @param {number} root @param {number} startTicks */
+const releaseUnitOf = (root, startTicks) =>
+	`wfc-outlive-${String(root)}-${String(startTicks)}.scope`;
+
 /** @param {string} unit */
 const watcherOf = (unit) => unit.replace(/\.scope$/, "-watch.service");
 
@@ -54,13 +78,23 @@ function isSessionProcess(argv) {
  * whose environ names it as `CLAUDE_PID` and that started no earlier than it,
  * so a dead session's leftover on a reused pid is never taken. Only those
  * still in `home`, the leader's cgroup before the move, so a test run's own
- * scope is never pulled back in. Never the leader, nor `self`.
+ * scope is never pulled back in. Never the leader, nor `self`, nor a job
+ * marked as outliving this leader, wherever it sits.
  * @param {{ procs: Map<number, { ppid: number, startTicks: number }>,
  *   leader: number, home: string|null, self: number,
  *   readCgroup: (pid: number) => string|null,
- *   readClaudePid: (pid: number) => string|null }} at
+ *   readClaudePid: (pid: number) => string|null,
+ *   readOutlives: (pid: number) => string|null }} at
  */
-function membersOf({ procs, leader, home, self, readCgroup, readClaudePid }) {
+function membersOf({
+	procs,
+	leader,
+	home,
+	self,
+	readCgroup,
+	readClaudePid,
+	readOutlives,
+}) {
 	const leaderStart = procs.get(leader)?.startTicks ?? 0;
 	/** @type {Map<number, number[]>} */
 	const children = new Map();
@@ -82,8 +116,55 @@ function membersOf({ procs, leader, home, self, readCgroup, readClaudePid }) {
 			found.add(pid);
 	}
 	return [...found]
-		.filter((pid) => pid !== leader && pid !== self && readCgroup(pid) === home)
+		.filter(
+			(pid) =>
+				pid !== leader &&
+				pid !== self &&
+				parseOutlives(readOutlives(pid))?.leader !== leader &&
+				readCgroup(pid) === home,
+		)
 		.sort((a, b) => a - b);
+}
+
+/**
+ * The jobs marked as outliving `leader` that sit in its scope, whose cgroup
+ * is `scope`, each grouped under its outermost marked ancestor there, with
+ * that ancestor's ceiling.
+ * @param {{ procs: Map<number, { ppid: number, startTicks: number }>,
+ *   leader: number, scope: string,
+ *   readCgroup: (pid: number) => string|null,
+ *   readOutlives: (pid: number) => string|null }} at
+ * @returns {{ root: number, startTicks: number, ceilingS: number|null,
+ *   pids: number[] }[]}
+ */
+function straysOf({ procs, leader, scope, readCgroup, readOutlives }) {
+	/** @type {Map<number, number|null>} */
+	const marked = new Map();
+	for (const pid of procs.keys()) {
+		const mark = parseOutlives(readOutlives(pid));
+		if (mark?.leader === leader && readCgroup(pid) === scope)
+			marked.set(pid, mark.ceilingS);
+	}
+	/** @type {Map<number, number[]>} */
+	const groups = new Map();
+	for (const pid of marked.keys()) {
+		let root = pid;
+		for (
+			let up = procs.get(root)?.ppid;
+			up !== undefined && up !== root && marked.has(up);
+			up = procs.get(root)?.ppid
+		)
+			root = up;
+		groups.set(root, [...(groups.get(root) ?? []), pid]);
+	}
+	return [...groups]
+		.sort(([a], [b]) => a - b)
+		.map(([root, pids]) => ({
+			root,
+			startTicks: procs.get(root)?.startTicks ?? 0,
+			ceilingS: marked.get(root) ?? null,
+			pids: pids.sort((a, b) => a - b),
+		}));
 }
 
 /**
@@ -114,6 +195,112 @@ function attachAll(left, call) {
 		moved += attachEach(pids, call);
 	}
 	return moved;
+}
+
+/**
+ * Attach the session's processes (attachAll), then move back out, each group
+ * to a scope of its own, every outliving job found in the session's scope
+ * (#4749), read after read until one finds none or `MAX_PASSES` have run.
+ *
+ * WHY AFTER. A job's own `systemd-run --scope` can move it out between a
+ * pass's cgroup read and its attach, which then pulls it back in, and at the
+ * session's end its watcher kills it. No read before the attach closes that
+ * gap. The job's mark is in its environ from systemd-run's exec, before its
+ * own move, and every process it forks inherits it. So either that exec came
+ * before a `strays` read, which sees the job, or after the attach, and the
+ * job's own move, later still, takes it out. A child forked in the scope
+ * before its parent's release, or a group the manager refused because one of
+ * its pids had exited, is met by the next read.
+ * @template {{ pids: number[] }} G
+ * @param {{ left: () => number[], attach: (pids: number[]) => boolean,
+ *   strays: () => G[], release: (group: G) => boolean }} at
+ * @returns {{ moved: number, released: number, kept: number[] }} `kept`, the
+ *   marked pids still in the scope after the last read
+ */
+function attachThenRelease({ left, attach, strays, release }) {
+	const moved = attachAll(left, attach);
+	let released = 0;
+	let groups = strays();
+	for (let pass = 0; pass < MAX_PASSES && groups.length > 0; pass++) {
+		for (const group of groups)
+			if (release(group)) released += group.pids.length;
+		groups = strays();
+	}
+	return {
+		moved,
+		released,
+		kept: groups.flatMap(({ pids }) => pids).sort((a, b) => a - b),
+	};
+}
+
+const COLLECT = ["CollectMode", "s", "inactive-or-failed"];
+
+/**
+ * The user manager's `StartTransientUnit` method and its arguments: `unit`, a
+ * scope holding `pids`, with `props`, each `[name, signature, value]`.
+ * @param {string} unit @param {number[]} pids @param {string[][]} props
+ */
+const scopeUnitArgs = (unit, pids, props) => [
+	"StartTransientUnit",
+	"ssa(sv)a(sa(sv))",
+	unit,
+	"fail",
+	String(1 + props.length),
+	"PIDs",
+	"au",
+	String(pids.length),
+	...pids.map(String),
+	...props.flat(),
+	"0",
+];
+
+/**
+ * The session's own scope: `leader` alone, in SLICE, under MEMORY_BOUND.
+ * @param {string} unit @param {number} leader @param {string} description
+ */
+const sessionUnitArgs = (unit, leader, description) =>
+	scopeUnitArgs(
+		unit,
+		[leader],
+		[
+			["Slice", "s", SLICE],
+			COLLECT,
+			["Description", "s", description],
+			...MEMORY_BOUND,
+		],
+	);
+
+/**
+ * A released group's scope, stopped at its ceiling where it has one.
+ * @param {{ root: number, startTicks: number, ceilingS: number|null,
+ *   pids: number[] }} group
+ */
+const releaseUnitArgs = ({ root, startTicks, ceilingS, pids }) =>
+	scopeUnitArgs(releaseUnitOf(root, startTicks), pids, [
+		COLLECT,
+		...(ceilingS === null
+			? []
+			: [["RuntimeMaxUSec", "t", String(ceilingS * 1_000_000)]]),
+	]);
+
+/**
+ * What adopting `leader` into `unit` did, in one line; not ok where an
+ * outliving job stays in the scope.
+ * @param {number} leader @param {string} unit
+ * @param {{ moved: number, released: number, kept: number[] }} counts
+ */
+function adoptedLine(leader, unit, { moved, released, kept }) {
+	const back =
+		released > 0
+			? `, ${String(released)} outliving job process(es) moved back out`
+			: "";
+	const line = `session ${String(leader)} in ${unit}, with ${String(moved)} other process(es)${back}`;
+	return kept.length === 0
+		? { ok: true, line }
+		: {
+				ok: false,
+				line: `${line}; outliving job process(es) ${kept.join(" ")} left in it, killed at its end (#4749)`,
+			};
 }
 
 /**
@@ -223,5 +410,11 @@ module.exports = {
 	watcherOf,
 	isSessionProcess,
 	membersOf,
-	attachAll,
+	straysOf,
+	attachThenRelease,
+	sessionUnitArgs,
+	releaseUnitArgs,
+	adoptedLine,
+	OUTLIVES_KEY,
+	outlivesMark,
 };
