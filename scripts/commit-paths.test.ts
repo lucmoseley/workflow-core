@@ -1218,6 +1218,15 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 			},
 		],
 		[
+			"a rename with an edit",
+			() => {
+				git("mv", "a.md", "moved.md");
+				write("moved.md", "a\nmine\n");
+				git("add", "moved.md");
+				return git("diff", "--cached", "-M", "HEAD", "--", "a.md", "moved.md");
+			},
+		],
+		[
 			"a pure rename",
 			() => {
 				git("mv", "a.md", "moved.md");

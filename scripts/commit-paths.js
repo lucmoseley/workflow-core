@@ -15,8 +15,8 @@
  * `tree=` and the `refs/reviewed/` pin both take — and writes nothing. It is
  * built by the same private-index code and refused on the same grounds, save
  * that a set changing nothing prints HEAD's own tree, so a change already
- * committed can still be named (#4288) — a patch HEAD already holds every
- * section's postimage of included (#4700). It takes no message, runs no tests,
+ * committed can still be named (#4288), a patch whose every postimage HEAD
+ * already holds included (#4700). It takes no message, runs no tests,
  * and logs no outcome line.
  *
  * --CHECK (#4207) gives the verdict that commit would get and makes none: it
@@ -670,7 +670,7 @@ function readPatchSections(root, patch) {
 function stalePreimages(sections, base) {
 	const stale = [];
 	for (const { section, file } of sections) {
-		const pre = readIndexLine(section)?.pre;
+		const pre = parseIndexLine(section)?.pre;
 		if (!pre || /^0+$/.test(pre) || isBlobAt(base, file, pre)) continue;
 		const blob = readBlobSha(base, file);
 		stale.push(
@@ -681,28 +681,25 @@ function stalePreimages(sections, base) {
 }
 
 /**
- * Whether `base` holds every section's postimage — the patch already
- * committed (#4700). A pure rename, which has no `index` line, is held where
- * `base` has its new name and not its old; any other section with none, or a
- * typechange's delete half, answers no.
+ * Whether `base` holds every section's postimage. A rename is held only where
+ * `base` lacks its old name, and a pure rename, which has no `index` line,
+ * where it has its new one; any other section with none, or a typechange's
+ * delete half, answers no.
  * @param {PatchSection[]} sections
  * @param {string} base
  */
 function isPatchCommitted(sections, base) {
 	return sections.every(({ section, file }) => {
-		const post = readIndexLine(section)?.post;
-		if (post) return isBlobAt(base, file, post);
 		const from = /^rename from (.+)$/m.exec(section)?.[1];
-		return (
-			from !== undefined &&
-			readBlobSha(base, from) === "" &&
-			readBlobSha(base, file) !== ""
-		);
+		if (from !== undefined && readBlobSha(base, from) !== "") return false;
+		const post = parseIndexLine(section)?.post;
+		if (post) return isBlobAt(base, file, post);
+		return from !== undefined && readBlobSha(base, file) !== "";
 	});
 }
 
-/** A section's `index <pre>..<post>` shas, null where it has no such line. @param {string} section */
-function readIndexLine(section) {
+/** @param {string} section */
+function parseIndexLine(section) {
 	const m = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/m.exec(section);
 	return m ? { pre: m[1], post: m[2] } : null;
 }
@@ -1179,8 +1176,7 @@ function buildOnHead(b) {
 /**
  * The private index: `base`, the whole paths as on disk, and the patch
  * applied; refuses where any step fails, or nothing would change and
- * `refuseUnchanged` is set. Where it is not, a patch HEAD already holds is
- * left unapplied.
+ * `refuseUnchanged` is set.
  * @param {PatchBuild} b
  * @param {string} base
  */
@@ -1214,7 +1210,7 @@ function buildIndex(
 				2,
 			);
 	}
-	// --tree after the commit landed: HEAD's tree, the whole paths staged.
+	// --tree after the commit landed: HEAD's tree, the whole paths staged (#4700).
 	if (!refuseUnchanged && isPatchCommitted(sections, base)) return;
 	const stale = stalePreimages(sections, base);
 	if (stale.length > 0)
