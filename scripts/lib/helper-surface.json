@@ -182,6 +182,19 @@
 				"2": "no path, a value flag with no value, or an unreadable sidecar"
 			}
 		},
+		"scripts/run-pytest.js": {
+			"positionals": [],
+			"flags": [
+				{
+					"name": "--full",
+					"meaning": "alone, run the whole Python suite; a bare run under the landing module runs only the session's touched tests"
+				}
+			],
+			"exit": {
+				"0": "pytest exited 0, or a bare run under the landing module found no touched test and ran nothing",
+				"1": "pytest exited non-zero, was killed or would not start, or the touched tests could not be selected; pytest's own report or stderr says which"
+			}
+		},
 		"scripts/run-vitest.js": {
 			"positionals": [],
 			"flags": [

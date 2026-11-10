@@ -1,7 +1,8 @@
 /*
  * drop-evidence.js — why the queue lander dropped a member, as text: the one
  * builder its fix ticket's body and the owning session's landing status both
- * read (#4950, spec #4947), so the two never say different things of a drop.
+ * read (#4950, spec #4947), so the two never say different things of a drop;
+ * and the few words a fix ticket's comment gives for it.
  */
 
 const { QUEUE_PREFIX } = require("./landing-refs.js");
@@ -66,4 +67,27 @@ function buildDropEvidence({ onto, cause }) {
 	}
 }
 
-module.exports = { buildDropEvidence, buildFileList };
+/**
+ * Why the drop was made, in a few words, for a comment.
+ * @param {import("./lander-records.js").Drop["cause"]} cause
+ */
+function buildCauseLine(cause) {
+	switch (cause.kind) {
+		case "conflict":
+			return "it conflicts with `main`";
+		case "refused":
+			return "a commit gate refused its merge";
+		case "red":
+			return cause.noRun
+				? "no CI run fired for its tree"
+				: "it failed alone, twice";
+		case "collision":
+			return cause.noRun
+				? "no CI run fired for its serial step"
+				: "its serial step failed twice";
+		case "unrecorded":
+			return "why is unknown";
+	}
+}
+
+module.exports = { buildCauseLine, buildDropEvidence, buildFileList };

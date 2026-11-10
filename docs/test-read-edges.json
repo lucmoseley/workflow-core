@@ -48552,6 +48552,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/host-root.test.ts",
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",

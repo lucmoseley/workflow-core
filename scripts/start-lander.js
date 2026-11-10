@@ -32,6 +32,7 @@ const {
 	launcherName,
 	spawnDetachedRun,
 	startLander,
+	buildStartedLine,
 } = require("./lib/lander-start.js");
 const { QUEUE_PREFIX } = require("./lib/landing-refs.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
@@ -95,9 +96,7 @@ function main(argv = process.argv.slice(2)) {
 		say(`SKIP: ${result.skipped}`);
 		return 0;
 	}
-	say(
-		`${new Date().toISOString()} started the queue lander, ${result.waiting.length} queue ref(s) waiting${result.waiting.length > 0 ? `: ${result.waiting.join(", ")}` : ""}, ${result.owed.length} drop(s) owed a decision${result.owed.length > 0 ? `: ${result.owed.join(", ")}` : ""} (launched by ${by}; pid ${result.started}); its output: ${log}`,
-	);
+	say(buildStartedLine(result, { at: new Date().toISOString(), by, log }));
 	return 0;
 }
 

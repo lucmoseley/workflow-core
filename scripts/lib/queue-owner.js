@@ -22,6 +22,7 @@ const { admissionSessionIds, isListedLive } = require("./agent-liveness.js");
 const { QUEUE_PREFIX, ownQueueRef } = require("./landing-refs.js");
 const { worktreeOwners } = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
+const { writeFd } = require("./write-fd.js");
 
 /**
  * @typedef {import("./queue-lander.js").OwnerRead} OwnerRead
@@ -30,7 +31,6 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
  *   null where git will not list them
  * @property {() => import("./agent-liveness.js").ListedSessions} listed the
  *   agents oracle's listing, or why it would not read
- * @property {typeof worktreeOwners} owners
  * @property {(line: string) => void} say
  */
 
@@ -42,8 +42,7 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
 const liveOwnerDeps = (root) => ({
 	worktrees: () => readLinkedWorktrees(root),
 	listed: () => admissionSessionIds(),
-	owners: worktreeOwners,
-	say: (line) => process.stderr.write(`${line}\n`),
+	say: (line) => writeFd(2, `${line}\n`),
 });
 
 /**
@@ -69,7 +68,7 @@ function readOwner(root, name, deps = liveOwnerDeps(root)) {
 		if (tree === undefined || !fs.existsSync(tree)) return "stopped";
 		const listed = deps.listed();
 		if (listed.why !== undefined) return unread(listed.why);
-		const owner = deps.owners([tree], listed).owners.get(tree);
+		const owner = worktreeOwners([tree], listed).owners.get(tree);
 		return owner && isListedLive(owner.sessionId, listed.ids, listed.terminal)
 			? "working"
 			: "stopped";
