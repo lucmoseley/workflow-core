@@ -53,7 +53,8 @@
  *   alone, it conflicts only with an earlier member, and it is deferred: left
  *   out of this batch, and taken again by the next. A later member still
  *   merges into this one. A batch left with no member holds its deferred ones
- *   untaken while the batch it was merged onto is in the line (#4841).
+ *   untaken while the integration commit it was taken onto is in the line
+ *   (#4841).
  * - **Green.** The integration sha is written to the green ledger, then `main`
  *   moves to it by a plain push. Each member merged into it whose ref still
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
@@ -1363,9 +1364,10 @@ function fillAction(s, main, { line, search }, waiting) {
 	if (search?.phase === "held" && heldExit(search, s.now, main, waiting))
 		return null;
 	const ahead = search?.phase === "requeued" ? search.ahead : [];
+	const held = heldBehind(s, line);
 	return takeBatch(waiting, onto, ahead, {
 		...s.pipeline,
-		line: [...line],
+		line: s.pipeline.line.filter((b) => line.includes(b) || held.includes(b)),
 		search,
 	});
 }
@@ -1408,24 +1410,31 @@ function batchStep(s, main, live) {
 }
 
 /**
- * The names a live batch holds, and the queue refs waiting for a take: in
- * no live batch, at no sha a batch landed or a delete found moved. A batch
- * whose every member was deferred is spent, but its members stay held while
- * the batch they conflict with is live, else each is retaken onto it, and
- * deferred again, with no end (#4841).
+ * The line's spent batches taken onto a live batch's integration commit:
+ * left with no member, their deferred ones are held untaken while that
+ * commit is in the line, else each is retaken onto it and deferred again
+ * (#4841).
+ * @param {QueueState} s
+ * @param {readonly Batch[]} line the live line
+ */
+function heldBehind(s, line) {
+	const tips = new Set(line.map((b) => b.integration));
+	return s.pipeline.line.filter((b) => !line.includes(b) && tips.has(b.onto));
+}
+
+/**
+ * The names a live batch holds, a held batch's deferred ones among them, and
+ * the queue refs waiting for a take: in none of those, at no sha a batch
+ * landed or a delete found moved.
  * @param {QueueState} s
  * @param {Live} live
  */
 function waitingOf(s, { line, search }) {
-	const bases = new Set(line.map((b) => b.integration));
-	const deferred = s.pipeline.line.filter(
-		(b) => !line.includes(b) && bases.has(b.onto),
-	);
 	const flying = new Set([
 		...[...line, ...(search && !isDone(search) ? [search] : [])].flatMap((b) =>
 			b.members.map((m) => m.name),
 		),
-		...deferred.flatMap((b) => b.deferred),
+		...heldBehind(s, line).flatMap((b) => b.deferred),
 	]);
 	const landed = batchesOf(s.pipeline).flatMap((b) =>
 		landedOf(b).map((m) => `${m.name}@${m.sha}`),
@@ -1605,7 +1614,8 @@ function stepOrEnd(s) {
  *   their verdicts, by their runs, shared by every copy of the run; `acting`
  *   the batch the action under way acts on
  * @typedef {{readonly runs: readonly TestRun[],
- *   readonly settled: Promise<Settled>}} Pending an ask in flight
+ *   readonly settled: Promise<Settled>, got: Settled|null}} Pending an ask
+ *   in flight; `got` its end once reached, kept before the next step
  * @typedef {{ok: true, apply: (deps: QueueLanderDeps, run: QueueRun) =>
  *   QueueRun} | {ok: false, err: unknown}} Settled an ask's end: its
  *   verdicts to keep, or what it threw
@@ -1876,8 +1886,34 @@ function startAsk(run, runs, ask, keep) {
 		(got) => ({ ok: true, apply: (deps, r) => keep(deps, r, got) }),
 		(err) => ({ ok: false, err }),
 	);
-	run.pending.set(askKey(runs), { runs, settled });
+	/** @type {Pending} */
+	const pending = { runs, settled, got: null };
+	settled.then((got) => {
+		pending.got = got;
+	});
+	run.pending.set(askKey(runs), pending);
 	return run;
+}
+
+/**
+ * Keeps the verdicts of every ask in flight that has ended, so a step never
+ * runs on a state missing one: a run that always has a step to take would
+ * otherwise never await them (#4841). One that threw is forgotten first, so
+ * the retry asks it again.
+ * @param {QueueLanderDeps} deps
+ * @param {QueueRun} run accumulator: each ended ask is deleted from its
+ *   `pending`
+ * @returns {QueueRun}
+ */
+function keepEnded(deps, run) {
+	let out = run;
+	for (const [key, p] of run.pending) {
+		if (p.got === null) continue;
+		run.pending.delete(key);
+		if (!p.got.ok) throw p.got.err;
+		out = p.got.apply(deps, out);
+	}
+	return out;
 }
 
 /**
@@ -2420,14 +2456,16 @@ async function actOnPipeline(deps, action, run) {
 }
 
 /**
- * The next action, taken; the run's end where it is an exit. Waiting on a
- * verdict is no action, so it is not logged.
+ * The next action, taken, on the verdicts of every ask that has ended; the
+ * run's end where it is an exit. Waiting on a verdict is no action, so it is
+ * not logged.
  * @param {QueueLanderDeps} deps
- * @param {QueueRun} run
+ * @param {QueueRun} before
  * @param {(action: QueueAction) => void} log
  * @returns {Promise<QueueRun | QueueEnd>}
  */
-async function step(deps, run, log) {
+async function step(deps, before, log) {
+	const run = keepEnded(deps, before);
 	const head = run.pipeline.line[0] ?? run.pipeline.search;
 	deps.beat(head?.integration ?? null);
 	const { action, slot } = nextQueueAction({
