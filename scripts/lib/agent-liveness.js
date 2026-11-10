@@ -750,6 +750,20 @@ function readAgentsForLevelling() {
 	return readAgentsAllowingEmpty();
 }
 
+/**
+ * `listedAgents` for the main checkout's cutover (scripts/cutover-main-checkout.js),
+ * reading an empty listing outside a session as nothing live (#4743): the
+ * cutover wants no session in the repository, and run from a terminal with
+ * none alive the listing names none. Inside a session the self-test stands.
+ * Its residual is `admissionSessionIds`'s.
+ * @returns {Listing}
+ */
+function readAgentsForCutover() {
+	return refuseOnThrow(undefined, undefined, checkedListing, {
+		allowEmpty: true,
+	});
+}
+
 /*
  * HOW OLD A SHOWN LISTING MAY BE (#4169), measured 4 Nov 2026 at load ~13:
  * one refresh of every plan's listing cost ~2.5 CPU-s and a cached
@@ -1022,6 +1036,7 @@ module.exports = {
 	listedAgents,
 	readAgentsAfterBoot,
 	readAgentsForBudget,
+	readAgentsForCutover,
 	readAgentsForLevelling,
 	readAgentsForDisplay,
 	readEverySeat,

@@ -128,6 +128,18 @@ it("exits 0 having pushed main's local commit to a queue ref, named the edit lef
 	expect(() => upstream()).toThrow();
 });
 
+it("cuts over, run outside a session, while the listing names no session at all (#4743)", () => {
+	const bin = path.join(config, "bin", "claude");
+	fs.writeFileSync(bin, "#!/bin/sh\necho '[]'\n");
+	fs.chmodSync(bin, 0o755);
+
+	const r = run(main);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stderr).toContain("the main checkout is cut over");
+	expect(() => upstream()).toThrow();
+});
+
 it("exits 1, cutting nothing over, while the listing puts a session in the main checkout", () => {
 	listSessionIn(main);
 

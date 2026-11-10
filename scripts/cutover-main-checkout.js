@@ -14,7 +14,7 @@
  * error.
  */
 
-const { listedAgents } = require("./lib/agent-liveness.js");
+const { readAgentsForCutover } = require("./lib/agent-liveness.js");
 const { scriptPath } = require("./lib/script-path.js");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
@@ -53,7 +53,7 @@ function main(argv = process.argv.slice(2)) {
 		const lastWriter = (rel) => store.readLastWriterOf(rel, { root });
 		const result = cutover(root, {
 			moduleOn: () => moduleOn("landing", { root }),
-			listed: () => listedAgents(),
+			listed: readAgentsForCutover,
 			cut,
 			land,
 			orphanedEdits: (r) => readOrphanedEdits(r, at, lastWriter),

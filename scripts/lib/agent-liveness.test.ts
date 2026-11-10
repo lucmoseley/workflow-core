@@ -337,6 +337,23 @@ describe("the array is empty", () => {
 		);
 	});
 
+	it("reads as nothing live to the cutover, outside a session alone (#4743)", () => {
+		fakeClaude([]);
+		expect(liveness.readAgentsForCutover().agents).toEqual([]);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
+		expect(liveness.readAgentsForCutover().why).toContain(
+			"listed no agents at all",
+		);
+	});
+
+	it("keeps the self-test for the cutover inside a session (#4743)", () => {
+		fakeClaude([{ sessionId: "other" }]);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
+		expect(liveness.readAgentsForCutover().why).toContain(
+			"does not list this very session (me)",
+		);
+	});
+
 	it("still refuses to admission inside a session, and to every other reader however asked", () => {
 		fakeClaude([]);
 		expect(
