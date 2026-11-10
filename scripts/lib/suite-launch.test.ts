@@ -25,23 +25,30 @@ const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
 		spans: string[],
 	) => [{ words: string[] }, ...{ words: string[] }[]];
 };
-const { buildIsWrapperScript, isOtherRunner, suiteLaunchKind } =
-	require("./suite-launch.js") as {
-		buildIsWrapperScript: (
-			tree: () => { readText: (rel: string) => string | null },
-			log: (what: string) => void,
-		) => (script: string) => boolean;
-		isOtherRunner: (words: string[], runners: () => string[]) => boolean;
-		suiteLaunchKind: (
-			words: string[],
-			ports: object,
-		) => {
-			kind: string;
-			script: string;
-			taken: number;
-			queued: boolean;
-		} | null;
-	};
+const {
+	buildIsWrapperScript,
+	isOtherRunner,
+	isQueueable,
+	isWholePytestRun,
+	suiteLaunchKind,
+} = require("./suite-launch.js") as {
+	isQueueable: (words: string[], ports: object) => boolean;
+	isWholePytestRun: (argv: string[], modules: { landing: boolean }) => boolean;
+	buildIsWrapperScript: (
+		tree: () => { readText: (rel: string) => string | null },
+		log: (what: string) => void,
+	) => (script: string) => boolean;
+	isOtherRunner: (words: string[], runners: () => string[]) => boolean;
+	suiteLaunchKind: (
+		words: string[],
+		ports: object,
+	) => {
+		kind: string;
+		script: string;
+		taken: number;
+		queued: boolean;
+	} | null;
+};
 
 const scripts: Record<string, string> = {
 	test: "node --test",
@@ -160,6 +167,48 @@ describe("suiteLaunchKind", () => {
 
 	it("reads each segment on its own", () => {
 		expect(kindOf("npm run build && pytest")).toBe("none\nother||0");
+	});
+});
+
+describe("isWholePytestRun (#4775)", () => {
+	const whole = (argv: string[], landing = false) =>
+		isWholePytestRun(argv, { landing });
+
+	it("reads a bare run by `landing`: touched with it on, whole with it off", () => {
+		expect(whole([])).toBe(true);
+		expect(whole(["--"])).toBe(true);
+		expect(whole([], true)).toBe(false);
+		expect(whole(["--"], true)).toBe(false);
+	});
+
+	it.each([
+		[["--", "scripts"], "a directory"],
+		[["--", "--full"], "the lone `--full`"],
+		[["--", "-x"], "flags alone"],
+		[["--", "-k", "name", "scripts/test_a.py"], "a flag's value"],
+		[["--", "scripts/test_a.py", "scripts/lib"], "a file beside a directory"],
+		[["--", "scripts/helper.py"], "a Python file pytest does not collect"],
+	])("reads %j as whole — %s", (argv) => {
+		expect(whole(argv, true)).toBe(true);
+	});
+
+	it.each([
+		[["--", "scripts/test_a.py"], "one test file"],
+		[
+			["--", "-x", "scripts/a_test.py", "scripts/b.test.py"],
+			"files and a flag",
+		],
+		[["scripts/test_a.py::test_one"], "a node id"],
+	])("reads %j as a part run — %s", (argv) => {
+		expect(whole(argv)).toBe(false);
+	});
+});
+
+describe("isQueueable", () => {
+	it("takes `npm run test:py`, whose queue is queue-run.js (#4775)", () => {
+		expect(isQueueable(["npm", "run", "test:py", "--", "scripts"], ports)).toBe(
+			true,
+		);
 	});
 });
 

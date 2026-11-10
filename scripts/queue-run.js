@@ -79,8 +79,8 @@ const { writeFd } = require("./lib/write-fd.js");
 const LABEL = "queue-run.js";
 const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} [--seat | --tsc] -- <command…>
 Waits for a suite slot in the shared queue, then runs <command>: a node --test,
-pytest or Python test file, a declared suiteRunners script, or an npm test
-script that does not run run-vitest.js (#1776).
+pytest or Python test file, npm run test:py, a declared suiteRunners script,
+or an npm test script that does not run run-vitest.js (#1776).
   --seat  wait once as a part-suite, then run <command>, a driver such as a
           mutation loop, whose \`run-vitest.js <file> --queue\` runs skip the
           queue and wait on the memory rung alone (#2918)

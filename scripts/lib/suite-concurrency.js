@@ -66,9 +66,12 @@
  * SCOPE: `npm run test`, `npm run test:changed`, `npm run test:watch`,
  * `node scripts/run-vitest.js` (mantahostels#2015), a build and a dev server.
  * Also (#330) `node --test`, `pytest` and a Python test file run bare, plus the
- * host's declared `suiteRunners`. `npm run test:py` is not judged at launch,
- * its runner being a script, but its `pytest` counts once running; a whole run
- * of it still draws the memory figure (#2024).
+ * host's declared `suiteRunners`. A WHOLE `npm run test:py` TAKES THE
+ * WHOLE-SUITE SLOT (#4775): held at the count cap and handed queue-run.js, as
+ * its `pytest` holds the slot once running. It is judged on the count alone,
+ * never the memory rung, which prices vitest workers. A run naming its test
+ * files, or the bare one under `landing`, a touched run, is not judged. A
+ * run naming no path still draws the memory figure (#2024).
  *
  * A RUN NAMING ITS TEST FILES IS CHARGED BY THE VITEST WORKERS IT CAN OCCUPY
  * (#2558, ruled at #2557), as lib/suite-bounded.js reads them: one per file
@@ -147,6 +150,7 @@ const {
 const {
 	afterSlash,
 	isOtherRunner,
+	isWholePytestRun,
 	npmScriptOf,
 	suiteLaunchKind,
 	buildIsWrapperScript,
@@ -377,6 +381,8 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {boolean} reaps whether the command reaps for itself on the way
  *   in: npm runs a pre-script for `test` and `test:changed` alone (#633)
  * @property {boolean} queued
+ * @property {boolean} countOnly held at the count cap alone, off the memory
+ *   rung: a whole `npm run test:py` (#4775)
  * @property {number} workers
  *
  * @typedef {object} Judged a subject against the machine
@@ -561,6 +567,7 @@ const buildBlankSubject = () => ({
 	part: false,
 	reaps: false,
 	queued: false,
+	countOnly: false,
 	workers: WHOLE_SUITE_WORKERS,
 });
 
@@ -649,8 +656,22 @@ function isTouchedLaunch(st, launch, words) {
 function subjectOf(st, words, segment) {
 	const launch = launchOf(st, words);
 	if (launch?.kind === "npm-py") {
-		notePytestFigure(st, words.slice(launch.taken));
-		return { verdict: undefined };
+		const argv = words.slice(launch.taken);
+		notePytestFigure(st, argv);
+		const whole = isWholePytestRun(
+			argv.map((w) => literal(w, st.spans).text),
+			{ landing: st.ctx.moduleOn("landing") },
+		);
+		return whole
+			? {
+					subject: {
+						...buildBlankSubject(),
+						launchKind: launch.kind,
+						other: true,
+						countOnly: true,
+					},
+				}
+			: { verdict: undefined };
 	}
 	if (launch) return { subject: buildTestSubject(st, launch, words) };
 	if (isNextLaunch("build", words)) {
@@ -1158,7 +1179,8 @@ function judgeRun(st, cmd, words) {
 	noteMemoryFigure(st, s, mb);
 	const j = judgedOf(st, { segment: cmd.segment, words }, s, mb);
 	const verdict =
-		countVerdict(st, j) ?? memoryVerdict(st, j) ?? windowsVerdict(st, j);
+		countVerdict(st, j) ??
+		(s.countOnly ? undefined : (memoryVerdict(st, j) ?? windowsVerdict(st, j)));
 	if (verdict !== undefined) return verdict;
 	/* The watcher limb, on the watcher's OWN segment alone. */
 	return st.watcherSegment === cmd.segment

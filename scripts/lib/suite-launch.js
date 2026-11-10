@@ -6,7 +6,8 @@
  *   npm-vitest  `npm test`, `npm run test|test:changed`, npm's aliases for
  *               `test` and `run` included
  *   npm-watch   `npm run test:watch`
- *   npm-py      `npm test:py`, `npm run test:py`
+ *   npm-py      `npm test:py`, `npm run test:py`; `isWholePytestRun` tells a
+ *               whole run of it from one naming its test files
  *   wrapper     `node <path>/run-vitest.js`
  *   other       a runner other than vitest — see `isOtherRunner` — run bare,
  *               or anything run through scripts/queue-run.js, `queued`
@@ -165,6 +166,29 @@ function npmLaunch(words) {
 	return run && kind ? { kind, ...run, queued: false } : null;
 }
 
+/* The xdist workers `npm run test:py` runs pytest on, where its argv names no
+ * other count. */
+const TEST_PY_WORKERS = 2;
+
+/**
+ * Whether `npm run test:py`'s argv is a whole run (#4775), as run-pytest.js
+ * routes it: a bare one with `landing` off, or one that names anything but
+ * test files, a directory or a lone `--full` among them. A bare run under
+ * `landing` is a touched one. A word not opening with `-` is read as a path,
+ * so a flag's value (`-k name`) reads as whole.
+ * @param {string[]} argv the script's own argv, quoted spans read as typed
+ * @param {{ landing: boolean }} modules
+ */
+function isWholePytestRun(argv, { landing }) {
+	const own = argv[0] === "--" ? argv.slice(1) : argv;
+	if (own.length === 0) return !landing;
+	const paths = own.filter((w) => !w.startsWith("-"));
+	return !(
+		paths.length > 0 &&
+		paths.every((w) => PY_COLLECTED_TEST.test(w.split("::")[0] ?? ""))
+	);
+}
+
 /**
  * Whether the words after `node <path>/queue-run.js` are a launch it takes
  * (#1776). Its `--` is optional, and a wrapper behind it is taken off, as
@@ -183,14 +207,15 @@ function isQueuedLaunch(words, ports) {
 
 /**
  * Whether scripts/queue-run.js takes the launch (#1776): an `other` runner not
- * already queued, or an npm `test`/`test:changed` whose script does not run
- * run-vitest.js.
+ * already queued, `npm run test:py` (#4775), or an npm `test`/`test:changed`
+ * whose script does not run run-vitest.js.
  * @param {string[]} words
  * @param {LaunchPorts} ports
  */
 function isQueueable(words, ports) {
 	const launch = suiteLaunchKind(words, ports);
 	if (launch?.kind === "other") return !launch.queued;
+	if (launch?.kind === "npm-py") return true;
 	if (launch?.kind === "npm-vitest")
 		return !ports.isWrapperScript(launch.script);
 	return false;
@@ -240,5 +265,7 @@ module.exports = {
 	npmScriptOf,
 	suiteLaunchKind,
 	isQueueable,
+	isWholePytestRun,
+	TEST_PY_WORKERS,
 	buildIsWrapperScript,
 };

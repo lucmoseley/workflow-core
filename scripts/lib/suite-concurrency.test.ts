@@ -532,6 +532,7 @@ describe("allows above the floor and anything not a test/build", () => {
 
 	it("allows `npm run test:py` — the ladder was measured against vitest, not pytest", () => {
 		expect(verdict("npm run test:py", 100)).toBe("allow");
+		expect(verdict("npm run test:py -- scripts", 100)).toBe("allow");
 	});
 
 	it("allows a command that only mentions the words, never runs them", () => {
@@ -1486,13 +1487,89 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	});
 
 	/* #1528: lib/suite-launch.js reads a quoted script name as typed. */
-	it('denies a quoted `npm run "test"` too, and leaves test:py unjudged', () => {
+	it('denies a quoted `npm run "test"` too', () => {
 		expect(gatedVerdict(`npm run "test"`, 8000, NEIGHBOURS_AT_CAP)).toBe(
 			"deny",
 		);
-		expect(gatedVerdict("npm run test:py", 8000, NEIGHBOURS_AT_CAP)).toBe(
-			"allow",
-		);
+	});
+
+	describe("a whole `npm run test:py` takes the whole-suite slot (#4775)", () => {
+		const at = (command: string, modules = ["suites"], mb = 8000) =>
+			fixChecked(
+				judge(command, mb, psWith(NEIGHBOURS_AT_CAP), { modules }).verdict,
+				command,
+			);
+
+		it.each([
+			["npm run test:py -- scripts", "a directory"],
+			["npm run test:py -- --full", "the lone `--full`"],
+			["npm run test:py", "the bare run with `landing` off"],
+			["npm test:py -- -k name scripts/lib/test_a.py", "a flag's value"],
+			[`npm run test:py -- "scripts"`, "a quoted directory"],
+		])("holds %s beside a whole suite — %s", (command) => {
+			expect(at(command)).toBe("deny");
+		});
+
+		it.each([
+			["npm run test:py -- scripts/lib/test_a.py", "a named test file"],
+			[
+				"npm run test:py -- -x scripts/test_a.py::test_one scripts/b_test.py",
+				"named files, a node id and a flag",
+			],
+		])("admits %s beside a whole suite — %s", (command) => {
+			expect(at(command)).toBe("allow");
+		});
+
+		it("admits the bare run under `landing`, a touched run", () => {
+			expect(at("npm run test:py", ["suites", "landing"])).toBe("allow");
+		});
+
+		it("hands the launch through queue-run.js", () => {
+			const v = gatedOn(
+				"npm run test:py -- scripts",
+				8000,
+				psWith(NEIGHBOURS_AT_CAP),
+			).verdict;
+			expect(v?.deny?.split("\n")[0]).toBe(
+				"Run instead: node scripts/queue-run.js -- npm run test:py -- scripts",
+			);
+			expect(v?.deny).toMatch(/1 whole suite\(s\) already running/);
+		});
+
+		it("holds it beside a running whole pytest too", () => {
+			const pytest = "python3 -m pytest -n 2 -p pytest_pass_plugin scripts";
+			expect(
+				outcome(
+					gatedOn("npm run test:py -- scripts", 8000, psListing([pytest]))
+						.verdict,
+				),
+			).toBe("deny");
+		});
+
+		it("is judged on the count alone: a lone one runs under the vitest rung", () => {
+			expect(
+				outcome(gatedOn("npm run test:py -- scripts", 100, psWith(0)).verdict),
+			).toBe("allow");
+		});
+
+		it("passes through queue-run.js, and stands down on the escape, recorded", () => {
+			expect(
+				outcome(
+					gatedOn(
+						"node scripts/queue-run.js -- npm run test:py -- scripts",
+						ROOMY_MB,
+						psWith(NEIGHBOURS_AT_CAP),
+					).verdict,
+				),
+			).toBe("warn");
+			expect(
+				outcome(
+					run("npm run test:py -- scripts", ROOMY_MB, NEIGHBOURS_AT_CAP)
+						.verdict,
+				),
+			).toBe("warn");
+			expect(readStanddowns()).toHaveLength(1);
+		});
 	});
 
 	it("counts an open watcher as the suite already running", () => {
