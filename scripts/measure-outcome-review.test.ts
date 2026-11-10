@@ -247,12 +247,12 @@ if (api && api[2] === "commits") {
   if (log === undefined) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
   out(log);
 } else if (argv[0] === "issue" && argv[1] === "view") {
-  if (failingView) { err("HTTP 502: bad gateway\\n"); exit(1); }
+  if (failingView) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
   const i = inRepo.find((x) => x.number === Number(argv[2]));
   if (!i) { err("no such issue\\n"); exit(1); }
   out(JSON.stringify({ state: i.state ?? "CLOSED", createdAt: created(i) }));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--repo") === failingList) {
-  err("HTTP 502: bad gateway\\n"); exit(1);
+  out(notFound.stdout); err(notFound.stderr); exit(notFound.status);
 } else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
   const closedOnly = flag("--state") === "closed";
   out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
@@ -905,8 +905,8 @@ describe("measure-outcome-review.js", () => {
 		const { status, out } = f.run({ failingView: true });
 		expect(status).toBe(1);
 		expect(outcome(out)).toMatchObject({ verdict: "waiting" });
-		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: HTTP 502/);
-		expect(out.failures.join("\n")).toMatch(/HTTP 502/);
+		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: .*HTTP 404/);
+		expect(out.failures.join("\n")).toMatch(/HTTP 404/);
 	});
 
 	describe("a second repo, found by its sessions (#4858)", () => {
@@ -1015,6 +1015,7 @@ describe("measure-outcome-review.js", () => {
 			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
 			expect(outcomeOf(out, 5)?.why).toMatch(/^o\/m main unread: .*HTTP 404/);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(out.noFaultBugUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.outcomeStep.misses).toBeNull();
 		});
 
@@ -1046,7 +1047,7 @@ describe("measure-outcome-review.js", () => {
 			]);
 		});
 
-		it("reads main and the signature log from a code repo apart from its tracker", () => {
+		it("reads main and the signature log from a code repo apart from its tracker (#4796)", () => {
 			const f = scratch();
 			f.commit("Initial", 1);
 			baselineOfOne(f);
@@ -1068,8 +1069,9 @@ describe("measure-outcome-review.js", () => {
 			});
 		});
 
-		it("holds a tracker's misses and lost lines where its signature log will not read, and exits 1", () => {
+		it("holds a tracker's findings, misses and lost lines where its signature log will not read, and exits 1 (#4796)", () => {
 			const { f } = adopterFinding();
+			f.runLine({ outcomes: [{ finding: ref(5), verdict: "waiting" }] });
 			f.issues.push({
 				number: 30,
 				repo: ADOPTER_TRACKER,
@@ -1083,6 +1085,8 @@ describe("measure-outcome-review.js", () => {
 			expect(out.lostLines).toEqual([]);
 			expect(out.lostLinesUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
+			expect(outcomeOf(out, 5)?.why).toMatch(/o\/m main:.*HTTP 403/);
 		});
 
 		it("names the tracker whose issue list failed, holding the finding on it", () => {
@@ -1090,7 +1094,7 @@ describe("measure-outcome-review.js", () => {
 			const { status, out } = f.run({ failingList: ADOPTER_TRACKER });
 			expect(status).toBe(1);
 			expect(outcomeOf(out, 5)?.why).toMatch(
-				/^follow-ons unread: o\/m: bug issues unread: HTTP 502/,
+				/^follow-ons unread: o\/m: bug issues unread: .*HTTP 404/,
 			);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 		});
