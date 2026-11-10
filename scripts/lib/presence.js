@@ -12,10 +12,10 @@
  * config dir, in the seat file's form. Line one is the time, line two the seat.
  */
 
-const fs = require("node:fs");
 const os = require("node:os");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { configDirFrom, seatDir } = require("./config-dir.js");
+const { readText } = require("./file-read.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 const { planSeatsOf } = require("./refill-seats.js");
 
@@ -46,13 +46,9 @@ function markPresent(now, env = process.env) {
  * @returns {{at: number|null, recorded: string}}
  */
 function readMarker(env) {
-	let text;
-	try {
-		text = fs.readFileSync(markerPath(env), "utf8");
-	} catch {
-		/* Fails open to no record, which reads as away (#2004). */
-		return { at: null, recorded: "" };
-	}
+	/* Fails open to no record, which reads as away (#2004). */
+	const read = readText(markerPath(env));
+	const text = read.state === "read" ? read.data : "";
 	const [time = "", recorded = ""] = text.split("\n").map((l) => l.trim());
 	const at = Date.parse(time);
 	return { at: Number.isNaN(at) ? null : at, recorded };

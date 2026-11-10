@@ -121,6 +121,19 @@ describe("away mode's first absent read (#4846)", () => {
 		expect(readsOver(typing)).toEqual([false, false, false, false]);
 	});
 
+	it("marks the absent read that follows a switch made while present", () => {
+		const typedAfterSwitch = Switched + 60 * 1000;
+		expect(
+			readsOver([
+				{ now: Switched + 2 * 60 * 1000, lastPromptAt: typedAfterSwitch },
+				{
+					now: typedAfterSwitch + PRESENT_WINDOW_MS,
+					lastPromptAt: typedAfterSwitch,
+				},
+			]),
+		).toEqual([false, true]);
+	});
+
 	it("marks none for a prompt soon after a switch made long after the last one (#4184)", () => {
 		const oneMinuteOn = NOW + 60 * 1000;
 		expect(

@@ -93,7 +93,7 @@ function controlAfterPresence(control, lastPromptAt, now) {
 		lastPromptAt,
 		now,
 	)
-		? withAbsentRead(control, true, now)
+		? withAbsentRead(control, now)
 		: null;
 }
 
@@ -318,7 +318,7 @@ function stopNeverStarted(registry, jobs, stop) {
  * @param {TickIo} io
  * @param {Control|null} control
  * @param {(c: Control) => Control|null} change
- * @param {{what: string, said: (write: Control, fresh: Control) => void,
+ * @param {{what: string, said?: (write: Control, fresh: Control) => void,
  *   dryRun: boolean}} how  `what`, the change's name in the busy line
  */
 function settleUnderLock(io, control, change, { what, said, dryRun }) {
@@ -330,7 +330,7 @@ function settleUnderLock(io, control, change, { what, said, dryRun }) {
 		io.log(`${what} waits for the next tick: ${written.busy}`);
 		return control;
 	}
-	if (written.wrote) said(written.wrote.write, written.wrote.fresh);
+	if (written.wrote) said?.(written.wrote.write, written.wrote.fresh);
 	return written.control;
 }
 
@@ -348,7 +348,6 @@ const settleAwayMode = (io, control, { dryRun, lastPromptAt, now }) =>
 		{
 			dryRun,
 			what: "away mode's absent read",
-			said: () => undefined,
 		},
 	);
 

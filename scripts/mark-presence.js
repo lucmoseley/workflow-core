@@ -46,6 +46,7 @@ function isReminderOwed(now) {
 		const control = readControlFile(() => undefined);
 		return control?.scope.mode === "away" && control.away?.absentSeen === true;
 	} catch {
+		/* Fail open: the prompt is still recorded (#4846). */
 		return false;
 	}
 }

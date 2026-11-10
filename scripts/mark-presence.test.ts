@@ -58,7 +58,7 @@ function buildJob(intent: string, template: string | null = "bg") {
 	return jobDir;
 }
 
-function run(
+function runHook(
 	prompt: string,
 	opts: {
 		jobDir?: string;
@@ -88,6 +88,11 @@ function run(
 	});
 	expect(r.status).toBe(0);
 	return r.stdout;
+}
+
+/** A prompt the hook must answer in silence. */
+function run(...args: Parameters<typeof runHook>) {
+	expect(runHook(...args)).toBe("");
 }
 
 const isMarked = () => fs.existsSync(marker);
@@ -192,49 +197,49 @@ describe("the away reminder (#4846)", () => {
 	it("shows at his first prompt after an absent read, and not at the next", () => {
 		control("away", absentSeen);
 		typedAgo(8 * Hour);
-		expect(run("morning")).toBe(Reminder);
-		expect(run("what parked overnight?")).toBe("");
+		expect(runHook("morning")).toBe(Reminder);
+		expect(runHook("what parked overnight?")).toBe("");
 		expect(isMarked()).toBe(true);
 	});
 
 	it("shows again at the first prompt of a later absence", () => {
 		control("away", absentSeen);
 		typedAgo(8 * Hour);
-		expect(run("morning")).toBe(Reminder);
+		expect(runHook("morning")).toBe(Reminder);
 		typedAgo(2 * Hour);
-		expect(run("back from lunch")).toBe(Reminder);
+		expect(runHook("back from lunch")).toBe(Reminder);
 	});
 
 	it("shows where no prompt was ever recorded", () => {
 		control("away", absentSeen);
-		expect(run("morning")).toBe(Reminder);
+		expect(runHook("morning")).toBe(Reminder);
 	});
 
 	it("stays silent in away mode before any tick read him absent", () => {
 		control("away", { since: 7, absentSeen: false });
 		typedAgo(8 * Hour);
-		expect(run("one more thing")).toBe("");
+		expect(runHook("one more thing")).toBe("");
 	});
 
 	it("stays silent in normal mode, and where no loop was ever started", () => {
 		typedAgo(8 * Hour);
-		expect(run("morning")).toBe("");
+		expect(runHook("morning")).toBe("");
 		control("normal");
 		typedAgo(8 * Hour);
-		expect(run("morning")).toBe("");
+		expect(runHook("morning")).toBe("");
 	});
 
 	it("stays silent, and marks nothing, for a prompt nobody typed", () => {
 		control("away", absentSeen);
 		expect(
-			run("/implement 2004", { jobDir: buildJob("/implement 2004") }),
+			runHook("/implement 2004", { jobDir: buildJob("/implement 2004") }),
 		).toBe("");
 		expect(isMarked()).toBe(false);
 	});
 
 	it("records the prompt and stays silent where the control is damaged", () => {
 		fs.writeFileSync(path.join(dir, ".refill-loop-control.json"), "{");
-		expect(run("morning")).toBe("");
+		expect(runHook("morning")).toBe("");
 		expect(isMarked()).toBe(true);
 	});
 });
