@@ -63,7 +63,11 @@ const { hostRoot } = require("./host-root.js");
 const { moduleOn } = require("./workflow-core-config");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
-const { readOwnHooks } = require("./core-hooks.js");
+const {
+	MatcherError,
+	matcherCovers: coversTool,
+	readOwnHooks,
+} = require("./core-hooks.js");
 const { AFTER_EVENTS } = require("./hook-events.js");
 const { closeOf, statementEnd } = require("./js-lex.js");
 const { blankComments } = require("./strip-comments.js");
@@ -760,35 +764,24 @@ function registrationsOn(settings, event, manifest) {
 }
 
 /**
- * Does `matcher` cover `tool`? Anchored exactly as hookIsWired anchors, so
- * `Write` does not answer for `WriteFile`.
- *
- * AN ABSENT OR EMPTY MATCHER COVERS EVERY TOOL. `undefined` is the settings
- * shape for the events that take no matcher; `""` is the shape Claude Code
- * reads as match-all, and anchoring it literally would produce `/^()$/`, which
- * covers nothing and would silently drop that guard from every group.
- *
- * A MATCHER THAT IS NOT A VALID REGEX THROWS, naming itself — `"*"` is the
- * shape that does.
- *
+ * Does `matcher` cover `tool`? core-hooks' reading, its throw on a matcher
+ * that is not a valid regex worded as this module's.
  * @param {string | undefined} matcher
  * @param {string} tool
  * @returns {boolean}
  * @throws {RuleEmissionError} where `matcher` is not a valid regex
  */
 function matcherCovers(matcher, tool) {
-	if (matcher === undefined || matcher === "") return true;
-	let re;
 	try {
-		re = new RegExp(`^(${matcher})$`);
+		return coversTool(matcher, tool);
 	} catch (e) {
+		if (!(e instanceof MatcherError)) throw e;
 		throw new RuleEmissionError(
 			`rule-emission: the ${EVENT} matcher ${JSON.stringify(matcher)} is not a ` +
-				`valid regular expression, so the tools it covers cannot be read: ${caught(e).message}`,
+				`valid regular expression, so the tools it covers cannot be read: ${caught(e.cause).message}`,
 			{ cause: e },
 		);
 	}
-	return re.test(tool);
 }
 
 /** One id's direct-call census entry within one guard.
@@ -1255,7 +1248,7 @@ function reachableByTool(options = {}) {
 	/** @type {Record<string, { bytes: number, ids: string[], guards: GuardFigure[] }>} */
 	const out = {};
 	/* The ratchet's union, taken over EVERY WIRED GUARD rather than over the
-	 * tools walked below: a match-all matcher (`""` or absent) names no tool and
+	 * tools walked below: a match-all matcher (`""`, `"*"` or absent) names no tool and
 	 * so opens no group, and accumulating inside that loop would report its
 	 * guards' bytes as zero. */
 	/** @type {Map<string, number>} */

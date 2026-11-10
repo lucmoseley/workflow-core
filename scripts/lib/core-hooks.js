@@ -121,6 +121,42 @@ function listedEvents(hooks, where) {
 			throw new Error(`${where}: its ${event} hooks are not a list`);
 }
 
+/** Thrown where a hook group's matcher is not a valid regex, naming it. */
+class MatcherError extends Error {
+	/**
+	 * @param {string} matcher
+	 * @param {{cause: unknown}} options  the regex's own throw
+	 */
+	constructor(matcher, { cause }) {
+		super(
+			`the matcher ${JSON.stringify(matcher)} is not a valid regular expression: ${caught(cause).message}`,
+			{ cause },
+		);
+		this.name = "MatcherError";
+		this.matcher = matcher;
+	}
+}
+
+/**
+ * Does a hook group's `matcher` cover `tool`? THE ONE READING of a matcher
+ * (#4914). Absent, `""` and `"*"` cover every tool, as Claude Code reads them;
+ * any other is anchored whole, so `Write` does not answer for `WriteFile`.
+ * @param {string | undefined} matcher
+ * @param {string} tool
+ * @returns {boolean}
+ * @throws {MatcherError} where `matcher` is not a valid regex
+ */
+function matcherCovers(matcher, tool) {
+	if (matcher === undefined || matcher === "" || matcher === "*") return true;
+	let re;
+	try {
+		re = new RegExp(`^(?:${matcher})$`);
+	} catch (e) {
+		throw new MatcherError(matcher, { cause: e });
+	}
+	return re.test(tool);
+}
+
 /**
  * Where the plugin registers its hooks: under the core, not in the host's
  * settings (#940).
@@ -510,6 +546,7 @@ module.exports = {
 	CANARY_COMMAND,
 	HOST_SETTINGS,
 	MARKER_WRITER,
+	MatcherError,
 	PINNED_GUARD_PREFIX,
 	SCRIPT_PREFIX,
 	SELF_PLUGIN_DIR,
@@ -522,6 +559,7 @@ module.exports = {
 	readHostHookSources,
 	readHooksAt,
 	isCoreRoot,
+	matcherCovers,
 	mergeHooks,
 	readOwnHookSources,
 	readOwnHooks,
