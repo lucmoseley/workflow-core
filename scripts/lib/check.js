@@ -68,6 +68,14 @@
  * is where it says what the number IS, so the refusal can carry the baseline
  * and the delta rather than the total alone — measuredDelta() (mantahostels#1939).
  *
+ * WHOSE CODE READS THE BASELINE. By default both sides run the checker this
+ * process runs. `baselineCode: "rev"` runs each baseline rev's own copy
+ * instead, where that tree carries one at this checker's path: a checker whose
+ * findings hash its own definition (check-guard-registry.js's digests) would
+ * otherwise read a change to that definition as faulting both sides alike, and
+ * pass the commit that made them (#4807). A tree with no copy, as an
+ * adopter's, falls back to this process's.
+ *
  * FAIL-CLOSED ON THE BASELINE. A <rev> reading that cannot answer —
  * unreadable, unparseable, BROKEN or SKIP — is BROKEN here, never "inherited",
  * which is the answer that would pass the commit. The INDEX side is the
@@ -214,6 +222,7 @@ const OUTCOMES = {
  *   materialise: "tree" | "blobs",
  *   pathspecs?: (ctx: CheckContext, rev: string) => string[],
  *   baseline?: "lazy" | "always",
+ *   baselineCode?: "self" | "rev",
  *   refuse?: (ctx: CheckContext) => void,
  *   settle?: (ctx: CheckContext, added: FaultItem[], sides: Sides) => { refuse: FaultItem[], remedy: string[], data?: object },
  * }} AgainstSpec `settle`'s `data` joins the --json envelope, under the
@@ -760,12 +769,13 @@ function writeEntry(e, body, { rev, dir }) {
  *
  * @param {string} dir
  * @param {string} label
- * @param {{ stream: boolean, side: "index" | "baseline" }} opts
+ * @param {{ stream: boolean, side: "index" | "baseline", code?: string }} opts
+ *   `code` the checker to run, this process's own where absent
  * @param {string[]} args
  * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
  */
-function reread(dir, label, { stream, side }, args) {
-	const self = process.argv[1];
+function reread(dir, label, { stream, side, code }, args) {
+	const self = code ?? process.argv[1];
 	if (self === undefined)
 		throw brokenError(`process.argv names no script to re-run over ${label}.`);
 	const r = spawnSync(
@@ -1043,12 +1053,35 @@ function materialisedSpec(spec, ctx, flag, absent) {
 function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	const dir = fs.mkdtempSync(path.join(work, "tree-"));
 	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
+	const code =
+		which === "baseline" && against.baselineCode === "rev"
+			? codeIn(dir)
+			: undefined;
 	return reread(
 		dir,
 		label,
-		{ stream: which === "index" && !ctx.asJson, side: which },
+		{ stream: which === "index" && !ctx.asJson, side: which, code },
 		ctx.args,
 	);
+}
+
+/**
+ * The copy of this process's checker that the tree materialised at `dir`
+ * carries at the same path, else undefined. A checker sits in `scripts/`
+ * beside this library's directory, so that path is its directory's name and
+ * its own.
+ * @param {string} dir
+ */
+function codeIn(dir) {
+	const self = process.argv[1];
+	if (self === undefined) return;
+	const abs = path.resolve(self);
+	const copy = path.join(
+		dir,
+		path.basename(path.dirname(abs)),
+		path.basename(abs),
+	);
+	return fs.existsSync(copy) ? copy : undefined;
 }
 
 /**
