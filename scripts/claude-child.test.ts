@@ -21,6 +21,8 @@ import {
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { readJudgeCalls, writeJudgeFake } from "./lib/gate-judge-fake";
+import { JUDGE_ARGS, JUDGE_TIMEOUT_EXIT } from "./lib/gate-judge-mode.js";
 import {
 	buildHeadlessBranch,
 	readHeadlessCalls,
@@ -58,9 +60,14 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const run = (args: string[], extra: Record<string, string> = {}) =>
+const run = (
+	args: string[],
+	extra: Record<string, string> = {},
+	input?: string,
+) =>
 	spawnSync(process.execPath, [SCRIPT, ...args], {
 		encoding: "utf8",
+		input,
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: seat,
@@ -192,6 +199,88 @@ describe("chrome", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("could not read the prompt file");
 		expect(launched()).toBe(false);
+	});
+});
+
+describe("judge", () => {
+	const judgeLog = () => path.join(dir, "judge-calls.jsonl");
+	const judge = (ms = "60000", extra: Record<string, string> = {}) =>
+		run(
+			["judge", "--config-dir", seat, "--timeout-ms", ms],
+			{ WFC_CLAUDE_BIN: path.join(dir, "claude-judge"), ...extra },
+			"What waits does this body make?\n",
+		);
+	const writeFake = (plan: Parameters<typeof writeJudgeFake>[2]) =>
+		writeJudgeFake(path.join(dir, "claude-judge"), judgeLog(), plan);
+	const readJudged = () => {
+		const seen = readJudgeCalls(judgeLog()).at(-1);
+		if (!seen) throw new Error("the judge child was never launched");
+		return seen;
+	};
+
+	beforeEach(() => {
+		writeFake({ stdout: "child said hello\n" });
+	});
+
+	it("gives the child the judge mode's flags, the prompt on stdin, in an empty directory", () => {
+		const r = judge();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("child said hello\n");
+		expect(readJudged().argv).toEqual(JUDGE_ARGS);
+		expect(readJudged().argv).toEqual(
+			expect.arrayContaining([
+				"haiku",
+				"--tools",
+				"--setting-sources",
+				"--strict-mcp-config",
+				"--disable-slash-commands",
+				"--no-session-persistence",
+				"--json-schema",
+			]),
+		);
+		expect(readJudged().stdin).toBe("What waits does this body make?\n");
+		expect(readJudged().cwdEntries).toEqual([]);
+		expect(readJudged().cwd).not.toBe(process.cwd());
+		expect(readJudged().configDir).toBe(seat);
+	});
+
+	it("empties its working directory of what a call before it left", () => {
+		judge();
+		fs.writeFileSync(path.join(readJudged().cwd, "left-behind.txt"), "x\n");
+		expect(judge().status).toBe(0);
+		expect(readJudgeCalls(judgeLog())).toHaveLength(2);
+		expect(readJudged().cwdEntries).toEqual([]);
+	});
+
+	it("kills a child still running at the bound, exiting as a timeout does", () => {
+		writeFake({ hang: true });
+		const r = judge("1500");
+		expect(r.status).toBe(JUDGE_TIMEOUT_EXIT);
+		expect(r.stderr).toContain("the child was killed at its 1500 ms bound");
+	});
+
+	it.each([
+		["no bound", ["judge", "--config-dir", "SEAT"]],
+		[
+			"a bound that is no number",
+			["judge", "--config-dir", "SEAT", "--timeout-ms", "soon"],
+		],
+		[
+			"a bound of nothing",
+			["judge", "--config-dir", "SEAT", "--timeout-ms", "0"],
+		],
+	])("refuses %s, launching nothing", (_, args) => {
+		const r = run(args.map((a) => (a === "SEAT" ? seat : a)));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--timeout-ms is a whole number");
+		expect(launched()).toBe(false);
+	});
+
+	it.each(REFUSED_AUTH)("refuses under %s, launching nothing", (name, env) => {
+		const r = judge("60000", env);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`${name} is set`);
+		expect(readJudgeCalls(judgeLog())).toEqual([]);
 	});
 });
 

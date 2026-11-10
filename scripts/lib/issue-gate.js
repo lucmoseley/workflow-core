@@ -464,6 +464,18 @@ function isEventAnchor(basis, ref) {
 }
 
 /**
+ * @param {string} basis
+ * @param {number} [own] the body's own issue number
+ * @returns {RegExpMatchArray[]} its references to an issue other than its own
+ */
+function otherIssueRefs(basis, own) {
+	return [...basis.matchAll(ISSUE_REF_RE)].filter(
+		(m) =>
+			Number(m[1]) !== own || REPO_BEFORE_REF_RE.test(basis.slice(0, m.index)),
+	);
+}
+
+/**
  * Which warrant a basis carries, read as form and never as truth (#4946).
  *
  * @param {string} basis the basis text
@@ -472,10 +484,7 @@ function isEventAnchor(basis, ref) {
  * @returns {"count"|"cycle"|"issue"|null}
  */
 function warrantOf(basis, own) {
-	const refs = [...basis.matchAll(ISSUE_REF_RE)].filter(
-		(m) =>
-			Number(m[1]) !== own || REPO_BEFORE_REF_RE.test(basis.slice(0, m.index)),
-	);
+	const refs = otherIssueRefs(basis, own);
 	if (refs.some((m) => !isEventAnchor(basis, m))) return "issue";
 	const sourced =
 		refs.length > 0 ||
@@ -589,6 +598,23 @@ function parseLiveGateLines(text) {
  */
 function liveBases(text) {
 	return liveMatches(BASIS_RE, text).filter((m) => m[1]);
+}
+
+/**
+ * What the model reading (lib/gate-judge.js) checks a body against: each live
+ * basis's text, whether the patterns read a window in it, and whether a quote
+ * at `index` is live — outside a fence and a code span.
+ *
+ * @param {string} body
+ */
+function gateFacts(body) {
+	const text = String(body || "");
+	return {
+		bases: liveBases(text).map((m) => requiredGroup(m, 1, BASIS_RE)),
+		writesWindow: windowsOf(text).length > 0,
+		/** @param {number} index */
+		isLiveAt: (index) => !isFenced(text, index) && !inCodeSpan(text, index),
+	};
 }
 
 /**
@@ -848,6 +874,8 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
+	gateFacts,
+	otherIssueRefs,
 	gateRuleHandover,
 	isNewlyGated,
 	parseAddedGateLines,

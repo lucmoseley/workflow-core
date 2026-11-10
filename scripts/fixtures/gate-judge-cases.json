@@ -1,0 +1,1345 @@
+{
+	"builtBy": "a labelling session that saw no judge verdict (#4968)",
+	"cases": [
+		{
+			"id": "wait-1068-a",
+			"source": 1068,
+			"own": 1068,
+			"label": "wait",
+			"kind": "uncaught-4949",
+			"part": "held-out",
+			"text": "#1061 (which mechanism separates a close rival question) ruled that the guard refuses every close question once. That ruling flips to refusing only a bare `Unmeasured:` line, or a `Checked:` line with no tool call, if the first week shows sessions re-sending after the refusal with no new tool call. How is that week measured? Three parts:",
+			"note": "\"if the first week shows\"; a ruling's flip waits on the first week's data; body version of 2026-10-09T05:18:51Z"
+		},
+		{
+			"id": "wait-1091-a",
+			"source": 1091,
+			"own": 1091,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "7. As the founder, I want one issue filed when week one can be read, so that the reading reaches me without my asking for it.",
+			"note": "\"week one\"; #4929's table quotes \"if week one shows\" against #1091, but that wording is in #1060, not here"
+		},
+		{
+			"id": "wait-1216-a",
+			"source": 1216,
+			"own": 1216,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "Saving, as #1156 modelled it: 239–349 session-min a day on the big runs. The model is not validated, so the ticket's close measures the real figure from the pass/fail marker stores over the first full day after landing.",
+			"note": "\"over the first full day after landing\"; body version of 2026-10-10T04:34:55Z"
+		},
+		{
+			"id": "wait-1220-a",
+			"source": 1220,
+			"own": 1220,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "- [ ] The close comment measures over-selection: extra files selected by quoted-but-unwritten paths over the first full day after landing",
+			"note": "\"over the first full day after landing\"; body version of 2026-10-10T04:37:58Z"
+		},
+		{
+			"id": "wait-1231-a",
+			"source": 1231,
+			"own": 1231,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "How should a full day of test-run data be captured so that #1216's close can price the saving from own-work narrowing? Facts (10 Oct 14:50 +08) are in #1216's comment issuecomment-6094827946. The marker store prunes from 800 lines to 400 and gets about 700 greens a day (`scripts/lib/test-pass-marker.js:339-340`), so no single reading holds a whole day.",
+			"note": "\"a full day of\"; #1216's close waits on a day of data"
+		},
+		{
+			"id": "wait-1701-a",
+			"source": 1701,
+			"own": 1701,
+			"label": "wait",
+			"kind": "audit-missing",
+			"part": "held-out",
+			"text": "- **Reading point:** the later of 7 days after the first log line and the 40th refused-then-answered round; 21 days at most.",
+			"note": "#4929 route gap, not a table row; body version of 2026-10-15T02:09:01Z"
+		},
+		{
+			"id": "wait-1836-a",
+			"source": 1836,
+			"own": 1836,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Gated on:** design-vault pins a workflow-core release carrying `scripts/queue-run.js` (none does at v1.3.15) and has dispatched sessions on 3 days since that pin landed — check: `grep -o '\"ref\": *\"[^\"]*\"' ~/design-vault/.claude/settings.json; git -C ~/workflow-core tag --contains 1d1bbe209` — abandon if: design-vault turns the `suites` module off or no longer runs `node --test`/pytest suites.\n**Gate basis:** the 3-day window is #1776's: each day since 13 Oct with design-vault dispatch has 17 or more distinct stand-downs (17, 44, 87, 53), so 3 dispatch days all below 10 is not a chance result, and one or two quiet days could be.",
+			"note": "\"dispatched sessions on 3 days since that pin landed\"; body version of 2026-10-16T17:21:21Z"
+		},
+		{
+			"id": "wait-1995-a",
+			"source": 1995,
+			"own": 1995,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "5. As the founder, I want the loop to stop 24 hours after I last started or renewed it, so that it always stays inside a session I started (a driven session).",
+			"note": "labeller doubt: a stop rule for the refill loop, no work waits on it; #4929 and #4949 both counted it a wait"
+		},
+		{
+			"id": "wait-2123-a",
+			"source": 2123,
+			"own": 2123,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "- **Normal mode** — what `/pick-next` starts or renews. Scope: the repo it runs in, plus any extra repo named in the command. A goal is a **priority, not a filter**: goal issues rank first, and other issues in scope keep launching on the default ranking whenever a slot is free. Once the goal's issues are all closed or parked, the loop carries on as a bare run for the rest of its 24 hours. Stops: 24 hours after the last start, explicit `stop`, the allowance cut, three finishes with no progress (as now).",
+			"note": "labeller doubt: restates the refill loop stop rule; #4929 and #4949 both counted it a wait"
+		},
+		{
+			"id": "wait-2188-a",
+			"source": 2188,
+			"own": 2188,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "development",
+			"text": "A two-week trial of GitHub CodeQL code scanning and SonarQube Cloud on the public `lucmoseley/workflow-core` repo that #1954 (publish the core as a fresh public repo) creates, to measure what they catch that the current CI checks miss. Ruled at #2185 Q1 (A), founder, 19 Oct 2026.",
+			"note": "\"two-week trial\"; the measurement waits on two weeks of scanning; body version of 2026-10-19T10:39:54Z"
+		},
+		{
+			"id": "wait-2260-a",
+			"source": 2260,
+			"own": 2260,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "33. As the founder, I want a reading filed once the test has run a week in all three repos and logged enough re-sends, so that #2228's flip line gets judged on data, not memory.",
+			"note": "\"once the test has run a week in all three repos\"; body version of 2026-10-20T09:45:43Z"
+		},
+		{
+			"id": "wait-2410-a",
+			"source": 2410,
+			"own": 2410,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "Set the local tester's admission-slot weight from the full-suite peak measured on the first live runs, replacing the guess. Record the trial's start date on #2261, so the trial report can fall due 14 days later.\n\n**Gate basis:** 14 days is #2261's ruled trial length (its Values line, untraced; set by the spec, not this ticket). Nothing sooner fits: the spec has the adopters wait on a full trial, and four scheduled sweeps a day over 14 days give about 56 red/green readings of `main`'s tip.",
+			"note": "\"fall due 14 days later\"; body version of 2026-10-21T12:30:25Z"
+		},
+		{
+			"id": "wait-2482-a",
+			"source": 2482,
+			"own": 2482,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "Re-measure the refill loop's stale-reading idles once it has run 8 hours on 585143e (#2362's fix).",
+			"note": "\"once it has run 8 hours on 585143e\"; body version of 2026-10-22T05:19:43Z"
+		},
+		{
+			"id": "wait-2558-a",
+			"source": 2558,
+			"own": 2558,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "- Read only, not a gate on closing: on the next queue-wait alarm firing, or on a dry run of `report-suite-queue-wait.js` 24 h after landing, record `named` wait against #2451's 4.07 h.",
+			"note": "\"24 h after landing\"; the reading waits, the close does not"
+		},
+		{
+			"id": "wait-2649-a",
+			"source": 2649,
+			"own": 2649,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-10-31 — the week of memwatch after #2741's archive landed (d8731ae6b, 24 Oct 05:48 +08) closes 31 Oct 05:48\n**Gate basis:** the acceptance's one-week window, opened by #2741's landing because rotation deleted trimmed blocks before it; nothing sooner holds a week of blocks.",
+			"note": "gate line \"the week of memwatch after #2741's archive landed\"; body version of 2026-10-23T23:22:16Z"
+		},
+		{
+			"id": "wait-2827-a",
+			"source": 2827,
+			"own": 2827,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Gated on:** steps 1–2 of #2815 (the lever set) have both landed on `main` — step 1 is #2726 (whole suite inside 840 s) and #2413 (Actions tester), step 2 the touched-tests-only spec not yet filed — and 7 consecutive UTC days after the later landing each hold at least 48 active session-hours — abandon if: #2809 (the map) redraws its 90% destination, or step 2 is dropped from the set\n**Gate basis:** #2821 (the verifying figure) ruled each step gets its own 7-day reading, from the UTC day after it lands, on days of at least 48 active session-hours; fewer days or thinner days fall under that ruling's floor. #2826 ruled the residue is priced on that real reading, not modelled. #2823 and #2824, the instruments, are closed.",
+			"note": "gate line \"7 consecutive UTC days after the later landing\"; body version of 2026-10-24T07:49:41Z"
+		},
+		{
+			"id": "wait-330-a",
+			"source": 330,
+			"own": 330,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "- earlyoom kills of Claude sessions over the 24 hours after rollout are reported on this issue, compared against the 121 on 20 Sep.",
+			"note": "\"over the 24 hours after rollout\""
+		},
+		{
+			"id": "wait-3389-a",
+			"source": 3389,
+			"own": 3389,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "The #1995 spec (away mode) lists the loop's stops as \"24 hours after the last `start`; an explicit `stop`; dispatch's existing cut on every seat …; and the no-progress stop\", with the stop reason kept in the state file. When `.refill-loop-control.json` is damaged (unparseable), `readControl()` returns null and `tick` falls back to `stopRequested: !dryRun` (`scripts/lib/refill-tick.js:830-834`). That fallback is meant for a loop nobody started. So a damaged file stops the loop recorded as `explicit — stop was requested`, a stop nobody asked for. #3380 logs the damage, but `scripts/check-refill-loop-stop.js` reads the control file only beside a fresh no-progress or cut stop, so it never names this stop at session start.",
+			"note": "labeller doubt: restates the refill loop stop rule; #4929 and #4949 both counted it a wait"
+		},
+		{
+			"id": "wait-3599-a",
+			"source": 3599,
+			"own": 3599,
+			"label": "wait",
+			"kind": "audit-missing",
+			"part": "development",
+			"text": "From this repo's own checkout, run the `heresy-sweep` skill on this issue. It files each heresy no check, primitives-table row or ticket names yet as a sub-issue of this one, then closes this issue with the count.\n\nThe next sweep falls due 30 days after this issue closes.",
+			"note": "#4929 table row 24; a script-filed body; the wait is a cadence (the next sweep waits 30 days); body version of 2026-10-29T05:42:31Z"
+		},
+		{
+			"id": "wait-3803-a",
+			"source": 3803,
+			"own": 3803,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-11-04 — the first criterion needs a week of tries, reached 3 Nov 16:06 UTC.\n**Gate basis:** the no-wait try began 27 Oct 16:06 UTC (#3278), so a week of tries ends 3 Nov 16:06 UTC; the first full day after that is 4 Nov, and nothing sooner holds a week.",
+			"note": "\"the first full day after that\"; body version of 2026-11-01T15:59:12Z"
+		},
+		{
+			"id": "wait-3806-a",
+			"source": 3806,
+			"own": 3806,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "**Gated on:** 24 h have run since 14a8534be (2026-11-02T10:22:26Z), so the fourth criterion can be read — check: date -u +%FT%TZ | awk '{print ($0 >= \"2026-11-03T10:22:26Z\" ? \"met: \" : \"unmet: \") $0 \" against 2026-11-03T10:22:26Z\"}' — abandon if: 14a8534be is reverted\n**Gate basis:** the fourth acceptance criterion sets the 24 h; the markers and exit lines show the change live from its commit on this checkout, so nothing sooner gives the window it names.",
+			"note": "\"24 h have run since 14a8534be\"; body version of 2026-11-02T10:43:01Z"
+		},
+		{
+			"id": "wait-4093-a",
+			"source": 4093,
+			"own": 4093,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Gated on:** 84 days have passed since #4084's install at 2026-11-03T15:40 +08 (so 2027-01-26) with no `CLOCK-LEAP` stamped after it, or one is stamped after it — check: for b in $(journalctl --list-boots --no-pager -q | awk '{print $1}'); do node scripts/check-kernel-stall.js --boot \"$b\" 2>&1 | grep '^CLOCK-LEAP'; done; echo \"scan done on $(date -I); compare each stamp with 2026-11-03T15:40 +08 and today with 2027-01-26\" — abandon if: the machine leaves WSL2 or ARM64\n**Gate basis:** 84 days is twice the longest quiet gap seen between leaps, 42 days (22 Sep to 3 Nov 2026), so a quiet window this long cannot be the fault's ordinary spacing.",
+			"note": "\"84 days have passed since\"; body version of 2026-11-03T07:43:07Z"
+		},
+		{
+			"id": "wait-4229-a",
+			"source": 4229,
+			"own": 4229,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "- After cutover, one measurement over 24 h of live work is the done check for the whole spec: zero commits on the main checkout's `main` that are not on `origin/main`; `main` equal to `origin/main` within one levelling pass of each move; zero `reconcile-*` merges and zero refused fast-forwards of the main checkout; zero tracked dirt in the main checkout. The same window measures the merge-commit pre-commit time and the `Edit` latency on tracked files, both unmeasured under the new model.",
+			"note": "\"24 h of live work\""
+		},
+		{
+			"id": "wait-4253-a",
+			"source": 4253,
+			"own": 4253,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "**Gated on:** the 24 h window after cutover has closed, at 2026-11-06T02:05Z — check: [ \"$(date -u +%s)\" -ge 1793930700 ] && echo \"met: window closed\" || echo \"unmet: window open until 2026-11-06T02:05Z\" — abandon if: #4229 is closed or its worktree model is reverted\n**Gate basis:** #4253 asks for 24 h of live work after cutover; #4248 (the cutover) closed 2026-11-05T02:04:59Z, so the reading cannot be taken before 2026-11-06T02:05Z.",
+			"note": "\"the 24 h window after cutover has closed\"; body version of 2026-11-05T06:34:35Z"
+		},
+		{
+			"id": "wait-4514-a",
+			"source": 4514,
+			"own": 4514,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "- [ ] Measured after the build: re-run the #4490 instrument (`measure.sh`, in its measurement comment) changed to apply the carry, and report the share of merges that still need a re-anchor. It was 45 of 79 before and is predicted at 16 of 79. Also report the queue log's anchor-caused drops over the first week after the build.",
+			"note": "\"over the first week after the build\"; body version of 2026-11-06T00:05:23Z"
+		},
+		{
+			"id": "wait-4514-b",
+			"source": 4514,
+			"own": 4514,
+			"label": "wait",
+			"kind": "uncaught-4949",
+			"part": "held-out",
+			"text": "- [ ] Measured after the build: re-run the #4490 instrument (`measure.sh`, in its measurement comment) changed to apply the carry, and report the share of merges that still need a re-anchor. It was 45 of 79 before and is predicted at 16 of 79. Also report the queue log's anchor-caused drops over the first week after the build. **waived:** the share is measured: 17 of 79 merges still need a re-anchor (measurement comment on this issue). The first-week drop count cannot be taken before 2026-11-13, so it is #4530.",
+			"note": "\"The first-week drop count cannot be taken before 2026-11-13\"; the same line also holds \"over the first week after the build\""
+		},
+		{
+			"id": "wait-4530-a",
+			"source": 4530,
+			"own": 4530,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "#4514 (carry a guard-registry anchor across a merge whose sides changed different files of its closure) set a second measure. Count the queue lander's anchor-caused drops over the first week after the carry lands on `main`. A drop is a member the lander removed because the batch's merge left a guard-registry row stale.",
+			"note": "\"over the first week after the carry lands\"; body version of 2026-11-06T06:53:28Z"
+		},
+		{
+			"id": "wait-4530-b",
+			"source": 4530,
+			"own": 4530,
+			"label": "wait",
+			"kind": "uncaught-4949",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-11-13 — the post-carry week ends 2026-11-13T02:38Z; count from then on.\n**Gate basis:** the carry reached `main` at 2026-11-06T02:38:12Z (queue log `land` event for `queue/implement-4514-152aad` at `4d74950a9`), and the ticket's window is the 7 days after that; no shorter window answers its question.",
+			"note": "\"the post-carry week ends\"; body version of 2026-11-06T06:53:28Z"
+		},
+		{
+			"id": "wait-4566-a",
+			"source": 4566,
+			"own": 4566,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "**Gated on:** seven days have passed since #4556's last commit reached `main` — abandon if: the lander stops batching through `lander/batch-<k>` refs before then, so the week measures something else.\n**Gate basis:** #4545's queue-wait figures cover 7 days, and a shorter window would compare a different mix of weekday and weekend push rates; seven days is the shortest that keeps the comparison like for like.",
+			"note": "\"seven days have passed since\"; body version of 2026-11-06T07:50:01Z"
+		},
+		{
+			"id": "wait-4759-a",
+			"source": 4759,
+			"own": 4759,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-11-10 — the last criterion reads a full day of `~/guest-cache-drops.jsonl`, and the timer went live on 9 Nov 2026 at 19:04 +08.\n**Gate basis:** the timer was installed on 9 Nov 2026 at 19:04 +08, and one day of drops spans one daily work cycle, both the heavy daytime load and the overnight standby that today's freezes and the 03:25 watchdog reset fell in. Nothing sooner covers a full cycle. Read it from 10 Nov 2026 at about 19:00 +08.",
+			"note": "\"reads a full day of ...\"; body version of 2026-11-09T11:09:10Z"
+		},
+		{
+			"id": "wait-4767-a",
+			"source": 4767,
+			"own": 4767,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Live case, 9 Nov 2026:** #2809 (cut session-hours lost to test suites by 90%) has been `takes:to-spec` since #2826 (keep 90%; send the set to `/to-spec` now) closed on 27 Oct. Its one open child, #2827 (price the residue after steps 1–2), is blocked by #2726 and gated on a 7-day post-rollout reading, by design after the spec ships. So `pick-next` has held the map for 13 days, and the ruling \"send the set to /to-spec now\" never ran. #4656 (resume after a connection drop) is the other open `takes:to-spec` map; check it too.",
+			"note": "labeller doubt: narrates #2827's gate, #4767's own body makes nothing wait; #4929 listed it"
+		},
+		{
+			"id": "wait-4796-a",
+			"source": 4796,
+			"own": 4796,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "- **Interval:** the first reading is at the first weekly retro 7 or more days after the fix lands. Until then the verdict is `waiting`. The window grows until the baseline predicts 3 or more recurrences. Zero seen against 3 expected is about 5% likely under no effect (e^-3).",
+			"note": "\"the first weekly retro 7 or more days after the fix lands\"; body version of 2026-11-09T14:53:56Z"
+		},
+		{
+			"id": "wait-4797-a",
+			"source": 4797,
+			"own": 4797,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "- [ ] `report-outcome-review.js` lists due findings from the signature log and the run record's `findings[]`. It derives the fix sha and date from the finding's closing commit on `origin/main`, and gives `waiting` until the first weekly run 7 or more days after the fix.",
+			"note": "\"the first weekly run 7 or more days after the fix\"; body version of 2026-11-09T15:02:45Z"
+		},
+		{
+			"id": "wait-4865-a",
+			"source": 4865,
+			"own": 4865,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Gated until:** 2026-11-17 — the ticket's own precondition: count the lander's merge refusals from stale guard-registry rows (STALE-PROSE) over the week after #4807 landed, then build or close as not planned.\n**Gate basis:** #4807 (the stale-registry-row fix) landed on `main` at fc92c9f15 on 2026-11-10 05:13 UTC; the body sets a one-week measurement window, and nothing sooner covers a full week of lander runs.",
+			"note": "holds two table wordings: \"over the week after #4807 landed\" (gate line) and \"a one-week measurement window\" (basis line); body version of 2026-11-10T05:30:04Z"
+		},
+		{
+			"id": "wait-4865-b",
+			"source": 4865,
+			"own": 4865,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "held-out",
+			"text": "Before you build, measure the lander's merge refusals that come from stale registry rows over the week after #4807 lands. If they have not gone to near zero, close this ticket as not planned and record the count.",
+			"note": "prose twin of the table wording (\"lands\" for \"landed\"); body version of 2026-11-10T05:30:04Z"
+		},
+		{
+			"id": "wait-4891-a",
+			"source": 4891,
+			"own": 4891,
+			"label": "wait",
+			"kind": "corpus-wait",
+			"part": "held-out",
+			"text": "- **Post-landing check.** After a full day on 7.0, `report-suite-queue-wait.js` and `replay-suite-queue-wait.js` are read over the same 24 h window shape as the 10 Nov baseline (type-check wait hours, slot opens, pre-commit refusals, open gaps), and the result posted on the map against the baseline and the 75–90% estimate.",
+			"note": "\"After a full day on 7.0\""
+		},
+		{
+			"id": "wait-4893-a",
+			"source": 4893,
+			"own": 4893,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Gated on:** 24 h of suite-queue logs have accrued since lucmoseley/mantahostels#3864 closed, so every adopting repo that type-checks has run a full day on TypeScript 7.0 — check: gh issue view 3864 --repo lucmoseley/mantahostels --json state,closedAt -q '.state+\" closed at \"+(.closedAt//\"never\")' — abandon if: workflow-core or mantahostels moves its type-check off TypeScript 7.0 before the window completes\n**Gate basis:** the 10 Nov 2026 baseline on #4884 was read over a 24 h window to 06:42 UTC, so the comparison needs the same 24 h shape, all of it on 7.0; nothing shorter matches the baseline.",
+			"note": "\"24 h of suite-queue logs have accrued since\"; body version of 2026-11-10T07:14:51Z"
+		},
+		{
+			"id": "wait-4962-a",
+			"source": 4962,
+			"own": 4962,
+			"label": "wait",
+			"kind": "probe-4963",
+			"part": "held-out",
+			"text": "Each refill tick now records the Windows reading, the guest's free memory, the Windows charge, the type-check reserve and the held test runs (`~/.claude/concurrency.jsonl`, `buildTickMemory()` in `scripts/lib/concurrency.js`). Re-measure over seven days of those records.\n\n**Gate basis:** seven days is the shortest span holding a whole week's mix of loaded and quiet hours; the single day #4956 had (10 Nov) is what this re-measure exists to widen, so nothing sooner adds to it.",
+			"note": "#4963's first wording, in #4962's body as first filed (2026-11-10T15:58:09Z)"
+		},
+		{
+			"id": "wait-4963-a",
+			"source": 4963,
+			"own": null,
+			"label": "wait",
+			"kind": "probe-4963",
+			"part": "held-out",
+			"text": "Re-measure over 7 days of those records.",
+			"note": "#4963 probe table row 2, bare"
+		},
+		{
+			"id": "wait-4963-b",
+			"source": 4963,
+			"own": null,
+			"label": "wait",
+			"kind": "probe-4963",
+			"part": "held-out",
+			"text": "Re-measure once 7 days of records exist.",
+			"note": "#4963 probe table row 3, bare"
+		},
+		{
+			"id": "wait-616-a",
+			"source": 616,
+			"own": 616,
+			"label": "wait",
+			"kind": "audit-missing",
+			"part": "held-out",
+			"text": "Spec #525 (Block budgets) leaves the priced-options guard's session ceiling at 5 blocks, on mantahostels#3450's census: 1 in 35 post-split sessions reached it. It asks for that census to be re-run a week after the two founder limbs go live, the founder-act refusal (#597, landed dd21fab6 on 2026-09-28) and the actor-only refusal (#598, landed fcd70a56 on 2026-09-28), and for the result to be reported. Run it no earlier than 2026-10-05.",
+			"note": "#4929 table row 1; body version of 2026-09-27T17:51:07Z"
+		},
+		{
+			"id": "wait-810-a",
+			"source": 810,
+			"own": 810,
+			"label": "wait",
+			"kind": "audit-missing",
+			"part": "held-out",
+			"text": "30. As the founder, I want the re-run count and the guard's refusals measured over 3 days after the change ships, so that I know whether the fix worked and whether the guard refuses runs it should not.",
+			"note": "#4929 table row 3; the body's only basis line is indented under a later bullet and is left out; body version of 2026-10-01T14:04:18Z"
+		},
+		{
+			"id": "wait-816-a",
+			"source": 816,
+			"own": 816,
+			"label": "wait",
+			"kind": "audit-escaped",
+			"part": "development",
+			"text": "**Gated on:** 3 days have passed since the last of this ticket's blockers (the gate switch, the HEAD-worktree narrowed run and the refuse-once guard) landed on `main` — abandon if: #810's changes are reverted before the window closes, leaving nothing to measure\n**Gate basis:** #790 Q8 ruled the 3 days. #787's baseline covered 2.6 days, because the marker store prunes from 800 to 400 entries and keeps about that much history; a shorter window could not be compared with the baseline, and the store cannot hold a longer one.",
+			"note": "\"3 days have passed since\"; body version of 2026-10-01T14:25:12Z"
+		},
+		{
+			"id": "wait-816-b",
+			"source": 816,
+			"own": 816,
+			"label": "wait",
+			"kind": "audit-missing",
+			"part": "held-out",
+			"text": "**Gated on:** 3 days have passed since the founder's new project repo, started on 2 Oct 2026 and on plugin v1.3.8 or later, recorded its first green run in its own marker store (`<that checkout>/.claude/tmp/markers/.test-pass-markers.jsonl`). Its name and path are recorded in a comment here once it exists. Abandon if #810's changes are reverted before the window closes, or if 7 days pass after the repo is created without a green run on v1.3.8 or later. In that case, close the ticket saying no repo produced the data.\n**Gate basis:** #790 Q8 ruled the 3 days. This checkout no longer supplies the data. After #810 landed, its own tickets were nearly all done, and its runs fell from 327 green runs by 70 sessions on 30 Sep to 48 by 5 sessions on 2 Oct (pass-marker store), with no queued work to raise them. The founder ruled on 2 Oct that the measurement moves to the new repo (this ticket's Q1 (A)). A from-scratch `/new-repo` starts with the `suites` module off (`.claude/skills/new-repo/scripts/new-repo.js`, `tested`), so no marker exists until it is switched on. That is why the clock starts at the first green, not at creation.",
+			"note": "#4929 table row 5: the abandon clause's 7 days has no basis (the basis names only the 3 days); body version of 2026-10-02T06:50:52Z"
+		},
+		{
+			"id": "non-wait-119-a",
+			"source": 119,
+			"own": 119,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "development",
+			"text": "2. `scripts/session-arbiter.js`, the `prune-markers --detach` comment in `main()`: the census figures (\"20,202 of them at the time of writing, an 81 MB directory\", \"cancelled mid-sweep on 22 sessions over one 2-day window\") are evidence for detaching the sweep. Relocate to mantahostels#1899 if absent; keep the rule and the citation.",
+			"note": "\"over one 2-day window\""
+		},
+		{
+			"id": "non-wait-1628-a",
+			"source": 1628,
+			"own": 1628,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "- Real `--since 30` on mantahostels: 345 s, 147 candidates — over the ceiling. workflow-core's own reading of 14 Oct was BROKEN at 300 s (792 candidates in 30 days; 177 in a normal 2-day window).",
+			"note": "\"a normal 2-day window\""
+		},
+		{
+			"id": "non-wait-1629-a",
+			"source": 1629,
+			"own": 1629,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "held-out",
+			"text": "`tool_gate` (`scripts/lib/precommit-gate.sh`) is the shared missing-binary skip for the shellcheck and actionlint gates. When either tool is missing it prints \"ci.yml still runs it, up to ~12 hours from now (mantahostels#2204)\". As of 14 Oct 2026 that is false in fantasy-books, design-vault and mmm-infra, which have no workflows (#1463's census). The skip itself stands on merit: #1407 kept it because neither tool can be installed through npm. Only the message is in question.",
+			"note": "\"up to ~12 hours from now\", a quoted message"
+		},
+		{
+			"id": "non-wait-2113-a",
+			"source": 2113,
+			"own": 2113,
+			"label": "non-wait",
+			"kind": "script-report",
+			"part": "development",
+			"text": "The week-one reading of the close-rivals check, filed once by `scripts/report-close-check-reading.js` at its reading point (spec #1091; rulings #1061, #1067 and #1068). Closing this issue never re-files it.\n\nReading point: 2026-10-18 16:50 — the later of 7 days after 2026-10-11 16:50 and the 40th answered question, capped at 2026-10-30 13:25.\nReached: figures are read up to 2026-10-18 16:50.",
+			"note": "script-filed; narrates a reading point already reached"
+		},
+		{
+			"id": "non-wait-2329-a",
+			"source": 2329,
+			"own": 2329,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "The band-drift checker watches for sessions pricing around the 60 line by writing 65, the first step that passes. It gains a third reading: over its 14-day window, the share of priced question blocks of every shape (rivals, yes/no, combinable) whose top figure is exactly `LOW_TOP` + 5. When that share rises above 1.5× baseline, it files or refreshes its own tracking issue.",
+			"note": "\"over its 14-day window\""
+		},
+		{
+			"id": "non-wait-2666-a",
+			"source": 2666,
+			"own": 2666,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "held-out",
+			"text": "Why has `main` not advanced since 02:02 UTC on 23 Oct 2026 (last green in `.claude/tmp/markers/.landing-green-ledger`; `origin/landing` 53 commits ahead), and why did nothing act on it? Known at charting (~10:20 UTC): the lander (pid 1123556) is alive, heartbeat fresh, testing batch `fc479da68` with a `vitest run` in `.claude/worktrees/lander` running 77 min; two `run-vitest.js --queue` suites have run 2 h beside it; three stub `start-lander` test-fixture processes from `.claude/tmp/git-fixture/start-lander-on-push-*` have lived 42 h. `scripts/check-landing-stall.js` prints `LANDING-STALLED` at every session start but never acts (`DEFEAT: none needed — it never blocks`). Establish each batch's suite duration and verdict since 02:02Z (red-batch bisection or slowness), how memory pressure stretched them, and whether the queue's concurrency rung counted the other suites.",
+			"note": "\"two suites have run 2 h beside it\""
+		},
+		{
+			"id": "non-wait-2868-a",
+			"source": 2868,
+			"own": 2868,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "development",
+			"text": "#2812 (the baseline) measured 232.4 h session-blocked in its 7.15-day window. Of that, the bare default holds 21.2 pts, `--changed` 13.4, session full runs 2.2 and `--adopt` 2.0: 38.8 pts in all. Bare runs and named runs of three or more files queue as whole (#2739: 10.5 h and 17.8 h).",
+			"note": "\"its 7.15-day window\""
+		},
+		{
+			"id": "non-wait-2911-a",
+			"source": 2911,
+			"own": 2911,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "held-out",
+			"text": "- Session `b7f2b0ec` (`/implement 2801`) ran five mutation scripts in parallel subagents, each calling `run-vitest.js <file> --queue` once per mutant. 606 one-file runs: **0.14 h of vitest time, 7.49 h of queue wait** (median 23 s, p90 104 s). About 98% of each mutant's time was queueing. `e1f05e82` (`/implement 2800`) did the same: 51 runs, 3.50 h of wait.",
+			"note": "\"7.49 h of queue wait\""
+		},
+		{
+			"id": "non-wait-3077-a",
+			"source": 3077,
+			"own": 3077,
+			"label": "non-wait",
+			"kind": "event-gate",
+			"part": "held-out",
+			"text": "**Gated on:** de5120c60 reaches `main` (the lander has not yet run it) — check: `git fetch -q origin main && git merge-base --is-ancestor de5120c60 origin/main` — abandon if: the lander reverts de5120c60, which reopens the work instead\n**Gate basis:** the lander moves `main` only after a full-suite pass on `landing`; the close names that sha, so nothing sooner than its landing fits",
+			"note": "waits on a commit landing; no window; body version of 2026-10-26T05:29:31Z"
+		},
+		{
+			"id": "non-wait-3301-a",
+			"source": 3301,
+			"own": 3301,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "development",
+			"text": "Only a **new** gate counts: record where the body before the write held no live gate line. A reworded or re-dated line on an issue that was already gated records nothing. Otherwise a gate judgement (#3092) that rewrites its line would count as progress every 6 hours.",
+			"note": "\"every 6 hours\""
+		},
+		{
+			"id": "non-wait-3314-a",
+			"source": 3314,
+			"own": 3314,
+			"label": "non-wait",
+			"kind": "event-gate",
+			"part": "held-out",
+			"text": "**Gated on:** `scripts/lib/hook-deadline.js` is clean in the working tree, its holder Implement 3268 (#3268, re-derive hook-deadline.js's 8 s entry budget) having committed or released it — check: git status --porcelain scripts/lib/hook-deadline.js — abandon if: `.husky/pre-commit` already anchors current in `.claude/guard-registry-anchors.json`\n**Gate basis:** `--review` refuses while a file in the hook's digest is dirty under a live claim; it clears when #3268's session lands its change, which no date predicts",
+			"note": "waits on a neighbour releasing a file; no window; body version of 2026-10-28T11:20:50Z"
+		},
+		{
+			"id": "non-wait-3316-a",
+			"source": 3316,
+			"own": 3316,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "Measured on #3205 (the queue-wait alarm), window 27 Oct 01:20 – 28 Oct 01:20 UTC: 324 of 488 waits were `tsc`, 7.78 h of the 9.31 h. The replay put 5.09 h under `fifo-part / part?` and 0.68 h under `open / part?`. Most of that was the #3276 stall (a `queue-run.js --tsc` waiter counted as a running `tsc`), which a `fifo-part` reading points away from. The next alarm reading after a tsc-slot fault will mislead its session the same way.",
+			"note": "a dated 24 h measurement window"
+		},
+		{
+			"id": "non-wait-3564-a",
+			"source": 3564,
+			"own": 3564,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "development",
+			"text": "On 29 Oct 2026 the WSL↔Windows interop bridge degraded and stayed degraded. Every `claude` start, `gh` call and Windows-path lookup slowed by 100–1000×. The founder reports it persisted with every session idle in \"needs input\" (an API outage) and with no session running at all. Only `wsl --shutdown` (about 11:40 local, at 19 h of uptime) restored it. Neither of `docs/environment.md` §9's two modes fits: calls returned, slowly, without stopping. So `scripts/lib/interop-probe.sh` (wedged only past 12 s × 3) read it as healthy.",
+			"note": "\"at 19 h of uptime\""
+		},
+		{
+			"id": "non-wait-3589-a",
+			"source": 3589,
+			"own": 3589,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "Keep a `.parked-` marker for as long as it lists an issue still labelled `parked`. Two ways to do that: exempt `.parked-` from the 24-hour sweep (the marker is a few bytes, and `unpark-on-prompt.js` deletes it once it is empty), or sweep it only after the label is off.",
+			"note": "\"the 24-hour sweep\""
+		},
+		{
+			"id": "non-wait-3621-a",
+			"source": 3621,
+			"own": 3621,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "held-out",
+			"text": "- A SessionStart line naming every open `parked` issue (and today's open review) with its age, every session, not once a day.",
+			"note": "\"not once a day\""
+		},
+		{
+			"id": "non-wait-3623-a",
+			"source": 3623,
+			"own": 3623,
+			"label": "non-wait",
+			"kind": "threshold",
+			"part": "development",
+			"text": "- **One backstop for every other route.** A single symptom check measures, for each open effort, the time since anything in it last launched. Past 2 days it reports one line per tracker at session start (once a day) and in the morning review.",
+			"note": "\"Past 2 days\", \"once a day\""
+		},
+		{
+			"id": "non-wait-3636-a",
+			"source": 3636,
+			"own": 3636,
+			"label": "non-wait",
+			"kind": "event-gate",
+			"part": "held-out",
+			"text": "**Gated on:** #3629 is closed and df217bdc8 is on main — check: gh issue view 3629 --json state --jq .state — abandon if: df217bdc8 is reverted on landing\n**Gate basis:** the lander closes #3629 on the move of main that lands its batch 729c2b684, which sits on landing behind df217bdc8; no window, the move itself is the event.",
+			"note": "waits on a close and a commit landing; no window; body version of 2026-10-29T11:15:26Z"
+		},
+		{
+			"id": "non-wait-3733-a",
+			"source": 3733,
+			"own": 3733,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "`refill-loop.js status`'s `seats:` line gives every seat's week and 5-hour readings, the seat the next launch takes and its reason, and, for each seat passed over, every limit failing on it (e.g. `~/.claude2 week 98% ≥ 97%`). `refill-loop.js start` prints one such line, adding the seat `/pick-next`'s own launches went on (its caller's seat). `/pick-next` §8 already copies `start`'s lines, so the skill gains no step.",
+			"note": "\"week and 5-hour readings\""
+		},
+		{
+			"id": "non-wait-3765-a",
+			"source": 3765,
+			"own": 3765,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "development",
+			"text": "- 2026-10-29 to 30: at least ten consecutive timeouts from 23:09 to 01:08, about every 12 minutes, before `exit 0` at 01:18.",
+			"note": "\"about every 12 minutes\""
+		},
+		{
+			"id": "non-wait-3772-a",
+			"source": 3772,
+			"own": 3772,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "held-out",
+			"text": "The idle alarm has not reached the founder since 30 Oct, though the spec promises it \"at session start (once a day)\" and \"even when the loop is stopped\" (story 31).",
+			"note": "\"(once a day)\""
+		},
+		{
+			"id": "non-wait-3785-a",
+			"source": 3785,
+			"own": 3785,
+			"label": "non-wait",
+			"kind": "threshold",
+			"part": "held-out",
+			"text": "- Its dispatch-ledger hold, renewed every 30 min only by a running tick, lapses after the ledger's 1-hour window. A direct dispatch can then take its ticket while the session waits with work on it.",
+			"note": "\"the ledger's 1-hour window\""
+		},
+		{
+			"id": "non-wait-3978-a",
+			"source": 3978,
+			"own": 3978,
+			"label": "non-wait",
+			"kind": "script-report",
+			"part": "development",
+			"text": "The reading of the under-researched-round check, filed once by `scripts/report-round-check-reading.js` at its reading point (spec #1701; rulings #1684 and #1691). Closing this issue never re-files it.\n\nReading point: 2026-11-02 06:38 — the later of 7 days after the first log line (2026-10-15 08:03) and the 40th refused-then-answered round, capped at 2026-11-05 08:03.\nReached: figures are read up to 2026-11-02 06:38.",
+			"note": "script-filed; narrates a reading point already reached"
+		},
+		{
+			"id": "non-wait-3996-a",
+			"source": 3996,
+			"own": 3996,
+			"label": "non-wait",
+			"kind": "event-gate",
+			"part": "held-out",
+			"text": "**Gated on:** Anthropic's cloud-environments page no longer says the proxy rejects `gh` subcommands that use GraphQL and that plugins declared in a repo's settings do not load — check: curl -fsS https://code.claude.com/docs/en/cloud-environments.md | grep -ioE 'rejects subcommands that use GraphQL|Plugins and marketplaces declared in your repo' || echo \"both limit phrases are gone from the page: re-read it\" — abandon if: away mode moves off this laptop by another ruling, or the laptop surface is retired\n**Gate basis:** #1897 sets the condition; no date fits, because it depends on when Anthropic changes the product, and the check prints both limit phrases until the page drops them.",
+			"note": "waits on a vendor page changing; no window"
+		},
+		{
+			"id": "non-wait-4060-a",
+			"source": 4060,
+			"own": 4060,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "- [x] Measure on one real probe, and record in the close comment, whether a `/usage` probe on an idle seat starts its 5-hour window. If it does, say so on this ticket before shipping the daily read",
+			"note": "\"its 5-hour window\""
+		},
+		{
+			"id": "non-wait-4060-b",
+			"source": 4060,
+			"own": 4060,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "development",
+			"text": "- Otherwise a seat is read at most once a day, or sooner on a reason it changed: a session ran on it since the last read, or its reset passed.",
+			"note": "\"at most once a day\""
+		},
+		{
+			"id": "non-wait-4179-a",
+			"source": 4179,
+			"own": 4179,
+			"label": "non-wait",
+			"kind": "event-gate",
+			"part": "held-out",
+			"text": "**Gated on:** the live refill loop has died with no stop on record and been resumed — abandon if: the watch timer is removed.\n**Gate basis:** nothing can be read until it dies, and killing it on purpose would hit its live launches.",
+			"note": "waits on an event; no window"
+		},
+		{
+			"id": "non-wait-4200-a",
+			"source": 4200,
+			"own": 4200,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "held-out",
+			"text": "- The loop paused at 21:44:59Z, reason `no act from workflow-core#3702, workflow-core#4195, workflow-core#3736; launches nothing until set --resume`. The founder learned of it about 3.5 hours later by noticing the loop had stopped. It is still paused after the cause was fixed, by design (#3859).",
+			"note": "\"about 3.5 hours later\""
+		},
+		{
+			"id": "non-wait-4317-a",
+			"source": 4317,
+			"own": 4317,
+			"label": "non-wait",
+			"kind": "threshold",
+			"part": "development",
+			"text": "Founder ruling on #4309, option (A), 4 Nov 2026: flag a dead owner's edits at once rather than after 24 hours. On 4 Nov the checker reported 1 of 17 stranded files in the shared checkout (#4225), because its 24-hour window (#794 Q6) waits on an mtime, even where the writer's pid is long dead.",
+			"note": "\"rather than after 24 hours\", \"its 24-hour window\""
+		},
+		{
+			"id": "non-wait-4317-b",
+			"source": 4317,
+			"own": 4317,
+			"label": "non-wait",
+			"kind": "event-gate",
+			"part": "held-out",
+			"text": "**Gated on:** #4248 closed — check: gh issue view 4248 -R lucmoseley/workflow-core-tracker --json state -q .state | grep -qx CLOSED && echo \"met: #4248 closed\" || echo \"unmet: #4248 open\" — abandon if: the cutover keeps sessions writing in the main checkout.\n**Gate basis:** until #4248 refuses main-checkout writes, live sessions write there with no ledger entry (ten busy on 4 Nov), so an at-once report would flag live work; the refusal is the earliest point it cannot.",
+			"note": "waits on an issue closing; no time or data window; body version of 2026-11-04T08:50:41Z"
+		},
+		{
+			"id": "non-wait-4443-a",
+			"source": 4443,
+			"own": 4443,
+			"label": "non-wait",
+			"kind": "threshold",
+			"part": "held-out",
+			"text": "- `.github/workflows/landing-quiet.yml:35-57` fails only after 14 h with no push to `landing`; it never sees `main` lag. Its runs were green on 4 Nov 06:28 and 15:28 and 5 Nov 02:29 UTC, during and around a 10.4 h main stall with 158 commits waiting.",
+			"note": "\"fails only after 14 h\""
+		},
+		{
+			"id": "non-wait-4465-a",
+			"source": 4465,
+			"own": 4465,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "development",
+			"text": "`scripts/lib/history-trim.js:50` appends `docs/data/history-trim-watch.jsonl` at `hostRoot()`, at most once a day from `npm run status` and its other callers. Its header calls it \"the tracked watch file\" (lines 53, 116), yet git neither tracks nor ignores it: the main checkout shows `?? docs/data/history-trim-watch.jsonl` today (found by #4438's spec review), which is the orphaned edit #4438 exists to end.",
+			"note": "\"at most once a day\""
+		},
+		{
+			"id": "non-wait-4577-a",
+			"source": 4577,
+			"own": 4577,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "held-out",
+			"text": "#4342's ended-session sweep (`scripts/lib/ended-sessions.js`, run by `scripts/reap-orphan-hooks.js` at each session start and every 5 minutes from `wfc-orphan-sweep.timer`) kills any init-parented process whose environ carries `CLAUDE_CODE_SESSION_ID` and a `CLAUDE_PID` no longer held.",
+			"note": "\"every 5 minutes\""
+		},
+		{
+			"id": "non-wait-4706-a",
+			"source": 4706,
+			"own": 4706,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "held-out",
+			"text": "- #4341's watcher timings (POLL_S 2 s, GRACE_S 3 s, MAX_PASSES 5, MANAGER_TIMEOUT_MS 5000) and #4342's (PERIOD 5 min, AccuracySec 30 s, Nice 10, the 7-day status window) stay as their tickets recorded them, untraced. This spec does not touch them.",
+			"note": "\"the 7-day status window\""
+		},
+		{
+			"id": "non-wait-4706-b",
+			"source": 4706,
+			"own": 4706,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "development",
+			"text": "The founder runs many Claude sessions at once on one WSL2 laptop with a 10 GB memory cap and 8 cores. On 2026-11-04 two vitest fork workers spun at ~81% CPU each for ~7.5 h after their session ended. That kind of leak is now contained. Each session runs in a cgroup scope of its own, which a watcher kills once the session process exits (#4341). A machine-wide sweep also kills any init-parented process whose session has ended (#4342). Two faults are left, and both were seen live:",
+			"note": "\"~7.5 h after their session ended\""
+		},
+		{
+			"id": "non-wait-4735-a",
+			"source": 4735,
+			"own": 4735,
+			"label": "non-wait",
+			"kind": "threshold",
+			"part": "held-out",
+			"text": "7. lucmoseley/workflow-core-tracker#4146 — `Is the alarm's added delay from GitHub dropping scheduled runs acceptable?` — taken: `Accept it: median 6.5 h and max 9.0 h between runs over 2-8 Nov, and the one real alarm fired 1.9 h after the 14 h threshold` (75%) — [#4146 comment](https://github.com/lucmoseley/workflow-core-tracker/issues/4146#issuecomment-6720788023)",
+			"note": "\"1.9 h after the 14 h threshold\""
+		},
+		{
+			"id": "non-wait-4737-a",
+			"source": 4737,
+			"own": 4737,
+			"label": "non-wait",
+			"kind": "script-report",
+			"part": "held-out",
+			"text": "Filed automatically by `scripts/report-arch-scan-due.js`, which reads this repo once a day at session start and rewrites this body at each reading while growth stays at or over the threshold. **Edit it by hand and the next reading silently overwrites it** — put anything you want kept in a comment.",
+			"note": "script-filed header; \"once a day\""
+		},
+		{
+			"id": "non-wait-4815-a",
+			"source": 4815,
+			"own": 4815,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "development",
+			"text": "23. As the refill loop, I want my own launches' schedule, cap and parking left unchanged (1/5/15/30 min, then every 30 min, up to 16 tries; park at the cap, or at the morning review when away), so that what the founder sees for loop launches does not change.",
+			"note": "\"then every 30 min\""
+		},
+		{
+			"id": "non-wait-4819-a",
+			"source": 4819,
+			"own": 4819,
+			"label": "non-wait",
+			"kind": "frequency",
+			"part": "held-out",
+			"text": "2. **The prune racing an append.** `retained-jsonl.js` documents that a writer appending between the prune's read and its rewrite loses its line. If the lost line was a shard's newest fail, an older pass decides again. The prune runs about once a day per shard, so the window is narrow.",
+			"note": "\"about once a day per shard\""
+		},
+		{
+			"id": "non-wait-4845-a",
+			"source": 4845,
+			"own": 4845,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "held-out",
+			"text": "- The auto-return was ruled at #2522 Round 3 Q1 (A) on 22 Oct 2026, by accepting the recommendation. Its evidence: away mode ran 3-4 hours after his return on 21 and 22 Oct, so a manual switch was being forgotten. Its stated cost when forgotten: rounds go to the issue rather than live, with a park-to-answer median of 6 minutes (n = 38).",
+			"note": "\"3-4 hours after his return\""
+		},
+		{
+			"id": "non-wait-4925-a",
+			"source": 4925,
+			"own": 4925,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "development",
+			"text": "- Same-shaped windows seen while charting: #4530 (`in the week after #4514's carry`) and #4566 (`a week after the pipelined lander ships`).",
+			"note": "two titles quoted in code spans"
+		},
+		{
+			"id": "non-wait-4946-a",
+			"source": 4946,
+			"own": 4946,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "held-out",
+			"text": "1. As a session filing an issue, I want a wait written as `the week after <event>` to be recognised as a wait, so that I am asked for a basis and shown the rule before the issue exists.\n2. As a session filing an issue, I want `the first week after`, `the first full day after` and `week one` recognised as waits, so that a determiner or ordinal in place of a number does not hide a window.",
+			"note": "user stories quoting wordings in code spans"
+		},
+		{
+			"id": "non-wait-4946-b",
+			"source": 4946,
+			"own": 4946,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "held-out",
+			"text": "5. As a session filing an issue, I want `7 or more days after` and `7 consecutive UTC days after` recognised, so that words between the count and the unit do not hide a window.\n6. As a session filing an issue, I want hyphen forms with no `after` (`a 7-day post-rollout reading`, `a one-week measurement window`) recognised as windows, so that an adjectival window still has to be named by the basis.\n7. As a session filing an issue, I want `a full day of` and `once it has run 8 hours` recognised, so that a wait phrased as accumulated running time is caught.",
+			"note": "user stories quoting wordings in code spans"
+		},
+		{
+			"id": "non-wait-4946-c",
+			"source": 4946,
+			"own": 4946,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "development",
+			"text": "  - the controls `a week after landing` and `7 days pass after the repo is created` still match;\n  - measurement spans — `in 30 days`, `over the last 24 hours`, and every span the corpus run hand-classified — yield no fault;",
+			"note": "test list quoting controls in code spans"
+		},
+		{
+			"id": "non-wait-4949-a",
+			"source": 4949,
+			"own": 4949,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "held-out",
+			"text": "- [x] 1. Hour windows — `8 hours`, `24 h` — are recognised by both the prose-wait and window detectors, and `24 h` keys as the same length as `a day`.\n- [x] 2. A determiner or ordinal as the count — `the week after`, `the first week after`, `the next day after`, `week one` / `week 1` — is caught as a wait.\n- [x] 3. Modifiers between count and unit — `or more`, `full`, `consecutive`, `consecutive UTC` — no longer hide a window (`7 or more days after`, `7 consecutive UTC days after`).",
+			"note": "acceptance criteria quoting wordings in code spans"
+		},
+		{
+			"id": "non-wait-4949-b",
+			"source": 4949,
+			"own": 4949,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "held-out",
+			"text": "- [x] 7. A determiner window followed by `window` or `of <noun>` and then `after` is caught (`the 24 h window after cutover`, `the week of memwatch after <event>`). Controls `a week after landing` and `7 days pass after the repo is created` still match; `in 30 days`, `over the last 24 hours`, frequencies (`once a day`, `every 2 hours`) and code-spanned or fenced wordings still yield no fault.",
+			"note": "acceptance criterion quoting wordings and controls in code spans"
+		},
+		{
+			"id": "non-wait-575-a",
+			"source": 575,
+			"own": 575,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "development",
+			"text": "When the founder runs `/pick-next`, the machine often starts fewer sessions than there are takeable issues, and the reply does not say why. The founder then has to ask. In the 30-day log window \"why only N launched?\" was asked 29 times and \"how is there a memory issue?\" 29 times, and both are rising: 14.2 and 9.5 per 1,000 founder messages in the last 11 days (#480). Typical asks: \"How can I have 43 open issues and only 1 dispatchable?\", \"Why was 3515 not launched?\", \"There are only 3 active sessions other than you … How could there possibly be a memory issue right now?\"",
+			"note": "\"the 30-day log window\""
+		},
+		{
+			"id": "non-wait-672-a",
+			"source": 672,
+			"own": 672,
+			"label": "non-wait",
+			"kind": "narrative",
+			"part": "held-out",
+			"text": "#616 was filed 12 minutes after #577 closed, with a week-long gate and no `**Gate basis:**` line. The week came from spec #525's prose (\"re-runs that census after a week live\"), which carried no derivation and could not even be run: counters are kept 24 hours only (`scripts/lib/arbiter-markers.js:136`). The founder cut it to one day on 2026-09-28.",
+			"note": "past narrative of #616's week-long gate; body version of 2026-09-28T10:42:12Z"
+		},
+		{
+			"id": "non-wait-672-b",
+			"source": 672,
+			"own": 672,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "held-out",
+			"text": "One shared reading in `scripts/lib/issue-gate.js`, a body's basis faults: a `**Gated until:**`/`**Gated on:**` line, or a wait written as prose (\"a week after\", \"after two days\", \"no earlier than\"), in a body with no `**Gate basis:**` line. It is applied at the three places a body is written:",
+			"note": "wait wordings quoted in double quotes as examples; body version of 2026-09-28T10:42:12Z"
+		},
+		{
+			"id": "non-wait-810-a",
+			"source": 810,
+			"own": 810,
+			"label": "non-wait",
+			"kind": "span",
+			"part": "development",
+			"text": "- Push serialisation. It returns as a new ticket only if the post-change counts show re-runs chaining (#789 Q4). Chains measured rare (#816: 2 sessions a day; about 4.5 suite-min in 7 h after #1216); ruled kept at #1236, 10 Oct 2026.",
+			"note": "\"in 7 h after #1216\""
+		},
+		{
+			"id": "non-wait-823-a",
+			"source": 823,
+			"own": 823,
+			"label": "non-wait",
+			"kind": "quoted-example",
+			"part": "held-out",
+			"text": "- **(A) Per-window basis check.** In `basisFaults`, each duration written in a live gate line, its `abandon if:` part included, and in each prose wait must appear in the `**Gate basis:**` text, or it is a fault. A duration is a count (digit or word) and a unit (hours, days, weeks, months). Widen `WAIT_RE` to take a word between the count and \"after\" (\"7 days pass after\"). The fault names each unmatched duration, so `introducedBasisFaults` refuses a write adding one. This still checks only that a basis names a window, never that the basis holds up. Say so in the refusal text.",
+			"note": "\"7 days pass after\" quoted as an example; body version of 2026-10-04T12:29:06Z"
+		},
+		{
+			"id": "derived-1575-a",
+			"source": 1575,
+			"own": 1575,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "- A post-change count, three days after landing, re-runs #1379's transcript scan for the pipe-cut re-run class (same launch, no edit or commit between, first output has no verdict line) and posts the figure here. The baseline is 28 in 24 days, of which 6 came between 11 and 13 Oct.\n\n**Gate basis:** the recent rate is about 2.6 a day (6 in the 2.3 days from 11 Oct 07:00 to 13 Oct). Three days expects about 8 events at that rate, enough to tell a drop to near zero from noise. One day expects about 2, too few to read. Three days also matches #790's post-change count window.",
+			"note": "#4929 table row 10; body version of 2026-10-13T15:46:34Z"
+		},
+		{
+			"id": "derived-1776-a",
+			"source": 1776,
+			"own": 1776,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "- [ ] Measured after release and adoption: design-vault's distinct stand-downs per day, against 87 on 15 Oct. Read and report the figure on this issue after 3 days on which design-vault dispatched sessions, counted from the day the release reaches it. If the count has not fallen below 10 a day, file the cause.\n**Gate basis:** the 3-day window: each day since 13 Oct with design-vault dispatch has 17 or more distinct stand-downs (17, 44, 87, 53). On that record, 3 days of dispatch all below 10 is not a chance result, and one or two quiet days could be.",
+			"note": "#4929 table row 11; body version of 2026-10-16T08:28:59Z"
+		},
+		{
+			"id": "derived-1995-a",
+			"source": 1995,
+			"own": 1995,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "- **Measurement.** The close-check log gains a `refused-ladder` kind carrying the missing rungs, and three fields on `passed-after-refusal`: `rungs` (qualifying calls per rung), `flipped` (top letter changed) and `citesNewFact` (the re-sent option lines carry a URL, issue number or `path:line` the first send lacked; a lexical reading, not a gate). The close-check reading report shows them. **Success line:** the founder's research prompts after a still-close re-send fall from about 19% to 10% or less over the first two weeks. If they do not, the next step is a K=3 independent vote (#1894 mechanism 3).\n\n**Gate basis:** the two-week window is #1905's. At about 26 close re-sends a day across six repos (#1894: 213 in 8 days), of which about 22% come back still close, two weeks gives about 80 still-close re-sends. That is enough to tell 19% from 10%; one week, about 40, leaves the two bands overlapping.",
+			"note": "#4929 table row 12; audit: \"D (re-derived)\"; the basis names #1905 as the window's origin, then derives it from counts; body version of 2026-10-18T04:50:58Z"
+		},
+		{
+			"id": "derived-2411-b",
+			"source": 2411,
+			"own": 2411,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "**Gated until:** 150 consecutive fault-free landings in `.claude/tmp/markers/.lander.log`, counted from the last lander-caused fault or lander code change (the last failed-revert hold was 28 Oct 2026).\n**Gate basis:** zero faults in 150 landings puts the per-landing fault rate below 2% at 95% confidence (rule of three); delegated decision on this ticket, 29 Oct 2026.",
+			"note": "#4929 table row 15; body version of 2026-10-29T06:11:31Z"
+		},
+		{
+			"id": "derived-2649-a",
+			"source": 2649,
+			"own": 2649,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "- A memwatch count of overlapping whole-tree runs over at least a week after #2627, stated with its window.\n**Gate basis:** #2627 counted 66 overlapping blocks in the 32 days 21 Sep–23 Oct, about 2 a day, so a week before the change would show about 14. A week is the shortest window where a drop to near zero can be told apart from chance.",
+			"note": "#4929 table row 17; audit: \"D in form, but the arithmetic overstates the need\"; body version of 2026-10-23T03:25:34Z"
+		},
+		{
+			"id": "derived-3246-a",
+			"source": 3246,
+			"own": 3246,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** the WSL VM has been up 28 h under `autoMemoryReclaim=disabled` (boot 2026-10-27 18:34 +08, so not before 2026-10-28 22:34 +08), matching the 28 h uptime at which the `gradual` bench read 37.9 s — check: `awk '{print int($1/3600) \" h up\"}' /proc/uptime` — abandon if: the VM restarts before 28 h for an unrelated reason (re-gate from the new boot), or hook timeouts return earlier (revert then, without waiting)\n**Gate basis:** the before-reading degraded over 28 h uptime and every `gradual` boot was fast under ~8 h (comment 2026-10-27T13:30 scan history), so a re-bench sooner cannot tell fresh boot from reclaim mode.",
+			"note": "#4929 table row 21; body version of 2026-10-27T16:34:15Z"
+		},
+		{
+			"id": "derived-4093-a",
+			"source": 4093,
+			"own": 4093,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "Whether the VM clock leap recorded in `docs/environment.md` §7 (#4081, the 3 Nov freeze) recurs on the WSL version #4084 installs. One `CLOCK-LEAP` after the install disproves the update as a fix; the window passing quietly is real evidence for it.\n\n**Gated on:** 84 days have passed since #4084's install at 2026-11-03T15:40 +08 (so 2027-01-26) with no `CLOCK-LEAP` stamped after it, or one is stamped after it — check: for b in $(journalctl --list-boots --no-pager -q | awk '{print $1}'); do node scripts/check-kernel-stall.js --boot \"$b\" 2>&1 | grep '^CLOCK-LEAP'; done; echo \"scan done on $(date -I); compare each stamp with 2026-11-03T15:40 +08 and today with 2027-01-26\" — abandon if: the machine leaves WSL2 or ARM64\n**Gate basis:** 84 days is twice the longest quiet gap seen between leaps, 42 days (22 Sep to 3 Nov 2026), so a quiet window this long cannot be the fault's ordinary spacing.",
+			"note": "#4929 table row 27; body version of 2026-11-03T07:43:07Z"
+		},
+		{
+			"id": "derived-4566-b",
+			"source": 4566,
+			"own": 4566,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** 300 landings in the queue log after 2026-11-06T09:13Z, when #4556's last commit reached `main` — check: grep '\"event\":\"land\"' .claude/tmp/markers/.queue-log.jsonl | awk -F'\"at\":\"' '{split($2,a,\"\\\"\"); if (a[1] > \"2026-11-06T09:13:13Z\") n++} END {print n+0 \" landings since 2026-11-06T09:13Z; met at 300\"}' — abandon if: the lander stops batching through `lander/batch-<k>` refs before then, so the count measures something else.\n**Gate basis:** The p90's spread is set by the number of landings in its tail, not by calendar days. Push volume is flat day to day and drops only when the founder's plans run out before their Sunday reset (founder, 8 Nov; the log shows 84, 11 and 96 landings on 6, 7 and 8 Nov). At 134 landings (8 Nov) the after-p50 is settled, 4.4 min (95% CI 3.7–5.1) against 8.7 (6.5–10.9), but the p90's 95% CI is 8.2–51.1 min and overlaps the baseline's 19.8–47.8. 300 landings put about 30 spans above the p90, against 13 now, which narrows that spread by about √(300/134) ≈ 1.5×. A larger count gains little, because the baseline holds only 57 spans from the ~17 h the log has existed before the cut, and the comparison can be no tighter than its CI.",
+			"note": "#4929 table row 33; body version of 2026-11-08T14:52:55Z"
+		},
+		{
+			"id": "derived-4751-a",
+			"source": 4751,
+			"own": 4751,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "- After a day of 10-shard batch runs (about 100 runs at the 8-shard rate), compute the peak number of concurrent jobs and the maximum runner wait (job `started_at` minus `created_at`), using the method in #4575's closing comment.\n**Gate basis:** at 8 shards, 100 batch runs over 15.6 h gave 4.3% of busy time with runs overlapping, the one 27-job peak among them. A day is the shortest window likely to hold a depth-2 overlap.",
+			"note": "#4929 table row 34; body version of 2026-11-09T05:09:26Z"
+		},
+		{
+			"id": "derived-4759-a",
+			"source": 4759,
+			"own": 4759,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "- [ ] One day's log shows Windows' free memory recovering after drops, and no return of #3246's hook timeouts.\n\n**Gated until:** 2026-11-10 — the last criterion reads a full day of `~/guest-cache-drops.jsonl`, and the timer went live on 9 Nov 2026 at 19:04 +08.\n**Gate basis:** the timer was installed on 9 Nov 2026 at 19:04 +08, and one day of drops spans one daily work cycle, both the heavy daytime load and the overnight standby that today's freezes and the 03:25 watchdog reset fell in. Nothing sooner covers a full cycle. Read it from 10 Nov 2026 at about 19:00 +08.",
+			"note": "#4929 table row 35; audit: \"D (cycle, named events)\"; the basis gives a cycle reason and named events, no count; body version of 2026-11-09T11:09:10Z"
+		},
+		{
+			"id": "derived-4852-b",
+			"source": 4852,
+			"own": 4852,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "#4850 (the Windows-memory hold's move to a floor and a paging line) set three values as first guesses from one day of `~/memwatch-minute.jsonl`: the 1,000 MB floor and the 100,000 pages-a-minute line (`scripts/lib/windows-memory.js`), and the 10-minute maximum hold (`scripts/lib/suite-queue.js` `WINDOWS_MAX_HOLD_MS`). On 10 Nov 2026 the founder also turned off Click to Do and Recall and removed Grammarly and seven WebView2 apps, which changes Windows' free-memory baseline. Re-measure each value over 24 h of the minute log taken after Windows' next restart.\n\n**Gate basis:** 24 h after Windows' next restart. One day already separates the bands: over the 24 h to 01:20 UTC 10 Nov, heavy paging came in 19.1% ±4.8% of 256 minutes under 1,000 MB, 6.5% ±2.8% of 293 at 1,000–1,500, 4.1% ±1.7% of 510 at 1,500–2,500 and 1.0% ±1.4% of 201 above (95% intervals), so a second day of the same length answers whether the floor moves. Sooner than 24 h misses part of the daily work cycle; the restart is needed so the sample reflects the changed Windows baseline.",
+			"note": "#4929 table row 40; body version of 2026-11-10T02:26:09Z"
+		},
+		{
+			"id": "derived-4865-b",
+			"source": 4865,
+			"own": 4865,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "Before you build, count the lander's merge refusals that come from stale registry rows over the first 150 lander attempts (lands plus drops) after #4807 landed. If any appear, close this ticket as not planned and record the count.\n\n**Gated on:** 150 lander attempts (land plus drop events in `.claude/tmp/markers/.queue-log.jsonl`) since #4807 landed at 2026-11-10T05:13Z, with no merge refused for a stale guard-registry row — check: `echo \"lander attempts since fc92c9f15: $(jq -s '[.[]|select(.at>=\"2026-11-10T05:13\" and (.event==\"land\" or .event==\"drop\"))]|length' .claude/tmp/markers/.queue-log.jsonl), merges refused since: $(gh issue list --state all --search '\"dropped by the queue lander\" in:title created:>=2026-11-10T05:13:00Z' --limit 300 --json body --jq '[.[]|select(.body|test(\"its merge was refused\"))]|length')\"` — abandon if: any refused merge among those attempts names a stale guard-registry row (STALE-PROSE); close as not planned with the count.\n**Gate basis:** before #4807, 27 of 449 lander attempts (6.0%, 5–10 Nov, #4855) were STALE-PROSE refusals. With 0 such refusals in 150 attempts, the 95% upper bound on the remaining rate is 3/150 = 2% (rule of three), a third of the baseline. Fewer attempts cannot show that: 0 in 51 attempts still allows 5.9%, the old rate. A calendar window is the wrong unit, because refusals scale with lander attempts, not with elapsed time; at the 10 Nov rate (51 attempts from 05:13 to 11:10 UTC) the count is reached in under a day.",
+			"note": "#4929 table row 43; body version of 2026-11-10T11:13:11Z"
+		},
+		{
+			"id": "derived-616-a",
+			"source": 616,
+			"own": 616,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "**Gated until:** 2026-09-29 — the sweep's 24-hour counter window first lies wholly after both limbs went live; run at or after 02:00 WITA (fcd70a56 landed 01:41 WITA on 2026-09-28).\n**Gate basis:** counters live 24 hours only (`MARKER_AGE_MS`, `scripts/lib/arbiter-markers.js:136`), so the first full window after fcd70a56 (landed 01:41 WITA 2026-09-28) closes at 02:00 WITA on 2026-09-29, and nothing sooner holds a whole day of both limbs live; one day already out-samples mantahostels#3450's 35-session baseline (56 blocked sessions in the 24 hours to 2026-09-28 10:49 WITA).",
+			"note": "#4929 table row 2; the table dates the row 03:02, when the gate line was written; the basis line first appears in this version; body version of 2026-09-28T10:42:48Z"
+		},
+		{
+			"id": "derived-816-b",
+			"source": 816,
+			"own": 816,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** mmm-infra's first map, mmm-infra#1, is closed, and mmm-infra's pass-marker store (`/home/lucmo/mmm-infra/.claude/tmp/markers/.test-pass-markers.jsonl`) holds a green run made on plugin v1.3.8 or later — check: `gh issue view 1 -R lucmoseley/mmm-infra --json state -q .state` — abandon if: #810's changes are reverted, or mmm-infra#1 closes with no green run on v1.3.8 or later ever recorded in that store, meaning mmm-infra built its first round without a suite, so there is nothing to measure. In that case, close the ticket saying no repo produced the data.\n**Gate basis:** There is no calendar window, because no measured figure sets one. The window is mmm-infra's first build round: from its first green on v1.3.8 to the close of its map, mmm-infra#1. That is the stretch where its sessions commit code, so it is the only time the guard and the concurrency conditions can fire. Ending sooner risks a window with no overlapping sessions. This checkout no longer supplies the data: after #810 its tickets were nearly all done, and its runs fell from 327 green runs by 70 sessions on 30 Sep to 48 by 5 on 2 Oct (pass-marker store). The founder moved the measurement to the new repo on 2 Oct, and on 4 Oct replaced the earlier 3-day window and 7-day timeout with this gate. The 3 days rested on matching #787's 2.6-day window, which no longer applies now #787's figure is context only. The 7 days was never derived.",
+			"note": "#4929 table row 6; audit class \"D (event)\": the gate is an event and the basis says no window applies, so there is no window length to derive; body version of 2026-10-04T12:28:12Z"
+		},
+		{
+			"id": "derived-990-a",
+			"source": 990,
+			"own": 990,
+			"label": "derived",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** #982, #983, #984, #985, #986, #988 and #989 all on main, and since the last of them landed, this repo's sessions have put 20 issue closes through the close guard and 20 background-job `result:`/`needs input:` endings through `guard-inventory.js` with every refusal in the guard log read and none wrong — or 7 days on main if those counts are not reached — abandon if: #958 is withdrawn or superseded before the last piece lands\n**Gate basis:** issue closes here ran 0–84 a day (median about 23) and background-job endings 1–188 a day (median about 46), 27 Sep–8 Oct 2026, with fewer than 5 on about a quarter of days (#937). So 20 of each clears in about one median day, and 7 days is the window in which even a run of quiet days reaches the counts; a shorter fixed window (24 hours was priced) passes a quiet day having tested nothing.",
+			"note": "#4929 table row 7; body version of 2026-10-08T16:38:16Z"
+		},
+		{
+			"id": "inherited-1711-a",
+			"source": 1711,
+			"own": 1711,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "- **Reading point:** the later of 7 days after the first log line and the 40th refused-then-answered round; 21 days at most (#1068 Q3 (A), carried over by #1691).\n\n**Gate basis:** #1068 Q3 (A), carried over by #1691: at about 15 answered refusals a day the 40th arrives in about 3 days, too soon to span a week of each repo's working pattern, so 7 days is the floor; 40 answered rounds is the least that separates the half-baseline line from the baseline; 21 days caps the wait so a quiet stretch cannot hold the reading indefinitely.",
+			"note": "#4929 table row 9; audit: \"I (carried over by #1691); reason has no data\"; body version of 2026-10-15T03:53:53Z"
+		},
+		{
+			"id": "inherited-2411-a",
+			"source": 2411,
+			"own": 2411,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-11-05 — the 14-day trial began 22 Oct 2026 (posted on #2261).\n**Gate basis:** 14 days is #2261's ruled trial length (its Values line, untraced), counted from the trial start posted there.",
+			"note": "#4929 table row 14; body version of 2026-10-22T15:34:22Z"
+		},
+		{
+			"id": "inherited-2482-a",
+			"source": 2482,
+			"own": 2482,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "Re-measure the refill loop's stale-reading idles once it has run 8 hours on 585143e (#2362's fix).\n\n**Gated on:** commit 585143e is on `main` and the refill loop has logged 8 hours of ticks from code at or after it (`node scripts/refill-loop.js status` prints its `code:` line) — abandon if: the refill loop is retired or no longer reads allowance per seat.\n**Gate basis:** #2362's baseline was one overnight run of 8 hours (2026-10-20T17:09Z to 01:11Z, 368 ticks); a shorter window would not be comparable with it.",
+			"note": "#4929 table row 16; audit: \"I (baseline match)\"; body version of 2026-10-22T05:19:43Z"
+		},
+		{
+			"id": "inherited-2827-a",
+			"source": 2827,
+			"own": 2827,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "After steps 1–2 of #2815 (choose the levers) have landed and have their own 7-day reading on #2821 (the verifying figure)'s share, what residue stands between the measured share and the ≤2.0% bar, and which further lever is worked first to close it?\n\n**Gated on:** steps 1–2 of #2815 (the lever set) have both landed on `main` — step 1 is #2726 (whole suite inside 840 s) and #2413 (Actions tester), step 2 the touched-tests-only spec not yet filed — and 7 consecutive UTC days after the later landing each hold at least 48 active session-hours — abandon if: #2809 (the map) redraws its 90% destination, or step 2 is dropped from the set\n**Gate basis:** #2821 (the verifying figure) ruled each step gets its own 7-day reading, from the UTC day after it lands, on days of at least 48 active session-hours; fewer days or thinner days fall under that ruling's floor. #2826 ruled the residue is priced on that real reading, not modelled. #2823 and #2824, the instruments, are closed.",
+			"note": "#4929 table row 19; body version of 2026-10-24T07:49:41Z"
+		},
+		{
+			"id": "inherited-3089-a",
+			"source": 3089,
+			"own": 3089,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-10-27 — windows 2 and 3 of the fit must be sampled on days after the 26 Oct UTC window 1\n**Gate basis:** the ticket asks for three 45-minute windows on different days; window 1 ran 26 Oct UTC, so 27 Oct is the first day window 2 can run",
+			"note": "#4929 table row 20; audit: \"I (from the ticket's ask)\"; I would class it restated, since it cites only its own ticket's ask; body version of 2026-10-26T13:42:23Z"
+		},
+		{
+			"id": "inherited-3361-a",
+			"source": 3361,
+			"own": 3361,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** the post-#3246 window (from 2026-10-27T10:31:00Z) holds at least 200 memory-held part waits — check: `node scripts/replay-suite-queue-wait.js --since 2026-10-27T10:31:00Z --until $(date -u +%FT%TZ) | grep '^Memory-held part waits'` — abandon if: `PART_PASS_AGE_MS` or #3058's memory-held pass is removed\n**Gate basis:** the 200 floor is this ticket's own, chosen to match #3058's and #3115's sample sizes (#3115's close comment); the reading was 196 at 28 Oct 13:47 UTC, rising about 27 an hour.",
+			"note": "#4929 table row 22; the basis calls the floor \"this ticket's own, chosen to match #3058's and #3115's sample sizes\"; body version of 2026-10-28T13:48:46Z"
+		},
+		{
+			"id": "inherited-3432-a",
+			"source": 3432,
+			"own": 3432,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "**Gated on:** #3576 (count adopter areas only) is closed and #3423 (the re-measure trigger) reports at least 15 counted commits on adopter areas — check: gh issue view 3423 --json body --jq '.body | split(\"\\n\")[0]' — abandon if: spec #1612's escalated and mission-critical tiers are re-ruled or removed by another route\n**Gate basis:** 15 commits is #1556 Q4 (A)'s \"about 15\", made exact by spec #1612 §The re-measure trigger (`THRESHOLD` in `scripts/report-remeasure-due.js`); no date fits, since no mantahostels card carries one for its RLS, money or reward-code code (#3431).",
+			"note": "#4929 table row 23; body version of 2026-10-29T04:05:47Z"
+		},
+		{
+			"id": "inherited-4302-a",
+			"source": 4302,
+			"own": 4302,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** three completed scheduled `scheduled-checks` sweeps on `lucmoseley/workflow-core` since the cut landed (93be984c1, first in the 20:57 UTC 4 Nov sweep); the reading is how many have run, and it is met at 3 — check: gh run list -R lucmoseley/workflow-core --workflow scheduled-checks.yml --event schedule --limit 20 --json createdAt,status --jq '[.[]|select(.createdAt>\"2026-11-04T20:00:00Z\" and .status==\"completed\")]|length' — abandon if: a pick-next file goes over 60 s in any of them, which reopens the build instead of closing\n**Gate basis:** the acceptance criterion's median of three scheduled sweeps; two had run by 02:35 UTC 5 Nov (41911565287, 41947243067), and the next scheduled slot is the third, so nothing sooner fits",
+			"note": "#4929 table row 29; one of row 29's eight issues; this basis cites only its own acceptance criterion, so I would class it restated; body version of 2026-11-05T02:35:35Z"
+		},
+		{
+			"id": "inherited-4506-a",
+			"source": 4506,
+			"own": 4506,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** the queue cutover has held 3 days (from 2026-11-05T20:38Z, so not before 2026-11-08T20:38Z) AND 500 commits have reached `main` since 431e569bc — check: `git fetch -q origin main && echo \"$(git rev-list --count 431e569bc..origin/main) of 500 commits on main since 431e569bc; now $(date -u +%FT%RZ), window ends 2026-11-08T20:38Z\"` — abandon if: the cutover is rolled back (switch commits 8226525f1..431e569bc reverted), which keeps `landing` in use.\n**Gate basis:** the 3 days and 500 landings are the rollback window #4485 (the queue cutover) set in its cutover order (comments 6661827327, 6661896650); nothing sooner fits, since `landing` is the rollback's fallback path until both hold.",
+			"note": "#4929 table row 30; body version of 2026-11-06T06:51:01Z"
+		},
+		{
+			"id": "inherited-4511-a",
+			"source": 4511,
+			"own": 4511,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "**Gated on:** three scheduled sweeps have run since 4bed75df2 landed on `main`, and `scripts/repo-checks.test.ts`'s median over them reads under 60 s — check: node scripts/check-file-ci-time.js — abandon if: the file is split or deleted by other work before the three sweeps run.\n**Gate basis:** the 60 s limit is judged on the median of the last three scheduled sweeps (#4283's ruling, quoted in this issue), and the sweep runs three slots a day, so nothing sooner than the third sweep after landing can read the median.",
+			"note": "#4929 table row 29; one of row 29's eight issues; body version of 2026-11-06T00:49:29Z"
+		},
+		{
+			"id": "inherited-4566-a",
+			"source": 4566,
+			"own": 4566,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "Re-measure the queue's push → land time a week after #4556 (pipelining the lander's batches two to three deep) ships, against #4545's close table: before, p50 8.5 / p90 19.8 / max 43.6 min; queue-wait p50 10 / p90 33 min over the 7 days to 6 Nov.\n\n**Gated on:** seven days have passed since #4556's last commit reached `main` — abandon if: the lander stops batching through `lander/batch-<k>` refs before then, so the week measures something else.\n**Gate basis:** #4545's queue-wait figures cover 7 days, and a shorter window would compare a different mix of weekday and weekend push rates; seven days is the shortest that keeps the comparison like for like.",
+			"note": "#4929 table row 32; audit: \"I (baseline match)\"; body version of 2026-11-06T07:50:01Z"
+		},
+		{
+			"id": "inherited-4601-a",
+			"source": 4601,
+			"own": 4601,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** three scheduled sweeps on `main` whose head contains 1a3d6f2f1 (the last commit of this cut) have completed, so `scripts/file-morning-review.test.ts`'s median over the last three sweeps reads post-cut times alone — check: `node scripts/check-file-ci-time.js --json | grep -o \"file-morning-review[^}]*\" || echo \"file-morning-review.test.ts not read in the last three sweeps\"` — abandon if: `scripts/file-morning-review.test.ts` no longer exists.\n**Gate basis:** criteria 2 and 3 read the median of the last three scheduled sweeps (#4283's rule), and the sweep runs about every 6 hours, so three post-cut sweeps are the earliest data that can judge the cut; nothing sooner measures it on CI.",
+			"note": "#4929 table row 29; one of row 29's eight issues; body version of 2026-11-08T03:26:59Z"
+		},
+		{
+			"id": "inherited-4781-a",
+			"source": 4781,
+			"own": 4781,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "**Gated on:** at least 20 whole-suite or half-suite markers carry `machine.load1AtStart`, spread across start loads from 0 to 20 — check: python3 -I -c \"import json,glob,os,subprocess as s;d=s.check_output([\\\"git\\\",\\\"rev-parse\\\",\\\"--path-format=absolute\\\",\\\"--git-common-dir\\\"],text=True).strip()+\\\"/../.claude/tmp/markers/\\\";L=[(m.get(\\\"machine\\\")or{}).get(\\\"load1AtStart\\\") for f in glob.glob(d+\\\".test-*-markers*.jsonl\\\") for m in map(lambda x:json.loads(x) if \\\"load1AtStart\\\" in x and x.rstrip().endswith(\\\"}\\\") else {},open(f)) if isinstance(m.get(\\\"scope\\\"),dict) and (m[\\\"scope\\\"].get(\\\"full\\\") or m[\\\"scope\\\"].get(\\\"shard\\\")) and m[\\\"scope\\\"].get(\\\"modulesRun\\\") and not m.get(\\\"ceilingKill\\\")];L=[x for x in L if x is not None];print(len(L),\\\"whole/half-suite runs carry load1AtStart; range\\\",min(L,default=None),\\\"-\\\",max(L,default=None))\" — abandon if: the fit over those 20 runs predicts no 840 s crossing (this body then closes the ticket), or #2729 makes a whole suite run far enough under 840 s that no load reaches it\n**Gate basis:** the 20 runs and the 0 to 20 load spread are this ticket's own data floor from #4757; `load1AtStart` first landed in 6e5453ba4 on 9 Nov, and on 9 Nov the stores held 0 such runs (the reading above), at about 6 whole or half-suite runs a day, so nothing sooner than several days of runs can meet it.",
+			"note": "#4929 table row 36; the basis calls the floor \"this ticket's own data floor from #4757\"; body version of 2026-11-09T14:33:41Z"
+		},
+		{
+			"id": "inherited-4862-a",
+			"source": 4862,
+			"own": 4862,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-11-11 — #4791 (the guest-cache reclaim) reads a day of `~/guest-reclaim.jsonl` from its 2026-11-10 08:26 +08 install, and a guest hold squeezes the same Windows memory, so the trial starts once that day ends and `70e01e7ed` has landed\n**Gate basis:** #4791's own gate: a day of the reclaimer's log ends 2026-11-11 08:26 +08 (00:26 UTC); nothing sooner keeps the two trials apart",
+			"note": "#4929 table row 41; body version of 2026-11-10T04:06:49Z"
+		},
+		{
+			"id": "inherited-4893-a",
+			"source": 4893,
+			"own": 4893,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated on:** 24 h of suite-queue logs have accrued since lucmoseley/mantahostels#3864 closed, so every adopting repo that type-checks has run a full day on TypeScript 7.0 — check: gh issue view 3864 --repo lucmoseley/mantahostels --json state,closedAt -q '.state+\" closed at \"+(.closedAt//\"never\")' — abandon if: workflow-core or mantahostels moves its type-check off TypeScript 7.0 before the window completes\n**Gate basis:** the 10 Nov 2026 baseline on #4884 was read over a 24 h window to 06:42 UTC, so the comparison needs the same 24 h shape, all of it on 7.0; nothing shorter matches the baseline.\n\n- [ ] Both scripts are read over a 24 h window falling wholly after the gate opened, and a comment on #4884 sets type-check wait hours, slot opens, pre-commit refusals and the gaps between opens beside the 10 Nov baseline, stating whether the 75–90% estimate held and by how much it missed if not.",
+			"note": "#4929 table row 44; audit: \"I (baseline match)\"; body version of 2026-11-10T07:14:51Z"
+		},
+		{
+			"id": "inherited-816-a",
+			"source": 816,
+			"own": 816,
+			"label": "inherited",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "**Gated on:** 3 days have passed since the last of this ticket's blockers (the gate switch, the HEAD-worktree narrowed run and the refuse-once guard) landed on `main` — abandon if: #810's changes are reverted before the window closes, leaving nothing to measure\n**Gate basis:** #790 Q8 ruled the 3 days. #787's baseline covered 2.6 days, because the marker store prunes from 800 to 400 entries and keeps about that much history; a shorter window could not be compared with the baseline, and the store cannot hold a longer one.\n\n- From the marker store, count over the 3 days after ship the re-runs with no edit between them that the gate would already have accepted, and compare against #787's baseline of about 20 a day (about 32 minutes of suite time a day).",
+			"note": "#4929 table row 4; body version of 2026-10-01T14:25:12Z"
+		},
+		{
+			"id": "restated-2649-b",
+			"source": 2649,
+			"own": 2649,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "development",
+			"text": "- A memwatch count of overlapping whole-tree runs over at least a week after #2627, stated with its window.\n\n**Gated until:** 2026-10-31 — the week of memwatch after #2741's archive landed (d8731ae6b, 24 Oct 05:48 +08) closes 31 Oct 05:48\n**Gate basis:** the acceptance's one-week window, opened by #2741's landing because rotation deleted trimmed blocks before it; nothing sooner holds a week of blocks.",
+			"note": "#4929 table row 18; the criterion's own basis line (row 17) sits between these lines in the body and is left out; body version of 2026-10-23T23:22:16Z"
+		},
+		{
+			"id": "restated-3803-a",
+			"source": 3803,
+			"own": 3803,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "- [ ] The share of commits that skip the type-check on a held slot is measured over at least a week.\n\n**Gated until:** 2026-11-04 — the first criterion needs a week of tries, reached 3 Nov 16:06 UTC.\n**Gate basis:** the no-wait try began 27 Oct 16:06 UTC (#3278), so a week of tries ends 3 Nov 16:06 UTC; the first full day after that is 4 Nov, and nothing sooner holds a week.",
+			"note": "#4929 table row 25; body version of 2026-11-01T15:59:12Z"
+		},
+		{
+			"id": "restated-3806-a",
+			"source": 3806,
+			"own": 3806,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "- [ ] The close reports `tsc` wait per active hour and memory refusals over at least 24 h of normal volume, against 0.99 h and 45.\n\n**Gated on:** 24 h have run since 14a8534be (2026-11-02T10:22:26Z), so the fourth criterion can be read — check: date -u +%FT%TZ | awk '{print ($0 >= \"2026-11-03T10:22:26Z\" ? \"met: \" : \"unmet: \") $0 \" against 2026-11-03T10:22:26Z\"}' — abandon if: 14a8534be is reverted\n**Gate basis:** the fourth acceptance criterion sets the 24 h; the markers and exit lines show the change live from its commit on this checkout, so nothing sooner gives the window it names.",
+			"note": "#4929 table row 26; body version of 2026-11-02T10:43:01Z"
+		},
+		{
+			"id": "restated-4253-a",
+			"source": 4253,
+			"own": 4253,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "The done check for #4229: over 24 h of live work after cutover, zero commits on the main checkout's `main` not on `origin/main`; `main` equal to `origin/main` within one levelling pass of each move; zero `reconcile-*` merges and zero refused fast-forwards of the main checkout; zero tracked dirt in the main checkout. The same window measures merge-commit pre-commit time and `Edit` latency on tracked files.\n\n**Gated on:** the 24 h window after cutover has closed, at 2026-11-06T02:05Z — check: [ \"$(date -u +%s)\" -ge 1793930700 ] && echo \"met: window closed\" || echo \"unmet: window open until 2026-11-06T02:05Z\" — abandon if: #4229 is closed or its worktree model is reverted\n**Gate basis:** #4253 asks for 24 h of live work after cutover; #4248 (the cutover) closed 2026-11-05T02:04:59Z, so the reading cannot be taken before 2026-11-06T02:05Z.",
+			"note": "#4929 table row 28; body version of 2026-11-05T06:34:35Z"
+		},
+		{
+			"id": "restated-4530-a",
+			"source": 4530,
+			"own": 4530,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "#4514 (carry a guard-registry anchor across a merge whose sides changed different files of its closure) set a second measure. Count the queue lander's anchor-caused drops over the first week after the carry lands on `main`. A drop is a member the lander removed because the batch's merge left a guard-registry row stale.\n\n**Gated until:** 2026-11-13 — the post-carry week ends 2026-11-13T02:38Z; count from then on.\n**Gate basis:** the carry reached `main` at 2026-11-06T02:38:12Z (queue log `land` event for `queue/implement-4514-152aad` at `4d74950a9`), and the ticket's window is the 7 days after that; no shorter window answers its question.",
+			"note": "#4929 table row 31; audit: \"C (source I from #4514)\"; body version of 2026-11-06T06:53:28Z"
+		},
+		{
+			"id": "restated-4791-a",
+			"source": 4791,
+			"own": 4791,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "**Gated until:** 2026-11-11 — criterion 3 needs a day of ~/guest-reclaim.jsonl from the 2026-11-10 08:26 +08 install\n**Gate basis:** criterion 3 asks for a day of the reclaimer's log against the minute log; the reclaimer went live 2026-11-10 08:26 +08, so a day of it ends 2026-11-11 08:26 +08, and nothing sooner covers a full day's load cycle.",
+			"note": "#4929 table row 37; audit: \"C (cycle reason, no data)\"; body version of 2026-11-10T00:52:35Z"
+		},
+		{
+			"id": "restated-4865-a",
+			"source": 4865,
+			"own": 4865,
+			"label": "restated",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "Before you build, measure the lander's merge refusals that come from stale registry rows over the week after #4807 lands. If they have not gone to near zero, close this ticket as not planned and record the count.\n\n**Gated until:** 2026-11-17 — the ticket's own precondition: count the lander's merge refusals from stale guard-registry rows (STALE-PROSE) over the week after #4807 landed, then build or close as not planned.\n**Gate basis:** #4807 (the stale-registry-row fix) landed on `main` at fc92c9f15 on 2026-11-10 05:13 UTC; the body sets a one-week measurement window, and nothing sooner covers a full week of lander runs.",
+			"note": "#4929 table row 42; body version of 2026-11-10T05:30:04Z"
+		},
+		{
+			"id": "asserted-4850-a",
+			"source": 4850,
+			"own": 4850,
+			"label": "asserted",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "The floor, the paging line and the maximum hold are first guesses and must be stated as such. Re-measure each from memwatch a week after landing.\n**Gate basis:** a week of minutes covers every weekday load pattern on Windows. The 24 h sample above has only 91 heavy-paging minutes, too few to set a line.",
+			"note": "#4929 table row 38; audit class R (round default); the basis does carry one figure (91 heavy-paging minutes), which does not yield the week; body version of 2026-11-10T01:30:23Z"
+		},
+		{
+			"id": "asserted-4852-a",
+			"source": 4852,
+			"own": 4852,
+			"label": "asserted",
+			"kind": "audit-window",
+			"part": "held-out",
+			"text": "#4850 (the Windows-memory hold's move to a floor and a paging line) set three values as first guesses from one day of `~/memwatch-minute.jsonl`: the 1,000 MB floor and the 100,000 pages-a-minute line (`scripts/lib/windows-memory.js`), and the 10-minute maximum hold (`scripts/lib/suite-queue.js` `WINDOWS_MAX_HOLD_MS`). Re-measure each over a week of the minute log taken after #4850 landed (2026-11-10 02:20 UTC), and after the founder turned off Windows' AI features and removed seven WebView2 apps the same morning.\n\n**Gate basis:** the 24 h sample #4850 used spanned one working day; a week takes in weekday and weekend load and the effect of the 10 Nov Windows changes, and nothing shorter separates a workday spike from the baseline.",
+			"note": "#4929 table row 39; audit class R (round default); body version of 2026-11-10T02:23:34Z"
+		}
+	]
+}
