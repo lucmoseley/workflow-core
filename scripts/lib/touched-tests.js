@@ -69,8 +69,9 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
  * The narrowed files, each with its checker tests: a path, or a pattern
  * over one family of them. A ROW IS ADDED ONLY WITH A MEASURED MISS RATE FOR
  * THAT FILE (#4967): no file selects fewer tests than its readers on a
- * guess. `readNarrowedFaults` fails a row whose file or checker tests are
- * gone.
+ * guess. `touched-tests.live.test.ts` holds each row against this tree,
+ * failing where its file or a checker test is gone; a new row adds its case
+ * there.
  *
  * @type {{ file: string, checkers: (string|RegExp)[] }[]}
  */
@@ -119,31 +120,6 @@ function checkerTests(p, tracked) {
 	if (!row) return null;
 	const tests = row.checkers.flatMap((c) => checkerMatches(c, tracked));
 	return tests.length > 0 ? tests : null;
-}
-
-/**
- * What is stale in `NARROWED` against the tree at `root`: a row whose file
- * is no longer tracked, or a checker matching no test vitest collects.
- *
- * @param {string} root
- * @param {ExecFn} [execFn]
- * @returns {string[]} empty where every row stands
- */
-function readNarrowedFaults(root, execFn = execFileSync) {
-	const { tracked } = readWorkingTree(root);
-	const collected = readVitestCollected(
-		root,
-		NARROWED.flatMap(({ checkers }) =>
-			checkers.flatMap((c) => checkerMatches(c, tracked)),
-		),
-		execFn,
-	);
-	return NARROWED.flatMap(({ file, checkers }) => [
-		...(tracked.has(file) ? [] : [`${file} is not tracked`]),
-		...checkers
-			.filter((c) => checkerMatches(c, collected).length === 0)
-			.map((c) => `${file}: checker ${String(c)} matches no collected test`),
-	]);
 }
 
 /**
@@ -541,4 +517,4 @@ function touchedBanner(
 /** @param {string[][]} lists */
 const sortedUnion = (...lists) => [...new Set(lists.flat())].sort();
 
-module.exports = { readNarrowedFaults, selectTouched };
+module.exports = { selectTouched };

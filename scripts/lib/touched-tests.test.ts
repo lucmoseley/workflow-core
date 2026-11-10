@@ -24,7 +24,7 @@ import {
 import { mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
-const { readNarrowedFaults, selectTouched } = require("./touched-tests.js");
+const { selectTouched } = require("./touched-tests.js");
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -570,22 +570,5 @@ describe("a narrowed file selects its checker tests alone (#4967)", () => {
 		const { files, leftOut } = narrow([MANIFEST], {}, repo(withoutChecker));
 		expect(files).toEqual([BYSTANDER]);
 		expect(leftOut).toEqual([]);
-	});
-});
-
-describe("readNarrowedFaults", () => {
-	it("names a row whose file is untracked and a checker matching no collected test", () => {
-		const { [GUARD]: _file, [COPIES]: _copies, ...stale } = NARROW_FILES;
-		const faults: string[] = readNarrowedFaults(repo(stale));
-		expect(faults.filter((f) => f.includes("is not tracked"))).toEqual([
-			`${GUARD} is not tracked`,
-		]);
-		expect(
-			faults.filter((f) => f.includes("matches no collected test")),
-		).toHaveLength(2);
-	});
-
-	it("finds nothing stale where every row's file and checker tests stand", () => {
-		expect(readNarrowedFaults(repo(NARROW_FILES))).toEqual([]);
 	});
 });
