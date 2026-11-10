@@ -1494,9 +1494,9 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	});
 
 	describe("a whole `npm run test:py` takes the whole-suite slot (#4775)", () => {
-		const at = (command: string, modules = ["suites"], mb = 8000) =>
+		const at = (command: string, modules = ["suites"]) =>
 			fixChecked(
-				judge(command, mb, psWith(NEIGHBOURS_AT_CAP), { modules }).verdict,
+				judge(command, 8000, psWith(NEIGHBOURS_AT_CAP), { modules }).verdict,
 				command,
 			);
 
@@ -1504,7 +1504,11 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 			["npm run test:py -- scripts", "a directory"],
 			["npm run test:py -- --full", "the lone `--full`"],
 			["npm run test:py", "the bare run with `landing` off"],
-			["npm test:py -- -k name scripts/lib/test_a.py", "a flag's value"],
+			[
+				"npm test:py -- --deselect scripts/lib/test_a.py::test_x",
+				"a deselected test, the rest of the suite",
+			],
+			["node scripts/run-pytest.js --full", "the runner launched by path"],
 			[`npm run test:py -- "scripts"`, "a quoted directory"],
 		])("holds %s beside a whole suite — %s", (command) => {
 			expect(at(command)).toBe("deny");
@@ -1516,6 +1520,7 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 				"npm run test:py -- -x scripts/test_a.py::test_one scripts/b_test.py",
 				"named files, a node id and a flag",
 			],
+			["npm run test:py -- -k name scripts/test_a.py", "a file and a filter"],
 		])("admits %s beside a whole suite — %s", (command) => {
 			expect(at(command)).toBe("allow");
 		});

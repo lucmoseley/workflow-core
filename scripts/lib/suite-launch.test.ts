@@ -107,6 +107,7 @@ const LAUNCHES: [string, string][] = [
 	["npm runScript test:py", "npm-py|test:py|3"],
 	["/usr/bin/npm run test", "npm-vitest|test|3"],
 	["node scripts/run-vitest.js", "wrapper||2"],
+	["node scripts/run-pytest.js --full", "npm-py||2"],
 	["node /abs/scripts/run-vitest.js a.test.ts", "wrapper||2"],
 	[`node "scripts/run-vitest.js"`, "wrapper||2"],
 	["node --test", "other||0"],
@@ -185,7 +186,9 @@ describe("isWholePytestRun (#4775)", () => {
 		[["--", "scripts"], "a directory"],
 		[["--", "--full"], "the lone `--full`"],
 		[["--", "-x"], "flags alone"],
-		[["--", "-k", "name", "scripts/test_a.py"], "a flag's value"],
+		[["--", "--deselect", "scripts/test_a.py::test_x"], "a deselected test"],
+		[["--", "--ignore", "scripts/test_a.py"], "an ignored file"],
+		[["--", "--junit-xml", "out.xml"], "an unlisted flag's value"],
 		[["--", "scripts/test_a.py", "scripts/lib"], "a file beside a directory"],
 		[["--", "scripts/helper.py"], "a Python file pytest does not collect"],
 	])("reads %j as whole — %s", (argv) => {
@@ -199,6 +202,7 @@ describe("isWholePytestRun (#4775)", () => {
 			"files and a flag",
 		],
 		[["scripts/test_a.py::test_one"], "a node id"],
+		[["--", "-k", "name", "-n", "4", "scripts/test_a.py"], "flags' values"],
 	])("reads %j as a part run — %s", (argv) => {
 		expect(whole(argv)).toBe(false);
 	});

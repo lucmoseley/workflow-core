@@ -33,7 +33,7 @@ const { shellQuote } = require("./sh-quote.js");
 const {
 	TEST_PY_WORKERS,
 	isOtherRunner,
-	npmScriptOf,
+	suiteLaunchKind,
 } = require("./suite-launch.js");
 const { scriptPath } = require("./script-path.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
@@ -382,9 +382,12 @@ function pytestWorkersOf(args) {
 /** @param {string} args */
 const isNodeLine = (args) => /^ *(\S*\/)?node(js)?( |$)/.test(args);
 
+/* A launch read with no host: no declared runner. */
+const NO_HOST_PORTS = { runners: () => [], isWrapperScript: () => true };
+
 /** @param {string} args */
 const isOtherSuiteLine = (args) =>
-	isOtherRunner(args.trim().split(/\s+/), () => []);
+	isOtherRunner(args.trim().split(/\s+/), NO_HOST_PORTS.runners);
 
 /**
  * The runners `readClimbMb` charges holding no marker, each with the queue
@@ -440,7 +443,7 @@ const runnerOf = (args) => RUNNERS.find((r) => r.isRunner(args));
  */
 function queuedRunnerPeakMb(words) {
 	const args = words.join(" ");
-	if (npmScriptOf(words)?.script === "test:py")
+	if (suiteLaunchKind(words, NO_HOST_PORTS)?.kind === "npm-py")
 		return launchChargeMb({
 			kind: "pytest",
 			workers: pytestWorkersOf(args) || TEST_PY_WORKERS,

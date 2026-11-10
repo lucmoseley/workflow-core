@@ -68,8 +68,9 @@
  * Also (#330) `node --test`, `pytest` and a Python test file run bare, plus the
  * host's declared `suiteRunners`. A WHOLE `npm run test:py` TAKES THE
  * WHOLE-SUITE SLOT (#4775): held at the count cap and handed queue-run.js, as
- * its `pytest` holds the slot once running. It is judged on the count alone,
- * never the memory rung, which prices vitest workers. A run naming its test
+ * its `pytest` holds the slot once running, and so does `node
+ * <path>/run-pytest.js`. It is judged on the count alone, never the memory
+ * rung, which prices vitest workers, nor the Windows-memory hold. A run naming its test
  * files, or the bare one under `landing`, a touched run, is not judged. A
  * run naming no path still draws the memory figure (#2024).
  *
@@ -152,6 +153,7 @@ const {
 	isOtherRunner,
 	isWholePytestRun,
 	npmScriptOf,
+	pytestPathWords,
 	suiteLaunchKind,
 	buildIsWrapperScript,
 } = require("./suite-launch.js");
@@ -381,8 +383,9 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {boolean} reaps whether the command reaps for itself on the way
  *   in: npm runs a pre-script for `test` and `test:changed` alone (#633)
  * @property {boolean} queued
- * @property {boolean} countOnly held at the count cap alone, off the memory
- *   rung: a whole `npm run test:py` (#4775)
+ * @property {boolean} countOnly held at the count cap alone: a whole `npm run
+ *   test:py` (#4775), off the memory rung, which prices vitest workers, and
+ *   off the Windows-memory hold, which holds what that rung admits
  * @property {number} workers
  *
  * @typedef {object} Judged a subject against the machine
@@ -544,13 +547,12 @@ function wholeSuiteLaunch(st, parsed) {
 }
 
 /**
- * The memory figure for a `test:py` run naming no path (#2024). Any word not
- * opening with `-` is read as a path, so a flag's value narrows it.
+ * The memory figure for a `test:py` run naming no path (#2024).
  * @param {St} st
- * @param {string[]} argv
+ * @param {string[]} argv its own argv, quoted spans read as typed
  */
 function notePytestFigure(st, argv) {
-	if (st.memoryKind || argv.some((w) => !w.startsWith("-"))) return;
+	if (st.memoryKind || pytestPathWords(argv).length > 0) return;
 	const mb = st.ctx.availableMb();
 	if (mb === null) return;
 	st.memoryKind = "full test";
@@ -656,12 +658,13 @@ function isTouchedLaunch(st, launch, words) {
 function subjectOf(st, words, segment) {
 	const launch = launchOf(st, words);
 	if (launch?.kind === "npm-py") {
-		const argv = words.slice(launch.taken);
+		const argv = words
+			.slice(launch.taken)
+			.map((w) => literal(w, st.spans).text);
 		notePytestFigure(st, argv);
-		const whole = isWholePytestRun(
-			argv.map((w) => literal(w, st.spans).text),
-			{ landing: st.ctx.moduleOn("landing") },
-		);
+		const whole = isWholePytestRun(argv, {
+			landing: st.ctx.moduleOn("landing"),
+		});
 		return whole
 			? {
 					subject: {

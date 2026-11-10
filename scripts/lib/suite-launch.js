@@ -6,13 +6,14 @@
  *   npm-vitest  `npm test`, `npm run test|test:changed`, npm's aliases for
  *               `test` and `run` included
  *   npm-watch   `npm run test:watch`
- *   npm-py      `npm test:py`, `npm run test:py`; `isWholePytestRun` tells a
- *               whole run of it from one naming its test files
+ *   npm-py      `npm test:py`, `npm run test:py`, `node <path>/run-pytest.js`;
+ *               `isWholePytestRun` tells a whole run of it from one naming
+ *               its test files
  *   wrapper     `node <path>/run-vitest.js`
  *   other       a runner other than vitest — see `isOtherRunner` — run bare,
  *               or anything run through scripts/queue-run.js, `queued`
  *               telling which
- * `script` is the npm script's name, empty for the last two kinds, and
+ * `script` is the npm script's name, empty for a `node` launch and `other`, and
  * `taken` counts the words naming the launch, so the script's own argv
  * starts at word `taken`.
  */
@@ -121,7 +122,8 @@ function suiteLaunchKind(words, ports) {
 }
 
 /**
- * `node <path>/run-vitest.js`, or a launch through scripts/queue-run.js.
+ * `node <path>/run-vitest.js` or `run-pytest.js`, or a launch through
+ * scripts/queue-run.js.
  * @param {string[]} words
  * @param {LaunchPorts} ports
  * @returns {Launch | null}
@@ -132,6 +134,8 @@ function nodeLaunch(words, ports) {
 		return isQueuedLaunch(words.slice(2), ports)
 			? { kind: "other", script: "", taken: 0, queued: true }
 			: null;
+	if (w1.endsWith("/run-pytest.js"))
+		return { kind: "npm-py", script: "", taken: 2, queued: false };
 	return w1.endsWith("/run-vitest.js")
 		? { kind: "wrapper", script: "", taken: 2, queued: false }
 		: null;
@@ -167,22 +171,59 @@ function npmLaunch(words) {
 }
 
 /* The xdist workers `npm run test:py` runs pytest on, where its argv names no
- * other count. */
+ * other count. `-n 2` more than halves the local suite but gains only ~7% on
+ * the 2-vCPU CI runner (mantahostels#313). No other worker count was ever
+ * measured; requirements-dev.in has why two, not one per core. */
 const TEST_PY_WORKERS = 2;
+
+/* pytest's and xdist's flags that take their value as the next word. One off
+ * this list has its value read as a path. */
+const PYTEST_VALUED_FLAGS = new Set([
+	"-c",
+	"-k",
+	"-m",
+	"-n",
+	"-o",
+	"-p",
+	"-r",
+	"-W",
+	"--basetemp",
+	"--confcutdir",
+	"--deselect",
+	"--dist",
+	"--durations",
+	"--ignore",
+	"--ignore-glob",
+	"--junitxml",
+	"--maxfail",
+	"--maxprocesses",
+	"--numprocesses",
+	"--rootdir",
+	"--tb",
+]);
+
+/**
+ * The paths `npm run test:py`'s argv hands pytest: each word that is neither
+ * a flag nor a PYTEST_VALUED_FLAGS flag's value.
+ * @param {string[]} argv the script's own argv, quoted spans read as typed
+ */
+function pytestPathWords(argv) {
+	return argv.filter(
+		(w, i) => !w.startsWith("-") && !PYTEST_VALUED_FLAGS.has(argv[i - 1] ?? ""),
+	);
+}
 
 /**
  * Whether `npm run test:py`'s argv is a whole run (#4775), as run-pytest.js
- * routes it: a bare one with `landing` off, or one that names anything but
- * test files, a directory or a lone `--full` among them. A bare run under
- * `landing` is a touched one. A word not opening with `-` is read as a path,
- * so a flag's value (`-k name`) reads as whole.
+ * routes it: a bare one with `landing` off, or one whose paths are not all
+ * test files, a directory, a lone `--full` and one naming no path among them.
  * @param {string[]} argv the script's own argv, quoted spans read as typed
  * @param {{ landing: boolean }} modules
  */
 function isWholePytestRun(argv, { landing }) {
 	const own = argv[0] === "--" ? argv.slice(1) : argv;
 	if (own.length === 0) return !landing;
-	const paths = own.filter((w) => !w.startsWith("-"));
+	const paths = pytestPathWords(own);
 	return !(
 		paths.length > 0 &&
 		paths.every((w) => PY_COLLECTED_TEST.test(w.split("::")[0] ?? ""))
@@ -266,6 +307,7 @@ module.exports = {
 	suiteLaunchKind,
 	isQueueable,
 	isWholePytestRun,
+	pytestPathWords,
 	TEST_PY_WORKERS,
 	buildIsWrapperScript,
 };

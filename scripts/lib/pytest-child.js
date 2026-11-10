@@ -26,9 +26,6 @@ const {
 /* Where `pytest_pass_plugin.py` ships: beside `run-pytest.js`. */
 const PLUGIN_DIR = path.join(__dirname, "..");
 
-/* `-n 2` more than halves the local suite but gains only ~7% on the 2-vCPU CI
- * runner (mantahostels#313). No other worker count was ever measured;
- * requirements-dev.txt has why two, not one per core. */
 /* `-p` here rather than in pytest.ini's addopts, so a bare `pytest` run
  * writes no marker. */
 const DEFAULT_ARGS = [
