@@ -514,10 +514,11 @@ const WRAPPERS = new Map([
  *                 words[0]. It is NOT a promise that a command word stands
  *                 first — a malformed `bg-run.sh run` with no name leaves
  *                 `bg-run.sh run` standing.
- *   wrapperWords  the assignments an `env` carried, which a guard reading an
- *                 escape from the command string must still see — inside an
- *                 `env` prefix the escape is a WORD, not a leading shell
- *                 assignment the walk has already stepped past.
+ *   wrapperWords  the assignments an `env` carried, and those a `-c` string's
+ *                 earlier `export`s and the command's own leading ones made,
+ *                 which a guard reading an escape from the command string must
+ *                 still see — inside an `env` prefix the escape is a WORD, not
+ *                 a leading shell assignment the walk has already stepped past.
  *   chdirs        each directory an `env -C`, `sudo -D` or a `-c` string's `cd`
  *                 moved to, in order, with how surely it holds.
  *   unread        each git-reading variable a `-c` string changed in a way
@@ -538,10 +539,8 @@ const WRAPPERS = new Map([
  * `watch` (BAR `watch -x`) AND `flock <file> -c` RUN THEIR COMMAND THROUGH
  * `sh -c`, so the words holding it are parsed as a command line
  * (lib/shell-parse.js's parseScript, #4863), its spans appended to `spans`.
- * Each command it runs is a run of its own (#4699), stripped in turn under the
- * `env` assignments and directories its wrappers set, its own leading
- * assignments and each earlier `export`'s joining `wrapperWords`, and each
- * earlier `cd`'s target joining `chdirs`.
+ * Each command it runs is a run of its own (#4699), stripped in turn under what
+ * its wrappers set.
  *
  * `env -S <string>` IS SPLIT, NOT SKIPPED, as `env` splits it, and read on as
  * `env`'s own words.

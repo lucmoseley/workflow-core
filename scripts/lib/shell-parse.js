@@ -1469,8 +1469,8 @@ function assignAlone(state, words, assigned, spans) {
 }
 
 /**
- * The state after one command: a `cd` or `export` moves it, outside a
- * pipeline or `&`; any other command but `git` may mark variables unread.
+ * The state after one command: a `cd` or `export` moves it; any other command
+ * but `git` may mark variables unread.
  * @param {ScriptState} state
  * @param {CommandWords} cw
  * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
