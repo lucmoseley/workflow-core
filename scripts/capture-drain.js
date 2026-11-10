@@ -34,10 +34,10 @@ const USAGE =
 	"usage: node capture-drain.js list [--all] [--json] | node capture-drain.js mark <comment-id>";
 
 /** @param {string} msg @returns {never} */
-const die = (msg) => {
+function die(msg) {
 	writeFd(2, `${msg}\n`);
 	process.exit(1);
-};
+}
 
 /** @param {{ all: boolean, json: boolean }} opts */
 function list({ all, json }) {

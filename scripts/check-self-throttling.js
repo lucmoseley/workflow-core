@@ -74,7 +74,7 @@ const {
 /**
  * One dead window as `lib/turn-collapse.js` scores it.
  *
- * @typedef {ReturnType<import("./lib/turn-collapse.js").deadWindows>[number]} Window
+ * @typedef {ReturnType<typeof import("./lib/turn-collapse.js").deadWindows>[number]} Window
  */
 
 /** @typedef {import("./lib/check").Ctx} Ctx */

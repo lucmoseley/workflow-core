@@ -141,7 +141,7 @@ function classifyClaim(iss) {
 
 /**
  * Raises a WARN per stale and unreadable claim, then prints both lists.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {(Claim & {ageDays: number, assignedAt: string})[]} stale
  * @param {(Claim & {reason: string})[]} unreadable
  */

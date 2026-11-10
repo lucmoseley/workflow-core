@@ -81,8 +81,13 @@ const isUnderResearched = (callsBefore) =>
  * @typedef {{ at: number, questions: (Held | Passed)[] }} RefusalRecord
  */
 
-/** @type {(q: Held) => q is Refused} */
-const isRefused = (q) => q.refusedAt !== undefined;
+/**
+ * @param {Held} q
+ * @returns {q is Refused}
+ */
+function isRefused(q) {
+	return q.refusedAt !== undefined;
+}
 
 /**
  * One recorded question, or null where it is malformed.

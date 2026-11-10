@@ -219,7 +219,7 @@ runCheck({
 				"number,title,body,comments,url",
 			]);
 		} catch (e) {
-			raiseGhFailure(e);
+			return raiseGhFailure(e);
 		}
 
 		const { titleFirst, noNumber } = scanIssues(issues);

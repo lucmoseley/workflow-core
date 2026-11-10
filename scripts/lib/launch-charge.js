@@ -60,12 +60,15 @@ const PYTEST_WORKER_MB = 75;
 const NODE_TEST_PEAK_MB = 381;
 const NEXT_BUILD_PEAK_MB = 979;
 
-/* The peak of `npm run typecheck`, measured at 5b1610b7e on 10 Nov 2026
- * (#4849): its cold first pass, `tsc --noEmit` with no `tsconfig.tsbuildinfo`,
- * the higher of two runs' cgroup `memory.peak` (2,045 MiB; three runs' RSS
- * 2,000–2,029). A warm pass peaks near 1,284 MiB, so a fresh worktree's
- * first type-check sets the figure. MOVE IT ONLY WITH A RE-MEASUREMENT. */
-const TSC_PEAK_MB = 2045;
+/* The cold peak of `npm run typecheck`, by the TypeScript major version it
+ * runs: the higher of two runs' cgroup `memory.peak` with no build info, 5's
+ * (#4849) and 7's at `--checkers 2` (#4892). A compiler unread, or a major
+ * not here, is charged the highest. MOVE ONE ONLY WITH A RE-MEASUREMENT. */
+const TSC_PEAKS_MB = new Map([
+	[5, 2045],
+	[7, 1497],
+]);
+const TSC_PEAK_MB = Math.max(...TSC_PEAKS_MB.values());
 
 /* What admission holds back for a lander, by the kind of run it holds
  * (#3323), and what the queues' climb charges its marker (#3973): its
@@ -89,7 +92,7 @@ const NAMED_MEASURED_FILES = 6;
  *   | { kind: "pytest", workers: number }
  *   | { kind: "node-test" }
  *   | { kind: "next-build" }
- *   | { kind: "tsc" }
+ *   | { kind: "tsc", major?: number | null }
  *   | { kind: "lander", files: readonly string[] }} Launch
  */
 
@@ -116,7 +119,10 @@ function chargeMb(launch) {
 		case "next-build":
 			return NEXT_BUILD_PEAK_MB;
 		case "tsc":
-			return TSC_PEAK_MB;
+			return (
+				(launch.major == null ? undefined : TSC_PEAKS_MB.get(launch.major)) ??
+				TSC_PEAK_MB
+			);
 		case "lander":
 			return launch.files.length === 0 ||
 				launch.files.length > NAMED_MEASURED_FILES

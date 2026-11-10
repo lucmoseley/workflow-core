@@ -111,7 +111,7 @@ function splitNeedles(data) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {{figure: string, needle: string, file: string, line: number,
  *   text: string}[]} hits
  * @param {string} over the "N tracked files (…)" tail of the summary line

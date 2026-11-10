@@ -135,7 +135,7 @@ const path = require("node:path");
  * A workflow run and a workflow, as `gh`'s `--json` selections spell them, and
  * where HEAD sits against the sha a run tested.
  *
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{databaseId: number, headSha?: string, conclusion?: string|null,
  *   createdAt?: string, event?: string, workflowName?: string,
  *   url?: string, displayTitle?: string}} Run

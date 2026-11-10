@@ -69,7 +69,7 @@ const { compareVersions } = require("./lib/compare-versions.js");
 const { execGit } = require("./lib/git.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /** A release tag as `release-plugin.js` spells one. */
 const TAG_RE = /^v\d+\.\d+\.\d+$/;

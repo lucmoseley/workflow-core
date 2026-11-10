@@ -4671,7 +4671,7 @@ function runTouched(ctx) {
 
 // --- report -----------------------------------------------------------------
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /**
  * Where `--review` sits in argv, -1 where absent — refusing the flags it

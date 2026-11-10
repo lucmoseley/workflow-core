@@ -21,7 +21,7 @@ const {
 } = require("./lib/formatters");
 const { caught } = require("./lib/caught.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /**
  * The paths named on the command line, else every tracked shell file.

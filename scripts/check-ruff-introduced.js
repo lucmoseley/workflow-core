@@ -45,7 +45,7 @@ const {
 const { caught } = require("./lib/caught.js");
 const { scriptPath } = require("./lib/script-path.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {{ code: string | null, message: string, location?: { row: number, column: number } }} Diagnostic */
 
 const codeOf = (/** @type {Diagnostic} */ d) => d.code ?? "syntax";

@@ -108,7 +108,7 @@ const { caught } = require("./lib/caught.js");
 const { reportGroupedHits } = require("./lib/grouped-hits");
 
 /**
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  *
  * What one entry's heading yields: a single literal to grep, several at once,
  * or nothing greppable at all.
