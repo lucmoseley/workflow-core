@@ -51,10 +51,11 @@
  *   injected tracker; one that will not file is filed again by the next run,
  *   and one the tracker refuses for good stops the run. Where it merges
  *   alone, it conflicts only with an earlier member, and it is deferred: left
- *   out of this batch, and taken again by the next. A later member still
- *   merges into this one. A batch left with no member holds its deferred ones
- *   untaken while the integration commit it was taken onto is in the line
- *   (#4841).
+ *   out of this batch, and taken again once `main` moves, no live batch of
+ *   the line is merged onto or is the base it would not merge onto, or its
+ *   ref moves (#4839). A later member still merges into this one.
+ *   Residual: a run keeps its deferrals in memory, so a fresh run takes each
+ *   such member onto that base once more before deferring it again.
  * - **Green.** The integration sha is written to the green ledger, then `main`
  *   moves to it by a plain push. Each member merged into it whose ref still
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
@@ -209,7 +210,7 @@ class TransientFault extends Error {}
  *   the pipeline's batches
  * @property {readonly Member[]} members in push order
  * @property {readonly string[]} deferred the names of members left out, to
- *   be taken by the next batch
+ *   be taken again once their deferral no longer holds them
  * @property {readonly string[]} dropped
  * @property {string} onto the base its members were merged onto: `main`
  *   for the line's head and a search, else the integration commit of the
@@ -253,6 +254,10 @@ class TransientFault extends Error {}
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
  *   a dropped ref no drop record entry named
  * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
+ * @typedef {{readonly name: string, readonly sha: string,
+ *   readonly onto: string, readonly main: string}} Deferral a member left
+ *   out of its batch, at `sha`, as it would not merge onto `onto` though it
+ *   merged alone on `main`
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
  * @property {string} sha
@@ -290,7 +295,7 @@ class TransientFault extends Error {}
  *     readonly members: readonly Member[], readonly fresh: boolean}
  *   | {readonly kind: "merge-alone", readonly onto: string,
  *     readonly member: Member}
- *   | {readonly kind: "defer-member", readonly name: string}
+ *   | ({readonly kind: "defer-member"} & Deferral)
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop}
  *   | {readonly kind: "adopt-dropped-ref", readonly ref: string,
@@ -365,6 +370,8 @@ class TransientFault extends Error {}
  *   unmerged the batch merge this run could not make
  * @property {(Merge & {readonly name: string})|null} alone the merge of the
  *   member `name` alone this run made, where it was not recorded
+ * @property {readonly Deferral[]} deferrals the members this run deferred since
+ *   it last took them
  * @property {readonly string[]} kept members whose compare-and-delete this run
  *   found moved, as `<name>@<sha>`
  * @property {readonly string[]} unfiled dropped refs whose fix ticket this
@@ -586,7 +593,8 @@ function unmergedAction(members, s, u, main) {
 		return dropAction(m, main, u.result, s);
 	const alone = aloneAt(s, name, main);
 	if (alone === null) return { kind: "merge-alone", onto: main, member: m };
-	if (alone.kind === "merged") return { kind: "defer-member", name };
+	if (alone.kind === "merged")
+		return { kind: "defer-member", name, sha: m.sha, onto: u.onto, main };
 	return dropAction(m, main, alone, s);
 }
 
@@ -1364,10 +1372,9 @@ function fillAction(s, main, { line, search }, waiting) {
 	if (search?.phase === "held" && heldExit(search, s.now, main, waiting))
 		return null;
 	const ahead = search?.phase === "requeued" ? search.ahead : [];
-	const held = heldBehind(s, line);
 	return takeBatch(waiting, onto, ahead, {
 		...s.pipeline,
-		line: s.pipeline.line.filter((b) => line.includes(b) || held.includes(b)),
+		line: [...line],
 		search,
 	});
 }
@@ -1410,32 +1417,36 @@ function batchStep(s, main, live) {
 }
 
 /**
- * The line's spent batches taken onto a live batch's integration commit:
- * left with no member, their deferred ones are held untaken while that
- * commit is in the line, else each is retaken onto it and deferred again
- * (#4841).
- * @param {QueueState} s
- * @param {readonly Batch[]} line the live line
+ * Whether the queue ref `r` is a member deferred at its sha, while `main`
+ * has not moved, onto a base the line still holds, as a live batch merged
+ * onto it or as one's integration commit.
+ * @param {readonly Deferral[]} deferrals
+ * @param {string|null} main
+ * @param {readonly Batch[]} line
+ * @param {QueueRef} r
  */
-function heldBehind(s, line) {
-	const tips = new Set(line.map((b) => b.integration));
-	return s.pipeline.line.filter((b) => !line.includes(b) && tips.has(b.onto));
-}
+const isDeferredBehind = (deferrals, main, line, r) =>
+	deferrals.some(
+		(d) =>
+			d.name === r.name &&
+			d.sha === r.sha &&
+			d.main === main &&
+			line.some((b) => b.onto === d.onto || b.integration === d.onto),
+	);
 
 /**
- * The names a live batch holds, a held batch's deferred ones among them, and
- * the queue refs waiting for a take: in none of those, at no sha a batch
- * landed or a delete found moved.
+ * The names a live batch holds, and the queue refs waiting for a take: in
+ * no live batch, at no sha a batch landed or a delete found moved, and not
+ * held on a deferral.
  * @param {QueueState} s
  * @param {Live} live
  */
 function waitingOf(s, { line, search }) {
-	const flying = new Set([
-		...[...line, ...(search && !isDone(search) ? [search] : [])].flatMap((b) =>
+	const flying = new Set(
+		[...line, ...(search && !isDone(search) ? [search] : [])].flatMap((b) =>
 			b.members.map((m) => m.name),
 		),
-		...heldBehind(s, line).flatMap((b) => b.deferred),
-	]);
+	);
 	const landed = batchesOf(s.pipeline).flatMap((b) =>
 		landedOf(b).map((m) => `${m.name}@${m.sha}`),
 	);
@@ -1443,7 +1454,8 @@ function waitingOf(s, { line, search }) {
 		(r) =>
 			!flying.has(r.name) &&
 			!s.kept.includes(`${r.name}@${r.sha}`) &&
-			!landed.includes(`${r.name}@${r.sha}`),
+			!landed.includes(`${r.name}@${r.sha}`) &&
+			!isDeferredBehind(s.deferrals, s.main, line, r),
 	);
 	return { flying, waiting };
 }
@@ -1608,7 +1620,7 @@ function stepOrEnd(s) {
  *   filed or left unfiled, or one whose state was not read, and a run not
  *   cancelled or an early batch push that failed
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
- *   | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
+ *   | "deferrals" | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
  *   | "superseded"> & {pending: Map<string, Pending>, acting: Batch|null}}
  *   QueueRun what a run carries between actions; `pending` its asks awaiting
  *   their verdicts, by their runs, shared by every copy of the run; `acting`
@@ -2212,9 +2224,16 @@ async function act(deps, action, run) {
 			return { ...run, alone: { name: member.name, onto, result } };
 		}
 		case "defer-member": {
-			const batch = leaveOut(batchOf(run), action.name, "deferred");
+			const { name, sha, onto, main } = action;
+			const batch = leaveOut(batchOf(run), name, "deferred");
 			record.write(batch);
-			return { ...run, acting: batch, unmerged: null, alone: null };
+			return {
+				...run,
+				acting: batch,
+				unmerged: null,
+				alone: null,
+				deferrals: [...run.deferrals, { name, sha, onto, main }],
+			};
 		}
 		case "drop-member":
 			return dropMember(deps, action.drop, run);
@@ -2440,8 +2459,16 @@ async function actOnPipeline(deps, action, run) {
 	switch (action.kind) {
 		case "take-batch": {
 			const next = writePipeline(deps, run, action.pipeline);
-			for (const m of action.batch.members) deps.logQueue("take", m);
-			return { ...next, unmerged: null, alone: null };
+			const { members } = action.batch;
+			for (const m of members) deps.logQueue("take", m);
+			return {
+				...next,
+				unmerged: null,
+				alone: null,
+				deferrals: run.deferrals.filter(
+					(d) => !members.some((m) => m.name === d.name),
+				),
+			};
 		}
 		case "detach":
 			/* Cancelled first: the record written drops the shas to cancel. */
@@ -2574,6 +2601,7 @@ async function runQueueLander(deps) {
 		unread: [],
 		unmerged: null,
 		alone: null,
+		deferrals: [],
 		kept: [],
 		unfiled: [],
 		isClosed: readClosedTickets(deps),

@@ -1372,14 +1372,24 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 		expect(launched(d)).toEqual(["wfc#1", "wfc#2", "wfc#3"]);
 	});
 
-	it("counts a launch resumed since the last act, and passes over finished and park-stopped ones", () => {
+	it("counts a launch resumed into a slot since the last act, and passes over finished and park-stopped ones", () => {
 		const history = [
-			running("r", Act - HOUR, { relaunchedAt: Act + 1 }),
+			running("r", Act - HOUR, { relaunchedAt: Act + 1, slotTakenAt: Act + 1 }),
 			running("f", Act + 1, { finishedAt: NOW - 1 }),
 			running("p", Act + 1, { parkStopped: Act + 2 }),
 		];
 		const d = tick({ freeSlots: 5, history, lastActAt: Act });
 		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+	});
+
+	it("passes over a restart since the last act that kept its slot (#4684)", () => {
+		const kept = running("k", Act - HOUR, { relaunchedAt: Act + 1 });
+		const d = tick({
+			freeSlots: 5,
+			history: [...sinceAct(2), kept],
+			lastActAt: Act,
+		});
+		expect(launched(d)).toEqual(["wfc#1"]);
 	});
 
 	it("passes over a launch stopped on its seat's limit until a resume restarts it", () => {

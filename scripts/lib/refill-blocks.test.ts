@@ -408,6 +408,9 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			},
 		);
 		expect(out[0]).toMatchObject({ jobId: "p", relaunchedAt: NOW });
+		/* The fallback keeps the slot its session held: no new date for the
+		 * unproven cap (#4684). */
+		expect(out[0]).not.toHaveProperty("slotTakenAt");
 		expect(out[0]).toMatchObject({ sessionId: "s", resumes: { tries: 2 } });
 		expect(out[0]).not.toHaveProperty("copiedFrom");
 		expect(out[0]).not.toHaveProperty("pastSessionIds");
@@ -1238,6 +1241,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				jobId: "job42-copy",
 				copiedFrom: "job42",
 				relaunchedAt: NOW,
+				slotTakenAt: NOW,
 				pastSessionIds: ["s42"],
 			});
 		});
@@ -1270,14 +1274,16 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(still).toEqual(held());
 		});
 
-		it("keeps what it knew of one whose row carries no state, and reads its cause for the log (#3200)", () => {
+		it("keeps what it knew of one whose row carries no state, and reads its cause for the log under its launch name (#3200)", () => {
 			const { state: _, ...bare } = agent("job42", "blocked");
-			const read: unknown[] = [];
+			const rows: unknown[] = [];
+			const names: string[] = [];
 			const [out] = markParked(
 				[held()],
 				[bare],
-				(_l, row) => {
-					read.push(row);
+				(_l, row, name) => {
+					rows.push(row);
+					names.push(name);
 					return {
 						cause: "UNKNOWN",
 						why: "row carries neither status nor state",
@@ -1286,7 +1292,8 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				NOW,
 			);
 			expect(out).toEqual(held());
-			expect(read).toEqual([bare]);
+			expect(rows).toEqual([bare]);
+			expect(names).toEqual(["design-vault /implement 42"]);
 		});
 
 		it("keeps one whose resume failed held for the next tick, and hands it off at the third failure", () => {
@@ -1500,16 +1507,17 @@ describe("causeReader (#3200, #2358 F9)", () => {
 			readTail: () => tail,
 			log: (line) => lines.push(line),
 		});
-		const l = record();
+		const l = { ...record(), jobId: "job42" };
+		const name = "design-vault /implement 42";
 		const row = agent("job42", "blocked") as never;
-		expect(causeOf(l, row).cause).toBe("UNKNOWN");
-		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row, name).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row, name).cause).toBe("UNKNOWN");
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toMatch(
 			/^block unread design-vault \/implement 42: .+; row \{.*"sessionId":"s-job42".*\}; job \{"state":"blocked","tempo":"idle"\}$/,
 		);
 		tail = [{ type: "system" }];
-		expect(causeOf(l, row).cause).toBe("UNKNOWN");
+		expect(causeOf(l, row, name).cause).toBe("UNKNOWN");
 		expect(lines).toHaveLength(2);
 		expect(lines[1]).not.toBe(lines[0]);
 	});
