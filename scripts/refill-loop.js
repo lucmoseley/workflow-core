@@ -85,6 +85,7 @@ const { buildErrorText, caught } = require("./lib/caught.js");
 const { readBurnState } = require("./lib/burn-mode.js");
 const { readConcurrencyStatus } = require("./lib/concurrency.js");
 const refillCode = require("./lib/refill-code.js");
+const { now: readClock } = require("./lib/check.js");
 const { runCommand } = require("./lib/run-command.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -416,12 +417,10 @@ const sizingRoot = (served) => served[0] ?? hostRoot();
  * What the `seats:` line says now, off each seat's cache with no `/usage`
  * probe, a tick being the one to refresh it (#3733).
  * @param {string[]} planSeats
- * @param {string} root
- * @param {BudgetOf} budgetOf  the keys' budgets
- * @param {string} [callerSeat] for `start`
+ * @param {{root: string, budgetOf: BudgetOf, now: number, callerSeat?: string}} at
+ *   the keys' budgets, the command's one clock read, and for `start` its seat
  */
-function readSeatsView(planSeats, root, budgetOf, callerSeat) {
-	const now = Date.now();
+function readSeatsView(planSeats, { root, budgetOf, now, callerSeat }) {
 	const declared = readDeclaredSeats();
 	const ceilings = seatReading.ceilingsOf(process.env);
 	const sizeCap = seatReading.capSizer(
@@ -517,6 +516,7 @@ const bootPorts = (write) => ({
  * stdout is the journal, so its lines also go to the loop's log.
  */
 function bootResume() {
+	const now = readClock();
 	const note = (/** @type {string} */ line) => {
 		writeFd(1, buildLoopLogLine(line));
 		appendLoopLog(line);
@@ -525,7 +525,7 @@ function bootResume() {
 		...bootPorts(note),
 		note,
 		bootId: readCurrentBootId,
-		now: Date.now,
+		now: () => now,
 		writeManagerRestart,
 		launch: launchLoop,
 	});
@@ -555,6 +555,7 @@ function start(parsed) {
 		say(`refill loop not started: this checkout is not served (${excluded})`);
 		return 0;
 	}
+	const now = readClock();
 	const parsedAsk = parseStartAsk(parsed);
 	const ask = checkAsk(parsedAsk, commands.buildFreshControl(root, [], 0));
 	if (isNotice(ask)) {
@@ -568,7 +569,7 @@ function start(parsed) {
 			ask,
 			{
 				pid,
-				now: Date.now(),
+				now,
 				root,
 				seats: readConfiguredSeats(),
 				seatErrors: readDeclaredSeats().errors,
@@ -598,15 +599,15 @@ function start(parsed) {
 			.buildScopeLines(control, {
 				served,
 				running: action !== "stopped",
-				now: Date.now(),
+				now,
 				seatsLine: commands.buildSeatsLine(
-					readSeatsView(
-						control.seats,
-						sizingRoot(served),
-						buildShownBudgets(sizingRoot(served)),
-						seatDir(configDir(), homeDir()),
-					),
-					Date.now(),
+					readSeatsView(control.seats, {
+						root: sizingRoot(served),
+						budgetOf: buildShownBudgets(sizingRoot(served)),
+						now,
+						callerSeat: seatDir(configDir(), homeDir()),
+					}),
+					now,
 				),
 			})
 			.map((l) => `  ${l}`),
@@ -662,6 +663,7 @@ function startProcess(control, scopeText) {
 }
 
 function stop() {
+	const now = readClock();
 	const written = withControlLock(() => {
 		const control = readControlFile(log);
 		/* A repeat stop keeps the time of the first. */
@@ -669,7 +671,7 @@ function stop() {
 			writeControlFile({
 				...control,
 				stopRequested: true,
-				stopRequestedAt: Date.now(),
+				stopRequestedAt: now,
 			});
 	});
 	if ("busy" in written)
@@ -691,6 +693,7 @@ function stop() {
  */
 function set(parsed) {
 	const json = parsed.flags["--json"] === true;
+	const now = readClock();
 	const ask = checkAsk(parseSetAsk(parsed), null);
 	if (isNotice(ask)) {
 		if (json) say(JSON.stringify(commands.buildSetJson({ refused: ask })));
@@ -703,7 +706,7 @@ function set(parsed) {
 			ask,
 			{
 				running: lock.holder() !== null,
-				now: Date.now(),
+				now,
 				readExclusionWhy,
 				isOptedOut,
 			},
@@ -813,18 +816,18 @@ function status({ flags }) {
 	const note = flags["--json"]
 		? (/** @type {string} */ line) => writeFd(2, `${line}\n`)
 		: log;
-	const now = Date.now();
+	const now = readClock();
 	const control = readControlFile(note);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
 	const state = readState(note);
 	const root = sizingRoot(served);
 	const budgetOf = buildShownBudgets(root);
-	const seats = readSeatsView(
-		control?.seats ?? readConfiguredSeats(),
+	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), {
 		root,
 		budgetOf,
-	);
+		now,
+	});
 	const codeSha =
 		pid === null ? null : refillCode.readRunningCode(pid, files.code);
 	if (flags["--json"]) {
@@ -863,7 +866,7 @@ function status({ flags }) {
 		now,
 	))
 		say(line);
-	sayOverflowLines(control, state, budgetOf);
+	sayOverflowLines(control, state, budgetOf, now);
 	return 0;
 }
 
@@ -871,14 +874,14 @@ function status({ flags }) {
  * @param {import("./lib/refill-loop.js").Control|null} control
  * @param {import("./lib/refill-state.js").LoopState} state
  * @param {BudgetOf} budgetOf
+ * @param {number} now  `status`'s one clock read
  */
-function sayOverflowLines(control, state, budgetOf) {
+function sayOverflowLines(control, state, budgetOf, now) {
 	const declared = readDeclaredSeats();
 	for (const error of declared.errors) say(`seat file refuses: ${error}`);
 	const overflow = overflowSeatsOf(declared.seats);
 	for (const seat of overflow) say(buildBudgetLine(seat, budgetOf(seat)));
 	if (overflow.length > 0 && declared.errors.length === 0) {
-		const now = Date.now();
 		const lines = commands.buildOverflowBasisLines({
 			planSeats: (control?.seats ?? readConfiguredSeats()).map((seat) =>
 				planSeatBasisOf(seatReading.readSeat(seat, now).reading),
