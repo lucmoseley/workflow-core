@@ -27,6 +27,7 @@
  * Needs no npm install.
  */
 
+const { actionsApi } = require("./lib/actions-api.js");
 const { QUEUE_HEADS, QUEUE_PREFIX } = require("./lib/landing-refs.js");
 const { formatHoursMin, oldestWaiting } = require("./lib/queue-gauge.js");
 const { QUEUE_ALERT_TITLES } = require("./lib/queue-tickets.js");
@@ -36,9 +37,6 @@ const PUSH_PAGE = 100;
 /* An unmeasured first guess, at the figure of lib/landing-stall.js's
  * STALL_MS: a dead-machine backstop, so later than the machine's own alert. */
 const QUEUE_BACKSTOP_MS = 2 * 60 * 60 * 1000;
-/* Guesses: one API read's retries and the pause between them. */
-const TRIES = 4;
-const RETRY_MS = 2000;
 
 /**
  * @typedef {{timestamp: string, after: string}} Push
@@ -126,33 +124,6 @@ async function judgeQueue(get, now) {
 }
 
 /**
- * @param {NodeJS.ProcessEnv} env
- * @returns {Get}
- */
-function liveGet(env) {
-	const base = `${env.GITHUB_API_URL}/repos/${env.GITHUB_REPOSITORY}`;
-	return async (path) => {
-		let last;
-		for (let i = 0; i < TRIES; i++) {
-			if (i > 0) await new Promise((r) => setTimeout(r, RETRY_MS));
-			try {
-				const res = await fetch(`${base}${path}`, {
-					headers: {
-						Authorization: `Bearer ${env.GH_TOKEN}`,
-						Accept: "application/vnd.github+json",
-					},
-				});
-				if (res.ok) return await res.json();
-				last = new Error(`${path}: HTTP ${res.status}`);
-			} catch (e) {
-				last = e;
-			}
-		}
-		throw last;
-	};
-}
-
-/**
  * @param {{get: Get, now: number, say: (line: string) => void}} deps
  * @returns {Promise<number>}
  */
@@ -182,7 +153,10 @@ async function runAlarm({ get, now, say }) {
 /** @returns {Promise<number>} */
 const main = () =>
 	runAlarm({
-		get: liveGet(process.env),
+		get: (p) =>
+			actionsApi(process.env).get(
+				`/repos/${process.env.GITHUB_REPOSITORY}${p}`,
+			),
 		now: Date.now(),
 		say: (line) => process.stdout.write(`${line}\n`),
 	});
