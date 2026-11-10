@@ -35,7 +35,7 @@
  * only — see LOCK-HASH.
  *
  * THE RECORD. `.agents/vendored-skill-edits.json`, two sections:
- *   vendored  every tracked file under .agents/skills/ as the vendoring commit
+ *   vendored  every tracked file under .agents/skills/ as its upstream
  *             supplied it, path -> sha256.
  *   edits     only the files that diverge or were added, each with the hash
  *             it was declared at, the issue that approved it and one line of
@@ -147,7 +147,7 @@
  *
  * RESIDUAL: `vendoredAt` is single-provenance and the manifest is not.
  * It names one mattpocock/skills commit for every file, but `animate`'s two
- * arrived at f13eec839, so every verdict line quoting the field misdescribes
+ * are emilkowalski/skills', so every verdict line quoting the field misdescribes
  * those two. Nothing compares against it, so no gate is wrong, and every file
  * of every skill vendored outside a --revendor joins it, and a --revendor
  * --from names the one source it pulled. Per-path

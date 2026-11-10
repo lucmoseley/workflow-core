@@ -1,7 +1,9 @@
 // @vitest-environment node
 /*
  * claude-child.js, driven through its command line against a stub `claude`
- * that records its argv, its CLAUDE_CONFIG_DIR and its stdin (#2040).
+ * whose `-p` is the headless-run fake, which reads its argv against the
+ * harness's recorded options and logs it, its environment and its stdin
+ * (#2040).
  *
  * spawn-kept: a real fd (§X3) — the script hands the child real fds —
  * its own stdout and stderr, and the prompt file as stdin.
@@ -15,34 +17,41 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	ADMITTED_AUTH,
 	buildAuthStatusBranch,
-	buildAuthStatusNodeBranch,
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
+import {
+	buildHeadlessBranch,
+	readHeadlessCalls,
+	writeHeadlessFake,
+} from "./lib/headless-run-fake";
 
 const SCRIPT = path.resolve(__dirname, "claude-child.js");
 
 let dir = "";
 let seat = "";
 
-const STUB = `#!/usr/bin/env node
-${buildAuthStatusNodeBranch()}
-const fs = require("node:fs");
-const out = process.env.STUB_OUT;
-fs.writeFileSync(out, JSON.stringify({
-	argv: process.argv.slice(2),
-	configDir: process.env.CLAUDE_CONFIG_DIR,
-	stdin: (() => { try { return fs.readFileSync(0, "utf8"); } catch { return null; } })(),
-}));
-process.stdout.write("child said hello\\n");
-process.exit(Number(process.env.STUB_EXIT || 0));
-`;
+const callsLog = () => path.join(dir, "calls.jsonl");
+
+/** The stub `claude`, its `-p` run ending `exit`. */
+const writeStub = (exit = 0) =>
+	writeClaudeStub(path.join(dir, "claude"), [
+		buildHeadlessBranch(
+			writeHeadlessFake(path.join(dir, "claude-p"), {
+				log: callsLog(),
+				mode: "end",
+				text: "child said hello\n",
+				exit,
+			}),
+		),
+	]);
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-child-"));
 	seat = path.join(dir, ".claude");
 	fs.mkdirSync(seat);
-	fs.writeFileSync(path.join(dir, "claude"), STUB, { mode: 0o755 });
+	writeStub();
 });
 
 afterEach(() => {
@@ -60,14 +69,16 @@ const run = (args: string[], extra: Record<string, string> = {}) =>
 			WFC_CLAUDE_CONFIG_B: path.join(dir, ".claude2"),
 			WFC_CLAUDE_CONFIG_C: path.join(dir, ".claude3"),
 			WFC_CLAUDE_BIN: path.join(dir, "claude"),
-			STUB_OUT: path.join(dir, "seen.json"),
 			...extra,
 		},
 	});
 
-const readSeen = () =>
-	JSON.parse(fs.readFileSync(path.join(dir, "seen.json"), "utf8"));
-const launched = () => fs.existsSync(path.join(dir, "seen.json"));
+const readSeen = () => {
+	const [seen] = readHeadlessCalls(callsLog());
+	if (!seen) throw new Error("the child was never launched");
+	return seen;
+};
+const launched = () => readHeadlessCalls(callsLog()).length > 0;
 
 describe("usage", () => {
 	it("runs /usage on the named seat, approving no tool", () => {
@@ -80,13 +91,12 @@ describe("usage", () => {
 			"--permission-mode",
 			"manual",
 		]);
-		expect(readSeen().configDir).toBe(seat);
+		expect(readSeen().env.CLAUDE_CONFIG_DIR).toBe(seat);
 	});
 
 	it("passes on the child's exit status", () => {
-		expect(
-			run(["usage", "--config-dir", seat], { STUB_EXIT: "3" }).status,
-		).toBe(3);
+		writeStub(3);
+		expect(run(["usage", "--config-dir", seat]).status).toBe(3);
 	});
 
 	it("refuses a binary that cannot answer for its auth, naming the cached reading", () => {
@@ -147,8 +157,8 @@ describe("chrome", () => {
 			"--output-format",
 			"json",
 		]);
-		expect(readSeen().stdin).toBe("Read example.com and report.\n");
-		expect(readSeen().configDir).toBe(seat);
+		expect(readSeen().stdinText).toBe("Read example.com and report.\n");
+		expect(readSeen().env.CLAUDE_CONFIG_DIR).toBe(seat);
 	});
 
 	it.each([

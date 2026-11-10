@@ -109,7 +109,7 @@ function buildWouldRunLine(call) {
  *   target: import("./refill-decide.js").ResumeTarget) =>
  *   import("./refill-blocks.js").Resumed,
  *   readActsBefore: import("./refill-blocks.js").ReadActsBefore,
- *   admitResume: () => string|null, stagger: () => void,
+ *   admitResume: (root: string) => string|null, stagger: () => void,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
@@ -422,7 +422,7 @@ function launchOrResume(batch, io) {
 	let refusal = null;
 	for (const l of batch) {
 		if (refusal === null && l.parkedRoute && "resume" in l.parkedRoute)
-			refusal = io.admitResume();
+			refusal = io.admitResume(l.root);
 		if (refusal !== null) {
 			refused.push({ launch: l, reason: refusal });
 			continue;

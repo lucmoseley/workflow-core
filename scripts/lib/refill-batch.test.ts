@@ -494,6 +494,19 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		copy: false,
 	});
 
+	it("re-reads admission in the resumed member's own checkout (#4962)", () => {
+		const readIn: string[] = [];
+		const parked = member(1, {
+			root: "/other-repo",
+			parkedRoute: { resume: target },
+		});
+		run([parked], ok, true, (root) => {
+			readIn.push(root);
+			return null;
+		});
+		expect(readIn).toEqual(["/other-repo"]);
+	});
+
 	it("notes the acts read before the resume, and on a copy the session it resumed (#3942, #4101)", () => {
 		const parked = member(1, { parkedRoute: { resume: target } });
 		const woken = run([parked], ok);

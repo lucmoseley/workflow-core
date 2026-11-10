@@ -79,6 +79,7 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   skipped: number, nameFilter?: string|null,
  *   fileFilters?: string[], changed?: string|boolean|null, admissible?: boolean,
  *   viaChanged?: boolean, touched?: boolean, resolvedFiles?: number,
+ *   leftOut?: string[],
  *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
  *   shard?: {index: number, count: number},
