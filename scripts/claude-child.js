@@ -19,8 +19,11 @@
  * chrome  the browser-ladder skill's Chrome child: the Chrome tools and no
  *         other, `file_upload` barred (#1080), 10 turns a page plus 5, the
  *         prompt on stdin, since `--allowedTools` takes a list and swallows
- *         a prompt after it; the JSON result on stdout. Killed after
- *         lib/child-spawn.js's limit a page.
+ *         a prompt after it; lib/chrome-child.js's standing lines appended
+ *         to its system prompt. Its stream is read here and only the result
+ *         row printed, as one JSON object, with `tabsLeftOpen`: the tabs
+ *         its Claude tab group still held when it ended, each named on
+ *         stderr too (#4847). Killed after lib/child-spawn.js's limit a page.
  * judge   the gate judge's one question of one issue body (#4964), for
  *         lib/gate-judge.js: lib/gate-judge-mode.js's flags, the prompt on
  *         stdin, an empty working directory; the JSON result on stdout. Killed once --timeout-ms have passed since this
@@ -36,13 +39,19 @@
  * where the child could not start or was killed.
  */
 
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
+const { once } = require("node:events");
+const readline = require("node:readline");
 const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
+const {
+	CHROME_STANDING_LINES,
+	createTabTally,
+} = require("./lib/chrome-child.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
@@ -153,7 +162,50 @@ function timeoutOrFail(given) {
 	return ms;
 }
 
-function main() {
+/**
+ * Run the Chrome child, reading its stream: the result row goes to stdout
+ * with the tabs its group still holds, and a line that is no JSON row passes
+ * through as written.
+ * @param {string} bin
+ * @param {string[]} args
+ * @param {import("node:child_process").SpawnOptions} opts
+ */
+async function runChrome(bin, args, opts) {
+	const child = spawn(bin, args, opts);
+	child.on("error", (e) => fail(`the child did not finish (${e.message}).`, 1));
+	if (!child.stdout) return fail("the child gave no stdout to read.", 1);
+	const tally = createTabTally();
+	/** @type {Record<string, unknown> | undefined} */
+	let result;
+	const lines = readline.createInterface({ input: child.stdout });
+	lines.on("line", (line) => {
+		let row;
+		try {
+			row = JSON.parse(line);
+		} catch {
+			writeFd(1, `${line}\n`);
+			return;
+		}
+		tally.read(row);
+		if (row?.type === "result") result = row;
+	});
+	const [[status, signal]] = await Promise.all([
+		once(child, "close"),
+		once(lines, "close"),
+	]);
+	const left = tally.left();
+	if (result)
+		writeFd(1, `${JSON.stringify({ ...result, tabsLeftOpen: left })}\n`);
+	if (left.length > 0)
+		writeFd(
+			2,
+			`claude-child: the child left ${left.length} tab(s) open in its Claude tab group: ${left.map((t) => `${t.tabId} (${t.url})`).join(", ")}\n`,
+		);
+	if (signal) fail(`the child was killed by ${signal}.`, 1);
+	process.exitCode = status ?? 1;
+}
+
+async function main() {
 	const startedAt = Date.now();
 	const { command, flags } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
@@ -173,6 +225,7 @@ function main() {
 	let args;
 	/** @type {import("node:child_process").SpawnSyncOptions} */
 	let opts;
+	let chrome = false;
 	/** @type {number | undefined} */
 	let boundMs;
 	if (command === "judge") {
@@ -187,6 +240,7 @@ function main() {
 		};
 	} else {
 		const pages = pagesOrFail(flags["--pages"]);
+		chrome = true;
 		args = [
 			"-p",
 			"--chrome",
@@ -199,10 +253,13 @@ function main() {
 			"--max-turns",
 			String(maxTurns(pages)),
 			"--output-format",
-			"json",
+			"stream-json",
+			"--verbose",
+			"--append-system-prompt",
+			CHROME_STANDING_LINES,
 		];
 		opts = {
-			stdio: [promptFdOrFail(flags["--prompt-file"]), "inherit", "inherit"],
+			stdio: [promptFdOrFail(flags["--prompt-file"]), "pipe", "inherit"],
 			timeout: CHROME_TIMEOUT_MS_A_PAGE * pages,
 		};
 	}
@@ -221,6 +278,7 @@ function main() {
 	if (refusal) fail(`${refusal}${cached}`, 2);
 	if (boundMs !== undefined)
 		opts.timeout = Math.max(1, boundMs - (Date.now() - startedAt));
+	if (chrome) return runChrome(bin, args, { ...opts, env });
 	const r = spawnSync(bin, args, { ...opts, env });
 	if (
 		boundMs !== undefined &&
@@ -238,4 +296,4 @@ function main() {
 	process.exitCode = r.status ?? 1;
 }
 
-main();
+main().catch((e) => fail(caught(e).message, 1));
