@@ -25,12 +25,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	buildAgentsBranch,
+	buildListedRow,
+	buildStopBranch,
+} from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
+import {
 	MODEL_LIMIT_LINE,
 	SESSION_LIMIT_LINE,
 	WEEKLY_LIMIT_LINE,
 } from "./lib/rescue-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const SCRIPT = join(__dirname, "rescue-sessions.js");
@@ -289,12 +294,11 @@ describe("the jobs list reads", () => {
 
 	it("asks the daemon of the source plan's own config dir", () => {
 		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
-		const bin = join(cfg, "claude");
-		writeFileSync(
-			bin,
-			`#!/bin/sh\n[ "$CLAUDE_CONFIG_DIR" = ${shellQuote(cfg)} ] && echo '[{"id":"aaaaaaaa-1"}]'\n`,
-			{ mode: 0o755 },
-		);
+		const bin = writeClaudeStub(join(cfg, "claude"), [
+			buildAgentsBranch(null, {
+				[cfg]: [buildListedRow({ id: "aaaaaaaa-1" })],
+			}),
+		]);
 		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
 			env: { ...process.env, WFC_CLAUDE_BIN: bin },
 		});
@@ -307,12 +311,9 @@ describe("the jobs list reads", () => {
 		// §X9: it crosses a real process timeout, as the kill is what is tested.
 		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
 		const pids = join(cfg, "pids");
-		const bin = join(cfg, "claude");
-		writeFileSync(
-			bin,
-			`#!/bin/bash\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nwait\n`,
-			{ mode: 0o755 },
-		);
+		const bin = writeClaudeStub(join(cfg, "claude"), [
+			buildAgentsBranch({ hangsWithChildren: pids }),
+		]);
 		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
 			env: {
 				...process.env,
@@ -352,8 +353,9 @@ describe("the jobs list reads", () => {
 describe("--ids", () => {
 	it("splits and trims a comma list", () => {
 		const cfg = configDirOf({});
-		const bin = join(cfg, "claude");
-		writeFileSync(bin, '#!/bin/sh\necho "stopped $2"\n', { mode: 0o755 });
+		const bin = writeClaudeStub(join(cfg, "claude"), [
+			buildStopBranch(join(cfg, "stops")),
+		]);
 		const res = runInProcess(
 			SCRIPT,
 			["stop", "--from", cfg, "--ids", "a, b ,c"],
@@ -762,8 +764,9 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 
 	describe("stop", () => {
 		it("calls `claude stop` per id and reports what it said", () => {
-			const bin = join(cfg, "claude");
-			writeFileSync(bin, '#!/bin/sh\necho "stopped $2"\n', { mode: 0o755 });
+			const bin = writeClaudeStub(join(cfg, "claude"), [
+				buildStopBranch(join(cfg, "stops")),
+			]);
 			const res = runInProcess(
 				SCRIPT,
 				["stop", "--from", cfg, "--ids", "aaaa1111"],
