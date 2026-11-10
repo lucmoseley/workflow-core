@@ -12,10 +12,10 @@
  * (lib/session-head.js's repoRootOf on its cwd) holding a workflow-core
  * config. Each is read for its config's tracker; where two roots
  * resolve to one tracker, the first found is kept. Each tracker's main is
- * read through `gh api`, never a local ref, which sits days stale in an
- * adopter (#4872): its commits from the earliest `createdAt` of any issue the
- * run judges (the open findings and the week's closes) to `now`, since a
- * commit citing `#n` follows `#n` and a revert follows its fix.
+ * read through `gh api`, never a local ref (#4872): its commits from the
+ * earliest `createdAt` of any issue the run judges (the open findings and the
+ * week's closes) to `now`, since a commit citing `#n` follows `#n` and a
+ * revert follows its fix.
  * Residual: a tracker whose branch is not named `main` fails every read, and
  * a commit dated before the issue it cites, by a skewed committer clock, falls
  * outside the window.
@@ -227,7 +227,6 @@ function cites(text, { repo, number: n }, tracker) {
 	);
 }
 
-/** A failed gh read that GitHub answered 404. */
 /**
  * A commits-endpoint row as a Commit; null where it lacks a sha or a date.
  * @param {any} c
@@ -242,7 +241,7 @@ function asCommit(c) {
 
 /**
  * Every commit on `tracker`'s main from `sinceMs` to `nowMs`, newest first,
- * and main's tip at `nowMs`, through the API: no local ref is read or written.
+ * and main's tip at `nowMs`.
  * `per_page=100` is GitHub's largest page.
  * @param {string} tracker
  * @param {number} sinceMs
