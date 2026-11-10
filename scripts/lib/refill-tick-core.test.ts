@@ -7,7 +7,9 @@
  * (#4315); the sessions it launched into that record, the room a paused or
  * stopping tick leaves unread, which checkout it sizes the seats and a
  * parker's seat in, away mode's return, a paused tick, a launch hold, a full week's wait and
- * the hold notices' agent read (#4282). Every port records its call, so a case
+ * the hold notices' agent read (#4282). lib/refill-blocks.js and
+ * lib/refill-limits.js decide for real, through refill-blocks-fixture's
+ * BlockIo (#4913). Every port records its call, so a case
  * reads the order off one list; the state file is held in memory
  * (stateFileFake), and the control file under its lock (controlFileFake). The
  * fake answers in the ports' shapes but no contract test pins it to the
@@ -20,6 +22,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
+import { fakeIo as blockFake } from "./refill-blocks-fixture";
 import { buildHeldStopText } from "./refill-limits.js";
 import { controlInMode } from "./refill-loop.js";
 import {
@@ -36,7 +39,7 @@ import { runTick } from "./refill-tick-core.js";
 
 type TickIo = import("./refill-tick-core.js").TickIo;
 type TickActs = import("./refill-tick-core.js").TickActs;
-type BlockActs = import("./refill-blocks.js").BlockActs;
+type BlockIo = import("./refill-blocks.js").BlockIo;
 type LoopState = import("./refill-state.js").LoopState;
 type Control = import("./refill-loop.js").Control;
 
@@ -46,7 +49,6 @@ const ACTS = {
 	reap: true,
 	tendQuietBench: true,
 	adoptKilledLaunches: true,
-	settleStartedResumes: true,
 	stopNeverStarted: true,
 	superviseLanding: true,
 	levelMain: true,
@@ -58,19 +60,13 @@ const ACTS = {
 	stopOverAllowance: true,
 	sendHoldNotices: true,
 	sendPauseNotices: true,
-	unparkAnswered: true,
 	tendClosedParks: true,
-	actOnBlocks: true,
-	actOnIdle: true,
 	actOnOutside: true,
 	releaseAwayParks: true,
 	attachProbeParks: true,
-	actOnLimits: true,
-	releaseEndedHolds: true,
 	probeDueSeats: true,
 	startDueConsoleReads: true,
 	launchBatch: true,
-	resumeHeld: true,
 	writePause: true,
 	runReview: true,
 	updateState: true,
@@ -78,29 +74,6 @@ const ACTS = {
 	dropManagerRestart: true,
 	appendTick: true,
 } satisfies Record<keyof TickActs, true>;
-
-/** Every block act's name; tsc holds it to BlockActs (#4569). */
-const BLOCK_ACTS = {
-	stop: true,
-	type: true,
-	resumeStopped: true,
-	resumeOwnId: true,
-	adoptResumed: true,
-	writeLaunch: true,
-	stagger: true,
-	moveSession: true,
-	removeJobRecord: true,
-	retireJob: true,
-	writeLedgerHold: true,
-	holdLockedOut: true,
-	labelParked: true,
-	recordParked: true,
-	unparkSession: true,
-	comment: true,
-	postHandOff: true,
-	release: true,
-	writeOutside: true,
-} satisfies Record<keyof BlockActs, true>;
 
 const SEAT = "/home/u/.claude3";
 
@@ -141,11 +114,17 @@ const row = (number: number) => ({
 /** Thrown by a port to stand for a SIGKILL landing on that step. */
 class Killed extends Error {}
 
-/** A fake adapter; `over` replaces any port. */
+/**
+ * A fake adapter; `over` replaces any port, `block` any of the BlockIo's,
+ * which lib/refill-blocks.js and lib/refill-limits.js read and act through.
+ */
 function fakeIo(
 	initial: LoopState,
 	over: Partial<TickIo> = {},
-	{ frontier = [row(1)] }: { frontier?: ReturnType<typeof row>[] } = {},
+	{
+		frontier = [row(1)],
+		block = {},
+	}: { frontier?: ReturnType<typeof row>[]; block?: Partial<BlockIo> } = {},
 ) {
 	const calls: string[] = [];
 	const writes: LoopState[] = [];
@@ -178,10 +157,6 @@ function fakeIo(
 		readCurrentBootId: () => null,
 		readState: recorded("readState", () => onDisk((s) => s)),
 		adoptKilledLaunches: recorded("adoptKilledLaunches", (read) => read),
-		settleStartedResumes: recorded("settleStartedResumes", (launches) => ({
-			launches,
-			settled: false,
-		})),
 		readRegistry: recorded("readRegistry", () => ({
 			seats: [SEAT],
 			faults: [],
@@ -201,16 +176,23 @@ function fakeIo(
 			() => undefined,
 		),
 		stopOverAllowance: recorded("stopOverAllowance", () => []),
-		blockIo: () =>
-			({
-				log: (line: string) => lines.push(line),
-				...Object.fromEntries(
-					Object.keys(BLOCK_ACTS).map((act) => [
-						act,
-						recorded(`blockIo.${act}`, () => null),
-					]),
-				),
-			}) as unknown as ReturnType<TickIo["blockIo"]>,
+		blockIo: () => {
+			const { io: base } = blockFake({
+				log: (line) => lines.push(line),
+				...block,
+			});
+			return Object.fromEntries(
+				Object.entries(base).map(([name, port]) => [
+					name,
+					name === "log"
+						? port
+						: recorded(
+								`blockIo.${name}`,
+								port as (...args: unknown[]) => unknown,
+							),
+				]),
+			) as unknown as BlockIo;
+		},
 		readSwapHold: () =>
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
@@ -218,23 +200,14 @@ function fakeIo(
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
 		readLoopLastActAt: () => null,
 		readCause: () => null as never,
-		unparkAnswered: recorded("unparkAnswered", () => undefined),
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
-		actOnBlocks: recorded("actOnBlocks", (listed) => listed),
-		actOnIdle: recorded("actOnIdle", (launches) => launches),
 		actOnOutside: recorded("actOnOutside", () => undefined),
 		releaseAwayParks: recorded("releaseAwayParks", (launches) => launches),
 		attachProbeParks: recorded("attachProbeParks", () => undefined),
 		readLiftedHolds: recorded("readLiftedHolds", () => []),
-		releaseEndedHolds: recorded("releaseEndedHolds", () => undefined),
 		readFreeSlots: recorded("readFreeSlots", () => ({
 			slots: 1,
 			admission: null,
-		})),
-		actOnLimits: recorded("actOnLimits", (judged, _m, { slots }) => ({
-			launches: judged,
-			slots,
-			workingChange: 0,
 		})),
 		readSeats: recorded("readSeats", () => ({ seats: [sized], probes: [] })),
 		probeDueSeats: recorded("probeDueSeats", () => []),
@@ -259,11 +232,6 @@ function fakeIo(
 				finishedAt: null,
 			})),
 			refused: [],
-		})),
-		resumeHeld: recorded("resumeHeld", (_r, held) => ({
-			launches: held,
-			started: 0,
-			waiting: false,
 		})),
 		writePause: recorded("writePause", () => true),
 		runReview: recorded("runReview", (lastRunOn) => lastRunOn),
@@ -308,9 +276,147 @@ const expectOrder = (calls: string[], a: string, b: string) => {
 	expect(calls.indexOf(a)).toBeLessThan(calls.indexOf(b));
 };
 
+/** `steps` in `calls` in that order, each found after the one before it. */
+const expectSequence = (calls: string[], steps: string[]) => {
+	let from = 0;
+	for (const [i, step] of steps.entries()) {
+		const at = calls.indexOf(step, from);
+		expect(at, `${step} after ${steps.slice(0, i).join(", ")}`).not.toBe(-1);
+		from = at + 1;
+	}
+};
+
+const blockCalls = (calls: string[]) =>
+	calls.filter((port) => port.startsWith("blockIo."));
+
+const LIMIT_HELD = {
+	at: NOW - 60 * MIN,
+	sessionId: "s-held",
+	cwd: WFC,
+	limit: { bar: "5-hour", resets: "2026-10-18T11:00:00Z" },
+	ledgerHeldUntil: NOW + 60 * MIN,
+};
+
+/** A limit hold on SEAT, whose 5-hour bar has reset, so it resumes where a slot is free. */
+const limitHeld = record({
+	jobId: "held",
+	issues: [6],
+	seat: SEAT,
+	sessionId: "s-held",
+	parked: true,
+	block: { cause: "LIMIT", since: NOW - 60 * MIN },
+	limitHeld: LIMIT_HELD,
+}) as Launch;
+
+/** A resumed limit hold whose session the listing shows working, so its
+ * ledger hold has ended. */
+const endedHold = record({
+	jobId: "ended",
+	issues: [4],
+	seat: SEAT,
+	limitHeld: { ...LIMIT_HELD, resumedAt: NOW - 30 * MIN },
+}) as Launch;
+
+/** A resume a kill left with no outcome on record (#4180). */
+const killedResume = record({
+	jobId: "left",
+	issues: [7],
+	resumeStarted: {
+		at: NOW - MIN,
+		sessionId: "s-left",
+		cwd: WFC,
+		act: { kind: "api", route: "stop and --bg --resume", again: false },
+	},
+}) as Launch;
+
+/** A park whose session ended unblocked, so its issue is unparked (#3940). */
+const answeredPark = {
+	read: {
+		readParkMarkers: () =>
+			[
+				{
+					sessionId: "s-parked",
+					issues: [9],
+					job: null,
+					writtenAt: NOW - 5 * MIN,
+				},
+			] as never,
+		findParkTranscript: () => ({ file: "/t", mtimeMs: NOW }),
+		readMainChain: () => [
+			{
+				type: "assistant",
+				timestamp: new Date(NOW - MIN).toISOString(),
+				message: {
+					model: "claude-opus-5-5",
+					content: [{ type: "text", text: "result: done" }],
+				},
+			},
+		],
+	} satisfies Partial<BlockIo>,
+};
+
+/** A listed session an API error blocks, its resume due. */
+const apiBlocked = record({
+	jobId: "api",
+	issues: [5],
+	parked: true,
+	block: { cause: "API_ERROR", sub: "transient", since: NOW - 2 * MIN },
+	resumes: { tries: 1, triedAt: NOW - 10 * MIN, nextAt: NOW - 1000 },
+}) as Launch;
+
+/** A listed session resumed and idle since, owed a typed resume (#2659). */
+const resumedIdle = record({
+	jobId: "idle",
+	issues: [8],
+	launchedAt: NOW - 60 * MIN,
+	relaunchedAt: NOW - 30 * MIN,
+}) as Launch;
+
+const listedAs = (...rows: [string, string][]) => ({
+	agents: rows.map(([id, state]) => ({
+		sessionId: `s-${id}`,
+		id,
+		kind: "background",
+		state,
+	})) as never,
+	why: null,
+});
+
+/** The ports under which apiBlocked, resumedIdle and endedHold read as they say. */
+const listedBlocks: Partial<TickIo> = {
+	readCause: () => ({ cause: "API_ERROR", sub: "transient" }) as never,
+	readListing: () =>
+		listedAs(["api", "blocked"], ["idle", "idle"], ["ended", "working"]),
+};
+
+/**
+ * A tick on which every block and limit decision the core makes acts through
+ * the BlockIo (#4913): a resume a kill left unsettled, an answered park, an
+ * API-error block, an idle session, a limit hold with room, and a hold ended.
+ */
+const actingTick = (over: Partial<TickIo> = {}) =>
+	fakeIo(
+		stateOf({
+			launches: [killedResume, apiBlocked, limitHeld, resumedIdle, endedHold],
+		}),
+		{
+			...listedBlocks,
+			/* An act just now, so the unproven cap leaves the hold its slot. */
+			readLoopLastActAt: () => NOW,
+			readFreeSlots: () => ({ slots: 2, admission: null }),
+			...over,
+		},
+		{
+			block: {
+				...answeredPark.read,
+				idleSince: (l) => (l.jobId === "idle" ? NOW - 20 * MIN : null),
+			},
+		},
+	);
+
 describe("the tick's step order (#4212)", () => {
 	it("settles what a kill left before reading the registry, and the relief before the listing (#4180, #2665)", async () => {
-		const { io, calls } = fakeIo(stateOf());
+		const { io, calls } = actingTick();
 		await runTick(io, {
 			dryRun: false,
 			now: NOW,
@@ -322,25 +428,32 @@ describe("the tick's step order (#4212)", () => {
 		expectOrder(calls, "changeControl", "reap");
 		expectOrder(calls, "reap", "readState");
 		expectOrder(calls, "readState", "adoptKilledLaunches");
-		expectOrder(calls, "adoptKilledLaunches", "settleStartedResumes");
-		expectOrder(calls, "settleStartedResumes", "readRegistry");
+		expectOrder(calls, "adoptKilledLaunches", "blockIo.adoptResumed");
+		expectOrder(calls, "blockIo.adoptResumed", "readRegistry");
 		expectOrder(calls, "stopNeverStarted", "readListing");
 		expectOrder(calls, "tendHolds", "readListing");
 	});
 
 	it("judges and acts on the launches only after the listing, and reads the room after them", async () => {
-		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
+		const { io, calls } = actingTick();
 		await tickOf(io);
-		expectOrder(calls, "readListing", "unparkAnswered");
-		expectOrder(calls, "unparkAnswered", "tendClosedParks");
-		expectOrder(calls, "tendClosedParks", "actOnBlocks");
-		expectOrder(calls, "actOnBlocks", "actOnIdle");
-		expectOrder(calls, "actOnIdle", "releaseAwayParks");
-		expectOrder(calls, "releaseAwayParks", "readLiftedHolds");
-		expectOrder(calls, "readLiftedHolds", "readFreeSlots");
-		expectOrder(calls, "readFreeSlots", "actOnLimits");
-		expectOrder(calls, "actOnLimits", "readSeats");
-		expectOrder(calls, "readSeats", "readFrontier");
+		/* The park answered, the block's typed resume, the idle session's, the
+		 * hold's resume on its seat, then its ledger hold released. */
+		expectSequence(calls, [
+			"readListing",
+			"blockIo.unparkSession",
+			"tendClosedParks",
+			"blockIo.type",
+			"blockIo.idleSince",
+			"blockIo.type",
+			"releaseAwayParks",
+			"readLiftedHolds",
+			"readFreeSlots",
+			"blockIo.resumeStopped",
+			"blockIo.release",
+			"readSeats",
+			"readFrontier",
+		]);
 	});
 
 	it("puts the batch on record before its launcher, then drops the markers and appends the row after the tick's write", async () => {
@@ -367,9 +480,8 @@ describe("the tick's step order (#4212)", () => {
 
 describe("what a kill left, settled ahead of the judging (#4180, #4323)", () => {
 	it("settles the resumes over the adopted launches, then writes both at once", async () => {
-		const adopted = record({ jobId: "adopted" });
-		const resumed = record({ jobId: "resumed" });
-		const handed: Launch[][] = [];
+		const adopted = { ...killedResume, jobId: "adopted" };
+		const handed: (string | null)[] = [];
 		const { io, calls, writes } = fakeIo(
 			stateOf({ launching: { at: NOW, batch: [] } }),
 			{
@@ -378,16 +490,25 @@ describe("what a kill left, settled ahead of the judging (#4180, #4323)", () => 
 					launching: undefined,
 					launches: [adopted],
 				}),
-				settleStartedResumes: (launches) => {
-					handed.push(launches);
-					return { launches: [resumed], settled: true };
+			},
+			{
+				frontier: [],
+				block: {
+					adoptResumed: (l) => {
+						handed.push(l.jobId);
+						return {
+							failed: null,
+							jobId: "resumed",
+							sessionId: "s-resumed",
+							copy: false,
+						};
+					},
 				},
 			},
-			{ frontier: [] },
 		);
 		await tickOf(io);
-		expect(handed).toEqual([[adopted]]);
-		expectOrder(calls, "settleStartedResumes", "updateState");
+		expect(handed).toEqual(["adopted"]);
+		expectOrder(calls, "blockIo.adoptResumed", "updateState");
 		expectOrder(calls, "updateState", "readRegistry");
 		expect(writes[0].launches).toMatchObject([{ jobId: "resumed" }]);
 	});
@@ -403,23 +524,34 @@ describe("what a kill left, settled ahead of the judging (#4180, #4323)", () => 
 
 describe("the limit acts' holds (#3735, #4323)", () => {
 	it("releases the holds the limit acts ended, against the launches they left", async () => {
-		const before = record({ jobId: "before" });
-		const after = record({ jobId: "after" });
-		const released: [Launch[], Launch[]][] = [];
-		const { io, calls } = fakeIo(stateOf({ launches: [before] }), {
-			actOnLimits: (_judged, _m, { slots }) => ({
-				launches: [after],
-				slots,
-				workingChange: 0,
-			}),
-			releaseEndedHolds: (b, a) => {
-				released.push([b as Launch[], a as Launch[]]);
+		const released: string[] = [];
+		const rows: (string | null)[] = [];
+		const { io, calls } = fakeIo(
+			stateOf({ launches: [limitHeld] }),
+			{ readLoopLastActAt: () => NOW },
+			{
+				block: {
+					release: ({ jobId }) => {
+						released.push(jobId);
+						return true;
+					},
+					writeLedgerHold: (l) => {
+						rows.push(l.jobId);
+						return true;
+					},
+				},
 			},
-		});
+		);
 		await tickOf(io);
-		expectOrder(calls, "actOnLimits", "releaseEndedHolds");
-		expectOrder(calls, "releaseEndedHolds", "readSeats");
-		expect(released).toEqual([[[before], [after]]]);
+		expectSequence(calls, [
+			"blockIo.resumeStopped",
+			"blockIo.release",
+			"readSeats",
+		]);
+		/* The hold's own ledger row released, and the resumed copy given an
+		 * ordinary one in its place. */
+		expect(released).toEqual(["held"]);
+		expect(rows).toEqual(["held-copy"]);
 	});
 });
 
@@ -468,12 +600,11 @@ describe("a kill between two steps (#4157, #4180)", () => {
 describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 	const killed = record({ sessionId: "s-job42", seat: SEAT }) as Launch;
 	/** The block port queueBootKilled reads: no job record, its lines kept. */
-	const bootPorts = (lines: string[]) =>
-		({
-			log: (line: string) => lines.push(line),
-			jobStateOf: () => null,
-			resumeTargetOf: (l: Launch) => ({ sessionId: l.sessionId, cwd: l.root }),
-		}) as unknown as ReturnType<TickIo["blockIo"]>;
+	const bootPorts = (lines: string[]): Partial<BlockIo> => ({
+		log: (line) => lines.push(line),
+		jobStateOf: () => null,
+		resumeTargetOf: (l) => ({ sessionId: l.sessionId ?? null, cwd: l.root }),
+	});
 
 	it("waits for a read listing, the launches and the wait kept and spared the never-started stop", async () => {
 		const blockLines: string[] = [];
@@ -482,7 +613,6 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		const { io, lines, disk } = fakeIo(
 			stateOf({ launches: [killed], bootedAt: NOW - MIN }),
 			{
-				blockIo: () => bootPorts(blockLines),
 				stopNeverStarted: (_registry, jobs) => {
 					spared.push([...jobs]);
 					return [];
@@ -492,6 +622,7 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 					return { agents: null, why: "the listing failed" };
 				},
 			},
+			{ block: bootPorts(blockLines) },
 		);
 		await tickOf(io);
 		expect(trusted).toEqual([true]);
@@ -511,20 +642,25 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			launching: { at: NOW, batch: [] },
 		});
 		const marker = { bootId: "b", at: NOW - MIN };
-		const { io, calls, disk } = fakeIo(initial, {
-			blockIo: () => bootPorts(blockLines),
-			readManagerRestart: () => marker,
-			readCurrentBootId: () => "b",
-			adoptKilledLaunches: () => {
-				const { launching: _, ...settled } = initial;
-				return settled;
+		const { io, calls, disk } = fakeIo(
+			initial,
+			{
+				readManagerRestart: () => marker,
+				readCurrentBootId: () => "b",
+				adoptKilledLaunches: () => {
+					const { launching: _, ...settled } = initial;
+					return settled;
+				},
 			},
-		});
+			{ block: bootPorts(blockLines) },
+		);
 		await tickOf(io);
 		expect(blockLines).toContain(
 			"design-vault /implement 42, killed by a restart: due back through the resume step",
 		);
-		expect(disk().launches[0]).toHaveProperty("stepResume.cause", "bootKilled");
+		/* The resume step then takes it the same tick. */
+		expect(calls).toContain("blockIo.resumeOwnId");
+		expect(disk().launches[0]).toMatchObject({ bootResumedAt: NOW });
 		expect(disk().bootedAt).toBeUndefined();
 		expect(disk().sameBootRestart).toBeUndefined();
 		expect(calls).toContain("dropManagerRestart");
@@ -537,12 +673,15 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 			launches: [{ ...killed, finishedAt: NOW - 2 * MIN, leftListing: true }],
 			lastTick: { at: NOW - 2 * MIN, summary: "" },
 		});
-		const refused = fakeIo(before, {
-			blockIo: () => bootPorts(blockLines),
-			readManagerRestart: () => marker,
-			readCurrentBootId: () => "b",
-			readListing: () => ({ agents: null, why: "the listing failed" }),
-		});
+		const refused = fakeIo(
+			before,
+			{
+				readManagerRestart: () => marker,
+				readCurrentBootId: () => "b",
+				readListing: () => ({ agents: null, why: "the listing failed" }),
+			},
+			{ block: bootPorts(blockLines) },
+		);
 		await tickOf(refused.io);
 		expect(blockLines).toContain(
 			"design-vault /implement 42, finished just before a manager restart: reopened",
@@ -550,14 +689,12 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(refused.disk().launches[0]?.finishedAt).toBeNull();
 		expect(refused.disk().bootedAt).toBe(NOW - MIN);
 		expect(refused.calls).toContain("dropManagerRestart");
-		const read = fakeIo(refused.disk(), {
-			blockIo: () => bootPorts(blockLines),
-		});
+		const read = fakeIo(refused.disk(), {}, { block: bootPorts(blockLines) });
 		await tickOf(read.io);
-		expect(read.disk().launches[0]).toHaveProperty(
-			"stepResume.cause",
-			"bootKilled",
+		expect(blockLines).toContain(
+			"design-vault /implement 42, killed by a restart: due back through the resume step",
 		);
+		expect(read.disk().launches[0]).toMatchObject({ bootResumedAt: NOW });
 		expect(read.disk().bootedAt).toBeUndefined();
 	});
 });
@@ -567,23 +704,29 @@ describe("the unproven cap through the tick (#4223)", () => {
 	const running = [1, 2, 3].map((n) =>
 		record({ jobId: `job${n}`, launchedAt: NOW - 30_000 }),
 	);
+	/* With a limit hold on a seat with room, which a free slot resumes. */
 	const limitSlotsOf = async (lastActAt: number) => {
-		const handed: number[] = [];
-		const { io } = fakeIo(stateOf({ launches: running }), {
-			readLoopLastActAt: () => lastActAt,
-			readFreeSlots: () => ({ slots: 5, admission: null }),
-			actOnLimits: (judged, _m, { slots }) => {
-				handed.push(slots);
-				return { launches: judged, slots, workingChange: 0 };
+		const { io, calls, lines } = fakeIo(
+			stateOf({ launches: [...running, limitHeld] }),
+			{
+				readLoopLastActAt: () => lastActAt,
+				readFreeSlots: () => ({ slots: 5, admission: null }),
 			},
-		});
+		);
 		const { decision } = await tickOf(io);
-		return { handed, decision };
+		return {
+			resumed: calls.includes("blockIo.resumeStopped"),
+			lines,
+			decision,
+		};
 	};
 
 	it("holds the limit resumes and the launches where three run since the last act", async () => {
-		const { handed, decision } = await limitSlotsOf(NOW - MIN);
-		expect(handed).toEqual([0]);
+		const { resumed, lines, decision } = await limitSlotsOf(NOW - MIN);
+		expect(resumed).toBe(false);
+		expect(lines).toContain(
+			`design-vault /implement 42 on ${SEAT} reads open, and waits on a free slot`,
+		);
 		expect(decision).toMatchObject({
 			launches: [],
 			idle: { reason: "3 launches since the last act are running" },
@@ -591,8 +734,8 @@ describe("the unproven cap through the tick (#4223)", () => {
 	});
 
 	it("frees the cap once an act follows them", async () => {
-		const { handed, decision } = await limitSlotsOf(NOW - 1000);
-		expect(handed).toEqual([3]);
+		const { resumed, decision } = await limitSlotsOf(NOW - 1000);
+		expect(resumed).toBe(true);
 		expect(decision).toMatchObject({ idle: null });
 	});
 });
@@ -607,11 +750,14 @@ describe("a copy's unretired original through the tick (#4646)", () => {
 			tries: 1,
 		};
 		const { io, calls, disk } = fakeIo(
-			stateOf({ launches: [record({ unretired: [unretired] })] }),
+			stateOf({
+				launches: [record({ unretired: [unretired] }), apiBlocked],
+			}),
+			listedBlocks,
 		);
 		await tickOf(io);
-		expect(calls).toContain("blockIo.retireJob");
-		expectOrder(calls, "blockIo.retireJob", "actOnBlocks");
+		/* Ahead of the block's typed resume. */
+		expectOrder(calls, "blockIo.retireJob", "blockIo.type");
 		expect(disk().launches[0]).not.toHaveProperty("unretired");
 	});
 });
@@ -658,18 +804,15 @@ describe("a limit-held launch through the tick (#3735)", () => {
 
 	it("nets the limit acts' working change into the tick's record (#3778)", async () => {
 		const records: { working: number | null }[] = [];
+		/* The hold's resume on its seat adds one session. */
 		const { io } = fakeIo(
-			stateOf(),
+			stateOf({ launches: [limitHeld] }),
 			{
+				readLoopLastActAt: () => NOW,
 				readFreeSlots: () => ({
 					slots: 1,
 					/* The run test's fake carries only the fields concurrency.js reads. */
 					admission: ADMISSION_VERDICT as never,
-				}),
-				actOnLimits: (judged, _m, { slots }) => ({
-					launches: judged,
-					slots,
-					workingChange: -1,
 				}),
 				appendTick: (r) => {
 					records.push(r);
@@ -680,7 +823,7 @@ describe("a limit-held launch through the tick (#3735)", () => {
 		await tickOf(io);
 		expect(records).toEqual([
 			expect.objectContaining({
-				working: ADMISSION_VERDICT.memory.working.count - 1,
+				working: ADMISSION_VERDICT.memory.working.count + 1,
 			}),
 		]);
 	});
@@ -846,17 +989,8 @@ describe("the dry-run policy (#4212)", () => {
 	});
 
 	it("calls no block act through the tick's BlockIo, which a live tick reaches (#4569)", async () => {
-		const throughSeen: Partial<TickIo> = {
-			actOnBlocks: (listed, _mode, seen) => {
-				seen.io.release({ jobId: "j", root: WFC });
-				return listed;
-			},
-		};
 		const tick = async (dryRun: boolean) => {
-			const { io, calls } = fakeIo(
-				stateOf({ launches: [record()] }),
-				throughSeen,
-			);
+			const { io, calls } = actingTick();
 			await runTick(io, {
 				dryRun,
 				now: NOW,
@@ -865,16 +999,39 @@ describe("the dry-run policy (#4212)", () => {
 					typed: { at: NOW - MIN, seat: null },
 				},
 			});
-			return calls.filter((port) => port.startsWith("blockIo."));
+			return blockCalls(calls);
 		};
-		expect(await tick(false)).toContain("blockIo.release");
+		expect(await tick(false)).toEqual(
+			expect.arrayContaining([
+				"blockIo.adoptResumed",
+				"blockIo.unparkSession",
+				"blockIo.type",
+				"blockIo.resumeStopped",
+				"blockIo.release",
+			]),
+		);
 		expect(await tick(true)).toEqual([]);
 	});
 
+	it("skips the block and limit acts, judging the launches as read rather than as the dry BlockIo would leave them (#4913)", async () => {
+		const { io, calls, lines } = actingTick();
+		const { decision } = await tickOf(io, control(), true);
+		/* Not a read either: the dry BlockIo answers acts alone, so a call
+		 * here would be a block or limit decision run. */
+		expect(blockCalls(calls)).toEqual([]);
+		expect(lines.join("\n")).not.toContain("a dry run acts on nothing");
+		expect(decision).toMatchObject({ idle: null });
+	});
+
 	it("releases no ended launch's hold on a paused dry run (#4356)", async () => {
-		const { io, calls } = fakeIo(stateOf({ launches: [record()] }));
-		await tickOf(io, control({ paused: { by: "founder", at: 7 } }), true);
-		expect(calls).not.toContain("releaseEndedHolds");
+		const paused = control({ paused: { by: "founder", at: 7 } });
+		const live = actingTick();
+		await tickOf(live.io, paused);
+		expect(live.calls).toContain("blockIo.release");
+		const dry = actingTick();
+		await tickOf(dry.io, paused, true);
+		expect(blockCalls(dry.calls)).toEqual([]);
+		expect(dry.lines.join("\n")).not.toContain("could not release");
 	});
 
 	it("returns at its decision, reading no manager restart or lifted hold and settling nothing", async () => {
@@ -1040,12 +1197,17 @@ describe("a paused tick (#3856)", () => {
 			launchedAt: NOW - 60 * MIN,
 		});
 		const capReads: string[] = [];
-		const { io, calls, lines, disk } = fakeIo(stateOf({ launches: [gone] }), {
-			capSizer: () => () => {
-				capReads.push("cap");
-				return null;
+		const { io, calls, lines, disk } = fakeIo(
+			stateOf({ launches: [gone, endedHold, limitHeld] }),
+			{
+				...listedBlocks,
+				readLoopLastActAt: () => NOW,
+				capSizer: () => () => {
+					capReads.push("cap");
+					return null;
+				},
 			},
-		});
+		);
 		await tickOf(io, paused);
 
 		const said = lines.join("\n");
@@ -1055,12 +1217,12 @@ describe("a paused tick (#3856)", () => {
 		expect(said).not.toContain("free slots");
 		expect(said).not.toContain("resumed 0 of");
 		expect(calls).toEqual(
-			expect.arrayContaining(["reap", "tendHolds", "releaseEndedHolds"]),
+			expect.arrayContaining(["reap", "tendHolds", "blockIo.release"]),
 		);
 		expect(disk().launches[0].finishedAt).not.toBeNull();
 		for (const port of [
 			"readFreeSlots",
-			"actOnLimits",
+			"blockIo.resumeStopped",
 			"readSeats",
 			"probeDueSeats",
 			"startDueConsoleReads",
@@ -1082,7 +1244,10 @@ describe("a launch hold through the tick (#4354)", () => {
 			jobId: "gone",
 			launchedAt: NOW - 60 * MIN,
 		});
-		const { io, calls, lines, disk } = fakeIo(stateOf({ launches: [gone] }));
+		const { io, calls, lines, disk } = fakeIo(
+			stateOf({ launches: [gone, endedHold] }),
+			listedBlocks,
+		);
 		const r = await tickOf(io, control({ launchHold: hold(NOW + 20 * MIN) }));
 
 		expect("launches" in r.decision && r.decision.idle?.reason).toBe(
@@ -1092,7 +1257,7 @@ describe("a launch hold through the tick (#4354)", () => {
 			`idle: launches held by a manual /pick-next until ${new Date(NOW + 20 * MIN).toISOString()}`,
 		);
 		expect(calls).toEqual(
-			expect.arrayContaining(["reap", "tendHolds", "releaseEndedHolds"]),
+			expect.arrayContaining(["reap", "tendHolds", "blockIo.release"]),
 		);
 		expect(disk().launches[0].finishedAt).not.toBeNull();
 		for (const port of ["readFreeSlots", "readFrontier", "launchBatch"])
@@ -1123,19 +1288,19 @@ describe("the launch walk's seat tries (#4074)", () => {
 	it("hands each walk the state file's tries, the launch walk the move walk's this tick too", async () => {
 		const Other = "/home/u/.claude4";
 		const tried: Record<string, number>[] = [];
-		const { io } = fakeIo(stateOf({ seatTriedAt: { [Other]: 5 } }), {
-			readSeats: (_seats, _slots, _root, how) => {
-				tried.push(how.tries.triedAt);
-				return {
-					seats: [sized],
-					probes: how.sizeAll ? [{ seat: SEAT, outcome: "failed" }] : [],
-				};
+		/* A limit hold, so the limit acts walk the seats it may move to. */
+		const { io } = fakeIo(
+			stateOf({ launches: [limitHeld], seatTriedAt: { [Other]: 5 } }),
+			{
+				readSeats: (_seats, _slots, _root, how) => {
+					tried.push(how.tries.triedAt);
+					return {
+						seats: [sized],
+						probes: how.sizeAll ? [{ seat: SEAT, outcome: "failed" }] : [],
+					};
+				},
 			},
-			actOnLimits: (judged, _m, { slots, readMoveSeats }) => {
-				readMoveSeats();
-				return { launches: judged, slots, workingChange: 0 };
-			},
-		});
+		);
 		await tickOf(io);
 		expect(tried).toEqual([{ [Other]: 5 }, { [Other]: 5, [SEAT]: NOW }]);
 	});
@@ -1358,30 +1523,43 @@ describe("an overflow session's listed id (#3701)", () => {
 describe("the parks a tick sweeps (#3950, #3872)", () => {
 	const Other = "/home/u/other";
 
-	it("takes answered parks off in every checkout it could serve, not only the served", async () => {
-		const swept: string[][] = [];
-		const { io } = fakeIo(stateOf(), {
-			readIncluded: () => [WFC, Other],
-			unparkAnswered: (roots) => {
-				swept.push(roots);
+	/** An answered park in each checkout, and the roots it was taken off in. */
+	const sweep = () => {
+		const swept: string[] = [];
+		const block: Partial<BlockIo> = {
+			...answeredPark.read,
+			unparkSession: (root) => {
+				swept.push(root);
+				return null;
 			},
-		});
+		};
+		return { swept, block };
+	};
+
+	it("takes answered parks off in every checkout it could serve, not only the served", async () => {
+		const { swept, block } = sweep();
+		const { io } = fakeIo(
+			stateOf(),
+			{ readIncluded: () => [WFC, Other] },
+			{ block },
+		);
 		await tickOf(io);
-		expect(swept).toEqual([[WFC, Other]]);
+		expect(swept).toEqual([WFC, Other]);
 	});
 
 	it("sweeps the served alone, logged, where discovery will not read", async () => {
-		const swept: string[][] = [];
-		const { io, lines } = fakeIo(stateOf(), {
-			readIncluded: () => {
-				throw new Error("EACCES");
+		const { swept, block } = sweep();
+		const { io, lines } = fakeIo(
+			stateOf(),
+			{
+				readIncluded: () => {
+					throw new Error("EACCES");
+				},
 			},
-			unparkAnswered: (roots) => {
-				swept.push(roots);
-			},
-		});
+			{ block },
+		);
 		await tickOf(io);
-		expect(swept).toEqual([[WFC]]);
+		expect(swept).toEqual([WFC]);
 		expect(lines.join("\n")).toContain("unserved parks unread: ");
 	});
 
