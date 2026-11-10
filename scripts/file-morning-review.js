@@ -115,6 +115,7 @@ const { requiredGroup } = require("./lib/regex-group.js");
 const { STANDARDS_DOCS } = require("./lib/primitives-table.js");
 const { coreRoot, scriptPath } = require("./lib/script-path.js");
 const { fileThrough } = require("./lib/file-through.js");
+const { buildScriptFilerArgv } = require("./lib/script-filer-argv.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readLedger } = require("./lib/delegated-decision.js");
 const concurrency = require("./lib/concurrency.js");
@@ -965,20 +966,13 @@ async function fileUnlessFiledToday(tracker, dryRun) {
 		.filter((i) => i.state === "OPEN")
 		.map((i) => i.number);
 	const filed = fileThrough(
-		[
-			"--title",
+		buildScriptFilerArgv({
 			title,
-			"--label",
-			REVIEW_LABEL,
-			"--standalone",
-			review.STANDALONE_REASON,
-			"--origin",
-			"morning-review-script",
-			"--no-fault",
-			"--body-file",
-			"-",
-			...(earlier.length > 0 ? ["--distinct-from", earlier.join(",")] : []),
-		],
+			labels: [REVIEW_LABEL],
+			placement: { standalone: review.STANDALONE_REASON },
+			origin: "morning-review-script",
+			distinctFrom: earlier,
+		}),
 		body,
 		hostRoot(),
 	);

@@ -12,6 +12,7 @@ const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { markersDir } = require("./marker-root.js");
 const { pidLock } = require("./pid-lock.js");
+const { readText } = require("./file-read.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
  * read as dead mid-suite. */
@@ -45,15 +46,15 @@ const landerLock = (root) =>
 	pidLock(queueLanderFiles(root).pid, "queue-lander.js");
 
 /**
- * A file's text, or null where it cannot be read.
+ * A ledger's text, or null where it does not exist; any other read fault
+ * throws, so an unreadable green ledger never reads as holding no sha
+ * (#4856).
  * @param {string} file
  */
-function readText(file) {
-	try {
-		return fs.readFileSync(file, "utf8");
-	} catch {
-		return null;
-	}
+function readLedgerText(file) {
+	const r = readText(file);
+	if (r.state === "unreadable") throw r.error;
+	return r.state === "read" ? r.data : null;
 }
 
 /**
@@ -64,14 +65,14 @@ function readText(file) {
  */
 function fileLedger(file) {
 	const readShas = () =>
-		(readText(file) ?? "")
+		(readLedgerText(file) ?? "")
 			.split("\n")
 			.flatMap((line) => line.split(" ")[0] || []);
 	return {
 		readShas,
 		has: (sha) => readShas().includes(sha),
 		greenAt: (sha) => {
-			const line = (readText(file) ?? "")
+			const line = (readLedgerText(file) ?? "")
 				.split("\n")
 				.find((l) => l.split(" ")[0] === sha);
 			const ms = Date.parse(line?.split(" ")[1] ?? "");
@@ -80,7 +81,7 @@ function fileLedger(file) {
 		add: (sha) =>
 			fs.appendFileSync(file, `${sha} ${new Date().toISOString()}\n`),
 		remove: (sha) => {
-			const text = readText(file);
+			const text = readLedgerText(file);
 			if (text === null) return;
 			const kept = text.split("\n").filter((l) => l.split(" ")[0] !== sha);
 			writeFileAtomic(file, kept.join("\n"));

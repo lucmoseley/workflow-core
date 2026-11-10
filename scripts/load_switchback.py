@@ -301,22 +301,25 @@ def median_ci(xs):
     return None if k == 0 else (s[k - 1], s[n - k])
 
 
-def sign_flip_p(diffs):
-    """One-sided p that the mean within-pair difference is this large by the
-    coin alone: exact over every flip up to EXACT_MAX_PAIRS, else sampled."""
+def sign_flip_p(diffs, *, two_sided=False):
+    """The p that the mean within-pair difference is this large by the coin
+    alone, one-sided, or this far from 0 where `two_sided` (#4862): exact over
+    every flip up to EXACT_MAX_PAIRS, else sampled."""
     n = len(diffs)
     if not n:
         return None
-    obs = sum(diffs)
+    stat = abs if two_sided else (lambda x: x)
+    obs = stat(sum(diffs))
     if n <= EXACT_MAX_PAIRS:
         hits = sum(
-            sum(d if mask >> j & 1 else -d for j, d in enumerate(diffs)) >= obs - 1e-12
+            stat(sum(d if mask >> j & 1 else -d for j, d in enumerate(diffs)))
+            >= obs - 1e-12
             for mask in range(2**n)
         )
         return hits / 2**n
     rng = random.Random(3223)
     hits = sum(
-        sum(d if rng.random() < 0.5 else -d for d in diffs) >= obs - 1e-12
+        stat(sum(d if rng.random() < 0.5 else -d for d in diffs)) >= obs - 1e-12
         for _ in range(SIGN_FLIP_DRAWS)
     )
     return (hits + 1) / (SIGN_FLIP_DRAWS + 1)

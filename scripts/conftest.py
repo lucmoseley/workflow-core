@@ -57,6 +57,10 @@ if _real_git:
     os.environ["WFC_HOST_GIT_REAL"] = _real_git
 os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
 
+# A live memory-hold trial's declaration never lifts a test's meminfo fixture,
+# as vitest.setup.ts blanks it (#4862).
+os.environ["WFC_MEMORY_HOLD"] = ""
+
 # No test reaches the session's host through CLAUDE_PROJECT_DIR (#3334): an
 # empty dir that is no repository, as vitest.setup.ts points it at.
 _test_host_dir = tempfile.mkdtemp(prefix="wfc-test-host-")
