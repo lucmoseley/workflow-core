@@ -10,7 +10,10 @@
 
 const path = require("node:path");
 const { QUIET_BENCH_PAUSE } = require("./refill-decide.js");
+const { CEILING_MS } = require("./suite-ceiling.js");
+const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 const {
+	LADDER_SUITE_WORKERS,
 	SUITE_LADDER_MEASURED_AT,
 	SUITE_RESTING_MB,
 } = require("./suite-ladder.js");
@@ -33,6 +36,34 @@ const LADDER_BENCH = {
 	startMb: SUITE_RESTING_MB[1],
 };
 
+/**
+ * The longest lone whole suite under which the bench's top row of
+ * concurrent suites still runs to its end inside the ceiling (#4931).
+ * Untraced, CPU-bound: a lone suite of T ms at WHOLE_SUITE_WORKERS burns
+ * T × min(W, cores) core-ms; the top row runs n such suites at the bench's
+ * LADDER_SUITE_WORKERS each, sharing min(n × w, cores) cores, so it takes
+ * n × T × min(W, cores) / min(n × w, cores). At W 5, w 3, n 3 on 8 cores
+ * that is 1.875 T, so T ≤ 448 s. A measured top row overrules it.
+ * @param {number} cores
+ */
+function loneSuiteFitMs(cores) {
+	const n = Math.max(...COUNTS);
+	const rowCores = Math.min(n * LADDER_SUITE_WORKERS, cores);
+	const loneCores = Math.min(WHOLE_SUITE_WORKERS, cores);
+	return Math.floor((CEILING_MS * rowCores) / (n * loneCores));
+}
+
+/**
+ * Whether the latest lone whole suite is short enough for the bench to
+ * run its top row whole. None recorded, or killed at the ceiling, is not.
+ * @param {{durationMs: number, ceilingKill?: boolean}|null} lone
+ * @param {number} cores
+ */
+const isLoneSuiteFit = (lone, cores) =>
+	lone !== null &&
+	!lone.ceilingKill &&
+	lone.durationMs <= loneSuiteFitMs(cores);
+
 /* Which ladder a run measured: a run kept from before a restate satisfies no
  * later drift. */
 const LADDER_STAMP = `${SUITE_LADDER_MEASURED_AT.files} files, ${SUITE_LADDER_MEASURED_AT.date}`;
@@ -48,8 +79,8 @@ const DRAIN_LIMIT_MS = 4 * 60 * 60 * 1000;
  * the 14-minute ceiling (docs/environment.md), about 3 h. Past it the runner is
  * stopped, as a wedged one reads alive for ever. */
 const RUN_LIMIT_MS = 4 * 60 * 60 * 1000;
-/* A guess: the due read costs about 3 s and a `gh` call, on a condition that
- * moves only with a re-measurement. */
+/* A guess: the due read costs about 3 s, on a condition that moves only with
+ * a re-measurement or a whole suite. */
 const DUE_READ_EVERY_MS = 60 * 60 * 1000;
 /* A guess: a tick soon after the start can precede the runner's pidfile. */
 const RUNNER_START_GRACE_MS = 30 * 1000;
@@ -478,6 +509,7 @@ module.exports = {
 	buildRunComment,
 	countUsableRows,
 	decideQuietBench,
+	isLoneSuiteFit,
 	isRunAnswering,
 	parseBenchState,
 	parseFree,

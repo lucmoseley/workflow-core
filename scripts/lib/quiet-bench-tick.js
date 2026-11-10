@@ -9,11 +9,12 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { buildErrorText, caught } = require("./caught.js");
 const { CHILD_TIMEOUT_MS, spawnChild } = require("./child-spawn.js");
 const { countSessions, readProcCwd } = require("./claude-sessions.js");
-const { gh, parseErrLine } = require("./gh.js");
+const { parseErrLine } = require("./gh.js");
 const { spawnDetachedRun } = require("./lander-start.js");
 const { readAvailableMb } = require("./meminfo.js");
 const { pidLock } = require("./pid-lock.js");
@@ -24,6 +25,7 @@ const {
 	HOLD_RUNNING,
 	LADDER_BENCH,
 	decideQuietBench,
+	isLoneSuiteFit,
 	isRunAnswering,
 	parseBenchState,
 } = require("./quiet-bench.js");
@@ -43,7 +45,8 @@ const {
 const { readJson, writeJson } = require("./refill-json.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { PS_BIN } = require("./suite-ladder.js");
-const { resolveKey } = require("./workflow-core-config.js");
+const { readFailures, readMarkers } = require("./test-pass-marker.js");
+const { latestLoneSuite } = require("./whole-suite-runs.js");
 
 const SCRIPTS = path.dirname(__dirname);
 
@@ -52,8 +55,9 @@ const HOLD_LOCK_WAIT_MS = 1000;
 
 /**
  * Whether the suite has outgrown the ladder (check-suite-size-drift's WARN), no
- * kept run answers the ladder as it stands, and no open issue blocks the bench's
- * issue. A read that fails is no due measurement.
+ * kept run answers the ladder as it stands, and the latest lone whole suite in
+ * `root`'s markers is short enough for the bench's top row to finish. A read
+ * that fails is no due measurement.
  * @param {string} root
  * @param {(line: string) => void} log
  */
@@ -66,13 +70,8 @@ function readDue(root, log) {
 	try {
 		if (JSON.parse(r.stdout).outcome !== "WARN") return false;
 		if (readKeptRuns().some(isRunAnswering)) return false;
-		const open = gh([
-			"api",
-			`repos/${resolveKey("tracker", { root })}/issues/${LADDER_BENCH.issue}/dependencies/blocked_by`,
-			"--jq",
-			'[.[] | select(.state == "open")] | length',
-		]);
-		return Number(open) === 0;
+		const lone = latestLoneSuite(readMarkers({ root }), readFailures({ root }));
+		return isLoneSuiteFit(lone, os.cpus().length);
 	} catch (e) {
 		log(`quiet bench: its due read failed: ${buildErrorText(e)}`);
 		return false;
