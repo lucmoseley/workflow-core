@@ -45,8 +45,7 @@
  *   holds too ends the run, naming them, and drops no member, as `main` must
  *   be re-anchored first; a member merged alone, in an isolation or a serial
  *   step, is taken as merged, so the search still reaches the member
- *   carrying the re-anchor. A batch carrying it lands, so the next run a new
- *   ref starts takes it.
+ *   carrying the re-anchor.
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
  *   a commit gate refused, it is dropped: its batch leaves it out and
@@ -612,8 +611,7 @@ function unmergedAction(members, s, u, main) {
 /**
  * Whether a member's merge alone made a commit: merged, or `stale-base`,
  * whose faults are its base's and not the member's. Only a batch's merge
- * stops the line on them (#4807); an isolation or serial step that did
- * would never reach the member carrying the re-anchor.
+ * stops the line on them (#4807).
  * @param {MergeResult} r
  * @returns {r is Extract<MergeResult, {kind: "merged" | "stale-base"}>}
  */
@@ -621,9 +619,6 @@ const mergedAlone = (r) => r.kind === "merged" || r.kind === "stale-base";
 
 /**
  * The run's end on a base holding gating guard-registry faults (#4807).
- * Stop the line: no member is dropped for faults it did not add, and no
- * batch lands until `main` is re-anchored, which a new ref carrying the
- * re-anchor does, as a new ref waiting starts a run that merges it in.
  * @param {Extract<MergeResult, {kind: "stale-base"}>} result
  * @param {string} main
  * @returns {QueueEnd}

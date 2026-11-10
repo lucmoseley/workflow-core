@@ -73,8 +73,7 @@
  * instead, where that tree carries one at this checker's path: a checker whose
  * findings hash its own definition (check-guard-registry.js's digests) would
  * otherwise read a change to that definition as faulting both sides alike, and
- * pass the commit that made them (#4807). A tree with no copy, as an
- * adopter's, falls back to this process's.
+ * pass the commit that made them (#4807).
  *
  * FAIL-CLOSED ON THE BASELINE. A <rev> reading that cannot answer —
  * unreadable, unparseable, BROKEN or SKIP — is BROKEN here, never "inherited",
@@ -770,7 +769,6 @@ function writeEntry(e, body, { rev, dir }) {
  * @param {string} dir
  * @param {string} label
  * @param {{ stream: boolean, side: "index" | "baseline", code?: string }} opts
- *   `code` the checker to run, this process's own where absent
  * @param {string[]} args
  * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
  */
@@ -1067,9 +1065,7 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 
 /**
  * The copy of this process's checker that the tree materialised at `dir`
- * carries at the same path, else undefined. A checker sits in `scripts/`
- * beside this library's directory, so that path is its directory's name and
- * its own.
+ * carries at the same path, else undefined.
  * @param {string} dir
  */
 function checkerCopyIn(dir) {

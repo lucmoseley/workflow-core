@@ -125,7 +125,7 @@ const gateCopy = (dir, rel) =>
 
 /**
  * The registry checker's --json envelope out of its run over `sha`, null
- * where it skipped. A timeout is transient, as a merge's own gates' is.
+ * where it skipped.
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {string} sha
  * @param {number} timeoutMs
@@ -381,9 +381,8 @@ function queueGit(
 	}
 
 	/**
-	 * check-guard-registry.js's --json envelope over `sha`'s tree, run as the
-	 * commit gate runs it: `WFC_PLUGIN_ROOT`'s copy, else the tree's own; null
-	 * where neither carries one or the checker skips, as with its module off.
+	 * check-guard-registry.js's --json envelope over `sha`'s tree, null where
+	 * the tree carries no checker.
 	 * @param {string} sha
 	 * @returns {Record<string, unknown> | null}
 	 */

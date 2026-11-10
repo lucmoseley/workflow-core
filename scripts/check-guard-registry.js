@@ -4576,10 +4576,6 @@ function settleOwed(ctx, added, stale, { tip, pushed }) {
 }
 
 /**
- * One owed row of settleOwed's remedy: the paths it went stale through, and,
- * where this commit changed none of the files its digest hashes, that the
- * digest definition moved under bytes its anchor already attested (#4807).
- *
  * @param {StaleWarning} w
  * @param {{ hashed: string[], changed: { paths: string[], error: string | null },
  *   annotated: boolean }} at
