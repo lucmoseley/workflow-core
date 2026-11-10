@@ -673,6 +673,85 @@ describe("the probe hold (#3860)", () => {
 		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
+	describe("a hold raised through repo-hold.js from a linked worktree git refuses (#4880)", () => {
+		const Cli = path.join(__dirname, "..", "repo-hold.js");
+		let worktree: string;
+		let gitFile: string;
+		let text: string;
+		const raiseFrom = (cwd: string) =>
+			runInProcess(
+				Cli,
+				[
+					"raise",
+					"--act",
+					"repair main",
+					"--issue",
+					"12",
+					"--clear-command",
+					"false",
+				],
+				{
+					cwd,
+					env: {
+						...process.env,
+						HOME: dir,
+						CLAUDE_PROJECT_DIR: cwd,
+						CLAUDE_JOB_DIR: "",
+						CLAUDE_CODE_SESSION_ID: "",
+					},
+				},
+			);
+		const readActs = (root: string) =>
+			readHolds(root).holds.map((h) => [h.act, h.checkout]);
+
+		beforeEach(() => {
+			worktree = at("worktree");
+			execFileSync("git", ["worktree", "add", "-q", worktree], { cwd: repo });
+			gitFile = path.join(worktree, ".git");
+			text = fs.readFileSync(gitFile, "utf8");
+		});
+
+		it("holds in the main checkout where the worktree's registration is broken", () => {
+			const admin = path.join(repo, ".git", "worktrees", "worktree");
+			const head = fs.readFileSync(path.join(admin, "HEAD"), "utf8");
+			fs.writeFileSync(path.join(admin, "HEAD"), "junk\n");
+
+			expect(raiseFrom(worktree).status).toBe(0);
+			fs.writeFileSync(path.join(admin, "HEAD"), head);
+
+			expect(readActs(repo)).toEqual([["repair main", repo]]);
+		});
+
+		it("reaches the main checkout's store once a garbage .git file is repaired", () => {
+			fs.writeFileSync(gitFile, "garbage\n");
+			expect(raiseFrom(worktree).status).toBe(0);
+			const broken = holdsDir(worktree);
+			expect(readActs(repo)).toEqual([]);
+
+			fs.writeFileSync(gitFile, text);
+
+			expect(readActs(repo)).toEqual([["repair main", worktree]]);
+			expect(fs.existsSync(broken)).toBe(false);
+		});
+
+		it("reports a repaired worktree's store it cannot adopt beside its own holds", () => {
+			fs.writeFileSync(gitFile, "garbage\n");
+			expect(raiseFrom(worktree).status).toBe(0);
+			const broken = holdsDir(worktree);
+			fs.writeFileSync(gitFile, text);
+			fs.chmodSync(broken, 0o000);
+			try {
+				expect(readHolds(repo).unread).toEqual([
+					expect.stringContaining(`${broken}: `),
+				]);
+			} finally {
+				fs.chmodSync(broken, 0o755);
+			}
+			expect(readActs(repo)).toEqual([["repair main", worktree]]);
+			expect(readHolds(repo).unread).toEqual([]);
+		});
+	});
+
 	describe("a guard entry that will not load (#4226), the probe's answer injected", () => {
 		let failure: { text: string; isOutage: boolean } | null;
 		let replayFailure: (command: unknown) => string | null;

@@ -11,9 +11,12 @@
  * worktree of a checkout and the loop read one store, a raise overwrites no
  * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
  * out a hold the founder has yet to answer. Where git will not name the common
- * dir, a linked worktree keys on the one its `.git` file points at (#4402).
- * One that points nowhere keys on its own path, and its store is adopted into
- * the common dir's once the file names one again (#4718).
+ * dir, a linked worktree keys on the one its `.git` file points at (#4402),
+ * and a command run there holds in the main checkout that common dir names
+ * (#4880). One that points nowhere keys on its own path, and its store is
+ * adopted into the common dir's once the file names one again: the root's own
+ * (#4718), and its main checkout's, which reads its registered worktrees
+ * (#4880), so a raise from there reaches the store the tick serves.
  *
  * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
  * lift racing get one winner and one log line, and the sessions parked on the hold
@@ -75,7 +78,7 @@ const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
-const { readGitFileCommonDir } = require("./git-file.js");
+const { readGitFileCommonDir, readLinkedWorktrees } = require("./git-file.js");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
@@ -84,7 +87,7 @@ const { gitCommonDir } = require("./git.js");
 const guardProbe = require("./guard-probe.js");
 const { hostRoot } = require("./host-root.js");
 const { parseJobDir } = require("./job-paths.js");
-const { mainCheckout } = require("./main-checkout.js");
+const { checkoutOfCommonDir, mainCheckout } = require("./main-checkout.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildAgeText } = require("./hold-age.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
@@ -204,10 +207,17 @@ const STORE_KEY_LENGTH = 12;
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
 
 /**
- * The checkout a command run from `cwd` holds holds in.
+ * The checkout a command run from `cwd` holds holds in: where git will not
+ * name it, the one the common dir `cwd`'s `.git` file points at names (#4880).
  * @param {string} cwd
  */
-const readCheckout = (cwd) => mainCheckout(cwd) ?? cwd;
+function readCheckout(cwd) {
+	const main = mainCheckout(cwd);
+	if (main !== null) return main;
+	const common = readGitFileCommonDir(cwd);
+	const named = common === null ? null : checkoutOfCommonDir(deref(common));
+	return named ?? cwd;
+}
 
 /** @type {AsyncLocalStorage<Map<string, string>>} */
 const tickStores = new AsyncLocalStorage();
@@ -228,6 +238,7 @@ function holdsDir(root) {
 	const dir = buildStoreDir(root, common ?? own);
 	const broken = buildStoreDir(root, own);
 	if (common !== null && broken !== dir) tryAdoptStore(broken, dir);
+	if (common !== null) adoptRepairedWorktrees(root, common, dir);
 	stores?.set(root, dir);
 	return dir;
 }
@@ -246,25 +257,57 @@ function buildStoreDir(root, key) {
 	);
 }
 
-/** @type {Map<string, string>} why adopting into each store last failed, by that store, for readHolds */
+/** @type {Map<string, Map<string, string>>} why adopting into each store last failed, by that store and then by what it adopts, for readHolds */
 const adoptFaults = new Map();
 
 /**
- * Adopt store `from` into `to`, a failure kept for readHolds to report: the
- * tick has no per-root catch, so a throw would stop every checkout's (#4718).
+ * Run `adopt`, adopting `from` into store `to`, a failure kept for readHolds
+ * to report: the tick has no per-root catch, so a throw would stop every
+ * checkout's (#4718).
  * @param {string} from
  * @param {string} to
+ * @param {() => void} adopt
  */
-function tryAdoptStore(from, to) {
+function tryAdopt(from, to, adopt) {
+	const faults = adoptFaults.get(to) ?? new Map();
+	adoptFaults.set(to, faults);
 	try {
-		adoptStore(from, to);
-		adoptFaults.delete(to);
+		adopt();
+		faults.delete(from);
 	} catch (err) {
-		adoptFaults.set(
-			to,
+		faults.set(
+			from,
 			`${from}: ${caught(err).message}; its holds read nowhere until it moves into ${to}, so repair the directory`,
 		);
 	}
+}
+
+/**
+ * @param {string} from
+ * @param {string} to
+ */
+const tryAdoptStore = (from, to) =>
+	tryAdopt(from, to, () => adoptStore(from, to));
+
+/**
+ * Adopt into main checkout `root`'s store `dir` each store a linked worktree
+ * of it keyed on its own `.git` while that file named nothing, once the file
+ * names `common` again (#4880): nothing else reads it then, as the tick serves
+ * the main checkout and the worktree's commands hold there once repaired.
+ * @param {string} root
+ * @param {string} common
+ * @param {string} dir
+ */
+function adoptRepairedWorktrees(root, common, dir) {
+	if (checkoutOfCommonDir(deref(common)) !== deref(root)) return;
+	const registry = path.join(common, "worktrees");
+	tryAdopt(registry, dir, () => {
+		for (const tree of readLinkedWorktrees(common)) {
+			const named = readGitFileCommonDir(tree);
+			if (named !== null && deref(named) === deref(common))
+				tryAdoptStore(buildStoreDir(tree, path.join(tree, ".git")), dir);
+		}
+	});
 }
 
 /** Files that belong to a store, not to a hold: the store adopted into keeps its own. */
@@ -549,8 +592,10 @@ function isHold(value, name) {
 function readHolds(root) {
 	const dir = holdsDir(root);
 	const read = readStoreHolds(dir);
-	const fault = adoptFaults.get(dir);
-	return fault ? { ...read, unread: [fault, ...read.unread] } : read;
+	const faults = [...(adoptFaults.get(dir)?.values() ?? [])];
+	return faults.length > 0
+		? { ...read, unread: [...faults, ...read.unread] }
+		: read;
 }
 
 /**
