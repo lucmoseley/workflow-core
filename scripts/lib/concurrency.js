@@ -510,6 +510,8 @@ function readNewestTick() {
 			readLastJsonlRow(concurrencyFiles().record) ?? null
 		);
 	} catch {
+		/* Unread, as the panel shows it; the readout's block names the record
+		 * that would not read (readRecords). */
 		return null;
 	}
 }

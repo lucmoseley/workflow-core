@@ -64,10 +64,6 @@ const NOT_AT_SESSION_START: Record<string, { why: string; sites: number }> = {
 		why: "startDetachedIn, the refill loop's children",
 		sites: 1,
 	},
-	"scripts/lib/headless-sessions.js": {
-		why: "a headless session's spawn",
-		sites: 1,
-	},
 	"scripts/lib/guard-entry.js": {
 		why: "startDetached, a PostToolUse guard's launch",
 		sites: 1,

@@ -944,6 +944,8 @@ function startGateSweep(sweeper) {
 }
 
 async function run() {
+	/* Before the hold, so a tick that will not load takes no pidfile. */
+	const { isReviewRunning, tick } = loadTick();
 	/* Before the hold, so it is never held past this process; release
 	 * removes only a pidfile naming this one. */
 	process.on("exit", lock.release);
@@ -974,7 +976,6 @@ async function run() {
 		log,
 	});
 	const watcher = wakes.wakeWatcher(files.wake, { log });
-	const { isReviewRunning, tick } = loadTick();
 	try {
 		await wakes.runTicks(async (wake) => {
 			if (wake.woken)

@@ -2,12 +2,10 @@
 /*
  * Pins what `refill-loop.js status --json` leaves unloaded (#4821). The refill
  * panel runs it every 3 s, and each module it loads costs that poll start-up
- * time, so a later top-level require of the tick, the morning review or the
- * session store would bring back what #4821 cut.
+ * time.
  *
- * A program case (base §X3), run through lib/run-in-process.js, which purges
- * repo modules only before a call: what is in require.cache after it is that
- * call's load set.
+ * A program case (base §X3). Its runner purges repo modules only before a
+ * call: what is in require.cache after it is that call's load set.
  */
 
 import fs from "node:fs";

@@ -134,9 +134,8 @@ function lastRowOf(text, partial) {
 }
 
 /**
- * The file's last row, as `readJsonl(file).rows.at(-1)` gives it, read from
- * the file's end: null where the file is missing, undefined where it holds no
- * row.
+ * The file's last row, as `readJsonl(file).rows.at(-1)` gives it: null where
+ * the file is missing, undefined where it holds no row.
  * @param {string} file
  * @returns {Record<string, unknown> | null | undefined}
  */
@@ -145,6 +144,7 @@ function readLastJsonlRow(file) {
 	try {
 		fd = fs.openSync(file, "r");
 	} catch (e) {
+		/* lib/file-read.js reads a file whole, and this one must not be. */
 		if (caught(e).code === "ENOENT") return null;
 		throw e;
 	}
