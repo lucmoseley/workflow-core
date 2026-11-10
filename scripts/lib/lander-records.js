@@ -113,6 +113,7 @@ const PHASES = Object.freeze(
  *   a dropped ref no drop record entry named
  * @typedef {Exclude<Unmerged, {kind: "stale-base"}> | RedAlone | Collision
  *   | Unrecorded} Cause
+ * @typedef {"open" | "settled" | "ticketed"} DropState
  * @typedef {object} Drop a dropped member, as the drop record holds it
  * @property {string} name after `queue/`
  * @property {string} sha
@@ -120,8 +121,17 @@ const PHASES = Object.freeze(
  * @property {string} onto the `main` it was merged onto, or, for an entry
  *   written back for a ref none named, `main` when it was
  * @property {Cause} cause
- * @property {number|null} ticket its fix ticket, null until filed
+ * @property {number|null} ticket its branch's fix ticket, which every
+ *   ticketed entry of one `name` shares; null until filed
  * @property {number} at when it was dropped, in ms
+ * @property {DropState} state `open` until decided; `settled` once `main`
+ *   holds its sha or a newer push of its queue ref landed; `ticketed` once
+ *   its branch's fix ticket names it
+ * @property {number} decidedAt when `state` was decided, in ms
+ * @property {string} [settledOn] the `main` sha that held its work when it
+ *   was settled
+ * @property {string} [filingRefused] why file-issue.js refused its fix
+ *   ticket for good, until one is filed
  * @property {number} [reapedAt] when its dropped ref was deleted, in ms
  * @typedef {object} DropRecord
  * @property {() => Drop[]} read
@@ -333,20 +343,50 @@ const isCause = (u) => {
 		: false;
 };
 
-/** @param {unknown} d @returns {d is Drop} */
-const isDrop = (d) => {
+/** @type {readonly string[]} */
+const DROP_STATES = ["open", "settled", "ticketed"];
+
+/**
+ * A drop in the current shape, or null where it is none.
+ * @param {unknown} d
+ * @returns {Drop|null}
+ */
+function parseDrop(d) {
 	const o = asObject(d);
-	return (
-		typeof o?.name === "string" &&
-		typeof o.sha === "string" &&
-		typeof o.ref === "string" &&
-		typeof o.onto === "string" &&
-		isCause(o.cause) &&
-		(o.ticket === null || Number.isInteger(o.ticket)) &&
-		Number.isFinite(o.at) &&
-		(o.reapedAt === undefined || Number.isFinite(o.reapedAt))
-	);
-};
+	const state = orDefault(o?.state, o?.ticket === null ? "open" : "ticketed");
+	const decidedAt = orDefault(o?.decidedAt, o?.at);
+	if (
+		typeof o?.name !== "string" ||
+		typeof o.sha !== "string" ||
+		typeof o.ref !== "string" ||
+		typeof o.onto !== "string" ||
+		!isCause(o.cause) ||
+		!(o.ticket === null || Number.isInteger(o.ticket)) ||
+		!Number.isFinite(o.at) ||
+		!DROP_STATES.includes(String(state)) ||
+		!Number.isFinite(decidedAt) ||
+		!(o.settledOn === undefined || typeof o.settledOn === "string") ||
+		!(o.filingRefused === undefined || typeof o.filingRefused === "string") ||
+		!(o.reapedAt === undefined || Number.isFinite(o.reapedAt))
+	)
+		return null;
+	return /** @type {Drop} */ ({
+		name: o.name,
+		sha: o.sha,
+		ref: o.ref,
+		onto: o.onto,
+		cause: o.cause,
+		ticket: o.ticket,
+		at: o.at,
+		state,
+		decidedAt,
+		...(o.settledOn === undefined ? {} : { settledOn: o.settledOn }),
+		...(o.filingRefused === undefined
+			? {}
+			: { filingRefused: o.filingRefused }),
+		...(o.reapedAt === undefined ? {} : { reapedAt: o.reapedAt }),
+	});
+}
 
 /**
  * A JSON record file: absent, torn where it will not parse, or its value.
@@ -394,7 +434,10 @@ function readDropFile(file) {
 	const r = readRecordFile(file);
 	if (r.kind !== "read") return r;
 	return Array.isArray(r.value)
-		? { kind: "read", value: r.value.filter(isDrop) }
+		? {
+				kind: "read",
+				value: r.value.map(parseDrop).filter((d) => d !== null),
+			}
 		: { kind: "torn" };
 }
 
@@ -418,8 +461,29 @@ function dropRecord(file) {
 	};
 }
 
+/**
+ * Whether the drop is owed a decision a lander is started for; a filing
+ * refused for good is a person's to clear, and starts none. Narrower
+ * than what a running lander decides (lib/queue-lander.js's dropDecision): a
+ * ticketed drop's close waits for the run a push starts (spec #4947).
+ * @param {Drop} d
+ */
+const isOwedDrop = (d) =>
+	d.state === "open" &&
+	d.ticket === null &&
+	d.reapedAt === undefined &&
+	d.filingRefused === undefined;
+
+/**
+ * The drops the record at `file` holds that are owed a decision.
+ * @param {string} file
+ * @returns {Drop[]}
+ */
+const readOwedDrops = (file) => dropRecord(file).read().filter(isOwedDrop);
+
 module.exports = {
 	dropRecord,
+	readOwedDrops,
 	isStringList,
 	parseVerdict,
 	pipelineRecord,

@@ -1534,6 +1534,19 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		);
 	});
 
+	it("charges a queued `npm run test:py` pytest's peak at its workers (#4775)", () => {
+		expect(queuedRunnerPeakMb(["npm", "run", "test:py", "--", "scripts"])).toBe(
+			launchChargeMb({ kind: "pytest", workers: 2 }),
+		);
+		expect(queuedRunnerPeakMb(["npm", "test:py", "--", "-n", "4"])).toBe(
+			launchChargeMb({ kind: "pytest", workers: 4 }),
+		);
+		expect(
+			queuedRunnerPeakMb(["node", "scripts/run-pytest.js", "--full"]),
+		).toBe(launchChargeMb({ kind: "pytest", workers: 2 }));
+		expect(queuedRunnerPeakMb(["npm", "run", "test"])).toBe(undefined);
+	});
+
 	it("reads a queued launch's peak off its runner class (#4648)", () => {
 		expect(queuedRunnerPeakMb(["pytest", "-n", "8"])).toBe(
 			launchChargeMb({ kind: "pytest", workers: 8 }),
