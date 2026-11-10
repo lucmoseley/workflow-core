@@ -20,9 +20,8 @@
  *
  * IT FAILS OPEN where it cannot run the probe — a settings file that will
  * not read, no main checkout, no marker written — admitting the start and
- * saying so through `warn` (#4752): the check only adds a fix to name, and
- * a start it refused on its own fault would strand a session the harness
- * would have run.
+ * saying so through `warn` (#4752): a start it refused on its own fault
+ * would strand a session the harness would have run.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -162,9 +161,7 @@ function blockOf(line, r, budgetS) {
 /**
  * `line`'s verdict on a Bash call, run in `dir` for the marked session its
  * `input` names: `blocked` and why, `unrun` and why where run-budgeted.js
- * itself failed, or null where the call goes through. The run is in a
- * process group of its own, killed whole at its budget, so a hung line
- * leaves no straggler.
+ * itself failed, or null where the call goes through.
  * @param {HookEntry} line
  * @param {{ dir: string, env: NodeJS.ProcessEnv, input: string }} probe
  *   `input`, a file holding the hook's stdin
@@ -234,10 +231,8 @@ function parseLines(text) {
 }
 
 /**
- * `lines`' first verdict that is not a pass, each run in `dir` as the
- * harness would for a session the self-plugin loaded: a marker written for
- * a probe session id by the main checkout's own writer, then removed.
- * `unrun` where the probe itself could not run.
+ * `lines`' first verdict that is not a pass, `unrun` where the probe itself
+ * could not run.
  * @param {string} dir
  * @param {string} main the main checkout
  * @param {{ own: HookEntry[], landed: HookEntry[] | null }} lines
@@ -286,8 +281,6 @@ function probeLines(dir, main, { own, landed }) {
 				return {
 					unrun: `the probe of \`${line.command}\` would not run: ${verdict.unrun}`,
 				};
-			/* origin/main's lines failing too puts the fault outside the edit,
-			 * so restoring them is no fix: the canary's own refusal speaks. */
 			const landedV = landedVerdict(landed ?? [], probe);
 			if (landedV === "blocked") return null;
 			if (landedV !== null)
@@ -316,7 +309,7 @@ function settingsLockout(dir, warn = (line) => writeFd(2, `${line}\n`)) {
 	const file = path.join(dir, SETTINGS);
 	const unchecked = (/** @type {string} */ why) => {
 		warn(
-			`settings lockout: ${file} was not checked, so the start goes ahead unchecked: ${why}`,
+			`settings lockout: ${file} was not checked, so the start goes ahead: ${why}`,
 		);
 		return null;
 	};

@@ -18,7 +18,6 @@ import { cutWorktree, initGitRepo } from "./git-fixture";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 export const SETTINGS = ".claude/settings.json";
-/* This repo's own hook lines, as a session cut from origin/main has them. */
 const LANDED_HOOKS = JSON.parse(
 	fs.readFileSync(path.join(ROOT, SETTINGS), "utf8"),
 ).hooks;
@@ -57,8 +56,7 @@ export function seedCanary(checkout: string) {
 }
 
 /**
- * Builds the main checkout at `<dir>/main`, the canary seeded and committed,
- * and returns it with a cutter of its worktrees.
+ * Builds the main checkout at `<dir>/main`, the canary seeded and committed.
  * @param dir an existing empty directory
  */
 export function buildLockoutRepo(dir: string) {
@@ -71,8 +69,7 @@ export function buildLockoutRepo(dir: string) {
 	git(main, "update-ref", "refs/remotes/origin/main", "HEAD");
 
 	/**
-	 * A worktree of `main` under its worktrees folder, its settings text
-	 * replaced by `edit`'s answer where one is given.
+	 * A worktree of `main` under its worktrees folder.
 	 */
 	const cut = (name: string, edit?: (text: string) => string) => {
 		const at = cutWorktree(main, name);
@@ -82,7 +79,6 @@ export function buildLockoutRepo(dir: string) {
 	return { main, cutWorktree: cut };
 }
 
-/** `at`'s settings text replaced by `edit`'s answer. */
 export function editSettings(at: string, edit: (text: string) => string) {
 	const file = path.join(at, SETTINGS);
 	fs.writeFileSync(file, edit(fs.readFileSync(file, "utf8")));

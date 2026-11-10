@@ -447,8 +447,8 @@ function launchInto(root, into, how) {
 }
 
 /**
- * Throw where a session started in `dir` would be refused every tool call by
- * the worktree's own settings (lib/settings-lockout.js).
+ * Throw where a session started in `dir` would have every tool call refused
+ * or stalled by the worktree's own settings (lib/settings-lockout.js).
  * @param {string} dir
  */
 function refuseLockout(dir) {

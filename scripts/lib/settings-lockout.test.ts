@@ -4,10 +4,8 @@
  * its fix, where that worktree's own `.claude/settings.json` would lock out
  * its every tool call, and admitted otherwise (#4752).
  *
- * Each case runs the real canary line in a throwaway repository holding the
- * real scripts, since the check's verdict is that line's exit. Loosen it and
- * a resumed session meets the harness's bare refusal on every call, with no
- * fix named and no tool left to apply one.
+ * Loosen the check and a resumed session meets the harness's bare refusal
+ * on every call, with no fix named and no tool left to apply one.
  */
 
 import fs from "node:fs";
@@ -140,9 +138,7 @@ describe("settingsLockout", () => {
 		const said: string[] = [];
 		expect(settingsLockout(at, (line) => said.push(line))).toBeNull();
 		expect(said).toEqual([
-			expect.stringContaining(
-				"was not checked, so the start goes ahead unchecked",
-			),
+			expect.stringContaining("was not checked, so the start goes ahead"),
 		]);
 	});
 });
