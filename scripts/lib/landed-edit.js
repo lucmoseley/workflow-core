@@ -6,9 +6,9 @@
  * commit since `HEAD`'s merge base with the ref left it. LANDED BY BLOB where
  * the working copy is byte for byte one of them. LANDED BY LINES where one of
  * them made the change in place: each run of lines the change replaces is
- * gone from it, and the run's new lines stand there whole, in order, between
- * the same unchanged lines (#4903). Lines it adds elsewhere, however alike,
- * never stand in for the change.
+ * gone from it, the lines either side of the run are kept, and the run's new
+ * lines stand there against one of them (#4903). Lines it adds elsewhere,
+ * however alike, never stand in for the change.
  */
 
 const fs = require("node:fs");
@@ -57,15 +57,20 @@ function readLandedBlobs(tree, rel, ref) {
 }
 
 /**
- * The runs of lines `now` replaces in `head`: each `head[from..to)` gone, and
- * `lines` in its place.
+ * @typedef {{from: number, to: number, lines: string[]}} Hunk
+ *   a run of lines a change replaces: `head[from..to)` gone, `lines` in its
+ *   place
+ */
+
+/**
+ * The hunks `now` makes off `head`.
  * @param {string[]} head
  * @param {string[]} now
- * @returns {{from: number, to: number, lines: string[]}[]}
+ * @returns {Hunk[]}
  */
-function readHunks(head, now) {
+function buildHunks(head, now) {
 	const at = matchLines(head, now);
-	/** @type {{from: number, to: number, lines: string[]}[]} */
+	/** @type {Hunk[]} */
 	const hunks = [];
 	let i = 0;
 	let j = 0;
@@ -77,7 +82,8 @@ function readHunks(head, now) {
 		}
 		const from = i;
 		while (i < head.length && at[i] === -1) i++;
-		const next = i < head.length ? /** @type {number} */ (at[i]) : now.length;
+		/* Past `head`'s end `at[i]` is undefined; before it, a kept line. */
+		const next = at[i] ?? now.length;
 		hunks.push({ from, to: i, lines: now.slice(j, next) });
 		j = next;
 	}
@@ -85,55 +91,56 @@ function readHunks(head, now) {
 }
 
 /**
- * Whether `there` made each of `hunks` off `head` in place, in order.
+ * Whether `there` made each of `hunks` off `head` in place.
+ *
+ * Residual: `matchLines` keeps one longest common subsequence of several, so
+ * where a line repeats beside a hunk the verdict can rest on which copy it
+ * kept; a wrong pick reads not landed as often as landed.
  * @param {string[]} head
- * @param {{from: number, to: number, lines: string[]}[]} hunks
+ * @param {Hunk[]} hunks
  * @param {string[]} there
  */
 function isChangeMade(head, hunks, there) {
 	const at = matchLines(head, there);
-	let cursor = 0;
-	for (const { from, to, lines } of hunks) {
-		if (at.subarray(from, to).some((j) => j !== -1)) return false;
-		const [lo, hi] = gapAt(at, from, to, there.length);
-		const start = findRun(there, lines, Math.max(cursor, lo), hi);
-		if (start === -1) return false;
-		cursor = start + lines.length;
-	}
-	return hunks.length > 0;
+	return hunks.length > 0 && hunks.every((h) => isHunkMade(at, h, there));
 }
 
 /**
- * The lines of `there` between where the nearest line kept around
- * `head[from..to)` stands: `[lo, hi)`.
+ * Whether `there` made `hunk`: the head lines either side of it kept, the
+ * lines it replaces gone, and its new lines standing against one of those
+ * neighbours. The other side may hold lines landed since, as where a later
+ * commit built on the change (#4439); a rewritten span around it never
+ * stands in (#4903). A deletion leaves its neighbours adjacent.
  * @param {Int32Array} at each line of `head`'s index in `there`, or -1
- * @param {number} from
- * @param {number} to
- * @param {number} end `there`'s length
- * @returns {[number, number]}
+ * @param {Hunk} hunk
+ * @param {string[]} there
  */
-function gapAt(at, from, to, end) {
-	let before = from - 1;
-	while (before >= 0 && at[before] === -1) before--;
-	let after = to;
-	while (after < at.length && at[after] === -1) after++;
-	return [
-		before < 0 ? 0 : /** @type {number} */ (at[before]) + 1,
-		after < at.length ? /** @type {number} */ (at[after]) : end,
-	];
+function isHunkMade(at, { from, to, lines }, there) {
+	if (at.subarray(from, to).some((j) => j !== -1)) return false;
+	const before = placeOf(at, from - 1, there.length);
+	const after = placeOf(at, to, there.length);
+	if (before === null || after === null) return false;
+	const lo = before + 1;
+	if (lines.length === 0) return after === lo;
+	const standsAt = (/** @type {number} */ s) =>
+		s >= lo &&
+		s + lines.length <= after &&
+		lines.every((line, k) => there[s + k] === line);
+	return standsAt(lo) || standsAt(after - lines.length);
 }
 
 /**
- * The first index in `[lo, hi)` where `run` stands whole in `lines`, or -1.
- * @param {string[]} lines
- * @param {string[]} run
- * @param {number} lo
- * @param {number} hi
+ * Where `head[i]` stands in `there`: -1 before `there`'s first line, `end`
+ * past its last, null where `there` dropped it.
+ * @param {Int32Array} at each line of `head`'s index in `there`, or -1
+ * @param {number} i
+ * @param {number} end `there`'s length
  */
-function findRun(lines, run, lo, hi) {
-	for (let s = lo; s + run.length <= hi; s++)
-		if (run.every((line, k) => lines[s + k] === line)) return s;
-	return -1;
+function placeOf(at, i, end) {
+	if (i < 0) return -1;
+	const j = at[i];
+	if (j === undefined) return end;
+	return j === -1 ? null : j;
 }
 
 /**
@@ -150,7 +157,7 @@ function readChange(tree, rel) {
 		return null;
 	}
 	const head = (gitRead(["show", `HEAD:${rel}`], tree) ?? "").split("\n");
-	return { head, hunks: readHunks(head, work.split("\n")) };
+	return { head, hunks: buildHunks(head, work.split("\n")) };
 }
 
 /**

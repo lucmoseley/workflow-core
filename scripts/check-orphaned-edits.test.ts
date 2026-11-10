@@ -744,6 +744,19 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain("Read the diff, then land it");
 	});
 
+	it("does not read a change as landed where main rewrote the lines around it (#4903)", async () => {
+		baseA("H\nA\nB\nC\nD\nE\nT\n");
+		landOnOrigin({ "a.txt": "H\nX\nY\nZ\nNEW\nW\nT\n" });
+		const wt = worktreeOf("dead-owner-16", 30);
+		dirtyIn(wt, "a.txt", 30, "H\nA\nNEW\nB\nC\nD\nE\nT\n");
+
+		await run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| no |");
+		expect(body).not.toContain("holds nothing unlanded");
+	});
+
 	it("reads a change landed in place beside an unrelated landed change (#4903)", async () => {
 		baseA("function a() {\n  return 1;\n}\n");
 		landOnOrigin({

@@ -1,3 +1,11 @@
+/*
+ * line-match.test.ts — pins lib/line-match.js's matcher (#4903) against the
+ * textbook LCS table on seeded random lists, so a failure replays. A short
+ * match makes lib/landed-edit.js see a kept line as dropped, which can read
+ * an unlanded change as landed and so offer `git worktree remove --force`
+ * over it.
+ */
+
 import { describe, expect, it } from "vitest";
 import { matchLines } from "./line-match.js";
 
@@ -17,7 +25,8 @@ function lcsLength(a: string[], b: string[]) {
 	return row[b.length] ?? 0;
 }
 
-/** A seeded generator, so a failure replays. */
+/** A seeded generator, so a failure replays: the ANSI C `rand` LCG's
+ * constants, which reach every value mod 2^31. */
 function seeded(seed: number) {
 	let s = seed;
 	return () => {
@@ -26,14 +35,20 @@ function seeded(seed: number) {
 	};
 }
 
+/* Guesses, not measured: enough lists, short enough for the table, over
+ * alphabets of one to four lines so repeats, the hard case, are common. */
+const TRIALS = 3000;
+const MAX_LENGTH = 12;
+const MAX_ALPHABET = 4;
+
 describe("matchLines (#4903)", () => {
 	it("matches a longest common subsequence, in order, line for line", () => {
 		const rand = seeded(4903);
-		for (let t = 0; t < 3000; t++) {
-			const alphabet = "abcd".slice(0, 1 + (t % 4));
+		for (let t = 0; t < TRIALS; t++) {
+			const alphabet = "abcd".slice(0, 1 + (t % MAX_ALPHABET));
 			const list = () =>
 				Array.from(
-					{ length: Math.floor(rand() * 12) },
+					{ length: Math.floor(rand() * MAX_LENGTH) },
 					() => alphabet[Math.floor(rand() * alphabet.length)] ?? "a",
 				);
 			const a = list();

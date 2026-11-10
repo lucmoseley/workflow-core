@@ -57,7 +57,8 @@ function matchLines(a, b) {
  * The middle snake of `box`, as its start `[x, y]` and end x, in whole-list
  * coordinates (Myers 1986, §4b). Both ranges are non-empty and differ at
  * each end.
- * @param {Graph} g
+ * @param {Graph} g accumulator: its `fwd` and `back` are this search's
+ *   scratch, overwritten
  * @param {Box} box
  * @returns {[number, number, number]}
  */
@@ -99,21 +100,35 @@ function middleSnake(g, { x0, x1, y0, y1 }) {
  * @param {number} d
  * @param {number} reach -1 where this direction tests no overlap at `d`
  * @param {{v: Int32Array, other: Int32Array, same: (x: number, y: number) => boolean}} dir
+ *   accumulator: `v` takes this sweep's furthest x per diagonal; `other` is
+ *   read
  * @returns {{k: number, start: number, end: number}|null}
  */
 function sweep({ n, m, delta, off }, d, reach, { v, other, same }) {
 	for (let k = -d; k <= d; k += 2) {
-		const left = /** @type {number} */ (v[off + k - 1]);
-		const right = /** @type {number} */ (v[off + k + 1]);
+		const left = cell(v, off + k - 1);
+		const right = cell(v, off + k + 1);
 		let x = k === -d || (k !== d && left < right) ? right : left + 1;
 		const start = x;
 		while (x < n && x - k < m && same(x, x - k)) x++;
 		v[off + k] = x;
 		const c = delta - k;
-		if (Math.abs(c) <= reach && x + /** @type {number} */ (other[off + c]) >= n)
+		if (Math.abs(c) <= reach && x + cell(other, off + c) >= n)
 			return { k, start, end: x };
 	}
 	return null;
+}
+
+/**
+ * `v[i]`, which every index a sweep reads holds: `matchLines` sizes both
+ * arrays for the widest diagonal.
+ * @param {Int32Array} v
+ * @param {number} i
+ */
+function cell(v, i) {
+	const x = v[i];
+	if (x === undefined) throw new RangeError(`line-match: no cell ${i}`);
+	return x;
 }
 
 module.exports = { matchLines };
