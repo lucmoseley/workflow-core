@@ -41,9 +41,12 @@
  *   2. a decline for this repo+tag             — the founder said no
  *   3. no pending consent for this repo+tag    — he was never asked, or the
  *      last materialise already consumed it.
- *   4. any other live Claude session under this config dir — defer. A
+ *   4. any other Claude session under this config dir — defer. A
  *      mid-session plugin rotation must not silence a neighbour's guards any
- *      more than it may silence the founder's own.
+ *      more than it may silence the founder's own. The daemon and its idle
+ *      spares hold no session and are not counted (#4741).
+ * At the hook the first three stop silently. A hand run, which carries no
+ * CLAUDE_PLUGIN_ROOT, prints which one stopped it instead (#4741).
  * Past them, an install already at the pin makes no `claude` call, so the
  * shared supply is not rotated again, and goes straight to the walk (#747).
  *
@@ -119,6 +122,11 @@ const {
 const { parseOrCode } = require("./lib/cli-args");
 const { scriptPath } = require("./lib/script-path.js");
 const { isClaudeArgv0 } = require("./lib/claude-argv0.js");
+const {
+	isDaemon,
+	readProcCwd,
+	sparePairs,
+} = require("./lib/claude-sessions.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -142,8 +150,8 @@ const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 /* Overridable so the live-session count can be tested against a stub `ps` and
  * a fixture /proc tree — WFC_PS here, WFC_PROC in lib/proc-root.js. */
 const PS_BIN = () => process.env.WFC_PS || "ps";
-/** A `ps -eo pid=,args=` line: the pid, then argv[0]. */
-const PS_LINE = /^(\d+)\s+(\S+)/;
+/** A `ps -eo pid=,args=` line: the pid, then argv as one string. */
+const PS_LINE = /^(\d+)\s+(\S.*)$/;
 
 /** @param {string} at @returns {any} a raw JSON parse, or null */
 function readJsonSafe(at) {
@@ -155,8 +163,13 @@ function readJsonSafe(at) {
 }
 
 /**
- * Every pid whose argv[0] is a Claude process's. `ps -eo pid=,args=` rather
- * than `comm=`, for the reason `lib/claude-argv0.js` states.
+ * Every Claude process holding a session: argv[0] a Claude process's, less
+ * the daemon and each idle spare pair it keeps warm (#4741). The daemon
+ * refills a spare after every claim, so counting one would defer every exit
+ * on a machine running background jobs. Idle is admission's cwd test
+ * (`sparePairs`, #2502), which reads a pair claimed wherever it cannot say,
+ * so a doubt defers. `ps -eo pid=,args=` rather than `comm=`, for the reason
+ * `lib/claude-argv0.js` states.
  * @returns {string[]}
  */
 function readClaudePids() {
@@ -164,15 +177,23 @@ function readClaudePids() {
 		encoding: "utf8",
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
-	/** @type {string[]} */
-	const pids = [];
+	/** @type {{ pid: string, args: string }[]} */
+	const procs = [];
 	for (const line of out.split("\n")) {
 		const m = line.trim().match(PS_LINE);
 		if (!m) continue;
-		if (isClaudeArgv0(requiredGroup(m, 2, PS_LINE)))
-			pids.push(requiredGroup(m, 1, PS_LINE));
+		const args = requiredGroup(m, 2, PS_LINE);
+		if (isClaudeArgv0(args.split(/\s/)[0] ?? ""))
+			procs.push({ pid: requiredGroup(m, 1, PS_LINE), args });
 	}
-	return pids;
+	const idle = new Set(
+		sparePairs(procs, (pid) => readProcCwd(pid))
+			.filter((p) => p.idle)
+			.flatMap((p) => p.pids),
+	);
+	return procs
+		.filter(({ pid, args }) => !idle.has(pid) && !isDaemon(args))
+		.map(({ pid }) => pid);
 }
 
 /**
@@ -452,6 +473,15 @@ const WARNING_ACTIONS = new Set([
 	"materialised-walk-broken",
 ]);
 
+/** Why a silent stop stopped, for a hand run (#4741). */
+const QUIET_STOPS = {
+	"no-plugin": (/** @type {string} */ pluginRoot) =>
+		`no .claude-plugin/plugin.json under ${pluginRoot}. Run by hand, set CLAUDE_PLUGIN_ROOT to the installed plugin's root.`,
+	"no-pin": () => "this repo pins no git-sourced plugin to reconcile.",
+	declined: () => "this repo declined the pinned tag.",
+	"no-consent": () => "no consent is pending for this repo's pinned tag.",
+};
+
 /** @param {string[]} argv */
 function main(argv) {
 	const parsed = parseOrCode(argv, {
@@ -469,8 +499,12 @@ function main(argv) {
 	try {
 		if (flags["--session-end"] !== true) return 0;
 		const root = hostRoot();
+		const byHand = process.env.CLAUDE_PLUGIN_ROOT === undefined;
 		const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? root;
 		const { action } = reconcile({ root, pluginRoot, emit });
+		const quiet = QUIET_STOPS[/** @type {keyof typeof QUIET_STOPS} */ (action)];
+		if (byHand && quiet)
+			writeFd(1, `reconcile-plugin: stopped — ${quiet(pluginRoot)}\n`);
 		if (said.length > 0)
 			writeReport("reconcile-plugin", {
 				outcome: WARNING_ACTIONS.has(action) ? "WARN" : "OK",
