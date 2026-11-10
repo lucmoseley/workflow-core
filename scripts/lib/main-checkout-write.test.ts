@@ -246,9 +246,15 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 			`env -C ${at.worktree} python3 -c 'x'`,
 			`flock /l -c "cd ${at.worktree}; python3 -c 'x'"`,
 			`env -C $UNSET python3 -c 'x'`,
-			`flock /l -c "cd $HOME; python3 -c 'x'"`,
+			`env -C ~ python3 -c 'x'`,
 		])
 			expect(fromMain(command), command).toBeNull();
+	});
+
+	it("takes a launcher's quoted directory as written, expanding nothing (#4869)", () => {
+		expect(fromMain(`env -C '~' python3 -c 'x'`)).toContain(
+			`${Refused}, in the main checkout, at ~`,
+		);
 	});
 
 	it("allows it in the session's worktree, and in a gitignored store", () => {

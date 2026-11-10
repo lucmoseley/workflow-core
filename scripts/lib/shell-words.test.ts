@@ -626,6 +626,10 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		["env -C $X git status", false],
 		['env -C "$X/d" git status', false],
 		["env --chdir=$X git status", false],
+		["env -C ~ git status", false],
+		["sudo -D ~/w git status", false],
+		["env -C /a* git status", false],
+		["env -C '/a*' git status", true],
 		['flock /l -c "cd /d; git status"', false],
 	])(
 		"says whether %s names its directory in words read whole (#4869)",

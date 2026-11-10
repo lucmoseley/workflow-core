@@ -50,6 +50,13 @@ const absolute = (p, pwd) =>
 const isGlobPattern = (s) => /[*?[]/.test(s);
 
 /**
+ * Whether the shell expands a masked word that literal reads as known: a
+ * leading `~`, or a pathname-expansion character outside quotes.
+ * @param {string} word masked
+ */
+const shellExpands = (word) => word.startsWith("~") || isGlobPattern(word);
+
+/**
  * The one walk over a masked text's span sentinels (#2785): `onSpan` is
  * handed the text before each sentinel and the span index read up to its
  * closing `\x01` — null where no index stands there — and answers what to
@@ -601,7 +608,7 @@ function unwrapArgv(argv) {
  *   `cd`'s masked
  * @property {boolean} read whether `dir` is text literal read whole, to take
  *   as it stands; false for a `cd`'s masked word and a wrapper's word literal
- *   could not fully read
+ *   could not fully read or the shell expands
  * @property {"always" | "if-dir" | "maybe"} holds whether the run surely
  *   stands there: "always" for a wrapper's, whose failure runs nothing, and a
  *   `cd` a `&&` chains it off; "if-dir" where the `cd` surely ran had its
@@ -612,7 +619,7 @@ function unwrapArgv(argv) {
  * The directory a run stands in: `cwd` moved through its `chdirs`, an
  * absolute one replacing it, a relative one joined to it and `""` staying
  * put (#4869). Unknown past a directory no word gives whole: one reading a
- * variable, which a `-c` string may set itself, a `~`, or a `-` flag.
+ * variable, which a `-c` string may set itself, a `~`, a glob, or a `-` flag.
  *
  * Residual: each move is taken as made whatever its `holds`, as a walk's cwd
  * takes a `cd` (#4980).
@@ -625,8 +632,8 @@ function runCwd(cwd, chdirs, spans) {
 	let at = cwd;
 	for (const { dir, read } of chdirs) {
 		const word = read ? { text: dir, known: true } : literal(dir, spans);
-		const tilde = !read && dir.startsWith("~");
-		if (!word.known || tilde || word.text.startsWith("-")) at = "";
+		const expands = !read && shellExpands(dir);
+		if (!word.known || expands || word.text.startsWith("-")) at = "";
 		else if (word.text.startsWith("/")) at = word.text;
 		else if (at && word.text) at = `${at}/${word.text}`;
 	}
@@ -785,18 +792,16 @@ function runScript(st, script, spans) {
  */
 function sweepFlags(st, wrapper, spans) {
 	for (let raw = st.ws[0]; raw !== undefined; raw = st.ws[0]) {
-		const flag = literal(raw, spans);
-		const f = flag.text;
+		const f = literal(raw, spans).text;
 		if (!f.startsWith("-") || (f === "-" && !wrapper.splits)) break;
 		if (f === "--") {
 			st.ws = st.ws.slice(1);
 			break;
 		}
-		const next = st.ws[1];
 		const { options, taken, read } = scanWrapperFlag(
 			wrapper,
-			flag,
-			next === undefined ? undefined : literal(next, spans),
+			[raw, st.ws[1]],
+			spans,
 		);
 		st.ws = st.ws.slice(1 + taken);
 		for (const option of options)
@@ -814,15 +819,20 @@ function sweepFlags(st, wrapper, spans) {
 
 /**
  * What a flag word says under a wrapper's grammar, how many words after it it
- * took, and whether literal read every word of it whole.
+ * took, and whether every word of it reads whole: known to literal, and none
+ * the shell expands.
  * @param {WrapperGrammar} wrapper
- * @param {ReturnType<typeof literal>} flag the flag word, read
- * @param {ReturnType<typeof literal> | undefined} next the word after it, read
+ * @param {[string, string | undefined]} words the flag word and the word
+ *   after it, masked
+ * @param {string[]} spans
  */
-function scanWrapperFlag(wrapper, flag, next) {
+function scanWrapperFlag(wrapper, [flag, next], spans) {
+	/** @param {string} w */
+	const whole = (w) => literal(w, spans).known && !shellExpands(w);
 	/** @type {WrapperOption[]} */
 	const options = [];
-	const taken = scanWord(flag.text, next?.text, {
+	const after = next === undefined ? undefined : literal(next, spans).text;
+	const taken = scanWord(literal(flag, spans).text, after, {
 		has: specHas(wrapper.values),
 		expandLong: (long) => wholeLongName(wrapper.long, long),
 		endsAtEndOfOptions: false,
@@ -830,7 +840,8 @@ function scanWrapperFlag(wrapper, flag, next) {
 		ended: false,
 		stopped: false,
 	});
-	const read = flag.known && (taken === 0 || next?.known === true);
+	const read =
+		whole(flag) && (taken === 0 || (next !== undefined && whole(next)));
 	return { options, taken, read };
 }
 

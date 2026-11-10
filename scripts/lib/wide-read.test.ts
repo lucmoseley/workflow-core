@@ -663,6 +663,14 @@ describe("a dumper behind a launcher (#3519)", () => {
 			expect(run(command), command).toEqual(silent);
 	});
 
+	it("takes a launcher's quoted directory as written, expanding nothing (#4869)", () => {
+		const tilde = path.join(repo, "~");
+		fs.mkdirSync(tilde);
+		fs.writeFileSync(path.join(tilde, "deep.md"), "x".repeat(WIDE_BYTES + 1));
+		expect(run("env -C '~' cat deep.md").warning).toContain("deep.md is");
+		expect(run("env -C ~ cat deep.md")).toEqual(silent);
+	});
+
 	it("measures no relative path from a directory it cannot read, and an absolute one still", () => {
 		const big = path.join(repo, "big.md");
 		expect(run("env -C $UNSET cat big.md")).toEqual(silent);

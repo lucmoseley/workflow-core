@@ -122,10 +122,10 @@ describe("a find started at / is refused (#1006)", () => {
 	);
 
 	it.each([
-		"env -C '$X' find . -x",
 		"env -C $X find . -x",
-		"env -C '~' find . -x",
-		"env -C \\~ find . -x",
+		"env -C ~ find . -x",
+		"sudo -D ~ find -x",
+		"env -C ~/.. find . -x",
 		"flock /l -c 'cd $X; find . -x'",
 		"flock /l -c 'X=/usr; cd $X; find . -x'",
 		"X=/; flock /l -c 'cd $X; find . -x'",
@@ -137,6 +137,25 @@ describe("a find started at / is refused (#1006)", () => {
 			expect(
 				judge(command, { vars: { X: "/", HOME: "/", PWD: "/" } }),
 			).toBeNull();
+		},
+	);
+
+	it.each([
+		"env -C '$X' find . -x",
+		"env -C '~' find . -x",
+		"env -C \\~ find . -x",
+	])(
+		"takes a quoted directory as written, expanding nothing: %s (#4869)",
+		(command) => {
+			expect(
+				judge(command, { cwd: "/", vars: { X: "/", HOME: "/" } }),
+			).toBeNull();
+			expect(
+				judge(command.replace("find .", "find .."), {
+					cwd: "/",
+					vars: { X: "/usr", HOME: "/usr" },
+				})?.deny,
+			).toBeDefined();
 		},
 	);
 
