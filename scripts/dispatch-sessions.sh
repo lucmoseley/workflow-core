@@ -3,7 +3,7 @@
 # for, and only as many of them as allowance remains for (#369).
 #
 # Three facts this rests on, on Claude Code 2.1.241:
-#   - `claude --bg --model <alias> "<prompt>"` starts one background
+#   - `claude --bg --model <alias> -- "<prompt>"` starts one background
 #     agents-view session on that model and returns immediately. It is
 #     per-session; `claude agents --model` by contrast sets a view-wide
 #     default and would move every launch made from that view (mantahostels#1153).
@@ -918,7 +918,9 @@ while [[ $# -gt 0 ]]; do
     [[ "$model" == "opus" ]] || args+=(--model "$model")
     wants_advisor "$model" && args+=(--advisor "$ADVISOR_MODEL")
     launcher="claude"
-    launch_cmd=("${launch_env[@]}" "$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
+    # `--` ends the options: without it claude 2.1.322 drops a prompt opening
+    # with `-` and starts the job idle, exit 0 (#4820).
+    launch_cmd=("${launch_env[@]}" "$WFC_CLAUDE_BIN" "${args[@]}" -- "$prompt")
   fi
   if [[ $dry_run -eq 1 ]]; then
     printf 'would launch:'
@@ -942,7 +944,7 @@ while [[ $# -gt 0 ]]; do
   checkout_args=(launch-dir)
   [[ "$no_build" == 1 ]] && checkout_args+=(--no-build)
   [[ -n "$into" ]] && checkout_args+=(--into "$into")
-  if ! launch_dir="$(node "$here/session-checkout.js" "${checkout_args[@]}" "$prompt" 2>"$checkout_err")"; then
+  if ! launch_dir="$(node "$here/session-checkout.js" "${checkout_args[@]}" -- "$prompt" 2>"$checkout_err")"; then
     printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
     sed 's/^/  /' "$checkout_err" >&2
     continue
