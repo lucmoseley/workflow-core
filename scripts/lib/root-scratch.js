@@ -66,7 +66,7 @@
  *    the redirect a fragment (`.a$`) no synthetic name can be built from.
  *    Quoted, the span survives the split and is read.
  *  - A `cd` earlier in the same command string is not read: a relative target
- *    resolves against the hook's own directory. It costs a miss where the `cd`
+ *    resolves against the session's directory. It costs a miss where the `cd`
  *    leaves the repo and a false refusal where it enters it.
  *  - A command run outside Claude Code sees no hook.
  *  - A `git` that cannot answer `check-ignore` or `ls-files` allows the write,

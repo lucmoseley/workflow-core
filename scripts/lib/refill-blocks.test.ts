@@ -1274,14 +1274,16 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(still).toEqual(held());
 		});
 
-		it("keeps what it knew of one whose row carries no state, and reads its cause for the log (#3200)", () => {
+		it("keeps what it knew of one whose row carries no state, and reads its cause for the log under its launch name (#3200)", () => {
 			const { state: _, ...bare } = agent("job42", "blocked");
-			const read: unknown[] = [];
+			const rows: unknown[] = [];
+			const names: string[] = [];
 			const [out] = markParked(
 				[held()],
 				[bare],
 				(_l, row, name) => {
-					read.push(row, name);
+					rows.push(row);
+					names.push(name);
 					return {
 						cause: "UNKNOWN",
 						why: "row carries neither status nor state",
@@ -1290,7 +1292,8 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				NOW,
 			);
 			expect(out).toEqual(held());
-			expect(read).toEqual([bare, "design-vault /implement 42"]);
+			expect(rows).toEqual([bare]);
+			expect(names).toEqual(["design-vault /implement 42"]);
 		});
 
 		it("keeps one whose resume failed held for the next tick, and hands it off at the third failure", () => {
