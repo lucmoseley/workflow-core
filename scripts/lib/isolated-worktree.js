@@ -32,17 +32,17 @@ const { isUnder } = require("./is-under.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { writeFd } = require("./write-fd.js");
 const { readConfig } = require("./workflow-core-config.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
 /*
- * Where the throwaway worktree goes. `.claude/worktrees/` is gitignored AND
+ * The throwaway worktree goes under `WORKTREES`, which is gitignored AND
  * named in `vitest.config.ts`'s `exclude`, so a suite run in the checkout does
- * not collect this worktree's copy of the corpus alongside its own.
+ * not collect this worktree's copy of the corpus alongside its own. Its name
+ * is pid-scoped, so two isolated runs never share a directory and a leftover
+ * can be matched back to a process that may or may not still exist.
  */
-const WORKTREE_DIR = path.join(".claude", "worktrees");
-/* Pid-scoped, so two isolated runs never share a directory and a leftover can
- * be matched back to a process that may or may not still exist. */
 const ISOLATED_PREFIX = "isolated-";
 
 /*
@@ -172,7 +172,7 @@ function sweepIsolated(
 		alive = pidAlive,
 	} = {},
 ) {
-	const base = path.join(root, WORKTREE_DIR);
+	const base = path.join(root, WORKTREES);
 	/** @type {string[]} */
 	let entries;
 	try {
@@ -276,7 +276,7 @@ function createIsolated(
 		tree,
 	} = {},
 ) {
-	const dir = path.join(root, WORKTREE_DIR, `${ISOLATED_PREFIX}${String(pid)}`);
+	const dir = path.join(root, WORKTREES, `${ISOLATED_PREFIX}${String(pid)}`);
 	/** @type {(args: string[], cwd: string) => void} */
 	const run = (args, cwd) => {
 		execFn(

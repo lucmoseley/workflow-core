@@ -29,7 +29,7 @@ import {
 	proc,
 	store,
 } from "./lib/arbiter-testkit";
-import { readWorktreeDirt, readWorktreeFiling } from "./lib/orphan-filings.js";
+import { readWorktreeEdits, readWorktreeFiling } from "./lib/orphan-filings.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { worktreeLabel } from "./lib/session-worktrees.js";
 import { buildDistinctFromHint } from "./lib/similar-titles.js";
@@ -595,7 +595,7 @@ describe("a linked worktree's dirt", () => {
 		readWorktreeFiling(
 			path.join(sb.repo, ".git"),
 			worktreeLabel(sb.repo, wt),
-			readWorktreeDirt(wt) ?? [],
+			readWorktreeEdits(wt) ?? [],
 		);
 
 	const bodyOf = () => readFilings().map((f) => f.body);

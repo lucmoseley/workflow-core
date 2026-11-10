@@ -32,7 +32,7 @@ const {
 	fetchedGit,
 	buildStateLine,
 } = require("./lib/landing-status.js");
-const { queueRefOf } = require("./lib/landing-refs.js");
+const { ownQueueRef } = require("./lib/landing-refs.js");
 const { buildQueueLine, queueGaugeOf } = require("./lib/queue-gauge.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
@@ -148,7 +148,7 @@ function readLanding(root, sessionId) {
 	else
 		try {
 			const tree = readTopLevel(process.cwd()) ?? root;
-			const queue = queueRefOf(root, tree);
+			const queue = ownQueueRef(tree, root);
 			const git = fetchedGit(root, tree);
 			for (const entry of commitStates(commits, git)) {
 				lines.push(buildStateLine(entry, git.subjectOf(entry.sha), queue));

@@ -71,12 +71,8 @@ const {
 	readRegistry,
 	reapLogPath,
 } = require("./lib/orphan-hooks.js");
-const {
-	describeAge,
-	ownTree,
-	readProcTable,
-	readUptime,
-} = require("./lib/proc-table.js");
+const { describeAge } = require("./lib/age-text.js");
+const { ownTree, readProcTable, readUptime } = require("./lib/proc-table.js");
 const { procRoot, REAL_PROC } = require("./lib/proc-root.js");
 const {
 	describeSession,
@@ -294,7 +290,7 @@ runCheck({
 				tag: "ORPHAN-HOOK",
 				heading: (n) =>
 					`ORPHAN-HOOK (${n}) — a hook run with init for a parent, older than the ${ceilingS}s hook ceiling:`,
-				what: (r) => `a hook run orphaned for ${describeAge(r.ageS)}`,
+				what: (r) => `a hook run orphaned for ${describeAge(r.ageS * 1000)}`,
 				trace:
 					"  Trace the source from the argv: a scratch harness's spawnSync timeout\n" +
 					"  is the known one (docs/environment.md §7).\n",
@@ -319,7 +315,7 @@ runCheck({
 				heading: (n) =>
 					`ORPHAN-SESSION (${n}) — a process with init for a parent whose Claude session has ended:`,
 				what: (r) =>
-					`${describeAge(r.ageS)} old, ${r.session ? describeSession(r.session) : "its session"} ended`,
+					`${describeAge(r.ageS * 1000)} old, ${r.session ? describeSession(r.session) : "its session"} ended`,
 				trace:
 					"  Trace the launch from the argv: a route the session's scope did not hold (#4333).\n",
 			},

@@ -45,6 +45,14 @@ Scope: module boundaries in a Node.js CLI and hook repo that uses a pure decisio
 
 - Name a function with a verb or verb phrase saying what it does, and keep noun phrases for values. Google JavaScript Style Guide §6.2.3 (google.github.io/styleguide/jsguide.html: "Method names are typically verbs or verb phrases"); Cwalina and Abrams, *Framework Design Guidelines* 2nd ed., reprinted at learn.microsoft.com, "Names of Type Members" ("DO give methods names that are verbs or verb phrases", which "serves to distinguish method names from property and type names, which are noun or adjective phrases"); Kotlin coding conventions, "Choose good names" (kotlinlang.org/docs/coding-conventions.html: "The name of a method is usually a verb or a verb phrase saying what the method does") [named expert]. PEP 8 sets no verb rule for Python, only lowercase with underscores [standard or field body]
 
+## One change written to two stores
+
+Researched: 2026-11-10 for this section.
+
+- A change that must reach two stores with no shared transaction (a dual write) can land in one and be lost from the other. Reordering the writes only changes which store is wrong. Waldron, "The Dual-Write Problem" (confluent.io/blog/dual-write-problem: it "occurs when two external systems must be updated in an atomic fashion") [named expert]
+- Put the whole record of the second write into the first store's atomic write, then have a relay read it there and write it to the second store, retrying until it holds. Store the content, not only a marker, so the relay can replay it. Richardson, "Transactional outbox" (microservices.io: store the message "as part of the transaction that updates the business entities"); Waldron, Confluent (separate the two writes "and introduce a dependency between them"); Dennig and Wild, Azure Architecture Center, "Transactional Outbox pattern with Azure Cosmos DB" [named expert]
+- The relay can deliver a record twice, so the second store's write is idempotent: it keys on the record's identity and drops a duplicate. Azure Architecture Center, same article (duplicate detection on the message id) [named expert]
+
 ## Tools practitioners use
 
 - dependency-cruiser: checks the import graph against rules in a config file (`forbidden`, `allowed`, `required`, `circular`, `orphan`, `dependencyTypes`). A rule can make a boundary a check, for example "a pure core must not import `node:fs` or `node:child_process`", "no import cycles", "no orphan modules". MIT, v18.7.0, read 2026-10-25, about 3.3M npm downloads a week. github.com/sverweij/dependency-cruiser doc/rules-reference.md [standard or field body]. Only its own docs vouch, so it sets no default to use it

@@ -85,8 +85,14 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { buildScriptFilerArgv } = require("./lib/script-filer-argv.js");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+	describeAge: describeAgeText,
+	HOUR_MS,
+	NEVER,
+} = require("./lib/age-text.js");
 const { brokenError, now: clock, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
@@ -102,7 +108,7 @@ const {
 	FILED_DIR,
 	buildWaysOut,
 	markerName,
-	readWorktreeDirt,
+	readWorktreeEdits,
 	readWorktreeFiling,
 	stateTag,
 } = require("./lib/orphan-filings.js");
@@ -181,7 +187,7 @@ const BLOB_TAG_HEX = 10;
  * @property {string} state   what its marker is keyed by: each orphan's path
  *   and blob, so a change to any of them refiles once
  * @property {string[]} dirt  every path `git status` lists in its worktree,
- *   as `readWorktreeDirt` reads it; empty for a main-checkout filing
+ *   as `readWorktreeEdits` reads it; empty for a main-checkout filing
  * @property {number} others  the worktree's paths besides its orphans:
  *   untracked, deleted, owned by a live session, or of a blob unread
  * @property {number|null} unlanded  its `HEAD`'s commits off `origin/main`,
@@ -193,11 +199,10 @@ const BLOB_TAG_HEX = 10;
 const filerPath = () =>
 	process.env.WFC_ORPHAN_FILER || path.join(__dirname, "file-issue.js");
 
+/** @param {number} ms */
+const ageText = (ms) => describeAgeText(ms, { minutesUnder: NEVER });
 /** @param {number} hours */
-function describeAge(hours) {
-	if (hours < 48) return `${Math.floor(hours)}h`;
-	return `${Math.floor(hours / 24)}d`;
-}
+const describeAge = (hours) => ageText(hours * HOUR_MS);
 
 /**
  * The marker directory, made if missing — or null where git names no common
@@ -543,17 +548,15 @@ function fileOne(f, root, supersedes) {
 		f.worktree === null ? buildFileIssue(f) : buildWorktreeIssue(f, supersedes);
 	const args = [
 		filerPath(),
-		"--title",
-		title,
-		"--label",
-		ORPHAN_LABEL,
-		"--standalone",
-		"cross-cutting: an orphaned edit has no single originating issue (#813)",
-		"--origin",
-		"orphaned-edit-script",
-		"--no-fault",
-		"--body-file",
-		"-",
+		...buildScriptFilerArgv({
+			title,
+			labels: [ORPHAN_LABEL],
+			placement: {
+				standalone:
+					"cross-cutting: an orphaned edit has no single originating issue (#813)",
+			},
+			origin: "orphaned-edit-script",
+		}),
 	];
 	const deadline = Date.now() + FILER_TIMEOUT_MS;
 	const spawnFiler = (/** @type {string[]} */ a) =>
@@ -632,7 +635,7 @@ function describeWriter(rel, tree, names, now) {
 	const w = store.readLastWriterOf(rel, { tree });
 	if (!w) return "unknown — no surviving write ledger names it";
 	const name = names.get(w.sessionId);
-	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${describeAge((now - w.at) / 3_600_000)} ago`;
+	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${ageText(now - w.at)} ago`;
 }
 
 /**
@@ -800,7 +803,7 @@ function buildFilings(orphans, { youngIn, hours }) {
 		addToWorktree(byTree, filings, o);
 	}
 	for (const f of byTree.values()) {
-		const dirt = readWorktreeDirt(f.tree);
+		const dirt = readWorktreeEdits(f.tree);
 		f.held = describeHeld(dirt, youngIn.get(f.tree) ?? 0, hours);
 		f.dirt = dirt ?? [];
 		f.others = f.dirt.length - f.orphans.length;

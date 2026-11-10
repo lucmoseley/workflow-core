@@ -53,17 +53,10 @@ const { buildWaysOut } = require("./lib/orphan-filings.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { describeAge } = require("./lib/level-main.js");
-const {
-	attach,
-	CheckoutError,
-	cut,
-	land,
-	launchDir,
-	reap,
-	relink,
-	warm,
-	reopen,
-} = require("./lib/session-checkout.js");
+const { CheckoutError } = require("./lib/checkout-repo.js");
+const { attach, relink, warm } = require("./lib/dep-store.js");
+const { cut, land, launchDir, reopen } = require("./lib/session-checkout.js");
+const { reap } = require("./lib/worktree-reaper.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { REMOTE, VERIFIED_REF } = require("./lib/landing-refs.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -134,7 +127,7 @@ function renderReaped(r) {
 					]
 				: [],
 		),
-		...r.stranded.map(
+		...r.unfinished.map(
 			(s) =>
 				`stranded: ${name(s.dir)} — ${[
 					s.dirty > 0

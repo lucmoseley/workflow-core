@@ -21,7 +21,7 @@
  *    `--force`, `--force-with-lease` or a `+` refspec, and `--delete main` or
  *    `:main` — `heads/main` and git's abbreviations of the two long flags
  *    read the same. It prints docs/agents/rules/main-rewind.txt, framed by
- *    lib/main-rewind.js.
+ *    lib/main-rewind.js, or with `landing` on main-rewind-landing.txt.
  *  - `gh pr merge` of a Dependabot PR (#2020): a `dependabot/` branch named on
  *    the command, or a PR whose head branch or author `gh pr view` reads as
  *    Dependabot's.
@@ -34,8 +34,9 @@
  *
  * WITH THE `landing` MODULE ON (spec #4458), sessions push their own
  *   queue refs and only the queue lander moves `main`: any push to `main` is
- *   denied, a forced one or a deletion included. Each refusal names the
- *   session's own queue ref, or the launch where it has none.
+ *   denied, a forced one or a deletion included. Every refusal but the
+ *   Dependabot merge's names the session's own queue ref, or the launch where
+ *   it has none.
  *
  * QUEUE REFS, WITH `landing` ON (#4458): a session's own queue ref is
  *   `queue/<name>`, `<name>` its worktree's under `.claude/worktrees/` of the
@@ -87,7 +88,8 @@
  *
  * The rules it prints are docs/agents/rules/branch-publish.txt, main-rewind.txt
  * and dependabot-merge.txt, and with `landing` on branch-publish-landing.txt in
- * place of the first, and queue-ref.txt. A refusal whose
+ * place of the first, main-rewind-landing.txt in place of the second, and
+ * queue-ref.txt. A refusal whose
  * fragment cannot be read still refuses, naming the file (mantahostels#1648's
  * store rule), and logs nothing: an unreadable fragment is
  * check-guard-registry.js's assertion.
@@ -98,10 +100,10 @@ const path = require("node:path");
 const {
 	DROPPED_PREFIX,
 	LANDER_PREFIX,
+	ownQueueRef,
 	QUEUE_PREFIX,
-	queueRefOf,
 } = require("./landing-refs.js");
-const { rewindReason } = require("./main-rewind.js");
+const { landingRewindRule, rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
@@ -120,6 +122,7 @@ const {
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
  * @typedef {object} BranchPublishPorts
@@ -164,24 +167,33 @@ const publishRule = (ctx) =>
 			);
 
 /**
+ * A refusal under the publish rule, naming the session's own queue ref with
+ * `landing` on.
  * @param {BranchPublishContext} ctx
  * @param {string} what the refusal's opening, "This …"
  * @param {string} segment
  * @returns {Refusal}
  */
 const refuse = (ctx, what, segment) => ({
-	reason: `${what}: @CMD@\n\n${publishRule(ctx)}`,
+	reason: ctx.moduleOn("landing")
+		? buildOwnRefReason(ctx, what, publishRule(ctx))
+		: `${what}: @CMD@\n\n${publishRule(ctx)}`,
 	segment,
 });
 
 /**
+ * A forced push or deletion of `main`: with `landing` on the lander's
+ * reading of the rewind rule, naming the session's own queue ref; else
+ * lib/main-rewind.js's shared refusal.
  * @param {BranchPublishContext} ctx
  * @param {string} what completing "This …"
  * @param {string} segment
  * @returns {Refusal}
  */
 const mainRewind = (ctx, what, segment) => ({
-	reason: rewindReason(ctx, what),
+	reason: ctx.moduleOn("landing")
+		? buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx))
+		: rewindReason(ctx, what),
 	segment,
 });
 
@@ -194,30 +206,18 @@ const mainRewind = (ctx, what, segment) => ({
  * @param {string | null} [own]
  * @returns {string}
  */
-const buildOwnRefReason = (ctx, what, rule, own = ownQueueRef(ctx)) =>
+const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) =>
 	`${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${rule}`;
 
 /**
- * A refused push's refusal, naming the session's own queue ref with
- * `landing` on.
- * @param {BranchPublishContext} ctx
- * @param {string} what the refusal's opening, "This …"
- * @param {string} segment
- * @returns {Refusal}
- */
-const refusePush = (ctx, what, segment) =>
-	ctx.moduleOn("landing")
-		? { reason: buildOwnRefReason(ctx, what, publishRule(ctx)), segment }
-		: refuse(ctx, what, segment);
-
-/**
- * The session's own queue ref, or null where its tree is no worktree under
- * the host's `.claude/worktrees/` or git names no tree for it.
+ * The session's own queue ref, lib/landing-refs.js's answer, or null where
+ * its tree is no worktree under the host's `.claude/worktrees/` or git names
+ * no tree for it.
  * @param {BranchPublishContext} ctx
  * @returns {string | null}
  */
-function ownQueueRef(ctx) {
-	return queueRefOf(ctx.root, treeOr(ctx, null)?.root);
+function sessionQueueRef(ctx) {
+	return ownQueueRef(treeOr(ctx, null)?.root, ctx.root);
 }
 
 /**
@@ -251,7 +251,7 @@ const queueRefusal = (ctx, what, own, segment) => ({
 function ownRefLine(ctx, own) {
 	return own
 		? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin ${shellQuote(`HEAD:refs/heads/${own}`)}\`.`
-		: `This session runs outside a worktree under ${path.join(ctx.root, ".claude", "worktrees")}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`.claude/worktrees/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
+		: `This session runs outside a worktree under ${path.join(ctx.root, WORKTREES)}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`${WORKTREES}/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
 }
 
 /**
@@ -329,7 +329,7 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
 		(p) => branch.startsWith(p) && branch.length > p.length,
 	);
 	if (!prefix || !ctx.moduleOn("landing")) return;
-	const own = ownQueueRef(ctx);
+	const own = sessionQueueRef(ctx);
 	const named = `\`${branch}\``;
 	if (prefix !== QUEUE_PREFIX)
 		return queueRefusal(
@@ -458,18 +458,18 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 	if (isAllowedDst(ref, ctx)) return null;
 	const branch = branchNamed(ref);
 	if (ref === "refs/heads/main")
-		return refusePush(
+		return refuse(
 			ctx,
 			"This pushes to main, which only the lander moves",
 			segment,
 		);
 	if (bare)
-		return refusePush(
+		return refuse(
 			ctx,
 			`This pushes the branch the tree is on, ${branch}`,
 			segment,
 		);
-	return refusePush(
+	return refuse(
 		ctx,
 		`This publishes a branch other than main, ${branch}`,
 		segment,

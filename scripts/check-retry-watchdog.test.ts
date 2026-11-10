@@ -3,8 +3,10 @@
  * Holds check-retry-watchdog.js's verdicts: a binary and settings carrying
  * both watchdog variables pass; a binary missing one, or holding only a longer
  * name it prefixes, or settings missing one or not parsing, fail, each naming
- * its way out; no binary or no settings SKIPs. Loosen it and a CLI update or settings edit that turns the in-turn
- * retry off (#4815) goes unsaid on `npm run status`.
+ * its way out; a missing binary or settings file leaves only its half
+ * unchecked, and SKIPs where both are missing. Loosen it and a CLI update or
+ * settings edit that turns the in-turn retry off (#4815) goes unsaid on
+ * `npm run status`.
  */
 
 import fs from "node:fs";
@@ -70,23 +72,34 @@ it("fails settings missing a variable", () => {
 	expect(out).toContain(`set it to "1" there`);
 });
 
-it("skips where no binary is found", () => {
+it("still judges the settings where no binary is found", () => {
 	const { status, out } = run(null, BOTH_ENV);
 	expect(status).toBe(0);
-	expect(out).toMatch(/^SKIP:.*no `.*claude` binary was found/m);
+	expect(out).toMatch(/no `.*claude` binary was found; that half is unchecked/);
 });
 
 it("still fails settings missing a variable where no binary is found", () => {
 	const { status, out } = run(null, {});
 	expect(status).toBe(1);
 	expect(out).toContain(`${WATCHDOG}=null`);
-	expect(out).toContain("its names are unchecked");
+	expect(out).toContain("binary was found; that half is unchecked");
 });
 
-it("skips where the settings file is missing", () => {
-	const { status, out } = run(binary(WATCHDOG, CAP), null);
+it("still judges the binary where the settings file is missing", () => {
+	const ok = run(binary(WATCHDOG, CAP), null);
+	expect(ok.status).toBe(0);
+	expect(ok.out).toContain("settings.json is missing; that half is unchecked");
+	const dropped = run(binary(WATCHDOG), null);
+	expect(dropped.status).toBe(1);
+	expect(dropped.out).toContain(`no longer holds ${CAP}`);
+});
+
+it("skips where neither the settings file nor a binary is found", () => {
+	const { status, out } = run(null, null);
 	expect(status).toBe(0);
-	expect(out).toMatch(/^SKIP:.*could not be read/m);
+	expect(out).toMatch(
+		/^SKIP:.*settings\.json is missing; no `.*claude` binary was found/m,
+	);
 });
 
 it("fails a settings file that does not parse, naming the fix", () => {

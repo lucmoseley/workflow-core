@@ -18,6 +18,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { parseErrorText } = require("./caught.js");
 const { parseFiledLine } = require("./filed-line.js");
+const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { parseFirstLine } = require("./first-line.js");
 const { gh, ghIssueListAll } = require("./gh.js");
 const { gateOnLineOf } = require("./issue-gate.js");
@@ -72,21 +73,13 @@ function queueIssueFiler({
 		}
 		const listed = similar(title);
 		const ran = fileIssue(
-			[
-				"--title",
+			buildScriptFilerArgv({
 				title,
-				...LABELS.flatMap((l) => ["--label", l]),
-				"--standalone",
-				standalone,
-				"--origin",
+				labels: LABELS,
+				placement: { standalone },
 				origin,
-				"--no-fault",
-				...(listed.length > 0
-					? ["--distinct-from", listed.map((c) => c.number).join(",")]
-					: []),
-				"--body-file",
-				"-",
-			],
+				distinctFrom: listed.map((c) => c.number),
+			}),
 			body,
 		);
 		if (ran.status === 0) return parseFiledLine(ran.stdout).line;

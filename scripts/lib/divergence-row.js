@@ -19,6 +19,13 @@
 
 const { basename } = require("node:path").posix;
 
+/* git's words for a push refused because the remote ref holds a commit ours
+ * lacks; lib/land-refusal.js builds a land's MOVED test from them. Here, not
+ * there, so this hook's load set stays its own (#2899). */
+const REJECTED = "[rejected]";
+const FETCH_FIRST = "fetch first";
+const NON_FAST_FORWARD = "non-fast-forward";
+
 /**
  * The refusal strings, in git's own words, probed in this order; the first
  * found is the row's marker. A pull that merely printed "Already up to date"
@@ -32,9 +39,9 @@ const MARKERS = [
 	"Not possible to fast-forward",
 	"Need to specify how to reconcile divergent branches",
 	"Updates were rejected because",
-	"non-fast-forward",
-	"! [rejected]",
-	"fetch first",
+	NON_FAST_FORWARD,
+	`! ${REJECTED}`,
+	FETCH_FIRST,
 ];
 
 /**
@@ -277,4 +284,10 @@ function rowAt(tree, kind, marker, ports) {
 	return { dir, file: `${dir}/divergence.log`, line: `${fields.join("\t")}\n` };
 }
 
-module.exports = { divergenceRow, landRow };
+module.exports = {
+	divergenceRow,
+	FETCH_FIRST,
+	landRow,
+	NON_FAST_FORWARD,
+	REJECTED,
+};

@@ -21,7 +21,6 @@ import { buildJobRow } from "./lib/agents-stop-fake";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
 import { API_PROMPT } from "./lib/loop-prompts.js";
 import { NET_PROBE_OFFLINE_LINE } from "./lib/net-probe-fake";
-import { ATTACH_VERDICT_MS } from "./lib/refill-blocks.js";
 import {
 	at,
 	buildBlockedJobRecord,
@@ -51,6 +50,7 @@ function seedFounderSession() {
 		`${JSON.stringify({
 			type: "assistant",
 			isApiErrorMessage: true,
+			timestamp: new Date(Date.now() - 60 * 1000).toISOString(),
 			message: {
 				content: [
 					{
@@ -108,8 +108,9 @@ it("takes a founder-started session through a drop, an offline wait, a typed res
 	const [typed] = outside();
 	expect(typed).toMatchObject({ tries: 1, attachAt: expect.any(Number) });
 
-	/* Past the verdict window, with the typed line on the job's timeline. */
-	const attachAt = Date.now() - 2 * ATTACH_VERDICT_MS;
+	/* An hour back, past lib/refill-blocks.js's one-minute verdict window,
+	 * with the typed line on the job's timeline. */
+	const attachAt = Date.now() - 60 * 60 * 1000;
 	fs.writeFileSync(
 		at(".refill-outside.json"),
 		JSON.stringify([{ ...typed, attachAt }]),
