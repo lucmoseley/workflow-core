@@ -95,8 +95,8 @@ export const buildPermissionRow = (id: string): Row =>
 
 /**
  * One `agents --json` answer: the rows printed; a failure, exit 1 where null,
- * after printing `rows` where given; text no harness prints; a hang; or a hang that first starts two children,
- * appending each pid to the file named.
+ * after printing `rows` where given; text no harness prints; a hang; or a
+ * hang that first starts two children, appending each pid to the file named.
  */
 export type AgentsAnswer =
 	| Row[]
