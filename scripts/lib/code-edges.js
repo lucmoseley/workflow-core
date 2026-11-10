@@ -11,7 +11,8 @@
  *     sourced or run (#460).
  *   Python — `import X` or `from X import`, X.py sitting beside the importer
  *     (#465).
- * A path built any other way is unseen.
+ * A path built any other way is unseen. `shadowsOf` names the paths each JS
+ * specifier tried before its target, which the pass store keys on (#4814).
  *
  * FOREIGN: a Python module neither stdlib (python3's own
  * sys.stdlib_module_names, so 3.10 or later) nor beside its importer is
@@ -67,7 +68,10 @@ const parseCodeLines = (text, comment) =>
 
 /**
  * The paths node tries, in order, for a relative specifier, with vitest's
- * `.ts` for a `.js` specifier naming a `.ts` source.
+ * `.ts` for a `.js` specifier naming a `.ts` source. Residual: node's
+ * `.node`, a directory's `package.json` "main", and vite's `.mjs`, `.mts`,
+ * `.jsx`, `.tsx` and `index.ts` are not tried, so a file appearing there is
+ * neither an edge nor a shadow.
  * @param {string} abs
  */
 const candidatesOf = (abs) => [
@@ -80,15 +84,24 @@ const candidatesOf = (abs) => [
 ];
 
 /** @param {string} c */
-const isFile = (c) => fs.statSync(c, { throwIfNoEntry: false })?.isFile();
+const isFile = (c) =>
+	fs.statSync(c, { throwIfNoEntry: false })?.isFile() ?? false;
 
 /**
  * The file node would load for a relative specifier, or vitest would where a
- * `.js` specifier names a `.ts` source; the bare join where none exists — so
- * a miss names the path as written.
+ * `.js` specifier names a `.ts` source — the bare join where none exists, so
+ * a miss names the path as written — and the candidates tried before it,
+ * none where nothing resolved.
  * @param {string} abs
+ * @returns {{target: string, tried: string[]}}
  */
-const resolveJs = (abs) => candidatesOf(abs).find(isFile) ?? abs;
+function resolutionOf(abs) {
+	const candidates = candidatesOf(abs);
+	const hit = candidates.findIndex(isFile);
+	return hit < 0
+		? { target: abs, tried: [] }
+		: { target: candidates[hit] ?? abs, tried: candidates.slice(0, hit) };
+}
 
 /** @type {Set<string> | null} */
 let stdlib = null;
@@ -152,11 +165,9 @@ function relativeSpecifiers(dir, code) {
 function shadowsOf(file, text) {
 	if (!/\.[cm]?[jt]s$/.test(file)) return [];
 	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
-	return relativeSpecifiers(path.dirname(file), code).flatMap((abs) => {
-		const candidates = candidatesOf(abs);
-		const hit = candidates.findIndex(isFile);
-		return hit < 0 ? [] : candidates.slice(0, hit);
-	});
+	return relativeSpecifiers(path.dirname(file), code).flatMap(
+		(abs) => resolutionOf(abs).tried,
+	);
 }
 
 /**
@@ -166,7 +177,9 @@ function shadowsOf(file, text) {
  */
 function jsEdges(dir, text) {
 	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
-	const edges = relativeSpecifiers(dir, code).map(resolveJs);
+	const edges = relativeSpecifiers(dir, code).map(
+		(abs) => resolutionOf(abs).target,
+	);
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
 		const parts = [...requiredGroup(m, 1, DIRNAME_JOIN).matchAll(QUOTED)].map(
 			(p) => requiredGroup(p, 1, QUOTED),
@@ -265,4 +278,4 @@ function pushPyModuleEdge(dir, mod, edges, fault) {
 		fault(`imports ${top}, which is neither stdlib nor shipped beside it`);
 }
 
-module.exports = { edgesOf, shadowsOf, JS_SPEC, jsSpecifier };
+module.exports = { edgesOf, isFile, shadowsOf, JS_SPEC, jsSpecifier };

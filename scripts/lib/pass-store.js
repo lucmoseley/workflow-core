@@ -53,12 +53,14 @@ const { relativeUnder } = require("./is-under.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
+	ABSENT,
+	absentAsId,
 	readTreeIds,
 	readWorkingIds,
 	sameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
-const { edgesOf, shadowsOf } = require("./code-edges.js");
+const { edgesOf, isFile, shadowsOf } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
 	EDGES_FILE,
@@ -82,8 +84,9 @@ const PACKAGE_INPUTS = [
 const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
-/* The content id of an input path that holds no file (#4814). */
-const ABSENT = "absent";
+/* The row layout: a run line of another, or none, never decides. 2 added
+ * the `absent` inputs (#4814). */
+const FORMAT = 2;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -284,10 +287,11 @@ function readEdges(root, rel) {
 	if (read.state !== "read") return null;
 	try {
 		return {
-			edges: inRepo(root, edgesOf(abs, read.data, ignoreFault)).filter((p) =>
-				fs.statSync(path.join(root, p), { throwIfNoEntry: false })?.isFile(),
+			edges: repoRelative(
+				root,
+				edgesOf(abs, read.data, ignoreFault).filter(isFile),
 			),
-			shadows: inRepo(root, shadowsOf(abs, read.data)),
+			shadows: repoRelative(root, shadowsOf(abs, read.data)),
 		};
 	} catch {
 		/* A fault in the read leaves an input unknown: null records no row. */
@@ -300,7 +304,7 @@ function readEdges(root, rel) {
  * @param {string} root
  * @param {string[]} paths absolute
  */
-const inRepo = (root, paths) =>
+const repoRelative = (root, paths) =>
 	paths.flatMap((e) => {
 		const under = relativeUnder(root, e);
 		if (!under) return [];
@@ -374,11 +378,11 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		/* A path tried before the resolved file must read as no file: one that
 		 * appeared since the reach was read, or a symlink, which no id answers,
 		 * leaves the resolution the run used unknown. */
-		const stillAbsent = (/** @type {string[]} */ paths) =>
+		const areAllAbsent = (/** @type {string[]} */ paths) =>
 			paths.every((p) => ids.has(p) && ids.get(p) === null);
 		if (!known(shared)) return 0;
 		const rows = own
-			.filter((f) => known(f.paths) && stillAbsent(f.absent))
+			.filter((f) => known(f.paths) && areAllAbsent(f.absent))
 			.map((f) => ({
 				file: f.file,
 				outcome: f.outcome,
@@ -390,6 +394,7 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
 		const line = {
+			format: FORMAT,
 			at: run.at,
 			sha: run.sha,
 			tree: run.tree,
@@ -603,19 +608,20 @@ const cachedFrom = (file, { row, run }) => ({
 		at: String(run.at),
 		tree: typeof run.tree === "string" ? run.tree : null,
 	},
-	reads: [...new Set(entryReads({ row, run }))].filter(
-		(p) => asIds(row.inputs)?.get(p) !== ABSENT,
-	),
+	reads: readsOf({ row, run }),
 });
 
 /**
- * `ids` with every path that holds no file read as `absent`, the id a row
- * records a shadowing candidate under (#4814).
- * @param {Map<string, string|null>} ids
- * @returns {Map<string, string|null>}
+ * The paths a cached file's row read, its `absent` inputs left out: they are
+ * no file, so no certificate reader judges them.
+ * @param {Entry} entry
  */
-const absentAsId = (ids) =>
-	new Map([...ids].map(([p, id]) => [p, id ?? ABSENT]));
+function readsOf({ row, run }) {
+	const own = asIds(row.inputs);
+	return [...new Set(entryReads({ row, run }))].filter(
+		(p) => own?.get(p) !== ABSENT,
+	);
+}
 
 /**
  * A recorded row's input paths, its own and its run's shared ones.
@@ -633,7 +639,7 @@ const inputPaths = (v) =>
 /**
  * Whether one recorded row's verdict holds now: its file is `file`, it
  * recorded a non-empty input list with every id unchanged, the run's values
- * equal today's, and every document the manifest now maps to the file is
+ * equal today's, it is in this store's `FORMAT`, and every document the manifest now maps to the file is
  * among its inputs.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
@@ -641,6 +647,7 @@ const inputPaths = (v) =>
  *   values: Record<string, string>, reads: string[]}} at
  */
 function holds(row, run, { file, now, values, reads }) {
+	if (run.format !== FORMAT) return false;
 	const own = asIds(row.inputs);
 	const shared = asIds(run.shared);
 	if (!own || !shared || own.size === 0 || !own.has(file)) return false;

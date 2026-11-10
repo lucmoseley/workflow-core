@@ -15,7 +15,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { lookup, record } = require("./pass-store.js");
+const { heldAtSha, lookup, record } = require("./pass-store.js");
 const { markersDir } = require("./marker-root.js");
 const { EDGES_FILE, repoRoot } = require("./test-pass-marker.js");
 
@@ -279,7 +279,7 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 			"data.json",
 			"data.js",
 		],
-	])("%s", (_name, lib, target, shadow) => {
+	])("voids it for %s", (_name, lib, target, shadow) => {
 		const dir = repo();
 		write(dir, "lib.js", lib);
 		fs.mkdirSync(path.join(dir, path.dirname(target)), { recursive: true });
@@ -298,6 +298,52 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "deep.js", "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids it through a specifier in the test file itself", () => {
+		const dir = repo();
+		write(dir, A, 'require("../data");\n');
+		write(dir, "data.json", "{}\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "data.js", "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("holds at a commit's tree only while no file there takes the import over", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./data");\n');
+		write(dir, "data.json", "{}\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "data");
+		const before = git(dir, "rev-parse", "HEAD");
+		run(dir, [A]);
+		write(dir, "data.js", "v0\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "shadow");
+		const heldAt = (sha: string) =>
+			[
+				...heldAtSha([A], {
+					storeRoot: dir,
+					sha,
+					before: "9999",
+					git: (args: string[]) =>
+						execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+					values: VALUES,
+				}).keys(),
+			] as string[];
+		expect(heldAt(before)).toEqual([A]);
+		expect(heldAt(git(dir, "rev-parse", "HEAD"))).toEqual([]);
+	});
+
+	it("lets no row recorded before the store kept absent inputs decide", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const { format: _format, ...line } = JSON.parse(
+			fs.readFileSync(shardOf(dir, A), "utf8"),
+		);
+		fs.writeFileSync(shardOf(dir, A), `${JSON.stringify(line)}\n`);
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
