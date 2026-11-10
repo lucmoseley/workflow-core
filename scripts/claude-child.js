@@ -12,10 +12,9 @@
  * narrow allow rule can name, run bare. Background sessions go through
  * scripts/dispatch-sessions.sh, not here.
  *
- * usage   `claude -p /usage --permission-mode manual` on that seat, the
- *         flag as dispatch-sessions.sh's own /usage call passes it, so the
+ * usage   `claude -p /usage --permission-mode manual` on that seat, so the
  *         child can approve no tool: prints both bars and spends no model
- *         tokens. Killed after 60 s, as a wedged one hangs.
+ *         tokens. Killed after 60 s.
  * chrome  the browser-ladder skill's Chrome child: the Chrome tools and no
  *         other, `file_upload` barred (#1080), 10 turns a page plus 5, the
  *         prompt on stdin, since `--allowedTools` takes a list and swallows
@@ -23,15 +22,15 @@
  *         to its system prompt. Its stream is read here and only the result
  *         row printed, as one JSON object, with `tabsLeftOpen`: the tabs
  *         its Claude tab group still held when it ended, each named on
- *         stderr too (#4847). Killed after lib/child-spawn.js's limit a page.
+ *         stderr too (#4847). Killed after lib/child-spawn.js's limit a
+ *         page, or after WFC_CHROME_CHILD_LIMIT_MS where a test sets it.
  * judge   the gate judge's one question of one issue body (#4964), for
  *         lib/gate-judge.js: lib/gate-judge-mode.js's flags, the prompt on
  *         stdin, an empty working directory; the JSON result on stdout. Killed once --timeout-ms have passed since this
  *         script started, the auth read included.
  *
  * --config-dir must be one of this machine's own seats (lib/arbiter-store.js's
- * configDirs). There is no free-prompt mode and no way to pass another flag.
- * A launch whose auth would not bill the subscription is refused
+ * configDirs). A launch whose auth would not bill the subscription is refused
  * (lib/launch-auth.js).
  *
  * The binary is WFC_CLAUDE_BIN, else `claude` on PATH. Joins no §N3 family:
@@ -50,11 +49,13 @@ const { caught } = require("./lib/caught.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const {
 	CHROME_STANDING_LINES,
+	chromeOutcome,
 	createTabTally,
 } = require("./lib/chrome-child.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
+const { parseJsonlRow } = require("./lib/jsonl.js");
 const { JUDGE_ARGS, JUDGE_TIMEOUT_EXIT } = require("./lib/gate-judge-mode.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { realKey } = require("./lib/deref.js");
@@ -163,46 +164,51 @@ function timeoutOrFail(given) {
 }
 
 /**
- * Run the Chrome child, reading its stream: the result row goes to stdout
- * with the tabs its group still holds, and a line that is no JSON row passes
- * through as written.
+ * Run the Chrome child, tallying its stream's rows; a line that is no row
+ * passes through as written. The limit is kept here, never by `spawn`, so a
+ * descendant holding the child's stdout cannot outlive it.
  * @param {string} bin
  * @param {string[]} args
  * @param {import("node:child_process").SpawnOptions} opts
+ * @param {number} limitMs
  */
-async function runChrome(bin, args, opts) {
+async function runChrome(bin, args, opts, limitMs) {
 	const child = spawn(bin, args, opts);
 	child.on("error", (e) => fail(`the child did not finish (${e.message}).`, 1));
 	if (!child.stdout) return fail("the child gave no stdout to read.", 1);
 	const tally = createTabTally();
 	/** @type {Record<string, unknown> | undefined} */
 	let result;
+	let timedOut = false;
 	const lines = readline.createInterface({ input: child.stdout });
 	lines.on("line", (line) => {
-		let row;
-		try {
-			row = JSON.parse(line);
-		} catch {
-			writeFd(1, `${line}\n`);
-			return;
-		}
+		const row = parseJsonlRow(line);
+		if (row === undefined) writeFd(1, `${line}\n`);
+		if (!row) return;
 		tally.read(row);
-		if (row?.type === "result") result = row;
+		if (row.type === "result") result = row;
 	});
+	const timer = setTimeout(() => {
+		timedOut = true;
+		child.kill();
+		lines.close();
+		child.stdout?.destroy();
+	}, limitMs);
 	const [[status, signal]] = await Promise.all([
-		once(child, "close"),
+		once(child, "exit"),
 		once(lines, "close"),
 	]);
-	const left = tally.left();
-	if (result)
-		writeFd(1, `${JSON.stringify({ ...result, tabsLeftOpen: left })}\n`);
-	if (left.length > 0)
-		writeFd(
-			2,
-			`claude-child: the child left ${left.length} tab(s) open in its Claude tab group: ${left.map((t) => `${t.tabId} (${t.url})`).join(", ")}\n`,
-		);
-	if (signal) fail(`the child was killed by ${signal}.`, 1);
-	process.exitCode = status ?? 1;
+	clearTimeout(timer);
+	const end = chromeOutcome({
+		result,
+		left: tally.left(),
+		status,
+		signal,
+		limitMs: timedOut ? limitMs : undefined,
+	});
+	writeFd(1, end.stdout);
+	writeFd(2, end.stderr);
+	process.exitCode = end.exit;
 }
 
 async function main() {
@@ -225,7 +231,8 @@ async function main() {
 	let args;
 	/** @type {import("node:child_process").SpawnSyncOptions} */
 	let opts;
-	let chrome = false;
+	/** @type {number | undefined} */
+	let chromeLimitMs;
 	/** @type {number | undefined} */
 	let boundMs;
 	if (command === "judge") {
@@ -240,7 +247,9 @@ async function main() {
 		};
 	} else {
 		const pages = pagesOrFail(flags["--pages"]);
-		chrome = true;
+		chromeLimitMs =
+			Number(process.env.WFC_CHROME_CHILD_LIMIT_MS) ||
+			CHROME_TIMEOUT_MS_A_PAGE * pages;
 		args = [
 			"-p",
 			"--chrome",
@@ -260,7 +269,6 @@ async function main() {
 		];
 		opts = {
 			stdio: [promptFdOrFail(flags["--prompt-file"]), "pipe", "inherit"],
-			timeout: CHROME_TIMEOUT_MS_A_PAGE * pages,
 		};
 	}
 
@@ -278,7 +286,8 @@ async function main() {
 	if (refusal) fail(`${refusal}${cached}`, 2);
 	if (boundMs !== undefined)
 		opts.timeout = Math.max(1, boundMs - (Date.now() - startedAt));
-	if (chrome) return runChrome(bin, args, { ...opts, env });
+	if (chromeLimitMs !== undefined)
+		return runChrome(bin, args, { ...opts, env }, chromeLimitMs);
 	const r = spawnSync(bin, args, { ...opts, env });
 	if (
 		boundMs !== undefined &&

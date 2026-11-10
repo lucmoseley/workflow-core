@@ -1,13 +1,15 @@
 /*
- * chrome-child.js — what claude-child.js's Chrome child is always told, and
- * the tally of the tabs it leaves behind (#4847).
+ * chrome-child.js — what claude-child.js's Chrome child is always told, the
+ * tally of the tabs it leaves behind, and what the launcher says of its end
+ * (#4847). No I/O here.
  *
  * Every Chrome tool result ends in a `Tab Context:` block listing the tabs in
  * the session's own Claude tab group, and closing the last one answers "Group
- * is now empty (auto-removed)" (the extension's words, read off this machine's
- * transcripts on 11 Nov 2026). The group holds only tabs the session opened,
+ * is now empty (auto-removed)". The group holds only tabs the session opened,
  * and no later session can see or close it, so what the last result lists is
- * what stays in the founder's tab strip.
+ * what stays in the founder's tab strip. A session cut off from its group is
+ * told "This session has no tab group of its own": the tabs it held then stay
+ * open too, out of its reach.
  */
 
 /* Appended to the child's system prompt on every launch, so no brief has to
@@ -23,9 +25,15 @@ const CHROME_STANDING_LINES = [
 ].join("\n");
 
 const TAB_LINE = /^\s*• tabId (\d+): "(.*)" \("(.*)"\)\s*$/;
+/* A line of a `browser_batch` result opens with the tool it ran, in square
+ * brackets. */
+const CLOSED_LINE = /^(?:\[\w+\] )?Closed tab (\d+)\./;
+const CREATED_LINE = /^(?:\[\w+\] )?Created new tab\. Tab ID: (\d+)/;
+const NO_GROUP = "This session has no tab group of its own";
 
 /**
  * @typedef {{tabId: number, title: string, url: string}} OpenTab
+ * @typedef {Map<number, OpenTab>} Tabs
  */
 
 /**
@@ -58,12 +66,12 @@ function toolResultTexts(row) {
 /**
  * The tabs a `Tab Context:` block lists, undefined where `text` is none.
  * @param {string} text
- * @returns {Map<number, OpenTab> | undefined}
+ * @returns {Tabs | undefined}
  */
 function listedTabs(text) {
 	const at = text.indexOf("- Available tabs:");
 	if (!text.trimStart().startsWith("Tab Context:") || at === -1) return;
-	/** @type {Map<number, OpenTab>} */
+	/** @type {Tabs} */
 	const tabs = new Map();
 	for (const line of text.slice(at).split("\n")) {
 		const m = TAB_LINE.exec(line);
@@ -78,27 +86,81 @@ function listedTabs(text) {
 }
 
 /**
- * The tabs a child's group still holds, read off its `--output-format
- * stream-json` rows in order.
+ * `open` after the tabs one result line says were closed or made.
+ * @param {Tabs} open changed in place
+ * @param {string} line
+ */
+function applyLine(open, line) {
+	const closed = CLOSED_LINE.exec(line);
+	if (closed) open.delete(Number(closed[1]));
+	if (closed && line.includes("Group is now empty")) open.clear();
+	const created = CREATED_LINE.exec(line);
+	const tabId = Number(created?.[1]);
+	if (created && !open.has(tabId))
+		open.set(tabId, { tabId, title: "", url: "" });
+}
+
+/**
+ * The tabs a child leaves open, read off its `--output-format stream-json`
+ * rows in order: those its group still holds, and those of a group it was cut
+ * off from.
  */
 function createTabTally() {
-	/** @type {Map<number, OpenTab>} */
+	/** @type {Tabs} */
 	let open = new Map();
+	/** @type {OpenTab[]} */
+	const orphaned = [];
 	return {
 		/** @param {unknown} row one parsed stream row */
 		read(row) {
 			for (const text of toolResultTexts(row)) {
-				const closed = /^Closed tab (\d+)\./.exec(text);
-				if (closed) open.delete(Number(closed[1]));
-				if (closed && text.includes("Group is now empty")) open = new Map();
+				for (const line of text.split("\n")) applyLine(open, line);
+				if (text.includes(NO_GROUP)) {
+					orphaned.push(...open.values());
+					open = new Map();
+				}
 				open = listedTabs(text) ?? open;
 			}
 		},
 		/** @returns {OpenTab[]} */
 		left() {
-			return [...open.values()];
+			return [...orphaned, ...open.values()];
 		},
 	};
 }
 
-module.exports = { CHROME_STANDING_LINES, createTabTally };
+/**
+ * What the launcher prints and exits with once the child has ended: the
+ * result row with `tabsLeftOpen` on stdout, a `claude-child:` line on stderr
+ * for each thing gone wrong, and the child's own status where nothing has.
+ * @param {{
+ *   result: Record<string, unknown> | undefined,
+ *   left: OpenTab[],
+ *   status: number | null,
+ *   signal: string | null,
+ *   limitMs: number | undefined,
+ * }} end `limitMs` is the limit the launcher killed the child at, undefined
+ *   where it did not
+ * @returns {{stdout: string, stderr: string, exit: number}}
+ */
+function chromeOutcome({ result, left, status, signal, limitMs }) {
+	const said = [];
+	if (left.length > 0)
+		said.push(
+			`the child left ${left.length} tab(s) open in its Claude tab group: ${left.map((t) => `${t.tabId} (${t.url})`).join(", ")}`,
+		);
+	if (limitMs !== undefined)
+		said.push(`the child was killed at its ${limitMs} ms limit.`);
+	else if (signal) said.push(`the child was killed by ${signal}.`);
+	else if (!result && status === 0)
+		said.push("the child ended with no result row.");
+	return {
+		stdout: result
+			? `${JSON.stringify({ ...result, tabsLeftOpen: left })}\n`
+			: "",
+		stderr: said.map((line) => `claude-child: ${line}\n`).join(""),
+		exit: status === 0 && !result ? 1 : (status ?? 1),
+	};
+}
+
+module.exports = { CHROME_STANDING_LINES, chromeOutcome, createTabTally };
