@@ -22,10 +22,11 @@
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const {
+	SECTION_HEADING,
 	appendSignatureLine,
 	buildSignatureLine,
 	readDeclared,
-	readSignatureSection,
+	parseSignatureSection,
 	withSignatureSection,
 } = require("./lib/fault-signature.js");
 const { SIGNATURE_LABEL } = require("./lib/signature-label.js");
@@ -69,10 +70,10 @@ function readBody({ repo, number }) {
 function restore(issue) {
 	const ref = parseQualifiedRef(issue);
 	if (!ref) refuse(`--restore is <owner/name>#<n>. ${USAGE}`);
-	const line = readSignatureSection(issue, readBody(ref));
+	const line = parseSignatureSection(issue, readBody(ref));
 	if (!line)
 		refuse(
-			`${issue} has no readable "## Fault signature" section, so its line is unrecoverable: re-declare it late with --issue, --filed-at and --fault-signature.`,
+			`${issue} has no readable "${SECTION_HEADING}" section, so its line is unrecoverable: re-declare it late with --issue, --filed-at and --fault-signature.`,
 			1,
 		);
 	const logged = appendSignatureLine(worktreeRoot(), line);

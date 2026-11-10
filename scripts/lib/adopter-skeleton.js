@@ -531,8 +531,8 @@ function settingsKeys(
 }
 
 /**
- * The tracker's labels: the core's 19, the module-gated ones, and one per
- * declared category. Never the five vendored-vocabulary names, which this repo
+ * The tracker's labels: the core's 20, one per origin class, the
+ * module-gated ones, and one per declared category. Never the five vendored-vocabulary names, which this repo
  * retired — a label created here is a label a skill will offer.
  * @param {{modules: Module[], categories: Record<string, string>}} at
  * @returns {{name: string, color: string, description: string}[]}

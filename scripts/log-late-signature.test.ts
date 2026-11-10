@@ -108,11 +108,27 @@ describe("log-late-signature.js", () => {
 		expect(body).toContain(`\`\`\`json\n${JSON.stringify(rest)}\n\`\`\``);
 	});
 
+	it("replaces a section already in the body, keeping the text after it", () => {
+		fs.writeFileSync(
+			at("body"),
+			'Top.\n\n## Fault signature\n\n```json\n{"old":true}\n```\n\nStandalone: kept.\n',
+		);
+		expect(run("lander dropped q/\\d").status).toBe(0);
+		const body = fs.readFileSync(at("body"), "utf8");
+		expect(body).not.toContain('"old"');
+		expect(body.match(/## Fault signature/g)).toHaveLength(1);
+		expect(body).toMatch(
+			/^Top\.\n\n## Fault signature\n[\s\S]*\n\nStandalone: kept\.\n$/,
+		);
+	});
+
 	it("logs nothing where the ticket cannot be marked", () => {
 		fs.writeFileSync(at("edit-fails"), "");
 		const r = run("lander dropped q/\\d");
 		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("acme/widgets#7");
 		expect(r.stderr).toContain("nothing was logged");
+		expect(r.stderr).toContain("Run it again.");
 		expect(fs.existsSync(log())).toBe(false);
 	});
 

@@ -108,10 +108,11 @@ const {
 	SIGNATURE_LOG,
 	readDeclared,
 	readLog,
-	readSignatureSection,
+	parseSignatureSection,
 	signatureHits,
 } = require("./lib/fault-signature");
 const { SIGNATURE_LABEL } = require("./lib/signature-label");
+const { canonicalJson } = require("./lib/canonical-json");
 
 /* ---- Constants. The spec's values are untraced (#4796 §Values); the rest
  * are this script's own judgement. ---- */
@@ -434,7 +435,10 @@ function collectFindings(sigLines, weekly, failures) {
 	const logged = new Map();
 	for (const l of sigLines)
 		if (typeof l?.issue === "string")
-			logged.set(l.issue, (logged.get(l.issue) ?? new Set()).add(canonical(l)));
+			logged.set(
+				l.issue,
+				(logged.get(l.issue) ?? new Set()).add(canonicalJson(l, true)),
+			);
 	const conflicts = [...logged]
 		.filter(([, lines]) => lines.size > 1)
 		.map(([issue, lines]) => ({
@@ -478,23 +482,6 @@ function collectFindings(sigLines, weekly, failures) {
 				`run line ${line.date} finding`,
 			);
 	return { findings, signed, conflicts };
-}
-
-/**
- * A row as JSON with its keys sorted, so key order never makes two lines differ.
- * @param {unknown} v
- * @returns {string}
- */
-function canonical(v) {
-	if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
-	if (v && typeof v === "object")
-		return `{${Object.keys(v)
-			.sort()
-			.map(
-				(k) => `${JSON.stringify(k)}:${canonical(/** @type {Row} */ (v)[k])}`,
-			)
-			.join(",")}}`;
-	return JSON.stringify(v);
 }
 
 /**
@@ -923,7 +910,7 @@ function readNoFaultBugs(closed, { signed, tracker, nowMs }) {
  * @param {IssueRow[]} owing  closed tickets carrying SIGNATURE_LABEL
  * @param {{signed: Set<string>, tracker: string}} at
  */
-function readLostLines(owing, { signed, tracker }) {
+function lostLinesOf(owing, { signed, tracker }) {
 	return owing.flatMap((i) => {
 		const ref = `${tracker}#${i.number}`;
 		return signed.has(ref)
@@ -932,7 +919,7 @@ function readLostLines(owing, { signed, tracker }) {
 					{
 						issue: ref,
 						title: i.title,
-						line: readSignatureSection(ref, i.body ?? ""),
+						line: parseSignatureSection(ref, i.body ?? ""),
 					},
 				];
 	});
@@ -1162,9 +1149,7 @@ function review({ root, seats, nowMs, tracker }) {
 			? null
 			: readNoFaultBugs(closed, { signed, tracker, nowMs });
 	const lostLines =
-		typeof owing === "string"
-			? null
-			: readLostLines(owing, { signed, tracker });
+		typeof owing === "string" ? null : lostLinesOf(owing, { signed, tracker });
 	/** @type {Record<string, Signature>} */
 	const signatures = {};
 	for (const f of findings.values()) signatures[f.ref] = f.signature;

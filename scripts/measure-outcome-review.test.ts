@@ -617,6 +617,27 @@ describe("measure-outcome-review.js", () => {
 			expect(out.misses).toEqual([]);
 		});
 
+		it("lists a lost late line, which carries no origin label, as lost and not as a miss", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.commit("Stop the boom (#50)", 56);
+			f.issues.push({
+				number: 50,
+				title: "Fix the boom",
+				closedAt: d(57),
+				labels: ["bug", "fault-signature"],
+				body: section({ ...lostLine, late: true }),
+			});
+			const { out } = f.run();
+			expect(out.misses).toEqual([]);
+			expect(out.lostLines).toEqual([
+				expect.objectContaining({
+					issue: `${TRACKER}#50`,
+					line: expect.objectContaining({ late: true }),
+				}),
+			]);
+		});
+
 		it("lists it UNRECOVERABLE where the body section is gone", () => {
 			const f = scratch();
 			f.commit("Initial", 1);

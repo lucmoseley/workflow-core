@@ -364,8 +364,8 @@ function main() {
 /**
  * The body as filed, and the signature line it records, its issue left blank
  * until the create gives the number. A body carrying its own Standalone line
- * keeps it, never gaining a second (#1027); the flag's reason is then dropped
- * even where it differs.
+ * keeps it, never gaining a second (#1027).
+ * Residual: the flag's reason is then dropped even where it differs.
  * @param {{body: string, standalone: string | undefined,
  *   declared: import("./lib/fault-signature.js").Declared | null}} at
  */

@@ -21,8 +21,8 @@
  * A needle counts as lib/guard-fires.js counts a guard's fires, on both tiers;
  * a regex through its regex route, on the tiers its scope names.
  *
- * A ticket owing a log line carries lib/signature-label.js's label and a SECTION_HEADING body
- * section holding that line less its `issue`, which the ticket itself names:
+ * A ticket owing a log line carries lib/signature-label.js's label and a
+ * SECTION_HEADING body section holding that line less its `issue`, which the ticket itself names:
  * the issue create records it in the same call, so a line lost with its
  * worktree is recovered from the ticket (#4861).
  */
@@ -42,6 +42,7 @@ const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { parseJsonlRow, readJsonl } = require("./jsonl.js");
+const { escapeRe } = require("./regex-group.js");
 
 /** The append-only log, at a repo's root; `merge=union` in .gitattributes. */
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
@@ -379,15 +380,21 @@ function signatureSection(line) {
 	return `${SECTION_HEADING}\n\n\`\`\`json\n${JSON.stringify(rest)}\n\`\`\`\n`;
 }
 
+/** The section as signatureSection writes it, its line captured. */
+const SECTION = new RegExp(
+	`^${escapeRe(SECTION_HEADING)}\\r?\\n\\r?\\n\`\`\`json\\r?\\n([^\\r\\n]*)\\r?\\n\`\`\`(?:\\r?\\n)?`,
+	"m",
+);
+
 /**
- * The body with its section, replacing one already there.
+ * The body with its section, replacing only one already there.
  * @param {string} body
  * @param {Record<string, unknown>} line
  */
 function withSignatureSection(body, line) {
-	const at = body.indexOf(`${SECTION_HEADING}\n`);
-	const kept = at === -1 ? body : body.slice(0, at);
-	return `${kept.trimEnd()}\n\n${signatureSection(line)}`;
+	return SECTION.test(body)
+		? body.replace(SECTION, () => signatureSection(line))
+		: `${body.trimEnd()}\n\n${signatureSection(line)}`;
 }
 
 /**
@@ -398,10 +405,8 @@ function withSignatureSection(body, line) {
  * @param {string} body
  * @returns {Row | null}
  */
-function readSignatureSection(issue, body) {
-	const m = body.match(
-		/^## Fault signature\r?\n\r?\n```json\r?\n([^\r\n]*)\r?\n```/m,
-	);
+function parseSignatureSection(issue, body) {
+	const m = body.match(SECTION);
 	const row = m?.[1] ? parseJsonlRow(m[1]) : null;
 	return row ? { issue, ...row } : null;
 }
@@ -426,8 +431,8 @@ module.exports = {
 	buildSignatureLine,
 	readDeclared,
 	readLog,
-	readSignatureSection,
+	SECTION_HEADING,
+	parseSignatureSection,
 	signatureHits,
-	signatureSection,
 	withSignatureSection,
 };
