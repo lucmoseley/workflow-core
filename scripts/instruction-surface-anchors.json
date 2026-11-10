@@ -235,7 +235,7 @@
 			"source": "#2791, #3583, #4129, #4037, #4610"
 		},
 		"scripts/lib/echo-call.js": {
-			"digest": "8a3cf9cca918a8db",
+			"digest": "0ec2e44b4d6a3f33",
 			"verdict": "at need for the runaway (3rd identical call, before it runs); the two wasted repeats are its design, not a lag. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — says end the turn (to a subagent: wait inside it, Bash and Read alike), or vary the command, and how the chain clears",
 			"source": "#2791"
