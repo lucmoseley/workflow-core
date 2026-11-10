@@ -39,6 +39,7 @@
  */
 
 const crypto = require("node:crypto");
+const { canonicalJson } = require("./canonical-json.js");
 const { NOOP, SLEEP } = require("./agent-poll.js");
 
 /* A record older than MAX_AGE_S is dropped, not judged: an hour, a guess
@@ -76,30 +77,6 @@ const hash24 = (text) =>
 	crypto.createHash("sha1").update(text, "utf8").digest("hex").slice(0, 24);
 
 /**
- * A value's compact JSON, keys sorted by their UTF-8 bytes or kept in their
- * order. Sorted, field order is no difference.
- * @param {unknown} value
- * @param {boolean} sortKeys
- * @returns {string}
- */
-function canonical(value, sortKeys) {
-	/** @type {(v: unknown) => unknown} */
-	const order = (v) => {
-		if (Array.isArray(v)) return v.map(order);
-		if (!v || typeof v !== "object") return v;
-		const keys = Object.keys(v);
-		if (sortKeys)
-			keys.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
-		/** @type {Record<string, unknown>} */
-		const out = {};
-		for (const k of keys)
-			out[k] = order(/** @type {Record<string, unknown>} */ (v)[k]);
-		return out;
-	};
-	return JSON.stringify(order(value));
-}
-
-/**
  * The call's signature: the tool, a unit separator and the input — and, for
  * a Read, a second separator and its file's on-disk state (#1058),
  * `inode:size:mtime:ctime` to the nanosecond, or null where the file is
@@ -110,7 +87,7 @@ function canonical(value, sortKeys) {
  * @param {string | null} fileState
  */
 function signature(tool, input, fileState) {
-	const signed = canonical(
+	const signed = canonicalJson(
 		input === null || input === undefined || input === false ? {} : input,
 		true,
 	);
@@ -147,7 +124,7 @@ function responseHash(r) {
 		r && typeof r === "object" && !Array.isArray(r)
 			? Object.fromEntries(Object.entries(r).filter(([k]) => !VOLATILE.test(k)))
 			: r;
-	return hash24(canonical(projected, false));
+	return hash24(canonicalJson(projected, false));
 }
 
 /**

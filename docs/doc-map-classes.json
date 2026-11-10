@@ -1756,7 +1756,7 @@
 		"class": "source-of-truth",
 		"classQualifier": null,
 		"role": "One JSON line per fault signature declared at filing, oldest first (#4796).",
-		"route": "Appended by scripts/file-issue.js --fault-signature, and by retro-sweep's late-signature backstop; committed by the filing session.",
+		"route": "Appended by scripts/file-issue.js --fault-signature, and by retro-sweep's late-signature backstop and its restore of a lost line; committed by the filing session. Each line's ticket carries the `fault-signature` label and the line in its `## Fault signature` body section (#4861).",
 		"consumes": null
 	},
 	"docs/data/retro-runs.jsonl": {
