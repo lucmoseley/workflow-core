@@ -56,6 +56,10 @@ describe("kitContextFake against the kit's context (§G7)", () => {
 	});
 
 	describe.each(sides)("%s", (_, ctx) => {
+		it("reads a path that is not there as absent", () => {
+			expect(ctx.statKind("/nonexistent-kit-context-path")).toBe("absent");
+		});
+
 		it("tells no rule and holds no latch on a fresh session", () => {
 			expect(ctx.told("anthropic-report")).toBe(false);
 			expect(ctx.readLatch("rm-unchecked.0")).toBeNull();

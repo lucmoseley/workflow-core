@@ -18,11 +18,13 @@
  */
 
 const { basename } = require("node:path").posix;
-const {
-	FETCH_FIRST,
-	NON_FAST_FORWARD,
-	REJECTED,
-} = require("./land-refusal.js");
+
+/* git's words for a push refused because the remote ref holds a commit ours
+ * lacks; lib/land-refusal.js builds a land's MOVED test from them. Here, not
+ * there, so this hook's load set stays its own (#2899). */
+const REJECTED = "[rejected]";
+const FETCH_FIRST = "fetch first";
+const NON_FAST_FORWARD = "non-fast-forward";
 
 /**
  * The refusal strings, in git's own words, probed in this order; the first
@@ -282,4 +284,10 @@ function rowAt(tree, kind, marker, ports) {
 	return { dir, file: `${dir}/divergence.log`, line: `${fields.join("\t")}\n` };
 }
 
-module.exports = { divergenceRow, landRow };
+module.exports = {
+	divergenceRow,
+	FETCH_FIRST,
+	landRow,
+	NON_FAST_FORWARD,
+	REJECTED,
+};

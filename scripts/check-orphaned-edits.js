@@ -87,7 +87,11 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { describeAge: describeAgeText, HOUR_MS } = require("./lib/age-text.js");
+const {
+	describeAge: describeAgeText,
+	HOUR_MS,
+	NEVER,
+} = require("./lib/age-text.js");
 const { brokenError, now: clock, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
@@ -196,7 +200,7 @@ const filerPath = () =>
 
 /** @param {number} hours */
 const describeAge = (hours) =>
-	describeAgeText(hours * HOUR_MS, { minutesUnder: 0 });
+	describeAgeText(hours * HOUR_MS, { minutesUnder: NEVER });
 
 /**
  * The marker directory, made if missing — or null where git names no common
@@ -631,7 +635,7 @@ function describeWriter(rel, tree, names, now) {
 	const w = store.readLastWriterOf(rel, { tree });
 	if (!w) return "unknown — no surviving write ledger names it";
 	const name = names.get(w.sessionId);
-	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${describeAge((now - w.at) / 3_600_000)} ago`;
+	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${describeAgeText(now - w.at, { minutesUnder: NEVER })} ago`;
 }
 
 /**

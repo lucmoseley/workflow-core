@@ -321,7 +321,7 @@ function findWrite(subject, ctx) {
  * Each write kind's refusal.
  * @type {{ [K in Write["kind"]]: (w: Extract<Write, { kind: K }>) => Refusal }}
  */
-const KINDS = {
+const REFUSALS = {
 	rel: (w) => ({
 		what: `This writes ${w.rel} in the main checkout`,
 		cmd: (subject) => subject,
@@ -348,7 +348,9 @@ const KINDS = {
  * @returns {Refusal}
  */
 const refusalOf = (w) =>
-	/** @type {(w: Write) => Refusal} */ (KINDS[w.kind])(w);
+	/* tsc cannot match a mapped-type entry to the union member it is keyed
+	 * on, so the lookup is widened to the whole union. */
+	/** @type {(w: Write) => Refusal} */ (REFUSALS[w.kind])(w);
 
 /**
  * @param {Write} w

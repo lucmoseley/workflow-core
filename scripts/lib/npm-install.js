@@ -615,7 +615,7 @@ function localPrefix(dir, ctx) {
 /**
  * The refusal of a command that writes through a `node_modules` linking a
  * dependency store, which every worktree on its lockfile shares
- * (lib/session-checkout.js), or null.
+ * (lib/dep-store.js), or null.
  * @param {string[]} canon
  * @param {string} cwd "" where the walk cannot know it
  * @param {State} st

@@ -2,8 +2,10 @@
  * checkout-repo.js — what every session-checkout step reads of the
  * repository and the machine: the main checkout a directory belongs to, the
  * shared fetch, a worktree's git directory, the linked worktrees, and every
- * live process's cwd. Its refusals are `CheckoutError`s, which the CLI prints
- * as they stand.
+ * live process's cwd. Its own module (#4703) so lib/dep-store.js and
+ * lib/worktree-reaper.js read them without requiring lib/session-checkout.js
+ * back. Its refusals are `CheckoutError`s, which the CLI prints as they
+ * stand.
  */
 
 const fs = require("node:fs");

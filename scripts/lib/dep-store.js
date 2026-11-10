@@ -52,7 +52,7 @@ const {
 	POLL_MS,
 	rootOf,
 } = require("./checkout-repo.js");
-const { readText } = require("./file-read.js");
+const { readBytes, readText } = require("./file-read.js");
 const { GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
@@ -196,8 +196,9 @@ function removeTree(dir) {
  * @returns {ManifestSource}
  */
 const buildWorktreeSource = (dir) => (name) => {
-	const at = path.join(dir, name);
-	return fs.existsSync(at) ? fs.readFileSync(at) : null;
+	const r = readBytes(path.join(dir, name));
+	if (r.state === "unreadable") throw r.error;
+	return r.state === "read" ? r.data : null;
 };
 
 /**

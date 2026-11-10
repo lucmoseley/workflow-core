@@ -1,6 +1,6 @@
 /*
  * orphan-filings.js — where check-orphaned-edits.js records each triage
- * filing, and how the reaper (lib/session-checkout.js) finds a worktree's.
+ * filing, and how the reaper (lib/worktree-reaper.js) finds a worktree's.
  *
  * A marker per filing in `orphaned-edits-filed/` under the git common dir,
  * which every worktree shares. A linked worktree's marker is named

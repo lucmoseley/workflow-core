@@ -91,8 +91,9 @@ function decide(skill, ctx) {
 	)
 		return null;
 
-	/* The session's tree (#4242), where a linked worktree of the root's
-	 * repository (#2386, #4493, spec #1612 §Detection moments). */
+	/* The host's tree for the session's directory (#4242): its own where a
+	 * linked worktree of the root's repository (#2386, #4493, spec #1612
+	 * §Detection moments). */
 	const tree = linkedTreeOrRoot(ctx);
 	const base = sessionBaseIn(tree, ctx);
 	const paths = [...stagedIn(tree, ctx), ...ownChanges(tree, base, ctx)];
