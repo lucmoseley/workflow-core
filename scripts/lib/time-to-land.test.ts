@@ -14,11 +14,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	greenSuiteSpans,
+	judgeTimeToLand,
 	MIN_STAYS,
 	memberStays,
 	parseLanderLog,
 	readLogSince,
-	readTimeToLand,
 	replayBatches,
 	TARGET_MULTIPLE,
 } from "./time-to-land.js";
@@ -86,7 +86,7 @@ describe("the lander log", () => {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("pairs each green run by its sha where two batches are under test at once", () => {
+	it("pairs each green run by its sha where two batches are under test at once, leaving out a sha the red path reran", () => {
 		const events = parseLanderLog(
 			[
 				line(0, "test-sha aaa"),
@@ -95,6 +95,9 @@ describe("the lander log", () => {
 				line(180, "fast-forward-main aaa"),
 				line(260, "fast-forward-main bbb"),
 				line(300, "test-sha ccc"),
+				line(310, "test-sha ddd"),
+				line(400, "rerun-files ddd pass 2: "),
+				line(500, "fast-forward-main ddd"),
 			].join("\n"),
 		);
 
@@ -204,22 +207,22 @@ describe("the reading against the target", () => {
 		const target = TARGET_MULTIPLE * 180;
 
 		expect(
-			readTimeToLand(stays(MIN_STAYS, target + 1), greens, NOW),
+			judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, NOW),
 		).toMatchObject({
 			judged: true,
 			over: true,
 			p90Ms: (target + 1) * S,
 			targetMs: target * S,
 		});
-		expect(readTimeToLand(stays(MIN_STAYS, target), greens, NOW).over).toBe(
+		expect(judgeTimeToLand(stays(MIN_STAYS, target), greens, NOW).over).toBe(
 			false,
 		);
 	});
 
 	it("judges nothing on too few stays, on no green run, or on stays older than the week", () => {
-		const few = readTimeToLand(stays(MIN_STAYS - 1, 9000), greens, NOW);
-		const noGreen = readTimeToLand(stays(MIN_STAYS, 9000), [], NOW);
-		const old = readTimeToLand(
+		const few = judgeTimeToLand(stays(MIN_STAYS - 1, 9000), greens, NOW);
+		const noGreen = judgeTimeToLand(stays(MIN_STAYS, 9000), [], NOW);
+		const old = judgeTimeToLand(
 			stays(MIN_STAYS, 9000),
 			greens,
 			NOW + 8 * 24 * 3600 * S,

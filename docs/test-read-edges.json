@@ -48076,17 +48076,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/report-time-to-land.js": [
-			"scripts/check-time-to-land.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/rescue-sessions-hand-off.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
@@ -49223,6 +49212,17 @@
 		],
 		"scripts/test_write_secret_tty.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/time-to-land.js": [
+			"scripts/check-time-to-land.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",

@@ -847,6 +847,15 @@ function redAction(b, s, main, { sha, whole }) {
 const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
 
 /**
+ * @param {QueueState} s
+ * @param {readonly string[]} files
+ * @returns {(i: Isolated, pass: number) => Exclude<Verdict, {kind: "unknown"}>|null} the verdict
+ *   ledgered for a member's run alone
+ */
+const isolatedVerdict = (s, files) => (i, pass) =>
+	ledgered(s, { sha: i.iso, files, pass });
+
+/**
  * The ask an isolation owes: each member's first run alone, then the confirm
  * of each not green alone; a wait while any is in flight, the exit where this
  * run asked one and reached none, null once every verdict is in.
@@ -857,8 +866,7 @@ const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
  */
 function isolationAsk(s, blame, isolated) {
 	const { files } = blame;
-	/** @param {Isolated} i @param {number} pass */
-	const at = (i, pass) => ledgered(s, { sha: i.iso, files, pass });
+	const at = isolatedVerdict(s, files);
 	/**
 	 * @param {typeof isolated} of
 	 * @param {1 | 2} pass
@@ -880,13 +888,12 @@ function isolationAsk(s, blame, isolated) {
 			runs: owed.map((i) => ({ k: i.k, sha: i.iso })),
 		};
 	};
-	const first = ask(isolated, 1);
-	if (first && first.kind !== "wait") return first;
-	/* A parallel tester is asked the confirm beside the first run, so a drop
-	 * costs one run's time, not two (#4951); a whole-suite confirm reruns its
-	 * first run's failed jobs, so it waits for that run. A confirm of a member
-	 * since green alone is never read. */
 	const beside = s.parallel && files.length > 0;
+	const first = ask(isolated, 1);
+	if (first && (first.kind !== "wait" || !beside)) return first;
+	/* Beside the first run, a drop costs one run's time, not two (#4951); a
+	 * whole-suite confirm reruns its first run's failed jobs, so it waits for
+	 * that run. A confirm of a member since green alone is never read. */
 	const owing = isolated.filter((i) =>
 		beside ? at(i, 1)?.kind !== "green" : at(i, 1)?.kind === "red",
 	);
@@ -916,7 +923,7 @@ function isolationAction(b, s, blame) {
 			: [],
 	);
 	/** @param {Isolated} i @param {number} pass */
-	const at = (i, pass) => ledgered(s, { sha: i.iso, files: blame.files, pass });
+	const at = isolatedVerdict(s, blame.files);
 	const asked = isolationAsk(s, blame, isolated);
 	if (asked) return asked;
 	const reds = isolated.filter((i) => at(i, 1)?.kind === "red");

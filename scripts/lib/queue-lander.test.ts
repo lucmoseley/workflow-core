@@ -2305,6 +2305,36 @@ describe("the red path", () => {
 		expect(remote.main).toBe("merge(m0;a1,c1)");
 	});
 
+	it("never stops on a passer's confirm that reaches no verdict before its first run alone does, an exit waiting on a run in flight (#4951)", async () => {
+		const remote = abc();
+		const culprit = redWhereHeld("b");
+		let confirmed = false;
+		/* A guess: the run takes its next step within 20 turns of the loop. */
+		let turns = 0;
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			parallel: true,
+			/* The harness polls a gate first for the ask just made, so the first
+			 * poll to see both of a's asks is its confirm's. */
+			gate: (key, events) => {
+				if (!pairGate(key, events)) return false;
+				if (!key.startsWith("merge(m0;a1):") || !confirmed) {
+					confirmed ||= key.startsWith("merge(m0;a1):");
+					return true;
+				}
+				return ++turns > 20;
+			},
+			verdict: (sha, r, files, nth) =>
+				sha === "merge(m0;a1)" && files.length > 0 && nth === 2
+					? { kind: "unknown", reason: "no run" }
+					: culprit(sha, r, files),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+		expect(remote.main).toBe("merge(m0;a1,c1)");
+	});
+
 	it("asks a whole-suite confirm only once its first run alone is red, as it reruns that run's failed jobs (#4951)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },

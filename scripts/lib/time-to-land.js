@@ -1,8 +1,7 @@
 /*
  * time-to-land.js — how long a queue ref takes from the lander's first take
  * of it to its land or drop, against the green suite's own time, and where a
- * red batch's time goes (#4951). check-time-to-land.js holds the first to its
- * target; report-time-to-land.js prints both.
+ * red batch's time goes (#4951).
  *
  * A STAY is one queue ref's time in the lander's hands, read off the queue
  * log (lib/queue-log.js): its first take row since it last left, to its land
@@ -23,17 +22,17 @@
  * other's. A `take-batch` repeating its slot's members at their shas is the
  * same batch. Residual: a red path a restart resumes with no new `detach`
  * joins the batch last tested, and a lander line written before
- * `take-batch` named its slot reads as slot 0.
- *
- * PERCENTILES are lib/queue-log.js's, nearest-rank.
+ * `take-batch` named its slot reads as slot 0; a `test-sha` is the batch's
+ * last merged, so a retest after a later batch's merge reads as that batch's;
+ * and a `parallel` tester's `isolate-members` and `confirm-members` are asked
+ * together, so the pair's time reads on `confirm-members`.
  */
 
 const fs = require("node:fs");
+const { caught } = require("./caught.js");
 const { BASELINE_MS, percentile } = require("./queue-log.js");
 
-/* The stays' p90 over the green suite's p50 (#4951's design comment). A red
- * member costs its batch's run and one more run alone, its confirm beside it,
- * and Uber's queue reports a P95 wait near one build (arXiv 2501.03440). */
+/* The stays' p90 over the green suite's p50 (#4951's design comment). */
 const TARGET_MULTIPLE = 3;
 /* A guess, about a day's members at #4951's ~100 a day: fewer give no p90. */
 const MIN_STAYS = 100;
@@ -111,7 +110,7 @@ function readLogSince(file, since) {
 	try {
 		fd = fs.openSync(file, "r");
 	} catch (err) {
-		if (/** @type {NodeJS.ErrnoException} */ (err).code === "ENOENT") return "";
+		if (caught(err).code === "ENOENT") return "";
 		throw err;
 	}
 	try {
@@ -155,7 +154,8 @@ function parseLanderLog(text) {
 }
 
 /**
- * Each green run's time, `test-sha` to `fast-forward-main` at one sha.
+ * Each green run's time, `test-sha` to `fast-forward-main` at one sha. A sha
+ * a red-path line names is no green run, landed or not.
  * @param {readonly LanderEvent[]} events
  * @returns {{sha: string, from: number, at: number}[]}
  */
@@ -166,6 +166,7 @@ function greenSuiteSpans(events) {
 	for (const e of events) {
 		const sha = e.rest.trim();
 		if (e.kind === "test-sha") tested.set(sha, e.t);
+		if (RED_KINDS.has(e.kind)) tested.delete(sha.split(" ")[0] ?? "");
 		const from = tested.get(sha);
 		if (e.kind !== "fast-forward-main" || from === undefined) continue;
 		spans.push({ sha, from, at: e.t });
@@ -186,6 +187,9 @@ function greenSuiteSpans(events) {
  * @property {boolean} over whether a judged p90 is past its target
  */
 
+/** @param {number|null} ms @returns {string} whole seconds, `-` for none */
+const secs = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
+
 /**
  * The BASELINE_MS before `now` against the target.
  * @param {readonly Stay[]} stays
@@ -193,7 +197,7 @@ function greenSuiteSpans(events) {
  * @param {number} now
  * @returns {Reading}
  */
-function readTimeToLand(stays, greens, now) {
+function judgeTimeToLand(stays, greens, now) {
 	/** @param {{at: number}} x */
 	const inWindow = (x) => x.at > now - BASELINE_MS && x.at <= now;
 	const times = stays.filter(inWindow).map((s) => s.at - s.take);
@@ -423,6 +427,7 @@ module.exports = {
 	memberStays,
 	parseLanderLog,
 	readLogSince,
-	readTimeToLand,
+	judgeTimeToLand,
+	secs,
 	replayBatches,
 };

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
- * report-time-to-land.js — where the landing queue's time goes (#4951): each
+ * time-to-land.js — where the landing queue's time goes (#4951): each
  * queue ref's take-to-land time off the queue log, and each batch's steps
  * off the lander's log, replayed batch by batch (lib/time-to-land.js).
  *
- *   node scripts/report-time-to-land.js [--since <ISO time>] [--until <ISO time>]
+ *   node scripts/time-to-land.js [--since <ISO time>] [--until <ISO time>]
  *
  * The window is the last 7 days where `--since` is absent. A batch counts
  * where it was taken in the window, a queue ref where it landed or dropped
@@ -16,6 +16,7 @@
  * Exit codes: 0 printed; 2 on a command line it refuses.
  */
 
+const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { landerLog } = require("./lib/lander-start.js");
 const {
@@ -33,13 +34,11 @@ const {
 	parseLanderLog,
 	readLogSince,
 	replayBatches,
+	secs,
 } = require("./lib/time-to-land.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @typedef {import("./lib/time-to-land.js").ReplayedBatch} ReplayedBatch */
-
-/** @param {number|null} ms */
-const s = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
 
 /**
  * One table row: the count, p50, p90, max and sum of `spans`, in ms.
@@ -47,7 +46,7 @@ const s = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
  * @param {number[]} spans
  */
 const buildRow = (label, spans) =>
-	`${label.padEnd(46)} n=${String(spans.length).padStart(4)}  p50=${s(percentile(spans, 50)).padStart(5)}  p90=${s(percentile(spans, 90)).padStart(6)}  max=${s(percentile(spans, 100)).padStart(6)}  sum=${Math.round(spans.reduce((a, b) => a + b, 0) / 60_000)} min`;
+	`${label.padEnd(46)} n=${String(spans.length).padStart(4)}  p50=${secs(percentile(spans, 50)).padStart(5)}  p90=${secs(percentile(spans, 90)).padStart(6)}  max=${secs(percentile(spans, 100)).padStart(6)}  sum=${Math.round(spans.reduce((a, b) => a + b, 0) / 60_000)} min`;
 
 /**
  * @param {readonly string[]} keys
@@ -157,20 +156,20 @@ function buildMemberLines(stays, greens) {
 		),
 		"",
 		buildRow("green suite: test-sha -> fast-forward", greens),
-		`target: p90 first take -> land or drop at or under ${TARGET_MULTIPLE} x the green suite's p50 = ${p50 === null ? "no reading" : `${s(TARGET_MULTIPLE * p50)} s`}`,
+		`target: p90 first take -> land or drop at or under ${TARGET_MULTIPLE} x the green suite's p50 = ${p50 === null ? "no reading" : `${secs(TARGET_MULTIPLE * p50)} s`}`,
 	];
 }
 
 /** @param {string[]} [argv] @returns {number} */
 function main(argv = process.argv.slice(2)) {
-	const usage = `usage: node ${scriptPath("report-time-to-land.js")} [--since <ISO time>] [--until <ISO time>]`;
+	const usage = `usage: node ${scriptPath("time-to-land.js")} [--since <ISO time>] [--until <ISO time>]`;
 	const parsed = parseOrCode(argv, {
 		usage,
 		flags: { "--since": "value", "--until": "value" },
 	});
 	if (typeof parsed === "number") return parsed;
 	const until = Date.parse(
-		String(parsed.flags["--until"] ?? new Date().toISOString()),
+		String(parsed.flags["--until"] ?? new Date(now()).toISOString()),
 	);
 	const since = Date.parse(
 		String(
