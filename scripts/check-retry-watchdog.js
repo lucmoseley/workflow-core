@@ -11,22 +11,25 @@
  * Usage: node check-retry-watchdog.js [<settings.json>]
  *   (default the seat's settings.json, lib/config-dir.js)
  *
- * A missing settings file or binary is SKIP, neither being the repo's
- * (mantahostels#155 (the checker family's exit-code and severity model)); a
- * settings file that will not parse is a fault, as is one a settings fault
- * found before the binary is missed.
+ * A missing settings file or binary leaves its half unchecked, neither being
+ * the repo's (mantahostels#155 (the checker family's exit-code and severity
+ * model)): the other half is still judged, and the check SKIPs only where
+ * neither could be. A settings file that will not parse is a fault.
  *
  * WFC_CLAUDE_BIN injects the binary (§N7).
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { binaryOf, readWindowsOf } = require("./lib/binary-read.js");
 const { caught } = require("./lib/caught.js");
+const { readText } = require("./lib/file-read.js");
 const { runCheck } = require("./lib/check");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 
+/* The cap's "1" (ms): a plan-limit 429 asks a longer wait than that, so it
+ * fails at once, as with the watchdog off (#4682, read from the 2.1.319
+ * bundle). */
 const WATCHDOG_ENV = {
 	CLAUDE_CODE_RETRY_WATCHDOG: "1",
 	CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS: "1",
@@ -50,15 +53,12 @@ const hasWholeName = (file, name) =>
  * @returns {{env: Record<string, unknown>}|{absent: string}|{bad: string}}
  */
 function readEnv(file) {
-	let text;
+	const read = readText(file);
+	if (read.state === "absent") return { absent: `${file} is missing` };
+	if (read.state === "unreadable")
+		return { bad: `${file} could not be read: ${read.message}` };
 	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		const why = `${file} could not be read: ${caught(e).message}`;
-		return caught(e).code === "ENOENT" ? { absent: why } : { bad: why };
-	}
-	try {
-		return { env: JSON.parse(text).env ?? {} };
+		return { env: JSON.parse(read.data).env ?? {} };
 	} catch (e) {
 		return { bad: `${file} does not parse: ${caught(e).message}` };
 	}
@@ -129,24 +129,27 @@ runCheck({
 		};
 		const settingsPath = ctx.args[0] ?? path.join(configDir(), "settings.json");
 		const read = readEnv(settingsPath);
-		if ("absent" in read) return ctx.skip(read.absent);
-		report(settingsFaults(settingsPath, read));
+		/** Why each half went unchecked. @type {string[]} */
+		const unchecked = [];
+		if ("absent" in read) unchecked.push(read.absent);
+		else report(settingsFaults(settingsPath, read));
 		const bin = claudeBin();
 		const file = binaryOf(bin);
-		if (file === null) {
-			if (ctx.findings.length > 0) {
-				ctx.say(`No \`${bin}\` binary was found; its names are unchecked.`);
-				return { noun: "retry-watchdog fault(s)" };
+		if (file === null) unchecked.push(`no \`${bin}\` binary was found`);
+		else {
+			try {
+				report(binaryFaults(file));
+			} catch (e) {
+				unchecked.push(`${file} could not be read: ${caught(e).message}`);
 			}
-			return ctx.skip(`no \`${bin}\` binary was found`);
 		}
-		try {
-			report(binaryFaults(file));
-		} catch (e) {
-			return ctx.skip(`${file} could not be read: ${caught(e).message}`);
-		}
+		if (unchecked.length === 2) return ctx.skip(unchecked.join("; "));
+		for (const why of unchecked) ctx.say(`${why}; that half is unchecked.`);
 		return {
-			okLine: `${settingsPath} and ${file} both carry ${Object.keys(WATCHDOG_ENV).join(" and ")}`,
+			okLine:
+				unchecked.length > 0
+					? `${unchecked[0]}; the other half carries ${Object.keys(WATCHDOG_ENV).join(" and ")}`
+					: `${settingsPath} and ${file} both carry ${Object.keys(WATCHDOG_ENV).join(" and ")}`,
 			noun: "retry-watchdog fault(s)",
 		};
 	},
