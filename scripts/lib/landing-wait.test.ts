@@ -88,8 +88,10 @@ it.each([
 
 	expect(o).toMatchObject({ kind: "dropped", shas: [A] });
 	if (o.kind !== "dropped") throw new Error(o.kind);
-	expect(buildWaitLine(o)).toBe(
-		`wait: dropped — ${A.slice(0, 9)} left the queue without landing, after 0 min 20 s.`,
+	expect(buildWaitLine(o)).toMatch(
+		new RegExp(
+			`^wait: dropped — ${A.slice(0, 9)} left the queue without landing, after 0 min 20 s; \`node \\S*landing-status\\.js\` shows why each was dropped\\.$`,
+		),
 	);
 });
 

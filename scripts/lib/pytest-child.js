@@ -9,6 +9,7 @@ const path = require("node:path");
 
 const { writeFd } = require("./write-fd.js");
 const { pythonBin } = require("./python-bin.js");
+const { TEST_PY_WORKERS } = require("./suite-launch.js");
 const { spawnInRunScope, endRunScope } = require("./user-scope.js");
 const {
 	CEILING_CLOSE,
@@ -25,12 +26,14 @@ const {
 /* Where `pytest_pass_plugin.py` ships: beside `run-pytest.js`. */
 const PLUGIN_DIR = path.join(__dirname, "..");
 
-/* `-n 2` more than halves the local suite but gains only ~7% on the 2-vCPU CI
- * runner (mantahostels#313). No other worker count was ever measured;
- * requirements-dev.txt has why two, not one per core. */
 /* `-p` here rather than in pytest.ini's addopts, so a bare `pytest` run
  * writes no marker. */
-const DEFAULT_ARGS = ["-n", "2", "-p", "pytest_pass_plugin"];
+const DEFAULT_ARGS = [
+	"-n",
+	String(TEST_PY_WORKERS),
+	"-p",
+	"pytest_pass_plugin",
+];
 
 /* Passed on to pytest's group rather than left to end the wrapper, so pytest
  * still prints its own interrupted summary. */

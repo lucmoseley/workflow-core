@@ -152,6 +152,50 @@ describe("what a test file reads, as the audit sees it", () => {
 		);
 	});
 
+	describe("a program run in the checkout (#4932)", () => {
+		const run = (
+			root: string,
+			program: string,
+			args: string[],
+			env: Record<string, string> = {},
+		) =>
+			readAudits(
+				audited(
+					root,
+					T,
+					`try { require("node:child_process").execFileSync(${JSON.stringify(program)}, ${JSON.stringify(args)}, { cwd: ${JSON.stringify(root)}, stdio: "ignore" }); } catch {}`,
+					{ env },
+				),
+				root,
+			).get(T);
+
+		it("keeps the reads of a file that only sleeps, or asks a program its version", () => {
+			const root = checkout();
+			expect(run(root, "sleep", ["0"])).toHaveProperty("reads");
+			expect(run(root, "bash", ["--version"])).toHaveProperty("reads");
+		});
+
+		it("doubts a program that reads what a word names, whose reads stay unbounded", () => {
+			const root = checkout();
+			expect(run(root, "cat", ["scripts/lib/hooks.js"]).doubt).toMatch(
+				/a child \(cat scripts\/lib\/hooks\.js\) ran in the checkout/,
+			);
+		});
+
+		it("doubts a sleep handed a path in the checkout, and one that is a file of the checkout", () => {
+			const root = checkout();
+			expect(run(root, "sleep", ["./scripts/lib/hooks.js"]).doubt).toMatch(
+				/ran in the checkout/,
+			);
+			write(root, "bin/sleep", "#!/bin/sh\ncat .claude/settings.json\n");
+			fs.chmodSync(path.join(root, "bin/sleep"), 0o755);
+			const stubbed = run(root, "sleep", ["0"], {
+				PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
+			});
+			expect(stubbed.doubt).toMatch(/ran in the checkout/);
+		});
+	});
+
 	it("runs a node-shebang child whose name has an extension node does not know", () => {
 		const root = checkout();
 		const stub = path.join(

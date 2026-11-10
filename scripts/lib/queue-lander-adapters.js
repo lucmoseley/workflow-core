@@ -644,8 +644,8 @@ function refusedRecord(file) {
 }
 
 /**
- * A land or drop row repeating the newest row its ref holds at that sha is
- * skipped, as a step a crash repeats writes it again.
+ * A row other than a take repeating the newest row its ref holds at that sha
+ * is skipped, as a step a crash repeats writes it again.
  * @param {string} root
  * @returns {QueueLanderDeps["logQueue"]}
  */

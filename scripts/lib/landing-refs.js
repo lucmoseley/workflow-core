@@ -52,7 +52,7 @@ const LANDER_ISO_SUITE_PREFIX = `${LANDER_ISO_PREFIX}suite-`;
 const QUEUE_PREFIX = "queue/";
 const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 /* A queue ref the lander dropped, `dropped/<name>`, which it alone
- * writes and deletes once the drop's fix ticket closes. */
+ * writes and deletes once `main` holds the drop's work (#4950). */
 const DROPPED_PREFIX = "dropped/";
 
 /**

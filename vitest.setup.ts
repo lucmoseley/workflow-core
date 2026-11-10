@@ -58,7 +58,8 @@ process.env.WFC_MEMORY_HOLD = "";
  * `PATH` becomes scripts/lib/host-git-guard/git, which refuses a write there.
  * `WFC_HOST_GIT_DIR` is its cache of the host, `WFC_HOST_GIT_REAL` the git
  * it runs where a test's own `PATH` holds no other. Set again on every file
- * the worker loads, so `PATH` does not stack.
+ * the worker loads, so `PATH` does not stack. The host lookup runs through
+ * the guard, so the read audit (lib/read-audit.js) sees it as a guarded call.
  *
  * code-edges loads: scripts/lib/host-git-guard/git
  */
@@ -66,11 +67,6 @@ const guardDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
 	"scripts/lib/host-git-guard",
 );
-process.env.WFC_HOST_GIT_DIR = execFileSync(
-	"git",
-	["rev-parse", "--path-format=absolute", "--git-common-dir"],
-	{ cwd: guardDir, encoding: "utf8" },
-).trim();
 const pathDirs = (process.env.PATH ?? "")
 	.split(path.delimiter)
 	.filter((dir) => dir && dir !== guardDir);
@@ -87,6 +83,11 @@ const realGit = pathDirs
 	});
 if (realGit) process.env.WFC_HOST_GIT_REAL = realGit;
 process.env.PATH = [guardDir, ...pathDirs].join(path.delimiter);
+process.env.WFC_HOST_GIT_DIR = execFileSync(
+	"git",
+	["rev-parse", "--path-format=absolute", "--git-common-dir"],
+	{ cwd: guardDir, encoding: "utf8" },
+).trim();
 
 /*
  * NO TEST WRITES INTO THE DEVELOPER'S LIVE CLAUDE CONFIG DIR (#838).
