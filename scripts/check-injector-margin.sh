@@ -97,7 +97,7 @@ else
   source_desc="the staged blob"
   from_tree=
   if ! git show ":$INJECTOR" >"$tmp/inj.sh" 2>"$tmp/err"; then
-    if git diff --cached --name-only --no-renames --diff-filter=D | grep -qx "$INJECTOR"; then
+    if grep -qxF -- "$INJECTOR" <<<"$(git diff --cached --name-only --no-renames --diff-filter=D)"; then
       echo "$INJECTOR is staged for deletion — nothing to measure, gate SKIPPED." >&2
       exit 0
     fi
