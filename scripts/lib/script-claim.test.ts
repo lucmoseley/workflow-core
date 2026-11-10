@@ -11,9 +11,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claimByArbiter, releaseByArbiter } from "./arbiter-claim";
 import { arbiterCli, freshSandbox, live } from "./arbiter-testkit";
 import { mkScratchDir } from "./git-fixture";
+import { claimByArbiter, releaseByArbiter } from "./script-claim";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -23,7 +23,7 @@ afterEach(() => {
 
 /** A stand-in arbiter running `body` as sh, its path returned. */
 function stub(body: string): string {
-	const dir = mkScratchDir("arbiter-claim-");
+	const dir = mkScratchDir("script-claim-");
 	dirs.push(dir);
 	const file = path.join(dir, "claim.sh");
 	fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });

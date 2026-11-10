@@ -19,7 +19,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { claimByArbiter } = require("./arbiter-claim.js");
+const { claimByArbiter } = require("./script-claim.js");
 const { caught } = require("./caught.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
 const { buildManifestText } = require("./read-edges-render.js");
@@ -32,7 +32,7 @@ const CLAIM_TIMEOUT_MS = 5000;
  * A claim taken on `file` for `session`, by the arbiter's own CLI, with the
  * warning it printed where a live neighbour also holds the file (#4249) — or
  * why not.
- * @typedef {(file: string, session: string|null, cwd: string) => import("./arbiter-claim.js").ClaimResult} ClaimFn
+ * @typedef {(file: string, session: string|null, cwd: string) => import("./script-claim.js").ClaimResult} ClaimFn
  * @type {ClaimFn}
  */
 function claimWithArbiter(file, session, cwd) {

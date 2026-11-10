@@ -21,7 +21,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const { claimByArbiter, releaseByArbiter } = require("./lib/arbiter-claim.js");
+const { claimByArbiter, releaseByArbiter } = require("./lib/script-claim.js");
 const path = require("node:path");
 const { ledgerPath } = require("./lib/dispatch-ledger");
 const { readJsonl } = require("./lib/jsonl.js");

@@ -1,5 +1,5 @@
 /*
- * arbiter-claim.js — the one spawn of `session-arbiter.js claim` and `release`
+ * script-claim.js — the one spawn of `session-arbiter.js claim` and `release`
  * for a script that writes a tracked file under its own claim (#4719). The
  * claim guard sees Write and Edit only, never a script's write, so such a
  * script claims by the arbiter's CLI; each caller keeps its own policy on a

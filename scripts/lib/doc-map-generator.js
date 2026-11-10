@@ -8,7 +8,7 @@
  * the argv handling and the claim move here.
  */
 
-const { claimByArbiter } = require("./arbiter-claim.js");
+const { claimByArbiter, releaseByArbiter } = require("./script-claim.js");
 const { writeFd } = require("./write-fd.js");
 
 /** Flags every generator accepts that take a value, so the positional-arg
@@ -78,4 +78,23 @@ function claimDataFile(dataFile, { claimCmd, generator = false } = {}) {
 	return { claimed: false };
 }
 
-module.exports = { parseCliArgs, claimDataFile };
+/**
+ * Releases a claim `claimDataFile` took, so a run that ends does not strand one
+ * on a file it is no longer writing (mantahostels#1848 review S3, mantahostels#2422).
+ *
+ * BEST-EFFORT, and silent: a release that fails costs a claim outliving its run,
+ * never the run's own exit code.
+ *
+ * `generator: true` passes `--generator`, which waives the dirty refusal a §A
+ * subject would otherwise earn from its own generator's write (mantahostels#2428). It rides
+ * AFTER the subject, for claimDataFile's reason.
+ *
+ * @param {string} subject
+ * @param {string | null} [releaseCmd] a stand-in for the arbiter, for tests
+ * @param {{generator?: boolean}} [opts]
+ */
+function releaseClaim(subject, releaseCmd, { generator = false } = {}) {
+	releaseByArbiter(subject, { releaseCmd, generator });
+}
+
+module.exports = { parseCliArgs, claimDataFile, releaseClaim };

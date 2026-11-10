@@ -44,8 +44,7 @@ const path = require("node:path");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
-const { claimDataFile } = require("./lib/doc-map-generator");
-const { releaseByArbiter } = require("./lib/arbiter-claim.js");
+const { claimDataFile, releaseClaim } = require("./lib/doc-map-generator");
 const { REGISTER_SECTION, SIDECAR_PATH } = require("./lib/doc-map-regions");
 const {
 	loadDocClasses,
@@ -147,11 +146,7 @@ function main(argv) {
 		console.error(`cannot write ${mapPath} — ${caught(e).message}`);
 		return 2;
 	} finally {
-		if (held)
-			releaseByArbiter(held, {
-				releaseCmd: value("--release-cmd"),
-				generator: true,
-			});
+		if (held) releaseClaim(held, value("--release-cmd"), { generator: true });
 	}
 	console.log(
 		`rendered ${mapPath} §A from ${Object.keys(sidecar).length} sidecar rows.`,

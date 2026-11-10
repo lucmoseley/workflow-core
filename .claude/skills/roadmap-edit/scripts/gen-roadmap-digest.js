@@ -55,8 +55,8 @@ function coreLib(name) {
 const { requireKey } = coreLib("workflow-core-config");
 /** @type {typeof import("../../../../scripts/lib/write-fd.js")} */
 const { writeFd } = coreLib("write-fd.js");
-/** @type {typeof import("../../../../scripts/lib/arbiter-claim.js")} */
-const { claimByArbiter } = coreLib("arbiter-claim.js");
+/** @type {typeof import("../../../../scripts/lib/script-claim.js")} */
+const { claimByArbiter } = coreLib("script-claim.js");
 
 /**
  * @typedef {{id: string, state: string, t: string, p: number, needs?: string[],
