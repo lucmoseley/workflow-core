@@ -29,6 +29,7 @@ const { parseErrLine, gh, ghIssuesUpdatedSince } = require("./lib/gh.js");
 const { caught } = require("./lib/caught.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { findFiledLine } = require("./lib/filed-line.js");
+const { buildScriptFilerArgv } = require("./lib/script-filer-argv.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { readLedger } = require("./lib/delegated-decision.js");
@@ -187,19 +188,14 @@ function fileReversal(run, request) {
 		return { filed: `${listed.repo}#<new>` };
 	}
 	const filed = fileThrough(
-		[
-			"--title",
-			ticket.title,
-			"--label",
-			REVERSAL_LABEL,
-			"--origin",
-			"founder",
-			"--no-fault",
-			"--standalone",
-			`reverses entry ${request.n} of the morning review ${reviewIssue.repo}#${reviewIssue.number}`,
-			"--body-file",
-			"-",
-		],
+		buildScriptFilerArgv({
+			title: ticket.title,
+			labels: [REVERSAL_LABEL],
+			placement: {
+				standalone: `reverses entry ${request.n} of the morning review ${reviewIssue.repo}#${reviewIssue.number}`,
+			},
+			origin: "founder",
+		}),
 		ticket.body,
 		root,
 	);

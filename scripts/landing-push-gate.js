@@ -28,9 +28,12 @@
  * refuses and every other path exits 0. A fault it cannot judge through lets
  * the push through, printed, since a refusal there would refuse every push for
  * a fault that is not the push's. The same config fault opens the publish
- * guard's landing limb, logged there.
+ * guard's landing limb, logged there. The one exception is a green ledger
+ * that exists and will not read: that refuses, since only the lander pushes
+ * `main` and it cannot land on a ledger it cannot read either (#4856).
  */
 
+const { caught } = require("./lib/caught.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { fileLedger, queueLanderFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -94,14 +97,25 @@ function judge(stdin, { tree, root }) {
 	const pushes = parseMainPushes(stdin);
 	if (pushes.length === 0) return 0;
 	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
-	const ledger = fileLedger(queueLanderFiles(root).ledger);
-	const green = new Set(
-		readTreesOf(ledger.readShas()).filter((t) => t !== null),
-	);
+	const file = queueLanderFiles(root).ledger;
+	/** @type {string[]} */
+	let ledgered;
+	try {
+		ledgered = fileLedger(file).readShas();
+	} catch (err) {
+		/* Refused, not passed, as the header's one exception (#4856). */
+		writeFd(
+			2,
+			`pre-push: refused — the lander's green ledger ${file} will not read (${caught(err).message}), so no push to ${VERIFIED_BRANCH} can be shown tested. Fix the file, then push again.\n`,
+		);
+		return REFUSE;
+	}
+	const held = new Set(ledgered);
+	const green = new Set(readTreesOf(ledgered).filter((t) => t !== null));
 	const pushed = readTreesOf(pushes);
 	const untested = pushes.filter((sha, i) => {
 		const pushedTree = pushed[i] ?? null;
-		return !ledger.has(sha) && (pushedTree === null || !green.has(pushedTree));
+		return !held.has(sha) && (pushedTree === null || !green.has(pushedTree));
 	});
 	if (untested.length === 0) return 0;
 	writeFd(

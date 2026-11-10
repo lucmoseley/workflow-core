@@ -561,6 +561,5 @@ module.exports = {
 	hasTurnSinceApiStop,
 	hasRepliedSince,
 	hasTurnedSince,
-	promptsAfterApiStop,
 	resumedIdleSince,
 };

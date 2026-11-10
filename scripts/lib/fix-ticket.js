@@ -11,6 +11,7 @@
 
 const { citedIssues } = require("./cited-issues.js");
 const { parseFiledLine } = require("./filed-line.js");
+const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { FilingRefusedError } = require("./filing-refused.js");
 const { gh, parseErrLine } = require("./gh.js");
 const { readTicketsByPrefix } = require("./incident-tickets.js");
@@ -57,6 +58,7 @@ const quoteBlock = (/** @type {string} */ text) =>
 
 /**
  * @typedef {{status: number|null, stdout: string, stderr: string}} Ran
+ * @typedef {import("./script-filer-argv.js").Placement} Placement
  * @typedef {object} FilerDeps
  * @property {(title: string) => {number: number, title: string}[]} similar
  *   the open issues whose titles resemble `title`
@@ -230,38 +232,24 @@ function fileTicket(deps, t) {
 	const listed = deps.similar(t.title);
 	const filed = listed.find((c) => c.title.startsWith(t.filedAs));
 	if (filed) return `${t.noun} already open: #${filed.number}`;
-	const distinct =
-		listed.length > 0
-			? ["--distinct-from", listed.map((c) => c.number).join(",")]
-			: [];
-	/** @param {number|null} parent @param {string[]} placement */
-	const file = (parent, placement) => {
-		const checked = t.checked(parent);
-		return deps.fileIssue(
-			[
-				"--title",
-				t.title,
-				"--label",
-				takesLabel("implement"),
-				"--label",
-				"kind:ticket",
-				...placement,
-				"--origin",
-				"lander-script",
-				"--no-fault",
-				...distinct,
-				...(checked.length > 0
-					? ["--size-line-checked", checked.join(",")]
-					: []),
-				"--body-file",
-				"-",
-			],
+	/** @param {Placement} placement */
+	const file = (placement) =>
+		deps.fileIssue(
+			buildScriptFilerArgv({
+				title: t.title,
+				labels: [takesLabel("implement"), "kind:ticket"],
+				placement,
+				origin: "lander-script",
+				distinctFrom: listed.map((c) => c.number),
+				sizeLineChecked: t.checked(
+					"parent" in placement ? placement.parent : null,
+				),
+			}),
 			t.body,
 		);
-	};
 	const placed = fileUnderCited(t, file, deps);
 	if ("filed" in placed) return placed.filed;
-	const ran = file(null, ["--standalone", placed.why]);
+	const ran = file({ standalone: placed.why });
 	if (ran.status === 0) return parseFiledLine(ran.stdout).line;
 	const why = `${t.noun} for ${t.citer} not filed: ${parseFirstLine(ran.stderr)}`;
 	throw ran.status === 2 ? new FilingRefusedError(why) : new Error(why);
@@ -271,7 +259,7 @@ function fileTicket(deps, t) {
  * Files the ticket under the cited one: what file-issue printed, or why it
  * goes standalone.
  * @param {Ticket} t
- * @param {(parent: number|null, placement: string[]) => Ran} file
+ * @param {(placement: Placement) => Ran} file
  * @param {Pick<FilerDeps, "stateOf" | "reopen">} deps
  * @returns {{filed: string} | {why: string}}
  */
@@ -279,7 +267,7 @@ function fileUnderCited(t, file, deps) {
 	if (t.cited === null) return { why: t.uncited };
 	const unready = underCited(t.cited, t, deps);
 	if (unready !== null) return { why: unready };
-	const ran = file(t.cited, ["--parent", String(t.cited)]);
+	const ran = file({ parent: t.cited });
 	if (ran.status === 0) return { filed: parseFiledLine(ran.stdout).line };
 	return {
 		why: `file-issue refused it under #${t.cited}, which ${t.citer} cites: ${parseFirstLine(ran.stderr)}`,

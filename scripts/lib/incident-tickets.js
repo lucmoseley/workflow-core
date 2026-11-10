@@ -18,6 +18,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
+const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { ghIssueListAll, parseErrLine } = require("./gh.js");
 const { gitCommonDir } = require("./git.js");
 const { markersDir } = require("./marker-root.js");
@@ -65,19 +66,12 @@ function sharedMarkersDir(root) {
  */
 function fileOne(title, body, standalone, root) {
 	const ran = fileThrough(
-		[
-			"--title",
+		buildScriptFilerArgv({
 			title,
-			"--label",
-			LABEL,
-			"--standalone",
-			standalone,
-			"--origin",
-			"incident",
-			"--no-fault",
-			"--body-file",
-			"-",
-		],
+			labels: [LABEL],
+			placement: { standalone },
+			origin: "incident",
+		}),
 		body,
 		root,
 	);
