@@ -1250,9 +1250,9 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 /**
  * Whether this tick's read of the founder is the first absent one since the
  * away switch, which arms his next prompt's reminder (scripts/mark-presence.js,
- * #4846); the mode itself changes only by his hand. The switch counts as
- * presence, since the panel click that makes it records no typed prompt
- * (#4184), so any switch reads present for one window, whoever made it.
+ * #4846). The switch counts as presence, since the panel click that makes it
+ * records no typed prompt (#4184), so any switch reads present for one window,
+ * whoever made it.
  * @param {{mode: "normal"|"away", away?: AwaySwitch}} control
  * @param {number|null} lastPromptAt ms
  * @param {number} now ms

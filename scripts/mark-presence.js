@@ -6,8 +6,7 @@
  *
  * What is not his typing is lib/founder-typing.js's to say.
  *
- * THE REMINDER: away mode changes only by his hand, so a prompt switches
- * nothing. It is owed where a tick has read him absent since the away switch
+ * THE REMINDER is owed where a tick has read him absent since the away switch
  * and the prompt before this one is older than the presence window: once per
  * absence, as his next prompt finds this one inside the window.
  *
