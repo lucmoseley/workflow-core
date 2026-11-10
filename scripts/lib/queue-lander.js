@@ -122,9 +122,6 @@
  *   verdict, as its suite slot staying shut) is retried with backoff and the
  *   run's state kept; any other throw, or one outlasting the tries, exits
  *   naming it.
- *
- * Unbuilt caller: the cutover's launcher, which starts scripts/queue-lander.js
- * on a queue push (#4485)
  */
 
 const { caught, parseErrorText } = require("./caught.js");

@@ -3,7 +3,7 @@
  * canonical checkout's markers directory, gitignored, so a worktree's lander
  * shares them with the main tree's: its green ledger (one `<sha> <iso time>`
  * line per sha it lands, which the pre-push gate on `main` reads), its
- * pidfile lock, its heartbeat, and its verdict, batch and drop records.
+ * pidfile lock, its heartbeat, and its verdict, batch and drop records (#4485, spec #4458).
  */
 
 const fs = require("node:fs");

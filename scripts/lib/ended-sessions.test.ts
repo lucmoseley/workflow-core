@@ -86,7 +86,7 @@ describe("findEndedSessions", () => {
 	});
 
 	it("never takes one with no session in its environ, nor one forgetSession stripped", () => {
-		proc(6001, { ppid: 1, argv: "node lander.js run" }, [
+		proc(6001, { ppid: 1, argv: "node queue-lander.js run" }, [
 			`CLAUDE_PID=${LEADER}`,
 		]);
 		proc(6002, { ppid: 1, argv: WORKER }, []);
@@ -125,7 +125,7 @@ describe("findEndedSessions", () => {
 
 	it("stops its walk at a child with no session in its environ, a forgetSession child's", () => {
 		proc(6001, { ppid: 1, argv: WORKER });
-		proc(6002, { ppid: 6001, argv: "node lander.js run" }, [
+		proc(6002, { ppid: 6001, argv: "node queue-lander.js run" }, [
 			`CLAUDE_PID=${LEADER}`,
 		]);
 		proc(6003, { ppid: 6002, argv: "sleep 300" });

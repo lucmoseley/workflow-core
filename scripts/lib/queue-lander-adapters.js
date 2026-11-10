@@ -1,7 +1,7 @@
 /*
  * queue-lander-adapters.js — the production adapters lib/queue-lander.js
  * runs on: its git against lib/landing-refs.js's remote, and its verdict
- * ledger and batch record files.
+ * ledger and batch record files (#4485, spec #4458).
  *
  * A queue ref's push time is the one lib/queue-log.js logged for it at the
  * sha it now holds. A sha with no row, as one pushed from another machine,
@@ -15,13 +15,12 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
-const { execGit, gitCommonDirOrThrow, spawnGitSync } = require("./git.js");
+const { gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const { writeFd } = require("./write-fd.js");
 const { PushRefused } = require("./network-fault.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
-	LANDER_GIT_TIMEOUT_MS,
 	createRemoteRef,
 	deleteRemoteRef,
 	isAncestor,
@@ -29,6 +28,7 @@ const {
 	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
+	readGit,
 	readRemoteHeads,
 	short,
 	withThrowawayTree,
@@ -158,13 +158,7 @@ function queueGit(
 		}
 	};
 	/** @param {string[]} args */
-	const git = (args) =>
-		execGit(args, {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: LANDER_GIT_TIMEOUT_MS,
-		});
+	const git = (args) => readGit(root, args);
 	/** @param {string[]} shas @returns {Map<string, number>} */
 	const committedAt = (shas) => {
 		if (shas.length === 0) return new Map();
@@ -253,18 +247,7 @@ function queueGit(
 				return refused[0].trim();
 			}
 		},
-		isAncestor(sha, of) {
-			/* --is-ancestor answers through its exit code alone: 0 on, 1 not. */
-			const r = spawnGitSync(["merge-base", "--is-ancestor", sha, of], {
-				cwd: root,
-				stdio: "ignore",
-				timeout: LANDER_GIT_TIMEOUT_MS,
-			});
-			if (r.status === 0 || r.status === 1) return r.status === 0;
-			throw new Error(
-				`git merge-base --is-ancestor ${short(sha)} ${short(of)} exited ${r.status ?? r.signal}`,
-			);
-		},
+		isAncestor: (sha, of) => isAncestor(root, sha, of),
 		deleteRef: (branch, sha) => deleteRemoteRef(root, branch, sha),
 		createRef: (branch, sha) => createRemoteRef(root, branch, sha),
 	};
