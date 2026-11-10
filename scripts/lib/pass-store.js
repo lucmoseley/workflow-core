@@ -74,7 +74,7 @@ const {
 } = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
-const { isUnder, relativeUnder } = require("./is-under.js");
+const { isUnder } = require("./is-under.js");
 const {
 	execGit,
 	spawnGitSync,
@@ -106,6 +106,7 @@ const {
 const { readWorkingTree } = require("./test-read-edges.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
+const { repoPath } = require("./read-audit-paths.js");
 const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
@@ -194,6 +195,8 @@ function readPythonVersion() {
 	try {
 		return pythonVersion();
 	} catch {
+		// No python3 that answers is no version: a row that would rest on
+		// one is not recorded, and none recorded under one holds (#4790).
 		return null;
 	}
 }
@@ -415,21 +418,21 @@ function readEdges(root, rel) {
 			unknown: reach.unknown.length > 0,
 		};
 	} catch {
+		// A walk that faults leaves the file's reach unknown: no row is
+		// recorded for a file reaching it (#4790).
 		return null;
 	}
 }
 
 /**
- * `paths` under `root` and outside every `node_modules`, repo-relative.
+ * `paths` beneath `root` and outside every `node_modules`, repo-relative.
  * @param {string} root
  * @param {string[]} paths absolute
  */
 const repoRelative = (root, paths) =>
 	paths.flatMap((e) => {
-		const under = relativeUnder(root, e);
-		if (!under) return [];
-		const posix = under.split(path.sep).join("/");
-		return posix.split("/").includes("node_modules") ? [] : [posix];
+		const rel = repoPath(root, e);
+		return rel === null || rel === "." ? [] : [rel];
 	});
 
 /**
@@ -727,8 +730,13 @@ function gatherInputs(f, { run, reads, reach, listings, working }) {
 }
 
 /**
+ * @typedef {{file: string, outcome: string, voiding?: boolean,
+ *   inputs: Record<string, string|null|undefined>,
+ *   listings: Record<string, string>, dirs: string[],
+ *   git: Record<string, string>}} Row
+ *   one file's verdict and what it rests on, as its shard line carries it
  * @typedef {{values: Record<string, string>, shared: Record<string, unknown>,
- *   row: Record<string, unknown>}} Recorded
+ *   row: Row}} Recorded
  *   one file's row with the values and shared inputs its run line carries
  * @typedef {{gathered: Gathered[], shared: string[],
  *   ids: Map<string, string|null>, isDriftKnown: boolean,
@@ -807,7 +815,7 @@ const idsOf = (paths, ids) =>
  * @param {Seams} seams
  * @returns {Recorded[]}
  */
-function knownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
+function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
 	if (!shared.every(isKnown)) return [];
 	const today = todayValues(seams);
 	const sharedIds = idsOf(shared, ids);
@@ -860,7 +868,7 @@ function knownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
  * @param {Seams} seams
  * @returns {Recorded[]}
  */
-function voidingRows(failed, inputs, seams) {
+function buildVoidingRows(failed, inputs, seams) {
 	const values = todayValues(seams).base;
 	return failed.map(({ file }) => {
 		const g = inputs?.gathered.find((one) => one.file === file);
@@ -927,18 +935,18 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		);
 	}
 	try {
-		const known = inputs ? knownRows(inputs, seams) : [];
+		const known = inputs ? buildKnownRows(inputs, seams) : [];
 		const keyed = new Set(known.map(({ row }) => row.file));
 		const failed = files.filter(
 			(f) => f.outcome === "fail" && !keyed.has(f.file),
 		);
-		const rows = [...known, ...voidingRows(failed, inputs, seams)];
+		const rows = [...known, ...buildVoidingRows(failed, inputs, seams)];
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
 		const line = { format: FORMAT, at: run.at, sha: run.sha, tree: run.tree };
 		const landed = rows.filter(({ values, shared, row }) =>
 			appendRetained(
-				shardFile(storeRoot, String(row.file)),
+				shardFile(storeRoot, row.file),
 				{ ...line, shared, values, files: [row] },
 				ARCHIVE_MS,
 				// The prune drops a line that will not parse, after which rows
@@ -1392,6 +1400,8 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 				});
 		}
 	} catch {
+		// A store or a commit that will not read is no evidence of a red at
+		// `sha`: the classifier is left the marker stores alone (#4790).
 		return new Map();
 	}
 	return held;

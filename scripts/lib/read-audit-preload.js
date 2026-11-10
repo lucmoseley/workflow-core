@@ -440,7 +440,7 @@ function install() {
 	 * @param {Untyped} opts
 	 * @returns {{opts: Untyped, route: Route}}
 	 */
-	const underTracer = (opts) => {
+	const buildTracedSpawn = (opts) => {
 		try {
 			const route = routeOf(opts);
 			if (!route || !("trace" in route)) return { opts, route };
@@ -485,7 +485,7 @@ function install() {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const { opts, route } = underTracer(args[0]);
+			const { opts, route } = buildTracedSpawn(args[0]);
 			const out = syncSpawn.apply(this, [opts, ...args.slice(1)]);
 			logChild(args[0], out?.pid, route);
 			return out;
@@ -500,7 +500,7 @@ function install() {
 			const asked = positional
 				? { file: first, args: argv, cwd, envPairs }
 				: first;
-			const { opts, route } = underTracer(asked);
+			const { opts, route } = buildTracedSpawn(asked);
 			const err = asyncSpawn.apply(
 				this,
 				positional
