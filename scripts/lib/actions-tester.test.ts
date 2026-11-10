@@ -26,7 +26,6 @@ const OTHER = "b".repeat(40);
  * `instanceof`: an ESM import would load a second copy. */
 const { PushRefused } = createRequire(__filename)("./network-fault.js");
 
-/* The placements the lander asks at. */
 const BATCH0 = { kind: "batch", slot: 0 } as const;
 const ISO1 = { kind: "iso", k: 1 } as const;
 const BASE = { kind: "iso", k: "base" } as const;
