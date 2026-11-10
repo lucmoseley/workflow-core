@@ -2,7 +2,8 @@
 /*
  * start-lander.js — start a detached queue lander (scripts/queue-lander.js)
  * where none runs and a `queue/<name>` ref waits on the remote (#2405, spec
- * #2261; #4458).
+ * #2261; #4458) or the drop record holds an open drop with no fix ticket
+ * (#4950).
  *
  *   node scripts/start-lander.js [--tester <command>] [--launched-by <name>]
  *
@@ -24,7 +25,8 @@ const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { listedAgents } = require("./lib/agent-liveness.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { landerLock } = require("./lib/lander-files.js");
+const { landerLock, queueLanderFiles } = require("./lib/lander-files.js");
+const { readOwedDrops } = require("./lib/lander-records.js");
 const {
 	landerLog,
 	launcherName,
@@ -73,6 +75,7 @@ function main(argv = process.argv.slice(2)) {
 			queueGit(root)
 				.refs()
 				.queue.map((q) => `${QUEUE_PREFIX}${q.name}`),
+		owed: () => readOwedDrops(queueLanderFiles(root).drops).map((d) => d.ref),
 		spawnRun: () => {
 			/* Named before the spawn, so the started line opens the run's log.
 			 * Self-test waived: a session-start launch runs before its session
@@ -93,7 +96,7 @@ function main(argv = process.argv.slice(2)) {
 		return 0;
 	}
 	say(
-		`${new Date().toISOString()} started the queue lander, ${result.waiting.length} queue ref(s) waiting: ${result.waiting.join(", ")} (launched by ${by}; pid ${result.started}); its output: ${log}`,
+		`${new Date().toISOString()} started the queue lander, ${result.waiting.length} queue ref(s) waiting${result.waiting.length > 0 ? `: ${result.waiting.join(", ")}` : ""}, ${result.owed.length} drop(s) owed a decision${result.owed.length > 0 ? `: ${result.owed.join(", ")}` : ""} (launched by ${by}; pid ${result.started}); its output: ${log}`,
 	);
 	return 0;
 }

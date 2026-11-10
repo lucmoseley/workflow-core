@@ -54,11 +54,9 @@
  *   snapshot and `queue/<name>` is compare-and-deleted against it, a moved
  *   one kept queued. A drop record row whose dropped ref is missing is
  *   dropped again, as a crash cut its drop short. A `dropped/<name>` already
- *   holding another sha leaves it to its own fix ticket, and the drop takes
- *   `dropped/<name>-<sha>`. Its fix ticket is filed next, through the
- *   injected tracker; one that will not file is filed again by the next run,
- *   and one the tracker refuses for good stops the run. Where it merges
- *   alone, it conflicts only with an earlier member, and it is deferred: left
+ *   holding another sha keeps it, and the drop takes
+ *   `dropped/<name>-<sha>`. Where
+ *   it merges alone, it conflicts only with an earlier member, and it is deferred: left
  *   out of this batch, and taken again once `main` moves, no live batch of
  *   the line is merged onto or is the base it would not merge onto, or its
  *   ref moves (#4839). A later member still merges into this one.
@@ -104,16 +102,33 @@
  *   each batch's phase, isolation merges and serial steps, before the act it
  *   governs, so a rerun after a crash converges on it; a run in flight at the
  *   crash is asked again, its ref still at its sha.
+ * - **Owed drop.** A drop goes back to its owning session (#4950, spec
+ *   #4947). Each drop not yet settled is decided, the newest first: its sha
+ *   on `main` settles it; else, with no ticket, a push of its queue ref
+ *   waiting holds it, with no act; a push of its queue ref landed since
+ *   settles it; else, with no ticket, an owner the injected owner read calls
+ *   working defers it, with no act; else its branch's one fix ticket is
+ *   filed, or the open one updated, through the injected tracker, naming the
+ *   branch's newest drop and every dropped ref it holds, and each of the
+ *   branch's unticketed entries takes its number. A settled drop's entry is
+ *   written settled first, then the branch's ticket is closed where it has
+ *   one and no newer drop shares it, a `close` row logged, else a `settle`
+ *   row, and its dropped ref deleted; a rerun after a crash finishes it. A
+ *   filing that fails is filed again once before the run ends and by the
+ *   next run; one the tracker refuses for good stops the run.
  * - **Reap.** With no batch in flight, each `dropped/<name>` whose fix ticket
  *   the run read closed at its start is compare-and-deleted, and its drop
  *   record entry marked reaped, so landing-status still names the ticket. An
  *   entry reaped longer ago than the queue log keeps its rows is pruned at a
  *   run's start. A `dropped/*` ref no entry names, as a lost or torn record
- *   leaves it, gets its entry back first, naming the fix ticket the tracker
- *   holds under its title, or none, so a ticket is filed for it (#4498).
+ *   leaves it, gets its entry back first, naming the open fix ticket the
+ *   tracker holds for its branch, or none, so it is decided as any drop
+ *   (#4498).
  * - **Queue log.** A take row for each member a batch takes, a land row for
- *   each member `main` moves past, and a drop row for each dropped member,
- *   through the injected `logQueue`. A batch `main` holds with its land rows
+ *   each member `main` moves past, a drop row for each dropped member, a
+ *   settle row for each drop settled with no ticket closed and a close row
+ *   for each whose ticket the lander closed, through the injected
+ *   `logQueue`. A batch `main` holds with its land rows
  *   unrecorded, as a crash after the push leaves it, logs them on restart.
  * - **Verdicts.** A green or red reached at a sha is ledgered by that sha, the
  *   files it ran and its pass, the rerun and the confirm being the second.
@@ -125,7 +140,7 @@
  *   verdict, never an unknown (#4571): the tester reads it as a red naming
  *   no file, marked `noRun`, which takes the red path above, so a batch
  *   whose run never starts ends, and a member whose tree alone fires none is
- *   dropped, its fix ticket saying so. A no-run red stands NO_RUN_RETAKE_MS
+ *   dropped, its evidence saying so. A no-run red stands NO_RUN_RETAKE_MS
  *   from when it was ledgered, then is asked again (#4572).
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
  *   fault, a broken git object, a merge timing out, a tester's `transient` no
@@ -244,7 +259,12 @@ class TransientFault extends Error {}
  *     readonly member: Member}
  *   | ({readonly kind: "defer-member"} & Deferral)
  *   | {readonly kind: "drop-member", readonly drop: Drop}
- *   | {readonly kind: "file-fix-ticket", readonly drop: Drop}
+ *   | {readonly kind: "file-fix-ticket", readonly drop: Drop,
+ *     readonly held: readonly DroppedRef[]}
+ *   | {readonly kind: "settle-drop", readonly drop: Drop,
+ *     readonly main: string, readonly close: boolean,
+ *     readonly refresh: {readonly drop: Drop,
+ *       readonly held: readonly DroppedRef[]}|null}
  *   | {readonly kind: "adopt-dropped-ref", readonly ref: string,
  *     readonly sha: string, readonly onto: string}
  *   | {readonly kind: "delete-dropped-ref", readonly ref: string,
@@ -274,7 +294,10 @@ class TransientFault extends Error {}
  *     readonly sha: string}
  *   | {readonly kind: "exit", readonly reason: string,
  *     readonly relaunch?: string}} QueueAction `take-batch` and `detach`
- *   carry the pipeline they leave; `cancel` the runs `detach` stops; `wait`,
+ *   carry the pipeline they leave; `cancel` the runs `detach` stops;
+ *   `file-fix-ticket` the branch's newest drop and every dropped ref the
+ *   branch holds; `settle-drop` the `main` holding the drop's work, and
+ *   whether its ticket closes; `wait`,
  *   which no run takes, a batch whose next step waits on another's;
  *   `relaunch`, the `main` a fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
@@ -322,15 +345,22 @@ class TransientFault extends Error {}
  * @property {readonly string[]} kept members whose compare-and-delete this run
  *   found moved, as `<name>@<sha>`
  * @property {readonly string[]} unfiled dropped refs whose fix ticket this
- *   run could not file or search for
+ *   run failed to file once, filed again before it ends
+ * @property {readonly string[]} leftToNextRun dropped refs this run leaves to the
+ *   next: a filing failed twice, a ticket not searched for or not closed
+ * @property {(sha: string) => boolean} isOnMain whether `main` holds `sha`
+ * @property {(name: string, at: number) => boolean} landedAfter whether a
+ *   push of `queue/<name>` landed after `at`, in ms
+ * @property {(name: string) => OwnerRead} ownerOf whether the owning session
+ *   of `queue/<name>` is working
  * @property {readonly string[]} baseFiled the base reds this run filed or
  *   refreshed the base-red ticket for, by baseKey
  * @property {number|null} baseTicket the base-red ticket this run last filed
  *   or refreshed, null where none or it would not file
  * @property {boolean} [superseded] whether a move of `main` this run made
  *   changed the code it runs. The run takes no batch on it and ends once its
- *   batches are done: what they hold in memory — their isolated, unfiled and
- *   kept members — is lost to a fresh run.
+ *   batches are done: what they hold in memory — their isolated, unfiled
+ *   and kept members — is lost to a fresh run.
  */
 
 /* The pass of a base check: a run at `main` of its own, never the verdict
@@ -516,6 +546,8 @@ const dropAction = (m, onto, cause, s) => ({
 		cause,
 		ticket: null,
 		at: s.now,
+		state: "open",
+		decidedAt: s.now,
 	},
 });
 
@@ -1310,30 +1342,148 @@ function heldExit({ hold, members }, now, main, waiting) {
 }
 
 /**
- * What a crash or a refusal left owed before anything else: a drop cut
- * short, a fix ticket unfiled, a refused sha still green-ledgered; else null.
+ * Whether the drop is still to be decided: neither settled nor reaped.
+ * @param {Drop} d
+ */
+const isUndecided = (d) => d.state !== "settled" && d.reapedAt === undefined;
+
+/**
+ * The settling of `d` on `main`: its ticket closes where it has one and no
+ * newer undecided drop shares it; where one does, the ticket's body is
+ * refreshed to that drop and the dropped refs left standing.
+ * @param {QueueState} s
+ * @param {Drop} d
+ * @param {string} main
+ * @returns {QueueAction}
+ */
+function settleAction(s, d, main) {
+	const [newer] = s.drops
+		.filter(
+			(x) =>
+				d.ticket !== null &&
+				x.ticket === d.ticket &&
+				isUndecided(x) &&
+				x.at > d.at,
+		)
+		.sort((a, b) => b.at - a.at);
+	return {
+		kind: "settle-drop",
+		drop: d,
+		main,
+		close: d.ticket !== null && newer === undefined,
+		refresh:
+			newer === undefined
+				? null
+				: { drop: newer, held: heldBy(s, newer.name, d) },
+	};
+}
+
+/**
+ * The dropped refs the branch of `name` holds, newest first: those of its
+ * undecided drops, bar `settling` and any whose closed ticket awaits its
+ * reap.
+ * @param {QueueState} s
+ * @param {string} name
+ * @param {Drop|null} settling
+ * @returns {DroppedRef[]}
+ */
+const heldBy = (s, name, settling) =>
+	s.drops
+		.filter(
+			(x) =>
+				x.name === name &&
+				x !== settling &&
+				isUndecided(x) &&
+				!(x.ticket !== null && s.isClosed(x.ticket)),
+		)
+		.sort((a, b) => b.at - a.at)
+		.map(({ ref, sha }) => ({ ref, sha }));
+
+/**
+ * The filing owed to the branch of `d`: its newest undecided drop, and every
+ * dropped ref the branch holds.
+ * @param {QueueState} s
+ * @param {Drop} d
+ * @returns {Extract<QueueAction, {kind: "file-fix-ticket"}>}
+ */
+function filingOf(s, d) {
+	const [newest] = s.drops
+		.filter((x) => x.name === d.name && isUndecided(x))
+		.sort((a, b) => b.at - a.at);
+	return {
+		kind: "file-fix-ticket",
+		drop: newest ?? d,
+		held: heldBy(s, d.name, null),
+	};
+}
+
+/**
+ * The decision an undecided drop is owed (#4950), the newest first: settled
+ * where `main` holds its sha or a push of its queue ref landed since; with
+ * no ticket, held behind a push of its queue ref still waiting, deferred
+ * while its owning session works, else its branch's fix ticket filed or
+ * updated. Null where every drop is held, deferred, or left by `skip`.
+ * @param {QueueState} s
+ * @param {string} main
+ * @param {readonly string[]} skip the dropped refs whose filing is left
+ * @returns {QueueAction|null}
+ */
+function dropDecision(s, main, skip) {
+	const undecided = s.drops
+		.filter(
+			(d) =>
+				isUndecided(d) &&
+				!s.leftToNextRun.includes(d.ref) &&
+				!(d.ticket !== null && s.isClosed(d.ticket)),
+		)
+		.sort((a, b) => b.at - a.at);
+	for (const d of undecided) {
+		if (s.isOnMain(d.sha)) return settleAction(s, d, main);
+		const ticketed = d.ticket !== null;
+		if (!ticketed && s.queue.some((q) => q.name === d.name)) continue;
+		if (s.landedAfter(d.name, d.at)) return settleAction(s, d, main);
+		if (ticketed || s.ownerOf(d.name) === "working") continue;
+		const filing = filingOf(s, d);
+		if (!skip.includes(filing.drop.ref)) return filing;
+	}
+	return null;
+}
+
+/**
+ * What a crash or a refusal left owed before anything else: a settling or a
+ * drop cut short, a dropped ref no entry names, a drop owed its decision, a
+ * refused sha still green-ledgered; else null.
  * @param {QueueState} s
  * @returns {QueueAction|null}
  */
 function owedAction(s) {
+	const unreaped = s.drops.find(
+		(d) =>
+			d.state === "settled" &&
+			d.reapedAt === undefined &&
+			!s.leftToNextRun.includes(d.ref),
+	);
+	if (unreaped && s.main !== null)
+		return settleAction(s, unreaped, unreaped.settledOn ?? s.main);
 	const cut = s.drops.find(
 		(d) =>
-			d.reapedAt === undefined &&
+			isUndecided(d) &&
 			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha) &&
 			!(d.ticket !== null && s.isClosed(d.ticket)),
 	);
 	if (cut) return { kind: "drop-member", drop: cut };
 	const orphan = s.dropped.find(
 		(r) =>
-			!s.unfiled.includes(r.ref) &&
+			!s.leftToNextRun.includes(r.ref) &&
 			!s.drops.some((d) => d.ref === r.ref && d.sha === r.sha),
 	);
 	if (orphan && s.main !== null)
 		return { kind: "adopt-dropped-ref", ...orphan, onto: s.main };
-	const owed = s.drops.find(
-		(d) => d.ticket === null && !s.unfiled.includes(d.ref),
-	);
-	if (owed) return { kind: "file-fix-ticket", drop: owed };
+	const decided =
+		s.main === null
+			? null
+			: dropDecision(s, s.main, [...s.unfiled, ...s.leftToNextRun]);
+	if (decided) return decided;
 	/* Off the green ledger, so the pre-push gate passes no later push of a sha
 	 * the remote refused, before the batch merges again past it. */
 	const pushed = batchesOf(s.pipeline)
@@ -1456,8 +1606,8 @@ function waitingOf(s, { line, search }) {
 }
 
 /**
- * The step with no batch in flight owing one: a dropped ref reaped, else
- * the run's end.
+ * The step with no batch in flight owing one: a dropped ref reaped, else the
+ * run's end.
  * @param {QueueState} s
  * @param {string} main
  * @param {Batch|null} search
@@ -1524,6 +1674,9 @@ function stepOrEnd(s) {
 	const fill = fillAction(s, main, live, waiting);
 	if (fill) return unslotted(fill);
 	if (s.busy) return unslotted({ kind: "await-verdict" });
+	/* A filing that failed once this run, filed again before the run ends. */
+	const again = dropDecision(s, main, s.leftToNextRun);
+	if (again) return unslotted(again);
 	if (flying.size > 0)
 		return unslotted(
 			exit("no batch in flight has a step, and no verdict awaits"),
@@ -1552,18 +1705,29 @@ function stepOrEnd(s) {
  * @property {(branch: string, sha: string) => void} createRef creates the
  *   remote's `branch` at `sha`, refused where it holds another sha
  * @typedef {object} QueueTracker
- * @property {(d: Drop) => string} fileDropTicket files the drop's fix ticket,
- *   returning the line naming it, as `#<n>`, and throwing a FilingRefusedError
- *   where the tracker refuses it for good
- * @property {(name: string, sha: string) => number|null} findDropTicket the
- *   fix ticket, open or closed, filed for `queue/<name>` dropped at `sha`,
- *   null where the tracker holds none, throwing where it cannot be searched
+ * @property {(d: Drop, held: readonly DroppedRef[]) => {number: number,
+ *   line: string}} fileDropTicket files the one fix ticket of the branch
+ *   whose newest drop is `d`, holding the dropped refs `held`, or updates
+ *   the open one, returning its number and the line naming it, and throwing
+ *   a FilingRefusedError where the tracker refuses it for good
+ * @property {(name: string) => number|null} findDropTicket the open fix
+ *   ticket of `queue/<name>`, null where the tracker holds none, throwing
+ *   where it cannot be searched
+ * @property {(ticket: number, d: Drop, held: readonly DroppedRef[]) => void}
+ *   refreshDropTicket replaces the open fix ticket's body with that of `d`
+ *   and the dropped refs its branch still holds
+ * @property {(ticket: number, d: Drop, main: string) => void}
+ *   closeDropTicket closes the fix ticket, naming `main` as holding the
+ *   work of `d`; no act where it is closed already
  * @property {(sha: string, files: readonly string[]) => string} fileBaseRed
  *   files the one base-red ticket for `files` red at `main`'s `sha`, or
  *   refreshes the open one, returning the line naming it
  * @property {(n: number) => "open" | "closed"} stateOf the ticket's state,
  *   throwing where it cannot be read
- * @typedef {"take" | "land" | "drop"} LanderEvent
+ * @typedef {"take" | "land" | "drop" | "settle" | "close"} LanderEvent
+ * @typedef {"working" | "stopped"} OwnerRead
+ * @typedef {{readonly name: string, readonly at: number}} Landing a land
+ *   row of the queue log: `queue/<name>` landed at `at`, in ms
  * @typedef {{readonly verdict: Verdict, readonly at: number}} Ledgered a
  *   ledgered verdict and when it was ledgered, in ms
  * @typedef {object} VerdictLedger
@@ -1589,6 +1753,10 @@ function stepOrEnd(s) {
  * @property {QueueTracker} tracker
  * @property {(event: LanderEvent, m: Pick<Member, "name" | "sha">) => void}
  *   logQueue
+ * @property {() => readonly Landing[]} landings the queue log's land rows
+ * @property {(name: string) => OwnerRead} ownerOf whether the owning session
+ *   of `queue/<name>` is working; `stopped` where it is not or the read is
+ *   in doubt, and it never throws
  * @property {{acquire: () => boolean, release: () => void}} lock
  * @property {(batch: string|null) => void} beat writes the heartbeat,
  *   naming the sha under test
@@ -1600,14 +1768,17 @@ function stepOrEnd(s) {
  *   checkout now carries it
  * @property {() => number} now the clock, in ms
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
- *   filed or left unfiled, or one whose state was not read, and a run not
- *   cancelled or an early batch push that failed
+ *   filed, updated or left unfiled, one whose state was not read or that
+ *   would not close, and a run not cancelled or an early batch push that
+ *   failed
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
- *   | "deferrals" | "kept" | "unfiled" | "isClosed" | "baseFiled" | "baseTicket"
- *   | "superseded"> & {pending: Map<string, Pending>, acting: Batch|null}}
- *   QueueRun what a run carries between actions; `pending` its asks awaiting
- *   their verdicts, by their runs, shared by every copy of the run; `acting`
- *   the batch the action under way acts on
+ *   | "deferrals" | "kept" | "unfiled" | "leftToNextRun" | "isClosed" | "baseFiled"
+ *   | "baseTicket" | "superseded"> & {pending: Map<string, Pending>,
+ *   acting: Batch|null, owners: Map<string, OwnerRead>}} QueueRun what a run
+ *   carries between actions; `pending` its asks awaiting their verdicts, by
+ *   their runs, shared by every copy of the run; `acting` the batch the
+ *   action under way acts on; `owners` each owner read it took, by queue
+ *   ref name, shared by every copy of the run
  * @typedef {{readonly runs: readonly TestRun[],
  *   readonly settled: Promise<Settled>, got: Settled|null}} Pending an ask
  *   in flight; `got` its end once reached, kept before the next step
@@ -1668,8 +1839,8 @@ function batchOf(run) {
  * Drops the member, each record written before the refs it names, so a rerun
  * after a crash finishes the drop and never lands the member: the drop
  * record first, whose row a rerun finishes before the batch goes on. A step
- * repeated after a crash finds its ref already made, and keeps its filed
- * ticket.
+ * repeated after a crash finds its ref already made, and keeps its ticket
+ * and state.
  * @param {BatchDeps} deps
  * @param {Drop} d
  * @param {QueueRun} run
@@ -1688,7 +1859,7 @@ function dropMember(deps, d, run) {
 	const was = drops.find((x) => x.ref === d.ref && x.sha === d.sha);
 	deps.drops.write([
 		...drops.filter((x) => x !== was),
-		{ ...d, ticket: was?.ticket ?? null },
+		was ? { ...d, ticket: was.ticket, state: was.state } : d,
 	]);
 	if (left && left !== batch) deps.record.write(left);
 	deps.git.createRef(d.ref, d.sha);
@@ -1698,62 +1869,155 @@ function dropMember(deps, d, run) {
 }
 
 /**
- * Files the drop's fix ticket and records its number. A filing that throws
- * other than transiently or for good, or prints no number, is reported and
- * left for the next run (#4485).
+ * The drop record with each entry `pick` takes rewritten by `to`.
+ * @param {Pick<QueueLanderDeps, "drops">} deps
+ * @param {(d: Drop) => boolean} pick
+ * @param {(d: Drop) => Drop} to
+ */
+function rewriteDrops(deps, pick, to) {
+	deps.drops.write(deps.drops.read().map((d) => (pick(d) ? to(d) : d)));
+}
+
+/**
+ * Files the branch's fix ticket, or updates its open one, then records its
+ * number on each of the branch's undecided entries with none. The number is
+ * known only once filed, so a crash before it is recorded converges on the
+ * tracker: the next run finds the open ticket and records it. A filing
+ * refused for good is recorded on the entry, which then starts no lander of
+ * its own, and stops the run; one that throws otherwise, bar transiently, is
+ * reported and filed again before the run ends, then left for the next run.
  * @param {BatchDeps} deps
- * @param {Drop} d
+ * @param {Extract<QueueAction, {kind: "file-fix-ticket"}>} action
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
-function fileFixTicket(deps, d, run) {
+function fileFixTicket(deps, { drop: d, held }, run) {
 	const { say = () => undefined } = deps;
-	/** @param {string} why */
-	const unfiled = (why) =>
-		leaveUnfiled(deps, run, { ref: d.ref, undone: "filed", why });
-	let line;
+	/** @param {Drop} x */
+	const isIt = (x) => x.ref === d.ref && x.sha === d.sha;
+	let filed;
 	try {
-		line = deps.tracker.fileDropTicket(d);
+		filed = deps.tracker.fileDropTicket(d, held);
 	} catch (err) {
-		if (isTransientFault(err) || err instanceof FilingRefusedError) throw err;
-		return unfiled(parseRefusal(parseErrorText(err)));
+		if (isTransientFault(err)) throw err;
+		const why = parseRefusal(parseErrorText(err));
+		if (err instanceof FilingRefusedError) {
+			rewriteDrops(deps, isIt, (x) => ({ ...x, filingRefused: why }));
+			throw err;
+		}
+		if (run.unfiled.includes(d.ref))
+			return leaveToNextRun(deps, run, d.ref, `not filed again: ${why}`);
+		say(
+			`fix ticket for ${d.ref} not filed, filed again before this run ends: ${why}`,
+		);
+		return { ...run, unfiled: [...run.unfiled, d.ref] };
 	}
-	const n = Number(FILED.exec(line)?.[1]);
-	if (!Number.isInteger(n))
-		return unfiled(`its filing printed no #<n>: ${line}`);
-	deps.drops.write(
-		deps.drops
-			.read()
-			.map((x) =>
-				x.ref === d.ref && x.sha === d.sha ? { ...x, ticket: n } : x,
-			),
+	const at = deps.now();
+	rewriteDrops(
+		deps,
+		(x) => x.name === d.name && isUndecided(x) && x.ticket === null,
+		(x) => ({
+			...x,
+			filingRefused: undefined,
+			ticket: filed.number,
+			state: "ticketed",
+			decidedAt: at,
+		}),
 	);
-	say(line);
+	say(filed.line);
 	return run;
 }
 
-const FILED = /#(\d+)/;
-
 /**
  * The run with `ref`'s fix ticket left for the next run, reported.
- * @param {BatchDeps} deps
+ * @param {Pick<QueueLanderDeps, "say">} deps
  * @param {QueueRun} run
- * @param {{ref: string, undone: "filed" | "searched", why: string}} left
+ * @param {string} ref
+ * @param {string} why what was not done, and the fault
  * @returns {QueueRun}
  */
-function leaveUnfiled(deps, run, { ref, undone, why }) {
+function leaveToNextRun(deps, run, ref, why) {
 	const { say = () => undefined } = deps;
-	say(`fix ticket for ${ref} not ${undone}, left for the next run: ${why}`);
-	return { ...run, unfiled: [...run.unfiled, ref] };
+	say(`fix ticket for ${ref} ${why}; left for the next run`);
+	return { ...run, leftToNextRun: [...run.leftToNextRun, ref] };
+}
+
+/**
+ * The body of `ticket`, which a newer drop keeps open, refreshed once the
+ * dropped ref `reaped` is gone; a refresh that throws other than transiently
+ * is reported.
+ * @param {BatchDeps} deps
+ * @param {number} ticket
+ * @param {string} reaped
+ * @param {{drop: Drop, held: readonly DroppedRef[]}} refresh
+ */
+function refreshTicket(deps, ticket, reaped, { drop, held }) {
+	const { say = () => undefined } = deps;
+	try {
+		deps.tracker.refreshDropTicket(ticket, drop, held);
+	} catch (err) {
+		if (isTransientFault(err)) throw err;
+		say(
+			`fix ticket #${ticket} still names ${reaped}, reaped: ${parseRefusal(parseErrorText(err))}`,
+		);
+	}
+}
+
+/**
+ * Settles the drop: its entry written settled on `main` first, then its
+ * ticket closed and a `close` row logged where it closes one, else a
+ * `settle` row, then its dropped ref deleted and the entry marked reaped,
+ * and the body of a ticket a newer drop keeps open refreshed. A rerun after
+ * a crash repeats each step, none of which acts twice. A close that throws
+ * other than transiently is reported and left for the next run; a refresh
+ * that does is reported.
+ * @param {BatchDeps} deps
+ * @param {Extract<QueueAction, {kind: "settle-drop"}>} action
+ * @param {QueueRun} run
+ * @returns {QueueRun}
+ */
+function settleDrop(deps, { drop: d, main, close, refresh }, run) {
+	const at = deps.now();
+	/** @param {Drop} x */
+	const isIt = (x) => x.ref === d.ref && x.sha === d.sha;
+	if (d.state !== "settled")
+		rewriteDrops(deps, isIt, (x) => ({
+			...x,
+			state: "settled",
+			decidedAt: at,
+			settledOn: main,
+		}));
+	const { ticket } = d;
+	if (close && ticket !== null) {
+		try {
+			deps.tracker.closeDropTicket(ticket, d, main);
+		} catch (err) {
+			if (isTransientFault(err)) throw err;
+			return leaveToNextRun(
+				deps,
+				run,
+				d.ref,
+				`#${ticket} not closed: ${parseRefusal(parseErrorText(err))}`,
+			);
+		}
+		deps.logQueue("close", d);
+	} else deps.logQueue("settle", d);
+	deps.git.deleteRef(d.ref, d.sha);
+	rewriteDrops(deps, isIt, (x) => ({ ...x, reapedAt: at }));
+	if (refresh && ticket !== null) refreshTicket(deps, ticket, d.ref, refresh);
+	const { isClosed } = run;
+	return close && ticket !== null
+		? { ...run, isClosed: (n) => n === ticket || isClosed(n) }
+		: run;
 }
 
 /**
  * Writes back the drop record entry of a dropped ref none names, with the
- * fix ticket the tracker holds for it, its state read so a closed one is
- * reaped this run; with none, the next action files one, unless `main`
- * already holds its sha, where the ref is deleted instead. A search that
- * throws other than transiently is reported, and the ref left for the next
- * run, so no second ticket is filed on a search that read nothing (#4498).
+ * open fix ticket the tracker holds for its branch, or none, so it is
+ * decided as any drop; one with no ticket whose sha `main` already holds is
+ * settled instead, a `settle` row logged and the ref deleted. A search that throws other than transiently is reported,
+ * and the ref left for the next run, so no second ticket is filed on a
+ * search that read nothing (#4498).
  * @param {BatchDeps} deps
  * @param {Extract<QueueAction, {kind: "adopt-dropped-ref"}>} action
  * @param {QueueRun} run
@@ -1763,19 +2027,22 @@ function adoptDroppedRef(deps, { ref, sha, onto }, run) {
 	const name = droppedNameOf(ref, sha);
 	let ticket;
 	try {
-		ticket = deps.tracker.findDropTicket(name, sha);
+		ticket = deps.tracker.findDropTicket(name);
 	} catch (err) {
 		if (isTransientFault(err)) throw err;
-		return leaveUnfiled(deps, run, {
+		return leaveToNextRun(
+			deps,
+			run,
 			ref,
-			undone: "searched",
-			why: parseRefusal(parseErrorText(err)),
-		});
+			`not searched: ${parseRefusal(parseErrorText(err))}`,
+		);
 	}
 	if (ticket === null && deps.git.isAncestor(sha, onto)) {
+		deps.logQueue("settle", { name, sha });
 		deps.git.deleteRef(ref, sha);
 		return run;
 	}
+	const at = deps.now();
 	deps.drops.write([
 		...deps.drops.read(),
 		{
@@ -1785,15 +2052,12 @@ function adoptDroppedRef(deps, { ref, sha, onto }, run) {
 			onto,
 			cause: { kind: "unrecorded", name },
 			ticket,
-			at: deps.now(),
+			at,
+			state: ticket === null ? "open" : "ticketed",
+			decidedAt: at,
 		},
 	]);
-	if (ticket === null) return run;
-	const closed = readClosed(deps, ticket, ref);
-	const { isClosed } = run;
-	return closed
-		? { ...run, isClosed: (n) => n === ticket || isClosed(n) }
-		: run;
+	return run;
 }
 
 /**
@@ -2046,6 +2310,8 @@ function testIsolated(deps, { runs, files, pass }, run) {
 	}, run);
 }
 
+const FILED = /#(\d+)/;
+
 /**
  * Files or refreshes the base-red ticket. One that will not file is
  * reported, and stops nothing: the failures it names are `main`'s, which the
@@ -2234,7 +2500,9 @@ async function act(deps, action, run) {
 		case "drop-member":
 			return dropMember(deps, action.drop, run);
 		case "file-fix-ticket":
-			return fileFixTicket(deps, action.drop, run);
+			return fileFixTicket(deps, action, run);
+		case "settle-drop":
+			return settleDrop(deps, action, run);
 		case "adopt-dropped-ref":
 			return adoptDroppedRef(deps, action, run);
 		case "test-sha":
@@ -2497,10 +2765,24 @@ async function step(deps, before, log) {
 	const run = keepEnded(deps, before);
 	const head = run.pipeline.line[0] ?? run.pipeline.search;
 	deps.beat(head?.integration ?? null);
+	const refs = deps.git.refs();
+	/** @type {readonly Landing[]|null} */
+	let landings = null;
 	const { action, slot } = nextQueueAction({
-		...deps.git.refs(),
+		...refs,
 		...run,
 		drops: deps.drops.read(),
+		isOnMain: (sha) =>
+			refs.main !== null && deps.git.isAncestor(sha, refs.main),
+		landedAfter: (name, at) => {
+			landings ??= deps.landings();
+			return landings.some((l) => l.name === name && l.at > at);
+		},
+		ownerOf: (name) => {
+			const read = run.owners.get(name) ?? deps.ownerOf(name);
+			run.owners.set(name, read);
+			return read;
+		},
 		now: deps.now(),
 		isGreen: (sha) => deps.ledger.has(sha),
 		greenAt: (sha) => deps.ledger.greenAt(sha),
@@ -2606,6 +2888,8 @@ async function runQueueLander(deps) {
 		deferrals: [],
 		kept: [],
 		unfiled: [],
+		leftToNextRun: [],
+		owners: new Map(),
 		isClosed: readClosedTickets(deps),
 		baseFiled: [],
 		baseTicket: null,
@@ -2657,6 +2941,8 @@ function buildQueueActionLine(a) {
 			return `drop-member queue/${a.drop.name}@${short(a.drop.sha)} as ${a.drop.ref}`;
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
+		case "settle-drop":
+			return `settle-drop ${a.drop.ref}@${short(a.drop.sha)} on main@${short(a.main)}${a.close ? `, closing #${a.drop.ticket}` : ""}`;
 		case "adopt-dropped-ref":
 			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":

@@ -2,7 +2,8 @@
  * queue-lander-deps.js — one queue lander run's dependencies, wired for a
  * checkout: lib/queue-lander.js's runQueueLander over the production adapters
  * (lib/queue-lander-adapters.js), the tester .claude/workflow-core.json's
- * `landingTester` names, the tracker that config names, and the guard-code
+ * `landingTester` names, the tracker that config names, the owner read
+ * (lib/queue-owner.js), and the guard-code
  * adoption and levelling pass after each move of `main` (#4485, spec #4458).
  *
  * scripts/queue-lander.js runs on it; a test drives the same wiring with its
@@ -27,6 +28,9 @@ const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { dropRecord, pipelineRecord } = require("./lander-records.js");
+const { QUEUE_HEADS } = require("./landing-refs.js");
+const { queueLogFile, readQueueRows } = require("./queue-log.js");
+const { readOwner } = require("./queue-owner.js");
 const {
 	queueGit,
 	queueLogger,
@@ -128,6 +132,11 @@ function buildLanderDeps(
 		drops: dropRecord(files.drops),
 		tracker: trackerOf(root),
 		logQueue: queueLogger(root),
+		landings: () =>
+			readQueueRows(queueLogFile(root))
+				.filter((r) => r.event === "land" && r.ref.startsWith(QUEUE_HEADS))
+				.map((r) => ({ name: r.ref.slice(QUEUE_HEADS.length), at: r.at })),
+		ownerOf: (name) => readOwner(root, name),
 		lock: landerLock(root),
 		beat: heartbeatWriter(files.heartbeat),
 		log: (action) =>

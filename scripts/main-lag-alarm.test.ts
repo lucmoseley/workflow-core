@@ -1,11 +1,12 @@
 // @vitest-environment node
 
 /*
- * scripts/main-lag-alarm.js and .github/workflows/main-lag.yml (#4443,
- * #4485), with GitHub's activity and ref endpoints stubbed. Break this and
- * the one stall alarm that outlives the machine stays green through a stall,
- * a queue ref pushed again stops ageing, or the workflow's run page names a
- * threshold the check no longer applies.
+ * scripts/main-lag-alarm.js, its core lib/main-lag-alarm.js and
+ * .github/workflows/main-lag.yml (#4443, #4485), with GitHub's activity and
+ * ref endpoints stubbed. Break this and the one stall alarm that outlives
+ * the machine stays green through a stall, a queue ref pushed again stops
+ * ageing, or the workflow's run page names a threshold the check no longer
+ * applies.
  */
 
 import fs from "node:fs";
@@ -14,10 +15,10 @@ import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { runAlarm } from "./lib/main-lag-alarm.js";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { QUEUE_ALERT_TITLES, STALL_TITLE } from "./lib/queue-tickets.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-import { QUEUE_BACKSTOP_MS, runAlarm } from "./main-lag-alarm.js";
 
 // Through `require`: js-yaml ships no types.
 const yaml = createRequire(import.meta.url)("js-yaml");
@@ -60,7 +61,7 @@ const run = async (get: (p: string) => Promise<unknown>) => {
 	return { code, out: said.join("\n") };
 };
 
-describe("main-lag-alarm.js", () => {
+describe("lib/main-lag-alarm.js", () => {
 	it("passes a queue within the 2 h backstop, naming its oldest ref by its first push", async () => {
 		const r = await run(stub([created(5), created(119)]));
 		expect(r.code).toBe(0);
@@ -133,39 +134,57 @@ describe("main-lag-alarm.js", () => {
 	});
 });
 
-describe("main-lag-alarm.js through fetch", () => {
-	/* Crosses a real socket: the script's own fetch adapter and environment,
-	 * against a local server standing in for GitHub's API. */
-	it("reads GitHub's API from the environment Actions sets and exits on the verdict", async () => {
-		const seen: string[] = [];
-		const api = stub();
-		const server = http.createServer(async (req, res) => {
-			const url = (req.url ?? "").replace("/repos/owner/repo", "");
-			seen.push(`${url} ${req.headers.authorization}`);
-			res.setHeader("content-type", "application/json");
-			res.end(JSON.stringify(await api(url)));
-		});
-		await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-		const { port } = server.address() as AddressInfo;
-		try {
-			const out = await runInProcessAsync(
-				path.join(ROOT, "scripts/main-lag-alarm.js"),
-				[],
-				{
-					env: {
-						PATH: process.env.PATH,
-						GITHUB_API_URL: `http://127.0.0.1:${port}`,
-						GITHUB_REPOSITORY: "owner/repo",
-						GH_TOKEN: "tok",
-					},
+/* Crosses a real socket: the script's own fetch adapter and environment,
+ * against a local server standing in for GitHub's API. */
+const throughFetch = async (api: (p: string) => Promise<unknown>) => {
+	const seen: string[] = [];
+	const server = http.createServer(async (req, res) => {
+		const url = (req.url ?? "").replace("/repos/owner/repo", "");
+		seen.push(`${url} ${req.headers.authorization}`);
+		res.setHeader("content-type", "application/json");
+		res.end(JSON.stringify(await api(url)));
+	});
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+	const { port } = server.address() as AddressInfo;
+	try {
+		const out = await runInProcessAsync(
+			path.join(ROOT, "scripts/main-lag-alarm.js"),
+			[],
+			{
+				env: {
+					PATH: process.env.PATH,
+					GITHUB_API_URL: `http://127.0.0.1:${port}`,
+					GITHUB_REPOSITORY: "owner/repo",
+					GH_TOKEN: "tok",
 				},
-			);
-			expect(out.status).toBe(0);
-			expect(out.stdout).toContain("No queue ref waits.");
-			expect(seen).toContain("/git/matching-refs/heads/queue/ Bearer tok");
-		} finally {
-			server.close();
-		}
+			},
+		);
+		return { ...out, seen };
+	} finally {
+		server.close();
+	}
+};
+
+describe("main-lag-alarm.js through fetch", () => {
+	it("reads GitHub's API from the environment Actions sets and exits 0 where nothing waits", async () => {
+		const out = await throughFetch(stub());
+		expect(out.status).toBe(0);
+		expect(out.stdout).toContain("No queue ref waits.");
+		expect(out.seen).toContain("/git/matching-refs/heads/queue/ Bearer tok");
+	});
+
+	/* The program reads the real clock, which NOW is behind: any ref the
+	 * stub lists has waited past the backstop. */
+	it("exits 1 on a stalled queue ref", async () => {
+		const out = await throughFetch(stub([created(121)]));
+		expect(out.status).toBe(1);
+		expect(out.stdout).toContain("::error title=Queue ref waiting::queue/q0");
+	});
+
+	it("exits 2 where the API answers with no list of queue refs", async () => {
+		const out = await throughFetch(async () => ({}));
+		expect(out.status).toBe(2);
+		expect(out.stdout).toContain("::error title=Check broken, not a stall::");
 	});
 });
 
@@ -207,8 +226,10 @@ describe("main-lag.yml", () => {
 		);
 	});
 
-	it("names the threshold the check applies on the run page the notice links", () => {
-		const hours = QUEUE_BACKSTOP_MS / 3_600_000;
+	it("names the threshold the check applies on the run page the notice links", async () => {
+		const { out } = await run(stub([created(5)]));
+		const hours = Number(/against (\d+) h 0 min\.$/.exec(out)?.[1]);
+		expect(hours).toBeGreaterThan(0);
 		expect(workflow.name).toContain(`${hours}h`);
 		expect(job.name).toContain(`No queue ref waited over ${hours} hours`);
 		expect(job.name.replace(/\b2 hours\b/g, "")).not.toMatch(/\d/);
