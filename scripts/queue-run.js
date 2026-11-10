@@ -62,7 +62,7 @@ const {
 	queueSeat,
 	queuedRunnerPeakMb,
 } = require("./lib/suite-queue.js");
-const { unwrap } = require("./lib/shell-words.js");
+const { unwrapArgv } = require("./lib/shell-words.js");
 const {
 	TSC_BUSY_EXIT,
 	TSC_NO_WAIT_ENV,
@@ -161,7 +161,7 @@ function classify(words) {
  * @returns {string}
  */
 function readingOf(words, ports) {
-	const readings = unwrap(words, []).map(({ words: inner }) =>
+	const readings = unwrapArgv(words).map(({ words: inner }) =>
 		runReading(inner, ports),
 	);
 	return READING_RANK.find((r) => readings.includes(r)) ?? "none";
@@ -321,7 +321,7 @@ function slotWait(slot, options, words) {
 			};
 		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
 	}
-	const charges = unwrap(words, []).flatMap(({ words: inner }) => {
+	const charges = unwrapArgv(words).flatMap(({ words: inner }) => {
 		const mb = queuedRunnerPeakMb(inner);
 		return mb === undefined ? [] : [mb];
 	});

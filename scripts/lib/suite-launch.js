@@ -18,7 +18,7 @@
 
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { PY_COLLECTED_TEST } = require("./test-kind.js");
-const { unwrap } = require("./shell-words.js");
+const { unwrapArgv } = require("./shell-words.js");
 
 /**
  * @typedef {"npm-vitest" | "npm-watch" | "npm-py" | "wrapper" | "other"} LaunchKind
@@ -176,7 +176,7 @@ function npmLaunch(words) {
 function isQueuedLaunch(words, ports) {
 	const rest = words[0] === "--" ? words.slice(1) : words;
 	if (rest.length === 0) return false;
-	return unwrap(rest, []).some(
+	return unwrapArgv(rest).some(
 		({ words: inner }) => inner.length > 0 && isQueueable(inner, ports),
 	);
 }
