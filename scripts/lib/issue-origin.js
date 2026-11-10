@@ -37,7 +37,8 @@ const ORIGINS = /** @type {const} */ ([
  * outcome review's miss backstop passes them over, and holds every other
  * origin's undeclared fault-shaped ticket to account. Nothing stops a session
  * passing one of these `--origin` by hand, and its ticket then skips the
- * backstop too.
+ * backstop too. release-bump and repo-checks-script join once their filers
+ * stamp them (#4867).
  */
 const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 	"lander-script",

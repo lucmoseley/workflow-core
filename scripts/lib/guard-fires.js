@@ -513,6 +513,9 @@ function* callStrings(record) {
  */
 const READS = { output: outputStrings, call: callStrings };
 
+/** Every `Reads` kind, for a reader that checks a signature's own. */
+const READ_KINDS = /** @type {Reads[]} */ (Object.keys(READS));
+
 /**
  * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
  * reads every string from its start.
@@ -538,10 +541,10 @@ function stringsMatch(record, re, reads) {
  * against the text a session saw or typed rather than against JSON escapes.
  * @param {TranscriptRecord} record
  * @param {RegExp} pattern
- * @param {Reads} reads
+ * @param {Reads} [reads]
  * @returns {boolean}
  */
-function recordMatches(record, pattern, reads) {
+function recordMatches(record, pattern, reads = "output") {
 	return stringsMatch(record, stateless(pattern), reads);
 }
 
@@ -554,10 +557,10 @@ function recordMatches(record, pattern, reads) {
  * @param {string} text
  * @param {RegExp} pattern
  * @param {"main" | "subagent"} tier
- * @param {Reads} reads
+ * @param {Reads} [reads]
  * @returns {Array<{at: string|null}>}
  */
-function transcriptMatches(text, pattern, tier, reads) {
+function transcriptMatches(text, pattern, tier, reads = "output") {
 	const re = stateless(pattern);
 	const out = [];
 	for (const record of mainChainRecords(text, tier))
@@ -870,6 +873,7 @@ module.exports = {
 	transcriptFires,
 	transcriptMentions,
 	recordFires,
+	READ_KINDS,
 	recordMatches,
 	transcriptMatches,
 	tally,

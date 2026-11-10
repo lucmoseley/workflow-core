@@ -34,6 +34,7 @@ const path = require("node:path");
 const {
 	readNeedles,
 	recordFires,
+	READ_KINDS,
 	recordMatches,
 	transcriptFires,
 	transcriptMatches,
@@ -49,7 +50,6 @@ const { parseJsonlRow } = require("./jsonl.js");
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
 
 const SCOPES = /** @type {const} */ (["main", "subagent", "both"]);
-const READS = /** @type {const} */ (["output", "call"]);
 const REGEX_FLAGS = /^[imsu]*$/;
 
 /**
@@ -181,7 +181,7 @@ function checkRegex(s) {
 		return {
 			error: `a regex signature's "scope" is one of ${SCOPES.join(", ")}: the transcript tier it reads.`,
 		};
-	const reads = READS.find((x) => x === (s.reads ?? "output"));
+	const reads = READ_KINDS.find((x) => x === (s.reads ?? "output"));
 	if (!reads)
 		return {
 			error: `a regex signature's "reads" is "output" (left out: where the fault surfaces — a tool result, a hook's output, Stop hook feedback) or "call" (the tool calls a session made).`,
@@ -268,7 +268,7 @@ function signatureHits(text, sig, tier, registry) {
 		return transcriptFires(text, [needleSubject(sig, registry)], tier).map(
 			(f) => ({ at: f.at }),
 		);
-	return transcriptMatches(text, compile(sig), tier, sig.reads ?? "output");
+	return transcriptMatches(text, compile(sig), tier, sig.reads);
 }
 
 /**
@@ -311,7 +311,7 @@ function matchesCase(sig, { record, tier }, registry) {
 	if (!readsTier(sig, tier)) return false;
 	if (sig.kind === "needle")
 		return recordFires(record, [needleSubject(sig, registry)]).length > 0;
-	return recordMatches(record, compile(sig), sig.reads ?? "output");
+	return recordMatches(record, compile(sig), sig.reads);
 }
 
 /**
