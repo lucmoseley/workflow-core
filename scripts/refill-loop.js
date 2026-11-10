@@ -85,7 +85,9 @@ const { buildErrorText, caught } = require("./lib/caught.js");
 const { readBurnState } = require("./lib/burn-mode.js");
 const { readConcurrencyStatus } = require("./lib/concurrency.js");
 const refillCode = require("./lib/refill-code.js");
-const { now: readClock } = require("./lib/check.js");
+/* A WFC_NOW an unrelated session exports skews every stamp a command
+ * writes to the control and state files off this clock (check.js's now). */
+const { now } = require("./lib/check.js");
 const { runCommand } = require("./lib/run-command.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -417,10 +419,10 @@ const sizingRoot = (served) => served[0] ?? hostRoot();
  * What the `seats:` line says now, off each seat's cache with no `/usage`
  * probe, a tick being the one to refresh it (#3733).
  * @param {string[]} planSeats
- * @param {{root: string, budgetOf: BudgetOf, now: number, callerSeat?: string}} at
+ * @param {{root: string, budgetOf: BudgetOf, at: number, callerSeat?: string}} view
  *   the keys' budgets, the command's one clock read, and for `start` its seat
  */
-function readSeatsView(planSeats, { root, budgetOf, now, callerSeat }) {
+function readSeatsView(planSeats, { root, budgetOf, at, callerSeat }) {
 	const declared = readDeclaredSeats();
 	const ceilings = seatReading.ceilingsOf(process.env);
 	const sizeCap = seatReading.capSizer(
@@ -429,13 +431,13 @@ function readSeatsView(planSeats, { root, budgetOf, now, callerSeat }) {
 		readAgentsForDisplay,
 	);
 	const seats = planSeats.map((seat) => {
-		const { bars, reading } = seatReading.readSeat(seat, now);
+		const { bars, reading } = seatReading.readSeat(seat, at);
 		return commands.foreseeSeat({
 			reading,
 			bars,
 			sizeCap: () => sizeCap(seat, 1),
 			ceilings,
-			now,
+			now: at,
 		});
 	});
 	return commands.buildSeatsView({
@@ -516,7 +518,7 @@ const bootPorts = (write) => ({
  * stdout is the journal, so its lines also go to the loop's log.
  */
 function bootResume() {
-	const now = readClock();
+	const at = now();
 	const note = (/** @type {string} */ line) => {
 		writeFd(1, buildLoopLogLine(line));
 		appendLoopLog(line);
@@ -525,7 +527,7 @@ function bootResume() {
 		...bootPorts(note),
 		note,
 		bootId: readCurrentBootId,
-		now: () => now,
+		now: () => at,
 		writeManagerRestart,
 		launch: launchLoop,
 	});
@@ -555,21 +557,22 @@ function start(parsed) {
 		say(`refill loop not started: this checkout is not served (${excluded})`);
 		return 0;
 	}
-	const now = readClock();
 	const parsedAsk = parseStartAsk(parsed);
 	const ask = checkAsk(parsedAsk, commands.buildFreshControl(root, [], 0));
 	if (isNotice(ask)) {
 		refuseUsage(ask);
 		return 2;
 	}
+	/* Read under the lock, so a wait on it never backdates what is written. */
 	const written = withControlLock(() => {
+		const at = now();
 		const pid = lock.holder();
 		const plan = commands.planStart(
 			readControlChecked(() => undefined),
 			ask,
 			{
 				pid,
-				now,
+				now: at,
 				root,
 				seats: readConfiguredSeats(),
 				seatErrors: readDeclaredSeats().errors,
@@ -579,14 +582,14 @@ function start(parsed) {
 				isOptedOut,
 			},
 		);
-		if ("refused" in plan) return plan;
+		if ("refused" in plan) return { at, plan };
 		if (plan.write) writeControlFile(plan.write);
 		if (plan.action === "start") updateState(runForgotten(), log);
-		return plan;
+		return { at, plan };
 	});
 	if ("busy" in written)
 		return refuseWrite("not started", buildBusyRefusal(written.busy));
-	const plan = written.done;
+	const { at, plan } = written.done;
 	if ("refused" in plan) {
 		refuseWrite("nothing set", plan.refused);
 		return plan.exitCode;
@@ -599,15 +602,15 @@ function start(parsed) {
 			.buildScopeLines(control, {
 				served,
 				running: action !== "stopped",
-				now,
+				now: at,
 				seatsLine: commands.buildSeatsLine(
 					readSeatsView(control.seats, {
 						root: sizingRoot(served),
 						budgetOf: buildShownBudgets(sizingRoot(served)),
-						now,
+						at,
 						callerSeat: seatDir(configDir(), homeDir()),
 					}),
-					now,
+					at,
 				),
 			})
 			.map((l) => `  ${l}`),
@@ -663,7 +666,6 @@ function startProcess(control, scopeText) {
 }
 
 function stop() {
-	const now = readClock();
 	const written = withControlLock(() => {
 		const control = readControlFile(log);
 		/* A repeat stop keeps the time of the first. */
@@ -671,7 +673,7 @@ function stop() {
 			writeControlFile({
 				...control,
 				stopRequested: true,
-				stopRequestedAt: now,
+				stopRequestedAt: now(),
 			});
 	});
 	if ("busy" in written)
@@ -693,7 +695,6 @@ function stop() {
  */
 function set(parsed) {
 	const json = parsed.flags["--json"] === true;
-	const now = readClock();
 	const ask = checkAsk(parseSetAsk(parsed), null);
 	if (isNotice(ask)) {
 		if (json) say(JSON.stringify(commands.buildSetJson({ refused: ask })));
@@ -706,7 +707,7 @@ function set(parsed) {
 			ask,
 			{
 				running: lock.holder() !== null,
-				now,
+				now: now(),
 				readExclusionWhy,
 				isOptedOut,
 			},
@@ -816,7 +817,7 @@ function status({ flags }) {
 	const note = flags["--json"]
 		? (/** @type {string} */ line) => writeFd(2, `${line}\n`)
 		: log;
-	const now = readClock();
+	const at = now();
 	const control = readControlFile(note);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
@@ -826,7 +827,7 @@ function status({ flags }) {
 	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), {
 		root,
 		budgetOf,
-		now,
+		at,
 	});
 	const codeSha =
 		pid === null ? null : refillCode.readRunningCode(pid, files.code);
@@ -842,8 +843,8 @@ function status({ flags }) {
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
 					overflow: readOverflowStatus(budgetOf),
-					concurrency: readConcurrencyStatus(now),
-					now,
+					concurrency: readConcurrencyStatus(at),
+					now: at,
 				}),
 			),
 		);
@@ -856,17 +857,17 @@ function status({ flags }) {
 		codeSha,
 		served,
 		seats,
-		now,
+		now: at,
 	}))
 		say(line);
 	for (const line of buildHoldLines(
 		served.length > 0
 			? loop.landingRoots(served, state.launches)
 			: [readCheckout(root)],
-		now,
+		at,
 	))
 		say(line);
-	sayOverflowLines(control, state, budgetOf, now);
+	sayOverflowLines(control, state, budgetOf, at);
 	return 0;
 }
 
@@ -874,9 +875,9 @@ function status({ flags }) {
  * @param {import("./lib/refill-loop.js").Control|null} control
  * @param {import("./lib/refill-state.js").LoopState} state
  * @param {BudgetOf} budgetOf
- * @param {number} now  `status`'s one clock read
+ * @param {number} at  `status`'s one clock read
  */
-function sayOverflowLines(control, state, budgetOf, now) {
+function sayOverflowLines(control, state, budgetOf, at) {
 	const declared = readDeclaredSeats();
 	for (const error of declared.errors) say(`seat file refuses: ${error}`);
 	const overflow = overflowSeatsOf(declared.seats);
@@ -884,12 +885,12 @@ function sayOverflowLines(control, state, budgetOf, now) {
 	if (overflow.length > 0 && declared.errors.length === 0) {
 		const lines = commands.buildOverflowBasisLines({
 			planSeats: (control?.seats ?? readConfiguredSeats()).map((seat) =>
-				planSeatBasisOf(seatReading.readSeat(seat, now).reading),
+				planSeatBasisOf(seatReading.readSeat(seat, at).reading),
 			),
 			filePlanSeats: planSeatsOf(declared.seats).map((s) => s.dir),
 			omitted: readOmittedDirs(declared),
 			start: state.overflowStart,
-			now,
+			now: at,
 		});
 		for (const line of lines) say(line);
 	}
@@ -953,6 +954,8 @@ async function run() {
 		acquire: lock.acquire,
 		pidFile: files.pid,
 		log,
+		/* The long-lived loop keeps the wall clock, as its tick core does
+		 * throughout, so WFC_NOW pins no time it writes (#4710). */
 		now: Date.now,
 		bootId: readCurrentBootId,
 		updateState: (t) => updateState(t, log),

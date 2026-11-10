@@ -60,6 +60,7 @@ const run = (...argv: string[]) => runEnv({}, ...argv);
 /* The commands' one clock read, pinned so a written time asserts exactly. */
 const AT = "2026-11-10T09:00:00.000Z";
 const AT_MS = Date.parse(AT);
+const LATER = new Date(AT_MS + 60 * 60_000).toISOString();
 const runAt = (at: string, ...argv: string[]) =>
 	runEnv({ WFC_NOW: at }, ...argv);
 
@@ -1247,7 +1248,7 @@ describe("a stop told from a crash (#3861)", () => {
 		writeControl();
 		expect((await runAt(AT, "stop")).status).toBe(0);
 		expect(readControl().stopRequestedAt).toBe(AT_MS);
-		expect((await runAt("2026-11-10T10:00:00.000Z", "stop")).status).toBe(0);
+		expect((await runAt(LATER, "stop")).status).toBe(0);
 		expect(readControl().stopRequestedAt).toBe(AT_MS);
 	});
 
@@ -1577,7 +1578,9 @@ describe("the goal (#3864)", () => {
 			"issue view 500 *": printed(JSON.stringify({ state: "CLOSED" })),
 			"issue view *": printed(JSON.stringify({ state: "OPEN" })),
 		}).env;
-	const setGoal = (...argv: string[]) => runEnv(fakeGh(), "set", ...argv);
+	const setGoalEnv = (extra: Record<string, string>, ...argv: string[]) =>
+		runEnv({ ...fakeGh(), ...extra }, "set", ...argv);
+	const setGoal = (...argv: string[]) => setGoalEnv({}, ...argv);
 	const ref = (repo: string, number: number) => ({ repo, number });
 
 	let core: string;
@@ -1589,12 +1592,7 @@ describe("the goal (#3864)", () => {
 	});
 
 	it("stores bare numbers against the one ticked repo, with the text as typed", async () => {
-		const r = await runEnv(
-			{ ...fakeGh(), WFC_NOW: AT },
-			"set",
-			"--goal",
-			"2518,#2520",
-		);
+		const r = await setGoalEnv({ WFC_NOW: AT }, "--goal", "2518,#2520");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
 			'goal:      issues "2518,#2520": core#2518, core#2520',
