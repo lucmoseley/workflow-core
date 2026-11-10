@@ -22,6 +22,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -112,7 +113,7 @@ async function recordResult(keyVar) {
 	}
 }
 
-const USAGE = "usage: node scripts/record-headless-run.js [--key <key var>]\n";
+const USAGE = `usage: node ${scriptPath("record-headless-run.js")} [--key <key var>]\n`;
 
 async function main() {
 	let key;

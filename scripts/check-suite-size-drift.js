@@ -38,6 +38,7 @@
  */
 
 const { runCheck, errMessage } = require("./lib/check.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { SUITE_LADDER_MEASURED_AT } = require("./lib/admission.js");
 const { execFileSync } = require("node:child_process");
 const { readVitestCollected } = require("./lib/vitest-collected.js");
@@ -168,7 +169,7 @@ runCheck({
 			ctx.say(`The suite is now ${files} test files, ${signed}.`);
 		}
 		ctx.say(
-			"  Re-measure:  OUTDIR=<dir> python3 scripts/bench_suite_concurrency.py 1 2 3 1 2 3 --require-quiet=3",
+			`  Re-measure:  OUTDIR=<dir> python3 ${scriptPath("bench_suite_concurrency.py")} 1 2 3 1 2 3 --require-quiet=3`,
 		);
 		ctx.say(
 			"  Two rows per count, and --require-quiet is what makes a row trustworthy: mantahostels#954's ladder was set from rows a neighbouring session moved memory under (mantahostels#1841).",

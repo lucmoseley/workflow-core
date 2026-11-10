@@ -20,6 +20,7 @@
  */
 
 const { caught } = require("./lib/caught.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { buildReport, level } = require("./lib/level-main.js");
@@ -29,7 +30,7 @@ const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
-	usage: "usage: node scripts/level-main.js [--quiet]",
+	usage: `usage: node ${scriptPath("level-main.js")} [--quiet]`,
 	flags: { "--quiet": "boolean" },
 };
 

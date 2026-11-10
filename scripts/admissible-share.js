@@ -131,6 +131,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	repoRoot,
@@ -359,8 +360,7 @@ const writeOut = (s) => writeFd(1, `${s}\n`);
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
-	usage:
-		"usage: node scripts/admissible-share.js [--since <ISO>] [--until <ISO>] [--json]",
+	usage: `usage: node ${scriptPath("admissible-share.js")} [--since <ISO>] [--until <ISO>] [--json]`,
 	flags: { "--since": "value", "--until": "value", "--json": "boolean" },
 };
 const VALUE_FLAGS = new Set(["--since", "--until"]);

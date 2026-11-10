@@ -18,6 +18,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { failureReason, now } = require("./lib/check");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
@@ -28,7 +29,7 @@ const { buildStandaloneLine } = require("./lib/standalone-line.js");
 const { runDailyReading } = require("./lib/daily-reading.js");
 
 const LABEL = takesLabel("implement");
-const USAGE = "usage: node scripts/report-heresy-sweep-due.js [--dry-run]";
+const USAGE = `usage: node ${scriptPath("report-heresy-sweep-due.js")} [--dry-run]`;
 
 /** @typedef {import("./lib/heresy-sweep").Verdict} Verdict */
 

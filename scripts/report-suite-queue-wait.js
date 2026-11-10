@@ -45,6 +45,7 @@
  */
 
 const path = require("node:path");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
@@ -60,8 +61,7 @@ const { caught } = require("./lib/caught.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { takesLabel } = require("./lib/takes-label");
 
-const USAGE =
-	"usage: node scripts/report-suite-queue-wait.js [--dry-run]\n  --dry-run  read now, whatever the stamp says; print the reading and file nothing";
+const USAGE = `usage: node ${scriptPath("report-suite-queue-wait.js")} [--dry-run]\n  --dry-run  read now, whatever the stamp says; print the reading and file nothing`;
 
 const TITLE = "Suite queue wait is over its daily limit";
 const LABEL = takesLabel("wayfinder");
@@ -251,7 +251,7 @@ function reading(logged, nowMs, unparsed, core) {
 		"",
 		...(core
 			? [
-					`What held each wait — the count cap, the memory rung, the FIFO turn, the load hold — and who held the whole-suite slot: \`node scripts/replay-suite-queue-wait.js --since ${new Date(from).toISOString()} --until ${new Date(nowMs).toISOString()}\`, adding \`--era <label>=<utc>\` at each change to the gate that landed in the window (#3060).`,
+					`What held each wait — the count cap, the memory rung, the FIFO turn, the load hold — and who held the whole-suite slot: \`node ${scriptPath("replay-suite-queue-wait.js")} --since ${new Date(from).toISOString()} --until ${new Date(nowMs).toISOString()}\`, adding \`--era <label>=<utc>\` at each change to the gate that landed in the window (#3060).`,
 					"",
 				]
 			: []),

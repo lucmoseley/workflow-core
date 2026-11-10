@@ -61,6 +61,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
@@ -101,8 +102,7 @@ const LABEL = takesLabel("implement");
 const CODE_EXT = /\.(?:js|mjs|cjs|ts|tsx|sh|py)$/;
 const GENERATED = /\.(?:d\.ts|min\.js)$/;
 
-const USAGE =
-	"usage: node scripts/report-arch-scan-due.js [--dry-run | --next-threshold <yield> | --hot-files <file> | --partners <file>]";
+const USAGE = `usage: node ${scriptPath("report-arch-scan-due.js")} [--dry-run | --next-threshold <yield> | --hot-files <file> | --partners <file>]`;
 /** A dry run's hot-file row, as hotRow() writes it: commits, signed net, path. */
 const HOT_ROW_RE = /^ +(\d+) commits +([+-]\d+) {2}(.+)$/gm;
 /** A dry run's window line, as dryRun() writes it: its since, where that came from, then its end sha. */
@@ -643,7 +643,7 @@ function readSavedRun(file) {
 
 /** @param {string} file */
 const buildSaveHint = (file) =>
-	`save one with: node scripts/report-arch-scan-due.js --dry-run > ${file}`;
+	`save one with: node ${scriptPath("report-arch-scan-due.js")} --dry-run > ${file}`;
 
 /** @param {string} file a saved `--dry-run` output */
 function hotFiles(file) {
