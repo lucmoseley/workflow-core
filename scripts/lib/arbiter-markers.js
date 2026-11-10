@@ -29,6 +29,7 @@ const {
 	MARKERS_REL,
 	markersDir,
 	PASS_MARKER_PREFIXES,
+	SELF_PLUGIN_PREFIX,
 } = require("./marker-root.js");
 /* guard-priced-options.js's markers, read off its limb table rather than
  * copied: a limb added there is swept here with no second edit (#1474). A
@@ -46,14 +47,12 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
 // Not the `.said-` markers: those live in locks/ and are sweepDebris's.
 // ---------------------------------------------------------------------------
 
-/**
- * Keyed on `CLAUDE_PROJECT_DIR` as handed, a worktree session's own worktree,
- * and never re-keyed: a session that merged a re-keying mid-run would be
- * refused every tool call (#4487). So the sweep visits each registered
- * worktree for it (#4531), and for it alone: #4487 keys the other families on
- * the main checkout, so a worktree's other files are not this sweep's.
- */
-const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
+/* The self-plugin markers are keyed on `CLAUDE_PROJECT_DIR` as handed, a
+ * worktree session's own worktree, and never re-keyed: a session that merged
+ * a re-keying mid-run would be refused every tool call (#4487). So the sweep
+ * visits each registered worktree for them (#4531), and for them alone: #4487
+ * keys the other families on the main checkout, so a worktree's other files
+ * are not this sweep's. */
 
 /**
  * Session-suffixed marker files whose whole suffix is the raw session id, kept

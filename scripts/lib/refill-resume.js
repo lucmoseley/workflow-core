@@ -52,6 +52,7 @@ const { buildCarriedNote } = require("./carry-job-files.js");
  *   env: () => NodeJS.ProcessEnv,
  *   authRefusal: (launch: {env: NodeJS.ProcessEnv, cwd: string}) =>
  *     string|null,
+ *   settingsLockout: (cwd: string) => string|null,
  *   launchHeadless: typeof import("./headless-sessions.js").launch,
  *   findHeadlessRun: typeof import("./headless-runs.js").findRunSince,
  *   readRunAsJob: typeof import("./headless-runs.js").readRunAsJob,
@@ -443,7 +444,9 @@ function resumeSteps(io) {
 	 * claims (#2963, #2968). The resume counts where the launcher named the
 	 * job it started (lib/bg-resume.js) and that job's state.json does not
 	 * read failed; a later tick judges the resumed turn. A session on an
-	 * overflow key resumes headless instead (resumeHeadless).
+	 * overflow key resumes headless instead (resumeHeadless), which refuses a
+	 * cwd whose own settings would lock the resumed session out
+	 * (lib/settings-lockout.js, #4752); a `--bg` one is refused here.
 	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
@@ -455,7 +458,24 @@ function resumeSteps(io) {
 	 *   files carried already, from a record since removed or on another seat
 	 * @returns {Resumed}
 	 */
-	function resumeStopped(
+	function resumeStopped(session, prompt, target, moved = {}) {
+		if (!session.keyVar) {
+			const lockout = io.settingsLockout(target.cwd);
+			if (lockout) return { failed: lockout };
+		}
+		return startResume(session, prompt, target, moved);
+	}
+
+	/**
+	 * resumeStopped's launch, once its worktree's settings are cleared.
+	 * @param {StoppedResumable} session
+	 * @param {string} prompt
+	 * @param {{sessionId: string, cwd: string}} target
+	 * @param {{move?: MoveTarget, name?: string, flags?: string[],
+	 *   carried?: Carry}} [moved] as resumeStopped's
+	 * @returns {Resumed}
+	 */
+	function startResume(
 		session,
 		prompt,
 		{ sessionId, cwd },
@@ -499,8 +519,9 @@ function resumeSteps(io) {
 	 * Resume `l`'s session, which a restart killed, under its own id (#4098):
 	 * its job's saved launch flags taken from `ids`, as read before any try
 	 * removed its record, else read now, the job stopped and its record
-	 * removed, then resumeStopped with those flags, stopped again where it
-	 * failed. The 2.1.319 harness starts a copy of a resume carrying flags only while a job record exists, so one
+	 * removed, then started as resumeStopped starts one, with those flags,
+	 * stopped again where it failed. Nothing is stopped where its cwd's own
+	 * settings would lock it out (#4752). The 2.1.319 harness starts a copy of a resume carrying flags only while a job record exists, so one
 	 * removed continues under the session's id with its name and model. A
 	 * record naming another session is left, and the harness copies; a session
 	 * on an overflow key resumes headless, under its id already.
@@ -510,7 +531,9 @@ function resumeSteps(io) {
 	 * @returns {Resumed}
 	 */
 	function resumeOwnId(l, prompt, ids) {
-		if (l.keyVar) return resumeStopped(l, prompt, ids);
+		if (l.keyVar) return startResume(l, prompt, ids);
+		const lockout = io.settingsLockout(ids.cwd);
+		if (lockout) return { failed: lockout };
 		const refusal = io.authRefusal({
 			env: buildSeatEnv(io.env(), l.seat),
 			cwd: ids.cwd,
@@ -525,7 +548,7 @@ function resumeSteps(io) {
 		if ("why" in carried) return { failed: carried.why };
 		const retired = retireJob(l.seat, ids.sessionId, ids.cwd);
 		if (retired) return { failed: retired };
-		const r = resumeStopped(l, prompt, ids, { flags, carried });
+		const r = startResume(l, prompt, ids, { flags, carried });
 		if (r.failed !== null) stopFailed(l.seat, ids.sessionId);
 		return r;
 	}
