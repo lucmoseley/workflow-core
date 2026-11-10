@@ -3,6 +3,11 @@
  * A session started in an existing worktree is refused, naming the line and
  * its fix, where that worktree's own `.claude/settings.json` would lock out
  * its every tool call, and admitted otherwise (#4752).
+ *
+ * Each case runs the real canary line in a throwaway repository holding the
+ * real scripts, since the check's verdict is that line's exit. Loosen it and
+ * a resumed session meets the harness's bare refusal on every call, with no
+ * fix named and no tool left to apply one.
  */
 
 import fs from "node:fs";
@@ -52,7 +57,30 @@ describe("settingsLockout", () => {
 				.replace(/"command": "(.*?)",/, '"command": "sleep 3; $1",')
 				.replace(/"timeout": \d+/, '"timeout": 1'),
 		);
-		expect(settingsLockout(at)).toContain("ran past its 1s timeout");
+		expect(settingsLockout(at)).toContain("ran past 1s");
+	});
+
+	it("admits a worktree whose broken line has no onFailure block, which the harness runs past", () => {
+		const at = repo.cutWorktree("unblocked", (text) =>
+			breakCanaryPath(text).replace(/,\s*"onFailure": "block"/, ""),
+		);
+		expect(settingsLockout(at)).toBeNull();
+	});
+
+	it("refuses a worktree whose line exits 0 with a deny on stdout", () => {
+		const deny = JSON.stringify({
+			hookSpecificOutput: {
+				hookEventName: "PreToolUse",
+				permissionDecision: "deny",
+			},
+		});
+		const at = repo.cutWorktree("denies", (text) =>
+			text.replace(
+				/"command": "(.*?)",/,
+				`"command": ${JSON.stringify(`echo '${deny}'`)},`,
+			),
+		);
+		expect(settingsLockout(at)).toContain("it denied the call on stdout");
 	});
 
 	it("refuses a worktree whose settings will not parse", () => {
@@ -68,30 +96,42 @@ describe("settingsLockout", () => {
 		expect(markersLeft(at)).toEqual([]);
 	});
 
+	/* The cases below each remove one of the main checkout's scripts, so each
+	 * builds a repo of its own rather than break the one the others share. */
+	const without = (name: string, script: string) => {
+		const own = path.join(dir, name);
+		fs.mkdirSync(own);
+		const built = buildLockoutRepo(own);
+		fs.rmSync(path.join(built.main, "scripts", script));
+		return built;
+	};
+	const withoutCanary = (name: string) =>
+		without(name, "self-plugin-canary.sh");
+
 	it("admits a worktree whose lines are origin/main's without running them", () => {
-		const at = repo.cutWorktree("landed");
-		const canary = path.join(repo.main, "scripts", "self-plugin-canary.sh");
-		const kept = fs.readFileSync(canary);
-		fs.rmSync(canary);
-		try {
-			expect(settingsLockout(at)).toBeNull();
-			expect(markersLeft(at)).toEqual([]);
-		} finally {
-			fs.writeFileSync(canary, kept, { mode: 0o755 });
-		}
+		const at = withoutCanary("landed").cutWorktree("landed");
+		expect(settingsLockout(at)).toBeNull();
+		expect(markersLeft(at)).toEqual([]);
 	});
 
 	it("admits a worktree whose edited line fails where origin/main's fails too, the fault not its edit's", () => {
-		const at = repo.cutWorktree("both", (text) =>
+		const at = withoutCanary("both").cutWorktree("both", (text) =>
 			text.replace(/"timeout": \d+/, '"timeout": 20'),
 		);
-		const canary = path.join(repo.main, "scripts", "self-plugin-canary.sh");
-		const kept = fs.readFileSync(canary);
-		fs.rmSync(canary);
-		try {
-			expect(settingsLockout(at)).toBeNull();
-		} finally {
-			fs.writeFileSync(canary, kept, { mode: 0o755 });
-		}
+		expect(settingsLockout(at)).toBeNull();
+	});
+
+	it("admits a worktree whose probe marker cannot be written, saying the start goes unchecked", () => {
+		const at = without("unmarked", "write-self-plugin-marker.sh").cutWorktree(
+			"unmarked",
+			breakCanaryPath,
+		);
+		const said: string[] = [];
+		expect(settingsLockout(at, (line) => said.push(line))).toBeNull();
+		expect(said).toEqual([
+			expect.stringContaining(
+				"was not checked, so the start goes ahead unchecked",
+			),
+		]);
 	});
 });

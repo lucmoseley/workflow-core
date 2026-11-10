@@ -53,6 +53,7 @@ const { launchAuthRefusal } = require("./launch-auth.js");
 const { buildOverflowLaunch } = require("./overflow-key.js");
 const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
+const { settingsLockout } = require("./settings-lockout.js");
 const { writeFd } = require("./write-fd.js");
 
 const CONTRACT = path.join(__dirname, "headless-contract.md");
@@ -69,6 +70,8 @@ const buildOverflowName = (name) =>
  * Launch a headless run on an overflow seat. `resume`, a session id, continues
  * that session with `prompt` as its next turn: a parked run the refill loop
  * resumes, or the founder answering one that ended on a question (#3685).
+ * A resume is refused where its cwd's own settings would lock the session
+ * out (lib/settings-lockout.js, #4752).
  * @param {{keyVar: string, cwd: string, budgetUsd?: number, prompt: string,
  *   resume?: string, name?: string, founderReply?: boolean}} opts
  * @returns {{record: RunRecord}|{why: string}}
@@ -82,6 +85,10 @@ function launch({
 	name,
 	founderReply,
 }) {
+	if (resume !== undefined) {
+		const lockout = settingsLockout(cwd);
+		if (lockout) return { why: lockout };
+	}
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) return { why: list.errors.join("\n") };
 	const seat = findOverflowSeat(list, keyVar);

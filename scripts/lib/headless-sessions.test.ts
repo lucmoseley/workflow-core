@@ -33,6 +33,7 @@ import { readEndResult, stop } from "./headless-runs.js";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { launch as launchRun } from "./headless-sessions.js";
 import { runInProcessAsync } from "./run-in-process.js";
+import { breakCanaryPath, buildLockoutRepo } from "./settings-lockout-testkit";
 
 const SCRIPT = path.join(__dirname, "headless-sessions.js");
 const KEY = "sk-fake-overflow-0123456789";
@@ -227,6 +228,28 @@ describe("launch", () => {
 		expect(seen.helped).toBe(KEY);
 		expect(seen.env.CLAUDE_CONFIG_DIR).toBe(seat);
 		expect(seen.argv.slice(-2)).toEqual(["--", "the answer"]);
+	});
+
+	it("refuses a resume in a worktree whose own canary line cannot start, naming the restore and running nothing (#4752)", async () => {
+		const at = buildLockoutRepo(tmp).cutWorktree("broken", breakCanaryPath);
+		const r = await cli([
+			"launch",
+			"--key",
+			KEY_VAR,
+			"--cwd",
+			at,
+			"--budget",
+			"3",
+			"--resume",
+			"0f0e0d0c-0000-4000-8000-000000000000",
+			"the answer",
+		]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("self-plugin-canray.sh");
+		expect(r.stderr).toContain(
+			`\`git -C ${at} checkout origin/main -- .claude/settings.json\``,
+		);
+		expect(readSeenOrNull()).toBeNull();
 	});
 
 	it("passes a dash-led prompt to claude after `--`, never as an option (#4671)", async () => {

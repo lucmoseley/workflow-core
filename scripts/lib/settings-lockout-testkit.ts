@@ -1,20 +1,25 @@
 /*
- * A main checkout holding the canary, its marker writer and their shell
- * libraries, with this repo's own `.claude/settings.json` hooks committed and
- * `origin/main` at that commit, for lib/settings-lockout.js's cases and its
- * port's contract (#4752).
+ * settings-lockout-testkit.ts — a main checkout holding the canary, its
+ * marker writer and their shell libraries, with this repo's own
+ * `.claude/settings.json` hooks committed and `origin/main` at that commit,
+ * for lib/settings-lockout.js's cases, its port's contract and the start
+ * routes' own cases (#4752).
+ *
+ * The real scripts and the real hook lines, never stand-ins: the check runs
+ * the line as the harness does, so a fixture of its own would test nothing
+ * a broken canary line could break.
  */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { SELF_PLUGIN_DIR } from "./core-hooks.js";
-import { initGitRepo } from "./git-fixture";
+import { cutWorktree, initGitRepo } from "./git-fixture";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 export const SETTINGS = ".claude/settings.json";
 /* This repo's own hook lines, as a session cut from origin/main has them. */
-export const LANDED_HOOKS = JSON.parse(
+const LANDED_HOOKS = JSON.parse(
 	fs.readFileSync(path.join(ROOT, SETTINGS), "utf8"),
 ).hooks;
 
@@ -69,13 +74,12 @@ export function buildLockoutRepo(dir: string) {
 	 * A worktree of `main` under its worktrees folder, its settings text
 	 * replaced by `edit`'s answer where one is given.
 	 */
-	const cutWorktree = (name: string, edit?: (text: string) => string) => {
-		const at = path.join(main, ".claude", "worktrees", name);
-		git(main, "worktree", "add", "-q", "--detach", at);
+	const cut = (name: string, edit?: (text: string) => string) => {
+		const at = cutWorktree(main, name);
 		if (edit) editSettings(at, edit);
 		return at;
 	};
-	return { main, cutWorktree };
+	return { main, cutWorktree: cut };
 }
 
 /** `at`'s settings text replaced by `edit`'s answer. */

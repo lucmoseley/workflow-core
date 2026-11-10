@@ -38,7 +38,7 @@ const buildResumeIo = (log) => ({
 	env: () => process.env,
 	authRefusal: (launch) =>
 		launchAuthRefusal({ bin: claudeBin(launch.env), ...launch }),
-	settingsLockout,
+	settingsLockout: (cwd) => settingsLockout(cwd, log),
 	launchHeadless,
 	findHeadlessRun: findRunSince,
 	readRunAsJob,
