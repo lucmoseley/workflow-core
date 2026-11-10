@@ -861,7 +861,7 @@ describe("decideTick seats", () => {
 		expect(d.launches.map((l: { seat: string }) => l.seat)).toEqual(["c", "c"]);
 	});
 
-	it("holds a seat at 98% of the week pickable, past the cap's threshold (#2278)", () => {
+	it("holds a seat at 98% of the week pickable (#2278)", () => {
 		const d = tick({ seats: [seat("a", 98, 10)] });
 		expect(d).not.toHaveProperty("stop");
 		expect(d.launches.map((l: { seat: string }) => l.seat)).toEqual(["a", "a"]);

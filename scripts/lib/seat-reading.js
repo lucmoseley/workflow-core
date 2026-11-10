@@ -40,7 +40,7 @@ const { hasResetPassed } = require("./usage-cache.js");
 /* dispatch-sessions.sh's WEEK_CEILING and SESSION_CEILING defaults, the
  * thresholds its cap sizes a launch past; its test pins the two copies
  * together. */
-const DEFAULT_CEILINGS = { week: 97, session: 90 };
+const DEFAULT_CEILINGS = { week: 99, session: 90 };
 
 /**
  * dispatch-sessions.sh's cap thresholds, from the variables it reads.

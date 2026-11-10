@@ -896,8 +896,8 @@ still launches one while the bar reads under 100%, the floor applying per call.
 **Why a script and not `claude --bg` directly.** Three things it does that a
 hand-typed launch does not:
 
-- **Caps the set once a rate-limit bar is past its threshold** — 90% of the
-  5-hour bar, 97% of the week (#369, #371). It launches only the prefix of the
+- **Caps the set once a rate-limit bar reaches its threshold** — 90% of the
+  5-hour bar, 99% of the week (#369, #371). It launches only the prefix of the
   set, in §6's order, projected to just reach 100% of that bar, counting what the
   sessions already running are expected to spend yet, and at least one while
   the bar reads under 100%. It prints

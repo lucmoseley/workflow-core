@@ -82,7 +82,7 @@ const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--launch] [--
        node ${scriptPath("admission.js")} --load-only`;
 
 /*
- * A backstop at 100% on both bars, never the launcher's 90/97 thresholds:
+ * A backstop at 100% on both bars, never the launcher's 90/99 thresholds:
  * those size the set once, in `dispatch-sessions.sh`'s cap, and a set the cap
  * admitted must not be refused member by member on the same reading (#371
  * item 5).

@@ -58,8 +58,8 @@
 # whose issues are already running, or were launched moments ago, is dropped
 # and named; the rest still launch (mantahostels#1337).
 #
-# The allowance CAP (#371) drops the set's tail, once, before any spawn: past
-# 90% of the 5-hour bar or 97% of the week, only the prefix projected to just
+# The allowance CAP (#371) drops the set's tail, once, before any spawn: at or past
+# 90% of the 5-hour bar or 99% of the week, only the prefix projected to just
 # reach 100% of that bar launches — at least one while the bar reads under
 # 100% — and each cut member is named.
 #
@@ -171,7 +171,8 @@ refuse_if_kernel_unhealthy() {
 # 100% of the warned bar, counting what the sessions already running are
 # expected to spend yet. Override per-run with the env vars; the per-session
 # figures live in `scripts/lib/allowance.js`.
-WEEK_CEILING="${WFC_DISPATCH_WEEK_CEILING:-97}"
+# The week holds nothing back below 99%: the founder's ruling (#4941).
+WEEK_CEILING="${WFC_DISPATCH_WEEK_CEILING:-99}"
 SESSION_CEILING="${WFC_DISPATCH_SESSION_CEILING:-90}"
 
 # Seconds between one launch and the next in the loop below (mantahostels#2553). The
