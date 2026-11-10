@@ -131,7 +131,7 @@
  *
  * RESIDUAL: `vendoredAt` is single-provenance and the manifest is not.
  * It names one mattpocock/skills commit for every file, but `animate`'s two
- * arrived at f13eec839, so every verdict line quoting the field misdescribes
+ * are emilkowalski/skills', so every verdict line quoting the field misdescribes
  * those two. Nothing compares against it, so no gate is wrong, and every file
  * of every skill vendored outside a --revendor joins it. #906 and #4633 set it by hand;
  * the next --revendor writes a revision of this repo instead. Per-path

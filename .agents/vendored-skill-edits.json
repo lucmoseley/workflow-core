@@ -2,7 +2,7 @@
 	"vendoredAt": "mattpocock/skills@d1478fcb (v1.3.2)",
 	"vendored": {
 		".agents/skills/animate/RECIPES.md": "21ff63d84391db8d96ecdf9170095f55a42c836ccc36fd3269c4772bab031ba2",
-		".agents/skills/animate/SKILL.md": "f6317335da2662e92270dc0a6128bea95d7216cd751f86628e3ac6b72804e805",
+		".agents/skills/animate/SKILL.md": "39138996033e0dbe53e73217514116eaeca774bae84a0687c80d445a4e0cc3a6",
 		".agents/skills/ask-matt/PHASE-BOUNDARIES.md": "a8aa20158609ef39e2b308b6ba0660c91066838d07a867202e63a7744a88a3ed",
 		".agents/skills/ask-matt/SKILL.md": "1371f5ce005de0992a44b137748bfb960a56948aa9871b405fe9d90b24332e3c",
 		".agents/skills/ask-matt/agents/openai.yaml": "bdffbc5a0a99ed1b6ef3253d251d755fd18162b9845972e380007f844b09b05c",
@@ -75,9 +75,9 @@
 	},
 	"edits": {
 		".agents/skills/animate/SKILL.md": {
-			"editedHash": "9d2714115b0c1bc3c13c06d275bef0a66d0d9e9c47c44976970ccdbee7b28198",
-			"issue": 1455,
-			"why": "hard rule 6 reads the motion precedent after step 2 — the repo's inspiration catalogue, else the design vault's library citing only entries with no project or this repo's own — narrowed by motion.kinds where the trigger is known, taking only fit.<project>.take, <project> being the repo's design-vault key (manta in Manta's catalogue), and judging an unjudged entry through design-round §1a, with the brand sheet (brandSheetPath config key, default docs/brand-sheet.md) winning over any entry and the sole fallback where neither catalogue nor vault exists or nothing covers the need (mantahostels#3276, mantahostels#3336, #452, #678, #781 per design-vault#30 Q4, #987 per mmm-infra#28 Q3, #1455 per #1408 Q5); the description and scope line route brand and illustrative motion to the design vault's design-round (#987)"
+			"editedHash": "6fe0094a4d96d4dc0715cae5dd7a1efdd3c89ee3fde45209456390a47e8baf42",
+			"issue": 4803,
+			"why": "hard rule 6 reads the motion precedent after step 2 — the repo's inspiration catalogue, else the design vault's library citing only entries with no project or this repo's own — narrowed by motion.kinds where the trigger is known, taking only fit.<project>.take, <project> being the repo's design-vault key (manta in Manta's catalogue), and judging an unjudged entry through design-round §1a, with the brand sheet (brandSheetPath config key, default docs/brand-sheet.md) winning over any entry and the sole fallback where neither catalogue nor vault exists or nothing covers the need (mantahostels#3276, mantahostels#3336, #452, #678, #781 per design-vault#30 Q4, #987 per mmm-infra#28 Q3, #1455 per #1408 Q5); the description and scope line route brand and illustrative motion to the design vault's design-round (#987); upstream 715c1807's \"Initial Response\" section declined, which answers a bare invocation with a one-line greeting crediting the author and withholds everything else until asked, where a turn here ends only on a real question or a wait (#4803)"
 		},
 		".agents/skills/ask-matt/SKILL.md": {
 			"editedHash": "a40bc84966e4536bb7e91442f8a33b523d0313d2c69d4711bb06554ddb9a93e4",
