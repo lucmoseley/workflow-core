@@ -75,6 +75,21 @@ function loop(over: Partial<BlockIo> = {}) {
 
 const typed = (calls: string[]) => calls.filter((c) => c === "type f1").length;
 
+it("reads the cause of a session it did not launch under that session's own name (#4825)", () => {
+	const { io } = fakeIo();
+	const names: string[] = [];
+	actOnOutside(
+		[],
+		[row()],
+		(_l, _row, name) => {
+			names.push(name);
+			return { cause: "QUESTION" };
+		},
+		{ agents: [row()], now: NOW, io, swapHold: NO_HOLD },
+	);
+	expect(names).toEqual([NAME]);
+});
+
 it("types a resume into a founder-started session blocked on a transient API error, on the schedule", () => {
 	const l = loop();
 	l.tick(NOW);
