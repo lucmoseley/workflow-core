@@ -568,8 +568,8 @@ function recordMatches(record, pattern, spec = {}) {
  * for a fault no guard prints (#4796). Same parsing and the same `tier` as
  * `transcriptFires`, so a main-tier read never counts a subagent's inline
  * turn. A hook's block reaches the transcript twice, as the Stop hook feedback
- * `user` record the harness writes and then the hook attachment it wrote it
- * from, so an attachment straight after a matching feedback record is the
+ * `user` record the harness writes and then the `hook_blocking_error`
+ * attachment it wrote it from, so that attachment straight after a matching feedback record is the
  * same firing and is not counted again.
  * @param {string} text
  * @param {RegExp} pattern
@@ -583,7 +583,8 @@ function transcriptMatches(text, pattern, tier, spec = {}) {
 	let feedbackHit = false;
 	for (const record of mainChainRecords(text, tier)) {
 		const hit = stringsMatch(record, re, spec);
-		const echo = feedbackHit && hookSpans(record).length > 0;
+		const echo =
+			feedbackHit && record?.attachment?.type === "hook_blocking_error";
 		feedbackHit = hit && record?.type === "user" && record.isMeta === true;
 		if (hit && !echo)
 			out.push({

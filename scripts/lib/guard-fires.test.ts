@@ -736,7 +736,7 @@ describe("transcriptMatches — the regex route", () => {
 		).toHaveLength(1);
 	});
 
-	it("counts a hook's block once, not again as the attachment its Stop hook feedback was written from", () => {
+	it("counts a hook's block once, not again as the attachment its Stop hook feedback was written from (#4796)", () => {
 		const block = (uuid: string) =>
 			line({
 				type: "attachment",
@@ -757,10 +757,18 @@ describe("transcriptMatches — the regex route", () => {
 			typed("u3", "Stop hook feedback:\nBOOM refused", { isMeta: true }),
 			block("h3"),
 			block("h4"),
+			typed("u5", "Stop hook feedback:\nBOOM refused", { isMeta: true }),
+			line({
+				type: "attachment",
+				uuid: "h5",
+				timestamp: At,
+				attachment: { type: "hook_additional_context", content: ["BOOM"] },
+			}),
 		].join("\n");
+		// u5 and the context attachment after it are two firings, not an echo.
 		expect(
 			transcriptMatches(text, /BOOM/, "main", { reads: "output" }),
-		).toHaveLength(4);
+		).toHaveLength(6);
 	});
 
 	it("reads a global pattern from the start of every string, leaving the caller's lastIndex alone", () => {

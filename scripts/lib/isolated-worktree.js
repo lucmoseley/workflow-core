@@ -48,22 +48,18 @@ const ISOLATED_PREFIX = "isolated-";
 /*
  * Gitignored, generated artefacts the suite reads that `git worktree add`
  * therefore does not reproduce. `createIsolated` symlinks each one the
- * canonical checkout has into the frozen worktree, exactly as it does
- * `node_modules`; `removeIsolated` unlinks each before tearing the worktree
- * down, so the canonical original is never walked. A third member costs one
- * line here (mantahostels#2213), or, for one a host's suite alone reads, one entry
- * in its `worktreeLinks` (#1767) — `linkArtefacts` makes its parent directory
- * first, so an entry needs no tracked sibling of its own to land.
+ * canonical checkout has into the frozen worktree; `removeIsolated` unlinks
+ * each before tearing the worktree down, so the canonical original is never
+ * walked. A member belongs here only where every host's suite needs it and
+ * the worktree must never hold its own copy: one HEAD tracks is refused as a
+ * setup fault, where a host's `worktreeLinks` entry (#1767) keeps the
+ * commit's copy instead. `linkArtefacts` makes a member's parent directory
+ * first, so it needs no tracked sibling of its own to land.
  */
 const SHARED_ARTEFACTS = [
 	/* The bulk of the checkout — copying it per run would dwarf the worktree's
 	 * own cost, and it's what makes `.bin/vitest` findable at all (mantahostels#2153). */
 	"node_modules",
-	/* Husky's own generated shim directory (`.husky/_/.gitignore` is a bare
-	 * `*`), which test files read directly to exercise `core.hooksPath`
-	 * against the real hook runner rather than a hand-written stand-in (mantahostels#2213).
-	 */
-	path.join(".husky", "_"),
 ];
 
 /**
@@ -325,7 +321,7 @@ function createIsolated(
 	const linkFault = linkArtefacts(root, dir, worktreeFs);
 	if (linkFault !== null) {
 		/* Half a worktree is worse than none: lacking a member the checkout has,
-		 * the run would fail on a missing vitest, or on a missing `.husky/_/h`,
+		 * the run would fail on a missing vitest or a missing declared path,
 		 * and either reads as a suite failure rather than as the setup fault it
 		 * is. */
 		removeIsolated(root, dir, { execFn, worktreeFs, err });

@@ -241,6 +241,13 @@ not take stays `waiting`. The close's `**Bound:**` line names each repo in
    node scripts/log-late-signature.js --issue <owner/name>#<n> \
      --filed-at <the ticket's createdAt> --fault-signature "$R/late-<k>.json"
    ```
+
+   **Restore each lost line** in `.lostLines`, a ticket whose declared line
+   never reached `main`. Where its `line` is set, append it unchanged:
+   `node scripts/log-late-signature.js --restore <owner/name>#<n>`. Where it is
+   `null` (UNRECOVERABLE), log it late as above. Each `.conflicts` entry names
+   one issue's differing lines: keep the one without `late` (the original
+   filing) and drop the other from the log.
 4. **Flip check:** where `.flipDue.due`, and no open or closed
    "outcome review flip check" issue covers this run (§2 snapshot), file a
    `takes:wayfinder` issue,
@@ -319,7 +326,8 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
-  and `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
+  (`null` where `.outcomeStep.misses` is: a tracker went unread) and
+  `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
   `ticketMixStep` its cost, the week's total, the issues it filed and the
   watch kinds. A calibrate line carries none of the four.
 
