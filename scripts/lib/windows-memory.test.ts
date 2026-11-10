@@ -17,12 +17,14 @@ type WindowsRead =
 
 const {
 	buildWindowsUnreadNote,
+	isWindowsFresh,
 	minuteLogPath,
 	readWindowsMemory,
 	readWindowsRecorded,
 	windowsShortfall,
 	windowsUnbackedMb,
 } = require("./windows-memory.js") as {
+	isWindowsFresh: (reading: { ageS: number }) => boolean;
 	windowsUnbackedMb: (read: WindowsRead, guestFreeMb: number | null) => number;
 	buildWindowsUnreadNote: (read: WindowsRead, what: string) => string | null;
 	minuteLogPath: () => string;
@@ -108,6 +110,16 @@ describe("lib/windows-memory.js", () => {
 		expect(buildWindowsUnreadNote(read, "a test launch")).toBe(
 			`Windows memory unread — the newest Windows reading in ${file} is 181 s old, past 180 s; a test launch not held on it (#4557)`,
 		);
+	});
+
+	it("takes a reading as fresh up to 180 s old, the replay's test too", () => {
+		expect(isWindowsFresh({ ageS: 180 })).toBe(true);
+		expect(isWindowsFresh({ ageS: 181 })).toBe(false);
+		fs.writeFileSync(file, line(170, 900, 10));
+		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({
+			state: "fresh",
+			ageS: 180,
+		});
 	});
 
 	it("records a stale reading's fail-open, and nothing for a fresh or absent one", () => {

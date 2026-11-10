@@ -83,40 +83,46 @@ it("charges a `tsc` wait to the type-check slot's limbs, never a suite's (#3316)
 	expect(r.stdout).not.toMatch(/part\?|whole\?/);
 });
 
-it("holds a wait on the windows limb off the minute log it is given (#4782)", () => {
-	fs.writeFileSync(
-		path.join(dir, ".suite-queue-exits.jsonl"),
-		`${JSON.stringify({
-			at: "2026-11-10T00:10:00.000Z",
-			waitS: 600,
-			reason: "refused",
-			kind: "named",
-			session: "a",
-			pid: 1,
-			slotFree: true,
-		})}\n`,
-	);
-	fs.writeFileSync(
-		path.join(dir, "memwatch-minute.jsonl"),
-		Array.from(
-			{ length: 10 },
-			(_, m) =>
-				`${JSON.stringify({
-					ts: `2026-11-10T00:${String(m).padStart(2, "0")}:00Z`,
-					win_avail_mb: 100,
-					win_age_s: 5,
-				})}\n`,
-		).join(""),
-	);
-	const r = run(
-		"--since",
-		"2026-11-10T00:00:00.000Z",
-		"--until",
-		"2026-11-10T01:00:00.000Z",
-	);
-	expect(r.status).toBe(0);
-	expect(r.stdout).toContain("| windows | 0.17 |");
-});
+it.each([
+	["holds a wait on the windows limb off a fresh reading", 180, true],
+	["holds none off a reading past the live reader's freshness", 181, false],
+])(
+	"%s in the minute log it is given (#4782, #4785)",
+	(_name, winAgeS, held) => {
+		fs.writeFileSync(
+			path.join(dir, ".suite-queue-exits.jsonl"),
+			`${JSON.stringify({
+				at: "2026-11-10T00:10:00.000Z",
+				waitS: 600,
+				reason: "refused",
+				kind: "named",
+				session: "a",
+				pid: 1,
+				slotFree: true,
+			})}\n`,
+		);
+		fs.writeFileSync(
+			path.join(dir, "memwatch-minute.jsonl"),
+			Array.from(
+				{ length: 10 },
+				(_, m) =>
+					`${JSON.stringify({
+						ts: `2026-11-10T00:${String(m).padStart(2, "0")}:00Z`,
+						win_avail_mb: 100,
+						win_age_s: winAgeS,
+					})}\n`,
+			).join(""),
+		);
+		const r = run(
+			"--since",
+			"2026-11-10T00:00:00.000Z",
+			"--until",
+			"2026-11-10T01:00:00.000Z",
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout.includes("| windows | 0.17 |")).toBe(held);
+	},
+);
 
 describe("refuses with exit 2 and the usage", () => {
 	it.each([

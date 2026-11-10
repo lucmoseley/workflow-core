@@ -110,6 +110,13 @@ function windowsReadingOf(row) {
 }
 
 /**
+ * Whether a reading is young enough to hold a launch: the one freshness
+ * test, the live reader's and the queue-wait replay's.
+ * @param {WindowsMinute} reading
+ */
+const isWindowsFresh = (reading) => reading.ageS <= WINDOWS_FRESH_S;
+
+/**
  * The newest row in `tail` carrying a Windows reading, with that reading,
  * null where none does. The tail's cut first line and a torn last one parse
  * to no row.
@@ -150,12 +157,13 @@ function readWindowsMemory({ file = minuteLogPath(), now = Date.now() } = {}) {
 	if (Number.isNaN(lineMs))
 		return { state: "stale", why: `${file} line stamped ${newest.ts}` };
 	const ageS = Math.round((now - lineMs) / 1000) + newest.reading.ageS;
-	if (ageS > WINDOWS_FRESH_S)
+	const aged = { ...newest.reading, ageS };
+	if (!isWindowsFresh(aged))
 		return {
 			state: "stale",
 			why: `the newest Windows reading in ${file} is ${ageS} s old, past ${WINDOWS_FRESH_S} s`,
 		};
-	return { ...newest.reading, ageS };
+	return aged;
 }
 
 /**
@@ -230,10 +238,10 @@ const buildWindowsShortText = (short) =>
 
 module.exports = {
 	WINDOWS_FLOOR_MB,
-	WINDOWS_FRESH_S,
 	buildWindowsShortText,
 	describeWindowsHold,
 	buildWindowsUnreadNote,
+	isWindowsFresh,
 	minuteLogPath,
 	readWindowsMemory,
 	readWindowsRecorded,
