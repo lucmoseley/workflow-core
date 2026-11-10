@@ -23,7 +23,7 @@
  * any live process still has its cwd inside it (#4385).
  *
  * LAUNCH-INTO and REOPEN both refuse a worktree whose own unlanded
- * `.claude/settings.json` would lock out every tool call of the session
+ * `.claude/settings.json` would refuse or stall every tool call of the session
  * started there, naming the line and the fix (lib/settings-lockout.js,
  * #4752): a cut is from `origin/main`, whose lines the lander's suite passed.
  *

@@ -42,7 +42,7 @@ describe("settingsLockout", () => {
 		const at = repo.cutWorktree("broken", breakCanaryPath);
 		const why = settingsLockout(at);
 		expect(why).toContain("self-plugin-canray.sh");
-		expect(why).toContain("would lock out every tool call");
+		expect(why).toContain("would refuse or stall every tool call");
 		expect(why).toContain(
 			`\`git -C ${at} checkout origin/main -- ${SETTINGS}\``,
 		);
@@ -57,7 +57,7 @@ describe("settingsLockout", () => {
 				.replace(/"command": "(.*?)",/, '"command": "sleep 3; $1",')
 				.replace(/"timeout": \d+/, '"timeout": 1'),
 		);
-		expect(settingsLockout(at)).toContain("ran past 1s");
+		expect(settingsLockout(at)).toContain("ran past its 1s timeout");
 	});
 
 	it("admits a worktree whose broken line has no onFailure block, which the harness runs past", () => {

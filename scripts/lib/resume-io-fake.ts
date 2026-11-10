@@ -73,7 +73,7 @@ export const ANSWERS = {
 	settingsLockout: {
 		admitted: null,
 		lockedOut:
-			"/r/.claude/settings.json's PreToolUse line `x` would lock out every tool call of a session started there, as it exited 127 — restore it with `git -C /r checkout origin/main -- .claude/settings.json`, or mend that line by hand, then start the session again",
+			"/r/.claude/settings.json's PreToolUse line `x` would refuse or stall every tool call of a session started there, as it exited 127 — restore it with `git -C /r checkout origin/main -- .claude/settings.json`, or mend that line by hand, then start the session again",
 	},
 	launchHeadless: {
 		launched: {

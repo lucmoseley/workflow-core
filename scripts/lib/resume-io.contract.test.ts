@@ -237,7 +237,7 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 	settingsLockout: (v) =>
 		v === null
 			? null
-			: (v as string).includes("would lock out every tool call"),
+			: (v as string).includes("would refuse or stall every tool call"),
 	runClaude: (v) => ({
 		...childShape(v),
 		resumed: parseResumed(v as ChildRun)?.copy ?? null,
