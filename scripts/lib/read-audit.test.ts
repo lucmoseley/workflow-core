@@ -23,7 +23,6 @@ const { EDGES_FILE } = require("./test-pass-marker.js");
 
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 
-/* The cases that run a child under the tracer skip where none works. */
 const STRACE = (() => {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rda-")));
 	try {

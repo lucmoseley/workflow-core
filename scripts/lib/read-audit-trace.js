@@ -33,10 +33,8 @@ const { isUnder, relativeUnder } = require("./is-under.js");
 const { pathKind } = require("./path-kind.js");
 const { sleepSync } = require("./sleep-sync.js");
 
-/* `-f` follows every descendant; `--seccomp-bpf` stops the traced processes
- * on the named calls only; `-y` prints the directory a relative path is
- * taken from. Signals stay in the trace: without them strace writes no line
- * for a process a signal killed. */
+/* Signals stay in the trace: without them strace writes no line for a
+ * process a signal killed. */
 const FLAGS = [
 	"-f",
 	"-DD",
@@ -98,8 +96,7 @@ function findStrace(dir, env) {
 			got.entries.some((e) => e.p === "trial.probe" && e.s === "absent");
 		return r.status === 1 && saw ? strace : null;
 	} catch {
-		/* Fails open to the untraced rules, under which a stub or a shell in
-		 * the checkout doubts its file (#4966): a trial that throws is a
+		/* Fails open to the untraced rules (#4966): a trial that throws is a
 		 * tracer that does not work here. lib/read-audit.js prints the
 		 * fall-back. */
 		return null;
@@ -118,20 +115,20 @@ function readGitDirs(root) {
 	const dot = path.join(root, ".git");
 	const out = [dot];
 	/* Unreadable is `.git` as a directory, which is itself the whole state;
-	 * absent is no repository. Either way the one entry stands (#4966). */
+	 * absent is no repository. Either way the one entry stands. */
 	const link = readText(dot);
 	const own =
 		link.state === "read" ? /^gitdir: (.*)$/m.exec(link.data)?.[1] : undefined;
 	if (own) {
 		const dir = path.resolve(root, own.trim());
 		out.push(dir);
-		/* A git directory with no `commondir` is its own common one (#4966). */
+		/* A git directory with no `commondir` is its own common one. */
 		const common = readText(path.join(dir, "commondir"));
 		if (common.state === "read")
 			out.push(path.resolve(dir, common.data.trim()));
 	}
 	/* A directory that will not resolve stands nowhere a call could reach by
-	 * another name, so its spelling is the only one to match (#4966). */
+	 * another name, so its spelling is the only one to match. */
 	return out.map((dir) => realOf(dir) ?? dir);
 }
 
@@ -157,7 +154,7 @@ function realOf(abs) {
 /* The tracer writes a process's end a moment after the process ends. How
  * long one reading of an audit waits, in all, for traces to settle, and how
  * often it looks: guesses, the first far above the few milliseconds a
- * tracer takes, so only a child that really outlives its run spends it. */
+ * tracer takes. */
 const SETTLE_MS = 2000;
 const SETTLE_STEP_MS = 10;
 

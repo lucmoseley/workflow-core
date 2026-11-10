@@ -17,7 +17,6 @@
  * in the checkout or handed a path there. No other program is traced: a
  * traced process that is killed stays until its tracer reaps it, which a
  * test of what a real program leaves running would see.
- * lib/read-audit-trace.js owns the tracer's words and reads the trace back.
  *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
@@ -303,7 +302,7 @@ function install() {
 	wrap(fs, "watchFile", probeFirst, "sync");
 	require("node:module").syncBuiltinESMExports();
 
-	/* Children: the bindings every spawn API isInReach, sync and async. */
+	/* Children: the bindings every spawn API reaches, sync and async. */
 	const isAudited = (/** @type {unknown} */ envPairs) =>
 		Array.isArray(envPairs) &&
 		envPairs.includes(`WFC_READ_AUDIT=${dir}`) &&
@@ -378,7 +377,6 @@ function install() {
 		return words.split("\0").some((w) => path.dirname(w) === dir);
 	};
 	let traces = 0;
-	/* Where a test writes a stub. */
 	const tmp = realRealpathSync(os.tmpdir());
 	const isStub = (/** @type {string[]} */ bin) =>
 		bin.some((at) => relativeUnder(tmp, at) !== null);
@@ -417,8 +415,6 @@ function install() {
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
 	};
 	/**
-	 * `opts` as `spawn` takes it, and its route: under the
-	 * tracer where `tracing` names a trace.
 	 * @param {Untyped} opts
 	 * @returns {{opts: Untyped, route: Route}}
 	 */

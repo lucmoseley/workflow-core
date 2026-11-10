@@ -303,7 +303,6 @@ function collector(logs, root, isScratch, readTrace) {
 			? null
 			: (takers[String(e.k)]?.(e) ?? null);
 	/**
-	 * A traced child's reads, off its trace.
 	 * @param {Entry} e
 	 * @returns {string|null}
 	 */
@@ -427,7 +426,7 @@ function childDoubt(e, logs, root, isScratch) {
 }
 
 /**
- * A child as a doubt quotes it: its program's name and its words.
+ * A child as a doubt quotes it.
  * @param {Entry} e
  */
 function shownChild(e) {
