@@ -38,7 +38,7 @@ const gitIn =
 	(...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" });
 
-const HOOKS = "self-plugin/hooks/hooks.json";
+const HOOKS = "self-plugin/hooks/hooks.json" as const;
 const LINES = readHookLines(HOOKS, "scripts/guard-dispatch.js");
 const cite = (n: number) => `${"mantahostels"}#${n}`;
 

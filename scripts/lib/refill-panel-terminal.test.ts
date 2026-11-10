@@ -18,7 +18,7 @@ const STATUS = JSON.stringify({
 	codeSha: "abc1234",
 	paused: null,
 	lastTick: null,
-	concurrency: { working: 1, ceiling: 2 },
+	concurrency: { working: 1, ceiling: 2, stateWorking: 1 },
 	repos: [],
 	seats: { readings: [] },
 	overflow: [],
