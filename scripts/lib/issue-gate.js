@@ -428,11 +428,10 @@ const EVENT_RE = new RegExp(`\\b${EVENT}\\b`, "i");
 const TEMPORAL_BEFORE_REF_RE = /\b(?:after|since|once|until|when)\s+$/i;
 const CLAUSE_END_RE = /[,;:](?=\s)|\.(?=\s|$)|\s[—–]\s/g;
 const MONTH = "(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*";
-/* A count of something: an integer before a word, or the template's "n = 69"
- * at a clause's end, where a year reads as a count; zero and a date's day,
- * year or clock time excepted. */
+/* A count of something: an integer before a word, zero and a date's day, year
+ * or clock time excepted. */
 const COUNT_OF_RE = new RegExp(
-	`(?<![\\w.,/#:-])(?<!\\b${MONTH} )(?!0)(?:(\\d[\\d,]*)(?= +(?!${MONTH}\\b)[a-z])|(?<=\\bn ?= ?)(\\d+(?:,\\d{3})*)(?=\\s*(?:[;)]|,\\s|\\.(?:\\s|$)|$)))`,
+	`(?<![\\w.,/#:-])(?<!\\b${MONTH} )(?!0\\b)(\\d[\\d,]*)(?= +(?!${MONTH}\\b)[a-z])`,
 	"gi",
 );
 
@@ -493,7 +492,7 @@ function warrantOf(basis, own) {
 			.replace(ISSUE_REF_RE, "")
 			.replace(WINDOW_RE, "~")
 			.matchAll(COUNT_OF_RE);
-		for (const c of counts) if (!baseline.has(c[1] ?? c[2])) return "count";
+		for (const c of counts) if (!baseline.has(c[1])) return "count";
 	}
 	if (CYCLE_RE.test(basis) && (fractions.length > 0 || hasBound))
 		return "cycle";
@@ -610,9 +609,9 @@ function inCodeSpan(body, index) {
  * counts as added: a moved window needs its basis as much as a new one. A
  * window `before` already wrote is held too, so adding a basis beside an old
  * wait is not refused for the wait (#823). A warrant fault is its basis text,
- * so an untouched legacy basis is held and a rewritten one is judged; beneath
- * an added or changed gate line it is judged too, a re-gate meeting today's bar
- * (#4946).
+ * so an untouched legacy basis is held and a rewritten one is judged; where
+ * the edit adds or changes a gate line every basis is judged, a re-gate
+ * meeting today's bar (#4946).
  *
  * @param {string} before
  * @param {string} after
@@ -622,15 +621,21 @@ function inCodeSpan(body, index) {
 function introducedBasisFaults(before, after, own) {
 	const b = String(before || "");
 	const regated = parseAddedGateLines(b, after).length > 0;
-	const held = new Set(
-		[
-			...basisFaults(b, own)
-				.filter((f) => !(regated && f.kind === "no-warrant"))
-				.map((f) => f.text),
-			...windowsOf(b).map((d) => d.written),
-		].map((t) => t.toLowerCase()),
+	/** @param {BasisFault["kind"]} kind @param {string} text */
+	const keyOf = (kind, text) => `${kind}\n${text.toLowerCase()}`;
+	const held = new Set([
+		...basisFaults(b, own)
+			.filter((f) => !(regated && f.kind === "no-warrant"))
+			.map((f) => keyOf(f.kind, f.text)),
+		// A window the old body wrote excuses the wait, never a basis.
+		...windowsOf(b).flatMap((d) => [
+			keyOf("no-basis", d.written),
+			keyOf("unnamed-window", d.written),
+		]),
+	]);
+	return basisFaults(after, own).filter(
+		(f) => !held.has(keyOf(f.kind, f.text)),
 	);
-	return basisFaults(after, own).filter((f) => !held.has(f.text.toLowerCase()));
 }
 
 /**
