@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
  * Pins that check-code-standards.js names every citation in the code standards
- * that no longer resolves, and every §N7 export nothing consumes, with the line
- * the reader must go to (mantahostels#1091, the ticket that built it;
- * mantahostels#1799).
+ * that no longer resolves, every §N7 export nothing consumes, and every
+ * hand-kept `Caller:` header line, with the line the reader must go to
+ * (mantahostels#1091, the ticket that built it; mantahostels#1799; #4720).
  *
  * check-code-standards.js reads its scope from `git ls-files` and resolves
  * every path against the working directory, so it is exercised inside a
@@ -1261,5 +1261,74 @@ describe("pythonRoutes against the local route table (#1863)", () => {
 		const r = run("--touching", scopeRev);
 		expect(r.out).not.toContain("ROUTE-DRIFT");
 		expect(r.out).not.toContain("pythonRoutes agrees");
+	});
+});
+
+describe("hand-kept caller lines in a script header (#4720)", () => {
+	it("reports a Caller:, Callers: or Callers of …: header line, with its line", () => {
+		doc("Rule — see below\n");
+		track(
+			"scripts/one.js",
+			"/*\n * one.js — a thing.\n *\n * Caller: scripts/two.js\n */\n",
+		);
+		track(
+			"scripts/lib/two.js",
+			"// Callers: scripts/one.js, scripts/three.js\n",
+		);
+		track(
+			"scripts/three.js",
+			"/**\n * Callers of runThing: scripts/one.js\n */\n",
+		);
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			"HAND-CALLER  scripts/one.js:4  Caller: scripts/two.js",
+		);
+		expect(r.out).toContain("HAND-CALLER  scripts/lib/two.js:1");
+		expect(r.out).toContain(
+			"HAND-CALLER  scripts/three.js:2  Callers of runThing:",
+		);
+	});
+
+	it("reads a shell or Python script's # header and docstring, and a TS header", () => {
+		doc("Rule — see below\n");
+		track(
+			"scripts/lib/marker.sh",
+			"#!/usr/bin/env bash\n# marker.sh\n#\n# Callers: scripts/a.sh\nset -e\n# Caller: below the header\n",
+		);
+		track(
+			"scripts/tool.py",
+			'#!/usr/bin/env python3\n"""tool.py\n\nCaller: scripts/b.js\n"""\n',
+		);
+		track("scripts/lib/r.ts", "/*\n * Caller: vitest.config.ts\n */\n");
+		const r = run();
+		expect(r.out).toContain("HAND-CALLER  scripts/lib/marker.sh:4");
+		expect(r.out).not.toContain("below the header");
+		expect(r.out).toContain("HAND-CALLER  scripts/tool.py:4");
+		expect(r.out).toContain("HAND-CALLER  scripts/lib/r.ts:2");
+	});
+
+	it("allows an Unbuilt caller: line, and a Caller: line outside the header", () => {
+		doc("Rule — see below\n");
+		track(
+			"scripts/early.js",
+			"/*\n * Unbuilt caller: scripts/report.js (#575)\n */\n",
+		);
+		track(
+			"scripts/late.js",
+			"/* header */\nconst x = 1;\n// Caller: scripts/report.js\n",
+		);
+		expect(run().out).not.toContain("HAND-CALLER");
+	});
+
+	it("is scoped by --touching to the file the diff touched", () => {
+		doc("Rule — see below\n");
+		track("scripts/old.js", "// Caller: scripts/x.js\n");
+		git("commit", "-m", "an old caller line");
+		const rev = git("rev-parse", "HEAD").trim();
+		track("scripts/new.js", "// Callers: scripts/x.js\n");
+		const r = run("--touching", rev);
+		expect(r.out).toContain("HAND-CALLER  scripts/new.js:1");
+		expect(r.out).not.toContain("scripts/old.js");
 	});
 });

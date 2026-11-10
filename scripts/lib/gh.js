@@ -118,6 +118,15 @@ const parseErrLine = (raw) => {
 };
 
 /**
+ * Whether a failed call was GitHub's 404, by gh's own `gh: Not Found (HTTP
+ * 404)`: anchored to the parenthesised status rather than to a bare `404`,
+ * which any error text could carry.
+ * @param {unknown} raw
+ */
+const isNotFound = (raw) =>
+	/\(HTTP 404\)/.test(String(asExecError(raw).stderr ?? ""));
+
+/**
  * Run gh synchronously; return stdout. Throws execFileSync's error, with
  * stderr captured on `e.stderr` rather than echoed to the terminal.
  * @param {string[]} args
@@ -648,6 +657,7 @@ module.exports = {
 	mapLimit,
 	ISSUE_READ_CONCURRENCY,
 	parseErrLine,
+	isNotFound,
 	parseGhFailureReason,
 	raiseGhFailure,
 	groupByRepeatedError,

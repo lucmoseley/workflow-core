@@ -35,7 +35,10 @@ describe("readJsonl", () => {
 	it("lists a torn last line as bad and torn, keeping the rows before it", () => {
 		expect(readJsonl(write('{"a":1}\n{"a":2}\n{"a":'))).toEqual({
 			rows: [{ a: 1 }, { a: 2 }],
-			rowLines: [1, 2],
+			entries: [
+				{ row: { a: 1 }, line: 1 },
+				{ row: { a: 2 }, line: 2 },
+			],
 			bad: [3],
 			torn: true,
 		});
@@ -44,7 +47,10 @@ describe("readJsonl", () => {
 	it("reads an unterminated last line that parses as a whole row", () => {
 		expect(readJsonl(write('{"a":1}\n{"a":2}'))).toEqual({
 			rows: [{ a: 1 }, { a: 2 }],
-			rowLines: [1, 2],
+			entries: [
+				{ row: { a: 1 }, line: 1 },
+				{ row: { a: 2 }, line: 2 },
+			],
 			bad: [],
 			torn: false,
 		});
@@ -55,7 +61,10 @@ describe("readJsonl", () => {
 			readJsonl(write('{"a":1}\nnot json\n[1]\nnull\n3\n{"a":2}\n')),
 		).toEqual({
 			rows: [{ a: 1 }, { a: 2 }],
-			rowLines: [1, 6],
+			entries: [
+				{ row: { a: 1 }, line: 1 },
+				{ row: { a: 2 }, line: 6 },
+			],
 			bad: [2, 3, 4, 5],
 			torn: false,
 		});
@@ -64,7 +73,7 @@ describe("readJsonl", () => {
 	it("lists a bad newline-terminated last line as bad, never torn", () => {
 		expect(readJsonl(write('{"a":1}\n{"a":\n'))).toEqual({
 			rows: [{ a: 1 }],
-			rowLines: [1],
+			entries: [{ row: { a: 1 }, line: 1 }],
 			bad: [2],
 			torn: false,
 		});
@@ -73,7 +82,10 @@ describe("readJsonl", () => {
 	it("skips blank lines and CRLF endings", () => {
 		expect(readJsonl(write('\n{"a":1}\r\n  \n{"a":2}\r\n'))).toEqual({
 			rows: [{ a: 1 }, { a: 2 }],
-			rowLines: [2, 4],
+			entries: [
+				{ row: { a: 1 }, line: 2 },
+				{ row: { a: 2 }, line: 4 },
+			],
 			bad: [],
 			torn: false,
 		});
@@ -82,7 +94,7 @@ describe("readJsonl", () => {
 	it("reads an empty file as no rows", () => {
 		expect(readJsonl(write(""))).toEqual({
 			rows: [],
-			rowLines: [],
+			entries: [],
 			bad: [],
 			torn: false,
 		});
@@ -101,7 +113,7 @@ describe("parseJsonl", () => {
 	it("gives text the same answers as a file", () => {
 		expect(parseJsonl('{"a":1}\nbad\n{"a":')).toEqual({
 			rows: [{ a: 1 }],
-			rowLines: [1],
+			entries: [{ row: { a: 1 }, line: 1 }],
 			bad: [2, 3],
 			torn: true,
 		});
@@ -115,7 +127,7 @@ describe("parseJsonl", () => {
 		};
 		expect(parseJsonl('{"k":1}\nbad\n{"a":2}\n{"k":', keep)).toEqual({
 			rows: [{ k: 1 }],
-			rowLines: [1],
+			entries: [{ row: { k: 1 }, line: 1 }],
 			bad: [4],
 			torn: true,
 		});
@@ -125,7 +137,7 @@ describe("parseJsonl", () => {
 	it("lists an unterminated last line that parses to no object as bad, never torn", () => {
 		expect(parseJsonl('{"a":1}\n[1]')).toEqual({
 			rows: [{ a: 1 }],
-			rowLines: [1],
+			entries: [{ row: { a: 1 }, line: 1 }],
 			bad: [2],
 			torn: false,
 		});

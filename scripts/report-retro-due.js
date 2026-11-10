@@ -36,10 +36,10 @@ const {
 } = require("./lib/gh");
 const { readConfig, retroFault } = require("./lib/workflow-core-config");
 const { buildStandaloneLine } = require("./lib/standalone-line.js");
+const { RUN_RECORD } = require("./lib/retro-record");
 
 const TITLE = "Weekly retro due";
 const LABEL = takesLabel("implement");
-const RECORD = "docs/data/retro-runs.jsonl";
 const DUE_DAYS = 7;
 
 /**
@@ -53,11 +53,11 @@ const DUE_DAYS = 7;
 function newestWeekly(read) {
 	const [bad] = read.bad;
 	if (bad !== undefined)
-		throw new Error(`${RECORD}:${bad} is not a JSON object`);
+		throw new Error(`${RUN_RECORD}:${bad} is not a JSON object`);
 	/** @type {string | null} */
 	let newest = null;
-	for (const [k, row] of read.rows.entries()) {
-		const date = weeklyDate(row, /** @type {number} */ (read.rowLines[k]));
+	for (const { row, line } of read.entries) {
+		const date = weeklyDate(row, line);
 		if (date === null) continue;
 		if (!newest || date > newest) newest = date;
 	}
@@ -77,7 +77,7 @@ function weeklyDate(row, line) {
 	const date = typeof row.date === "string" ? row.date.slice(0, 10) : "";
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))
 		throw new Error(
-			`${RECORD}:${line} is a weekly run with no readable "date" (YYYY-MM-DD)`,
+			`${RUN_RECORD}:${line} is a weekly run with no readable "date" (YYYY-MM-DD)`,
 		);
 	return date;
 }
@@ -110,8 +110,8 @@ function body(newest, weeklyCount) {
 		"## A weekly retro is due",
 		"",
 		newest
-			? `The newest \`weekly\` run in \`${RECORD}\` is dated ${newest}, ${DUE_DAYS} or more days ago.`
-			: `\`${RECORD}\` holds no \`weekly\` run yet; a \`calibrate\` line does not count.`,
+			? `The newest \`weekly\` run in \`${RUN_RECORD}\` is dated ${newest}, ${DUE_DAYS} or more days ago.`
+			: `\`${RUN_RECORD}\` holds no \`weekly\` run yet; a \`calibrate\` line does not count.`,
 		"",
 		"## What to do",
 		"",
@@ -148,10 +148,10 @@ function condition(todayIso) {
 		return {
 			skip: `SKIP: retro.weeklyCount is unset in ${c.file}; the calibration batch sets it.`,
 		};
-	const read = readJsonl(path.join(hostRoot(), RECORD));
+	const read = readJsonl(path.join(hostRoot(), RUN_RECORD));
 	if (!read)
 		throw new Error(
-			`${RECORD} is missing. It is committed empty; restore it with \`git checkout -- ${RECORD}\`.`,
+			`${RUN_RECORD} is missing. It is committed empty; restore it with \`git checkout -- ${RUN_RECORD}\`.`,
 		);
 	const newest = newestWeekly(read);
 	return {

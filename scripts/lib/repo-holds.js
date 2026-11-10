@@ -12,8 +12,8 @@
  * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
  * out a hold the founder has yet to answer. Where git will not name the common
  * dir, a linked worktree keys on the one its `.git` file points at (#4402).
- * RESIDUAL (#4718): a `.git` file that points nowhere keys on its own path, so its
- * holds split from the checkout's until it is repaired.
+ * One that points nowhere keys on its own path, and its store is adopted into
+ * the common dir's once the file names one again (#4718).
  *
  * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
  * lift racing get one winner and one log line, and the sessions parked on the hold
@@ -262,18 +262,157 @@ function holdsDir(root) {
 	const stores = tickStores.getStore();
 	const known = stores?.get(root);
 	if (known !== undefined) return known;
-	const common =
-		gitCommonDir(root) ?? readGitFileCommonDir(root) ?? path.join(root, ".git");
-	const key = deref(common);
-	const hash = createHash("sha256").update(key).digest("hex");
-	const dir = refillPath(
+	const own = path.join(root, ".git");
+	const common = gitCommonDir(root) ?? readGitFileCommonDir(root);
+	const dir = buildStoreDir(root, common ?? own);
+	const broken = buildStoreDir(root, own);
+	if (common !== null && broken !== dir) tryAdoptStore(broken, dir);
+	stores?.set(root, dir);
+	return dir;
+}
+
+/**
+ * @param {string} root
+ * @param {string} key
+ */
+function buildStoreDir(root, key) {
+	const hash = createHash("sha256").update(deref(key)).digest("hex");
+	return refillPath(
 		path.join(
 			"repo-holds",
 			`${path.basename(root)}-${hash.slice(0, STORE_KEY_LENGTH)}`,
 		),
 	);
-	stores?.set(root, dir);
-	return dir;
+}
+
+/** @type {Map<string, string>} why adopting into each store last failed, by that store, for readHolds */
+const adoptFaults = new Map();
+
+/**
+ * Adopt store `from` into `to`, a failure kept for readHolds to report: the
+ * tick has no per-root catch, so a throw would stop every checkout's (#4718).
+ * @param {string} from
+ * @param {string} to
+ */
+function tryAdoptStore(from, to) {
+	try {
+		adoptStore(from, to);
+		adoptFaults.delete(to);
+	} catch (err) {
+		adoptFaults.set(
+			to,
+			`${from}: ${caught(err).message}; its holds read nowhere until it moves into ${to}, so repair the directory`,
+		);
+	}
+}
+
+/** Files that belong to a store, not to a hold: the store adopted into keeps its own. */
+const STORE_FILES = new Set([`${PROBE_ID}.paged`, `${PROBE_ID}.outage`]);
+
+/** Each fault code a rename or rmdir gives where a directory stands at its target. */
+const OCCUPIED_CODES = new Set(["EEXIST", "ENOTEMPTY"]);
+
+/**
+ * Move store `from`'s entries into store `to` (#4718). A hold whose id `to` already holds stays, with its notice, until
+ * that one lifts; the sessions parked on it move to `to`'s at once, as each
+ * attach and replay file is named for its job. Any other file overwrites
+ * `to`'s, as a raise clears what a lift left behind, save STORE_FILES. A
+ * hold's record moves after the files named for it, so a reader of `to` never
+ * meets it short of its notice.
+ * @param {string} from
+ * @param {string} to
+ */
+function adoptStore(from, to) {
+	const names = readNamesOrNone(from);
+	if (names.length === 0) return;
+	fs.mkdirSync(to, { recursive: true });
+	const held = new Set(
+		fs.readdirSync(to).filter(isHoldFileName).map(parseEntryId),
+	);
+	for (const name of names.filter((n) => !isHoldFileName(n))) {
+		const id = parseEntryId(name);
+		const isJobFile =
+			name.startsWith(buildAttachPrefix(id)) ||
+			name.startsWith(buildReplayPrefix(id));
+		if (name === LIFTED_DIR) adoptLifted(from, to);
+		else if (STORE_FILES.has(name))
+			linkEntry(path.join(from, name), path.join(to, name));
+		else if (isJobFile || !held.has(id))
+			renameEntry(path.join(from, name), path.join(to, name));
+	}
+	for (const name of names.filter(isHoldFileName))
+		if (!held.has(parseEntryId(name)))
+			renameEntry(path.join(from, name), path.join(to, name));
+	removeDirIfEmpty(from);
+}
+
+/**
+ * @param {string} from
+ * @param {string} to
+ */
+function adoptLifted(from, to) {
+	const base = path.join(from, LIFTED_DIR);
+	fs.mkdirSync(path.join(to, LIFTED_DIR), { recursive: true });
+	for (const name of readNamesOrNone(base))
+		renameEntry(path.join(base, name), path.join(to, LIFTED_DIR, name));
+	removeDirIfEmpty(base);
+}
+
+/**
+ * Rename `from` to `to`, over a file there; a directory that finds one there
+ * stays, as its name holds a random part and so never meets one but another
+ * adopter's. Gone already, another adopter took it (#4718).
+ * @param {string} from
+ * @param {string} to
+ */
+function renameEntry(from, to) {
+	try {
+		fs.renameSync(from, to);
+	} catch (err) {
+		const code = caught(err).code ?? "";
+		if (code !== "ENOENT" && !OCCUPIED_CODES.has(code)) throw err;
+	}
+}
+
+/**
+ * Move file `from` to `to` where `to` is free, else drop it: a link refuses
+ * where `to` stands, where a rename would overwrite it (#4718).
+ * @param {string} from
+ * @param {string} to
+ */
+function linkEntry(from, to) {
+	try {
+		fs.linkSync(from, to);
+	} catch (err) {
+		const { code } = caught(err);
+		if (code === "ENOENT") return;
+		if (code !== "EEXIST") throw err;
+	}
+	fs.rmSync(from, { force: true });
+}
+
+/**
+ * @param {string} dir
+ */
+function readNamesOrNone(dir) {
+	try {
+		return fs.readdirSync(dir);
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		throw err;
+	}
+}
+
+/**
+ * @param {string} dir
+ */
+function removeDirIfEmpty(dir) {
+	try {
+		fs.rmdirSync(dir);
+	} catch (err) {
+		const code = caught(err).code ?? "";
+		if (code !== "ENOENT" && !OCCUPIED_CODES.has(code)) throw err;
+	}
 }
 
 /**
@@ -291,6 +430,16 @@ const withTickStores = (fn) => tickStores.run(new Map(), fn);
  * @param {string} id
  */
 const buildHoldFileName = (id) => `${id}.json`;
+
+/**
+ * @param {string} name
+ */
+const isHoldFileName = (name) => name.endsWith(".json");
+
+/**
+ * @param {string} name
+ */
+const parseEntryId = (name) => name.split(".")[0] ?? name;
 
 /**
  * A lift's directory name, off the hold's id; parseLiftedId reads the id back.
@@ -327,14 +476,7 @@ const buildReplayPrefix = (id) => `${id}.replay.`;
  * @param {string} id
  */
 function removeReplays(dir, id) {
-	let names;
-	try {
-		names = fs.readdirSync(dir);
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return;
-		throw err;
-	}
-	for (const name of parseReplayNames(names, id))
+	for (const name of parseReplayNames(readNamesOrNone(dir), id))
 		fs.rmSync(path.join(dir, name), { force: true });
 }
 
@@ -445,6 +587,17 @@ function isHold(value, name) {
  */
 function readHolds(root) {
 	const dir = holdsDir(root);
+	const read = readStoreHolds(dir);
+	const fault = adoptFaults.get(dir);
+	return fault ? { ...read, unread: [fault, ...read.unread] } : read;
+}
+
+/**
+ * Store `dir`'s open holds, as readHolds gives them.
+ * @param {string} dir
+ * @returns {{holds: RepoHold[], unread: string[]}}
+ */
+function readStoreHolds(dir) {
 	let names;
 	try {
 		names = fs.readdirSync(dir);
@@ -463,7 +616,7 @@ function readHolds(root) {
 	const holds = [];
 	/** @type {string[]} */
 	const unread = [];
-	for (const name of names.filter((n) => n.endsWith(".json"))) {
+	for (const name of names.filter(isHoldFileName)) {
 		const file = path.join(dir, name);
 		try {
 			/* Null: lifted between the listing and this read. */
