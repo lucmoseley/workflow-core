@@ -418,6 +418,7 @@ describe("a bare run under landing", () => {
 });
 
 describe("the exit code", () => {
+	// 5 is pytest's "no tests collected", standing for every code above 1.
 	it.each([1, 5])(
 		"is 1 where pytest exits %i, so a red run is red on one listed code (#4779)",
 		async (code) => {
