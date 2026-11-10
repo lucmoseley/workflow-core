@@ -178,13 +178,15 @@ const { landingCutOver } = require("./lib/cutover.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { isUnder } = require("./lib/is-under.js");
+const { commitSha } = require("./lib/commit-sha.js");
 
 const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
 const RECORD = ".agents/vendored-upstream-pass.json";
 const STAND_DOWN = "WFC_UPSTREAM_RECORD_OFF";
-/** Hex digits of the sha `vendoredAt` names. A first choice, the width the
- * record already held (`d1478fcb`); git lengthens it where that is ambiguous. */
+/** Hex digits of the sha `vendoredAt` names. A first choice, stated as one: the
+ * width of `d1478fcb`, the sha the record names; git lengthens it where that is
+ * ambiguous. */
 const VENDORED_AT_SHA_WIDTH = 8;
 /** The files the upstream record vouches for, by their repo paths. */
 const COVERED = [LOCK, NOTICES];
@@ -576,10 +578,11 @@ function revendorFrom(root, rev, from) {
 	const clone = path.resolve(from);
 	if (!fs.existsSync(clone)) throw new Error(`no such directory: ${from}`);
 	const source = readCloneSource(clone);
-	const sha = execGit(["rev-parse", "--verify", `${rev}^{commit}`], {
-		cwd: clone,
-		encoding: "utf8",
-	}).trim();
+	const sha = commitSha(clone, rev);
+	if (sha === null)
+		throw new Error(
+			`${rev} names no commit in ${from} — fetch the tag there, or check its spelling.`,
+		);
 	const lockFile = path.join(root, LOCK);
 	const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
 	const sidecar = loadSidecar(root);

@@ -21,6 +21,10 @@
  * one left in the worktree. A false pass lands a lock no licence check has
  * covered.
  *
+ * The `--revendor --from` cases (#4802) each run git on a real clone, which is
+ * most of this file's run time: the cases that only read the clone share one,
+ * and a case that changes its clone builds its own.
+ *
  * It is a hard gate in `.husky/pre-commit` on any commit staging a vendored
  * path: a false pass lands an undeclared edit, which the next re-pull reverts
  * silently, or an accidental edit that reads as approved.
@@ -31,7 +35,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { splitCheckout } from "./lib/guard-core-testkit";
 import {
 	cutGateScript,
@@ -1338,13 +1342,21 @@ const PULLED = {
 };
 
 describe("check-vendored-skills --revendor --from (#4802)", () => {
+	/** Upstream at the pulled tag, for the cases that only read it. */
+	let pulled: ReturnType<typeof upstreamClone>;
+	beforeAll(() => {
+		pulled = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+		temps.splice(temps.indexOf(pulled.clone), 1);
+	});
+	afterAll(() => fs.rmSync(pulled.clone, { recursive: true, force: true }));
+
 	it("records the manifest, vendoredAt and the lock's computedHash from the clone's tag, and leaves another source's skill alone", () => {
 		const root = twoSourceRoot();
 		const before = {
 			sidecar: readJson(root, SIDECAR),
 			lock: readJson(root, "skills-lock.json"),
 		};
-		const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+		const up = pulled;
 
 		const r = runText(root, [
 			"--revendor",
@@ -1378,8 +1390,7 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 
 	it("leaves a tree the check passes once upstream's bytes are on disk under the re-declared edit", () => {
 		const root = twoSourceRoot();
-		const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
-		runText(root, ["--revendor", "--at", "v9.9.9", "--from", up.clone]);
+		runText(root, ["--revendor", "--at", "v9.9.9", "--from", pulled.clone]);
 		const dir = path.join(root, ".agents/skills/a");
 		fs.mkdirSync(path.join(dir, "refs"));
 		fs.writeFileSync(path.join(dir, "refs/NOTES.md"), "notes\n");
@@ -1436,6 +1447,11 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 			"has no skills/engineering/a/ at v9.9.9",
 		],
 		[
+			"the tag names no commit in the clone",
+			() => pulled,
+			"v0.0.0 names no commit",
+		],
+		[
 			"the clone has no origin",
 			() => {
 				const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
@@ -1459,6 +1475,7 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 			"is not a GitHub repo",
 		],
 	])("refuses and writes nothing where %s", (_name, clone, says) => {
+		const rev = says.startsWith("v0.0.0") ? "v0.0.0" : "v9.9.9";
 		const root = twoSourceRoot();
 		const files = [SIDECAR, "skills-lock.json"].map((rel) =>
 			path.join(root, rel),
@@ -1468,7 +1485,7 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 		const r = runText(root, [
 			"--revendor",
 			"--at",
-			"v9.9.9",
+			rev,
 			"--from",
 			clone().clone,
 		]);
@@ -1476,6 +1493,29 @@ describe("check-vendored-skills --revendor --from (#4802)", () => {
 		expect(r.code).toBe(2);
 		expect(r.out).toContain(says);
 		expect(files.map((f) => fs.readFileSync(f, "utf8"))).toEqual(before);
+	});
+
+	it("records no symlink upstream ships in a skill folder, as the walk over the folder on disk skips one", () => {
+		const root = twoSourceRoot();
+		const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.8");
+		fs.symlinkSync(
+			"SKILL.md",
+			path.join(up.clone, "skills/engineering/a/LINK.md"),
+		);
+		up.git("add", "-A");
+		up.git("commit", "-q", "-m", "a link");
+		up.git("tag", "v9.9.9");
+
+		runText(root, ["--revendor", "--at", "v9.9.9", "--from", up.clone]);
+
+		expect(
+			Object.keys(readJson(root, SIDECAR).vendored).filter((r) =>
+				r.includes("LINK"),
+			),
+		).toEqual([]);
+		expect(readJson(root, "skills-lock.json").skills.a.computedHash).toBe(
+			folderHash(path.join(up.clone, "skills/engineering/a")),
+		);
 	});
 
 	it("refuses --from without --revendor as a usage error", () => {
