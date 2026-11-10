@@ -242,7 +242,7 @@ not take stays `waiting`. Then:
    "outcome review flip check" issue covers this run (§2 snapshot), file a
    `takes:wayfinder` issue,
    `--standalone "retro-sweep outcome review flip check (#4796)" --origin retro --no-fault`,
-   giving `.flipDue.why` and, as the bars it judges, each of `.flipDue.bars`.
+   giving `.flipDue.why` and each of `.flipDue.bars`.
 
 ## 6b. Ticket mix — weekly only
 
@@ -289,7 +289,7 @@ Reads the week's filed issues (#4796, #4629). Budget
 6. **Flip check:** where `.flip.due`, and no "ticket mix flip check" issue
    covers it (§2 snapshot), file a `takes:wayfinder` issue,
    `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`,
-   giving `.flip.bar` as the bar it judges.
+   giving `.flip.bar`.
 
 ## 7. Run record
 
@@ -312,8 +312,7 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   filed `<owner/name>#<n>` or `null`; `class` its §6 class (`NEW`, `OPEN`, …);
   `cites` the earlier issue or commit it pointed at; `signature` (or `null`
   and `why`) and `prediction` as filed; `baseline` the signature's count and
-  sessions over the 4 weeks before filing, the trigger week excluded, its
-  per-session rate worked out from them at each reading: `.baseline` of `node scripts/measure-outcome-review.js
+  sessions over the 4 weeks before filing, the trigger week excluded: `.baseline` of `node scripts/measure-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
