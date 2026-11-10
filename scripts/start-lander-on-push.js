@@ -34,7 +34,6 @@
 
 const { readSymbolicName } = require("./lib/git-tree.js");
 const { run } = require("./lib/guard-entry.js");
-const { sessionDir } = require("./lib/host-root.js");
 const { decide } = require("./lib/lander-on-push.js");
 
 run({
@@ -42,9 +41,5 @@ run({
 	noun: "lander start",
 	event: "PostToolUse",
 	decide,
-	/* walkGit seeds from `fallbackCwd`, the hook's own directory unless set. */
-	ports: ({ payload }) => ({
-		fallbackCwd: sessionDir(payload),
-		symbolicName: (tree, src) => readSymbolicName(tree, src),
-	}),
+	ports: () => ({ symbolicName: (tree, src) => readSymbolicName(tree, src) }),
 });

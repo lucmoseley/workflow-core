@@ -63,15 +63,11 @@
 const { run } = require("./lib/guard-entry.js");
 const { decide } = require("./lib/gh-acts.js");
 const { buildHostPorts } = require("./lib/gh-recorder-host.js");
-const { sessionDir } = require("./lib/host-root.js");
 
 run({
 	field: "command",
 	noun: "command",
 	event: "PostToolUse",
 	decide,
-	ports: (env) => ({
-		...buildHostPorts(env),
-		fallbackCwd: sessionDir(env.payload),
-	}),
+	ports: buildHostPorts,
 });

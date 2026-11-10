@@ -138,7 +138,7 @@ it("starts nothing after a push to another ref or a dry run, or with the module 
 	expect(await launchRecorded()).toHaveLength(1);
 });
 
-it("reads a bare push's branch in the payload's linked worktree, not the main checkout it runs from (#4271)", async () => {
+it("reads a bare push's branch in the payload's linked worktree, not the main checkout it runs from, with no per-entry seed (#4271, #4695)", async () => {
 	const wt = cutWorktree(repo);
 	execFileSync("git", ["switch", "-q", "-c", "queue/q1"], { cwd: wt });
 	fs.writeFileSync(gate, "");
