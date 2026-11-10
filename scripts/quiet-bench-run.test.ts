@@ -182,12 +182,9 @@ it("exits 1 where its directory cannot be made", () => {
 
 it("exits at once and runs no bench beside a live runner", async () => {
 	stubBench('open("ran", "w").close()\n');
-	const holder = await liveScriptProcess("quiet-bench-run.js");
+	const pid = await liveScriptProcess("quiet-bench-run.js");
 	fs.mkdirSync(refill, { recursive: true });
-	fs.writeFileSync(
-		path.join(refill, ".refill-quiet-bench.pid"),
-		String(holder),
-	);
+	fs.writeFileSync(path.join(refill, ".refill-quiet-bench.pid"), String(pid));
 	expect(runner("run").status).toBe(0);
 	expect(fs.existsSync(path.join(checkout, "ran"))).toBe(false);
 	expect(fs.readdirSync(path.join(refill, "quiet-bench-runs"))).toEqual([]);

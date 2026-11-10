@@ -239,7 +239,7 @@ describe("pidLock", () => {
 			false,
 		],
 	])(
-		"a live `node …/%s`, for marker %j, %s (#2675, #3815)",
+		"a live process carrying `…/%s`, for marker %j, %s (#2675, #3815)",
 		async (script, marker, _, holds) => {
 			const pid = await liveScriptProcess(path.join(dir, "scripts", script));
 			fs.writeFileSync(file, String(pid));
