@@ -474,27 +474,53 @@ function apiStopAt(rows) {
 }
 
 /**
+ * Whether `timeline` holds a `working` row stamped after `at`, ms.
+ * @param {unknown[]} timeline  a job's timeline rows
+ * @param {number} at
+ */
+const hasWorkedSince = (timeline, at) =>
+	timeline.some(
+		(r) =>
+			isObject(r) &&
+			r.state === "working" &&
+			typeof r.at === "string" &&
+			Date.parse(r.at) > at,
+	);
+
+/**
+ * When the newest `blocked` row in `timeline` was stamped, ms; -Infinity
+ * where it holds none.
+ * @param {unknown[]} timeline  a job's timeline rows
+ */
+function blockedAt(timeline) {
+	const row = timeline.findLast(
+		(r) => isObject(r) && r.state === "blocked" && typeof r.at === "string",
+	);
+	return isObject(row) && typeof row.at === "string"
+		? Date.parse(row.at)
+		: Number.NEGATIVE_INFINITY;
+}
+
+/**
  * Whether a session took a turn after its last API-error stop, which a stop
  * and relaunch would copy (#4815): a prompt in its transcript after the stop,
- * or a `working` row on its job's timeline stamped after it. False where
- * either read finds no stop.
+ * or a `working` row on its job's timeline stamped after it. Where the
+ * transcript is unread or holds no stop row, the timeline alone answers
+ * (#4873): a `working` row after `since` and after its newest `blocked` row,
+ * which follows any turn a resume of the loop's own bought. Null, unknown,
+ * where that leaves no anchor or the timeline is unread too.
  * @param {unknown} rows  its transcript's rows
  * @param {unknown} timeline  its job's timeline rows, null unread
+ * @param {number} [since]  when the loop first read the stop, ms
+ * @returns {boolean|null}
  */
-function hasTurnSinceApiStop(rows, timeline) {
+function hasTurnSinceApiStop(rows, timeline, since) {
 	if ((promptsAfterApiStop(rows)?.length ?? 0) > 0) return true;
 	const at = apiStopAt(rows);
-	return (
-		at !== null &&
-		Array.isArray(timeline) &&
-		timeline.some(
-			(r) =>
-				isObject(r) &&
-				r.state === "working" &&
-				typeof r.at === "string" &&
-				Date.parse(r.at) > at,
-		)
-	);
+	if (at !== null)
+		return Array.isArray(timeline) && hasWorkedSince(timeline, at);
+	if (since === undefined || !Array.isArray(timeline)) return null;
+	return hasWorkedSince(timeline, Math.max(since, blockedAt(timeline)));
 }
 
 /**

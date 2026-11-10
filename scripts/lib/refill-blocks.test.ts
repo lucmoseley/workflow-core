@@ -15,6 +15,7 @@ import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
 import {
 	hasTurnedSince,
+	hasTurnSinceApiStop,
 	type IdleReading,
 	resumedIdleSince,
 } from "./block-cause.js";
@@ -2983,5 +2984,110 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 				acts(blocks(out, working, "normal", { now: NOW + MIN }).calls),
 			).toEqual([]);
 		}
+	});
+
+	/* Held stopped between tries; a resume is due, by stop and --bg --resume. */
+	const heldDue = () =>
+		resuming({
+			resumes: {
+				tries: 1,
+				triedAt: NOW - 30 * MIN,
+				nextAt: NOW,
+				heldAt: NOW - 25 * MIN,
+			},
+		});
+	const stopped = [agent("p", "stopped")];
+	const rowAt = (ms: number, state: string) => ({
+		at: new Date(ms).toISOString(),
+		state,
+	});
+	/* The loop's own reading (refill-tick.js) over a transcript and timeline. */
+	const reading = (rows: unknown, timeline: unknown) => ({
+		io: {
+			isResumedSinceStop: (_: unknown, since?: number) =>
+				hasTurnSinceApiStop(rows, timeline, since),
+		},
+	});
+	const NoStopRow = [{ type: "user", message: { content: "fix it" } }];
+	const cases: [Launch, Agents][] = [
+		[typedUnseen(), blocked],
+		[heldDue(), stopped],
+	];
+
+	it.each([
+		["unread", null],
+		["holding no API-error row", NoStopRow],
+	])(
+		"neither stops nor copies one whose transcript is %s where its timeline worked since the loop first read the stop (#4873)",
+		(_, rows) => {
+			const worked = [rowAt(NOW - 3 * MIN, "working"), rowAt(NOW, "working")];
+			for (const [l, agents] of cases) {
+				const { calls } = blocks([l], agents, "normal", reading(rows, worked));
+				expect(acts(calls)).toEqual([]);
+				expect(logs(calls)).toContain(
+					"design-vault /implement 42's session took a turn since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived",
+				);
+			}
+		},
+	);
+
+	it.each([
+		[
+			"none since the loop first read the stop",
+			[rowAt(NOW - 3 * MIN, "working")],
+		],
+		[
+			"only its own resume's, blocked again after",
+			[rowAt(NOW - MIN, "working"), rowAt(NOW - MIN / 2, "blocked")],
+		],
+	])(
+		"stops and relaunches one with no stop row whose read timeline shows %s (#4873)",
+		(_, timeline) => {
+			for (const [l, agents] of cases)
+				expect(
+					acts(blocks([l], agents, "normal", reading(null, timeline)).calls),
+				).toEqual(["stop p", "resume p"]);
+		},
+	);
+
+	it("holds the fallback, a try counted, while neither transcript nor timeline can tell, and parks at the cap (#4873)", () => {
+		const unknown = reading(null, null);
+		const Held =
+			"design-vault /implement 42's session shows no API-error stop in its transcript and its timeline is unread, so whether it took a turn since cannot be told: it is neither stopped nor copied this try";
+		/* The typed resume's fallback is that same try: held, none added. */
+		const again = blocks([typedUnseen()], blocked, "normal", unknown);
+		expect(acts(again.calls)).toEqual([]);
+		expect(logs(again.calls)).toEqual([Held]);
+		expect(again.out[0]?.resumes).toEqual({
+			tries: 1,
+			triedAt: NOW - 2 * MIN,
+			nextAt: NOW + 2 * MIN,
+		});
+
+		let l = heldDue();
+		let now = NOW;
+		const all: string[] = [];
+		for (let tries = 2; tries <= RESUME_CAP; tries++) {
+			const { out, calls } = blocks([l], stopped, "normal", {
+				now,
+				...unknown,
+			});
+			expect(logs(calls)).toEqual([Held]);
+			all.push(...calls);
+			l = out[0] as Launch;
+			expect(l.resumes).toMatchObject({ tries, heldAt: NOW - 25 * MIN });
+			expect(l.resumes?.nextAt).toBeGreaterThan(now);
+			/* Not yet due: nothing is tried, nothing logged. */
+			const early = blocks([l], stopped, "normal", {
+				now: now + MIN,
+				...unknown,
+			});
+			expect(early.calls.filter((c) => !c.startsWith("probe"))).toEqual([]);
+			now = l.resumes?.nextAt as number;
+		}
+		const capped = blocks([l], stopped, "normal", { now, ...unknown });
+		all.push(...capped.calls);
+		expect(capped.out[0]?.parkStopped).toBe(now);
+		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
 	});
 });

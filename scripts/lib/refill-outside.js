@@ -180,7 +180,8 @@ function relaunch(o, target, { io }) {
 
 /**
  * Stop `o`'s session and relaunch it under its full id, its typed resume
- * unseen; never where it took a turn since its stop (isTakenSinceStop).
+ * unseen; never where it took a turn since its stop or that cannot be told
+ * (isTakenSinceStop), the try already counted.
  * @param {Outside} o  its typed resume settled
  * @param {Tick} seen
  * @returns {Outside}
@@ -188,7 +189,8 @@ function relaunch(o, target, { io }) {
 function fallBack(o, seen) {
 	const { io } = seen;
 	const ref = sessionRefOf(o);
-	if (isTakenSinceStop(ref, nameOf(o), io)) return o;
+	if (isTakenSinceStop({ ...ref, since: o.since }, nameOf(o), io) !== false)
+		return o;
 	const { sessionId, cwd } = io.resumeTargetOf(ref);
 	const what = `${nameOf(o)} by stop and --bg --resume, the typed one unseen`;
 	if (!sessionId) {
