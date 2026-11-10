@@ -104,8 +104,8 @@ function buildOutlivingScope(ceilingS) {
  * stripped), naming `owner` as its notify reports' owner, in a user scope
  * outside the session's own and so outside its watcher's kill, stopped at
  * `ceilingS`, and marked so the session's scope never keeps it
- * (lib/session-scope.js's OUTLIVES_KEY). Where no user manager answers it starts the same way, unscoped.
- * `owner` defaults to the starter's report owner and `ceilingS` to
+ * (lib/session-scope.js's OUTLIVES_KEY). Where no user manager answers it
+ * starts the same way, unscoped and unmarked. `owner` defaults to the starter's report owner and `ceilingS` to
  * OUTLIVE_CEILING_S; null names no owner or sets no ceiling.
  * The caller unrefs the child. `wrap` replaces the scope words, for a test or
  * a caller that probed already.

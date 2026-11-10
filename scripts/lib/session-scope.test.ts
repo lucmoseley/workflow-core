@@ -131,7 +131,7 @@ describe("straysOf", () => {
 /*
  * #4749's race, driven through injected cgroup reads: an outliving job's own
  * `systemd-run --scope` execs (its mark appears) and moves it out at each
- * point of the attach, and it must end outside the session's scope.
+ * point of the attach.
  */
 describe("attachThenRelease's release", () => {
 	const Home = "/non-systemd";

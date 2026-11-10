@@ -210,8 +210,7 @@ function attachAll(left, call) {
  * before a `strays` read, which sees the job, or after the attach, and the
  * job's own move, later still, takes it out. A child forked in the scope
  * before its parent's release, or a group the manager refused because one of
- * its pids had exited, is met by the next read. A released job's ceiling
- * runs from its release, milliseconds after its launch.
+ * its pids had exited, is met by the next read.
  * @template {{ pids: number[] }} G
  * @param {{ left: () => number[], attach: (pids: number[]) => boolean,
  *   strays: () => G[], release: (group: G) => boolean }} at
@@ -286,7 +285,7 @@ const releaseUnitArgs = ({ root, startTicks, ceilingS, pids }) =>
 
 /**
  * What adopting `leader` into `unit` did, in one line; not ok where an
- * outliving job stays in the scope, which its watcher will kill.
+ * outliving job stays in the scope.
  * @param {number} leader @param {string} unit
  * @param {{ moved: number, released: number, kept: number[] }} counts
  */
