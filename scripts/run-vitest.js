@@ -2655,7 +2655,8 @@ function main(argv = process.argv.slice(2), options = {}) {
 						part,
 					}),
 				options,
-				() => logExit("refused", Date.now() - started),
+				() =>
+					logExit("refused", Date.now() - started, seat.stamps.polledHold()),
 			);
 
 			if (outcome === "refused") return 1;
