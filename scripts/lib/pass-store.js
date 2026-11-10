@@ -24,7 +24,8 @@
  * "run" with one notice, and a line that will not parse runs the files it
  * names; a row whose input list is missing or empty never matches; a run
  * that errored outside its files, was interrupted or filtered by name
- * records its failures alone; an input rewritten while the run ran, untracked, gitignored
+ * records its failures alone; a spawned Python import the reach cannot
+ * place records no row; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -212,7 +213,9 @@ function snapshotOf(root, file) {
 }
 
 /* A Python import neither stdlib nor beside its importer, such as one found
- * through `sys.path`, leaves the reach unknown: the file records no row. */
+ * through `sys.path`, leaves the reach unknown: the file records no row
+ * (#4790). Residual: a test spawning such a script is never cached, and no
+ * notice says so. */
 const refuseFault = (/** @type {string} */ why) => {
 	throw new Error(why);
 };

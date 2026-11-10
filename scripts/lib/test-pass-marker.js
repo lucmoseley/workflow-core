@@ -912,10 +912,8 @@ const isAdmissibleScope = (scope) =>
 const isAdmissibleRun = (m) => isAdmissibleScope(m.scope);
 
 /**
- * The documents a parsed manifest maps to any of `tests` — one reading for
- * the reporter stamping a closure and for `holdsAt` re-reading it at a
- * sha (#799), so the two cannot disagree. `null` where the manifest is not
- * `{edges: {doc: [test, …]}}`: a caller fails closed on it.
+ * The documents a parsed manifest maps to any of `tests`. `null` where the
+ * manifest is not `{edges: {doc: [test, …]}}`: a caller fails closed on it.
  *
  * @param {unknown} manifest
  * @param {Set<string>} tests
@@ -927,7 +925,9 @@ function docsReadBy(manifest, tests) {
 }
 
 /**
- * The documents a manifest turned round (`docsByTest`) maps to any of `tests`.
+ * The documents a manifest turned round (`docsByTest`) maps to any of `tests`
+ * — one reading for the reporter stamping a closure and for `holdsAt`
+ * re-reading it at a sha (#799), so the two cannot disagree.
  *
  * @param {Map<string, Set<string>>} byTest
  * @param {Iterable<string>} tests
