@@ -420,6 +420,24 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		expect(audit).toHaveProperty("reads");
 	});
 
+	it("returns from a shell that left a detached process running, while it runs", () => {
+		const root = checkout();
+		const audit = reads(
+			root,
+			[
+				'const cp = require("node:child_process");',
+				`const at = { cwd: ${quoted(root)}, encoding: "utf8" };`,
+				/* The 30 s sleep is one far past the case: the spawn returning
+				 * while it lives is what the case tests. */
+				`const r = cp.spawnSync("sh", ["-c", "setsid sh -c 'echo $$; exec sleep 30 </dev/null >/dev/null 2>&1' </dev/null 2>/dev/null &"], at);`,
+				"const pid = Number(r.stdout);",
+				"process.kill(pid, 0);",
+				'process.kill(pid, "SIGKILL");',
+			].join("\n"),
+		);
+		expect(audit).toHaveProperty("reads");
+	});
+
 	it("follows a Node child of a traced shell, and what that child spawns", () => {
 		const root = checkout();
 		write(
@@ -431,6 +449,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			root,
 			`require("node:child_process").execFileSync("sh", ["-c", '"$0" scripts/child.js', process.execPath], { cwd: ${quoted(root)} });`,
 		);
+		expect(audit.doubt).toBeUndefined();
 		expect(audit.reads.files).toEqual(
 			expect.arrayContaining([".claude/settings.json", "scripts/child.js"]),
 		);

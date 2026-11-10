@@ -45,6 +45,37 @@ const FLAGS = [
 	"trace=%file,fchdir,connect,sendto,sendmsg,sendmmsg,kill,tkill,tgkill",
 ];
 
+/* Fixed paths, never names off PATH: a test puts its own stubs there. Where
+ * one is missing the trial in `findStrace` fails, and nothing is traced. */
+const SH = "/bin/sh";
+
+/* The traced side, `$1` and `$2` the pipes its output goes down, either
+ * empty: it opens them by name, so the tracer never holds them. */
+const INNER =
+	'a=$1 b=$2; shift 2; [ -z "$a" ] || exec >"$a"; [ -z "$b" ] || exec 2>"$b"; exec "$@"';
+
+/* THE TRACER HOLDS NONE OF THE CHILD'S OUTPUT. It lives until the last
+ * process it follows ends, so a pipe it inherited would stay open past a
+ * child that left a detached process behind, and the test's spawn would
+ * wait on that process. Each output that is a pipe or a socket goes through
+ * a named pipe a `cat` copies from, started before the tracer and so not
+ * followed; the tracer itself gets /dev/null. No other child is started
+ * first: the tracer waits on one of its own before it runs the program,
+ * and a stray one ending answers that wait early. `$1` the tracer, `$2`
+ * the trace, the rest the child's words. */
+const OUTER = [
+	"s=$1 o=$2; shift 2; a= b=",
+	"if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then a=$o.1; fi",
+	"if [ -p /dev/fd/2 ] || [ -S /dev/fd/2 ]; then b=$o.2; fi",
+	'[ -z "$a" ] || /usr/bin/mkfifo "$a" || exit 127',
+	'[ -z "$b" ] || /usr/bin/mkfifo "$b" || exit 127',
+	'if [ -n "$a" ]; then /bin/cat <"$a" 2>/dev/null & fi',
+	'if [ -n "$b" ]; then /bin/cat <"$b" 1>&2 & fi',
+	'[ -z "$a" ] || exec >/dev/null',
+	'[ -z "$b" ] || exec 2>/dev/null',
+	`exec "$s" ${FLAGS.join(" ")} -o "$o" -- ${SH} -c '${INNER}' sh "$a" "$b" "$@"`,
+].join("\n");
+
 /**
  * The words that run `argv` under the tracer, its trace written to `out`.
  * @param {string} strace
@@ -52,11 +83,12 @@ const FLAGS = [
  * @param {string[]} argv
  */
 const buildTraceArgv = (strace, out, argv) => [
+	SH,
+	"-c",
+	OUTER,
+	"sh",
 	strace,
-	...FLAGS,
-	"-o",
 	out,
-	"--",
 	...argv,
 ];
 
@@ -83,7 +115,7 @@ function findStrace(dir, env) {
 	if (strace === undefined) return null;
 	const name = "trial.trace";
 	try {
-		const trial = ["/bin/sh", "-c", "test -e trial.probe"];
+		const trial = [SH, "-c", "test -e trial.probe"];
 		const [file, ...args] = buildTraceArgv(strace, path.join(dir, name), trial);
 		const r = spawnSync(String(file), args, {
 			cwd: dir,

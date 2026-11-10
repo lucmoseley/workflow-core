@@ -412,6 +412,9 @@ function install() {
 		if (argv[0] !== file || bin.length === 0 || !isProgram(String(bin[1])))
 			return null;
 		if (!SHELLS.has(path.basename(file)) && !isStub(bin)) return null;
+		/* The tracer would hold a fourth descriptor, a channel among them,
+		 * open past the child: only the two outputs are kept from it. */
+		if (Array.isArray(opts?.stdio) && opts.stdio.length > 3) return null;
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
 	};
 	/**
