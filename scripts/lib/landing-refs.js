@@ -19,7 +19,8 @@
  *
  *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<tree>]
  *     prints that ref, or the pushed ref's branch, for the checkout at <tree>,
- *     else the host root, for shell and workflows
+ *     else the host root, for shell and workflows; the config read is
+ *     <tree>'s host's (#4280, #4692)
  */
 
 const path = require("node:path");
@@ -153,16 +154,28 @@ function landingOn(opts) {
 }
 
 /**
+ * The host whose config decides the module for `tree`: its main checkout,
+ * else, where git names none (a submodule, a separate git dir, no repository),
+ * `tree` itself, the only checkout there is to read.
+ * @param {string} tree
+ * @returns {string}
+ */
+function hostOf(tree) {
+	return require("./main-checkout.js").mainCheckout(tree) ?? tree;
+}
+
+/**
  * The remote ref holding what the session in `tree` has pushed: its queue
  * ref's remote-tracking ref where the `landing` module is on, `tree` is a
  * session worktree and that ref resolves there, else `origin/main`.
  * @param {{root?: string, tree?: string}} [opts] the host root whose config
- *   is read, and the session's tree top level
+ *   is read, else `tree`'s host, and the session's tree top level
  * @returns {string}
  */
 function pushedRef(opts) {
 	const tree = opts?.tree;
-	if (!tree || !landingOn(opts)) return VERIFIED_REF;
+	if (!tree || !landingOn({ root: opts.root ?? hostOf(tree) }))
+		return VERIFIED_REF;
 	const own = ownQueueRef(tree);
 	if (own === null) return VERIFIED_REF;
 	const ref = `${REMOTE}/${own}`;
@@ -224,7 +237,7 @@ if (require.main === module) {
 		);
 		process.exit(2);
 	}
-	writeFd(1, `${answer(tree ? { root: tree, tree } : undefined)}\n`);
+	writeFd(1, `${answer(tree ? { root: hostOf(tree), tree } : undefined)}\n`);
 }
 
 module.exports = {
