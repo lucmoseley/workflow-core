@@ -906,9 +906,9 @@ describe("filing the reading (#1104)", () => {
 		expect(touched).not.toEqual([]);
 	});
 
-	it("walks nothing while a live run holds the walk lock, however old (#3220)", () => {
+	it("walks nothing while a live run holds the walk lock, however old (#3220)", async () => {
 		reachedReading();
-		plantLiveLock(walkLock(), Holder);
+		await plantLiveLock(walkLock(), Holder);
 		const touched = watchSeatReads();
 		const r = file();
 		expect(r.status).toBe(0);
@@ -994,9 +994,9 @@ describe("filing the reading (#1104)", () => {
 		},
 	);
 
-	it("files nothing while a live run holds the filing lock, however old", () => {
+	it("files nothing while a live run holds the filing lock, however old", async () => {
 		reachedReading();
-		plantLiveLock(filingLock(), Holder);
+		await plantLiveLock(filingLock(), Holder);
 		const r = file();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/Another run is filing the reading/);

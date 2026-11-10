@@ -5,22 +5,15 @@
  * Loosen it and two landers, or two refill loops, run at once, or a dead
  * holder's pidfile locks every later start out.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	onTestFinished,
-	vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCurrentBootId, readProcStartOf } from "./arbiter-proc.js";
 import { endedPid } from "./arbiter-testkit";
 import { NotALock, pidLock } from "./pid-lock.js";
+import { liveScriptProcess } from "./pid-lock-testkit";
 
 let dir: string;
 let file: string;
@@ -53,26 +46,6 @@ function failRead(failing: string, then?: () => void) {
 		throw new Error("unreadable");
 	}) as typeof read);
 }
-
-/* A live process other than this one, whose command line carries `arg`. Its
- * pid is live before its exec lands, and until then its cmdline reads empty
- * (#4721), so it is returned once that cmdline carries `arg`. */
-async function liveProcess(args: string[], arg: string) {
-	// spawn-kept: two processes at once — a live holder whose command line the lock reads.
-	const proc = spawn(process.execPath, args, { stdio: "ignore" });
-	onTestFinished(() => {
-		proc.kill();
-	});
-	const pid = proc.pid as number;
-	await vi.waitFor(() =>
-		expect(
-			fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"),
-		).toContain(arg),
-	);
-	return pid;
-}
-const liveMarkerProcess = (script: string) =>
-	liveProcess(["-e", "setInterval(() => {}, 1000)", script], script);
 
 describe("pidLock", () => {
 	it("creates the pidfile holding this process's record, leaving no aside, and releases it", () => {
@@ -129,21 +102,11 @@ describe("pidLock", () => {
 		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
 	});
 
-	it("refuses while the holder's process lives", () => {
-		const holder = spawn(
-			process.execPath,
-			["-e", "setInterval(() => {}, 1000)"],
-			{
-				stdio: "ignore",
-			},
-		);
-		try {
-			fs.writeFileSync(file, String(holder.pid));
-			expect(pidLock(file, "node").acquire()).toBe(false);
-			expect(fs.readFileSync(file, "utf8")).toBe(String(holder.pid));
-		} finally {
-			holder.kill();
-		}
+	it("refuses while the holder's process lives", async () => {
+		const pid = await liveScriptProcess("holder.js");
+		fs.writeFileSync(file, String(pid));
+		expect(pidLock(file, "node").acquire()).toBe(false);
+		expect(fs.readFileSync(file, "utf8")).toBe(String(pid));
 	});
 
 	it("holds a pidfile already naming this process, as a daemon re-exec'd under its pid finds it (#2361)", () => {
@@ -176,7 +139,7 @@ describe("pidLock", () => {
 		])(
 			"a record of %s, naming a live marker process, has no holder and is taken over",
 			async (_, record) => {
-				const pid = await liveMarkerProcess("refill-loop.js");
+				const pid = await liveScriptProcess("refill-loop.js");
 				fs.writeFileSync(file, JSON.stringify(record(pid)));
 				const lock = pidLock(file, "refill-loop.js");
 				expect(lock.holder()).toBeNull();
@@ -186,7 +149,7 @@ describe("pidLock", () => {
 		);
 
 		it("a matching record still refuses a second taker", async () => {
-			const pid = await liveMarkerProcess("refill-loop.js");
+			const pid = await liveScriptProcess("refill-loop.js");
 			const text = JSON.stringify({
 				pid,
 				procStart: readProcStartOf(pid),
@@ -200,14 +163,14 @@ describe("pidLock", () => {
 		});
 
 		it("a bare pid naming a live marker process still refuses", async () => {
-			const pid = await liveMarkerProcess("refill-loop.js");
+			const pid = await liveScriptProcess("refill-loop.js");
 			fs.writeFileSync(file, String(pid));
 			expect(pidLock(file, "refill-loop.js").acquire()).toBe(false);
 			expect(fs.readFileSync(file, "utf8")).toBe(String(pid));
 		});
 
 		it("a start time unreadable for a live pid keeps the marker test", async () => {
-			const pid = await liveMarkerProcess("refill-loop.js");
+			const pid = await liveScriptProcess("refill-loop.js");
 			failRead(`/proc/${pid}/stat`);
 			fs.writeFileSync(
 				file,
@@ -217,7 +180,7 @@ describe("pidLock", () => {
 		});
 
 		it("a holder ended between the check and its cmdline's read is no holder", async () => {
-			const pid = await liveMarkerProcess("refill-loop.js");
+			const pid = await liveScriptProcess("refill-loop.js");
 			const kill = process.kill.bind(process);
 			failRead(`/proc/${pid}/cmdline`, () => {
 				vi.spyOn(process, "kill").mockImplementation((target, signal) => {
@@ -278,10 +241,7 @@ describe("pidLock", () => {
 	])(
 		"a live `node …/%s`, for marker %j, %s (#2675, #3815)",
 		async (script, marker, _, holds) => {
-			const scriptPath = path.join(dir, "scripts", script);
-			fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
-			fs.writeFileSync(scriptPath, "setInterval(() => {}, 1000);\n");
-			const pid = await liveProcess([scriptPath], scriptPath);
+			const pid = await liveScriptProcess(path.join(dir, "scripts", script));
 			fs.writeFileSync(file, String(pid));
 			expect(pidLock(file, marker).holder()).toBe(holds ? pid : null);
 		},

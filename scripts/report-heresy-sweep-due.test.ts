@@ -195,8 +195,11 @@ describe("the daily filing run", () => {
 		expect(ghCalls()).toBe(calls);
 	});
 
-	it("reads nothing while another run holds a live lock", () => {
-		plantLiveLock(path.join(root, ".git", LOCK), "report-heresy-sweep-due.js");
+	it("reads nothing while another run holds a live lock", async () => {
+		await plantLiveLock(
+			path.join(root, ".git", LOCK),
+			"report-heresy-sweep-due.js",
+		);
 
 		const { code, stdout } = run([]);
 		expect(code).toBe(0);

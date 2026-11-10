@@ -6,8 +6,9 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { onTestFinished } from "vitest";
+import { expect, onTestFinished, vi } from "vitest";
 import { endedPid } from "./arbiter-testkit";
+import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const YEAR_MS = 365 * 24 * 3_600_000;
 
@@ -18,20 +19,37 @@ export function plantDeadLock(file: string) {
 }
 
 /**
- * A year-old lock held by a live process whose command line carries `script`,
- * killed when the test ends.
+ * The pid of a live process whose command line carries `script`, killed when
+ * the test ends. Its pid is live before its exec lands, and until then that
+ * command line reads empty, so a lock asked at once finds no holder (#4721):
+ * it is returned once `script` is there.
  */
-export function plantLiveLock(file: string, script: string) {
-	const holder = spawn(
+export async function liveScriptProcess(script: string) {
+	// spawn-kept: two processes at once — a live holder whose command line the lock reads.
+	const proc = spawn(
 		process.execPath,
 		["-e", "setInterval(() => {}, 1000)", script],
 		{ stdio: "ignore" },
 	);
 	onTestFinished(() => {
-		holder.kill();
+		proc.kill();
 	});
+	const pid = proc.pid as number;
+	await vi.waitFor(
+		() =>
+			expect(
+				fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"),
+			).toContain(script),
+		{ timeout: TEST_TIMEOUT_MS, interval: 10 },
+	);
+	return pid;
+}
+
+/** A year-old lock held by a live process whose command line carries `script`. */
+export async function plantLiveLock(file: string, script: string) {
+	const pid = await liveScriptProcess(script);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, String(holder.pid));
+	fs.writeFileSync(file, String(pid));
 	const old = new Date(Date.now() - YEAR_MS);
 	fs.utimesSync(file, old, old);
 }
