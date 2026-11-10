@@ -158,16 +158,19 @@ const isStringList = (list) =>
 const isNumberList = (list) =>
 	Array.isArray(list) && list.every((n) => typeof n === "number");
 
+/**
+ * @param {Record<string, unknown>|null} o
+ * @returns {o is {file: string, test: string} & Record<string, unknown>}
+ */
+const isFailingTest = (o) =>
+	typeof o?.file === "string" && typeof o.test === "string";
+
 /** @param {unknown} list @returns {list is QuotedFailure[]} */
-const isQuotedList = (list) =>
+const isQuotedFailureList = (list) =>
 	Array.isArray(list) &&
 	list.every((f) => {
 		const o = asObject(f);
-		return (
-			typeof o?.file === "string" &&
-			typeof o.test === "string" &&
-			typeof o.message === "string"
-		);
+		return isFailingTest(o) && typeof o.message === "string";
 	});
 
 /**
@@ -205,7 +208,7 @@ const parseGreen = (o) => ({
 const parseFailures = (list) =>
 	(Array.isArray(list) ? list : []).flatMap((f) => {
 		const o = asObject(f);
-		if (typeof o?.file !== "string" || typeof o.test !== "string") return [];
+		if (!isFailingTest(o)) return [];
 		return [
 			{
 				file: o.file,
@@ -384,7 +387,7 @@ const isCause = (u) => {
 	const marksValid =
 		(o.typecheck === undefined || isStringList(o.typecheck)) &&
 		(o.runs === undefined || isNumberList(o.runs)) &&
-		(o.failures === undefined || isQuotedList(o.failures));
+		(o.failures === undefined || isQuotedFailureList(o.failures));
 	/** @type {Record<Cause["kind"], () => boolean>} */
 	const valid = {
 		conflict: () => isStringList(o.files),

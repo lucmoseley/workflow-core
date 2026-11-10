@@ -44,17 +44,21 @@ function buildFailed({ files, typecheck }, onMain) {
 
 /**
  * The CI runs a red cites, where the tester read any: those that were red,
- * and the one in which `main` passed the same.
- * @param {{runs?: readonly number[], mainRun?: number}} red
+ * and the one in which `main` passed the same. A file new in the member is
+ * in no run at `main` (#4347).
+ * @param {{files: readonly string[], runs?: readonly number[],
+ *   mainRun?: number}} red
  */
-function buildRuns({ runs = [], mainRun }) {
+function buildRuns({ files, runs = [], mainRun }) {
 	const cited = [
 		...(runs.length > 0
 			? [`Its red CI ${runs.length > 1 ? "runs" : "run"}: ${runs.join(", ")}.`]
 			: []),
 		...(mainRun === undefined
 			? []
-			: [`\`main\` passed the same in CI run ${mainRun}.`]),
+			: [
+					`\`main\` passed ${files.length > 0 ? "those of them its tree holds" : "the whole suite"} in CI run ${mainRun}.`,
+				]),
 	];
 	return cited.length > 0
 		? `\n\n${cited.join(" ")} \`gh run view <run>\` reads one.`

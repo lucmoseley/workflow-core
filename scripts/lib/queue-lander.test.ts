@@ -2494,6 +2494,8 @@ describe("the red path", () => {
 		});
 		const disk = freshDisk();
 		const error = `expected 1 to be 2 ${"x".repeat(400)}`;
+		/* lib/queue-lander.js's QUOTED_MESSAGE_CHARS. */
+		const Cut = 300;
 		const aloneRuns: number[] = [];
 		let run = 40;
 
@@ -2525,15 +2527,15 @@ describe("the red path", () => {
 			runs: aloneRuns,
 			mainRun: 7,
 			failures: [
-				{ file: RedB, test: "b > fails", message: error.slice(0, 300) },
+				{ file: RedB, test: "b > fails", message: error.slice(0, Cut) },
 			],
 		});
 		const body = filed ? bodyOf(filed.drop, filed.held) : "";
 		expect(body).toContain(
-			`Its red CI runs: ${aloneRuns.join(", ")}. \`main\` passed the same in CI run 7.`,
+			`Its red CI runs: ${aloneRuns.join(", ")}. \`main\` passed those of them its tree holds in CI run 7.`,
 		);
-		expect(body).toContain(`${RedB} > b > fails\n  ${error.slice(0, 300)}\n`);
-		expect(body).not.toContain(error.slice(0, 301));
+		expect(body).toContain(`${RedB} > b > fails\n  ${error.slice(0, Cut)}\n`);
+		expect(body).not.toContain(error.slice(0, Cut + 1));
 	});
 
 	it("keeps on a member's drop the type-check errors its red named (#4800)", async () => {
