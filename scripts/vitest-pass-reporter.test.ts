@@ -774,7 +774,8 @@ describe("the closure the reporter records (#189)", () => {
 		const r = new TestPassReporter();
 		r.onInit(vitest());
 		stubLaunch({ changedPaths: [], base: null });
-		await captured(() => run(r, [withProject(id, ["passed"])]));
+		const out = await captured(() => run(r, [withProject(id, ["passed"])]));
+		expect(out).toMatch(/FILTERED RUN — .*1 cached, not run .*: b\.test\.ts/);
 		expect(takeRunReport().attestation).toMatchObject({
 			closure: expect.arrayContaining(["a.test.ts", "b.test.ts", "lib/b.js"]),
 			selected: ["a.test.ts", "b.test.ts"],

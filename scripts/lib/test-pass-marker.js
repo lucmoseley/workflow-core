@@ -2115,10 +2115,15 @@ function sessionAttestation(own, markers, { within = null, ...options } = {}) {
  * set (`Test Files 1 passed (1)`), never the corpus — so the run looks complete
  * in its own terms.
  *
+ * A file the pass store cached is in neither count nor `paths:`, so the line
+ * names it: the banner that does sits above vitest's output, where a `tail`
+ * drops it and the run reads as one that skipped the file silently (#4894).
+ *
  * @param {Scope|null|undefined} scope
+ * @param {string[]} [cachedFiles]
  * @returns {string|null}
  */
-function formatFilteredRun(scope) {
+function formatFilteredRun(scope, cachedFiles = []) {
 	if (!scope || isFullScope(scope)) return null;
 	const bits = [
 		`ran ${scope.tests - scope.skipped} of ${scope.tests} tests` +
@@ -2135,6 +2140,10 @@ function formatFilteredRun(scope) {
 		);
 	const files = scope.fileFilters || [];
 	if (files.length > 0) bits.push(`paths: ${files.join(", ")}`);
+	if (cachedFiles.length > 0)
+		bits.push(
+			`${cachedFiles.length} cached, not run (#4790; \`--fresh\` runs them): ${cachedFiles.join(", ")}`,
+		);
 	if (scope.changed)
 		bits.push(
 			`--changed${typeof scope.changed === "string" ? ` ${scope.changed}` : ""}`,
