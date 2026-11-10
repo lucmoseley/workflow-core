@@ -2,9 +2,10 @@
 /*
  * guard-main-checkout-write at the hook input contract (#4248): with
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
- * worktree, a write to the main checkout's tracked tree is refused, once it
- * is cut over or not (#4697), naming the worktree; the worktree's own files and gitignored
- * stores stay writable. Driven through runCore on the testkit's split
+ * worktree, a write to the main checkout's tracked tree is refused whether
+ * or not it is cut over (#4697), naming the worktree; from a session whose
+ * cwd is the main checkout, only once it is. The worktree's own files and
+ * gitignored stores stay writable. Driven through runCore on the testkit's split
  * checkout, so the dispatcher's root and tree come from a real worktree pair.
  *
  * Loosen it and a session's edit lands uncommitted in the main checkout, which
@@ -275,6 +276,45 @@ describe("before the cutover, or with `landing` off, it refuses a worktree sessi
 				file_path: path.join(at.main, ".claude", "tmp", "x.json"),
 				content: "{}",
 			}),
+		).toBeNull();
+	});
+
+	it("refuses from a worktree nested under the main checkout, and allows its own files", () => {
+		vi.stubEnv("WFC_MODULES", "");
+		const nested = path.join(at.main, ".claude", "worktrees", "w1");
+		git(at.main, "worktree", "add", "--detach", nested);
+		const from = { worktree: fs.realpathSync(nested) };
+		expect(
+			refusal(
+				"Edit",
+				{
+					file_path: path.join(at.main, "a.md"),
+					old_string: "a",
+					new_string: "b",
+				},
+				from,
+			),
+		).toContain("unclaimed and unledgered");
+		expect(
+			refusal(
+				"Edit",
+				{
+					file_path: path.join(nested, "a.md"),
+					old_string: "a",
+					new_string: "b",
+				},
+				from,
+			),
+		).toBeNull();
+	});
+
+	it("allows a session whose cwd is another repository", () => {
+		vi.stubEnv("WFC_MODULES", "");
+		const other = path.join(path.dirname(at.main), "other");
+		fs.mkdirSync(other);
+		git(other, "init", "-q");
+		expect(
+			refusal("Bash", { command: `echo x > ${at.main}/a.md` }, { cwd: other }),
 		).toBeNull();
 	});
 

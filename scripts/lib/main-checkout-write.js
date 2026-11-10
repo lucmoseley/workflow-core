@@ -12,8 +12,8 @@
  * the hand-off's stranded-file read and the concision backstop. A session
  * whose cwd is the main checkout keeps writing there until the cutover.
  *
- * WHAT IT REFUSES, from such a session or with the `landing` module on and
- * the main checkout cut over (lib/cutover.js): a Write, Edit or NotebookEdit
+ * WHAT IT REFUSES, from a linked-worktree session or with the `landing`
+ * module on and the main checkout cut over (lib/cutover.js): a Write, Edit or NotebookEdit
  * path, or a Bash write,
  * move or delete by any spelling lib/shell-parse.js's writeTargets reads,
  * resolving into the main checkout's own tree — not into a linked worktree
@@ -43,10 +43,16 @@
  *    the walk loses (`cd "$X"`, `pushd`), recorded; one run from a gitignored
  *    directory under the main checkout, which may still write `../` into
  *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
- *    The pre-commit limb holds a commit made by any route.
+ *    Once it is cut over, the pre-commit limb holds a commit made by any
+ *    route; before, a worktree session's commit there by a route this does
+ *    not read is held by nothing.
  *  - A `git` that cannot answer for the path allows the write, recorded
  *    (mantahostels#103 §6); one that cannot read the upstream leaves only the
  *    worktree refusal standing, recorded.
+ *  - A worktree session is told by the payload's cwd, so one whose shell
+ *    has `cd`'d into the main checkout writes there unrefused before the
+ *    cutover. Its stores then key by the main checkout, and the turn-end
+ *    reads judge it, until it `cd`s back before the turn ends (#4697).
  *  - No override: this binds agent sessions only (mantahostels#109).
  */
 
@@ -371,12 +377,12 @@ function refusalGround(ctx) {
 		const cutOver = readCutOver(ctx.git);
 		if (cutOver === null)
 			ctx.log(
-				"git could not read the main checkout's upstream — only a worktree session's write refused",
+				"git could not read the main checkout's upstream — the cutover refusal skipped",
 			);
 		if (cutOver)
 			return "The main checkout takes no edits or commits: its `main` follows `origin/main` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229).";
 	}
-	if (ctx.tree().root === ctx.root) return null;
+	if (ctx.treeClass(ctx.tree().root) !== "linked") return null;
 	return "A session in a linked worktree edits and commits only there: the claim and write stores key a write by the path in the writer's own tree, so one here goes unclaimed and unledgered, unseen by the turn-end uncommitted-work check (#4697).";
 }
 
