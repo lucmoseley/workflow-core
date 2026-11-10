@@ -9,45 +9,38 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const {
-	TSC_PEAKS_MB,
-	launchPeakMb,
-	runnerPeakMb,
-	tscDenial,
-	tscLaunchBin,
-	isTscLaunch,
-} = require("./tsc-slot.js") as {
-	TSC_PEAKS_MB: { 5: number; 7: number };
-	launchPeakMb: (
-		dir: string,
-		launch?: { bin?: string; readMajor?: (bin: string) => number | null },
-	) => number;
-	runnerPeakMb: (
-		row: { pid: number | null; args: string },
-		readMajor?: (bin: string) => number | null,
-	) => number;
-	tscDenial: (
-		rows: { pid: number | null; args: string }[] | null,
-		mb: number | null,
-		climbMb?: number,
-		limbs?: {
-			windows?:
-				| { state: "fresh"; mb: number; ageS: number }
-				| { state: "absent" }
-				| { state: "stale"; why: string };
-			peakMb?: number;
-		},
-	) => {
-		limb: string;
-		pids?: (number | null)[];
-		memory?: { mb: number; rungMb: number; climbMb?: number };
-		mb?: number;
-		rungMb?: number;
-		climbMb?: number;
-	} | null;
-	isTscLaunch: (words: string[]) => boolean;
-	tscLaunchBin: (words: string[]) => string | null;
-};
+const { TSC_PEAKS_MB, launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
+	require("./tsc-slot.js") as {
+		TSC_PEAKS_MB: { 5: number; 7: number };
+		launchPeakMb: (
+			dir: string,
+			launch?: { bin?: string; readMajor?: (bin: string) => number | null },
+		) => number;
+		runnerPeakMb: (
+			row: { pid: number | null; args: string },
+			readMajor?: (bin: string) => number | null,
+		) => number;
+		tscDenial: (
+			rows: { pid: number | null; args: string }[] | null,
+			mb: number | null,
+			climbMb?: number,
+			limbs?: {
+				windows?:
+					| { state: "fresh"; mb: number; ageS: number }
+					| { state: "absent" }
+					| { state: "stale"; why: string };
+				peakMb?: number;
+			},
+		) => {
+			limb: string;
+			pids?: (number | null)[];
+			memory?: { mb: number; rungMb: number; climbMb?: number };
+			mb?: number;
+			rungMb?: number;
+			climbMb?: number;
+		} | null;
+		tscLaunchBin: (words: string[]) => string | null;
+	};
 const { rungMb } = require("./suite-ladder.js") as {
 	rungMb: (peakMb: number) => number;
 };
@@ -325,7 +318,7 @@ describe("lib/tsc-slot.js", () => {
 		["node scripts/queue-run.js --tsc -- tsc", false],
 		["cat tsconfig.json", false],
 	])("reads `%s` as a tsc launch: %s", (command, expected) => {
-		expect(isTscLaunch(command.split(" "))).toBe(expected);
+		expect(tscLaunchBin(command.split(" ")) !== null).toBe(expected);
 	});
 
 	it.each([

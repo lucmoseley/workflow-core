@@ -259,9 +259,6 @@ function tscLaunchBin(words) {
 	return named(w0);
 }
 
-/** @param {string[]} words */
-const isTscLaunch = (words) => tscLaunchBin(words) !== null;
-
 module.exports = {
 	TSC_BUSY_EXIT,
 	TSC_PEAK_MB,
@@ -276,5 +273,4 @@ module.exports = {
 	runnerPeakMb,
 	tscDenial,
 	tscLaunchBin,
-	isTscLaunch,
 };
