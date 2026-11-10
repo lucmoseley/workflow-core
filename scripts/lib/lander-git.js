@@ -40,23 +40,58 @@ const GATED_COMMIT_TIMEOUT_MS = 600 * 1000;
  */
 const parseRefusal = (text) => readGitLines(text)[0] ?? parseFirstLine(text);
 
-/* A first guess, unmeasured: room for a gate's findings and the command it
- * names to settle them. */
+/* A first guess, unmeasured: room for a gate's remedy and the command it
+ * names to settle its findings. */
 const REFUSAL_TAIL_LINES = 40;
+/* Untraced: room for the row a verdict line names and its reason. A registry
+ * finding goes on to list every rule of its row, thousands of characters on
+ * a wide one, and an issue body holds 65,536. */
+const VERDICT_LINE_MAX = 300;
+/* Stands where lines are left out. */
+const REFUSAL_CUT = "[…]";
+
+/* The lines a commit gate gives its verdict on. lib/check.js opens the list
+ * of the faults a commit adds with the first, each fault indented under it,
+ * and ends on a `FAIL:` summary; check-guard-registry.js says why a merge
+ * carried no row, or not one row (#4514), before either. */
+const ADDED_FAULTS = /^The fault\(s\) below are NOT in /;
+const VERDICT_LINE =
+	/^(?:not carried |no row carried across this merge: |FAIL: )/;
+
+/** @param {string} line */
+const cutVerdictLine = (line) =>
+	line.length > VERDICT_LINE_MAX
+		? `${line.slice(0, VERDICT_LINE_MAX - 1)}…`
+		: line;
 
 /**
- * What a gate refusing a merge said: the last REFUSAL_TAIL_LINES non-blank
- * lines, colour stripped. A hook prints its passing checks first and its
- * findings last, so its first line can be an `OK:`.
+ * What the gates refusing a merge said, colour stripped: every verdict line,
+ * cut to VERDICT_LINE_MAX, and the last REFUSAL_TAIL_LINES non-blank lines
+ * whole, REFUSAL_CUT standing for each run of lines left out. A hook prints
+ * its passing checks first, so its first line can be an `OK:`, and a gate
+ * its reasons before a remedy longer than the tail.
  * @param {string} text
  */
-const parseRefusalTail = (text) =>
-	stripVTControlCharacters(text)
+function parseGateRefusal(text) {
+	const lines = stripVTControlCharacters(text)
 		.split("\n")
 		.map((l) => l.trimEnd())
-		.filter((l) => l !== "")
-		.slice(-REFUSAL_TAIL_LINES)
-		.join("\n");
+		.filter((l) => l !== "");
+	const tailFrom = lines.length - REFUSAL_TAIL_LINES;
+	/** @type {string[]} */
+	const kept = [];
+	let inFaults = false;
+	let next = 0;
+	lines.forEach((line, i) => {
+		inFaults = ADDED_FAULTS.test(line) || (inFaults && line.startsWith("  "));
+		const inTail = i >= tailFrom;
+		if (!inTail && !inFaults && !VERDICT_LINE.test(line)) return;
+		if (i > next) kept.push(REFUSAL_CUT);
+		kept.push(inTail ? line : cutVerdictLine(line));
+		next = i + 1;
+	});
+	return kept.join("\n");
+}
 
 /**
  * What a failed call printed to stderr, else its error's message.
@@ -320,7 +355,7 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
-	parseRefusalTail,
+	parseGateRefusal,
 	pushRemote,
 	readConflictedFiles,
 	readGit,

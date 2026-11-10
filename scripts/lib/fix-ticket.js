@@ -81,6 +81,18 @@ const quoteSubject = (/** @type {string} */ subject) =>
 const citedByAny = (subjects) =>
 	subjects.map(citedTicket).find((n) => n !== null) ?? null;
 
+/**
+ * What a red drop's change must pass: what it failed.
+ * @param {{files: readonly string[], typecheck?: readonly string[]}} cause
+ */
+function buildOwedPass({ files, typecheck }) {
+	if (typecheck === undefined)
+		return files.length > 0 ? "each file above" : "the whole suite";
+	return files.length > 0
+		? "each file above and the type-check"
+		: "the type-check";
+}
+
 /** @param {Drop} d */
 function buildDropAcceptance({ sha, name, cause }) {
 	const queued = `\`${QUEUE_PREFIX}${name}\``;
@@ -94,7 +106,7 @@ function buildDropAcceptance({ sha, name, cause }) {
 		default:
 			return cause.noRun
 				? `${short(sha)}'s change, merged onto \`main\`, fires a CI run on the lander's refs that passes the whole suite, and is pushed to ${queued} again.`
-				: `${short(sha)}'s change passes ${cause.files.length > 0 ? "each file above" : "the whole suite"} merged onto \`main\`, and is pushed to ${queued} again.`;
+				: `${short(sha)}'s change passes ${buildOwedPass(cause)} merged onto \`main\`, and is pushed to ${queued} again.`;
 	}
 }
 

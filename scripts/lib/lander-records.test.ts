@@ -154,6 +154,10 @@ describe("the drop record", () => {
 			after: ["b"],
 		},
 	};
+	const typed = {
+		...red,
+		cause: { ...red.cause, files: [], typecheck: ["a.js(1,1): error TS1: x"] },
+	};
 
 	it("reads back what it wrote, a row that is no drop skipped", () => {
 		dropRecord(file).write([
@@ -163,8 +167,10 @@ describe("the drop record", () => {
 			{ ...d, ref: 3 } as never,
 			{ ...red, cause: { ...red.cause, iso: 4 } } as never,
 			{ ...d, cause: { ...d.cause, kind: "parked" } } as never,
+			typed,
+			{ ...typed, cause: { ...typed.cause, typecheck: "x" } } as never,
 		]);
-		expect(dropRecord(file).read()).toEqual([d, red, collision]);
+		expect(dropRecord(file).read()).toEqual([d, red, collision, typed]);
 	});
 
 	it("reads an entry written before its decision state shipped as ticketed where it names a ticket, else open, decided when it was dropped", () => {

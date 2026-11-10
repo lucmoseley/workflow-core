@@ -15,7 +15,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { type Job, queueTester, type Run } from "./actions-tester.js";
+import {
+	type Job,
+	queueTester,
+	type Run,
+	TYPECHECK_STEP,
+} from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
 import type { Placement } from "./queue-lander.js";
@@ -486,6 +491,58 @@ it("reads a failed dependency install as red, a broken lockfile being the code's
 	);
 	expect(await verdictOf(r)).toMatchObject({ kind: "red" });
 	expect(r.reran).toEqual([]);
+});
+
+it("names on a red whose type-check step failed the first ten tsc errors its log holds, and none on a red that passed it (#4800)", async () => {
+	const lint = (step: string): Job => ({
+		name: "Full suite / Lint and types",
+		conclusion: "failure",
+		steps: [
+			{ name: "ESLint", conclusion: "success" },
+			{ name: step, conclusion: "failure" },
+		],
+	});
+	const errors = Array.from(
+		{ length: 12 },
+		(_, i) => `scripts/a.js(${i + 1},5): error TS2304: Cannot find name 'c'.`,
+	);
+	const typedLog = [
+		"Full suite / Lint and types\tTypecheck\t2026-11-10T08:30:00.0Z > workflow-core@0.1.0 typecheck",
+		...errors.map(
+			(e) =>
+				`Full suite / Lint and types\tTypecheck\t2026-11-10T08:30:01.0Z ${e}`,
+		),
+		"Full suite / Lint and types\tTypecheck\t2026-11-10T08:30:02.0Z ##[error]Process completed with exit code 2.",
+	].join("\n");
+	const verdictWith = (step: string) => {
+		const r = reads([() => [run(6, "failure")]], [lint(step)]);
+		r.failedLogOf = () => typedLog;
+		return verdictOf(r);
+	};
+
+	expect(await verdictWith(TYPECHECK_STEP)).toEqual({
+		kind: "red",
+		files: [],
+		jobs: ["Full suite / Lint and types"],
+		typecheck: errors.slice(0, 10),
+	});
+	expect(await verdictWith("Biome ci")).toEqual({
+		kind: "red",
+		files: [],
+		jobs: ["Full suite / Lint and types"],
+	});
+});
+
+it("names the type-check step as ci.yml does, the step running `npm run typecheck`", () => {
+	const ci = fs.readFileSync(
+		path.join(__dirname, "..", "..", ".github", "workflows", "ci.yml"),
+		"utf8",
+	);
+	const step = ci
+		.split(/\n\s+- name: /)
+		.find((s) => s.startsWith(`${TYPECHECK_STEP}\n`));
+
+	expect(step).toMatch(/\n\s+run: npm run typecheck\n/);
 });
 
 it("reads a failed run through gh and the tree through git", async () => {

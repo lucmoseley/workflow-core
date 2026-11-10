@@ -2408,6 +2408,23 @@ describe("the red path", () => {
 		expect(remote.main).toBe("merge(m0;a1)");
 	});
 
+	it("keeps on a member's drop the type-check errors its red named (#4800)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const typecheck = ["b.js(1,1): error TS2304: Cannot find name 'c'."];
+		const typed: Verdict = { kind: "red", files: [], typecheck };
+
+		const { actions } = await land(remote, freshDisk(), {
+			verdict: (sha) => (sha.includes("b1") ? typed : Green),
+		});
+
+		expect(dropsOf(actions).map((d) => d.cause)).toEqual([
+			{ kind: "red", name: "b", files: [], iso: "merge(m0;b1)", typecheck },
+		]);
+	});
+
 	it("ends a batch whose push run never appears, dropping the member whose tree alone fires none and landing the rest (#4571)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
