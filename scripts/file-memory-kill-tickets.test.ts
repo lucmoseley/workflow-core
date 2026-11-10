@@ -10,15 +10,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
-import {
-	ONE_BOOT,
-	readingLine,
-	signalLine,
-	writeFailingJournalctl,
-	writeJournalctl,
-} from "./lib/earlyoom-journal-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { INCIDENT_GH_STUB } from "./lib/incident-gh-stub";
+import {
+	buildReadingLine,
+	buildSignalLine,
+	ONE_BOOT,
+	writeFailingJournalctl,
+	writeJournalctl,
+} from "./lib/journalctl-fake";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "file-memory-kill-tickets.js");
@@ -42,8 +42,8 @@ function seed(minutesAgo: number[], tickets: object[] = []) {
 	writeJournalctl(
 		path.join(sb.dir, "gh"),
 		minutesAgo.flatMap((m, i) => [
-			readingLine(now - m * MIN),
-			signalLine(now - m * MIN, 100 + i, i % 2 ? "2.1.310" : "MainThread"),
+			buildReadingLine(now - m * MIN),
+			buildSignalLine(now - m * MIN, 100 + i, i % 2 ? "2.1.310" : "MainThread"),
 		]),
 	);
 }

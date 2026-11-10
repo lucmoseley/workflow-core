@@ -11,13 +11,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	buildOtherLine,
+	buildReadingLine,
+	buildSignalLine,
 	ONE_BOOT,
-	otherLine,
-	readingLine,
-	signalLine,
 	writeFailingJournalctl,
 	writeJournalctl,
-} from "./earlyoom-journal-fake";
+} from "./journalctl-fake";
 
 const kills = require("./earlyoom-kills.js");
 const { basisFaults } = require("./issue-gate.js");
@@ -27,19 +27,19 @@ const T0 = Date.parse("2026-10-26T03:56:56+08:00");
 
 /** Two incidents: three kills, one pid signalled twice, then one 40 min on. */
 const JOURNAL = [
-	otherLine(T0 - MIN),
-	readingLine(T0, 776),
-	signalLine(T0, 2_151_820, "dbus-daemon", { rss: 1 }),
-	readingLine(T0 + 3000, 768),
-	signalLine(T0 + 3000, 658_446, "MainThread"),
-	readingLine(T0 + 20 * MIN, 790, 12),
-	signalLine(T0 + 20 * MIN, 658_446, "MainThread", {
+	buildOtherLine(T0 - MIN),
+	buildReadingLine(T0, 776),
+	buildSignalLine(T0, 2_151_820, "dbus-daemon", { rss: 1 }),
+	buildReadingLine(T0 + 3000, 768),
+	buildSignalLine(T0 + 3000, 658_446, "MainThread"),
+	buildReadingLine(T0 + 20 * MIN, 790, 12),
+	buildSignalLine(T0 + 20 * MIN, 658_446, "MainThread", {
 		rss: 900,
 		sig: "SIGKILL",
 	}),
-	signalLine(T0 + 25 * MIN, 369_866, "2.1.310", { rss: 450 }),
-	readingLine(T0 + 65 * MIN, 700),
-	signalLine(T0 + 65 * MIN, 77, "a`b|c"),
+	buildSignalLine(T0 + 25 * MIN, 369_866, "2.1.310", { rss: 450 }),
+	buildReadingLine(T0 + 65 * MIN, 700),
+	buildSignalLine(T0 + 65 * MIN, 77, "a`b|c"),
 ];
 
 let dir: string;
@@ -159,7 +159,10 @@ describe("headless runs among the kills (#4143)", () => {
 			"WFC_JOURNALCTL",
 			writeJournalctl(
 				path.join(dir, "join"),
-				at.flatMap((ms) => [readingLine(ms), signalLine(ms, Pid, "claude")]),
+				at.flatMap((ms) => [
+					buildReadingLine(ms),
+					buildSignalLine(ms, Pid, "claude"),
+				]),
 				boots,
 			),
 		);

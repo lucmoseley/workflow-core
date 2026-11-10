@@ -3,7 +3,7 @@
  * readers (#3094), check-kernel-stall.js's kernel reader and the boot unit's
  * ExecStopPost= (install-refill-boot-unit.js, #4594): the line builders
  * and a stub journalctl honouring `--since @<s>`, injected at WFC_JOURNALCTL.
- * Held to the real journalctl by earlyoom-journal.contract.test.ts (#3105).
+ * Held to the real journalctl by journalctl.contract.test.ts (#3105).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -13,10 +13,10 @@ const stamp = (ms: number) =>
 	new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
 
 /** The `mem avail … swap free …` line earlyoom prints before a signal. */
-export const readingLine = (ms: number, avail = 776, swap = 0) =>
+export const buildReadingLine = (ms: number, avail = 776, swap = 0) =>
 	`${stamp(ms)} Luctop earlyoom[180]: mem avail:   ${avail} of  9924 MiB ( 7.83%), swap free:    ${swap} of 2048 MiB ( 0.00%)`;
 
-export const signalLine = (
+export const buildSignalLine = (
 	ms: number,
 	pid: number,
 	name: string,
@@ -25,7 +25,7 @@ export const signalLine = (
 	`${stamp(ms)} Luctop earlyoom[180]: sending ${sig} to process ${pid} uid 1000 "${name}": badness 741, VmRSS ${rss} MiB`;
 
 /** A line earlyoom prints that is neither: its startup banner's. */
-export const otherLine = (ms: number) =>
+export const buildOtherLine = (ms: number) =>
 	`${stamp(ms)} Luctop earlyoom[180]: sending SIGTERM when mem <=  8.00% and swap <= 100.00%,`;
 
 /** A line as `-o short-iso` prints it: its stamp, host and ident, then `msg`. */
@@ -33,7 +33,7 @@ export const buildJournalLine = (ms: number, ident: string, msg: string) =>
 	`${stamp(ms)} Luctop ${ident}: ${msg}`;
 
 /** A kernel line, as `journalctl -k` prints it. */
-export const kernelLine = (ms: number, msg: string) =>
+export const buildKernelLine = (ms: number, msg: string) =>
 	buildJournalLine(ms, "kernel", msg);
 
 /** A boot as the fake lists it: journalctl's undashed id and its span, ms. */

@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
-import { kernelLine } from "./earlyoom-journal-fake";
+import { buildKernelLine } from "./journalctl-fake";
 import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
@@ -17,9 +17,12 @@ export const stallBootLines = (
 	stallMs: number,
 	jiffies: number,
 ) => [
-	kernelLine(bootMs, "Booting Linux on physical CPU 0x0"),
-	kernelLine(stallMs, "rcu: INFO: rcu_preempt self-detected stall on CPU"),
-	kernelLine(stallMs, `rcu: \t(t=${jiffies} jiffies g=29441 q=149 ncpus=8)`),
+	buildKernelLine(bootMs, "Booting Linux on physical CPU 0x0"),
+	buildKernelLine(stallMs, "rcu: INFO: rcu_preempt self-detected stall on CPU"),
+	buildKernelLine(
+		stallMs,
+		`rcu: \t(t=${jiffies} jiffies g=29441 q=149 ncpus=8)`,
+	),
 ];
 
 /** A gzipped kernel config at `at` naming `hz`. Its path, for WFC_KERNEL_CONFIG. */

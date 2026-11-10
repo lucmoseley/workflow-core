@@ -10,11 +10,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll } from "vitest";
 import type { freshSandbox } from "./arbiter-testkit";
-import {
-	readingLine,
-	signalLine,
-	writeJournalctl,
-} from "./earlyoom-journal-fake";
 import { ghAnswerHandler, RECORDED_SHAPES } from "./gh-fake";
 import {
 	type GhStubServer,
@@ -22,6 +17,11 @@ import {
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
+import {
+	buildReadingLine,
+	buildSignalLine,
+	writeJournalctl,
+} from "./journalctl-fake";
 import { runInProcessAsync } from "./run-in-process";
 
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
@@ -273,8 +273,8 @@ export function morningReviewFixture(
 		/* One earlyoom kill 3 h ago, its incident ticketed as #61. */
 		const killedAt = Date.now() - 3 * HOUR;
 		writeJournalctl(path.join(sb.dir, "gh"), [
-			readingLine(killedAt),
-			signalLine(killedAt, 9, "2.1.310"),
+			buildReadingLine(killedAt),
+			buildSignalLine(killedAt, 9, "2.1.310"),
 		]);
 		const { incidentTitle } = require("./earlyoom-kills.js");
 		fs.writeFileSync(
