@@ -7108,6 +7108,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/headless-run.json": [
+			"scripts/claude-child.test.ts",
 			"scripts/dispatch-sessions-overflow.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/headless-run.contract.test.ts",
@@ -21509,6 +21510,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/claude-child.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-overflow.test.ts",
@@ -21562,6 +21564,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/claude-child.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-overflow.test.ts",
