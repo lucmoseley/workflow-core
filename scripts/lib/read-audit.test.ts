@@ -210,6 +210,10 @@ describe("what a test file reads, as the audit sees it", () => {
 			fs.chmodSync(path.join(scratch, "sleep"), 0o755);
 			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
 
+			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
+			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
+
 			const linked = fs.mkdtempSync(path.join(os.homedir(), ".rda-link-"));
 			try {
 				fs.symlinkSync(
