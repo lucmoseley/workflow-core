@@ -48,12 +48,13 @@ const ISOLATED_PREFIX = "isolated-";
 /*
  * Gitignored, generated artefacts the suite reads that `git worktree add`
  * therefore does not reproduce. `createIsolated` symlinks each one the
- * canonical checkout has into the frozen worktree, exactly as it does
- * `node_modules`; `removeIsolated` unlinks each before tearing the worktree
- * down, so the canonical original is never walked. Another member costs one
- * line here (mantahostels#2213), or, for one a host's suite alone reads, one entry
- * in its `worktreeLinks` (#1767) — `linkArtefacts` makes its parent directory
- * first, so an entry needs no tracked sibling of its own to land.
+ * canonical checkout has into the frozen worktree; `removeIsolated` unlinks
+ * each before tearing the worktree down, so the canonical original is never
+ * walked. A member belongs here only where every host's suite needs it and
+ * the worktree must never hold its own copy: one HEAD tracks is refused as a
+ * setup fault, where a host's `worktreeLinks` entry (#1767) keeps the
+ * commit's copy instead. `linkArtefacts` makes a member's parent directory
+ * first, so it needs no tracked sibling of its own to land.
  */
 const SHARED_ARTEFACTS = [
 	/* The bulk of the checkout — copying it per run would dwarf the worktree's

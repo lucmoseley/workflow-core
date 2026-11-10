@@ -6598,7 +6598,17 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			it("links no shared artefact the checkout lacks, so a walk over its tree does not throw (#822)", async () => {
 				const dir = dirtyCheckout();
 				fs.rmSync(path.join(dir, "node_modules"), { recursive: true });
-				const seen = { deps: true, walk: "" };
+				// A member the checkout has, so the skip is shown sparing the rest.
+				const config = ".claude/workflow-core.json";
+				fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+				fs.writeFileSync(
+					path.join(dir, config),
+					JSON.stringify({ worktreeLinks: [".env"] }),
+				);
+				gitIn(dir, ["add", "-f", config]);
+				gitIn(dir, ["commit", "-qm", "links", "--", config]);
+				fs.writeFileSync(path.join(dir, ".env"), "canonical\n");
+				const seen = { deps: true, declared: false, walk: "" };
 				const { code } = await runSeeing(dir, [], {
 					pid: 5412,
 					sessionId: "mine",
@@ -6608,6 +6618,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 							fs.lstatSync(path.join(opts.cwd, "node_modules"), {
 								throwIfNoEntry: false,
 							}) !== undefined;
+						seen.declared =
+							fs
+								.lstatSync(path.join(opts.cwd, ".env"), {
+									throwIfNoEntry: false,
+								})
+								?.isSymbolicLink() === true;
 						try {
 							for (const entry of fs.readdirSync(opts.cwd, {
 								recursive: true,
@@ -6621,6 +6637,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				});
 				expect(code).toBe(0);
 				expect(seen.deps).toBe(false);
+				expect(seen.declared).toBe(true);
 				expect(seen.walk).toBe("");
 			});
 
