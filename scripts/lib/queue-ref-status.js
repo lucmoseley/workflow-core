@@ -10,8 +10,11 @@
  *   - landed: a land row names it, or `main` holds its snapshot sha, with the
  *     `main` sha it reached, off the pipeline record, else the oldest
  *     green-ledger sha on `main`'s first-parent path from it;
- *   - dropped: a drop row or the drop record names it, with its fix ticket
- *     off the drop record and the dropped ref holding it, or that ref reaped.
+ *   - dropped: a drop row or the drop record names it, with the dropped ref
+ *     holding it, where the drop stands off the drop record — returned to
+ *     this session, held behind a newer push, settled, or under a fix ticket
+ *     — and its cause and evidence, in the words its fix ticket would use
+ *     (lib/drop-evidence.js; #4950).
  *
  * Stays read oldest first, the ref's waiting sha last (#4485, spec #4458).
  */
@@ -19,6 +22,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseErrorText } = require("./caught.js");
+const { buildDropEvidence } = require("./drop-evidence.js");
 const { execGit } = require("./git.js");
 const { fileLedger, queueLanderFiles } = require("./lander-files.js");
 const { isAncestor, parseRefusal, short } = require("./lander-git.js");
@@ -63,8 +67,11 @@ const { batchesOf } = require("./queue-lander.js");
  *   | {state: "landed", name: string, sha: string,
  *     main: string|null|Unwalked}
  *   | {state: "dropped", name: string, sha: string, ref: string|null,
- *     ticket: number|null, record: "read"|"reaped"|"torn"|"no-entry"}}
- *   RefState
+ *     record: "torn"|"no-entry"}
+ *   | {state: "dropped", name: string, sha: string, ref: string|null,
+ *     record: "read", drop: Drop, held: boolean}}
+ *   RefState `drop` its drop record entry; `held` where a push of the queue
+ *   ref waits
  */
 
 /**
@@ -132,13 +139,17 @@ function droppedState(r, sha) {
 		name: r.name,
 		sha,
 	};
-	const unread = { ...dropped, ref: onRemote ?? null, ticket: null };
+	const unread = { ...dropped, ref: onRemote ?? null };
 	if (r.drops.kind === "torn") return { ...unread, record: "torn" };
 	const entry = ownDrops(r).find((d) => d.sha === sha);
 	if (!entry) return { ...unread, record: "no-entry" };
-	return entry.reapedAt === undefined
-		? { ...dropped, ref: entry.ref, ticket: entry.ticket, record: "read" }
-		: { ...dropped, ref: null, ticket: entry.ticket, record: "reaped" };
+	return {
+		...dropped,
+		ref: entry.reapedAt === undefined ? entry.ref : null,
+		record: "read",
+		drop: entry,
+		held: r.waiting !== null,
+	};
 }
 
 /**
@@ -190,16 +201,35 @@ function queueRefStates(r) {
 	return states;
 }
 
+/**
+ * Where a recorded drop stands: settled, under its fix ticket, held behind
+ * a newer push, or returned to the session reading it.
+ * @param {Drop} d
+ * @param {boolean} held
+ */
+function standingOf(d, held) {
+	if (d.state === "settled")
+		return d.settledOn === undefined
+			? "settled"
+			: `settled at ${short(d.settledOn)}`;
+	if (d.ticket !== null) return `fix ticket #${d.ticket}`;
+	return held
+		? "held: a newer push waits"
+		: "returned to this session; no ticket while it works";
+}
+
 /** @param {Extract<RefState, {state: "dropped"}>} s */
 function dropText(s) {
-	if (s.record === "reaped")
-		return `fix ticket #${s.ticket} (closed), dropped ref reaped`;
 	const kept = s.ref ? `kept as ${s.ref}` : "no dropped ref holds it";
-	if (s.record === "torn")
-		return `${kept}; the drop record is torn, so its fix ticket is unknown`;
-	if (s.record === "no-entry")
-		return `${kept}; the drop record holds no entry for it, so its fix ticket is unknown`;
-	return `${kept}, ${s.ticket === null ? "its fix ticket not yet filed" : `fix ticket #${s.ticket}`}`;
+	if (s.record !== "read")
+		return `${kept}; the drop record ${s.record === "torn" ? "is torn" : "holds no entry for it"}, so its cause and fix ticket are unknown`;
+	const { drop } = s;
+	const standing = standingOf(drop, s.held);
+	if (drop.reapedAt !== undefined)
+		return drop.state === "settled"
+			? standing
+			: `${standing} (closed), dropped ref reaped`;
+	return `${standing}; ${kept}\n  dropped because, ${buildDropEvidence(drop)}`;
 }
 
 /**

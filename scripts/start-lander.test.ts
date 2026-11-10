@@ -1,11 +1,12 @@
 // @vitest-environment node
 /*
- * scripts/start-lander.js end to end (#2405, #4458): it starts a detached queue
- * lander that lands a queue ref's commit, and starts none where one runs, no
- * queue ref waits or the module is off.
+ * scripts/start-lander.js end to end (#2405, #4458, #4950): it starts a
+ * detached queue lander that lands a queue ref's commit, or that decides a
+ * drop owed a decision with no queue ref waiting, and starts none where one
+ * runs, nothing waits or is owed, or the module is off.
  *
- * Loosen it and the session-start route starts no lander, or two landers
- * race to test and push.
+ * Loosen it and the session-start route starts no lander, two landers race
+ * to test and push, or a drop waits on an unrelated push for its decision.
  *
  * Built on a real bare remote and a real detached lander, since what is
  * under test is the detach itself; the tester is gated on a file, so the
@@ -102,7 +103,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	const first = start(["--tester", tester]);
 	expect(first.status, first.stderr).toBe(0);
 	expect(first.stdout).toMatch(
-		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work \(launched by no session; pid \d+\); its output: /,
+		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work, 0 drop\(s\) owed a decision \(launched by no session; pid \d+\); its output: /,
 	);
 	await waitFor(() => fs.existsSync(path.join(markers(), ".lander.pid")));
 
@@ -120,11 +121,53 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	);
 });
 
-it("starts none where no queue ref waits", () => {
+/** The drop record holding one drop of `queue/gone` at `sha`, as `over` has it. */
+const recordDrop = (sha: string, over: Record<string, unknown> = {}) => {
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(
+		path.join(markers(), ".queue-lander-drops.json"),
+		JSON.stringify([
+			{
+				name: "gone",
+				sha,
+				ref: "dropped/gone",
+				onto: sha,
+				cause: { kind: "conflict", name: "gone", files: ["x.txt"] },
+				ticket: null,
+				at: 1,
+				state: "open",
+				decidedAt: 1,
+				...over,
+			},
+		]),
+	);
+};
+
+it("starts a lander with no queue ref waiting where a drop is owed a decision, which settles one main already holds", async () => {
+	const main = git(remote, "rev-parse", "main");
+	git(work, "push", "-q", "origin", `${main}:refs/heads/dropped/gone`);
+	recordDrop(main);
+
 	const r = start(["--tester", "true"]);
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toBe("SKIP: no queue ref waits\n");
+	expect(r.stdout).toMatch(
+		/^\S+Z started the queue lander, 0 queue ref\(s\) waiting, 1 drop\(s\) owed a decision: dropped\/gone \(launched by no session; pid \d+\); its output: /,
+	);
+	expect(
+		await waitFor(() => git(remote, "branch", "--list", "dropped/gone") === ""),
+	).toBe(true);
+});
+
+it("starts none where no queue ref waits and every drop is settled or ticketed", () => {
+	recordDrop("a".repeat(40), { ticket: 7, state: "ticketed" });
+
+	const r = start(["--tester", "true"]);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe(
+		"SKIP: no queue ref waits and no drop is owed a decision\n",
+	);
 	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });
 

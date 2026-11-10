@@ -34,6 +34,7 @@ const {
 	readHeartbeat,
 } = require("./lander-files.js");
 const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
+const { readOwedDrops } = require("./lander-records.js");
 const { markersDir } = require("./marker-root.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
@@ -59,6 +60,8 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  * @property {import("./lander-files.js").Heartbeat|null} heartbeat the queue
  *   lander's
  * @property {(pid: number) => boolean} alive
+ * @property {number} owed the drops owed a decision: open, with no fix
+ *   ticket
  */
 
 /** @param {QueueReading} r */
@@ -95,7 +98,8 @@ function stallFindings(r) {
 
 /**
  * What the refill loop does about a reading (#2692, ruled at #2672): start
- * the queue lander where a queue ref waits and none runs, and file the stall
+ * the queue lander where none runs and a queue ref waits or a drop is owed
+ * a decision (#4950), and file the stall
  * ticket where `main` has not moved with a queue ref waiting and a lander
  * running or dead, since one that fails on every start is restarted each
  * tick and never seen running. No ticket for a lander between runs on a
@@ -110,7 +114,7 @@ function supervision(r) {
 	const dead = found.some((f) => f.tag === "LANDER-DEAD");
 	const stalled = found.find((f) => "movedAt" in f);
 	return {
-		start: oldest !== null && !live,
+		start: (oldest !== null || r.owed > 0) && !live,
 		ticket:
 			stalled && "movedAt" in stalled && oldest !== null && (dead || live)
 				? {
@@ -154,6 +158,7 @@ function readQueue(root, now) {
 		}),
 		heartbeat: readHeartbeat(queueLanderFiles(root).heartbeat),
 		alive: pidAlive,
+		owed: readOwedDrops(queueLanderFiles(root).drops).length,
 	};
 }
 

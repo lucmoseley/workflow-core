@@ -4,7 +4,7 @@
  * on no member (#4485, spec #4458).
  */
 
-const { buildFileList } = require("./fix-ticket.js");
+const { buildFileList } = require("./drop-evidence.js");
 const { short } = require("./lander-git.js");
 const { queueIssueFiler } = require("./queue-issue.js");
 
