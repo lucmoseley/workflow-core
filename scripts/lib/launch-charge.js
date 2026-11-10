@@ -77,7 +77,7 @@ const TSC_PEAK_MB = 2045;
  * Named: the highest of 341 runs of 1-6 files, 937 MB. A named run past
  * those 6 files is unmeasured and charged whole. Residual: a spike between
  * two samples is charged short. */
-const CHARGE_MB = { whole: 2630, named: 940 };
+const LANDER_CHARGE_MB = { whole: 2630, named: 940 };
 const NAMED_MEASURED_FILES = 6;
 
 /**
@@ -120,8 +120,8 @@ function chargeMb(launch) {
 		case "lander":
 			return launch.files.length === 0 ||
 				launch.files.length > NAMED_MEASURED_FILES
-				? CHARGE_MB.whole
-				: CHARGE_MB.named;
+				? LANDER_CHARGE_MB.whole
+				: LANDER_CHARGE_MB.named;
 	}
 }
 

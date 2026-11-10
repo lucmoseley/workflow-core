@@ -4,6 +4,9 @@
  * memory rung. Break a row and every admitter reading that kind admits a
  * launch short, into the 10 GB cap, or holds one back for memory it never
  * draws.
+ *
+ * The one place each figure is pinned as a literal: the callers' tests ask
+ * this module by kind, so they check classification, never a figure.
  */
 import { describe, expect, it } from "vitest";
 import { chargeMb } from "./launch-charge";

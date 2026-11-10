@@ -629,6 +629,7 @@ it("charges a whole suite, a named-file rerun and one past six files as lander r
 		launchChargeMb({ kind: "lander", files: ["a.check.js"] }),
 		launchChargeMb({ kind: "lander", files: seven }),
 	]);
+	expect(charged[1]).toBeLessThan(charged[0] as number);
 });
 
 it("opens the gate's memory rung at a whole suite's and a named-file rerun's charge (#3323, #3973)", async () => {
