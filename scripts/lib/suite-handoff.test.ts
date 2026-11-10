@@ -37,6 +37,7 @@ const LAUNCH = {
 	argv: ["--full=coverage"],
 	resolvedFiles: 485,
 	wholeSlot: true,
+	leftOut: ["lib/b.test.ts"],
 	changedPaths: ["lib/a.js", "docs/b.md"],
 	base: "b".repeat(40),
 };
@@ -51,6 +52,7 @@ const ABSENT = {
 	argv: null,
 	resolvedFiles: null,
 	wholeSlot: false,
+	leftOut: null,
 	changedPaths: null,
 	base: null,
 };
@@ -93,6 +95,8 @@ describe("the launch record", () => {
 		["resolvedFiles", 2.5],
 		["resolvedFiles", "40"],
 		["wholeSlot", "true"],
+		["leftOut", "lib/b.test.ts"],
+		["leftOut", [7]],
 		["changedPaths", "lib/a.js"],
 		["changedPaths", ["lib/a.js", null]],
 		["base", 42],

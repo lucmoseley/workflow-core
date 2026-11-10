@@ -116,8 +116,10 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/lib/registry-anchors-merge.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/lib/walk-and-commit.test.ts",
 			"scripts/queue-lander.test.ts",
+			"scripts/run-vitest.test.ts",
 			"scripts/session-checkout.test.ts"
 		],
 		".claude/output-styles/core-voice.md": [
@@ -509,6 +511,7 @@
 			"scripts/check-weakens-line.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/coverage-declined.test.ts",
+			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
@@ -538,6 +541,7 @@
 		],
 		".github/workflows/named-rerun.yml": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/ci-verdict.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -553,6 +557,7 @@
 		".github/workflows/scheduled-checks.yml": [
 			"scripts/check-ci-status.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/actions-tester.test.ts",
 			"scripts/repair-sweep-slot.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -3094,6 +3099,7 @@
 			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/test-pass-marker.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/lib/unasked-rerun-guard.test.ts",
 			"scripts/lib/unasked-rerun-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -4804,8 +4810,10 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/run-vitest.test.ts"
 		],
 		"scripts/check-guard-test-isolation.js": [
 			"scripts/check-guard-test-isolation.test.ts",
@@ -5004,8 +5012,11 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/run-pytest.test.ts",
+			"scripts/run-vitest.test.ts"
 		],
 		"scripts/check-interop-latency.js": [
 			"scripts/check-interop-latency.test.ts",
@@ -8251,9 +8262,12 @@
 			"scripts/lib/issue-close.test.ts",
 			"scripts/lib/refusal-script-paths.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/repo-checks.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/run-pytest.test.ts",
+			"scripts/run-vitest.test.ts"
 		],
 		"scripts/issue-body.js": [
 			"scripts/adopter-landing.test.ts",
@@ -19158,6 +19172,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -25317,8 +25332,29 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/lander-git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/lander-git.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -27741,6 +27777,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -32409,6 +32446,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -35297,6 +35335,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -42774,7 +42813,28 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/touched-tests.live.test.ts",
 			"scripts/lib/touched-tests.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/touched-tests.live.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -47629,6 +47689,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/refill-loop-run.test.ts": [
+			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -48525,6 +48586,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/host-root.test.ts",
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",

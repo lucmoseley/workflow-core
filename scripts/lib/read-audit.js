@@ -388,8 +388,10 @@ function childDoubt(e, logs, root, isScratch) {
 }
 
 /* Programs that read nothing of the directory they run in, each traced with
- * `strace -e trace=file` to make no file call outside the system directories:
- * under any arguments (null), or under the one argument named. */
+ * `strace -e trace=file` to make no file call outside the system directories
+ * and its own: under any arguments (null), or under the one argument named.
+ * Not weighed: a relative LD_PRELOAD, LD_LIBRARY_PATH or LOCPATH in the
+ * child's environment, which makes the loader probe that directory. */
 const CWD_BLIND = new Map([
 	["sleep", null],
 	["ps", null],
@@ -397,19 +399,21 @@ const CWD_BLIND = new Map([
 	["gitleaks", "version"],
 ]);
 
+const TMP = fs.realpathSync(os.tmpdir());
+
 /**
  * Whether a child reads nothing of the directory it runs in (#4932): one of
- * `CWD_BLIND`, run as the real program. A file of the same name under the
- * checkout or the temporary directory is one a test can write, so it is not
- * that program.
+ * `CWD_BLIND`, run as the real program. A file of that name under the
+ * checkout or the temporary directory, or a link there to any file, is one a
+ * test can write, so it is not that program.
  * @param {Entry} e
  * @param {string} root real path
  */
 function isCwdBlind(e, root) {
 	const name = path.basename(String(e.file));
-	if (typeof e.bin !== "string" || !CWD_BLIND.has(name)) return false;
-	if (isUnder(e.bin, [root, fs.realpathSync(os.tmpdir())], path.sep))
-		return false;
+	const bin = Array.isArray(e.bin) ? e.bin : [];
+	if (bin.length === 0 || !CWD_BLIND.has(name)) return false;
+	if (bin.some((at) => isUnder(at, [root, TMP], path.sep))) return false;
 	const sole = CWD_BLIND.get(name);
 	const args = /** @type {string[]} */ (e.args ?? []);
 	return sole === null || (args.length === 1 && args[0] === sole);

@@ -27,8 +27,8 @@ const {
 	createRemoteRef,
 	deleteRemoteRef,
 	isAncestor,
+	parseGateRefusal,
 	parseRefusal,
-	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
 	readGit,
@@ -534,7 +534,7 @@ function queueGit(
 				: {
 						kind: "refused",
 						name: m.name,
-						reason: parseRefusalTail(parseErrorText(err)),
+						reason: parseGateRefusal(parseErrorText(err)),
 					};
 		}
 	}

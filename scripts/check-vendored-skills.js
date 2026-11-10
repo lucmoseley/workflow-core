@@ -8,7 +8,7 @@
  *   node scripts/check-vendored-skills.js --declare <path> --issue <n> --why "<one line>"
  *   node scripts/check-vendored-skills.js --drop <path>
  *   node scripts/check-vendored-skills.js --forget <path>
- *   node scripts/check-vendored-skills.js --revendor --at <rev>
+ *   node scripts/check-vendored-skills.js --revendor --at <rev> [--from <upstream clone>]
  *   node scripts/check-vendored-skills.js --upstream [--write]
  *   node scripts/check-vendored-skills.js --covered <dir>
  *
@@ -35,7 +35,7 @@
  * only — see LOCK-HASH.
  *
  * THE RECORD. `.agents/vendored-skill-edits.json`, two sections:
- *   vendored  every tracked file under .agents/skills/ as the vendoring commit
+ *   vendored  every tracked file under .agents/skills/ as its upstream
  *             supplied it, path -> sha256.
  *   edits     only the files that diverge or were added, each with the hash
  *             it was declared at, the issue that approved it and one line of
@@ -69,9 +69,10 @@
  * carries no declared edit — anywhere else the two are expected to disagree and
  * the digest cannot say why. So it fires where the per-file check is blind: the
  * MANIFEST is wrong, because `--revendor --at <rev>` was pointed at a commit
- * where an undeclared edit had already landed, which bakes those bytes in as
- * "what the vendor supplied" and silences every later verdict on that file. The
- * lock is the installer's own witness of the pull, so it disagrees.
+ * where an undeclared edit had already landed, or `--from` at a tag other than
+ * the one pulled, which bakes those bytes in as "what the vendor supplied" and
+ * silences every later verdict on that file. The lock is the installer's own
+ * witness of the pull, so it disagrees.
  *
  * That needs the per-file gate to have been defeated first — `HUSKY=0`, a
  * `--warn` run, or the edit riding a commit staging no path this check is scoped
@@ -81,6 +82,21 @@
  * construction, and a lock written under a locale whose `localeCompare` orders
  * two paths differently from the checking machine's. So re-read the port against
  * upstream before acting on a LOCK-HASH that names more than one or two skills.
+ *
+ * RECORDING A PULL. `--revendor` rebuilds the record from blobs at a revision,
+ * never from a working tree, which is where local edits live. Two routes:
+ *   --at <rev> --from <clone>  what a re-pull runs (#4802). <clone> is a local
+ *                              clone of the upstream repo and <rev> a tag or
+ *                              commit in it. For every skill the lock sources
+ *                              from that repo — read off the clone's `origin` —
+ *                              it records the manifest, the lock's
+ *                              `computedHash` and `vendoredAt`, as
+ *                              `<source>@<sha> (<rev>)`. Another source's
+ *                              skills keep their rows.
+ *   --at <rev>                 a commit of THIS repo holding the vendor's bytes
+ *                              pristine: the first vendoring. A re-pull has no
+ *                              such commit — upstream's bytes over a declared
+ *                              edit are DRIFTED, so the gate below refuses it.
  *
  * WHERE IT RUNS. `.husky/pre-commit`, scoped to commits that stage a path under
  * `.agents/skills/`, or the manifest, or `skills-lock.json` — an unrelated
@@ -131,10 +147,10 @@
  *
  * RESIDUAL: `vendoredAt` is single-provenance and the manifest is not.
  * It names one mattpocock/skills commit for every file, but `animate`'s two
- * arrived at f13eec839, so every verdict line quoting the field misdescribes
+ * are emilkowalski/skills', so every verdict line quoting the field misdescribes
  * those two. Nothing compares against it, so no gate is wrong, and every file
- * of every skill vendored outside a --revendor joins it. #906 and #4633 set it by hand;
- * the next --revendor writes a revision of this repo instead. Per-path
+ * of every skill vendored outside a --revendor joins it, and a --revendor
+ * --from names the one source it pulled. Per-path
  * provenance, a data-format change plus a write command, was declined at
  * mantahostels#3025; revisit at a third upstream, when the field misdescribes
  * enough of the manifest to pay.
@@ -161,16 +177,23 @@ const {
 const { landingCutOver } = require("./lib/cutover.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
+const { isUnder } = require("./lib/is-under.js");
+const { commitSha } = require("./lib/commit-sha.js");
 
 const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
 const RECORD = ".agents/vendored-upstream-pass.json";
 const STAND_DOWN = "WFC_UPSTREAM_RECORD_OFF";
+/** Hex digits of the sha `vendoredAt` names. A first choice, stated as one: the
+ * width of `d1478fcb`, the sha the record names; git lengthens it where that is
+ * ambiguous. */
+const VENDORED_AT_SHA_WIDTH = 8;
 /** The files the upstream record vouches for, by their repo paths. */
 const COVERED = [LOCK, NOTICES];
 
 /**
  * @typedef {{ editedHash: string, issue: number, why: string }} EditEntry
+ * @typedef {{ rel: string, content: Buffer }} SkillFile one file of a skill folder, `rel` relative to it
  * @typedef {{
  *   ranOn: string,
  *   sha256: Record<string, string | null>,
@@ -265,12 +288,23 @@ function readVendoredFilesOnDisk(root) {
  * @returns {string}
  */
 function skillFolderHash(dir) {
-	/** @type {{ rel: string, content: Buffer }[]} */
+	/** @type {SkillFile[]} */
 	const files = [];
 	collectSkillFiles(dir, dir, files);
-	files.sort((a, b) => a.rel.localeCompare(b.rel));
+	return hashSkillFiles(files);
+}
+
+/**
+ * `skillFolderHash`'s digest, over one skill folder's files however they were
+ * read: off disk, or out of an upstream clone's blobs.
+ *
+ * @param {SkillFile[]} files each `rel` relative to the skill folder
+ * @returns {string}
+ */
+function hashSkillFiles(files) {
+	const sorted = [...files].sort((a, b) => a.rel.localeCompare(b.rel));
 	const h = crypto.createHash("sha256");
-	for (const f of files) {
+	for (const f of sorted) {
 		h.update(f.rel);
 		h.update(f.content);
 	}
@@ -283,7 +317,7 @@ function skillFolderHash(dir) {
  *
  * @param {string} dir
  * @param {string} cur
- * @param {{ rel: string, content: Buffer }[]} files accumulator: each file found is pushed here
+ * @param {SkillFile[]} files accumulator: each file found is pushed here
  */
 function collectSkillFiles(dir, cur, files) {
 	for (const e of fs.readdirSync(cur, { withFileTypes: true })) {
@@ -418,10 +452,35 @@ function forget(root, rel) {
 }
 
 /**
- * Rebuild the `vendored` manifest from a commit — what a re-pull ends with.
+ * Every regular file under `dir` as `rev` holds it in the repository at `cwd`.
+ * A symlink or submodule is skipped: the walks over a skill folder on disk skip
+ * them too.
  *
- * Reads the blobs at `rev`, not the working tree: the point is to record what
- * the vendor supplied, and the working tree is exactly where local edits live.
+ * @param {string} cwd
+ * @param {string} rev
+ * @param {string} dir repo-relative, POSIX
+ * @returns {{ file: string, content: Buffer }[]} `file` repo-relative
+ */
+function readBlobsAt(cwd, rev, dir) {
+	const rows = execGit(
+		["ls-tree", "-r", "-z", "--full-tree", rev, "--", `${dir}/`],
+		{ cwd, encoding: "utf8" },
+	)
+		.split("\0")
+		.filter(Boolean);
+	const blobs = [];
+	for (const row of rows) {
+		const mode = row.slice(0, 6);
+		if (mode !== "100644" && mode !== "100755") continue;
+		const file = row.slice(row.indexOf("\t") + 1);
+		blobs.push({ file, content: execGit(["show", `${rev}:${file}`], { cwd }) });
+	}
+	return blobs;
+}
+
+/**
+ * Rebuild the `vendored` manifest from a commit of this repo holding the
+ * vendor's bytes pristine: the first vendoring.
  *
  * @param {string} root
  * @param {string} rev
@@ -431,30 +490,152 @@ function revendor(root, rev) {
 		cwd: root,
 		encoding: "utf8",
 	}).trim();
-	const listed = execGit(
-		["ls-tree", "-r", "--name-only", at, "--", SKILLS_DIR],
-		{ cwd: root, encoding: "utf8" },
-	)
-		.split("\n")
-		.filter(Boolean)
-		.sort();
-	if (listed.length === 0)
+	const blobs = readBlobsAt(root, at, SKILLS_DIR);
+	if (blobs.length === 0)
 		throw new Error(`${at} has no files under ${SKILLS_DIR}/.`);
 	/** @type {Record<string, string>} */
 	const vendored = {};
-	for (const rel of listed)
-		vendored[rel] = sha256(
-			execGit(["show", `${at}:${rel}`], {
-				cwd: root,
-			}),
-		);
+	for (const b of blobs) vendored[b.file] = sha256(b.content);
 	const sidecar = fs.existsSync(path.join(root, SIDECAR))
 		? loadSidecar(root)
 		: /** @type {Sidecar} */ ({ vendoredAt: at, vendored: {}, edits: {} });
 	sidecar.vendoredAt = at;
-	sidecar.vendored = vendored;
+	sidecar.vendored = sortKeys(vendored);
 	writeJson(path.join(root, SIDECAR), sidecar);
-	return `recorded ${listed.length} vendored file(s) as supplied at ${at}`;
+	return `recorded ${blobs.length} vendored file(s) as supplied at ${at}`;
+}
+
+/**
+ * The `owner/repo` a clone's `origin` names on GitHub, which is how the lock
+ * spells a `source`.
+ *
+ * @param {string} clone
+ * @returns {string}
+ */
+function readCloneSource(clone) {
+	let url;
+	try {
+		url = execGit(["config", "--get", "remote.origin.url"], {
+			cwd: clone,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch (e) {
+		throw new Error(
+			`${clone} has no \`origin\` remote, so nothing says which upstream it is a clone of. Clone the upstream repo from GitHub and pass that.`,
+			{ cause: e },
+		);
+	}
+	const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(url);
+	if (!m?.[1])
+		throw new Error(
+			`${clone}'s \`origin\` (${url}) is not a GitHub repo, so it matches no \`source\` in ${LOCK}.`,
+		);
+	return m[1];
+}
+
+/**
+ * One skill folder's files as `sha` holds them in `clone`, none under
+ * `node_modules`: what `collectSkillFiles` reads of the same folder once
+ * installed.
+ *
+ * @param {string} clone
+ * @param {string} sha
+ * @param {string} folder repo-relative, POSIX
+ * @returns {SkillFile[]}
+ */
+function readUpstreamFolder(clone, sha, folder) {
+	return readBlobsAt(clone, sha, folder)
+		.map((b) => ({ rel: b.file.slice(folder.length + 1), content: b.content }))
+		.filter((f) => !f.rel.split("/").includes("node_modules"));
+}
+
+/**
+ * Swap one skill's manifest rows for the files upstream supplied.
+ *
+ * @param {Record<string, string>} vendored accumulator: the skill's rows are swapped here
+ * @param {string} name
+ * @param {SkillFile[]} supplied
+ */
+function replaceSkillRows(vendored, name, supplied) {
+	const dir = `${SKILLS_DIR}/${name}`;
+	for (const rel of Object.keys(vendored))
+		if (isUnder(rel, [dir])) delete vendored[rel];
+	for (const f of supplied) vendored[`${dir}/${f.rel}`] = sha256(f.content);
+}
+
+/**
+ * `--revendor --from` (#4802), as the header's RECORDING A PULL has it.
+ *
+ * Everything is read and hashed before either file is written, so a refusal
+ * leaves both as they were.
+ *
+ * @param {string} root
+ * @param {string} rev
+ * @param {string} from
+ */
+function revendorFrom(root, rev, from) {
+	const clone = path.resolve(from);
+	if (!fs.existsSync(clone)) throw new Error(`no such directory: ${from}`);
+	const source = readCloneSource(clone);
+	const sha = commitSha(clone, rev);
+	if (sha === null)
+		throw new Error(
+			`${rev} names no commit in ${from} — fetch the tag there, or check its spelling.`,
+		);
+	const lockFile = path.join(root, LOCK);
+	const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+	const sidecar = loadSidecar(root);
+	/* A lock entry with no directory is LOCK-ORPHAN's: recording its files would
+	 * only turn each into a REMOVED. */
+	const skills = Object.entries(
+		/** @type {Record<string, { source?: string, skillPath?: string, computedHash?: string }>} */ (
+			lock.skills
+		),
+	).filter(
+		([name, e]) =>
+			e.source === source &&
+			e.skillPath &&
+			fs.existsSync(path.join(root, SKILLS_DIR, name)),
+	);
+	if (skills.length === 0)
+		throw new Error(
+			`${LOCK} sources no skill under ${SKILLS_DIR}/ from ${source}, which is what ${from}'s \`origin\` names.`,
+		);
+	const vendored = { ...sidecar.vendored };
+	let files = 0;
+	/** @type {string[]} */
+	const moved = [];
+	for (const [name, entry] of skills) {
+		const folder = path.posix.dirname(/** @type {string} */ (entry.skillPath));
+		const supplied = readUpstreamFolder(clone, sha, folder);
+		if (supplied.length === 0)
+			throw new Error(
+				`${source} has no ${folder}/ at ${rev}, where ${LOCK} places "${name}" — renamed or dropped upstream. Nothing was written: correct its skillPath in ${LOCK}, or de-vendor it, then run this again.`,
+			);
+		replaceSkillRows(vendored, name, supplied);
+		files += supplied.length;
+		const hash = hashSkillFiles(supplied);
+		if (entry.computedHash !== hash) moved.push(name);
+		entry.computedHash = hash;
+	}
+	const short = execGit(
+		["rev-parse", `--short=${VENDORED_AT_SHA_WIDTH}`, sha],
+		{
+			cwd: clone,
+			encoding: "utf8",
+		},
+	).trim();
+	sidecar.vendoredAt = `${source}@${short}${sha.startsWith(rev) ? "" : ` (${rev})`}`;
+	sidecar.vendored = sortKeys(vendored);
+	writeJson(path.join(root, SIDECAR), sidecar);
+	/* Two spaces, as the installer writes it: Biome leaves this file alone. */
+	fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+	const lockLine =
+		moved.length > 0
+			? `${LOCK} takes a new computedHash for ${moved.join(", ")}`
+			: `${LOCK} already held every computedHash`;
+	return `recorded ${files} file(s) of ${skills.length} skill(s) as ${sidecar.vendoredAt} supplies them; ${lockLine}.`;
 }
 
 /** @param {Record<string, any>} obj */
@@ -845,7 +1026,7 @@ function lockHashFinding(ctx, { root, name, locked, notClean }) {
 	if (got !== locked)
 		ctx.warn(
 			"LOCK-HASH",
-			`${SKILLS_DIR}/${name}/ matches the manifest and carries no declared edit, yet its folder hash (${got.slice(0, 12)}) differs from the ${locked.slice(0, 12)} ${LOCK} recorded at install. The manifest is the first suspect, not the files: a --revendor pointed at a commit that already carried an undeclared edit would read exactly like this. Re-run --revendor at the vendoring commit, or re-install the skill. But where several clean skills say this at once, suspect the port instead — this checker's copy of upstream's construction, or the locale it sorts paths under.`,
+			`${SKILLS_DIR}/${name}/ matches the manifest and carries no declared edit, yet its folder hash (${got.slice(0, 12)}) differs from the ${locked.slice(0, 12)} ${LOCK} recorded at install. The manifest is the first suspect, not the files: a --revendor pointed at a commit that already carried an undeclared edit would read exactly like this. Re-run --revendor at what was pulled (--at <tag> --from <a clone of the upstream repo>, or --at <the vendoring commit>), or re-install the skill. But where several clean skills say this at once, suspect the port instead — this checker's copy of upstream's construction, or the locale it sorts paths under.`,
 			{ skill: name },
 		);
 }
@@ -947,7 +1128,8 @@ const WRITE_COMMANDS = [
 		(ctx, root) => {
 			const rev = ctx.value("--at", "");
 			if (!rev) ctx.usageError("--revendor needs --at <rev>.");
-			ctx.say(revendor(root, rev));
+			const from = ctx.value("--from", "");
+			ctx.say(from ? revendorFrom(root, rev, from) : revendor(root, rev));
 			return { okLine: "re-recorded." };
 		},
 	],
@@ -1082,7 +1264,7 @@ function runUpstream(ctx, root) {
 	 * section refresh its own message names (#1951). */
 	if (rows.some((r) => UPSTREAM_WARNINGS[r.state]))
 		ctx.say(
-			"  Re-pull, then: --revendor --at <the pull's commit>, re-apply each edit by hand, and --declare it again.",
+			"  Re-pull, then: --revendor --at <the pulled tag> --from <a clone of the upstream repo>, re-apply each edit by hand, and --declare it again.",
 		);
 	writeRecord(ctx, root, read, licences);
 	return {
@@ -1235,7 +1417,7 @@ function upstreamMode(ctx, root) {
 const SPEC = {
 	name: "check-vendored-skills",
 	usage:
-		'node check-vendored-skills.js [--root <dir>] [--json] [--warn] | --declare <path> --issue <n> --why "<line>" | --drop <path> | --forget <path> | --revendor --at <rev> | --upstream [--write] | --covered <dir>',
+		'node check-vendored-skills.js [--root <dir>] [--json] [--warn] | --declare <path> --issue <n> --why "<line>" | --drop <path> | --forget <path> | --revendor --at <rev> [--from <upstream clone>] | --upstream [--write] | --covered <dir>',
 	valueFlags: [
 		"--root",
 		"--covered",
@@ -1243,6 +1425,7 @@ const SPEC = {
 		"--drop",
 		"--forget",
 		"--at",
+		"--from",
 		"--issue",
 		"--why",
 	],
@@ -1265,6 +1448,10 @@ const SPEC = {
 			return ctx.broken(errMessage(e));
 		}
 
+		if (ctx.has("--from"))
+			ctx.usageError(
+				"--from names the clone --revendor reads, so it needs --revendor.",
+			);
 		if (ctx.has("--upstream")) return upstreamMode(ctx, root);
 		if (ctx.has("--write"))
 			ctx.usageError(

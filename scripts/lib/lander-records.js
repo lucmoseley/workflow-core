@@ -98,17 +98,20 @@ const PHASES = Object.freeze(
  * @typedef {object} PipelineRecord
  * @property {() => RecordRead<Pipeline>} read
  * @property {(p: Pipeline) => void} write
+ * @typedef {{readonly noRun?: true,
+ *   readonly typecheck?: readonly string[]}} RedMarks what a cause keeps of
+ *   its red beside its files: `noRun` where no CI run fired for that tree;
+ *   `typecheck` the type-check's first errors, where it failed
  * @typedef {{readonly kind: "red", readonly name: string,
- *   readonly files: readonly string[], readonly iso: string,
- *   readonly noRun?: true}} RedAlone red on `files` twice, none where the
- *   red named none, merged alone onto `main` as `iso`, where `main` passed
- *   them; `noRun` where no CI run fired for that tree
+ *   readonly files: readonly string[], readonly iso: string} & RedMarks}
+ *   RedAlone red on `files` twice, none where the red named none, merged
+ *   alone onto `main` as `iso`, where `main` passed them
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
- *   readonly after: readonly string[], readonly noRun?: true}} Collision
- *   the serial step `step`, merging it onto `main` after the members `after`
- *   landed, red twice on `files`, none where the red named none, each member
- *   having passed alone; `noRun` where no CI run fired for that tree
+ *   readonly after: readonly string[]} & RedMarks} Collision the serial step
+ *   `step`, merging it onto `main` after the members `after` landed, red
+ *   twice on `files`, none where the red named none, each member having
+ *   passed alone
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
  *   a dropped ref no drop record entry named
  * @typedef {Exclude<Unmerged, {kind: "stale-base"}> | RedAlone | Collision
@@ -183,6 +186,7 @@ function parseVerdict(v) {
 			/* Retried in its own run, so the lander takes no re-run (#4545). */
 			...(o.retried === true ? { retried: true } : {}),
 			...(o.noRun === true ? { noRun: true } : {}),
+			...(isStringList(o.typecheck) ? { typecheck: o.typecheck } : {}),
 		};
 	return null;
 }
@@ -327,16 +331,19 @@ function parsePipeline(parsed) {
 const isCause = (u) => {
 	const o = asObject(u);
 	if (typeof o?.name !== "string") return false;
+	const typecheckValid = o.typecheck === undefined || isStringList(o.typecheck);
 	/** @type {Record<Cause["kind"], () => boolean>} */
 	const valid = {
 		conflict: () => isStringList(o.files),
 		refused: () => typeof o.reason === "string",
-		red: () => isStringList(o.files) && typeof o.iso === "string",
+		red: () =>
+			isStringList(o.files) && typeof o.iso === "string" && typecheckValid,
 		unrecorded: () => true,
 		collision: () =>
 			isStringList(o.files) &&
 			typeof o.step === "string" &&
-			isStringList(o.after),
+			isStringList(o.after) &&
+			typecheckValid,
 	};
 	return Object.hasOwn(valid, String(o.kind))
 		? valid[/** @type {Cause["kind"]} */ (o.kind)]()

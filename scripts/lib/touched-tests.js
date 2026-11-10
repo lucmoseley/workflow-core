@@ -12,6 +12,18 @@
  * holds no import edge. The manifest scans no pytest file, so on pytest's
  * route a read is lexical too: the test names the path in string literals.
  *
+ * THE ONE EXCEPTION (#4967): a changed path that is a row of
+ * `CHECKER_ONLY`, a file a tool rewrites as a side effect of ordinary work,
+ * a checker-only file, selects its checker tests alone, the tests that
+ * check it against the tool writing it,
+ * and these whether or not an edge reaches them. Its other readers are left
+ * to the lander and returned as `leftOut`. Every other changed path, and
+ * every edited test, selects as above, so a test is left out only where each
+ * edge that would select it comes from a checker-only file. A row is added only
+ * with a measured miss rate for that file: the share of red touched runs in
+ * which the tests it would leave out caught a fault the session's own change
+ * caused.
+ *
  * EACH ROUTE KEEPS ONLY WHAT ITS RUNNER COLLECTS (#2952): a test file its
  * suite would never run is not run by name either. Vitest's is its own
  * `vitest list`, asked where a config can narrow its include or exclude.
@@ -22,7 +34,7 @@
  * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`
  * (`<stem>.test.*`, `<stem>.spec.*`, `<stem>.<infix>.test.*`), or
  * `test_<stem>.py` and `<stem>_test.py` on pytest's route. The lexical edges, needing no
- * manifest, stay. It never widens.
+ * manifest, stay. It never widens, and no checker-only file cuts it.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -53,6 +65,62 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {import("./own-selection.js").OwnSet} OwnSet */
+
+/**
+ * The checker-only files, each with its checker tests: a path, or a pattern
+ * over one family of them. A ROW IS ADDED ONLY WITH A MEASURED MISS RATE FOR
+ * THAT FILE; these three rest on #4967's. `touched-tests.live.test.ts` holds
+ * each row against this tree, failing where its file or a checker test is
+ * gone; a new row adds its case there.
+ *
+ * @type {{ file: string, checkers: (string|RegExp)[] }[]}
+ */
+const CHECKER_ONLY = [
+	{
+		file: ".claude/guard-registry-anchors.json",
+		checkers: [
+			/^scripts\/check-guard-registry(?:-[\w-]+)?\.test\.ts$/,
+			"scripts/lib/registry-anchors-merge.test.ts",
+		],
+	},
+	{
+		file: EDGES_FILE,
+		checkers: ["scripts/lib/generated-rule-copies.test.ts"],
+	},
+	{
+		file: "scripts/instruction-surface-anchors.json",
+		checkers: [
+			"scripts/check-instruction-surface.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+		],
+	},
+];
+
+/**
+ * @param {string|RegExp} checker
+ * @param {Iterable<string>} tracked
+ * @returns {string[]}
+ */
+const checkerMatches = (checker, tracked) =>
+	[...tracked].filter((t) =>
+		typeof checker === "string" ? t === checker : checker.test(t),
+	);
+
+/**
+ * The checker tests `tracked` holds for `p`, or null where `p` is no
+ * checker-only file here: a tree holding none of a row's checker tests, an
+ * adopting repo's, selects that path's readers as any other's.
+ *
+ * @param {string} p
+ * @param {Set<string>} tracked
+ * @returns {string[]|null}
+ */
+function checkerTests(p, tracked) {
+	const row = CHECKER_ONLY.find(({ file }) => file === p);
+	if (!row) return null;
+	const tests = row.checkers.flatMap((c) => checkerMatches(c, tracked));
+	return tests.length > 0 ? tests : null;
+}
 
 /**
  * `import a.b, c` and `from a.b import c, d` — `from .m import x` included —
@@ -227,6 +295,27 @@ function readSiblingTests(root, changed, isSibling) {
 }
 
 /**
+ * Each changed path's lexical tests: those whose own source imports it or,
+ * on pytest's route, names it.
+ *
+ * @param {ReturnType<typeof readWorkingTree>} tree
+ * @param {string[]} changed
+ * @param {Pick<typeof ROUTES["vitest"], "isTest"|"edges">} route
+ * @returns {Map<string, string[]>}
+ */
+function lexicalTests(tree, changed, { isTest, edges }) {
+	/* A deleted path stays resolvable, so its importers are selected. */
+	const tracked = new Set([...tree.tracked, ...changed]);
+	/** @type {Map<string, string[]>} */
+	const lexical = new Map(changed.map((p) => [p, []]));
+	for (const t of tree.tracked) {
+		if (!isTest(t)) continue;
+		for (const p of edges(tree.read(t), t, tracked)) lexical.get(p)?.push(t);
+	}
+	return lexical;
+}
+
+/**
  * The touched tests of `changed` in the tree at `root`, and the fallback's
  * cause where the manifest could not be read.
  *
@@ -235,9 +324,11 @@ function readSiblingTests(root, changed, isSibling) {
  * @param {{ suite?: "vitest"|"pytest", execFn?: ExecFn,
  *   loadEdges?: () => Record<string, string[]>,
  *   renderEdges?: () => Record<string, string[]> }} [options]
- * @returns {{ files: string[], uncollected: string[], fallback: unknown }}
- *   `uncollected` the touched tests the runner does not collect; `fallback`
- *   null where the manifest selected
+ * @returns {{ files: string[], uncollected: string[], leftOut: string[],
+ *   leftBy: string[], fallback: unknown }}
+ *   `uncollected` the touched tests the runner does not collect; `leftOut`
+ *   the collected tests only checker-only files would select, and `leftBy`
+ *   those files; `fallback` null where the manifest selected
  * @throws where the runner's collection cannot be read: a selection it
  *   cannot check is never run, the fallback's included
  */
@@ -251,25 +342,31 @@ function resolveTouched(
 		renderEdges = () => liveEdges(root),
 	} = {},
 ) {
-	const { isTest, edges, isSibling, collected } = ROUTES[suite];
-	/** @param {string[][]} lists */
-	const select = (...lists) => {
-		const touched = sortedUnion(...lists);
-		const files = collected(root, touched, execFn);
-		const kept = new Set(files);
-		return { files, uncollected: touched.filter((f) => !kept.has(f)) };
+	const { isTest, isSibling, collected } = ROUTES[suite];
+	/**
+	 * @param {string[]} owed the tests selected
+	 * @param {[string, string[]][]} [cuts] each checker-only file's other readers
+	 */
+	const settle = (owed, cuts = []) => {
+		const collectedSet = new Set(
+			collected(root, sortedUnion(owed, ...cuts.map(([, t]) => t)), execFn),
+		);
+		const left = cuts
+			.map(([p, tests]) => ({
+				p,
+				tests: tests.filter((t) => collectedSet.has(t)),
+			}))
+			.filter(({ tests }) => tests.length > 0);
+		return {
+			files: owed.filter((f) => collectedSet.has(f)),
+			uncollected: owed.filter((f) => !collectedSet.has(f)),
+			leftOut: sortedUnion(...left.map(({ tests }) => tests)),
+			leftBy: left.map(({ p }) => p),
+		};
 	};
 	const edited = changed.filter((p) => isTest(p) && isOnDisk(root, p));
 	const tree = readWorkingTree(root);
-	/* A deleted path stays resolvable, so its importers are selected. */
-	const tracked = new Set([...tree.tracked, ...changed]);
-	const wanted = new Set(changed);
-	const lexical = [...tree.tracked].filter((t) => {
-		if (!isTest(t)) return false;
-		for (const p of edges(tree.read(t), t, tracked))
-			if (wanted.has(p)) return true;
-		return false;
-	});
+	const lexical = lexicalTests(tree, changed, ROUTES[suite]);
 	/** @type {Record<string, string[]>} */
 	let graph;
 	try {
@@ -279,7 +376,10 @@ function resolveTouched(
 	} catch (error) {
 		const siblings = readSiblingTests(root, changed, isSibling);
 		try {
-			return { ...select(edited, lexical, siblings), fallback: error };
+			return {
+				...settle(sortedUnion(edited, ...lexical.values(), siblings)),
+				fallback: error,
+			};
 		} catch (failed) {
 			throw new Error(
 				`${failed instanceof Error ? failed.message : String(failed)} (after the read graph failed: ${String(error).trim()})`,
@@ -287,10 +387,32 @@ function resolveTouched(
 			);
 		}
 	}
-	const readers = testsReading(changed, graph).filter(
-		(t) => isTest(t) && isOnDisk(root, t),
+	/** @param {string} p the tests an edge from `p` selects */
+	const reach = (p) => [
+		...(lexical.get(p) ?? []),
+		...testsReading([p], graph).filter((t) => isTest(t) && isOnDisk(root, t)),
+	];
+	/** @type {Map<string, string[]>} each changed checker-only file's checker tests */
+	const checkers = new Map();
+	for (const p of changed) {
+		const tests = checkerTests(p, tree.tracked);
+		if (tests) checkers.set(p, tests.filter(isTest));
+	}
+	const touched = sortedUnion(
+		edited,
+		...changed.map((p) => checkers.get(p) ?? reach(p)),
 	);
-	return { ...select(edited, lexical, readers), fallback: null };
+	const selected = new Set(touched);
+	return {
+		...settle(
+			touched,
+			[...checkers.keys()].map((p) => [
+				p,
+				reach(p).filter((t) => !selected.has(t)),
+			]),
+		),
+		fallback: null,
+	};
 }
 
 /**
@@ -338,7 +460,7 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
 		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
 		sessionId: options.sessionId || idSeam.fromEnv(),
 	});
-	const { files, uncollected, fallback } = resolveTouched(at, changed, {
+	const resolved = resolveTouched(at, changed, {
 		...(options.execFn ? { execFn: options.execFn } : {}),
 		...(suite ? { suite } : {}),
 		...(loadEdges ? { loadEdges } : {}),
@@ -347,18 +469,20 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
 	return {
 		base,
 		changed,
-		files,
-		banner: touchedBanner(files, uncollected, base, fallback),
+		files: resolved.files,
+		leftOut: resolved.leftOut,
+		banner: touchedBanner(resolved, base),
 	};
 }
 
 /**
- * @param {string[]} files
- * @param {string[]} uncollected
+ * @param {ReturnType<typeof resolveTouched>} resolved
  * @param {string} base
- * @param {unknown} fallback the manifest's failure, where it could not select
  */
-function touchedBanner(files, uncollected, base, fallback) {
+function touchedBanner(
+	{ files, uncollected, leftOut, leftBy, fallback },
+	base,
+) {
 	const lines = [];
 	if (fallback !== null)
 		lines.push(
@@ -369,9 +493,17 @@ function touchedBanner(files, uncollected, base, fallback) {
 			`NOT COLLECTED — ${uncollected.length} touched test file(s) the runner's own config does not collect, so they are not run by name either (#2952):`,
 			...uncollected.map((f) => `  ${f}`),
 		);
+	if (leftOut.length > 0)
+		lines.push(
+			`LEFT TO THE LANDER — ${leftOut.length} test file(s) that only ${leftBy.join(", ")} would select. A file regenerated as a side effect of ordinary work selects its checker tests alone; the lander's full suite runs these (#4967).`,
+		);
 	if (files.length === 0 && uncollected.length > 0)
 		lines.push(
 			`NO TOUCHED TESTS — every test file your own work touched since ${shortSha(base)} is one the runner does not collect, so nothing ran. The lander runs the full suite (#2952).`,
+		);
+	else if (files.length === 0 && leftOut.length > 0)
+		lines.push(
+			`NO TOUCHED TESTS — every test file your own work since ${shortSha(base)} touched is left to the lander above, so nothing ran (#4967).`,
 		);
 	else if (files.length === 0)
 		lines.push(
