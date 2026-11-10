@@ -2,7 +2,7 @@
  * code-edges.js — the files one script reaches, read lexically, comment lines
  * skipped, for surface-closure.js's and hook-code.js's walks (#4259) and the
  * pass store's reach, which also reads the paths each specifier tried before
- * its target (`shadowsOf`, #4814):
+ * its target (`reachOf`'s shadows, #4814):
  *   JS and TypeScript — a relative `require`/`from`/`import()` specifier,
  *     resolved as node resolves it, or as vitest does an extensionless `.ts`;
  *     and `path.join|resolve(__dirname, "<literal>", …)` naming a .js, .sh or
@@ -16,17 +16,20 @@
  *     file adds before the import through a literal `insert(0, …)` or
  *     `append(…)` of a path built from `__file__`, literals and names it
  *     assigned from them; then each dotted part, and each `Z` that is a
- *     submodule, in the package found. Read in lexical order, so an edit
- *     under a condition counts as made.
+ *     submodule, in the package found. Read in lexical order; an indented
+ *     sys.path edit may never have run, so a module found on its entry
+ *     settles nothing, and an indented import is placed again on the
+ *     file's final search path, since a function runs when it is called.
  * A path built any other way is unseen.
  *
  * FOREIGN: a Python import the walk cannot place — a module neither stdlib
  * (python3's own sys.stdlib_module_names, so 3.10 or later) nor on that
  * search path, a dotted part it cannot find, or any import after a sys.path
  * edit it cannot read — is handed to the caller's `fault`. A third-party
- * package is foreign: no tracked file pins what is installed. Residual: a
+ * package is foreign: no tracked file pins what is installed. Residuals: a
  * repo file appearing on the search path under a stdlib module's name is
- * not a shadow.
+ * not a shadow; and a module is walked on its own directory and edits, not
+ * on the sys.path of the script that imports it.
  */
 
 const fs = require("node:fs");
@@ -69,26 +72,21 @@ const PY_IMPORT =
 const PY_STRING_BLOCK = /("""|''')[\s\S]*?\1/g;
 const PY_STRING = /"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'/g;
 const PY_STRING_OR_COMMENT = new RegExp(`(${PY_STRING.source})|#.*`, "g");
-/* Any statement that adds to sys.path; SYS_PATH_ADD is the shape of one
+/* Any statement that changes sys.path; SYS_PATH_ADD is the shape of one
  * the walk reads, `insert(0, …)` (group 1) or `append(…)` (group 2). */
 const SYS_PATH_EDIT =
-	/\bsys\.path\s*(?:\.\s*(?:insert|append|extend)\b|\[[^\]]*\]\s*=|\+=|=(?!=))/;
+	/\bsys\.path\s*(?:\.\s*(?:insert|append|extend|pop|remove|clear)\b|\[[^\]]*\]\s*=|\+=|=(?!=))|\bdel\s+sys\.path\b/;
 const SYS_PATH_ADD =
 	/^\s*sys\.path\.(?:insert\(\s*0\s*,(.+)\)|append\((.+)\))\s*$/;
 const PY_ASSIGN = /^\s*([A-Za-z_]\w*)\s*=(?!=)(.+)$/;
 const PY_PATH_TOKEN = /(?:(\.?[A-Za-z_][\w.]*)|("[^"\\]*"|'[^'\\]*')|([(),/]))/;
 const PY_PATH_CALLS = new Set([
 	"str",
-	"os.fspath",
 	"Path",
-	"pathlib.Path",
 	"os.path.abspath",
-	"os.path.realpath",
-	"os.path.normpath",
 	"os.path.dirname",
 	"os.path.join",
 ]);
-const PY_IDENTITY_METHODS = new Set(["resolve", "absolute"]);
 
 /**
  * @param {string} text
@@ -153,18 +151,31 @@ function readPythonStdlib() {
 }
 
 /**
+ * @typedef {{edges: string[], shadows: string[]}} Reach absolute: the files
+ *   reached, and the paths tried on the way before the file each resolved to
+ */
+
+/**
+ * @param {string} file absolute
+ * @param {string} text
+ * @param {(msg: string) => void} fault
+ * @returns {Reach}
+ */
+function reachOf(file, text, fault) {
+	const dir = path.dirname(file);
+	if (/\.[cm]?[jt]s$/.test(file)) return jsReach(dir, text);
+	if (file.endsWith(".sh")) return { edges: shEdges(dir, text), shadows: [] };
+	if (file.endsWith(".py")) return pyReach(file, text, fault);
+	return { edges: [], shadows: [] };
+}
+
+/**
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
  * @returns {string[]} absolute paths the file reaches
  */
-function edgesOf(file, text, fault) {
-	const dir = path.dirname(file);
-	if (/\.[cm]?[jt]s$/.test(file)) return jsEdges(dir, text);
-	if (file.endsWith(".sh")) return shEdges(dir, text);
-	if (file.endsWith(".py")) return pyReach(file, text, fault).edges;
-	return [];
-}
+const edgesOf = (file, text, fault) => reachOf(file, text, fault).edges;
 
 /**
  * Each relative `require`, import or `createRequire(…)(…)` specifier in
@@ -186,35 +197,17 @@ function relativeSpecifiers(dir, code) {
 }
 
 /**
- * The paths a JS or TypeScript file's relative specifiers tried before the
- * file each resolved to (#4814): a file appearing at one would take the
- * import over.
- * @param {string} file absolute
- * @param {string} text
- * @returns {string[]} absolute
- */
-function shadowsOf(file, text) {
-	if (file.endsWith(".py"))
-		return pyReach(file, text, () => {
-			/* edgesOf's caller reports the faults */
-		}).shadows;
-	if (!/\.[cm]?[jt]s$/.test(file)) return [];
-	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
-	return relativeSpecifiers(path.dirname(file), code).flatMap(
-		(abs) => resolutionOf(abs).tried,
-	);
-}
-
-/**
+ * A JS or TypeScript file's edges, and the paths its relative specifiers
+ * tried before the file each resolved to (#4814): a file appearing at one
+ * would take the import over.
  * @param {string} dir the file's directory
  * @param {string} text
- * @returns {string[]}
+ * @returns {Reach}
  */
-function jsEdges(dir, text) {
+function jsReach(dir, text) {
 	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
-	const edges = relativeSpecifiers(dir, code).map(
-		(abs) => resolutionOf(abs).target,
-	);
+	const resolved = relativeSpecifiers(dir, code).map(resolutionOf);
+	const edges = resolved.map((r) => r.target);
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
 		const parts = [...requiredGroup(m, 1, DIRNAME_JOIN).matchAll(QUOTED)].map(
 			(p) => requiredGroup(p, 1, QUOTED),
@@ -222,7 +215,7 @@ function jsEdges(dir, text) {
 		const target = path.join(dir, ...parts);
 		if (CODE_FILE.test(target)) edges.push(target);
 	}
-	return edges;
+	return { edges, shadows: resolved.flatMap((r) => r.tried) };
 }
 
 /**
@@ -240,10 +233,16 @@ function shEdges(dir, text) {
 }
 
 /**
- * @typedef {{edges: string[], shadows: string[]}} PyReach
- * @typedef {{search: (string | null)[], names: Map<string, string>}} PyScope
+ * @typedef {{dir: string | null, maybe: boolean}} PyEntry one sys.path
+ *   entry: a null `dir` is one the walk cannot read; `maybe` marks one an
+ *   indented statement added, which may never have run.
+ * @typedef {{search: PyEntry[], names: Map<string, string>}} PyScope
  *   `search` is sys.path as the file has left it, its own directory
- *   included; null stands for an entry the walk cannot read.
+ *   included.
+ * @typedef {{dir: string, scope: PyScope, reach: Reach,
+ *   fault: (msg: string) => void}} PyWalk one file's walk: its directory,
+ *   its sys.path so far, what it reaches, and its caller's fault
+ * @typedef {{text: string, indented: boolean}} PyStatement
  */
 
 /**
@@ -252,52 +251,78 @@ function shEdges(dir, text) {
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
- * @returns {PyReach}
+ * @returns {Reach}
  */
 function pyReach(file, text, fault) {
 	const dir = path.dirname(file);
-	/** @type {PyScope} */
-	const scope = { search: [dir], names: new Map() };
+	/** @type {Set<string>} */
+	const said = new Set();
 	/** @type {PyWalk} */
-	const walk = { dir, scope, reach: { edges: [], shadows: [] }, fault };
+	const walk = {
+		dir,
+		scope: { search: [{ dir, maybe: false }], names: new Map() },
+		reach: { edges: [], shadows: [] },
+		/* An indented import is placed twice, so one fault can come twice. */
+		fault: (msg) => {
+			if (!said.has(msg)) fault(msg);
+			said.add(msg);
+		},
+	};
+	/** @type {PyImportTarget[]} */
+	const deferred = [];
 	for (const statement of pyStatements(text)) {
-		const imp = statement.match(PY_IMPORT);
+		const imp = statement.text.match(PY_IMPORT);
 		if (imp) {
-			for (const target of pyImportTargets(imp)) placePyImport(walk, target);
-			continue;
-		}
-		if (SYS_PATH_EDIT.test(statement)) {
-			editSysPath(file, scope, statement);
-			continue;
-		}
-		const assign = statement.match(PY_ASSIGN);
-		if (assign) {
-			const name = requiredGroup(assign, 1, PY_ASSIGN);
-			const value = evalPyPath(
-				requiredGroup(assign, 2, PY_ASSIGN),
-				file,
-				scope,
-			);
-			if (value === null) scope.names.delete(name);
-			else scope.names.set(name, value);
-		}
+			const targets = pyImportTargets(imp);
+			for (const target of targets) placePyImport(walk, target);
+			/* A function's import runs when it is called, perhaps after a
+			 * later sys.path edit: place it on the final search path too. */
+			if (statement.indented) deferred.push(...targets);
+		} else if (SYS_PATH_EDIT.test(statement.text))
+			editSysPath(file, walk.scope, statement);
+		else bindPyName(file, walk.scope, statement.text);
 	}
+	for (const target of deferred) placePyImport(walk, target);
 	return walk.reach;
 }
 
 /**
- * The file's logical statements in order: triple-quoted blocks and comments
- * cut, bracketed and backslash continuations joined, `;` split.
+ * Records `NAME = <path expression>` in the scope, or forgets NAME where the
+ * value is no path the walk reads.
+ * @param {string} file
+ * @param {PyScope} scope accumulator: `names` gains or loses the name
  * @param {string} text
- * @returns {string[]}
+ */
+function bindPyName(file, scope, text) {
+	const assign = text.match(PY_ASSIGN);
+	if (!assign) return;
+	const name = requiredGroup(assign, 1, PY_ASSIGN);
+	const value = evalPyPath(requiredGroup(assign, 2, PY_ASSIGN), file, scope);
+	if (value === null) scope.names.delete(name);
+	else scope.names.set(name, value);
+}
+
+/**
+ * The file's logical statements in order: triple-quoted blocks and comments
+ * cut, bracketed and backslash continuations joined, `;` split, each marked
+ * where its first line is indented.
+ * @param {string} text
+ * @returns {PyStatement[]}
  */
 function pyStatements(text) {
-	/** @type {string[]} */
+	/** @type {PyStatement[]} */
 	const statements = [];
 	let pending = "";
+	let indented = false;
 	let depth = 0;
+	const flush = () => {
+		for (const part of pending.split(";"))
+			statements.push({ text: part, indented });
+		pending = "";
+	};
 	for (const raw of text.replace(PY_STRING_BLOCK, "").split("\n")) {
 		const line = raw.replace(PY_STRING_OR_COMMENT, (_m, s) => s ?? "");
+		if (pending === "") indented = /^\s/.test(line);
 		const blank = line.replace(PY_STRING, '""');
 		depth +=
 			(blank.match(/[([{]/g)?.length ?? 0) -
@@ -305,29 +330,29 @@ function pyStatements(text) {
 		const continued = /\\\s*$/.test(line);
 		pending += ` ${continued ? line.replace(/\\\s*$/, "") : line}`;
 		if (depth > 0 || continued) continue;
-		statements.push(...pending.split(";"));
-		pending = "";
+		flush();
 		depth = 0;
 	}
-	if (pending) statements.push(...pending.split(";"));
+	if (pending) flush();
 	return statements;
 }
 
 /**
- * Applies one sys.path edit to `scope`: a literal `insert(0, …)` or
+ * Applies one sys.path edit to the scope: a literal `insert(0, …)` or
  * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
  * cannot read at the front.
  * @param {string} file
- * @param {PyScope} scope
- * @param {string} statement
+ * @param {PyScope} scope accumulator: `search` gains the entry
+ * @param {PyStatement} statement
  */
 function editSysPath(file, scope, statement) {
-	const m = statement.match(SYS_PATH_ADD);
-	const value = m
+	const m = statement.text.match(SYS_PATH_ADD);
+	const dir = m
 		? evalPyPath(m[1] ?? requiredGroup(m, 2, SYS_PATH_ADD), file, scope)
 		: null;
-	if (m?.[2] === undefined) scope.search.unshift(value);
-	else scope.search.push(value);
+	const entry = { dir, maybe: statement.indented };
+	if (m?.[2] === undefined) scope.search.unshift(entry);
+	else scope.search.push(entry);
 }
 
 /**
@@ -348,7 +373,7 @@ function evalPyPath(expr, file, scope) {
 		tokens.push(m[1] ?? m[2] ?? requiredGroup(m, 3, PY_PATH_TOKEN));
 	try {
 		const parser = new PyPathParser(tokens, file, scope);
-		const v = parser.quotient();
+		const v = parser.pathExpr();
 		return parser.done() && path.isAbsolute(v) ? path.normalize(v) : null;
 	} catch {
 		return null;
@@ -392,8 +417,8 @@ class PyPathParser {
 		if (this.take() !== t) throw new Error(`wants ${t}`);
 	}
 
-	/** @returns {string} */
-	quotient() {
+	/** A whole expression: terms joined by pathlib's `/`. @returns {string} */
+	pathExpr() {
 		let v = this.term();
 		while (this.peek() === "/") {
 			this.take();
@@ -415,13 +440,14 @@ class PyPathParser {
 		const t = this.take();
 		if (/^["']/.test(t)) return t.slice(1, -1);
 		if (t === "(") {
-			const v = this.quotient();
+			const v = this.pathExpr();
 			this.expect(")");
 			return v;
 		}
 		if (this.peek() === "(" && PY_PATH_CALLS.has(t)) return this.call(t);
-		const [base = "", ...rest] = t.split(".");
-		const v = base === "__file__" ? this.file : this.scope.names.get(base);
+		const [base, ...rest] = t.split(".");
+		const v =
+			base === "__file__" ? this.file : this.scope.names.get(base ?? "");
 		if (v === undefined) throw new Error(`unknown ${base}`);
 		return rest.length > 0 ? this.attrs(v, rest.join(".")) : v;
 	}
@@ -432,7 +458,7 @@ class PyPathParser {
 		/** @type {string[]} */
 		const args = [];
 		while (this.peek() !== ")") {
-			args.push(this.quotient());
+			args.push(this.pathExpr());
 			if (this.peek() === ",") this.take();
 		}
 		this.take();
@@ -441,17 +467,15 @@ class PyPathParser {
 
 	/**
 	 * @param {string} v
-	 * @param {string} chain dotted attributes, the last perhaps a method
+	 * @param {string} chain dotted attributes, the last perhaps `resolve()`
 	 */
 	attrs(v, chain) {
 		const parts = chain.split(".");
 		for (const [k, part] of parts.entries()) {
-			const method =
-				k === parts.length - 1 &&
-				PY_IDENTITY_METHODS.has(part) &&
-				this.peek() === "(";
+			const resolve =
+				k === parts.length - 1 && part === "resolve" && this.peek() === "(";
 			if (part === "parent") v = path.dirname(v);
-			else if (method) {
+			else if (resolve) {
 				this.take();
 				this.expect(")");
 			} else throw new Error(`.${part}`);
@@ -468,11 +492,10 @@ class PyPathParser {
 function pyPathCall(name, args) {
 	const [first] = args;
 	if (first === undefined) throw new Error(`${name}() without a path`);
-	if (name === "os.path.join" || name.endsWith("Path")) return pyJoin(args);
+	if (name === "os.path.join" || name === "Path") return pyJoin(args);
 	if (args.length !== 1) throw new Error(`${name} takes one path`);
 	if (name === "os.path.dirname") return path.dirname(first);
-	/* str, os.fspath, and abspath, realpath and normpath over an absolute
-	 * path, all of which leave it naming the same file. */
+	/* str, and abspath over an absolute path, leave it naming the same file. */
 	if (!path.isAbsolute(first)) throw new Error(`${name} of a relative path`);
 	return first;
 }
@@ -516,15 +539,10 @@ function pyImportTargets(m) {
 	}
 	if (fromNames === undefined)
 		throw new Error(`PY_IMPORT's from branch matched without names: ${m[0]}`);
-	const dots = requiredGroup(
-		/** @type {RegExpMatchArray} */ (from.match(/^\.*/)),
-		0,
-		/^\.*/,
-	).length;
-	const rest = from.slice(dots);
+	const rest = from.replace(/^\.+/, "");
 	return [
 		{
-			dots,
+			dots: from.length - rest.length,
 			parts: rest ? rest.split(".") : [],
 			names: pyNames(fromNames.replace(/[()]/g, "")),
 		},
@@ -532,11 +550,12 @@ function pyImportTargets(m) {
 }
 
 /**
- * The file a module name resolves to in one directory, package first as
- * CPython's FileFinder tries them, and the candidates tried before it.
+ * What a module name finds in one directory, package first as CPython's
+ * FileFinder tries them: the file, the candidates tried before it, and a
+ * namespace directory (one with no __init__.py) where no file stands.
  * @param {string} dir
  * @param {string} name
- * @returns {{found: string | null, tried: string[]}}
+ * @returns {{found: string | null, tried: string[], namespace: string | null}}
  */
 function pyModuleIn(dir, name) {
 	const candidates = [
@@ -544,9 +563,18 @@ function pyModuleIn(dir, name) {
 		path.join(dir, `${name}.py`),
 	];
 	const at = candidates.findIndex(isFile);
-	return at === -1
-		? { found: null, tried: candidates }
-		: { found: candidates[at] ?? null, tried: candidates.slice(0, at) };
+	if (at !== -1)
+		return {
+			found: candidates[at] ?? null,
+			tried: candidates.slice(0, at),
+			namespace: null,
+		};
+	const namespace = path.join(dir, name);
+	return {
+		found: null,
+		tried: candidates,
+		namespace: isDir(namespace) ? namespace : null,
+	};
 }
 
 /** @param {string} c */
@@ -554,15 +582,23 @@ const isDir = (c) =>
 	fs.statSync(c, { throwIfNoEntry: false })?.isDirectory() ?? false;
 
 /**
- * @typedef {{dir: string, scope: PyScope, reach: PyReach,
- *   fault: (msg: string) => void}} PyWalk one file's walk: its directory,
- *   its sys.path so far, what it reaches, and its caller's fault
+ * @typedef {{pkg: string | null, namespace: boolean}} PyPlace where an
+ *   import's next part is looked for: a package directory, null below a
+ *   plain module; `namespace` where that directory has no __init__.py
+ * @typedef {{kind: "placed", places: PyPlace[]} | {kind: "absent"}
+ *   | {kind: "opaque"}} PyTop
  */
+
+/** @param {string} found a file `pyModuleIn` found */
+const placeOf = (found) =>
+	found.endsWith("__init__.py")
+		? { pkg: path.dirname(found), namespace: false }
+		: { pkg: null, namespace: false };
 
 /**
  * Pushes the files one import loads onto the walk's reach, or faults an
  * import the walk cannot place.
- * @param {PyWalk} walk
+ * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
  */
 function placePyImport(walk, target) {
@@ -570,42 +606,42 @@ function placePyImport(walk, target) {
 		placeRelativePyImport(walk.dir, target, walk.reach);
 		return;
 	}
-	const [top = ""] = target.parts;
+	const [top] = target.parts;
+	if (top === undefined) throw new Error("an absolute import names no module");
 	const placed = placePyTop(walk.scope, top, walk.reach);
-	if (placed === "opaque" || placed === null) {
+	if (placed.kind !== "placed") {
 		if (!readPythonStdlib().has(top))
 			walk.fault(
-				placed === null
+				placed.kind === "absent"
 					? `imports ${top}, which is neither stdlib nor found beside it or on a sys.path entry it adds`
 					: `imports ${top} after a sys.path edit the walk cannot read`,
 			);
 		return;
 	}
-	const pkg = placeBelow(walk, placed || null, target.parts);
-	if (pkg === null) return;
-	for (const name of target.names) {
-		const { found } = pyModuleIn(pkg, name);
-		if (found) walk.reach.edges.push(found);
+	for (const place of placed.places) {
+		const last = placeBelow(walk, place, target.parts);
+		if (last) placeNames(walk, last, target);
 	}
 }
 
 /**
- * Walks a dotted import's parts below its top-level one, pushing each file;
- * returns the package the last part opens, or null where it is a plain
- * module or the walk faulted.
- * @param {PyWalk} walk
- * @param {string | null} pkg the top-level package's directory, null for a module
+ * Walks a dotted import's parts below its top-level one, pushing each file
+ * and what it tried first; returns where the last part leaves the import,
+ * or null where the walk faulted.
+ * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
+ * @param {PyPlace} place the top-level module's
  * @param {string[]} parts
- * @returns {string | null}
+ * @returns {PyPlace | null}
  */
-function placeBelow(walk, pkg, parts) {
+function placeBelow(walk, place, parts) {
+	let at = place;
 	for (const part of parts.slice(1)) {
-		const found = pkg === null ? null : pyModuleIn(pkg, part).found;
-		if (found) {
-			walk.reach.edges.push(found);
-			pkg = found.endsWith("__init__.py") ? path.dirname(found) : null;
-		} else if (pkg !== null && isDir(path.join(pkg, part)))
-			pkg = path.join(pkg, part);
+		const here = at.pkg === null ? null : pyModuleIn(at.pkg, part);
+		if (here) walk.reach.shadows.push(...here.tried);
+		if (here?.found) {
+			walk.reach.edges.push(here.found);
+			at = placeOf(here.found);
+		} else if (here?.namespace) at = { pkg: here.namespace, namespace: true };
 		else {
 			walk.fault(
 				`imports ${parts.join(".")}, whose ${part} the walk cannot place`,
@@ -613,7 +649,26 @@ function placeBelow(walk, pkg, parts) {
 			return null;
 		}
 	}
-	return pkg;
+	return at;
+}
+
+/**
+ * Pushes each from-imported name that is a submodule of the package; faults
+ * one a namespace package does not hold, since no __init__.py can define it.
+ * @param {PyWalk} walk accumulator: `reach` gains the files
+ * @param {PyPlace} place
+ * @param {PyImportTarget} target
+ */
+function placeNames(walk, place, { parts, names }) {
+	if (place.pkg === null) return;
+	for (const name of names) {
+		const { found, namespace } = pyModuleIn(place.pkg, name);
+		if (found) walk.reach.edges.push(found);
+		else if (place.namespace && !namespace)
+			walk.fault(
+				`imports ${name} from ${parts.join(".")}, a namespace package that holds no ${name}`,
+			);
+	}
 }
 
 /**
@@ -621,14 +676,19 @@ function placeBelow(walk, pkg, parts) {
  * edge, so surface-closure.js reports it unshipped.
  * @param {string} dir the importer's directory
  * @param {PyImportTarget} target
- * @param {PyReach} reach
+ * @param {Reach} reach accumulator: gains the files and shadows
  */
 function placeRelativePyImport(dir, { dots, parts, names }, reach) {
 	let pkg = path.resolve(dir, "../".repeat(dots - 1));
 	const init = path.join(pkg, "__init__.py");
 	if (parts.length === 0 && isFile(init)) reach.edges.push(init);
 	for (const part of parts) {
-		const { found } = pyModuleIn(pkg, part);
+		const { found, tried, namespace } = pyModuleIn(pkg, part);
+		reach.shadows.push(...tried);
+		if (!found && namespace) {
+			pkg = namespace;
+			continue;
+		}
 		reach.edges.push(found ?? path.join(pkg, `${part}.py`));
 		if (!found?.endsWith("__init__.py")) return;
 		pkg = path.dirname(found);
@@ -640,36 +700,34 @@ function placeRelativePyImport(dir, { dots, parts, names }, reach) {
 }
 
 /**
- * Places a top-level module on the scope's search path: pushes its file and
- * the candidates tried before it, and returns the package directory it
- * opens, "" for a plain module, null where no entry holds it, or "opaque"
- * where an entry the walk cannot read comes first.
+ * Places a top-level module on the scope's search path, pushing each file it
+ * may load and the candidates tried before the one that settles it. An
+ * entry an indented statement added may never have run, so a module found
+ * there settles nothing: the search goes on, and every file found counts.
  * @param {PyScope} scope
  * @param {string} top
- * @param {PyReach} reach
- * @returns {string | null}
+ * @param {Reach} reach accumulator: gains the files and shadows
+ * @returns {PyTop}
  */
 function placePyTop(scope, top, reach) {
-	/** @type {string[]} */
-	const tried = [];
+	/** @type {PyPlace[]} */
+	const places = [];
+	/** @type {string | null} */
+	let namespace = null;
 	for (const entry of scope.search) {
-		if (entry === null) return "opaque";
-		const { found, tried: here } = pyModuleIn(entry, top);
-		tried.push(...here);
-		if (found) {
-			reach.edges.push(found);
-			reach.shadows.push(...tried);
-			return found.endsWith("__init__.py") ? path.dirname(found) : "";
-		}
+		if (entry.dir === null) return { kind: "opaque" };
+		const here = pyModuleIn(entry.dir, top);
+		reach.shadows.push(...here.tried);
+		namespace ??= here.namespace;
+		if (!here.found) continue;
+		reach.edges.push(here.found);
+		places.push(placeOf(here.found));
+		if (!entry.maybe) return { kind: "placed", places };
 	}
-	/* A namespace package: a directory with no __init__.py, which CPython
-	 * takes only where no entry holds a regular module or package. */
-	const namespace = scope.search.find(
-		(entry) => entry !== null && isDir(path.join(entry, top)),
-	);
-	if (!namespace) return null;
-	reach.shadows.push(...tried);
-	return path.join(namespace, top);
+	/* A namespace package, which CPython takes only where no entry holds a
+	 * regular module or package. */
+	if (namespace) places.push({ pkg: namespace, namespace: true });
+	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 
-module.exports = { edgesOf, isFile, shadowsOf, JS_SPEC, jsSpecifier };
+module.exports = { edgesOf, isFile, reachOf, JS_SPEC, jsSpecifier };

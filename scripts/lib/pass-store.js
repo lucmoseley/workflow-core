@@ -61,7 +61,7 @@ const {
 	isSameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
-const { edgesOf, isFile, shadowsOf } = require("./code-edges.js");
+const { isFile, reachOf } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
 	readDocsByTest,
@@ -284,12 +284,10 @@ function readEdges(root, rel) {
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
+		const { edges, shadows } = reachOf(abs, read.data, refuseFault);
 		return {
-			edges: repoRelative(
-				root,
-				edgesOf(abs, read.data, refuseFault).filter(isFile),
-			),
-			shadows: repoRelative(root, shadowsOf(abs, read.data)),
+			edges: repoRelative(root, edges.filter(isFile)),
+			shadows: repoRelative(root, shadows),
 		};
 	} catch {
 		return null;

@@ -2,7 +2,9 @@
 /*
  * code-edges.js's Python reach (#4864): the files an import loads, the paths
  * it tried first, and the imports it cannot place. Loosen a case and the pass
- * store caches a test whose spawned script's module changed.
+ * store caches a test whose spawned script's module changed. Each case builds
+ * a real temporary tree, since the walk resolves a module by reading the
+ * disk.
  */
 
 import fs from "node:fs";
@@ -12,7 +14,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { edgesOf, shadowsOf } = require("./code-edges.js");
+const { reachOf } = require("./code-edges.js");
 
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -27,11 +29,8 @@ function tree(code: string, files: string[]) {
 	const file = path.join(root, "tool/t.py");
 	const faults: string[] = [];
 	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-	return {
-		edges: rel(edgesOf(file, code, (m: string) => faults.push(m))),
-		shadows: rel(shadowsOf(file, code)),
-		faults,
-	};
+	const { edges, shadows } = reachOf(file, code, (m: string) => faults.push(m));
+	return { edges: rel(edges), shadows: rel(shadows), faults };
 }
 
 describe("a dotted import", () => {
@@ -63,6 +62,19 @@ describe("a dotted import", () => {
 				"tool/pkg/sub.py",
 			]).edges,
 		).toEqual(["tool/pkg/__init__.py", "tool/pkg/sub.py"]);
+	});
+
+	it("names a dotted part's package as a shadow of its module", () => {
+		expect(
+			tree("import pkg.sub\n", ["tool/pkg/__init__.py", "tool/pkg/sub.py"])
+				.shadows,
+		).toContain("tool/pkg/sub/__init__.py");
+	});
+
+	it("faults a from-imported name a namespace package does not hold", () => {
+		expect(tree("from ns import gone\n", ["tool/ns/other.py"]).faults).toEqual([
+			"imports gone from ns, a namespace package that holds no gone",
+		]);
 	});
 
 	it("faults a submodule the walk cannot place", () => {
@@ -120,12 +132,38 @@ describe("a sys.path entry the file adds", () => {
 		['sys.path.insert(0, "relative")'],
 		["sys.path.insert(1, os.path.dirname(__file__))"],
 		["sys.path[:0] = [LIB]"],
+		["sys.path.pop(0)"],
+		["del sys.path[0]"],
 	])("faults a later non-stdlib import after %s", (edit) => {
 		const { faults } = tree(`${edit}\nimport os\nimport helper\n`, [
 			"tool/helper.py",
 		]);
 		expect(faults).toEqual([
 			"imports helper after a sys.path edit the walk cannot read",
+		]);
+	});
+
+	it("counts every file an indented insert may or may not have put first", () => {
+		const code = [
+			"if CHECK:",
+			'    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))',
+			"import helper",
+		].join("\n");
+		expect(tree(code, ["lib/helper.py", "tool/helper.py"]).edges).toEqual([
+			"lib/helper.py",
+			"tool/helper.py",
+		]);
+	});
+
+	it("places a function's import on the search path as the file leaves it too", () => {
+		const code = [
+			"def run():",
+			"    import helper",
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))',
+		].join("\n");
+		expect(tree(code, ["lib/helper.py", "tool/helper.py"]).edges).toEqual([
+			"tool/helper.py",
+			"lib/helper.py",
 		]);
 	});
 
