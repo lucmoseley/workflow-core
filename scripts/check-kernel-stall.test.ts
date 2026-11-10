@@ -5,7 +5,7 @@
  * fails open silently where neither can be read.
  *
  * Most cases read a fixture through WFC_KERNEL_LOG; the reader cases unset it
- * and point WFC_JOURNALCTL at lib/earlyoom-journal-fake.ts's stub and
+ * and point WFC_JOURNALCTL at lib/journalctl-fake.ts's stub and
  * WFC_DMESG at lib/dmesg-fake.ts's, so the machine's own kernel log is never
  * read. Every case reads the clock from a WFC_SCHED_CLOCK fixture, a running
  * one unless it says otherwise, so the machine's own is never read; likewise
@@ -23,10 +23,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { dmesgLine, writeDmesg } from "./lib/dmesg-fake";
 import {
-	kernelLine,
+	buildKernelLine,
 	writeFailingJournalctl,
 	writeJournalctl,
-} from "./lib/earlyoom-journal-fake";
+} from "./lib/journalctl-fake";
 import { stallBootLines, writeKernelConfig } from "./lib/kernel-stall-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { writeSchedClock } from "./lib/sched-clock-fake";
@@ -35,29 +35,29 @@ import { writeWevtutil } from "./lib/wevtutil-fake";
 const SCRIPT = path.join(__dirname, "check-kernel-stall.js");
 
 const CLEAN = [
-	kernelLine(
+	buildKernelLine(
 		Date.parse("2026-10-07T15:18:35+00:00"),
 		"Booting Linux on physical CPU 0x0000000000",
 	),
-	kernelLine(
+	buildKernelLine(
 		Date.parse("2026-10-08T01:12:01+00:00"),
 		"hv_balloon: Max. dynamic memory size: 10240 MB",
 	),
 ];
-/** The stall's stamp, as kernelLine writes it. */
+/** The stall's stamp, as buildKernelLine writes it. */
 const STALL_STAMP = "2026-10-07T14:43:24+00:00";
 const STALL_MSG = "rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:";
-const STALL_LINE = kernelLine(Date.parse(STALL_STAMP), STALL_MSG);
+const STALL_LINE = buildKernelLine(Date.parse(STALL_STAMP), STALL_MSG);
 /** The stall as dmesg -T holds it, at a wall time the journal's is not. */
 const DMESG_STALL = dmesgLine(Date.parse("2026-10-07T22:43:24Z"), STALL_MSG);
 const STALLED = [
 	...CLEAN,
 	STALL_LINE,
-	kernelLine(
+	buildKernelLine(
 		Date.parse(STALL_STAMP),
 		"rcu: rcu_preempt kthread timer wakeup did not happen for 2502 jiffies",
 	),
-	kernelLine(Date.parse("2026-10-07T14:45:13+00:00"), STALL_MSG),
+	buildKernelLine(Date.parse("2026-10-07T14:45:13+00:00"), STALL_MSG),
 ];
 
 let dir: string;
@@ -569,7 +569,7 @@ describe("each stall's t figure (#4081)", () => {
 		const later = Date.parse("2026-11-03T12:22:48+08:00");
 		fs.appendFileSync(
 			log,
-			`${kernelLine(later, STALL_MSG)}\n${kernelLine(later, "rcu: \t(detected by 1, t=9450698 jiffies, g=1, q=1 ncpus=8)")}\n`,
+			`${buildKernelLine(later, STALL_MSG)}\n${buildKernelLine(later, "rcu: \t(detected by 1, t=9450698 jiffies, g=1, q=1 ncpus=8)")}\n`,
 		);
 		const r = run(["--json"], {
 			WFC_KERNEL_LOG: log,
@@ -635,8 +635,8 @@ describe("each stall's t figure (#4081)", () => {
 		const at = Date.parse(Leap.stalled);
 		const r = run([], {
 			WFC_KERNEL_LOG: logFile([
-				kernelLine(at, STALL_MSG),
-				kernelLine(
+				buildKernelLine(at, STALL_MSG),
+				buildKernelLine(
 					at,
 					"rcu: \t(detected by 1, t=9435698 jiffies, g=1, q=1 ncpus=8)",
 				),
