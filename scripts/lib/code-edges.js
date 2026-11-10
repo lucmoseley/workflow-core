@@ -83,9 +83,12 @@
  *
  * AN IMPORTED MODULE (#4870) resolves its imports on the sys.path of the
  * script that imported it, not on its own directory. `reachOf` hands back
- * sys.path as a Python file leaves it (`pySearch`); a caller walking a module
- * that file imports hands it in, and each import is then placed on both
- * paths, faulting only where neither places it. pass-store.js does;
+ * sys.path as a Python file leaves it (`pySearch`); a caller walking the
+ * files of one script's run hands each the path the others left, and each
+ * import is then placed on both paths, faulting only where neither places
+ * it. An import may run before any one of those edits, so each entry a file
+ * added is handed on as one that may never have run: a module found there
+ * settles nothing. pass-store.js does;
  * hook-code.js and surface-closure.js, walking no one script's run, place a
  * module on its own directory and edits alone.
  *
@@ -408,8 +411,8 @@ const pythonVersion = () => readPython().version;
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
- * @param {PyEntry[] | null} [importerSearch] for a Python module, the
- *   `pySearch` of the file that imports it
+ * @param {PyEntry[] | null} [importerSearch] for a Python file, the
+ *   `pySearch` the other files of its script's run left
  * @returns {Reach}
  */
 function reachOf(file, text, fault, importerSearch = null) {
@@ -765,10 +768,12 @@ function readManifestValues(file, key) {
  *   sys.path entry: a null `dir` is one the walk cannot read; `maybe` marks
  *   one an indented statement added, which may never have run; `tail` one
  *   appended, so searched after the stdlib's own entries.
- * @typedef {{searches: PyEntry[][], names: Map<string, string>}} PyScope
+ * @typedef {{searches: PyEntry[][], added: Set<PyEntry>,
+ *   names: Map<string, string>}} PyScope
  *   `searches` holds each sys.path the file's imports may be resolved on, as
  *   the file has left it: one led by its own directory, then its importer's
- *   where the caller hands one.
+ *   where the caller hands one; `added` holds the entries its own edits put
+ *   there.
  * @typedef {{file: string, dir: string, scope: PyScope, reach: Found,
  *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
@@ -814,16 +819,18 @@ function pyReach(file, text, fault, importerSearch) {
 const pyWalkFound = (walk) => ({
 	edges: [...new Set(walk.reach.edges)],
 	shadows: [...new Set(walk.reach.shadows)],
-	pySearch: settledPySearch(walk.scope.searches.at(-1) ?? []),
+	pySearch: settledPySearch(
+		(walk.scope.searches.at(-1) ?? []).map((entry) =>
+			walk.scope.added.has(entry) ? { ...entry, maybe: true } : entry,
+		),
+	),
 });
 
 /**
- * A walk of `file` at its start: sys.path led by its own directory, and its
- * importer's beside it where the caller hands one.
  * @param {string} file absolute
  * @param {(msg: string) => void} fault
  * @param {PyEntry[] | null} importerSearch
- * @returns {PyWalk}
+ * @returns {PyWalk} the walk of `file` at its start
  */
 function pyWalkOf(file, fault, importerSearch) {
 	const dir = path.dirname(file);
@@ -837,6 +844,7 @@ function pyWalkOf(file, fault, importerSearch) {
 				[{ dir, maybe: false, tail: false }],
 				...(importerSearch ? [[...importerSearch]] : []),
 			],
+			added: new Set(),
 			names: new Map(),
 		},
 		reach: { edges: [], shadows: [] },
@@ -956,8 +964,8 @@ function cutPyLexeme(m) {
  * Applies one sys.path edit to the scope: a literal `insert(0, …)` or
  * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
  * cannot read at the front.
- * @param {PyWalk} walk accumulator: each of its scope's `searches` gains the
- *   entry
+ * @param {PyWalk} walk accumulator: each of its scope's `searches`, and its
+ *   `added`, gains the entry
  * @param {PyStatement} statement
  */
 function editSysPath(walk, statement) {
@@ -967,6 +975,7 @@ function editSysPath(walk, statement) {
 		: null;
 	const tail = m?.[2] !== undefined;
 	const entry = { dir, maybe: statement.indented, tail };
+	walk.scope.added.add(entry);
 	for (const search of walk.scope.searches)
 		if (tail) search.push(entry);
 		else search.unshift(entry);

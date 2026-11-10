@@ -628,6 +628,39 @@ describe("a script the manifest says a file spawns", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	it("voids the pass when a file appears on the entry one module adds ahead of another module's import (#4870)", () => {
+		const dir = spawningModule(
+			'import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "x"))\nimport other\n',
+			["scripts/lib/other.py", "scripts/lib/helper.py"],
+		);
+		write(dir, "scripts/lib/other.py", "import helper\n");
+		git(dir, "commit", "-qam", "sibling");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/x"));
+		write(dir, "scripts/x/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a file appears on the entry a module adds ahead of its importer's later import (#4870)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/mod.py", "scripts/helper.py"],
+			"import mod\nimport helper\n",
+		);
+		write(
+			dir,
+			"scripts/mod.py",
+			'import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "x"))\n',
+		);
+		git(dir, "commit", "-qam", "module");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/x"));
+		write(dir, "scripts/x/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("records a row where two modules import each other, each adding to sys.path (#4870)", () => {
 		const insert = (name: string) =>
 			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;

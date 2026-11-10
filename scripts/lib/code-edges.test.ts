@@ -20,6 +20,25 @@ const { edgesOf, reachOf } = require("./code-edges.js");
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
+/** The reach of `file` under `root`, reading `text`: as a script run on its
+ * own, or, handed the `search` its importer left, as that file's module. */
+function walk(file: string, text: string, search?: unknown) {
+	const faults: string[] = [];
+	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
+	const found = reachOf(
+		path.join(root, file),
+		text,
+		(m: string) => faults.push(m),
+		search,
+	);
+	return {
+		edges: rel(found.edges),
+		shadows: rel(found.shadows),
+		faults,
+		pySearch: found.pySearch,
+	};
+}
+
 /** A tree holding `files`, and the importer `tool/t.py` reading `code`. */
 function tree(code: string, files: string[]) {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
@@ -27,11 +46,8 @@ function tree(code: string, files: string[]) {
 		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 		fs.writeFileSync(path.join(root, rel), rel === "tool/t.py" ? code : "");
 	}
-	const file = path.join(root, "tool/t.py");
-	const faults: string[] = [];
-	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-	const { edges, shadows } = reachOf(file, code, (m: string) => faults.push(m));
-	return { edges: rel(edges), shadows: rel(shadows), faults };
+	const { edges, shadows, faults } = walk("tool/t.py", code);
+	return { edges, shadows, faults };
 }
 
 describe("a dotted import", () => {
@@ -209,27 +225,10 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 	 * `tool/t.py`, reading `script`, imports; `files` stand beside them. */
 	function moduleTree(script: string, code: string, files: string[]) {
 		tree(script, [...files, "lib/m.py"]);
-		const walk = (file: string, text: string, search?: unknown) => {
-			const faults: string[] = [];
-			const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-			const found = reachOf(
-				path.join(root, file),
-				text,
-				(m: string) => faults.push(m),
-				search,
-			);
-			return {
-				edges: rel(found.edges),
-				shadows: rel(found.shadows),
-				faults,
-				pySearch: found.pySearch,
-			};
-		};
 		const { pySearch } = walk("tool/t.py", script);
 		return {
 			alone: walk("lib/m.py", code),
 			imported: walk("lib/m.py", code, pySearch),
-			walk,
 		};
 	}
 	/* list_shape.py's shape: `lib`, then its own directory ahead of it. */
@@ -262,6 +261,23 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			"lib/helper.py",
 			"tool/helper.py",
 		]);
+	});
+
+	it("reaches the file the module's import found before the importer's later entry shadowed it", () => {
+		const script = [
+			"HERE = os.path.dirname(os.path.abspath(__file__))",
+			'sys.path.insert(0, os.path.join(HERE, "..", "lib"))',
+			"import m",
+			'sys.path.insert(0, os.path.join(HERE, "..", "late"))',
+		].join("\n");
+		const { imported } = moduleTree(script, "import helper\n", [
+			"tool/helper.py",
+			"late/helper.py",
+		]);
+		expect(imported).toMatchObject({
+			edges: ["late/helper.py", "tool/helper.py"],
+			faults: [],
+		});
 	});
 
 	it("names a stdlib import's shadow on the importer's entries", () => {
@@ -302,7 +318,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 	it("hands the module's own edits on, atop its importer's, to what it imports", () => {
 		const code =
 			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "deep"))\nimport n\n';
-		const { imported, walk } = moduleTree(listShape, code, [
+		const { imported } = moduleTree(listShape, code, [
 			"deep/n.py",
 			"deep/x.py",
 			"tool/y.py",
@@ -317,7 +333,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 	it("hands on a path that walking the module on it again leaves as it was", () => {
 		const code =
 			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "deep"))\n';
-		const { imported, walk } = moduleTree(listShape, code, []);
+		const { imported } = moduleTree(listShape, code, []);
 		expect(walk("lib/m.py", code, imported.pySearch).pySearch).toEqual(
 			imported.pySearch,
 		);

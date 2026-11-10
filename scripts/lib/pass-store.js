@@ -318,8 +318,8 @@ const refuseFault = (/** @type {string} */ why) => {
  * `__dirname`-spelled spawns, transitively, read lexically off the working
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
  * records, since this repo's tests reach their subjects through
- * `createRequire` and spawns. A Python module is read on the sys.path of
- * the file that imports it, so once for each such path (#4870). Memoised
+ * `createRequire` and spawns. A Python file is read on the sys.path its
+ * script's run builds, so once for each such path (#4870). Memoised
  * across the files of one run. Null
  * where any file on the way will not read, or joins a path off its own
  * directory the walk cannot tell: an input left unknown records no row. A
@@ -369,8 +369,13 @@ const NO_REACH = {
 
 /**
  * @typedef {{rel: string, pySearch: PySearch}} Visit one file as the walk
- *   meets it: a Python module with the sys.path its importer left, any other
- *   file with none
+ *   meets it: with sys.path as the files of its script's run have left it,
+ *   or none
+ * @typedef {{edges: Set<string>, shadows: Set<string>, spawned: Set<string>,
+ *   python: boolean, pySearch: PySearch}} ProcessReach what one script's run
+ *   reaches: every file, the paths tried first, the files among them it does
+ *   not import but runs or loads as scripts of their own, whether one runs
+ *   inline Python, and sys.path as its files leave it
  */
 
 /** @param {Visit} visit */
@@ -378,41 +383,92 @@ const visitKey = ({ rel, pySearch }) => JSON.stringify([rel, pySearch]);
 
 /**
  * The files `file` reaches, each visit's own reach read by `reachOne`; null
- * where any is null. A Python file's edge to a Python file is an import, so
- * the module is visited on the sys.path its importer left; `file` itself,
- * and a Python file any other file reaches, is a script run on its own.
+ * where any is null. `file` itself, and each file another's run spawns or
+ * loads, is a script run on its own (`processReach`).
  * @param {string} file
  * @param {(visit: Visit) => FileReach|null} reachOne
  * @returns {Reach|null} `file` left out of `edges`
  */
 function walkReach(file, reachOne) {
-	/** @type {Visit[]} */
-	const queue = [{ rel: file, pySearch: null }];
-	const visited = new Set(queue.map(visitKey));
+	const scripts = [file];
+	const seen = new Set(scripts);
 	/** @type {Set<string>} */
 	const edges = new Set();
 	/** @type {Set<string>} */
 	const shadows = new Set();
 	let python = false;
-	for (const visit of queue) {
-		const found = reachOne(visit);
+	for (const script of scripts) {
+		const found = processReach(script, reachOne);
 		if (!found) return null;
 		python ||= found.python;
 		for (const p of found.shadows) shadows.add(p);
-		for (const rel of found.edges) {
-			edges.add(rel);
-			const next = {
-				rel,
-				pySearch: languageOf(rel) === "python" ? found.pySearch : null,
-			};
-			const key = visitKey(next);
-			if (visited.has(key)) continue;
-			visited.add(key);
-			queue.push(next);
-		}
+		for (const rel of found.edges) edges.add(rel);
+		for (const next of found.spawned)
+			if (!seen.has(next)) {
+				seen.add(next);
+				scripts.push(next);
+			}
 	}
 	edges.delete(file);
 	return { edges: [...edges], shadows: [...shadows], python };
+}
+
+/**
+ * What the run of `script` reaches. A Python process holds one sys.path, so
+ * a module's edit moves what its importer and every other module import
+ * (#4870): its files are walked again, each on the path they all left, until
+ * a pass leaves that path as it found it.
+ * @param {string} script
+ * @param {(visit: Visit) => FileReach|null} reachOne
+ * @returns {ProcessReach|null}
+ */
+function processReach(script, reachOne) {
+	/** @type {PySearch} */
+	let pySearch = null;
+	for (;;) {
+		const pass = processPass({ rel: script, pySearch }, reachOne);
+		if (!pass) return null;
+		if (JSON.stringify(pass.pySearch) === JSON.stringify(pySearch)) return pass;
+		pySearch = pass.pySearch;
+	}
+}
+
+/**
+ * One pass over a script and the modules it imports, each handed sys.path
+ * as the file before it left it. A Python file's edge to a Python file is
+ * an import; any other edge is a file spawned or loaded.
+ * @param {Visit} start the script, and the path the last pass left
+ * @param {(visit: Visit) => FileReach|null} reachOne
+ * @returns {ProcessReach|null}
+ */
+function processPass(start, reachOne) {
+	const files = [start.rel];
+	const loaded = new Set(files);
+	/** @type {ProcessReach} */
+	const pass = {
+		edges: new Set(),
+		shadows: new Set(),
+		spawned: new Set(),
+		python: false,
+		pySearch: start.pySearch,
+	};
+	for (const rel of files) {
+		const found = reachOne({ rel, pySearch: pass.pySearch });
+		if (!found) return null;
+		pass.python ||= found.python;
+		pass.pySearch = found.pySearch ?? pass.pySearch;
+		for (const p of found.shadows) pass.shadows.add(p);
+		for (const next of found.edges) {
+			pass.edges.add(next);
+			if (!found.pySearch || languageOf(next) !== "python")
+				pass.spawned.add(next);
+			else if (!loaded.has(next)) {
+				loaded.add(next);
+				files.push(next);
+			}
+		}
+	}
+	return pass;
 }
 
 /**
