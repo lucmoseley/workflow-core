@@ -5,6 +5,7 @@
  * A CORE: it does no I/O and never runs the text.
  */
 
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires shell-parse.js only inside runScript, once both have loaded (#4863).
 const { QUOTED, SENTINEL_BYTE } = require("./shell-words.js");
 const { endRun } = require("./trim-run.js");
 

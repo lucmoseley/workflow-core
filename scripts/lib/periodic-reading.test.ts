@@ -45,8 +45,8 @@ describe("periodicReading's lock", () => {
 		expect(fs.existsSync(gate().lock)).toBe(false);
 	});
 
-	it("refuses a live holder running the script, however old its lock", () => {
-		plantLiveLock(gate().lock, SCRIPT);
+	it("refuses a live holder running the script, however old its lock", async () => {
+		await plantLiveLock(gate().lock, SCRIPT);
 		expect(periodicReading(gate(), () => "read")).toEqual({
 			ran: false,
 			why: "locked",
@@ -54,8 +54,8 @@ describe("periodicReading's lock", () => {
 		expect(fs.existsSync(gate().stamp)).toBe(false);
 	});
 
-	it("takes over a live process that runs another script", () => {
-		plantLiveLock(gate().lock, "another-report.js");
+	it("takes over a live process that runs another script", async () => {
+		await plantLiveLock(gate().lock, "another-report.js");
 		expect(periodicReading(gate(), () => "read").ran).toBe(true);
 	});
 

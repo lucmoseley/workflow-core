@@ -4249,22 +4249,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		const bin = path.join(repoDir, "node_modules", ".bin");
 		fs.mkdirSync(bin, { recursive: true });
 		fs.writeFileSync(path.join(bin, "vitest"), "#!\n");
-		// A second `SHARED_ARTEFACTS` member, gitignored the same way `.husky/_`
-		// is in the real checkout, so a test can pin the mechanism generalises
-		// past `node_modules` rather than special-casing it (mantahostels#2213). `.husky`
-		// itself needs a TRACKED file to exist in a fresh worktree at all — in
-		// the real checkout that's the committed hook scripts; here it's this
-		// placeholder — so the untracked `_/h` beside it has a parent directory
-		// to land in.
-		const husky = path.join(repoDir, ".husky");
-		fs.mkdirSync(husky, { recursive: true });
-		fs.writeFileSync(path.join(husky, "pre-commit"), "#!\n");
-		const { execFileSync } = require("node:child_process");
-		execFileSync("git", ["add", ".husky/pre-commit"], { cwd: repoDir });
-		execFileSync("git", ["commit", "-qm", "husky"], { cwd: repoDir });
-		const underscore = path.join(husky, "_");
-		fs.mkdirSync(underscore, { recursive: true });
-		fs.writeFileSync(path.join(underscore, "h"), "#!\n");
 	});
 
 	function repoWithDeps() {
@@ -4298,8 +4282,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	describe("the worktree it runs in", () => {
 		it("is detached at HEAD, spawns vitest there, and has every shared artefact linked in", async () => {
 			const dir = repoWithDeps();
-			const seen: { cwd?: string; existed?: boolean; huskyExisted?: boolean } =
-				{};
+			const seen: { cwd?: string; existed?: boolean } = {};
 			const out = sink();
 			const err = sink();
 			const code = await main(["--full=coverage"], {
@@ -4314,9 +4297,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					seen.existed = fs.existsSync(
 						path.join(opts.cwd, "node_modules", ".bin", "vitest"),
 					);
-					seen.huskyExisted = fs.existsSync(
-						path.join(opts.cwd, ".husky", "_", "h"),
-					);
 					return fakeChild({ code: 0 });
 				},
 			});
@@ -4325,7 +4305,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(seen.cwd).toBe(worktreeOf(dir, 4242));
 			// Through the symlink: the run resolves the canonical checkout's deps.
 			expect(seen.existed).toBe(true);
-			expect(seen.huskyExisted).toBe(true);
 			const head = require("node:child_process")
 				.execFileSync("git", ["rev-parse", "HEAD"], {
 					cwd: dir,
@@ -4368,15 +4347,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(
 				fs.existsSync(path.join(dir, "node_modules", ".bin", "vitest")),
 			).toBe(true);
-			expect(fs.existsSync(made.dir)).toBe(false);
-		});
-
-		it("leaves the canonical checkout's .husky/_/h intact", () => {
-			const dir = repoWithDeps();
-			const made = createIsolated(dir, { pid: 4265 });
-			expect(made.error).toBe(null);
-			removeIsolated(dir, made.dir, { err: sink() });
-			expect(fs.existsSync(path.join(dir, ".husky", "_", "h"))).toBe(true);
 			expect(fs.existsSync(made.dir)).toBe(false);
 		});
 
@@ -6212,7 +6182,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const { overlayFiles } = require("./lib/isolated-worktree.js");
 
 			const headText = "committed\n";
-			const sharedLinks = new Set(["node_modules", ".husky/_"]);
+			const sharedLinks = new Set(["node_modules"]);
 
 			/**
 			 * A checkout dirty in every way a shared tree is: the session's own
@@ -6241,7 +6211,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				gitIn(checkout, ["worktree", "add", "-q", "--detach", wt]);
 				fs.appendFileSync(
 					path.join(checkout, ".git", "info", "exclude"),
-					"node_modules\n.husky/_\n",
+					"node_modules\n",
 				);
 				fs.symlinkSync(
 					path.join(checkout, "node_modules"),
@@ -6634,20 +6604,33 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("links no shared artefact the checkout lacks, so a walk over its tree does not throw (#822)", async () => {
 				const dir = dirtyCheckout();
-				fs.rmSync(path.join(dir, ".husky", "_"), { recursive: true });
-				const seen = { husky: true, deps: false, walk: "" };
+				fs.rmSync(path.join(dir, "node_modules"), { recursive: true });
+				// A member the checkout has, so the skip is shown sparing the rest.
+				const config = ".claude/workflow-core.json";
+				fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+				fs.writeFileSync(
+					path.join(dir, config),
+					JSON.stringify({ worktreeLinks: [".env"] }),
+				);
+				gitIn(dir, ["add", "-f", config]);
+				gitIn(dir, ["commit", "-qm", "links", "--", config]);
+				fs.writeFileSync(path.join(dir, ".env"), "canonical\n");
+				const seen = { deps: true, declared: false, walk: "" };
 				const { code } = await runSeeing(dir, [], {
 					pid: 5412,
 					sessionId: "mine",
 					spawnFn: (_bin: string, _a: string[], opts: { cwd: string }) => {
 						// `lstat`, not `exists`: a dangling link must count as an entry.
-						seen.husky =
-							fs.lstatSync(path.join(opts.cwd, ".husky", "_"), {
+						seen.deps =
+							fs.lstatSync(path.join(opts.cwd, "node_modules"), {
 								throwIfNoEntry: false,
 							}) !== undefined;
-						seen.deps = fs.existsSync(
-							path.join(opts.cwd, "node_modules", ".bin", "vitest"),
-						);
+						seen.declared =
+							fs
+								.lstatSync(path.join(opts.cwd, ".env"), {
+									throwIfNoEntry: false,
+								})
+								?.isSymbolicLink() === true;
 						try {
 							for (const entry of fs.readdirSync(opts.cwd, {
 								recursive: true,
@@ -6660,8 +6643,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					},
 				});
 				expect(code).toBe(0);
-				expect(seen.husky).toBe(false);
-				expect(seen.deps).toBe(true);
+				expect(seen.deps).toBe(false);
+				expect(seen.declared).toBe(true);
 				expect(seen.walk).toBe("");
 			});
 
@@ -6777,7 +6760,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						}),
 						claimFn: (file: string) => {
 							claimed.push(file);
-							return { ok: true };
+							return { claimed: true };
 						},
 						spawnFn: (
 							_bin: string,
@@ -7879,11 +7862,11 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 	const read = (dir: string) =>
 		fs.readFileSync(path.join(dir, EDGES_FILE), "utf8");
 	const rendered = { "docs/a.md": ["a.test.ts"] };
-	type Claim = { ok: true } | { ok: false; why: string };
+	type Claim = { claimed: true } | { claimed: false; why: string };
 
 	function freshen(
 		at: { root: string; home: string },
-		claim: () => Claim = () => ({ ok: true }),
+		claim: () => Claim = () => ({ claimed: true }),
 	) {
 		const out: string[] = [];
 		const err: string[] = [];
@@ -7921,7 +7904,8 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		expect(read(edited.root)).toContain('"docs/a.md"');
 		const failed = trees("stale", "stale");
 		expect(
-			freshen(failed, () => ({ ok: false, why: "the arbiter exited 2" })).err,
+			freshen(failed, () => ({ claimed: false, why: "the arbiter exited 2" }))
+				.err,
 		).toContain("the arbiter exited 2");
 		expect(read(failed.home)).toBe("stale");
 	});

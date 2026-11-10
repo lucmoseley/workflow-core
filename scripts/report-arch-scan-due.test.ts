@@ -805,10 +805,13 @@ describe("the daily filing run", () => {
 		expect(run(r, []).stdout).toContain("under a day ago; nothing read");
 	});
 
-	it("reads nothing while another run holds a live lock", () => {
+	it("reads nothing while another run holds a live lock", async () => {
 		const r = repo({ archScan: { threshold: 1 } });
 		commit(r, { "a.js": 5 });
-		plantLiveLock(path.join(r.root, ".git", LOCK), "report-arch-scan-due.js");
+		await plantLiveLock(
+			path.join(r.root, ".git", LOCK),
+			"report-arch-scan-due.js",
+		);
 
 		const { code, stdout } = run(r, []);
 		expect(code).toBe(0);

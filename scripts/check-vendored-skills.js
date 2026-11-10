@@ -144,7 +144,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
-const { gh, parseGhFailureReason } = require("./lib/gh");
+const { gh, isNotFound, parseGhFailureReason } = require("./lib/gh");
 const { caught } = require("./lib/caught.js");
 const {
 	LOCK,
@@ -621,13 +621,6 @@ function failedState(failed) {
 }
 
 /**
- * `gh`'s own spelling of a missing path, which is what `notFound` is read off:
- * `gh: Not Found (HTTP 404)`. Anchored to the parenthesised status rather than
- * to a bare `404`, which any error text could carry.
- */
-const HTTP_404 = /\(HTTP 404\)/;
-
-/**
  * A base64 `content` field — a contents read's or a licence read's — decoded.
  *
  * @param {string} endpoint
@@ -639,7 +632,7 @@ function ghFetch(endpoint) {
 		return { body: Buffer.from(json.trim(), "base64").toString("utf8") };
 	} catch (e) {
 		const stderr = String(caught(e).stderr ?? "").trim();
-		const notFound = HTTP_404.test(stderr);
+		const notFound = isNotFound(e);
 		return {
 			error: stderr.split("\n")[0] || errMessage(e),
 			notFound,

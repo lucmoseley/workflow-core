@@ -2776,3 +2776,80 @@ describe("the pipeline (#4556)", () => {
 		expect(taken(actions)).toEqual([["a@a1", "c@c1"], ["d@d1"]]);
 	});
 });
+
+describe("a base holding gating guard-registry faults (#4807)", () => {
+	const Row =
+		"findings: scripts/guard-branch.sh — the guard or a library its digest hashes changed since";
+	/* Every merge onto `m0` inherits its stale row, unless a member re-anchors it. */
+	const staleUnlessFixed =
+		(remote: Remote) =>
+		(onto: string, ms: readonly Member[], fresh?: boolean): MergeResult =>
+			ms.some((m) => m.name === "fix")
+				? fakeMerge(remote, onto, ms, fresh)
+				: {
+						kind: "stale-base",
+						name: ms.at(-1)?.name ?? "",
+						sha: mergeSha(onto, ms),
+						onto,
+						rows: [Row],
+					};
+
+	it("ends the run saying main is stale and must be re-anchored first, dropping no member", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+
+		const { end, pushed } = await land(remote, disk, {
+			merge: staleUnlessFixed(remote),
+		});
+
+		expect(end.reason).toBe(
+			`held: main is stale: main at m0 holds 1 gating guard-registry fault(s), so no batch onto it lands; main must be re-anchored first: ${Row}`,
+		);
+		expect(disk.drops).toEqual([]);
+		expect(pushed).toEqual([]);
+		expect(remote.main).toBe("m0");
+		expect([...remote.refs.keys()]).toEqual(["a", "b"]);
+	});
+
+	it("isolates a red batch onto the stale main, its members merged alone taken as merged, so the re-anchor still lands", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			fix: { sha: "f1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const failing = "scripts/a.test.ts";
+
+		const { end, actions } = await land(remote, disk, {
+			merge: staleUnlessFixed(remote),
+			verdict: (sha, _r, files) =>
+				sha.includes("a1") && (files.length === 0 || files.includes(failing))
+					? { kind: "red", files: [failing] }
+					: { kind: "green", run: 1, cleared: [] },
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["a"]);
+		expect(remote.main).toContain("f1");
+	});
+
+	it("lands the batch once a ref carrying the re-anchor waits beside the rest", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+			fix: { sha: "f1", pushedAt: 3 },
+		});
+		const disk = freshDisk();
+
+		const { end } = await land(remote, disk, {
+			merge: staleUnlessFixed(remote),
+			verdict: () => ({ kind: "green", run: 1, cleared: [] }),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(disk.drops).toEqual([]);
+		expect(remote.refs.size).toBe(0);
+	});
+});

@@ -15,6 +15,8 @@
  * that costs. Nothing here ever runs the text.
  */
 
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (#4863).
+const shellWords = require("./shell-words.js");
 const {
 	QUOTED,
 	hasExpansion,
@@ -24,10 +26,14 @@ const {
 	unwrap,
 	commandName,
 	isGitValueOption,
-} = require("./shell-words.js");
+	ASSIGNMENT_RE,
+} = shellWords;
 const { expandTildeWord } = require("./home-path.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
+// biome-ignore lint/suspicious/noImportCycles: shell-lexer.js requires shell-words.js, which requires this file only inside runScript (#4863).
 const { Lexer, SPACE } = require("./shell-lexer.js");
+// biome-ignore lint/suspicious/noImportCycles: git-alias.js requires shell-words.js, which requires this file only inside runScript (#4863).
+const gitAlias = require("./git-alias.js");
 const {
 	CONFIG_FILE_VARS,
 	UNREAD_ALIAS,
@@ -37,7 +43,7 @@ const {
 	defineFromEnv,
 	defineFromConfigEnvWord,
 	defineFromConfigWord,
-} = require("./git-alias.js");
+} = gitAlias;
 
 /** The flatten's subshell marker, standing a bracket on a line of its own so a
  * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
@@ -159,6 +165,8 @@ function parseJoins(masked) {
  * @typedef {object} CommandWords
  * @property {string[]} words the segment's words, redirections taken out
  * @property {number} wi where the command starts
+ * @property {number} assignStart where the leading assignments start, past
+ *   any reserved word
  * @property {number} assignEnd where the leading assignments stop, before any
  *   `exec`
  * @property {RedirectEntry[]} redirs one per redirection taken out
@@ -329,12 +337,13 @@ function commandWords(segment, { bare = false, noRedirects = false } = {}) {
 		noRedirects,
 	);
 	if (words.length === 0)
-		return { words, wi: 0, assignEnd: 0, redirs, ran: false };
-	let wi = bare ? 0 : skipReserved(words, 0);
-	while (wi < words.length && /^[A-Za-z_].*=/s.test(words[wi] ?? "")) wi++;
+		return { words, wi: 0, assignStart: 0, assignEnd: 0, redirs, ran: false };
+	const assignStart = bare ? 0 : skipReserved(words, 0);
+	let wi = assignStart;
+	while (wi < words.length && ASSIGNMENT_RE.test(words[wi] ?? "")) wi++;
 	const assignEnd = wi;
 	if (!bare) wi = skipExec(words, wi);
-	return { words, wi, assignEnd, redirs, ran: wi < words.length };
+	return { words, wi, assignStart, assignEnd, redirs, ran: wi < words.length };
 }
 
 /** The reserved words a command may follow; `time` is read apart, for its
@@ -444,11 +453,12 @@ const isWriteRedirect = (kind) =>
  * of its own, bracketed as a subshell, ahead of the segment holding the span
  * (#3375): it runs before that command does.
  * @param {string} subject
+ * @param {string[]} [spans] accumulator: the subject's spans are appended, so
+ *   words parsed out of a span another parse recorded read through that
+ *   parse's array (#4863)
  * @returns {Parsed}
  */
-function parseCommand(subject) {
-	/** @type {string[]} */
-	const spans = [];
+function parseCommand(subject, spans = []) {
 	const { masked, heredocLines } = maskSubject(subject, spans);
 	/* Read BEFORE the flatten turns every `||` into a newline. The text before
 	 * the first one flattens to exactly the segments ahead of it. */
@@ -1243,12 +1253,8 @@ function harvest(walk, words, segIdx) {
  * @param {string[]} words
  */
 function moveCwd(walk, words) {
-	const [head, arg] = words;
-	const lost =
-		head === "pushd" ||
-		head === "popd" ||
-		((head === "builtin" || head === "command") && arg === "cd");
-	if (lost) return loseCwd(walk, words);
+	const [head = "", arg] = words;
+	if (losesCwd(head, arg)) return loseCwd(walk, words);
 	if (head !== "cd") return false;
 	const r = pathArg(arg ?? "", walk.scope);
 	const names = walk.scope.emptyNames;
@@ -1263,6 +1269,16 @@ function moveCwd(walk, words) {
 	}
 	return true;
 }
+
+/**
+ * Whether a command moves the cwd where no word of it says.
+ * @param {string} head
+ * @param {string | undefined} arg the word after it
+ */
+const losesCwd = (head, arg) =>
+	head === "pushd" ||
+	head === "popd" ||
+	((head === "builtin" || head === "command") && arg === "cd");
 
 /**
  * Make the cwd unknown, keeping the command that did it. RESIDUAL: not
@@ -1334,6 +1350,235 @@ function walkCommands(parsed, fn, ports) {
 		if (ran) moveCwd(walk, own);
 	});
 }
+
+/**
+ * @typedef {import("./shell-words.js").Chdir} Chdir
+ */
+
+/**
+ * @typedef {object} ScriptCommand one command a `sh -c` script runs
+ * @property {string[]} words from its command word on, masked, redirections
+ *   taken out
+ * @property {string[]} leading each assignment an earlier `export` put in the
+ *   environment, then its own leading ones, in the order they apply
+ * @property {Chdir[]} chdirs each `cd` before it, in order
+ * @property {string[]} unread each git-reading variable an earlier command
+ *   changed in a way not followed here, as markRepoVarsUnread reads one
+ */
+
+/**
+ * @typedef {object} ScriptState what a script's next command runs under
+ * @property {Chdir[]} chdirs
+ * @property {{ at: number, holds: Chdir["holds"] }[]} pending each `cd` a
+ *   `&&` chain is sure of until it ends: its index in `chdirs`, and how it
+ *   holds after
+ * @property {string[]} exports
+ * @property {Map<string, string>} locals each name an assignment alone set,
+ *   its word
+ * @property {string[]} unread
+ */
+
+/**
+ * The commands of a script a wrapper hands to `sh -c`, in the order they run,
+ * parsed as a command line is (#4863), its spans appended to `spans`. A `cd`,
+ * an `export` and an assignment alone move the commands after it as walkGit's
+ * walk moves them: not from a pipeline or behind `&`; a subshell's `)` hands
+ * back what its `(` saw; a `cd` holds as stepCwd's does, the directory test
+ * left to the reader, which has the cwd.
+ * @param {string} script
+ * @param {string[]} spans accumulator: the script's spans are appended
+ * @returns {ScriptCommand[]}
+ */
+function parseScript(script, spans) {
+	const parsed = parseCommand(script, spans);
+	/** @type {ScriptCommand[]} */
+	const out = [];
+	/** @type {ScriptState} */
+	let state = {
+		chdirs: [],
+		pending: [],
+		exports: [],
+		locals: new Map(),
+		unread: [],
+	};
+	/** @type {ScriptState[]} */
+	const stack = [];
+	parsed.segments.forEach((segment, segIdx) => {
+		if (segment === `${SCOPE_MARK}(`) {
+			stack.push(state);
+			return;
+		}
+		/* A `)` with no `(` open is a `case` pattern, which moves nothing. */
+		if (segment === `${SCOPE_MARK})`) {
+			state = stack.pop() ?? state;
+			return;
+		}
+		state = settleScriptChain(state, parsed.joins[segIdx]);
+		const cw = commandWords(segment);
+		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
+		if (cw.ran)
+			out.push({
+				words: cw.words.slice(cw.wi),
+				leading: [...state.exports, ...assigned],
+				chdirs: state.chdirs,
+				unread: state.unread,
+			});
+		state = cw.ran
+			? stepScript(state, cw, { parsed, segIdx, spans })
+			: assignAlone(state, cw.words, assigned, spans);
+	});
+	return out;
+}
+
+/**
+ * A `&&` chain's end, as settleCwdDoubt reads one: each `cd` it was sure of
+ * now holds as it would alone.
+ * @param {ScriptState} state
+ * @param {string | undefined} join
+ * @returns {ScriptState}
+ */
+function settleScriptChain(state, join) {
+	if (join === "a" || join === "(" || state.pending.length === 0) return state;
+	const chdirs = [...state.chdirs];
+	for (const { at, holds } of state.pending) {
+		const cd = chdirs[at];
+		if (cd) chdirs[at] = { ...cd, holds };
+	}
+	return { ...state, chdirs, pending: [] };
+}
+
+/**
+ * The state after a segment of assignments alone: each a local, and a
+ * variable already exported takes the new value.
+ * @param {ScriptState} state
+ * @param {string[]} words the segment's
+ * @param {string[]} assigned
+ * @param {string[]} spans
+ * @returns {ScriptState}
+ */
+function assignAlone(state, words, assigned, spans) {
+	const locals = new Map(state.locals);
+	let { exports } = state;
+	for (const w of assigned) {
+		const name = assignedName(w, spans);
+		locals.set(name, w);
+		if (exports.some((e) => assignedName(e, spans) === name))
+			exports = [...withoutName(exports, name, spans), w];
+	}
+	return markScriptUnread({ ...state, locals, exports }, words, true, spans);
+}
+
+/**
+ * The state after one command: a `cd` or `export` moves it; any other command
+ * but `git` may mark variables unread.
+ * @param {ScriptState} state
+ * @param {CommandWords} cw
+ * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @returns {ScriptState}
+ */
+function stepScript(state, cw, at) {
+	const { spans } = at;
+	const own = cw.words.slice(cw.wi);
+	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
+	const apart = runsApart(at.parsed.joins, at.segIdx);
+	const kind = exportKind(head, rest);
+	if (kind !== null)
+		return apart
+			? state
+			: exportInScript(state, { head, kind }, own.slice(1), spans);
+	if (head === "cd" || losesCwd(head, rest[0]))
+		return apart ? state : cdInScript(state, own, at);
+	const runs = unwrap(own, spans);
+	if (runs.every((run) => commandName(run.words[0] ?? "") === "git"))
+		return state;
+	return markScriptUnread(state, cw.words, false, spans);
+}
+
+/**
+ * @param {ScriptState} state
+ * @param {{ head: string, kind: "export" | "drop" }} command its command word,
+ *   and what exportKind reads it as
+ * @param {string[]} args the words after the command word, masked
+ * @param {string[]} spans
+ * @returns {ScriptState}
+ */
+function exportInScript(state, { head, kind }, args, spans) {
+	let { exports, unread } = state;
+	const locals = new Map(state.locals);
+	for (const w of args) {
+		const text = literal(w, spans).text;
+		if (text.startsWith("-")) continue;
+		const name = assignedName(w, spans);
+		unread = unread.filter((n) => n !== name);
+		if (kind === "drop") {
+			exports = withoutName(exports, name, spans);
+			if (head === "unset") locals.delete(name);
+			continue;
+		}
+		if (text !== name) locals.set(name, w);
+		/* A name alone exports the value it holds, and keeps an earlier
+		 * export's where the script set none. */
+		const value = text === name ? locals.get(name) : w;
+		if (value !== undefined)
+			exports = [...withoutName(exports, name, spans), value];
+	}
+	return { ...state, exports, unread, locals };
+}
+
+/**
+ * The state after a `cd`: one whose target no word gives goes where nothing
+ * resolves; one a `&&` chains a command off holds always for that chain.
+ * @param {ScriptState} state
+ * @param {string[]} own its words, masked
+ * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @returns {ScriptState}
+ */
+function cdInScript(state, own, at) {
+	const texts = own.map((w) => literal(w, at.spans).text);
+	const [head, arg] = texts;
+	const known =
+		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
+	const dir = known || `$(${texts.join(" ")})`;
+	/** @type {Chdir["holds"]} */
+	const holds = isSureMove(at.parsed, at.segIdx, own) ? "if-dir" : "maybe";
+	const chained = at.parsed.joins[at.segIdx + 1] === "a";
+	const pending = chained
+		? [...state.pending, { at: state.chdirs.length, holds }]
+		: state.pending;
+	const cd = { dir, holds: chained ? /** @type {const} */ ("always") : holds };
+	return { ...state, chdirs: [...state.chdirs, cd], pending };
+}
+
+/**
+ * @param {ScriptState} state
+ * @param {string[]} words the segment's
+ * @param {boolean} assigning
+ * @param {string[]} spans
+ * @returns {ScriptState}
+ */
+function markScriptUnread(state, words, assigning, spans) {
+	const named = repoVarsNamed(words, assigning, spans).filter(
+		(n) => !state.unread.includes(n),
+	);
+	return named.length === 0
+		? state
+		: { ...state, unread: [...state.unread, ...named] };
+}
+
+/**
+ * @param {string} w an assignment or a name, masked
+ * @param {string[]} spans
+ */
+const assignedName = (w, spans) =>
+	literal(w, spans).text.split("=", 1)[0] ?? "";
+
+/**
+ * @param {string[]} words
+ * @param {string} name
+ * @param {string[]} spans
+ */
+const withoutName = (words, name, spans) =>
+	words.filter((w) => assignedName(w, spans) !== name);
 
 /**
  * @typedef {object} GitCall one git command walkGit hands its callback
@@ -1532,7 +1777,7 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	const leading = words.slice(0, assignEnd);
 	const runs = how.unwrapped
 		? unwrap(own, walk.scope.spans)
-		: [{ words: own, wrapperWords: [], chdirs: [] }];
+		: [{ words: own, wrapperWords: [], chdirs: [], unread: [] }];
 	const gitRuns = runs.filter(
 		(run) => commandName(run.words[0] ?? "") === "git",
 	);
@@ -1549,8 +1794,8 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 /**
  * One `git` command's subcommand and the tree it runs against.
  * @param {Walk} walk
- * @param {{ words: string[], wrapperWords: string[], chdirs: string[] }} run
- *   its words from `git` on, and what its wrappers carried
+ * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
+ *   its words from `git` on, and what its wrappers and its script carried
  * @param {string[]} leading the segment's own leading assignments
  * @param {(path: string) => boolean} isDir
  * @returns {(GitTarget & { sub: string, args: string[] }) | null}
@@ -1561,27 +1806,41 @@ function readGitRun(walk, run, leading, isDir) {
 	const env = new Map(walk.gitEnv);
 	for (const [name, value] of carried.flatMap(parseGitEnvWord))
 		env.set(name, value);
-	/** @type {GitTarget} */
-	const target = {
-		tree: walk.cwd,
-		named: null,
-		workTree: null,
-		doubted: [],
-		fromCwd: "",
-		names: walk.cwdNames,
-		written: "",
-		aliases: emptyAliasTable(),
-	};
+	for (const name of run.unread) env.set(name, null);
 	const { spans } = walk.scope;
-	target.aliases.anyUnread = walk.aliasWritten;
-	defineFromEnv(target.aliases, env, spans);
-	for (const dir of chdirs) readGitDir(dir, target, walk.scope);
-	const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
+	/** @param {Chdir[]} dirs */
+	const through = (dirs) => {
+		/** @type {GitTarget} */
+		const target = {
+			tree: walk.cwd,
+			named: null,
+			workTree: null,
+			doubted: [],
+			fromCwd: "",
+			names: walk.cwdNames,
+			written: "",
+			aliases: emptyAliasTable(),
+		};
+		target.aliases.anyUnread = walk.aliasWritten;
+		defineFromEnv(target.aliases, env, spans);
+		/** @type {number[]} */
+		const unsure = [];
+		dirs.forEach((cd, at) => {
+			readGitDir(cd.dir, target, walk.scope);
+			if (!holdsAt(cd, target.tree, isDir)) unsure.push(at);
+		});
+		const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
+		return { target, i, unsure };
+	};
+	const { target, i, unsure } = through(chdirs);
 	const word = own[i];
 	if (word === undefined) return null;
 	/* An absolute `-C` says where it stands whatever a `cd` did. */
 	if (target.fromCwd !== null)
 		target.doubted = walk.cwdDoubt.map((d) => `${d}${target.fromCwd}`);
+	/* A `cd` that may not have run leaves it where the rest of its moves do. */
+	for (const at of unsure)
+		target.doubted.push(through(chdirs.filter((_, j) => j !== at)).target.tree);
 	/* The config read follows `tree`, which the doubt says it may not stand in. */
 	target.aliases.anyUnread ||= target.doubted.length > 0;
 	const args = own.slice(i + 1);
@@ -1597,10 +1856,51 @@ function readGitRun(walk, run, leading, isDir) {
 	return { ...target, sub: spelt.text, args };
 }
 
+/**
+ * Whether a run surely stands where a move put it.
+ * @param {Chdir} cd
+ * @param {string} tree where it put it; "" where that will not resolve
+ * @param {(path: string) => boolean} isDir
+ */
+const holdsAt = ({ holds }, tree, isDir) =>
+	holds === "always" || (holds === "if-dir" && tree !== "" && isDir(tree));
+
 /* A segment opening a compound command, whose parts a `cd` may run in any order
  * or not at all. */
 const COMPOUND_START =
 	/^\s*(?:if|while|until|for|select|case|function|\{)(?:\s|$)/;
+
+/**
+ * Whether the segment runs in a subshell of its own, in a pipeline or behind
+ * `&`, so a `cd` or `export` in it moves nothing after it (measured).
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+function runsApart(joins, segIdx) {
+	const after = joins[segIdx + 1];
+	return joins[segIdx] === "p" || after === "p" || after === "b";
+}
+
+/**
+ * Whether a `cd` surely runs, where its directory is there: no `&&` or `||`
+ * before it, none of the command's segments opening a compound command, its
+ * `&&` chain not closed by `&`, and no word after its target.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {string[]} own its words
+ */
+function isSureMove({ joins, segments }, segIdx, own) {
+	const before = joins[segIdx];
+	let end = segIdx + 1;
+	while (joins[end] === "a") end++;
+	return (
+		joins[end] !== "b" &&
+		own.length <= 2 &&
+		!segments.some((s) => COMPOUND_START.test(s)) &&
+		before !== "a" &&
+		before !== "o"
+	);
+}
 
 /**
  * A `&&` chain's end: from here on, a `cd` that opened it may not have worked.
@@ -1629,26 +1929,16 @@ function settleCwdDoubt(walk, segIdx) {
 function stepCwd(walk, own, segIdx, isDir) {
 	const { cwd, cwdNames, cwdLost } = walk;
 	if (!moveCwd(walk, own)) return false;
-	const before = walk.parsed.joins[segIdx];
-	const after = walk.parsed.joins[segIdx + 1];
-	if (before === "p" || after === "p" || after === "b") {
+	if (runsApart(walk.parsed.joins, segIdx)) {
 		Object.assign(walk, { cwd, cwdNames, cwdLost });
 		return true;
 	}
 	if (walk.cwd === cwd) return true;
-	const { joins, segments } = walk.parsed;
-	let end = segIdx + 1;
-	while (joins[end] === "a") end++;
 	const sure =
-		joins[end] !== "b" &&
-		own.length <= 2 &&
-		!segments.some((s) => COMPOUND_START.test(s)) &&
-		before !== "a" &&
-		before !== "o" &&
-		walk.cwd !== "" &&
-		isDir(walk.cwd);
+		isSureMove(walk.parsed, segIdx, own) && walk.cwd !== "" && isDir(walk.cwd);
 	if (sure) return true;
-	if (after === "a") walk.cwdPending = [...walk.cwdPending, cwd];
+	if (walk.parsed.joins[segIdx + 1] === "a")
+		walk.cwdPending = [...walk.cwdPending, cwd];
 	else walk.cwdDoubt = [...walk.cwdDoubt, cwd];
 	return true;
 }
@@ -1695,7 +1985,21 @@ function parseGitEnvWord(word) {
  * @param {boolean} assigning the segment holds assignments alone
  */
 function markRepoVarsUnread(walk, words, assigning) {
-	const text = words.map((w) => literal(w, walk.scope.spans).text).join(" ");
+	const named = repoVarsNamed(words, assigning, walk.scope.spans);
+	if (named.length === 0) return;
+	walk.gitEnv = new Map(walk.gitEnv);
+	for (const name of named) walk.gitEnv.set(name, null);
+}
+
+/**
+ * The repository variables a command's words name, as markRepoVarsUnread
+ * reads them.
+ * @param {string[]} words
+ * @param {boolean} assigning the segment holds assignments alone
+ * @param {string[]} spans
+ */
+function repoVarsNamed(words, assigning, spans) {
+	const text = words.map((w) => literal(w, spans).text).join(" ");
 	/* A bare `HOME=` moves a variable already exported (measured). Any other
 	 * command naming `HOME` or `XDG_CONFIG_HOME` only reads it, far too often to
 	 * call each one a move. */
@@ -1703,12 +2007,7 @@ function markRepoVarsUnread(walk, words, assigning) {
 		...REPO_VARS,
 		...CONFIG_FILE_VARS.filter((name) => assigning || name.startsWith("GIT_")),
 	];
-	const named = candidates.filter((name) =>
-		new RegExp(`\\b${name}\\b`).test(text),
-	);
-	if (named.length === 0) return;
-	walk.gitEnv = new Map(walk.gitEnv);
-	for (const name of named) walk.gitEnv.set(name, null);
+	return candidates.filter((name) => new RegExp(`\\b${name}\\b`).test(text));
 }
 
 /**
@@ -2294,6 +2593,7 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 
 module.exports = {
 	parseCommand,
+	parseScript,
 	walkCommands,
 	TEXT_ONLY_PORTS,
 	unmask,

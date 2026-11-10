@@ -206,7 +206,6 @@ function fixture({
 			"WFC_TEST_STAMP",
 			"WFC_MODULES",
 			"CLAUDE_PROJECT_DIR",
-			"HUSKY",
 			"GIT_INDEX_FILE",
 		])
 			delete e[k];

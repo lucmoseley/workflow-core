@@ -1840,9 +1840,10 @@ function gist(text) {
 // --- staleness anchors ------------------------------------------------------
 
 /*
- * A shell guard can reach its logic by RUNNING a node program rather than
- * sourcing it (mantahostels#358). lib/guard-reach.js follows only a
- * self-relative run, `node "$here/x.js"` or through a variable (#2487): a hook
+ * A shell guard can reach its logic by RUNNING a program rather than
+ * sourcing it (mantahostels#358), by `node`, `bash` or `sh` (#4730).
+ * lib/guard-reach.js follows only a self-relative run, `node "$here/x.js"`
+ * or through a variable (#2487): a hook
  * runs from an arbitrary cwd, so a guard that genuinely delegates must locate
  * its sibling from its own path, and following a bare `node scripts/x.js`
  * would tie a helper's internals to rules about something else.
@@ -1921,14 +1922,12 @@ function parseSourcedBy(rel, text, base) {
 		kinds: DEP_KINDS,
 	}).filter(isDep);
 	const deps = [...new Set(kept.map((e) => e.to))];
-	const linked = new Set(
-		kept.filter((e) => e.kind !== "node-run").map((e) => e.to),
-	);
+	const linked = new Set(kept.filter((e) => e.kind !== "run").map((e) => e.to));
 	return {
 		deps,
 		runs: new Set(
 			kept
-				.filter((e) => e.kind === "node-run" && !linked.has(e.to))
+				.filter((e) => e.kind === "run" && !linked.has(e.to))
 				.map((e) => e.to),
 		),
 	};
@@ -1938,7 +1937,7 @@ function parseSourcedBy(rel, text, base) {
 const DEP_KINDS = /** @type {import("./lib/guard-reach.js").EdgeKind[]} */ ([
 	"source",
 	"require",
-	"node-run",
+	"run",
 	"manifest-core",
 ]);
 
@@ -1967,7 +1966,7 @@ function isDep(edge) {
 	if (edge.kind === "require")
 		return edge.to.startsWith("scripts/lib/") && edge.to.endsWith(".js");
 	if (edge.kind === "source") return edge.to.split("/").includes("lib");
-	return edge.kind !== "node-run" || edge.to.startsWith("scripts/");
+	return edge.kind !== "run" || edge.to.startsWith("scripts/");
 }
 
 /*
@@ -2358,16 +2357,17 @@ function checkNamedPaths(st, file, rule, guards) {
 		/* Under the root, else — where the root is no core tree at all —
 		 * under the CORE's: an adopter's rules name the core's guards, which
 		 * live in the plugin and are never copied into the repo (#5). The root
-		 * is judged on its tree and its disk (#4517): an un-added guard would
-		 * otherwise pass in the worktree holding it and fail in every other,
-		 * and a tracked one deleted there stays BROKEN-CLAIM. The core on disk
-		 * alone: a shipped plugin, which inside an adopter's commit hook git's
-		 * exported GIT_INDEX_FILE would answer for out of the adopter's index. */
+		 * and the core are each judged on their tree and their disk (#4517): an
+		 * un-added guard would otherwise pass in the worktree holding it and
+		 * fail in every other, and a tracked one deleted there stays
+		 * BROKEN-CLAIM. */
 		const onDisk = (/** @type {string} */ base) =>
 			fs.existsSync(path.join(base, g));
+		const inTreeAndOnDisk = (/** @type {string} */ base) =>
+			isTreeFileOrDir(base, g) && onDisk(base);
 		if (
-			!(isTreeFileOrDir(root, g) && onDisk(root)) &&
-			(rootIsCore() || !onDisk(CORE_ROOT))
+			!inTreeAndOnDisk(root) &&
+			(rootIsCore() || !inTreeAndOnDisk(CORE_ROOT))
 		) {
 			const untracked = !isTreeFileOrDir(root, g) && onDisk(root);
 			reportRule(
@@ -4542,12 +4542,14 @@ function settleOwed(ctx, added, stale, { tip, pushed }) {
 		remedy.push(
 			`  the paths each row went stale through not named — git diff${pushed ? "" : " --cached"} failed (${changed.error}).`,
 		);
-	for (const w of owed) {
-		const via = [...(hashedBy.get(w.guard) ?? [])].filter(
-			(p) => p !== w.guard && changed.paths.includes(p),
+	for (const w of owed)
+		remedy.push(
+			...buildOwedRow(w, {
+				hashed: [...(hashedBy.get(w.guard) ?? [])],
+				changed,
+				annotated: implicitScripts.has(w.guard),
+			}),
 		);
-		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
-	}
 	const takes = takeOwed(owedInputs, read, pushed, remedy);
 	const review = buildReviewLine(owed.map((w) => w.guard).join(" ") + takes);
 	remedy.push(
@@ -4571,6 +4573,21 @@ function settleOwed(ctx, added, stale, { tip, pushed }) {
 			`  claim check skipped — ${unavailable}, so a path a neighbour holds dirty refuses here too.`,
 		);
 	return { refuse, remedy };
+}
+
+/**
+ * @param {StaleWarning} w
+ * @param {{ hashed: string[], changed: { paths: string[], error: string | null },
+ *   annotated: boolean }} at
+ * @returns {string[]}
+ */
+function buildOwedRow(w, { hashed, changed, annotated }) {
+	const touched = hashed.filter((p) => changed.paths.includes(p));
+	return buildExpiredRow(
+		w,
+		touched.filter((p) => p !== w.guard),
+		{ annotated, untouched: !changed.error && touched.length === 0 },
+	);
 }
 
 /**
@@ -4833,7 +4850,8 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 	) => {
 		warnings.push(w);
 		ctx.warn(w.kind, `${w.guard} — ${w.detail}`, w);
-		for (const l of buildExpiredRow(w, via, annotated)) ctx.say(l);
+		for (const l of buildExpiredRow(w, via, { annotated, untouched: false }))
+			ctx.say(l);
 	};
 	for (const { guard, via } of expired) {
 		const w = targetWarning(guard, describedBy, implicitScripts, { anchors });
@@ -4856,15 +4874,22 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 /**
  * @param {Pick<Warning, "kind" | "guard" | "rules">} w
  * @param {string[]} via
- * @param {boolean} annotated the path carries its own IMPLICIT annotation
+ * @param {{ annotated: boolean, untouched: boolean }} how `annotated` the path
+ *   carries its own IMPLICIT annotation; `untouched` this commit changed none
+ *   of the files its digest hashes
  * @returns {string[]}
  */
-function buildExpiredRow(w, via, annotated) {
+function buildExpiredRow(w, via, { annotated, untouched }) {
 	return [
 		`  ${w.kind}  ${w.guard}${via.length > 0 ? ` (through ${via.join(", ")})` : ""}`,
 		...w.rules.map((r) => `    rule:  ${r.file}:${r.line}  ${r.gist}`),
 		...(annotated
 			? ["    and its own IMPLICIT / JUSTIFIED / DEFEAT annotation"]
+			: []),
+		...(untouched
+			? [
+					"    none of its files changed: this commit changed how its digest is computed, so it may be re-anchored without a re-read (#4807)",
+				]
 			: []),
 	];
 }
@@ -5119,6 +5144,9 @@ runCheck({
 	against: {
 		profile: "guard-registry",
 		materialise: "tree",
+		/* A digest-code change expires rows on both sides under the new code, so
+		 * the base is read under its own (#4807). */
+		baselineCode: "rev",
 		refuse(ctx) {
 			/* --review writes ANCHORS back, and --against re-execs this file over
 			 * throwaway copies — the same fault as --review --root below. */

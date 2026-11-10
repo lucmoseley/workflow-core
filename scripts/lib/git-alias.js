@@ -19,6 +19,7 @@
  * aliases unread: the session's directory's are read in its place.
  */
 
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires shell-parse.js only inside runScript, once both have loaded (#4863).
 const { literal } = require("./shell-words.js");
 
 /** The `sub` of a call whose alias cannot be read; no git command has spaces. */

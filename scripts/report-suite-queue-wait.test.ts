@@ -384,9 +384,9 @@ describe("at most hourly", () => {
 		expect(gh.bodyCalls().split("\n").filter(Boolean)).toHaveLength(2);
 	});
 
-	it("reads nothing while another run holds a live lock", () => {
+	it("reads nothing while another run holds a live lock", async () => {
 		waited(3);
-		plantLiveLock(path.join(markers, LOCK), "report-suite-queue-wait.js");
+		await plantLiveLock(path.join(markers, LOCK), "report-suite-queue-wait.js");
 		const gh = stubGh();
 		const r = run(gh);
 		expect(r.status).toBe(0);

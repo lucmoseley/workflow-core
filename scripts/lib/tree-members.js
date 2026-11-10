@@ -8,6 +8,11 @@
  * the commit being built is in, and a pathspec commit's temporary index
  * (GIT_INDEX_FILE) is the one read.
  *
+ * Only for the repository that index belongs to (#4733). Inside a commit hook
+ * git exports GIT_INDEX_FILE, and sometimes GIT_DIR, for the hook's repo; any
+ * other checkout — the core's, read from an adopter's hook — is read with the
+ * repository-local variables stripped.
+ *
  * A directory no checkout tops — a materialised `--root` copy, which `git
  * archive` wrote tracked-only, or a plugin cache with no `.git` — is its own
  * tree, read as it lies on disk. So is a checkout git cannot answer for, with
@@ -45,9 +50,12 @@ function readTree(base) {
 	/* Before any git call: an exported GIT_DIR would otherwise answer for a
 	 * materialised copy out of the live index. */
 	if (!hasOwnGit(base)) return { index: null, failure: null };
+	const { env, failure } = envFor(base);
+	if (!env) return { index: null, failure };
 	const opts = {
 		encoding: /** @type {const} */ ("utf8"),
 		timeout: GIT_TIMEOUT_MS,
+		env,
 	};
 	/* An empty prefix says git takes `base` for the top of the checkout whose
 	 * `.git` it carries, and not a directory below some other work tree. */
@@ -74,6 +82,75 @@ function readTree(base) {
 			.map((p) => path.normalize(p)),
 	);
 	return { index, failure: null };
+}
+
+/**
+ * The environment to read `base` under: the process's own where the
+ * repository-local variables it carries are `base`'s, else those stripped.
+ * An exported GIT_INDEX_FILE with no GIT_DIR is, as git reads it, the index of
+ * the repository the working directory is in, so that repository is the one
+ * matched: a hook process run from inside another checkout reads that
+ * checkout from the hook's index.
+ *
+ * @param {string} base
+ * @returns {{ env: NodeJS.ProcessEnv, failure: null } | { env: null, failure: string }}
+ */
+function envFor(base) {
+	const local = readLocalEnvVars();
+	if ("failure" in local) return { env: null, failure: local.failure };
+	const set = local.vars.filter((k) => process.env[k] !== undefined);
+	if (set.length === 0) return { env: process.env, failure: null };
+	const stripped = { ...process.env };
+	for (const k of set) delete stripped[k];
+	const exported = readGit(["rev-parse", "--absolute-git-dir"], process.env);
+	if ("failure" in exported)
+		return {
+			env: null,
+			failure: `no repository owns the exported ${set.join(", ")}: ${exported.failure}`,
+		};
+	const own = readGit(
+		["-C", base, "rev-parse", "--absolute-git-dir"],
+		stripped,
+	);
+	return {
+		env: "out" in own && own.out === exported.out ? process.env : stripped,
+		failure: null,
+	};
+}
+
+/**
+ * The variables that name a repository rather than configure git, less the
+ * `-c` overrides git carries into another repository too
+ * (`prepare_other_repo_env`).
+ *
+ * @returns {{ vars: string[] } | { failure: string }}
+ */
+function readLocalEnvVars() {
+	const r = readGit(["rev-parse", "--local-env-vars"], process.env);
+	if ("failure" in r) return r;
+	return {
+		vars: r.out
+			.split("\n")
+			.filter(
+				(k) => k && k !== "GIT_CONFIG_PARAMETERS" && k !== "GIT_CONFIG_COUNT",
+			),
+	};
+}
+
+/**
+ * @param {string[]} args
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{ out: string } | { failure: string }}
+ */
+function readGit(args, env) {
+	const r = spawnGitSync(args, {
+		encoding: "utf8",
+		timeout: GIT_TIMEOUT_MS,
+		env,
+	});
+	return r.error || r.status !== 0
+		? { failure: buildGitFailure(r, String(args[args[0] === "-C" ? 2 : 0])) }
+		: { out: String(r.stdout).trim() };
 }
 
 /**

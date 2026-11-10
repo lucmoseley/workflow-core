@@ -188,8 +188,8 @@ describe("the probe (--probe)", () => {
 		expect(readState().passed).toBe("2.1.302");
 	});
 
-	it("runs no probe while a live one holds the lock, however old", () => {
-		plantLiveLock(
+	it("runs no probe while a live one holds the lock, however old", async () => {
+		await plantLiveLock(
 			path.join(config, "wfc-harness-canary.lock"),
 			"check-harness-canary.js",
 		);

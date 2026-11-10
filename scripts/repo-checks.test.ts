@@ -603,10 +603,10 @@ describe("repo-checks: the daily cap and the lock", () => {
 		expect(fs.existsSync(path.join(f.common, RESULT))).toBe(true);
 	});
 
-	it("stops at a live run's lock, however old", () => {
+	it("stops at a live run's lock, however old", async () => {
 		const f = fixture();
 		const lock = path.join(f.common, LOCK);
-		plantLiveLock(lock, "repo-checks.js");
+		await plantLiveLock(lock, "repo-checks.js");
 		const r = run(f);
 		expect(r.stderr).toContain("Another run is reading");
 		expect(f.launched()).toEqual([]);

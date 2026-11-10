@@ -4,20 +4,31 @@
  * (#4797, spec #4796 §Testing Decisions, Seam 2). Break it and a fix is kept
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
- * dropped, or a missed signature goes unlisted.
+ * dropped, a missed signature or a line lost with its worktree goes
+ * unlisted, or a finding filed in an adopter's tracker is never judged (#4858)
+ * or is read from a stale local ref that misses an upstream revert (#4872).
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { readText } from "./lib/file-read";
+import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
 const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
+/* A recorded failure other than a 404, which the signature log reads as no
+ * rows. */
+const FORBIDDEN = readGhAnswer(
+	path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
+);
+const ADOPTER_TRACKER = "o/m";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
 const d = (n: number) => new Date(T0 + n * DAY).toISOString();
@@ -36,6 +47,8 @@ afterEach(() => {
 
 interface Issue {
 	number: number;
+	/** The tracker it is in: TRACKER where unset. */
+	repo?: string;
 	title: string;
 	state?: "OPEN" | "CLOSED";
 	body?: string;
@@ -44,43 +57,111 @@ interface Issue {
 	labels?: string[];
 }
 
-function scratch() {
-	home = fs.mkdtempSync(path.join(os.tmpdir(), "outcome-review-"));
-	const root = path.join(home, "repo");
+/** What the stub serves through `gh api`: each code repo's main, newest
+ * last, and its signature log, absent (a 404) where unset. */
+interface Upstream {
+	commits: Record<string, { sha: string; at: string; message: string }[]>;
+	logs: Record<string, string>;
+}
+
+/** A checkout with a workflow-core config naming `tracker`, and `codeRepo`
+ * where given, whose main `upstream` holds under its code repo, as GitHub
+ * would serve it. */
+function fixtureRepo(
+	root: string,
+	tracker: string,
+	upstream: Upstream,
+	codeRepo?: string,
+) {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
 	execFileSync("git", ["init", "-q", root]);
 	fs.writeFileSync(
 		path.join(root, ".claude", "workflow-core.json"),
-		JSON.stringify({ contract: 1, tracker: TRACKER }),
+		JSON.stringify({ contract: 1, tracker, ...(codeRepo && { codeRepo }) }),
 	);
-	const seats = [path.join(home, "seat1"), path.join(home, "seat2")];
-	const issues: Issue[] = [];
-	const shas: string[] = [];
-
-	const git = (args: string[], at?: string) =>
-		execFileSync("git", ["-C", root, ...args], {
-			encoding: "utf8",
-			env: {
+	const code = codeRepo ?? tracker;
+	upstream.commits[code] ??= [];
+	const main = upstream.commits[code];
+	const commit = (message: string, day: number) => {
+		const sha = createHash("sha1")
+			.update(`${code} ${main.length} ${message}`)
+			.digest("hex");
+		main.push({ sha, at: d(day), message });
+		return sha;
+	};
+	return {
+		root,
+		commit,
+		/** A signature line, landed on main as file-issue.js's is. */
+		signatureLine(n: number, extra: Record<string, unknown> = {}) {
+			upstream.logs[code] = `${upstream.logs[code] ?? ""}${JSON.stringify({
+				issue: `${tracker}#${n}`,
+				filedAt: d(FILED),
+				signature: SIG,
+				prediction: "the boom stops",
+				case: { session: "s", line: 1 },
+				...extra,
+			})}\n`;
+			commit("Log a signature", FILED);
+		},
+		/** A local origin/main last moved on `day`, holding none of main. */
+		localRef(day: number) {
+			const at = d(day);
+			const env = {
 				...process.env,
 				GIT_AUTHOR_NAME: "t",
 				GIT_AUTHOR_EMAIL: "t@t",
 				GIT_COMMITTER_NAME: "t",
 				GIT_COMMITTER_EMAIL: "t@t",
-				...(at ? { GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : {}),
-			},
-		}).trim();
+				GIT_AUTHOR_DATE: at,
+				GIT_COMMITTER_DATE: at,
+			};
+			const git = (args: string[]) =>
+				execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
+			git(["commit", "-q", "--allow-empty", "-m", "Local only"]);
+			git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+		},
+	};
+}
+
+function scratch() {
+	home = fs.mkdtempSync(path.join(os.tmpdir(), "outcome-review-"));
+	const upstream: Upstream = { commits: {}, logs: {} };
+	const main = fixtureRepo(path.join(home, "repo"), TRACKER, upstream);
+	const { root } = main;
+	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
+	const seats = [path.join(home, "seat1"), path.join(home, "seat2")];
+	const issues: Issue[] = [];
+	const tmp = path.join(home, "tmp");
+	fs.mkdirSync(tmp);
 
 	return {
 		root,
 		seats,
 		issues,
-		commit(message: string, day: number) {
-			git(["commit", "-q", "--allow-empty", "-m", message], d(day));
-			const sha = git(["rev-parse", "HEAD"]);
-			git(["update-ref", "refs/remotes/origin/main", sha]);
-			shas.push(sha);
-			return sha;
+		commit: (message: string, day: number) => main.commit(message, day),
+		signatureLine: main.signatureLine,
+		/** A second repo under `name`, its tracker `tracker`, with a session
+		 * whose cwd is in it, so the review finds it. */
+		adopter(name: string, tracker: string, codeRepo?: string) {
+			const repo = fixtureRepo(
+				path.join(home, name),
+				tracker,
+				upstream,
+				codeRepo,
+			);
+			const dir = path.join(seats[0], "projects", `-${name}`);
+			fs.mkdirSync(dir, { recursive: true });
+			writeTranscript(
+				path.join(dir, `${name}-s.jsonl`),
+				JSON.stringify({
+					type: "user",
+					cwd: path.join(repo.root, "src"),
+					timestamp: d(1),
+					message: { role: "user", content: "go" },
+				}),
+			);
+			return repo;
 		},
 		/** A session starting on day `day` with `hits` BOOM records in its
 		 * main log and `subHits` in one subagent log. */
@@ -100,7 +181,7 @@ function scratch() {
 			writeTranscript(
 				path.join(dir, `${id}.jsonl`),
 				r.founder("go"),
-				...Array.from({ length: hits }, () => r.assistant(`${word} again`)),
+				...Array.from({ length: hits }, () => r.toolResult(`${word} again`)),
 				r.assistant("done"),
 			);
 			if (subHits) {
@@ -108,22 +189,9 @@ function scratch() {
 				fs.mkdirSync(sub, { recursive: true });
 				writeTranscript(
 					path.join(sub, "agent-a1.jsonl"),
-					...Array.from({ length: subHits }, () => r.assistant(word)),
+					...Array.from({ length: subHits }, () => r.toolResult(word)),
 				);
 			}
-		},
-		signatureLine(n: number, extra: Record<string, unknown> = {}) {
-			fs.appendFileSync(
-				path.join(root, "docs", "data", "outcome-signatures.jsonl"),
-				`${JSON.stringify({
-					issue: `${TRACKER}#${n}`,
-					filedAt: d(FILED),
-					signature: SIG,
-					prediction: "the boom stops",
-					case: { session: "s", line: 1 },
-					...extra,
-				})}\n`,
-			);
 		},
 		runLine(line: Record<string, unknown>) {
 			fs.appendFileSync(
@@ -131,21 +199,65 @@ function scratch() {
 				`${JSON.stringify({ mode: "weekly", date: "2026-06-01", ...line })}\n`,
 			);
 		},
-		run({ failingView = false }: { failingView?: boolean } = {}) {
+		/** Each `since` the stub's commit reads were sent, in call order. */
+		sinces: () => {
+			const r = readText(path.join(home, "sinces"));
+			return r.state === "read" ? r.data.trim().split("\n") : [];
+		},
+		run({
+			failingView = false,
+			failingList = "",
+			failingCommits = "",
+			failingLog = "",
+		}: {
+			failingView?: boolean;
+			failingList?: string;
+			failingCommits?: string;
+			failingLog?: string;
+		} = {}) {
 			const handler = `
+const fs = require("node:fs");
 const issues = ${JSON.stringify(issues)};
+const upstream = ${JSON.stringify(upstream)};
+const notFound = ${JSON.stringify(GH_NOT_FOUND)};
+const forbidden = ${JSON.stringify(FORBIDDEN)};
 const failingView = ${failingView};
+const failingList = ${JSON.stringify(failingList)};
+const failingCommits = ${JSON.stringify(failingCommits)};
+const failingLog = ${JSON.stringify(failingLog)};
 const flag = (f) => argv[argv.indexOf(f) + 1];
-const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: i.createdAt ?? "", closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })) });
-if (argv[0] === "issue" && argv[1] === "view") {
-  if (failingView) { err("HTTP 502: bad gateway\\n"); exit(1); }
-  const i = issues.find((x) => x.number === Number(argv[2]));
+const inRepo = issues.filter((i) => (i.repo ?? ${JSON.stringify(TRACKER)}) === flag("--repo"));
+const created = (i) => i.createdAt ?? ${JSON.stringify(d(0))};
+const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: created(i), closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })) });
+const api = argv[0] === "api" && argv.find((a) => a.startsWith("repos/"))?.match(/^repos\\/([^/]+\\/[^/]+)\\/(commits|contents\\/[^?]+)\\?(.*)$/);
+if (api && api[2] === "commits") {
+  const q = new URLSearchParams(api[3]);
+  if (q.get("since")) fs.appendFileSync(${JSON.stringify(path.join(home, "sinces"))}, api[1] + " " + q.get("since") + "\\n");
+  if (api[1] === failingCommits) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
+  const from = q.get("since") ? Date.parse(q.get("since")) : -Infinity, to = Date.parse(q.get("until"));
+  const main = (upstream.commits[api[1]] ?? []).map((c, seq) => ({ ...c, seq }))
+    .filter((c) => Date.parse(c.at) >= from && Date.parse(c.at) <= to)
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || b.seq - a.seq)
+    .slice(0, Number(q.get("per_page")))
+    .map((c) => ({ sha: c.sha, commit: { message: c.message, committer: { date: c.at } } }));
+  out(JSON.stringify(argv.includes("--slurp") ? [main] : main));
+} else if (api) {
+  if (api[1] === failingLog) { out(forbidden.stdout); err(forbidden.stderr); exit(forbidden.status); }
+  const log = upstream.logs[api[1]];
+  if (log === undefined) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
+  out(log);
+} else if (argv[0] === "issue" && argv[1] === "view") {
+  if (failingView) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
+  const i = inRepo.find((x) => x.number === Number(argv[2]));
   if (!i) { err("no such issue\\n"); exit(1); }
-  out(JSON.stringify({ state: i.state ?? "CLOSED" }));
-} else if (argv[0] === "issue" && argv[1] === "list" && flag("--label") === "bug") {
-  out(JSON.stringify(issues.filter((i) => (i.labels ?? []).includes("bug")).map(row)));
+  out(JSON.stringify({ state: i.state ?? "CLOSED", createdAt: created(i) }));
+} else if (argv[0] === "issue" && argv[1] === "list" && flag("--repo") === failingList) {
+  out(notFound.stdout); err(notFound.stderr); exit(notFound.status);
+} else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
+  const closedOnly = flag("--state") === "closed";
+  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--state") === "closed") {
-  out(JSON.stringify(issues.filter((i) => i.closedAt).map(row)));
+  out(JSON.stringify(inRepo.filter((i) => i.closedAt).map(row)));
 } else { err("unrouted: " + argv.join(" ") + "\\n"); exit(1); }
 `;
 			const { env } = stubGhHandler(home, handler);
@@ -159,7 +271,16 @@ if (argv[0] === "issue" && argv[1] === "view") {
 					root,
 					...seats.flatMap((s) => ["--config-dir", s]),
 				],
-				{ env: { ...process.env, ...env, CLAUDE_PROJECT_DIR: root } },
+				{
+					env: {
+						...process.env,
+						...env,
+						CLAUDE_PROJECT_DIR: root,
+						/* Off the fixture's own tree, which repoRootOf would
+						 * otherwise read as system temp. */
+						TMPDIR: tmp,
+					},
+				},
 			);
 			return { status: r.status, stderr: r.stderr, out: JSON.parse(r.stdout) };
 		},
@@ -184,7 +305,7 @@ function afterFix(f: Fixture, n: number, hits: number, from = 0) {
 }
 
 const outcome = (
-	out: { outcomes: { finding: string; why?: string }[] },
+	out: { outcomes: { finding: string; why?: string; expected?: number }[] },
 	n = 1,
 ) => out.outcomes.find((o) => o.finding === `${TRACKER}#${n}`);
 
@@ -208,7 +329,7 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out, 2)).toMatchObject({
 			verdict: "waiting",
 			fixSha: null,
-			why: "no commit on origin/main cites it",
+			why: "no commit on main cites it",
 		});
 		expect(outcome(out, 3)).toMatchObject({
 			verdict: "waiting",
@@ -231,7 +352,7 @@ describe("measure-outcome-review.js", () => {
 			sessions: 3,
 			observed: 0,
 			expected: 3,
-			baseline: { count: 4, sessions: 4, rate: 1 },
+			baseline: { count: 4, sessions: 4 },
 			guardrails: { reverts: [], followOns: [] },
 			unwindIssue: null,
 			late: false,
@@ -358,7 +479,7 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out)).toMatchObject({
 			sessions: 6,
 			expected: 3,
-			baseline: { count: 2, sessions: 4, rate: 0.5 },
+			baseline: { count: 2, sessions: 4 },
 			window: {
 				start: d(FIXED),
 				/* The sixth session's first record, a second into its day. */
@@ -379,7 +500,7 @@ describe("measure-outcome-review.js", () => {
 		afterFix(f, 3, 0);
 		const { out } = f.run();
 		expect(outcome(out)).toMatchObject({
-			baseline: { count: 4, sessions: 4, rate: 1 },
+			baseline: { count: 4, sessions: 4 },
 		});
 	});
 
@@ -393,7 +514,7 @@ describe("measure-outcome-review.js", () => {
 		const { out } = f.run();
 		/* b0 is in both seats; b4's two hits are its subagent's. */
 		expect(outcome(out)).toMatchObject({
-			baseline: { count: 6, sessions: 5, rate: 1.2 },
+			baseline: { count: 6, sessions: 5 },
 		});
 	});
 
@@ -407,7 +528,7 @@ describe("measure-outcome-review.js", () => {
 					class: "NEW",
 					cites: "#0",
 					signature: SIG,
-					baseline: { count: 3, sessions: 3, rate: 1 },
+					baseline: { count: 3, sessions: 3 },
 					prediction: "stops",
 				},
 			],
@@ -418,8 +539,26 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out)).toMatchObject({
 			verdict: "keep",
 			sessions: 3,
-			baseline: { count: 3, sessions: 3, rate: 1 },
+			baseline: { count: 3, sessions: 3 },
 		});
+	});
+
+	it("works a rare fault's rate out from its stored counts, never as 0", () => {
+		const f = scratch();
+		fixedFinding(f);
+		f.runLine({
+			findings: [
+				{
+					issue: `${TRACKER}#1`,
+					signature: SIG,
+					baseline: { count: 1, sessions: 3000 },
+				},
+			],
+		});
+		afterFix(f, 3, 0);
+		const o = outcome(f.run().out);
+		expect(o).toMatchObject({ verdict: "extend", sessions: 3 });
+		expect(o?.expected).toBeCloseTo(0.001, 9);
 	});
 
 	it("reports late findings apart and lists settled ones without reading them", () => {
@@ -507,7 +646,7 @@ describe("measure-outcome-review.js", () => {
 		expect(out.flipDue.why).toMatch(/carried backlog 12 is over 10/);
 	});
 
-	it("lists the week's landed fault-shaped closes with no signature, and the week's bug closes declared no-fault", () => {
+	it("lists the week's landed fault-shaped closes with no signature, a session's no-fault among them, and the week's other bug closes declared no-fault", () => {
 		const f = scratch();
 		f.commit("Initial", 1);
 		const closed = (
@@ -523,12 +662,14 @@ describe("measure-outcome-review.js", () => {
 		closed(24, "Signed already", 57, ["bug"]);
 		closed(25, "Closed too long ago", 49, ["bug"]);
 		closed(26, "Fix the dropped queue ref", 57, ["origin:lander-script"]);
+		closed(27, "Lander drops a ref", 57, ["bug", "origin:triage"]);
 		f.commit("Read refs once (#20)", 55);
 		f.commit("Stop the dashboard stalling (#21)", 56);
 		f.commit("Add the panel (#22)", 56);
 		f.commit("Sign it (#24)", 56);
 		f.commit("Old (#25)", 48);
 		f.commit("Fix the dropped ref (#26)", 56);
+		f.commit("Keep the ref (#27)", 56);
 		f.signatureLine(24, { signature: null, why: "no trace" });
 		closed(40, "no-fault bug", 57, ["bug", "origin:triage"]);
 		closed(41, "signed bug", 57, ["bug", "origin:audit"]);
@@ -549,12 +690,141 @@ describe("measure-outcome-review.js", () => {
 				issue: `${TRACKER}#21`,
 				why: ["fault-shaped commit subject"],
 			}),
+			expect.objectContaining({
+				issue: `${TRACKER}#27`,
+				why: ["bug", "fault-shaped title"],
+			}),
 		]);
-		expect(out.outcomeStep.misses).toBe(2);
-		/* Only the week's closes: #43 closed long ago and #45 is open. */
+		expect(out.outcomeStep.misses).toBe(3);
+		/* Only the week's closes: #43 closed long ago and #45 is open; #27 is
+		 * a miss already. */
 		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).toEqual([
 			`${TRACKER}#40`,
 		]);
+	});
+
+	describe("a declared line lost with its worktree (#4861)", () => {
+		const lostLine = {
+			filedAt: d(FILED),
+			signature: SIG,
+			prediction: "the boom stops",
+			case: { session: "s", line: 1 },
+		};
+		const section = (line: unknown) =>
+			`Body.\n\n## Fault signature\n\n\`\`\`json\n${JSON.stringify(line)}\n\`\`\`\n`;
+
+		it("lists a closed labelled ticket with no line, with the line its body records, apart from the no-fault bugs", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.commit("Stop the boom (#50)", 56);
+			f.issues.push(
+				{
+					number: 50,
+					title: "Fix the boom",
+					closedAt: d(57),
+					labels: ["bug", "origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 51,
+					title: "Closed months ago",
+					closedAt: d(2),
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 52,
+					title: "Still open",
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 53,
+					title: "Landed fine",
+					closedAt: d(57),
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+			);
+			f.signatureLine(53);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.lostLines).toEqual([
+				{
+					issue: `${TRACKER}#50`,
+					title: "Fix the boom",
+					line: { issue: `${TRACKER}#50`, ...lostLine },
+				},
+				expect.objectContaining({ issue: `${TRACKER}#51` }),
+			]);
+			expect(out.noFaultBug).toEqual([]);
+			expect(out.misses).toEqual([]);
+		});
+
+		it("lists a lost late line, which carries no origin label, as lost and not as a miss", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.commit("Stop the boom (#50)", 56);
+			f.issues.push({
+				number: 50,
+				title: "Fix the boom",
+				closedAt: d(57),
+				labels: ["bug", "fault-signature"],
+				body: section({ ...lostLine, late: true }),
+			});
+			const { out } = f.run();
+			expect(out.misses).toEqual([]);
+			expect(out.lostLines).toEqual([
+				expect.objectContaining({
+					issue: `${TRACKER}#50`,
+					line: expect.objectContaining({ late: true }),
+				}),
+			]);
+		});
+
+		it("lists it UNRECOVERABLE where the body section is gone", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.issues.push({
+				number: 50,
+				title: "Fix the boom",
+				closedAt: d(57),
+				labels: ["origin:triage", "fault-signature"],
+				body: "Body, its section edited away.",
+			});
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.lostLines).toEqual([
+				expect.objectContaining({ issue: `${TRACKER}#50`, line: null }),
+			]);
+		});
+
+		it("reads two identical lines for one issue as one finding, and names two differing ones a conflict", () => {
+			const f = scratch();
+			baselineOfOne(f);
+			fixedFinding(f);
+			f.signatureLine(1);
+			f.issues.push({ number: 2, title: "Another boom" });
+			f.signatureLine(2);
+			f.signatureLine(2, { prediction: "a different prediction" });
+			const { out } = f.run();
+			expect(
+				out.outcomes.filter((o: { finding: string }) =>
+					o.finding.startsWith(TRACKER),
+				),
+			).toHaveLength(1);
+			expect(outcome(out, 1)).toBeDefined();
+			expect(outcome(out, 2)).toBeUndefined();
+			expect(out.conflicts).toEqual([
+				{
+					issue: `${TRACKER}#2`,
+					lines: [
+						expect.objectContaining({ prediction: "the boom stops" }),
+						expect.objectContaining({ prediction: "a different prediction" }),
+					],
+				},
+			]);
+		});
 	});
 
 	it("is due its flip check at the 4th run to reach a verdict, or 2 over budget", () => {
@@ -573,8 +843,23 @@ describe("measure-outcome-review.js", () => {
 		f.runLine(verdictLine);
 		expect(f.run().out.flipDue).toEqual({
 			due: true,
+			bars: [
+				"fewer than half of the closed unwind tickets landed a revert that held 14 days",
+				"any unwound change was landed again",
+				"fewer than 5 verdicts were reached",
+			],
 			why: "4 runs reached a verdict (due at 4)",
 		});
+	});
+
+	it("reads a tracker with no signature log as no lines, and main's tip past an empty window (#4872)", () => {
+		const f = scratch();
+		const sha = f.commit("Initial", 1);
+		const { status, out } = f.run();
+		expect(status).toBe(0);
+		expect(out.outcomes).toEqual([]);
+		expect(out.failures).toEqual([]);
+		expect(out.repos[0].main).toBe(sha);
 	});
 
 	it("is due its flip check early on two runs over the token budget", () => {
@@ -586,6 +871,32 @@ describe("measure-outcome-review.js", () => {
 		expect(f.run().out.flipDue).toMatchObject({ due: true });
 	});
 
+	it("names a logged signature that does not compile, and reads no finding from it", () => {
+		const f = scratch();
+		f.commit("Initial", 1);
+		f.issues.push({ number: 5, title: "bad pattern" });
+		f.signatureLine(5, {
+			signature: { kind: "regex", pattern: "(", scope: "both" },
+		});
+		const { status, out } = f.run();
+		expect(status).toBe(1);
+		expect(out.outcomes).toEqual([]);
+		expect(out.failures.join("\n")).toMatch(
+			/signature log line for "o\/t#5": the pattern does not compile/,
+		);
+	});
+
+	it("names a log that will not read, and exits 1", () => {
+		const f = scratch();
+		f.commit("Initial", 1);
+		fs.mkdirSync(path.join(f.root, "docs", "data", "retro-runs.jsonl"));
+		const { status, out } = f.run();
+		expect(status).toBe(1);
+		expect(out.failures.join("\n")).toMatch(
+			/docs\/data\/retro-runs\.jsonl will not read \(EISDIR\)/,
+		);
+	});
+
 	it("names a failed issue read, gives no verdict on it, and exits 1", () => {
 		const f = scratch();
 		baselineOfOne(f);
@@ -594,8 +905,214 @@ describe("measure-outcome-review.js", () => {
 		const { status, out } = f.run({ failingView: true });
 		expect(status).toBe(1);
 		expect(outcome(out)).toMatchObject({ verdict: "waiting" });
-		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: HTTP 502/);
-		expect(out.failures.join("\n")).toMatch(/HTTP 502/);
+		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: .*HTTP 404/);
+		expect(out.failures.join("\n")).toMatch(/HTTP 404/);
+	});
+
+	describe("a second repo, found by its sessions (#4858)", () => {
+		const ref = (n: number) => `${ADOPTER_TRACKER}#${n}`;
+		const outcomeOf = (
+			out: { outcomes: { finding: string; why?: string }[] },
+			n: number,
+		) => out.outcomes.find((o) => o.finding === ref(n));
+
+		/** Finding o/m#5, logged and fixed by a bare `#5` in the adopter. */
+		function adopterFinding() {
+			const f = scratch();
+			f.commit("Initial", 1);
+			baselineOfOne(f);
+			const a = f.adopter("adopter", ADOPTER_TRACKER);
+			f.issues.push(
+				{ number: 5, repo: ADOPTER_TRACKER, title: "BOOM in the adopter" },
+				/* Same number in the host tracker: its bare `#5` is not o/m's. */
+				{ number: 5, title: "host five", state: "OPEN" },
+				{
+					number: 20,
+					repo: ADOPTER_TRACKER,
+					title: "Lander loses a ref",
+					closedAt: d(57),
+					labels: ["bug"],
+				},
+			);
+			a.signatureLine(5);
+			const sha = a.commit("Stop the boom (#5)", FIXED);
+			a.commit("Read refs once (#20)", 56);
+			afterFix(f, 5, 0);
+			return { f, a, sha };
+		}
+
+		it("judges a finding filed and fixed in the second repo, and lists its misses", () => {
+			const { f, sha } = adopterFinding();
+			/* A second checkout of the adopter: the first found is read. */
+			f.adopter("adopter-clone", ADOPTER_TRACKER);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.failures).toEqual([]);
+			expect(outcomeOf(out, 5)).toMatchObject({
+				verdict: "keep",
+				fixSha: sha,
+				observed: 0,
+			});
+			expect(out.misses.map((m: { issue: string }) => m.issue)).toEqual([
+				ref(20),
+			]);
+			expect(out.outcomeStep.misses).toBe(1);
+			expect(
+				out.repos.map((r: { tracker: string; root: string }) => [
+					r.tracker,
+					r.root,
+				]),
+			).toEqual([
+				[TRACKER, f.root],
+				[ADOPTER_TRACKER, path.join(home, "adopter")],
+			]);
+		});
+
+		it("keeps the first log's line for a ref two logs hold, with a note", () => {
+			const { f } = adopterFinding();
+			f.signatureLine(5, { issue: ref(5), signature: null, why: "x" });
+			const { out } = f.run();
+			expect(outcomeOf(out, 5)).toBeUndefined();
+			expect(out.notes).toContain(
+				`${ref(5)} is in the signature logs of ${TRACKER} and ${ADOPTER_TRACKER}: read ${TRACKER}'s`,
+			);
+		});
+
+		it("reads an adopter whose local origin/main is days old, and exits 0 (#4872)", () => {
+			const { f, a, sha } = adopterFinding();
+			a.localRef(10);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.failures).toEqual([]);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "keep", fixSha: sha });
+			expect(out.repos[1]).toEqual({
+				tracker: ADOPTER_TRACKER,
+				codeRepo: ADOPTER_TRACKER,
+				root: path.join(home, "adopter"),
+				main: expect.any(String),
+			});
+		});
+
+		it("unwinds on a revert only upstream, which the local ref never saw (#4872)", () => {
+			const { f, a, sha } = adopterFinding();
+			a.localRef(FIXED + 1);
+			const revert = a.commit(
+				`Revert "Stop the boom (#5)"\n\nThis reverts commit ${sha}.`,
+				FIXED + 3,
+			);
+			const { out } = f.run();
+			expect(outcomeOf(out, 5)).toMatchObject({
+				verdict: "unwind",
+				why: "guardrail harm",
+				guardrails: { reverts: [revert] },
+			});
+		});
+
+		it("holds the adopter's findings and misses where its main will not read, and exits 1", () => {
+			const { f } = adopterFinding();
+			const { status, out } = f.run({ failingCommits: ADOPTER_TRACKER });
+			expect(status).toBe(1);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
+			expect(outcomeOf(out, 5)?.why).toMatch(/^o\/m main unread: .*HTTP 404/);
+			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(out.noFaultBugUnread).toEqual([ADOPTER_TRACKER]);
+			expect(out.outcomeStep.misses).toBeNull();
+		});
+
+		it("reads each main from the earliest createdAt of a closed finding or a miss candidate (#4872)", () => {
+			const { f, a } = adopterFinding();
+			const created = (repo: string, n: number, day: number) => {
+				const i = f.issues.findIndex(
+					(x) => (x.repo ?? TRACKER) === repo && x.number === n,
+				);
+				f.issues[i] = { ...(f.issues[i] as Issue), createdAt: d(day) };
+			};
+			created(ADOPTER_TRACKER, 5, 30);
+			created(ADOPTER_TRACKER, 20, 33);
+			/* #5 in the host tracker is no finding, so its d(20) sets nothing. */
+			created(TRACKER, 5, 20);
+			/* An open finding reads no commits, so its d(10) sets nothing. */
+			f.issues.push({
+				number: 6,
+				repo: ADOPTER_TRACKER,
+				title: "BOOM still",
+				state: "OPEN",
+				createdAt: d(10),
+			});
+			a.signatureLine(6);
+			f.run();
+			expect(f.sinces()).toEqual([
+				`${TRACKER} ${d(30)}`,
+				`${ADOPTER_TRACKER} ${d(30)}`,
+			]);
+		});
+
+		it("reads main and the signature log from a code repo apart from its tracker (#4796)", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			baselineOfOne(f);
+			const a = f.adopter("adopter", ADOPTER_TRACKER, "o/m-code");
+			f.issues.push({
+				number: 5,
+				repo: ADOPTER_TRACKER,
+				title: "BOOM in the adopter",
+			});
+			a.signatureLine(5);
+			const sha = a.commit("Stop the boom (#5)", FIXED);
+			afterFix(f, 5, 0);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "keep", fixSha: sha });
+			expect(out.repos[1]).toMatchObject({
+				tracker: ADOPTER_TRACKER,
+				codeRepo: "o/m-code",
+			});
+		});
+
+		it("holds a tracker's findings, misses and lost lines where its signature log will not read, and exits 1 (#4796)", () => {
+			const { f } = adopterFinding();
+			f.runLine({ outcomes: [{ finding: ref(5), verdict: "waiting" }] });
+			f.issues.push({
+				number: 30,
+				repo: ADOPTER_TRACKER,
+				title: "Signed and closed",
+				closedAt: d(57),
+				labels: ["fault-signature"],
+			});
+			const { status, out } = f.run({ failingLog: ADOPTER_TRACKER });
+			expect(status).toBe(1);
+			expect(out.failures.join("\n")).toMatch(/o\/m main:.*HTTP 403/);
+			expect(out.lostLines).toEqual([]);
+			expect(out.lostLinesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
+			expect(outcomeOf(out, 5)?.why).toMatch(/o\/m main:.*HTTP 403/);
+		});
+
+		it("names the tracker whose issue list failed, holding the finding on it", () => {
+			const { f } = adopterFinding();
+			const { status, out } = f.run({ failingList: ADOPTER_TRACKER });
+			expect(status).toBe(1);
+			expect(outcomeOf(out, 5)?.why).toMatch(
+				/^follow-ons unread: o\/m: bug issues unread: .*HTTP 404/,
+			);
+			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+		});
+
+		it("holds a finding whose tracker has no checkout, and exits 1", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.issues.push({ number: 7, repo: "o/x", title: "elsewhere" });
+			f.signatureLine(7, { issue: "o/x#7" });
+			const { status, out } = f.run();
+			expect(status).toBe(1);
+			expect(
+				out.outcomes.find((o: { finding: string }) => o.finding === "o/x#7"),
+			).toMatchObject({
+				verdict: "waiting",
+				why: "no checkout of o/x on this machine",
+			});
+		});
 	});
 });
 
@@ -639,7 +1156,7 @@ describe("--baseline, a finding's baseline at filing", () => {
 		expect(out).toMatchObject({
 			filedAt: d(FILED),
 			window: { start: d(0), end: d(28) },
-			baseline: { count: 4, sessions: 4, rate: 1 },
+			baseline: { count: 4, sessions: 4 },
 			failures: [],
 		});
 	});

@@ -62,6 +62,7 @@ const {
 	DEFAULT_SUITE,
 	recordFailure,
 	shortSha,
+	formatCachedClause,
 } = require("./lib/test-pass-marker.js");
 const { launchEnv } = require("./lib/suite-handoff.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
@@ -428,10 +429,9 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 		startedAtMs: Date.now(),
 		sessionId: session,
 	});
+	const clause = formatCachedClause((looked.cached ?? []).map((c) => c.file));
 	out.write(
-		landed
-			? "Every selected file was cached: nothing ran, and the certificate is written (#4790).\n"
-			: "Every selected file was cached: nothing ran, but the certificate could not be written (#4790).\n",
+		`Every selected file was cached — ${clause} — so nothing ran, ${landed ? "and the certificate is written" : "but the certificate could not be written"}.\n`,
 	);
 	return 0;
 }
