@@ -65,7 +65,7 @@ function appendRetained(
 
 /**
  * Rewrite `file` without its lines past `retainMs`, once its oldest is a day
- * past it.
+ * past it, so a log is rewritten about once a day rather than on every append.
  * @param {string} file
  * @param {number} retainMs
  * @param {number} now

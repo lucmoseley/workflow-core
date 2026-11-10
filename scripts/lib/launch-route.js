@@ -66,9 +66,10 @@ function fullFlagWord(argv) {
 	return argv.find((w) => w === FULL_FLAG || w.startsWith(FULL_PREFIX)) ?? null;
 }
 
-/* `--no-cache`: run every selected file, whatever the pass store holds
- * (#4790). */
-const NO_CACHE_FLAG = "--no-cache";
+/* `--fresh`: run every selected file, whatever the pass store holds
+ * (#4790). Not `--no-cache`: written before `--`, npm takes that as its own
+ * `cache` setting and exports nothing the #2284 refusal could read. */
+const FRESH_FLAG = "--fresh";
 
 /**
  * The wrapper flags run-vitest.js consumes, none of which reaches vitest.
@@ -83,7 +84,7 @@ const WRAPPER_FLAGS = new Set([
 	ISOLATED_FLAG,
 	SHARED_FLAG,
 	FULL_FLAG,
-	NO_CACHE_FLAG,
+	FRESH_FLAG,
 ]);
 
 /**
@@ -307,18 +308,17 @@ function npmSwallowedRefusal(argv, env) {
 
 /**
  * Whether a launch looks its files up in the pass store (#4790): never where
- * it asks every file to run — a typed full run, a retest, `--no-cache`.
+ * it asks every file to run — a typed full run, a retest, `--fresh`.
  * @param {Pick<LaunchRoute, "kind"|"source">} route
  * @param {string[]} argv the launch's own words, wrapper flags included
  */
-const looksUpPassStore = (route, argv) =>
+const isPassStoreLaunch = (route, argv) =>
 	route.kind !== "full" &&
 	route.source !== "retest" &&
-	!argv.includes(NO_CACHE_FLAG);
+	!argv.includes(FRESH_FLAG);
 
 module.exports = {
-	looksUpPassStore,
-	NO_CACHE_FLAG,
+	isPassStoreLaunch,
 	QUEUE_FLAG,
 	FULL_FLAG,
 	FULL_PREFIX,

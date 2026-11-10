@@ -35,7 +35,7 @@ const absentAsId = (ids) =>
  * @param {ContentIds} now
  * @returns {boolean}
  */
-function sameContent(paths, then, now) {
+function isSameContent(paths, then, now) {
 	if (paths.length === 0) return false;
 	return paths.every(
 		(p) => then.has(p) && now.has(p) && then.get(p) === now.get(p),
@@ -84,8 +84,9 @@ function readWorkingIds(hashObjects, root, paths) {
 		let stat;
 		try {
 			stat = fs.lstatSync(path.join(root, p));
-		} catch {
-			ids.set(p, null);
+		} catch (e) {
+			const code = /** @type {NodeJS.ErrnoException} */ (e).code;
+			if (code === "ENOENT" || code === "ENOTDIR") ids.set(p, null);
 			continue;
 		}
 		if (stat.isFile())
@@ -126,5 +127,5 @@ module.exports = {
 	absentAsId,
 	readTreeIds,
 	readWorkingIds,
-	sameContent,
+	isSameContent,
 };

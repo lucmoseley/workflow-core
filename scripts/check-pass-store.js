@@ -8,7 +8,7 @@
  *
  * READ-ONLY: it reads the run ledger (lib/run-ledger.js) under the canonical
  * checkout's markers, whose `cachedFiles` is null on a run that looked
- * nothing up — a full run, `--retest`, `--no-cache`, the lander — and so
+ * nothing up — a full run, `--retest`, `--fresh`, the lander — and so
  * counts toward neither figure. A reading, never a finding.
  */
 
