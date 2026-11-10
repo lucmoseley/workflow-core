@@ -236,6 +236,18 @@ describe("a statement the parse may miss", () => {
 			"imports through 1): import helper, which the walk cannot parse",
 		]);
 	});
+
+	/* #4790 pass 3 review, finding 3: a load with no import keyword raised
+	 * no fault. */
+	it.each([
+		['spec = importlib.util.spec_from_file_location("m", P)'],
+		["spec.loader.exec_module(m)"],
+		["runpy.run_path(P)"],
+		["exec(open(P).read())"],
+		['__import__("helper")'],
+	])("faults %s, a load that names no import", (load) => {
+		expect(tree(`${load}\n`, ["tool/helper.py"]).faults).toHaveLength(1);
+	});
 });
 
 describe("a file the walk cannot read", () => {
@@ -259,7 +271,8 @@ describe("a file the walk cannot read", () => {
  * imported host_root inside `python3 -c`, so editing host_root.py left it
  * cached. */
 describe("an interpreter handed its program inline", () => {
-	const spawns = (code: string) => inlineCodeSpawns("/x/a.test.ts", code);
+	const unseen = (code: string, file = "/x/a.test.ts") =>
+		inlineCodeSpawns(file, code).filter((s: { unseen: boolean }) => s.unseen);
 
 	it.each([
 		[
@@ -271,9 +284,17 @@ describe("an interpreter handed its program inline", () => {
 		],
 		['spawnSync("node", ["--eval", "require(process.argv[1])", p]);'],
 		['spawnSync("python3", ["-"], { input: code });'],
+		['spawnSync("python3", ["-", "import sys"], { input: code });'],
 		["execSync(`python3 -c 'import helper'`);"],
+		/* #4790 pass 3 review, finding 2: an escape hid the load's line
+		 * start, and one the reader does not undo hides the text. */
+		['spawnSync("python3", ["-c", "import sys\\nimport host_root"]);'],
+		[
+			"spawnSync(process.execPath, [\"-e\", \"require('node:fs')\\nrequire('./x')\"]);",
+		],
+		['spawnSync("python3", ["-c", "import sys\\x0aimport host_root"]);'],
 	])("names %s", (code) => {
-		expect(spawns(code)).toHaveLength(1);
+		expect(unseen(code)).toHaveLength(1);
 	});
 
 	it.each([
@@ -284,18 +305,113 @@ describe("an interpreter handed its program inline", () => {
 			"spawnSync(process.execPath, [\"-e\", \"require('node:fs').writeFileSync(1, 'x')\"]);",
 		],
 		['spawnSync("python3", ["-c", "import sys; print(sys.argv[1])", x]);'],
+		['spawnSync("python3", ["-c", "import sys\\nprint(1)"]);'],
 		['spawnSync("python3", [script, "-c", "x"]);'],
 		['// spawnSync("python3", ["-c", "import helper"]);'],
 	])("lets pass %s, which loads no file", (code) => {
-		expect(spawns(code)).toEqual([]);
+		expect(unseen(code)).toEqual([]);
+	});
+
+	/* #4790 pass 3 review, finding 4: the row of a builtin-only inline
+	 * python must still rest on python3. */
+	it("names the interpreter of a spawn it lets pass", () => {
+		expect(
+			inlineCodeSpawns(
+				"/x/a.test.ts",
+				'spawnSync("python3", ["-c", "import sys"]);',
+			).map((s: { interpreter: string }) => s.interpreter),
+		).toEqual(["python"]);
 	});
 
 	it("reads a Python list's spawn too", () => {
 		expect(
-			inlineCodeSpawns(
-				"/x/t.py",
+			unseen(
 				'subprocess.run([sys.executable, "-c", "import helper"])\n',
+				"/x/t.py",
 			),
 		).toHaveLength(1);
+	});
+});
+
+/* #4790 pass 3 review, finding 1: park-blocked.sh's `node -e` required
+ * issue-hold.js off its argument, which no walk read, so
+ * park-blocked.test.ts stayed cached after issue-hold.js changed. */
+describe("a shell script's inline program", () => {
+	const SelfDirLines = [
+		`SELF_DIR="\${BASH_SOURCE[0]%/*}"`,
+		`[[ "$SELF_DIR" == "\${BASH_SOURCE[0]}" ]] && SELF_DIR=.`,
+		'SELF_DIR="$(cd "$SELF_DIR" && pwd)"',
+	].join("\n");
+	const sh = (code: string) => ({
+		spawns: inlineCodeSpawns("/x/s/park.sh", code),
+		edges: reachOf("/x/s/park.sh", code, () => undefined).edges,
+	});
+
+	it("reaches the file a node program requires off an argument read as a path, as park-blocked.sh's", () => {
+		const { spawns, edges } = sh(
+			[
+				SelfDirLines,
+				"printf '%s' \"$body\" | node -e '",
+				"  const { readOwnHold } = require(process.argv[1]);",
+				'\' "$SELF_DIR/lib/issue-hold.js" "$issue" 2>/dev/null',
+			].join("\n"),
+		);
+		expect(spawns.map((s: { unseen: boolean }) => s.unseen)).toEqual([false]);
+		expect(edges).toEqual(["/x/s/lib/issue-hold.js"]);
+	});
+
+	it.each([
+		[
+			`$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)/lib/c.js`,
+			"/x/lib/c.js",
+		],
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		["${BASH_SOURCE[0]%/*}/c.js", "/x/s/c.js"],
+	])("reads %s as a path", (arg, want) => {
+		expect(sh(`node -p 'require(process.argv[1]).X' "${arg}"\n`).edges).toEqual(
+			[want],
+		);
+	});
+
+	it.each([
+		[
+			"an argument it cannot read as a path",
+			`node -e 'require(process.argv[1])' "$UNSET/x.js"\n`,
+		],
+		[
+			"a caller's $0",
+			`node -e 'require(process.argv[1])' "$(dirname "$0")/x.js"\n`,
+		],
+		[
+			"a variable set to two paths",
+			`D="\${BASH_SOURCE[0]%/*}"\nD="/tmp"\nnode -e 'require(process.argv[1])' "$D/x.js"\n`,
+		],
+		["a double-quoted program", `node -e "require('./x')"\n`],
+		["a relative load", `node -e 'require("./x")'\n`],
+		["a Python program loading a module", `python3 -c 'import helper'\n`],
+	])("names a spawn through %s unseen", (_what, code) => {
+		expect(
+			sh(code).spawns.filter((s: { unseen: boolean }) => s.unseen),
+		).toHaveLength(1);
+	});
+
+	/* The same review's sweep: 162 tests reached a script sourcing or
+	 * running a sibling through `"$here/…"`, which no walk read. */
+	it("reaches a code path spelled off a variable naming the file's directory", () => {
+		expect(
+			sh(
+				[
+					SelfDirLines,
+					'source "$SELF_DIR/lib/guard-root.sh"',
+					'lines="$(node "$SELF_DIR/lib/msg.js" "$f")"',
+					'cfg="$(cd "$SELF_DIR/.." && pwd)/c.js"',
+					'node "$cfg"',
+				].join("\n"),
+			).edges.sort(),
+		).toEqual(["/x/c.js", "/x/s/lib/guard-root.sh", "/x/s/lib/msg.js"]);
+	});
+
+	it("skips a comment line", () => {
+		expect(sh("# node -e 'require(x)'\n").spawns).toEqual([]);
 	});
 });

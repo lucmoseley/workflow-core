@@ -10,7 +10,8 @@
  *     doc-map-generator.js's session-arbiter.js spawn (#460).
  *   shell — a path spelled from the file's own directory,
  *     `$(dirname "${BASH_SOURCE[0]}")/x` or `${BASH_SOURCE[0]%/*}/x`, whether
- *     sourced or run (#460).
+ *     sourced or run (#460); and the path an inline node program loads as
+ *     `require(process.argv[N])` off an argument read as a path (below).
  *   Python — `import X.Y` or `from X import Z` (#465, #4864): X searched as
  *     CPython would, on the importer's directory and each sys.path entry the
  *     file adds before the import through a literal `insert(0, …)` or
@@ -35,9 +36,16 @@
  *
  * INLINE CODE: `inlineCodeSpawns` names each spawn of python, node, perl or
  * ruby handed its program inline (`-c`, `-e`, `-p`, `--eval`, `--print`) or
- * on stdin (`-`), whose loads no walk here reads, unless the program is one
- * plain literal that loads only builtin modules. Residual: a shell's `-c`,
- * through which tests run any command, and an interpreter named by a variable.
+ * on stdin (`-`), in JS, TypeScript, Python or shell, and marks unseen each
+ * whose loads no walk here reads: any but a program that is one plain
+ * literal, its escapes undone, loading only builtin modules, or in a shell
+ * script a single-quoted program whose other loads are node's
+ * `require(process.argv[N])` of an argument read as a path. Such an
+ * argument is the file's directory, `$(cd "<path>" && pwd)`, literals, and
+ * variables every assignment in the file sets to one such path; `$0` is
+ * not one, as a sourced file's `$0` is its caller. Residual: a shell's
+ * `-c`, through which tests run any command, and an interpreter named by a
+ * variable.
  */
 
 const fs = require("node:fs");
@@ -46,15 +54,25 @@ const { spawnSync } = require("node:child_process");
 const { isBuiltin } = require("node:module");
 const { JS_COMMENT_LINE } = require("./qualify-citations.js");
 const { requiredGroup } = require("./regex-group.js");
-/* The code files the walk reads, and those it cannot: a JSX or TSX source,
- * whose loads it never parses. */
-const WALKED_CODE = /\.(?:[cm]?[jt]s|sh|py)$/;
-const UNWALKED_CODE = /\.[cm]?[jt]sx$/;
+/**
+ * The language of the code `file` holds, by its extension, or null where it
+ * holds none a script may load or spawn. A JSX or TSX source is code whose
+ * loads the walk never parses.
+ * @param {string} file
+ * @returns {"js"|"jsx"|"sh"|"python"|null}
+ */
+function languageOf(file) {
+	if (/\.[cm]?[jt]s$/.test(file)) return "js";
+	if (/\.[cm]?[jt]sx$/.test(file)) return "jsx";
+	if (file.endsWith(".sh")) return "sh";
+	if (file.endsWith(".py")) return "python";
+	return null;
+}
 /**
  * Whether `file` is code a script may load or spawn, walked or not.
  * @param {string} file
  */
-const isCodeFile = (file) => WALKED_CODE.test(file) || UNWALKED_CODE.test(file);
+const isCodeFile = (file) => languageOf(file) !== null;
 /* Every literal module specifier: `require(…)`, `require.resolve(…)`,
  * `from "…"`, `import(…)` and a bare `import "…"`. plugin-tree.js's package
  * scan reads the same. */
@@ -86,14 +104,23 @@ const SH_SIBLING =
 	/(?:\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)|\$\{BASH_SOURCE\[0\]%\/\*\})\/([\w./-]+\.(?:sh|js|py))/g;
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
-/* Any statement that may load a module, read with its strings blanked: one
- * `PY_IMPORT` does not match is an import the walk cannot parse. */
-const PY_LOAD = /\bimport\b|\b__import__\s*\(|\bimport_module\s*\(/;
+/* Any statement that may load a module or run a file's code, read with its
+ * strings blanked: one `PY_IMPORT` does not match is a load the walk cannot
+ * parse. Beside the `import` keyword, `__import__`, importlib's
+ * `import_module`, `spec_from_file_location`, `exec_module` and loaders,
+ * runpy's `run_path` and `run_module`, and `exec` of read source. */
+const PY_LOAD =
+	/\bimport\b|\b(?:__import__|import_module|spec_from_file_location|spec_from_loader|exec_module|load_module|SourceFileLoader|run_path|run_module|exec|execfile)\s*\(/;
+/* A one-line string in either quote, escapes skipped: Python's, and a JS
+ * literal's other than a template. */
+const ONE_LINE_STRING = String.raw`"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'`;
 /* A triple-quoted block, a one-line string or a comment, whichever starts
  * first, so a quote inside a comment opens nothing. */
-const PY_LEXEME =
-	/("""|''')[\s\S]*?\1|"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'|#[^\n]*/g;
-const PY_STRING = /"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'/g;
+const PY_LEXEME = new RegExp(
+	String.raw`("""|''')[\s\S]*?\1|${ONE_LINE_STRING}|#[^\n]*`,
+	"g",
+);
+const PY_STRING = new RegExp(ONE_LINE_STRING, "g");
 /* A compound statement's header with its body on the same line, read with
  * strings blanked: `try: import x`, `if X: import y`. A colon in the header
  * itself cuts it early, leaving a body the walk then faults. */
@@ -214,11 +241,11 @@ const pythonVersion = () => readPython().version;
  * @returns {Reach}
  */
 function reachOf(file, text, fault) {
-	const dir = path.dirname(file);
-	if (/\.[cm]?[jt]s$/.test(file)) return jsReach(dir, text);
-	if (file.endsWith(".sh")) return { edges: shEdges(dir, text), shadows: [] };
-	if (file.endsWith(".py")) return pyReach(file, text, fault);
-	if (UNWALKED_CODE.test(file))
+	const language = languageOf(file);
+	if (language === "js") return jsReach(path.dirname(file), text);
+	if (language === "sh") return { edges: shEdges(file, text), shadows: [] };
+	if (language === "python") return pyReach(file, text, fault);
+	if (language === "jsx")
 		fault(`is ${path.extname(file)} code, whose loads the walk cannot read`);
 	return { edges: [], shadows: [] };
 }
@@ -273,17 +300,30 @@ function jsReach(dir, text) {
 }
 
 /**
- * @param {string} dir the file's directory
+ * A shell script's code paths spelled from its own directory, directly or
+ * through a variable `shPathVars` resolves, and each path an inline node
+ * program of its loads off its arguments, each once.
+ * @param {string} file absolute
  * @param {string} text
  * @returns {string[]}
  */
-function shEdges(dir, text) {
+function shEdges(file, text) {
+	const dir = path.dirname(file);
+	const code = parseCodeLines(text, /^\s*#/).join("\n");
+	const vars = shPathVars(dir, code);
 	/** @type {string[]} */
 	const edges = [];
-	for (const line of parseCodeLines(text, /^\s*#/))
-		for (const m of line.matchAll(SH_SIBLING))
-			edges.push(path.join(dir, requiredGroup(m, 1, SH_SIBLING)));
-	return edges;
+	for (const m of code.matchAll(SH_SIBLING))
+		edges.push(path.join(dir, requiredGroup(m, 1, SH_SIBLING)));
+	for (const [word] of [
+		...code.matchAll(SH_PATH_WORD),
+		...code.matchAll(SH_INNER_PATH_WORD),
+	]) {
+		const p = shPathOf(word, dir, vars);
+		if (p !== null && isCodeFile(p)) edges.push(p);
+	}
+	for (const spawn of shInlineSpawns(file, code)) edges.push(...spawn.loads);
+	return [...new Set(edges)];
 }
 
 /**
@@ -823,90 +863,320 @@ function placePyTop(scope, top, reach) {
 	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 
-/* A literal an argument list may hold, and one read whole as a program: no
- * interpolation, no escape it would have to undo. */
-const ARG_LITERAL =
-	String.raw`(?:"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'|` +
-	"`[^`]*`)";
-const PLAIN_LITERAL =
-	String.raw`"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'|` +
-	"`[^`$\\\\]*`";
+/* The interpreters whose inline programs are read, and the flag that hands
+ * one its program: `-c`, `-e` or `-p` closing any bundle of single-letter
+ * flags (python3's `-c` and `-Ic`, node's `-pe`, perl's `-lane`),
+ * `--eval`, `--print`, or `-` for a program on stdin. */
+const INTERPRETER = String.raw`python(?:3(?:\.\d+)?)?|node|perl|ruby`;
+const INLINE_FLAG = "-[A-Za-z]*[cep]|--eval|--print|-";
+/* A literal an argument list may hold, and one read whole as a program: a
+ * template only where it interpolates nothing and escapes nothing. */
+const ARG_LITERAL = String.raw`(?:${ONE_LINE_STRING}|\x60[^\x60]*\x60)`;
+const PLAIN_LITERAL = String.raw`${ONE_LINE_STRING}|\x60[^\x60$\\]*\x60`;
 /* An interpreter handed its program inline in an argument list:
  * `"python3", ["-c", code]`, `process.execPath, ["-e", code]`,
  * `[sys.executable, "-c", code]`, or `"-"` for a program on stdin. Group 1
- * names the interpreter; group 2 is the program, where one plain literal is
- * the whole argument. */
+ * names the interpreter, group 2 the flag; group 3 is the program, where one
+ * plain literal is the whole argument. */
 const INLINE_ARGV = new RegExp(
-	String.raw`(["'\x60](?:python(?:3(?:\.\d+)?)?|node|perl|ruby)["'\x60]|process\.execPath|sys\.executable)\s*,\s*(?:\[\s*)?(?:${ARG_LITERAL}\s*,\s*)*?["'\x60](?:-[A-Za-z]{0,2}[cep]|--eval|--print|-)["'\x60]\s*(?:,\s*(${PLAIN_LITERAL})\s*(?=[,\])]))?`,
+	String.raw`(["'\x60](?:${INTERPRETER})["'\x60]|process\.execPath|sys\.executable)\s*,\s*(?:\[\s*)?(?:${ARG_LITERAL}\s*,\s*)*?["'\x60](${INLINE_FLAG})["'\x60]\s*(?:,\s*(${PLAIN_LITERAL})\s*(?=[,\])]))?`,
 	"g",
 );
 /* The same handed to a shell as one command string: `execSync("python3 -c …")`. */
-const INLINE_COMMAND =
-	/\bexec(?:Sync)?\(\s*["'`][^"'`]*?\b(?:python(?:3(?:\.\d+)?)?|node|perl|ruby)\s+(?:-\S+\s+)*?(?:-[A-Za-z]{0,2}[cep]|--eval|--print|-)(?=[\s"'`])/g;
+const INLINE_COMMAND = new RegExp(
+	String.raw`\bexec(?:Sync)?\(\s*["'\x60][^"'\x60]*?\b(?:${INTERPRETER})\s+(?:-\S+\s+)*?(?:${INLINE_FLAG})(?=[\s"'\x60])`,
+	"g",
+);
+/* The same on a shell script's own command line: `node -e '…' "$here/x.js"`.
+ * Group 1 names the interpreter, group 2 the flag. */
+const SH_INLINE = new RegExp(
+	String.raw`(?<=^|[\s;|&(\x60])(${INTERPRETER})\s+(?:-\S+\s+)*?(${INLINE_FLAG})(?=\s|$)`,
+	"gm",
+);
+/* A word that may spell a path off a variable: a double-quoted run, its
+ * `$(…)` holding quoted runs, or a bare `$VAR/…`; and a double-quoted run
+ * holding no `$(…)`, so a path quoted inside a command substitution is read
+ * too. */
+const SH_PATH_WORD =
+	/"(?:[^"\\\n$]|\$(?:\{[^}"\n]*\}|\w+(?!\w))|\$\((?:[^()"\n]|"[^"\n]*")*\))*"|\$(?:\{\w+\}|\w+(?!\w))\/[\w./-]+/g;
+const SH_INNER_PATH_WORD = /"(?:[^"\\\n$]|\$(?:\{[^}"\n]*\}|\w+(?!\w)))*"/g;
+/* A shell word: quoted runs, `$(…)` holding quoted runs, and bare
+ * characters; the gap between words, line continuations included; and a
+ * redirection, whose target is no argument. */
+const SH_WORD =
+	/(?:'[^']*'|"(?:[^"\\$]|\\.|\$\((?:[^()"]|"[^"]*")*\)|\$(?!\())*"|\$\((?:[^()"]|"[^"]*")*\)|\\.|[^\s;|&()<>'"\\`])+/y;
+const SH_GAP = /(?:[ \t]|\\\n)*/y;
+const SH_REDIRECT = /\d*(?:>>|[<>]&?)/y;
+/* One part of a shell word read as a path: a single-quoted literal, a
+ * double quote, the file's own directory as `${BASH_SOURCE[0]%/*}` or
+ * `$(dirname "${BASH_SOURCE[0]}")`, `$(cd "<path>" && pwd)` (group 1), a
+ * variable (group 2 or 3), or bare path characters (group 4). */
+const SH_PATH_PART =
+	/'[^'"$\\]*'|"|\$\{BASH_SOURCE(?:\[0\])?%\/\*\}|\$\(dirname "\$\{BASH_SOURCE(?:\[0\])?\}"\)|\$\(cd "((?:[^"]|"[^"]*")*?)" && pwd\)|\$\{(\w+)\}|\$(\w+)|([\w./+@:,=-]+)/y;
+/* A variable's assignment, its value the shell word after it; and a
+ * statement that binds a name with no value the walk reads. */
+const SH_ASSIGN =
+	/(?:^|[\s;&|(])(?:(?:local|readonly|export|declare(?:\s+-\w+)?)\s+)?([A-Za-z_]\w*)\+?=/g;
+const SH_REBIND =
+	/\b(?:read(?:\s+-\w+)*|for|unset|local|readonly|export|declare(?:\s+-\w+)?|mapfile(?:\s+-\w+)*)\s+([A-Za-z_]\w*)\b(?!\+?=)/g;
+/* The fallback that names the directory `.` where the script was run by a
+ * bare name, which is the directory itself. */
+const SH_DIR_FALLBACK = /"\$\{BASH_SOURCE\[0\]\}"\s*\]\]\s*&&\s*\w+=\.\s*$/;
+/* A node program's load of a path handed to it as an argument. */
+const ARGV_REQUIRE = /\brequire\(\s*process\.argv\[(\d+)\]\s*\)/g;
+/* The escapes a literal program may hold that `literalBody` undoes. */
+const LITERAL_ESCAPES = new Map([
+	["n", "\n"],
+	["t", "\t"],
+	["\\", "\\"],
+	["'", "'"],
+	['"', '"'],
+	["`", "`"],
+]);
 
 /**
- * Whether an inline `program` for `interpreter` may load a file: any program
- * not one plain literal, and one that loads a module other than a builtin.
- * @param {"python"|"node"|"other"} interpreter
- * @param {string | undefined} program the literal, quotes included
+ * @typedef {"python"|"node"|"other"} Interpreter
+ * @typedef {{spawn: string, interpreter: Interpreter, loads: string[],
+ *   unseen: boolean}} InlineSpawn one spawn as written, whitespace folded:
+ *   the files its program loads by path, absolute, and whether it loads any
+ *   other the walk cannot read
+ * @typedef {{unseen: boolean, argv: number[]}} ProgramLoads whether a
+ *   program loads a file it does not name to the walk, and the indexes of
+ *   the arguments it loads by path
  */
-function loadsUnseen(interpreter, program) {
-	if (program === undefined) return true;
-	const body = program.slice(1, -1);
-	if (interpreter === "python") {
-		const { builtins } = readPython();
-		return pyStatements(body, () => undefined).some((s) => {
-			const imp = s.text.match(PY_IMPORT);
-			if (!imp) return PY_LOAD.test(blankPyStrings(s.text));
-			return pyImportTargets(imp).some(
-				(t) => t.dots > 0 || !builtins.has(t.parts[0] ?? ""),
-			);
-		});
-	}
-	if (interpreter === "node") {
-		const specs = [...body.matchAll(JS_SPEC)].map(jsSpecifier);
-		const loads = body.match(/\brequire\b|\bimport\b/g)?.length ?? 0;
-		return loads !== specs.length || !specs.every((s) => isBuiltin(s));
-	}
-	return /\b(?:require|use|do|load|eval)\b/.test(body);
+
+/**
+ * A literal program's text, its escapes undone, or null where it holds one
+ * `LITERAL_ESCAPES` does not name.
+ * @param {string} literal quotes included
+ * @returns {string | null}
+ */
+function literalBody(literal) {
+	let unknown = false;
+	const body = literal.slice(1, -1).replace(/\\([\s\S])/g, (_, c) => {
+		const undone = LITERAL_ESCAPES.get(c);
+		if (undone === undefined) unknown = true;
+		return undone ?? "";
+	});
+	return unknown ? null : body;
 }
 
 /**
- * Each spawn in `file` of an interpreter handed its program inline, whose
- * loads no walk here reads: the pass store's reach cannot know them.
- * @param {string} file
+ * What an inline `program` for `interpreter` loads: every load of a program
+ * not read is unseen; a read one's load is unseen unless it is a builtin
+ * module, or for node a `require(process.argv[N])`.
+ * @param {Interpreter} interpreter
+ * @param {string | null} program its text
+ * @returns {ProgramLoads}
+ */
+function programLoads(interpreter, program) {
+	if (program === null) return { unseen: true, argv: [] };
+	if (interpreter === "python") {
+		const { builtins } = readPython();
+		const unseen = pyStatements(program, () => undefined).some((s) => {
+			const imp = s.text.match(PY_IMPORT);
+			if (!imp) return PY_LOAD.test(blankPyStrings(s.text));
+			return pyImportTargets(imp).some((t) => {
+				const [top] = t.parts;
+				return t.dots > 0 || top === undefined || !builtins.has(top);
+			});
+		});
+		return { unseen, argv: [] };
+	}
+	if (interpreter === "node") {
+		const specs = [...program.matchAll(JS_SPEC)].map(jsSpecifier);
+		const argv = [...program.matchAll(ARGV_REQUIRE)].map((m) =>
+			Number(requiredGroup(m, 1, ARGV_REQUIRE)),
+		);
+		const loads = program.match(/\brequire\b|\bimport\b/g)?.length ?? 0;
+		const unseen =
+			loads !== specs.length + argv.length || !specs.every((s) => isBuiltin(s));
+		return { unseen, argv };
+	}
+	return {
+		unseen: /\b(?:require|use|do|load|eval)\b/.test(program),
+		argv: [],
+	};
+}
+
+/**
+ * Each spawn in `file` of an interpreter handed its program inline: in a
+ * shell script, the paths its node program loads off its arguments where
+ * each resolves; elsewhere no argument is read, so such a load is unseen.
+ * @param {string} file absolute
  * @param {string} text
- * @returns {string[]} each such spawn as written, whitespace folded
+ * @returns {InlineSpawn[]}
  */
 function inlineCodeSpawns(file, text) {
-	const comment = commentLineOf(file);
-	if (comment === null) return [];
+	const language = languageOf(file);
+	if (language === null) return [];
+	const comment =
+		language === "js" || language === "jsx" ? JS_COMMENT_LINE : /^\s*#/;
 	const code = parseCodeLines(text, comment).join("\n");
-	/** @type {string[]} */
+	if (language === "sh") return shInlineSpawns(file, code);
+	/** @type {InlineSpawn[]} */
 	const found = [];
-	for (const m of code.matchAll(INLINE_ARGV))
-		if (loadsUnseen(interpreterOf(requiredGroup(m, 1, INLINE_ARGV)), m[2]))
-			found.push(m[0].replace(/\s+/g, " "));
+	for (const m of code.matchAll(INLINE_ARGV)) {
+		const interpreter = interpreterOf(requiredGroup(m, 1, INLINE_ARGV));
+		const program =
+			m[3] === undefined || requiredGroup(m, 2, INLINE_ARGV) === "-"
+				? null
+				: literalBody(m[3]);
+		const loads = programLoads(interpreter, program);
+		found.push({
+			spawn: m[0].replace(/\s+/g, " "),
+			interpreter,
+			loads: [],
+			unseen: loads.unseen || loads.argv.length > 0,
+		});
+	}
 	for (const m of code.matchAll(INLINE_COMMAND))
-		found.push(m[0].replace(/\s+/g, " "));
+		found.push({
+			spawn: m[0].replace(/\s+/g, " "),
+			interpreter: interpreterOf(m[0]),
+			loads: [],
+			unseen: true,
+		});
 	return found;
 }
 
 /**
- * A comment line in `file`'s language, or null where `inlineCodeSpawns`
- * reads no spawns in it.
- * @param {string} file
- * @returns {RegExp | null}
+ * A shell script's inline spawns, its comment lines cut: the program one
+ * single-quoted word, its arguments the words after it to the command's end.
+ * @param {string} file absolute
+ * @param {string} code
+ * @returns {InlineSpawn[]}
  */
-function commentLineOf(file) {
-	if (file.endsWith(".py")) return /^\s*#/;
-	if (/\.[cm]?[jt]sx?$/.test(file)) return JS_COMMENT_LINE;
-	return null;
+function shInlineSpawns(file, code) {
+	const dir = path.dirname(file);
+	const vars = shPathVars(dir, code);
+	return [...code.matchAll(SH_INLINE)].map((m) => {
+		const interpreter = interpreterOf(requiredGroup(m, 1, SH_INLINE));
+		const words = shWords(code, m.index + m[0].length);
+		const onStdin = requiredGroup(m, 2, SH_INLINE) === "-";
+		const [first, ...rest] = words;
+		const program =
+			onStdin || first === undefined || !/^'[^']*'$/.test(first)
+				? null
+				: first.slice(1, -1);
+		const args = onStdin ? words : rest;
+		const { unseen, argv } = programLoads(interpreter, program);
+		const loads = argv.map((n) => {
+			const word = args[n - 1];
+			return word === undefined ? null : shPathOf(word, dir, vars);
+		});
+		return {
+			spawn: m[0].replace(/\s+/g, " "),
+			interpreter,
+			loads: loads.filter((p) => p !== null),
+			unseen: unseen || loads.includes(null),
+		};
+	});
 }
 
 /**
- * @param {string} head an `INLINE_ARGV` interpreter as written
- * @returns {"python"|"node"|"other"}
+ * The words of the shell command running on from `at`, redirections left
+ * out, to the first operator or unescaped line end.
+ * @param {string} code
+ * @param {number} at
+ * @returns {string[]}
+ */
+function shWords(code, at) {
+	/** @type {string[]} */
+	const words = [];
+	let i = at;
+	/** @param {RegExp} re a sticky pattern */
+	const take = (re) => {
+		re.lastIndex = i;
+		const m = re.exec(code);
+		if (m === null || m[0] === "") return null;
+		i = re.lastIndex;
+		return m[0];
+	};
+	for (;;) {
+		take(SH_GAP);
+		const redirected = take(SH_REDIRECT) !== null;
+		if (redirected) take(SH_GAP);
+		const word = take(SH_WORD);
+		if (word === null) return words;
+		if (!redirected) words.push(word);
+	}
+}
+
+/**
+ * Each variable of a shell script that names one path in every assignment
+ * the walk sees, mapped to it, absolute; null where any assignment names
+ * another or none the walk reads.
+ * @param {string} dir the script's directory
+ * @param {string} code
+ * @returns {Map<string, string | null>}
+ */
+function shPathVars(dir, code) {
+	/** @type {Map<string, string | null>} */
+	const vars = new Map();
+	for (const m of code.matchAll(SH_ASSIGN)) {
+		const name = requiredGroup(m, 1, SH_ASSIGN);
+		const end = m.index + m[0].length;
+		const lineEnd = code.indexOf("\n", end);
+		const line = code.slice(
+			code.lastIndexOf("\n", end) + 1,
+			lineEnd === -1 ? code.length : lineEnd,
+		);
+		if (SH_DIR_FALLBACK.test(line)) continue;
+		SH_WORD.lastIndex = end;
+		const word = SH_WORD.exec(code)?.[0];
+		const value = word === undefined ? null : shPathOf(word, dir, vars);
+		vars.set(name, vars.has(name) && vars.get(name) !== value ? null : value);
+	}
+	for (const m of code.matchAll(SH_REBIND))
+		vars.set(requiredGroup(m, 1, SH_REBIND), null);
+	return vars;
+}
+
+/**
+ * A shell word read as an absolute path, or null where any part of it is
+ * one `SH_PATH_PART` does not read or a variable `vars` does not resolve.
+ * @param {string} word
+ * @param {string} dir the script's directory
+ * @param {Map<string, string | null>} vars
+ * @returns {string | null}
+ */
+function shPathOf(word, dir, vars) {
+	let out = "";
+	let i = 0;
+	while (i < word.length) {
+		SH_PATH_PART.lastIndex = i;
+		const m = SH_PATH_PART.exec(word);
+		if (m === null) return null;
+		i = SH_PATH_PART.lastIndex;
+		const value = shPartValue(m, dir, vars);
+		if (value === null) return null;
+		out += value;
+	}
+	return path.isAbsolute(out) ? path.normalize(out) : null;
+}
+
+/**
+ * One `SH_PATH_PART`'s text as a path piece: a double quote adds nothing.
+ * @param {RegExpExecArray} m
+ * @param {string} dir the script's directory
+ * @param {Map<string, string | null>} vars
+ * @returns {string | null}
+ */
+function shPartValue(m, dir, vars) {
+	const [part, inner, braced, bare, plain] = m;
+	const name = braced ?? bare;
+	if (part === '"') return "";
+	if (part.startsWith("'")) return part.slice(1, -1);
+	if (/^\$(?:\{BASH_SOURCE|\(dirname)/.test(part)) return dir;
+	if (inner !== undefined) return shPathOf(inner, dir, vars);
+	if (name !== undefined) return vars.get(name) ?? null;
+	return plain ?? null;
+}
+
+/**
+ * @param {string} head an interpreter as written
+ * @returns {Interpreter}
  */
 function interpreterOf(head) {
 	if (/python|executable/.test(head)) return "python";
@@ -918,6 +1188,7 @@ module.exports = {
 	edgesOf,
 	inlineCodeSpawns,
 	isCodeFile,
+	languageOf,
 	isFile,
 	pythonVersion,
 	reachOf,

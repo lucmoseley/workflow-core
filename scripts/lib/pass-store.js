@@ -11,7 +11,8 @@
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
  * closure, `package.json` and the lockfiles; a snapshot file beside it; and,
  * as values, the Node version and the architecture, and python3's version
- * where its inputs hold a Python file. Each path a relative
+ * where its inputs hold a Python file or a file on its reach runs Python
+ * inline. Each path a relative
  * specifier on the way tried before the file it resolved to is an input with
  * the id `absent` (#4814), so a file that appears there and takes the import
  * over voids the row. `globalSetup`'s closure
@@ -68,6 +69,7 @@ const {
 	inlineCodeSpawns,
 	isCodeFile,
 	isFile,
+	languageOf,
 	pythonVersion,
 	reachOf,
 } = require("./code-edges.js");
@@ -94,7 +96,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 4;
+const FORMAT = 5;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -160,18 +162,24 @@ function readPythonVersion() {
 }
 
 /**
- * The values a row with input paths `paths` rests on: a Python file among
- * them was walked against python3's stdlib and runs under python3, so its
- * version joins node and arch. Null where python3 will not answer.
- * @param {string[]} paths
+ * The values a row rests on: one whose reach holds a Python file, walked
+ * against python3's stdlib, or runs inline Python, runs under python3, so
+ * its version joins node and arch. Null where python3 will not answer.
+ * @param {boolean} runsPython
  * @param {Values} today
  * @returns {Record<string, string>|null}
  */
-function rowValues(paths, today) {
-	if (!paths.some((p) => p.endsWith(".py"))) return today.base;
+function rowValues(runsPython, today) {
+	if (!runsPython) return today.base;
 	const python = today.python();
 	return python === null ? null : { ...today.base, python };
 }
+
+/**
+ * Whether `paths` hold a Python file.
+ * @param {string[]} paths
+ */
+const holdsPython = (paths) => paths.some((p) => languageOf(p) === "python");
 
 /**
  * Options for a git in `root` fed `input` on stdin.
@@ -267,9 +275,10 @@ const refuseFault = (/** @type {string} */ why) => {
 };
 
 /**
- * @typedef {{edges: string[], shadows: string[]}} Reach repo-relative: the
- *   files reached, and the paths a specifier on the way tried before the file
- *   it resolved to
+ * @typedef {{edges: string[], shadows: string[], python: boolean}} Reach
+ *   repo-relative: the files reached, the paths a specifier on the way tried
+ *   before the file it resolved to, and whether a file on the way runs inline
+ *   Python
  */
 
 /**
@@ -291,7 +300,7 @@ function lexicalReach(root) {
 		if (memo.has(rel)) return memo.get(rel) ?? null;
 		const found = isCodeFile(rel)
 			? readEdges(root, rel)
-			: { edges: [], shadows: [] };
+			: { edges: [], shadows: [], python: false };
 		memo.set(rel, found);
 		return found;
 	};
@@ -300,9 +309,11 @@ function lexicalReach(root) {
 		/** @type {Set<string>} */
 		const shadows = new Set();
 		const queue = [file];
+		let python = false;
 		for (const rel of queue) {
 			const found = reachFrom(rel);
 			if (!found) return null;
+			python ||= found.python;
 			for (const p of found.shadows) shadows.add(p);
 			for (const next of found.edges)
 				if (!seen.has(next)) {
@@ -311,14 +322,14 @@ function lexicalReach(root) {
 				}
 		}
 		seen.delete(file);
-		return { edges: [...seen], shadows: [...shadows] };
+		return { edges: [...seen], shadows: [...shadows], python };
 	};
 }
 
 /**
- * The in-repo files `rel` names lexically and the paths its specifiers tried
- * before them, or null where it will not read, faults, or spawns inline code
- * whose loads no walk reads.
+ * The in-repo files `rel` names lexically, the paths its specifiers tried
+ * before them, and whether it runs inline Python; or null where it will not
+ * read, faults, or spawns inline code whose loads no walk reads.
  * @param {string} root
  * @param {string} rel
  * @returns {Reach|null}
@@ -328,11 +339,13 @@ function readEdges(root, rel) {
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
-		if (inlineCodeSpawns(abs, read.data).length > 0) return null;
+		const spawns = inlineCodeSpawns(abs, read.data);
+		if (spawns.some((s) => s.unseen)) return null;
 		const { edges, shadows } = reachOf(abs, read.data, refuseFault);
 		return {
 			edges: repoRelative(root, edges.filter(isFile)),
 			shadows: repoRelative(root, shadows),
+			python: spawns.some((s) => s.interpreter === "python"),
 		};
 	} catch {
 		return null;
@@ -408,7 +421,8 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 			const absent = [...new Set(reached.flatMap((r) => r.shadows))].filter(
 				(p) => !paths.includes(p),
 			);
-			return [{ ...f, paths, absent }];
+			const python = reached.some((r) => r.python);
+			return [{ ...f, paths, absent, python }];
 		});
 		const all = [...shared, ...own.flatMap((f) => f.paths)];
 		const ids = readWorkingIds(gitHasher(run.root), run.root, [
@@ -433,7 +447,10 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const rows = own
 			.filter((f) => known(f.paths) && areAllAbsent(f.absent))
 			.flatMap((f) => {
-				const values = rowValues([...f.paths, ...f.absent], today);
+				const values = rowValues(
+					f.python || holdsPython([...f.paths, ...f.absent]),
+					today,
+				);
 				if (values === null) return [];
 				const inputs = Object.fromEntries([
 					...f.paths.map((p) => [p, ids.get(p)]),
@@ -710,7 +727,10 @@ function isRowHolding(row, run, { file, now, values, reads }) {
 	const recordedValues = /** @type {Record<string, unknown>} */ (
 		run.values ?? {}
 	);
-	const wanted = rowValues([...own.keys()], values);
+	const wanted = rowValues(
+		"python" in recordedValues || holdsPython([...own.keys()]),
+		values,
+	);
 	if (
 		wanted === null ||
 		Object.entries(wanted).some(([k, v]) => recordedValues[k] !== v)

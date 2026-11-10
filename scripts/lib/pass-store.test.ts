@@ -444,6 +444,22 @@ describe("a script the manifest says a file spawns", () => {
 				"import helper  # noqa: E402",
 			].join("\n"),
 		],
+		/* #4790 pass 3 review, finding 1: park-blocked.test.ts stayed cached
+		 * after issue-hold.js, which park-blocked.sh's `node -e` requires off
+		 * its argument, changed. */
+		[
+			"the module a spawned shell script's inline node program loads off its argument, as park-blocked.sh's (#4790)",
+			"scripts/park.sh",
+			["scripts/lib/issue-hold.js"],
+			[
+				`SELF_DIR="\${BASH_SOURCE[0]%/*}"`,
+				`[[ "$SELF_DIR" == "\${BASH_SOURCE[0]}" ]] && SELF_DIR=.`,
+				'SELF_DIR="$(cd "$SELF_DIR" && pwd)"',
+				"printf '%s' \"$body\" | node -e '",
+				"  const { readOwnHold } = require(process.argv[1]);",
+				'\' "$SELF_DIR/lib/issue-hold.js" "$issue"',
+			].join("\n"),
+		],
 	])("voids the pass when %s changes", (_what, script, deps, load) => {
 		const dir = spawning(script, deps, load);
 		expect(run(dir, [A])).toBe(1);
@@ -517,15 +533,31 @@ describe("a script the manifest says a file spawns", () => {
 /* #4790 pass 2 review, finding 1: a test importing host_root inside
  * `python3 -c` stayed cached after host_root.py changed. */
 describe("a spawn of an interpreter handed inline code", () => {
+	/* #4790 pass 3 standards review, finding 2: a literal program sent the
+	 * detector to python3, so without python3 the case passed untested. */
 	it("records no row for a file whose reach spawns one", () => {
 		const dir = repo();
 		expect(run(dir, [A])).toBe(1);
+		write(dir, "lib.js", 'spawnSync("python3", ["-c", CODE, LIB]);\n');
+		expect(run(dir, [A])).toBe(0);
+	});
+
+	/* #4790 pass 3 review, finding 4: a builtin-only inline python recorded
+	 * no python3 version, so a python3 upgrade left its pass cached. */
+	it("voids a pass whose reach runs inline Python when python3's version changes", () => {
+		const dir = repo();
 		write(
 			dir,
 			"lib.js",
-			'spawnSync("python3", ["-c", "import host_root", LIB]);\n',
+			'spawnSync("python3", ["-c", "import sys; print(sys.argv[1])", x]);\n',
 		);
-		expect(run(dir, [A])).toBe(0);
+		git(dir, "commit", "-qam", "inline python");
+		const values = { ...VALUES, python: "3.12.0.final.0" };
+		expect(run(dir, [A], { values })).toBe(1);
+		expect(cachedOf(dir, [A], { values })).toEqual([A]);
+		expect(
+			cachedOf(dir, [A], { values: { ...VALUES, python: "3.13.0.final.0" } }),
+		).toEqual([]);
 	});
 });
 
@@ -651,10 +683,13 @@ describe("the uncached pragma", () => {
 
 describe("a store it cannot trust runs every file", () => {
 	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
-	 * sys.path a spawned Python script builds (#4864). */
+	 * sys.path a spawned Python script builds (#4864). Format 4 is pass 3's
+	 * finding 1: its rows missed what a shell script's inline node program
+	 * loads, and an inline Python's python3. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
+		["before the walk read a shell script's inline programs (#4790)", 4],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
 		run(dir, [A]);
