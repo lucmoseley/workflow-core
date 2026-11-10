@@ -70,6 +70,11 @@ export const ANSWERS = {
 		admitted: null,
 		refused: "an apiKeyHelper setting is in force (#2236)",
 	},
+	settingsLockout: {
+		admitted: null,
+		lockedOut:
+			"/r/.claude/settings.json's PreToolUse line `x` would refuse or stall every tool call of a session started there, as it exited 127 — restore it with `git -C /r checkout origin/main -- .claude/settings.json`, or mend that line by hand, then start the session again",
+	},
 	launchHeadless: {
 		launched: {
 			record: {
@@ -245,6 +250,7 @@ export function fakeResumeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 		log: (line) => lines.push(line),
 		env: () => processEnv,
 		authRefusal: served("authRefusal"),
+		settingsLockout: served("settingsLockout"),
 		launchHeadless: served("launchHeadless"),
 		findHeadlessRun: served("findHeadlessRun"),
 		readRunAsJob: served("readRunAsJob"),

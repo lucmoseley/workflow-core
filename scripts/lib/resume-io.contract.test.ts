@@ -45,6 +45,7 @@ import {
 	SESSION,
 } from "./resume-io-fake";
 import { runInProcess } from "./run-in-process.js";
+import { breakCanaryPath, buildLockoutRepo } from "./settings-lockout-testkit";
 
 type ResumeIo = import("./refill-resume.js").ResumeIo;
 type ChildRun = ReturnType<ResumeIo["runClaude"]>;
@@ -233,6 +234,10 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 		return r && { jobId: typeof r.jobId, sessionId: r.sessionId === SESSION };
 	},
 	authRefusal: (v) => (v === null ? null : typeof v),
+	settingsLockout: (v) =>
+		v === null
+			? null
+			: (v as string).includes("would refuse or stall every tool call"),
 	runClaude: (v) => ({
 		...childShape(v),
 		resumed: parseResumed(v as ChildRun)?.copy ?? null,
@@ -332,6 +337,18 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			});
 			return io().findHeadlessRun(SESSION, 1000);
 		},
+	},
+	settingsLockout: {
+		admitted: () =>
+			io().settingsLockout(
+				buildLockoutRepo(dir).cutWorktree("edited", (text) =>
+					text.replace(/"timeout": \d+/, '"timeout": 20'),
+				),
+			),
+		lockedOut: () =>
+			io().settingsLockout(
+				buildLockoutRepo(dir).cutWorktree("broken", breakCanaryPath),
+			),
 	},
 	authRefusal: {
 		admitted: () => io().authRefusal({ env: seatEnv(), cwd: root }),

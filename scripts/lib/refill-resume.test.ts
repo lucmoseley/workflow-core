@@ -83,6 +83,16 @@ describe("readResumeTarget", () => {
 });
 
 describe("resumeStopped", () => {
+	it("refuses the resume where its worktree's own settings would lock the session out, launching nothing (#4752)", () => {
+		const { steps, callsTo } = fakeIo({ settingsLockout: "lockedOut" });
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
+			failed: ANSWERS.settingsLockout.lockedOut,
+		});
+		expect(callsTo("settingsLockout")).toEqual([[IDS.cwd]]);
+		expect(callsTo("runClaude")).toEqual([]);
+		expect(callsTo("launchHeadless")).toEqual([]);
+	});
+
 	it("refuses the --bg --resume where its auth would not bill the subscription, launching nothing (#2236)", () => {
 		const { steps, callsTo } = fakeIo({ authRefusal: "refused" });
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
@@ -233,6 +243,16 @@ describe("a copy's original retired (#4098)", () => {
 });
 
 describe("resumeOwnId (#4098)", () => {
+	it("refuses before stopping the job or removing its record where its worktree's own settings would lock the session out (#4752)", () => {
+		const { steps, callsTo } = fakeIo({ settingsLockout: "lockedOut" });
+		expect(steps.resumeOwnId(LAUNCH, PROMPT, IDS)).toEqual({
+			failed: ANSWERS.settingsLockout.lockedOut,
+		});
+		expect(callsTo("settingsLockout")).toEqual([[IDS.cwd]]);
+		expect(callsTo("stop")).toEqual([]);
+		expect(callsTo("runClaude")).toEqual([]);
+	});
+
 	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
 
 	it("stops and removes a killed job, then resumes it under its own id with the flags it saved", () => {

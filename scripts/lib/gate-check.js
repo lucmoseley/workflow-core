@@ -12,8 +12,7 @@ const {
 	RUN_BUDGETED,
 	TIMEOUT_EXIT,
 	KILLED_EXIT,
-	APPARATUS_EXIT,
-	APPARATUS_PREFIX,
+	isRunnerFailure,
 } = require("./run-budgeted.js");
 const { caught } = require("./caught.js");
 const { docPath, scriptPath } = require("./script-path");
@@ -123,7 +122,7 @@ function runCheckCommand(command, timeoutMs, cwd, env) {
 	const code = /** @type {{code?: string} | undefined} */ (r.error)?.code;
 	/* The runner failing is the apparatus failing, not a fact about the gate,
 	 * so it is BROKEN rather than a row saying the command is dead (§N4). */
-	if (r.status === APPARATUS_EXIT && err.startsWith(APPARATUS_PREFIX))
+	if (isRunnerFailure(r))
 		throw brokenError(
 			`${err.split("\n")[0]}\n        Nothing was read. Run a single check by hand.`,
 		);

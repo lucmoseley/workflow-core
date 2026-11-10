@@ -45,8 +45,17 @@ const MARKERS_REL = path.join(".claude", "tmp", "markers");
 /* The markers vouching that a session ran a pass, each followed by its session id. */
 const PASS_MARKER_PREFIXES = [".concision-pass-", ".codereview-pass-"];
 
+/* write-self-plugin-marker.sh's proof that the self-plugin loaded, followed
+ * by its session id. */
+const SELF_PLUGIN_PREFIX = ".self-plugin-loaded-";
+
 function markersDir(root = hostRoot()) {
 	return ensure(path.join(root, MARKERS_REL));
 }
 
-module.exports = { MARKERS_REL, markersDir, PASS_MARKER_PREFIXES };
+module.exports = {
+	MARKERS_REL,
+	markersDir,
+	PASS_MARKER_PREFIXES,
+	SELF_PLUGIN_PREFIX,
+};

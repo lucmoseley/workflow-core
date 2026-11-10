@@ -198,6 +198,18 @@ async function main(argv) {
 	});
 }
 
+/**
+ * Whether a finished run's 125 is this runner's own failure rather than the
+ * command's exit, which it passes through unchanged.
+ * @param {{ status: number | null, stderr: string | null }} r
+ */
+function isRunnerFailure(r) {
+	return (
+		r.status === APPARATUS_EXIT &&
+		(r.stderr ?? "").trimStart().startsWith(APPARATUS_PREFIX)
+	);
+}
+
 if (require.main === module)
 	main(process.argv.slice(2)).then(
 		(code) => process.exit(code),
@@ -212,4 +224,5 @@ module.exports = {
 	KILLED_EXIT,
 	APPARATUS_EXIT,
 	APPARATUS_PREFIX,
+	isRunnerFailure,
 };

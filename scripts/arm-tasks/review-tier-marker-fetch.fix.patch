@@ -19,10 +19,10 @@ diff --git b/docs/test-read-edges.json a/docs/test-read-edges.json
 index 42a39e21edd95867dff77c893f7411869cd332eb..c9200a7f9c3157b5bafbbf8fcd9dfc71bd3158a7 100644
 --- b/docs/test-read-edges.json
 +++ a/docs/test-read-edges.json
-@@ -16141,6 +16141,7 @@
- 			"scripts/lib/git.test.ts",
+@@ -36838,6 +36838,7 @@
  			"scripts/lib/issue-create-label.test.ts",
  			"scripts/lib/project-slug-scan.test.ts",
+ 			"scripts/lib/resume-io.contract.test.ts",
 +			"scripts/lib/review-tier.test.ts",
  			"scripts/lib/rule-text.test.ts",
  			"scripts/lib/script-path-scan.test.ts",

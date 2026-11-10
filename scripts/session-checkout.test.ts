@@ -30,6 +30,11 @@ import {
 	dispatchCoreOutput,
 } from "./lib/pretool-guard-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import {
+	breakCanaryPath,
+	editSettings,
+	seedCanary,
+} from "./lib/settings-lockout-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "session-checkout.js");
@@ -228,6 +233,28 @@ it("refuses a launch --into a worktree a live process still works in, naming its
 	} finally {
 		holder.kill();
 	}
+});
+
+it("refuses a launch --into a worktree whose own canary line cannot start, naming the line and its restore, and admits it restored (#4752)", () => {
+	git(main, "merge", "-q", "--ff-only", "origin/main");
+	git(main, "add", ...seedCanary(main));
+	git(main, "commit", "-qm", "canary");
+	git(main, "push", "-q", "origin", "HEAD:main");
+	const dead = run(main, "cut", "broke-its-canary").stdout.trim();
+	editSettings(dead, breakCanaryPath);
+
+	const r = run(main, "launch-dir", "--into", dead, "/implement 4752");
+
+	expect(r.status).toBe(1);
+	expect(r.stdout).toBe("");
+	expect(r.stderr).toContain("self-plugin-canray.sh");
+	expect(r.stderr).toContain(
+		`\`git -C ${dead} checkout origin/main -- .claude/settings.json\``,
+	);
+	git(dead, "checkout", "origin/main", "--", ".claude/settings.json");
+	const restored = run(main, "launch-dir", "--into", dead, "/implement 4752");
+	expect(restored.status, restored.stderr).toBe(0);
+	expect(restored.stdout).toBe(`${dead}\n`);
 });
 
 it("refuses a launch --into a directory that is no session worktree, naming the directory (#4385)", () => {

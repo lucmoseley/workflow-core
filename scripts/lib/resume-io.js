@@ -25,6 +25,7 @@ const { buildCheckoutEnv } = require("./refill-repos.js");
 const { findResumed } = require("./resumed-copy.js");
 const { runClaude } = require("./seat-claude.js");
 const { copyTranscript } = require("./seat-move.js");
+const { settingsLockout } = require("./settings-lockout.js");
 const { readSessionName } = require("./session-name.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 
@@ -39,6 +40,7 @@ const buildResumeIo = (log) => ({
 	env: () => process.env,
 	authRefusal: (launch) =>
 		launchAuthRefusal({ bin: claudeBin(launch.env), ...launch }),
+	settingsLockout: (cwd) => settingsLockout(cwd, log),
 	launchHeadless,
 	findHeadlessRun: findRunSince,
 	readRunAsJob,
