@@ -1211,8 +1211,7 @@ const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
 /* How long one spell of the Windows-memory hold may hold a wait before the
  * wait runs anyway, logged (#4850). A first guess, to be re-measured with the
- * hold's floor: over the 24 h to 10 Nov 2026 the hold's spells ran a median 2
- * minutes and a p90 of 8, so 10 outlasts nine in ten and cuts the rest. */
+ * hold's floor. */
 const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 
 /**
@@ -1638,14 +1637,13 @@ function waitForGate({
 	let climbHeldMb = 0;
 	/** @type {number | undefined} when this spell of the Windows-memory hold began */
 	let windowsSince;
-	/* Whether this spell was released, and whether any was, which the exit
-	 * log records. */
+	/* Any spell's release, for the exit log. */
 	let spellReleased = false;
 	let windowsReleased = false;
 	/**
 	 * The gate's denial, or none once one unbroken spell of the
 	 * Windows-memory hold has held this wait for WINDOWS_MAX_HOLD_MS; a poll
-	 * on any other limb or none ends the spell. Each release is said once.
+	 * on any other limb or none ends the spell.
 	 * @param {GateDenial | null} denial
 	 */
 	const releaseWindows = (denial) => {

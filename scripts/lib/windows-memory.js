@@ -3,10 +3,7 @@
  * free memory and paging, off memwatch's newest reading, and whether a launch
  * waits on them.
  *
- * IT HOLDS ON MEASURED RISK, NOT ON A LAUNCH'S DRAW (#4850). Over the 24 h to
- * 10 Nov 2026 heavy paging came in 19% of minutes under 1,000 MB free and 1-4%
- * above it, while charging each launch's whole draw held 64-99% of minutes on
- * a host whose Windows free memory has a 1,668 MB median.
+ * IT HOLDS ON MEASURED RISK, NOT ON A LAUNCH'S DRAW (#4850).
  *
  * WHY A GUEST RUNG CANNOT SEE IT. The guest takes new pages from its own
  * unbacked free memory before it evicts page cache, growing `vmmemWSL` on
@@ -32,8 +29,7 @@ const { parseJsonl } = require("./jsonl.js");
 const WINDOWS_FLOOR_MB = 1000;
 /* The pages Windows reads in from disk since memwatch's previous reading,
  * about a minute, at and over which it holds every launch: the heavy-paging
- * line #4850 counted, a first guess. The 6 Nov freeze read 171,984 (#4557); a
- * quiet minute's median is about 1,500. */
+ * line #4850 counted, a first guess. */
 const WINDOWS_PAGING_LINE = 100_000;
 
 /* How old a reading may be and still hold a launch: memwatch's minute line
@@ -177,8 +173,6 @@ function windowsShortfall(read) {
 }
 
 /**
- * What held a launch: Windows' free memory, and its pages in where they were
- * at or over WINDOWS_PAGING_LINE.
  * @typedef {{ mb: number, pagesIn?: number }} WindowsHold
  */
 
@@ -207,7 +201,6 @@ function readWindowsRecorded(readWindows, log, what) {
 }
 
 /**
- * What the hold reads, for a deny or a wait line.
  * @param {WindowsHold} short
  */
 const describeWindowsHold = (short) =>
