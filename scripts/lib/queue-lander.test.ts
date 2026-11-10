@@ -1522,6 +1522,10 @@ describe("a drop owed a decision (#4950)", () => {
 			was: "ticketed, its ticket closed and its ref reaped",
 			earlier: { state: "ticketed", ticket: 7, reapedAt: NOW - 1000 },
 		},
+		{
+			was: "ticketed and its ticket closed, its ref not yet reaped",
+			earlier: { state: "ticketed", ticket: 7 },
+		},
 	] as const)(
 		"decides afresh a sha dropped again after its earlier drop was $was: its dropped ref kept, one ticket filed",
 		async ({ earlier }) => {
