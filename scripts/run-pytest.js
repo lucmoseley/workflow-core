@@ -242,7 +242,7 @@ function pytestPlan(argv, root) {
 		writeFd(
 			2,
 			narrowingRefusal({
-				ruling: "#2934",
+				ruling: "(#2934)",
 				cause: error,
 				wholeSuite: "npm run test:py -- scripts",
 			}),

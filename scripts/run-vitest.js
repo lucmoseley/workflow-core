@@ -1220,7 +1220,7 @@ function escalationBanner(reason) {
 function refuseNarrowing(options, cause) {
 	(options.err ?? process.stderr).write(
 		narrowingRefusal({
-			ruling: "#2698",
+			ruling: "(#2698)",
 			cause,
 			wholeSuite: `npm run test -- --full=<cause>    (one of: ${FULL_CAUSES.join(", ")})`,
 		}),
