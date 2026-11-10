@@ -21,17 +21,21 @@
  * one left in the worktree. A false pass lands a lock no licence check has
  * covered.
  *
+ * The `--revendor --from` cases (#4802) each run git on a real clone, which is
+ * most of this file's run time: the cases that only read the clone share one,
+ * and a case that changes its clone builds its own.
+ *
  * It is a hard gate in `.husky/pre-commit` on any commit staging a vendored
  * path: a false pass lands an undeclared edit, which the next re-pull reverts
  * silently, or an accidental edit that reads as approved.
  */
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { splitCheckout } from "./lib/guard-core-testkit";
 import {
 	cutGateScript,
@@ -486,7 +490,7 @@ describe("check-vendored-skills", () => {
 		expect(r.tags).toEqual(["LOCK-HASH"]);
 		expect(r.stderr).toContain(".agents/skills/a/");
 		expect(r.stderr).toContain("The manifest is the first suspect");
-		expect(r.stderr).toContain("--revendor at the vendoring commit");
+		expect(r.stderr).toContain("--revendor at what was pulled");
 	});
 
 	it("says so when the lock is on disk and will not parse (mantahostels#3522)", () => {
@@ -1248,5 +1252,289 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
 		});
 		expect(r.status, r.out).toBe(0);
 		expect(r.out).toContain("Weakens: line");
+	});
+});
+
+/*
+ * `--revendor --at <rev> --from <clone>` (#4802): a re-pull's record, read out
+ * of a clone of the upstream repo. The clone is a real repository, because the
+ * command reads blobs at a revision and only git can hold a tag apart from a
+ * working tree.
+ */
+
+/**
+ * A repository standing in for a clone of `source`: `files` committed and
+ * tagged `tag`, its `origin` naming the GitHub repo and never fetched.
+ */
+function upstreamClone(
+	source: string,
+	files: Record<string, string>,
+	tag: string,
+) {
+	const clone = fs.mkdtempSync(path.join(os.tmpdir(), "vendored-upstream-"));
+	temps.push(clone);
+	const git = (...args: string[]) =>
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.name=t",
+				"-c",
+				"user.email=t@example.invalid",
+				"-c",
+				"commit.gpgsign=false",
+				"-c",
+				"tag.gpgsign=false",
+				...args,
+			],
+			{ cwd: clone, encoding: "utf8" },
+		).trim();
+	const write = (tree: Record<string, string>) => {
+		for (const [rel, body] of Object.entries(tree)) {
+			const abs = path.join(clone, rel);
+			fs.mkdirSync(path.dirname(abs), { recursive: true });
+			fs.writeFileSync(abs, body);
+		}
+	};
+	git("init", "-q");
+	git("remote", "add", "origin", `https://github.com/${source}.git`);
+	write(files);
+	git("add", "-A");
+	git("commit", "-q", "-m", "release");
+	git("tag", tag);
+	return { clone, git, write, sha: git("rev-parse", "HEAD") };
+}
+
+const readJson = (root: string, rel: string) =>
+	JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
+
+/**
+ * A tree vendoring `a` from mattpocock/skills, with a declared edit, and `z`
+ * from emilkowalski/skills.
+ */
+function twoSourceRoot() {
+	const root = build({
+		disk: { "a/SKILL.md": `${SKILL}Edited.\n`, "z/SKILL.md": "z body\n" },
+		vendored: { "a/SKILL.md": SKILL, "z/SKILL.md": "z body\n" },
+		edits: {
+			".agents/skills/a/SKILL.md": {
+				editedHash: sha256(`${SKILL}Edited.\n`),
+				issue: 1,
+				why: "declared",
+			},
+		},
+		notices:
+			"# Notices\n\n## mattpocock/skills\n\nSkills: a\n\nMIT License\n\n## emilkowalski/skills\n\nSkills: z\n\nMIT License\n",
+	});
+	const lock = readJson(root, "skills-lock.json");
+	lock.skills.z.source = "emilkowalski/skills";
+	fs.writeFileSync(
+		path.join(root, "skills-lock.json"),
+		JSON.stringify(lock, null, "\t"),
+	);
+	return root;
+}
+
+/** What upstream ships for `a` at the pulled tag: SKILL.md moved, a file added. */
+const PULLED = {
+	"skills/engineering/a/SKILL.md": `${SKILL}Upstream's new line.\n`,
+	"skills/engineering/a/refs/NOTES.md": "notes\n",
+};
+
+describe("check-vendored-skills --revendor --from (#4802)", () => {
+	/** Upstream at the pulled tag, for the cases that only read it. */
+	let pulled: ReturnType<typeof upstreamClone>;
+	beforeAll(() => {
+		pulled = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+		temps.splice(temps.indexOf(pulled.clone), 1);
+	});
+	afterAll(() => fs.rmSync(pulled.clone, { recursive: true, force: true }));
+
+	it("records the manifest, vendoredAt and the lock's computedHash from the clone's tag, and leaves another source's skill alone", () => {
+		const root = twoSourceRoot();
+		const before = {
+			sidecar: readJson(root, SIDECAR),
+			lock: readJson(root, "skills-lock.json"),
+		};
+		const up = pulled;
+
+		const r = runText(root, [
+			"--revendor",
+			"--at",
+			"v9.9.9",
+			"--from",
+			up.clone,
+		]);
+
+		expect(r.code).toBe(0);
+		const sidecar = readJson(root, SIDECAR);
+		expect(sidecar.vendoredAt).toBe(
+			`mattpocock/skills@${up.sha.slice(0, 8)} (v9.9.9)`,
+		);
+		expect(sidecar.vendored).toEqual({
+			".agents/skills/a/SKILL.md": sha256(
+				PULLED["skills/engineering/a/SKILL.md"],
+			),
+			".agents/skills/a/refs/NOTES.md": sha256("notes\n"),
+			".agents/skills/z/SKILL.md":
+				before.sidecar.vendored[".agents/skills/z/SKILL.md"],
+		});
+		expect(sidecar.edits).toEqual(before.sidecar.edits);
+		const lock = readJson(root, "skills-lock.json");
+		expect(lock.skills.a.computedHash).toBe(
+			folderHash(path.join(up.clone, "skills/engineering/a")),
+		);
+		expect(lock.skills.z).toEqual(before.lock.skills.z);
+		expect(r.out).toContain("computedHash for a");
+	});
+
+	it("leaves a tree the check passes once upstream's bytes are on disk under the re-declared edit", () => {
+		const root = twoSourceRoot();
+		runText(root, ["--revendor", "--at", "v9.9.9", "--from", pulled.clone]);
+		const dir = path.join(root, ".agents/skills/a");
+		fs.mkdirSync(path.join(dir, "refs"));
+		fs.writeFileSync(path.join(dir, "refs/NOTES.md"), "notes\n");
+
+		fs.writeFileSync(
+			path.join(dir, "SKILL.md"),
+			PULLED["skills/engineering/a/SKILL.md"],
+		);
+		expect(run(root).tags).toEqual(["STALE-ENTRY"]);
+
+		fs.writeFileSync(
+			path.join(dir, "SKILL.md"),
+			`${PULLED["skills/engineering/a/SKILL.md"]}Edited.\n`,
+		);
+		runText(root, [
+			"--declare",
+			".agents/skills/a/SKILL.md",
+			"--issue",
+			"1",
+			"--why",
+			"declared",
+		]);
+		expect(run(root)).toMatchObject({ code: 0, tags: [] });
+	});
+
+	it("reads the tag's blobs, not the clone's later commits or its working tree", () => {
+		const root = twoSourceRoot();
+		const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+		up.write({ "skills/engineering/a/SKILL.md": "a later release\n" });
+		up.git("commit", "-q", "-am", "later");
+		up.write({ "skills/engineering/a/SKILL.md": "uncommitted\n" });
+
+		runText(root, ["--revendor", "--at", "v9.9.9", "--from", up.clone]);
+
+		expect(readJson(root, SIDECAR).vendored[".agents/skills/a/SKILL.md"]).toBe(
+			sha256(PULLED["skills/engineering/a/SKILL.md"]),
+		);
+	});
+
+	it.each([
+		[
+			"the clone's origin names a repo the lock sources nothing from",
+			() => upstreamClone("someone/else", PULLED, "v9.9.9"),
+			"sources no skill",
+		],
+		[
+			"a skill's folder is absent at the tag",
+			() =>
+				upstreamClone(
+					"mattpocock/skills",
+					{ "skills/renamed/a/SKILL.md": SKILL },
+					"v9.9.9",
+				),
+			"has no skills/engineering/a/ at v9.9.9",
+		],
+		[
+			"the tag names no commit in the clone",
+			() => pulled,
+			"v0.0.0 names no commit",
+		],
+		[
+			"the clone has no origin",
+			() => {
+				const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+				up.git("remote", "remove", "origin");
+				return up;
+			},
+			"has no `origin` remote",
+		],
+		[
+			"the clone's origin is not on GitHub",
+			() => {
+				const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");
+				up.git(
+					"remote",
+					"set-url",
+					"origin",
+					"https://example.invalid/a/b.git",
+				);
+				return up;
+			},
+			"is not a GitHub repo",
+		],
+	])("refuses and writes nothing where %s", (_name, clone, says) => {
+		const rev = says.startsWith("v0.0.0") ? "v0.0.0" : "v9.9.9";
+		const root = twoSourceRoot();
+		const files = [SIDECAR, "skills-lock.json"].map((rel) =>
+			path.join(root, rel),
+		);
+		const before = files.map((f) => fs.readFileSync(f, "utf8"));
+
+		const r = runText(root, [
+			"--revendor",
+			"--at",
+			rev,
+			"--from",
+			clone().clone,
+		]);
+
+		expect(r.code).toBe(2);
+		expect(r.out).toContain(says);
+		expect(files.map((f) => fs.readFileSync(f, "utf8"))).toEqual(before);
+	});
+
+	it("records no symlink upstream ships in a skill folder, as the walk over the folder on disk skips one", () => {
+		const root = twoSourceRoot();
+		const up = upstreamClone("mattpocock/skills", PULLED, "v9.9.8");
+		fs.symlinkSync(
+			"SKILL.md",
+			path.join(up.clone, "skills/engineering/a/LINK.md"),
+		);
+		up.git("add", "-A");
+		up.git("commit", "-q", "-m", "a link");
+		up.git("tag", "v9.9.9");
+
+		runText(root, ["--revendor", "--at", "v9.9.9", "--from", up.clone]);
+
+		expect(
+			Object.keys(readJson(root, SIDECAR).vendored).filter((r) =>
+				r.includes("LINK"),
+			),
+		).toEqual([]);
+		expect(readJson(root, "skills-lock.json").skills.a.computedHash).toBe(
+			folderHash(path.join(up.clone, "skills/engineering/a")),
+		);
+	});
+
+	it("refuses --from without --revendor as a usage error", () => {
+		const r = runText(twoSourceRoot(), ["--from", "/nowhere"]);
+		expect(r.code).toBe(2);
+		expect(r.out).toContain("it needs --revendor");
+	});
+
+	it("names the --from route in the advice under an UPSTREAM-MOVED", () => {
+		const root = upstreamRoot("mattpocock/skills");
+		const gh = stubGh(
+			root,
+			answering(`${SKILL}upstream moved.\n`, path.join(root, "gh.log")),
+		);
+		const r = runInProcess(SCRIPT, ["--root", root, "--upstream"], {
+			env: { ...process.env, WFC_GH: gh },
+		});
+		expect(`${r.stdout}${r.stderr}`).toContain(
+			"--revendor --at <the pulled tag> --from <a clone of the upstream repo>",
+		);
 	});
 });

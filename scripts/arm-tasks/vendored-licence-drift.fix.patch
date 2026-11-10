@@ -204,7 +204,7 @@ index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60
 +	 * section refresh its own message names (#1951). */
  	if (rows.some((r) => UPSTREAM_WARNINGS[r.state]))
  		ctx.say(
- 			"  Re-pull, then: --revendor --at <the pull's commit>, re-apply each edit by hand, and --declare it again.",
+ 			"  Re-pull, then: --revendor --at <the pulled tag> --from <a clone of the upstream repo>, re-apply each edit by hand, and --declare it again.",
  		);
 -	writeRecord(ctx, root, read);
 +	writeRecord(ctx, root, read, licences);
