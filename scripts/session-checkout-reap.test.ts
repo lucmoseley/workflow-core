@@ -30,6 +30,11 @@ import {
 } from "./lib/orphan-filings.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { worktreeLabel } from "./lib/session-worktrees.js";
+import {
+	breakCanaryPath,
+	editSettings,
+	seedCanary,
+} from "./lib/settings-lockout-testkit";
 
 const SCRIPT = path.resolve(__dirname, "session-checkout.js");
 const HOUR = 60 * 60_000;
@@ -714,6 +719,24 @@ describe("reopen", () => {
 		expect(r.status, r.stderr).toBe(3);
 		expect(r.stderr).toContain(`${tree} is still there`);
 		expect(attached()).toBe(`${seat} attach def456`);
+	});
+
+	it("refuses to attach a job whose worktree's own canary line cannot start, naming the line and its restore (#4752)", () => {
+		git(main, "add", ...seedCanary(main));
+		commitIn(main, "canary.txt", "canary");
+		git(main, "push", "-q", "origin", "HEAD:main");
+		const tree = cut("broke-its-canary");
+		editSettings(tree, breakCanaryPath);
+		recordJob("bad999", tree, "done", Date.now());
+
+		const r = reopen("bad999");
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("self-plugin-canray.sh");
+		expect(r.stderr).toContain(
+			`\`git -C ${tree} checkout origin/main -- .claude/settings.json\``,
+		);
+		expect(fs.existsSync(attachLog)).toBe(false);
 	});
 
 	it("refuses a job whose directory is gone with no record to rebuild it from, attaching nothing", () => {

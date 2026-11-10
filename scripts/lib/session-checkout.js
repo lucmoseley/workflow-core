@@ -22,6 +22,11 @@
  * caller, refused where git does not list it under the worktrees folder or
  * any live process still has its cwd inside it (#4385).
  *
+ * LAUNCH-INTO and REOPEN both refuse a worktree whose own unlanded
+ * `.claude/settings.json` would lock out every tool call of the session
+ * started there, naming the line and the fix (lib/settings-lockout.js,
+ * #4752): a cut is from `origin/main`, whose lines the lander's suite passed.
+ *
  * LAND merges a freshly fetched `origin/main` into the worktree's `HEAD` and
  * pushes `HEAD:refs/heads/queue/<worktree name>`, the session's own queue ref
  * (#4458), then starts the queue lander, which tests it with every other
@@ -79,6 +84,7 @@ const {
 	remoteBackoffMs,
 } = require("./network-fault.js");
 const { scriptPath } = require("./script-path.js");
+const { settingsLockout } = require("./settings-lockout.js");
 const { readJobCwds, worktreeHolding } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { trimRun } = require("./trim-run.js");
@@ -435,8 +441,19 @@ function launchInto(root, into, how) {
 		throw new CheckoutError(
 			`a live process still works in ${dir} (pid ${holders.map((p) => p.pid).join(", ")}) — stop the session that holds it first, or launch from outside it`,
 		);
+	refuseLockout(dir);
 	attach(dir, how);
 	return dir;
+}
+
+/**
+ * Throw where a session started in `dir` would be refused every tool call by
+ * the worktree's own settings (lib/settings-lockout.js).
+ * @param {string} dir
+ */
+function refuseLockout(dir) {
+	const why = settingsLockout(dir);
+	if (why !== null) throw new CheckoutError(why);
 }
 
 /**
@@ -466,7 +483,10 @@ function reopen(cwd, id) {
 				: `no seat holds job ${id} and the reaper recorded no worktree for it — check the id against \`claude agents\``,
 		);
 	const { seat, dir } = found;
-	if (fs.existsSync(dir)) return { dir, seat, restored: false };
+	if (fs.existsSync(dir)) {
+		refuseLockout(dir);
+		return { dir, seat, restored: false };
+	}
 	if (!reaped)
 		throw new CheckoutError(
 			`job ${id}'s directory ${dir} is gone and the reaper recorded no sha for it, so nothing can rebuild it`,
@@ -474,6 +494,7 @@ function reopen(cwd, id) {
 	/* A registration whose directory went by hand would refuse the add. */
 	prune(root);
 	addWorktree(root, dir, reaped.head);
+	refuseLockout(dir);
 	return { dir, seat, restored: true };
 }
 

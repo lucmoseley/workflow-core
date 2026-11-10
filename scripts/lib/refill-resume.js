@@ -46,6 +46,7 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  *   env: () => NodeJS.ProcessEnv,
  *   authRefusal: (launch: {env: NodeJS.ProcessEnv, cwd: string}) =>
  *     string|null,
+ *   settingsLockout: (cwd: string) => string|null,
  *   launchHeadless: typeof import("./headless-sessions.js").launch,
  *   findHeadlessRun: typeof import("./headless-runs.js").findRunSince,
  *   readRunAsJob: typeof import("./headless-runs.js").readRunAsJob,
@@ -436,7 +437,9 @@ function resumeSteps(io) {
 	 * claims (#2963, #2968). The resume counts where the launcher named the
 	 * job it started (lib/bg-resume.js) and that job's state.json does not
 	 * read failed; a later tick judges the resumed turn. A session on an
-	 * overflow key resumes headless instead (resumeHeadless).
+	 * overflow key resumes headless instead (resumeHeadless). Nothing is
+	 * launched where the cwd's own settings would lock the resumed session
+	 * out (lib/settings-lockout.js, #4752).
 	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
@@ -446,7 +449,21 @@ function resumeSteps(io) {
 	 *   session's; `flags`, launch flags passed before it
 	 * @returns {Resumed}
 	 */
-	function resumeStopped(
+	function resumeStopped(session, prompt, target, moved = {}) {
+		const lockout = io.settingsLockout(target.cwd);
+		if (lockout) return { failed: lockout };
+		return startResume(session, prompt, target, moved);
+	}
+
+	/**
+	 * resumeStopped's launch, once its worktree's settings are cleared.
+	 * @param {StoppedResumable} session
+	 * @param {string} prompt
+	 * @param {{sessionId: string, cwd: string}} target
+	 * @param {{move?: MoveTarget, name?: string, flags?: string[]}} [moved]
+	 * @returns {Resumed}
+	 */
+	function startResume(
 		session,
 		prompt,
 		{ sessionId, cwd },
@@ -489,7 +506,9 @@ function resumeSteps(io) {
 	 * @returns {Resumed}
 	 */
 	function resumeOwnId(l, prompt, ids) {
-		if (l.keyVar) return resumeStopped(l, prompt, ids);
+		const lockout = io.settingsLockout(ids.cwd);
+		if (lockout) return { failed: lockout };
+		if (l.keyVar) return startResume(l, prompt, ids);
 		const refusal = io.authRefusal({
 			env: buildSeatEnv(io.env(), l.seat),
 			cwd: ids.cwd,
@@ -498,7 +517,7 @@ function resumeSteps(io) {
 		const flags = ids.flags ?? resumeFlagsOf(l, ids);
 		const retired = retireJob(l.seat, ids.sessionId, ids.cwd);
 		if (retired) return { failed: retired };
-		const r = resumeStopped(l, prompt, ids, { flags });
+		const r = startResume(l, prompt, ids, { flags });
 		if (r.failed !== null) stopFailed(l.seat, ids.sessionId);
 		return r;
 	}
