@@ -1,8 +1,8 @@
 /*
  * actions-api.js — GitHub's REST API from inside an Actions job, for the
- * checks that run off the machine (main-lag-alarm.js, alarm-notice.js;
- * #4939). Reads GITHUB_API_URL and GH_TOKEN, as Actions sets them. No `gh`,
- * so a sparse checkout needs no install.
+ * checks that run off the machine (#4939). Reads GITHUB_API_URL and
+ * GH_TOKEN, as Actions sets them. No `gh`, so a sparse checkout needs no
+ * install.
  *
  * A read retries READ_TRIES times, RETRY_MS apart, and throws the last
  * failure: an off-machine alarm that reads one dropped call as an answer is

@@ -1,12 +1,12 @@
 /*
  * alarm-notice.js — the core of scripts/alarm-notice.js (#4939): judges each
  * off-machine queue alarm's finished runs on `main` against the notice
- * issue's comments, and posts one github-actions[bot] mention per stall.
+ * issue's comments.
  *
  * ONE MENTION PER STALL: an alarm whose newest finished run on `main` failed
  * is noticed unless the issue already carries the bot's notice for it posted
  * since that alarm's newest green run. A forced failure counts like any
- * other, so a forced pair tests the dedup. Nothing is posted on a green.
+ * other, so a forced pair tests the dedup.
  */
 
 const { VERIFIED_BRANCH } = require("./landing-refs.js");
@@ -81,8 +81,7 @@ async function readComments(get, path, since) {
 
 /**
  * @param {NoticeDeps} deps
- * @returns {Promise<number>} 0 where every alarm was read, 2 where a read or
- *   the comment failed
+ * @returns {Promise<number>} the exit code
  */
 async function runNotice({
 	get,

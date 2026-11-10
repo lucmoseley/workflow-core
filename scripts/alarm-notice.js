@@ -6,7 +6,7 @@
  * Mobile push (#3874). Run hourly by the tracker's `alarm-notice.yml`, the
  * one place a workflow may hold `issues: write` (TRACKER-SCOPE,
  * scripts/check-workflow-permissions.js), and checked out from the public
- * code repo's `main` there. The judging is lib/alarm-notice.js's.
+ * code repo's `main` there.
  *
  *   node scripts/alarm-notice.js
  *
@@ -14,9 +14,8 @@
  * goes), GH_TOKEN and NOTICE_ISSUE; the code repo and the login to mention
  * come from the checkout's config, `codeRepo` and `founderNotice.mention`.
  *
- * NOT A `check-*` OR `report-*`: it judges no repo state and files no
- * ticket; it relays two workflows' verdicts, and a check's SKIP on an
- * unreachable GitHub would read as no stall.
+ * NOT A `check-*` OR `report-*`: it relays two workflows' verdicts, and a
+ * check's SKIP on an unreachable GitHub would read as no stall.
  *
  * RESIDUAL: a broken read fails this run with nothing posted, and with
  * Actions email off nobody hears of it; the next hourly run retries.
