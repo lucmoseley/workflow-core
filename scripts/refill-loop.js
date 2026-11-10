@@ -164,15 +164,11 @@ const { scriptPath } = require("./lib/script-path.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 const commands = require("./lib/refill-commands.js");
-const {
-	DISPATCHER,
-	files,
-	log,
-	isReviewRunning,
-	say,
-	servedRoots,
-	tick,
-} = require("./lib/refill-tick.js");
+const { files, log, say, servedRoots } = require("./lib/refill-io.js");
+
+/* The tick and its modules, loaded by the commands that run one: `status`,
+ * which the panel polls every few seconds, runs none (#4821). */
+const loadTick = () => require("./lib/refill-tick.js");
 
 /* Untraced: the loop's log is cut to its newer half past this. */
 const LOG_MAX_BYTES = 1024 * 1024;
@@ -909,6 +905,7 @@ function trimLog() {
 }
 
 async function printDryRun() {
+	const { DISPATCHER, tick } = loadTick();
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
 	if (read) say(loop.buildFrontierReadText(read));
@@ -947,6 +944,8 @@ function startGateSweep(sweeper) {
 }
 
 async function run() {
+	/* Before the hold, so a tick that will not load takes no pidfile. */
+	const { isReviewRunning, tick } = loadTick();
 	/* Before the hold, so it is never held past this process; release
 	 * removes only a pidfile naming this one. */
 	process.on("exit", lock.release);
