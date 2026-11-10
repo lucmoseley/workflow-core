@@ -6,7 +6,8 @@
  * (TickActs). A dry run takes the same adapter's reads, each act swapped for
  * its dry answer (buildDryIo), and differs in the policy branches here: it
  * previews over no control as over a stopped one, judges no listing by a
- * boot's kills, and stops at its decision.
+ * boot's kills, skips the block and limit acts (SKIPPED_LAUNCH_ACTS), and
+ * stops at its decision.
  *
  * A TICK: read founder presence, and in away mode write what it changes under
  * the control lock (#2522), untick each repo its owner opted out (#4188), reap,
@@ -791,6 +792,7 @@ function settleDecided(
 		{
 			readControl: io.readControl,
 			launchBatch: (batch) => io.launchBatch(batch, served),
+			/* Outside LaunchActs: a dry tick returns before settleDecided. */
 			resumeHeld: (resumes, held, isStopped, record) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
 			/* The raise goes the tick the pause is written, not the next. */

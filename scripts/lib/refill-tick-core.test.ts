@@ -114,10 +114,7 @@ const row = (number: number) => ({
 /** Thrown by a port to stand for a SIGKILL landing on that step. */
 class Killed extends Error {}
 
-/**
- * A fake adapter; `over` replaces any port, `block` any of the BlockIo's,
- * which lib/refill-blocks.js and lib/refill-limits.js read and act through.
- */
+/** A fake adapter; `over` replaces any port, `block` any of the BlockIo's. */
 function fakeIo(
 	initial: LoopState,
 	over: Partial<TickIo> = {},
@@ -289,7 +286,7 @@ const expectSequence = (calls: string[], steps: string[]) => {
 const blockCalls = (calls: string[]) =>
 	calls.filter((port) => port.startsWith("blockIo."));
 
-const LIMIT_HELD = {
+const LIMIT_HOLD = {
 	at: NOW - 60 * MIN,
 	sessionId: "s-held",
 	cwd: WFC,
@@ -298,27 +295,27 @@ const LIMIT_HELD = {
 };
 
 /** A limit hold on SEAT, whose 5-hour bar has reset, so it resumes where a slot is free. */
-const limitHeld = record({
+const HELD_LAUNCH = record({
 	jobId: "held",
 	issues: [6],
 	seat: SEAT,
 	sessionId: "s-held",
 	parked: true,
 	block: { cause: "LIMIT", since: NOW - 60 * MIN },
-	limitHeld: LIMIT_HELD,
+	limitHeld: LIMIT_HOLD,
 }) as Launch;
 
 /** A resumed limit hold whose session the listing shows working, so its
  * ledger hold has ended. */
-const endedHold = record({
+const ENDED_HOLD = record({
 	jobId: "ended",
 	issues: [4],
 	seat: SEAT,
-	limitHeld: { ...LIMIT_HELD, resumedAt: NOW - 30 * MIN },
+	limitHeld: { ...LIMIT_HOLD, resumedAt: NOW - 30 * MIN },
 }) as Launch;
 
 /** A resume a kill left with no outcome on record (#4180). */
-const killedResume = record({
+const KILLED_RESUME = record({
 	jobId: "left",
 	issues: [7],
 	resumeStarted: {
@@ -330,7 +327,7 @@ const killedResume = record({
 }) as Launch;
 
 /** A park whose session ended unblocked, so its issue is unparked (#3940). */
-const answeredPark = {
+const ANSWERED_PARK = {
 	read: {
 		readParkMarkers: () =>
 			[
@@ -356,7 +353,7 @@ const answeredPark = {
 };
 
 /** A listed session an API error blocks, its resume due. */
-const apiBlocked = record({
+const API_BLOCKED = record({
 	jobId: "api",
 	issues: [5],
 	parked: true,
@@ -365,7 +362,7 @@ const apiBlocked = record({
 }) as Launch;
 
 /** A listed session resumed and idle since, owed a typed resume (#2659). */
-const resumedIdle = record({
+const RESUMED_IDLE = record({
 	jobId: "idle",
 	issues: [8],
 	launchedAt: NOW - 60 * MIN,
@@ -382,8 +379,8 @@ const listedAs = (...rows: [string, string][]) => ({
 	why: null,
 });
 
-/** The ports under which apiBlocked, resumedIdle and endedHold read as they say. */
-const listedBlocks: Partial<TickIo> = {
+/** The ports under which API_BLOCKED, RESUMED_IDLE and ENDED_HOLD read as they say. */
+const LISTED_BLOCKS: Partial<TickIo> = {
 	readCause: () => ({ cause: "API_ERROR", sub: "transient" }) as never,
 	readListing: () =>
 		listedAs(["api", "blocked"], ["idle", "idle"], ["ended", "working"]),
@@ -391,16 +388,21 @@ const listedBlocks: Partial<TickIo> = {
 
 /**
  * A tick on which every block and limit decision the core makes acts through
- * the BlockIo (#4913): a resume a kill left unsettled, an answered park, an
- * API-error block, an idle session, a limit hold with room, and a hold ended.
+ * the BlockIo (#4913).
  */
 const actingTick = (over: Partial<TickIo> = {}) =>
 	fakeIo(
 		stateOf({
-			launches: [killedResume, apiBlocked, limitHeld, resumedIdle, endedHold],
+			launches: [
+				KILLED_RESUME,
+				API_BLOCKED,
+				HELD_LAUNCH,
+				RESUMED_IDLE,
+				ENDED_HOLD,
+			],
 		}),
 		{
-			...listedBlocks,
+			...LISTED_BLOCKS,
 			/* An act just now, so the unproven cap leaves the hold its slot. */
 			readLoopLastActAt: () => NOW,
 			readFreeSlots: () => ({ slots: 2, admission: null }),
@@ -408,7 +410,7 @@ const actingTick = (over: Partial<TickIo> = {}) =>
 		},
 		{
 			block: {
-				...answeredPark.read,
+				...ANSWERED_PARK.read,
 				idleSince: (l) => (l.jobId === "idle" ? NOW - 20 * MIN : null),
 			},
 		},
@@ -437,8 +439,6 @@ describe("the tick's step order (#4212)", () => {
 	it("judges and acts on the launches only after the listing, and reads the room after them", async () => {
 		const { io, calls } = actingTick();
 		await tickOf(io);
-		/* The park answered, the block's typed resume, the idle session's, the
-		 * hold's resume on its seat, then its ledger hold released. */
 		expectSequence(calls, [
 			"readListing",
 			"blockIo.unparkSession",
@@ -480,7 +480,7 @@ describe("the tick's step order (#4212)", () => {
 
 describe("what a kill left, settled ahead of the judging (#4180, #4323)", () => {
 	it("settles the resumes over the adopted launches, then writes both at once", async () => {
-		const adopted = { ...killedResume, jobId: "adopted" };
+		const adopted = { ...KILLED_RESUME, jobId: "adopted" };
 		const handed: (string | null)[] = [];
 		const { io, calls, writes } = fakeIo(
 			stateOf({ launching: { at: NOW, batch: [] } }),
@@ -527,8 +527,8 @@ describe("the limit acts' holds (#3735, #4323)", () => {
 		const released: string[] = [];
 		const rows: (string | null)[] = [];
 		const { io, calls } = fakeIo(
-			stateOf({ launches: [limitHeld] }),
-			{ readLoopLastActAt: () => NOW },
+			stateOf({ launches: [HELD_LAUNCH, ENDED_HOLD] }),
+			{ ...LISTED_BLOCKS, readLoopLastActAt: () => NOW },
 			{
 				block: {
 					release: ({ jobId }) => {
@@ -548,10 +548,12 @@ describe("the limit acts' holds (#3735, #4323)", () => {
 			"blockIo.release",
 			"readSeats",
 		]);
-		/* The hold's own ledger row released, and the resumed copy given an
-		 * ordinary one in its place. */
-		expect(released).toEqual(["held"]);
-		expect(rows).toEqual(["held-copy"]);
+		/* Each ended hold's ledger row released, against the launches as they
+		 * stood before this tick, and each session still running given an
+		 * ordinary row in its place: the resumed copy, and the one the
+		 * listing shows working again. */
+		expect(released).toEqual(["held", "ended"]);
+		expect(rows).toEqual(["held-copy", "ended"]);
 	});
 });
 
@@ -704,18 +706,37 @@ describe("the unproven cap through the tick (#4223)", () => {
 	const running = [1, 2, 3].map((n) =>
 		record({ jobId: `job${n}`, launchedAt: NOW - 30_000 }),
 	);
-	/* With a limit hold on a seat with room, which a free slot resumes. */
-	const limitSlotsOf = async (lastActAt: number) => {
+	/* A limit hold on each of four seats with room, one resume a seat a tick,
+	 * so the resumes count the slots the cap leaves the limit acts. */
+	const seats = [
+		SEAT,
+		"/home/u/.claude4",
+		"/home/u/.claude5",
+		"/home/u/.claude6",
+	];
+	const holds = seats.map((seat, n) => ({
+		...HELD_LAUNCH,
+		jobId: `held${n}`,
+		issues: [10 + n],
+		seat,
+		sessionId: `s-held${n}`,
+		limitHeld: { ...LIMIT_HOLD, sessionId: `s-held${n}` },
+	}));
+	const limitSlotsOf = async (lastActAt: number, held = holds) => {
 		const { io, calls, lines } = fakeIo(
-			stateOf({ launches: [...running, limitHeld] }),
+			stateOf({ launches: [...running, ...held] }),
 			{
 				readLoopLastActAt: () => lastActAt,
 				readFreeSlots: () => ({ slots: 5, admission: null }),
+				readSeats: () => ({
+					seats: seats.map((seat) => ({ ...sized, seat })),
+					probes: [],
+				}),
 			},
 		);
 		const { decision } = await tickOf(io);
 		return {
-			resumed: calls.includes("blockIo.resumeStopped"),
+			resumed: calls.filter((c) => c === "blockIo.resumeStopped").length,
 			lines,
 			decision,
 		};
@@ -723,7 +744,7 @@ describe("the unproven cap through the tick (#4223)", () => {
 
 	it("holds the limit resumes and the launches where three run since the last act", async () => {
 		const { resumed, lines, decision } = await limitSlotsOf(NOW - MIN);
-		expect(resumed).toBe(false);
+		expect(resumed).toBe(0);
 		expect(lines).toContain(
 			`design-vault /implement 42 on ${SEAT} reads open, and waits on a free slot`,
 		);
@@ -734,8 +755,8 @@ describe("the unproven cap through the tick (#4223)", () => {
 	});
 
 	it("frees the cap once an act follows them", async () => {
-		const { resumed, decision } = await limitSlotsOf(NOW - 1000);
-		expect(resumed).toBe(true);
+		expect((await limitSlotsOf(NOW - 1000)).resumed).toBe(3);
+		const { decision } = await limitSlotsOf(NOW - 1000, []);
 		expect(decision).toMatchObject({ idle: null });
 	});
 });
@@ -751,9 +772,9 @@ describe("a copy's unretired original through the tick (#4646)", () => {
 		};
 		const { io, calls, disk } = fakeIo(
 			stateOf({
-				launches: [record({ unretired: [unretired] }), apiBlocked],
+				launches: [record({ unretired: [unretired] }), API_BLOCKED],
 			}),
-			listedBlocks,
+			LISTED_BLOCKS,
 		);
 		await tickOf(io);
 		/* Ahead of the block's typed resume. */
@@ -806,7 +827,7 @@ describe("a limit-held launch through the tick (#3735)", () => {
 		const records: { working: number | null }[] = [];
 		/* The hold's resume on its seat adds one session. */
 		const { io } = fakeIo(
-			stateOf({ launches: [limitHeld] }),
+			stateOf({ launches: [HELD_LAUNCH] }),
 			{
 				readLoopLastActAt: () => NOW,
 				readFreeSlots: () => ({
@@ -1198,9 +1219,9 @@ describe("a paused tick (#3856)", () => {
 		});
 		const capReads: string[] = [];
 		const { io, calls, lines, disk } = fakeIo(
-			stateOf({ launches: [gone, endedHold, limitHeld] }),
+			stateOf({ launches: [gone, ENDED_HOLD, HELD_LAUNCH] }),
 			{
-				...listedBlocks,
+				...LISTED_BLOCKS,
 				readLoopLastActAt: () => NOW,
 				capSizer: () => () => {
 					capReads.push("cap");
@@ -1245,8 +1266,8 @@ describe("a launch hold through the tick (#4354)", () => {
 			launchedAt: NOW - 60 * MIN,
 		});
 		const { io, calls, lines, disk } = fakeIo(
-			stateOf({ launches: [gone, endedHold] }),
-			listedBlocks,
+			stateOf({ launches: [gone, ENDED_HOLD] }),
+			LISTED_BLOCKS,
 		);
 		const r = await tickOf(io, control({ launchHold: hold(NOW + 20 * MIN) }));
 
@@ -1290,7 +1311,7 @@ describe("the launch walk's seat tries (#4074)", () => {
 		const tried: Record<string, number>[] = [];
 		/* A limit hold, so the limit acts walk the seats it may move to. */
 		const { io } = fakeIo(
-			stateOf({ launches: [limitHeld], seatTriedAt: { [Other]: 5 } }),
+			stateOf({ launches: [HELD_LAUNCH], seatTriedAt: { [Other]: 5 } }),
 			{
 				readSeats: (_seats, _slots, _root, how) => {
 					tried.push(how.tries.triedAt);
@@ -1527,7 +1548,7 @@ describe("the parks a tick sweeps (#3950, #3872)", () => {
 	const sweep = () => {
 		const swept: string[] = [];
 		const block: Partial<BlockIo> = {
-			...answeredPark.read,
+			...ANSWERED_PARK.read,
 			unparkSession: (root) => {
 				swept.push(root);
 				return null;
