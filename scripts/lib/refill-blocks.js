@@ -171,9 +171,9 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @typedef {object} BlockReads
  * @property {(l: SessionRef) => ResumeTarget} resumeTargetOf  read before
  *   its stop, which may rewrite the job record
- * @property {() => string|null} admitResume  the dispatcher's per-member
- *   memory, load and session-ceiling re-read: null where it admits one more
- *   session, else why not
+ * @property {(root: string) => string|null} admitResume  the dispatcher's
+ *   per-member memory, load and session-ceiling re-read, in the member's
+ *   checkout `root`: null where it admits one more session, else why not
  * @property {(l: SessionRef) => {state?: unknown, detail?: unknown}|null}
  *   jobStateOf  its job's state.json, null unread
  * @property {(l: SessionRef) => unknown[]|null} readTimeline  its job's
@@ -1443,7 +1443,7 @@ function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
 			record(current());
 			continue;
 		}
-		const refused = io.admitResume();
+		const refused = io.admitResume(l.root);
 		if (refused) {
 			io.log(buildResumeWaitLine(line, refused));
 			waiting = true;

@@ -147,6 +147,11 @@ describe("run (#2435)", () => {
 		expect(r.status).toBe(0);
 		// The tick supervised the served repo's landing queue, in it (#2692).
 		expect(readLines(at("supervised"))).toEqual([fs.realpathSync(repo)]);
+		// And read its free slots in it, where the type-check reserve finds a
+		// compiler (#4962).
+		expect(readLines(at("admitted-in"))).toEqual([
+			`${fs.realpathSync(repo)} ${repo}`,
+		]);
 		// And started a levelling pass over its main checkout, in it (#4248).
 		await polled(
 			() => readLines(at("levelled")).length > 0,

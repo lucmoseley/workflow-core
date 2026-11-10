@@ -101,7 +101,7 @@ async function main(argv = process.argv.slice(2)) {
  * @param {string} root
  * @returns {Promise<void>}
  */
-async function runAndRecord({ args, resolvedFiles }, root) {
+async function runAndRecord({ args, resolvedFiles, leftOut }, root) {
 	// Before the spawn, so the marker's duration covers the whole run (mantahostels#1953).
 	const startedAtMs = Date.now();
 	const startedAtMono = monotonicMs();
@@ -138,7 +138,7 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 	if (!run.forcedRed && run.status === 0 && result?.passed === true && after) {
 		record(
 			markerFrom(before, after, drifted, {
-				scope: runScope(result.scope, resolvedFiles),
+				scope: runScope(result.scope, resolvedFiles, leftOut),
 				suite: "pytest",
 				startedAtMs,
 				elapsedMs: monotonicMs() - startedAtMono,
@@ -189,20 +189,23 @@ function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
 
 /**
  * The plugin's scope, marked touched with its file count on a touched run, so
- * the run ledger keys its kind on them (#2958).
+ * the run ledger keys its kind on them (#2958), and carrying the tests the
+ * run left to the lander (#4967).
  *
  * @param {import("./lib/test-pass-marker.js").Scope|null|undefined} scope
  * @param {number|null} resolvedFiles
+ * @param {string[]} leftOut
  */
-function runScope(scope, resolvedFiles) {
+function runScope(scope, resolvedFiles, leftOut) {
 	return resolvedFiles === null || !scope
 		? scope
-		: { ...scope, touched: true, resolvedFiles };
+		: { ...scope, touched: true, resolvedFiles, leftOut };
 }
 
 /**
- * @typedef {{ args: string[], resolvedFiles: number|null }} Plan what pytest
- *   is handed, and a touched run's file count: null on a run as typed
+ * @typedef {{ args: string[], resolvedFiles: number|null, leftOut: string[] }} Plan
+ *   what pytest is handed, a touched run's file count, null on a run as
+ *   typed, and the tests a touched run left to the lander
  */
 
 /**
@@ -221,6 +224,7 @@ function pytestPlan(argv, root) {
 		return {
 			args: argv.length === 1 && argv[0] === FULL ? [] : argv,
 			resolvedFiles: null,
+			leftOut: [],
 		};
 	const sessionId = idSeam.fromEnv();
 	try {
@@ -229,16 +233,18 @@ function pytestPlan(argv, root) {
 			throw new Error(
 				"this session's own work could not be read: git would not say what is uncommitted, write the commit carrying it, or diff that commit",
 			);
-		const { files, banner } = selectTouched(root, {
+		const { files, leftOut, banner } = selectTouched(root, {
 			suite: "pytest",
 			...(ownWork ? { ownWork } : {}),
 		});
 		writeFd(1, banner);
-		if (files.length > 0) return { args: files, resolvedFiles: files.length };
+		if (files.length > 0)
+			return { args: files, resolvedFiles: files.length, leftOut };
 		appendEmptyTouchedLine(repoRoot(root) || root, root, {
 			suite: "pytest",
 			sessionId: sessionId || null,
 			argv: [],
+			leftOut,
 		});
 		return 0;
 	} catch (error) {
