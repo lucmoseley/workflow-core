@@ -51,6 +51,11 @@
  * DEFEAT:    none; --hours <n> moves both reporting thresholds on a hand run.
  */
 
+const {
+	describeAge: describeAgeText,
+	HOUR_MS,
+	NEVER,
+} = require("./lib/age-text.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { runCheck } = require("./lib/check");
 const { scriptPath } = require("./lib/script-path.js");
@@ -77,7 +82,7 @@ const { readLocks, paths } = require("./lib/arbiter-store");
  */
 function ageOf(hours) {
 	if (hours === null) return "an unreadable time";
-	return hours < 48 ? `${Math.floor(hours)}h` : `${Math.floor(hours / 24)}d`;
+	return describeAgeText(hours * HOUR_MS, { minutesUnder: NEVER });
 }
 
 /** @param {number | null} hours */

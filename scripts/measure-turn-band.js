@@ -37,6 +37,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { errMessage } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
@@ -236,8 +237,7 @@ function printCrossings(rows, threshold) {
  */
 function main(argv) {
 	const parsed = parseOrCode(argv, {
-		usage:
-			"usage: node scripts/measure-turn-band.js [--threshold <tokens>] [--band <percent>]",
+		usage: `usage: node ${scriptPath("measure-turn-band.js")} [--threshold <tokens>] [--band <percent>]`,
 		flags: { "--threshold": "value", "--band": "value" },
 	});
 	if (typeof parsed === "number") return parsed;

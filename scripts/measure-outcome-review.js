@@ -77,6 +77,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
@@ -133,8 +134,8 @@ const FLIP_OVER_BUDGET_RUNS = 2;
 /** Bytes read from a transcript's head to find its first timestamp. */
 const START_PROBE_BYTES = 65_536;
 
-const USAGE = `usage: node scripts/measure-outcome-review.js [--now <iso>] [--json] [--root <dir>] [--config-dir <dir>]...
-       node scripts/measure-outcome-review.js --baseline <signature file> --filed-at <iso> [--json] [--root <dir>] [--config-dir <dir>]...
+const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <iso>] [--json] [--root <dir>] [--config-dir <dir>]...
+       node ${scriptPath("measure-outcome-review.js")} --baseline <signature file> --filed-at <iso> [--json] [--root <dir>] [--config-dir <dir>]...
   --now         the reading instant (default: WFC_NOW, else the clock)
   --baseline    a finding's signature file: print its baseline at filing
   --filed-at    with --baseline, when the finding was filed

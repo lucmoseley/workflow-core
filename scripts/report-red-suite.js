@@ -37,6 +37,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { gh, ghJson } = require("./lib/gh");
 const { readRange, renderRange } = require("./lib/commit-range");
@@ -352,7 +353,7 @@ function isClosedSince(red) {
 
 function main() {
 	parseOrExit(process.argv.slice(2), {
-		usage: "usage: node scripts/report-red-suite.js",
+		usage: `usage: node ${scriptPath("report-red-suite.js")}`,
 	});
 	const rows = readSweeps(RUN_WINDOW);
 	const at = rows.findIndex((r) => r.verdict);

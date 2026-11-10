@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
- * The regression #343 exists for: a guard, lib, hook-wired or git-hook-run
- * script's message that tells a session to RUN a script by a bare path, read
- * over this repo's real scripts. It sits
+ * The regression #343 exists for: a guard, lib, hook-wired or shipped
+ * top-level script's message that tells a session to RUN a script by a bare
+ * path, read over this repo's real scripts (#4705). It sits
  * apart from `script-path.test.ts` so that file's unit cases do not read the
  * scripts tree (#1900).
  *
@@ -24,7 +24,8 @@ const { isShipped } = require("./plugin-tree") as {
 };
 
 describe("messages a shipped script prints", () => {
-	/* Data a test reads, never printed; the CI and push-check commands,
+	/* Data a test reads, never printed, the recorder fixtures' provenance
+	 * included; the CI and push-check commands,
 	 * which rewriteRuleCommands spells at the plugin root before printing; and
 	 * the arbiter command claim-warning prints, and the
 	 * bg-run.sh and watcher commands suite-background, agent-poll and
@@ -46,6 +47,8 @@ describe("messages a shipped script prints", () => {
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
+		/^\t\t\t\trecordedBy: "node scripts\/record-headless-run\.js",$/,
+		/^const RECORDED_BY = "node scripts\/record-claude-responses\.js";$/,
 		/^\t\t"writing, amending or reading a spec, .*`node scripts\/promote-spec\.js <brief>`",$/,
 	];
 
@@ -57,19 +60,38 @@ describe("messages a shipped script prints", () => {
 		.readdirSync(__dirname)
 		.filter((f) => /\.(js|sh)$/.test(f));
 
+	/* A Python docstring — a triple-quoted string opening its own line — is
+	 * the file's documentation, read as a comment is, unless the file prints
+	 * more of `__doc__` than its first line. */
+	const PrintsDoc = /__doc__(?!\.splitlines\(\)\[0\])/;
+	function docstringLines(lines: string[]) {
+		const inside = new Set<number>();
+		let open = false;
+		lines.forEach((line, i) => {
+			const toggles = (line.split('"""').length - 1) % 2 === 1;
+			if (!open && !/^\s*r?"""/.test(line)) return;
+			inside.add(i);
+			if (toggles) open = !open;
+		});
+		return inside;
+	}
+
 	function readBareLines(file: string, shaped: (line: string) => boolean) {
 		const found: string[] = [];
-		fs.readFileSync(file, "utf8")
-			.split("\n")
-			.forEach((line, i) => {
-				if (COMMENT_LINE.test(line)) return;
-				if (/require\(|execFileSync|spawnSync/.test(line)) return;
-				if (exempt.some((re) => re.test(line))) return;
-				if (shaped(line))
-					found.push(
-						`${path.relative(SCRIPTS, file)}:${i + 1}: ${line.trim()}`,
-					);
-			});
+		const text = fs.readFileSync(file, "utf8");
+		const lines = text.split("\n");
+		const docstring =
+			file.endsWith(".py") && !PrintsDoc.test(text)
+				? docstringLines(lines)
+				: new Set();
+		lines.forEach((line, i) => {
+			if (docstring.has(i)) return;
+			if (COMMENT_LINE.test(line)) return;
+			if (/require\(|execFileSync|spawnSync/.test(line)) return;
+			if (exempt.some((re) => re.test(line))) return;
+			if (shaped(line))
+				found.push(`${path.relative(SCRIPTS, file)}:${i + 1}: ${line.trim()}`);
+		});
 		return found;
 	}
 
@@ -103,7 +125,7 @@ describe("messages a shipped script prints", () => {
 	 * held 54 or more at #4285. */
 	const ScriptListFloor = 40;
 	const resolvesWholeText =
-		/require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
+		/(?:const hookBlock|\{(?!\s*repoRoot\s*\})[^}]*\}) = require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
 	function bareLinesPastResolver(
 		rels: string[],
@@ -127,38 +149,30 @@ describe("messages a shipped script prints", () => {
 	});
 
 	/*
-	 * #4285: every top-level script a shipped git hook runs from the plugin
-	 * root. A plain
-	 * pointer stays unread here: these name source files to read, not run.
+	 * #4285, #4705: every top-level script the plugin ships — the ones a
+	 * shipped git hook runs from the plugin root and the CLIs a session runs by
+	 * hand. A plain pointer stays unread here: these name source files to read,
+	 * not run.
 	 */
-	const huskyDir = path.join(SCRIPTS, "..", ".husky");
-	const gitHookRun = [
-		...new Set(
-			fs
-				.readdirSync(huskyDir)
-				.filter((f) => isShipped(path.join(SCRIPTS, ".."), `.husky/${f}`))
-				.map((f) => path.join(huskyDir, f))
-				/* husky's own `.husky/_/`, where installed, is no hook. */
-				.filter((file) => fs.statSync(file).isFile())
-				.flatMap((file) => [
-					...fs
-						.readFileSync(file, "utf8")
-						.matchAll(
-							/WFC_PLUGIN_ROOT(?::-[^}]*)?\}?"?\/(scripts\/[\w.-]+\.(?:js|sh))/g,
-						),
-				])
-				.map((m) => m[1] ?? ""),
-		),
-	];
+	const shippedTopLevel = fs
+		.readdirSync(SCRIPTS)
+		.filter(
+			(f) =>
+				/\.(js|sh|py)$/.test(f) &&
+				fs.statSync(path.join(SCRIPTS, f)).isFile() &&
+				isShipped(path.join(SCRIPTS, ".."), `scripts/${f}`),
+		)
+		.map((f) => `scripts/${f}`);
 
-	it("reads the scripts the shipped git hooks run", () => {
-		expect(gitHookRun).toContain("scripts/report-new-shared-faults.js");
-		expect(gitHookRun.length).toBeGreaterThan(ScriptListFloor);
+	it("reads every shipped top-level script", () => {
+		expect(shippedTopLevel).toContain("scripts/report-new-shared-faults.js");
+		expect(shippedTopLevel).toContain("scripts/claim-issue.js");
+		expect(shippedTopLevel.length).toBeGreaterThan(ScriptListFloor);
 	});
 
-	it("name no script bare in any script a shipped git hook runs", () => {
+	it("name no script bare in any shipped top-level script", () => {
 		expect(
-			bareLinesPastResolver(gitHookRun, (l) => COMMAND_SHAPED.test(l)),
+			bareLinesPastResolver(shippedTopLevel, (l) => COMMAND_SHAPED.test(l)),
 		).toEqual([]);
 	});
 

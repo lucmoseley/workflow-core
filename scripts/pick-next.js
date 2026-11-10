@@ -219,7 +219,7 @@ const { PARKED_LABEL } = require("./lib/parked.js");
 const args = process.argv.slice(2);
 const { flags } = parseOrExit(args, {
 	usage:
-		"usage: node scripts/pick-next.js [--goal '116,115'|'drain <ref>'|'unblock <ref>'] [--json] [--limit N] [--repo o/r]\n" +
+		`usage: node ${scriptPath("pick-next.js")} [--goal '116,115'|'drain <ref>'|'unblock <ref>'] [--json] [--limit N] [--repo o/r]\n` +
 		"                                 [--dump-bodies <dir>] [--no-log] [--no-prewarm]",
 	flags: {
 		"--goal": "value",
@@ -1243,7 +1243,9 @@ function printReclaimable(reclaimable) {
 			`  reclaimable        ${reclaimable.count} finished session${
 				reclaimable.count === 1 ? "" : "s"
 			} still resident, holding memory counted as spent above` +
-				"\n                     `node scripts/reap-finished-sessions.js` stops those past its grace window now and reports the MB returned; the next session start does it anyway\n",
+				"\n                     `node " +
+				scriptPath("reap-finished-sessions.js") +
+				"` stops those past its grace window now and reports the MB returned; the next session start does it anyway\n",
 		);
 }
 
@@ -1652,7 +1654,7 @@ function renderWriteSetCache(state) {
 					cacheState.cold.map((/** @type {any} */ c) => `#${c.number}`),
 					DERIVE_PER_LINE,
 				).join("\n         ")}\n` +
-					"  Store each back: node scripts/pick-next-cache.js put <n> --body-hash <hex>\n" +
+					`  Store each back: node ${scriptPath("pick-next-cache.js")} put <n> --body-hash <hex>\n` +
 					"  --json carries each hash; --dump-bodies writes it into the dumped file.\n",
 			);
 		// Why a miss stayed a miss — a `wayfinder:map` issue, an unlistable tree, an
@@ -2049,7 +2051,7 @@ function renderDispatched(state) {
 			"\n  scripts/dispatch-sessions.sh drops any set member running the same command on one of these\n" +
 				`  for ${DISPATCH_WINDOW_HOURS}h after launching it (mantahostels#1337, #752), alive or not, so a set built on one loses\n` +
 				"  that member and gains nothing back. A relabelled issue is not held. Past a stale entry:\n" +
-				"    scripts/dispatch-sessions.sh --force ...\n",
+				`    ${scriptPath("dispatch-sessions.sh")} --force ...\n`,
 		);
 	}
 	if (dispatched.why)
@@ -2184,7 +2186,7 @@ function renderRunSummary(state) {
 			summary.freeSlots === null
 				? "free slots unknown"
 				: `${summary.freeSlots} free slot(s)`
-		}, as of this run — re-read it with node scripts/admission.js before starting anything (mantahostels#1144)\n`,
+		}, as of this run — re-read it with node ${scriptPath("admission.js")} before starting anything (mantahostels#1144)\n`,
 	);
 	writeFd(
 		1,

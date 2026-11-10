@@ -226,6 +226,8 @@ describe("a push of a branch other than main is denied", () => {
 		["env X=1 git push origin feature-x", "feature-x"],
 		["timeout 60 git push origin feature-x", "feature-x"],
 		["command git push origin feature-x", "feature-x"],
+		// A later command a -c string runs (#4699).
+		[`env -S 'flock /l -c "true\\ngit push origin feature-x"'`, "feature-x"],
 	])("%s", (command, branch) => {
 		const why = denial(command);
 		expect(why).toContain(`a branch other than main, ${branch}`);
@@ -543,6 +545,62 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		},
 	);
 
+	/* #4856: the refusals that run before any queue-ref judging name the own
+	 * ref too, and a rewind of `main` reads the lander's twin of the rule. */
+	it.each([
+		["git push --force origin main", "This force-pushes `main`"],
+		["git push origin +HEAD:main", "This force-pushes `main`"],
+		["git push origin --delete main", "This deletes `main` on the remote"],
+		["git push origin :main", "This deletes `main` on the remote"],
+	])(
+		"%s is refused from the worktree with the landing rewind rule, naming its own queue ref",
+		(command, what) => {
+			const why = denial(command, own);
+			expect(why).toContain(what);
+			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
+			expect(why).toContain(readRuleText("main-rewind-landing"));
+			expect(why).not.toContain(readRuleText("main-rewind"));
+		},
+	);
+
+	it("counts a landing rewind once, under its own needle", () => {
+		expect(
+			denyFires(denial("git push --force origin main", own) as string),
+		).toEqual(["guard:guard-dispatch.js/main-rewind-landing"]);
+	});
+
+	it.each([
+		["git push --all origin", "This pushes every local branch"],
+		["gh pr create --fill", "This opens a pull request"],
+		[
+			"gh api repos/o/r/pulls -f title=x",
+			"This opens a pull request through the REST API",
+		],
+		[
+			"gh api graphql -f query='mutation { createPullRequest }'",
+			"This opens a pull request through the GraphQL API",
+		],
+	])(
+		"%s is refused from the worktree, naming its own queue ref",
+		(command, what) => {
+			const why = denial(command, own);
+			expect(why).toContain(what);
+			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
+			expect(why).toContain(readRuleText("branch-publish-landing"));
+		},
+	);
+
+	it("lets a push to its own queue ref through when the host is reached through a symlink", () => {
+		const link = path.join(dir, "shared-link");
+		fs.symlinkSync(shared, link);
+		const r = runCore(
+			"guard-branch-publish",
+			buildBashPayload("git push origin HEAD:queue/q1", "test"),
+			{ root: link, cwd: own, env: {} },
+		);
+		expect(r.output).toBeFalsy();
+	});
+
 	it("leaves a queue ref a branch like any other with landing off", () => {
 		vi.stubEnv("WFC_MODULES", "");
 		expect(denial("git push origin HEAD:queue/q1", own)).toContain(
@@ -759,6 +817,11 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			"git push origin HEAD:lander/batch-0",
 			"landing",
 			"This pushes to `lander/batch-0`, which only the lander writes: git push origin HEAD:lander/batch-0\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+		],
+		[
+			"git push --force origin main",
+			"landing",
+			"This force-pushes `main`: git push --force origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nOnly the queue lander moves `main`, and never backwards; the rule could not be read from docs/agents/rules/main-rewind-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"gh pr merge dependabot/x",

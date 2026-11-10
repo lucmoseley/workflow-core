@@ -103,6 +103,7 @@
  */
 
 const { now, runCheck } = require("./lib/check");
+const { scriptPath } = require("./lib/script-path.js");
 
 /**
  * One body as some revision left it, the two derivations of the live body a
@@ -741,7 +742,9 @@ function reportClobbered(ctx, clobbered) {
 			"  Issue.userContentEdits, whose `diff` field is the whole body, newest\n" +
 			"  first. Take the revision immediately before the timestamp above.\n" +
 			"  Judge whether each lost ruling still holds before restoring it, and\n" +
-			"  re-apply through `node scripts/issue-body.js`, never a raw body write.\n",
+			"  re-apply through `node " +
+			scriptPath("issue-body.js") +
+			"`, never a raw body write.\n",
 	);
 }
 

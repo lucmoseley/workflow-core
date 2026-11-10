@@ -47,6 +47,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { StringDecoder } = require("node:string_decoder");
@@ -67,7 +68,7 @@ const { parseJsonlRow } = require("./lib/jsonl.js");
 const { execGit } = require("./lib/git.js");
 const { relativeUnder } = require("./lib/is-under.js");
 
-const USAGE = `Usage: node scripts/retro-transcript.js <session.jsonl> [--out <path>]
+const USAGE = `Usage: node ${scriptPath("retro-transcript.js")} <session.jsonl> [--out <path>]
 
 Reduces one session log, its subagent logs folded in, to a line-numbered
 transcript under .claude/tmp/. Default output:

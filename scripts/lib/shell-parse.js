@@ -1400,7 +1400,6 @@ function walkCommands(parsed, fn, ports) {
  * @param {GitWalkOpts} opts
  */
 function walkGit(parsed, fn, ports, opts) {
-	const { subs, noun, scope, strict = false } = opts;
 	const walk = newWalk(
 		parsed,
 		ports.vars,
@@ -1408,44 +1407,57 @@ function walkGit(parsed, fn, ports, opts) {
 		opts.emptyUnset ?? false,
 	);
 	eachSegment(walk, (segment, cw, segIdx) => {
-		const git = readGitSegment(walk, cw, segIdx, {
+		const gits = readGitSegment(walk, cw, segIdx, {
 			unwrapped: opts.unwrap ?? false,
 			isDir: ports.isDir,
 		});
-		if (!git) return;
-		const { sub, args } = expandAlias(git.sub, git.args, git.aliases, {
-			subs,
-			readFileAliases: () =>
-				ports.readFileAliases
-					? ports.readFileAliases(git.named || git.tree || ports.fallbackCwd)
-					: new Map(),
-		});
-		if (sub === "config") markAliasWritten(walk, args);
-		if (!subs.includes(sub)) return;
-		/* A named git directory moves the refs and leaves the work tree where the
-		 * command stands, and a named work tree moves the files (measured), so
-		 * each adds a tree to judge. */
-		const trees = [git.named, git.workTree, git.tree, ...git.doubted].filter(
-			(t) => t !== null,
-		);
-		for (const tree of new Set(trees)) {
-			/** @param {string} judged */
-			const call = (judged) =>
-				fn({
-					segment,
-					sub,
-					tree: judged,
-					args,
-					emptyVars: [...new Set(git.names)],
-				});
-			judgeTree(tree, sub, call, {
-				walk,
-				git,
-				ports,
-				opts: { noun, scope, strict },
-			});
-		}
+		for (const git of gits) judgeGit(walk, segment, git, { fn, ports, opts });
 	});
+}
+
+/**
+ * Hand `fn` each tree one git command runs against, where its subcommand is
+ * one the walk asked for.
+ * @param {Walk} walk
+ * @param {string} segment
+ * @param {GitTarget & { sub: string, args: string[] }} git
+ * @param {{ fn: (call: GitCall) => void, ports: GitWalkPorts,
+ *   opts: GitWalkOpts }} with
+ */
+function judgeGit(walk, segment, git, { fn, ports, opts }) {
+	const { subs, noun, scope, strict = false } = opts;
+	const { sub, args } = expandAlias(git.sub, git.args, git.aliases, {
+		subs,
+		readFileAliases: () =>
+			ports.readFileAliases
+				? ports.readFileAliases(git.named || git.tree || ports.fallbackCwd)
+				: new Map(),
+	});
+	if (sub === "config") markAliasWritten(walk, args);
+	if (!subs.includes(sub)) return;
+	/* A named git directory moves the refs and leaves the work tree where the
+	 * command stands, and a named work tree moves the files (measured), so
+	 * each adds a tree to judge. */
+	const trees = [git.named, git.workTree, git.tree, ...git.doubted].filter(
+		(t) => t !== null,
+	);
+	for (const tree of new Set(trees)) {
+		/** @param {string} judged */
+		const call = (judged) =>
+			fn({
+				segment,
+				sub,
+				tree: judged,
+				args,
+				emptyVars: [...new Set(git.names)],
+			});
+		judgeTree(tree, sub, call, {
+			walk,
+			git,
+			ports,
+			opts: { noun, scope, strict },
+		});
+	}
 }
 
 /**
@@ -1495,8 +1507,8 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  */
 
 /**
- * One segment as a git command carrying a subcommand: `{ sub, args }` and the
- * tree it runs against, or null for anything else — a `cd` among them, which
+ * One segment's git commands carrying a subcommand: each `{ sub, args }` and
+ * the tree it runs against, none for anything else — a `cd` among them, which
  * moves the walk's cwd instead (emptying it where the target will not resolve,
  * so every later segment fails open rather than judging a worktree command
  * against the hook's own tree).
@@ -1504,31 +1516,48 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  * @param {CommandWords} cw
  * @param {number} segIdx
  * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
- *   `unwrapped` judges past the launcher wrappers (#1731)
- * @returns {(GitTarget & { sub: string, args: string[] }) | null}
+ *   `unwrapped` judges past the launcher wrappers (#1731), each command a
+ *   `-c` string runs among them (#4699)
+ * @returns {(GitTarget & { sub: string, args: string[] })[]}
  */
 function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	settleCwdDoubt(walk, segIdx);
 	if (!ran) {
 		markRepoVarsUnread(walk, words, true);
-		return null;
+		return [];
 	}
-	let own = words.slice(wi);
-	if (stepCwd(walk, own, segIdx, how.isDir)) return null;
-	if (trackExport(walk, own)) return null;
-	let carried = words.slice(0, assignEnd);
-	/** @type {string[]} */
-	let chdirs = [];
-	if (how.unwrapped) {
-		const stripped = unwrap(own, walk.scope.spans);
-		own = stripped.words;
-		carried = [...carried, ...stripped.wrapperWords];
-		chdirs = stripped.chdirs;
-	}
-	if (commandName(own[0] ?? "") !== "git") {
-		markRepoVarsUnread(walk, words, false);
-		return null;
-	}
+	const own = words.slice(wi);
+	if (stepCwd(walk, own, segIdx, how.isDir)) return [];
+	if (trackExport(walk, own)) return [];
+	const leading = words.slice(0, assignEnd);
+	const runs = how.unwrapped
+		? unwrap(own, walk.scope.spans)
+		: [{ words: own, wrapperWords: [], chdirs: [] }];
+	const gitRuns = runs.filter(
+		(run) => commandName(run.words[0] ?? "") === "git",
+	);
+	const gits = gitRuns.flatMap((run) => {
+		const git = readGitRun(walk, run, leading, how.isDir);
+		return git ? [git] : [];
+	});
+	/* After the git runs, which a later run's mention of a variable cannot
+	 * reach back to. */
+	if (gitRuns.length < runs.length) markRepoVarsUnread(walk, words, false);
+	return gits;
+}
+
+/**
+ * One `git` command's subcommand and the tree it runs against.
+ * @param {Walk} walk
+ * @param {{ words: string[], wrapperWords: string[], chdirs: string[] }} run
+ *   its words from `git` on, and what its wrappers carried
+ * @param {string[]} leading the segment's own leading assignments
+ * @param {(path: string) => boolean} isDir
+ * @returns {(GitTarget & { sub: string, args: string[] }) | null}
+ */
+function readGitRun(walk, run, leading, isDir) {
+	const { words: own, chdirs } = run;
+	const carried = [...leading, ...run.wrapperWords];
 	const env = new Map(walk.gitEnv);
 	for (const [name, value] of carried.flatMap(parseGitEnvWord))
 		env.set(name, value);
@@ -1547,11 +1576,7 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	target.aliases.anyUnread = walk.aliasWritten;
 	defineFromEnv(target.aliases, env, spans);
 	for (const dir of chdirs) readGitDir(dir, target, walk.scope);
-	const i = readGitOptions(own, target, {
-		scope: walk.scope,
-		env,
-		isDir: how.isDir,
-	});
+	const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
 	const word = own[i];
 	if (word === undefined) return null;
 	/* An absolute `-C` says where it stands whatever a `cd` did. */

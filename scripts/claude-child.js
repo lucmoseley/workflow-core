@@ -32,6 +32,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const { caught } = require("./lib/caught.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
@@ -44,8 +45,8 @@ const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = [
-	"usage: node scripts/claude-child.js usage --config-dir <dir>",
-	"       node scripts/claude-child.js chrome --config-dir <dir> --pages <1-6> --prompt-file <f>",
+	`usage: node ${scriptPath("claude-child.js")} usage --config-dir <dir>`,
+	`       node ${scriptPath("claude-child.js")} chrome --config-dir <dir> --pages <1-6> --prompt-file <f>`,
 ].join("\n");
 
 /* All three carried from the skill text they replace, never measured: the 60 s
@@ -156,7 +157,7 @@ function main() {
 	const bin = claudeBin(env);
 	const cached =
 		command === "usage"
-			? ` Read the cached bars instead: node scripts/allowance.js --config-dir ${seat}`
+			? ` Read the cached bars instead: node ${scriptPath("allowance.js")} --config-dir ${seat}`
 			: "";
 	const refusal = launchAuthRefusal({ bin, env, cwd: process.cwd() });
 	if (refusal) fail(`${refusal}${cached}`, 2);

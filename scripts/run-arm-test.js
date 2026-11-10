@@ -64,6 +64,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { spawnSync } = require("node:child_process");
@@ -172,12 +173,10 @@ const READ_TIMEOUT_MS = 900_000;
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage:
-		"Usage: node scripts/run-arm-test.js (plan --root <dir> --tasks <ids> --runs <n> --arm A=<rev>@<dir> --arm B=<rev>@<dir> [--seed <n>] | launch <pair>… --root <dir> --issues <dir> --node-modules <dir> | run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>] | report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>])",
+	usage: `Usage: node ${scriptPath("run-arm-test.js")} (plan --root <dir> --tasks <ids> --runs <n> --arm A=<rev>@<dir> --arm B=<rev>@<dir> [--seed <n>] | launch <pair>… --root <dir> --issues <dir> --node-modules <dir> | run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>] | report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>])`,
 	commands: {
 		plan: {
-			usage:
-				"Usage: node scripts/run-arm-test.js plan --root <dir> --tasks <ids> --runs <n> --arm A=<rev>@<dir> --arm B=<rev>@<dir> [--seed <n>]",
+			usage: `Usage: node ${scriptPath("run-arm-test.js")} plan --root <dir> --tasks <ids> --runs <n> --arm A=<rev>@<dir> --arm B=<rev>@<dir> [--seed <n>]`,
 			flags: {
 				"--root": "value",
 				"--tasks": "value",
@@ -187,8 +186,7 @@ const CLI = {
 			},
 		},
 		launch: {
-			usage:
-				"Usage: node scripts/run-arm-test.js launch <pair>… --root <dir> --issues <dir> --node-modules <dir>",
+			usage: `Usage: node ${scriptPath("run-arm-test.js")} launch <pair>… --root <dir> --issues <dir> --node-modules <dir>`,
 			min: 1,
 			max: Number.POSITIVE_INFINITY,
 			flags: {
@@ -198,8 +196,7 @@ const CLI = {
 			},
 		},
 		run: {
-			usage:
-				"Usage: node scripts/run-arm-test.js run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>]",
+			usage: `Usage: node ${scriptPath("run-arm-test.js")} run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>]`,
 			flags: {
 				"--root": "value",
 				"--issues": "value",
@@ -212,8 +209,7 @@ const CLI = {
 			},
 		},
 		report: {
-			usage:
-				"Usage: node scripts/run-arm-test.js report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>]",
+			usage: `Usage: node ${scriptPath("run-arm-test.js")} report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>]`,
 			flags: {
 				"--root": "value",
 				"--baseline": "value",

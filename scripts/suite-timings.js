@@ -19,6 +19,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { ghJson } = require("./lib/gh.js");
@@ -37,9 +38,9 @@ const {
 const { worktreeRoot } = require("./lib/host-root.js");
 
 const USAGE = `Usage:
-  node scripts/suite-timings.js extract <vitest.json|dir> <out.csv> [key=value ...]
-  node scripts/suite-timings.js latest <out.csv> [--before-run <run-id>]
-  node scripts/suite-timings.js shares <dataset.csv>
+  node ${scriptPath("suite-timings.js")} extract <vitest.json|dir> <out.csv> [key=value ...]
+  node ${scriptPath("suite-timings.js")} latest <out.csv> [--before-run <run-id>]
+  node ${scriptPath("suite-timings.js")} shares <dataset.csv>
 
 Produce the JSON with:
   WFC_VITEST_JSON=<vitest.json> npm run test -- --full=<cause>

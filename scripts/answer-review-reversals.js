@@ -22,6 +22,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { parseErrLine, gh, ghIssuesUpdatedSince } = require("./lib/gh.js");
@@ -41,7 +42,7 @@ const { scriptIo } = require("./lib/tracker-ops.js");
 const { repoSlug, requireKey } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
-const USAGE = "usage: node scripts/answer-review-reversals.js [--dry-run]";
+const USAGE = `usage: node ${scriptPath("answer-review-reversals.js")} [--dry-run]`;
 const REVERSAL_LABEL = takesLabel("implement");
 const DAY_MS = 24 * 60 * 60 * 1000;
 /* Untraced: a review closed within two days is still read for reversals, so

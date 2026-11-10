@@ -14,6 +14,7 @@
  */
 
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	appendSignatureLine,
 	buildSignatureLine,
@@ -23,8 +24,7 @@ const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const { parseQualifiedRef } = require("./lib/issue-ref.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const USAGE =
-	"usage: node scripts/log-late-signature.js --issue <owner/name>#<n> --filed-at <iso> --fault-signature <file>";
+const USAGE = `usage: node ${scriptPath("log-late-signature.js")} --issue <owner/name>#<n> --filed-at <iso> --fault-signature <file>`;
 
 /** @param {string} msg @returns {never} */
 function refuse(msg) {

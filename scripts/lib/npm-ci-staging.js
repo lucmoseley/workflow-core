@@ -1,7 +1,7 @@
 /*
  * npm-ci-staging.js — a frozen `node_modules` built in a staging directory,
  * for the levelling step (lib/level-main.js) and the checkout's dependency
- * stores (lib/session-checkout.js), #4261. Each swaps the result into place by rename:
+ * stores (lib/dep-store.js), #4261. Each swaps the result into place by rename:
  * `npm ci` into a live tree deletes it first, and hook code loads from it.
  * `npm ci --ignore-scripts`: docs/practice/dependency-and-release-management.md.
  * The lander's local tester (lib/local-tester.js) installs in place but takes

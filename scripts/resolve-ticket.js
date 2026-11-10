@@ -92,6 +92,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const { buildLineRe, hasLine } = require("./lib/marker-line.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -138,8 +139,7 @@ const { decisionMarks, isDecisionTicket } = require("./lib/decision-labels.js");
 const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
-const USAGE =
-	'usage: node scripts/resolve-ticket.js <n> --comment-file F|- [--decision "<one line>"] [--reason completed|"not planned"]';
+const USAGE = `usage: node ${scriptPath("resolve-ticket.js")} <n> --comment-file F|- [--decision "<one line>"] [--reason completed|"not planned"]`;
 
 const REASONS = ["completed", "not planned"];
 

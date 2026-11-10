@@ -1,13 +1,15 @@
 /*
  * session-checkout.js — the one owner of a session worktree's lifecycle
  * (#4229): every launcher and session goes through it, and no caller runs
- * `git worktree` itself.
+ * `git worktree` itself. Its dependency stores are lib/dep-store.js's, and
+ * the pass that clears landed trees is lib/worktree-reaper.js's.
  *
  * CUT fetches `main`, adds a worktree detached at `origin/main` under
- * `.claude/worktrees/<session-name>/` of the main checkout, and attaches its
- * dependencies. A session that cuts one names itself its holder, in
- * `HOLDER_RECORD` in the worktree's git directory, so a tree it hands to an
- * in-process subagent, where no process's cwd lies, stands while it lives.
+ * the main checkout's worktrees folder (lib/worktree-dirs.js), named for the
+ * session, and attaches its dependencies. A session that cuts one names
+ * itself its holder (lib/worktree-reaper.js `writeHolder`), so a tree it
+ * hands to an in-process subagent, where no process's cwd lies, stands while
+ * it lives.
  *
  * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
  * worktree cut for it where the repository has the `landing` module, else the
@@ -19,36 +21,6 @@
  * session's orphaned edits: that session's own worktree, named by the
  * caller, refused where git does not list it under the worktrees folder or
  * any live process still has its cwd inside it (#4385).
- *
- * ATTACH points the worktree's `node_modules` at the dependency store keyed by
- * the hash of the worktree's own `package-lock.json`, building that store
- * first where none exists. A store is built once, into a staging directory
- * (lib/npm-ci-staging.js) renamed into place whole, and is never installed
- * into again. One build runs per key: a cut finding a live builder's lock waits for
- * its store rather than running a second `npm ci` against the memory cap.
- *
- * RELINK re-points a worktree whose lockfile a merge, pull or checkout
- * changed at the store standing for the new one, building none (#4702);
- * `.husky/post-merge`, `post-checkout` and, on a commit changing the lockfile,
- * `post-commit` run it, through lib/relink-store.sh. Nothing relinks after a
- * `git reset`, `stash` or `restore` run by hand: `relink` or `attach` does. A merge's `pre-merge-commit` gates run before it, on the
- * store linked before the merge: the lander's install keys on the merged
- * lockfile, and its full suite is what moves `main`.
- *
- * WARM builds the store for a freshly fetched `origin/main`'s lockfile
- * where none stands, so a cut needs no build of its own (#4318). The refill
- * tick runs it, detached, ahead of its launches, and its dispatcher cuts with
- * `noBuild`: a cut finding no store refuses at once rather than build inside
- * the dispatcher's time budget (lib/refill-batch.js).
- *
- * A STORE IS READ-ONLY: its `node_modules` loses every write bit before the
- * rename, so a tool caching under `node_modules` fails or falls back rather
- * than writing under each neighbour on the lockfile (#4255). Vite falls back
- * on its own, bundling its config beside the source; vitest's cache sits in
- * the worktree (vitest.config.ts `cacheDir`); guard-npm-install refuses an
- * install through the link. A frozen tree is removed by giving its
- * directories their owner's write bit back first (`removeTree`).
- * Residual: the owner's own `chmod`, or a root process, still writes through.
  *
  * LAND merges a freshly fetched `origin/main` into the worktree's `HEAD` and
  * pushes `HEAD:refs/heads/queue/<worktree name>`, the session's own queue ref
@@ -65,11 +37,6 @@
  * no Bash hook sees it. One failing on a network or remote fault is retried
  * with backoff (#4497).
  *
- * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
- * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
- *
- * REAP clears landed worktrees and unlinked stores, save `origin/main`'s.
- *
  * REOPEN gives a finished background job its worktree back so `claude attach`
  * can wake it: an open from the agents view fails before any hook runs where
  * the tree is gone (#4368).
@@ -78,446 +45,59 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readLiveOrLog, readSessionEntries } = require("./arbiter-core.js");
-const { holderAlive, pidAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
-const { readProcCwd } = require("./claude-sessions.js");
+const {
+	adminDirOf,
+	CheckoutError,
+	fetchShared,
+	git,
+	readProcesses,
+	readWorktreesOrThrow,
+	rootOf,
+} = require("./checkout-repo.js");
+const { buildCutCommand } = require("./cutover.js");
+const { attach } = require("./dep-store.js");
 const { deref } = require("./deref.js");
 const {
-	execGit,
 	GIT_TIMEOUT_MS,
 	gitCommonDirOrThrow,
 	spawnGitSync,
 } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
+const { relativeUnder } = require("./is-under.js");
+const { MOVED, MOVED_LINE } = require("./land-refusal.js");
 const { runStartLander } = require("./lander-start.js");
-const { MOVED_LINE } = require("./land-refusal.js");
-const { readJsonl } = require("./jsonl.js");
-const { mainCheckout } = require("./main-checkout.js");
+const {
+	ownQueueRef,
+	pushedRef,
+	REMOTE,
+	VERIFIED_REF,
+} = require("./landing-refs.js");
 const {
 	isPushFaultText,
 	REMOTE_TRIES,
 	remoteBackoffMs,
 } = require("./network-fault.js");
-const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
-const { pidLock } = require("./pid-lock.js");
-const { REAL_PROC } = require("./proc-root.js");
-const { buildCutCommand } = require("./cutover.js");
 const { scriptPath } = require("./script-path.js");
-const {
-	readJobCwds,
-	worktreeHolding,
-	worktreeLabel,
-} = require("./session-worktrees.js");
-const { readLinkedWorktrees } = require("./worktree-paths.js");
-const { requiredGroup } = require("./regex-group.js");
+const { readJobCwds, worktreeHolding } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { trimRun } = require("./trim-run.js");
-const {
-	ownQueueRef,
-	pushedRef,
-	QUEUE_REFSPEC,
-	REMOTE,
-	trackingRefspec,
-	VERIFIED_BRANCH,
-	VERIFIED_REF,
-} = require("./landing-refs.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
-const { writeFd } = require("./write-fd.js");
-const { LANDER_WORKTREE } = require("./lander-worktree.js");
-const { relativeUnder } = require("./is-under.js");
+const { isSessionWorktreeDir, WORKTREES } = require("./worktree-dirs.js");
 const {
-	INSTALL_TIMEOUT_MS,
-	LOCKFILE,
-	stageInstall,
-} = require("./npm-ci-staging.js");
-const WORKTREES = path.join(".claude", "worktrees");
-const STORES = path.join(WORKTREES, ".dep-stores");
+	prune,
+	readReaped,
+	REAPED_RECORD,
+	writeHolder,
+} = require("./worktree-reaper.js");
+const { writeFd } = require("./write-fd.js");
+
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/* 64 bits of sha256: a collision among even 10^4 live lockfiles is ~3e-12
- * likely, and the name stays short enough to read in a path. */
-const KEY_HEX = 16;
 /* Untraced: enough of a prompt to name its task in a directory listing. */
 const SLUG_MAX = 40;
 /* 24 bits: two live worktrees for one prompt collide ~6e-8 of the time, and a
  * collision costs one refused member, which the next tick launches again. */
 const SUFFIX_BYTES = 3;
-/* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
-const FETCH_TRIES = 3;
-/* Untraced: a fetch retry's and a store-lock wait's pause, short beside the
- * second-scale fetch and the minutes-scale `npm ci` either waits on. */
-const POLL_MS = 1000;
-
-/** A refusal the CLI prints as it stands. */
-class CheckoutError extends Error {}
-
-/**
- * @param {string[]} args
- * @param {string} cwd
- * @returns {string}
- */
-const git = (args, cwd) =>
-	execGit(args, {
-		cwd,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		timeout: GIT_TIMEOUT_MS,
-	}).trim();
-
-/**
- * The main checkout `cwd` belongs to, symlinks dereferenced.
- * @param {string} cwd
- * @returns {string}
- */
-function rootOf(cwd) {
-	const root = mainCheckout(cwd);
-	if (root === null)
-		throw new CheckoutError(
-			`${cwd} is in no main checkout git can name — run this from inside the repository`,
-		);
-	return fs.realpathSync(root);
-}
-
-/**
- * Fetch `main` and every queue ref, pruning the queue refs gone from the
- * remote, again where a neighbour's fetch held a ref's lock.
- * @param {string} root
- */
-function fetchShared(root) {
-	for (let tries = 1; ; tries++)
-		try {
-			git(
-				[
-					"fetch",
-					"--quiet",
-					"--prune",
-					REMOTE,
-					trackingRefspec(VERIFIED_BRANCH),
-					QUEUE_REFSPEC,
-				],
-				root,
-			);
-			return;
-		} catch (err) {
-			if (tries >= FETCH_TRIES || !/cannot lock ref/.test(String(err)))
-				throw err;
-			sleepSync(POLL_MS);
-		}
-}
-
-/**
- * Take the build lock for a store, or wait out a live holder. True where the
- * lock is ours; false where the holder's store now stands, or, under `noWait`,
- * where a live holder is still building it.
- * @param {string} lock
- * @param {string} store
- * @param {boolean} noWait
- * @returns {boolean}
- */
-function takeBuildLock(lock, store, noWait) {
-	const deadline = Date.now() + INSTALL_TIMEOUT_MS;
-	for (;;) {
-		if (writeLock(lock)) return true;
-		if (fs.existsSync(path.join(store, "node_modules"))) return false;
-		const holder = readLockHolder(lock);
-		if (holder === null) continue;
-		if (!(holder > 0) || !pidAlive(holder)) {
-			fs.rmSync(lock, { force: true });
-			continue;
-		}
-		if (noWait) return false;
-		if (Date.now() > deadline)
-			throw new Error(
-				`pid ${holder} has held ${lock} past the install timeout — end that process, or remove the lock if it is gone, then attach again`,
-			);
-		sleepSync(POLL_MS);
-	}
-}
-
-/**
- * Create the build lock naming this process; false where it exists already.
- * @param {string} lock
- * @returns {boolean}
- */
-function writeLock(lock) {
-	try {
-		fs.writeFileSync(lock, `${process.pid}\n`, { flag: "wx" });
-		return true;
-	} catch (err) {
-		if (caught(err).code !== "EEXIST") throw err;
-		return false;
-	}
-}
-
-/**
- * The pid a build lock names: null where the lock is gone, 0 where it names
- * none.
- * @param {string} lock
- * @returns {number | null}
- */
-function readLockHolder(lock) {
-	try {
-		return Number(fs.readFileSync(lock, "utf8").trim()) || 0;
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return null;
-		throw err;
-	}
-}
-
-/**
- * The failure the last build of a store left, or null where none did.
- * @param {string} failed the store's failure record
- * @returns {string | null}
- */
-function readBuildFailure(failed) {
-	try {
-		return fs.readFileSync(failed, "utf8").trim();
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return null;
-		throw err;
-	}
-}
-
-/**
- * Every write bit off under `dir`, or its owner's back on. A mode is changed
- * with no write bit on its directory, so the order is free. Links are left:
- * their modes are never read.
- * @param {string} dir
- * @param {boolean} on
- */
-function setWriteBits(dir, on) {
-	/** @param {string} at */
-	const set = (at) => {
-		const { mode } = fs.statSync(at);
-		fs.chmodSync(at, on ? mode | 0o200 : mode & ~0o222);
-	};
-	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-		const at = path.join(dir, entry.name);
-		if (entry.isDirectory()) setWriteBits(at, on);
-		else if (entry.isFile()) set(at);
-	}
-	set(dir);
-}
-
-/**
- * Remove `dir`, absent or frozen.
- * @param {string} dir
- */
-function removeTree(dir) {
-	if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isDirectory())
-		setWriteBits(dir, true);
-	fs.rmSync(dir, { recursive: true, force: true });
-}
-
-/** @typedef {import("./npm-ci-staging.js").ManifestSource} ManifestSource */
-
-/**
- * The manifests of the worktree `dir`.
- * @param {string} dir
- * @returns {ManifestSource}
- */
-const buildWorktreeSource = (dir) => (name) => {
-	const at = path.join(dir, name);
-	return fs.existsSync(at) ? fs.readFileSync(at) : null;
-};
-
-/**
- * The manifests `origin/main` carries, read from the main checkout `root`.
- * @param {string} root
- * @returns {ManifestSource}
- */
-const buildStartSource = (root) => (name) => {
-	const r = spawnGitSync(["cat-file", "blob", `${VERIFIED_REF}:${name}`], {
-		cwd: root,
-		stdio: ["ignore", "pipe", "ignore"],
-		timeout: GIT_TIMEOUT_MS,
-	});
-	if (r.error) throw r.error;
-	return r.status === 0 ? r.stdout : null;
-};
-
-/**
- * The store key of a lockfile's bytes.
- * @param {Buffer} lockfile
- */
-const storeKeyOf = (lockfile) =>
-	crypto.createHash("sha256").update(lockfile).digest("hex").slice(0, KEY_HEX);
-
-/**
- * What ensureStore found or did: `built` now, already `standing`, or left to
- * the live process `building` it.
- * @typedef {{ store: string, state: "built" | "standing" | "building" }} Ensured
- */
-
-/**
- * The refusal of a no-build cut whose store stands nowhere: the last build's
- * failure where one is recorded, else the live builder, else the warm route.
- * @param {string} key
- * @param {string} lock
- * @param {string} failed
- */
-function buildNoStoreRefusal(key, lock, failed) {
-	const head = `no dependency store stands for this lockfile yet (${key}), and this cut builds none`;
-	const failure = readBuildFailure(failed);
-	if (failure !== null)
-		return new CheckoutError(
-			`${head}; its last build failed — ${failure} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
-		);
-	const holder = readLockHolder(lock);
-	return new CheckoutError(
-		`${head}${holder && pidAlive(holder) ? ` — pid ${holder} is building it` : ""}; the refill tick's warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it, and the next tick launches this member`,
-	);
-}
-
-/**
- * The store for the lockfile `source` carries, built from its manifests where
- * absent; null where `source` has no lockfile. Under `noBuild` an absent store
- * refuses (buildNoStoreRefusal); under `noWait` a live builder is left to
- * finish. A failed build is recorded beside the store's lock, and cleared by
- * the next build that succeeds.
- * @param {string} root the main checkout
- * @param {ManifestSource} source
- * @param {{ noBuild?: boolean, noWait?: boolean }} [how]
- * @returns {Ensured | null}
- */
-function ensureStore(root, source, { noBuild = false, noWait = false } = {}) {
-	const lockfile = source(LOCKFILE);
-	if (lockfile === null) return null;
-	const key = storeKeyOf(lockfile);
-	const store = path.join(root, STORES, key);
-	if (fs.existsSync(path.join(store, "node_modules")))
-		return { store, state: "standing" };
-	const lock = path.join(root, STORES, `.build-${key}.lock`);
-	const failed = path.join(root, STORES, `.build-${key}.failed`);
-	if (noBuild) throw buildNoStoreRefusal(key, lock, failed);
-	fs.mkdirSync(path.dirname(store), { recursive: true });
-	if (!takeBuildLock(lock, store, noWait))
-		return {
-			store,
-			state: fs.existsSync(path.join(store, "node_modules"))
-				? "standing"
-				: "building",
-		};
-	const staging = path.join(root, STORES, `.build-${key}-${process.pid}`);
-	try {
-		if (fs.existsSync(path.join(store, "node_modules")))
-			return { store, state: "standing" };
-		buildStore(staging, lockfile, source);
-		/* A store directory without `node_modules` is a dead build's leftover. */
-		fs.rmSync(store, { recursive: true, force: true });
-		fs.renameSync(staging, store);
-		fs.rmSync(failed, { force: true });
-		return { store, state: "built" };
-	} catch (err) {
-		fs.writeFileSync(failed, `${caught(err).message.trim()}\n`);
-		throw err;
-	} finally {
-		removeTree(staging);
-		fs.rmSync(lock, { force: true });
-	}
-}
-
-/**
- * Build a frozen `node_modules` in `staging` from `source`'s manifests.
- * @param {string} staging
- * @param {Buffer} lockfile `source`'s, read once already
- * @param {ManifestSource} source
- */
-function buildStore(staging, lockfile, source) {
-	removeTree(staging);
-	let built;
-	try {
-		built = stageInstall(staging, (name) =>
-			name === LOCKFILE ? lockfile : source(name),
-		);
-	} catch (err) {
-		throw new Error(`${caught(err).message}, then attach again`, {
-			cause: err,
-		});
-	}
-	setWriteBits(built, false);
-}
-
-/**
- * Point the `node_modules` of the worktree holding `cwd` at the store for its
- * lockfile, building the store where none exists. A worktree with no lockfile
- * gets no link.
- * @param {string} cwd anywhere in the worktree
- * @param {{ noBuild?: boolean }} [how]
- * @returns {{ dir: string, store: string | null, built: boolean }}
- */
-function attach(cwd, { noBuild = false } = {}) {
-	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
-	const root = rootOf(dir);
-	if (dir === root)
-		throw new CheckoutError(
-			"the main checkout installs its own dependencies — run attach from a session worktree, or name one",
-		);
-	if (!fs.existsSync(path.join(dir, LOCKFILE)))
-		return { dir, store: null, built: false };
-	const link = path.join(dir, "node_modules");
-	let held = null;
-	try {
-		held = fs.lstatSync(link);
-	} catch (err) {
-		if (caught(err).code !== "ENOENT") throw err;
-	}
-	if (held && !held.isSymbolicLink())
-		throw new CheckoutError(
-			`${link} is a directory, not a store link — move it aside, then attach again`,
-		);
-	const made = ensureStore(root, buildWorktreeSource(dir), { noBuild });
-	if (made === null) return { dir, store: null, built: false };
-	/* One rename, so no reader of the worktree sees `node_modules` absent. */
-	const tmp = `${link}.attach-${process.pid}`;
-	fs.rmSync(tmp, { force: true });
-	fs.symlinkSync(path.join(made.store, "node_modules"), tmp, "dir");
-	fs.renameSync(tmp, link);
-	return { dir, store: made.store, built: made.state === "built" };
-}
-
-/**
- * The store a session worktree's `node_modules` links, or null where it links none.
- * @param {string} dir
- * @param {string} storesDir
- * @returns {string | null}
- */
-function readLinkedStore(dir, storesDir) {
-	let target;
-	try {
-		target = fs.readlinkSync(path.join(dir, "node_modules"));
-	} catch (err) {
-		/* ENOENT: never attached; EINVAL: a real directory, as the lander's. */
-		if (["ENOENT", "EINVAL"].includes(String(caught(err).code))) return null;
-		throw err;
-	}
-	const store = path.dirname(path.resolve(dir, target));
-	return path.dirname(store) === storesDir ? store : null;
-}
-
-/**
- * Re-point a worktree whose `node_modules` links a store at the one standing
- * for the lockfile it now carries (#4702). Builds none, as git hooks run it within
- * HOOK_LIMIT_MS and a build takes up to INSTALL_TIMEOUT_MS, so a missing store
- * refuses naming `attach`, which builds it.
- * @param {string} cwd anywhere in the worktree
- * @returns {{ dir: string, store: string | null }} the store newly linked, or
- *   null where the worktree links no store or its link still matches
- */
-function relink(cwd) {
-	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
-	const storesDir = path.join(rootOf(dir), STORES);
-	const linked = readLinkedStore(dir, storesDir);
-	const lockfile = buildWorktreeSource(dir)(LOCKFILE);
-	if (linked === null || lockfile === null) return { dir, store: null };
-	const key = storeKeyOf(lockfile);
-	if (path.basename(linked) === key) return { dir, store: null };
-	if (!fs.existsSync(path.join(storesDir, key, "node_modules")))
-		throw new CheckoutError(
-			`${dir}'s lockfile changed, and no dependency store stands for it yet (${key}), so its node_modules still links the store built for the old one (${path.basename(linked)}) — run \`node ${scriptPath("session-checkout.js")} attach\` to build that store, up to ${INSTALL_TIMEOUT_MS / 60_000} min`,
-		);
-	return { dir, store: attach(dir, { noBuild: true }).store };
-}
 
 /**
  * Cut the session worktree for `name`: detached at a freshly fetched
@@ -542,62 +122,6 @@ function cut(cwd, name, how = {}) {
 		);
 	fetchShared(root);
 	return addWorktree(root, dir, VERIFIED_REF, how);
-}
-
-/**
- * The git directory of the worktree at `dir`.
- * @param {string} dir
- */
-function adminDirOf(dir) {
-	return git(["rev-parse", "--absolute-git-dir"], dir);
-}
-
-/**
- * Name session `sessionId` the holder of the worktree whose git directory is
- * `admin`, with the pid and start token of its live registry entry where one
- * stands: a session id its process later trades for another, as `/clear`
- * does, still holds through that process.
- * @param {string} admin
- * @param {string} sessionId
- */
-function writeHolder(admin, sessionId) {
-	const own = (readSessionEntries("own") ?? []).find(
-		({ entry }) =>
-			entry.sessionId === sessionId &&
-			entry.pid &&
-			entry.procStart &&
-			readProcStartOf(entry.pid) === String(entry.procStart),
-	)?.entry;
-	fs.writeFileSync(
-		path.join(admin, HOLDER_RECORD),
-		`${JSON.stringify({ sessionId, pid: own?.pid ?? null, procStart: own?.procStart ?? null })}\n`,
-	);
-}
-
-/**
- * Whether the worktree whose git directory is `admin` names a holder session
- * `live` holds or whose recorded process still runs, or names one where `live`
- * is null: an unread registry proves no session dead (#4496). Residual: while
- * the registry stays unreadable, every held tree stands on every pass, the
- * read failure logged. A record naming no session throws, so its tree stands,
- * reported as one the pass could not reap.
- * @param {string} admin
- * @param {Set<string> | null} live
- */
-function isHeldByLiveSession(admin, live) {
-	const file = path.join(admin, HOLDER_RECORD);
-	let record;
-	try {
-		record = JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return false;
-		throw new Error(`${file} will not parse: ${caught(err).message}`, {
-			cause: err,
-		});
-	}
-	if (typeof record?.sessionId !== "string")
-		throw new Error(`${file} names no holder session`);
-	return live === null || live.has(record.sessionId) || holderAlive(record);
 }
 
 /**
@@ -665,9 +189,6 @@ const isAncestor = (a, b, cwd) =>
 		timeout: GIT_TIMEOUT_MS,
 	}).status === 0;
 
-/** git's words for a push refused because the remote ref holds a commit ours lacks. */
-const MOVED = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
-
 /**
  * Start the queue lander after a push: the post-push hook sees no push made
  * inside a script. The main checkout's start-lander.js where this code runs from a
@@ -703,7 +224,7 @@ function refuseUnlandable(dir, root) {
 		throw new CheckoutError(
 			`${buildModuleOffLine("landing")}, so nothing lands through it — push to main as \`rule:branch-publish\` says`,
 		);
-	if (fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)))
+	if (isMerging(dir))
 		throw new CheckoutError(
 			"a merge is in progress in this worktree — resolve it and `git commit`, or `git merge --abort`, then land again",
 		);
@@ -715,12 +236,19 @@ function refuseUnlandable(dir, root) {
 }
 
 /**
+ * Whether a merge is in progress in the worktree `dir`.
+ * @param {string} dir
+ */
+const isMerging = (dir) =>
+	fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir));
+
+/**
  * Merge `origin/main` into `HEAD`.
  * @param {string} dir
  */
 function mergeMain(dir) {
 	if (gitShown(["merge", "--no-edit", VERIFIED_REF], dir).ok) return;
-	if (!fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)))
+	if (!isMerging(dir))
 		throw new CheckoutError(
 			`git did not start the merge of ${VERIFIED_REF}, its output above — clear what it names, then land again`,
 		);
@@ -880,22 +408,6 @@ function launchDir(cwd, prompt, how = {}) {
 }
 
 /**
- * `dir` sits where a cut puts a session's worktree, directly under `root`'s
- * worktrees folder, and is not the queue lander's own tree (#4421): that tree
- * is never reaped, the lander rebuilding it itself, and no session launches
- * into it.
- * @param {string} root the main checkout
- * @param {string} dir
- */
-function isSessionWorktreeDir(root, dir) {
-	const at = path.resolve(dir);
-	return (
-		path.dirname(at) === path.join(root, WORKTREES) &&
-		at !== path.join(root, LANDER_WORKTREE)
-	);
-}
-
-/**
  * LAUNCH-INTO, above: `into`, dereferenced, where it is a registered session
  * worktree of `root` no process works in, its dependencies re-attached.
  * @param {string} root the main checkout
@@ -925,539 +437,6 @@ function launchInto(root, into, how) {
 		);
 	attach(dir, how);
 	return dir;
-}
-
-/**
- * WARM, above. Null where the repository has no `landing` module or
- * `origin/main` carries no lockfile.
- * @param {string} cwd anywhere in the repository
- * @returns {Ensured | null}
- */
-function warm(cwd) {
-	const root = rootOf(cwd);
-	if (!moduleOn("landing", { root })) return null;
-	fetchShared(root);
-	return ensureStore(root, buildStartSource(root), { noWait: true });
-}
-
-/*
- * REAP, run on each refill-loop tick, clears what the worktrees folder no
- * longer needs and names what it may not clear:
- *   - a session worktree whose every `HEAD` commit is on a freshly fetched
- *     `origin/main` or its own queue ref, whose tree is clean, and whose session is neither live
- *     (a process's cwd lies in it), resumable (a job record whose cwd lies in
- *     it is in any state but `done` or `failed`), held (its `HOLDER_RECORD`
- *     names a live session) nor finished under `KEEP_MS` ago is removed, its path, `HEAD` sha, and each job's id and seat whose
- *     cwd lies in it appended first to `REAPED_RECORD` in git's common
- *     directory;
- *   - one dirty or unlanded, of a dead and non-resumable session, is reported
- *     with its idle time and last commit, never removed;
- *   - registrations whose directory is gone are pruned, and a directory there
- *     with no registration is removed, save one still carrying a `.git` file:
- *     git can no longer read its uncommitted work, so it is reported as an
- *     unregistered checkout;
- *   - a dependency store no registered worktree links is removed, and so is a
- *     dead build's lock and staging directory.
- * Left alone: a locked worktree (the harness's agent trees), the suite's
- * `isolated-*` trees, which lib/isolated-worktree.js sweeps, the queue
- * lander's own tree, which it checks out again in each suite slot, a live build's
- * lock, staging and store, and anything changed within `YOUNG_MS` — a cut
- * registers its directory, and a build renames its store into place, moments
- * before the link that names it.
- */
-
-/* Untraced: five minutes is room for a loaded machine. */
-const YOUNG_MS = 5 * 60_000;
-/* House: #4366. A finished job's own `updatedAt` is its finish clock, which
- * a resume that finishes again moves (#4368); a record without one holds its
- * tree. */
-const KEEP_MS = 3 * 24 * 60 * 60_000;
-const REAPED_RECORD = "wfc-reaped-worktrees.jsonl";
-const HOLDER_RECORD = "wfc-holder.json";
-const ISOLATED = /^isolated-/;
-const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
-const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
-const BUILD_STAGING = /^\.build-[0-9a-f]+-(\d+)$/;
-const BUILD_FAILED = /^\.build-([0-9a-f]+)\.failed$/;
-const ENDED = new Set(["done", "failed"]);
-/* The script a reap pass runs as; a pidfile naming any other is stale. */
-const REAP_HOLDERS = ["session-checkout.js"];
-/* A dirt no marker records: an unread worktree defers to no issue. */
-const UNREAD_DIRT = "\0unread";
-
-/**
- * @typedef {{ dir: string, idleMs: number, last: string, dirty: number,
- *   unlanded: number, filed: string | null }} Stranded `filed` the
- *   orphaned-edit issue check-orphaned-edits.js filed for it while its dirt
- *   stood as it stands now, which carries its decision (#4439)
- * @typedef {{ removed: string[], stranded: Stranded[], unregistered: string[],
- *   pruned: string[], strays: string[], stores: string[], failed: string[],
- *   fetchFailed: string | null }} Reaped
- * @typedef {{ now: number, cwds: string[], record: string, common: string }}
- *   Pass when the pass runs, every live process's cwd, the REAPED_RECORD
- *   path, and the git common dir
- * @typedef {{ job: string, seat: string, path: string, head: string,
- *   at: string }} ReapedTree one line of REAPED_RECORD
- */
-
-/**
- * Every process on this machine with a readable cwd, and that cwd. The real
- * /proc, whatever a test stands in.
- * @returns {{ pid: string, cwd: string }[]}
- */
-function readProcesses() {
-	/** @type {{ pid: string, cwd: string }[]} */
-	const out = [];
-	for (const pid of fs.readdirSync(REAL_PROC))
-		if (/^\d+$/.test(pid)) {
-			const cwd = readProcCwd(pid, REAL_PROC);
-			if (cwd) out.push({ pid, cwd: cwd.replace(/ \(deleted\)$/, "") });
-		}
-	return out;
-}
-
-/**
- * Milliseconds since `at` was last written or renamed; Infinity where it is
- * gone.
- * @param {string} at
- * @param {number} now
- */
-function ageOf(at, now) {
-	const st = fs.lstatSync(at, { throwIfNoEntry: false });
-	return st ? now - Math.max(st.mtimeMs, st.ctimeMs) : Number.POSITIVE_INFINITY;
-}
-
-/**
- * A worktree's dirty paths, its commits on neither `origin/main` nor its queue
- * ref, its last commit, and how long since that commit or an index write, the
- * later. The status takes no optional lock, so it never rewrites the index
- * whose age it reads; it leaves out the store link, which an adopter's
- * `node_modules/` ignore, matching directories only, would show untracked.
- * @param {string} dir
- * @param {number} now
- * @param {string} root the main checkout
- * @returns {Omit<Stranded, "filed">}
- */
-function readWorktreeState(dir, now, root) {
-	const dirty = git(
-		[
-			"--no-optional-locks",
-			"status",
-			"--porcelain",
-			"--",
-			".",
-			":(top,exclude)node_modules",
-		],
-		dir,
-	);
-	const unlanded = Number(
-		git(
-			[
-				"rev-list",
-				"--count",
-				"HEAD",
-				"--not",
-				...new Set([VERIFIED_REF, pushedRef({ root, tree: dir })]),
-			],
-			dir,
-		),
-	);
-	const [at = "0", ...subject] = git(
-		["log", "-1", "--format=%ct %h %s"],
-		dir,
-	).split(" ");
-	const index = path.join(adminDirOf(dir), "index");
-	const written = fs.statSync(index, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-	return {
-		dir,
-		idleMs: now - Math.max(written, Number(at) * 1000),
-		last: subject.join(" "),
-		dirty: dirty ? dirty.split("\n").length : 0,
-		unlanded,
-	};
-}
-
-/**
- * Every linked worktree of `root`; a throw where git will not list them, as
- * each would then read unregistered.
- * @param {string} root
- * @returns {string[]}
- */
-function readWorktreesOrThrow(root) {
-	const registered = readLinkedWorktrees(root);
-	if (registered === null)
-		throw new Error(
-			`git would not list the worktrees of ${root}, so none can be judged — run \`git worktree list\` there to see why`,
-		);
-	return registered;
-}
-
-/**
- * Every job, each cwd a pass leaves its worktree standing for — a live
- * process's, or a job's not ended or ended under KEEP_MS ago — and each job
- * store or record that would not read, as readJobCwds names it.
- * @param {string[]} cwds every live process's cwd
- * @param {number} now
- */
-function readOccupied(cwds, now) {
-	const { jobs, unread } = readJobCwds();
-	const occupied = [
-		...cwds,
-		...jobs
-			.filter(
-				(j) =>
-					j.state === null ||
-					!ENDED.has(j.state) ||
-					j.at === 0 ||
-					now - j.at < KEEP_MS,
-			)
-			.map((j) => j.cwd),
-	];
-	return { jobs, occupied, unread };
-}
-
-/**
- * Whether the pass removes no worktree: an unread job store or record may
- * hold a resumable job in any of them (#4704).
- * @param {string[]} unread readJobCwds' `unread`
- * @param {Reaped} out accumulator: each unread path is pushed onto `failed`
- */
-function holdForUnread(unread, out) {
-	for (const u of unread)
-		out.failed.push(
-			`${u} — a job it holds may be resumable, so no worktree is removed until it reads`,
-		);
-	return unread.length > 0;
-}
-
-/**
- * The session worktrees in `base`, judged by REAP's rules.
- * @param {string} root
- * @param {Pass} pass
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
- * @returns {string[]} every registered worktree still standing
- */
-function reapWorktrees(root, { cwds, now, record, common }, out) {
-	const registered = readWorktreesOrThrow(root);
-	const { jobs, occupied, unread } = readOccupied(cwds, now);
-	const held = holdForUnread(unread, out);
-	const live = readLiveOrLog("session-checkout reap");
-	/** @type {string[]} */
-	const standing = [];
-	for (const dir of registered) {
-		if (
-			!isSessionWorktreeDir(root, dir) ||
-			ISOLATED.test(path.basename(dir)) ||
-			!fs.existsSync(dir) ||
-			ageOf(dir, now) < YOUNG_MS ||
-			occupied.some((cwd) => worktreeHolding(cwd, [dir]))
-		) {
-			standing.push(dir);
-			continue;
-		}
-		try {
-			const admin = adminDirOf(dir);
-			if (
-				fs.existsSync(path.join(admin, "locked")) ||
-				isHeldByLiveSession(admin, live)
-			) {
-				standing.push(dir);
-				continue;
-			}
-			const state = readWorktreeState(dir, now, root);
-			if (state.dirty > 0 || state.unlanded > 0) {
-				out.stranded.push({
-					...state,
-					filed: readWorktreeFiling(
-						common,
-						worktreeLabel(root, dir),
-						readWorktreeDirt(dir) ?? [UNREAD_DIRT],
-					),
-				});
-				standing.push(dir);
-				continue;
-			}
-			if (held) {
-				standing.push(dir);
-				continue;
-			}
-			removeWorktree(root, dir, { record, now }, jobs);
-			out.removed.push(dir);
-		} catch (err) {
-			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
-			standing.push(dir);
-		}
-	}
-	return standing;
-}
-
-/**
- * Remove `dir` and its store link, first recording each job whose cwd lies in
- * it, so `reopen` can rebuild it.
- * @param {string} root
- * @param {string} dir
- * @param {Pick<Pass, "record" | "now">} pass
- * @param {import("./session-worktrees.js").JobCwd[]} jobs
- */
-function removeWorktree(root, dir, pass, jobs) {
-	recordReaped(
-		pass,
-		dir,
-		jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
-	);
-	const link = path.join(dir, "node_modules");
-	if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
-		fs.unlinkSync(link);
-	git(["worktree", "remove", dir], root);
-}
-
-/**
- * Append a line to REAPED_RECORD for each job whose cwd lies in `dir`, with
- * its `HEAD` sha.
- * @param {Pick<Pass, "record" | "now">} pass
- * @param {string} dir
- * @param {import("./session-worktrees.js").JobCwd[]} owners
- */
-function recordReaped({ record, now }, dir, owners) {
-	if (owners.length === 0) return;
-	const head = git(["rev-parse", "HEAD"], dir);
-	const at = new Date(now).toISOString();
-	fs.appendFileSync(
-		record,
-		owners
-			.map(
-				(j) =>
-					`${JSON.stringify(/** @type {ReapedTree} */ ({ job: j.id, seat: j.seat, path: dir, head, at }))}\n`,
-			)
-			.join(""),
-	);
-}
-
-/**
- * The last REAPED_RECORD line for job `id`; null where none names it.
- * @param {string} record
- * @param {string} id
- * @returns {ReapedTree | null}
- */
-function readReaped(record, id) {
-	/** @type {ReapedTree | null} */
-	let last = null;
-	for (const r of readJsonl(record)?.rows ?? []) {
-		const { job, seat, path: dir, head, at } = r;
-		if (
-			job === id &&
-			typeof seat === "string" &&
-			typeof dir === "string" &&
-			typeof head === "string" &&
-			typeof at === "string"
-		)
-			last = { job, seat, path: dir, head, at };
-	}
-	return last;
-}
-
-/**
- * Every directory in `base` git has no registration for and no live process
- * works in.
- * @param {string} base
- * @param {string[]} standing
- * @param {Pass} pass
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
- */
-function reapStrays(base, standing, { cwds, now }, out) {
-	for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
-		const dir = path.join(base, entry.name);
-		if (
-			!entry.isDirectory() ||
-			dir === path.join(base, path.basename(STORES)) ||
-			ISOLATED.test(entry.name) ||
-			standing.includes(dir) ||
-			ageOf(dir, now) < YOUNG_MS ||
-			cwds.some((cwd) => worktreeHolding(cwd, [dir]))
-		)
-			continue;
-		if (fs.existsSync(path.join(dir, ".git"))) {
-			out.unregistered.push(dir);
-			continue;
-		}
-		try {
-			removeTree(dir);
-			out.strays.push(dir);
-		} catch (err) {
-			out.failed.push(`${dir}: ${caught(err).message.trim()}`);
-		}
-	}
-}
-
-/**
- * The store each of `standing` links its `node_modules` to.
- * @param {string[]} standing
- * @returns {Set<string>}
- */
-function readLinkedStores(standing) {
-	const linked = new Set();
-	for (const dir of standing)
-		try {
-			const target = fs.readlinkSync(path.join(dir, "node_modules"));
-			linked.add(path.dirname(path.resolve(dir, target)));
-		} catch {
-			/* No link: a worktree with no lockfile, or a real directory. */
-		}
-	return linked;
-}
-
-/**
- * Remove each dead build's lock; the store keys a live build holds.
- * @param {string} storesDir
- * @param {string[]} names
- * @param {number} now
- * @returns {Set<string>}
- */
-function sweepBuildLocks(storesDir, names, now) {
-	const building = new Set();
-	for (const name of names) {
-		const key = BUILD_LOCK.exec(name)?.[1];
-		if (key === undefined) continue;
-		const lock = path.join(storesDir, name);
-		/* Null: released since the listing. */
-		const holder = readLockHolder(lock) ?? 0;
-		if (holder > 0 && pidAlive(holder)) building.add(key);
-		else if (ageOf(lock, now) >= YOUNG_MS) fs.rmSync(lock, { force: true });
-	}
-	return building;
-}
-
-/**
- * Every store not in `kept`, and every dead build's staging directory,
- * removed.
- * @param {string} storesDir
- * @param {Set<string>} kept the stores a standing worktree links, and the one
- *   WARM keeps for the next cut
- * @param {number} now
- * @param {Reaped} out accumulator: what the pass removed, reported and failed on is pushed here
- */
-function reapStores(storesDir, kept, now, out) {
-	if (!fs.existsSync(storesDir)) return;
-	const names = fs.readdirSync(storesDir);
-	const building = sweepBuildLocks(storesDir, names, now);
-	for (const name of names) {
-		const at = path.join(storesDir, name);
-		const builder = BUILD_STAGING.exec(name)?.[1];
-		const unused =
-			builder === undefined
-				? STORE_KEY.test(name) &&
-					!building.has(name) &&
-					!kept.has(at) &&
-					ageOf(at, now) >= YOUNG_MS &&
-					ageOf(path.join(at, "node_modules"), now) >= YOUNG_MS
-				: !pidAlive(Number(builder));
-		if (!unused) continue;
-		try {
-			removeTree(at);
-			if (builder === undefined) out.stores.push(at);
-		} catch (err) {
-			out.failed.push(`${at}: ${caught(err).message.trim()}`);
-		}
-	}
-}
-
-/**
- * Remove each build failure record of a store no longer kept.
- * @param {string} storesDir
- * @param {Set<string>} kept as reapStores's
- */
-function sweepBuildFailures(storesDir, kept) {
-	if (!fs.existsSync(storesDir)) return;
-	for (const name of fs.readdirSync(storesDir)) {
-		const key = BUILD_FAILED.exec(name)?.[1];
-		if (key !== undefined && !kept.has(path.join(storesDir, key)))
-			fs.rmSync(path.join(storesDir, name), { force: true });
-	}
-}
-
-/**
- * Prune every registration whose directory is gone; the worktree name each
- * pruned, from git's report, which it writes on stderr.
- * @param {string} root
- * @returns {string[]}
- */
-function prune(root) {
-	const r = spawnGitSync(["worktree", "prune", "--verbose"], {
-		cwd: root,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		timeout: GIT_TIMEOUT_MS,
-	});
-	if (r.error) throw r.error;
-	if (r.status !== 0)
-		throw new Error(`git worktree prune exited ${r.status}: ${r.stderr}`);
-	const removing = /^Removing worktrees\/([^:]+):/gm;
-	return [...`${r.stdout}${r.stderr}`.matchAll(removing)].map((m) =>
-		requiredGroup(m, 1, removing),
-	);
-}
-
-/**
- * REAP, above. One pass runs at a time per repository; another finds it busy.
- * @param {string} cwd anywhere in the repository
- * @returns {Reaped | { busy: number | null }}
- */
-function reap(cwd) {
-	const now = Date.now();
-	const root = rootOf(cwd);
-	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
-	const lock = pidLock(path.join(common, "wfc-reap.pid"), REAP_HOLDERS);
-	if (!lock.acquire()) return { busy: lock.holder() };
-	try {
-		/** @type {Reaped} */
-		const out = {
-			removed: [],
-			stranded: [],
-			unregistered: [],
-			pruned: [],
-			strays: [],
-			stores: [],
-			failed: [],
-			fetchFailed: null,
-		};
-		const record = path.join(common, REAPED_RECORD);
-		/* With `landing` off no session worktree is cut, and none can be
-		 * judged landed. */
-		const judged = moduleOn("landing", { root });
-		if (judged)
-			try {
-				fetchShared(root);
-			} catch (err) {
-				/* A stale `origin/main` only reads more work as unlanded. */
-				out.fetchFailed = caught(err).message.trim();
-			}
-		out.pruned = prune(root);
-		const base = path.join(root, WORKTREES);
-		if (!fs.existsSync(base)) return out;
-		const pass = {
-			now,
-			cwds: readProcesses().map((p) => deref(p.cwd)),
-			record,
-			common,
-		};
-		const standing = judged
-			? reapWorktrees(root, pass, out)
-			: readWorktreesOrThrow(root);
-		reapStrays(base, standing, pass, out);
-		const storesDir = path.join(root, STORES);
-		const kept = readLinkedStores(standing);
-		/* Residual: after a failed fetch this keeps the store of a stale
-		 * `origin/main`'s lockfile, one store more than the next cut uses,
-		 * until a pass whose fetch succeeds. */
-		const startLock = judged ? buildStartSource(root)(LOCKFILE) : null;
-		if (startLock !== null)
-			kept.add(path.join(storesDir, storeKeyOf(startLock)));
-		reapStores(storesDir, kept, now, out);
-		sweepBuildFailures(storesDir, kept);
-		return out;
-	} finally {
-		lock.release();
-	}
 }
 
 /**
@@ -1498,16 +477,4 @@ function reopen(cwd, id) {
 	return { dir, seat, restored: true };
 }
 
-module.exports = {
-	attach,
-	CheckoutError,
-	cut,
-	isSessionWorktreeDir,
-	land,
-	launchDir,
-	reap,
-	relink,
-	reopen,
-	STORES,
-	warm,
-};
+module.exports = { cut, land, launchDir, reopen };

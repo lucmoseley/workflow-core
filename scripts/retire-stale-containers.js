@@ -81,6 +81,7 @@
  */
 
 const { runCheck } = require("./lib/check");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	recordRun,
 	JOB_RETIRE_STALE_CONTAINERS,
@@ -110,7 +111,7 @@ const SPEC = "kind:spec";
 /** A spec's last ticket closing is the cue for its whole-spec review (#892).
  *  @param {number} n */
 const buildSpecReviewReason = (n) =>
-	`its every ticket has closed, so /triage reviews its combined commits first (node scripts/spec-commits.js ${n}, adding --since <sha> where an earlier triage comment carries a **Reviewed through:** line), then decides whether it is discharged.`;
+	`its every ticket has closed, so /triage reviews its combined commits first (node ${scriptPath("spec-commits.js")} ${n}, adding --since <sha> where an earlier triage comment carries a **Reviewed through:** line), then decides whether it is discharged.`;
 
 /**
  * @typedef {{

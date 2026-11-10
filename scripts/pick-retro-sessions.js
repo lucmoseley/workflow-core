@@ -39,6 +39,7 @@
  */
 
 const crypto = require("node:crypto");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -60,7 +61,7 @@ const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { execGit } = require("./lib/git.js");
 const { errMessage, now: checkNow } = require("./lib/check");
 
-const USAGE = `Usage: node scripts/pick-retro-sessions.js [--week <date>] [--top <n>]
+const USAGE = `Usage: node ${scriptPath("pick-retro-sessions.js")} [--week <date>] [--top <n>]
   [--calibrate [--seed <s>]] [--config-dir <dir>]...
 
 Ranks one week's finished sessions, across every repo that runs the
