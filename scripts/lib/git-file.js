@@ -64,25 +64,29 @@ function readGitFileCommonDir(root) {
 }
 
 /**
- * The root of each linked worktree registered under common dir `common`, as
- * its registration's `gitdir` file names it; none where `common` registers
- * none. A registration whose file is gone is left out.
+ * The registration directory of each linked worktree under common dir
+ * `common`; none where it registers none.
  * @param {string} common
  * @returns {string[]}
  */
-function readLinkedWorktrees(common) {
+function readRegistrations(common) {
 	const base = path.join(common, "worktrees");
-	let names;
 	try {
-		names = fs.readdirSync(base);
+		return fs.readdirSync(base).map((name) => path.join(base, name));
 	} catch (err) {
 		if (ABSENT_CODES.has(caught(err).code ?? "")) return [];
 		throw err;
 	}
-	return names.flatMap((name) => {
-		const gitFile = readTextOrNull(path.join(base, name, "gitdir"))?.trim();
-		return gitFile ? [path.dirname(path.resolve(base, name, gitFile))] : [];
-	});
+}
+
+/**
+ * The worktree root a registration's `gitdir` file names; null where that
+ * file is gone or empty.
+ * @param {string} registration
+ */
+function readRegisteredTree(registration) {
+	const gitFile = readTextOrNull(path.join(registration, "gitdir"))?.trim();
+	return gitFile ? path.dirname(path.resolve(registration, gitFile)) : null;
 }
 
 /**
@@ -108,6 +112,7 @@ module.exports = {
 	parseGitFileTarget,
 	readGitFile,
 	readGitFileCommonDir,
-	readLinkedWorktrees,
+	readRegisteredTree,
 	readRegistrationCommonDir,
+	readRegistrations,
 };
