@@ -1057,8 +1057,7 @@ function resolveWord(word, scope) {
  * @property {string | undefined} cwd the payload's `.cwd`, where the session's
  *   shell stands (mantahostels#2682)
  * @property {string} fallbackCwd where a walk stands with no absolute `cwd`:
- *   lib/host-root.js's sessionDir under a hook, the hook's own directory only
- *   where the payload carries no absolute cwd (#4695)
+ *   under a hook, lib/host-root.js's sessionDir (#4695)
  * @property {Record<string, string | undefined>} vars what an unassigned
  *   `$VAR` reads
  * @property {(path: string) => boolean} isDir
