@@ -27,6 +27,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
+const { readCommit } = require("./commit-sha.js");
 const { gitReader } = require("./git.js");
 const guardDigest = require("./guard-digest.js");
 const { ANCHORS, parseRows } = require("./registry-anchors-file.js");
@@ -51,9 +52,9 @@ const { ANCHORS, parseRows } = require("./registry-anchors-file.js");
  * @returns {{ anchors: Record<string, string>, error: string | null }}
  */
 function readHeadAnchors(git) {
-	const head = git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], [1]);
+	const head = readCommit(git, "HEAD");
 	if (!head.ok) return { anchors: {}, error: head.why };
-	if (!head.out.trim()) return { anchors: {}, error: null };
+	if (head.sha === null) return { anchors: {}, error: null };
 	const listed = git(["ls-tree", "--name-only", "HEAD", "--", ANCHORS], []);
 	if (!listed.ok) return { anchors: {}, error: listed.why };
 	if (!listed.out.trim()) return { anchors: {}, error: null };
