@@ -10,10 +10,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-	AGE_FLOOR_MS,
 	buildCrossingLines,
 	buildQueueLine,
-	DEPTH_FLOOR,
 	queueCrossings,
 } from "./queue-gauge.js";
 import { queueBaseline } from "./queue-log.js";
@@ -43,6 +41,8 @@ const waiting = (...ages: number[]) =>
 	ages.map((age, i) => ({ name: `w${i}`, sha: A, since: NOW - age * MIN }));
 
 const EMPTY = queueBaseline([], NOW);
+/** The floors the limits never go under. */
+const FLOORS = { ageMs: 60 * MIN, depth: 10 };
 
 /** The limits a gauge of `b` is held to. */
 const queueLimits = (b: ReturnType<typeof queueBaseline>) =>
@@ -50,18 +50,13 @@ const queueLimits = (b: ReturnType<typeof queueBaseline>) =>
 
 describe("the limits", () => {
 	it("holds the floors on an empty baseline", () => {
-		expect(queueLimits(EMPTY)).toEqual({
-			ageMs: AGE_FLOOR_MS,
-			depth: DEPTH_FLOOR,
-		});
-		expect(AGE_FLOOR_MS).toBe(60 * MIN);
-		expect(DEPTH_FLOOR).toBe(10);
+		expect(queueLimits(EMPTY)).toEqual(FLOORS);
 	});
 
 	it("holds the floors on a tiny baseline", () => {
 		const b = queueBaseline(week(3, 5), NOW);
 		expect(b.p90Ms).toBe(5 * MIN);
-		expect(queueLimits(b)).toEqual({ ageMs: AGE_FLOOR_MS, depth: DEPTH_FLOOR });
+		expect(queueLimits(b)).toEqual(FLOORS);
 	});
 
 	it("is twice the p90s where they pass the floors", () => {

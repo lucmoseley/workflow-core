@@ -6,14 +6,8 @@
 
 const { caught } = require("./caught.js");
 const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
-const {
-	pushedRef,
-	QUEUE_REFSPEC,
-	REMOTE,
-	trackingRefspec,
-	VERIFIED_BRANCH,
-	VERIFIED_REF,
-} = require("./landing-refs.js");
+const { fetchShared } = require("./checkout-repo.js");
+const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
 const { execGit } = require("./git.js");
 
 /**
@@ -72,8 +66,8 @@ function buildStateLine({ sha, state }, subject, queue) {
 }
 
 /**
- * Git in `root`, after one fetch from `origin` of `main` and every queue ref, pruning the queue refs gone from it. Every read throws where git
- * fails, the fetch included.
+ * Git in `root`, after lib/checkout-repo.js's fetch of `main` and every
+ * queue ref. Every read throws where git fails, the fetch included.
  * @param {string} root
  * @param {string} tree the session's tree top level
  * @returns {StatusGit & {subjectOf: (sha: string) => string}}
@@ -87,14 +81,7 @@ function fetchedGit(root, tree) {
 			stdio: ["ignore", "pipe", "pipe"],
 			timeout: LANDER_GIT_TIMEOUT_MS,
 		});
-	git([
-		"fetch",
-		"--quiet",
-		"--prune",
-		REMOTE,
-		trackingRefspec(VERIFIED_BRANCH),
-		QUEUE_REFSPEC,
-	]);
+	fetchShared(root, LANDER_GIT_TIMEOUT_MS);
 	return {
 		pushed: pushedRef({ root, tree }),
 		isOn(ref, sha) {

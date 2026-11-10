@@ -47,8 +47,8 @@ const {
 	GIT_TIMEOUT_MS,
 	SHORT_SHA,
 } = require("./git.js");
-const { isCutOver } = require("./cutover.js");
-const { LANDING_REF, QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
+const { isCutOver, LANDING_REF } = require("./cutover.js");
+const { QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");

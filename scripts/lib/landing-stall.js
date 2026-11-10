@@ -34,6 +34,7 @@ const {
 	readHeartbeat,
 } = require("./lander-files.js");
 const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
+const { queueBranch } = require("./landing-refs.js");
 const { readOwedDrops } = require("./lander-records.js");
 const { markersDir } = require("./marker-root.js");
 const { queueGit } = require("./queue-lander-adapters.js");
@@ -77,7 +78,7 @@ function stallFindings(r) {
 	if (oldest === null) return [];
 	/** @type {StallFinding[]} */
 	const found = [];
-	const at = `queue/${oldest.name} ${short(oldest.sha)}`;
+	const at = `${queueBranch(oldest.name)} ${short(oldest.sha)}`;
 	if (
 		movedAt !== null &&
 		now - Math.max(movedAt, oldest.since, wokeAt) > STALL_MS
@@ -118,7 +119,7 @@ function supervision(r) {
 		ticket:
 			stalled && "movedAt" in stalled && oldest !== null && (dead || live)
 				? {
-						waiting: `queue/${oldest.name} at ${oldest.sha}`,
+						waiting: `${queueBranch(oldest.name)} at ${oldest.sha}`,
 						movedAt: stalled.movedAt,
 					}
 				: null,

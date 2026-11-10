@@ -49,7 +49,7 @@ const run = (env: Record<string, string>) =>
 describe("alarm-notice.js", () => {
 	it("reads the code repo and the login from its checkout's config, and posts its notice to the tracker", async () => {
 		const gh = fakeGitHub("o/code", "o/tracker", 7);
-		gh.state.runs["main-lag.yml"] = [["failure", 1]];
+		gh.state.runs["queue-wait.yml"] = [["failure", 1]];
 		const seen: string[] = [];
 		const server = http.createServer(async (req, res) => {
 			let body = "";

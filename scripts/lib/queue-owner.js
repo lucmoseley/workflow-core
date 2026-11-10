@@ -19,7 +19,7 @@
 const fs = require("node:fs");
 const { parseErrorFirstLine } = require("./first-line.js");
 const { admissionSessionIds, isListedLive } = require("./agent-liveness.js");
-const { QUEUE_PREFIX, ownQueueRef } = require("./landing-refs.js");
+const { ownQueueRef, queueBranch } = require("./landing-refs.js");
 const { worktreeOwners } = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
 const { writeFd } = require("./write-fd.js");
@@ -53,7 +53,7 @@ const liveOwnerDeps = (root) => ({
  * @returns {OwnerRead}
  */
 function readOwner(root, name, deps = liveOwnerDeps(root)) {
-	const queued = `${QUEUE_PREFIX}${name}`;
+	const queued = queueBranch(name);
 	/** @param {string} why */
 	const unread = (why) => {
 		deps.say(

@@ -38,6 +38,10 @@ const {
 } = require("./lander-git.js");
 const {
 	DROPPED_PREFIX,
+	isQueueHead,
+	queueBranch,
+	queueHead,
+	queueNameOf,
 	QUEUE_HEADS,
 	QUEUE_REFSPEC,
 	REMOTE,
@@ -50,7 +54,7 @@ const {
 	readEnqueueTimes,
 	readNewestEvent,
 } = require("./queue-log.js");
-const { TransientFault } = require("./queue-lander.js");
+const { TransientFault, fileSetKey } = require("./queue-lander.js");
 const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { isStringList, parseVerdict } = require("./lander-records.js");
@@ -140,21 +144,24 @@ function readEnvelope(r, sha, timeoutMs) {
  * over them all (#4545). A call that meets a broken loose object removes that object's file
  * and fetches before it throws, so its retry reads the object afresh.
  * @param {string} root
- * @param {number} [mergeTimeoutMs] each member's merge, its gates included,
- *   and the batch's one gate pass: each at most one commit's whole gate
- *   stack, which #3913's figure was measured on
- * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
- *   merge renders afresh rather than takes from either side
- * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester's
- *   run repeats the gates the batch's set leaves out, its `repeatsGates`;
- *   else the batch runs every gate
+ * @param {object} [options]
+ * @param {number} [options.mergeTimeoutMs] each member's merge, its gates
+ *   included, and the batch's one gate pass: each at most one commit's whole
+ *   gate stack, which #3913's figure was measured on
+ * @param {ReadonlyMap<string, Regenerated>} [options.regenerated] the files
+ *   each merge renders afresh rather than takes from either side
+ * @param {boolean} [options.ciRepeats] where the tester's run repeats the
+ *   gates the batch's set leaves out, its `repeatsGates`; else the batch
+ *   runs every gate
  * @returns {QueueGit}
  */
 function queueGit(
 	root,
-	mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
-	regenerated = REGENERATED_FILES,
-	{ ciRepeats = false } = {},
+	{
+		mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
+		regenerated = REGENERATED_FILES,
+		ciRepeats = false,
+	} = {},
 ) {
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
@@ -217,7 +224,7 @@ function queueGit(
 					() => fetchSpecs,
 				);
 				const listed = [...heads].flatMap(([ref, sha]) =>
-					ref.startsWith(QUEUE_HEADS) ? [{ ref, sha }] : [],
+					isQueueHead(ref) ? [{ ref, sha }] : [],
 				);
 				const enqueued = readEnqueueTimes(queueLogFile(root));
 				const times = committedAt(
@@ -230,7 +237,7 @@ function queueGit(
 					const pushedAt = enqueued(ref, sha) ?? times.get(sha);
 					if (pushedAt === undefined || !Number.isFinite(pushedAt))
 						throw new Error(`git log printed no committer time for ${sha}`);
-					return { name: ref.slice(QUEUE_HEADS.length), sha, pushedAt };
+					return { name: queueNameOf(ref), sha, pushedAt };
 				});
 				/** @type {DroppedRef[]} */
 				const dropped = [...heads].flatMap(([ref, sha]) =>
@@ -462,7 +469,7 @@ function queueGit(
 					"--no-ff",
 					"--no-commit",
 					"-m",
-					`Merge queue/${m.name} at ${short(m.sha)} into the batch`,
+					`Merge ${queueBranch(m.name)} at ${short(m.sha)} into the batch`,
 					m.sha,
 				],
 				mergeTimeoutMs,
@@ -523,7 +530,7 @@ function queueGit(
 			const e = caught(err);
 			if (e.code === "ETIMEDOUT")
 				throw new TransientFault(
-					`queue/${m.name}'s merge timed out after ${mergeTimeoutMs / 1000} s`,
+					`${queueBranch(m.name)}'s merge timed out after ${mergeTimeoutMs / 1000} s`,
 					{ cause: err },
 				);
 			if (e.status === undefined || BROKEN_OBJECT.test(String(e.stderr ?? "")))
@@ -579,9 +586,6 @@ const changedOnBothSides = (inTree, file) => {
  */
 const parseLedgerTime = (at) => Date.parse(String(at)) || 0;
 
-/** @param {readonly string[]} files */
-const fileKey = (files) => [...files].sort().join("\n");
-
 /**
  * The verdict ledger: one JSON line per green or red reached, by sha, the
  * files it ran, the whole suite being none, and its pass, a line naming none
@@ -593,11 +597,11 @@ const fileKey = (files) => [...files].sort().join("\n");
 function verdictLedger(file) {
 	return {
 		get(sha, files, pass = 1) {
-			const key = fileKey(files);
+			const key = fileSetKey(files);
 			const rows = readJsonl(file)?.rows ?? [];
 			for (const row of rows.toReversed()) {
 				if (row.sha !== sha || !isStringList(row.files)) continue;
-				if (fileKey(row.files) !== key || (row.pass ?? 1) !== pass) continue;
+				if (fileSetKey(row.files) !== key || (row.pass ?? 1) !== pass) continue;
 				const verdict = parseVerdict(row.verdict);
 				if (verdict) return { verdict, at: parseLedgerTime(row.at) };
 			}
@@ -651,7 +655,7 @@ function refusedRecord(file) {
  */
 const queueLogger = (root) => (event, m) => {
 	const file = queueLogFile(root);
-	const ref = `${QUEUE_HEADS}${m.name}`;
+	const ref = queueHead(m.name);
 	if (event !== "take" && readNewestEvent(file, ref, m.sha) === event) return;
 	logQueueEvent(file, event, { ref, sha: m.sha, at: now() });
 };

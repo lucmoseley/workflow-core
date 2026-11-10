@@ -4,11 +4,16 @@
  * shares them with the main tree's: its green ledger (one `<sha> <iso time>`
  * line per sha it lands, which the pre-push gate on `main` reads), its
  * pidfile lock, its heartbeat, and its verdict, batch and drop records (#4485, spec #4458).
+ *
+ * The ledger's and the heartbeat's times are lib/check.js's clock, as the
+ * lander's own rows are (#4860). Residual: a WFC_NOW in the lander's
+ * environment pins them all, so the stall check reads a live lander's
+ * heartbeat as stale, and a malformed one makes each write throw.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { now } = require("./check.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { markersDir } = require("./marker-root.js");
 const { pidLock } = require("./pid-lock.js");
@@ -46,12 +51,12 @@ const landerLock = (root) =>
 	pidLock(queueLanderFiles(root).pid, "queue-lander.js");
 
 /**
- * A ledger's text, or null where it does not exist; any other read fault
+ * A file's text, or null where it does not exist; any other read fault
  * throws, so an unreadable green ledger never reads as holding no sha
  * (#4856).
  * @param {string} file
  */
-function readLedgerText(file) {
+function readTextOrNull(file) {
 	const r = readText(file);
 	if (r.state === "unreadable") throw r.error;
 	return r.state === "read" ? r.data : null;
@@ -65,23 +70,23 @@ function readLedgerText(file) {
  */
 function fileLedger(file) {
 	const readShas = () =>
-		(readLedgerText(file) ?? "")
+		(readTextOrNull(file) ?? "")
 			.split("\n")
 			.flatMap((line) => line.split(" ")[0] || []);
 	return {
 		readShas,
 		has: (sha) => readShas().includes(sha),
 		greenAt: (sha) => {
-			const line = (readLedgerText(file) ?? "")
+			const line = (readTextOrNull(file) ?? "")
 				.split("\n")
 				.find((l) => l.split(" ")[0] === sha);
 			const ms = Date.parse(line?.split(" ")[1] ?? "");
 			return Number.isNaN(ms) ? null : ms;
 		},
 		add: (sha) =>
-			fs.appendFileSync(file, `${sha} ${new Date().toISOString()}\n`),
+			fs.appendFileSync(file, `${sha} ${new Date(now()).toISOString()}\n`),
 		remove: (sha) => {
-			const text = readLedgerText(file);
+			const text = readTextOrNull(file);
 			if (text === null) return;
 			const kept = text.split("\n").filter((l) => l.split(" ")[0] !== sha);
 			writeFileAtomic(file, kept.join("\n"));
@@ -96,7 +101,7 @@ function fileLedger(file) {
 const heartbeatWriter = (file) => (batch) =>
 	writeFileAtomic(
 		file,
-		`${JSON.stringify({ pid: process.pid, at: new Date().toISOString(), batch })}\n`,
+		`${JSON.stringify({ pid: process.pid, at: new Date(now()).toISOString(), batch })}\n`,
 	);
 
 /**
@@ -106,13 +111,8 @@ const heartbeatWriter = (file) => (batch) =>
  * @returns {Heartbeat|null}
  */
 function readHeartbeat(file) {
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return null;
-		throw err;
-	}
+	const text = readTextOrNull(file);
+	if (text === null) return null;
 	try {
 		const beat = JSON.parse(text);
 		return typeof beat?.pid === "number" && typeof beat.at === "string"
