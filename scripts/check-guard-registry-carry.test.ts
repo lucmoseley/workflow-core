@@ -2,7 +2,8 @@
 /*
  * Tests for scripts/check-guard-registry.js carrying a row across a merge
  * (#4514): stale on the merged index, fresh on both parents, and no file of
- * its closure changed on both sides since the merge base.
+ * its closure changed on both sides since the merge base. A row only the
+ * merged-in side holds is carried on that side's freshness (#4801).
  *
  * spawn-kept: the merge cases commit through real git hooks, since only git
  * shows which index reaches a merge commit's tree.
@@ -31,6 +32,7 @@ afterEach(removeTemps);
 const GUARD = "scripts/guard-pair.sh";
 const LIB_A = "scripts/lib/a.sh";
 const LIB_B = "scripts/lib/b.sh";
+const ADDED = "scripts/guard-solo.sh";
 const lines = (...ls: string[]) => `${ls.join("\n")}\n`;
 const LIB_A_BODY = ["a1() { :; }", "", "", "", "", "", "a2() { :; }"];
 
@@ -273,15 +275,17 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(theirs);
 	});
 
-	it("never carries a row HEAD does not carry at all, a guard the merged-in side added", () => {
-		const { root, git, change } = mergeRepo();
-		const added = "scripts/guard-solo.sh";
-		change("main", { [LIB_B]: lines("b() { exit 1; }") });
+	/** `side` adds a guard of its own over lib/a.sh, anchored fresh there, as #4696's member did. */
+	const sideAddsGuard = (
+		{ root, git }: ReturnType<typeof mergeRepo>,
+		libA?: string,
+	) => {
 		git("checkout", "-q", "side");
 		fs.writeFileSync(
-			path.join(root, added),
-			lines("#!/bin/sh", 'source "$(dirname "$0")/lib/b.sh"', "exit 2"),
+			path.join(root, ADDED),
+			lines("#!/bin/sh", 'source "$(dirname "$0")/lib/a.sh"', "exit 2"),
 		);
+		if (libA !== undefined) fs.writeFileSync(path.join(root, LIB_A), libA);
 		fs.appendFileSync(
 			path.join(root, "CLAUDE.md"),
 			region(
@@ -290,21 +294,49 @@ describe("a merge carries a row whose sides changed different files of its closu
 		);
 		fs.writeFileSync(
 			path.join(root, SELF_PLUGIN_HOOKS),
-			hooksWiring(GUARD, added),
+			hooksWiring(GUARD, ADDED),
 		);
 		/* --review skips a guard git's index does not hold. */
 		git("add", "-A");
-		reviewIn(root, [added], ownClaims(root));
+		reviewIn(root, [GUARD, ADDED], ownClaims(root));
 		git("add", "-A");
 		git("commit", "-qm", "side adds a guard");
 		git("checkout", "-q", "main");
+	};
+
+	it("carries a row HEAD holds none of, a guard the merged-in side added, where only HEAD changed its library (#4801)", () => {
+		const repo = mergeRepo();
+		const { git, tryGit, change, hooks, fresh } = repo;
+		const [, ...rest] = LIB_A_BODY;
+		change("main", { [LIB_A]: lines("a1() { exit 1; }", ...rest) });
+		sideAddsGuard(repo);
+		hooks();
+
+		git("merge", "--no-ff", "--no-commit", "side");
+		const r = tryGit("commit", "--no-edit");
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain(`carried ${ADDED} across the merge`);
+		expect(fresh()).toBe(true);
+		expect(git("status", "--porcelain")).toBe("");
+	});
+
+	it("never carries a row the merged-in side added where both sides changed its library, naming the file (#4801)", () => {
+		const repo = mergeRepo();
+		const { root, git, change } = repo;
+		const [first, ...rest] = LIB_A_BODY;
+		change("main", { [LIB_A]: lines("a1() { exit 1; }", ...rest) });
+		sideAddsGuard(
+			repo,
+			lines(first ?? "", ...rest.slice(0, -1), "a2() { exit 1; }"),
+		);
 
 		git("merge", "--no-ff", "--no-commit", "side");
 		const r = run(root, ["--against", "HEAD"], { env: env(root) });
 
 		expect(r.code).toBe(1);
 		expect(r.report).toContain(
-			`not carried ${added} — it is not fresh on HEAD`,
+			`not carried ${ADDED} — both sides changed ${LIB_A}`,
 		);
 		expect(r.json).toHaveProperty("carried", []);
 	});
