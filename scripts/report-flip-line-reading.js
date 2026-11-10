@@ -100,7 +100,7 @@ const { readFiledAs, publish, readDaily } = buildFiler({
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".flip-line-reading-filed",
-	script: `node ${scriptPath("report-flip-line-reading.js")}`,
+	script: "report-flip-line-reading.js",
 	buildIssueBody: (reading) =>
 		[
 			`The reading of the low-top test's flip line (#2228), filed once by \`scripts/report-flip-line-reading.js\` at its reading point (#2331, spec #2260). Closing this issue never re-files it.`,

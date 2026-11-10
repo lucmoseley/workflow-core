@@ -187,7 +187,7 @@ const { readFiledAs, publish, readDaily } = buildFiler({
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".close-check-reading-filed",
-	script: `node ${scriptPath("report-close-check-reading.js")}`,
+	script: "report-close-check-reading.js",
 	buildIssueBody: (reading) =>
 		[
 			"The week-one reading of the close-rivals check, filed once by `scripts/report-close-check-reading.js` at its reading point (spec #1091; rulings #1061, #1067 and #1068). Closing this issue never re-files it.",

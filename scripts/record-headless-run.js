@@ -134,7 +134,7 @@ async function main() {
 		FIXTURE,
 		`${JSON.stringify(
 			{
-				recordedBy: `node ${scriptPath("record-headless-run.js")}`,
+				recordedBy: "node scripts/record-headless-run.js",
 				harness,
 				options,
 				result,

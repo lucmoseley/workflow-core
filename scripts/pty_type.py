@@ -20,6 +20,7 @@ or exited first; 2 on a bad command line.
 import os
 import pty
 import select
+import shlex
 import signal
 import sys
 import time
@@ -66,7 +67,7 @@ def drain(fd, quiet, limit):
 def main(argv):
     if len(argv) < 3 or argv[1] != "--":
         usage = __doc__.split("USAGE\n")[1].split("\n\n")[0]
-        sys.stderr.write(usage.format(script=sys.argv[0]) + "\n")
+        sys.stderr.write(usage.format(script=shlex.quote(sys.argv[0])) + "\n")
         return 2
     text, cmd = argv[0], argv[2:]
     pid, fd = pty.fork()

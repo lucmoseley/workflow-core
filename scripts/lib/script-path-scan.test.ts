@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
- * The regression #343 exists for: a guard, lib, hook-wired or git-hook-run
- * script's message that tells a session to RUN a script by a bare path, read
- * over this repo's real scripts. It sits
+ * The regression #343 exists for: a guard, lib, hook-wired or shipped
+ * top-level script's message that tells a session to RUN a script by a bare
+ * path, read over this repo's real scripts (#4705). It sits
  * apart from `script-path.test.ts` so that file's unit cases do not read the
  * scripts tree (#1900).
  *
@@ -24,7 +24,8 @@ const { isShipped } = require("./plugin-tree") as {
 };
 
 describe("messages a shipped script prints", () => {
-	/* Data a test reads, never printed; the CI and push-check commands,
+	/* Data a test reads, never printed, the recorder fixtures' provenance
+	 * included; the CI and push-check commands,
 	 * which rewriteRuleCommands spells at the plugin root before printing; and
 	 * the arbiter command claim-warning prints, and the
 	 * bg-run.sh and watcher commands suite-background, agent-poll and
@@ -46,6 +47,8 @@ describe("messages a shipped script prints", () => {
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
+		/^\t\t\t\trecordedBy: "node scripts\/record-headless-run\.js",$/,
+		/^const RECORDED_BY = "node scripts\/record-claude-responses\.js";$/,
 		/^\t\t"writing, amending or reading a spec, .*`node scripts\/promote-spec\.js <brief>`",$/,
 	];
 
@@ -57,14 +60,17 @@ describe("messages a shipped script prints", () => {
 		.readdirSync(__dirname)
 		.filter((f) => /\.(js|sh)$/.test(f));
 
-	/* A Python docstring is the source file's own documentation, read as a
-	 * comment is; a script that prints one spells its path at run time. */
+	/* A Python docstring — a triple-quoted string opening its own line — is
+	 * the file's documentation, read as a comment is, unless the file prints
+	 * more of `__doc__` than its first line. */
+	const PrintsDoc = /__doc__(?!\.splitlines\(\)\[0\])/;
 	function docstringLines(lines: string[]) {
 		const inside = new Set<number>();
 		let open = false;
 		lines.forEach((line, i) => {
 			const toggles = (line.split('"""').length - 1) % 2 === 1;
-			if (open || toggles) inside.add(i);
+			if (!open && !/^\s*r?"""/.test(line)) return;
+			inside.add(i);
 			if (toggles) open = !open;
 		});
 		return inside;
@@ -72,8 +78,12 @@ describe("messages a shipped script prints", () => {
 
 	function readBareLines(file: string, shaped: (line: string) => boolean) {
 		const found: string[] = [];
-		const lines = fs.readFileSync(file, "utf8").split("\n");
-		const docstring = file.endsWith(".py") ? docstringLines(lines) : new Set();
+		const text = fs.readFileSync(file, "utf8");
+		const lines = text.split("\n");
+		const docstring =
+			file.endsWith(".py") && !PrintsDoc.test(text)
+				? docstringLines(lines)
+				: new Set();
 		lines.forEach((line, i) => {
 			if (docstring.has(i)) return;
 			if (COMMENT_LINE.test(line)) return;
@@ -115,7 +125,7 @@ describe("messages a shipped script prints", () => {
 	 * held 54 or more at #4285. */
 	const ScriptListFloor = 40;
 	const resolvesWholeText =
-		/require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
+		/(?:const hookBlock|\{(?!\s*repoRoot\s*\})[^}]*\}) = require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
 	function bareLinesPastResolver(
 		rels: string[],

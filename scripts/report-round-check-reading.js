@@ -619,7 +619,7 @@ const READINGS = [
 			label: takesLabel("wayfinder"),
 			/* Named outside every marker sweep family, as the round-check log is. */
 			record: ".round-check-reading-filed",
-			script: `node ${scriptPath("report-round-check-reading.js")}`,
+			script: "report-round-check-reading.js",
 			buildIssueBody: buildReadingBody(
 				"The reading of the under-researched-round check, filed once by `scripts/report-round-check-reading.js` at its reading point (spec #1701; rulings #1684 and #1691). Closing this issue never re-files it.",
 				[
@@ -653,7 +653,7 @@ const READINGS = [
 			title: SECOND_TITLE,
 			label: takesLabel("wayfinder"),
 			record: ".round-check-reading-2-filed",
-			script: `node ${scriptPath("report-round-check-reading.js")}`,
+			script: "report-round-check-reading.js",
 			buildIssueBody: buildReadingBody(
 				`The second reading of the under-researched-round check, filed once by \`scripts/report-round-check-reading.js\` at ${SECOND_TARGET} rated refused-then-answered rounds (ruled at #3978 Q1 (A); the first reading is #3978). Closing this issue never re-files it.`,
 				[

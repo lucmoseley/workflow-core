@@ -53,7 +53,6 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseResumed } = require("./lib/bg-resume.js");
@@ -84,7 +83,7 @@ const AGENTS_STOP_FIXTURE = path.join(
 const LAUNCH_FIXTURE = path.join(__dirname, "fixtures", "bg-launch.json");
 const ATTACH_FIXTURE = path.join(__dirname, "fixtures", "claude-attach.json");
 const USAGE_FIXTURE = path.join(__dirname, "fixtures", "usage-probe.json");
-const RECORDED_BY = `node ${scriptPath("record-claude-responses.js")}`;
+const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
  * "No job matching". */
 const NO_JOB = "00000000";
