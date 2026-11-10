@@ -98,14 +98,23 @@ const PHASES = Object.freeze(
  * @typedef {object} PipelineRecord
  * @property {() => RecordRead<Pipeline>} read
  * @property {(p: Pipeline) => void} write
+ * @typedef {{readonly file: string, readonly test: string,
+ *   readonly message: string}} QuotedFailure a failing test and its error,
+ *   cut to a ticket's length
  * @typedef {{readonly noRun?: true,
- *   readonly typecheck?: readonly string[]}} RedMarks what a cause keeps of
- *   its red beside its files: `noRun` where no CI run fired for that tree;
- *   `typecheck` the type-check's first errors, where it failed
+ *   readonly typecheck?: readonly string[],
+ *   readonly runs?: readonly number[],
+ *   readonly failures?: readonly QuotedFailure[]}} RedMarks what a cause
+ *   keeps of its red beside its files: `noRun` where no CI run fired for
+ *   that tree; `typecheck` the type-check's first errors, where it failed;
+ *   `runs` the CI runs that were red, where the tester read any; `failures`
+ *   the failing tests whose error it read, the first few
  * @typedef {{readonly kind: "red", readonly name: string,
- *   readonly files: readonly string[], readonly iso: string} & RedMarks}
+ *   readonly files: readonly string[], readonly iso: string,
+ *   readonly mainRun?: number} & RedMarks}
  *   RedAlone red on `files` twice, none where the red named none, merged
- *   alone onto `main` as `iso`, where `main` passed them
+ *   alone onto `main` as `iso`, where `main` passed them, in the CI run
+ *   `mainRun` where the tester read one
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
  *   readonly after: readonly string[]} & RedMarks} Collision the serial step
@@ -145,6 +154,22 @@ const PHASES = Object.freeze(
 const isStringList = (list) =>
 	Array.isArray(list) && list.every((f) => typeof f === "string");
 
+/** @param {unknown} list @returns {list is number[]} */
+const isNumberList = (list) =>
+	Array.isArray(list) && list.every((n) => typeof n === "number");
+
+/** @param {unknown} list @returns {list is QuotedFailure[]} */
+const isQuotedList = (list) =>
+	Array.isArray(list) &&
+	list.every((f) => {
+		const o = asObject(f);
+		return (
+			typeof o?.file === "string" &&
+			typeof o.test === "string" &&
+			typeof o.message === "string"
+		);
+	});
+
 /**
  * @param {unknown} value
  * @param {unknown} fallback
@@ -157,18 +182,39 @@ const isPhase = (p) =>
 	/** @type {readonly string[]} */ (PHASES).includes(p);
 
 /**
- * A green row's verdict: the run that passed it and the files its in-job
- * retry cleared, its flakes (#4558), where the row names them.
+ * A green row's verdict: the run that passed it, whole or on its named files
+ * alone, and the files its in-job retry cleared, its flakes (#4558), where
+ * the row names them.
  * @param {Record<string, unknown>} o
  * @returns {Verdict}
  */
 const parseGreen = (o) => ({
 	kind: "green",
 	...(typeof o.run === "number" ? { run: o.run } : {}),
+	...(typeof o.named === "number" ? { named: o.named } : {}),
 	...(isStringList(o.cleared) && o.cleared.length > 0
 		? { cleared: o.cleared }
 		: {}),
 });
+
+/**
+ * A red row's failing tests, each with its error where the row holds one.
+ * @param {unknown} list
+ * @returns {import("./queue-lander.js").Failure[]}
+ */
+const parseFailures = (list) =>
+	(Array.isArray(list) ? list : []).flatMap((f) => {
+		const o = asObject(f);
+		if (typeof o?.file !== "string" || typeof o.test !== "string") return [];
+		return [
+			{
+				file: o.file,
+				test: o.test,
+				...(typeof o.message === "string" ? { message: o.message } : {}),
+				...(typeof o.signature === "string" ? { signature: o.signature } : {}),
+			},
+		];
+	});
 
 /**
  * @param {unknown} v
@@ -178,16 +224,20 @@ function parseVerdict(v) {
 	const o = asObject(v);
 	if (o?.kind === "green")
 		return /** @type {Extract<Verdict, {kind: "green"}>} */ (parseGreen(o));
-	if (o?.kind === "red" && isStringList(o.files))
+	if (o?.kind === "red" && isStringList(o.files)) {
+		const failures = parseFailures(o.failures);
 		return {
 			kind: "red",
 			files: o.files,
+			...(typeof o.run === "number" ? { run: o.run } : {}),
 			...(isStringList(o.jobs) ? { jobs: o.jobs } : {}),
+			...(failures.length > 0 ? { failures } : {}),
 			/* Retried in its own run, so the lander takes no re-run (#4545). */
 			...(o.retried === true ? { retried: true } : {}),
 			...(o.noRun === true ? { noRun: true } : {}),
 			...(isStringList(o.typecheck) ? { typecheck: o.typecheck } : {}),
 		};
+	}
 	return null;
 }
 
@@ -331,19 +381,25 @@ function parsePipeline(parsed) {
 const isCause = (u) => {
 	const o = asObject(u);
 	if (typeof o?.name !== "string") return false;
-	const typecheckValid = o.typecheck === undefined || isStringList(o.typecheck);
+	const marksValid =
+		(o.typecheck === undefined || isStringList(o.typecheck)) &&
+		(o.runs === undefined || isNumberList(o.runs)) &&
+		(o.failures === undefined || isQuotedList(o.failures));
 	/** @type {Record<Cause["kind"], () => boolean>} */
 	const valid = {
 		conflict: () => isStringList(o.files),
 		refused: () => typeof o.reason === "string",
 		red: () =>
-			isStringList(o.files) && typeof o.iso === "string" && typecheckValid,
+			isStringList(o.files) &&
+			typeof o.iso === "string" &&
+			(o.mainRun === undefined || typeof o.mainRun === "number") &&
+			marksValid,
 		unrecorded: () => true,
 		collision: () =>
 			isStringList(o.files) &&
 			typeof o.step === "string" &&
 			isStringList(o.after) &&
-			typecheckValid,
+			marksValid,
 	};
 	return Object.hasOwn(valid, String(o.kind))
 		? valid[/** @type {Cause["kind"]} */ (o.kind)]()

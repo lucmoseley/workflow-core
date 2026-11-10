@@ -297,6 +297,7 @@ function readRed(sha, id, failed, reads) {
 	return {
 		kind: "red",
 		...read,
+		run: id,
 		jobs: names,
 		...(retried ? { retried } : {}),
 		...(typed.length > 0 ? { typecheck: parseTypeErrors(raw, typed) } : {}),
@@ -654,7 +655,7 @@ function namedRunVerdict(sha, title, reads) {
 		/* GitHub concludes `success` over a job its `if:` skipped. */
 		const job = jobs.find((j) => j.name === NAMED_JOB);
 		return job?.conclusion === "success"
-			? { kind: "green" }
+			? { kind: "green", named: id }
 			: {
 					kind: "unknown",
 					reason: `run ${id} passed, but its ${NAMED_JOB} job is ${job?.conclusion ?? "missing"}`,
@@ -665,7 +666,7 @@ function namedRunVerdict(sha, title, reads) {
 	const failed = readFailed(sha, stripLogPrefix(reads.failedLogOf(id)), reads);
 	/* A failed checkout or install fails the run naming no test. */
 	return failed.files.length > 0
-		? { kind: "red", ...failed }
+		? { kind: "red", ...failed, run: id }
 		: {
 				kind: "unknown",
 				reason: `run ${id} failed naming no failing file in the tree`,

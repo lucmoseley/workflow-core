@@ -1049,6 +1049,19 @@ describe("the adapters", () => {
 			files: [],
 			typecheck: ["a.js(1,1): error TS1: x"],
 		});
+		/* A red keeps its CI run and its failing tests' errors, and a named
+		 * green its run, or a drop's fix ticket cites neither (#4857). */
+		const cited = {
+			kind: "red" as const,
+			files: ["a.ts"],
+			run: 31,
+			failures: [
+				{ file: "a.ts", test: "a > b", message: "expected 1", signature: "s" },
+				{ file: "a.ts", test: "a > c" },
+			],
+		};
+		verdictLedger(verdicts).add("s7", [], cited);
+		verdictLedger(verdicts).add("s7", ["a.ts"], { kind: "green", named: 32 });
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		/* A green its in-job retry reached keeps the files it cleared, the
 		 * batch's flakes (#4558). */
@@ -1083,6 +1096,11 @@ describe("the adapters", () => {
 			kind: "red",
 			files: ["a.ts"],
 			retried: true,
+		});
+		expect(verdictLedger(verdicts).get("s7", [])?.verdict).toEqual(cited);
+		expect(verdictLedger(verdicts).get("s7", ["a.ts"])?.verdict).toEqual({
+			kind: "green",
+			named: 32,
 		});
 		expect(verdictLedger(verdicts).get("s4", [])?.verdict).toEqual({
 			kind: "red",

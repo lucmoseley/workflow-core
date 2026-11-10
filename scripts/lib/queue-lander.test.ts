@@ -26,6 +26,7 @@
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import { dropTicketFiler } from "./fix-ticket.js";
 import { SHORT_SHA } from "./git.js";
 import {
 	type Batch,
@@ -467,6 +468,28 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		events,
 		depths,
 	};
+}
+
+/** The body the real filer files for `drop`, through a fake file-issue.js. */
+function bodyOf(drop: Drop, held: readonly DroppedRef[]) {
+	let body = "";
+	dropTicketFiler({
+		subjectsOf: () => ["Tidy"],
+		openUnits: () => [],
+		similar: () => [],
+		openTitled: () => [],
+		refresh: () => undefined,
+		comment: () => undefined,
+		hasComment: () => false,
+		close: () => undefined,
+		fileIssue: (_args, input) => {
+			body = input;
+			return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
+		},
+		stateOf: () => "open",
+		reopen: () => undefined,
+	}).fileDropTicket(drop, held);
+	return body;
 }
 
 const seed = (disk: Disk, b: Omit<Batch, "slot">) => {
@@ -2459,9 +2482,58 @@ describe("the red path", () => {
 
 		expect(end).toEqual(NO_QUEUE);
 		expect(dropsOf(actions).map((d) => d.cause)).toEqual([
-			{ kind: "red", name: "b", files: [], iso: "merge(m0;b1)" },
+			{ kind: "red", name: "b", files: [], iso: "merge(m0;b1)", mainRun: 1 },
 		]);
 		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("cites on a dropped member's fix ticket the CI runs red alone, main's run that passed the same files, and each failing test's error, cut to length (#4857)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const error = `expected 1 to be 2 ${"x".repeat(400)}`;
+		const aloneRuns: number[] = [];
+		let run = 40;
+
+		await land(remote, disk, {
+			verdict: (sha) => {
+				if (sha === "m0") return { kind: "green", named: 7 };
+				if (!sha.includes("b1")) return Green;
+				run++;
+				if (sha === "merge(m0;b1)") aloneRuns.push(run);
+				return {
+					kind: "red",
+					files: [RedB],
+					run,
+					failures: [
+						{ file: RedB, test: "b > fails", message: error, signature: "s" },
+						{ file: RedB, test: "b > names no error" },
+					],
+				};
+			},
+		});
+
+		const [filed] = disk.filed;
+		expect(aloneRuns).toHaveLength(2);
+		expect(filed?.drop.cause).toEqual({
+			kind: "red",
+			name: "b",
+			files: [RedB],
+			iso: "merge(m0;b1)",
+			runs: aloneRuns,
+			mainRun: 7,
+			failures: [
+				{ file: RedB, test: "b > fails", message: error.slice(0, 300) },
+			],
+		});
+		const body = filed ? bodyOf(filed.drop, filed.held) : "";
+		expect(body).toContain(
+			`Its red CI runs: ${aloneRuns.join(", ")}. \`main\` passed the same in CI run 7.`,
+		);
+		expect(body).toContain(`${RedB} > b > fails\n  ${error.slice(0, 300)}\n`);
+		expect(body).not.toContain(error.slice(0, 301));
 	});
 
 	it("keeps on a member's drop the type-check errors its red named (#4800)", async () => {
@@ -2477,7 +2549,14 @@ describe("the red path", () => {
 		});
 
 		expect(dropsOf(actions).map((d) => d.cause)).toEqual([
-			{ kind: "red", name: "b", files: [], iso: "merge(m0;b1)", typecheck },
+			{
+				kind: "red",
+				name: "b",
+				files: [],
+				iso: "merge(m0;b1)",
+				typecheck,
+				mainRun: 1,
+			},
 		]);
 	});
 

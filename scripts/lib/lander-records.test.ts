@@ -159,6 +159,16 @@ describe("the drop record", () => {
 		cause: { ...red.cause, files: [], typecheck: ["a.js(1,1): error TS1: x"] },
 	};
 
+	const cited = {
+		...red,
+		cause: {
+			...red.cause,
+			runs: [31, 32],
+			mainRun: 7,
+			failures: [{ file: "x.ts", test: "a > b", message: "expected 1" }],
+		},
+	};
+
 	it("reads back what it wrote, a row that is no drop skipped", () => {
 		dropRecord(file).write([
 			d,
@@ -169,8 +179,15 @@ describe("the drop record", () => {
 			{ ...d, cause: { ...d.cause, kind: "parked" } } as never,
 			typed,
 			{ ...typed, cause: { ...typed.cause, typecheck: "x" } } as never,
+			cited,
+			{ ...cited, cause: { ...cited.cause, runs: ["31"] } } as never,
+			{ ...cited, cause: { ...cited.cause, mainRun: "7" } } as never,
+			{
+				...cited,
+				cause: { ...cited.cause, failures: [{ file: "x.ts" }] },
+			} as never,
 		]);
-		expect(dropRecord(file).read()).toEqual([d, red, collision, typed]);
+		expect(dropRecord(file).read()).toEqual([d, red, collision, typed, cited]);
 	});
 
 	it("reads an entry written before its decision state shipped as ticketed where it names a ticket, else open, decided when it was dropped", () => {
