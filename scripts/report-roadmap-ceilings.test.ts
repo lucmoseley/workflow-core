@@ -23,9 +23,9 @@ import {
 	card,
 	roadmapHtml,
 } from "../.claude/skills/roadmap-edit/scripts/roadmap-fixture";
+import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-roadmap-ceilings.js");
 const {
@@ -171,6 +171,8 @@ function fixture(opts: {
 	ghIssueList?: unknown;
 	/** The issue's body before the run; absent, an empty one. */
 	existingBody?: string;
+	/** Every `gh` call fails, as a logged-out gh's does. */
+	ghRefuses?: boolean;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "roadmap-ceilings-"));
 	temps.push(root);
@@ -183,42 +185,34 @@ function fixture(opts: {
 
 	const issueBody = fakeIssueBody(root, opts.existingBody);
 
-	const bin = path.join(root, "bin");
-	fs.mkdirSync(bin);
-	const argvLog = path.join(root, "gh-argv.log");
-	const ghStub = path.join(bin, "gh");
-	fs.writeFileSync(
-		ghStub,
-		[
-			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
-			'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
-			`  cat ${shellQuote(path.join(root, "issues.json"))}`,
-			'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
-			`  cat ${shellQuote(issueBody.bodyFile)}`,
-			'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
-			"  echo https://github.com/o/r/issues/999",
-			'elif [ "$1" = "issue" ] && [ "$2" = "edit" ]; then',
-			"  exit 0",
-			"fi",
-			"exit 0",
-		].join("\n"),
-	);
-	fs.chmodSync(ghStub, 0o755);
-	fs.writeFileSync(
-		path.join(root, "issues.json"),
-		JSON.stringify(opts.ghIssueList ?? []),
-	);
-
-	return { root, ghStub, argvLog, issueBody };
+	return {
+		root,
+		argvLog: path.join(root, "gh-argv.log"),
+		issueBody,
+		issues: JSON.stringify(opts.ghIssueList ?? []),
+		ghRefuses: opts.ghRefuses ?? false,
+	};
 }
+
+/** The `gh` a run calls, its `issue view` answering the body as the run starts. */
+const stubGh = (fx: ReturnType<typeof fixture>) =>
+	stubGhRoutes(
+		fx.root,
+		{
+			"issue list*": printed(fx.issues),
+			"issue view*": printed(fx.issueBody.body()),
+			"issue create*": printed("https://github.com/o/r/issues/999\n"),
+			"issue edit*": printed(),
+		},
+		{ log: fx.argvLog, failing: fx.ghRefuses },
+	);
 
 function run(fx: ReturnType<typeof fixture>, ...args: string[]) {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: fx.root,
 		env: {
 			...process.env,
-			WFC_GH: fx.ghStub,
+			...stubGh(fx).env,
 			WFC_ISSUE_BODY: fx.issueBody.script,
 		},
 	});
@@ -432,12 +426,8 @@ describe("main", () => {
 	it("exits 2 when gh refuses to list issues, saying it could not file or refresh", () => {
 		const fx = fixture({
 			cards: [{ id: "over", b: words(ceiling("b") + 5) }],
+			ghRefuses: true,
 		});
-		fs.writeFileSync(
-			fx.ghStub,
-			["#!/bin/sh", "echo gh refused >&2", "exit 1"].join("\n"),
-		);
-		fs.chmodSync(fx.ghStub, 0o755);
 		const r = run(fx, "docs/reference-roadmap.html");
 		expect(r.code).toBe(2);
 		expect(r.output).toContain("could not file or refresh");

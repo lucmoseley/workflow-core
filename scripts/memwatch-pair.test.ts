@@ -6,16 +6,18 @@
 // Drives the two home-directory watchdog scripts (~/memcheck.sh, ~/memwatch.sh)
 // from outside, per mantahostels#544's testing decisions: fabricated sources in, printed
 // output asserted. Skips wherever the scripts are absent — CI runners carry
-// neither. Many cases wait out real 1-2 s passes, so the file runs ~50 s
-// against the 10 s budget; #4804 tracks the speed-up.
+// neither. Many cases wait out real 1-2 s passes, so all but the last run
+// concurrently and the waits overlap: each run takes its environment from
+// `baseEnv`, never a stub another case could undo, and each fixture its own marker.
 // Break it and `memcheck`, where CLAUDE.md sends a session whose build died
 // with no error, reports a threshold or a culprit the watchdog never used.
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { promisify } from "node:util";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -28,14 +30,59 @@ const present = fs.existsSync(MEMCHECK) && fs.existsSync(MEMWATCH);
 const hasProc = fs.existsSync("/proc/stat");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "memwatch-pair-"));
-beforeEach(() => {
+/* Past the file's count of cases, so no concurrent one waits for a slot. */
+vi.setConfig({ maxConcurrency: 64 });
+
+/* Awaited, so one case's pass never holds up the polling of the rest. */
+const memwatch = (env: NodeJS.ProcessEnv) =>
+	promisify(execFile)("bash", [MEMWATCH], { env });
+
+const baseEnv: NodeJS.ProcessEnv = {
+	...process.env,
 	/* Every pass writes the minute line, so no run here may reach the live one. */
-	vi.stubEnv("MEMWATCH_MINUTE_LOG", path.join(tmp, "minute.jsonl"));
-	vi.stubEnv("MEMWATCH_RUNAWAY_LOG", path.join(tmp, "runaway-default.jsonl"));
+	MEMWATCH_MINUTE_LOG: path.join(tmp, "minute.jsonl"),
+	MEMWATCH_RUNAWAY_LOG: path.join(tmp, "runaway-default.jsonl"),
 	/* Nor may any start a real PowerShell read of Windows memory. */
-	vi.stubEnv("MEMWATCH_WIN_READ", "");
-	vi.stubEnv("MEMWATCH_WIN_OUT", path.join(tmp, "win-default"));
-});
+	MEMWATCH_WIN_READ: "",
+	MEMWATCH_WIN_OUT: path.join(tmp, "win-default"),
+};
+
+/*
+ * A per-second stamp makes the minute log a pass counter: a loop on a 1-s
+ * interval writes one line as each pass begins.
+ */
+const PASS_STAMP = "%FT%T";
+const lineCount = (file: string) =>
+	fs.existsSync(file)
+		? fs.readFileSync(file, "utf8").split("\n").length - 1
+		: 0;
+/* Untraced: far past any wait here, so a case that reaches it has failed. */
+const WAIT_BOUND_MS = 30_000;
+/* Untraced: a twentieth of a 1-s pass, so a wait ends that soon after its event. */
+const POLL_MS = 50;
+/**
+ * Runs the loop until it begins pass `n`, so `n - 1` are whole, then kills it.
+ * Resolves to whether it was still alive: a dead loop logs nothing either.
+ */
+async function loopPasses(env: NodeJS.ProcessEnv, minute: string, n: number) {
+	const child = spawn("bash", [MEMWATCH], {
+		env: {
+			...env,
+			MEMWATCH_MINUTE_LOG: minute,
+			MEMWATCH_MINUTE_FMT: PASS_STAMP,
+		},
+	});
+	try {
+		const deadline = Date.now() + WAIT_BOUND_MS;
+		while (lineCount(minute) < n) {
+			if (Date.now() > deadline) throw new Error(`pass ${n} never began`);
+			await setTimeout(POLL_MS);
+		}
+		return child.exitCode === null && child.signalCode === null;
+	} finally {
+		child.kill("SIGKILL");
+	}
+}
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 function runMemcheckLine(watchdogSrc: string): string {
@@ -45,7 +92,7 @@ function runMemcheckLine(watchdogSrc: string): string {
 	});
 }
 
-describe.skipIf(!present)("memcheck threshold line", () => {
+describe.skipIf(!present).concurrent("memcheck threshold line", () => {
 	it("derives the printed threshold from the watchdog source at run time", () => {
 		const src = path.join(tmp, "fabricated-memwatch.sh");
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion written into a fabricated .sh file, not a JS placeholder
@@ -101,19 +148,16 @@ describe.skipIf(!present)("memcheck threshold line", () => {
 	});
 });
 
-describe.skipIf(!present)("memwatch incident block", () => {
+describe.skipIf(!present).concurrent("memwatch incident block", () => {
 	// The listing reads /proc itself (#2669), so nothing can be stubbed: these
 	// rows are the machine's own, which always runs more than six tasks.
-	it("carries the six largest processes by RSS after a header", () => {
+	it("carries the six largest processes by RSS after a header", async () => {
 		const log = path.join(tmp, "memwatch.log");
-		execFileSync("bash", [MEMWATCH], {
-			env: {
-				...process.env,
-				MEMWATCH_ONCE: "1",
-				MEMWATCH_LOG: log,
-				MEMWATCH_THRESHOLD_MB: "0",
-			},
-			encoding: "utf8",
+		await memwatch({
+			...baseEnv,
+			MEMWATCH_ONCE: "1",
+			MEMWATCH_LOG: log,
+			MEMWATCH_THRESHOLD_MB: "0",
 		});
 		const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
 		expect(lines[0]).toMatch(/^=== /);
@@ -140,7 +184,7 @@ describe.skipIf(!present)("memwatch incident block", () => {
 	const block = (i: number, at = stamp(60 - i)) =>
 		`=== ${at} 9000MB used ===\n    PID   RSS COMMAND\n    ${i} 1000 proc-${i}\n`;
 	const twelve = () => Array.from({ length: 12 }, (_, i) => block(i));
-	function rotate(
+	async function rotate(
 		name: string,
 		{
 			blocks = twelve(),
@@ -151,18 +195,14 @@ describe.skipIf(!present)("memwatch incident block", () => {
 		const log = path.join(tmp, `${name}.log`);
 		fs.writeFileSync(log, blocks.join(""));
 		if (archived) fs.writeFileSync(archive, archived);
-		execFileSync("bash", [MEMWATCH], {
-			env: {
-				...process.env,
-				MEMWATCH_ONCE: "1",
-				MEMWATCH_LOG: log,
-				MEMWATCH_ARCHIVE: archive,
-				MEMWATCH_THRESHOLD_MB: "0",
-				MEMWATCH_ROTATE_AT: "10",
-				MEMWATCH_ROTATE_KEEP: "4",
-			},
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
+		await memwatch({
+			...baseEnv,
+			MEMWATCH_ONCE: "1",
+			MEMWATCH_LOG: log,
+			MEMWATCH_ARCHIVE: archive,
+			MEMWATCH_THRESHOLD_MB: "0",
+			MEMWATCH_ROTATE_AT: "10",
+			MEMWATCH_ROTATE_KEEP: "4",
 		});
 		const read = (f: string) =>
 			fs.statSync(f).isFile() ? fs.readFileSync(f, "latin1") : "";
@@ -173,11 +213,11 @@ describe.skipIf(!present)("memwatch incident block", () => {
 	 * Rotation survives a NUL byte in the log (#2669): GNU grep reads such a
 	 * file as binary, and `-n` stops listing headers at the NUL.
 	 */
-	it("trims to ROTATE_KEEP blocks when the log holds NUL bytes", () => {
+	it("trims to ROTATE_KEEP blocks when the log holds NUL bytes", async () => {
 		const blocks = twelve();
 		// The NUL run sits early, before every header the trim must find.
 		blocks[1] = blocks[1].replace("proc-1", "pr\0\0\0\0oc-1");
-		const { out, archive } = rotate("rotate-nul", { blocks });
+		const { out, archive } = await rotate("rotate-nul", { blocks });
 		expect(out.split("\n")[0]).toMatch(
 			/^--- rotated .*kept last 4 of 13 blocks ---$/,
 		);
@@ -189,10 +229,10 @@ describe.skipIf(!present)("memwatch incident block", () => {
 	});
 
 	// #2741
-	it("moves the blocks a rotation trims to the archive, in order", () => {
+	it("moves the blocks a rotation trims to the archive, in order", async () => {
 		const blocks = twelve();
 		const archived = block(99, stamp(120));
-		const { out, archive } = rotate("rotate-archive", {
+		const { out, archive } = await rotate("rotate-archive", {
 			blocks: [
 				`--- rotated ${stamp(90)}: kept last 4 of 13 blocks ---\n`,
 				...blocks,
@@ -204,24 +244,24 @@ describe.skipIf(!present)("memwatch incident block", () => {
 	});
 
 	// A pass killed between the append and the cut leaves blocks in both files.
-	it("archives no block already there, so a re-run keeps it in order", () => {
+	it("archives no block already there, so a re-run keeps it in order", async () => {
 		const blocks = twelve();
 		const archived = blocks.slice(0, 5).join("");
-		const { archive } = rotate("rotate-rerun", { blocks, archived });
+		const { archive } = await rotate("rotate-rerun", { blocks, archived });
 		expect(archive).toBe(blocks.slice(0, 9).join(""));
 	});
 
-	it("leaves the live log uncut when the archive cannot be written", () => {
+	it("leaves the live log uncut when the archive cannot be written", async () => {
 		// A directory, so the append fails.
-		const { out } = rotate("rotate-unwritable", { archive: tmp });
+		const { out } = await rotate("rotate-unwritable", { archive: tmp });
 		expect(out).not.toContain("--- rotated");
 		expect(out.match(/^=== /gm)).toHaveLength(13);
 	});
 
-	it("drops archived blocks older than MEMWATCH_ARCHIVE_DAYS", () => {
+	it("drops archived blocks older than MEMWATCH_ARCHIVE_DAYS", async () => {
 		const day = 24 * 60;
 		const kept = block(99, stamp(27 * day));
-		const { archive } = rotate("rotate-prune", {
+		const { archive } = await rotate("rotate-prune", {
 			archived: block(97, stamp(30 * day)) + block(98, stamp(29 * day)) + kept,
 		});
 		expect(archive.startsWith(kept)).toBe(true);
@@ -233,7 +273,7 @@ describe.skipIf(!present)("memwatch incident block", () => {
  * The minute line (#3214): one JSON line a pass, written whether or not either
  * trigger fires, so a quiet hour still leaves rows.
  */
-describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
+describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 	// Memory no process listing shows, from /proc/meminfo (#4641).
 	const meminfoFields = [
 		"anon_mb",
@@ -243,20 +283,17 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		"page_tables_mb",
 		"unevictable_mb",
 	];
-	function quietPass(name: string, env: Record<string, string> = {}) {
+	async function quietPass(name: string, env: Record<string, string> = {}) {
 		const minute = path.join(tmp, `${name}.jsonl`);
 		const log = path.join(tmp, `${name}.log`);
-		execFileSync("bash", [MEMWATCH], {
-			env: {
-				...process.env,
-				MEMWATCH_ONCE: "1",
-				MEMWATCH_LOG: log,
-				MEMWATCH_MINUTE_LOG: minute,
-				MEMWATCH_THRESHOLD_MB: "99999999",
-				MEMWATCH_CPU_THRESHOLD_PCT: "99999",
-				...env,
-			},
-			encoding: "utf8",
+		await memwatch({
+			...baseEnv,
+			MEMWATCH_ONCE: "1",
+			MEMWATCH_LOG: log,
+			MEMWATCH_MINUTE_LOG: minute,
+			MEMWATCH_THRESHOLD_MB: "99999999",
+			MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+			...env,
 		});
 		return {
 			lines: fs.readFileSync(minute, "utf8").trimEnd().split("\n"),
@@ -264,8 +301,8 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		};
 	}
 
-	it("writes one line with every field on a pass neither trigger fires", () => {
-		const { lines, log } = quietPass("minute-quiet");
+	it("writes one line with every field on a pass neither trigger fires", async () => {
+		const { lines, log } = await quietPass("minute-quiet");
 		expect(fs.existsSync(log)).toBe(false);
 		expect(lines).toHaveLength(1);
 		const row = JSON.parse(lines[0]);
@@ -320,7 +357,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(row.node).toBeGreaterThan(0);
 	});
 
-	it("carries the meminfo breakdown in whole MB", () => {
+	it("carries the meminfo breakdown in whole MB", async () => {
 		const meminfo = path.join(tmp, "meminfo");
 		fs.writeFileSync(
 			meminfo,
@@ -336,7 +373,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 				},
 			),
 		);
-		const { lines } = quietPass("minute-meminfo", {
+		const { lines } = await quietPass("minute-meminfo", {
 			MEMWATCH_MEMINFO: meminfo,
 		});
 		const row = JSON.parse(lines[0]);
@@ -346,7 +383,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(row.mem_avail_mb).toBe(2000);
 	});
 
-	it("writes null for a meminfo key the kernel does not report", () => {
+	it("writes null for a meminfo key the kernel does not report", async () => {
 		const meminfo = path.join(tmp, "meminfo-sparse");
 		fs.writeFileSync(
 			meminfo,
@@ -355,7 +392,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 				{ Shmem: 1024 },
 			),
 		);
-		const { lines } = quietPass("minute-meminfo-sparse", {
+		const { lines } = await quietPass("minute-meminfo-sparse", {
 			MEMWATCH_MEMINFO: meminfo,
 		});
 		const row = JSON.parse(lines[0]);
@@ -370,8 +407,8 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 	});
 
 	// A freeze the state line misses recomputes from these (#4081).
-	it("carries each pass's raw clock readings: epoch, run time ns, busy and total ticks", () => {
-		const { lines } = quietPass("minute-sched", {
+	it("carries each pass's raw clock readings: epoch, run time ns, busy and total ticks", async () => {
+		const { lines } = await quietPass("minute-sched", {
 			// The root's own figure goes unread, so it can differ.
 			MEMWATCH_CGROUP_ROOT: writeCgroupRoot(
 				path.join(tmp, "minute-sched-root"),
@@ -390,8 +427,8 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(total).toBeGreaterThan(busy);
 	});
 
-	it("keeps the busy and total ticks, run time null, where no cgroup reads (#4092)", () => {
-		const { lines } = quietPass("minute-no-sched", {
+	it("keeps the busy and total ticks, run time null, where no cgroup reads (#4092)", async () => {
+		const { lines } = await quietPass("minute-no-sched", {
 			MEMWATCH_CGROUP_ROOT: path.join(tmp, "no-cgroup"),
 		});
 		const [[, runtimeNs, busy, total]] = JSON.parse(lines[0]).sched;
@@ -406,10 +443,10 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 
 	// The guest cannot see Windows paging (#3246), so a background read supplies it (#4159).
 	describe("Windows memory", () => {
-		it("takes a fresh reading, with no paging delta on its first", () => {
+		it("takes a fresh reading, with no paging delta on its first", async () => {
 			const out = path.join(tmp, "win-fresh");
 			fs.writeFileSync(out, reading(5));
-			const { lines } = quietPass("minute-win-fresh", {
+			const { lines } = await quietPass("minute-win-fresh", {
 				MEMWATCH_WIN_OUT: out,
 			});
 			const row = JSON.parse(lines[0]);
@@ -419,10 +456,10 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			expect(row.win_age_s).toBeGreaterThanOrEqual(5);
 		});
 
-		it("writes nulls for a reading more than two minutes old", () => {
+		it("writes nulls for a reading more than two minutes old", async () => {
 			const out = path.join(tmp, "win-stale");
 			fs.writeFileSync(out, reading(600));
-			const { lines } = quietPass("minute-win-stale", {
+			const { lines } = await quietPass("minute-win-stale", {
 				MEMWATCH_WIN_OUT: out,
 			});
 			const row = JSON.parse(lines[0]);
@@ -443,7 +480,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 				},
 			);
 			const before = Math.floor(Date.now() / 1000);
-			quietPass("minute-win-launch", {
+			await quietPass("minute-win-launch", {
 				MEMWATCH_WIN_OUT: out,
 				MEMWATCH_WIN_READ: fake,
 			});
@@ -463,14 +500,23 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			const fake = path.join(tmp, "failing-powershell");
 			fs.writeFileSync(
 				fake,
-				"#!/bin/sh\necho 'Get-CimInstance : error' >&2\nexit 1\n",
+				"#!/bin/sh\necho 'Get-CimInstance : error' >&2\n: >\"$0.ran\"\nexit 1\n",
 				{ mode: 0o755 },
 			);
-			quietPass("minute-win-fail", {
+			await quietPass("minute-win-fail", {
 				MEMWATCH_WIN_OUT: out,
 				MEMWATCH_WIN_READ: fake,
 			});
-			await setTimeout(1500);
+			const deadline = Date.now() + WAIT_BOUND_MS;
+			while (!fs.existsSync(`${fake}.ran`) && Date.now() < deadline)
+				await setTimeout(POLL_MS);
+			expect(fs.existsSync(`${fake}.ran`)).toBe(true);
+			/*
+			 * Untraced: a write of the read's output would follow its exit by one
+			 * `tr` and one `mv`, so a second rides out a loaded machine.
+			 */
+			const writeSlackMs = 1000;
+			await setTimeout(writeSlackMs);
 			expect(fs.readFileSync(out, "utf8")).toBe(good);
 		});
 	});
@@ -484,10 +530,10 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			const minute = path.join(tmp, `${name}.jsonl`);
 			const child = spawn("bash", [MEMWATCH], {
 				env: {
-					...process.env,
+					...baseEnv,
 					MEMWATCH_LOG: path.join(tmp, `${name}.log`),
 					MEMWATCH_MINUTE_LOG: minute,
-					MEMWATCH_MINUTE_FMT: "%FT%T",
+					MEMWATCH_MINUTE_FMT: PASS_STAMP,
 					MEMWATCH_INTERVAL: "1",
 					MEMWATCH_THRESHOLD_MB: "99999999",
 					MEMWATCH_CPU_THRESHOLD_PCT: "99999",
@@ -508,8 +554,19 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			return read().map((l) => JSON.parse(l));
 		}
 
+		/* One run serves both cases that read a second line off one stored reading. */
+		let reused: ReturnType<typeof twoLines> | undefined;
+		const oneReading = () => {
+			if (!reused) {
+				const out = path.join(tmp, "win-reuse");
+				fs.writeFileSync(out, reading(5));
+				reused = twoLines("delta-win-reuse", { MEMWATCH_WIN_OUT: out });
+			}
+			return reused;
+		};
+
 		it("writes each vmstat counter's change on the second line", async () => {
-			const [, second] = await twoLines("delta-vmstat");
+			const [, second] = await oneReading();
 			for (const k of [
 				"swap_in",
 				"swap_out",
@@ -523,11 +580,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		});
 
 		it("writes a Windows reading's paging delta on one line only", async () => {
-			const out = path.join(tmp, "win-reuse");
-			fs.writeFileSync(out, reading(5));
-			const [first, second] = await twoLines("delta-win-reuse", {
-				MEMWATCH_WIN_OUT: out,
-			});
+			const [first, second] = await oneReading();
 			expect(first.win_avail_mb).toBe(1344);
 			expect(second.win_avail_mb).toBe(1344);
 			expect(second.win_pages_in).toBeNull();
@@ -559,9 +612,9 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 	});
 
 	// A restart reads the last line back, so it never writes that minute again.
-	it("writes no second line for a minute the file already holds", () => {
-		quietPass("minute-restart");
-		const { lines } = quietPass("minute-restart");
+	it("writes no second line for a minute the file already holds", async () => {
+		await quietPass("minute-restart");
+		const { lines } = await quietPass("minute-restart");
 		const minutes = lines.map((l) => JSON.parse(l).ts.slice(0, 16));
 		expect(new Set(minutes).size).toBe(minutes.length);
 	});
@@ -577,21 +630,21 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		const child = spawn(process.execPath, [tsc], { stdio: "ignore" });
 		try {
 			await setTimeout(300);
-			const { lines } = quietPass("minute-tsc");
+			const { lines } = await quietPass("minute-tsc");
 			expect(JSON.parse(lines[0]).tsc).toBeGreaterThan(0);
 		} finally {
 			child.kill();
 		}
 	});
 
-	it("writes null sessions, not a wrong count, when the session lib is missing", () => {
-		const { lines } = quietPass("minute-nolib", {
+	it("writes null sessions, not a wrong count, when the session lib is missing", async () => {
+		const { lines } = await quietPass("minute-nolib", {
 			MEMWATCH_SESSIONS_LIB: path.join(tmp, "absent.sh"),
 		});
 		expect(JSON.parse(lines[0]).sessions).toBeNull();
 	});
 
-	it("drops lines older than MEMWATCH_MINUTE_DAYS", () => {
+	it("drops lines older than MEMWATCH_MINUTE_DAYS", async () => {
 		const ts = (daysAgo: number) => {
 			const d = new Date(Date.now() - daysAgo * 86_400_000);
 			const p = (n: number) => String(n).padStart(2, "0");
@@ -602,18 +655,22 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			path.join(tmp, "minute-prune.jsonl"),
 			`{"ts":"${ts(5)}","load1":1}\n{"ts":"${ts(4)}","load1":1}\n${kept}\n`,
 		);
-		const { lines } = quietPass("minute-prune", { MEMWATCH_MINUTE_DAYS: "3" });
+		const { lines } = await quietPass("minute-prune", {
+			MEMWATCH_MINUTE_DAYS: "3",
+		});
 		expect(lines).toHaveLength(2);
 		expect(lines[0]).toBe(kept);
 	});
 
 	// A rewrite a day, not one a minute once the file is full.
-	it("leaves a line less than a day past MEMWATCH_MINUTE_DAYS in place", () => {
+	it("leaves a line less than a day past MEMWATCH_MINUTE_DAYS in place", async () => {
 		const d = new Date(Date.now() - 3.5 * 86_400_000);
 		const p = (n: number) => String(n).padStart(2, "0");
 		const aged = `{"ts":"${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}+0000","load1":1}`;
 		fs.writeFileSync(path.join(tmp, "minute-slack.jsonl"), `${aged}\n`);
-		const { lines } = quietPass("minute-slack", { MEMWATCH_MINUTE_DAYS: "3" });
+		const { lines } = await quietPass("minute-slack", {
+			MEMWATCH_MINUTE_DAYS: "3",
+		});
 		expect(lines[0]).toBe(aged);
 	});
 });
@@ -624,72 +681,67 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
  * any CPU figure exists at all: /proc/stat is a counter, so the first pass has
  * no delta.
  */
-describe.skipIf(!hasProc || !present)("memwatch CPU trigger", () => {
+describe.skipIf(!hasProc || !present).concurrent("memwatch CPU trigger", () => {
 	/*
 	 * `until` is what makes these deterministic: a case expecting a block WAITS
 	 * for one and returns the moment it lands, while a case expecting silence
-	 * has nothing to wait for and serves out the window. Awaited, never spun.
+	 * has nothing to wait for and serves out a count of passes, in `loopPasses`.
 	 */
+	const cpuLog = () =>
+		path.join(tmp, `cpu-${Math.random().toString(36).slice(2)}.log`);
+	const cpuEnv = (log: string, env: Record<string, string>) => ({
+		...baseEnv,
+		MEMWATCH_LOG: log,
+		MEMWATCH_INTERVAL: "1",
+		// Unreachable, so the memory limb can never be what fired.
+		MEMWATCH_THRESHOLD_MB: "99999999",
+		...env,
+	});
 	async function runLoop(
 		env: Record<string, string>,
-		{ until, ms = 15_000 }: { until?: RegExp; ms?: number } = {},
+		{ until }: { until: RegExp },
 	) {
-		const log = path.join(
-			tmp,
-			`cpu-${Math.random().toString(36).slice(2)}.log`,
-		);
-		const child = spawn("bash", [MEMWATCH], {
-			env: {
-				...process.env,
-				MEMWATCH_LOG: log,
-				MEMWATCH_INTERVAL: "1",
-				// Unreachable, so the memory limb can never be what fired.
-				MEMWATCH_THRESHOLD_MB: "99999999",
-				...env,
-			},
-		});
+		const log = cpuLog();
+		const child = spawn("bash", [MEMWATCH], { env: cpuEnv(log, env) });
 		const read = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "");
-		const deadline = Date.now() + ms;
-		while (Date.now() < deadline) {
-			await setTimeout(250);
-			if (until?.test(read())) break;
-		}
-		const out = read();
-		/*
-		 * Whether the watchdog was still alive at the end. A case asserting
-		 * SILENCE would otherwise pass on an empty string a dead or never-started
-		 * process left behind.
-		 */
-		const alive = child.exitCode === null && child.signalCode === null;
+		const deadline = Date.now() + WAIT_BOUND_MS;
+		while (Date.now() < deadline && !until.test(read()))
+			await setTimeout(POLL_MS);
 		child.kill("SIGKILL");
-		return { out, alive };
+		return { out: read() };
 	}
 
+	/* One run serves the three cases that only read a CPU-fired block. */
+	let fired: ReturnType<typeof runLoop> | undefined;
+	const firedBlock = () => {
+		fired ??= runLoop({ MEMWATCH_CPU_THRESHOLD_PCT: "0" }, { until: /^=== /m });
+		return fired;
+	};
+
 	it("fires a block on CPU alone, with memory far below its threshold", async () => {
-		const { out } = await runLoop(
-			{ MEMWATCH_CPU_THRESHOLD_PCT: "0" },
-			{ until: /^=== /m },
-		);
+		const { out } = await firedBlock();
 		expect(out).toMatch(/^=== /m);
 		expect(out).toMatch(/cpu: \d+% busy of \d+%/);
 	});
 
 	it("splits system, nice and user rather than logging one busy figure", async () => {
-		const { out } = await runLoop(
-			{ MEMWATCH_CPU_THRESHOLD_PCT: "0" },
-			{ until: /^=== /m },
-		);
+		const { out } = await firedBlock();
 		// nice is where a Claude session's CPU lands; user alone reads as idle.
 		expect(out).toMatch(/sys \d+%, nice \d+%, user \d+%/);
 		expect(out).toMatch(/load \d/);
 	});
 
 	it("stays silent below its threshold rather than logging every pass", async () => {
-		const { out, alive } = await runLoop(
-			{ MEMWATCH_CPU_THRESHOLD_PCT: "99999" },
-			{ ms: 4000 },
+		const log = cpuLog();
+		// Two whole passes: the second is the first to carry a CPU figure.
+		const alive = await loopPasses(
+			cpuEnv(log, { MEMWATCH_CPU_THRESHOLD_PCT: "99999" }),
+			`${log}.minute`,
+			3,
 		);
+		// A silence a dead or never-started watchdog left would pass otherwise.
 		expect(alive).toBe(true);
+		const out = fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
 		expect(out).not.toMatch(/^=== /m);
 	});
 
@@ -700,10 +752,7 @@ describe.skipIf(!hasProc || !present)("memwatch CPU trigger", () => {
 	 * block proves it did.
 	 */
 	it("carries its delta state across iterations", async () => {
-		const { out } = await runLoop(
-			{ MEMWATCH_CPU_THRESHOLD_PCT: "0" },
-			{ until: /^=== /m },
-		);
+		const { out } = await firedBlock();
 		expect(out.match(/^=== /gm)?.length ?? 0).toBeGreaterThanOrEqual(1);
 	});
 
@@ -762,79 +811,84 @@ describe.skipIf(!hasProc || !present)("memwatch CPU trigger", () => {
  * holds the fake to the real files (code-standards §G7).
  */
 const CGROUP_ROOT = "/sys/fs/cgroup";
-/* Long enough that the one spinner alone clears the 2 CPU-s busy floor. */
-const PASS_S = "3";
-describe.skipIf(
-	!hasProc || !present || !fs.existsSync(`${CGROUP_ROOT}/cpu.stat`),
-)("memwatch scheduler-clock line", () => {
-	/*
-	 * Real time, as the CPU trigger's cases are: memwatch differences two
-	 * passes PASS_S apart, and the spinner is what makes /proc/stat busy, so
-	 * each wait returns the moment its line lands.
-	 */
-	it("logs the onset and the clear, each dated, whatever the thresholds (#2779)", async () => {
-		const still = writeCgroupRoot(path.join(tmp, "cgroup-still"), 0.001, 0);
-		const link = path.join(tmp, "cgroup-link");
-		fs.symlinkSync(still, link);
-		const log = path.join(tmp, "sched.log");
-		const child = spawn("bash", [MEMWATCH], {
-			env: {
-				...process.env,
-				MEMWATCH_LOG: log,
-				MEMWATCH_INTERVAL: PASS_S,
-				MEMWATCH_THRESHOLD_MB: "99999999",
-				MEMWATCH_CPU_THRESHOLD_PCT: "99999",
-				MEMWATCH_CGROUP_ROOT: link,
-			},
+/* Two spinners over this pass clear the 2 CPU-s busy floor twice over. */
+const PASS_S = "2";
+describe
+	.skipIf(!hasProc || !present || !fs.existsSync(`${CGROUP_ROOT}/cpu.stat`))
+	.concurrent("memwatch scheduler-clock line", () => {
+		/*
+		 * Real time, as the CPU trigger's cases are: memwatch differences two
+		 * passes PASS_S apart, and the spinners are what make /proc/stat busy, so
+		 * each wait returns the moment its line lands.
+		 */
+		it("logs the onset and the clear, each dated, whatever the thresholds (#2779)", async () => {
+			const still = writeCgroupRoot(path.join(tmp, "cgroup-still"), 0.001, 0);
+			const link = path.join(tmp, "cgroup-link");
+			fs.symlinkSync(still, link);
+			const log = path.join(tmp, "sched.log");
+			const child = spawn("bash", [MEMWATCH], {
+				env: {
+					...baseEnv,
+					MEMWATCH_LOG: log,
+					MEMWATCH_INTERVAL: PASS_S,
+					MEMWATCH_THRESHOLD_MB: "99999999",
+					MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+					MEMWATCH_CGROUP_ROOT: link,
+				},
+			});
+			const read = () =>
+				fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
+			const waitFor = async (re: RegExp) => {
+				const deadline = Date.now() + 15_000;
+				while (Date.now() < deadline && !re.test(read())) await setTimeout(250);
+			};
+			const spinners = [0, 1].map(() =>
+				spawn("sh", ["-c", "while :; do :; done"]),
+			);
+			try {
+				await waitFor(/sched clock: frozen/);
+				fs.rmSync(link);
+				fs.symlinkSync(CGROUP_ROOT, link);
+				await waitFor(/sched clock: running/);
+			} finally {
+				for (const s of spinners) s.kill("SIGKILL");
+				child.kill("SIGKILL");
+			}
+			const lines = read().trimEnd().split("\n");
+			expect(lines).toHaveLength(2);
+			expect(lines[0]).toMatch(
+				/^--- sched clock: frozen \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: tasks ran 0\.00 s over \d+\.\d\d busy CPU-s ---$/,
+			);
+			expect(lines[1]).toMatch(/^--- sched clock: running \d{4}-/);
 		});
-		const read = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "");
-		const waitFor = async (re: RegExp) => {
-			const deadline = Date.now() + 15_000;
-			while (Date.now() < deadline && !re.test(read())) await setTimeout(250);
-		};
-		const spinner = spawn("sh", ["-c", "while :; do :; done"]);
-		try {
-			await waitFor(/sched clock: frozen/);
-			fs.rmSync(link);
-			fs.symlinkSync(CGROUP_ROOT, link);
-			await waitFor(/sched clock: running/);
-		} finally {
-			spinner.kill("SIGKILL");
-			child.kill("SIGKILL");
-		}
-		const lines = read().trimEnd().split("\n");
-		expect(lines).toHaveLength(2);
-		expect(lines[0]).toMatch(
-			/^--- sched clock: frozen \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: tasks ran 0\.00 s over \d+\.\d\d busy CPU-s ---$/,
-		);
-		expect(lines[1]).toMatch(/^--- sched clock: running \d{4}-/);
 	});
-});
 
 /*
  * Memwatch is a shell script and the check a Node one, so the shared figures can
  * only be pinned as text.
  */
-describe.skipIf(!present)("the two frozen-clock detectors (#4092)", () => {
-	it("apply the same ratio and the same busy floor", () => {
-		const script = fs.readFileSync(MEMWATCH, "utf8");
-		const check = fs.readFileSync(
-			path.join(__dirname, "check-kernel-stall.js"),
-			"utf8",
-		);
-		const figure = (text: string, re: RegExp) => {
-			const value = Number(text.match(re)?.[1]);
-			expect(value).toBeGreaterThan(0);
-			return value;
-		};
-		expect(figure(script, /^SCHED_MIN_BUSY_TICKS=(\d+)$/m)).toBe(
-			figure(check, /^const MIN_BUSY_S = ([\d.]+);$/m) * 100,
-		);
-		expect(figure(script, /^SCHED_FROZEN_PCT=(\d+)$/m)).toBe(
-			figure(check, /^const FROZEN_RATIO = ([\d.]+);$/m) * 100,
-		);
+describe
+	.skipIf(!present)
+	.concurrent("the two frozen-clock detectors (#4092)", () => {
+		it("apply the same ratio and the same busy floor", () => {
+			const script = fs.readFileSync(MEMWATCH, "utf8");
+			const check = fs.readFileSync(
+				path.join(__dirname, "check-kernel-stall.js"),
+				"utf8",
+			);
+			const figure = (text: string, re: RegExp) => {
+				const value = Number(text.match(re)?.[1]);
+				expect(value).toBeGreaterThan(0);
+				return value;
+			};
+			expect(figure(script, /^SCHED_MIN_BUSY_TICKS=(\d+)$/m)).toBe(
+				figure(check, /^const MIN_BUSY_S = ([\d.]+);$/m) * 100,
+			);
+			expect(figure(script, /^SCHED_FROZEN_PCT=(\d+)$/m)).toBe(
+				figure(check, /^const FROZEN_RATIO = ([\d.]+);$/m) * 100,
+			);
+		});
 	});
-});
 
 /*
  * The process-count trigger (#3402). The sleepers fork in a capped scope, so a
@@ -861,101 +915,26 @@ const SCOPE_TASKS = SLEEPERS + 100;
  */
 const SCOPE_S = 120;
 
-describe.skipIf(!hasScope)("memwatch process-count trigger", () => {
-	it(
-		"names the sleepers' command and their parent past the threshold",
-		async () => {
-			const unit = `memwatch-forks-${process.pid}.scope`;
-			const marker = `memwatch-fork-fixture-${process.pid}`;
-			const forker = spawn(
-				"systemd-run",
-				[
-					"--user",
-					"--scope",
-					"--quiet",
-					`--unit=${unit}`,
-					"-p",
-					`TasksMax=${SCOPE_TASKS}`,
-					"-p",
-					`RuntimeMaxSec=${SCOPE_S}`,
-					"bash",
-					"-c",
-					`: ${marker}; for _ in $(seq ${SLEEPERS}); do sleep 3402 & done; echo ready; wait`,
-				],
-				{ stdio: ["ignore", "pipe", "ignore"] },
-			);
-			try {
-				await new Promise<void>((resolve, reject) => {
-					forker.stdout.on("data", (b) => {
-						if (String(b).includes("ready")) resolve();
-					});
-					forker.on("exit", () => reject(new Error("forker exited early")));
-				});
-				const log = path.join(tmp, "procs.log");
-				// The shipped default threshold, never one inherited from the shell.
-				const { MEMWATCH_PROCS_THRESHOLD: _, ...env } = process.env;
-				execFileSync("bash", [MEMWATCH], {
-					env: {
-						...env,
-						MEMWATCH_ONCE: "1",
-						MEMWATCH_LOG: log,
-						MEMWATCH_THRESHOLD_MB: "99999999",
-						MEMWATCH_CPU_THRESHOLD_PCT: "99999",
-					},
-					encoding: "utf8",
-				});
-				const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
-				const head = lines.findIndex((l) =>
-					/^--- \d+ processes \| top commands by process count ---$/.test(l),
-				);
-				expect(head).toBeGreaterThan(-1);
-				expect(Number(lines[head].split(" ")[1])).toBeGreaterThan(SLEEPERS);
-				expect(lines[head + 2]).toMatch(
-					new RegExp(`^ +${SLEEPERS} sleep 3402$`),
-				);
-				const parents = lines.indexOf("--- top parents by direct children ---");
-				expect(parents).toBeGreaterThan(head);
-				// The parent's whole argv, never cut to the block's 110 columns.
-				expect(lines[parents + 2]).toMatch(
-					new RegExp(
-						`^ *\\d+ +${SLEEPERS} \\S*bash -c : ${marker};.* echo ready; wait$`,
-					),
-				);
-			} finally {
-				try {
-					execFileSync("systemctl", ["--user", "stop", unit], {
-						stdio: "ignore",
-					});
-				} catch {
-					// Already gone: RuntimeMaxSec ended it, or it never started.
-				}
-				forker.kill("SIGKILL");
-			}
-		},
-		SCOPE_S * 1000,
-	);
-
+describe.skipIf(!hasScope).concurrent("memwatch process-count trigger", () => {
 	/*
 	 * Real time, as the CPU trigger's cases are: the cooldown is read off the
 	 * clock between passes 1 s apart, and 60 s is never shortened to test it.
 	 */
 	it("logs one block a cooldown however many passes cross the threshold", async () => {
 		const log = path.join(tmp, "procs-cooldown.log");
-		const child = spawn("bash", [MEMWATCH], {
-			env: {
-				...process.env,
+		// Two whole passes, each past the threshold.
+		await loopPasses(
+			{
+				...baseEnv,
 				MEMWATCH_LOG: log,
 				MEMWATCH_INTERVAL: "1",
 				MEMWATCH_THRESHOLD_MB: "99999999",
 				MEMWATCH_CPU_THRESHOLD_PCT: "99999",
 				MEMWATCH_PROCS_THRESHOLD: "0",
 			},
-		});
-		try {
-			await setTimeout(3500);
-		} finally {
-			child.kill("SIGKILL");
-		}
+			path.join(tmp, "procs-cooldown.jsonl"),
+			3,
+		);
 		const out = fs.readFileSync(log, "utf8");
 		expect(out.match(/^--- \d+ processes \|/gm)).toHaveLength(1);
 	});
@@ -963,8 +942,9 @@ describe.skipIf(!hasScope)("memwatch process-count trigger", () => {
 
 /*
  * The runaway kill (#3807). MEMWATCH_RUNAWAY_ONLY confines every case to its own
- * marker, so a real process on this shared machine cannot be in a group, however
- * low the thresholds. The marker is a number, so `sleep` takes it as a duration.
+ * marker, the shared one and a digit, so neither a real process on this shared
+ * machine nor another case's fixture can be in a group, however low the
+ * thresholds. The marker is a number, so `sleep` takes it as a duration.
  */
 /* Comfortably above the largest fixture here, 211 tasks and their shell. */
 const FIXTURE_TASKS = 400;
@@ -973,7 +953,7 @@ const FIRE_BOUND_MS = 30_000;
 /* A kill is seen within a scheduling slice; this only rides out a loaded machine. */
 const SETTLE_BOUND_MS = 10_000;
 
-describe.skipIf(!hasScope)("memwatch process runaway", () => {
+describe.skipIf(!hasScope).concurrent("memwatch process runaway", () => {
 	const marker = `3807.${process.pid}`;
 	let nth = 0;
 	interface Firing {
@@ -1041,26 +1021,23 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 					.split("\n")
 					.map((l) => JSON.parse(l))
 			: [];
-	const quietEnv = (log: string, runaway: string) => ({
-		...process.env,
+	const quietEnv = (log: string, runaway: string, only: string) => ({
+		...baseEnv,
 		MEMWATCH_LOG: log,
 		MEMWATCH_RUNAWAY_LOG: runaway,
 		MEMWATCH_INTERVAL: "1",
 		MEMWATCH_THRESHOLD_MB: "99999999",
 		MEMWATCH_CPU_THRESHOLD_PCT: "99999",
-		MEMWATCH_RUNAWAY_ONLY: marker,
+		MEMWATCH_RUNAWAY_ONLY: only,
 		MEMWATCH_RUNAWAY_PROCS: "1",
 		MEMWATCH_RUNAWAY_GROUP: "30",
 	});
 	/** One pass, firing at once. */
-	const firePass = (log: string, runaway: string) =>
-		execFileSync("bash", [MEMWATCH], {
-			env: {
-				...quietEnv(log, runaway),
-				MEMWATCH_ONCE: "1",
-				MEMWATCH_RUNAWAY_WINDOW_S: "0",
-			},
-			encoding: "utf8",
+	const firePass = (log: string, runaway: string, only: string) =>
+		memwatch({
+			...quietEnv(log, runaway, only),
+			MEMWATCH_ONCE: "1",
+			MEMWATCH_RUNAWAY_WINDOW_S: "0",
 		});
 	/** The loop until `until` holds, or the fire bound. */
 	async function loopUntil(
@@ -1113,10 +1090,14 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 				'N=$((${N:-40} - 1)); export N\nif [ "$N" -gt 0 ]; then bash "$0" "$1" & wait; else echo ready; sleep 300; fi\n',
 			);
 			const { log, runaway } = logs();
-			const argv = `bash ${chain} ${marker}`;
-			await inScope(`exec bash ${shellQuote(chain)} ${marker}`, async () => {
+			const only = `${marker}0`;
+			const argv = `bash ${chain} ${only}`;
+			await inScope(`exec bash ${shellQuote(chain)} ${only}`, async () => {
 				await loopUntil(
-					{ ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "2" },
+					{
+						...quietEnv(log, runaway, only),
+						MEMWATCH_RUNAWAY_WINDOW_S: "2",
+					},
 					() => firings(runaway).length > 0,
 				);
 				const [line, ...rest] = firings(runaway);
@@ -1145,7 +1126,10 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 				`while :; do for _ in $(seq 40); do ${argv} & done; echo ready; wait; done`,
 				() =>
 					loopUntil(
-						{ ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "1" },
+						{
+							...quietEnv(log, runaway, argv),
+							MEMWATCH_RUNAWAY_WINDOW_S: "1",
+						},
 						() => firings(runaway).length > 1,
 					),
 			);
@@ -1165,14 +1149,15 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			await inScope(
 				`for i in $(seq 40); do sleep ${seconds}$i & done; echo ready; wait`,
 				async () => {
-					const child = spawn("bash", [MEMWATCH], {
-						env: { ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "0" },
-					});
-					try {
-						await setTimeout(3500);
-					} finally {
-						child.kill("SIGKILL");
-					}
+					// Two whole passes, each firing.
+					await loopPasses(
+						{
+							...quietEnv(log, runaway, seconds),
+							MEMWATCH_RUNAWAY_WINDOW_S: "0",
+						},
+						`${runaway}.minute`,
+						3,
+					);
 					const lines = firings(runaway);
 					expect(lines).toHaveLength(1);
 					expect(lines[0].killed).toEqual([]);
@@ -1189,12 +1174,11 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 		async () => {
 			const { log, runaway } = logs();
 			const env = {
-				...quietEnv(log, runaway),
+				...quietEnv(log, runaway, `no-process-holds-${marker}`),
 				MEMWATCH_RUNAWAY_PROCS: "300",
 				MEMWATCH_RUNAWAY_WINDOW_S: "2",
-				MEMWATCH_RUNAWAY_ONLY: `no-process-holds-${marker}`,
-				// Six passes, never holding two intervals; then a hold.
-				MEMWATCH_PROCS_READINGS: "500 500 0 500 500 0 500",
+				// Three passes, holding one interval before the drop; then a hold.
+				MEMWATCH_PROCS_READINGS: "500 500 0 500",
 			};
 			// Real time: the window counts passes a real sleep apart, and a pass's
 			// `since` is the only record of which one the hold began on.
@@ -1202,8 +1186,8 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			await loopUntil(env, () => firings(runaway).length > 0);
 			const [line, ...rest] = firings(runaway);
 			expect(rest).toEqual([]);
-			// One 1-s sleep follows each of the six passes before the hold begins.
-			expect(Date.parse(line.since) / 1000 - started).toBeGreaterThanOrEqual(6);
+			// One 1-s sleep follows each of the three passes before the hold begins.
+			expect(Date.parse(line.since) / 1000 - started).toBeGreaterThanOrEqual(3);
 			expect(
 				Date.parse(line.ts) / 1000 - Date.parse(line.since) / 1000,
 			).toBeGreaterThanOrEqual(2);
@@ -1226,7 +1210,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			const seeded = `bash ${chain} ${marker}5`;
 			await inScope(`exec bash ${shellQuote(chain)} ${marker}5`, async () => {
 				await settles(() => running(`^${seeded}$`) >= 30);
-				firePass(log, runaway);
+				await firePass(log, runaway, `${marker}5`);
 				const [line] = firings(runaway);
 				expect(line.argv).toBe(seeded);
 				expect(line.killed.length).toBeGreaterThanOrEqual(30);
@@ -1246,7 +1230,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 				`for _ in $(seq 60); do (exec -a claude sleep ${seconds}) & (exec -a /x/claude/versions/2.1.234 sleep ${seconds}) & (exec -a '/mnt/c/Program Files/claude.exe' sleep ${seconds}) & done
 				for _ in $(seq 31); do ${plain} & done; echo ready; wait`,
 				async () => {
-					firePass(log, runaway);
+					await firePass(log, runaway, seconds);
 					const [line] = firings(runaway);
 					expect(line.argv).toBe(plain);
 					expect(line.killed).toHaveLength(31);
@@ -1258,7 +1242,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 					expect(await settles(() => running(`^${plain}`) === 0)).toBe(true);
 					// Only Claude groups left: a line that says so, and no kill.
 					const after = logs();
-					firePass(after.log, after.runaway);
+					await firePass(after.log, after.runaway, seconds);
 					const [only] = firings(after.runaway);
 					// All that is left outside them is the scope's own one shell.
 					expect(only.size).toBe(1);
@@ -1278,7 +1262,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			await inScope(
 				`for _ in $(seq 31); do (exec -a $'a"b\\\\c\\001d' sleep ${marker}4) & done; echo ready; wait`,
 				async () => {
-					firePass(log, runaway);
+					await firePass(log, runaway, `${marker}4`);
 					expect(firings(runaway)[0].argv).toBe(`${argv} ${marker}4`);
 				},
 			);
@@ -1286,7 +1270,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 		SCOPE_S * 1000,
 	);
 
-	it("drops firing lines older than MEMWATCH_MINUTE_DAYS when it writes one", () => {
+	it("drops firing lines older than MEMWATCH_MINUTE_DAYS when it writes one", async () => {
 		const { log, runaway } = logs();
 		const ts = (daysAgo: number) =>
 			new Date(Date.now() - daysAgo * 86_400_000)
@@ -1294,8 +1278,88 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 				.replace(/\.\d+Z$/, "+0000");
 		const old = `{"ts":"${ts(40)}","since":"${ts(40)}","killed":[]}`;
 		fs.writeFileSync(runaway, `${old}\n`);
-		firePass(log, runaway);
+		await firePass(log, runaway, `${marker}6`);
 		expect(fs.readFileSync(runaway, "utf8")).not.toContain(old);
 		expect(firings(runaway)).toHaveLength(1);
 	});
 });
+
+/*
+ * Alone and last: its 2,500 sleepers slow every pass that reads /proc, and
+ * would cross the shipped threshold in any loop running beside them.
+ */
+describe
+	.skipIf(!hasScope)
+	.sequential("memwatch process-count trigger at the shipped threshold", () => {
+		it(
+			"names the sleepers' command and their parent past the threshold",
+			async () => {
+				const unit = `memwatch-forks-${process.pid}.scope`;
+				const marker = `memwatch-fork-fixture-${process.pid}`;
+				const forker = spawn(
+					"systemd-run",
+					[
+						"--user",
+						"--scope",
+						"--quiet",
+						`--unit=${unit}`,
+						"-p",
+						`TasksMax=${SCOPE_TASKS}`,
+						"-p",
+						`RuntimeMaxSec=${SCOPE_S}`,
+						"bash",
+						"-c",
+						`: ${marker}; for _ in $(seq ${SLEEPERS}); do sleep 3402 & done; echo ready; wait`,
+					],
+					{ stdio: ["ignore", "pipe", "ignore"] },
+				);
+				try {
+					await new Promise<void>((resolve, reject) => {
+						forker.stdout.on("data", (b) => {
+							if (String(b).includes("ready")) resolve();
+						});
+						forker.on("exit", () => reject(new Error("forker exited early")));
+					});
+					const log = path.join(tmp, "procs.log");
+					// The shipped default threshold, never one inherited from the shell.
+					const { MEMWATCH_PROCS_THRESHOLD: _, ...env } = baseEnv;
+					await memwatch({
+						...env,
+						MEMWATCH_ONCE: "1",
+						MEMWATCH_LOG: log,
+						MEMWATCH_THRESHOLD_MB: "99999999",
+						MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+					});
+					const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
+					const head = lines.findIndex((l) =>
+						/^--- \d+ processes \| top commands by process count ---$/.test(l),
+					);
+					expect(head).toBeGreaterThan(-1);
+					expect(Number(lines[head].split(" ")[1])).toBeGreaterThan(SLEEPERS);
+					expect(lines[head + 2]).toMatch(
+						new RegExp(`^ +${SLEEPERS} sleep 3402$`),
+					);
+					const parents = lines.indexOf(
+						"--- top parents by direct children ---",
+					);
+					expect(parents).toBeGreaterThan(head);
+					// The parent's whole argv, never cut to the block's 110 columns.
+					expect(lines[parents + 2]).toMatch(
+						new RegExp(
+							`^ *\\d+ +${SLEEPERS} \\S*bash -c : ${marker};.* echo ready; wait$`,
+						),
+					);
+				} finally {
+					try {
+						execFileSync("systemctl", ["--user", "stop", unit], {
+							stdio: "ignore",
+						});
+					} catch {
+						// Already gone: RuntimeMaxSec ended it, or it never started.
+					}
+					forker.kill("SIGKILL");
+				}
+			},
+			SCOPE_S * 1000,
+		);
+	});

@@ -9,7 +9,7 @@ import path from "node:path";
 interface FakeIssueBody {
 	/** The fake writer — what WFC_ISSUE_BODY points at. */
 	script: string;
-	/** The issue's body as last written — what the gh stub's `issue view` cats. */
+	/** The issue's body as last written — what the gh stub's `issue view` answers. */
 	bodyFile: string;
 	/** Each call's argv, space-joined, oldest first; [] before any call. */
 	calls: () => string[];

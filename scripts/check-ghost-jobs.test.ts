@@ -25,6 +25,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	type AgentsAnswer,
+	buildAgentsBranch,
+	buildListedRow,
+} from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -73,23 +79,19 @@ function job(
 	);
 }
 
-/** A `claude` stand-in: `agents --json` prints `body`, exits `code`. */
-function fakeClaude(body: string, code = 0): void {
-	const bin = path.join(dir, "bin", "claude");
-	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`);
-	fs.chmodSync(bin, 0o755);
+/** A `claude` stand-in whose `agents --json` answers `answer`. */
+function fakeClaude(answer: AgentsAnswer): void {
+	writeClaudeStub(path.join(dir, "bin", "claude"), [buildAgentsBranch(answer)]);
 }
 
 /** An oracle record. Omit `pid` for the shape a ghost was seen in. */
-const agent = (sessionId: string, pid?: number) => ({
-	...(pid === undefined ? {} : { pid }),
-	id: sessionId.slice(0, 8),
-	sessionId,
-	state: "working",
-	kind: "background",
-});
-
-const listing = (...agents: object[]) => JSON.stringify(agents);
+const agent = (sessionId: string, pid?: number) =>
+	pid === undefined
+		? buildListedRow({ id: sessionId.slice(0, 8), sessionId }, [
+				"pid",
+				"status",
+			])
+		: buildListedRow({ pid, id: sessionId.slice(0, 8), sessionId });
 
 /*
  * A live neighbour carrying a pid. Every ghost fixture lists one: with the ghost
@@ -138,7 +140,7 @@ function runAs(sessionId: string, ...args: string[]) {
 describe("check-ghost-jobs", () => {
 	it("flags a working job the oracle lists with no pid", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const { out } = run();
 
@@ -149,7 +151,7 @@ describe("check-ghost-jobs", () => {
 
 	it("flags a working job the oracle does not list at all as a GHOST-JOB", () => {
 		job("gone");
-		fakeClaude(listing(agent("someone-else-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("someone-else-0000-0000-000000000000", 4242)]);
 
 		const { out } = run();
 
@@ -163,7 +165,7 @@ describe("check-ghost-jobs", () => {
 		 * HUNG-JOB (mantahostels#2588), and this fixture's record is eight hours old. */
 		job("alive");
 		transcript("alive-0000-0000-0000-000000000000", 0);
-		fakeClaude(listing(agent("alive-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("alive-0000-0000-0000-000000000000", 4242)]);
 
 		const { out, status } = run();
 
@@ -174,14 +176,14 @@ describe("check-ghost-jobs", () => {
 
 	it("spares a job younger than the grace window", () => {
 		job("young", {}, 5);
-		fakeClaude(listing(HEALTHY, agent("young-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("young-0000-0000-0000-000000000000")]);
 
 		expect(run().out).not.toContain("GHOST-JOB");
 	});
 
 	it("--minutes moves the grace window", () => {
 		job("young", {}, 5);
-		fakeClaude(listing(HEALTHY, agent("young-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("young-0000-0000-0000-000000000000")]);
 
 		expect(run("--minutes", "2").out).toContain("GHOST-JOB");
 		expect(run("--minutes", "600").out).not.toContain("GHOST-JOB");
@@ -189,7 +191,7 @@ describe("check-ghost-jobs", () => {
 
 	it("reports a job whose timestamps will not parse, grace window or not", () => {
 		job("odd", { createdAt: "not a date", updatedAt: "not a date" }, 0);
-		fakeClaude(listing(HEALTHY, agent("odd-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("odd-0000-0000-0000-000000000000")]);
 
 		const { out } = run();
 
@@ -199,14 +201,14 @@ describe("check-ghost-jobs", () => {
 
 	it("ignores a job that is not in the working state", () => {
 		job("done", { state: "done", firstTerminalAt: new Date().toISOString() });
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		expect(run().out).not.toContain("GHOST-JOB");
 	});
 
 	it("degrades to silence when the oracle will not run", () => {
 		job("d06bf779");
-		fakeClaude("", 1);
+		fakeClaude(null);
 
 		const { out, status } = run();
 
@@ -218,7 +220,7 @@ describe("check-ghost-jobs", () => {
 
 	it("degrades to silence when the oracle lists nothing at all", () => {
 		job("d06bf779");
-		fakeClaude("[]");
+		fakeClaude([]);
 
 		const { out } = run();
 
@@ -230,12 +232,10 @@ describe("check-ghost-jobs", () => {
 		// The field going away must not turn every working job into a ghost.
 		job("a");
 		job("b");
-		fakeClaude(
-			listing(
-				agent("a-0000-0000-0000-000000000000"),
-				agent("b-0000-0000-0000-000000000000"),
-			),
-		);
+		fakeClaude([
+			agent("a-0000-0000-0000-000000000000"),
+			agent("b-0000-0000-0000-000000000000"),
+		]);
 
 		const { out } = run();
 
@@ -247,7 +247,7 @@ describe("check-ghost-jobs", () => {
 	it("judges nothing where the oracle has not listed the session it runs in (#1558)", () => {
 		job("d06bf779");
 		job("hung", {}, 60 * 8);
-		fakeClaude(listing(HEALTHY, agent("hung-0000-0000-0000-000000000000", 99)));
+		fakeClaude([HEALTHY, agent("hung-0000-0000-0000-000000000000", 99)]);
 
 		const { out, status } = runAs("not-in-the-listing-at-all");
 
@@ -261,13 +261,11 @@ describe("check-ghost-jobs", () => {
 	it("judges where the oracle lists the session it runs in", () => {
 		job("d06bf779");
 		job("hung", {}, 60 * 8);
-		fakeClaude(
-			listing(
-				HEALTHY,
-				agent("hung-0000-0000-0000-000000000000", 99),
-				agent("self-0000-0000-0000-000000000000", 7),
-			),
-		);
+		fakeClaude([
+			HEALTHY,
+			agent("hung-0000-0000-0000-000000000000", 99),
+			agent("self-0000-0000-0000-000000000000", 7),
+		]);
 
 		const { out } = runAs("self-0000-0000-0000-000000000000");
 
@@ -277,7 +275,7 @@ describe("check-ghost-jobs", () => {
 
 	it("never calls this session's own job a ghost", () => {
 		job("mine");
-		fakeClaude(listing(HEALTHY, agent("mine-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("mine-0000-0000-0000-000000000000")]);
 
 		const { out } = runAs("mine-0000-0000-0000-000000000000");
 
@@ -286,7 +284,7 @@ describe("check-ghost-jobs", () => {
 
 	it("sweeps the job store of every config dir, not just its own", () => {
 		job("elsewhere", {}, 60 * 8, second);
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		const { out } = run();
 
@@ -296,7 +294,7 @@ describe("check-ghost-jobs", () => {
 
 	it("skips when not one job store will open", () => {
 		fs.rmSync(path.join(dir, "jobs"), { recursive: true, force: true });
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		const { out, status } = run();
 
@@ -308,7 +306,7 @@ describe("check-ghost-jobs", () => {
 	it("reports a state.json that will not parse, without calling it a ghost", () => {
 		fs.mkdirSync(path.join(dir, "jobs", "broken"), { recursive: true });
 		fs.writeFileSync(jobPath("broken"), "{not json");
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		const { out } = run();
 
@@ -318,7 +316,7 @@ describe("check-ghost-jobs", () => {
 
 	it("reports a record naming no session, without calling it a ghost", () => {
 		job("nameless", { sessionId: null });
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		const { out } = run();
 
@@ -330,7 +328,7 @@ describe("check-ghost-jobs", () => {
 	it("does not point an unreadable-only report at a roster path it never printed", () => {
 		fs.mkdirSync(path.join(dir, "jobs", "broken"), { recursive: true });
 		fs.writeFileSync(jobPath("broken"), "{not json");
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		const { out } = run();
 
@@ -346,7 +344,7 @@ describe("check-ghost-jobs", () => {
 		job("d06bf779");
 		fs.mkdirSync(path.join(dir, "jobs", "broken"), { recursive: true });
 		fs.writeFileSync(jobPath("broken"), "{not json");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const { out } = run();
 
@@ -357,7 +355,7 @@ describe("check-ghost-jobs", () => {
 
 	it("never writes a job record", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 		const before = fs.readFileSync(jobPath("d06bf779"), "utf8");
 
 		run();
@@ -367,7 +365,7 @@ describe("check-ghost-jobs", () => {
 
 	it("tells the reader what to do about a ghost, and that nothing was cleared", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const { out } = run();
 
@@ -378,7 +376,7 @@ describe("check-ghost-jobs", () => {
 
 	it("names the roster route, not the state.json edit, as the retirement remedy (mantahostels#2049)", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const { out } = run();
 
@@ -406,9 +404,7 @@ describe("check-ghost-jobs", () => {
 
 		it("names the loop where it runs, and not where it does not", () => {
 			job("d06bf779");
-			fakeClaude(
-				listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")),
-			);
+			fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 			expect(run().out).not.toContain("The refill loop");
 
 			loop = spawnLoopHolder(dir);
@@ -420,7 +416,7 @@ describe("check-ghost-jobs", () => {
 
 	it("prints the roster path for a ghost's own config dir", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const { out } = run();
 
@@ -429,7 +425,7 @@ describe("check-ghost-jobs", () => {
 
 	it("--notify reports each ghost once, and always exits 0", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const first = run("--notify");
 		expect(first.out).toContain("GHOST-JOB");
@@ -446,17 +442,15 @@ describe("check-ghost-jobs", () => {
 	 * cannot tell the two apart. */
 	it("--notify keeps an older ghost stamped once a newer one joins it", () => {
 		job("first");
-		fakeClaude(listing(HEALTHY, agent("first-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("first-0000-0000-0000-000000000000")]);
 		expect(run("--notify").out).toContain("/implement first");
 
 		job("second");
-		fakeClaude(
-			listing(
-				HEALTHY,
-				agent("first-0000-0000-0000-000000000000"),
-				agent("second-0000-0000-0000-00000000000"),
-			),
-		);
+		fakeClaude([
+			HEALTHY,
+			agent("first-0000-0000-0000-000000000000"),
+			agent("second-0000-0000-0000-00000000000"),
+		]);
 		const two = run("--notify").out;
 		expect(two).toContain("/implement second");
 		expect(two).not.toContain("/implement first");
@@ -467,7 +461,7 @@ describe("check-ghost-jobs", () => {
 	it("--notify reports an unreadable record once — nothing ever repairs one", () => {
 		fs.mkdirSync(path.join(dir, "jobs", "broken"), { recursive: true });
 		fs.writeFileSync(jobPath("broken"), "{not json");
-		fakeClaude(listing(agent("other-0000-0000-0000-000000000000", 4242)));
+		fakeClaude([agent("other-0000-0000-0000-000000000000", 4242)]);
 
 		expect(run("--notify").out).toContain("UNREADABLE-JOB");
 		expect(run("--notify").out).not.toContain("UNREADABLE-JOB");
@@ -507,9 +501,7 @@ describe("check-ghost-jobs", () => {
 
 		it("reports the same ghost on every run, however stamped", () => {
 			job("d06bf779");
-			fakeClaude(
-				listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")),
-			);
+			fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 			expect(run("--notify").out).toContain("GHOST-JOB");
 			expect(fs.existsSync(stampPath())).toBe(true);
 
@@ -521,9 +513,7 @@ describe("check-ghost-jobs", () => {
 
 		it("carries the signature instead of stamping with it", () => {
 			job("d06bf779");
-			fakeClaude(
-				listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")),
-			);
+			fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 			persist("--notify");
 
@@ -537,7 +527,7 @@ describe("check-ghost-jobs", () => {
 
 	it("--json carries the ghost and its reason", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const parsed = JSON.parse(run("--json").stdout);
 
@@ -552,7 +542,7 @@ describe("check-ghost-jobs", () => {
 
 	it("refuses a --minutes that is not a non-negative number", () => {
 		job("d06bf779");
-		fakeClaude(listing(HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")));
+		fakeClaude([HEALTHY, agent("d06bf779-0000-0000-0000-000000000000")]);
 
 		const { out, status } = run("--minutes", "-1");
 
@@ -572,7 +562,7 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	it("flags a live job whose transcript has not moved for the window, naming the job and never also as a GHOST-JOB", () => {
 		job("aa11bb22");
 		transcript(sid("aa11bb22"), 60 * 9);
-		fakeClaude(listing(agent(sid("aa11bb22"), 5150), HEALTHY));
+		fakeClaude([agent(sid("aa11bb22"), 5150), HEALTHY]);
 		const r = run();
 		expect(r.out).toContain("HUNG-JOB");
 		expect(r.out).toContain("/implement aa11bb22");
@@ -585,13 +575,13 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	it("leaves a live job with a fresh transcript alone", () => {
 		job("aa11bb22");
 		transcript(sid("aa11bb22"), 1);
-		fakeClaude(listing(agent(sid("aa11bb22"), 5150), HEALTHY));
+		fakeClaude([agent(sid("aa11bb22"), 5150), HEALTHY]);
 		expect(run().out).not.toContain("HUNG-JOB");
 	});
 
 	it("flags a live job that never wrote a transcript at all", () => {
 		job("cc33dd44");
-		fakeClaude(listing(agent(sid("cc33dd44"), 5151), HEALTHY));
+		fakeClaude([agent(sid("cc33dd44"), 5151), HEALTHY]);
 		const r = run();
 		expect(r.out).toContain("HUNG-JOB");
 		expect(r.out).toContain("it never wrote a transcript");
@@ -613,13 +603,13 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 			},
 			0,
 		);
-		fakeClaude(listing(agent(sid("ee55ff66"), 5152), HEALTHY));
+		fakeClaude([agent(sid("ee55ff66"), 5152), HEALTHY]);
 		expect(run().out).toContain("HUNG-JOB");
 	});
 
 	it("says nothing about a young transcript-less job", () => {
 		job("77aa88bb", {}, 2);
-		fakeClaude(listing(agent(sid("77aa88bb"), 5153), HEALTHY));
+		fakeClaude([agent(sid("77aa88bb"), 5153), HEALTHY]);
 		expect(run().out).not.toContain("HUNG-JOB");
 	});
 
@@ -630,7 +620,7 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	 */
 	it("names a transcript-less job on the shorter ghost window", () => {
 		job("11ee22ff", {}, 45);
-		fakeClaude(listing(agent(sid("11ee22ff"), 5160), HEALTHY));
+		fakeClaude([agent(sid("11ee22ff"), 5160), HEALTHY]);
 		const r = run();
 		expect(r.out).toContain("HUNG-JOB");
 		expect(r.out).toContain("it never wrote a transcript");
@@ -639,14 +629,14 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	it("still holds a job with a STALE transcript to the four-hour window", () => {
 		job("33aa44bb", {}, 45);
 		transcript(sid("33aa44bb"), 45);
-		fakeClaude(listing(agent(sid("33aa44bb"), 5161), HEALTHY));
+		fakeClaude([agent(sid("33aa44bb"), 5161), HEALTHY]);
 		// 45 minutes of silence is past --minutes and nowhere near --hung-minutes.
 		expect(run().out).not.toContain("HUNG-JOB");
 	});
 
 	it("moves the transcript-less window with --minutes, not --hung-minutes", () => {
 		job("55cc66dd", {}, 45);
-		fakeClaude(listing(agent(sid("55cc66dd"), 5162), HEALTHY));
+		fakeClaude([agent(sid("55cc66dd"), 5162), HEALTHY]);
 		expect(run("--minutes", "90").out).not.toContain("HUNG-JOB");
 		expect(run("--hung-minutes", "600").out).toContain("HUNG-JOB");
 	});
@@ -654,14 +644,14 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	it("--hung-minutes moves the window", () => {
 		job("99cc00dd");
 		transcript(sid("99cc00dd"), 60);
-		fakeClaude(listing(agent(sid("99cc00dd"), 5154), HEALTHY));
+		fakeClaude([agent(sid("99cc00dd"), 5154), HEALTHY]);
 		expect(run().out).not.toContain("HUNG-JOB");
 		expect(run("--hung-minutes", "30").out).toContain("HUNG-JOB");
 	});
 
 	it("refuses a --hung-minutes that is not a number", () => {
 		job("99cc00dd");
-		fakeClaude(listing(HEALTHY));
+		fakeClaude([HEALTHY]);
 		const r = run("--hung-minutes", "soon");
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("--hung-minutes must be a non-negative number");
@@ -670,7 +660,7 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	it("names the roster route and the waiting-session caveat", () => {
 		job("aa11bb22");
 		transcript(sid("aa11bb22"), 60 * 9);
-		fakeClaude(listing(agent(sid("aa11bb22"), 5150), HEALTHY));
+		fakeClaude([agent(sid("aa11bb22"), 5150), HEALTHY]);
 		const out = run().out;
 		expect(out).toContain("roster.json");
 		expect(out).toContain("replPid");
@@ -684,7 +674,7 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 	it("--notify reports each hung job once", () => {
 		job("aa11bb22");
 		transcript(sid("aa11bb22"), 60 * 9);
-		fakeClaude(listing(agent(sid("aa11bb22"), 5150), HEALTHY));
+		fakeClaude([agent(sid("aa11bb22"), 5150), HEALTHY]);
 		expect(run("--notify").out).toContain("HUNG-JOB");
 		expect(run("--notify").out).not.toContain("HUNG-JOB");
 	});
@@ -693,9 +683,7 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		job("aa11bb22");
 		transcript(sid("aa11bb22"), 60 * 9);
 		job("beefbeef");
-		fakeClaude(
-			listing(agent(sid("aa11bb22"), 5150), agent(sid("beefbeef")), HEALTHY),
-		);
+		fakeClaude([agent(sid("aa11bb22"), 5150), agent(sid("beefbeef")), HEALTHY]);
 		const out = run().out;
 		expect(out).toContain("HUNG-JOB");
 		expect(out).toContain("GHOST-JOB");

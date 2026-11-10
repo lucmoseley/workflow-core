@@ -20,6 +20,12 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type AgentsAnswer,
+	buildAgentsBranch,
+	buildListedRow,
+	buildUnrecordedRow,
+} from "./lib/agents-stop-fake";
+import {
 	AS_ROOT,
 	commitAll,
 	core,
@@ -34,6 +40,7 @@ import {
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { commandPath } from "./lib/command-path-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { printed as ghPrinted } from "./lib/gh-stub";
@@ -60,6 +67,13 @@ const sb = freshSandbox();
 
 /** A fakeGh route table answering every call with a closed issue's state. */
 const CLOSED = { "*": ghPrinted('{"state":"CLOSED"}\n') };
+
+/** A `claude` at `bin` whose `agents --json` answers `answer`, appending each
+ * call to `callLog` where given. */
+const writeOracle = (bin: string, answer: AgentsAnswer, callLog?: string) => {
+	fs.mkdirSync(path.dirname(bin), { recursive: true });
+	return writeClaudeStub(bin, [buildAgentsBranch(answer, {}, callLog)]);
+};
 
 const cli = (args: string[], env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, args, { cwd: sb.repo, env: { ...process.env, ...env } });
@@ -448,15 +462,14 @@ describe("list tells an ENDED holder from a running one", () => {
 	const rel = "docs/doc-map.md";
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 
-	/** A `claude` stand-in listing whole records, so `kind` and `state` reach the oracle. */
-	const fakeClaude = (agents: Record<string, unknown>[], code = 0) => {
-		fs.mkdirSync(path.join(sb.dir, "bin"), { recursive: true });
-		fs.writeFileSync(
-			claudeBin(),
-			`#!/bin/sh\ncat <<'EOF'\n${JSON.stringify(agents)}\nEOF\nexit ${code}\n`,
-		);
-		fs.chmodSync(claudeBin(), 0o755);
-	};
+	/** A `claude` stand-in listing alice in `state`, and bob working. */
+	const fakeClaude = (state: string) =>
+		writeOracle(claudeBin(), [
+			state === "failed" || state === "stopped"
+				? buildUnrecordedRow({ sessionId: "alice", kind: "background", state })
+				: buildListedRow({ sessionId: "alice", state }),
+			buildListedRow({ sessionId: "bob" }),
+		]);
 
 	const listAs = (sid: string) =>
 		cli(["list"], {
@@ -472,29 +485,20 @@ describe("list tells an ENDED holder from a running one", () => {
 	it.each(["done", "failed", "stopped"])(
 		"labels a holder the oracle calls %s as ENDED",
 		(state) => {
-			fakeClaude([
-				{ sessionId: "alice", kind: "background", state },
-				{ sessionId: "bob" },
-			]);
+			fakeClaude(state);
 			expect(listAs("bob").stdout).toMatch(/ENDED.*docs\/doc-map\.md/);
 		},
 	);
 
 	it("still says HELD for a holder the oracle calls working", () => {
-		fakeClaude([
-			{ sessionId: "alice", kind: "background", state: "working" },
-			{ sessionId: "bob" },
-		]);
+		fakeClaude("working");
 		expect(listAs("bob").stdout).toMatch(/HELD .*docs\/doc-map\.md/);
 	});
 
 	/* DISPLAY WORDING, NEVER A RELEASE (mantahostels#318). The row stays in the default
 	 * view — which filters on `alive` — and the guard still denies on it. */
 	it("keeps the ENDED row in the default view and hides nothing", () => {
-		fakeClaude([
-			{ sessionId: "alice", kind: "background", state: "failed" },
-			{ sessionId: "bob" },
-		]);
+		fakeClaude("failed");
 		const printed = listAs("bob").stdout;
 		expect(printed).toContain("docs/doc-map.md");
 		expect(printed).not.toContain("stale claim(s) hidden");
@@ -502,7 +506,7 @@ describe("list tells an ENDED holder from a running one", () => {
 
 	/* Degrades to today's two labels: a refusal must not call a live holder ended. */
 	it("falls back to HELD where the oracle refuses", () => {
-		fakeClaude([], 3);
+		writeOracle(claudeBin(), { exit: 3 });
 		expect(listAs("bob").stdout).toMatch(/HELD .*docs\/doc-map\.md/);
 	});
 });
@@ -703,20 +707,19 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 	const calls = () => path.join(sb.dir, "claude-calls");
 
+	type Named = [sessionId: string, name?: string];
+	const rowsOf = (agents: Named[]) =>
+		agents.map(([sessionId, name]) =>
+			name
+				? buildListedRow({ sessionId, name })
+				: buildUnrecordedRow({ sessionId }),
+		);
 	/** A `claude` stand-in listing `[sessionId, name]` pairs, recording each call. */
-	const fakeClaude = (agents: [string, string?][], code = 0) => {
-		fs.mkdirSync(path.join(sb.dir, "bin"), { recursive: true });
-		const body = JSON.stringify(
-			agents.map(([sessionId, name]) =>
-				name ? { sessionId, name } : { sessionId },
-			),
-		);
-		fs.writeFileSync(
-			claudeBin(),
-			`#!/bin/sh\necho hit >> ${shellQuote(calls())}\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
-		);
-		fs.chmodSync(claudeBin(), 0o755);
-	};
+	const fakeClaude = (agents: Named[]) =>
+		writeOracle(claudeBin(), rowsOf(agents), calls());
+	/** One that lists them and then fails. */
+	const failClaude = (agents: Named[] = []) =>
+		writeOracle(claudeBin(), { exit: 3, rows: rowsOf(agents) }, calls());
 
 	const oracleCalls = () =>
 		fs.existsSync(calls())
@@ -770,7 +773,7 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 		// Its own pid file: the registry is keyed by pid, so bob's entry on
 		// process.pid has overwritten alice's.
 		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
-		fakeClaude([], 3);
+		failClaude();
 		const r = runAs(["claim", inRepo(rel)], "bob");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/Wayfinder 1162 \(id alice, pid \d+\)/);
@@ -786,14 +789,14 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 
 	it("names the holder in list from the sessions registry when the oracle cannot be read", () => {
 		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
-		fakeClaude([], 3);
+		failClaude();
 		const r = runAs(["list"], "bob");
 		expect(r.stdout).toMatch(/HELD .*docs\/doc-map\.md.*Wayfinder 1162/);
 	});
 
 	it("names the claimant in issue-claims from the sessions registry", () => {
 		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
-		fakeClaude([], 3);
+		failClaude();
 		store.claimIssue(645, store.identify("alice"));
 		expect(runAs(["issue-claims"], "bob").stdout).toMatch(
 			/^#645\tWayfinder 1162 \(id alice\)\tsince /m,
@@ -801,7 +804,10 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	});
 
 	it("falls back to the bare id when neither the oracle nor the registry names it", () => {
-		fakeClaude([["alice", "Wayfinder 1162"]], 3);
+		failClaude([
+			["alice", "Wayfinder 1162"],
+			["bob", "Implement 1104"],
+		]);
 		const r = runAs(["claim", inRepo(rel)], "bob");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("alice");
@@ -2209,25 +2215,13 @@ describe("release — the oracle read it pays for (mantahostels#317)", () => {
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 	const calls = () => path.join(sb.dir, "claude-calls");
 
-	/**
-	 * A `claude` stand-in listing these sessions, recording every invocation. A
-	 * bare id lists as a session with no state; an object carries the `kind` and
-	 * `state` the oracle's `terminal` set is derived from.
-	 */
-	const fakeClaude = (
-		ids: (string | { sessionId: string; kind?: string; state?: string })[],
-		code = 0,
-	) => {
-		fs.mkdirSync(path.join(sb.dir, "bin"), { recursive: true });
-		const body = JSON.stringify(
-			ids.map((a) => (typeof a === "string" ? { sessionId: a } : a)),
-		);
-		fs.writeFileSync(
+	/** A `claude` stand-in listing these sessions, recording each call. */
+	const fakeClaude = (ids: string[]) =>
+		writeOracle(
 			claudeBin(),
-			`#!/bin/sh\necho hit >> ${shellQuote(calls())}\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
+			ids.map((sessionId) => buildListedRow({ sessionId })),
+			calls(),
 		);
-		fs.chmodSync(claudeBin(), 0o755);
-	};
 
 	const oracleCalls = () =>
 		fs.existsSync(calls())
@@ -2591,14 +2585,12 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 	 * (mantahostels#704), so the sweep needs a stand-in for it.
 	 */
 	const pruneBin = () => path.join(sb.dir, "prunebin", "claude");
-	const fakePrune = (ids: string[], code = 0) => {
-		fs.mkdirSync(path.join(sb.dir, "prunebin"), { recursive: true });
-		const body = JSON.stringify(ids.map((sessionId) => ({ sessionId })));
-		fs.writeFileSync(
+	/** The sweeper's env over a `claude` listing `ids`, or failing where null. */
+	const fakePrune = (ids: string[] | null) => {
+		writeOracle(
 			pruneBin(),
-			`#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
+			ids?.map((sessionId) => buildListedRow({ sessionId })) ?? null,
 		);
-		fs.chmodSync(pruneBin(), 0o755);
 		return { CLAUDE_CODE_SESSION_ID: "sweeper", WFC_CLAUDE_BIN: pruneBin() };
 	};
 
@@ -2627,7 +2619,7 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 
 	it("sweeps nothing at all where the agents oracle will not answer (mantahostels#704)", () => {
 		const f = aged();
-		expect(cli(["prune-markers"], fakePrune([], 1)).status).toBe(0);
+		expect(cli(["prune-markers"], fakePrune(null)).status).toBe(0);
 		expect(fs.existsSync(f)).toBe(true);
 	});
 
@@ -4468,10 +4460,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 	it("names the holder at CEILING from the sessions registry when the oracle cannot be read (#3557)", async () => {
 		aliceHolds();
 		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
-		const bin = path.join(sb.dir, "bin", "claude");
-		fs.mkdirSync(path.dirname(bin), { recursive: true });
-		fs.writeFileSync(bin, "#!/bin/sh\nexit 3\n");
-		fs.chmodSync(bin, 0o755);
+		const bin = writeOracle(path.join(sb.dir, "bin", "claude"), { exit: 3 });
 		const r = await waitAs("bob", ["540", "0.3"], {
 			WFC_CLAUDE_BIN: bin,
 		}).done;
@@ -4518,20 +4507,21 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 	 */
 	describe("HOLDER-ENDED and DEADLOCK (#542)", () => {
 		const calls = () => path.join(sb.dir, "oracle-calls");
-		const oracleSays = (agents: Record<string, unknown>[], code = 0) => {
-			const bin = path.join(sb.dir, "claude-542");
-			fs.writeFileSync(
-				bin,
-				`#!/bin/sh\necho x >> ${shellQuote(calls())}\ncat <<'EOF'\n${JSON.stringify(agents)}\nEOF\nexit ${code}\n`,
+		/** The oracle listing alice in `aliceState` and `others` working, then
+		 * exiting `exit`. */
+		const oracleSays = (aliceState: string, others = ["bob"], exit = 0) => {
+			const rows = [
+				buildListedRow({ sessionId: "alice", state: aliceState }),
+				...others.map((sessionId) => buildListedRow({ sessionId })),
+			];
+			const bin = writeOracle(
+				path.join(sb.dir, "claude-542"),
+				exit ? { exit, rows } : rows,
+				calls(),
 			);
-			fs.chmodSync(bin, 0o755);
 			return { WFC_CLAUDE_BIN: bin, WFC_ORACLE_CACHE: "0" };
 		};
-		const aliceEnded = () =>
-			oracleSays([
-				{ sessionId: "alice", kind: "background", state: "done" },
-				{ sessionId: "bob" },
-			]);
+		const aliceEnded = () => oracleSays("done");
 		const oracleReads = () =>
 			fs.existsSync(calls())
 				? fs.readFileSync(calls(), "utf8").split("\n").filter(Boolean).length
@@ -4551,7 +4541,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 			const r = await waitAs(
 				"bob",
 				["540", "0.5"],
-				oracleSays([{ sessionId: "alice", state: "done" }], 3),
+				oracleSays("done", ["bob"], 3),
 			).done;
 			expect(r.stdout).toMatch(/^CEILING {2}issue #540/);
 			expect(r.stdout).toContain("Whether its session has ended is UNKNOWN");
@@ -4560,14 +4550,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 
 		it("reads the oracle once, not once a poll, inside 30 s", async () => {
 			aliceHolds();
-			const r = await waitAs(
-				"bob",
-				["540", "0.6"],
-				oracleSays([
-					{ sessionId: "alice", kind: "background", state: "working" },
-					{ sessionId: "bob" },
-				]),
-			).done;
+			const r = await waitAs("bob", ["540", "0.6"], oracleSays("working")).done;
 			expect(r.status).toBe(5);
 			expect(oracleReads()).toBe(1);
 		});
@@ -4580,12 +4563,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 			live(sb, "carol");
 			live(sb, "dave");
 			const env = {
-				...oracleSays([
-					{ sessionId: "alice", kind: "background", state: "working" },
-					{ sessionId: "bob" },
-					{ sessionId: "carol" },
-					{ sessionId: "dave" },
-				]),
+				...oracleSays("working", ["bob", "carol", "dave"]),
 				WFC_ORACLE_CACHE: "1",
 			};
 			const first = waitAs("bob", ["540", "2"], env);
@@ -4608,10 +4586,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 		it("confirms a shared reading's HOLDER-ENDED with a fresh one before firing", async () => {
 			aliceHolds();
 			const env = {
-				...oracleSays([
-					{ sessionId: "alice", kind: "background", state: "working" },
-					{ sessionId: "bob" },
-				]),
+				...oracleSays("working"),
 				WFC_ORACLE_CACHE: "1",
 			};
 			oracleCache.write(
