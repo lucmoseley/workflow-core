@@ -1,9 +1,6 @@
 /*
  * gate-judge-score.js — how measure-gate-judge.js scores the gate judge
- * (lib/gate-judge.js, #4964): a stored reply read against its body, a
- * labelled case counted over its runs, a corpus body's two readings set side
- * by side, and the interval and quantile the rates are printed with. No call
- * and no file: the command does both.
+ * (lib/gate-judge.js, #4964). No call and no file: the command does both.
  */
 
 const {

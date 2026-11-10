@@ -38,8 +38,7 @@
  * about 260 MB for about 6 s (measured on 2.1.322); `--jobs` is how many run
  * at once, 2 unless given, to be sized from MemAvailable at the time.
  *
- * In no family (§N3): it measures, gates nothing and files nothing. No suite
- * or gate runs it.
+ * In no family (§N3): it measures, gates nothing and files nothing.
  */
 
 const { spawn, spawnSync } = require("node:child_process");
@@ -74,14 +73,12 @@ const CASES = path.join(__dirname, "fixtures", "gate-judge-cases.json");
 /* Under the create guard's 60 s hook limit, so the latency measured is not cut
  * short of what a route could ever wait. */
 const MEASURING_BOUND_MS = 55_000;
-/* A guess that fits any machine able to run a suite: two children are about
- * 520 MB. The header says to size it from MemAvailable. */
+/* A guess that fits any machine able to run a suite. */
 const DEFAULT_JOBS = 2;
 const DEFAULT_RUNS = 3;
 /* GitHub's list ceiling here is far over the tracker's ~5,000 issues. */
 const CORPUS_LIMIT = 20_000;
-/* A progress line a minute: under bg-run.sh's beat, and about 20 calls at two
- * jobs. */
+/* A guess: often enough to show a detached run is alive. */
 const PROGRESS_MS = 60_000;
 
 /**
@@ -115,7 +112,6 @@ function readResults(dir) {
 	return [...new Map(rows.map((r) => [r.key, r])).values()];
 }
 
-/** The installed harness's version line. */
 const harnessVersion = () =>
 	(
 		spawnSync(claudeBin(), ["--version"], { encoding: "utf8" }).stdout ?? ""
@@ -147,7 +143,7 @@ function runWorker(inFile, outFile, boundMs) {
 /**
  * `items` through `jobs` workers at once, into `<dir>/results-<i>.jsonl`. An
  * item the directory already holds a row for, a fallen-back call included, is
- * not sent again: a fallback is a measurement.
+ * not sent again.
  *
  * @param {Item[]} items
  * @param {{dir: string, jobs: number, boundMs: number}} opts

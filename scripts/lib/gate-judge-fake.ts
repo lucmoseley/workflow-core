@@ -8,8 +8,7 @@
  * row to the recording.
  *
  * Beside lib/headless-run-fake.ts, not in it: that fake's run holds a session
- * open and logs no stdin or working directory; this one answers once with a
- * reading or one of the judge's four failures.
+ * open and logs no stdin or working directory.
  */
 
 import fs from "node:fs";

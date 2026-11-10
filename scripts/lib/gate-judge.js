@@ -4,14 +4,8 @@
  * as the floor: a pattern fault stands whatever the model says, and a call
  * that fails leaves the body judged on the patterns alone, with the reason.
  *
- * One question of one body, through claude-child.js's `judge` mode: which
- * sentences make work wait on time passing or data accumulating, and how each
- * `**Gate basis:**` line comes by its window. The model reads the body it is
- * given and nothing it cites, and never the body before an edit.
- *
- * THE CODE CHECKS THE REPLY. A quote that is not a verbatim substring of the
- * body, or that sits in a fence or code span, is dropped; a reply that does
- * not fit lib/gate-judge-mode.js's schema is a failed call.
+ * The model reads the body it is given and nothing it cites, and never the
+ * body before an edit.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -77,10 +71,7 @@ QUESTION 2 — BASES. For every line that starts \`**Gate basis:**\`, outside co
 Where the body has no wait, "waits" is an empty list; where it has no basis line, "bases" is an empty list.
 `;
 
-/**
- * The whole prompt for `body`.
- * @param {string} body
- */
+/** @param {string} body */
 const buildPrompt = (body) =>
 	`${QUESTION}\n${BODY_OPEN}\n${body}\n${BODY_CLOSE}\n`;
 

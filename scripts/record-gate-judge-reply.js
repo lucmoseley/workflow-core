@@ -14,8 +14,7 @@
  * scripts/lib/gate-judge.contract.test.ts`.
  *
  * In no family (§N3): it writes a fixture, but spends turns to do it, so it
- * is no `generate-*` a gate may run. No suite runs it: the contract holds what
- * it writes.
+ * is no `generate-*` a gate may run.
  */
 
 const { spawnSync } = require("node:child_process");
