@@ -2,7 +2,8 @@
  * queue-alarms.js — the agent-side reader of the two off-machine queue alarms
  * (#4772), .github/workflows/landing-quiet.yml and main-lag.yml. The morning
  * review lists each alarm firing, and the refill loop's landing supervision keeps the
- * alarm ticket (lib/alarm-ticket.js) open while one fires.
+ * alarm ticket (lib/alarm-ticket.js) open while one fires. Off the machine,
+ * scripts/alarm-notice.js reads the same two (#4939).
  *
  * FIRING means a failed scheduled run at `main`'s current sha with no
  * success of that workflow since: a scheduled run checks out `main`'s tip, so
@@ -123,6 +124,7 @@ function readFiringAlarms(root) {
 const ALARM_NAMES = ALARMS.map((a) => a.name);
 
 module.exports = {
+	ALARMS,
 	ALARM_NAMES,
 	buildAlarmLine,
 	readFiringAlarms,

@@ -1,16 +1,18 @@
 name: Landing quiet 14h
 
 # A report that runs off the machine (#3964), beside main-lag.yml: a dead
-# machine cannot say it is dead, and GitHub does not notify an account of its
-# own tickets. GitHub sends a scheduled run's failure to the user who last
-# changed the cron or re-enabled this file.
+# machine cannot say it is dead. Its red reaches the founder as one bot
+# mention per stall, from the tracker's alarm-notice.yml running
+# scripts/alarm-notice.js (#4939).
 #
 # Its own file because scheduled-checks.yml's red means a failed test.
 #
 # PLANNED ABSENCE: Actions tab > Landing quiet 14h > "..." > Disable workflow,
 # and "Enable workflow" on return.
 #
-# TEST THE MAIL: gh workflow run landing-quiet.yml -R lucmoseley/workflow-core -f force_failure=true
+# TEST THE NOTICE: gh workflow run landing-quiet.yml -R lucmoseley/workflow-core -f force_failure=true,
+# then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed,
+# all before this alarm's next scheduled run, whose green would end the stall.
 on:
   schedule:
     # Hourly because GitHub drops scheduled runs. Off minute 0, GitHub's named
@@ -19,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       force_failure:
-        description: "Fail whatever the newest push's age, to test the failure email."
+        description: "Fail whatever the newest push's age, to test the founder's notice."
         type: boolean
         default: false
 
@@ -28,7 +30,7 @@ permissions:
 
 jobs:
   quiet:
-    # This name and the workflow's are the part of the alarm an email carries.
+    # The run page the notice links shows this name: it carries the first look.
     name: Landing pushed in the last 14 hours - if red, wsl --list --running on Windows, then memcheck
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
@@ -62,7 +64,7 @@ jobs:
             exit 1
           fi
           if [ "$FORCE_FAILURE" = true ]; then
-            echo "::error title=Forced failure::This run tests the email route. Newest push to $branch: $pushed."
+            echo "::error title=Forced failure::This run tests the founder's notice route. Newest push to $branch: $pushed."
             exit 1
           fi
           age=$(( $(date +%s) - $(date -d "$pushed" +%s) ))

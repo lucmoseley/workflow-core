@@ -4,7 +4,7 @@
  * scripts/main-lag-alarm.js and .github/workflows/main-lag.yml (#4443,
  * #4485), with GitHub's activity and ref endpoints stubbed. Break this and
  * the one stall alarm that outlives the machine stays green through a stall,
- * a queue ref pushed again stops ageing, or the workflow's email names a
+ * a queue ref pushed again stops ageing, or the workflow's run page names a
  * threshold the check no longer applies.
  */
 
@@ -171,7 +171,10 @@ describe("main-lag-alarm.js through fetch", () => {
 
 interface Workflow {
 	name: string;
-	on: { schedule: { cron: string }[] };
+	on: {
+		schedule: { cron: string }[];
+		workflow_dispatch: { inputs: { force_failure: { type: string } } };
+	};
 	jobs: {
 		lag: { name: string; if: string; steps: { run?: string }[] };
 	};
@@ -187,11 +190,24 @@ describe("main-lag.yml", () => {
 		expect(workflow.on.schedule).toEqual([{ cron: "47 * * * *" }]);
 		expect(job.if).toContain("lucmoseley/workflow-core");
 		expect(job.steps.map((s) => s.run).filter(Boolean)).toEqual([
-			"node scripts/main-lag-alarm.js",
+			[
+				"node scripts/main-lag-alarm.js || exit",
+				'if [ "$FORCE_FAILURE" = true ]; then',
+				`  echo "::error title=Forced failure::This run tests the founder's notice route."`,
+				"  exit 1",
+				"fi",
+				"",
+			].join("\n"),
 		]);
 	});
 
-	it("names the threshold the check applies where an email shows it", () => {
+	it("takes a boolean forced failure, failed only after the check itself passed", () => {
+		expect(workflow.on.workflow_dispatch.inputs.force_failure.type).toBe(
+			"boolean",
+		);
+	});
+
+	it("names the threshold the check applies on the run page the notice links", () => {
 		const hours = QUEUE_BACKSTOP_MS / 3_600_000;
 		expect(workflow.name).toContain(`${hours}h`);
 		expect(job.name).toContain(`No queue ref waited over ${hours} hours`);

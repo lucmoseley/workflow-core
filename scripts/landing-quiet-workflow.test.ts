@@ -87,7 +87,7 @@ describe("landing-quiet.yml", () => {
 		);
 	});
 
-	it("names the threshold it applies where an email shows it", () => {
+	it("names the threshold it applies on the run page the notice links", () => {
 		const hours = step.env.QUIET_HOURS;
 		expect(workflow.name).toContain(`${hours}h`);
 		expect(job.name).toContain(`${hours} hours`);

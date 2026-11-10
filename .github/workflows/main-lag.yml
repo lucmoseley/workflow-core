@@ -2,9 +2,13 @@ name: Queue ref waiting 2h
 
 # The off-machine stall check (#4443, #4458): scripts/main-lag-alarm.js
 # fails where the oldest queue ref has waited past its QUEUE_BACKSTOP_MS.
-# Read-only: it reads refs and the activity feed.
-# GitHub sends a scheduled run's failure to the user who last
-# changed the cron or re-enabled this file.
+# Read-only: it reads refs and the activity feed. Its red reaches the
+# founder as one bot mention per stall, from the tracker's alarm-notice.yml
+# running scripts/alarm-notice.js (#4939).
+#
+# TEST THE NOTICE: gh workflow run main-lag.yml -R lucmoseley/workflow-core -f force_failure=true,
+# then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed,
+# all before this alarm's next scheduled run, whose green would end the stall.
 #
 # PLANNED ABSENCE: Actions tab > Queue ref waiting 2h > "..." > Disable
 # workflow, and "Enable workflow" on return.
@@ -14,13 +18,18 @@ on:
     # minute and off minute 0, GitHub's named high-load window.
     - cron: "47 * * * *"
   workflow_dispatch:
+    inputs:
+      force_failure:
+        description: "Fail whatever the queue's state, to test the founder's notice."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   lag:
-    # This name and the workflow's are the part of the alarm an email carries.
+    # The run page the notice links shows this name: it carries the first look.
     name: No queue ref waited over 2 hours - if red, read the queue ticket
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
@@ -37,4 +46,10 @@ jobs:
       - name: Read the oldest queue ref's wait
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/main-lag-alarm.js
+          FORCE_FAILURE: ${{ inputs.force_failure }}
+        run: |
+          node scripts/main-lag-alarm.js || exit
+          if [ "$FORCE_FAILURE" = true ]; then
+            echo "::error title=Forced failure::This run tests the founder's notice route."
+            exit 1
+          fi
