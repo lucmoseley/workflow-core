@@ -154,9 +154,9 @@ async function readLanded(tree, files, ref) {
  * @param {string} tree
  * @param {string} ref
  */
-function readUnlandedCommits(tree, ref) {
+function countUnlandedCommits(tree, ref) {
 	const n = gitRead(["rev-list", "--count", "HEAD", "--not", ref], tree);
 	return n === null ? null : Number(n.trim());
 }
 
-module.exports = { readLanded, readUnlandedCommits };
+module.exports = { readLanded, countUnlandedCommits };
