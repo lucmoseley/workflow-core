@@ -1022,6 +1022,7 @@ describe("set (#3856)", () => {
 				at: new Date().toISOString(),
 				working: 9,
 				ceiling: 9,
+				stateWorking: 6,
 				binding: { limit: "memory", why: "w" },
 			})}\n`,
 		);
@@ -1029,6 +1030,7 @@ describe("set (#3856)", () => {
 		expect(JSON.parse(r.stdout).concurrency).toEqual({
 			working: 9,
 			ceiling: 9,
+			stateWorking: 6,
 		});
 	});
 

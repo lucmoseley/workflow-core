@@ -63,7 +63,11 @@ const NEXT_BUILD_PEAK_MB = 979;
 /* The cold peak of `npm run typecheck`, by the TypeScript major version it
  * runs: the higher of two runs' cgroup `memory.peak` with no build info, 5's
  * (#4849) and 7's at `--checkers 2` (#4892). A compiler unread, or a major
- * not here, is charged the highest. MOVE ONE ONLY WITH A RE-MEASUREMENT. */
+ * not here, is charged the highest. MOVE ONE ONLY WITH A RE-MEASUREMENT.
+ * Residual: a bare `tsc`, a `queue-run.js --tsc -- tsc` typed outside npm and
+ * `typecheck-mods.js` run outside npm run 7 at its default checker count,
+ * unmeasured, and are charged the `--checkers 2` figure, short by what the
+ * extra checkers draw (#4887 read 4 at ~130 MB over 2). */
 const TSC_PEAKS_MB = new Map([
 	[5, 2045],
 	[7, 1497],
