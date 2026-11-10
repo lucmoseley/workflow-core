@@ -2,7 +2,7 @@
 /*
  * lib/line-scan.js's contract: each parser finds exactly the matches of the
  * regex it stands in for (#3383), and does so in linear time. The parsers
- * feed lib/guard-reach.js's node-run edges, so a parser that found
+ * feed lib/guard-reach.js's run edges, so a parser that found
  * one path more or less would move a guard's digest, or miss the lib edit
  * the digest is there to warn about.
  */
@@ -14,10 +14,10 @@ interface Match {
 	prefix: string;
 	value: string;
 }
-const { parseNodeRuns, parseNodeVars, segmentTailMatches } =
+const { parseProgramRuns, parseProgramVars, segmentTailMatches } =
 	require("./line-scan.js") as {
-		parseNodeRuns: (text: string) => Match[];
-		parseNodeVars: (text: string) => Match[];
+		parseProgramRuns: (text: string) => Match[];
+		parseProgramVars: (text: string) => Match[];
 		segmentTailMatches: (
 			text: string,
 			head: RegExp,
@@ -26,10 +26,10 @@ const { parseNodeRuns, parseNodeVars, segmentTailMatches } =
 		) => { index: number; head: RegExpExecArray; tail: RegExpExecArray }[];
 	};
 
-const NODE_RUN_RE =
-	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$[^\n]*?\/([\w-][\w./-]*\.js)/gm;
-const NODE_VAR_RE =
-	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
+const RUN_RE =
+	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))/gm;
+const VAR_RE =
+	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
 const groups = (re: RegExp, text: string): Match[] =>
 	[...text.matchAll(re)].map((m) => ({
@@ -67,23 +67,30 @@ const PLANTED = [
 	// line start at once: the prefix stops before the break.
 	"a\rnode $x/y.js",
 	"a\u2028node $v",
+	// The shell runners and the .sh suffix (#4730): a runner inside a word
+	// opens nothing, and the longer run of either suffix wins.
+	'bash "$scanner" "$1" commit-msg',
+	"sh $x/a.sh.js; bash $y/b.js.sh",
+	"ssh $x/a.sh; shellcheck $y/b.sh; bash$z/c.sh",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+	'hook_bound sh "${R:-.}"/scripts/lib/serialised.sh x',
 ];
 
-describe("parseNodeRuns", () => {
+describe("parseProgramRuns", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseNodeRuns(text)).toEqual(groups(NODE_RUN_RE, text));
+		expect(parseProgramRuns(text)).toEqual(groups(RUN_RE, text));
 	});
 
 	it("returns the text before node with the path after the slash", () => {
-		expect(parseNodeRuns('x; node "$here/a/b.js"')).toEqual([
+		expect(parseProgramRuns('x; node "$here/a/b.js"')).toEqual([
 			{ prefix: "x;", value: "a/b.js" },
 		]);
 	});
 });
 
-describe("parseNodeVars", () => {
+describe("parseProgramVars", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseNodeVars(text)).toEqual(groups(NODE_VAR_RE, text));
+		expect(parseProgramVars(text)).toEqual(groups(VAR_RE, text));
 	});
 });
 
@@ -116,6 +123,8 @@ describe("every parser against its regex over generated texts", () => {
 		"\u2028",
 		"so",
 		"no",
+		"bash",
+		"sh",
 	];
 	let seed = 11;
 	const next = () => {
@@ -132,10 +141,10 @@ describe("every parser against its regex over generated texts", () => {
 	it("finds exactly the oracle's matches on each", () => {
 		const off = texts.filter(
 			(t) =>
-				JSON.stringify(parseNodeRuns(t)) !==
-					JSON.stringify(groups(NODE_RUN_RE, t)) ||
-				JSON.stringify(parseNodeVars(t)) !==
-					JSON.stringify(groups(NODE_VAR_RE, t)),
+				JSON.stringify(parseProgramRuns(t)) !==
+					JSON.stringify(groups(RUN_RE, t)) ||
+				JSON.stringify(parseProgramVars(t)) !==
+					JSON.stringify(groups(VAR_RE, t)),
 		);
 		expect(off).toEqual([]);
 	});
@@ -163,15 +172,16 @@ describe("segmentTailMatches", () => {
 });
 
 // A regex match is synchronous, so only a process timeout can stop a
-// backtracking one (#2188). These texts are sized so NODE_RUN_RE and
-// NODE_VAR_RE overrun the 10 s timeout below and each parser stays far
+// backtracking one (#2188). These texts are sized so RUN_RE and
+// VAR_RE overrun the 10 s timeout below and each parser stays far
 // inside it (#4181). A `\r` opens a line for `^` but does not end the
 // prefix, so each one is a fresh start.
 describe("a long line of heads that reach nothing", () => {
 	it.each([
-		["parseNodeRuns", 'node "$/a '.repeat(55_000)],
-		["parseNodeVars", "node $-\r".repeat(30_000)],
-	])("%s reads it in linear time", (name, text) => {
+		["parseProgramRuns", "node", 'node "$/a '.repeat(55_000)],
+		["parseProgramVars", "node", "node $-\r".repeat(30_000)],
+		["parseProgramRuns", "sh", 'sh "$/a '.repeat(55_000)],
+	])("%s reads a line of %s heads in linear time", (name, _runner, text) => {
 		const r = spawnSync(
 			process.execPath,
 			[
