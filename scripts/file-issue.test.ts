@@ -69,6 +69,7 @@ const LABELS = [
 	"wayfinder:research",
 	"urgent",
 	...ORIGINS.map((o: string) => `origin:${o}`),
+	"fault-signature",
 ];
 
 /* Every filing's declarations (#4796), added to a call that names none. */
@@ -1408,6 +1409,8 @@ describe("the filing declarations (#4796)", () => {
 		const r = run(declaring(["--no-fault"]), { cwd: sb.repo });
 		expect(r.status).toBe(0);
 		expect(readCreates()[0]).toContain("--label origin:code-review");
+		expect(readCreates()[0]).not.toContain("fault-signature");
+		expect(readBodySeen()).not.toContain("## Fault signature");
 		expect(readLog()).toEqual([]);
 	});
 
@@ -1514,6 +1517,12 @@ describe("the filing declarations (#4796)", () => {
 			case: { session: Session, line: 2 },
 		});
 		expect(Number.isNaN(Date.parse(line.filedAt))).toBe(false);
+		/* The create carries the label and the line less its issue (#4861). */
+		expect(readCreates()[0]).toContain("--label fault-signature");
+		const { issue: _, ...rest } = line;
+		expect(readBodySeen()).toContain(
+			`## Fault signature\n\n\`\`\`json\n${JSON.stringify(rest)}\n\`\`\`\n`,
+		);
 	});
 
 	it("files a needle signature whose guard fired on the case", () => {
@@ -1579,5 +1588,7 @@ describe("the filing declarations (#4796)", () => {
 				why: "the fault leaves no transcript trace",
 			}),
 		]);
+		expect(readCreates()[0]).toContain("--label fault-signature");
+		expect(readBodySeen()).toContain('"signature":null');
 	});
 });

@@ -235,6 +235,13 @@ not take stays `waiting`. The close's `**Bound:**` line names each repo in
    node scripts/log-late-signature.js --issue <owner/name>#<n> \
      --filed-at <the ticket's createdAt> --fault-signature "$R/late-<k>.json"
    ```
+
+   **Restore each lost line** in `.lostLines`, a ticket whose declared line
+   never reached `main`. Where its `line` is set, append it unchanged:
+   `node scripts/log-late-signature.js --restore <owner/name>#<n>`. Where it is
+   `null` (UNRECOVERABLE), log it late as above. Each `.conflicts` entry names
+   one issue's differing lines: keep the one without `late` (the original
+   filing) and drop the other from the log.
 4. **Flip check:** where `.flipDue.due`, and no open or closed
    "outcome review flip check" issue covers this run (§2 snapshot), file a
    `takes:wayfinder` issue,

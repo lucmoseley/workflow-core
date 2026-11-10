@@ -24,6 +24,10 @@
  * as the first log read has it, with a note. A late line is reported apart
  * throughout. A finding whose tracker has no repo read waits, a failed read.
  *
+ * A DUPLICATE log line for one issue is one finding where the lines are
+ * identical; differing lines are a conflict, listed and given no verdict,
+ * never one silently picked.
+ *
  * SETTLED: a finding a prior run line gave `keep` or `unwind` is not read
  * again; it is listed as settled. An unwind carried past the cap stays in the
  * ranking (below) until filed.
@@ -72,6 +76,11 @@
  * closed in the same days and carrying `bug` is listed apart, as the
  * declaration to doubt.
  *
+ * LOST LINES: a closed ticket carrying lib/signature-label.js's label, closed
+ * at any date, owes a line; one with none in either record is listed every run
+ * until one lands, with the line its body section records or UNRECOVERABLE,
+ * for the retro to restore (#4861). It is neither a miss nor a no-fault bug.
+ *
  * BASELINE MODE (`--baseline <signature file> --filed-at <iso>`) gives a
  * finding's baseline at filing, for the retro's `findings[].baseline`: the
  * same count over the same BASELINE_WEEKS before the trigger week, the file
@@ -112,8 +121,11 @@ const {
 	SIGNATURE_LOG,
 	readDeclared,
 	readLog,
+	parseSignatureSection,
 	signatureHits,
 } = require("./lib/fault-signature");
+const { SIGNATURE_LABEL } = require("./lib/signature-label");
+const { canonicalJson } = require("./lib/canonical-json");
 
 /* ---- Constants. The spec's values are untraced (#4796 §Values); the rest
  * are this script's own judgement. ---- */
@@ -627,6 +639,21 @@ function collectFindings(sigLines, weekly, failures) {
 	const findings = new Map();
 	/** @type {Set<string>} */
 	const signed = new Set();
+	/** @type {Map<string, Set<string>>} each issue's distinct log lines */
+	const logged = new Map();
+	for (const l of sigLines)
+		if (typeof l?.issue === "string")
+			logged.set(
+				l.issue,
+				(logged.get(l.issue) ?? new Set()).add(canonicalJson(l, true)),
+			);
+	const conflicts = [...logged]
+		.filter(([, lines]) => lines.size > 1)
+		.map(([issue, lines]) => ({
+			issue,
+			lines: [...lines].map((l) => JSON.parse(l)),
+		}));
+	const conflicted = new Set(conflicts.map((c) => c.issue));
 	/**
 	 * @param {Row} entry  a log line or a `findings[]` entry
 	 * @param {number} filedAt
@@ -635,7 +662,7 @@ function collectFindings(sigLines, weekly, failures) {
 	const add = (entry, filedAt, where) => {
 		if (typeof entry?.issue !== "string") return;
 		signed.add(entry.issue);
-		if (!entry.signature) return;
+		if (!entry.signature || conflicted.has(entry.issue)) return;
 		const ref = parseQualifiedRef(entry.issue);
 		if (!ref || Number.isNaN(filedAt)) {
 			failures.push(
@@ -662,7 +689,7 @@ function collectFindings(sigLines, weekly, failures) {
 				Date.parse(line.week?.end ?? line.date),
 				`run line ${line.date} finding`,
 			);
-	return { findings, signed };
+	return { findings, signed, conflicts };
 }
 
 /**
@@ -1081,6 +1108,7 @@ function readMisses(closed, { commits, signed, tracker, nowMs }) {
 		const ref = `${tracker}#${i.number}`;
 		if (!closedThisWeek(i, nowMs) || signed.has(ref)) continue;
 		if (originOfLabels(labelsOf(i)) !== null) continue;
+		if (labelsOf(i).includes(SIGNATURE_LABEL)) continue;
 		const fix = fixOf(commits, { repo: tracker, number: i.number }, tracker);
 		if (!fix) continue;
 		const why = [
@@ -1106,10 +1134,32 @@ function readNoFaultBugs(closed, { signed, tracker, nowMs }) {
 		const ref = `${tracker}#${i.number}`;
 		return origin &&
 			labelsOf(i).includes("bug") &&
+			!labelsOf(i).includes(SIGNATURE_LABEL) &&
 			closedThisWeek(i, nowMs) &&
 			!signed.has(ref)
 			? [{ issue: ref, title: i.title, origin }]
 			: [];
+	});
+}
+
+/**
+ * The closed tickets owing a line that neither record holds, each with the
+ * line its body section records, or null where the section is gone.
+ * @param {IssueRow[]} owing  closed tickets carrying SIGNATURE_LABEL
+ * @param {{signed: Set<string>, tracker: string}} at
+ */
+function lostLinesOf(owing, { signed, tracker }) {
+	return owing.flatMap((i) => {
+		const ref = `${tracker}#${i.number}`;
+		return signed.has(ref)
+			? []
+			: [
+					{
+						issue: ref,
+						title: i.title,
+						line: parseSignatureSection(ref, i.body ?? ""),
+					},
+				];
 	});
 }
 
@@ -1212,6 +1262,18 @@ function buildText(r) {
 			(m) => `  ${m.issue} ${JSON.stringify(m.title)} — origin:${m.origin}`,
 		),
 		"",
+		`Signature declared, line missing on main (closed, any date): ${r.lostLines.length}${unread(r.lostLinesUnread)}`,
+		...r.lostLines.map(
+			(m) =>
+				`  ${m.issue} ${JSON.stringify(m.title)} — ${m.line ? JSON.stringify(m.line) : "UNRECOVERABLE"}`,
+		),
+		"",
+		`Conflicting signature lines (no verdict): ${r.conflicts.length}`,
+		...r.conflicts.flatMap((c) => [
+			`  ${c.issue}`,
+			...c.lines.map((l) => `    ${JSON.stringify(l)}`),
+		]),
+		"",
 		`Flip check: ${r.flipDue.due ? "DUE" : "not due"} — ${r.flipDue.why}`,
 	);
 	if (r.notes.length > 0)
@@ -1222,7 +1284,8 @@ function buildText(r) {
 }
 
 /**
- * The tracker's `bug` issues and the week's closes, or why each would not read.
+ * The tracker's `bug` issues, the week's closes and every closed ticket owing a
+ * signature line, or why each would not read.
  * @param {string} tracker
  * @param {number} nowMs
  * @param {string[]} failures  accumulator: each list that will not read
@@ -1257,6 +1320,14 @@ function readTracker(tracker, nowMs, failures) {
 			"--json",
 			"number,title,closedAt,labels",
 		]),
+		owing: list("closed fault-signature issues", [
+			"--state",
+			"closed",
+			"--label",
+			SIGNATURE_LABEL,
+			"--json",
+			"number,title,body,closedAt,labels",
+		]),
 	};
 }
 
@@ -1288,7 +1359,11 @@ function review({ root, seats, nowMs, tracker }) {
 	const weekly = readRows(root, RUN_RECORD, failures).filter(
 		(l) => l.mode === "weekly",
 	);
-	const { findings, signed } = collectFindings(sigLines, weekly, failures);
+	const { findings, signed, conflicts } = collectFindings(
+		sigLines,
+		weekly,
+		failures,
+	);
 	const { prior, extended, backlog: carriedIn } = readPrior(weekly);
 	const settled = [];
 	/** @type {Finding[]} */
@@ -1320,8 +1395,13 @@ function review({ root, seats, nowMs, tracker }) {
 	const missesUnread = [];
 	/** @type {string[]} */
 	const noFaultBugUnread = [];
-	for (const { repo, closed } of reads) {
+	const lostLines = [];
+	/** @type {string[]} */
+	const lostLinesUnread = [];
+	for (const { repo, closed, owing } of reads) {
 		const at = { signed, tracker: repo.tracker, nowMs };
+		if (typeof owing === "string") lostLinesUnread.push(repo.tracker);
+		else lostLines.push(...lostLinesOf(owing, at));
 		if (typeof closed === "string") {
 			missesUnread.push(repo.tracker);
 			noFaultBugUnread.push(repo.tracker);
@@ -1359,6 +1439,9 @@ function review({ root, seats, nowMs, tracker }) {
 		missesUnread,
 		noFaultBug,
 		noFaultBugUnread,
+		lostLines,
+		lostLinesUnread,
+		conflicts,
 		flipDue: flipCheck(weekly, outcomes, backlog.length),
 		signatures,
 		notes: [...new Set(notes)],

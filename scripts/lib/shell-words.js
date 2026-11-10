@@ -9,7 +9,8 @@
  * Each behaviour here carries the ticket that set it.
  *
  * THE LOWER LAYER: lib/shell-parse.js reads its words through this file, the
- * span sentinel and its reader included, so neither requires the other.
+ * span sentinel and its reader included, so it is required only at the call
+ * that parses a `-c` string (#4863), never at load.
  */
 
 const { trimEndRun } = require("./trim-run.js");
@@ -228,9 +229,6 @@ function literal(word, spans) {
 		head: unknownHead ?? seen,
 	};
 }
-
-/** A word as `read -ra` splits one line: on runs of IFS whitespace. */
-const IFS_SPLIT = /[ \t\n]+/;
 
 /** An assignment word, kept whole by unwrap and leading the harvest. */
 const ASSIGNMENT_RE = /^[A-Za-z_].*=/s;
@@ -506,7 +504,7 @@ const WRAPPERS = new Map([
 /**
  * Strip the launcher wrappers off one command's words, so each command
  * actually being run stands first (mantahostels#2511, mantahostels#2524,
- * mantahostels#2552): one run `{ words, wrapperWords, chdirs, watched }` per
+ * mantahostels#2552): one run `{ words, wrapperWords, chdirs, unread, watched }` per
  * command, the words' own first and each a `-c` string runs after it. A wrapper, its flags
  * and an `env` assignment are read through literal as the shell hands them to it
  * (#4046); the words left stay raw.
@@ -516,12 +514,15 @@ const WRAPPERS = new Map([
  *                 words[0]. It is NOT a promise that a command word stands
  *                 first — a malformed `bg-run.sh run` with no name leaves
  *                 `bg-run.sh run` standing.
- *   wrapperWords  the assignments an `env` carried, which a guard reading an
- *                 escape from the command string must still see — inside an
- *                 `env` prefix the escape is a WORD, not a leading shell
- *                 assignment the walk has already stepped past.
- *   chdirs        each directory an `env -C` or `sudo -D` moved to, read through
- *                 literal, in order.
+ *   wrapperWords  the assignments an `env` carried, and those a `-c` string's
+ *                 earlier `export`s and the command's own leading ones made,
+ *                 which a guard reading an escape from the command string must
+ *                 still see — inside an `env` prefix the escape is a WORD, not
+ *                 a leading shell assignment the walk has already stepped past.
+ *   chdirs        each directory an `env -C`, `sudo -D` or a `-c` string's `cd`
+ *                 moved to, in order, with how surely it holds.
+ *   unread        each git-reading variable a `-c` string changed in a way
+ *                 its reader does not follow.
  *   watched       a `watch` was stripped: the command reruns on a timer.
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
@@ -536,13 +537,10 @@ const WRAPPERS = new Map([
  * `sudo` IS STRIPPED, DELIBERATELY: stripping only ever widens what is judged.
  *
  * `watch` (BAR `watch -x`) AND `flock <file> -c` RUN THEIR COMMAND THROUGH
- * `sh -c`, so the words
- * holding it are cut into commands at each line end, `;`, `&` and `|`, and each
- * command split on whitespace (#3376, #4046); a quote inside them is not read.
- * Each command so cut is a run of its own, stripped in turn under the `env`
- * assignments and directories its wrappers set (#4699). Residual: the cut is
- * no parse — a reserved word, a leading assignment, a `$(…)`, and a
- * `cd` or `export` moving the commands after it, are not read inside it.
+ * `sh -c`, so the words holding it are parsed as a command line
+ * (lib/shell-parse.js's parseScript, #4863), its spans appended to `spans`.
+ * Each command it runs is a run of its own (#4699), stripped in turn under what
+ * its wrappers set.
  *
  * `env -S <string>` IS SPLIT, NOT SKIPPED, as `env` splits it, and read on as
  * `env`'s own words.
@@ -552,7 +550,9 @@ const WRAPPERS = new Map([
  * reaches a split; and a launcher outside WRAPPERS, `chrt` and `unshare` among
  * them, stands as the command word.
  * @param {string[]} words masked
- * @param {string[]} spans
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended,
+ *   never replaced, so every index already in it still reads; each call
+ *   appends them again
  * @param {string[]} [judged] wrappers the caller judges itself, left standing
  *   as the command word
  * @returns {[Unwrapped, ...Unwrapped[]]} the runs, in the order they run
@@ -561,7 +561,7 @@ function unwrap(words, spans, judged = []) {
 	/** @type {Unwrapped[]} */
 	const pending = [];
 	const first = stripRun(
-		{ words, wrapperWords: [], chdirs: [], watched: false },
+		{ words, wrapperWords: [], chdirs: [], unread: [], watched: false },
 		{ spans, judged, pending },
 	);
 	/** @type {Unwrapped[]} */
@@ -572,11 +572,37 @@ function unwrap(words, spans, judged = []) {
 }
 
 /**
+ * unwrap over a process's own argv, which holds no span: each run's words read
+ * through literal, so a word a `-c` string quotes reads as sh hands it on.
+ * @param {string[]} argv
+ * @returns {Unwrapped[]}
+ */
+function unwrapArgv(argv) {
+	/** @type {string[]} */
+	const spans = [];
+	return unwrap(argv, spans).map((run) => ({
+		...run,
+		words: run.words.map((w) => literal(w, spans).text),
+	}));
+}
+
+/**
  * @typedef {object} Unwrapped one run unwrap answers: a command the words run
  * @property {string[]} words
  * @property {string[]} wrapperWords
- * @property {string[]} chdirs
+ * @property {Chdir[]} chdirs
+ * @property {string[]} unread
  * @property {boolean} watched
+ */
+
+/**
+ * @typedef {object} Chdir one directory a run moves to before its command
+ * @property {string} dir as written: a wrapper's read through literal, a
+ *   `cd`'s masked
+ * @property {"always" | "if-dir" | "maybe"} holds whether the run surely
+ *   stands there: "always" for a wrapper's, whose failure runs nothing, and a
+ *   `cd` a `&&` chains it off; "if-dir" where the `cd` surely ran had its
+ *   directory been there; "maybe" where it may not have run
  */
 
 /**
@@ -584,7 +610,7 @@ function unwrap(words, spans, judged = []) {
  * @param {Unwrapped} run as it stands before the strip
  * @param {{ spans: string[], judged: string[], pending: Unwrapped[] }} with
  *   accumulator: its `pending` is written, a `-c` string's later commands
- *   going to its front
+ *   going to its front, and its `spans` appended to
  * @returns {Unwrapped}
  */
 function stripRun(run, { spans, judged, pending }) {
@@ -596,6 +622,7 @@ function stripRun(run, { spans, judged, pending }) {
 		execs: false,
 		wrapperWords: [...run.wrapperWords],
 		chdirs: [...run.chdirs],
+		unread: [...run.unread],
 		watched: run.watched,
 		pending,
 	};
@@ -608,6 +635,7 @@ function stripRun(run, { spans, judged, pending }) {
 		words: st.ws,
 		wrapperWords: st.wrapperWords,
 		chdirs: st.chdirs,
+		unread: st.unread,
 		watched: st.watched,
 	};
 }
@@ -619,7 +647,8 @@ function stripRun(run, { spans, judged, pending }) {
  * @property {boolean} inEnv whether the last wrapper was `env` or `sudo`, whose
  *   assignments are words of its own
  * @property {string[]} wrapperWords
- * @property {string[]} chdirs
+ * @property {Chdir[]} chdirs
+ * @property {string[]} unread
  * @property {boolean} watched
  * @property {Unwrapped[]} pending the runs still to strip
  * @property {boolean} execs a `watch -x` execs its words, through no `sh -c`
@@ -630,7 +659,7 @@ function stripRun(run, { spans, judged, pending }) {
  * command word stands first, "cut" where the words ran out mid-strip.
  * @param {Strip} st accumulator: its fields are written
  * @param {string} first `st.ws[0]`
- * @param {string[]} spans
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
  * @returns {"next" | "done" | "cut"}
  */
 function stripOne(st, first, spans) {
@@ -664,9 +693,10 @@ function stripOne(st, first, spans) {
 /**
  * Stand on the command after a wrapper's flags and positionals. `flock` looks
  * for its `-c` by exact spelling after its file, no cluster or abbreviation.
- * @param {Strip} st accumulator: its `ws`, `watched` and `pending` are written
+ * @param {Strip} st accumulator: its `ws`, `wrapperWords`, `chdirs`,
+ *   `unread`, `watched` and `pending` are written
  * @param {WrapperGrammar} wrapper
- * @param {string[]} spans
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
  * @returns {"next" | "cut"}
  */
 function stepAfterFlags(st, wrapper, spans) {
@@ -678,12 +708,12 @@ function stepAfterFlags(st, wrapper, spans) {
 		if (f === "-c" || f === "--command") {
 			const [string] = tail;
 			if (string === undefined) return "cut";
-			runScript(st, read([string]));
+			runScript(st, read([string]), spans);
 		}
 	}
 	if (wrapper.command === "sh-string") {
 		st.watched = true;
-		if (!st.execs) runScript(st, read(st.ws));
+		if (!st.execs) runScript(st, read(st.ws), spans);
 		if (st.ws.length === 0) return "cut";
 	}
 	return "next";
@@ -692,20 +722,31 @@ function stepAfterFlags(st, wrapper, spans) {
 /**
  * Stand on a `sh -c` script's first command, and queue each later one, ahead
  * of any run already pending, under the wrappers stripped so far.
- * @param {Strip} st accumulator: its `ws` and `pending` are written
+ * @param {Strip} st accumulator: its `ws`, `wrapperWords`, `chdirs`, `unread`
+ *   and `pending` are written
  * @param {string} script
+ * @param {string[]} spans accumulator: the script's spans are appended
  */
-function runScript(st, script) {
-	const [first = [], ...later] = scriptCommands(script);
-	st.ws = first;
-	st.pending.unshift(
-		...later.map((words) => ({
-			words,
-			wrapperWords: [...st.wrapperWords],
-			chdirs: [...st.chdirs],
-			watched: st.watched,
-		})),
-	);
+function runScript(st, script, spans) {
+	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
+	const { parseScript } = require("./shell-parse.js");
+	/** @type {Unwrapped[]} */
+	const runs = parseScript(script, spans).map((cmd) => ({
+		words: cmd.words,
+		wrapperWords: [...st.wrapperWords, ...cmd.leading],
+		chdirs: [...st.chdirs, ...cmd.chdirs],
+		unread: [...st.unread, ...cmd.unread],
+		watched: st.watched,
+	}));
+	const [first, ...later] = runs;
+	st.ws = first?.words ?? [];
+	if (first)
+		Object.assign(st, {
+			wrapperWords: first.wrapperWords,
+			chdirs: first.chdirs,
+			unread: first.unread,
+		});
+	st.pending.unshift(...later);
 }
 
 /**
@@ -793,7 +834,8 @@ function takeOption(st, wrapper, { kind, name, value }) {
 	if (kind !== "opt") return true;
 	if (wrapper.splits && (name === "-S" || name === "--split-string"))
 		st.ws = [...splitEnvString(value), ...st.ws];
-	else if (name === wrapper.chdir || name === "--chdir") st.chdirs.push(value);
+	else if (name === wrapper.chdir || name === "--chdir")
+		st.chdirs.push({ dir: value, holds: "always" });
 	return true;
 }
 
@@ -896,37 +938,6 @@ function stepEnvEscape(split, next) {
 }
 
 /**
- * A control operator between two commands: `;`, `&&`, `||`, `|&`, and a `|`
- * or `&` that no redirection (`>|`, `2>&1`, `&>`) spells.
- */
-const CONTROL_OPERATOR = /;|&&|\|\||\|&|(?<![<>])&(?!>)|(?<!>)\|/;
-
-/**
- * The commands of a script a wrapper hands to `sh -c`, each as its words: cut
- * at each line end and control operator, split on IFS whitespace, the rest of
- * a line dropped from a word opening `#`, and a command of no words skipped,
- * as sh skips blank and comment lines (#4281, #4699).
- *
- * Residual: the cut reads no quote, so a `;`, `&` or `|` inside one cuts its
- * command in two, which only widens what is judged.
- * @param {string} script
- * @returns {string[][]}
- */
-const scriptCommands = (script) =>
-	script.split("\n").flatMap((line) => {
-		/** @type {string[][]} */
-		const commands = [];
-		for (const piece of line.split(CONTROL_OPERATOR)) {
-			const words = piece.split(IFS_SPLIT).filter(Boolean);
-			const comment = words.findIndex((w) => w.startsWith("#"));
-			const kept = comment < 0 ? words : words.slice(0, comment);
-			if (kept.length > 0) commands.push(kept);
-			if (comment >= 0) break;
-		}
-		return commands;
-	});
-
-/**
  * Does the command carry `name` set to a non-empty value (#1499), as an escape
  * a guard reads off the command string?
  *
@@ -972,7 +983,7 @@ const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
  * subcommand. For a reader judging the command and not the tree it runs
  * against, which takes shell-parse.js's walkGit instead.
  * @param {string[]} words masked
- * @param {string[]} spans
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
  * @returns {{ sub: string, args: string[] }[]}
  */
 const gitWords = (words, spans) =>
@@ -1011,7 +1022,7 @@ function gitRunWords(ws, spans) {
  * One per unwrap run that is `gh`, `wrapperWords` that run's; none for a run
  * where `--help`/`-h` stands anywhere: usage prints and dispatches nothing.
  * @param {string[]} words masked
- * @param {string[]} spans
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
  * @returns {(GhCall & { wrapperWords: string[] })[]}
  */
 const ghWords = (words, spans) =>
@@ -1108,7 +1119,7 @@ const NODE_VALUE_FLAGS = [
  * taking a value outside NODE_VALUE_FLAGS leaves the value in the script's
  * place, and the call is not recognised.
  * @param {string[]} words masked
- * @param {string[]} spans
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
  * @returns {string[][]}
  */
 const commitPathsArgs = (words, spans) =>
@@ -1422,6 +1433,7 @@ function gitValueFlags(sub) {
 }
 
 module.exports = {
+	ASSIGNMENT_RE,
 	QUOTED,
 	SENTINEL_BYTE,
 	absolute,
@@ -1431,6 +1443,7 @@ module.exports = {
 	readSentinels,
 	literal,
 	unwrap,
+	unwrapArgv,
 	carriesVar,
 	commandName,
 	isGhCommand,
