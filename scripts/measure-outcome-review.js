@@ -12,10 +12,13 @@
  * (lib/session-head.js's repoRootOf on its cwd) holding a workflow-core
  * config. Each is read for its config's tracker; where two roots
  * resolve to one tracker, the first found is kept. Each tracker's main is
- * read through `gh api`, never a local ref: its commits from the earliest
- * `createdAt` of any issue the run judges (the open findings and the week's
- * closes) to `now`, since a commit citing `#n` follows `#n` and a revert
- * follows its fix.
+ * read through `gh api`, never a local ref, which sits days stale in an
+ * adopter (#4872): its commits from the earliest `createdAt` of any issue the
+ * run judges (the open findings and the week's closes) to `now`, since a
+ * commit citing `#n` follows `#n` and a revert follows its fix.
+ * Residual: a tracker whose branch is not named `main` fails every read, and
+ * a commit dated before the issue it cites, by a skewed committer clock, falls
+ * outside the window.
  *
  * FINDINGS are every line of each repo's signature log (lib/fault-signature.js's
  * SIGNATURE_LOG, read from main through `gh api`, never the working tree; a
@@ -103,7 +106,7 @@ const {
 	ghApiSlurp,
 	ghIssueListAll,
 	ghJson,
-	parseErrLine,
+	isNotFound,
 	retryingOnceSync,
 } = require("./lib/gh");
 const { hostRoot } = require("./lib/host-root");
@@ -183,7 +186,7 @@ const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <is
  *   guardrails: Guardrails | null, verdict: Verdict, unwindIssue: null,
  *   late: boolean, baseline: Baseline | null, why: string}} Outcome
  * @typedef {{file: string, start: number}} Session
- * @typedef {{tracker: string, root: string, sha: string | null,
+ * @typedef {{tracker: string, root: string, main: string | null,
  *   commits: Commit[] | string, sigRows: Row[]}} Repo
  *   `commits` is why they would not read, where they would not
  */
@@ -225,36 +228,47 @@ function cites(text, { repo, number: n }, tracker) {
 }
 
 /** A failed gh read that GitHub answered 404. */
-const NOT_FOUND = /\(HTTP 404\)/;
+/**
+ * A commits-endpoint row as a Commit; null where it lacks a sha or a date.
+ * @param {any} c
+ * @returns {Commit | null}
+ */
+function asCommit(c) {
+	const at = Date.parse(c?.commit?.committer?.date ?? "");
+	if (typeof c?.sha !== "string" || Number.isNaN(at)) return null;
+	const message = String(c.commit?.message ?? "");
+	return { sha: c.sha, at, subject: message.split("\n")[0] ?? "", message };
+}
 
 /**
  * Every commit on `tracker`'s main from `sinceMs` to `nowMs`, newest first,
- * and the tip at read time, through the API: no local ref is read or written.
+ * and main's tip at `nowMs`, through the API: no local ref is read or written.
+ * `per_page=100` is GitHub's largest page.
  * @param {string} tracker
  * @param {number} sinceMs
  * @param {number} nowMs
- * @returns {{sha: string | null, commits: Commit[] | string}}  `commits` is
- *   why they would not read, where they would not
+ * @returns {{main: string | null, commits: Commit[] | string}}  `commits` is
+ *   why they would not read, where they would not; `main` null where they
+ *   would not, or main has no commit by `nowMs`
  */
 function readMain(tracker, sinceMs, nowMs) {
-	const r = retryingOnceSync(() =>
-		ghApiSlurp([
-			`repos/${tracker}/commits?sha=main&since=${iso(sinceMs)}&until=${iso(nowMs)}&per_page=100`,
-		]),
-	);
-	if (!r.ok)
-		return { sha: null, commits: `${tracker}: main unread: ${r.error}` };
-	/** @type {Commit[]} */
-	const commits = r.out.map((c) => {
-		const message = String(c.commit?.message ?? "");
-		return {
-			sha: String(c.sha),
-			at: Date.parse(c.commit?.committer?.date ?? ""),
-			subject: message.split("\n")[0] ?? "",
-			message,
-		};
+	const at = `repos/${tracker}/commits?sha=main&until=${iso(nowMs)}`;
+	const unread = (/** @type {string} */ why) => ({
+		main: null,
+		commits: `${tracker}: main unread: ${why}`,
 	});
-	return { sha: commits[0]?.sha ?? null, commits };
+	const r = retryingOnceSync(() =>
+		ghApiSlurp([`${at}&since=${iso(sinceMs)}&per_page=100`]),
+	);
+	if (!r.ok) return unread(r.error);
+	const rows = r.out.map(asCommit);
+	if (rows.some((c) => c === null))
+		return unread("a commit with no sha or date");
+	const commits = /** @type {Commit[]} */ (rows);
+	if (commits.length > 0) return { main: commits[0]?.sha ?? null, commits };
+	const tip = retryingOnceSync(() => ghJson(["api", `${at}&per_page=1`]));
+	if (!tip.ok) return unread(tip.error);
+	return { main: asCommit(tip.out[0])?.sha ?? null, commits };
 }
 
 /**
@@ -275,7 +289,7 @@ function readSigLog(tracker, failures) {
 				`repos/${tracker}/contents/${SIGNATURE_LOG}?ref=main`,
 			]);
 		} catch (e) {
-			if (NOT_FOUND.test(parseErrLine(e))) return "";
+			if (isNotFound(e)) return "";
 			throw e;
 		}
 	});
@@ -1200,15 +1214,16 @@ function buildText(r) {
 function readTracker(tracker, nowMs, failures) {
 	/** @param {string} what @param {string[]} args */
 	const list = (what, args) => {
-		try {
-			return /** @type {IssueRow[]} */ (
-				ghIssueListAll(what, ["--repo", tracker, ...args])
-			);
-		} catch (e) {
-			const why = `${tracker}: ${what} unread: ${parseErrLine(e)}`;
-			failures.push(why);
-			return why;
-		}
+		const r = retryingOnceSync(
+			() =>
+				/** @type {IssueRow[]} */ (
+					ghIssueListAll(what, ["--repo", tracker, ...args])
+				),
+		);
+		if (r.ok) return r.out;
+		const why = `${tracker}: ${what} unread: ${r.error}`;
+		failures.push(why);
+		return why;
 	};
 	return {
 		bugs: list("bug issues", [
@@ -1268,8 +1283,8 @@ function review({ root, seats, nowMs, tracker }) {
 	const failures = [];
 	/** @type {string[]} */
 	const notes = [];
-	const listed = readRepos({ root, seats, failures });
-	const sigLines = joinLogs(listed, notes);
+	const trackers = readRepos({ root, seats, failures });
+	const sigLines = joinLogs(trackers, notes);
 	const weekly = readRows(root, RUN_RECORD, failures).filter(
 		(l) => l.mode === "weekly",
 	);
@@ -1287,18 +1302,22 @@ function review({ root, seats, nowMs, tracker }) {
 	const issues = new Map(
 		open.map((f) => [f.ref, readFindingIssue(f, failures)]),
 	);
-	const lists = listed.map((p) => readTracker(p.tracker, nowMs, failures));
+	const lists = trackers.map((p) => ({
+		p,
+		...readTracker(p.tracker, nowMs, failures),
+	}));
 	const sinceMs = earliestCreated(
 		[...issues.values(), ...lists.map((l) => l.closed)],
 		nowMs,
 	);
-	/** @type {Repo[]} */
-	const repos = listed.map((p) => {
+	const reads = lists.map(({ p, bugs, closed }) => {
 		const read = readMain(p.tracker, sinceMs, nowMs);
 		if (typeof read.commits === "string") failures.push(read.commits);
-		return { ...p, ...read };
+		/** @type {Repo} */
+		const repo = { ...p, ...read };
+		return { repo, bugs, closed };
 	});
-	const reads = repos.map((repo, i) => ({ repo, ...lists[i] }));
+	const repos = reads.map((r) => r.repo);
 	const outcomes = readOutcomes(open, {
 		issues,
 		repos: new Map(repos.map((p) => [p.tracker, p])),
@@ -1338,7 +1357,7 @@ function review({ root, seats, nowMs, tracker }) {
 		repos: repos.map((p) => ({
 			tracker: p.tracker,
 			root: p.root,
-			main: p.sha,
+			main: p.main,
 		})),
 		outcomes,
 		unwinds,

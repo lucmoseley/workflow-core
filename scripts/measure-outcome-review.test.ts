@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { readText } from "./lib/file-read";
 import { GH_NOT_FOUND } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -184,10 +185,10 @@ function scratch() {
 			);
 		},
 		/** Each `since` the stub's commit reads were sent, in call order. */
-		sinces: () =>
-			fs.existsSync(path.join(home, "sinces"))
-				? fs.readFileSync(path.join(home, "sinces"), "utf8").trim().split("\n")
-				: [],
+		sinces: () => {
+			const r = readText(path.join(home, "sinces"));
+			return r.state === "read" ? r.data.trim().split("\n") : [];
+		},
 		run({
 			failingView = false,
 			failingList = "",
@@ -212,14 +213,15 @@ const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", crea
 const api = argv[0] === "api" && argv.find((a) => a.startsWith("repos/"))?.match(/^repos\\/([^/]+\\/[^/]+)\\/(commits|contents\\/[^?]+)\\?(.*)$/);
 if (api && api[2] === "commits") {
   const q = new URLSearchParams(api[3]);
-  fs.appendFileSync(${JSON.stringify(path.join(home, "sinces"))}, api[1] + " " + q.get("since") + "\\n");
+  if (q.get("since")) fs.appendFileSync(${JSON.stringify(path.join(home, "sinces"))}, api[1] + " " + q.get("since") + "\\n");
   if (api[1] === failingCommits) { err("HTTP 502: bad gateway\\n"); exit(1); }
-  const from = Date.parse(q.get("since")), to = Date.parse(q.get("until"));
+  const from = q.get("since") ? Date.parse(q.get("since")) : -Infinity, to = Date.parse(q.get("until"));
   const main = (upstream.commits[api[1]] ?? []).map((c, seq) => ({ ...c, seq }))
     .filter((c) => Date.parse(c.at) >= from && Date.parse(c.at) <= to)
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || b.seq - a.seq)
+    .slice(0, Number(q.get("per_page")))
     .map((c) => ({ sha: c.sha, commit: { message: c.message, committer: { date: c.at } } }));
-  out(JSON.stringify([main]));
+  out(JSON.stringify(argv.includes("--slurp") ? [main] : main));
 } else if (api) {
   const log = upstream.logs[api[1]];
   if (log === undefined) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
@@ -675,13 +677,14 @@ describe("measure-outcome-review.js", () => {
 		});
 	});
 
-	it("reads a tracker with no signature log as no lines", () => {
+	it("reads a tracker with no signature log as no lines, and main's tip past an empty window (#4872)", () => {
 		const f = scratch();
-		f.commit("Initial", 1);
+		const sha = f.commit("Initial", 1);
 		const { status, out } = f.run();
 		expect(status).toBe(0);
 		expect(out.outcomes).toEqual([]);
 		expect(out.failures).toEqual([]);
+		expect(out.repos[0].main).toBe(sha);
 	});
 
 	it("is due its flip check early on two runs over the token budget", () => {
@@ -774,7 +777,7 @@ describe("measure-outcome-review.js", () => {
 			);
 		});
 
-		it("reads an adopter whose local origin/main is days old, and exits 0", () => {
+		it("reads an adopter whose local origin/main is days old, and exits 0 (#4872)", () => {
 			const { f, a, sha } = adopterFinding();
 			a.localRef(10);
 			const { status, out } = f.run();
@@ -788,7 +791,7 @@ describe("measure-outcome-review.js", () => {
 			});
 		});
 
-		it("unwinds on a revert only upstream, which the local ref never saw", () => {
+		it("unwinds on a revert only upstream, which the local ref never saw (#4872)", () => {
 			const { f, a, sha } = adopterFinding();
 			a.localRef(FIXED + 1);
 			const revert = a.commit(
@@ -815,7 +818,7 @@ describe("measure-outcome-review.js", () => {
 			expect(out.outcomeStep.misses).toBeNull();
 		});
 
-		it("reads each main from the earliest createdAt of any issue it judges", () => {
+		it("reads each main from the earliest createdAt of any issue it judges (#4872)", () => {
 			const { f } = adopterFinding();
 			f.issues[0] = { ...f.issues[0], createdAt: d(30) } as Issue;
 			f.issues[2] = { ...f.issues[2], createdAt: d(33) } as Issue;
