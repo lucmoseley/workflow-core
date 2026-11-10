@@ -76,7 +76,7 @@ const { isJsTestFile } = require("./lib/test-kind.js");
 const { inertSpans } = require("./lib/js-lex.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
-const { requiredGroup } = require("./lib/regex-group.js");
+const { escapeRe, requiredGroup } = require("./lib/regex-group.js");
 const { parseEdges } = require("./lib/guard-reach.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
@@ -393,9 +393,17 @@ const stripComments = (/** @type {string} */ s) =>
 	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 
+/** An env object's `CLAUDE_CONFIG_DIR` key, as written before its value. */
+const CONFIG_DIR_KEY = String.raw`(?:\bCLAUDE_CONFIG_DIR|["']CLAUDE_CONFIG_DIR["'])\s*`;
+/** That key given a value — never typed. */
+const KEYS_CONFIG_DIR = new RegExp(
+	`${CONFIG_DIR_KEY}:(?!\\s*(?:string|undefined)\\b)`,
+	"g",
+);
 /** `CLAUDE_CONFIG_DIR` set as an env key, assigned or stubbed — never merely read or typed. */
-const SETS_CONFIG_DIR =
-	/(?:\bCLAUDE_CONFIG_DIR|["']CLAUDE_CONFIG_DIR["'])\s*(?::(?!\s*(?:string|undefined)\b)|=(?!=))|\[\s*["']CLAUDE_CONFIG_DIR["']\s*\]\s*=(?!=)|\bstubEnv\(\s*["']CLAUDE_CONFIG_DIR["']\s*,/;
+const SETS_CONFIG_DIR = new RegExp(
+	`${CONFIG_DIR_KEY}(?::(?!\\s*(?:string|undefined)\\b)|=(?!=))|\\[\\s*["']CLAUDE_CONFIG_DIR["']\\s*\\]\\s*=(?!=)|\\bstubEnv\\(\\s*["']CLAUDE_CONFIG_DIR["']\\s*,`,
+);
 
 /** `process.env.CLAUDE_CONFIG_DIR` stubbed through vitest, the one way a
  * helper may set it (check-test-env-writes.js). */
@@ -403,10 +411,6 @@ const SETS_PROCESS_CONFIG_DIR = /\bstubEnv\(\s*["']CLAUDE_CONFIG_DIR["']\s*,/g;
 
 /** A function's name at its definition, group 1 or 2. */
 const DEFINED = /\bfunction\s+(\w+)|\bconst\s+(\w+)\s*=\s*(?:async\s*)?\(/g;
-
-/** An env object's `CLAUDE_CONFIG_DIR` key given a value — never typed. */
-const KEYS_CONFIG_DIR =
-	/(?:\bCLAUDE_CONFIG_DIR|["']CLAUDE_CONFIG_DIR["'])\s*:(?!\s*(?:string|undefined)\b)/g;
 
 /** The functions in helper `source` holding a `re` match: each match's
  * nearest enclosing definition, read as the last before it. */
@@ -425,7 +429,7 @@ function definersOf(/** @type {string} */ source, /** @type {RegExp} */ re) {
 /** Whether test `source` reaches a redirect through a helper it imports:
  * calling a function that stubs process.env.CLAUDE_CONFIG_DIR while spreading
  * process.env into a spawn's env, or giving a spawn the env a function builds
- * with a CLAUDE_CONFIG_DIR key (mutation-hold-testkit.ts's `env`, #4943). */
+ * with a CLAUDE_CONFIG_DIR key. */
 function redirectsThroughHelper(
 	/** @type {string} */ rel,
 	/** @type {string} */ source,
@@ -444,11 +448,11 @@ function redirectsThroughHelper(
 			(spreads &&
 				calls(
 					definersOf(helper, SETS_PROCESS_CONFIG_DIR),
-					(name) => `\\b${name}\\s*\\(`,
+					(name) => `\\b${escapeRe(name)}\\s*\\(`,
 				)) ||
 			calls(
 				definersOf(helper, KEYS_CONFIG_DIR),
-				(name) => `\\benv:\\s*${name}\\s*\\(`,
+				(name) => `\\benv:\\s*${escapeRe(name)}\\s*\\(`,
 			)
 		);
 	});

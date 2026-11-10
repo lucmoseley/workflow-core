@@ -5,8 +5,8 @@
  * with a stub lint gate above that line, against a stub Stryker named by
  * WFC_STRYKER. The report shape is the one #1901 recorded from Stryker 10.0.0.
  *
- * Built once per file and copied per case. Break it and both suites fail at
- * once, or pass blind against a hook that is not the live one.
+ * Break it and both suites fail at once, or pass blind against a hook that is
+ * not the live one.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

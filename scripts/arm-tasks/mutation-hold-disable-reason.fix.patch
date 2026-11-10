@@ -224,12 +224,12 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +// Node finds only while this stays a literal object.
 +module.exports = { HOST_CONFIG_FAULT, RESULT_FD, loadStrykerConfig };
 diff --git a/scripts/mutation-hold-gate-disable-comment.test.ts b/scripts/mutation-hold-gate-disable-comment.test.ts
-index 234d20fb9e3214080d596e4f42e6679d150e3817..2a86edfd92910a56c830ca1464faf1b9f47067f6 100644
+index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..2a26a56eb43459477daa09f75e7fa4b3da378eb0 100644
 --- a/scripts/mutation-hold-gate-disable-comment.test.ts
 +++ b/scripts/mutation-hold-gate-disable-comment.test.ts
-@@ -13,23 +13,383 @@
-  * unchanged from mutation-hold-gate.test.ts, whose cost was pre-existing; the
-  * Babel child each case starts is most of it (#4943's profile).
+@@ -14,23 +14,383 @@
+  * what it reads is the host Babel config's own parse, which no seeded comment
+  * list reproduces.
   */
 +import fs from "node:fs";
 +import path from "node:path";
@@ -611,7 +611,7 @@ index 234d20fb9e3214080d596e4f42e6679d150e3817..2a86edfd92910a56c830ca1464faf1b9
  	it("honours a reasoned region disable over a message table, judging the mutants Stryker ignores inside it", () => {
  		write(
  			MONEY,
-@@ -42,11 +402,358 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+@@ -43,11 +403,358 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
  		]);
  		const r = commit([MONEY]);
  		expectLanded(r);
@@ -970,7 +970,7 @@ index 234d20fb9e3214080d596e4f42e6679d150e3817..2a86edfd92910a56c830ca1464faf1b9
  	it("ships no mutator exclusion with the core, and passes the host's own as written", () => {
  		changeLine2();
  		report([]);
-@@ -68,4 +775,3 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+@@ -69,4 +776,3 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
  		});
  	});
  });

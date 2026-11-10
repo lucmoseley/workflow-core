@@ -455,6 +455,13 @@ describe("a test that runs a Node guard entry (#2898)", () => {
 			expect(run().status).toBe(1);
 		});
 
+		it("fails where the key is only typed", () => {
+			nodeGuard("guard-n.js");
+			kit("CLAUDE_CONFIG_DIR: string;");
+			test("env()");
+			expect(run().status).toBe(1);
+		});
+
 		it("fails where the spawn's env is another export's", () => {
 			nodeGuard("guard-n.js");
 			kit("CLAUDE_CONFIG_DIR: scratch,");

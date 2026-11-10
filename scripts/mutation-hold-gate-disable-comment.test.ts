@@ -9,9 +9,10 @@
  * read, scripts/lib/stryker-comments.js, for real. A file apart from
  * mutation-hold-gate.test.ts so that neither caps a CI job (#4943).
  *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from mutation-hold-gate.test.ts, whose cost was pre-existing; the
- * Babel child each case starts is most of it (#4943's profile).
+ * Over the run-cost budget (base §X8 (5)): most of its cost is the Babel child
+ * each case starts (#4943's profile), and that child is the subject, since
+ * what it reads is the host Babel config's own parse, which no seeded comment
+ * list reproduces.
  */
 import fs from "node:fs";
 import path from "node:path";
