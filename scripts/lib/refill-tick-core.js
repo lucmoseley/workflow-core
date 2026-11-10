@@ -151,9 +151,10 @@ const FREE_SLOT_ARGS = ["--json", "--launch", "--skip-allowance"];
 /**
  * The served checkout the free-slot count is read in, as the dispatcher's
  * re-read runs in its member's: the one whose type-check is charged most,
- * that lump being what admission's reserve holds back (#4956). Read from the
- * loop's own directory, admission finds no compiler and reserves nothing.
- * Undefined where nothing is served.
+ * that lump being what admission's reserve holds back (#4956, #4962). The
+ * first served wins a tie, one holding no compiler included. Undefined where
+ * nothing is served. Residual: a launch bound for a lighter served checkout
+ * is counted at the heaviest one's reserve.
  * @param {string[]} served
  * @param {(root: string) => number} peakMbOf a checkout's type-check charge
  * @returns {string|undefined}
@@ -256,7 +257,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *   readLoopLastActAt: (launches: LoopLaunch[], served: string[]) => number|null,
  *   readCause: import("./refill-blocks.js").CauseOf,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
- *   readFreeSlots: (served: string[]) => {slots: number,
+ *   typecheckPeakMb: (root: string) => number,
+ *   readFreeSlots: (root: string|undefined) => {slots: number,
  *     admission: import("./admission.js").AdmissionJson|null},
  *   readSeats: (seats: string[], slots: number, root: string|undefined,
  *     how: {typedSeat: string|null, sizeAll?: boolean,
@@ -642,7 +644,9 @@ function settleRoom(
 			overflow: [],
 		};
 	}
-	const { slots: free, admission } = io.readFreeSlots(served);
+	const { slots: free, admission } = io.readFreeSlots(
+		admissionRoot(served, io.typecheckPeakMb),
+	);
 	const limitSlots = Math.min(
 		free,
 		unprovenRoom({ history: judged, lastActAt }),

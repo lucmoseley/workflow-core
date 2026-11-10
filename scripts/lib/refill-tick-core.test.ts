@@ -5,7 +5,8 @@
  * dry-run policy, and how it carries a restart's killed launches and a
  * limit-held launch into the state, the idle reason and the tick's record
  * (#4315); the sessions it launched into that record, the room a paused or
- * stopping tick leaves unread, which checkout it sizes the seats and a
+ * stopping tick leaves unread, which checkout it reads the free slots in
+ * (#4962), which checkout it sizes the seats and a
  * parker's seat in, away mode's return, a paused tick, a launch hold, a full week's wait and
  * the hold notices' agent read (#4282). lib/refill-blocks.js and
  * lib/refill-limits.js decide for real, through refill-blocks-fixture's
@@ -202,6 +203,7 @@ function fakeIo(
 		releaseAwayParks: recorded("releaseAwayParks", (launches) => launches),
 		attachProbeParks: recorded("attachProbeParks", () => undefined),
 		readLiftedHolds: recorded("readLiftedHolds", () => []),
+		typecheckPeakMb: () => 0,
 		readFreeSlots: recorded("readFreeSlots", () => ({
 			slots: 1,
 			admission: null,
@@ -870,17 +872,17 @@ describe("the checkout the free-slot count is read in (#4962)", () => {
 		expect(admissionRoot([], peakMbOf)).toBeUndefined();
 	});
 
-	it("hands the tick's served checkouts to the free-slot read", async () => {
-		const readIn: string[][] = [];
+	it("reads the tick's free slots in the checkout it picks", async () => {
+		const readIn: (string | undefined)[] = [];
 		const { io } = fakeIo(stateOf(), {
-			readFreeSlots: (served) => {
-				readIn.push(served);
+			typecheckPeakMb: peakMbOf,
+			readFreeSlots: (root) => {
+				readIn.push(root);
 				return { slots: 0, admission: null };
 			},
 		});
-		const c = control();
-		await tickOf(io, c);
-		expect(readIn).toEqual([c.scope.repos]);
+		await tickOf(io, control({ scope: normal(["/no-tsc", "/ts7", "/ts6"]) }));
+		expect(readIn).toEqual(["/ts7"]);
 	});
 });
 
