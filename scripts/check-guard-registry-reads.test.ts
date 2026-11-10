@@ -366,7 +366,7 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 		expect(staleRows(root)).toEqual([".husky/pre-commit"]);
 	});
 
-	it("follows a .sh gate run by bash no more than a node one (#4730)", () => {
+	it("leaves out a .sh gate the stack runs by bash, as it does a node gate (#4730)", () => {
 		const root = stack(declared);
 		fs.appendFileSync(
 			path.join(root, ".husky", "pre-commit"),

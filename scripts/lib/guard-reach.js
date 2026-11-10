@@ -15,8 +15,12 @@
 
 const path = require("node:path");
 const { MANIFEST_REL, coresOf, hostOf } = require("./guard-cores.js");
-const { parseProgramRuns, parseProgramVars } = require("./line-scan.js");
-const { requiredGroup } = require("./regex-group.js");
+const {
+	PROGRAM_SUFFIXES,
+	parseProgramRuns,
+	parseProgramVars,
+} = require("./line-scan.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { shellOperands } = require("./shell-operands.js");
 const {
 	directRuleCounts,
@@ -75,8 +79,10 @@ const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
  * `lib="$here/lib/x.js"` and then `node "$lib"`, or a `.sh` run by `bash`
  * or `sh` (#4730). Self-relative, as parseProgramRuns' path is.
  */
-const VAR_PATH_RE =
-	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))"?[ \t]*(?:#[^\n]*)?$/gm;
+const VAR_PATH_RE = new RegExp(
+	`^[ \\t]*(?:local\\s+|readonly\\s+)?(\\w+)="?\\$[^\\n]*?\\/([\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")}))"?[ \\t]*(?:#[^\\n]*)?$`,
+	"gm",
+);
 
 /**
  * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in

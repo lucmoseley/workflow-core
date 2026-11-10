@@ -11,11 +11,10 @@
  * guard's dependencies.
  */
 
-/** The commands a guard runs a program by: `bash` and `sh` since #4730. */
+/** The commands a guard runs a program by (#4730). */
 const RUNNERS = ["node", "bash", "sh"];
-/** The suffixes a run's program ends in, all one length. */
-const SUFFIXES = [".js", ".sh"];
-const SUFFIX_LENGTH = 3;
+/** The suffixes a run's program ends in. */
+const PROGRAM_SUFFIXES = [".js", ".sh"];
 
 /** Where `^` matches under the `m` flag: the start, or after a line break. */
 const atLineStart = (/** @type {string} */ text, /** @type {number} */ i) =>
@@ -172,18 +171,21 @@ function hasRunDollar(/** @type {string} */ text) {
  */
 function parseProgramRuns(text) {
 	if (!hasRunDollar(text)) return [];
-	const marks = SUFFIXES.map((suffix) =>
-		lastMarkInRun(text, /[\w./-]/, suffix),
-	);
+	const marks = PROGRAM_SUFFIXES.map((suffix) => ({
+		suffix,
+		at: lastMarkInRun(text, /[\w./-]/, suffix),
+	}));
 	/** @param {number} slash */
 	const tailEnd = (slash) => {
 		const nameStart = slash + "/".length;
-		const last = Math.max(...marks.map((m) => m[nameStart + 1] ?? -1));
-		return text[slash] === "/" &&
-			/[\w-]/.test(text[nameStart] ?? "") &&
-			last >= 0
-			? last + SUFFIX_LENGTH
-			: -1;
+		if (text[slash] !== "/" || !/[\w-]/.test(text[nameStart] ?? "")) return -1;
+		const ends = marks
+			.map(({ suffix, at }) => {
+				const last = at[nameStart + 1] ?? -1;
+				return last < 0 ? -1 : last + suffix.length;
+			})
+			.filter((end) => end >= 0);
+		return ends.length > 0 ? Math.max(...ends) : -1;
 	};
 	const nextTail = nextOnLine(text, tailEnd);
 	return lineHeadMatches(text, /[\s(|;&]/, RUNNERS, (tailStart) => {
@@ -275,6 +277,7 @@ function nextStop(
 }
 
 module.exports = {
+	PROGRAM_SUFFIXES,
 	parseProgramRuns,
 	parseProgramVars,
 	segmentTailMatches,

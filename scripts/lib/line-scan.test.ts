@@ -178,10 +178,10 @@ describe("segmentTailMatches", () => {
 // prefix, so each one is a fresh start.
 describe("a long line of heads that reach nothing", () => {
 	it.each([
-		["parseProgramRuns", 'node "$/a '.repeat(55_000)],
-		["parseProgramVars", "node $-\r".repeat(30_000)],
-		["parseProgramRuns", 'sh "$/a '.repeat(55_000)],
-	])("%s reads it in linear time", (name, text) => {
+		["parseProgramRuns", "node", 'node "$/a '.repeat(55_000)],
+		["parseProgramVars", "node", "node $-\r".repeat(30_000)],
+		["parseProgramRuns", "sh", 'sh "$/a '.repeat(55_000)],
+	])("%s reads a line of %s heads in linear time", (name, _runner, text) => {
 		const r = spawnSync(
 			process.execPath,
 			[
