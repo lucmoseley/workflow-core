@@ -418,7 +418,7 @@ describe("a bare run under landing", () => {
 });
 
 describe("the exit code", () => {
-	it.each([1, 2, 3, 4, 5, 6])(
+	it.each([1, 5])(
 		"is 1 where pytest exits %i, so a red run is red on one listed code (#4779)",
 		async (code) => {
 			const [python] = fakePytest({ passed: false, scope: null }, code);

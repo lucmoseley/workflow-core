@@ -15,8 +15,8 @@
  * stays red — a marker that cannot be written costs a warning at the next
  * push, never a red run. EXIT 0 OR 1, NEVER PYTEST'S OWN CODE (#4779): the
  * helper surface lists this command's exits, and pytest's set grows with its
- * version (9 added 6), so every failing exit reads as 1 and pytest's own
- * report says which. cli-args-exempt: every argument is pytest's, passed through
+ * version, so every failing exit reads as 1 and pytest's own report says
+ * which. cli-args-exempt: every argument is pytest's, passed through
  * unparsed, bar the one whole-argv match below.
  *
  * UNDER THE `landing` MODULE A BARE RUN IS A TOUCHED ONE (#2934): it hands

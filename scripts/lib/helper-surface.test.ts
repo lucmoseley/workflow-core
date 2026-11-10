@@ -290,11 +290,10 @@ describe("the helper-surface commands", () => {
 	);
 
 	/*
-	 * In a scratch repo with a stand-in python at WFC_PYTHON, which records
-	 * the argv it was handed and exits with the code it is told to; 5 is
-	 * pytest's "no tests collected", standing for every failing code. Bare
-	 * argv as well as the listed flag: with the landing module off, as here,
-	 * both run the whole suite.
+	 * 5 is pytest's "no tests collected", standing for every failing code.
+	 * Bare argv as well as the listed flag: with the landing module off, as
+	 * here, both run the whole suite. The stand-in python plays no part of
+	 * pytest's own behaviour for a §G7 contract test to hold.
 	 */
 	it(
 		"scripts/run-pytest.js keeps --full and its exit codes",
@@ -309,16 +308,16 @@ describe("the helper-surface commands", () => {
 				const git = gitIn(repo);
 				git("init", "-q");
 				git("commit", "-q", "--allow-empty", "-m", "init");
-				const seen = path.join(dir, "argv.json");
+				const argvFile = path.join(dir, "argv.json");
 				const python = path.join(dir, "python3");
 				fs.writeFileSync(
 					python,
-					`#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)));\nprocess.exitCode = Number(process.env.FAKE_CODE);\n`,
+					`#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\nprocess.exitCode = Number(process.env.FAKE_CODE);\n`,
 					{ mode: 0o755 },
 				);
 				const codes = exitCodes();
 				const launch = async (argv: string[], code: number) => {
-					fs.rmSync(seen, { force: true });
+					fs.rmSync(argvFile, { force: true });
 					const r = await runInProcessAsync(
 						path.join(ROOT, "scripts/run-pytest.js"),
 						argv,
@@ -334,7 +333,7 @@ describe("the helper-surface commands", () => {
 					);
 					codes.add(r.status);
 					expect(r.status, r.stderr).toBe(code === 0 ? 0 : 1);
-					return JSON.parse(fs.readFileSync(seen, "utf8")) as string[];
+					return JSON.parse(fs.readFileSync(argvFile, "utf8")) as string[];
 				};
 				for (const code of [0, 1, 5]) {
 					const bare = await launch([], code);
