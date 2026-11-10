@@ -41421,7 +41421,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/run-pytest.test.ts"
 		],
 		"scripts/lib/suite-launch.test.ts": [
 			"scripts/check-guard-errors.test.ts",
