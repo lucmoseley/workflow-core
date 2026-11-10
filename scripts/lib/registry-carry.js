@@ -9,7 +9,8 @@
  * per file, by blob id at the base and at each parent. A clean textual merge of
  * one file is two changes all the same. A row HEAD holds none of, a guard the
  * merged-in side adds, is judged the same way on that side's freshness alone
- * (#4801). Every other stale row is refused.
+ * (#4801). Residual: nobody read that row against HEAD's own changes to its
+ * closure. Every other stale row is refused.
  *
  * Every git failure carries nothing, bar a MERGE_HEAD git will not read, which
  * is BROKEN.

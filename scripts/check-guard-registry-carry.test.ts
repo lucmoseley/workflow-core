@@ -306,19 +306,17 @@ describe("a merge carries a row whose sides changed different files of its closu
 
 	it("carries a row HEAD holds none of, a guard the merged-in side added, where only HEAD changed its library (#4801)", () => {
 		const repo = mergeRepo();
-		const { git, tryGit, change, hooks, fresh } = repo;
+		const { root, git, change } = repo;
 		const [, ...rest] = LIB_A_BODY;
 		change("main", { [LIB_A]: lines("a1() { exit 1; }", ...rest) });
 		sideAddsGuard(repo);
-		hooks();
 
 		git("merge", "--no-ff", "--no-commit", "side");
-		const r = tryGit("commit", "--no-edit");
+		const r = run(root, ["--against", "HEAD"], { env: env(root) });
 
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stderr).toContain(`carried ${ADDED} across the merge`);
-		expect(fresh()).toBe(true);
-		expect(git("status", "--porcelain")).toBe("");
+		expect(r.code, r.report).toBe(0);
+		expect(r.json).toHaveProperty("carried", [ADDED]);
+		expect(run(root).json.warnings.map((w) => w.guard)).not.toContain(ADDED);
 	});
 
 	it("never carries a row the merged-in side added where both sides changed its library, naming the file (#4801)", () => {

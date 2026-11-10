@@ -4261,7 +4261,9 @@ function carryMerge(ctx, stale, sides) {
 	const staleOn = (envelope) =>
 		Array.isArray(envelope?.warnings)
 			? new Set(
-					/** @type {StaleWarning[]} */ (envelope.warnings).map((w) => w.guard),
+					/** @type {Warning[]} */ (envelope.warnings)
+						.filter((w) => STALE_KINDS.has(w.kind))
+						.map((w) => w.guard),
 				)
 			: null;
 	const { carried, kept, none } = judgeCarry(root, merge, stale, {
