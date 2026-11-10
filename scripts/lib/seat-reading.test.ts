@@ -726,7 +726,7 @@ describe("the cap's launch count (#2278)", () => {
 	it("reads a launch that is the floor's member alone as 0, the running session read off the listing it is handed (#2432)", () => {
 		const readAgents = oneRunning();
 		const { sizeOf, lines } = sizerWith(readAgents);
-		expect(sizeOf(seatAt("s", 98), 2)).toBe(0);
+		expect(sizeOf(seatAt("s", 99), 2)).toBe(0);
 		expect(lines).toEqual([]);
 		expect(readAgents).toHaveBeenCalledOnce();
 	});
@@ -735,7 +735,7 @@ describe("the cap's launch count (#2278)", () => {
 		const { sizeOf, lines } = sizerWith(() => {
 			throw new Error("boom");
 		});
-		const s = seatAt("s", 98);
+		const s = seatAt("s", 99);
 		expect(sizeOf(s, 2)).toBeNull();
 		expect(lines).toEqual([
 			`fault: cap on ${s} unsized: sizing threw: Error: boom`,
@@ -752,7 +752,7 @@ describe("the cap's launch count (#2278)", () => {
 
 	it("reads a checkout with no cost table as a fault, not a full seat, naming allowance.js's own why (#2937)", () => {
 		/* Past the week ceiling, so the cap reads the cost table. */
-		const s = seatAt("s", 98);
+		const s = seatAt("s", 99);
 		vi.stubEnv("WFC_SESSION_COST_TABLE", path.join(dir, "no-such-table.json"));
 		const lines: string[] = [];
 		expect(capSizer(dir, (l) => lines.push(l))(s, 1)).toBeNull();
@@ -781,7 +781,7 @@ describe("the cap's launch count (#2278)", () => {
 
 	describe("through decideTick, a seat that fits only the floor's member", () => {
 		/* Seats at these week readings, sized through capSizer with one
-		 * session running: past the 97% ceiling it projects 5.4 points of the
+		 * session running: past the 99% ceiling it projects 5.4 points of the
 		 * week, past 100%. */
 		const sizedOn = (weeks: Record<string, number>) => {
 			const dirs = Object.fromEntries(
@@ -825,14 +825,14 @@ describe("the cap's launch count (#2278)", () => {
 			});
 
 		it("launches on the next seat with room", () => {
-			const { seats, dirs } = sizedOn({ s1: 98, s2: 10 });
+			const { seats, dirs } = sizedOn({ s1: 99, s2: 10 });
 			expect(tick(seats)).toMatchObject({
 				launches: [{ seat: dirs.s2 }, { seat: dirs.s2 }],
 			});
 		});
 
 		it("waits without stopping where every seat with room fits only the floor", () => {
-			const d = tick(sizedOn({ s1: 98, s2: 98 }).seats);
+			const d = tick(sizedOn({ s1: 99, s2: 99 }).seats);
 			expect(d).not.toHaveProperty("stop");
 			expect(d).toMatchObject({
 				launches: [],
