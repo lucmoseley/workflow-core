@@ -33,7 +33,12 @@ const { shellQuote } = require("./sh-quote.js");
 const { isOtherRunner } = require("./suite-launch.js");
 const { scriptPath } = require("./script-path.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
-const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
+const {
+	TSC_PEAK_MB,
+	TSC_QUEUE_NAME,
+	isTscRunner,
+	runnerPeakMb,
+} = require("./tsc-slot.js");
 const { describeWindowsHold } = require("./windows-memory.js");
 
 /**
@@ -454,7 +459,12 @@ const RUNNERS = [
 		peakMbOf: ({ args }) =>
 			PYTEST_BASE_MB + PYTEST_WORKER_MB * pytestWorkersOf(args),
 	},
-	{ queue: TSC_QUEUE_NAME, isRunner: isTscRunner, peakMbOf: () => TSC_PEAK_MB },
+	/* Charged its own compiler's peak, read off its line (#4892). */
+	{
+		queue: TSC_QUEUE_NAME,
+		isRunner: isTscRunner,
+		peakMbOf: ({ args }) => runnerPeakMb(args),
+	},
 	{
 		queue: null,
 		isRunner: (args) => isNextRunnerLine("build", args),

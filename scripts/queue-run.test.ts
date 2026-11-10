@@ -19,7 +19,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-import { TSC_RUNG_MB } from "./lib/tsc-slot";
+import {
+	TSC_PEAK_MB,
+	TSC_PEAKS_MB,
+	TSC_RUNG_MB,
+	tscRungMb,
+} from "./lib/tsc-slot";
 
 const { main } = require("./queue-run.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
@@ -56,6 +61,8 @@ const fixture = () => {
 		queueDir: dir,
 		queueLog: log,
 		sessionId: "s1",
+		/* The highest compiler's, whatever store the run's own tree links. */
+		tscPeakMb: TSC_PEAK_MB,
 		gate: () => false,
 		turn: () => true,
 		// A wait that never polls again: the gate's first answer is final.
@@ -444,6 +451,23 @@ describe("queue-run.js", () => {
 					reason: "refused",
 					kind: "tsc",
 					limb: "memory",
+				}),
+			]);
+		});
+
+		it("admits a TypeScript 7 launch on its own rung, logging its charge (#4892)", async () => {
+			const f = fixture();
+			const mb = tscRungMb(TSC_PEAKS_MB[7]);
+			expect(mb).toBeLessThan(TSC_RUNG_MB);
+			machine(f.dir, ["bash -l"], mb);
+			main(typecheck, own(f, { tscPeakMb: TSC_PEAKS_MB[7] }));
+			await tick();
+			expect(f.spawned).toHaveLength(1);
+			expect(f.readLog()).toEqual([
+				expect.objectContaining({
+					reason: "opened",
+					kind: "tsc",
+					chargeMb: TSC_PEAKS_MB[7],
 				}),
 			]);
 		});

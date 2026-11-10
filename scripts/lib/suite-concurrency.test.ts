@@ -3000,6 +3000,21 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		},
 	);
 
+	/* Recorded off `ps` during a 7.0.2 pass (#4892): the native compiler its
+	 * launcher became under the same PID. */
+	it("denies a TypeScript 7 launch beside a running 7.0 compiler (#4892)", () => {
+		const native = psListing([
+			"bash -l",
+			"/r/node_modules/@typescript/typescript-linux-arm64/lib/tsc -p tsconfig.json --noEmit --checkers 2",
+		]);
+		const command = "node node_modules/@typescript/native/bin/tsc --noEmit";
+		const { text } = judge(command, ROOMY_MB, native);
+		expect(text.split("\n")[0]).toBe(
+			`Run instead: node scripts/queue-run.js --tsc -- ${command}`,
+		);
+		expect(text).toContain("A `tsc` is already running");
+	});
+
 	it("is denied under its rung, naming the reading and the rung", () => {
 		const { text } = judge("tsc --noEmit", TSC_RUNG_MB - 1, psWith(0));
 		expect(text).toContain(

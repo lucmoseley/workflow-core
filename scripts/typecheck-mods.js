@@ -119,7 +119,16 @@ function main() {
 	const ready = new Map();
 	for (const { mod } of PASSES)
 		if (!ready.has(mod)) ready.set(mod, syncEngineTypes(mod, source));
-	const tsc = require.resolve("typescript/bin/tsc");
+	/* The 7.0 compiler by the one path its package exports, its package.json;
+	 * `typescript/bin/tsc` is exported by neither TypeScript here (#4892). */
+	const tsc = path.join(
+		path.dirname(require.resolve("@typescript/native/package.json")),
+		"bin",
+		"tsc",
+	);
+	/* package.json's config.tscCheckers, which npm hands its scripts; a run
+	 * outside npm takes 7.0's own default. */
+	const checkers = process.env.npm_package_config_tscCheckers;
 	let failed = false;
 	for (const { project, mod } of PASSES) {
 		if (!ready.get(mod)) {
@@ -129,10 +138,14 @@ function main() {
 			);
 			continue;
 		}
-		const r = spawnSync(process.execPath, [tsc, "-p", project], {
-			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
-		});
+		const r = spawnSync(
+			process.execPath,
+			[tsc, "-p", project, ...(checkers ? ["--checkers", checkers] : [])],
+			{
+				encoding: "utf8",
+				maxBuffer: CHILD_MAX_BUFFER,
+			},
+		);
 		if (r.error) {
 			writeFd(2, `typecheck-mods: tsc did not run (${r.error.message})\n`);
 			failed = true;

@@ -152,7 +152,7 @@ const {
 	buildIsWrapperScript,
 } = require("./suite-launch.js");
 const { isNpmRun, npmCanon } = require("./npm-options.js");
-const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
+const { isTscLaunch, launchPeakMb, tscDenial } = require("./tsc-slot.js");
 const {
 	buildWindowsShortText,
 	readWindowsRecorded,
@@ -686,12 +686,11 @@ function denyBareTsc(st, segment) {
 		st.ctx.log,
 		"a `tsc` launch",
 	);
-	const denial = tscDenial(
-		ps,
-		mb,
-		mb === null ? 0 : st.readClimb("all"),
+	/* Charged the compiler npm would run in the session's tree (#4892). */
+	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb("all"), {
 		windows,
-	);
+		peakMb: launchPeakMb(treeRoot(st.ctx)),
+	});
 	if (denial === null) return;
 	const launch = queuedLaunch(
 		segment,
@@ -715,7 +714,7 @@ function buildTscWhy(denial) {
 	if (denial.limb === "count")
 		return "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163).";
 	if (denial.limb === "windows") return `${buildWindowsShortText(denial)}.`;
-	return `${readingOf(denial.mb, denial.climbMb)}, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
+	return `${readingOf(denial.mb, denial.climbMb)}, under the ~${denial.rungMb} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
 }
 
 /**

@@ -4,18 +4,42 @@
  * and which words launch `tsc`. Break it and two `tsc` run at once into the
  * 10 GB cap, as #3113's earlyoom kill did, or a launch goes uncounted.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
+const {
+	TSC_PEAKS_MB,
+	TSC_RUNG_MB,
+	launchPeakMb,
+	runnerPeakMb,
+	tscDenial,
+	tscRungMb,
+	isTscLaunch,
+} = require("./tsc-slot.js") as {
+	TSC_PEAKS_MB: { 5: number; 7: number };
 	TSC_RUNG_MB: number;
+	launchPeakMb: (
+		dir: string,
+		readMajor?: (bin: string) => number | null,
+	) => number;
+	runnerPeakMb: (
+		args: string,
+		readMajor?: (bin: string) => number | null,
+	) => number;
+	tscRungMb: (peakMb: number) => number;
 	tscDenial: (
 		rows: { pid: number | null; args: string }[] | null,
 		mb: number | null,
 		climbMb?: number,
-		windows?:
-			| { state: "fresh"; mb: number; ageS: number }
-			| { state: "absent" }
-			| { state: "stale"; why: string },
+		limbs?: {
+			windows?:
+				| { state: "fresh"; mb: number; ageS: number }
+				| { state: "absent" }
+				| { state: "stale"; why: string };
+			peakMb?: number;
+		},
 	) => {
 		limb: string;
 		pids?: (number | null)[];
@@ -32,7 +56,107 @@ const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 describe("lib/tsc-slot.js", () => {
 	it("prices the rung at the measured 2,045 MB peak above earlyoom's floor and the margin", () => {
 		// 794 + 2045 + 300 = 3139, up to the next 50.
+		expect(TSC_PEAKS_MB[5]).toBe(2045);
 		expect(TSC_RUNG_MB).toBe(3150);
+		expect(tscRungMb(TSC_PEAKS_MB[5])).toBe(3150);
+	});
+
+	/* Recorded off `ps` during a 7.0.2 pass on node 24.18 (#4892): the
+	 * launcher, then the same PID as the native compiler after `execve`. */
+	const root = "/r/.claude/worktrees/w/node_modules";
+	const launcher7 = `node ${root}/@typescript/native/bin/tsc -p tsconfig.json --noEmit --checkers 2`;
+	const native7 = `${root}/@typescript/typescript-linux-arm64/lib/tsc -p tsconfig.json --noEmit --checkers 2`;
+
+	it.each([
+		["through `.bin`", `node ${root}/.bin/tsc --noEmit --checkers 2`],
+		["by its resolved path, as typecheck-mods.js runs it", launcher7],
+		["as the native compiler its launcher became", native7],
+	])(
+		"counts a TypeScript 7 runner %s as one runner (#4892)",
+		(_label, line) => {
+			expect(tscDenial([{ pid: 7, args: line }], 9000)).toEqual({
+				limb: "count",
+				pids: [7],
+			});
+		},
+	);
+
+	it("counts a launcher and the native child it spawned without `execve` as one runner (#4892)", () => {
+		const pair = [
+			{ pid: 7, args: launcher7 },
+			{ pid: 8, args: native7 },
+		];
+		expect(tscDenial(pair, 9000)).toEqual({ limb: "count", pids: [7] });
+		// A native compiler of another tree, or other arguments, is its own runner.
+		const other = native7.replace("/w/", "/v/");
+		expect(tscDenial([...pair, { pid: 9, args: other }], 9000)).toEqual({
+			limb: "count",
+			pids: [7, 9],
+		});
+	});
+
+	it("never counts a 7.0 waiter's or wrapper's line (#3276, #4892)", () => {
+		const decoys = rows(
+			`node scripts/queue-run.js --tsc -- ${native7}`,
+			`node scripts/queue-run.js --tsc -- ${launcher7}`,
+			`sh -c ${native7}`,
+			`timeout 300 ${native7}`,
+		);
+		expect(tscDenial(decoys, 9000)).toBeNull();
+	});
+
+	it("charges a running `tsc` its own compiler's peak (#4892)", () => {
+		const major = (m: number | null) => () => m;
+		expect(runnerPeakMb(native7, major(null))).toBe(TSC_PEAKS_MB[7]);
+		expect(runnerPeakMb(launcher7, major(7))).toBe(TSC_PEAKS_MB[7]);
+		expect(runnerPeakMb("node /r/node_modules/.bin/tsc", major(5))).toBe(2045);
+		// A version that will not read is charged the highest.
+		expect(runnerPeakMb("node /r/node_modules/.bin/tsc", major(null))).toBe(
+			2045,
+		);
+	});
+
+	it("charges a launch the peak of the compiler `.bin/tsc` resolves to from its directory up (#4892)", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tsc-slot-"));
+		try {
+			const tree = (name: string, version: string) => {
+				const pkg = path.join(dir, name, "node_modules", "pkg");
+				fs.mkdirSync(path.join(pkg, "bin"), { recursive: true });
+				fs.writeFileSync(
+					path.join(pkg, "package.json"),
+					JSON.stringify({ version }),
+				);
+				fs.writeFileSync(path.join(pkg, "bin", "tsc"), "");
+				const bin = path.join(dir, name, "node_modules", ".bin");
+				fs.mkdirSync(bin);
+				fs.symlinkSync("../pkg/bin/tsc", path.join(bin, "tsc"));
+				fs.mkdirSync(path.join(dir, name, "sub"));
+				return path.join(dir, name, "sub");
+			};
+			expect(launchPeakMb(tree("seven", "7.0.2"))).toBe(TSC_PEAKS_MB[7]);
+			expect(launchPeakMb(tree("five", "5.9.3"))).toBe(2045);
+			expect(launchPeakMb(dir)).toBe(2045);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("holds a launch on its own compiler's rung (#4892)", () => {
+		const rung7 = tscRungMb(TSC_PEAKS_MB[7]);
+		expect(rung7).toBeLessThan(TSC_RUNG_MB);
+		expect(
+			tscDenial(rows("bash -l"), rung7, 0, { peakMb: TSC_PEAKS_MB[7] }),
+		).toBeNull();
+		expect(
+			tscDenial(rows("bash -l"), rung7 - 1, 0, { peakMb: TSC_PEAKS_MB[7] }),
+		).toEqual({ limb: "memory", mb: rung7 - 1, rungMb: rung7 });
+		// The same reading holds a 5.x launch.
+		expect(
+			tscDenial(rows("bash -l"), rung7, 0, { peakMb: 2045 }),
+		).toMatchObject({
+			limb: "memory",
+			rungMb: TSC_RUNG_MB,
+		});
 	});
 
 	it("counts a `tsc` by its runner path, never npm's, a shell's, a wrapper's or a queued waiter's line", () => {
@@ -98,14 +222,18 @@ describe("lib/tsc-slot.js", () => {
 
 	it("holds a `tsc` the guest admits while Windows is under its floor (#4557, #4850)", () => {
 		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
-		expect(tscDenial(rows("bash -l"), 9000, 100, windows(999))).toEqual({
+		expect(
+			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(999) }),
+		).toEqual({
 			limb: "windows",
 			mb: 999,
 		});
-		expect(tscDenial(rows("bash -l"), 9000, 100, windows(1000))).toBeNull();
+		expect(
+			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(1000) }),
+		).toBeNull();
 		// The guest rung is named first.
 		expect(
-			tscDenial(rows("bash -l"), TSC_RUNG_MB - 1, 0, windows(10)),
+			tscDenial(rows("bash -l"), TSC_RUNG_MB - 1, 0, { windows: windows(10) }),
 		).toMatchObject({
 			limb: "memory",
 		});
@@ -116,7 +244,7 @@ describe("lib/tsc-slot.js", () => {
 			{ state: "absent" as const },
 			{ state: "stale" as const, why: "old" },
 		])
-			expect(tscDenial(rows("bash -l"), 9000, 0, windows)).toBeNull();
+			expect(tscDenial(rows("bash -l"), 9000, 0, { windows })).toBeNull();
 	});
 
 	it.each([
@@ -125,6 +253,8 @@ describe("lib/tsc-slot.js", () => {
 		["npx tsc -p x", true],
 		["npm exec tsc", true],
 		["node /r/node_modules/typescript/bin/tsc -p x", true],
+		["node /r/node_modules/@typescript/native/bin/tsc -p x", true],
+		["/r/node_modules/@typescript/typescript-linux-arm64/lib/tsc -p x", true],
 		["npx tsx a.ts", false],
 		["npm run typecheck", false],
 		["node scripts/queue-run.js --tsc -- tsc", false],

@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DRAW_MARGIN_MB, suiteRungMb, WHOLE_SUITE_MAX } from "./suite-ladder";
 import { PART_PASS_AGE_MS, turnOf } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
-import { TSC_PEAK_MB, TSC_RUNG_MB } from "./tsc-slot";
+import { TSC_PEAK_MB, TSC_PEAKS_MB, TSC_RUNG_MB, tscRungMb } from "./tsc-slot";
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-10-27T00:00:00Z");
@@ -29,6 +29,7 @@ interface Waiter {
 	slotFree?: boolean;
 	passed?: number;
 	climbMb?: number;
+	chargeMb?: number;
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",
@@ -267,6 +268,25 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 			mem: blocks(0, 5, 6000),
 		});
 		expect(hoursOf(clear.limb)).toEqual({ open: 300 });
+	});
+
+	/* Available memory between the two compilers' rungs: a logged TypeScript 7
+	 * type-check clears its rung, a 5.x one, charged 2,045 MB or logged before
+	 * #4892 with no charge, is held on its own (#4892). */
+	it("charges each logged type-check the peak of the compiler it ran", () => {
+		const between = 10_000 - (tscRungMb(TSC_PEAKS_MB[7]) + TSC_RUNG_MB) / 2;
+		const limbsOf = (chargeMb?: number) =>
+			hoursOf(
+				replayOf({
+					waiters: [
+						{ from: 0, to: 5, kind: "tsc", ...(chargeMb ? { chargeMb } : {}) },
+					],
+					mem: blocks(0, 5, between),
+				}).limb,
+			);
+		expect(limbsOf(TSC_PEAKS_MB[7])).toEqual({ open: 300 });
+		expect(limbsOf(2045)).toEqual({ "tsc-memory": 300 });
+		expect(limbsOf()).toEqual({ "tsc-memory": 300 });
 	});
 
 	it("names the climb limb on a suite waiter too", () => {

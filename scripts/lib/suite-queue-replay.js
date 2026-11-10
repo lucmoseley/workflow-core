@@ -16,7 +16,7 @@
  * A `tsc` exit is a waiter of its own class, on the type-check slot's gate
  * (lib/tsc-slot.js, #3163), which no suite limb reads:
  *   tsc-count   memwatch's process lines show TSC_MAX `tsc` running
- *   tsc-memory  memwatch's MemAvailable under TSC_RUNG_MB
+ *   tsc-memory  memwatch's MemAvailable under the rung of the waiter's compiler
  *   tsc-fifo    an older `tsc` waiter, its queue being its own
  * then `admitted`, a suite's admission holding its turn (#3203), `peer-climb`,
  * and `open`:
@@ -61,12 +61,7 @@ const {
 	isClimbKept,
 	turnOf,
 } = require("./suite-queue");
-const {
-	TSC_MAX,
-	TSC_PEAK_MB,
-	TSC_RUNG_MB,
-	isTscRunner,
-} = require("./tsc-slot");
+const { TSC_MAX, TSC_PEAKS_MB, tscRungMb, isTscRunner } = require("./tsc-slot");
 const {
 	WINDOWS_FRESH_S,
 	windowsReadingOf,
@@ -142,7 +137,8 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
 /**
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, pid: number, slotFree?: boolean,
- *   skipped?: boolean, passed?: number, climbMb?: number }} Exit
+ *   skipped?: boolean, passed?: number, climbMb?: number,
+ *   chargeMb?: number }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   modulesRun: number | null, modulesTotal: number | null }} Run
@@ -681,7 +677,17 @@ function isMemoryHeld(e, tick, w) {
  * @param {GateTick} tick
  */
 const rungOf = (e, tick) =>
-	e.kind === "tsc" ? TSC_RUNG_MB : suiteRungMb(tick.busy + e.workers);
+	e.kind === "tsc"
+		? tscRungMb(tscChargeOf(e))
+		: suiteRungMb(tick.busy + e.workers);
+
+/**
+ * The peak a type-check waiter is charged: its exit line's, that of the
+ * compiler it ran; on a line from before #4892, whose type-checks all ran on
+ * TypeScript 5, 5's.
+ * @param {Waiter} e
+ */
+const tscChargeOf = (e) => e.chargeMb ?? TSC_PEAKS_MB[5];
 
 /**
  * @param {Waiter} e
@@ -720,7 +726,9 @@ function isWindowsHeld(e, tick) {
 		return tick.t - since < WINDOWS_MAX_HOLD_MS;
 	}
 	const drawMb =
-		e.kind === "tsc" ? TSC_PEAK_MB : rungOf(e, tick) - suiteRungMb(tick.busy);
+		e.kind === "tsc"
+			? tscChargeOf(e)
+			: rungOf(e, tick) - suiteRungMb(tick.busy);
 	return tick.win.mb < drawMb + DRAW_MARGIN_MB;
 }
 
