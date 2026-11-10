@@ -1,8 +1,6 @@
 // @vitest-environment node
 /*
- * The memory-hold add-back (#4862): a declared hold whose holder still runs
- * under its recorded start token is added back to MemAvailable; a dead or
- * reused pid, or a malformed declaration, adds nothing. The declaration is
+ * The memory-hold add-back (#4862). The declaration is
  * read through `WFC_MEMORY_HOLD` and the holder is this test's own process,
  * so the liveness check crosses the real /proc. Breaking it costs the trial
  * its fixed launches: admission either feels the hold or keeps adding back a
