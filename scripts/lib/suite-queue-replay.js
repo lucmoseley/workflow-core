@@ -39,7 +39,8 @@
  * those fields existed is weighed from its vitest marker's module count and
  * PRE_FIELDS_GATE.
  * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
- * what the waiters themselves recorded. The opened part waits the memory limb
+ * what the waiters themselves recorded, and so is its `peerS` and a `peer`
+ * limb at the bound (#4765) beside the modelled peer-climb limb. The opened part waits the memory limb
  * held at some tick, `tsc` waits left out, are the sample PART_PASS_AGE_MS is
  * derived from (#3361).
  */
@@ -140,7 +141,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, pid: number, slotFree?: boolean,
  *   skipped?: boolean, passed?: number, climbMb?: number,
- *   chargeMb?: number }} Exit
+ *   chargeMb?: number, peerS?: number, limb?: string }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   modulesRun: number | null, modulesTotal: number | null }} Run
@@ -967,6 +968,7 @@ function replay(logs, w) {
 	);
 	const passing = counts.filter((n) => n > 0);
 	return {
+		peers: recordedPeers(waiters),
 		exits: touching.length,
 		skipped: touching.length - waiters.length,
 		queued: waiters.length,
@@ -1000,6 +1002,26 @@ function replay(logs, w) {
 		unread: logs.unread,
 		memMinutes: acc.memMinutes.size,
 		minutes: Math.ceil((w.until - w.since) / 60_000),
+	};
+}
+
+/**
+ * What the waits' own exit lines record of the `peer` limb (#4765), `tsc`
+ * waits and suite waits apart: the waits it held, their seconds on it, and
+ * those it still held at the bound. Absent from every line before #4765.
+ *
+ * @param {Waiter[]} waiters
+ */
+function recordedPeers(waiters) {
+	/** @param {Waiter[]} ws */
+	const sum = (ws) => ({
+		held: ws.filter((e) => (e.peerS ?? 0) > 0).length,
+		heldS: ws.reduce((n, e) => n + (e.peerS ?? 0), 0),
+		atBound: ws.filter((e) => e.limb === "peer").length,
+	});
+	return {
+		tsc: sum(waiters.filter((e) => e.kind === "tsc")),
+		suite: sum(waiters.filter((e) => e.kind !== "tsc")),
 	};
 }
 
@@ -1051,6 +1073,11 @@ function render(r, w) {
 		r.passes.counted > 0
 			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
 			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
+		"",
+		...["tsc", "suite"].map((k) => {
+			const p = r.peers[/** @type {"tsc" | "suite"} */ (k)];
+			return `Recorded peer holds, ${k} waits: ${p.held} held on an older waiter in the other queue the climb charge holds, ${hours(p.heldS)} h, ${p.atBound} still held at the bound (#4765).`;
+		}),
 		"",
 		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
 		"",
