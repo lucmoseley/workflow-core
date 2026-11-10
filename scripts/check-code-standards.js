@@ -519,22 +519,42 @@ const SCRIPT_EXT = /\.[cm]?[jt]sx?$/;
 // eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 const HEADER = /^(?:#![^\n]*\n)?(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*))*/;
 /**
+ * Blanks that stop at a line break, where `^` re-anchors anyway (#3383), and
+ * a header line's start.
+ */
+const BLANKS = "[^\\S\\n\\r\\u2028\\u2029]*";
+const LINE_START = `^${BLANKS}`;
+/** A JS comment line's marker. */
+const JS_COMMENT = String.raw`(?:\/\*+|\*|\/\/)`;
+/**
  * A header line naming the unbuilt caller a module was built ahead of, and
  * that caller's ticket — `Unbuilt caller: app/reviews/page.tsx (#575)`. Its
  * exports are interface, not test-only (base §G6).
  * Detected by presence, like the comment escape.
- * Its leading blanks stop at a line break, where `^` re-anchors anyway (#3383).
  */
-const UNBUILT_CALLER =
-	/^[^\S\n\r\u2028\u2029]*(?:\/\*+|\*|\/\/)\s*Unbuilt caller:.*#\d+/im;
+const UNBUILT_CALLER = new RegExp(
+	String.raw`${LINE_START}${JS_COMMENT}\s*Unbuilt caller:.*#\d+`,
+	"im",
+);
 /**
- * A header line keeping a caller list by hand \u2014 `Caller:`, `Callers:` or
- * `Callers of \u2026:` (#4720). Every caller edit then rewrites a header a
+ * A header line keeping a caller list by hand — `Caller:`, `Callers:` or
+ * `Callers of …:` (#4720). Every caller edit then rewrites a header a
  * guard-registry checker may hash, forcing unrelated re-anchors (#4404);
- * `git grep` names the callers instead. `Unbuilt caller:` is not one.
+ * `git grep` names the callers instead. `Unbuilt caller:` is not one. The
+ * marker is optional: a header is all comment, a docstring included.
  */
-const HAND_CALLER =
-	/^[^\S\n\r\u2028\u2029]*(?:\/\*+|\*|\/\/)\s*(Callers?(?: of [^:\n]*)?:.*)$/gim;
+const HAND_CALLER = new RegExp(
+	String.raw`${LINE_START}(?:(?:${JS_COMMENT}|#)${BLANKS})?(Callers?(?: of [^:\n]*)?:.*)$`,
+	"gim",
+);
+/** The scripts whose headers HAND_CALLER reads: JS and TS, shell and Python. */
+const HAND_CALLER_SCOPE =
+	/^(?:scripts\/|\.claude\/skills\/[^/]+\/scripts\/)[\w./-]+\.(?:[cm]?[jt]sx?|sh|bash|py)$/;
+/** The `#`-commented ones, whose header is their leading `#` and blank lines. */
+const HASH_COMMENTED = /\.(?:sh|bash|py)$/;
+const HASH_HEADER = /^(?:[^\S\n]*(?:#[^\n]*)?\n)*/;
+/** A Python module docstring, read as header after the `#` lines. */
+const PY_DOCSTRING = /^[^\S\n]*[rRuU]?("""|''')[\s\S]*?\1/;
 /**
  * The harness whose generic `entry.exports?.main` read IS the run-in-process
  * consumption the entry-point exemption models, so it vouches for no `main`
@@ -579,6 +599,22 @@ function readExportBlocks(tracked) {
 }
 
 /**
+ * A script's header: its opening comment block, or for a `#`-commented
+ * script its leading `#` lines and, in Python, the module docstring.
+ *
+ * @param {string} rel
+ * @param {string} text
+ */
+function headerOf(rel, text) {
+	if (!HASH_COMMENTED.test(rel)) return HEADER.exec(text)?.[0] ?? "";
+	const hashLength = HASH_HEADER.exec(text)?.[0].length ?? 0;
+	const docstring = rel.endsWith(".py")
+		? (PY_DOCSTRING.exec(text.slice(hashLength))?.[0] ?? "")
+		: "";
+	return text.slice(0, hashLength + docstring.length);
+}
+
+/**
  * Every hand-kept caller line in a script header, test-kind files included.
  *
  * @param {{set: Set<string>}} tracked
@@ -588,8 +624,8 @@ function handCallerLines(tracked) {
 	/** @type {Finding[]} */
 	const findings = [];
 	for (const rel of [...tracked.set].sort()) {
-		if (!EXPORT_SCOPE.test(rel)) continue;
-		const header = HEADER.exec(readText(rel) ?? "")?.[0] ?? "";
+		if (!HAND_CALLER_SCOPE.test(rel)) continue;
+		const header = headerOf(rel, readText(rel) ?? "");
 		for (const m of header.matchAll(HAND_CALLER)) {
 			const line = header.slice(0, m.index).split("\n").length;
 			findings.push({

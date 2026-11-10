@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
  * Pins that check-code-standards.js names every citation in the code standards
- * that no longer resolves, and every §N7 export nothing consumes, with the line
- * the reader must go to (mantahostels#1091, the ticket that built it;
- * mantahostels#1799).
+ * that no longer resolves, every §N7 export nothing consumes, and every
+ * hand-kept `Caller:` header line, with the line the reader must go to
+ * (mantahostels#1091, the ticket that built it; mantahostels#1799; #4720).
  *
  * check-code-standards.js reads its scope from `git ls-files` and resolves
  * every path against the working directory, so it is exercised inside a
@@ -1288,6 +1288,24 @@ describe("hand-kept caller lines in a script header (#4720)", () => {
 		expect(r.out).toContain(
 			"HAND-CALLER  scripts/three.js:2  Callers of runThing:",
 		);
+	});
+
+	it("reads a shell or Python script's # header and docstring, and a TS header", () => {
+		doc("Rule — see below\n");
+		track(
+			"scripts/lib/marker.sh",
+			"#!/usr/bin/env bash\n# marker.sh\n#\n# Callers: scripts/a.sh\nset -e\n# Caller: below the header\n",
+		);
+		track(
+			"scripts/tool.py",
+			'#!/usr/bin/env python3\n"""tool.py\n\nCaller: scripts/b.js\n"""\n',
+		);
+		track("scripts/lib/r.ts", "/*\n * Caller: vitest.config.ts\n */\n");
+		const r = run();
+		expect(r.out).toContain("HAND-CALLER  scripts/lib/marker.sh:4");
+		expect(r.out).not.toContain("below the header");
+		expect(r.out).toContain("HAND-CALLER  scripts/tool.py:4");
+		expect(r.out).toContain("HAND-CALLER  scripts/lib/r.ts:2");
 	});
 
 	it("allows an Unbuilt caller: line, and a Caller: line outside the header", () => {
