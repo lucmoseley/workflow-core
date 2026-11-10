@@ -102,6 +102,63 @@ describe("a find started at / is refused (#1006)", () => {
 		expect(judge(command, { cwd })?.deny).toBeDefined();
 	});
 
+	it.each([
+		"env -C / find . -name x",
+		"sudo -D / find -name x",
+		"env -C / env -C . find . -x",
+		"env -C /tmp env -C .. find . -x",
+		'flock /l -c "cd /; find . -name x"',
+		'flock /l -c "cd / && find -name x"',
+		'watch "cd /tmp; cd ..; find . -x"',
+		'env -C /tmp flock /l -c "cd ..; find . -x"',
+		'env -C "/" find . -x',
+		"env --chdir=/ find . -x",
+		"flock /l -c 'cd \"/\"; find . -x'",
+	])(
+		"resolves a relative start through the directory a launcher moves to: %s (#4869)",
+		(command) => {
+			expect(judge(command)?.deny).toBeDefined();
+		},
+	);
+
+	it.each([
+		"env -C $X find . -x",
+		"env -C ~ find . -x",
+		"sudo -D ~ find -x",
+		"env -C ~/.. find . -x",
+		"flock /l -c 'cd $X; find . -x'",
+		"flock /l -c 'X=/usr; cd $X; find . -x'",
+		"X=/; flock /l -c 'cd $X; find . -x'",
+		"flock /l -c 'cd ~; find . -x'",
+		"flock /l -c 'cd /usr; cd $PWD; find . -x'",
+	])(
+		"guesses no directory a launcher's word does not give whole: %s (#4869)",
+		(command) => {
+			expect(
+				judge(command, { vars: { X: "/", HOME: "/", PWD: "/" } }),
+			).toBeNull();
+		},
+	);
+
+	it.each([
+		"env -C '$X' find . -x",
+		"env -C '~' find . -x",
+		"env -C \\~ find . -x",
+	])(
+		"takes a quoted directory as written, expanding nothing: %s (#4869)",
+		(command) => {
+			expect(
+				judge(command, { cwd: "/", vars: { X: "/", HOME: "/" } }),
+			).toBeNull();
+			expect(
+				judge(command.replace("find .", "find .."), {
+					cwd: "/",
+					vars: { X: "/usr", HOME: "/usr" },
+				})?.deny,
+			).toBeDefined();
+		},
+	);
+
 	it("resolves a relative start against a cd that reads a set variable", () => {
 		expect(judge("cd $X && find . -x", { vars: { X: "/" } })).not.toBeNull();
 	});
@@ -195,6 +252,13 @@ describe("every other start point passes silently", () => {
 		["sh -c 'find / -x'", PROJECT],
 		["cd - && find . -x", "/"],
 		["cd $UNSET && find . -x", PROJECT],
+		["env -C /usr find . -x", "/"],
+		["env -C usr find . -x", "/"],
+		["env -C $UNSET find . -x", "/"],
+		['flock /l -c "cd /usr; find . -x"', "/"],
+		['flock /l -c "cd -; find . -x"', "/"],
+		['flock /l -c "find . -x; cd /"', PROJECT],
+		['flock /l -c "(cd /); find . -x"', PROJECT],
 	])("%s from %s", (command, cwd) => {
 		expect(judge(command, { cwd })).toBeNull();
 	});
