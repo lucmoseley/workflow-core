@@ -98,7 +98,6 @@ interface Reads {
 }
 type Audit = { reads: Reads } | { doubt: string };
 
-/* A file's audit that saw it read nothing beside its inputs (#4916). */
 const NO_READS: Reads = {
 	files: [],
 	absent: [],
@@ -780,15 +779,13 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 	});
 });
 
-/* #4916: a read built at run time — a listing of the live tree, a helper's
- * default root — is invisible to the lexical reach. The read audit
- * (lib/read-audit.js) sees it, and the row rests on it. */
+/* #4916: a read built at run time is invisible to the lexical reach. The
+ * read audit (lib/read-audit.js) sees it. */
 describe("the reads the audit saw", () => {
 	const Skills = ".claude/skills";
 	const audited = (reads: Partial<Reads>): Audit => ({
 		reads: { ...NO_READS, ...reads },
 	});
-	/** The audit of a test that listed `.claude/skills` as it stands. */
 	const listedSkills = (dir: string) =>
 		audited({
 			lists: {

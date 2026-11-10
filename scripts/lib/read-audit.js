@@ -8,8 +8,7 @@
  * directory, and lib/read-audit-preload.js on `NODE_OPTIONS`, which every
  * worker and every Node child inheriting the environment loads. The git
  * guard (lib/host-git-guard/git) logs each git call on this checkout's
- * repository, word for word. `readAudits` turns the logs into each test
- * file's reads after the run.
+ * repository, word for word.
  *
  * A DIRECTORY A TEST MINTS (`mkdtemp`) under the root is its own scratch:
  * no read under it is a read of the checkout.
@@ -26,10 +25,9 @@
  *   included;
  * - a Node child that left no log, or one spawned without the audit on;
  * - any other child — a shell, Python, a binary — run from a directory under
- *   the root, or handed an argument naming a path there, as its reads are its
- *   own. A shell or Python child handed a checkout script to run, from
+ *   the root, or handed an argument naming a path there. A shell or Python child handed a checkout script to run, from
  *   outside the root, is seen: the script is a read, and the lexical reach
- *   keys what it loads, as before (#4790);
+ *   keys what it loads (#4790);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -85,8 +83,8 @@ const VALUED = new Set([
  *   git: GitCall[]}} Reads
  *   repo-relative: files read or probed, paths probed and found absent,
  *   directories probed, each listed directory with its listing's id, trees
- *   walked or copied whole, the scripts a shell or Python child ran, whose
- *   own loads the lexical reach keys, and the git calls it made here
+ *   walked or copied whole, the scripts a shell or Python child ran, and the
+ *   git calls it made here
  * @typedef {{reads: Reads} | {doubt: string}} Audit
  * @typedef {Record<string, unknown>} Entry one log line
  */
@@ -96,7 +94,7 @@ const VALUED = new Set([
  * inherits. Returns the log directory, or null where this process is itself
  * under an audit (a test's nested run), whose logs are its owner's.
  * @param {string} root
- * @param {NodeJS.ProcessEnv} [env] written: the three variables are set on it
+ * @param {NodeJS.ProcessEnv} [env] written
  * @returns {string|null}
  */
 function install(root, env = process.env) {
@@ -401,8 +399,8 @@ function namesCheckout(a, root, isScratch) {
 }
 
 /**
- * The checkout script a runner child was handed: a read, whose own loads the
- * lexical reach keys. Null where it was handed none.
+ * The checkout script a runner child was handed to run from a file. Null
+ * where it was handed none, or a program inline.
  * @param {Entry} e
  * @param {string} root real path
  * @returns {string|null} the argument as given

@@ -559,8 +559,7 @@ function commitAt(git, treeish) {
 
 /**
  * Whether everything beyond its files a row rests on stands in `at` as it
- * did: each listing with its id, each probed directory a directory still,
- * each git call answering as it did.
+ * did.
  * @param {{listings?: unknown, dirs?: unknown, git?: unknown}} rested
  * @param {TreeAt} at
  */
@@ -577,8 +576,7 @@ function isTreeHolding({ listings, dirs, git }, at) {
 
 /**
  * Each tracked directory's names at `root`, off git's index: the listing a
- * test may rest on, since an untracked or ignored name is no input. Read
- * once, where a file first needs it.
+ * test may rest on, since an untracked or ignored name is no input.
  * @param {string} root
  * @returns {() => Map<string, Set<string>>}
  */
@@ -604,11 +602,8 @@ function trackedListings(root) {
 }
 
 /**
- * The inputs a file's audited reads add: its files, absent paths and
- * probed directories, and each listing with its id, a tree walked whole
- * standing for every tracked file and listing under it. Null where a
- * listing the test made, or a tree it walked, held a name git does not
- * track: an untracked input records no row.
+ * The inputs a file's audited reads add. Null where a listing the test
+ * made, or a tree it walked, held a name git does not track.
  * @param {import("./read-audit.js").Reads} reads
  * @param {() => Map<string, Set<string>>} listings
  * @param {TreeAt} working the working tree: its directories and git calls
@@ -655,7 +650,7 @@ function auditInputs(reads, listings, working) {
  * What a tree walked or copied whole rests on: every tracked file under
  * `top`, or `top` itself where it is no tracked directory, and every tracked
  * directory's listing under it. Null where a listing on working holds a name
- * git does not track, which the walk saw.
+ * git does not track.
  * @param {string} top
  * @param {Map<string, Set<string>>} tracked
  * @param {TreeAt} working
@@ -696,8 +691,7 @@ function fileInputs(f, { run, reads, reach, listings, working }) {
 	 * may spawn it: its own requires are inputs that no import and no
 	 * `__dirname` join names. A read holding no script reaches none.
 	 * The config and setup files run before every file, so what they
-	 * reach, which vite's graph never records, is each file's too, as
-	 * is what a script the audit saw a child run reaches. */
+	 * reach, which vite's graph never records, is each file's too. */
 	const spawned = reads.get(f.file) ?? [];
 	const reaches = [
 		reach(f.file, true),

@@ -36,7 +36,6 @@ function write(dir: string, file: string, text: string) {
 	fs.writeFileSync(path.join(dir, file), text);
 }
 
-/** A checkout holding a settings file, two skills and a helper. */
 function checkout() {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rda-")));
 	dirs.push(dir);
@@ -44,7 +43,6 @@ function checkout() {
 	write(dir, ".claude/settings.json", '{"hooks":{}}\n');
 	write(dir, ".claude/skills/one/SKILL.md", "one\n");
 	write(dir, ".claude/skills/two/SKILL.md", "two\n");
-	/* A helper whose root defaults to the checkout it sits in. */
 	write(
 		dir,
 		"scripts/lib/hooks.js",
@@ -62,7 +60,7 @@ function checkout() {
 
 /**
  * Run `body` as the test file `file` in a process under the audit armed over
- * `root`, the way a vitest worker runs one; returns the audit's log dir.
+ * `root`; returns the audit's log dir.
  */
 function audited(
 	root: string,
@@ -301,7 +299,6 @@ describe("from a real audited run to a cached row (#4916)", () => {
 });
 
 describe("a read it cannot charge to one test file records no row for it", () => {
-	/** Hand-written logs: owner `100`, one per process. */
 	function logs(files: Record<string, object[]>) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rda-log-"));
 		dirs.push(dir);

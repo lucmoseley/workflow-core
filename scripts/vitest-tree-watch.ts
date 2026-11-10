@@ -47,8 +47,7 @@ let before: unknown = null;
 
 /* The read audit's log directory (#4916), null where this run is unaudited:
  * a test's nested run, whose reads its owner's audit holds, or the lander's,
- * which records no row and so runs as it would with no audit. Set by
- * `armAudit`, cleared by `disarmAudit`. */
+ * which records no row. */
 let auditDir: string | null = null;
 
 function armAudit() {
@@ -113,7 +112,7 @@ function recordFiles(
 
 /**
  * The read audit's per-file reads (#4916), null where this run was not
- * audited or its logs will not read: every file then records no row.
+ * audited or its logs will not read.
  */
 function readAuditsOrNone() {
 	if (auditDir === null) return null;

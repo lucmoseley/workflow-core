@@ -7,16 +7,14 @@
  *
  * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT` and outside every
  * `node_modules`: a file's content read through `fs`; a directory's listing,
- * with the names it returned; a probe (`stat`, `exists`, `access`, `realpath`)
- * with what it found; a recursive walk or copy of a tree; and every child
+ * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
  * process spawned, sync or not, with its program, arguments, working
- * directory and whether it carries this audit on. A path that will not
- * resolve to one under the root is no read of it.
+ * directory and whether it carries this audit on.
  *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
- * audited process's pid, carries that name to every child. Each process
- * appends its log, `<dir>/<owner>.<pid>.jsonl`, as it reads; a process that
+ * audited process's pid, charges every child's reads to the file it
+ * claimed. Each process appends its log, `<dir>/<owner>.<pid>.jsonl`; a process that
  * cannot open one leaves none, which lib/read-audit.js reads as a doubt.
  *
  * It never throws into the code it watches: a fault in a hook drops the
@@ -32,8 +30,8 @@ const { pathKind } = require("./path-kind.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
- * that refuses an extension it does not know (a `typeperf.exe` stub with a
- * node shebang), where plain node runs it as CommonJS. This puts it back. */
+ * that refuses an extension it does not know, where plain node runs it as
+ * CommonJS. */
 /** @typedef {{ format?: string }} LoadContext */
 /** @typedef {(url: string, context: LoadContext) => unknown} NextLoad */
 /* Node 22.15's sync hooks; this @types/node predates them. */
@@ -75,8 +73,7 @@ function install() {
 	const owner = process.env.WFC_READ_AUDIT_OWNER ?? String(process.pid);
 	process.env.WFC_READ_AUDIT_OWNER = owner;
 	/* Appended as each read happens, not at exit: vitest stops a worker
-	 * without one. A process that cannot open its log records nothing and
-	 * leaves none, which reads as a doubt. */
+	 * without one. */
 	let log;
 	try {
 		log = fs.openSync(path.join(dir, `${owner}.${process.pid}.jsonl`), "a");
@@ -132,7 +129,7 @@ function install() {
 	/** What stands at `abs` now, through the `statSync` this does not wrap. */
 	const kindAt = (/** @type {string} */ abs) => pathKind(abs, realStatSync);
 
-	/** Record a probe of `p` with what it found. @param {unknown} p */
+	/** @param {unknown} p */
 	const probe = (p) =>
 		guard(() => {
 			const r = rel(p);
@@ -367,10 +364,7 @@ function install() {
 	scope.__wfcReadAudit = api;
 }
 
-/**
- * A listing entry's name: a string, a Buffer, or a `Dirent`.
- * @param {unknown} n
- */
+/** @param {unknown} n */
 function nameOf(n) {
 	if (typeof n === "string") return n;
 	if (Buffer.isBuffer(n)) return n.toString();
