@@ -6,6 +6,7 @@
 
 export const MEMINFO_KEYS = [
 	"MemTotal",
+	"MemFree",
 	"MemAvailable",
 	"SwapTotal",
 	"SwapFree",
@@ -31,6 +32,8 @@ export function buildMeminfo(
 		availableMb: number;
 		swapTotalMb: number;
 		swapFreeMb: number;
+		/** The guest's free memory, none unless given. */
+		freeMb?: number;
 	},
 	breakdownKb: Partial<
 		Record<(typeof MEMINFO_BREAKDOWN_KEYS)[number], number>
@@ -38,6 +41,7 @@ export function buildMeminfo(
 ) {
 	const kb: Record<(typeof MEMINFO_KEYS)[number], number> = {
 		MemTotal: 10_240 * 1024,
+		MemFree: (mb.freeMb ?? 0) * 1024,
 		MemAvailable: mb.availableMb * 1024,
 		SwapTotal: mb.swapTotalMb * 1024,
 		SwapFree: mb.swapFreeMb * 1024,

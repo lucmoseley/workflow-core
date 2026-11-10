@@ -184,6 +184,20 @@ function runnerPeakMb(row, readMajor = readTscMajor) {
 }
 
 /**
+ * The first `node_modules/.bin/<name>` from `dir` up, null where there is
+ * none.
+ * @param {string} dir
+ * @param {string} name
+ */
+function findBin(dir, name) {
+	for (let at = path.resolve(dir); ; at = path.dirname(at)) {
+		const bin = path.join(at, "node_modules", ".bin", name);
+		if (fs.existsSync(bin)) return bin;
+		if (path.dirname(at) === at) return null;
+	}
+}
+
+/**
  * The peak a `tsc` launched from `dir` is charged: the compiler of the first
  * `node_modules/.bin/<bin>` from `dir` up.
  * @param {string} dir
@@ -193,11 +207,18 @@ function launchPeakMb(
 	dir,
 	{ bin: name = "tsc", readMajor = readTscMajor } = {},
 ) {
-	for (let at = path.resolve(dir); ; at = path.dirname(at)) {
-		const bin = path.join(at, "node_modules", ".bin", name);
-		if (fs.existsSync(bin)) return tscPeakMb(readMajor(bin));
-		if (path.dirname(at) === at) return tscPeakMb(null);
-	}
+	const bin = findBin(dir, name);
+	return tscPeakMb(bin === null ? null : readMajor(bin));
+}
+
+/**
+ * The peak one type-check of `dir`'s checkout is charged, 0 where it holds no
+ * `tsc`: what session admission reserves for (#4956).
+ * @param {string} dir
+ */
+function checkoutPeakMb(dir) {
+	const bin = findBin(dir, "tsc");
+	return bin === null ? 0 : tscPeakMb(readTscMajor(bin));
 }
 
 /**
@@ -268,6 +289,7 @@ module.exports = {
 	defaultTscQueueDir,
 	isTscRunner,
 	launchPeakMb,
+	checkoutPeakMb,
 	runnerPeakMb,
 	tscDenial,
 	tscLaunchBin,

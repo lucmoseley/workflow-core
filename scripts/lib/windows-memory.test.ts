@@ -21,7 +21,9 @@ const {
 	readWindowsMemory,
 	readWindowsRecorded,
 	windowsShortfall,
+	windowsUnbackedMb,
 } = require("./windows-memory.js") as {
+	windowsUnbackedMb: (read: WindowsRead, guestFreeMb: number | null) => number;
 	buildWindowsUnreadNote: (read: WindowsRead, what: string) => string | null;
 	minuteLogPath: () => string;
 	readWindowsMemory: (o?: { file?: string; now?: number }) => WindowsRead;
@@ -170,6 +172,17 @@ describe("lib/windows-memory.js", () => {
 			pagesIn: 100_000,
 		});
 		expect(windowsShortfall(paging(99_999))).toBeNull();
+	});
+
+	it("prices the guest free memory Windows cannot back above its floor (#4956)", () => {
+		const read: WindowsRead = { state: "fresh", mb: 1400, ageS: 30 };
+		expect(windowsUnbackedMb(read, 1000)).toBe(600);
+		expect(windowsUnbackedMb(read, 400)).toBe(0);
+		expect(windowsUnbackedMb({ ...read, mb: 900 }, 300)).toBe(300);
+		expect(windowsUnbackedMb({ ...read, mb: 900 }, 0)).toBe(0);
+		expect(windowsUnbackedMb(read, null)).toBe(0);
+		expect(windowsUnbackedMb({ state: "absent" }, 1000)).toBe(0);
+		expect(windowsUnbackedMb({ state: "stale", why: "old" }, 1000)).toBe(0);
 	});
 
 	it("resolves the log as memwatch does, MEMWATCH_MINUTE_LOG first", () => {

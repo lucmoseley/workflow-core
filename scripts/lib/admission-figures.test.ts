@@ -69,6 +69,81 @@ describe("the CPU limb (#830, #834)", () => {
 	});
 });
 
+describe("the type-check reserve and the Windows limbs (#4956)", () => {
+	const fresh = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
+	const plain = measured(roomy, one);
+
+	it("holds back a type-check's charge, less the share each live session's draw already carries", () => {
+		const live = {
+			sessions: 2,
+			meanMb: 1200,
+			varianceMb2: 80_000,
+			pssMb: 1665,
+			unread: 0,
+			noProcess: 0,
+			problems: [],
+		};
+		const bare = measured(roomy, one, { live });
+		const f = measured(roomy, one, { live, typecheckChargeMb: 1497 });
+		expect(f.typecheckReserveMb).toBe(1497 - 2 * 147);
+		expect(f.budgetMb).toBe(bare.budgetMb - f.typecheckReserveMb);
+		expect(f.byMemory).toBeLessThan(bare.byMemory);
+		const many = { ...live, sessions: 11 };
+		expect(
+			measured(roomy, one, { live: many, typecheckChargeMb: 1497 }),
+		).toMatchObject({ typecheckReserveMb: 0, budgetMb: bare.budgetMb });
+	});
+
+	it("takes off the budget the guest free memory Windows cannot back above its floor", () => {
+		const f = measured(roomy, one, { windows: fresh(1500), guestFreeMb: 3000 });
+		expect(f.windowsChargeMb).toBe(2500);
+		expect(f.budgetMb).toBe(plain.budgetMb - 2500);
+		expect(f.byMemory).toBe(1);
+		expect(f.windowsCapped).toBe(true);
+	});
+
+	it("charges Windows nothing for a session that fits in memory the VM already holds", () => {
+		for (const guestFreeMb of [0, 500]) {
+			const f = measured(roomy, one, { windows: fresh(1500), guestFreeMb });
+			expect(f).toMatchObject({
+				windowsChargeMb: 0,
+				windowsCapped: false,
+				byMemory: plain.byMemory,
+				slots: plain.slots,
+			});
+		}
+	});
+
+	it("charges all the guest's free memory, and no page cache, where Windows is under its floor", () => {
+		const f = measured(roomy, one, { windows: fresh(800), guestFreeMb: 100 });
+		expect(f.windowsChargeMb).toBe(100);
+		expect(
+			measured(roomy, one, { windows: fresh(800), guestFreeMb: 0 }),
+		).toMatchObject({ windowsChargeMb: 0, slots: plain.slots });
+	});
+
+	it.each([
+		["a stale reading", { state: "stale" as const, why: "old" }, 3000],
+		["no memwatch", { state: "absent" as const }, 3000],
+		["unread guest free memory", fresh(1500), null],
+	])("charges nothing on %s", (_name, windows, guestFreeMb) => {
+		const f = measured(roomy, one, { windows, guestFreeMb });
+		expect(f.windowsChargeMb).toBe(0);
+		expect(f.slots).toBe(plain.slots);
+	});
+
+	it("adds no session while a queued test run is held on Windows memory, the guarantee included, keeping the memory figures", () => {
+		const f = measured(roomy, one, { testsHeld: 1 });
+		expect(f.byMemory).toBe(4);
+		expect(f.memorySlots).toBe(4);
+		expect(f.slots).toBe(0);
+		expect(f.freeSlots).toBe(0);
+		const alone = measured(scant, none, { testsHeld: 2 });
+		expect(alone.memorySlots).toBe(1);
+		expect(alone.slots).toBe(0);
+	});
+});
+
 describe("unread readings", () => {
 	it("grants no guarantee where the session count is unread", () => {
 		const f = measured(scant, { ok: false, error: "x" });

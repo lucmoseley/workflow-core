@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	admissionFrom,
 	buildMemoryBreakdownLines,
+	buildWindowsLine,
 	readRunningVitestSuites,
 	readSwapHold,
 	readTreePssKb,
@@ -178,6 +179,8 @@ interface Machine {
 	landers?: Lander[];
 	/** Each listed session's oracle `state`, by id; none where absent. */
 	states?: Record<string, string>;
+	/** Windows' free memory on a fresh memwatch reading; no memwatch unless given. */
+	windowsMb?: number;
 }
 
 /* This process as a lander holding a whole suite, at its charge (#3323). */
@@ -205,10 +208,20 @@ const machineEnv = (m: Machine = {}) => {
 		sessionCeiling = "0",
 		landers = [],
 		states = {},
+		windowsMb,
 	} = m;
 	const host = writeHostRepo(dir, hostConfig);
 	const minuteLog = path.join(dir, "memwatch-minute.jsonl");
 	fs.rmSync(minuteLog, { force: true });
+	if (windowsMb !== undefined)
+		fs.writeFileSync(
+			minuteLog,
+			`${JSON.stringify({
+				ts: new Date().toISOString(),
+				win_avail_mb: windowsMb,
+				win_age_s: 0,
+			})}\n`,
+		);
 	return {
 		MEMWATCH_MINUTE_LOG: minuteLog,
 		...buildIsolatedEnv(dir, { landers }),
@@ -1553,6 +1566,24 @@ describe("admissionFrom's own fallback and wording", () => {
 		expect(unread.admit).toBe(false);
 	});
 
+	it("holds on a queued test run the Windows hold is holding, and names what the budget held back (#4956)", () => {
+		const held = admissionFrom(roomy, one, { host, testsHeld: 2 });
+		expect(held.admit).toBe(false);
+		expect(held.freeSlots).toBe(0);
+		expect(held.reason).toBe(
+			"2 queued test run(s) are held on Windows memory, so no session is added until they run (#4956)",
+		);
+		const charged = admissionFrom(roomy, one, {
+			host,
+			typecheckChargeMb: 1497,
+			windows: { state: "fresh", mb: 1500, ageS: 30 },
+			guestFreeMb: 900,
+		});
+		expect(charged.reason).toMatch(
+			/, holding 1497 MB for a type-check, less 400 MB of guest free memory Windows cannot back, holding 794 \+ 300 MB/,
+		);
+	});
+
 	it("names the CPU cap, and the full ceiling", () => {
 		const a = admissionFrom(roomy, one, { host, cpu: capped });
 		expect(a.freeSlots).toBe(1);
@@ -1610,6 +1641,84 @@ describe("admissionFrom's own fallback and wording", () => {
 	});
 });
 
+describe("the Windows limbs, read off the machine (#4956)", () => {
+	/* The fixture's MemFree, 554820 kB. */
+	const GuestFree = 541;
+
+	it("charges the guest free memory a fresh Windows reading cannot back, and prints it", () => {
+		const m = { mb: 4000, windowsMb: 1200 };
+		const { json } = run(m);
+		expect(json.windowsChargeMb).toBe(GuestFree - 200);
+		expect(json.guestFreeMb).toBe(GuestFree);
+		expect(json.budgetMb).toBe(run({ mb: 4000 }).json.budgetMb - 341);
+		expect(run({ ...m, json: false }).stdout).toMatch(
+			/windows memory {5}1200 MB free on Windows \(memwatch, \d+ s old\), 200 MB above its 1000 MB floor, against 541 MB free in the guest that it does not yet back, so 341 MB comes off the budget \(#4956\)/,
+		);
+	});
+
+	it("charges nothing with no memwatch, or with Windows backing all the guest's free memory", () => {
+		expect(run({ mb: 4000 }).json.windowsChargeMb).toBe(0);
+		expect(run({ mb: 4000, windowsMb: 3000 }).json.windowsChargeMb).toBe(0);
+	});
+
+	it("holds every slot while a queued test run is held on Windows memory", () => {
+		const q = path.join(dir, "tmp", "wfc-suite-queue");
+		fs.mkdirSync(q, { recursive: true });
+		fs.writeFileSync(
+			path.join(q, `wfc-suite-queue-${process.pid}.json`),
+			JSON.stringify({ pid: process.pid, at: Date.now(), windowsHeld: true }),
+		);
+		const { json, status } = run({ mb: 6000, sessions: [SELF, "other"] });
+		expect(json.testsHeld).toBe(1);
+		expect(json.slots).toBe(0);
+		expect(json.memorySlots).toBeGreaterThan(0);
+		expect(json.admit).toBe(false);
+		expect(status).toBe(1);
+	});
+});
+
+describe("buildWindowsLine (#4956)", () => {
+	const fresh = { state: "fresh" as const, mb: 800, ageS: 30 };
+
+	it("words Windows under its floor as a shortfall", () => {
+		expect(
+			buildWindowsLine({
+				windows: fresh,
+				guestFreeMb: 300,
+				windowsChargeMb: 300,
+			}),
+		).toBe(
+			"800 MB free on Windows (memwatch, 30 s old), 200 MB under its 1000 MB floor, against 300 MB free in the guest that it does not yet back, so 300 MB comes off the budget (#4956)",
+		);
+	});
+
+	it("names an unread guest and a stale reading, and is silent with no memwatch", () => {
+		expect(
+			buildWindowsLine({
+				windows: fresh,
+				guestFreeMb: null,
+				windowsChargeMb: 0,
+			}),
+		).toBe(
+			"800 MB free on Windows, the guest's free memory unread, so nothing is charged against it",
+		);
+		expect(
+			buildWindowsLine({
+				windows: { state: "stale", why: "old" },
+				guestFreeMb: 300,
+				windowsChargeMb: 0,
+			}),
+		).toBe("Windows memory unread — old; sessions not held on it (#4557)");
+		expect(
+			buildWindowsLine({
+				windows: { state: "absent" },
+				guestFreeMb: 300,
+				windowsChargeMb: 0,
+			}),
+		).toBeNull();
+	});
+});
+
 /*
  * pick-next.js's ADMISSION block, `selectionAdmission`, in process (#4329):
  * the readings off the machine and the admission verdict over them, no reclaim
@@ -1628,6 +1737,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			listed: admissionSessionIds(),
 			reclaimable: { ok: true, count: 0 },
 			landers: readLiveLanders(),
+			testsHeld: 0,
 		});
 		return r;
 	};

@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { readSwapHold } from "./admission.js";
+import { readMeminfoKb } from "./meminfo.js";
 import {
 	buildMeminfo,
 	MEMINFO_BREAKDOWN_KEYS,
@@ -49,6 +50,7 @@ describe("the meminfo fake against the real file (#3093)", () => {
 			}
 			vi.stubEnv("WFC_MEMINFO", undefined);
 			expect(typeof readSwapHold().held).toBe("boolean");
+			expect(readMeminfoKb()).toMatchObject({ freeKb: expect.any(Number) });
 		},
 	);
 
@@ -72,5 +74,24 @@ describe("the meminfo fake against the real file (#3093)", () => {
 				}),
 			),
 		).toEqual({ held: false });
+	});
+
+	it("reads back the guest free memory it was built with (#4956)", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meminfo-contract-"));
+		try {
+			fs.writeFileSync(
+				path.join(dir, "meminfo"),
+				buildMeminfo({
+					availableMb: 1024,
+					swapTotalMb: 0,
+					swapFreeMb: 0,
+					freeMb: 300,
+				}),
+			);
+			vi.stubEnv("WFC_MEMINFO", path.join(dir, "meminfo"));
+			expect(readMeminfoKb()).toMatchObject({ freeKb: 300 * 1024 });
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
