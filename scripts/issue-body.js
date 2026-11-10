@@ -644,6 +644,12 @@ function withLock(issue, repo, fn) {
 // The safe edit
 // ---------------------------------------------------------------------------
 
+/** @param {number|string} issue */
+function refuseNonIssueNumber(issue) {
+	if (!/^\d+$/.test(String(issue)))
+		throw new CallerError(`not an issue number: ${issue}`);
+}
+
 /**
  * Apply `transform` to issue `issue`'s body, safely under concurrency.
  *
@@ -666,8 +672,7 @@ function editIssueBody({
 }) {
 	if (typeof transform !== "function")
 		throw new CallerError("transform must be a function");
-	if (!/^\d+$/.test(String(issue)))
-		throw new CallerError(`not an issue number: ${issue}`);
+	refuseNonIssueNumber(issue);
 	// Unvalidated, `--attempts abc` is NaN, skips the loop, and reports "gave up
 	// after NaN writes".
 	if (!Number.isInteger(attempts) || attempts < 1)
@@ -940,10 +945,8 @@ function refuseGateFaults(before, after, repo, issue) {
 		gateRuleHanded = true;
 		writeFd(2, handover);
 	}
-	const own = Number(issue);
-	if (!Number.isInteger(own))
-		throw new CallerError(`not an issue number: ${issue}`);
-	const added = introducedBasisFaults(before, after, own);
+	refuseNonIssueNumber(issue);
+	const added = introducedBasisFaults(before, after, Number(issue));
 	if (added.length > 0)
 		throw new CallerError(
 			`Nothing written: this edit adds ${basisRefusal(added)}`,

@@ -110,6 +110,14 @@ describe("lib/windows-memory.js", () => {
 		);
 	});
 
+	it("takes a reading 180 s old as fresh", () => {
+		fs.writeFileSync(file, line(170, 900, 10));
+		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({
+			state: "fresh",
+			ageS: 180,
+		});
+	});
+
 	it("records a stale reading's fail-open, and nothing for a fresh or absent one", () => {
 		const logged: string[] = [];
 		const log = (what: string) => logged.push(what);
