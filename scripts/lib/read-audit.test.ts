@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { install, readAudits, remove } = require("./read-audit.js");
-const { usableStrace } = require("./read-audit-trace.js");
+const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
@@ -24,8 +24,15 @@ const { EDGES_FILE } = require("./test-pass-marker.js");
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 
 /* The cases that run a child under the tracer skip where none works. */
-const STRACE = usableStrace(fs.realpathSync(os.tmpdir()), process.env);
-const J = JSON.stringify;
+const STRACE = (() => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rda-")));
+	try {
+		return findStrace(dir, process.env);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+})();
+const quoted = JSON.stringify;
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -77,7 +84,7 @@ function audited(
 	const scope: NodeJS.ProcessEnv = { ...process.env, ...env };
 	delete scope.WFC_READ_AUDIT_OWNER;
 	delete scope.NODE_OPTIONS;
-	const log = install(root, scope);
+	const log = install(root, scope, { write: () => true });
 	if (!trace) delete scope.WFC_READ_AUDIT_STRACE;
 	dirs.push(log);
 	write(
@@ -342,7 +349,7 @@ function stubTool(text: string) {
 
 /** A test body running the `tool` on `stub` in the checkout `root`. */
 const runsTool = (root: string, stub: string) =>
-	`require("node:child_process").execFileSync("tool", ["api", "user"], { cwd: ${J(root)}, env: { ...process.env, PATH: ${J(stub + path.delimiter)} + process.env.PATH } });`;
+	`require("node:child_process").execFileSync("tool", ["api", "user"], { cwd: ${quoted(root)}, env: { ...process.env, PATH: ${quoted(stub + path.delimiter)} + process.env.PATH } });`;
 
 const READS_SETTINGS = "#!/bin/sh\ncat .claude/settings.json\n";
 
@@ -367,11 +374,32 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			"cd scripts && cat lib/hooks.js >/dev/null; test -e nope.txt; ls ../.claude/skills >/dev/null";
 		const audit = reads(
 			root,
-			`require("node:child_process").execSync(${J(script)}, { cwd: ${J(root)} });`,
+			`require("node:child_process").execSync(${quoted(script)}, { cwd: ${quoted(root)} });`,
 		);
 		expect(audit.reads.files).toContain("scripts/lib/hooks.js");
 		expect(audit.reads.absent).toContain("scripts/nope.txt");
 		expect(audit.reads.trees).toEqual([".claude/skills"]);
+	});
+
+	it("holds a checkout file read through a link from outside it", () => {
+		const root = checkout();
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+		dirs.push(outside);
+		fs.symlinkSync(root, path.join(outside, "in"));
+		const audit = reads(
+			root,
+			`require("node:child_process").execSync(${quoted(`cat ${path.join(outside, "in/.claude/settings.json")}`)}, { cwd: ${quoted(root)} });`,
+		);
+		expect(audit.reads.files).toContain(".claude/settings.json");
+	});
+
+	it("doubts a file a child read and then removed, which nothing is left to key", () => {
+		const root = checkout();
+		const audit = reads(
+			root,
+			`require("node:child_process").execSync("cat scripts/lib/hooks.js >/dev/null; rm scripts/lib/hooks.js", { cwd: ${quoted(root)} });`,
+		);
+		expect(audit.doubt).toMatch(/it read scripts\/lib\/hooks\.js/);
 	});
 
 	it("leaves the child the pid, exit status and signal the test would have seen", () => {
@@ -380,9 +408,12 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			root,
 			[
 				'const cp = require("node:child_process");',
-				`const at = { cwd: ${J(root)}, encoding: "utf8" };`,
+				`const at = { cwd: ${quoted(root)}, encoding: "utf8" };`,
 				'const r = cp.spawnSync("sh", ["-c", "echo $$; exit 3"], at);',
 				"if (r.status !== 3 || Number(r.stdout) !== r.pid) throw new Error(JSON.stringify(r));",
+				/* Crosses the real clock: the kill Node sends at its timeout is
+				 * what the case tests. 300 ms is a guess above a shell's start
+				 * under the tracer (~20 ms); the 30 s sleep, one far past it. */
 				'const k = cp.spawnSync("sh", ["-c", "exec sleep 30"], { ...at, timeout: 300 });',
 				'if (k.signal !== "SIGTERM") throw new Error(JSON.stringify(k));',
 			].join("\n"),
@@ -395,11 +426,11 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		write(
 			root,
 			"scripts/child.js",
-			`require("node:child_process").execFileSync("cat", [".claude/settings.json"], { cwd: ${J(root)} });\n`,
+			`require("node:child_process").execFileSync("cat", [".claude/settings.json"], { cwd: ${quoted(root)} });\n`,
 		);
 		const audit = reads(
 			root,
-			`require("node:child_process").execFileSync("sh", ["-c", '"$0" scripts/child.js', process.execPath], { cwd: ${J(root)} });`,
+			`require("node:child_process").execFileSync("sh", ["-c", '"$0" scripts/child.js', process.execPath], { cwd: ${quoted(root)} });`,
 		);
 		expect(audit.reads.files).toEqual(
 			expect.arrayContaining([".claude/settings.json", "scripts/child.js"]),
@@ -410,7 +441,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		const root = checkout();
 		const audit = reads(
 			root,
-			`require("node:child_process").execSync("git status", { cwd: ${J(root)} });`,
+			`require("node:child_process").execSync("git status", { cwd: ${quoted(root)} });`,
 		);
 		expect(audit.doubt).toMatch(
 			/a traced child \(sh -c git status\) read this repository's git directory/,
@@ -421,7 +452,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		const root = checkout();
 		const audit = reads(
 			root,
-			`require("node:child_process").execFileSync("cat", ["scripts/lib/hooks.js"], { cwd: ${J(root)} });`,
+			`require("node:child_process").execFileSync("cat", ["scripts/lib/hooks.js"], { cwd: ${quoted(root)} });`,
 		);
 		expect(audit.doubt).toMatch(
 			/a child \(cat scripts\/lib\/hooks\.js\) ran in the checkout/,
@@ -594,7 +625,14 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 				],
 			});
 			if (trace !== null) fs.writeFileSync(path.join(dir, "t"), trace);
-			return readAudits(dir, root).get("a.test.ts");
+			let now = 0;
+			const clock = {
+				now: () => now,
+				sleep: (ms: number) => {
+					now += ms;
+				},
+			};
+			return readAudits(dir, root, clock).get("a.test.ts");
 		};
 
 		it("holds a path named with no directory beside it under each directory a process stood in", () => {
@@ -623,7 +661,17 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 			[
 				"connected to a socket",
 				`7 connect(3<socket:[9]>, {sa_family=AF_UNIX, sun_path="/run/bus"}, 21) = 0\n${Exit}`,
-				/a traced child \(tool api\) connected to a socket/,
+				/a traced child \(tool api\) reached a socket/,
+			],
+			[
+				"addressed a datagram",
+				`7 sendto(3<socket:[9]>, "x", 1, 0, {sa_family=AF_UNIX, sun_path="/run/log"}, 17) = 1\n${Exit}`,
+				/reached a socket/,
+			],
+			[
+				"signalled a process its trace does not follow",
+				`7 kill(7, 0) = 0\n7 kill(999, SIGTERM) = 0\n${Exit}`,
+				/signalled a process outside its trace/,
 			],
 			["left no trace", null, /left no trace/],
 			["left a line cut short", `openat(AT_FD\n${Exit}`, /will not parse/],
@@ -636,10 +684,33 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 			expect(traced(checkout(), trace).doubt).toMatch(doubt);
 		});
 
+		it("holds a file under a directory whose name the trace escaped", () => {
+			const root = checkout();
+			write(root, "d\u00e9/f", "x\n");
+			const dir = `${root}/d\\303\\251`;
+			const audit = traced(
+				root,
+				`7 openat(AT_FDCWD<${dir}>, "f", O_RDONLY) = 3<${dir}/f>\n${Exit}`,
+			);
+			expect(audit.reads.files).toEqual(["d\u00e9/f"]);
+		});
+
 		it("keeps the reads of a file whose child's connect reached nobody", () => {
 			const refused = `7 connect(3<socket:[9]>, {sa_family=AF_UNIX, sun_path="/run/nscd"}, 110) = -1 ENOENT (No such file or directory)\n${Exit}`;
 			expect(traced(checkout(), refused)).toHaveProperty("reads");
 		});
+	});
+
+	it("keeps the reads of a file whose child a tracer already followed", () => {
+		const root = checkout();
+		const dir = logs({
+			"100.100.jsonl": [
+				self(100),
+				{ k: "claim", file: "a.test.ts" },
+				{ k: "child", file: "cat", args: ["x"], cwd: root, within: true },
+			],
+		});
+		expect(readAudits(dir, root).get("a.test.ts")).toHaveProperty("reads");
 	});
 
 	it("doubts a file whose process faulted in its audit", () => {
@@ -681,7 +752,11 @@ describe("arming", () => {
 			PATH: os.tmpdir(),
 			WFC_READ_AUDIT_STRACE: "/usr/bin/strace",
 		};
-		dirs.push(install(checkout(), env));
+		const said: string[] = [];
+		dirs.push(install(checkout(), env, { write: (s: string) => said.push(s) }));
 		expect(env.WFC_READ_AUDIT_STRACE).toBeUndefined();
+		expect(said.join("")).toMatch(
+			/no working strace .* records no pass-store row/,
+		);
 	});
 });

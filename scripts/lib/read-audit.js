@@ -44,9 +44,12 @@ const { pathToFileURL } = require("node:url");
 const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
-const { tracesIn, usableStrace } = require("./read-audit-trace.js");
+const { buildTraceReader, findStrace } = require("./read-audit-trace.js");
 
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
+
+const NO_TRACER =
+	"read audit: no working strace on PATH, so a test file that runs a stub or a shell in the checkout records no pass-store row (#4966).\n";
 
 /* Subcommands that read and never write, so the store may run one again.
  * `status` is left out: it refreshes the index. */
@@ -102,16 +105,20 @@ const VALUED = new Set([
  * under an audit (a test's nested run), whose logs are its owner's.
  * @param {string} root
  * @param {NodeJS.ProcessEnv} [env] written
+ * @param {{write(s: string): unknown}} [err] told where no tracer works
  * @returns {string|null}
  */
-function install(root, env = process.env) {
+function install(root, env = process.env, err = process.stderr) {
 	if (env.WFC_READ_AUDIT_OWNER) return null;
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-read-audit-"));
 	env.WFC_READ_AUDIT = dir;
 	env.WFC_READ_AUDIT_ROOT = fs.realpathSync(root);
-	const strace = usableStrace(dir, env);
+	const strace = findStrace(dir, env);
 	if (strace) env.WFC_READ_AUDIT_STRACE = strace;
-	else delete env.WFC_READ_AUDIT_STRACE;
+	else {
+		delete env.WFC_READ_AUDIT_STRACE;
+		err.write(NO_TRACER);
+	}
 	/* `--import`, not `--require`: a require'd preload resolves through the
 	 * working directory's package.json, which a test may break on purpose. */
 	env.NODE_OPTIONS = [
@@ -141,12 +148,14 @@ function remove(dir) {
  * the result was never claimed by a process of its own.
  * @param {string} dir
  * @param {string} root the root the audit was armed over
+ * @param {import("./read-audit-trace.js").Clock} [clock] the wait for a
+ *   trace to settle
  * @returns {Map<string, Audit>}
  */
-function readAudits(dir, root) {
+function readAudits(dir, root, clock) {
 	const owners = readOwners(dir);
 	const real = fs.realpathSync(root);
-	const readTrace = tracesIn(dir, real);
+	const readTrace = buildTraceReader(dir, real, clock);
 	/** @type {Map<string, Audit>} */
 	const out = new Map();
 	for (const [owner, { logs, git }] of owners) {
@@ -220,7 +229,7 @@ function gitRecords(text) {
  * @param {Map<number, Entry[]>} logs
  * @param {string[][]} git the guard's records for this owner
  * @param {string} root real path
- * @param {ReturnType<typeof tracesIn>} readTrace
+ * @param {ReturnType<typeof buildTraceReader>} readTrace
  * @returns {Audit}
  */
 function judge(logs, git, root, readTrace) {
@@ -250,7 +259,7 @@ function judge(logs, git, root, readTrace) {
  * @param {Map<number, Entry[]>} logs
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
- * @param {ReturnType<typeof tracesIn>} readTrace
+ * @param {ReturnType<typeof buildTraceReader>} readTrace
  */
 function collector(logs, root, isScratch, readTrace) {
 	/** @type {Record<"file"|"dir"|"absent", Set<string>>} */

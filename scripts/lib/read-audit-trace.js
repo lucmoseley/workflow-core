@@ -9,28 +9,34 @@
  * the program stays the direct child the test spawned, under the pid, exit
  * status and signals it would have had.
  *
- * EVERY PATH A FILE CALL NAMES IS A READ, a write's target included. A
- * relative path with no directory beside it resolves against every directory
- * the trace has seen a process stand in or hold open — more reads than were
- * made, never fewer. A directory opened is its whole tree.
+ * EVERY PATH A FILE CALL NAMES IS A READ, a write's target included: as the
+ * call spelt it, with its links followed, and as the descriptor the call
+ * returned names it. A relative path with no directory beside it resolves
+ * against every directory the trace has seen a process stand in or hold
+ * open — more reads than were made, never fewer. A directory opened is its
+ * whole tree.
  *
  * WHAT A TRACE CANNOT BOUND IS A DOUBT: a process still running once the
  * audit is read; a call on this repository's git directory, whose state no
- * file under the root holds; a socket connected, behind which another
- * process may do the reading. Not weighed: a datagram sent on a socket never
- * connected, and work a signal starts in a process outside the trace.
+ * file under the root holds; a path that will not resolve, or one a call
+ * found and that is gone since; a socket connected or a datagram addressed,
+ * behind which another process may do the reading; a signal sent to a
+ * process the trace does not follow.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const { pathKind } = require("./path-kind.js");
 const { sleepSync } = require("./sleep-sync.js");
 
 /* `-f` follows every descendant; `--seccomp-bpf` stops the traced processes
  * on the named calls only; `-y` prints the directory a relative path is
- * taken from. */
+ * taken from. Signals stay in the trace: without them strace writes no line
+ * for a process a signal killed. */
 const FLAGS = [
 	"-f",
 	"-DD",
@@ -38,7 +44,7 @@ const FLAGS = [
 	"-q",
 	"-y",
 	"-e",
-	"trace=%file,fchdir,connect",
+	"trace=%file,fchdir,connect,sendto,sendmsg,sendmmsg,kill,tkill,tgkill",
 ];
 
 /**
@@ -47,7 +53,7 @@ const FLAGS = [
  * @param {string} out
  * @param {string[]} argv
  */
-const traceArgv = (strace, out, argv) => [
+const buildTraceArgv = (strace, out, argv) => [
 	strace,
 	...FLAGS,
 	"-o",
@@ -62,12 +68,15 @@ const TRIAL_MS = 5000;
 /**
  * The `strace` on `env`'s PATH, where a trial run under it in `dir` leaves a
  * trace this module reads; else null — none installed, an old one, or a
- * machine that forbids tracing.
+ * machine that forbids tracing. Found by walking PATH, not spawned by bare
+ * name: the preload hands a child the tracer's path in place of its program,
+ * so it needs the file. A system tool the repo does not ship, whose absence
+ * the audit's untraced rules cover.
  * @param {string} dir a directory to write the trial trace in, real path
  * @param {NodeJS.ProcessEnv} env
  * @returns {string|null}
  */
-function usableStrace(dir, env) {
+function findStrace(dir, env) {
 	const strace = String(env.PATH ?? "")
 		.split(path.delimiter)
 		.filter((entry) => path.isAbsolute(entry))
@@ -77,21 +86,71 @@ function usableStrace(dir, env) {
 	const name = "trial.trace";
 	try {
 		const trial = ["/bin/sh", "-c", "test -e trial.probe"];
-		const [file, ...args] = traceArgv(strace, path.join(dir, name), trial);
+		const [file, ...args] = buildTraceArgv(strace, path.join(dir, name), trial);
 		const r = spawnSync(String(file), args, {
 			cwd: dir,
 			stdio: "ignore",
 			timeout: TRIAL_MS,
 		});
-		const got = tracesIn(dir, dir)(name, dir);
+		const got = buildTraceReader(dir, dir)(name, dir);
 		const saw =
 			"entries" in got &&
 			got.entries.some((e) => e.p === "trial.probe" && e.s === "absent");
 		return r.status === 1 && saw ? strace : null;
 	} catch {
+		/* Fails open to the untraced rules, under which a stub or a shell in
+		 * the checkout doubts its file (#4966): a trial that throws is a
+		 * tracer that does not work here. lib/read-audit.js prints the
+		 * fall-back. */
 		return null;
 	} finally {
 		fs.rmSync(path.join(dir, name), { force: true });
+	}
+}
+
+/**
+ * The directories holding the state of the repository at `root`: its `.git`,
+ * and for a linked worktree its git directory and the common one.
+ * @param {string} root real path
+ * @returns {string[]}
+ */
+function readGitDirs(root) {
+	const dot = path.join(root, ".git");
+	const out = [dot];
+	/* Unreadable is `.git` as a directory, which is itself the whole state;
+	 * absent is no repository. Either way the one entry stands (#4966). */
+	const link = readText(dot);
+	const own =
+		link.state === "read" ? /^gitdir: (.*)$/m.exec(link.data)?.[1] : undefined;
+	if (own) {
+		const dir = path.resolve(root, own.trim());
+		out.push(dir);
+		/* A git directory with no `commondir` is its own common one (#4966). */
+		const common = readText(path.join(dir, "commondir"));
+		if (common.state === "read")
+			out.push(path.resolve(dir, common.data.trim()));
+	}
+	/* A directory that will not resolve stands nowhere a call could reach by
+	 * another name, so its spelling is the only one to match (#4966). */
+	return out.map((dir) => realOf(dir) ?? dir);
+}
+
+/**
+ * `abs` with its links followed, the part of it that does not exist kept as
+ * spelt; null where it will not resolve, as in a loop of links.
+ * @param {string} abs
+ * @returns {string|null}
+ */
+function realOf(abs) {
+	try {
+		return fs.realpathSync(abs);
+	} catch (e) {
+		const code = caught(e).code;
+		const parent = path.dirname(abs);
+		if ((code !== "ENOENT" && code !== "ENOTDIR") || parent === abs)
+			return null;
+		const up = realOf(parent);
+		return up === null ? null : path.join(up, path.basename(abs));
 	}
 }
 
@@ -105,125 +164,126 @@ const SETTLE_STEP_MS = 10;
 const RUNNING = "was still running when its trace was read";
 
 /**
+ * @typedef {{now: () => number, sleep: (ms: number) => void}} Clock
+ */
+
+/** @type {Clock} */
+const REAL_CLOCK = { now: Date.now, sleep: sleepSync };
+
+/**
  * A reader of the traces in `dir`, for one reading of an audit over `root`:
  * `(name, cwd)` gives the trace `name` of a child started in `cwd` as the
  * audit's log entries, or what in it cannot be bounded.
  * @param {string} dir the audit's log directory
  * @param {string} root the checkout's real path
+ * @param {Clock} [clock]
  * @returns {(name: string, cwd: string) =>
  *   {entries: Record<string, unknown>[]} | {doubt: string}}
  */
-function tracesIn(dir, root) {
-	const repo = gitDirs(root);
+function buildTraceReader(dir, root, clock = REAL_CLOCK) {
+	const gitDirs = readGitDirs(root);
 	/** @type {number|undefined} */
 	let deadline;
 	return (name, cwd) => {
 		for (;;) {
-			let text;
-			try {
-				if (path.basename(name) !== name) throw new Error("no trace name");
-				text = fs.readFileSync(path.join(dir, name), "utf8");
-			} catch {
-				return { doubt: "left no trace" };
-			}
-			const got = traceReads(text, { cwd, root, gitDirs: repo });
+			const got = readTrace(dir, name, { cwd, root, gitDirs });
 			if (!("doubt" in got) || got.doubt !== RUNNING) return got;
-			deadline ??= Date.now() + SETTLE_MS;
-			if (Date.now() >= deadline) return got;
-			sleepSync(SETTLE_STEP_MS);
+			deadline ??= clock.now() + SETTLE_MS;
+			if (clock.now() >= deadline) return got;
+			clock.sleep(SETTLE_STEP_MS);
 		}
 	};
 }
 
 /**
- * The directories holding the state of the repository at `root`: its `.git`,
- * and for a linked worktree its git directory and the common one.
- * @param {string} root real path
- * @returns {string[]}
+ * The trace `name` in `dir`, parsed; a doubt where none can be read.
+ * @param {string} dir
+ * @param {string} name
+ * @param {Where} where
  */
-function gitDirs(root) {
-	const dot = path.join(root, ".git");
-	const out = [dot];
-	try {
-		const own = /^gitdir: (.*)$/m.exec(fs.readFileSync(dot, "utf8"))?.[1];
-		if (own) {
-			const dir = path.resolve(root, own.trim());
-			out.push(dir);
-			const common = fs.readFileSync(path.join(dir, "commondir"), "utf8");
-			out.push(path.resolve(dir, common.trim()));
-		}
-	} catch {
-		// `.git` is a directory, or absent: the one entry stands.
-	}
-	return out.map((dir) => {
-		try {
-			return fs.realpathSync(dir);
-		} catch {
-			return dir;
-		}
-	});
+function readTrace(dir, name, where) {
+	if (path.basename(name) !== name) return { doubt: "left no trace" };
+	const file = readText(path.join(dir, name));
+	if (file.state === "unreadable")
+		return { doubt: "left a trace that will not read" };
+	if (file.state !== "read") return { doubt: "left no trace" };
+	return parseTrace(file.data, where);
 }
 
-/* A connect that reached nobody: no other process did anything for it. */
+/* A send that reached nobody: no other process did anything for it. */
 const NO_PEER = /^-1 (ENOENT|ECONNREFUSED|EACCES)\b/;
 
 const UNFINISHED = " <unfinished ...>";
 const TORN = "left a trace line that will not parse";
 const CHDIR = new Set(["chdir", "fchdir"]);
 const GONE = new Set(["ENOENT", "ENOTDIR"]);
+const SIGNALS = new Set(["kill", "tkill", "tgkill"]);
+const SENDS = new Set(["connect", "sendto", "sendmsg", "sendmmsg"]);
 
 /**
  * @typedef {{cwd: string, root: string, gitDirs: string[]}} Where the
- *   directory the child started in, the checkout's real path and `gitDirs`
- *   of it
+ *   directory the child started in, the checkout's real path and
+ *   `readGitDirs` of it
  * @typedef {{name: string, args: string, result: string, errno?: string}} Call
  * @typedef {{text: string, from: string|null}} Named
  *   a path a call names, and the directory printed before it, which a
  *   relative one is taken from
+ * @typedef {{stood: Set<string>, entries: Map<string, Record<string, unknown>>,
+ *   signalled: Set<string>}} Seen
+ *   what the calls so far add up to: every directory a process has stood in
+ *   or held open, the log entries, and each process sent a signal
  */
 
 /**
  * A trace as the audit's log entries — `probe` and `tree`, repo-relative —
  * or what in it cannot be bounded.
  * @param {string} text
- * @param {Where} at
+ * @param {Where} where
  * @returns {{entries: Record<string, unknown>[]} | {doubt: string}}
  */
-function traceReads(text, at) {
-	const calls = wholeCalls(text);
-	if (typeof calls === "string") return { doubt: calls };
-	const stood = new Set([at.cwd]);
-	/** @type {Map<string, Record<string, unknown>>} */
-	const entries = new Map();
-	for (const body of calls) {
-		const why = takeCall(body, stood, entries, at);
+function parseTrace(text, where) {
+	const lines = parseLines(text);
+	if (typeof lines === "string") return { doubt: lines };
+	/** @type {Seen} */
+	const seen = {
+		stood: new Set([where.cwd]),
+		entries: new Map(),
+		signalled: new Set(),
+	};
+	for (const body of lines.calls) {
+		const why = takeCall(body, seen, where);
 		if (why) return { doubt: why };
 	}
-	return { entries: [...entries.values()] };
+	if ([...seen.signalled].some((pid) => !lines.pids.has(pid)))
+		return { doubt: "signalled a process outside its trace" };
+	return { entries: [...seen.entries.values()] };
 }
 
 /**
  * Each call of the trace as one line, a call a switch of process split
- * joined again; or the doubt where a line will not parse or a process never
- * ended.
+ * joined again, and every process the trace followed; or the doubt where a
+ * line will not parse or a process never ended.
  * @param {string} text
- * @returns {string[]|string}
+ * @returns {{calls: string[], pids: Set<string>}|string}
  */
-function wholeCalls(text) {
+function parseLines(text) {
 	/** @type {Map<string, string>} */
 	const pending = new Map();
 	/** @type {Set<string>} */
 	const live = new Set();
-	const out = [];
+	/** @type {Set<string>} */
+	const pids = new Set();
+	const calls = [];
 	for (const line of text.split("\n")) {
 		if (line === "") continue;
 		const m = /^(\d+) +(\S.*)$/s.exec(line);
 		if (!m) return TORN;
+		pids.add(String(m[1]));
 		const whole = wholeCall(String(m[1]), String(m[2]), pending, live);
 		if (whole === false) return TORN;
-		if (whole !== null) out.push(whole);
+		if (whole !== null) calls.push(whole);
 	}
-	return live.size > 0 ? RUNNING : out;
+	return live.size > 0 ? RUNNING : { calls, pids };
 }
 
 /**
@@ -231,8 +291,10 @@ function wholeCalls(text) {
  * where it resumes a call nothing began.
  * @param {string} pid
  * @param {string} body
- * @param {Map<string, string>} pending each process's call cut short
- * @param {Set<string>} live the processes seen and not yet ended
+ * @param {Map<string, string>} pending accumulator: each process's call cut
+ *   short
+ * @param {Set<string>} live accumulator: the processes seen and not yet
+ *   ended
  * @returns {string|null|false}
  */
 function wholeCall(pid, body, pending, live) {
@@ -267,33 +329,92 @@ function parseCall(body) {
 }
 
 /**
- * Add one call's reads to `entries`; returns the doubt it leaves, or null.
+ * Add one call's reads to `seen`; returns the doubt it leaves, or null.
  * @param {string} body
- * @param {Set<string>} stood every directory a process has stood in so far
- * @param {Map<string, Record<string, unknown>>} entries
- * @param {Where} at
+ * @param {Seen} seen accumulator
+ * @param {Where} where
  * @returns {string|null}
  */
-function takeCall(body, stood, entries, at) {
+function takeCall(body, seen, where) {
 	const call = parseCall(body);
 	if (!call) return TORN;
-	if (call.name === "connect")
-		return NO_PEER.test(call.result) ? null : "connected to a socket";
-	const { named, held } = pathsIn(call.args);
-	const dirs = [...stood];
-	const paths = named.flatMap((n) => resolved(n, dirs));
-	for (const dir of [...held, ...(CHDIR.has(call.name) ? paths : [])])
-		stood.add(dir);
-	if (paths.some((abs) => isUnder(abs, at.gitDirs, path.sep)))
+	if (SENDS.has(call.name)) return sendDoubt(call);
+	if (SIGNALS.has(call.name)) {
+		const to = signalled(call);
+		if (to !== null) seen.signalled.add(to);
+		return null;
+	}
+	const found = pathsOf(call, seen);
+	if (typeof found === "string") return found;
+	if (found.paths.some((abs) => isUnder(abs, where.gitDirs, path.sep)))
 		return "read this repository's git directory";
-	/* One path named and the call found nothing there: absent then, whatever
-	 * stands there now. */
-	const gone = GONE.has(String(call.errno)) && named.length === 1;
-	for (const abs of paths) {
-		const e = entryOf(abs, at.root, call, gone);
-		if (e) entries.set(JSON.stringify(e), e);
+	for (const abs of found.paths) {
+		const absent = found.absent || found.guessed.has(abs);
+		const e = entryOf(abs, where.root, call, absent);
+		if (e) seen.entries.set(JSON.stringify(e), e);
 	}
 	return null;
+}
+
+/**
+ * Every place a file call's paths may lie, as spelt and with links
+ * followed, and whether the call found its one path absent; or the doubt
+ * where one cannot be placed. Adds the directories the call stands in or
+ * holds to `seen.stood`.
+ * @param {Call} call
+ * @param {Seen} seen accumulator
+ * @returns {{paths: string[], absent: boolean, guessed: Set<string>}|string}
+ *   `guessed` the places a name with no directory beside it does not lie,
+ *   where it lies in another: absent there, not gone
+ */
+function pathsOf(call, seen) {
+	const { named, held, torn } = pathsIn(call.args);
+	const opened = tokenAt(call.result, call.result.indexOf("<"));
+	if (torn || opened?.cut) return "held a path its trace cut short";
+	const dirs = [...seen.stood];
+	const places = named.map((n) => resolved(n, dirs));
+	const spelt = places.flat();
+	if (opened?.text.startsWith("/")) spelt.push(opened.text);
+	for (const dir of [...held, ...(CHDIR.has(call.name) ? spelt : [])])
+		seen.stood.add(dir);
+	const real = spelt.map(realOf);
+	if (real.includes(null)) return "named a path that will not resolve";
+	const missing = places
+		.map((at) => at.filter((abs) => pathKind(abs) === "absent"))
+		.filter((gone, i) => gone.length < (places[i]?.length ?? 0));
+	return {
+		guessed: new Set(
+			missing.flat().flatMap((abs) => [abs, realOf(abs) ?? abs]),
+		),
+		paths: [...new Set([...spelt, .../** @type {string[]} */ (real)])],
+		/* One path named and the call found nothing there: absent then,
+		 * whatever stands there now. */
+		absent: GONE.has(String(call.errno)) && named.length === 1,
+	};
+}
+
+/**
+ * The doubt a connect or a send leaves: none where it named no address, as
+ * on a socket already connected, or reached nobody.
+ * @param {Call} call
+ * @returns {string|null}
+ */
+function sendDoubt(call) {
+	if (call.name !== "connect" && !call.args.includes("sa_family=")) return null;
+	return NO_PEER.test(call.result) ? null : "reached a socket";
+}
+
+/**
+ * The process a signal call reached, null where it sent none: the null
+ * signal, which only asks whether the process is there, or a call that
+ * failed. A group or every process reads as a process no trace follows.
+ * @param {Call} call
+ * @returns {string|null}
+ */
+function signalled(call) {
+	const words = call.args.split(", ");
+	if (call.errno || words.at(-1) === "0") return null;
+	return String(words[0]);
 }
 
 /**
@@ -311,7 +432,8 @@ function resolved(n, dirs) {
 
 /**
  * The log entry for a path a call named, null where it lies outside the
- * checkout or under a `node_modules`.
+ * checkout or under a `node_modules`. A path the call found and that is
+ * absent now reads `gone`, a kind the audit doubts.
  * @param {string} abs
  * @param {string} root
  * @param {Call} call
@@ -322,18 +444,22 @@ function entryOf(abs, root, call, absent) {
 	if (rel === null) return null;
 	const p = (rel || ".").split(path.sep).join("/");
 	if (p.split("/").includes("node_modules")) return null;
-	const kind = absent ? "absent" : pathKind(abs);
-	return kind === "dir" && call.name.startsWith("open") && !call.errno
+	const now = pathKind(abs);
+	if (absent) return { k: "probe", p, s: "absent" };
+	if (now === "absent" && !call.errno) return { k: "probe", p, s: "gone" };
+	return now === "dir" && call.name.startsWith("open") && !call.errno
 		? { k: "tree", p }
-		: { k: "probe", p, s: kind };
+		: { k: "probe", p, s: now };
 }
 
 /**
  * The paths a call's arguments name — each quoted string outside a list or a
  * struct — and the paths of the descriptors it holds, which are no reads of
  * this call: a process stands in one, or opened it in a call of its own.
+ * `torn` where a descriptor's path is cut short or names a deleted file,
+ * which no relative path can be taken from.
  * @param {string} args
- * @returns {{named: Named[], held: string[]}}
+ * @returns {{named: Named[], held: string[], torn: boolean}}
  */
 function pathsIn(args) {
 	/** @type {Named[]} */
@@ -342,26 +468,30 @@ function pathsIn(args) {
 	const held = [];
 	/** @type {string|null} */
 	let from = null;
+	let torn = false;
 	for (const t of tokens(args)) {
 		if (!t.fd) named.push({ text: t.text, from });
+		else if (t.cut || t.text.endsWith(" (deleted)")) torn = true;
 		else if (t.text.startsWith("/")) {
 			from = t.text;
 			held.push(t.text);
 		}
 	}
-	return { named, held };
+	return { named, held, torn };
 }
 
 /**
  * @typedef {{text: string, end: number, cut: boolean, fd: boolean}} Token
- *   `fd` a descriptor's path, not a string
+ *   `fd` a descriptor's path, not a string; `cut` a string strace shortened,
+ *   which is no path, or a descriptor path the line ends inside
  */
 
 /** @type {Record<string, number>} */
 const DEPTH = { "[": 1, "{": 1, "]": -1, "}": -1 };
 
 /**
- * The strings and descriptor paths outside every list and struct.
+ * The strings and descriptor paths outside every list and struct, a
+ * shortened string left out.
  * @param {string} args
  * @returns {Token[]}
  */
@@ -375,7 +505,7 @@ function tokens(args) {
 			i++;
 			continue;
 		}
-		if (depth === 0 && !t.cut) out.push(t);
+		if (depth === 0 && (t.fd || !t.cut)) out.push(t);
 		i = t.end;
 	}
 	return out;
@@ -383,45 +513,41 @@ function tokens(args) {
 
 /**
  * The quoted string or descriptor path starting at `i`, null where neither
- * does. `cut` marks a string strace shortened, which is no path, and a
- * descriptor path the line ends inside.
+ * does.
  * @param {string} args
  * @param {number} i
  * @returns {Token|null}
  */
 function tokenAt(args, i) {
 	if (args[i] === '"') {
-		const s = cString(args, i);
+		const s = decoded(args, i + 1, '"');
 		return { ...s, cut: args.startsWith("...", s.end), fd: false };
 	}
 	if (args[i] !== "<") return null;
 	/* strace prints a descriptor's path after its number, or `AT_FDCWD`. */
 	const before = args.slice(0, i);
 	if (!before.endsWith("AT_FDCWD") && !/\d/.test(before.slice(-1))) return null;
-	const close = args.indexOf(">", i);
-	if (close < 0) return { text: "", end: args.length, cut: true, fd: true };
-	return {
-		text: args.slice(i + 1, close),
-		end: close + 1,
-		cut: false,
-		fd: true,
-	};
+	const s = decoded(args, i + 1, ">");
+	return { ...s, cut: s.end > args.length, fd: true };
 }
 
 /** @type {Record<string, number>} */
 const ESCAPES = { n: 10, t: 9, r: 13, v: 11, f: 12, e: 27, a: 7, b: 8 };
 
 /**
- * The C string strace printed at `at`, an opening quote.
+ * The text strace printed from `at` up to `stop`, its escapes undone.
  * @param {string} s
  * @param {number} at
- * @returns {{text: string, end: number}} `end` just past the closing quote
+ * @param {string} stop the character that ends it, which strace escapes
+ *   inside it
+ * @returns {{text: string, end: number}} `end` just past `stop`, past the
+ *   end of `s` where `stop` never came
  */
-function cString(s, at) {
+function decoded(s, at, stop) {
 	/** @type {number[]} */
 	const bytes = [];
-	let i = at + 1;
-	while (i < s.length && s[i] !== '"') {
+	let i = at;
+	while (i < s.length && s[i] !== stop) {
 		if (s[i] === "\\") {
 			const esc = escapeAt(s, i + 1);
 			bytes.push(esc.byte);
@@ -448,4 +574,4 @@ function escapeAt(s, at) {
 	return { byte: ESCAPES[c] ?? c.charCodeAt(0), length: 1 };
 }
 
-module.exports = { traceArgv, tracesIn, usableStrace };
+module.exports = { buildTraceArgv, buildTraceReader, findStrace };

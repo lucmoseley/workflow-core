@@ -36,7 +36,7 @@ const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
-const { traceArgv } = require("./read-audit-trace.js");
+const { buildTraceArgv } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
@@ -303,8 +303,8 @@ function install() {
 	wrap(fs, "watchFile", probeFirst, "sync");
 	require("node:module").syncBuiltinESMExports();
 
-	/* Children: the bindings every spawn API reaches, sync and async. */
-	const audited = (/** @type {unknown} */ envPairs) =>
+	/* Children: the bindings every spawn API isInReach, sync and async. */
+	const isAudited = (/** @type {unknown} */ envPairs) =>
 		Array.isArray(envPairs) &&
 		envPairs.includes(`WFC_READ_AUDIT=${dir}`) &&
 		envPairs.includes(`WFC_READ_AUDIT_OWNER=${owner}`) &&
@@ -326,7 +326,7 @@ function install() {
 	};
 	/* A bare `git` whose PATH puts the host git guard first: the guard logs
 	 * what it reads of this repository. */
-	const guarded = (/** @type {Untyped} */ opts) =>
+	const isGuarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
 		path.basename(pathDirs(opts?.envPairs)[0] ?? "") === "host-git-guard";
 	const isRunnable = (/** @type {string} */ abs) => {
@@ -370,7 +370,7 @@ function install() {
 	 * Whether this process already runs under one of this audit's tracers,
 	 * which follows every child it spawns; a second tracer would be refused.
 	 */
-	const underTracer = () => {
+	const isUnderTracer = () => {
 		const status = realReadFileSync("/proc/self/status", "utf8");
 		const tracer = /^TracerPid:\t(\d+)$/m.exec(status)?.[1];
 		if (!tracer || tracer === "0") return false;
@@ -385,25 +385,28 @@ function install() {
 	const argvOf = (/** @type {Untyped} */ opts) =>
 		Array.isArray(opts?.args) ? opts.args.map(String) : [];
 	/** Whether a child stands in the checkout or is handed a path there. */
-	const reaches = (/** @type {string} */ cwd, /** @type {string[]} */ argv) =>
+	const isInReach = (/** @type {string} */ cwd, /** @type {string[]} */ argv) =>
 		relativeUnder(root, cwd) !== null || argv.some((a) => a.includes(root));
 	/** A child whose reads a log of its own holds: audited Node, guarded git. */
-	const logsItself = (/** @type {Untyped} */ opts) =>
-		guarded(opts) ||
-		(isNode(String(opts?.file ?? "")) && audited(opts?.envPairs));
+	const isSelfLogging = (/** @type {Untyped} */ opts) =>
+		isGuarded(opts) ||
+		(isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs));
 	/**
 	 * How a child's reads will be seen: `within` where a tracer already
 	 * follows this process, the trace file's name where this runs it under
 	 * one of its own, else null.
+	 * @typedef {{within: true}|{trace: string}|null} Route
+	 */
+	/**
 	 * @param {Untyped} opts
-	 * @returns {{within: true}|{trace: string}|null}
+	 * @returns {Route}
 	 */
 	const tracing = (opts) => {
 		const file = String(opts?.file ?? "");
 		const argv = argvOf(opts);
 		const cwd = cwdOf(opts);
-		if (!STRACE || !reaches(cwd, argv) || logsItself(opts)) return null;
-		if (underTracer()) return { within: true };
+		if (!STRACE || !isInReach(cwd, argv) || isSelfLogging(opts)) return null;
+		if (isUnderTracer()) return { within: true };
 		/* The tracer runs the program by its name, as the spawn would: only a
 		 * name the spawn passes as the program's own first word, found as a
 		 * file the kernel runs with no shell's help. */
@@ -414,32 +417,32 @@ function install() {
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
 	};
 	/**
-	 * `opts` as `spawn` takes it and how its reads will be seen: under the
+	 * `opts` as `spawn` takes it, and its route: under the
 	 * tracer where `tracing` names a trace.
 	 * @param {Untyped} opts
-	 * @returns {{opts: Untyped, how: {within: true}|{trace: string}|null}}
+	 * @returns {{opts: Untyped, route: Route}}
 	 */
 	const traced = (opts) => {
 		try {
-			const how = tracing(opts);
-			if (!how || !("trace" in how)) return { opts, how };
-			const args = traceArgv(
+			const route = tracing(opts);
+			if (!route || !("trace" in route)) return { opts, route };
+			const args = buildTraceArgv(
 				String(STRACE),
-				path.join(dir, how.trace),
+				path.join(dir, route.trace),
 				argvOf(opts),
 			);
-			return { opts: { ...opts, file: args[0], args }, how };
+			return { opts: { ...opts, file: args[0], args }, route };
 		} catch {
 			fault();
-			return { opts, how: null };
+			return { opts, route: null };
 		}
 	};
 	/**
 	 * @param {Untyped} opts as the test spawned it
 	 * @param {number|undefined} pid
-	 * @param {{within: true}|{trace: string}|null} how its reads will be seen
+	 * @param {Route} route
 	 */
-	const spawned = (opts, pid, how) =>
+	const spawned = (opts, pid, route) =>
 		guard(() => {
 			const file = String(opts?.file ?? "");
 			const cwd = cwdOf(opts);
@@ -449,10 +452,10 @@ function install() {
 				bin: binOf(file, cwd, opts?.envPairs),
 				args: Array.isArray(opts?.args) ? opts.args.slice(1).map(String) : [],
 				cwd,
-				audited: audited(opts?.envPairs),
-				guarded: guarded(opts),
+				audited: isAudited(opts?.envPairs),
+				guarded: isGuarded(opts),
 				pid: pid ?? null,
-				...how,
+				...route,
 			});
 		});
 	const bindings = /** @type {Untyped} */ (process).binding;
@@ -462,9 +465,9 @@ function install() {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const { opts, how } = traced(args[0]);
+			const { opts, route } = traced(args[0]);
 			const out = syncSpawn.apply(this, [opts, ...args.slice(1)]);
-			spawned(args[0], out?.pid, how);
+			spawned(args[0], out?.pid, route);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
@@ -478,14 +481,14 @@ function install() {
 			const asked = positional
 				? { file: first, args: argv, cwd, envPairs }
 				: first;
-			const { opts, how } = traced(asked);
+			const { opts, route } = traced(asked);
 			const err = asyncSpawn.apply(
 				this,
 				positional
 					? [opts.file, opts.args, ...args.slice(2)]
 					: [opts, ...args.slice(1)],
 			);
-			spawned(asked, this.pid, how);
+			spawned(asked, this.pid, route);
 			return err;
 		};
 	} catch {
