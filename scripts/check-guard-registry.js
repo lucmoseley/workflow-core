@@ -1384,6 +1384,10 @@ const TREE_KEY = "TREE";
 const TREES = ["session", "host", "both", "none"];
 const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
+/* Backtracks super-linearly on a crafted line; the input is the host repo's own
+ * files, which its own writers control, so a crafted one slows the check,
+ * nothing worse (#4642). COMMENT_LEAD is imported, so the regexp lint no longer
+ * sees this pattern. */
 const ANNOTATION_RE = new RegExp(
 	`${COMMENT_LEAD}(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
 );
@@ -3013,7 +3017,7 @@ function emitRuleCalls(text) {
 }
 
 /**
- * The files wiring reaches, directly or along their sourcedBy() deps. Only a
+ * The files wiring reaches, directly or along the deps a digest follows (lib/guard-digest.js's DEP_KINDS and isDep). Only a
  * reached file's deps are parsed (#4170).
  *
  * @param {Map<string, string>} texts emitter → its text
@@ -3466,11 +3470,11 @@ function sortClaims(found, snap, wanted, ours) {
  * where the digest reads it, a rename's old name too — or why git would not say. None where there is no
  * HEAD, or outside a repository, which git refuses as it does a broken one.
  *
- * @param {string[]} inputs
- * @param {Set<string>} absent the inputs hashed as absent: an untracked file at one moves no digest
+ * @param {{ inputs: string[], absent: Set<string> }} digests the digest inputs, and
+ *   those hashed as absent: an untracked file at one moves no digest
  * @returns {{ paths: string[], error: string | null }}
  */
-function readDirtyInputs(inputs, absent) {
+function readDirtyInputs({ inputs, absent }) {
 	if (inputs.length === 0) return { paths: [], error: null };
 	const head = readCommit(gitReader(root), "HEAD");
 	if (!head.ok)
@@ -3721,15 +3725,15 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		reviewPaths.length > 0
 			? reviewPaths
 			: [...new Set([...describedBy.keys(), ...implicitScripts.keys()])].sort();
-	const { hashedBy, inputs, absent } = readDigestInputs(targets);
+	const digests = readDigestInputs(targets);
+	const { hashedBy, inputs } = digests;
 	const { ours, refused } = checkTaking(taking);
 	for (const line of refused) printLine(line);
 	const read = readHeldElsewhere(inputs, ours);
 	const { held, taken, unavailable } = read;
-	const unclaimed = readCallerUnclaimed(inputs, read, ours, {
+	const unclaimed = readCallerUnclaimed(digests, read, ours, {
 		own,
 		soleWriter,
-		absent,
 	});
 	for (const [p, h] of taken)
 		printLine(
@@ -3781,18 +3785,18 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
  * The dirty inputs neither a claim of this session's nor the caller's word
  * covers: none under --sole-writer, and never an --own path.
  *
- * @param {string[]} inputs
+ * @param {{ inputs: string[], absent: Set<string> }} digests the digest inputs, and
+ *   those hashed as absent: an untracked file at one moves no digest
  * @param {HeldRead & { unavailable: string | null }} read
  * @param {Map<string, string>} ours
- * @param {{ own: string[], soleWriter: boolean, absent: Set<string> }} caller
- *   the caller's word, and the inputs the digests hashed as absent
+ * @param {{ own: string[], soleWriter: boolean }} caller
  * @returns {Set<string>}
  */
-function readCallerUnclaimed(inputs, read, ours, { own, soleWriter, absent }) {
+function readCallerUnclaimed(digests, read, ours, { own, soleWriter }) {
 	if (own.length > 0) refuseUnreadOwn(read);
 	const unclaimed = soleWriter
 		? refuseSoleWriter(read)
-		: readUnclaimed(inputs, absent, read, ours);
+		: readUnclaimed(digests, read, ours);
 	for (const p of own) unclaimed.delete(p);
 	return unclaimed;
 }
@@ -3838,14 +3842,14 @@ function refuseSoleWriter(read) {
  * The dirty inputs no claim covers, or the end of the run where git would not
  * say which inputs are dirty (#3339).
  *
- * @param {string[]} inputs
- * @param {Set<string>} absent the inputs the digests hashed as absent from the tree
+ * @param {{ inputs: string[], absent: Set<string> }} digests the digest inputs, and
+ *   those hashed as absent: an untracked file at one moves no digest
  * @param {HeldRead} read
  * @param {Map<string, string>} ours
  * @returns {Set<string>}
  */
-function readUnclaimed(inputs, absent, read, ours) {
-	const dirty = readDirtyInputs(inputs, absent);
+function readUnclaimed(digests, read, ours) {
+	const dirty = readDirtyInputs(digests);
 	const merged =
 		dirty.error === null
 			? readParentStaged(dirty.paths)

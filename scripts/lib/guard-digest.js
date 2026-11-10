@@ -12,9 +12,6 @@
  * runs from an arbitrary cwd, so a guard that genuinely delegates must locate
  * its sibling from its own path, and following a bare `node scripts/x.js`
  * would tie a helper's internals to rules about something else.
- *
- * FAN-OUT: one edit to a shared lib warns on every registry entry reaching it,
- * by require or by running the CLI (mantahostels#358).
  */
 
 const crypto = require("node:crypto");
@@ -171,11 +168,9 @@ function headerNamed(header) {
  * at `base`. Truncated to 16 chars: this identifies a revision to a human
  * reading a diff, it is not a security boundary.
  *
- * The libraries are in here because a guard's behaviour is not confined to its
- * own file. A shared library named in no rule itself could never be anchored
+ * A shared library named in no rule itself could never be anchored
  * directly — the checker fails an anchor no rule mentions. Folding it into its
- * dependants' digests warns on every rule they enforce at once, which is the
- * right set: a change to a shared emitter can falsify any of them
+ * dependants' digests warns on every rule they enforce at once
  * (mantahostels#140).
  *
  * @param {string} base
@@ -184,17 +179,18 @@ function headerNamed(header) {
  */
 function digestOf(base, rel) {
 	const out = { hashed: new Set(), absent: new Set() };
-	return { digest: hashTree(base, rel, out, false), ...out };
+	return { digest: hashClosure(base, rel, out, false), ...out };
 }
 
 /**
  * @param {string} base
  * @param {string} rel
- * @param {{ hashed: Set<string>, absent: Set<string> }} acc each file hashed, so a cycle hashes once
+ * @param {{ hashed: Set<string>, absent: Set<string> }} acc accumulator: each file hashed is added to
+ *   `hashed`, so a cycle hashes once, and each dependency absent from the tree to `absent`
  * @param {boolean} inStack reached from a gate stack, so what it runs is left out
  * @returns {string | null}
  */
-function hashTree(base, rel, acc, inStack) {
+function hashClosure(base, rel, acc, inStack) {
 	if (acc.hashed.has(rel)) return null;
 	acc.hashed.add(rel);
 	/* A guard outside the tree has no digest, whatever lies on disk at its
@@ -217,7 +213,7 @@ function hashTree(base, rel, acc, inStack) {
 				acc.absent.add(lib);
 			}
 			hash.update(
-				`\0${lib}\0${(there && hashTree(base, lib, acc, stack)) || ""}`,
+				`\0${lib}\0${(there && hashClosure(base, lib, acc, stack)) || ""}`,
 			);
 		}
 		/* A named file in the index but gone from disk hashes as absent,

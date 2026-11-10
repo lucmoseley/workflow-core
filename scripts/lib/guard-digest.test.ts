@@ -2,9 +2,7 @@
 /*
  * guard-digest.js over fixture trees: a plain directory, read on disk, and a
  * git checkout, whose membership is the index and whose bytes are the disk's
- * (#4508). The digest is what the guard registry anchors a rule's prose to;
- * one that misses a dependency lets a rule go stale unwarned, one that reads
- * outside the tree gives two worktrees of one commit two verdicts.
+ * (#4508). The digest is what the guard registry anchors a rule's prose to.
  *
  * tree-members.js reads each checkout's index once per process, so every
  * index a case changes is read through a tree no earlier call has seen.
@@ -48,7 +46,6 @@ function plainTree(files: Record<string, string>) {
 	return root;
 }
 
-/** A checkout with `files` committed. */
 function committed(files: Record<string, string>) {
 	const root = fresh("repo");
 	initGitRepo(root, noHooks);
@@ -58,7 +55,6 @@ function committed(files: Record<string, string>) {
 	return root;
 }
 
-/** A second worktree of `root`'s HEAD. */
 function worktreeOf(root: string) {
 	const other = fresh("wt");
 	git(root, "worktree", "add", "-q", "--detach", other);
@@ -194,7 +190,7 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 		).not.toBe(base);
 	});
 
-	it("still follows the gates of a stack that declares nothing, as a thin wrapper needs", () => {
+	it("still follows the gates of a stack that declares nothing", () => {
 		expect(sorted(of(stack("#")).hashed)).toEqual([
 			".husky/pre-commit",
 			"scripts/check-valid.js",
@@ -279,5 +275,6 @@ describe("a guard's closure in a git checkout: the index's members, the disk's b
 
 		expect(d.digest).toBeNull();
 		expect(sorted(d.hashed)).toEqual(["scripts/g.js"]);
+		expect(d.absent.size).toBe(0);
 	});
 });

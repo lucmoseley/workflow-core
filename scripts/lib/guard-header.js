@@ -1,23 +1,18 @@
 /*
- * guard-header.js — a guard's header comment, as the guard registry reads it:
- * the lines its annotations sit on and the comment opener each key line
- * starts with. The registry's annotation scan and a guard's digest
- * (lib/guard-digest.js) read one header.
+ * guard-header.js — a guard's header comment, as the guard registry reads it.
+ * The registry's annotation scan and a guard's digest
+ * (lib/guard-digest.js) read one header (#4901, #4915).
  */
 
-/* The comment opener every header key line starts with. */
 const COMMENT_LEAD = "^\\s*(?:#+|\\*|//)\\s*";
 
 /*
  * The header comment: everything above the first line of executable code, after
- * an optional shebang. Both comment spellings and a `/* … *\/` block are read,
- * so one parser covers the shell hooks, the JS notifiers and the two TypeScript
- * vitest entries.
+ * an optional shebang. Both comment spellings and a `/* … *\/` block are read.
  *
  * Deliberately not "the first N lines". A fixed window either cuts a long header
  * in half or lets an annotation buried in the body count as a header
- * annotation — and the whole point of annotation-in-place is that a reader
- * arriving at the file meets it without scrolling.
+ * annotation.
  */
 /** @param {string} text */
 function parseHeaderLines(text) {
