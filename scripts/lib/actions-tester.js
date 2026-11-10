@@ -116,6 +116,14 @@ const RUNNER_STEPS = new Set([
  * it ends on naming those it cleared and those still failing
  * (retry-failed-files.js, #4545). */
 const RETRY_STEP = "Retry failed files";
+/* ci.yml's step running `npm run typecheck`, and a `tsc` error line. */
+const TYPECHECK_STEP = "Typecheck";
+const TYPE_ERROR = /\berror TS\d+: /;
+/* What `gh run view --log-failed` prints for the step of a job a reusable
+ * workflow calls. */
+const UNNAMED_STEP = "UNKNOWN STEP";
+/* Untraced: enough to name the fault, one mistake often printing many. */
+const TYPE_ERRORS_MAX = 10;
 /* New attempts of a run whose runner failed to ready, before no verdict. A
  * first guess, and stated as one. */
 const RUNNER_RERUNS = 2;
@@ -257,6 +265,20 @@ function runVerdict(sha, reads, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
+	return readRed(sha, id, failed, reads);
+}
+
+/**
+ * The red of run `id`, whose jobs `failed` failed on the code: their names,
+ * the files and tests its log names, and the type-check's errors where that
+ * step failed.
+ * @param {string} sha
+ * @param {number} id
+ * @param {Job[]} failed
+ * @param {Pick<Reads, "failedLogOf" | "presentAt">} reads
+ * @returns {Extract<SuiteRunVerdict, {kind: "red"}>}
+ */
+function readRed(sha, id, failed, reads) {
 	const names = failed.map((j) => j.name);
 	/* Every failed job red again at its in-job retry: the lander's own
 	 * re-run would only repeat it, and the files are the retry's alone, the
@@ -265,21 +287,53 @@ function runVerdict(sha, reads, after) {
 	 * `Suite passed` fails beside any red shard and holds no retry step. */
 	const shards = failed.filter((j) => j.name !== SUITE_PASSED_JOB);
 	const atRetry =
-		shards.length > 0 &&
-		shards.every((j) =>
-			(j.steps ?? []).some(
-				(s) => s.conclusion === "failure" && s.name === RETRY_STEP,
-			),
-		);
-	const read = readFailed(sha, id, reads, atRetry);
+		shards.length > 0 && shards.every((j) => hasFailedStep(j, RETRY_STEP));
+	const raw = reads.failedLogOf(id);
+	const typed = failed
+		.filter((j) => hasFailedStep(j, TYPECHECK_STEP))
+		.map((j) => j.name);
+	const read = readFailed(sha, stripLogPrefix(raw), reads, atRetry);
 	const retried = atRetry && read.files.length > 0;
 	return {
 		kind: "red",
 		...read,
 		jobs: names,
 		...(retried ? { retried } : {}),
+		...(typed.length > 0 ? { typecheck: parseTypeErrors(raw, typed) } : {}),
 	};
 }
+
+/**
+ * @param {Job} job
+ * @param {string} name
+ */
+const hasFailedStep = (job, name) =>
+	(job.steps ?? []).some((s) => s.conclusion === "failure" && s.name === name);
+
+/**
+ * The first TYPE_ERRORS_MAX `tsc` errors the type-check printed to a failed
+ * run's log: the lines of the `jobs` that failed at it, less those `gh`
+ * names another step for, since a test's fixture can print one.
+ * @param {string} log as `gh` prints it, each line led by its job and step
+ * @param {readonly string[]} jobs
+ */
+const parseTypeErrors = (log, jobs) =>
+	stripLogPrefix(
+		log
+			.split("\n")
+			.filter((l) => {
+				const [job = "", step] = l.split("\t");
+				return (
+					jobs.includes(job) &&
+					(step === TYPECHECK_STEP || step === UNNAMED_STEP)
+				);
+			})
+			.join("\n"),
+	)
+		.split("\n")
+		.filter((l) => TYPE_ERROR.test(l))
+		.slice(0, TYPE_ERRORS_MAX)
+		.map((l) => l.trim());
 
 /**
  * The first failed job whose runner failed to ready, and the step, or null:
@@ -301,14 +355,13 @@ function runnerFault(failed) {
  * them: a test that prints a runner's output as its fixture logs FAIL lines
  * naming files the tree lacks (#2410).
  * @param {string} sha
- * @param {number} run
- * @param {Pick<Reads, "failedLogOf" | "presentAt">} reads
+ * @param {string} log the run's failed log, its prefix stripped
+ * @param {Pick<Reads, "presentAt">} reads
  * @param {boolean} [atRetry] every failed job failed at its retry step, so
  *   the files are those its last lines name still failing
  * @returns {{files: string[], failures?: import("./queue-lander.js").Failure[]}}
  */
-function readFailed(sha, run, reads, atRetry = false) {
-	const log = stripLogPrefix(reads.failedLogOf(run));
+function readFailed(sha, log, reads, atRetry = false) {
 	const files = reads.presentAt(
 		sha,
 		atRetry ? parseRetryLine(log, STILL_FAILING) : parseFailingFiles(log),
@@ -609,7 +662,7 @@ function namedRunVerdict(sha, title, reads) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const failed = readFailed(sha, id, reads);
+	const failed = readFailed(sha, stripLogPrefix(reads.failedLogOf(id)), reads);
 	/* A failed checkout or install fails the run naming no test. */
 	return failed.files.length > 0
 		? { kind: "red", ...failed }

@@ -26,6 +26,7 @@ import {
 	SELF_PLUGIN_HOOKS,
 	templateOf,
 } from "./lib/guard-registry-testkit";
+import { parseGateRefusal } from "./lib/lander-git.js";
 
 afterEach(removeTemps);
 
@@ -173,7 +174,7 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(git("show", `:${ANCHORS}`)).toBe(staged);
 	});
 
-	it("refuses a merge where both sides changed the same library, though git merges it cleanly, naming the row and the file", () => {
+	it("refuses a merge where both sides changed the same library, though git merges it cleanly, naming the row and the file, in lines the queue lander's fix ticket keeps (#4800)", () => {
 		const { root, git, tryGit, change, hooks } = mergeRepo();
 		const [first, ...rest] = LIB_A_BODY;
 		change("main", {
@@ -194,6 +195,16 @@ describe("a merge carries a row whose sides changed different files of its closu
 		);
 		expect(r.stderr).toContain(`STALE-PROSE  ${GUARD}`);
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(before);
+		/* The queue lander's fix ticket keeps these lines however long the
+		 * remedy after them (#4800): reword one here and lib/lander-git.js's
+		 * patterns follow. */
+		const remedy = Array.from({ length: 41 }, (_, i) => `remedy ${i}`);
+		const kept = parseGateRefusal([r.stderr, ...remedy].join("\n"));
+		expect(kept).toContain(
+			`not carried ${GUARD} — both sides changed ${LIB_A}`,
+		);
+		expect(kept).toMatch(/\nThe fault\(s\) below are NOT in .+:\n {2}\S.+\n/);
+		expect(kept).toMatch(/\nFAIL: /);
 	});
 
 	it("never carries a row whose library the merge commit itself changes, matching neither parent", () => {
