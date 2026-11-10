@@ -361,8 +361,10 @@ const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
  * calm.
  * @param {PanelStatus} status
  */
-const buildRunningText = ({ concurrency: { working, ceiling } }) =>
-	`${working ?? "?"} of ${ceiling ?? "?"} running`;
+const buildRunningText = ({
+	concurrency: { stateWorking, working, ceiling },
+}) =>
+	`${stateWorking ?? "?"} working · ${working ?? "?"} of ${ceiling ?? "?"} slots taken`;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
