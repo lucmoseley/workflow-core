@@ -23,6 +23,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { forgetSession, REPORT_OWNER, reportOwner } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
+const { OUTLIVES_KEY, outlivesMark } = require("./session-scope.js");
 const {
 	MANAGER_TIMEOUT_MS,
 	systemctl,
@@ -102,7 +103,8 @@ function buildOutlivingScope(ceilingS) {
  * session of its own, as no session's process (`forgetSession`'s keys
  * stripped), naming `owner` as its notify reports' owner, in a user scope
  * outside the session's own and so outside its watcher's kill, stopped at
- * `ceilingS`. Where no user manager answers it starts the same way, unscoped.
+ * `ceilingS`, and marked so the session's scope never keeps it
+ * (lib/session-scope.js's OUTLIVES_KEY). Where no user manager answers it starts the same way, unscoped.
  * `owner` defaults to the starter's report owner and `ceilingS` to
  * OUTLIVE_CEILING_S; null names no owner or sets no ceiling.
  * The caller unrefs the child. `wrap` replaces the scope words, for a test or
@@ -124,6 +126,8 @@ function spawnOutliving(
 	forgetSession(env);
 	if (named) env[REPORT_OWNER] = named;
 	const [cmd, ...pre] = wrap ?? buildOutlivingScope(ceilingS);
+	if (cmd !== undefined && starterEnv.CLAUDE_PID)
+		env[OUTLIVES_KEY] = outlivesMark(starterEnv.CLAUDE_PID, ceilingS);
 	const spawnOptions = { ...options, env, detached: true };
 	return cmd === undefined
 		? spawn(command, args, spawnOptions)

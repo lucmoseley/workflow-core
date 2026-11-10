@@ -36,6 +36,30 @@ const MAX_PASSES = 5;
 const unitOf = (leader, startTicks) =>
 	`${UNIT_PREFIX}${String(leader)}-${String(startTicks)}.scope`;
 
+/* The environ mark of an outliving job (#4749), `<leader>:<ceiling-s>`: the
+ * session it was launched to outlive, and its scope's RuntimeMaxSec, empty
+ * for none. lib/user-scope.js's spawnOutliving and lib/detach.sh's `outlive`
+ * set it wherever they start the job in a user scope. */
+const OUTLIVES_KEY = "WFC_OUTLIVES";
+
+/** @param {number|string} leader @param {number|null} ceilingS */
+const outlivesMark = (leader, ceilingS) =>
+	`${String(leader)}:${ceilingS === null ? "" : String(ceilingS)}`;
+
+/**
+ * @param {string|null} value an OUTLIVES_KEY value
+ * @returns {{ leader: number, ceilingS: number|null }|null}
+ */
+function parseOutlives(value) {
+	const m = /^(\d+):(\d*)$/.exec(value ?? "");
+	if (!m) return null;
+	return { leader: Number(m[1]), ceilingS: m[2] === "" ? null : Number(m[2]) };
+}
+
+/** @param {number} root @param {number} startTicks */
+const releaseUnitOf = (root, startTicks) =>
+	`wfc-outlive-${String(root)}-${String(startTicks)}.scope`;
+
 /** @param {string} unit */
 const watcherOf = (unit) => unit.replace(/\.scope$/, "-watch.service");
 
@@ -54,13 +78,23 @@ function isSessionProcess(argv) {
  * whose environ names it as `CLAUDE_PID` and that started no earlier than it,
  * so a dead session's leftover on a reused pid is never taken. Only those
  * still in `home`, the leader's cgroup before the move, so a test run's own
- * scope is never pulled back in. Never the leader, nor `self`.
+ * scope is never pulled back in. Never the leader, nor `self`, nor a job
+ * marked as outliving this leader, wherever it sits.
  * @param {{ procs: Map<number, { ppid: number, startTicks: number }>,
  *   leader: number, home: string|null, self: number,
  *   readCgroup: (pid: number) => string|null,
- *   readClaudePid: (pid: number) => string|null }} at
+ *   readClaudePid: (pid: number) => string|null,
+ *   readOutlives: (pid: number) => string|null }} at
  */
-function membersOf({ procs, leader, home, self, readCgroup, readClaudePid }) {
+function membersOf({
+	procs,
+	leader,
+	home,
+	self,
+	readCgroup,
+	readClaudePid,
+	readOutlives,
+}) {
 	const leaderStart = procs.get(leader)?.startTicks ?? 0;
 	/** @type {Map<number, number[]>} */
 	const children = new Map();
@@ -82,8 +116,55 @@ function membersOf({ procs, leader, home, self, readCgroup, readClaudePid }) {
 			found.add(pid);
 	}
 	return [...found]
-		.filter((pid) => pid !== leader && pid !== self && readCgroup(pid) === home)
+		.filter(
+			(pid) =>
+				pid !== leader &&
+				pid !== self &&
+				parseOutlives(readOutlives(pid))?.leader !== leader &&
+				readCgroup(pid) === home,
+		)
 		.sort((a, b) => a - b);
+}
+
+/**
+ * The jobs marked as outliving `leader` that sit in its scope, whose cgroup
+ * is `scope`, each grouped under its outermost marked ancestor there, with
+ * that ancestor's ceiling.
+ * @param {{ procs: Map<number, { ppid: number, startTicks: number }>,
+ *   leader: number, scope: string,
+ *   readCgroup: (pid: number) => string|null,
+ *   readOutlives: (pid: number) => string|null }} at
+ * @returns {{ root: number, startTicks: number, ceilingS: number|null,
+ *   pids: number[] }[]}
+ */
+function straysOf({ procs, leader, scope, readCgroup, readOutlives }) {
+	/** @type {Map<number, number|null>} */
+	const marked = new Map();
+	for (const pid of procs.keys()) {
+		const mark = parseOutlives(readOutlives(pid));
+		if (mark?.leader === leader && readCgroup(pid) === scope)
+			marked.set(pid, mark.ceilingS);
+	}
+	/** @type {Map<number, number[]>} */
+	const groups = new Map();
+	for (const pid of marked.keys()) {
+		let root = pid;
+		for (
+			let up = procs.get(root)?.ppid;
+			up !== undefined && up !== root && marked.has(up);
+			up = procs.get(root)?.ppid
+		)
+			root = up;
+		groups.set(root, [...(groups.get(root) ?? []), pid]);
+	}
+	return [...groups]
+		.sort(([a], [b]) => a - b)
+		.map(([root, pids]) => ({
+			root,
+			startTicks: procs.get(root)?.startTicks ?? 0,
+			ceilingS: marked.get(root) ?? null,
+			pids: pids.sort((a, b) => a - b),
+		}));
 }
 
 /**
@@ -114,6 +195,32 @@ function attachAll(left, call) {
 		moved += attachEach(pids, call);
 	}
 	return moved;
+}
+
+/**
+ * Attach the session's processes (attachAll), then move back out, each group
+ * to a scope of its own, every outliving job found in the session's scope
+ * (#4749); the counts attached and released.
+ *
+ * WHY AFTER. A job's own `systemd-run --scope` can move it out between a
+ * pass's cgroup read and its attach, which then pulls it back in, and at the
+ * session's end its watcher kills it. No read before the attach closes that
+ * gap, so `strays` reads afresh after every attach. The job's mark is in its
+ * environ from systemd-run's exec, before its own move. So either that exec
+ * came before the `strays` read, which then sees the job and releases it, or
+ * it came after the attach, and the job's own move, later still, takes it
+ * out. A released job's ceiling runs from its release, milliseconds after
+ * its launch.
+ * @template {{ pids: number[] }} G
+ * @param {{ left: () => number[], attach: (pids: number[]) => boolean,
+ *   strays: () => G[], release: (group: G) => boolean }} at
+ */
+function gather({ left, attach, strays, release }) {
+	const moved = attachAll(left, attach);
+	let released = 0;
+	for (const group of strays())
+		if (release(group)) released += group.pids.length;
+	return { moved, released };
 }
 
 /**
@@ -223,5 +330,10 @@ module.exports = {
 	watcherOf,
 	isSessionProcess,
 	membersOf,
+	straysOf,
 	attachAll,
+	gather,
+	OUTLIVES_KEY,
+	outlivesMark,
+	releaseUnitOf,
 };
