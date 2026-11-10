@@ -97,7 +97,7 @@ const { adoptHostRoot } = require("./lib/host-root.js");
 const { worktreeLabel, worktreeOwners } = require("./lib/session-worktrees.js");
 const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
-const { readLanded, readUnlandedCommits } = require("./lib/landed-edit.js");
+const { readLanded, countUnlandedCommits } = require("./lib/landed-edit.js");
 const {
 	FILED_DIR,
 	buildWaysOut,
@@ -834,7 +834,7 @@ async function judgeLanded(f, root) {
 	f.orphans.forEach((o, i) => {
 		o.landed = landed[i] ?? null;
 	});
-	f.unlanded = ref ? readUnlandedCommits(f.tree, ref) : null;
+	f.unlanded = ref ? countUnlandedCommits(f.tree, ref) : null;
 }
 
 /**
