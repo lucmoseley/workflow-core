@@ -194,11 +194,10 @@ function readLog(file) {
 	if (!read) return [];
 	const [bad] = read.bad;
 	if (bad !== undefined) throw new Error(`${file}:${bad} is not a JSON object`);
-	const events = /** @type {LimbLogLine[]} */ (read.rows);
-	for (const [k, row] of events.entries())
-		if (Number.isNaN(Date.parse(row.at)))
-			throw new Error(`${file}:${read.rowLines[k]} has no readable "at"`);
-	return events;
+	for (const { row, line } of read.entries)
+		if (Number.isNaN(Date.parse(String(row.at))))
+			throw new Error(`${file}:${line} has no readable "at"`);
+	return /** @type {LimbLogLine[]} */ (read.rows);
 }
 
 /**

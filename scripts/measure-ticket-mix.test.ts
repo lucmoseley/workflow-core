@@ -97,6 +97,7 @@ function run(o: {
 	runs?: Line[];
 	kinds?: Kind[];
 	assigned?: Record<string, string>;
+	end?: string;
 	extra?: string[];
 }) {
 	const args = [
@@ -105,7 +106,7 @@ function run(o: {
 		"--week-start",
 		START,
 		"--week-end",
-		END,
+		o.end ?? END,
 		"--runs",
 		write(
 			"runs.jsonl",
@@ -369,6 +370,22 @@ describe("triggers", () => {
 		expect(r.json.triggers.watch).toEqual(["fresh"]);
 	});
 
+	it("reads firstSeen as a UTC date: a kind the run adds late in its UTC day is new, one dated the week's start is not", () => {
+		const ten = issues(1, 10);
+		const late = (firstSeen: string) =>
+			rowOf(
+				run({
+					issues: ten,
+					kinds: [kind("fresh", firstSeen)],
+					assigned: assign(ten, "fresh"),
+					end: "2026-11-09T23:30:00.000Z",
+				}),
+				"fresh",
+			).triggers;
+		expect(late("2026-11-09")).toContain("new-kind");
+		expect(late("2026-11-02")).not.toContain("new-kind");
+	});
+
 	it("fires the same triggers at 10 tickets", () => {
 		const ten = issues(1, 10);
 		const r = run({
@@ -503,12 +520,15 @@ describe("triggers", () => {
 		const runs = [1, 2, 3].map((w) =>
 			weekly(w, { kinds: {}, ticketMixStep: { total: 0 } }),
 		);
+		const bar =
+			"fewer than 2 of the tickets it filed closed with a landed commit";
 		expect(run({ issues: issues(1, 1), runs }).json.flip).toEqual({
 			runs: 3,
 			due: false,
+			bar,
 		});
 		expect(
 			run({ issues: issues(1, 1), runs, extra: ["--this-run"] }).json.flip,
-		).toEqual({ runs: 4, due: true });
+		).toEqual({ runs: 4, due: true, bar });
 	});
 });

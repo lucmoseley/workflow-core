@@ -453,18 +453,82 @@ function transcriptMentions(text, subjects, tier) {
 }
 
 /**
- * Every string anywhere in a value, however deep.
- * @param {unknown} v
+ * The strings of one record where a fault surfaces: each `tool_result`
+ * block's text, each hook attachment's output (the `hook` route's spans), a
+ * system record's content, and a `user` record the harness wrote as plain
+ * text — `isMeta` (Stop hook feedback, a system reminder) or a `!` command's
+ * or local command's printed output. Never assistant prose, a prompt or a
+ * tool call's input, so a session that quotes a fault in its own words or its
+ * commands is no hit; a tool's output that prints the quote, such as a grep,
+ * still is.
+ * @param {TranscriptRecord} record
  * @returns {Generator<string>}
  */
-function* deepStrings(v) {
-	if (typeof v === "string") {
-		if (v) yield v;
-		return;
-	}
-	if (v && typeof v === "object")
-		for (const x of Object.values(v)) yield* deepStrings(x);
+function* outputStrings(record) {
+	for (const span of hookSpans(record)) yield span.text;
+	const content = record?.message?.content;
+	if (Array.isArray(content))
+		for (const part of content)
+			if (part?.type === "tool_result") yield* resultTexts(part.content);
+	if (typeof content === "string" && isHarnessText(record, content))
+		yield content;
+	if (record?.type === "system") yield* stringsIn(record.content);
 }
+
+/** The tags the harness opens a `!` or local command's printed output with. */
+const PRINTED_OUTPUT = /^<(?:bash-stdout|local-command-stdout)>/;
+
+/**
+ * Whether a `user` record's plain-text content is the harness's words, not a
+ * person's or a peer agent's. A typed prompt, a `!` command's input and a
+ * slash command carry no `isMeta`, and a prompt of older transcripts carries
+ * no `origin` either, so the harness's words are told by `isMeta` or a
+ * printed-output tag, never by the absence of `origin.kind: "human"`. A
+ * `peer` message is another agent's prose.
+ * @param {TranscriptRecord} record
+ * @param {string} content
+ */
+function isHarnessText(record, content) {
+	if (record?.type !== "user" || record.origin?.kind === "peer") return false;
+	return record.isMeta === true || PRINTED_OUTPUT.test(content);
+}
+
+/**
+ * The strings of one record's tool calls: each `tool_use` block's input
+ * values one level deep, such as a Bash command or an Edit's new text — for a
+ * fault whose only trace is the call a session made. Given `tool`, only that
+ * tool's calls, so a fault in a Bash command is not counted again where a
+ * session writes the same text into a file or a dispatch prompt.
+ * @param {TranscriptRecord} record
+ * @param {string} [tool]
+ * @returns {Generator<string>}
+ */
+function* callStrings(record, tool) {
+	const content = record?.message?.content;
+	if (record?.type !== "assistant" || !Array.isArray(content)) return;
+	for (const part of content)
+		if (part?.type === "tool_use" && (tool === undefined || part.name === tool))
+			yield* stringsIn(part.input);
+}
+
+/**
+ * What a regex signature reads, each kind's strings: where a fault surfaces,
+ * or the calls made, those of `tool` alone where one is named.
+ * @type {Record<"output" | "call", (record: TranscriptRecord, tool?: string) => Iterable<string>>}
+ */
+const READERS = {
+	output: (record) => outputStrings(record),
+	call: callStrings,
+};
+
+/** Every read kind, for a reader that checks a signature's own. */
+const READ_KINDS = /** @type {Reads[]} */ (Object.keys(READERS));
+
+/**
+ * @typedef {keyof typeof READERS} Reads
+ * @typedef {{reads?: Reads, tool?: string}} ReadSpec  `tool`: for `call`, the
+ *   one tool whose calls it reads
+ */
 
 /**
  * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
@@ -477,43 +541,56 @@ const stateless = (pattern) =>
 /**
  * @param {TranscriptRecord} record
  * @param {RegExp} re  a `stateless` copy
+ * @param {ReadSpec} spec
  */
-function anyStringMatches(record, re) {
-	for (const s of deepStrings(record)) if (re.test(s)) return true;
+function stringsMatch(record, re, { reads = "output", tool } = {}) {
+	for (const s of READERS[reads](record, tool)) if (re.test(s)) return true;
 	return false;
 }
 
 /**
- * Does one record carry a match for `pattern` in any of its strings? Each
- * string is tested whole, as the record holds it, never the record
- * serialised, so a pattern is written against the text a session saw rather
- * than against JSON escapes. Like `recordMentions`, it reads the whole record.
+ * Does one record carry a match for `pattern` in the strings `reads` names
+ * (`outputStrings` or `callStrings`)? Each string is tested whole, as the
+ * record holds it, never the record serialised, so a pattern is written
+ * against the text a session saw or typed rather than against JSON escapes.
  * @param {TranscriptRecord} record
  * @param {RegExp} pattern
+ * @param {ReadSpec} [spec]
  * @returns {boolean}
  */
-function recordMatches(record, pattern) {
-	return anyStringMatches(record, stateless(pattern));
+function recordMatches(record, pattern, spec = {}) {
+	return stringsMatch(record, stateless(pattern), spec);
 }
 
 /**
- * Every record in one transcript whose strings match `pattern`, one per
- * record — the regex route beside `transcriptMentions`, for a fault no guard
- * prints (#4796). Same parsing and the same `tier` as `transcriptFires`, so a
- * main-tier read never counts a subagent's inline turn.
+ * Every record in one transcript whose strings `reads` names match
+ * `pattern`, one per record — the regex route beside `transcriptMentions`,
+ * for a fault no guard prints (#4796). Same parsing and the same `tier` as
+ * `transcriptFires`, so a main-tier read never counts a subagent's inline
+ * turn. A hook's block reaches the transcript twice, as the Stop hook feedback
+ * `user` record the harness writes and then the `hook_blocking_error`
+ * attachment it wrote it from, so that attachment straight after a matching feedback record is the
+ * same firing and is not counted again.
  * @param {string} text
  * @param {RegExp} pattern
  * @param {"main" | "subagent"} tier
+ * @param {ReadSpec} [spec]
  * @returns {Array<{at: string|null}>}
  */
-function transcriptMatches(text, pattern, tier) {
+function transcriptMatches(text, pattern, tier, spec = {}) {
 	const re = stateless(pattern);
 	const out = [];
-	for (const record of mainChainRecords(text, tier))
-		if (anyStringMatches(record, re))
+	let feedbackHit = false;
+	for (const record of mainChainRecords(text, tier)) {
+		const hit = stringsMatch(record, re, spec);
+		const echo =
+			feedbackHit && record?.attachment?.type === "hook_blocking_error";
+		feedbackHit = hit && record?.type === "user" && record.isMeta === true;
+		if (hit && !echo)
 			out.push({
 				at: typeof record.timestamp === "string" ? record.timestamp : null,
 			});
+	}
 	return out;
 }
 
@@ -819,6 +896,7 @@ module.exports = {
 	transcriptFires,
 	transcriptMentions,
 	recordFires,
+	READ_KINDS,
 	recordMatches,
 	transcriptMatches,
 	tally,
