@@ -205,10 +205,10 @@
 			"source": "#2386, #2529, #2581, #2792, #3846, #3905, #4049, #4615"
 		},
 		"scripts/lib/founder-wording.js": {
-			"digest": "0df18dcd19224348",
+			"digest": "8c62f129919095e1",
 			"verdict": "at need on both routes — prompt route fires on the founder's message before the reply it governs; Skill route as diagnosing-bugs loads. Its Skill route runs as a core of scripts/guard-dispatch.js, its prompt route through scripts/inject-founder-wording.js (#2792: every bash case moved to a module case with mutation proof)",
-			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline; re-fed after #3378: the fault and re-pitch prompts 938 B and 914 B, the control and a loop resume or mod delivery quoting the phrases silent. Re-fed at 6f96cb55e under #3583 through the prompt hook and `--only inject-founder-wording`: byte-identical to 55469029f, the first Skill load 1025 B, aimed at 61bcf56a0's trim with extra trailing newlines on the wait-what skill file (914 B) and at #3783 with a job's launch prompt, which still fires (938 B).",
-			"source": "#2792, #3378, #3583"
+			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline; re-fed after #3378: the fault and re-pitch prompts 938 B and 914 B, the control and a loop resume or mod delivery quoting the phrases silent. Re-fed at 6f96cb55e under #3583 through the prompt hook and `--only inject-founder-wording`: byte-identical to 55469029f, the first Skill load 1025 B, aimed at 61bcf56a0's trim with extra trailing newlines on the wait-what skill file (914 B) and at #3783 with a job's launch prompt, which still fires (938 B). Re-fed at 76f339c2a under #4844: the fault and re-pitch prompts 938 B and 914 B, the first Skill load 1025 B, the control and each prompt opening with a script's prefix or the loop's silent.",
+			"source": "#2792, #3378, #3583, #4844"
 		},
 		"scripts/inject-tracker-docs.sh": {
 			"digest": "4789205231ac54e6",
