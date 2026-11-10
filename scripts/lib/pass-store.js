@@ -27,8 +27,8 @@
  * found absent is `absent`; each directory it found must still be one; each
  * directory it listed keeps its listing's id, judged on the names git tracks
  * when recorded and on the names standing at lookup; a tree it walked whole
- * stands for every tracked file and listing under it; a script a shell or
- * Python child ran is reached as a spawned script is.
+ * stands for every tracked file and listing under it; a script a shell
+ * child ran is reached as a spawned script is.
  *
  * THE LOOKUP IS BY CONTENT (lib/content-ids.js, the classifier's judge): the
  * newest result whose every input holds unchanged in the working tree
@@ -48,7 +48,10 @@
  * holds no reads for, or doubts, records none; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
- * other content than the run read. A file whose header carries `uncached: <reason>`
+ * other content than the run read. A FAILED file that would record none
+ * records a voiding row, resting on the test file alone: a fail wherever that
+ * file's content stands, so no older pass on it caches, and no evidence of a
+ * red at a commit. A file whose header carries `uncached: <reason>`
  * is never cached; one carrying the pragma with no reason refuses the run.
  *
  * THE STORE is a directory beside the marker stores, in the canonical
@@ -120,7 +123,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 8;
+const FORMAT = 9;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -711,11 +714,118 @@ function fileInputs(f, { run, reads, reach, listings, working }) {
 }
 
 /**
+ * @typedef {{values: Record<string, string>, shared: Record<string, unknown>,
+ *   row: Record<string, unknown>}} Recorded
+ *   one file's row with the values and shared inputs its run line carries
+ */
+
+/**
+ * The row of each of `files` whose every input is known. Throws where the
+ * tree or the manifest will not read.
+ * @param {Run} run
+ * @param {FileResult[]} files
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function knownRows(run, files, seams) {
+	const reads = readManifestReads(
+		run.root,
+		files.map((f) => f.file),
+	);
+	const shared = sharedInputs(run.root, run.shared);
+	const reach = lexicalReach(run.root);
+	const listings = trackedListings(run.root);
+	const working = workingAt(run.root);
+	const own = files.flatMap((f) => {
+		const found = fileInputs(f, { run, reads, reach, listings, working });
+		return found ? [found] : [];
+	});
+	const all = [...shared, ...own.flatMap((f) => f.paths)];
+	const ids = readWorkingIds(gitHasher(run.root), run.root, [
+		...all,
+		...own.flatMap((f) => f.absent),
+	]);
+	const ignored = readIgnored(run.root, [...new Set(all)]);
+	const drifted = run.drifted === null ? null : new Set(run.drifted);
+	const known = (/** @type {string[]} */ paths) =>
+		drifted !== null &&
+		paths.every(
+			(p) =>
+				typeof ids.get(p) === "string" && !drifted.has(p) && !ignored.has(p),
+		);
+	/* A path tried before the resolved file must read as no file: one that
+	 * appeared since the reach was read, or a symlink, which no id answers,
+	 * leaves the resolution the run used unknown. */
+	const areAllAbsent = (/** @type {string[]} */ paths) =>
+		paths.every((p) => ids.has(p) && ids.get(p) === null);
+	if (!known(shared)) return [];
+	const today = todayValues(seams);
+	const sharedIds = Object.fromEntries(shared.map((p) => [p, ids.get(p)]));
+	return own
+		.filter((f) => known(f.paths) && areAllAbsent(f.absent))
+		.flatMap((f) => {
+			const values = rowValues(
+				f.python || holdsPython([...f.paths, ...f.absent]),
+				today,
+			);
+			if (values === null) return [];
+			const inputs = Object.fromEntries([
+				...f.paths.map((p) => [p, ids.get(p)]),
+				...f.absent.map((p) => [p, ABSENT]),
+			]);
+			const row = {
+				file: f.file,
+				outcome: f.outcome,
+				inputs,
+				listings: f.seen.listings,
+				dirs: f.seen.dirs,
+				git: f.seen.git,
+			};
+			return [{ values, shared: sharedIds, row }];
+		});
+}
+
+/**
+ * A voiding row for each of `failed`, the failed files no known row holds:
+ * a red whose inputs are unknown still voids an older pass (#4790), so its
+ * row rests on the test file alone and decides wherever that file's content
+ * stands. A file that will not read records none: no pass holds on it.
+ * @param {Run} run
+ * @param {FileResult[]} failed
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function voidingRows(run, failed, seams) {
+	if (failed.length === 0) return [];
+	const ids = readWorkingIds(
+		gitHasher(run.root),
+		run.root,
+		failed.map((f) => f.file),
+	);
+	const values = todayValues(seams).base;
+	return failed.flatMap(({ file }) => {
+		const id = ids.get(file);
+		if (typeof id !== "string") return [];
+		const row = {
+			file,
+			outcome: "fail",
+			voiding: true,
+			inputs: { [file]: id },
+			listings: {},
+			dirs: [],
+			git: {},
+		};
+		return [{ values, shared: {}, row }];
+	});
+}
+
+/**
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
  * alone: its passes cannot be trusted, but a fail row only ever makes a file
- * run. Never throws: a store that cannot be written costs the rows, never the
- * run, and says why on `err`. Returns how many rows landed.
+ * run. A failed file whose inputs are unknown records a voiding row. Never
+ * throws: a store that cannot be written costs the rows, never the run, and
+ * says why on `err`. Returns how many rows landed.
  * @param {Run} run
  * @param {{storeRoot: string|null,
  *   err?: {write: (s: string) => unknown}} & Seams} options
@@ -727,74 +837,28 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		: run.files.filter((f) => f.outcome === "fail");
 	if (!storeRoot || files.length === 0) return 0;
 	if (seams.lander ?? idSeam.isLanderRun()) return 0;
+	/** @type {Recorded[]} */
+	let known = [];
 	try {
-		const reads = readManifestReads(
-			run.root,
-			files.map((f) => f.file),
+		known = knownRows(run, files, seams);
+	} catch (e) {
+		err.write(
+			`pass-store.js: this run's inputs will not read (${caught(e).message ?? e}), so it records no pass (#4790)\n`,
 		);
-		const shared = sharedInputs(run.root, run.shared);
-		const reach = lexicalReach(run.root);
-		const listings = trackedListings(run.root);
-		const working = workingAt(run.root);
-		const own = files.flatMap((f) => {
-			const found = fileInputs(f, { run, reads, reach, listings, working });
-			return found ? [found] : [];
-		});
-		const all = [...shared, ...own.flatMap((f) => f.paths)];
-		const ids = readWorkingIds(gitHasher(run.root), run.root, [
-			...all,
-			...own.flatMap((f) => f.absent),
-		]);
-		const ignored = readIgnored(run.root, [...new Set(all)]);
-		const drifted = run.drifted === null ? null : new Set(run.drifted);
-		const known = (/** @type {string[]} */ paths) =>
-			drifted !== null &&
-			paths.every(
-				(p) =>
-					typeof ids.get(p) === "string" && !drifted.has(p) && !ignored.has(p),
-			);
-		/* A path tried before the resolved file must read as no file: one that
-		 * appeared since the reach was read, or a symlink, which no id answers,
-		 * leaves the resolution the run used unknown. */
-		const areAllAbsent = (/** @type {string[]} */ paths) =>
-			paths.every((p) => ids.has(p) && ids.get(p) === null);
-		if (!known(shared)) return 0;
-		const today = todayValues(seams);
-		const rows = own
-			.filter((f) => known(f.paths) && areAllAbsent(f.absent))
-			.flatMap((f) => {
-				const values = rowValues(
-					f.python || holdsPython([...f.paths, ...f.absent]),
-					today,
-				);
-				if (values === null) return [];
-				const inputs = Object.fromEntries([
-					...f.paths.map((p) => [p, ids.get(p)]),
-					...f.absent.map((p) => [p, ABSENT]),
-				]);
-				const row = {
-					file: f.file,
-					outcome: f.outcome,
-					inputs,
-					listings: f.seen.listings,
-					dirs: f.seen.dirs,
-					git: f.seen.git,
-				};
-				return [{ values, row }];
-			});
+	}
+	try {
+		const keyed = new Set(known.map(({ row }) => row.file));
+		const failed = files.filter(
+			(f) => f.outcome === "fail" && !keyed.has(f.file),
+		);
+		const rows = [...known, ...voidingRows(run, failed, seams)];
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
-		const line = {
-			format: FORMAT,
-			at: run.at,
-			sha: run.sha,
-			tree: run.tree,
-			shared: Object.fromEntries(shared.map((p) => [p, ids.get(p)])),
-		};
-		const landed = rows.filter(({ values, row }) =>
+		const line = { format: FORMAT, at: run.at, sha: run.sha, tree: run.tree };
+		const landed = rows.filter(({ values, shared, row }) =>
 			appendRetained(
-				shardFile(storeRoot, row.file),
-				{ ...line, values, files: [row] },
+				shardFile(storeRoot, String(row.file)),
+				{ ...line, shared, values, files: [row] },
 				ARCHIVE_MS,
 				// The prune drops a line that will not parse, after which rows
 				// older than it decide again, and it may have been a newer fail.
@@ -1039,7 +1103,8 @@ const inputPaths = (v) =>
  * Whether one recorded row's verdict holds now: its file is `file`, it
  * recorded a non-empty input list with every id unchanged, the values it
  * rests on equal today's, it is in this store's `FORMAT`, and every document the manifest now maps to the file is
- * among its inputs.
+ * among its inputs. A voiding row holds wherever the file's own content
+ * stands as recorded.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {{file: string, now: Map<string, string|null>,
@@ -1050,6 +1115,7 @@ function isRowHolding(row, run, { file, now, values, reads, dirs }) {
 	const own = asIds(row.inputs);
 	const shared = asIds(run.shared);
 	if (!own || !shared || own.size === 0 || !own.has(file)) return false;
+	if (row.voiding === true) return isSameContent([file], own, now);
 	const recordedValues = /** @type {Record<string, unknown>} */ (
 		run.values ?? {}
 	);
@@ -1251,7 +1317,11 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
  *   values: Values }} at
  */
 function heldRow(file, entries, { sha, before, git, values }) {
-	const earlier = entries.filter(({ run }) => String(run.at) < before);
+	/* A voiding row says what its file's content failed on beside unknown
+	 * inputs: no evidence of a red at a commit. */
+	const earlier = entries.filter(
+		({ row, run }) => String(run.at) < before && row.voiding !== true,
+	);
 	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
 	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));

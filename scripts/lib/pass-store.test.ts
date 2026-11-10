@@ -498,6 +498,78 @@ describe("the newest result on the same content decides", () => {
 		expect(cachedOf(dir, [A])).toEqual([A]);
 	});
 
+	describe("a red file whose inputs are unknown (#4790 pass 3)", () => {
+		const Doubt = { doubt: "its process left no audit log" };
+		const heldAtHead = (dir: string) =>
+			heldAtSha([A], {
+				storeRoot: dir,
+				sha: git(dir, "rev-parse", "HEAD"),
+				before: "9999",
+				git: (args: string[]) =>
+					execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+				values: VALUES,
+			}).get(A);
+
+		it("voids an older pass on the same content, until a newer pass or an edit to the test file", () => {
+			const dir = repo();
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			expect(run(dir, [A], { failing: [A], audits: { [A]: Doubt } })).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([]);
+			write(dir, "lib.js", "an input the voiding row never keyed\n");
+			expect(cachedOf(dir, [A])).toEqual([]);
+
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		});
+
+		it.each([
+			["nothing audited the run", { audits: null }],
+			["the tree's drift is unknown", { drifted: null }],
+		])("voids the older pass where %s", (_why, how) => {
+			const dir = repo();
+			run(dir, [A]);
+			expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("voids the older pass where a module on its reach will not read", () => {
+			const dir = repo();
+			write(dir, A, 'require("./deep.js");\n');
+			write(dir, "scripts/deep.js", "module.exports = 1;\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "deep");
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			const deep = path.join(dir, "scripts/deep.js");
+			fs.chmodSync(deep, 0o000);
+			try {
+				expect(run(dir, [A], { failing: [A] })).toBe(1);
+			} finally {
+				fs.chmodSync(deep, 0o644);
+			}
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("is no evidence of a red at a commit: the older pass still answers there", () => {
+			const dir = repo();
+			run(dir, [A]);
+			run(dir, [A], { failing: [A], audits: { [A]: Doubt } });
+			expect(heldAtHead(dir)).toMatchObject({ red: false });
+		});
+
+		it("still records a red file's own inputs where they are known", () => {
+			const dir = repo();
+			run(dir, [A]);
+			run(dir, [A], { failing: [A] });
+			expect(heldAtHead(dir)).toMatchObject({ red: true });
+			write(dir, "lib.js", "fixed\n");
+			run(dir, [A]);
+			git(dir, "checkout", "-q", "lib.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+	});
+
 	it("a file that passed inside a red run caches; the red one runs", () => {
 		const dir = repo();
 		run(dir, [A, B], { failing: [B] });
@@ -971,7 +1043,12 @@ describe("a store it cannot trust runs every file", () => {
 	 * 2-4: its rows missed every guard core, a data file joined off
 	 * `__dirname` and what the setup file reaches. Format 7 is round 5's
 	 * findings 1, 2 and 7: its rows missed a path two joins off `__dirname`,
-	 * `.claude/workflow-core.json` and `tsconfig.json`. */
+	 * `.claude/workflow-core.json` and `tsconfig.json`. Format 8 is pass 3's
+	 * findings 1-6 and 8-10: a red file in doubt left an older pass caching,
+	 * and its rows rested on audits that missed a git call from a scratch
+	 * directory or fed by stdin, a path handed to git, an empty trace, a
+	 * Python script's own reads, `openAsBlob`, a worker thread and a read
+	 * through a link outside the checkout. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -983,6 +1060,10 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before the walk read a path two joins off __dirname and the plugin config (#4790)",
 			7,
+		],
+		[
+			"before a red file in doubt voided an older pass, and the audit doubted the reads of pass 3's findings 2-6 and 8-10 (#4790)",
+			8,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();

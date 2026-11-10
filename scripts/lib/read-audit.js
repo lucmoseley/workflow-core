@@ -14,26 +14,32 @@
  * A DIRECTORY A TEST MINTS (`mkdtemp`) under the root is its own scratch:
  * no read under it is a read of the checkout.
  *
- * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees. One of the
- * read-only subcommands in `RERUN`, made from a directory under the root with
- * no `-C`, `--git-dir`, `--work-tree` or git-dir variable steering it, is
- * kept word for word: the store keys it on its output, run again.
+ * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees, from a test's
+ * scratch as from anywhere else under the root. One of the read-only
+ * subcommands in `RERUN`, made from a directory under the root with no `-C`,
+ * `--git-dir`, `--work-tree` or git-dir variable steering it and nothing fed
+ * to it on standard input, is kept word for word: the store keys it on its
+ * output, run again.
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
  * another file, or holds a read the audit cannot see, reads as `doubt`, which
  * the store records no row for. What cannot be seen:
  * - any other git call on this repository, a worktree of it outside the root
- *   included;
+ *   included, and a git call handed a path in the checkout, which the guard
+ *   logs only where the call's own repository is this one;
  * - a Node child that left no log, or one spawned without the audit on;
+ * - a worker thread: one started from a string, or handed an environment of
+ *   its own, loads no preload;
  * - any other child — a shell, Python, a binary, a stub a test wrote — run
  *   from a directory under the root, or handed an argument naming a path
  *   there, where no `strace` traced it. The preload traces a stub and a
  *   shell (#4966): its reads are the paths its file calls named, and only
  *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a shell
- *   or Python child handed a checkout script to run, from outside the root,
- *   is seen: the script is a read, and the lexical reach keys what it loads
- *   (#4790). So is one of `CWD_BLIND`, which reads nothing of its directory
- *   (#4932);
+ *   child handed a checkout script to run, from outside the root, is seen:
+ *   the script is a read, and the lexical reach keys what it loads (#4790).
+ *   A Python child handed one is not: the reach holds a Python script's
+ *   imports, never the files it opens off its own directory. One of
+ *   `CWD_BLIND` is seen, which reads nothing of its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -74,6 +80,12 @@ const RERUN = new Set([
 	"grep",
 ]);
 
+/* The words that feed a `RERUN` subcommand its standard input, which a run
+ * again never has: an object list, a path list, a revision list, a pattern
+ * file or a file to compare named `-`. */
+const STDIN_FED =
+	/^(?:-|--stdin|--annotate-stdin|--parseopt|--batch.*|--exclude-existing(?:=.*)?)$/;
+
 /* git's options before the subcommand that take the next word as a value. */
 const VALUED = new Set([
 	"-C",
@@ -93,8 +105,8 @@ const VALUED = new Set([
  *   git: GitCall[]}} Reads
  *   repo-relative: files read or probed, paths probed and found absent,
  *   directories probed, each listed directory with its listing's id, trees
- *   walked or copied whole, the scripts a shell or Python child ran, and the
- *   git calls it made here
+ *   walked or copied whole, the scripts a shell child ran, and the git calls
+ *   it made here
  * @typedef {{reads: Reads} | {doubt: string}} Audit
  * @typedef {Record<string, unknown>} Entry one log line
  */
@@ -290,6 +302,8 @@ function collector(logs, root, isScratch, readTrace) {
 			trees.add(String(e.p));
 			return null;
 		},
+		worker: () =>
+			"it started a worker thread, whose reads the audit cannot see",
 		child: (e) => {
 			if (typeof e.trace === "string") return takeTrace(e);
 			const why = childDoubt(e, logs, root, isScratch);
@@ -322,9 +336,9 @@ function collector(logs, root, isScratch, readTrace) {
 		 * @returns {string|null}
 		 */
 		takeGit(record) {
-			const call = rerunnable(record, root, isScratch);
+			const call = rerunnable(record, root);
 			if (typeof call === "string") return call;
-			if (call) calls.set(JSON.stringify(call), call);
+			calls.set(JSON.stringify(call), call);
 			return null;
 		},
 		/** @returns {Audit} */
@@ -355,19 +369,18 @@ function collector(logs, root, isScratch, readTrace) {
 }
 
 /**
- * A guard record as a git call to run again, null where it ran in a test's
- * own scratch, or the doubt it leaves where it cannot be run again.
+ * A guard record as a git call to run again, or the doubt it leaves where it
+ * cannot be run again. The guard logs only a call on this repository, so one
+ * made from a test's own scratch is judged as any other.
  * @param {string[]} record the git-dir flag, the directory, the words
  * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
- * @returns {GitCall|string|null}
+ * @returns {GitCall|string}
  */
-function rerunnable([steered, dir = "", ...args], root, isScratch) {
+function rerunnable([steered, dir = "", ...args], root) {
 	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
 	if (!isUnder(dir, [root], path.sep))
 		return `a git call (${shown}) read another checkout of this repository`;
 	const cwd = toPosix(path.relative(root, dir)) || ".";
-	if (isScratch(cwd)) return null;
 	if (steered) return `a git call (${shown}) was steered by a git-dir variable`;
 	let i = 0;
 	while (i < args.length && String(args[i]).startsWith("-")) {
@@ -378,6 +391,8 @@ function rerunnable([steered, dir = "", ...args], root, isScratch) {
 	}
 	if (!RERUN.has(String(args[i])))
 		return `a git call (${shown}) read this repository`;
+	if (args.slice(i + 1).some((a) => STDIN_FED.test(a)))
+		return `a git call (${shown}) read its standard input`;
 	return { cwd, args };
 }
 
@@ -385,8 +400,10 @@ function rerunnable([steered, dir = "", ...args], root, isScratch) {
  * call, short enough to keep the cached-run banner readable. */
 const SHOWN_MAX = 200;
 
-/* Programs that run their first non-option argument as a script. */
-const SCRIPT_RUNNERS = new Set(["bash", "sh", "python3", "python"]);
+/* Programs that run their first non-option argument as a script: the shells,
+ * whose script the lexical reach keys, and Python, whose script it cannot. */
+const SHELL_RUNNERS = new Set(["bash", "sh"]);
+const PYTHON_RUNNERS = new Set(["python3", "python"]);
 
 /**
  * Why a spawned child leaves its file's reads unknown, or null where its
@@ -406,10 +423,31 @@ function childDoubt(e, logs, root, isScratch) {
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
-	if (e.guarded && e.audited) return null;
+	/* The guard logs a git call only where its own repository is this one: a
+	 * clone of the checkout, or a file there handed to a call made elsewhere,
+	 * is in no record. */
+	if (e.guarded && e.audited)
+		return args.some((a) => namesCheckout(a, root, isScratch))
+			? `a git call (${shown}) was handed a path in the checkout`
+			: null;
 	/* A tracer already following the process that spawned it follows it too:
 	 * its reads are in that child's trace. */
 	if (e.within) return null;
+	return unseenDoubt(e, root, isScratch);
+}
+
+/**
+ * Why a child nothing logs or traces leaves its file's reads unknown, or
+ * null where it read nothing of the checkout beside a shell script it ran.
+ * @param {Entry} e
+ * @param {string} root real path
+ * @param {(p: string) => boolean} isScratch
+ * @returns {string|null}
+ */
+function unseenDoubt(e, root, isScratch) {
+	const file = String(e.file);
+	const args = /** @type {string[]} */ (e.args ?? []);
+	const shown = shownChild(e);
 	const cwd = String(e.cwd);
 	if (
 		isUnder(cwd, [root], path.sep) &&
@@ -422,6 +460,8 @@ function childDoubt(e, logs, root, isScratch) {
 		return `a child (${shown}) was handed a path in the checkout`;
 	if (script !== null && isNode(file))
 		return `a Node child (${shown}) ran without the audit`;
+	if (script !== null && PYTHON_RUNNERS.has(path.basename(file)))
+		return `a Python child (${shown}) ran a checkout script, whose own reads no reach holds`;
 	return null;
 }
 
@@ -491,7 +531,9 @@ function namesCheckout(a, root, isScratch) {
  */
 function scriptOf(e, root) {
 	const file = String(e.file);
-	if (!SCRIPT_RUNNERS.has(path.basename(file)) && !isNode(file)) return null;
+	const name = path.basename(file);
+	if (!SHELL_RUNNERS.has(name) && !PYTHON_RUNNERS.has(name) && !isNode(file))
+		return null;
 	const args = /** @type {string[]} */ (e.args ?? []);
 	const at = args.findIndex((a) => !a.startsWith("-"));
 	if (at < 0) return null;

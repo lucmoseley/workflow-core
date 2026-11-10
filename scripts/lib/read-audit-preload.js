@@ -5,11 +5,13 @@
  * suite run, so every vitest worker and every Node child a test spawns with
  * the environment it inherited loads it first.
  *
- * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT` and outside every
- * `node_modules`: a file's content read through `fs`; a directory's listing,
+ * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT`, as spelt or with
+ * its links followed, and outside every `node_modules`: a file's content read through `fs`; a directory's listing,
  * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
  * process spawned, sync or not, with its program, the file that name runs
  * as found and with links followed, its arguments, working directory and whether it carries this audit on.
+ * A worker thread started is recorded too, as a start alone: one started
+ * from a string, or handed an environment of its own, loads no preload.
  *
  * A STUB OR A SHELL IT CANNOT SEE INSIDE RUNS UNDER `strace` (#4966), where
  * lib/read-audit.js found one that works: a program in the temporary
@@ -35,7 +37,7 @@ const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
-const { buildTraceArgv } = require("./read-audit-trace.js");
+const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
@@ -110,7 +112,8 @@ function install() {
 	};
 	/**
 	 * `p` repo-relative where it names a path under the root outside every
-	 * `node_modules`, else null.
+	 * `node_modules`, as spelt or, standing outside the root, with its links
+	 * followed; else null.
 	 * @param {unknown} p
 	 */
 	const rel = (p) => {
@@ -121,7 +124,10 @@ function install() {
 			if (p.protocol !== "file:") return null;
 			s = decodeURIComponent(p.pathname);
 		} else return null;
-		const r = relativeUnder(root, path.resolve(s));
+		const abs = path.resolve(s);
+		const r =
+			relativeUnder(root, abs) ??
+			relativeUnder(root, realOf(abs, realRealpathSync.native) ?? abs);
 		if (r === null) return null;
 		const posix = (r || ".").split(path.sep).join("/");
 		return posix.split("/").includes("node_modules") ? null : posix;
@@ -272,6 +278,7 @@ function install() {
 		wrap(fs.promises, name, probeFirst, "promise");
 	}
 	wrap(fs, "createReadStream", probeFirst, "sync");
+	wrap(fs, "openAsBlob", probeFirst, "promise");
 	wrap(fs.realpathSync, "native", probeFirst, "sync");
 	wrap(fs, "readdirSync", listing, "sync");
 	wrap(fs, "readdir", listing, "callback");
@@ -300,6 +307,14 @@ function install() {
 	wrap(fs.promises, "glob", glob, "sync");
 	wrap(fs, "watch", probeFirst, "sync");
 	wrap(fs, "watchFile", probeFirst, "sync");
+	const threads = require("node:worker_threads");
+	threads.Worker = class Worker extends threads.Worker {
+		/** @param {ConstructorParameters<typeof threads.Worker>} args */
+		constructor(...args) {
+			guard(() => add({ k: "worker" }));
+			super(...args);
+		}
+	};
 	require("node:module").syncBuiltinESMExports();
 
 	/* Children: the bindings every spawn API reaches, sync and async. */

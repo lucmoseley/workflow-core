@@ -706,6 +706,11 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 				/signalled a process outside its trace/,
 			],
 			["left no trace", null, /left no trace/],
+			[
+				"left a trace no process ended in (#4790 pass 3)",
+				"",
+				/left an empty trace/,
+			],
 			["left a line cut short", `openat(AT_FD\n${Exit}`, /will not parse/],
 			[
 				"outlived the run",
@@ -781,6 +786,155 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 		});
 		fs.appendFileSync(path.join(dir, "100.100.jsonl"), '{"k":"probe","p":');
 		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(/faulted/);
+	});
+});
+
+describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
+	const Claim = { k: "claim", file: "a.test.ts" };
+	const Self = { k: "self", owner: "100", pid: 100 };
+
+	/** The guard's record of one git call: its field count, then each field. */
+	const gitRecord = (dir: string, words: string[]) =>
+		[String(words.length + 2), "", dir, ...words].map((f) => `${f}\0`).join("");
+
+	/**
+	 * The audit of a.test.ts off a log of `lines` and the guard's record of
+	 * `calls`, each a directory and a git call's words.
+	 */
+	function judged(root: string, lines: object[], calls: [string, string[]][]) {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rda-log-"));
+		dirs.push(dir);
+		fs.writeFileSync(
+			path.join(dir, "100.100.jsonl"),
+			[Self, Claim, ...lines].map((l) => `${JSON.stringify(l)}\n`).join(""),
+		);
+		fs.writeFileSync(
+			path.join(dir, "100.git"),
+			calls.map(([at, words]) => gitRecord(at, words)).join(""),
+		);
+		return readAudits(dir, root).get("a.test.ts");
+	}
+
+	/** The audit of a real process running `body` as T under the preload. */
+	const ran = (root: string, body: string) =>
+		readAudits(audited(root, T, body, { trace: false }), root).get(T);
+
+	it("judges a git call on this repository made from a test's own scratch as any other", () => {
+		const root = checkout();
+		const minted = [{ k: "minted", p: "scratch" }];
+		const scratch = path.join(root, "scratch");
+		expect(judged(root, minted, [[scratch, ["status"]]]).doubt).toMatch(
+			/a git call \(git status\) read this repository/,
+		);
+		expect(judged(root, minted, [[scratch, ["ls-files"]]]).reads.git).toEqual([
+			{ cwd: "scratch", args: ["ls-files"] },
+		]);
+	});
+
+	it("doubts a guarded git handed a checkout path from outside, which no record holds", () => {
+		const root = checkout();
+		const call = (args: string[]) => ({
+			k: "child",
+			file: "git",
+			args,
+			cwd: os.tmpdir(),
+			audited: true,
+			guarded: true,
+			pid: 101,
+		});
+		expect(judged(root, [call(["clone", root, "copy"])], []).doubt).toMatch(
+			/a git call \(git clone .*\) was handed a path in the checkout/,
+		);
+		const compared = ["diff", "--no-index", "x", path.join(root, "scripts/x")];
+		expect(judged(root, [call(compared)], []).doubt).toMatch(
+			/was handed a path in the checkout/,
+		);
+		expect(judged(root, [call(["status"])], [])).toHaveProperty("reads");
+	});
+
+	it.each([
+		[["cat-file", "--batch"]],
+		[["cat-file", "--batch-check=%(objectname)"]],
+		[["check-ignore", "--stdin"]],
+		[["rev-list", "--stdin"]],
+		[["diff", "--no-index", "-", "scripts/lib/hooks.js"]],
+	])(
+		"doubts a git call fed by standard input, which a run again never has: %j",
+		(words) => {
+			const root = checkout();
+			expect(judged(root, [], [[root, words]]).doubt).toMatch(
+				/a git call \(git .*\) read its standard input/,
+			);
+			expect(
+				judged(root, [], [[root, ["cat-file", "-p", "HEAD"]]]).reads.git,
+			).toEqual([{ cwd: ".", args: ["cat-file", "-p", "HEAD"] }]);
+		},
+	);
+
+	it("doubts a Python child handed a checkout script from outside, and still names a shell's", () => {
+		const root = checkout();
+		write(root, "scripts/run.py", "print(1)\n");
+		write(root, "scripts/run.sh", "true\n");
+		const child = (file: string, script: string) => ({
+			k: "child",
+			file,
+			args: [path.join(root, script)],
+			cwd: os.tmpdir(),
+		});
+		expect(
+			judged(root, [child("python3", "scripts/run.py")], []).doubt,
+		).toMatch(/a Python child \(python3 .*run\.py\) ran a checkout script/);
+		expect(
+			judged(root, [child("bash", "scripts/run.sh")], []).reads.scripts,
+		).toEqual(["scripts/run.sh"]);
+	});
+
+	it("holds a file read as a blob", () => {
+		const root = checkout();
+		const audit = ran(
+			root,
+			`require("node:fs").openAsBlob(${quoted(path.join(root, ".claude/settings.json"))}).then((b) => b.text());`,
+		);
+		expect(audit.reads.files).toContain(".claude/settings.json");
+	});
+
+	it("doubts a file that started a worker thread, and keeps the reads of one that started none", () => {
+		const root = checkout();
+		const audit = ran(
+			root,
+			`new (require("node:worker_threads").Worker)(${quoted(`require("node:fs").readFileSync(${quoted(path.join(root, ".claude/settings.json"))});`)}, { eval: true });`,
+		);
+		expect(audit.doubt).toMatch(/started a worker thread/);
+		expect(ran(root, 'require("node:worker_threads");')).toHaveProperty(
+			"reads",
+		);
+	});
+
+	it("holds a checkout file a Node process read through a link standing outside the checkout", () => {
+		const root = checkout();
+		const outside = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-")),
+		);
+		dirs.push(outside);
+		fs.symlinkSync(
+			path.join(root, ".claude/settings.json"),
+			path.join(outside, "file"),
+		);
+		fs.symlinkSync(path.join(root, "scripts"), path.join(outside, "dir"));
+		const audit = ran(
+			root,
+			[
+				'const fs = require("node:fs");',
+				`fs.readFileSync(${quoted(path.join(outside, "file"))});`,
+				`fs.readFileSync(${quoted(path.join(outside, "dir/lib/hooks.js"))});`,
+				`fs.existsSync(${quoted(path.join(outside, "dir/nope.js"))});`,
+				`fs.existsSync(${quoted(path.join(outside, "nowhere"))});`,
+			].join("\n"),
+		);
+		expect(audit.reads.files).toEqual(
+			expect.arrayContaining([".claude/settings.json", "scripts/lib/hooks.js"]),
+		);
+		expect(audit.reads.absent).toEqual(["scripts/nope.js"]);
 	});
 });
 

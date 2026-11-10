@@ -17,7 +17,7 @@
  * whole tree.
  *
  * WHAT A TRACE CANNOT BOUND IS A DOUBT: a process still running once the
- * audit is read; a call on this repository's git directory, whose state no
+ * audit is read, or a trace in which none ever ended; a call on this repository's git directory, whose state no
  * file under the root holds; a path that will not resolve, or one a call
  * found and that is gone since; a socket connected or a datagram addressed,
  * behind which another process may do the reading; a signal sent to a
@@ -168,17 +168,19 @@ function readGitDirs(root) {
  * `abs` with its links followed, the part of it that does not exist kept as
  * spelt; null where it will not resolve, as in a loop of links.
  * @param {string} abs
+ * @param {(p: string) => string} [realpath] the audit's preload hands in the
+ *   `realpathSync` it does not wrap
  * @returns {string|null}
  */
-function realOf(abs) {
+function realOf(abs, realpath = fs.realpathSync) {
 	try {
-		return fs.realpathSync(abs);
+		return realpath(abs);
 	} catch (e) {
 		const code = caught(e).code;
 		const parent = path.dirname(abs);
 		if ((code !== "ENOENT" && code !== "ENOTDIR") || parent === abs)
 			return null;
-		const up = realOf(parent);
+		const up = realOf(parent, realpath);
 		return up === null ? null : path.join(up, path.basename(abs));
 	}
 }
@@ -191,6 +193,13 @@ const SETTLE_MS = 2000;
 const SETTLE_STEP_MS = 10;
 
 const RUNNING = "was still running when its trace was read";
+
+/* A trace no process has ended in: the tracer has written nothing yet, or
+ * never followed the child at all. */
+const EMPTY = "left an empty trace";
+
+/* The doubts a trace may yet grow out of, once its tracer catches up. */
+const UNSETTLED = new Set([RUNNING, EMPTY]);
 
 /**
  * @typedef {{now: () => number, sleep: (ms: number) => void}} Clock
@@ -216,7 +225,7 @@ function buildTraceReader(dir, root, clock = REAL_CLOCK) {
 	return (name, cwd) => {
 		for (;;) {
 			const got = readTrace(dir, name, { cwd, root, gitDirs });
-			if (!("doubt" in got) || got.doubt !== RUNNING) return got;
+			if (!("doubt" in got) || !UNSETTLED.has(got.doubt)) return got;
 			deadline ??= clock.now() + SETTLE_MS;
 			if (clock.now() >= deadline) return got;
 			clock.sleep(SETTLE_STEP_MS);
@@ -292,7 +301,7 @@ function parseTrace(text, where) {
 /**
  * Each call of the trace as one line, a call a switch of process split
  * joined again, and every process the trace followed; or the doubt where a
- * line will not parse or a process never ended.
+ * line will not parse, a process never ended or none is in it.
  * @param {string} text
  * @returns {{calls: string[], pids: Set<string>}|string}
  */
@@ -313,7 +322,8 @@ function parseLines(text) {
 		if (whole === false) return TORN;
 		if (whole !== null) calls.push(whole);
 	}
-	return live.size > 0 ? RUNNING : { calls, pids };
+	if (live.size > 0) return RUNNING;
+	return pids.size === 0 ? EMPTY : { calls, pids };
 }
 
 /**
@@ -410,7 +420,7 @@ function pathsOf(call, seen) {
 	if (opened?.text.startsWith("/")) spelt.push(opened.text);
 	for (const dir of [...held, ...(CHDIR.has(call.name) ? spelt : [])])
 		seen.stood.add(dir);
-	const real = spelt.map(realOf);
+	const real = spelt.map((abs) => realOf(abs));
 	if (real.includes(null)) return "named a path that will not resolve";
 	const missing = places
 		.map((at) => at.filter((abs) => pathKind(abs) === "absent"))
@@ -607,4 +617,4 @@ function escapeAt(s, at) {
 	return { byte: ESCAPES[c] ?? c.charCodeAt(0), length: 1 };
 }
 
-module.exports = { buildTraceArgv, buildTraceReader, findStrace };
+module.exports = { buildTraceArgv, buildTraceReader, findStrace, realOf };
