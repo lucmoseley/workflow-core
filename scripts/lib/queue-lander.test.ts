@@ -1087,7 +1087,12 @@ describe("drop and defer", () => {
 		const { end, actions } = await land(remote, disk);
 
 		expect(end).toEqual(NO_QUEUE);
-		expect(actions).toContainEqual({ kind: "defer-member", name: "b" });
+		expect(actions).toContainEqual({
+			kind: "defer-member",
+			name: "b",
+			sha: "b1",
+			onto: "m0",
+		});
 		expect(dropsOf(actions)).toEqual([]);
 		expect(taken(actions)).toEqual([["a@a1", "b@b1", "c@c1"], ["b@b1"]]);
 		expect(remote.main).toBe("merge(merge(m0;a1,c1);b1)");
@@ -2611,6 +2616,30 @@ describe("the pipeline (#4556)", () => {
 
 		expect(kinds(actions)).toContain("detach");
 		expect(depths).not.toContain(1);
+	});
+
+	it("holds a follower's lone member deferred against the head until the head settles, landing the head on its green (#4839)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		/* b merges alone onto m0 but not onto any tip holding a1. */
+		const merge = (onto: string, members: readonly Member[]): MergeResult =>
+			members.some((m) => m.name === "b") && onto.includes("a1")
+				? { kind: "conflict", name: "b", files: ["b.txt"] }
+				: fakeMerge(remote, onto, members);
+
+		const { end, actions, pushed } = await land(remote, disk, {
+			parallel: true,
+			onAsk: pushB,
+			merge,
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(
+			actions.filter((a) => a.kind === "defer-member").map((a) => a.name),
+		).toEqual(["b"]);
+		expect(taken(actions)).toEqual([["a@a1"], ["b@b1"], ["b@b1"]]);
+		expect(pushed).toEqual([A]);
+		expect(dropsOf(actions)).toMatchObject([{ name: "b", onto: A }]);
 	});
 
 	it("takes a ref behind one batch at a time where the tester is not parallel", async () => {
