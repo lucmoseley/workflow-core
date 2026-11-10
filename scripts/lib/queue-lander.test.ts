@@ -356,7 +356,10 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		record: {
-			read: () => disk.pipeline,
+			read: () =>
+				disk.pipeline
+					? { kind: "read" as const, value: disk.pipeline }
+					: { kind: "absent" as const },
 			write: (p) => {
 				disk.pipeline = p;
 				if (depths.at(-1) !== p.depth) depths.push(p.depth);

@@ -33,6 +33,7 @@ import {
 	run as runRegistry,
 	SELF_PLUGIN_HOOKS,
 } from "./lib/guard-registry-testkit";
+import { dropRecord, pipelineRecord } from "./lib/lander-records.js";
 import {
 	commit,
 	git,
@@ -48,8 +49,6 @@ import {
 } from "./lib/lander-testkit";
 import { redPathAtRest } from "./lib/queue-lander.js";
 import {
-	dropRecord,
-	pipelineRecord,
 	queueGit,
 	queueLogger,
 	refusedRecord,
@@ -1020,9 +1019,8 @@ describe("the adapters", () => {
 		expect(g.mergeMembers(seed, [member])).toEqual({ kind: "merged", sha: a });
 	});
 
-	it("reads back a verdict and a batch another instance wrote, and a torn record as none", () => {
+	it("reads back a verdict and a refusal another instance wrote", () => {
 		const verdicts = path.join(markers(), "v.jsonl");
-		const batch = path.join(markers(), "b.json");
 		fs.mkdirSync(markers(), { recursive: true });
 		const LedgeredAt = "2026-11-06T12:00:00.000Z";
 		vi.stubEnv("WFC_NOW", LedgeredAt);
@@ -1059,31 +1057,6 @@ describe("the adapters", () => {
 			jobs: ["Lint and types"],
 		};
 		verdictLedger(verdicts).add("s1", [], noFile, 0);
-		const b = {
-			slot: 1,
-			members: [{ name: "a", sha: "s0", pushedAt: 1 }],
-			deferred: ["b"],
-			dropped: [],
-			onto: "m0",
-			integration: "s1",
-			phase: "serial" as const,
-			ahead: ["a"],
-			blame: { files: ["a.ts"], base: [], members: ["a"] },
-			isolated: [{ name: "a", sha: "s0", iso: "i0" }],
-			serial: { landed: [], step: { name: "a", sha: "t0", onto: "m0" } },
-			hold: {
-				kind: "base" as const,
-				main: "m0",
-				files: ["a.ts"],
-				ticket: 90,
-				retakeAt: 5,
-			},
-			bases: [{ sha: "m0", files: ["a.ts"], verdict: noFile }],
-		};
-		/** The pipeline with `b`, or `x` in its place, as its search. */
-		const holding = (x: unknown) => ({ line: [], search: x, depth: 1 });
-		pipelineRecord(batch).write({ ...holding(b), search: b });
-
 		expect(
 			verdictLedger(verdicts).get("s1", ["a.ts", "b.ts"])?.verdict,
 		).toEqual({
@@ -1128,65 +1101,12 @@ describe("the adapters", () => {
 			kind: "green",
 		});
 		expect(verdictLedger(verdicts).get("s1", [], 0)?.verdict).toEqual(noFile);
-		expect(pipelineRecord(batch).read()).toEqual(holding(b));
-		for (const torn of [
-			{ ...b, phase: "parked" },
-			{ ...b, hold: { kind: "refused", main: "m0" } },
-			{ ...b, hold: { ...b.hold, retakeAt: "soon" } },
-			{ ...b, bases: [{ sha: "m0", files: ["a.ts"] }] },
-			{ ...b, slot: "1" },
-		]) {
-			fs.writeFileSync(batch, JSON.stringify(holding(torn)));
-			expect(pipelineRecord(batch).read()).toBeNull();
-		}
-		fs.writeFileSync(batch, JSON.stringify({ line: [b], search: null }));
-		expect(pipelineRecord(batch).read()).toBeNull();
-		fs.writeFileSync(batch, JSON.stringify(b));
-		expect(pipelineRecord(batch).read()).toBeNull();
-		fs.writeFileSync(batch, '{"line": [');
-		expect(pipelineRecord(batch).read()).toBeNull();
-
 		const refused = refusedRecord(path.join(markers(), "r.jsonl"));
 		refused.add("s1", "GH013: rule violations");
 		expect(refusedRecord(path.join(markers(), "r.jsonl")).refusalOf("s1")).toBe(
 			"GH013: rule violations",
 		);
 		expect(refused.refusalOf("s2")).toBeNull();
-
-		const drops = path.join(markers(), "d.json");
-		const d = {
-			name: "a",
-			sha: "s0",
-			ref: "dropped/a",
-			onto: "m0",
-			cause: { kind: "conflict" as const, name: "a", files: ["x.txt"] },
-			ticket: null,
-			at: 1,
-		};
-		const red = {
-			...d,
-			cause: { kind: "red" as const, name: "a", files: ["x.ts"], iso: "i0" },
-		};
-		const collision = {
-			...d,
-			cause: {
-				kind: "collision" as const,
-				name: "a",
-				files: [],
-				step: "t0",
-				after: ["b"],
-			},
-		};
-		dropRecord(drops).write([
-			d,
-			red,
-			collision,
-			{ ...d, ref: 3 } as never,
-			{ ...red, cause: { ...red.cause, iso: 4 } } as never,
-		]);
-		expect(dropRecord(drops).read()).toEqual([d, red, collision]);
-		fs.writeFileSync(drops, "[{");
-		expect(dropRecord(drops).read()).toEqual([]);
 	});
 });
 

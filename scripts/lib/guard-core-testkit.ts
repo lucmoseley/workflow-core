@@ -9,8 +9,9 @@
  * variables a command expands through and the environment a core reads.
  *
  * `worktree` is the split a session in its own worktree runs under (#4229):
- * the root is the main checkout, whichever tree `CLAUDE_PROJECT_DIR` names
- * (#4493), while the hook's cwd is a linked worktree of it.
+ * the root is the main checkout (#4493), while the hook's cwd, the payload's
+ * `cwd` and `CLAUDE_PROJECT_DIR` all name a linked worktree of it, as the
+ * harness hands a worktree session (#4168).
  */
 
 import fs from "node:fs";
@@ -94,8 +95,8 @@ export const latchesAt = (root: string) => {
  * Where a core run happens: `root` the host root, `env` the whole
  * environment, `worktree`'s one variable aside, so nothing of the test
  * process's leaks in. `worktree` runs it from that linked worktree of `root`:
- * the hook's cwd and the payload's `cwd`, unless the payload names one, with
- * `CLAUDE_PROJECT_DIR` still `root`. `cwd` stands in for the hook's own.
+ * the hook's cwd, the payload's `cwd` unless the payload names one, and
+ * `CLAUDE_PROJECT_DIR`. `cwd` stands in for the hook's own.
  */
 export interface CoreRunOptions {
 	root: string;
@@ -159,7 +160,7 @@ function dispatchCores(
 	payload: Record<string, unknown>,
 	{ root, worktree, cwd = worktree ?? root, env: given = {} }: CoreRunOptions,
 ): CoreRun {
-	const env = worktree ? { CLAUDE_PROJECT_DIR: root, ...given } : given;
+	const env = worktree ? { CLAUDE_PROJECT_DIR: worktree, ...given } : given;
 	const input = worktree ? { cwd: worktree, ...payload } : payload;
 	const logs: string[] = [];
 	const log = (what: string) => {

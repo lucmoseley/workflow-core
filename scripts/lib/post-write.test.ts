@@ -415,7 +415,7 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
 	freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
-		vi.stubEnv("CLAUDE_PROJECT_DIR", at.main);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", at.worktree);
 		vi.stubEnv("WFC_REPO_ROOT", at.main);
 		vi.stubEnv("WFC_DISPATCH_ROOT", at.main);
 	});

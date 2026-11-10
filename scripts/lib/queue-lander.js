@@ -7,7 +7,8 @@
  * remote's refs, the green and verdict ledgers, the pipeline record and what
  * this run has met; `runQueueLander` acts on it through injected git and tester
  * until it exits. The library does no I/O: lib/queue-lander-adapters.js holds
- * the production git and files.
+ * the production git and files, lib/lander-records.js the pipeline and drop
+ * records.
  *
  * - **Batch.** Every queue ref waiting when the window has room is taken, each
  *   at the sha it then holds, in push order: the earlier push first, then the
@@ -190,97 +191,26 @@ class TransientFault extends Error {}
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
  *   after `queue/`, `pushedAt` its push time in ms
- * @typedef {QueueRef} Member a batch member, at its snapshot sha
- * @typedef {"merging" | "testing" | "isolating" | "serial" | "requeued"
- *   | "held" | "landed"} Phase `isolating` while each member is tested alone
- *   on `main`, `serial` while members land one at a time after a collision,
- *   `requeued` done without landing, `held` done on its `hold`
- * @typedef {{readonly kind: "base", readonly main: string,
- *   readonly files: readonly string[], readonly ticket: number|null,
- *   readonly retakeAt?: number}
- *   | {readonly kind: "refused", readonly main: string,
- *     readonly sha: string, readonly reason: string}} Hold why a batch
- *   stopped at `main`: red only where `main` is, on `files`, none where the
- *   red named none, with the base-red ticket, and `retakeAt`, in ms, where
- *   no run fired at `main` either; or its push of `sha` refused
- * @typedef {object} Blame what a red batch's isolation runs on
- * @property {readonly string[]} files the failing files `main` passes, none
- *   where the red named none
- * @property {readonly string[]} base the failing files `main` fails too
- * @property {readonly string[]} members the names isolated, in push order
- * @typedef {{readonly name: string, readonly sha: string,
- *   readonly iso: string}} Isolated a member merged alone onto the batch's
- *   `onto` as `iso`
- * @typedef {{readonly name: string, readonly sha: string,
- *   readonly onto: string}} Step a serial step: the member `name` merged
- *   alone onto `onto` as `sha`
- * @typedef {{readonly landed: readonly string[],
- *   readonly step: Step|null}} Serial the members landed so far, and the
- *   step under test
- * @typedef {object} Batch
- * @property {number} slot the k of its `lander/batch-<k>` ref, unique among
- *   the pipeline's batches
- * @property {readonly Member[]} members in push order
- * @property {readonly string[]} deferred the names of members left out, to
- *   be taken again once their deferral no longer holds them
- * @property {readonly string[]} dropped
- * @property {string} onto the base its members were merged onto: `main`
- *   for the line's head and a search, else the integration commit of the
- *   batch ahead
- * @property {string|null} integration the commit under test, null while
- *   merging
- * @property {Phase} phase
- * @property {readonly string[]} ahead the members that form the next batch
- *   alone, ahead of newer refs
- * @property {Blame|null} blame
- * @property {readonly Isolated[]} isolated
- * @property {Serial|null} serial
- * @property {Hold|null} hold
- * @property {readonly BaseVerdict[]} bases the base checks this batch asked
- * @typedef {object} Pipeline
- * @property {readonly Batch[]} line the batches in flight, in queue order,
- *   the head first
- * @property {Batch|null} search the red batch whose culprits are sought, or
- *   done held or re-batched, until a take or a new search replaces it
- * @property {number} depth the window: how many batches the line may hold
- * @typedef {{readonly sha: string, readonly files: readonly string[],
- *   readonly verdict: Exclude<Verdict, {kind: "unknown"}>}} BaseVerdict a
- *   base check's verdict at `main`'s `sha` on `files`, none for the whole
- *   suite
+ * @typedef {import("./lander-records.js").Member} Member
+ * @typedef {import("./lander-records.js").Hold} Hold
+ * @typedef {import("./lander-records.js").Blame} Blame
+ * @typedef {import("./lander-records.js").Isolated} Isolated
+ * @typedef {import("./lander-records.js").Step} Step
+ * @typedef {import("./lander-records.js").Batch} Batch
+ * @typedef {import("./lander-records.js").Pipeline} Pipeline
+ * @typedef {import("./lander-records.js").Drop} Drop
+ * @typedef {import("./lander-records.js").Cause} Cause
+ * @typedef {import("./lander-records.js").PipelineRecord} PipelineRecord
+ * @typedef {import("./lander-records.js").DropRecord} DropRecord
  * @typedef {{readonly ref: string, readonly sha: string}} DroppedRef a
  *   `dropped/*` ref on the remote, `ref` after `refs/heads/`
  * @typedef {{readonly main: string|null, readonly queue: readonly QueueRef[],
  *   readonly dropped: readonly DroppedRef[]}} QueueRefs the remote's `main`,
  *   queue refs and dropped refs, each queue commit present locally
- * @typedef {{readonly kind: "red", readonly name: string,
- *   readonly files: readonly string[], readonly iso: string,
- *   readonly noRun?: true}} RedAlone red on `files` twice, none where the
- *   red named none, merged alone onto `main` as `iso`, where `main` passed
- *   them; `noRun` where no CI run fired for that tree
- * @typedef {{readonly kind: "collision", readonly name: string,
- *   readonly files: readonly string[], readonly step: string,
- *   readonly after: readonly string[], readonly noRun?: true}} Collision
- *   the serial step `step`, merging it onto `main` after the members `after`
- *   landed, red twice on `files`, none where the red named none, each member
- *   having passed alone; `noRun` where no CI run fired for that tree
- * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
- *   a dropped ref no drop record entry named
- * @typedef {Exclude<Unmerged, {kind: "stale-base"}> | RedAlone | Collision
- *   | Unrecorded} Cause
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly onto: string, readonly main: string}} Deferral a member left
  *   out of its batch, at `sha`, as it would not merge onto `onto` though it
  *   merged alone on `main`
- * @typedef {object} Drop a dropped member, as the drop record holds it
- * @property {string} name after `queue/`
- * @property {string} sha
- * @property {string} ref the dropped ref holding it, after `refs/heads/`
- * @property {string} onto the `main` it was merged onto, or, for an entry
- *   written back for a ref none named, `main` when it was
- * @property {Cause} cause
- * @property {number|null} ticket its fix ticket, null until filed
- * @property {number} at when it was dropped, in ms
- * @property {number} [reapedAt] when its dropped ref was deleted, in ms
  * @typedef {{readonly kind: "merged", readonly sha: string}
  *   | {readonly kind: "conflict", readonly name: string,
  *     readonly files: readonly string[]}
@@ -435,6 +365,14 @@ const WAIT = { kind: "wait" };
 
 /** @returns {Pipeline} */
 const emptyPipeline = () => ({ line: [], search: null, depth: DEPTH_START });
+
+/**
+ * The pipeline a run resumes: the record's, or an empty one where the record
+ * is absent or torn.
+ * @param {import("./lander-records.js").RecordRead<Pipeline>} r
+ * @returns {Pipeline}
+ */
+const pipelineOf = (r) => (r.kind === "read" ? r.value : emptyPipeline());
 
 /**
  * Every batch the pipeline holds, its search first.
@@ -1595,9 +1533,6 @@ function stepOrEnd(s) {
  *   refreshes the open one, returning the line naming it
  * @property {(n: number) => "open" | "closed"} stateOf the ticket's state,
  *   throwing where it cannot be read
- * @typedef {object} DropRecord
- * @property {() => Drop[]} read
- * @property {(drops: readonly Drop[]) => void} write
  * @typedef {"take" | "land" | "drop"} LanderEvent
  * @typedef {{readonly verdict: Verdict, readonly at: number}} Ledgered a
  *   ledgered verdict and when it was ledgered, in ms
@@ -1611,9 +1546,6 @@ function stepOrEnd(s) {
  * @property {(sha: string) => string|null} refusalOf the refusal of `sha`,
  *   null where none
  * @property {(sha: string, reason: string) => void} add
- * @typedef {object} PipelineRecord
- * @property {() => Pipeline|null} read
- * @property {(p: Pipeline) => void} write
  * @typedef {object} QueueLanderDeps
  * @property {QueueGit} git
  * @property {QueueTester} tester
@@ -2635,7 +2567,7 @@ async function runQueueLander(deps) {
 	pruneReaped(deps);
 	/** @type {QueueRun} */
 	let run = {
-		pipeline: deps.record.read() ?? emptyPipeline(),
+		pipeline: pipelineOf(deps.record.read()),
 		pending: new Map(),
 		acting: null,
 		unread: [],

@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * Pins the guard core test kit's `worktree` option (#4234): a core run with it
- * sees the split a session in its own worktree runs under, `CLAUDE_PROJECT_DIR`
- * on the main checkout and the hook's cwd in a linked worktree of it.
+ * sees the split a session in its own worktree runs under: the root the main
+ * checkout, the hook's cwd and `CLAUDE_PROJECT_DIR` a linked worktree of it.
  *
  * Two guards are driven, one per half of the hook's cwd. guard-branch judges
  * the hook's own directory: a branch move is refused in the main checkout and
@@ -26,19 +26,19 @@ freshSandbox((sb) => {
 	execFileSync("git", ["branch", "-q", "side"], { cwd: at.main });
 });
 
-/** guard-branch's verdict on a branch move; with no `worktree`, run from the main checkout, under the same environment. */
+/** guard-branch's verdict on a branch move; with no `worktree`, run from the main checkout, as the harness declares it. */
 const branchVerdict = (opts: { worktree?: string }) =>
 	runCore("guard-branch", toolCall("Bash", { command: "git checkout side" }), {
 		root: at.main,
-		env: { CLAUDE_PROJECT_DIR: at.main },
+		env: opts.worktree ? {} : { CLAUDE_PROJECT_DIR: at.main },
 		...opts,
 	}).output?.permissionDecision;
 
-/** inject-review-tier's text for a code review; with no `worktree`, run from the main checkout, under the same environment. */
+/** inject-review-tier's text for a code review; with no `worktree`, run from the main checkout, as the harness declares it. */
 const reviewText = (opts: { worktree?: string }) =>
 	runCore("inject-review-tier", toolCall("Skill", { skill: "code-review" }), {
 		root: at.main,
-		env: { CLAUDE_PROJECT_DIR: at.main },
+		env: opts.worktree ? {} : { CLAUDE_PROJECT_DIR: at.main },
 		...opts,
 	}).output?.additionalContext ?? "";
 
