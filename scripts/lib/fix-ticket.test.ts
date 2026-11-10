@@ -13,6 +13,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler } from "./fix-ticket.js";
+import { parseGateRefusal } from "./lander-git.js";
 import type { Drop } from "./queue-lander.js";
 
 // Required, not imported: an ESM import of filing-refused.js would load a
@@ -364,7 +365,85 @@ describe("dropTicketFiler", () => {
 			"No commit on queue/wt-1 cites a ticket of this repo.",
 		);
 		expect(input).toContain(
-			"its merge was refused, the refusal ending:\n\n```text\nFAIL: rule:x\nrun: fix '''x'''\n```\n",
+			"its merge was refused, the refusal's verdict lines and its end:\n\n```text\nFAIL: rule:x\nrun: fix '''x'''\n```\n",
+		);
+	});
+
+	it("quotes each row a refused merge did not carry and its reason, where the gate said so more than 40 lines before its end (#4800)", () => {
+		const f = dropFiler(["Tidy"]);
+		const remedy = Array.from({ length: 60 }, (_, i) => `  rule: ${i}`);
+
+		f.said({
+			cause: {
+				kind: "refused",
+				name: "wt-1",
+				reason: parseGateRefusal(
+					[
+						"OK: a linked worktree",
+						"not carried scripts/a.js — both sides changed scripts/lib/x.js.",
+						"not carried scripts/b.js — it is not fresh on HEAD.",
+						"The fault(s) below are NOT in HEAD — this commit adds them:",
+						"  findings: scripts/a.js — the guard changed since the last review",
+						"  findings: scripts/b.js — the guard changed since the last review",
+						"This commit leaves the guard-registry anchor(s) above expired (#2617).",
+						...remedy,
+						"FAIL: 2 fault(s) this commit adds",
+					].join("\n"),
+				),
+			},
+		});
+
+		expect(f.files[0].input).toContain(
+			"```text\n[…]\nnot carried scripts/a.js — both sides changed scripts/lib/x.js.\nnot carried scripts/b.js — it is not fresh on HEAD.\nThe fault(s) below are NOT in HEAD — this commit adds them:\n  findings: scripts/a.js — the guard changed since the last review\n  findings: scripts/b.js — the guard changed since the last review\n[…]\n  rule: 21\n",
+		);
+		expect(f.files[0].input).toContain(
+			"  rule: 59\nFAIL: 2 fault(s) this commit adds\n```\n",
+		);
+	});
+
+	it("names the type-check a red failed and its first errors, never the whole suite naming no file (#4800)", () => {
+		const f = dropFiler(["Tidy"]);
+		const iso = "c".repeat(40);
+		const typecheck = [
+			"scripts/lib/a.js(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+			"scripts/b.js(9,1): error TS2304: Cannot find name 'c'.",
+		];
+		const red = { kind: "red" as const, name: "wt-1", iso };
+
+		f.said({ cause: { ...red, files: [], typecheck } });
+		/* The lander names files and the type-check both only on a
+		 * collision's whole-suite step, a member red on files being confirmed
+		 * on those files alone; a red holding both still reads so. */
+		const collision = {
+			kind: "collision" as const,
+			name: "wt-1",
+			step: iso,
+			after: [],
+		};
+		f.said({ cause: { ...collision, files: ["x.test.ts"], typecheck: [] } });
+		f.said({ cause: { ...collision, files: [], typecheck } });
+		f.said({ cause: { ...red, files: ["x.test.ts"], typecheck } });
+
+		const [alone, both, collided, redBoth] = f.files.map((x) => x.input);
+		const quoted = `its first errors:\n\n\`\`\`text\n${typecheck.join("\n")}\n\`\`\``;
+		expect(redBoth).toContain(
+			`- \`x.test.ts\`\n\nIt also failed the type-check twice, where \`main\` passes it, ${quoted}`,
+		);
+		expect(alone).toContain(
+			`as ${iso}, it failed the type-check twice, where \`main\` passes it, ${quoted}`,
+		);
+		expect(alone).not.toContain("naming no file");
+		expect(alone).toContain(
+			"- [ ] aaaaaaaaa's change passes the type-check merged onto `main`, and is pushed to `queue/wt-1` again.",
+		);
+		expect(both).toContain(
+			"- `x.test.ts`\n\nIt also failed the type-check twice, whose errors its log did not name",
+		);
+		expect(both).toContain(
+			"change passes each file above and the type-check merged onto `main`",
+		);
+		expect(collided).toContain(
+			`as ${iso}, it failed the type-check twice, ${quoted}`,
 		);
 	});
 

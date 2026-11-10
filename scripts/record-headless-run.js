@@ -2,7 +2,8 @@
 /*
  * record-headless-run.js — re-records scripts/fixtures/headless-run.json,
  * the installed harness's side of a headless `claude -p` run (#4586): every
- * option `claude --help` lists, with whether it takes a value, and the
+ * option `claude --help` lists, with whether it takes a value, each hidden
+ * one lib/headless-options.js names, and the
  * `result` row of one run lib/headless-sessions.js launched, which
  * lib/headless-runs.js reads. lib/headless-run-fake.ts serves both to the
  * suites' `claude` stubs.
@@ -30,8 +31,10 @@ const { parseArgs } = require("node:util");
 const { caught } = require("./lib/caught.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const {
+	HIDDEN_FLAGS,
 	LIVE_CALL_TIMEOUT_MS,
 	parseHelpOptions,
+	parseMissingValueRefusal,
 } = require("./lib/headless-options.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { overflowSeatsOf, readDeclaredSeats } = require("./lib/refill-seats.js");
@@ -72,6 +75,22 @@ function readOptions() {
 	if (help.status !== 0)
 		throw new Error(`claude --help exited ${help.status}: ${help.stderr}`);
 	return parseHelpOptions(help.stdout);
+}
+
+function readHiddenOptions() {
+	return HIDDEN_FLAGS.map((flag) => {
+		const refused = spawnSync(claudeBin(), ["-p", flag], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: LIVE_CALL_TIMEOUT_MS,
+		});
+		const option = parseMissingValueRefusal(refused.stderr ?? "");
+		if (!option)
+			throw new Error(
+				`claude -p ${flag} did not refuse a missing value: ${refused.stderr}`,
+			);
+		return option;
+	});
 }
 
 /** @param {string} keyVar */
@@ -129,6 +148,7 @@ async function main() {
 		encoding: "utf8",
 	}).stdout.trim();
 	const options = readOptions();
+	const hidden = readHiddenOptions();
 	const result = await recordResult(readOverflowKey(key));
 	fs.writeFileSync(
 		FIXTURE,
@@ -137,6 +157,7 @@ async function main() {
 				recordedBy: "node scripts/record-headless-run.js",
 				harness,
 				options,
+				hidden,
 				result,
 			},
 			null,

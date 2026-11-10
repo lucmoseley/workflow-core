@@ -525,6 +525,7 @@ export default class TestPassReporter {
 				? {}
 				: { resolvedFiles: launch.resolvedFiles }),
 			...(launch.wholeSlot ? { wholeSlot: true } : {}),
+			...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
 			...fullRunFields(launch),
 			// Absent rather than empty on a green run: a reader testing for the key
 			// is asking "did anything fail", and [] would answer yes-but-nothing.

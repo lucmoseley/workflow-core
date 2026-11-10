@@ -25,8 +25,11 @@
  * In either class, directly after the memory limb and ahead of the fifos:
  *   climb       MemAvailable clears the rung, but not less the climb the wait's
  *               exit line says held it (#3416, #3806)
- *   windows     memwatch's minute log's win_avail_mb under the waiter's draw
- *               plus the margin, from #4557's commit (#4782)
+ *   windows     memwatch's minute log shows Windows under its floor or
+ *               paging hard (`windowsShortfall`), for at most one unbroken
+ *               WINDOWS_MAX_HOLD_MS spell (#4850); between #4557's commit and
+ *               #4850's, its win_avail_mb under the waiter's draw plus the
+ *               margin
  * The fifos, `admitted` and `peer-climb` are the gate's own turn, `turnOf` in
  * lib/suite-queue.js, asked of each tick's waits (#4260).
  * Every later limb holding the same waiter-tick is tallied too, since one
@@ -66,7 +69,7 @@ const {
 const { chargeMb } = require("./launch-charge");
 const { TSC_MAX, isTscRunner } = require("./tsc-slot");
 const {
-	WINDOWS_FRESH_S,
+	isWindowsFresh,
 	windowsReadingOf,
 	windowsShortfall,
 } = require("./windows-memory");
@@ -253,7 +256,7 @@ function readWindowsMinutes(file, unread, lo, hi) {
 	};
 	for (const row of readRows(file, unread, inRange)) {
 		const reading = windowsReadingOf(row);
-		if (reading && reading.ageS <= WINDOWS_FRESH_S)
+		if (reading && isWindowsFresh(reading))
 			windows.set(Math.floor(Date.parse(row.ts) / 60_000), reading);
 	}
 	return windows;

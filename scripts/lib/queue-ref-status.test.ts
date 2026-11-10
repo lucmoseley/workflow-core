@@ -347,15 +347,15 @@ describe("a dropped ref", () => {
 		]);
 	});
 
-	it("reads a drop whose filing was refused for good as having no fix ticket, naming the refusal", () => {
-		expect(
-			lines({
-				waiting: null,
-				drops: [drop({ ...open, filingRefused: "rule:x refused it" })],
-			}),
-		).toEqual([
+	it("reads a drop whose filing was refused for good as having no fix ticket, naming the refusal, and as held once a newer push waits", () => {
+		const refused = drop({ ...open, filingRefused: "rule:x refused it" });
+
+		expect(lines({ waiting: null, drops: [refused] })).toEqual([
 			`dropped: queue/alpha at ${short(member)} — no fix ticket, its filing refused for good: rule:x refused it; kept as dropped/alpha${why()}`,
 		]);
+		expect(lines({ waiting: seed, drops: [refused] })[0]).toBe(
+			`dropped: queue/alpha at ${short(member)} — held: a newer push waits; kept as dropped/alpha${why()}`,
+		);
 	});
 
 	it("reads an unticketed drop as held where a newer push of the queue ref waits (#4950)", () => {

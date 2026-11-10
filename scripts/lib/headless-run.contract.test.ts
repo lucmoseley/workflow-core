@@ -1,13 +1,14 @@
 // @vitest-environment node
 /*
  * Holds a headless `claude -p` run's two faces (#4586) — the options it takes,
- * which lib/headless-sessions.js's launch passes, and its `result` row, which
+ * which lib/headless-sessions.js's launch and claude-child.js pass, and its
+ * `result` row, which
  * lib/headless-runs.js's readEndResult reads — to the installed harness's
  * recording (scripts/fixtures/headless-run.json, re-recorded by
  * `node scripts/record-headless-run.js`), to lib/headless-run-fake.ts, which
  * every suite's `claude` stub execs for `-p`, and, on the founder's machine,
  * to the real `claude` where a call is free: its `--help` and its refusal of
- * an unknown flag. Breaking it lets a renamed flag or result field pass every
+ * an unknown flag or a missing value, which is all that shows a hidden option. Breaking it lets a renamed flag or result field pass every
  * suite, and an overflow run launch refused or bill as a success it was not.
  */
 import { spawnSync } from "node:child_process";
@@ -109,6 +110,26 @@ describe("the result row", () => {
 	});
 });
 
+it("the fake ends on the text and exit status it is given, logging a file on stdin as its text", () => {
+	const prompt = path.join(dir, "prompt.md");
+	fs.writeFileSync(prompt, "Read it.\n");
+	const bin = writeHeadlessFake(path.join(dir, "claude"), {
+		log: path.join(dir, "calls.jsonl"),
+		mode: "end",
+		text: "said\n",
+		exit: 3,
+	});
+	const r = spawnSync(bin, ["-p"], {
+		encoding: "utf8",
+		stdio: [fs.openSync(prompt, "r"), "pipe", "pipe"],
+	});
+	expect(r.status).toBe(3);
+	expect(r.stdout).toBe("said\n");
+	expect(
+		readHeadlessCalls(path.join(dir, "calls.jsonl")).map((c) => c.stdinText),
+	).toEqual(["Read it.\n"]);
+});
+
 const SESSION_ID_FLAGS = recorded.options.find((o) =>
 	o.names.includes("--session-id"),
 )?.flags;
@@ -125,6 +146,11 @@ const refusals = [
 		argv: ["-p", "--session-id"],
 		stderr: `error: option '${SESSION_ID_FLAGS}' argument missing\n`,
 	},
+	...recorded.hidden.map((o) => ({
+		what: `the hidden ${o.names[0]} given no value`,
+		argv: ["-p", o.names[0] ?? ""],
+		stderr: `error: option '${o.flags}' argument missing\n`,
+	})),
 ];
 
 // Residual: off the founder's machine the live cases skip, and the fixture goes unchecked.

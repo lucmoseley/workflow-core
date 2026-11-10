@@ -1,7 +1,9 @@
 // @vitest-environment node
 /*
  * claude-child.js, driven through its command line against a stub `claude`
- * that records its argv, its CLAUDE_CONFIG_DIR and its stdin (#2040).
+ * whose `-p` is the headless-run fake, which reads its argv against the
+ * harness's recorded options and logs it, its environment and its stdin
+ * (#2040).
  *
  * spawn-kept: a real fd (§X3) — the script hands the child real fds —
  * its own stdout and stderr, and the prompt file as stdin.
@@ -15,38 +17,43 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	ADMITTED_AUTH,
 	buildAuthStatusBranch,
-	buildAuthStatusNodeBranch,
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
+import { readJudgeCalls, writeJudgeFake } from "./lib/gate-judge-fake";
 import { JUDGE_ARGS, JUDGE_TIMEOUT_EXIT } from "./lib/gate-judge-mode.js";
+import {
+	buildHeadlessBranch,
+	readHeadlessCalls,
+	writeHeadlessFake,
+} from "./lib/headless-run-fake";
 
 const SCRIPT = path.resolve(__dirname, "claude-child.js");
 
 let dir = "";
 let seat = "";
 
-const STUB = `#!/usr/bin/env node
-${buildAuthStatusNodeBranch()}
-const fs = require("node:fs");
-const out = process.env.STUB_OUT;
-fs.writeFileSync(out, JSON.stringify({
-	argv: process.argv.slice(2),
-	configDir: process.env.CLAUDE_CONFIG_DIR,
-	stdin: (() => { try { return fs.readFileSync(0, "utf8"); } catch { return null; } })(),
-	cwd: process.cwd(),
-	cwdEntries: fs.readdirSync(process.cwd()),
-}));
-process.stdout.write("child said hello\\n");
-if (process.env.STUB_HANG) setInterval(() => {}, 1000);
-else process.exit(Number(process.env.STUB_EXIT || 0));
-`;
+const callsLog = () => path.join(dir, "calls.jsonl");
+
+/** The stub `claude`, its `-p` run ending `exit`. */
+const writeStub = (exit = 0) =>
+	writeClaudeStub(path.join(dir, "claude"), [
+		buildHeadlessBranch(
+			writeHeadlessFake(path.join(dir, "claude-p"), {
+				log: callsLog(),
+				mode: "end",
+				text: "child said hello\n",
+				exit,
+			}),
+		),
+	]);
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-child-"));
 	seat = path.join(dir, ".claude");
 	fs.mkdirSync(seat);
-	fs.writeFileSync(path.join(dir, "claude"), STUB, { mode: 0o755 });
+	writeStub();
 });
 
 afterEach(() => {
@@ -69,14 +76,16 @@ const run = (
 			WFC_CLAUDE_CONFIG_B: path.join(dir, ".claude2"),
 			WFC_CLAUDE_CONFIG_C: path.join(dir, ".claude3"),
 			WFC_CLAUDE_BIN: path.join(dir, "claude"),
-			STUB_OUT: path.join(dir, "seen.json"),
 			...extra,
 		},
 	});
 
-const readSeen = () =>
-	JSON.parse(fs.readFileSync(path.join(dir, "seen.json"), "utf8"));
-const launched = () => fs.existsSync(path.join(dir, "seen.json"));
+const readSeen = () => {
+	const [seen] = readHeadlessCalls(callsLog());
+	if (!seen) throw new Error("the child was never launched");
+	return seen;
+};
+const launched = () => readHeadlessCalls(callsLog()).length > 0;
 
 describe("usage", () => {
 	it("runs /usage on the named seat, approving no tool", () => {
@@ -89,13 +98,12 @@ describe("usage", () => {
 			"--permission-mode",
 			"manual",
 		]);
-		expect(readSeen().configDir).toBe(seat);
+		expect(readSeen().env.CLAUDE_CONFIG_DIR).toBe(seat);
 	});
 
 	it("passes on the child's exit status", () => {
-		expect(
-			run(["usage", "--config-dir", seat], { STUB_EXIT: "3" }).status,
-		).toBe(3);
+		writeStub(3);
+		expect(run(["usage", "--config-dir", seat]).status).toBe(3);
 	});
 
 	it("refuses a binary that cannot answer for its auth, naming the cached reading", () => {
@@ -156,8 +164,8 @@ describe("chrome", () => {
 			"--output-format",
 			"json",
 		]);
-		expect(readSeen().stdin).toBe("Read example.com and report.\n");
-		expect(readSeen().configDir).toBe(seat);
+		expect(readSeen().stdinText).toBe("Read example.com and report.\n");
+		expect(readSeen().env.CLAUDE_CONFIG_DIR).toBe(seat);
 	});
 
 	it.each([
@@ -195,19 +203,31 @@ describe("chrome", () => {
 });
 
 describe("judge", () => {
+	const judgeLog = () => path.join(dir, "judge-calls.jsonl");
 	const judge = (ms = "60000", extra: Record<string, string> = {}) =>
 		run(
 			["judge", "--config-dir", seat, "--timeout-ms", ms],
-			extra,
+			{ WFC_CLAUDE_BIN: path.join(dir, "claude-judge"), ...extra },
 			"What waits does this body make?\n",
 		);
+	const writeFake = (plan: Parameters<typeof writeJudgeFake>[2]) =>
+		writeJudgeFake(path.join(dir, "claude-judge"), judgeLog(), plan);
+	const readJudged = () => {
+		const seen = readJudgeCalls(judgeLog()).at(-1);
+		if (!seen) throw new Error("the judge child was never launched");
+		return seen;
+	};
+
+	beforeEach(() => {
+		writeFake({ stdout: "child said hello\n" });
+	});
 
 	it("gives the child the judge mode's flags, the prompt on stdin, in an empty directory", () => {
 		const r = judge();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("child said hello\n");
-		expect(readSeen().argv).toEqual(JUDGE_ARGS);
-		expect(readSeen().argv).toEqual(
+		expect(readJudged().argv).toEqual(JUDGE_ARGS);
+		expect(readJudged().argv).toEqual(
 			expect.arrayContaining([
 				"haiku",
 				"--tools",
@@ -218,21 +238,23 @@ describe("judge", () => {
 				"--json-schema",
 			]),
 		);
-		expect(readSeen().stdin).toBe("What waits does this body make?\n");
-		expect(readSeen().cwdEntries).toEqual([]);
-		expect(readSeen().cwd).not.toBe(process.cwd());
-		expect(readSeen().configDir).toBe(seat);
+		expect(readJudged().stdin).toBe("What waits does this body make?\n");
+		expect(readJudged().cwdEntries).toEqual([]);
+		expect(readJudged().cwd).not.toBe(process.cwd());
+		expect(readJudged().configDir).toBe(seat);
 	});
 
 	it("empties its working directory of what a call before it left", () => {
 		judge();
-		fs.writeFileSync(path.join(readSeen().cwd, "left-behind.txt"), "x\n");
+		fs.writeFileSync(path.join(readJudged().cwd, "left-behind.txt"), "x\n");
 		expect(judge().status).toBe(0);
-		expect(readSeen().cwdEntries).toEqual([]);
+		expect(readJudgeCalls(judgeLog())).toHaveLength(2);
+		expect(readJudged().cwdEntries).toEqual([]);
 	});
 
 	it("kills a child still running at the bound, exiting as a timeout does", () => {
-		const r = judge("1500", { STUB_HANG: "1" });
+		writeFake({ hang: true });
+		const r = judge("1500");
 		expect(r.status).toBe(JUDGE_TIMEOUT_EXIT);
 		expect(r.stderr).toContain("the child was killed at its 1500 ms bound");
 	});
@@ -258,7 +280,7 @@ describe("judge", () => {
 		const r = judge("60000", env);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`${name} is set`);
-		expect(launched()).toBe(false);
+		expect(readJudgeCalls(judgeLog())).toEqual([]);
 	});
 });
 

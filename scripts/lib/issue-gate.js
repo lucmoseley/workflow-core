@@ -287,8 +287,8 @@ const COUNTED_LONG = `${COUNT}${MODIFIER}[ -]${LONG_UNIT}`;
  * full day". Read only inside a wait or a basis: on its own it is ordinary
  * prose. */
 /** @param {string} unit */
-const determined = (unit) => `the(?: first| next)?(?: full)? ${unit}`;
-const DETERMINED = determined("(?:day|week|month)");
+const buildDetermined = (unit) => `the(?: first| next)?(?: full)? ${unit}`;
+const DETERMINED = buildDetermined("(?:day|week|month)");
 const WEEK_ONE = "week (?:one|1)";
 const ELAPSES = "(?:pass(?:es|ed)?|elapse[sd]?|go(?:ne)? by|run|accrued)";
 
@@ -333,7 +333,7 @@ const WAIT_RE = new RegExp(
 const COUNTED_WINDOW = `${NOT_A_TAIL}(\\d+) ?(h)|(${COUNT})${MODIFIER}[ -](${UNIT})`;
 const WINDOW_RE = new RegExp(`${NOT_A_RATE}\\b(?:${COUNTED_WINDOW})\\b`, "gi");
 const DETERMINED_WINDOW_RE = new RegExp(
-	`${NOT_A_RATE}\\b(?:${COUNTED_WINDOW}|${determined("(day|week|month)")}|(?=(week))${WEEK_ONE})\\b`,
+	`${NOT_A_RATE}\\b(?:${COUNTED_WINDOW}|${buildDetermined("(day|week|month)")}|(?=(week))${WEEK_ONE})\\b`,
 	"gi",
 );
 /** @type {Record<string, number>} */
@@ -397,7 +397,7 @@ function durationsIn(body, at, opts = {}) {
 }
 
 const basisRule = () =>
-	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Where the body writes a window, the basis carries a warrant (#4946). Wait windows are the shortest the data defends (#616, #672). The check reads the basis's form, each window named and a warrant present, and never judges it: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
+	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). The check reads the basis's form, each window named and a warrant present, and never judges it: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
 
 const ISSUE_REF_RE = /#(\d+)\b/g;
 /* `mantahostels#12` and `owner/repo#12` name another repo's issue. */
@@ -635,7 +635,9 @@ function inCodeSpan(body, index) {
  * counts as added: a moved window needs its basis as much as a new one. A
  * window `before` already wrote is held too, so adding a basis beside an old
  * wait is not refused for the wait (#823). A warrant fault is its basis text,
- * so an untouched legacy basis is held and a rewritten one is judged (#4946).
+ * so an untouched legacy basis is held and a rewritten one is judged; where
+ * the edit adds or changes a gate line every basis is judged, a re-gate
+ * meeting today's bar (#4946).
  *
  * @param {string} before
  * @param {string} after
@@ -644,13 +646,22 @@ function inCodeSpan(body, index) {
  */
 function introducedBasisFaults(before, after, own) {
 	const b = String(before || "");
-	const held = new Set(
-		[
-			...basisFaults(b, own).map((f) => f.text),
-			...windowsOf(b).map((d) => d.written),
-		].map((t) => t.toLowerCase()),
+	const regated = parseAddedGateLines(b, after).length > 0;
+	/** @param {BasisFault["kind"]} kind @param {string} text */
+	const keyOf = (kind, text) => `${kind}\n${text.toLowerCase()}`;
+	const held = new Set([
+		...basisFaults(b, own)
+			.filter((f) => !(regated && f.kind === "no-warrant"))
+			.map((f) => keyOf(f.kind, f.text)),
+		// A window the old body wrote excuses the wait, never a basis.
+		...windowsOf(b).flatMap((d) => [
+			keyOf("no-basis", d.written),
+			keyOf("unnamed-window", d.written),
+		]),
+	]);
+	return basisFaults(after, own).filter(
+		(f) => !held.has(keyOf(f.kind, f.text)),
 	);
-	return basisFaults(after, own).filter((f) => !held.has(f.text.toLowerCase()));
 }
 
 /**

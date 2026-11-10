@@ -202,8 +202,8 @@ function queueRefStates(r) {
 }
 
 /**
- * Where a recorded drop stands: settled, under its fix ticket, its filing
- * refused for good, held behind a newer push, or returned to the session
+ * Where a recorded drop stands: settled, under its fix ticket, held behind
+ * a newer push, its filing refused for good, or returned to the session
  * reading it.
  * @param {Drop} d
  * @param {boolean} held
@@ -214,11 +214,10 @@ function standingOf(d, held) {
 			? "settled"
 			: `settled at ${short(d.settledOn)}`;
 	if (d.ticket !== null) return `fix ticket #${d.ticket}`;
-	if (d.filingRefused !== undefined)
-		return `no fix ticket, its filing refused for good: ${d.filingRefused}`;
-	return held
-		? "held: a newer push waits"
-		: "returned to this session; no ticket while it works";
+	if (held) return "held: a newer push waits";
+	return d.filingRefused === undefined
+		? "returned to this session; no ticket while it works"
+		: `no fix ticket, its filing refused for good: ${d.filingRefused}`;
 }
 
 /** @param {Extract<RefState, {state: "dropped"}>} s */
