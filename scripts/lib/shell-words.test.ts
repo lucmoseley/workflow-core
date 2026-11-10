@@ -631,6 +631,81 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(watched).toEqual([true, true]);
 	});
 
+	/** Each run's words read through literal, its env and cd's after a `|`. */
+	const read = (command: string) =>
+		one(command, (c, spans) =>
+			unwrap(c.words, spans).map((r) =>
+				[
+					bracket(r.words, spans),
+					bracket(r.wrapperWords, spans),
+					bracket(r.chdirs, spans),
+				].join("|"),
+			),
+		);
+
+	it.each([
+		[`flock /l -c "if true; then git push; fi"`, "then"],
+		[`flock /l -c "{ git push; }"`, "{"],
+		[`flock /l -c "(git push)"`, "("],
+		[`flock /l -c "! git push"`, "!"],
+		[`flock /l -c 'git "push"'`, "a quoted word"],
+		[`flock /l -c 'echo $(git push)'`, "a $(…)"],
+	])("reads git push from %s (%s, #4863)", (command) => {
+		expect(read(command)).toContain("[git][push]||");
+	});
+
+	it("leaves a ; inside quotes in its command (#4863)", () => {
+		expect(read(`flock /l -c 'echo "a; git push"'`)).toEqual([
+			"[echo][a; git push]||",
+		]);
+	});
+
+	it.each([
+		[`flock /l -c "GIT_DIR=/x git push"`, "[git][push]|[GIT_DIR=/x]|"],
+		[
+			`flock /l -c "GH_REPO=a/b gh issue close 1"`,
+			"[gh][issue][close][1]|[GH_REPO=a/b]|",
+		],
+	])(
+		"puts the leading assignment of %s in its run's wrapperWords (#4863)",
+		(command, run) => {
+			expect(read(command)).toEqual([run]);
+		},
+	);
+
+	it("moves the runs after a cd, and not those a subshell or pipe ends (#4863)", () => {
+		expect(
+			read(`flock /l -c "cd /s; git a; (cd /t; git b); cd /u | true; git c"`),
+		).toEqual([
+			"[cd][/s]||",
+			"[git][a]||[/s]",
+			"[cd][/t]||[/s]",
+			"[git][b]||[/s][/t]",
+			"[cd][/u]||[/s]",
+			"[true]||[/s]",
+			"[git][c]||[/s]",
+		]);
+	});
+
+	it("reads a cd whose target no word gives as unresolved (#4863)", () => {
+		expect(read(`flock /l -c "cd -; git a"`).at(1)).toBe("[git][a]||[$(cd -)]");
+	});
+
+	it("reads each export and unset in order (#4863)", () => {
+		expect(
+			read(
+				`env -C /d flock /l -c "export A=1 B=2; gh a; unset A; gh b; export -n B; gh c"`,
+			),
+		).toEqual([
+			"[export][A=1][B=2]||[/d]",
+			"[gh][a]|[A=1][B=2]|[/d]",
+			"[unset][A]|[A=1][B=2]|[/d]",
+			"[gh][b]|[B=2]|[/d]",
+			"[export][-n][B]|[B=2]|[/d]",
+			"[gh][c]||[/d]",
+		]);
+	});
+
 	it("hands gitWords the git push a later line runs", () => {
 		const subs = one(`env -S 'flock /l -c "true\\ngit push"'`, (c, spans) =>
 			gitWords(c.words, spans).map((g) => g.sub),

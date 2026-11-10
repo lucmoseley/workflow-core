@@ -15,6 +15,8 @@
  * that costs. Nothing here ever runs the text.
  */
 
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (#4863).
+const shellWords = require("./shell-words.js");
 const {
 	QUOTED,
 	hasExpansion,
@@ -24,10 +26,13 @@ const {
 	unwrap,
 	commandName,
 	isGitValueOption,
-} = require("./shell-words.js");
+} = shellWords;
 const { expandTildeWord } = require("./home-path.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (#4863).
 const { Lexer, SPACE } = require("./shell-lexer.js");
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (#4863).
+const gitAlias = require("./git-alias.js");
 const {
 	CONFIG_FILE_VARS,
 	UNREAD_ALIAS,
@@ -37,7 +42,7 @@ const {
 	defineFromEnv,
 	defineFromConfigEnvWord,
 	defineFromConfigWord,
-} = require("./git-alias.js");
+} = gitAlias;
 
 /** The flatten's subshell marker, standing a bracket on a line of its own so a
  * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
@@ -444,11 +449,12 @@ const isWriteRedirect = (kind) =>
  * of its own, bracketed as a subshell, ahead of the segment holding the span
  * (#3375): it runs before that command does.
  * @param {string} subject
+ * @param {string[]} [spans] accumulator its spans are appended to, so words
+ *   parsed out of a span another parse recorded read through that parse's
+ *   array (#4863)
  * @returns {Parsed}
  */
-function parseCommand(subject) {
-	/** @type {string[]} */
-	const spans = [];
+function parseCommand(subject, spans = []) {
 	const { masked, heredocLines } = maskSubject(subject, spans);
 	/* Read BEFORE the flatten turns every `||` into a newline. The text before
 	 * the first one flattens to exactly the segments ahead of it. */
@@ -1333,6 +1339,95 @@ function walkCommands(parsed, fn, ports) {
 		});
 		if (ran) moveCwd(walk, own);
 	});
+}
+
+/** A word assigning a name, past the reserved words leading a command. */
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+/**
+ * @typedef {object} ScriptCommand one command a `sh -c` script runs
+ * @property {string[]} words from its command word on, masked, redirections
+ *   taken out
+ * @property {string[]} leading each assignment an `export` before it put in the
+ *   environment, then its own leading ones, in the order they apply
+ * @property {string[]} chdirs each directory a `cd` before it moved to, masked,
+ *   in order
+ */
+
+/**
+ * The commands of a script a wrapper hands to `sh -c`, in the order they run,
+ * parsed as a command line is (#4863), its spans appended to `spans`. A `cd`
+ * or `export` moves the commands after it, as stepCwd's: not from a pipeline or
+ * behind `&`, and a subshell's `)` hands back what its `(` saw. Each `cd` is
+ * read as having worked, as no directory is tested here.
+ * @param {string} script
+ * @param {string[]} spans accumulator: the script's spans are appended
+ * @returns {ScriptCommand[]}
+ */
+function scriptCommands(script, spans) {
+	const { segments, joins } = parseCommand(script, spans);
+	/** @type {ScriptCommand[]} */
+	const out = [];
+	/** @type {{ chdirs: string[], exports: string[] }} */
+	let state = { chdirs: [], exports: [] };
+	/** @type {(typeof state)[]} */
+	const stack = [];
+	segments.forEach((segment, segIdx) => {
+		if (segment === `${SCOPE_MARK}(`) {
+			stack.push(state);
+			return;
+		}
+		/* A `)` with no `(` open is a `case` pattern, which moves nothing. */
+		if (segment === `${SCOPE_MARK})`) {
+			state = stack.pop() ?? state;
+			return;
+		}
+		const { words, wi, assignEnd, ran } = commandWords(segment);
+		if (!ran) return;
+		const own = words.slice(wi);
+		out.push({
+			words: own,
+			leading: [
+				...state.exports,
+				...words.slice(0, assignEnd).filter((w) => ASSIGNMENT.test(w)),
+			],
+			chdirs: state.chdirs,
+		});
+		const after = joins[segIdx + 1];
+		if (joins[segIdx] !== "p" && after !== "p" && after !== "b")
+			state = moveScriptState(state, own, spans);
+	});
+	return out;
+}
+
+/**
+ * The directories and exports the commands after `own` run under.
+ * @param {{ chdirs: string[], exports: string[] }} state before it
+ * @param {string[]} own its words, masked
+ * @param {string[]} spans
+ */
+function moveScriptState(state, own, spans) {
+	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
+	const kind = exportKind(head, rest);
+	if (kind !== null) {
+		const named = rest.map((w) => w.split("=", 1)[0]);
+		const kept = state.exports.filter(
+			(w) => !named.includes(literal(w, spans).text.split("=", 1)[0]),
+		);
+		const set = own.slice(1).filter((w) => ASSIGNMENT.test(w));
+		return { ...state, exports: kind === "export" ? [...kept, ...set] : kept };
+	}
+	const cdLost =
+		head === "pushd" ||
+		head === "popd" ||
+		((head === "builtin" || head === "command") && rest[0] === "cd");
+	if (head !== "cd" && !cdLost) return state;
+	const arg = own[1];
+	/* A `cd -`, a bare `cd` and a flag go where no word here says: a target
+	 * that never resolves. */
+	const lost = cdLost || arg === undefined || (rest[0] ?? "").startsWith("-");
+	const dir = lost ? `$(${[head, ...rest].join(" ")})` : arg;
+	return { ...state, chdirs: [...state.chdirs, dir] };
 }
 
 /**
@@ -2294,6 +2389,7 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 
 module.exports = {
 	parseCommand,
+	scriptCommands,
 	walkCommands,
 	TEXT_ONLY_PORTS,
 	unmask,

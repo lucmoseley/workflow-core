@@ -1750,6 +1750,38 @@ describe('walkGit, scope "shared"', () => {
 		).toBe("");
 	});
 
+	it("moves a -c string's later git commands by its cd and export (#4863)", () => {
+		const unwrapped = { unwrap: true };
+		expect(
+			walkGitRun(
+				`flock /l -c "cd ${SHARED}; git checkout x"`,
+				unwrapped,
+				WORKTREE,
+			).out,
+		).toContain(`[checkout][${SHARED}]`);
+		expect(
+			walkGitRun(`flock /l -c "cd ${WORKTREE}; git checkout x"`, unwrapped).out,
+		).toBe("");
+		expect(
+			walkGitRun(`flock /l -c "(cd ${WORKTREE}); git checkout x"`, unwrapped)
+				.out,
+		).toContain(`[checkout][${SHARED}]`);
+		expect(
+			walkGitRun(
+				`flock /l -c "export GIT_DIR=${SHARED}/.git; git checkout x"`,
+				unwrapped,
+				WORKTREE,
+			).out,
+		).toContain(`[checkout][${SHARED}]`);
+		expect(
+			walkGitRun(
+				`flock /l -c "GIT_DIR=${SHARED}/.git git checkout x"`,
+				unwrapped,
+				WORKTREE,
+			).out,
+		).toContain(`[checkout][${SHARED}]`);
+	});
+
 	it('reads a git -C relative to the tree before it, and a -C "" as no move', () => {
 		expect(walkGitRun("git -C wt checkout x", {}, DIR).out).toBe("");
 		expect(walkGitRun("git -C shared checkout x", {}, DIR).out).toContain(
