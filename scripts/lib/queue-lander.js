@@ -1626,7 +1626,8 @@ function stepOrEnd(s) {
  *   their verdicts, by their runs, shared by every copy of the run; `acting`
  *   the batch the action under way acts on
  * @typedef {{readonly runs: readonly TestRun[],
- *   readonly settled: Promise<Settled>}} Pending an ask in flight
+ *   readonly settled: Promise<Settled>, got: Settled|null}} Pending an ask
+ *   in flight; `got` its end once reached, kept before the next step
  * @typedef {{ok: true, apply: (deps: QueueLanderDeps, run: QueueRun) =>
  *   QueueRun} | {ok: false, err: unknown}} Settled an ask's end: its
  *   verdicts to keep, or what it threw
@@ -1897,8 +1898,34 @@ function startAsk(run, runs, ask, keep) {
 		(got) => ({ ok: true, apply: (deps, r) => keep(deps, r, got) }),
 		(err) => ({ ok: false, err }),
 	);
-	run.pending.set(askKey(runs), { runs, settled });
+	/** @type {Pending} */
+	const pending = { runs, settled, got: null };
+	settled.then((got) => {
+		pending.got = got;
+	});
+	run.pending.set(askKey(runs), pending);
 	return run;
+}
+
+/**
+ * Keeps the verdicts of every ask in flight that has ended, so a step never
+ * runs on a state missing one: a run that always has a step to take would
+ * otherwise never await them (#4841). One that threw is forgotten first, so
+ * the retry asks it again.
+ * @param {QueueLanderDeps} deps
+ * @param {QueueRun} run accumulator: each ended ask is deleted from its
+ *   `pending`
+ * @returns {QueueRun}
+ */
+function keepEnded(deps, run) {
+	let out = run;
+	for (const [key, p] of run.pending) {
+		if (p.got === null) continue;
+		run.pending.delete(key);
+		if (!p.got.ok) throw p.got.err;
+		out = p.got.apply(deps, out);
+	}
+	return out;
 }
 
 /**
@@ -2456,14 +2483,16 @@ async function actOnPipeline(deps, action, run) {
 }
 
 /**
- * The next action, taken; the run's end where it is an exit. Waiting on a
- * verdict is no action, so it is not logged.
+ * The next action, taken, on the verdicts of every ask that has ended; the
+ * run's end where it is an exit. Waiting on a verdict is no action, so it is
+ * not logged.
  * @param {QueueLanderDeps} deps
- * @param {QueueRun} run
+ * @param {QueueRun} before
  * @param {(action: QueueAction) => void} log
  * @returns {Promise<QueueRun | QueueEnd>}
  */
-async function step(deps, run, log) {
+async function step(deps, before, log) {
+	const run = keepEnded(deps, before);
 	const head = run.pipeline.line[0] ?? run.pipeline.search;
 	deps.beat(head?.integration ?? null);
 	const { action, slot } = nextQueueAction({
