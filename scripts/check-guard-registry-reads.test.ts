@@ -244,6 +244,37 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 		expect(r.json.warnings[0].detail).toMatch(/re-read the rule/);
 	});
 
+	it("follows a .sh program a hook runs by bash, through a variable or directly (#4730)", () => {
+		// .husky/commit-msg's shape: scanner="${ROOT:-$here/..}/scripts/x.sh" … bash "$scanner".
+		const root = build({
+			claude: region(
+				"- No commit closes an issue. **Enforced** (#138): `.husky/commit-msg` refuses a closing keyword.",
+			),
+			files: {
+				".husky/commit-msg": [
+					"#!/usr/bin/env sh",
+					'here="$(dirname "$0")"',
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'scanner="${ROOT:-$here/..}/scripts/check-closes.sh"',
+					'bash "$scanner" "$1" commit-msg',
+					'sh "$here/../scripts/check-subject.sh" "$1"',
+					"",
+				].join("\n"),
+				"scripts/check-closes.sh": "exit 0\n",
+				"scripts/check-subject.sh": "exit 0\n",
+			},
+		});
+		reviewIn(root);
+		for (const rel of ["scripts/check-closes.sh", "scripts/check-subject.sh"]) {
+			fs.writeFileSync(path.join(root, rel), "exit 1\n");
+			const r = run(root);
+			expect(r.json.warnings.map((w) => [w.kind, w.guard])).toEqual([
+				["STALE-PROSE", ".husky/commit-msg"],
+			]);
+			reviewIn(root);
+		}
+	});
+
 	it("survives a node call naming a file that is not there", () => {
 		const root = withDelegate();
 		fs.writeFileSync(
@@ -333,6 +364,20 @@ describe("a gate stack's digest stops at the gates it runs (#4456)", () => {
 		);
 
 		expect(staleRows(root)).toEqual([".husky/pre-commit"]);
+	});
+
+	it("follows a .sh gate run by bash no more than a node one (#4730)", () => {
+		const root = stack(declared);
+		fs.appendFileSync(
+			path.join(root, ".husky", "pre-commit"),
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+			'bash "${ROOT:-.}"/scripts/check-margin.sh || exit "$?"\n',
+		);
+		fs.writeFileSync(path.join(root, "scripts", "check-margin.sh"), "exit 0\n");
+		reviewIn(root);
+		fs.writeFileSync(path.join(root, "scripts", "check-margin.sh"), "exit 1\n");
+
+		expect(staleRows(root)).toEqual([]);
 	});
 
 	it("hashes a file its own header names, but not that file's libraries", () => {

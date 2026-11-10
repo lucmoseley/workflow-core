@@ -7,12 +7,15 @@
  *
  * Two engines: lineHeadMatches for a lazy line prefix ending at a keyword,
  * and segmentTailMatches for a head followed by a scan to the segment's end.
- * The two parsers are the node-run spellings lib/guard-reach.js follows to a
+ * The two parsers are the run spellings lib/guard-reach.js follows to a
  * guard's dependencies.
  */
 
-const NODE = "node";
-const JS = ".js";
+/** The commands a guard runs a program by: `bash` and `sh` since #4730. */
+const RUNNERS = ["node", "bash", "sh"];
+/** The suffixes a run's program ends in, all one length. */
+const SUFFIXES = [".js", ".sh"];
+const SUFFIX_LENGTH = 3;
 
 /** Where `^` matches under the `m` flag: the start, or after a line break. */
 const atLineStart = (/** @type {string} */ text, /** @type {number} */ i) =>
@@ -130,52 +133,61 @@ function lineHeadMatches(text, boundary, heads, tailAt) {
 	return out;
 }
 
-/** Past the `node\s+"?\$` at `at`, or -1 where it is not there. */
-function afterNodeDollar(/** @type {string} */ text, /** @type {number} */ at) {
-	if (!text.startsWith(NODE, at)) return -1;
-	const keywordEnd = at + NODE.length;
+/** Past the `<runner>\s+"?\$` at `at`, or -1 where it is not there. */
+function afterRunDollar(/** @type {string} */ text, /** @type {number} */ at) {
+	const runner = RUNNERS.find((r) => text.startsWith(r, at));
+	if (!runner) return -1;
+	const keywordEnd = at + runner.length;
 	let argStart = blankEnd(text, keywordEnd);
 	if (argStart === keywordEnd) return -1;
 	if (text[argStart] === '"') argStart++;
 	return text[argStart] === "$" ? argStart + 1 : -1;
 }
 
-/** Whether `afterNodeDollar` finds a `node` run anywhere in `text`, which
- * every match of the two parsers below opens with: most texts have none. */
-function hasNodeDollar(/** @type {string} */ text) {
-	for (let at = text.indexOf(NODE); at >= 0; at = text.indexOf(NODE, at + 1))
-		if (afterNodeDollar(text, at) >= 0) return true;
-	return false;
+/** Whether `afterRunDollar` finds a run anywhere in `text`, which every
+ * match of the two parsers below opens with: most texts have none. */
+function hasRunDollar(/** @type {string} */ text) {
+	return RUNNERS.some((runner) => {
+		for (
+			let at = text.indexOf(runner);
+			at >= 0;
+			at = text.indexOf(runner, at + 1)
+		)
+			if (afterRunDollar(text, at) >= 0) return true;
+		return false;
+	});
 }
 
 /**
  * The programs a shell text runs self-relatively: on each line, before any
- * `#`, a `node` that opens the line or follows one of `\s(|;&`, then blanks,
- * an optional `"` and a `$`, then the first `/<tail>.js` later on that line,
- * where `<tail>` opens with `[\w-]` and is the longest run of `[\w./-]`
- * characters ending in `.js`. The same matches as
- * `/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$[^\n]*?\/([\w-][\w./-]*\.js)/gm`,
+ * `#`, a `node`, `bash` or `sh` that opens the line or follows one of
+ * `\s(|;&`, then blanks, an optional `"` and a `$`, then the first `/<tail>`
+ * later on that line, where `<tail>` opens with `[\w-]` and is the longest
+ * run of `[\w./-]` characters ending in `.js` or `.sh`. The same matches as
+ * `/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))/gm`,
  * the prefix its group 1 and the value its group 2.
  * @param {string} text
- * @returns {{prefix: string, value: string}[]} each line's text before
- *   `node`, and the path after the `/`
+ * @returns {{prefix: string, value: string}[]} each line's text before the
+ *   runner, and the path after the `/`
  */
-function parseNodeRuns(text) {
-	if (!hasNodeDollar(text)) return [];
-	const js = lastMarkInRun(text, /[\w./-]/, JS);
+function parseProgramRuns(text) {
+	if (!hasRunDollar(text)) return [];
+	const marks = SUFFIXES.map((suffix) =>
+		lastMarkInRun(text, /[\w./-]/, suffix),
+	);
 	/** @param {number} slash */
 	const tailEnd = (slash) => {
 		const nameStart = slash + "/".length;
-		const lastJs = js[nameStart + 1] ?? -1;
+		const last = Math.max(...marks.map((m) => m[nameStart + 1] ?? -1));
 		return text[slash] === "/" &&
 			/[\w-]/.test(text[nameStart] ?? "") &&
-			lastJs >= 0
-			? lastJs + JS.length
+			last >= 0
+			? last + SUFFIX_LENGTH
 			: -1;
 	};
 	const nextTail = nextOnLine(text, tailEnd);
-	return lineHeadMatches(text, /[\s(|;&]/, [NODE], (tailStart) => {
-		const pathFrom = afterNodeDollar(text, tailStart);
+	return lineHeadMatches(text, /[\s(|;&]/, RUNNERS, (tailStart) => {
+		const pathFrom = afterRunDollar(text, tailStart);
 		const slash = pathFrom < 0 ? -1 : (nextTail[pathFrom] ?? -1);
 		if (slash < 0) return null;
 		const end = tailEnd(slash);
@@ -185,19 +197,19 @@ function parseNodeRuns(text) {
 
 /**
  * The variables a shell text runs as a program: on each line, before any
- * `#`, a `node` placed as parseNodeRuns' is, then blanks, an optional `"`, a
- * `$` and a name of `\w` characters, braced or not, followed by the text's
- * end or one of `"\s;|)`. The same matches as
- * `/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm`, the
- * prefix its group 1 and the value its group 2.
+ * `#`, a runner placed as parseProgramRuns' is, then blanks, an optional
+ * `"`, a `$` and a name of `\w` characters, braced or not, followed by the
+ * text's end or one of `"\s;|)`. The same matches as
+ * `/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm`,
+ * the prefix its group 1 and the value its group 2.
  * @param {string} text
- * @returns {{prefix: string, value: string}[]} each line's text before
- *   `node`, and the variable's name
+ * @returns {{prefix: string, value: string}[]} each line's text before the
+ *   runner, and the variable's name
  */
-function parseNodeVars(text) {
-	if (!hasNodeDollar(text)) return [];
-	return lineHeadMatches(text, /[\s(|;&]/, [NODE], (tailStart) => {
-		let nameStart = afterNodeDollar(text, tailStart);
+function parseProgramVars(text) {
+	if (!hasRunDollar(text)) return [];
+	return lineHeadMatches(text, /[\s(|;&]/, RUNNERS, (tailStart) => {
+		let nameStart = afterRunDollar(text, tailStart);
 		if (nameStart < 0) return null;
 		if (text[nameStart] === "{") nameStart++;
 		let nameEnd = nameStart;
@@ -263,7 +275,7 @@ function nextStop(
 }
 
 module.exports = {
-	parseNodeRuns,
-	parseNodeVars,
+	parseProgramRuns,
+	parseProgramVars,
 	segmentTailMatches,
 };

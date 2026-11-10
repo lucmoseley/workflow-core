@@ -202,12 +202,12 @@ describe("require edges", () => {
 	});
 });
 
-describe("node-run edges", () => {
+describe("run edges", () => {
 	const guard = (body: string, opts = {}) =>
 		targets(
 			"scripts/guard-x.sh",
 			`#!/bin/bash\nhere="$(dirname "$0")"\n${body}\n`,
-			"node-run",
+			"run",
 			opts,
 		);
 
@@ -257,6 +257,24 @@ describe("node-run edges", () => {
 	it("skips a variable's path that node never runs", () => {
 		expect(guard('hint="$here/issue-body.js"\necho "Use: $hint"')).toEqual([]);
 	});
+
+	it("reads a .sh run by bash or sh, directly and through a variable (#4730)", () => {
+		expect(
+			guard(
+				[
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/closes.sh"',
+					'bash "$scanner" "$1" commit-msg',
+					'sh "$here/trailer.sh"',
+				].join("\n"),
+				{ isFile: inTree("scripts/closes.sh") },
+			),
+		).toEqual(["scripts/trailer.sh", "scripts/closes.sh"]);
+	});
+
+	it("skips a .sh path that no runner runs", () => {
+		expect(guard('lib="$here/lib/x.sh"\n. "$lib"')).toEqual([]);
+	});
 });
 
 describe("launch edges (#4567)", () => {
@@ -270,7 +288,7 @@ describe("launch edges (#4567)", () => {
 			},
 		);
 
-	it("reads the spellings node-run declines: bash, sh, exec, command position, a .sh target and a root-relative path", () => {
+	it("reads the spellings run declines: bash, sh, exec, command position, a .sh target and a root-relative path", () => {
 		expect(
 			launches(
 				[

@@ -15,7 +15,7 @@
 
 const path = require("node:path");
 const { MANIFEST_REL, coresOf, hostOf } = require("./guard-cores.js");
-const { parseNodeRuns, parseNodeVars } = require("./line-scan.js");
+const { parseProgramRuns, parseProgramVars } = require("./line-scan.js");
 const { requiredGroup } = require("./regex-group.js");
 const { shellOperands } = require("./shell-operands.js");
 const {
@@ -30,7 +30,7 @@ const { isUnder } = require("./is-under.js");
 const DISPATCH_KIT = "scripts/lib/guard-dispatch.js";
 
 /**
- * @typedef {"source" | "require" | "node-run" | "launch" | "manifest-core" | "host" | "rule-file"} EdgeKind
+ * @typedef {"source" | "require" | "run" | "launch" | "manifest-core" | "host" | "rule-file"} EdgeKind
  * @typedef {{ kind: EdgeKind, to: string, bindings?: string[] }} Edge `to` is
  *   a path from the repo root; `bindings` are the names a destructuring
  *   require binds
@@ -47,7 +47,7 @@ const DISPATCH_KIT = "scripts/lib/guard-dispatch.js";
 const ALL_KINDS = /** @type {EdgeKind[]} */ ([
 	"source",
 	"require",
-	"node-run",
+	"run",
 	"launch",
 	"manifest-core",
 	"host",
@@ -72,11 +72,11 @@ const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
 
 /*
  * A program's path assigned to a variable the guard then runs (#2487),
- * `lib="$here/lib/x.js"` and then `node "$lib"`. Self-relative, as
- * parseNodeRuns' path is.
+ * `lib="$here/lib/x.js"` and then `node "$lib"`, or a `.sh` run by `bash`
+ * or `sh` (#4730). Self-relative, as parseProgramRuns' path is.
  */
 const VAR_PATH_RE =
-	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w./-]*\.js)"?[ \t]*(?:#[^\n]*)?$/gm;
+	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))"?[ \t]*(?:#[^\n]*)?$/gm;
 
 /**
  * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
@@ -97,13 +97,13 @@ const LAUNCH_RE =
  *   yield nothing. A `#` comment is skipped.
  * - `require`: each relative require, `.js` added where no extension is
  *   spelt (#3795). One on a `//` line or a `*` comment line is skipped.
- * - `node-run`: each program a shell guard runs self-relatively, `node
- *   "$here/x.js"` or through a variable (#2487), resolved against its own
- *   directory, then the root.
+ * - `run`: each program a shell guard runs self-relatively by `node`,
+ *   `bash` or `sh` (#4730), `node "$here/x.js"` or through a variable
+ *   (#2487), resolved against its own directory, then the root.
  * - `launch`: each `.js` or `.sh` a shell file runs by `node`, `bash`, `sh`,
  *   `exec` or in command position, self-relatively or from the root, sorted
- *   (#4567). Wider than `node-run`, which the registry digest keeps to the
- *   self-relative `node` runs, as a bare `node scripts/x.js` is how guards
+ *   (#4567). Wider than `run`, which the registry digest keeps to the
+ *   self-relative runs, as a bare `node scripts/x.js` is how guards
  *   quote advice back (mantahostels#358). Only a path `isFile` holds, other
  *   than `rel` itself, is an edge.
  * - `manifest-core`: the dispatch kit's manifest and every core and host it
@@ -142,7 +142,7 @@ function parseEdges(rel, text, opts = {}) {
 const READERS = {
 	source: ({ dir, text, isFile }) => parseSourced(dir, text, isFile),
 	require: ({ dir, text }) => parseRequires(dir, text),
-	"node-run": ({ dir, text, isFile }) => parseRuns(dir, text, isFile),
+	run: ({ dir, text, isFile }) => parseRuns(dir, text, isFile),
 	launch: ({ rel, dir, text, isFile }) => parseLaunches(rel, dir, text, isFile),
 	"manifest-core": ({ rel, manifest }) => {
 		const read = rel === DISPATCH_KIT ? manifest() : null;
@@ -296,8 +296,8 @@ function parseRuns(dir, text, isFile) {
 		]);
 	}
 	const tails = [
-		...live(parseNodeRuns(text)).map((m) => m.value),
-		...live(parseNodeVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
+		...live(parseProgramRuns(text)).map((m) => m.value),
+		...live(parseProgramVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
 	];
 	/* The root reading is offered only for a scripts/ tail, the one a run
 	 * from the root can name: elsewhere it could only displace the sibling,

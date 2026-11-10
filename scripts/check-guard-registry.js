@@ -1840,9 +1840,10 @@ function gist(text) {
 // --- staleness anchors ------------------------------------------------------
 
 /*
- * A shell guard can reach its logic by RUNNING a node program rather than
- * sourcing it (mantahostels#358). lib/guard-reach.js follows only a
- * self-relative run, `node "$here/x.js"` or through a variable (#2487): a hook
+ * A shell guard can reach its logic by RUNNING a program rather than
+ * sourcing it (mantahostels#358), by `node`, `bash` or `sh` (#4730).
+ * lib/guard-reach.js follows only a self-relative run, `node "$here/x.js"`
+ * or through a variable (#2487): a hook
  * runs from an arbitrary cwd, so a guard that genuinely delegates must locate
  * its sibling from its own path, and following a bare `node scripts/x.js`
  * would tie a helper's internals to rules about something else.
@@ -1921,14 +1922,12 @@ function parseSourcedBy(rel, text, base) {
 		kinds: DEP_KINDS,
 	}).filter(isDep);
 	const deps = [...new Set(kept.map((e) => e.to))];
-	const linked = new Set(
-		kept.filter((e) => e.kind !== "node-run").map((e) => e.to),
-	);
+	const linked = new Set(kept.filter((e) => e.kind !== "run").map((e) => e.to));
 	return {
 		deps,
 		runs: new Set(
 			kept
-				.filter((e) => e.kind === "node-run" && !linked.has(e.to))
+				.filter((e) => e.kind === "run" && !linked.has(e.to))
 				.map((e) => e.to),
 		),
 	};
@@ -1938,7 +1937,7 @@ function parseSourcedBy(rel, text, base) {
 const DEP_KINDS = /** @type {import("./lib/guard-reach.js").EdgeKind[]} */ ([
 	"source",
 	"require",
-	"node-run",
+	"run",
 	"manifest-core",
 ]);
 
@@ -1967,7 +1966,7 @@ function isDep(edge) {
 	if (edge.kind === "require")
 		return edge.to.startsWith("scripts/lib/") && edge.to.endsWith(".js");
 	if (edge.kind === "source") return edge.to.split("/").includes("lib");
-	return edge.kind !== "node-run" || edge.to.startsWith("scripts/");
+	return edge.kind !== "run" || edge.to.startsWith("scripts/");
 }
 
 /*
