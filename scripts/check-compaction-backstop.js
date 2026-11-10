@@ -29,6 +29,7 @@
  */
 
 const { now, runCheck } = require("./lib/check");
+const { scriptPath } = require("./lib/script-path.js");
 const { ghApiSlurp, parseErrLine } = require("./lib/gh.js");
 const { execGit } = require("./lib/git.js");
 const { citedIssues } = require("./lib/cited-issues.js");
@@ -197,7 +198,7 @@ const fixed = (x) => (Number.isInteger(x) ? String(x) : x.toFixed(2));
 
 runCheck({
 	name: "compaction-backstop",
-	usage: "node scripts/check-compaction-backstop.js [--days <n>] [--json]",
+	usage: `node ${scriptPath("check-compaction-backstop.js")} [--days <n>] [--json]`,
 	valueFlags: ["--days"],
 	run(ctx) {
 		const days = ctx.numberValue("--days", DEFAULT_DAYS, "positive");

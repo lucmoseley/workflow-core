@@ -47,6 +47,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isListedLive, listedSessionIds } = require("./lib/agent-liveness.js");
@@ -62,8 +63,7 @@ const { reviewSuffix } = require("./lib/review-suffix.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { relativeUnder } = require("./lib/is-under.js");
 
-const USAGE =
-	"usage: node scripts/write-review-marker.js --base <rev> --findings <n> [--no-spec] [--skipped deletion|rename] [--tier escalated|mission-critical --areas <a,b>] [--paths <p,q> [--patch <file>]]";
+const USAGE = `usage: node ${scriptPath("write-review-marker.js")} --base <rev> --findings <n> [--no-spec] [--skipped deletion|rename] [--tier escalated|mission-critical --areas <a,b>] [--paths <p,q> [--patch <file>]]`;
 
 const FLAGS = /** @type {const} */ ({
 	"--base": "value",

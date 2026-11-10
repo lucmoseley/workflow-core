@@ -35,14 +35,14 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { sessionDirs } = require("./lib/arbiter-core.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 
-const USAGE =
-	"usage: node scripts/divergence-report.js [--since <N>d|<ISO date>] [--rows] [--json]";
+const USAGE = `usage: node ${scriptPath("divergence-report.js")} [--since <N>d|<ISO date>] [--rows] [--json]`;
 
 /** The columns record-divergence.js writes, in order. */
 const FIELDS = [

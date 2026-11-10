@@ -72,6 +72,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
 const { configDirs } = require("./lib/arbiter-store");
@@ -111,8 +112,7 @@ const { readSeatTranscripts } = require("./lib/project-dirs");
 const { firstDrafts, MIN_CALLS } = require("./lib/round-check");
 const { takesLabel } = require("./lib/takes-label");
 
-const USAGE =
-	'usage: node scripts/report-round-check-reading.js [--dry-run] [--classes <file>] [--config-dir <dir>]...\n  --dry-run  print the reading, and file nothing even at the reading point\n  --classes  a JSON object of listed replies\' classes, {"<session>@<reply time>": "<a-f>"}';
+const USAGE = `usage: node ${scriptPath("report-round-check-reading.js")} [--dry-run] [--classes <file>] [--config-dir <dir>]...\n  --dry-run  print the reading, and file nothing even at the reading point\n  --classes  a JSON object of listed replies' classes, {"<session>@<reply time>": "<a-f>"}`;
 
 const TITLE =
 	"Round-check reading: has sending under-researched rounds back once cut the founder's send-backs?";
@@ -158,7 +158,9 @@ const CLASSES = ["a", "b", "c", "d", "e", "f"];
 
 /* Printed under a file that will not read. */
 const REMEDY =
-	"Correct the file named above — `git restore` it where it is tracked, fix the line where it is a log or a --classes file — then re-run `node scripts/report-round-check-reading.js --dry-run`.";
+	"Correct the file named above — `git restore` it where it is tracked, fix the line where it is a log or a --classes file — then re-run `node " +
+	scriptPath("report-round-check-reading.js") +
+	" --dry-run`.";
 const SENT_BACK = new Set(["b", "c"]);
 
 /**
@@ -546,7 +548,9 @@ function repoPool(rounds, { base, repos }, side) {
 }
 
 const CLASS_STEP =
-	'1. Class each listed reply with the six send-back classes (#1682): (a) answered; (b) asked for more checks or research; (c) challenged or overturned a premise; (d) asked for a clarification only; (e) other (admin, `/compact`, "resume", information, a new topic); (f) rejected or rewrote a draft on taste, with no premise disputed. A reply that answers some blocks and sends one back is (b) or (c), and a critique naming a wrong fact or rule is (c), not (f). Write them to a JSON file under `.claude/tmp/` as `{"<session>@<reply time>": "<class>"}`, and run `node scripts/report-round-check-reading.js --dry-run --classes <file>` for the decided lines, r and the flip.';
+	'1. Class each listed reply with the six send-back classes (#1682): (a) answered; (b) asked for more checks or research; (c) challenged or overturned a premise; (d) asked for a clarification only; (e) other (admin, `/compact`, "resume", information, a new topic); (f) rejected or rewrote a draft on taste, with no premise disputed. A reply that answers some blocks and sends one back is (b) or (c), and a critique naming a wrong fact or rule is (c), not (f). Write them to a JSON file under `.claude/tmp/` as `{"<session>@<reply time>": "<class>"}`, and run `node ' +
+	scriptPath("report-round-check-reading.js") +
+	" --dry-run --classes <file>` for the decided lines, r and the flip.";
 
 /**
  * @param {string} intro
@@ -615,7 +619,7 @@ const READINGS = [
 			label: takesLabel("wayfinder"),
 			/* Named outside every marker sweep family, as the round-check log is. */
 			record: ".round-check-reading-filed",
-			script: "node scripts/report-round-check-reading.js",
+			script: `node ${scriptPath("report-round-check-reading.js")}`,
 			buildIssueBody: buildReadingBody(
 				"The reading of the under-researched-round check, filed once by `scripts/report-round-check-reading.js` at its reading point (spec #1701; rulings #1684 and #1691). Closing this issue never re-files it.",
 				[
@@ -649,7 +653,7 @@ const READINGS = [
 			title: SECOND_TITLE,
 			label: takesLabel("wayfinder"),
 			record: ".round-check-reading-2-filed",
-			script: "node scripts/report-round-check-reading.js",
+			script: `node ${scriptPath("report-round-check-reading.js")}`,
 			buildIssueBody: buildReadingBody(
 				`The second reading of the under-researched-round check, filed once by \`scripts/report-round-check-reading.js\` at ${SECOND_TARGET} rated refused-then-answered rounds (ruled at #3978 Q1 (A); the first reading is #3978). Closing this issue never re-files it.`,
 				[

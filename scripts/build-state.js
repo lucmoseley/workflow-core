@@ -13,6 +13,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { buildStateFile, newBuildState } = require("./lib/build-state.js");
@@ -22,7 +23,7 @@ const { now } = require("./lib/check.js");
 const { COMPACTIONS_MARKER } = require("./lib/compaction-set.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
-const USAGE = "usage: node scripts/build-state.js <n> [--spec <parent>]";
+const USAGE = `usage: node ${scriptPath("build-state.js")} <n> [--spec <parent>]`;
 
 /** @param {string[]} argv */
 function main(argv) {

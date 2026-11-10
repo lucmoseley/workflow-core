@@ -71,6 +71,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { ghApiSlurp, ghJson, parseErrLine } = require("./lib/gh");
 const {
@@ -92,8 +93,7 @@ const { readPatchIds } = require("./lib/patch-ids.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
 
-const USAGE =
-	"usage: node scripts/spec-commits.js <spec> [--since <sha>] [--json]";
+const USAGE = `usage: node ${scriptPath("spec-commits.js")} <spec> [--since <sha>] [--json]`;
 
 const GENERATED = new Set(["generated-only", "derived"]);
 /* The whole history's log was 4.6 MB at 5,560 commits (8 Oct 2026); node's

@@ -57,19 +57,31 @@ describe("messages a shipped script prints", () => {
 		.readdirSync(__dirname)
 		.filter((f) => /\.(js|sh)$/.test(f));
 
+	/* A Python docstring is the source file's own documentation, read as a
+	 * comment is; a script that prints one spells its path at run time. */
+	function docstringLines(lines: string[]) {
+		const inside = new Set<number>();
+		let open = false;
+		lines.forEach((line, i) => {
+			const toggles = (line.split('"""').length - 1) % 2 === 1;
+			if (open || toggles) inside.add(i);
+			if (toggles) open = !open;
+		});
+		return inside;
+	}
+
 	function readBareLines(file: string, shaped: (line: string) => boolean) {
 		const found: string[] = [];
-		fs.readFileSync(file, "utf8")
-			.split("\n")
-			.forEach((line, i) => {
-				if (COMMENT_LINE.test(line)) return;
-				if (/require\(|execFileSync|spawnSync/.test(line)) return;
-				if (exempt.some((re) => re.test(line))) return;
-				if (shaped(line))
-					found.push(
-						`${path.relative(SCRIPTS, file)}:${i + 1}: ${line.trim()}`,
-					);
-			});
+		const lines = fs.readFileSync(file, "utf8").split("\n");
+		const docstring = file.endsWith(".py") ? docstringLines(lines) : new Set();
+		lines.forEach((line, i) => {
+			if (docstring.has(i)) return;
+			if (COMMENT_LINE.test(line)) return;
+			if (/require\(|execFileSync|spawnSync/.test(line)) return;
+			if (exempt.some((re) => re.test(line))) return;
+			if (shaped(line))
+				found.push(`${path.relative(SCRIPTS, file)}:${i + 1}: ${line.trim()}`);
+		});
 		return found;
 	}
 
@@ -127,38 +139,30 @@ describe("messages a shipped script prints", () => {
 	});
 
 	/*
-	 * #4285: every top-level script a shipped git hook runs from the plugin
-	 * root. A plain
-	 * pointer stays unread here: these name source files to read, not run.
+	 * #4285, #4705: every top-level script the plugin ships — the ones a
+	 * shipped git hook runs from the plugin root and the CLIs a session runs by
+	 * hand. A plain pointer stays unread here: these name source files to read,
+	 * not run.
 	 */
-	const huskyDir = path.join(SCRIPTS, "..", ".husky");
-	const gitHookRun = [
-		...new Set(
-			fs
-				.readdirSync(huskyDir)
-				.filter((f) => isShipped(path.join(SCRIPTS, ".."), `.husky/${f}`))
-				.map((f) => path.join(huskyDir, f))
-				/* husky's own `.husky/_/`, where installed, is no hook. */
-				.filter((file) => fs.statSync(file).isFile())
-				.flatMap((file) => [
-					...fs
-						.readFileSync(file, "utf8")
-						.matchAll(
-							/WFC_PLUGIN_ROOT(?::-[^}]*)?\}?"?\/(scripts\/[\w.-]+\.(?:js|sh))/g,
-						),
-				])
-				.map((m) => m[1] ?? ""),
-		),
-	];
+	const shippedTopLevel = fs
+		.readdirSync(SCRIPTS)
+		.filter(
+			(f) =>
+				/\.(js|sh|py)$/.test(f) &&
+				fs.statSync(path.join(SCRIPTS, f)).isFile() &&
+				isShipped(path.join(SCRIPTS, ".."), `scripts/${f}`),
+		)
+		.map((f) => `scripts/${f}`);
 
-	it("reads the scripts the shipped git hooks run", () => {
-		expect(gitHookRun).toContain("scripts/report-new-shared-faults.js");
-		expect(gitHookRun.length).toBeGreaterThan(ScriptListFloor);
+	it("reads every shipped top-level script", () => {
+		expect(shippedTopLevel).toContain("scripts/report-new-shared-faults.js");
+		expect(shippedTopLevel).toContain("scripts/claim-issue.js");
+		expect(shippedTopLevel.length).toBeGreaterThan(ScriptListFloor);
 	});
 
-	it("name no script bare in any script a shipped git hook runs", () => {
+	it("name no script bare in any shipped top-level script", () => {
 		expect(
-			bareLinesPastResolver(gitHookRun, (l) => COMMAND_SHAPED.test(l)),
+			bareLinesPastResolver(shippedTopLevel, (l) => COMMAND_SHAPED.test(l)),
 		).toEqual([]);
 	});
 

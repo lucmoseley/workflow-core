@@ -57,6 +57,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
 const { configDirs } = require("./lib/arbiter-store");
@@ -92,8 +93,7 @@ const { CLOSE_RIVALS_PREFIX, limbOf } = require("./lib/priced-options-limbs");
 const { readSeatTranscripts } = require("./lib/project-dirs");
 const { takesLabel } = require("./lib/takes-label");
 
-const USAGE =
-	"usage: node scripts/report-close-check-reading.js [--dry-run] [--config-dir <dir>]...\n  --dry-run  print the reading, and file nothing even at the reading point";
+const USAGE = `usage: node ${scriptPath("report-close-check-reading.js")} [--dry-run] [--config-dir <dir>]...\n  --dry-run  print the reading, and file nothing even at the reading point`;
 
 const TITLE =
 	"Close-check reading: has refusing close questions once stopped the separation prompts?";
@@ -187,7 +187,7 @@ const { readFiledAs, publish, readDaily } = buildFiler({
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".close-check-reading-filed",
-	script: "node scripts/report-close-check-reading.js",
+	script: `node ${scriptPath("report-close-check-reading.js")}`,
 	buildIssueBody: (reading) =>
 		[
 			"The week-one reading of the close-rivals check, filed once by `scripts/report-close-check-reading.js` at its reading point (spec #1091; rulings #1061, #1067 and #1068). Closing this issue never re-files it.",

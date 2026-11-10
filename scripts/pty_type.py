@@ -11,7 +11,7 @@ session running either way. It drives a TUI by keys, so a change to that TUI
 can break it: the caller checks the session's timeline for the typed line.
 
 USAGE
-  python3 scripts/pty_type.py <text> -- <command> [args...]
+  python3 {script} <text> -- <command> [args...]
 
 Exit 0 once the text and Enter are written; 1 where the command drew nothing
 or exited first; 2 on a bad command line.
@@ -65,7 +65,8 @@ def drain(fd, quiet, limit):
 
 def main(argv):
     if len(argv) < 3 or argv[1] != "--":
-        sys.stderr.write(__doc__.split("USAGE\n")[1].split("\n\n")[0] + "\n")
+        usage = __doc__.split("USAGE\n")[1].split("\n\n")[0]
+        sys.stderr.write(usage.format(script=sys.argv[0]) + "\n")
         return 2
     text, cmd = argv[0], argv[2:]
     pid, fd = pty.fork()

@@ -113,7 +113,7 @@ const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { STANDARDS_DOCS } = require("./lib/primitives-table.js");
-const { coreRoot } = require("./lib/script-path.js");
+const { coreRoot, scriptPath } = require("./lib/script-path.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readLedger } = require("./lib/delegated-decision.js");
@@ -144,7 +144,7 @@ const { REVIEW_LABEL, readReviewIssues } = require("./lib/review-issues.js");
 const { freshReads, reviewReads } = require("./lib/review-reads.js");
 const { URGENT_LABEL } = require("./lib/urgent-label.js");
 
-const USAGE = "usage: node scripts/file-morning-review.js [--dry-run]";
+const USAGE = `usage: node ${scriptPath("file-morning-review.js")} [--dry-run]`;
 const FILING_LOCK = ".morning-review-filing.pid";
 /* Untraced: the count line runs every enforcing check over the whole tree. */
 const COUNT_TIMEOUT_MS = 5 * 60 * 1000;

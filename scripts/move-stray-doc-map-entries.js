@@ -20,6 +20,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { figureHeadings, idNumber, sectionBRange } = require("./lib/doc-map");
@@ -30,7 +31,7 @@ const { figureHeadings, idNumber, sectionBRange } = require("./lib/doc-map");
 const say = (/** @type {string} */ text) => writeFd(2, `${text}\n`);
 
 const { positionals } = parseOrExit(process.argv.slice(2), {
-	usage: "Usage: node scripts/move-stray-doc-map-entries.js [<doc-map.md>]",
+	usage: `Usage: node ${scriptPath("move-stray-doc-map-entries.js")} [<doc-map.md>]`,
 	max: 1,
 });
 const file = positionals[0] || "docs/doc-map.md";
@@ -120,5 +121,5 @@ say(
 );
 say(
 	"Now refresh the budget report:\n" +
-		"  node scripts/report-doc-map-budget.js",
+		`  node ${scriptPath("report-doc-map-budget.js")}`,
 );

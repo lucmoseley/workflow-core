@@ -42,6 +42,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { LOW_TOP } = require("./lib/close-rivals");
 const { parseOrExit } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
@@ -67,8 +68,7 @@ const { CLOSE_CHECK_LOG } = require("./lib/priced-options-limbs");
 const { logPath } = require("./lib/refusal-log");
 const { takesLabel } = require("./lib/takes-label");
 
-const USAGE =
-	"usage: node scripts/report-flip-line-reading.js [--dry-run]\n  --dry-run  print the reading, and file nothing even at the reading point";
+const USAGE = `usage: node ${scriptPath("report-flip-line-reading.js")} [--dry-run]\n  --dry-run  print the reading, and file nothing even at the reading point`;
 
 const DAY_MS = 86_400_000;
 const QUORUM = 3;
@@ -100,7 +100,7 @@ const { readFiledAs, publish, readDaily } = buildFiler({
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".flip-line-reading-filed",
-	script: "node scripts/report-flip-line-reading.js",
+	script: `node ${scriptPath("report-flip-line-reading.js")}`,
 	buildIssueBody: (reading) =>
 		[
 			`The reading of the low-top test's flip line (#2228), filed once by \`scripts/report-flip-line-reading.js\` at its reading point (#2331, spec #2260). Closing this issue never re-files it.`,

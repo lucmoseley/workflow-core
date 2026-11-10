@@ -13,6 +13,7 @@
  */
 
 const { spawn } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { buildErrorText } = require("./lib/caught.js");
@@ -39,7 +40,7 @@ const {
 } = require("./lib/quiet-bench-runs.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const USAGE = "usage: node scripts/quiet-bench-run.js run | rows";
+const USAGE = `usage: node ${scriptPath("quiet-bench-run.js")} run | rows`;
 
 /* A guess: the shortest row is minutes long. */
 const ROW_POLL_MS = 30 * 1000;

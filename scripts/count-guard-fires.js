@@ -37,6 +37,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const {
@@ -65,8 +66,7 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage:
-		"Usage: node scripts/count-guard-fires.js [--dir <path>] [--json] [--mentions] [--since <date>]",
+	usage: `Usage: node ${scriptPath("count-guard-fires.js")} [--dir <path>] [--json] [--mentions] [--since <date>]`,
 	flags: {
 		"--dir": "value",
 		"--json": "boolean",

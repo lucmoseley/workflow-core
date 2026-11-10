@@ -38,13 +38,14 @@ const {
 	scriptIo,
 } = require("./lib/tracker-ops.js");
 const { parseOrExit } = require("./lib/cli-args");
+const { scriptPath } = require("./lib/script-path.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { parseErrLine } = require("./lib/gh.js");
 const { PARKED_LABEL, setParked } = require("./lib/parked.js");
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("claim-issue");
-const USAGE = "usage: node scripts/claim-issue.js <issue-number>";
+const USAGE = `usage: node ${scriptPath("claim-issue.js")} <issue-number>`;
 
 /** @param {import("./lib/tracker-ops.js").Issue} i */
 const buildLabelLine = (i) =>
