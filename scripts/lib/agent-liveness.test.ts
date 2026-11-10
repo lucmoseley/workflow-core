@@ -201,22 +201,14 @@ describe("the oracle times out (mantahostels#1900)", () => {
 	});
 
 	it("leaves no child of the oracle behind it, on any seat's read (#2665)", async () => {
-		// An oracle that backgrounds children, then waits on them. A guess: caps
-		// roomy enough that each read starts its child under load before its cap.
-		vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", "1000");
-		vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", "2000");
 		const seat = path.join(dir, "seat-a");
 		fs.mkdirSync(seat);
 		vi.stubEnv("WFC_CLAUDE_CONFIG_A", seat);
 		vi.stubEnv("WFC_CLAUDE_CONFIG_B", path.join(dir, "no-b"));
 		vi.stubEnv("WFC_CLAUDE_CONFIG_C", path.join(dir, "no-c"));
 		const pids = path.join(dir, "pids");
+		// An oracle that backgrounds two children, logging each pid, then waits.
 		fakeClaude({ hangsWithChildren: pids });
-		expect(liveness.listedAgents().why).toContain("ETIMEDOUT");
-		const children = fs.readFileSync(pids, "utf8").trim().split("\n");
-		// Two children a read, two seats a call, and two calls: the first and
-		// its one retry.
-		expect(children).toHaveLength(8);
 		const running = (pid: string) => {
 			try {
 				return !/\) [ZX] /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
@@ -224,11 +216,31 @@ describe("the oracle times out (mantahostels#1900)", () => {
 				return false;
 			}
 		};
-		// §X9: SIGKILL is delivered asynchronously, so the reap is polled for —
-		// up to 1 s, untraced: far past a kill's delivery on an idle machine.
-		for (let i = 0; i < 20 && children.some(running); i++)
-			await new Promise((r) => setTimeout(r, 50));
-		expect(children.filter(running)).toEqual([]);
+		// Two children a read, two seats a call, and two calls: the first and
+		// its one retry.
+		const everyRead = 8;
+		// §X9: the reap follows a real process timeout. The caps only need to
+		// outlast the fake's start, so a round whose fake started late, logging
+		// fewer pids, is run again on doubled caps rather than failed; every
+		// child any round logged must still be reaped.
+		let children: string[] = [];
+		for (let capMs = 1000; children.length < everyRead; capMs *= 2) {
+			if (capMs > 8000)
+				throw new Error("the fake never started all its children inside 8 s");
+			fs.rmSync(pids, { force: true });
+			vi.stubEnv("WFC_ORACLE_TIMEOUT_MS", String(capMs));
+			vi.stubEnv("WFC_ORACLE_RETRY_TIMEOUT_MS", String(capMs * 2));
+			expect(liveness.listedAgents().why).toContain("ETIMEDOUT");
+			children = fs.existsSync(pids)
+				? fs.readFileSync(pids, "utf8").trim().split("\n").filter(Boolean)
+				: [];
+			// §X9: SIGKILL is delivered asynchronously, so the reap is polled for —
+			// up to 1 s, untraced: far past a kill's delivery on an idle machine.
+			for (let i = 0; i < 20 && children.some(running); i++)
+				await new Promise((r) => setTimeout(r, 50));
+			expect(children.filter(running)).toEqual([]);
+		}
+		expect(children).toHaveLength(everyRead);
 	});
 
 	it("falls back to the default cap when the knob is garbled", () => {
