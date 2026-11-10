@@ -120,8 +120,9 @@ it("leaves one the founder typed into since its stop alone, and says why once", 
 	]);
 });
 
-it("leaves one alone where its transcript cannot tell whether the founder typed", () => {
-	const l = loop({ hasFounderTypedSinceStop: () => null });
+it("leaves one alone while its transcript cannot tell whether the founder typed, then resumes it once it can", () => {
+	let read: boolean | null = null;
+	const l = loop({ hasFounderTypedSinceStop: () => read });
 	l.tick(NOW);
 	l.tick(NOW + 60 * MIN);
 	expect(typed(l.calls)).toBe(0);
@@ -129,8 +130,11 @@ it("leaves one alone where its transcript cannot tell whether the founder typed"
 	expect(
 		logs(l.calls).filter((s) => s.startsWith(`leaving ${NAME} alone`)),
 	).toEqual([
-		`leaving ${NAME} alone: its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
+		`leaving ${NAME} alone while its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
 	]);
+	read = false;
+	l.tick(NOW + 61 * MIN);
+	expect(typed(l.calls)).toBe(1);
 });
 
 it("holds a due resume back while the network is down, no try spent, then types once it is up", () => {

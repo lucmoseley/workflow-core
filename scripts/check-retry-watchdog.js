@@ -148,7 +148,7 @@ runCheck({
 		return {
 			okLine:
 				unchecked.length > 0
-					? `${unchecked[0]}; the other half carries ${Object.keys(WATCHDOG_ENV).join(" and ")}`
+					? `the checked half carries ${Object.keys(WATCHDOG_ENV).join(" and ")}`
 					: `${settingsPath} and ${file} both carry ${Object.keys(WATCHDOG_ENV).join(" and ")}`,
 			noun: "retry-watchdog fault(s)",
 		};
