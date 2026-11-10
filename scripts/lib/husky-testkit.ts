@@ -5,6 +5,10 @@
  * gitignored and exists only in the shared checkout, so a fixture copying it
  * fails in every linked worktree (#4360).
  *
+ * Importing it unsets `HUSKY` for every case in the importing file, so build
+ * the shim inside a case: from a `beforeAll` husky skips the install and
+ * `shimDir` throws.
+ *
  * FOR TESTS ONLY.
  */
 
