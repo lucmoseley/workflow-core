@@ -1366,7 +1366,7 @@ describe("the ticked set and the mode (#3862)", () => {
 		).toBeNull();
 	});
 
-	it("re-arms a repeat --away, so the prompt behind the ask reads as no return", async () => {
+	it("clears a repeat --away's absent read, so his next prompt earns no reminder", async () => {
 		await run("set", "--away");
 		const control = readControl();
 		const { since } = control.away;

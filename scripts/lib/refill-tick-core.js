@@ -9,8 +9,8 @@
  * boot's kills, skips the block and limit acts (SKIPPED_LAUNCH_ACTS), and
  * stops at its decision.
  *
- * A TICK: read founder presence, and in away mode write what it changes under
- * the control lock (#2522), untick each repo its owner opted out (#4188), reap,
+ * A TICK: read founder presence, and in away mode record its first absent read
+ * under the control lock (#4846), untick each repo its owner opted out (#4188), reap,
  * take the quiet bench route's step (lib/quiet-bench-tick.js, #3852), settle
  * what a kill before the last tick's write left out of the state (#4180), stop
  * each job that never started, tend the served checkouts (their landing queue,
@@ -43,7 +43,7 @@ const {
 } = require("./refill-boot.js");
 const {
 	actsRead,
-	awayChangeOf,
+	isFirstAbsentRead,
 	decideTick,
 	isLaunchBarred,
 	liveLaunchHold,
@@ -53,7 +53,6 @@ const {
 	unprovenRoom,
 } = require("./refill-decide.js");
 const {
-	controlInMode,
 	controlWithoutOptedOut,
 	judgedLaunches,
 	landingRoots,
@@ -80,8 +79,8 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
 /** @typedef {import("./refill-loop.js").FrontierRead} FrontierRead */
 
 /**
- * The control this tick's read of the founder leaves (awayChangeOf), null where
- * it changes nothing.
+ * The control this tick's read of the founder leaves (isFirstAbsentRead), null
+ * where it changes nothing.
  * @param {Control} control
  * @param {number|null} lastPromptAt
  * @param {number} now
@@ -89,15 +88,13 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
  */
 function controlAfterPresence(control, lastPromptAt, now) {
 	const { away } = control;
-	const change = awayChangeOf(
+	return isFirstAbsentRead(
 		{ mode: control.scope.mode, ...(away ? { away } : {}) },
 		lastPromptAt,
 		now,
-	);
-	if (change === null) return null;
-	return change === "return"
-		? controlInMode(control, "normal", now)
-		: withAbsentRead(control, true, now);
+	)
+		? withAbsentRead(control, true, now)
+		: null;
 }
 
 /**
@@ -350,13 +347,8 @@ const settleAwayMode = (io, control, { dryRun, lastPromptAt, now }) =>
 		(c) => controlAfterPresence(c, lastPromptAt, now),
 		{
 			dryRun,
-			what: "away mode's change",
-			said: (write) => {
-				if (write.scope.mode === "normal")
-					io.log(
-						`mode normal: the founder is back, a prompt typed at ${new Date(lastPromptAt ?? now).toISOString()} after a tick read him absent`,
-					);
-			},
+			what: "away mode's absent read",
+			said: () => undefined,
 		},
 	);
 

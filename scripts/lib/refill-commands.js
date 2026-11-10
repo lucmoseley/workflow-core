@@ -481,8 +481,8 @@ function buildQuietBenchChange(control, on) {
 
 /**
  * Only the mode changed. A repeat `--away` keeps the switch's time but clears
- * its absent read, so a tick that has yet to see the prompt behind this ask does
- * not take that prompt for his return (#3870).
+ * its absent read, so his next prompt earns no reminder of a mode he has just
+ * asked for (#4846).
  * @param {Control} control
  * @param {Scope["mode"]} mode
  * @param {SetContext} context

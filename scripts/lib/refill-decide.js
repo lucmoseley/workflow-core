@@ -1248,27 +1248,22 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 }
 
 /**
- * What this tick's read of the founder does to away mode (#2522): "return" at the
- * first present read after an absent one since the switch, so a prompt inside
- * the presence window the switch was made in does not undo it; "absent" at the
- * first absent read since it; otherwise null. The switch counts as presence,
- * since the panel click that makes it records no typed prompt (#4184), so any
- * switch reads present for one window, whoever made it.
+ * Whether this tick's read of the founder is the first absent one since the
+ * away switch, which arms his next prompt's reminder (scripts/mark-presence.js,
+ * #4846); the mode itself changes only by his hand. The switch counts as
+ * presence, since the panel click that makes it records no typed prompt
+ * (#4184), so any switch reads present for one window, whoever made it.
  * @param {{mode: "normal"|"away", away?: AwaySwitch}} control
  * @param {number|null} lastPromptAt ms
  * @param {number} now ms
- * @returns {"return"|"absent"|null}
  */
-function awayChangeOf({ mode, away }, lastPromptAt, now) {
-	if (mode !== "away") return null;
-	const absentSeen = away?.absentSeen === true;
+function isFirstAbsentRead({ mode, away }, lastPromptAt, now) {
+	if (mode !== "away" || away?.absentSeen === true) return false;
 	const lastSeen =
 		away === undefined
 			? lastPromptAt
 			: Math.max(lastPromptAt ?? away.since, away.since);
-	if (presenceAt(lastSeen, new Date(now)) === "present")
-		return absentSeen ? "return" : null;
-	return absentSeen ? null : "absent";
+	return presenceAt(lastSeen, new Date(now)) === "away";
 }
 
 /**
@@ -1468,7 +1463,7 @@ module.exports = {
 	NOTHING_LAUNCHABLE,
 	UNREAD,
 	actsRead,
-	awayChangeOf,
+	isFirstAbsentRead,
 	buildLimitCapText,
 	buildSkipReason,
 	CLASH_PREFIX,
