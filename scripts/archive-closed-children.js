@@ -127,7 +127,7 @@ function findOrphanContainer(title) {
 			String(ISSUE_LIST_LIMIT),
 		]);
 	} catch (e) {
-		raiseGhFailure(
+		return raiseGhFailure(
 			e,
 			"No child was archived; the archival container could not be searched for.",
 		);
@@ -280,7 +280,7 @@ function readSubIssues(map, conclusion) {
 	try {
 		return ghApiSlurp([`repos/{owner}/{repo}/issues/${map}/sub_issues`]);
 	} catch (e) {
-		raiseGhFailure(e, conclusion);
+		return raiseGhFailure(e, conclusion);
 	}
 }
 
@@ -403,7 +403,10 @@ function createContainer(ctx, map, title) {
 			`Archival container for the closed children of #${map} — holds no work of its own (docs/agents/issue-tracker.md §Placing a new issue). Created by scripts/archive-closed-children.js.`,
 		]).trim();
 	} catch (e) {
-		raiseGhFailure(e, "No child was archived; no container was created.");
+		return raiseGhFailure(
+			e,
+			"No child was archived; no container was created.",
+		);
 	}
 	const m = /\/issues\/(\d+)\s*$/.exec(url);
 	if (!m)

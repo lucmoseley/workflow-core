@@ -63,7 +63,7 @@
 
 const fs = require("node:fs");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { requiredGroup } = require("./lib/regex-group");

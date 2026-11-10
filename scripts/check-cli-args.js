@@ -46,7 +46,7 @@ const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { stripComments } = require("./lib/strip-comments.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
 const READS_ARGV = /process\.argv(?!\s*\[\s*[01]\s*\])/;

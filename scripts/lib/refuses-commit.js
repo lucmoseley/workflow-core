@@ -5,7 +5,10 @@
  * alone would stop the gate refusing in silence.
  */
 
-/** Set `true` on a staleness warning; the `guard-registry` profile gates on it. */
+/**
+ * Set `true` on a staleness warning; the `guard-registry` profile gates on it.
+ * @type {"refusesCommit"}
+ */
 const REFUSES_COMMIT = "refusesCommit";
 
 module.exports = { REFUSES_COMMIT };

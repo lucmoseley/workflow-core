@@ -49,7 +49,7 @@ const { caught } = require("./lib/caught.js");
 const { copyBlockPattern } = require("./lib/settings-copy");
 const { trimEndRun } = require("./lib/trim-run.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 const JSON_BLOCK = /```json\n([\s\S]*?)\n```/;
 // The outside-the-repo files under ~/.claude that the settings call or a
@@ -185,7 +185,7 @@ function snapshotAt(ctx) {
 }
 
 /**
- * The doc and its parsed ```json snapshot block, BROKEN where either is
+ * The doc and its parsed JSON-fenced snapshot block, BROKEN where either is
  * missing or the block will not parse; SKIP where this repo keeps no snapshot.
  * `docJson` is `any` for the reason diff() gives: arbitrary parsed JSON.
  * @param {Ctx} ctx

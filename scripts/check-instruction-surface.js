@@ -1083,7 +1083,7 @@ function rowsTouched(root, rev, touched, { anchored, ceiling }) {
 /**
  * --touched-by: the guard rows `rev` itself expired.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {string} file
  * @param {{ guards: Record<string, GuardAnchor>, measuredAt?: { document?: string } }} baseline
@@ -1173,7 +1173,7 @@ runCheck({
 	},
 });
 
-/** @param {import("./lib/check").CheckContext} ctx */
+/** @param {import("./lib/check").Ctx} ctx */
 function runChecks(ctx) {
 	const root = path.resolve(ctx.value("--root", process.cwd()));
 	const file = path.resolve(root, ctx.value("--baseline", DEFAULT_ANCHORS));

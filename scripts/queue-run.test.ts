@@ -20,7 +20,12 @@ import { mkScratchDir } from "./lib/git-fixture";
 import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-import { TSC_RUNG_MB } from "./lib/tsc-slot";
+import { rungMb } from "./lib/suite-ladder";
+
+const TSC_PEAK_MB = launchChargeMb({ kind: "tsc" });
+const TSC7_PEAK_MB = launchChargeMb({ kind: "tsc", major: 7 });
+
+const tscRung = rungMb(TSC_PEAK_MB);
 
 const { main } = require("./queue-run.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
@@ -57,6 +62,8 @@ const fixture = () => {
 		queueDir: dir,
 		queueLog: log,
 		sessionId: "s1",
+		/* The highest compiler's, whatever store the run's own tree links. */
+		tscPeakMb: TSC_PEAK_MB,
 		gate: () => false,
 		turn: () => true,
 		// A wait that never polls again: the gate's first answer is final.
@@ -410,7 +417,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out).toEqual([
-				`queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
+				`queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${tscRung} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
 				"queue-run.js: after 0s, held on the count cap, PID 4242\n",
 			]);
 		});
@@ -423,8 +430,8 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out).toEqual([
-				`queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
-				`queue-run.js: after 0s, held on the memory rung, MemAvailable 1000 MB against ~${TSC_RUNG_MB} MB\n`,
+				`queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${tscRung} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
+				`queue-run.js: after 0s, held on the memory rung, MemAvailable 1000 MB against ~${tscRung} MB\n`,
 			]);
 		});
 
@@ -442,13 +449,30 @@ describe("queue-run.js", () => {
 			expect(code).toBe(1);
 			expect(f.spawned).toEqual([]);
 			expect(out.join("")).toMatch(
-				new RegExp(`MemAvailable 1000 MB against the ~${TSC_RUNG_MB} MB rung`),
+				new RegExp(`MemAvailable 1000 MB against the ~${tscRung} MB rung`),
 			);
 			expect(f.readLog()).toEqual([
 				expect.objectContaining({
 					reason: "refused",
 					kind: "tsc",
 					limb: "memory",
+				}),
+			]);
+		});
+
+		it("admits a TypeScript 7 launch on its own rung, logging its charge (#4892)", async () => {
+			const f = fixture();
+			const mb = rungMb(TSC7_PEAK_MB);
+			expect(mb).toBeLessThan(tscRung);
+			machine(f.dir, ["bash -l"], mb);
+			main(typecheck, own(f, { tscPeakMb: TSC7_PEAK_MB }));
+			await tick();
+			expect(f.spawned).toHaveLength(1);
+			expect(f.readLog()).toEqual([
+				expect.objectContaining({
+					reason: "opened",
+					kind: "tsc",
+					chargeMb: TSC7_PEAK_MB,
 				}),
 			]);
 		});
@@ -583,7 +607,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 			expect(out).toEqual([
-				`102: queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
+				`102: queue-run.js: waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${tscRung} MB rung, or Windows' own free memory under what it draws (#4557)\n`,
 				"102: queue-run.js: after 0s, held on the waiters ahead, PID 101\n",
 			]);
 			f.spawned[0].child.emit("exit", 0, null);

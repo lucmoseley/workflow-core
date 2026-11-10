@@ -70,14 +70,14 @@
  *   a moved one is kept and joins the next batch.
  * - **Red.** The failing files are rerun once at the integration sha, and
  *   where they pass the batch is green. Those still red are run anew at
- *   `main`, pushed to `lander/iso-base`: the ones red there too are base
+ *   `main`, its base check: the ones red there too are base
  *   failures, blamed on no member, and the one base-red ticket is filed or
  *   refreshed for them. Where none is left the batch lands, unless the
  *   tester's `requiresRun` is set, where it is held instead and retaken once
  *   a new ref waits or `main` moves, or, where `main` too fired no run, once
  *   NO_RUN_RETAKE_MS has passed, so an Actions outage's hold ends when
  *   Actions recovers (#4572). The rest isolate: each member is merged
- *   alone onto `main`, pushed to `lander/iso-<k>` and run on those files, all
+ *   alone onto `main` and run on those files, all
  *   at once where the tester is `parallel` (the Actions one), else one after
  *   another (the local one, under its one admission slot). A member red alone
  *   is run again, and red twice it is dropped with a fix ticket naming the
@@ -88,8 +88,9 @@
  *   step red twice elsewhere has those files run at its `main`: red only
  *   where `main` is, it is a base red as above, else the rest are batched
  *   again. A red naming no file takes the same steps on the whole suite, its
- *   runs at `main` and alone on `lander/iso-suite-*` refs, whose pushes the
- *   suite runs on; `main` shares it where `main` fails every job it does.
+ *   runs at `main` and alone; `main` shares it where `main` fails every job
+ *   it does. Each ask names its placement, the batch slot or the run alone,
+ *   and the tester puts the sha where its run fires there (#4910).
  * - **Refused.** A push to `main` the remote refuses, as its ruleset does, is
  *   final for that sha (#4501): it is written to the refused record, leaves
  *   the green ledger, so the pre-push gate passes no later push of it, and
@@ -137,8 +138,6 @@ const { FilingRefusedError } = require("./filing-refused.js");
 const { HEARTBEAT_MS } = require("./lander-files.js");
 const { parseRefusal, remote, short } = require("./lander-git.js");
 const {
-	LANDER_ISO_PREFIX,
-	LANDER_ISO_SUITE_PREFIX,
 	QUEUE_PREFIX,
 	batchBranch,
 	droppedNameOf,
@@ -169,16 +168,25 @@ class TransientFault extends Error {}
  *   where no CI run fired for the tree at all, naming no file; `transient`
  *   where asking again shortly can reach a verdict, as when its suite slot
  *   stayed shut
- * @typedef {{verdict: (sha: string, files?: string[], again?: boolean) =>
- *   Promise<Verdict>, requiresRun?: boolean, parallel?: boolean,
- *   cancel?: (branch: string, keep: string|null) => string[]}} QueueTester
- *   the whole suite at `sha` where `files` is absent or empty, else only
- *   `files`, `again` where a verdict reached there is to be had anew, as a
- *   rerun or confirm; `requiresRun` where `main` takes only a sha a CI run
- *   passed, so only a green naming its `run` lands; `parallel` where it can
- *   be asked several verdicts at once; `cancel` stops every unfinished run
- *   on the batch ref `branch` not at `keep`, returning every sha `branch`
- *   lists a run at, finished or not
+ * @typedef {{readonly kind: "batch", readonly slot: number}
+ *   | {readonly kind: "iso", readonly k: number | "base"}} Placement where a
+ *   sha is judged: as the integration commit of the batch in `slot`, or
+ *   alone, `k` its member's index in the isolation or `base` for `main`
+ * @typedef {{verdict: (place: Placement, sha: string, files?: string[],
+ *   again?: boolean) => Promise<Verdict>, requiresRun?: boolean,
+ *   parallel?: boolean, repeatsGates?: boolean,
+ *   start?: (place: Placement, sha: string) => void,
+ *   cancel?: (place: Placement, keep: string|null) => string[]}} QueueTester
+ *   the whole suite at `sha`, judged at `place`, where `files` is absent or
+ *   empty, else only `files`, `again` where a verdict reached there is to
+ *   be had anew, as a rerun or confirm; `requiresRun` where `main` takes
+ *   only a sha a CI run passed, so only a green naming its `run` lands;
+ *   `parallel` where it can be asked several verdicts at once;
+ *   `repeatsGates` where its run repeats the gates a batch's own gate pass
+ *   leaves out; `start` starts the whole suite's run at `sha` at `place`
+ *   before its verdict is asked, throwing where it could not; `cancel` stops
+ *   every unfinished run at `place` not at `keep`, returning every sha it
+ *   lists a run at there, finished or not
  * @typedef {import("./lander-files.js").Ledger} Ledger
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
@@ -216,9 +224,8 @@ class TransientFault extends Error {}
  *   guard-registry faults, `rows`, `onto` holds too (#4807)
  * @typedef {Exclude<MergeResult, {kind: "merged"}>} Unmerged
  * @typedef {{readonly onto: string, readonly result: MergeResult}} Merge
- * @typedef {{readonly branch: string, readonly sha: string}} IsoRun a run
- *   alone at `sha`, pushed to the `lander/iso-*` ref `branch` before it is
- *   asked
+ * @typedef {{readonly k: number, readonly sha: string}} IsoRun a run alone
+ *   at `sha`, `k` its member's index in the isolation
  * @typedef {{readonly line: readonly Batch[], readonly search: Batch|null}}
  *   Live the pipeline's batches that are not spent
  * @typedef {"take-batch" | "detach" | "await-verdict" | "wait"} PipelineKind
@@ -839,16 +846,6 @@ function redAction(b, s, main, { sha, whole }) {
 const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
 
 /**
- * The `lander/iso-*` ref a run alone on `files` is pushed to, `k` its
- * member's index or `base` for `main`: an iso-suite one for the whole
- * suite, whose push the suite runs on.
- * @param {readonly string[]} files
- * @param {number | "base"} k
- */
-const isoBranch = (files, k) =>
-	`${files.length > 0 ? LANDER_ISO_PREFIX : LANDER_ISO_SUITE_PREFIX}${k}`;
-
-/**
  * The next step of an isolation.
  * @param {Batch} b
  * @param {QueueState} s
@@ -892,10 +889,7 @@ function isolationAction(b, s, blame) {
 		return {
 			kind: pass === 1 ? "isolate-members" : "confirm-members",
 			files: blame.files,
-			runs: owed.map((i) => ({
-				branch: isoBranch(blame.files, i.k),
-				sha: i.iso,
-			})),
+			runs: owed.map((i) => ({ k: i.k, sha: i.iso })),
 		};
 	};
 	const first = ask(isolated, 1);
@@ -1517,12 +1511,6 @@ function stepOrEnd(s) {
  *   where it is merged as a new commit. Where the tester's run repeats the
  *   gates the batch's pass leaves out, `started` is given the members'
  *   merges before that pass runs, so their run starts alongside it (#4573)
- * @property {(slot: number, sha: string) => void} pushBatch `sha` to the
- *   lander's `lander/batch-<slot>` ref, forced, so a tester reading that
- *   ref's runs sees it
- * @property {(branch: string, sha: string) => void} pushIso `sha` to the
- *   lander's `lander/iso-*` ref `branch`, forced, before its verdict is
- *   asked, as the tester tells a run alone by the remote's iso refs
  * @property {(sha: string) => string|null} pushMain a plain, non-forced push
  *   of `sha` to the remote's `main`: the remote's refusal line where it
  *   refused it for good, as a ruleset does, else null, throwing on any other
@@ -1805,12 +1793,12 @@ function writeVerdict(deps, { sha, files, pass, v }, run, keep) {
  * the run goes on between; one that outlasts the tries throws as final, so
  * no retry of a step asks it afresh.
  * @param {Pick<QueueLanderDeps, "tester" | "beat" | "wait">} deps
+ * @param {Placement} place
  * @param {string} sha
- * @param {string[]} [files]
- * @param {boolean} [again]
+ * @param {{files?: string[], again?: boolean}} [ask] as QueueTester's
  * @returns {Promise<Verdict>}
  */
-async function verdictAt(deps, sha, files, again) {
+async function verdictAt(deps, place, sha, { files, again } = {}) {
 	const { tester, beat } = deps;
 	beat(sha);
 	const timer = setInterval(() => beat(sha), HEARTBEAT_MS);
@@ -1818,7 +1806,7 @@ async function verdictAt(deps, sha, files, again) {
 		return await remote(
 			deps,
 			async () => {
-				const v = await tester.verdict(sha, files, again);
+				const v = await tester.verdict(place, sha, files, again);
 				if (v.kind === "unknown" && v.transient)
 					throw new TransientFault(`no verdict at ${short(sha)}: ${v.reason}`);
 				return v;
@@ -1924,7 +1912,21 @@ function forgetAsks(run, sha) {
 }
 
 /**
- * Has the tester cancel every unfinished run on the batch ref of `slot` not
+ * The placement of the batch in `slot`.
+ * @param {number} slot
+ * @returns {Placement}
+ */
+const batchPlace = (slot) => ({ kind: "batch", slot });
+
+/**
+ * The placement of a run alone, `k` its member's index or `base` for `main`.
+ * @param {number | "base"} k
+ * @returns {Placement}
+ */
+const isoPlace = (k) => ({ kind: "iso", k });
+
+/**
+ * Has the tester cancel every unfinished run of the batch in `slot` not
  * at `keep`, saying each sha of `expected` it listed no run at; a cancel
  * that throws is reported and stops nothing, as the runs' verdicts are only
  * unwanted (#4556, #4576).
@@ -1939,7 +1941,7 @@ function cancelRuns(deps, slot, keep, expected) {
 	/** @type {string[]|undefined} */
 	let listed;
 	try {
-		listed = deps.tester.cancel?.(branch, keep);
+		listed = deps.tester.cancel?.(batchPlace(slot), keep);
 	} catch (err) {
 		say(
 			`runs on ${branch} not cancelled: ${parseRefusal(parseErrorText(err))}`,
@@ -1955,19 +1957,18 @@ function cancelRuns(deps, slot, keep, expected) {
 }
 
 /**
- * Pushes `sha` to the batch's ref and starts the ask of its whole suite.
+ * Starts the ask of the whole suite at `sha` as the batch's.
  * @param {BatchDeps} deps
  * @param {string} sha
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
 function testSha(deps, sha, run) {
-	deps.git.pushBatch(batchOf(run).slot, sha);
 	const r = wholeRun(sha);
 	return startAsk(
 		run,
 		[r],
-		() => verdictAt(deps, sha),
+		() => verdictAt(deps, batchPlace(batchOf(run).slot), sha),
 		(d, next, v) => {
 			if (v.kind === "green" && v.cleared)
 				d.say?.(buildClearedLine(sha, v.run, v.cleared));
@@ -1987,9 +1988,8 @@ const buildClearedLine = (sha, run, files) =>
 	`flake ${short(sha)}${run === undefined ? "" : ` run ${run}`}: green after its retry cleared ${files.join(", ")}`;
 
 /**
- * Pushes each run's sha to its `lander/iso-*` ref, then starts an ask of
- * each one's verdict on `files`, each kept as it ends: all at once where the
- * tester is `parallel`, else one after another.
+ * Starts an ask of each run's verdict alone on `files`, each kept as it
+ * ends: all at once where the tester is `parallel`, else one after another.
  * @param {BatchDeps} deps
  * @param {{runs: readonly IsoRun[], files: readonly string[], pass: number}}
  *   asked
@@ -1997,19 +1997,18 @@ const buildClearedLine = (sha, run, files) =>
  * @returns {QueueRun}
  */
 function testIsolated(deps, { runs, files, pass }, run) {
-	for (const { branch, sha } of runs) deps.git.pushIso(branch, sha);
 	/** @type {Promise<unknown>} */
 	let ahead = Promise.resolve();
-	return runs.reduce((next, { sha }) => {
+	return runs.reduce((next, { k, sha }) => {
 		const r = { sha, files, pass };
 		const after = ahead;
+		const place = isoPlace(k);
+		const ask = () =>
+			verdictAt(deps, place, sha, { files: [...files], again: pass === 2 });
 		const out = startAsk(
 			next,
 			[r],
-			() =>
-				deps.tester.parallel
-					? verdictAt(deps, sha, [...files], pass === 2)
-					: after.then(() => verdictAt(deps, sha, [...files], pass === 2)),
+			() => (deps.tester.parallel ? ask() : after.then(ask)),
 			(d, from, v) => writeVerdict(d, { ...r, v }, from),
 		);
 		ahead = out.pending.get(askKey([r]))?.settled ?? ahead;
@@ -2118,11 +2117,12 @@ function recordLanded(deps, run) {
 }
 
 /**
- * Merges the batch's members onto `action.onto`, pushing the merges to the
- * batch's ref before its gate pass, and records it testing where they merge.
- * Every unfinished run on the ref but the one at the sha it tests is
+ * Merges the batch's members onto `action.onto`, having the tester start the
+ * merges' run before the gate pass, and records it testing where they merge.
+ * Every unfinished run of the batch but the one at the sha it tests is
  * cancelled (#4573, #4576): never that one, as a restart's merge may
- * reproduce the sha a crash left pushed, and its push then fires no new run.
+ * reproduce the sha a crash left started, and starting it again fires no
+ * new run.
  * @param {BatchDeps} deps
  * @param {Extract<QueueAction, {kind: "merge-members"}>} action
  * @param {QueueRun} run accumulator: the asks at the batch's recorded
@@ -2130,24 +2130,25 @@ function recordLanded(deps, run) {
  * @returns {QueueRun}
  */
 function mergeBatch(deps, action, run) {
-	const { git, record } = deps;
+	const { git, record, tester } = deps;
 	const { integration: was, slot } = batchOf(run);
 	if (was !== null) forgetAsks(run, was);
 	const expected = was === null ? [] : [was];
 	/** @type {string|null} */
 	let started = null;
-	/* A failed early push leaves the push to test-sha (#4573). */
+	/* A failed early start leaves the start to test-sha's ask (#4573). */
 	const merged = git.mergeMembers(
 		action.onto,
 		action.members,
 		action.fresh,
 		(sha) => {
+			if (!tester.start) return;
 			try {
-				git.pushBatch(slot, sha);
+				tester.start(batchPlace(slot), sha);
 				started = sha;
 			} catch (err) {
 				deps.say?.(
-					`${short(sha)} not pushed before its gate pass: ${parseRefusal(parseErrorText(err))}`,
+					`${short(sha)} not started before its gate pass: ${parseRefusal(parseErrorText(err))}`,
 				);
 				return;
 			}
@@ -2251,7 +2252,11 @@ async function actRed(deps, action, run) {
 			return startAsk(
 				run,
 				[r],
-				() => verdictAt(deps, sha, [...files], pass === 2),
+				() =>
+					verdictAt(deps, batchPlace(batchOf(run).slot), sha, {
+						files: [...files],
+						again: pass === 2,
+					}),
 				(d, next, v) => writeVerdict(d, { ...r, v }, next),
 			);
 		}
@@ -2303,22 +2308,24 @@ async function actRed(deps, action, run) {
 }
 
 /**
- * Pushes `main`'s `sha` to `lander/iso-base`, or iso-suite-base for the
- * whole suite, and starts the ask of its verdict on `files` afresh, kept on
- * the batch's record.
+ * Starts the ask of `main`'s `sha` alone on `files` afresh, its base check,
+ * kept on the batch's record.
  * @param {BatchDeps} deps
  * @param {Extract<QueueAction, {kind: "check-base"}>} action
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
 function checkBase(deps, { sha, files }, run) {
-	deps.git.pushIso(isoBranch(files, "base"), sha);
 	const { slot } = batchOf(run);
 	const r = { sha, files, pass: BASE_PASS };
 	return startAsk(
 		run,
 		[r],
-		() => verdictAt(deps, sha, [...files], true),
+		() =>
+			verdictAt(deps, isoPlace("base"), sha, {
+				files: [...files],
+				again: true,
+			}),
 		(d, next, v) =>
 			writeVerdict(d, { ...r, v }, next, (got) => {
 				const b = batchesOf(next.pipeline).find((x) => x.slot === slot);
@@ -2641,7 +2648,7 @@ function buildQueueActionLine(a) {
 			return `${a.kind} onto ${short(a.onto)}: queue/${a.member.name}`;
 		case "isolate-members":
 		case "confirm-members":
-			return `${a.kind} ${a.runs.map((r) => `${r.branch}@${short(r.sha)}`).join(", ")}`;
+			return `${a.kind} ${a.runs.map((r) => `alone ${r.k}@${short(r.sha)}`).join(", ")}`;
 		case "rebatch-passers":
 			return `rebatch-passers ${a.ahead.map((n) => `queue/${n}`).join(", ")}`;
 		case "land-step":

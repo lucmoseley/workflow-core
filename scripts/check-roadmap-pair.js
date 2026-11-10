@@ -27,7 +27,7 @@ const { caught } = require("./lib/caught.js");
 const { corePath } = require("./lib/script-path.js");
 const { execGit } = require("./lib/git.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 const HTML = "docs/reference-roadmap.html";
 const DIGEST = "docs/roadmap-digest.md";

@@ -698,7 +698,7 @@ function skillOf(rel) {
  * The per-file verdicts, and the skills the folder-hash check must stay quiet
  * about.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {{ root: string, sidecar: Sidecar, onDisk: string[], seen: Set<string> }} tree
  * @returns {Set<string>}
  */
@@ -729,7 +729,7 @@ function checkFiles(ctx, { root, sidecar, onDisk, seen }) {
 /**
  * One vendored file's verdict: UNTRACKED, STALE-ENTRY, UNDECLARED or DRIFTED.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {{ rel: string, disk: string, vendored: string | undefined, entry: EditEntry | undefined, vendoredAt: string }} file
  */
 function fileFinding(ctx, { rel, disk, vendored, entry, vendoredAt }) {
@@ -767,7 +767,7 @@ function fileFinding(ctx, { rel, disk, vendored, entry, vendoredAt }) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {Sidecar} sidecar
  * @param {Set<string>} seen
  */
@@ -785,7 +785,7 @@ function warnRemoved(ctx, sidecar, seen) {
  * A declared added file that is gone: its entry would tell --upstream the
  * addition re-applies cleanly.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {Sidecar} sidecar
  * @param {Set<string>} seen
  */
@@ -802,7 +802,7 @@ function failRemovedAdditions(ctx, sidecar, seen) {
 /**
  * The lock's verdicts: LOCK-UNREADABLE, LOCK-ORPHAN, LOCK-MISSING, LOCK-HASH.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {Set<string>} notClean
  */
@@ -836,7 +836,7 @@ function checkLock(ctx, root, notClean) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {{ root: string, name: string, locked: string | undefined, notClean: Set<string> }} skill
  */
 function lockHashFinding(ctx, { root, name, locked, notClean }) {
@@ -853,7 +853,7 @@ function lockHashFinding(ctx, { root, name, locked, notClean }) {
 /**
  * The whole verdict, over a tree.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  */
 function check(ctx, root) {
@@ -901,7 +901,7 @@ function check(ctx, root) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  */
 function runDeclare(ctx, root) {
@@ -924,7 +924,7 @@ function runDeclare(ctx, root) {
  * The write commands, in the order their flags are tried: the first one given
  * runs, and the rest are ignored.
  *
- * @type {[string, (ctx: import("./lib/check").CheckContext, root: string) => { okLine: string }][]}
+ * @type {[string, (ctx: import("./lib/check").Ctx, root: string) => { okLine: string }][]}
  */
 const WRITE_COMMANDS = [
 	["--declare", runDeclare],
@@ -1009,7 +1009,7 @@ const LICENCE_WARNINGS = {
 };
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {UpstreamRow} r
  */
 function reportUpstreamRow(ctx, r) {
@@ -1026,7 +1026,7 @@ function reportUpstreamRow(ctx, r) {
 /**
  * The --upstream report: the re-pull pre-flight, over every declared edit.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  */
 function runUpstream(ctx, root) {
@@ -1094,7 +1094,7 @@ function runUpstream(ctx, root) {
 /**
  * Write the upstream record where every licence matched; say why not otherwise.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  * @param {Record<string, string | null>} read
  * @param {LicenceRow[]} licences
@@ -1130,7 +1130,7 @@ function writeRecord(ctx, root, read, licences) {
  * staged lock and NOTICES? Reads the copies `.husky/pre-commit` stages into
  * `dir` under their basenames.
  *
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} dir
  */
 function runCovered(ctx, dir) {
@@ -1221,7 +1221,7 @@ function isCutOverMainCheckout(root) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} root
  */
 function upstreamMode(ctx, root) {
@@ -1247,7 +1247,7 @@ const SPEC = {
 		"--why",
 	],
 	flags: ["--revendor", "--upstream", "--write"],
-	run(/** @type {import("./lib/check").CheckContext} */ ctx) {
+	run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root", process.cwd()));
 
 		/* The write commands report in prose and raise no findings, so they have

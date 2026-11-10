@@ -177,7 +177,7 @@ function readRoadmapOrOpen(run) {
 	if (typeof run.roadmap === "string") return run.roadmap;
 	const text = readOrNull(run.ctx.tree(), ROADMAP);
 	if (text === null)
-		open(
+		return open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
 		);
@@ -367,7 +367,7 @@ function judgeTitle(run, segment, title) {
 	if (phase === null || phase === "0") return;
 	const register = readOrNull(run.ctx.tree(), REGISTER);
 	if (register === null)
-		open(
+		return open(
 			run.ctx,
 			`${REGISTER} is unreadable — issue creation for ${card} allowed unchecked`,
 		);

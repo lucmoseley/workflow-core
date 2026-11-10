@@ -80,7 +80,7 @@ const isResolvable = (s) => s !== "" && !hasExpansion(s) && !s.includes(QUOTED);
 
 /**
  * Blank every quoted span out of `text` on `lx`, reset first.
- * @param {Lexer} lx
+ * @param {InstanceType<typeof Lexer>} lx
  * @param {string} text
  */
 function maskText(lx, text) {
@@ -603,7 +603,7 @@ function backtickEnd(text, from) {
  * The subject's command lines, `\`-newlines joined and heredoc bodies out,
  * and the lines, numbered from 0, those bodies fill (#2384).
  * @param {string} subject
- * @param {Lexer} lx
+ * @param {InstanceType<typeof Lexer>} lx
  */
 function readCommandLines(subject, lx) {
 	/** @type {number[]} */
@@ -640,7 +640,7 @@ function readCommandLines(subject, lx) {
 /**
  * Lex one line; true where it ends in a `\`-newline outside `$'…'`, to be
  * joined onto the next, the lexer then set back to where it stood.
- * @param {Lexer} lx
+ * @param {InstanceType<typeof Lexer>} lx
  * @param {string} line
  */
 function isLineContinued(lx, line) {
@@ -678,7 +678,7 @@ function parseHeredocTerm(mask, line) {
  * later line's quote closes would hide every command between them. A quote
  * opening a message argument was meant, so only there does the join hold.
  * @param {string[]} commandLines
- * @param {Lexer} lx
+ * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
  */
 function joinLogicalLines(commandLines, lx, spans) {
@@ -750,7 +750,7 @@ function isCommandAbsorbed(line, spans) {
  * subcommand: a quoted argument is data whatever the subcommand.
  * Residual: `-m` is a count or mode on `grep`, `sort`, `mkdir` and others, so
  * a quote opened after one there keeps its join through a `git` line too.
- * @param {Lexer} lx
+ * @param {InstanceType<typeof Lexer>} lx
  */
 function isMessageOpen(lx) {
 	if (!lx.frames) return false;
