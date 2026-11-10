@@ -10,6 +10,7 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { claimByArbiter } = require("./arbiter-claim.js");
 const { writeFd } = require("./write-fd.js");
 
 /** Flags every generator accepts that take a value, so the positional-arg
@@ -67,28 +68,14 @@ function parseCliArgs(argv, extraValueFlags = []) {
  * @returns {{claimed: boolean}}
  */
 function claimDataFile(dataFile, { claimCmd, generator = false } = {}) {
-	const extra = generator ? ["--generator"] : [];
-	const [cmd, cmdArgs] = claimCmd
-		? [claimCmd, [dataFile, ...extra]]
-		: [
-				process.execPath,
-				[
-					path.join(__dirname, "..", "session-arbiter.js"),
-					"claim",
-					dataFile,
-					...extra,
-				],
-			];
-	const r = spawnSync(cmd, cmdArgs, { encoding: "utf8" });
-	if (r.status === 0) {
-		if (r.stderr) writeFd(2, r.stderr);
+	const claim = claimByArbiter(dataFile, { claimCmd, generator });
+	if (claim.claimed) {
+		if (claim.warning) writeFd(2, `${claim.warning}\n`);
 		return { claimed: true };
 	}
-
-	const reason = (r.stderr || r.stdout || "").trim();
 	writeFd(
 		2,
-		`could not claim ${dataFile} — ${reason || "no reason given"}. Writing anyway; the overwritten bytes were not recorded.\n`,
+		`could not claim ${dataFile} — ${claim.why}. Writing anyway; the overwritten bytes were not recorded.\n`,
 	);
 	return { claimed: false };
 }

@@ -21,6 +21,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
+const { claimByArbiter } = require("./lib/arbiter-claim.js");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { ledgerPath } = require("./lib/dispatch-ledger");
@@ -160,19 +161,14 @@ function landedCurve(sessions, totalUsd) {
 function writeClaimed(body) {
 	const arbiter = path.join(__dirname, "session-arbiter.js");
 	const table = tablePath(worktreeRoot());
-	const claim = spawnSync("node", [arbiter, "claim", table], {
-		encoding: "utf8",
-	});
-	if (claim.status !== 0) {
-		writeFd(
-			2,
-			`not written — the arbiter's claim failed (exit ${claim.status}):\n${claim.stdout}${claim.stderr}`,
-		);
+	const claim = claimByArbiter(table);
+	if (!claim.claimed) {
+		writeFd(2, `not written — the arbiter's claim failed:\n${claim.why}\n`);
 		return 1;
 	}
 	// A live neighbour holding the table too is warned of, and the write goes
 	// ahead (#4249).
-	if (claim.stderr) writeFd(2, claim.stderr);
+	if (claim.warning) writeFd(2, `${claim.warning}\n`);
 	try {
 		fs.mkdirSync(path.dirname(table), { recursive: true });
 		fs.writeFileSync(table, body);

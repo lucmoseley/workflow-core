@@ -6753,7 +6753,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						}),
 						claimFn: (file: string) => {
 							claimed.push(file);
-							return { ok: true };
+							return { claimed: true };
 						},
 						spawnFn: (
 							_bin: string,
@@ -7855,11 +7855,11 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 	const read = (dir: string) =>
 		fs.readFileSync(path.join(dir, EDGES_FILE), "utf8");
 	const rendered = { "docs/a.md": ["a.test.ts"] };
-	type Claim = { ok: true } | { ok: false; why: string };
+	type Claim = { claimed: true } | { claimed: false; why: string };
 
 	function freshen(
 		at: { root: string; home: string },
-		claim: () => Claim = () => ({ ok: true }),
+		claim: () => Claim = () => ({ claimed: true }),
 	) {
 		const out: string[] = [];
 		const err: string[] = [];
@@ -7897,7 +7897,8 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		expect(read(edited.root)).toContain('"docs/a.md"');
 		const failed = trees("stale", "stale");
 		expect(
-			freshen(failed, () => ({ ok: false, why: "the arbiter exited 2" })).err,
+			freshen(failed, () => ({ claimed: false, why: "the arbiter exited 2" }))
+				.err,
 		).toContain("the arbiter exited 2");
 		expect(read(failed.home)).toBe("stale");
 	});
