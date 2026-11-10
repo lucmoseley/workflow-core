@@ -415,11 +415,12 @@ it("sums a session's waits and their union apart", () => {
 	expect(r.peak.n).toBe(2);
 });
 
-describe("the windows limb, the Windows-memory hold (#4782)", () => {
-	/* A day after both #4557's hold and #4782's pass took effect. */
-	const Shift = Date.parse("2026-11-10T00:00:00Z") - T0;
-	const later = (t: number) => t + Shift;
-	it("holds a 4-file head on Windows' free memory and lets a 1-file part wait that fits pass it", () => {
+describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {
+	/** The limbs a 4-file head and a 1-file part wait are held on, the two
+	 * waits shifted to `at`, Windows reading `mb` free and `pagesIn`. */
+	const replayAt = (at: string, mb: number, pagesIn?: number) => {
+		const Shift = Date.parse(at) - T0;
+		const later = (t: number) => t + Shift;
 		const exits = [
 			{ from: 0, to: 30, slotFree: true, reason: "timeout" },
 			{ from: 2, to: 10, slotFree: true, reason: "opened" },
@@ -440,23 +441,50 @@ describe("the windows limb, the Windows-memory hold (#4782)", () => {
 				exits,
 				runs,
 				mem: new Map(),
-				/* 1,500 MB: under a 4-worker draw plus the margin, over a 1-worker one. */
 				windows: new Map(
 					Array.from({ length: 60 }, (_, m) => [
 						Math.floor(later(T0) / MIN) + m,
-						1500,
+						{
+							state: "fresh" as const,
+							mb,
+							ageS: 0,
+							...(pagesIn === undefined ? {} : { pagesIn }),
+						},
 					]),
 				),
 				unread: { absent: [], unparsed: 0 },
 			},
 			{ ...w, since: later(w.since), until: later(w.until) },
 		);
-		const limbsOf = (session: string) =>
+		return (session: string) =>
 			Object.fromEntries(
 				r.sessions.find((s) => s.session === session)?.limbs ?? [],
 			);
+	};
+
+	it("holds a 4-file head on its draw and lets a 1-file part wait that fits pass it, before #4850", () => {
+		/* A day after #4557's hold and #4782's pass took effect; 1,500 MB is
+		 * under a 4-worker draw plus the margin, over a 1-worker one. */
+		const limbsOf = replayAt("2026-11-10T00:00:00Z", 1500);
 		expect(limbsOf("s-0")).toEqual({ windows: 1800 });
 		expect(limbsOf("s-1")).toEqual({ open: 480 });
+	});
+
+	it("holds neither at 1,500 MB free with Windows not paging, from #4850", () => {
+		const limbsOf = replayAt("2026-11-11T00:00:00Z", 1500, 1500);
+		expect(limbsOf("s-0")).not.toHaveProperty("windows");
+		expect(limbsOf("s-1")).not.toHaveProperty("windows");
+	});
+
+	it("holds both while Windows pages hard, from #4850", () => {
+		const limbsOf = replayAt("2026-11-11T00:00:00Z", 1500, 150_000);
+		expect(limbsOf("s-0")).toHaveProperty("windows");
+		expect(limbsOf("s-1")).toHaveProperty("windows");
+	});
+
+	it("holds a 30-minute wait on it for one 10-minute spell only, from #4850", () => {
+		const limbsOf = replayAt("2026-11-11T00:00:00Z", 1500, 150_000);
+		expect(limbsOf("s-0").windows).toBe(600);
 	});
 });
 
@@ -493,7 +521,10 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 					]),
 				),
 				windows: new Map(
-					Array.from({ length: 30 }, (_, m) => [minute(m), 2100]),
+					Array.from({ length: 30 }, (_, m) => [
+						minute(m),
+						{ state: "fresh" as const, mb: 2100, ageS: 0 },
+					]),
 				),
 				unread: { absent: [], unparsed: 0 },
 			},

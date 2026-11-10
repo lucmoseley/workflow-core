@@ -156,7 +156,6 @@ const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 const {
 	buildWindowsShortText,
 	readWindowsRecorded,
-	windowsNeedMb,
 	windowsShortfall,
 } = require("./windows-memory.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
@@ -1072,11 +1071,9 @@ function memoryVerdict(st, j) {
 }
 
 /**
- * THE WINDOWS-MEMORY HOLD (#4557): a launch its guest rung admits that would
- * draw more than Windows has free, beside the margin, is sent to the queue as
- * a memory shortfall is; anything else is warned. Its draw is its own
- * workers' share of the ladder, what the suites running already hold being in
- * `vmmemWSL`, and the climb its rung charges. No fresh reading fails open,
+ * THE WINDOWS-MEMORY HOLD (#4557, #4850): a launch its guest rung admits
+ * while Windows is under its floor or paging hard is sent to the queue as a
+ * memory shortfall is; anything else is warned. No fresh reading fails open,
  * recorded.
  * @param {St} st
  * @param {Judged} j
@@ -1088,8 +1085,7 @@ function windowsVerdict(st, j) {
 		st.ctx.log,
 		`a ${j.s.kind} launch`,
 	);
-	const drawMb = j.floor - suiteRungMb(j.busy) + j.climbMb;
-	const short = windowsShortfall(read, windowsNeedMb(drawMb));
+	const short = windowsShortfall(read);
 	if (!short) return;
 	const why = buildWindowsShortText(short);
 	if (j.refusable) {

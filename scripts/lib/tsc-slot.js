@@ -14,7 +14,7 @@
 const os = require("node:os");
 const path = require("node:path");
 const { rungMb } = require("./suite-ladder.js");
-const { windowsNeedMb, windowsShortfall } = require("./windows-memory.js");
+const { windowsShortfall } = require("./windows-memory.js");
 
 /* The peak single `tsc` RSS in `~/memwatch-archive.log`, 23–27 Oct 2026
  * (#3163), off its `^ *PID RSS node .*\/tsc` lines. MOVE IT ONLY WITH A
@@ -97,7 +97,7 @@ function tscDenial(rows, mb, climbMb = 0, windows = { state: "absent" }) {
 	if (running.length >= TSC_MAX)
 		return { limb: "count", pids: running, ...(memory ? { memory } : {}) };
 	if (memory) return { limb: "memory", ...memory };
-	const short = windowsShortfall(windows, windowsNeedMb(TSC_PEAK_MB + climbMb));
+	const short = windowsShortfall(windows);
 	return short ? { limb: "windows", ...short } : null;
 }
 

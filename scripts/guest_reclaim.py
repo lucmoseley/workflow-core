@@ -46,9 +46,9 @@ from memwatch_minute import (  # noqa: E402
 )
 
 MIB = 1 << 20
-# Guesses until a day of passes is read (#4791). The trigger sits at or above
-# the Windows hold's largest need (1,768–1,938 MB, #4759), so the hold never
-# waits on a reading this ignores.
+# Guesses until a day of passes is read (#4791). The trigger sits above the
+# Windows hold's 1,000 MB floor (#4850), so the hold never waits on a reading
+# this ignores.
 TRIGGER_MB = 2000
 STEP_BYTES = 256 * MIB
 # The pass stops when, over one step, the cgroup's memory stall share of wall

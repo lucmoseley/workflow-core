@@ -34,7 +34,6 @@ import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
 import { TSC_PEAK_MB, tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
-import { windowsNeedMb, windowsShortfall } from "./windows-memory";
 
 const {
 	isMarkerStale,
@@ -694,20 +693,9 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 
 	describe("the Windows-held stamp an older part-suite's wait writes (#4782)", () => {
 		const late = 5 * PART_PASS_AGE_MS;
-		const needOf = (files: number) =>
-			windowsNeedMb(suiteRungMb(weighFiles(files).workers) - suiteRungMb(0));
 		const HeadFiles = 6;
 		const BehindFiles = 1;
-		/* One Windows reading, between the run behind's need and the head's,
-		 * each run judged on its own workers' draw. */
-		const windowsMb = (needOf(BehindFiles) + needOf(HeadFiles)) / 2;
-		const windowsGate = (files: number) => () => {
-			const short = windowsShortfall(
-				{ state: "fresh", mb: windowsMb, ageS: 0 },
-				needOf(files),
-			);
-			return short ? { limb: "windows" as const, ...short } : null;
-		};
+		const windowsHold = () => ({ limb: "windows" as const, mb: 999 });
 		/** A head held on `headGate`, and a smaller run behind it. */
 		const headHeldOn = async (headGate: () => object | null) => {
 			const queueDir = qdir();
@@ -722,7 +710,7 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 				sleepFn: async () => {
 					behind = await polled(
 						{ queueDir, pid: 99, clock: () => late },
-						{ gate: windowsGate(BehindFiles) },
+						{ gate: () => null },
 					);
 					t = late;
 				},
@@ -731,10 +719,10 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			return { outcome, behind };
 		};
 
-		it("admits a smaller part-suite that fits past a head the hold keeps out, past the memory age bound", async () => {
-			expect(await headHeldOn(windowsGate(HeadFiles))).toEqual({
-				outcome: "refused",
-				behind: { reason: "opened", passed: 1 },
+		it("admits a part-suite its gate opens for past a head the hold keeps out, past the memory age bound", async () => {
+			expect((await headHeldOn(windowsHold)).behind).toEqual({
+				reason: "opened",
+				passed: 1,
 			});
 		});
 
@@ -1331,7 +1319,7 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 
 describe("a stamp the climb set, kept while running launches hold the wait (#4799)", () => {
 	const climbed = { limb: "memory", mb: 3666, rungMb: 3350, climbMb: 1587 };
-	const windows = { limb: "windows", mb: 2045, needMb: 2550 };
+	const windows = { limb: "windows", mb: 900 };
 	const drawn = { limb: "memory", mb: 3100, rungMb: 3350, climbMb: 1587 };
 
 	it("keeps it on the rung or the Windows hold while charged, and drops it once nothing is", async () => {
@@ -2598,7 +2586,12 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	/** A suite's wait at a roomy guest, Windows' free memory read off a
 	 * minute log each poll as memwatch leaves it; `frees` is what each sleep
 	 * writes next. */
-	const waitOn = async (first: number, frees: number[], timeoutMs = 60_000) => {
+	const waitOn = async (
+		first: number,
+		frees: number[],
+		timeoutMs = 60_000,
+		turnShutAt?: number,
+	) => {
 		const dir = qdir();
 		const meminfo = path.join(dir, "meminfo");
 		fs.writeFileSync(meminfo, `MemAvailable: ${20_000 * 1024} kB\n`);
@@ -2607,14 +2600,18 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
 		const log = path.join(dir, "memwatch-minute.jsonl");
 		vi.stubEnv("MEMWATCH_MINUTE_LOG", log);
-		const write = (mb: number) =>
+		let last = first;
+		const write = (mb: number) => {
+			last = mb;
 			fs.appendFileSync(
 				log,
 				`${JSON.stringify({ ts: new Date().toISOString(), win_avail_mb: mb, win_age_s: 5 })}\n`,
 			);
+		};
 		write(first);
 		const said: string[] = [];
 		let clock = 0;
+		let exitHeld: object | undefined;
 		const outcome = await waitForGate({
 			gate: (climbMb: number) =>
 				gateDenies(
@@ -2626,6 +2623,7 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 				),
 			admit: noQueue,
 			timeoutMs,
+			...(turnShutAt === undefined ? {} : { turn: () => last !== turnShutAt }),
 			clock: () => clock,
 			sleepFn: (ms: number) => {
 				clock += ms;
@@ -2635,29 +2633,56 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 			},
 			traceLimbs: true,
 			out: { write: (s: string) => said.push(s) },
+			onExit: (_reason: string, _ms: number, heldBy?: object) => {
+				exitHeld = heldBy;
+			},
 		});
-		return { outcome, said: said.join("") };
+		return { outcome, said: said.join(""), exitHeld };
 	};
 
-	/* A whole suite draws 2250 MB, its 3350 MB rung less the empty ladder's
-	 * 1100, and Windows must hold that and the 300 MB margin. */
-	it("holds a suite launch while Windows is short, and admits it once Windows clears", async () => {
-		const { outcome, said } = await waitOn(1440, [2549, 2550]);
+	it("holds a suite launch while Windows is under its floor, and admits it once Windows clears", async () => {
+		const { outcome, said } = await waitOn(900, [999, 1000]);
 		expect(outcome).toBe("run");
 		expect(said).toContain(
-			"held on the Windows-memory hold, Windows free 1440 MB against ~2550 MB",
+			"held on the Windows-memory hold, Windows itself has 900 MB free (memwatch's win_avail_mb), under its 1000 MB floor",
 		);
 		expect(said).toMatch(
 			/gate opened after 20s — held 20s on the Windows-memory hold/,
 		);
 	});
 
-	it("refuses at the bound, not run, where Windows never clears", async () => {
+	it("refuses at a bound short of the maximum hold, not run, where Windows never clears", async () => {
 		const { outcome, said } = await waitOn(900, [900, 900], 20_000);
 		expect(outcome).toBe("refused");
 		expect(said).toContain(
-			"the Windows-memory hold still holds after 20s (Windows free 900 MB against ~2550 MB) — refused, not run.",
+			"the Windows-memory hold still holds after 20s (Windows itself has 900 MB free (memwatch's win_avail_mb), under its 1000 MB floor) — refused, not run.",
 		);
+	});
+
+	it("runs a wait one spell of the hold has held for its 10-minute maximum, saying so and logging it (#4850)", async () => {
+		const { outcome, said, exitHeld } = await waitOn(900, [], 30 * 60_000);
+		expect(outcome).toBe("run");
+		expect(exitHeld).toMatchObject({ windowsReleased: true });
+		expect(said.match(/released this wait/g)).toHaveLength(1);
+		expect(said).toContain(
+			"the Windows-memory hold released this wait after 600s, its 10-minute maximum (Windows itself has 900 MB free (memwatch's win_avail_mb), under its 1000 MB floor) (#4850)",
+		);
+	});
+
+	it("starts the maximum afresh once Windows clears between spells (#4850)", async () => {
+		/* Held 54 polls of 10 s, then Windows clears for one poll while the
+		 * queue's turn stays shut, three times: no spell reaches 10 minutes,
+		 * so the wait is refused at its 20-minute bound. */
+		const spell = new Array(53).fill(900);
+		const { outcome, said, exitHeld } = await waitOn(
+			900,
+			[...spell, 1500, ...spell, 1500, ...spell],
+			20 * 60_000,
+			1500,
+		);
+		expect(said).not.toContain("released this wait");
+		expect(outcome).toBe("refused");
+		expect(exitHeld).not.toHaveProperty("windowsReleased");
 	});
 });
 

@@ -57,7 +57,7 @@ type Gate =
 			climbMb?: number;
 			busy?: number;
 	  }
-	| { limb: "windows"; mb: number; needMb: number };
+	| { limb: "windows"; mb: number; pagesIn?: number };
 type Verdict = {
 	deny?: string;
 	gate?: Gate;
@@ -3110,54 +3110,48 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 	});
 });
 
-describe("the Windows-memory hold (#4557)", () => {
-	const windows = (mb: number): WindowsRead => ({
+describe("the Windows-memory hold (#4557, #4850)", () => {
+	const windows = (mb: number, pagesIn?: number): WindowsRead => ({
 		state: "fresh",
 		mb,
 		ageS: 30,
+		...(pagesIn === undefined ? {} : { pagesIn }),
 	});
 
-	/* A lone whole suite's rung is 3350 MB, the empty ladder's 1100, so it
-	 * draws 2250 MB, and Windows must hold that and the 300 MB margin. */
-	it("sends a launch the guest admits to the queue while Windows is short, naming the limb", () => {
+	it("sends a launch the guest admits to the queue while Windows is under its floor, naming the limb", () => {
 		const { verdict: v, text } = judge("npm run test", ROOMY_MB, psWith(0), {
-			windows: windows(2549),
+			windows: windows(999),
 		});
-		expect(v?.gate).toEqual({ limb: "windows", mb: 2549, needMb: 2550 });
+		expect(v?.gate).toEqual({ limb: "windows", mb: 999 });
 		expect(text.split("\n")[0]).toBe("Run instead: npm run test -- --queue");
 		expect(text).toContain(
-			"Windows itself has 2549 MB free (memwatch's win_avail_mb), under the ~2550 MB this launch draws plus the margin",
+			"Windows itself has 999 MB free (memwatch's win_avail_mb), under its 1000 MB floor",
 		);
+	});
+
+	it("admits a whole suite at a median day's free memory with Windows not paging, whatever it draws", () => {
 		expect(
 			outcome(
-				judge("npm run test", ROOMY_MB, psWith(0), { windows: windows(2550) })
-					.verdict,
+				judge("npm run test", ROOMY_MB, psWith(0), {
+					windows: windows(1700, 1500),
+					climb: { "off-rung": 1000 },
+				}).verdict,
 			),
 		).toBe("allow");
 	});
 
-	it("charges the climb the rung charges, and only the launch's own share of the ladder", () => {
-		expect(
-			judge("npm run test", ROOMY_MB, psWith(0), {
-				windows: windows(2649),
-				climb: { "off-rung": 100 },
-			}).verdict?.gate,
-		).toEqual({ limb: "windows", mb: 2649, needMb: 2650 });
-		/* Beside a running whole suite, a part-suite draws its own step up the
-		 * ladder, not the whole rung: the running workers already hold their
-		 * pages. */
-		const beside = judge(
-			"npm run test -- --changed",
-			ROOMY_MB,
-			psListing(["node /r/node_modules/.bin/vitest run"]),
-			{
-				windows: windows(100),
-				launchWeight: { resolvedFiles: 40, wholeSlot: false },
-			},
-		).verdict?.gate as { limb: string; needMb: number };
-		expect(beside.limb).toBe("windows");
-		expect(beside.needMb).toBeGreaterThan(300);
-		expect(beside.needMb).toBeLessThan(2550);
+	it("sends it to the queue while Windows pages hard, naming the paging", () => {
+		const { verdict: v, text } = judge("npm run test", ROOMY_MB, psWith(0), {
+			windows: windows(2638, 171_984),
+		});
+		expect(v?.gate).toEqual({
+			limb: "windows",
+			mb: 2638,
+			pagesIn: 171_984,
+		});
+		expect(text).toContain(
+			"Windows is paging 171984 pages a minute in from disk, at or over its 100000 line, with 2638 MB free",
+		);
 	});
 
 	it("records an escaped launch as a Windows stand-down", () => {
@@ -3188,9 +3182,9 @@ describe("the Windows-memory hold (#4557)", () => {
 
 	it("holds a bare `tsc` the slot's Windows limb holds, handing it the queue", () => {
 		const { text } = judge("tsc --noEmit", ROOMY_MB, psWith(0), {
-			windows: windows(1000),
+			windows: windows(900),
 		});
 		expect(text).toMatch(/queue-run\.js --tsc/);
-		expect(text).toContain("Windows itself has 1000 MB free");
+		expect(text).toContain("Windows itself has 900 MB free");
 	});
 });

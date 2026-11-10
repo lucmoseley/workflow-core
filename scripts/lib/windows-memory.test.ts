@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * lib/windows-memory.js (#4557): Windows' free memory off memwatch's newest
- * minute line, and the hold it puts on a launch. Break it and a launch the
+ * lib/windows-memory.js (#4557, #4850): Windows' free memory and paging off
+ * memwatch's newest minute line, and the hold they put on a launch. Break it and a launch the
  * guest admits pages Windows, as the 6 Nov 2026 freeze did, or a stale reading
  * holds the machine on a figure minutes old.
  */
@@ -11,7 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type WindowsRead =
-	| { state: "fresh"; mb: number; ageS: number }
+	| { state: "fresh"; mb: number; ageS: number; pagesIn?: number }
 	| { state: "absent" }
 	| { state: "stale"; why: string };
 
@@ -20,7 +20,6 @@ const {
 	minuteLogPath,
 	readWindowsMemory,
 	readWindowsRecorded,
-	windowsNeedMb,
 	windowsShortfall,
 } = require("./windows-memory.js") as {
 	buildWindowsUnreadNote: (read: WindowsRead, what: string) => string | null;
@@ -31,11 +30,9 @@ const {
 		log: (what: string) => void,
 		what: string,
 	) => WindowsRead;
-	windowsNeedMb: (drawMb: number) => number;
 	windowsShortfall: (
 		read: WindowsRead,
-		needMb: number,
-	) => { mb: number; needMb: number } | null;
+	) => { mb: number; pagesIn?: number } | null;
 };
 
 const NOW = Date.parse("2026-11-06T05:12:19Z");
@@ -51,12 +48,18 @@ afterEach(() => {
 });
 
 /** A minute line as memwatch writes it, `secsAgo` before NOW. */
-const line = (secsAgo: number, win: number | null, winAgeS: number | null) =>
+const line = (
+	secsAgo: number,
+	win: number | null,
+	winAgeS: number | null,
+	pagesIn?: number,
+) =>
 	`${JSON.stringify({
 		ts: new Date(NOW - secsAgo * 1000).toISOString().replace("Z", "+0000"),
 		mem_avail_mb: 6896,
 		win_avail_mb: win,
 		win_age_s: winAgeS,
+		...(pagesIn === undefined ? {} : { win_pages_in: pagesIn }),
 	})}\n`;
 
 describe("lib/windows-memory.js", () => {
@@ -66,6 +69,16 @@ describe("lib/windows-memory.js", () => {
 			state: "fresh",
 			mb: 2638,
 			ageS: 70,
+		});
+	});
+
+	it("carries the newest reading's pages in, where memwatch logged them", () => {
+		fs.writeFileSync(file, line(60, 2638, 10, 171_984));
+		expect(readWindowsMemory({ file, now: NOW })).toEqual({
+			state: "fresh",
+			mb: 2638,
+			ageS: 70,
+			pagesIn: 171_984,
 		});
 	});
 
@@ -89,7 +102,7 @@ describe("lib/windows-memory.js", () => {
 			state: "stale",
 			why: `the newest Windows reading in ${file} is 181 s old, past 180 s`,
 		});
-		expect(windowsShortfall(read, 5000)).toBeNull();
+		expect(windowsShortfall(read)).toBeNull();
 		expect(buildWindowsUnreadNote(read, "a test launch")).toBe(
 			`Windows memory unread — the newest Windows reading in ${file} is 181 s old, past 180 s; a test launch not held on it (#4557)`,
 		);
@@ -122,7 +135,7 @@ describe("lib/windows-memory.js", () => {
 	it("is silent where no memwatch runs: no log, no hold, nothing to record", () => {
 		const read = readWindowsMemory({ file, now: NOW });
 		expect(read).toEqual({ state: "absent" });
-		expect(windowsShortfall(read, 5000)).toBeNull();
+		expect(windowsShortfall(read)).toBeNull();
 		expect(buildWindowsUnreadNote(read, "a test launch")).toBeNull();
 	});
 
@@ -132,14 +145,31 @@ describe("lib/windows-memory.js", () => {
 		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({ mb: 1500 });
 	});
 
-	it("holds a launch whose draw and the 300 MB margin exceed Windows' free memory, and admits one that fits", () => {
-		const fresh: WindowsRead = { state: "fresh", mb: 1906, ageS: 30 };
-		expect(windowsNeedMb(1607)).toBe(1907);
-		expect(windowsShortfall(fresh, windowsNeedMb(1607))).toEqual({
-			mb: 1906,
-			needMb: 1907,
+	/* The floor is 1,000 MB and the paging line 100,000 pages (#4850). */
+	it("holds a launch while Windows is under its floor, and admits one at it (#4850)", () => {
+		const at = (mb: number): WindowsRead => ({ state: "fresh", mb, ageS: 30 });
+		expect(windowsShortfall(at(999))).toEqual({ mb: 999 });
+		expect(windowsShortfall(at(1000))).toBeNull();
+	});
+
+	it("admits a launch at a median day's 1,700 MB free with Windows not paging (#4850)", () => {
+		expect(
+			windowsShortfall({ state: "fresh", mb: 1700, ageS: 30, pagesIn: 1500 }),
+		).toBeNull();
+	});
+
+	it("holds a launch while Windows pages at its line, whatever it has free (#4850)", () => {
+		const paging = (pagesIn: number): WindowsRead => ({
+			state: "fresh",
+			mb: 2638,
+			ageS: 30,
+			pagesIn,
 		});
-		expect(windowsShortfall(fresh, windowsNeedMb(1606))).toBeNull();
+		expect(windowsShortfall(paging(100_000))).toEqual({
+			mb: 2638,
+			pagesIn: 100_000,
+		});
+		expect(windowsShortfall(paging(99_999))).toBeNull();
 	});
 
 	it("resolves the log as memwatch does, MEMWATCH_MINUTE_LOG first", () => {

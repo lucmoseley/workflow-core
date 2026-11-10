@@ -34,6 +34,7 @@ const { isOtherRunner } = require("./suite-launch.js");
 const { scriptPath } = require("./script-path.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
 const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
+const { describeWindowsHold } = require("./windows-memory.js");
 
 /**
  * Which limb of the suite gate denied: its count cap, with the PIDs holding it
@@ -43,7 +44,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * workers running, where it read `ps` (#4783).
  * A count denial carries the memory reading where the rung fails too (#4359).
  * @typedef {{ mb?: number, rungMb?: number, climbMb?: number, busy?: number }} MemoryReading
- * @typedef {{ limb: "windows", mb: number, needMb: number }} WindowsHold
+ * @typedef {{ limb: "windows" } & import("./windows-memory.js").WindowsHold} WindowsHold
  * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading) | WindowsHold} GateDenial
  */
 /**
@@ -58,7 +59,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
 /**
  * What a wait's exit line records of what held it: `limb` at the queue's bound,
  * and `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`).
- * @typedef {{ limb?: HeldLimb, climbMb?: number }} WaitHold
+ * @typedef {{ limb?: HeldLimb, climbMb?: number, windowsReleased?: true }} WaitHold
  */
 /** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
 /**
@@ -1116,10 +1117,9 @@ function peerClimbTurn(
  * runs drain to it.
  *
  * AND PAST ONE THE WINDOWS-MEMORY HOLD KEEPS OUT (#4782): one stamped
- * `windowsHeld`, at any age. Each waiter's Windows need is its own draw, so a
- * smaller one can fit the free memory a larger head cannot. The hold refuses
- * the head at its bound rather than running it, so holding younger waiters
- * back gains it nothing.
+ * `windowsHeld`, at any age. The hold judges every waiter on one reading,
+ * but releases each after its own spell's maximum (#4850), so a waiter
+ * released first runs past an older one still held.
  *
  * Residual: the stamp is a poll old, so a part-suite may pass one whose
  * memory freed or whose rest ended since; memory freed outside the queue, or
@@ -1208,6 +1208,12 @@ const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
  * bounded at 40 minutes. */
 const QUEUE_POLL_MS = 10_000;
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
+
+/* How long one spell of the Windows-memory hold may hold a wait before the
+ * wait runs anyway, logged (#4850). A first guess, to be re-measured with the
+ * hold's floor: over the 24 h to 10 Nov 2026 the hold's spells ran a median 2
+ * minutes and a p90 of 8, so 10 outlasts nine in ten and cuts the rest. */
+const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 
 /**
  * Whether the suite gate would refuse a run right now, and on which limb:
@@ -1319,7 +1325,7 @@ function limbHolder(hold) {
  */
 function describeLimb(hold) {
 	if (hold.limb === "windows")
-		return `${LIMB_NAMES.windows}, Windows free ${hold.mb} MB against ~${hold.needMb} MB`;
+		return `${LIMB_NAMES.windows}, ${describeWindowsHold(hold)}`;
 	if (hold.limb !== "memory")
 		return `${LIMB_NAMES[hold.limb]}${limbHolder(hold)}`;
 	const { mb, rungMb, climbMb } = hold;
@@ -1491,8 +1497,8 @@ function memoryRefusal(label, secs, { mb, rungMb, climbMb }) {
  * @param {WindowsHold} denial
  * @returns {string}
  */
-function windowsRefusal(label, secs, { mb, needMb }) {
-	return `${label}: the Windows-memory hold still holds after ${secs}s (Windows free ${mb} MB against ~${needMb} MB) — refused, not run. Close what Windows runs beside the VM, or wait for it to free, and run it again (#4557).\n`;
+function windowsRefusal(label, secs, denial) {
+	return `${label}: the Windows-memory hold still holds after ${secs}s (${describeWindowsHold(denial)}) — refused, not run. Close what Windows runs beside the VM, or wait for it to free, and run it again (#4557).\n`;
 }
 
 /**
@@ -1630,6 +1636,34 @@ function waitForGate({
 	);
 	let climbKept = false;
 	let climbHeldMb = 0;
+	/** @type {number | undefined} when this spell of the Windows-memory hold began */
+	let windowsSince;
+	/* Whether this spell was released, and whether any was, which the exit
+	 * log records. */
+	let spellReleased = false;
+	let windowsReleased = false;
+	/**
+	 * The gate's denial, or none once one unbroken spell of the
+	 * Windows-memory hold has held this wait for WINDOWS_MAX_HOLD_MS; a poll
+	 * on any other limb or none ends the spell. Each release is said once.
+	 * @param {GateDenial | null} denial
+	 */
+	const releaseWindows = (denial) => {
+		if (denial?.limb !== "windows") {
+			windowsSince = undefined;
+			spellReleased = false;
+			return denial;
+		}
+		windowsSince ??= clock();
+		if (clock() - windowsSince < WINDOWS_MAX_HOLD_MS) return denial;
+		if (!spellReleased)
+			out.write(
+				`${label}: the Windows-memory hold released this wait after ${secs()}s, its ${WINDOWS_MAX_HOLD_MS / 60_000}-minute maximum (${describeWindowsHold(denial)}) (#4850)\n`,
+			);
+		spellReleased = true;
+		windowsReleased = true;
+		return null;
+	};
 	const trace = limbTrace(clock, started);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
 	const sayBreakdown = () => {
@@ -1641,6 +1675,9 @@ function waitForGate({
 		const heldBy = {
 			...(limb ? { limb } : {}),
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
+			...(windowsReleased
+				? { windowsReleased: /** @type {const} */ (true) }
+				: {}),
 		};
 		onExit(
 			reason,
@@ -1766,7 +1803,7 @@ function waitForGate({
 		 * the queue answers "is it my turn" — and a waiter that checks only the
 		 * gate joins a stampede the moment the machine frees up. */
 		const charged = climbMb();
-		const denial = gate(charged);
+		const denial = releaseWindows(gate(charged));
 		stampDenial(denial, charged);
 		const open = !denial && turn();
 		see(denial, open);
@@ -1960,6 +1997,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 
 module.exports = {
 	PART_PASS_AGE_MS,
+	WINDOWS_MAX_HOLD_MS,
 	turnOf,
 	isClimbKept,
 	SEAT_ENV,

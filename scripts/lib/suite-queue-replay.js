@@ -50,15 +50,28 @@ const { readJsonl } = require("./jsonl.js");
 const { requiredGroup } = require("./regex-group");
 const { docPath } = require("./script-path.js");
 const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
-const { WHOLE_SUITE_MAX, suiteRungMb } = require("./suite-ladder");
-const { PART_PASS_AGE_MS, isClimbKept, turnOf } = require("./suite-queue");
+const {
+	DRAW_MARGIN_MB,
+	WHOLE_SUITE_MAX,
+	suiteRungMb,
+} = require("./suite-ladder");
+const {
+	PART_PASS_AGE_MS,
+	WINDOWS_MAX_HOLD_MS,
+	isClimbKept,
+	turnOf,
+} = require("./suite-queue");
 const {
 	TSC_MAX,
 	TSC_PEAK_MB,
 	TSC_RUNG_MB,
 	isTscRunner,
 } = require("./tsc-slot");
-const { WINDOWS_FRESH_S, windowsNeedMb } = require("./windows-memory");
+const {
+	WINDOWS_FRESH_S,
+	windowsReadingOf,
+	windowsShortfall,
+} = require("./windows-memory");
 
 /* #2909's tick; the figures #3047 reports are at it. */
 const TICK_S = 10;
@@ -106,6 +119,9 @@ const PRE_FIELDS_GATE = {
 const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
 /* #4557's commit, from which the Windows-memory hold holds a launch. */
 const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
+/* #4850's commit, from which that hold reads Windows' floor and paging in
+ * place of each launch's draw. */
+const WINDOWS_FLOOR_FROM = Date.parse("2026-11-10T01:48:21Z");
 /* #4782's commit, from which a part waiter passes an older one that hold
  * keeps out. */
 const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
@@ -132,7 +148,8 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   modulesRun: number | null, modulesTotal: number | null }} Run
  * @typedef {{ used: number, load: number, tsc: number }} MemBlock
  * @typedef {{ exits: Exit[], runs: Run[], mem: Map<number, MemBlock>,
- *   windows: Map<number, number>, unread: Unread }} Logs
+ *   windows: Map<number, WindowsMinute>, unread: Unread }} Logs
+ * @typedef {import("./windows-memory.js").WindowsMinute} WindowsMinute
  * @typedef {{ since: number, until: number, eras: { label: string, from: number }[],
  *   memTotalMb: number, loadCeiling: number | null }} Window
  */
@@ -228,19 +245,17 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
  * @param {number} hi
  */
 function readWindowsMinutes(file, unread, lo, hi) {
-	/** @type {Map<number, number>} */
+	/** @type {Map<number, WindowsMinute>} */
 	const windows = new Map();
 	const inRange = (/** @type {string} */ line) => {
 		const t = Date.parse(/"ts":"([^"]+)"/.exec(line)?.[1] ?? "");
 		return lo <= t && t <= hi;
 	};
-	for (const row of readRows(file, unread, inRange))
-		if (
-			typeof row.win_avail_mb === "number" &&
-			typeof row.win_age_s === "number" &&
-			row.win_age_s <= WINDOWS_FRESH_S
-		)
-			windows.set(Math.floor(Date.parse(row.ts) / 60_000), row.win_avail_mb);
+	for (const row of readRows(file, unread, inRange)) {
+		const reading = windowsReadingOf(row);
+		if (reading && reading.ageS <= WINDOWS_FRESH_S)
+			windows.set(Math.floor(Date.parse(row.ts) / 60_000), reading);
+	}
 	return windows;
 }
 
@@ -531,7 +546,7 @@ function toWaiters(queued, runs) {
 
 /**
  * @typedef {{ t: number, whole: WeighedRun[], busy: number,
- *   mem: MemBlock | undefined, win: number | undefined, waiting: Waiter[],
+ *   mem: MemBlock | undefined, win: WindowsMinute | undefined, waiting: Waiter[],
  *   admitting: Waiter[], era: string }} GateTick
  * @typedef {GateTick & { climbStamped: Set<Waiter> }} Tick
  */
@@ -680,17 +695,33 @@ function isClimbHeld(e, tick, w) {
 	return available >= rung && available - e.climbMb < rung;
 }
 
+/* When each waiter's current spell of the Windows-memory hold began, for
+ * #4850's maximum hold. Ticks reach a waiter in time order. */
+/** @type {WeakMap<Waiter, number>} */
+const windowsSpell = new WeakMap();
+
 /**
- * The Windows-memory hold (#4557): Windows' free memory under what `e` would
- * draw, its own workers' share of the rung or a `tsc`'s peak, plus the margin.
+ * The Windows-memory hold: from #4850, Windows under its floor or paging
+ * hard, until one unbroken spell has held `e` for WINDOWS_MAX_HOLD_MS; from
+ * #4557 until then, Windows' free memory under what `e` would draw, its own
+ * workers' share of the rung or a `tsc`'s peak, plus the margin.
  * @param {Waiter} e
  * @param {GateTick} tick
  */
 function isWindowsHeld(e, tick) {
 	if (tick.win === undefined || tick.t < WINDOWS_HOLD_FROM) return false;
+	if (tick.t >= WINDOWS_FLOOR_FROM) {
+		if (windowsShortfall(tick.win) === null) {
+			windowsSpell.delete(e);
+			return false;
+		}
+		const since = windowsSpell.get(e) ?? tick.t;
+		windowsSpell.set(e, since);
+		return tick.t - since < WINDOWS_MAX_HOLD_MS;
+	}
 	const drawMb =
 		e.kind === "tsc" ? TSC_PEAK_MB : rungOf(e, tick) - suiteRungMb(tick.busy);
-	return tick.win < windowsNeedMb(drawMb);
+	return tick.win.mb < drawMb + DRAW_MARGIN_MB;
 }
 
 /**

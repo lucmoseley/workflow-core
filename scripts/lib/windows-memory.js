@@ -1,7 +1,12 @@
 /*
- * windows-memory.js — the Windows-memory hold (#4557): Windows' own free
- * memory, off memwatch's newest `win_avail_mb` reading, and whether a launch
- * fits in it.
+ * windows-memory.js — the Windows-memory hold (#4557, #4850): Windows' own
+ * free memory and paging, off memwatch's newest reading, and whether a launch
+ * waits on them.
+ *
+ * IT HOLDS ON MEASURED RISK, NOT ON A LAUNCH'S DRAW (#4850). Over the 24 h to
+ * 10 Nov 2026 heavy paging came in 19% of minutes under 1,000 MB free and 1-4%
+ * above it, while charging each launch's whole draw held 64-99% of minutes on
+ * a host whose Windows free memory has a 1,668 MB median.
  *
  * WHY A GUEST RUNG CANNOT SEE IT. The guest takes new pages from its own
  * unbacked free memory before it evicts page cache, growing `vmmemWSL` on
@@ -20,7 +25,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { parseJsonl } = require("./jsonl.js");
-const { DRAW_MARGIN_MB } = require("./suite-ladder.js");
+
+/* The free memory under which Windows holds every launch. A first guess, and
+ * stated as one: the line under which heavy paging was about five times as
+ * common over one day (#4850), to be re-measured over a week. */
+const WINDOWS_FLOOR_MB = 1000;
+/* The pages Windows reads in from disk since memwatch's previous reading,
+ * about a minute, at and over which it holds every launch: the heavy-paging
+ * line #4850 counted, a first guess. The 6 Nov freeze read 171,984 (#4557); a
+ * quiet minute's median is about 1,500. */
+const WINDOWS_PAGING_LINE = 100_000;
 
 /* How old a reading may be and still hold a launch: memwatch's minute line
  * carries a reading at most 120 s old, and a line lands each 60 s, so a
@@ -44,7 +58,8 @@ function minuteLogPath() {
 }
 
 /**
- * @typedef {{ state: "fresh", mb: number, ageS: number }
+ * @typedef {{ state: "fresh", mb: number, ageS: number, pagesIn?: number }} WindowsMinute
+ * @typedef {WindowsMinute
  *   | { state: "absent" }
  *   | { state: "stale", why: string }} WindowsRead
  */
@@ -75,25 +90,42 @@ function readTail(file) {
 }
 
 /**
- * The newest row in `tail` carrying a Windows reading, null where none does.
- * The tail's cut first line and a torn last one parse to no row.
+ * The Windows reading a memwatch minute row carries, aged by the reading's
+ * own `win_age_s` alone, or null where the row carries none. The one parser
+ * of the row's Windows fields, the queue-wait replay's included.
+ * @param {Record<string, unknown>} row
+ * @returns {WindowsMinute | null}
+ */
+function windowsReadingOf(row) {
+	if (
+		typeof row.ts !== "string" ||
+		typeof row.win_avail_mb !== "number" ||
+		typeof row.win_age_s !== "number"
+	)
+		return null;
+	return {
+		state: "fresh",
+		mb: row.win_avail_mb,
+		ageS: row.win_age_s,
+		...(typeof row.win_pages_in === "number"
+			? { pagesIn: row.win_pages_in }
+			: {}),
+	};
+}
+
+/**
+ * The newest row in `tail` carrying a Windows reading, with that reading,
+ * null where none does. The tail's cut first line and a torn last one parse
+ * to no row.
  * @param {string} tail
- * @returns {{ ts: string, mb: number, winAgeS: number } | null}
+ * @returns {{ ts: string, reading: WindowsMinute } | null}
  */
 function newestReading(tail) {
-	const r = parseJsonl(tail).rows.findLast(
-		(row) =>
-			typeof row.ts === "string" &&
-			typeof row.win_avail_mb === "number" &&
-			typeof row.win_age_s === "number",
-	);
-	return r
-		? {
-				ts: String(r.ts),
-				mb: Number(r.win_avail_mb),
-				winAgeS: Number(r.win_age_s),
-			}
-		: null;
+	for (const row of parseJsonl(tail).rows.toReversed()) {
+		const reading = windowsReadingOf(row);
+		if (reading) return { ts: String(row.ts), reading };
+	}
+	return null;
 }
 
 /**
@@ -112,45 +144,43 @@ function readWindowsMemory({ file = minuteLogPath(), now = Date.now() } = {}) {
 		};
 	}
 	if (tail === null) return { state: "absent" };
-	const reading = newestReading(tail);
-	if (reading === null)
+	const newest = newestReading(tail);
+	if (newest === null)
 		return {
 			state: "stale",
 			why: `no Windows reading in ${file}'s last lines`,
 		};
-	const lineMs = Date.parse(reading.ts);
+	const lineMs = Date.parse(newest.ts);
 	if (Number.isNaN(lineMs))
-		return { state: "stale", why: `${file} line stamped ${reading.ts}` };
-	const ageS = Math.round((now - lineMs) / 1000) + reading.winAgeS;
+		return { state: "stale", why: `${file} line stamped ${newest.ts}` };
+	const ageS = Math.round((now - lineMs) / 1000) + newest.reading.ageS;
 	if (ageS > WINDOWS_FRESH_S)
 		return {
 			state: "stale",
 			why: `the newest Windows reading in ${file} is ${ageS} s old, past ${WINDOWS_FRESH_S} s`,
 		};
-	return { state: "fresh", mb: reading.mb, ageS };
+	return { ...newest.reading, ageS };
 }
 
 /**
- * What Windows must hold free for a launch that has `drawMb` yet to draw:
- * that draw and the guest rungs' DRAW_MARGIN_MB, but not earlyoom's line,
- * which is the guest's. What is already running holds its pages in
- * `vmmemWSL` and is not charged again.
- * @param {number} drawMb
- */
-const windowsNeedMb = (drawMb) => drawMb + DRAW_MARGIN_MB;
-
-/**
- * The hold a launch needing `needMb` of Windows meets, null where the reading
- * fits it or is not fresh.
+ * The hold a launch meets, null where the reading is not fresh or shows
+ * Windows neither under WINDOWS_FLOOR_MB nor paging at WINDOWS_PAGING_LINE.
  * @param {WindowsRead} read
- * @param {number} needMb
- * @returns {{ mb: number, needMb: number } | null}
+ * @returns {WindowsHold | null}
  */
-function windowsShortfall(read, needMb) {
-	return read.state === "fresh" && read.mb < needMb
-		? { mb: read.mb, needMb }
-		: null;
+function windowsShortfall(read) {
+	if (read.state !== "fresh") return null;
+	const paging =
+		read.pagesIn !== undefined && read.pagesIn >= WINDOWS_PAGING_LINE;
+	if (read.mb >= WINDOWS_FLOOR_MB && !paging) return null;
+	return { mb: read.mb, ...(paging ? { pagesIn: read.pagesIn } : {}) };
 }
+
+/**
+ * What held a launch: Windows' free memory, and its pages in where they were
+ * at or over WINDOWS_PAGING_LINE.
+ * @typedef {{ mb: number, pagesIn?: number }} WindowsHold
+ */
 
 /**
  * The fail-open a caller records, null where there is none to record.
@@ -176,22 +206,29 @@ function readWindowsRecorded(readWindows, log, what) {
 	return read;
 }
 
-const WINDOWS_PAGING_WHY =
-	"the VM grows into Windows' memory before the guest evicts its page cache";
+/**
+ * What the hold reads, for a deny or a wait line.
+ * @param {WindowsHold} short
+ */
+const describeWindowsHold = (short) =>
+	short.pagesIn === undefined
+		? `Windows itself has ${short.mb} MB free (memwatch's win_avail_mb), under its ${WINDOWS_FLOOR_MB} MB floor`
+		: `Windows is paging ${short.pagesIn} pages a minute in from disk, at or over its ${WINDOWS_PAGING_LINE} line, with ${short.mb} MB free`;
 
 /**
- * @param {{ mb: number, needMb: number }} short
+ * @param {WindowsHold} short
  */
 const buildWindowsShortText = (short) =>
-	`Windows itself has ${short.mb} MB free (memwatch's win_avail_mb), under the ~${short.needMb} MB this launch draws plus the margin; ${WINDOWS_PAGING_WHY}, so a guest reading plenty can still page Windows (#4557)`;
+	`${describeWindowsHold(short)}; a launch now would deepen Windows' paging, which has frozen the VM (#4557, #4850)`;
 
 module.exports = {
 	WINDOWS_FRESH_S,
 	buildWindowsShortText,
+	describeWindowsHold,
 	buildWindowsUnreadNote,
 	minuteLogPath,
 	readWindowsMemory,
 	readWindowsRecorded,
-	windowsNeedMb,
+	windowsReadingOf,
 	windowsShortfall,
 };
