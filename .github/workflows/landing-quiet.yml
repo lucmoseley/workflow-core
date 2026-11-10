@@ -11,7 +11,8 @@ name: Landing quiet 14h
 # and "Enable workflow" on return.
 #
 # TEST THE NOTICE: gh workflow run landing-quiet.yml -R lucmoseley/workflow-core -f force_failure=true,
-# then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed.
+# then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed,
+# all before this alarm's next scheduled run, whose green would end the stall.
 on:
   schedule:
     # Hourly because GitHub drops scheduled runs. Off minute 0, GitHub's named

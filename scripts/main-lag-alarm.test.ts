@@ -189,17 +189,22 @@ describe("main-lag.yml", () => {
 	it("runs the check hourly, in the code repo alone", () => {
 		expect(workflow.on.schedule).toEqual([{ cron: "47 * * * *" }]);
 		expect(job.if).toContain("lucmoseley/workflow-core");
-		const [step] = job.steps.map((s) => s.run).filter(Boolean);
-		expect(step).toMatch(/^node scripts\/main-lag-alarm\.js \|\| exit\n/);
+		expect(job.steps.map((s) => s.run).filter(Boolean)).toEqual([
+			[
+				"node scripts/main-lag-alarm.js || exit",
+				'if [ "$FORCE_FAILURE" = true ]; then',
+				`  echo "::error title=Forced failure::This run tests the founder's notice route."`,
+				"  exit 1",
+				"fi",
+				"",
+			].join("\n"),
+		]);
 	});
 
-	it("fails a forced run only after the check itself passed, so the notice route is tested on a readable queue", () => {
-		const [step] = job.steps.map((s) => s.run).filter(Boolean);
+	it("takes a boolean forced failure, failed only after the check itself passed", () => {
 		expect(workflow.on.workflow_dispatch.inputs.force_failure.type).toBe(
 			"boolean",
 		);
-		expect(step).toContain('if [ "$FORCE_FAILURE" = true ]; then');
-		expect(step).toContain("exit 1");
 	});
 
 	it("names the threshold the check applies on the run page the notice links", () => {

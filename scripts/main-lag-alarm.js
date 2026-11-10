@@ -27,7 +27,7 @@
  * Needs no npm install.
  */
 
-const { actionsApi } = require("./lib/actions-api.js");
+const { buildActionsApi } = require("./lib/actions-api.js");
 const { QUEUE_HEADS, QUEUE_PREFIX } = require("./lib/landing-refs.js");
 const { formatHoursMin, oldestWaiting } = require("./lib/queue-gauge.js");
 const { QUEUE_ALERT_TITLES } = require("./lib/queue-tickets.js");
@@ -154,7 +154,7 @@ async function runAlarm({ get, now, say }) {
 const main = () =>
 	runAlarm({
 		get: (p) =>
-			actionsApi(process.env).get(
+			buildActionsApi(process.env).get(
 				`/repos/${process.env.GITHUB_REPOSITORY}${p}`,
 			),
 		now: Date.now(),

@@ -7,7 +7,8 @@ name: Queue ref waiting 2h
 # running scripts/alarm-notice.js (#4939).
 #
 # TEST THE NOTICE: gh workflow run main-lag.yml -R lucmoseley/workflow-core -f force_failure=true,
-# then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed.
+# then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed,
+# all before this alarm's next scheduled run, whose green would end the stall.
 #
 # PLANNED ABSENCE: Actions tab > Queue ref waiting 2h > "..." > Disable
 # workflow, and "Enable workflow" on return.
