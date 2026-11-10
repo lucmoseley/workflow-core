@@ -686,7 +686,8 @@ const rungOf = (e, tick) =>
 /**
  * The peak a type-check waiter is charged: its exit line's, that of the
  * compiler it ran; on a line from before #4892, whose type-checks all ran on
- * TypeScript 5, 5's.
+ * TypeScript 5, 5's. Residual: a killed line from #4892 to #4921 carries no
+ * charge, and a 7 waiter's is read as 5's.
  * @param {Waiter} e
  */
 const tscChargeOf = (e) => e.chargeMb ?? chargeMb({ kind: "tsc", major: 5 });

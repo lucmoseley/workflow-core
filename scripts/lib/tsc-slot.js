@@ -108,6 +108,8 @@ const realOr = (file) => {
 	try {
 		return fs.realpathSync(file);
 	} catch {
+		/* The path unresolved: a launcher reached through a link is keyed apart
+		 * from its native child, which is then counted a second runner (#4892). */
 		return file;
 	}
 };
@@ -161,6 +163,7 @@ function readTscMajor(binTsc) {
 		const major = Number.parseInt(String(version), 10);
 		return Number.isInteger(major) ? major : null;
 	} catch {
+		/* Unread: the launch is charged the highest peak (#4892). */
 		return null;
 	}
 }

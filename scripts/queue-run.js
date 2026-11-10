@@ -446,11 +446,15 @@ async function run(words, slot, options, err) {
 		queue,
 		join: held ? false : join,
 		logExit: exitExtra
-			? (reason, waitMs, extra) =>
+			? (reason, waitMs, extra) => {
+					/* A killed line keeps the charge the replay reads, never
+					 * `noWait` (#4921). */
+					const { noWait: _try, ...charge } = exitExtra;
 					logExit(reason, waitMs, {
 						...extra,
-						...(reason === "killed" ? {} : exitExtra),
-					})
+						...(reason === "killed" ? charge : exitExtra),
+					});
+				}
 			: logExit,
 		signals: {
 			...(options.signals ? { emitter: options.signals } : {}),

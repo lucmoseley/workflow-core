@@ -285,7 +285,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 	 * #4892 with no charge, is held on its own (#4892). */
 	it("charges each logged type-check the peak of the compiler it ran", () => {
 		const between = 10_000 - (rungMb(peak7) + rung5) / 2;
-		const limbsOf = (logged?: number) =>
+		const limbsOf = (logged?: number, reason = "refused") =>
 			hoursOf(
 				replayOf({
 					waiters: [
@@ -293,6 +293,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 							from: 0,
 							to: 5,
 							kind: "tsc",
+							reason,
 							...(logged ? { chargeMb: logged } : {}),
 						},
 					],
@@ -300,6 +301,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 				}).limb,
 			);
 		expect(limbsOf(peak7)).toEqual({ open: 300 });
+		expect(limbsOf(peak7, "killed")).toEqual({ open: 300 });
 		expect(limbsOf(peak5)).toEqual({ "tsc-memory": 300 });
 		expect(limbsOf()).toEqual({ "tsc-memory": 300 });
 	});
