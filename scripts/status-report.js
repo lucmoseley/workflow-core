@@ -109,6 +109,7 @@ const CHECKS = [
 	["scripts-typecheck", "check-scripts-typecheck.js"],
 	["suite-size", "check-suite-size-drift.js"],
 	["suite-margin", "check-suite-margin.js"],
+	["time-to-land", "check-time-to-land.js"],
 	["file-ci-time", "check-file-ci-time.js"],
 	["pass-store", "check-pass-store.js"],
 	["pick-next-model", "check-pick-next-model.js"],
