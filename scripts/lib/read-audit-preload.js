@@ -160,6 +160,8 @@ function install() {
 		});
 
 	const realStatSync = fs.statSync;
+	const realAccessSync = fs.accessSync;
+	const realRealpathSync = fs.realpathSync;
 
 	/**
 	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
@@ -314,10 +316,18 @@ function install() {
 	const guarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
 		path.basename(pathDirs(opts?.envPairs)[0] ?? "") === "host-git-guard";
+	const isRunnable = (/** @type {string} */ abs) => {
+		try {
+			realAccessSync(abs, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	};
 	/**
-	 * The file a child's program name resolves to: a name holding a slash off
-	 * its working directory, a bare one off its `PATH`. Null where no file
-	 * stands there.
+	 * The file a child's program name runs: a name holding a slash off its
+	 * working directory, a bare one the first executable file on its `PATH`,
+	 * links followed. Null where none stands there.
 	 * @param {string} file
 	 * @param {string} cwd
 	 * @param {unknown} envPairs
@@ -326,7 +336,8 @@ function install() {
 		const tries = file.includes("/")
 			? [path.resolve(cwd, file)]
 			: pathDirs(envPairs).map((entry) => path.resolve(cwd, entry, file));
-		return tries.find((abs) => kindAt(abs) === "file") ?? null;
+		const hit = tries.find((abs) => kindAt(abs) === "file" && isRunnable(abs));
+		return hit === undefined ? null : realRealpathSync(hit);
 	};
 	/** @param {Untyped} opts @param {number|undefined} pid */
 	const spawned = (opts, pid) =>

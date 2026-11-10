@@ -27,9 +27,8 @@
  * - any other child — a shell, Python, a binary — run from a directory under
  *   the root, or handed an argument naming a path there. A shell or Python child handed a checkout script to run, from
  *   outside the root, is seen: the script is a read, and the lexical reach
- *   keys what it loads (#4790). So is a program outside the checkout that
- *   reads nothing of its directory (#4932): one asked only its version, or
- *   one of `PATHLESS`;
+ *   keys what it loads (#4790). So is one of `CWD_BLIND`, which reads
+ *   nothing of its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -377,7 +376,7 @@ function childDoubt(e, logs, root, isScratch) {
 	if (
 		isUnder(cwd, [root], path.sep) &&
 		!isScratch(toPosix(path.relative(root, cwd))) &&
-		!readsNoDirectory(e, root, isScratch)
+		!isCwdBlind(e, root)
 	)
 		return `a child (${shown}) ran in the checkout`;
 	const script = scriptOf(e, root);
@@ -388,36 +387,32 @@ function childDoubt(e, logs, root, isScratch) {
 	return null;
 }
 
-/* Programs that open no file a word of theirs names: a duration, a process
- * table, a bus call. */
-const PATHLESS = new Set(["sleep", "ps", "busctl", "systemctl"]);
+/* Programs that read nothing of the directory they run in, each traced with
+ * `strace -e trace=file` to make no file call outside the system directories:
+ * under any arguments (null), or under the one argument named. */
+const CWD_BLIND = new Map([
+	["sleep", null],
+	["ps", null],
+	["bash", "--version"],
+	["gitleaks", "version"],
+]);
 
 /**
- * Whether a child reads nothing of the directory it runs in (#4932): its
- * program is a file outside the checkout, and it either only asks that
- * program its version or is one of `PATHLESS` handed no word that resolves
- * into the checkout.
+ * Whether a child reads nothing of the directory it runs in (#4932): one of
+ * `CWD_BLIND`, run as the real program. A file of the same name under the
+ * checkout or the temporary directory is one a test can write, so it is not
+ * that program.
  * @param {Entry} e
  * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
  */
-function readsNoDirectory(e, root, isScratch) {
-	const inCheckout = (/** @type {string} */ abs) =>
-		isUnder(abs, [root], path.sep) &&
-		!isScratch(toPosix(path.relative(root, abs)));
-	if (typeof e.bin !== "string" || inCheckout(e.bin)) return false;
+function isCwdBlind(e, root) {
 	const name = path.basename(String(e.file));
+	if (typeof e.bin !== "string" || !CWD_BLIND.has(name)) return false;
+	if (isUnder(e.bin, [root, fs.realpathSync(os.tmpdir())], path.sep))
+		return false;
+	const sole = CWD_BLIND.get(name);
 	const args = /** @type {string[]} */ (e.args ?? []);
-	const [only] = args;
-	if (args.length === 1 && only === "--version") return true;
-	if (args.length === 1 && only === "version" && name === "gitleaks")
-		return true;
-	return (
-		PATHLESS.has(name) &&
-		!args.some(
-			(a) => a.includes("/") && inCheckout(path.resolve(String(e.cwd), a)),
-		)
-	);
+	return sole === null || (args.length === 1 && args[0] === sole);
 }
 
 /**
