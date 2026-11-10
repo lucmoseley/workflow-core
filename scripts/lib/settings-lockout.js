@@ -40,8 +40,7 @@ const {
 const { parseFirstLine } = require("./first-line.js");
 const { gitOrNull } = require("./git.js");
 const {
-	APPARATUS_EXIT,
-	APPARATUS_PREFIX,
+	isRunnerFailure,
 	KILLED_EXIT,
 	RUN_BUDGETED,
 	TIMEOUT_EXIT,
@@ -195,13 +194,28 @@ function verdictOf(line, { dir, env, input }) {
 	/* 125 is also a status the line may exit with itself, which
 	 * run-budgeted.js passes through; only its own prefixed line marks its
 	 * failure. */
-	if (
-		r.status === APPARATUS_EXIT &&
-		r.stderr.trimStart().startsWith(APPARATUS_PREFIX)
-	)
-		return { unrun: parseFirstLine(r.stderr) };
+	if (isRunnerFailure(r)) return { unrun: parseFirstLine(r.stderr) };
 	const blocked = blockOf(line, r, budgetS);
 	return blocked === null ? null : { blocked };
+}
+
+/**
+ * "blocked" where any of origin/main's `lines` blocks the probe call, else the
+ * first that would not run, else null.
+ * @param {HookEntry[]} lines
+ * @param {{ dir: string, env: NodeJS.ProcessEnv, input: string }} probe
+ * @returns {"blocked" | { unrun: string } | null}
+ */
+function landedVerdict(lines, probe) {
+	/** @type {{ unrun: string } | null} */
+	let unrun = null;
+	for (const line of lines) {
+		const v = verdictOf(line, probe);
+		if (v === null) continue;
+		if ("blocked" in v) return "blocked";
+		unrun ??= v;
+	}
+	return unrun;
 }
 
 /**
@@ -274,14 +288,11 @@ function probeLines(dir, main, { own, landed }) {
 				};
 			/* origin/main's lines failing too puts the fault outside the edit,
 			 * so restoring them is no fix: the canary's own refusal speaks. */
-			const landedVerdicts = (landed ?? []).map((l) => verdictOf(l, probe));
-			if (landedVerdicts.some((v) => v !== null && "blocked" in v)) return null;
-			const landedUnrun = landedVerdicts.find(
-				(v) => v !== null && "unrun" in v,
-			);
-			if (landedUnrun && "unrun" in landedUnrun)
+			const landedV = landedVerdict(landed ?? [], probe);
+			if (landedV === "blocked") return null;
+			if (landedV !== null)
 				return {
-					unrun: `the probe of origin/main's lines would not run: ${landedUnrun.unrun}`,
+					unrun: `the probe of origin/main's lines would not run: ${landedV.unrun}`,
 				};
 			return { line, blocked: verdict.blocked };
 		}
