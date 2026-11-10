@@ -2106,6 +2106,23 @@ function sessionAttestation(own, markers, { within = null, ...options } = {}) {
 	};
 }
 
+/** How a cached file is run anyway, wherever the pass store names one. */
+const FRESH_HINT = "(#4790; `--fresh` runs them)";
+
+/**
+ * The clause naming the files the pass store cached, for a line a `tail`
+ * keeps: the banner that also names them sits above vitest's output, where a
+ * `tail` drops it and the run reads as one that skipped them silently (#4894).
+ * Null where none was cached.
+ *
+ * @param {string[]} files
+ * @returns {string|null}
+ */
+function formatCachedClause(files) {
+	if (files.length === 0) return null;
+	return `${files.length} cached, not run ${FRESH_HINT}: ${files.join(", ")}`;
+}
+
 /**
  * The line the reporter prints the moment a narrowed run ends — null for a full
  * one, which prints nothing new.
@@ -2116,9 +2133,10 @@ function sessionAttestation(own, markers, { within = null, ...options } = {}) {
  * in its own terms.
  *
  * @param {Scope|null|undefined} scope
+ * @param {string[]} [cachedFiles]
  * @returns {string|null}
  */
-function formatFilteredRun(scope) {
+function formatFilteredRun(scope, cachedFiles = []) {
 	if (!scope || isFullScope(scope)) return null;
 	const bits = [
 		`ran ${scope.tests - scope.skipped} of ${scope.tests} tests` +
@@ -2135,6 +2153,8 @@ function formatFilteredRun(scope) {
 		);
 	const files = scope.fileFilters || [];
 	if (files.length > 0) bits.push(`paths: ${files.join(", ")}`);
+	const cached = formatCachedClause(cachedFiles);
+	if (cached) bits.push(cached);
 	if (scope.changed)
 		bits.push(
 			`--changed${typeof scope.changed === "string" ? ` ${scope.changed}` : ""}`,
@@ -2220,4 +2240,6 @@ module.exports = {
 	DEFAULT_SUITE,
 	suiteOf,
 	formatFilteredRun,
+	formatCachedClause,
+	FRESH_HINT,
 };

@@ -52,6 +52,8 @@ process.env.WFC_MEMORY_HOLD = "";
  * `WFC_HOST_GIT_DIR` is its cache of the host, `WFC_HOST_GIT_REAL` the git
  * it runs where a test's own `PATH` holds no other. Set again on every file
  * the worker loads, so `PATH` does not stack.
+ *
+ * code-edges loads: scripts/lib/host-git-guard/git
  */
 const guardDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),

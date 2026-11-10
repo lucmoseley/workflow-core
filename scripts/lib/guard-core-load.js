@@ -5,6 +5,8 @@
  * row's policy (#4125). Its own module, apart from lib/guard-dispatch.js, so
  * a test loads the cores the entry would through the export the entry itself
  * uses (#4136, base §G6).
+ *
+ * code-edges loads: guard-cores.json core
  */
 
 const fs = require("node:fs");

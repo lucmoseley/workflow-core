@@ -16,13 +16,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readText } from "./lib/file-read";
-import { GH_NOT_FOUND } from "./lib/gh-fake";
+import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
 const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
+/* A recorded failure other than a 404, which the signature log reads as no
+ * rows. */
+const FORBIDDEN = readGhAnswer(
+	path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
+);
 const ADOPTER_TRACKER = "o/m";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
@@ -52,27 +57,34 @@ interface Issue {
 	labels?: string[];
 }
 
-/** What the stub serves through `gh api`: each tracker's main, newest last,
- * and its signature log, absent (a 404) where unset. */
+/** What the stub serves through `gh api`: each code repo's main, newest
+ * last, and its signature log, absent (a 404) where unset. */
 interface Upstream {
 	commits: Record<string, { sha: string; at: string; message: string }[]>;
 	logs: Record<string, string>;
 }
 
-/** A checkout with a workflow-core config naming `tracker`, whose main
- * `upstream` holds, as GitHub would serve it. */
-function fixtureRepo(root: string, tracker: string, upstream: Upstream) {
+/** A checkout with a workflow-core config naming `tracker`, and `codeRepo`
+ * where given, whose main `upstream` holds under its code repo, as GitHub
+ * would serve it. */
+function fixtureRepo(
+	root: string,
+	tracker: string,
+	upstream: Upstream,
+	codeRepo?: string,
+) {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 	execFileSync("git", ["init", "-q", root]);
 	fs.writeFileSync(
 		path.join(root, ".claude", "workflow-core.json"),
-		JSON.stringify({ contract: 1, tracker }),
+		JSON.stringify({ contract: 1, tracker, ...(codeRepo && { codeRepo }) }),
 	);
-	upstream.commits[tracker] ??= [];
-	const main = upstream.commits[tracker];
+	const code = codeRepo ?? tracker;
+	upstream.commits[code] ??= [];
+	const main = upstream.commits[code];
 	const commit = (message: string, day: number) => {
 		const sha = createHash("sha1")
-			.update(`${tracker} ${main.length} ${message}`)
+			.update(`${code} ${main.length} ${message}`)
 			.digest("hex");
 		main.push({ sha, at: d(day), message });
 		return sha;
@@ -82,16 +94,14 @@ function fixtureRepo(root: string, tracker: string, upstream: Upstream) {
 		commit,
 		/** A signature line, landed on main as file-issue.js's is. */
 		signatureLine(n: number, extra: Record<string, unknown> = {}) {
-			upstream.logs[tracker] = `${upstream.logs[tracker] ?? ""}${JSON.stringify(
-				{
-					issue: `${tracker}#${n}`,
-					filedAt: d(FILED),
-					signature: SIG,
-					prediction: "the boom stops",
-					case: { session: "s", line: 1 },
-					...extra,
-				},
-			)}\n`;
+			upstream.logs[code] = `${upstream.logs[code] ?? ""}${JSON.stringify({
+				issue: `${tracker}#${n}`,
+				filedAt: d(FILED),
+				signature: SIG,
+				prediction: "the boom stops",
+				case: { session: "s", line: 1 },
+				...extra,
+			})}\n`;
 			commit("Log a signature", FILED);
 		},
 		/** A local origin/main last moved on `day`, holding none of main. */
@@ -133,8 +143,13 @@ function scratch() {
 		signatureLine: main.signatureLine,
 		/** A second repo under `name`, its tracker `tracker`, with a session
 		 * whose cwd is in it, so the review finds it. */
-		adopter(name: string, tracker: string) {
-			const repo = fixtureRepo(path.join(home, name), tracker, upstream);
+		adopter(name: string, tracker: string, codeRepo?: string) {
+			const repo = fixtureRepo(
+				path.join(home, name),
+				tracker,
+				upstream,
+				codeRepo,
+			);
 			const dir = path.join(seats[0], "projects", `-${name}`);
 			fs.mkdirSync(dir, { recursive: true });
 			writeTranscript(
@@ -193,19 +208,23 @@ function scratch() {
 			failingView = false,
 			failingList = "",
 			failingCommits = "",
+			failingLog = "",
 		}: {
 			failingView?: boolean;
 			failingList?: string;
 			failingCommits?: string;
+			failingLog?: string;
 		} = {}) {
 			const handler = `
 const fs = require("node:fs");
 const issues = ${JSON.stringify(issues)};
 const upstream = ${JSON.stringify(upstream)};
 const notFound = ${JSON.stringify(GH_NOT_FOUND)};
+const forbidden = ${JSON.stringify(FORBIDDEN)};
 const failingView = ${failingView};
 const failingList = ${JSON.stringify(failingList)};
 const failingCommits = ${JSON.stringify(failingCommits)};
+const failingLog = ${JSON.stringify(failingLog)};
 const flag = (f) => argv[argv.indexOf(f) + 1];
 const inRepo = issues.filter((i) => (i.repo ?? ${JSON.stringify(TRACKER)}) === flag("--repo"));
 const created = (i) => i.createdAt ?? ${JSON.stringify(d(0))};
@@ -214,7 +233,7 @@ const api = argv[0] === "api" && argv.find((a) => a.startsWith("repos/"))?.match
 if (api && api[2] === "commits") {
   const q = new URLSearchParams(api[3]);
   if (q.get("since")) fs.appendFileSync(${JSON.stringify(path.join(home, "sinces"))}, api[1] + " " + q.get("since") + "\\n");
-  if (api[1] === failingCommits) { err("HTTP 502: bad gateway\\n"); exit(1); }
+  if (api[1] === failingCommits) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
   const from = q.get("since") ? Date.parse(q.get("since")) : -Infinity, to = Date.parse(q.get("until"));
   const main = (upstream.commits[api[1]] ?? []).map((c, seq) => ({ ...c, seq }))
     .filter((c) => Date.parse(c.at) >= from && Date.parse(c.at) <= to)
@@ -223,16 +242,17 @@ if (api && api[2] === "commits") {
     .map((c) => ({ sha: c.sha, commit: { message: c.message, committer: { date: c.at } } }));
   out(JSON.stringify(argv.includes("--slurp") ? [main] : main));
 } else if (api) {
+  if (api[1] === failingLog) { out(forbidden.stdout); err(forbidden.stderr); exit(forbidden.status); }
   const log = upstream.logs[api[1]];
   if (log === undefined) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
   out(log);
 } else if (argv[0] === "issue" && argv[1] === "view") {
-  if (failingView) { err("HTTP 502: bad gateway\\n"); exit(1); }
+  if (failingView) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
   const i = inRepo.find((x) => x.number === Number(argv[2]));
   if (!i) { err("no such issue\\n"); exit(1); }
   out(JSON.stringify({ state: i.state ?? "CLOSED", createdAt: created(i) }));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--repo") === failingList) {
-  err("HTTP 502: bad gateway\\n"); exit(1);
+  out(notFound.stdout); err(notFound.stderr); exit(notFound.status);
 } else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
   const closedOnly = flag("--state") === "closed";
   out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
@@ -885,8 +905,8 @@ describe("measure-outcome-review.js", () => {
 		const { status, out } = f.run({ failingView: true });
 		expect(status).toBe(1);
 		expect(outcome(out)).toMatchObject({ verdict: "waiting" });
-		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: HTTP 502/);
-		expect(out.failures.join("\n")).toMatch(/HTTP 502/);
+		expect(outcome(out)?.why).toMatch(/could not read o\/t#1: .*HTTP 404/);
+		expect(out.failures.join("\n")).toMatch(/HTTP 404/);
 	});
 
 	describe("a second repo, found by its sessions (#4858)", () => {
@@ -967,6 +987,7 @@ describe("measure-outcome-review.js", () => {
 			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "keep", fixSha: sha });
 			expect(out.repos[1]).toEqual({
 				tracker: ADOPTER_TRACKER,
+				codeRepo: ADOPTER_TRACKER,
 				root: path.join(home, "adopter"),
 				main: expect.any(String),
 			});
@@ -992,24 +1013,80 @@ describe("measure-outcome-review.js", () => {
 			const { status, out } = f.run({ failingCommits: ADOPTER_TRACKER });
 			expect(status).toBe(1);
 			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
-			expect(outcomeOf(out, 5)?.why).toMatch(
-				/^main unread: o\/m: main unread: HTTP 502/,
-			);
+			expect(outcomeOf(out, 5)?.why).toMatch(/^o\/m main unread: .*HTTP 404/);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(out.noFaultBugUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.outcomeStep.misses).toBeNull();
 		});
 
-		it("reads each main from the earliest createdAt of any issue it judges (#4872)", () => {
-			const { f } = adopterFinding();
-			f.issues[0] = { ...f.issues[0], createdAt: d(30) } as Issue;
-			f.issues[2] = { ...f.issues[2], createdAt: d(33) } as Issue;
-			f.issues[1] = { ...f.issues[1], createdAt: d(20) } as Issue;
-			f.run();
+		it("reads each main from the earliest createdAt of a closed finding or a miss candidate (#4872)", () => {
+			const { f, a } = adopterFinding();
+			const created = (repo: string, n: number, day: number) => {
+				const i = f.issues.findIndex(
+					(x) => (x.repo ?? TRACKER) === repo && x.number === n,
+				);
+				f.issues[i] = { ...(f.issues[i] as Issue), createdAt: d(day) };
+			};
+			created(ADOPTER_TRACKER, 5, 30);
+			created(ADOPTER_TRACKER, 20, 33);
 			/* #5 in the host tracker is no finding, so its d(20) sets nothing. */
+			created(TRACKER, 5, 20);
+			/* An open finding reads no commits, so its d(10) sets nothing. */
+			f.issues.push({
+				number: 6,
+				repo: ADOPTER_TRACKER,
+				title: "BOOM still",
+				state: "OPEN",
+				createdAt: d(10),
+			});
+			a.signatureLine(6);
+			f.run();
 			expect(f.sinces()).toEqual([
 				`${TRACKER} ${d(30)}`,
 				`${ADOPTER_TRACKER} ${d(30)}`,
 			]);
+		});
+
+		it("reads main and the signature log from a code repo apart from its tracker (#4796)", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			baselineOfOne(f);
+			const a = f.adopter("adopter", ADOPTER_TRACKER, "o/m-code");
+			f.issues.push({
+				number: 5,
+				repo: ADOPTER_TRACKER,
+				title: "BOOM in the adopter",
+			});
+			a.signatureLine(5);
+			const sha = a.commit("Stop the boom (#5)", FIXED);
+			afterFix(f, 5, 0);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "keep", fixSha: sha });
+			expect(out.repos[1]).toMatchObject({
+				tracker: ADOPTER_TRACKER,
+				codeRepo: "o/m-code",
+			});
+		});
+
+		it("holds a tracker's findings, misses and lost lines where its signature log will not read, and exits 1 (#4796)", () => {
+			const { f } = adopterFinding();
+			f.runLine({ outcomes: [{ finding: ref(5), verdict: "waiting" }] });
+			f.issues.push({
+				number: 30,
+				repo: ADOPTER_TRACKER,
+				title: "Signed and closed",
+				closedAt: d(57),
+				labels: ["fault-signature"],
+			});
+			const { status, out } = f.run({ failingLog: ADOPTER_TRACKER });
+			expect(status).toBe(1);
+			expect(out.failures.join("\n")).toMatch(/o\/m main:.*HTTP 403/);
+			expect(out.lostLines).toEqual([]);
+			expect(out.lostLinesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
+			expect(outcomeOf(out, 5)?.why).toMatch(/o\/m main:.*HTTP 403/);
 		});
 
 		it("names the tracker whose issue list failed, holding the finding on it", () => {
@@ -1017,7 +1094,7 @@ describe("measure-outcome-review.js", () => {
 			const { status, out } = f.run({ failingList: ADOPTER_TRACKER });
 			expect(status).toBe(1);
 			expect(outcomeOf(out, 5)?.why).toMatch(
-				/^follow-ons unread: o\/m: bug issues unread: HTTP 502/,
+				/^follow-ons unread: o\/m: bug issues unread: .*HTTP 404/,
 			);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 		});

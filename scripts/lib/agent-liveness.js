@@ -50,9 +50,11 @@
  * The second, `admissionSessionIds`, reads an empty listing as nothing live,
  * outside a session only, where nothing says the list must name anyone
  * (#2180). Inside a session an empty list is still a fault. It is its own
- * export, never an option, so no reader judging by absence can pass it. The
- * readers that may are `readAgentsAfterBoot`, `readAgentsForBudget` and
- * `readAgentsForLevelling`, whose names say when (#3880, #3695, #4229).
+ * export, never an option, so no reader judging by absence can pass it unnamed.
+ * The readers that may are `readAgentsAfterBoot`, `readAgentsForBudget`,
+ * `readAgentsForLevelling` and `readAgentsForCutover`, whose names say when
+ * (#3880, #3695, #4229, #4743); the cutover judges by absence and takes the
+ * residual.
  *
  * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
@@ -750,6 +752,20 @@ function readAgentsForLevelling() {
 	return readAgentsAllowingEmpty();
 }
 
+/**
+ * `listedAgents` for the main checkout's cutover (scripts/cutover-main-checkout.js),
+ * reading an empty listing outside a session as nothing live (#4743): the
+ * cutover wants no session in the repository, and run from a terminal with
+ * none alive the listing names none. Inside a session the self-test stands.
+ * Its residual is `admissionSessionIds`'s.
+ * @returns {Listing}
+ */
+function readAgentsForCutover() {
+	return refuseOnThrow(undefined, undefined, checkedListing, {
+		allowEmpty: true,
+	});
+}
+
 /*
  * HOW OLD A SHOWN LISTING MAY BE (#4169), measured 4 Nov 2026 at load ~13:
  * one refresh of every plan's listing cost ~2.5 CPU-s and a cached
@@ -1022,6 +1038,7 @@ module.exports = {
 	listedAgents,
 	readAgentsAfterBoot,
 	readAgentsForBudget,
+	readAgentsForCutover,
 	readAgentsForLevelling,
 	readAgentsForDisplay,
 	readEverySeat,

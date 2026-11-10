@@ -195,7 +195,9 @@ describe("a launch the pass store caches whole", () => {
 		const ran = await launch(dir, [A, B]);
 		expect(ran.code).toBe(0);
 		expect(ran.calls).toEqual([]);
-		expect(ran.out).toMatch(/Every selected file was cached/);
+		expect(ran.out).toMatch(
+			/Every selected file was cached — 2 cached, not run .*--fresh.*: .+, .+ — so nothing ran/,
+		);
 		const marker = lastLine(storePath(dir));
 		expect(marker.selected).toEqual([A, B]);
 		expect(marker.cached.map((c: { file: string }) => c.file)).toEqual([A, B]);

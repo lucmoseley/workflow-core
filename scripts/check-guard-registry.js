@@ -2357,16 +2357,17 @@ function checkNamedPaths(st, file, rule, guards) {
 		/* Under the root, else — where the root is no core tree at all —
 		 * under the CORE's: an adopter's rules name the core's guards, which
 		 * live in the plugin and are never copied into the repo (#5). The root
-		 * is judged on its tree and its disk (#4517): an un-added guard would
-		 * otherwise pass in the worktree holding it and fail in every other,
-		 * and a tracked one deleted there stays BROKEN-CLAIM. The core on disk
-		 * alone: a shipped plugin, which inside an adopter's commit hook git's
-		 * exported GIT_INDEX_FILE would answer for out of the adopter's index. */
+		 * and the core are each judged on their tree and their disk (#4517): an
+		 * un-added guard would otherwise pass in the worktree holding it and
+		 * fail in every other, and a tracked one deleted there stays
+		 * BROKEN-CLAIM. */
 		const onDisk = (/** @type {string} */ base) =>
 			fs.existsSync(path.join(base, g));
+		const inTreeAndOnDisk = (/** @type {string} */ base) =>
+			isTreeFileOrDir(base, g) && onDisk(base);
 		if (
-			!(isTreeFileOrDir(root, g) && onDisk(root)) &&
-			(rootIsCore() || !onDisk(CORE_ROOT))
+			!inTreeAndOnDisk(root) &&
+			(rootIsCore() || !inTreeAndOnDisk(CORE_ROOT))
 		) {
 			const untracked = !isTreeFileOrDir(root, g) && onDisk(root);
 			reportRule(

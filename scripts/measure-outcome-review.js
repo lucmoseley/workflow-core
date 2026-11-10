@@ -11,20 +11,22 @@
  * THE REPOS read are `--root` and every repo root a seat's session ran in
  * (lib/session-head.js's repoRootOf on its cwd) holding a workflow-core
  * config. Each is read for its config's tracker; where two roots
- * resolve to one tracker, the first found is kept. Each tracker's main is
- * read through `gh api`, never a local ref (#4872): its commits from the
- * earliest `createdAt` of any issue the run judges (the open findings and the
- * week's closes) to `now`, since a commit citing `#n` follows `#n` and a
- * revert follows its fix.
- * Residual: a tracker whose branch is not named `main` fails every read, and
+ * resolve to one tracker, the first found is kept. Each tracker's code repo
+ * (lib/workflow-core-config.js's `codeRepo`: the config's, else the root's
+ * origin remote, else the tracker) has its main read through `gh api`, never a local ref (#4872): its commits from the
+ * earliest `createdAt` of any issue the run reads commits for (the closed
+ * unsettled findings and the week's miss candidates) to `now`, since a
+ * commit citing `#n` follows `#n` and a revert follows its fix.
+ * Residual: a code repo whose branch is not named `main` fails every read, and
  * a commit dated before the issue it cites, by a skewed committer clock, falls
  * outside the window.
  *
  * FINDINGS are every line of each repo's signature log (lib/fault-signature.js's
- * SIGNATURE_LOG, read from main through `gh api`, never the working tree; a
+ * SIGNATURE_LOG, read from its code repo's main through `gh api`, never the working tree; a
  * 404 is no lines) with a signature, and every `findings[]` entry with an issue
  * and a signature on a weekly run line (`--root`'s docs/data/retro-runs.jsonl).
- * A finding in both is read once, as the run record has it; one in two logs,
+ * A log that will not read holds as `waiting` each finding a prior run line
+ * read from it. A finding in both is read once, as the run record has it; one in two logs,
  * as the first log read has it, with a note. A late line is reported apart
  * throughout. A finding whose tracker has no repo read waits, a failed read.
  * A signature lib/fault-signature.js's `checkSignature` refuses, or a stored
@@ -40,7 +42,7 @@
  * ranking (below) until filed.
  *
  * THE FIX is derived here, never stored: the finding issue must be closed, and
- * its fix is the latest commit on any tracker's main whose message cites
+ * its fix is the latest commit on any code repo's main whose message cites
  * it — `#<n>` word-bounded where the finding is that repo's tracker's, or
  * `<owner/name>#<n>` anywhere. Either missing, the verdict is `waiting`. The
  * first reading is at the first run INTERVAL_DAYS or more after the fix's
@@ -61,7 +63,7 @@
  * `now`.
  * `expected` is rate × sessions, `observed` the hits in them.
  *
- * VERDICTS: guardrail harm (a revert of the fix on its tracker's main, or
+ * VERDICTS: guardrail harm (a revert of the fix on its code repo's main, or
  * a `bug` issue in any tracker read, filed after the fix, that cites the
  * finding or the fix sha) is
  * `unwind`, whatever the counts. With expected ≥ EXPECTED_FLOOR, `keep` where
@@ -74,7 +76,7 @@
  * line's `outcomeStep.backlog` joins the ranking and is never dropped.
  *
  * MISSES, the backstop for a signature never declared: each tracker's tickets
- * closed in the MISS_DAYS to `now` that landed a commit on its own main
+ * closed in the MISS_DAYS to `now` that landed a commit on its code repo's main
  * citing them, carry
  * `bug` or a FAULT_SHAPE title or closing-commit subject, have no line in
  * either record, and carry no origin a script files under (lib/issue-origin.js
@@ -127,7 +129,11 @@ const { hostRoot } = require("./lib/host-root");
 const { configDirs } = require("./lib/arbiter-store");
 const { readSeatTranscripts } = require("./lib/project-dirs");
 const { readSessionHead, repoRootOf } = require("./lib/session-head");
-const { hasConfig, requireKey } = require("./lib/workflow-core-config");
+const {
+	hasConfig,
+	requireKey,
+	resolveKey,
+} = require("./lib/workflow-core-config");
 const { isScriptOrigin, originOfLabels } = require("./lib/issue-origin");
 const { asObject, objectsIn, stringMembers } = require("./lib/json-shape");
 const { parseQualifiedRef } = require("./lib/issue-ref");
@@ -214,8 +220,10 @@ const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <is
  *   guardrails: Guardrails | null, verdict: Verdict, unwindIssue: null,
  *   late: boolean, baseline: Baseline | null, why: string}} Outcome
  * @typedef {{file: string, start: number}} Session
- * @typedef {{tracker: string, root: string, main: string | null,
- *   commits: Commit[] | string, sigRows: Row[]}} Repo
+ * @typedef {{tracker: string, codeRepo: string, root: string,
+ *   sigRows: Row[] | string}} Tracker  `sigRows` is why its signature log
+ *   would not read, where it would not
+ * @typedef {Tracker & {main: string | null, commits: Commit[] | string}} Repo
  *   `commits` is why they would not read, where they would not
  */
 
@@ -276,32 +284,51 @@ function cites(text, { repo, number: n }, tracker) {
 
 /**
  * A commits-endpoint row as a Commit; null where it lacks a sha or a date.
- * @param {any} c
+ * @param {unknown} row
  * @returns {Commit | null}
  */
-function asCommit(c) {
-	const at = Date.parse(c?.commit?.committer?.date ?? "");
+function asCommit(row) {
+	const c = asObject(row);
+	const commit = asObject(c?.commit);
+	const at = Date.parse(String(asObject(commit?.committer)?.date ?? ""));
 	if (typeof c?.sha !== "string" || Number.isNaN(at)) return null;
-	const message = String(c.commit?.message ?? "");
+	const message = String(commit?.message ?? "");
 	return { sha: c.sha, at, subject: message.split("\n")[0] ?? "", message };
 }
 
 /**
- * Every commit on `tracker`'s main from `sinceMs` to `nowMs`, newest first,
+ * `once`'s answer, retried once through lib/gh.js; where it still fails, why,
+ * also pushed to `failures`.
+ * @template T
+ * @param {string} label  what was read, opening the why
+ * @param {() => T} once
+ * @param {string[]} failures  accumulator: the why, where it fails
+ * @returns {T | string}
+ */
+function readOrWhy(label, once, failures) {
+	const r = retryingOnceSync(once);
+	if (r.ok) return r.out;
+	const why = `${label}: ${r.error}`;
+	failures.push(why);
+	return why;
+}
+
+/**
+ * Every commit on `codeRepo`'s main from `sinceMs` to `nowMs`, newest first,
  * and main's tip at `nowMs`.
  * `per_page=100` is GitHub's largest page.
- * @param {string} tracker
+ * @param {string} codeRepo
  * @param {number} sinceMs
  * @param {number} nowMs
  * @returns {{main: string | null, commits: Commit[] | string}}  `commits` is
  *   why they would not read, where they would not; `main` null where they
  *   would not, or main has no commit by `nowMs`
  */
-function readMain(tracker, sinceMs, nowMs) {
-	const at = `repos/${tracker}/commits?sha=main&until=${iso(nowMs)}`;
+function readMain(codeRepo, sinceMs, nowMs) {
+	const at = `repos/${codeRepo}/commits?sha=main&until=${iso(nowMs)}`;
 	const unread = (/** @type {string} */ why) => ({
 		main: null,
-		commits: `${tracker}: main unread: ${why}`,
+		commits: `${codeRepo} main unread: ${why}`,
 	});
 	const r = retryingOnceSync(() =>
 		ghApiSlurp([`${at}&since=${iso(sinceMs)}&per_page=100`]),
@@ -314,25 +341,28 @@ function readMain(tracker, sinceMs, nowMs) {
 	if (commits.length > 0) return { main: commits[0]?.sha ?? null, commits };
 	const tip = retryingOnceSync(() => ghJson(["api", `${at}&per_page=1`]));
 	if (!tip.ok) return unread(tip.error);
-	return { main: asCommit(tip.out[0])?.sha ?? null, commits };
+	if (tip.out.length === 0) return { main: null, commits };
+	const head = asCommit(tip.out[0]);
+	if (!head) return unread("main's tip has no sha or date");
+	return { main: head.sha, commits };
 }
 
 /**
- * The signature log on `tracker`'s main; no rows where it is absent.
- * @param {string} tracker
+ * The signature log on `codeRepo`'s main; no rows where it is absent.
+ * @param {string} codeRepo
  * @param {string[]} failures  accumulator: a log that will not read, and each
  *   line that does not parse
- * @returns {Row[]}
+ * @returns {Row[] | string}  why it would not read, where it would not
  */
-function readSigLog(tracker, failures) {
-	const at = `${tracker} main:${SIGNATURE_LOG}`;
+function readSigLog(codeRepo, failures) {
+	const at = `${codeRepo} main:${SIGNATURE_LOG}`;
 	const r = retryingOnceSync(() => {
 		try {
 			return gh([
 				"api",
 				"-H",
 				"Accept: application/vnd.github.raw",
-				`repos/${tracker}/contents/${SIGNATURE_LOG}?ref=main`,
+				`repos/${codeRepo}/contents/${SIGNATURE_LOG}?ref=main`,
 			]);
 		} catch (e) {
 			if (isNotFound(e)) return "";
@@ -340,8 +370,9 @@ function readSigLog(tracker, failures) {
 		}
 	});
 	if (!r.ok) {
-		failures.push(`${at}: ${r.error}`);
-		return [];
+		const why = `${at}: ${r.error}`;
+		failures.push(why);
+		return why;
 	}
 	const { rows, bad } = parseJsonl(r.out);
 	for (const b of bad) failures.push(`${at} line ${b} does not parse`);
@@ -400,13 +431,13 @@ function findRoots(root, seats, failures) {
 
 /**
  * Every tracker read, one per tracker from the first root naming it, `root`'s
- * first and the rest by tracker, each with its signature log.
+ * first and the rest by tracker, each with its code repo's signature log.
  * @param {{root: string, seats: string[], failures: string[]}} at
  *   accumulator: `failures` takes each root with no tracker and each
  *   signature log that will not read
- * @returns {Array<{tracker: string, root: string, sigRows: Row[]}>}
+ * @returns {Tracker[]}
  */
-function readRepos({ root, seats, failures }) {
+function readTrackers({ root, seats, failures }) {
 	/** @type {Map<string, string>} */
 	const first = new Map();
 	for (const r of findRoots(root, seats, failures)) {
@@ -423,16 +454,21 @@ function readRepos({ root, seats, failures }) {
 	const ordered = head
 		? [head, ...rest.sort(([a], [b]) => (a < b ? -1 : 1))]
 		: [];
-	return ordered.map(([tracker, r]) => ({
-		tracker,
-		root: r,
-		sigRows: readSigLog(tracker, failures),
-	}));
+	return ordered.flatMap(([tracker, r]) => {
+		const codeRepo = resolveKey("codeRepo", { root: r });
+		if (typeof codeRepo !== "string" || !codeRepo) {
+			failures.push(`${r}: no code repo resolves for ${tracker}`);
+			return [];
+		}
+		return [
+			{ tracker, codeRepo, root: r, sigRows: readSigLog(codeRepo, failures) },
+		];
+	});
 }
 
 /**
  * Every repo's signature log lines, a ref in two logs kept from the first.
- * @param {Array<{tracker: string, sigRows: Row[]}>} repos
+ * @param {Tracker[]} repos
  * @param {string[]} notes  accumulator: each ref in two logs
  * @returns {Row[]}
  */
@@ -440,7 +476,7 @@ function joinLogs(repos, notes) {
 	/** @type {Map<unknown, string>} */
 	const firstIn = new Map();
 	return repos.flatMap((repo) =>
-		repo.sigRows.filter((row) => {
+		(typeof repo.sigRows === "string" ? [] : repo.sigRows).filter((row) => {
 			const first = firstIn.get(row.issue);
 			if (first === undefined) firstIn.set(row.issue, repo.tracker);
 			else if (first !== repo.tracker) {
@@ -725,7 +761,7 @@ function readPrior(weekly) {
 
 /**
  * A reading with no verdict yet.
- * @param {Finding} f
+ * @param {Pick<Finding, "ref" | "late" | "baseline">} f
  * @param {string} why
  * @param {Partial<Outcome>} [more]
  * @returns {Outcome}
@@ -816,21 +852,20 @@ function latestFix(repos, ref) {
  * @returns {{state?: string, createdAt?: string} | string}
  */
 function readFindingIssue(f, failures) {
-	const r = retryingOnceSync(() =>
-		ghJson([
-			"issue",
-			"view",
-			String(f.number),
-			"--repo",
-			f.repo,
-			"--json",
-			"state,createdAt",
-		]),
+	return readOrWhy(
+		`could not read ${f.ref}`,
+		() =>
+			ghJson([
+				"issue",
+				"view",
+				String(f.number),
+				"--repo",
+				f.repo,
+				"--json",
+				"state,createdAt",
+			]),
+		failures,
 	);
-	if (r.ok) return r.out;
-	const why = `could not read ${f.ref}: ${r.error}`;
-	failures.push(why);
-	return why;
 }
 
 /**
@@ -851,8 +886,7 @@ function stageFinding(f, { issues, repos, bugs, nowMs, failures }) {
 		failures.push(`${f.ref}: ${why}`);
 		return waiting(f, why);
 	}
-	if (typeof home.commits === "string")
-		return waiting(f, `main unread: ${home.commits}`);
+	if (typeof home.commits === "string") return waiting(f, home.commits);
 	const found = latestFix(repos, f);
 	if (!found) return waiting(f, "no commit on main cites it");
 	const { fix, commits } = found;
@@ -1114,19 +1148,30 @@ function closedThisWeek(i, nowMs) {
 }
 
 /**
- * The week's closed tickets that landed a commit, look fault-shaped, have no
- * line in either record and no SCRIPT_ORIGINS label.
+ * The week's closed tickets that could be misses: no
+ * line in either record, no SCRIPT_ORIGINS label and no SIGNATURE_LABEL.
  * @param {IssueRow[]} closed
- * @param {{commits: Commit[], signed: Set<string>, tracker: string, nowMs: number}} at
+ * @param {{signed: Set<string>, tracker: string, nowMs: number}} at
  */
-function readMisses(closed, { commits, signed, tracker, nowMs }) {
+function missCandidates(closed, { signed, tracker, nowMs }) {
+	return closed.filter(
+		(i) =>
+			closedThisWeek(i, nowMs) &&
+			!signed.has(`${tracker}#${i.number}`) &&
+			!isScriptOrigin(originOfLabels(labelsOf(i))) &&
+			!labelsOf(i).includes(SIGNATURE_LABEL),
+	);
+}
+
+/**
+ * The miss candidates that landed a commit and look fault-shaped.
+ * @param {IssueRow[]} candidates
+ * @param {{commits: Commit[], tracker: string}} at
+ */
+function missesOf(candidates, { commits, tracker }) {
 	const out = [];
-	for (const i of closed) {
+	for (const i of candidates) {
 		const ref = `${tracker}#${i.number}`;
-		if (!closedThisWeek(i, nowMs) || signed.has(ref)) continue;
-		const origin = originOfLabels(labelsOf(i));
-		if (isScriptOrigin(origin)) continue;
-		if (labelsOf(i).includes(SIGNATURE_LABEL)) continue;
 		const fix = fixOf(commits, { repo: tracker, number: i.number }, tracker);
 		if (!fix) continue;
 		const why = [
@@ -1147,7 +1192,7 @@ function readMisses(closed, { commits, signed, tracker, nowMs }) {
  * @param {{signed: Set<string>, missed: Set<string>, tracker: string,
  *   nowMs: number}} at
  */
-function readNoFaultBugs(closed, { signed, missed, tracker, nowMs }) {
+function noFaultBugsOf(closed, { signed, missed, tracker, nowMs }) {
 	return closed.flatMap((i) => {
 		const origin = originOfLabels(labelsOf(i));
 		const ref = `${tracker}#${i.number}`;
@@ -1224,7 +1269,8 @@ function buildText(r) {
 		"",
 		"Repos read:",
 		...r.repos.map(
-			(p) => `  ${p.tracker} ${p.root} main ${p.main?.slice(0, 9) ?? "?"}`,
+			(p) =>
+				`  ${p.tracker} ${p.root} ${p.codeRepo} main ${p.main?.slice(0, 9) ?? "?"}`,
 		),
 	];
 	const row = (/** @type {Outcome} */ o) => {
@@ -1313,18 +1359,15 @@ function buildText(r) {
  */
 function readTracker(tracker, nowMs, failures) {
 	/** @param {string} what @param {string[]} args */
-	const list = (what, args) => {
-		const r = retryingOnceSync(
+	const list = (what, args) =>
+		readOrWhy(
+			`${tracker}: ${what} unread`,
 			() =>
 				/** @type {IssueRow[]} */ (
 					ghIssueListAll(what, ["--repo", tracker, ...args])
 				),
+			failures,
 		);
-		if (r.ok) return r.out;
-		const why = `${tracker}: ${what} unread: ${r.error}`;
-		failures.push(why);
-		return why;
-	};
 	return {
 		bugs: list("bug issues", [
 			"--state",
@@ -1354,16 +1397,43 @@ function readTracker(tracker, nowMs, failures) {
 }
 
 /**
- * The earliest `createdAt` among `read`, each an issue or a list of them, a
- * failed read (a string) passed over; `nowMs` where none has one.
- * @param {Array<{createdAt?: string} | Array<{createdAt?: string}> | string>} read
+ * The earliest `createdAt` of any issue the run reads commits for: a closed
+ * finding, or a miss candidate. An open finding waits before main is read.
+ * `nowMs` where there are none.
+ * @param {Map<string, {state?: string, createdAt?: string} | string>} issues
+ *   each finding's issue, or why it would not read
+ * @param {Array<{tracked: Tracker, candidates: IssueRow[] | string}>} lists
  * @param {number} nowMs
+ * @param {string[]} failures  accumulator: each `createdAt` that will not
+ *   parse, which would narrow the window unseen
  */
-function earliestCreated(read, nowMs) {
+function windowStart(issues, lists, nowMs, failures) {
+	/** @type {Array<[string, {state?: string, createdAt?: string} | string]>} */
+	const findings = [...issues];
+	/** @type {Array<[string, {createdAt?: string}]>} */
+	const read = [
+		...findings.flatMap(([ref, i]) =>
+			typeof i === "object" && i.state === "CLOSED"
+				? [/** @type {[string, {createdAt?: string}]} */ ([ref, i])]
+				: [],
+		),
+		...lists.flatMap(({ tracked, candidates }) =>
+			typeof candidates === "string"
+				? []
+				: candidates.map(
+						(i) =>
+							/** @type {[string, {createdAt?: string}]} */ ([
+								`${tracked.tracker}#${i.number}`,
+								i,
+							]),
+					),
+		),
+	];
 	let min = nowMs;
-	for (const r of read.flatMap((x) => (typeof x === "string" ? [] : x))) {
-		const at = Date.parse(r.createdAt ?? "");
-		if (at < min) min = at;
+	for (const [ref, i] of read) {
+		const at = Date.parse(i.createdAt ?? "");
+		if (Number.isNaN(at)) failures.push(`${ref} has no usable createdAt`);
+		else if (at < min) min = at;
 	}
 	return min;
 }
@@ -1390,6 +1460,91 @@ function readRows(root, rel, failures) {
 }
 
 /**
+ * The backstops' lists over every tracker read: the week's misses, its
+ * `--no-fault` bugs, and the lines lost on main, each with the trackers it
+ * could not read.
+ * @param {Array<{repo: Repo, closed: IssueRow[] | string,
+ *   candidates: IssueRow[] | string, owing: IssueRow[] | string}>} reads
+ * @param {{signed: Set<string>, nowMs: number}} at
+ */
+function backstopsOf(reads, { signed, nowMs }) {
+	const misses = [];
+	const noFaultBug = [];
+	/** @type {string[]} */
+	const missesUnread = [];
+	/** @type {string[]} */
+	const noFaultBugUnread = [];
+	const lostLines = [];
+	/** @type {string[]} */
+	const lostLinesUnread = [];
+	for (const { repo, closed, candidates, owing } of reads) {
+		const at = { signed, tracker: repo.tracker, nowMs };
+		/* A log that will not read leaves its lines unsigned, so every ticket
+		 * they cover would read as a miss or a lost line. */
+		const logUnread = typeof repo.sigRows === "string";
+		if (typeof owing === "string" || logUnread)
+			lostLinesUnread.push(repo.tracker);
+		else lostLines.push(...lostLinesOf(owing, at));
+		if (
+			typeof closed === "string" ||
+			typeof candidates === "string" ||
+			logUnread
+		) {
+			missesUnread.push(repo.tracker);
+			noFaultBugUnread.push(repo.tracker);
+			continue;
+		}
+		/* A bug that would be a miss reads as no-fault where main is unread. */
+		if (typeof repo.commits === "string") {
+			missesUnread.push(repo.tracker);
+			noFaultBugUnread.push(repo.tracker);
+			continue;
+		}
+		const repoMisses = missesOf(candidates, {
+			tracker: repo.tracker,
+			commits: repo.commits,
+		});
+		misses.push(...repoMisses);
+		const missed = new Set(repoMisses.map((m) => m.issue));
+		noFaultBug.push(...noFaultBugsOf(closed, { ...at, missed }));
+	}
+	return {
+		misses,
+		missesUnread,
+		noFaultBug,
+		noFaultBugUnread,
+		lostLines,
+		lostLinesUnread,
+	};
+}
+
+/**
+ * A `waiting` outcome for each finding a prior run line read and did not
+ * settle, held in a signature log that will not read this run.
+ * @param {Tracker[]} trackers
+ * @param {Map<string, Row>} prior
+ * @param {Map<string, Finding>} findings  this run's
+ * @returns {Outcome[]}
+ */
+function unreadLogFindings(trackers, prior, findings) {
+	/** @type {Map<string, string>} */
+	const unread = new Map();
+	for (const t of trackers)
+		if (typeof t.sigRows === "string") unread.set(t.tracker, t.sigRows);
+	return [...prior].flatMap(([ref, o]) => {
+		const why = unread.get(parseQualifiedRef(ref)?.repo ?? "");
+		if (
+			!why ||
+			findings.has(ref) ||
+			o.verdict === "keep" ||
+			o.verdict === "unwind"
+		)
+			return [];
+		return [waiting({ ref, late: o.late === true, baseline: null }, why)];
+	});
+}
+
+/**
  * The whole review.
  * @param {{root: string, seats: string[], nowMs: number, tracker: string}} at
  */
@@ -1398,7 +1553,7 @@ function review({ root, seats, nowMs, tracker }) {
 	const failures = [];
 	/** @type {string[]} */
 	const notes = [];
-	const trackers = readRepos({ root, seats, failures });
+	const trackers = readTrackers({ root, seats, failures });
 	const sigLines = joinLogs(trackers, notes);
 	const weekly = readRows(root, RUN_RECORD, failures).filter(
 		(l) => l.mode === "weekly",
@@ -1423,19 +1578,25 @@ function review({ root, seats, nowMs, tracker }) {
 	const issues = new Map(
 		open.map((f) => [f.ref, readFindingIssue(f, failures)]),
 	);
-	const lists = trackers.map((p) => ({
-		p,
-		...readTracker(p.tracker, nowMs, failures),
-	}));
-	const sinceMs = earliestCreated(
-		[...issues.values(), ...lists.map((l) => l.closed)],
-		nowMs,
-	);
-	const reads = lists.map(({ p, ...issueLists }) => {
-		const read = readMain(p.tracker, sinceMs, nowMs);
+	const lists = trackers.map((tracked) => {
+		const issueLists = readTracker(tracked.tracker, nowMs, failures);
+		const { closed } = issueLists;
+		const candidates =
+			typeof closed === "string"
+				? closed
+				: missCandidates(closed, {
+						signed,
+						tracker: tracked.tracker,
+						nowMs,
+					});
+		return { tracked, candidates, ...issueLists };
+	});
+	const sinceMs = windowStart(issues, lists, nowMs, failures);
+	const reads = lists.map(({ tracked, ...issueLists }) => {
+		const read = readMain(tracked.codeRepo, sinceMs, nowMs);
 		if (typeof read.commits === "string") failures.push(read.commits);
 		/** @type {Repo} */
-		const repo = { ...p, ...read };
+		const repo = { ...tracked, ...read };
 		return { repo, ...issueLists };
 	});
 	const repos = reads.map((r) => r.repo);
@@ -1450,34 +1611,9 @@ function review({ root, seats, nowMs, tracker }) {
 		registry,
 		notes,
 	});
+	outcomes.push(...unreadLogFindings(trackers, prior, findings));
 	const unwinds = rankUnwinds(outcomes, carriedIn, prior);
-	const misses = [];
-	const noFaultBug = [];
-	/** @type {string[]} */
-	const missesUnread = [];
-	/** @type {string[]} */
-	const noFaultBugUnread = [];
-	const lostLines = [];
-	/** @type {string[]} */
-	const lostLinesUnread = [];
-	for (const { repo, closed, owing } of reads) {
-		const at = { signed, tracker: repo.tracker, nowMs };
-		if (typeof owing === "string") lostLinesUnread.push(repo.tracker);
-		else lostLines.push(...lostLinesOf(owing, at));
-		if (typeof closed === "string") {
-			missesUnread.push(repo.tracker);
-			noFaultBugUnread.push(repo.tracker);
-			continue;
-		}
-		const repoMisses =
-			typeof repo.commits === "string"
-				? []
-				: readMisses(closed, { ...at, commits: repo.commits });
-		if (typeof repo.commits === "string") missesUnread.push(repo.tracker);
-		misses.push(...repoMisses);
-		const missed = new Set(repoMisses.map((m) => m.issue));
-		noFaultBug.push(...readNoFaultBugs(closed, { ...at, missed }));
-	}
+	const backstop = backstopsOf(reads, { signed, nowMs });
 	/** @type {Record<string, Signature>} */
 	const signatures = {};
 	for (const f of findings.values()) signatures[f.ref] = f.signature;
@@ -1487,22 +1623,18 @@ function review({ root, seats, nowMs, tracker }) {
 		tracker,
 		repos: repos.map((p) => ({
 			tracker: p.tracker,
+			codeRepo: p.codeRepo,
 			root: p.root,
 			main: p.main,
 		})),
 		outcomes,
 		unwinds,
 		outcomeStep: {
-			misses: missesUnread.length > 0 ? null : misses.length,
+			misses: backstop.missesUnread.length > 0 ? null : backstop.misses.length,
 			backlog,
 		},
 		settled,
-		misses,
-		missesUnread,
-		noFaultBug,
-		noFaultBugUnread,
-		lostLines,
-		lostLinesUnread,
+		...backstop,
 		conflicts,
 		flipDue: flipCheck(weekly, outcomes, backlog.length),
 		signatures,
