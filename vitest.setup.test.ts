@@ -13,6 +13,10 @@
  * Also pins its removal of git's repository-locating variables (#1677), and its
  * empty host (#3334), without which a test that drops its CLAUDE_PROJECT_DIR
  * pin reads the live checkout and is red only on the founder's machine.
+ *
+ * And that the read audit sees its host lookup as a guarded git call (#4932):
+ * an unguarded one is a read the audit cannot see, in every test file, so the
+ * pass store records no row at all.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -22,6 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mainWorktreeOf } from "./scripts/lib/git-fixture";
+import { readAudits } from "./scripts/lib/read-audit.js";
 
 const readStartedEnv = (name: string) =>
 	fs
@@ -59,6 +64,7 @@ const runNestedVitest = <T>(
 	env: NodeJS.ProcessEnv,
 	outFile: string,
 	withSetup = true,
+	globalSetup: string[] = [],
 ): T => {
 	const out = fs.mkdtempSync(path.join(dir, "out-"));
 	const config = path.join(dir, "probe.config.mts");
@@ -71,6 +77,7 @@ const runNestedVitest = <T>(
 				globals: true,
 				environment: "node",
 				setupFiles: withSetup ? [path.join(REPO_ROOT, "vitest.setup.ts")] : [],
+				globalSetup,
 			},
 		})};\n`,
 	);
@@ -246,5 +253,55 @@ test("probe", () => {
 		expect(seen.entries).toEqual([]);
 		expect(seen.worktree).toBe(seen.host);
 		expect(seen.spawned).toBe(seen.host);
+	});
+});
+
+describe("the setup file's own git call under the read audit (#4932)", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-audit-env-"));
+		fs.writeFileSync(
+			path.join(dir, "probe.test.ts"),
+			'test("probe", () => {});\n',
+		);
+		/* Armed as the suite's globalSetup arms it: in the runner, for its workers. */
+		fs.writeFileSync(
+			path.join(dir, "arm.cjs"),
+			`const fs = require("node:fs");
+const path = require("node:path");
+const { install } = require(${JSON.stringify(path.join(REPO_ROOT, "scripts/lib/read-audit.js"))});
+module.exports = () => {
+	const log = install(${JSON.stringify(REPO_ROOT)});
+	fs.writeFileSync(path.join(process.env.PROBE_OUT, "log.json"), JSON.stringify(log));
+};
+`,
+		);
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	it("leaves a test file that reads nothing with reads, not a doubt", () => {
+		const env: NodeJS.ProcessEnv = { ...process.env };
+		for (const name of [
+			"WFC_READ_AUDIT",
+			"WFC_READ_AUDIT_OWNER",
+			"NODE_OPTIONS",
+		])
+			delete env[name];
+		/* The runner's `PATH`, which holds no guard: this worker's does. */
+		env.PATH = (env.PATH ?? "")
+			.split(path.delimiter)
+			.filter((d) => path.basename(d) !== "host-git-guard")
+			.join(path.delimiter);
+		const log = runNestedVitest<string>(dir, env, "log.json", true, [
+			path.join(dir, "arm.cjs"),
+		]);
+		try {
+			const audits = [...readAudits(log, REPO_ROOT).values()];
+			expect(audits).toHaveLength(1);
+			expect(audits[0]).not.toHaveProperty("doubt");
+		} finally {
+			fs.rmSync(log, { recursive: true, force: true });
+		}
 	});
 });
