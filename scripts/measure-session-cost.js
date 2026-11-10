@@ -21,9 +21,8 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const { claimByArbiter } = require("./lib/arbiter-claim.js");
+const { claimByArbiter, releaseByArbiter } = require("./lib/arbiter-claim.js");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { ledgerPath } = require("./lib/dispatch-ledger");
 const { readJsonl } = require("./lib/jsonl.js");
 const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
@@ -159,7 +158,6 @@ function landedCurve(sessions, totalUsd) {
  * @param {string} body
  */
 function writeClaimed(body) {
-	const arbiter = path.join(__dirname, "session-arbiter.js");
 	const table = tablePath(worktreeRoot());
 	const claim = claimByArbiter(table);
 	if (!claim.claimed) {
@@ -173,11 +171,8 @@ function writeClaimed(body) {
 		fs.mkdirSync(path.dirname(table), { recursive: true });
 		fs.writeFileSync(table, body);
 	} finally {
-		const release = spawnSync("node", [arbiter, "release", table], {
-			encoding: "utf8",
-		});
-		if (release.status !== 0)
-			writeFd(2, `claim not released:\n${release.stdout}${release.stderr}`);
+		const release = releaseByArbiter(table);
+		if (!release.released) writeFd(2, `claim not released:\n${release.why}\n`);
 	}
 	return 0;
 }

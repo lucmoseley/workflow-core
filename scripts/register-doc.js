@@ -87,7 +87,8 @@ const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
-const { claimDataFile, releaseClaim } = require("./lib/doc-map-generator");
+const { claimDataFile } = require("./lib/doc-map-generator");
+const { releaseByArbiter } = require("./lib/arbiter-claim.js");
 const { ROW_PREFIX, SIDECAR_PATH } = require("./lib/doc-map-regions");
 const {
 	DOC_CLASSES,
@@ -615,7 +616,8 @@ function claimAndRead(docPath, value, flag) {
 
 	/** @param {number} code */
 	const refuse = (code) => {
-		if (heldSubject) releaseClaim(heldSubject, value("--release-cmd"));
+		if (heldSubject)
+			releaseByArbiter(heldSubject, { releaseCmd: value("--release-cmd") });
 		return code;
 	};
 

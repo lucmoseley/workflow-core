@@ -8,8 +8,6 @@
  * the argv handling and the claim move here.
  */
 
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { claimByArbiter } = require("./arbiter-claim.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -80,35 +78,4 @@ function claimDataFile(dataFile, { claimCmd, generator = false } = {}) {
 	return { claimed: false };
 }
 
-/**
- * Releases a claim `claimDataFile` took, so a run that ends does not strand one
- * on a file it is no longer writing (mantahostels#1848 review S3, mantahostels#2422).
- *
- * BEST-EFFORT, and silent: a release that fails costs a claim outliving its run,
- * never the run's own exit code.
- *
- * `generator: true` passes `--generator`, which waives the dirty refusal a §A
- * subject would otherwise earn from its own generator's write (mantahostels#2428). It rides
- * AFTER the subject, for claimDataFile's reason.
- *
- * @param {string} subject
- * @param {string | null} [releaseCmd] a stand-in for the arbiter, for tests
- * @param {{generator?: boolean}} [opts]
- */
-function releaseClaim(subject, releaseCmd, { generator = false } = {}) {
-	const extra = generator ? ["--generator"] : [];
-	const [cmd, cmdArgs] = releaseCmd
-		? [releaseCmd, [subject, ...extra]]
-		: [
-				process.execPath,
-				[
-					path.join(__dirname, "..", "session-arbiter.js"),
-					"release",
-					subject,
-					...extra,
-				],
-			];
-	spawnSync(cmd, cmdArgs, { encoding: "utf8" });
-}
-
-module.exports = { parseCliArgs, claimDataFile, releaseClaim };
+module.exports = { parseCliArgs, claimDataFile };

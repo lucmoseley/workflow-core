@@ -1,14 +1,17 @@
 // @vitest-environment node
 /*
- * claimByArbiter, the one spawn of the arbiter's `claim` (#4719): the stub's
- * argument order and each outcome against a stand-in, the warning against the
- * real arbiter in the testkit sandbox.
+ * claimByArbiter and releaseByArbiter, the one spawn of the arbiter's `claim`
+ * and `release` (#4719): the stand-in's argument order and each outcome, the
+ * warning against the real arbiter in the testkit sandbox. Every script that
+ * writes a tracked file under its own claim goes through them, so a loosened
+ * case lets a refused claim pass as taken, or loses the warning that a live
+ * neighbour holds the file too.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claimByArbiter } from "./arbiter-claim";
+import { claimByArbiter, releaseByArbiter } from "./arbiter-claim";
 import { arbiterCli, freshSandbox, live } from "./arbiter-testkit";
 import { mkScratchDir } from "./git-fixture";
 
@@ -52,12 +55,27 @@ describe("claimByArbiter", () => {
 	});
 
 	it("is not claimed where the arbiter outruns the timeout", () => {
-		// The real clock: spawnSync's own timeout is what kills the stand-in.
+		// The real clock: spawnSync's own timeout is what kills the stand-in. The
+		// 100 ms limit sits fifty times under the 5 s sleep, so the kill is certain.
 		const r = claimByArbiter("docs/x.md", {
 			claimCmd: stub("sleep 5"),
 			timeoutMs: 100,
 		});
 		expect(r.claimed).toBe(false);
+	});
+
+	it("releases with the subject, then --generator, and says why on a refusal", () => {
+		expect(
+			releaseByArbiter("docs/x.md", {
+				releaseCmd: stub('[ "$*" = "docs/x.md --generator" ]'),
+				generator: true,
+			}),
+		).toEqual({ released: true });
+		expect(
+			releaseByArbiter("docs/x.md", {
+				releaseCmd: stub("echo dirty >&2; exit 1"),
+			}),
+		).toEqual({ released: false, why: "dirty" });
 	});
 
 	describe("against the real arbiter", () => {
