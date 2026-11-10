@@ -172,7 +172,8 @@ describe("launch", () => {
 		expect(flag(seen.argv, "--output-format")).toBe("stream-json");
 		expect(seen.argv).toContain("--verbose");
 		expect(flag(seen.argv, "--max-budget-usd")).toBe("12.5");
-		expect(seen.argv).not.toContain("--model");
+		// Named outright, so burn mode's move of the shared settings `model` never reaches the seat (#4919).
+		expect(flag(seen.argv, "--model")).toBe("claude-opus-5-5[1m]");
 		expect(flag(seen.argv, "--append-system-prompt")).toContain("needs input:");
 		const sessionId = flag(seen.argv, "--session-id");
 		expect(r.stdout.split("\n")[1]).toBe(`session ${sessionId}`);
@@ -189,6 +190,7 @@ describe("launch", () => {
 		expect(seen.argv).not.toContain("-n");
 		expect(seen.env.WFC_NAME_PREFIX).toBe("Overflow · ");
 		expect(seen.env.WFC_NAME_PREFIX_SESSION).toBe(sessionId);
+		expect(seen.env.WFC_OVERFLOW_SESSION).toBe(sessionId);
 		expect(seen.argv).not.toContain("--resume");
 	});
 

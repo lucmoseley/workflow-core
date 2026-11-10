@@ -477,6 +477,29 @@ describe("queue-run.js", () => {
 			]);
 		});
 
+		it("logs a killed waiter's charge, the replay's rung for it (#4921)", async () => {
+			const f = fixture();
+			const exits: number[] = [];
+			machine(f.dir, ["node /r/node_modules/.bin/tsc --noEmit"], 9000);
+			main(
+				typecheck,
+				own(f, {
+					tscPeakMb: TSC7_PEAK_MB,
+					exit: (c: number) => exits.push(c),
+				}),
+			);
+			await tick();
+			f.signals.emit("SIGINT");
+			expect(exits).toEqual([130]);
+			expect(f.readLog()).toEqual([
+				expect.objectContaining({
+					reason: "killed",
+					kind: "tsc",
+					chargeMb: TSC7_PEAK_MB,
+				}),
+			]);
+		});
+
 		describe("under WFC_TSC_NO_WAIT, one try at the slot (#3278)", () => {
 			beforeEach(() => {
 				vi.stubEnv("WFC_TSC_NO_WAIT", "1");

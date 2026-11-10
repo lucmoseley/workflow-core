@@ -815,6 +815,7 @@ function settleDecided(
 			decision: settled,
 			admission,
 			workingChange: limitChange + launched,
+			agents: seen.agents,
 		}),
 	);
 	return settled;

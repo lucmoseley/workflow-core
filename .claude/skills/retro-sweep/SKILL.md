@@ -77,7 +77,7 @@ the run; record why in step 7.
 
 Fill `brief.md` once per pick — every `{{…}}` replaced — and send all the
 `Agent` calls in one message: `subagent_type: "general-purpose"`,
-`model: "sonnet"`. Fill-ins, every path absolute:
+`model: "haiku"`. Fill-ins, every path absolute:
 
 - `{{ARTEFACT}}` `$R/<sessionId>.md` · `{{TRANSCRIPT}}` `$R/<sessionId>.txt` ·
   `{{SNAPSHOT}}` `$R/snapshot`

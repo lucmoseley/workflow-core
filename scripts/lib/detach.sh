@@ -30,8 +30,9 @@ detach() {
 # ended-session sweep and the scope's attach passes pass it — naming its
 # starter as its reports' owner, in a user scope of its own, outside the
 # session's scope and its watcher's kill, stopped at a ceiling with
-# everything it started. Where no user manager answers, it is the plain
-# detach, still stripped and owner-tagged.
+# everything it started, and marked as lib/session-scope.js's OUTLIVES_KEY
+# says. Where no user manager answers, it is the plain detach, still stripped
+# and owner-tagged.
 OUTLIVE_STRIPPED=(CLAUDE_CODE_SESSION_ID CLAUDE_JOB_DIR WFC_REPORT_OWNER)
 # lib/user-scope.js's OUTLIVE_CEILING_S.
 # shellcheck disable=SC2034 # read by the scripts that source this file
@@ -62,6 +63,7 @@ outlive() {
   for key in "${OUTLIVE_STRIPPED[@]}"; do run+=(-u "$key"); done
   [[ -z "$owner" ]] || run+=("WFC_REPORT_OWNER=$owner")
   if [[ "$OUTLIVE_MANAGER" == yes ]]; then
+    [[ -z "${CLAUDE_PID-}" ]] || run+=("WFC_OUTLIVES=$CLAUDE_PID:$ceiling")
     run+=("${WFC_SYSTEMD_RUN:-systemd-run}" --user --scope --quiet)
     [[ -z "$ceiling" ]] || run+=(-p "RuntimeMaxSec=$ceiling")
     run+=(--)

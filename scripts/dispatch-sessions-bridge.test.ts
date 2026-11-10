@@ -138,7 +138,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		// the allowance warning line, which has its own coverage above.
 		const configDir = path.join(fx.dir, "fresh-config");
 		writeCache(configDir, { session: 12, weeklyAll: 3 });
-		const r = run(["sonnet", "/implement 341"], {
+		const r = run(["haiku", "/implement 341"], {
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
@@ -151,7 +151,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toBe(
 			"Allowance OK: week 3%, session 12%.\n" +
 				"Advisor not checked: no /usage probe ran to report it.\n" +
-				`sonnet  ${buildRecordedAnswer(JOB, "positional").stdout.split("\n")[0]}\n`,
+				`haiku  ${buildRecordedAnswer(JOB, "positional").stdout.split("\n")[0]}\n`,
 		);
 		expect(r.stderr).toBe("OK: no issue in this set is already dispatched\n");
 	});
