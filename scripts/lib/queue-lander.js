@@ -176,12 +176,13 @@ class TransientFault extends Error {}
  *   of one failure
  * @typedef {{kind: "green", run?: number, cleared?: string[]}
  *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
- *      retried?: boolean, noRun?: true}
+ *      retried?: boolean, noRun?: true, typecheck?: string[]}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
  *   CI run that passed it and `jobs` the failing CI jobs, where the tester
  *   read a CI run; `cleared` the files that run's in-job retry cleared, its
  *   flakes (#4558); `failures` where it named the failing tests; `noRun`
- *   where no CI run fired for the tree at all, naming no file; `transient`
+ *   where no CI run fired for the tree at all, naming no file; `typecheck`
+ *   the type-check's first errors, where that failed; `transient`
  *   where asking again shortly can reach a verdict, as when its suite slot
  *   stayed shut
  * @typedef {{readonly kind: "batch", readonly slot: number}
@@ -873,10 +874,14 @@ function redAction(b, s, main, { sha, whole }) {
 }
 
 /**
+ * What a drop's cause keeps of the red `v` beside its files.
  * @param {Extract<Verdict, {kind: "red"}>} v
- * @returns {{noRun?: true}}
+ * @returns {import("./lander-records.js").RedMarks}
  */
-const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
+const redMarksOf = (v) => ({
+	...(v.noRun ? { noRun: v.noRun } : {}),
+	...(v.typecheck ? { typecheck: v.typecheck } : {}),
+});
 
 /**
  * @param {QueueState} s
@@ -972,7 +977,7 @@ function isolationAction(b, s, blame) {
 				name: m.name,
 				files,
 				iso: i.iso,
-				...noRunOf(v),
+				...redMarksOf(v),
 			},
 			s,
 		);
@@ -1055,7 +1060,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 				files: v.files,
 				step: sha,
 				after: landed,
-				...noRunOf(v),
+				...redMarksOf(v),
 			},
 			s,
 		);
@@ -1342,17 +1347,26 @@ function heldExit({ hold, members }, now, main, waiting) {
 }
 
 /**
- * Whether the drop still stands: neither settled nor reaped.
+ * Whether the drop is neither settled nor reaped.
  * @param {Drop} d
  */
 const isUnsettled = (d) => d.state !== "settled" && d.reapedAt === undefined;
+
+/**
+ * Whether the drop is unsettled and its fix ticket, where it has one, is not
+ * closed.
+ * @param {Drop} d
+ * @param {(ticket: number) => boolean} isClosed
+ */
+const isStanding = (d, isClosed) =>
+	isUnsettled(d) && !(d.ticket !== null && isClosed(d.ticket));
 
 /**
  * @param {Pick<Drop, "ref" | "sha">} d
  * @returns {(x: Pick<Drop, "ref" | "sha">) => boolean} whether `x` is the
  *   drop `d`
  */
-const isSameDrop = (d) => (x) => x.ref === d.ref && x.sha === d.sha;
+const sameDropAs = (d) => (x) => x.ref === d.ref && x.sha === d.sha;
 
 /**
  * @template {{at: number}} T
@@ -1363,7 +1377,7 @@ const newestFirst = (drops) => [...drops].sort((a, b) => b.at - a.at);
 
 /**
  * The settling of `d` on `main`: its ticket closes where it has one and no
- * newer undecided drop shares it; where one does, the ticket's body is
+ * newer unsettled drop shares it; where one does, the ticket's body is
  * refreshed to that drop and the dropped refs left standing.
  * @param {QueueState} s
  * @param {Drop} d
@@ -1394,7 +1408,7 @@ function settleAction(s, d, main) {
 
 /**
  * The dropped refs the branch of `name` holds, newest first: those of its
- * undecided drops, bar `settling` and any whose closed ticket awaits its
+ * unsettled drops, bar `settling` and any whose closed ticket awaits its
  * reap.
  * @param {QueueState} s
  * @param {string} name
@@ -1404,16 +1418,12 @@ function settleAction(s, d, main) {
 const heldBy = (s, name, settling) =>
 	newestFirst(
 		s.drops.filter(
-			(x) =>
-				x.name === name &&
-				x !== settling &&
-				isUnsettled(x) &&
-				!(x.ticket !== null && s.isClosed(x.ticket)),
+			(x) => x.name === name && x !== settling && isStanding(x, s.isClosed),
 		),
 	).map(({ ref, sha }) => ({ ref, sha }));
 
 /**
- * The filing owed to the branch of `d`: its newest undecided drop, and every
+ * The filing owed to the branch of `d`: its newest unsettled drop, and every
  * dropped ref the branch holds.
  * @param {QueueState} s
  * @param {Drop} d
@@ -1431,7 +1441,7 @@ function filingOf(s, d) {
 }
 
 /**
- * The decision an undecided drop is owed (#4950), the newest first: settled
+ * The decision an unsettled drop is owed (#4950), the newest first: settled
  * where `main` holds its sha or a push of its queue ref landed since; with
  * no ticket, held behind a push of its queue ref still waiting, deferred
  * while its owning session works, else its branch's fix ticket filed or
@@ -1442,15 +1452,12 @@ function filingOf(s, d) {
  * @returns {QueueAction|null}
  */
 function dropDecision(s, main, skip) {
-	const undecided = newestFirst(
+	const standing = newestFirst(
 		s.drops.filter(
-			(d) =>
-				isUnsettled(d) &&
-				!s.leftToNextRun.includes(d.ref) &&
-				!(d.ticket !== null && s.isClosed(d.ticket)),
+			(d) => isStanding(d, s.isClosed) && !s.leftToNextRun.includes(d.ref),
 		),
 	);
-	for (const d of undecided) {
+	for (const d of standing) {
 		if (s.isOnMain(d.sha)) return settleAction(s, d, main);
 		const ticketed = d.ticket !== null;
 		if (!ticketed && s.queue.some((q) => q.name === d.name)) continue;
@@ -1480,9 +1487,8 @@ function owedAction(s) {
 		return settleAction(s, unreaped, unreaped.settledOn ?? s.main);
 	const cut = s.drops.find(
 		(d) =>
-			isUnsettled(d) &&
-			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha) &&
-			!(d.ticket !== null && s.isClosed(d.ticket)),
+			isStanding(d, s.isClosed) &&
+			!s.dropped.some((r) => r.ref === d.ref && r.sha === d.sha),
 	);
 	if (cut) return { kind: "drop-member", drop: cut };
 	const orphan = s.dropped.find(
@@ -1875,11 +1881,11 @@ function dropMember(deps, d, run) {
 			? droppedFrom(batch, d.name)
 			: batch;
 	const drops = deps.drops.read();
-	const was = drops.find(isSameDrop(d));
+	const was = drops.find(sameDropAs(d));
+	/* Its ticket read now: one closed since the run began is no ticket. */
 	const stands =
 		was !== undefined &&
-		isUnsettled(was) &&
-		!(was.ticket !== null && run.isClosed(was.ticket));
+		isStanding(was, (ticket) => readClosed(deps, ticket, was.ref));
 	deps.drops.write([
 		...drops.filter((x) => x !== was),
 		stands ? { ...d, ticket: was.ticket, state: was.state } : d,
@@ -1903,7 +1909,7 @@ function rewriteDrops(deps, pick, to) {
 
 /**
  * Files the branch's fix ticket, or updates its open one, then records its
- * number on each of the branch's undecided entries with none. The number is
+ * number on each of the branch's unsettled entries with none. The number is
  * known only once filed, so a crash before it is recorded converges on the
  * tracker: the next run finds the open ticket and records it. A filing
  * refused for good is recorded on the entry, which then starts no lander of
@@ -1923,7 +1929,7 @@ function fileFixTicket(deps, { drop: d, held }, run) {
 		if (isTransientFault(err)) throw err;
 		const why = parseRefusal(parseErrorText(err));
 		if (err instanceof FilingRefusedError) {
-			rewriteDrops(deps, isSameDrop(d), (x) => ({ ...x, filingRefused: why }));
+			rewriteDrops(deps, sameDropAs(d), (x) => ({ ...x, filingRefused: why }));
 			throw err;
 		}
 		if (run.unfiled.includes(d.ref))
@@ -2000,7 +2006,7 @@ function refreshTicket(deps, ticket, reaped, { drop, held }) {
 function settleDrop(deps, { drop: d, main, close, refresh }, run) {
 	const at = deps.now();
 	if (d.state !== "settled")
-		rewriteDrops(deps, isSameDrop(d), (x) => ({
+		rewriteDrops(deps, sameDropAs(d), (x) => ({
 			...x,
 			state: "settled",
 			decidedAt: at,
@@ -2022,7 +2028,7 @@ function settleDrop(deps, { drop: d, main, close, refresh }, run) {
 		deps.logQueue("close", d);
 	} else deps.logQueue("settle", d);
 	deps.git.deleteRef(d.ref, d.sha);
-	rewriteDrops(deps, isSameDrop(d), (x) => ({ ...x, reapedAt: at }));
+	rewriteDrops(deps, sameDropAs(d), (x) => ({ ...x, reapedAt: at }));
 	if (refresh && ticket !== null) refreshTicket(deps, ticket, d.ref, refresh);
 	const { isClosed } = run;
 	return close && ticket !== null
