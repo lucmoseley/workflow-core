@@ -26,7 +26,7 @@ import { registerSession } from "./lib/arbiter-testkit.js";
 import {
 	FILED_DIR,
 	markerName,
-	readWorktreeDirt,
+	readWorktreeEdits,
 } from "./lib/orphan-filings.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { worktreeLabel } from "./lib/session-worktrees.js";
@@ -526,7 +526,7 @@ it("names a stranded worktree's orphaned-edit issue in place of its ways out (#4
 		JSON.stringify({
 			ref: "https://github.com/o/r/issues/9",
 			at: 1,
-			dirt: readWorktreeDirt(dirty),
+			dirt: readWorktreeEdits(dirty),
 		}),
 	);
 

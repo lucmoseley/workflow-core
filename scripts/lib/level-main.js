@@ -39,6 +39,7 @@ const { describeAge: describeAgeText, HOUR_MS } = require("./age-text.js");
 const { remarkAroundMove } = require("./canary-remark.js");
 const { porcelainEntries } = require("./dirty-tree.js");
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const {
 	execGit,
 	gitCommonDirOrThrow,
@@ -142,13 +143,9 @@ const clashes = (edited, changed) =>
  * @returns {Blocker}
  */
 function readBlocker(root, rel, now, lastWriter) {
-	let ageMs = null;
-	try {
-		ageMs = Math.max(0, now - fs.lstatSync(path.join(root, rel)).mtimeMs);
-	} catch (err) {
-		/* A deletion is still a blocking edit; it has no age to read. */
-		if (caught(err).code !== "ENOENT") throw err;
-	}
+	/* A deletion is still a blocking edit; it has no age to read. */
+	const st = fs.lstatSync(path.join(root, rel), { throwIfNoEntry: false });
+	const ageMs = st ? Math.max(0, now - st.mtimeMs) : null;
 	return { path: rel, ageMs, writer: lastWriter(rel) };
 }
 
@@ -215,13 +212,11 @@ function tryRemove(dir) {
  * @returns {string | null}
  */
 function readMarker(live) {
-	try {
-		return fs.readFileSync(path.join(live, MARKER), "utf8").trim();
-	} catch (err) {
-		/* No tree, or one no levelling pass built: either way, build. */
-		if (!["ENOENT", "ENOTDIR"].includes(caught(err).code ?? "")) throw err;
-		return null;
-	}
+	const r = readText(path.join(live, MARKER));
+	if (r.state === "read") return r.data.trim();
+	/* No tree, or one no levelling pass built: either way, build. */
+	if (r.state === "absent" || caught(r.error).code === "ENOTDIR") return null;
+	throw r.error;
 }
 
 /**

@@ -52,6 +52,30 @@ const treeOrHost = (ctx) =>
 	});
 
 /**
+ * The core-side half of lib/host-root.js's `worktreeRoot`: the session's tree
+ * where it is a linked worktree of the root's repository, since the root is
+ * its main checkout; else the root, logged where git will not name either
+ * common dir.
+ * @param {Parameters<typeof treeOrHost>[0] & { commonDir: (dir: string) => string | null,
+ *   log: (message: string) => void }} ctx
+ * @returns {string}
+ */
+function linkedTreeOrRoot(ctx) {
+	const { root } = treeOrHost(ctx);
+	if (root === ctx.root) return root;
+	/* A git before 2.31 rejects --path-format (#2529). */
+	const common = ctx.commonDir(root);
+	const rootCommon = ctx.commonDir(ctx.root);
+	if (common === null || rootCommon === null) {
+		ctx.log(
+			`git rev-parse --git-common-dir failed in ${root} or ${ctx.root} — worktree paths left unmatched`,
+		);
+		return ctx.root;
+	}
+	return common === rootCommon ? root : ctx.root;
+}
+
+/**
  * A file's text in `tree`, null where it is absent or will not read: the
  * fail-open read of a core that allows, logged, on either (mantahostels#103
  * §6, #4132).
@@ -67,4 +91,10 @@ function readOrNull(tree, rel) {
 	}
 }
 
-module.exports = { TreeUnresolved, readOrNull, treeOr, treeOrHost };
+module.exports = {
+	linkedTreeOrRoot,
+	TreeUnresolved,
+	readOrNull,
+	treeOr,
+	treeOrHost,
+};

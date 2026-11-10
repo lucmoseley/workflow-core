@@ -28,7 +28,10 @@ const {
 } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
-const { readWorktreeDirt, readWorktreeFiling } = require("./orphan-filings.js");
+const {
+	readWorktreeEdits,
+	readWorktreeFiling,
+} = require("./orphan-filings.js");
 const { pidLock } = require("./pid-lock.js");
 const { requiredGroup } = require("./regex-group.js");
 const {
@@ -79,15 +82,16 @@ const ISOLATED = /^isolated-/;
 const ENDED = new Set(["done", "failed"]);
 /* The script a reap pass runs as; a pidfile naming any other is stale. */
 const REAP_HOLDERS = ["session-checkout.js"];
-/* A dirt no marker records: an unread worktree defers to no issue. */
-const UNREAD_DIRT = "\0unread";
+/* An edit state no marker records: an unread worktree defers to no issue. */
+const UNREAD_EDITS = "\0unread";
 
 /**
  * @typedef {{ dir: string, idleMs: number, last: string, dirty: number,
- *   unlanded: number, filed: string | null }} Stranded `filed` the
+ *   unlanded: number, filed: string | null }} UnfinishedTree a dead
+ *   session's tree holding uncommitted edits or unlanded commits; `filed` the
  *   orphaned-edit issue check-orphaned-edits.js filed for it while its dirt
  *   stood as it stands now, which carries its decision (#4439)
- * @typedef {{ removed: string[], stranded: Stranded[], unregistered: string[],
+ * @typedef {{ removed: string[], unfinished: UnfinishedTree[], unregistered: string[],
  *   pruned: string[], strays: string[], stores: string[], failed: string[],
  *   fetchFailed: string | null }} Reaped
  * @typedef {{ now: number, cwds: string[], record: string, common: string }}
@@ -156,7 +160,7 @@ function isHeldByLiveSession(admin, live) {
  * @param {string} dir
  * @param {number} now
  * @param {string} root the main checkout
- * @returns {Omit<Stranded, "filed">}
+ * @returns {Omit<UnfinishedTree, "filed">}
  */
 function readWorktreeState(dir, now, root) {
 	const dirty = git(
@@ -271,12 +275,12 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 			}
 			const state = readWorktreeState(dir, now, root);
 			if (state.dirty > 0 || state.unlanded > 0) {
-				out.stranded.push({
+				out.unfinished.push({
 					...state,
 					filed: readWorktreeFiling(
 						common,
 						worktreeLabel(root, dir),
-						readWorktreeDirt(dir) ?? [UNREAD_DIRT],
+						readWorktreeEdits(dir) ?? [UNREAD_EDITS],
 					),
 				});
 				standing.push(dir);
@@ -431,7 +435,7 @@ function reap(cwd) {
 		/** @type {Reaped} */
 		const out = {
 			removed: [],
-			stranded: [],
+			unfinished: [],
 			unregistered: [],
 			pruned: [],
 			strays: [],

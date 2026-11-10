@@ -103,7 +103,7 @@ const {
 	FILED_DIR,
 	buildWaysOut,
 	markerName,
-	readWorktreeDirt,
+	readWorktreeEdits,
 	readWorktreeFiling,
 	stateTag,
 } = require("./lib/orphan-filings.js");
@@ -182,7 +182,7 @@ const BLOB_TAG_HEX = 10;
  * @property {string} state   what its marker is keyed by: each orphan's path
  *   and blob, so a change to any of them refiles once
  * @property {string[]} dirt  every path `git status` lists in its worktree,
- *   as `readWorktreeDirt` reads it; empty for a main-checkout filing
+ *   as `readWorktreeEdits` reads it; empty for a main-checkout filing
  * @property {number} others  the worktree's paths besides its orphans:
  *   untracked, deleted, owned by a live session, or of a blob unread
  * @property {number|null} unlanded  its `HEAD`'s commits off `origin/main`,
@@ -799,7 +799,7 @@ function buildFilings(orphans, { youngIn, hours }) {
 		addToWorktree(byTree, filings, o);
 	}
 	for (const f of byTree.values()) {
-		const dirt = readWorktreeDirt(f.tree);
+		const dirt = readWorktreeEdits(f.tree);
 		f.held = describeHeld(dirt, youngIn.get(f.tree) ?? 0, hours);
 		f.dirt = dirt ?? [];
 		f.others = f.dirt.length - f.orphans.length;

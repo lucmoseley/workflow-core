@@ -6,7 +6,7 @@
  * which every worktree shares. A linked worktree's marker is named
  * `wt-<worktree key>-<state key>.json`, so its filings are found by the
  * worktree alone (#4439), and records the worktree's dirt as
- * `readWorktreeDirt` read it: the reaper names the issue rather than flagging
+ * `readWorktreeEdits` read it: the reaper names the issue rather than flagging
  * the worktree a second time only while that dirt is unchanged.
  */
 
@@ -58,7 +58,7 @@ const stateTag = ({ state }) => hashOf(state).slice(0, TITLE_TAG_HEX);
  * @param {string} dir
  * @returns {string[]|null}
  */
-function readWorktreeDirt(dir) {
+function readWorktreeEdits(dir) {
 	const out = gitRead(
 		[
 			"--no-optional-locks",
@@ -141,7 +141,7 @@ module.exports = {
 	FILED_DIR,
 	buildWaysOut,
 	markerName,
-	readWorktreeDirt,
+	readWorktreeEdits,
 	readWorktreeFiling,
 	stateTag,
 };

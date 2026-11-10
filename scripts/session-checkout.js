@@ -129,7 +129,7 @@ function renderReaped(r) {
 					]
 				: [],
 		),
-		...r.stranded.map(
+		...r.unfinished.map(
 			(s) =>
 				`stranded: ${name(s.dir)} — ${[
 					s.dirty > 0

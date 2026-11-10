@@ -11,6 +11,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { toolOf } = require("./guard-cores.js");
 const { sessionDir } = require("./host-root.js");
@@ -23,6 +24,7 @@ const { segment } = require("./review-suffix.js");
  * @typedef {import("./shell-parse.js").WalkPorts & {
  *   moduleOn: (module: Module) => boolean,
  *   treeClass: (dir: string) => "shared" | "linked" | "other" | "unknown",
+ *   statKind: (p: string) => StatKind,
  *   log: (what: string, detail?: string) => void,
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
@@ -39,7 +41,8 @@ const { segment } = require("./review-suffix.js");
  *   docPath: (name: string) => string,
  * }} KitContext the walks' ports, so a core hands them straight to
  *   walkCommands and walkGit; the module gate, which reads a config fault as
- *   off and never throws; whether a rule is told; and a read of a
+ *   off and never throws; what a path names, through its links; whether a
+ *   rule is told; and a read of a
  *   latch of the guard's own, null where it is absent or has no key; the
  *   payload's `tool_input`, `tool_name` and `tool_response`, undefined where
  *   it carries none; agentKey's answer for it; its `agent_id`, which the
@@ -48,6 +51,8 @@ const { segment } = require("./review-suffix.js");
  *   throwing where the store cannot give it; and lib/script-path.js's
  *   spellings of a core path as an install reaches it: every one in `text`,
  *   a script's, a doc's
+ * @typedef {"file" | "dir" | "other" | "absent" | "unreadable"} StatKind
+ *   `absent` on ENOENT alone, any other fault `unreadable`
  * @typedef {{ root: string, payload: Record<string, unknown>,
  *   log: (what: string, detail?: string) => void }} PortEnv
  */
@@ -110,6 +115,20 @@ function lazyTreeClass(root) {
 }
 
 /**
+ * @param {string} p
+ * @returns {StatKind}
+ */
+function statKind(p) {
+	try {
+		const st = fs.statSync(p);
+		if (st.isDirectory()) return "dir";
+		return st.isFile() ? "file" : "other";
+	} catch (err) {
+		return caught(err).code === "ENOENT" ? "absent" : "unreadable";
+	}
+}
+
+/**
  * The expansion scope a core resolves `$NAME` against: the environment, plus
  * the two ids bash sets itself and never exports.
  * @returns {Record<string, string>}
@@ -166,6 +185,7 @@ function kitContext({ root, payload, log }, readers) {
 		vars: shellVars(),
 		isDir: (p) =>
 			fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
+		statKind,
 		/* Loaded on a hit only: it is most of a silent call's cost (#2799). */
 		ruleText: (id) => require("./rule-text.js").readRuleText(id, root),
 		corePaths: (text) => require("./script-path.js").resolveScriptPaths(text),
