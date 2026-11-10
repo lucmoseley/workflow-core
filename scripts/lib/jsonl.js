@@ -126,10 +126,11 @@ const TAIL_BYTES = 64 * 1024;
  */
 function lastRowOf(text, partial) {
 	const lines = text.split("\n");
-	for (let i = lines.length - 1; i >= (partial ? 1 : 0); i--) {
-		const row = parseJsonlRow(lines[i] ?? "");
-		if (row) return row;
-	}
+	/** @type {Record<string, unknown> | undefined} */
+	let row;
+	for (let i = lines.length - 1; !row && i >= (partial ? 1 : 0); i--)
+		row = parseJsonlRow(lines[i] ?? "") || undefined;
+	return row;
 }
 
 /**

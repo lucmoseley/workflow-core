@@ -767,14 +767,14 @@ function readAgentsForCutover() {
 }
 
 /*
- * HOW OLD A SHOWN LISTING MAY BE (#4169), measured 4 Nov 2026 at load ~13:
- * one refresh of every plan's listing cost ~2.5 CPU-s and a cached
- * `refill-loop.js status --json` ~0.16, so the panel's 3 s poll costs ~0.05
- * core plus 2.5 s per this age, under 0.1 core from ~60 s; 120 s leaves room for a
- * slower refresh. Any strict read writes the reading too, so beside a running
- * loop's tick it is fresher than this.
+ * HOW OLD A SHOWN LISTING MAY BE (#4169, #4821), measured 11 Nov 2026 at load
+ * ~10: one refresh of every plan's listing cost ~2.5 CPU-s and a cached
+ * `refill-loop.js status --json` ~0.11, so the panel's 3 s poll costs ~0.037
+ * core plus 2.5 s per this age, at #4176's 0.06 core bar from ~110 s; 240 s
+ * holds an idle panel near 0.047. Any strict read writes the reading too, so
+ * beside a running loop's tick it is fresher than this.
  */
-const DISPLAY_MAX_AGE_MS = 120_000;
+const DISPLAY_MAX_AGE_MS = 240_000;
 
 /**
  * `readAgentsForBudget` off the shared reading, for what `refill-loop.js

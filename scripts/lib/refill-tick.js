@@ -4,7 +4,7 @@
  * runTick reads and writes, which owns the tick's step order and its dry-run
  * policy. scripts/refill-loop.js's `run` drives it and its `dry-run` prints
  * one, through the same adapter, the core calling none of its acts. The CLI logs through
- * the same say and log, at the same files (#3392).
+ * the same say and log, at the same files (lib/refill-io.js, #3392).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
  * declares (lib/refill-seats.js), else the seat `start` ran on alone. Its
@@ -96,7 +96,6 @@ const {
 	startDetachedIn,
 	homeDir,
 	isOptedOut,
-	readExclusionWhy,
 } = require("./refill-repos.js");
 const { startLevelling } = require("./level-main.js");
 const loop = require("./refill-loop.js");
@@ -105,11 +104,9 @@ const { buildLaunchesLine } = require("./refill-tick-settle.js");
 const { runTick } = core;
 const {
 	dropManagerRestart,
-	loopFiles,
 	readManagerRestart,
 	REVIEW_RUNNER,
 	readControlChecked,
-	buildLoopLogLine,
 	withControlLock,
 	writeControlFile,
 	writeLoopPause,
@@ -142,7 +139,7 @@ const { localDate } = require("./local-date.js");
 const { pidLock } = require("./pid-lock.js");
 const { tendQuietBench } = require("./quiet-bench-tick.js");
 const { parkedPromptOf } = require("./loop-prompts.js");
-const { writeFd } = require("./write-fd.js");
+const { files, log, servedRoots } = require("./refill-io.js");
 
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
@@ -161,24 +158,10 @@ const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.sh");
  */
 const inCheckout = (root) => ({ cwd: root, env: buildCheckoutEnv(root) });
 
-const files = loopFiles();
-
 /** What the loop may serve now, whatever its scope chose. */
 const readIncluded = () => discoverRepos(homeDir()).included;
 
-/** @param {string} line */
-const say = (line) => writeFd(1, `${line}\n`);
-
-/** @param {string} line */
-const log = (line) => writeFd(1, buildLoopLogLine(line));
-
 const readControl = () => readControlChecked(log);
-
-/**
- * The roots a scope serves now.
- * @param {import("./refill-loop.js").Scope} scope
- */
-const servedRoots = (scope) => loop.scopeRoots(scope, readExclusionWhy);
 
 /** @param {boolean} dryRun */
 function reapFinished(dryRun) {
@@ -1104,12 +1087,4 @@ function tick({ dryRun }) {
 	);
 }
 
-module.exports = {
-	DISPATCHER,
-	files,
-	log,
-	isReviewRunning,
-	say,
-	servedRoots,
-	tick,
-};
+module.exports = { DISPATCHER, isReviewRunning, tick };
