@@ -704,9 +704,27 @@ describe("the CLI", () => {
 			"append",
 			"96",
 			"--text",
-			"no earlier than 2026-09-29\n**Gate basis:** counters live 24 hours",
+			"no earlier than 2026-09-29\n**Gate basis:** counters live 24 hours (#616)",
 		);
 		expect(readBody()).toContain("Gate basis");
+	});
+
+	it("refuses a basis citing only its own issue, printing the template (#4946)", () => {
+		fs.writeFileSync(store, "run it after a week live\n");
+		const r = refusal(
+			"append",
+			"96",
+			"--text",
+			"**Gate basis:** #96 asks for a week",
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			'this edit adds the basis "#96 asks for a week", which carries no warrant. Every gate line',
+		);
+		expect(r.stderr).toContain("baseline 27/449 attempts");
+		expect(readEdits()).toBe(0);
+		run("append", "96", "--text", "**Gate basis:** #97 ruled a week");
+		expect(readBody()).toContain("#97 ruled a week");
 	});
 });
 

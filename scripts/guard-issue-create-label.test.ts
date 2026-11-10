@@ -174,7 +174,7 @@ describe("each exit", () => {
 		);
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			'It carries "3 days", a window the `**Gate basis:**` line does not name.',
+			'It carries "3 days", a window the `**Gate basis:**` line does not name; and the basis',
 		);
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});

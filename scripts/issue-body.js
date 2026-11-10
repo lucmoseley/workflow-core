@@ -885,7 +885,7 @@ function buildTransform(o) {
 function replaceWhole(issue, repo, next, dryRun = false) {
 	const run = () => {
 		const before = fetchBody(issue, repo);
-		refuseGateFaults(before, next, repo);
+		refuseGateFaults(before, next, repo, issue);
 		if (normalise(before) === normalise(next)) {
 			writeFd(1, `issue ${issue}: already identical, nothing written\n`);
 			return 0;
@@ -929,8 +929,10 @@ let gateRuleHanded = false;
  * @param {string} before
  * @param {string} after
  * @param {string|undefined} repo
+ * @param {number|string} issue the body's own number: a basis citing it
+ *   cites nothing (#4946)
  */
-function refuseGateFaults(before, after, repo) {
+function refuseGateFaults(before, after, repo, issue) {
 	const handover = gateRuleHanded
 		? null
 		: gateRuleHandover(before, after, () => readRuleText("roadmap-gating"));
@@ -938,10 +940,13 @@ function refuseGateFaults(before, after, repo) {
 		gateRuleHanded = true;
 		writeFd(2, handover);
 	}
-	const added = introducedBasisFaults(before, after);
+	const own = Number(issue);
+	if (!Number.isInteger(own))
+		throw new CallerError(`not an issue number: ${issue}`);
+	const added = introducedBasisFaults(before, after, own);
 	if (added.length > 0)
 		throw new CallerError(
-			`Nothing written: this edit adds ${basisRefusal(added, after)}`,
+			`Nothing written: this edit adds ${basisRefusal(added)}`,
 		);
 	const checks = addedCheckVerdict(before, after, { run: true, repo });
 	for (const w of checks.warnings) writeFd(2, `${w}\n`);
@@ -985,11 +990,12 @@ function recordNewGate(issue, repo, before, after) {
  *
  * @param {Transform} transform
  * @param {string|undefined} repo
+ * @param {number|string} issue
  * @returns {Transform}
  */
-const basisChecked = (transform, repo) => (body) => {
+const basisChecked = (transform, repo, issue) => (body) => {
 	const next = transform(body);
-	refuseGateFaults(body, next, repo);
+	refuseGateFaults(body, next, repo, issue);
 	return next;
 };
 
@@ -1004,7 +1010,7 @@ const basisChecked = (transform, repo) => (body) => {
 function runEdit(o, repo, transform) {
 	const r = editIssueBody({
 		issue: o.issue,
-		transform: basisChecked(transform, repo),
+		transform: basisChecked(transform, repo, o.issue),
 		repo,
 		attempts: o.attempts === undefined ? DEFAULT_ATTEMPTS : Number(o.attempts),
 		dryRun: Boolean(o.dryRun),

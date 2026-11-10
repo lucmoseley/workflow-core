@@ -150,7 +150,7 @@ const TRIGGERS = {
 	"no-command-opens-shape": TAKES_HUMAN,
 	"repo-file-act": TAKES_HUMAN,
 	"gate-basis-line":
-		"a `gh issue create`, `scripts/file-issue.js` or `scripts/issue-body.js` write adding a gate line or a prose wait with no basis naming its windows",
+		"a `gh issue create`, `scripts/file-issue.js` or `scripts/issue-body.js` write adding a gate line or a prose wait with no basis naming its windows, or a basis with no warrant",
 	"close-outstanding-where": "a `gh issue close` on the Bash tool",
 	"install-scripts-first":
 		"an `npm install` adding a package without `--ignore-scripts`, on the Bash tool",
