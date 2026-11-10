@@ -1,11 +1,16 @@
 /*
  * main-checkout-write.js — the dispatcher core that refuses a write to the
- * main checkout's tracked tree once it is cut over (#4248, spec #4229).
+ * main checkout's tracked tree once it is cut over (#4248, spec #4229), and
+ * from a session in a linked worktree whether it is cut over or not (#4697).
  *
  * DENY, not warn (mantahostels#103).
  *
- * WHAT IT REFUSES, with the `landing` module on and the main checkout cut
- * over (lib/cutover.js): a Write, Edit or NotebookEdit path, or a Bash write,
+ * THE WORKTREE REFUSAL HOLDS WITH `landing` OFF TOO. A session whose cwd is
+ * the main checkout keeps writing there until the cutover.
+ *
+ * WHAT IT REFUSES, from a linked-worktree session or with the `landing`
+ * module on and the main checkout cut over (lib/cutover.js): a Write, Edit or NotebookEdit
+ * path, or a Bash write,
  * move or delete by any spelling lib/shell-parse.js's writeTargets reads,
  * resolving into the main checkout's own tree — not into a linked worktree
  * under it, not under `.git` — at a path git does not ignore, tracked or not;
@@ -34,9 +39,16 @@
  *    the walk loses (`cd "$X"`, `pushd`), recorded; one run from a gitignored
  *    directory under the main checkout, which may still write `../` into
  *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
- *    The pre-commit limb holds a commit made by any route.
- *  - A `git` that cannot answer for the path or the upstream allows the
- *    write, recorded (mantahostels#103 §6).
+ *    Once it is cut over, the pre-commit limb holds a commit made by any
+ *    route; before, a worktree session's commit there by a route this does
+ *    not read is held by nothing.
+ *  - A `git` that cannot answer for the path allows the write, recorded
+ *    (mantahostels#103 §6); one that cannot read the upstream leaves only the
+ *    worktree refusal standing, recorded.
+ *  - A worktree session is told by the payload's cwd, so one whose shell
+ *    has `cd`'d into the main checkout writes there unrefused before the
+ *    cutover. Its stores then key by the main checkout, and the turn-end
+ *    reads judge it, until it `cd`s back before the turn ends (#4697).
  *  - No override: this binds agent sessions only (mantahostels#109).
  */
 
@@ -351,27 +363,47 @@ function describe(w, subject) {
 }
 
 /**
+ * Why the main checkout takes no write from this session, or null where it
+ * takes them.
+ * @param {CoreContext} ctx
+ * @returns {string | null}
+ */
+function refusalGround(ctx) {
+	if (ctx.moduleOn("landing")) {
+		const cutOver = readCutOver(ctx.git);
+		if (cutOver === null)
+			ctx.log(
+				"git could not read the main checkout's upstream — the cutover refusal skipped",
+			);
+		if (cutOver)
+			return "The main checkout takes no edits or commits: its `main` follows `origin/main` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229).";
+	}
+	const cls = ctx.treeClass(ctx.fallbackCwd);
+	if (cls === "unknown")
+		ctx.log(
+			"git could not say which tree holds the session's cwd — the worktree refusal skipped",
+		);
+	if (cls !== "linked") return null;
+	return "A session in a linked worktree edits and commits only there: the claim and write stores key a write by the path in the writer's own tree, so one here goes unclaimed and unledgered, unseen by the turn-end uncommitted-work check (#4697).";
+}
+
+/**
  * @param {string} subject
  * @param {CoreContext} ctx
  * @returns {Decision}
  */
 function decide(subject, ctx) {
-	if (!ctx.moduleOn("landing")) return null;
 	try {
-		const cutOver = readCutOver(ctx.git);
-		if (cutOver === null)
-			throw new GitUnanswered(
-				"git could not read the main checkout's upstream — write allowed unchecked",
-			);
-		if (!cutOver) return null;
 		const w = findWrite(subject, ctx);
 		if (w === null) return null;
+		const ground = refusalGround(ctx);
+		if (ground === null) return null;
 		const { what, cmd } = describe(w, subject);
 		const back =
 			"rel" in w
 				? `, and a tracked file already dirtied there goes back to HEAD with \`git -C ${ctx.root} restore --source=HEAD --staged --worktree -- ${w.rel}\``
 				: "";
-		const text = `${what}: @CMD@\n\nThe main checkout takes no edits or commits: its \`main\` follows \`origin/main\` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229). ${route(w, ctx)} Gitignored stores under it stay writable${back}.`;
+		const text = `${what}: @CMD@\n\n${ground} ${route(w, ctx)} Gitignored stores under it stay writable${back}.`;
 		return { deny: denyText(ctx, cmd, text) };
 	} catch (e) {
 		if (!(e instanceof GitUnanswered)) throw e;

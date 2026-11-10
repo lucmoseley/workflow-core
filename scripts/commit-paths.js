@@ -15,7 +15,8 @@
  * `tree=` and the `refs/reviewed/` pin both take — and writes nothing. It is
  * built by the same private-index code and refused on the same grounds, save
  * that a set changing nothing prints HEAD's own tree, so a change already
- * committed can still be named (#4288). It takes no message, runs no tests,
+ * committed can still be named (#4288), a patch whose every postimage HEAD
+ * already holds included (#4700). It takes no message, runs no tests,
  * and logs no outcome line.
  *
  * --CHECK (#4207) gives the verdict that commit would get and makes none: it
@@ -116,7 +117,7 @@
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
  * with untracked files or no tracked ones, nothing to commit — never under
  * --tree, which prints HEAD's tree there — a patch not cut
- * against HEAD, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
+ * against HEAD, save under --tree one HEAD already holds, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
  * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or under --check a hook refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
  * just works — the output above being the work either way; 4
@@ -669,15 +670,50 @@ function readPatchSections(root, patch) {
 function stalePreimages(sections, base) {
 	const stale = [];
 	for (const { section, file } of sections) {
-		const pre = /^index ([0-9a-f]+)\.\./m.exec(section)?.[1];
-		if (!pre || /^0+$/.test(pre)) continue;
+		const pre = parseIndexLine(section)?.pre;
+		if (!pre || /^0+$/.test(pre) || isBlobAt(base, file, pre)) continue;
 		const blob = readBlobSha(base, file);
-		if (!blob.startsWith(pre))
-			stale.push(
-				`${file} (cut against ${pre}, HEAD holds ${blob ? blob.slice(0, pre.length) : "no such file"})`,
-			);
+		stale.push(
+			`${file} (cut against ${pre}, HEAD holds ${blob ? blob.slice(0, pre.length) : "no such file"})`,
+		);
 	}
 	return stale;
+}
+
+/**
+ * Whether `base` holds every section's postimage. A rename is held only where
+ * `base` lacks its old name, and a pure rename, which has no `index` line,
+ * where it has its new one; any other section with none, or a typechange's
+ * delete half, answers no.
+ * @param {PatchSection[]} sections
+ * @param {string} base
+ */
+function isPatchCommitted(sections, base) {
+	return sections.every(({ section, file }) => {
+		const from = /^rename from (.+)$/m.exec(section)?.[1];
+		if (from !== undefined && readBlobSha(base, from) !== "") return false;
+		const post = parseIndexLine(section)?.post;
+		if (post) return isBlobAt(base, file, post);
+		return from !== undefined && readBlobSha(base, file) !== "";
+	});
+}
+
+/** @param {string} section */
+function parseIndexLine(section) {
+	const m = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/m.exec(section);
+	return m ? { pre: m[1], post: m[2] } : null;
+}
+
+/**
+ * Whether `file` at `base` is the blob `sha` abbreviates; an all-zero `sha`
+ * means no such file.
+ * @param {string} base
+ * @param {string} file
+ * @param {string} sha
+ */
+function isBlobAt(base, file, sha) {
+	const blob = readBlobSha(base, file);
+	return /^0+$/.test(sha) ? blob === "" : blob.startsWith(sha);
 }
 
 /** `path`'s blob sha at `rev`, or "" where it has none. @type {(rev: string, file: string) => string} */
@@ -1174,6 +1210,8 @@ function buildIndex(
 				2,
 			);
 	}
+	// --tree after the commit landed: HEAD's tree, the whole paths staged (#4700).
+	if (!refuseUnchanged && isPatchCommitted(sections, base)) return;
 	const stale = stalePreimages(sections, base);
 	if (stale.length > 0)
 		fail(

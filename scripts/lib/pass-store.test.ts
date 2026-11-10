@@ -353,17 +353,6 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	it("lets no row recorded before rows reached spawned scripts decide", () => {
-		const dir = repo();
-		run(dir, [A]);
-		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
-		fs.writeFileSync(
-			shardOf(dir, A),
-			`${JSON.stringify({ ...line, format: 2 })}\n`,
-		);
-		expect(cachedOf(dir, [A])).toEqual([]);
-	});
-
 	it("leaves the shadowing paths out of the reads a cached file attests", () => {
 		const dir = repo();
 		write(dir, "lib.js", 'require("./data");\n');
@@ -443,12 +432,14 @@ describe("a script the manifest says a file spawns", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	it("records no row where the spawned Python script imports a module it cannot place", () => {
+	it("records no row where the spawned Python script imports a module it cannot place (#4790)", () => {
 		const dir = spawning(
 			"scripts/tool.py",
-			"scripts/unused.py",
-			"import not_beside_it\n",
+			"scripts/placed.py",
+			"import placed\n",
 		);
+		expect(run(dir, [A])).toBe(1);
+		fs.rmSync(path.join(dir, "scripts/placed.py"));
 		expect(run(dir, [A])).toBe(0);
 	});
 });
@@ -574,6 +565,17 @@ describe("the uncached pragma", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
+	it("lets no row recorded before rows reached spawned scripts decide (#4790)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
+		fs.writeFileSync(
+			shardOf(dir, A),
+			`${JSON.stringify({ ...line, format: 2 })}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("runs every file of an absent store, silently", () => {
 		const dir = repo();
 		const found = lookup([A], {
