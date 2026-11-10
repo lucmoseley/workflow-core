@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/script-filer-argv.js: the file-issue.js argv all eight script filers
+ * lib/script-filer-argv.js: the file-issue.js argv every script filer
  * build through it (#4859). In-process, on the module's export: it pins the
  * flags and their values, that `--no-fault` is always sent, and that an empty
  * list flag is left out — a break here misfiles or refuses every script
