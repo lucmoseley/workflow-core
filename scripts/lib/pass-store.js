@@ -59,7 +59,6 @@
  * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
  */
 
-const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -72,12 +71,7 @@ const {
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
-const {
-	execGit,
-	gitBinary,
-	gitSpawnOptions,
-	GIT_TIMEOUT_MS,
-} = require("./git.js");
+const { execGit, spawnGitSync, GIT_TIMEOUT_MS } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
 	ABSENT,
@@ -480,15 +474,11 @@ function gitRunner(root) {
 		let id = null;
 		try {
 			const { cwd, args } = JSON.parse(key);
-			const r = spawnSync(
-				gitBinary(),
-				args,
-				gitSpawnOptions({
-					cwd: path.join(root, cwd),
-					env,
-					timeout: GIT_TIMEOUT_MS,
-				}),
-			);
+			const r = spawnGitSync(args, {
+				cwd: path.join(root, cwd),
+				env,
+				timeout: GIT_TIMEOUT_MS,
+			});
 			if (!r.error && r.status !== null)
 				id = crypto
 					.createHash("sha1")
