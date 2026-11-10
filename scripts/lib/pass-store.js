@@ -27,9 +27,10 @@
  * names; a row whose input list is missing or empty never matches; a run
  * that errored outside its files, was interrupted or filtered by name
  * records its failures alone; a spawned Python import the reach cannot
- * place, a JSX or TSX file on the reach, or a spawn on it of an interpreter
- * handed its program inline (lib/code-edges.js's `inlineCodeSpawns`), records
- * no row for the files it reaches; an input rewritten while the run ran, untracked, gitignored
+ * place, a JSX or TSX file on the reach, or a load on it the walk cannot
+ * read (lib/code-edges.js's `unread`: an inline program's, or a shell load
+ * spelled off anything but the script's own directory), records no row for
+ * the files it reaches; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -66,7 +67,6 @@ const {
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
 const {
-	inlineCodeSpawns,
 	isCodeFile,
 	isFile,
 	languageOf,
@@ -96,7 +96,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 5;
+const FORMAT = 6;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -298,7 +298,11 @@ function lexicalReach(root) {
 	/** @param {string} rel */
 	const reachFrom = (rel) => {
 		if (memo.has(rel)) return memo.get(rel) ?? null;
-		const found = isCodeFile(rel)
+		/* A file with no extension, as a git hook, may be a script. */
+		const script =
+			isCodeFile(rel) ||
+			(!path.basename(rel).includes(".") && isFile(path.join(root, rel)));
+		const found = script
 			? readEdges(root, rel)
 			: { edges: [], shadows: [], python: false };
 		memo.set(rel, found);
@@ -329,7 +333,7 @@ function lexicalReach(root) {
 /**
  * The in-repo files `rel` names lexically, the paths its specifiers tried
  * before them, and whether it runs inline Python; or null where it will not
- * read, faults, or spawns inline code whose loads no walk reads.
+ * read, faults, or holds a load the walk cannot read.
  * @param {string} root
  * @param {string} rel
  * @returns {Reach|null}
@@ -339,13 +343,12 @@ function readEdges(root, rel) {
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
-		const spawns = inlineCodeSpawns(abs, read.data);
-		if (spawns.some((s) => s.unseen)) return null;
-		const { edges, shadows } = reachOf(abs, read.data, refuseFault);
+		const reach = reachOf(abs, read.data, refuseFault);
+		if (reach.unread.length > 0) return null;
 		return {
-			edges: repoRelative(root, edges.filter(isFile)),
-			shadows: repoRelative(root, shadows),
-			python: spawns.some((s) => s.interpreter === "python"),
+			edges: repoRelative(root, reach.edges.filter(isFile)),
+			shadows: repoRelative(root, reach.shadows),
+			python: reach.python,
 		};
 	} catch {
 		return null;
@@ -403,9 +406,10 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const shared = sharedInputs(run.root, run.shared);
 		const reach = lexicalReach(run.root);
 		const own = files.flatMap((f) => {
-			/* A script the manifest says the file spawns is reached too: its own
-			 * requires are inputs that no import and no `__dirname` join names. */
-			const spawned = (reads.get(f.file) ?? []).filter(isCodeFile);
+			/* A script the manifest says the file reads is reached too, as it
+			 * may spawn it: its own requires are inputs that no import and no
+			 * `__dirname` join names. A read holding no script reaches none. */
+			const spawned = reads.get(f.file) ?? [];
 			const reaches = [f.file, ...f.imports, ...spawned].map(reach);
 			if (reaches.includes(null)) return [];
 			const reached = /** @type {Reach[]} */ (reaches);

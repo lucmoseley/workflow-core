@@ -7,6 +7,7 @@
  * disk.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -14,7 +15,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { inlineCodeSpawns, reachOf } = require("./code-edges.js");
+const { edgesOf, reachOf } = require("./code-edges.js");
 
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -262,6 +263,8 @@ describe("a file the walk cannot read", () => {
 		expect(reachOf("/x/a.json", "{}", (m: string) => faults.push(m))).toEqual({
 			edges: [],
 			shadows: [],
+			unread: [],
+			python: false,
 		});
 		expect(faults).toEqual([]);
 	});
@@ -272,7 +275,7 @@ describe("a file the walk cannot read", () => {
  * cached. */
 describe("an interpreter handed its program inline", () => {
 	const unseen = (code: string, file = "/x/a.test.ts") =>
-		inlineCodeSpawns(file, code).filter((s: { unseen: boolean }) => s.unseen);
+		reachOf(file, code, () => undefined).unread;
 
 	it.each([
 		[
@@ -314,13 +317,14 @@ describe("an interpreter handed its program inline", () => {
 
 	/* #4790 pass 3 review, finding 4: the row of a builtin-only inline
 	 * python must still rest on python3. */
-	it("names the interpreter of a spawn it lets pass", () => {
+	it("marks the reach of a Python spawn it lets pass as running python3", () => {
 		expect(
-			inlineCodeSpawns(
+			reachOf(
 				"/x/a.test.ts",
 				'spawnSync("python3", ["-c", "import sys"]);',
-			).map((s: { interpreter: string }) => s.interpreter),
-		).toEqual(["python"]);
+				() => undefined,
+			).python,
+		).toBe(true);
 	});
 
 	it("reads a Python list's spawn too", () => {
@@ -342,13 +346,10 @@ describe("a shell script's inline program", () => {
 		`[[ "$SELF_DIR" == "\${BASH_SOURCE[0]}" ]] && SELF_DIR=.`,
 		'SELF_DIR="$(cd "$SELF_DIR" && pwd)"',
 	].join("\n");
-	const sh = (code: string) => ({
-		spawns: inlineCodeSpawns("/x/s/park.sh", code),
-		edges: reachOf("/x/s/park.sh", code, () => undefined).edges,
-	});
+	const sh = (code: string) => reachOf("/x/s/park.sh", code, () => undefined);
 
 	it("reaches the file a node program requires off an argument read as a path, as park-blocked.sh's", () => {
-		const { spawns, edges } = sh(
+		const { unread, edges } = sh(
 			[
 				SelfDirLines,
 				"printf '%s' \"$body\" | node -e '",
@@ -356,7 +357,7 @@ describe("a shell script's inline program", () => {
 				'\' "$SELF_DIR/lib/issue-hold.js" "$issue" 2>/dev/null',
 			].join("\n"),
 		);
-		expect(spawns.map((s: { unseen: boolean }) => s.unseen)).toEqual([false]);
+		expect(unread).toEqual([]);
 		expect(edges).toEqual(["/x/s/lib/issue-hold.js"]);
 	});
 
@@ -389,10 +390,8 @@ describe("a shell script's inline program", () => {
 		["a double-quoted program", `node -e "require('./x')"\n`],
 		["a relative load", `node -e 'require("./x")'\n`],
 		["a Python program loading a module", `python3 -c 'import helper'\n`],
-	])("names a spawn through %s unseen", (_what, code) => {
-		expect(
-			sh(code).spawns.filter((s: { unseen: boolean }) => s.unseen),
-		).toHaveLength(1);
+	])("names a spawn through %s unread", (_what, code) => {
+		expect(sh(code).unread).toHaveLength(1);
 	});
 
 	/* The same review's sweep: 162 tests reached a script sourcing or
@@ -412,6 +411,149 @@ describe("a shell script's inline program", () => {
 	});
 
 	it("skips a comment line", () => {
-		expect(sh("# node -e 'require(x)'\n").spawns).toEqual([]);
+		expect(sh("# node -e 'require(x)'\n").unread).toEqual([]);
+	});
+});
+
+/* #4790 pass 3 review round 3, finding 1: a load spelled off a variable the
+ * walk dropped without a word. concision-backstop-sensitive.test.ts runs
+ * code-signal.sh's `node "$CS_MATCHER"`, sensitive-paths.js, which no row
+ * held; the rule since: a load word the walk cannot read is unread. */
+describe("a shell script's loads", () => {
+	const dirOf = (v: string) =>
+		`${v}="\${BASH_SOURCE[0]%/*}"\n[[ "$${v}" == "\${BASH_SOURCE[0]}" ]] && ${v}=.`;
+	const sh = (code: string, file = "/x/s/a.sh") =>
+		reachOf(file, code, () => undefined);
+
+	it.each([
+		[
+			"code-signal.sh's matcher, through `cd … 2>/dev/null && pwd` and an unset after",
+			`${dirOf("_cs_dir")}\n_cs_dir="$(cd "$_cs_dir" 2>/dev/null && pwd)"\nCS_MATCHER="$_cs_dir/sensitive-paths.js"\nCS_ARBITER="\${_cs_dir%/*}/session-arbiter.js"\nunset _cs_dir\nf() {\n  node "$CS_MATCHER" --stdin 2>"$err"\n  node "$CS_ARBITER" own-paths\n}\n`,
+			["/x/s/sensitive-paths.js", "/x/session-arbiter.js"],
+		],
+		[
+			"review-agent-type.sh's guard root, sourced before its unset",
+			`${dirOf("_rat_here")}\nif ! declare -F gr_root >/dev/null 2>&1; then\n  source "$_rat_here/guard-root.sh"\nfi\nunset _rat_here\n`,
+			["/x/s/guard-root.sh"],
+		],
+		[
+			"dispatch-sessions.sh's `here`, made absolute off $PWD",
+			`${dirOf("here")}\n[[ "$here" == /* ]] || here="$PWD/$here"\nsource "$here/lib/interop-probe.sh" 2>/dev/null\n`,
+			["/x/s/lib/interop-probe.sh"],
+		],
+		[
+			"bg-run.sh's directory, through `cd … >/dev/null 2>&1 && pwd`",
+			`${dirOf("SCRIPT_DIR")}\nSCRIPT_DIR="$(cd "$SCRIPT_DIR" >/dev/null 2>&1 && pwd)"\nsource "$SCRIPT_DIR/lib/guard-root.sh"\n`,
+			["/x/s/lib/guard-root.sh"],
+		],
+		[
+			"an inherited variable's default",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'hook="${WFC_TIER_HOOK:-${BASH_SOURCE[0]%/*}/d.js}"\nnode "$hook" --only x\n',
+			["/x/s/d.js"],
+		],
+		[
+			"a function running its arguments",
+			`${dirOf("here")}\noutlive_live node "$here/sweep.js"\n`,
+			["/x/s/sweep.js"],
+		],
+	])("reads %s", (_what, code, want) => {
+		const reach = sh(code);
+		expect(reach.unread).toEqual([]);
+		expect([...reach.edges, ...reach.shadows]).toEqual(
+			expect.arrayContaining(want),
+		);
+	});
+
+	it.each([
+		[
+			"a variable unset before the load",
+			`${dirOf("_h")}\nunset _h\nsource "$_h/g.sh"\n`,
+		],
+		[
+			"a path off a command's output",
+			'source "$(git rev-parse --show-toplevel)/a.sh"\n',
+		],
+		["a variable the walk cannot read", 'node "$UNSET/x.js"\n'],
+		["a path built off an argument", 'node "$1/x.js"\n'],
+		["a path relative to the working directory", "node scripts/x.js\n"],
+		["a program on stdin", "printf x | node\n"],
+		["a heredoc program", "python3 <<'EOF'\nimport helper\nEOF\n"],
+		["a shell's command string", "bash -c 'source ./a.sh'\n"],
+		["a module off python3's search path", "python3 -m helper\n"],
+		["a function running an unread load", 'hb node "$UNSET/x.js"\n'],
+		/* Finding 2: hook-bound.sh, precommit-gate.sh and relink-store.sh. A
+		 * default naming the caller's $0, the working directory or an
+		 * argument is no path the walk can read; the gate suites run the
+		 * hooks in a throwaway repository. */
+		[
+			"hook-bound.sh's runner, off the caller's $0",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'hb_runner="$(cd "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd)/scripts/lib/run-budgeted.js" || hb_runner=""\nhook_bound() { command node "$hb_runner" --hook "$@"; }\n',
+		],
+		[
+			"precommit-gate.sh's formatters, off the working directory",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'node "${WFC_PLUGIN_ROOT:-.}/scripts/lib/formatters.js" shell-files\n',
+		],
+		[
+			"relink-store.sh's script, off an argument",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'rs_script="${WFC_PLUGIN_ROOT:-$1}/scripts/session-checkout.js"\nnode "$rs_script" relink\n',
+		],
+	])("names %s unread", (_what, code) => {
+		expect(sh(code).unread).toHaveLength(1);
+	});
+
+	it.each([
+		["a load the caller hands in whole", 'node "$1"\n"$@"\n'],
+		[
+			"a command an inherited variable names",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			'gh="${WFC_GH:-gh}"\n"$gh" api x\n',
+		],
+		[
+			"a variable holding a command's name",
+			'found=false\nfound=true\nif "$found"; then :; fi\n',
+		],
+		["a `case` pattern", 'case "$x" in\n  /*|"$y") echo hi ;;\nesac\n'],
+		["a `[[` test", '[[ "$x" == /* &&\n  "$y" != "$z" ]] && echo hi\n'],
+		["a heredoc's body", 'cat <<EOF\nsource "$X/a.sh"\nEOF\n'],
+		["an array of data", "PROSE=(\n  . ':(exclude)*.js'\n)\n"],
+		["arithmetic", "if (( $# > 0 )); then :; fi\n"],
+	])("reads %s as no load", (_what, code) => {
+		expect(sh(code).unread).toEqual([]);
+	});
+
+	it("walks a script with no extension by its #! line, as a git hook", () => {
+		expect(
+			sh('#!/usr/bin/env sh\nnode "$UNSET/x.js"\n', "/x/.husky/pre-commit")
+				.unread,
+		).toHaveLength(1);
+	});
+
+	/* Finding R3-ST1: a walk for edges alone must not need python3 to read a
+	 * shell script's inline Python program. */
+	it("reads a shell script's edges where no python3 is on PATH", () => {
+		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
+		const probe = path.join(root, "probe.js");
+		fs.writeFileSync(
+			probe,
+			`const { edgesOf } = require(${JSON.stringify(require.resolve("./code-edges.js"))});\nprocess.stdout.write(JSON.stringify(edgesOf("/x/s/a.sh", "python3 -c 'import sys'\\n", () => {})));\n`,
+		);
+		/* spawn-kept: python3's version is read once per process, so a walk
+		 * with no python3 on PATH needs a process that never read it. */
+		const r = spawnSync(process.execPath, [probe], {
+			encoding: "utf8",
+			env: { PATH: root },
+		});
+		expect(r.stderr).toBe("");
+		expect(JSON.parse(r.stdout)).toEqual([]);
+	});
+
+	it("hands edgesOf's callers the edges alone", () => {
+		expect(
+			edgesOf("/x/s/a.sh", 'node "$UNSET/x.js"\n', () => undefined),
+		).toEqual([]);
 	});
 });

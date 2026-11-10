@@ -1,17 +1,37 @@
 /*
- * code-edges.js — the files one script reaches, read lexically, comment lines
- * skipped, for surface-closure.js's and hook-code.js's walks (#4259) and the
- * pass store's reach, which also reads the paths each specifier tried before
- * its target (`reachOf`'s shadows, #4814):
- *   JS and TypeScript — a relative `require`/`from`/`import()` specifier,
- *     resolved as node resolves it, or as vitest does an extensionless `.ts`;
- *     and `path.join|resolve(__dirname, "<literal>", …)` naming a code file,
- *     the spelling of check.js's notify-report.js (#459) and
+ * code-edges.js — the files one script reaches, read lexically, for
+ * surface-closure.js's and hook-code.js's walks (#4259) and the pass store's
+ * reach, which also reads the paths each specifier tried before its target
+ * (`reachOf`'s shadows, #4814) and each load the walk cannot read (`unread`,
+ * #4790), on which the store records no row:
+ *   JS and TypeScript, comment lines skipped — a relative
+ *     `require`/`from`/`import()` specifier, resolved as node resolves it, or
+ *     as vitest does an extensionless `.ts`; and
+ *     `path.join|resolve(__dirname, "<literal>", …)` naming a code file, the
+ *     spelling of check.js's notify-report.js (#459) and
  *     doc-map-generator.js's session-arbiter.js spawn (#460).
- *   shell — a path spelled from the file's own directory,
- *     `$(dirname "${BASH_SOURCE[0]}")/x` or `${BASH_SOURCE[0]%/*}/x`, whether
- *     sourced or run (#460); and the path an inline node program loads as
- *     `require(process.argv[N])` off an argument read as a path (below).
+ *   shell, a `.sh` file or one with no extension and a shell `#!` line,
+ *     cut into simple commands (lib/shell-script-lexer.js) — every word
+ *     naming a code path, and every load: a file sourced or `.`-read, run
+ *     through an interpreter or by its path, behind a wrapper such as `exec`
+ *     or a function running its arguments, named by node's `--require`, or
+ *     loaded by an inline node program as `require(process.argv[N])` off an
+ *     argument. A load's word is read as a path built from literals, the
+ *     file's own path and directory (`${BASH_SOURCE[0]}`, `%/*`, `dirname`,
+ *     `basename`, `cd … && pwd`), an inherited variable's `${X:-default}` as
+ *     its default, and variables the file assigns one such path in every
+ *     assignment, read where the word stands, so an `unset` after it clears
+ *     nothing (#460, #4790). A load word that is one value the caller hands
+ *     in, whole — an argument, or an inherited variable or its default
+ *     command name — is the caller's to name. A load word built any other way
+ *     is unread, never dropped (#4790): off `$0`, which in a sourced file is
+ *     its caller, off an argument or an inherited variable, or off the
+ *     working directory; so is a program on stdin or in a heredoc, a shell's
+ *     `-c` command, and a module an interpreter finds on its own search path
+ *     (`python3 -m`). Residual: a caller's load is read only where the
+ *     caller spells it in a way this walk reads (the JS residual below), and
+ *     a function running its arguments is read only where an interpreter
+ *     names them, as `hb node x.js`, not `hb "$script"`.
  *   Python — `import X.Y` or `from X import Z` (#465, #4864): X searched as
  *     CPython would, on the importer's directory and each sys.path entry the
  *     file adds before the import through a literal `insert(0, …)` or
@@ -21,8 +41,7 @@
  *     sys.path edit may never have run, so a module found on its entry
  *     settles nothing, and an indented import, or one on a one-line compound
  *     statement's body, is placed again on the file's final search path.
- * A path built any other way is unseen. A JSX or TSX file is code the walk
- * cannot read.
+ * A JSX or TSX file is code the walk cannot read.
  *
  * FOREIGN: a Python import the walk cannot place — a module neither stdlib
  * (python3's own sys.stdlib_module_names, so 3.10 or later) nor on that
@@ -34,26 +53,33 @@
  * module is walked on its own directory and edits, not on the sys.path of
  * the script that imports it (#4870).
  *
- * INLINE CODE: `inlineCodeSpawns` names each spawn of python, node, perl or
- * ruby handed its program inline (`-c`, `-e`, `-p`, `--eval`, `--print`) or
- * on stdin (`-`), in JS, TypeScript, Python or shell, and marks unseen each
- * whose loads no walk here reads: any but a program that is one plain
- * literal, its escapes undone, loading only builtin modules, or in a shell
- * script a single-quoted program whose other loads are node's
- * `require(process.argv[N])` of an argument read as a path. Such an
- * argument is the file's directory, `$(cd "<path>" && pwd)`, literals, and
- * variables every assignment in the file sets to one such path; `$0` is
- * not one, as a sourced file's `$0` is its caller. Residual: a shell's
- * `-c`, through which tests run any command, and an interpreter named by a
- * variable.
+ * INLINE CODE: a spawn of python, node, perl or ruby handed its program
+ * inline (`-c`, `-e`, `-p`, `--eval`, `--print`) or on stdin (`-`), in JS,
+ * TypeScript or Python, is unread unless its program is one plain literal,
+ * its escapes undone, loading only builtin modules; in a shell script the
+ * program must be single-quoted, and node's `require(process.argv[N])` of
+ * an argument read as a path is an edge. Residual: in JS and TypeScript, a
+ * spawn handing a shell its command (`bash -c`), through which tests run any
+ * command, an interpreter named by a variable, and a script spawned by a
+ * path not spelled off `__dirname`.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { isBuiltin } = require("node:module");
-const { JS_COMMENT_LINE } = require("./qualify-citations.js");
+const {
+	HASH_COMMENT_LINE,
+	JS_COMMENT_LINE,
+} = require("./qualify-citations.js");
 const { requiredGroup } = require("./regex-group.js");
+const {
+	SH_ASSIGN,
+	SH_RESERVED,
+	braceEnd,
+	shCommands,
+	substitutionAt,
+} = require("./shell-script-lexer.js");
 /**
  * The language of the code `file` holds, by its extension, or null where it
  * holds none a script may load or spawn. A JSX or TSX source is code whose
@@ -68,6 +94,40 @@ function languageOf(file) {
 	if (file.endsWith(".py")) return "python";
 	return null;
 }
+/* The interpreter an extensionless script's `#!` line names, by its
+ * program's basename, or `env`'s first word that is not a flag. */
+/** @type {Map<string, "js"|"python"|"sh">} */
+const SHEBANG_LANGUAGE = new Map([
+	["node", "js"],
+	["python", "python"],
+	["python3", "python"],
+	["sh", "sh"],
+	["bash", "sh"],
+	["dash", "sh"],
+	["zsh", "sh"],
+	["ksh", "sh"],
+]);
+
+/**
+ * The language of a script by its extension, or for a file with none, as a
+ * git hook, by its `#!` line.
+ * @param {string} file
+ * @param {string} text
+ * @returns {"js"|"jsx"|"sh"|"python"|null}
+ */
+function scriptLanguage(file, text) {
+	const named = languageOf(file);
+	if (named !== null || path.basename(file).includes(".")) return named;
+	if (!text.startsWith("#!")) return null;
+	const words = text.slice(2, text.indexOf("\n") + 1 || undefined).split(/\s+/);
+	const program = words.filter(Boolean).map((w) => path.basename(w));
+	const name =
+		program[0] === "env"
+			? program.slice(1).find((w) => !w.startsWith("-"))
+			: program[0];
+	return name === undefined ? null : (SHEBANG_LANGUAGE.get(name) ?? null);
+}
+
 /**
  * Whether `file` is code a script may load or spawn, walked or not.
  * @param {string} file
@@ -100,8 +160,6 @@ function jsSpecifier(m) {
 const DIRNAME_JOIN =
 	/\bpath\.(?:join|resolve)\(\s*__dirname((?:\s*,\s*["'][^"']+["'])+)\s*(?:,\s*)?\)/g;
 const QUOTED = /["']([^"']+)["']/g;
-const SH_SIBLING =
-	/(?:\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)|\$\{BASH_SOURCE\[0\]%\/\*\})\/([\w./-]+\.(?:sh|js|py))/g;
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
 /* Any statement that may load a module or run a file's code, read with its
@@ -230,8 +288,12 @@ function readPython() {
 const pythonVersion = () => readPython().version;
 
 /**
- * @typedef {{edges: string[], shadows: string[]}} Reach absolute: the files
+ * @typedef {{edges: string[], shadows: string[]}} Found absolute: the files
  *   reached, and the paths tried on the way before the file each resolved to
+ * @typedef {{edges: string[], shadows: string[], unread: string[],
+ *   python: boolean}} Reach absolute: the files reached, the paths tried on
+ *   the way before the file each resolved to, each load the walk cannot
+ *   read, and whether the file runs an inline Python program
  */
 
 /**
@@ -241,13 +303,21 @@ const pythonVersion = () => readPython().version;
  * @returns {Reach}
  */
 function reachOf(file, text, fault) {
-	const language = languageOf(file);
-	if (language === "js") return jsReach(path.dirname(file), text);
-	if (language === "sh") return { edges: shEdges(file, text), shadows: [] };
-	if (language === "python") return pyReach(file, text, fault);
+	const language = scriptLanguage(file, text);
+	if (language === "sh") return shReach(file, text);
 	if (language === "jsx")
 		fault(`is ${path.extname(file)} code, whose loads the walk cannot read`);
-	return { edges: [], shadows: [] };
+	if (language !== "js" && language !== "python")
+		return { edges: [], shadows: [], unread: [], python: false };
+	const code = parseCodeLines(
+		text,
+		language === "js" ? JS_COMMENT_LINE : HASH_COMMENT_LINE,
+	).join("\n");
+	const { edges, shadows } =
+		language === "js"
+			? jsReach(path.dirname(file), code)
+			: pyReach(file, text, fault);
+	return { edges, shadows, ...inlineSpawns(code) };
 }
 
 /**
@@ -282,11 +352,10 @@ function relativeSpecifiers(dir, code) {
  * tried before the file each resolved to (#4814): a file appearing at one
  * would take the import over.
  * @param {string} dir the file's directory
- * @param {string} text
- * @returns {Reach}
+ * @param {string} code comment lines already cut
+ * @returns {{edges: string[], shadows: string[]}}
  */
-function jsReach(dir, text) {
-	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
+function jsReach(dir, code) {
 	const resolved = relativeSpecifiers(dir, code).map(resolutionOf);
 	const edges = resolved.map((r) => r.target);
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
@@ -300,33 +369,6 @@ function jsReach(dir, text) {
 }
 
 /**
- * A shell script's code paths spelled from its own directory, directly or
- * through a variable `shPathVars` resolves, and each path an inline node
- * program of its loads off its arguments, each once.
- * @param {string} file absolute
- * @param {string} text
- * @returns {string[]}
- */
-function shEdges(file, text) {
-	const dir = path.dirname(file);
-	const code = parseCodeLines(text, /^\s*#/).join("\n");
-	const vars = shPathVars(dir, code);
-	/** @type {string[]} */
-	const edges = [];
-	for (const m of code.matchAll(SH_SIBLING))
-		edges.push(path.join(dir, requiredGroup(m, 1, SH_SIBLING)));
-	for (const [word] of [
-		...code.matchAll(SH_PATH_WORD),
-		...code.matchAll(SH_INNER_PATH_WORD),
-	]) {
-		const p = shPathOf(word, dir, vars);
-		if (p !== null && isCodeFile(p)) edges.push(p);
-	}
-	for (const spawn of shInlineSpawns(file, code)) edges.push(...spawn.loads);
-	return [...new Set(edges)];
-}
-
-/**
  * @typedef {{dir: string | null, maybe: boolean, tail: boolean}} PyEntry one
  *   sys.path entry: a null `dir` is one the walk cannot read; `maybe` marks
  *   one an indented statement added, which may never have run; `tail` one
@@ -334,7 +376,7 @@ function shEdges(file, text) {
  * @typedef {{search: PyEntry[], names: Map<string, string>}} PyScope
  *   `search` is sys.path as the file has left it, its own directory
  *   included.
- * @typedef {{file: string, dir: string, scope: PyScope, reach: Reach,
+ * @typedef {{file: string, dir: string, scope: PyScope, reach: Found,
  *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
  */
@@ -343,7 +385,7 @@ function shEdges(file, text) {
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
- * @returns {Reach}
+ * @returns {Found}
  */
 function pyReach(file, text, fault) {
 	const dir = path.dirname(file);
@@ -839,7 +881,7 @@ function placeRelativePyImport(walk, { dots, parts, names }) {
  * there settles nothing: the search goes on, and every file found counts.
  * @param {PyScope} scope
  * @param {string} top
- * @param {Reach} reach accumulator: gains the files and shadows
+ * @param {Found} reach accumulator: gains the files and shadows
  * @returns {PyTopPlacement}
  */
 function placePyTop(scope, top, reach) {
@@ -887,41 +929,6 @@ const INLINE_COMMAND = new RegExp(
 	String.raw`\bexec(?:Sync)?\(\s*["'\x60][^"'\x60]*?\b(?:${INTERPRETER})\s+(?:-\S+\s+)*?(?:${INLINE_FLAG})(?=[\s"'\x60])`,
 	"g",
 );
-/* The same on a shell script's own command line: `node -e '…' "$here/x.js"`.
- * Group 1 names the interpreter, group 2 the flag. */
-const SH_INLINE = new RegExp(
-	String.raw`(?<=^|[\s;|&(\x60])(${INTERPRETER})\s+(?:-\S+\s+)*?(${INLINE_FLAG})(?=\s|$)`,
-	"gm",
-);
-/* A word that may spell a path off a variable: a double-quoted run, its
- * `$(…)` holding quoted runs, or a bare `$VAR/…`; and a double-quoted run
- * holding no `$(…)`, so a path quoted inside a command substitution is read
- * too. */
-const SH_PATH_WORD =
-	/"(?:[^"\\\n$]|\$(?:\{[^}"\n]*\}|\w+(?!\w))|\$\((?:[^()"\n]|"[^"\n]*")*\))*"|\$(?:\{\w+\}|\w+(?!\w))\/[\w./-]+/g;
-const SH_INNER_PATH_WORD = /"(?:[^"\\\n$]|\$(?:\{[^}"\n]*\}|\w+(?!\w)))*"/g;
-/* A shell word: quoted runs, `$(…)` holding quoted runs, and bare
- * characters; the gap between words, line continuations included; and a
- * redirection, whose target is no argument. */
-const SH_WORD =
-	/(?:'[^']*'|"(?:[^"\\$]|\\.|\$\((?:[^()"]|"[^"]*")*\)|\$(?!\())*"|\$\((?:[^()"]|"[^"]*")*\)|\\.|[^\s;|&()<>'"\\`])+/y;
-const SH_GAP = /(?:[ \t]|\\\n)*/y;
-const SH_REDIRECT = /\d*(?:>>|[<>]&?)/y;
-/* One part of a shell word read as a path: a single-quoted literal, a
- * double quote, the file's own directory as `${BASH_SOURCE[0]%/*}` or
- * `$(dirname "${BASH_SOURCE[0]}")`, `$(cd "<path>" && pwd)` (group 1), a
- * variable (group 2 or 3), or bare path characters (group 4). */
-const SH_PATH_PART =
-	/'[^'"$\\]*'|"|\$\{BASH_SOURCE(?:\[0\])?%\/\*\}|\$\(dirname "\$\{BASH_SOURCE(?:\[0\])?\}"\)|\$\(cd "((?:[^"]|"[^"]*")*?)" && pwd\)|\$\{(\w+)\}|\$(\w+)|([\w./+@:,=-]+)/y;
-/* A variable's assignment, its value the shell word after it; and a
- * statement that binds a name with no value the walk reads. */
-const SH_ASSIGN =
-	/(?:^|[\s;&|(])(?:(?:local|readonly|export|declare(?:\s+-\w+)?)\s+)?([A-Za-z_]\w*)\+?=/g;
-const SH_REBIND =
-	/\b(?:read(?:\s+-\w+)*|for|unset|local|readonly|export|declare(?:\s+-\w+)?|mapfile(?:\s+-\w+)*)\s+([A-Za-z_]\w*)\b(?!\+?=)/g;
-/* The fallback that names the directory `.` where the script was run by a
- * bare name, which is the directory itself. */
-const SH_DIR_FALLBACK = /"\$\{BASH_SOURCE\[0\]\}"\s*\]\]\s*&&\s*\w+=\.\s*$/;
 /* A node program's load of a path handed to it as an argument. */
 const ARGV_REQUIRE = /\brequire\(\s*process\.argv\[(\d+)\]\s*\)/g;
 /* The escapes a literal program may hold that `literalBody` undoes. */
@@ -936,11 +943,7 @@ const LITERAL_ESCAPES = new Map([
 
 /**
  * @typedef {"python"|"node"|"other"} Interpreter
- * @typedef {{spawn: string, interpreter: Interpreter, loads: string[],
- *   unseen: boolean}} InlineSpawn one spawn as written, whitespace folded:
- *   the files its program loads by path, absolute, and whether it loads any
- *   other the walk cannot read
- * @typedef {{unseen: boolean, argv: number[]}} ProgramLoads whether a
+ * @typedef {{unread: boolean, argv: number[]}} ProgramLoads whether a
  *   program loads a file it does not name to the walk, and the indexes of
  *   the arguments it loads by path
  */
@@ -962,18 +965,33 @@ function literalBody(literal) {
 }
 
 /**
+ * The builtin module names of this machine's python3, or null where it
+ * cannot list them: a walk for edges alone, as surface-closure.js's, never
+ * needs python3 for a shell script's inline program.
+ * @returns {Set<string> | null}
+ */
+function pythonBuiltins() {
+	try {
+		return readPython().builtins;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * What an inline `program` for `interpreter` loads: every load of a program
- * not read is unseen; a read one's load is unseen unless it is a builtin
+ * not read is unread; a read one's load is unread unless it is a builtin
  * module, or for node a `require(process.argv[N])`.
  * @param {Interpreter} interpreter
  * @param {string | null} program its text
  * @returns {ProgramLoads}
  */
 function programLoads(interpreter, program) {
-	if (program === null) return { unseen: true, argv: [] };
+	if (program === null) return { unread: true, argv: [] };
 	if (interpreter === "python") {
-		const { builtins } = readPython();
-		const unseen = pyStatements(program, () => undefined).some((s) => {
+		const builtins = pythonBuiltins();
+		if (builtins === null) return { unread: true, argv: [] };
+		const unread = pyStatements(program, () => undefined).some((s) => {
 			const imp = s.text.match(PY_IMPORT);
 			if (!imp) return PY_LOAD.test(blankPyStrings(s.text));
 			return pyImportTargets(imp).some((t) => {
@@ -981,7 +999,7 @@ function programLoads(interpreter, program) {
 				return t.dots > 0 || top === undefined || !builtins.has(top);
 			});
 		});
-		return { unseen, argv: [] };
+		return { unread, argv: [] };
 	}
 	if (interpreter === "node") {
 		const specs = [...program.matchAll(JS_SPEC)].map(jsSpecifier);
@@ -989,189 +1007,43 @@ function programLoads(interpreter, program) {
 			Number(requiredGroup(m, 1, ARGV_REQUIRE)),
 		);
 		const loads = program.match(/\brequire\b|\bimport\b/g)?.length ?? 0;
-		const unseen =
+		const unread =
 			loads !== specs.length + argv.length || !specs.every((s) => isBuiltin(s));
-		return { unseen, argv };
+		return { unread, argv };
 	}
 	return {
-		unseen: /\b(?:require|use|do|load|eval)\b/.test(program),
+		unread: /\b(?:require|use|do|load|eval)\b/.test(program),
 		argv: [],
 	};
 }
 
 /**
- * Each spawn in `file` of an interpreter handed its program inline: in a
- * shell script, the paths its node program loads off its arguments where
- * each resolves; elsewhere no argument is read, so such a load is unseen.
- * @param {string} file absolute
- * @param {string} text
- * @returns {InlineSpawn[]}
+ * The inline programs a JS, TypeScript or Python file spawns: one whose
+ * loads no walk reads, or that loads an argument by path, which no walk
+ * here reads in these languages, is unread.
+ * @param {string} code comment lines already cut
+ * @returns {{unread: string[], python: boolean}}
  */
-function inlineCodeSpawns(file, text) {
-	const language = languageOf(file);
-	if (language === null) return [];
-	const comment =
-		language === "js" || language === "jsx" ? JS_COMMENT_LINE : /^\s*#/;
-	const code = parseCodeLines(text, comment).join("\n");
-	if (language === "sh") return shInlineSpawns(file, code);
-	/** @type {InlineSpawn[]} */
-	const found = [];
+function inlineSpawns(code) {
+	/** @type {string[]} */
+	const unread = [];
+	let runsPython = false;
 	for (const m of code.matchAll(INLINE_ARGV)) {
 		const interpreter = interpreterOf(requiredGroup(m, 1, INLINE_ARGV));
+		runsPython ||= interpreter === "python";
 		const program =
 			m[3] === undefined || requiredGroup(m, 2, INLINE_ARGV) === "-"
 				? null
 				: literalBody(m[3]);
 		const loads = programLoads(interpreter, program);
-		found.push({
-			spawn: m[0].replace(/\s+/g, " "),
-			interpreter,
-			loads: [],
-			unseen: loads.unseen || loads.argv.length > 0,
-		});
+		if (loads.unread || loads.argv.length > 0)
+			unread.push(`spawns ${m[0].replace(/\s+/g, " ")}`);
 	}
-	for (const m of code.matchAll(INLINE_COMMAND))
-		found.push({
-			spawn: m[0].replace(/\s+/g, " "),
-			interpreter: interpreterOf(m[0]),
-			loads: [],
-			unseen: true,
-		});
-	return found;
-}
-
-/**
- * A shell script's inline spawns, its comment lines cut: the program one
- * single-quoted word, its arguments the words after it to the command's end.
- * @param {string} file absolute
- * @param {string} code
- * @returns {InlineSpawn[]}
- */
-function shInlineSpawns(file, code) {
-	const dir = path.dirname(file);
-	const vars = shPathVars(dir, code);
-	return [...code.matchAll(SH_INLINE)].map((m) => {
-		const interpreter = interpreterOf(requiredGroup(m, 1, SH_INLINE));
-		const words = shWords(code, m.index + m[0].length);
-		const onStdin = requiredGroup(m, 2, SH_INLINE) === "-";
-		const [first, ...rest] = words;
-		const program =
-			onStdin || first === undefined || !/^'[^']*'$/.test(first)
-				? null
-				: first.slice(1, -1);
-		const args = onStdin ? words : rest;
-		const { unseen, argv } = programLoads(interpreter, program);
-		const loads = argv.map((n) => {
-			const word = args[n - 1];
-			return word === undefined ? null : shPathOf(word, dir, vars);
-		});
-		return {
-			spawn: m[0].replace(/\s+/g, " "),
-			interpreter,
-			loads: loads.filter((p) => p !== null),
-			unseen: unseen || loads.includes(null),
-		};
-	});
-}
-
-/**
- * The words of the shell command running on from `at`, redirections left
- * out, to the first operator or unescaped line end.
- * @param {string} code
- * @param {number} at
- * @returns {string[]}
- */
-function shWords(code, at) {
-	/** @type {string[]} */
-	const words = [];
-	let i = at;
-	/** @param {RegExp} re a sticky pattern */
-	const take = (re) => {
-		re.lastIndex = i;
-		const m = re.exec(code);
-		if (m === null || m[0] === "") return null;
-		i = re.lastIndex;
-		return m[0];
-	};
-	for (;;) {
-		take(SH_GAP);
-		const redirected = take(SH_REDIRECT) !== null;
-		if (redirected) take(SH_GAP);
-		const word = take(SH_WORD);
-		if (word === null) return words;
-		if (!redirected) words.push(word);
+	for (const m of code.matchAll(INLINE_COMMAND)) {
+		runsPython ||= interpreterOf(m[0]) === "python";
+		unread.push(`spawns ${m[0].replace(/\s+/g, " ")}`);
 	}
-}
-
-/**
- * Each variable of a shell script that names one path in every assignment
- * the walk sees, mapped to it, absolute; null where any assignment names
- * another or none the walk reads.
- * @param {string} dir the script's directory
- * @param {string} code
- * @returns {Map<string, string | null>}
- */
-function shPathVars(dir, code) {
-	/** @type {Map<string, string | null>} */
-	const vars = new Map();
-	for (const m of code.matchAll(SH_ASSIGN)) {
-		const name = requiredGroup(m, 1, SH_ASSIGN);
-		const end = m.index + m[0].length;
-		const lineEnd = code.indexOf("\n", end);
-		const line = code.slice(
-			code.lastIndexOf("\n", end) + 1,
-			lineEnd === -1 ? code.length : lineEnd,
-		);
-		if (SH_DIR_FALLBACK.test(line)) continue;
-		SH_WORD.lastIndex = end;
-		const word = SH_WORD.exec(code)?.[0];
-		const value = word === undefined ? null : shPathOf(word, dir, vars);
-		vars.set(name, vars.has(name) && vars.get(name) !== value ? null : value);
-	}
-	for (const m of code.matchAll(SH_REBIND))
-		vars.set(requiredGroup(m, 1, SH_REBIND), null);
-	return vars;
-}
-
-/**
- * A shell word read as an absolute path, or null where any part of it is
- * one `SH_PATH_PART` does not read or a variable `vars` does not resolve.
- * @param {string} word
- * @param {string} dir the script's directory
- * @param {Map<string, string | null>} vars
- * @returns {string | null}
- */
-function shPathOf(word, dir, vars) {
-	let out = "";
-	let i = 0;
-	while (i < word.length) {
-		SH_PATH_PART.lastIndex = i;
-		const m = SH_PATH_PART.exec(word);
-		if (m === null) return null;
-		i = SH_PATH_PART.lastIndex;
-		const value = shPartValue(m, dir, vars);
-		if (value === null) return null;
-		out += value;
-	}
-	return path.isAbsolute(out) ? path.normalize(out) : null;
-}
-
-/**
- * One `SH_PATH_PART`'s text as a path piece: a double quote adds nothing.
- * @param {RegExpExecArray} m
- * @param {string} dir the script's directory
- * @param {Map<string, string | null>} vars
- * @returns {string | null}
- */
-function shPartValue(m, dir, vars) {
-	const [part, inner, braced, bare, plain] = m;
-	const name = braced ?? bare;
-	if (part === '"') return "";
-	if (part.startsWith("'")) return part.slice(1, -1);
-	if (/^\$(?:\{BASH_SOURCE|\(dirname)/.test(part)) return dir;
-	if (inner !== undefined) return shPathOf(inner, dir, vars);
-	if (name !== undefined) return vars.get(name) ?? null;
-	return plain ?? null;
+	return { unread, python: runsPython };
 }
 
 /**
@@ -1184,9 +1056,643 @@ function interpreterOf(head) {
 	return "other";
 }
 
+/* ---------------------------------------------------------------- shell */
+
+/**
+ * @typedef {import("./shell-script-lexer.js").ShWord} ShWord
+ * @typedef {import("./shell-script-lexer.js").ShCommand} ShCommand
+ * @typedef {{name: string, at: number, value: string | null,
+ *   caller: boolean, bare: boolean, array: boolean}} ShBinding a variable's
+ *   assignment: its value an absolute path or null for any other; `caller`
+ *   where the value is one the caller hands in (`shCallerWord`), `bare`
+ *   where it is a literal name, as `true`, `array` where it is an array's
+ *   literal elements
+ */
+
+/* The interpreters a shell command may run a file or a program through. */
+const SH_INTERPRETER =
+	/^(?:node(?:js)?|python(?:3(?:\.\d+)?)?|perl|ruby|bash|sh|dash|zsh|ksh)$/;
+/* Matches nothing: a flag kind an interpreter lacks. */
+const NONE = /(?!)/;
+/* Per interpreter kind: the flag closing a bundle that hands it its program
+ * inline; a flag whose next word it loads; one naming a module it finds on
+ * its own search path, which the walk cannot place; and one taking a value
+ * that is no load. */
+const SH_FLAGS = {
+	node: {
+		inline: /^(?:-[A-Za-z]*[ep]|--eval|--print)$/,
+		load: /^(?:-r|--require|--import|--loader|--experimental-loader|--env-file)$/,
+		module: NONE,
+		value: /^(?:-C|--conditions|--title|--input-type)$/,
+	},
+	python: {
+		inline: /^-[A-Za-z]*c$/,
+		load: NONE,
+		module: /^-[A-Za-z]*m$/,
+		value: /^-[WX]$/,
+	},
+	other: {
+		inline: /^-[A-Za-z]*[eE]$/,
+		load: NONE,
+		module: /^-[Mmr]/,
+		value: /^-[IC]$/,
+	},
+	shell: {
+		inline: /^-[A-Za-z]*c$/,
+		load: NONE,
+		module: NONE,
+		value: /^[-+]o$/,
+	},
+};
+/* Commands whose arguments name an interpreter without running it. */
+const SH_NAMING_HEAD =
+	/^(?:echo|printf|type|hash|which|pgrep|pkill|grep|die|warn)$/;
+/* A flag that runs no program. */
+const SH_INFO_FLAG = /^(?:-v|-V|--version|-h|--help)$/;
+/* Commands that run the command their own arguments spell, and the flags
+ * of each that take a value; `command -v` and `-V` only name one. */
+const SH_WRAPPERS = new Map([
+	["exec", /^-a$/],
+	["command", NONE],
+	["builtin", NONE],
+	["env", /^(?:-u|-C|-S)$/],
+	["nohup", NONE],
+	["setsid", NONE],
+	["nice", /^-n$/],
+	["timeout", /^(?:-k|-s)$/],
+	["stdbuf", NONE],
+	["xargs", /^(?:-[IndPLsaE]|--max-args|--delimiter|--replace)$/],
+]);
+/* Commands that bind a name to a value the walk does not read: every name
+ * after them, or the first. */
+const SH_REBINDS = new Map([
+	["read", "all"],
+	["mapfile", "all"],
+	["readarray", "all"],
+	["for", "first"],
+	["select", "first"],
+]);
+/* Commands that declare names; `local X` alone binds no value, as an
+ * assignment follows. */
+const SH_DECLARES = /^(?:local|export|readonly|declare|typeset)$/;
+/* `[[ "$X" == "${BASH_SOURCE[0]}" ]]`, whose `&& X=.` names the directory
+ * `.` where the script was run by a bare name: the directory itself. */
+const SH_BARE_NAME_TEST = /^\[\[ "\$(\w+)" == "\$\{BASH_SOURCE\[0\]\}" \]\]$/;
+/* A word that is one parameter whole: positional (group 3), or a variable
+ * (group 1 or 4) with perhaps a default (group 2). */
+const SH_ONE_PARAMETER =
+	/^"?\$(?:\{(?:[@*]|\d+|(\w+)(?::?-([^}]*))?)\}|([@*]|\d)|(\w+))"?$/;
+/* `$PWD/` before a variable; the script's own path, `${BASH_SOURCE[0]}`, or
+ * a variable (group 1 or 3), perhaps cut to its directory by `%/*` (group
+ * 2). */
+const SH_PARAMETER =
+	/^\$\{?PWD\}?\/(?=\$)|^\$\{(\w+)(?:\[0\])?(%\/\*)?\}|^\$(\w+)(?!\w)/;
+/* `${X:-default}` or `${X-default}`: an inherited X reads as its default,
+ * the value where the caller sets none. */
+const SH_DEFAULTED = /^\$\{(\w+):?-/;
+
+/**
+ * @typedef {{file: string, bindings: Map<string, ShBinding[]>,
+ *   unsets: Map<string, number[]>}} ShScope a script's variables: every
+ *   assignment of each, and where each is unset
+ * @typedef {{scope: ShScope, reach: Reach, said: string}} ShRun one
+ *   command's walk: the script's variables, the reach it adds to, and the
+ *   command as written, which an unread load names
+ */
+
+/**
+ * A shell script's reach: each word of a command that reads as a code path,
+ * and each file a command loads (`shLoads`). A load word the walk cannot
+ * read as a path is unread.
+ * @param {string} file absolute
+ * @param {string} code
+ * @returns {Reach}
+ */
+function shReach(file, code) {
+	const commands = shCommands(code);
+	const scope = shScope(file, commands);
+	/** @type {Reach} */
+	const reach = { edges: [], shadows: [], unread: [], python: false };
+	for (const command of commands) {
+		for (const word of command.words) {
+			const p = shPath(word, scope);
+			if (p !== null && p !== file && isCodeFile(p)) reach.edges.push(p);
+		}
+		shLoads(command, scope, reach);
+	}
+	reach.edges = [...new Set(reach.edges)];
+	return reach;
+}
+
+/**
+ * Every variable binding in `commands`, each value read on the bindings
+ * written before it.
+ * @param {string} file absolute
+ * @param {ShCommand[]} commands
+ * @returns {ShScope}
+ */
+function shScope(file, commands) {
+	/** @type {ShScope} */
+	const scope = { file, bindings: new Map(), unsets: new Map() };
+	for (const command of commands) {
+		const [head, ...rest] = command.words;
+		if (head === undefined) continue;
+		if (head.text === "unset")
+			for (const w of rest) pushTo(scope.unsets, w.text, w.at);
+		for (const w of assignmentWords(command)) bindAssignment(scope, command, w);
+		for (const w of reboundNames(head.text, rest))
+			bind(scope, unknownBinding(w.text, w.at));
+	}
+	return scope;
+}
+
+/**
+ * The names a `read`, `mapfile`, `for` or `select` binds to values the walk
+ * does not read.
+ * @param {string} head
+ * @param {ShWord[]} rest
+ * @returns {ShWord[]}
+ */
+function reboundNames(head, rest) {
+	const rebound = SH_REBINDS.get(head);
+	if (rebound === undefined) return [];
+	return (rebound === "first" ? rest.slice(0, 1) : rest).filter((w) =>
+		/^[A-Za-z_]\w*$/.test(w.text),
+	);
+}
+
+/**
+ * @template T
+ * @param {Map<string, T[]>} map accumulator: `key`'s list gains `value`
+ * @param {string} key
+ * @param {T} value
+ */
+function pushTo(map, key, value) {
+	map.set(key, [...(map.get(key) ?? []), value]);
+}
+
+/**
+ * @param {ShScope} scope accumulator: the name gains the binding
+ * @param {ShBinding} binding
+ */
+const bind = (scope, binding) => pushTo(scope.bindings, binding.name, binding);
+
+/**
+ * A binding whose value the walk does not read.
+ * @param {string} name
+ * @param {number} at
+ * @returns {ShBinding}
+ */
+const unknownBinding = (name, at) => ({
+	name,
+	at,
+	value: null,
+	caller: false,
+	bare: false,
+	array: false,
+});
+
+/**
+ * The assignment words a command opens with, or that a declaration such as
+ * `local` or `export` holds.
+ * @param {ShCommand} command
+ * @returns {ShWord[]}
+ */
+function assignmentWords(command) {
+	const [head, ...rest] = command.words;
+	const declares = SH_DECLARES.test(head?.text ?? "");
+	const words = declares ? rest : command.words;
+	const skipped = (/** @type {ShWord} */ w) =>
+		declares && /^(?:-\w+|[A-Za-z_]\w*)$/.test(w.text);
+	const end = words.findIndex((w) => !SH_ASSIGN.test(w.text) && !skipped(w));
+	return (end === -1 ? words : words.slice(0, end)).filter((w) =>
+		SH_ASSIGN.test(w.text),
+	);
+}
+
+/**
+ * Records one assignment word's binding, its value read on the bindings so
+ * far: an element or an array binds no one path.
+ * @param {ShScope} scope accumulator: the name gains the binding
+ * @param {ShCommand} command
+ * @param {ShWord} word
+ */
+function bindAssignment(scope, command, word) {
+	const m = word.text.match(SH_ASSIGN);
+	if (!m) return;
+	const name = requiredGroup(m, 1, SH_ASSIGN);
+	const value = {
+		text: word.text.slice(m[0].length),
+		at: word.at + m[0].length,
+	};
+	if (value.text === "." && isBareNameFallback(command, name)) return;
+	if (m[2] !== undefined || value.text.startsWith("(")) {
+		bind(scope, {
+			...unknownBinding(name, word.at),
+			array: m[2] === undefined,
+		});
+		return;
+	}
+	bind(scope, {
+		name,
+		at: word.at,
+		value: shPath(value, scope),
+		caller: shCallerWord(value.text, scope),
+		bare: /^(["']?)[\w.+-]+\1$/.test(value.text),
+		array: false,
+	});
+}
+
+/**
+ * Whether `command`, `X=.`, follows `[[ "$X" == "${BASH_SOURCE[0]}" ]] &&`.
+ * @param {ShCommand} command
+ * @param {string} name
+ */
+function isBareNameFallback(command, name) {
+	const test = command.prev?.words.map((w) => w.text).join(" ") ?? "";
+	return command.joined === "&&" && test.match(SH_BARE_NAME_TEST)?.[1] === name;
+}
+
+/**
+ * Whether `text` is one value the caller hands in, whole: an argument, all
+ * of them, or a variable the script never assigns, bare or with a command
+ * name as its default, or one it assigns only such a value. The caller names
+ * such a load, and its own walk reads it where it spells it.
+ * @param {string} text
+ * @param {ShScope} scope
+ * @returns {boolean}
+ */
+function shCallerWord(text, scope) {
+	const m = text.match(SH_ONE_PARAMETER);
+	if (!m) return false;
+	const name = m[1] ?? m[4];
+	if (name === undefined) return true;
+	if (m[2] !== undefined && !/^[\w.+-]+$/.test(m[2])) return false;
+	return (scope.bindings.get(name) ?? []).every((b) => b.caller);
+}
+
+/**
+ * Whether a command's head names a command off PATH rather than a file: a
+ * variable every assignment of which is a literal name, as `found=true`, or
+ * the caller's.
+ * @param {string} text
+ * @param {ShScope} scope
+ */
+function namesCommand(text, scope) {
+	const name = text.match(SH_ONE_PARAMETER)?.[4];
+	const bindings = name === undefined ? [] : (scope.bindings.get(name) ?? []);
+	return bindings.length > 0 && bindings.every((b) => b.bare || b.caller);
+}
+
+/**
+ * Whether `text` is `"${X[@]}"` of an array the script assigns only
+ * literal elements, whose loads are read where they are written.
+ * @param {string} text
+ * @param {ShScope} scope
+ */
+function isLiteralArray(text, scope) {
+	const name = text.match(/^"?\$\{(\w+)\[[@*]\]\}"?$/)?.[1];
+	const bindings = name === undefined ? [] : (scope.bindings.get(name) ?? []);
+	return bindings.length > 0 && bindings.every((b) => b.array);
+}
+
+/**
+ * A variable's value at `at`: the one path every assignment of it names,
+ * where no `unset` before `at` cleared it; null otherwise, and for a name
+ * the script never assigns, as an inherited one.
+ * @param {ShScope} scope
+ * @param {string} name
+ * @param {number} at
+ * @returns {string | null}
+ */
+function shLookup(scope, name, at) {
+	if ((scope.unsets.get(name) ?? []).some((u) => u < at)) return null;
+	const values = new Set((scope.bindings.get(name) ?? []).map((b) => b.value));
+	const [only] = values;
+	return values.size === 1 && only !== undefined ? only : null;
+}
+
+/**
+ * A shell word read as an absolute path, or null where any part of it is
+ * not: a literal, the script's own path or directory, a variable `shLookup`
+ * resolves, `${X%/*}`, an inherited `${X:-default}` as its default, or
+ * `$(cd <path> && pwd)`, `$(dirname <path>)` or `$(basename <path>)`.
+ * `$PWD/` before a variable adds nothing, as the absolute directory it would
+ * make of a relative one is the walk's.
+ * @param {ShWord} word
+ * @param {ShScope} scope
+ * @returns {string | null}
+ */
+function shPath(word, scope) {
+	const value = shWordValue(word.text, word.at, scope);
+	return value !== null && path.isAbsolute(value)
+		? path.normalize(value)
+		: null;
+}
+
+/**
+ * @param {string} text
+ * @param {number} at the word's offset, where its variables are read
+ * @param {ShScope} scope
+ * @returns {string | null}
+ */
+function shWordValue(text, at, scope) {
+	let out = "";
+	let i = 0;
+	let quoted = false;
+	while (i < text.length) {
+		const rest = text.slice(i);
+		if (rest.startsWith('"')) quoted = !quoted;
+		const piece = rest.startsWith('"')
+			? { value: "", length: 1 }
+			: shPiece(rest, quoted, at, scope);
+		if (piece === null) return null;
+		out += piece.value;
+		i += piece.length;
+	}
+	return out;
+}
+
+/**
+ * The value of the word part opening `rest`, and its length; null where the
+ * walk cannot read it.
+ * @param {string} rest
+ * @param {boolean} quoted inside a double quote, where `'` and globs are
+ *   literal
+ * @param {number} at
+ * @param {ShScope} scope
+ * @returns {{value: string, length: number} | null}
+ */
+function shPiece(rest, quoted, at, scope) {
+	const c = rest.charAt(0);
+	if (c === "'" && !quoted) {
+		const end = rest.indexOf("'", 1);
+		return end === -1 ? null : { value: rest.slice(1, end), length: end + 1 };
+	}
+	if (c === "\\") return { value: rest.charAt(1), length: 2 };
+	if (rest.startsWith("$(") && !rest.startsWith("$((")) {
+		const { commands, end } = substitutionAt(rest);
+		const value = shSubstitution(commands, at, scope);
+		return value === null ? null : { value, length: end };
+	}
+	if (SH_DEFAULTED.test(rest)) return shDefaulted(rest, at, scope);
+	if (c === "$") return shParameter(rest, at, scope);
+	if (c === "`" || (/[*?[~]/.test(c) && !quoted)) return null;
+	return { value: c, length: 1 };
+}
+
+/**
+ * `${X:-default}` opening `rest`: X's value where the script assigns it,
+ * else its default.
+ * @param {string} rest
+ * @param {number} at
+ * @param {ShScope} scope
+ * @returns {{value: string, length: number} | null}
+ */
+function shDefaulted(rest, at, scope) {
+	const end = braceEnd(rest);
+	const m = rest.match(SH_DEFAULTED);
+	if (!m) return null;
+	const name = requiredGroup(m, 1, SH_DEFAULTED);
+	const value = scope.bindings.has(name)
+		? shLookup(scope, name, at)
+		: shWordValue(rest.slice(m[0].length, end - 1), at, scope);
+	return value === null ? null : { value, length: end };
+}
+
+/**
+ * A parameter opening `rest` (`SH_PARAMETER`).
+ * @param {string} rest
+ * @param {number} at
+ * @param {ShScope} scope
+ * @returns {{value: string, length: number} | null}
+ */
+function shParameter(rest, at, scope) {
+	const m = rest.match(SH_PARAMETER);
+	if (!m) return null;
+	const name = m[1] ?? m[3];
+	let value = name === undefined ? "" : shLookup(scope, name, at);
+	if (name === "BASH_SOURCE") value = scope.file;
+	if (value === null) return null;
+	return {
+		value: m[2] === undefined ? value : path.dirname(value),
+		length: m[0].length,
+	};
+}
+
+/**
+ * A `$(…)` substitution's output read as a path: `cd <path> && pwd`,
+ * `dirname <path>` or `basename <path>`; null for any other.
+ * @param {ShCommand[]} commands its commands, redirections left out
+ * @param {number} at
+ * @param {ShScope} scope
+ * @returns {string | null}
+ */
+function shSubstitution(commands, at, scope) {
+	const [first, second] = commands.map((c) => c.words.map((w) => w.text));
+	const [head, arg] = first?.filter((w) => !w.startsWith("-")) ?? [];
+	if (arg === undefined) return null;
+	const value = shWordValue(arg, at, scope);
+	if (value === null) return null;
+	const shape = `${commands.length} ${head}`;
+	if (shape === "1 dirname") return path.dirname(value);
+	if (shape === "1 basename") return path.basename(value);
+	if (shape === "2 cd" && /^pwd(?: -P)?$/.test(second?.join(" ") ?? ""))
+		return value;
+	return null;
+}
+
+/**
+ * Adds what one command loads to `reach`: a file sourced or `.`-read, run
+ * through an interpreter or by its path. A path read becomes an edge, or a
+ * shadow where no file stands there yet.
+ * @param {ShCommand} command
+ * @param {ShScope} scope
+ * @param {Reach} reach accumulator: gains the command's loads
+ */
+function shLoads(command, scope, reach) {
+	const words = runWords(command.words, scope);
+	const [head, ...args] = words;
+	if (head === undefined) return;
+	/** @type {ShRun} */
+	const run = { scope, reach, said: words.map((w) => w.text).join(" ") };
+	if (SH_INTERPRETER.test(head.text)) {
+		shInterpreterLoads(run, head.text, args);
+		return;
+	}
+	/* An array's elements are a command only where an interpreter heads them. */
+	if (command.array) return;
+	/* A function running its arguments, as `hook_bound node x.js`. */
+	const nested = args.findIndex((w) => SH_INTERPRETER.test(w.text));
+	const nestedHead = args[nested];
+	if (nestedHead && !SH_NAMING_HEAD.test(head.text))
+		shInterpreterLoads(run, nestedHead.text, args.slice(nested + 1));
+	const [first] = args;
+	if ((head.text === "source" || head.text === ".") && first) load(run, first);
+	else if (/[/$`]/.test(head.text) && !namesCommand(head.text, scope))
+		load(run, head);
+}
+
+/**
+ * Adds the file `word` names to the run's reach: unread where the walk
+ * cannot read it as a path and it is not one the caller hands in whole.
+ * @param {ShRun} run accumulator: its reach gains the load
+ * @param {ShWord} word
+ */
+function load(run, word) {
+	const p = shPath(word, run.scope);
+	if (p !== null) (isFile(p) ? run.reach.edges : run.reach.shadows).push(p);
+	else if (!shCallerWord(word.text, run.scope))
+		run.reach.unread.push(`loads ${word.text} in \`${run.said}\``);
+}
+
+/**
+ * A command's words from the one it runs: leading assignments, reserved
+ * words, an array of literal elements, whose own loads are read at its
+ * elements, and wrappers such as `exec` or `env` with their flags cut.
+ * None for `command -v`, which names a command and runs none, or a
+ * compound command's head.
+ * @param {ShWord[]} words
+ * @param {ShScope} scope
+ * @returns {ShWord[]}
+ */
+function runWords(words, scope) {
+	let k = 0;
+	for (;;) {
+		const w = words[k]?.text ?? "";
+		const valued = SH_WRAPPERS.get(w);
+		if (SH_RESERVED.has(w) || SH_ASSIGN.test(w) || isLiteralArray(w, scope))
+			k++;
+		else if (valued === undefined) break;
+		else if (w === "command" && /^-[vV]$/.test(words[k + 1]?.text ?? ""))
+			return [];
+		else k = wrappedAt(words, k + 1, valued, w === "timeout");
+	}
+	if (/^(?:case|for|select|function)$/.test(words[k]?.text ?? "")) return [];
+	return words.slice(k);
+}
+
+/**
+ * Where the command a wrapper runs starts: after its flags, a flag's value,
+ * `env`'s assignments and `timeout`'s duration.
+ * @param {ShWord[]} words
+ * @param {number} k the word after the wrapper
+ * @param {RegExp} valued its flags taking a value
+ * @param {boolean} timed whether a duration comes before the command
+ */
+function wrappedAt(words, k, valued, timed) {
+	let at = k;
+	for (let w = words[at]?.text; w !== undefined; w = words[at]?.text) {
+		if (!w.startsWith("-") && !SH_ASSIGN.test(w)) break;
+		at += valued.test(w) ? 2 : 1;
+	}
+	return timed ? at + 1 : at;
+}
+
+/**
+ * Adds what one interpreter run loads: its script, a file a flag names, or
+ * an inline program's loads. A program on stdin, a module off the
+ * interpreter's search path and a shell's inline command are unread.
+ * @param {ShRun} run accumulator: its reach gains the run's loads
+ * @param {string} name the interpreter as written
+ * @param {ShWord[]} args
+ */
+function shInterpreterLoads(run, name, args) {
+	const kind = interpreterKind(name);
+	const flags = SH_FLAGS[kind];
+	for (let k = 0; k < args.length; k++) {
+		const t = args[k]?.text ?? "";
+		if (SH_INFO_FLAG.test(t)) return;
+		const script = scriptWord(args, k);
+		if (script) {
+			load(run, script);
+			return;
+		}
+		if (kind !== "shell" && flags.inline.test(t)) {
+			shInlineProgram(run, kind, args.slice(k + 1));
+			return;
+		}
+		if (/^--?$/.test(t) || flags.module.test(t) || flags.inline.test(t)) break;
+		k += shFlagValue(run, flags, args, k);
+	}
+	run.reach.unread.push(
+		`runs \`${run.said}\`, whose program the walk cannot read`,
+	);
+}
+
+/**
+ * The script an interpreter's argument `k` names: itself where it is no
+ * flag, the word after a `--`.
+ * @param {ShWord[]} args
+ * @param {number} k
+ */
+function scriptWord(args, k) {
+	const t = args[k]?.text ?? "";
+	if (t === "--") return args[k + 1];
+	return t.startsWith("-") ? undefined : args[k];
+}
+
+/**
+ * How many words a flag's value takes after it: one where the flag takes a
+ * value, which is a load where the flag loads it and it reads as a path.
+ * @param {ShRun} run accumulator: its reach gains a flag's load
+ * @param {{load: RegExp, value: RegExp}} flags
+ * @param {ShWord[]} args
+ * @param {number} k the flag's index
+ */
+function shFlagValue(run, flags, args, k) {
+	const flag = args[k]?.text ?? "";
+	const value = args[k + 1];
+	if (flags.load.test(flag) && value && /[/$]/.test(value.text))
+		load(run, value);
+	return flags.load.test(flag) || flags.value.test(flag) ? 1 : 0;
+}
+
+/**
+ * @param {string} name an interpreter as written
+ * @returns {"node"|"python"|"other"|"shell"}
+ */
+function interpreterKind(name) {
+	if (name.startsWith("node")) return "node";
+	if (name.startsWith("python")) return "python";
+	return /^(?:perl|ruby)$/.test(name) ? "other" : "shell";
+}
+
+/**
+ * Adds an inline program's loads: node's `require(process.argv[N])` of an
+ * argument read as a path; any other load but a builtin module's is unread.
+ * Only a single-quoted program is read, as the shell leaves it as written.
+ * @param {ShRun} run accumulator: its reach gains the program's loads
+ * @param {Interpreter} kind
+ * @param {ShWord[]} words the program, then its arguments
+ */
+function shInlineProgram(run, kind, words) {
+	const [program, ...args] = words;
+	run.reach.python ||= kind === "python";
+	const text =
+		program !== undefined && /^'[^']*'$/.test(program.text)
+			? program.text.slice(1, -1)
+			: null;
+	const { unread, argv } = programLoads(kind, text);
+	if (unread) {
+		run.reach.unread.push(
+			`runs \`${run.said}\`, whose program the walk cannot read`,
+		);
+		return;
+	}
+	for (const n of argv) {
+		const word = args[n - 1];
+		const p = word === undefined ? null : shPath(word, run.scope);
+		if (p === null)
+			run.reach.unread.push(
+				`runs \`${run.said}\`, whose program loads argument ${n}, no path it reads`,
+			);
+		else run.reach.edges.push(p);
+	}
+}
+
 module.exports = {
 	edgesOf,
-	inlineCodeSpawns,
 	isCodeFile,
 	languageOf,
 	isFile,
