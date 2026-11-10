@@ -777,22 +777,22 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 
 	// mantahostels#2614 — the concision pass judged prose on the reviewer's model because
 	// its dispatch named none and sat beside this one. Both strings now pin it,
-	// and Sonnet is the value docs/effort-guide.md's dispatch table names, so
+	// and Haiku is the value docs/effort-guide.md's dispatch table names, so
 	// anything else is the drift this exists to catch. The pin rides in
 	// `rule:implement-closing-steps`, which the backstop prints to /implement
 	// sessions alone.
-	it("pins the concision pass's own reader to Sonnet, in both strings", () => {
+	it("pins the concision pass's own reader to Haiku, in both strings", () => {
 		const backstop = fs.readFileSync(
 			path.join(ROOT, "scripts", "concision-backstop.sh"),
 			"utf8",
 		);
-		expect(concisionModel(backstop, "concision-backstop.sh")).toBe("sonnet");
+		expect(concisionModel(backstop, "concision-backstop.sh")).toBe("haiku");
 		expect(
 			concisionModel(
 				readRuleText("implement-closing-steps"),
 				"rule:implement-closing-steps",
 			),
-		).toBe("sonnet");
+		).toBe("haiku");
 	});
 
 	// The concision helper matches on wording around its pin, so a second pin
@@ -815,7 +815,7 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		const all = [...read().matchAll(/model: \\?"([^"\\]+)\\?"/g)].map(
 			(m) => m[1],
 		);
-		expect(all).toEqual(["sonnet"]);
+		expect(all).toEqual(["haiku"]);
 	});
 
 	it("pins the same reader model in the concision-pass skill's own §3", () => {
@@ -844,7 +844,7 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 			"utf8",
 		);
 		const all = [...skill.matchAll(/model: "([^"]+)"/g)].map((m) => m[1]);
-		expect(all.sort()).toEqual(["sonnet"]);
+		expect(all.sort()).toEqual(["haiku"]);
 	});
 });
 

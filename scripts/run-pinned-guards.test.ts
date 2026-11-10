@@ -21,7 +21,7 @@ import { readHookLines } from "./lib/pretool-guard-testkit";
 
 const SHIM = path.join(__dirname, "run-pinned-guards.js");
 const CHECKOUT = path.resolve(__dirname, "..");
-const HOOKS = "self-plugin/hooks/hooks.json";
+const HOOKS = "self-plugin/hooks/hooks.json" as const;
 
 const THROWS = "throw new SyntaxError(\"Unexpected token '}'\");\n";
 

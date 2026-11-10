@@ -35,8 +35,8 @@ const unread = () => {
 
 /* A tick that moved no session after its read, the case nearly every test reads. */
 const record = (
-	tick: Omit<Parameters<typeof buildTickRecord>[0], "workingChange">,
-) => buildTickRecord({ ...tick, workingChange: 0 });
+	tick: Omit<Parameters<typeof buildTickRecord>[0], "workingChange" | "agents">,
+) => buildTickRecord({ ...tick, workingChange: 0, agents: null });
 
 const minute = (ms: number, sessions: number | null) => ({
 	ts: iso(ms),
@@ -602,6 +602,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			decision: { launches: [{}, {}], skipped: [], idle: null },
 			admission: admission({ slots: 2 }),
 			workingChange: 2,
+			agents: null,
 		});
 		const { count } = admission().memory.working;
 		expect(r.working).toBe(count + 2);
@@ -614,6 +615,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			decision: { launches: [], skipped: [], idle: null },
 			admission: admission({ slots: 0 }),
 			workingChange: -1,
+			agents: null,
 		});
 		const { count } = admission().memory.working;
 		expect(r.working).toBe(count - 1);
@@ -626,6 +628,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			decision: { launches: [{}, {}], skipped: [], idle: null },
 			admission: admission({ slots: 2 }),
 			workingChange: 2,
+			agents: null,
 		});
 		const r = readout({
 			ticks: [tick],
@@ -636,6 +639,30 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		expect(buildBlockText(r, unread)).toContain(
 			"bound by:  none — the last tick filled the free slots",
 		);
+	});
+
+	it("counts the listing's sessions in state working, the agents view's count, apart from the slots (#4747)", () => {
+		const agents = ["working", "idle", "working", "blocked", undefined].map(
+			(state, i) => ({ sessionId: `s${i}`, state }),
+		);
+		const r = buildTickRecord({
+			input: input(),
+			decision: idle("no free slot"),
+			admission: admission(),
+			workingChange: 0,
+			agents,
+		});
+		expect(r.stateWorking).toBe(2);
+		expect(r.working).toBe(admission().memory.working.count);
+	});
+
+	it("records the working count as null where the listing went unread (#4747)", () => {
+		const r = record({
+			input: input(),
+			decision: idle("no free slot"),
+			admission: admission(),
+		});
+		expect(r.stateWorking).toBeNull();
 	});
 
 	it("records null counts and memory where admission did not read", () => {
@@ -659,12 +686,13 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 
 describe("what status --json carries for the panel (#4062)", () => {
 	let dir: string;
-	const Unread = { working: null, ceiling: null };
+	const Unread = { working: null, ceiling: null, stateWorking: null };
 	const line = (over: object = {}, ago = MIN) =>
 		JSON.stringify({
 			at: iso(T0 - ago),
 			working: 9,
 			ceiling: 9,
+			stateWorking: 6,
 			binding: { limit: "memory", why: "w" },
 			...over,
 		});
@@ -689,11 +717,16 @@ describe("what status --json carries for the panel (#4062)", () => {
 		expect(readConcurrencyStatus(T0)).toEqual(Unread);
 	});
 
-	it("takes the newest tick's count and ceiling", () => {
+	it("takes the newest tick's counts and ceiling", () => {
 		expect(statusOf(line({ working: 1 }), line())).toEqual({
 			working: 9,
 			ceiling: 9,
+			stateWorking: 6,
 		});
+	});
+
+	it("reads a tick recorded before the working count as unread on it (#4747)", () => {
+		expect(statusOf(line({ stateWorking: undefined })).stateWorking).toBeNull();
 	});
 
 	it("trusts a tick up to the staleness bound, and not past it", () => {

@@ -2,17 +2,16 @@
  * dispatch-rewrite.js — the dispatcher core that makes every change this repo
  * makes to an `Agent` dispatch's input, in one rewrite, and hands the session
  * the dispatch rules (#515, #2013). Its production ports, the artefact's path
- * and its directory, are lib/dispatch-rewrite-host.js; burn mode's marker is
- * read through the shared ctx.env and ctx.isFile.
+ * and its directory, are lib/dispatch-rewrite-host.js.
  *
  * ONE REWRITE, NOT ONE PER CHANGE. Two hooks each returning `updatedInput` on
  * one call race, the last to finish winning and the other's change lost
  * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-ordering-plugin-vs-native.md,
  * anthropics/claude-code#83353). So each change is a pure transform — call in,
  * call and a note out, or null — and `rewrite` applies them in turn to one
- * input. Burn mode's table is lib/burn-mode.js's, its switch
- * scripts/burn-mode.sh's. The marker is one per MACHINE, so an `off` run
- * anywhere ends the remap everywhere.
+ * input. The model table, standing layer and burn layer both, is
+ * lib/burn-mode.js's, burn mode's switch scripts/burn-mode.sh's. The marker is
+ * one per MACHINE, so an `off` run anywhere ends the burn remap everywhere.
  *
  * What it does to a dispatch:
  *   * a usable `Artefact:` line is left exactly as written;
@@ -25,6 +24,10 @@
  *     the prompt's own artefact path where it names one, a leading `~/` read
  *     against HOME; a dispatch with no artefact to watch is told to end the
  *     turn;
+ *   * the model and effort move through lib/burn-mode.js's table: always
+ *     `sonnet` to Haiku, every Haiku call at xhigh, and while burn mode is on
+ *     Haiku to Opus and Opus to Fable, each at medium, an overflow seat's
+ *     session excepted (#4919);
  *   * a named model the effort guide routes away from (lib/dispatch-rules.js)
  *     gets rule:dispatch-tier, and a "search the repo" prompt naming no tracker
  *     rule:dispatch-search-tracker, each fragment once a session;
@@ -39,9 +42,9 @@
  * The subject is the dispatch's `prompt`, a field the harness requires of
  * every `Agent` and `Task` call; the core judges the whole `tool_input`.
  *
- * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one, and while burn mode is on moves a `sonnet` dispatch to `opus` — neither asked for by the session dispatching; denies a dispatch made from inside a subagent.
- * JUSTIFIED: convenience — the session would have added the line itself after a refusal, at the cost of re-issuing the whole prompt (#482); burn mode's remap is the founder's own switch (#355).
- * DEFEAT:    none for the line — name a real path in the prompt and it is left alone; `scripts/burn-mode.sh off` ends the remap; none for the subagent deny short of dispatching from the parent.
+ * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a `sonnet` dispatch to `haiku` and runs every `haiku` one at xhigh; while burn mode is on moves `haiku` to `opus` and `opus` to `fable`, each at medium — none asked for by the session dispatching; denies a dispatch made from inside a subagent.
+ * JUSTIFIED: convenience — the session would have added the line itself after a refusal, at the cost of re-issuing the whole prompt (#482); the model table is the founder's own ruling, and burn mode his own switch (#4919).
+ * DEFEAT:    none for the line — name a real path in the prompt and it is left alone; `scripts/burn-mode.sh off` ends the burn remap; none for the subagent deny short of dispatching from the parent.
  *
  * LIMITS. The line is a PROMISE and nothing verifies it is kept: the agent may
  * never write the file, or write it only at the end. The model field is
@@ -58,8 +61,8 @@
  * an `allow` also skips the auto-mode classifier is undocumented (#492). A
  * transform that throws leaves the dispatch as written, recorded as a
  * fail-open (mantahostels#103 §6); a burn-mode marker that cannot be placed
- * (HOME unset or relative) leaves the model unmapped and still supplies the
- * line. A rule fragment the store cannot give refuses the dispatch, as an
+ * (HOME unset or relative) applies the standing layer alone and still
+ * supplies the line; an unreadable table leaves the model as written. A rule fragment the store cannot give refuses the dispatch, as an
  * injection's store fault does (mantahostels#1762).
  */
 
@@ -71,12 +74,13 @@ const { shellQuote } = require("./sh-quote.js");
 
 /**
  * @typedef {Pick<import("./core-contract.js").CoreContext, "agent" |
- *   "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText"> & {
+ *   "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText" | "session"> & {
  *   artefactFile: (description: unknown) => string,
  *   makeDir: (dir: string) => boolean,
  * }} RewriteContext a fresh artefact path for a dispatch's description, and
  *   the making of a directory, false where it could not be made
  * @typedef {import("./guard-entry.js").Injection} Injection
+ * @typedef {Pick<typeof import("./burn-mode.js"), "isOverflowSession" | "markerPath" | "remapModel">} ModelTable
  */
 
 // Resolved from this file, so an adopter is handed the plugin's copy (#541).
@@ -108,14 +112,14 @@ const END_TURN =
  * Every change to one `Agent` call, and what the session is told of it.
  *
  * @param {unknown} input the tool_input object
- * @param {{file: string, burn: boolean, home?: string}} opts the artefact
- *   path to supply where one is needed, whether burn mode is on, and the home
- *   directory a prompt's `~/` artefact names
+ * @param {{file: string, burn: boolean, home?: string, table: ModelTable | null}} opts
+ *   the artefact path to supply where one is needed, whether burn mode is on,
+ *   the home directory a prompt's `~/` artefact names, and the model table
  * @returns {null | {artefact: string | null, rules: string[], context: string, updatedInput?: Record<string, unknown>}}
  *   the artefact supplied, if any; the ids of the rules it tripped (#2013);
  *   the notes, joined; and the call as rewritten, where it changed
  */
-function rewrite(input, { file, burn, home }) {
+function rewrite(input, { file, burn, home, table }) {
 	if (input === null || typeof input !== "object") return null;
 	const asked = /** @type {Record<string, unknown>} */ (input);
 	let call = asked;
@@ -133,9 +137,7 @@ function rewrite(input, { file, burn, home }) {
 	} else {
 		notes.push(buildWatchNote(call, watchCommand, home) ?? END_TURN);
 	}
-	// Loaded only while burn mode is on, so a broken table costs the remap and
-	// never the artefact line.
-	const remapped = burn ? require("./burn-mode.js").remapModel(call) : null;
+	const remapped = table ? table.remapModel(call, burn) : null;
 	if (remapped) {
 		call = remapped.input;
 		notes.push(remapped.note);
@@ -161,20 +163,48 @@ function rewrite(input, { file, burn, home }) {
 }
 
 /**
- * Whether burn mode's marker is present. The table is loaded here, so a broken
- * one costs the remap and never the line; a marker that cannot be placed
- * leaves the model unmapped. Either is recorded.
+ * The model table, loaded per dispatch so a broken one costs the remap and
+ * never the line.
  * @param {RewriteContext} ctx
+ * @returns {ModelTable | null}
  */
-function burnOn(ctx) {
-	let marker;
+function loadTable(ctx) {
 	try {
-		marker = require("./burn-mode.js").markerPath(ctx.env);
+		const {
+			isOverflowSession,
+			markerPath,
+			remapModel,
+		} = require("./burn-mode.js");
+		if (
+			typeof isOverflowSession !== "function" ||
+			typeof markerPath !== "function" ||
+			typeof remapModel !== "function"
+		)
+			throw new Error("its exports are not functions");
+		return { isOverflowSession, markerPath, remapModel };
 	} catch (e) {
 		ctx.log(
-			caught(e).code === "MODULE_NOT_FOUND"
-				? "lib/burn-mode.js unreadable — burn mode left this dispatch unmapped"
-				: "burn-mode marker path unresolved — burn mode left this dispatch unmapped",
+			`lib/burn-mode.js unreadable — the model table left this dispatch unmapped: ${caught(e).message}`,
+		);
+		return null;
+	}
+}
+
+/**
+ * Whether burn mode's layer applies: its marker present, on a session not on
+ * an overflow seat (#4919). A marker that cannot be placed reads as off,
+ * recorded, so the standing layer still applies.
+ * @param {ModelTable} table
+ * @param {RewriteContext} ctx
+ */
+function burnOn(table, ctx) {
+	if (table.isOverflowSession(ctx.env, ctx.session)) return false;
+	let marker;
+	try {
+		marker = table.markerPath(ctx.env);
+	} catch {
+		ctx.log(
+			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
 		);
 		return false;
 	}
@@ -195,10 +225,12 @@ function decide(_prompt, ctx) {
 		return { deny: ctx.corePaths(ctx.ruleText("dispatch-grandchild")) };
 	let out;
 	try {
+		const table = loadTable(ctx);
 		out = rewrite(ctx.input, {
 			file: ctx.artefactFile(ctx.input.description),
-			burn: burnOn(ctx),
+			burn: table ? burnOn(table, ctx) : false,
 			home: ctx.env.HOME,
+			table,
 		});
 	} catch (e) {
 		ctx.log(
@@ -208,8 +240,7 @@ function decide(_prompt, ctx) {
 	}
 	if (!out) return null;
 	/* The directory is made here so a subagent appending through a shell
-	 * redirect finds it; the Write tool makes its own parents, so the line
-	 * still goes out without it. */
+	 * redirect finds it. */
 	if (out.artefact && !ctx.makeDir(path.dirname(out.artefact)))
 		ctx.log(
 			"artefact directory not made — the agent's first shell append will fail",

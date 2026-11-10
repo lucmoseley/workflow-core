@@ -69,7 +69,7 @@ describe("resolveTopic", () => {
 		});
 		expect(fs.readFileSync(`${log}.cwd`, "utf8").trim()).toBe("/");
 		const argv = fs.readFileSync(`${log}.argv`, "utf8");
-		expect(argv).toContain("-p\n--model\nsonnet\n--tools\n\n");
+		expect(argv).toContain("-p\n--model\nhaiku\n--effort\nxhigh\n--tools\n\n");
 		const prompt = fs.readFileSync(`${log}.stdin`, "utf8");
 		expect(prompt).toContain('Topic: "clear Phase 0"');
 		expect(prompt).toContain("wc#5 Speed the suite");

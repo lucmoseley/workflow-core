@@ -89,13 +89,13 @@ args="$*"
 
 case "$command" in
   card-close | roadmap-edit)
-    printf 'NOTE: %s is normally invoked as a skill inside an existing session, not launched standalone (mantahostels#1334: a skill inside a host cannot set the host'"'"'s model). Launching on plain Opus, same as any kind outside the Sonnet table.\n' \
+    printf 'NOTE: %s is normally invoked as a skill inside an existing session, not launched standalone (mantahostels#1334: a skill inside a host cannot set the host'"'"'s model). Launching on plain Opus, same as any kind outside the Haiku table.\n' \
       "$command" >&2
     ;;
 esac
 
 if ! model="$(launch_model_for "$command")"; then
-  printf 'NOTE: %s is not one of the Sonnet-table kinds (mantahostels#1093) — launching on plain Opus, the default for ad-hoc or unclassified work.\n' \
+  printf 'NOTE: %s is not one of the Haiku-table kinds (mantahostels#1093, #4919) — launching on plain Opus, the default for ad-hoc or unclassified work.\n' \
     "$command" >&2
   model="$LAUNCH_MODEL_FALLBACK"
 fi

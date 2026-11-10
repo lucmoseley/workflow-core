@@ -347,6 +347,19 @@ describe("the ratchet's union across tools", () => {
 		);
 		expect(r.tools.Bash.bytes).toBe(710);
 	});
+
+	it('reads "*" as match-all too, as Claude Code does (#4914)', () => {
+		const r = figures(
+			{ "*": ["scripts/guard-everywhere.js"], Bash: ["scripts/guard-a.js"] },
+			{
+				"scripts/guard-everywhere.js": guard(["everywhere"]),
+				"scripts/guard-a.js": guard(["alpha"]),
+			},
+			{ everywhere: "e".repeat(700), alpha: "a".repeat(10) },
+		);
+		expect(Object.keys(r.tools)).toEqual(["Bash"]);
+		expect(r.tools.Bash.bytes).toBe(710);
+	});
 });
 
 describe("the cap", () => {
@@ -984,15 +997,15 @@ describe("a matcher that is not a plain alternation", () => {
 	it("throws, naming the matcher, where it is not a valid regex", () => {
 		expect(() =>
 			figures(
-				{ "*": ["scripts/guard-star.js"], Bash: ["scripts/guard-a.js"] },
+				{ "Bash|(": ["scripts/guard-bad.js"], Bash: ["scripts/guard-a.js"] },
 				{
-					"scripts/guard-star.js": guard(["alpha"]),
+					"scripts/guard-bad.js": guard(["alpha"]),
 					"scripts/guard-a.js": guard(["alpha"]),
 				},
 				{ alpha: "a" },
 			),
 		).toThrow(
-			/^rule-emission: the PreToolUse matcher "\*" is not a valid regular expression/,
+			/^rule-emission: the PreToolUse matcher "Bash\|\(" is not a valid regular expression/,
 		);
 	});
 });
