@@ -5,7 +5,8 @@
  * dry-run policy, and how it carries a restart's killed launches and a
  * limit-held launch into the state, the idle reason and the tick's record
  * (#4315); the sessions it launched into that record, the room a paused or
- * stopping tick leaves unread, which checkout it sizes the seats and a
+ * stopping tick leaves unread, which checkout it reads the free slots in
+ * (#4962), which checkout it sizes the seats and a
  * parker's seat in, away mode's return, a paused tick, a launch hold, a full week's wait and
  * the hold notices' agent read (#4282). lib/refill-blocks.js and
  * lib/refill-limits.js decide for real, through refill-blocks-fixture's
@@ -35,7 +36,7 @@ import {
 	WFC,
 } from "./refill-loop-fixture";
 import { loopStateOf } from "./refill-state-testkit";
-import { runTick } from "./refill-tick-core.js";
+import { admissionRoot, runTick } from "./refill-tick-core.js";
 
 type TickIo = import("./refill-tick-core.js").TickIo;
 type TickActs = import("./refill-tick-core.js").TickActs;
@@ -202,6 +203,7 @@ function fakeIo(
 		releaseAwayParks: recorded("releaseAwayParks", (launches) => launches),
 		attachProbeParks: recorded("attachProbeParks", () => undefined),
 		readLiftedHolds: recorded("readLiftedHolds", () => []),
+		typecheckPeakMb: () => 0,
 		readFreeSlots: recorded("readFreeSlots", () => ({
 			slots: 1,
 			admission: null,
@@ -847,6 +849,40 @@ describe("a limit-held launch through the tick (#3735)", () => {
 				working: ADMISSION_VERDICT.memory.working.count + 1,
 			}),
 		]);
+	});
+});
+
+describe("the checkout the free-slot count is read in (#4962)", () => {
+	const peaks: Record<string, number> = {
+		"/no-tsc": 0,
+		"/ts6": 1497,
+		"/ts7": 1938,
+	};
+	const peakMbOf = (root: string) => peaks[root] ?? 0;
+
+	it("is the served checkout whose type-check is charged most", () => {
+		expect(admissionRoot(["/no-tsc", "/ts7", "/ts6"], peakMbOf)).toBe("/ts7");
+	});
+
+	it("is a served checkout even where none holds a compiler", () => {
+		expect(admissionRoot(["/no-tsc"], peakMbOf)).toBe("/no-tsc");
+	});
+
+	it("is none where nothing is served", () => {
+		expect(admissionRoot([], peakMbOf)).toBeUndefined();
+	});
+
+	it("reads the tick's free slots in the checkout it picks", async () => {
+		const readIn: (string | undefined)[] = [];
+		const { io } = fakeIo(stateOf(), {
+			typecheckPeakMb: peakMbOf,
+			readFreeSlots: (root) => {
+				readIn.push(root);
+				return { slots: 0, admission: null };
+			},
+		});
+		await tickOf(io, control({ scope: normal(["/no-tsc", "/ts7", "/ts6"]) }));
+		expect(readIn).toEqual(["/ts7"]);
 	});
 });
 

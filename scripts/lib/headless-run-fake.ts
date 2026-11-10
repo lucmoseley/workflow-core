@@ -1,8 +1,9 @@
 /*
  * The fake of a headless `claude -p` run (#4586), the one every suite's
  * `claude` stub execs for `-p`: a Node program that reads its argv against the
- * installed harness's options as recorded (scripts/fixtures/headless-run.json,
- * re-recorded by `node scripts/record-headless-run.js`), refusing an unknown
+ * installed harness's options as recorded, the hidden ones among them
+ * (scripts/fixtures/headless-run.json, re-recorded by
+ * `node scripts/record-headless-run.js`), refusing an unknown
  * flag in the binary's words; runs the apiKeyHelper its `--settings` names, as
  * the binary does. The contract,
  * lib/headless-run.contract.test.ts, holds the fixture to the binary.
@@ -18,6 +19,8 @@ import { TEST_TIMEOUT_MS } from "./test-ceiling.js";
 export const recorded: {
 	harness: string;
 	options: HelpOption[];
+	/** The options the binary takes and `--help` omits. */
+	hidden: HelpOption[];
 	result: Record<string, unknown>;
 } = JSON.parse(
 	fs.readFileSync(
@@ -34,7 +37,7 @@ export const buildResultRow = (over: Record<string, unknown> = {}) => ({
 /**
  * `hold` runs on with a grandchild in its group, `stubborn` also ignores
  * SIGTERM, `orphan` leaves the grandchild behind and exits, `end` prints its
- * rows and exits 0.
+ * rows or text and exits.
  */
 export type HeadlessMode = "hold" | "stubborn" | "orphan" | "end";
 
@@ -48,15 +51,19 @@ export interface HeadlessCall {
 	/** What the apiKeyHelper printed, null where none ran or it failed. */
 	helped: string | null;
 	grandchild: number | null;
+	/** What fd 0 links to. */
 	stdin: string;
+	/** The text on stdin where it is a file, null elsewhere: a pipe may
+	 * never close. */
+	stdinText: string | null;
 }
 
 /**
  * Write the fake program at `file`, logging to `log`. A held run ends itself
  * and its grandchild once `log`'s directory is gone or `holdMs` passes,
  * checked each second (a guess): the launch detaches it, so no case's
- * teardown is its parent (#2678 (the leaked fakes)). `rows` are the stream
- * `end` prints.
+ * teardown is its parent (#2678 (the leaked fakes)). `end` prints `text`
+ * where given, else the stream `rows`, and exits `exit`.
  */
 export function writeHeadlessFake(
 	file: string,
@@ -64,12 +71,16 @@ export function writeHeadlessFake(
 		log,
 		mode = "hold",
 		rows = [buildResultRow()],
+		text,
+		exit = 0,
 		/* Past one case and its hooks, so a fake never dies mid-case. */
 		holdMs = 2 * TEST_TIMEOUT_MS,
 	}: {
 		log: string;
 		mode?: HeadlessMode;
 		rows?: Record<string, unknown>[];
+		text?: string;
+		exit?: number;
 		holdMs?: number;
 	},
 ) {
@@ -82,7 +93,7 @@ const LOG = ${JSON.stringify(log)};
 const MODE = ${JSON.stringify(mode)};
 const HOLD_MS = ${holdMs};
 const argv = process.argv.slice(2);
-const read = parseArgv(${JSON.stringify(recorded.options)}, argv);
+const read = parseArgv(${JSON.stringify([...recorded.options, ...recorded.hidden])}, argv);
 if ("error" in read) {
 	process.stderr.write(read.error + "\\n");
 	process.exit(1);
@@ -106,11 +117,15 @@ fs.appendFileSync(LOG, JSON.stringify({
 	argv, flags: Object.fromEntries(read.flags), prompt: read.positionals.at(-1) ?? null,
 	sessionId, env: process.env, cwd: process.cwd(), helped, grandchild,
 	stdin: fs.readlinkSync("/proc/self/fd/0"),
+	stdinText: fs.fstatSync(0).isFile() ? fs.readFileSync(0, "utf8") : null,
 }) + "\\n");
 if (MODE === "end") {
-	for (const row of ${JSON.stringify(rows)})
-		process.stdout.write(JSON.stringify("session_id" in row ? { ...row, session_id: sessionId } : row) + "\\n");
-	process.exit(0);
+	const text = ${JSON.stringify(text ?? null)};
+	if (text !== null) process.stdout.write(text);
+	else
+		for (const row of ${JSON.stringify(rows)})
+			process.stdout.write(JSON.stringify("session_id" in row ? { ...row, session_id: sessionId } : row) + "\\n");
+	process.exit(${exit});
 }
 if (MODE === "orphan") process.exit(0);
 const end = Date.now() + HOLD_MS;
