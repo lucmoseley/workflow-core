@@ -103,6 +103,32 @@ for a in "$@"; do
 done
 args=("${@:i+1}")
 
+# THE READ AUDIT (#4916): under a suite run's audit (lib/read-audit.js), a call
+# on this repository — any worktree of it — reads what `fs` never sees, so it
+# is logged against the test that made it. A call whose directory, `-C`
+# and git-dir variables all lie outside the repository's checkouts asks git
+# nothing more; `init` and `clone` make a repository of their own. Only the
+# outermost call: a nested one runs inside a call already judged.
+if ((depth == 1)) && [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$sub" != init && "$sub" != clone ]]; then
+  under=
+  [[ -n "$GIT_DIR$GIT_WORK_TREE$GIT_COMMON_DIR" ]] && under=1
+  for a in "${@:1:i-1}"; do [[ "$a" == -C || "$a" == --git-dir* || "$a" == --work-tree* ]] && under=1; done
+  host_dir="${WFC_HOST_GIT_DIR%/.git}"
+  for top in "$WFC_READ_AUDIT_ROOT" "$host_dir"; do
+    [[ -n "$top" && ("$PWD" == "$top" || "$PWD" == "$top"/*) ]] && under=1
+  done
+  if [[ -n "$under" ]]; then
+    common=$("$real" "${@:1:i-1}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+    host="${WFC_HOST_GIT_DIR:-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+      "$real" -C "${BASH_SOURCE[0]%/*}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)}"
+    # One record: its field count, whether a git-dir variable steered it,
+    # the directory, then every word, each NUL-ended.
+    [[ -n "$common" && "$common" == "$host" ]] &&
+      printf '%s\0' "$(($# + 2))" "${GIT_DIR:+1}${GIT_WORK_TREE:+1}${GIT_COMMON_DIR:+1}${GIT_INDEX_FILE:+1}" \
+        "$PWD" "$@" >>"$WFC_READ_AUDIT/$WFC_READ_AUDIT_OWNER.git"
+  fi
+fi
+
 case "$sub" in
   "" | clone | version | help | status | log | show | diff | diff-tree | \
     diff-index | diff-files | rev-parse | rev-list | ls-files | ls-tree | \

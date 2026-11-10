@@ -24,6 +24,7 @@ const {
 } = require("./pass-store.js");
 const { markersDir } = require("./marker-root.js");
 const { EDGES_FILE, repoRoot } = require("./test-pass-marker.js");
+const { listingId } = require("./listing-id.js");
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -55,7 +56,7 @@ function repo(edges: Record<string, string[]> = { "doc.md": [A] }) {
 	git(dir, "config", "user.name", "T");
 	fs.mkdirSync(path.join(dir, "scripts"));
 	fs.mkdirSync(path.join(dir, "docs"));
-	fs.writeFileSync(path.join(dir, ".gitignore"), ".claude/\n");
+	fs.writeFileSync(path.join(dir, ".gitignore"), ".claude/tmp/\n");
 	for (const f of [
 		A,
 		B,
@@ -86,7 +87,32 @@ const nextAt = () => {
 	return new Date(clock).toISOString();
 };
 
-/** A run of `files` at `dir`, each passing unless named in `failing`. */
+interface Reads {
+	files: string[];
+	absent: string[];
+	dirs: string[];
+	lists: Record<string, string>;
+	trees: string[];
+	scripts: string[];
+	git: { cwd: string; args: string[] }[];
+}
+type Audit = { reads: Reads } | { doubt: string };
+
+const NO_READS: Reads = {
+	files: [],
+	absent: [],
+	dirs: [],
+	lists: {},
+	trees: [],
+	scripts: [],
+	git: [],
+};
+
+/**
+ * A run of `files` at `dir`, each passing unless named in `failing`, each
+ * audited as reading nothing unless `audits` names it; `audits: null` is a
+ * run nothing audited.
+ */
 function run(
 	dir: string,
 	files: string[],
@@ -97,6 +123,7 @@ function run(
 		values = VALUES,
 		storeRoot = dir,
 		at = nextAt(),
+		audits = {} as Record<string, Audit> | null,
 	} = {},
 ) {
 	return record(
@@ -113,6 +140,12 @@ function run(
 			shared: ["vitest.config.ts", "vitest.setup.ts"],
 			clean,
 			drifted,
+			audits:
+				audits === null
+					? null
+					: new Map(
+							files.map((file) => [file, audits[file] ?? { reads: NO_READS }]),
+						),
 		},
 		{ storeRoot, values, lander: false },
 	);
@@ -667,28 +700,6 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	/* #4790 round 4 review, finding 1: count-guard-fires.test.ts read every
-	 * core through a segment held in a variable, and still recorded a row. */
-	it.each([
-		["no header", ""],
-		[
-			"a full-sweep-only header",
-			"/*\n * full-sweep-only: reads a set built at runtime.\n */\n",
-		],
-	])(
-		"records no row for a test making a read the selector cannot attribute, under %s",
-		(_under, header) => {
-			const dir = repo();
-			write(
-				dir,
-				A,
-				`${header}const ROOT = path.resolve(__dirname, "..");\nconst f = pick();\nfs.readFileSync(path.join(ROOT, "docs", f));\n`,
-			);
-			expect(run(dir, [A, B])).toBe(1);
-			expect(cachedOf(dir, [A, B])).toEqual([B]);
-		},
-	);
-
 	/* Finding 3: a load of no literal is unread, never dropped. */
 	it("records no row for a file reaching a load of no literal", () => {
 		const dir = repo();
@@ -757,6 +768,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			shared: [],
 			clean: true,
 			drifted: [],
+			audits: new Map([[A, { reads: NO_READS }]]),
 		};
 		expect(record(base, { storeRoot: dir, lander: true })).toBe(0);
 		run(dir, [A]);
@@ -764,6 +776,153 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			lookup([A], { root: dir, storeRoot: dir, values: VALUES, lander: true })
 				.cached,
 		).toEqual([]);
+	});
+});
+
+/* #4916: a read built at run time is invisible to the lexical reach. The
+ * read audit (lib/read-audit.js) sees it. */
+describe("the reads the audit saw", () => {
+	const Skills = ".claude/skills";
+	const audited = (reads: Partial<Reads>): Audit => ({
+		reads: { ...NO_READS, ...reads },
+	});
+	const listedSkills = (dir: string) =>
+		audited({
+			lists: {
+				[Skills]: listingId(fs.readdirSync(path.join(dir, Skills))),
+			},
+		});
+	function withSkill(dir: string) {
+		fs.mkdirSync(path.join(dir, Skills, "one"), { recursive: true });
+		write(dir, `${Skills}/one/SKILL.md`, "---\nname: one\n---\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "skill");
+	}
+
+	it("records no row for a file the run did not audit, or whose audit is in doubt", () => {
+		const dir = repo();
+		expect(run(dir, [A, B], { audits: null })).toBe(0);
+		expect(
+			run(dir, [A, B], {
+				audits: { [A]: { doubt: "a git call read this repository" } },
+			}),
+		).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	it("voids the pass when a file the test read through a helper's default root changes", () => {
+		const dir = repo();
+		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+		write(dir, ".claude/settings.json", '{"hooks":{}}\n');
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "settings");
+		run(dir, [A], {
+			audits: { [A]: audited({ files: [".claude/settings.json"] }) },
+		});
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, ".claude/settings.json", '{"hooks":{"Stop":[]}}\n');
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a skill directory is added to a listing the test made", () => {
+		const dir = repo();
+		withSkill(dir);
+		run(dir, [A], { audits: { [A]: listedSkills(dir) } });
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, Skills, "two"));
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("records no row where a listing held a name git does not track", () => {
+		const dir = repo();
+		withSkill(dir);
+		fs.mkdirSync(path.join(dir, Skills, "draft"));
+		expect(run(dir, [A, B], { audits: { [A]: listedSkills(dir) } })).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	it("voids the pass when a path the test found absent appears, or a directory it found goes", () => {
+		const dir = repo();
+		withSkill(dir);
+		run(dir, [A, B], {
+			audits: {
+				[A]: audited({ absent: ["docs/agents/rules/review-x.txt"] }),
+				[B]: audited({ dirs: [Skills] }),
+			},
+		});
+		expect(cachedOf(dir, [A, B])).toEqual([A, B]);
+		fs.mkdirSync(path.join(dir, "docs/agents/rules"), { recursive: true });
+		write(dir, "docs/agents/rules/review-x.txt", "x\n");
+		fs.rmSync(path.join(dir, Skills), { recursive: true });
+		expect(cachedOf(dir, [A, B])).toEqual([]);
+	});
+
+	it("records no row for a tree walked whole that holds a name git does not track", () => {
+		const dir = repo();
+		withSkill(dir);
+		run(dir, [B]);
+		expect(
+			run(dir, [A], { audits: { [A]: audited({ trees: [".claude"] }) } }),
+		).toBe(0);
+	});
+
+	it("rests a tree walked whole on every file and listing under it", () => {
+		const dir = repo();
+		withSkill(dir);
+		run(dir, [A], { audits: { [A]: audited({ trees: [".claude/skills"] }) } });
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, `${Skills}/one/SKILL.md`, "---\nname: renamed\n---\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+		git(dir, "checkout", "--", ".");
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, `${Skills}/one/extra.md`, "x\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("keys what a script a child ran loads", () => {
+		const dir = repo();
+		write(
+			dir,
+			"scripts/run.sh",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell script's own text
+			'source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"\n',
+		);
+		write(dir, "scripts/lib.sh", "x=1\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "sh");
+		run(dir, [A], {
+			audits: { [A]: audited({ scripts: ["scripts/run.sh"] }) },
+		});
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/lib.sh", "x=2\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("holds a listing at a commit only where that commit's tree lists the same names", () => {
+		const dir = repo();
+		withSkill(dir);
+		const before = git(dir, "rev-parse", "HEAD");
+		run(dir, [A], { audits: { [A]: listedSkills(dir) } });
+		fs.mkdirSync(path.join(dir, Skills, "two"));
+		write(dir, `${Skills}/two/SKILL.md`, "x\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "two");
+		const heldAt = (sha: string) => [
+			...heldAtSha([A], {
+				storeRoot: dir,
+				sha,
+				before: "9999",
+				git: (args: string[]) =>
+					execFileSync("git", args, {
+						cwd: dir,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "ignore"],
+					}),
+				values: VALUES,
+			}).keys(),
+		];
+		expect(heldAt(before)).toEqual([A]);
+		expect(heldAt(git(dir, "rev-parse", "HEAD"))).toEqual([]);
 	});
 });
 

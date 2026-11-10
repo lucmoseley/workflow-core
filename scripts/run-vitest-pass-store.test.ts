@@ -62,6 +62,17 @@ function repo() {
 	return dir;
 }
 
+/* A file's audit that saw it read nothing beside its inputs (#4916). */
+const NO_READS = {
+	files: [],
+	absent: [],
+	dirs: [],
+	lists: {},
+	trees: [],
+	scripts: [],
+	git: [],
+};
+
 /** A clean vitest run at `dir` in which each of `files` passed. */
 function passed(dir: string, files: string[]) {
 	record(
@@ -74,6 +85,7 @@ function passed(dir: string, files: string[]) {
 			shared: ["vitest.config.ts"],
 			clean: true,
 			drifted: [],
+			audits: new Map(files.map((file) => [file, { reads: NO_READS }])),
 		},
 		{ storeRoot: dir, lander: false },
 	);

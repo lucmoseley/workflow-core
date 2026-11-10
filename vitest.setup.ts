@@ -4,8 +4,15 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll } from "vitest";
+import { afterAll, expect } from "vitest";
 import "@testing-library/jest-dom/vitest";
+
+/* THE READ AUDIT NAMES THE FILE THIS PROCESS RUNS (#4916), so its reads key
+ * that file's row in the pass store (lib/read-audit.js). Absent where the
+ * run is not audited. */
+(
+	globalThis as { __wfcReadAudit?: { claim: (file: string) => void } }
+).__wfcReadAudit?.claim(String(expect.getState().testPath));
 
 /*
  * NO FIXTURE'S GIT CALL REACHES THE REAL REPO THROUGH AN INHERITED GIT_DIR
