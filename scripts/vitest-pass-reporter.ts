@@ -24,7 +24,6 @@
  * DEFEAT:    none — naming any reporter replaces the default set, so dropping it means editing vitest.config.ts.
  */
 
-import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -40,8 +39,7 @@ const require = createRequire(import.meta.url);
 const {
 	formatFilteredRun,
 	isFullScope,
-	EDGES_FILE,
-	docsReadBy,
+	readDocsByTest,
 	fullAttestationOf,
 	CLOSURE_ROOTS,
 } = require("./lib/test-pass-marker.js");
@@ -63,6 +61,10 @@ async function writeEmptyRunMarker(root?: string) {
 	watch.setup({ config: { root } });
 	watch.runTeardown();
 }
+
+/** The documents the manifest, turned round, maps to any of `tests`. */
+const docsOf = (byTest: Map<string, Set<string>>, tests: Set<string>) =>
+	[...tests].flatMap((t) => [...(byTest.get(t) ?? [])]);
 
 /** The two `ModuleNode` fields the closure walk reads. */
 interface ModuleNodeLike {
@@ -379,12 +381,7 @@ export default class TestPassReporter {
 			for (const p of reached) closure.add(p);
 		}
 		const selected = new Set(imports.keys());
-		const docs: Set<string> | null = docsReadBy(
-			JSON.parse(fs.readFileSync(path.join(root, EDGES_FILE), "utf8")),
-			selected,
-		);
-		if (!docs) throw new Error(`${EDGES_FILE} is not {edges: {doc: [test]}}`);
-		for (const doc of docs) closure.add(doc);
+		for (const doc of docsOf(readDocsByTest(root), selected)) closure.add(doc);
 		/* `CLOSURE_ROOTS`, with the vitest config file resolved off the
 		 * instance: a sibling `vite.config.*` it did not load is outside the
 		 * closure. NOT THE MANIFEST (#799, #795): it matters only through the
