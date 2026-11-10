@@ -11,7 +11,7 @@
  * - A BLANK LINE is no row and no fault.
  *
  * `bad` lists the 1-based number of every line that held no row, a torn one
- * included; `rowLines` gives each row's own, by index.
+ * included; `entries` pairs each row with its own.
  *
  * A missing file is null — nothing written yet, told apart from an empty one.
  * Any other read error throws.
@@ -28,7 +28,7 @@ const fs = require("node:fs");
 const { caught } = require("./caught.js");
 
 /**
- * @typedef {{ rows: Record<string, unknown>[], rowLines: number[], bad: number[], torn: boolean }} Jsonl
+ * @typedef {{ rows: Record<string, unknown>[], entries: { row: Record<string, unknown>, line: number }[], bad: number[], torn: boolean }} Jsonl
  * @typedef {(line: string) => boolean} Keep
  */
 
@@ -59,8 +59,8 @@ function parseJsonlRow(line) {
 function parseJsonl(text, keep) {
 	/** @type {Record<string, unknown>[]} */
 	const rows = [];
-	/** @type {number[]} */
-	const rowLines = [];
+	/** @type {Jsonl["entries"]} */
+	const entries = [];
 	/** @type {number[]} */
 	const bad = [];
 	let torn = false;
@@ -72,13 +72,13 @@ function parseJsonl(text, keep) {
 		if (row === null) continue;
 		if (row) {
 			rows.push(row);
-			rowLines.push(i + 1);
+			entries.push({ row, line: i + 1 });
 			continue;
 		}
 		bad.push(i + 1);
 		if (i === unterminated && !isJson(line)) torn = true;
 	}
-	return { rows, rowLines, bad, torn };
+	return { rows, entries, bad, torn };
 }
 
 /**

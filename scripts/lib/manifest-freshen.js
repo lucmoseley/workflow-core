@@ -17,9 +17,9 @@
  * uncommitted test there, which the session's commit may not carry.
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { claimByArbiter } = require("./script-claim.js");
 const { caught } = require("./caught.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
 const { buildManifestText } = require("./read-edges-render.js");
@@ -32,28 +32,11 @@ const CLAIM_TIMEOUT_MS = 5000;
  * A claim taken on `file` for `session`, by the arbiter's own CLI, with the
  * warning it printed where a live neighbour also holds the file (#4249) — or
  * why not.
- * @typedef {(file: string, session: string|null, cwd: string) => { ok: true, warning?: string } | { ok: false, why: string }} ClaimFn
+ * @typedef {(file: string, session: string|null, cwd: string) => import("./script-claim.js").ClaimResult} ClaimFn
  * @type {ClaimFn}
  */
 function claimWithArbiter(file, session, cwd) {
-	const claim = spawnSync(
-		process.execPath,
-		[
-			path.join(__dirname, "..", "session-arbiter.js"),
-			"claim",
-			file,
-			...(session ? [session] : []),
-		],
-		{ cwd, encoding: "utf8", timeout: CLAIM_TIMEOUT_MS },
-	);
-	return claim.status === 0
-		? { ok: true, warning: claim.stderr?.trim() || undefined }
-		: {
-				ok: false,
-				why:
-					`${claim.stderr ?? ""}${claim.stdout ?? ""}`.trim() ||
-					`the arbiter exited ${claim.status}`,
-			};
+	return claimByArbiter(file, { session, cwd, timeoutMs: CLAIM_TIMEOUT_MS });
 }
 
 /**
@@ -91,7 +74,7 @@ function writeShared(home, text, { given, session, claimFn, err }) {
 	if (shared !== given) return "it holds an edit this run was not given";
 	const file = path.join(home, EDGES_FILE);
 	const claim = claimFn(file, session, home);
-	if (!claim.ok) return claim.why;
+	if (!claim.claimed) return claim.why;
 	if (claim.warning) err.write(`${claim.warning}\n`);
 	try {
 		fs.writeFileSync(file, text);

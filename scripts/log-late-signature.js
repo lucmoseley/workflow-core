@@ -17,6 +17,9 @@
  * docs/data/outcome-signatures.jsonl, for the caller to commit.
  * Exits: 0 logged, 1 a tracker read or write failed or the section is gone,
  * 2 a usage error or a signature refused.
+ *
+ * IN NO §N3 FAMILY: it gates nothing and files no issue, and it appends one
+ * line to a log rather than writing a file whole, so it is no `generate-*`.
  */
 
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");

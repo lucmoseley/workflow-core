@@ -52,8 +52,8 @@ export function transcriptRecords(start: string) {
 				message: { role: "assistant", content: [{ type: "text", text }] },
 			}),
 		founder: (text = "go") => user(text, { origin: { kind: "human" } }),
-		toolResult: () =>
-			user([{ type: "tool_result", tool_use_id: "t1", content: "ok" }]),
+		toolResult: (content = "ok") =>
+			user([{ type: "tool_result", tool_use_id: "t1", content }]),
 		notification: () =>
 			user(
 				"<task-notification>\n<tool-use-id>t1</tool-use-id>\n</task-notification>",
