@@ -11,7 +11,7 @@
  * Only for the repository that index belongs to (#4733). Inside a commit hook
  * git exports GIT_INDEX_FILE, and sometimes GIT_DIR, for the hook's repo; any
  * other checkout — the core's, read from an adopter's hook — is read with the
- * repository-local variables stripped, as git does for a submodule.
+ * repository-local variables stripped.
  *
  * A directory no checkout tops — a materialised `--root` copy, which `git
  * archive` wrote tracked-only, or a plugin cache with no `.git` — is its own
@@ -90,7 +90,7 @@ function readTree(base) {
  * An exported GIT_INDEX_FILE with no GIT_DIR is, as git reads it, the index of
  * the repository the working directory is in, so that repository is the one
  * matched: a hook process run from inside another checkout reads that
- * checkout from the hook's index, as git itself would.
+ * checkout from the hook's index.
  *
  * @param {string} base
  * @returns {{ env: NodeJS.ProcessEnv, failure: null } | { env: null, failure: string }}
@@ -119,8 +119,8 @@ function envFor(base) {
 }
 
 /**
- * The variables that name a repository rather than configure git, as git
- * lists them, less the `-c` overrides it carries into another repository too
+ * The variables that name a repository rather than configure git, less the
+ * `-c` overrides git carries into another repository too
  * (`prepare_other_repo_env`).
  *
  * @returns {{ vars: string[] } | { failure: string }}
@@ -138,8 +138,6 @@ function readLocalEnvVars() {
 }
 
 /**
- * One git read's trimmed output, or why it failed.
- *
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} env
  * @returns {{ out: string } | { failure: string }}

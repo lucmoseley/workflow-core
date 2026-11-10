@@ -23,7 +23,6 @@ const git = (dir: string, ...args: string[]) =>
 
 type Seen = Record<string, boolean>;
 
-/** A core holding guard.js, and a pre-commit that records what it sees. */
 function coreAndHooks(): { core: string; hooks: string; seen: string } {
 	const noHooks = path.join(scratch, "no-hooks");
 	const hooks = path.join(scratch, "hooks");
