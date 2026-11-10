@@ -38,7 +38,7 @@ const { readBlob, spawn, readStagedDiff } = require("./lib/staged");
 const { relativeUnder } = require("./lib/is-under.js");
 const { scriptPath } = require("./lib/script-path.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /**
  * @typedef {(tag: "UNFORMATTED" | "UNPARSEABLE", p: string, message: string) => void} Refuse
  * @typedef {{ readStagedBlob: (p: string) => string, refuse: Refuse }} Judge

@@ -36,7 +36,7 @@ const { programSource } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
 const ROOTS = ["scripts", ".claude/skills"];

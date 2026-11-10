@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { chargeMb as launchChargeMb } from "./launch-charge";
 import {
 	localTester,
 	parseFailingTests,
@@ -20,14 +21,18 @@ import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
+import { rungMb } from "./suite-ladder.js";
 import { queueSeat } from "./suite-queue.js";
 import { admitted } from "./suite-slot-fake";
 import { LANDER_WORKTREE } from "./worktree-dirs.js";
 
+/** The local tester reads no placement; every ask passes this one. */
+const BATCH0 = { kind: "batch", slot: 0 } as const;
+
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
 /* A whole suite's lander charge (#3323). */
-const WHOLE = { chargeMb: 2630 };
+const WHOLE = { chargeMb: launchChargeMb({ kind: "lander", files: [] }) };
 
 let tmp: string;
 let work: string;
@@ -119,13 +124,13 @@ it("returns green at a passing sha and red naming the failing file at a failing 
 	const { admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
 
-	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
-	expect(await tester.verdict(failing)).toEqual({
+	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, failing)).toEqual({
 		kind: "red",
 		files: ["b.check.js"],
 		failures: [{ file: "b.check.js", test: "it fails" }],
 	});
-	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
 });
 
 it("answers the queue lander's tester: the whole suite or named files at a sha, unknown where it cannot test (#4458)", async () => {
@@ -137,15 +142,15 @@ it("answers the queue lander's tester: the whole suite or named files at a sha, 
 		exec: recordingExec().exec,
 	});
 
-	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
-	expect(await tester.verdict(failing, [])).toMatchObject({
+	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, failing, [])).toMatchObject({
 		kind: "red",
 		files: ["b.check.js"],
 	});
-	expect(await tester.verdict(failing, ["a.check.js"])).toEqual({
+	expect(await tester.verdict(BATCH0, failing, ["a.check.js"])).toEqual({
 		kind: "green",
 	});
-	expect(await tester.verdict("0".repeat(40))).toMatchObject({
+	expect(await tester.verdict(BATCH0, "0".repeat(40))).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/^checkout failed: /),
 	});
@@ -159,10 +164,12 @@ it("judges a named file the sha lacks green, running only the ones it holds (#43
 		admit: admitted().admit,
 		exec: recordingExec().exec,
 	});
-	expect(await tester.verdict(passing, ["b.check.js"])).toEqual({
+	expect(await tester.verdict(BATCH0, passing, ["b.check.js"])).toEqual({
 		kind: "green",
 	});
-	expect(await tester.verdict(passing, ["a.check.js", "b.check.js"])).toEqual({
+	expect(
+		await tester.verdict(BATCH0, passing, ["a.check.js", "b.check.js"]),
+	).toEqual({
 		kind: "green",
 	});
 });
@@ -172,7 +179,7 @@ it("tests the sha, never the shared tree's unsaved edits", async () => {
 	const { admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
 
-	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
 });
 
 /* A suite that exits 1 where any of `names` reaches it, each set to `work`. A
@@ -190,7 +197,7 @@ const probeVerdict = (names: string[]) => {
 		root: work,
 		admit: admitted().admit,
 		exec: recordingExec().exec,
-	}).verdict(probing);
+	}).verdict(BATCH0, probing);
 };
 
 it("runs the suite rooted by its directory alone, as CI does (#2410, #2476)", async () => {
@@ -223,14 +230,14 @@ it("marks the suite it spawns as the lander's run (#4757)", async () => {
 			root: work,
 			admit: admitted().admit,
 			exec: recordingExec().exec,
-		}).verdict(probing),
+		}).verdict(BATCH0, probing),
 	).toEqual({ kind: "green" });
 });
 
 it("returns unknown, never green, where it cannot check out, install or start", async () => {
 	const { admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
-	expect(await tester.verdict("0".repeat(40))).toMatchObject({
+	expect(await tester.verdict(BATCH0, "0".repeat(40))).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/^checkout failed/),
 	});
@@ -245,21 +252,21 @@ it("returns unknown, never green, where it cannot check out, install or start", 
 			execFileSync(bin, args, { cwd, stdio: "ignore" });
 		},
 	});
-	expect(await broken.verdict(locked)).toMatchObject({
+	expect(await broken.verdict(BATCH0, locked)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/^install failed: .*npm ci exploded/),
 	});
 
 	config({ commands: { test: "./no-such-runner" } });
 	const unstartable = commit("unstartable");
-	expect(await tester.verdict(unstartable)).toEqual({
+	expect(await tester.verdict(BATCH0, unstartable)).toEqual({
 		kind: "unknown",
 		reason: "./no-such-runner exited 127 naming no failing file in the tree",
 	});
 
 	config({ commands: { test: "exit 1" } });
 	const crashing = commit("crashing");
-	expect(await tester.verdict(crashing)).toEqual({
+	expect(await tester.verdict(BATCH0, crashing)).toEqual({
 		kind: "unknown",
 		reason: "exit 1 exited 1 naming no failing file in the tree",
 	});
@@ -269,7 +276,7 @@ it("returns green where the sha declares no suite, taking no slot (#2412)", asyn
 	const { log, admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
 	config({ commands: {} });
-	expect(await tester.verdict(commit("undeclared"))).toEqual({
+	expect(await tester.verdict(BATCH0, commit("undeclared"))).toEqual({
 		kind: "green",
 	});
 	expect(log).toEqual([]);
@@ -289,7 +296,7 @@ it("runs the Python suite alone where it is routed and no test command is declar
 		exec: recordingExec().exec,
 		pytest,
 	});
-	expect(await routed.verdict(commit("python only"))).toEqual({
+	expect(await routed.verdict(BATCH0, commit("python only"))).toEqual({
 		kind: "green",
 	});
 	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
@@ -307,11 +314,11 @@ it("installs once per lockfile through WFC_NPM, again only when it changes", asy
 	const { npm, exec } = recordingExec();
 	const tester = localTester({ root: work, admit: admitted().admit, exec });
 
-	await tester.verdict(first);
+	await tester.verdict(BATCH0, first);
 	expect(npm).toEqual([stub]);
-	await tester.verdict(sameLock);
+	await tester.verdict(BATCH0, sameLock);
 	expect(npm).toEqual([stub]);
-	await tester.verdict(changed);
+	await tester.verdict(BATCH0, changed);
 	expect(npm).toEqual([stub, stub]);
 });
 
@@ -329,7 +336,7 @@ it("runs the declared full_test over test, and the Python suite only where the c
 		pytest,
 	});
 
-	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
 	expect(fs.existsSync(ran)).toBe(false);
 
 	config({
@@ -337,7 +344,7 @@ it("runs the declared full_test over test, and the Python suite only where the c
 		pythonRoutes: { "**/test_*.py": "test", "**/*.py": "program" },
 	});
 	const routed = commit("routes python");
-	expect(await tester.verdict(routed)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, routed)).toEqual({ kind: "green" });
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 });
 
@@ -362,7 +369,7 @@ it("runs the Python suite from a plugin path with a space in it", async () => {
 		exec: recordingExec().exec,
 		pytest,
 	});
-	expect(await tester.verdict(routed)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, routed)).toEqual({ kind: "green" });
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 });
 
@@ -384,7 +391,7 @@ it("asks the Python runner for the whole suite (#3508)", async () => {
 		exec: recordingExec().exec,
 		pytest,
 	});
-	expect(await tester.verdict(routed)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, routed)).toEqual({ kind: "green" });
 	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
 });
 
@@ -403,8 +410,8 @@ it("rebuilds its worktree where it went during the gate wait, and still reaches 
 		},
 		exec: recordingExec().exec,
 	});
-	expect(await tester.verdict(passing)).toEqual({ kind: "green" });
-	expect(await tester.verdict(failing)).toMatchObject({
+	expect(await tester.verdict(BATCH0, passing)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, failing)).toMatchObject({
 		kind: "red",
 		files: ["b.check.js"],
 	});
@@ -413,6 +420,7 @@ it("rebuilds its worktree where it went during the gate wait, and still reaches 
 it("holds one slot for the run and releases it, and never runs past a shut gate", async () => {
 	const { log, admit } = admitted();
 	await localTester({ root: work, admit, exec: recordingExec().exec }).verdict(
+		BATCH0,
 		passing,
 	);
 	expect(log[0]).toBe("hold");
@@ -434,7 +442,7 @@ it("holds one slot for the run and releases it, and never runs past a shut gate"
 				queueDir: tmp,
 			}),
 		exec: recordingExec().exec,
-	}).verdict(touching);
+	}).verdict(BATCH0, touching);
 	expect(shut).toEqual({
 		kind: "unknown",
 		reason: expect.stringMatching(/^no suite slot/),
@@ -583,14 +591,25 @@ it("shows session admission the held slot as a lander (#2416)", async () => {
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
 	expect(readLiveLanders({ queueDir: tmp })).toEqual([
-		{ pid: process.pid, chargeMb: 2630 },
+		{ pid: process.pid, ...WHOLE },
 	]);
 	if (slot.ok) slot.release();
 	expect(readLiveLanders({ queueDir: tmp })).toEqual([]);
 });
 
-it("charges a whole suite 2,630 MB, a named-file rerun 940 and one past six files whole on the marker (#3323, #3973)", async () => {
-	const charged: unknown[] = [];
+it("holds a lander marker whose charge is not a number a whole run's (#3323)", () => {
+	const seat = queueSeat({
+		queue: { queueDir: tmp, pid: process.pid },
+		join: { role: "lander" },
+	});
+	expect(readLiveLanders({ queueDir: tmp })).toEqual([
+		{ pid: process.pid, ...WHOLE },
+	]);
+	seat.leave();
+});
+
+it("charges a whole suite, a named-file rerun and one past six files as lander runs of those files on the marker, a named run under a whole one (#3323, #3973)", async () => {
+	const charged: (number | undefined)[] = [];
 	const tester = localTester({
 		root: work,
 		admit: async (charge) => {
@@ -608,13 +627,18 @@ it("charges a whole suite 2,630 MB, a named-file rerun 940 and one past six file
 	const seven = Array.from({ length: 7 }, (_, i) => `${i}.check.js`);
 	for (const f of seven) write(f, "");
 	const many = commit("seven files");
-	await tester.verdict(passing);
-	await tester.verdict(passing, ["a.check.js"]);
-	await tester.verdict(many, seven);
-	expect(charged).toEqual([2630, 940, 2630]);
+	await tester.verdict(BATCH0, passing);
+	await tester.verdict(BATCH0, passing, ["a.check.js"]);
+	await tester.verdict(BATCH0, many, seven);
+	expect(charged).toEqual([
+		launchChargeMb({ kind: "lander", files: [] }),
+		launchChargeMb({ kind: "lander", files: ["a.check.js"] }),
+		launchChargeMb({ kind: "lander", files: seven }),
+	]);
+	expect(charged[1]).toBeLessThan(Number(charged[0]));
 });
 
-it("opens the gate's memory rung at 3,750 MB for a whole suite and 2,050 for a named-file rerun (#3323, #3973)", async () => {
+it("opens the gate's memory rung at a whole suite's and a named-file rerun's charge (#3323, #3973)", async () => {
 	const at = (mb: number, chargeMb: number) =>
 		suiteSlot({
 			chargeMb,
@@ -628,16 +652,17 @@ it("opens the gate's memory rung at 3,750 MB for a whole suite and 2,050 for a n
 		if (slot.ok) slot.release();
 		return slot.ok;
 	};
-	expect(await at(3749, 2630)).toMatchObject({
-		ok: false,
-		reason: expect.stringContaining("3749 MB available against 3750 MB"),
-	});
-	expect(release(await at(3750, 2630))).toBe(true);
-	expect(await at(2049, 940)).toMatchObject({
-		ok: false,
-		reason: expect.stringContaining("against 2050 MB"),
-	});
-	expect(release(await at(2050, 940))).toBe(true);
+	for (const files of [[], ["a.check.js"]]) {
+		const charge = launchChargeMb({ kind: "lander", files });
+		const rung = rungMb(charge);
+		expect(await at(rung - 1, charge)).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining(
+				`${rung - 1} MB available against ${rung} MB`,
+			),
+		});
+		expect(release(await at(rung, charge))).toBe(true);
+	}
 });
 
 it("appends each run's kind, file count and tree-PSS peak to the lander run record (#3323)", async () => {
@@ -647,8 +672,8 @@ it("appends each run's kind, file count and tree-PSS peak to the lander run reco
 		exec: recordingExec().exec,
 		treePss: () => 700 * 1024,
 	});
-	await tester.verdict(passing);
-	await tester.verdict(passing, ["a.check.js"]);
+	await tester.verdict(BATCH0, passing);
+	await tester.verdict(BATCH0, passing, ["a.check.js"]);
 	const record = fs
 		.readFileSync(
 			path.join(work, ".claude", "tmp", "markers", ".lander-runs.jsonl"),
@@ -798,7 +823,7 @@ it("names the failing files vitest and pytest print", async () => {
 		exec: recordingExec().exec,
 	});
 
-	expect(await tester.verdict(printing)).toEqual({
+	expect(await tester.verdict(BATCH0, printing)).toEqual({
 		kind: "red",
 		files: [
 			"scripts/a.test.ts",
@@ -838,12 +863,12 @@ it("names only failing files the tree holds, a test's printed fixture output nam
 		exec: recordingExec().exec,
 	});
 
-	expect(await tester.verdict(mixed)).toEqual({
+	expect(await tester.verdict(BATCH0, mixed)).toEqual({
 		kind: "red",
 		files: ["scripts/real.test.ts"],
 		failures: [{ file: "scripts/real.test.ts", test: "it" }],
 	});
-	expect(await tester.verdict(phantom)).toEqual({
+	expect(await tester.verdict(BATCH0, phantom)).toEqual({
 		kind: "unknown",
 		reason: "node fail.js exited 1 naming no failing file in the tree",
 	});
@@ -877,7 +902,7 @@ it("splits the whole run into fullTestShards shards, each in a slot of its own, 
 	const { log, admit } = admitted();
 	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
 
-	expect(await tester.verdict(sharded)).toEqual({
+	expect(await tester.verdict(BATCH0, sharded)).toEqual({
 		kind: "red",
 		files: ["b.check.js"],
 		failures: [{ file: "b.check.js", test: "it fails" }],
@@ -896,7 +921,7 @@ it("splits the whole run into fullTestShards shards, each in a slot of its own, 
 	);
 
 	fs.rmSync(shardsLog);
-	expect(await tester.verdict(sharded, ["b.check.js"])).toMatchObject({
+	expect(await tester.verdict(BATCH0, sharded, ["b.check.js"])).toMatchObject({
 		kind: "red",
 	});
 	expect(fs.readFileSync(shardsLog, "utf8")).toBe(
@@ -923,8 +948,8 @@ it("hands every shard of a whole run the one timings file it resolved once, and 
 	});
 	vi.stubEnv("WFC_SHARD_TIMINGS", undefined);
 
-	expect(await tester.verdict(sharded)).toEqual({ kind: "green" });
-	expect(await tester.verdict(sharded, ["packs.js"])).toEqual({
+	expect(await tester.verdict(BATCH0, sharded)).toEqual({ kind: "green" });
+	expect(await tester.verdict(BATCH0, sharded, ["packs.js"])).toEqual({
 		kind: "green",
 	});
 	expect(asked).toEqual([path.join(work, LANDER_WORKTREE)]);
@@ -958,7 +983,7 @@ it("runs the Python suite after the last shard alone, where Python is routed (#2
 			admit: admitted().admit,
 			exec: recordingExec().exec,
 			pytest,
-		}).verdict(routed),
+		}).verdict(BATCH0, routed),
 	).toEqual({ kind: "green" });
 	expect(
 		fs.readFileSync(
@@ -982,7 +1007,7 @@ console.error("SUITE CEILING — killed 840s after vitest spawned"); process.exi
 			root: work,
 			admit: admitted().admit,
 			exec: recordingExec().exec,
-		}).verdict(halves),
+		}).verdict(BATCH0, halves),
 	).toEqual({
 		kind: "unknown",
 		reason:
@@ -1004,7 +1029,7 @@ it("names the shard that reached no verdict, and runs no later shard (#2996)", a
 			root: work,
 			admit,
 			exec: recordingExec().exec,
-		}).verdict(killed),
+		}).verdict(BATCH0, killed),
 	).toEqual({
 		kind: "unknown",
 		reason:
@@ -1026,7 +1051,7 @@ it("names the suite ceiling as no verdict, never red, where the ceiling killed t
 		exec: recordingExec().exec,
 	});
 
-	expect(await tester.verdict(killed)).toEqual({
+	expect(await tester.verdict(BATCH0, killed)).toEqual({
 		kind: "unknown",
 		reason:
 			"node ceiling.js exited 1 killed: SUITE CEILING — killed 840s after vitest spawned",
@@ -1050,14 +1075,18 @@ it("reruns only the named files, sending a Python one to pytest only where Pytho
 		pytest,
 	});
 
-	expect(await tester.verdict(unrouted, ["a.check.js", "test_x.py"])).toEqual({
+	expect(
+		await tester.verdict(BATCH0, unrouted, ["a.check.js", "test_x.py"]),
+	).toEqual({
 		kind: "green",
 	});
 	expect(fs.existsSync(ran)).toBe(false);
 
 	config({ pythonRoutes: { "**/test_*.py": "test" } });
 	const routed = commit("routed");
-	expect(await tester.verdict(routed, ["a.check.js", "test_x.py"])).toEqual({
+	expect(
+		await tester.verdict(BATCH0, routed, ["a.check.js", "test_x.py"]),
+	).toEqual({
 		kind: "green",
 	});
 	expect(fs.readFileSync(ran, "utf8")).toBe("test_x.py\n");
@@ -1096,7 +1125,7 @@ describe("a run with memory held at 1000-1400 MB (#3764)", () => {
 				root: work,
 				admit: heldSlot(mb),
 				exec: recordingExec().exec,
-			}).verdict(passing, ["a.check.js"]);
+			}).verdict(BATCH0, passing, ["a.check.js"]);
 			expect(v).toEqual({
 				kind: "unknown",
 				reason: `no suite slot by the ceiling (${mb} MB available against 1700 MB)`,
@@ -1117,7 +1146,7 @@ describe("a run with memory held at 1000-1400 MB (#3764)", () => {
 			root: work,
 			admit: heldSlot(1200),
 			exec: recordingExec().exec,
-		}).verdict(passing);
+		}).verdict(BATCH0, passing);
 		expect(v).toEqual({
 			kind: "unknown",
 			reason: expect.stringMatching(/^no suite slot by the ceiling/),
@@ -1139,7 +1168,7 @@ describe("a run with memory held at 1000-1400 MB (#3764)", () => {
 					queueDir: tmp,
 				}),
 			exec: recordingExec().exec,
-		}).verdict(passing, ["a.check.js"]);
+		}).verdict(BATCH0, passing, ["a.check.js"]);
 		expect(v.kind).toBe("unknown");
 		expect(
 			fs.existsSync(

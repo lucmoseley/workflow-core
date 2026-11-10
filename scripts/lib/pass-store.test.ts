@@ -36,7 +36,7 @@ const git = (dir: string, ...args: string[]) =>
 
 const A = "scripts/a.test.ts";
 const B = "scripts/b.test.ts";
-const VALUES = { node: "v22.0.0", arch: "arm64" };
+const VALUES: Record<string, string> = { node: "v22.0.0", arch: "arm64" };
 
 /** The shard holding `file`'s rows in the store at `dir`. */
 const shardOf = (dir: string, file: string) =>
@@ -257,6 +257,45 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	/* #4790 round 4 review, finding 2: the setup file's reach was vite's
+	 * graph alone, so the git shim on every test's PATH was no input. */
+	it("voids it when a file the setup file reaches changes", () => {
+		const dir = repo();
+		write(dir, "vitest.setup.ts", "// code-edges loads: shim\n");
+		write(dir, "shim", "#!/bin/bash\nexit 0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "shim", "#!/bin/bash\nexit 1\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/* Finding 3: guard-core-load.js requires each core off guard-cores.json. */
+	it("voids it when a module a declared manifest names changes", () => {
+		const dir = repo();
+		write(
+			dir,
+			"lib.js",
+			"// code-edges loads: cores.json core\nmodule.exports = (row) => require(corePath(row.core));\n",
+		);
+		write(dir, "cores.json", '{"Pre": [{"core": "core.js"}]}\n');
+		write(dir, "core.js", "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "core.js", "v1\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/* Finding 4: a data file joined off __dirname was dropped. */
+	it("voids it when a data file a module joins off __dirname changes", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'const M = nodePath.join(__dirname, "m.json");\n');
+		write(dir, "m.json", "{}\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "m.json", '{"x": 1}\n');
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("voids it when an input is deleted since", () => {
 		const dir = repo();
 		run(dir, [A]);
@@ -444,6 +483,22 @@ describe("a script the manifest says a file spawns", () => {
 				"import helper  # noqa: E402",
 			].join("\n"),
 		],
+		/* #4790 pass 3 review, finding 1: park-blocked.test.ts stayed cached
+		 * after issue-hold.js, which park-blocked.sh's `node -e` requires off
+		 * its argument, changed. */
+		[
+			"the module a spawned shell script's inline node program loads off its argument, as park-blocked.sh's (#4790)",
+			"scripts/park.sh",
+			["scripts/lib/issue-hold.js"],
+			[
+				`SELF_DIR="\${BASH_SOURCE[0]%/*}"`,
+				`[[ "$SELF_DIR" == "\${BASH_SOURCE[0]}" ]] && SELF_DIR=.`,
+				'SELF_DIR="$(cd "$SELF_DIR" && pwd)"',
+				"printf '%s' \"$body\" | node -e '",
+				"  const { readOwnHold } = require(process.argv[1]);",
+				'\' "$SELF_DIR/lib/issue-hold.js" "$issue"',
+			].join("\n"),
+		],
 	])("voids the pass when %s changes", (_what, script, deps, load) => {
 		const dir = spawning(script, deps, load);
 		expect(run(dir, [A])).toBe(1);
@@ -486,9 +541,62 @@ describe("a script the manifest says a file spawns", () => {
 		const dir = spawning(
 			"scripts/tool.py",
 			["scripts/placed.py"],
+			"import os, sys\nsys.path.insert(0, os.path.dirname(__file__))\nimport placed\n",
+		);
+		expect(run(dir, [A])).toBe(1);
+		write(
+			dir,
+			"scripts/tool.py",
 			"import sys\nsys.path.insert(0, sys.argv[1])\nimport placed\n",
 		);
 		expect(run(dir, [A])).toBe(0);
+	});
+
+	/* #4790 pass 2 review, finding 2: a python3 upgrade left a pass resting
+	 * on its stdlib list cached. */
+	it("voids a pass resting on a Python file when python3's version changes", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/helper.py"],
+			"import helper\n",
+		);
+		const values = { ...VALUES, python: "3.12.0.final.0" };
+		expect(run(dir, [A], { values })).toBe(1);
+		expect(cachedOf(dir, [A], { values })).toEqual([A]);
+		expect(
+			cachedOf(dir, [A], { values: { ...VALUES, python: "3.13.0.final.0" } }),
+		).toEqual([]);
+	});
+});
+
+/* #4790 pass 2 review, finding 1: a test importing host_root inside
+ * `python3 -c` stayed cached after host_root.py changed. */
+describe("a spawn of an interpreter handed inline code", () => {
+	/* #4790 pass 3 standards review, finding 2: a literal program sent the
+	 * detector to python3, so without python3 the case passed untested. */
+	it("records no row for a file whose reach spawns one", () => {
+		const dir = repo();
+		expect(run(dir, [A])).toBe(1);
+		write(dir, "lib.js", 'spawnSync("python3", ["-c", CODE, LIB]);\n');
+		expect(run(dir, [A])).toBe(0);
+	});
+
+	/* #4790 pass 3 review, finding 4: a builtin-only inline python recorded
+	 * no python3 version, so a python3 upgrade left its pass cached. */
+	it("voids a pass whose reach runs inline Python when python3's version changes", () => {
+		const dir = repo();
+		write(
+			dir,
+			"lib.js",
+			'spawnSync("python3", ["-c", "import sys; print(sys.argv[1])", x]);\n',
+		);
+		git(dir, "commit", "-qam", "inline python");
+		const values = { ...VALUES, python: "3.12.0.final.0" };
+		expect(run(dir, [A], { values })).toBe(1);
+		expect(cachedOf(dir, [A], { values })).toEqual([A]);
+		expect(
+			cachedOf(dir, [A], { values: { ...VALUES, python: "3.13.0.final.0" } }),
+		).toEqual([]);
 	});
 });
 
@@ -524,6 +632,35 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			fs.chmodSync(deep, 0o644);
 		}
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	/* #4790 round 4 review, finding 1: count-guard-fires.test.ts read every
+	 * core through a segment held in a variable, and still recorded a row. */
+	it.each([
+		["no header", ""],
+		[
+			"a full-sweep-only header",
+			"/*\n * full-sweep-only: reads a set built at runtime.\n */\n",
+		],
+	])(
+		"records no row for a test making a read the selector cannot attribute, under %s",
+		(_under, header) => {
+			const dir = repo();
+			write(
+				dir,
+				A,
+				`${header}const ROOT = path.resolve(__dirname, "..");\nconst f = pick();\nfs.readFileSync(path.join(ROOT, "docs", f));\n`,
+			);
+			expect(run(dir, [A, B])).toBe(1);
+			expect(cachedOf(dir, [A, B])).toEqual([B]);
+		},
+	);
+
+	/* Finding 3: a load of no literal is unread, never dropped. */
+	it("records no row for a file reaching a load of no literal", () => {
+		const dir = repo();
+		write(dir, "lib.js", "module.exports = (file) => require(file);\n");
+		expect(run(dir, [A])).toBe(0);
 	});
 
 	it("records no row for a file whose input was rewritten mid-run", () => {
@@ -613,13 +750,27 @@ describe("the uncached pragma", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
-	it("lets no row recorded before rows reached spawned scripts decide (#4790)", () => {
+	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
+	 * sys.path a spawned Python script builds (#4864). Format 4 is pass 3's
+	 * finding 1: its rows missed what a shell script's inline node program
+	 * loads, and an inline Python's python3. Format 6 is round 4's findings
+	 * 2-4: its rows missed every guard core, a data file joined off
+	 * `__dirname` and what the setup file reaches. */
+	it.each([
+		["before rows reached spawned scripts (#4790)", 2],
+		["before the walk read a Python script's sys.path (#4864)", 3],
+		["before the walk read a shell script's inline programs (#4790)", 4],
+		[
+			"before the walk read guard cores, data joined off __dirname and the setup's reach (#4790)",
+			6,
+		],
+	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
 		run(dir, [A]);
 		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
 		fs.writeFileSync(
 			shardOf(dir, A),
-			`${JSON.stringify({ ...line, format: 2 })}\n`,
+			`${JSON.stringify({ ...line, format })}\n`,
 		);
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});

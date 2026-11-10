@@ -256,7 +256,7 @@ function readTracker(t, tally) {
 	try {
 		issue = openTrackingIssue({ title: t.title, label: t.label });
 	} catch (e) {
-		raiseGhFailure(
+		return raiseGhFailure(
 			e,
 			`Whether ${t.script}'s tracking issue is open is unknown, so no tracker is reported cleared.`,
 		);
@@ -325,7 +325,7 @@ function judgeOpen(t, issue, tally) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {Tally} tally
  */
 function emitFindings(ctx, { cleared, unreadable, unfiled }) {
@@ -352,7 +352,7 @@ function emitFindings(ctx, { cleared, unreadable, unfiled }) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {Tally} tally
  */
 function printReport(ctx, { cleared, unreadable, unfiled }) {

@@ -59,7 +59,7 @@ const { COLLECTED_TEST } = require("./lib/test-kind.js");
 const { gitReader, spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { CONFIG_PATH } = require("./lib/workflow-core-config.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {{ kind: string, name: string, what: string }} Weakening */
 /** @typedef {{ before: string | null, after: string | null }} Sides */
 /** @typedef {{ path: string, from: string | null, deleted: boolean }} Change */

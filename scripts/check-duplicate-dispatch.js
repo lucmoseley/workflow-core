@@ -557,7 +557,7 @@ function main() {
 			"--window-hours",
 			"--drop-index-out",
 		],
-		/* `any` until this file is opted in: lib/check.js exports CheckContext for
+		/* `any` until this file is opted in: lib/check.js exports `Ctx` for
 		 * its type (mantahostels#1463), so this becomes an import type then. */
 		/** @param {any} ctx */
 		run(ctx) {

@@ -1,7 +1,8 @@
 /*
  * queue-lander-adapters.js — the production adapters lib/queue-lander.js
  * runs on: its git against lib/landing-refs.js's remote, and its verdict
- * ledger and batch record files (#4485, spec #4458).
+ * ledger and refused record (#4485, spec #4458). lib/lander-records.js holds
+ * the pipeline and drop records.
  *
  * A queue ref's push time is the one lib/queue-log.js logged for it at the
  * sha it now holds. A sha with no row, as one pushed from another machine,
@@ -12,7 +13,6 @@
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { writeFileAtomic } = require("./atomic-write.js");
 const { newFaultItems } = require("./fault-diff.js");
 const { PROFILES } = require("./fault-profiles.js");
 const { now } = require("./check.js");
@@ -39,7 +39,6 @@ const {
 const {
 	DROPPED_PREFIX,
 	QUEUE_HEADS,
-	batchBranch,
 	QUEUE_REFSPEC,
 	REMOTE,
 	trackingRefspec,
@@ -54,6 +53,7 @@ const {
 const { TransientFault } = require("./queue-lander.js");
 const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+const { isStringList, parseVerdict } = require("./lander-records.js");
 
 const REGISTRY_PROFILE = (() => {
 	const profile = PROFILES["guard-registry"];
@@ -66,15 +66,6 @@ const REGISTRY_PROFILE = (() => {
  * for a batch a run resumes, which waits hours, never weeks. */
 const VERDICT_RETAIN_MS = 14 * DAY_MS;
 const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
-const PHASES = [
-	"merging",
-	"testing",
-	"isolating",
-	"serial",
-	"requeued",
-	"held",
-	"landed",
-];
 /* git push's words for a ref the remote itself refused, as a ruleset or a
  * protected branch does: pushed again, it is refused again — save where the
  * refusal is the remote's own fault, which lib/network-fault.js names. */
@@ -86,32 +77,15 @@ const BROKEN_OBJECT =
 
 /**
  * @typedef {import("./queue-lander.js").Verdict} Verdict
- * @typedef {import("./queue-lander.js").Batch} Batch
- * @typedef {import("./queue-lander.js").Pipeline} Pipeline
- * @typedef {import("./queue-lander.js").Blame} Blame
- * @typedef {import("./queue-lander.js").Isolated} Isolated
- * @typedef {import("./queue-lander.js").Serial} Serial
- * @typedef {import("./queue-lander.js").Hold} Hold
- * @typedef {import("./queue-lander.js").Member} Member
+ * @typedef {import("./lander-records.js").Member} Member
  * @typedef {import("./queue-lander.js").MergeResult} MergeResult
  * @typedef {import("./queue-lander.js").QueueGit} QueueGit
  * @typedef {import("./queue-lander.js").QueueRef} QueueRef
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
- * @typedef {import("./queue-lander.js").PipelineRecord} PipelineRecord
- * @typedef {import("./queue-lander.js").BaseVerdict} BaseVerdict
  * @typedef {import("./queue-lander.js").RefusedRecord} RefusedRecord
- * @typedef {import("./queue-lander.js").Drop} Drop
- * @typedef {import("./queue-lander.js").DropRecord} DropRecord
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
  * @typedef {import("./regenerated-files.js").Regenerated} Regenerated
- */
-
-/**
- * @template T
- * @typedef {{kind: "absent"} | {kind: "torn"} | {kind: "read", value: T}}
- *   RecordRead a record file: absent, torn where it will not parse or is not
- *   the record, or read
  */
 
 /**
@@ -171,8 +145,8 @@ function readEnvelope(r, sha, timeoutMs) {
  *   stack, which #3913's figure was measured on
  * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
  *   merge renders afresh rather than takes from either side
- * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester is
- *   the Actions run, which repeats the gates the batch's set leaves out;
+ * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester's
+ *   run repeats the gates the batch's set leaves out, its `repeatsGates`;
  *   else the batch runs every gate
  * @returns {QueueGit}
  */
@@ -286,12 +260,6 @@ function queueGit(
 				}
 				return whole;
 			}),
-		pushBatch(slot, sha) {
-			pushRemote(root, ["--force", `${sha}:refs/heads/${batchBranch(slot)}`]);
-		},
-		pushIso(branch, sha) {
-			pushRemote(root, ["--force", `${sha}:refs/heads/${branch}`]);
-		},
 		pushMain(sha) {
 			try {
 				pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);
@@ -604,46 +572,6 @@ const changedOnBothSides = (inTree, file) => {
 	return stages.has("2") && stages.has("3");
 };
 
-/** @param {unknown} list @returns {list is string[]} */
-const isStringList = (list) =>
-	Array.isArray(list) && list.every((f) => typeof f === "string");
-
-/**
- * A green row's verdict: the run that passed it and the files its in-job
- * retry cleared, its flakes (#4558), where the row names them.
- * @param {Record<string, unknown>} o
- * @returns {Verdict}
- */
-const parseGreen = (o) => ({
-	kind: "green",
-	...(typeof o.run === "number" ? { run: o.run } : {}),
-	...(isStringList(o.cleared) && o.cleared.length > 0
-		? { cleared: o.cleared }
-		: {}),
-});
-
-/**
- * The row's verdict where it is a green or a red, else null.
- * @param {unknown} v
- * @returns {Verdict|null}
- */
-function parseVerdict(v) {
-	const o = /** @type {Record<string, unknown>|null} */ (
-		v !== null && typeof v === "object" ? v : null
-	);
-	if (o?.kind === "green") return parseGreen(o);
-	if (o?.kind === "red" && isStringList(o.files))
-		return {
-			kind: "red",
-			files: o.files,
-			...(isStringList(o.jobs) ? { jobs: o.jobs } : {}),
-			/* Retried in its own run, so the lander takes no re-run (#4545). */
-			...(o.retried === true ? { retried: true } : {}),
-			...(o.noRun === true ? { noRun: true } : {}),
-		};
-	return null;
-}
-
 /**
  * A ledger row's time in ms, the epoch where it has none readable, so a
  * no-run red of unknown age is asked again rather than trusted (#4572).
@@ -715,287 +643,6 @@ function refusedRecord(file) {
 	};
 }
 
-/** @param {unknown} v @returns {Record<string, unknown>|null} */
-const objectOf = (v) =>
-	v !== null && typeof v === "object"
-		? /** @type {Record<string, unknown>} */ (v)
-		: null;
-
-/** @param {unknown} b @returns {b is Blame} */
-const isBlame = (b) => {
-	const o = objectOf(b);
-	return (
-		isStringList(o?.files) && isStringList(o?.base) && isStringList(o?.members)
-	);
-};
-
-/** @param {unknown} i @returns {i is Isolated} */
-const isIsolated = (i) => {
-	const o = objectOf(i);
-	return (
-		typeof o?.name === "string" &&
-		typeof o.sha === "string" &&
-		typeof o.iso === "string"
-	);
-};
-
-/** @param {unknown} s @returns {s is Serial} */
-const isSerial = (s) => {
-	const o = objectOf(s);
-	const step = objectOf(o?.step);
-	return (
-		isStringList(o?.landed) &&
-		(o?.step === null ||
-			(typeof step?.name === "string" &&
-				typeof step.sha === "string" &&
-				typeof step.onto === "string"))
-	);
-};
-
-/** @param {unknown} h @returns {h is Hold} */
-const isHold = (h) => {
-	const o = objectOf(h);
-	if (typeof o?.main !== "string") return false;
-	if (o.kind === "base")
-		return (
-			isStringList(o.files) &&
-			(o.ticket === null || Number.isInteger(o.ticket)) &&
-			(o.retakeAt === undefined || Number.isFinite(o.retakeAt))
-		);
-	return (
-		o.kind === "refused" &&
-		typeof o.sha === "string" &&
-		typeof o.reason === "string"
-	);
-};
-
-/** @param {unknown} x @returns {x is BaseVerdict} */
-const isBaseVerdict = (x) => {
-	const o = objectOf(x);
-	return (
-		typeof o?.sha === "string" &&
-		isStringList(o.files) &&
-		parseVerdict(o.verdict) !== null
-	);
-};
-
-/** @param {unknown} m @returns {m is Member} */
-const isMember = (m) => {
-	const o = /** @type {Record<string, unknown>|null} */ (
-		m !== null && typeof m === "object" ? m : null
-	);
-	return (
-		typeof o?.name === "string" &&
-		typeof o.sha === "string" &&
-		typeof o.pushedAt === "number"
-	);
-};
-
-/**
- * Whether a batch record's red-path fields are each well formed.
- * @param {Record<string, unknown>} b
- * @returns {b is Record<string, unknown>
- *   & Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold"
- *   | "bases">}
- */
-const hasRedPath = (b) =>
-	isStringList(b.ahead) &&
-	(b.blame === null || isBlame(b.blame)) &&
-	Array.isArray(b.isolated) &&
-	b.isolated.every(isIsolated) &&
-	(b.serial === null || isSerial(b.serial)) &&
-	(b.hold === null || isHold(b.hold)) &&
-	Array.isArray(b.bases) &&
-	b.bases.every(isBaseVerdict);
-
-/**
- * A JSON record file: absent, torn where it will not parse, or its value.
- * Any other read fault throws.
- * @param {string} file
- * @returns {RecordRead<unknown>}
- */
-function readRecordFile(file) {
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return { kind: "absent" };
-		throw err;
-	}
-	try {
-		return { kind: "read", value: JSON.parse(text) };
-	} catch {
-		return { kind: "torn" };
-	}
-}
-
-/**
- * @param {unknown} parsed
- * @returns {Batch|null}
- */
-function parseBatch(parsed) {
-	const b = /** @type {Record<string, unknown>|null} */ (
-		parsed !== null && typeof parsed === "object" ? parsed : null
-	);
-	if (
-		!b ||
-		!Number.isInteger(b.slot) ||
-		!Array.isArray(b.members) ||
-		!b.members.every(isMember) ||
-		typeof b.onto !== "string" ||
-		!isStringList(b.deferred) ||
-		!isStringList(b.dropped) ||
-		!(b.integration === null || typeof b.integration === "string") ||
-		typeof b.phase !== "string" ||
-		!PHASES.includes(b.phase) ||
-		!hasRedPath(b)
-	)
-		return null;
-	return {
-		slot: /** @type {number} */ (b.slot),
-		members: b.members,
-		deferred: b.deferred,
-		dropped: b.dropped,
-		onto: b.onto,
-		integration: b.integration,
-		phase: /** @type {Batch["phase"]} */ (b.phase),
-		ahead: b.ahead,
-		blame: b.blame,
-		isolated: b.isolated,
-		serial: b.serial,
-		hold: b.hold,
-		bases: b.bases.map((x) => ({
-			sha: x.sha,
-			files: x.files,
-			verdict: /** @type {BaseVerdict["verdict"]} */ (parseVerdict(x.verdict)),
-		})),
-	};
-}
-
-/**
- * @param {unknown} parsed
- * @returns {Pipeline|null}
- */
-function parsePipeline(parsed) {
-	const p = objectOf(parsed);
-	if (!p || !Array.isArray(p.line) || !Number.isInteger(p.depth)) return null;
-	const line = p.line.map(parseBatch);
-	const search = p.search === null ? null : parseBatch(p.search);
-	if (line.some((b) => b === null) || (p.search !== null && search === null))
-		return null;
-	return {
-		line: /** @type {Batch[]} */ (line),
-		search,
-		depth: /** @type {number} */ (p.depth),
-	};
-}
-
-/**
- * The pipeline record's file: absent, torn where it is no pipeline, or the
- * pipeline.
- * @param {string} file
- * @returns {RecordRead<Pipeline>}
- */
-function readPipelineFile(file) {
-	const r = readRecordFile(file);
-	if (r.kind !== "read") return r;
-	const pipeline = parsePipeline(r.value);
-	return pipeline ? { kind: "read", value: pipeline } : { kind: "torn" };
-}
-
-/**
- * The pipeline record: the batches a run is landing, so the next run
- * resumes them. A record that is absent or no pipeline reads as none.
- * @param {string} file
- * @returns {PipelineRecord}
- */
-function pipelineRecord(file) {
-	return {
-		read() {
-			const r = readPipelineFile(file);
-			return r.kind === "read" ? r.value : null;
-		},
-		write(p) {
-			writeFileAtomic(file, `${JSON.stringify(p)}\n`);
-		},
-	};
-}
-
-/** @param {unknown} u @returns {u is Drop["cause"]} */
-const isCause = (u) => {
-	const o = objectOf(u);
-	if (typeof o?.name !== "string") return false;
-	switch (o.kind) {
-		case "conflict":
-			return isStringList(o.files);
-		case "refused":
-			return typeof o.reason === "string";
-		case "red":
-			return isStringList(o.files) && typeof o.iso === "string";
-		case "unrecorded":
-			return true;
-		case "collision":
-			return (
-				isStringList(o.files) &&
-				typeof o.step === "string" &&
-				isStringList(o.after)
-			);
-		default:
-			return false;
-	}
-};
-
-/** @param {unknown} d @returns {d is Drop} */
-const isDrop = (d) => {
-	const o = /** @type {Record<string, unknown>|null} */ (
-		d !== null && typeof d === "object" ? d : null
-	);
-	return (
-		typeof o?.name === "string" &&
-		typeof o.sha === "string" &&
-		typeof o.ref === "string" &&
-		typeof o.onto === "string" &&
-		isCause(o.cause) &&
-		(o.ticket === null || Number.isInteger(o.ticket)) &&
-		Number.isFinite(o.at) &&
-		(o.reapedAt === undefined || Number.isFinite(o.reapedAt))
-	);
-};
-
-/**
- * The drop record's file: absent, torn where it is no list, or its drops, a
- * row that is not a drop skipped.
- * @param {string} file
- * @returns {RecordRead<Drop[]>}
- */
-function readDropFile(file) {
-	const r = readRecordFile(file);
-	if (r.kind !== "read") return r;
-	return Array.isArray(r.value)
-		? { kind: "read", value: r.value.filter(isDrop) }
-		: { kind: "torn" };
-}
-
-/**
- * The drop record: every dropped ref, with its fix ticket, until the queue
- * log's retention after its reap. An absent or torn record
- * reads as none, and the lander writes back the entry of each dropped ref it
- * named from the tracker.
- * @param {string} file
- * @returns {DropRecord}
- */
-function dropRecord(file) {
-	return {
-		read() {
-			const r = readDropFile(file);
-			return r.kind === "read" ? r.value : [];
-		},
-		write(drops) {
-			writeFileAtomic(file, `${JSON.stringify(drops)}\n`);
-		},
-	};
-}
-
 /**
  * A land or drop row repeating the newest row its ref holds at that sha is
  * skipped, as a step a crash repeats writes it again.
@@ -1010,12 +657,8 @@ const queueLogger = (root) => (event, m) => {
 };
 
 module.exports = {
-	pipelineRecord,
-	dropRecord,
 	queueGit,
 	queueLogger,
-	readPipelineFile,
-	readDropFile,
 	refusedRecord,
 	verdictLedger,
 };

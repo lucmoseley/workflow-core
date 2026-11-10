@@ -169,7 +169,6 @@
  * that means "this rule's backing is false", which is exactly the wrong answer.
  */
 
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -1222,9 +1221,15 @@ const {
 	manifestAt,
 	readManifestRows,
 	modulePath,
-	readManifest,
 } = require("./lib/guard-cores.js");
-const { parseEdges, walkReach } = require("./lib/guard-reach.js");
+const { walkReach } = require("./lib/guard-reach.js");
+const {
+	DEP_KINDS,
+	digestOf,
+	isDep,
+	readOptsIn,
+} = require("./lib/guard-digest.js");
+const { COMMENT_LEAD, parseHeaderLines } = require("./lib/guard-header.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 const { isUnder, relativeUnder } = require("./lib/is-under.js");
 
@@ -1369,49 +1374,6 @@ function addHookTriggers(hooks, add) {
 			}
 }
 
-/*
- * The header comment: everything above the first line of executable code, after
- * an optional shebang. Both comment spellings and a `/* … *\/` block are read,
- * so one parser covers the shell hooks, the JS notifiers and the two TypeScript
- * vitest entries.
- *
- * Deliberately not "the first N lines". A fixed window either cuts a long header
- * in half or lets an annotation buried in the body count as a header
- * annotation — and the whole point of annotation-in-place is that a reader
- * arriving at the file meets it without scrolling.
- */
-/** @param {string} text */
-function parseHeaderLines(text) {
-	const lines = text.split("\n");
-	/** @type {string[]} */
-	const out = [];
-	const start = lines[0]?.startsWith("#!") ? 1 : 0;
-	let inBlock = false;
-	for (const line of lines.slice(start)) {
-		const t = line.trim();
-		if (!(inBlock || isHeaderLine(t))) break;
-		out.push(line);
-		inBlock = isBlockOpenAfter(t, inBlock);
-	}
-	return out;
-}
-
-/** Whether a trimmed line outside a block comment still belongs to the header. */
-function isHeaderLine(/** @type {string} */ t) {
-	return (
-		t === "" || t.startsWith("/*") || t.startsWith("#") || t.startsWith("//")
-	);
-}
-
-/** Whether a block comment is open after trimmed line `t`. */
-function isBlockOpenAfter(
-	/** @type {string} */ t,
-	/** @type {boolean} */ inBlock,
-) {
-	if (inBlock) return !t.includes("*/");
-	return t.startsWith("/*") && !t.includes("*/");
-}
-
 /* Both regexes are BUILT from their vocabulary rather than restating it: an
  * alternation written out beside the array is a second place to add a key to,
  * and the one that gets missed fails silently — the parser simply never sees
@@ -1422,11 +1384,11 @@ const TREE_KEY = "TREE";
 const TREES = ["session", "host", "both", "none"];
 const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
-/* The comment opener every header key line starts with. */
-const COMMENT_LEAD = "^\\s*(?:#+|\\*|//)\\s*";
-
+/* Backtracks super-linearly on a crafted line; the input is the host repo's own
+ * files, which its own writers control, so a crafted one slows the check,
+ * nothing worse (#4642). COMMENT_LEAD is imported, so the regexp lint no longer
+ * sees this pattern. */
 const ANNOTATION_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	`${COMMENT_LEAD}(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
 );
 /* The reason is required, not decoration: "fail-safe" alone asserts a verdict
@@ -1838,225 +1800,6 @@ function gist(text) {
 }
 
 // --- staleness anchors ------------------------------------------------------
-
-/*
- * A shell guard can reach its logic by RUNNING a program rather than
- * sourcing it (mantahostels#358), by `node`, `bash` or `sh` (#4730).
- * lib/guard-reach.js follows only a self-relative run, `node "$here/x.js"`
- * or through a variable (#2487): a hook
- * runs from an arbitrary cwd, so a guard that genuinely delegates must locate
- * its sibling from its own path, and following a bare `node scripts/x.js`
- * would tie a helper's internals to rules about something else.
- *
- * FAN-OUT: one edit to a shared lib warns on every registry entry reaching it,
- * by require or by running the CLI (mantahostels#358).
- */
-
-/**
- * A guard's dependencies, as paths relative to `root`: a shell guard's `source`
- * lines, a JS guard's relative `require`s, the programs it runs and the
- * dispatch kit's cores, as lib/guard-reach.js reads them.
- *
- * Only a lib/ is followed of what is sourced or required. A guard pulls in its shared library
- * and nothing else here, and widening this to arbitrary paths would start
- * resolving `$PATH` lookups and command substitutions that no regex can settle.
- * @param {string} rel
- * @param {string} text
- * @param {string} [base] the tree run targets and the dispatch manifest resolve in
- * @param {boolean} [withRuns] false leaves out what it only runs, as a gate stack's digest does
- */
-function sourcedBy(rel, text, base = root, withRuns = true) {
-	const { deps, runs } = parsedSources(rel, text, base);
-	return withRuns ? [...deps] : deps.filter((p) => !runs.has(p));
-}
-
-/**
- * The scripts/ files a gate stack's header names, or null where `text` opens
- * no gate stack.
- * @param {string} rel
- * @param {string} text
- */
-function gateStackNamed(rel, text) {
-	return parsedSources(rel, text, root).named;
-}
-
-/**
- * @param {string} rel
- * @param {string} text
- * @param {string} base
- */
-function parsedSources(rel, text, base) {
-	const key = `${base}\0${rel}`;
-	const known = sourcedCache.get(key);
-	if (known?.text === text) return known;
-	const header = parseHeaderLines(text);
-	const parsed = {
-		text,
-		...parseSourcedBy(rel, text, base),
-		named: isGateStack(header)
-			? headerNamed(header).filter((p) => isTreeMember(base, p))
-			: null,
-	};
-	sourcedCache.set(key, parsed);
-	return parsed;
-}
-
-/**
- * sourcedBy's answers, by tree and path, each with the text it was read from.
- * Every guard's digest re-reads its whole library closure, and the emitter scan
- * reads them all again (#4170). Keyed on the text too, so a file that changes mid-run is
- * parsed afresh.
- *
- * @type {Map<string, { text: string, deps: string[], runs: Set<string>, named: string[] | null }>}
- */
-const sourcedCache = new Map();
-
-/**
- * @param {string} rel
- * @param {string} text
- * @param {string} base
- */
-function parseSourcedBy(rel, text, base) {
-	const kept = parseEdges(rel, text, {
-		...readOptsIn(base),
-		kinds: DEP_KINDS,
-	}).filter(isDep);
-	const deps = [...new Set(kept.map((e) => e.to))];
-	const linked = new Set(kept.filter((e) => e.kind !== "run").map((e) => e.to));
-	return {
-		deps,
-		runs: new Set(
-			kept
-				.filter((e) => e.kind === "run" && !linked.has(e.to))
-				.map((e) => e.to),
-		),
-	};
-}
-
-/** The edge kinds a digest follows. */
-const DEP_KINDS = /** @type {import("./lib/guard-reach.js").EdgeKind[]} */ ([
-	"source",
-	"require",
-	"run",
-	"manifest-core",
-]);
-
-/**
- * How a guard's edges resolve in the tree at `base`. The manifest is the
- * judged tree's and is hashed itself, so a commit that changes only a
- * manifest row moves the digest (#3124).
- * @param {string} base
- */
-function readOptsIn(base) {
-	return {
-		isFile: (/** @type {string} */ p) => isTreeMember(base, p),
-		manifest: () => readManifest(manifestAt(base)),
-	};
-}
-
-/**
- * Whether a digest follows `edge`. Only a lib/ is followed of what is sourced
- * or required, resolved first: `session-arbiter.js` reaches its store as
- * `./lib/arbiter-store.js` but the store reaches the proc leaf as
- * `./arbiter-proc.js`, already inside lib/, so the specifier alone cannot
- * say. A delegated program is a sibling under scripts/.
- * @param {import("./lib/guard-reach.js").Edge} edge
- */
-function isDep(edge) {
-	if (edge.kind === "require")
-		return edge.to.startsWith("scripts/lib/") && edge.to.endsWith(".js");
-	if (edge.kind === "source") return edge.to.split("/").includes("lib");
-	return edge.kind !== "run" || edge.to.startsWith("scripts/");
-}
-
-/*
- * A gate stack's header line `RUNS: gates — <why>` (#4456). The programs such a
- * file runs are independent gates, each judged by its own row where a rule
- * describes it. So its digest follows what it and its libraries source and
- * require, plus the bytes alone of each scripts/ file its header names, where
- * its annotation's claims rest, and no program they only run. Undeclared files
- * still follow their run targets, as a thin wrapper's rules need
- * (mantahostels#358).
- */
-const RUNS_GATES_RE = new RegExp(
-	`${COMMENT_LEAD}RUNS:[ \\t]*gates\\s*[—:-]\\s*\\S`,
-);
-const NAMED_SCRIPT_RE = /\bscripts\/[\w./-]+\.(?:js|sh)\b/g;
-
-/** @param {string[]} header a file's header lines */
-function isGateStack(header) {
-	return header.some((line) => RUNS_GATES_RE.test(line));
-}
-
-/** @param {string[]} header a file's header lines: the scripts/ paths it names */
-function headerNamed(header) {
-	return header.flatMap((line) =>
-		[...line.matchAll(NAMED_SCRIPT_RE)].map((m) => m[0]),
-	);
-}
-
-/**
- * The dependencies a digest hashed as absent from the tree. An untracked file
- * at one of these paths moves no digest, so --review never calls it dirty.
- * @type {Set<string>}
- */
-const absentFromTree = new Set();
-
-/*
- * Short hex of the guard's bytes AND of every library it sources. Truncated to
- * 16 chars: this identifies a revision to a human reading a diff, it is not a
- * security boundary.
- *
- * The libraries are in here because a guard's behaviour is not confined to its
- * own file. A shared library named in no rule itself could never be anchored
- * directly — the checker fails an anchor no rule mentions. Folding it into its
- * dependants' digests warns on every rule they enforce at once, which is the
- * right set: a change to a shared emitter can falsify any of them
- * (mantahostels#140).
- */
-/**
- * @param {string} rel
- * @param {Set<string>} [seen] accumulator: each file hashed is added, and each dependency absent from the tree, so a cycle hashes once
- * @param {boolean} [inStack] reached from a gate stack, so what it runs is left out
- * @returns {string | null}
- */
-function digestOf(rel, seen = new Set(), inStack = false) {
-	if (seen.has(rel)) return null;
-	seen.add(rel);
-	/* A guard outside the tree has no digest, whatever lies on disk at its
-	 * path, so one commit gives one verdict in every worktree (#4517). */
-	if (!isTreeMember(root, rel)) return null;
-	try {
-		const bytes = fs.readFileSync(path.join(root, rel));
-		const text = bytes.toString("utf8");
-		const hash = crypto.createHash("sha256").update(bytes);
-		const named = inStack ? null : gateStackNamed(rel, text);
-		const stack = inStack || named !== null;
-		// Sorted, so the digest does not move when the source lines are reordered.
-		/* A dependency outside the tree hashes as absent, whatever lies on disk
-		 * at its path (#4508). It stays an input, so a staged removal of it reads
-		 * as dirty. */
-		for (const lib of sourcedBy(rel, text, root, !stack).sort()) {
-			const there = isTreeMember(root, lib);
-			if (!there) {
-				seen.add(lib);
-				absentFromTree.add(lib);
-			}
-			hash.update(`\0${lib}\0${(there && digestOf(lib, seen, stack)) || ""}`);
-		}
-		/* A named file in the index but gone from disk hashes as absent,
-		 * rather than nulling the stack's whole digest. */
-		for (const p of named ?? []) {
-			seen.add(p);
-			hash.update(`\0${p}\0`);
-			if (fs.existsSync(path.join(root, p)))
-				hash.update(fs.readFileSync(path.join(root, p)));
-		}
-		return hash.digest("hex").slice(0, 16);
-	} catch {
-		return null; // absence is the existing BROKEN-CLAIM's business, not this one's
-	}
-}
 
 /**
  * The working tree's anchors, none where the file is absent. A file there that
@@ -2513,9 +2256,7 @@ function whyNoDigest(g) {
  * @returns {Warning | null}
  */
 function targetWarning(g, describedBy, implicitScripts, { anchors, fresh }) {
-	/** @type {Set<string>} */
-	const hashed = new Set();
-	const current = digestOf(g, hashed);
+	const { digest: current, hashed } = digestOf(root, g);
 	if (current === null) return null;
 	const hashes = [...hashed].sort();
 	const rules = describedBy.get(g) ?? [];
@@ -2987,7 +2728,7 @@ function reprintWarnings(candidates) {
  * script, or a fragment printed only by a script nothing runs would pass while
  * reaching no session. Liveness
  * propagates along the same dependency edges the staleness anchors use
- * (sourcedBy): a guard sources lib/rule-text.sh and its own logic may sit in a
+ * (lib/guard-digest.js's sourcedBy): a guard sources lib/rule-text.sh and its own logic may sit in a
  * lib, so a lib a wired guard reaches is live too.
  *
  * THE EMITTER IS STILL READ FROM THE ACCESSOR CALL, never from the manifest. A
@@ -3276,7 +3017,7 @@ function emitRuleCalls(text) {
 }
 
 /**
- * The files wiring reaches, directly or along their sourcedBy() deps. Only a
+ * The files wiring reaches, directly or along the deps a digest follows (lib/guard-digest.js's DEP_KINDS and isDep). Only a
  * reached file's deps are parsed (#4170).
  *
  * @param {Map<string, string>} texts emitter → its text
@@ -3729,10 +3470,11 @@ function sortClaims(found, snap, wanted, ours) {
  * where the digest reads it, a rename's old name too — or why git would not say. None where there is no
  * HEAD, or outside a repository, which git refuses as it does a broken one.
  *
- * @param {string[]} inputs
+ * @param {{ inputs: string[], absent: Set<string> }} digests the digest inputs, and
+ *   those hashed as absent: an untracked file at one moves no digest
  * @returns {{ paths: string[], error: string | null }}
  */
-function readDirtyInputs(inputs) {
+function readDirtyInputs({ inputs, absent }) {
 	if (inputs.length === 0) return { paths: [], error: null };
 	const head = readCommit(gitReader(root), "HEAD");
 	if (!head.ok)
@@ -3762,7 +3504,7 @@ function readDirtyInputs(inputs) {
 		: {
 				paths: [
 					...tracked.paths,
-					...untracked.paths.filter((p) => !absentFromTree.has(p)),
+					...untracked.paths.filter((p) => !absent.has(p)),
 				],
 				error: null,
 			};
@@ -3931,22 +3673,18 @@ function blobMismatch(rel, blob) {
 }
 
 /**
- * Each path's digest inputs, itself included, and every path's together.
+ * Each path's digest inputs, itself included, every path's together, and
+ * those hashed as absent from the tree.
  *
  * @param {string[]} paths
- * @returns {{ hashedBy: Map<string, Set<string>>, inputs: string[] }}
+ * @returns {{ hashedBy: Map<string, Set<string>>, inputs: string[], absent: Set<string> }}
  */
 function readDigestInputs(paths) {
-	const hashedBy = new Map(
-		paths.map((g) => {
-			/** @type {Set<string>} */
-			const hashed = new Set();
-			digestOf(g, hashed);
-			return [g, hashed];
-		}),
-	);
-	const inputs = [...new Set([...hashedBy.values()].flatMap((h) => [...h]))];
-	return { hashedBy, inputs };
+	const digests = paths.map((g) => ({ g, ...digestOf(root, g) }));
+	const hashedBy = new Map(digests.map((d) => [d.g, d.hashed]));
+	const inputs = [...new Set(digests.flatMap((d) => [...d.hashed]))];
+	const absent = new Set(digests.flatMap((d) => [...d.absent]));
+	return { hashedBy, inputs, absent };
 }
 
 /**
@@ -3987,12 +3725,13 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		reviewPaths.length > 0
 			? reviewPaths
 			: [...new Set([...describedBy.keys(), ...implicitScripts.keys()])].sort();
-	const { hashedBy, inputs } = readDigestInputs(targets);
+	const digests = readDigestInputs(targets);
+	const { hashedBy, inputs } = digests;
 	const { ours, refused } = checkTaking(taking);
 	for (const line of refused) printLine(line);
 	const read = readHeldElsewhere(inputs, ours);
 	const { held, taken, unavailable } = read;
-	const unclaimed = readCallerUnclaimed(inputs, read, ours, {
+	const unclaimed = readCallerUnclaimed(digests, read, ours, {
 		own,
 		soleWriter,
 	});
@@ -4046,17 +3785,18 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
  * The dirty inputs neither a claim of this session's nor the caller's word
  * covers: none under --sole-writer, and never an --own path.
  *
- * @param {string[]} inputs
+ * @param {{ inputs: string[], absent: Set<string> }} digests the digest inputs, and
+ *   those hashed as absent: an untracked file at one moves no digest
  * @param {HeldRead & { unavailable: string | null }} read
  * @param {Map<string, string>} ours
  * @param {{ own: string[], soleWriter: boolean }} caller
  * @returns {Set<string>}
  */
-function readCallerUnclaimed(inputs, read, ours, { own, soleWriter }) {
+function readCallerUnclaimed(digests, read, ours, { own, soleWriter }) {
 	if (own.length > 0) refuseUnreadOwn(read);
 	const unclaimed = soleWriter
 		? refuseSoleWriter(read)
-		: readUnclaimed(inputs, read, ours);
+		: readUnclaimed(digests, read, ours);
 	for (const p of own) unclaimed.delete(p);
 	return unclaimed;
 }
@@ -4102,13 +3842,14 @@ function refuseSoleWriter(read) {
  * The dirty inputs no claim covers, or the end of the run where git would not
  * say which inputs are dirty (#3339).
  *
- * @param {string[]} inputs
+ * @param {{ inputs: string[], absent: Set<string> }} digests the digest inputs, and
+ *   those hashed as absent: an untracked file at one moves no digest
  * @param {HeldRead} read
  * @param {Map<string, string>} ours
  * @returns {Set<string>}
  */
-function readUnclaimed(inputs, read, ours) {
-	const dirty = readDirtyInputs(inputs);
+function readUnclaimed(digests, read, ours) {
+	const dirty = readDirtyInputs(digests);
 	const merged =
 		dirty.error === null
 			? readParentStaged(dirty.paths)
@@ -4271,7 +4012,7 @@ function reanchorTarget(run, g) {
 		);
 		return;
 	}
-	const d = digestOf(g);
+	const d = digestOf(root, g).digest;
 	if (d === null) {
 		run.missing.push(g);
 		delete run.next[g];
@@ -4820,9 +4561,7 @@ function expiredBy(touched, anchors) {
 			gone.push(g);
 			continue;
 		}
-		/** @type {Set<string>} */
-		const hashed = new Set();
-		const d = digestOf(g, hashed);
+		const { digest: d, hashed } = digestOf(root, g);
 		const via = [...hashed].filter((p) => touched.has(p));
 		if (d !== null && d !== anchors[g] && via.length > 0)
 			expired.push({ guard: g, via: via.filter((p) => p !== g) });
@@ -4932,7 +4671,7 @@ function runTouched(ctx) {
 
 // --- report -----------------------------------------------------------------
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /**
  * Where `--review` sits in argv, -1 where absent — refusing the flags it

@@ -2079,8 +2079,8 @@ function lsFilesCallShape(test, m) {
 /**
  * Every read in a test the selector cannot attribute (#1881): a read or a
  * listing whose argument traces to an anchor yet resolves to no edge, and a
- * `git ls-files` run in the repo on a pathspec no literal names. A
- * `full-sweep-only:` line in the test's header reports nothing.
+ * `git ls-files` run in the repo on a pathspec no literal names, whatever
+ * the test's header says.
  * @param {string} source
  * @param {Set<string>} tracked
  * @param {string} self
@@ -2092,7 +2092,6 @@ function unseenSitesFor(source, tracked, self, seen) {
 	if (!READ_OR_LIST.test(source)) return [];
 	if (!ANCHOR.test(source) && !DIRNAME.test(source)) return [];
 	const spans = inertSpans(source);
-	if (FULL_SWEEP_ONLY.test(headerOf(source, spans))) return [];
 	const dir = self.split("/").slice(0, -1).join("/");
 	/** @type {SiteScan} */
 	const scan = { source, spans, dir, tracked, seen, site: 0, decls: new Map() };
@@ -2107,6 +2106,34 @@ function unseenSitesFor(source, tracked, self, seen) {
 			shape,
 		}))
 		.sort((a, b) => a.line - b.line);
+}
+
+/**
+ * Whether `source`'s header carries `full-sweep-only:`, leaving its unseen
+ * reads to the full run rather than reporting them.
+ * @param {string} source
+ */
+const isFullSweepOnly = (source) =>
+	FULL_SWEEP_ONLY.test(headerOf(source, inertSpans(source)));
+
+/**
+ * The reads test `t` makes that the selector cannot attribute, whatever its
+ * header says: a read the pass store's reach takes in nowhere, so the test
+ * records no row (#4790). Lexical, off `t`'s own text alone.
+ * @param {string} t the test's path
+ * @param {string} source its text
+ * @param {Set<string>} tracked
+ * @param {Set<string>} reads the documents the manifest maps to `t`
+ * @returns {Site[]}
+ */
+function unseenReadsOf(t, source, tracked, reads) {
+	/** @type {Set<string> | undefined} */
+	let imports;
+	return unseenSitesFor(source, tracked, t, (p) => {
+		if (reads.has(p)) return true;
+		imports ??= vitestImports(source, t, tracked);
+		return imports.has(p);
+	});
 }
 
 /**
@@ -2338,7 +2365,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 		addClosure(byClosure, t, closureDepths(t, found, loadsOnce, readsOnce));
 		for (const p of ownModules(t, tracked)) found.add(p);
 		for (const p of found) addReader(byDoc, p, t);
-		if (!findSites) continue;
+		if (!findSites || isFullSweepOnly(source)) continue;
 		/** @type {Set<string> | undefined} */
 		let imports;
 		const sites = unseenSitesFor(source, tracked, t, (p) => {
@@ -2491,4 +2518,5 @@ module.exports = {
 	gitOut,
 	testsReading,
 	readWorkingTree,
+	unseenReadsOf,
 };

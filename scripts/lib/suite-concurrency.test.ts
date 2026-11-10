@@ -72,8 +72,16 @@ const { decide, FULL_LIMB_ID } = require("./suite-concurrency.js") as {
 	decide: (command: string, ctx: object) => Verdict;
 	FULL_LIMB_ID: string;
 };
-const { suiteRungMb } = require("./suite-ladder.js") as {
+const { rungMb, suiteRungMb } = require("./suite-ladder.js") as {
+	rungMb: (peakMb: number) => number;
 	suiteRungMb: (workers: number) => number;
+};
+const { chargeMb } = require("./launch-charge.js") as {
+	chargeMb: (launch: { kind: "tsc"; major: number }) => number;
+};
+const TSC_PEAKS_MB = {
+	5: chargeMb({ kind: "tsc", major: 5 }),
+	7: chargeMb({ kind: "tsc", major: 7 }),
 };
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js") as {
 	WHOLE_SUITE_WORKERS: number;
@@ -185,6 +193,7 @@ interface Over {
 	carriedOf?: (pid: number | null) => Weight | null;
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
+	tscPeakMb?: number;
 }
 
 /** A context of fakes: a quiet machine, no package.json, no config. */
@@ -200,6 +209,7 @@ function harness(over: Over = {}) {
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
 		windowsMemory: () => over.windows ?? { state: "absent" },
 		climbMb: (scope: ClimbScope) => over.climb?.[scope] ?? 0,
+		tscLaunchPeakMb: () => over.tscPeakMb ?? TSC_PEAKS_MB[5],
 		psRows: () => {
 			const text = over.ps === undefined ? psWith(0) : over.ps;
 			return text
@@ -2977,7 +2987,7 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 });
 
 describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js --tsc` (#3163)", () => {
-	const { TSC_RUNG_MB } = require("./tsc-slot.js") as { TSC_RUNG_MB: number };
+	const tscRung = rungMb(TSC_PEAKS_MB[5]);
 	const running = psListing([
 		"bash -l",
 		"node /r/node_modules/.bin/tsc --noEmit",
@@ -2989,6 +2999,7 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		"node_modules/.bin/tsc -p tsconfig.strict.json --noEmit",
 		"npm exec tsc -- --noEmit",
 		"node node_modules/typescript/bin/tsc --noEmit",
+		"node_modules/.bin/tsc6 -p tsconfig.build.json --noEmit",
 	])(
 		"%s beside a running `tsc` is denied, line one the wrapped form",
 		(command) => {
@@ -3000,22 +3011,45 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		},
 	);
 
+	/* Recorded off `ps` during a 7.0.2 pass (#4892): the native compiler its
+	 * launcher became under the same PID. */
+	it("denies a TypeScript 7 launch beside a running 7.0 compiler (#4892)", () => {
+		const native = psListing([
+			"bash -l",
+			"/r/node_modules/@typescript/typescript-linux-arm64/lib/tsc -p tsconfig.json --noEmit --checkers 2",
+		]);
+		const command = "node node_modules/@typescript/native/bin/tsc --noEmit";
+		const { text } = judge(command, ROOMY_MB, native);
+		expect(text.split("\n")[0]).toBe(
+			`Run instead: node scripts/queue-run.js --tsc -- ${command}`,
+		);
+		expect(text).toContain("A `tsc` is already running");
+	});
+
+	it("holds a launch on its own compiler's rung (#4892)", () => {
+		const reading = between(rungMb(TSC_PEAKS_MB[7]), tscRung);
+		const on = (tscPeakMb: number) =>
+			outcome(judge("tsc --noEmit", reading, psWith(0), { tscPeakMb }).verdict);
+		expect(on(TSC_PEAKS_MB[7])).toBe("allow");
+		expect(on(TSC_PEAKS_MB[5])).not.toBe("allow");
+	});
+
 	it("is denied under its rung, naming the reading and the rung", () => {
-		const { text } = judge("tsc --noEmit", TSC_RUNG_MB - 1, psWith(0));
+		const { text } = judge("tsc --noEmit", tscRung - 1, psWith(0));
 		expect(text).toContain(
-			`MemAvailable is ${TSC_RUNG_MB - 1} MB, under the ~${TSC_RUNG_MB} MB`,
+			`MemAvailable is ${tscRung - 1} MB, under the ~${tscRung} MB`,
 		);
 	});
 
 	it("is denied where a queued launch's climb leaves it short of its rung (#3488)", () => {
-		const mb = TSC_RUNG_MB + 100;
+		const mb = tscRung + 100;
 		expect(outcome(judge("tsc --noEmit", mb, psWith(0)).verdict)).toBe("allow");
 		const { verdict: charged, text } = judge("tsc --noEmit", mb, psWith(0), {
 			climb: { "off-rung": 0, all: 200 },
 		});
 		expect(outcome(charged)).toBe("deny");
 		expect(text).toContain(
-			`MemAvailable is ${mb} MB, less 200 MB the queues' running launches have yet to draw, under the ~${TSC_RUNG_MB} MB`,
+			`MemAvailable is ${mb} MB, less 200 MB the queues' running launches have yet to draw, under the ~${tscRung} MB`,
 		);
 	});
 

@@ -26,9 +26,8 @@ const { readRunCode, readSupersededFiles } = require("./lander-code.js");
 const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
+const { dropRecord, pipelineRecord } = require("./lander-records.js");
 const {
-	pipelineRecord,
-	dropRecord,
 	queueGit,
 	queueLogger,
 	refusedRecord,
@@ -113,15 +112,15 @@ function buildLanderDeps(
 	{ tester, admit, say, code = readRunCode(root) },
 ) {
 	const files = queueLanderFiles(root);
-	const ciRepeats =
-		tester === undefined &&
-		readConfig({ root, quiet: true }).landingTester === "actions";
+	const built =
+		tester === undefined
+			? configuredTester(root, admit)
+			: commandTester(tester, root);
 	return {
-		git: queueGit(root, undefined, undefined, { ciRepeats }),
-		tester:
-			tester === undefined
-				? configuredTester(root, admit)
-				: commandTester(tester, root),
+		git: queueGit(root, undefined, undefined, {
+			ciRepeats: built.repeatsGates === true,
+		}),
+		tester: built,
 		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
 		refused: refusedRecord(files.refused),

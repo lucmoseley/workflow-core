@@ -34,10 +34,10 @@ const VERIFIED_BRANCH = "main";
 const VERIFIED_REF = `${REMOTE}/${VERIFIED_BRANCH}`;
 const LANDING_BRANCH = "landing";
 const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
-/* The queue lander's own refs (#4458), which it alone writes and may force:
- * each batch's integration commit under test, and each sha it runs alone, an
- * isolation commit or `main`'s base check; the suite runs on a push to an
- * iso-suite one (scheduled-checks.yml). */
+/* The queue lander's own refs (#4458), which its Actions tester alone
+ * writes and may force (#4910): each batch's integration commit under test,
+ * and each sha it runs alone, an isolation commit or `main`'s base check;
+ * the suite runs on a push to an iso-suite one (scheduled-checks.yml). */
 const LANDER_PREFIX = "lander/";
 const LANDER_BATCH_PREFIX = `${LANDER_PREFIX}batch-`;
 /**

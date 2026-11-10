@@ -145,7 +145,7 @@ index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60
 +};
 +
  /**
-  * @param {import("./lib/check").CheckContext} ctx
+  * @param {import("./lib/check").Ctx} ctx
   * @param {UpstreamRow} r
 @@ -960,23 +1038,27 @@ function reportUpstreamRow(ctx, r) {
   */
@@ -219,7 +219,7 @@ index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60
 - * Write the upstream record.
 + * Write the upstream record where every licence matched; say why not otherwise.
   *
-  * @param {import("./lib/check").CheckContext} ctx
+  * @param {import("./lib/check").Ctx} ctx
   * @param {string} root
   * @param {Record<string, string | null>} read
 + * @param {LicenceRow[]} licences

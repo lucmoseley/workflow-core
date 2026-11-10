@@ -71,7 +71,7 @@ const { deny, open, walkVerdict } = require("./guard-verdict.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { BASH_SPACE, parseCommand } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
-const { readOrNull } = require("./tree-or.js");
+const { readOrNull } = require("./file-read.js");
 const { trimRun } = require("./trim-run.js");
 const {
 	commandName,
@@ -177,7 +177,7 @@ function readRoadmapOrOpen(run) {
 	if (typeof run.roadmap === "string") return run.roadmap;
 	const text = readOrNull(run.ctx.tree(), ROADMAP);
 	if (text === null)
-		open(
+		return open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
 		);
@@ -367,7 +367,7 @@ function judgeTitle(run, segment, title) {
 	if (phase === null || phase === "0") return;
 	const register = readOrNull(run.ctx.tree(), REGISTER);
 	if (register === null)
-		open(
+		return open(
 			run.ctx,
 			`${REGISTER} is unreadable — issue creation for ${card} allowed unchecked`,
 		);

@@ -105,7 +105,7 @@ const {
 const hookMessage = require("./lib/hook-message");
 const { trimEndRun } = require("./lib/trim-run.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /** This checker's own name, skipped in its own scan. */
 const SELF = "replay-notify-reports";

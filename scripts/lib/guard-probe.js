@@ -26,7 +26,6 @@ const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const {
 	MatcherError,
-	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_HOOKS,
 	isToolCovered,
 	readHooksAt,
@@ -34,7 +33,7 @@ const {
 const { isLockoutText } = require("./core-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { gitOutcome, gitReader } = require("./git.js");
-const { buildHookEnv } = require("./hook-env.js");
+const { buildHookEnv, selfPluginRoot } = require("./hook-env.js");
 const { FETCH_TIMEOUT_MS } = require("./pinned-code.js");
 const { sleepSync } = require("./sleep-sync.js");
 
@@ -178,7 +177,7 @@ function readHookOutput(stdout) {
  * @returns {ProbeFailure|null}
  */
 function readGuardLoadFailure(root) {
-	if (!fs.existsSync(path.join(root, SELF_PLUGIN_DIR))) return null;
+	if (!fs.existsSync(selfPluginRoot(root))) return null;
 	const read = buildBenignRead(root);
 	if (readGuardRunFailure(root, read, true) === null) return null;
 	sleepSync(guardProbeRetryMs());

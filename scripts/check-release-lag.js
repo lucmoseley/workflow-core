@@ -82,7 +82,7 @@ function readAdopterLabels(home) {
 runCheck({
 	name: "release-lag",
 	usage: "node check-release-lag.js [--json]",
-	/** @param {import("./lib/check").CheckContext} ctx */
+	/** @param {import("./lib/check").Ctx} ctx */
 	run(ctx) {
 		const root = process.env.WFC_REPO_ROOT || hostRoot();
 		if (!isCoreHost(root))

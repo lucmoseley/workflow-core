@@ -21,7 +21,7 @@ const fs = require("node:fs");
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 // The shared identity: "v5.21 · updated 8 July 2026, 19:00".
 // Bounded so a trailing " · 107 cards" (digest) or "</p>" (html) is excluded.

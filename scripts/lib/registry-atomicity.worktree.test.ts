@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * guard-registry-atomicity in a session's own worktree (#4242): with
- * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
- * worktree, a commit landing a new checker is judged on the worktree's files,
+ * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
+ * checkout, a commit landing a new checker is judged on the worktree's files,
  * never the main checkout's.
  */
 

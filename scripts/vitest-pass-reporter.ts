@@ -38,6 +38,7 @@ const UNNAMED_TEST = "(unnamed test)";
 const require = createRequire(import.meta.url);
 const {
 	formatFilteredRun,
+	formatCachedClause,
 	isFullScope,
 	docsOfTests,
 	readDocsByTest,
@@ -48,6 +49,17 @@ const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
 const { relativeUnder } = require("./lib/is-under.js");
 const { foldCached, readCachedHandoff } = require("./lib/pass-store.js");
+
+const scopeUnrecorded = (failure: unknown, cached: string[]): string =>
+	[
+		`SCOPE UNRECORDED (mantahostels#1230) — this run cannot say how much of the suite it covered: ${failure}`,
+		formatCachedClause(cached),
+	]
+		.filter(Boolean)
+		.join("; ");
+
+const cachedFiles = (cached: ReturnType<typeof readCachedHandoff>): string[] =>
+	cached ? cached.map((c: { file: string }) => c.file) : [];
 
 /**
  * Who writes the marker for a run that selected NOTHING (#189 §6). Vitest
@@ -261,6 +273,7 @@ export default class TestPassReporter {
 			outcome: reason === "passed" && unhandledErrors.length === 0,
 		});
 
+		const cached = readCachedHandoff();
 		let scope = null;
 		let failure: unknown = null;
 		try {
@@ -275,8 +288,8 @@ export default class TestPassReporter {
 		try {
 			fillRunReport({ scope });
 			const line = failure
-				? `SCOPE UNRECORDED (mantahostels#1230) — this run cannot say how much of the suite it covered: ${failure}`
-				: formatFilteredRun(scope);
+				? scopeUnrecorded(failure, cachedFiles(cached))
+				: formatFilteredRun(scope, cachedFiles(cached));
 			if (line) process.stdout.write(`${line}\n`);
 		} catch {
 			/* a broken pipe at the end of a green run is not a red run */
@@ -293,6 +306,7 @@ export default class TestPassReporter {
 			attestation = this.describeAttestation(
 				testModules as TestModuleLike[],
 				scope,
+				cached,
 			);
 		} catch (error) {
 			closureFailure = error;
@@ -352,6 +366,7 @@ export default class TestPassReporter {
 	private describeAttestation(
 		testModules: TestModuleLike[],
 		scope: { modulesRun: number; modulesTotal: number } | null,
+		cached: ReturnType<typeof readCachedHandoff>,
 	) {
 		if (scope && isFullScope(scope)) return fullAttestationOf(readLaunch());
 		const root = this.vitest?.config?.root;
@@ -403,7 +418,7 @@ export default class TestPassReporter {
 				),
 				roots: [...roots].sort(),
 			},
-			readCachedHandoff(),
+			cached,
 		);
 	}
 

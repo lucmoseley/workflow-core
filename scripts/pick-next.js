@@ -281,14 +281,34 @@ async function ghGet(path) {
  * Type-predicate filters, so a `.filter(...).map(...)` pair narrows the field
  * a `.filter((i) => i.gate)` truthy-check alone does not carry across.
  */
-/** @type {(i: Issue) => i is Issue & {gate: NonNullable<Issue["gate"]>}} */
-const hasGate = (i) => i.gate !== null;
-/** @type {(i: Issue) => i is Issue & {gateOn: NonNullable<Issue["gateOn"]>}} */
-const hasGateOn = (i) => i.gateOn !== null;
-/** @type {(i: Issue) => i is Issue & {wait: NonNullable<Issue["wait"]>}} */
-const hasWait = (i) => i.wait !== null;
-/** @type {(i: Issue) => i is Issue & {parked: NonNullable<Issue["parked"]>}} */
-const hasParked = (i) => i.parked !== null;
+/**
+ * @param {Issue} i
+ * @returns {i is Issue & {gate: NonNullable<Issue["gate"]>}}
+ */
+function hasGate(i) {
+	return i.gate !== null;
+}
+/**
+ * @param {Issue} i
+ * @returns {i is Issue & {gateOn: NonNullable<Issue["gateOn"]>}}
+ */
+function hasGateOn(i) {
+	return i.gateOn !== null;
+}
+/**
+ * @param {Issue} i
+ * @returns {i is Issue & {wait: NonNullable<Issue["wait"]>}}
+ */
+function hasWait(i) {
+	return i.wait !== null;
+}
+/**
+ * @param {Issue} i
+ * @returns {i is Issue & {parked: NonNullable<Issue["parked"]>}}
+ */
+function hasParked(i) {
+	return i.parked !== null;
+}
 
 /** @typedef {{ok: true, files: string[]} | {ok: false, error: string}} TrackedFiles */
 
