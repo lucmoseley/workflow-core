@@ -262,11 +262,11 @@ const tickOf = (io: TickIo, c: Control | null = control(), dryRun = false) =>
 
 const stateOf = (over: Record<string, unknown> = {}) => loopStateOf(over);
 
-/** An away control a prompt typed a minute ago brings back to normal. */
+/** An away control no tick has yet read the founder absent under. */
 const awayControl = () =>
 	control({
 		scope: { ...normal([WFC]), mode: "away" },
-		away: { since: NOW - 60 * MIN, absentSeen: true },
+		away: { since: NOW - 60 * MIN, absentSeen: false },
 	});
 
 const expectOrder = (calls: string[], a: string, b: string) => {
@@ -426,7 +426,7 @@ describe("the tick's step order (#4212)", () => {
 			now: NOW,
 			opening: {
 				...opening(awayControl()),
-				typed: { at: NOW - MIN, seat: null },
+				typed: { at: null, seat: null },
 			},
 		});
 		expectOrder(calls, "changeControl", "reap");
@@ -1056,7 +1056,7 @@ describe("the dry-run policy (#4212)", () => {
 			now: NOW,
 			opening: {
 				...opening(awayControl()),
-				typed: { at: NOW - MIN, seat: null },
+				typed: { at: null, seat: null },
 			},
 		});
 		expect(calls).toContain("previewReap");
@@ -1071,7 +1071,7 @@ describe("the dry-run policy (#4212)", () => {
 				now: NOW,
 				opening: {
 					...opening(awayControl()),
-					typed: { at: NOW - MIN, seat: null },
+					typed: { at: null, seat: null },
 				},
 			});
 			return blockCalls(calls);
@@ -1122,7 +1122,7 @@ describe("the dry-run policy (#4212)", () => {
 /**
  * The control file under its lock, each change made on its fresh read. No
  * contract test holds it to refill-tick.js's changeControl; the sandbox case
- * "leaves the return to the next tick while another writer holds the lock"
+ * "leaves the absent read to the next tick while another writer holds the lock"
  * crosses the real lock (#4356).
  */
 const controlFileFake = (initial: Control) => {
@@ -1143,37 +1143,20 @@ const controlFileFake = (initial: Control) => {
 	};
 };
 
-describe("a control change under the lock (#2522)", () => {
+describe("a control change under the lock (#4846)", () => {
 	it("goes on over the change a dry run previews, writing and logging none", async () => {
 		const away = awayControl();
-		const { io, lines, calls } = fakeIo(stateOf());
+		const { io, calls } = fakeIo(stateOf());
 		const r = await runTick(io, {
 			dryRun: true,
 			now: NOW,
 			opening: {
 				...opening(away),
-				typed: { at: NOW - MIN, seat: null },
+				typed: { at: null, seat: null },
 			},
 		});
 		expect(calls).not.toContain("changeControl");
-		expect(lines.join("\n")).not.toContain("the founder is back");
 		expect(r.decision).not.toHaveProperty("stop");
-	});
-
-	it("logs the write a live tick's control change made", async () => {
-		const away = awayControl();
-		const { io, lines } = fakeIo(stateOf(), {
-			changeControl: controlFileFake(away).changeControl,
-		});
-		await runTick(io, {
-			dryRun: false,
-			now: NOW,
-			opening: {
-				...opening(away),
-				typed: { at: NOW - MIN, seat: null },
-			},
-		});
-		expect(lines.join("\n")).toContain("mode normal: the founder is back");
 	});
 
 	it("leaves a change to the next tick where the lock stays held", async () => {
@@ -1186,16 +1169,16 @@ describe("a control change under the lock (#2522)", () => {
 			now: NOW,
 			opening: {
 				...opening(away),
-				typed: { at: NOW - MIN, seat: null },
+				typed: { at: null, seat: null },
 			},
 		});
 		expect(lines).toContain(
-			"away mode's change waits for the next tick: pid 7",
+			"away mode's absent read waits for the next tick: pid 7",
 		);
 	});
 });
 
-describe("away mode's return through the tick (#3870)", () => {
+describe("away mode through the tick (#4846)", () => {
 	const tickAt = (
 		io: TickIo,
 		file: ReturnType<typeof controlFileFake>,
@@ -1207,56 +1190,29 @@ describe("away mode's return through the tick (#3870)", () => {
 			now,
 			opening: { ...opening(file.read()), typed: { at: typedAt, seat: null } },
 		});
-	const returns = (lines: string[]) =>
-		lines.filter((l) => l.startsWith("mode normal: the founder is back"));
 
-	it("returns and logs it, then a manual --away holds until the next absent read and present one", async () => {
-		const file = controlFileFake(awayControl());
-		const { io, lines } = fakeIo(stateOf(), {
-			changeControl: file.changeControl,
-		});
-		const typed = NOW - MIN;
-		await tickAt(io, file, NOW, typed);
-		expect(file.read().scope.mode).toBe("normal");
-		expect(file.read()).not.toHaveProperty("away");
-		expect(returns(lines)).toHaveLength(1);
-
-		/* What `set --away` writes (refill-commands.test.ts's "a set's switch to
-		 * away"): a switch after the prompt just read. */
-		const switchedAt = NOW + MIN;
-		file.write(controlInMode(file.read(), "away", switchedAt));
-		await tickAt(io, file, switchedAt + MIN, typed);
-		expect(file.read().scope.mode).toBe("away");
-		expect(file.read().away).toEqual({ since: switchedAt, absentSeen: false });
-
-		/* The switch reads as presence for its first window (#4184): two hours on,
-		 * neither it nor the prompt does. */
-		const absentAt = switchedAt + 120 * MIN;
-		await tickAt(io, file, absentAt, typed);
-		expect(file.read().scope.mode).toBe("away");
-		expect(file.read().away?.absentSeen).toBe(true);
-		expect(returns(lines)).toHaveLength(1);
-
-		await tickAt(io, file, absentAt + MIN, absentAt);
-		expect(file.read().scope.mode).toBe("normal");
-		expect(returns(lines)).toHaveLength(2);
-	});
-
-	it("records an absent read and stays away", async () => {
+	it("records an absent read, and stays away through the present read after it", async () => {
 		const since = NOW - 60 * MIN;
-		const file = controlFileFake(
-			control({
-				scope: { ...normal([WFC]), mode: "away" },
-				away: { since, absentSeen: false },
-			}),
-		);
-		const { io, lines } = fakeIo(stateOf(), {
-			changeControl: file.changeControl,
-		});
+		const file = controlFileFake(awayControl());
+		const { io } = fakeIo(stateOf(), { changeControl: file.changeControl });
 		await tickAt(io, file, NOW, null);
+		expect(file.read().away).toEqual({ since, absentSeen: true });
+
+		await tickAt(io, file, NOW + MIN, NOW);
 		expect(file.read().scope.mode).toBe("away");
 		expect(file.read().away).toEqual({ since, absentSeen: true });
-		expect(lines.join("\n")).not.toContain("the founder is back");
+	});
+
+	it("reads the switch as presence for its first window (#4184)", async () => {
+		const file = controlFileFake(
+			controlInMode(control({ scope: normal([WFC]) }), "away", NOW),
+		);
+		const { io } = fakeIo(stateOf(), { changeControl: file.changeControl });
+		await tickAt(io, file, NOW + MIN, null);
+		expect(file.read().away).toEqual({ since: NOW, absentSeen: false });
+
+		await tickAt(io, file, NOW + 120 * MIN, null);
+		expect(file.read().away).toEqual({ since: NOW, absentSeen: true });
 	});
 });
 

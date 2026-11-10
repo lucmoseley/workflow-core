@@ -7,6 +7,10 @@
  *
  * spawn-kept: a real fd (§X3) — the script hands the child real fds —
  * its own stdout and stderr, and the prompt file as stdin.
+ *
+ * Each of the Chrome mode's ends (#4847) is a launch of its own, a third of a
+ * second apiece: a result row, none, a kill at the limit, a signal, a binary
+ * that is gone. That is this file's run time over its CI record.
  */
 
 import { spawnSync } from "node:child_process";
@@ -20,11 +24,14 @@ import {
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
+import { CHROME_STANDING_LINES } from "./lib/chrome-child.js";
+import { buildTabContext, buildToolResultRow } from "./lib/chrome-rows-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { readJudgeCalls, writeJudgeFake } from "./lib/gate-judge-fake";
 import { JUDGE_ARGS, JUDGE_TIMEOUT_EXIT } from "./lib/gate-judge-mode.js";
 import {
 	buildHeadlessBranch,
+	buildResultRow,
 	readHeadlessCalls,
 	writeHeadlessFake,
 } from "./lib/headless-run-fake";
@@ -139,7 +146,20 @@ describe("chrome", () => {
 		return f;
 	};
 
+	/** The stub's `-p` run printing `rows` as its stream. */
+	const writeStream = (rows: Record<string, unknown>[], exit = 0) =>
+		writeClaudeStub(path.join(dir, "claude"), [
+			buildHeadlessBranch(
+				writeHeadlessFake(path.join(dir, "claude-p"), {
+					log: callsLog(),
+					mode: "end",
+					rows,
+					exit,
+				}),
+			),
+		]);
 	it("gives the child the Chrome tools only, file_upload barred, 10 turns a page plus 5, the prompt on stdin", () => {
+		writeStream([buildResultRow()]);
 		const r = run([
 			"chrome",
 			"--config-dir",
@@ -162,10 +182,135 @@ describe("chrome", () => {
 			"--max-turns",
 			"25",
 			"--output-format",
-			"json",
+			"stream-json",
+			"--verbose",
+			"--append-system-prompt",
+			CHROME_STANDING_LINES,
 		]);
 		expect(readSeen().stdinText).toBe("Read example.com and report.\n");
 		expect(readSeen().env.CLAUDE_CONFIG_DIR).toBe(seat);
+	});
+
+	const chrome = (extra: Record<string, string> = {}) =>
+		run(
+			[
+				"chrome",
+				"--config-dir",
+				seat,
+				"--pages",
+				"1",
+				"--prompt-file",
+				prompt(),
+			],
+			extra,
+		);
+
+	it("prints the result row alone, no tab left where the child closed its group", () => {
+		writeStream([
+			{ type: "system", subtype: "init" },
+			buildToolResultRow(
+				'{"availableTabs":[{"tabId":7}]}',
+				buildTabContext([7, "chrome://newtab/"]),
+			),
+			buildToolResultRow("Closed tab 7. Group is now empty (auto-removed)."),
+			buildResultRow({ result: "read it" }),
+		]);
+		const r = chrome();
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+		const lines = r.stdout.trimEnd().split("\n");
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0] ?? "")).toMatchObject({
+			subtype: "success",
+			result: "read it",
+			tabsLeftOpen: [],
+		});
+	});
+
+	it("names each tab the child left open, in the result and on stderr, keeping the child's status", () => {
+		writeStream([
+			buildToolResultRow(buildTabContext([7, "chrome://newtab/"])),
+			buildToolResultRow(
+				"Created new tab. Tab ID: 8",
+				buildTabContext([7, "chrome://newtab/"], [8, "https://example.com/"]),
+			),
+			buildToolResultRow(
+				"Closed tab 7. 1 tab(s) remain.",
+				buildTabContext([8, "https://example.com/"]),
+			),
+			buildResultRow(),
+		]);
+		const r = chrome();
+		expect(r.status).toBe(0);
+		expect(JSON.parse(r.stdout).tabsLeftOpen).toEqual([
+			{ tabId: 8, title: "A page", url: "https://example.com/" },
+		]);
+		expect(r.stderr).toBe(
+			"claude-child: the child left 1 tab(s) open in its Claude tab group: 8 (https://example.com/)\n",
+		);
+	});
+
+	it("names the tabs left by a child that ended with no result row", () => {
+		writeStream(
+			[buildToolResultRow(buildTabContext([7, "https://example.com/"]))],
+			1,
+		);
+		const r = chrome();
+		expect(r.status).toBe(1);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toContain("7 (https://example.com/)");
+	});
+
+	it("passes on a line that is no stream row", () => {
+		writeStub(1);
+		const r = chrome();
+		expect(r.status).toBe(1);
+		expect(r.stdout).toBe("child said hello\n");
+	});
+
+	it("fails a child that ended clean with no result row", () => {
+		writeStream([{ type: "system", subtype: "init" }]);
+		const r = chrome();
+		expect(r.status).toBe(1);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toBe(
+			"claude-child: the child ended with no result row.\n",
+		);
+	});
+
+	it("kills a child still running at its limit, naming the limit", () => {
+		writeClaudeStub(path.join(dir, "claude"), [
+			buildHeadlessBranch(
+				writeHeadlessFake(path.join(dir, "claude-p"), { log: callsLog() }),
+			),
+		]);
+		const r = chrome({ WFC_CHROME_CHILD_LIMIT_MS: "500" });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			"claude-child: the child was killed at its 500 ms limit.\n",
+		);
+	});
+
+	it("names the signal that killed the child", () => {
+		writeClaudeStub(path.join(dir, "claude"), [
+			buildHeadlessBranch(path.join(dir, "claude-p"), "kill -KILL $$;"),
+		]);
+		const r = chrome();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe("claude-child: the child was killed by SIGKILL.\n");
+	});
+
+	it("says so where the child cannot start", () => {
+		/* Answers `auth status`, then is gone before the launch. */
+		const vanishing = path.join(dir, "vanishing");
+		fs.writeFileSync(
+			vanishing,
+			`#!/bin/bash\nif [ "$1" = "auth" ]; then rm -- "$0"; fi\n${buildAuthStatusBranch()}\n`,
+			{ mode: 0o755 },
+		);
+		const r = chrome({ WFC_CLAUDE_BIN: vanishing });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("the child did not finish");
 	});
 
 	it.each([
