@@ -84,8 +84,7 @@ const PACKAGE_INPUTS = [
 const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
-/* The row layout: a run line of another, or none, never decides. 2 added
- * the `absent` inputs (#4814). */
+/* The row layout: a run line of another, or none, never decides (#4814). */
 const FORMAT = 2;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
@@ -294,7 +293,6 @@ function readEdges(root, rel) {
 			shadows: repoRelative(root, shadowsOf(abs, read.data)),
 		};
 	} catch {
-		/* A fault in the read leaves an input unknown: null records no row. */
 		return null;
 	}
 }

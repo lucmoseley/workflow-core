@@ -7,8 +7,7 @@
  *
  * A CONTENT ID is a path's mode and blob id, as `git ls-tree` prints them, or
  * null where the path holds no file. Mode is in it because a spawned script
- * runs on its executable bit. A store that keeps ids as strings spells "no
- * file" `ABSENT`, and reads ids through `absentAsId` to match it (#4814).
+ * runs on its executable bit.
  */
 
 const fs = require("node:fs");
@@ -16,7 +15,8 @@ const path = require("node:path");
 
 /** @typedef {Map<string, string|null>} ContentIds path to content id, null where absent */
 
-/* The string content id of a path that holds no file. */
+/* The string content id of a path that holds no file, for a store that
+ * keeps ids as strings (#4814). */
 const ABSENT = "absent";
 
 /**

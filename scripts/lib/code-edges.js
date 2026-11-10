@@ -11,8 +11,7 @@
  *     sourced or run (#460).
  *   Python — `import X` or `from X import`, X.py sitting beside the importer
  *     (#465).
- * A path built any other way is unseen. `shadowsOf` names the paths each JS
- * specifier tried before its target, which the pass store keys on (#4814).
+ * A path built any other way is unseen.
  *
  * FOREIGN: a Python module neither stdlib (python3's own
  * sys.stdlib_module_names, so 3.10 or later) nor beside its importer is
@@ -157,7 +156,7 @@ function relativeSpecifiers(dir, code) {
 /**
  * The paths a JS or TypeScript file's relative specifiers tried before the
  * file each resolved to (#4814): a file appearing at one would take the
- * import over. A specifier that resolves to nothing shadows nothing.
+ * import over.
  * @param {string} file absolute
  * @param {string} text
  * @returns {string[]} absolute
@@ -245,7 +244,7 @@ function pyNames(list) {
  */
 function pyImportedModules(m) {
 	/* Group 1 is the `from` branch, which always carries group 2; group
-	 * 3 is the bare `import` branch. The two throws check that invariant. */
+	 * 3 is the bare `import` branch. */
 	const [, from, fromNames, bareNames] = m;
 	if (from === undefined) {
 		if (bareNames === undefined)
