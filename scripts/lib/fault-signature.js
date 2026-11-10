@@ -372,7 +372,6 @@ function appendSignatureLine(root, line) {
 }
 
 /**
- * The body section recording a line, its `issue` left to the ticket.
  * @param {Record<string, unknown>} line
  */
 function signatureSection(line) {
@@ -380,7 +379,6 @@ function signatureSection(line) {
 	return `${SECTION_HEADING}\n\n\`\`\`json\n${JSON.stringify(rest)}\n\`\`\`\n`;
 }
 
-/** The section as signatureSection writes it, its line captured. */
 const SECTION = new RegExp(
 	`^${escapeRe(SECTION_HEADING)}\\r?\\n\\r?\\n\`\`\`json\\r?\\n([^\\r\\n]*)\\r?\\n\`\`\`(?:\\r?\\n)?`,
 	"m",

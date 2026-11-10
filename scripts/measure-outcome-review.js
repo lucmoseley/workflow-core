@@ -14,9 +14,9 @@
  * in both is read once, as the run record has it. A late line is reported
  * apart throughout.
  *
- * A DUPLICATE log line for one issue, as a restored line and its original both
- * landed, is one finding where the lines are identical; differing lines are a
- * conflict, listed and given no verdict, never one silently picked.
+ * A DUPLICATE log line for one issue is one finding where the lines are
+ * identical; differing lines are a conflict, listed and given no verdict,
+ * never one silently picked.
  *
  * SETTLED: a finding a prior run line gave `keep` or `unwind` is not read
  * again; it is listed as settled. An unwind carried past the cap stays in the
@@ -65,9 +65,9 @@
  * declaration to doubt.
  *
  * LOST LINES: a closed ticket carrying lib/signature-label.js's label, closed
- * at any date, owes a line; one with none in either record is listed every run until one lands, with the line its body section
- * records or UNRECOVERABLE, for the retro to restore (#4861). It is neither a
- * miss nor a no-fault bug. An open ticket's filer may still be landing.
+ * at any date, owes a line; one with none in either record is listed every run
+ * until one lands, with the line its body section records or UNRECOVERABLE,
+ * for the retro to restore (#4861). It is neither a miss nor a no-fault bug.
  *
  * BASELINE MODE (`--baseline <signature file> --filed-at <iso>`) gives a
  * finding's baseline at filing, for the retro's `findings[].baseline`: the

@@ -5,7 +5,7 @@
  * the fact, checked as file-issue.js checks a filing's, and logged
  * `late: true` so its verdicts are reported apart. The ticket gains the
  * `fault-signature` label and the line in its body section first, as a filing
- * does, so a lost late line is caught by the same rule (#4861).
+ * does (#4861).
  *
  *   node scripts/log-late-signature.js --issue <owner/name>#<n>
  *     --filed-at <iso> --fault-signature <file>

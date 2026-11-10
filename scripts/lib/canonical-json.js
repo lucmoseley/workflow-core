@@ -1,8 +1,7 @@
 /*
  * canonical-json.js — JSON.stringify with keys optionally sorted (by UTF-8
  * bytes), so two values equal in content serialise equal whatever their key
- * order: the echo chain's call signature and the outcome review's duplicate
- * log-line check (#4861).
+ * order.
  */
 
 /**
