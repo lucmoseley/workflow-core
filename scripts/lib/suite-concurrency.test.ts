@@ -72,8 +72,12 @@ const { decide, FULL_LIMB_ID } = require("./suite-concurrency.js") as {
 	decide: (command: string, ctx: object) => Verdict;
 	FULL_LIMB_ID: string;
 };
-const { suiteRungMb } = require("./suite-ladder.js") as {
+const { rungMb, suiteRungMb } = require("./suite-ladder.js") as {
+	rungMb: (peakMb: number) => number;
 	suiteRungMb: (workers: number) => number;
+};
+const { TSC_PEAKS_MB } = require("./tsc-slot.js") as {
+	TSC_PEAKS_MB: { 5: number; 7: number };
 };
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js") as {
 	WHOLE_SUITE_WORKERS: number;
@@ -185,6 +189,7 @@ interface Over {
 	carriedOf?: (pid: number | null) => Weight | null;
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
+	tscPeakMb?: number;
 }
 
 /** A context of fakes: a quiet machine, no package.json, no config. */
@@ -200,6 +205,7 @@ function harness(over: Over = {}) {
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
 		windowsMemory: () => over.windows ?? { state: "absent" },
 		climbMb: (scope: ClimbScope) => over.climb?.[scope] ?? 0,
+		tscLaunchPeakMb: () => over.tscPeakMb ?? TSC_PEAKS_MB[5],
 		psRows: () => {
 			const text = over.ps === undefined ? psWith(0) : over.ps;
 			return text
@@ -2977,11 +2983,7 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 });
 
 describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js --tsc` (#3163)", () => {
-	const { TSC_PEAK_MB, tscRungMb } = require("./tsc-slot.js") as {
-		TSC_PEAK_MB: number;
-		tscRungMb: (peakMb: number) => number;
-	};
-	const tscRung = tscRungMb(TSC_PEAK_MB);
+	const tscRung = rungMb(TSC_PEAKS_MB[5]);
 	const running = psListing([
 		"bash -l",
 		"node /r/node_modules/.bin/tsc --noEmit",
@@ -2993,6 +2995,7 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		"node_modules/.bin/tsc -p tsconfig.strict.json --noEmit",
 		"npm exec tsc -- --noEmit",
 		"node node_modules/typescript/bin/tsc --noEmit",
+		"node_modules/.bin/tsc6 -p tsconfig.build.json --noEmit",
 	])(
 		"%s beside a running `tsc` is denied, line one the wrapped form",
 		(command) => {
@@ -3017,6 +3020,14 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 			`Run instead: node scripts/queue-run.js --tsc -- ${command}`,
 		);
 		expect(text).toContain("A `tsc` is already running");
+	});
+
+	it("holds a launch on its own compiler's rung (#4892)", () => {
+		const reading = between(rungMb(TSC_PEAKS_MB[7]), tscRung);
+		const on = (tscPeakMb: number) =>
+			outcome(judge("tsc --noEmit", reading, psWith(0), { tscPeakMb }).verdict);
+		expect(on(TSC_PEAKS_MB[7])).toBe("allow");
+		expect(on(TSC_PEAKS_MB[5])).not.toBe("allow");
 	});
 
 	it("is denied under its rung, naming the reading and the rung", () => {

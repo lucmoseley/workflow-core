@@ -420,11 +420,13 @@ describe("the production adapters, crossed for real", () => {
 	});
 
 	it("charges a spawned suite's remaining climb at a bare `tsc` (#3488)", () => {
-		const { TSC_PEAK_MB, tscRungMb } = require("./lib/tsc-slot.js") as {
+		const { TSC_PEAK_MB } = require("./lib/tsc-slot.js") as {
 			TSC_PEAK_MB: number;
-			tscRungMb: (peakMb: number) => number;
 		};
-		const tscRung = tscRungMb(TSC_PEAK_MB);
+		const { rungMb } = require("./lib/suite-ladder.js") as {
+			rungMb: (peakMb: number) => number;
+		};
+		const tscRung = rungMb(TSC_PEAK_MB);
 		setMb(tscRung + 500);
 		expect(emission("tsc --noEmit")).toBeNull();
 		withSpawnedSuite(() => {

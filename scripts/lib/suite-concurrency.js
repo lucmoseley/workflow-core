@@ -152,7 +152,7 @@ const {
 	buildIsWrapperScript,
 } = require("./suite-launch.js");
 const { isNpmRun, npmCanon } = require("./npm-options.js");
-const { isTscLaunch, launchPeakMb, tscDenial } = require("./tsc-slot.js");
+const { tscDenial, tscLaunchBin } = require("./tsc-slot.js");
 const {
 	buildWindowsShortText,
 	readWindowsRecorded,
@@ -175,6 +175,8 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(scope: ClimbScope) => number} climbMb what the queues'
  *   running launches in `scope` have yet to draw, in MB, which MemAvailable
  *   does not yet count (#3488, #4111)
+ * @property {(tree: string, bin: string) => number} tscLaunchPeakMb the peak
+ *   a `bin` launch from `tree` is charged, by the compiler it resolves to (#4892)
  * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows `ps`,
  *   read once a call
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
@@ -659,7 +661,8 @@ function subjectOf(st, words, segment) {
 	}
 	if (isNextLaunch("dev", words))
 		return { verdict: denySecondNext(st, "dev", " server", segment) };
-	if (isTscLaunch(words)) return { verdict: denyBareTsc(st, segment) };
+	const tscBin = tscLaunchBin(words);
+	if (tscBin !== null) return { verdict: denyBareTsc(st, segment, tscBin) };
 	return { verdict: undefined };
 }
 
@@ -670,9 +673,10 @@ function subjectOf(st, words, segment) {
  * queue being the way through.
  * @param {St} st
  * @param {string} segment
+ * @param {string} bin the `tsc` binary it launches
  * @returns {Verdict | undefined}
  */
-function denyBareTsc(st, segment) {
+function denyBareTsc(st, segment, bin) {
 	const ps = st.readPs();
 	const mb = st.ctx.availableMb();
 	if (ps === null)
@@ -689,7 +693,7 @@ function denyBareTsc(st, segment) {
 	/* Charged the compiler npm would run in the session's tree (#4892). */
 	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb("all"), {
 		windows,
-		peakMb: launchPeakMb(treeRoot(st.ctx)),
+		peakMb: st.ctx.tscLaunchPeakMb(treeRoot(st.ctx), bin),
 	});
 	if (denial === null) return;
 	const launch = queuedLaunch(

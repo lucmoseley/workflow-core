@@ -53,6 +53,7 @@ const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
 const {
 	DRAW_MARGIN_MB,
 	WHOLE_SUITE_MAX,
+	rungMb,
 	suiteRungMb,
 } = require("./suite-ladder");
 const {
@@ -61,7 +62,7 @@ const {
 	isClimbKept,
 	turnOf,
 } = require("./suite-queue");
-const { TSC_MAX, TSC_PEAKS_MB, tscRungMb, isTscRunner } = require("./tsc-slot");
+const { TSC_MAX, TSC_PEAKS_MB, isTscRunner } = require("./tsc-slot");
 const {
 	WINDOWS_FRESH_S,
 	windowsReadingOf,
@@ -678,7 +679,7 @@ function isMemoryHeld(e, tick, w) {
  */
 const rungOf = (e, tick) =>
 	e.kind === "tsc"
-		? tscRungMb(tscChargeOf(e))
+		? rungMb(tscChargeOf(e))
 		: suiteRungMb(tick.busy + e.workers);
 
 /**

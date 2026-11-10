@@ -10,13 +10,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DRAW_MARGIN_MB, suiteRungMb, WHOLE_SUITE_MAX } from "./suite-ladder";
+import {
+	DRAW_MARGIN_MB,
+	rungMb,
+	suiteRungMb,
+	WHOLE_SUITE_MAX,
+} from "./suite-ladder";
 import { PART_PASS_AGE_MS, turnOf } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
-import { TSC_PEAK_MB, TSC_PEAKS_MB, tscRungMb } from "./tsc-slot";
+import { TSC_PEAK_MB, TSC_PEAKS_MB } from "./tsc-slot";
 
 /* A logged line with no `chargeMb` ran on TypeScript 5. */
-const rung5 = tscRungMb(TSC_PEAKS_MB[5]);
+const rung5 = rungMb(TSC_PEAKS_MB[5]);
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-10-27T00:00:00Z");
@@ -277,7 +282,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 	 * type-check clears its rung, a 5.x one, charged 2,045 MB or logged before
 	 * #4892 with no charge, is held on its own (#4892). */
 	it("charges each logged type-check the peak of the compiler it ran", () => {
-		const between = 10_000 - (tscRungMb(TSC_PEAKS_MB[7]) + rung5) / 2;
+		const between = 10_000 - (rungMb(TSC_PEAKS_MB[7]) + rung5) / 2;
 		const limbsOf = (chargeMb?: number) =>
 			hoursOf(
 				replayOf({

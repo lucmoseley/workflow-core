@@ -67,6 +67,8 @@ function buildLaunchPorts({ root, log }) {
 function buildHostPorts(root, log) {
 	const { readCommandFor } = require("./workflow-core-config.js");
 	return {
+		tscLaunchPeakMb: (tree, bin) =>
+			require("./tsc-slot.js").launchPeakMb(tree, { bin }),
 		availableMb: () => {
 			const read = readAvailableMb();
 			return read.ok ? read.mb : null;

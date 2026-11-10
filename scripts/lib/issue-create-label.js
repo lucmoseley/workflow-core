@@ -890,13 +890,13 @@ function judgeEditNumber(run, cmd, namedRepo, [i, word]) {
 	const ref = issueWord(word, run.parsed.spans);
 	if (!ref) return open(run.ctx, UNREAD_NUMBER);
 	if (i >= FETCH_CAP)
-		open(
+		return open(
 			run.ctx,
 			`more than ${FETCH_CAP} issues on one takes:human relabel — #${ref.number} allowed unchecked`,
 		);
 	const repo = ref.repo || namedRepo;
 	if (cmd.cwd === "" && !repo)
-		open(
+		return open(
 			run.ctx,
 			`could not tell which directory a gh issue edit runs in — #${ref.number}'s takes:human relabel allowed unchecked`,
 		);

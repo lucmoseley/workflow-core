@@ -19,9 +19,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
-import { TSC_PEAK_MB, TSC_PEAKS_MB, tscRungMb } from "./lib/tsc-slot";
+import { rungMb } from "./lib/suite-ladder";
+import { TSC_PEAK_MB, TSC_PEAKS_MB } from "./lib/tsc-slot";
 
-const tscRung = tscRungMb(TSC_PEAK_MB);
+const tscRung = rungMb(TSC_PEAK_MB);
 
 const { main } = require("./queue-run.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
@@ -454,7 +455,7 @@ describe("queue-run.js", () => {
 
 		it("admits a TypeScript 7 launch on its own rung, logging its charge (#4892)", async () => {
 			const f = fixture();
-			const mb = tscRungMb(TSC_PEAKS_MB[7]);
+			const mb = rungMb(TSC_PEAKS_MB[7]);
 			expect(mb).toBeLessThan(tscRung);
 			machine(f.dir, ["bash -l"], mb);
 			main(typecheck, own(f, { tscPeakMb: TSC_PEAKS_MB[7] }));

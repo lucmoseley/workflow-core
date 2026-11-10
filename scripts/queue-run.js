@@ -70,8 +70,9 @@ const {
 	defaultTscQueueDir,
 	launchPeakMb,
 	tscDenial,
-	tscRungMb,
+	tscLaunchBin,
 } = require("./lib/tsc-slot.js");
+const { rungMb } = require("./lib/suite-ladder.js");
 const { readWindowsRecorded } = require("./lib/windows-memory.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -108,8 +109,8 @@ const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
  * the launch's own compiler (#4892).
  * @param {number} peakMb
  */
-const tscWait = (peakMb) => ({
-	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${tscRungMb(peakMb)} MB rung, or Windows' own free memory under what it draws (#4557)`,
+const buildTscWait = (peakMb) => ({
+	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${rungMb(peakMb)} MB rung, or Windows' own free memory under what it draws (#4557)`,
 	cap: "one `tsc` runs at a time (#3163)",
 	traceLimbs: true,
 });
@@ -314,19 +315,21 @@ function slotWait(slot, options, words) {
 		};
 	if (slot === "tsc") {
 		/* The type-check slot's queue is a directory of its own. The launch is
-		 * charged the peak of the compiler npm runs from here, stamped on its
+		 * charged the peak of the compiler its `tsc` resolves to from here, stamped on its
 		 * marker for the suite queue's climb and on its exit line for the
 		 * replay (#4892). */
 		const queue = {
 			...options,
 			queueDir: options.queueDir ?? defaultTscQueueDir(),
 		};
-		const chargeMb = options.tscPeakMb ?? launchPeakMb(process.cwd());
+		const chargeMb =
+			options.tscPeakMb ??
+			launchPeakMb(process.cwd(), { bin: tscLaunchBin(words) ?? "tsc" });
 		const gate = {
 			gate:
 				options.gate ??
 				((/** @type {number} */ climbMb) => tscGate(climbMb, chargeMb)),
-			...tscWait(chargeMb),
+			...buildTscWait(chargeMb),
 		};
 		const join = { ...queue, chargeMb };
 		if (process.env[TSC_NO_WAIT_ENV] === "1")

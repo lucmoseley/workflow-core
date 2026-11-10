@@ -14,19 +14,18 @@ const {
 	launchPeakMb,
 	runnerPeakMb,
 	tscDenial,
-	tscRungMb,
+	tscLaunchBin,
 	isTscLaunch,
 } = require("./tsc-slot.js") as {
 	TSC_PEAKS_MB: { 5: number; 7: number };
 	launchPeakMb: (
 		dir: string,
-		readMajor?: (bin: string) => number | null,
+		launch?: { bin?: string; readMajor?: (bin: string) => number | null },
 	) => number;
 	runnerPeakMb: (
-		args: string,
+		row: { pid: number | null; args: string },
 		readMajor?: (bin: string) => number | null,
 	) => number;
-	tscRungMb: (peakMb: number) => number;
 	tscDenial: (
 		rows: { pid: number | null; args: string }[] | null,
 		mb: number | null,
@@ -47,9 +46,13 @@ const {
 		climbMb?: number;
 	} | null;
 	isTscLaunch: (words: string[]) => boolean;
+	tscLaunchBin: (words: string[]) => string | null;
+};
+const { rungMb } = require("./suite-ladder.js") as {
+	rungMb: (peakMb: number) => number;
 };
 
-const rung5 = tscRungMb(TSC_PEAKS_MB[5]);
+const rung5 = rungMb(TSC_PEAKS_MB[5]);
 
 const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 
@@ -58,7 +61,6 @@ describe("lib/tsc-slot.js", () => {
 		// 794 + 2045 + 300 = 3139, up to the next 50.
 		expect(TSC_PEAKS_MB[5]).toBe(2045);
 		expect(rung5).toBe(3150);
-		expect(tscRungMb(TSC_PEAKS_MB[5])).toBe(3150);
 	});
 
 	/* Recorded off `ps` during a 7.0.2 pass on node 24.18 (#4892): the
@@ -95,6 +97,43 @@ describe("lib/tsc-slot.js", () => {
 		});
 	});
 
+	it("pairs a launcher through a linked `node_modules`, by a relative path, with its native child (#4892)", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tsc-slot-"));
+		try {
+			const store = path.join(dir, "store", "node_modules");
+			const at = (rel: string) => {
+				fs.mkdirSync(path.dirname(path.join(store, rel)), { recursive: true });
+				fs.writeFileSync(path.join(store, rel), "");
+			};
+			at("@typescript/native/bin/tsc");
+			at("@typescript/typescript-linux-arm64/lib/tsc");
+			fs.mkdirSync(path.join(store, ".bin"));
+			fs.symlinkSync(
+				"../@typescript/native/bin/tsc",
+				path.join(store, ".bin", "tsc"),
+			);
+			fs.mkdirSync(path.join(dir, "wt"));
+			fs.symlinkSync(store, path.join(dir, "wt", "node_modules"));
+			const bin = path.relative(
+				process.cwd(),
+				path.join(dir, "wt", "node_modules", ".bin", "tsc"),
+			);
+			const pair = [
+				{ pid: process.pid, args: `node ${bin} --noEmit` },
+				{
+					pid: 8,
+					args: `${store}/@typescript/typescript-linux-arm64/lib/tsc --noEmit`,
+				},
+			];
+			expect(tscDenial(pair, 9000)).toEqual({
+				limb: "count",
+				pids: [process.pid],
+			});
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("never counts a 7.0 waiter's or wrapper's line (#3276, #4892)", () => {
 		const decoys = rows(
 			`node scripts/queue-run.js --tsc -- ${native7}`,
@@ -107,13 +146,30 @@ describe("lib/tsc-slot.js", () => {
 
 	it("charges a running `tsc` its own compiler's peak (#4892)", () => {
 		const major = (m: number | null) => () => m;
-		expect(runnerPeakMb(native7, major(null))).toBe(TSC_PEAKS_MB[7]);
-		expect(runnerPeakMb(launcher7, major(7))).toBe(TSC_PEAKS_MB[7]);
-		expect(runnerPeakMb("node /r/node_modules/.bin/tsc", major(5))).toBe(2045);
-		// A version that will not read is charged the highest.
-		expect(runnerPeakMb("node /r/node_modules/.bin/tsc", major(null))).toBe(
-			2045,
+		const line = (args: string, pid: number | null = null) => ({ pid, args });
+		expect(runnerPeakMb(line(native7), major(null))).toBe(TSC_PEAKS_MB[7]);
+		expect(runnerPeakMb(line(launcher7), major(7))).toBe(TSC_PEAKS_MB[7]);
+		const bin = "node /r/node_modules/.bin/tsc";
+		expect(runnerPeakMb(line(bin), major(5))).toBe(2045);
+		// A version that will not read, 6.0 among them, is charged the highest.
+		expect(runnerPeakMb(line(bin), major(null))).toBe(2045);
+		expect(runnerPeakMb(line(`${bin}6`), major(6))).toBe(2045);
+	});
+
+	it("reads a relative launcher path against its own process's directory, never the reader's (#4892)", () => {
+		const seen: string[] = [];
+		const read = (bin: string) => {
+			seen.push(bin);
+			return 7;
+		};
+		const relative = "node node_modules/.bin/tsc --noEmit";
+		expect(runnerPeakMb({ pid: 42, args: relative }, read)).toBe(
+			TSC_PEAKS_MB[7],
 		);
+		expect(seen).toEqual(["/proc/42/cwd/node_modules/.bin/tsc"]);
+		// With no PID to read its directory by, the highest.
+		expect(runnerPeakMb({ pid: null, args: relative }, read)).toBe(2045);
+		expect(seen).toHaveLength(1);
 	});
 
 	it("charges a launch the peak of the compiler `.bin/tsc` resolves to from its directory up (#4892)", () => {
@@ -134,6 +190,13 @@ describe("lib/tsc-slot.js", () => {
 				return path.join(dir, name, "sub");
 			};
 			expect(launchPeakMb(tree("seven", "7.0.2"))).toBe(TSC_PEAKS_MB[7]);
+			const six = tree("six", "6.0.3");
+			fs.renameSync(
+				path.join(dir, "six", "node_modules", ".bin", "tsc"),
+				path.join(dir, "six", "node_modules", ".bin", "tsc6"),
+			);
+			// 6.0, launched as `tsc6`, is charged the highest.
+			expect(launchPeakMb(six, { bin: "tsc6" })).toBe(2045);
 			expect(launchPeakMb(tree("five", "5.9.3"))).toBe(2045);
 			expect(launchPeakMb(dir)).toBe(2045);
 		} finally {
@@ -142,7 +205,7 @@ describe("lib/tsc-slot.js", () => {
 	});
 
 	it("holds a launch on its own compiler's rung (#4892)", () => {
-		const rung7 = tscRungMb(TSC_PEAKS_MB[7]);
+		const rung7 = rungMb(TSC_PEAKS_MB[7]);
 		expect(rung7).toBeLessThan(rung5);
 		expect(
 			tscDenial(rows("bash -l"), rung7, 0, { peakMb: TSC_PEAKS_MB[7] }),
@@ -255,11 +318,22 @@ describe("lib/tsc-slot.js", () => {
 		["node /r/node_modules/typescript/bin/tsc -p x", true],
 		["node /r/node_modules/@typescript/native/bin/tsc -p x", true],
 		["/r/node_modules/@typescript/typescript-linux-arm64/lib/tsc -p x", true],
+		["node_modules/.bin/tsc6 -p tsconfig.build.json", true],
+		["npx tsc6", true],
 		["npx tsx a.ts", false],
 		["npm run typecheck", false],
 		["node scripts/queue-run.js --tsc -- tsc", false],
 		["cat tsconfig.json", false],
 	])("reads `%s` as a tsc launch: %s", (command, expected) => {
 		expect(isTscLaunch(command.split(" "))).toBe(expected);
+	});
+
+	it.each([
+		["tsc --noEmit", "tsc"],
+		["node_modules/.bin/tsc6 -p x", "tsc6"],
+		["npm exec tsc6", "tsc6"],
+		["npm run typecheck", null],
+	])("names `%s`'s binary %s (#4892)", (command, bin) => {
+		expect(tscLaunchBin(command.split(" "))).toBe(bin);
 	});
 });

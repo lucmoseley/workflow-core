@@ -463,7 +463,7 @@ const RUNNERS = [
 	{
 		queue: TSC_QUEUE_NAME,
 		isRunner: isTscRunner,
-		peakMbOf: ({ args }) => runnerPeakMb(args),
+		peakMbOf: (row) => runnerPeakMb(row),
 	},
 	{
 		queue: null,

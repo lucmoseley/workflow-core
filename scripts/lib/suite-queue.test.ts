@@ -32,7 +32,7 @@ import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
 import { mkScratchDir } from "./git-fixture";
 import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
-import { TSC_PEAK_MB, tscDenial } from "./tsc-slot";
+import { TSC_PEAK_MB, TSC_PEAKS_MB, tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
 const {
@@ -1450,6 +1450,16 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(suiteDir, TSC_PEAK_MB + 1)).toBe(0);
 	});
 
+	it("charges a spawned `tsc` the peak of the compiler its marker names (#4892)", () => {
+		const { suiteDir, tscDir } = queues();
+		joined(tscDir, 22, 0, { chargeMb: TSC_PEAKS_MB[7] }).spawned();
+		expect(climbOf(suiteDir, 400)).toBe(TSC_PEAKS_MB[7] - 400);
+		joined(tscDir, 23, 0, { chargeMb: TSC_PEAKS_MB[5] }).spawned();
+		expect(climbOf(suiteDir, 400)).toBe(
+			TSC_PEAKS_MB[7] - 400 + TSC_PEAKS_MB[5] - 400,
+		);
+	});
+
 	it("charges nothing for a held seat stamped `yielding`, and its peak once the stamp drops (#4766)", () => {
 		const { suiteDir, tscDir } = queues();
 		const seat = spawnedIn(suiteDir, 11);
@@ -1682,6 +1692,26 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			expect(seatStamps({ queueDir: suiteDir, ...real }).climbMb()).toBe(
 				TSC_PEAK_MB - 400,
 			);
+		});
+
+		it("charges an unmarked `tsc` its own compiler's peak, read off its line (#4892)", () => {
+			const { suiteDir } = queues();
+			const tree = path.join(path.dirname(suiteDir), "five", "node_modules");
+			const pkg = path.join(tree, "typescript");
+			fs.mkdirSync(path.join(pkg, "bin"), { recursive: true });
+			fs.writeFileSync(
+				path.join(pkg, "package.json"),
+				JSON.stringify({ version: "5.9.3" }),
+			);
+			fs.writeFileSync(path.join(pkg, "bin", "tsc"), "");
+			const native =
+				"/r/node_modules/@typescript/typescript-linux-arm64/lib/tsc --noEmit";
+			expect(climbOn(suiteDir, machine({ 22: native }))).toBe(
+				TSC_PEAKS_MB[7] - 400,
+			);
+			expect(
+				climbOn(suiteDir, machine({ 22: `node ${pkg}/bin/tsc --noEmit` })),
+			).toBe(TSC_PEAKS_MB[5] - 400);
 		});
 
 		it("names a sibling queue that will not read, its runners left unmarked", () => {
