@@ -97,6 +97,7 @@ const { upgrade } = require("./lib/upgrade-walk.js");
 const { gh, ghApiSlurp, parseErrLine } = require("./lib/gh.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { shellQuote } = require("./lib/sh-quote.js");
+const { originLabel } = require("./lib/issue-origin.js");
 const { takesLabel } = require("./lib/takes-label.js");
 const { URGENT_LABEL } = require("./lib/urgent-label.js");
 
@@ -487,7 +488,8 @@ const BUMP_TITLE = "Bump workflow-core to ";
 
 /**
  * Opens "Bump workflow-core to vX" on each adopter tracker, labelled for
- * `/pick-next` and `urgent`, so a bump outranks the adopter's other work. Opt-in — see the header. The binary is `scripts/lib/gh.js`'s
+ * `/pick-next` and `urgent`, so a bump outranks the adopter's other work, and
+ * `origin:release-bump`, so the ticket-mix review counts it (#4867). Opt-in — see the header. The binary is `scripts/lib/gh.js`'s
  * WFC_GH seam, not a per-call override — a test points it there directly.
  *
  * ONE LINE PER ADOPTER (#2562). `upgrade.js` walks every note from `walkedTo`
@@ -585,6 +587,8 @@ function fileBumpIssues(repos, tag) {
 				`labels[]=${MIGRATION_LABEL}`,
 				"-f",
 				`labels[]=${URGENT_LABEL}`,
+				"-f",
+				`labels[]=${originLabel("release-bump")}`,
 			],
 			(args) => JSON.parse(gh(args)),
 		);
