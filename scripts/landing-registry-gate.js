@@ -26,7 +26,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
 const { gitReader } = require("./lib/git.js");
-const { VERIFIED_REF } = require("./lib/landing-refs.js");
+const { QUEUE_HEADS, VERIFIED_REF } = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
 	buildUnchecked,
@@ -36,8 +36,6 @@ const {
 const { writeFd } = require("./lib/write-fd.js");
 
 const REFUSE = 2;
-/* A session's queue ref, `queue/<worktree name>`. */
-const QUEUE = "refs/heads/queue/";
 const CHECK = path.join(__dirname, "check-guard-registry.js");
 
 const unchecked = buildUnchecked(
@@ -58,8 +56,8 @@ const unchecked = buildUnchecked(
 function parseJudgedPushes(stdin) {
 	return parseRefLines(stdin).flatMap(({ sha, remoteRef }) =>
 		!isZeroSha(sha) &&
-		remoteRef?.startsWith(QUEUE) &&
-		remoteRef.length > QUEUE.length
+		remoteRef?.startsWith(QUEUE_HEADS) &&
+		remoteRef.length > QUEUE_HEADS.length
 			? [{ sha, ref: remoteRef.slice("refs/heads/".length) }]
 			: [],
 	);

@@ -3,7 +3,7 @@
  * adapters (lib/queue-lander-adapters.js) and the readers of its refs and
  * ledger (lib/queue-ref-status.js, lib/landing-stall.js): the remote's heads,
  * ancestry, a throwaway worktree, a push, the line naming why git refused,
- * what a gate refusing a merge said, and a remote call's retries.
+ * what a gate refusing a merge said, and a remote call's retries (#4485, spec #4458).
  */
 
 const fs = require("node:fs");
@@ -21,7 +21,7 @@ const {
 } = require("./network-fault.js");
 const { parseFirstLine } = require("./first-line.js");
 const { REMOTE } = require("./landing-refs.js");
-const { execGit } = require("./git.js");
+const { execGit, SHORT_SHA } = require("./git.js");
 const { writeFd } = require("./write-fd.js");
 
 /* Untraced: room for a fetch over a slow link. */
@@ -80,9 +80,8 @@ function stderrIfThrown(call) {
 		return readThrownText(err);
 	}
 }
-/** Untraced: 9 hex digits, two past git's default abbreviation, unique in any history this size.
- * @param {string} sha */
-const short = (sha) => sha.slice(0, 9);
+/** @param {string} sha */
+const short = (sha) => sha.slice(0, SHORT_SHA);
 
 /**
  * `call`'s result, retried with backoff while it fails on a fault `isFault`
@@ -324,6 +323,7 @@ module.exports = {
 	parseRefusalTail,
 	pushRemote,
 	readConflictedFiles,
+	readGit,
 	readRemoteHeads,
 	remote,
 	short,
