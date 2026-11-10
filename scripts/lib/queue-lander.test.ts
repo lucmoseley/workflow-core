@@ -108,6 +108,12 @@ const freshDisk = () => ({
 		sha: string;
 		held: readonly DroppedRef[];
 	}[],
+	/** Each refresh of a ticket's body a settling left open: the drop it names. */
+	refreshed: [] as {
+		ticket: number;
+		sha: string;
+		held: readonly DroppedRef[];
+	}[],
 	/** Each fix ticket the lander closed, with the `main` named as holding its work. */
 	closed: [] as { ticket: number; main: string }[],
 	/** Each branch's fix ticket, by the queue ref name its title carries. */
@@ -408,6 +414,9 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				if (err) throw err;
 				const n = disk.titled.get(name);
 				return n !== undefined && disk.tickets.get(n) === "open" ? n : null;
+			},
+			refreshDropTicket: (ticket, d, held) => {
+				disk.refreshed.push({ ticket, sha: d.sha, held });
 			},
 			closeDropTicket: (ticket, _d, main) => {
 				const err = o.closeFault?.();
@@ -1337,7 +1346,9 @@ describe("drop and defer", () => {
 			reason: `stopped on an error: ${refusal}`,
 		});
 		expect(said).toEqual([]);
-		expect(disk.drops.map((d) => d.ticket)).toEqual([null]);
+		expect(disk.drops.map((d) => [d.ticket, d.filingRefused])).toEqual([
+			[null, refusal],
+		]);
 		expect(remote.main).toBe("m0");
 	});
 
@@ -1636,6 +1647,9 @@ describe("a drop owed a decision (#4950)", () => {
 		expect(disk.tickets.get(7)).toBe("open");
 		expect([...remote.dropped.keys()]).toEqual(["dropped/a-a2"]);
 		expect(disk.log).toEqual(["settle a@a1"]);
+		expect(disk.refreshed).toEqual([
+			{ ticket: 7, sha: "a2", held: [{ ref: "dropped/a-a2", sha: "a2" }] },
+		]);
 	});
 
 	it("finishes on rerun a settling a crash cut short after its decision, closing its ticket once and never dropping the member again", async () => {
@@ -1901,7 +1915,7 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 		]);
 	});
 
-	it("deletes one with no ticket whose sha main already holds, filing none", async () => {
+	it("settles one with no ticket whose sha main already holds: deleted, a settle row, none filed", async () => {
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
 		const disk = freshDisk();
 
@@ -1912,6 +1926,7 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 		expect(remote.dropped.size).toBe(0);
 		expect(disk.drops).toEqual([]);
 		expect(disk.filed).toEqual([]);
+		expect(disk.log).toEqual(["settle a@a1"]);
 	});
 
 	it("files nothing where the tracker cannot be searched, leaving the ref for the next run", async () => {

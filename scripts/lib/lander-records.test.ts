@@ -190,9 +190,10 @@ describe("the drop record", () => {
 		expect(dropRecord(file).read()).toEqual([settled]);
 	});
 
-	it("reads as owed a decision only the open drops with no ticket and no reap", () => {
+	it("reads as owed a decision only the open drops with no ticket, no reap and no filing refused for good", () => {
 		dropRecord(file).write([
 			d,
+			{ ...d, sha: "s4", filingRefused: "rule:x refused it" },
 			{ ...d, sha: "s1", ticket: 7, state: "ticketed" },
 			{ ...d, sha: "s2", state: "settled", settledOn: "m9" },
 			{ ...d, sha: "s3", reapedAt: 4 },

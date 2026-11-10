@@ -9,14 +9,15 @@
  * session whose cwd lies in it, and asks lib/agent-liveness.js whether that
  * session is listed and not terminal.
  *
- * DOUBT IS `stopped`, and nothing here throws: the worktree gone, no cwd in
- * it, the session terminal or unlisted, a listing that would not read, any
- * fault. A drop is then ticketed rather than deferred for good on a guess.
+ * DOUBT IS `stopped`, and nothing here throws. A drop is then ticketed
+ * rather than deferred for good on a guess, and a read that failed says so
+ * on stderr.
  * Residual: a listed session left idle reads `working` for as long as it is
  * listed.
  */
 
 const fs = require("node:fs");
+const { parseErrorFirstLine } = require("./first-line.js");
 const { admissionSessionIds, isListedLive } = require("./agent-liveness.js");
 const { QUEUE_PREFIX, ownQueueRef } = require("./landing-refs.js");
 const { worktreeOwners } = require("./session-worktrees.js");
@@ -30,10 +31,10 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
  * @property {() => import("./agent-liveness.js").ListedSessions} listed the
  *   agents oracle's listing, or why it would not read
  * @property {typeof worktreeOwners} owners
+ * @property {(line: string) => void} say
  */
 
 /**
- * The read over `root`'s worktrees, the agents oracle and the job records.
  * The lander runs as no session, so an empty listing reads as nothing live.
  * @param {string} root the canonical checkout
  * @returns {OwnerDeps}
@@ -42,6 +43,7 @@ const liveOwnerDeps = (root) => ({
 	worktrees: () => readLinkedWorktrees(root),
 	listed: () => admissionSessionIds(),
 	owners: worktreeOwners,
+	say: (line) => process.stderr.write(`${line}\n`),
 });
 
 /**
@@ -52,19 +54,27 @@ const liveOwnerDeps = (root) => ({
  * @returns {OwnerRead}
  */
 function readOwner(root, name, deps = liveOwnerDeps(root)) {
-	try {
-		const tree = (deps.worktrees() ?? []).find(
-			(wt) => ownQueueRef(wt, root) === `${QUEUE_PREFIX}${name}`,
+	const queued = `${QUEUE_PREFIX}${name}`;
+	/** @param {string} why */
+	const unread = (why) => {
+		deps.say(
+			`queue-lander: the owning session of ${queued} could not be read, so it reads as stopped: ${why}`,
 		);
+		return /** @type {const} */ ("stopped");
+	};
+	try {
+		const trees = deps.worktrees();
+		if (trees === null) return unread("git listed no worktrees");
+		const tree = trees.find((wt) => ownQueueRef(wt, root) === queued);
 		if (tree === undefined || !fs.existsSync(tree)) return "stopped";
 		const listed = deps.listed();
-		if (listed.why !== undefined) return "stopped";
+		if (listed.why !== undefined) return unread(listed.why);
 		const owner = deps.owners([tree], listed).owners.get(tree);
 		return owner && isListedLive(owner.sessionId, listed.ids, listed.terminal)
 			? "working"
 			: "stopped";
-	} catch {
-		return "stopped";
+	} catch (err) {
+		return unread(parseErrorFirstLine(err));
 	}
 }
 

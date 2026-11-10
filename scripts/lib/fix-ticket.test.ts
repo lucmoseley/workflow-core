@@ -51,12 +51,14 @@ describe("dropTicketFiler", () => {
 			status = 0,
 			refuseParent = null as string | null,
 			stderr = "file-issue: rule:x refused it\n",
+			had = [] as { n: number; text: string }[],
 		} = {},
 	) {
 		const files: { args: string[]; input: string }[] = [];
 		const ranges: string[] = [];
 		const reopened: number[] = [];
-		const updates: { n: number; body: string; comment: string }[] = [];
+		const bodies: { n: number; body: string }[] = [];
+		const comments: { n: number; text: string }[] = [];
 		const closes: { n: number; comment: string }[] = [];
 		const tracker = dropTicketFiler({
 			subjectsOf: (base, tip) => {
@@ -69,9 +71,14 @@ describe("dropTicketFiler", () => {
 				listed
 					.filter((c) => c.title.startsWith(prefix))
 					.map((c) => ({ body: "", ...c })),
-			update: (n, body, comment) => {
-				updates.push({ n, body, comment });
+			refresh: (n, body) => {
+				bodies.push({ n, body });
 			},
+			comment: (n, text) => {
+				comments.push({ n, text });
+			},
+			commented: (n, text) =>
+				[...had, ...comments].some((c) => c.n === n && c.text.includes(text)),
 			close: (n, comment) => {
 				closes.push({ n, comment });
 			},
@@ -107,7 +114,10 @@ describe("dropTicketFiler", () => {
 			files,
 			ranges,
 			reopened,
-			updates,
+			refresh: (n: number, d: Partial<Drop>, held = HELD) =>
+				tracker.refreshDropTicket(n, { ...DROP, ...d }, held),
+			bodies,
+			comments,
 			closes,
 		};
 	}
@@ -150,8 +160,8 @@ describe("dropTicketFiler", () => {
 		});
 		expect(f.files).toEqual([]);
 		expect(f.reopened).toEqual([]);
-		expect(f.updates).toHaveLength(1);
-		const [{ n, body, comment }] = f.updates;
+		expect(f.bodies).toHaveLength(1);
+		const [{ n, body }] = f.bodies;
 		expect(n).toBe(5);
 		expect(body).toContain(`\`queue/wt-1\` at ${B}`);
 		expect(body).toContain(`onto \`main\` at ${M}`);
@@ -159,9 +169,48 @@ describe("dropTicketFiler", () => {
 		expect(body).toContain(`- \`dropped/wt-1-bbbbbbbbb\` at ${B}, this drop`);
 		expect(body).toContain(`- \`dropped/wt-1\` at ${A}\n`);
 		expect(body).toContain("- [ ] bbbbbbbbb's change merges onto `main`");
-		expect(comment).toBe(
-			`The queue lander dropped \`queue/wt-1\` again, at ${B}: it conflicts with \`main\`. This ticket's body now describes that drop.`,
+		expect(f.comments).toEqual([
+			{
+				n: 5,
+				text: `The queue lander dropped \`queue/wt-1\` again, at ${B}: it conflicts with \`main\`. This ticket's body now describes that drop.`,
+			},
+		]);
+	});
+
+	it("adds no second comment where an update cut short left its comment and the old body, and replaces the body", () => {
+		const B = "b".repeat(40);
+		const f = dropFiler(
+			["Start"],
+			{},
+			[
+				{
+					number: 5,
+					title: "Fix queue/wt-1, dropped by the queue lander: Start",
+					body: `dropped \`queue/wt-1\` at ${A}`,
+				},
+			],
+			{ had: [{ n: 5, text: `dropped again, at ${B}` }] },
 		);
+
+		f.filed({ sha: B });
+
+		expect(f.comments).toEqual([]);
+		expect(f.bodies.map((b) => b.n)).toEqual([5]);
+		expect(f.bodies[0].body).toContain(`\`queue/wt-1\` at ${B}`);
+	});
+
+	it("refreshes a ticket's body to the drop and dropped refs its branch still holds, with no comment", () => {
+		const B = "b".repeat(40);
+		const f = dropFiler(["Start"]);
+
+		f.refresh(5, { sha: B }, [{ ref: "dropped/wt-1-bbbbbbbbb", sha: B }]);
+
+		expect(f.comments).toEqual([]);
+		expect(f.bodies.map((b) => b.n)).toEqual([5]);
+		expect(f.bodies[0].body).toContain(
+			`- \`dropped/wt-1-bbbbbbbbb\` at ${B}, this drop`,
+		);
+		expect(f.bodies[0].body).not.toContain("`dropped/wt-1` at");
 	});
 
 	it("leaves an open ticket whose body already names the drop's sha as it is, naming it", () => {
@@ -178,7 +227,8 @@ describe("dropTicketFiler", () => {
 			line: "fix ticket already open: #5",
 		});
 		expect(f.files).toEqual([]);
-		expect(f.updates).toEqual([]);
+		expect(f.bodies).toEqual([]);
+		expect(f.comments).toEqual([]);
 	});
 
 	it("closes an open ticket with a comment naming the main sha that holds the work, and leaves a closed one alone", () => {

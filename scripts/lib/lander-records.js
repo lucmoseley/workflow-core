@@ -130,6 +130,8 @@ const PHASES = Object.freeze(
  * @property {number} decidedAt when `state` was decided, in ms
  * @property {string} [settledOn] the `main` sha that held its work when it
  *   was settled
+ * @property {string} [filingRefused] why file-issue.js refused its fix
+ *   ticket for good, until one is filed
  * @property {number} [reapedAt] when its dropped ref was deleted, in ms
  * @typedef {object} DropRecord
  * @property {() => Drop[]} read
@@ -345,9 +347,7 @@ const isCause = (u) => {
 const DROP_STATES = ["open", "settled", "ticketed"];
 
 /**
- * A drop in the current shape, or null where it is none. An entry written
- * before `state` shipped is ticketed where it names a ticket, else open,
- * decided when it was dropped.
+ * A drop in the current shape, or null where it is none.
  * @param {unknown} d
  * @returns {Drop|null}
  */
@@ -366,6 +366,7 @@ function parseDrop(d) {
 		!DROP_STATES.includes(String(state)) ||
 		!Number.isFinite(decidedAt) ||
 		!(o.settledOn === undefined || typeof o.settledOn === "string") ||
+		!(o.filingRefused === undefined || typeof o.filingRefused === "string") ||
 		!(o.reapedAt === undefined || Number.isFinite(o.reapedAt))
 	)
 		return null;
@@ -380,6 +381,9 @@ function parseDrop(d) {
 		state,
 		decidedAt,
 		...(o.settledOn === undefined ? {} : { settledOn: o.settledOn }),
+		...(o.filingRefused === undefined
+			? {}
+			: { filingRefused: o.filingRefused }),
 		...(o.reapedAt === undefined ? {} : { reapedAt: o.reapedAt }),
 	});
 }
@@ -458,15 +462,20 @@ function dropRecord(file) {
 }
 
 /**
- * Whether the drop is owed a decision: open, with no fix ticket.
+ * Whether the drop is owed a decision a lander is started for; a filing
+ * refused for good is a person's to clear, and starts none. Narrower
+ * than what a running lander decides (lib/queue-lander.js's dropDecision): a
+ * ticketed drop's close waits for the run a push starts (spec #4947).
  * @param {Drop} d
  */
 const isOwedDrop = (d) =>
-	d.state === "open" && d.ticket === null && d.reapedAt === undefined;
+	d.state === "open" &&
+	d.ticket === null &&
+	d.reapedAt === undefined &&
+	d.filingRefused === undefined;
 
 /**
- * The drops the record at `file` holds that are owed a decision; none where
- * it is absent or torn.
+ * The drops the record at `file` holds that are owed a decision.
  * @param {string} file
  * @returns {Drop[]}
  */

@@ -21,6 +21,7 @@ let tmp: string;
 let root: string;
 let tree: string;
 let seat: string;
+let said: string[];
 
 beforeEach(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "queue-owner-")));
@@ -29,6 +30,7 @@ beforeEach(() => {
 	seat = path.join(tmp, "home", ".claude");
 	fs.mkdirSync(tree, { recursive: true });
 	fs.mkdirSync(seat, { recursive: true });
+	said = [];
 	vi.stubEnv("CLAUDE_CONFIG_DIR", seat);
 });
 
@@ -64,7 +66,13 @@ const listing = (
 const read = (
 	listed: () => ListedSessions,
 	worktrees: () => string[] | null = () => [tree],
-) => readOwner(root, "wt-1", { worktrees, listed, owners: worktreeOwners });
+) =>
+	readOwner(root, "wt-1", {
+		worktrees,
+		listed,
+		owners: worktreeOwners,
+		say: (line) => said.push(line),
+	});
 
 describe("readOwner", () => {
 	it("reads working where a listed, unended session's cwd lies in the queue ref's worktree", () => {
@@ -112,7 +120,14 @@ describe("readOwner", () => {
 		).toBe("stopped");
 	});
 
-	it("reads stopped where the read is in doubt: a listing that would not read or threw, or worktrees git would not list", () => {
+	it("says nothing where the read stands, working or stopped", () => {
+		read(() => listing({ s1: tree }));
+		read(() => listing({ s1: tree }, ["s1"]));
+
+		expect(said).toEqual([]);
+	});
+
+	it("reads stopped, saying why, where the read is in doubt: a listing that would not read or threw, or worktrees git would not list", () => {
 		expect(read(() => ({ why: "the oracle timed out" }))).toBe("stopped");
 		expect(
 			read(() => {
@@ -125,5 +140,11 @@ describe("readOwner", () => {
 				() => null,
 			),
 		).toBe("stopped");
+		expect(said).toEqual(
+			["the oracle timed out", "spawn failed", "git listed no worktrees"].map(
+				(why) =>
+					`queue-lander: the owning session of queue/wt-1 could not be read, so it reads as stopped: ${why}`,
+			),
+		);
 	});
 });

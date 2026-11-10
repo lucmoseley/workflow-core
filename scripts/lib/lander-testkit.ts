@@ -163,9 +163,8 @@ export const writeTrackerConfig = () => {
  * A tracker of issues held in a JSON file, served by a gh stub, with the
  * config naming it. Each JSON read it answers goes through `asRecorded`, which
  * holds it to the fixture gh.contract.test.ts holds to the real gh: a list or
- * view answers only the `--json` fields asked for, as gh does. `issue close`,
- * `issue comment` and `issue edit` print nothing: every caller discards a
- * write's stdout.
+ * view answers only the `--json` fields asked for, as gh does. `issue close`
+ * and `issue edit` print nothing: every caller discards a write's stdout.
  * A call no arm models — an unknown verb, a flag an arm ignores, or an arm
  * throwing — exits 1 and fails the case from landerSandbox's afterEach,
  * since the lander's fail-open paths can swallow the exit (#4357).
@@ -231,12 +230,6 @@ if (is("issue", "list")) {
 	const issue = all.find((i) => String(i.number) === a[2]);
 	issue.state = "CLOSED";
 	issue.closing = flag("--comment");
-	write(all);
-} else if (is("issue", "comment")) {
-	onlyFlags("--body");
-	const all = read();
-	const issue = all.find((i) => String(i.number) === a[2]);
-	issue.commented = [...(issue.commented ?? []), flag("--body")];
 	write(all);
 } else if (is("issue", "edit")) {
 	onlyFlags("--body-file", "--add-label");

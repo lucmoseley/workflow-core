@@ -2,15 +2,15 @@
  * fix-ticket.js — the one ticket the queue lander keeps for a branch whose
  * owning session left a drop unlanded (#2404; #4485, spec #4458; #4950, spec
  * #4947): `takes:implement`, unassigned, titled `Fix queue/<name>,`, naming
- * the branch's newest drop, its evidence (lib/drop-evidence.js) and every
- * dropped ref the branch holds, a sub-issue of the ticket its commits cite,
- * or standalone where they cite none.
+ * the branch's newest drop, its evidence and every dropped ref the branch
+ * holds, a sub-issue of the ticket its commits cite, or standalone where
+ * they cite none.
  *
  * The title's prefix is the key: an open ticket carrying it is updated in
- * place, its body replaced and one comment added, and never doubled. Only a
- * filing reopens a closed cited ticket. A filing file-issue.js refuses under
- * the cited ticket is filed standalone, naming the refusal. One it refuses
- * standalone too, exiting 2, throws a FilingRefusedError.
+ * place, its body replaced and one comment added. Only a filing reopens a
+ * closed cited ticket. A filing file-issue.js refuses under the cited ticket
+ * is filed standalone, naming the refusal. One it refuses standalone too,
+ * exiting 2, throws a FilingRefusedError.
  */
 
 const { citedIssues } = require("./cited-issues.js");
@@ -106,7 +106,7 @@ function buildDropAcceptance({ sha, name, cause }) {
 const dropTicketPrefix = (name) => `Fix ${QUEUE_PREFIX}${name},`;
 
 /**
- * Why the drop was made, in a few words, for a comment or a log line.
+ * Why the drop was made, in a few words, for a comment.
  * @param {Drop["cause"]} cause
  */
 function buildCauseLine(cause) {
@@ -137,24 +137,22 @@ function buildCauseLine(cause) {
 function dropTicketIssue(d, held, subject) {
 	const { name, sha } = d;
 	const queued = `${QUEUE_PREFIX}${name}`;
-	const filedAs = dropTicketPrefix(name);
 	const kept = held
 		.map(
 			(h) => `- \`${h.ref}\` at ${h.sha}${h.sha === sha ? ", this drop" : ""}`,
 		)
 		.join("\n");
 	return {
-		title: `${filedAs} dropped by the queue lander: ${cutSubject(subject)}`,
-		filedAs,
+		title: `${dropTicketPrefix(name)} dropped by the queue lander: ${cutSubject(subject)}`,
 		citer: `a commit on ${queued}`,
 		uncited: `No commit on ${queued} cites a ticket of this repo.`,
-		reopenNote: `Reopened by the queue lander: ${queued} at ${sha}, which cites it, was dropped and its owning session stopped. Its fix ticket follows as a sub-issue.`,
+		reopenNote: `Reopened by the queue lander: ${queued} at ${sha}, which cites it, was dropped and its owning session was not read as working. Its fix ticket follows as a sub-issue.`,
 		noun: "fix ticket",
 		body: `## What to build
 
 The queue lander (#4458) dropped \`${queued}\` at ${sha}: ${buildDropEvidence(d)}
 
-Its owning session stopped without landing it. The lander keeps each drop of this branch at a dropped ref:
+Its owning session was not read as working on it. The lander keeps each drop of this branch at a dropped ref:
 
 ${kept}
 
@@ -174,23 +172,25 @@ Tip commit: ${quoteSubject(subject)}
  * @typedef {FilerDeps & {subjectsOf: (base: string,
  *   tip: string) => string[], openUnits: (parent: number|null) => number[],
  *   openTitled: (prefix: string) => OpenTicket[],
- *   update: (n: number, body: string, comment: string) => void,
+ *   refresh: (n: number, body: string) => void,
+ *   comment: (n: number, text: string) => void,
+ *   commented: (n: number, text: string) => boolean,
  *   close: (n: number, comment: string) => void}} DropFilerDeps `subjectsOf`
  *   the subjects of the commits on `tip` and not on `base`, newest first;
  *   `openUnits` the tickets rule:size-line weighs a new one under `parent`
  *   against: its sub-issues and this session's filings; `openTitled` the
- *   open issues whose titles start with `prefix`, read live; `update`
- *   replaces the issue's body and adds `comment`; `close` closes it with
- *   `comment`
+ *   open issues whose titles start with `prefix`, read live; `refresh`
+ *   replaces the issue's body; `comment` adds one; `commented` is whether
+ *   a comment on it holds `text`; `close` closes it with `comment`
  */
 
 /**
- * The lowest-numbered open ticket of the branch, null where none is open.
+ * The lowest-numbered open ticket of the branch.
  * @param {DropFilerDeps} deps
  * @param {string} name
  * @returns {OpenTicket|null}
  */
-function openDropTicket(deps, name) {
+function readOpenDropTicket(deps, name) {
 	const [first] = deps
 		.openTitled(dropTicketPrefix(name))
 		.sort((a, b) => a.number - b.number);
@@ -198,18 +198,18 @@ function openDropTicket(deps, name) {
 }
 
 /**
- * The queue lander's keeper of a branch's fix ticket: filed
- * `takes:implement`, unassigned, under the ticket its commits cite, else
- * standalone; updated in place where the branch's ticket is open; closed
- * once `main` holds the work. Each branch is its own fix, so every ticket
+ * The queue lander's keeper of a branch's fix ticket: filed, updated in
+ * place where the branch's ticket is open, and closed once `main` holds the
+ * work. Each branch is its own fix, so every ticket
  * rule:size-line would weigh a filing against is named checked.
  * @param {DropFilerDeps} deps
  * @returns {Pick<import("./queue-lander.js").QueueTracker,
- *   "fileDropTicket" | "findDropTicket" | "closeDropTicket">}
+ *   "fileDropTicket" | "findDropTicket" | "refreshDropTicket"
+ *   | "closeDropTicket">}
  */
 function dropTicketFiler(deps) {
 	return {
-		findDropTicket: (name) => openDropTicket(deps, name)?.number ?? null,
+		findDropTicket: (name) => readOpenDropTicket(deps, name)?.number ?? null,
 		fileDropTicket(d, held) {
 			const subjects = deps.subjectsOf(d.onto, d.sha);
 			const [subject] = subjects;
@@ -218,17 +218,18 @@ function dropTicketFiler(deps) {
 					`${QUEUE_PREFIX}${d.name} at ${short(d.sha)} has no commit off ${short(d.onto)}`,
 				);
 			const issue = dropTicketIssue(d, held, subject);
-			const open = openDropTicket(deps, d.name);
+			const open = readOpenDropTicket(deps, d.name);
 			if (open !== null) return updateTicket(deps, open, d, issue.body);
-			const line = fileTicket(deps, {
+			const { n, line } = fileTicket(deps, {
 				...issue,
 				cited: citedByAny(subjects),
 				checked: deps.openUnits,
 			});
-			const number = Number(/#(\d+)/.exec(line)?.[1]);
-			if (!Number.isInteger(number))
-				throw new Error(`its filing printed no #<n>: ${line}`);
-			return { number, line };
+			return { number: n, line };
+		},
+		refreshDropTicket(ticket, d, held) {
+			const [subject = ""] = deps.subjectsOf(d.onto, d.sha);
+			deps.refresh(ticket, dropTicketIssue(d, held, subject).body);
 		},
 		closeDropTicket(ticket, d, main) {
 			if (deps.stateOf(ticket) === "closed") return;
@@ -241,9 +242,10 @@ function dropTicketFiler(deps) {
 }
 
 /**
- * The branch's open ticket made to name `d`: its body replaced and one
- * comment added, or left alone where its body names `d`'s sha already, as a
- * filing whose number a crash kept from the drop record does.
+ * The branch's open ticket made to name `d`: one comment added, then its
+ * body replaced, or left alone where its body names `d`'s sha already, as a
+ * filing whose number a crash kept from the drop record does. An update cut
+ * short between the two finds its comment and adds no second.
  * @param {DropFilerDeps} deps
  * @param {OpenTicket} open
  * @param {Drop} d
@@ -254,11 +256,12 @@ function updateTicket(deps, open, d, body) {
 	const { number } = open;
 	if (open.body.includes(d.sha))
 		return { number, line: `fix ticket already open: #${number}` };
-	deps.update(
-		number,
-		body,
-		`The queue lander dropped \`${QUEUE_PREFIX}${d.name}\` again, at ${d.sha}: ${buildCauseLine(d.cause)}. This ticket's body now describes that drop.`,
-	);
+	if (!deps.commented(number, d.sha))
+		deps.comment(
+			number,
+			`The queue lander dropped \`${QUEUE_PREFIX}${d.name}\` again, at ${d.sha}: ${buildCauseLine(d.cause)}. This ticket's body now describes that drop.`,
+		);
+	deps.refresh(number, body);
 	return {
 		number,
 		line: `fix ticket updated: #${number} now names ${QUEUE_PREFIX}${d.name} at ${short(d.sha)}`,
@@ -275,18 +278,17 @@ function updateTicket(deps, open, d, body) {
  * @property {string} reopenNote the comment a closed cited ticket is reopened
  *   with
  * @property {string} noun what a refusal calls it
- * @property {string} filedAs the title prefix that keys it
  * @property {(parent: number|null) => readonly number[]} checked the open
  *   tickets it is named its own build unit beside under `parent`, past
  *   rule:size-line
  */
 
 /**
- * Files `t` under the ticket its work cites, else standalone, returning the
- * line naming it.
+ * Files `t` under the ticket its work cites, else standalone, returning its
+ * number and the line naming it.
  * @param {FilerDeps} deps
  * @param {Ticket} t
- * @returns {string}
+ * @returns {{line: string, n: number}}
  */
 function fileTicket(deps, t) {
 	const listed = deps.similar(t.title);
@@ -308,7 +310,7 @@ function fileTicket(deps, t) {
 	const placed = fileUnderCited(t, file, deps);
 	if ("filed" in placed) return placed.filed;
 	const ran = file({ standalone: placed.why });
-	if (ran.status === 0) return parseFiledLine(ran.stdout).line;
+	if (ran.status === 0) return parseFiledLine(ran.stdout);
 	const why = `${t.noun} for ${t.citer} not filed: ${parseMessageLine(ran.stderr)}`;
 	throw ran.status === 2 ? new FilingRefusedError(why) : new Error(why);
 }
@@ -319,14 +321,14 @@ function fileTicket(deps, t) {
  * @param {Ticket} t
  * @param {(placement: Placement) => Ran} file
  * @param {Pick<FilerDeps, "stateOf" | "reopen">} deps
- * @returns {{filed: string} | {why: string}}
+ * @returns {{filed: {line: string, n: number}} | {why: string}}
  */
 function fileUnderCited(t, file, deps) {
 	if (t.cited === null) return { why: t.uncited };
 	const unready = underCited(t.cited, t, deps);
 	if (unready !== null) return { why: unready };
 	const ran = file({ parent: t.cited });
-	if (ran.status === 0) return { filed: parseFiledLine(ran.stdout).line };
+	if (ran.status === 0) return { filed: parseFiledLine(ran.stdout) };
 	return {
 		why: `file-issue refused it under #${t.cited}, which ${t.citer} cites: ${parseMessageLine(ran.stderr)}`,
 	};
@@ -390,10 +392,22 @@ function liveFilerDeps(root) {
 				"--json",
 				"number,title,body",
 			]).filter((/** @type {OpenTicket} */ i) => i.title.startsWith(prefix)),
-		update: (n, body, comment) => {
-			queue.refresh(n, body);
-			gh(["issue", "comment", String(n), "--repo", repo(), "--body", comment]);
+		refresh: queue.refresh,
+		comment: (n, text) => {
+			gh(["issue", "comment", String(n), "--repo", repo(), "--body", text]);
 		},
+		commented: (n, text) =>
+			gh([
+				"issue",
+				"view",
+				String(n),
+				"--repo",
+				repo(),
+				"--json",
+				"comments",
+				"--jq",
+				".comments[].body",
+			]).includes(text),
 		close: queue.close,
 		fileIssue: queue.fileIssue,
 		openUnits: (parent) => [
