@@ -1,7 +1,8 @@
 name: Queue ref waiting 2h
 
 # The off-machine stall check (#4443, #4458): scripts/main-lag-alarm.js
-# fails where the oldest queue ref has waited past its QUEUE_BACKSTOP_MS.
+# fails where the oldest queue ref has waited past QUEUE_BACKSTOP_MS, in
+# scripts/lib/main-lag-alarm.js.
 # Read-only: it reads refs and the activity feed. Its red reaches the
 # founder as one bot mention per stall, from the tracker's alarm-notice.yml
 # running scripts/alarm-notice.js (#4939).

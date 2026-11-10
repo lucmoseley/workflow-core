@@ -1,7 +1,7 @@
 /*
  * queue-tickets.js — the refill loop's landing-queue tickets: their fixed
  * titles, by which lib/queue-issue.js finds the open one and
- * main-lag-alarm.js names it. A leaf, so the off-machine alarm loads no
+ * lib/main-lag-alarm.js names it. A leaf, so the off-machine alarm loads no
  * tracker; the record each keeps is lib/record-ticket.js's (#4485, spec #4458).
  */
 
