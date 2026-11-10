@@ -232,10 +232,8 @@ function lazyTree(payload, adapters, root) {
  * @returns {{ ports: TreePorts } | { fault: Error }}
  */
 function resolveTree(payload, adapters, root) {
-	/* The walk's own seed: the payload's absolute cwd, else the fallback the
-	 * core's context carries — test support's where it fills one. */
-	const own = sessionDir(payload);
-	const cwd = own === payload.cwd ? own : (adapters.fallbackCwd ?? own);
+	/* The fallback a core's context carries: test support's where it fills one. */
+	const cwd = sessionDir(payload, adapters.fallbackCwd);
 	const dir = sessionTree({ cwd });
 	if (dir === null) return { fault: new TreeUnresolved(cwd) };
 	return { ports: dir === root ? adapters : treePorts(dir) };

@@ -37,7 +37,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { describeAge: describeAgeText, HOUR_MS } = require("./age-text.js");
 const { remarkAroundMove } = require("./canary-remark.js");
-const { remarkPorts } = require("./canary-remark-ports.js");
+const { buildHostPorts: buildRemarkPorts } = require("./canary-remark-host.js");
 const { porcelainEntries } = require("./dirty-tree.js");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
@@ -343,7 +343,7 @@ function forward(root, { now, lastWriter, work, listSessions }) {
 		.map((p) => readBlocker(root, p, now, lastWriter));
 	if (blockers.length > 0) return { status: "blocked", from, to, blockers };
 	const moved = remarkAroundMove(
-		remarkPorts(root, path.join(work, "canary"), listSessions),
+		buildRemarkPorts(root, path.join(work, "canary"), listSessions),
 		{ from, to, changed },
 		() => {
 			try {

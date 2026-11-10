@@ -742,7 +742,7 @@ function readAgentsForBudget() {
 }
 
 /**
- * `listedAgents` for a levelling pass's canary re-mark (lib/canary-remark-ports.js),
+ * `listedAgents` for a levelling pass's canary re-mark (lib/canary-remark-host.js),
  * waiving the self-test, reading an empty listing outside a session as nothing
  * live: a pass with no session running must still move `main` (#4229). Its
  * residual is `admissionSessionIds`'s.

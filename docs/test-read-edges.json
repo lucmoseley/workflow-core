@@ -11787,7 +11787,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/canary-remark-ports.js": [
+		"scripts/lib/canary-remark-host.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",

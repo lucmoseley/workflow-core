@@ -30,7 +30,7 @@ freshSandbox((sb) => {
 const branchVerdict = (opts: { worktree?: string }) =>
 	runCore("guard-branch", toolCall("Bash", { command: "git checkout side" }), {
 		root: at.main,
-		env: { CLAUDE_PROJECT_DIR: opts.worktree ?? at.main },
+		env: opts.worktree ? {} : { CLAUDE_PROJECT_DIR: at.main },
 		...opts,
 	}).output?.permissionDecision;
 
@@ -38,7 +38,7 @@ const branchVerdict = (opts: { worktree?: string }) =>
 const reviewText = (opts: { worktree?: string }) =>
 	runCore("inject-review-tier", toolCall("Skill", { skill: "code-review" }), {
 		root: at.main,
-		env: { CLAUDE_PROJECT_DIR: opts.worktree ?? at.main },
+		env: opts.worktree ? {} : { CLAUDE_PROJECT_DIR: at.main },
 		...opts,
 	}).output?.additionalContext ?? "";
 

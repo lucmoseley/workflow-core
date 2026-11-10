@@ -2,7 +2,10 @@
 /*
  * lib/canary-remark.js's decisions over fake ports (#4744): which sessions a
  * re-mark vouches for, which strand the move, and when no re-mark is owed.
- * The real canaries, writers and git are level-main.test.ts's.
+ * Break it and a levelling pass moves `main` past a canary change that
+ * refuses a live session every tool, or marks a session whose self-plugin
+ * never loaded. The fakes are held to nothing but level-main.test.ts, which
+ * crosses lib/canary-remark-host.js's adapters with real canaries and git.
  */
 
 import { describe, expect, it } from "vitest";
@@ -15,7 +18,6 @@ const CANARY = "scripts/self-plugin-canary.sh";
 const WRITER = "scripts/write-self-plugin-marker.sh";
 
 interface World {
-	/** Each revision's files, by repo-relative path. */
 	revs: Record<string, Record<string, string>>;
 	/** Each listing in turn; the last repeats. */
 	listings: Array<LiveSession[] | { why: string }>;
@@ -28,7 +30,6 @@ function fake(world: World) {
 	let listed = 0;
 	const ports: RemarkPorts = {
 		root: ROOT,
-		scratch: SCRATCH,
 		readAt: (rev, file) => {
 			const text = world.revs[rev]?.[file];
 			return text === undefined ? { absent: true } : { text };
@@ -51,7 +52,7 @@ function fake(world: World) {
 				writer.slice(0, -`/${WRITER}`.length),
 			];
 		},
-		inScratch: (_files, run) => run(),
+		inScratch: (_files, run) => run(SCRATCH),
 	};
 	return { ports, marks };
 }

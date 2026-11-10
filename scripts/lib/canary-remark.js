@@ -22,7 +22,7 @@
  * session takes to appear in `claude agents --json` after its SessionStart
  * hooks spawn, unmeasured.
  *
- * The core: it decides, and lib/canary-remark-ports.js's adapters do every
+ * The core: it decides, and lib/canary-remark-host.js's adapters do every
  * read, hook run and scratch write.
  */
 
@@ -51,7 +51,6 @@ const SOURCING = /(?:\bsource|(?:^|[;&|]|\bthen|\bdo)\s*\.)\s+(\S+)/g;
  * @typedef {{ text: string } | { absent: true } | { why: string }} ReadAt
  * @typedef {{
  *   root: string,
- *   scratch: string,
  *   readAt: (rev: string, file: string) => ReadAt,
  *   listSessions: ListSessions,
  *   worktrees: () => string[] | null,
@@ -59,9 +58,9 @@ const SOURCING = /(?:\bsource|(?:^|[;&|]|\bthen|\bdo)\s*\.)\s+(\S+)/g;
  *   exists: (p: string) => boolean,
  *   hook: (script: string, s: LiveSession) => { ok: boolean, said: string },
  *   mark: (writer: string, s: LiveSession) => void,
- *   inScratch: <T>(files: Map<string, string>, run: () => T) => T,
- * }} RemarkPorts `root` the main checkout; `scratch`, the directory
- *   `inScratch` fills with `files` for `run` and removes after; `worktrees`,
+ *   inScratch: <T>(files: Map<string, string>, run: (dir: string) => T) => T,
+ * }} RemarkPorts `root` the main checkout; `inScratch`, `run` over a
+ *   scratch directory it fills with `files` and removes after; `worktrees`,
  *   each of `root`'s repository's worktrees dereferenced, null where git will
  *   not list them; `hook`, a canary run for one session as its hook would;
  *   `mark`, a writer run that records `root`'s self-plugin as the plugin root
@@ -203,8 +202,8 @@ function remarkAroundMove(ports, { from, to, changed }, move) {
 		keep: (passed) => passed,
 	});
 	if ("why" in vouched) return { status: "stranding", stranding: vouched };
-	const stranded = ports.inScratch(after.files, () =>
-		remarkEach(ports, ports.scratch, vouched.sessions),
+	const stranded = ports.inScratch(after.files, (dir) =>
+		remarkEach(ports, dir, vouched.sessions),
 	);
 	if (stranded.length > 0)
 		return { status: "stranding", stranding: { stranded } };
@@ -238,9 +237,9 @@ function remarkLatecomers(ports, before, remarked) {
 	});
 	if ("why" in refused) return refused;
 	if (refused.sessions.length === 0) return null;
-	const passedBefore = ports.inScratch(before, () =>
+	const passedBefore = ports.inScratch(before, (dir) =>
 		refused.sessions.filter((s) =>
-			isPassedBy(ports, path.join(ports.scratch, CANARY), s),
+			isPassedBy(ports, path.join(dir, CANARY), s),
 		),
 	);
 	const stranded = remarkEach(ports, ports.root, passedBefore);

@@ -1,8 +1,11 @@
 /*
- * canary-remark-ports.js — the production adapters lib/canary-remark.js's
- * core reads through: git at a revision and the worktree list, the live
- * session listing, each canary or writer run as a session's hook would run
- * it, and the scratch tree a revision's canary is taken into.
+ * canary-remark-host.js — the production ports lib/canary-remark.js reads
+ * (#4744): git at a revision and the worktree list, the live session
+ * listing, each canary or writer run as a session's hook would run it, and
+ * the scratch tree a revision's canary is taken into. Kept apart so the
+ * core's choices of whom to vouch for and whom the move strands are tested
+ * without a bash canary or a real repository; level-main.test.ts crosses
+ * these adapters for real.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -88,10 +91,9 @@ function readAt(root, rev, file) {
  * @param {ListSessions} [listSessions]
  * @returns {RemarkPorts}
  */
-function remarkPorts(root, scratch, listSessions = listLiveSessions) {
+function buildHostPorts(root, scratch, listSessions = listLiveSessions) {
 	return {
 		root,
-		scratch,
 		readAt: (rev, file) => readAt(root, rev, file),
 		listSessions,
 		worktrees: () => {
@@ -113,7 +115,7 @@ function remarkPorts(root, scratch, listSessions = listLiveSessions) {
 					});
 					fs.writeFileSync(path.join(scratch, file), text);
 				}
-				return run();
+				return run(scratch);
 			} finally {
 				fs.rmSync(scratch, { recursive: true, force: true });
 			}
@@ -121,4 +123,4 @@ function remarkPorts(root, scratch, listSessions = listLiveSessions) {
 	};
 }
 
-module.exports = { remarkPorts };
+module.exports = { buildHostPorts };
