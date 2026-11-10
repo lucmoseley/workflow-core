@@ -145,7 +145,9 @@ const FLIP_BACKLOG = 10;
 const TOKEN_BUDGET = 30_000;
 /** Runs over the budget that bring the flip check forward (#4796). */
 const FLIP_OVER_BUDGET_RUNS = 2;
-/** Hours without an update after which a repo's origin/main is stale (#4858). */
+/** Hours without an update after which a repo's origin/main is stale (#4858:
+ * untraced, a guess). A busy repo's sessions fetch or push daily; how often
+ * an adopter's ref really moves is unmeasured, and #4872 weighs it. */
 const STALE_REF_HOURS = 24;
 /** Bytes read from a transcript's head to find its first timestamp. */
 const START_PROBE_BYTES = 65_536;
@@ -250,7 +252,7 @@ function readMainLog(root, nowMs) {
  * has none.
  * @param {string} root
  */
-function refUpdatedAt(root) {
+function readRefUpdatedAt(root) {
 	const r = gitOutcome(
 		[
 			"log",
@@ -301,7 +303,7 @@ function readSigLog(root, tracker, failures) {
  * @returns {{cwd: string | null, unread: string[]}}  `unread`: each transcript
  *   read before it that would not read
  */
-function cwdOfDir(files) {
+function readDirCwd(files) {
 	/** @type {string[]} */
 	const unread = [];
 	for (const file of files) {
@@ -335,7 +337,7 @@ function findRoots(root, seats, failures) {
 	}
 	const roots = [root];
 	for (const [dir, files] of byDir) {
-		const { cwd, unread } = cwdOfDir(files);
+		const { cwd, unread } = readDirCwd(files);
 		if (!cwd && unread.length === files.length)
 			failures.push(`project directory unreadable: ${dir} (${unread[0]})`);
 		const at = cwd ? repoRootOf(cwd) : null;
@@ -344,6 +346,12 @@ function findRoots(root, seats, failures) {
 	return roots;
 }
 
+/** Hours from a ref's update to `nowMs`. */
+const refAgeHours = (
+	/** @type {number} */ refAt,
+	/** @type {number} */ nowMs,
+) => (nowMs - refAt) / 3_600_000;
+
 /**
  * Why a repo's origin/main is too stale to read, or null where it is fresh.
  * @param {{tracker: string, root: string, refAt: number | null, nowMs: number}} at
@@ -351,7 +359,7 @@ function findRoots(root, seats, failures) {
 function staleWhy({ tracker, root, refAt, nowMs }) {
 	if (refAt === null)
 		return `${tracker}: origin/main in ${root} has no reflog, so its last update is unknown`;
-	if (nowMs - refAt <= STALE_REF_HOURS * 3_600_000) return null;
+	if (refAgeHours(refAt, nowMs) <= STALE_REF_HOURS) return null;
 	return `${tracker}: origin/main in ${root} last updated ${iso(refAt)}, over ${STALE_REF_HOURS} h before ${iso(nowMs)}`;
 }
 
@@ -375,7 +383,7 @@ function readRepos({ root, seats, nowMs, failures }) {
 			failures.push(caught(e).message);
 			continue;
 		}
-		const refAt = refUpdatedAt(r);
+		const refAt = readRefUpdatedAt(r);
 		const held = best.get(tracker);
 		if (!held || rank(refAt) > rank(held.refAt))
 			best.set(tracker, { root: r, refAt });
@@ -747,7 +755,10 @@ function judge({ observed, expected, harm, extendedBefore }) {
  */
 
 /**
- * The latest fix of `ref` across every repo whose origin/main read.
+ * The latest fix of `ref` across every repo whose origin/main read. A repo
+ * that did not read is passed over, so a newer fix citing `ref` in full there
+ * goes unseen and the reading takes an older one; the run still exits 1 on
+ * that repo's failure. Only the finding's own repo holds it (#4858 §Design).
  * @param {Map<string, Repo>} repos
  * @param {{repo: string, number: number}} ref
  * @returns {{fix: Commit, commits: Commit[]} | null}  the fix and its repo's
@@ -1226,7 +1237,7 @@ function readTracker(tracker, nowMs, failures) {
 				ghIssueListAll(what, ["--repo", tracker, ...args])
 			);
 		} catch (e) {
-			const why = `${what} unread: ${parseErrLine(e)}`;
+			const why = `${tracker}: ${what} unread: ${parseErrLine(e)}`;
 			failures.push(why);
 			return why;
 		}
@@ -1335,7 +1346,9 @@ function review({ root, seats, nowMs, tracker }) {
 			sha: p.sha,
 			refAt: p.refAt === null ? null : iso(p.refAt),
 			refAgeHours:
-				p.refAt === null ? null : Math.round((nowMs - p.refAt) / 360_000) / 10,
+				p.refAt === null
+					? null
+					: Math.round(refAgeHours(p.refAt, nowMs) * 10) / 10,
 		})),
 		outcomes,
 		unwinds,

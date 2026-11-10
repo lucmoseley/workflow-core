@@ -172,10 +172,17 @@ function scratch() {
 				`${JSON.stringify({ mode: "weekly", date: "2026-06-01", ...line })}\n`,
 			);
 		},
-		run({ failingView = false }: { failingView?: boolean } = {}) {
+		run({
+			failingView = false,
+			failingList = "",
+		}: {
+			failingView?: boolean;
+			failingList?: string;
+		} = {}) {
 			const handler = `
 const issues = ${JSON.stringify(issues)};
 const failingView = ${failingView};
+const failingList = ${JSON.stringify(failingList)};
 const flag = (f) => argv[argv.indexOf(f) + 1];
 const inRepo = issues.filter((i) => (i.repo ?? ${JSON.stringify(TRACKER)}) === flag("--repo"));
 const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: i.createdAt ?? "", closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })) });
@@ -184,6 +191,8 @@ if (argv[0] === "issue" && argv[1] === "view") {
   const i = inRepo.find((x) => x.number === Number(argv[2]));
   if (!i) { err("no such issue\\n"); exit(1); }
   out(JSON.stringify({ state: i.state ?? "CLOSED" }));
+} else if (argv[0] === "issue" && argv[1] === "list" && flag("--repo") === failingList) {
+  err("HTTP 502: bad gateway\\n"); exit(1);
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--label") === "bug") {
   out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes("bug")).map(row)));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--state") === "closed") {
@@ -651,8 +660,10 @@ describe("measure-outcome-review.js", () => {
 
 	describe("a second repo, found by its sessions (#4858)", () => {
 		const ref = (n: number) => `${ADOPTER_TRACKER}#${n}`;
-		const of = (out: { outcomes: { finding: string }[] }, n: number) =>
-			out.outcomes.find((o) => o.finding === ref(n));
+		const outcomeOf = (
+			out: { outcomes: { finding: string; why?: string }[] },
+			n: number,
+		) => out.outcomes.find((o) => o.finding === ref(n));
 
 		/** Finding o/m#5, logged and fixed by a bare `#5` in the adopter. */
 		function adopterFinding(refDay?: number) {
@@ -687,7 +698,7 @@ describe("measure-outcome-review.js", () => {
 			const { status, out } = f.run();
 			expect(status).toBe(0);
 			expect(out.failures).toEqual([]);
-			expect(of(out, 5)).toMatchObject({
+			expect(outcomeOf(out, 5)).toMatchObject({
 				verdict: "keep",
 				fixSha: sha,
 				observed: 0,
@@ -711,7 +722,7 @@ describe("measure-outcome-review.js", () => {
 			const { f } = adopterFinding();
 			f.signatureLine(5, { issue: ref(5), signature: null, why: "x" });
 			const { out } = f.run();
-			expect(of(out, 5)).toBeUndefined();
+			expect(outcomeOf(out, 5)).toBeUndefined();
 			expect(out.notes).toContain(
 				`${ref(5)} is in the signature logs of ${TRACKER} and ${ADOPTER_TRACKER}: read ${TRACKER}'s`,
 			);
@@ -721,12 +732,22 @@ describe("measure-outcome-review.js", () => {
 			const { f } = adopterFinding(58);
 			const { status, out } = f.run();
 			expect(status).toBe(1);
-			expect(of(out, 5)).toMatchObject({ verdict: "waiting" });
-			expect(of(out, 5)?.why).toMatch(
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
+			expect(outcomeOf(out, 5)?.why).toMatch(
 				/origin\/main unread: o\/m: origin\/main in .* last updated .*, over 24 h/,
 			);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.outcomeStep.misses).toBeNull();
+		});
+
+		it("names the tracker whose issue list failed, holding the finding on it", () => {
+			const { f } = adopterFinding();
+			const { status, out } = f.run({ failingList: ADOPTER_TRACKER });
+			expect(status).toBe(1);
+			expect(outcomeOf(out, 5)?.why).toMatch(
+				/^follow-ons unread: o\/m: bug issues unread: HTTP 502/,
+			);
+			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 		});
 
 		it("holds a finding whose tracker has no checkout, and exits 1", () => {
