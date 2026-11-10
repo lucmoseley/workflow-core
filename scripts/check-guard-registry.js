@@ -2728,7 +2728,7 @@ function reprintWarnings(candidates) {
  * script, or a fragment printed only by a script nothing runs would pass while
  * reaching no session. Liveness
  * propagates along the same dependency edges the staleness anchors use
- * (sourcedBy): a guard sources lib/rule-text.sh and its own logic may sit in a
+ * (lib/guard-digest.js's sourcedBy): a guard sources lib/rule-text.sh and its own logic may sit in a
  * lib, so a lib a wired guard reaches is live too.
  *
  * THE EMITTER IS STILL READ FROM THE ACCESSOR CALL, never from the manifest. A
