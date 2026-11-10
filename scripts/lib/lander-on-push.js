@@ -10,6 +10,7 @@
  * `landing` off pays one config read on such a push and none on any other.
  */
 
+const path = require("node:path");
 const { QUEUE_HEADS } = require("./landing-refs.js");
 const { readPush } = require("./push-dests.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
@@ -50,7 +51,12 @@ function decide(command, ctx) {
 		{ subs: ["push"], noun: "lander start", scope: "repo", unwrap: true },
 	);
 	if (!toQueue || !ctx.moduleOn("landing")) return null;
-	return { launch: { script: "start-lander.js", log: ".lander.log" } };
+	return {
+		launch: {
+			script: path.join(__dirname, "..", "start-lander.js"),
+			log: ".lander.log",
+		},
+	};
 }
 
 module.exports = { decide };
