@@ -216,6 +216,7 @@ describe("the helper-surface commands", () => {
 				"scripts/lib/run-cost-report.js",
 				"scripts/mutation-hold-gate.js",
 				"scripts/register-doc.js",
+				"scripts/run-pytest.js",
 				"scripts/run-vitest.js",
 			].sort(),
 		);
@@ -279,6 +280,67 @@ describe("the helper-surface commands", () => {
 				for (const code of [0, 1]) {
 					await launch([], code);
 					expect(await launch(["--changed"], code)).toContain("--changed");
+				}
+				codes.expectListed(cmd);
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+		},
+		TEST_TIMEOUT_MS,
+	);
+
+	/*
+	 * In a scratch repo with a stand-in python at WFC_PYTHON, which records
+	 * the argv it was handed and exits with the code it is told to; 5 is
+	 * pytest's "no tests collected", standing for every failing code. Bare
+	 * argv as well as the listed flag: with the landing module off, as here,
+	 * both run the whole suite.
+	 */
+	it(
+		"scripts/run-pytest.js keeps --full and its exit codes",
+		async () => {
+			const cmd = manifest.commands["scripts/run-pytest.js"];
+			expect(cmd.positionals).toEqual([]);
+			expect(cmd.flags.map((f) => f.name)).toEqual(["--full"]);
+			const dir = tmp();
+			try {
+				const repo = path.join(dir, "repo");
+				fs.mkdirSync(repo);
+				const git = gitIn(repo);
+				git("init", "-q");
+				git("commit", "-q", "--allow-empty", "-m", "init");
+				const seen = path.join(dir, "argv.json");
+				const python = path.join(dir, "python3");
+				fs.writeFileSync(
+					python,
+					`#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)));\nprocess.exitCode = Number(process.env.FAKE_CODE);\n`,
+					{ mode: 0o755 },
+				);
+				const codes = exitCodes();
+				const launch = async (argv: string[], code: number) => {
+					fs.rmSync(seen, { force: true });
+					const r = await runInProcessAsync(
+						path.join(ROOT, "scripts/run-pytest.js"),
+						argv,
+						{
+							cwd: repo,
+							env: {
+								...process.env,
+								CLAUDE_PROJECT_DIR: repo,
+								WFC_PYTHON: python,
+								FAKE_CODE: String(code),
+							},
+						},
+					);
+					codes.add(r.status);
+					expect(r.status, r.stderr).toBe(code === 0 ? 0 : 1);
+					return JSON.parse(fs.readFileSync(seen, "utf8")) as string[];
+				};
+				for (const code of [0, 1, 5]) {
+					const bare = await launch([], code);
+					expect(bare.slice(0, 2)).toEqual(["-m", "pytest"]);
+					// Read by the runner, never handed on: pytest refuses it.
+					expect(await launch(["--full"], code)).toEqual(bare);
 				}
 				codes.expectListed(cmd);
 			} finally {

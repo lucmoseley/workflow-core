@@ -11,9 +11,12 @@
  * everything else, and the two meet in a JSON temp file.
  *
  * IT MUST NOT CHANGE WHAT `test:py` MEANS. Arguments but a lone `--full` pass
- * straight through, pytest writes to the terminal unbuffered, and this exits
- * on the child's own code — a marker that cannot be written costs a warning
- * at the next push, never a red run. cli-args-exempt: every argument is pytest's, passed through
+ * straight through, pytest writes to the terminal unbuffered, and a red run
+ * stays red — a marker that cannot be written costs a warning at the next
+ * push, never a red run. EXIT 0 OR 1, NEVER PYTEST'S OWN CODE (#4779): the
+ * helper surface lists this command's exits, and pytest's set grows with its
+ * version (9 added 6), so every failing exit reads as 1 and pytest's own
+ * report says which. cli-args-exempt: every argument is pytest's, passed through
  * unparsed, bar the one whole-argv match below.
  *
  * UNDER THE `landing` MODULE A BARE RUN IS A TOUCHED ONE (#2934): it hands
@@ -160,7 +163,7 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 		if (lines.length > 0) writeFd(1, `${lines.join("\n")}\n`);
 	}
 
-	process.exitCode = run.forcedRed || run.status === null ? 1 : run.status;
+	process.exitCode = !run.forcedRed && run.status === 0 ? 0 : 1;
 }
 
 /**

@@ -418,10 +418,13 @@ describe("a bare run under landing", () => {
 });
 
 describe("the exit code", () => {
-	it("is the child's own, so a red pytest run is still red", async () => {
-		const [python] = fakePytest({ passed: false, scope: null }, 1);
-		expect((await wrap(python, repo())).status).toBe(1);
-	});
+	it.each([1, 2, 3, 4, 5, 6])(
+		"is 1 where pytest exits %i, so a red run is red on one listed code (#4779)",
+		async (code) => {
+			const [python] = fakePytest({ passed: false, scope: null }, code);
+			expect((await wrap(python, repo())).status).toBe(1);
+		},
+	);
 
 	it("is zero on a green run", async () => {
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
@@ -464,7 +467,7 @@ describe("the marker it records", () => {
 		// shutdown, so an INTERNALERROR after it — or earlyoom killing python
 		// between the two — leaves `passed: true` behind a non-zero exit.
 		const [python] = fakePytest({ passed: true, scope: scope() }, 3);
-		expect((await wrap(python, root)).status).toBe(3);
+		expect((await wrap(python, root)).status).toBe(1);
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
@@ -641,7 +644,7 @@ describe("the run-cost report (#1884)", () => {
 		expect(r.stdout).not.toContain("test_same.py");
 	});
 
-	it("prints after a red run too, and the exit code stays the suite's own", async () => {
+	it("prints after a red run too, and the exit code stays red", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(timed(root), false), 1);
 		const r = await wrap(python, root, [], noCi);
