@@ -372,8 +372,7 @@ function install() {
 		const Process = bindings("process_wrap").Process;
 		const asyncSpawn = Process.prototype.spawn;
 		/* Node through 24.18 hands the handle one options object; 24.22 hands
-		 * it positional `file, args, cwd, envPairs, stdio, …`. Every argument
-		 * passes through. */
+		 * it positional `file, args, cwd, envPairs, stdio, …`. */
 		Process.prototype.spawn = function (/** @type {Untyped[]} */ ...args) {
 			const err = asyncSpawn.apply(this, args);
 			const [first, argv, cwd, envPairs] = args;

@@ -399,7 +399,6 @@ const CWD_BLIND = new Map([
 	["gitleaks", "version"],
 ]);
 
-/* Where a test can write a program: its scratch lives under one of these. */
 const TMP = fs.realpathSync(os.tmpdir());
 
 /**
@@ -412,7 +411,7 @@ const TMP = fs.realpathSync(os.tmpdir());
  */
 function isCwdBlind(e, root) {
 	const name = path.basename(String(e.file));
-	const bin = /** @type {string[]} */ (e.bin ?? []);
+	const bin = Array.isArray(e.bin) ? e.bin : [];
 	if (bin.length === 0 || !CWD_BLIND.has(name)) return false;
 	if (bin.some((at) => isUnder(at, [root, TMP], path.sep))) return false;
 	const sole = CWD_BLIND.get(name);
