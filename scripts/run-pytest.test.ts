@@ -25,12 +25,13 @@ import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 
 const require = createRequire(import.meta.url);
-const { readMarkers } = require("./lib/test-pass-marker.js");
+const { readFailures, readMarkers } = require("./lib/test-pass-marker.js");
 const { CEILING_ENV, DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
 const { runPytest } = require("./lib/pytest-child.js");
 
 const SCRIPT = path.join(__dirname, "run-pytest.js");
+const { recordCeilingKill } = require(SCRIPT);
 
 const dirs: string[] = [];
 
@@ -809,6 +810,72 @@ describe("the suite ceiling (#2702)", () => {
 		);
 		expect(r.stderr).toContain("Never started: 8 test(s).");
 		expect(r.stderr).toContain("Finished: 41 test(s).");
+		expect(r.ceilingKill).toMatchObject({
+			ceilingMs: 1000,
+			inflight: {
+				open: [{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" }],
+				finished: 41,
+				collected: 50,
+			},
+		});
+	});
+
+	it("records one ceiling-kind fail-store row carrying the tests in flight with their stage and the never-started and finished counts (#4776)", () => {
+		const root = repo();
+		const sha = spawnSync("git", ["rev-parse", "HEAD"], {
+			cwd: root,
+			encoding: "utf8",
+		}).stdout.trim();
+		recordCeilingKill(
+			root,
+			{
+				ceilingMs: 1000,
+				elapsedMs: 1002,
+				inflight: {
+					open: [
+						{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" },
+					],
+					finished: 41,
+					collected: 50,
+				},
+			},
+			{ sha, startedAtMs: Date.now() - 1100, argv: ["scripts"] },
+		);
+
+		expect(readFailures({ root })).toEqual([
+			expect.objectContaining({
+				sha,
+				suite: "pytest",
+				ceilingKill: true,
+				ceilingMs: 1000,
+				durationMs: 1002,
+				inflight: [
+					{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" },
+				],
+				neverStarted: 8,
+				finished: 41,
+				argv: ["scripts"],
+			}),
+		]);
+		expect(readMarkers({ root })).toEqual([]);
+	});
+
+	it("records the row with no tests named where pytest reported none in flight", () => {
+		const root = repo();
+		recordCeilingKill(
+			root,
+			{ ceilingMs: 1000, elapsedMs: 1001, inflight: null },
+			{ sha: "a".repeat(40), startedAtMs: Date.now(), argv: [] },
+		);
+
+		expect(readFailures({ root })).toEqual([
+			expect.objectContaining({
+				ceilingKill: true,
+				inflight: null,
+				neverStarted: null,
+				finished: null,
+			}),
+		]);
 	});
 
 	it("says the never-started count is unavailable where pytest reported no collected count", async () => {
@@ -834,6 +901,13 @@ describe("the suite ceiling (#2702)", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("SUITE CEILING");
 		expect(readMarkers({ root })).toEqual([]);
+		expect(readFailures({ root })).toEqual([
+			expect.objectContaining({
+				suite: "pytest",
+				ceilingKill: true,
+				ceilingMs: 1000,
+			}),
+		]);
 	});
 
 	it("says the list is unavailable where pytest reported none", async () => {

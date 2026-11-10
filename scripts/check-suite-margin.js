@@ -225,7 +225,9 @@ function buildFileLines(m) {
 			return ["  in flight at the kill: none recorded"];
 		return [
 			"  in flight at the kill:",
-			...inflight.map((f) => `    ${f.module} (${f.stage})`),
+			...inflight.map(
+				(f) => `    ${"module" in f ? f.module : f.nodeid} (${f.stage})`,
+			),
 		];
 	}
 	const slowest = m.slowest ?? [];

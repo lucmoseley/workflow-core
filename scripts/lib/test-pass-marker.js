@@ -96,10 +96,12 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   cached?: CachedSource[],
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
- *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
- *   full?: string|null,
- *   inflight?: {module: string, stage: string}[], finished?: string[],
+ *   ceilingKill?: boolean, ceilingMs?: number,
+ *   neverStarted?: string[]|number|null, full?: string|null,
+ *   inflight?: InflightRow[]|null, finished?: string[]|number|null,
  *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
+ * @typedef {{module: string, stage: string}|{nodeid: string, stage: string}}
+ *   InflightRow vitest names a test file in flight, pytest a test (#4776)
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
  *   imports?: Record<string, string[]>, roots?: string[],
