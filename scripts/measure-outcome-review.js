@@ -80,7 +80,7 @@
  * citing them, carry
  * `bug` or a FAULT_SHAPE title or closing-commit subject, have no line in
  * either record, and carry no origin a script files under (lib/issue-origin.js
- * SCRIPT_ORIGINS, which declare `--no-fault` in code): a ticket filed past
+ * SCRIPT_ORIGINS): a ticket filed past
  * file-issue.js's declarations, or a session's `--no-fault` on a fault, so no
  * fault ticket escapes review by omission. Every other ticket with an
  * `origin:*` label and no line closed in the same days and carrying `bug` is
