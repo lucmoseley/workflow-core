@@ -3287,6 +3287,9 @@
 		"migrations/v2.2.0.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
+		"migrations/v2.3.0.md": [
+			"scripts/lib/migration-note.test.ts"
+		],
 		"package-lock.json": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
