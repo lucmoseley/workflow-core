@@ -454,10 +454,13 @@ function transcriptMentions(text, subjects, tier) {
 
 /**
  * The strings of one record where a fault surfaces: each `tool_result`
- * block's text, each hook attachment's output (the `hook` route's spans) and
- * a system record's content. Never assistant prose, a prompt or a tool call's
- * input, so a session that quotes a fault in its own words or its commands is
- * no hit; a tool's output that prints the quote, such as a grep, still is.
+ * block's text, each hook attachment's output (the `hook` route's spans), a
+ * system record's content, and a `user` record the harness wrote as plain
+ * text — `isMeta` (Stop hook feedback, a system reminder) or a `!` command's
+ * or local command's printed output. Never assistant prose, a prompt or a
+ * tool call's input, so a session that quotes a fault in its own words or its
+ * commands is no hit; a tool's output that prints the quote, such as a grep,
+ * still is.
  * @param {TranscriptRecord} record
  * @returns {Generator<string>}
  */
@@ -467,8 +470,48 @@ function* outputStrings(record) {
 	if (Array.isArray(content))
 		for (const part of content)
 			if (part?.type === "tool_result") yield* resultTexts(part.content);
+	if (typeof content === "string" && isHarnessText(record, content))
+		yield content;
 	if (record?.type === "system") yield* stringsIn(record.content);
 }
+
+/** The tags the harness opens a `!` or local command's printed output with. */
+const PRINTED_OUTPUT = /^<(?:bash-stdout|local-command-stdout)>/;
+
+/**
+ * Whether a `user` record's plain-text content is the harness's words, not a
+ * person's or a peer agent's. A typed prompt, a `!` command's input and a
+ * slash command carry no `isMeta`, and a prompt of older transcripts carries
+ * no `origin` either, so the harness's words are told by `isMeta` or a
+ * printed-output tag, never by the absence of `origin.kind: "human"`. A
+ * `peer` message is another agent's prose.
+ * @param {TranscriptRecord} record
+ * @param {string} content
+ */
+function isHarnessText(record, content) {
+	if (record?.type !== "user" || record.origin?.kind === "peer") return false;
+	return record.isMeta === true || PRINTED_OUTPUT.test(content);
+}
+
+/**
+ * The strings of one record's tool calls: each `tool_use` block's input
+ * values one level deep, such as a Bash command or an Edit's new text — for a
+ * fault whose only trace is the call a session made.
+ * @param {TranscriptRecord} record
+ * @returns {Generator<string>}
+ */
+function* callStrings(record) {
+	const content = record?.message?.content;
+	if (record?.type !== "assistant" || !Array.isArray(content)) return;
+	for (const part of content)
+		if (part?.type === "tool_use") yield* stringsIn(part.input);
+}
+
+/**
+ * What a regex signature reads: where a fault surfaces, or the calls made.
+ * @typedef {"output" | "call"} Reads
+ */
+const READS = { output: outputStrings, call: callStrings };
 
 /**
  * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
@@ -481,40 +524,44 @@ const stateless = (pattern) =>
 /**
  * @param {TranscriptRecord} record
  * @param {RegExp} re  a `stateless` copy
+ * @param {Reads} reads
  */
-function outputMatches(record, re) {
-	for (const s of outputStrings(record)) if (re.test(s)) return true;
+function stringsMatch(record, re, reads) {
+	for (const s of READS[reads](record)) if (re.test(s)) return true;
 	return false;
 }
 
 /**
- * Does one record carry a match for `pattern` in its `outputStrings`? Each
- * string is tested whole, as the record holds it, never the record
- * serialised, so a pattern is written against the text a session saw rather
- * than against JSON escapes.
+ * Does one record carry a match for `pattern` in the strings `reads` names
+ * (`outputStrings` or `callStrings`)? Each string is tested whole, as the
+ * record holds it, never the record serialised, so a pattern is written
+ * against the text a session saw or typed rather than against JSON escapes.
  * @param {TranscriptRecord} record
  * @param {RegExp} pattern
+ * @param {Reads} reads
  * @returns {boolean}
  */
-function recordMatches(record, pattern) {
-	return outputMatches(record, stateless(pattern));
+function recordMatches(record, pattern, reads) {
+	return stringsMatch(record, stateless(pattern), reads);
 }
 
 /**
- * Every record in one transcript whose `outputStrings` match `pattern`, one per
- * record — the regex route beside `transcriptMentions`, for a fault no guard
- * prints (#4796). Same parsing and the same `tier` as `transcriptFires`, so a
- * main-tier read never counts a subagent's inline turn.
+ * Every record in one transcript whose strings `reads` names match
+ * `pattern`, one per record — the regex route beside `transcriptMentions`,
+ * for a fault no guard prints (#4796). Same parsing and the same `tier` as
+ * `transcriptFires`, so a main-tier read never counts a subagent's inline
+ * turn.
  * @param {string} text
  * @param {RegExp} pattern
  * @param {"main" | "subagent"} tier
+ * @param {Reads} reads
  * @returns {Array<{at: string|null}>}
  */
-function transcriptMatches(text, pattern, tier) {
+function transcriptMatches(text, pattern, tier, reads) {
 	const re = stateless(pattern);
 	const out = [];
 	for (const record of mainChainRecords(text, tier))
-		if (outputMatches(record, re))
+		if (stringsMatch(record, re, reads))
 			out.push({
 				at: typeof record.timestamp === "string" ? record.timestamp : null,
 			});

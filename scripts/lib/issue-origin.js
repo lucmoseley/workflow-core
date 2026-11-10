@@ -33,18 +33,18 @@ const ORIGINS = /** @type {const} */ ([
 ]);
 
 /**
- * The origins only a script files under, declaring `--no-fault` in code: the
+ * The origins a script files under, declaring `--no-fault` in code: the
  * outcome review's miss backstop passes them over, and holds every other
- * origin's undeclared fault-shaped ticket to account.
+ * origin's undeclared fault-shaped ticket to account. Nothing stops a session
+ * passing one of these `--origin` by hand, and its ticket then skips the
+ * backstop too.
  */
-const SCRIPT_ORIGINS = /** @type {const} */ ([
+const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 	"lander-script",
 	"orphaned-edit-script",
 	"ci-red",
 	"incident",
 	"morning-review-script",
-	"repo-checks-script",
-	"release-bump",
 ]);
 
 const ORIGIN_PREFIX = "origin:";
@@ -54,6 +54,10 @@ const originLabel = (origin) => `${ORIGIN_PREFIX}${origin}`;
 
 /** @param {string} v @returns {boolean} */
 const isOrigin = (v) => /** @type {readonly string[]} */ (ORIGINS).includes(v);
+
+/** @param {string | null} origin */
+const isScriptOrigin = (origin) =>
+	origin !== null && SCRIPT_ORIGINS.includes(origin);
 
 /**
  * The origin a label set carries, or null.
@@ -77,8 +81,8 @@ const ORIGIN_LABELS = ORIGINS.map((o) => ({
 module.exports = {
 	ORIGINS,
 	ORIGIN_LABELS,
-	SCRIPT_ORIGINS,
 	isOrigin,
+	isScriptOrigin,
 	originLabel,
 	originOfLabels,
 };

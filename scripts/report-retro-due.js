@@ -55,8 +55,8 @@ function newestWeekly(read) {
 		throw new Error(`${RUN_RECORD}:${bad} is not a JSON object`);
 	/** @type {string | null} */
 	let newest = null;
-	for (const [k, row] of read.rows.entries()) {
-		const date = weeklyDate(row, /** @type {number} */ (read.rowLines[k]));
+	for (const { row, line } of read.entries) {
+		const date = weeklyDate(row, line);
 		if (date === null) continue;
 		if (!newest || date > newest) newest = date;
 	}

@@ -135,7 +135,7 @@ function readBaseline(watchFile = WATCH_FILE()) {
 	if (!read) return null;
 	const last = read.rows.at(-1);
 	const newestBad = read.bad.at(-1) ?? 0;
-	if (newestBad > (read.rowLines.at(-1) ?? 0)) return;
+	if (newestBad > (read.entries.at(-1)?.line ?? 0)) return;
 	if (!last) return null;
 	/** @type {Record<string, RootReading>} */
 	const byDir = {};

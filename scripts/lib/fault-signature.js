@@ -6,17 +6,24 @@
  *
  *   {"signature": {"kind": "needle", "key": "<guard key>", "needle": "<id>"?}
  *                | {"kind": "regex", "pattern": "<re>", "flags": "i"?,
- *                   "scope": "main" | "subagent" | "both"},
+ *                   "scope": "main" | "subagent" | "both",
+ *                   "reads": "output" | "call"?},
  *    "prediction": "<plain words>",
  *    "case": {"session": "<session id>", "line": <1-based>, "agent": "<id>"?}}
  *
  * or `{"signature": null, "why": "<why no trace counts it>"}`. A needle's key
  * is a `guards` key of the guard-fire registry, the core's
  * scripts/guard-fire-needles.json with the host's own folded in
- * (lib/guard-fires.js `mergeNeedles`), and carries needles. The case names the
- * transcript record that triggered the ticket: `agent` names a subagent's own
- * log under that session. It is read across every seat, one copy each
- * (lib/project-dirs.js), and a signature that does not match it is refused (#4635).
+ * (lib/guard-fires.js `mergeNeedles`), and carries needles. A regex's `reads`
+ * is `output`, left out, for a fault a session is shown — a tool result, a
+ * hook's output, Stop hook feedback, a system record — or `call` for one whose
+ * only trace is a tool call the session made.
+ *
+ * The case names the transcript record where the fault surfaces: the output
+ * record a needle or an `output` regex reads, the `tool_use` record for a
+ * `call` regex. `agent` names a subagent's own log under that session. It is
+ * read across every seat, one copy each (lib/project-dirs.js), and a signature
+ * that does not match it is refused (#4635).
  *
  * A needle counts as lib/guard-fires.js counts a guard's fires, on both tiers;
  * a regex through its regex route, on the tiers its scope names.
@@ -42,12 +49,13 @@ const { parseJsonlRow } = require("./jsonl.js");
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
 
 const SCOPES = /** @type {const} */ (["main", "subagent", "both"]);
+const READS = /** @type {const} */ (["output", "call"]);
 const REGEX_FLAGS = /^[imsu]*$/;
 
 /**
  * @typedef {{kind: "needle", key: string, needle?: string}
  *   | {kind: "regex", pattern: string, flags?: string,
- *      scope: "main" | "subagent" | "both"}} Signature
+ *      scope: "main" | "subagent" | "both", reads?: "call"}} Signature
  * @typedef {{session: string, line: number, agent?: string}} Case
  * @typedef {{signature: Signature, prediction: string, case: Case}
  *   | {signature: null, why: string}} Declared
@@ -173,12 +181,18 @@ function checkRegex(s) {
 		return {
 			error: `a regex signature's "scope" is one of ${SCOPES.join(", ")}: the transcript tier it reads.`,
 		};
+	const reads = READS.find((x) => x === (s.reads ?? "output"));
+	if (!reads)
+		return {
+			error: `a regex signature's "reads" is "output" (left out: where the fault surfaces — a tool result, a hook's output, Stop hook feedback) or "call" (the tool calls a session made).`,
+		};
 	return {
 		signature: {
 			kind: "regex",
 			pattern,
 			...(flags ? { flags } : {}),
 			scope,
+			...(reads === "call" ? { reads } : {}),
 		},
 	};
 }
@@ -254,7 +268,7 @@ function signatureHits(text, sig, tier, registry) {
 		return transcriptFires(text, [needleSubject(sig, registry)], tier).map(
 			(f) => ({ at: f.at }),
 		);
-	return transcriptMatches(text, compile(sig), tier);
+	return transcriptMatches(text, compile(sig), tier, sig.reads ?? "output");
 }
 
 /**
@@ -297,7 +311,7 @@ function matchesCase(sig, { record, tier }, registry) {
 	if (!readsTier(sig, tier)) return false;
 	if (sig.kind === "needle")
 		return recordFires(record, [needleSubject(sig, registry)]).length > 0;
-	return recordMatches(record, compile(sig));
+	return recordMatches(record, compile(sig), sig.reads ?? "output");
 }
 
 /**
@@ -335,7 +349,7 @@ function readDeclared(file, { root, seats = configDirs() }) {
 		};
 	if (!matchesCase(declared.signature, at, registry))
 		return {
-			error: `${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing (#4635). Fix the signature, or the case.`,
+			error: `${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing (#4635). The case is the line where the fault surfaces: the output record (a tool_result, a hook attachment, Stop hook feedback, a system record), or the tool_use record for a "reads": "call" regex — never the session's prose about it. Fix the signature, or move the case to that line.`,
 		};
 	return { declared, registry };
 }

@@ -72,6 +72,8 @@ const { parseOrCode } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
 const { worktreeRoot } = require("./lib/host-root");
 const { readJsonl } = require("./lib/jsonl.js");
+const { requiredGroup } = require("./lib/regex-group");
+const { asObject } = require("./lib/json-shape");
 const { RUN_RECORD } = require("./lib/retro-record");
 const { originOfLabels } = require("./lib/issue-origin");
 const { classifyOrigin } = require("./lib/origin-fallback");
@@ -315,16 +317,11 @@ function readRuns(file, weekStart) {
 	/** @type {RunPoint[]} */
 	const prior = [];
 	let stepRuns = 0;
-	const { rows } = log;
-	const numbered = log.rowLines.flatMap((lineNo, i) => {
-		const row = rows[i];
-		return row ? [{ row, lineNo }] : [];
-	});
-	for (const { row, lineNo } of numbered) {
+	for (const { row, line } of log.entries) {
 		const read = readRunLine(row);
 		if (read === "no week") {
 			bad.push(
-				`${where(lineNo)} carries ticket-mix counts but no readable week.start`,
+				`${where(line)} carries ticket-mix counts but no readable week.start`,
 			);
 			continue;
 		}
@@ -346,22 +343,13 @@ function readRuns(file, weekStart) {
 function readRunLine(line) {
 	if (line.mode !== "weekly") return null;
 	const step = asObject(line.ticketMixStep);
-	const kinds = readPointKinds(line.kinds);
+	const kinds = parsePointKinds(line.kinds);
 	const total = typeof step?.total === "number" ? step.total : null;
 	if (!kinds && total === null) return { step: Boolean(step), point: null };
 	const start = isoMs(String(asObject(line.week)?.start ?? ""));
 	if (Number.isNaN(start)) return "no week";
 	return { step: Boolean(step), point: { start, kinds, total } };
 }
-
-/**
- * @param {unknown} v
- * @returns {Record<string, unknown> | null}
- */
-const asObject = (v) =>
-	v !== null && typeof v === "object" && !Array.isArray(v)
-		? /** @type {Record<string, unknown>} */ (v)
-		: null;
 
 /** @param {unknown} v @returns {number | undefined} */
 const numberOr = (v) => (typeof v === "number" ? v : undefined);
@@ -372,7 +360,7 @@ const numberOr = (v) => (typeof v === "number" ? v : undefined);
  * @param {unknown} v
  * @returns {RunPoint["kinds"]}
  */
-function readPointKinds(v) {
+function parsePointKinds(v) {
 	const kinds = asObject(v);
 	if (!kinds) return null;
 	return Object.fromEntries(
@@ -773,10 +761,14 @@ function render(r) {
 function parseSnapshots(specs) {
 	/** @type {Snapshot[]} */
 	const out = [];
+	const re = /^([^/=\s]+\/[^/=\s]+)=(.+)$/;
 	for (const spec of specs) {
-		const m = /^([^/=\s]+\/[^/=\s]+)=(.+)$/.exec(spec);
-		if (!m?.[1] || !m[2]) return spec;
-		out.push({ repo: m[1], file: path.resolve(m[2]) });
+		const m = re.exec(spec);
+		if (!m) return spec;
+		out.push({
+			repo: requiredGroup(m, 1, re),
+			file: path.resolve(requiredGroup(m, 2, re)),
+		});
 	}
 	return out;
 }

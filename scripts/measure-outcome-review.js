@@ -93,7 +93,8 @@ const { hostRoot } = require("./lib/host-root");
 const { configDirs } = require("./lib/arbiter-store");
 const { readSeatTranscripts } = require("./lib/project-dirs");
 const { requireKey } = require("./lib/workflow-core-config");
-const { SCRIPT_ORIGINS, originOfLabels } = require("./lib/issue-origin");
+const { isScriptOrigin, originOfLabels } = require("./lib/issue-origin");
+const { asObject, objectsIn, stringMembers } = require("./lib/json-shape");
 const { parseQualifiedRef } = require("./lib/issue-ref");
 const { readNeedles, readSubagentFiles } = require("./lib/guard-fires");
 const { subagentDirOf } = require("./lib/transcript");
@@ -184,22 +185,6 @@ const round3 = (/** @type {number} */ x) => Math.round(x * 1000) / 1000;
 const rateOf = (/** @type {Baseline} */ b) =>
 	b.sessions > 0 ? b.count / b.sessions : 0;
 
-/** @param {unknown} v @returns {Row | null} */
-const asRow = (v) =>
-	v !== null && typeof v === "object" && !Array.isArray(v)
-		? /** @type {Row} */ (v)
-		: null;
-/** @param {unknown} v @returns {Row[]} */
-const rowsIn = (v) =>
-	Array.isArray(v)
-		? v.flatMap((x) => {
-				const r = asRow(x);
-				return r ? [r] : [];
-			})
-		: [];
-/** @param {unknown} v @returns {string[]} */
-const stringsIn = (v) =>
-	Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 /** @param {unknown} v @returns {number | null} */
 const numberOf = (v) =>
 	typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -211,8 +196,8 @@ const isCount = (v) => Number.isInteger(v) && Number(v) >= 0;
  * @param {unknown} v
  * @returns {Baseline | null}
  */
-function readBaseline(v) {
-	const b = asRow(v);
+function parseBaseline(v) {
+	const b = asObject(v);
 	return b && isCount(b.count) && isCount(b.sessions)
 		? { count: Number(b.count), sessions: Number(b.sessions) }
 		: null;
@@ -480,7 +465,7 @@ function collectFindings(sigLines, weekly, registry, failures) {
 			failures.push(`${named}: ${checked.error}`);
 			return;
 		}
-		const baseline = readBaseline(entry.baseline);
+		const baseline = parseBaseline(entry.baseline);
 		if (entry.baseline != null && !baseline)
 			failures.push(
 				`${named} has a baseline that is not {count, sessions}; it is counted here`,
@@ -499,10 +484,10 @@ function collectFindings(sigLines, weekly, registry, failures) {
 		typeof v === "string" ? Date.parse(v) : Number.NaN;
 	for (const l of sigLines) add(l, dateMs(l.filedAt), "signature log line for");
 	for (const line of weekly)
-		for (const f of rowsIn(line.findings))
+		for (const f of objectsIn(line.findings))
 			add(
 				f,
-				dateMs(asRow(line.week)?.end ?? line.date),
+				dateMs(asObject(line.week)?.end ?? line.date),
 				`run line ${String(line.date)} finding`,
 			);
 	return { findings, signed };
@@ -519,12 +504,12 @@ function readPrior(weekly) {
 	/** @type {Set<string>} */
 	const extended = new Set();
 	for (const line of weekly)
-		for (const o of rowsIn(line.outcomes)) {
+		for (const o of objectsIn(line.outcomes)) {
 			if (typeof o.finding !== "string") continue;
 			prior.set(o.finding, o);
 			if (o.verdict === "extend") extended.add(o.finding);
 		}
-	const backlog = stringsIn(asRow(weekly.at(-1)?.outcomeStep)?.backlog);
+	const backlog = stringMembers(asObject(weekly.at(-1)?.outcomeStep)?.backlog);
 	return { prior, extended, backlog };
 }
 
@@ -835,9 +820,9 @@ function rankUnwinds(outcomes, backlog, prior) {
 	/** @type {Row[]} */
 	const ranked = [...fresh, ...carried];
 	const rows = ranked.map((o) => {
-		const guardrails = asRow(o.guardrails);
-		const reverts = stringsIn(guardrails?.reverts);
-		const followOns = stringsIn(guardrails?.followOns);
+		const guardrails = asObject(o.guardrails);
+		const reverts = stringMembers(guardrails?.reverts);
+		const followOns = stringMembers(guardrails?.followOns);
 		const observed = numberOf(o.observed);
 		const expected = numberOf(o.expected);
 		const rank = unwindRatio({ observed, expected });
@@ -903,10 +888,6 @@ function readMisses(closed, { commits, signed, tracker, nowMs }) {
 	return out;
 }
 
-/** @param {string | null} origin */
-const isScriptOrigin = (origin) =>
-	/** @type {readonly (string | null)[]} */ (SCRIPT_ORIGINS).includes(origin);
-
 /**
  * The week's closed `bug` tickets carrying an `origin:*` label and no
  * signature line, declared `--no-fault`, that are not already misses.
@@ -937,10 +918,10 @@ function flipCheck(weekly, outcomes, backlog) {
 	const reached = (/** @type {Row[]} */ os) =>
 		os.some((o) => o.verdict && o.verdict !== "waiting");
 	const runs =
-		weekly.filter((l) => reached(rowsIn(l.outcomes))).length +
+		weekly.filter((l) => reached(objectsIn(l.outcomes))).length +
 		(reached(outcomes) ? 1 : 0);
 	const over = weekly.filter(
-		(l) => Number(asRow(l.outcomeStep)?.tokens) > TOKEN_BUDGET,
+		(l) => Number(asObject(l.outcomeStep)?.tokens) > TOKEN_BUDGET,
 	).length;
 	const why = [];
 	if (runs >= FLIP_RUNS)

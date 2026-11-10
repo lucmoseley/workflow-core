@@ -169,10 +169,15 @@ alias.
    `$R/sig-<k>.json` is the finding's fault signature, shaped as
    `scripts/lib/fault-signature.js` says: a guard needle key or a transcript
    regex with its scope, a prediction, and the `case` — the session id and
-   raw-log line the brief's evidence cites (`agent` where it is a subagent's
-   line). `"signature": null` with a `why` where the fault leaves no
-   countable trace. file-issue.js refuses a signature that misses its case:
-   fix the signature, never the case.
+   raw-log line where the fault surfaces (`agent` where it is a subagent's
+   line). A regex reads `output` by default: the case is then the output
+   record — a tool_result, a hook attachment, a Stop hook feedback `user`
+   record, a system record. Give `"reads": "call"` for a fault whose only
+   trace is a tool call the session made; the case is then that `tool_use`
+   record, never the session's prose about it. `"signature": null`
+   with a `why` where the fault leaves no countable trace. file-issue.js
+   refuses a signature that misses its case: fix the signature, or move the
+   case to the line where the fault surfaces.
 
    `<spec>` is `#948` in workflow-core. Exit 1 is a `gh` call that did not
    land: re-run once, reading its message first, since a create that landed

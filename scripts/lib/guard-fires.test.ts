@@ -567,7 +567,9 @@ describe("transcriptMatches — the regex route", () => {
 				"lander dropped q/8 twice, lander dropped",
 			),
 		].join("\n");
-		expect(transcriptMatches(text, /lander dropped "?q\/\d/, "main")).toEqual([
+		expect(
+			transcriptMatches(text, /lander dropped "?q\/\d/, "main", "output"),
+		).toEqual([
 			{ at: "2026-08-20T10:00:00.000Z" },
 			{ at: "2026-08-21T10:00:00.000Z" },
 		]);
@@ -575,8 +577,10 @@ describe("transcriptMatches — the regex route", () => {
 
 	it("respects the tier: a main read skips a subagent's inline turn, a subagent read keeps it", () => {
 		const text = said("u1", "2026-08-20T10:00:00.000Z", "stall seen", true);
-		expect(transcriptMatches(text, /stall seen/, "main")).toEqual([]);
-		expect(transcriptMatches(text, /stall seen/, "subagent")).toHaveLength(1);
+		expect(transcriptMatches(text, /stall seen/, "main", "output")).toEqual([]);
+		expect(
+			transcriptMatches(text, /stall seen/, "subagent", "output"),
+		).toHaveLength(1);
 	});
 
 	it("counts a fault where it surfaces: a tool result, a hook's output, a system record", () => {
@@ -604,7 +608,7 @@ describe("transcriptMatches — the regex route", () => {
 			}),
 			line({ type: "system", uuid: "u4", timestamp: At, content: "BOOM" }),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main")).toHaveLength(4);
+		expect(transcriptMatches(text, /BOOM/, "main", "output")).toHaveLength(4);
 	});
 
 	it("never counts a session quoting the fault: assistant prose, a prompt, a tool call's input", () => {
@@ -637,7 +641,65 @@ describe("transcriptMatches — the regex route", () => {
 				message: { content: [{ type: "text", text: "why BOOM?" }] },
 			}),
 		].join("\n");
-		expect(transcriptMatches(text, /BOOM/, "main")).toEqual([]);
+		expect(transcriptMatches(text, /BOOM/, "main", "output")).toEqual([]);
+	});
+
+	const typed = (uuid: string, content: string, extra: object = {}) =>
+		line({ type: "user", uuid, timestamp: At, message: { content }, ...extra });
+
+	it("counts the harness's own plain-text user records: Stop hook feedback, a `!` command's output", () => {
+		const text = [
+			typed("u1", "Stop hook feedback: BOOM refused", { isMeta: true }),
+			typed("u2", "<bash-stdout>BOOM</bash-stdout><bash-stderr></bash-stderr>"),
+			typed("u3", "<local-command-stdout>BOOM</local-command-stdout>"),
+		].join("\n");
+		expect(transcriptMatches(text, /BOOM/, "main", "output")).toHaveLength(3);
+	});
+
+	it("never counts a plain-text prompt a person typed, old or new, a `!` command's input or a peer's message", () => {
+		const text = [
+			typed("u1", "why BOOM?", { origin: { kind: "human" } }),
+			typed("u2", "why BOOM again?"),
+			typed("u3", "<bash-input>echo BOOM</bash-input>"),
+			typed("u4", "<command-name>/BOOM</command-name>"),
+			typed("u5", "Another Claude session sent a message: BOOM", {
+				isMeta: true,
+				origin: { kind: "peer" },
+			}),
+		].join("\n");
+		expect(transcriptMatches(text, /BOOM/, "main", "output")).toEqual([]);
+	});
+
+	it('reads only tool calls\' input under "call": the command a session ran, not its prose or the output', () => {
+		const text = [
+			line({
+				type: "assistant",
+				uuid: "a1",
+				timestamp: At,
+				message: {
+					content: [
+						{ type: "text", text: "about to BOOM" },
+						{
+							type: "tool_use",
+							id: "t1",
+							name: "Bash",
+							input: { command: "rm -rf BOOM", description: "x" },
+						},
+					],
+				},
+			}),
+			said("u1", At, "BOOM printed"),
+			line({
+				type: "assistant",
+				uuid: "a2",
+				timestamp: At,
+				message: { content: [{ type: "text", text: "BOOM" }] },
+			}),
+		].join("\n");
+		expect(transcriptMatches(text, /BOOM/, "main", "call")).toEqual([
+			{ at: At },
+		]);
+		expect(transcriptMatches(text, /rm -rf/, "main", "output")).toEqual([]);
 	});
 
 	it("reads a global pattern from the start of every string, leaving the caller's lastIndex alone", () => {
@@ -647,7 +709,7 @@ describe("transcriptMatches — the regex route", () => {
 		].join("\n");
 		const re = /boom/g;
 		re.lastIndex = 3;
-		expect(transcriptMatches(text, re, "main")).toHaveLength(2);
+		expect(transcriptMatches(text, re, "main", "output")).toHaveLength(2);
 		expect(re.lastIndex).toBe(3);
 	});
 });

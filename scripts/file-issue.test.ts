@@ -1333,13 +1333,35 @@ describe("the filing declarations (#4796)", () => {
 			],
 		},
 	};
+	/* The call that met the deny, on line 3: a `reads: "call"` case. */
+	const callRecord = {
+		type: "assistant",
+		uuid: "a-call",
+		timestamp: "2026-11-01T10:01:00.000Z",
+		message: {
+			content: [
+				{
+					type: "tool_use",
+					id: "toolu_2",
+					name: "Bash",
+					input: { command: "git push --force origin main" },
+				},
+			],
+		},
+	};
 	/** The session's transcript on the second seat, the case record on line 2. */
 	const seatTranscript = () => {
 		const dir = path.join(path.dirname(sb.home), ".claude2", "projects", Slug);
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(
 			path.join(dir, `${Session}.jsonl`),
-			`${JSON.stringify({ type: "user", uuid: "u0", message: { content: "hi" } })}\n${JSON.stringify(caseRecord)}\n`,
+			[
+				{ type: "user", uuid: "u0", message: { content: "hi" } },
+				caseRecord,
+				callRecord,
+			]
+				.map((r) => `${JSON.stringify(r)}\n`)
+				.join(""),
 		);
 	};
 	const sigFile = (content: unknown) => {
@@ -1421,6 +1443,18 @@ describe("the filing declarations (#4796)", () => {
 			"a regex with no scope",
 			{ signature: { kind: "regex", pattern: "x" } },
 			'"scope" is one of main, subagent, both',
+		],
+		[
+			"a regex reading neither output nor calls",
+			{
+				signature: {
+					kind: "regex",
+					pattern: "x",
+					scope: "main",
+					reads: "prose",
+				},
+			},
+			'"reads" is "output"',
 		],
 		[
 			"a pattern that does not compile",
@@ -1514,6 +1548,44 @@ describe("the filing declarations (#4796)", () => {
 			case: { session: Session, line: 2 },
 		});
 		expect(Number.isNaN(Date.parse(line.filedAt))).toBe(false);
+	});
+
+	it("files a call-reading regex against the tool_use record that is its case, logging reads", () => {
+		setUp();
+		seatTranscript();
+		const callSig = {
+			signature: {
+				kind: "regex",
+				pattern: "push --force",
+				scope: "main",
+				reads: "call",
+			},
+			prediction: "no force pushes to main",
+			case: { session: Session, line: 3 },
+		};
+		const r = run(declaring(["--fault-signature", sigFile(callSig)]), {
+			cwd: sb.repo,
+		});
+		expect(r.status).toBe(0);
+		expect(readLog()[0].signature).toEqual(callSig.signature);
+	});
+
+	it("refuses an output-reading regex whose case is the tool call, naming where the case belongs", () => {
+		setUp();
+		seatTranscript();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile({
+					...regexSig("push --force"),
+					case: { session: Session, line: 3 },
+				}),
+			]),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("the line where the fault surfaces");
+		expect(r.stderr).toContain('"reads": "call"');
+		expect(readCreates()).toEqual([]);
 	});
 
 	it("files a needle signature whose guard fired on the case", () => {
