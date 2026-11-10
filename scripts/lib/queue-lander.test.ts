@@ -30,9 +30,11 @@ import { SHORT_SHA } from "./git.js";
 import {
 	type Batch,
 	type Drop,
+	type DroppedRef,
 	type LanderEvent,
 	type Member,
 	type MergeResult,
+	type OwnerRead,
 	type Pipeline,
 	type Placement,
 	type QueueAction,
@@ -98,9 +100,26 @@ const freshDisk = () => ({
 	log: [] as string[],
 	/** Each ticket's state; the filed ones open. */
 	tickets: new Map<number, "open" | "closed">(),
-	filed: [] as Drop[],
-	/** Each fix ticket by the `<name>@<sha>` its title names. */
+	/** Each fix ticket filing: the branch's newest drop and the refs it holds. */
+	filed: [] as { drop: Drop; held: readonly DroppedRef[] }[],
+	/** Each update of an open fix ticket: its number and the drop it now names. */
+	updated: [] as {
+		ticket: number;
+		sha: string;
+		held: readonly DroppedRef[];
+	}[],
+	/** Each refresh of a ticket's body a settling left open: the drop it names. */
+	refreshed: [] as {
+		ticket: number;
+		sha: string;
+		held: readonly DroppedRef[];
+	}[],
+	/** Each fix ticket the lander closed, with the `main` named as holding its work. */
+	closed: [] as { ticket: number; main: string }[],
+	/** Each branch's fix ticket, by the queue ref name its title carries. */
 	titled: new Map<string, number>(),
+	/** Each land row's time, in ms, as `<name>` to its times. */
+	landedAt: [] as { name: string; at: number }[],
 	/** Each base-red filing, as `<main> <files>`. */
 	baseRed: [] as string[],
 });
@@ -152,6 +171,10 @@ interface Options {
 	unlisted?: (sha: string) => number;
 	/** Throws in place of the fix ticket search, while it returns an error. */
 	findFault?: () => Error | undefined;
+	/** Throws in place of closing a fix ticket, while it returns an error. */
+	closeFault?: () => Error | undefined;
+	/** The owner read of a queue ref's name; stopped where absent. */
+	owner?: (name: string) => OwnerRead;
 	/** The shas `main` holds, beyond `main` itself. */
 	onMain?: readonly string[];
 	acquired?: boolean;
@@ -372,19 +395,35 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		tracker: {
-			fileDropTicket: (d) => {
+			fileDropTicket: (d, held) => {
 				const err = o.fileFault?.();
 				if (err) throw err;
-				disk.filed.push(d);
+				const open = disk.titled.get(d.name);
+				if (open !== undefined && disk.tickets.get(open) === "open") {
+					disk.updated.push({ ticket: open, sha: d.sha, held });
+					return { number: open, line: `fix ticket updated: #${open}` };
+				}
+				disk.filed.push({ drop: d, held });
 				const n = 100 + disk.tickets.size;
 				disk.tickets.set(n, "open");
-				disk.titled.set(`${d.name}@${d.sha}`, n);
-				return `Filed #${n}: https://x/${n}`;
+				disk.titled.set(d.name, n);
+				return { number: n, line: `Filed #${n}: https://x/${n}` };
 			},
-			findDropTicket: (name, sha) => {
+			findDropTicket: (name) => {
 				const err = o.findFault?.();
 				if (err) throw err;
-				return disk.titled.get(`${name}@${sha}`) ?? null;
+				const n = disk.titled.get(name);
+				return n !== undefined && disk.tickets.get(n) === "open" ? n : null;
+			},
+			refreshDropTicket: (ticket, d, held) => {
+				disk.refreshed.push({ ticket, sha: d.sha, held });
+			},
+			closeDropTicket: (ticket, _d, main) => {
+				const err = o.closeFault?.();
+				if (err) throw err;
+				if (disk.tickets.get(ticket) === "closed") return;
+				disk.tickets.set(ticket, "closed");
+				disk.closed.push({ ticket, main });
 			},
 			fileBaseRed: (sha, files) => {
 				disk.baseRed.push(`${sha} ${files.join(",")}`);
@@ -398,7 +437,11 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		},
 		logQueue: (event: LanderEvent, m) => {
 			disk.log.push(`${event} ${m.name}@${m.sha}`);
+			if (event === "land")
+				disk.landedAt.push({ name: m.name, at: o.now ?? NOW });
 		},
+		landings: () => disk.landedAt,
+		ownerOf: (name) => o.owner?.(name) ?? "stopped",
 		lock: { acquire: () => o.acquired ?? true, release: () => undefined },
 		beat: () => undefined,
 		wait: async () => undefined,
@@ -455,6 +498,9 @@ const taken = (actions: QueueAction[]) =>
 const NO_QUEUE = { kind: "exit", reason: "no queue ref waits" };
 const NOW = Date.parse("2026-11-06T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
+/** A drop's decision state as dropped, and once its branch's ticket names it. */
+const OPEN = { state: "open", decidedAt: NOW } as const;
+const TICKETED = { state: "ticketed", decidedAt: NOW } as const;
 
 describe("the green path", () => {
 	it("ledgers a batch green after its in-job retry with the files it cleared, and logs one line for the batch (#4558)", async () => {
@@ -1054,6 +1100,7 @@ describe("drop and defer", () => {
 			cause: { kind: "conflict", name: "a", files: ["a.txt"] },
 			at: NOW,
 			ticket: null,
+			...OPEN,
 		};
 		expect(kinds(actions)).toEqual([
 			"take-batch",
@@ -1067,9 +1114,9 @@ describe("drop and defer", () => {
 			"exit",
 		]);
 		expect(dropsOf(actions)).toEqual([drop]);
-		expect(disk.filed).toEqual([drop]);
+		expect(disk.filed.map((f) => f.drop)).toEqual([drop]);
 		expect(said).toEqual(["Filed #100: https://x/100"]);
-		expect(disk.drops).toEqual([{ ...drop, ticket: 100 }]);
+		expect(disk.drops).toEqual([{ ...drop, ticket: 100, state: "ticketed" }]);
 		expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
 		expect(remote.refs.size).toBe(0);
 		expect(remote.main).toBe("b1");
@@ -1110,6 +1157,7 @@ describe("drop and defer", () => {
 				},
 				at: NOW,
 				ticket: null,
+				...OPEN,
 			},
 		]);
 		expect(remote.main).toBe("merge(m0;a1,c1)");
@@ -1216,6 +1264,7 @@ describe("drop and defer", () => {
 				cause: { kind: "conflict", name: "a", files: ["a.txt"] },
 				at: NOW,
 				ticket: 7,
+				...TICKETED,
 			},
 		];
 
@@ -1230,10 +1279,31 @@ describe("drop and defer", () => {
 		expect(remote.refs.size).toBe(0);
 	});
 
-	it("reports a fix ticket that will not file and lands the rest, and the next run files it", async () => {
+	it("files again, before the run ends, a fix ticket that would not file, having landed the rest", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
 			b: { sha: "b1", pushedAt: 2, onMain: true },
+		});
+		const disk = freshDisk();
+		let faults = 1;
+
+		const { end, said } = await land(remote, disk, {
+			fileFault: () =>
+				faults-- > 0 ? new Error("file-issue: refused") : undefined,
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(said).toEqual([
+			"fix ticket for dropped/a not filed, filed again before this run ends: file-issue: refused",
+			"Filed #100: https://x/100",
+		]);
+		expect(disk.drops.map((d) => d.ticket)).toEqual([100]);
+		expect(remote.main).toBe("b1");
+	});
+
+	it("leaves a fix ticket that fails to file twice to the next run, which files it with no queue ref waiting", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
 		});
 		const disk = freshDisk();
 
@@ -1243,15 +1313,20 @@ describe("drop and defer", () => {
 
 		expect(first.end).toEqual(NO_QUEUE);
 		expect(first.said).toEqual([
-			"fix ticket for dropped/a not filed, left for the next run: file-issue: refused",
+			"fix ticket for dropped/a not filed, filed again before this run ends: file-issue: refused",
+			"fix ticket for dropped/a not filed again: file-issue: refused; left for the next run",
 		]);
-		expect(disk.drops.map((d) => d.ticket)).toEqual([null]);
-		expect(remote.main).toBe("b1");
+		expect(disk.drops.map((d) => [d.state, d.ticket])).toEqual([
+			["open", null],
+		]);
 
 		const second = await land(remote, disk);
 
-		expect(kinds(second.actions)).toEqual(["file-fix-ticket", "exit"]);
-		expect(disk.drops.map((d) => d.ticket)).toEqual([100]);
+		expect(second.end).toEqual(NO_QUEUE);
+		expect(disk.filed.map((f) => f.drop.ref)).toEqual(["dropped/a"]);
+		expect(disk.drops.map((d) => [d.state, d.ticket])).toEqual([
+			["ticketed", 100],
+		]);
 	});
 
 	it("stops the run on a fix ticket the tracker refuses for good, naming the refusal", async () => {
@@ -1271,7 +1346,9 @@ describe("drop and defer", () => {
 			reason: `stopped on an error: ${refusal}`,
 		});
 		expect(said).toEqual([]);
-		expect(disk.drops.map((d) => d.ticket)).toEqual([null]);
+		expect(disk.drops.map((d) => [d.ticket, d.filingRefused])).toEqual([
+			[null, refusal],
+		]);
 		expect(remote.main).toBe("m0");
 	});
 
@@ -1301,7 +1378,7 @@ describe("drop and defer", () => {
 		expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
 		expect(remote.main).toBe("b1");
 		expect(remote.refs.size).toBe(0);
-		expect(disk.filed.map((d) => d.ref)).toEqual(["dropped/a"]);
+		expect(disk.filed.map((f) => f.drop.ref)).toEqual(["dropped/a"]);
 		expect(disk.log).toEqual([
 			"take a@a1",
 			"take b@b1",
@@ -1345,6 +1422,7 @@ describe("drop and defer", () => {
 				},
 				ticket: null,
 				at: NOW,
+				...OPEN,
 			},
 		];
 		disk.verdicts.set(verdictKey("merge(m0;b1)", ["scripts/a.test.ts"], 1), {
@@ -1365,6 +1443,281 @@ describe("drop and defer", () => {
 		expect(taken(actions)).toEqual([["b@b1"]]);
 		expect(remote.main).toBe("merge(m0;b1)");
 		expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
+	});
+});
+
+describe("a drop owed a decision (#4950)", () => {
+	const dropped = (sha: string, over: Partial<Drop> = {}): Drop => ({
+		name: "a",
+		sha,
+		ref: "dropped/a",
+		onto: "m0",
+		cause: { kind: "conflict", name: "a", files: ["a.txt"] },
+		ticket: null,
+		at: NOW - DAY,
+		state: "open",
+		decidedAt: NOW - DAY,
+		...over,
+	});
+	const ticketed = (sha: string, ticket: number, over: Partial<Drop> = {}) =>
+		dropped(sha, { ticket, state: "ticketed", ...over });
+
+	it("files nothing while the owning session works, and one ticket once it has stopped, with no queue ref waiting", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
+		});
+		const disk = freshDisk();
+
+		const first = await land(remote, disk, { owner: () => "working" });
+
+		expect(first.end).toEqual(NO_QUEUE);
+		expect(disk.filed).toEqual([]);
+		expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
+		expect(disk.drops.map((d) => [d.state, d.ticket])).toEqual([
+			["open", null],
+		]);
+
+		const second = await land(remote, disk, { owner: () => "stopped" });
+
+		expect(second.end).toEqual(NO_QUEUE);
+		expect(disk.filed).toEqual([
+			{
+				drop: expect.objectContaining({ name: "a", sha: "a1" }),
+				held: [{ ref: "dropped/a", sha: "a1" }],
+			},
+		]);
+		expect(disk.drops.map((d) => [d.state, d.ticket, d.decidedAt])).toEqual([
+			["ticketed", 100, NOW],
+		]);
+	});
+
+	it("settles a drop whose sha main already holds: no ticket, its dropped ref deleted, a settle row", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.drops = [dropped("a1")];
+
+		const { end } = await land(remote, disk, { onMain: ["a1"] });
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(disk.filed).toEqual([]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.log).toEqual(["settle a@a1"]);
+		expect(disk.drops).toEqual([
+			{
+				...dropped("a1"),
+				state: "settled",
+				decidedAt: NOW,
+				settledOn: "m0",
+				reapedAt: NOW,
+			},
+		]);
+	});
+
+	it("holds a drop behind a newer push of its queue ref, though its owner stopped, and settles it once that push lands", async () => {
+		const remote = remoteOf(
+			"m0",
+			{ a: { sha: "a2", pushedAt: 2, onMain: true } },
+			{ "dropped/a": "a1" },
+		);
+		const disk = freshDisk();
+		disk.drops = [dropped("a1")];
+
+		const { end } = await land(remote, disk);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(disk.filed).toEqual([]);
+		expect(remote.main).toBe("a2");
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.log).toEqual(["take a@a2", "land a@a2", "settle a@a1"]);
+		expect(disk.drops.map((d) => [d.state, d.settledOn])).toEqual([
+			["settled", "a2"],
+		]);
+	});
+
+	it("updates the branch's open ticket on a further drop, naming every dropped ref the branch holds, and files no second", async () => {
+		const remote = remoteOf(
+			"m0",
+			{ a: { sha: "a2", pushedAt: 2, conflicts: ["main"] } },
+			{ "dropped/a": "a1" },
+		);
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.titled.set("a", 7);
+		disk.drops = [ticketed("a1", 7)];
+
+		const { end } = await land(remote, disk);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(disk.filed).toEqual([]);
+		expect(disk.updated).toEqual([
+			{
+				ticket: 7,
+				sha: "a2",
+				held: [
+					{ ref: "dropped/a-a2", sha: "a2" },
+					{ ref: "dropped/a", sha: "a1" },
+				],
+			},
+		]);
+		expect(disk.drops.map((d) => [d.sha, d.state, d.ticket])).toEqual([
+			["a1", "ticketed", 7],
+			["a2", "ticketed", 7],
+		]);
+	});
+
+	it("files one ticket for a branch dropped twice with none, on its newest drop", async () => {
+		const remote = remoteOf(
+			"m0",
+			{},
+			{ "dropped/a": "a1", "dropped/a-a2": "a2" },
+		);
+		const disk = freshDisk();
+		disk.drops = [
+			dropped("a1", { at: NOW - 2 * DAY }),
+			dropped("a2", { ref: "dropped/a-a2" }),
+		];
+
+		await land(remote, disk);
+
+		expect(disk.filed.map((f) => [f.drop.sha, f.held.length])).toEqual([
+			["a2", 2],
+		]);
+		expect(disk.drops.map((d) => d.ticket)).toEqual([100, 100]);
+	});
+
+	it("closes the ticket of a ticketed drop whose sha reaches main, naming that main, logs a close row and deletes its dropped ref", async () => {
+		const remote = remoteOf("m9", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.drops = [ticketed("a1", 7)];
+
+		const { end } = await land(remote, disk, {
+			onMain: ["a1"],
+			owner: () => "working",
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(disk.closed).toEqual([{ ticket: 7, main: "m9" }]);
+		expect(disk.tickets.get(7)).toBe("closed");
+		expect(disk.log).toEqual(["close a@a1"]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.drops.map((d) => [d.state, d.settledOn, d.reapedAt])).toEqual([
+			["settled", "m9", NOW],
+		]);
+	});
+
+	it("closes the ticket once for a branch's two ticketed drops when a newer push of its queue ref has landed, deleting both dropped refs", async () => {
+		const remote = remoteOf(
+			"m0",
+			{},
+			{ "dropped/a": "a1", "dropped/a-a2": "a2" },
+		);
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.drops = [
+			ticketed("a1", 7, { at: NOW - 2 * DAY }),
+			ticketed("a2", 7, { ref: "dropped/a-a2" }),
+		];
+		disk.landedAt = [{ name: "a", at: NOW - 1000 }];
+
+		const { end } = await land(remote, disk);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(disk.closed).toEqual([{ ticket: 7, main: "m0" }]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.log).toEqual(["close a@a2"]);
+	});
+
+	it("leaves a ticketed drop's ticket open while only an older drop of its branch is on main", async () => {
+		const remote = remoteOf(
+			"m0",
+			{},
+			{ "dropped/a": "a1", "dropped/a-a2": "a2" },
+		);
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.drops = [
+			ticketed("a1", 7, { at: NOW - 2 * DAY }),
+			ticketed("a2", 7, { ref: "dropped/a-a2" }),
+		];
+
+		await land(remote, disk, { onMain: ["a1"] });
+
+		expect(disk.closed).toEqual([]);
+		expect(disk.tickets.get(7)).toBe("open");
+		expect([...remote.dropped.keys()]).toEqual(["dropped/a-a2"]);
+		expect(disk.log).toEqual(["settle a@a1"]);
+		expect(disk.refreshed).toEqual([
+			{ ticket: 7, sha: "a2", held: [{ ref: "dropped/a-a2", sha: "a2" }] },
+		]);
+	});
+
+	it("finishes on rerun a settling a crash cut short after its decision, closing its ticket once and never dropping the member again", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.drops = [ticketed("a1", 7)];
+
+		const first = await land(remote, disk, {
+			onMain: ["a1"],
+			fault: (call) => (call === "deleteRef" ? new Error("killed") : undefined),
+		});
+
+		expect(first.end).toEqual({
+			kind: "exit",
+			reason: "stopped on an error: killed",
+		});
+		expect(disk.drops.map((d) => [d.state, d.reapedAt])).toEqual([
+			["settled", undefined],
+		]);
+
+		const second = await land(remote, disk);
+
+		expect(second.end).toEqual(NO_QUEUE);
+		expect(disk.closed).toEqual([{ ticket: 7, main: "m0" }]);
+		expect(remote.dropped.size).toBe(0);
+		expect(dropsOf(second.actions)).toEqual([]);
+		expect(disk.drops.map((d) => [d.state, d.reapedAt])).toEqual([
+			["settled", NOW],
+		]);
+	});
+
+	it("records the ticket of a filing whose number a crash kept from the drop record, filing no second", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.drops = [dropped("a1")];
+
+		await land(remote, disk);
+		disk.drops = [dropped("a1")];
+		await land(remote, disk);
+
+		expect(disk.filed).toHaveLength(1);
+		expect(disk.drops.map((d) => [d.state, d.ticket])).toEqual([
+			["ticketed", 100],
+		]);
+	});
+
+	it("reports a ticket that will not close, keeps its dropped ref, and closes it on the next run", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
+		const disk = freshDisk();
+		disk.tickets.set(7, "open");
+		disk.drops = [ticketed("a1", 7)];
+
+		const first = await land(remote, disk, {
+			onMain: ["a1"],
+			closeFault: () => new Error("gh: no such issue"),
+		});
+
+		expect(first.end).toEqual(NO_QUEUE);
+		expect(first.said).toEqual([
+			"fix ticket for dropped/a #7 not closed: gh: no such issue; left for the next run",
+		]);
+		expect(remote.dropped.has("dropped/a")).toBe(true);
+
+		await land(remote, disk, { onMain: ["a1"] });
+
+		expect(disk.closed).toEqual([{ ticket: 7, main: "m0" }]);
+		expect(remote.dropped.size).toBe(0);
 	});
 });
 
@@ -1408,6 +1761,7 @@ describe("the reap", () => {
 		cause: { kind: "conflict", name, files: [`${name}.txt`] },
 		at: NOW,
 		ticket,
+		...TICKETED,
 	});
 
 	it("deletes a dropped ref once its fix ticket closes, and keeps one whose ticket is open or unread", async () => {
@@ -1496,7 +1850,7 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
 		const disk = freshDisk();
 		disk.tickets.set(7, "open");
-		disk.titled.set("a@a1", 7);
+		disk.titled.set("a", 7);
 
 		const first = await land(remote, disk);
 
@@ -1510,6 +1864,7 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 				cause: { kind: "unrecorded", name: "a" },
 				ticket: 7,
 				at: NOW,
+				...TICKETED,
 			},
 		]);
 		expect(remote.dropped.has("dropped/a")).toBe(true);
@@ -1522,47 +1877,45 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 		expect(disk.filed).toEqual([]);
 	});
 
-	it("reaps it the same run where its ticket is already closed", async () => {
+	it("files a ticket for one whose branch holds only a closed ticket, which may be an earlier drop's", async () => {
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
 		const disk = freshDisk();
 		disk.tickets.set(7, "closed");
-		disk.titled.set("a@a1", 7);
+		disk.titled.set("a", 7);
 
-		const { actions } = await land(remote, disk);
+		await land(remote, disk);
 
-		expect(kinds(actions)).toEqual([
-			"adopt-dropped-ref",
-			"delete-dropped-ref",
-			"exit",
-		]);
-		expect(remote.dropped.size).toBe(0);
+		expect(remote.dropped.has("dropped/a")).toBe(true);
+		expect(disk.filed.map((f) => f.drop.sha)).toEqual(["a1"]);
 		expect(disk.drops.map((d) => [d.ref, d.ticket, d.reapedAt])).toEqual([
-			["dropped/a", 7, NOW],
+			["dropped/a", 101, undefined],
 		]);
 	});
 
-	it("files a ticket for one the tracker holds none for, once across reruns that lose the record again", async () => {
+	it("files one ticket for a branch the tracker holds none for, across reruns that lose the record again, each of its dropped refs sharing it", async () => {
 		const sha = "b".repeat(40);
 		const ref = `dropped/a-${sha.slice(0, 9)}`;
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1", [ref]: sha });
 		const disk = freshDisk();
-		disk.tickets.set(7, "open");
-		disk.titled.set("a@a1", 7);
 
 		await land(remote, disk);
 		disk.drops = [];
 		await land(remote, disk);
 
-		expect(disk.filed.map((d) => [d.name, d.sha, d.ref, d.cause])).toEqual([
-			["a", sha, ref, { kind: "unrecorded", name: "a" }],
-		]);
+		expect(disk.filed).toHaveLength(1);
+		expect(disk.filed[0]?.held).toEqual(
+			expect.arrayContaining([
+				{ ref: "dropped/a", sha: "a1" },
+				{ ref, sha },
+			]),
+		);
 		expect(disk.drops.map((d) => [d.ref, d.ticket])).toEqual([
-			["dropped/a", 7],
-			[ref, 100 + 1],
+			["dropped/a", 100],
+			[ref, 100],
 		]);
 	});
 
-	it("deletes one with no ticket whose sha main already holds, filing none", async () => {
+	it("settles one with no ticket whose sha main already holds: deleted, a settle row, none filed", async () => {
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });
 		const disk = freshDisk();
 
@@ -1573,6 +1926,7 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 		expect(remote.dropped.size).toBe(0);
 		expect(disk.drops).toEqual([]);
 		expect(disk.filed).toEqual([]);
+		expect(disk.log).toEqual(["settle a@a1"]);
 	});
 
 	it("files nothing where the tracker cannot be searched, leaving the ref for the next run", async () => {
@@ -1586,7 +1940,7 @@ describe("a dropped ref the drop record lost (#4498)", () => {
 		expect(end).toEqual(NO_QUEUE);
 		expect(kinds(actions)).toEqual(["adopt-dropped-ref", "exit"]);
 		expect(said).toEqual([
-			"fix ticket for dropped/a not searched, left for the next run: gh: search failed",
+			"fix ticket for dropped/a not searched: gh: search failed; left for the next run",
 		]);
 		expect(disk.drops).toEqual([]);
 		expect(disk.filed).toEqual([]);
@@ -1858,9 +2212,10 @@ describe("the red path", () => {
 			},
 			ticket: null,
 			at: NOW,
+			...OPEN,
 		};
 		expect(dropsOf(actions)).toEqual([drop]);
-		expect(disk.filed).toEqual([drop]);
+		expect(disk.filed.map((f) => f.drop)).toEqual([drop]);
 		expect(asked).toContain(`merge(m0;a1):${RedB}`);
 		expect(asked.filter((a) => a === `merge(m0;b1):${RedB}`)).toHaveLength(2);
 		expect(asked).not.toContain("merge(m0;a1):scripts/x.test.ts");
@@ -1933,6 +2288,7 @@ describe("the red path", () => {
 				},
 				ticket: null,
 				at: NOW,
+				...OPEN,
 			},
 		]);
 		expect(taken(actions)).toEqual([["a@a1", "b@b1", "c@c1"], ["c@c1"]]);
@@ -2264,6 +2620,99 @@ describe("the red path", () => {
 
 		expect((await run(true)).peak).toBe(3);
 		expect((await run()).peak).toBe(1);
+	});
+
+	/** Holds each named-file verdict alone until its ask and its confirm's
+	 * are both made, so a confirm asked only after it never opens the gate. */
+	const pairGate = (key: string, events: readonly string[]) =>
+		!/^merge\(m0;[abc]1\):/.test(key) ||
+		events.filter((e) => e === `ask ${key}`).length === 2;
+
+	it("asks each member's confirm beside its first run alone on a parallel tester, dropping the culprit on the pair (#4951)", async () => {
+		const { end, actions, peak } = await land(abc(), freshDisk(), {
+			parallel: true,
+			verdict: redWhereHeld("b"),
+			gate: pairGate,
+		});
+
+		expect(peak).toBe(6);
+		expect(kinds(actions).filter((k) => /^(isolate|confirm)-/.test(k))).toEqual(
+			["isolate-members", "confirm-members"],
+		);
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+	});
+
+	it("never stops on a passer's confirm that reached no verdict (#4951)", async () => {
+		const remote = abc();
+		const culprit = redWhereHeld("b");
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			parallel: true,
+			gate: pairGate,
+			verdict: (sha, r, files, nth) =>
+				sha === "merge(m0;a1)" && files.length > 0 && nth === 2
+					? { kind: "unknown", reason: "no run" }
+					: culprit(sha, r, files),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+		expect(remote.main).toBe("merge(m0;a1,c1)");
+	});
+
+	it("never stops on a passer's confirm that reaches no verdict before its first run alone does, an exit waiting on a run in flight (#4951)", async () => {
+		const remote = abc();
+		const culprit = redWhereHeld("b");
+		let confirmed = false;
+		/* A guess: the run takes its next step within 20 turns of the loop. */
+		let turns = 0;
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			parallel: true,
+			/* The harness polls a gate first for the ask just made, so the first
+			 * poll to see both of a's asks is its confirm's. */
+			gate: (key, events) => {
+				if (!pairGate(key, events)) return false;
+				if (!key.startsWith("merge(m0;a1):") || !confirmed) {
+					confirmed ||= key.startsWith("merge(m0;a1):");
+					return true;
+				}
+				return ++turns > 20;
+			},
+			verdict: (sha, r, files, nth) =>
+				sha === "merge(m0;a1)" && files.length > 0 && nth === 2
+					? { kind: "unknown", reason: "no run" }
+					: culprit(sha, r, files),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+		expect(remote.main).toBe("merge(m0;a1,c1)");
+	});
+
+	it("asks a whole-suite confirm only once its first run alone is red, as it reruns that run's failed jobs (#4951)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		disk.verdicts.set(verdictKey("m0", [], 1), Green);
+		/* A guess: the run takes its next step within 20 turns of the loop. */
+		let turns = 0;
+
+		const { events } = await land(remote, disk, {
+			parallel: true,
+			verdict: (sha) => (sha.includes("b1") ? red() : Green),
+			gate: (key) => key !== "merge(m0;b1)" || ++turns > 20,
+		});
+
+		const b = events.filter((e) => e.endsWith(" merge(m0;b1)"));
+		expect(b.slice(0, 3)).toEqual([
+			"ask merge(m0;b1)",
+			"verdict merge(m0;b1)",
+			"ask merge(m0;b1)",
+		]);
 	});
 });
 

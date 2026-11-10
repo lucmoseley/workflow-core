@@ -3,8 +3,8 @@
  * supervise-landing.js — one supervision pass over the landing queue of the
  * checkout it runs in (#2692, ruled at #2672), which the refill loop runs in
  * every served or launched-in checkout each tick: lib/landing-stall.js reads
- * the queue and decides. Where a queue ref waits and no queue lander runs, it
- * starts one through start-lander.js, the one launcher; where `main` has not
+ * the queue and decides. Where no queue lander runs and a queue ref waits or
+ * a drop is owed a decision, it starts one through start-lander.js, the one launcher; where `main` has not
  * moved for STALL_MS with a queue ref waiting, it files or refreshes the
  * stall ticket (lib/stall-ticket.js), which it closes once `main` moves. It
  * files and closes the queue alert (lib/queue-alert.js), and the alarm ticket

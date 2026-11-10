@@ -9,7 +9,9 @@
  * naming the ref at the sha it now holds. A row a failed push left names a
  * sha the ref never held, so it is never read. The lander adds a take row
  * when it snapshots a ref into a batch, and a land or drop row when the ref
- * leaves the queue.
+ * leaves the queue. A dropped sha gets one more row once `main` holds its
+ * work: a close row where the lander closed its fix ticket, a settle row
+ * where it closed none (#4950).
  *
  * TIME IN QUEUE, per land or drop row: its `at` less the `at` of its ref's
  * earliest pending enqueue row. An enqueue row is pending from its push
@@ -47,7 +49,7 @@ const QUEUE_LOG_RETAIN_MS = 14 * DAY_MS;
 const queueLogFile = (root) => path.join(markersDir(root), ".queue-log.jsonl");
 
 /**
- * @typedef {"enqueue"|"take"|"land"|"drop"} QueueEvent
+ * @typedef {"enqueue"|"take"|"land"|"drop"|"settle"|"close"} QueueEvent
  * @typedef {{ref: string, sha: string, at: number}} QueueRow `ref` in full
  *   (`refs/heads/queue/<name>`), `at` in ms
  */
@@ -120,7 +122,7 @@ function readNewestEvent(file, ref, sha) {
  * @property {number|null} depthP90 null with no land or drop
  */
 
-const EVENTS = new Set(["enqueue", "take", "land", "drop"]);
+const EVENTS = new Set(["enqueue", "take", "land", "drop", "settle", "close"]);
 
 /**
  * The log's well-formed rows, oldest first; a line that will not parse, or
@@ -242,6 +244,7 @@ module.exports = {
 	logEnqueue,
 	logQueueEvent,
 	pendingSince,
+	percentile,
 	queueBaseline,
 	QUEUE_LOG_RETAIN_MS,
 	queueLogFile,

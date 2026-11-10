@@ -121,6 +121,7 @@ const {
 } = require("./lib/suite-ceiling.js");
 const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
 const {
 	CHANGED_FLAG,
 	PACKAGE_JSON,
@@ -1217,11 +1218,12 @@ function escalationBanner(reason) {
  * @returns {Promise<number>}
  */
 function refuseNarrowing(options, cause) {
-	const text = cause instanceof Error ? cause.message : String(cause);
 	(options.err ?? process.stderr).write(
-		`\nNARROWING FAILED, SO NOTHING RAN (#2698) — ${text.trim()}\n\n` +
-			"A failed narrowing is never widened to the whole suite. Fix the cause and re-run, or run the whole suite on purpose:\n\n" +
-			`  npm run test -- --full=<cause>    (one of: ${FULL_CAUSES.join(", ")})\n\n`,
+		narrowingRefusal({
+			ruling: "(#2698)",
+			cause,
+			wholeSuite: `npm run test -- --full=<cause>    (one of: ${FULL_CAUSES.join(", ")})`,
+		}),
 	);
 	return Promise.resolve(1);
 }

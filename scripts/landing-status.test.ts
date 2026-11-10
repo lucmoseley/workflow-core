@@ -307,7 +307,7 @@ it("reads a dropped stay with its fix ticket and dropped ref off the drop record
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toContain(
-		`dropped: queue/alpha at ${short(sha)} — kept as dropped/alpha, fix ticket #4999\n`,
+		`dropped: queue/alpha at ${short(sha)} — fix ticket #4999; kept as dropped/alpha\n  dropped because, `,
 	);
 });
 

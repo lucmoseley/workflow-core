@@ -30,7 +30,11 @@ const {
 	readStatFields,
 } = require("./proc-stat.js");
 const { shellQuote } = require("./sh-quote.js");
-const { isOtherRunner } = require("./suite-launch.js");
+const {
+	TEST_PY_WORKERS,
+	isOtherRunner,
+	suiteLaunchKind,
+} = require("./suite-launch.js");
 const { scriptPath } = require("./script-path.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
 const { chargeMb: launchChargeMb } = require("./launch-charge.js");
@@ -378,9 +382,12 @@ function pytestWorkersOf(args) {
 /** @param {string} args */
 const isNodeLine = (args) => /^ *(\S*\/)?node(js)?( |$)/.test(args);
 
+/* A launch read with no host: no declared runner. */
+const NO_HOST_PORTS = { runners: () => [], isWrapperScript: () => true };
+
 /** @param {string} args */
 const isOtherSuiteLine = (args) =>
-	isOtherRunner(args.trim().split(/\s+/), () => []);
+	isOtherRunner(args.trim().split(/\s+/), NO_HOST_PORTS.runners);
 
 /**
  * The runners `readClimbMb` charges holding no marker, each with the queue
@@ -425,16 +432,22 @@ const runnerOf = (args) => RUNNERS.find((r) => r.isRunner(args));
 /**
  * The measured peak a `queue-run.js` launch of `words` stamps on its marker
  * as `chargeMb` (#4648): its runner class's, as one holding no marker is
- * charged. Undefined for a vitest line, a runner of another queue's class, or
- * one no class matches, a host's declared runner among them: its marker takes
- * the queue's peak. Residual: a host's `npm test` whose script runs pytest or
- * `node --test`, queued through `queue-run.js`, reads as no class and is
- * charged the queue's peak.
+ * charged. `npm run test:py` is charged pytest's, at the workers its argv
+ * names, else TEST_PY_WORKERS (#4775). Undefined for a vitest line, a runner
+ * of another queue's class, or one no class matches, a host's declared runner
+ * among them: its marker takes the queue's peak. Residual: a host's `npm test`
+ * whose script runs pytest or `node --test`, queued through `queue-run.js`,
+ * reads as no class and is charged the queue's peak.
  * @param {string[]} words the command, wrappers taken off
  * @returns {number | undefined}
  */
 function queuedRunnerPeakMb(words) {
 	const args = words.join(" ");
+	if (suiteLaunchKind(words, NO_HOST_PORTS)?.kind === "npm-py")
+		return launchChargeMb({
+			kind: "pytest",
+			workers: pytestWorkersOf(args) || TEST_PY_WORKERS,
+		});
 	const runner = runnerOf(args);
 	if (runner?.queue !== QUEUE_NAME || runner.isRunner === isVitestRunnerLine)
 		return;

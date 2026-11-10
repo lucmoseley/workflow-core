@@ -6,8 +6,9 @@
  *
  * IMPLICIT:  after a Bash call that pushes to a queue ref, runs
  *            start-lander.js detached, which — where the `landing` module is
- *            on, no lander runs and a queue ref waits on the remote — starts
- *            `queue-lander.js run` in a session of its own.
+ *            on, no lander runs and a queue ref waits on the remote or a
+ *            drop is owed a decision — starts `queue-lander.js run` in a
+ *            session of its own.
  * JUSTIFIED: fail-safe — a queue push that starts no lander sits untested
  *            until some later session starts, and every session meanwhile
  *            builds on a `main` behind its own work.
@@ -18,7 +19,7 @@
  * PostToolUseFailure instead, where this hook is not registered
  * (hook-registrations.test.ts pins it). A push whose failure the call hides
  * (`|| true`, a later `;`) still starts start-lander.js, which reads the remote
- * and starts nothing where no queue ref waits.
+ * and starts nothing where no queue ref waits and no drop is owed a decision.
  *
  * Wired on PostToolUse with matcher "Bash", narrowed `if: Bash(*push*)`,
  * unanchored because the walk reads a push behind a launcher wrapper.

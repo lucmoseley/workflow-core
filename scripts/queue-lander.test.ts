@@ -545,9 +545,7 @@ describe("a run", () => {
 			}).status,
 		).toBe(1);
 		const [ticket] = readStore();
-		expect(ticket.title).toBe(
-			`Fix queue/a at ${a.slice(0, 9)}, dropped by the queue lander: a`,
-		);
+		expect(ticket.title).toBe("Fix queue/a, dropped by the queue lander: a");
 		expect(ticket.labels.map((l: { name: string }) => l.name)).toEqual(
 			expect.arrayContaining(["takes:implement", "kind:ticket"]),
 		);
@@ -1129,9 +1127,7 @@ describe("the red path", () => {
 		expect(git(remote, "rev-parse", "main")).toBe(a);
 		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
 		const [ticket] = readStore();
-		expect(ticket.title).toBe(
-			`Fix queue/b at ${b.slice(0, 9)}, dropped by the queue lander: b`,
-		);
+		expect(ticket.title).toBe("Fix queue/b, dropped by the queue lander: b");
 		const iso = /as ([0-9a-f]{40}), it failed these files twice/.exec(
 			ticket.body,
 		)?.[1];

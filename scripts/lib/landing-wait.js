@@ -8,6 +8,7 @@
  */
 
 const { short } = require("./lander-git.js");
+const { scriptPath } = require("./script-path.js");
 
 /** Under the harness's 15-minute Bash wait (#1286). */
 const WAIT_BOUND_MS = 14 * 60_000;
@@ -124,7 +125,7 @@ function buildWaitLine(o) {
 		case "landed":
 			return `wait: landed — every queued commit is on main, after ${minSec(o.ms)}.`;
 		case "dropped":
-			return `wait: dropped — ${o.shas.map(short).join(", ")} left the queue without landing, after ${minSec(o.ms)}.`;
+			return `wait: dropped — ${o.shas.map(short).join(", ")} left the queue without landing, after ${minSec(o.ms)}; \`node ${scriptPath("landing-status.js")}\` shows why each was dropped.`;
 		case "bound":
 			return `wait: bound — still queued after ${minSec(o.ms)}; run it again to keep waiting.`;
 	}

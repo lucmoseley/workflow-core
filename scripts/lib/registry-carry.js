@@ -7,7 +7,10 @@
  * author re-read the row's prose against their own change, and no file holds
  * two changes that one reader never saw together. Both-sides-changed is judged
  * per file, by blob id at the base and at each parent. A clean textual merge of
- * one file is two changes all the same. Every other stale row is refused.
+ * one file is two changes all the same. A row HEAD holds none of, a guard the
+ * merged-in side adds, is judged the same way on that side's freshness alone
+ * (#4801). Residual: nobody read that row against HEAD's own changes to its
+ * closure. Every other stale row is refused.
  *
  * Every git failure carries nothing, bar a MERGE_HEAD git will not read, which
  * is BROKEN.
@@ -144,12 +147,13 @@ function dropBothChanged(root, { base, theirs }, rows, kept) {
  * @param {string} root
  * @param {Merge} merge
  * @param {Row[]} stale the rows the merged index adds stale
- * @param {{ oursFresh: Set<string> | null, readTheirsFresh: (rev: string) => Set<string> | null }} parents
- *   the rows fresh on HEAD, and a read of those fresh on theirs; null where unread
+ * @param {{ oursStale: Set<string> | null, readTheirsFresh: (rev: string) => Set<string> | null }} parents
+ *   the rows HEAD holds stale, and a read of those fresh on theirs; null where
+ *   unread
  * @returns {{ carried: Carried[], kept: Kept[], none: string | null }} `none`:
  *   why no row could carry, where none could
  */
-function judgeCarry(root, merge, stale, { oursFresh, readTheirsFresh }) {
+function judgeCarry(root, merge, stale, { oursStale, readTheirsFresh }) {
 	const nothing = (/** @type {string} */ why) => ({
 		carried: [],
 		kept: [],
@@ -166,12 +170,12 @@ function judgeCarry(root, merge, stale, { oursFresh, readTheirsFresh }) {
 	const [base] = baseList;
 	if (baseList.length !== 1 || base === undefined)
 		return nothing(`the merge has ${baseList.length} merge bases`);
-	if (oursFresh === null) return nothing("HEAD's rows went unread");
+	if (oursStale === null) return nothing("HEAD's rows went unread");
 
 	/** @type {Kept[]} */
 	const kept = [];
 	const rows = stale.filter(isCandidate).filter((w) => {
-		if (oursFresh.has(w.guard)) return true;
+		if (!oursStale.has(w.guard)) return true;
 		kept.push({ guard: w.guard, why: "it is not fresh on HEAD" });
 		return false;
 	});
