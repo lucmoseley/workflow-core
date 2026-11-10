@@ -1,9 +1,9 @@
 /*
  * age-text.js — an age as one figure and its unit, "40m", "18h", "11d", the
  * wording every report of a process's, job's, claim's or edit's age shares
- * (#4703, which folded five copies). Minutes under `minutesUnder`, hours
- * under 48 h, else days: the edges are a judgement, so no figure prints above
- * 90 or 48 of its unit. A caller that never prints minutes passes
+ * (#4703). Minutes under `minutesUnder`, hours under 48 h, else days: the
+ * edges are a judgement, so no minute figure prints above 90 nor hour figure
+ * above 48. A caller that never prints minutes passes
  * `minutesUnder: NEVER`, which a clock-skewed negative age stays under too.
  */
 

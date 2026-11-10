@@ -1,8 +1,7 @@
 /*
  * worktree-dirs.js — where the worktrees folder and what lives in it sit,
  * relative to the main checkout. A leaf (#4703), so a hook needing one
- * location pays for no more: npm-install-host.js once loaded the whole
- * checkout for STORES.
+ * location loads nothing else.
  */
 
 const path = require("node:path");

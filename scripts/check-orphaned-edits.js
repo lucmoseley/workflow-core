@@ -198,9 +198,10 @@ const BLOB_TAG_HEX = 10;
 const filerPath = () =>
 	process.env.WFC_ORPHAN_FILER || path.join(__dirname, "file-issue.js");
 
+/** @param {number} ms */
+const ageText = (ms) => describeAgeText(ms, { minutesUnder: NEVER });
 /** @param {number} hours */
-const describeAge = (hours) =>
-	describeAgeText(hours * HOUR_MS, { minutesUnder: NEVER });
+const describeAge = (hours) => ageText(hours * HOUR_MS);
 
 /**
  * The marker directory, made if missing — or null where git names no common
@@ -635,7 +636,7 @@ function describeWriter(rel, tree, names, now) {
 	const w = store.readLastWriterOf(rel, { tree });
 	if (!w) return "unknown — no surviving write ledger names it";
 	const name = names.get(w.sessionId);
-	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${describeAgeText(now - w.at, { minutesUnder: NEVER })} ago`;
+	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${ageText(now - w.at)} ago`;
 }
 
 /**

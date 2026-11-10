@@ -1,5 +1,5 @@
 /*
- * worktree-reaper.js — REAP, below, split from lib/session-checkout.js
+ * worktree-reaper.js — REAP, below, apart from lib/session-checkout.js
  * (#4703) because it changes for the folder's upkeep, not a session's
  * lifecycle. It owns the holder record a cut writes (#4229), so a tree
  * handed to an in-process subagent, where no process's cwd lies, stands
