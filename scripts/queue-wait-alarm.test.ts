@@ -1,8 +1,8 @@
 // @vitest-environment node
 
 /*
- * scripts/main-lag-alarm.js, its core lib/main-lag-alarm.js and
- * .github/workflows/main-lag.yml (#4443, #4485), with GitHub's activity and
+ * scripts/queue-wait-alarm.js, its core lib/queue-wait-alarm.js and
+ * .github/workflows/queue-wait.yml (#4443, #4485), with GitHub's activity and
  * ref endpoints stubbed. Break this and the one stall alarm that outlives
  * the machine stays green through a stall, a queue ref pushed again stops
  * ageing, or the workflow's run page names a threshold the check no longer
@@ -13,9 +13,9 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runAlarm } from "./lib/main-lag-alarm.js";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { QUEUE_ALERT_TITLES, STALL_TITLE } from "./lib/queue-tickets.js";
+import { runAlarm } from "./lib/queue-wait-alarm.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { loadWorkflow } from "./lib/workflow-yaml-testkit";
 
@@ -57,7 +57,7 @@ const run = async (get: (p: string) => Promise<unknown>) => {
 	return { code, out: said.join("\n") };
 };
 
-describe("lib/main-lag-alarm.js", () => {
+describe("lib/queue-wait-alarm.js", () => {
 	it("passes a queue within the 2 h backstop, naming its oldest ref by its first push", async () => {
 		const r = await run(stub([created(5), created(119)]));
 		expect(r.code).toBe(0);
@@ -144,7 +144,7 @@ const throughFetch = async (api: (p: string) => Promise<unknown>) => {
 	const { port } = server.address() as AddressInfo;
 	try {
 		const out = await runInProcessAsync(
-			path.join(ROOT, "scripts/main-lag-alarm.js"),
+			path.join(ROOT, "scripts/queue-wait-alarm.js"),
 			[],
 			{
 				env: {
@@ -161,7 +161,7 @@ const throughFetch = async (api: (p: string) => Promise<unknown>) => {
 	}
 };
 
-describe("main-lag-alarm.js through fetch", () => {
+describe("queue-wait-alarm.js through fetch", () => {
 	it("reads GitHub's API from the environment Actions sets and exits 0 where nothing waits", async () => {
 		const out = await throughFetch(stub());
 		expect(out.status).toBe(0);
@@ -184,18 +184,18 @@ describe("main-lag-alarm.js through fetch", () => {
 	});
 });
 
-describe("main-lag.yml", () => {
+describe("queue-wait.yml", () => {
 	const workflow = loadWorkflow(
-		path.join(ROOT, ".github/workflows/main-lag.yml"),
+		path.join(ROOT, ".github/workflows/queue-wait.yml"),
 	);
-	const job = workflow.jobs.lag;
+	const job = workflow.jobs.wait;
 
 	it("runs the check hourly, in the code repo alone", () => {
 		expect(workflow.on?.schedule).toEqual([{ cron: "47 * * * *" }]);
 		expect(job?.if).toContain("lucmoseley/workflow-core");
 		expect((job?.steps ?? []).map((s) => s.run).filter(Boolean)).toEqual([
 			[
-				"node scripts/main-lag-alarm.js || exit",
+				"node scripts/queue-wait-alarm.js || exit",
 				'if [ "$FORCE_FAILURE" = true ]; then',
 				`  echo "::error title=Forced failure::This run tests the founder's notice route."`,
 				"  exit 1",

@@ -34,14 +34,15 @@ class CheckoutError extends Error {}
 /**
  * @param {string[]} args
  * @param {string} cwd
+ * @param {number} [timeout]
  * @returns {string}
  */
-const git = (args, cwd) =>
+const git = (args, cwd, timeout = GIT_TIMEOUT_MS) =>
 	execGit(args, {
 		cwd,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
-		timeout: GIT_TIMEOUT_MS,
+		timeout,
 	}).trim();
 
 /**
@@ -62,8 +63,9 @@ function rootOf(cwd) {
  * Fetch `main` and every queue ref, pruning the queue refs gone from the
  * remote, again where a neighbour's fetch held a ref's lock.
  * @param {string} root
+ * @param {number} [timeout] each try's
  */
-function fetchShared(root) {
+function fetchShared(root, timeout) {
 	for (let tries = 1; ; tries++)
 		try {
 			git(
@@ -76,6 +78,7 @@ function fetchShared(root) {
 					QUEUE_REFSPEC,
 				],
 				root,
+				timeout,
 			);
 			return;
 		} catch (err) {

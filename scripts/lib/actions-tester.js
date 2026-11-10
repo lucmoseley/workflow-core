@@ -57,10 +57,14 @@ const {
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
-const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
-const { CLEARED, STILL_FAILING } = require("../retry-failed-files.js");
+const {
+	CLEARED,
+	parseFailingFiles,
+	parseFailingTests,
+	STILL_FAILING,
+} = require("./suite-output.js");
 const {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,

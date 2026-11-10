@@ -32,8 +32,6 @@ const { WORKTREES } = require("./worktree-dirs.js");
 const REMOTE = "origin";
 const VERIFIED_BRANCH = "main";
 const VERIFIED_REF = `${REMOTE}/${VERIFIED_BRANCH}`;
-const LANDING_BRANCH = "landing";
-const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
 /* The queue lander's own refs (#4458), which its Actions tester alone
  * writes and may force (#4910): each batch's integration commit under test,
  * and each sha it runs alone, an isolation commit or `main`'s base check;
@@ -51,21 +49,45 @@ const LANDER_ISO_SUITE_PREFIX = `${LANDER_ISO_PREFIX}suite-`;
  * and the lander takes. */
 const QUEUE_PREFIX = "queue/";
 const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
+/**
+ * The queue ref named `name`, as a branch: `queue/<name>`.
+ * @param {string} name
+ */
+const queueBranch = (name) => `${QUEUE_PREFIX}${name}`;
+/**
+ * Whether `ref`, a full ref, is a queue ref's head, a name after its prefix.
+ * @param {string|null|undefined} ref
+ * @returns {ref is string}
+ */
+const isQueueHead = (ref) =>
+	typeof ref === "string" &&
+	ref.startsWith(QUEUE_HEADS) &&
+	ref.length > QUEUE_HEADS.length;
+/**
+ * The name of the queue ref whose head is `ref`, a full ref.
+ * @param {string} ref
+ */
+const queueNameOf = (ref) => ref.slice(QUEUE_HEADS.length);
+/**
+ * The head of the queue ref named `name`, in full.
+ * @param {string} name
+ */
+const queueHead = (name) => `${QUEUE_HEADS}${name}`;
 /* A queue ref the lander dropped, `dropped/<name>`, which it alone
  * writes and deletes once `main` holds the drop's work (#4950). */
 const DROPPED_PREFIX = "dropped/";
 
 /**
- * The queue ref of the session in `tree`, judged on real paths, so a
- * symlinked path names the ref a land pushes: `queue/<its directory's name>`
+ * The name of the queue ref of the session in `tree`, judged on real paths,
+ * so a symlinked path names the ref a land pushes: its directory's name
  * where it is a worktree under the host's `.claude/worktrees/`, else null.
- * Every reader of a session's own queue ref asks here, so no two name it two
- * ways.
+ * Every reader of a session's own queue ref asks here or ownQueueRef, so no
+ * two name it two ways.
  * @param {string|null|undefined} tree the session's tree top level
  * @param {string} [root] the host root, else the main checkout of `tree`
  * @returns {string|null}
  */
-function ownQueueRef(tree, root) {
+function ownQueueName(tree, root) {
 	if (!tree) return null;
 	const fs = require("node:fs");
 	/* realpath fails only on a path that is gone or unreadable, which no live
@@ -82,8 +104,19 @@ function ownQueueRef(tree, root) {
 	if (!host) return null;
 	const at = real(tree);
 	return path.dirname(at) === path.join(real(host), WORKTREES)
-		? `${QUEUE_PREFIX}${path.basename(at)}`
+		? path.basename(at)
 		: null;
+}
+
+/**
+ * The queue ref of the session in `tree`, `queue/<ownQueueName>`, else null.
+ * @param {string|null|undefined} tree the session's tree top level
+ * @param {string} [root] the host root, else the main checkout of `tree`
+ * @returns {string|null}
+ */
+function ownQueueRef(tree, root) {
+	const name = ownQueueName(tree, root);
+	return name === null ? null : queueBranch(name);
 }
 
 /**
@@ -250,11 +283,14 @@ module.exports = {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	LANDER_PREFIX,
-	LANDING_BRANCH,
 	landingOn,
-	LANDING_REF,
 	pushedRef,
+	ownQueueName,
 	ownQueueRef,
+	isQueueHead,
+	queueBranch,
+	queueHead,
+	queueNameOf,
 	QUEUE_HEADS,
 	QUEUE_PREFIX,
 	QUEUE_REFSPEC,

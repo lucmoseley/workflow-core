@@ -1,5 +1,5 @@
 /*
- * main-lag-alarm.js — the core of scripts/main-lag-alarm.js (#4443, #4458):
+ * queue-wait-alarm.js — the core of scripts/queue-wait-alarm.js (#4443, #4458):
  * judges the remote's `queue/<name>` refs against QUEUE_BACKSTOP_MS.
  *
  * A ref has waited since its first push after its last deletion, off the
@@ -9,7 +9,12 @@
  * stands.
  */
 
-const { QUEUE_HEADS, QUEUE_PREFIX } = require("./landing-refs.js");
+const {
+	QUEUE_HEADS,
+	QUEUE_PREFIX,
+	queueBranch,
+	queueNameOf,
+} = require("./landing-refs.js");
 const { formatHoursMin, oldestWaiting } = require("./queue-gauge.js");
 const { QUEUE_ALERT_TITLES } = require("./queue-tickets.js");
 
@@ -80,12 +85,12 @@ async function judgeQueue(get, now) {
 		const sha = object?.sha;
 		if (typeof ref !== "string" || typeof sha !== "string")
 			throw new Error("a queue ref with no name or sha");
-		const name = ref.slice(QUEUE_HEADS.length);
+		const name = queueNameOf(ref);
 		const since = await readFirstPush(get, ref);
 		if (since === null)
 			skipped.push({
 				stalled: false,
-				line: `queue/${name} is skipped: its activity feed lists no push.`,
+				line: `${queueBranch(name)} is skipped: its activity feed lists no push.`,
 			});
 		else waiting.push({ name, sha, since });
 	}
@@ -97,7 +102,7 @@ async function judgeQueue(get, now) {
 		...skipped,
 		{
 			stalled: waited > QUEUE_BACKSTOP_MS,
-			line: `queue/${oldest.name}, the oldest of ${waiting.length} queue refs, has waited since its first push at ${new Date(oldest.since).toISOString()}: ${formatHoursMin(waited)}, against ${formatHoursMin(QUEUE_BACKSTOP_MS)}.`,
+			line: `${queueBranch(oldest.name)}, the oldest of ${waiting.length} queue refs, has waited since its first push at ${new Date(oldest.since).toISOString()}: ${formatHoursMin(waited)}, against ${formatHoursMin(QUEUE_BACKSTOP_MS)}.`,
 			title: "Queue ref waiting",
 			ticket: QUEUE_ALERT_TITLES.age,
 		},

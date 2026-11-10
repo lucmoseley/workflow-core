@@ -5,7 +5,7 @@
  * and the few words a fix ticket's comment gives for it.
  */
 
-const { QUEUE_PREFIX } = require("./landing-refs.js");
+const { queueBranch } = require("./landing-refs.js");
 
 /** @param {readonly string[]} files */
 const buildFileList = (files) => files.map((f) => `- \`${f}\``).join("\n");
@@ -61,7 +61,7 @@ function buildDropEvidence({ onto, cause }) {
 		case "unrecorded":
 			return `why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${onto}`;
 		case "collision": {
-			const after = cause.after.map((n) => `\`${QUEUE_PREFIX}${n}\``);
+			const after = cause.after.map((n) => `\`${queueBranch(n)}\``);
 			return `each member of its batch passed alone, but merged onto \`main\` at ${onto}${after.length > 0 ? ` after ${after.join(", ")} landed,` : ""} as ${cause.step}, ${cause.noRun ? NO_RUN : `it ${buildFailed(cause, false)}`}`;
 		}
 	}

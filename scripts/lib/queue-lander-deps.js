@@ -28,7 +28,7 @@ const { startLevelling } = require("./level-main.js");
 const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { dropRecord, pipelineRecord } = require("./lander-records.js");
-const { QUEUE_HEADS } = require("./landing-refs.js");
+const { isQueueHead, queueNameOf } = require("./landing-refs.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
 const { readOwner } = require("./queue-owner.js");
 const {
@@ -121,7 +121,7 @@ function buildLanderDeps(
 			? configuredTester(root, admit)
 			: commandTester(tester, root);
 	return {
-		git: queueGit(root, undefined, undefined, {
+		git: queueGit(root, {
 			ciRepeats: built.repeatsGates === true,
 		}),
 		tester: built,
@@ -134,8 +134,8 @@ function buildLanderDeps(
 		logQueue: queueLogger(root),
 		landings: () =>
 			readQueueRows(queueLogFile(root))
-				.filter((r) => r.event === "land" && r.ref.startsWith(QUEUE_HEADS))
-				.map((r) => ({ name: r.ref.slice(QUEUE_HEADS.length), at: r.at })),
+				.filter((r) => r.event === "land" && isQueueHead(r.ref))
+				.map((r) => ({ name: queueNameOf(r.ref), at: r.at })),
 		ownerOf: (name) => readOwner(root, name),
 		lock: landerLock(root),
 		beat: heartbeatWriter(files.heartbeat),

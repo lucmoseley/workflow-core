@@ -172,10 +172,7 @@ describe("a run", () => {
 		];
 		const calls = stubHooks(["pre-commit"]);
 
-		queueGit(work, undefined, undefined, { ciRepeats: true }).mergeMembers(
-			seed,
-			members,
-		);
+		queueGit(work, { ciRepeats: true }).mergeMembers(seed, members);
 		expect(calls().at(-1)).toBe("pre-commit --gates=batch");
 		queueGit(work).mergeMembers(seed, members);
 		expect(calls().at(-1)).toBe("pre-commit");
@@ -194,7 +191,7 @@ describe("a run", () => {
 		const started: { sha: string; before: string[] }[] = [];
 		const record = (at: string) => started.push({ sha: at, before: calls() });
 
-		const merged = queueGit(work, undefined, undefined, {
+		const merged = queueGit(work, {
 			ciRepeats: true,
 		}).mergeMembers(seed, members, false, record);
 
@@ -223,7 +220,7 @@ describe("a run", () => {
 		const started: string[] = [];
 
 		expect(
-			queueGit(work, undefined, undefined, { ciRepeats: true }).mergeMembers(
+			queueGit(work, { ciRepeats: true }).mergeMembers(
 				seed,
 				members,
 				false,
@@ -831,7 +828,7 @@ describe("the adapters", () => {
 		const genAt = (sha: string) =>
 			`${git(work, "show", `${sha}:${genFile}`)}\n`;
 		const merge = (seed: string, a: string, b: string) => {
-			const g = queueGit(work, undefined, generated);
+			const g = queueGit(work, { regenerated: generated });
 			g.refs();
 			return g.mergeMembers(seed, members(a, b));
 		};
@@ -922,7 +919,7 @@ describe("the adapters", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const a = pushQueue("a", seed);
 		const b = pushQueue("b", seed);
-		const g = queueGit(work, 1);
+		const g = queueGit(work, { mergeTimeoutMs: 1 });
 		g.refs();
 
 		expect(() =>

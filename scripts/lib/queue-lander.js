@@ -154,7 +154,7 @@ const { FilingRefusedError } = require("./filing-refused.js");
 const { HEARTBEAT_MS } = require("./lander-files.js");
 const { parseRefusal, remote, short } = require("./lander-git.js");
 const {
-	QUEUE_PREFIX,
+	queueBranch,
 	batchBranch,
 	droppedNameOf,
 	droppedRefsOf,
@@ -576,7 +576,8 @@ const aloneAt = (s, name, onto) =>
 function unmergedAction(members, s, u, main) {
 	const { name } = u.result;
 	const m = members.find((x) => x.name === name);
-	if (!m) return exit(`queue/${name} did not merge, but is no batch member`);
+	if (!m)
+		return exit(`${queueBranch(name)} did not merge, but is no batch member`);
 	if (u.result.kind === "stale-base") return staleBaseExit(u.result, main);
 	if (members[0] === m && u.onto === main)
 		return dropAction(m, main, u.result, s);
@@ -691,10 +692,16 @@ const landGreen = (v, s, land) =>
 		: exit(`no verdict at ${short(land.sha)}: its green read no CI run`);
 
 /**
+ * A file set's key, whatever order names it.
+ * @param {readonly string[]} files
+ */
+const fileSetKey = (files) => [...files].sort().join(",");
+
+/**
  * @param {string} main
  * @param {readonly string[]} files
  */
-const baseKey = (main, files) => `${main} ${[...files].sort().join(",")}`;
+const baseKey = (main, files) => `${main} ${fileSetKey(files)}`;
 
 /**
  * @typedef {{readonly base: readonly string[],
@@ -1892,7 +1899,7 @@ function dropMember(deps, d, run) {
 	]);
 	if (left && left !== batch) deps.record.write(left);
 	deps.git.createRef(d.ref, d.sha);
-	deps.git.deleteRef(`${QUEUE_PREFIX}${d.name}`, d.sha);
+	deps.git.deleteRef(queueBranch(d.name), d.sha);
 	deps.logQueue("drop", d);
 	return { ...run, acting: left, unmerged: null, alone: null };
 }
@@ -2144,7 +2151,7 @@ async function verdictAt(deps, place, sha, { files, again } = {}) {
  */
 const askKey = (runs) =>
 	runs
-		.map(({ sha, files, pass }) => `${sha} ${pass} ${[...files].sort()}`)
+		.map(({ sha, files, pass }) => `${sha} ${pass} ${fileSetKey(files)}`)
 		.join(" + ");
 
 /**
@@ -2540,7 +2547,7 @@ async function act(deps, action, run) {
 		case "record-landed":
 			return recordLanded(deps, run);
 		case "delete-landed-ref":
-			return git.deleteRef(`${QUEUE_PREFIX}${action.name}`, action.sha)
+			return git.deleteRef(queueBranch(action.name), action.sha)
 				? run
 				: { ...run, kept: [...run.kept, `${action.name}@${action.sha}`] };
 		case "delete-dropped-ref":
@@ -2951,20 +2958,20 @@ function buildQueueActionLine(a) {
 		case "exit":
 			return `exit ${a.reason}`;
 		case "take-batch":
-			return `take-batch onto ${short(a.batch.onto)} as ${batchBranch(a.batch.slot)}: ${a.batch.members.map((m) => `queue/${m.name}@${short(m.sha)}`).join(", ")}`;
+			return `take-batch onto ${short(a.batch.onto)} as ${batchBranch(a.batch.slot)}: ${a.batch.members.map((m) => `${queueBranch(m.name)}@${short(m.sha)}`).join(", ")}`;
 		case "detach":
 			return `detach ${batchBranch(a.slot)}${a.cancel.length > 0 ? `, cancelling ${a.cancel.map((c) => short(c.sha)).join(", ")}` : ""}`;
 		case "await-verdict":
 		case "wait":
 			return a.kind;
 		case "merge-members":
-			return `merge-members onto ${short(a.onto)}: ${a.members.map((m) => `queue/${m.name}`).join(", ")}`;
+			return `merge-members onto ${short(a.onto)}: ${a.members.map((m) => queueBranch(m.name)).join(", ")}`;
 		case "merge-alone":
-			return `merge-alone onto ${short(a.onto)}: queue/${a.member.name}`;
+			return `merge-alone onto ${short(a.onto)}: ${queueBranch(a.member.name)}`;
 		case "defer-member":
-			return `defer-member queue/${a.name}`;
+			return `defer-member ${queueBranch(a.name)}`;
 		case "drop-member":
-			return `drop-member queue/${a.drop.name}@${short(a.drop.sha)} as ${a.drop.ref}`;
+			return `drop-member ${queueBranch(a.drop.name)}@${short(a.drop.sha)} as ${a.drop.ref}`;
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
 		case "settle-drop":
@@ -2972,7 +2979,7 @@ function buildQueueActionLine(a) {
 		case "adopt-dropped-ref":
 			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":
-			return `delete-landed-ref queue/${a.name}@${short(a.sha)}`;
+			return `delete-landed-ref ${queueBranch(a.name)}@${short(a.sha)}`;
 		case "delete-dropped-ref":
 			return `delete-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "rerun-files":
@@ -2984,18 +2991,18 @@ function buildQueueActionLine(a) {
 			return `hold ${a.hold.kind} at main@${short(a.hold.main)}`;
 		case "start-isolation":
 		case "start-serial":
-			return `${a.kind} ${a.blame.members.map((n) => `queue/${n}`).join(", ")}${a.blame.files.length > 0 ? ` on ${a.blame.files.join(", ")}` : ""}`;
+			return `${a.kind} ${a.blame.members.map((n) => queueBranch(n)).join(", ")}${a.blame.files.length > 0 ? ` on ${a.blame.files.join(", ")}` : ""}`;
 		case "merge-iso":
 		case "serial-land-step":
-			return `${a.kind} onto ${short(a.onto)}: queue/${a.member.name}`;
+			return `${a.kind} onto ${short(a.onto)}: ${queueBranch(a.member.name)}`;
 		case "isolate-members":
 		case "confirm-members":
 			return `${a.kind} ${a.runs.map((r) => `alone ${r.k}@${short(r.sha)}`).join(", ")}`;
 		case "rebatch-passers":
-			return `rebatch-passers ${a.ahead.map((n) => `queue/${n}`).join(", ")}`;
+			return `rebatch-passers ${a.ahead.map((n) => queueBranch(n)).join(", ")}`;
 		case "land-step":
 		case "record-step":
-			return `${a.kind} queue/${a.name} at ${a.sha}`;
+			return `${a.kind} ${queueBranch(a.name)} at ${a.sha}`;
 		default:
 			return `${a.kind} ${a.sha}`;
 	}
@@ -3005,6 +3012,7 @@ module.exports = {
 	TransientFault,
 	batchesOf,
 	buildQueueActionLine,
+	fileSetKey,
 	redPathAtRest,
 	runQueueLander,
 };

@@ -56,12 +56,12 @@ describe("lib/alarm-notice.js", () => {
 	it("stays silent on a second red with no green between, for each alarm", async () => {
 		const { state, notice } = harness();
 		state.runs["landing-quiet.yml"] = [["failure", 2]];
-		state.runs["main-lag.yml"] = [["failure", 2]];
+		state.runs["queue-wait.yml"] = [["failure", 2]];
 		state.clock = 1.5;
 		await notice();
 		expect(state.comments).toHaveLength(2);
 		state.runs["landing-quiet.yml"].unshift(["failure", 1]);
-		state.runs["main-lag.yml"].unshift(["failure", 0.5], ["cancelled", 1]);
+		state.runs["queue-wait.yml"].unshift(["failure", 0.5], ["cancelled", 1]);
 		state.clock = 0;
 		const r = await notice();
 		expect(state.comments).toHaveLength(2);
@@ -70,10 +70,10 @@ describe("lib/alarm-notice.js", () => {
 
 	it("mentions again once the alarm has passed and failed anew", async () => {
 		const { state, notice } = harness();
-		state.runs["main-lag.yml"] = [["failure", 4]];
+		state.runs["queue-wait.yml"] = [["failure", 4]];
 		state.clock = 3.5;
 		await notice();
-		state.runs["main-lag.yml"] = [
+		state.runs["queue-wait.yml"] = [
 			["failure", 1],
 			["success", 2],
 			["failure", 4],
@@ -92,7 +92,7 @@ describe("lib/alarm-notice.js", () => {
 			["success", 1],
 			["failure", 2],
 		];
-		state.runs["main-lag.yml"] = [["cancelled", 1]];
+		state.runs["queue-wait.yml"] = [["cancelled", 1]];
 		const r = await notice();
 		expect(r.code).toBe(0);
 		expect(state.comments).toHaveLength(0);

@@ -37,7 +37,7 @@ it.each([
 	".github/workflows/bisect.yml",
 	".github/workflows/named-rerun.yml",
 	".github/workflows/landing-quiet.yml",
-	".github/workflows/main-lag.yml",
+	".github/workflows/queue-wait.yml",
 	".github/workflows/warm-caches.yml",
 ])("denylists %s by the name GitHub reports for it", (file) => {
 	const name = fs
