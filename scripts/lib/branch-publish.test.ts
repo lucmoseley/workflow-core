@@ -588,7 +588,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		},
 	);
 
-	it("names the same queue ref for a host reached through a symlink", () => {
+	it("lets a push to its own queue ref through when the host is reached through a symlink", () => {
 		const link = path.join(dir, "shared-link");
 		fs.symlinkSync(shared, link);
 		const r = runCore(

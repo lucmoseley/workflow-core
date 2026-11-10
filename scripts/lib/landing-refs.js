@@ -70,7 +70,7 @@ function ownQueueRef(tree, root) {
 	const { WORKTREES_DIR } = require("./project-dirs.js");
 	/* realpath fails only on a path that is gone or unreadable, which no live
 	 * session's tree is; its spelling is then the only name it has, and every
-	 * caller reads that same fallback here. */
+	 * caller reads that same fallback here (#4856). */
 	const real = (/** @type {string} */ p) => {
 		try {
 			return fs.realpathSync(p);
@@ -149,7 +149,7 @@ function landingOn(opts) {
 		 * the answer that claims less: pushedRef then reads `origin/main`, so a
 		 * commit only on a queue ref counts as unpushed, never a missing one as
 		 * pushed. A workflow that must not guess asks the strict
-		 * `pushed-branch`, which fails instead. */
+		 * `pushed-branch`, which fails instead (#4856). */
 		return false;
 	}
 }

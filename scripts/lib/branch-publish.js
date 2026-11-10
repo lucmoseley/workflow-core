@@ -102,7 +102,7 @@ const {
 	ownQueueRef,
 	QUEUE_PREFIX,
 } = require("./landing-refs.js");
-const { rewindReason } = require("./main-rewind.js");
+const { landingRewindRule, rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
@@ -190,15 +190,7 @@ const refuse = (ctx, what, segment) => ({
  */
 const mainRewind = (ctx, what, segment) => ({
 	reason: ctx.moduleOn("landing")
-		? buildOwnRefReason(
-				ctx,
-				`This ${what}`,
-				ruleOrFallback(
-					ctx,
-					"main-rewind-landing",
-					"Only the queue lander moves `main`, and never backwards",
-				),
-			)
+		? buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx))
 		: rewindReason(ctx, what),
 	segment,
 });

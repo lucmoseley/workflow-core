@@ -103,6 +103,16 @@ describe("with the landing module on", () => {
 		expect(r.stderr).toContain("session-checkout.js land");
 	});
 
+	/* #4856: the ledger read throws on any fault but absence, and the gate
+	 * lets a push through a fault it cannot judge through, printed. */
+	it("passes a push to main where the green ledger will not read, naming the fault", () => {
+		fs.mkdirSync(ledger(), { recursive: true });
+		const r = check(buildRefLine(sha, "refs/heads/main"));
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain("could not read the green ledger");
+		expect(r.stderr).toContain("EISDIR");
+	});
+
 	it("passes a push creating main on a remote that has none: a new repo's first push (#2412)", () => {
 		const r = check(buildRefLine(sha, "refs/heads/main", ZERO));
 		expect(r.status, r.stderr).toBe(0);

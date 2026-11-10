@@ -31,6 +31,7 @@
  * guard's landing limb, logged there.
  */
 
+const { caught } = require("./lib/caught.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { fileLedger, queueLanderFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -94,14 +95,23 @@ function judge(stdin, { tree, root }) {
 	const pushes = parseMainPushes(stdin);
 	if (pushes.length === 0) return 0;
 	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
-	const ledger = fileLedger(queueLanderFiles(root).ledger);
-	const green = new Set(
-		readTreesOf(ledger.readShas()).filter((t) => t !== null),
-	);
+	const file = queueLanderFiles(root).ledger;
+	/** @type {string[]} */
+	let ledgered;
+	try {
+		ledgered = fileLedger(file).readShas();
+	} catch (err) {
+		unchecked(
+			`could not read the green ledger ${file} (${caught(err).message})`,
+		);
+		return 0;
+	}
+	const held = new Set(ledgered);
+	const green = new Set(readTreesOf(ledgered).filter((t) => t !== null));
 	const pushed = readTreesOf(pushes);
 	const untested = pushes.filter((sha, i) => {
 		const pushedTree = pushed[i] ?? null;
-		return !ledger.has(sha) && (pushedTree === null || !green.has(pushedTree));
+		return !held.has(sha) && (pushedTree === null || !green.has(pushedTree));
 	});
 	if (untested.length === 0) return 0;
 	writeFd(
