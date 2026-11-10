@@ -274,6 +274,34 @@ describe("a scope the reporter cannot read", () => {
 		expect(out).toContain("SCOPE UNRECORDED (mantahostels#1230)");
 	});
 
+	it("still names the files the pass store cached on that line (#4894)", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cached-"));
+		const source = { sha: "c".repeat(40), at: "2026-11-09T10:00:00.000Z" };
+		const env = writeCachedHandoff(
+			[{ file: "b.test.ts", reads: ["b.test.ts"], source }],
+			path.join(dir, "cached.json"),
+		);
+		vi.stubEnv(CACHED_ENV, env[CACHED_ENV]);
+		const r = new TestPassReporter();
+		r.onInit(
+			ctx({
+				globTestSpecifications: async () => {
+					throw new Error("glob refused");
+				},
+			}),
+		);
+		try {
+			const out = await captured(() =>
+				run(r, [module_("a.test.ts", ["passed"])]),
+			);
+			expect(out).toMatch(
+				/SCOPE UNRECORDED .*glob refused; 1 cached, not run .*: b\.test\.ts/,
+			);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("still records the verdict where a module refuses to enumerate its tests", async () => {
 		const r = new TestPassReporter();
 		r.onInit(ctx());
@@ -774,14 +802,36 @@ describe("the closure the reporter records (#189)", () => {
 		const r = new TestPassReporter();
 		r.onInit(vitest());
 		stubLaunch({ changedPaths: [], base: null });
-		const out = await captured(() => run(r, [withProject(id, ["passed"])]));
-		expect(out).toMatch(/FILTERED RUN — .*1 cached, not run .*: b\.test\.ts/);
+		await captured(() => run(r, [withProject(id, ["passed"])]));
 		expect(takeRunReport().attestation).toMatchObject({
 			closure: expect.arrayContaining(["a.test.ts", "b.test.ts", "lib/b.js"]),
 			selected: ["a.test.ts", "b.test.ts"],
 			imports: { "a.test.ts": [], "b.test.ts": ["lib/b.js"] },
 			cached: [{ file: "b.test.ts", sha: source.sha, at: source.at }],
 		});
+	});
+
+	it("names the cached files on its FILTERED RUN line, which a tail keeps (#4894)", async () => {
+		const graph: Record<string, Node> = {};
+		const { withProject } = scratch({}, graph);
+		const id = path.join(root, "a.test.ts");
+		graph[id] = node(id);
+		const handoff = path.join(root, "cached.json");
+		const source = {
+			sha: "c".repeat(40),
+			at: "2026-11-09T10:00:00.000Z",
+			tree: null,
+		};
+		const env = writeCachedHandoff(
+			[{ file: "b.test.ts", reads: ["b.test.ts", "lib/b.js"], source }],
+			handoff,
+		);
+		vi.stubEnv(CACHED_ENV, env[CACHED_ENV]);
+		const r = new TestPassReporter();
+		r.onInit(vitest());
+		stubLaunch({ changedPaths: [], base: null });
+		const out = await captured(() => run(r, [withProject(id, ["passed"])]));
+		expect(out).toMatch(/FILTERED RUN — .*1 cached, not run .*: b\.test\.ts/);
 	});
 
 	it("hands the pass store each file's own outcome and imports, and the config and setup closure (#4790)", async () => {

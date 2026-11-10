@@ -28,6 +28,7 @@ import {
 	FAIL_STORE,
 	FULL_REASONS,
 	failureRecoveryCommand,
+	formatCachedClause,
 	formatFilteredRun,
 	holdsAt,
 	isAdmissibleRun,
@@ -603,6 +604,10 @@ describe("the line a narrowed run prints for itself (mantahostels#1230)", () => 
 		expect(line).toContain("in 2 of 123 files");
 		expect(line).not.toContain("skipped");
 		expect(line).not.toContain("-t ");
+	});
+
+	it("names no cached clause where nothing was cached", () => {
+		expect(formatCachedClause([])).toBeNull();
 	});
 
 	it("names the files the pass store cached, which neither count nor paths carry (#4894)", () => {

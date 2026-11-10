@@ -64,6 +64,7 @@ const { caught } = require("./caught.js");
 const { isFile, reachOf } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
+	FRESH_HINT,
 	readDocsByTest,
 	shortSha,
 } = require("./test-pass-marker.js");
@@ -690,7 +691,7 @@ function asIds(v) {
  */
 function buildCachedBanner(cached, nowMs = Date.now()) {
 	if (cached.length === 0) return "";
-	return `CACHED — ${cached.length} selected file(s) not run: a recorded pass attests each on identical inputs (#4790; \`--fresh\` runs them):\n${cached
+	return `CACHED — ${cached.length} selected file(s) not run: a recorded pass attests each on identical inputs ${FRESH_HINT}:\n${cached
 		.map(
 			({ file, source }) =>
 				`  ${file} — passed at ${shortSha(source.sha)}, ${age(nowMs - Date.parse(source.at))} ago\n`,
