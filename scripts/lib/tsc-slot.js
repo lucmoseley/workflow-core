@@ -109,7 +109,9 @@ const realOr = (file) => {
 		return fs.realpathSync(file);
 	} catch {
 		/* The path unresolved: a launcher reached through a link is keyed apart
-		 * from its native child, which is then counted a second runner (#4892). */
+		 * from its native child, which is counted a second runner. That charges
+		 * nothing more: at TSC_MAX 1 the launcher alone denies, so the child adds
+		 * only a PID to the denial (#4892). */
 		return file;
 	}
 };

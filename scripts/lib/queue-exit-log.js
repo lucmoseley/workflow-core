@@ -31,7 +31,7 @@
  * climb that held the wait with MemAvailable alone clearing the rung (#3806),
  * absent where none did.
  * `noWait`, true on a `--tsc` line from a try under TSC_NO_WAIT_ENV, the
- * pre-commit hook's, absent otherwise (#3803).
+ * pre-commit hook's, bar a killed one, absent otherwise (#3803).
  * `chargeMb`, on a `--tsc` line, the peak of the compiler the launch ran,
  * which the slot charged it (#4892), a killed line's included (#4921); absent
  * on every line before #4892, whose type-checks all ran on TypeScript 5, and

@@ -447,9 +447,10 @@ async function run(words, slot, options, err) {
 		join: held ? false : join,
 		logExit: exitExtra
 			? (reason, waitMs, extra) => {
-					/* A killed line keeps the charge the replay reads, never
-					 * `noWait` (#4921). */
-					const { noWait: _try, ...charge } = exitExtra;
+					/* A killed line keeps the charge the replay reads (#4921), but
+					 * not `noWait`, which marks a try's verdict, refused or
+					 * opened, for guard-typecheck-owed.js. */
+					const { noWait: _noWait, ...charge } = exitExtra;
 					logExit(reason, waitMs, {
 						...extra,
 						...(reason === "killed" ? charge : exitExtra),
