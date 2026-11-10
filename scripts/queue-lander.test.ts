@@ -443,6 +443,75 @@ describe("a run", () => {
 		expect(stale).toEqual([]);
 	});
 
+	describe("a batch tree judged whole on its guard-registry faults (#4807)", () => {
+		const guard = "scripts/guard-pair.sh";
+		/** `main` holding `guard`'s row stale: its guard changed, unanchored. */
+		const staleMain = () => {
+			const fixture = build({
+				claude: region(
+					"- Pairs hold. **Enforced** (#4807): `scripts/guard-pair.sh` denies it.",
+				),
+				files: {
+					[guard]: "#!/bin/sh\nexit 2\n",
+					[SELF_PLUGIN_HOOKS]: hooksWiring(guard),
+				},
+			});
+			fs.cpSync(fixture, work, { recursive: true });
+			reviewIn(work, [guard], ownClaims(work));
+			commit("registry");
+			fs.writeFileSync(path.join(work, guard), "#!/bin/sh\nexit 3\n");
+			const main = commit("expire the row");
+			git(work, "push", "-q", "origin", `${main}:main`);
+			return main;
+		};
+		const member = (name: string, sha: string) => ({ name, sha, pushedAt: 1 });
+
+		it("holds a batch whose only stale row main holds too as stale-base, naming the row, for a lone member and a merged batch alike", () => {
+			const main = staleMain();
+			const a = pushQueue("a", main);
+			const b = pushQueue("b", main);
+			const g = queueGit(work);
+
+			for (const members of [
+				[member("a", a)],
+				[member("a", a), member("b", b)],
+			]) {
+				const r = g.mergeMembers(main, members);
+				expect(r.kind).toBe("stale-base");
+				if (r.kind !== "stale-base") continue;
+				expect(r.onto).toBe(main);
+				expect(r.rows).toEqual([expect.stringContaining(guard)]);
+			}
+		});
+
+		it("refuses a batch adding a stale row a clean main lacks, naming its member", () => {
+			const main = staleMain();
+			const clean = pushQueue("fix", main, () =>
+				reviewIn(work, [guard], ownClaims(work)),
+			);
+			git(work, "push", "-q", "origin", `${clean}:main`);
+			const a = pushQueue("a", clean, () =>
+				fs.writeFileSync(path.join(work, guard), "#!/bin/sh\nexit 4\n"),
+			);
+
+			const r = queueGit(work).mergeMembers(clean, [member("a", a)]);
+			expect(r).toMatchObject({ kind: "refused", name: "a" });
+			expect(r.kind === "refused" && r.reason).toContain(guard);
+		});
+
+		it("merges a batch carrying the re-anchor", () => {
+			const main = staleMain();
+			const fix = pushQueue("fix", main, () =>
+				reviewIn(work, [guard], ownClaims(work)),
+			);
+
+			expect(queueGit(work).mergeMembers(main, [member("fix", fix)])).toEqual({
+				kind: "merged",
+				sha: fix,
+			});
+		});
+	});
+
 	it("drops a ref conflicting with main to dropped/<name>, files its fix ticket and lands the other, logging each", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const shared = path.join(work, "shared.txt");
