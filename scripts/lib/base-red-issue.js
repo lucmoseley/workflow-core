@@ -1,10 +1,11 @@
 /*
  * base-red-issue.js — the one issue the queue lander keeps open for files red
  * on `main` itself: failures a red batch shares with `main`, which it blames
- * on no member.
+ * on no member (#4485, spec #4458).
  */
 
 const { buildFileList } = require("./fix-ticket.js");
+const { short } = require("./lander-git.js");
 const { queueIssueFiler } = require("./queue-issue.js");
 
 const TITLE = "`main` is red: failures the queue lander blames on no member";
@@ -47,7 +48,7 @@ function baseRedFiler(deps) {
 						"The base-red ticket tracks `main` itself, not one ticket's work.",
 					noun: "base-red ticket",
 					origin: "ci-red",
-					subject: `main at ${sha.slice(0, 9)}`,
+					subject: `main at ${short(sha)}`,
 				},
 				buildBaseRedBody(sha, files),
 			),

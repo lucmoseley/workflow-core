@@ -3,7 +3,7 @@
  * queue ref's life, under the canonical checkout's markers directory,
  * machine-local and gitignored. Every session pushes from this machine, so
  * .husky/pre-push writes an enqueue row, `{at, event, ref, sha}`, for each
- * `queue/<name>` it pushes, at push time.
+ * `queue/<name>` it pushes, at push time (#4485, spec #4458).
  *
  * The queue lander reads a ref's push time off it: the newest enqueue row
  * naming the ref at the sha it now holds. A row a failed push left names a
@@ -37,7 +37,7 @@ const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 
-/* 7 days, untraced. */
+/* Spec #4458's 7-day baseline. */
 const BASELINE_MS = 7 * DAY_MS;
 /* Untraced, a first guess: the baselines read 7 days back, and a ref
  * waiting at the window's start was pushed hours, never weeks, before it. */
@@ -238,6 +238,7 @@ function queueBaseline(rows, now) {
 const pendingSince = (rows) => replayQueue(rows).since;
 
 module.exports = {
+	BASELINE_MS,
 	logEnqueue,
 	logQueueEvent,
 	pendingSince,

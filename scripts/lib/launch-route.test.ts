@@ -198,6 +198,12 @@ describe("`npmSwallowedRefusal`, a runner flag npm took as its own config (#2284
 			"npm run test -- --full=flake",
 		],
 		[
+			"--fresh",
+			[],
+			{ ...testScript, npm_config_fresh: "true" },
+			"npm run test -- --fresh",
+		],
+		[
 			"two flags at once",
 			["a.test.ts"],
 			{ ...testScript, npm_config_queue: "true", npm_config_isolated: "true" },

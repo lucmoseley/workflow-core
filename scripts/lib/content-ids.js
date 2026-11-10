@@ -12,6 +12,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 
 /** @typedef {Map<string, string|null>} ContentIds path to content id, null where absent */
 
@@ -35,7 +36,7 @@ const absentAsId = (ids) =>
  * @param {ContentIds} now
  * @returns {boolean}
  */
-function sameContent(paths, then, now) {
+function isSameContent(paths, then, now) {
 	if (paths.length === 0) return false;
 	return paths.every(
 		(p) => then.has(p) && now.has(p) && then.get(p) === now.get(p),
@@ -67,7 +68,8 @@ function readTreeIds(git, treeish, paths) {
 
 /**
  * Each path's content id in the working tree at `root`, null where no regular
- * file stands there. A symlink is left unanswered, holding nothing. Throws
+ * file stands there. A symlink, or a path lstat fails on for any reason but
+ * its absence, is left unanswered, holding nothing (#4790). Throws
  * where git does.
  * @param {(args: string[], input: string) => string} hashObjects
  *   `git hash-object --stdin-paths` in `root`
@@ -84,8 +86,9 @@ function readWorkingIds(hashObjects, root, paths) {
 		let stat;
 		try {
 			stat = fs.lstatSync(path.join(root, p));
-		} catch {
-			ids.set(p, null);
+		} catch (e) {
+			const { code } = caught(e);
+			if (code === "ENOENT" || code === "ENOTDIR") ids.set(p, null);
 			continue;
 		}
 		if (stat.isFile())
@@ -126,5 +129,5 @@ module.exports = {
 	absentAsId,
 	readTreeIds,
 	readWorkingIds,
-	sameContent,
+	isSameContent,
 };

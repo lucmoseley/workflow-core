@@ -1,11 +1,11 @@
 /*
  * landing-status.js — where each of a session's commits stands on the landing
  * route: landed on `main`, queued on the session's own queue ref, or pushed
- * to no queue ref at all.
+ * to no queue ref at all (#2407, spec #2261; #4485, spec #4458).
  */
 
 const { caught } = require("./caught.js");
-const { LANDER_GIT_TIMEOUT_MS } = require("./lander-git.js");
+const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
 const {
 	pushedRef,
 	QUEUE_REFSPEC,
@@ -60,7 +60,7 @@ function stateOf(sha, git) {
  *   where its tree is no session worktree
  */
 function buildStateLine({ sha, state }, subject, queue) {
-	const head = `${sha.slice(0, 9)} ${subject}`;
+	const head = `${short(sha)} ${subject}`;
 	switch (state.kind) {
 		case "landed":
 			return `landed: ${head} — on main`;
