@@ -175,7 +175,7 @@ it("starts the queue lander where a queue ref waits and none runs, naming the re
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toMatch(
-		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work \(launched by the refill loop; pid \d+\); its output: /,
+		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work, 0 drop\(s\) owed a decision \(launched by the refill loop; pid \d+\); its output: /,
 	);
 	expect(await waitFor(() => git(remote, ["rev-parse", "main"]) === sha)).toBe(
 		true,

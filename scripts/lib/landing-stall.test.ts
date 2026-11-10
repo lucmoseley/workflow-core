@@ -41,6 +41,7 @@ const reading = (
 		wokeAt: NOW - 24 * 60 * MIN,
 		heartbeat: { pid: 7, at: new Date(NOW - MIN).toISOString(), batch: null },
 		alive: () => false,
+		owed: 0,
 		...rest,
 	};
 };
@@ -154,11 +155,23 @@ describe("supervision", () => {
 		});
 	});
 
-	it("starts none where no queue ref waits", () => {
+	it("starts none where no queue ref waits and no drop is owed a decision", () => {
 		expect(supervision(reading({ since: null, heartbeat: null }))).toEqual({
 			start: false,
 			ticket: null,
 		});
+	});
+
+	it("starts a lander with no queue ref waiting where a drop is owed a decision, and none while a lander runs (#4950)", () => {
+		const owed = { since: null, owed: 1 };
+
+		expect(supervision(reading({ ...owed, heartbeat: null }))).toEqual({
+			start: true,
+			ticket: null,
+		});
+		expect(
+			supervision(reading({ ...owed, heartbeat: live, alive: () => true })),
+		).toEqual({ start: false, ticket: null });
 	});
 
 	it("files the stall ticket for a dead lander where main has stood 2 h, as a lander failing on every start leaves it", () => {

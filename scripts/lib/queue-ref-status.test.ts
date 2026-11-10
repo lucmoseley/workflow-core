@@ -314,10 +314,17 @@ describe("a dropped ref", () => {
 		cause: { kind: "conflict", name: "alpha", files: ["x"] },
 		ticket: 77,
 		at: SINCE + 60_000,
+		state: "ticketed",
+		decidedAt: SINCE + 60_000,
 		...over,
 	});
+	const open = { ticket: null, state: "open" };
+	/* The cause and evidence, in the words lib/drop-evidence.js gives the
+	 * fix ticket's body. */
+	const why = () =>
+		`\n  dropped because, merged alone onto \`main\` at ${seed}, it conflicts with \`main\` in:\n- \`x\``;
 
-	it("names its fix ticket and dropped ref off the drop record", () => {
+	it("names its fix ticket, dropped ref, cause and evidence off the drop record", () => {
 		expect(
 			lines({
 				waiting: null,
@@ -325,11 +332,44 @@ describe("a dropped ref", () => {
 				drops: [drop()],
 			}),
 		).toEqual([
-			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha, fix ticket #77`,
+			`dropped: queue/alpha at ${short(member)} — fix ticket #77; kept as dropped/alpha${why()}`,
 		]);
 	});
 
-	it("names its closed fix ticket once the lander reaped its dropped ref", () => {
+	it("reads an unticketed drop as returned to this session, from a drop the log missed (#4950)", () => {
+		expect(
+			lines({
+				waiting: null,
+				drops: [drop({ ref: `dropped/alpha-${short(member)}`, ...open })],
+			}),
+		).toEqual([
+			`dropped: queue/alpha at ${short(member)} — returned to this session; no ticket while it works; kept as dropped/alpha-${short(member)}${why()}`,
+		]);
+	});
+
+	it("reads an unticketed drop as held where a newer push of the queue ref waits (#4950)", () => {
+		expect(lines({ waiting: seed, drops: [drop(open)] })[0]).toBe(
+			`dropped: queue/alpha at ${short(member)} — held: a newer push waits; kept as dropped/alpha${why()}`,
+		);
+	});
+
+	it("reads a settled drop with the main sha that settled it, its dropped ref reaped or not (#4950)", () => {
+		const settled = { state: "settled", settledOn: seed };
+
+		expect(
+			lines({
+				waiting: null,
+				drops: [drop({ ...settled, reapedAt: SINCE + 120_000 })],
+			}),
+		).toEqual([
+			`dropped: queue/alpha at ${short(member)} — settled at ${short(seed)}`,
+		]);
+		expect(lines({ waiting: null, drops: [drop(settled)] })).toEqual([
+			`dropped: queue/alpha at ${short(member)} — settled at ${short(seed)}; kept as dropped/alpha${why()}`,
+		]);
+	});
+
+	it("names its closed fix ticket where a record from before settling has its dropped ref reaped", () => {
 		expect(
 			lines({
 				waiting: null,
@@ -338,17 +378,6 @@ describe("a dropped ref", () => {
 			}),
 		).toEqual([
 			`dropped: queue/alpha at ${short(member)} — fix ticket #77 (closed), dropped ref reaped`,
-		]);
-	});
-
-	it("says a fix ticket not yet filed, from a drop the log missed", () => {
-		expect(
-			lines({
-				waiting: null,
-				drops: [drop({ ref: `dropped/alpha-${short(member)}`, ticket: null })],
-			}),
-		).toEqual([
-			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha-${short(member)}, its fix ticket not yet filed`,
 		]);
 	});
 
@@ -370,7 +399,7 @@ describe("a dropped ref", () => {
 				],
 			}),
 		).toEqual([
-			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha-${short(member)}; the drop record holds no entry for it, so its fix ticket is unknown`,
+			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha-${short(member)}; the drop record holds no entry for it, so its cause and fix ticket are unknown`,
 		]);
 	});
 
@@ -378,7 +407,7 @@ describe("a dropped ref", () => {
 		expect(
 			lines({ waiting: null, rows: [row(2, "drop", member)], drops: "[{" }),
 		).toEqual([
-			`dropped: queue/alpha at ${short(member)} — no dropped ref holds it; the drop record is torn, so its fix ticket is unknown`,
+			`dropped: queue/alpha at ${short(member)} — no dropped ref holds it; the drop record is torn, so its cause and fix ticket are unknown`,
 		]);
 	});
 });

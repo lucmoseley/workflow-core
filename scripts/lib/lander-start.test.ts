@@ -1,11 +1,13 @@
 // @vitest-environment node
 /*
- * lib/lander-start.js's startLander (#2405, #4458): a queue lander starts only
- * where none runs and a queue ref waits; spawnDetachedRun starts it as no
+ * lib/lander-start.js's startLander (#2405, #4458, #4950): a queue lander
+ * starts only where none runs and a queue ref waits or a drop is owed a
+ * decision; spawnDetachedRun starts it as no
  * session, in a user scope where the machine makes one (#2956).
  *
- * Loosen it and a second push starts a second lander, or an empty queue
- * starts one that has nothing to test; drop the scope and the lander's suite
+ * Loosen it and a second push starts a second lander, an empty queue with
+ * every drop decided starts one that has nothing to do, or a drop whose
+ * owning session stopped waits unticketed for an unrelated push; drop the scope and the lander's suite
  * competes process by process with every session beside it. The cgroup case
  * runs only where `systemd-run --user --scope` works, which CI's runner
  * lacks.
@@ -17,11 +19,16 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { launcherName, spawnDetachedRun, startLander } from "./lander-start.js";
 
-const start = (holder: number | null, waiting: string[]) => {
+const start = (
+	holder: number | null,
+	waiting: string[],
+	owed: string[] = [],
+) => {
 	let spawns = 0;
 	const result = startLander({
 		holder: () => holder,
 		waiting: () => waiting,
+		owed: () => owed,
 		spawnRun: () => {
 			spawns++;
 			return 4242;
@@ -33,7 +40,14 @@ const start = (holder: number | null, waiting: string[]) => {
 describe("startLander", () => {
 	it("starts one queue lander where none runs and a queue ref waits", () => {
 		expect(start(null, ["queue/a", "queue/b"])).toEqual({
-			result: { started: 4242, waiting: ["queue/a", "queue/b"] },
+			result: { started: 4242, waiting: ["queue/a", "queue/b"], owed: [] },
+			spawns: 1,
+		});
+	});
+
+	it("starts one with no queue ref waiting where a drop is owed a decision", () => {
+		expect(start(null, [], ["dropped/a"])).toEqual({
+			result: { started: 4242, waiting: [], owed: ["dropped/a"] },
 			spawns: 1,
 		});
 	});
@@ -45,9 +59,9 @@ describe("startLander", () => {
 		});
 	});
 
-	it("starts none where no queue ref waits", () => {
+	it("starts none where no queue ref waits and no drop is owed a decision", () => {
 		expect(start(null, [])).toEqual({
-			result: { skipped: "no queue ref waits" },
+			result: { skipped: "no queue ref waits and no drop is owed a decision" },
 			spawns: 0,
 		});
 	});

@@ -10,7 +10,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { dropRecord, pipelineRecord, readDropFile } from "./lander-records.js";
+import {
+	dropRecord,
+	pipelineRecord,
+	readDropFile,
+	readOwedDrops,
+} from "./lander-records.js";
 
 let dir: string;
 let file: string;
@@ -131,6 +136,8 @@ describe("the drop record", () => {
 		cause: { kind: "conflict" as const, name: "a", files: ["x.txt"] },
 		ticket: null,
 		at: 1,
+		state: "open" as const,
+		decidedAt: 1,
 	};
 	const red = {
 		...d,
@@ -158,6 +165,41 @@ describe("the drop record", () => {
 			{ ...d, cause: { ...d.cause, kind: "parked" } } as never,
 		]);
 		expect(dropRecord(file).read()).toEqual([d, red, collision]);
+	});
+
+	it("reads an entry written before its decision state shipped as ticketed where it names a ticket, else open, decided when it was dropped", () => {
+		const { state: _state, decidedAt: _decidedAt, ...old } = d;
+		writeRaw(JSON.stringify([old, { ...old, sha: "s1", ticket: 7, at: 5 }]));
+
+		expect(dropRecord(file).read()).toEqual([
+			d,
+			{ ...d, sha: "s1", ticket: 7, at: 5, state: "ticketed", decidedAt: 5 },
+		]);
+	});
+
+	it("keeps a settled entry's main sha, and skips an entry in a state it does not know", () => {
+		const settled = {
+			...d,
+			state: "settled" as const,
+			decidedAt: 9,
+			settledOn: "m9",
+			reapedAt: 9,
+		};
+		dropRecord(file).write([settled, { ...d, state: "parked" } as never]);
+
+		expect(dropRecord(file).read()).toEqual([settled]);
+	});
+
+	it("reads as owed a decision only the open drops with no ticket, no reap and no filing refused for good", () => {
+		dropRecord(file).write([
+			d,
+			{ ...d, sha: "s4", filingRefused: "rule:x refused it" },
+			{ ...d, sha: "s1", ticket: 7, state: "ticketed" },
+			{ ...d, sha: "s2", state: "settled", settledOn: "m9" },
+			{ ...d, sha: "s3", reapedAt: 4 },
+		]);
+
+		expect(readOwedDrops(file).map((x) => x.sha)).toEqual(["s0"]);
 	});
 
 	it("reads a file that is no list as torn, and as no drops", () => {
