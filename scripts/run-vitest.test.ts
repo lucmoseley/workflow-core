@@ -2948,6 +2948,49 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				);
 			});
 
+			it("logs the hold a wait was polled on where its re-check fails (#4765)", async () => {
+				const w = world(
+					{ changed: ["docs/fixture-doc.md"], selects: ["a.test.ts"] },
+					{ changed: ["docs/fixture-untested.md"], selects: [] },
+				);
+				const execFn = (file: string, args: string[]) => {
+					if (file !== "git" && w.listed.length > 0)
+						throw new Error("vitest list failed");
+					return w.fn(file, args);
+				};
+				const queueLog = path.join(qdir(), "exits.jsonl");
+				const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+				try {
+					await main(["--queue", "--changed"], {
+						spawnFn: spawnReturning({ code: 0 }).spawnFn,
+						root: repo(),
+						fs: fakeFs(),
+						execFn,
+						loadEdges: () => ({}),
+						renderEdges: () => ({}),
+						out: { write: () => true },
+						err: { write: () => true },
+						queueDir: qdir(),
+						queueLog,
+						gate: () => ({
+							limb: "memory",
+							mb: 5000,
+							rungMb: 4000,
+							climbMb: 1500,
+						}),
+						sleepFn: () => {
+							w.move();
+							return Promise.resolve();
+						},
+					});
+				} finally {
+					stdout.mockRestore();
+				}
+				expect(readJsonl(queueLog)).toMatchObject([
+					{ reason: "refused", climbMb: 1500 },
+				]);
+			});
+
 			it("skips the probe where a moved diff still touches code or a manifest reader", async () => {
 				for (const [changed, edges] of [
 					[["scripts/lib/x.js"], {}],

@@ -32,7 +32,7 @@
  * climb that held the wait with MemAvailable alone clearing the rung (#3806),
  * absent where none did.
  * `peerS`, the seconds the wait was held on that peer, to its last poll on a
- * killed line; absent where none held it, and on every line before #4765.
+ * killed line or one a failed re-check refuses; absent where none held it, and on every line before #4765.
  * Where waiters ahead in its own queue close the turn too, the turn names
  * them, so that time is not `peerS` and a refusal there says `turn`.
  * `noWait`, true on a `--tsc` line from a try under TSC_NO_WAIT_ENV, the
