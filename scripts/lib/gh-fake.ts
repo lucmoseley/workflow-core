@@ -59,6 +59,9 @@ import SUB_ISSUES_NOT_FOUND from "./fixtures/gh/sub-issues-not-found.json" with 
 import TIMELINE_PAGE from "./fixtures/gh/timeline-page.json" with {
 	type: "json",
 };
+import VALIDATION_FAILED from "./fixtures/gh/validation-failed.json" with {
+	type: "json",
+};
 import { shellQuote } from "./sh-quote.js";
 
 /** What one gh call answers: its exit status and both streams, verbatim. */
@@ -70,8 +73,9 @@ export interface GhAnswer {
 
 /*
  * The recorded failures a stub serves verbatim: a logged-out gh, a REST read
- * of a missing issue, `issues/<n>/parent` of an issue with none, and a
- * GraphQL read of a repository that does not exist. A 5xx cannot be recorded
+ * of a missing issue, `issues/<n>/parent` of an issue with none, a GraphQL
+ * read of a repository that does not exist, and a request GitHub cannot
+ * process (HTTP 422). A 5xx cannot be recorded
  * on demand, so a stub failing a read for any reason serves NOT_FOUND:
  * lib/gh.js reads both as broken and retries both once (#3013). A stub failing
  * a write serves fixtures/gh/issue-create-no-repo.json or
@@ -82,6 +86,7 @@ export const GH_LOGGED_OUT: GhAnswer = LOGGED_OUT;
 export const GH_NOT_FOUND: GhAnswer = NOT_FOUND;
 export const GH_PARENT_NOT_FOUND: GhAnswer = PARENT_NOT_FOUND;
 export const GH_GRAPHQL_NO_REPO: GhAnswer = GRAPHQL_NO_REPO;
+export const GH_VALIDATION_FAILED: GhAnswer = VALIDATION_FAILED;
 
 export function readGhAnswer(fixture: string): GhAnswer {
 	return JSON.parse(fs.readFileSync(fixture, "utf8"));

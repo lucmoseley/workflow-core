@@ -247,7 +247,7 @@ index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60
  	writeJson(path.join(root, RECORD), record);
  	ctx.say(`  Wrote ${RECORD}; stage it with ${LOCK}.`);
 diff --git a/scripts/check-vendored-skills.test.ts b/scripts/check-vendored-skills.test.ts
-index e158c3588..157056134 100644
+index d62c4c4ea..f15871220 100644
 --- a/scripts/check-vendored-skills.test.ts
 +++ b/scripts/check-vendored-skills.test.ts
 @@ -611,6 +611,9 @@ function upstreamRoot(source: string) {
@@ -260,8 +260,8 @@ index e158c3588..157056134 100644
  /**
   * A `gh` for `stubGh`: its routes, keyed on the path fetched, and the file its
   * calls' arguments are appended to; with no `log`, no call is recorded.
-@@ -637,29 +640,43 @@ const GH_422: Gh = {
- };
+@@ -631,29 +634,43 @@ const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
+ const GH_422: Gh = { routes: { "*": GH_VALIDATION_FAILED } };
  
  /**
 - * A `gh` that answers every contents fetch with `body`, and appends each
@@ -311,7 +311,7 @@ index e158c3588..157056134 100644
  
  /** upstreamRoot plus a declared added file, `a/EXTRA.md`. */
  function rootWithAddition() {
-@@ -748,7 +765,7 @@ describe("check-vendored-skills --upstream", () => {
+@@ -742,7 +759,7 @@ describe("check-vendored-skills --upstream", () => {
  	it("passes a declared added file that upstream 404s on", () => {
  		const root = rootWithAddition();
  		const log = path.join(root, "gh.log");
@@ -320,7 +320,7 @@ index e158c3588..157056134 100644
  		expect(r).toMatchObject({ outcome: "OK", tags: [] });
  	});
  
-@@ -760,6 +777,103 @@ describe("check-vendored-skills --upstream", () => {
+@@ -754,6 +771,103 @@ describe("check-vendored-skills --upstream", () => {
  	});
  });
  
@@ -424,7 +424,7 @@ index e158c3588..157056134 100644
  /*
   * The CLI's --upstream reporting of a failed fetch: the tags, the SKIP
   * condition and the 404 spelling (mantahostels#3025).
-@@ -806,7 +920,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -800,7 +914,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  		);
  		expect(r.outcome).toBe("SKIP");
  		expect(r.text).toContain("could not resolve host");
@@ -433,7 +433,7 @@ index e158c3588..157056134 100644
  	});
  
  	it("reports rather than skipping when a 404 sits beside an unreachable fetch", () => {
-@@ -828,9 +942,11 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -822,9 +936,11 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  				"*": refused("gh: could not resolve host"),
  			},
  		});
@@ -445,7 +445,7 @@ index e158c3588..157056134 100644
  		]);
  		expect(r.outcome).not.toBe("SKIP");
  	});
-@@ -867,7 +983,9 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -861,7 +977,9 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  		fs.writeFileSync(file, JSON.stringify(sidecar, null, "\t"));
  		const r = runUpstream(root, refusing("gh: could not resolve host"));
  		expect(r.outcome).not.toBe("SKIP");
@@ -455,7 +455,7 @@ index e158c3588..157056134 100644
  			"UPSTREAM-UNREADABLE",
  			"UPSTREAM-UNRESOLVED",
  		]);
-@@ -875,7 +993,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
+@@ -869,7 +987,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
  		expect(r.text).toContain("skills-lock.json");
  	});
  
@@ -464,7 +464,7 @@ index e158c3588..157056134 100644
  		const root = build({ disk: { "a/SKILL.md": SKILL } });
  		const log = path.join(root, "gh.log");
  		const r = runUpstream(root, answering(SKILL, log));
-@@ -904,7 +1022,7 @@ const readRecord = (root: string) =>
+@@ -898,7 +1016,7 @@ const readRecord = (root: string) =>
  	JSON.parse(fs.readFileSync(path.join(root, RECORD), "utf8"));
  
  describe("check-vendored-skills --upstream, the record", () => {
@@ -473,7 +473,7 @@ index e158c3588..157056134 100644
  		const root = upstreamRoot("mattpocock/skills");
  		const r = runUpstream(root, answering(SKILL, path.join(root, "gh.log")), [
  			"--write",
-@@ -916,6 +1034,7 @@ describe("check-vendored-skills --upstream, the record", () => {
+@@ -910,6 +1028,7 @@ describe("check-vendored-skills --upstream, the record", () => {
  			[NOTICES]: sha256(fs.readFileSync(path.join(root, NOTICES), "utf8")),
  		});
  		expect(record.ranOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -481,7 +481,7 @@ index e158c3588..157056134 100644
  	});
  
  	it("still writes it beside an UPSTREAM-MOVED", () => {
-@@ -930,6 +1049,18 @@ describe("check-vendored-skills --upstream, the record", () => {
+@@ -924,6 +1043,18 @@ describe("check-vendored-skills --upstream, the record", () => {
  	});
  
  	it.each([
@@ -500,7 +500,7 @@ index e158c3588..157056134 100644
  		["SKIP", () => refusing("gh: could not resolve host")],
  		["BROKEN", () => GH_422],
  	])("writes none on %s", (_, gh) => {
-@@ -970,6 +1101,22 @@ describe("check-vendored-skills --upstream, the record", () => {
+@@ -964,6 +1095,22 @@ describe("check-vendored-skills --upstream, the record", () => {
  		expect(fs.existsSync(log)).toBe(false);
  		expect(fs.existsSync(path.join(at.main, RECORD))).toBe(false);
  	});
@@ -523,7 +523,7 @@ index e158c3588..157056134 100644
  });
  
  describe("the pre-commit upstream-record gate (#2394)", () => {
-@@ -977,7 +1124,7 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
+@@ -971,7 +1118,7 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
  	const lockBody = '{\n\t"version": 1,\n\t"skills": {}\n}\n';
  	const noticesBody = "# Notices\n";
  	const record = (lock: string, notices: string) =>

@@ -370,10 +370,9 @@ const stubGh = (fx: ReturnType<typeof fixture>) =>
 			"issue list*": printed(fx.issues),
 			"issue view*": printed(fx.issueBody.body()),
 			"issue create*": printed("https://github.com/o/r/issues/999\n"),
-			"issue edit*": {
-				...refused("label edit refused"),
-				status: fx.ghEditExitCode,
-			},
+			"issue edit*": fx.ghEditExitCode
+				? { ...refused("label edit refused"), status: fx.ghEditExitCode }
+				: printed(),
 		},
 		{ log: fx.argvLog, failing: fx.ghRefuses },
 	);

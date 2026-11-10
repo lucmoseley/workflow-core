@@ -1,7 +1,8 @@
 /*
  * Shared scaffolding for faking `gh` in tests. A test answering more than one
- * call passes `stubGhRoutes` a route table, or `serveGhStub` a handler where its
- * answers change within a run, never a router of its own; this
+ * call passes `stubGhRoutes` a route table, `serveGhStub` a handler where its
+ * answers change within a run, or `stubGhHandler` one where a call waits or is
+ * answered on arguments no route key holds, never a router of its own; this
  * owns the stub executable and its one injection point, WFC_GH, which
  * scripts/lib/gh.js and every shell caller's "${WFC_GH:-gh}" read. The
  * canonical failure mode is gh-fake's logged-out answer, which
@@ -205,8 +206,9 @@ esac
  * A `serveGhStub` handler as a gh started per call, for a call that must wait
  * mid-answer: the server answers one call at a time, so a wait there stalls
  * every other program's calls. Also for one file's few calls answered on
- * arguments a route key does not hold, such as `--jq` or `-H`. Binds the handler's eight names as the server
- * does, stdin read only where an argument names it (`-`, `…@-`) (#4311).
+ * arguments a route key does not hold, such as `--jq` or `-H`. Binds the
+ * handler's eight names as the server does, stdin read only where an argument
+ * names it (`-`, `…@-`) (#4311).
  */
 export function stubGhHandler(dir: string, handler: string): StubGh {
 	return stubGhScript(

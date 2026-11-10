@@ -36,7 +36,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
+import { GH_NOT_FOUND, GH_VALIDATION_FAILED } from "./lib/gh-fake";
 import {
 	printed,
 	type RouteAnswer,
@@ -631,13 +631,7 @@ const content = (text: string) =>
 const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
 
 /** A `gh` failing every fetch as GitHub refuses a request it cannot process. */
-const GH_422: Gh = {
-	routes: {
-		"*": readGhAnswer(
-			path.join(__dirname, "lib/fixtures/gh/validation-failed.json"),
-		),
-	},
-};
+const GH_422: Gh = { routes: { "*": GH_VALIDATION_FAILED } };
 
 /**
  * A `gh` that answers every contents fetch with `body` and every licence
