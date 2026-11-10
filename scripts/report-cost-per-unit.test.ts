@@ -20,8 +20,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-cost-per-unit.js");
 const SERIES_LABEL = "docs/data/cost-per-unit.jsonl";
@@ -96,27 +96,21 @@ const run = (
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.writeFileSync(file, `${series.join("\n")}\n`);
 	}
-	const served = path.join(root, "served");
-	fs.mkdirSync(served);
-	fs.writeFileSync(
-		path.join(served, "default.json"),
-		typeof daily === "string" ? daily : JSON.stringify(daily),
-	);
-	for (const [date, rows] of Object.entries(gh))
-		fs.writeFileSync(path.join(served, `${date}.json`), JSON.stringify(rows));
 	const log = path.join(root, "gh-argv.log");
-	const stub = path.join(root, "gh");
-	fs.writeFileSync(
-		stub,
-		[
-			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> ${shellQuote(log)}`,
-			`d=$(printf '%s\\n' "$@" | sed -n 's/^closed://p')`,
-			`f=${shellQuote(served)}/"$d.json"; [ -f "$f" ] || f=${shellQuote(`${served}/default.json`)}`,
-			'cat "$f"',
-			"",
-		].join("\n"),
-		{ mode: 0o755 },
+	const stub = stubGhRoutes(
+		root,
+		{
+			...Object.fromEntries(
+				Object.entries(gh).map(([date, rows]) => [
+					`issue list*closed:${date} *`,
+					printed(JSON.stringify(rows)),
+				]),
+			),
+			"issue list*": printed(
+				typeof daily === "string" ? daily : JSON.stringify(daily),
+			),
+		},
+		{ log },
 	);
 	const before = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 	const r = runInProcess(SCRIPT, argv, {
@@ -124,7 +118,7 @@ const run = (
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: root,
-			WFC_GH: stub,
+			...stub.env,
 			COST_TODAY: today,
 		},
 	});

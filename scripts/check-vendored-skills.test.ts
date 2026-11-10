@@ -36,6 +36,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { GH_NOT_FOUND, GH_VALIDATION_FAILED } from "./lib/gh-fake";
+import {
+	printed,
+	type RouteAnswer,
+	refused,
+	stubGhRoutes,
+} from "./lib/gh-stub";
 import { splitCheckout } from "./lib/guard-core-testkit";
 import {
 	cutGateScript,
@@ -43,7 +50,6 @@ import {
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process.js";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-vendored-skills.js");
 const REPO = path.join(__dirname, "..");
@@ -609,28 +615,48 @@ function upstreamRoot(source: string) {
 const LICENCE = "MIT License\n";
 
 /**
- * A `gh` stub that answers every contents fetch with `body` and every licence
- * fetch with `licence`, base64-encoded as `--jq .content` returns them, and
- * appends each call's arguments to `log`. A call matching the `missing` glob
- * 404s instead.
+ * A `gh` for `stubGh`: its routes, keyed on the path fetched, and the file its
+ * calls' arguments are appended to; with no `log`, no call is recorded.
+ */
+interface Gh {
+	routes: Record<string, RouteAnswer>;
+	log?: string;
+}
+
+/** What `gh api <path> --jq .content` prints for a file holding `text`. */
+const content = (text: string) =>
+	printed(`${Buffer.from(text).toString("base64")}\n`);
+
+/** A `gh` failing every fetch with `stderr`. */
+const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
+
+/** A `gh` failing every fetch as GitHub refuses a request it cannot process. */
+const GH_422: Gh = { routes: { "*": GH_VALIDATION_FAILED } };
+
+/**
+ * A `gh` that answers every contents fetch with `body` and every licence
+ * fetch with `licence`, and appends each call's arguments to `log`. A path
+ * matching the `missing` glob 404s instead.
  */
 function answering(
 	body: string,
 	log: string,
 	licence = LICENCE,
 	missing?: string,
-) {
-	const b64 = (t: string) => Buffer.from(t).toString("base64");
-	const gone = missing
-		? `${missing}) echo "gh: Not Found (HTTP 404)" >&2; exit 1;; `
-		: "";
-	return `echo "$*" >> ${shellQuote(log)}; case "$*" in ${gone}*/license*) printf '%s\\n' ${shellQuote(b64(licence))};; *) printf '%s\\n' ${shellQuote(b64(body))};; esac`;
+): Gh {
+	return {
+		routes: {
+			...(missing ? { [missing]: GH_NOT_FOUND } : {}),
+			"*/license*": content(licence),
+			"*": content(body),
+		},
+		log,
+	};
 }
 
-function licenceFailing(stderr: string) {
-	const b64 = Buffer.from(SKILL).toString("base64");
-	return `case "$*" in */license*) echo ${shellQuote(stderr)} >&2; exit 1;; *) printf '%s\\n' ${shellQuote(b64)};; esac`;
-}
+const licenceFailing = (stderr: string): Gh => ({
+	routes: { "*/license*": refused(stderr), "*": content(SKILL) },
+});
 
 function readEndpoints(log: string, kind: "contents" | "license") {
 	return fs.existsSync(log)
@@ -818,7 +844,7 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
 	it("names the licences, not upstream bodies, where only licence fetches ran and all failed (#2378)", () => {
 		const r = runUpstream(
 			build({ disk: { "a/SKILL.md": SKILL } }),
-			'echo "gh: could not resolve host" >&2; exit 1',
+			refusing("gh: could not resolve host"),
 		);
 		expect(r.outcome).toBe("SKIP");
 		expect(r.text).toContain("upstream's copy of the 1 licence(s) checked");
@@ -847,23 +873,18 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
  * condition and the 404 spelling (mantahostels#3025).
  */
 
-function stubGh(root: string, sh: string) {
-	const bin = path.join(root, "bin");
-	fs.mkdirSync(bin, { recursive: true });
-	const gh = path.join(bin, "gh");
-	fs.writeFileSync(gh, `#!/bin/sh\n${sh}\n`, { mode: 0o755 });
-	return gh;
-}
+const stubGh = (root: string, { routes, log }: Gh) =>
+	stubGhRoutes(root, routes, { log }).gh;
 
 /**
  * `--upstream` over `root`, against the stub. Reads --json: the tag is what
  * classifies a row, and the human report prints the severity alone.
  */
-function runUpstream(root: string, sh: string, extra: string[] = []) {
+function runUpstream(root: string, gh: Gh, extra: string[] = []) {
 	const r = runInProcess(
 		SCRIPT,
 		["--root", root, "--upstream", "--json", ...extra],
-		{ env: { ...process.env, WFC_GH: stubGh(root, sh) } },
+		{ env: { ...process.env, WFC_GH: stubGh(root, gh) } },
 	);
 	const parsed = JSON.parse(r.stdout);
 	const findings: { tag: string; message: string }[] = parsed.findings ?? [];
@@ -875,8 +896,8 @@ function runUpstream(root: string, sh: string, extra: string[] = []) {
 	};
 }
 
-/** The exact stderr `gh` prints for a path that is not there. */
-const GH_404 = 'echo "gh: Not Found (HTTP 404)" >&2; exit 1';
+/** A `gh` answering every fetch as it does a path that is not there. */
+const GH_404: Gh = { routes: { "*": GH_NOT_FOUND } };
 
 describe("check-vendored-skills --upstream, over the CLI", () => {
 	it("names a 404 as UPSTREAM-GONE, and does not skip on it", () => {
@@ -889,7 +910,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 	it("skips when every fetch failed for a reason that is not a 404", () => {
 		const r = runUpstream(
 			upstreamRoot("mattpocock/skills"),
-			'echo "gh: could not resolve host" >&2; exit 1',
+			refusing("gh: could not resolve host"),
 		);
 		expect(r.outcome).toBe("SKIP");
 		expect(r.text).toContain("could not resolve host");
@@ -909,10 +930,12 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 			why: "also declared",
 		};
 		fs.writeFileSync(file, JSON.stringify(sidecar, null, "\t"));
-		const r = runUpstream(
-			root,
-			'case "$*" in *RECIPES*) echo "gh: Not Found (HTTP 404)" >&2;; *) echo "gh: could not resolve host" >&2;; esac; exit 1',
-		);
+		const r = runUpstream(root, {
+			routes: {
+				"*RECIPES*": GH_NOT_FOUND,
+				"*": refused("gh: could not resolve host"),
+			},
+		});
 		/* The second UNREADABLE is the licence fetch. */
 		expect([...r.tags].sort()).toEqual([
 			"UPSTREAM-GONE",
@@ -923,10 +946,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 	});
 
 	it("breaks, rather than skipping, on a failure the call is at fault for, naming the HTTP error and saying it is not a finding about upstream (mantahostels#3066)", () => {
-		const r = runUpstream(
-			upstreamRoot("mattpocock/skills"),
-			'echo "gh: Unprocessable Entity (HTTP 422)" >&2; exit 1',
-		);
+		const r = runUpstream(upstreamRoot("mattpocock/skills"), GH_422);
 		expect(r.outcome).toBe("BROKEN");
 		expect(r.text).toContain("HTTP 422");
 		expect(r.text).toContain("not a finding about upstream");
@@ -935,7 +955,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 	it("skips on an unauthenticated gh (mantahostels#3066)", () => {
 		const r = runUpstream(
 			upstreamRoot("mattpocock/skills"),
-			'echo "gh: Bad credentials (HTTP 401)" >&2; exit 1',
+			refusing("gh: Bad credentials (HTTP 401)"),
 		);
 		expect(r.outcome).toBe("SKIP");
 		expect(r.text).toContain("`gh` unauthenticated");
@@ -955,10 +975,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 			why: "no upstream in the lock",
 		};
 		fs.writeFileSync(file, JSON.stringify(sidecar, null, "\t"));
-		const r = runUpstream(
-			root,
-			'echo "gh: could not resolve host" >&2; exit 1',
-		);
+		const r = runUpstream(root, refusing("gh: could not resolve host"));
 		expect(r.outcome).not.toBe("SKIP");
 		/* The second UNREADABLE is the licence fetch. */
 		expect([...r.tags].sort()).toEqual([
@@ -983,7 +1000,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 	it("does not read a bare 404 in an error's text as a missing path", () => {
 		const r = runUpstream(
 			upstreamRoot("mattpocock/skills"),
-			'echo "gh: rate limited after 404 attempts" >&2; exit 1',
+			refusing("gh: rate limited after 404 attempts"),
 		);
 		expect(r.outcome).toBe("SKIP");
 		expect(r.tags).not.toContain("UPSTREAM-GONE");
@@ -1038,8 +1055,8 @@ describe("check-vendored-skills --upstream, the record", () => {
 			"a licence UPSTREAM-UNREADABLE",
 			() => licenceFailing("gh: could not resolve host"),
 		],
-		["SKIP", () => 'echo "gh: could not resolve host" >&2; exit 1'],
-		["BROKEN", () => 'echo "gh: Unprocessable Entity (HTTP 422)" >&2; exit 1'],
+		["SKIP", () => refusing("gh: could not resolve host")],
+		["BROKEN", () => GH_422],
 	])("writes none on %s", (_, gh) => {
 		const root = upstreamRoot("mattpocock/skills");
 		runUpstream(root, gh(path.join(root, "gh.log")), ["--write"]);
