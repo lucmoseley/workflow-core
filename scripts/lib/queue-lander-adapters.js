@@ -9,12 +9,15 @@
  * no push time.
  */
 
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { newFaultItems } = require("./fault-diff.js");
+const { PROFILES } = require("./fault-profiles.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
+const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -51,6 +54,13 @@ const {
 const { TransientFault } = require("./queue-lander.js");
 const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+
+const REGISTRY_PROFILE = (() => {
+	const profile = PROFILES["guard-registry"];
+	if (!profile)
+		throw new Error("lib/fault-profiles.js carries no guard-registry profile");
+	return profile;
+})();
 
 /* Untraced, a first guess and stated as one: a verdict is read again only
  * for a batch a run resumes, which waits hours, never weeks. */
@@ -103,6 +113,51 @@ const BROKEN_OBJECT =
  *   RecordRead a record file: absent, torn where it will not parse or is not
  *   the record, or read
  */
+
+/**
+ * The copy of `rel` the commit gate runs over the merged tree at `dir`:
+ * `WFC_PLUGIN_ROOT`'s, else the tree's own.
+ * @param {string} dir
+ * @param {string} rel
+ */
+const gateCopy = (dir, rel) =>
+	path.join(process.env.WFC_PLUGIN_ROOT || dir, rel);
+
+/**
+ * The registry checker's --json envelope out of its run over `sha`, null
+ * where it skipped.
+ * @param {import("node:child_process").SpawnSyncReturns<string>} r
+ * @param {string} sha
+ * @param {number} timeoutMs
+ * @returns {Record<string, unknown> | null}
+ */
+function readEnvelope(r, sha, timeoutMs) {
+	const over = `check-guard-registry.js over ${short(sha)}`;
+	if (caught(r.error).code === "ETIMEDOUT")
+		throw new TransientFault(`${over} timed out after ${timeoutMs / 1000} s`, {
+			cause: r.error,
+		});
+	/** @type {Record<string, unknown>} */
+	let envelope;
+	try {
+		envelope = JSON.parse(r.stdout);
+	} catch (err) {
+		const last = String(r.stderr ?? r.error?.message ?? "")
+			.trim()
+			.split("\n")
+			.at(-1);
+		throw new Error(
+			`${over} gave no --json envelope (exit ${r.status}): ${last}`,
+			{
+				cause: err,
+			},
+		);
+	}
+	if (envelope.outcome === "SKIP") return null;
+	if (envelope.outcome === "BROKEN")
+		throw new Error(`${over} could not judge it: ${envelope.summary}`);
+	return envelope;
+}
 
 /**
  * The queue lander's git, run in `root`. Merges are made in a throwaway
@@ -220,7 +275,7 @@ function queueGit(
 					lone &&
 					isAncestor(root, onto, lone.sha)
 				)
-					return { kind: "merged", sha: lone.sha };
+					return judgeWhole(onto, { kind: "merged", sha: lone.sha }, lone);
 				const whole = mergeGated(onto, members, started);
 				if (whole.kind !== "refused" || members.length === 1) return whole;
 				/* The batch's gates refused: the first member they refuse alone,
@@ -278,7 +333,79 @@ function queueGit(
 				const last = members.at(-1);
 				if (sha === onto || !last) return { kind: "merged", sha };
 				if (ciRepeats) started?.(sha);
-				return batchPass({ onto, sha, last }, inTree, gates);
+				return judgeWhole(
+					onto,
+					batchPass({ onto, sha, last }, inTree, gates),
+					last,
+				);
+			},
+		);
+	}
+
+	/**
+	 * `merged` judged on its whole tree's guard-registry faults, not only the
+	 * ones its merges add (#4807): a tree holding a gating one `onto` lacks is
+	 * refused, naming `last`; one whose every such fault `onto` holds too is
+	 * `stale-base`, which stops the line rather than drops a member, since
+	 * `main` must be re-anchored first. Any other result passes through.
+	 * @param {string} onto
+	 * @param {MergeResult} merged
+	 * @param {Member} last
+	 * @returns {MergeResult}
+	 */
+	function judgeWhole(onto, merged, last) {
+		if (merged.kind !== "merged") return merged;
+		const tree = readRegistry(merged.sha);
+		const gating = tree ? newFaultItems(tree, {}, REGISTRY_PROFILE) : [];
+		if (!tree || gating.length === 0) return merged;
+		const base = readRegistry(onto);
+		const added = base ? newFaultItems(tree, base, REGISTRY_PROFILE) : gating;
+		const inherited = gating.filter((f) => !added.includes(f));
+		if (added.length > 0)
+			return {
+				kind: "refused",
+				name: last.name,
+				reason: `its tree holds guard-registry fault(s) ${short(onto)} does not: ${added.map((f) => f.line).join("; ")}${
+					inherited.length > 0
+						? `; ${short(onto)} is stale too, and must be re-anchored first: ${inherited.map((f) => f.line).join("; ")}`
+						: ""
+				}`,
+			};
+		return {
+			kind: "stale-base",
+			name: last.name,
+			sha: merged.sha,
+			onto,
+			rows: gating.map((f) => f.line),
+		};
+	}
+
+	/**
+	 * check-guard-registry.js's --json envelope over `sha`'s tree, null where
+	 * the tree carries no checker.
+	 * @param {string} sha
+	 * @returns {Record<string, unknown> | null}
+	 */
+	function readRegistry(sha) {
+		return withThrowawayTree(
+			root,
+			sha,
+			{ program: "queue-lander", use: "registry" },
+			(dir) => {
+				const checker = gateCopy(dir, "scripts/check-guard-registry.js");
+				if (!fs.existsSync(checker)) return null;
+				const r = spawnSync(
+					process.execPath,
+					[checker, "--root", dir, "--json"],
+					{
+						cwd: dir,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "pipe"],
+						timeout: mergeTimeoutMs,
+						maxBuffer: CHILD_MAX_BUFFER,
+					},
+				);
+				return readEnvelope(r, sha, mergeTimeoutMs);
 			},
 		);
 	}
@@ -399,11 +526,10 @@ function queueGit(
 	 * @param {(args: string[]) => string} inTree
 	 */
 	function regenerate(dir, inTree) {
-		const pluginRoot = process.env.WFC_PLUGIN_ROOT || dir;
 		for (const [file, { generator }] of regenerated) {
 			/* Absent: the merge deleted it, and a deletion stands. */
 			if (!fs.existsSync(path.join(dir, file))) continue;
-			execFileSync(process.execPath, [path.join(pluginRoot, generator)], {
+			execFileSync(process.execPath, [gateCopy(dir, generator)], {
 				cwd: dir,
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],

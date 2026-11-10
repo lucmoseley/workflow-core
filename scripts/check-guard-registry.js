@@ -4542,12 +4542,14 @@ function settleOwed(ctx, added, stale, { tip, pushed }) {
 		remedy.push(
 			`  the paths each row went stale through not named — git diff${pushed ? "" : " --cached"} failed (${changed.error}).`,
 		);
-	for (const w of owed) {
-		const via = [...(hashedBy.get(w.guard) ?? [])].filter(
-			(p) => p !== w.guard && changed.paths.includes(p),
+	for (const w of owed)
+		remedy.push(
+			...buildOwedRow(w, {
+				hashed: [...(hashedBy.get(w.guard) ?? [])],
+				changed,
+				annotated: implicitScripts.has(w.guard),
+			}),
 		);
-		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
-	}
 	const takes = takeOwed(owedInputs, read, pushed, remedy);
 	const review = buildReviewLine(owed.map((w) => w.guard).join(" ") + takes);
 	remedy.push(
@@ -4571,6 +4573,21 @@ function settleOwed(ctx, added, stale, { tip, pushed }) {
 			`  claim check skipped — ${unavailable}, so a path a neighbour holds dirty refuses here too.`,
 		);
 	return { refuse, remedy };
+}
+
+/**
+ * @param {StaleWarning} w
+ * @param {{ hashed: string[], changed: { paths: string[], error: string | null },
+ *   annotated: boolean }} at
+ * @returns {string[]}
+ */
+function buildOwedRow(w, { hashed, changed, annotated }) {
+	const touched = hashed.filter((p) => changed.paths.includes(p));
+	return buildExpiredRow(
+		w,
+		touched.filter((p) => p !== w.guard),
+		{ annotated, untouched: !changed.error && touched.length === 0 },
+	);
 }
 
 /**
@@ -4833,7 +4850,8 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 	) => {
 		warnings.push(w);
 		ctx.warn(w.kind, `${w.guard} — ${w.detail}`, w);
-		for (const l of buildExpiredRow(w, via, annotated)) ctx.say(l);
+		for (const l of buildExpiredRow(w, via, { annotated, untouched: false }))
+			ctx.say(l);
 	};
 	for (const { guard, via } of expired) {
 		const w = targetWarning(guard, describedBy, implicitScripts, { anchors });
@@ -4856,15 +4874,22 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 /**
  * @param {Pick<Warning, "kind" | "guard" | "rules">} w
  * @param {string[]} via
- * @param {boolean} annotated the path carries its own IMPLICIT annotation
+ * @param {{ annotated: boolean, untouched: boolean }} how `annotated` the path
+ *   carries its own IMPLICIT annotation; `untouched` this commit changed none
+ *   of the files its digest hashes
  * @returns {string[]}
  */
-function buildExpiredRow(w, via, annotated) {
+function buildExpiredRow(w, via, { annotated, untouched }) {
 	return [
 		`  ${w.kind}  ${w.guard}${via.length > 0 ? ` (through ${via.join(", ")})` : ""}`,
 		...w.rules.map((r) => `    rule:  ${r.file}:${r.line}  ${r.gist}`),
 		...(annotated
 			? ["    and its own IMPLICIT / JUSTIFIED / DEFEAT annotation"]
+			: []),
+		...(untouched
+			? [
+					"    none of its files changed: this commit changed how its digest is computed, so it may be re-anchored without a re-read (#4807)",
+				]
 			: []),
 	];
 }
@@ -5119,6 +5144,9 @@ runCheck({
 	against: {
 		profile: "guard-registry",
 		materialise: "tree",
+		/* A digest-code change expires rows on both sides under the new code, so
+		 * the base is read under its own (#4807). */
+		baselineCode: "rev",
 		refuse(ctx) {
 			/* --review writes ANCHORS back, and --against re-execs this file over
 			 * throwaway copies — the same fault as --review --root below. */
