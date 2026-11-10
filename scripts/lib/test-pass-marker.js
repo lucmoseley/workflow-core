@@ -102,6 +102,9 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
  *   testsNeverStarted?: number|null, testsFinished?: number|null,
  *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
+ * @typedef {Marker & {sha: string, at: string, suite: string,
+ *   startedAt: string, durationMs: number, argv: string[]}} KillRow the
+ *   fields every stall or ceiling kill's fail-store row carries
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
  *   imports?: Record<string, string[]>, roots?: string[],
@@ -386,7 +389,7 @@ function recordFailure(entry, options) {
  * and says so through `say`, since a missing record reads as no kill. A kill
  * with no sha is such a store miss.
  *
- * @param {Marker} kill
+ * @param {KillRow} kill
  * @param {{root: string|null, say: (text: string) => void}} options
  */
 function recordKill(kill, { root, say }) {

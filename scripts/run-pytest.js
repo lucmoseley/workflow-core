@@ -163,6 +163,9 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 }
 
 /**
+ * Leaves the kill's row in the fail store; a row that cannot land is said,
+ * never failing the run.
+ *
  * @param {string} root
  * @param {import("./lib/pytest-child.js").CeilingKill} kill
  * @param {{ sha: string|undefined, startedAtMs: number, argv: string[] }} run
