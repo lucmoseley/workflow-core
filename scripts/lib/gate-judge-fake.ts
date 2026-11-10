@@ -1,17 +1,22 @@
 /*
- * The stub `claude` the gate judge's suites launch (#4964): a Node program
+ * The fake `claude` the gate judge's suites launch (#4964): a Node program
  * that answers `auth status` (lib/auth-status-fake.ts), refuses a flag the
  * recorded harness lacks (lib/headless-argv-fake.js), logs the call, then
  * prints the recorded `result` row (scripts/fixtures/gate-judge-reply.json,
  * re-recorded by `node scripts/record-gate-judge-reply.js`) carrying the
  * canned reading, or fails as told. lib/gate-judge.contract.test.ts holds its
  * row to the recording.
+ *
+ * Beside lib/headless-run-fake.ts, not in it: that fake's run holds a session
+ * open and logs no stdin or working directory; this one answers once with a
+ * reading or one of the judge's four failures.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { buildAuthStatusNodeBranch } from "./auth-status-fake";
 import { recorded as headless } from "./headless-run-fake";
+import { readJsonl } from "./jsonl.js";
 
 export const recorded: {
 	harness: string;
@@ -25,7 +30,7 @@ export const recorded: {
 	),
 );
 
-/** The row the stub prints for `reading`. */
+/** The row the fake prints for `reading`. */
 export const buildReplyRow = (reading: unknown) => ({
 	...recorded.result,
 	result: JSON.stringify(reading),
@@ -33,10 +38,10 @@ export const buildReplyRow = (reading: unknown) => ({
 });
 
 /**
- * What the stub does once launched: print a reading, print `stdout` as it
+ * What the fake does once launched: print a reading, print `stdout` as it
  * stands, exit non-zero, or hang until killed.
  */
-export type JudgeStubPlan =
+export type JudgeFakePlan =
 	| { reading: unknown }
 	| { stdout: string }
 	| { exit: number }
@@ -50,8 +55,8 @@ export interface JudgeCall {
 	configDir: string | null;
 }
 
-/** Write the stub at `file`, logging each launch to `log`. */
-export function writeJudgeStub(file: string, log: string, plan: JudgeStubPlan) {
+/** Write the fake at `file`, logging each launch to `log`. */
+export function writeJudgeFake(file: string, log: string, plan: JudgeFakePlan) {
 	let stdout = "";
 	if ("reading" in plan) stdout = JSON.stringify(buildReplyRow(plan.reading));
 	else if ("stdout" in plan) stdout = plan.stdout;
@@ -81,12 +86,6 @@ else {
 	return file;
 }
 
-/** Every launch the stub logged to `log`, in order. */
-export function readJudgeCalls(log: string): JudgeCall[] {
-	if (!fs.existsSync(log)) return [];
-	return fs
-		.readFileSync(log, "utf8")
-		.trim()
-		.split("\n")
-		.map((line) => JSON.parse(line));
-}
+/** Every launch the fake logged to `log`, in order. */
+export const readJudgeCalls = (log: string) =>
+	(readJsonl(log)?.rows ?? []) as unknown as JudgeCall[];

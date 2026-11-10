@@ -16,9 +16,14 @@
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { configDirFrom } = require("./config-dir.js");
-const { BASIS_CLASSES, WAIT_ON } = require("./gate-judge-mode.js");
+const {
+	BASIS_CLASSES,
+	JUDGE_TIMEOUT_EXIT,
+	WAIT_ON,
+} = require("./gate-judge-mode.js");
 const {
 	basisFaults,
 	gateFacts,
@@ -84,6 +89,8 @@ const buildPrompt = (body) =>
  * @typedef {{basis: string, class: "derived"|"inherited"|"restated"|"asserted"}} JudgedBasis
  * @typedef {{waits: JudgedWait[], bases: JudgedBasis[]}} Reading
  * @typedef {import("./issue-gate.js").BasisFault & {by: "patterns"|"model"}} JudgedFault
+ * @typedef {JudgedFault & {quote: string}} ModelFault `quote`: the body's
+ *   words the fault was read in, the wait's sentence or the basis
  */
 
 /**
@@ -152,12 +159,12 @@ function readJudge(body, { boundMs, env = process.env }) {
 		},
 	);
 	const bound = `${Math.round(boundMs / 100) / 10} s`;
-	if (r.error || r.signal)
+	if (r.error && caught(r.error).code !== "ETIMEDOUT")
+		return { why: `the launcher did not run: ${caught(r.error).message}` };
+	if (r.error || r.signal || r.status === JUDGE_TIMEOUT_EXIT)
 		return { why: `the judge did not answer within ${bound}` };
 	if (r.status === 2)
 		return { why: `the launch was refused: ${lastLine(r.stderr)}` };
-	if (r.status === 1 && r.stderr.includes("was killed at its"))
-		return { why: `the judge did not answer within ${bound}` };
 	if (r.status !== 0)
 		return {
 			why: `the judge exited ${r.status}${r.stderr.trim() ? `: ${lastLine(r.stderr)}` : ""}`,
@@ -180,20 +187,31 @@ function readJudge(body, { boundMs, env = process.env }) {
 
 /**
  * Whether `quote` is the body's own words: a verbatim substring with an
- * occurrence outside a fence and a code span.
+ * occurrence that starts and ends outside a fence and a code span, `inner`
+ * within it too.
  *
  * @param {string} body
  * @param {string} quote
+ * @param {string} inner words of `quote` that must be live as well, or ""
  * @param {(index: number) => boolean} isLiveAt
  */
-function isLiveQuote(body, quote, isLiveAt) {
+function isLiveQuote(body, quote, inner, isLiveAt) {
 	if (quote.trim() === "") return false;
+	/* The end is read just past the last character: a closing backtick reads
+	 * as inside its own span. */
+	const isLive = (/** @type {number} */ from, /** @type {number} */ length) =>
+		isLiveAt(from) && isLiveAt(from + length);
+	const innerAt = inner ? quote.indexOf(inner) : -1;
 	for (
 		let at = body.indexOf(quote);
 		at !== -1;
 		at = body.indexOf(quote, at + 1)
 	)
-		if (isLiveAt(at)) return true;
+		if (
+			isLive(at, quote.length) &&
+			(innerAt === -1 || isLive(at + innerAt, inner.length))
+		)
+			return true;
 	return false;
 }
 
@@ -209,12 +227,19 @@ const BASIS_MARKER = /^\s*\*\*Gate basis:\*\*\s*/i;
  */
 function liveQuotes(body, reading, facts) {
 	const waits = reading.waits.filter((w) =>
-		isLiveQuote(body, w.sentence, facts.isLiveAt),
+		isLiveQuote(body, w.sentence, w.window.trim(), facts.isLiveAt),
 	);
 	const bases = reading.bases.flatMap((b) => {
 		const quote = b.basis.replace(BASIS_MARKER, "").trim();
-		const live = quote && facts.bases.find((t) => t.includes(quote));
-		return live ? [{ basis: live, class: b.class }] : [];
+		if (!quote) return [];
+		const same = facts.bases.filter((t) => t.trim() === quote);
+		const holding = new Set(
+			same.length > 0 ? same : facts.bases.filter((t) => t.includes(quote)),
+		);
+		/* A quote two basis lines hold names neither. */
+		return holding.size === 1
+			? [{ basis: [...holding][0] ?? quote, class: b.class }]
+			: [];
 	});
 	const dropped =
 		reading.waits.length - waits.length + reading.bases.length - bases.length;
@@ -247,79 +272,84 @@ const isUnwarranted = (b, own) =>
  * @param {string} body
  * @param {Reading} reading
  * @param {number} [own] the body's own issue number
- * @returns {{faults: JudgedFault[], dropped: number, waits: JudgedWait[],
+ * @returns {{faults: ModelFault[], dropped: number, waits: JudgedWait[],
  *   bases: JudgedBasis[]}} `waits` and `bases`: the quotes kept
  */
 function readingFaults(body, reading, own) {
 	const facts = gateFacts(body);
 	const { waits, bases, dropped } = liveQuotes(body, reading, facts);
 	const hasBasis = facts.bases.length > 0;
-	/** @type {[JudgedFault["kind"], string][]} */
+	/** @type {ModelFault[]} */
 	const raised = [
 		...waits
 			.filter((w) => !hasBasis || !w.basisNamesWindow)
 			.map(
 				(w) =>
-					/** @type {[JudgedFault["kind"], string]} */ (
-						hasBasis
-							? ["unnamed-window", windowText(w)]
-							: ["no-basis", w.sentence.trim()]
-					),
+					/** @type {ModelFault} */ ({
+						kind: hasBasis ? "unnamed-window" : "no-basis",
+						text: hasBasis ? windowText(w) : w.sentence.trim(),
+						by: "model",
+						quote: w.sentence,
+					}),
 			),
 		...(facts.writesWindow || waits.length > 0 ? bases : [])
 			.filter((b) => isUnwarranted(b, own))
 			.map(
 				(b) =>
-					/** @type {[JudgedFault["kind"], string]} */ ([
-						"no-warrant",
-						b.basis,
-					]),
+					/** @type {ModelFault} */ ({
+						kind: "no-warrant",
+						text: b.basis,
+						by: "model",
+						quote: b.basis,
+					}),
 			),
 	];
-	/** @type {JudgedFault[]} */
-	const faults = [];
-	for (const [kind, text] of raised)
-		if (!faults.some((f) => f.kind === kind && f.text === text))
-			faults.push({ kind, text, by: "model" });
+	const faults = raised.filter(
+		(f, at) =>
+			raised.findIndex((g) => g.kind === f.kind && g.text === f.text) === at,
+	);
 	return { faults, dropped, waits, bases };
 }
 
 /**
- * Whether one fault's text holds the other's, whatever the case: the model
- * quotes a whole sentence where a pattern quotes the words it matched.
+ * Whether one quote holds the other, whatever the case: the model quotes a
+ * whole sentence where a pattern quotes the words it matched.
  *
- * @param {JudgedFault} a
- * @param {JudgedFault} b
+ * @param {string} a
+ * @param {string} b
  */
-function isSameFault(a, b) {
-	const [x, y] = [a.text.toLowerCase(), b.text.toLowerCase()];
-	return a.kind === b.kind && (x.includes(y) || y.includes(x));
+function holdsOther(a, b) {
+	const [x, y] = [a.toLowerCase(), b.toLowerCase()];
+	return x.includes(y) || y.includes(x);
 }
 
 /**
  * The patterns' faults, whole, then what the model adds to them: a model
- * fault the patterns already raise is theirs, and one whose text `before`
- * held verbatim is not the edit's.
+ * fault the patterns already raise is theirs, and one whose sentence or basis
+ * `before` held verbatim, outside code, is not the edit's.
  *
  * @param {import("./issue-gate.js").BasisFault[]} patterns
- * @param {JudgedFault[]} model
+ * @param {ModelFault[]} model
  * @param {string} [before] the body an edit replaces
  * @returns {JudgedFault[]}
  */
 function mergeFaults(patterns, model, before) {
 	/** @type {JudgedFault[]} */
 	const faults = patterns.map((f) => ({ ...f, by: "patterns" }));
+	const wasLiveAt = before === undefined ? null : gateFacts(before).isLiveAt;
 	const added = model.filter(
-		(f) => !before?.includes(f.text) && !faults.some((p) => isSameFault(p, f)),
+		(f) =>
+			!(wasLiveAt && isLiveQuote(before ?? "", f.quote, "", wasLiveAt)) &&
+			!faults.some((p) => p.kind === f.kind && holdsOther(p.text, f.text)),
 	);
-	return [...faults, ...added];
+	return [...faults, ...added.map(({ quote: _quote, ...f }) => f)];
 }
 
 /**
  * A body's gate faults by both readings. With `before`, the body an edit
  * replaces, a fault is raised only where the edit brought it: a pattern fault
  * by lib/issue-gate.js's own edit rule, a model fault unless `before` already
- * held its text verbatim.
+ * held its sentence or basis verbatim.
  *
  * `fallback` is why the model reading did not run, the faults then being the
  * patterns' alone; null where it ran.
@@ -327,8 +357,9 @@ function mergeFaults(patterns, model, before) {
  * @param {string} body the body written
  * @param {{own?: number, before?: string, boundMs: number, env?: NodeJS.ProcessEnv}} opts
  * @returns {{faults: JudgedFault[], fallback: string|null, reading: Reading|null,
- *   dropped: number, ms: number}} `reading` as the model gave it; `dropped`,
- *   its quotes the code dropped; `ms`, the call's wall time
+ *   dropped: number, ms: number}} `reading` as the model gave it, null with
+ *   `fallback`; `dropped`, its quotes the code dropped; `ms`, the call's wall
+ *   time
  */
 function judgedBasisFaults(body, { own, before, boundMs, env }) {
 	const text = String(body || "");
@@ -359,9 +390,9 @@ function judgedBasisFaults(body, { own, before, boundMs, env }) {
 
 module.exports = {
 	buildPrompt,
+	holdsOther,
 	judgedBasisFaults,
 	mergeFaults,
 	parseReading,
-	readJudge,
 	readingFaults,
 };

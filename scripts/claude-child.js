@@ -46,7 +46,7 @@ const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
-const { JUDGE_ARGS } = require("./lib/gate-judge-mode.js");
+const { JUDGE_ARGS, JUDGE_TIMEOUT_EXIT } = require("./lib/gate-judge-mode.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { realKey } = require("./lib/deref.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
@@ -68,7 +68,7 @@ const maxTurns = (pages) => 10 * pages + 5;
 
 /**
  * @param {string} message
- * @param {1 | 2} code
+ * @param {1 | 2 | typeof JUDGE_TIMEOUT_EXIT} code
  * @returns {never}
  */
 function fail(message, code) {
@@ -119,23 +119,26 @@ function promptFdOrFail(given) {
 /**
  * The judge child's working directory: one per user, kept, since the harness
  * leaves an empty project directory in the seat for each directory a child
- * runs in. Refused where it is not this user's or holds anything, a CLAUDE.md
- * for the child to load included.
+ * runs in. Emptied before each call, a CLAUDE.md for the child to load
+ * included; refused where it is not this user's own directory.
  */
 function emptyDirOrFail() {
-	const dir = path.join(
-		os.tmpdir(),
-		`wfc-gate-judge-${os.userInfo().username}`,
-	);
+	let dir = os.tmpdir();
 	try {
+		const { username, uid } = os.userInfo();
+		dir = path.join(dir, `wfc-gate-judge-${username}`);
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-		if (fs.statSync(dir).uid !== os.userInfo().uid)
-			return fail(`the judge's working directory ${dir} is another user's.`, 2);
-		if (fs.readdirSync(dir).length > 0)
-			return fail(`the judge's working directory ${dir} is not empty.`, 2);
+		const stat = fs.lstatSync(dir);
+		if (!stat.isDirectory() || stat.uid !== uid)
+			return fail(
+				`the judge's working directory ${dir} is not this user's own directory.`,
+				2,
+			);
+		for (const entry of fs.readdirSync(dir))
+			fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
 	} catch (e) {
 		return fail(
-			`the judge's working directory ${dir} could not be made (${caught(e).message}).`,
+			`the judge's working directory under ${dir} could not be made empty (${caught(e).message}).`,
 			2,
 		);
 	}
@@ -175,7 +178,7 @@ function main() {
 	if (command === "judge") {
 		boundMs = timeoutOrFail(flags["--timeout-ms"]);
 		args = JUDGE_ARGS;
-		opts = { stdio: "inherit", cwd: emptyDirOrFail() };
+		opts = { stdio: "inherit", cwd: emptyDirOrFail(), killSignal: "SIGKILL" };
 	} else if (command === "usage") {
 		args = ["-p", "/usage", "--permission-mode", "manual"];
 		opts = {
@@ -225,7 +228,10 @@ function main() {
 		"code" in r.error &&
 		r.error.code === "ETIMEDOUT"
 	)
-		fail(`the child was killed at its ${boundMs} ms bound.`, 1);
+		fail(
+			`the child was killed at its ${boundMs} ms bound.`,
+			JUDGE_TIMEOUT_EXIT,
+		);
 	if (r.error)
 		fail(`the child did not finish (${r.error.message}).${cached}`, 1);
 	if (r.signal) fail(`the child was killed by ${r.signal}.`, 1);

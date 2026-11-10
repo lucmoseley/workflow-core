@@ -1,7 +1,8 @@
 /*
- * gate-judge-mode.js — the gate judge's launch (#4964): the answer's schema
- * and the flags claude-child.js's `judge` mode passes, which
- * record-gate-judge-reply.js re-reads to record the installed binary's side.
+ * gate-judge-mode.js — the gate judge's launch (#4964): the answer's schema,
+ * the flags claude-child.js's `judge` mode passes and its exit at the bound.
+ * record-gate-judge-reply.js re-reads the flags to record the installed
+ * binary's side.
  */
 
 const WAIT_ON = /** @type {const} */ (["time", "data"]);
@@ -68,4 +69,8 @@ const JUDGE_ARGS = [
 	JSON.stringify(JUDGE_SCHEMA),
 ];
 
-module.exports = { BASIS_CLASSES, JUDGE_ARGS, JUDGE_SCHEMA, WAIT_ON };
+/* The `judge` mode's exit where the child was killed at its bound: what
+ * `timeout(1)` exits, and no code the harness or the launcher's refusals use. */
+const JUDGE_TIMEOUT_EXIT = /** @type {const} */ (124);
+
+module.exports = { BASIS_CLASSES, JUDGE_ARGS, JUDGE_TIMEOUT_EXIT, WAIT_ON };

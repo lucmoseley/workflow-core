@@ -5,7 +5,7 @@
  * in the tracker.
  *
  *   node scripts/measure-gate-judge.js validate [--part held-out|development]
- *        [--runs <n>] [--jobs <n>] [--bound-ms <n>]
+ *        [--runs <n>] [--jobs <n>] [--bound-ms <n>] [--dir <dir>]
  *   node scripts/measure-gate-judge.js corpus --dir <dir> [--jobs <n>] [--bound-ms <n>]
  *   node scripts/measure-gate-judge.js tally --dir <dir>
  *
@@ -17,6 +17,9 @@
  *           bases flagged, the false-refusal rate on derived and inherited
  *           ones, the share of cases whose runs agree and the share of replies
  *           with a dropped quote. A case counts by the majority of its runs.
+ *           An inherited basis naming no other issue is refused by rule and
+ *           counted apart. `--dir` names the rows' directory, a fresh one
+ *           under .claude/tmp unless given; one that holds rows is re-scored.
  *           The held-out part is run against a frozen prompt; re-run it after
  *           a prompt change and compare by the prompt's printed hash.
  * corpus    fetches every issue body, open and closed, into <dir>/all.json
@@ -26,6 +29,10 @@
  *           never committed.
  * tally     prints the corpus run's counts and latency, and writes the lists
  *           to classify by hand beside the results.
+ * worker    judgeAll's own child, one per job: not for the command line.
+ *
+ * A row stores the model's reply as given, so a re-run of `tally`, or of
+ * `validate --dir`, re-scores it under the code's present checks at no call.
  *
  * Every call spends a Haiku turn on this session's seat, each a child of
  * about 260 MB for about 6 s (measured on 2.1.322); `--jobs` is how many run
@@ -42,21 +49,23 @@ const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { readText } = require("./lib/file-read.js");
+const { buildPrompt, judgedBasisFaults } = require("./lib/gate-judge.js");
 const {
-	buildPrompt,
-	mergeFaults,
-	readJudge,
-	readingFaults,
-} = require("./lib/gate-judge.js");
+	compareReadings,
+	judgeRow,
+	quantile,
+	scoreCase,
+	wilson,
+} = require("./lib/gate-judge-score.js");
 const { ghJson } = require("./lib/gh.js");
-const { basisFaults } = require("./lib/issue-gate.js");
-const { parseJsonl } = require("./lib/jsonl.js");
+const { readJsonl } = require("./lib/jsonl.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const SELF = scriptPath("measure-gate-judge.js");
 const USAGE = [
-	`usage: node ${SELF} validate [--part held-out|development] [--runs <n>] [--jobs <n>] [--bound-ms <n>]`,
+	`usage: node ${SELF} validate [--part held-out|development] [--runs <n>] [--jobs <n>] [--bound-ms <n>] [--dir <dir>]`,
 	`       node ${SELF} corpus --dir <dir> [--jobs <n>] [--bound-ms <n>]`,
 	`       node ${SELF} tally --dir <dir>`,
 ].join("\n");
@@ -65,21 +74,19 @@ const CASES = path.join(__dirname, "fixtures", "gate-judge-cases.json");
 /* Under the create guard's 60 s hook limit, so the latency measured is not cut
  * short of what a route could ever wait. */
 const MEASURING_BOUND_MS = 55_000;
+/* A guess that fits any machine able to run a suite: two children are about
+ * 520 MB. The header says to size it from MemAvailable. */
 const DEFAULT_JOBS = 2;
 const DEFAULT_RUNS = 3;
 /* GitHub's list ceiling here is far over the tracker's ~5,000 issues. */
 const CORPUS_LIMIT = 20_000;
+/* A progress line a minute: under bg-run.sh's beat, and about 20 calls at two
+ * jobs. */
 const PROGRESS_MS = 60_000;
 
 /**
  * @typedef {{key: string, body: string, own: number|null}} Item
- * @typedef {import("./lib/gate-judge.js").JudgedFault} JudgedFault
- * @typedef {{key: string, ms: number, fallback: string|null, dropped: number,
- *   replied: number, waits: string[], bases: {basis: string, class: string}[],
- *   model: JudgedFault[], added: JudgedFault[]}} Row
- *   `replied`: the quotes the model gave; `waits` and `bases`: those kept;
- *   `model`: the faults they raise; `added`: those the patterns do not
- *   already raise
+ * @typedef {import("./lib/gate-judge-score.js").Row} Row
  */
 
 /** @param {string} text */
@@ -87,48 +94,32 @@ const out = (text) => writeFd(1, `${text}\n`);
 
 /**
  * @param {string} file
- * @returns {Record<string, unknown>[]}
+ * @returns {Record<string, unknown>[]} none where the file is absent
  */
-function readRows(file) {
-	return fs.existsSync(file)
-		? parseJsonl(fs.readFileSync(file, "utf8")).rows
-		: [];
-}
+const readRows = (file) => readJsonl(file)?.rows ?? [];
 
 /**
- * One item through the judge.
- * @param {Item} item
- * @param {number} boundMs
- * @returns {Row}
+ * Every row `dir` holds, the last written for each key.
+ * @param {string} dir
+ * @returns {Row[]}
  */
-function judgeItem(item, boundMs) {
-	const own = item.own ?? undefined;
-	const startedAt = Date.now();
-	const read = readJudge(item.body, { boundMs });
-	const ms = Date.now() - startedAt;
-	const empty = {
-		dropped: 0,
-		replied: 0,
-		waits: [],
-		bases: [],
-		model: [],
-		added: [],
-	};
-	if ("why" in read) return { key: item.key, ms, fallback: read.why, ...empty };
-	const judged = readingFaults(item.body, read.reading, own);
-	const patterns = basisFaults(item.body, own);
-	return {
-		key: item.key,
-		ms,
-		fallback: null,
-		dropped: judged.dropped,
-		replied: read.reading.waits.length + read.reading.bases.length,
-		waits: judged.waits.map((w) => w.sentence),
-		bases: judged.bases,
-		model: judged.faults,
-		added: mergeFaults(patterns, judged.faults).filter((f) => f.by === "model"),
-	};
+function readResults(dir) {
+	const rows = /** @type {Row[]} */ (
+		/** @type {unknown} */ (
+			fs
+				.readdirSync(dir)
+				.filter((f) => /^results-\d+\.jsonl$/.test(f))
+				.flatMap((f) => readRows(path.join(dir, f)))
+		)
+	);
+	return [...new Map(rows.map((r) => [r.key, r])).values()];
 }
+
+/** The installed harness's version line. */
+const harnessVersion = () =>
+	(
+		spawnSync(claudeBin(), ["--version"], { encoding: "utf8" }).stdout ?? ""
+	).trim() || "an unknown harness";
 
 /**
  * The worker: each item of `--in` not yet in `--out`, judged and appended.
@@ -142,36 +133,37 @@ function runWorker(inFile, outFile, boundMs) {
 		/** @type {unknown} */ (readRows(inFile))
 	)) {
 		if (done.has(item.key)) continue;
-		fs.appendFileSync(outFile, `${JSON.stringify(judgeItem(item, boundMs))}\n`);
+		const { ms, fallback, reading } = judgedBasisFaults(item.body, {
+			own: item.own ?? undefined,
+			boundMs,
+		});
+		/** @type {Row} */
+		const row = { key: item.key, ms, fallback, reading };
+		fs.appendFileSync(outFile, `${JSON.stringify(row)}\n`);
 	}
 	return 0;
 }
 
 /**
- * `items` through `jobs` workers at once, into `<dir>/results-<i>.jsonl`.
+ * `items` through `jobs` workers at once, into `<dir>/results-<i>.jsonl`. An
+ * item the directory already holds a row for, a fallen-back call included, is
+ * not sent again: a fallback is a measurement.
+ *
  * @param {Item[]} items
  * @param {{dir: string, jobs: number, boundMs: number}} opts
  * @returns {Promise<Row[]>} every row the directory now holds for `items`
  */
 async function judgeAll(items, { dir, jobs, boundMs }) {
 	fs.mkdirSync(dir, { recursive: true });
-	const results = (/** @type {number} */ i) =>
-		path.join(dir, `results-${i}.jsonl`);
-	const readAll = () =>
-		/** @type {Row[]} */ (
-			/** @type {unknown} */ (
-				Array.from({ length: jobs }, (_, i) => readRows(results(i))).flat()
-			)
-		);
-	const done = new Set(readAll().map((r) => r.key));
+	const done = new Set(readResults(dir).map((r) => r.key));
 	const left = items.filter((item) => !done.has(item.key));
 	const ticker = setInterval(
-		() => out(`  ${readAll().length} of ${items.length} judged`),
+		() => out(`  ${readResults(dir).length} of ${items.length} judged`),
 		PROGRESS_MS,
 	);
 	try {
 		await Promise.all(
-			Array.from({ length: jobs }, (_, i) => {
+			Array.from({ length: left.length > 0 ? jobs : 0 }, (_, i) => {
 				const inFile = path.join(dir, `items-${i}.jsonl`);
 				fs.writeFileSync(
 					inFile,
@@ -188,7 +180,7 @@ async function judgeAll(items, { dir, jobs, boundMs }) {
 						"--in",
 						inFile,
 						"--out",
-						results(i),
+						path.join(dir, `results-${i}.jsonl`),
 						"--bound-ms",
 						String(boundMs),
 					],
@@ -208,23 +200,7 @@ async function judgeAll(items, { dir, jobs, boundMs }) {
 		clearInterval(ticker);
 	}
 	const keys = new Set(items.map((item) => item.key));
-	return readAll().filter((r) => keys.has(r.key));
-}
-
-/**
- * The Wilson 95% interval of `k` in `n`, as shares.
- * @param {number} k
- * @param {number} n
- * @returns {[number, number]}
- */
-function wilson(k, n) {
-	if (n === 0) return [0, 1];
-	const z = 1.959_964;
-	const p = k / n;
-	const mid = p + (z * z) / (2 * n);
-	const half = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
-	const denom = 1 + (z * z) / n;
-	return [Math.max(0, (mid - half) / denom), Math.min(1, (mid + half) / denom)];
+	return readResults(dir).filter((r) => keys.has(r.key));
 }
 
 /** @param {number} share */
@@ -240,59 +216,18 @@ function rate(k, n) {
 	return `${k} of ${n} = ${pct(k / n)} (${pct(lo)} - ${pct(hi)})`;
 }
 
-/**
- * @param {number[]} sorted ascending
- * @param {number} q
- */
-const quantile = (sorted, q) =>
-	sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
-
 /** @param {number[]} ms */
 function latency(ms) {
 	const s = [...ms].sort((a, b) => a - b);
 	const sec = (/** @type {number} */ v) => (v / 1000).toFixed(1);
-	return `min ${sec(s[0] ?? 0)} s, median ${sec(quantile(s, 0.5))} s, p90 ${sec(quantile(s, 0.9))} s, p95 ${sec(quantile(s, 0.95))} s, p99 ${sec(quantile(s, 0.99))} s, max ${sec(s.at(-1) ?? 0)} s`;
+	return `min ${sec(s[0] ?? 0)} s, median ${sec(quantile(s, 0.5))} s, p90 ${sec(quantile(s, 0.9))} s, p95 ${sec(quantile(s, 0.95))} s, p99 ${sec(quantile(s, 0.99))} s, p99.9 ${sec(quantile(s, 0.999))} s, max ${sec(s.at(-1) ?? 0)} s`;
 }
 
-const GATE_OR_BASIS_LINE =
-	/^[ \t]{0,3}\*\*(?:Gated until|Gated on|Gate basis):\*\*.*$/gim;
-
 /**
- * The prose waits the patterns read in `body`, whatever basis it carries.
- * @param {string} body
+ * @param {{part: string, runs: number, jobs: number, boundMs: number, dir?: string}} opts
  */
-const patternWaits = (body) =>
-	basisFaults(body.replace(GATE_OR_BASIS_LINE, "")).map((f) => f.text);
-
-const WAIT_LABELS = ["wait", "non-wait"];
-
-/**
- * Whether a reading flags a case: a wait read, for a wait or non-wait case; a
- * basis refused, for a basis case.
- * @param {{label: string}} c
- * @param {Row} row
- */
-const isFlagged = (c, row) =>
-	WAIT_LABELS.includes(c.label)
-		? row.waits.length > 0
-		: row.model.some((f) => f.kind === "no-warrant");
-
-/**
- * The same question put to the patterns alone.
- * @param {{label: string, text: string, own: number|null}} c
- */
-const isPatternFlagged = (c) =>
-	WAIT_LABELS.includes(c.label)
-		? patternWaits(c.text).length > 0
-		: basisFaults(c.text, c.own ?? undefined).some(
-				(f) => f.kind === "no-warrant",
-			);
-
-/**
- * @param {{part: string, runs: number, jobs: number, boundMs: number}} opts
- */
-async function validate({ part, runs, jobs, boundMs }) {
-	/** @type {{id: string, label: string, kind: string, part: string, text: string, own: number|null}[]} */
+async function validate({ part, runs, jobs, boundMs, dir: given }) {
+	/** @type {(import("./lib/gate-judge-score.js").Case & {part: string})[]} */
 	const cases = JSON.parse(fs.readFileSync(CASES, "utf8")).cases.filter(
 		(/** @type {{part: string}} */ c) => c.part === part,
 	);
@@ -302,10 +237,9 @@ async function validate({ part, runs, jobs, boundMs }) {
 		.digest("hex")
 		.slice(0, 12);
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-	const dir = path.join(".claude", "tmp", `gate-judge-validation-${stamp}`);
-	const harness = spawnSync(claudeBin(), ["--version"], {
-		encoding: "utf8",
-	}).stdout.trim();
+	const dir =
+		given ?? path.join(".claude", "tmp", `gate-judge-validation-${stamp}`);
+	const harness = harnessVersion();
 	out(
 		`${cases.length} ${part} cases x ${runs} runs, ${jobs} at once, prompt ${prompt}, ${harness}; rows in ${dir}`,
 	);
@@ -319,27 +253,19 @@ async function validate({ part, runs, jobs, boundMs }) {
 		),
 		{ dir, jobs, boundMs },
 	);
-	const scored = cases.map((c) => {
-		const mine = rows.filter(
-			(r) => r.key.startsWith(`${c.id}#`) && r.fallback === null,
-		);
-		const flags = mine.filter((r) => isFlagged(c, r)).length;
-		return {
-			...c,
-			ran: mine.length,
-			flags,
-			flagged: mine.length > 0 && flags * 2 > mine.length,
-			agree: flags === 0 || flags === mine.length,
-			patterns: isPatternFlagged(c),
-		};
-	});
+	const scored = cases.map((c) =>
+		scoreCase(
+			c,
+			rows.filter((r) => r.key.startsWith(`${c.id}#`)),
+		),
+	);
 	/**
 	 * @param {string} title
-	 * @param {string[]} labels
+	 * @param {string[]} groups
 	 * @param {boolean} wantFlagged whether a flag is the right answer
 	 */
-	const line = (title, labels, wantFlagged) => {
-		const of = scored.filter((c) => labels.includes(c.label) && c.ran > 0);
+	const line = (title, groups, wantFlagged) => {
+		const of = scored.filter((c) => groups.includes(c.group) && c.ran > 0);
 		const wrong = of.filter((c) => c.flagged !== wantFlagged);
 		out(`${title}: ${rate(of.filter((c) => c.flagged).length, of.length)}`);
 		out(
@@ -363,13 +289,21 @@ async function validate({ part, runs, jobs, boundMs }) {
 	);
 	line("  derived alone", ["derived"], false);
 	line("  inherited alone", ["inherited"], false);
-	const ran = scored.filter((c) => c.ran > 0);
-	out(
-		`Cases whose runs agree: ${rate(ran.filter((c) => c.agree).length, ran.length)}`,
+	line(
+		"Inherited bases naming no other issue, refused by rule",
+		["inherited-unsourced"],
+		true,
 	);
-	const replies = rows.filter((r) => r.fallback === null);
 	out(
-		`Replies with a dropped quote: ${rate(replies.filter((r) => r.dropped > 0).length, replies.length)}`,
+		`Cases whose runs agree: ${rate(scored.filter((c) => c.agree).length, scored.length)}`,
+	);
+	const replies = cases.flatMap((c) =>
+		rows
+			.filter((r) => r.key.startsWith(`${c.id}#`))
+			.flatMap((r) => judgeRow(c.text, c.own, r) ?? []),
+	);
+	out(
+		`Replies with a dropped quote: ${rate(replies.filter((j) => j.dropped > 0).length, replies.length)}`,
 	);
 	out(
 		`Calls that fell back: ${rows.length - replies.length} of ${rows.length}`,
@@ -384,41 +318,48 @@ async function validate({ part, runs, jobs, boundMs }) {
 		);
 	fs.writeFileSync(
 		path.join(dir, "scored.json"),
-		`${JSON.stringify({ part, runs, prompt, harness, cases: scored.map(({ text: _text, ...c }) => c) }, null, "\t")}\n`,
+		`${JSON.stringify({ part, runs, prompt, harness, cases: scored }, null, "\t")}\n`,
 	);
 	return 0;
 }
 
-/** @param {string} dir */
-function readCorpus(dir) {
+/**
+ * The corpus: every issue body, fetched into `<dir>/all.json` the first time
+ * and read from there after.
+ * @param {string} dir
+ * @returns {{number: number, state: string, body: string}[]}
+ */
+function fetchCorpusOnce(dir) {
 	const file = path.join(dir, "all.json");
-	if (!fs.existsSync(file)) {
-		fs.mkdirSync(dir, { recursive: true });
-		const issues = ghJson([
-			"issue",
-			"list",
-			"--state",
-			"all",
-			"--limit",
-			String(CORPUS_LIMIT),
-			"--json",
-			"number,state,body",
-		]);
-		fs.writeFileSync(file, JSON.stringify(issues));
-	}
-	return /** @type {{number: number, state: string, body: string}[]} */ (
-		JSON.parse(fs.readFileSync(file, "utf8"))
-	);
+	const read = readText(file);
+	if (read.state === "unreadable") throw read.error;
+	if (read.state === "read") return JSON.parse(read.data);
+	const issues = ghJson([
+		"issue",
+		"list",
+		"--state",
+		"all",
+		"--limit",
+		String(CORPUS_LIMIT),
+		"--json",
+		"number,state,body",
+	]);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(file, JSON.stringify(issues));
+	return issues;
 }
+
+/** @param {{body: string|null}} issue */
+const bodyOf = (issue) => (issue.body ?? "").replace(/\r\n/g, "\n");
 
 /** @param {{dir: string, jobs: number, boundMs: number}} opts */
 async function corpus(opts) {
-	const issues = readCorpus(opts.dir);
+	const issues = fetchCorpusOnce(opts.dir);
 	out(`${issues.length} bodies, ${opts.jobs} at once; rows in ${opts.dir}`);
 	const rows = await judgeAll(
 		issues.map((i) => ({
 			key: String(i.number),
-			body: (i.body ?? "").replace(/\r\n/g, "\n"),
+			body: bodyOf(i),
 			own: i.number,
 		})),
 		opts,
@@ -427,115 +368,68 @@ async function corpus(opts) {
 	return 0;
 }
 
-/**
- * Whether two quotes are one finding: either holds the other.
- * @param {string} a
- * @param {string} b
- */
-const overlaps = (a, b) => {
-	const [x, y] = [a.toLowerCase(), b.toLowerCase()];
-	return x.includes(y) || y.includes(x);
-};
-
-/** @param {string} text */
-const cell = (text) => text.replace(/\|/g, "\\|").replace(/\n/g, " ");
-
-/**
- * One body's two readings set side by side, as the rows of the three lists to
- * classify by hand.
- * @param {{number: number, state: string, body: string}} issue
- * @param {Row} row
- */
-function compareReadings(issue, row) {
-	const body = (issue.body ?? "").replace(/\r\n/g, "\n");
-	const patterns = patternWaits(body);
-	const at = `| #${issue.number} | ${issue.state} |`;
-	const patternBases = basisFaults(body, issue.number)
-		.filter((f) => f.kind === "no-warrant")
-		.map((f) => f.text);
-	return {
-		both: row.waits.filter((w) => patterns.some((p) => overlaps(p, w))).length,
-		modelOnly: row.waits
-			.filter((w) => !patterns.some((p) => overlaps(p, w)))
-			.map((w) => `${at} ${cell(w)} | |`),
-		patternOnly: patterns
-			.filter((p) => !row.waits.some((w) => overlaps(p, w)))
-			.map((p) => `${at} ${cell(p)} | |`),
-		flagged: row.model
-			.filter((m) => m.kind === "no-warrant")
-			.map(
-				(f) =>
-					`${at} ${row.bases.find((b) => b.basis === f.text)?.class ?? "?"} | ${patternBases.includes(f.text) ? "yes" : "no"} | ${cell(f.text)} | |`,
-			),
-	};
-}
-
 /** @param {string} dir */
 function tally(dir) {
-	const issues = readCorpus(dir);
-	const rows = /** @type {Row[]} */ (
-		/** @type {unknown} */ (
-			fs
-				.readdirSync(dir)
-				.filter((f) => /^results-\d+\.jsonl$/.test(f))
-				.flatMap((f) => readRows(path.join(dir, f)))
-		)
-	);
+	const issues = fetchCorpusOnce(dir);
+	const rows = readResults(dir);
 	const byKey = new Map(rows.map((r) => [r.key, r]));
-	const replies = rows.filter((r) => r.fallback === null);
-	const compared = issues.flatMap((issue) => {
+	const read = issues.flatMap((issue) => {
 		const row = byKey.get(String(issue.number));
-		return row && row.fallback === null ? [compareReadings(issue, row)] : [];
+		const judged = row && judgeRow(bodyOf(issue), issue.number, row);
+		return judged
+			? [{ judged, lists: compareReadings(issue, bodyOf(issue), judged) }]
+			: [];
 	});
-	const modelOnly = compared.flatMap((c) => c.modelOnly);
-	const patternOnly = compared.flatMap((c) => c.patternOnly);
-	const flagged = compared.flatMap((c) => c.flagged);
-	const bothWaits = compared.reduce((n, c) => n + c.both, 0);
-	const basesRead = replies.reduce((n, r) => n + r.bases.length, 0);
-	const bodiesFlagged = replies.filter((r) => r.added.length > 0);
-	const lists = [
+	/** @param {"modelOnly"|"patternOnly"|"basesFlagged"|"bodyFlagged"} list */
+	const all = (list) => read.flatMap((r) => r.lists[list]);
+	const lists = /** @type {[string, string, string[]][]} */ ([
 		[
 			"model-only-waits.md",
 			"| Issue | State | Sentence the judge read as a wait, the patterns did not | Wait? |\n|---|---|---|---|",
-			modelOnly,
+			all("modelOnly"),
 		],
 		[
 			"pattern-only-waits.md",
 			"| Issue | State | Wait the patterns read, the judge did not | Wait? |\n|---|---|---|---|",
-			patternOnly,
+			all("patternOnly"),
 		],
 		[
 			"bases-flagged.md",
 			"| Issue | State | Class | Patterns too | Basis the judge would refuse | Rightly? |\n|---|---|---|---|---|---|",
-			flagged,
+			all("basesFlagged"),
 		],
-	];
-	for (const [
-		name,
-		head,
-		lines,
-	] of /** @type {[string, string, string[]][]} */ (lists))
+		[
+			"bodies-flagged.md",
+			"| Issue | State | Faults only the judge raises | Rightly? |\n|---|---|---|---|",
+			all("bodyFlagged"),
+		],
+	]);
+	for (const [name, head, lines] of lists)
 		fs.writeFileSync(path.join(dir, name), `${head}\n${lines.join("\n")}\n`);
 	out(`Bodies in the corpus: ${issues.length}`);
-	out(`Bodies read by the judge: ${replies.length}`);
-	out(`Calls that fell back: ${rows.length - replies.length}`);
+	out(`Bodies read by the judge: ${read.length}`);
+	out(`Calls that fell back: ${rows.length - read.length}`);
 	for (const why of new Set(
 		rows.flatMap((r) => (r.fallback ? [r.fallback] : [])),
 	))
 		out(`    ${rows.filter((r) => r.fallback === why).length} x ${why}`);
-	out(`Waits both readings found: ${bothWaits}`);
 	out(
-		`Waits the judge found that the patterns missed: ${modelOnly.length} (model-only-waits.md)`,
+		`Waits both readings found: ${read.reduce((n, r) => n + r.lists.both, 0)}`,
 	);
 	out(
-		`Pattern waits the judge missed: ${patternOnly.length} (pattern-only-waits.md)`,
+		`Waits the judge found that the patterns missed: ${all("modelOnly").length} (model-only-waits.md)`,
 	);
 	out(
-		`Bases the judge classed: ${basesRead}; would refuse: ${flagged.length} (bases-flagged.md)`,
+		`Pattern waits the judge missed: ${all("patternOnly").length} (pattern-only-waits.md)`,
 	);
-	out(`Bodies carrying a fault only the judge raises: ${bodiesFlagged.length}`);
 	out(
-		`Replies with a dropped quote: ${rate(replies.filter((r) => r.dropped > 0).length, replies.length)}`,
+		`Bases the judge classed: ${read.reduce((n, r) => n + r.judged.bases.length, 0)}; would refuse: ${all("basesFlagged").length} (bases-flagged.md)`,
+	);
+	out(
+		`Bodies carrying a fault only the judge raises: ${all("bodyFlagged").length} (bodies-flagged.md)`,
+	);
+	out(
+		`Replies with a dropped quote: ${rate(read.filter((r) => r.judged.dropped > 0).length, read.length)}`,
 	);
 	out(`Latency over ${rows.length} calls: ${latency(rows.map((r) => r.ms))}`);
 	return 0;
@@ -561,7 +455,12 @@ async function main() {
 		commands: {
 			validate: {
 				usage: USAGE,
-				flags: { "--part": "value", "--runs": "value", ...bounds },
+				flags: {
+					"--part": "value",
+					"--runs": "value",
+					"--dir": "value",
+					...bounds,
+				},
 			},
 			corpus: { usage: USAGE, flags: { "--dir": "value", ...bounds } },
 			tally: { usage: USAGE, flags: { "--dir": "value" } },
@@ -599,6 +498,7 @@ async function main() {
 			runs: wholeNumber(flags["--runs"], DEFAULT_RUNS, "--runs"),
 			jobs,
 			boundMs,
+			dir: flags["--dir"] === undefined ? undefined : text("--dir"),
 		});
 	} catch (e) {
 		writeFd(2, `${caught(e).message}\n`);

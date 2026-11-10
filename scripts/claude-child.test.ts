@@ -19,7 +19,7 @@ import {
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
-import { JUDGE_ARGS } from "./lib/gate-judge-mode.js";
+import { JUDGE_ARGS, JUDGE_TIMEOUT_EXIT } from "./lib/gate-judge-mode.js";
 
 const SCRIPT = path.resolve(__dirname, "claude-child.js");
 
@@ -224,9 +224,16 @@ describe("judge", () => {
 		expect(readSeen().configDir).toBe(seat);
 	});
 
-	it("kills a child still running at the bound", () => {
+	it("empties its working directory of what a call before it left", () => {
+		judge();
+		fs.writeFileSync(path.join(readSeen().cwd, "left-behind.txt"), "x\n");
+		expect(judge().status).toBe(0);
+		expect(readSeen().cwdEntries).toEqual([]);
+	});
+
+	it("kills a child still running at the bound, exiting as a timeout does", () => {
 		const r = judge("1500", { STUB_HANG: "1" });
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(JUDGE_TIMEOUT_EXIT);
 		expect(r.stderr).toContain("the child was killed at its 1500 ms bound");
 	});
 

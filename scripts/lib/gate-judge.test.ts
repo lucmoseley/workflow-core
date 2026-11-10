@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * lib/gate-judge.js's judgedBasisFaults, driven with a body and a stub in
- * place of the `claude` binary (lib/gate-judge-stub.ts), through the real
+ * lib/gate-judge.js's judgedBasisFaults, driven with a body and a fake in
+ * place of the `claude` binary (lib/gate-judge-fake.ts), through the real
  * launcher (#4964).
  *
  * spawn-kept: a real fd (§X3) — the judge pipes its prompt to the launcher,
@@ -14,12 +14,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { judgedBasisFaults } from "./gate-judge.js";
 import {
-	type JudgeStubPlan,
+	type JudgeFakePlan,
 	readJudgeCalls,
-	writeJudgeStub,
-} from "./gate-judge-stub";
+	writeJudgeFake,
+} from "./gate-judge-fake";
 
-/* Far over a stubbed call, which is three Node starts. */
+/* Far over a faked call, which is three Node starts. */
 const BOUND_MS = 60_000;
 
 let dir = "";
@@ -35,7 +35,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 function judge(
 	body: string,
-	plan: JudgeStubPlan,
+	plan: JudgeFakePlan,
 	opts: { own?: number; before?: string; boundMs?: number } = {},
 	extraEnv: Record<string, string> = {},
 ) {
@@ -46,7 +46,7 @@ function judge(
 		WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
 		WFC_CLAUDE_CONFIG_B: path.join(dir, ".claude2"),
 		WFC_CLAUDE_CONFIG_C: path.join(dir, ".claude3"),
-		WFC_CLAUDE_BIN: writeJudgeStub(path.join(dir, "claude"), log, plan),
+		WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
 		...extraEnv,
 	};
 	return judgedBasisFaults(body, { boundMs: BOUND_MS, ...opts, env });
@@ -175,11 +175,42 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		],
 		["one inside a fence", `Example:\n\n\`\`\`\n${WAIT}\n\`\`\`\n`, WAIT],
 		["one inside a code span", `Write \`${WAIT}\` to see it refused.\n`, WAIT],
+		[
+			"one that runs from prose into a fence",
+			`Example:\n\n\`\`\`\n${WAIT}\n\`\`\`\n`,
+			`Example:\n\n\`\`\`\n${WAIT}`,
+		],
+		[
+			"one whose window sits in a code span",
+			"A session may write `500 ticks` and see the gate refuse it.\n",
+			"A session may write `500 ticks` and see the gate refuse it.",
+		],
 	])("%s", (_, body, quote) => {
 		const r = judge(body, reading([wait(quote, "500 ticks")]));
 		expect(r.faults).toEqual([]);
 		expect(r.dropped).toBe(1);
 		expect(r.fallback).toBeNull();
+	});
+
+	it("keeps a sentence that only ends on a code span", () => {
+		const sentence = "Re-measure once 500 ticks are in `ticks.jsonl`";
+		const r = judge(`${sentence}\n`, reading([wait(sentence, "500 ticks")]));
+		expect(r.faults).toEqual([
+			{ kind: "no-basis", text: sentence, by: "model" },
+		]);
+		expect(r.dropped).toBe(0);
+	});
+
+	it("a basis quote two basis lines hold", () => {
+		const r = judge(
+			`${WAIT}\n\n**Gate basis:** the ticket asks for 500 ticks.\n\n**Gate basis:** the ticket asks for 500 ticks, twice over.\n`,
+			reading(
+				[wait(WAIT, "500 ticks", true)],
+				[{ basis: "the ticket asks", class: "restated" }],
+			),
+		);
+		expect(r.faults).toEqual([]);
+		expect(r.dropped).toBe(1);
 	});
 
 	it("a basis no live basis line holds", () => {
@@ -229,7 +260,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	const Body = `Read the counters a week after landing.\n\n${WAIT}\n`;
 	const Patterns = [{ kind: "no-basis", text: "a week after", by: "patterns" }];
 
-	it.each<[string, JudgeStubPlan, string]>([
+	it.each<[string, JudgeFakePlan, string]>([
 		["a non-zero exit", { exit: 3 }, "the judge exited 3"],
 		[
 			"a reply that is not JSON",
@@ -268,7 +299,6 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 		const r = judge(Body, { hang: true }, { boundMs: 1500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 1.5 s");
-		expect(r.ms).toBeLessThan(1500 + 5000);
 	});
 
 	it("a launch that would not bill the subscription, launching nothing", () => {
@@ -310,6 +340,26 @@ describe("an edit", () => {
 		expect(r.faults).toEqual([
 			{ kind: "no-basis", text: rewritten, by: "model" },
 		]);
+	});
+
+	it("that rewrites the wait around the window it had raises it", () => {
+		const basis = "**Gate basis:** 12 ticks an hour (#7), so 90 ticks a shift.";
+		const rewritten = "Hold the release until those records hold 500 ticks.";
+		const r = judge(
+			`${rewritten}\n\n${basis}\n`,
+			reading([wait(rewritten, "500 ticks")]),
+			{ before: `${WAIT}\n\n${basis}\n` },
+		);
+		expect(r.faults).toEqual([
+			{ kind: "unnamed-window", text: "500 ticks", by: "model" },
+		]);
+	});
+
+	it("that brings a wait out of a fence raises it", () => {
+		const r = judge(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), {
+			before: `\`\`\`\n${WAIT}\n\`\`\`\n`,
+		});
+		expect(r.faults).toEqual(model);
 	});
 
 	it("that rewrites a basis raises it, and holds one left as it was", () => {

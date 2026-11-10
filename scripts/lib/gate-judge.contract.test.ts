@@ -3,7 +3,7 @@
  * Holds the gate judge's launch (#4964) to the installed harness's recording
  * (scripts/fixtures/gate-judge-reply.json, re-recorded by
  * `node scripts/record-gate-judge-reply.js`): the `result` row
- * lib/gate-judge.js reads, the row lib/gate-judge-stub.ts serves every suite
+ * lib/gate-judge.js reads, the row lib/gate-judge-fake.ts serves every suite
  * in its place, the flags lib/gate-judge-mode.js passes, and what a child
  * under those flags was seen to load and leave. Breaking it lets a renamed
  * result field or flag pass every suite while each live call falls back to
@@ -12,8 +12,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { parseReading } from "./gate-judge.js";
+import { buildReplyRow, recorded } from "./gate-judge-fake";
 import { JUDGE_ARGS } from "./gate-judge-mode.js";
-import { buildReplyRow, recorded } from "./gate-judge-stub";
 import { recorded as headless } from "./headless-run-fake";
 
 describe(`the judge mode's reply, in ${recorded.harness}'s recording`, () => {
@@ -31,7 +31,7 @@ describe(`the judge mode's reply, in ${recorded.harness}'s recording`, () => {
 			expect(recorded.body).toContain(b.basis);
 	});
 
-	it("is the shape the stub serves", () => {
+	it("is the shape the fake serves", () => {
 		const row = buildReplyRow({ waits: [], bases: [] });
 		expect(Object.keys(row).sort()).toEqual(
 			Object.keys(recorded.result).sort(),

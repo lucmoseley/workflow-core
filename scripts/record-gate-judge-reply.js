@@ -3,7 +3,7 @@
  * record-gate-judge-reply.js — re-records scripts/fixtures/gate-judge-reply.json,
  * the installed harness's side of the gate judge's launch (#4964): the
  * `result` row claude-child.js's `judge` mode prints, which lib/gate-judge.js
- * reads and lib/gate-judge-stub.ts serves to the suites, and what a second
+ * reads and lib/gate-judge-fake.ts serves to the suites, and what a second
  * call under the same flags was seen to load and leave behind — its tools,
  * MCP servers, slash commands, plugins, hook events and transcripts.
  *
@@ -143,9 +143,10 @@ function main() {
 		writeFd(2, USAGE);
 		process.exit(2);
 	}
-	const harness = spawnSync(claudeBin(), ["--version"], {
-		encoding: "utf8",
-	}).stdout.trim();
+	const version = spawnSync(claudeBin(), ["--version"], { encoding: "utf8" });
+	if (version.status !== 0)
+		throw new Error(`${claudeBin()} --version did not run.`);
+	const harness = version.stdout.trim();
 	const result = recordResult();
 	const observed = recordObserved();
 	fs.writeFileSync(
