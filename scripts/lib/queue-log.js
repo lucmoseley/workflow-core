@@ -242,6 +242,7 @@ module.exports = {
 	logEnqueue,
 	logQueueEvent,
 	pendingSince,
+	percentile,
 	queueBaseline,
 	QUEUE_LOG_RETAIN_MS,
 	queueLogFile,
