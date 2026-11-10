@@ -74,6 +74,7 @@ const {
 	buildSelfMarketplaceEntry,
 	selfPluginSetup,
 } = require("./lib/core-hooks.js");
+const { selfPluginRoot } = require("./lib/hook-env.js");
 
 const CONFIG_USAGE = `Usage: node ${scriptPath("build-arm-sandbox.js")} config --from <config dir> --to <new dir> [--override <path>=<file>]...`;
 const TASK_USAGE = `Usage: node ${scriptPath("build-arm-sandbox.js")} task --repo <repo> --at <rev> --to <new dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <arm config dir>]`;
@@ -467,7 +468,7 @@ function pointDeclaredSelfMarketplace(settingsFile, dir) {
  * @returns {{dir: string} | {unpointed: string}}
  */
 function pointSelfPlugin(configDir, clone) {
-	const dir = path.join(clone, SELF_PLUGIN_DIR);
+	const dir = selfPluginRoot(clone);
 	if (!fs.existsSync(dir))
 		return { unpointed: `the revision has no ${SELF_PLUGIN_DIR}/` };
 	pointDeclaredSelfMarketplace(path.join(configDir, "settings.json"), dir);

@@ -164,8 +164,9 @@ describe("a Bash call from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
 	const split = freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
-		/* The claim store is the main checkout's, as the harness names it. */
-		vi.stubEnv("CLAUDE_PROJECT_DIR", at.main);
+		/* The harness names the worktree (#4168); the claim store is the main
+		 * checkout's, which host-root.js maps it to. */
+		vi.stubEnv("CLAUDE_PROJECT_DIR", at.worktree);
 		vi.stubEnv("WFC_REPO_ROOT", at.main);
 		vi.stubEnv("WFC_DISPATCH_ROOT", at.main);
 		fs.mkdirSync(path.join(at.main, "scripts"));
