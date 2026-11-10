@@ -408,6 +408,9 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			},
 		);
 		expect(out[0]).toMatchObject({ jobId: "p", relaunchedAt: NOW });
+		/* The fallback keeps the slot its session held: no new date for the
+		 * unproven cap (#4684). */
+		expect(out[0]).not.toHaveProperty("slotTakenAt");
 		expect(out[0]).toMatchObject({ sessionId: "s", resumes: { tries: 2 } });
 		expect(out[0]).not.toHaveProperty("copiedFrom");
 		expect(out[0]).not.toHaveProperty("pastSessionIds");
@@ -1238,6 +1241,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				jobId: "job42-copy",
 				copiedFrom: "job42",
 				relaunchedAt: NOW,
+				slotTakenAt: NOW,
 				pastSessionIds: ["s42"],
 			});
 		});
