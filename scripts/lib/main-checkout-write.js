@@ -253,9 +253,26 @@ function refusedPath(p, ctx, dir = false) {
  * @returns {string | null}
  */
 function interpreterDir(cmd, spans, ctx) {
-	const words = unwrap(cmd.words, spans).words.map(
-		(w) => literal(w, spans).text,
-	);
+	for (const run of unwrap(cmd.words, spans)) {
+		const dir = runDir(
+			run.words.map((w) => literal(w, spans).text),
+			cmd,
+			ctx,
+		);
+		if (dir !== null) return dir;
+	}
+	return null;
+}
+
+/**
+ * The main-checkout directory one unwrap run's interpreter runs in, as
+ * interpreterDir answers it.
+ * @param {string[]} words the run's words, read through literal
+ * @param {import("./shell-parse.js").Command} cmd
+ * @param {CoreContext} ctx
+ * @returns {string | null}
+ */
+function runDir(words, cmd, ctx) {
 	const prog = path.basename(words[0] ?? "");
 	const program = programSource(prog, words.slice(1));
 	if (!program) return null;

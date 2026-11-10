@@ -34,7 +34,7 @@ const { gitWords } = require("./shell-words.js") as {
 	gitWords: (
 		words: string[],
 		spans: string[],
-	) => { sub: string; args: string[] } | null;
+	) => { sub: string; args: string[] }[];
 };
 
 /* `git rev-parse --symbolic-full-name` in a tree holding branches `topic` and
@@ -54,7 +54,7 @@ const detached = (src: string) => detachedName(TREE, src);
 function read(command: string, names = onTopic): Read {
 	const parsed = parseCommand(command);
 	const words = (parsed.segments[0] ?? "").split(" ").filter(Boolean);
-	const git = gitWords(words, parsed.spans);
+	const [git] = gitWords(words, parsed.spans);
 	if (git?.sub !== "push") throw new Error(`not a push: ${command}`);
 	return readPush(git.args, parsed.spans, names);
 }

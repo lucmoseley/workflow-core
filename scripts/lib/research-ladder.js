@@ -154,15 +154,17 @@ function isRulingsCommand(command, corpus) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			const gh = found ? null : ghWords(cmd.words, parsed.spans);
-			if (!gh) return;
-			const [sub, verb, ...args] = gh.args.map(read);
-			if (gh.repo) args.push("--repo", gh.repo.text);
-			found =
-				(sub === "issue" && verb === "list" && isRulingsList(args, corpus)) ||
-				(sub === "search" &&
-					verb === "issues" &&
-					isRulingsSearch(args, corpus));
+			if (found) return;
+			found = ghWords(cmd.words, parsed.spans).some((gh) => {
+				const [sub, verb, ...args] = gh.args.map(read);
+				if (gh.repo) args.push("--repo", gh.repo.text);
+				return (
+					(sub === "issue" && verb === "list" && isRulingsList(args, corpus)) ||
+					(sub === "search" &&
+						verb === "issues" &&
+						isRulingsSearch(args, corpus))
+				);
+			});
 		},
 		TEXT_ONLY_PORTS,
 	);
