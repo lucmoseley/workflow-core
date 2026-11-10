@@ -8,8 +8,8 @@
  * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT` and outside every
  * `node_modules`: a file's content read through `fs`; a directory's listing,
  * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
- * process spawned, sync or not, with its program, the file that name resolves
- * to, its arguments, working directory and whether it carries this audit on.
+ * process spawned, sync or not, with its program, the file that name runs
+ * as found and with links followed, its arguments, working directory and whether it carries this audit on.
  *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
@@ -160,6 +160,8 @@ function install() {
 		});
 
 	const realStatSync = fs.statSync;
+	const realAccessSync = fs.accessSync;
+	const realRealpathSync = fs.realpathSync;
 
 	/**
 	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
@@ -314,10 +316,19 @@ function install() {
 	const guarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
 		path.basename(pathDirs(opts?.envPairs)[0] ?? "") === "host-git-guard";
+	const isRunnable = (/** @type {string} */ abs) => {
+		try {
+			realAccessSync(abs, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	};
 	/**
-	 * The file a child's program name resolves to: a name holding a slash off
-	 * its working directory, a bare one off its `PATH`. Null where no file
-	 * stands there.
+	 * The file a child's program name runs: a name holding a slash off its
+	 * working directory, a bare one the first executable file on its `PATH`.
+	 * Its path as found, then with links followed; empty where none stands
+	 * there.
 	 * @param {string} file
 	 * @param {string} cwd
 	 * @param {unknown} envPairs
@@ -326,7 +337,8 @@ function install() {
 		const tries = file.includes("/")
 			? [path.resolve(cwd, file)]
 			: pathDirs(envPairs).map((entry) => path.resolve(cwd, entry, file));
-		return tries.find((abs) => kindAt(abs) === "file") ?? null;
+		const hit = tries.find((abs) => kindAt(abs) === "file" && isRunnable(abs));
+		return hit === undefined ? [] : [hit, realRealpathSync(hit)];
 	};
 	/** @param {Untyped} opts @param {number|undefined} pid */
 	const spawned = (opts, pid) =>

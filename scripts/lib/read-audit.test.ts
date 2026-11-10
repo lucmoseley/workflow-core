@@ -169,7 +169,7 @@ describe("what a test file reads, as the audit sees it", () => {
 				root,
 			).get(T);
 
-		it("keeps the reads of a file that only sleeps, or asks a program its version", () => {
+		it("keeps the reads of a file that only sleeps, or asks bash its version", () => {
 			const root = checkout();
 			expect(run(root, "sleep", ["0"])).toHaveProperty("reads");
 			expect(run(root, "bash", ["--version"])).toHaveProperty("reads");
@@ -182,17 +182,58 @@ describe("what a test file reads, as the audit sees it", () => {
 			);
 		});
 
-		it("doubts a sleep handed a path in the checkout, and one that is a file of the checkout", () => {
+		it("doubts a version asked of a program not named, and bash asked anything else", () => {
 			const root = checkout();
-			expect(run(root, "sleep", ["./scripts/lib/hooks.js"]).doubt).toMatch(
+			expect(run(root, "cat", ["--version"]).doubt).toMatch(
 				/ran in the checkout/,
 			);
+			expect(run(root, "bash", ["-c", "true"]).doubt).toMatch(
+				/ran in the checkout/,
+			);
+		});
+
+		it("doubts a sleep a test could have written: in the checkout, in the temporary directory, or linked to from elsewhere", () => {
+			const root = checkout();
+			const sleepOn = (dir: string) =>
+				run(root, "sleep", ["0"], {
+					PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+				}).doubt;
 			write(root, "bin/sleep", "#!/bin/sh\ncat .claude/settings.json\n");
 			fs.chmodSync(path.join(root, "bin/sleep"), 0o755);
-			const stubbed = run(root, "sleep", ["0"], {
-				PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
-			});
-			expect(stubbed.doubt).toMatch(/ran in the checkout/);
+			expect(sleepOn(path.join(root, "bin"))).toMatch(/ran in the checkout/);
+
+			const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
+			fs.copyFileSync(
+				path.join(root, "bin/sleep"),
+				path.join(scratch, "sleep"),
+			);
+			fs.chmodSync(path.join(scratch, "sleep"), 0o755);
+			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
+
+			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
+			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
+
+			const linked = fs.mkdtempSync(path.join(os.homedir(), ".rda-link-"));
+			try {
+				fs.symlinkSync(
+					path.join(root, "bin/sleep"),
+					path.join(linked, "sleep"),
+				);
+				expect(sleepOn(linked)).toMatch(/ran in the checkout/);
+			} finally {
+				fs.rmSync(linked, { recursive: true, force: true });
+			}
+		});
+
+		it("skips a file of the program's name that cannot be run, as the exec does", () => {
+			const root = checkout();
+			write(root, "bin/sleep", "not a program\n");
+			expect(
+				run(root, "sleep", ["0"], {
+					PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
+				}),
+			).toHaveProperty("reads");
 		});
 	});
 
