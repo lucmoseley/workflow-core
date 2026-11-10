@@ -4,11 +4,17 @@
  * tells lib/founder-typing.js, lib/tool-calls-since.js, retro-transcript.js
  * and pick-retro-sessions.js it is not the founder's typing (#3369, #3378,
  * #3381).
+ *
+ * A prompt any other script types or resumes with opens with
+ * SCRIPT_PROMPT_PREFIX, through `scriptPrompt`, so lib/founder-typing.js
+ * reads it as no typing of his either (#4844). At UserPromptSubmit a typed
+ * line carries no origin, so its text is the only mark it can bear.
  */
 
 const { scriptPath } = require("./script-path.js");
 
 const LOOP_PROMPT_PREFIX = "[refill loop] ";
+const SCRIPT_PROMPT_PREFIX = "[script] ";
 
 /* #2359's wording. */
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
@@ -57,6 +63,13 @@ function parkedPromptOf(cause) {
 /** @param {string} text */
 const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);
 
+/** @param {string} text  what a script, not the loop, types or resumes with */
+const scriptPrompt = (text) => `${SCRIPT_PROMPT_PREFIX}${text}`;
+
+/** @param {string} text */
+const isScriptPrompt = (text) =>
+	text.trimStart().startsWith(SCRIPT_PROMPT_PREFIX);
+
 module.exports = {
 	API_PROMPT,
 	BOOT_PROMPT,
@@ -67,5 +80,7 @@ module.exports = {
 	MOVED_PROMPT,
 	hasNothingToRepeat,
 	isLoopPrompt,
+	isScriptPrompt,
 	parkedPromptOf,
+	scriptPrompt,
 };

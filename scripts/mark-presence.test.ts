@@ -6,14 +6,16 @@
  *
  * WHAT BREAKING IT COSTS: a dispatched launch counted as his typing keeps a
  * slot idle for 30 minutes after every launch; a typed prompt missed lets the
- * loop take the slot he would have used.
+ * loop take the slot he would have used; a script's typed line counted as his
+ * returns away mode to normal while he sleeps, and every session with a
+ * question then waits on him in its seat (#4844).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "mark-presence.js");
@@ -152,6 +154,22 @@ describe("a prompt nobody typed", () => {
 		["the loop's resumed-idle prompt", IDLE_PROMPT],
 	])("writes nothing for %s (#3369)", (_, prompt) => {
 		run(prompt);
+		expect(isMarked()).toBe(false);
+	});
+
+	/* record-claude-responses.js's attach step: its question job, typed into
+	 * through `claude attach` and pty_type.py. */
+	it("writes nothing for a line a script types into a job through `claude attach` (#4844)", () => {
+		run(scriptPrompt("Reply with the single word ok. Use no tools."), {
+			jobDir: buildJob(
+				"Ask me one question, whether I prefer red or blue, with the AskUserQuestion tool. Use no other tool.",
+			),
+		});
+		expect(isMarked()).toBe(false);
+	});
+
+	it("writes nothing for a script's prompt outside a job", () => {
+		run(scriptPrompt("Reply with the single word ok. Use no tools."));
 		expect(isMarked()).toBe(false);
 	});
 

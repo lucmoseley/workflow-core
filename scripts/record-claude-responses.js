@@ -66,6 +66,7 @@ const { configDir } = require("./lib/config-dir.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
+const { scriptPrompt } = require("./lib/loop-prompts.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const {
 	PROBE_ARGV,
@@ -88,6 +89,10 @@ const RECORDED_BY = "node scripts/record-claude-responses.js";
  * "No job matching". */
 const NO_JOB = "00000000";
 const PROMPT = "Reply with the single word ok. Use no tools.";
+/* PROMPT as typed into, or resumed in, a job whose launch intent it is not:
+ * there only the prefix tells the presence hook it is no typing of the
+ * founder's (#4844). */
+const SCRIPTED_PROMPT = scriptPrompt(PROMPT);
 const ASK =
 	"Ask me one question, whether I prefer red or blue, with the AskUserQuestion tool. Use no other tool.";
 /* Under `--permission-mode manual` a Bash write prompts. */
@@ -323,7 +328,7 @@ function launchArgv(argv) {
  * @param {string[]} [flags]
  */
 function resume(sessionId, original, copy, flags = []) {
-	const r = claude(["--bg", "--resume", sessionId, ...flags, PROMPT]);
+	const r = claude(["--bg", "--resume", sessionId, ...flags, SCRIPTED_PROMPT]);
 	const started = parseResumed(r);
 	if (r.status !== 0 || !started)
 		throw new Error(
@@ -353,7 +358,7 @@ function attachExits(id) {
 	 * typed line is waited on, so only `claude attach`'s start-up runs, which
 	 * that bound's margin covers. */
 	const offTerminal = claude(["attach", id], ATTACH_TIMEOUT_MS);
-	const [file, args, opts] = buildTypedAttach(id, PROMPT);
+	const [file, args, opts] = buildTypedAttach(id, SCRIPTED_PROMPT);
 	const onTerminal = spawnSync(file, args, { ...opts, encoding: "utf8" });
 	if (onTerminal.error) throw onTerminal.error;
 	return {

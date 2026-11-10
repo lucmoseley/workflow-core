@@ -26,6 +26,9 @@ import {
 	recorded,
 } from "./claude-attach-fake";
 import { writeClaudeStub } from "./claude-stub";
+import { API_PROMPT, scriptPrompt } from "./loop-prompts.js";
+
+const TYPED = scriptPrompt("ok");
 
 let dir: string;
 
@@ -49,7 +52,7 @@ const attach: Record<AttachKind, (bin: string) => string | null> = {
 		),
 	onTerminal: (bin) => {
 		vi.stubEnv("WFC_CLAUDE_BIN", bin);
-		const [file, args, opts] = buildTypedAttach("job7", "ok");
+		const [file, args, opts] = buildTypedAttach("job7", TYPED);
 		return childFailure(
 			childVerdict(spawnSync(file, args, { ...opts, encoding: "utf8" })),
 		);
@@ -76,6 +79,18 @@ it("logs the line typed at the fake on a terminal, and none off one", () => {
 	attach.offTerminal(bin);
 	attach.onTerminal(bin);
 	expect(fs.readFileSync(path.join(dir, "log"), "utf8")).toBe(
-		"attach job7\ntyped ok\n",
+		`attach job7\ntyped ${TYPED}\n`,
 	);
+});
+
+describe("the typed attach's prompt (#4844)", () => {
+	it("is refused where it opens with no prefix, as the founder's typing would read", () => {
+		expect(() =>
+			buildTypedAttach("job7", "Reply with the single word ok. Use no tools."),
+		).toThrow(/must open with the loop's or a script's prefix/);
+	});
+
+	it("is typed where it is one of the loop's own", () => {
+		expect(buildTypedAttach("job7", API_PROMPT)[1]).toContain(API_PROMPT);
+	});
 });
