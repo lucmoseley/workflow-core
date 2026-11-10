@@ -79,9 +79,15 @@
  * entry the walk cannot read before it is placed (a builtin module never
  * meets one, and a stdlib one only an entry appended after the stdlib's), an
  * import statement it cannot parse, or a file ending inside an open bracket —
- * is handed to the caller's `fault`, as is a JSX or TSX file. Residual: a
- * module is walked on its own directory and edits, not on the sys.path of
- * the script that imports it (#4870).
+ * is handed to the caller's `fault`, as is a JSX or TSX file.
+ *
+ * AN IMPORTED MODULE (#4870) resolves its imports on the sys.path of the
+ * script that imported it, not on its own directory. `reachOf` hands back
+ * sys.path as a Python file leaves it (`pySearch`); a caller walking a module
+ * that file imports hands it in, and each import is then placed on both
+ * paths, faulting only where neither places it. pass-store.js does;
+ * hook-code.js and surface-closure.js, walking no one script's run, place a
+ * module on its own directory and edits alone.
  *
  * WHOLE PATHS: a join of a parameter is one the walk declines to read, by
  * design (#4790), so a module whose files a test's reach must hold spells
@@ -389,21 +395,24 @@ const pythonVersion = () => readPython().version;
  * @typedef {{edges: string[], shadows: string[]}} Found absolute: the files
  *   reached, and the paths tried on the way before the file each resolved to
  * @typedef {{edges: string[], shadows: string[], reads: string[],
- *   unread: string[], unknown: string[], python: boolean}} Reach absolute:
+ *   unread: string[], unknown: string[], python: boolean,
+ *   pySearch: PyEntry[] | null}} Reach absolute:
  *   the files reached, the paths tried on the way before the file each
  *   resolved to, the data files it reads off its own directory, each load
  *   the walk cannot read, each join off its own directory naming a file the
- *   walk cannot tell (`jsReach`), and whether the file runs an inline Python
- *   program
+ *   walk cannot tell (`jsReach`), whether the file runs an inline Python
+ *   program, and sys.path as a Python file leaves it, null for any other
  */
 
 /**
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
+ * @param {PyEntry[] | null} [importerSearch] for a Python module, the
+ *   `pySearch` of the file that imports it
  * @returns {Reach}
  */
-function reachOf(file, text, fault) {
+function reachOf(file, text, fault, importerSearch = null) {
 	const language = scriptLanguage(file, text);
 	if (language === "sh") return shReach(file, text);
 	if (language === "jsx")
@@ -416,6 +425,7 @@ function reachOf(file, text, fault) {
 			unread: [],
 			unknown: [],
 			python: false,
+			pySearch: null,
 		};
 	const code = parseCodeLines(
 		text,
@@ -424,8 +434,13 @@ function reachOf(file, text, fault) {
 	const inline = inlineSpawns(file, code);
 	const own =
 		language === "python"
-			? { ...pyReach(file, text, fault), reads: [], unread: [], unknown: [] }
-			: jsReach(file, text, code);
+			? {
+					...pyReach(file, text, fault, importerSearch),
+					reads: [],
+					unread: [],
+					unknown: [],
+				}
+			: { ...jsReach(file, text, code), pySearch: null };
 	return {
 		...own,
 		edges: [...own.edges, ...inline.edges],
@@ -750,9 +765,10 @@ function readManifestValues(file, key) {
  *   sys.path entry: a null `dir` is one the walk cannot read; `maybe` marks
  *   one an indented statement added, which may never have run; `tail` one
  *   appended, so searched after the stdlib's own entries.
- * @typedef {{search: PyEntry[], names: Map<string, string>}} PyScope
- *   `search` is sys.path as the file has left it, its own directory
- *   included.
+ * @typedef {{searches: PyEntry[][], names: Map<string, string>}} PyScope
+ *   `searches` holds each sys.path the file's imports may be resolved on, as
+ *   the file has left it: one led by its own directory, then its importer's
+ *   where the caller hands one.
  * @typedef {{file: string, dir: string, scope: PyScope, reach: Found,
  *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
@@ -762,27 +778,12 @@ function readManifestValues(file, key) {
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
- * @returns {Found}
+ * @param {PyEntry[] | null} importerSearch
+ * @returns {Found & {pySearch: PyEntry[]}} with sys.path as the file leaves
+ *   it: its importer's with its own edits, or its own where it has none
  */
-function pyReach(file, text, fault) {
-	const dir = path.dirname(file);
-	/** @type {Set<string>} */
-	const faulted = new Set();
-	/** @type {PyWalk} */
-	const walk = {
-		file,
-		dir,
-		scope: {
-			search: [{ dir, maybe: false, tail: false }],
-			names: new Map(),
-		},
-		reach: { edges: [], shadows: [] },
-		/* An indented import is placed twice, so one fault can come twice. */
-		fault: (msg) => {
-			if (!faulted.has(msg)) fault(msg);
-			faulted.add(msg);
-		},
-	};
+function pyReach(file, text, fault, importerSearch) {
+	const walk = pyWalkOf(file, fault, importerSearch);
 	/** @type {PyImportTarget[]} */
 	const deferred = [];
 	for (const statement of pyStatements(text, walk.fault)) {
@@ -801,7 +802,70 @@ function pyReach(file, text, fault) {
 		else bindPyName(walk, statement.text);
 	}
 	for (const target of deferred) placePyImport(walk, target);
-	return walk.reach;
+	return pyWalkFound(walk);
+}
+
+/**
+ * What a finished walk found, each path once, since two search paths sharing
+ * an entry find the same file twice, and the sys.path it leaves.
+ * @param {PyWalk} walk
+ * @returns {Found & {pySearch: PyEntry[]}}
+ */
+const pyWalkFound = (walk) => ({
+	edges: [...new Set(walk.reach.edges)],
+	shadows: [...new Set(walk.reach.shadows)],
+	pySearch: settledPySearch(walk.scope.searches.at(-1) ?? []),
+});
+
+/**
+ * A walk of `file` at its start: sys.path led by its own directory, and its
+ * importer's beside it where the caller hands one.
+ * @param {string} file absolute
+ * @param {(msg: string) => void} fault
+ * @param {PyEntry[] | null} importerSearch
+ * @returns {PyWalk}
+ */
+function pyWalkOf(file, fault, importerSearch) {
+	const dir = path.dirname(file);
+	/** @type {Set<string>} */
+	const faulted = new Set();
+	return {
+		file,
+		dir,
+		scope: {
+			searches: [
+				[{ dir, maybe: false, tail: false }],
+				...(importerSearch ? [[...importerSearch]] : []),
+			],
+			names: new Map(),
+		},
+		reach: { edges: [], shadows: [] },
+		/* An indented import is placed twice, so one fault can come twice. */
+		fault: (msg) => {
+			if (!faulted.has(msg)) fault(msg);
+			faulted.add(msg);
+		},
+	};
+}
+
+/**
+ * `search` less each entry no import's search can reach: a directory an
+ * earlier entry already names, unless that one may never have run and this
+ * one did, and all that follows an entry the walk cannot read. Bounds the
+ * path two modules importing each other hand back and forth.
+ * @param {PyEntry[]} search
+ * @returns {PyEntry[]}
+ */
+function settledPySearch(search) {
+	/** @type {PyEntry[]} */
+	const settled = [];
+	for (const entry of search) {
+		if (settled.some((e) => e.dir === entry.dir && (!e.maybe || entry.maybe)))
+			continue;
+		settled.push(entry);
+		if (entry.dir === null) break;
+	}
+	return settled;
 }
 
 /**
@@ -892,7 +956,8 @@ function cutPyLexeme(m) {
  * Applies one sys.path edit to the scope: a literal `insert(0, …)` or
  * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
  * cannot read at the front.
- * @param {PyWalk} walk accumulator: its scope's `search` gains the entry
+ * @param {PyWalk} walk accumulator: each of its scope's `searches` gains the
+ *   entry
  * @param {PyStatement} statement
  */
 function editSysPath(walk, statement) {
@@ -902,8 +967,9 @@ function editSysPath(walk, statement) {
 		: null;
 	const tail = m?.[2] !== undefined;
 	const entry = { dir, maybe: statement.indented, tail };
-	if (tail) walk.scope.search.push(entry);
-	else walk.scope.search.unshift(entry);
+	for (const search of walk.scope.searches)
+		if (tail) search.push(entry);
+		else search.unshift(entry);
 }
 
 /**
@@ -1151,8 +1217,9 @@ const placeOf = (found) =>
 		: { pkg: null, namespace: false };
 
 /**
- * Pushes the files one import loads onto the walk's reach, or faults an
- * import the walk cannot place.
+ * Pushes the files one import loads onto the walk's reach, placed on each of
+ * the scope's search paths, or faults an import the walk cannot place: one
+ * no path holds, or one whose search on either meets what it cannot read.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
  */
@@ -1161,26 +1228,41 @@ function placePyImport(walk, target) {
 		placeRelativePyImport(walk, target);
 		return;
 	}
-	const [top, ...below] = target.parts;
+	const [top] = target.parts;
 	if (top === undefined) throw new Error("an absolute import names no module");
-	const placed = placePyTop(walk.scope, top, walk.reach);
-	if (placed.kind === "absent") {
+	const placements = walk.scope.searches.map((search) =>
+		placePyTop(search, top, walk.reach),
+	);
+	if (placements.every((placed) => placed.kind === "absent")) {
 		if (!readPython().stdlib.has(top))
 			walk.fault(
 				`imports ${top}, which is neither stdlib nor found beside it or on a sys.path entry it adds`,
 			);
 		return;
 	}
-	if (placed.kind === "opaque") {
-		/* A builtin module is found before sys.path is searched, and a stdlib
-		 * one before an entry appended after the stdlib's. */
-		const { builtins, stdlib } = readPython();
-		if (!builtins.has(top) && !(placed.tail && stdlib.has(top)))
-			walk.fault(`imports ${top} after a sys.path edit the walk cannot read`);
-		return;
+	for (const placed of placements) {
+		if (placed.kind === "opaque") {
+			/* A builtin module is found before sys.path is searched, and a
+			 * stdlib one before an entry appended after the stdlib's. */
+			const { builtins, stdlib } = readPython();
+			if (!builtins.has(top) && !(placed.tail && stdlib.has(top)))
+				walk.fault(`imports ${top} after a sys.path edit the walk cannot read`);
+		} else if (placed.kind === "placed")
+			descendPlaced(walk, target, placed.places);
 	}
+}
+
+/**
+ * Walks an absolute import's parts below each place its top-level module was
+ * found, faulting a part or name no file stands for.
+ * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
+ * @param {PyImportTarget} target
+ * @param {PyPlace[]} places
+ */
+function descendPlaced(walk, target, places) {
 	const dotted = target.parts.join(".");
-	for (const place of placed.places)
+	const below = target.parts.slice(1);
+	for (const place of places)
 		descend(walk, place, { parts: below, names: target.names }, (miss) => {
 			/* A name a regular package lacks may be an attribute its
 			 * __init__.py defines; a namespace package defines none. */
@@ -1252,21 +1334,21 @@ function placeRelativePyImport(walk, { dots, parts, names }) {
 }
 
 /**
- * Places a top-level module on the scope's search path, pushing each file it
+ * Places a top-level module on one search path, pushing each file it
  * may load and the candidates tried before the one that settles it. An
  * entry an indented statement added may never have run, so a module found
  * there settles nothing: the search goes on, and every file found counts.
- * @param {PyScope} scope
+ * @param {PyEntry[]} search
  * @param {string} top
  * @param {Found} reach accumulator: gains the files and shadows
  * @returns {PyTopPlacement}
  */
-function placePyTop(scope, top, reach) {
+function placePyTop(search, top, reach) {
 	/** @type {PyPlace[]} */
 	const places = [];
 	/** @type {string | null} */
 	let namespace = null;
-	for (const entry of scope.search) {
+	for (const entry of search) {
 		if (entry.dir === null) return { kind: "opaque", tail: entry.tail };
 		const here = pyModuleIn(entry.dir, top);
 		reach.shadows.push(...here.tried);
@@ -1614,6 +1696,7 @@ function shReach(file, code) {
 		unread: [],
 		unknown: [],
 		python: false,
+		pySearch: null,
 	};
 	for (const command of commands) {
 		for (const word of command.words)

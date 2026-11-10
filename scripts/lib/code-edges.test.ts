@@ -204,6 +204,126 @@ describe("a sys.path entry the file adds", () => {
 	});
 });
 
+describe("a module walked on its importer's sys.path (#4870)", () => {
+	/** `lib/m.py`'s reach, reading `code`, alone and as the module the script
+	 * `tool/t.py`, reading `script`, imports; `files` stand beside them. */
+	function moduleTree(script: string, code: string, files: string[]) {
+		tree(script, [...files, "lib/m.py"]);
+		const walk = (file: string, text: string, search?: unknown) => {
+			const faults: string[] = [];
+			const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
+			const found = reachOf(
+				path.join(root, file),
+				text,
+				(m: string) => faults.push(m),
+				search,
+			);
+			return {
+				edges: rel(found.edges),
+				shadows: rel(found.shadows),
+				faults,
+				pySearch: found.pySearch,
+			};
+		};
+		const { pySearch } = walk("tool/t.py", script);
+		return {
+			alone: walk("lib/m.py", code),
+			imported: walk("lib/m.py", code, pySearch),
+			walk,
+		};
+	}
+	/* list_shape.py's shape: `lib`, then its own directory ahead of it. */
+	const listShape = [
+		"HERE = os.path.dirname(os.path.abspath(__file__))",
+		'sys.path.insert(0, os.path.join(HERE, "..", "lib"))',
+		"sys.path.insert(0, HERE)",
+		"import m",
+	].join("\n");
+
+	it("names what the importer's earlier entry tried before the module's import as a shadow", () => {
+		const { alone, imported } = moduleTree(listShape, "import helper\n", [
+			"lib/helper.py",
+		]);
+		expect(alone.shadows).toEqual(["lib/helper/__init__.py"]);
+		expect(imported.shadows).toEqual(
+			expect.arrayContaining(["tool/helper/__init__.py", "tool/helper.py"]),
+		);
+		expect(imported.edges).toContain("lib/helper.py");
+		expect(imported.faults).toEqual([]);
+	});
+
+	it("reaches the file on the importer's earlier entry that shadows the module's import", () => {
+		const { alone, imported } = moduleTree(listShape, "import helper\n", [
+			"lib/helper.py",
+			"tool/helper.py",
+		]);
+		expect(alone.edges).toEqual(["lib/helper.py"]);
+		expect([...imported.edges].sort()).toEqual([
+			"lib/helper.py",
+			"tool/helper.py",
+		]);
+	});
+
+	it("names a stdlib import's shadow on the importer's entries", () => {
+		const { alone, imported } = moduleTree(listShape, "import json\n", []);
+		expect(alone.shadows).not.toContain("tool/json.py");
+		expect(imported.shadows).toContain("tool/json.py");
+	});
+
+	it("places an import only the importer's sys.path holds, which faults walked alone", () => {
+		const { alone, imported } = moduleTree(listShape, "import beside\n", [
+			"tool/beside.py",
+		]);
+		expect(alone.faults).toEqual([
+			"imports beside, which is neither stdlib nor found beside it or on a sys.path entry it adds",
+		]);
+		expect(imported).toMatchObject({ edges: ["tool/beside.py"], faults: [] });
+	});
+
+	it("faults an import neither path holds", () => {
+		const { imported } = moduleTree(listShape, "import playwright\n", []);
+		expect(imported.faults).toEqual([
+			"imports playwright, which is neither stdlib nor found beside it or on a sys.path entry it adds",
+		]);
+	});
+
+	it("faults the module's import where the importer's sys.path holds an entry the walk cannot read", () => {
+		const { alone, imported } = moduleTree(
+			"sys.path.insert(0, sys.argv[1])\n",
+			"import sys\nimport helper\n",
+			["lib/helper.py"],
+		);
+		expect(alone.faults).toEqual([]);
+		expect(imported.faults).toEqual([
+			"imports helper after a sys.path edit the walk cannot read",
+		]);
+	});
+
+	it("hands the module's own edits on, atop its importer's, to what it imports", () => {
+		const code =
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "deep"))\nimport n\n';
+		const { imported, walk } = moduleTree(listShape, code, [
+			"deep/n.py",
+			"deep/x.py",
+			"tool/y.py",
+		]);
+		const below = walk("deep/n.py", "import x\nimport y\n", imported.pySearch);
+		expect(below).toMatchObject({
+			edges: ["deep/x.py", "tool/y.py"],
+			faults: [],
+		});
+	});
+
+	it("hands on a path that walking the module on it again leaves as it was", () => {
+		const code =
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "deep"))\n';
+		const { imported, walk } = moduleTree(listShape, code, []);
+		expect(walk("lib/m.py", code, imported.pySearch).pySearch).toEqual(
+			imported.pySearch,
+		);
+	});
+});
+
 /* #4790 pass 2 review, finding 4: each of these dropped its import with no
  * fault, so the pass store cached a test past a change to helper.py. */
 describe("a statement the parse may miss", () => {
@@ -267,6 +387,7 @@ describe("a file the walk cannot read", () => {
 			unread: [],
 			unknown: [],
 			python: false,
+			pySearch: null,
 		});
 		expect(faults).toEqual([]);
 	});

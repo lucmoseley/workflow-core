@@ -592,6 +592,54 @@ describe("a script the manifest says a file spawns", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	/** `spawning`'s tool.py, putting `lib` and then its own directory first
+	 * on sys.path as list_shape.py does, and loading `lib/mod.py`, which
+	 * reads `modCode`. */
+	function spawningModule(modCode: string, deps: string[] = []) {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/lib/mod.py", ...deps],
+			[
+				"import os, sys",
+				"HERE = os.path.dirname(os.path.abspath(__file__))",
+				'sys.path.insert(0, os.path.join(HERE, "lib"))',
+				"sys.path.insert(0, HERE)",
+				"import mod  # noqa: E402",
+			].join("\n"),
+		);
+		write(dir, "scripts/lib/mod.py", modCode);
+		git(dir, "commit", "-qam", "module");
+		return dir;
+	}
+
+	it("voids the pass when a file appears where the script's sys.path shadows its module's import (#4870)", () => {
+		const dir = spawningModule("import helper\n", ["scripts/lib/helper.py"]);
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a module's import found only on the script's sys.path changes (#4870)", () => {
+		const dir = spawningModule("import beside\n", ["scripts/beside.py"]);
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/beside.py", "changed\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("records a row where two modules import each other, each adding to sys.path (#4870)", () => {
+		const insert = (name: string) =>
+			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+		const dir = spawningModule(`${insert("a")}import other\n`, [
+			"scripts/lib/other.py",
+		]);
+		write(dir, "scripts/lib/other.py", `${insert("b")}import mod\n`);
+		git(dir, "commit", "-qam", "cycle");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+	});
+
 	it("records no row where the spawned Python script imports a module it cannot place (#4790)", () => {
 		const dir = spawning(
 			"scripts/tool.py",
@@ -971,7 +1019,8 @@ describe("a store it cannot trust runs every file", () => {
 	 * 2-4: its rows missed every guard core, a data file joined off
 	 * `__dirname` and what the setup file reaches. Format 7 is round 5's
 	 * findings 1, 2 and 7: its rows missed a path two joins off `__dirname`,
-	 * `.claude/workflow-core.json` and `tsconfig.json`. */
+	 * `.claude/workflow-core.json` and `tsconfig.json`. Format 8's rows
+	 * placed a Python module's imports on its own directory alone (#4870). */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -983,6 +1032,10 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before the walk read a path two joins off __dirname and the plugin config (#4790)",
 			7,
+		],
+		[
+			"before the walk placed a module's imports on its importer's sys.path (#4870)",
+			8,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();

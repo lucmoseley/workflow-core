@@ -120,7 +120,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 8;
+const FORMAT = 9;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -306,9 +306,11 @@ const refuseFault = (/** @type {string} */ why) => {
  *   repo-relative: the files reached, the paths a specifier on the way tried
  *   before the file it resolved to, and whether a file on the way runs inline
  *   Python
- * @typedef {Reach & {unknown: boolean}} FileReach one file's own: with
- *   whether it joins a path off its directory the walk cannot tell
- *   (lib/code-edges.js's `unknown`)
+ * @typedef {Reach & {unknown: boolean, pySearch: PySearch}} FileReach one
+ *   file's own: with whether it joins a path off its directory the walk
+ *   cannot tell (lib/code-edges.js's `unknown`), and sys.path as a Python
+ *   file leaves it (its `pySearch`), null for any other
+ * @typedef {import("./code-edges.js").Reach["pySearch"]} PySearch
  */
 
 /**
@@ -316,7 +318,9 @@ const refuseFault = (/** @type {string} */ why) => {
  * `__dirname`-spelled spawns, transitively, read lexically off the working
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
  * records, since this repo's tests reach their subjects through
- * `createRequire` and spawns. Memoised across the files of one run. Null
+ * `createRequire` and spawns. A Python module is read on the sys.path of
+ * the file that imports it, so once for each such path (#4870). Memoised
+ * across the files of one run. Null
  * where any file on the way will not read, or joins a path off its own
  * directory the walk cannot tell: an input left unknown records no row. A
  * test file's own such join is excused (`ownReadsJudged`): the read audit
@@ -328,55 +332,87 @@ const refuseFault = (/** @type {string} */ why) => {
 function lexicalReach(root) {
 	/** @type {Map<string, FileReach|null>} */
 	const memo = new Map();
-	/** @param {string} rel */
-	const readFrom = (rel) => {
-		if (memo.has(rel)) return memo.get(rel) ?? null;
-		const found = isScript(path.join(root, rel))
-			? readEdges(root, rel)
-			: { edges: [], shadows: [], python: false, unknown: false };
-		memo.set(rel, found);
+	/** @param {Visit} visit */
+	const readFrom = (visit) => {
+		const key = visitKey(visit);
+		if (memo.has(key)) return memo.get(key) ?? null;
+		const found = isScript(path.join(root, visit.rel))
+			? readEdges(root, visit)
+			: NO_REACH;
+		memo.set(key, found);
 		return found;
 	};
 	/**
-	 * `rel`'s own reach, null where it will not read or, its reads not
-	 * `judged` by the selector, it joins a path the walk cannot tell.
-	 * @param {string} rel
+	 * A visit's own reach, null where its file will not read or, its reads
+	 * not `judged` by the selector, it joins a path the walk cannot tell.
+	 * @param {Visit} visit
 	 * @param {boolean} judged
 	 */
-	const reachFrom = (rel, judged) => {
-		const found = readFrom(rel);
+	const reachFrom = (visit, judged) => {
+		const found = readFrom(visit);
 		return found?.unknown && !judged ? null : found;
 	};
 	return (file, ownReadsJudged = false) =>
-		walkReach(file, (rel) => reachFrom(rel, ownReadsJudged && rel === file));
+		walkReach(file, (visit) =>
+			reachFrom(visit, ownReadsJudged && visit.rel === file),
+		);
 }
 
+/** @type {FileReach} */
+const NO_REACH = {
+	edges: [],
+	shadows: [],
+	python: false,
+	unknown: false,
+	pySearch: null,
+};
+
 /**
- * The files `file` reaches, each file's own reach read by `reachOne`; null
- * where any is null.
+ * @typedef {{rel: string, pySearch: PySearch}} Visit one file as the walk
+ *   meets it: a Python module with the sys.path its importer left, any other
+ *   file with none
+ */
+
+/** @param {Visit} visit */
+const visitKey = ({ rel, pySearch }) => JSON.stringify([rel, pySearch]);
+
+/**
+ * The files `file` reaches, each visit's own reach read by `reachOne`; null
+ * where any is null. A Python file's edge to a Python file is an import, so
+ * the module is visited on the sys.path its importer left; `file` itself,
+ * and a Python file any other file reaches, is a script run on its own.
  * @param {string} file
- * @param {(rel: string) => FileReach|null} reachOne
+ * @param {(visit: Visit) => FileReach|null} reachOne
  * @returns {Reach|null} `file` left out of `edges`
  */
 function walkReach(file, reachOne) {
-	const seen = new Set([file]);
+	/** @type {Visit[]} */
+	const queue = [{ rel: file, pySearch: null }];
+	const visited = new Set(queue.map(visitKey));
+	/** @type {Set<string>} */
+	const edges = new Set();
 	/** @type {Set<string>} */
 	const shadows = new Set();
-	const queue = [file];
 	let python = false;
-	for (const rel of queue) {
-		const found = reachOne(rel);
+	for (const visit of queue) {
+		const found = reachOne(visit);
 		if (!found) return null;
 		python ||= found.python;
 		for (const p of found.shadows) shadows.add(p);
-		for (const next of found.edges)
-			if (!seen.has(next)) {
-				seen.add(next);
-				queue.push(next);
-			}
+		for (const rel of found.edges) {
+			edges.add(rel);
+			const next = {
+				rel,
+				pySearch: languageOf(rel) === "python" ? found.pySearch : null,
+			};
+			const key = visitKey(next);
+			if (visited.has(key)) continue;
+			visited.add(key);
+			queue.push(next);
+		}
 	}
-	seen.delete(file);
-	return { edges: [...seen], shadows: [...shadows], python };
+	edges.delete(file);
+	return { edges: [...edges], shadows: [...shadows], python };
 }
 
 /**
@@ -385,15 +421,15 @@ function walkReach(file, reachOne) {
  * the walk cannot tell; or null where it will not read, faults, or holds a
  * load the walk cannot read.
  * @param {string} root
- * @param {string} rel
+ * @param {Visit} visit
  * @returns {FileReach|null}
  */
-function readEdges(root, rel) {
+function readEdges(root, { rel, pySearch }) {
 	const abs = path.join(root, rel);
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
-		const reach = reachOf(abs, read.data, refuseFault);
+		const reach = reachOf(abs, read.data, refuseFault, pySearch);
 		if (reach.unread.length > 0) return null;
 		return {
 			edges: repoRelative(
@@ -403,6 +439,7 @@ function readEdges(root, rel) {
 			shadows: repoRelative(root, reach.shadows),
 			python: reach.python,
 			unknown: reach.unknown.length > 0,
+			pySearch: reach.pySearch,
 		};
 	} catch {
 		return null;
