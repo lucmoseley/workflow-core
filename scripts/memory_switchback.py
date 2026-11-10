@@ -7,12 +7,12 @@ fair coin per pair gives one block a hold and the other none. Each block's
 first 5 minutes are a washout and are not read (load_switchback.py's shape).
 
 The hold is one more session's launch charge as admission computes it at
-`draw` (`nextNeedMb - drawNeedMb` in ~/.claude/concurrency.jsonl, 668 MB on
-10 Nov). Pair 0 holds half of it and is never read: the low-side start. While
-a hold runs, ~/.claude/memory-hold reads `<MB> <pid> <procStart>`, and
-lib/meminfo.js adds the MB back to MemAvailable for admission, the suite
-ladder and the reap, so launches stay fixed and only the kernel feels the
-hold. The Windows-memory limb of the suite and tsc gates (lib/windows-memory.js)
+`draw` (`nextNeedMb - drawNeedMb` in ~/.claude/concurrency.jsonl). Pair 0
+holds half of it and is never read: the low-side start. While a hold runs,
+~/.claude/memory-hold reads `<MB> <pid> <procStart>`, and lib/meminfo.js
+adds the MB back to MemAvailable for admission, the suite ladder and the reap,
+so launches stay fixed and only the kernel feels the hold. The Windows-memory
+limb of the suite and tsc gates (lib/windows-memory.js)
 gets no add-back: it guards the VM against freezing, and how much of a guest
 hold reaches Windows is unmeasured. The readout counts its stand-down minutes
 per arm instead, as a balance check.
@@ -93,10 +93,9 @@ BREAK_EVEN = 1.14
 # Half of loop-on pairs were usable on 4-10 Nov (#4162), and the loop is not
 # always on: a week of schedule bounds the run, USABLE_PAIRS ends it sooner.
 SCHEDULE_H = 7 * 24
-# #4162's usable-block mask, the one its 77 pairs were sized on.
+# #4162's usable-block mask.
 MIN_ACTIVE = 3
 MIN_BASH = 20
-# The pairs each read skips: pair 0 is the half-size low-side start (#4162).
 UNREAD_PAIRS = {0}
 # Ticks admitting no session by memory, of which the hold size is the median:
 # the newest 50 span ~1 h of the loop's ticks (concurrency.jsonl, 10 Nov).
@@ -257,7 +256,6 @@ class Holder:
             raise
 
     def stop(self):
-        # The add-back goes before the pages do, the conservative order again.
         try:
             os.remove(self.p["hold"])
         except FileNotFoundError:
@@ -426,7 +424,6 @@ def run(
     stops = Stops()
     reading = reading or (lambda t, since: live_reading(p, t, since))
     usable = usable or (lambda pair: pair_usable(p, sched, pair))
-    # Resume-safe: a restarted run counts the pairs its last life logged.
     count = sum(bool(e.get("usable")) for e in past if e.get("event") == "pair")
     guard_until = 0.0  # the end of the washout after the last hold
     hold_began = None
@@ -557,8 +554,6 @@ def usable_pairs(rows):
     }
 
 
-# The companions: label, key. Each is read as a within-pair hold − none
-# difference beside the decision; none spends alpha.
 COMPANIONS = (
     ("Hook-timeout refusals / min", "hto_min"),
     ("Machine CPU-s per Bash call", "cpu_per_call"),

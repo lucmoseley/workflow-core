@@ -210,8 +210,10 @@ decides a verdict.
 node scripts/measure-outcome-review.js --json > "$R/outcomes.json"
 ```
 
-Exit 1 still writes the report, naming each failed read; a reading it could
-not take stays `waiting`. Then:
+It reads every repo this machine's sessions ran in, listed in `.repos`
+(#4858). Exit 1 still writes the report, naming each failed read; a reading it could
+not take stays `waiting`. The close's `**Bound:**` line names each repo in
+`.repos` and each tracker that failed to read. Then:
 
 1. **Copy** each entry of `.outcomes` into the record's `outcomes[]` (§7)
    as it stands. Never change a verdict.
