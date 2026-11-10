@@ -50,7 +50,7 @@ const ISOLATED_PREFIX = "isolated-";
  * therefore does not reproduce. `createIsolated` symlinks each one the
  * canonical checkout has into the frozen worktree, exactly as it does
  * `node_modules`; `removeIsolated` unlinks each before tearing the worktree
- * down, so the canonical original is never walked. A third member costs one
+ * down, so the canonical original is never walked. Another member costs one
  * line here (mantahostels#2213), or, for one a host's suite alone reads, one entry
  * in its `worktreeLinks` (#1767) — `linkArtefacts` makes its parent directory
  * first, so an entry needs no tracked sibling of its own to land.
@@ -59,11 +59,6 @@ const SHARED_ARTEFACTS = [
 	/* The bulk of the checkout — copying it per run would dwarf the worktree's
 	 * own cost, and it's what makes `.bin/vitest` findable at all (mantahostels#2153). */
 	"node_modules",
-	/* Husky's own generated shim directory (`.husky/_/.gitignore` is a bare
-	 * `*`), which test files read directly to exercise `core.hooksPath`
-	 * against the real hook runner rather than a hand-written stand-in (mantahostels#2213).
-	 */
-	path.join(".husky", "_"),
 ];
 
 /**
@@ -325,7 +320,7 @@ function createIsolated(
 	const linkFault = linkArtefacts(root, dir, worktreeFs);
 	if (linkFault !== null) {
 		/* Half a worktree is worse than none: lacking a member the checkout has,
-		 * the run would fail on a missing vitest, or on a missing `.husky/_/h`,
+		 * the run would fail on a missing vitest or a missing declared path,
 		 * and either reads as a suite failure rather than as the setup fault it
 		 * is. */
 		removeIsolated(root, dir, { execFn, worktreeFs, err });
