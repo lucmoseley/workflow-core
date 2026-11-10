@@ -31,7 +31,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { saySites } = require("./lib/heresy-scan.js");
 const { FIX_LINE, judgeHook } = require("./lib/precommit-exit.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
 const FILES = [".husky/pre-commit", ".husky/pre-commit.local"];

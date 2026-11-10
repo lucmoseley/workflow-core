@@ -46,7 +46,7 @@ const {
 } = require("./lib/primitives-table.js");
 const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {import("./lib/primitives-table.js").Count} Count */
 /** @typedef {import("./lib/primitives-table.js").Side} Side */
 const { runCheck } = require("./lib/check");

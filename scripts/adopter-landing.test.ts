@@ -29,6 +29,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderSessionRules } from "./lib/adopter-skeleton.js";
 import { runEventCores, toolCall } from "./lib/guard-core-testkit";
+import { readJsonl } from "./lib/jsonl.js";
 import { queueLanderFiles } from "./lib/lander-files.js";
 import {
 	commit,
@@ -198,15 +199,29 @@ describe("with the landing module on and the local tester", () => {
 		expect(git(remote, "rev-parse", "main")).toBe(a);
 		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
 		expect(remoteHeads()).not.toContain("refs/heads/queue/");
-		const isolations = remoteHeads()
-			.split("\n")
-			.filter((r) => /^refs\/heads\/lander\/iso-\d+$/.test(r));
+		/* The local tester pushes no lander ref (#4906, #4910): the isolation
+		 * commits are the shas the verdict ledger kept first-pass named-file
+		 * verdicts at. */
+		expect(remoteHeads()).not.toContain("refs/heads/lander/");
+		const isolations = [
+			...new Set(
+				(
+					(readJsonl(files.verdicts)?.rows ?? []) as {
+						sha: string;
+						files: string[];
+						pass?: number;
+					}[]
+				)
+					.filter((r) => r.files.length > 0 && (r.pass ?? 1) === 1)
+					.map((r) => r.sha),
+			),
+		];
 		expect(isolations).toHaveLength(2);
 		for (const iso of isolations) {
 			const held = [a, b].filter(
 				(m) =>
 					spawnSync("git", ["merge-base", "--is-ancestor", m, iso], {
-						cwd: remote,
+						cwd: work,
 					}).status === 0,
 			);
 			expect(held).toHaveLength(1);

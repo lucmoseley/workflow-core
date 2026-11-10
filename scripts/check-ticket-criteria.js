@@ -43,7 +43,7 @@ const {
 } = require("./lib/ticket-criteria");
 
 /**
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{ number: number, title: string, body?: string | null,
  *   labels?: { name: string }[], stateReason?: string | null,
  *   closedAt?: string | null, url: string }} ClosedIssue the fields
@@ -66,7 +66,7 @@ function readClosed() {
 			"number,title,body,labels,stateReason,closedAt,url",
 		]);
 	} catch (e) {
-		raiseGhFailure(e);
+		return raiseGhFailure(e);
 	}
 }
 

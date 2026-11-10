@@ -1027,7 +1027,7 @@ const productionIo = {
 	startReapPass,
 	startWarmPass,
 	runMachineChild,
-	tendHolds: (roots, served, now) => tendHolds(roots, served, now, log),
+	tendHolds: (roots, served, now) => tendHolds(roots, served, now, { log }),
 	readListing: (trusted) =>
 		trusted ? readAgentsAfterBoot() : listedAgents({ requireSelf: false }),
 	recordListedOverflowSessions,

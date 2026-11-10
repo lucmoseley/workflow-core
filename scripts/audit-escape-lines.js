@@ -360,7 +360,7 @@ async function main() {
 
 /**
  * One line per window and sight that holds anything.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {ReturnType<typeof tally>} rows
  */
 function sayRows(ctx, rows) {
@@ -376,7 +376,7 @@ function sayRows(ctx, rows) {
 /**
  * The report's run: at session start only the batch kick, since no session
  * acts on the standing (#2038); by hand, read the stores and print it.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @returns {import("./lib/check").CheckResult | void}
  */
 function reportRun(ctx) {

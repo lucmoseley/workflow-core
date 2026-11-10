@@ -451,7 +451,7 @@ const generatorCommand = (name) =>
 		: `node ${scriptPath(`generate-${name}.js`)}`;
 
 /**
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  *
  * A §C route path, or a §B restated-in path, that points at nothing.
  *

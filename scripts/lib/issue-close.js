@@ -563,7 +563,7 @@ function cardFault(run, close) {
  * @returns {never}
  */
 function denyCard(run, close, id, state) {
-	deny(
+	return deny(
 		run.ctx,
 		close.segment,
 		`This closes the issue for roadmap card \`${id}\`, and that card is still \`${state}\`, not \`done\`: @CMD@
@@ -641,7 +641,7 @@ function judgeCriteria(run, close) {
 		"\n",
 	);
 	if (!unmet) return true;
-	deny(
+	return deny(
 		run.ctx,
 		close.segment,
 		`This closes #${close.issue} over acceptance criteria neither ticked nor waived: @CMD@
@@ -712,7 +712,7 @@ function judgeOutstanding(run, close) {
 	} else {
 		const data = fetchIssue(run, close)?.data;
 		if (!data)
-			open(
+			return open(
 				run.ctx,
 				`could not read comments on ${at} — close allowed unchecked`,
 			);
