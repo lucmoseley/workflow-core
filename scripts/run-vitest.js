@@ -189,6 +189,7 @@ const {
 	isPassStoreLaunch,
 	launchRoute,
 	isTouchedRun,
+	noCacheRefusal,
 	npmSwallowedRefusal,
 } = require("./lib/launch-route.js");
 
@@ -2726,11 +2727,13 @@ function main(argv = process.argv.slice(2), options = {}) {
 
 if (require.main === module) {
 	/* Refused before the load hold, so a launch npm half-swallowed, or one
-	 * vitest would be handed a selection flag raw, never waits for a slot it
-	 * would then misuse (#2284, #2764). */
+	 * vitest would be handed a selection flag or `--no-cache` raw, never
+	 * waits for a slot it would then misuse (#2284, #2764, #4790). */
 	const argv = process.argv.slice(2);
 	const refusal =
-		npmSwallowedRefusal(argv, process.env) ?? selectionClashRefusal(argv);
+		npmSwallowedRefusal(argv, process.env) ??
+		noCacheRefusal(argv) ??
+		selectionClashRefusal(argv);
 	if (refusal) {
 		process.stderr.write(refusal);
 		process.exitCode = 1;

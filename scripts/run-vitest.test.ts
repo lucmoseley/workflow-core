@@ -1138,6 +1138,13 @@ describe("a runner flag npm swallowed, launched through `npm run` (#2284)", {
 		},
 	);
 
+	it("refuses vitest's --no-cache written after --, naming --fresh, and runs nothing (#4790)", async () => {
+		const result = await npmRun(["--", "--no-cache"]);
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("pass --fresh");
+		expect(result.ran).toBe(false);
+	});
+
 	it("runs a flag written after --, which npm passes through", async () => {
 		const result = await npmRun(["--", SHARED_FLAG]);
 		expect(result.stderr).not.toContain("NPM TOOK");
