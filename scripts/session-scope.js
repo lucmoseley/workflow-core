@@ -19,9 +19,9 @@
  * this same hook phase that have already been reparented to `/init`. Pass
  * follows pass until none finds a process left behind, and then any job the
  * outliving launch started that a pass pulled in is moved back out (lib's
- * gather). A
- * session born inside another's scope (a nested `claude`, or a spare of a
- * daemon a session started) moves to a scope of its own the same way.
+ * attachThenRelease). A session born inside another's scope (a nested
+ * `claude`, or a spare of a daemon a session started) moves to a scope of its
+ * own the same way.
  *
  * ITS OWN SLICE. The scope sits in `wfc-sessions.slice`, not `app.slice`,
  * so CFS weighs every session together against the lander's scope as one
@@ -67,13 +67,13 @@ const { readEnvironVar } = require("./lib/proc-environ.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readProcTable } = require("./lib/proc-table.js");
 const {
-	MEMORY_BOUND,
 	OUTLIVES_KEY,
-	SLICE,
-	gather,
+	adoptedLine,
+	attachThenRelease,
 	isSessionProcess,
 	membersOf,
-	releaseUnitOf,
+	releaseUnitArgs,
+	sessionUnitArgs,
 	straysOf,
 	unitOf,
 	watcherArgv,
@@ -201,28 +201,7 @@ function adopt(env) {
 	}
 
 	const description = `Claude session ${env.CLAUDE_CODE_SESSION_ID ?? String(leader)}`;
-	const started = busCall([
-		"StartTransientUnit",
-		"ssa(sv)a(sa(sv))",
-		unit,
-		"fail",
-		String(4 + MEMORY_BOUND.length),
-		"PIDs",
-		"au",
-		"1",
-		String(leader),
-		"Slice",
-		"s",
-		SLICE,
-		"CollectMode",
-		"s",
-		"inactive-or-failed",
-		"Description",
-		"s",
-		description,
-		...MEMORY_BOUND.flat(),
-		"0",
-	]);
+	const started = busCall(sessionUnitArgs(unit, leader, description));
 	if (!started.ok)
 		return fault(
 			`the user manager refused ${unit} (${started.err}): ${UNCONTAINED}`,
@@ -234,7 +213,7 @@ function adopt(env) {
 		return r.ok ? r.value : null;
 	};
 	const readOutlives = environOf(OUTLIVES_KEY);
-	const { moved, released } = gather({
+	const counts = attachThenRelease({
 		left: () => {
 			const now = readProcTable(proc);
 			if (!now) return [];
@@ -262,27 +241,7 @@ function adopt(env) {
 				readOutlives,
 			});
 		},
-		release: ({ root, startTicks, ceilingS, pids }) => {
-			const ceiling =
-				ceilingS === null
-					? []
-					: [["RuntimeMaxUSec", "t", String(ceilingS * 1_000_000)]];
-			return busCall([
-				"StartTransientUnit",
-				"ssa(sv)a(sa(sv))",
-				releaseUnitOf(root, startTicks),
-				"fail",
-				String(2 + ceiling.length),
-				"PIDs",
-				"au",
-				...pidArgs(pids),
-				"CollectMode",
-				"s",
-				"inactive-or-failed",
-				...ceiling.flat(),
-				"0",
-			]).ok;
-		},
+		release: (group) => busCall(releaseUnitArgs(group)).ok,
 	});
 	const watch = startWatcher(unit, leader, self.startTicks);
 	if (!watch.ok) {
@@ -291,13 +250,7 @@ function adopt(env) {
 			`no session watcher for ${unit} (${watch.err}): ${UNCONTAINED}`,
 		);
 	}
-	const out =
-		released > 0
-			? `, ${String(released)} outliving job process(es) moved back out`
-			: "";
-	return done(
-		`session ${String(leader)} in ${unit}, with ${String(moved)} other process(es)${out}`,
-	);
+	return adoptedLine(leader, unit, counts);
 }
 
 if (require.main === module) {

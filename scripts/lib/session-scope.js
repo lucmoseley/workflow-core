@@ -200,27 +200,108 @@ function attachAll(left, call) {
 /**
  * Attach the session's processes (attachAll), then move back out, each group
  * to a scope of its own, every outliving job found in the session's scope
- * (#4749); the counts attached and released.
+ * (#4749), read after read until one finds none or `MAX_PASSES` have run.
  *
  * WHY AFTER. A job's own `systemd-run --scope` can move it out between a
  * pass's cgroup read and its attach, which then pulls it back in, and at the
  * session's end its watcher kills it. No read before the attach closes that
- * gap, so `strays` reads afresh after every attach. The job's mark is in its
- * environ from systemd-run's exec, before its own move. So either that exec
- * came before the `strays` read, which then sees the job and releases it, or
- * it came after the attach, and the job's own move, later still, takes it
- * out. A released job's ceiling runs from its release, milliseconds after
- * its launch.
+ * gap. The job's mark is in its environ from systemd-run's exec, before its
+ * own move, and every process it forks inherits it. So either that exec came
+ * before a `strays` read, which sees the job, or after the attach, and the
+ * job's own move, later still, takes it out. A child forked in the scope
+ * before its parent's release, or a group the manager refused because one of
+ * its pids had exited, is met by the next read. A released job's ceiling
+ * runs from its release, milliseconds after its launch.
  * @template {{ pids: number[] }} G
  * @param {{ left: () => number[], attach: (pids: number[]) => boolean,
  *   strays: () => G[], release: (group: G) => boolean }} at
+ * @returns {{ moved: number, released: number, kept: number[] }} `kept`, the
+ *   marked pids still in the scope after the last read
  */
-function gather({ left, attach, strays, release }) {
+function attachThenRelease({ left, attach, strays, release }) {
 	const moved = attachAll(left, attach);
 	let released = 0;
-	for (const group of strays())
-		if (release(group)) released += group.pids.length;
-	return { moved, released };
+	let groups = strays();
+	for (let pass = 0; pass < MAX_PASSES && groups.length > 0; pass++) {
+		for (const group of groups)
+			if (release(group)) released += group.pids.length;
+		groups = strays();
+	}
+	return {
+		moved,
+		released,
+		kept: groups.flatMap(({ pids }) => pids).sort((a, b) => a - b),
+	};
+}
+
+const COLLECT = ["CollectMode", "s", "inactive-or-failed"];
+
+/**
+ * The user manager's `StartTransientUnit` method and its arguments: `unit`, a
+ * scope holding `pids`, with `props`, each `[name, signature, value]`.
+ * @param {string} unit @param {number[]} pids @param {string[][]} props
+ */
+const scopeUnitArgs = (unit, pids, props) => [
+	"StartTransientUnit",
+	"ssa(sv)a(sa(sv))",
+	unit,
+	"fail",
+	String(1 + props.length),
+	"PIDs",
+	"au",
+	String(pids.length),
+	...pids.map(String),
+	...props.flat(),
+	"0",
+];
+
+/**
+ * The session's own scope: `leader` alone, in SLICE, under MEMORY_BOUND.
+ * @param {string} unit @param {number} leader @param {string} description
+ */
+const sessionUnitArgs = (unit, leader, description) =>
+	scopeUnitArgs(
+		unit,
+		[leader],
+		[
+			["Slice", "s", SLICE],
+			COLLECT,
+			["Description", "s", description],
+			...MEMORY_BOUND,
+		],
+	);
+
+/**
+ * A released group's scope, stopped at its ceiling where it has one.
+ * @param {{ root: number, startTicks: number, ceilingS: number|null,
+ *   pids: number[] }} group
+ */
+const releaseUnitArgs = ({ root, startTicks, ceilingS, pids }) =>
+	scopeUnitArgs(releaseUnitOf(root, startTicks), pids, [
+		COLLECT,
+		...(ceilingS === null
+			? []
+			: [["RuntimeMaxUSec", "t", String(ceilingS * 1_000_000)]]),
+	]);
+
+/**
+ * What adopting `leader` into `unit` did, in one line; not ok where an
+ * outliving job stays in the scope, which its watcher will kill.
+ * @param {number} leader @param {string} unit
+ * @param {{ moved: number, released: number, kept: number[] }} counts
+ */
+function adoptedLine(leader, unit, { moved, released, kept }) {
+	const back =
+		released > 0
+			? `, ${String(released)} outliving job process(es) moved back out`
+			: "";
+	const line = `session ${String(leader)} in ${unit}, with ${String(moved)} other process(es)${back}`;
+	return kept.length === 0
+		? { ok: true, line }
+		: {
+				ok: false,
+				line: `${line}; outliving job process(es) ${kept.join(" ")} left in it, killed at its end (#4749)`,
+			};
 }
 
 /**
@@ -331,9 +412,10 @@ module.exports = {
 	isSessionProcess,
 	membersOf,
 	straysOf,
-	attachAll,
-	gather,
+	attachThenRelease,
+	sessionUnitArgs,
+	releaseUnitArgs,
+	adoptedLine,
 	OUTLIVES_KEY,
 	outlivesMark,
-	releaseUnitOf,
 };

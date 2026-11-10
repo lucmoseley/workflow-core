@@ -11,12 +11,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	attachAll,
-	gather,
+	adoptedLine,
+	attachThenRelease,
 	isSessionProcess,
 	membersOf,
 	outlivesMark,
-	releaseUnitOf,
+	releaseUnitArgs,
 	straysOf,
 	WATCH,
 } from "./session-scope.js";
@@ -133,7 +133,7 @@ describe("straysOf", () => {
  * `systemd-run --scope` execs (its mark appears) and moves it out at each
  * point of the attach, and it must end outside the session's scope.
  */
-describe("gather", () => {
+describe("attachThenRelease's release", () => {
 	const Home = "/non-systemd";
 	const Scope = "/s/wfc-sessions.slice/wfc-session-500-100.scope";
 	const Run = "/s/app.slice/run-u7.scope";
@@ -159,7 +159,7 @@ describe("gather", () => {
 			p === 600 && marked ? outlivesMark(500, 2700) : null;
 		const released: unknown[] = [];
 		at("start");
-		const counts = gather({
+		const counts = attachThenRelease({
 			left: () =>
 				membersOf({
 					procs,
@@ -190,10 +190,7 @@ describe("gather", () => {
 			release: (group) => {
 				released.push(group);
 				for (const p of group.pids)
-					cgroup.set(
-						p,
-						`/s/app.slice/${releaseUnitOf(group.root, group.startTicks)}`,
-					);
+					cgroup.set(p, `/s/app.slice/wfc-outlive-${group.root}.scope`);
 				return true;
 			},
 		});
@@ -222,35 +219,104 @@ describe("gather", () => {
 		expect(released).toEqual([
 			{ root: 600, startTicks: 120, ceilingS: 2700, pids: [600] },
 		]);
-		expect(cgroup.get(600)).toBe("/s/app.slice/wfc-outlive-600-120.scope");
-		expect(counts).toEqual({ moved: 2, released: 1 });
+		expect(cgroup.get(600)).toBe("/s/app.slice/wfc-outlive-600.scope");
+		expect(counts).toEqual({ moved: 2, released: 1, kept: [] });
+	});
+
+	/* A job pulled back in runs in the scope until its release, and a child it
+	 * forks there, or a group refused for a pid that exited, is met by a later
+	 * read. */
+	it("releases what a later read finds, and names what it never could", () => {
+		const procs = new Map([[600, { ppid: 1, startTicks: 120 }]]);
+		const cgroup = new Map([[600, Scope]]);
+		const tries: number[][] = [];
+		const counts = attachThenRelease({
+			left: () => [],
+			attach: () => true,
+			strays: () =>
+				straysOf({
+					procs,
+					leader: 500,
+					scope: Scope,
+					readCgroup: (p: number) => cgroup.get(p) ?? null,
+					readOutlives: () => outlivesMark(500, 2700),
+				}),
+			release: ({ pids }) => {
+				tries.push(pids);
+				if (tries.length === 1) {
+					/* Refused; meanwhile 600 forks 601, and 602 appears, in the scope. */
+					procs.set(601, { ppid: 600, startTicks: 130 });
+					procs.set(602, { ppid: 1, startTicks: 140 });
+					cgroup.set(601, Scope).set(602, Scope);
+					return false;
+				}
+				if (pids.includes(602)) return false;
+				for (const p of pids) cgroup.set(p, "/s/app.slice/out.scope");
+				return true;
+			},
+		});
+		expect(tries.slice(0, 3)).toEqual([[600], [600, 601], [602]]);
+		expect(counts).toEqual({ moved: 0, released: 2, kept: [602] });
 	});
 });
 
-describe("attachAll", () => {
+describe("releaseUnitArgs", () => {
+	it("asks for a collected scope of the group's pids, at its ceiling or none", () => {
+		const group = { root: 600, startTicks: 120, pids: [600, 601] };
+		expect(releaseUnitArgs({ ...group, ceilingS: 2700 }).join(" ")).toBe(
+			"StartTransientUnit ssa(sv)a(sa(sv)) wfc-outlive-600-120.scope fail 3 PIDs au 2 600 601 CollectMode s inactive-or-failed RuntimeMaxUSec t 2700000000 0",
+		);
+		expect(releaseUnitArgs({ ...group, ceilingS: null }).join(" ")).toBe(
+			"StartTransientUnit ssa(sv)a(sa(sv)) wfc-outlive-600-120.scope fail 2 PIDs au 2 600 601 CollectMode s inactive-or-failed 0",
+		);
+	});
+});
+
+describe("adoptedLine", () => {
+	it("is not ok where an outliving job stays in the scope", () => {
+		expect(
+			adoptedLine(500, "u.scope", { moved: 2, released: 1, kept: [] }),
+		).toEqual({
+			ok: true,
+			line: "session 500 in u.scope, with 2 other process(es), 1 outliving job process(es) moved back out",
+		});
+		expect(
+			adoptedLine(500, "u.scope", { moved: 2, released: 0, kept: [602] }),
+		).toMatchObject({
+			ok: false,
+			line: expect.stringMatching(/ 602 left in it/),
+		});
+	});
+});
+
+describe("attachThenRelease's attach", () => {
+	const none = { strays: () => [], release: () => true };
+
 	it("retries a refused batch a pid at a time, and passes again for what forked meanwhile", () => {
 		const outside = [[501, 600], [502], []];
 		const calls: number[][] = [];
-		const moved = attachAll(
-			() => outside.shift() ?? [],
-			(pids) => {
+		const { moved } = attachThenRelease({
+			left: () => outside.shift() ?? [],
+			attach: (pids) => {
 				calls.push(pids);
 				return pids.length === 1;
 			},
-		);
+			...none,
+		});
 		expect(moved).toBe(3);
 		expect(calls).toEqual([[501, 600], [501], [600], [502]]);
 	});
 
 	it("stops after its last pass however much is left", () => {
 		let passes = 0;
-		attachAll(
-			() => {
+		attachThenRelease({
+			left: () => {
 				passes++;
 				return [501];
 			},
-			() => true,
-		);
+			attach: () => true,
+			...none,
+		});
 		expect(passes).toBe(5);
 	});
 });
