@@ -5,12 +5,8 @@
  *
  * DENY, not warn (mantahostels#103).
  *
- * THE WORKTREE REFUSAL HOLDS WITH `landing` OFF TOO. The claim and write
- * stores key a write by the path in the writer's own tree (#4397), so a
- * worktree session's write here takes no key: unrefused, it would sit
- * unclaimed and unledgered, unseen by the turn-end uncommitted-work guard,
- * the hand-off's stranded-file read and the concision backstop. A session
- * whose cwd is the main checkout keeps writing there until the cutover.
+ * THE WORKTREE REFUSAL HOLDS WITH `landing` OFF TOO. A session whose cwd is
+ * the main checkout keeps writing there until the cutover.
  *
  * WHAT IT REFUSES, from a linked-worktree session or with the `landing`
  * module on and the main checkout cut over (lib/cutover.js): a Write, Edit or NotebookEdit
