@@ -8,6 +8,11 @@
  * the commit being built is in, and a pathspec commit's temporary index
  * (GIT_INDEX_FILE) is the one read.
  *
+ * Only for the repository that index belongs to (#4733). Inside a commit hook
+ * git exports GIT_INDEX_FILE, and sometimes GIT_DIR, for the hook's repo; any
+ * other checkout — the core's, read from an adopter's hook — is read with the
+ * repository-local variables stripped, as git does for a submodule.
+ *
  * A directory no checkout tops — a materialised `--root` copy, which `git
  * archive` wrote tracked-only, or a plugin cache with no `.git` — is its own
  * tree, read as it lies on disk. So is a checkout git cannot answer for, with
@@ -48,6 +53,7 @@ function readTree(base) {
 	const opts = {
 		encoding: /** @type {const} */ ("utf8"),
 		timeout: GIT_TIMEOUT_MS,
+		env: envFor(base),
 	};
 	/* An empty prefix says git takes `base` for the top of the checkout whose
 	 * `.git` it carries, and not a directory below some other work tree. */
@@ -74,6 +80,61 @@ function readTree(base) {
 			.map((p) => path.normalize(p)),
 	);
 	return { index, failure: null };
+}
+
+/**
+ * The environment to read `base` under: the process's own where the
+ * repository-local variables it carries are `base`'s, else those stripped.
+ *
+ * @param {string} base
+ * @returns {NodeJS.ProcessEnv}
+ */
+function envFor(base) {
+	const local = localEnvVars().filter((k) => process.env[k] !== undefined);
+	if (local.length === 0) return process.env;
+	const stripped = { ...process.env };
+	for (const k of local) delete stripped[k];
+	/** @param {string[]} args @param {NodeJS.ProcessEnv} env */
+	const gitDir = (args, env) => {
+		const r = spawnGitSync([...args, "rev-parse", "--absolute-git-dir"], {
+			encoding: "utf8",
+			timeout: GIT_TIMEOUT_MS,
+			env,
+		});
+		return r.error || r.status !== 0 ? null : String(r.stdout).trim();
+	};
+	const exported = gitDir([], process.env);
+	return exported !== null && exported === gitDir(["-C", base], stripped)
+		? process.env
+		: stripped;
+}
+
+/** @type {string[] | null} */
+let localVars = null;
+
+/**
+ * The variables that name a repository rather than configure git, as git
+ * lists them, less the `-c` overrides it carries into another repository too
+ * (`prepare_other_repo_env`).
+ */
+function localEnvVars() {
+	if (!localVars) {
+		const r = spawnGitSync(["rev-parse", "--local-env-vars"], {
+			encoding: "utf8",
+			timeout: GIT_TIMEOUT_MS,
+		});
+		/* None where git cannot answer: the read after it fails and says why. */
+		localVars =
+			r.error || r.status !== 0
+				? []
+				: String(r.stdout)
+						.split("\n")
+						.filter(
+							(k) =>
+								k && k !== "GIT_CONFIG_PARAMETERS" && k !== "GIT_CONFIG_COUNT",
+						);
+	}
+	return localVars;
 }
 
 /**
