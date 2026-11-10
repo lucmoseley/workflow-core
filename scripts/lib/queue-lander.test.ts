@@ -2622,7 +2622,6 @@ describe("the pipeline (#4556)", () => {
 	it("holds a follower's lone member deferred against the head until the head settles, landing the head on its green (#4839)", async () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const disk = freshDisk();
-		/* b merges alone onto m0 but not onto any tip holding a1. */
 		const merge = (onto: string, members: readonly Member[]): MergeResult =>
 			members.some((m) => m.name === "b") && onto.includes("a1")
 				? { kind: "conflict", name: "b", files: ["b.txt"] }
@@ -2646,8 +2645,7 @@ describe("the pipeline (#4556)", () => {
 	it("takes a deferred member onto the same base again once its ref moves (#4839)", async () => {
 		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
 		const disk = freshDisk();
-		/* b at any sha merges alone onto m0 but not onto a tip holding a1; its
-		 * first merge alone is followed by a push of b2. */
+		/* b's first merge alone is followed by a push of b2. */
 		const merge = (onto: string, members: readonly Member[]): MergeResult => {
 			const b = remote.refs.get("b");
 			if (b?.sha === "b1" && onto === "m0")

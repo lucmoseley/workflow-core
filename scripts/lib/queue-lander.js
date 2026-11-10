@@ -53,11 +53,9 @@
  *   alone, it conflicts only with an earlier member, and it is deferred: left
  *   out of this batch, and taken again once `main` moves, no live batch of
  *   the line is merged onto or is the base it would not merge onto, or its
- *   ref moves; so a lone member deferred behind the head waits for the head
- *   to settle rather than being taken onto it again each round (#4839). A
- *   later member still merges into this one. Residual: a run keeps its
- *   deferrals in memory, so a fresh run takes each such member onto that
- *   base once more before deferring it again.
+ *   ref moves (#4839). A later member still merges into this one.
+ *   Residual: a run keeps its deferrals in memory, so a fresh run takes each
+ *   such member onto that base once more before deferring it again.
  * - **Green.** The integration sha is written to the green ledger, then `main`
  *   moves to it by a plain push. Each member merged into it whose ref still
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
@@ -1421,8 +1419,7 @@ function batchStep(s, main, live) {
 /**
  * Whether the queue ref `r` is a member deferred at its sha, while `main`
  * has not moved, onto a base the line still holds, as a live batch merged
- * onto it or as one's integration commit: taken onto that base it would only
- * be deferred again.
+ * onto it or as one's integration commit.
  * @param {readonly Deferral[]} deferrals
  * @param {string|null} main
  * @param {readonly Batch[]} line
