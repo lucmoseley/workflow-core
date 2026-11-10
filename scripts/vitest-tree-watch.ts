@@ -5,7 +5,7 @@
  * the policy. In short — mantahostels#273, where a suite imported half-written
  * source and went red with a different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside the lander's run, arms the read audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
  * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
@@ -32,6 +32,9 @@ const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
 const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 const { readAlreadyRedLines } = require("./lib/already-red.js");
 const { record: recordFileResults } = require("./lib/pass-store.js");
+const readAudit = require("./lib/read-audit.js");
+const { isLanderRun } = require("./lib/session-id.js");
+const { caught } = require("./lib/caught.js");
 
 /*
  * The tree under test: vitest's own root, handed to `setup`. Never this file's
@@ -42,10 +45,25 @@ let treeRoot = process.cwd();
 
 let before: unknown = null;
 
+/* The read audit's log directory (#4916), null where this run is unaudited:
+ * a test's nested run, whose reads its owner's audit holds, or the lander's,
+ * which records no row. */
+let auditDir: string | null = null;
+
+function armAudit() {
+	auditDir = isLanderRun() ? null : readAudit.install(treeRoot);
+}
+
+function disarmAudit() {
+	readAudit.remove(auditDir);
+	auditDir = null;
+}
+
 export function setup(project?: { config?: { root?: string } }) {
 	const root = project?.config?.root;
 	if (typeof root === "string" && root) treeRoot = root;
 	before = readTreeSnapshot(treeRoot);
+	armAudit();
 }
 
 export function teardown() {
@@ -86,9 +104,26 @@ function recordFiles(
 				before === null || drifted?.headMoved
 					? null
 					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
+			audits: readAuditsOrNone(),
 		},
 		{ storeRoot: root },
 	);
+}
+
+/**
+ * The read audit's per-file reads (#4916), null where this run was not
+ * audited or its logs will not read.
+ */
+function readAuditsOrNone() {
+	if (auditDir === null) return null;
+	try {
+		return readAudit.readAudits(auditDir, treeRoot);
+	} catch (e) {
+		process.stderr.write(
+			`vitest-tree-watch: the read audit will not read (${caught(e).message ?? e}), so no file records a row (#4916)\n`,
+		);
+		return null;
+	}
 }
 
 /*
@@ -184,4 +219,5 @@ export function runTeardown(rootOverride?: string | null) {
 		const owners = readAlreadyRedLines(marker, root);
 		if (owners.length > 0) process.stderr.write(`\n${owners.join("\n")}\n`);
 	}
+	disarmAudit();
 }
