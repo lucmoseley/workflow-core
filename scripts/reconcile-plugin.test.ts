@@ -579,7 +579,13 @@ describe("reconcile-plugin.js's walker is the fresh install's own (#682)", () =>
  */
 function procFixture(
 	at: Fixture,
-	rows: { pid: string; args: string; configDir?: string; ppid?: string }[],
+	rows: {
+		pid: string;
+		args: string;
+		configDir?: string;
+		ppid?: string;
+		cwd?: string;
+	}[],
 ) {
 	const proc = path.join(at.tmp, "proc");
 	const ps = writePsStub(
@@ -600,6 +606,7 @@ function procFixture(
 			path.join(dir, "stat"),
 			`${r.pid} (claude) S ${r.ppid ?? "1"} ${"0 ".repeat(50).trim()}\n`,
 		);
+		if (r.cwd) fs.symlinkSync(r.cwd, path.join(dir, "cwd"));
 	}
 	return { WFC_PS: ps, WFC_PROC: proc };
 }
@@ -683,6 +690,42 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 		expect(sessionEnd(at, procs).text).toContain("(pid 300)");
 	});
 
+	/** A daemon and one spare pair, its `bg-spare` half sitting in `spareCwd`. */
+	function sparePair(at: Fixture, spareCwd: string) {
+		const dir = "/tmp/cc-daemon-1000/abc/spare";
+		return [
+			{ pid: "500", args: "claude daemon run" },
+			{ pid: "501", args: `claude bg-pty-host ${dir}/k7Q2.pty.sock` },
+			{
+				pid: "502",
+				args: `claude bg-spare --bg-spare ${dir}/k7Q2.claim.sock`,
+				cwd: spareCwd,
+			},
+		].map((r) => ({ ...r, configDir: at.configDir }));
+	}
+
+	it("rotates where the only other Claude processes are the daemon and its idle spare pair (#4741)", () => {
+		const at = consenting();
+		const procs = procFixture(
+			at,
+			sparePair(at, "/tmp/cc-daemon-1000/abc/spare"),
+		);
+		const got = sessionEnd(at, procs);
+		expect(got.text).not.toContain("deferring");
+		expect(
+			readRotations(at).filter((c) => c.includes("marketplace add")),
+		).toHaveLength(1);
+	});
+
+	it("defers on a claimed spare pair, naming both halves (#4741)", () => {
+		const at = consenting();
+		const procs = procFixture(at, sparePair(at, at.root));
+		const got = sessionEnd(at, procs);
+		expect(got.text).toContain("2 other Claude session(s)");
+		expect(got.text).toContain("(pid 501, 502)");
+		expect(readRotations(at)).toEqual([]);
+	});
+
 	it("falls back to ~/.claude for a session that exported no config dir", () => {
 		// HOME is the fixture's tmp, so ~/.claude is the fixture's own config dir.
 		const at = consenting(".claude");
@@ -697,6 +740,19 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 });
 
 describe("reconcile-plugin.js's command line", () => {
+	it("says why it stopped when run by hand with no CLAUDE_PLUGIN_ROOT (#4741)", () => {
+		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
+		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
+		const env = sessionEnv(at);
+		delete env.CLAUDE_PLUGIN_ROOT;
+		const r = runInProcess(SCRIPT, ["--session-end"], { env });
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("reconcile-plugin: stopped");
+		expect(r.stdout).toContain("set CLAUDE_PLUGIN_ROOT");
+		expect(readClaudeCalls(at)).toEqual([]);
+		expect(readReportOutcome(at)).toBeNull();
+	});
+
 	it("does nothing at all without the flag", () => {
 		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
 		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
