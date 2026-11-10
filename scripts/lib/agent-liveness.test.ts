@@ -220,12 +220,11 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		// Two children a read, two seats a call, and two calls: the first and
 		// its one retry.
 		const childrenOfAllReads = 8;
-		// §X9: the reap follows a real process timeout. A round whose fake
-		// started late logs fewer pids, so it is run again on doubled caps rather
-		// than failed (#4732); every child any round logged must still be reaped.
-		// The retry cap is twice the first, as production's 10 s / 20 s are
-		// (agent-liveness.js). A guess: 1 s starts the climb, as the old fixed
-		// caps did; 8 s ends it, bounding a failing case to ~45 s of caps
+		// §X9: a round whose fake started late logs fewer pids, so it is run
+		// again on doubled caps rather than failed (#4732); every child any round
+		// logged must still be reaped. The retry cap is twice the first, as
+		// production's 10 s / 20 s are (agent-liveness.js). A guess: 1 s starts
+		// the climb; 8 s ends it, bounding a failing case to ~45 s of caps
 		// (3 × (1+2+4+8)), inside the 90 s testTimeout.
 		// Residual: a fake still short of 8 pids at 8 s fails the count.
 		let children: string[] = [];
