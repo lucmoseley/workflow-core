@@ -105,7 +105,7 @@ const {
 } = require("./npm-options.js");
 const { ruleOrFallback, spliceCmd } = require("./guard-verdict.js");
 const { isUnder } = require("./is-under.js");
-const { readOrNull } = require("./tree-or.js");
+const { readOrNull } = require("./file-read.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
 

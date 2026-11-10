@@ -130,9 +130,9 @@ const { parseJsonlRow } = require("./lib/jsonl.js");
 const {
 	flattenHooks,
 	readOwnHookSources,
-	SELF_PLUGIN_DIR,
 	toScriptsRel,
 } = require("./lib/core-hooks.js");
+const { selfPluginRoot } = require("./lib/hook-env.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -1798,7 +1798,7 @@ function checkOwnHook(ctx, { event, hook, file }) {
 		...hookPaths(command, args).map((p) => ({ ...p, root: repoRoot() })),
 		...hookPaths(command, args, "CLAUDE_PLUGIN_ROOT").map((p) => ({
 			...p,
-			root: path.join(repoRoot(), SELF_PLUGIN_DIR),
+			root: selfPluginRoot(repoRoot()),
 		})),
 	];
 	for (const { rel, direct, root } of named) {
