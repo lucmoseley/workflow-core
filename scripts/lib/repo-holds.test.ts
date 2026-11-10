@@ -588,6 +588,64 @@ describe("the probe hold (#3860)", () => {
 		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
+	it("reads a hold raised on a linked worktree whose .git file is garbage once it is repaired (#4718)", () => {
+		serve();
+		const worktree = at("worktree");
+		execFileSync("git", ["worktree", "add", "-q", worktree], { cwd: repo });
+		const gitFile = path.join(worktree, ".git");
+		const text = fs.readFileSync(gitFile, "utf8");
+		fs.writeFileSync(gitFile, "garbage\n");
+
+		const raised = tick(NOW, [worktree]);
+		expect(raised.text).toContain("repo hold raised: probe in");
+		const broken = holdsDir(worktree);
+		/* A session parked on it, as an attach leaves it (#3858). */
+		fs.writeFileSync(path.join(broken, "probe.attached.job-a"), "");
+
+		fs.writeFileSync(gitFile, text);
+
+		const { holds } = readHolds(worktree);
+		expect(holds.map((h) => [h.id, h.sessions])).toEqual([
+			["probe", ["job-a"]],
+		]);
+		expect(fs.existsSync(broken)).toBe(false);
+	});
+
+	it("leaves a broken keying's hold where the repaired store holds its id, until that one lifts (#4718)", () => {
+		serve();
+		const worktree = at("worktree");
+		execFileSync("git", ["worktree", "add", "-q", worktree], { cwd: repo });
+		const gitFile = path.join(worktree, ".git");
+		const text = fs.readFileSync(gitFile, "utf8");
+		const raiseProbe = (root: string, act: string, now: number) =>
+			raiseHold(root, {
+				id: "probe",
+				kind: "probe",
+				act,
+				issue: ISSUE,
+				clearCheck: { probe: true },
+				session: null,
+				now,
+			});
+		raiseProbe(worktree, "before the break", NOW);
+		fs.writeFileSync(gitFile, "garbage\n");
+		raiseProbe(worktree, "while broken", NOW + MIN);
+		const broken = holdsDir(worktree);
+		fs.writeFileSync(gitFile, text);
+
+		expect(readHolds(worktree).holds.map((h) => h.act)).toEqual([
+			"before the break",
+		]);
+		expect(fs.existsSync(path.join(broken, "probe.json"))).toBe(true);
+
+		liftHold(worktree, "probe");
+
+		expect(readHolds(worktree).holds.map((h) => h.act)).toEqual([
+			"while broken",
+		]);
+		expect(fs.existsSync(broken)).toBe(false);
+	});
+
 	describe("the hook environment (#4736)", () => {
 		/* What a login shell already holds, which the harness need not give. */
 		const LoginVars = new Set(["HOME", "PATH"]);

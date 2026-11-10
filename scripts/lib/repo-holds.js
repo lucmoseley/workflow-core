@@ -12,8 +12,8 @@
  * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
  * out a hold the founder has yet to answer. Where git will not name the common
  * dir, a linked worktree keys on the one its `.git` file points at (#4402).
- * RESIDUAL (#4718): a `.git` file that points nowhere keys on its own path, so its
- * holds split from the checkout's until it is repaired.
+ * One that points nowhere keys on its own path, and its store is adopted into
+ * the common dir's once the file names one again (#4718).
  *
  * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
  * lift racing get one winner and one log line, and the sessions parked on the hold
@@ -255,25 +255,127 @@ const tickStores = new AsyncLocalStorage();
  * The checkout's store: named for a reader, and hashed because two paths can
  * flatten to one name. A broken `.git` that git will not name keys on the
  * common dir it points at, or else on its own path, as a probe hold raised on
- * one must be found once it is repaired (#4402).
+ * one must be found once it is repaired (#4402). So a keying off a common dir
+ * first adopts the store a `.git` naming none keyed on (#4718).
  * @param {string} root
  */
 function holdsDir(root) {
 	const stores = tickStores.getStore();
 	const known = stores?.get(root);
 	if (known !== undefined) return known;
-	const common =
-		gitCommonDir(root) ?? readGitFileCommonDir(root) ?? path.join(root, ".git");
-	const key = deref(common);
-	const hash = createHash("sha256").update(key).digest("hex");
-	const dir = refillPath(
+	const own = path.join(root, ".git");
+	const common = gitCommonDir(root) ?? readGitFileCommonDir(root);
+	const dir = buildStoreDir(root, common ?? own);
+	const broken = buildStoreDir(root, own);
+	if (common !== null && broken !== dir) adoptStore(broken, dir);
+	stores?.set(root, dir);
+	return dir;
+}
+
+/**
+ * The store directory for `root` keyed on `key`, a git dir.
+ * @param {string} root
+ * @param {string} key
+ */
+function buildStoreDir(root, key) {
+	const hash = createHash("sha256").update(deref(key)).digest("hex");
+	return refillPath(
 		path.join(
 			"repo-holds",
 			`${path.basename(root)}-${hash.slice(0, STORE_KEY_LENGTH)}`,
 		),
 	);
-	stores?.set(root, dir);
-	return dir;
+}
+
+/**
+ * Move store `from`'s entries into store `to`, then remove `from` once empty.
+ * A hold whose id `to` already holds stays, beside every file named for it,
+ * until that one lifts; any other name `to` already has is dropped, `to`'s
+ * being the newer. A hold's own record moves after the files named for it, so
+ * a reader of `to` never meets it short of its notice.
+ * @param {string} from
+ * @param {string} to
+ */
+function adoptStore(from, to) {
+	const names = readNamesOrNone(from);
+	if (names.length === 0) return;
+	fs.mkdirSync(to, { recursive: true });
+	const held = new Set(
+		fs
+			.readdirSync(to)
+			.filter((n) => n.endsWith(".json"))
+			.map((n) => n.slice(0, -".json".length)),
+	);
+	const free = names.filter((n) => !held.has(n.split(".")[0]));
+	for (const name of free.filter((n) => !n.endsWith(".json")))
+		if (name === LIFTED_DIR) adoptLifted(from, to);
+		else moveEntry(path.join(from, name), path.join(to, name));
+	for (const name of free.filter((n) => n.endsWith(".json")))
+		moveEntry(path.join(from, name), path.join(to, name));
+	removeDirIfEmpty(from);
+}
+
+/**
+ * Move each finished lift under `from`'s `lifted/` to `to`'s.
+ * @param {string} from
+ * @param {string} to
+ */
+function adoptLifted(from, to) {
+	const base = path.join(from, LIFTED_DIR);
+	fs.mkdirSync(path.join(to, LIFTED_DIR), { recursive: true });
+	for (const name of readNamesOrNone(base))
+		moveEntry(path.join(base, name), path.join(to, LIFTED_DIR, name));
+	removeDirIfEmpty(base);
+}
+
+/**
+ * Move `from` to `to` where `to` is free. A file `to` already names is
+ * dropped; a directory stays, as its name holds a random part and never
+ * collides. A race with another adopter moves it once.
+ * @param {string} from
+ * @param {string} to
+ */
+function moveEntry(from, to) {
+	try {
+		if (fs.lstatSync(from).isDirectory()) {
+			fs.renameSync(from, to);
+			return;
+		}
+		/* A link refuses where `to` stands, where a rename would overwrite it. */
+		fs.linkSync(from, to);
+	} catch (err) {
+		const { code } = caught(err);
+		if (code === "ENOENT" || code === "ENOTEMPTY") return;
+		if (code !== "EEXIST") throw err;
+	}
+	fs.rmSync(from, { force: true });
+}
+
+/**
+ * The names in `dir`; none where it is gone.
+ * @param {string} dir
+ */
+function readNamesOrNone(dir) {
+	try {
+		return fs.readdirSync(dir);
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		throw err;
+	}
+}
+
+/**
+ * Remove `dir` where nothing is left in it.
+ * @param {string} dir
+ */
+function removeDirIfEmpty(dir) {
+	try {
+		fs.rmdirSync(dir);
+	} catch (err) {
+		const { code } = caught(err);
+		if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST")
+			throw err;
+	}
 }
 
 /**
