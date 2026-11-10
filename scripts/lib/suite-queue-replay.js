@@ -61,12 +61,8 @@ const {
 	isClimbKept,
 	turnOf,
 } = require("./suite-queue");
-const {
-	TSC_MAX,
-	TSC_PEAK_MB,
-	TSC_RUNG_MB,
-	isTscRunner,
-} = require("./tsc-slot");
+const { chargeMb } = require("./launch-charge");
+const { TSC_MAX, TSC_RUNG_MB, isTscRunner } = require("./tsc-slot");
 const {
 	WINDOWS_FRESH_S,
 	windowsReadingOf,
@@ -720,7 +716,9 @@ function isWindowsHeld(e, tick) {
 		return tick.t - since < WINDOWS_MAX_HOLD_MS;
 	}
 	const drawMb =
-		e.kind === "tsc" ? TSC_PEAK_MB : rungOf(e, tick) - suiteRungMb(tick.busy);
+		e.kind === "tsc"
+			? chargeMb({ kind: "tsc" })
+			: rungOf(e, tick) - suiteRungMb(tick.busy);
 	return tick.win.mb < drawMb + DRAW_MARGIN_MB;
 }
 

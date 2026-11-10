@@ -34,6 +34,7 @@ const {
 	lastLineTerminator,
 } = require("./line-terminators.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
+const { chargeMb: launchChargeMb } = require("./launch-charge.js");
 const { rungMb } = require("./suite-ladder.js");
 const {
 	gateDenies,
@@ -67,18 +68,6 @@ const rootlessEnv = () => {
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
-/* What admission holds back for a lander, by the kind of run it holds
- * (#3323), and what the queues' climb charges its marker (#3973): its
- * tester's own tree peak, never a machine-wide MemAvailable dip (#2508). Off
- * the lander run record, each run's tree PSS sampled every 2 s from its
- * spawn, 28 Oct - 5 Nov 2026, with no margin, the rung holding
- * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB, from the 4 Nov
- * tree suite-queue.js `PEAK_MB` reads as an outlier; #4771 re-derives it.
- * Named: the highest of 341 runs of 1-6 files, 937 MB. A named run past
- * those 6 files is unmeasured and charged whole. Residual: a spike between
- * two samples is charged short. */
-const CHARGE_MB = { whole: 2630, named: 940 };
-const NAMED_MEASURED_FILES = 6;
 /* The queue marker's role, which session admission reads (#2416). */
 const LANDER_ROLE = "lander";
 /* Untraced: room for a checkout of the whole tree. */
@@ -447,7 +436,7 @@ async function suiteSlot({
 /**
  * The landers holding or waiting for a suite slot, each with the charge its
  * marker carries, for session admission to hold back (#2416, #3323). A marker
- * whose charge is not a number is held the larger.
+ * whose charge is not a number is held a whole run's.
  * @param {{queueDir?: string}} [options]
  * @returns {import("./admission.js").Landers}
  */
@@ -456,7 +445,7 @@ function readLiveLanders({ queueDir } = {}) {
 		pid: r.pid,
 		chargeMb: Number.isFinite(r.chargeMb)
 			? Number(r.chargeMb)
-			: CHARGE_MB.whole,
+			: launchChargeMb({ kind: "lander", files: [] }),
 	}));
 }
 
@@ -832,7 +821,7 @@ async function runInSlot(
  * One line of the lander run record (#3323). A line that does not land is
  * said on stderr and costs the verdict nothing.
  * @param {string} root
- * @param {{sha: string, kind: keyof typeof CHARGE_MB, files: number,
+ * @param {{sha: string, kind: "whole" | "named", files: number,
  *   shards: number, peakMb: number, samples: number,
  *   verdict: Verdict["kind"]}} run
  */
@@ -941,9 +930,8 @@ function localTester({
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";
 			const tally = { ran: 0, peakKb: 0, samples: 0 };
-			const chargeKind = files.length > NAMED_MEASURED_FILES ? "whole" : kind;
 			const watched = watchMemoryShut(() =>
-				admit({ chargeMb: CHARGE_MB[chargeKind] }),
+				admit({ chargeMb: launchChargeMb({ kind: "lander", files }) }),
 			);
 			const verdict = await runEach(groups, checkout, {
 				admit: watched.admit,
