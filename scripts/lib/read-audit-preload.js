@@ -11,6 +11,13 @@
  * process spawned, sync or not, with its program, the file that name runs
  * as found and with links followed, its arguments, working directory and whether it carries this audit on.
  *
+ * A STUB OR A SHELL IT CANNOT SEE INSIDE RUNS UNDER `strace` (#4966), where
+ * lib/read-audit.js found one that works: a program in the temporary
+ * directory, where a test writes its stubs, or `sh`, `bash` or `dash`, run
+ * in the checkout or handed a path there. No other program is traced: a
+ * traced process that is killed stays until its tracer reaps it, which a
+ * test of what a real program leaves running would see.
+ *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
  * audited process's pid, charges every child's reads to the file it
@@ -22,11 +29,13 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
+const { buildTraceArgv } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
@@ -52,6 +61,7 @@ registerHooks({
 
 const DIR = process.env.WFC_READ_AUDIT;
 const ROOT = process.env.WFC_READ_AUDIT_ROOT;
+const STRACE = process.env.WFC_READ_AUDIT_STRACE;
 
 /* The global the audit's api hangs on, for vitest.setup.ts to claim with. */
 const scope =
@@ -162,6 +172,8 @@ function install() {
 	const realStatSync = fs.statSync;
 	const realAccessSync = fs.accessSync;
 	const realRealpathSync = fs.realpathSync;
+	const realReadFileSync = fs.readFileSync;
+	const realOpenSync = fs.openSync;
 
 	/**
 	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
@@ -291,7 +303,7 @@ function install() {
 	require("node:module").syncBuiltinESMExports();
 
 	/* Children: the bindings every spawn API reaches, sync and async. */
-	const audited = (/** @type {unknown} */ envPairs) =>
+	const isAudited = (/** @type {unknown} */ envPairs) =>
 		Array.isArray(envPairs) &&
 		envPairs.includes(`WFC_READ_AUDIT=${dir}`) &&
 		envPairs.includes(`WFC_READ_AUDIT_OWNER=${owner}`) &&
@@ -313,7 +325,7 @@ function install() {
 	};
 	/* A bare `git` whose PATH puts the host git guard first: the guard logs
 	 * what it reads of this repository. */
-	const guarded = (/** @type {Untyped} */ opts) =>
+	const isGuarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
 		path.basename(pathDirs(opts?.envPairs)[0] ?? "") === "host-git-guard";
 	const isRunnable = (/** @type {string} */ abs) => {
@@ -340,22 +352,109 @@ function install() {
 		const hit = tries.find((abs) => kindAt(abs) === "file" && isRunnable(abs));
 		return hit === undefined ? [] : [hit, realRealpathSync(hit)];
 	};
-	/** @param {Untyped} opts @param {number|undefined} pid */
-	const spawned = (opts, pid) =>
+	const cwdOf = (/** @type {Untyped} */ opts) =>
+		path.resolve(typeof opts?.cwd === "string" ? opts.cwd : process.cwd());
+	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
+	const isProgram = (/** @type {string} */ abs) => {
+		const head = Buffer.alloc(4);
+		const at = realOpenSync(abs, "r");
+		try {
+			fs.readSync(at, head, 0, 4, 0);
+		} finally {
+			fs.closeSync(at);
+		}
+		return head.toString("latin1", 0, 2) === "#!" || head.equals(ELF);
+	};
+	/**
+	 * Whether this process already runs under one of this audit's tracers,
+	 * which follows every child it spawns; a second tracer would be refused.
+	 */
+	const isUnderTracer = () => {
+		const status = realReadFileSync("/proc/self/status", "utf8");
+		const tracer = /^TracerPid:\t(\d+)$/m.exec(status)?.[1];
+		if (!tracer || tracer === "0") return false;
+		const words = realReadFileSync(`/proc/${tracer}/cmdline`, "utf8");
+		return words.split("\0").some((w) => path.dirname(w) === dir);
+	};
+	let traces = 0;
+	const tmp = realRealpathSync(os.tmpdir());
+	const isStub = (/** @type {string[]} */ bin) =>
+		bin.some((at) => relativeUnder(tmp, at) !== null);
+	const argvOf = (/** @type {Untyped} */ opts) =>
+		Array.isArray(opts?.args) ? opts.args.map(String) : [];
+	/** Whether a child stands in the checkout or is handed a path there. */
+	const isInReach = (/** @type {string} */ cwd, /** @type {string[]} */ argv) =>
+		relativeUnder(root, cwd) !== null || argv.some((a) => a.includes(root));
+	/** A child whose reads a log of its own holds: audited Node, guarded git. */
+	const isSelfLogging = (/** @type {Untyped} */ opts) =>
+		isGuarded(opts) ||
+		(isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs));
+	/**
+	 * How a child's reads will be seen: `within` where a tracer already
+	 * follows this process, the trace file's name where this runs it under
+	 * one of its own, else null.
+	 * @typedef {{within: true}|{trace: string}|null} Route
+	 */
+	/**
+	 * @param {Untyped} opts
+	 * @returns {Route}
+	 */
+	const tracing = (opts) => {
+		const file = String(opts?.file ?? "");
+		const argv = argvOf(opts);
+		const cwd = cwdOf(opts);
+		if (!STRACE || !isInReach(cwd, argv) || isSelfLogging(opts)) return null;
+		if (isUnderTracer()) return { within: true };
+		/* The tracer runs the program by its name, as the spawn would: only a
+		 * name the spawn passes as the program's own first word, found as a
+		 * file the kernel runs with no shell's help. */
+		const bin = binOf(file, cwd, opts?.envPairs);
+		if (argv[0] !== file || bin.length === 0 || !isProgram(String(bin[1])))
+			return null;
+		if (!SHELLS.has(path.basename(file)) && !isStub(bin)) return null;
+		/* The tracer would hold a fourth descriptor, a channel among them,
+		 * open past the child: only the two outputs are kept from it. */
+		if (Array.isArray(opts?.stdio) && opts.stdio.length > 3) return null;
+		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
+	};
+	/**
+	 * @param {Untyped} opts
+	 * @returns {{opts: Untyped, route: Route}}
+	 */
+	const traced = (opts) => {
+		try {
+			const route = tracing(opts);
+			if (!route || !("trace" in route)) return { opts, route };
+			const args = buildTraceArgv(
+				String(STRACE),
+				path.join(dir, route.trace),
+				argvOf(opts),
+			);
+			return { opts: { ...opts, file: args[0], args }, route };
+		} catch {
+			fault();
+			return { opts, route: null };
+		}
+	};
+	/**
+	 * @param {Untyped} opts as the test spawned it
+	 * @param {number|undefined} pid
+	 * @param {Route} route
+	 */
+	const spawned = (opts, pid, route) =>
 		guard(() => {
 			const file = String(opts?.file ?? "");
-			const cwd = path.resolve(
-				typeof opts?.cwd === "string" ? opts.cwd : process.cwd(),
-			);
+			const cwd = cwdOf(opts);
 			add({
 				k: "child",
 				file,
 				bin: binOf(file, cwd, opts?.envPairs),
 				args: Array.isArray(opts?.args) ? opts.args.slice(1).map(String) : [],
 				cwd,
-				audited: audited(opts?.envPairs),
-				guarded: guarded(opts),
+				audited: isAudited(opts?.envPairs),
+				guarded: isGuarded(opts),
 				pid: pid ?? null,
+				...route,
 			});
 		});
 	const bindings = /** @type {Untyped} */ (process).binding;
@@ -365,8 +464,9 @@ function install() {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const out = syncSpawn.apply(this, args);
-			spawned(args[0], out?.pid);
+			const { opts, route } = traced(args[0]);
+			const out = syncSpawn.apply(this, [opts, ...args.slice(1)]);
+			spawned(args[0], out?.pid, route);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
@@ -374,14 +474,19 @@ function install() {
 		/* Node through 24.18 hands the handle one options object; 24.22 hands
 		 * it positional `file, args, cwd, envPairs, stdio, …`. */
 		Process.prototype.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const err = asyncSpawn.apply(this, args);
 			const [first, argv, cwd, envPairs] = args;
-			spawned(
-				typeof first === "string"
-					? { file: first, args: argv, cwd, envPairs }
-					: first,
-				this.pid,
+			const positional = typeof first === "string";
+			const asked = positional
+				? { file: first, args: argv, cwd, envPairs }
+				: first;
+			const { opts, route } = traced(asked);
+			const err = asyncSpawn.apply(
+				this,
+				positional
+					? [opts.file, opts.args, ...args.slice(2)]
+					: [opts, ...args.slice(1)],
 			);
+			spawned(asked, this.pid, route);
 			return err;
 		};
 	} catch {
@@ -401,6 +506,14 @@ function install() {
 	};
 	scope.__wfcReadAudit = api;
 }
+
+const SHELLS = new Set(["sh", "bash", "dash"]);
+
+const ELF = Buffer.from("\x7fELF", "latin1");
+
+/** @param {string} file */
+const isNode = (file) =>
+	file === process.execPath || path.basename(file) === "node";
 
 /** @param {unknown} n */
 function nameOf(n) {

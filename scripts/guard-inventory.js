@@ -245,8 +245,7 @@ function readTranscriptText(file) {
  * Add one record's text blocks to its response's entry in `turns`, where it
  * is an assistant record.
  * @param {Map<unknown, string[]>} turns accumulator: the record's text blocks are appended under its response's key
- * @param {Record<string, any>} record as `mainChainRecords` yields it — a
- *   transcript is an external format this repo does not define
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  */
 function addResponseText(turns, record) {
 	if (record.type !== "assistant") return;

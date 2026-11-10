@@ -5,7 +5,7 @@
  * the policy. In short — mantahostels#273, where a suite imported half-written
  * source and went red with a different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside the lander's run, arms the read audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside the lander's run, arms the read audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916), under which a stub or a shell a test runs in the checkout runs traced by `strace`, where one works (#4966); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
  * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */

@@ -131,8 +131,7 @@ function lossesIn(text, tier, priceOf, stats) {
 
 /**
  * One record's loss of a deny-capable guard, or null where it records none.
- * @param {Record<string, any>} record as `mainChainRecords` yields it — a
- *   transcript is an external format this repo does not define
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @param {PriceOf} priceOf
  * @returns {Loss | null}
  */
