@@ -9,9 +9,10 @@
  * a later case passes vacuously once an earlier one has run three times.
  *
  * `worktree` is the split a session in its own worktree runs under (#4229):
- * `dir` stays the main checkout every root resolves to, while the hook's cwd
- * and the payload's `cwd` are the linked worktree `lib/git-fixture.ts`'s
- * `cutWorktree` makes.
+ * `dir` stays the main checkout every root resolves to, while the hook's cwd,
+ * the payload's `cwd` and `CLAUDE_PROJECT_DIR` are the linked worktree
+ * `lib/git-fixture.ts`'s `cutWorktree` makes, as the harness hands a worktree
+ * session (#4168).
  */
 
 import { spawnSync } from "node:child_process";
@@ -69,7 +70,7 @@ function stopGuardInput({
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		CLAUDE_CONFIG_DIR: config,
-		CLAUDE_PROJECT_DIR: dir,
+		CLAUDE_PROJECT_DIR: worktree ?? dir,
 		WFC_REPO_ROOT: dir,
 	};
 	if (job) env.CLAUDE_JOB_DIR = job === true ? path.join(dir, "job") : job;

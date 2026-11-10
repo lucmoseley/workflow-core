@@ -28,15 +28,12 @@ const {
 	droppedRefsOf,
 	ownQueueRef,
 } = require("./landing-refs.js");
-const {
-	readPipelineFile,
-	readDropFile,
-} = require("./queue-lander-adapters.js");
+const { pipelineRecord, readDropFile } = require("./lander-records.js");
 const { batchesOf } = require("./queue-lander.js");
 
 /**
  * @template T
- * @typedef {import("./queue-lander-adapters.js").RecordRead<T>} RecordRead
+ * @typedef {import("./lander-records.js").RecordRead<T>} RecordRead
  */
 /**
  * @typedef {import("./queue-lander.js").Batch} Batch
@@ -297,7 +294,7 @@ function readQueueRefStates(root, tree, refs, rows) {
 		since: fs.statSync(path.join(tree, ".git")).mtimeMs,
 		waiting: held ? { sha: held.sha } : null,
 		rows,
-		pipeline: readPipelineFile(files.batch),
+		pipeline: pipelineRecord(files.batch).read(),
 		drops: readDropFile(files.drops),
 		dropped: refs.dropped,
 		main,
