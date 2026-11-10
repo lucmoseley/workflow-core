@@ -3,7 +3,7 @@
 # for, and only as many of them as allowance remains for (#369).
 #
 # Three facts this rests on, on Claude Code 2.1.241:
-#   - `claude --bg --model <alias> -- "<prompt>"` starts one background
+#   - `claude --bg --model <alias> "<prompt>"` starts one background
 #     agents-view session on that model and returns immediately. It is
 #     per-session; `claude agents --model` by contrast sets a view-wide
 #     default and would move every launch made from that view (mantahostels#1153).
@@ -941,6 +941,8 @@ while [[ $# -gt 0 ]]; do
   # temp file, which the launch below overwrites, so a refusal's reason sits
   # first under its REFUSED line, where lib/refill-batch.js reads it.
   checkout_err="${launch_out_file:-/dev/null}"
+  # `--` below: lib/cli-args.js refuses a prompt opening `-<letter>` as an
+  # unknown flag (#4820).
   checkout_args=(launch-dir)
   [[ "$no_build" == 1 ]] && checkout_args+=(--no-build)
   [[ -n "$into" ]] && checkout_args+=(--into "$into")
