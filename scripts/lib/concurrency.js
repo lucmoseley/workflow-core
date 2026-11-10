@@ -17,7 +17,7 @@
  *
  * THE VERDICT is the first failing limit in a fixed order, the order the
  * checks below run in: loop not running, empty frontier or probe hold, allowance,
- * memory, CPU: gates on the loop and on policy before resource
+ * memory, Windows memory, CPU: gates on the loop and on policy before resource
  * fit, as Kubernetes' PreFilter and Borg's quota check run (#2497's
  * research). Every other failing limit follows it as "also".
  *
@@ -50,6 +50,7 @@ const STALE_MS = 15 * MINUTE_MS;
 const RETAIN_MS = 28 * DAY_MS;
 
 const LOOP_OFF = "loop not running";
+const WINDOWS_MEMORY = "Windows memory";
 /* Where no limit fails: a slot is free and the loop launches into it. */
 const NONE = "none";
 /* The spread's top bucket; a count at or past it shares one. Untraced
@@ -97,6 +98,8 @@ function largestHolder(a) {
 		["the live sessions' p95 draw", a.drawNeedMb],
 		["the earlyoom floor + margin", (a.floorMb ?? 0) + (a.marginMb ?? 0)],
 		["the lander's suite reserve", a.landerMb],
+		["the type-check reserve", a.typecheckReserveMb],
+		["guest free memory Windows cannot back", a.windowsChargeMb],
 		["non-session processes", m.other?.mb],
 		["the spare pool", m.pool?.mb],
 		["finished sessions", m.finished?.mb],
@@ -145,8 +148,8 @@ function policyFailing(input, decision) {
 
 /**
  * Admission's failing limits: memory where it prices no slot, Windows memory
- * where its hold does (#4557), CPU where the load or the session ceiling holds
- * every one.
+ * where its charge cost the last slot or its hold is holding a queued test
+ * run (#4956), CPU where the load or the session ceiling holds every one.
  * @param {AdmissionJson|null} a null where unread
  * @returns {Failing[]}
  */
@@ -171,10 +174,20 @@ function resourceFailing(a) {
 			limit: "memory",
 			why: "admission's verdict carried no slot count or breakdown, so its fit is unknown",
 		});
-	else if (a.memorySlots === 0) {
+	else if (a.memorySlots === 0 && !a.windowsCapped) {
 		const top = largestHolder(a);
 		out.push({ limit: "memory", why: `${top.name} holds most (${top.mb} MB)` });
 	}
+	if (a.testsHeld > 0)
+		out.push({
+			limit: WINDOWS_MEMORY,
+			why: `${a.testsHeld} queued test run(s) are held on it`,
+		});
+	else if (a.memorySlots === 0 && a.windowsCapped)
+		out.push({
+			limit: WINDOWS_MEMORY,
+			why: `${a.windowsChargeMb} MB of the guest's free memory is more than Windows can back`,
+		});
 	const { load, cpu } = a;
 	if (!load || !cpu)
 		out.push({
@@ -251,6 +264,11 @@ function buildTickMemory(a) {
 		nextNeedMb: a.nextNeedMb,
 		reservedMb: a.reservedMb,
 		landerMb: a.landerMb,
+		typecheckReserveMb: a.typecheckReserveMb,
+		windowsChargeMb: a.windowsChargeMb,
+		testsHeld: a.testsHeld,
+		guestFreeMb: a.guestFreeMb,
+		windows: a.windows,
 		floorMb: a.floorMb,
 		marginMb: a.marginMb,
 		memorySlots: a.memorySlots,

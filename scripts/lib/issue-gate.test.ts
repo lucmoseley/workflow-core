@@ -10,7 +10,7 @@
  * Breaking it hides a ticket on the morning its chase is due (the gate once
  * turned at UTC midnight, 08:00 in Lombok), or holds one on a marker nobody can
  * read. Tickets: mantahostels#85 (the date marker) and mantahostels#1419 (the
- * condition marker), #672 and #823 (the basis line), #717 (the second map);
+ * condition marker), #672, #823 and #4946 (the basis line), #717 (the second map);
  * the clock fix came from a code review, with no ticket of its own.
  */
 
@@ -362,28 +362,33 @@ describe("resolveGate — the shared reading of the pair", () => {
 	});
 });
 
+const faultTexts = (body: string, own?: number): string[] =>
+	basisFaults(body, own).map((f: { text: string }) => f.text);
+const introducedTexts = (before: string, after: string): string[] =>
+	introducedBasisFaults(before, after).map((f: { text: string }) => f.text);
+
 describe("basisFaults — a wait with nothing behind it (#672)", () => {
 	it("names a gate line and each prose wait where no basis is written", () => {
 		expect(
-			basisFaults(
+			faultTexts(
 				"**Gated on:** census lands — abandon if: never\nre-run it after a week live",
 			),
 		).toEqual([
 			"**Gated on:** census lands — abandon if: never",
 			"after a week",
 		]);
-		expect(basisFaults("Re-measure about two weeks after the reword")).toEqual([
+		expect(faultTexts("Re-measure about two weeks after the reword")).toEqual([
 			"two weeks after",
 		]);
 		expect(
-			basisFaults("run it a day after the fix, or four weeks later"),
+			faultTexts("run it a day after the fix, or four weeks later"),
 		).toEqual(["a day after", "four weeks later"]);
 	});
 
 	it("is empty once a basis is written anywhere in the body", () => {
 		expect(
-			basisFaults(
-				"**Gated until:** 2026-09-29 — a day\n**Gate basis:** counters live 24 hours",
+			faultTexts(
+				"**Gated until:** 2026-09-29 — a day\n**Gate basis:** counters live 24 hours (#616)",
 			),
 		).toEqual([]);
 	});
@@ -394,13 +399,13 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 			"```\n**Gated until:** 2026-10-05\nafter a week\n```",
 			"the phrase `after a week` is an example",
 		])
-			expect(basisFaults(body)).toEqual([]);
+			expect(faultTexts(body)).toEqual([]);
 	});
 
 	it("counts only what an edit adds, a moved date included", () => {
 		const old = "**Gated until:** 2026-10-05 — x\nafter a week live";
-		expect(introducedBasisFaults(old, `${old}\nnote`)).toEqual([]);
-		expect(introducedBasisFaults(old, old.replace("10-05", "10-12"))).toEqual([
+		expect(introducedTexts(old, `${old}\nnote`)).toEqual([]);
+		expect(introducedTexts(old, old.replace("10-05", "10-12"))).toEqual([
 			"**Gated until:** 2026-10-12 — x",
 		]);
 	});
@@ -412,48 +417,48 @@ describe("basisFaults — each window its basis names (#823)", () => {
 
 	it("prints the basis template from its span", () => {
 		const body = `${gate816}\n**Gate basis:**\n**Gate basis:** 3 days`;
-		expect(basisRefusal(basisFaults(body), body)).toContain(
-			`The line's template: ${readRuleText("gate-basis-line")}`,
+		expect(basisRefusal(basisFaults(body))).toContain(
+			`§Gating an issue. ${readRuleText("gate-basis-line")}`,
 		);
 	});
 
 	it("names the window, not a missing basis, where the first basis is empty", () => {
 		const body = `${gate816}\n**Gate basis:**\n**Gate basis:** 3 days`;
-		expect(basisRefusal(basisFaults(body), body)).toContain(
+		expect(basisRefusal(basisFaults(body))).toContain(
 			"a window the `**Gate basis:**` line does not name",
 		);
 	});
 
 	it("refuses a gate whose abandon clause carries a window the basis omits", () => {
-		const body = `${gate816}, or 3 days pass with no reply\n**Gate basis:** the vendor answers in 3 days`;
+		const body = `${gate816}, or 3 days pass with no reply\n**Gate basis:** the vendor answers in 3 days (#790)`;
 		const faults = basisFaults(body);
-		expect(faults).toEqual(["7 days"]);
-		const refusal = basisRefusal(faults, body);
+		expect(faults).toEqual([{ kind: "unnamed-window", text: "7 days" }]);
+		const refusal = basisRefusal(faults);
 		expect(refusal).toContain('"7 days", a window the `**Gate basis:**` line');
-		expect(refusal).toContain("never that it holds up");
+		expect(refusal).toContain("and never judges it");
 	});
 
 	it("passes a basis naming every window, by length rather than spelling", () => {
 		expect(
-			basisFaults(
-				`${gate816}\n**Gate basis:** a week: the 3-day reply window, doubled and rounded up`,
+			faultTexts(
+				`${gate816}\n**Gate basis:** a week: the 3-day reply window, doubled and rounded up (#790)`,
 			),
 		).toEqual([]);
 		expect(
-			basisFaults(
-				"wait two weeks after launch\n**Gate basis:** traffic stabilises within 14 days",
+			faultTexts(
+				"wait two weeks after launch\n**Gate basis:** traffic stabilises within 14 days (#12)",
 			),
 		).toEqual([]);
 	});
 
 	it("checks prose waits and every gate line, but not a window in inline code", () => {
 		expect(
-			basisFaults(
-				"**Gated until:** 2026-10-09 — 5 days after the fix\nre-run it four weeks later\n**Gate basis:** the fix soaks 5 days",
+			faultTexts(
+				"**Gated until:** 2026-10-09 — 5 days after the fix\nre-run it four weeks later\n**Gate basis:** the fix soaks 5 days (#12)",
 			),
 		).toEqual(["four weeks"]);
 		expect(
-			basisFaults(
+			faultTexts(
 				"**Gated on:** x — check: `grep '2 days'` — abandon if: never\n**Gate basis:** none needed",
 			),
 		).toEqual([]);
@@ -461,29 +466,334 @@ describe("basisFaults — each window its basis names (#823)", () => {
 
 	it("reads no window in a frequency or a check: command", () => {
 		expect(
-			basisFaults(
+			faultTexts(
 				"**Gated on:** the cron has run once a day — check: gh run list --created 2 days — abandon if: never\n**Gate basis:** n/a",
 			),
 		).toEqual([]);
 	});
 
 	it("catches a word between the window and 'after' as a prose wait", () => {
-		expect(basisFaults("abandon it once 7 days pass after creation")).toEqual([
+		expect(faultTexts("abandon it once 7 days pass after creation")).toEqual([
 			"7 days pass after",
 		]);
 		for (const body of [
 			"within 30 days and after launch",
 			"We spent two weeks right after launch",
 		])
-			expect(basisFaults(body)).toEqual([]);
+			expect(faultTexts(body)).toEqual([]);
 	});
 
 	it("refuses only the window an edit adds, naming it, so an old body stays editable", () => {
 		const old = `${gate816}\n**Gate basis:** the vendor answers in 3 days`;
-		expect(introducedBasisFaults(old, `${old}\nnote`)).toEqual([]);
+		expect(introducedTexts(old, `${old}\nnote`)).toEqual([]);
+		expect(introducedTexts(old, `${old}\nre-check it 2 months later`)).toEqual([
+			"2 months",
+		]);
+	});
+});
+
+describe("basisFaults — the wordings the #4929 audit found escaping (#4946)", () => {
+	const fault = (body: string) => faultTexts(body);
+
+	it("reads an hour window as a wait and as a window, `24 h` the length of a day", () => {
+		expect(fault("re-measure once it has run 8 hours on 585143e")).toEqual([
+			"has run 8 hours",
+		]);
+		expect(fault("24 h have run since 14a8534be")).toEqual([
+			"24 h have run since",
+		]);
+		const gate =
+			"**Gated on:** 24 h have run since 14a8534be — abandon if: it is reverted";
+		expect(fault(`${gate}\n**Gate basis:** #12 ruled a day`)).toEqual([]);
+		expect(fault(`${gate}\n**Gate basis:** #12 ruled 3 days`)).toEqual([
+			"24 h",
+		]);
 		expect(
-			introducedBasisFaults(old, `${old}\nre-check it 2 months later`),
-		).toEqual(["2 months"]);
+			fault(
+				"**Gated on:** 24 hrs of data — abandon if: never\n**Gate basis:** #12 ruled 3 days",
+			),
+		).toEqual(["24 hrs"]);
+	});
+
+	it("still reads every wait the reading before #4949 read", () => {
+		for (const [body, wait] of [
+			["Check in 7 days after launch.", "7 days after"],
+			["Wait 3-4 days after launch.", "4 days after"],
+			["past 2 days after the fix", "2 days after"],
+		])
+			expect(fault(body)).toEqual([wait]);
+		expect(
+			fault(
+				"**Gated on:** 3-4 hours of data — abandon if: never\n**Gate basis:** #12 ruled a week",
+			),
+		).toEqual(["4 hours"]);
+	});
+
+	it("reads a determiner or an ordinal as a count of one", () => {
+		for (const [body, wait] of [
+			["count them over the week after #4807 landed", "the week after"],
+			["over the first week after the build", "the first week after"],
+			["read it the next day after the fix", "the next day after"],
+			["over the first full day after landing", "the first full day after"],
+			["flips if week one shows the cap spent", "week one"],
+			["flips if week 1 shows the cap spent", "week 1"],
+		])
+			expect(fault(body)).toEqual([wait]);
+		expect(fault("Ship it the day after the merge.")).toEqual([]);
+		expect(
+			fault(
+				"count them over the week after it lands\n**Gate basis:** #12 ruled 3 days",
+			),
+		).toEqual(["the week"]);
+		expect(
+			fault(
+				"count them over the week after it lands\n**Gate basis:** #12 ruled 7 days",
+			),
+		).toEqual([]);
+	});
+
+	it("reads through a modifier between the count and the unit", () => {
+		expect(fault("the first retro 7 or more days after the fix lands")).toEqual(
+			["7 or more days after"],
+		);
+		expect(
+			fault(
+				"**Gated on:** 7 consecutive UTC days after the later landing each hold 48 hours — abandon if: never\n**Gate basis:** #2821 ruled it",
+			),
+		).toEqual(["7 consecutive UTC days", "48 hours"]);
+	});
+
+	it("reads a wait counted from an event", () => {
+		for (const [body, wait] of [
+			["sessions on 3 days since that pin landed", "3 days since"],
+			["seven days have passed since the fix", "seven days have passed since"],
+			["3 days has run since the fix", "3 days has run since"],
+			[
+				"24 h of suite-queue logs have accrued since #3864 closed",
+				"24 h of suite-queue logs have accrued since",
+			],
+		])
+			expect(fault(body)).toEqual([wait]);
+	});
+
+	it("reads accumulated running time", () => {
+		expect(fault("once the test has run a week in all three repos")).toEqual([
+			"has run a week",
+		]);
+		expect(fault("it reads a full day of drops")).toEqual(["a full day of"]);
+	});
+
+	it("reads a hyphen window before a wait noun, with no 'after'", () => {
+		for (const [body, wait] of [
+			["gated on a 7-day post-rollout reading", "7-day post-rollout reading"],
+			["start its 14-day trial", "14-day trial"],
+			["a one-week soak", "one-week soak"],
+			[
+				"the body sets a one-week measurement window",
+				"one-week measurement window",
+			],
+		])
+			expect(fault(body)).toEqual([wait]);
+	});
+
+	it("reads a determiner window before 'window' or 'of <noun>', then 'after'", () => {
+		expect(fault("the 24 h window after cutover has closed")).toEqual([
+			"the 24 h window after",
+		]);
+		expect(
+			fault(
+				"**Gated until:** 2026-10-31 — the week of memwatch after #2741's archive landed\n**Gate basis:** #12 ruled 3 days",
+			),
+		).toEqual(["the week"]);
+	});
+
+	it("still reads the controls", () => {
+		expect(fault("a week after landing")).toEqual(["a week after"]);
+		expect(fault("7 days pass after the repo is created")).toEqual([
+			"7 days pass after",
+		]);
+	});
+
+	it("leaves a measurement span, a frequency and a quoted wording alone", () => {
+		for (const body of [
+			"80 asks in 30 days",
+			"over the last 24 hours",
+			"the cron runs once a day",
+			"it polls every 2 hours after boot",
+			"the wording `the week after` is an example",
+			"```\n24 h have run since\n```",
+			// Each a span the widened patterns matched over every issue body (#4949).
+			"away mode ran 3-4 hours after his return",
+			"two workers spun for ~7.5 h after their session ended",
+			"earlier reviews were answered 20 min to 6 h after filing",
+			"about 4.5 suite-min in 7 h after #1216",
+			"it fails only after 14 h with no push",
+			"flag it at once rather than after 24 hours",
+			"the founder learned of it about 3.5 hours later",
+			"ci.yml still runs it, up to ~12 hours from now",
+			"its 24-hour window waits on an mtime",
+			"every seat's week and 5-hour readings",
+			"the 7-day status window stays as recorded",
+			"a 4-week baseline window",
+			"177 candidates in a normal 2-day window",
+			"re-running the count over a later 30-day window",
+			"232.4 h session-blocked in its 7.15-day window",
+			"drives the issue past 2 days since its first launch",
+			"two suites have run 2 h beside it",
+			"the ledger holds it for the full hour after the triage launch",
+		])
+			expect(fault(body)).toEqual([]);
+	});
+});
+
+describe("basisFaults — the warrant a basis carries (#4946)", () => {
+	const week = "**Gated until:** 2099-01-01 — a week after it lands";
+	const warrantFaults = (basis: string, own?: number) =>
+		basisFaults(`${week}\n**Gate basis:** a week. ${basis}`, own)
+			.filter((f: { kind: string }) => f.kind === "no-warrant")
+			.map((f: { text: string }) => f.text.replace(/^a week\. /, ""));
+
+	// The bases as their issues wrote them.
+	const stands = {
+		"#4865 now":
+			"before #4807, 27 of 449 lander attempts (6.0%, 5–10 Nov, #4855) were STALE-PROSE refusals. With 0 such refusals in 150 attempts, the 95% upper bound on the remaining rate is 3/150 = 2% (rule of three), a third of the baseline.",
+		"#3432":
+			'15 commits is #1556 Q4 (A)\'s "about 15", made exact by spec #1612 §The re-measure trigger (`THRESHOLD` in `scripts/report-remeasure-due.js`); no date fits, since no mantahostels card carries one for its RLS, money or reward-code code (#3431).',
+		"#2827":
+			"#2821 (the verifying figure) ruled each step gets its own 7-day reading, from the UTC day after it lands, on days of at least 48 active session-hours; fewer days or thinner days fall under that ruling's floor.",
+		"#4781":
+			"the 20 runs and the 0 to 20 load spread are this ticket's own data floor from #4757; `load1AtStart` first landed in 6e5453ba4 on 9 Nov, at about 6 whole or half-suite runs a day, so nothing sooner than several days of runs can meet it.",
+		"#4862":
+			"#4791's own gate: a day of the reclaimer's log ends 2026-11-11 08:26 +08 (00:26 UTC); nothing sooner keeps the two trials apart",
+		"#4893":
+			"the 10 Nov 2026 baseline on #4884 was read over a 24 h window to 06:42 UTC, so the comparison needs the same 24 h shape, all of it on 7.0; nothing shorter matches the baseline.",
+	};
+	const falls = {
+		"#4865 first":
+			"#4807 (the stale-registry-row fix) landed on `main` at fc92c9f15 on 2026-11-10 05:13 UTC; the body sets a one-week measurement window, and nothing sooner covers a full week of lander runs.",
+		"#4530":
+			"the carry reached `main` at 2026-11-06T02:38:12Z (queue log `land` event for `queue/implement-4514-152aad` at `4d74950a9`), and the ticket's window is the 7 days after that; no shorter window answers its question.",
+		"#2649 gate":
+			"the acceptance's one-week window, opened by #2741's landing because rotation deleted trimmed blocks before it; nothing sooner holds a week of blocks.",
+		"#3803":
+			"the no-wait try began 27 Oct 16:06 UTC (#3278), so a week of tries ends 3 Nov 16:06 UTC; the first full day after that is 4 Nov, and nothing sooner holds a week.",
+		"#3806":
+			"the fourth acceptance criterion sets the 24 h; the markers and exit lines show the change live from its commit on this checkout, so nothing sooner gives the window it names.",
+		"#4850 first":
+			"a week of minutes covers every weekday load pattern on Windows. The 24 h sample above has only 91 heavy-paging minutes, too few to set a line.",
+		"#4852 first, as #4929 quotes it":
+			"a week takes in weekday and weekend load, and nothing shorter separates a workday spike from the baseline.",
+	};
+
+	it.each(Object.entries(stands))("passes %s's basis", (_issue, basis) => {
+		expect(warrantFaults(basis)).toEqual([]);
+	});
+
+	it.each(Object.entries(falls))("refuses %s's basis", (_issue, basis) => {
+		expect(warrantFaults(basis)).toEqual([basis]);
+	});
+
+	it("passes a count derivation: a baseline, a bound, the count that results and a source", () => {
+		const derived =
+			"baseline 27/449 attempts (6.0%, `jq -s length .queue-log.jsonl`); pass = 0 refusals in 69 attempts";
+		expect(warrantFaults(derived)).toEqual([]);
+		for (const short of [
+			// no source
+			"baseline 27/449 attempts (6.0%); pass = 0 refusals in 69 attempts",
+			// no bound
+			"baseline 27/449 attempts (`jq`); pass = 0 refusals in 69 attempts",
+			// no count but the baseline's own
+			"baseline 27/449 attempts (6.0%, `jq`), so 449 attempts again",
+			// the window, a date, a year and a clock time are no count
+			"7 days; baseline 27/449 (6.0%), `jq`",
+			"baseline 27/449 attempts (6.0%, `jq`) measured on 10 Nov",
+			"baseline 27/449 attempts (6.0%, `jq`), read in Nov 2026 at 16:06 UTC",
+			// nor is zero
+			"baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals",
+			// a web address is no source
+			"baseline 27/449 attempts (6.0%), 69 attempts, see https://example.com/log.txt",
+		])
+			expect(warrantFaults(short)).toEqual([short]);
+	});
+
+	it("passes a named cycle with a measured figure and a source", () => {
+		expect(
+			warrantFaults(
+				"the weekly export: 4 of 28 days carry it (`scripts/export-log.js`)",
+			),
+		).toEqual([]);
+		expect(
+			warrantFaults(
+				"one daily work cycle, at about 490 blocks a day (d8731ae6b)",
+			),
+		).toEqual([]);
+		const bare = "one daily work cycle (d8731ae6b)";
+		expect(warrantFaults(bare)).toEqual([bare]);
+	});
+
+	it("takes the body's own number as no warrant and no source", () => {
+		const own =
+			"#4253 asks for 24 h of live work after cutover; #4248 (the cutover) closed 2026-11-05T02:04:59Z, so the reading cannot be taken before 2026-11-06T02:05Z.";
+		expect(warrantFaults(own)).toEqual([]);
+		expect(warrantFaults(own, 4253)).toEqual([own]);
+		expect(
+			warrantFaults("lucmoseley/mantahostels#4253 ruled it", 4253),
+		).toEqual([]);
+		const selfSourced = "baseline 27/449 (6.0%, #77); pass = 0 in 69 attempts";
+		expect(warrantFaults(selfSourced, 77)).toEqual([selfSourced]);
+	});
+
+	it("takes an issue named only as the event the window starts from as no warrant", () => {
+		for (const anchored of [
+			"#12 landed on 5 Nov, and the body asks for a week",
+			"the week after #12",
+			"it went live on 5 Nov (#12)",
+		])
+			expect(warrantFaults(anchored)).toEqual([anchored]);
+		expect(warrantFaults("#12 ruled 7 days after the change lands")).toEqual(
+			[],
+		);
+	});
+
+	it("owes no warrant on an event-only gate", () => {
+		expect(
+			basisFaults(
+				"**Gated on:** it lands — check: `true` — abandon if: it is dropped\n**Gate basis:** the landing sets it",
+			),
+		).toEqual([]);
+	});
+
+	it("holds an untouched legacy basis through an edit, and judges a rewritten one", () => {
+		const legacy = `${week}\n**Gate basis:** the body sets a week`;
+		expect(introducedBasisFaults(legacy, `${legacy}\nnote`)).toEqual([]);
+		expect(
+			introducedBasisFaults(
+				legacy,
+				legacy.replace(
+					"the body sets a week",
+					"a week is what the ticket asks",
+				),
+			),
+		).toEqual([{ kind: "no-warrant", text: "a week is what the ticket asks" }]);
+		expect(
+			introducedBasisFaults(
+				legacy,
+				legacy.replace("the body sets a week", "#12 ruled a week"),
+			),
+		).toEqual([]);
+	});
+
+	it("refuses naming the basis and the template", () => {
+		const refusal = basisRefusal(
+			basisFaults(`${week}\n**Gate basis:** the body sets a week`),
+		);
+		expect(refusal).toContain(
+			'the basis "the body sets a week", which carries no warrant. Every gate line',
+		);
+		expect(refusal).toContain(
+			`§Gating an issue. ${readRuleText("gate-basis-line")}`,
+		);
+		expect(refusal.split("The line's template:")).toHaveLength(2);
 	});
 });
 

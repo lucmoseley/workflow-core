@@ -109,8 +109,9 @@
  *    all.
  *  - THE BASIS LIMB (#672) refuses, on a body the blank-body limb read, a
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
- *    either that the basis does not name (#823), through lib/issue-gate.js.
- *    It checks the basis names each window, never that it holds up.
+ *    either that the basis does not name (#823), or a basis with no warrant
+ *    beneath a window (#4946), through lib/issue-gate.js. Form only: the
+ *    basis is never judged.
  *  - THE CHECK LIMB (#3487) refuses, on the same body, a gate `check:` that
  *    cannot run as a command, and warns that one which can was not run.
  *  - THE SECOND-MAP LIMB (#717) refuses a flag-form or REST create carrying
@@ -511,7 +512,7 @@ function judgeBasis(run, segment, text) {
 		segment,
 		`This files an issue whose body sets a wait with nothing behind it: @CMD@
 
-It carries ${basisRefusal(faults, text)}
+It carries ${basisRefusal(faults)}
 
 Ask of the window: what data sets it, and does anything shorter hold? Where the answer is a round figure, cut the window to what the data defends.`,
 	);

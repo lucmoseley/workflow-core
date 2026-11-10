@@ -79,7 +79,8 @@
  *   at once where the tester is `parallel` (the Actions one), else one after
  *   another (the local one, under its one admission slot). A member red alone
  *   is run again, and red twice it is dropped with a fix ticket naming the
- *   files. Where any member dropped, the rest form the next batch. Where none
+ *   files. A `parallel` tester is asked that second run beside the first
+ *   where the red names files, each member's pair at once (#4951). Where any member dropped, the rest form the next batch. Where none
  *   did, the batch is a collision: its members land one at a time in push
  *   order, each step the whole suite on `main`, and the first step red twice
  *   on a blamed file drops its member, the rest forming the next batch. A
@@ -878,6 +879,60 @@ function redAction(b, s, main, { sha, whole }) {
 const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
 
 /**
+ * @param {QueueState} s
+ * @param {readonly string[]} files
+ * @returns {(i: Isolated, pass: number) => Exclude<Verdict, {kind: "unknown"}>|null} the verdict
+ *   ledgered for a member's run alone
+ */
+const isolatedVerdict = (s, files) => (i, pass) =>
+	ledgered(s, { sha: i.iso, files, pass });
+
+/**
+ * The ask an isolation owes: each member's first run alone, then the confirm
+ * of each not green alone; a wait while any is in flight, the exit where this
+ * run asked one and reached none, null once every verdict is in.
+ * @param {QueueState} s
+ * @param {Blame} blame
+ * @param {readonly (Isolated & {k: number})[]} isolated
+ * @returns {QueueAction|null}
+ */
+function isolationAsk(s, blame, isolated) {
+	const { files } = blame;
+	const at = isolatedVerdict(s, files);
+	/**
+	 * @param {typeof isolated} of
+	 * @param {1 | 2} pass
+	 * @returns {QueueAction|null}
+	 */
+	const ask = (of, pass) => {
+		const owed = of.filter((i) => at(i, pass) === null);
+		for (const i of owed) {
+			const r = { sha: i.iso, files, pass };
+			const stop = unreadExit(s, r);
+			if (stop) return stop;
+			if (s.isPending(r)) return WAIT;
+		}
+		if (owed.length === 0) return null;
+		if (!s.parallel && s.busy) return WAIT;
+		return {
+			kind: pass === 1 ? "isolate-members" : "confirm-members",
+			files,
+			runs: owed.map((i) => ({ k: i.k, sha: i.iso })),
+		};
+	};
+	const beside = s.parallel && files.length > 0;
+	const first = ask(isolated, 1);
+	if (first && (first.kind !== "wait" || !beside)) return first;
+	/* Beside the first run, a drop costs one run's time, not two (#4951); a
+	 * whole-suite confirm reruns its first run's failed jobs, so it waits for
+	 * that run. A confirm of a member since green alone is never read. */
+	const owing = isolated.filter((i) =>
+		beside ? at(i, 1)?.kind !== "green" : at(i, 1)?.kind === "red",
+	);
+	return ask(owing, 2) ?? first;
+}
+
+/**
  * The next step of an isolation.
  * @param {Batch} b
  * @param {QueueState} s
@@ -900,35 +955,10 @@ function isolationAction(b, s, blame) {
 			: [],
 	);
 	/** @param {Isolated} i @param {number} pass */
-	const at = (i, pass) => ledgered(s, { sha: i.iso, files: blame.files, pass });
-	/**
-	 * The runs of `of` with no verdict on `pass` asked, else null; the exit
-	 * where this run asked one of them and reached none.
-	 * @param {typeof isolated} of
-	 * @param {1 | 2} pass
-	 * @returns {QueueAction|null}
-	 */
-	const ask = (of, pass) => {
-		const owed = of.filter((i) => at(i, pass) === null);
-		for (const i of owed) {
-			const r = { sha: i.iso, files: blame.files, pass };
-			const stop = unreadExit(s, r);
-			if (stop) return stop;
-			if (s.isPending(r)) return WAIT;
-		}
-		if (owed.length === 0) return null;
-		if (!s.parallel && s.busy) return WAIT;
-		return {
-			kind: pass === 1 ? "isolate-members" : "confirm-members",
-			files: blame.files,
-			runs: owed.map((i) => ({ k: i.k, sha: i.iso })),
-		};
-	};
-	const first = ask(isolated, 1);
-	if (first) return first;
+	const at = isolatedVerdict(s, blame.files);
+	const asked = isolationAsk(s, blame, isolated);
+	if (asked) return asked;
 	const reds = isolated.filter((i) => at(i, 1)?.kind === "red");
-	const second = ask(reds, 2);
-	if (second) return second;
 	for (const i of reds) {
 		const v = at(i, 2);
 		const m = members.find((x) => x.name === i.name);

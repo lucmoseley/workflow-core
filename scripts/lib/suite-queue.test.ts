@@ -43,6 +43,7 @@ const {
 	PART_PASS_AGE_MS,
 	turnOf,
 	readLiveRoleMarkers,
+	readTestsHeldOnWindows,
 	readQueuesClimbMb,
 	queuedRunnerPeakMb,
 	gateDenies,
@@ -339,6 +340,35 @@ describe("readLiveRoleMarkers (#2416)", () => {
 			}),
 		).toMatchObject([{ pid: 11, role: "lander", chargeMb: 600 }]);
 		expect(fs.readdirSync(queueDir)).toHaveLength(3);
+	});
+});
+
+describe("readTestsHeldOnWindows (#4956)", () => {
+	it("counts the live waiters the Windows hold is holding, in the suite queue and the type-check slot's", () => {
+		const root = qdir();
+		const queueDir = path.join(root, "wfc-suite-queue");
+		const tscDir = path.join(root, "wfc-tsc-queue");
+		joined(queueDir, 11, 11).stamps.onWindowsHeld(true);
+		joined(queueDir, 22, 22).stamps.onWindowsHeld(true);
+		joined(queueDir, 33, 33).stamps.onMemoryHeld(true);
+		joined(tscDir, 44, 44).stamps.onWindowsHeld(true);
+		const released = joined(tscDir, 55, 55).stamps;
+		released.onWindowsHeld(true);
+		released.onWindowsHeld(false);
+		expect(
+			readTestsHeldOnWindows({
+				queueDir,
+				alive: (pid: number) => pid !== 22,
+			}),
+		).toBe(2);
+	});
+
+	it("counts none where no queue exists", () => {
+		expect(
+			readTestsHeldOnWindows({
+				queueDir: path.join(qdir(), "wfc-suite-queue"),
+			}),
+		).toBe(0);
 	});
 });
 

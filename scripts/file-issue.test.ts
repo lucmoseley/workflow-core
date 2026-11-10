@@ -295,9 +295,23 @@ describe("the body", () => {
 		expect(readGhCalls()).toEqual([]);
 		const ok = run(filing(["takes:implement"]), {
 			stdin:
-				"**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours\n",
+				"**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours (#616)\n",
 		});
 		expect(ok.status).toBe(0);
+	});
+
+	it("refuses a basis with no warrant beneath a window, printing the template (#4946)", () => {
+		setUp();
+		const r = run(filing(["takes:implement"]), {
+			stdin:
+				"**Gated until:** 2026-09-29 — a day live\n**Gate basis:** the body asks for a day\n",
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			'Nothing filed: the body carries the basis "the body asks for a day", which carries no warrant. Every gate line',
+		);
+		expect(r.stderr).toContain("baseline 27/449 attempts");
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("refuses a gate whose check prints nothing with exit 2, naming the fix (#3487)", () => {
@@ -317,7 +331,7 @@ describe("the body", () => {
 		setUp();
 		const gated = run(filing(["takes:implement"]), {
 			stdin:
-				"**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours\n",
+				"**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours (#616)\n",
 		});
 		expect(gated.status).toBe(0);
 		expect(gated.stderr).toContain("the rule that governs it");

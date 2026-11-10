@@ -65,6 +65,7 @@ const {
 	readCpuSlots,
 	buildSessionCeilingText,
 	buildSessionDrawLine,
+	buildWindowsLine,
 	buildLiveDrawLine,
 	SUITE_GATE_MB,
 	buildMemoryBreakdownLines,
@@ -72,6 +73,7 @@ const {
 	SUITE_RESTING_MB,
 } = require("./lib/admission");
 const { readLiveLanders } = require("./lib/local-tester.js");
+const { readTestsHeldOnWindows } = require("./lib/suite-queue.js");
 const { admissionSessionIds } = require("./lib/agent-liveness");
 const { readJobs, findHungJobs } = require("./lib/hung-jobs");
 const { readAllowance } = require("./lib/allowance");
@@ -177,6 +179,7 @@ function main() {
 			reclaimable: reclaimableMb(),
 			pendingSpares: spares,
 			landers: readLiveLanders(),
+			testsHeld: readTestsHeldOnWindows(),
 		},
 	);
 	/* Between the figures and the hung-job section, never after it:
@@ -317,6 +320,7 @@ function buildReportLines({
 	spares,
 	allowance,
 }) {
+	const windowsLine = buildWindowsLine(verdict);
 	return [
 		`available memory   ${verdict.availableMb} MB`,
 		`live sessions      ${verdict.sessions} alongside this one`,
@@ -330,6 +334,7 @@ function buildReportLines({
 				]
 			: []),
 		`reclaimable        ${verdict.reclaimedMb} MB about to be reaped`,
+		...(windowsLine ? [`windows memory     ${windowsLine}`] : []),
 		`slots              ${verdict.slots} — ${verdict.admit ? "ADMIT" : "HOLD"}: ${verdict.reason}`,
 		/* dispatch-sessions.sh relays the unknown line on its admit path. */
 		...(verdict.load.load1 === null ? [CPU_LOAD_UNKNOWN] : []),

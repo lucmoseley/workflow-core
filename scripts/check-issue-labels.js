@@ -4,7 +4,7 @@
  * missing the family its parent fixes, a `takes:` that is absent, duplicated,
  * contradicted by the issue's own kind, or gone stale, a `**Gated on:**`
  * whose condition is the founder typing a slash command (#411), a gate
- * line carrying no `**Gate basis:**` (#577), a `kind:brief` still holding
+ * line whose `**Gate basis:**` is absent or faulty (#577, #4946), a `kind:brief` still holding
  * the spec it should have handed up to its map (#609), and a ticket left
  * not ready in a comment alone, which the shortlist cannot read (#2309).
  *
@@ -58,7 +58,7 @@
  * the ticket that drew that line), and an
  * unlabelled child is a FAIL finding (exit 1, or 0 under --warn).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, untouched for 14 days, or carrying a `! gh ` step with no refused act named, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, a brief still holding its spec, a latest comment saying the issue is not ready on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, untouched for 14 days, or carrying a `! gh ` step with no refused act named, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, with a window its basis does not name or with a basis carrying no warrant, a brief still holding its spec, a latest comment saying the issue is not ready on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
  * JUSTIFIED: fail-safe — an issue with no `takes:` is routed to no command, and every reader of the label reads it rather than fixing it.
  * DEFEAT:    none; --notify is silent when no open issue carries a fault.
  */
@@ -68,7 +68,7 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isRouteStep } = require("./lib/decision-labels");
 const { hostRoot } = require("./lib/host-root");
-const { resolveGate } = require("./lib/issue-gate");
+const { resolveGate, basisFaults } = require("./lib/issue-gate");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	isHeldWithoutReads,
@@ -479,13 +479,31 @@ function checkGates(iss, raise) {
 	if (gates.gateOnHolds) marker = "Gated on";
 	else if (!gates.conflict && gates.gate && !gates.gate.malformed)
 		marker = "Gated until";
-	if (marker && !gates.basis)
+	if (!marker) return;
+	// The write routes' own reading (#4946), so a body that skipped them surfaces.
+	const faults = basisFaults(iss.body, iss.number);
+	if (faults.some((f) => f.kind === "no-basis"))
 		raise(
 			"WARN",
 			"NO-GATE-BASIS",
 			`**${marker}:** line with no \`**Gate basis:**\` — nothing says what data sets its date or window`,
-			`add \`**Gate basis:** <the data that sets it, and why nothing sooner fits>\` directly beneath the ${marker} line`,
+			`add a \`**Gate basis:**\` line directly beneath the ${marker} line, to the template in docs/agents/issue-tracker.md §Gating an issue`,
 		);
+	for (const f of faults)
+		if (f.kind === "unnamed-window")
+			raise(
+				"WARN",
+				"NO-GATE-BASIS",
+				`writes the window "${f.text}", which its \`**Gate basis:**\` does not name`,
+				"name the window in the basis, with the data that sets it",
+			);
+		else if (f.kind === "no-warrant")
+			raise(
+				"WARN",
+				"NO-GATE-BASIS",
+				`\`**Gate basis:**\` with no warrant — "${f.text}"`,
+				"rewrite the basis to carry one of the three warrants in docs/agents/issue-tracker.md §Gating an issue",
+			);
 }
 
 /** @param {any} iss @param {string[]} own @param {Raise} raise */

@@ -566,6 +566,7 @@ const {
 	buildSessionCeilingText,
 } = require("./lib/admission");
 const { readLiveLanders } = require("./lib/local-tester.js");
+const { readTestsHeldOnWindows } = require("./lib/suite-queue.js");
 /** @typedef {ReturnType<typeof selectionAdmission>} Machine */
 
 /**
@@ -2603,6 +2604,7 @@ function admissionOf(listed) {
 		listed,
 		reclaimable,
 		landers: readLiveLanders(),
+		testsHeld: readTestsHeldOnWindows(),
 	});
 	return {
 		reclaimable,

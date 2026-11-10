@@ -9,8 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const { launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
+const { checkoutPeakMb, launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
 	require("./tsc-slot.js") as {
+		checkoutPeakMb: (dir: string) => number;
 		launchPeakMb: (
 			dir: string,
 			launch?: { bin?: string; readMajor?: (bin: string) => number | null },
@@ -197,6 +198,11 @@ describe("lib/tsc-slot.js", () => {
 			expect(launchPeakMb(six, { bin: "tsc6" })).toBe(2045);
 			expect(launchPeakMb(tree("five", "5.9.3"))).toBe(2045);
 			expect(launchPeakMb(dir)).toBe(2045);
+			// A checkout's own type-check, none where it holds no compiler (#4956).
+			expect(checkoutPeakMb(path.join(dir, "seven", "sub"))).toBe(
+				TSC_PEAKS_MB[7],
+			);
+			expect(checkoutPeakMb(dir)).toBe(0);
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
 		}

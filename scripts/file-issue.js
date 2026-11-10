@@ -438,10 +438,7 @@ function checkBody(labels, body) {
 	if (handover) writeFd(2, handover);
 	const unbased = basisFaults(body);
 	if (unbased.length > 0)
-		io.fail(
-			`Nothing filed: the body carries ${basisRefusal(unbased, body)}`,
-			2,
-		);
+		io.fail(`Nothing filed: the body carries ${basisRefusal(unbased)}`, 2);
 	const checks = addedCheckVerdict("", body, { run: true });
 	for (const w of checks.warnings) io.warn(w);
 	if (checks.refusals.length > 0)
