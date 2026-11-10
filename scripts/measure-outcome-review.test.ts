@@ -5,14 +5,17 @@
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
  * dropped, a missed signature goes unlisted, or a finding filed in an
- * adopter's tracker is never judged (#4858).
+ * adopter's tracker is never judged (#4858) or is read from a stale local ref
+ * that misses an upstream revert (#4872).
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { GH_NOT_FOUND } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
@@ -48,65 +51,74 @@ interface Issue {
 	labels?: string[];
 }
 
-/** A repo with a workflow-core config naming `tracker`, and an origin/main
- * moved by each commit. Its reflog is stamped with the real clock, after
- * NOW, unless `refDay` dates it. */
-function fixtureRepo(root: string, tracker: string) {
+/** What the stub serves through `gh api`: each tracker's main, newest last,
+ * and its signature log, absent (a 404) where unset. */
+interface Upstream {
+	commits: Record<string, { sha: string; at: string; message: string }[]>;
+	logs: Record<string, string>;
+}
+
+/** A checkout with a workflow-core config naming `tracker`, whose main
+ * `upstream` holds, as GitHub would serve it. */
+function fixtureRepo(root: string, tracker: string, upstream: Upstream) {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
 	execFileSync("git", ["init", "-q", root]);
 	fs.writeFileSync(
 		path.join(root, ".claude", "workflow-core.json"),
 		JSON.stringify({ contract: 1, tracker }),
 	);
-	const git = (args: string[], at?: string) =>
-		execFileSync("git", ["-C", root, ...args], {
-			encoding: "utf8",
-			env: {
-				...process.env,
-				GIT_AUTHOR_NAME: "t",
-				GIT_AUTHOR_EMAIL: "t@t",
-				GIT_COMMITTER_NAME: "t",
-				GIT_COMMITTER_EMAIL: "t@t",
-				...(at ? { GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : {}),
-			},
-		}).trim();
-	const commit = (message: string, day: number, refDay?: number) => {
-		git(["commit", "-q", "--allow-empty", "-m", message], d(day));
-		const sha = git(["rev-parse", "HEAD"]);
-		git(
-			["update-ref", "refs/remotes/origin/main", sha],
-			refDay === undefined ? undefined : d(refDay),
-		);
+	upstream.commits[tracker] ??= [];
+	const main = upstream.commits[tracker];
+	const commit = (message: string, day: number) => {
+		const sha = createHash("sha1")
+			.update(`${tracker} ${main.length} ${message}`)
+			.digest("hex");
+		main.push({ sha, at: d(day), message });
 		return sha;
 	};
 	return {
 		root,
 		commit,
-		/** A signature line, landed on origin/main as file-issue.js's is. */
+		/** A signature line, landed on main as file-issue.js's is. */
 		signatureLine(n: number, extra: Record<string, unknown> = {}) {
-			const log = path.join("docs", "data", "outcome-signatures.jsonl");
-			fs.appendFileSync(
-				path.join(root, log),
-				`${JSON.stringify({
+			upstream.logs[tracker] = `${upstream.logs[tracker] ?? ""}${JSON.stringify(
+				{
 					issue: `${tracker}#${n}`,
 					filedAt: d(FILED),
 					signature: SIG,
 					prediction: "the boom stops",
 					case: { session: "s", line: 1 },
 					...extra,
-				})}\n`,
-			);
-			git(["add", log]);
+				},
+			)}\n`;
 			commit("Log a signature", FILED);
+		},
+		/** A local origin/main last moved on `day`, holding none of main. */
+		localRef(day: number) {
+			const at = d(day);
+			const env = {
+				...process.env,
+				GIT_AUTHOR_NAME: "t",
+				GIT_AUTHOR_EMAIL: "t@t",
+				GIT_COMMITTER_NAME: "t",
+				GIT_COMMITTER_EMAIL: "t@t",
+				GIT_AUTHOR_DATE: at,
+				GIT_COMMITTER_DATE: at,
+			};
+			const git = (args: string[]) =>
+				execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
+			git(["commit", "-q", "--allow-empty", "-m", "Local only"]);
+			git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
 		},
 	};
 }
 
 function scratch() {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "outcome-review-"));
-	const main = fixtureRepo(path.join(home, "repo"), TRACKER);
+	const upstream: Upstream = { commits: {}, logs: {} };
+	const main = fixtureRepo(path.join(home, "repo"), TRACKER, upstream);
 	const { root } = main;
+	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
 	const seats = [path.join(home, "seat1"), path.join(home, "seat2")];
 	const issues: Issue[] = [];
 	const tmp = path.join(home, "tmp");
@@ -121,7 +133,7 @@ function scratch() {
 		/** A second repo under `name`, its tracker `tracker`, with a session
 		 * whose cwd is in it, so the review finds it. */
 		adopter(name: string, tracker: string) {
-			const repo = fixtureRepo(path.join(home, name), tracker);
+			const repo = fixtureRepo(path.join(home, name), tracker, upstream);
 			const dir = path.join(seats[0], "projects", `-${name}`);
 			fs.mkdirSync(dir, { recursive: true });
 			writeTranscript(
@@ -171,25 +183,52 @@ function scratch() {
 				`${JSON.stringify({ mode: "weekly", date: "2026-06-01", ...line })}\n`,
 			);
 		},
+		/** Each `since` the stub's commit reads were sent, in call order. */
+		sinces: () =>
+			fs.existsSync(path.join(home, "sinces"))
+				? fs.readFileSync(path.join(home, "sinces"), "utf8").trim().split("\n")
+				: [],
 		run({
 			failingView = false,
 			failingList = "",
+			failingCommits = "",
 		}: {
 			failingView?: boolean;
 			failingList?: string;
+			failingCommits?: string;
 		} = {}) {
 			const handler = `
+const fs = require("node:fs");
 const issues = ${JSON.stringify(issues)};
+const upstream = ${JSON.stringify(upstream)};
+const notFound = ${JSON.stringify(GH_NOT_FOUND)};
 const failingView = ${failingView};
 const failingList = ${JSON.stringify(failingList)};
+const failingCommits = ${JSON.stringify(failingCommits)};
 const flag = (f) => argv[argv.indexOf(f) + 1];
 const inRepo = issues.filter((i) => (i.repo ?? ${JSON.stringify(TRACKER)}) === flag("--repo"));
-const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: i.createdAt ?? "", closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })) });
-if (argv[0] === "issue" && argv[1] === "view") {
+const created = (i) => i.createdAt ?? ${JSON.stringify(d(0))};
+const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: created(i), closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })) });
+const api = argv[0] === "api" && argv.find((a) => a.startsWith("repos/"))?.match(/^repos\\/([^/]+\\/[^/]+)\\/(commits|contents\\/[^?]+)\\?(.*)$/);
+if (api && api[2] === "commits") {
+  const q = new URLSearchParams(api[3]);
+  fs.appendFileSync(${JSON.stringify(path.join(home, "sinces"))}, api[1] + " " + q.get("since") + "\\n");
+  if (api[1] === failingCommits) { err("HTTP 502: bad gateway\\n"); exit(1); }
+  const from = Date.parse(q.get("since")), to = Date.parse(q.get("until"));
+  const main = (upstream.commits[api[1]] ?? []).map((c, seq) => ({ ...c, seq }))
+    .filter((c) => Date.parse(c.at) >= from && Date.parse(c.at) <= to)
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || b.seq - a.seq)
+    .map((c) => ({ sha: c.sha, commit: { message: c.message, committer: { date: c.at } } }));
+  out(JSON.stringify([main]));
+} else if (api) {
+  const log = upstream.logs[api[1]];
+  if (log === undefined) { out(notFound.stdout); err(notFound.stderr); exit(notFound.status); }
+  out(log);
+} else if (argv[0] === "issue" && argv[1] === "view") {
   if (failingView) { err("HTTP 502: bad gateway\\n"); exit(1); }
   const i = inRepo.find((x) => x.number === Number(argv[2]));
   if (!i) { err("no such issue\\n"); exit(1); }
-  out(JSON.stringify({ state: i.state ?? "CLOSED" }));
+  out(JSON.stringify({ state: i.state ?? "CLOSED", createdAt: created(i) }));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--repo") === failingList) {
   err("HTTP 502: bad gateway\\n"); exit(1);
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--label") === "bug") {
@@ -267,7 +306,7 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out, 2)).toMatchObject({
 			verdict: "waiting",
 			fixSha: null,
-			why: "no commit on origin/main cites it",
+			why: "no commit on main cites it",
 		});
 		expect(outcome(out, 3)).toMatchObject({
 			verdict: "waiting",
@@ -636,6 +675,15 @@ describe("measure-outcome-review.js", () => {
 		});
 	});
 
+	it("reads a tracker with no signature log as no lines", () => {
+		const f = scratch();
+		f.commit("Initial", 1);
+		const { status, out } = f.run();
+		expect(status).toBe(0);
+		expect(out.outcomes).toEqual([]);
+		expect(out.failures).toEqual([]);
+	});
+
 	it("is due its flip check early on two runs over the token budget", () => {
 		const f = scratch();
 		f.commit("Initial", 1);
@@ -665,7 +713,7 @@ describe("measure-outcome-review.js", () => {
 		) => out.outcomes.find((o) => o.finding === ref(n));
 
 		/** Finding o/m#5, logged and fixed by a bare `#5` in the adopter. */
-		function adopterFinding(refDay?: number) {
+		function adopterFinding() {
 			const f = scratch();
 			f.commit("Initial", 1);
 			baselineOfOne(f);
@@ -684,16 +732,15 @@ describe("measure-outcome-review.js", () => {
 			);
 			a.signatureLine(5);
 			const sha = a.commit("Stop the boom (#5)", FIXED);
-			a.commit("Read refs once (#20)", 56, refDay);
+			a.commit("Read refs once (#20)", 56);
 			afterFix(f, 5, 0);
 			return { f, a, sha };
 		}
 
 		it("judges a finding filed and fixed in the second repo, and lists its misses", () => {
 			const { f, sha } = adopterFinding();
-			/* A clone of the adopter with an older ref: the fresher is read. */
-			const clone = f.adopter("adopter-clone", ADOPTER_TRACKER);
-			clone.commit("Old clone", 1, 2);
+			/* A second checkout of the adopter: the first found is read. */
+			f.adopter("adopter-clone", ADOPTER_TRACKER);
 			const { status, out } = f.run();
 			expect(status).toBe(0);
 			expect(out.failures).toEqual([]);
@@ -727,16 +774,58 @@ describe("measure-outcome-review.js", () => {
 			);
 		});
 
-		it("holds the second repo's findings and misses where its origin/main is over 24 h old, and exits 1", () => {
-			const { f } = adopterFinding(58);
+		it("reads an adopter whose local origin/main is days old, and exits 0", () => {
+			const { f, a, sha } = adopterFinding();
+			a.localRef(10);
 			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.failures).toEqual([]);
+			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "keep", fixSha: sha });
+			expect(out.repos[1]).toEqual({
+				tracker: ADOPTER_TRACKER,
+				root: path.join(home, "adopter"),
+				main: expect.any(String),
+			});
+		});
+
+		it("unwinds on a revert only upstream, which the local ref never saw", () => {
+			const { f, a, sha } = adopterFinding();
+			a.localRef(FIXED + 1);
+			const revert = a.commit(
+				`Revert "Stop the boom (#5)"\n\nThis reverts commit ${sha}.`,
+				FIXED + 3,
+			);
+			const { out } = f.run();
+			expect(outcomeOf(out, 5)).toMatchObject({
+				verdict: "unwind",
+				why: "guardrail harm",
+				guardrails: { reverts: [revert] },
+			});
+		});
+
+		it("holds the adopter's findings and misses where its main will not read, and exits 1", () => {
+			const { f } = adopterFinding();
+			const { status, out } = f.run({ failingCommits: ADOPTER_TRACKER });
 			expect(status).toBe(1);
 			expect(outcomeOf(out, 5)).toMatchObject({ verdict: "waiting" });
 			expect(outcomeOf(out, 5)?.why).toMatch(
-				/origin\/main unread: o\/m: origin\/main in .* last updated .*, over 24 h/,
+				/^main unread: o\/m: main unread: HTTP 502/,
 			);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.outcomeStep.misses).toBeNull();
+		});
+
+		it("reads each main from the earliest createdAt of any issue it judges", () => {
+			const { f } = adopterFinding();
+			f.issues[0] = { ...f.issues[0], createdAt: d(30) } as Issue;
+			f.issues[2] = { ...f.issues[2], createdAt: d(33) } as Issue;
+			f.issues[1] = { ...f.issues[1], createdAt: d(20) } as Issue;
+			f.run();
+			/* #5 in the host tracker is no finding, so its d(20) sets nothing. */
+			expect(f.sinces()).toEqual([
+				`${TRACKER} ${d(30)}`,
+				`${ADOPTER_TRACKER} ${d(30)}`,
+			]);
 		});
 
 		it("names the tracker whose issue list failed, holding the finding on it", () => {
