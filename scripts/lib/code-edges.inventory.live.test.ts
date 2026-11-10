@@ -12,14 +12,13 @@
  */
 
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { expect, it } from "vitest";
 import {
 	DECLARING,
 	MARKER,
-	markerLines,
 	ROOT,
+	readMarkerLines,
 } from "./code-edges-declaring-testkit";
 
 it("knows every file in the repo holding a declaration", () => {
@@ -29,9 +28,8 @@ it("knows every file in the repo holding a declaration", () => {
 	})
 		.split("\n")
 		.filter((rel) => rel !== "" && !(rel in DECLARING))
-		.filter((rel) => fs.existsSync(path.join(ROOT, rel)))
 		.filter((rel) =>
-			markerLines(path.join(ROOT, rel)).some((l) => l.isDeclaration),
+			readMarkerLines(path.join(ROOT, rel)).some((l) => l.isDeclaration),
 		);
 	expect(holding).toEqual([]);
 });

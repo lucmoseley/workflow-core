@@ -371,7 +371,9 @@ function writeLatches({ root, payload, log }, latches) {
 /**
  * The detached start a Launch asks for: node in a session of its own, as
  * lib/detach.sh's setsid does, so no hook's process-group kill reaches it.
- * A script given by any but an absolute path throws, logged as the guard's.
+ * The spawn sets no cwd, so a script given by any but an absolute path
+ * would resolve against the session's; it throws, logged as the guard's
+ * (#4790; code-edges.js WHOLE PATHS).
  * @param {Launch["launch"]} launch
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log

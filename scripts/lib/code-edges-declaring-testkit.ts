@@ -53,7 +53,7 @@ export interface MarkerLine {
  * Every line naming the marker in the file at `at`, its working-tree text.
  * @param at absolute
  */
-export function markerLines(at: string): MarkerLine[] {
+export function readMarkerLines(at: string): MarkerLine[] {
 	const text = fs.readFileSync(at, "utf8");
 	const whole = JSON.stringify(reach(at, text));
 	const lines = text.split("\n");

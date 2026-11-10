@@ -1080,6 +1080,15 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		).toEqual([]);
 	});
 
+	it("reports a git grep reading its patterns from a file as unseen, whatever its pathspecs (#4790)", () => {
+		for (const flag of ["-f", "--file"]) {
+			const body = `${anchored}execFileSync("git", ["grep", "-l", "${flag}", "${dir}/p.txt", "--", "${dir}"], { cwd: ROOT });`;
+			expect(sitesOf(body).map((s) => s.shape)).toEqual([
+				"a `git ls-files` or `git grep` pathspec that is not a literal",
+			]);
+		}
+	});
+
 	it("reports a path run spread across a + chain from an anchor", () => {
 		const body = `${anchored}fs.readFileSync(ROOT + "/${dir}/" + name);`;
 		expect(sitesOf(body).map((s) => s.shape)).toEqual([

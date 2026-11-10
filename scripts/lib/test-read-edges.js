@@ -822,14 +822,46 @@ function pathspecMatcher(spec) {
  * @returns {string[]}
  */
 function pathspecsOf(source, elements) {
+	return readPathspecs(source, elements).specs;
+}
+
+/**
+ * A git listing's pathspecs, and whether any element names one the selector
+ * cannot read: neither a quoted literal nor a parameter some call fills.
+ * @param {string} source
+ * @param {string[]} elements  the list's, its subcommand first
+ * @returns {{ specs: string[], unreadable: boolean }}
+ */
+function readPathspecs(source, elements) {
 	const specs = [];
+	let unreadable = false;
 	for (const el of pathspecElements(elements)) {
 		const lit = PATHSPEC.exec(el)?.[1];
+		const filled =
+			lit === undefined && IDENT.test(el) ? argsFor(source, el) : [];
 		if (lit !== undefined) {
 			if (!lit.startsWith("-")) specs.push(lit);
-		} else if (IDENT.test(el)) specs.push(...argsFor(source, el));
+		} else if (filled.length > 0) specs.push(...filled);
+		else unreadable = true;
 	}
-	return specs;
+	return { specs, unreadable };
+}
+
+/** A `grep` flag reading its patterns from a file, which no pathspec names. */
+const GREP_PATTERN_FILE = /^["'](?:-f|--file(?:=.*)?)["']$/;
+
+/**
+ * Whether a git listing is a `grep` reading its patterns from a file (#4790).
+ * @param {string[]} elements  the list's, its subcommand first
+ * @returns {boolean}
+ */
+function isGrepFromFile(elements) {
+	const [subcommand, ...rest] = elements;
+	if (!/^["']grep["']$/.test(subcommand ?? "")) return false;
+	const dashes = rest.findIndex((el) => /^["']--["']$/.test(el));
+	return (dashes === -1 ? rest : rest.slice(0, dashes)).some((el) =>
+		GREP_PATTERN_FILE.test(el),
+	);
 }
 
 /** A git call listing tracked files, the list opening its arguments:
@@ -952,7 +984,7 @@ function argsFor(source, param) {
  * @param {string} source
  * @returns {void}
  */
-function addLsFilesEdges(scan, source) {
+function addListingEdges(scan, source) {
 	if (!scan.root) return;
 	for (const m of source.matchAll(GIT_LISTING)) {
 		const open = m.index ?? 0;
@@ -1000,7 +1032,7 @@ function edgesFor(source, tracked, self) {
 	addComposedEdges(scan, source);
 	addDirClassEdges(scan, source);
 	addReaddirEdges(scan, source);
-	addLsFilesEdges(scan, source);
+	addListingEdges(scan, source);
 	return [...scan.found].sort();
 }
 
@@ -1987,7 +2019,7 @@ function readShape(scan, arg, listing) {
 	return null;
 }
 
-/** A git call whose argument list follows: the shape `addLsFilesEdges` reads. */
+/** A git call whose argument list follows: the shape `addListingEdges` reads. */
 const GIT_CALL =
 	/\b(?:execFileSync|execFile|spawnSync|spawn)\(\s*["']git["']\s*,\s*$/;
 
@@ -2030,15 +2062,10 @@ function optionCwd(opts) {
  * @returns {string | null}
  */
 function listingShape(scan, elements) {
-	let specs = 0;
-	for (const el of pathspecElements(elements)) {
-		const lit = PATHSPEC.exec(el)?.[1];
-		if (lit !== undefined) {
-			if (!lit.startsWith("-")) specs++;
-		} else if (IDENT.test(el) && argsFor(scan.source, el).length > 0) specs++;
-		else return SHAPE.pathspec;
-	}
-	return specs === 0 ? SHAPE.wholeTree : null;
+	if (isGrepFromFile(elements)) return SHAPE.pathspec;
+	const { specs, unreadable } = readPathspecs(scan.source, elements);
+	if (unreadable) return SHAPE.pathspec;
+	return specs.length === 0 ? SHAPE.wholeTree : null;
 }
 
 /**

@@ -17,9 +17,9 @@ import path from "node:path";
 import { expect, it } from "vitest";
 import {
 	DECLARING,
-	markerLines,
 	ROOT,
 	reach,
+	readMarkerLines,
 } from "./code-edges-declaring-testkit";
 
 /* The manifest the keyed lines name, read two hops in: guard-core-load.js's
@@ -30,7 +30,7 @@ const files = Object.entries(DECLARING).map(([rel, at]) => ({
 	rel,
 	at,
 	text: fs.readFileSync(at, "utf8"),
-	lines: markerLines(at),
+	lines: readMarkerLines(at),
 }));
 
 /* A comment line, which a keyless line's target must be spelled outside. */
