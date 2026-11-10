@@ -8,7 +8,7 @@
  *
  * `gh` is stubbed as a real executable injected at WFC_GH — the named seam
  * scripts/lib/gh.js documents — which records its own argv. The issue-body stub
- * writes the replacement body back over what the stub `gh issue view` answers
+ * keeps the replacement body, which the next run's `gh issue view` answers
  * with, so the refresh path can be run twice.
  *
  * It runs in the daily repo-checks run,
@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -362,7 +362,7 @@ function fixture(opts: {
 	};
 }
 
-/** The `gh` a run calls, its `issue view` answering the body as it stands. */
+/** The `gh` a run calls, its `issue view` answering the body as the run starts. */
 const stubGh = (fx: ReturnType<typeof fixture>) =>
 	stubGhRoutes(
 		fx.root,
@@ -371,9 +371,8 @@ const stubGh = (fx: ReturnType<typeof fixture>) =>
 			"issue view*": printed(fx.issueBody.body()),
 			"issue create*": printed("https://github.com/o/r/issues/999\n"),
 			"issue edit*": {
+				...refused("label edit refused"),
 				status: fx.ghEditExitCode,
-				stdout: "",
-				stderr: "label edit refused\n",
 			},
 		},
 		{ log: fx.argvLog, failing: fx.ghRefuses },

@@ -194,7 +194,7 @@ function fixture(opts: {
 	};
 }
 
-/** The `gh` a run calls, its `issue view` answering the body as it stands. */
+/** The `gh` a run calls, its `issue view` answering the body as the run starts. */
 const stubGh = (fx: ReturnType<typeof fixture>) =>
 	stubGhRoutes(
 		fx.root,

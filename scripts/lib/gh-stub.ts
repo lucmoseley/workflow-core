@@ -95,6 +95,13 @@ export const printed = (stdout = ""): GhAnswer => ({
 	stderr: "",
 });
 
+/** A call gh fails, printing `stderr` as one line. */
+export const refused = (stderr: string): GhAnswer => ({
+	status: 1,
+	stdout: "",
+	stderr: `${stderr}\n`,
+});
+
 const routeAnswer = (a: RouteAnswer): GhAnswer => {
 	if ("status" in a) return a;
 	const body = asRecorded(a.kind, a.value);
@@ -197,7 +204,8 @@ esac
 /**
  * A `serveGhStub` handler as a gh started per call, for a call that must wait
  * mid-answer: the server answers one call at a time, so a wait there stalls
- * every other program's calls. Binds the handler's eight names as the server
+ * every other program's calls. Also for one file's few calls answered on
+ * arguments a route key does not hold, such as `--jq` or `-H`. Binds the handler's eight names as the server
  * does, stdin read only where an argument names it (`-`, `…@-`) (#4311).
  */
 export function stubGhHandler(dir: string, handler: string): StubGh {

@@ -18561,6 +18561,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/validation-failed.json": [
+			"scripts/check-vendored-skills.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",

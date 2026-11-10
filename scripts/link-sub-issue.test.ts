@@ -46,6 +46,7 @@ import {
 import {
 	type GhStubServer,
 	printed,
+	refused,
 	serveGhStub,
 	stubGhScript,
 } from "./lib/gh-stub";
@@ -69,12 +70,6 @@ interface Gh {
 	state?: string;
 }
 
-const refused = (stderr: string): GhAnswer => ({
-	status: 1,
-	stdout: "",
-	stderr: `${stderr}\n`,
-});
-
 const POSTS: Record<NonNullable<Gh["post"]>, GhAnswer> = {
 	ok: printed('{"number":1}\n'),
 	dup: refused("gh: Sub issue may only have one parent (HTTP 422)"),
@@ -86,11 +81,12 @@ const POSTS: Record<NonNullable<Gh["post"]>, GhAnswer> = {
 
 const ANSWERS_FILE = "gh-answers.json";
 const CALLS_FILE = "calls.log";
+const READS_FILE = "reads";
 
 /*
  * The `gh` every run calls, logging one line of argv per call under the
  * directory GH_STUB_DIR names and answering from its ANSWERS_FILE. The
- * parent's list stays empty for its first `lag` reads, which `reads` counts.
+ * parent's list stays empty for its first `lag` reads, which READS_FILE counts.
  */
 const HANDLER = `${LINK_READ_FAKE}
 const fs = require("node:fs");
@@ -101,8 +97,9 @@ const g = JSON.parse(fs.readFileSync(at(${JSON.stringify(ANSWERS_FILE)}), "utf8"
 const serve = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
 if (argv.join(" ").includes("--method POST")) serve(g.post);
 if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}) {
-	const n = fs.existsSync(at("reads")) ? Number(fs.readFileSync(at("reads"), "utf8")) : 0;
-	fs.writeFileSync(at("reads"), String(n + 1));
+	const counter = at(${JSON.stringify(READS_FILE)});
+	const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
+	fs.writeFileSync(counter, String(n + 1));
 	if (n < g.lag) exit(0);
 }
 const read = answerLinkRead(argv, g.reads);

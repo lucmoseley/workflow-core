@@ -36,8 +36,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { GH_NOT_FOUND, type GhAnswer } from "./lib/gh-fake";
-import { printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
+import {
+	printed,
+	type RouteAnswer,
+	refused,
+	stubGhRoutes,
+} from "./lib/gh-stub";
 import { splitCheckout } from "./lib/guard-core-testkit";
 import {
 	cutGateScript,
@@ -609,7 +614,10 @@ function upstreamRoot(source: string) {
 /** The licence text `build`'s default notices section holds. */
 const LICENCE = "MIT License\n";
 
-/** A `gh` for `stubGh`: its routes, keyed on the path fetched, and its argv log. */
+/**
+ * A `gh` for `stubGh`: its routes, keyed on the path fetched, and the file its
+ * calls' arguments are appended to; with no `log`, no call is recorded.
+ */
 interface Gh {
 	routes: Record<string, RouteAnswer>;
 	log?: string;
@@ -619,15 +627,17 @@ interface Gh {
 const content = (text: string) =>
 	printed(`${Buffer.from(text).toString("base64")}\n`);
 
-/** A fetch gh fails, printing `stderr`. */
-const refused = (stderr: string): GhAnswer => ({
-	status: 1,
-	stdout: "",
-	stderr: `${stderr}\n`,
-});
-
 /** A `gh` failing every fetch with `stderr`. */
 const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
+
+/** A `gh` failing every fetch as GitHub refuses a request it cannot process. */
+const GH_422: Gh = {
+	routes: {
+		"*": readGhAnswer(
+			path.join(__dirname, "lib/fixtures/gh/validation-failed.json"),
+		),
+	},
+};
 
 /**
  * A `gh` that answers every contents fetch with `body` and every licence
@@ -942,10 +952,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 	});
 
 	it("breaks, rather than skipping, on a failure the call is at fault for, naming the HTTP error and saying it is not a finding about upstream (mantahostels#3066)", () => {
-		const r = runUpstream(
-			upstreamRoot("mattpocock/skills"),
-			refusing("gh: Unprocessable Entity (HTTP 422)"),
-		);
+		const r = runUpstream(upstreamRoot("mattpocock/skills"), GH_422);
 		expect(r.outcome).toBe("BROKEN");
 		expect(r.text).toContain("HTTP 422");
 		expect(r.text).toContain("not a finding about upstream");
@@ -1055,7 +1062,7 @@ describe("check-vendored-skills --upstream, the record", () => {
 			() => licenceFailing("gh: could not resolve host"),
 		],
 		["SKIP", () => refusing("gh: could not resolve host")],
-		["BROKEN", () => refusing("gh: Unprocessable Entity (HTTP 422)")],
+		["BROKEN", () => GH_422],
 	])("writes none on %s", (_, gh) => {
 		const root = upstreamRoot("mattpocock/skills");
 		runUpstream(root, gh(path.join(root, "gh.log")), ["--write"]);

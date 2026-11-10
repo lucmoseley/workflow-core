@@ -1,40 +1,43 @@
 --- a/scripts/check-vendored-skills.test.ts
 +++ b/scripts/check-vendored-skills.test.ts
-@@ -38,5 +38,10 @@
- import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
- import { GH_NOT_FOUND, type GhAnswer } from "./lib/gh-fake";
--import { printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
-+import {
-+	printed,
-+	type RouteAnswer,
+@@ -42,4 +42,5 @@
+ 	type RouteAnswer,
+ 	refused,
 +	stubGhHandler,
-+	stubGhRoutes,
-+} from "./lib/gh-stub";
- import { splitCheckout } from "./lib/guard-core-testkit";
- import {
-@@ -610,8 +615,12 @@
- const LICENCE = "MIT License\n";
+ 	stubGhRoutes,
+ } from "./lib/gh-stub";
+@@ -50,4 +51,5 @@
+ 	stagedRepo,
+ } from "./lib/precommit-gate-harness";
++import { escapeRe } from "./lib/regex-group.js";
+ import { runInProcess } from "./lib/run-in-process.js";
  
--/** A `gh` for `stubGh`: its routes, keyed on the path fetched, and its argv log. */
-+/**
-+ * A `gh` for `stubGh`: its routes, keyed on the path fetched, and its argv
-+ * log; or a `stubGhHandler` handler, which reads the whole call.
-+ */
- interface Gh {
- 	routes: Record<string, RouteAnswer>;
- 	log?: string;
-+	handler?: string;
- }
+@@ -617,10 +619,11 @@
+ /**
+  * A `gh` for `stubGh`: its routes, keyed on the path fetched, and the file its
+- * calls' arguments are appended to; with no `log`, no call is recorded.
++ * calls' arguments are appended to; with no `log`, no call is recorded. Or a
++ * `stubGhHandler` handler, which reads the whole call where a route key
++ * holds only its path (#4811).
+  */
+-interface Gh {
+-	routes: Record<string, RouteAnswer>;
+-	log?: string;
+-}
++type Gh =
++	| { routes: Record<string, RouteAnswer>; log?: string }
++	| { handler: string };
  
-@@ -620,4 +629,7 @@
+ /** What `gh api <path> --jq .content` prints for a file holding `text`. */
+@@ -628,4 +631,7 @@
  	printed(`${Buffer.from(text).toString("base64")}\n`);
  
 +/** Handler source: the call as one line, and whether it is a licence fetch. */
 +const CALL = `const line = argv.join(" "); const isLicence = line.includes("/license");`;
 +
- /** A fetch gh fails, printing `stderr`. */
- const refused = (stderr: string): GhAnswer => ({
-@@ -631,7 +643,9 @@
+ /** A `gh` failing every fetch with `stderr`. */
+ const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
+@@ -641,7 +647,9 @@
  
  /**
 - * A `gh` that answers every contents fetch with `body` and every licence
@@ -47,7 +50,7 @@
 + * the `missing` glob 404s instead.
   */
  function answering(
-@@ -641,16 +655,27 @@
+@@ -651,16 +659,23 @@
  	missing?: string,
  ): Gh {
 -	return {
@@ -59,45 +62,41 @@
 -		log,
 -	};
 +	const gone = missing
-+		? `^${missing
-+				.split("*")
-+				.map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
-+				.join(".*")}$`
++		? `^${missing.split("*").map(escapeRe).join(".*")}$`
 +		: "$^";
 +	const handler = `${CALL}
 +require("node:fs").appendFileSync(${JSON.stringify(log)}, line + "\\n");
 +if (new RegExp(${JSON.stringify(gone)}).test(line)) { err(${JSON.stringify(GH_NOT_FOUND.stderr)}); exit(1); }
 +if (!isLicence) out(${JSON.stringify(content(body).stdout)});
 +else if (/vnd\\.github\\.raw|base64d/.test(line)) out(${JSON.stringify(licence)});
-+else if (argv.includes("--jq") || argv.includes("-q")) out(${JSON.stringify(content(licence).stdout)});
++else if (line.includes("--jq") || argv.includes("-q")) out(${JSON.stringify(content(licence).stdout)});
 +else out(${JSON.stringify(`${JSON.stringify({ content: content(licence).stdout.trim(), encoding: "base64" })}\n`)});
 +`;
-+	return { routes: {}, handler };
++	return { handler };
  }
  
  const licenceFailing = (stderr: string): Gh => ({
 -	routes: { "*/license*": refused(stderr), "*": content(SKILL) },
-+	routes: {},
 +	handler: `${CALL}
 +if (isLicence) { err(${JSON.stringify(`${stderr}\n`)}); exit(1); }
 +out(${JSON.stringify(content(SKILL).stdout)});
 +`,
  });
  
-@@ -661,5 +686,5 @@
+@@ -671,5 +686,5 @@
  				.trim()
  				.split("\n")
 -				.map((l) => l.split(" ")[1] ?? "")
 +				.map((l) => l.split(" ").find((a) => a.startsWith("repos/")) ?? "")
  				.filter((e) => e.split("/")[3] === kind)
  		: [];
-@@ -774,5 +799,4 @@
+@@ -784,5 +799,4 @@
  		const r = runUpstream(root, answering(SKILL, log));
  		expect(r.tags).toEqual([]);
 -		expect(r.text).toContain("1 licence notice(s)");
  		expect(readEndpoints(log, "license")).toEqual([
  			"repos/mattpocock/skills/license",
-@@ -795,8 +819,7 @@
+@@ -805,8 +819,7 @@
  			answering(SKILL, log, "MIT License\n\nCopyright (c) 2027 Someone Else\n"),
  		);
 -		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
@@ -109,7 +108,7 @@
 +		expect(r.text).toContain("mattpocock/skills");
  	});
  
-@@ -805,5 +828,6 @@
+@@ -815,5 +828,6 @@
  		const log = path.join(root, "gh.log");
  		const r = runUpstream(root, answering(SKILL, log, "Apache License\n"));
 -		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
@@ -117,7 +116,7 @@
 +		expect(r.tags[0]).not.toMatch(/UNREADABLE|GONE/);
  		expect(readContentsEndpoints(log)).toEqual([]);
  	});
-@@ -815,8 +839,4 @@
+@@ -825,8 +839,4 @@
  		);
  		expect(r.tags).toEqual(["UPSTREAM-UNREADABLE"]);
 -		expect(r.outcome).not.toBe("SKIP");
@@ -126,13 +125,15 @@
 -		);
  	});
  
-@@ -870,6 +890,7 @@
+@@ -880,6 +890,9 @@
   */
  
 -const stubGh = (root: string, { routes, log }: Gh) =>
 -	stubGhRoutes(root, routes, { log }).gh;
-+const stubGh = (root: string, { routes, log, handler }: Gh) =>
-+	(handler ? stubGhHandler(root, handler) : stubGhRoutes(root, routes, { log }))
-+		.gh;
++const stubGh = (root: string, gh: Gh) =>
++	("handler" in gh
++		? stubGhHandler(root, gh.handler)
++		: stubGhRoutes(root, gh.routes, { log: gh.log })
++	).gh;
  
  /**
