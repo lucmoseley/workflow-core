@@ -425,7 +425,11 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 	out.write(looked.banner);
 	const landed = recordAllCached(looked.cached ?? [], {
 		root,
-		launch: { ...launch, admissible: plan?.admissible === true },
+		launch: {
+			...launch,
+			admissible: plan?.admissible === true,
+			leftOut: plan?.leftOut ?? null,
+		},
 		changedPaths: plan ? (plan.changed ?? []) : null,
 		base: readRunBase(launch, plan, root, execFn),
 		startedAtMs: Date.now(),
@@ -465,6 +469,7 @@ function vitestEnv({ inflightFile, timingsFile, plan, launch, base, cached }) {
 		...launchEnv({
 			...launch,
 			admissible: plan?.admissible === true,
+			leftOut: plan?.leftOut ?? null,
 			changedPaths: plan ? (plan.changed ?? []) : null,
 			base,
 		}),
@@ -708,6 +713,7 @@ function runOnce(
 			suite: DEFAULT_SUITE,
 			sessionId: session,
 			argv: launch.argv ?? [],
+			leftOut: plan.leftOut ?? [],
 		});
 		return Promise.resolve(0);
 	}
@@ -1541,7 +1547,7 @@ function runTouched(route, options) {
  */
 function planTouched(rest, at, options) {
 	try {
-		const { base, changed, files, banner } = selectTouched(at, {
+		const { base, changed, files, leftOut, banner } = selectTouched(at, {
 			...ownOptions(options),
 			...(options.ownWork === undefined ? {} : { ownWork: options.ownWork }),
 			...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
@@ -1557,6 +1563,7 @@ function planTouched(rest, at, options) {
 			changed,
 			base,
 			banner,
+			leftOut,
 		};
 	} catch (error) {
 		if (error instanceof SelectionFailed) throw error;

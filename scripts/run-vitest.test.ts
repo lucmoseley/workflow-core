@@ -2705,6 +2705,28 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		]);
 	});
 
+	it("selects every reader of a checker-only file on `--changed`, which the touched run's rule never reaches (#4967)", async () => {
+		const anchors = ".claude/guard-registry-anchors.json";
+		const { spawnFn, calls } = spawnReturning({ code: 0 });
+		await main(["--changed"], {
+			spawnFn,
+			root: repo(),
+			fs: fakeFs(),
+			execFn: exec({ changed: [anchors] }).fn,
+			loadEdges: () => ({
+				[anchors]: ["b.test.ts", "scripts/check-guard-registry.test.ts"],
+			}),
+			out: { write: () => true },
+		});
+		const [, args] = calls[0] as [string, string[], unknown];
+		expect(args).toEqual([
+			"run",
+			"--passWithNoTests",
+			"b.test.ts",
+			"scripts/check-guard-registry.test.ts",
+		]);
+	});
+
 	it("runs on a filter matching nothing where the union is empty, so a certificate is still written (#189 §6)", async () => {
 		const { spawnFn, calls } = spawnReturning({ code: 0 });
 		await expect(
@@ -3607,6 +3629,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			isolated: false,
 			viaChanged: true,
 			touched: false,
+			leftOut: null,
 			full: null,
 			fullCause: null,
 			argv,
@@ -3632,6 +3655,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			isolated: false,
 			viaChanged: false,
 			touched: false,
+			leftOut: null,
 			full: null,
 			fullCause: null,
 			argv: [SHARED_FLAG],
@@ -3697,6 +3721,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			isolated: true,
 			viaChanged: false,
 			touched: false,
+			leftOut: null,
 			full: "flag",
 			fullCause: "coverage",
 			argv,
@@ -3819,6 +3844,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			isolated: true,
 			viaChanged: false,
 			touched: false,
+			leftOut: null,
 			full: null,
 			fullCause: null,
 			argv,
@@ -8133,6 +8159,89 @@ describe("under `landing`, the bare run takes only the touched tests (#2930)", (
 		expect(spawned[0]?.args.at(-1)).toBe("lib/chain.test.ts");
 		expect(out).toContain("FELL BACK TO SAME-STEM SIBLINGS");
 		expect(out).not.toContain("ESCALATED");
+	});
+
+	describe("with a checker-only file in the session's diff (#4967)", () => {
+		const Anchors = "scripts/instruction-surface-anchors.json";
+		const Checker = "scripts/check-instruction-surface.test.ts";
+		const Reader = "lib/reader.test.ts";
+		const edges = () => ({ [Anchors]: [Checker, Reader] });
+		/** `landingRepo()` with the anchors file, its checker test and a
+		 * reader, the anchors file then regenerated. */
+		function regenerated() {
+			const dir = landingRepo();
+			fs.mkdirSync(path.join(dir, "scripts"));
+			for (const f of [Anchors, Checker, Reader])
+				fs.writeFileSync(path.join(dir, f), "export {};\n");
+			const git = (...args: string[]) =>
+				require("node:child_process").execFileSync("git", args, {
+					cwd: dir,
+					stdio: "ignore",
+				});
+			git("add", ".");
+			git("commit", "-qm", "anchors");
+			fs.appendFileSync(path.join(dir, Anchors), "// regenerated\n");
+			return dir;
+		}
+
+		it("launches its checker test alone, says what was left to the lander and hands the list to the run's record", async () => {
+			const { out, spawned } = await launch(regenerated(), edges);
+			expect(spawned).toHaveLength(1);
+			expect(spawned[0].args.slice(-2)).toEqual(["--passWithNoTests", Checker]);
+			expect(out).toContain("LEFT TO THE LANDER — 1 test file(s)");
+			expect(readLaunch(spawned[0].env)).toMatchObject({
+				touched: true,
+				leftOut: [Reader],
+			});
+		});
+
+		it("lists the reader left out on the ledger line of a run whose only selected test vitest does not collect", async () => {
+			const dir = regenerated();
+			fs.writeFileSync(path.join(dir, "vitest.config.ts"), "export {};\n");
+			const { execFileSync } = require("node:child_process");
+			const { code, out, spawned } = await launch(dir, edges, [], {
+				/* vitest's own listing, collecting the reader and not the checker. */
+				execFn: (cmd: string, args: string[], opts: object) =>
+					args[0] === "list" ? `${Reader}\n` : execFileSync(cmd, args, opts),
+			});
+			expect(code).toBe(0);
+			expect(spawned).toEqual([]);
+			expect(out).toContain("LEFT TO THE LANDER — 1 test file(s)");
+			const ledger = path.join(dir, ".claude/tmp/markers/.test-runs.jsonl");
+			expect(readJsonl(ledger).at(-1)).toMatchObject({
+				kind: "touched",
+				resolvedFiles: 0,
+				leftOut: [Reader],
+			});
+		});
+
+		it("carries an empty left-out list on a touched run that left nothing out", async () => {
+			const dir = landingRepo();
+			fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
+			const { out, spawned } = await launch(dir);
+			expect(out).not.toContain("LEFT TO THE LANDER");
+			expect(readLaunch(spawned[0].env).leftOut).toEqual([]);
+		});
+
+		it("leaves a run naming its files as typed: the reader runs by name", async () => {
+			const { out, spawned } = await launch(regenerated(), edges, [Reader]);
+			expect(spawned).toHaveLength(1);
+			expect(spawned[0].args.at(-1)).toBe(Reader);
+			expect(spawned[0].args).not.toContain(Checker);
+			expect(out).not.toContain("LEFT TO THE LANDER");
+			expect(readLaunch(spawned[0].env).leftOut).toBeNull();
+		});
+
+		it("leaves the whole suite whole: `--full` hands vitest no file", async () => {
+			const { out, spawned } = await launch(regenerated(), edges, [
+				`${FULL_FLAG}=other`,
+			]);
+			expect(spawned).toHaveLength(1);
+			expect(spawned[0].args).not.toContain(Checker);
+			expect(spawned[0].args).not.toContain(Reader);
+			expect(out).not.toContain("LEFT TO THE LANDER");
+			expect(readLaunch(spawned[0].env).leftOut).toBeNull();
+		});
 	});
 
 	it("runs nothing and exits 0 on an empty selection, naming the lander", async () => {
