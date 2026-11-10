@@ -110,15 +110,17 @@ export type AgentsAnswer =
  * cap, so the cap fires first. */
 const HANG_S = 30;
 
+const printRows = (rows: Row[]) =>
+	`printf '%s' ${shellQuote(JSON.stringify(rows))}`;
+
 const buildListingAnswer = (answer: AgentsAnswer): string => {
 	if (answer === null) return "exit 1";
 	/* `exec`, so the cap's signal reaches the sleep, not a shell it outlives. */
 	if (answer === "hang") return `exec sleep ${HANG_S}`;
-	if (Array.isArray(answer))
-		return `printf '%s' ${shellQuote(JSON.stringify(answer))}; exit 0`;
+	if (Array.isArray(answer)) return `${printRows(answer)}; exit 0`;
 	if ("exit" in answer)
 		return answer.rows
-			? `printf '%s' ${shellQuote(JSON.stringify(answer.rows))}; exit ${answer.exit}`
+			? `${printRows(answer.rows)}; exit ${answer.exit}`
 			: `exit ${answer.exit}`;
 	if ("malformed" in answer)
 		return `printf '%s' ${shellQuote(answer.malformed)}; exit 0`;

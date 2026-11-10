@@ -215,9 +215,15 @@ describe("what it reports", () => {
 	it("still says nothing about a listed holder the oracle calls working", () => {
 		claim("docs/doc-map.md", "busy-session", 300);
 		fakeClaude([
-			buildListedRow({ pid: 100, id: "busy-ses", sessionId: "busy-session" }, [
-				"status",
-			]),
+			buildListedRow(
+				{
+					pid: 100,
+					id: "busy-ses",
+					sessionId: "busy-session",
+					state: "working",
+				},
+				["status"],
+			),
 		]);
 
 		expect(report(run())).not.toContain("STRANDED-CLAIM");

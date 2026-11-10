@@ -707,17 +707,18 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 	const calls = () => path.join(sb.dir, "claude-calls");
 
-	const rowsOf = (agents: [string, string?][]) =>
+	type Named = [sessionId: string, name?: string];
+	const rowsOf = (agents: Named[]) =>
 		agents.map(([sessionId, name]) =>
 			name
 				? buildListedRow({ sessionId, name })
 				: buildUnrecordedRow({ sessionId }),
 		);
 	/** A `claude` stand-in listing `[sessionId, name]` pairs, recording each call. */
-	const fakeClaude = (agents: [string, string?][]) =>
+	const fakeClaude = (agents: Named[]) =>
 		writeOracle(claudeBin(), rowsOf(agents), calls());
 	/** One that lists them and then fails. */
-	const failClaude = (agents: [string, string?][] = []) =>
+	const failClaude = (agents: Named[] = []) =>
 		writeOracle(claudeBin(), { exit: 3, rows: rowsOf(agents) }, calls());
 
 	const oracleCalls = () =>
@@ -803,7 +804,10 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	});
 
 	it("falls back to the bare id when neither the oracle nor the registry names it", () => {
-		failClaude([["alice", "Wayfinder 1162"]]);
+		failClaude([
+			["alice", "Wayfinder 1162"],
+			["bob", "Implement 1104"],
+		]);
 		const r = runAs(["claim", inRepo(rel)], "bob");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("alice");
@@ -4534,8 +4538,11 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 
 		it("waits on to CEILING, never HOLDER-ENDED, where the oracle refuses — and says so", async () => {
 			aliceHolds();
-			const r = await waitAs("bob", ["540", "0.5"], oracleSays("done", [], 3))
-				.done;
+			const r = await waitAs(
+				"bob",
+				["540", "0.5"],
+				oracleSays("done", ["bob"], 3),
+			).done;
 			expect(r.stdout).toMatch(/^CEILING {2}issue #540/);
 			expect(r.stdout).toContain("Whether its session has ended is UNKNOWN");
 			expect(r.status).toBe(5);
