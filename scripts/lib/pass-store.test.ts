@@ -259,6 +259,64 @@ describe("a change to any input voids the pass", () => {
 	});
 });
 
+describe("a new file that takes over an import's resolution voids the pass (#4814)", () => {
+	it.each([
+		[
+			"a `foo.js` beside the `foo/index.js` that `./foo` loaded",
+			'require("./foo");\n',
+			"foo/index.js",
+			"foo.js",
+		],
+		[
+			"a `.js` source where a `.js` specifier loaded its `.ts`",
+			'require("./mod.js");\n',
+			"mod.ts",
+			"mod.js",
+		],
+		[
+			"a `.js` beside the `.json` an extensionless specifier loaded",
+			'require("./data");\n',
+			"data.json",
+			"data.js",
+		],
+	])("%s", (_name, lib, target, shadow) => {
+		const dir = repo();
+		write(dir, "lib.js", lib);
+		fs.mkdirSync(path.join(dir, path.dirname(target)), { recursive: true });
+		write(dir, target, "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, shadow, "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids it through a specifier any number of modules deep", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./mid.js");\n');
+		write(dir, "mid.js", 'require("./deep");\n');
+		write(dir, "deep.ts", "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "deep.js", "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("leaves the shadowing paths out of the reads a cached file attests", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./data");\n');
+		write(dir, "data.json", "{}\n");
+		run(dir, [A]);
+		const [hit] = lookup([A], {
+			root: dir,
+			storeRoot: dir,
+			values: VALUES,
+			lander: false,
+		}).cached;
+		expect(hit.reads).toContain("data.json");
+		expect(hit.reads).not.toContain("data.js");
+	});
+});
+
 describe("the newest result on the same content decides", () => {
 	it("a newer fail voids an older pass", () => {
 		const dir = repo();

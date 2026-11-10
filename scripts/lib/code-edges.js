@@ -66,23 +66,29 @@ const parseCodeLines = (text, comment) =>
 	text.split("\n").filter((line) => !comment.test(line));
 
 /**
+ * The paths node tries, in order, for a relative specifier, with vitest's
+ * `.ts` for a `.js` specifier naming a `.ts` source.
+ * @param {string} abs
+ */
+const candidatesOf = (abs) => [
+	abs,
+	`${abs}.js`,
+	`${abs}.json`,
+	`${abs}.ts`,
+	...(abs.endsWith(".js") ? [`${abs.slice(0, -3)}.ts`] : []),
+	path.join(abs, "index.js"),
+];
+
+/** @param {string} c */
+const isFile = (c) => fs.statSync(c, { throwIfNoEntry: false })?.isFile();
+
+/**
  * The file node would load for a relative specifier, or vitest would where a
  * `.js` specifier names a `.ts` source; the bare join where none exists — so
  * a miss names the path as written.
  * @param {string} abs
  */
-function resolveJs(abs) {
-	for (const c of [
-		abs,
-		`${abs}.js`,
-		`${abs}.json`,
-		`${abs}.ts`,
-		...(abs.endsWith(".js") ? [`${abs.slice(0, -3)}.ts`] : []),
-		path.join(abs, "index.js"),
-	])
-		if (fs.statSync(c, { throwIfNoEntry: false })?.isFile()) return c;
-	return abs;
-}
+const resolveJs = (abs) => candidatesOf(abs).find(isFile) ?? abs;
 
 /** @type {Set<string> | null} */
 let stdlib = null;
@@ -117,22 +123,50 @@ function edgesOf(file, text, fault) {
 }
 
 /**
+ * Each relative `require`, import or `createRequire(…)(…)` specifier in
+ * `code`, joined to `dir`.
+ * @param {string} dir
+ * @param {string} code comment lines already cut
+ * @returns {string[]}
+ */
+function relativeSpecifiers(dir, code) {
+	/** @type {string[]} */
+	const joined = [];
+	for (const m of code.matchAll(JS_SPEC)) {
+		const spec = jsSpecifier(m);
+		if (spec.startsWith(".")) joined.push(path.join(dir, spec));
+	}
+	for (const m of code.matchAll(CREATE_REQUIRE_SPEC))
+		joined.push(path.join(dir, requiredGroup(m, 1, CREATE_REQUIRE_SPEC)));
+	return joined;
+}
+
+/**
+ * The paths a JS or TypeScript file's relative specifiers tried before the
+ * file each resolved to (#4814): a file appearing at one would take the
+ * import over. A specifier that resolves to nothing shadows nothing.
+ * @param {string} file absolute
+ * @param {string} text
+ * @returns {string[]} absolute
+ */
+function shadowsOf(file, text) {
+	if (!/\.[cm]?[jt]s$/.test(file)) return [];
+	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
+	return relativeSpecifiers(path.dirname(file), code).flatMap((abs) => {
+		const candidates = candidatesOf(abs);
+		const hit = candidates.findIndex(isFile);
+		return hit < 0 ? [] : candidates.slice(0, hit);
+	});
+}
+
+/**
  * @param {string} dir the file's directory
  * @param {string} text
  * @returns {string[]}
  */
 function jsEdges(dir, text) {
-	/** @type {string[]} */
-	const edges = [];
 	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
-	for (const m of code.matchAll(JS_SPEC)) {
-		const spec = jsSpecifier(m);
-		if (spec.startsWith(".")) edges.push(resolveJs(path.join(dir, spec)));
-	}
-	for (const m of code.matchAll(CREATE_REQUIRE_SPEC))
-		edges.push(
-			resolveJs(path.join(dir, requiredGroup(m, 1, CREATE_REQUIRE_SPEC))),
-		);
+	const edges = relativeSpecifiers(dir, code).map(resolveJs);
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
 		const parts = [...requiredGroup(m, 1, DIRNAME_JOIN).matchAll(QUOTED)].map(
 			(p) => requiredGroup(p, 1, QUOTED),
@@ -231,4 +265,4 @@ function pushPyModuleEdge(dir, mod, edges, fault) {
 		fault(`imports ${top}, which is neither stdlib nor shipped beside it`);
 }
 
-module.exports = { edgesOf, JS_SPEC, jsSpecifier };
+module.exports = { edgesOf, shadowsOf, JS_SPEC, jsSpecifier };

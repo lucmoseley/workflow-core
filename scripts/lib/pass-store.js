@@ -10,7 +10,10 @@
  * the graph records no `createRequire` load; the documents the read-edge manifest maps to it, spawned
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
  * closure, `package.json` and the lockfiles; a snapshot file beside it; and,
- * as values, the Node version and the architecture. `globalSetup`'s closure
+ * as values, the Node version and the architecture. Each path a relative
+ * specifier on the way tried before the file it resolved to is an input with
+ * the id `absent` (#4814), so a file that appears there and takes the import
+ * over voids the row. `globalSetup`'s closure
  * is in no row (#2818: it runs once, outside every file); a test that breaks only through it is the lander's to catch.
  *
  * THE LOOKUP IS BY CONTENT (lib/content-ids.js, the classifier's judge): the
@@ -55,7 +58,7 @@ const {
 	sameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
-const { edgesOf } = require("./code-edges.js");
+const { edgesOf, shadowsOf } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
 	EDGES_FILE,
@@ -78,6 +81,9 @@ const PACKAGE_INPUTS = [
 /* The header pragma: `uncached: <reason>`, a reason being a word. */
 const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
+
+/* The content id of an input path that holds no file (#4814). */
+const ABSENT = "absent";
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -217,6 +223,12 @@ const ignoreFault = () => undefined;
 const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh)$/;
 
 /**
+ * @typedef {{edges: string[], shadows: string[]}} Reach repo-relative: the
+ *   files reached, and the paths a specifier on the way tried before the file
+ *   it resolved to
+ */
+
+/**
  * Every in-repo file `file` reaches through relative `require`s, imports and
  * `__dirname`-spelled spawns, transitively, read lexically off the working
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
@@ -225,60 +237,76 @@ const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh)$/;
  * where any file on the way will not read: an input left unknown records no
  * row.
  * @param {string} root
- * @returns {(file: string) => string[]|null} repo-relative, `file` left out
+ * @returns {(file: string) => Reach|null} `file` left out of `edges`
  */
 function lexicalReach(root) {
-	/** @type {Map<string, string[]|null>} */
-	const edges = new Map();
+	/** @type {Map<string, Reach|null>} */
+	const memo = new Map();
 	/** @param {string} rel */
-	const edgesFrom = (rel) => {
-		if (edges.has(rel)) return edges.get(rel) ?? null;
-		const found = FOLLOWED.test(rel) ? readEdges(root, rel) : [];
-		edges.set(rel, found);
+	const reachFrom = (rel) => {
+		if (memo.has(rel)) return memo.get(rel) ?? null;
+		const found = FOLLOWED.test(rel)
+			? readEdges(root, rel)
+			: { edges: [], shadows: [] };
+		memo.set(rel, found);
 		return found;
 	};
 	return (file) => {
 		const seen = new Set([file]);
+		/** @type {Set<string>} */
+		const shadows = new Set();
 		const queue = [file];
 		while (queue.length > 0) {
-			const found = edgesFrom(/** @type {string} */ (queue.shift()));
+			const found = reachFrom(/** @type {string} */ (queue.shift()));
 			if (!found) return null;
-			for (const next of found)
+			for (const p of found.shadows) shadows.add(p);
+			for (const next of found.edges)
 				if (!seen.has(next)) {
 					seen.add(next);
 					queue.push(next);
 				}
 		}
 		seen.delete(file);
-		return [...seen];
+		return { edges: [...seen], shadows: [...shadows] };
 	};
 }
 
 /**
- * The in-repo files `rel` names lexically, or null where it will not read.
+ * The in-repo files `rel` names lexically and the paths its specifiers tried
+ * before them, or null where it will not read.
  * @param {string} root
  * @param {string} rel
- * @returns {string[]|null}
+ * @returns {Reach|null}
  */
 function readEdges(root, rel) {
 	const abs = path.join(root, rel);
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
-		return edgesOf(abs, read.data, ignoreFault).flatMap((e) => {
-			const under = relativeUnder(root, e);
-			if (!under) return [];
-			const posix = under.split(path.sep).join("/");
-			return !posix.split("/").includes("node_modules") &&
-				fs.statSync(e, { throwIfNoEntry: false })?.isFile()
-				? [posix]
-				: [];
-		});
+		return {
+			edges: inRepo(root, edgesOf(abs, read.data, ignoreFault)).filter((p) =>
+				fs.statSync(path.join(root, p), { throwIfNoEntry: false })?.isFile(),
+			),
+			shadows: inRepo(root, shadowsOf(abs, read.data)),
+		};
 	} catch {
 		/* A fault in the read leaves an input unknown: null records no row. */
 		return null;
 	}
 }
+
+/**
+ * `paths` under `root` and outside every `node_modules`, repo-relative.
+ * @param {string} root
+ * @param {string[]} paths absolute
+ */
+const inRepo = (root, paths) =>
+	paths.flatMap((e) => {
+		const under = relativeUnder(root, e);
+		if (!under) return [];
+		const posix = under.split(path.sep).join("/");
+		return posix.split("/").includes("node_modules") ? [] : [posix];
+	});
 
 /**
  * The input paths beside every file's own: the run's shared inputs and the
@@ -315,20 +343,26 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const own = run.files.flatMap((f) => {
 			const reaches = [f.file, ...f.imports].map(reach);
 			if (reaches.includes(null)) return [];
-			const reached = /** @type {string[][]} */ (reaches).flat();
+			const reached = /** @type {Reach[]} */ (reaches);
 			const paths = [
 				...new Set([
 					f.file,
 					...f.imports,
-					...reached,
+					...reached.flatMap((r) => r.edges),
 					...(reads.get(f.file) ?? []),
 					...snapshotOf(run.root, f.file),
 				]),
 			];
-			return [{ ...f, paths }];
+			const absent = [...new Set(reached.flatMap((r) => r.shadows))].filter(
+				(p) => !paths.includes(p),
+			);
+			return [{ ...f, paths, absent }];
 		});
 		const all = [...shared, ...own.flatMap((f) => f.paths)];
-		const ids = readWorkingIds(gitHasher(run.root), run.root, all);
+		const ids = readWorkingIds(gitHasher(run.root), run.root, [
+			...all,
+			...own.flatMap((f) => f.absent),
+		]);
 		const ignored = readIgnored(run.root, [...new Set(all)]);
 		const drifted = run.drifted === null ? null : new Set(run.drifted);
 		const known = (/** @type {string[]} */ paths) =>
@@ -337,13 +371,21 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 				(p) =>
 					typeof ids.get(p) === "string" && !drifted.has(p) && !ignored.has(p),
 			);
+		/* A path tried before the resolved file must read as no file: one that
+		 * appeared since the reach was read, or a symlink, which no id answers,
+		 * leaves the resolution the run used unknown. */
+		const stillAbsent = (/** @type {string[]} */ paths) =>
+			paths.every((p) => ids.has(p) && ids.get(p) === null);
 		if (!known(shared)) return 0;
 		const rows = own
-			.filter((f) => known(f.paths))
+			.filter((f) => known(f.paths) && stillAbsent(f.absent))
 			.map((f) => ({
 				file: f.file,
 				outcome: f.outcome,
-				inputs: Object.fromEntries(f.paths.map((p) => [p, ids.get(p)])),
+				inputs: Object.fromEntries([
+					...f.paths.map((p) => [p, ids.get(p)]),
+					...f.absent.map((p) => [p, ABSENT]),
+				]),
 			}));
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
@@ -473,7 +515,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 	let now;
 	let reads;
 	try {
-		now = readWorkingIds(gitHasher(root), root, [...wanted]);
+		now = absentAsId(readWorkingIds(gitHasher(root), root, [...wanted]));
 		reads = readManifestReads(root, candidates);
 	} catch (e) {
 		throw new Error(
@@ -561,8 +603,19 @@ const cachedFrom = (file, { row, run }) => ({
 		at: String(run.at),
 		tree: typeof run.tree === "string" ? run.tree : null,
 	},
-	reads: [...new Set(entryReads({ row, run }))],
+	reads: [...new Set(entryReads({ row, run }))].filter(
+		(p) => asIds(row.inputs)?.get(p) !== ABSENT,
+	),
 });
+
+/**
+ * `ids` with every path that holds no file read as `absent`, the id a row
+ * records a shadowing candidate under (#4814).
+ * @param {Map<string, string|null>} ids
+ * @returns {Map<string, string|null>}
+ */
+const absentAsId = (ids) =>
+	new Map([...ids].map(([p, id]) => [p, id ?? ABSENT]));
 
 /**
  * A recorded row's input paths, its own and its run's shared ones.
@@ -779,7 +832,7 @@ function heldRow(file, entries, { sha, before, git, values }) {
 	const earlier = entries.filter(({ run }) => String(run.at) < before);
 	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
-	const now = readTreeIds(git, `${sha}^{tree}`, paths);
+	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));
 	return earlier.find(({ row, run }) =>
 		holds(row, run, { file, now, values, reads: [] }),
 	);
