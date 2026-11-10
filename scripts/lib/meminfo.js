@@ -12,7 +12,7 @@ const { meminfoPath } = require("./proc-root.js");
 
 /**
  * @typedef {{ ok: true, mb: number } | { ok: false, error: string }} MbResult
- * @typedef {{ ok: true, totalKb: number | null, availableKb: number, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
+ * @typedef {{ ok: true, totalKb: number | null, availableKb: number, freeKb: number | null, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
  */
 
 /*
@@ -33,7 +33,7 @@ function readHeldKb() {
 }
 
 /**
- * MemAvailable, MemTotal and swap in kB off ONE read, so figures taken from it
+ * MemAvailable, MemFree, MemTotal and swap in kB off ONE read, so figures taken from it
  * cannot disagree.
  * @returns {MeminfoRead}
  */
@@ -53,6 +53,7 @@ function readMeminfoKb() {
 			ok: true,
 			totalKb: kb("MemTotal"),
 			availableKb: availableKb + readHeldKb(),
+			freeKb: kb("MemFree"),
 			swapTotalKb: kb("SwapTotal"),
 			swapFreeKb: kb("SwapFree"),
 		};

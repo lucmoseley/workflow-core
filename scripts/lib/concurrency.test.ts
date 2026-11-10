@@ -476,6 +476,37 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			limits: ["CPU"],
 		},
 		{
+			name: "names Windows memory where a queued test run is held on it (#4956)",
+			tick: {
+				input: input(),
+				decision: idle("no free slot"),
+				admission: admission({ testsHeld: 2 }),
+			},
+			limits: ["Windows memory"],
+		},
+		{
+			name: "names Windows memory, not memory, where its charge cost the last slot (#4956)",
+			tick: {
+				input: input(),
+				decision: idle("no free slot"),
+				admission: admission({
+					memorySlots: 0,
+					windowsCapped: true,
+					windowsChargeMb: 1200,
+				}),
+			},
+			limits: ["Windows memory"],
+		},
+		{
+			name: "puts memory before a held test run where guest memory prices no slot either",
+			tick: {
+				input: input(),
+				decision: idle("no free slot"),
+				admission: admission({ memorySlots: 0, testsHeld: 1 }),
+			},
+			limits: ["memory", "Windows memory"],
+		},
+		{
 			name: "finds nothing failing on a tick that launched",
 			tick: {
 				input: input({ freeSlots: 2 }),
@@ -522,6 +553,34 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			},
 			also: [{ limit: "CPU", why: "12 sessions fill the ceiling of 12" }],
 			memory: { rows: { working: 3600, other: 1400, pool: 300, finished: 0 } },
+		});
+	});
+
+	it("carries the Windows reading, the guest's free memory and the type-check reserve it judged on (#4956)", () => {
+		const windows = { state: "fresh", mb: 1100, ageS: 40, pagesIn: 2000 };
+		const r = record({
+			input: input(),
+			decision: idle("no free slot"),
+			admission: admission({
+				memorySlots: 0,
+				windowsCapped: true,
+				windowsChargeMb: 1200,
+				typecheckReserveMb: 615,
+				testsHeld: 0,
+				guestFreeMb: 1300,
+				windows,
+			}),
+		});
+		expect(r.binding).toEqual({
+			limit: "Windows memory",
+			why: "1200 MB of the guest's free memory is more than Windows can back",
+		});
+		expect(r.memory).toMatchObject({
+			windows,
+			guestFreeMb: 1300,
+			windowsChargeMb: 1200,
+			typecheckReserveMb: 615,
+			testsHeld: 0,
 		});
 	});
 

@@ -5,6 +5,7 @@
  */
 
 const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
+const { windowsUnbackedMb } = require("./windows-memory.js");
 
 /**
  * @typedef {import("./meminfo.js").MbResult} MbResult
@@ -15,6 +16,7 @@ const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
  * @typedef {{ sessions: number, unvouched?: boolean }} SessionCount
  * @typedef {(SessionCount & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {import("./admission.js").LiveSessionsResult} LiveSessionsResult
+ * @typedef {import("./windows-memory.js").WindowsRead} WindowsRead
  */
 
 /* The default for a caller that has not read the load: no hold. */
@@ -40,7 +42,8 @@ const CPU_UNREAD = {
  * admitted while
  *
  *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
- *     ≤ free − pool reserve − earlyoom floor − margin + reclaim credit
+ *     ≤ free − pool reserve − lander reserve − type-check reserve
+ *       − Windows charge − earlyoom floor − margin + reclaim credit
  *
  * Σ runs over the live sessions, each at its own repo's draw; the bare μ and σ
  * are this host's, whose sessions are the ones admitted. Current PSS counts
@@ -76,9 +79,32 @@ const NO_LIVE_DRAW = {
  * `landerMb`, from `landerHeldMb`, is held back for the lander's suite;
  * `load` comes from `overloadReading`, and an overload holds
  * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
- * always-admit-one guarantee included in both.
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, launchMb?: number }} AdmissionReadings
+ * always-admit-one guarantee included in both. `typecheckChargeMb`, from
+ * `tsc-slot.js`'s `checkoutPeakMb`, is what one type-check here is charged,
+ * which `typecheckReserveFor` holds back; `testsHeld`, from
+ * `readTestsHeldOnWindows`, counts the queued test runs the Windows-memory
+ * hold is holding, any of which holds every slot (#4956). `windows`, from
+ * `readWindowsMemory`, and `guestFreeMb`, the guest's `MemFree`, price the
+ * guest free memory Windows cannot back.
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
  */
+
+/*
+ * THE TYPE-CHECK RESERVE (#4956). The pooled draw carries the suites its sample saw
+ * running, a session's mean less the suite-free mean #2231 measured beside it
+ * (587 − 440 MB, docs/environment.md §5). A type-check is one lump of
+ * `typecheckChargeMb`, which that share covers only once enough sessions run, so
+ * admission holds back the lump less the live sessions' shares. Residual: a session on a
+ * declared draw is credited the pooled share, unmeasured.
+ */
+const SUITE_SHARE_MB = 147;
+
+/**
+ * @param {number} typecheckChargeMb
+ * @param {number} sessions the live sessions the draw prices
+ */
+const typecheckReserveFor = (typecheckChargeMb, sessions) =>
+	Math.max(0, typecheckChargeMb - sessions * SUITE_SHARE_MB);
 
 /* The aggregate's p95, ruled at #2221. DUPLICATED BY HAND as DRAW_Z in
  * scripts/sample_session_memory.py, whose aggregate check models this p95:
@@ -112,11 +138,21 @@ function drawNeedFor(live, host, k) {
 /**
  * What admits sessions, from `baseMb`, memory less the pool reserve.
  * @param {number} baseMb
- * @param {number} landerMb
- * @param {number} reclaimMb
+ * @param {{ landerMb: number, typecheckReserveMb: number, windowsChargeMb: number, reclaimMb: number }} adjustments
  */
-function sessionBudgetMb(baseMb, landerMb, reclaimMb) {
-	return baseMb - landerMb - EARLYOOM_FLOOR_MB - DRAW_MARGIN_MB + reclaimMb;
+function sessionBudgetMb(
+	baseMb,
+	{ landerMb, typecheckReserveMb, windowsChargeMb, reclaimMb },
+) {
+	return (
+		baseMb -
+		landerMb -
+		typecheckReserveMb -
+		windowsChargeMb -
+		EARLYOOM_FLOOR_MB -
+		DRAW_MARGIN_MB +
+		reclaimMb
+	);
 }
 
 /**
@@ -164,8 +200,13 @@ function isGuaranteed(procs, byMemory) {
  * no guarantee; unread memory yields no figures, only its error.
  *
  * `byMemory` is the p95 pricing alone, and `memorySlots` lifts it to the
- * guarantee's slot. `freeSlots` and `slots` are those two under the CPU cap
- * and the load hold.
+ * guarantee's slot. `freeSlots` and `slots` are those two under the CPU cap,
+ * the load hold and the held-tests hold.
+ *
+ * WINDOWS IS CHARGED ONLY WHAT IT WOULD HAVE TO NEWLY BACK (#4956). The
+ * guest's free memory is not resident on Windows, so a session drawing on it
+ * grows the VM; one drawing on page cache the VM already holds does not.
+ * `windowsCapped` says the charge cost a slot.
  * @param {MbResult} mem
  * @param {LenientProcs | LiveSessionsResult} procs
  * @param {AdmissionReadings} [readings]
@@ -182,6 +223,10 @@ function admissionFigures(
 		cpu = CPU_UNREAD,
 		landerMb = 0,
 		launchMb = 0,
+		typecheckChargeMb = 0,
+		testsHeld = 0,
+		windows = { state: "absent" },
+		guestFreeMb = null,
 	} = {},
 ) {
 	const inputs = {
@@ -191,6 +236,9 @@ function admissionFigures(
 		cpu,
 		landerMb,
 		launchMb,
+		testsHeld,
+		windows,
+		guestFreeMb,
 		reservedError: overhead.ok ? null : overhead.error,
 		reclaimableError: reclaimable.ok ? null : reclaimable.error,
 	};
@@ -205,12 +253,22 @@ function admissionFigures(
 	const reclaimedMb = reclaimable.ok ? reclaimable.mb : 0;
 	/* The floor and margin come off what admits sessions and nothing else:
 	 * the suite ladder carries earlyoom's line in its own rungs. */
-	const budgetMb = sessionBudgetMb(effectiveMb, landerMb, reclaimedMb);
+	const typecheckReserveMb = typecheckReserveFor(
+		typecheckChargeMb,
+		live.sessions,
+	);
+	const windowsChargeMb = windowsUnbackedMb(windows, guestFreeMb);
+	const budgetMb = sessionBudgetMb(effectiveMb, {
+		landerMb,
+		typecheckReserveMb,
+		windowsChargeMb,
+		reclaimMb: reclaimedMb,
+	});
 	const byMemory = drawSlots(budgetMb, live, host, launchMb);
 	const guaranteed = procs.ok && isGuaranteed(procs, byMemory);
 	const memorySlots = guaranteed ? 1 : byMemory;
 	const held = (/** @type {number} */ n) =>
-		load.overloaded ? 0 : cpuCapped(n, cpu);
+		load.overloaded || testsHeld > 0 ? 0 : cpuCapped(n, cpu);
 	return {
 		...inputs,
 		memRead: /** @type {const} */ (true),
@@ -219,6 +277,10 @@ function admissionFigures(
 		effectiveMb,
 		reclaimedMb,
 		budgetMb,
+		typecheckReserveMb,
+		windowsChargeMb,
+		windowsCapped:
+			drawSlots(budgetMb + windowsChargeMb, live, host, launchMb) > byMemory,
 		drawNeedMb: drawNeedFor(live, host, 0),
 		byMemory,
 		needAtMb: launchNeedFor(live, host, byMemory, launchMb),

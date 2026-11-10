@@ -841,6 +841,27 @@ function readLiveRoleMarkers(
 		.filter((r) => r.role === role && !isMarkerStale(r, { alive }));
 }
 
+/**
+ * How many live waiters, in either admitting queue, the Windows-memory hold
+ * is holding now: session admission adds no session while one waits (#4956).
+ * A queue that will not read counts none, failing open.
+ *
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {number}
+ */
+function readTestsHeldOnWindows({
+	queueDir = defaultQueueDir(),
+	queueFs = fs,
+	alive = pidAlive,
+} = {}) {
+	return [queueDir, ...peerQueueDirs(queueDir)]
+		.flatMap((dir) => readMarkers(dir, queueFs).markers)
+		.filter(
+			({ record }) =>
+				record.windowsHeld === true && !isMarkerStale(record, { alive }),
+		).length;
+}
+
 /* The environment variable a seat hands its driver: the seat's marker path
  * (#2918). */
 const SEAT_ENV = "WFC_SUITE_SEAT";
@@ -2002,6 +2023,7 @@ module.exports = {
 	isMarkerStale,
 	readMarkers,
 	readLiveRoleMarkers,
+	readTestsHeldOnWindows,
 	readQueuesClimbMb,
 	queuedRunnerPeakMb,
 	gateDenies,

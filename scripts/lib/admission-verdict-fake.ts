@@ -19,6 +19,13 @@ export const ADMISSION_VERDICT = {
 	nextNeedMb: 2400,
 	reservedMb: 106,
 	landerMb: 0,
+	/* No `tsc` in the fixture's host, no memwatch and no queued run. */
+	typecheckReserveMb: 0,
+	windowsChargeMb: 0,
+	windowsCapped: false,
+	testsHeld: 0,
+	guestFreeMb: 0,
+	windows: { state: "absent" },
 	floorMb: 794,
 	marginMb: 300,
 	memorySlots: 1,
@@ -50,6 +57,12 @@ export const ADMISSION_VERDICT = {
 	| "nextNeedMb"
 	| "reservedMb"
 	| "landerMb"
+	| "typecheckReserveMb"
+	| "windowsChargeMb"
+	| "windowsCapped"
+	| "testsHeld"
+	| "guestFreeMb"
+	| "windows"
 	| "floorMb"
 	| "marginMb"
 	| "memorySlots"

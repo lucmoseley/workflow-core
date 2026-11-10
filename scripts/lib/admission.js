@@ -15,7 +15,9 @@
  * wording. Its CPU limb (#830, #834, #2141): load1 at or above
  * `lib/cpu-sample.js`'s ceiling holds every slot, and the session ceiling caps
  * them. It fails open on an unreadable load or `ps`, where the memory limb
- * fails closed.
+ * fails closed. Its Windows limbs (#4956) fail open on a reading that is not
+ * fresh: the guest free memory Windows cannot back comes off the budget, and
+ * a queued test run the Windows-memory hold is holding holds every slot.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -26,6 +28,13 @@ const { parseErrLine } = require("./gh");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot } = require("./proc-root.js");
 const { availableFrom, readMeminfoKb } = require("./meminfo.js");
+const {
+	WINDOWS_FLOOR_MB,
+	buildWindowsUnreadNote,
+	readWindowsMemory,
+} = require("./windows-memory.js");
+const { checkoutPeakMb } = require("./tsc-slot.js");
+const { hostRoot } = require("./host-root.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -377,9 +386,32 @@ const pairsClause = (k, launchMb) => {
 const shortOfOneMore = (/** @type {number} */ needMb) =>
 	`, under the ${needMb} MB the live sessions' draw and one more need at p95`;
 
-/** @param {number} mb */
-const buildLanderNote = (mb) =>
-	mb ? `, holding ${mb} MB for the lander's suite` : "";
+/**
+ * What a verdict's budget holds back besides the pool, the floor and the
+ * margin, as its reason's clauses; each silent at 0.
+ * @param {{ landerMb: number, typecheckReserveMb?: number, windowsChargeMb?: number }} held
+ */
+const buildHeldBackNote = ({
+	landerMb,
+	typecheckReserveMb = 0,
+	windowsChargeMb = 0,
+}) =>
+	`${landerMb ? `, holding ${landerMb} MB for the lander's suite` : ""}${
+		typecheckReserveMb
+			? `, holding ${typecheckReserveMb} MB for a type-check`
+			: ""
+	}${
+		windowsChargeMb
+			? `, less ${windowsChargeMb} MB of guest free memory Windows cannot back`
+			: ""
+	}`;
+
+/**
+ * The held-tests hold on sessions.
+ * @param {number} testsHeld
+ */
+const buildTestsHeldText = (testsHeld) =>
+	`${testsHeld} queued test run(s) are held on Windows memory, so no session is added until they run (#4956)`;
 
 /* The floor and margin as a verdict's reason clause. */
 const HELD_NOTE = `, holding ${EARLYOOM_FLOOR_MB} + ${DRAW_MARGIN_MB} MB above earlyoom's kill line`;
@@ -703,7 +735,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   pool: MemRow & { drift: string[] },
  *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
- *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean },
+ *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
  *   cpu: CpuSlots,
  * }} MemoryBreakdown
  */
@@ -930,6 +962,8 @@ function slotsRow(verdict) {
 				availableMb: verdict.availableMb,
 				poolReserveMb: verdict.reservedMb,
 				landerMb: verdict.landerMb,
+				typecheckReserveMb: verdict.typecheckReserveMb,
+				windowsChargeMb: verdict.windowsChargeMb,
 				floorMb: verdict.floorMb,
 				marginMb: verdict.marginMb,
 				reclaimMb: verdict.reclaimedMb,
@@ -941,6 +975,7 @@ function slotsRow(verdict) {
 				memorySlots: verdict.memorySlots,
 				slots: verdict.slots,
 				overloaded: verdict.load.overloaded,
+				testsHeld: verdict.testsHeld,
 			}
 		: { unknown: verdict.error };
 }
@@ -1163,6 +1198,29 @@ const unlistedText = (u) =>
 	`${u.count} session(s), ${u.mb} MB PSS${u.dirs.length > 0 ? ` — ${u.dirs.map((d) => `${d.dir} ${d.count}`).join(", ")}` : ""}`;
 
 /**
+ * The breakdown's slot arithmetic row.
+ * @param {MemoryBreakdown["slots"]} s
+ */
+function buildSlotLine(s) {
+	let slotsNote = "";
+	if (s.memorySlots !== s.byMemory)
+		slotsNote = `, raised to ${s.memorySlots} as no session is running`;
+	if (s.overloaded) slotsNote += ", held to 0 on CPU load (#830)";
+	else if (s.testsHeld)
+		slotsNote += `, held to 0 while ${s.testsHeld} queued test run(s) wait on Windows memory (#4956)`;
+	else if (s.slots !== s.memorySlots)
+		slotsNote += `, capped to ${s.slots} by the cpu slots below`;
+	return s.unknown === null
+		? `${s.availableMb} free − ${s.poolReserveMb} pool${s.landerMb ? ` − ${s.landerMb} lander` : ""}${s.typecheckReserveMb ? ` − ${s.typecheckReserveMb} type-check` : ""}${s.windowsChargeMb ? ` − ${s.windowsChargeMb} unbacked by Windows` : ""} − ${s.floorMb} floor − ${s.marginMb} margin + ${s.reclaimMb} reclaim = ${s.budgetMb} MB; the live sessions' draw needs ${s.drawNeedMb} MB of it, and with ${/** @type {number} */ (s.byMemory) + 1} more${pairsClause(/** @type {number} */ (s.byMemory) + 1, s.launchMb ?? 0)} ${s.nextNeedMb} MB, so ${s.byMemory} slot(s)${
+				/** @type {number} */ (s.poolReserveMb) >
+				/** @type {number} */ (s.availableMb)
+					? ", the pool reserve exceeding free memory so the rest counting from 0"
+					: ""
+			}${slotsNote}`
+		: `unknown (${s.unknown})`;
+}
+
+/**
  * The breakdown as text rows, for `admission.js`'s report.
  * @param {MemoryBreakdown} m
  */
@@ -1170,22 +1228,7 @@ function buildMemoryBreakdownLines(m) {
 	/** @param {MemRow} r @param {string} text */
 	const orUnknown = (r, text) =>
 		r.unknown === null ? text : `unknown (${r.unknown})`;
-	const s = m.slots;
-	let slotsNote = "";
-	if (s.memorySlots !== s.byMemory)
-		slotsNote = `, raised to ${s.memorySlots} as no session is running`;
-	if (s.overloaded) slotsNote += ", held to 0 on CPU load (#830)";
-	else if (s.slots !== s.memorySlots)
-		slotsNote += `, capped to ${s.slots} by the cpu slots below`;
-	const slotLine =
-		s.unknown === null
-			? `${s.availableMb} free − ${s.poolReserveMb} pool${s.landerMb ? ` − ${s.landerMb} lander` : ""} − ${s.floorMb} floor − ${s.marginMb} margin + ${s.reclaimMb} reclaim = ${s.budgetMb} MB; the live sessions' draw needs ${s.drawNeedMb} MB of it, and with ${/** @type {number} */ (s.byMemory) + 1} more${pairsClause(/** @type {number} */ (s.byMemory) + 1, s.launchMb ?? 0)} ${s.nextNeedMb} MB, so ${s.byMemory} slot(s)${
-					/** @type {number} */ (s.poolReserveMb) >
-					/** @type {number} */ (s.availableMb)
-						? ", the pool reserve exceeding free memory so the rest counting from 0"
-						: ""
-				}${slotsNote}`
-			: `unknown (${s.unknown})`;
+	const slotLine = buildSlotLine(m.slots);
 	const f = m.finished;
 	return [
 		`memory             of ${m.totalMb === null ? "unknown" : `${m.totalMb} MB`} total — ${m.rounding}`,
@@ -1288,9 +1331,9 @@ function liveSessions(listed) {
  * `admissionFrom`'s reserve and credit clauses.
  * @param {number} reserved
  * @param {number} credited
- * @param {number} landerMb
+ * @param {Parameters<typeof buildHeldBackNote>[0]} heldBack
  */
-function lenientNotes(reserved, credited, landerMb) {
+function lenientNotes(reserved, credited, heldBack) {
 	/* Silent where nothing was reserved/credited, so a caller that hasn't wired
 	 * either read (the default) gets the exact wording it always has. */
 	const reservedNote = reserved
@@ -1300,7 +1343,7 @@ function lenientNotes(reserved, credited, landerMb) {
 		credited
 			? `${reserved ? " and" : " after"} crediting ${credited} MB about to be reclaimed`
 			: ""
-	}${buildLanderNote(landerMb)}${HELD_NOTE}`;
+	}${buildHeldBackNote(heldBack)}${HELD_NOTE}`;
 	return { reservedNote, creditedNote };
 }
 
@@ -1318,7 +1361,7 @@ function admissionFrom(mem, procs, readings = {}) {
 	const { reservedNote, creditedNote } = lenientNotes(
 		f.memRead ? f.reservedMb : 0,
 		f.memRead ? f.reclaimedMb : 0,
-		landerMb,
+		f.memRead ? f : { landerMb },
 	);
 	const freeSlots = f.memRead ? f.freeSlots : null;
 	/* `null` where memory is unread, exactly as `strictAdmission` reports it —
@@ -1338,6 +1381,13 @@ function admissionFrom(mem, procs, readings = {}) {
 			...shared,
 			admit: false,
 			reason: buildOverloadText(load),
+		};
+	if (f.testsHeld > 0)
+		return {
+			freeSlots,
+			...shared,
+			admit: false,
+			reason: buildTestsHeldText(f.testsHeld),
 		};
 	if (cpu.full)
 		return {
@@ -1462,17 +1512,43 @@ function buildStrictMemoryReason({
  */
 
 /**
- * `strictAdmission`'s reason: the load hold, else the CPU cap where it binds.
- * @param {Pick<AdmissionFigures, "load" | "cpu" | "memorySlots">} f
+ * `strictAdmission`'s reason: the load hold, else the held-tests hold, else
+ * the CPU cap where it binds.
+ * @param {Pick<AdmissionFigures, "load" | "cpu" | "memorySlots" | "testsHeld">} f
  * @param {string} memoryReason
  */
-function buildStrictReason({ load, cpu, memorySlots }, memoryReason) {
+function buildStrictReason(
+	{ load, cpu, memorySlots, testsHeld },
+	memoryReason,
+) {
 	if (load.overloaded)
 		return `${buildOverloadText(load)}; were it not for the load, ${memoryReason}`;
+	if (testsHeld > 0)
+		return `${buildTestsHeldText(testsHeld)}; were it not for them, ${memoryReason}`;
 	const cpuCap = cpu.slots ?? Number.POSITIVE_INFINITY;
 	if (cpuCap < memorySlots)
 		return `${buildSessionCeilingText(cpu)}; were it not for the CPU, ${memoryReason}`;
 	return memoryReason;
+}
+
+/**
+ * The ADMISSION block's Windows line (#4956): the reading beside the guest's
+ * free memory and what of it Windows cannot back, the fail-open where no
+ * fresh reading exists, null on a machine with no memwatch.
+ * @param {Pick<Extract<ReturnType<typeof strictAdmission>, { ok: true }>, "windows" | "guestFreeMb" | "windowsChargeMb">} verdict
+ * @returns {string | null}
+ */
+function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
+	if (windows.state !== "fresh")
+		return buildWindowsUnreadNote(windows, "sessions");
+	if (guestFreeMb === null)
+		return `${windows.mb} MB free on Windows, the guest's free memory unread, so nothing is charged against it`;
+	const overMb = windows.mb - WINDOWS_FLOOR_MB;
+	const room =
+		overMb < 0
+			? `${-overMb} MB under its ${WINDOWS_FLOOR_MB} MB floor`
+			: `${overMb} MB above its ${WINDOWS_FLOOR_MB} MB floor`;
+	return `${windows.mb} MB free on Windows (memwatch, ${windows.ageS} s old), ${room}, against ${guestFreeMb} MB free in the guest that it does not yet back, so ${windowsChargeMb} MB comes off the budget (#4956)`;
 }
 
 /**
@@ -1483,8 +1559,12 @@ function buildStrictReason({ load, cpu, memorySlots }, memoryReason) {
  * to one only when nothing of ours is running. `slots` takes the reclaim
  * credit in full, from `reclaimedMb`; `suites` takes it only to lift 0 to 1,
  * for the reasons on `suiteCapacity` (mantahostels#1930). `byMemory` and
- * `memorySlots` keep the memory figures under a load or CPU hold, and
- * `cpuIsSoleHold` says memory would admit and only the CPU limb holds.
+ * `memorySlots` keep the memory figures under a load, held-tests or CPU hold,
+ * and `cpuIsSoleHold` says memory would admit and only the CPU limb holds.
+ * `typecheckReserveMb` and `windowsChargeMb` are what the budget holds back for a
+ * type-check and for guest free memory Windows cannot back, `windowsCapped`
+ * whether that charge cost a slot, and `testsHeld` the queued test runs the
+ * Windows-memory hold is holding (#4956).
  * @param {MbResult} mem
  * @param {LiveSessionsResult} procs
  * @param {import("./admission-figures.js").AdmissionReadings} [readings]
@@ -1493,6 +1573,12 @@ function buildStrictReason({ load, cpu, memorySlots }, memoryReason) {
  *   availableMb: number,
  *   reservedMb: number,
  *   landerMb: number,
+ *   typecheckReserveMb: number,
+ *   windowsChargeMb: number,
+ *   windowsCapped: boolean,
+ *   testsHeld: number,
+ *   windows: import("./windows-memory.js").WindowsRead,
+ *   guestFreeMb: number | null,
  *   floorMb: number,
  *   marginMb: number,
  *   reclaimedMb: number,
@@ -1523,7 +1609,7 @@ function strictAdmission(mem, procs, readings = {}) {
 	const { load, cpu, landerMb, launchMb, reservedMb, reclaimedMb } = f;
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
-	}${buildLanderNote(landerMb)}${HELD_NOTE}`;
+	}${buildHeldBackNote(f)}${HELD_NOTE}`;
 	const memoryReason = buildStrictMemoryReason({
 		guaranteed: f.guaranteed,
 		memorySlots: f.byMemory,
@@ -1539,6 +1625,12 @@ function strictAdmission(mem, procs, readings = {}) {
 		availableMb: f.availableMb,
 		reservedMb,
 		landerMb,
+		typecheckReserveMb: f.typecheckReserveMb,
+		windowsChargeMb: f.windowsChargeMb,
+		windowsCapped: f.windowsCapped,
+		testsHeld: f.testsHeld,
+		windows: f.windows,
+		guestFreeMb: f.guestFreeMb,
 		floorMb: EARLYOOM_FLOOR_MB,
 		marginMb: DRAW_MARGIN_MB,
 		reclaimedMb,
@@ -1559,7 +1651,7 @@ function strictAdmission(mem, procs, readings = {}) {
 		slots: f.slots,
 		load,
 		cpu,
-		cpuIsSoleHold: f.slots === 0 && f.memorySlots > 0,
+		cpuIsSoleHold: f.slots === 0 && f.memorySlots > 0 && f.testsHeld === 0,
 		admit: f.slots > 0,
 		reason: buildStrictReason(f, memoryReason),
 		suites: suiteCapacity(f.effectiveMb, reclaimedMb, f.availableMb),
@@ -1579,9 +1671,18 @@ function strictAdmission(mem, procs, readings = {}) {
  *   reclaimable: Parameters<typeof memoryBreakdown>[0]["reclaimable"],
  *   pendingSpares?: number,
  *   landers: Landers,
- * }} inputs `landers` are the live landers, from `readLiveLanders`
+ *   testsHeld: number,
+ * }} inputs `landers` are the live landers, from `readLiveLanders`;
+ *   `testsHeld` the queued test runs the Windows-memory hold is holding, from
+ *   `readTestsHeldOnWindows`
  */
-function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
+function machineAdmission({
+	listed,
+	reclaimable,
+	pendingSpares = 0,
+	landers,
+	testsHeld,
+}) {
 	const ps = readPsRows();
 	const children = readProcessChildren();
 	const pairs = readSparePairs(ps);
@@ -1595,6 +1696,15 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 	const live = liveDraw(listed, { pairs, pssKbOf: readPssKb, children });
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
+	const reserveReadings = {
+		windows: readWindowsMemory(),
+		guestFreeMb:
+			meminfo.ok && meminfo.freeKb !== null
+				? Math.floor(meminfo.freeKb / 1024)
+				: null,
+		typecheckChargeMb: checkoutPeakMb(hostRoot()),
+		testsHeld,
+	};
 	const landerMb = landerHeldMb(landers, {
 		pssKbOf: readPssKb,
 		children,
@@ -1609,6 +1719,7 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		cpu,
 		landerMb,
 		launchMb,
+		...reserveReadings,
 	});
 	const memory = memoryBreakdown({
 		meminfo,
@@ -1638,6 +1749,7 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		cpu,
 		landerMb,
 		launchMb,
+		reserveReadings,
 		verdict,
 		memory,
 	};
@@ -1654,10 +1766,11 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
  *   listed: Parameters<typeof machineAdmission>[0]["listed"],
  *   reclaimable: {ok: true, count: number} | {ok: false, error: string},
  *   landers: Landers,
+ *   testsHeld: number,
  * }} inputs `reclaimable` counts the reclaimable sessions; their memory is
  *   never credited here
  */
-function selectionAdmission({ listed, reclaimable, landers }) {
+function selectionAdmission({ listed, reclaimable, landers, testsHeld }) {
 	const readings = machineAdmission({
 		listed,
 		reclaimable: reclaimable.ok
@@ -1665,6 +1778,7 @@ function selectionAdmission({ listed, reclaimable, landers }) {
 			: reclaimable,
 		pendingSpares: LAUNCH_SPARES,
 		landers,
+		testsHeld,
 	});
 	const admission = admissionFrom(readings.mem, readings.procs, {
 		overhead: readings.overhead,
@@ -1674,6 +1788,7 @@ function selectionAdmission({ listed, reclaimable, landers }) {
 		cpu: readings.cpu,
 		landerMb: readings.landerMb,
 		launchMb: readings.launchMb,
+		...readings.reserveReadings,
 	});
 	return { ...readings, admission };
 }
@@ -1693,6 +1808,7 @@ module.exports = {
 	selectionAdmission,
 	LAUNCH_SPARES,
 	buildSessionDrawLine,
+	buildWindowsLine,
 	SWAP_HOLD_AVAILABLE_MB,
 	readSwapHold,
 	swapHoldText,

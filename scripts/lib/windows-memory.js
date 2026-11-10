@@ -177,6 +177,20 @@ function windowsShortfall(read) {
  */
 
 /**
+ * The guest free memory Windows cannot back above WINDOWS_FLOOR_MB (#4956):
+ * the guest's free pages are not resident on Windows, so the VM grows by
+ * each one a launch takes. All of it where Windows is under its floor. 0
+ * where the reading is not fresh or the guest's free memory unread.
+ * @param {WindowsRead} read
+ * @param {number | null} guestFreeMb the guest's `MemFree`
+ */
+function windowsUnbackedMb(read, guestFreeMb) {
+	if (read.state !== "fresh" || guestFreeMb === null) return 0;
+	const roomMb = Math.max(0, read.mb - WINDOWS_FLOOR_MB);
+	return Math.max(0, guestFreeMb - roomMb);
+}
+
+/**
  * The fail-open a caller records, null where there is none to record.
  * @param {WindowsRead} read
  * @param {string} what the launch the hold let through
@@ -215,6 +229,7 @@ const buildWindowsShortText = (short) =>
 	`${describeWindowsHold(short)}; a launch now would deepen Windows' paging, which has frozen the VM (#4557, #4850)`;
 
 module.exports = {
+	WINDOWS_FLOOR_MB,
 	WINDOWS_FRESH_S,
 	buildWindowsShortText,
 	describeWindowsHold,
@@ -224,4 +239,5 @@ module.exports = {
 	readWindowsRecorded,
 	windowsReadingOf,
 	windowsShortfall,
+	windowsUnbackedMb,
 };
