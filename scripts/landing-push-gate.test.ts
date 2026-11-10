@@ -103,13 +103,11 @@ describe("with the landing module on", () => {
 		expect(r.stderr).toContain("session-checkout.js land");
 	});
 
-	/* #4856: the ledger read throws on any fault but absence, and the gate
-	 * lets a push through a fault it cannot judge through, printed. */
-	it("passes a push to main where the green ledger will not read, naming the fault", () => {
+	it("refuses a push to main where the green ledger will not read, naming the fault (#4856)", () => {
 		fs.mkdirSync(ledger(), { recursive: true });
 		const r = check(buildRefLine(sha, "refs/heads/main"));
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stderr).toContain("could not read the green ledger");
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("green ledger");
 		expect(r.stderr).toContain("EISDIR");
 	});
 

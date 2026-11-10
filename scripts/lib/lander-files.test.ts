@@ -2,8 +2,7 @@
 /*
  * Pins lib/lander-files.js's ledger reads (#4856): a ledger that does not
  * exist holds no sha, and one that will not read throws rather than reading
- * as empty, so the lander and the pre-push gate never mistake an unreadable
- * green ledger for one holding nothing. A directory stands in for the
+ * as empty. A directory stands in for the
  * unreadable ledger: its read fails with EISDIR whatever the user's rights.
  */
 

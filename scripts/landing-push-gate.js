@@ -28,7 +28,9 @@
  * refuses and every other path exits 0. A fault it cannot judge through lets
  * the push through, printed, since a refusal there would refuse every push for
  * a fault that is not the push's. The same config fault opens the publish
- * guard's landing limb, logged there.
+ * guard's landing limb, logged there. The one exception is a green ledger
+ * that exists and will not read: that refuses, since only the lander pushes
+ * `main` and it cannot land on a ledger it cannot read either (#4856).
  */
 
 const { caught } = require("./lib/caught.js");
@@ -101,10 +103,12 @@ function judge(stdin, { tree, root }) {
 	try {
 		ledgered = fileLedger(file).readShas();
 	} catch (err) {
-		unchecked(
-			`could not read the green ledger ${file} (${caught(err).message})`,
+		/* Refused, not passed, as the header's one exception (#4856). */
+		writeFd(
+			2,
+			`pre-push: refused — the lander's green ledger ${file} will not read (${caught(err).message}), so no push to ${VERIFIED_BRANCH} can be shown tested. Fix the file, then push again.\n`,
 		);
-		return 0;
+		return REFUSE;
 	}
 	const held = new Set(ledgered);
 	const green = new Set(readTreesOf(ledgered).filter((t) => t !== null));

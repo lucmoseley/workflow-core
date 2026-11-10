@@ -181,8 +181,8 @@ const refuse = (ctx, what, segment) => ({
 
 /**
  * A forced push or deletion of `main`: with `landing` on the lander's
- * reading of the rewind rule, naming the session's own queue ref, which a
- * follow-up commit is pushed to; else lib/main-rewind.js's shared refusal.
+ * reading of the rewind rule, naming the session's own queue ref; else
+ * lib/main-rewind.js's shared refusal.
  * @param {BranchPublishContext} ctx
  * @param {string} what completing "This …"
  * @param {string} segment
