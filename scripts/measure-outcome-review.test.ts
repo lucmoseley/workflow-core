@@ -4,7 +4,8 @@
  * (#4797, spec #4796 §Testing Decisions, Seam 2). Break it and a fix is kept
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
- * dropped, or a missed signature goes unlisted.
+ * dropped, or a missed signature or a line lost with its worktree goes
+ * unlisted.
  */
 
 import { execFileSync } from "node:child_process";
@@ -142,8 +143,9 @@ if (argv[0] === "issue" && argv[1] === "view") {
   const i = issues.find((x) => x.number === Number(argv[2]));
   if (!i) { err("no such issue\\n"); exit(1); }
   out(JSON.stringify({ state: i.state ?? "CLOSED" }));
-} else if (argv[0] === "issue" && argv[1] === "list" && flag("--label") === "bug") {
-  out(JSON.stringify(issues.filter((i) => (i.labels ?? []).includes("bug")).map(row)));
+} else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
+  const closedOnly = flag("--state") === "closed";
+  out(JSON.stringify(issues.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--state") === "closed") {
   out(JSON.stringify(issues.filter((i) => i.closedAt).map(row)));
 } else { err("unrouted: " + argv.join(" ") + "\\n"); exit(1); }
@@ -555,6 +557,109 @@ describe("measure-outcome-review.js", () => {
 		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).toEqual([
 			`${TRACKER}#40`,
 		]);
+	});
+
+	describe("a declared line lost with its worktree (#4861)", () => {
+		const lostLine = {
+			filedAt: d(FILED),
+			signature: SIG,
+			prediction: "the boom stops",
+			case: { session: "s", line: 1 },
+		};
+		const section = (line: unknown) =>
+			`Body.\n\n## Fault signature\n\n\`\`\`json\n${JSON.stringify(line)}\n\`\`\`\n`;
+
+		it("lists a closed labelled ticket with no line, with the line its body records, apart from the no-fault bugs", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.commit("Stop the boom (#50)", 56);
+			f.issues.push(
+				{
+					number: 50,
+					title: "Fix the boom",
+					closedAt: d(57),
+					labels: ["bug", "origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 51,
+					title: "Closed months ago",
+					closedAt: d(2),
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 52,
+					title: "Still open",
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 53,
+					title: "Landed fine",
+					closedAt: d(57),
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+			);
+			f.signatureLine(53);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.lostLines).toEqual([
+				{
+					issue: `${TRACKER}#50`,
+					title: "Fix the boom",
+					line: { issue: `${TRACKER}#50`, ...lostLine },
+				},
+				expect.objectContaining({ issue: `${TRACKER}#51` }),
+			]);
+			expect(out.noFaultBug).toEqual([]);
+			expect(out.misses).toEqual([]);
+		});
+
+		it("lists it UNRECOVERABLE where the body section is gone", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.issues.push({
+				number: 50,
+				title: "Fix the boom",
+				closedAt: d(57),
+				labels: ["origin:triage", "fault-signature"],
+				body: "Body, its section edited away.",
+			});
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.lostLines).toEqual([
+				expect.objectContaining({ issue: `${TRACKER}#50`, line: null }),
+			]);
+		});
+
+		it("reads two identical lines for one issue as one finding, and names two differing ones a conflict", () => {
+			const f = scratch();
+			baselineOfOne(f);
+			fixedFinding(f);
+			f.signatureLine(1);
+			f.issues.push({ number: 2, title: "Another boom" });
+			f.signatureLine(2);
+			f.signatureLine(2, { prediction: "a different prediction" });
+			const { out } = f.run();
+			expect(
+				out.outcomes.filter((o: { finding: string }) =>
+					o.finding.startsWith(TRACKER),
+				),
+			).toHaveLength(1);
+			expect(outcome(out, 1)).toBeDefined();
+			expect(outcome(out, 2)).toBeUndefined();
+			expect(out.conflicts).toEqual([
+				{
+					issue: `${TRACKER}#2`,
+					lines: [
+						expect.objectContaining({ prediction: "the boom stops" }),
+						expect.objectContaining({ prediction: "a different prediction" }),
+					],
+				},
+			]);
+		});
 	});
 
 	it("is due its flip check at the 4th run to reach a verdict, or 2 over budget", () => {

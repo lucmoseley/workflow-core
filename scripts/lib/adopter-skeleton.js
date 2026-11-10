@@ -24,6 +24,7 @@ const { MODULES, COMMANDS, CONTRACT } = require("./workflow-core-config.js");
 const { formatConfigJson, isObject } = require("./config-json.js");
 const { requiredGroup } = require("./regex-group.js");
 const { ORIGIN_LABELS } = require("./issue-origin.js");
+const { SIGNATURE_LABEL } = require("./signature-label.js");
 const { caught } = require("./caught.js");
 const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
@@ -657,6 +658,12 @@ const CORE_LABELS = [
 			"Implemented by a session at Opus --effort low. Provenance, not state; nothing routes on it.",
 	},
 	...ORIGIN_LABELS,
+	{
+		name: SIGNATURE_LABEL,
+		color: "C5DEF5",
+		description:
+			"Owes a line in docs/data/outcome-signatures.jsonl on main. Provenance; nothing routes on it.",
+	},
 ];
 
 const GATED_LABELS = {

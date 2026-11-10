@@ -20,6 +20,11 @@
  *
  * A needle counts as lib/guard-fires.js counts a guard's fires, on both tiers;
  * a regex through its regex route, on the tiers its scope names.
+ *
+ * A ticket owing a log line carries lib/signature-label.js's label and a SECTION_HEADING body
+ * section holding that line less its `issue`, which the ticket itself names:
+ * the issue create records it in the same call, so a line lost with its
+ * worktree is recovered from the ticket (#4861).
  */
 
 const fs = require("node:fs");
@@ -42,6 +47,8 @@ const { parseJsonlRow, readJsonl } = require("./jsonl.js");
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
 /** The retro's run record, at a repo's root. */
 const RUN_RECORD = "docs/data/retro-runs.jsonl";
+
+const SECTION_HEADING = "## Fault signature";
 
 const SCOPES = ["main", "subagent", "both"];
 const REGEX_FLAGS = /^[imsu]*$/;
@@ -364,6 +371,42 @@ function appendSignatureLine(root, line) {
 }
 
 /**
+ * The body section recording a line, its `issue` left to the ticket.
+ * @param {Record<string, unknown>} line
+ */
+function signatureSection(line) {
+	const { issue: _, ...rest } = line;
+	return `${SECTION_HEADING}\n\n\`\`\`json\n${JSON.stringify(rest)}\n\`\`\`\n`;
+}
+
+/**
+ * The body with its section, replacing one already there.
+ * @param {string} body
+ * @param {Record<string, unknown>} line
+ */
+function withSignatureSection(body, line) {
+	const at = body.indexOf(`${SECTION_HEADING}\n`);
+	const kept = at === -1 ? body : body.slice(0, at);
+	return `${kept.trimEnd()}\n\n${signatureSection(line)}`;
+}
+
+/**
+ * The log line a ticket's body section records, with `issue` restored first
+ * as buildSignatureLine orders it; null where the section is gone or will not
+ * parse.
+ * @param {string} issue
+ * @param {string} body
+ * @returns {Row | null}
+ */
+function readSignatureSection(issue, body) {
+	const m = body.match(
+		/^## Fault signature\r?\n\r?\n```json\r?\n([^\r\n]*)\r?\n```/m,
+	);
+	const row = m?.[1] ? parseJsonlRow(m[1]) : null;
+	return row ? { issue, ...row } : null;
+}
+
+/**
  * Every row of a JSONL log the outcome review or the ticket mix reads (the
  * signature log, the run record); a line that does not parse is in `bad`, for
  * the caller to name. Null where the file is absent.
@@ -383,5 +426,8 @@ module.exports = {
 	buildSignatureLine,
 	readDeclared,
 	readLog,
+	readSignatureSection,
 	signatureHits,
+	signatureSection,
+	withSignatureSection,
 };

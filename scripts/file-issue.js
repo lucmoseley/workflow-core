@@ -17,7 +17,9 @@
  * declares whether it claims to stop a recurring fault: `--fault-signature`
  * names a signature file (lib/fault-signature.js holds its shape), checked
  * against the transcript record that triggered it, and appended to
- * docs/data/outcome-signatures.jsonl for the weekly outcome review (#4796).
+ * docs/data/outcome-signatures.jsonl for the weekly outcome review (#4796);
+ * the create also carries the `fault-signature` label and the line in a body
+ * section, so a line lost with its worktree is recovered (#4861).
  *
  * Before every create it lists up to three open issues whose titles most
  * resemble the new one, so a duplicate or its natural parent is noticed
@@ -116,7 +118,9 @@ const {
 	appendSignatureLine,
 	buildSignatureLine,
 	readDeclared,
+	withSignatureSection,
 } = require("./lib/fault-signature.js");
+const { SIGNATURE_LABEL } = require("./lib/signature-label.js");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 
 const USAGE = `usage: node ${scriptPath("file-issue.js")} --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- --origin <class> (--fault-signature <file> | --no-fault) [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node ${scriptPath("file-issue.js")} --check "<title>"`;
@@ -301,6 +305,7 @@ function main() {
 		...new Set([
 			...opts.labels,
 			originLabel(/** @type {string} */ (opts.origin)),
+			...(declared === null ? [] : [SIGNATURE_LABEL]),
 		]),
 	];
 	const read =
@@ -314,13 +319,12 @@ function main() {
 	checkSimilar(repo, opts);
 	checkSizeLine({ repo, labels, body, opts });
 
-	// A body carrying its own line keeps it, never gaining a second (#1027).
-	// Residual: the flag's reason is then dropped even where it differs.
 	const hasOwnStandalone = hasStandaloneLine(body);
-	const filedBody =
-		opts.standalone === undefined || hasOwnStandalone
-			? body
-			: `${body.trimEnd()}\n\n${buildStandaloneLine(opts.standalone.trim())}\n`;
+	const { filedBody, pending } = buildFiledBody({
+		body,
+		standalone: hasOwnStandalone ? undefined : opts.standalone,
+		declared,
+	});
 	const { n, url } = create({
 		repo,
 		title: /** @type {string} */ (opts.title),
@@ -331,7 +335,7 @@ function main() {
 	io.out(
 		`${buildFiledLine(n, url)}\nlabels: ${labels.join(", ")}${added.length > 0 ? ` (${added.join(", ")} added: #${opts.parent} is a spec)` : ""}\n`,
 	);
-	logSignature(`${repo}#${n}`, declared);
+	logSignature(pending, `${repo}#${n}`);
 
 	const sessionId = fromEnv();
 	// Residual (#2314): a map filed with no session id is held by nobody, so
@@ -358,6 +362,26 @@ function main() {
 }
 
 /**
+ * The body as filed, and the signature line it records, its issue left blank
+ * until the create gives the number. A body carrying its own Standalone line
+ * keeps it, never gaining a second (#1027); the flag's reason is then dropped
+ * even where it differs.
+ * @param {{body: string, standalone: string | undefined,
+ *   declared: import("./lib/fault-signature.js").Declared | null}} at
+ */
+function buildFiledBody({ body, standalone, declared }) {
+	const placed =
+		standalone === undefined
+			? body
+			: `${body.trimEnd()}\n\n${buildStandaloneLine(standalone.trim())}\n`;
+	if (declared === null) return { filedBody: placed, pending: null };
+	/* A stray WFC_NOW in the session's env skews this durable stamp (check.js `now`). */
+	const filedAt = new Date(now()).toISOString();
+	const pending = buildSignatureLine({ issue: "", filedAt, declared });
+	return { filedBody: withSignatureSection(placed, pending), pending };
+}
+
+/**
  * The signature file, checked for shape and against its case, or refused;
  * null under --no-fault.
  * @param {string|undefined} file
@@ -374,17 +398,12 @@ function checkSignatureFile(file) {
 /**
  * The filed ticket's line in the signature log, which the caller commits;
  * nothing under --no-fault.
+ * @param {Record<string, unknown> | null} pending  the line, its issue blank
  * @param {string} issue
- * @param {import("./lib/fault-signature.js").Declared | null} declared
  */
-function logSignature(issue, declared) {
-	if (declared === null) return;
-	/* A stray WFC_NOW in the session's env skews this durable stamp (check.js `now`). */
-	const line = buildSignatureLine({
-		issue,
-		filedAt: new Date(now()).toISOString(),
-		declared,
-	});
+function logSignature(pending, issue) {
+	if (pending === null) return;
+	const line = { ...pending, issue };
 	try {
 		const root = worktreeRoot();
 		const file = appendSignatureLine(root, line);
