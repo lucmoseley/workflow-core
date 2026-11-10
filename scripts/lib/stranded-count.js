@@ -40,6 +40,7 @@ const { isListedLive } = require("./agent-liveness.js");
 // The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
 const { paths, recordTree, subjectPath } = require("./arbiter-store");
 const { deref } = require("./deref.js");
+const { porcelainEntries } = require("./dirty-tree.js");
 const { gitOrNull } = require("./git.js");
 const { worktreeOwners } = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
@@ -112,19 +113,10 @@ function readDirtyPaths(root = paths.repoRoot()) {
 		cwd: root,
 	});
 	if (out === null) return null;
-	const fields = out.split("\0").values();
 	const dirty = new Set();
-	for (const entry of fields) {
-		// "XY <path>": two status letters, a space, then the path. Anything
-		// shorter is the trailing empty field `-z` leaves, never a record.
-		if (entry.length < 4) continue;
-		dirty.add(entry.slice(3));
-		// A rename or copy spends the NEXT NUL-separated field on its source, and
-		// the letter sits in either column — `R ` staged, ` R` unstaged.
-		if (/[RC]/.test(entry.slice(0, 2))) {
-			const source = fields.next().value;
-			if (source) dirty.add(source);
-		}
+	for (const { path: p, source } of porcelainEntries(out)) {
+		dirty.add(p);
+		if (source) dirty.add(source);
 	}
 	return dirty;
 }

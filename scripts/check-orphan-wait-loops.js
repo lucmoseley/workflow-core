@@ -76,9 +76,9 @@
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isInit } = require("./lib/orphan-hooks.js");
+const { describeAge, MINUTE_MS } = require("./lib/age-text.js");
 const {
 	ageSeconds,
-	describeAge,
 	ownTree,
 	readProcTable,
 	readUptime,
@@ -187,7 +187,7 @@ function reportOrphans(ctx, { orphans, listed, hidden, minutes }) {
 	for (const o of orphans)
 		ctx.warn(
 			"ORPHAN-WAIT-LOOP",
-			`pid ${o.pid} — sleeping in a wait loop for ${describeAge(o.ageMinutes * 60)}, parent is init`,
+			`pid ${o.pid} — sleeping in a wait loop for ${describeAge(o.ageMinutes * MINUTE_MS)}, parent is init`,
 			o,
 		);
 
@@ -197,7 +197,7 @@ function reportOrphans(ctx, { orphans, listed, hidden, minutes }) {
 		);
 		for (const o of listed)
 			ctx.say(
-				`  pid ${o.pid}, ${describeAge(o.ageMinutes * 60)}\n` +
+				`  pid ${o.pid}, ${describeAge(o.ageMinutes * MINUTE_MS)}\n` +
 					`    ${shorten(o.argv)}\n` +
 					`    ${o.kill}`,
 			);

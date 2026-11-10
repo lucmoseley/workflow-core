@@ -14,7 +14,7 @@ index dda5ecc9da01040a6af48d00479b27fd726a9912..7f615db1d803b6ef72c2e0f48b26289c
    message against `git log` in a lookback window around the job's death.
    Matched, not merely dated: several sessions land concurrently here, and a
 diff --git a/scripts/lib/commit-calls.js b/scripts/lib/commit-calls.js
-index 54955e0c61ff093b3e5edf6eccf981c1875e039a..a2119f6d25673bd52be9799a13e31352feb49136 100644
+index d50b6f53286ff31e4d31c957f29287387be1b98a..6a6ea45383c8a1fa776102d327ee0b008542bf12 100644
 --- a/scripts/lib/commit-calls.js
 +++ b/scripts/lib/commit-calls.js
 @@ -2,7 +2,9 @@
@@ -37,40 +37,18 @@ index 54955e0c61ff093b3e5edf6eccf981c1875e039a..a2119f6d25673bd52be9799a13e31352
  	gitValueFlags,
  	gitWords,
  	literal,
-@@ -45,16 +49,23 @@ function commitCalls(command) {
- 		({ segment, words }) => {
- 			/** @type {{ flag: string, word: string } | null} */
- 			let msg = null;
--			const git = gitWords(words, spans);
--			if (git?.sub !== "commit") return;
--			/* The first message flag wins. */
--			scanFlags(gitValueFlags("commit"), git.args, (kind, name, value) => {
--				if (msg !== null || kind !== "opt") return;
--				if (name === "-m" || name === "--message")
--					msg = { flag: "m", word: value };
--				else if (name === "-F" || name === "--file")
--					msg = { flag: "F", word: value };
--			});
-+			const cpArgs = commitPathsArgs(words, spans);
-+			if (cpArgs === null) {
-+				const git = gitWords(words, spans);
-+				if (git?.sub !== "commit") return;
-+				/* The first message flag wins. */
-+				scanFlags(gitValueFlags("commit"), git.args, (kind, name, value) => {
-+					if (msg !== null || kind !== "opt") return;
-+					if (name === "-m" || name === "--message")
-+						msg = { flag: "m", word: value };
-+					else if (name === "-F" || name === "--file")
-+						msg = { flag: "F", word: value };
-+				});
-+			} else {
-+				const call = commitPathsParse(cpArgs, spans);
-+				if (call === null || call.tree || !call.messageFlag) return;
-+				msg = { flag: call.messageFlag.slice(1), word: call.message };
-+			}
- 			const call = asWritten(segment, spans).trim();
- 			if (msg?.flag === "m")
- 				out.push({ call, flag: "m", word: asWritten(msg.word, spans) });
+@@ -62,6 +66,11 @@ function commitCalls(command) {
+ function commitMessages(words, spans) {
+ 	/** @type {({ flag: string, word: string } | null)[]} */
+ 	const msgs = [];
++	for (const cpArgs of commitPathsArgs(words, spans)) {
++		const call = commitPathsParse(cpArgs, spans);
++		if (call === null || call.tree || !call.messageFlag) continue;
++		msgs.push({ flag: call.messageFlag.slice(1), word: call.message });
++	}
+ 	for (const git of gitWords(words, spans)) {
+ 		if (git.sub !== "commit") continue;
+ 		/** @type {{ flag: string, word: string } | null} */
 diff --git a/scripts/lib/commit-calls.test.ts b/scripts/lib/commit-calls.test.ts
 index 75607885758032e21b9819644622288a4f4af61f..df526de936909467e0275b985d5755361cb20304 100644
 --- a/scripts/lib/commit-calls.test.ts

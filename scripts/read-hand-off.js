@@ -43,13 +43,14 @@ const {
 const { parseOrExit } = require("./lib/cli-args");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { repoRoot } = require("./lib/hook-block");
+const { scriptPath } = require("./lib/script-path.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { pushedRef } = require("./lib/landing-refs.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("read-hand-off");
-const USAGE = "usage: node scripts/read-hand-off.js <issue-number>";
+const USAGE = `usage: node ${scriptPath("read-hand-off.js")} <issue-number>`;
 
 /**
  * Run git in the session's tree; whether it exited 0, and its output on both

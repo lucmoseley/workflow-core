@@ -45,6 +45,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { mainChainRecords, standingContext } = require("./lib/transcript.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
@@ -58,8 +59,7 @@ const fail = (/** @type {string} */ text) => writeFd(2, `${text}\n`);
 /* Per Mtok: fresh input, output, 5-minute and 1-hour cache write, cache read. */
 const RATES = { input: 15, output: 75, write: 18.75, write1h: 30, read: 1.5 };
 
-const USAGE =
-	"Usage: node scripts/measure-bundle-cost.js [--since <YYYY-MM-DD>]";
+const USAGE = `Usage: node ${scriptPath("measure-bundle-cost.js")} [--since <YYYY-MM-DD>]`;
 
 const CLOSE = /gh\s+issue\s+close\s+(?:--\S+\s+\S+\s+)*?#?(\d{2,5})/g;
 

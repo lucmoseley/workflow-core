@@ -24,6 +24,7 @@
  */
 
 const path = require("node:path");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /* The config and git load where an answer first needs them, so a reader of
  * the names alone, a hook among them, pays for neither. */
@@ -62,9 +63,7 @@ const DROPPED_PREFIX = "dropped/";
  * @returns {string|null}
  */
 function queueRefOf(root, tree) {
-	const { WORKTREES_DIR } = require("./project-dirs.js");
-	if (!tree || path.dirname(tree) !== path.join(root, WORKTREES_DIR))
-		return null;
+	if (!tree || path.dirname(tree) !== path.join(root, WORKTREES)) return null;
 	return `${QUEUE_PREFIX}${path.basename(tree)}`;
 }
 

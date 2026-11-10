@@ -22,6 +22,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args");
@@ -167,7 +168,7 @@ const today = () =>
 
 function main() {
 	parseOrExit(process.argv.slice(2), {
-		usage: "usage: node scripts/report-retro-due.js",
+		usage: `usage: node ${scriptPath("report-retro-due.js")}`,
 	});
 	const date = today();
 	let v;

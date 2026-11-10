@@ -51,6 +51,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { worktreeRoot } = require("./lib/host-root.js");
@@ -172,7 +173,9 @@ const CLASSES = {
 		section: "Skills & settings",
 		class: "generated-only",
 		route:
-			"`node scripts/check-guard-registry.js --review`, which re-anchors a guard whose annotation has been read",
+			"`node " +
+			scriptPath("check-guard-registry.js") +
+			" --review`, which re-anchors a guard whose annotation has been read",
 	},
 	"docs/doc-map.md": {
 		section: "Governance & process docs",
@@ -189,7 +192,9 @@ const CLASSES = {
 		section: "Governance & process docs",
 		class: "source-of-truth",
 		route:
-			"`node scripts/register-doc.js <path> --class <token> --section <name>` for a new key",
+			"`node " +
+			scriptPath("register-doc.js") +
+			" <path> --class <token> --section <name>` for a new key",
 	},
 };
 
@@ -223,7 +228,7 @@ const ROADMAP_CLASSES = {
 	},
 };
 
-const USAGE = `usage: node scripts/init-adopter.js --founder "<name>" [--root <dir>]
+const USAGE = `usage: node ${scriptPath("init-adopter.js")} --founder "<name>" [--root <dir>]
   [--project <name>] [--modules roadmap,suites] [--category tech="Tech & Stack"]
   [--command test="npm test"] [--corpus <owner/name>[,…]] [--plugin-root <dir>]
   [--marketplace <name>] [--marketplace-ref <tag>] [--no-tracker]

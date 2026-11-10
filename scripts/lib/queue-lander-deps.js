@@ -3,7 +3,7 @@
  * checkout: lib/queue-lander.js's runQueueLander over the production adapters
  * (lib/queue-lander-adapters.js), the tester .claude/workflow-core.json's
  * `landingTester` names, the tracker that config names, and the guard-code
- * adoption and levelling pass after each move of `main`.
+ * adoption and levelling pass after each move of `main` (#4485, spec #4458).
  *
  * scripts/queue-lander.js runs on it; a test drives the same wiring with its
  * own suite slot handed in as `admit`.

@@ -28,6 +28,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -281,7 +282,7 @@ function parseNounReaders(ts, file, text) {
 
 function main() {
 	const parsed = parseOrCode(process.argv.slice(2), {
-		usage: "usage: node scripts/list-noun-readers.js [<pathspec>…]",
+		usage: `usage: node ${scriptPath("list-noun-readers.js")} [<pathspec>…]`,
 		max: Number.POSITIVE_INFINITY,
 	});
 	if (typeof parsed === "number") return parsed;

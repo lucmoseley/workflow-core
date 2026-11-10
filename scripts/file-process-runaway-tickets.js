@@ -20,6 +20,7 @@
  */
 
 const path = require("node:path");
+const { scriptPath } = require("./lib/script-path.js");
 const { now } = require("./lib/check.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -27,7 +28,7 @@ const { fileIncidents, LOOKBACK_MS } = require("./lib/incident-tickets.js");
 const runaways = require("./lib/process-runaways.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const USAGE = "usage: node scripts/file-process-runaway-tickets.js [--dry-run]";
+const USAGE = `usage: node ${scriptPath("file-process-runaway-tickets.js")} [--dry-run]`;
 const STANDALONE =
 	"a process runaway has no originating ticket, so one is filed per episode (#3807)";
 

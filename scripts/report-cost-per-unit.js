@@ -55,6 +55,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
@@ -316,7 +317,7 @@ const commas = (n) => n.toLocaleString("en-GB");
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage: "usage: node scripts/report-cost-per-unit.js [--dry-run] [--force]",
+	usage: `usage: node ${scriptPath("report-cost-per-unit.js")} [--dry-run] [--force]`,
 	flags: { "--dry-run": "boolean", "--force": "boolean" },
 };
 

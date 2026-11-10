@@ -53,17 +53,10 @@ const { buildWaysOut } = require("./lib/orphan-filings.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { describeAge } = require("./lib/level-main.js");
-const {
-	attach,
-	CheckoutError,
-	cut,
-	land,
-	launchDir,
-	reap,
-	relink,
-	warm,
-	reopen,
-} = require("./lib/session-checkout.js");
+const { CheckoutError } = require("./lib/checkout-repo.js");
+const { attach, relink, warm } = require("./lib/dep-store.js");
+const { cut, land, launchDir, reopen } = require("./lib/session-checkout.js");
+const { reap } = require("./lib/worktree-reaper.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { REMOTE, VERIFIED_REF } = require("./lib/landing-refs.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -72,37 +65,35 @@ const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
-	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] [--into <worktree>] <prompt> | warm | attach [<worktree>] | relink | land | reap | reopen <job-id>",
+	usage: `usage: node ${scriptPath("session-checkout.js")} cut <session-name> | launch-dir [--no-build] [--into <worktree>] <prompt> | warm | attach [<worktree>] | relink | land | reap | reopen <job-id>`,
 	commands: {
 		cut: {
-			usage: "usage: node scripts/session-checkout.js cut <session-name>",
+			usage: `usage: node ${scriptPath("session-checkout.js")} cut <session-name>`,
 			min: 1,
 		},
 		"launch-dir": {
-			usage:
-				"usage: node scripts/session-checkout.js launch-dir [--no-build] [--into <worktree>] <prompt>",
+			usage: `usage: node ${scriptPath("session-checkout.js")} launch-dir [--no-build] [--into <worktree>] <prompt>`,
 			min: 1,
 			flags: { "--no-build": "boolean", "--into": "value" },
 		},
 		warm: {
-			usage: "usage: node scripts/session-checkout.js warm",
+			usage: `usage: node ${scriptPath("session-checkout.js")} warm`,
 		},
 		attach: {
-			usage: "usage: node scripts/session-checkout.js attach [<worktree>]",
+			usage: `usage: node ${scriptPath("session-checkout.js")} attach [<worktree>]`,
 			max: 1,
 		},
 		relink: {
-			usage: "usage: node scripts/session-checkout.js relink",
+			usage: `usage: node ${scriptPath("session-checkout.js")} relink`,
 		},
 		land: {
-			usage: "usage: node scripts/session-checkout.js land",
+			usage: `usage: node ${scriptPath("session-checkout.js")} land`,
 		},
 		reap: {
-			usage: "usage: node scripts/session-checkout.js reap",
+			usage: `usage: node ${scriptPath("session-checkout.js")} reap`,
 		},
 		reopen: {
-			usage: "usage: node scripts/session-checkout.js reopen <job-id>",
+			usage: `usage: node ${scriptPath("session-checkout.js")} reopen <job-id>`,
 			min: 1,
 		},
 	},
@@ -136,7 +127,7 @@ function renderReaped(r) {
 					]
 				: [],
 		),
-		...r.stranded.map(
+		...r.unfinished.map(
 			(s) =>
 				`stranded: ${name(s.dir)} — ${[
 					s.dirty > 0

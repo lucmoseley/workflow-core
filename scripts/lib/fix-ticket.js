@@ -1,5 +1,5 @@
 /*
- * fix-ticket.js — the ticket the queue lander files for a member it drops:
+ * fix-ticket.js — the ticket the queue lander files for a member it drops (#2404; #4485, spec #4458):
  * `takes:implement`, unassigned, naming the queue ref, its sha, the dropped
  * ref and the evidence, a sub-issue of the ticket its commits cite, or
  * standalone where they cite none.

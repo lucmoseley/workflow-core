@@ -103,8 +103,9 @@ function unquotedText(s) {
 }
 
 /**
- * Whether one command sets an escape: in its own leading assignments, which
- * the walk strips from `words`; among the assignments an `env` carried; or in
+ * Whether one command, or any command a `-c` string in it runs, sets an
+ * escape: in its own leading assignments, which the walk strips from `words`;
+ * among the assignments an `env` carried; or in
  * the leading run unwrap leaves, which it stops on at once where the words
  * open with one — a word after `exec` is the command to shell, yet `exec
  * NAME=1 git …` is refused all the same — and stops on after `sudo` (`sudo
@@ -117,10 +118,11 @@ function unquotedText(s) {
  */
 function setsEscape(leading, words, spans) {
 	if (leading.some((w) => ASSIGNS_RE.test(w))) return true;
-	const { words: run, wrapperWords } = unwrap(words, spans);
-	if (leadingSets(wrapperWords)) return true;
-	if (run.length === 0) return false;
-	return leadingSets(run) || exportsEscape(run);
+	return unwrap(words, spans).some(
+		({ words: run, wrapperWords }) =>
+			leadingSets(wrapperWords) ||
+			(run.length > 0 && (leadingSets(run) || exportsEscape(run))),
+	);
 }
 
 /**

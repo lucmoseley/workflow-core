@@ -12,6 +12,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { runCheck } = require("./lib/check");
 const {
 	loadShfmt,
@@ -37,7 +38,7 @@ function readTargetFiles(ctx) {
 
 runCheck({
 	name: "shfmt",
-	usage: "node scripts/check-shfmt.js [--write] [<path>…]",
+	usage: `node ${scriptPath("check-shfmt.js")} [--write] [<path>…]`,
 	flags: ["--write"],
 	run(/** @type {Ctx} */ ctx) {
 		const write = ctx.has("--write");
@@ -68,7 +69,8 @@ runCheck({
 
 		const failed = ctx.findings.length;
 		if (failed > 0) {
-			if (!write) ctx.say("Fix: node scripts/check-shfmt.js --write <path>.");
+			if (!write)
+				ctx.say(`Fix: node ${scriptPath("check-shfmt.js")} --write <path>.`);
 			return { noun: `of ${files.length} file(s) failed`, count: failed };
 		}
 		return {

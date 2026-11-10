@@ -790,11 +790,11 @@ function commitPathsCalls(j) {
 	walkCommands(
 		j.parsed,
 		(cmd) => {
-			const cpArgs = commitPathsArgs(cmd.words, j.spans);
-			if (cpArgs === null) return;
-			subject = true;
-			const call = commitPathsParse(cpArgs, j.spans);
-			if (call !== null) paths.push(...commitPathsWords(j, call, cmd.cwd));
+			for (const cpArgs of commitPathsArgs(cmd.words, j.spans)) {
+				subject = true;
+				const call = commitPathsParse(cpArgs, j.spans);
+				if (call !== null) paths.push(...commitPathsWords(j, call, cmd.cwd));
+			}
 		},
 		j.ctx,
 	);

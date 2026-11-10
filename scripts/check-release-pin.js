@@ -59,6 +59,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { now, runCheck } = require("./lib/check");
@@ -366,7 +367,7 @@ function hasTrustworthyLocalTags() {
 const unresolvedTagRemedy = (
 	/** @type {string} */ remote,
 	/** @type {string} */ tag,
-	/** @type {string} */ cutInstruction = "  node scripts/release-plugin.js",
+	/** @type {string} */ cutInstruction = `  node ${scriptPath("release-plugin.js")}`,
 ) =>
 	`  # if ${tag} was already cut, just not pushed:\n` +
 	`  git push ${remote} ${tag}\n` +
@@ -486,7 +487,7 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 		 * is a branch or SHA — the ref has to move first. */
 		const pointRefFirst =
 			`  # point the ref at ${expected}, commit, then:\n` +
-			"  node scripts/release-plugin.js";
+			`  node ${scriptPath("release-plugin.js")}`;
 		const remedy = aheadRemedy(ctx, { root, remote, expected, pointRefFirst });
 		ctx.say(
 			`.claude-plugin/plugin.json says ${version}, ahead of ${newest}, the\n` +
@@ -615,7 +616,7 @@ function judgeUnpublishedTag(ctx, { root, remote, ref, newest }) {
 		`.claude-plugin/marketplace.json pins ${ref}, and no such tag exists here or\n` +
 			`on ${remote}. Adopters are pinned to a ref that resolves to nothing, so\n` +
 			"they stay on the last tag that did.\n\n" +
-			"  node scripts/release-plugin.js\n" +
+			`  node ${scriptPath("release-plugin.js")}\n` +
 			`  git push ${remote} ${ref}`,
 	);
 	return { noun: "pinned tag that was never cut" };

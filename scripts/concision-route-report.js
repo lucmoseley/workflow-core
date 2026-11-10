@@ -21,11 +21,12 @@
  */
 
 const { collect, report } = require("./lib/concision-receipts.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 
 const CLI = {
-	usage: "usage: node scripts/concision-route-report.js [--dir <path>]",
+	usage: `usage: node ${scriptPath("concision-route-report.js")} [--dir <path>]`,
 	flags: { "--dir": /** @type {const} */ ("value") },
 };
 

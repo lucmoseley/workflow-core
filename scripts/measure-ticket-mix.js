@@ -67,6 +67,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
@@ -122,7 +123,7 @@ const MASKS = /** @type {const} */ ([
 	[/\d+(?:[.,]\d+)*/g, "<n>"],
 ]);
 
-const USAGE = `usage: node scripts/measure-ticket-mix.js --issues <owner/name>=<file> [--issues ...]
+const USAGE = `usage: node ${scriptPath("measure-ticket-mix.js")} --issues <owner/name>=<file> [--issues ...]
     --week-start <iso> --week-end <iso> [--runs <file>] [--kinds <file>]
     [--assigned <file>] [--this-run] [--json]
   --issues      one repo's tracker snapshot (gh issue list --json ...,createdAt); repeat per repo

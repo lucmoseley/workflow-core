@@ -30,6 +30,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const {
 	guardKey,
@@ -44,8 +45,7 @@ const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage:
-		"Usage: node scripts/score-session-breaches.js (--dir <projects dir> | --file <transcript>) [--json]",
+	usage: `Usage: node ${scriptPath("score-session-breaches.js")} (--dir <projects dir> | --file <transcript>) [--json]`,
 	flags: { "--dir": "value", "--file": "value", "--json": "boolean" },
 };
 

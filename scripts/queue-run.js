@@ -161,7 +161,24 @@ function classify(words) {
  * @returns {string}
  */
 function readingOf(words, ports) {
-	const inner = unwrap(words, []).words;
+	const readings = unwrap(words, []).map(({ words: inner }) =>
+		runReading(inner, ports),
+	);
+	return READING_RANK.find((r) => readings.includes(r)) ?? "none";
+}
+
+/* The reading a command takes from its runs' readings, the first here any
+ * run reads: each refusal before the launch this script takes; `none` where
+ * every run reads none. */
+const READING_RANK = ["vitest", "queued", "queue"];
+
+/**
+ * One unwrap run's reading, as readingOf answers.
+ * @param {string[]} inner
+ * @param {import("./lib/suite-launch.js").LaunchPorts} ports
+ * @returns {string}
+ */
+function runReading(inner, ports) {
 	if (inner.length === 0) return "none";
 	if (isQueueable(inner, ports)) return "queue";
 	if (inner[0] === "node" && /(^|\/)queue-run\.js$/.test(inner[1] ?? "")) {
@@ -304,7 +321,13 @@ function slotWait(slot, options, words) {
 			};
 		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
 	}
-	const chargeMb = queuedRunnerPeakMb(unwrap(words, []).words);
+	const charges = unwrap(words, []).flatMap(({ words: inner }) => {
+		const mb = queuedRunnerPeakMb(inner);
+		return mb === undefined ? [] : [mb];
+	});
+	/* The heaviest run's: runs a `&` or `|` sets side by side are charged as
+	 * that one alone. */
+	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	return {
 		queue: options,
 		join: chargeMb === undefined ? options : { ...options, chargeMb },

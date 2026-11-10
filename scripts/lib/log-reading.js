@@ -17,6 +17,7 @@ const { caught } = require("./caught.js");
 const { errMessage, now: checkNow } = require("./check");
 const { streamRecords } = require("./encoding-use");
 const { readJsonl } = require("./jsonl.js");
+const { scriptPath } = require("./script-path.js");
 const { markersDir } = require("./marker-root");
 const { pidLock } = require("./pid-lock.js");
 const { buildSkipLine, periodicReading } = require("./periodic-reading");
@@ -452,14 +453,13 @@ function fileOnce({ file, script }, { title, label }, body) {
  *
  * @param {{ title: string, label: string, record: string, script: string,
  *   buildIssueBody: (reading: string) => string }} spec `record` is the marker's
- *   name, outside every marker sweep family; `script` is the command a failed
- *   filing tells the reader to retry
+ *   name, outside every marker sweep family; `script` is the filer's file name
+ *   under scripts/, the lock's marker and the command a failed filing retries
  */
 function buildFiler({ title, label, record, script, buildIssueBody }) {
 	const recordPath = () => path.join(markersDir(), record);
 	const stampPath = () => `${recordPath()}-read-at`;
 	const lockPath = () => `${recordPath()}-read.lock`;
-	const scriptName = path.basename(script);
 
 	/** The issue the record holds, or null where none is recorded. */
 	function readFiledAs() {
@@ -498,7 +498,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 		let outcome;
 		try {
 			outcome = fileOnce(
-				{ file: recordPath(), script: scriptName },
+				{ file: recordPath(), script },
 				{ title, label },
 				buildIssueBody(reading),
 			);
@@ -506,7 +506,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 			/* Unstamped, so the retry the message promises is not held off. */
 			fs.rmSync(stampPath(), { force: true });
 			return broken(
-				`the reading would not file — ${errMessage(e)}\nNothing is recorded as filed, so the next session start tries again; run \`${script}\` to retry now.`,
+				`the reading would not file — ${errMessage(e)}\nNothing is recorded as filed, so the next session start tries again; run \`node ${scriptPath(script)}\` to retry now.`,
 			);
 		}
 		writeFd(1, `\n${outcome}\n`);
@@ -533,7 +533,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 				{
 					stamp: stampPath(),
 					lock: lockPath(),
-					script: scriptName,
+					script,
 					nowMs,
 					everyMs: DAY_MS,
 				},

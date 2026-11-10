@@ -78,7 +78,8 @@
  *    in the segment's own directory (walkCommands' cwd). A merge through `gh
  *    api` is not read. Adopters get the limb too (#2020).
  *  - Only a segment's own command word is read, after shell-words.js's unwrap
- *    wrappers (`env`, `timeout`, `command`, …), a push included (#1731). A
+ *    wrappers (`env`, `timeout`, `command`, …), a push included (#1731), and
+ *    each command a `flock -c` or `watch` string runs (#4699). A
  *    wrapper's own `-C DIR` is followed, so `env -C /x git push` is judged
  *    against `/x`. `sh -c "…"`, a script, the GitHub web UI and the
  *    founder's terminal are not seen, and Dependabot's PRs are opened by
@@ -119,6 +120,7 @@ const {
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
  * @typedef {object} BranchPublishPorts
@@ -250,7 +252,7 @@ const queueRefusal = (ctx, what, own, segment) => ({
 function ownRefLine(ctx, own) {
 	return own
 		? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin ${shellQuote(`HEAD:refs/heads/${own}`)}\`.`
-		: `This session runs outside a worktree under ${path.join(ctx.root, ".claude", "worktrees")}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`.claude/worktrees/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
+		: `This session runs outside a worktree under ${path.join(ctx.root, WORKTREES)}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`${WORKTREES}/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
 }
 
 /**
@@ -484,9 +486,23 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
  * @returns {Refusal | null}
  */
 function judgeGh(ctx, spans, { segment, words, leading, cwd }) {
-	const repoEnv = carriesVar("GH_REPO", leading, words, spans);
-	const gh = ghWords(words, spans);
-	if (!gh) return null;
+	for (const gh of ghWords(words, spans)) {
+		const refusal = judgeGhRun(ctx, spans, gh, { segment, leading, cwd });
+		if (refusal) return refusal;
+	}
+	return null;
+}
+
+/**
+ * One `gh` run, as judgeGh answers.
+ * @param {BranchPublishContext} ctx
+ * @param {string[]} spans
+ * @param {import("./shell-words.js").GhCall & { wrapperWords: string[] }} gh
+ * @param {{ segment: string, leading: string[], cwd: string }} cmd
+ * @returns {Refusal | null}
+ */
+function judgeGhRun(ctx, spans, gh, { segment, leading, cwd }) {
+	const repoEnv = carriesVar("GH_REPO", leading, gh.wrapperWords);
 	/* The word as the shell would pass it, so a quoted `"create"` still reads
 	 * as `create`; an expansion it cannot read stays masked and matches
 	 * nothing. */

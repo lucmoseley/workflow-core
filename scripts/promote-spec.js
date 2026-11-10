@@ -60,7 +60,7 @@ const {
 	scriptIo,
 } = require("./lib/tracker-ops.js");
 
-const USAGE = "usage: node scripts/promote-spec.js <brief>";
+const USAGE = `usage: node ${scriptPath("promote-spec.js")} <brief>`;
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("promote-spec");

@@ -229,6 +229,7 @@ function isLinkedWorktree(root, execFn = execProgram) {
 
 module.exports = {
 	isLinkedWorktree,
+	porcelainEntries,
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
 	parseTrackedStatus,

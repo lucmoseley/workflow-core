@@ -58,6 +58,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	machineAdmission,
 	LAUNCH_SPARES,
@@ -77,8 +78,8 @@ const { readAllowance } = require("./lib/allowance");
 const { overloadReading, buildOverloadText } = require("./lib/cpu-sample");
 const { parseOrExit } = require("./lib/cli-args");
 
-const USAGE = `Usage: node scripts/admission.js [--json] [--launch] [--skip-allowance]
-       node scripts/admission.js --load-only`;
+const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--launch] [--skip-allowance]
+       node ${scriptPath("admission.js")} --load-only`;
 
 /*
  * A backstop at 100% on both bars, never the launcher's 90/97 thresholds:

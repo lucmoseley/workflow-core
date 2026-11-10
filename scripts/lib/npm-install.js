@@ -12,7 +12,7 @@
  *      uninstall, update, dedupe, prune, rebuild, link, `audit fix`, every
  *      spelling npm derefs — where the directory it installs into holds a
  *      `node_modules` linking under the host root's dependency stores
- *      (lib/session-checkout.js `STORES`). A session worktree's
+ *      (lib/worktree-dirs.js `STORES`). A session worktree's
  *      `node_modules` links a store every worktree on its lockfile shares
  *      (#4255), so a write through it lands under each neighbour. A
  *      `node_modules` linked anywhere else is not judged here.
@@ -615,7 +615,7 @@ function localPrefix(dir, ctx) {
 /**
  * The refusal of a command that writes through a `node_modules` linking a
  * dependency store, which every worktree on its lockfile shares
- * (lib/session-checkout.js), or null.
+ * (lib/dep-store.js), or null.
  * @param {string[]} canon
  * @param {string} cwd "" where the walk cannot know it
  * @param {State} st
