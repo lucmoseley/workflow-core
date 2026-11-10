@@ -15,7 +15,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { lookup, record } = require("./pass-store.js");
+const { heldAtSha, lookup, record } = require("./pass-store.js");
 const { markersDir } = require("./marker-root.js");
 const { EDGES_FILE, repoRoot } = require("./test-pass-marker.js");
 
@@ -256,6 +256,110 @@ describe("a change to any input voids the pass", () => {
 		run(dir, [A]);
 		fs.rmSync(path.join(dir, "lib.js"));
 		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+});
+
+describe("a new file that takes over an import's resolution voids the pass (#4814)", () => {
+	it.each([
+		[
+			"a `foo.js` beside the `foo/index.js` that `./foo` loaded",
+			'require("./foo");\n',
+			"foo/index.js",
+			"foo.js",
+		],
+		[
+			"a `.js` source where a `.js` specifier loaded its `.ts`",
+			'require("./mod.js");\n',
+			"mod.ts",
+			"mod.js",
+		],
+		[
+			"a `.js` beside the `.json` an extensionless specifier loaded",
+			'require("./data");\n',
+			"data.json",
+			"data.js",
+		],
+	])("voids it for %s", (_name, lib, target, shadow) => {
+		const dir = repo();
+		write(dir, "lib.js", lib);
+		fs.mkdirSync(path.join(dir, path.dirname(target)), { recursive: true });
+		write(dir, target, "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, shadow, "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids it through a specifier any number of modules deep", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./mid.js");\n');
+		write(dir, "mid.js", 'require("./deep");\n');
+		write(dir, "deep.ts", "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "deep.js", "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids it through a specifier in the test file itself", () => {
+		const dir = repo();
+		write(dir, A, 'require("../data");\n');
+		write(dir, "data.json", "{}\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "data.js", "v0\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("holds at a commit's tree only while no file there takes the import over", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./data");\n');
+		write(dir, "data.json", "{}\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "data");
+		const before = git(dir, "rev-parse", "HEAD");
+		run(dir, [A]);
+		write(dir, "data.js", "v0\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "shadow");
+		const heldAt = (sha: string) =>
+			[
+				...heldAtSha([A], {
+					storeRoot: dir,
+					sha,
+					before: "9999",
+					git: (args: string[]) =>
+						execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+					values: VALUES,
+				}).keys(),
+			] as string[];
+		expect(heldAt(before)).toEqual([A]);
+		expect(heldAt(git(dir, "rev-parse", "HEAD"))).toEqual([]);
+	});
+
+	it("lets no row recorded before the store kept absent inputs decide", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const { format: _format, ...line } = JSON.parse(
+			fs.readFileSync(shardOf(dir, A), "utf8"),
+		);
+		fs.writeFileSync(shardOf(dir, A), `${JSON.stringify(line)}\n`);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("leaves the shadowing paths out of the reads a cached file attests", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'require("./data");\n');
+		write(dir, "data.json", "{}\n");
+		run(dir, [A]);
+		const [hit] = lookup([A], {
+			root: dir,
+			storeRoot: dir,
+			values: VALUES,
+			lander: false,
+		}).cached;
+		expect(hit.reads).toContain("data.json");
+		expect(hit.reads).not.toContain("data.js");
 	});
 });
 
