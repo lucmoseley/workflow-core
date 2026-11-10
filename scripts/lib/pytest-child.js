@@ -101,6 +101,7 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 			schedule,
 			onCeiling: () => {
 				const kill = {
+					at: new Date().toISOString(),
 					ceilingMs: ceiling,
 					elapsedMs: monotonicMs() - spawnedAtMono,
 					inflight: readInflight(inflightFile),
@@ -151,9 +152,37 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 /**
  * @typedef {{ open: { nodeid: string, stage: string }[], finished: number,
  *   collected: number|null }} PytestInflight
- * @typedef {{ ceilingMs: number, elapsedMs: number,
+ * @typedef {{ at: string, ceilingMs: number, elapsedMs: number,
  *   inflight: PytestInflight|null }} CeilingKill
  */
+
+/**
+ * The fail-store row for a run killed at the ceiling (#4776). An empty `sha`
+ * is one the store refuses, which `recordKill` says.
+ *
+ * @param {CeilingKill} kill
+ * @param {{ sha: string, startedAtMs: number, argv: string[],
+ *   sessionId: string|null, lander: boolean }} run
+ * @returns {import("./test-pass-marker.js").Marker}
+ */
+function ceilingKillRow(kill, { sha, startedAtMs, argv, sessionId, lander }) {
+	const { inflight } = kill;
+	return {
+		sha,
+		at: kill.at,
+		suite: "pytest",
+		startedAt: new Date(startedAtMs).toISOString(),
+		durationMs: kill.elapsedMs,
+		ceilingKill: true,
+		ceilingMs: kill.ceilingMs,
+		testsInFlight: inflight?.open ?? null,
+		testsFinished: inflight?.finished ?? null,
+		testsNeverStarted: inflight ? neverStartedCount(inflight) : null,
+		argv,
+		sessionId,
+		...(lander ? { lander: true } : {}),
+	};
+}
 
 /**
  * Tests collected but neither finished nor in flight, or null where pytest
@@ -215,4 +244,4 @@ function buildCeilingReport(inflight, run) {
 	return lines.join("\n");
 }
 
-module.exports = { runPytest, neverStartedCount };
+module.exports = { runPytest, ceilingKillRow };

@@ -29,8 +29,7 @@
  *
  * THE SUITE CEILING (#2702, ruled at #2667). pytest leads a process group of
  * its own, and at the ceiling `lib/suite-ceiling.js` sets, the whole group is
- * killed, xdist workers included: the run exits 1 and records no certificate,
- * only a `ceilingKill` row in the fail store beside vitest's (#4776). The
+ * killed, xdist workers included: the run exits 1 and records no certificate. The
  * group is not the terminal's foreground one, so a Ctrl-C reaches this
  * wrapper alone and is passed on to the group. RESIDUAL: a pytest that reads
  * the terminal (`--pdb`, `breakpoint()`, `input()` under `-s`) is stopped by
@@ -55,7 +54,7 @@ const {
 	formatFilteredRun,
 	markerFrom,
 	record,
-	recordFailure,
+	recordKill,
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { worktreeRoot } = require("./lib/host-root.js");
@@ -68,7 +67,7 @@ const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
 const { monotonicMs } = require("./lib/suite-ceiling.js");
-const { runPytest, neverStartedCount } = require("./lib/pytest-child.js");
+const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 
 /* Resolved through the host-root seam (#1), never `__dirname`: the pytest suite,
  * its `scripts/` on PYTHONPATH and the tree-drift snapshot all belong to the
@@ -164,43 +163,21 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 }
 
 /**
- * One fail-store row for a run killed at the ceiling, so a later session can
- * name what was in flight (#4776). Never fails the run: a lost row is said.
- *
  * @param {string} root
  * @param {import("./lib/pytest-child.js").CeilingKill} kill
  * @param {{ sha: string|undefined, startedAtMs: number, argv: string[] }} run
  */
 function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
-	const { inflight } = kill;
-	let landed = false;
-	try {
-		landed = recordFailure(
-			{
-				sha: sha ?? "",
-				at: new Date().toISOString(),
-				suite: "pytest",
-				startedAt: new Date(startedAtMs).toISOString(),
-				durationMs: kill.elapsedMs,
-				ceilingKill: true,
-				ceilingMs: kill.ceilingMs,
-				inflight: inflight?.open ?? null,
-				finished: inflight?.finished ?? null,
-				neverStarted: inflight ? neverStartedCount(inflight) : null,
-				argv,
-				sessionId: idSeam.fromEnv() || null,
-				...(idSeam.isLanderRun() ? { lander: true } : {}),
-			},
-			{ root: repoRoot(root) },
-		);
-	} catch {
-		/* reported below with the false return */
-	}
-	if (!landed)
-		writeFd(
-			2,
-			"This kill was not recorded to the fail store, so it will not be counted.\n",
-		);
+	recordKill(
+		ceilingKillRow(kill, {
+			sha: sha ?? "",
+			startedAtMs,
+			argv,
+			sessionId: idSeam.fromEnv() || null,
+			lander: idSeam.isLanderRun(),
+		}),
+		{ root: repoRoot(root), say: (text) => writeFd(2, text) },
+	);
 }
 
 /**
@@ -293,7 +270,7 @@ function readHandOff(file) {
 	}
 }
 
-module.exports = { main, recordCeilingKill };
+module.exports = { main };
 
 /* exitCode, never process.exit: an exit straight after a write to a pipe
  * can drop it (mantahostels#1943). */

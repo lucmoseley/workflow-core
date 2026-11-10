@@ -222,7 +222,7 @@ Where neither fits, remove the seam: create the dependency in place, and let the
 
 A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:370` names GitHub not answering, not the glossary's *Unreachable* page.
 
-The push gate asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:1352`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:176`), never `parsePins` (#1373).
+The push gate asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:1423`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:176`), never `parsePins` (#1373).
 
 ### §G9 · State kept between calls has one writer, or writers named for what each does to it — **judgement**
 

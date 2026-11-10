@@ -3,10 +3,10 @@
  * The `npm run test:py` wrapper that leaves pytest's pre-push marker (mantahostels#1256).
  *
  * Run in process through runInProcessAsync (§X3), its python3 a fake injected at
- * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the last case,
- * which spawns the wrapper as a script against a real pytest, and the module
- * cases on `lib/pytest-child.js`'s `runPytest`, which fire the ceiling on an
- * event (#3520).
+ * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the case that
+ * spawns the wrapper as a script against a real pytest, and the module cases
+ * on `lib/pytest-child.js`: `runPytest`, which fire the ceiling on an event
+ * (#3520), and `ceilingKillRow`.
  *
  * `.husky/pre-push` and `npm run push:check` read the certificate it leaves:
  * loosen a case and a red or dead run leaves one the push gate counts as
@@ -28,10 +28,9 @@ const require = createRequire(import.meta.url);
 const { readFailures, readMarkers } = require("./lib/test-pass-marker.js");
 const { CEILING_ENV, DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
-const { runPytest } = require("./lib/pytest-child.js");
+const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 
 const SCRIPT = path.join(__dirname, "run-pytest.js");
-const { recordCeilingKill } = require(SCRIPT);
 
 const dirs: string[] = [];
 
@@ -378,7 +377,7 @@ describe("a bare run under landing", () => {
 		expect(r.stderr).toContain("this session's own work could not be read");
 	});
 
-	it("runs the whole suite as before with landing off", async () => {
+	it("runs the whole suite with landing off", async () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
 		const [python, readCalls] = fakePytest(undefined, 0);
@@ -820,15 +819,10 @@ describe("the suite ceiling (#2702)", () => {
 		});
 	});
 
-	it("records one ceiling-kind fail-store row carrying the tests in flight with their stage and the never-started and finished counts (#4776)", () => {
-		const root = repo();
-		const sha = spawnSync("git", ["rev-parse", "HEAD"], {
-			cwd: root,
-			encoding: "utf8",
-		}).stdout.trim();
-		recordCeilingKill(
-			root,
+	it("gives a kill's fail-store row the ceiling, its duration, the tests in flight with their stage and the never-started and finished counts (#4776)", () => {
+		const row = ceilingKillRow(
 			{
+				at: "2026-11-10T12:00:01.002Z",
 				ceilingMs: 1000,
 				elapsedMs: 1002,
 				inflight: {
@@ -839,43 +833,56 @@ describe("the suite ceiling (#2702)", () => {
 					collected: 50,
 				},
 			},
-			{ sha, startedAtMs: Date.now() - 1100, argv: ["scripts"] },
+			{
+				sha: "a".repeat(40),
+				startedAtMs: Date.parse("2026-11-10T12:00:00Z"),
+				argv: ["scripts"],
+				sessionId: null,
+				lander: false,
+			},
 		);
 
-		expect(readFailures({ root })).toEqual([
-			expect.objectContaining({
-				sha,
-				suite: "pytest",
-				ceilingKill: true,
-				ceilingMs: 1000,
-				durationMs: 1002,
-				inflight: [
-					{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" },
-				],
-				neverStarted: 8,
-				finished: 41,
-				argv: ["scripts"],
-			}),
-		]);
-		expect(readMarkers({ root })).toEqual([]);
+		expect(row).toEqual({
+			sha: "a".repeat(40),
+			at: "2026-11-10T12:00:01.002Z",
+			suite: "pytest",
+			startedAt: "2026-11-10T12:00:00.000Z",
+			durationMs: 1002,
+			ceilingKill: true,
+			ceilingMs: 1000,
+			testsInFlight: [
+				{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" },
+			],
+			testsFinished: 41,
+			testsNeverStarted: 8,
+			argv: ["scripts"],
+			sessionId: null,
+		});
 	});
 
-	it("records the row with no tests named where pytest reported none in flight", () => {
-		const root = repo();
-		recordCeilingKill(
-			root,
-			{ ceilingMs: 1000, elapsedMs: 1001, inflight: null },
-			{ sha: "a".repeat(40), startedAtMs: Date.now(), argv: [] },
+	it("leaves a kill's row with no tests named where pytest reported none in flight", () => {
+		const row = ceilingKillRow(
+			{
+				at: "2026-11-10T12:00:01Z",
+				ceilingMs: 1000,
+				elapsedMs: 1001,
+				inflight: null,
+			},
+			{
+				sha: "a".repeat(40),
+				startedAtMs: 0,
+				argv: [],
+				sessionId: null,
+				lander: true,
+			},
 		);
 
-		expect(readFailures({ root })).toEqual([
-			expect.objectContaining({
-				ceilingKill: true,
-				inflight: null,
-				neverStarted: null,
-				finished: null,
-			}),
-		]);
+		expect(row).toMatchObject({
+			testsInFlight: null,
+			testsNeverStarted: null,
+			testsFinished: null,
+			lander: true,
+		});
 	});
 
 	it("says the never-started count is unavailable where pytest reported no collected count", async () => {
