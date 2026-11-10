@@ -6,17 +6,25 @@
  *
  *   {"signature": {"kind": "needle", "key": "<guard key>", "needle": "<id>"?}
  *                | {"kind": "regex", "pattern": "<re>", "flags": "i"?,
- *                   "scope": "main" | "subagent" | "both"},
+ *                   "scope": "main" | "subagent" | "both",
+ *                   "reads": "output" | "call"?, "tool": "<name>"?},
  *    "prediction": "<plain words>",
  *    "case": {"session": "<session id>", "line": <1-based>, "agent": "<id>"?}}
  *
  * or `{"signature": null, "why": "<why no trace counts it>"}`. A needle's key
  * is a `guards` key of the guard-fire registry, the core's
  * scripts/guard-fire-needles.json with the host's own folded in
- * (lib/guard-fires.js `mergeNeedles`), and carries needles. The case names the
- * transcript record that triggered the ticket: `agent` names a subagent's own
- * log under that session. It is read across every seat, one copy each
- * (lib/project-dirs.js), and a signature that does not match it is refused (#4635).
+ * (lib/guard-fires.js `mergeNeedles`), and carries needles. A regex's `reads`
+ * is `output`, left out, for a fault a session is shown — a tool result, a
+ * hook's output, Stop hook feedback, a system record — or `call` for one whose
+ * only trace is a tool call the session made; `tool` then limits it to one
+ * tool's calls, such as `Bash`.
+ *
+ * The case names the transcript record where the fault surfaces: the output
+ * record a needle or an `output` regex reads, the `tool_use` record for a
+ * `call` regex. `agent` names a subagent's own log under that session. It is
+ * read across every seat, one copy each (lib/project-dirs.js), and a signature
+ * that does not match it is refused (#4635).
  *
  * A needle counts as lib/guard-fires.js counts a guard's fires, on both tiers;
  * a regex through its regex route, on the tiers its scope names.
@@ -32,6 +40,7 @@ const path = require("node:path");
 const {
 	readNeedles,
 	recordFires,
+	READ_KINDS,
 	recordMatches,
 	transcriptFires,
 	transcriptMatches,
@@ -41,33 +50,31 @@ const { subagentDirOf } = require("./transcript.js");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const { parseJsonlRow, readJsonl } = require("./jsonl.js");
+const { parseJsonlRow } = require("./jsonl.js");
 const { escapeRe } = require("./regex-group.js");
 
 /** The append-only log, at a repo's root; `merge=union` in .gitattributes. */
 const SIGNATURE_LOG = "docs/data/outcome-signatures.jsonl";
-/** The retro's run record, at a repo's root. */
-const RUN_RECORD = "docs/data/retro-runs.jsonl";
 
 const SECTION_HEADING = "## Fault signature";
 
-const SCOPES = ["main", "subagent", "both"];
+const SCOPES = /** @type {const} */ (["main", "subagent", "both"]);
 const REGEX_FLAGS = /^[imsu]*$/;
 
 /**
  * @typedef {{kind: "needle", key: string, needle?: string}
  *   | {kind: "regex", pattern: string, flags?: string,
- *      scope: "main" | "subagent" | "both"}} Signature
+ *      scope: "main" | "subagent" | "both", reads?: "call", tool?: string}} Signature
  * @typedef {{session: string, line: number, agent?: string}} Case
  * @typedef {{signature: Signature, prediction: string, case: Case}
  *   | {signature: null, why: string}} Declared
- * @typedef {Record<string, any>} Row  parsed JSON: a signature file, a log
- *   line, a transcript record or the needles registry. `any` because
- *   JSON.parse types nothing; each field is checked where it is read.
- * @typedef {Row} Registry the merged guard-fire needles
+ * @typedef {Record<string, unknown>} Row  parsed JSON: a signature file, a
+ *   log line or a transcript record, each field narrowed where it is read
+ * @typedef {ReturnType<typeof readNeedles>["needles"]} Registry  the merged
+ *   guard-fire needles
  */
 
-/** @param {unknown} v */
+/** @param {unknown} v @returns {v is string} */
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -130,21 +137,23 @@ function checkSignature(raw, registry) {
  * @returns {{signature: Signature} | {error: string}}
  */
 function checkNeedle(s, registry) {
-	const entry = registry.guards?.[s.key];
-	const ids = (entry?.needles ?? []).map(
-		(/** @type {{id: string}} */ n) => n.id,
-	);
-	if (!isText(s.key) || ids.length === 0)
+	const { key, needle } = s;
+	/** @type {string[]} */
+	const ids = isText(key)
+		? (registry.guards?.[key]?.needles ?? []).map(
+				(/** @type {{id: string}} */ n) => n.id,
+			)
+		: [];
+	if (!isText(key) || ids.length === 0)
 		return {
-			error: `needle key ${JSON.stringify(s.key)} is not a guard with needles in the guard-fire registry (scripts/guard-fire-needles.json).`,
+			error: `needle key ${JSON.stringify(key)} is not a guard with needles in the guard-fire registry (scripts/guard-fire-needles.json).`,
 		};
-	if (s.needle === undefined)
-		return { signature: { kind: "needle", key: s.key } };
-	if (!ids.includes(s.needle))
+	if (needle === undefined) return { signature: { kind: "needle", key } };
+	if (typeof needle !== "string" || !ids.includes(needle))
 		return {
-			error: `${s.key} has no needle ${JSON.stringify(s.needle)}; it has ${ids.join(", ")}.`,
+			error: `${key} has no needle ${JSON.stringify(needle)}; it has ${ids.join(", ")}.`,
 		};
-	return { signature: { kind: "needle", key: s.key, needle: s.needle } };
+	return { signature: { kind: "needle", key, needle } };
 }
 
 /**
@@ -165,26 +174,40 @@ function tryCompile(pattern, flags) {
  * @returns {{signature: Signature} | {error: string}}
  */
 function checkRegex(s) {
-	if (!isText(s.pattern))
+	const { pattern } = s;
+	if (!isText(pattern))
 		return { error: 'a regex signature needs a non-empty "pattern".' };
 	const flags = s.flags ?? "";
 	if (typeof flags !== "string" || !REGEX_FLAGS.test(flags))
 		return {
 			error: `regex flags ${JSON.stringify(s.flags)} are not among i, m, s, u.`,
 		};
-	const compiled = tryCompile(s.pattern, flags);
+	const compiled = tryCompile(pattern, flags);
 	if (typeof compiled === "string")
 		return { error: `the pattern does not compile: ${compiled}` };
-	if (!SCOPES.includes(s.scope))
+	const scope = SCOPES.find((x) => x === s.scope);
+	if (!scope)
 		return {
 			error: `a regex signature's "scope" is one of ${SCOPES.join(", ")}: the transcript tier it reads.`,
+		};
+	const reads = READ_KINDS.find((x) => x === (s.reads ?? "output"));
+	if (!reads)
+		return {
+			error: `a regex signature's "reads" is "output" (left out: where the fault surfaces — a tool result, a hook's output, Stop hook feedback) or "call" (the tool calls a session made).`,
+		};
+	const { tool } = s;
+	if (tool !== undefined && (reads !== "call" || !isText(tool)))
+		return {
+			error: `a regex signature's "tool" names the one tool whose calls a "reads": "call" regex reads, such as "Bash"; it takes no other form.`,
 		};
 	return {
 		signature: {
 			kind: "regex",
-			pattern: s.pattern,
+			pattern,
 			...(flags ? { flags } : {}),
-			scope: s.scope,
+			scope,
+			...(reads === "call" ? { reads } : {}),
+			...(tool === undefined ? {} : { tool }),
 		},
 	};
 }
@@ -194,19 +217,24 @@ function checkRegex(s) {
  * @returns {{case: Case} | {error: string}}
  */
 function checkCase(raw) {
-	const c = /** @type {Row} */ (raw ?? {});
-	if (!isText(c.session) || !Number.isInteger(c.line) || c.line < 1)
+	const { session, line, agent } = /** @type {Row} */ (raw ?? {});
+	if (
+		!isText(session) ||
+		typeof line !== "number" ||
+		!Number.isInteger(line) ||
+		line < 1
+	)
 		return {
 			error:
 				'it has no usable "case": {"session": "<session id>", "line": <1-based line>} naming the transcript record that triggered the ticket.',
 		};
-	if (c.agent !== undefined && !isText(c.agent))
+	if (agent !== undefined && !isText(agent))
 		return { error: '"case.agent" names a subagent id, or is left out.' };
 	return {
 		case: {
-			session: c.session,
-			line: c.line,
-			...(c.agent ? { agent: c.agent } : {}),
+			session,
+			line,
+			...(agent ? { agent } : {}),
 		},
 	};
 }
@@ -255,7 +283,7 @@ function signatureHits(text, sig, tier, registry) {
 		return transcriptFires(text, [needleSubject(sig, registry)], tier).map(
 			(f) => ({ at: f.at }),
 		);
-	return transcriptMatches(text, compile(sig), tier);
+	return transcriptMatches(text, compile(sig), tier, sig);
 }
 
 /**
@@ -298,7 +326,7 @@ function matchesCase(sig, { record, tier }, registry) {
 	if (!readsTier(sig, tier)) return false;
 	if (sig.kind === "needle")
 		return recordFires(record, [needleSubject(sig, registry)]).length > 0;
-	return recordMatches(record, compile(sig));
+	return recordMatches(record, compile(sig), sig);
 }
 
 /**
@@ -336,7 +364,7 @@ function readDeclared(file, { root, seats = configDirs() }) {
 		};
 	if (!matchesCase(declared.signature, at, registry))
 		return {
-			error: `${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing (#4635). Fix the signature, or the case.`,
+			error: `${file}: the signature does not match its case, ${at.file} line ${declared.case.line}, so it would count nothing (#4635). The case is the line where the fault surfaces: the output record (a tool_result, a hook attachment, Stop hook feedback, a system record), or the tool_use record for a "reads": "call" regex — never the session's prose about it. Fix the signature, or move the case to that line.`,
 		};
 	return { declared, registry };
 }
@@ -409,26 +437,12 @@ function parseSignatureSection(issue, body) {
 	return row ? { issue, ...row } : null;
 }
 
-/**
- * Every row of a JSONL log the outcome review or the ticket mix reads (the
- * signature log, the run record); a line that does not parse is in `bad`, for
- * the caller to name. Null where the file is absent.
- * @param {string} file
- * @returns {{rows: Row[], rowLines: number[], bad: number[]} | null}
- * @throws where it will not read
- */
-function readLog(file) {
-	const read = readJsonl(file);
-	return read && { rows: read.rows, rowLines: read.rowLines, bad: read.bad };
-}
-
 module.exports = {
-	RUN_RECORD,
 	SIGNATURE_LOG,
 	appendSignatureLine,
 	buildSignatureLine,
+	checkSignature,
 	readDeclared,
-	readLog,
 	SECTION_HEADING,
 	parseSignatureSection,
 	signatureHits,

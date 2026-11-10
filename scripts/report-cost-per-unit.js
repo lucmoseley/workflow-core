@@ -231,10 +231,10 @@ function readSeries() {
 	/** @type {Row[]} */
 	const rows = [];
 	const bad = [...read.bad];
-	read.rows.forEach((row, k) => {
+	for (const { row, line } of read.entries) {
 		if (ISO_DATE.test(String(row.taken))) rows.push(/** @type {Row} */ (row));
-		else bad.push(/** @type {number} */ (read.rowLines[k]));
-	});
+		else bad.push(line);
+	}
 	return { rows, bad: bad.sort((x, y) => x - y) };
 }
 
