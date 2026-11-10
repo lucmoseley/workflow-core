@@ -125,7 +125,7 @@ function listedEvents(hooks, where) {
 class MatcherError extends Error {
 	/**
 	 * @param {string} matcher
-	 * @param {{cause: unknown}} options  the regex's own throw
+	 * @param {{cause: unknown}} options
 	 */
 	constructor(matcher, { cause }) {
 		super(
@@ -146,7 +146,7 @@ class MatcherError extends Error {
  * @returns {boolean}
  * @throws {MatcherError} where `matcher` is not a valid regex
  */
-function matcherCovers(matcher, tool) {
+function isToolCovered(matcher, tool) {
 	if (matcher === undefined || matcher === "" || matcher === "*") return true;
 	let re;
 	try {
@@ -559,7 +559,7 @@ module.exports = {
 	readHostHookSources,
 	readHooksAt,
 	isCoreRoot,
-	matcherCovers,
+	isToolCovered,
 	mergeHooks,
 	readOwnHookSources,
 	readOwnHooks,

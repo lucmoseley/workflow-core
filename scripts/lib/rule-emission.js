@@ -65,7 +65,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const {
 	MatcherError,
-	matcherCovers: coversTool,
+	isToolCovered,
 	readOwnHooks,
 } = require("./core-hooks.js");
 const { AFTER_EVENTS } = require("./hook-events.js");
@@ -771,9 +771,9 @@ function registrationsOn(settings, event, manifest) {
  * @returns {boolean}
  * @throws {RuleEmissionError} where `matcher` is not a valid regex
  */
-function matcherCovers(matcher, tool) {
+function isCovered(matcher, tool) {
 	try {
-		return coversTool(matcher, tool);
+		return isToolCovered(matcher, tool);
 	} catch (e) {
 		if (!(e instanceof MatcherError)) throw e;
 		throw new RuleEmissionError(
@@ -1075,7 +1075,7 @@ function toolFigure(tool, registrations, byGuard) {
 	/** @type {Map<string, number>} */
 	const union = new Map();
 	for (const { matcher, commandLine } of registrations) {
-		if (!matcherCovers(matcher, tool)) continue;
+		if (!isCovered(matcher, tool)) continue;
 		for (const m of commandLine.matchAll(WIRED_SCRIPT_RE)) {
 			const rel = requiredGroup(m, 1, WIRED_SCRIPT_RE);
 			const g = byGuard.get(rel);

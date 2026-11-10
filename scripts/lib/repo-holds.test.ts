@@ -674,8 +674,6 @@ describe("the probe hold (#3860)", () => {
 	});
 
 	describe("a guard entry that will not load (#4226), the probe's answer injected", () => {
-		/* What lib/guard-probe.js answers: guard-probe.test.ts runs the hook
-		 * line itself. */
 		let failure: { text: string; isOutage: boolean } | null;
 		let replayFailure: (command: unknown) => string | null;
 		const probe = {
@@ -698,6 +696,7 @@ describe("the probe hold (#3860)", () => {
 			serve();
 			failure = Loading;
 			const raised = probeTick();
+			expect(raised.broken).toEqual([repo]);
 			expect(raised.text).toContain(
 				`probe failed in ${repo}: guard entry: Lexer is not defined`,
 			);

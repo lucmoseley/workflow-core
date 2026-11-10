@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
 	MatcherError,
 	SELF_PLUGIN_HOOKS,
-	matcherCovers,
+	isToolCovered,
 	readRunningHooks,
 	flattenHooks,
 	readHostHookSources,
@@ -446,7 +446,7 @@ describe("selfPluginSetup (#2461)", () => {
 	});
 });
 
-describe("matcherCovers, the one reading of a hook matcher (#4914)", () => {
+describe("isToolCovered, the one reading of a hook matcher (#4914)", () => {
 	it.each([
 		["absent", undefined],
 		["empty", ""],
@@ -454,25 +454,25 @@ describe("matcherCovers, the one reading of a hook matcher (#4914)", () => {
 	])(
 		"covers every tool where the matcher is %s, as Claude Code reads it",
 		(_, matcher) => {
-			expect(matcherCovers(matcher, "Read")).toBe(true);
-			expect(matcherCovers(matcher, "mcp__x__y")).toBe(true);
+			expect(isToolCovered(matcher, "Read")).toBe(true);
+			expect(isToolCovered(matcher, "mcp__x__y")).toBe(true);
 		},
 	);
 
 	it("anchors a tool name whole, so Write does not answer for WriteFile", () => {
-		expect(matcherCovers("Write", "Write")).toBe(true);
-		expect(matcherCovers("Write", "WriteFile")).toBe(false);
+		expect(isToolCovered("Write", "Write")).toBe(true);
+		expect(isToolCovered("Write", "WriteFile")).toBe(false);
 	});
 
 	it("covers each tool of an alternation and none beside them", () => {
-		expect(matcherCovers("Bash|Read", "Read")).toBe(true);
-		expect(matcherCovers("Bash|Read", "Bash")).toBe(true);
-		expect(matcherCovers("Bash|Read", "BashOutput")).toBe(false);
+		expect(isToolCovered("Bash|Read", "Read")).toBe(true);
+		expect(isToolCovered("Bash|Read", "Bash")).toBe(true);
+		expect(isToolCovered("Bash|Read", "BashOutput")).toBe(false);
 	});
 
 	it("throws a MatcherError naming a matcher that is not a valid regex", () => {
-		expect(() => matcherCovers("Bash|(", "Bash")).toThrow(MatcherError);
-		expect(() => matcherCovers("Bash|(", "Bash")).toThrow(
+		expect(() => isToolCovered("Bash|(", "Bash")).toThrow(MatcherError);
+		expect(() => isToolCovered("Bash|(", "Bash")).toThrow(
 			/^the matcher "Bash\|\(" is not a valid regular expression/,
 		);
 	});

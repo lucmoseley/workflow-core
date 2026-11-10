@@ -16,8 +16,7 @@
  * adopter loads its guards from its pinned plugin release, so runs no step.
  *
  * A REPLAYED CALL (#4228), one a locked-out session's guards refused, runs the
- * same line, failing only where it is refused for want of a guard that could
- * judge it, as a healthy guard may refuse it on its merits.
+ * same line.
  */
 
 const fs = require("node:fs");
@@ -29,7 +28,7 @@ const {
 	MatcherError,
 	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_HOOKS,
-	matcherCovers,
+	isToolCovered,
 	readHooksAt,
 } = require("./core-hooks.js");
 const { isLockoutText } = require("./core-fault.js");
@@ -67,7 +66,7 @@ function guardProbeRetryMs() {
 /* The probe's own, so it leaves no latch on a real session. */
 const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
 
-/* The entry the guard hook line runs, whatever runs it. */
+/* The entry the guard hook line runs. */
 const GUARD_ENTRY = "guard-dispatch.js";
 
 /**
@@ -88,7 +87,7 @@ function readGuardHookLine(root, tool) {
 	for (const group of hooks.PreToolUse ?? []) {
 		const matcher = group?.matcher == null ? undefined : String(group.matcher);
 		try {
-			if (!matcherCovers(matcher, tool)) continue;
+			if (!isToolCovered(matcher, tool)) continue;
 		} catch (err) {
 			if (!(err instanceof MatcherError)) throw err;
 			return { why: `${SELF_PLUGIN_HOOKS}: ${err.message}` };
@@ -100,8 +99,7 @@ function readGuardHookLine(root, tool) {
 }
 
 /**
- * The command of a matcher group's hook that runs the guard entry, if any.
- * @param {unknown} hooks  the group's `hooks`
+ * @param {unknown} hooks
  * @returns {string|undefined}
  */
 const findGuardLine = (hooks) =>
@@ -110,7 +108,6 @@ const findGuardLine = (hooks) =>
 	)?.command;
 
 /**
- * The benign `Read` the probe runs in `root`.
  * @param {string} root
  * @returns {RefusedCall}
  */
@@ -234,9 +231,6 @@ function readProbeFailure(root) {
 }
 
 /**
- * What a replay of `call`, a locked-out session's refused call, still fails on
- * through `root`'s guard hook line, or null where it is let through or refused
- * only on its merits.
  * @param {string} root
  * @param {RefusedCall} call
  * @returns {string|null}

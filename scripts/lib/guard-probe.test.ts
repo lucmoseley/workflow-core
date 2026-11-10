@@ -32,8 +32,6 @@ const writeHooks = (text: string) => {
 	fs.writeFileSync(hooksFile(), text);
 };
 
-/* A self-plugin hooks.json with one PreToolUse group per matcher, each running
- * the guard entry. */
 const writeMatchers = (...matchers: (string | undefined)[]) =>
 	writeHooks(
 		JSON.stringify({
@@ -94,7 +92,7 @@ describe("the hook line a matcher covers (#4914)", () => {
 		);
 	});
 
-	it("fails the probe on a matcher that is not a valid regex, naming it, so the hold rises rather than the tick throwing (#4907)", () => {
+	it("fails the probe on a matcher that is not a valid regex, naming it (#4907)", () => {
 		writeMatchers("Bash|(");
 
 		expect(readProbeFailure(repo)).toEqual({
@@ -104,6 +102,28 @@ describe("the hook line a matcher covers (#4914)", () => {
 			isOutage: false,
 		});
 	});
+
+	it.each([
+		["is absent", null, "cannot be read at"],
+		["carries no hooks object", '{"x":1}', "carries no hooks object"],
+		[
+			"holds no list of PreToolUse groups",
+			'{"hooks":{"PreToolUse":{}}}',
+			"its PreToolUse hooks are not a list",
+		],
+	])(
+		"fails the probe, never throwing, where the hooks file %s",
+		(_, text, why) => {
+			if (text === null)
+				fs.mkdirSync(path.dirname(hooksFile()), { recursive: true });
+			else writeHooks(text);
+
+			expect(readProbeFailure(repo)).toEqual({
+				text: expect.stringContaining(why),
+				isOutage: false,
+			});
+		},
+	);
 
 	it("fails the probe on a hooks file that is not JSON", () => {
 		writeHooks("{");
@@ -168,7 +188,6 @@ describe("the hook environment (#4736)", () => {
 
 describe("a guard entry that will not load (#4226)", () => {
 	const guardEntry = () => path.join(repo, "scripts", "guard-dispatch.js");
-	/* The shared tree's own entry, under the served checkout. */
 	const writeGuardEntry = (body: string) => {
 		fs.mkdirSync(path.dirname(guardEntry()), { recursive: true });
 		fs.writeFileSync(

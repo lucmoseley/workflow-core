@@ -135,8 +135,7 @@ const { resolveKey } = require("./workflow-core-config.js");
  * @typedef {import("./guard-probe.js").ProbeFailure} ProbeFailure
  * @typedef {import("./block-cause.js").RefusedCall} RefusedCall
  *
- * What a tick asks of a checkout's probe: lib/guard-probe.js's answers, which a
- * test injects in place of a git fetch and a spawned hook line.
+ * What a tick asks of a checkout's probe: lib/guard-probe.js's answers.
  * @typedef {object} Probe
  * @property {(root: string) => ProbeFailure|null} readProbeFailure
  * @property {(root: string, call: RefusedCall) => string|null} readReplayFailure
