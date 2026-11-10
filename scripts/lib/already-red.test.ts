@@ -210,6 +210,23 @@ function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 			shared: [],
 			clean: true,
 			drifted: [],
+			/* The read audit saw it read nothing beyond its imports. */
+			audits: new Map([
+				[
+					TEST,
+					{
+						reads: {
+							files: [],
+							absent: [],
+							dirs: [],
+							lists: {},
+							trees: [],
+							scripts: [],
+							git: [],
+						},
+					},
+				],
+			]),
 		},
 		{ storeRoot: dir, lander: false },
 	);

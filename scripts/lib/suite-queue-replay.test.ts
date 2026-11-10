@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chargeMb } from "./launch-charge";
+import type { HeldLimb } from "./queue-exit-log";
 import {
 	DRAW_MARGIN_MB,
 	rungMb,
@@ -40,6 +41,8 @@ interface Waiter {
 	passed?: number;
 	climbMb?: number;
 	chargeMb?: number;
+	peerS?: number;
+	limb?: HeldLimb;
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",
@@ -151,6 +154,30 @@ describe("the passes the waiters recorded (#3115)", () => {
 		const r = replayOf({ waiters: [{ from: 0, to: 5, reason: "opened" }] });
 		expect(render(r, window())).toContain(
 			"no exit line in the window counts its passes",
+		);
+	});
+});
+
+describe("the peer holds the waiters recorded (#4765)", () => {
+	it("tallies `tsc` and suite exit lines' peer seconds and bound refusals apart from the model", () => {
+		const r = replayOf({
+			waiters: [
+				{ from: 0, to: 40, kind: "tsc", peerS: 2400, limb: "peer" },
+				{ from: 0, to: 5, kind: "tsc", reason: "opened", peerS: 60 },
+				{ from: 0, to: 5, kind: "tsc", reason: "opened" },
+				{ from: 0, to: 5, slotFree: true, reason: "opened", peerS: 30 },
+			],
+		});
+		expect(r.peers).toEqual({
+			tsc: { held: 2, heldS: 2460, atBound: 1 },
+			suite: { held: 1, heldS: 30, atBound: 0 },
+		});
+		const said = render(r, window());
+		expect(said).toContain(
+			"Recorded peer holds, tsc waits: 2 held on an older waiter in the other queue the climb charge holds, 0.68 h, 1 still held at the queue's wait bound (#4765).",
+		);
+		expect(said).toContain(
+			"Recorded peer holds, suite waits: 1 held on an older waiter in the other queue the climb charge holds, 0.01 h, 0 still held at the queue's wait bound (#4765).",
 		);
 	});
 });

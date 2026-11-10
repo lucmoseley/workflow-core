@@ -267,3 +267,35 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 		expect(marker.treeAtEnd).toBe(tree.sha);
 	});
 });
+
+describe("the read audit (#4916)", () => {
+	const keys = ["WFC_READ_AUDIT", "WFC_READ_AUDIT_ROOT", "NODE_OPTIONS"];
+	const minted: string[] = [];
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		setup({ config: { root: process.cwd() } });
+		for (const d of minted.splice(0))
+			fs.rmSync(d, { recursive: true, force: true });
+	});
+
+	/** Set up a run as the outermost one, unaudited so far, `lander` or not. */
+	function armed(lander: boolean) {
+		vi.stubEnv("WFC_READ_AUDIT_OWNER", "");
+		vi.stubEnv("WFC_LANDER_RUN", lander ? "1" : "");
+		for (const k of keys) vi.stubEnv(k, "");
+		setup({ config: { root: process.cwd() } });
+		return process.env.WFC_READ_AUDIT ?? "";
+	}
+
+	it("arms an outermost run, and leaves the lander's run as it would be with none", () => {
+		const dir = armed(false);
+		expect(dir).not.toBe("");
+		minted.push(dir);
+		expect(fs.existsSync(dir)).toBe(true);
+		expect(process.env.NODE_OPTIONS).toContain("read-audit-preload.js");
+		vi.unstubAllEnvs();
+
+		expect(armed(true)).toBe("");
+		expect(process.env.NODE_OPTIONS).toBe("");
+	});
+});
