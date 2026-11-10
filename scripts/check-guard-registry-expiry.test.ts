@@ -259,3 +259,46 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		expect(r.report).toContain(`--review ${guard}`);
 	});
 });
+
+describe("--against HEAD reads HEAD under HEAD's own checker, so a digest-code change that expires a row is refused (#4807)", () => {
+	const { stagingRepo, gate, review, added } = anchorExpiryKit();
+	const checker = "scripts/check-guard-registry.js";
+	const loop = "for (const lib of sourcedBy(rel, text, root, !stack).sort())";
+	/* The fixture's own checker, its digest of guard-branch.sh widened to fold
+	 * guard-amend.sh in, every anchor and guard as committed. */
+	const widen = (root: string) => {
+		const code = fs.readFileSync(path.join(root, checker), "utf8");
+		if (!code.includes(loop)) throw new Error(`no ${loop} in ${checker}`);
+		return {
+			[checker]: code.replace(
+				loop,
+				'for (const lib of [...sourcedBy(rel, text, root, !stack), ...(rel === "scripts/guard-branch.sh" ? ["scripts/guard-amend.sh"] : [])].sort())',
+			),
+		};
+	};
+
+	it("refuses the change, naming the one row it expired and that it may be re-anchored unread", () => {
+		const { root, stage } = stagingRepo();
+		stage(widen(root));
+		const r = gate(root);
+		expect(r.code).toBe(1);
+		expect(added(r)).toEqual([
+			expect.stringContaining("scripts/guard-branch.sh"),
+		]);
+		expect(r.report).toContain("STALE-PROSE  scripts/guard-branch.sh");
+		expect(r.report).not.toContain("STALE-PROSE  scripts/guard-amend.sh");
+		expect(r.report).toContain(
+			"none of its files changed: this commit changed how its digest is computed, so it may be re-anchored without a re-read (#4807)",
+		);
+	});
+
+	it("passes the same change with that row re-anchored", () => {
+		const { root, stage } = stagingRepo();
+		stage(widen(root));
+		review(root, ["scripts/guard-branch.sh"]);
+		stage({}, [ANCHORS]);
+		const r = gate(root);
+		expect(r.code).toBe(0);
+		expect(added(r)).toEqual([]);
+	});
+});
