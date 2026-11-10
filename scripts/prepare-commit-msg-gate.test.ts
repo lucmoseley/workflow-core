@@ -47,6 +47,12 @@ const STAMP = "wfc-precommit-stamp";
 
 const temps = registerTempCleanup();
 
+// Husky's `_/h` exits 0 before any hook runs when the caller exported
+// `HUSKY=0`, which every fixture `git` call would inherit.
+beforeEach(() => {
+	vi.stubEnv("HUSKY", undefined);
+});
+
 /** Where a stubbed hook appends the line proving it ran. */
 // isolation-exempt: every fixture holds a stub at this path, which logs nothing.
 const HOLD = "scripts/review-hold-gate.sh";

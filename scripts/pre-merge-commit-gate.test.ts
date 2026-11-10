@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { huskyHooks, installHuskyShim } from "./lib/husky-testkit";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
@@ -32,6 +32,12 @@ const HOOK_REL = path.join(".husky", "pre-merge-commit");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
 
 const temps = registerTempCleanup();
+
+// Husky's `_/h` exits 0 before any hook runs when the caller exported
+// `HUSKY=0`, which every fixture `git` call would inherit.
+beforeEach(() => {
+	vi.stubEnv("HUSKY", undefined);
+});
 
 /** Where a stubbed hook appends the line proving it ran. */
 const LOG = "fired.log";
