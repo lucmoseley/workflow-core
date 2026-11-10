@@ -84,7 +84,7 @@
 			"fix": "mutation-hold-disable-reason.fix.patch",
 			"hiddenTests": [
 				{
-					"file": "scripts/mutation-hold-gate.test.ts",
+					"file": "scripts/mutation-hold-gate-disable-comment.test.ts",
 					"names": [
 						"refuses an added ",
 						"passes the same comment with a reason",

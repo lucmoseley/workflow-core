@@ -1,6 +1,9 @@
---- a/scripts/mutation-hold-gate.test.ts
-+++ b/scripts/mutation-hold-gate.test.ts
-@@ -538,14 +538,14 @@
+diff --git a/scripts/mutation-hold-gate-disable-comment.test.ts b/scripts/mutation-hold-gate-disable-comment.test.ts
+index 2a86edfd92910a56c830ca1464faf1b9f47067f6..50bc00fb6c7e33c27ca000a8a925ed3138ef8ceb 100644
+--- a/scripts/mutation-hold-gate-disable-comment.test.ts
++++ b/scripts/mutation-hold-gate-disable-comment.test.ts
+@@ -72,16 +72,16 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+ 		"// Stryker disable StringLiteral,ObjectLiteral",
  		"/* Stryker disable next-line all */ const x = a ? b : c;",
  		"/* Stryker disable all */ const t = { a: 1 };",
 -	])("refuses an added %j, naming its line, and runs nothing", (comment) => {
@@ -22,7 +25,9 @@
 +		).toBe(true);
  	});
  
-@@ -841,7 +840,4 @@
+ 	it.each([
+@@ -375,9 +375,6 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+ 		disableAbove(comment);
  		report([{ line: 3, status: "Ignored" }]);
  		expectLanded(commit([MONEY]));
 -		expect(readRuns()[0].config).toMatchObject({
@@ -30,7 +35,9 @@
 -		});
  	});
  
-@@ -868,8 +864,4 @@
+ 	it.each([
+@@ -402,10 +399,6 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+ 		]);
  		const r = commit([MONEY]);
  		expectLanded(r);
 -		expect(r.stderr).not.toContain("stating no reason");
@@ -39,3 +46,4 @@
 -		});
  	});
  
+ 	const landOldDirective = (seed = SEED) => {
