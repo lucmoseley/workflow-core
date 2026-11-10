@@ -7,6 +7,10 @@
  *
  * spawn-kept: a real fd (§X3) — the script hands the child real fds —
  * its own stdout and stderr, and the prompt file as stdin.
+ *
+ * Each of the Chrome mode's ends (#4847) is a launch of its own, a third of a
+ * second apiece: a result row, none, a kill at the limit, a signal, a binary
+ * that is gone. That is this file's run time over its CI record.
  */
 
 import { spawnSync } from "node:child_process";
@@ -280,10 +284,10 @@ describe("chrome", () => {
 				writeHeadlessFake(path.join(dir, "claude-p"), { log: callsLog() }),
 			),
 		]);
-		const r = chrome({ WFC_CHROME_CHILD_LIMIT_MS: "1500" });
+		const r = chrome({ WFC_CHROME_CHILD_LIMIT_MS: "500" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			"claude-child: the child was killed at its 1500 ms limit.\n",
+			"claude-child: the child was killed at its 500 ms limit.\n",
 		);
 	});
 
