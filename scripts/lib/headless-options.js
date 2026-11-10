@@ -42,7 +42,9 @@ function parseHelpOptions(help) {
 }
 
 /* The value-taking options this repo passes that `--help` omits
- * (claude-child.js's chrome mode). */
+ * (claude-child.js's chrome mode, #4808).
+ * Residual: a hidden option taking no value has no missing-value refusal, so
+ * it can be neither recorded nor held to the binary. */
 const HIDDEN_FLAGS = ["--max-turns"];
 
 /**

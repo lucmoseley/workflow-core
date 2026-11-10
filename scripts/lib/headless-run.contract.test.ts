@@ -96,26 +96,6 @@ describe("the result row", () => {
 		});
 	});
 
-	it("the fake ends on the text and exit status it is given, logging a file on stdin as its text", () => {
-		const prompt = path.join(dir, "prompt.md");
-		fs.writeFileSync(prompt, "Read it.\n");
-		const bin = writeHeadlessFake(path.join(dir, "claude"), {
-			log: path.join(dir, "calls.jsonl"),
-			mode: "end",
-			text: "said\n",
-			exit: 3,
-		});
-		const r = spawnSync(bin, ["-p"], {
-			encoding: "utf8",
-			stdio: [fs.openSync(prompt, "r"), "pipe", "pipe"],
-		});
-		expect(r.status).toBe(3);
-		expect(r.stdout).toBe("said\n");
-		expect(
-			readHeadlessCalls(path.join(dir, "calls.jsonl")).map((c) => c.stdinText),
-		).toEqual(["Read it.\n"]);
-	});
-
 	it("reads the fake's end the same, re-keyed to its session", () => {
 		const r = runFake(ARGV);
 		expect(r.status).toBe(0);
@@ -128,6 +108,26 @@ describe("the result row", () => {
 			sessionId: SESSION,
 		});
 	});
+});
+
+it("the fake ends on the text and exit status it is given, logging a file on stdin as its text", () => {
+	const prompt = path.join(dir, "prompt.md");
+	fs.writeFileSync(prompt, "Read it.\n");
+	const bin = writeHeadlessFake(path.join(dir, "claude"), {
+		log: path.join(dir, "calls.jsonl"),
+		mode: "end",
+		text: "said\n",
+		exit: 3,
+	});
+	const r = spawnSync(bin, ["-p"], {
+		encoding: "utf8",
+		stdio: [fs.openSync(prompt, "r"), "pipe", "pipe"],
+	});
+	expect(r.status).toBe(3);
+	expect(r.stdout).toBe("said\n");
+	expect(
+		readHeadlessCalls(path.join(dir, "calls.jsonl")).map((c) => c.stdinText),
+	).toEqual(["Read it.\n"]);
 });
 
 const SESSION_ID_FLAGS = recorded.options.find((o) =>
