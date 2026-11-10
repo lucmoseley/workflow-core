@@ -35,10 +35,10 @@ function writeLedger(rows: object[]) {
 	fs.writeFileSync(file, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
 }
 
-function run(args: string[], cwd = dir) {
+function run(args: string[], env: Record<string, string> = {}) {
 	return runInProcess(SCRIPT, args, {
-		cwd,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: cwd },
+		cwd: dir,
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
 	});
 }
 
@@ -87,22 +87,11 @@ describe("check-pass-store", () => {
 	});
 
 	it("skips where git names no canonical checkout", () => {
-		const bare = fs.mkdtempSync(
-			path.join(os.tmpdir(), "check-pass-store-nogit-"),
+		fs.rmSync(path.join(dir, ".git"), { recursive: true, force: true });
+		const res = run([], { GIT_CEILING_DIRECTORIES: path.dirname(dir) });
+		expect(res.status).toBe(0);
+		expect(res.stdout + res.stderr).toContain(
+			"git names no canonical checkout.",
 		);
-		try {
-			const res = runInProcess(SCRIPT, [], {
-				cwd: bare,
-				env: {
-					...process.env,
-					CLAUDE_PROJECT_DIR: bare,
-					GIT_CEILING_DIRECTORIES: path.dirname(bare),
-				},
-			});
-			expect(res.status).toBe(0);
-			expect(res.stdout + res.stderr).toContain("SKIP");
-		} finally {
-			fs.rmSync(bare, { recursive: true, force: true });
-		}
 	});
 });

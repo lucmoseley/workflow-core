@@ -923,7 +923,18 @@ const isAdmissibleRun = (m) => isAdmissibleScope(m.scope);
  */
 function docsReadBy(manifest, tests) {
 	const byTest = docsByTest(manifest);
-	if (!byTest) return null;
+	return byTest ? docsOfTests(byTest, tests) : null;
+}
+
+/**
+ * The documents a manifest turned round (`docsByTest`) maps to any of `tests`.
+ *
+ * @param {Map<string, Set<string>>} byTest
+ * @param {Iterable<string>} tests
+ * @returns {Set<string>}
+ */
+function docsOfTests(byTest, tests) {
+	/** @type {Set<string>} */
 	const docs = new Set();
 	for (const t of tests) for (const doc of byTest.get(t) ?? []) docs.add(doc);
 	return docs;
@@ -2191,7 +2202,7 @@ module.exports = {
 	holdsAt,
 	gitReader,
 	holdsTestByTree,
-	docsReadBy,
+	docsOfTests,
 	readDocsByTest,
 	attestationOf,
 	buildRerunLines,

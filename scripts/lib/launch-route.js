@@ -67,8 +67,7 @@ function fullFlagWord(argv) {
 }
 
 /* `--fresh`: run every selected file, whatever the pass store holds
- * (#4790). Not `--no-cache`: written before `--`, npm takes that as its own
- * `cache` setting and exports nothing the #2284 refusal could read. */
+ * (#4790). */
 const FRESH_FLAG = "--fresh";
 
 /**
