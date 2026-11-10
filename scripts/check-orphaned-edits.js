@@ -87,6 +87,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { describeAge: describeAgeText, HOUR_MS } = require("./lib/age-text.js");
 const { brokenError, now: clock, runCheck } = require("./lib/check");
 const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
@@ -194,10 +195,8 @@ const filerPath = () =>
 	process.env.WFC_ORPHAN_FILER || path.join(__dirname, "file-issue.js");
 
 /** @param {number} hours */
-function describeAge(hours) {
-	if (hours < 48) return `${Math.floor(hours)}h`;
-	return `${Math.floor(hours / 24)}d`;
-}
+const describeAge = (hours) =>
+	describeAgeText(hours * HOUR_MS, { minutesUnder: 0 });
 
 /**
  * The marker directory, made if missing — or null where git names no common

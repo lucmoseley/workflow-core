@@ -46,6 +46,7 @@ const path = require("node:path");
 const readline = require("node:readline");
 const { caught } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { porcelainEntries } = require("./lib/dirty-tree.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { landerLog } = require("./lib/lander-start.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
@@ -269,16 +270,13 @@ async function readRefusals(root, w) {
  * @param {Window} w
  */
 function readDirt(root, all, w) {
-	const fields = git(["status", "--porcelain=v1", "-z", "-unormal"], root)
-		.split("\0")
-		.values();
 	const dirty = [];
 	let untracked = 0;
-	for (const entry of fields) {
-		if (entry.length < 4) continue;
-		if (entry.startsWith("??")) untracked++;
-		else dirty.push(entry.slice(3));
-		if (/[RC]/.test(entry.slice(0, 2))) fields.next();
+	for (const { xy, path: p } of porcelainEntries(
+		git(["status", "--porcelain=v1", "-z", "-unormal"], root),
+	)) {
+		if (xy === "??") untracked++;
+		else dirty.push(p);
 	}
 	const forwarded = new Set();
 	let from = all.filter((r) => r.t < w.since).at(-1)?.sha;

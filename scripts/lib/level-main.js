@@ -35,7 +35,9 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { describeAge: describeAgeText, HOUR_MS } = require("./age-text.js");
 const { remarkAroundMove } = require("./canary-remark.js");
+const { porcelainEntries } = require("./dirty-tree.js");
 const { caught } = require("./caught.js");
 const {
 	execGit,
@@ -113,17 +115,12 @@ const parseNulList = (out) => out.split("\0").filter(Boolean);
  * @returns {Set<string>}
  */
 function readEditedPaths(root) {
-	const fields = git(["status", "--porcelain", "-z", "-uall"], root)
-		.split("\0")
-		.values();
 	const paths = new Set();
-	for (const entry of fields) {
-		if (entry.length < 4) continue;
-		paths.add(entry.slice(3));
-		if (/[RC]/.test(entry.slice(0, 2))) {
-			const source = fields.next().value;
-			if (source) paths.add(source);
-		}
+	for (const { path: p, source } of porcelainEntries(
+		git(["status", "--porcelain", "-z", "-uall"], root),
+	)) {
+		paths.add(p);
+		if (source) paths.add(source);
 	}
 	return paths;
 }
@@ -511,17 +508,20 @@ function levelNow(root) {
 }
 
 /**
- * An age as minutes under an hour, then check-orphaned-edits.js's cut-over:
- * hours under two days, days beyond.
+ * An edit in the main checkout's report line: its path, age and last writer.
+ * @param {Blocker} b
+ * @param {number} now
+ * @returns {string}
+ */
+const renderBlocker = (b, now) =>
+	`  ${b.path} — ${b.ageMs === null ? "deleted" : `${describeAge(b.ageMs)} old`}; last writer ${b.writer ? `session ${b.writer.sessionId}, ledger written ${describeAge(now - b.writer.at)} ago` : "unknown — no surviving write ledger names it"}`;
+
+/**
+ * An age as minutes under an hour, then hours and days.
  * @param {number} ms
  * @returns {string}
  */
-function describeAge(ms) {
-	const minutes = Math.floor(ms / 60_000);
-	if (minutes < 60) return `${minutes}m`;
-	const hours = Math.floor(minutes / 60);
-	return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
-}
+const describeAge = (ms) => describeAgeText(ms, { minutesUnder: HOUR_MS });
 
 /** @param {import("./canary-remark.js").Stranded} s */
 const renderStranded = (s) =>
@@ -593,10 +593,7 @@ function renderOutcome(o, now) {
 		case "blocked":
 			lines.push(
 				`refused: ${o.blockers.length} edit(s) in the main checkout sit on paths ${short(o.from)}..${short(o.to)} changes — move each to its session's own worktree or discard it, ${next}:`,
-				...o.blockers.map(
-					(b) =>
-						`  ${b.path} — ${b.ageMs === null ? "deleted" : `${describeAge(b.ageMs)} old`}; last writer ${b.writer ? `session ${b.writer.sessionId}, ledger written ${describeAge(now - b.writer.at)} ago` : "unknown — no surviving write ledger names it"}`,
-				),
+				...o.blockers.map((b) => renderBlocker(b, now)),
 			);
 			break;
 		case "stranding":
@@ -636,6 +633,7 @@ module.exports = {
 	level,
 	levelNow,
 	readOrphanedEdits,
+	renderBlocker,
 	renderOutcome,
 	startLevelling,
 };

@@ -94,6 +94,10 @@
  * DEFEAT:    none; --minutes <n> and --hung-minutes <n> move the two windows on a hand run.
  */
 
+const {
+	describeAge: describeAgeText,
+	MINUTE_MS,
+} = require("./lib/age-text.js");
 const { runCheck } = require("./lib/check");
 const { listedAgents } = require("./lib/agent-liveness");
 const deliveryStamp = require("./lib/delivery-stamp");
@@ -171,9 +175,7 @@ function readNotified(ctx) {
  */
 function describeAge(minutes, stem = "stuck") {
 	if (minutes === null) return `${stem} since an unreadable time`;
-	if (minutes < 90) return `${stem} ${Math.floor(minutes)}m`;
-	if (minutes < 48 * 60) return `${stem} ${Math.floor(minutes / 60)}h`;
-	return `${stem} ${Math.floor(minutes / 1440)}d`;
+	return `${stem} ${describeAgeText(minutes * MINUTE_MS)}`;
 }
 
 /**

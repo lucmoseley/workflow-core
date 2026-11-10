@@ -54,6 +54,7 @@ const {
 	unwrap,
 } = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /* git verbs that write a work tree's index, HEAD or files. */
 const WRITERS = [
@@ -326,7 +327,7 @@ function route(w, ctx) {
 	/* The payload's cwd, not the session's launch directory: a session cut
 	 * into a worktree that has since `cd`'d into the main checkout lands here
 	 * too, so the text sends it to a worktree it may already have. */
-	return `This session's working directory is the main checkout. \`cd\` into your own worktree under ${path.join(ctx.root, ".claude", "worktrees")}/ where you have one; where you have none, cut one with ${buildCutCommand(ctx.scriptPath)}, which prints its path. Work and commit there.`;
+	return `This session's working directory is the main checkout. \`cd\` into your own worktree under ${path.join(ctx.root, WORKTREES)}/ where you have one; where you have none, cut one with ${buildCutCommand(ctx.scriptPath)}, which prints its path. Work and commit there.`;
 }
 
 /**

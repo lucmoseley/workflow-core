@@ -119,6 +119,7 @@ const {
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
  * @typedef {object} BranchPublishPorts
@@ -250,7 +251,7 @@ const queueRefusal = (ctx, what, own, segment) => ({
 function ownRefLine(ctx, own) {
 	return own
 		? `Your session's queue ref is \`${own}\`: push your work there, as \`git push origin ${shellQuote(`HEAD:refs/heads/${own}`)}\`.`
-		: `This session runs outside a worktree under ${path.join(ctx.root, ".claude", "worktrees")}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`.claude/worktrees/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
+		: `This session runs outside a worktree under ${path.join(ctx.root, WORKTREES)}/, so it has no queue ref. Launch it in its own worktree with \`${ctx.scriptPath("start-session.sh")} <session-name>\`, which cuts \`${WORKTREES}/<session-name>/\` and starts the session there; its queue ref is then \`${QUEUE_PREFIX}<session-name>\`.`;
 }
 
 /**
