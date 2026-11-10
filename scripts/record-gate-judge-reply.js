@@ -27,6 +27,7 @@ const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 const { buildPrompt } = require("./lib/gate-judge.js");
 const { parseJsonl } = require("./lib/jsonl.js");
+const { projectSlug } = require("./lib/project-slug.js");
 const { JUDGE_ARGS } = require("./lib/gate-judge-mode.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -105,7 +106,7 @@ function recordObserved() {
 		const project = path.join(
 			seat,
 			"projects",
-			fs.realpathSync(cwd).replace(/[^a-zA-Z0-9]/g, "-"),
+			projectSlug(fs.realpathSync(cwd)),
 		);
 		const left = readEntries(project);
 		if (left.every((f) => f === "memory"))
@@ -152,7 +153,7 @@ function main() {
 		FIXTURE,
 		`${JSON.stringify(
 			{
-				recordedBy: "node scripts/record-gate-judge-reply.js",
+				recordedBy: `node ${scriptPath("record-gate-judge-reply.js")}`,
 				harness,
 				body: BODY,
 				result,

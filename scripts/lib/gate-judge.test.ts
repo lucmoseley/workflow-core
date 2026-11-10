@@ -296,9 +296,9 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	});
 
 	it("a hang past the bound", () => {
-		const r = judge(Body, { hang: true }, { boundMs: 1500 });
+		const r = judge(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
-		expect(r.fallback).toBe("the judge did not answer within 1.5 s");
+		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
 	});
 
 	it("a launch that would not bill the subscription, launching nothing", () => {
