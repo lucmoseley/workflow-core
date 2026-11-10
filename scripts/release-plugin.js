@@ -98,6 +98,7 @@ const { gh, ghApiSlurp, parseErrLine } = require("./lib/gh.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { takesLabel } = require("./lib/takes-label.js");
+const { URGENT_LABEL } = require("./lib/urgent-label.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
 const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
@@ -486,7 +487,7 @@ const BUMP_TITLE = "Bump workflow-core to ";
 
 /**
  * Opens "Bump workflow-core to vX" on each adopter tracker, labelled for
- * `/pick-next`. Opt-in — see the header. The binary is `scripts/lib/gh.js`'s
+ * `/pick-next` and `urgent`, so a bump outranks the adopter's other work. Opt-in — see the header. The binary is `scripts/lib/gh.js`'s
  * WFC_GH seam, not a per-call override — a test points it there directly.
  *
  * ONE LINE PER ADOPTER (#2562). `upgrade.js` walks every note from `walkedTo`
@@ -582,6 +583,8 @@ function fileBumpIssues(repos, tag) {
 				`body=Migration note: ${MIGRATIONS_DIR}/${tag}.md in ${UPSTREAM_CODE_REPO}. Closed by the bump commit.${closesCovered}`,
 				"-f",
 				`labels[]=${MIGRATION_LABEL}`,
+				"-f",
+				`labels[]=${URGENT_LABEL}`,
 			],
 			(args) => JSON.parse(gh(args)),
 		);
