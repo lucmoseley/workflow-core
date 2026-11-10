@@ -76,15 +76,16 @@ const TSC_PEAK_MB = Math.max(...TSC_PEAKS_MB.values());
 
 /* What admission holds back for a lander, by the kind of run it holds
  * (#3323), and what the queues' climb charges its marker (#3973): its
- * tester's own tree peak, never a machine-wide MemAvailable dip (#2508). Off
- * the lander run record, each run's tree PSS sampled every 2 s from its
- * spawn, 28 Oct - 5 Nov 2026, with no margin, the rung holding
- * DRAW_MARGIN_MB. Whole: the highest of 48 runs, 2,627 MB, from the 4 Nov
- * tree SUITE_PEAK_MB above reads as an outlier; #4771 re-derives it.
- * Named: the highest of 341 runs of 1-6 files, 937 MB. A named run past
- * those 6 files is unmeasured and charged whole. Residual: a spike between
- * two samples is charged short. */
-const LANDER_CHARGE_MB = { whole: 2630, named: 940 };
+ * tester's own tree peak, never a machine-wide MemAvailable dip (#2508), with
+ * no margin, the rung holding DRAW_MARGIN_MB. Whole: SUITE_PEAK_MB, as each
+ * shard takes a slot of its own and runs the command that measured it; the
+ * Python suite the last shard runs after it, at 2 workers, peaks far under
+ * (#4112's 256 MB), so it never sets the slot's peak (#4771). Named: the
+ * highest of 341 runs of 1-6 files off the lander run record, each run's tree
+ * PSS sampled every 2 s from its spawn, 28 Oct - 5 Nov 2026, 937 MB. A named
+ * run past those 6 files is unmeasured and charged whole. Residual: a spike
+ * between two samples is charged short. */
+const LANDER_CHARGE_MB = { whole: SUITE_PEAK_MB, named: 940 };
 const NAMED_MEASURED_FILES = 6;
 
 /**
