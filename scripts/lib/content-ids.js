@@ -15,6 +15,18 @@ const path = require("node:path");
 
 /** @typedef {Map<string, string|null>} ContentIds path to content id, null where absent */
 
+/* The string content id of a path that holds no file, for a store that
+ * keeps ids as strings (#4814). */
+const ABSENT = "absent";
+
+/**
+ * `ids` with every path that holds no file read as `ABSENT`.
+ * @param {ContentIds} ids
+ * @returns {ContentIds}
+ */
+const absentAsId = (ids) =>
+	new Map([...ids].map(([p, id]) => [p, id ?? ABSENT]));
+
 /**
  * Whether `paths` is non-empty and each path's id in `now` equals its id in
  * `then`. A path either map does not answer for holds nothing.
@@ -109,4 +121,10 @@ function chunks(list) {
 	return out;
 }
 
-module.exports = { readTreeIds, readWorkingIds, sameContent };
+module.exports = {
+	ABSENT,
+	absentAsId,
+	readTreeIds,
+	readWorkingIds,
+	sameContent,
+};
