@@ -17,7 +17,7 @@ const { caught } = require("./caught.js");
 const { localDate } = require("./local-date.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
-const { describeAge } = require("./proc-table.js");
+const { describeAge } = require("./age-text.js");
 const {
 	FIVE_HOUR_FULL,
 	LIMIT_HELD_WAIT,
@@ -486,7 +486,7 @@ function buildNotSpendingReason(status, picksKey) {
  */
 function describeAgo(at, now) {
 	const s = Math.floor(Math.max(0, now - at) / 1000);
-	return `${s < 60 ? `${s}s` : describeAge(s)} ago`;
+	return `${s < 60 ? `${s}s` : describeAge(s * 1000)} ago`;
 }
 
 /**
@@ -552,7 +552,7 @@ function buildPlanFigure({ week, weekRead }, now) {
 	const age =
 		weekRead.at === null
 			? null
-			: describeAge(Math.max(0, (now - Date.parse(weekRead.at)) / 1000));
+			: describeAge(Math.max(0, now - Date.parse(weekRead.at)));
 	if (weekRead.rolled)
 		return `${weekRead.percent}% (reset, ${age ? `read ${age}` : "age ?"})`;
 	return `${weekRead.percent}% used (${age ? `${age} ago` : "age ?"})`;

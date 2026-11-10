@@ -20,9 +20,9 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { cutover, isCutOver, renderCutover } from "./cutover.js";
 import { GIT_TIMEOUT_MS, gitReader } from "./git.js";
 import {
-	describeAge,
 	level,
 	readOrphanedEdits,
+	renderBlocker,
 	renderOutcome,
 } from "./level-main.js";
 
@@ -78,9 +78,8 @@ const ports = ({
 
 const render = (r: ReturnType<typeof cutover>) =>
 	renderCutover(r, {
-		describeAge,
+		renderBlocker: (b) => renderBlocker(b, Date.now()),
 		renderLevel: (o) => renderOutcome(o, Date.now()),
-		now: Date.now(),
 	}).join("\n");
 
 beforeEach(() => {

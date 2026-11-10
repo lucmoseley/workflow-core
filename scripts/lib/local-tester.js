@@ -40,7 +40,7 @@ const {
 	readLiveRoleMarkers,
 	queueSeat,
 } = require("./suite-queue.js");
-const { LANDER_WORKTREE } = require("./lander-worktree.js");
+const { LANDER_WORKTREE } = require("./worktree-dirs.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { latestTimings } = require("./latest-timings.js");
 const { LANDER_RUN } = require("./session-id.js");

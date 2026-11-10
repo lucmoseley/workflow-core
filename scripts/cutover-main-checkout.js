@@ -23,7 +23,7 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { cutover, renderCutover } = require("./lib/cutover.js");
 const { GIT_TIMEOUT_MS, gitReader } = require("./lib/git.js");
 const {
-	describeAge,
+	renderBlocker,
 	level,
 	readOrphanedEdits,
 	renderOutcome,
@@ -61,9 +61,8 @@ function main(argv = process.argv.slice(2)) {
 			gitIn: (dir) => gitReader(dir, GIT_TIMEOUT_MS),
 		});
 		const lines = renderCutover(result, {
-			describeAge,
+			renderBlocker: (b) => renderBlocker(b, at),
 			renderLevel: (o) => renderOutcome(o, at),
-			now: at,
 		});
 		writeFd(2, `${lines.join("\n")}\n`);
 		return result.status === "cut-over" ? 0 : 1;
