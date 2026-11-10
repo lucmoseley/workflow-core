@@ -334,16 +334,25 @@ function install() {
 	try {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
-		sync.spawn = function (/** @type {Untyped} */ opts) {
-			const out = syncSpawn.call(this, opts);
-			spawned(opts, out?.pid);
+		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
+			const out = syncSpawn.apply(this, args);
+			spawned(args[0], out?.pid);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
 		const asyncSpawn = Process.prototype.spawn;
-		Process.prototype.spawn = function (/** @type {Untyped} */ opts) {
-			const err = asyncSpawn.call(this, opts);
-			spawned(opts, this.pid);
+		/* Node through 24.18 hands the handle one options object; 24.22 hands
+		 * it positional `file, args, cwd, envPairs, stdio, …`. Every argument
+		 * passes through. */
+		Process.prototype.spawn = function (/** @type {Untyped[]} */ ...args) {
+			const err = asyncSpawn.apply(this, args);
+			const [first, argv, cwd, envPairs] = args;
+			spawned(
+				typeof first === "string"
+					? { file: first, args: argv, cwd, envPairs }
+					: first,
+				this.pid,
+			);
 			return err;
 		};
 	} catch {
