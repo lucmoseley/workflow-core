@@ -1750,36 +1750,49 @@ describe('walkGit, scope "shared"', () => {
 		).toBe("");
 	});
 
-	it("moves a -c string's later git commands by its cd and export (#4863)", () => {
-		const unwrapped = { unwrap: true };
-		expect(
-			walkGitRun(
-				`flock /l -c "cd ${SHARED}; git checkout x"`,
-				unwrapped,
-				WORKTREE,
-			).out,
-		).toContain(`[checkout][${SHARED}]`);
-		expect(
-			walkGitRun(`flock /l -c "cd ${WORKTREE}; git checkout x"`, unwrapped).out,
-		).toBe("");
-		expect(
-			walkGitRun(`flock /l -c "(cd ${WORKTREE}); git checkout x"`, unwrapped)
-				.out,
-		).toContain(`[checkout][${SHARED}]`);
-		expect(
-			walkGitRun(
-				`flock /l -c "export GIT_DIR=${SHARED}/.git; git checkout x"`,
-				unwrapped,
-				WORKTREE,
-			).out,
-		).toContain(`[checkout][${SHARED}]`);
-		expect(
-			walkGitRun(
-				`flock /l -c "GIT_DIR=${SHARED}/.git git checkout x"`,
-				unwrapped,
-				WORKTREE,
-			).out,
-		).toContain(`[checkout][${SHARED}]`);
+	describe("judges a -c string's git command as the same command bare (#4863)", () => {
+		const Nope = `${DIR}/nope`;
+		/** The trees judged and the fail-opens logged, from `cwd`. */
+		const judged = (command: string, cwd: string, isDir: boolean) => {
+			const run = walkGitWith(
+				command,
+				{ unwrap: true },
+				{ fallbackCwd: cwd, isDir: (p) => isDir && p !== Nope },
+			);
+			return { trees: run.calls.map((c) => c.tree), logged: run.logged };
+		};
+		it.each([
+			[`cd ${SHARED}; git checkout x`, WORKTREE],
+			[`cd ${WORKTREE}; git checkout x`, SHARED],
+			[`(cd ${WORKTREE}); git checkout x`, SHARED],
+			[`cd ${Nope}; git checkout x`, SHARED],
+			[`cd ${WORKTREE} || true; git checkout x`, SHARED],
+			[`false && cd ${WORKTREE}; git checkout x`, SHARED],
+			[
+				`if test -d ${WORKTREE}; then cd ${WORKTREE}; fi; git checkout x`,
+				SHARED,
+			],
+			[`cd ${WORKTREE} && true & git checkout x`, SHARED],
+			[`cd ${WORKTREE} && git checkout x`, SHARED],
+			[`export GIT_DIR=${SHARED}/.git; git checkout x`, WORKTREE],
+			[`GIT_DIR=${SHARED}/.git git checkout x`, WORKTREE],
+			[`GIT_DIR=${SHARED}/.git; export GIT_DIR; git checkout x`, WORKTREE],
+			[`GIT_DIR=${SHARED}/.git; git checkout x`, WORKTREE],
+			[`eval export GIT_DIR=${SHARED}/.git; git checkout x`, WORKTREE],
+			[`set -a; GIT_DIR=${SHARED}/.git; git checkout x`, WORKTREE],
+		])("%s, from %s", (bare, cwd) => {
+			for (const isDir of [true, false]) {
+				const wrapped = judged(`flock /l -c "${bare}"`, cwd, isDir);
+				expect(wrapped).toEqual(judged(bare, cwd, isDir));
+			}
+		});
+
+		it("judges the shared tree a cd inside the string reaches from a worktree", () => {
+			expect(
+				judged(`flock /l -c "cd ${SHARED}; git checkout x"`, WORKTREE, true)
+					.trees,
+			).toEqual([SHARED]);
+		});
 	});
 
 	it('reads a git -C relative to the tree before it, and a -C "" as no move', () => {

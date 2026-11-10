@@ -128,6 +128,8 @@ describe("a write it refuses", () => {
 		// The GH_REPO a -c string sets, by export or ahead of gh (#4863).
 		'flock /l -c "export GH_REPO=anthropics/claude-code; gh issue create --title x --body y"',
 		'flock /l -c "GH_REPO=anthropics/claude-code gh issue create --title x --body y"',
+		'flock /l -c "export GH_REPO=anthropics/claude-code; export GH_REPO; gh issue create --title x --body y"',
+		'flock /l -c "GH_REPO=anthropics/claude-code; export GH_REPO; gh issue create --title x --body y"',
 		// gh's own -R before the command word, in each spelling (#4268).
 		'gh -R anthropics/claude-code issue create --title "x" --body "y"',
 		'gh --repo=anthropics/claude-code pr create --title "x" --body "y"',

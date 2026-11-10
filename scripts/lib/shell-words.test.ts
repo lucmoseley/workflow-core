@@ -292,6 +292,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 				words: ["npm", "test"],
 				wrapperWords: ["FOO=1"],
 				chdirs: [],
+				unread: [],
 				watched: false,
 			},
 		]);
@@ -339,7 +340,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		["timeout 5 git status", []],
 	])("reads the directory %s moves to", (command, chdirs) => {
 		const stripped = strip(command);
-		expect(stripped.chdirs).toEqual(chdirs);
+		expect(stripped.chdirs.map((c) => c.dir)).toEqual(chdirs);
 		expect(stripped.words[0]).toBe("git");
 	});
 
@@ -348,6 +349,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			words: ["FOO=1", "npm", "test"],
 			wrapperWords: [],
 			chdirs: [],
+			unread: [],
 			watched: false,
 		});
 	});
@@ -357,6 +359,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			words: ["npm", "test"],
 			wrapperWords: ["A=/x/y", "FOO=1"],
 			chdirs: [],
+			unread: [],
 			watched: false,
 		});
 	});
@@ -384,6 +387,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			words: ["npm", "run", "test"],
 			wrapperWords: ["FOO=1"],
 			chdirs: [],
+			unread: [],
 			watched: false,
 		});
 	});
@@ -497,7 +501,7 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 		["sudo --chd /x git status", ["/x"]],
 	])("reads the directory %s's spelling moves to", (command, chdirs) => {
 		const stripped = strip(command);
-		expect(stripped.chdirs).toEqual(chdirs);
+		expect(stripped.chdirs.map((c) => c.dir)).toEqual(chdirs);
 		expect(stripped.words[0]).toBe("git");
 	});
 
@@ -517,6 +521,7 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 			words: ["-C", "/x", "git", "status"],
 			wrapperWords: ["A=1"],
 			chdirs: [],
+			unread: [],
 			watched: false,
 		});
 	});
@@ -608,7 +613,8 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(later).toEqual({
 			words: ["git", "push"],
 			wrapperWords: ["A=1"],
-			chdirs: ["/d"],
+			chdirs: [{ dir: "/d", holds: "always" }],
+			unread: [],
 			watched: false,
 		});
 	});
@@ -631,14 +637,17 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(watched).toEqual([true, true]);
 	});
 
-	/** Each run's words read through literal, its env and cd's after a `|`. */
+	/** Each run's words, env and directories read through literal, `|` apart,
+	 * each directory with how it holds. */
 	const read = (command: string) =>
 		one(command, (c, spans) =>
 			unwrap(c.words, spans).map((r) =>
 				[
 					bracket(r.words, spans),
 					bracket(r.wrapperWords, spans),
-					bracket(r.chdirs, spans),
+					r.chdirs
+						.map((d) => `[${literal(d.dir, spans).text} ${d.holds}]`)
+						.join(""),
 				].join("|"),
 			),
 		);
@@ -678,18 +687,54 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 			read(`flock /l -c "cd /s; git a; (cd /t; git b); cd /u | true; git c"`),
 		).toEqual([
 			"[cd][/s]||",
-			"[git][a]||[/s]",
-			"[cd][/t]||[/s]",
-			"[git][b]||[/s][/t]",
-			"[cd][/u]||[/s]",
-			"[true]||[/s]",
-			"[git][c]||[/s]",
+			"[git][a]||[/s if-dir]",
+			"[cd][/t]||[/s if-dir]",
+			"[git][b]||[/s if-dir][/t if-dir]",
+			"[cd][/u]||[/s if-dir]",
+			"[true]||[/s if-dir]",
+			"[git][c]||[/s if-dir]",
 		]);
 	});
 
 	it("reads a cd whose target no word gives as unresolved (#4863)", () => {
-		expect(read(`flock /l -c "cd -; git a"`).at(1)).toBe("[git][a]||[$(cd -)]");
+		expect(read(`flock /l -c "cd -; git a"`).at(1)).toBe(
+			"[git][a]||[$(cd -) if-dir]",
+		);
 	});
+
+	it("holds a cd as stepCwd does: sure for its && chain, else maybe (#4863)", () => {
+		expect(read(`flock /l -c "cd /a && git x; git y"`).slice(1)).toEqual([
+			"[git][x]||[/a always]",
+			"[git][y]||[/a if-dir]",
+		]);
+		expect(read(`flock /l -c "true && cd /a; git x"`).at(-1)).toBe(
+			"[git][x]||[/a maybe]",
+		);
+		expect(read(`flock /l -c "if true; then cd /a; fi; git x"`).at(-1)).toBe(
+			"[git][x]||[/a maybe]",
+		);
+	});
+
+	it("exports a name alone with the value the script gave it (#4863)", () => {
+		expect(
+			read(`flock /l -c "export A=1; export A; gh a; B=2; export B; gh b"`),
+		).toContain("[gh][b]|[A=1][B=2]|");
+		expect(read(`flock /l -c "export A=1; A=3; gh a"`).at(-1)).toBe(
+			"[gh][a]|[A=3]|",
+		);
+	});
+
+	it.each([
+		[`flock /l -c "GIT_DIR=/x; git a"`, "an assignment alone"],
+		[`flock /l -c "eval export GIT_DIR=/x; git a"`, "eval"],
+		[`flock /l -c "export GIT_DIR=/y; set -a; GIT_DIR=/x; git a"`, "set -a"],
+	])(
+		"marks a repo variable %s moves unread for the runs after it (#4863)",
+		(command) => {
+			const unread = one(command, (c, spans) => unwrap(c.words, spans).at(-1));
+			expect(unread?.unread).toEqual(["GIT_DIR"]);
+		},
+	);
 
 	it("reads each export and unset in order (#4863)", () => {
 		expect(
@@ -697,12 +742,12 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 				`env -C /d flock /l -c "export A=1 B=2; gh a; unset A; gh b; export -n B; gh c"`,
 			),
 		).toEqual([
-			"[export][A=1][B=2]||[/d]",
-			"[gh][a]|[A=1][B=2]|[/d]",
-			"[unset][A]|[A=1][B=2]|[/d]",
-			"[gh][b]|[B=2]|[/d]",
-			"[export][-n][B]|[B=2]|[/d]",
-			"[gh][c]||[/d]",
+			"[export][A=1][B=2]||[/d always]",
+			"[gh][a]|[A=1][B=2]|[/d always]",
+			"[unset][A]|[A=1][B=2]|[/d always]",
+			"[gh][b]|[B=2]|[/d always]",
+			"[export][-n][B]|[B=2]|[/d always]",
+			"[gh][c]||[/d always]",
 		]);
 	});
 
