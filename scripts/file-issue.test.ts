@@ -1562,7 +1562,7 @@ describe("the filing declarations (#4796)", () => {
 		expect(Number.isNaN(Date.parse(line.filedAt))).toBe(false);
 	});
 
-	it("files a call-reading regex against the tool_use record that is its case, logging reads", () => {
+	it("files a call-reading regex against the tool_use record that is its case, logging reads and its tool", () => {
 		setUp();
 		seatTranscript();
 		const callSig = {
@@ -1571,6 +1571,7 @@ describe("the filing declarations (#4796)", () => {
 				pattern: "push --force",
 				scope: "main",
 				reads: "call",
+				tool: "Bash",
 			},
 			prediction: "no force pushes to main",
 			case: { session: Session, line: 3 },
@@ -1580,6 +1581,30 @@ describe("the filing declarations (#4796)", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(readLog()[0].signature).toEqual(callSig.signature);
+	});
+
+	it("refuses a call-reading regex naming another tool than its case's call", () => {
+		setUp();
+		seatTranscript();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile({
+					signature: {
+						kind: "regex",
+						pattern: "push --force",
+						scope: "main",
+						reads: "call",
+						tool: "Edit",
+					},
+					prediction: "no force pushes to main",
+					case: { session: Session, line: 3 },
+				}),
+			]),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("does not match its case");
+		expect(readCreates()).toEqual([]);
 	});
 
 	it("refuses an output-reading regex whose case is the tool call, naming where the case belongs", () => {

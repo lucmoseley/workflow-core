@@ -512,13 +512,23 @@ function* callStrings(record, tool) {
 }
 
 /**
- * What a regex signature reads: where a fault surfaces, or the calls made.
- * @typedef {"output" | "call"} Reads
- * @typedef {{reads?: Reads, tool?: string}} Read  `tool`: for `call`, the one
- *   tool whose calls it reads
+ * What a regex signature reads, each kind's strings: where a fault surfaces,
+ * or the calls made, those of `tool` alone where one is named.
+ * @type {Record<"output" | "call", (record: TranscriptRecord, tool?: string) => Iterable<string>>}
  */
-/** Every `Reads` kind, for a reader that checks a signature's own. */
-const READ_KINDS = /** @type {const} */ (["output", "call"]);
+const READERS = {
+	output: (record) => outputStrings(record),
+	call: callStrings,
+};
+
+/** Every read kind, for a reader that checks a signature's own. */
+const READ_KINDS = /** @type {Reads[]} */ (Object.keys(READERS));
+
+/**
+ * @typedef {keyof typeof READERS} Reads
+ * @typedef {{reads?: Reads, tool?: string}} ReadSpec  `tool`: for `call`, the
+ *   one tool whose calls it reads
+ */
 
 /**
  * A copy of `pattern` that keeps no `lastIndex`: without `g` or `y`, `test`
@@ -531,13 +541,10 @@ const stateless = (pattern) =>
 /**
  * @param {TranscriptRecord} record
  * @param {RegExp} re  a `stateless` copy
- * @param {Reads} reads
- * @param {string} [tool]  for `call`, the one tool whose calls it reads
+ * @param {ReadSpec} spec
  */
-function stringsMatch(record, re, reads, tool) {
-	const strings =
-		reads === "call" ? callStrings(record, tool) : outputStrings(record);
-	for (const s of strings) if (re.test(s)) return true;
+function stringsMatch(record, re, { reads = "output", tool } = {}) {
+	for (const s of READERS[reads](record, tool)) if (re.test(s)) return true;
 	return false;
 }
 
@@ -548,11 +555,11 @@ function stringsMatch(record, re, reads, tool) {
  * against the text a session saw or typed rather than against JSON escapes.
  * @param {TranscriptRecord} record
  * @param {RegExp} pattern
- * @param {Read} [how]
+ * @param {ReadSpec} [spec]
  * @returns {boolean}
  */
-function recordMatches(record, pattern, { reads = "output", tool } = {}) {
-	return stringsMatch(record, stateless(pattern), reads, tool);
+function recordMatches(record, pattern, spec = {}) {
+	return stringsMatch(record, stateless(pattern), spec);
 }
 
 /**
@@ -560,29 +567,24 @@ function recordMatches(record, pattern, { reads = "output", tool } = {}) {
  * `pattern`, one per record — the regex route beside `transcriptMentions`,
  * for a fault no guard prints (#4796). Same parsing and the same `tier` as
  * `transcriptFires`, so a main-tier read never counts a subagent's inline
- * turn. A hook's block reaches the transcript twice, as its attachment and
- * then as the Stop hook feedback `user` record the harness writes from it, so
- * a feedback record straight after a matching attachment is the same firing
- * and is not counted again.
+ * turn. A hook's block reaches the transcript twice, as the Stop hook feedback
+ * `user` record the harness writes and then the hook attachment it wrote it
+ * from, so an attachment straight after a matching feedback record is the
+ * same firing and is not counted again.
  * @param {string} text
  * @param {RegExp} pattern
  * @param {"main" | "subagent"} tier
- * @param {Read} [how]
+ * @param {ReadSpec} [spec]
  * @returns {Array<{at: string|null}>}
  */
-function transcriptMatches(
-	text,
-	pattern,
-	tier,
-	{ reads = "output", tool } = {},
-) {
+function transcriptMatches(text, pattern, tier, spec = {}) {
 	const re = stateless(pattern);
 	const out = [];
-	let hookHit = false;
+	let feedbackHit = false;
 	for (const record of mainChainRecords(text, tier)) {
-		const hit = stringsMatch(record, re, reads, tool);
-		const echo = hookHit && record?.type === "user" && record.isMeta === true;
-		hookHit = hit && hookSpans(record).length > 0;
+		const hit = stringsMatch(record, re, spec);
+		const echo = feedbackHit && hookSpans(record).length > 0;
+		feedbackHit = hit && record?.type === "user" && record.isMeta === true;
 		if (hit && !echo)
 			out.push({
 				at: typeof record.timestamp === "string" ? record.timestamp : null,
