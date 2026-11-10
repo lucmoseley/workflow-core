@@ -217,7 +217,7 @@ function ports(at) {
 			carryJobFiles({
 				text: job.intent,
 				jobDir: job.jobDir,
-				jobId: job.short,
+				jobId: job.jobId,
 				checkout: dir,
 			}).text,
 		launch: (job, intent, dir) =>

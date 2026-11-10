@@ -140,6 +140,11 @@ export const ANSWERS = {
 					from: `/home/u/.claude3/jobs/${JOB}/tmp/pasted-1.png`,
 					to: `/home/u/repo/.claude/tmp/attachments/${JOB}/tmp/pasted-1.png`,
 				},
+				/* Pasted in a later turn, named in the transcript alone. */
+				{
+					from: `/home/u/.claude3/jobs/${JOB}/tmp/pasted-2.png`,
+					to: `/home/u/repo/.claude/tmp/attachments/${JOB}/tmp/pasted-2.png`,
+				},
 			],
 		},
 		uncopyable: {

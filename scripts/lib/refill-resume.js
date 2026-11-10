@@ -463,11 +463,16 @@ function resumeSteps(io) {
 	) {
 		const l = { ...session, issues: session.issues ?? [] };
 		/* The job's directory goes with its record, on a copy or a move, so its
-		 * files are carried and the resumed turn told where (#4750). */
+		 * files are carried and the resumed turn told where (#4750). A wake in
+		 * place removes nothing, so a file that will not carry only goes
+		 * unnoted. */
 		const carry =
 			carried ?? io.carryJobFiles(l.seat, shortJobId(sessionId), cwd);
-		if ("why" in carry) return { failed: carry.why };
-		const note = buildCarriedNote(carry.carried);
+		if ("why" in carry)
+			log(
+				`${sessionId}'s job files not carried before its resume: ${carry.why}`,
+			);
+		const note = "why" in carry ? "" : buildCarriedNote(carry.carried);
 		const told = note ? `${prompt}\n\n${note}` : prompt;
 		if (l.keyVar)
 			return resumeHeadless({ ...l, keyVar: l.keyVar }, told, {

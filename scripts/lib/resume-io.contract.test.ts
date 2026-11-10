@@ -407,10 +407,21 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 	carryJobFiles: {
 		none: () => io().carryJobFiles(seat, JOB, root),
 		carried: () => {
-			const file = path.join(jobDirPath(seat, JOB), "tmp", "pasted-1.png");
-			fs.mkdirSync(path.dirname(file), { recursive: true });
-			fs.writeFileSync(file, "png");
-			writeJobRecord(JOB, { sessionId: SESSION, intent: `look at ${file}` });
+			const pasted = (name: string) => {
+				const file = path.join(jobDirPath(seat, JOB), "tmp", name);
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+				fs.writeFileSync(file, "png");
+				return file;
+			};
+			const first = pasted("pasted-1.png");
+			const later = pasted("pasted-2.png");
+			writeJobRecord(JOB, {
+				sessionId: SESSION,
+				cwd: root,
+				intent: `look at ${first}`,
+			});
+			const turn = { type: "user", message: { content: `and ${later}` } };
+			fs.writeFileSync(writeTranscript(seat), `${JSON.stringify(turn)}\n`);
 			return io().carryJobFiles(seat, JOB, root);
 		},
 		uncopyable: () => {

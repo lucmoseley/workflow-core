@@ -4,7 +4,9 @@
  * The harness saves a pasted image there (`<seat>/jobs/<id>/tmp/pasted-<hex>.png`,
  * older `<seat>/jobs/<id>/pasted-N.png`) and names it in the prompt, so every
  * route that removes a job carries them first: the main-checkout job guard's
- * relaunch and the refill loop's removal of a job record.
+ * relaunch and the refill loop's removal of a job record. A file pasted in a
+ * later turn is named in the transcript's user turns instead
+ * (readUserTurnsNaming).
  *
  * Each copy lands in its checkout's ignored `.claude/tmp/attachments/<job>/`,
  * at its path below the job directory. The directory matches as given or
@@ -22,27 +24,26 @@ const { caught } = require("./caught.js");
 const { escapeRe } = require("./regex-group.js");
 const { relativeUnder } = require("./is-under.js");
 const { trimEndRun } = require("./trim-run.js");
+const { parseJsonlRow } = require("./jsonl.js");
+const { readWholeLines } = require("./session-transcript.js");
 
 /**
- * Where job `jobId`'s carried files land in checkout `checkout`.
- * @param {string} checkout
- * @param {string} jobId
+ * `p` resolved; null where it, or a directory on its way, does not exist.
+ * @param {string} p
  */
-const attachmentsDir = (checkout, jobId) =>
-	path.join(checkout, ".claude", "tmp", "attachments", jobId);
-
-/** @param {string} p */
 function realOrNull(p) {
 	try {
 		return fs.realpathSync(p);
-	} catch {
-		return null;
+	} catch (err) {
+		const { code } = /** @type {NodeJS.ErrnoException} */ (err);
+		if (code === "ENOENT" || code === "ENOTDIR") return null;
+		throw err;
 	}
 }
 
 /**
  * `text` with each file it names under `jobDir` copied to
- * `attachmentsDir(checkout, jobId)` and named there instead, and what was
+ * `<checkout>/.claude/tmp/attachments/<jobId>/` and named there instead, and what was
  * carried; throws naming a file it cannot copy.
  * @param {{text: string, jobDir: string, jobId: string, checkout: string}} job
  * @returns {{text: string, carried: {from: string, to: string}[]}}
@@ -54,7 +55,7 @@ function carryJobFiles({ text, jobDir, jobId, checkout }) {
 	];
 	const unders = spellings.map((d) => `(${escapeRe(`${d}${path.sep}`)})`);
 	const named = new RegExp(`(?:${unders.join("|")})[^\\s'"\`<>|]+`, "g");
-	const into = attachmentsDir(checkout, jobId);
+	const into = path.join(checkout, ".claude", "tmp", "attachments", jobId);
 	/** @type {{from: string, to: string}[]} */
 	const carried = [];
 	const out = text.replace(named, (token, ...groups) => {
@@ -62,9 +63,10 @@ function carryJobFiles({ text, jobDir, jobId, checkout }) {
 			spellings[groups.findIndex((g) => typeof g === "string")],
 		);
 		for (const from of [token, trimEndRun(token, ".,;:)]")]) {
-			const to = carryOne(from, { under, real, into, checkout });
-			if (to === undefined) continue;
-			if (to === null) return token;
+			const one = carryOne(from, { under, real, into, checkout });
+			if (one.kind === "absent") continue;
+			if (one.kind === "left") return token;
+			const { to } = one;
 			if (!carried.some((c) => c.from === from)) carried.push({ from, to });
 			return `${to}${token.slice(from.length)}`;
 		}
@@ -74,22 +76,24 @@ function carryJobFiles({ text, jobDir, jobId, checkout }) {
 }
 
 /**
- * Where `from`, named under job directory spelling `under`, is carried to:
- * its copy's path; null where removal cannot delete it; undefined where
- * neither it nor its copy exists.
+ * `from`, named under job directory spelling `under`: `carried` to `to`;
+ * `left` where removal cannot delete it; `absent` where neither it nor its
+ * copy exists.
  * @param {string} from
  * @param {{under: string, real: string|null, into: string, checkout: string}} at
- * @returns {string|null|undefined}
+ * @returns {{kind: "carried", to: string} | {kind: "left"} | {kind: "absent"}}
  */
 function carryOne(from, { under, real, into, checkout }) {
 	const rel = relativeUnder(under, path.resolve(from));
-	if (!rel) return null;
+	if (!rel) return { kind: "left" };
 	const to = path.join(into, rel);
-	if (!fs.existsSync(from)) return fs.existsSync(to) ? to : undefined;
+	if (!fs.existsSync(from))
+		return fs.existsSync(to) ? { kind: "carried", to } : { kind: "absent" };
 	const resolved = realOrNull(from);
-	if (!real || !resolved || !relativeUnder(real, resolved)) return null;
+	if (!real || !resolved || !relativeUnder(real, resolved))
+		return { kind: "left" };
 	copyOut(from, to, checkout);
-	return to;
+	return { kind: "carried", to };
 }
 
 /**
@@ -123,4 +127,53 @@ const buildCarriedNote = (carried) =>
 		? ""
 		: `Files an earlier prompt named in this job's directory, which removing the job deletes, were copied out: ${carried.map((c) => `${c.from} is now ${c.to}`).join("; ")}.`;
 
-module.exports = { attachmentsDir, buildCarriedNote, carryJobFiles };
+/**
+ * The text of each user turn in transcript `file` that names job `jobId`'s
+ * directory, a turn's own words and no tool result; empty where the
+ * transcript is gone.
+ * @param {string} file
+ * @param {string} jobId
+ */
+function readUserTurnsNaming(file, jobId) {
+	let fd;
+	try {
+		fd = fs.openSync(file, "r");
+	} catch (err) {
+		if (/** @type {NodeJS.ErrnoException} */ (err).code === "ENOENT") return "";
+		throw err;
+	}
+	const needle = `${path.sep}jobs${path.sep}${jobId}${path.sep}`;
+	/** @type {string[]} */
+	const said = [];
+	try {
+		for (const chunk of readWholeLines(fd))
+			for (const line of chunk.toString("utf8").split("\n"))
+				if (line.includes(needle)) said.push(...userWords(line));
+	} finally {
+		fs.closeSync(fd);
+	}
+	return said.join("\n");
+}
+
+/**
+ * A transcript line's user words: its string content, else its text blocks.
+ * @param {string} line
+ * @returns {string[]}
+ */
+function userWords(line) {
+	const row = /** @type {Record<string, any> | null | undefined} */ (
+		parseJsonlRow(line)
+	);
+	if (row?.type !== "user" || row.isMeta === true) return [];
+	const content = row.message?.content;
+	if (typeof content === "string") return [content];
+	if (!Array.isArray(content)) return [];
+	return content
+		.filter(
+			(/** @type {any} */ b) =>
+				b?.type === "text" && typeof b.text === "string",
+		)
+		.map((/** @type {{text: string}} */ b) => b.text);
+}
+
+module.exports = { buildCarriedNote, carryJobFiles, readUserTurnsNaming };

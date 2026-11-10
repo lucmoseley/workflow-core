@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { FAKE_COPY } from "./bg-resume-fake";
+import { buildCarriedNote } from "./carry-job-files.js";
 import { MODEL } from "./refill-decide.js";
 import { resumeSteps } from "./refill-resume.js";
 import {
@@ -517,7 +518,7 @@ describe("a job's named files carried before its record is removed (#4750)", () 
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS).failed).toBeNull();
 		const [resume, rm] = argvs(callsTo("runClaude"));
 		expect(told(resume)).toBe(
-			`${PROMPT}\n\nFiles an earlier prompt named in this job's directory, which removing the job deletes, were copied out: ${Carried?.from} is now ${Carried?.to}.`,
+			`${PROMPT}\n\n${buildCarriedNote(ANSWERS.carryJobFiles.carried.carried)}`,
 		);
 		expect(rm).toEqual(["rm", JOB]);
 		expect(callsTo("carryJobFiles")).toEqual([
@@ -526,10 +527,17 @@ describe("a job's named files carried before its record is removed (#4750)", () 
 		]);
 	});
 
-	it("resumes nothing where a file will not carry", () => {
-		const { steps, callsTo } = fakeIo({ carryJobFiles: "uncopyable" });
-		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({ failed: Why });
-		expect(callsTo("runClaude")).toEqual([]);
+	it("still wakes a job in place whose files will not carry, unnoted and logged, since a wake removes nothing", () => {
+		const { steps, callsTo, lines } = fakeIo({
+			carryJobFiles: "uncopyable",
+			runClaude: "woke",
+			readJobRecord: "working",
+		});
+		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS).failed).toBeNull();
+		expect(told(argvs(callsTo("runClaude"))[0])).toBe(PROMPT);
+		expect(lines).toContain(
+			`${SESSION}'s job files not carried before its resume: ${Why}`,
+		);
 	});
 
 	it("never removes a record whose job's files will not carry", () => {
@@ -580,5 +588,14 @@ describe("a job's named files carried before its record is removed (#4750)", () 
 		expect(told(argvs(callsTo("runClaude")).at(-1))).toContain(
 			`${Carried?.from} is now ${Carried?.to}`,
 		);
+	});
+
+	it("tells a session moved onto a key, resumed headless, where its job's files went", () => {
+		const { steps, callsTo } = fakeIo({ carryJobFiles: "carried" });
+		const job = { ...LAUNCH, jobId: JOB, prompt: "/implement 7" } as never;
+		const keyTarget = { seat: TARGET, keyVar: KEY_VAR, allowanceUsd: 40 };
+		steps.moveSession(job, keyTarget as never, PROMPT, IDS);
+		const [[headless]] = callsTo("launchHeadless") as [[{ prompt: string }]];
+		expect(headless.prompt).toContain(`${Carried?.from} is now ${Carried?.to}`);
 	});
 });
