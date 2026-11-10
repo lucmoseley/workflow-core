@@ -214,7 +214,11 @@ describe("what it reports", () => {
 	 * widening would call every live holder stranded. */
 	it("still says nothing about a listed holder the oracle calls working", () => {
 		claim("docs/doc-map.md", "busy-session", 300);
-		fakeClaude(agentsListing("busy-session"));
+		fakeClaude([
+			buildListedRow({ pid: 100, id: "busy-ses", sessionId: "busy-session" }, [
+				"status",
+			]),
+		]);
 
 		expect(report(run())).not.toContain("STRANDED-CLAIM");
 	});

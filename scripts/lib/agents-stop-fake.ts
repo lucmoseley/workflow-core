@@ -94,14 +94,14 @@ export const buildPermissionRow = (id: string): Row =>
 	});
 
 /**
- * One `agents --json` answer: the rows printed; a failure, exit 1 where null;
- * text no harness prints; a hang; or a hang that first starts two children,
+ * One `agents --json` answer: the rows printed; a failure, exit 1 where null,
+ * after printing `rows` where given; text no harness prints; a hang; or a hang that first starts two children,
  * appending each pid to the file named.
  */
 export type AgentsAnswer =
 	| Row[]
 	| null
-	| { exit: number }
+	| { exit: number; rows?: Row[] }
 	| { malformed: string }
 	| "hang"
 	| { hangsWithChildren: string };
@@ -116,7 +116,10 @@ const buildListingAnswer = (answer: AgentsAnswer): string => {
 	if (answer === "hang") return `exec sleep ${HANG_S}`;
 	if (Array.isArray(answer))
 		return `printf '%s' ${shellQuote(JSON.stringify(answer))}; exit 0`;
-	if ("exit" in answer) return `exit ${answer.exit}`;
+	if ("exit" in answer)
+		return answer.rows
+			? `printf '%s' ${shellQuote(JSON.stringify(answer.rows))}; exit ${answer.exit}`
+			: `exit ${answer.exit}`;
 	if ("malformed" in answer)
 		return `printf '%s' ${shellQuote(answer.malformed)}; exit 0`;
 	const log = shellQuote(answer.hangsWithChildren);

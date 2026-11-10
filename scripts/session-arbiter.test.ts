@@ -707,19 +707,18 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 	const calls = () => path.join(sb.dir, "claude-calls");
 
+	const rowsOf = (agents: [string, string?][]) =>
+		agents.map(([sessionId, name]) =>
+			name
+				? buildListedRow({ sessionId, name })
+				: buildUnrecordedRow({ sessionId }),
+		);
 	/** A `claude` stand-in listing `[sessionId, name]` pairs, recording each call. */
 	const fakeClaude = (agents: [string, string?][]) =>
-		writeOracle(
-			claudeBin(),
-			agents.map(([sessionId, name]) =>
-				name
-					? buildListedRow({ sessionId, name })
-					: buildUnrecordedRow({ sessionId }),
-			),
-			calls(),
-		);
-	/** A `claude` stand-in whose listing fails. */
-	const failClaude = () => writeOracle(claudeBin(), { exit: 3 }, calls());
+		writeOracle(claudeBin(), rowsOf(agents), calls());
+	/** One that lists them and then fails. */
+	const failClaude = (agents: [string, string?][] = []) =>
+		writeOracle(claudeBin(), { exit: 3, rows: rowsOf(agents) }, calls());
 
 	const oracleCalls = () =>
 		fs.existsSync(calls())
@@ -804,7 +803,7 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	});
 
 	it("falls back to the bare id when neither the oracle nor the registry names it", () => {
-		failClaude();
+		failClaude([["alice", "Wayfinder 1162"]]);
 		const r = runAs(["claim", inRepo(rel)], "bob");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("alice");
@@ -2582,6 +2581,7 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 	 * (mantahostels#704), so the sweep needs a stand-in for it.
 	 */
 	const pruneBin = () => path.join(sb.dir, "prunebin", "claude");
+	/** The sweeper's env over a `claude` listing `ids`, or failing where null. */
 	const fakePrune = (ids: string[] | null) => {
 		writeOracle(
 			pruneBin(),
@@ -4503,17 +4503,16 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 	 */
 	describe("HOLDER-ENDED and DEADLOCK (#542)", () => {
 		const calls = () => path.join(sb.dir, "oracle-calls");
-		/** The oracle listing alice in `aliceState` and `others` working, or
-		 * failing where it is null. */
-		const oracleSays = (aliceState: string | null, others = ["bob"]) => {
+		/** The oracle listing alice in `aliceState` and `others` working, then
+		 * exiting `exit`. */
+		const oracleSays = (aliceState: string, others = ["bob"], exit = 0) => {
+			const rows = [
+				buildListedRow({ sessionId: "alice", state: aliceState }),
+				...others.map((sessionId) => buildListedRow({ sessionId })),
+			];
 			const bin = writeOracle(
 				path.join(sb.dir, "claude-542"),
-				aliceState === null
-					? { exit: 3 }
-					: [
-							buildListedRow({ sessionId: "alice", state: aliceState }),
-							...others.map((sessionId) => buildListedRow({ sessionId })),
-						],
+				exit ? { exit, rows } : rows,
 				calls(),
 			);
 			return { WFC_CLAUDE_BIN: bin, WFC_ORACLE_CACHE: "0" };
@@ -4535,7 +4534,8 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 
 		it("waits on to CEILING, never HOLDER-ENDED, where the oracle refuses — and says so", async () => {
 			aliceHolds();
-			const r = await waitAs("bob", ["540", "0.5"], oracleSays(null)).done;
+			const r = await waitAs("bob", ["540", "0.5"], oracleSays("done", [], 3))
+				.done;
 			expect(r.stdout).toMatch(/^CEILING {2}issue #540/);
 			expect(r.stdout).toContain("Whether its session has ended is UNKNOWN");
 			expect(r.status).toBe(5);
