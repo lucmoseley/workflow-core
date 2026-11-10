@@ -77,3 +77,18 @@ describe("a latch's path (mantahostels#2411)", () => {
 		expect(agentKey({ tool_name: "Bash" })).toBeNull();
 	});
 });
+
+describe("the walk's fallback directory (#4695)", () => {
+	const log = () => undefined;
+	const ctx = (cwd: unknown) =>
+		kitContext({ root: dir, payload: { cwd }, log }, sharedReaders(dir, log));
+
+	it("is the payload's absolute cwd, not the hook's own directory", () => {
+		expect(ctx(dir).fallbackCwd).toBe(dir);
+	});
+
+	it("is the hook's own directory where the payload's cwd is not absolute", () => {
+		expect(ctx("rel").fallbackCwd).toBe(process.cwd());
+		expect(ctx(undefined).fallbackCwd).toBe(process.cwd());
+	});
+});

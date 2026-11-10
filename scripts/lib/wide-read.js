@@ -51,8 +51,8 @@
  *  - It reads the PARSED command form for everything else, so a `cat`
  *    mentioned in an echo, a grep pattern or a heredoc body is not a read
  *    (lib/shell-parse.js).
- *  - Relative paths resolve against the hook's own directory, so a `cd
- *    elsewhere && cat big` resolves to nothing and passes unwarned. The file
+ *  - Relative paths resolve against the session's directory, with no `cd`
+ *    tracked, so a `cd elsewhere && cat big` resolves to nothing and passes unwarned. The file
  *    must EXIST to be measured, which is what makes that failure silent rather
  *    than a false warning.
  *  - `sed` is judged on its LINE span, never on the bytes those lines hold, so
