@@ -144,7 +144,10 @@ function startWatcher(unit, leader, startTicks) {
 		"--quiet",
 		"--collect",
 		"--expand-environment=no",
-		/* The manager's default of 200 made this 1 MiB `sh` earlyoom's first kill (#4848). */
+		/* 0, the session process's own value, so earlyoom ranks this 1 MiB `sh`
+		 * by its size, near last; the manager's default of 200 made it the first
+		 * kill (#4848). Residual: a watcher killed anyway leaves its scope to the
+		 * orphan sweep (#4342) and logs no `peaked at` line. */
 		"--property=OOMScoreAdjust=0",
 		`--unit=${watcherOf(unit)}`,
 		`--description=Kill ${unit} once session ${String(leader)} ends`,
