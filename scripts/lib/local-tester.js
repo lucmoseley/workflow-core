@@ -919,7 +919,8 @@ function watchMemoryShut(admit) {
 }
 
 /**
- * The queue lander's tester.
+ * The queue lander's tester. It judges every sha in its own worktree, so it
+ * reads no placement and pushes nothing.
  * @param {LocalTesterOptions} options
  * @returns {QueueTester}
  */
@@ -933,7 +934,7 @@ function localTester({
 }) {
 	const dir = path.join(root, LANDER_WORKTREE);
 	return {
-		async verdict(sha, files = []) {
+		async verdict(_place, sha, files = []) {
 			/** @type {Checkout} */
 			const checkout = { root, dir, sha, exec };
 			const groups = checkedOutRuns(checkout, pytest, files, timings);
@@ -968,13 +969,13 @@ function localTester({
 
 /**
  * The tester `--tester <command>` names, run in `root`, the whole suite or
- * only the files where they are given.
+ * only the files where they are given, wherever the ask places them.
  * @param {string} command
  * @param {string} root
  * @returns {import("./queue-lander.js").QueueTester}
  */
 const commandTester = (command, root) => ({
-	verdict: (sha, files = []) =>
+	verdict: (_place, sha, files = []) =>
 		new Promise((resolve) => {
 			const child = spawn(
 				"sh",

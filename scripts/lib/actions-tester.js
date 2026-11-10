@@ -21,21 +21,27 @@
  * Residual: where GitHub keeps failing to create jobs, the lander exits on
  * that no verdict, never dropping a member.
  *
- * `queueTester`'s whole suite is the push run at the sha, read as above, on
- * the `lander/iso-suite-<k>` ref holding it, else on the `lander/batch-<k>`
- * one. Asked again, a failed run has its failed jobs rerun; any other run at
+ * `queueTester` is asked at a placement: a batch slot, judged on its
+ * `lander/batch-<k>` ref, or a run alone, member `k`'s or `main`'s base
+ * check, on `lander/iso-suite-<k>` for the whole suite (#4910). Its whole
+ * suite is the push run at the sha, read as above, on the placement's ref,
+ * which the tester force-pushes to the sha first: a ref already there is
+ * left as it is, so a restart's ask fires no second run (#4573). `start`
+ * pushes it the same way ahead of the ask, as a batch's gate pass runs.
+ * Asked again, a failed run has its failed jobs rerun; any other run at
  * the sha, or a failed one whose rerun GitHub refuses (#4822), is never
  * read, its ref deleted and created again so a run starts after the ask
  * (#4524). Where none at the sha is listed, as when its ref was pushed
  * while Actions fired nothing, the ref is pushed again once before the
- * tree is read as firing none (#4572). Named files at a sha a
- * `lander/iso-*` ref holds, an isolation commit or `main` pushed for its base
- * check, are run alone by named-rerun.yml. At any other sha a
- * `lander/batch-<k>` run covers they are read off that run, a failed one
- * rerunning its failed jobs; elsewhere they go to named-rerun.yml too, under
- * its daily cap. Its `cancel` cancels every unfinished run on a batch ref
- * but the one at the sha the lander is about to test, naming every sha the
- * ref lists a run at (#4556, #4576).
+ * tree is read as firing none (#4572). Named files asked alone are run by
+ * named-rerun.yml, which takes the sha itself, so no ref is pushed for them.
+ * Asked at a batch slot, they are read off its ref's run at the sha, a
+ * failed one rerunning its failed jobs; where it lists none they go to
+ * named-rerun.yml too, under its daily cap. Its `cancel` cancels every
+ * unfinished run on the placement's ref but the one at the sha the lander
+ * is about to test, naming every sha the ref lists a run at (#4556, #4576).
+ * Its runs repeat the gates a batch's own gate pass leaves out
+ * (`repeatsGates`).
  */
 
 const { execFileSync } = require("node:child_process");
@@ -45,7 +51,7 @@ const { SHORT_SHA, gitBinary, gitSpawnOptions } = require("./git.js");
 const {
 	createRemoteRef,
 	deleteRemoteRef,
-	readRemoteHeads,
+	pushRemote,
 } = require("./lander-git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
@@ -55,11 +61,9 @@ const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
 const { CLEARED, STILL_FAILING } = require("../retry-failed-files.js");
 const {
-	LANDER_BATCH_PREFIX,
-	LANDER_ISO_PREFIX,
-	LANDER_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	VERIFIED_BRANCH,
+	batchBranch,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
@@ -67,6 +71,7 @@ const { writeFd } = require("./write-fd.js");
 
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
+/** @typedef {import("./queue-lander.js").Placement} Placement */
 
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
@@ -142,11 +147,11 @@ const RUNNER_RERUNS = 2;
  * }} NamedReads
  * @typedef {Omit<Reads, "runs"> & Pick<NamedReads, "namedRuns" | "dispatch">
  *   & {
- *   landerRefs: () => {branch: string, sha: string}[],
+ *   push: (branch: string, sha: string) => void,
  *   runsOn: (branch: string) => Run[],
  *   cancel: (run: number) => void,
- * }} QueueReads `landerRefs` the remote's `lander/*` refs and their heads;
- *   `runsOn` the push runs on `branch`
+ * }} QueueReads `push` force-pushes `sha` to the remote's `branch`, a no-op
+ *   where it is there already; `runsOn` the push runs on `branch`
  */
 
 /**
@@ -737,15 +742,9 @@ async function namedVerdict(
  */
 const liveQueueReads = (root) => ({
 	...liveNamedReads(root),
-	/* Through lib/lander-git.js's bounded ls-remote, so a hung remote fails
-	 * the read rather than the tester (#4856). */
-	landerRefs: () =>
-		[...readRemoteHeads(root, [`refs/heads/${LANDER_PREFIX}*`], () => [])].map(
-			([ref, sha]) => ({
-				branch: ref.replace(/^refs\/heads\//, ""),
-				sha,
-			}),
-		),
+	push: (branch, sha) => {
+		pushRemote(root, ["--force", `${sha}:refs/heads/${branch}`]);
+	},
 	runsOn: (branch) => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
 	cancel: (run) => {
 		gh(["run", "cancel", String(run)]);
@@ -780,28 +779,21 @@ function queueTester({
 	return {
 		requiresRun: true,
 		parallel: true,
-		async verdict(sha, files = [], again = false) {
-			/** @type {string[]} */
-			let held;
-			try {
-				held = heldBy(reads, sha);
-			} catch (err) {
-				return {
-					kind: "unknown",
-					reason: `${LANDER_PREFIX}* refs unread: ${parseErrorText(err)}`,
-					transient: true,
-				};
-			}
-			if (files.length > 0 && held.some((b) => b.startsWith(LANDER_ISO_PREFIX)))
+		repeatsGates: true,
+		start(place, sha) {
+			reads.push(suiteRef(place), sha);
+		},
+		async verdict(place, sha, files = [], again = false) {
+			if (files.length > 0 && place.kind === "iso")
 				return namedVerdict(named, sha, files, true);
-			const branch = suiteBranch(held, files);
-			if (branch === undefined)
-				return files.length > 0
-					? namedVerdict(named, sha, files, false)
-					: {
-							kind: "unknown",
-							reason: `no ${LANDER_BATCH_PREFIX}* or ${LANDER_ISO_SUITE_PREFIX}* ref holds ${sha.slice(0, SHORT_SHA)}`,
-						};
+			const branch = suiteRef(place);
+			if (files.length === 0) {
+				try {
+					reads.push(branch, sha);
+				} catch (err) {
+					return unpushed(branch, sha, err);
+				}
+			}
 			const on = {
 				...poll,
 				branch,
@@ -816,8 +808,8 @@ function queueTester({
 				);
 			return v;
 		},
-		cancel(branch, keep) {
-			const listed = reads.runsOn(branch);
+		cancel(place, keep) {
+			const listed = reads.runsOn(suiteRef(place));
 			for (const r of listed)
 				if (!r.conclusion && r.headSha !== keep) reads.cancel(r.databaseId);
 			return [...new Set(listed.map((r) => r.headSha))];
@@ -826,28 +818,28 @@ function queueTester({
 }
 
 /**
- * The ref whose push runs judge a sha the `lander/*` refs `held` hold: for
- * the whole suite an iso-suite one, else a batch one.
- * @param {readonly string[]} held
- * @param {readonly string[]} files
+ * The ref whose push runs judge the whole suite at `place`.
+ * @param {Placement} place
  */
-const suiteBranch = (held, files) =>
-	(files.length > 0
-		? undefined
-		: held.find((b) => b.startsWith(LANDER_ISO_SUITE_PREFIX))) ??
-	held.find((b) => b.startsWith(LANDER_BATCH_PREFIX));
+const suiteRef = (place) =>
+	place.kind === "batch"
+		? batchBranch(place.slot)
+		: `${LANDER_ISO_SUITE_PREFIX}${place.k}`;
 
 /**
- * The `lander/*` refs holding `sha`.
- * @param {QueueReads} reads
+ * The no verdict for `branch` not pushed at `sha`, transient on a network
+ * fault.
+ * @param {string} branch
  * @param {string} sha
- * @returns {string[]}
+ * @param {unknown} err
+ * @param {string} [again] ` again` where it was a push again
+ * @returns {Verdict}
  */
-const heldBy = (reads, sha) =>
-	reads
-		.landerRefs()
-		.filter((r) => r.sha === sha)
-		.map((r) => r.branch);
+const unpushed = (branch, sha, err, again = "") => ({
+	kind: "unknown",
+	reason: `${branch} not pushed${again} at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
+	...(isNetworkFault(err) ? { transient: true } : {}),
+});
 
 /**
  * The verdict at `sha` asked again on `on`'s branch, the newest run at `sha`
@@ -954,11 +946,7 @@ function repushFailure({ reads, branch }, sha) {
 	try {
 		pushed = reads.repush(branch, sha);
 	} catch (err) {
-		return {
-			kind: "unknown",
-			reason: `${branch} not pushed again at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
-			...(isNetworkFault(err) ? { transient: true } : {}),
-		};
+		return unpushed(branch, sha, err, " again");
 	}
 	return pushed
 		? null

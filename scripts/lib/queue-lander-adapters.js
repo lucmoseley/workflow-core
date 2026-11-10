@@ -39,7 +39,6 @@ const {
 const {
 	DROPPED_PREFIX,
 	QUEUE_HEADS,
-	batchBranch,
 	QUEUE_REFSPEC,
 	REMOTE,
 	trackingRefspec,
@@ -171,8 +170,8 @@ function readEnvelope(r, sha, timeoutMs) {
  *   stack, which #3913's figure was measured on
  * @param {ReadonlyMap<string, Regenerated>} [regenerated] the files each
  *   merge renders afresh rather than takes from either side
- * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester is
- *   the Actions run, which repeats the gates the batch's set leaves out;
+ * @param {{ciRepeats?: boolean}} [options] `ciRepeats` where the tester's
+ *   run repeats the gates the batch's set leaves out, its `repeatsGates`;
  *   else the batch runs every gate
  * @returns {QueueGit}
  */
@@ -286,12 +285,6 @@ function queueGit(
 				}
 				return whole;
 			}),
-		pushBatch(slot, sha) {
-			pushRemote(root, ["--force", `${sha}:refs/heads/${batchBranch(slot)}`]);
-		},
-		pushIso(branch, sha) {
-			pushRemote(root, ["--force", `${sha}:refs/heads/${branch}`]);
-		},
 		pushMain(sha) {
 			try {
 				pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);

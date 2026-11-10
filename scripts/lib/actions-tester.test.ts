@@ -11,15 +11,25 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { type Job, queueTester, type Run } from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
+import type { Placement } from "./queue-lander.js";
 
 const SHA = "a".repeat(40);
 const OTHER = "b".repeat(40);
+/* The CJS module's own PushRefused, which actions-tester.js tells by
+ * `instanceof`: an ESM import would load a second copy. */
+const { PushRefused } = createRequire(__filename)("./network-fault.js");
+
+/* The placements the lander asks at. */
+const BATCH0 = { kind: "batch", slot: 0 } as const;
+const ISO1 = { kind: "iso", k: 1 } as const;
+const BASE = { kind: "iso", k: "base" } as const;
 
 let tmp: string | null = null;
 afterEach(() => {
@@ -98,14 +108,14 @@ const verdictOf = (r: ReturnType<typeof reads>) =>
 		root: "/",
 		reads: {
 			...r,
-			landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }],
+			push: () => undefined,
 			runsOn: () => r.runs(),
 			cancel: () => undefined,
 			namedRuns: () => [],
 			dispatch: () => undefined,
 		},
 		...clock(),
-	}).verdict(SHA);
+	}).verdict(BATCH0, SHA);
 
 it("retries a run read the network dropped, never reading it as no verdict", async () => {
 	const jobs = [{ name: "Full suite / Vitest (1/1)", conclusion: "failure" }];
@@ -245,14 +255,14 @@ it("names on a batch's whole-suite green the files its in-job retry cleared, off
 			root: "/",
 			reads: {
 				...r,
-				landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }],
+				push: () => undefined,
 				runsOn: () => r.runs(),
 				cancel: () => undefined,
 				namedRuns: () => [],
 				dispatch: () => undefined,
 			},
 			...clock(),
-		}).verdict(SHA, ["scripts/lib/a.test.ts"]),
+		}).verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"]),
 	).toEqual({ kind: "green", run: 1 });
 	r.jobLogOf = () => {
 		throw new Error("HTTP 502");
@@ -484,7 +494,7 @@ it("reads a failed run through gh and the tree through git", async () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
 	git("init", "-q");
-	/* Its own origin, so the lander refs read through git ls-remote. */
+	/* Its own origin, so the batch ref's push lands somewhere. */
 	git("remote", "add", "origin", tmp);
 	fs.mkdirSync(path.join(tmp, "scripts", "lib"), { recursive: true });
 	fs.writeFileSync(path.join(tmp, "scripts", "lib", "a.test.ts"), "");
@@ -510,7 +520,7 @@ process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed")
 `,
 		).gh,
 	);
-	const v = await queueTester({ root: tmp, ...clock() }).verdict(sha);
+	const v = await queueTester({ root: tmp, ...clock() }).verdict(BATCH0, sha);
 	expect(v).toEqual({
 		kind: "red",
 		files: ["scripts/lib/a.test.ts"],
@@ -565,17 +575,10 @@ const namedRoot = () => {
 	return tmp;
 };
 
-/**
- * Named files at SHA, which `iso` names a `lander/iso-*` ref's head, on a
- * clock from `start`.
- */
+/** Named files at SHA asked at `place`, on a clock from `start`. */
 const askNamed = (
 	r: ReturnType<typeof fakeNamedReads>,
-	{
-		root = namedRoot(),
-		start = 0,
-		iso = [{ branch: "lander/iso-1", sha: SHA }],
-	} = {},
+	{ root = namedRoot(), start = 0, place = ISO1 as Placement } = {},
 ) => {
 	const time = clock(start);
 	return queueTester({
@@ -584,13 +587,13 @@ const askNamed = (
 			...r.reads,
 			rerun: () => undefined,
 			repush: () => true,
-			landerRefs: () => iso,
+			push: () => undefined,
 			runsOn: () => [],
 			cancel: () => undefined,
 		},
 		wait: time.wait,
 		now: time.now,
-	}).verdict(SHA, ["scripts/lib/a.test.ts"]);
+	}).verdict(place, SHA, ["scripts/lib/a.test.ts"]);
 };
 
 it("dispatches the named files at the sha and reads its own run's green, naming no run (#3764)", async () => {
@@ -629,12 +632,12 @@ it("judges only the files the tree at the sha holds, green with no dispatch wher
 				files.filter((f) => f === "scripts/lib/a.test.ts"),
 			rerun: () => undefined,
 			repush: () => true,
-			landerRefs: () => [{ branch: "lander/iso-1", sha: SHA }],
+			push: () => undefined,
 			runsOn: () => [],
 			cancel: () => undefined,
 		},
 		...clock(),
-	}).verdict(SHA, ["scripts/lib/a.test.ts", "scripts/new.test.ts"]);
+	}).verdict(ISO1, SHA, ["scripts/lib/a.test.ts", "scripts/new.test.ts"]);
 	expect(await ask).toEqual({ kind: "green" });
 	expect(some.dispatched.map((d) => d.files)).toEqual([
 		["scripts/lib/a.test.ts"],
@@ -720,8 +723,9 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 	const root = namedRoot();
 	const r = fakeNamedReads({ conclusion: "success" });
 	const DayOne = Date.parse("2026-11-01T23:00:00Z");
-	/* At a sha no isolation ref holds and no batch run covers. */
-	const ask = (nowMs: number) => askNamed(r, { root, start: nowMs, iso: [] });
+	/* At a batch sha no run covers. */
+	const ask = (nowMs: number) =>
+		askNamed(r, { root, start: nowMs, place: BATCH0 });
 	for (let i = 0; i < 12; i++) {
 		r.dispatched.length = 0;
 		expect(await ask(DayOne)).toEqual({ kind: "green" });
@@ -752,12 +756,14 @@ it("finds its run by the title named-rerun.yml gives it, and reads the job it na
  * a `lander/iso-suite-*` ref, named files dispatched to named-rerun.yml. */
 const NAMED_OK: Job = { name: "Named files", conclusion: "success" };
 const ISO = "c".repeat(40);
-const atIso = () => [{ branch: "lander/iso-1", sha: ISO }];
 
+/**
+ * Queue reads whose `lander/batch-0` serves `listings`, every other ref
+ * `runsOn`; each push recorded as `<branch>@<sha>`.
+ */
 const queueReads = (
 	listings: (() => Run[])[],
 	{
-		iso = (): { branch: string; sha: string }[] => [],
 		runsOn = (_: string): Run[] => [],
 		named = "success" as string | null,
 		listed = true,
@@ -770,11 +776,15 @@ const queueReads = (
 	]);
 	const dispatched: { sha: string; files: string[]; nonce: string }[] = [];
 	const cancelled: number[] = [];
+	const pushed: string[] = [];
 	return {
 		...r,
 		dispatched,
 		cancelled,
-		landerRefs: () => [{ branch: "lander/batch-0", sha: SHA }, ...iso()],
+		pushed,
+		push: (branch: string, sha: string) => {
+			pushed.push(`${branch}@${sha}`);
+		},
 		runsOn: (branch: string) =>
 			branch === "lander/batch-0" ? r.runs() : runsOn(branch),
 		cancel: (id: number) => {
@@ -808,22 +818,92 @@ const wallClock = () => {
 const queueOf = (r: ReturnType<typeof queueReads>, root = namedRoot()) =>
 	queueTester({ root, reads: r, ...wallClock() });
 
-it("reads the whole suite at a sha off its push run on the lander/batch-<k> ref holding it, a file list empty or absent (#4458, #4556)", async () => {
+it("reads the whole suite at a batch slot off the push run on its lander/batch-<k> ref, pushing the sha there first, a file list empty or absent (#4458, #4556, #4910)", async () => {
 	const r = queueReads([() => [run(1, "success")]]);
 	const tester = queueOf(r);
-	expect(await tester.verdict(SHA)).toEqual({ kind: "green", run: 1 });
-	expect(await tester.verdict(SHA, [])).toEqual({ kind: "green", run: 1 });
+	expect(await tester.verdict(BATCH0, SHA)).toEqual({ kind: "green", run: 1 });
+	expect(await tester.verdict(BATCH0, SHA, [])).toEqual({
+		kind: "green",
+		run: 1,
+	});
+	expect(r.pushed).toEqual([`lander/batch-0@${SHA}`, `lander/batch-0@${SHA}`]);
 	expect(tester.requiresRun).toBe(true);
+	expect(tester.repeatsGates).toBe(true);
 	expect(r.dispatched).toEqual([]);
 });
 
+it("reads the whole suite of a run alone off the lander/iso-suite-<k> ref it pushes, never the batch's run at the same sha (#4485, #4910)", async () => {
+	const r = queueReads([() => [run(1, "success")]], {
+		runsOn: () => [run(7, "success")],
+	});
+	expect(await queueOf(r).verdict(BASE, SHA)).toEqual({
+		kind: "green",
+		run: 7,
+	});
+	expect(await queueOf(r).verdict({ kind: "iso", k: 2 }, SHA)).toEqual({
+		kind: "green",
+		run: 7,
+	});
+	expect(r.pushed).toEqual([
+		`lander/iso-suite-base@${SHA}`,
+		`lander/iso-suite-2@${SHA}`,
+	]);
+	expect(r.calls()).toBe(0);
+});
+
+it("starts a batch's run by pushing its sha to the slot's ref, and pushes no ref for named files alone (#4573, #4910)", async () => {
+	const r = queueReads([() => []]);
+	const tester = queueOf(r);
+	tester.start?.({ kind: "batch", slot: 3 }, SHA);
+	expect(r.pushed).toEqual([`lander/batch-3@${SHA}`]);
+	expect(await tester.verdict(ISO1, ISO, ["scripts/lib/a.test.ts"])).toEqual({
+		kind: "green",
+	});
+	expect(r.pushed).toEqual([`lander/batch-3@${SHA}`]);
+	const failing = queueReads([() => []]);
+	failing.push = () => {
+		throw new Error("network down");
+	};
+	expect(() => queueOf(failing).start?.(BATCH0, SHA)).toThrow("network down");
+});
+
+it("reads a whole-suite push the remote refuses as no verdict, transient only for the network, reading no run (#4910)", async () => {
+	const at = (fault: Error) => {
+		const r = queueReads([() => [run(1, "success")]]);
+		r.push = () => {
+			throw fault;
+		};
+		return { r, v: queueOf(r).verdict(BATCH0, SHA) };
+	};
+	const refused = at(
+		new PushRefused("push", {
+			cause: Object.assign(new Error("push"), {
+				status: 1,
+				stderr: "test said: Connection reset\nerror: failed to push some refs",
+			}),
+		}),
+	);
+	const v = await refused.v;
+	expect(v).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(
+			/^lander\/batch-0 not pushed at aaaaaaaaa: .*failed to push some refs/s,
+		),
+	});
+	expect(v).not.toHaveProperty("transient");
+	expect(refused.r.calls()).toBe(0);
+	expect(
+		await at(Object.assign(new Error("push"), { code: "ETIMEDOUT" })).v,
+	).toMatchObject({ kind: "unknown", transient: true });
+});
+
 it("reads a batch run never listed on lander/batch-<k> as a red naming no file, its tree firing no run, and a listing it cannot read as unknown (#4458, #4571)", async () => {
-	expect(await queueOf(queueReads([() => []])).verdict(SHA)).toEqual({
+	expect(await queueOf(queueReads([() => []])).verdict(BATCH0, SHA)).toEqual({
 		kind: "red",
 		files: [],
 		noRun: true,
 	});
-	expect(await queueOf(queueReads([])).verdict(SHA)).toMatchObject({
+	expect(await queueOf(queueReads([])).verdict(BATCH0, SHA)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/runs unreadable: no listing/),
 	});
@@ -839,7 +919,10 @@ it("reruns a batch run whose runner failed to ready, never reading it red (#4458
 		attempt++ === 0
 			? unreadied("Install test tools", "failure")
 			: [...shards("success", "success"), SUITE_PASSED];
-	expect(await queueOf(r).verdict(SHA)).toEqual({ kind: "green", run: 5 });
+	expect(await queueOf(r).verdict(BATCH0, SHA)).toEqual({
+		kind: "green",
+		run: 5,
+	});
 	expect(r.reran).toEqual([5]);
 });
 
@@ -848,17 +931,22 @@ it("reruns a failed batch run's failed jobs for named files at its sha, so a gre
 		() => [run(1, "failure")],
 		() => [run(1, "success", { attempt: 2 })],
 	]);
-	expect(await queueOf(r).verdict(SHA, ["scripts/lib/a.test.ts"])).toEqual({
+	expect(
+		await queueOf(r).verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"]),
+	).toEqual({
 		kind: "green",
 		run: 1,
 	});
 	expect(r.reran).toEqual([1]);
 	expect(r.dispatched).toEqual([]);
+	expect(r.pushed).toEqual([]);
 });
 
 it("dispatches named files at an isolation sha to named-rerun.yml, red naming the tree's failing files (#4458)", async () => {
-	const r = queueReads([() => []], { iso: atIso, named: "failure" });
-	expect(await queueOf(r).verdict(ISO, ["scripts/lib/a.test.ts"])).toEqual({
+	const r = queueReads([() => []], { named: "failure" });
+	expect(
+		await queueOf(r).verdict(ISO1, ISO, ["scripts/lib/a.test.ts"]),
+	).toEqual({
 		kind: "red",
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 		failures: [
@@ -878,51 +966,43 @@ it("dispatches named files at an isolation sha to named-rerun.yml, red naming th
 });
 
 it("exempts isolation dispatches from the daily cap, and counts a dispatch at main against it (#4458)", async () => {
-	const r = queueReads([() => []], { iso: atIso });
+	const r = queueReads([() => []]);
 	const tester = queueOf(r);
 	const files = ["scripts/lib/a.test.ts"];
+	/* A batch slot whose ref lists no run at OTHER. */
+	const Batch1 = { kind: "batch", slot: 1 } as const;
 	for (let i = 0; i < 3; i++)
-		expect(await tester.verdict(ISO, files)).toEqual({ kind: "green" });
+		expect(await tester.verdict(ISO1, ISO, files)).toEqual({ kind: "green" });
 	for (let i = 0; i < 12; i++)
-		expect(await tester.verdict(OTHER, files)).toEqual({ kind: "green" });
-	expect(await tester.verdict(OTHER, files)).toEqual({
+		expect(await tester.verdict(Batch1, OTHER, files)).toEqual({
+			kind: "green",
+		});
+	expect(await tester.verdict(Batch1, OTHER, files)).toEqual({
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
-	expect(await tester.verdict(ISO, files)).toEqual({ kind: "green" });
+	expect(await tester.verdict(ISO1, ISO, files)).toEqual({ kind: "green" });
 	expect(r.dispatched.filter((d) => d.sha === ISO)).toHaveLength(4);
 	expect(r.dispatched.filter((d) => d.sha === OTHER)).toHaveLength(12);
 });
 
-it("reads a named run never listed as unknown, and isolation refs it cannot read as a transient no verdict (#4458)", async () => {
+it("reads a named run never listed as unknown (#4458)", async () => {
 	expect(
-		await queueOf(
-			queueReads([() => []], { iso: atIso, listed: false }),
-		).verdict(ISO, ["scripts/lib/a.test.ts"]),
+		await queueOf(queueReads([() => []], { listed: false })).verdict(
+			ISO1,
+			ISO,
+			["scripts/lib/a.test.ts"],
+		),
 	).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/^named-rerun\.yml listed no run titled /),
 	});
-	const r = queueReads([() => []], {
-		iso: () => {
-			throw new Error("ls-remote failed");
-		},
-	});
-	expect(await queueOf(r).verdict(ISO, ["scripts/lib/a.test.ts"])).toEqual({
-		kind: "unknown",
-		reason: "lander/* refs unread: ls-remote failed",
-		transient: true,
-	});
-	expect(r.dispatched).toEqual([]);
 });
 
-it("runs named files at main's sha on lander/iso-base anew, cap-exempt, never reading the batch run that landed it (#4485)", async () => {
-	const r = queueReads([() => [run(1, "success")]], {
-		iso: () => [{ branch: "lander/iso-base", sha: SHA }],
-		named: "failure",
-	});
+it("runs named files at main's sha for its base check anew, cap-exempt, never reading the batch run that landed it (#4485)", async () => {
+	const r = queueReads([() => [run(1, "success")]], { named: "failure" });
 	const files = ["scripts/lib/a.test.ts"];
-	expect(await queueOf(r).verdict(SHA, files)).toMatchObject({
+	expect(await queueOf(r).verdict(BASE, SHA, files)).toMatchObject({
 		kind: "red",
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 	});
@@ -932,11 +1012,10 @@ it("runs named files at main's sha on lander/iso-base anew, cap-exempt, never re
 	expect(r.calls()).toBe(0);
 });
 
-it("reads the whole suite at a sha a lander/iso-suite-* ref holds off that ref's push run, rerunning its failed jobs asked again (#4485)", async () => {
+it("reads the whole suite of a run alone off its lander/iso-suite-* ref's push run, rerunning its failed jobs asked again (#4485)", async () => {
 	let listed = 0;
 	const branches: string[] = [];
 	const r = queueReads([() => [run(1, "success")]], {
-		iso: () => [{ branch: "lander/iso-suite-0", sha: SHA }],
 		runsOn: (branch) => {
 			branches.push(branch);
 			return listed++ === 0
@@ -944,7 +1023,9 @@ it("reads the whole suite at a sha a lander/iso-suite-* ref holds off that ref's
 				: [run(7, "success", { attempt: 2 })];
 		},
 	});
-	expect(await queueOf(r).verdict(SHA, [], true)).toEqual({
+	expect(
+		await queueOf(r).verdict({ kind: "iso", k: 0 }, SHA, [], true),
+	).toEqual({
 		kind: "green",
 		run: 7,
 	});
@@ -958,14 +1039,16 @@ it("reruns the failed jobs of the whole suite's batch run asked again, and reads
 		() => [run(4, "failure")],
 		() => [run(4, "success", { attempt: 2 })],
 	]);
-	expect(await queueOf(again).verdict(SHA, [], true)).toEqual({
+	expect(await queueOf(again).verdict(BATCH0, SHA, [], true)).toEqual({
 		kind: "green",
 		run: 4,
 	});
 	expect(again.reran).toEqual([4]);
 	const first = queueReads([() => [run(4, "failure")]]);
 	first.jobsOf = () => shards("failure");
-	expect(await queueOf(first).verdict(SHA, [])).toMatchObject({ kind: "red" });
+	expect(await queueOf(first).verdict(BATCH0, SHA, [])).toMatchObject({
+		kind: "red",
+	});
 	expect(first.reran).toEqual([]);
 });
 
@@ -990,9 +1073,9 @@ it("pushes the ref again over a failed run GitHub will not retry, judging only a
 		boolean,
 		(r: ReturnType<typeof queueReads>) => Promise<unknown>,
 	][] = [
-		[false, (r) => queueOf(r).verdict(SHA, [], true)],
-		[false, (r) => queueOf(r).verdict(SHA, ["scripts/lib/a.test.ts"])],
-		[true, (r) => queueOf(r).verdict(SHA)],
+		[false, (r) => queueOf(r).verdict(BATCH0, SHA, [], true)],
+		[false, (r) => queueOf(r).verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"])],
+		[true, (r) => queueOf(r).verdict(BATCH0, SHA)],
 	];
 	for (const [runnerFault, ask] of asks) {
 		const r = refusal(runnerFault);
@@ -1010,7 +1093,7 @@ it("counts each push again for a runner GitHub will not retry against the runner
 			stderr: "run 10 cannot be rerun; This workflow run cannot be retried",
 		});
 	};
-	expect(await queueOf(r).verdict(SHA)).toMatchObject({
+	expect(await queueOf(r).verdict(BATCH0, SHA)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/on 3 attempts$/),
 	});
@@ -1019,22 +1102,20 @@ it("counts each push again for a runner GitHub will not retry against the runner
 
 it("pushes the ref again for the whole suite asked again over a run at the sha that did not fail, judging only a newer run (#4524)", async () => {
 	const SuiteBase = "lander/iso-suite-base";
-	const atBase = () => [{ branch: SuiteBase, sha: SHA }];
 	const earlier = run(7, "success");
 	const fresh = queueReads([], {
-		iso: atBase,
 		runsOn: () =>
 			fresh.repushed.length === 0 ? [earlier] : [run(9, "success"), earlier],
 	});
-	expect(await queueOf(fresh).verdict(SHA, [], true)).toEqual({
+	expect(await queueOf(fresh).verdict(BASE, SHA, [], true)).toEqual({
 		kind: "green",
 		run: 9,
 	});
 	expect(fresh.repushed).toEqual([`${SuiteBase}@${SHA}`]);
 	expect(fresh.reran).toEqual([]);
 
-	const none = queueReads([], { iso: atBase, runsOn: () => [earlier] });
-	expect(await queueOf(none).verdict(SHA, [], true)).toEqual({
+	const none = queueReads([], { runsOn: () => [earlier] });
+	expect(await queueOf(none).verdict(BASE, SHA, [], true)).toEqual({
 		kind: "red",
 		files: [],
 		noRun: true,
@@ -1047,18 +1128,17 @@ it("never reads the whole suite asked again off a run older than the branch's ne
 	const listing = (after: Run) => {
 		let n = 0;
 		return queueReads([], {
-			iso: () => [{ branch: "lander/iso-suite-base", sha: SHA }],
 			runsOn: () => (n++ === 0 ? [atAsk] : [after, atAsk]),
 		});
 	};
 	const stale = listing(run(7, "success"));
-	expect(await queueOf(stale).verdict(SHA, [], true)).toEqual({
+	expect(await queueOf(stale).verdict(BASE, SHA, [], true)).toEqual({
 		kind: "red",
 		files: [],
 		noRun: true,
 	});
 	const pushed = listing(run(9, "success"));
-	expect(await queueOf(pushed).verdict(SHA, [], true)).toEqual({
+	expect(await queueOf(pushed).verdict(BASE, SHA, [], true)).toEqual({
 		kind: "green",
 		run: 9,
 	});
@@ -1070,21 +1150,19 @@ it("pushes the ref again once for the whole suite asked again where no run at th
 	const SuiteBase = "lander/iso-suite-base";
 	const atAsk = run(8, "success", { headSha: OTHER });
 	const recovered = queueReads([], {
-		iso: () => [{ branch: SuiteBase, sha: SHA }],
 		runsOn: () =>
 			recovered.repushed.length === 0 ? [atAsk] : [run(9, "success"), atAsk],
 	});
-	expect(await queueOf(recovered).verdict(SHA, [], true)).toEqual({
+	expect(await queueOf(recovered).verdict(BASE, SHA, [], true)).toEqual({
 		kind: "green",
 		run: 9,
 	});
 	expect(recovered.repushed).toEqual([`${SuiteBase}@${SHA}`]);
 
 	const outage = queueReads([], {
-		iso: () => [{ branch: SuiteBase, sha: SHA }],
 		runsOn: () => [atAsk],
 	});
-	expect(await queueOf(outage).verdict(SHA, [], true)).toEqual({
+	expect(await queueOf(outage).verdict(BASE, SHA, [], true)).toEqual({
 		kind: "red",
 		files: [],
 		noRun: true,
@@ -1096,11 +1174,10 @@ it("reads a ref moved, refused or cut off by the network on pushing it again as 
 	const SuiteBase = "lander/iso-suite-base";
 	const at = (repush: () => boolean) => {
 		const r = queueReads([], {
-			iso: () => [{ branch: SuiteBase, sha: SHA }],
 			runsOn: () => [run(7, "success")],
 		});
 		r.repush = repush;
-		return queueOf(r).verdict(SHA, [], true);
+		return queueOf(r).verdict(BASE, SHA, [], true);
 	};
 	expect(await at(() => false)).toEqual({
 		kind: "unknown",
@@ -1133,7 +1210,7 @@ it("pushes the ref again where GitHub refuses to rerun a failed batch run, judgi
 		r.rerun = () => {
 			throw new Error(REFUSED);
 		};
-		expect(await queueOf(r).verdict(SHA, files, true)).toEqual({
+		expect(await queueOf(r).verdict(BATCH0, SHA, files, true)).toEqual({
 			kind: "green",
 			run: 9,
 		});
@@ -1155,7 +1232,10 @@ it("pushes the ref again where GitHub refuses to rerun a run whose runner failed
 	r.rerun = () => {
 		throw new Error(REFUSED);
 	};
-	expect(await queueOf(r).verdict(SHA)).toEqual({ kind: "green", run: 9 });
+	expect(await queueOf(r).verdict(BATCH0, SHA)).toEqual({
+		kind: "green",
+		run: 9,
+	});
 	expect(r.repushed).toEqual([`lander/batch-0@${SHA}`]);
 
 	const stuck = queueReads([]);
@@ -1170,7 +1250,7 @@ it("pushes the ref again where GitHub refuses to rerun a run whose runner failed
 	stuck.rerun = () => {
 		throw new Error(REFUSED);
 	};
-	expect(await queueOf(stuck).verdict(SHA)).toMatchObject({
+	expect(await queueOf(stuck).verdict(BATCH0, SHA)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/Install test tools.*on 3 attempts/),
 	});
@@ -1181,7 +1261,7 @@ it("pushes the ref again where GitHub refuses to rerun a run whose runner failed
 	forbidden.rerun = () => {
 		throw new Error("failed to rerun: HTTP 500");
 	};
-	expect(await queueOf(forbidden).verdict(SHA)).toMatchObject({
+	expect(await queueOf(forbidden).verdict(BATCH0, SHA)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/HTTP 500/),
 	});
@@ -1191,12 +1271,12 @@ it("pushes the ref again where GitHub refuses to rerun a run whose runner failed
 it("waits on an unfinished batch run for named files at its sha, and reads one ended any other way as unknown, dispatching neither (#4458)", async () => {
 	const files = ["scripts/lib/a.test.ts"];
 	const r = queueReads([() => [run(1, null)], () => [run(1, "success")]]);
-	expect(await queueOf(r).verdict(SHA, files)).toEqual({
+	expect(await queueOf(r).verdict(BATCH0, SHA, files)).toEqual({
 		kind: "green",
 		run: 1,
 	});
 	const cancelled = queueReads([() => [run(2, "cancelled")]]);
-	expect(await queueOf(cancelled).verdict(SHA, files)).toMatchObject({
+	expect(await queueOf(cancelled).verdict(BATCH0, SHA, files)).toMatchObject({
 		kind: "unknown",
 	});
 	expect([...r.dispatched, ...cancelled.dispatched]).toEqual([]);
@@ -1205,11 +1285,11 @@ it("waits on an unfinished batch run for named files at its sha, and reads one e
 
 it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", async () => {
 	const files = ["scripts/lib/a.test.ts"];
-	const r = queueReads([() => []], { iso: atIso });
+	const r = queueReads([() => []]);
 	r.namedRuns = () => {
 		throw new Error("HTTP 502");
 	};
-	expect(await queueOf(r).verdict(ISO, files)).toMatchObject({
+	expect(await queueOf(r).verdict(ISO1, ISO, files)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(
 			/^named-rerun\.yml runs unreadable: .*HTTP 502/,
@@ -1219,7 +1299,7 @@ it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", asy
 	failed.rerun = () => {
 		throw new Error("HTTP 403");
 	};
-	expect(await queueOf(failed).verdict(SHA, files)).toMatchObject({
+	expect(await queueOf(failed).verdict(BATCH0, SHA, files)).toMatchObject({
 		kind: "unknown",
 		reason: expect.stringMatching(/HTTP 403/),
 	});
@@ -1239,7 +1319,7 @@ it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-*,
 	);
 });
 
-it("reads lander/batch-<k> and lander/iso-suite-* runs through gh, the lander refs through git ls-remote, and cancels a run through gh (#4458, #4556)", async () => {
+it("pushes and reads lander/batch-<k> and lander/iso-suite-* runs through git and gh, pushes no ref for named files alone, and cancels a run through gh (#4458, #4556, #4910)", async () => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-"));
 	const remote = path.join(tmp, "remote.git");
 	const work = path.join(tmp, "work");
@@ -1265,8 +1345,6 @@ it("reads lander/batch-<k> and lander/iso-suite-* runs through gh, the lander re
 		);
 	commit("a");
 	const iso = git(work, "rev-parse", "HEAD");
-	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-1");
-	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/iso-suite-0");
 	commit("b");
 	const batch = git(work, "rev-parse", "HEAD");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/lander/batch-1");
@@ -1313,22 +1391,39 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 		`${JSON.stringify({ at: new Date().toISOString() })}\n`.repeat(12),
 	);
 	const tester = queueTester({ root: work, ...wallClock() });
-	expect(await tester.verdict(batch)).toEqual({ kind: "green", run: 3 });
-	expect(await tester.verdict(iso)).toEqual({ kind: "green", run: 9 });
-	expect(await tester.verdict(iso, ["scripts/lib/a.test.ts"])).toEqual({
-		kind: "green",
-	});
-	expect(await tester.verdict(batch, ["scripts/lib/a.test.ts"])).toEqual({
+	const Batch1 = { kind: "batch", slot: 1 } as const;
+	const Iso0 = { kind: "iso", k: 0 } as const;
+	const heads = () => git(work, "ls-remote", "origin", "refs/heads/lander/*");
+	const pushedBefore = heads();
+	/* The batch ref already holds its sha: the push leaves it as it was. */
+	expect(await tester.verdict(Batch1, batch)).toEqual({
 		kind: "green",
 		run: 3,
 	});
-	expect(await tester.verdict(unheld, ["scripts/lib/a.test.ts"])).toEqual({
+	expect(heads()).toBe(pushedBefore);
+	expect(await tester.verdict(Iso0, iso)).toEqual({ kind: "green", run: 9 });
+	expect(
+		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
+	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
+	expect(await tester.verdict(ISO1, iso, ["scripts/lib/a.test.ts"])).toEqual({
+		kind: "green",
+	});
+	expect(git(work, "ls-remote", "origin", "refs/heads/lander/iso-1")).toBe("");
+	expect(
+		await tester.verdict(Batch1, batch, ["scripts/lib/a.test.ts"]),
+	).toEqual({
+		kind: "green",
+		run: 3,
+	});
+	expect(
+		await tester.verdict(Batch1, unheld, ["scripts/lib/a.test.ts"]),
+	).toEqual({
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
 	/* Asked again over the passed run 9, the ref is pushed again and no run
 	 * newer than 9 is listed. */
-	expect(await tester.verdict(iso, [], true)).toEqual({
+	expect(await tester.verdict(Iso0, iso, [], true)).toEqual({
 		kind: "red",
 		files: [],
 		noRun: true,
@@ -1336,8 +1431,12 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	expect(
 		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
 	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
-	expect(tester.cancel?.("lander/batch-1", batch)).toEqual([batch, OTHER]);
+	expect(tester.cancel?.(Batch1, batch)).toEqual([batch, OTHER]);
 	expect(fs.readFileSync(cancelFile, "utf8")).toBe("4");
+	tester.start?.({ kind: "batch", slot: 2 }, unheld);
+	expect(git(work, "ls-remote", "origin", "refs/heads/lander/batch-2")).toBe(
+		`${unheld}\trefs/heads/lander/batch-2`,
+	);
 });
 
 it("cancels every unfinished run on a batch ref but those at the sha kept, naming every sha it lists a run at (#4556, #4576)", () => {
@@ -1351,21 +1450,9 @@ it("cancels every unfinished run on a batch ref but those at the sha kept, namin
 			run(5, null, { headSha: third }),
 		],
 	]);
-	expect(queueOf(r).cancel?.("lander/batch-0", SHA)).toEqual([
-		OTHER,
-		SHA,
-		third,
-	]);
+	expect(queueOf(r).cancel?.(BATCH0, SHA)).toEqual([OTHER, SHA, third]);
 	expect(r.cancelled).toEqual([3, 4, 5]);
 	const all = queueReads([() => [run(1, "failure"), run(2, null)]]);
-	expect(queueOf(all).cancel?.("lander/batch-0", null)).toEqual([SHA]);
+	expect(queueOf(all).cancel?.(BATCH0, null)).toEqual([SHA]);
 	expect(all.cancelled).toEqual([2]);
-});
-
-it("reads a whole suite at a sha no lander/batch-* or iso-suite ref holds as unknown (#4556)", async () => {
-	const r = queueReads([() => [run(1, "success")]]);
-	expect(await queueOf(r).verdict(OTHER)).toEqual({
-		kind: "unknown",
-		reason: `no lander/batch-* or lander/iso-suite-* ref holds ${OTHER.slice(0, 9)}`,
-	});
 });

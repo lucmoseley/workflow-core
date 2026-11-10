@@ -13,7 +13,7 @@
  * next run, or a ref conflicting with `main` stops the queue, goes unkept
  * under `dropped/<name>` or unticketed, or one a merge gate refuses is
  * ticketed with the gate's first line in place of its findings; or a red batch's culprit is not
- * isolated on `lander/iso-<k>` and dropped with its evidence, a collision is
+ * isolated alone and dropped with its evidence, a collision is
  * not settled by serial landing, or a failure `main` shares holds the batch
  * on a local tester or goes without its base-red ticket, or a push `main`
  * refuses reads as a fault or one `main` moved under reads as a refusal.
@@ -115,7 +115,9 @@ describe("a run", () => {
 			git(remote, "rev-list", "--first-parent", `${seed}..${main}`).split("\n"),
 		).toHaveLength(2);
 		expect(remoteHeads()).not.toContain("refs/heads/queue/");
-		expect(git(remote, "rev-parse", "lander/batch-0")).toBe(main);
+		/* The command tester judges in place: no lander ref fires a run nobody
+		 * reads (#4906). */
+		expect(remoteHeads()).not.toContain("refs/heads/lander/");
 		expect(
 			fs.readFileSync(path.join(markers(), ".landing-green-ledger"), "utf8"),
 		).toContain(main);
@@ -751,7 +753,7 @@ describe("the adapters", () => {
 
 		let thrown: unknown;
 		try {
-			queueGit(work).pushBatch(0, a);
+			queueGit(work).pushMain(a);
 		} catch (err) {
 			thrown = err;
 		}
@@ -1189,7 +1191,7 @@ describe("the adapters", () => {
 });
 
 describe("the red path", () => {
-	it("isolates each member on lander/iso-<k>, drops the one red alone twice with its fix ticket, and lands the other", async () => {
+	it("isolates each member alone, drops the one red alone twice with its fix ticket, and lands the other", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const a = pushQueue("a", seed);
 		const b = pushQueue("b", seed);
@@ -1206,13 +1208,15 @@ describe("the red path", () => {
 		expect(r.stdout).toContain("exit no queue ref waits");
 		expect(git(remote, "rev-parse", "main")).toBe(a);
 		expect(git(remote, "rev-parse", "dropped/b")).toBe(b);
-		const iso = git(remote, "rev-parse", "lander/iso-1");
-		expect(git(remote, "merge-base", "--is-ancestor", b, iso)).toBe("");
 		const [ticket] = readStore();
 		expect(ticket.title).toBe(
 			`Fix queue/b at ${b.slice(0, 9)}, dropped by the queue lander: b`,
 		);
-		expect(ticket.body).toContain(`as ${iso}, it failed these files twice`);
+		const iso = /as ([0-9a-f]{40}), it failed these files twice/.exec(
+			ticket.body,
+		)?.[1];
+		expect(git(work, "merge-base", "--is-ancestor", b, iso ?? "")).toBe("");
+		expect(remoteHeads()).not.toContain("refs/heads/lander/");
 		expect(ticket.body).toContain("- `scripts/b.test.ts`");
 	});
 
