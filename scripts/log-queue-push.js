@@ -18,7 +18,7 @@
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { QUEUE_HEADS, REMOTE } = require("./lib/landing-refs.js");
+const { isQueueHead, REMOTE } = require("./lib/landing-refs.js");
 const { isModuleOnAtHead, runPrePushGate } = require("./lib/pre-push-gate.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const { logEnqueue, queueLogFile } = require("./lib/queue-log.js");
@@ -40,7 +40,7 @@ function main(argv = process.argv.slice(2)) {
 	if (parsed.positionals[0] !== REMOTE) return 0;
 	return runPrePushGate(unlogged, (stdin, tree) => {
 		const pushes = parseRefLines(stdin).filter(
-			(r) => r.remoteRef?.startsWith(QUEUE_HEADS) && !isZeroSha(r.sha),
+			(r) => isQueueHead(r.remoteRef) && !isZeroSha(r.sha),
 		);
 		if (pushes.length === 0 || !isModuleOnAtHead("landing", tree, unlogged))
 			return 0;

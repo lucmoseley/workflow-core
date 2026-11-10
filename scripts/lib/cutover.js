@@ -25,18 +25,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
-const {
-	LANDING_BRANCH,
-	LANDING_REF,
-	REMOTE,
-	VERIFIED_BRANCH,
-	VERIFIED_REF,
-} = require("./landing-refs.js");
+const { REMOTE, VERIFIED_BRANCH, VERIFIED_REF } = require("./landing-refs.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
 const { worktreePaths } = require("./worktree-paths.js");
 
 const BRANCH = "main";
+/* The shared-tree model's branch, which only the mark still names. */
+const LANDING_BRANCH = "landing";
+const LANDING_REF = `${REMOTE}/${LANDING_BRANCH}`;
 const SHARED_MERGE = `refs/heads/${LANDING_BRANCH}`;
 const UPSTREAM_KEY = `branch.${BRANCH}.merge`;
 
@@ -278,6 +275,7 @@ module.exports = {
 	buildCutCommand,
 	cutover,
 	isCutOver,
+	LANDING_REF,
 	landingCutOver,
 	readCutOver,
 	renderCutover,

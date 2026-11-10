@@ -26,7 +26,12 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
 const { gitReader } = require("./lib/git.js");
-const { QUEUE_HEADS, VERIFIED_REF } = require("./lib/landing-refs.js");
+const {
+	isQueueHead,
+	queueBranch,
+	queueNameOf,
+	VERIFIED_REF,
+} = require("./lib/landing-refs.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
 const {
 	buildUnchecked,
@@ -55,10 +60,8 @@ const unchecked = buildUnchecked(
  */
 function parseJudgedPushes(stdin) {
 	return parseRefLines(stdin).flatMap(({ sha, remoteRef }) =>
-		!isZeroSha(sha) &&
-		remoteRef?.startsWith(QUEUE_HEADS) &&
-		remoteRef.length > QUEUE_HEADS.length
-			? [{ sha, ref: remoteRef.slice("refs/heads/".length) }]
+		!isZeroSha(sha) && isQueueHead(remoteRef)
+			? [{ sha, ref: queueBranch(queueNameOf(remoteRef)) }]
 			: [],
 	);
 }

@@ -1,6 +1,6 @@
 name: Landing quiet 14h
 
-# A report that runs off the machine (#3964), beside main-lag.yml: a dead
+# A report that runs off the machine (#3964), beside queue-wait.yml: a dead
 # machine cannot say it is dead. Its red reaches the founder as one bot
 # mention per stall, from the tracker's alarm-notice.yml running
 # scripts/alarm-notice.js (#4939).
