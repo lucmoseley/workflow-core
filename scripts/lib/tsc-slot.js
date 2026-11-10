@@ -44,8 +44,6 @@ const tscPeakMb = (major) =>
 /** @param {number} peakMb */
 const tscRungMb = (peakMb) => rungMb(peakMb);
 
-const TSC_RUNG_MB = tscRungMb(TSC_PEAK_MB);
-
 /* How many `tsc` run at once, machine-wide (#3163): one, as docs/environment.md
  * §6 keeps every unmeasured concurrent workload; only one `tsc` at a time has
  * been measured. */
@@ -234,7 +232,6 @@ module.exports = {
 	TSC_PEAKS_MB,
 	TSC_NO_WAIT_ENV,
 	TSC_QUEUE_NAME,
-	TSC_RUNG_MB,
 	TSC_MAX,
 	TSC_SLOT_ENV,
 	defaultTscQueueDir,

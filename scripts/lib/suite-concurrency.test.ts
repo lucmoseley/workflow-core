@@ -2977,7 +2977,11 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 });
 
 describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js --tsc` (#3163)", () => {
-	const { TSC_RUNG_MB } = require("./tsc-slot.js") as { TSC_RUNG_MB: number };
+	const { TSC_PEAK_MB, tscRungMb } = require("./tsc-slot.js") as {
+		TSC_PEAK_MB: number;
+		tscRungMb: (peakMb: number) => number;
+	};
+	const tscRung = tscRungMb(TSC_PEAK_MB);
 	const running = psListing([
 		"bash -l",
 		"node /r/node_modules/.bin/tsc --noEmit",
@@ -3016,21 +3020,21 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 	});
 
 	it("is denied under its rung, naming the reading and the rung", () => {
-		const { text } = judge("tsc --noEmit", TSC_RUNG_MB - 1, psWith(0));
+		const { text } = judge("tsc --noEmit", tscRung - 1, psWith(0));
 		expect(text).toContain(
-			`MemAvailable is ${TSC_RUNG_MB - 1} MB, under the ~${TSC_RUNG_MB} MB`,
+			`MemAvailable is ${tscRung - 1} MB, under the ~${tscRung} MB`,
 		);
 	});
 
 	it("is denied where a queued launch's climb leaves it short of its rung (#3488)", () => {
-		const mb = TSC_RUNG_MB + 100;
+		const mb = tscRung + 100;
 		expect(outcome(judge("tsc --noEmit", mb, psWith(0)).verdict)).toBe("allow");
 		const { verdict: charged, text } = judge("tsc --noEmit", mb, psWith(0), {
 			climb: { "off-rung": 0, all: 200 },
 		});
 		expect(outcome(charged)).toBe("deny");
 		expect(text).toContain(
-			`MemAvailable is ${mb} MB, less 200 MB the queues' running launches have yet to draw, under the ~${TSC_RUNG_MB} MB`,
+			`MemAvailable is ${mb} MB, less 200 MB the queues' running launches have yet to draw, under the ~${tscRung} MB`,
 		);
 	});
 

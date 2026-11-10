@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 
 const {
 	TSC_PEAKS_MB,
-	TSC_RUNG_MB,
 	launchPeakMb,
 	runnerPeakMb,
 	tscDenial,
@@ -19,7 +18,6 @@ const {
 	isTscLaunch,
 } = require("./tsc-slot.js") as {
 	TSC_PEAKS_MB: { 5: number; 7: number };
-	TSC_RUNG_MB: number;
 	launchPeakMb: (
 		dir: string,
 		readMajor?: (bin: string) => number | null,
@@ -51,13 +49,15 @@ const {
 	isTscLaunch: (words: string[]) => boolean;
 };
 
+const rung5 = tscRungMb(TSC_PEAKS_MB[5]);
+
 const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 
 describe("lib/tsc-slot.js", () => {
 	it("prices the rung at the measured 2,045 MB peak above earlyoom's floor and the margin", () => {
 		// 794 + 2045 + 300 = 3139, up to the next 50.
 		expect(TSC_PEAKS_MB[5]).toBe(2045);
-		expect(TSC_RUNG_MB).toBe(3150);
+		expect(rung5).toBe(3150);
 		expect(tscRungMb(TSC_PEAKS_MB[5])).toBe(3150);
 	});
 
@@ -143,7 +143,7 @@ describe("lib/tsc-slot.js", () => {
 
 	it("holds a launch on its own compiler's rung (#4892)", () => {
 		const rung7 = tscRungMb(TSC_PEAKS_MB[7]);
-		expect(rung7).toBeLessThan(TSC_RUNG_MB);
+		expect(rung7).toBeLessThan(rung5);
 		expect(
 			tscDenial(rows("bash -l"), rung7, 0, { peakMb: TSC_PEAKS_MB[7] }),
 		).toBeNull();
@@ -155,7 +155,7 @@ describe("lib/tsc-slot.js", () => {
 			tscDenial(rows("bash -l"), rung7, 0, { peakMb: 2045 }),
 		).toMatchObject({
 			limb: "memory",
-			rungMb: TSC_RUNG_MB,
+			rungMb: rung5,
 		});
 	});
 
@@ -190,31 +190,31 @@ describe("lib/tsc-slot.js", () => {
 		[
 			"MemAvailable under the rung",
 			rows("bash -l"),
-			TSC_RUNG_MB - 1,
-			{ limb: "memory", mb: TSC_RUNG_MB - 1, rungMb: TSC_RUNG_MB },
+			rung5 - 1,
+			{ limb: "memory", mb: rung5 - 1, rungMb: rung5 },
 		],
 		[
 			"one running under the rung, naming both (#4359)",
 			[{ pid: 4242, args: "node /r/node_modules/.bin/tsc" }],
-			TSC_RUNG_MB - 1,
+			rung5 - 1,
 			{
 				limb: "count",
 				pids: [4242],
-				memory: { mb: TSC_RUNG_MB - 1, rungMb: TSC_RUNG_MB },
+				memory: { mb: rung5 - 1, rungMb: rung5 },
 			},
 		],
-		["neither", rows("bash -l"), TSC_RUNG_MB, null],
+		["neither", rows("bash -l"), rung5, null],
 		["`ps` and MemAvailable both unread", null, null, null],
 	])("denies on %s", (_label, ps, mb, expected) => {
 		expect(tscDenial(ps, mb)).toEqual(expected);
 	});
 
 	it("charges what a climbing suite has yet to draw on the rung, naming it apart (#3416)", () => {
-		const mb = TSC_RUNG_MB + 250;
+		const mb = rung5 + 250;
 		expect(tscDenial(rows("bash -l"), mb, 251)).toEqual({
 			limb: "memory",
 			mb,
-			rungMb: TSC_RUNG_MB,
+			rungMb: rung5,
 			climbMb: 251,
 		});
 		expect(tscDenial(rows("bash -l"), mb, 250)).toBeNull();
@@ -233,7 +233,7 @@ describe("lib/tsc-slot.js", () => {
 		).toBeNull();
 		// The guest rung is named first.
 		expect(
-			tscDenial(rows("bash -l"), TSC_RUNG_MB - 1, 0, { windows: windows(10) }),
+			tscDenial(rows("bash -l"), rung5 - 1, 0, { windows: windows(10) }),
 		).toMatchObject({
 			limb: "memory",
 		});
