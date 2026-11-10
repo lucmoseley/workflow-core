@@ -5,7 +5,7 @@
  * file-issue.js's `--origin`, and every issue filed before it has none.
  *
  * A PORT of the trial's `bin/classify.py` `origin()`: the same tests in the
- * same order, the same regexes and the same provenance text (`prov()`). Its outputs are mapped onto
+ * same order, the same regexes and the same provenance text (`provenance()`). Its outputs are mapped onto
  * lib/issue-origin.js's fixed list by OUTPUT_MAP below; `unmarked` is no
  * signal at all. Two departures, both outside any regex: the trial's
  * `daily-report-script` is split by its title (a morning review is
@@ -24,6 +24,8 @@ const OUTPUT_MAP = /** @type {const} */ ({
 
 const UNMARKED = "unmarked";
 
+/* bin/classify.py's own cuts (#4627's trial), ported as they stand and not
+ * measured here: what `provenance()` and the rules read of an issue. */
 const PRE_CHARS = 600;
 const SECTION_CHARS = 260;
 const SECTIONS_READ = 2;
@@ -40,21 +42,22 @@ const MORNING_HEAD = 60;
 
 /**
  * The provenance line and the lowered provenance text.
- * @param {string} b
- * @returns {{ sl: string, p: string }}
+ * @param {string} body
+ * @returns {{ provLine: string, provText: string }}
  */
-function prov(b) {
-	const m = /^(Standalone[:,][^\n]*|Part of [^\n]*)$/m.exec(b);
-	const sl = m?.[1] ?? "";
-	const secs = b.split(/^#{1,3} /m);
+function provenance(body) {
+	const m = /^(Standalone[:,][^\n]*|Part of [^\n]*)$/m.exec(body);
+	const provLine = m?.[1] ?? "";
+	const secs = body.split(/^#{1,3} /m);
 	const pre = secs[0] ?? "";
 	const rest = secs
 		.slice(1, 1 + SECTIONS_READ)
 		.map((x) => x.slice(0, SECTION_CHARS))
 		.join(" ");
 	return {
-		sl,
-		p: `${sl} \n ${pre.slice(0, PRE_CHARS)} \n ${rest}`.toLowerCase(),
+		provLine,
+		provText:
+			`${provLine} \n ${pre.slice(0, PRE_CHARS)} \n ${rest}`.toLowerCase(),
 	};
 }
 
@@ -62,156 +65,198 @@ function prov(b) {
  * @param {string} pattern
  * @param {string} s
  */
-const R = (pattern, s) => new RegExp(pattern, "i").test(s);
+const matches = (pattern, s) => new RegExp(pattern, "i").test(s);
 
 /** @param {Label} l */
 const labelName = (l) => (typeof l === "string" ? l : l.name);
 
 /**
- * @typedef {{ t: string, L: Set<string>, b: string, sl: string, p: string }} Read
+ * @typedef {{ title: string, labels: Set<string>, body: string, provLine: string, provText: string }} Read
  * @typedef {[string, (r: Read) => boolean]} Rule
  */
 
 /** @type {Rule[]} */
 const RULES = [
-	["morning-review-script", ({ t }) => R("^Morning review — ", t)],
+	[
+		"morning-review-script",
+		({ title }) => matches("^Morning review — ", title),
+	],
 	[
 		"incident",
-		({ t }) => R("^Suite queue wait is over|^Memory kill incident from", t),
+		({ title }) =>
+			matches("^Suite queue wait is over|^Memory kill incident from", title),
 	],
 	[
 		"code-review",
-		({ t, L }) =>
-			isWayfinder(L) && R("code-review findings|review findings", t),
+		({ title, labels }) =>
+			isWayfinder(labels) &&
+			matches("code-review findings|review findings", title),
 	],
-	["wayfinder", ({ L }) => isWayfinder(L)],
-	["to-spec", ({ t, L }) => L.has("kind:spec") || t.startsWith("Spec:")],
-	["orphaned-edit-script", ({ t }) => t.startsWith("Orphaned edit")],
+	["wayfinder", ({ labels }) => isWayfinder(labels)],
+	[
+		"to-spec",
+		({ title, labels }) => labels.has("kind:spec") || title.startsWith("Spec:"),
+	],
+	["orphaned-edit-script", ({ title }) => title.startsWith("Orphaned edit")],
 	[
 		"lander-script",
-		({ t }) => R("reverted by the lander|dropped by the (queue )?lander", t),
+		({ title }) =>
+			matches("reverted by the lander|dropped by the (queue )?lander", title),
 	],
 	[
 		"lander-script",
-		({ t, p }) =>
-			t.startsWith("Landing queue held") ||
-			t.startsWith("Landing queue stalled") ||
-			p.includes("held-queue issue") ||
-			p.includes("stall ticket tracks"),
+		({ title, provText }) =>
+			title.startsWith("Landing queue held") ||
+			title.startsWith("Landing queue stalled") ||
+			provText.includes("held-queue issue") ||
+			provText.includes("stall ticket tracks"),
 	],
 	[
 		"ci-red",
-		({ t, L, p }) =>
-			L.has("ci-red") ||
-			R("red (test on )?main|red ci|ci red|landing break", p) ||
-			t.startsWith("CI red"),
+		({ title, labels, provText }) =>
+			labels.has("ci-red") ||
+			matches("red (test on )?main|red ci|ci red|landing break", provText) ||
+			title.startsWith("CI red"),
 	],
-	["release-bump", ({ t }) => t.startsWith("Bump workflow-core")],
+	["release-bump", ({ title }) => title.startsWith("Bump workflow-core")],
 	[
 		"repo-checks-script",
-		({ t, L }) =>
-			t.startsWith("Repo checks: standing findings") ||
-			L.has("manual-finding") ||
-			R("is stale against", t),
+		({ title, labels }) =>
+			title.startsWith("Repo checks: standing findings") ||
+			labels.has("manual-finding") ||
+			matches("is stale against", title),
 	],
 	[
 		"morning-review-script",
-		({ b, p }) =>
-			R("morning review", p) &&
-			R("^(## )?(closed tickets|clear delegated)", b.slice(0, MORNING_HEAD)),
+		({ body, provText }) =>
+			matches("morning review", provText) &&
+			matches(
+				"^(## )?(closed tickets|clear delegated)",
+				body.slice(0, MORNING_HEAD),
+			),
 	],
 	[
 		"found-in-passing",
-		({ p }) =>
-			R(
+		({ provText }) =>
+			matches(
 				"^found by #\\d+ \\(",
-				(p.split("\n").at(-1) ?? "").trim().slice(0, FOUND_BY_CHARS),
-			) && !R("review|concision|census|scan|audit", p.slice(0, FOUND_BY_HEAD)),
+				(provText.split("\n").at(-1) ?? "").trim().slice(0, FOUND_BY_CHARS),
+			) &&
+			!matches(
+				"review|concision|census|scan|audit",
+				provText.slice(0, FOUND_BY_HEAD),
+			),
 	],
 	[
 		"concision-pass",
-		({ t, p }) =>
-			R(
+		({ title, provText }) =>
+			matches(
 				"concision pass|concision-pass|concision finding|concision follow|\\bpass\\b.{0,40}tenure|tenure|pre-existing (comment|text|prose)",
-				p,
-			) || R("concision|clear tenure|^cut or refuse|pre-existing", t),
+				provText,
+			) || matches("concision|clear tenure|^cut or refuse|pre-existing", title),
 	],
-	["architecture-scan", ({ p }) => R("architecture.scan", p)],
-	["heresy-sweep", ({ p }) => R("heresy", p)],
-	["retro-sweep", ({ p }) => R("retro.sweep|retro finding|\\bretro\\b", p)],
+	[
+		"architecture-scan",
+		({ provText }) => matches("architecture.scan", provText),
+	],
+	["heresy-sweep", ({ provText }) => matches("heresy", provText)],
+	[
+		"retro-sweep",
+		({ provText }) =>
+			matches("retro.sweep|retro finding|\\bretro\\b", provText),
+	],
 	[
 		"code-review",
-		({ t, p }) =>
-			R("code-review finding", p) ||
-			R(
+		({ title, provText }) =>
+			matches("code-review finding", provText) ||
+			matches(
 				"(whole-spec|spec-axis|spec|standards|code|security|test|axis|concurrency|fresh) review|review (of|found|follow)|review's|reviewer found|from (its|the) .{0,30}review",
-				p,
+				provText,
 			) ||
-			R("review findings|review found", t),
+			matches("review findings|review found", title),
 	],
 	[
 		"ruling-impl",
-		({ p }) =>
-			R("\\bruled\\b|ruling", p.slice(0, RULED_CHARS)) && !R("census row", p),
+		({ provText }) =>
+			matches("\\bruled\\b|ruling", provText.slice(0, RULED_CHARS)) &&
+			!matches("census row", provText),
 	],
 	[
 		"measure-census",
-		({ t, p }) =>
-			R(
+		({ title, provText }) =>
+			matches(
 				"census row|census found|census re|re-measure (the|of)|re-anchor|found by .{0,20}(census|measurement)|measured by",
-				p,
-			) || R("^(re-measure|census|measure)", t),
+				provText,
+			) || matches("^(re-measure|census|measure)", title),
 	],
 	[
 		"incident",
-		({ p }) => R("memory kill|incident|rcu stall|\\bstall\\b|freeze|oom", p),
+		({ provText }) =>
+			matches(
+				"memory kill|incident|rcu stall|\\bstall\\b|freeze|oom",
+				provText,
+			),
 	],
-	["audit", ({ p }) => R("\\baudit\\b|screen the", p)],
-	["code-review", ({ p }) => R("whole-spec|spec review", p)],
-	["triage", ({ L, p }) => R("triage", p) || L.has("takes:triage")],
+	["audit", ({ provText }) => matches("\\baudit\\b|screen the", provText)],
+	[
+		"code-review",
+		({ provText }) => matches("whole-spec|spec review", provText),
+	],
+	[
+		"triage",
+		({ labels, provText }) =>
+			matches("triage", provText) || labels.has("takes:triage"),
+	],
 	[
 		"ruling-impl",
-		({ p }) => R("ruled at|ruling|ruled this|founder ruled|q\\d+ \\(", p),
+		({ provText }) =>
+			matches("ruled at|ruling|ruled this|founder ruled|q\\d+ \\(", provText),
 	],
 	[
 		"founder-raised",
-		({ L, p }) =>
-			R(
+		({ labels, provText }) =>
+			matches(
 				"founder (asked|raised|reported|wants|requires|said|noticed|saw)|founder's (request|report|question)|raised by|from luc|\\bluc (asked|said|wants)",
-				p,
-			) || L.has("takes:human"),
+				provText,
+			) || labels.has("takes:human"),
 	],
 	[
 		"to-tickets-child",
-		({ b, sl }) => /^## parent/im.test(b) || sl.startsWith("Part of"),
+		({ body, provLine }) =>
+			/^## parent/im.test(body) || provLine.startsWith("Part of"),
 	],
-	["split", ({ p }) => R("split (out )?(of|from)", p)],
+	["split", ({ provText }) => matches("split (out )?(of|from)", provText)],
 	[
 		"measure-census",
-		({ p }) => R("\\b(reading|readout) found|queue-wait reading", p),
+		({ provText }) =>
+			matches("\\b(reading|readout) found|queue-wait reading", provText),
 	],
-	["code-review", ({ p }) => R("found reviewing|reviewing", p)],
+	[
+		"code-review",
+		({ provText }) => matches("found reviewing|reviewing", provText),
+	],
 	[
 		"found-in-passing",
-		({ p }) =>
-			R(
+		({ provText }) =>
+			matches(
 				"found (on|while|during|in passing|by|building|running)|met (in passing|while|carrying)|incidental|exposed|surfaced|fallout|left by|broken by|caused by|a corner|corner from|flake|seen once|a defect in|a gate gap",
-				p,
+				provText,
 			),
 	],
 	[
 		"follow-up",
-		({ p }) =>
-			R(
+		({ provText }) =>
+			matches(
 				"follow.?up|follow-on|companion|adopter half|stopgap|residue|left after",
-				p,
+				provText,
 			),
 	],
 ];
 
-/** @param {Set<string>} L */
-const isWayfinder = (L) =>
-	L.has("takes:wayfinder") || [...L].some((x) => x.startsWith("wayfinder:"));
+/** @param {Set<string>} labels */
+const isWayfinder = (labels) =>
+	labels.has("takes:wayfinder") ||
+	[...labels].some((x) => x.startsWith("wayfinder:"));
 
 /**
  * The trial's own class for one issue, before mapping.
@@ -219,13 +264,13 @@ const isWayfinder = (L) =>
  * @returns {string}
  */
 function trialOrigin(issue) {
-	const b = issue.body ?? "";
+	const body = issue.body ?? "";
 	/** @type {Read} */
 	const read = {
-		t: issue.title ?? "",
-		L: new Set((issue.labels ?? []).map(labelName)),
-		b,
-		...prov(b),
+		title: issue.title ?? "",
+		labels: new Set((issue.labels ?? []).map(labelName)),
+		body,
+		...provenance(body),
 	};
 	return RULES.find(([, holds]) => holds(read))?.[0] ?? UNMARKED;
 }

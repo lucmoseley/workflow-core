@@ -4,8 +4,8 @@
  * (#4797, spec #4796 §Testing Decisions, Seam 2). Break it and a fix is kept
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
- * dropped, a missed signature goes unlisted, or a finding filed in an
- * adopter's tracker is never judged (#4858).
+ * dropped, a missed signature or a line lost with its worktree goes
+ * unlisted, or a finding filed in an adopter's tracker is never judged (#4858).
  */
 
 import { execFileSync } from "node:child_process";
@@ -153,7 +153,7 @@ function scratch() {
 			writeTranscript(
 				path.join(dir, `${id}.jsonl`),
 				r.founder("go"),
-				...Array.from({ length: hits }, () => r.assistant(`${word} again`)),
+				...Array.from({ length: hits }, () => r.toolResult(`${word} again`)),
 				r.assistant("done"),
 			);
 			if (subHits) {
@@ -161,7 +161,7 @@ function scratch() {
 				fs.mkdirSync(sub, { recursive: true });
 				writeTranscript(
 					path.join(sub, "agent-a1.jsonl"),
-					...Array.from({ length: subHits }, () => r.assistant(word)),
+					...Array.from({ length: subHits }, () => r.toolResult(word)),
 				);
 			}
 		},
@@ -192,8 +192,9 @@ if (argv[0] === "issue" && argv[1] === "view") {
   out(JSON.stringify({ state: i.state ?? "CLOSED" }));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--repo") === failingList) {
   err("HTTP 502: bad gateway\\n"); exit(1);
-} else if (argv[0] === "issue" && argv[1] === "list" && flag("--label") === "bug") {
-  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes("bug")).map(row)));
+} else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
+  const closedOnly = flag("--state") === "closed";
+  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--state") === "closed") {
   out(JSON.stringify(inRepo.filter((i) => i.closedAt).map(row)));
 } else { err("unrouted: " + argv.join(" ") + "\\n"); exit(1); }
@@ -243,7 +244,7 @@ function afterFix(f: Fixture, n: number, hits: number, from = 0) {
 }
 
 const outcome = (
-	out: { outcomes: { finding: string; why?: string }[] },
+	out: { outcomes: { finding: string; why?: string; expected?: number }[] },
 	n = 1,
 ) => out.outcomes.find((o) => o.finding === `${TRACKER}#${n}`);
 
@@ -290,7 +291,7 @@ describe("measure-outcome-review.js", () => {
 			sessions: 3,
 			observed: 0,
 			expected: 3,
-			baseline: { count: 4, sessions: 4, rate: 1 },
+			baseline: { count: 4, sessions: 4 },
 			guardrails: { reverts: [], followOns: [] },
 			unwindIssue: null,
 			late: false,
@@ -417,7 +418,7 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out)).toMatchObject({
 			sessions: 6,
 			expected: 3,
-			baseline: { count: 2, sessions: 4, rate: 0.5 },
+			baseline: { count: 2, sessions: 4 },
 			window: {
 				start: d(FIXED),
 				/* The sixth session's first record, a second into its day. */
@@ -438,7 +439,7 @@ describe("measure-outcome-review.js", () => {
 		afterFix(f, 3, 0);
 		const { out } = f.run();
 		expect(outcome(out)).toMatchObject({
-			baseline: { count: 4, sessions: 4, rate: 1 },
+			baseline: { count: 4, sessions: 4 },
 		});
 	});
 
@@ -452,7 +453,7 @@ describe("measure-outcome-review.js", () => {
 		const { out } = f.run();
 		/* b0 is in both seats; b4's two hits are its subagent's. */
 		expect(outcome(out)).toMatchObject({
-			baseline: { count: 6, sessions: 5, rate: 1.2 },
+			baseline: { count: 6, sessions: 5 },
 		});
 	});
 
@@ -466,7 +467,7 @@ describe("measure-outcome-review.js", () => {
 					class: "NEW",
 					cites: "#0",
 					signature: SIG,
-					baseline: { count: 3, sessions: 3, rate: 1 },
+					baseline: { count: 3, sessions: 3 },
 					prediction: "stops",
 				},
 			],
@@ -477,8 +478,26 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out)).toMatchObject({
 			verdict: "keep",
 			sessions: 3,
-			baseline: { count: 3, sessions: 3, rate: 1 },
+			baseline: { count: 3, sessions: 3 },
 		});
+	});
+
+	it("works a rare fault's rate out from its stored counts, never as 0", () => {
+		const f = scratch();
+		fixedFinding(f);
+		f.runLine({
+			findings: [
+				{
+					issue: `${TRACKER}#1`,
+					signature: SIG,
+					baseline: { count: 1, sessions: 3000 },
+				},
+			],
+		});
+		afterFix(f, 3, 0);
+		const o = outcome(f.run().out);
+		expect(o).toMatchObject({ verdict: "extend", sessions: 3 });
+		expect(o?.expected).toBeCloseTo(0.001, 9);
 	});
 
 	it("reports late findings apart and lists settled ones without reading them", () => {
@@ -566,7 +585,7 @@ describe("measure-outcome-review.js", () => {
 		expect(out.flipDue.why).toMatch(/carried backlog 12 is over 10/);
 	});
 
-	it("lists the week's landed fault-shaped closes with no signature, and the week's bug closes declared no-fault", () => {
+	it("lists the week's landed fault-shaped closes with no signature, a session's no-fault among them, and the week's other bug closes declared no-fault", () => {
 		const f = scratch();
 		f.commit("Initial", 1);
 		const closed = (
@@ -582,12 +601,14 @@ describe("measure-outcome-review.js", () => {
 		closed(24, "Signed already", 57, ["bug"]);
 		closed(25, "Closed too long ago", 49, ["bug"]);
 		closed(26, "Fix the dropped queue ref", 57, ["origin:lander-script"]);
+		closed(27, "Lander drops a ref", 57, ["bug", "origin:triage"]);
 		f.commit("Read refs once (#20)", 55);
 		f.commit("Stop the dashboard stalling (#21)", 56);
 		f.commit("Add the panel (#22)", 56);
 		f.commit("Sign it (#24)", 56);
 		f.commit("Old (#25)", 48);
 		f.commit("Fix the dropped ref (#26)", 56);
+		f.commit("Keep the ref (#27)", 56);
 		f.signatureLine(24, { signature: null, why: "no trace" });
 		closed(40, "no-fault bug", 57, ["bug", "origin:triage"]);
 		closed(41, "signed bug", 57, ["bug", "origin:audit"]);
@@ -608,12 +629,141 @@ describe("measure-outcome-review.js", () => {
 				issue: `${TRACKER}#21`,
 				why: ["fault-shaped commit subject"],
 			}),
+			expect.objectContaining({
+				issue: `${TRACKER}#27`,
+				why: ["bug", "fault-shaped title"],
+			}),
 		]);
-		expect(out.outcomeStep.misses).toBe(2);
-		/* Only the week's closes: #43 closed long ago and #45 is open. */
+		expect(out.outcomeStep.misses).toBe(3);
+		/* Only the week's closes: #43 closed long ago and #45 is open; #27 is
+		 * a miss already. */
 		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).toEqual([
 			`${TRACKER}#40`,
 		]);
+	});
+
+	describe("a declared line lost with its worktree (#4861)", () => {
+		const lostLine = {
+			filedAt: d(FILED),
+			signature: SIG,
+			prediction: "the boom stops",
+			case: { session: "s", line: 1 },
+		};
+		const section = (line: unknown) =>
+			`Body.\n\n## Fault signature\n\n\`\`\`json\n${JSON.stringify(line)}\n\`\`\`\n`;
+
+		it("lists a closed labelled ticket with no line, with the line its body records, apart from the no-fault bugs", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.commit("Stop the boom (#50)", 56);
+			f.issues.push(
+				{
+					number: 50,
+					title: "Fix the boom",
+					closedAt: d(57),
+					labels: ["bug", "origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 51,
+					title: "Closed months ago",
+					closedAt: d(2),
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 52,
+					title: "Still open",
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+				{
+					number: 53,
+					title: "Landed fine",
+					closedAt: d(57),
+					labels: ["origin:triage", "fault-signature"],
+					body: section(lostLine),
+				},
+			);
+			f.signatureLine(53);
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.lostLines).toEqual([
+				{
+					issue: `${TRACKER}#50`,
+					title: "Fix the boom",
+					line: { issue: `${TRACKER}#50`, ...lostLine },
+				},
+				expect.objectContaining({ issue: `${TRACKER}#51` }),
+			]);
+			expect(out.noFaultBug).toEqual([]);
+			expect(out.misses).toEqual([]);
+		});
+
+		it("lists a lost late line, which carries no origin label, as lost and not as a miss", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.commit("Stop the boom (#50)", 56);
+			f.issues.push({
+				number: 50,
+				title: "Fix the boom",
+				closedAt: d(57),
+				labels: ["bug", "fault-signature"],
+				body: section({ ...lostLine, late: true }),
+			});
+			const { out } = f.run();
+			expect(out.misses).toEqual([]);
+			expect(out.lostLines).toEqual([
+				expect.objectContaining({
+					issue: `${TRACKER}#50`,
+					line: expect.objectContaining({ late: true }),
+				}),
+			]);
+		});
+
+		it("lists it UNRECOVERABLE where the body section is gone", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.issues.push({
+				number: 50,
+				title: "Fix the boom",
+				closedAt: d(57),
+				labels: ["origin:triage", "fault-signature"],
+				body: "Body, its section edited away.",
+			});
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			expect(out.lostLines).toEqual([
+				expect.objectContaining({ issue: `${TRACKER}#50`, line: null }),
+			]);
+		});
+
+		it("reads two identical lines for one issue as one finding, and names two differing ones a conflict", () => {
+			const f = scratch();
+			baselineOfOne(f);
+			fixedFinding(f);
+			f.signatureLine(1);
+			f.issues.push({ number: 2, title: "Another boom" });
+			f.signatureLine(2);
+			f.signatureLine(2, { prediction: "a different prediction" });
+			const { out } = f.run();
+			expect(
+				out.outcomes.filter((o: { finding: string }) =>
+					o.finding.startsWith(TRACKER),
+				),
+			).toHaveLength(1);
+			expect(outcome(out, 1)).toBeDefined();
+			expect(outcome(out, 2)).toBeUndefined();
+			expect(out.conflicts).toEqual([
+				{
+					issue: `${TRACKER}#2`,
+					lines: [
+						expect.objectContaining({ prediction: "the boom stops" }),
+						expect.objectContaining({ prediction: "a different prediction" }),
+					],
+				},
+			]);
+		});
 	});
 
 	it("is due its flip check at the 4th run to reach a verdict, or 2 over budget", () => {
@@ -632,6 +782,11 @@ describe("measure-outcome-review.js", () => {
 		f.runLine(verdictLine);
 		expect(f.run().out.flipDue).toEqual({
 			due: true,
+			bars: [
+				"fewer than half of the closed unwind tickets landed a revert that held 14 days",
+				"any unwound change was landed again",
+				"fewer than 5 verdicts were reached",
+			],
 			why: "4 runs reached a verdict (due at 4)",
 		});
 	});
@@ -643,6 +798,32 @@ describe("measure-outcome-review.js", () => {
 		expect(f.run().out.flipDue).toMatchObject({ due: false });
 		f.runLine({ outcomeStep: { tokens: 45_000, misses: 0, backlog: [] } });
 		expect(f.run().out.flipDue).toMatchObject({ due: true });
+	});
+
+	it("names a logged signature that does not compile, and reads no finding from it", () => {
+		const f = scratch();
+		f.commit("Initial", 1);
+		f.issues.push({ number: 5, title: "bad pattern" });
+		f.signatureLine(5, {
+			signature: { kind: "regex", pattern: "(", scope: "both" },
+		});
+		const { status, out } = f.run();
+		expect(status).toBe(1);
+		expect(out.outcomes).toEqual([]);
+		expect(out.failures.join("\n")).toMatch(
+			/signature log line for "o\/t#5": the pattern does not compile/,
+		);
+	});
+
+	it("names a log that will not read, and exits 1", () => {
+		const f = scratch();
+		f.commit("Initial", 1);
+		fs.mkdirSync(path.join(f.root, "docs", "data", "retro-runs.jsonl"));
+		const { status, out } = f.run();
+		expect(status).toBe(1);
+		expect(out.failures.join("\n")).toMatch(
+			/docs\/data\/retro-runs\.jsonl will not read \(EISDIR\)/,
+		);
 	});
 
 	it("names a failed issue read, gives no verdict on it, and exits 1", () => {
@@ -806,7 +987,7 @@ describe("--baseline, a finding's baseline at filing", () => {
 		expect(out).toMatchObject({
 			filedAt: d(FILED),
 			window: { start: d(0), end: d(28) },
-			baseline: { count: 4, sessions: 4, rate: 1 },
+			baseline: { count: 4, sessions: 4 },
 			failures: [],
 		});
 	});

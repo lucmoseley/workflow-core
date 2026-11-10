@@ -169,10 +169,16 @@ alias.
    `$R/sig-<k>.json` is the finding's fault signature, shaped as
    `scripts/lib/fault-signature.js` says: a guard needle key or a transcript
    regex with its scope, a prediction, and the `case` — the session id and
-   raw-log line the brief's evidence cites (`agent` where it is a subagent's
-   line). `"signature": null` with a `why` where the fault leaves no
-   countable trace. file-issue.js refuses a signature that misses its case:
-   fix the signature, never the case.
+   raw-log line where the fault surfaces (`agent` where it is a subagent's
+   line). A regex reads `output` by default: the case is then the output
+   record — a tool_result, a hook attachment, a Stop hook feedback `user`
+   record, a system record. Give `"reads": "call"` for a fault whose only
+   trace is a tool call the session made, with `"tool"` naming the tool
+   (`"Bash"`); the case is then that `tool_use`
+   record, never the session's prose about it. `"signature": null`
+   with a `why` where the fault leaves no countable trace. file-issue.js
+   refuses a signature that misses its case: fix the signature, or move the
+   case to the line where the fault surfaces.
 
    `<spec>` is `#948` in workflow-core. Exit 1 is a `gh` call that did not
    land: re-run once, reading its message first, since a create that landed
@@ -235,11 +241,18 @@ not take stays `waiting`. The close's `**Bound:**` line names each repo in
    node scripts/log-late-signature.js --issue <owner/name>#<n> \
      --filed-at <the ticket's createdAt> --fault-signature "$R/late-<k>.json"
    ```
+
+   **Restore each lost line** in `.lostLines`, a ticket whose declared line
+   never reached `main`. Where its `line` is set, append it unchanged:
+   `node scripts/log-late-signature.js --restore <owner/name>#<n>`. Where it is
+   `null` (UNRECOVERABLE), log it late as above. Each `.conflicts` entry names
+   one issue's differing lines: keep the one without `late` (the original
+   filing) and drop the other from the log.
 4. **Flip check:** where `.flipDue.due`, and no open or closed
    "outcome review flip check" issue covers this run (§2 snapshot), file a
    `takes:wayfinder` issue,
    `--standalone "retro-sweep outcome review flip check (#4796)" --origin retro --no-fault`,
-   giving `.flipDue.why`.
+   giving `.flipDue.why` and each of `.flipDue.bars`.
 
 ## 6b. Ticket mix — weekly only
 
@@ -257,7 +270,7 @@ Reads the week's filed issues (#4796, #4629). Budget
    each run line it could not read; repair that line in the record.
 2. **Assign** every title of the week, in batches, to one kind in
    `docs/data/ticket-kinds.json`, reading titles only. Add a kind —
-   `{id, meaning, firstSeen}` with this week's date — only where none fits;
+   `{id, meaning, firstSeen}`, `firstSeen` today's UTC date (`date -u +%F`) — only where none fits;
    never re-cluster. Write `$R/assigned.json`, `{"<owner/name>#<n>": "<kind id>"}`.
 3. **Trigger**:
 
@@ -285,7 +298,8 @@ Reads the week's filed issues (#4796, #4629). Budget
    joins `ticketMixStep.watch` (§7) and is listed in the close comment.
 6. **Flip check:** where `.flip.due`, and no "ticket mix flip check" issue
    covers it (§2 snapshot), file a `takes:wayfinder` issue,
-   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`.
+   `--standalone "retro-sweep ticket mix flip check (#4796)" --origin retro --no-fault`,
+   giving `.flip.bar`.
 
 ## 7. Run record
 
@@ -308,12 +322,12 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   filed `<owner/name>#<n>` or `null`; `class` its §6 class (`NEW`, `OPEN`, …);
   `cites` the earlier issue or commit it pointed at; `signature` (or `null`
   and `why`) and `prediction` as filed; `baseline` the signature's count and
-  sessions over the 4 weeks before filing, the trigger week excluded, with its
-  per-session rate: `.baseline` of `node scripts/measure-outcome-review.js
+  sessions over the 4 weeks before filing, the trigger week excluded: `.baseline` of `node scripts/measure-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
-  and `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
+  (`null` where `.outcomeStep.misses` is: a tracker went unread) and
+  `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
   `ticketMixStep` its cost, the week's total, the issues it filed and the
   watch kinds. A calibrate line carries none of the four.
 

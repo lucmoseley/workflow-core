@@ -29,8 +29,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 /**
- * A core scripts/lib module, relative to this file as claimTarget's arbiter
- * is. The one caller that runs a COPY of this file is
+ * A core scripts/lib module, relative to this file: the skill is a sibling of
+ * scripts/, so walking up from __dirname is right by construction, where
+ * CLAUDE_PROJECT_DIR names the session's repo, not this checkout. The one caller that runs a COPY of this file is
  * scripts/check-digest-render.js, from the staged copy pre-commit writes to a
  * temp dir where no sibling scripts/ exists; it names its own scripts dir in
  * WFC_CORE_SCRIPTS_DIR for this fallback (#3).
@@ -54,6 +55,8 @@ function coreLib(name) {
 const { requireKey } = coreLib("workflow-core-config");
 /** @type {typeof import("../../../../scripts/lib/write-fd.js")} */
 const { writeFd } = coreLib("write-fd.js");
+/** @type {typeof import("../../../../scripts/lib/script-claim.js")} */
+const { claimByArbiter } = coreLib("script-claim.js");
 
 /**
  * @typedef {{id: string, state: string, t: string, p: number, needs?: string[],
@@ -63,29 +66,15 @@ const { writeFd } = coreLib("write-fd.js");
 
 /**
  * Take the file-claim on `target`, passing on the arbiter's warning where a
- * live neighbour holds it too (#4249). A missing or broken arbiter must not
+ * live neighbour holds it too (#4249). A refused or broken claim must not
  * stop the digest being generated (mantahostels#103 §6).
  * @param {string} target
  */
 function claimTarget(target) {
-	// Resolved relative to this file, NOT from CLAUDE_PROJECT_DIR: that names the
-	// repo the *session* is working on, which need not be the checkout this skill
-	// lives in, and pointing at the wrong root makes the arbiter look missing and
-	// the claim silently skip. The arbiter is a sibling of this skill, so walking
-	// up from __dirname is the only resolution that is right by construction.
-	const arbiter = path.resolve(
-		__dirname,
-		"../../../../scripts/session-arbiter.js",
-	);
-	if (!fs.existsSync(arbiter)) return;
-	const r = require("node:child_process").spawnSync(
-		process.execPath,
-		[arbiter, "claim", target],
-		{ encoding: "utf8" },
-	);
-	const said = r.error
-		? `no claim taken on ${target}: the arbiter did not run (${r.error.message})`
-		: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+	const claim = claimByArbiter(target);
+	const said = claim.claimed
+		? claim.warning
+		: `no claim taken on ${target}: ${claim.why}`;
 	if (said) writeFd(2, `${said}\n`);
 }
 
