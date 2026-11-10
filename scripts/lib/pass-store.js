@@ -20,6 +20,15 @@
  * over voids the row. `globalSetup`'s closure
  * is in no row (#2818: it runs once, outside every file); a test that breaks only through it is the lander's to catch.
  *
+ * AND WHAT THE READ AUDIT SAW IT READ (lib/read-audit.js, #4916): a path built
+ * at run time — a helper's default root, a listing of the live tree — that no
+ * lexical rule can find. Each file it read or probed is an input; each path it
+ * found absent is `absent`; each directory it found must still be one; each
+ * directory it listed keeps its listing's id, judged on the names git tracks
+ * when recorded and on the names standing at lookup; a tree it walked whole
+ * stands for every tracked file and listing under it; a script a shell or
+ * Python child ran is reached as a spawned script is.
+ *
  * THE LOOKUP IS BY CONTENT (lib/content-ids.js, the classifier's judge): the
  * newest result whose every input holds unchanged in the working tree
  * decides, a pass caching the file and a fail running it.
@@ -32,10 +41,8 @@
  * place, a JSX or TSX file on the reach, or a load on it the walk cannot
  * read (lib/code-edges.js's `unread`: an inline program's, a JS load of no
  * literal, or a shell load spelled off anything but the script's own
- * directory), records no row for the files it reaches, as a test file
- * making a read the read-edge selector cannot attribute records none
- * (`generate-test-read-edges.js --unseen`, its `full-sweep-only:` header
- * aside; a helper's own such read is the residual); an input rewritten while the run ran, untracked, gitignored
+ * directory), records no row for the files it reaches; a file the audit
+ * holds no reads for, or doubts, records none; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -49,6 +56,7 @@
  * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
  */
 
+const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -61,7 +69,12 @@ const {
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { relativeUnder } = require("./is-under.js");
-const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	execGit,
+	gitBinary,
+	gitSpawnOptions,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
 	ABSENT,
@@ -84,7 +97,8 @@ const {
 	readDocsByTest,
 	shortSha,
 } = require("./test-pass-marker.js");
-const { readWorkingTree, unseenReadsOf } = require("./test-read-edges.js");
+const { readWorkingTree } = require("./test-read-edges.js");
+const { listingId } = require("./listing-id.js");
 const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
@@ -103,7 +117,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 7;
+const FORMAT = 8;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -113,11 +127,14 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{file: string, outcome: Outcome, imports: string[]}} FileResult
  * @typedef {{sha: string, at: string, tree: string|null, root: string,
  *   files: FileResult[], shared: string[], clean: boolean,
- *   drifted: string[]|null}} Run
+ *   drifted: string[]|null,
+ *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
  *   `root` the tree vitest ran in, paths relative to it; `shared` the config
  *   file and its `setupFiles` closure; `clean` false where the run errored
  *   outside its files, was interrupted or filtered by name; `drifted` the
- *   paths rewritten while it ran, null where that is unknown
+ *   paths rewritten while it ran, null where that is unknown; `audits` each
+ *   file's reads as the read audit saw them (lib/read-audit.js), null where
+ *   the run was not audited
  * @typedef {{sha: string, at: string, tree: string|null}} Source
  * @typedef {{file: string, source: Source, reads: string[]}} Cached
  *   `reads` the row's input paths, the file's own and the shared ones
@@ -362,26 +379,6 @@ function readEdges(root, rel) {
 }
 
 /**
- * Whether a test file at `root` makes a read the read-edge selector cannot
- * attribute (lib/test-read-edges.js's `unseenReadsOf`, which
- * `generate-test-read-edges.js --unseen` lists): an input the reach cannot
- * know, so the file records no row. A file that will not read is unseen.
- * The tracked list is read once, where a file first needs it.
- * @param {string} root
- * @returns {(file: string, reads: string[]) => boolean}
- */
-function unseenReader(root) {
-	/** @type {Set<string> | undefined} */
-	let tracked;
-	return (file, reads) => {
-		const read = readText(path.join(root, file));
-		if (read.state !== "read") return true;
-		tracked ??= readWorkingTree(root).tracked;
-		return unseenReadsOf(file, read.data, tracked, new Set(reads)).length > 0;
-	};
-}
-
-/**
  * `paths` under `root` and outside every `node_modules`, repo-relative.
  * @param {string} root
  * @param {string[]} paths absolute
@@ -408,6 +405,291 @@ const sharedInputs = (root, shared) => [
 ];
 
 /**
+ * @typedef {{listing: (dir: string) => string|null,
+ *   isDir: (dir: string) => boolean,
+ *   git: (key: string) => string|null}} TreeAt
+ *   what a tree answers beyond its files: each directory's listing id, null
+ *   where none stands; whether one stands; and a git call's output id, by its
+ *   key (lib/read-audit.js's `GitCall` as JSON), null where it cannot run
+ */
+
+/* The variables that point git at a repository: a test's call ran with
+ * none (vitest.setup.ts), so its run again does too. */
+const GIT_DIR_VARS = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_COMMON_DIR",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_PREFIX",
+];
+
+/**
+ * A git call run again at `root`: the id of its exit status and output.
+ * Memoised, as many rows rest on one call. Null where its key will not
+ * parse or the call will not run.
+ * @param {string} root
+ * @returns {(key: string) => string|null}
+ */
+function gitRunner(root) {
+	/** @type {Map<string, string|null>} */
+	const memo = new Map();
+	const env = { ...process.env };
+	for (const v of GIT_DIR_VARS) delete env[v];
+	return (key) => {
+		if (memo.has(key)) return memo.get(key) ?? null;
+		let id = null;
+		try {
+			const { cwd, args } = JSON.parse(key);
+			const r = spawnSync(
+				gitBinary(),
+				args,
+				gitSpawnOptions({
+					cwd: path.join(root, cwd),
+					env,
+					timeout: GIT_TIMEOUT_MS,
+				}),
+			);
+			if (!r.error && r.status !== null)
+				id = crypto
+					.createHash("sha1")
+					.update(`${r.status}\0`)
+					.update(r.stdout)
+					.digest("hex");
+		} catch {
+			id = null;
+		}
+		memo.set(key, id);
+		return id;
+	};
+}
+
+/**
+ * The working tree at `root`, beyond its files.
+ * @param {string} root
+ * @returns {TreeAt}
+ */
+function workingAt(root) {
+	return {
+		git: gitRunner(root),
+		listing: (dir) => {
+			try {
+				return listingId(fs.readdirSync(path.join(root, dir)));
+			} catch {
+				return null;
+			}
+		},
+		isDir: (dir) => {
+			try {
+				return fs.statSync(path.join(root, dir)).isDirectory();
+			} catch {
+				return false;
+			}
+		},
+	};
+}
+
+/**
+ * What `treeish` holds beyond its files, read through `git`.
+ * @param {(args: string[]) => string} git
+ * @param {string} treeish
+ * @returns {TreeAt}
+ */
+function commitAt(git, treeish) {
+	const names = (/** @type {string} */ dir) => {
+		try {
+			const spec = `${treeish}:${dir === "." ? "" : dir}`;
+			if (git(["cat-file", "-t", spec]).trim() !== "tree") return null;
+			return git(["ls-tree", "-z", "--name-only", spec])
+				.split("\0")
+				.filter(Boolean);
+		} catch {
+			return null;
+		}
+	};
+	return {
+		listing: (dir) => {
+			const found = names(dir);
+			return found === null ? null : listingId(found);
+		},
+		isDir: (dir) => names(dir) !== null,
+		/* A commit's tree runs no command: a row resting on one never holds there. */
+		git: () => null,
+	};
+}
+
+/**
+ * Whether everything beyond its files a row rests on stands in `at` as it
+ * did: each listing with its id, each probed directory a directory still,
+ * each git call answering as it did.
+ * @param {{listings?: unknown, dirs?: unknown, git?: unknown}} rested
+ * @param {TreeAt} at
+ */
+function isTreeHolding({ listings, dirs, git }, at) {
+	const lists = asIds(listings);
+	const calls = asIds(git);
+	if (!lists || !calls || !Array.isArray(dirs)) return false;
+	return (
+		[...lists].every(([dir, id]) => at.listing(dir) === id) &&
+		dirs.every((dir) => typeof dir === "string" && at.isDir(dir)) &&
+		[...calls].every(([key, id]) => at.git(key) === id)
+	);
+}
+
+/**
+ * Each tracked directory's names at `root`, off git's index: the listing a
+ * test may rest on, since an untracked or ignored name is no input. Read
+ * once, where a file first needs it.
+ * @param {string} root
+ * @returns {() => Map<string, Set<string>>}
+ */
+function trackedListings(root) {
+	/** @type {Map<string, Set<string>> | undefined} */
+	let byDir;
+	return () => {
+		if (byDir) return byDir;
+		/** @type {Map<string, Set<string>>} */
+		const found = new Map([[".", new Set()]]);
+		for (const p of readWorkingTree(root).tracked) {
+			const parts = p.split("/");
+			for (let i = 0; i < parts.length; i++) {
+				const dir = i === 0 ? "." : parts.slice(0, i).join("/");
+				const names = found.get(dir) ?? new Set();
+				names.add(/** @type {string} */ (parts[i]));
+				found.set(dir, names);
+			}
+		}
+		byDir = found;
+		return found;
+	};
+}
+
+/**
+ * The inputs a file's audited reads add: its files, absent paths and
+ * probed directories, and each listing with its id, a tree walked whole
+ * standing for every tracked file and listing under it. Null where a
+ * listing the test made, or a tree it walked, held a name git does not
+ * track: an untracked input records no row.
+ * @param {import("./read-audit.js").Reads} reads
+ * @param {() => Map<string, Set<string>>} listings
+ * @param {TreeAt} disk the working tree's directories
+ * @returns {{files: string[], absent: string[], dirs: string[],
+ *   listings: Record<string, string>, git: Record<string, string>}|null}
+ */
+function auditInputs(reads, listings, disk) {
+	const lists = Object.entries(reads.lists);
+	const tracked =
+		lists.length + reads.trees.length > 0 ? listings() : new Map();
+	const idOf = (/** @type {string} */ dir) =>
+		listingId([...(tracked.get(dir) ?? [])]);
+	/** @type {Record<string, string>} */
+	const listed = {};
+	for (const [dir, id] of lists) {
+		if (idOf(dir) !== id) return null;
+		listed[dir] = id;
+	}
+	const files = [...reads.files];
+	for (const top of reads.trees) {
+		const tree = treeInputs(top, tracked, disk);
+		if (!tree) return null;
+		files.push(...tree.files);
+		Object.assign(listed, tree.listings);
+	}
+	/** @type {Record<string, string>} */
+	const git = {};
+	for (const call of reads.git) {
+		const key = JSON.stringify(call);
+		const id = disk.git(key);
+		if (id === null) return null;
+		git[key] = id;
+	}
+	return {
+		files: [...new Set(files)],
+		absent: reads.absent,
+		dirs: reads.dirs,
+		listings: listed,
+		git,
+	};
+}
+
+/**
+ * What a tree walked or copied whole rests on: every tracked file under
+ * `top`, or `top` itself where it is no tracked directory, and every tracked
+ * directory's listing under it. Null where a listing on disk holds a name
+ * git does not track, which the walk saw.
+ * @param {string} top
+ * @param {Map<string, Set<string>>} tracked
+ * @param {TreeAt} disk
+ * @returns {{files: string[], listings: Record<string, string>}|null}
+ */
+function treeInputs(top, tracked, disk) {
+	const files = tracked.has(top) ? [] : [top];
+	/** @type {Record<string, string>} */
+	const listings = {};
+	for (const [dir, names] of tracked) {
+		if (!(top === "." || dir === top || dir.startsWith(`${top}/`))) continue;
+		const id = listingId([...names]);
+		if (disk.listing(dir) !== id) return null;
+		listings[dir] = id;
+		for (const name of names) {
+			const p = dir === "." ? name : `${dir}/${name}`;
+			if (!tracked.has(p)) files.push(p);
+		}
+	}
+	return { files, listings };
+}
+
+/**
+ * One ran file's inputs, or null where any is unknown: its audit is missing
+ * or in doubt, a listing it rests on holds an untracked name, or a file on
+ * its reach will not read.
+ * @param {FileResult} f
+ * @param {{run: Run, reads: Map<string, string[]>,
+ *   reach: (file: string) => Reach|null,
+ *   listings: () => Map<string, Set<string>>, disk: TreeAt}} ctx
+ */
+function fileInputs(f, { run, reads, reach, listings, disk }) {
+	const audit = run.audits?.get(f.file);
+	if (!audit || !("reads" in audit)) return null;
+	const seen = auditInputs(audit.reads, listings, disk);
+	if (!seen) return null;
+	/* A script the manifest says the file reads is reached too, as it
+	 * may spawn it: its own requires are inputs that no import and no
+	 * `__dirname` join names. A read holding no script reaches none.
+	 * The config and setup files run before every file, so what they
+	 * reach, which vite's graph never records, is each file's too, as
+	 * is what a script the audit saw a child run reaches. */
+	const spawned = reads.get(f.file) ?? [];
+	const reaches = [
+		f.file,
+		...f.imports,
+		...spawned,
+		...run.shared,
+		...audit.reads.scripts,
+	].map(reach);
+	if (reaches.includes(null)) return null;
+	const reached = /** @type {Reach[]} */ (reaches);
+	const paths = [
+		...new Set([
+			f.file,
+			...f.imports,
+			...reached.flatMap((r) => r.edges),
+			...(reads.get(f.file) ?? []),
+			...snapshotOf(run.root, f.file),
+			...audit.reads.scripts,
+			...seen.files,
+		]),
+	];
+	const absent = [
+		...new Set([...reached.flatMap((r) => r.shadows), ...seen.absent]),
+	].filter((p) => !paths.includes(p));
+	const python = reached.some((r) => r.python);
+	if (!isTreeHolding(seen, disk)) return null;
+	return { ...f, paths, absent, python, seen };
+}
+
+/**
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
  * alone: its passes cannot be trusted, but a fail row only ever makes a file
@@ -431,34 +713,11 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		);
 		const shared = sharedInputs(run.root, run.shared);
 		const reach = lexicalReach(run.root);
-		const isUnseen = unseenReader(run.root);
+		const listings = trackedListings(run.root);
+		const disk = workingAt(run.root);
 		const own = files.flatMap((f) => {
-			if (isUnseen(f.file, reads.get(f.file) ?? [])) return [];
-			/* A script the manifest says the file reads is reached too, as it
-			 * may spawn it: its own requires are inputs that no import and no
-			 * `__dirname` join names. A read holding no script reaches none.
-			 * The config and setup files run before every file, so what they
-			 * reach, which vite's graph never records, is each file's too. */
-			const spawned = reads.get(f.file) ?? [];
-			const reaches = [f.file, ...f.imports, ...spawned, ...run.shared].map(
-				reach,
-			);
-			if (reaches.includes(null)) return [];
-			const reached = /** @type {Reach[]} */ (reaches);
-			const paths = [
-				...new Set([
-					f.file,
-					...f.imports,
-					...reached.flatMap((r) => r.edges),
-					...(reads.get(f.file) ?? []),
-					...snapshotOf(run.root, f.file),
-				]),
-			];
-			const absent = [...new Set(reached.flatMap((r) => r.shadows))].filter(
-				(p) => !paths.includes(p),
-			);
-			const python = reached.some((r) => r.python);
-			return [{ ...f, paths, absent, python }];
+			const found = fileInputs(f, { run, reads, reach, listings, disk });
+			return found ? [found] : [];
 		});
 		const all = [...shared, ...own.flatMap((f) => f.paths)];
 		const ids = readWorkingIds(gitHasher(run.root), run.root, [
@@ -492,7 +751,15 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 					...f.paths.map((p) => [p, ids.get(p)]),
 					...f.absent.map((p) => [p, ABSENT]),
 				]);
-				return [{ values, row: { file: f.file, outcome: f.outcome, inputs } }];
+				const row = {
+					file: f.file,
+					outcome: f.outcome,
+					inputs,
+					listings: f.seen.listings,
+					dirs: f.seen.dirs,
+					git: f.seen.git,
+				};
+				return [{ values, row }];
 			});
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
@@ -633,6 +900,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 		);
 	}
 	const values = todayValues(seams);
+	const dirs = workingAt(root);
 	const cached = candidates.flatMap((file) => {
 		if (unparsed.has(file)) return [];
 		const held = (byFile.get(file) ?? []).find(({ row, run }) =>
@@ -641,6 +909,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 				now,
 				values,
 				reads: reads.get(file) ?? [],
+				dirs,
 			}),
 		);
 		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
@@ -753,9 +1022,9 @@ const inputPaths = (v) =>
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {{file: string, now: Map<string, string|null>,
- *   values: Values, reads: string[]}} at
+ *   values: Values, reads: string[], dirs: TreeAt}} at
  */
-function isRowHolding(row, run, { file, now, values, reads }) {
+function isRowHolding(row, run, { file, now, values, reads, dirs }) {
 	if (run.format !== FORMAT) return false;
 	const own = asIds(row.inputs);
 	const shared = asIds(run.shared);
@@ -774,7 +1043,7 @@ function isRowHolding(row, run, { file, now, values, reads }) {
 		return false;
 	const then = new Map([...shared, ...own]);
 	if (reads.some((p) => !then.has(p))) return false;
-	return isSameContent([...then.keys()], then, now);
+	return isSameContent([...then.keys()], then, now) && isTreeHolding(row, dirs);
 }
 
 /**
@@ -965,8 +1234,9 @@ function heldRow(file, entries, { sha, before, git, values }) {
 	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
 	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));
+	const dirs = commitAt(git, sha);
 	return earlier.find(({ row, run }) =>
-		isRowHolding(row, run, { file, now, values, reads: [] }),
+		isRowHolding(row, run, { file, now, values, reads: [], dirs }),
 	);
 }
 

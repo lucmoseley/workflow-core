@@ -2117,26 +2117,6 @@ const isFullSweepOnly = (source) =>
 	FULL_SWEEP_ONLY.test(headerOf(source, inertSpans(source)));
 
 /**
- * The reads test `t` makes that the selector cannot attribute, whatever its
- * header says: a read the pass store's reach takes in nowhere, so the test
- * records no row (#4790). Lexical, off `t`'s own text alone.
- * @param {string} t the test's path
- * @param {string} source its text
- * @param {Set<string>} tracked
- * @param {Set<string>} reads the documents the manifest maps to `t`
- * @returns {Site[]}
- */
-function unseenReadsOf(t, source, tracked, reads) {
-	/** @type {Set<string> | undefined} */
-	let imports;
-	return unseenSitesFor(source, tracked, t, (p) => {
-		if (reads.has(p)) return true;
-		imports ??= vitestImports(source, t, tracked);
-		return imports.has(p);
-	});
-}
-
-/**
  * @param {Map<string, Set<string>>} byDoc accumulator: file -> the tests reading it; `t` is added under `p`
  * @param {string} p
  * @param {string} t
@@ -2518,5 +2498,4 @@ module.exports = {
 	gitOut,
 	testsReading,
 	readWorkingTree,
-	unseenReadsOf,
 };
