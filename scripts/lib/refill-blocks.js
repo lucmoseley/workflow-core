@@ -199,8 +199,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @property {() => string|null} probeNetwork  lib/net-probe.js's: null where
  *   the API host is reachable, else why not
  * @property {(l: SessionRef) => boolean} isResumedSinceStop  whether its
- *   session took a prompt after its API-error stop: its job's `tempo` reads
- *   `active`, or lib/block-cause.js's promptsAfterApiStop reads one; false
+ *   session took a turn after its API-error stop: its job's `tempo` reads
+ *   `active`, or lib/block-cause.js's hasTurnSinceApiStop reads one; false
  *   unread
  * @property {() => import("./refill-outside.js").Outside[]} readOutside
  *   lib/refill-outside.js's records, none where its file is absent or will
@@ -884,7 +884,7 @@ function typedVerdict(attachAt, l, { now, io }) {
 }
 
 /**
- * Whether `l`'s session, told as `name`, took a prompt since its API-error
+ * Whether `l`'s session, told as `name`, took a turn since its API-error
  * stop: the founder's own resume, or a typed one the arrival check missed. A
  * stop and relaunch then would make two sessions of one (#4815), so the
  * resume counts as arrived.
@@ -895,7 +895,7 @@ function typedVerdict(attachAt, l, { now, io }) {
 function isTakenSinceStop(l, name, io) {
 	if (!io.isResumedSinceStop(l)) return false;
 	io.log(
-		`${name}'s session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
+		`${name}'s session took a turn since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
 	);
 	return true;
 }
@@ -1952,7 +1952,6 @@ function causeReader(io) {
 }
 
 module.exports = {
-	ATTACH_VERDICT_MS,
 	isTakenSinceStop,
 	typedVerdict,
 	causeReader,

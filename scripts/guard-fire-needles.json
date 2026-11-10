@@ -610,6 +610,21 @@
 					]
 				},
 				{
+					"id": "main-rewind-landing",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": "ONLY THE QUEUE LANDER MOVES `main`, AND NEVER BACKWARDS"
+				},
+				{
+					"id": "main-rewind-landing-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"Only the queue lander moves `main`, and never backwards",
+						"the rule could not be read from"
+					]
+				},
+				{
 					"id": "write-reformatted",
 					"core": "post-write",
 					"kind": "inject",

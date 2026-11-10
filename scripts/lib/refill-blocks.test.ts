@@ -2975,7 +2975,7 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 			});
 			expect(acts(calls)).toEqual([]);
 			expect(logs(calls)).toContain(
-				"design-vault /implement 42's session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived",
+				"design-vault /implement 42's session took a turn since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived",
 			);
 			/* Resumed, the listing reads it working: nothing more is owed. */
 			const working = [agent("p", "working")];

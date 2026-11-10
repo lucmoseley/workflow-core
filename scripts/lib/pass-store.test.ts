@@ -401,11 +401,14 @@ describe("the newest result on the same content decides", () => {
 });
 
 describe("a script the manifest says a file spawns", () => {
-	/** A repository whose test A spawns `script`, which loads `dep`. */
-	function spawning(script: string, dep: string, load: string) {
+	/** A repository whose test A spawns `script`, which loads `deps`. */
+	function spawning(script: string, deps: string[], load: string) {
 		const dir = repo({ [script]: [A] });
 		write(dir, script, load);
-		write(dir, dep, `${dep} v0\n`);
+		for (const dep of deps) {
+			fs.mkdirSync(path.dirname(path.join(dir, dep)), { recursive: true });
+			write(dir, dep, `${dep} v0\n`);
+		}
 		git(dir, "add", "-A");
 		git(dir, "commit", "-q", "-m", "spawned");
 		return dir;
@@ -415,31 +418,76 @@ describe("a script the manifest says a file spawns", () => {
 		[
 			"a module the spawned script requires",
 			"scripts/tool.js",
-			"scripts/dep.js",
+			["scripts/dep.js"],
 			'require("./dep.js");\n',
 		],
 		[
 			"a module the spawned Python script imports",
 			"scripts/tool.py",
-			"scripts/helper.py",
+			["scripts/helper.py"],
 			"import helper\n",
 		],
-	])("voids the pass when %s changes", (_what, script, dep, load) => {
-		const dir = spawning(script, dep, load);
-		run(dir, [A]);
+		[
+			"the submodule a dotted Python import names (#4864)",
+			"scripts/tool.py",
+			["scripts/pkg/__init__.py", "scripts/pkg/sub.py"],
+			"import pkg.sub\n",
+		],
+		[
+			"a module the spawned Python script finds through a literal sys.path.insert (#4864)",
+			"scripts/tool.py",
+			["scripts/lib/helper.py"],
+			[
+				"import os, sys",
+				"HERE = os.path.dirname(os.path.abspath(__file__))",
+				'sys.path.insert(0, os.path.join(HERE, "lib"))',
+				"import helper  # noqa: E402",
+			].join("\n"),
+		],
+	])("voids the pass when %s changes", (_what, script, deps, load) => {
+		const dir = spawning(script, deps, load);
+		expect(run(dir, [A])).toBe(1);
 		expect(cachedOf(dir, [A])).toEqual([A]);
+		const dep = deps.at(-1) as string;
 		write(dir, dep, `${dep} v1\n`);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a module appears on an earlier sys.path entry (#4864)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/helper.py"],
+			[
+				"import sys",
+				"from pathlib import Path",
+				'sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))',
+				"import helper",
+			].join("\n"),
+		);
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/lib"));
+		write(dir, "scripts/lib/helper.py", "shadow\n");
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
 	it("records no row where the spawned Python script imports a module it cannot place (#4790)", () => {
 		const dir = spawning(
 			"scripts/tool.py",
-			"scripts/placed.py",
+			["scripts/placed.py"],
 			"import placed\n",
 		);
 		expect(run(dir, [A])).toBe(1);
 		fs.rmSync(path.join(dir, "scripts/placed.py"));
+		expect(run(dir, [A])).toBe(0);
+	});
+
+	it("records no row where the import follows a sys.path edit the walk cannot read (#4864)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/placed.py"],
+			"import sys\nsys.path.insert(0, sys.argv[1])\nimport placed\n",
+		);
 		expect(run(dir, [A])).toBe(0);
 	});
 });

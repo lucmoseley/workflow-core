@@ -42,7 +42,11 @@ const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { SHORT_SHA, gitBinary, gitSpawnOptions } = require("./git.js");
-const { createRemoteRef, deleteRemoteRef } = require("./lander-git.js");
+const {
+	createRemoteRef,
+	deleteRemoteRef,
+	readRemoteHeads,
+} = require("./lander-git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
 const { isNetworkFault } = require("./network-fault.js");
@@ -55,7 +59,6 @@ const {
 	LANDER_ISO_PREFIX,
 	LANDER_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
-	REMOTE,
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
@@ -734,18 +737,15 @@ async function namedVerdict(
  */
 const liveQueueReads = (root) => ({
 	...liveNamedReads(root),
+	/* Through lib/lander-git.js's bounded ls-remote, so a hung remote fails
+	 * the read rather than the tester (#4856). */
 	landerRefs: () =>
-		execFileSync(
-			gitBinary(),
-			["ls-remote", REMOTE, `refs/heads/${LANDER_PREFIX}*`],
-			{ ...gitSpawnOptions(), cwd: root, encoding: "utf8" },
-		)
-			.split("\n")
-			.filter(Boolean)
-			.map((line) => {
-				const [sha = "", ref = ""] = line.split("\t");
-				return { branch: ref.replace(/^refs\/heads\//, ""), sha };
+		[...readRemoteHeads(root, [`refs/heads/${LANDER_PREFIX}*`], () => [])].map(
+			([ref, sha]) => ({
+				branch: ref.replace(/^refs\/heads\//, ""),
+				sha,
 			}),
+		),
 	runsOn: (branch) => listRuns(branch, RUN_LIST_LIMIT, ["--event", "push"]),
 	cancel: (run) => {
 		gh(["run", "cancel", String(run)]);
