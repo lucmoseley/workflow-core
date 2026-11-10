@@ -4257,8 +4257,17 @@ function carryMerge(ctx, stale, sides) {
 		Array.isArray(envelope?.fresh)
 			? new Set(/** @type {string[]} */ (envelope.fresh))
 			: null;
+	/** @param {Record<string, unknown> | undefined} envelope */
+	const staleOn = (envelope) =>
+		Array.isArray(envelope?.warnings)
+			? new Set(
+					/** @type {Warning[]} */ (envelope.warnings)
+						.filter((w) => STALE_KINDS.has(w.kind))
+						.map((w) => w.guard),
+				)
+			: null;
 	const { carried, kept, none } = judgeCarry(root, merge, stale, {
-		oursFresh: freshOf(sides.baseline),
+		oursStale: staleOn(sides.baseline),
 		readTheirsFresh: (rev) => {
 			const r = sides.read(rev);
 			return r.outcome === "BROKEN" || r.outcome === "SKIP"
