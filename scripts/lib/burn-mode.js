@@ -1,24 +1,32 @@
 /*
- * burn-mode.js — the one table burn mode remaps models through, and the one
- * resolver for its marker.
+ * burn-mode.js — the one table every model choice is translated through, and
+ * the one resolver for burn mode's marker.
  *
- * Burn mode (`scripts/burn-mode.sh on`) spends allowance on purpose: Sonnet
- * work runs on Opus 5.5, and Opus 5.5 runs at high effort rather than medium.
- * Opus is not moved up to Fable (#355; the reason is in
- * `docs/effort-guide.md` §Burn mode). The code reviewer is left alone: its
- * dispatch names `opus` and its agent definition's `effort:` outranks the
- * per-model effort this writes (#363).
- * These read this file so the mapping and the plans are written once:
+ * TWO LAYERS, applied in order (#4919):
  *
- *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's `model` field
- *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`
- *   scripts/burn-mode.sh               writes Opus 5.5's effort into the plans'
- *                                      settings files, listed by `plans` below
+ *   standing — always on. Work the effort guide once routed to Sonnet 5.5
+ *              runs on Haiku 5.5 at xhigh, so a `sonnet` dispatch or launch
+ *              spelling is moved to Haiku.
+ *   burn     — only while the marker exists. Haiku work runs on Opus 5.5 at
+ *              medium, and Opus work, the code reviewer's included, on
+ *              Fable 5.2 at medium.
+ *
+ * Effort rides with the dispatch remap on the call's own `effort` field, which
+ * replaces an agent definition's `effort:` (forks excepted). A launch's effort comes
+ * from settings.json's per-model `modelSettings`, read at session start.
+ *
+ * These read this file, so the mapping and the plans are written once:
+ *
+ *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's model and effort
+ *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`; an overflow
+ *                                      seat takes the standing layer alone
+ *   scripts/burn-mode.sh               moves each plan's settings `model`, the
+ *                                      model a session launched with no flag runs
  *   scripts/lib/dispatch-gates.js      reads the marker's path
  *   scripts/refill-loop.js status      readBurnState, for the refill panel
  *
  * The state is one marker file per MACHINE, beside the settings files it is
- * the record for. `on` writes the effort it found into it, so `off` restores
+ * the record for. `on` writes the model it found into it, so `off` restores
  * what was there rather than assuming the standing default (mantahostels#130).
  *
  * The maps are exact-match on purpose. An `Agent` call takes only the four
@@ -28,55 +36,97 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 const { readPlanDirs } = require("./plan-dirs.js");
-const { scriptPath } = require("./script-path.js");
+const { coreRoot, scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
 /** The marker file's name, under `~/.claude`. */
 const MARKER = ".burn-mode";
 
-/**
- * What a Sonnet launch becomes. The full id with the 1M suffix, because the
- * `opus` alias moved under this repo once already (#353).
+/*
+ * Launch spellings: the full ids with the 1M suffix, because the `opus` alias
+ * moved under this repo once already (#353).
  */
+const LAUNCH_HAIKU = "claude-haiku-5-5[1m]";
 const LAUNCH_OPUS = "claude-opus-5-5[1m]";
+const LAUNCH_FABLE = "claude-fable-5-2[1m]";
+
+/** What settings.json's `model` means when it names none: plain Opus. */
+const SESSION_DEFAULT = LAUNCH_OPUS;
+
+/*
+ * Burn mode never reaches an overflow seat (#4919). Its seats share the plans'
+ * settings file, whose `model` burn mode moves, so its launch names this model
+ * outright; and its child carries OVERFLOW_SESSION_VAR set to its own session
+ * id, so the dispatch remap skips the burn layer there and nowhere else — a
+ * session that child starts runs under another id.
+ */
+const OVERFLOW_MODEL = LAUNCH_OPUS;
+const OVERFLOW_SESSION_VAR = "WFC_OVERFLOW_SESSION";
 
 /**
- * The effort half: the `modelSettings` key it writes under, because Opus 5.5
- * ignores a top-level `effortLevel` (`docs/effort-guide.md` §Effort), and the
- * level on / off. OFF is the guide's standing default, used only where `on`
- * recorded nothing.
+ * @param {Record<string, string | undefined>} env
+ * @param {string} session the session id the hook payload names
+ * @returns {boolean} whether that session runs on an overflow seat
  */
-const EFFORT_MODEL = "claude-opus-5-5";
-const EFFORT_ON = "high";
-const EFFORT_OFF = "medium";
+function isOverflowSession(env, session) {
+	const pinned = env[OVERFLOW_SESSION_VAR];
+	return Boolean(pinned) && pinned === session;
+}
 
-/** `Agent` call aliases: the field takes the bare four and nothing else. */
-const DISPATCH = new Map([["sonnet", "opus"]]);
+/** The effort each layer's target runs at on a dispatch: the founder's ruling (#4919). */
+const STANDING_EFFORT = "xhigh";
+const BURN_EFFORT = "medium";
+
+const DISPATCH_HAIKU = "haiku";
+
+const DISPATCH = {
+	standing: new Map([["sonnet", DISPATCH_HAIKU]]),
+	burn: new Map([
+		[DISPATCH_HAIKU, "opus"],
+		["opus", "fable"],
+	]),
+};
 
 /**
- * Launch spellings `scripts/dispatch-sessions.sh` may be handed. Opus
- * spellings are absent: they stay Opus, and the effort they run at comes from
- * settings.json, which burn mode has already set.
+ * Launch spellings `scripts/dispatch-sessions.sh` and the plans' settings
+ * `model` may hold. `opusplan` outside plan mode resolves to plain Sonnet
+ * (docs/effort-guide.md), so it is Sonnet here.
  */
-const LAUNCH = new Map([
-	["sonnet", LAUNCH_OPUS],
-	["sonnet[1m]", LAUNCH_OPUS],
-	["claude-sonnet-5", LAUNCH_OPUS],
-	["claude-sonnet-5[1m]", LAUNCH_OPUS],
-	["claude-sonnet-5-5", LAUNCH_OPUS],
-	["claude-sonnet-5-5[1m]", LAUNCH_OPUS],
-	["opusplan", LAUNCH_OPUS],
-	["opusplan[1m]", LAUNCH_OPUS],
-]);
+const LAUNCH = {
+	standing: new Map(
+		[
+			"sonnet",
+			"sonnet[1m]",
+			"claude-sonnet-5",
+			"claude-sonnet-5[1m]",
+			"claude-sonnet-5-5",
+			"claude-sonnet-5-5[1m]",
+			"opusplan",
+			"opusplan[1m]",
+		].map((m) => [m, LAUNCH_HAIKU]),
+	),
+	burn: new Map([
+		...["haiku", "haiku[1m]", "claude-haiku-5-5", "claude-haiku-5-5[1m]"].map(
+			(m) => /** @type {[string, string]} */ ([m, LAUNCH_OPUS]),
+		),
+		...[
+			"opus",
+			"opus[1m]",
+			"claude-opus-5",
+			"claude-opus-5[1m]",
+			"claude-opus-5-5",
+			"claude-opus-5-5[1m]",
+		].map((m) => /** @type {[string, string]} */ ([m, LAUNCH_FABLE])),
+	]),
+};
 
 /**
  * Where the marker lives. `WFC_BURN_MARKER` overrides, so a test never
  * touches the machine's real switch; otherwise `~/.claude/.burn-mode`.
- *
- * ONE SWITCH PER MACHINE, not per checkout (#127).
  *
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}
@@ -87,19 +137,16 @@ function markerPath(env = process.env) {
 }
 
 /**
- * @param {string} model an `Agent` call's `model` value
- * @returns {string} the burn-mode model, or the same string where none applies
- */
-function remapDispatch(model) {
-	return DISPATCH.get(model) ?? model;
-}
-
-/**
- * @param {string} model a launch spelling
+ * One model through a table's standing layer, then its burn layer where burn
+ * applies; a spelling neither knows comes back as given.
+ * @param {{standing: Map<string, string>, burn: Map<string, string>}} table
+ * @param {string} model
+ * @param {boolean} burn
  * @returns {string}
  */
-function remapLaunch(model) {
-	return LAUNCH.get(model) ?? model;
+function mapModel(table, model, burn) {
+	const standing = table.standing.get(model) ?? model;
+	return burn ? (table.burn.get(standing) ?? standing) : standing;
 }
 
 /**
@@ -110,30 +157,86 @@ function trimmed(value) {
 	return typeof value === "string" ? value.trim() : "";
 }
 
+/** The plugin's own agent definitions — the code reviewer's among them. */
+const AGENTS_DIR = path.join(coreRoot(), ".claude", "agents");
+
 /**
- * Burn mode's transform over one `Agent` call's input: the call with its model
- * moved, and what the session is told, or null where burn mode has nothing to
- * change — no model named (the session's model is inherited), a fork (which
- * ignores the field), or a model burn mode does not move. Every other field is
- * carried through untouched, `updatedInput` replacing the whole input.
+ * The `model:` an agent definition this plugin ships pins, for a call that
+ * names none: the harness runs the definition's model then, so it is the
+ * model to translate. A namespaced type (`wfc:code-reviewer`) is read by its
+ * bare name; any other type, or a definition naming none, gives "".
+ * @param {string} type
+ * @returns {string}
+ */
+function readDefinitionModel(type) {
+	const bare = type.replace(/^[\w-]+:/, "");
+	if (!/^[\w-]+$/.test(bare)) return "";
+	let text;
+	try {
+		text = fs.readFileSync(path.join(AGENTS_DIR, `${bare}.md`), "utf8");
+	} catch {
+		return "";
+	}
+	const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
+	return /^model:\s*([\w-]+)\s*$/m.exec(front)?.[1] ?? "";
+}
+
+/**
+ * The model one `Agent` call runs on, as the table must read it: its own
+ * `model`, else the one its plugin definition pins; "" for a fork, which
+ * ignores the field, and for a call inheriting the session's model.
+ * @param {Record<string, unknown>} call
+ * @returns {string}
+ */
+function dispatchedModel(call) {
+	const type = trimmed(call.subagent_type);
+	if (type === "fork") return "";
+	return trimmed(call.model) || (type ? readDefinitionModel(type) : "");
+}
+
+/**
+ * @param {string} from
+ * @param {string} asked the effort the call named, "" for none
+ * @param {boolean} burn
+ * @returns {{to: string, effort: string}}
+ */
+function translate(from, asked, burn) {
+	const to = mapModel(DISPATCH, from, burn);
+	const standing = mapModel(DISPATCH, from, false);
+	if (to !== standing) return { to, effort: BURN_EFFORT };
+	if (to === DISPATCH_HAIKU) return { to, effort: STANDING_EFFORT };
+	return { to, effort: asked };
+}
+
+/**
+ * The model-table transform over one `Agent` call's input: the call with its
+ * model and effort moved, and what the session is told, or null where nothing
+ * changes — no model named nor pinned by a definition (the session's model is
+ * inherited), a fork (which ignores both fields), or a model neither layer
+ * moves and an effort already set.
  *
- * lib/dispatch-rewrite.js composes it with the artefact transform into one
- * rewrite, and calls it only while the marker exists.
+ * Every other field is carried through untouched, `updatedInput` replacing the whole
+ * input.
  *
  * @param {unknown} input the tool_input object
+ * @param {boolean} burn whether burn mode's marker exists
  * @returns {null | {input: Record<string, unknown>, note: string}}
  */
-function remapModel(input) {
+function remapModel(input, burn) {
 	if (input === null || typeof input !== "object") return null;
 	const call = /** @type {Record<string, unknown>} */ (input);
-	if (trimmed(call.subagent_type) === "fork") return null;
-	const from = trimmed(call.model);
+	const from = dispatchedModel(call);
 	if (!from) return null;
-	const to = remapDispatch(from);
-	if (to === from) return null;
+	const asked = trimmed(call.effort);
+	const { to, effort } = translate(from, asked, burn);
+	if (to === from && effort === asked) return null;
+	const moved = { ...call, model: to, ...(effort ? { effort } : {}) };
+	const what = `\`${from}\`${asked ? ` at \`${asked}\`` : ""} to \`${to}\` at \`${effort}\``;
 	return {
-		input: { ...call, model: to },
-		note: `Burn mode moved this dispatch from \`${from}\` to \`${to}\` (scripts/burn-mode.sh; \`${scriptPath("burn-mode.sh")} off\` ends it).`,
+		input: moved,
+		note: burn
+			? `Burn mode moved this dispatch from ${what} (scripts/burn-mode.sh; \`${scriptPath("burn-mode.sh")} off\` ends it).`
+			: `The standing model table moved this dispatch from ${what} (scripts/lib/burn-mode.js; docs/effort-guide.md §Which model each subagent dispatch runs on).`,
 	};
 }
 
@@ -173,22 +276,41 @@ function isPresent(file) {
 }
 
 /**
- * Whether one plan's effort disagrees with the switch: on, any effort but the
- * burn one; off, the burn one. A file that will not parse disagrees with both.
- * @param {string} file
- * @param {boolean} on
+ * The plans' models `on` found, by real settings path, from the marker; {} for
+ * a marker holding no record or one that will not parse.
+ * @param {string} marker
+ * @returns {Record<string, string>}
  */
-function isPlanDisagreeing(file, on) {
-	let effort;
+function readRecord(marker) {
 	try {
-		effort = JSON.parse(fs.readFileSync(file, "utf8"))?.modelSettings?.[
-			EFFORT_MODEL
-		]?.effortLevel;
+		const model = JSON.parse(fs.readFileSync(marker, "utf8"))?.model;
+		return model && typeof model === "object" ? model : {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * Whether one plan's session model disagrees with the switch: on, a model
+ * other than the burn layer's target for what `on` found there (the model it
+ * holds, where the marker records none); off, the model `on` moves the default
+ * to. A file that will not parse disagrees with both.
+ * @param {string} file the real settings path
+ * @param {boolean} on
+ * @param {Record<string, string>} record the marker's record of each plan's prior model
+ */
+function isPlanDisagreeing(file, on, record) {
+	let model;
+	try {
+		model = trimmed(JSON.parse(fs.readFileSync(file, "utf8"))?.model);
 	} catch {
 		// #3877: the script's own jq fails on this file too, so it is no plan in step.
 		return true;
 	}
-	return (effort === EFFORT_ON) !== on;
+	const session = model || SESSION_DEFAULT;
+	if (!on) return session === mapModel(LAUNCH, SESSION_DEFAULT, true);
+	const basis = Object.hasOwn(record, file) ? record[file] : model;
+	return session !== mapModel(LAUNCH, basis || SESSION_DEFAULT, true);
 }
 
 /**
@@ -200,9 +322,11 @@ function isPlanDisagreeing(file, on) {
  */
 function readBurnState(env = process.env) {
 	try {
-		const on = fs.existsSync(markerPath(env));
+		const marker = markerPath(env);
+		const on = fs.existsSync(marker);
+		const record = on ? readRecord(marker) : {};
 		const disagreeing = [...readPlanFiles(env.HOME ?? "").files]
-			.filter(([file]) => isPlanDisagreeing(file, on))
+			.filter(([file]) => isPlanDisagreeing(file, on, record))
 			.map(([, name]) => name);
 		return { on, disagreeing, error: null };
 	} catch (err) {
@@ -211,10 +335,10 @@ function readBurnState(env = process.env) {
 }
 
 module.exports = {
-	EFFORT_MODEL,
-	EFFORT_OFF,
-	EFFORT_ON,
+	isOverflowSession,
 	markerPath,
+	OVERFLOW_MODEL,
+	OVERFLOW_SESSION_VAR,
 	readBurnState,
 	remapModel,
 };
@@ -222,7 +346,12 @@ module.exports = {
 /*
  * CLI mode.
  *
- *   launch <model>    prints the launch spelling burn mode substitutes
+ *   launch <model> [--burn]
+ *                     prints the spelling to launch: the standing layer, then
+ *                     burn mode's where --burn is given
+ *   session <model> [--burn]
+ *                     the same for a plan's settings `model`, "" meaning the
+ *                     default session model
  *   marker            prints the marker's path; 2 where HOME is unset
  *   plans [--quiet]   prints each plan's settings file, real and NUL-ended,
  *                     warning of each that resolves to nothing unless quiet;
@@ -232,11 +361,21 @@ module.exports = {
  * exit — process.stdout.write can be cut off by process.exit on a pipe.
  */
 if (require.main === module) {
-	const [mode, arg] = process.argv.slice(2);
 	const say = (/** @type {string} */ s) => writeFd(1, `${s}\n`);
 	try {
-		if (mode === "launch" && arg !== undefined) {
-			say(remapLaunch(arg));
+		const { values, positionals } = parseArgs({
+			allowPositionals: true,
+			strict: true,
+			options: { burn: { type: "boolean" }, quiet: { type: "boolean" } },
+		});
+		const [mode, arg] = positionals;
+		const burn = values.burn === true;
+		if (mode === "launch" && arg !== undefined && arg !== "") {
+			say(mapModel(LAUNCH, arg, burn));
+			process.exit(0);
+		}
+		if (mode === "session" && arg !== undefined) {
+			say(mapModel(LAUNCH, arg || SESSION_DEFAULT, burn));
 			process.exit(0);
 		}
 		if (mode === "marker") {
@@ -256,7 +395,7 @@ if (require.main === module) {
 				process.exit(2);
 			}
 			const { files, dangling } = listed;
-			for (const file of arg === "--quiet" ? [] : dangling)
+			for (const file of values.quiet ? [] : dangling)
 				writeFd(
 					2,
 					`warning: skipping ${path.relative(home, file)} — it resolves to nothing\n`,

@@ -71,7 +71,7 @@ next.
 ## 3. Send it to a fresh reader
 
 Spawn a `general-purpose` **Agent** per file (parallel, one message), each
-pinned **`model: "sonnet"`** — never code review's reviewer (mantahostels#2614). **Give it
+pinned **`model: "haiku"`** — never code review's reviewer (mantahostels#2614, #4919). **Give it
 the text and the criteria and withhold the justification** — no explanation of
 why any passage was written.
 

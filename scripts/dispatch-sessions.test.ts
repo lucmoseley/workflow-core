@@ -27,12 +27,12 @@ const fx = dispatchFixture();
 const { stubClaude, baseEnv, launchArgv, readArgvLines, run } = fx;
 
 describe("the advisor flag", () => {
-	it("attaches an Opus advisor to a Sonnet launch (mantahostels#1102)", () => {
+	it("attaches an Opus advisor to a Sonnet launch, which the model table sends to Haiku (mantahostels#1102, #4919)", () => {
 		stubClaude({});
 		const r = run(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
-		expect(launch).toContain("--model sonnet");
+		expect(launch).toContain("--model claude-haiku-5-5[1m]");
 		expect(launch).toContain("--advisor opus");
 	});
 
@@ -47,7 +47,7 @@ describe("the advisor flag", () => {
 		stubClaude({});
 		run(["--no-advisor", "sonnet", "/implement 341"]);
 		const launch = launchArgv();
-		expect(launch).toContain("--model sonnet");
+		expect(launch).toContain("--model claude-haiku-5-5[1m]");
 		expect(launch).not.toContain("--advisor");
 	});
 
@@ -56,7 +56,7 @@ describe("the advisor flag", () => {
 		const r = run(["--no-advisor", "opusplan", "/implement 341"]);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
-		expect(launch).toContain("--model opusplan");
+		expect(launch).toContain("--model claude-haiku-5-5[1m]");
 		expect(launch).not.toContain("--advisor");
 	});
 
@@ -78,16 +78,16 @@ describe("the advisor flag — deny-list spellings (mantahostels#1199)", () => {
 		const r = run(["sonnet[1m]", "/implement 341"]);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
-		expect(launch).toContain("--model sonnet[1m]");
+		expect(launch).toContain("--model claude-haiku-5-5[1m]");
 		expect(launch).toContain("--advisor opus");
 	});
 
-	it("attaches an advisor to opusplan, which runs as Sonnet", () => {
+	it("attaches an advisor to opusplan, which the model table sends to Haiku", () => {
 		stubClaude({});
 		const r = run(["opusplan", "/implement 341"]);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
-		expect(launch).toContain("--model opusplan");
+		expect(launch).toContain("--model claude-haiku-5-5[1m]");
 		expect(launch).toContain("--advisor opus");
 	});
 
@@ -132,7 +132,7 @@ describe("the advisor flag — deny-list spellings (mantahostels#1199)", () => {
 		expect(r.stderr).toContain(
 			"unrecognised model spelling(s): some-future-alias",
 		);
-		expect(r.stderr).toContain("add it to is_known_non_sonnet()");
+		expect(r.stderr).toContain("add it to is_known_unadvised()");
 	});
 
 	it("does not warn on a recognised spelling", () => {

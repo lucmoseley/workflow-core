@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /*
  * check-pick-next-model.js — report the `/pick-next` sessions that ran on a
- * non-Sonnet model, and what that forfeited.
+ * non-Haiku model, and what that forfeited.
  *
  * Usage:  npm run check:pick-next-model  [--days <n>] [--notify] [--json]
  *
  * WHAT IT IS FOR (mantahostels#2449, on mantahostels#1334's finding and mantahostels#1353's fix). `/pick-next` is a
- * Sonnet row: `scripts/launch.sh pick-next` routes it correctly and nothing
+ * Haiku row: `scripts/launch.sh pick-next` routes it correctly and nothing
  * about the launcher is wrong. The founder launches it by hand from Claude
  * Code's agents view instead, which carries no `--model` flag and inherits
  * `~/.claude2/settings.json`'s Opus default — so 120 of 121 post-fix sessions
@@ -74,7 +74,7 @@
  *
  * LOCAL ONLY. A CI runner has no transcript corpus and reports SKIP.
  *
- * IMPLICIT:  nothing today — off SessionStart (above), so the only route asks for it. Once re-wired: injects the count of `/pick-next` sessions in the last 7 days that ran on a non-Sonnet model, and the cost-equivalent that forfeited. It reads transcripts and changes nothing.
+ * IMPLICIT:  nothing today — off SessionStart (above), so the only route asks for it. Once re-wired: injects the count of `/pick-next` sessions in the last 7 days that ran on a non-Haiku model, and the cost-equivalent that forfeited. It reads transcripts and changes nothing.
  * JUSTIFIED: fail-safe — the launch happens outside the Bash tool, so no guard can refuse it and nothing else reports the miss; a run that cannot read the corpus reports nothing rather than calling the rate zero.
  * DEFEAT:    none at the hook; --days <n> moves the window on a hand run.
  */
@@ -118,12 +118,13 @@ const PRICED = /** @type {const} */ (["fi", "out", "cw", "cw1h", "cr"]);
 /*
  * Each model's price per token class as a fraction of WEIGHTS (docs/effort-guide.md
  * §Model ids and prices). Opus 5.5 is 0.8 of Opus 5 on every class but a cache
- * read, where it is 0.4 (#359). Sonnet is 0.4 on every class
- * (mantahostels#1088) and prices the counterfactual; the forfeit is each Opus
+ * read, where it is 0.4 (#359). Haiku 5.5 is 0.02 on every class ($0.10 / $0.50,
+ * cache read $0.01 against Opus 5's $5 / $25 / $0.50: the CLI 2.1.322 catalogue's
+ * `haiku_55`, #4919) and prices the counterfactual; the forfeit is each Opus
  * request's own cost less that.
  */
 const OPUS_5_5 = { fi: 0.8, out: 0.8, cw: 0.8, cw1h: 0.8, cr: 0.4 };
-const SONNET = { fi: 0.4, out: 0.4, cw: 0.4, cw1h: 0.4, cr: 0.4 };
+const HAIKU = { fi: 0.02, out: 0.02, cw: 0.02, cw1h: 0.02, cr: 0.02 };
 const OPUS_5 = { fi: 1, out: 1, cw: 1, cw1h: 1, cr: 1 };
 
 /*
@@ -172,7 +173,7 @@ const usd = (u, rate) => {
 
 /**
  * A request's own rates. Only reached for a session tierOf() priced, so the
- * model is Opus or Sonnet.
+ * model is Opus or Haiku.
  * Residual: an Opus cheaper than Opus 5 other than 5.5 — a future one — is
  * priced at Opus 5 and breaks the floor until it gets its own row here.
  *
@@ -180,7 +181,7 @@ const usd = (u, rate) => {
  */
 function rateOf(model) {
 	const l = (model || "").toLowerCase();
-	if (l.includes("sonnet")) return SONNET;
+	if (l.includes("haiku")) return HAIKU;
 	if (/opus-5-5(?!\d)/.test(l)) return OPUS_5_5;
 	return OPUS_5;
 }
@@ -232,8 +233,8 @@ function tallyAssistant(record, { models, requests }) {
 	 * record whose `message.model` is the literal `<synthetic>` and whose four
 	 * token classes are all zero. tierOf() reads a string it recognises as
 	 * neither tier as `unknown` (mantahostels#2476), so one of these in an
-	 * otherwise Sonnet session would book the whole session `unknown` —
-	 * dropping it out of the Sonnet count rather than into a miss. Excluding
+	 * otherwise Haiku session would book the whole session `unknown` —
+	 * dropping it out of the Haiku count rather than into a miss. Excluding
 	 * them here leaves the billing below untouched — a zero record adds
 	 * nothing to a MAX. */
 	const billed = hasUsage(flat);
@@ -285,7 +286,7 @@ function scanSession(text) {
  *
  * `mixed` is its own answer rather than being folded into either: a session with
  * any Opus turn spent Opus rates for it, and one that cannot be read at all is
- * not a session that ran on Sonnet.
+ * not a session that ran on Haiku.
  *
  * A model string that is NEITHER is `unknown` — not `opus` (mantahostels#2476). WEIGHTS
  * below prices Opus and nothing else, so booking a Haiku or Fable session as
@@ -296,22 +297,22 @@ function scanSession(text) {
  * whole session, an otherwise-Opus one included.
  *
  * @param {Set<string>} models
- * @returns {"sonnet" | "opus" | "mixed" | "unknown"}
+ * @returns {"haiku" | "opus" | "mixed" | "unknown"}
  */
 function tierOf(models) {
 	let opus = false;
-	let sonnet = false;
+	let haiku = false;
 	let other = false;
 	for (const m of models) {
 		const l = m.toLowerCase();
-		if (l.includes("sonnet")) sonnet = true;
+		if (l.includes("haiku")) haiku = true;
 		else if (l.includes("opus")) opus = true;
 		else other = true;
 	}
 	if (other) return "unknown";
-	if (opus && sonnet) return "mixed";
+	if (opus && haiku) return "mixed";
 	if (opus) return "opus";
-	if (sonnet) return "sonnet";
+	if (haiku) return "haiku";
 	return "unknown";
 }
 
@@ -467,7 +468,7 @@ function priceSession(file, cutoff) {
 	for (const { usage, model } of requests.values()) {
 		const own = usd(usage, rateOf(model));
 		cost += own;
-		forfeit += own - usd(usage, SONNET);
+		forfeit += own - usd(usage, HAIKU);
 	}
 	return { file, tier: tierOf(models), cost, forfeit, startedAt };
 }
@@ -523,8 +524,8 @@ function readSessions(files, cutoff) {
  */
 function buildCleanOkLine(total, unknown, days) {
 	if (unknown > 0)
-		return `${total - unknown} of ${total} /pick-next session(s) in the last ${days}d ran on Sonnet; ${unknown} carried a model this cannot read or cannot price.`;
-	return `every one of ${total} /pick-next session(s) in the last ${days}d ran on Sonnet.`;
+		return `${total - unknown} of ${total} /pick-next session(s) in the last ${days}d ran on Haiku; ${unknown} carried a model this cannot read or cannot price.`;
+	return `every one of ${total} /pick-next session(s) in the last ${days}d ran on Haiku.`;
 }
 
 /**
@@ -599,7 +600,7 @@ runCheck({
 			missed: missed.length,
 			opus: opus.length,
 			mixed: mixed.length,
-			sonnet: by("sonnet").length,
+			haiku: by("haiku").length,
 			unknownModel: unknownModel.length,
 			unclassifiedFiles: unclassified,
 			unreadableDirs: unreadable,
@@ -653,13 +654,13 @@ runCheck({
 		const rate = Math.round((missed.length / sessions.length) * 100);
 		ctx.warn(
 			"PICK-NEXT-ON-OPUS",
-			`${missed.length} of ${sessions.length} /pick-next session(s) in the last ${days}d ran on a non-Sonnet model (${rate}%), forfeiting ${money(forfeited)} of ${money(spent)} spent`,
+			`${missed.length} of ${sessions.length} /pick-next session(s) in the last ${days}d ran on a non-Haiku model (${rate}%), forfeiting ${money(forfeited)} of ${money(spent)} spent`,
 			data,
 		);
 
 		ctx.say(
-			`PICK-NEXT-ON-OPUS (${missed.length} of ${sessions.length}) — /pick-next sessions in the last ${days}d ran on a non-Sonnet model, ${rate}% of them. ` +
-				`They spent ${money(spent)}; ${money(forfeited)} of that was forfeited (each request against Sonnet's price for it, mantahostels#1088).`,
+			`PICK-NEXT-ON-OPUS (${missed.length} of ${sessions.length}) — /pick-next sessions in the last ${days}d ran on a non-Haiku model, ${rate}% of them. ` +
+				`They spent ${money(spent)}; ${money(forfeited)} of that was forfeited (each request against Haiku's price for it, #4919).`,
 		);
 		sayMissDetail(ctx, {
 			mixed: mixed.length,
@@ -674,8 +675,8 @@ runCheck({
 		deliveryStamp.markDelivered(ctx, CHECKER, signature);
 
 		return {
-			okLine: `every one of ${sessions.length} /pick-next session(s) in the last ${days}d ran on Sonnet.`,
-			noun: "/pick-next session(s) launched off Sonnet",
+			okLine: `every one of ${sessions.length} /pick-next session(s) in the last ${days}d ran on Haiku.`,
+			noun: "/pick-next session(s) launched off Haiku",
 			count: missed.length,
 			stamp: signature,
 			data,

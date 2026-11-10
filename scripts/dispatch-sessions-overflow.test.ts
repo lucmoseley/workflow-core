@@ -371,16 +371,33 @@ describe("an overflow seat (#2610)", () => {
 		expect(readHeadlessLaunches(2)).toHaveLength(2);
 	});
 
-	it("admits a Sonnet member burn mode moves to Opus", () => {
+	it("launches an opus member as written with burn mode on, never moving it to Fable", () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
 		const r = spawnSync(
 			"bash",
-			[SCRIPT, "--dry-run", "sonnet", "/implement 341"],
+			[SCRIPT, "--dry-run", "opus", "/implement 341"],
 			{ encoding: "utf8", env: baseEnv(overflowEnv(200)) },
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("headless-sessions.js launch");
+		expect(r.stderr).not.toContain("burn mode");
+		expect(`${r.stdout}${r.stderr}`).not.toContain("claude-fable");
+	});
+
+	it("refuses a sonnet member with burn mode on, the standing layer alone reaching it", () => {
+		stub();
+		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
+		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
+			encoding: "utf8",
+			env: baseEnv(overflowEnv(200)),
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("model table: sonnet -> claude-haiku-5-5[1m]");
+		expect(r.stderr).not.toContain("burn mode");
+		expect(r.stderr).toContain("launches Opus alone (#1920); claude-haiku-5-5");
+		expect(readArgvLines()).toEqual([]);
 	});
 
 	it("refuses a key Anthropic refused for credit, naming the cycle it is exhausted until", () => {
@@ -456,7 +473,7 @@ describe("an overflow seat (#2610)", () => {
 		});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); sonnet is not.`,
+			`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); claude-haiku-5-5\\[1m\\] is not.`,
 		);
 		expect(readArgvLines()).toEqual([]);
 	});
