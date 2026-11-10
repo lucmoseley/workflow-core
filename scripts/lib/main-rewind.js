@@ -2,7 +2,8 @@
  * main-rewind.js — the one refusal of a command that moves `main` backwards,
  * printing docs/agents/rules/main-rewind.txt (#765, #1733, #1777), for the
  * cores that refuse one: lib/pull-form.js (a reset, a ref write) and
- * lib/branch-publish.js (a forced push, a remote deletion).
+ * lib/branch-publish.js (a forced push, a remote deletion, with the
+ * `landing` module off; on, it prints main-rewind-landing.txt itself).
  *
  * The rule's id is a literal here, which check-guard-registry.js's emitter
  * scan reaches through each caller's require.

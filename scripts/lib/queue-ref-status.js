@@ -26,7 +26,7 @@ const {
 	QUEUE_HEADS,
 	QUEUE_PREFIX,
 	droppedRefsOf,
-	queueRefOf,
+	ownQueueRef,
 } = require("./landing-refs.js");
 const {
 	readPipelineFile,
@@ -285,7 +285,7 @@ const ledgerMainReached = (root, main, green) => (sha) => {
  * @returns {RefState[]}
  */
 function readQueueRefStates(root, tree, refs, rows) {
-	const own = queueRefOf(root, tree);
+	const own = ownQueueRef(tree, root);
 	if (own === null || !tree) return [];
 	const name = own.slice(QUEUE_PREFIX.length);
 	const files = queueLanderFiles(root);

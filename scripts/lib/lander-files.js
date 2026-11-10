@@ -45,14 +45,16 @@ const landerLock = (root) =>
 	pidLock(queueLanderFiles(root).pid, "queue-lander.js");
 
 /**
- * A file's text, or null where it cannot be read.
+ * A file's text, or null where it does not exist; any other read fault
+ * throws, so an unreadable green ledger never reads as holding no sha.
  * @param {string} file
  */
 function readText(file) {
 	try {
 		return fs.readFileSync(file, "utf8");
-	} catch {
-		return null;
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return null;
+		throw err;
 	}
 }
 

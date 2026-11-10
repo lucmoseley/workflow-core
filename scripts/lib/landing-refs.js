@@ -55,29 +55,22 @@ const QUEUE_HEADS = `refs/heads/${QUEUE_PREFIX}`;
 const DROPPED_PREFIX = "dropped/";
 
 /**
- * The queue ref of the session in `tree`: `queue/<its directory's name>`
- * where it is a worktree under the host's `.claude/worktrees/`, else null.
- * @param {string} root the host root
- * @param {string|null|undefined} tree the session's tree top level
- * @returns {string|null}
- */
-function queueRefOf(root, tree) {
-	const { WORKTREES_DIR } = require("./project-dirs.js");
-	if (!tree || path.dirname(tree) !== path.join(root, WORKTREES_DIR))
-		return null;
-	return `${QUEUE_PREFIX}${path.basename(tree)}`;
-}
-
-/**
  * The queue ref of the session in `tree`, judged on real paths, so a
- * symlinked path names the ref a land pushes; null where `tree` is no
- * session worktree.
- * @param {string} tree the session's tree top level
+ * symlinked path names the ref a land pushes: `queue/<its directory's name>`
+ * where it is a worktree under the host's `.claude/worktrees/`, else null.
+ * Every reader of a session's own queue ref asks here, so no two name it two
+ * ways.
+ * @param {string|null|undefined} tree the session's tree top level
  * @param {string} [root] the host root, else the main checkout of `tree`
  * @returns {string|null}
  */
 function ownQueueRef(tree, root) {
+	if (!tree) return null;
 	const fs = require("node:fs");
+	const { WORKTREES_DIR } = require("./project-dirs.js");
+	/* realpath fails only on a path that is gone or unreadable, which no live
+	 * session's tree is; its spelling is then the only name it has, and every
+	 * caller reads that same fallback here. */
 	const real = (/** @type {string} */ p) => {
 		try {
 			return fs.realpathSync(p);
@@ -86,7 +79,11 @@ function ownQueueRef(tree, root) {
 		}
 	};
 	const host = root ?? require("./main-checkout.js").mainCheckout(tree);
-	return host ? queueRefOf(real(host), real(tree)) : null;
+	if (!host) return null;
+	const at = real(tree);
+	return path.dirname(at) === path.join(real(host), WORKTREES_DIR)
+		? `${QUEUE_PREFIX}${path.basename(at)}`
+		: null;
 }
 
 /**
@@ -148,7 +145,11 @@ function landingOn(opts) {
 	try {
 		return require("./workflow-core-config.js").moduleOn("landing", opts);
 	} catch {
-		// Only readConfig throws here, "landing" being a known module.
+		/* Only readConfig throws here, "landing" being a known module. Off is
+		 * the answer that claims less: pushedRef then reads `origin/main`, so a
+		 * commit only on a queue ref counts as unpushed, never a missing one as
+		 * pushed. A workflow that must not guess asks the strict
+		 * `pushed-branch`, which fails instead. */
 		return false;
 	}
 }
@@ -258,7 +259,6 @@ module.exports = {
 	QUEUE_PREFIX,
 	QUEUE_REFSPEC,
 	QUEUE_TRACKING_GLOB,
-	queueRefOf,
 	REMOTE,
 	readUnpushedRef,
 	trackingRefspec,
