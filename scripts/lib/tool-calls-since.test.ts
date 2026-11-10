@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 const req = createRequire(import.meta.url);
 const { isFounderMessage } = req("./tool-calls-since.js");
-const { API_PROMPT, IDLE_PROMPT } = req("./loop-prompts.js");
+const { API_PROMPT, IDLE_PROMPT, scriptPrompt } = req("./loop-prompts.js");
 
 const userRecord = (content: string, origin?: { kind: string }) => ({
 	type: "user",
@@ -20,9 +20,10 @@ const userRecord = (content: string, origin?: { kind: string }) => ({
 
 describe("isFounderMessage", () => {
 	it.each([
-		["API_PROMPT", API_PROMPT],
-		["IDLE_PROMPT", IDLE_PROMPT],
-	])("skips the loop's %s, with origin human or none", (_name, prompt) => {
+		["the loop's API_PROMPT", API_PROMPT],
+		["the loop's IDLE_PROMPT", IDLE_PROMPT],
+		["a script's typed prompt (#4844)", scriptPrompt("carry on")],
+	])("skips %s, with origin human or none", (_name, prompt) => {
 		expect(isFounderMessage(userRecord(prompt, { kind: "human" }))).toBe(false);
 		expect(isFounderMessage(userRecord(prompt))).toBe(false);
 	});

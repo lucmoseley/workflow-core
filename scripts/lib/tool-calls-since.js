@@ -13,8 +13,9 @@
  * expanded body (meta). Most records carry `origin.kind`, which settles it
  * where present; an origin-less one — an older harness, or a scripted
  * `claude -p` prompt — is read by its text instead. Census on #488. The
- * refill loop's resume prompts (lib/loop-prompts.js) carry origin kind
- * `human`, so their prefix is read before the origin (#3378).
+ * refill loop's resume prompts and another script's typed ones
+ * (lib/loop-prompts.js) carry origin kind `human`, so their prefix is read
+ * before the origin (#3378, #4844).
  *
  * A TRANSCRIPT TOO LARGE TO READ WHOLE IS READ BY ITS TAIL
  * (`lib/session-transcript.js`), so a moment before the tail's start counts
@@ -24,7 +25,7 @@
 const { read } = require("./session-transcript");
 const { STOP_FEEDBACK, mainChainRecords } = require("./transcript");
 const { roundNumber } = require("./round-marker");
-const { isLoopPrompt } = require("./loop-prompts");
+const { isPrefixedPrompt } = require("./loop-prompts");
 
 /**
  * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
@@ -74,7 +75,7 @@ function isFounderMessage(rec) {
 			.map((p) => p.text ?? "")
 			.join("");
 	} else return false;
-	if (!text.trim() || isLoopPrompt(text)) return false;
+	if (!text.trim() || isPrefixedPrompt(text)) return false;
 	return (
 		Boolean(rec.origin) ||
 		!(HARNESS_TEXT.test(text) || STOP_FEEDBACK.test(text))

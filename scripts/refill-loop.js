@@ -164,15 +164,11 @@ const { scriptPath } = require("./lib/script-path.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 const commands = require("./lib/refill-commands.js");
-const {
-	DISPATCHER,
-	files,
-	log,
-	isReviewRunning,
-	say,
-	servedRoots,
-	tick,
-} = require("./lib/refill-tick.js");
+const { files, log, say, servedRoots } = require("./lib/refill-io.js");
+
+/* The tick and its modules, loaded by the commands that run one: `status`,
+ * which the panel polls every few seconds, runs none (#4821). */
+const loadTick = () => require("./lib/refill-tick.js");
 
 /* Untraced: the loop's log is cut to its newer half past this. */
 const LOG_MAX_BYTES = 1024 * 1024;
@@ -188,7 +184,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --quiet-bench | --no-quiet-bench         let a due quiet-gated bench pause launches while the founder is absent, as it does by default; or never
   set --hold-launches <minutes> | --release-launches  launch nothing for this long, up to ${HOLD_MAX_MINUTES}, keeping housekeeping and leaving any pause as it is, while a manual /pick-next dispatches; or launch again now
-  set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
+  set --away | --normal                        hand a session at a question off to its issue, until set --normal or the panel's Away switch; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
@@ -909,6 +905,7 @@ function trimLog() {
 }
 
 async function printDryRun() {
+	const { DISPATCHER, tick } = loadTick();
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
 	if (read) say(loop.buildFrontierReadText(read));
@@ -947,6 +944,8 @@ function startGateSweep(sweeper) {
 }
 
 async function run() {
+	/* Before the hold, so a tick that will not load takes no pidfile. */
+	const { isReviewRunning, tick } = loadTick();
 	/* Before the hold, so it is never held past this process; release
 	 * removes only a pidfile naming this one. */
 	process.on("exit", lock.release);
