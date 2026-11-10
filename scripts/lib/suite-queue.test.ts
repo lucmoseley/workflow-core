@@ -2468,6 +2468,62 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		);
 	});
 
+	describe("the peer limb on the exit line (#4765)", () => {
+		const peerHold = () => ({
+			limb: "peer" as const,
+			holders: [{ pid: 7, queue: "wfc-tsc-queue" }],
+		});
+		const peerWait = async (
+			limbs: (typeof Memory | null)[],
+			extra: Partial<Parameters<typeof waitForGate>[0]> = {},
+		) => {
+			let now = 0;
+			let poll = 0;
+			const said: string[] = [];
+			const exits: unknown[][] = [];
+			const outcome = await waitForGate({
+				clock: () => now,
+				gate: () => {
+					now += 10_000;
+					return limbs[Math.min(poll++, limbs.length - 1)] ?? null;
+				},
+				timeoutMs: 30_000,
+				turn: () => false,
+				turnHold: peerHold,
+				admit: noQueue,
+				sleepFn: () => Promise.resolve(),
+				out: { write: (s: string) => said.push(s) },
+				onExit: (...args: unknown[]) => exits.push(args),
+				...extra,
+			});
+			return { outcome, said: said.join(""), exits };
+		};
+
+		it("refuses a wait a peer holds at the bound on `peer`, with the seconds it held", async () => {
+			const wait = await peerWait([Memory, null]);
+			expect(wait.outcome).toBe("refused");
+			expect(wait.exits).toEqual([
+				["refused", 30_000, { limb: "peer", peerS: 10 }],
+			]);
+			expect(wait.said).toMatch(
+				/turn still closed on an older waiter in the other queue the climb charge holds after 30s/,
+			);
+		});
+
+		it("names a part-suite run past the bound on `peer`", async () => {
+			const wait = await peerWait([null], { part: true });
+			expect(wait.exits).toEqual([
+				["timeout", 30_000, { limb: "peer", peerS: 30 }],
+			]);
+		});
+
+		it("gives a killed wait's line the peer seconds to its last poll", async () => {
+			const stamps = seatStamps({ queueDir: qdir() });
+			await peerWait([null], { ...stamps, climbMb: () => 0 });
+			expect(stamps.killedHold()).toEqual({ peerS: 30 });
+		});
+	});
+
 	it("names the default bound in minutes", async () => {
 		let now = 0;
 		const said: string[] = [];

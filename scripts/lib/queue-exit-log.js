@@ -23,13 +23,16 @@
  * `empty` (the run left because its selection had emptied), `pid`,
  * `signal` on a kill, `skipped` on a run that left before it queued
  * (#1221), and `limb` where the wait ended held at the queue's bound: what
- * held it, `count`, `memory`, `windows` (the Windows-memory hold, #4557)
+ * held it, `count`, `memory`, `windows` (the Windows-memory hold, #4557),
+ * `peer` (an older waiter in the other queue the climb charge holds, #4760)
  * or `turn`. A `timeout` ran anyway, a part-suite
  * past the bound; a `refused` did not run, and carries no `limb` where the
  * load hold refused it (#2421, #2714).
  * `climbMb` is the highest charge for other launches'
  * climb that held the wait with MemAvailable alone clearing the rung (#3806),
  * absent where none did.
+ * `peerS`, the seconds the wait was held on that peer, to its last poll on a
+ * killed line; absent where none held it, and on every line before #4765.
  * `noWait`, true on a `--tsc` line from a try under TSC_NO_WAIT_ENV, the
  * pre-commit hook's, bar a killed one, absent otherwise (#3803).
  * `chargeMb`, on a `--tsc` line, the peak of the compiler the launch ran,
@@ -43,7 +46,7 @@
  */
 
 /** @typedef {"opened"|"left"|"timeout"|"refused"|"killed"} QueueExitReason */
-/** @typedef {"count"|"memory"|"windows"|"turn"} HeldLimb */
+/** @typedef {"count"|"memory"|"windows"|"peer"|"turn"} HeldLimb */
 
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");

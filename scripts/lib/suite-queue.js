@@ -59,8 +59,9 @@ const { describeWindowsHold } = require("./windows-memory.js");
 /** @typedef {import("./queue-exit-log.js").HeldLimb} HeldLimb */
 /**
  * What a wait's exit line records of what held it: `limb` at the queue's bound,
- * and `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`).
- * @typedef {{ limb?: HeldLimb, climbMb?: number, windowsReleased?: true }} WaitHold
+ * `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`), and
+ * `peerS`, the seconds the `peer` limb held it (#4765).
+ * @typedef {{ limb?: HeldLimb, climbMb?: number, peerS?: number, windowsReleased?: true }} WaitHold
  */
 /** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
 /**
@@ -778,21 +779,29 @@ function buildHoldListeners(listen) {
  * spread into its options as one, so no queued caller wires one without the
  * others: `admit` (`queueAdmit`), a listener per `HOLD_STAMPS` stamp that
  * writes it to the marker, and `climbMb`, what
- * its peer queues' launches have yet to draw (#3416). `onClimbHeld` keeps the highest charge that held the wait, for
+ * its peer queues' launches have yet to draw (#3416). `onClimbHeld` keeps the highest charge that held the wait, and
+ * `onPeerHeld` the time the `peer` limb held it to the last poll (#4765), for
  * `killedHold` to give a killed wait's exit line, which `waitForGate` never
  * reaches (#3806).
  *
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, killedHold: () => WaitHold } & Required<HoldListeners>}
+ * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (ms: number) => void, killedHold: () => WaitHold } & Required<HoldListeners>}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
+	let peerS = 0;
 	return {
 		onClimbHeld: (climbMb) => {
 			climbHeldMb = climbMb;
 		},
-		killedHold: () => (climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
+		onPeerHeld: (ms) => {
+			peerS = Math.round(ms / 1000);
+		},
+		killedHold: () => ({
+			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
+			...(peerS > 0 ? { peerS } : {}),
+		}),
 		admit: () => queueAdmit(file, options),
 		...buildHoldListeners(
 			(stamp) => (held) => stampMarker(file, { [stamp]: held }, options),
@@ -1224,18 +1233,22 @@ function gateDenies(
 
 /**
  * What held a wait neither memory limb did: the count cap where the
- * gate denied, else the queue's turn.
+ * gate denied, else the queue's turn, `peer` where an older waiter in the
+ * other queue the climb charge holds is what closes it (#4765).
  *
  * @param {GateDenial | null} denial
+ * @param {TurnHold | undefined} turnHold
  * @returns {Exclude<HeldLimb, "memory" | "windows">}
  */
-function heldLimb(denial) {
-	return denial ? "count" : "turn";
+function heldLimb(denial, turnHold) {
+	if (denial) return "count";
+	return turnHold?.limb === "peer" ? "peer" : "turn";
 }
 
 const HELD_LINE = {
 	count: "gate still denies on its count cap",
 	turn: "turn still closed",
+	peer: "turn still closed on an older waiter in the other queue the climb charge holds",
 };
 
 /**
@@ -1410,6 +1423,14 @@ function limbTrace(clock, started) {
 			identity = next;
 			return held.map(describeLimb).join("; also on ");
 		},
+		/**
+		 * @param {WaitLimb["limb"]} limb
+		 * @returns {number} the milliseconds `limb` has held the wait
+		 */
+		heldMs(limb) {
+			accrue();
+			return heldMs.get(limb) ?? 0;
+		},
 		/** @param {number} wholeSecs  the wait's length, as its lines print it */
 		breakdown(wholeSecs) {
 			accrue();
@@ -1540,7 +1561,7 @@ function changesOnly(listener) {
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
  * changes, and the time held on each limb as the wait ends (#4359).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (ms: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1563,6 +1584,9 @@ function waitForGate({
 	cap = "one whole suite runs at a time (#2714)",
 	part = false,
 	onClimbHeld = () => {
+		/* no killed line to give it to */
+	},
+	onPeerHeld = () => {
 		/* no killed line to give it to */
 	},
 	onExit = () => {
@@ -1626,9 +1650,11 @@ function waitForGate({
 	};
 	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome @param {HeldLimb} [limb] */
 	const exit = (reason, outcome, limb) => {
+		const peerS = Math.round(trace.heldMs("peer") / 1000);
 		const heldBy = {
 			...(limb ? { limb } : {}),
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
+			...(peerS > 0 ? { peerS } : {}),
 			...(windowsReleased
 				? { windowsReleased: /** @type {const} */ (true) }
 				: {}),
@@ -1656,6 +1682,7 @@ function waitForGate({
 		const also =
 			traceLimbs && denial ? readAlsoHeld(denial, turn, turnHold) : [];
 		const line = trace.see(waitLimb(denial, open, turnHold), also);
+		onPeerHeld(trace.heldMs("peer"));
 		if (!traceLimbs || !line) return;
 		announce();
 		out.write(`${label}: after ${secs()}s, held on ${line}\n`);
@@ -1685,7 +1712,7 @@ function waitForGate({
 			out.write(windowsRefusal(label, secs(), denial));
 			return exit("refused", "refused", "windows");
 		}
-		const limb = heldLimb(denial);
+		const limb = heldLimb(denial, turnHold());
 		out.write(
 			`${label}: ${HELD_LINE[limb]} after ${secs()}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: ${cap}.\n`,
 		);
@@ -1700,7 +1727,7 @@ function waitForGate({
 			out.write(
 				`${label}: gate still closed after ${secs()}s — running anyway\n`,
 			);
-			return exit("timeout", "run", heldLimb(denial));
+			return exit("timeout", "run", heldLimb(denial, turnHold()));
 		}, false);
 	/**
 	 * @param {GateDenial | null} denial
