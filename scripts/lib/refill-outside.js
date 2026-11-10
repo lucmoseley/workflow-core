@@ -4,11 +4,16 @@
  * transient API error is typed into on the schedule of #2359 (the API-error
  * resume schedule), through the tick's network gate, and falls
  * back to a stop and `claude --bg --resume` under its own id where the typed
- * one is unseen; where that resume fails after the stop, it is tried again
- * when next due. Unlike a loop launch it is never held stopped between tries,
+ * one is unseen. Unlike a loop launch it is never held stopped between tries,
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
- * job list shows as needs input (#4689). Where the founder has typed into it
+ * job list shows as needs input (#4689). Where that `--bg --resume` fails
+ * after the stop, the session is stopped until one works, so each scheduled
+ * try that fails earns up to 3 short re-attempts at doubling gaps, none of
+ * them a try, and at the cap one last relaunch before the loop logs that it
+ * stays stopped and drops it (#4871). The bound: 3 re-attempts for each of
+ * the 16 scheduled tries and that last one, 65 relaunch attempts for one stop
+ * at most; never one without `--resume` (#2359). Where the founder has typed into it
  * since its stop the loop leaves that stop alone. Where its fallback started
  * a copy whose original would not retire, each tick tries that retirement
  * again as for a launch's copy (#4829), keeping the record until it is done.
@@ -34,6 +39,14 @@ const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
 const { shortJobId } = require("./job-paths.js");
 
 const OUTSIDE_FILE = ".refill-outside.json";
+const MIN_MS = 60 * 1000;
+/* The short re-attempts a failed scheduled relaunch earns, each no sooner
+ * than its gap after the failure before it. The gaps: untraced (delegated,
+ * #4871), their doubling from docs/practice/process-supervision-and-oom.md
+ * §Restart policy. */
+const RE_ATTEMPT_GAPS_MS = [1, 2, 4].map((m) => m * MIN_MS);
+/* How many of them: untraced (delegated, #4871). */
+const RE_ATTEMPTS = RE_ATTEMPT_GAPS_MS.length;
 
 /**
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
@@ -47,7 +60,8 @@ const OUTSIDE_FILE = ".refill-outside.json";
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
  *   nextAt?: number, attachAt?: number, handsOff?: true, typedUnread?: true,
  *   capped?: true,
- *   held?: StoppedTarget, unretired?: Unretired[]}}
+ *   held?: StoppedTarget, reAttempts?: number, reAttemptAt?: number,
+ *   unretired?: Unretired[]}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
@@ -55,7 +69,9 @@ const OUTSIDE_FILE = ".refill-outside.json";
  *   typed into it since this stop; `typedUnread`, whether it
  *   did is unread, logged once; `capped`, its resumes reached the cap,
  *   after which the loop leaves this stop alone; `held`, the session the
- *   loop stopped whose `--bg --resume` failed, resumed when next due;
+ *   loop stopped whose `--bg --resume` failed, with `reAttempts`, the short
+ *   re-attempts spent since its last scheduled try, the next due at
+ *   `reAttemptAt`, absent once they are spent;
  *   `unretired`, the originals of its copies whose jobs would not retire
  */
 
@@ -95,10 +111,9 @@ function betweenStops(o) {
 		since: _,
 		attachAt: __,
 		handsOff: ___,
-		held: ____,
-		typedUnread: _____,
+		typedUnread: ____,
 		...rest
-	} = o;
+	} = withoutHeld(o);
 	return rest;
 }
 
@@ -124,12 +139,12 @@ function retiringOnly(o) {
 }
 
 /**
- * `o`, listed live again, so no longer held for a retry.
+ * `o` live again, so no longer held for a relaunch.
  * @param {Outside} o
  * @returns {Outside}
  */
 function withoutHeld(o) {
-	const { held: _, ...rest } = o;
+	const { held: _, reAttempts: __, reAttemptAt: ___, ...rest } = o;
 	return rest;
 }
 
@@ -155,27 +170,73 @@ function buildOutside(a, now) {
 
 /**
  * `claude --bg --resume` of `o`'s stopped session `target` with the resume
- * prompt: `o` moved onto the job it runs as, else marked `held` for a retry
- * when next due.
+ * prompt: `o` moved onto the job it runs as, logged, else why it failed.
+ * @param {Outside} o
+ * @param {StoppedTarget} target
+ * @param {Tick["io"]} io
+ * @returns {Outside|string}
+ */
+function relaunched(o, target, io) {
+	const r = io.resumeStopped(sessionRefOf(o), API_PROMPT, target);
+	if (r.failed !== null) return r.failed;
+	io.log(`resumed ${nameOf(o)} by --bg --resume, ${buildResumedHow(r)}`);
+	return withUnretired(
+		{
+			...withoutHeld(o),
+			jobId: r.jobId,
+			sessionId: r.sessionId ?? o.sessionId,
+		},
+		r,
+	);
+}
+
+/**
+ * Relaunch `o`'s stopped session `target`; where that fails, `o` marked
+ * `held` for the next short re-attempt, or once those are spent for its next
+ * scheduled try.
  * @param {Outside} o
  * @param {StoppedTarget} target
  * @param {Tick} seen
+ * @param {number} [spent]  the short re-attempts spent since the last
+ *   scheduled try, this one counted where it is one
  * @returns {Outside}
  */
-function relaunch(o, target, { io }) {
-	const r = io.resumeStopped(sessionRefOf(o), API_PROMPT, target);
-	if (r.failed !== null) {
-		io.log(
-			`could not resume ${nameOf(o)} by --bg --resume: ${r.failed}; it stays stopped until the next try, due ${iso(o.nextAt ?? 0)}`,
-		);
-		return { ...o, held: target };
-	}
-	io.log(`resumed ${nameOf(o)} by --bg --resume, ${buildResumedHow(r)}`);
-	const { held: _, ...rest } = o;
-	return withUnretired(
-		{ ...rest, jobId: r.jobId, sessionId: r.sessionId ?? o.sessionId },
-		r,
+function relaunch(o, target, { io, now }, spent = 0) {
+	const moved = relaunched(o, target, io);
+	if (typeof moved !== "string") return moved;
+	const gap = RE_ATTEMPT_GAPS_MS[spent];
+	const reAttemptAt = gap === undefined ? undefined : now + gap;
+	const due = Math.min(reAttemptAt ?? Number.POSITIVE_INFINITY, o.nextAt ?? 0);
+	const what =
+		spent === 0
+			? `could not resume ${nameOf(o)} by --bg --resume`
+			: `re-attempt ${spent} of ${RE_ATTEMPTS} to resume ${nameOf(o)} by --bg --resume failed`;
+	io.log(
+		`${what}: ${moved}; it stays stopped until the next attempt, due ${iso(due)}`,
 	);
+	return {
+		...withoutHeld(o),
+		held: target,
+		reAttempts: spent,
+		...(reAttemptAt === undefined ? {} : { reAttemptAt }),
+	};
+}
+
+/**
+ * The loop's last act on `o`, held at the cap: one more relaunch, and where
+ * that fails too, logged and dropped, left stopped, as nothing but a relaunch
+ * makes a stopped session live.
+ * @param {Outside & {held: StoppedTarget}} o
+ * @param {Tick["io"]} io
+ * @returns {Outside|null}
+ */
+function lastRelaunch(o, io) {
+	const moved = relaunched(o, o.held, io);
+	if (typeof moved !== "string") return moved;
+	io.log(
+		`stopped trying to resume ${nameOf(o)} after ${o.tries} resumes, its last --bg --resume failing too (${moved}): it stays stopped on its last error`,
+	);
+	return null;
 }
 
 /**
@@ -204,21 +265,21 @@ function fallBack(o, seen) {
 }
 
 /**
- * `o`, stopped by the loop with its relaunch failed, tried again once due: a
- * try of its own; at the cap, logged and dropped, left stopped.
+ * `o`, stopped by the loop with its relaunch failed, relaunched again on a
+ * tick that admits it: at its scheduled try once due, a try of its own, or at
+ * the cap the last relaunch; before then at a short re-attempt once due, no
+ * try. A tick that does not admit it spends nothing.
  * @param {Outside & {held: StoppedTarget}} o
  * @param {Tick} seen
  * @returns {Outside|null}
  */
 function retryHeld(o, seen) {
 	const { now, io } = seen;
-	if (o.tries >= RESUME_CAP) {
-		io.log(
-			`stopped trying to resume ${nameOf(o)} after ${o.tries} resumes: it stays stopped on its last error`,
-		);
-		return null;
-	}
-	if ((o.nextAt ?? 0) > now || !isRunAdmitted(o, seen)) return o;
+	const isTryDue = (o.nextAt ?? 0) <= now;
+	const isReAttemptDue = o.reAttemptAt !== undefined && o.reAttemptAt <= now;
+	if (!(isTryDue || isReAttemptDue) || !isRunAdmitted(o, seen)) return o;
+	if (!isTryDue) return relaunch(o, o.held, seen, (o.reAttempts ?? 0) + 1);
+	if (o.tries >= RESUME_CAP) return lastRelaunch(o, io);
 	const tries = o.tries + 1;
 	return relaunch(
 		{ ...o, tries, triedAt: now, nextAt: nextTryAt(tries, now) },
