@@ -18,6 +18,7 @@ import {
 	suiteSlot,
 } from "./local-tester.js";
 import { markersDir } from "./marker-root.js";
+import { npmBin } from "./npm-bin.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
@@ -84,7 +85,7 @@ const recordingExec = () => {
 	return {
 		npm,
 		exec: (bin: string, args: string[], cwd: string) => {
-			if (bin === "npm") {
+			if (bin === npmBin()) {
 				npm.push(cwd);
 				fs.mkdirSync(path.join(cwd, "node_modules"), { recursive: true });
 				return;
@@ -241,7 +242,7 @@ it("returns unknown, never green, where it cannot check out, install or start", 
 		root: work,
 		admit,
 		exec: (bin, args, cwd) => {
-			if (bin === "npm") throw new Error("npm ci exploded");
+			if (bin === npmBin()) throw new Error("npm ci exploded");
 			execFileSync(bin, args, { cwd, stdio: "ignore" });
 		},
 	});
@@ -295,7 +296,8 @@ it("runs the Python suite alone where it is routed and no test command is declar
 	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
 });
 
-it("installs once per lockfile, again only when it changes", async () => {
+it("installs once per lockfile through WFC_NPM, again only when it changes", async () => {
+	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
 	write("package-lock.json", '{"v":1}');
 	const first = commit("lock v1");
 	write("c.check.js", "");

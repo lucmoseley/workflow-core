@@ -3268,16 +3268,13 @@
 			"scripts/lib/migration-note.test.ts"
 		],
 		"package-lock.json": [
-			"scripts/admission.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-main-checkout-job.test.ts",
 			"scripts/level-main.test.ts",
 			"scripts/lib/doc-map.test.ts",
-			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/pass-store.test.ts",
-			"scripts/lib/suite-queue.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/register-doc.test.ts",
@@ -26378,6 +26375,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/npm-bin.js": [
+			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -26394,14 +26392,17 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/npm-ci-staging.js": [
+			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -26420,8 +26421,10 @@
 			"scripts/lib/cutover.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",

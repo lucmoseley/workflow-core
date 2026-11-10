@@ -44,6 +44,8 @@ const { LANDER_WORKTREE } = require("./lander-worktree.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { latestTimings } = require("./latest-timings.js");
 const { LANDER_RUN } = require("./session-id.js");
+const { npmBin } = require("./npm-bin.js");
+const { INSTALL_TIMEOUT_MS, LOCKFILE } = require("./npm-ci-staging.js");
 
 /**
  * The lander's environment less every variable a root lookup answers before
@@ -79,8 +81,6 @@ const CHARGE_MB = { whole: 2630, named: 940 };
 const NAMED_MEASURED_FILES = 6;
 /* The queue marker's role, which session admission reads (#2416). */
 const LANDER_ROLE = "lander";
-/* Untraced: room for `npm ci` over a slow link. */
-const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 /* Untraced: room for a checkout of the whole tree. */
 const CHECKOUT_TIMEOUT_MS = 120 * 1000;
 /* Untraced: how often a run's tree PSS is sampled for its peak. */
@@ -99,7 +99,6 @@ const HOLDER_COMMAND_CHARS = 120;
 /* Where the install's lockfile hash is kept: inside what it installed, so a
  * deleted `node_modules` takes its stamp with it. */
 const STAMP = path.join("node_modules", ".lander-lock-hash");
-const LOCKFILE = "package-lock.json";
 const VITEST_FAIL = /^\s*FAIL\s+(\S+)/;
 const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
 /* The heads of a failing test's line; the name after each is read by index,
@@ -587,7 +586,7 @@ function install(dir, exec) {
 	} catch {
 		/* no stamp: never installed, or the install was removed */
 	}
-	exec("npm", ["ci", "--no-audit", "--no-fund"], dir, {
+	exec(npmBin(), ["ci", "--no-audit", "--no-fund"], dir, {
 		timeout: INSTALL_TIMEOUT_MS,
 	});
 	fs.writeFileSync(stamp, `${hash}\n`);
