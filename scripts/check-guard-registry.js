@@ -211,6 +211,7 @@ const {
 	readMerge,
 	writeCarried,
 } = require("./lib/registry-carry.js");
+const { readStaleAtHead } = require("./lib/stale-at-head.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -3758,9 +3759,12 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		anyGone: false,
 		unclaimedSeen: new Set(),
 		written: 0,
+		anchored: [],
 	};
 
 	for (const g of targets) reanchorTarget(run, g);
+	for (const l of buildStaleAtHeadLines(readStaleAtHead(root, run.anchored)))
+		printLine(l);
 
 	const { next, missing, written } = run;
 	const dropped =
@@ -3977,6 +3981,7 @@ function readTreeBlobs(sha, paths) {
  *   anyGone: boolean,
  *   unclaimedSeen: Set<string>,
  *   written: number,
+ *   anchored: import("./lib/stale-at-head.js").Anchored[],
  * }} ReviewRun
  */
 
@@ -4028,6 +4033,7 @@ function reanchorTarget(run, g) {
 	}
 	run.next[g] = d;
 	run.written++;
+	run.anchored.push({ guard: g, digest: d, inputs: [...(inputs ?? [])] });
 	printLine(`anchored ${g} @ ${d}`);
 	printDescriptions(run, g);
 }
@@ -4046,6 +4052,41 @@ function printDescriptions({ describedBy, implicitScripts }, g) {
 	if (wired)
 		for (const l of buildImplicitLines(wired, "  implicit: ", { detail: true }))
 			printLine(l);
+}
+
+/**
+ * The rows this run re-anchored that were already stale at HEAD, each with
+ * what changed under it before this commit (#4756).
+ *
+ * @param {import("./lib/stale-at-head.js").StaleAtHead[]} stale
+ * @returns {string[]}
+ */
+function buildStaleAtHeadLines(stale) {
+	if (stale.length === 0) return [];
+	const lines = [
+		"",
+		`Already stale at HEAD — re-anchoring ${stale.length === 1 ? "this row" : "these rows"} also asserts a re-read of what changed under ${stale.length === 1 ? "it" : "them"} before this commit (#4756):`,
+	];
+	for (const s of stale) {
+		const at = s.writer ? s.writer.slice(0, 9) : null;
+		if (s.error)
+			lines.push(
+				`  ${s.guard} — HEAD's anchor ${s.anchor} differs, and what changed since it was written is not named: git failed (${s.error}).`,
+			);
+		else if (at === null)
+			lines.push(
+				`  ${s.guard} — HEAD's anchor ${s.anchor} was written by no commit in HEAD's history, so what changed since is not named.`,
+			);
+		else
+			lines.push(
+				`  ${s.guard} — anchored at ${at}; changed since: ${s.changed.join(", ")}`,
+				`    git diff ${at} HEAD -- ${s.changed.map(shellQuote).join(" ")}`,
+			);
+	}
+	lines.push(
+		`Read each against the rules printed for its row, or leave the row stale: restore its HEAD anchor in ${ANCHORS} before committing.`,
+	);
+	return lines;
 }
 
 /**

@@ -613,6 +613,63 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(root)).toEqual(before);
 	});
 
+	describe("a row already stale at HEAD (#4756)", () => {
+		/* guard-branch.sh sources lib/deny.sh: anchored and committed, then the
+		 * library changes in a commit that leaves the row stale. */
+		function staleAtHead(): { root: string; git: (...a: string[]) => string } {
+			const root = committedRepo(TWO_GUARDS);
+			const git = (...args: string[]) =>
+				execFileSync("git", args, { cwd: root, encoding: "utf8" });
+			reviewIn(root, [], env([]));
+			git("add", ANCHORS);
+			git("commit", "-qm", "anchor");
+			fs.writeFileSync(
+				path.join(root, "scripts/lib/deny.sh"),
+				"deny() { exit 3; }\n",
+			);
+			git("commit", "-qam", "change the library unread");
+			return { root, git };
+		}
+
+		it("names the row and the inputs changed since its anchor was written", () => {
+			const { root, git } = staleAtHead();
+			const writer = git("log", "-1", "--format=%h", "HEAD~1").trim();
+			fs.writeFileSync(
+				path.join(root, "scripts/guard-branch.sh"),
+				'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 1\n',
+			);
+			const out = reviewIn(
+				root,
+				["scripts/guard-branch.sh", "--own", "scripts/guard-branch.sh"],
+				env([]),
+			);
+			expect(out).toContain("Already stale at HEAD");
+			const row = out
+				.split("\n")
+				.find((l) => l.startsWith("  scripts/guard-branch.sh — anchored at"));
+			/* The library HEAD changed is named; the guard, this commit's own
+			 * uncommitted change, is not. */
+			expect(row).toBe(
+				`  scripts/guard-branch.sh — anchored at ${git("rev-parse", "--short=9", writer).trim()}; changed since: scripts/lib/deny.sh`,
+			);
+			expect(out).not.toContain("  scripts/guard-amend.sh —");
+		});
+
+		it("names nothing where only this commit's change moved the row", () => {
+			const { root, git } = staleAtHead();
+			reviewIn(root, ["scripts/guard-branch.sh"], env([]));
+			git("commit", "-qam", "re-anchor");
+			dirty(root, "guard-amend.sh");
+			const out = reviewIn(
+				root,
+				["scripts/guard-amend.sh", "--own", "scripts/guard-amend.sh"],
+				env([]),
+			);
+			expect(out).toContain("anchored scripts/guard-amend.sh @");
+			expect(out).not.toContain("Already stale at HEAD");
+		});
+	});
+
 	it("--own is refused where the claims went unread, so a neighbour's hold is unknown (#4078)", () => {
 		const root = twoGuards();
 		reviewIn(root);
