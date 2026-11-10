@@ -71,7 +71,7 @@ const { deny, open, walkVerdict } = require("./guard-verdict.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { BASH_SPACE, parseCommand } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
-const { readOrNull } = require("./tree-or.js");
+const { readOrNull } = require("./file-read.js");
 const { trimRun } = require("./trim-run.js");
 const {
 	commandName,
