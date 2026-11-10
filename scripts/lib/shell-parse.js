@@ -1055,6 +1055,8 @@ function resolveWord(word, scope) {
  *   and the leading assignments (#1013)
  * @property {string} cwd the directory it runs in; "" where the walk cannot
  *   know it, which the caller records before it fails open (mantahostels#3453)
+ * @property {(chdirs: Chdir[]) => string} cwdThrough the directory one of its
+ *   unwrap runs stands in, as moveThrough answers it from `cwd` (#4869)
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[]) => WriteTarget[]} writeTargets
  * @property {(word: string) => string | null} resolveWord
@@ -1271,6 +1273,28 @@ function moveCwd(walk, words) {
 }
 
 /**
+ * A directory moved through an unwrap run's `chdirs`, as moveCwd moves the
+ * walk's: an absolute one replaces it, a relative one joins it, `""` stays
+ * put, and one that will not resolve makes it unknown. Each move is taken as
+ * made, whatever its `holds`.
+ * @param {string} cwd "" where unknown
+ * @param {Chdir[]} chdirs
+ * @param {Scope} scope
+ * @returns {string} "" where unknown
+ */
+function moveThrough(cwd, chdirs, scope) {
+	let at = cwd;
+	for (const { dir } of chdirs) {
+		const r = pathArg(dir, scope);
+		if (r && "empty" in r) continue;
+		if (!r) at = "";
+		else if (r.path.startsWith("/")) at = r.path;
+		else if (at) at = `${at}/${r.path}`;
+	}
+	return at;
+}
+
+/**
  * Whether a command moves the cwd where no word of it says.
  * @param {string} head
  * @param {string | undefined} arg the word after it
@@ -1336,6 +1360,7 @@ function walkCommands(parsed, fn, ports) {
 			words: own,
 			leading: words.slice(0, assignEnd),
 			cwd: walk.cwd,
+			cwdThrough: (chdirs) => moveThrough(walk.cwd, chdirs, scope),
 			redirects,
 			writeTargets: (w = own) =>
 				writeTargets(w, redirects(), {

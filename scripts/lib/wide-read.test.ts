@@ -632,6 +632,47 @@ describe("a dumper behind a launcher (#3519)", () => {
 		);
 	});
 
+	it("measures a dumper's files in the directory its launcher moves to (#4869)", () => {
+		const sub = path.join(repo, "sub");
+		fs.mkdirSync(sub);
+		fs.writeFileSync(path.join(sub, "deep.md"), "x".repeat(WIDE_BYTES + 1));
+		for (const n of [1, 2, 3])
+			fs.writeFileSync(path.join(sub, `deep-${n}.txt`), "y");
+		for (const command of [
+			"env -C sub cat deep.md",
+			`env -C ${sub} cat deep.md`,
+			'flock /l -c "cd sub; cat deep.md"',
+			"cd sub && cat deep.md",
+		])
+			expect(run(command).warning, command).toContain(
+				`deep.md is ${WIDE_BYTES + 1} characters`,
+			);
+		for (const command of [
+			"env -C sub awk 1 deep-*.txt",
+			'flock /l -c "cd sub && awk 1 deep-*.txt"',
+		])
+			expect(run(command).warning, command).toContain(
+				`matches at least ${WIDE_MATCHES} files`,
+			);
+		for (const command of [
+			"env -C sub cat big.md",
+			"env -C sub awk 1 part-*.txt",
+			'flock /l -c "cd sub; cat big.md"',
+			'flock /l -c "cat deep.md; cd sub"',
+		])
+			expect(run(command), command).toEqual(silent);
+	});
+
+	it("measures no relative path from a directory it cannot read, and an absolute one still", () => {
+		const big = path.join(repo, "big.md");
+		expect(run("env -C $UNSET cat big.md")).toEqual(silent);
+		expect(run('flock /l -c "cd -; awk 1 part-*.txt"')).toEqual(silent);
+		expect(run(`env -C $UNSET cat ${big}`).warning).toContain("big.md is");
+		expect(
+			run(`flock /l -c "cd -; awk 1 ${repo}/part-*.txt"`).warning,
+		).toContain(`matches at least ${WIDE_MATCHES} files`);
+	});
+
 	it("stays silent on a dumper inside a shell's -c string", () => {
 		expect(run('sh -c "cat big.md"')).toEqual(silent);
 	});

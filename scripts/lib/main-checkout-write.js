@@ -255,7 +255,7 @@ function interpreterDir(cmd, spans, ctx) {
 	for (const run of unwrap(cmd.words, spans)) {
 		const dir = runDir(
 			run.words.map((w) => literal(w, spans).text),
-			cmd,
+			cmd.cwdThrough(run.chdirs),
 			ctx,
 		);
 		if (dir !== null) return dir;
@@ -267,24 +267,24 @@ function interpreterDir(cmd, spans, ctx) {
  * The main-checkout directory one unwrap run's interpreter runs in, as
  * interpreterDir answers it.
  * @param {string[]} words the run's words, read through literal
- * @param {import("./shell-parse.js").Command} cmd
+ * @param {string} cwd the directory the run stands in; "" where unknown
  * @param {CoreContext} ctx
  * @returns {string | null}
  */
-function runDir(words, cmd, ctx) {
+function runDir(words, cwd, ctx) {
 	const prog = path.basename(words[0] ?? "");
 	const program = programSource(prog, words.slice(1));
 	if (!program) return null;
-	if (!cmd.cwd) {
+	if (!cwd) {
 		ctx.log(`the walk lost the cwd of a ${prog} — run unchecked`);
 		return null;
 	}
 	if (
 		program.script &&
-		ctx.statKind(path.resolve(cmd.cwd, program.script)) === "file"
+		ctx.statKind(path.resolve(cwd, program.script)) === "file"
 	)
 		return null;
-	return refusedPath(cmd.cwd, ctx, true);
+	return refusedPath(cwd, ctx, true);
 }
 
 /**

@@ -229,6 +229,27 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 		expect(reason).toContain(`Your session's worktree is ${at.worktree}`);
 	});
 
+	it("refuses one a session in its worktree reaches through a launcher's directory (#4869)", () => {
+		for (const command of [
+			`env -C ${at.main} python3 -c 'x'`,
+			`sudo -D ${at.main} node -e 'x'`,
+			`flock /l -c "cd ${at.main}; python3 -c 'x'"`,
+			`flock /l -c "cd ${at.main} && node -e 'x'"`,
+		])
+			expect(refusal("Bash", { command }), command).toContain(
+				`${Refused}, in the main checkout`,
+			);
+	});
+
+	it("allows one a launcher moves out of the main checkout, or to a directory it cannot read", () => {
+		for (const command of [
+			`env -C ${at.worktree} python3 -c 'x'`,
+			`flock /l -c "cd ${at.worktree}; python3 -c 'x'"`,
+			`env -C $UNSET python3 -c 'x'`,
+		])
+			expect(fromMain(command), command).toBeNull();
+	});
+
 	it("allows it in the session's worktree, and in a gitignored store", () => {
 		expect(
 			refusal("Bash", { command: "python3 - <<'EOF'\nprint(1)\nEOF" }),
