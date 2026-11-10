@@ -2,7 +2,7 @@
  * queue-gauge.js — the landing queue's gauge: the queue refs waiting on the
  * remote, each with the time it has waited, the 7-day baselines
  * lib/queue-log.js reads off the queue log, the limits the stall check and
- * the queue alert hold them to, and the status line.
+ * the queue alert hold them to, and the status line (#4485, spec #4458).
  *
  * WAITING: every `refs/heads/queue/<name>` on the remote, read as the queue
  * lander reads its batch (lib/queue-lander-adapters.js): it has waited since
@@ -20,11 +20,15 @@
 const { QUEUE_HEADS } = require("./landing-refs.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const {
+	BASELINE_MS,
 	pendingSince,
 	queueBaseline,
 	queueLogFile,
 	readQueueRows,
 } = require("./queue-log.js");
+const { DAY_MS } = require("./retained-jsonl.js");
+
+const BASELINE_DAYS = BASELINE_MS / DAY_MS;
 
 const AGE_FLOOR_MS = 60 * 60 * 1000;
 const DEPTH_FLOOR = 10;
@@ -94,8 +98,8 @@ const span = (ms) => (ms === null ? "none" : formatHoursMin(ms));
  * @param {import("./queue-log.js").QueueBaseline} b
  */
 const buildLimitText = (limits, b) => ({
-	age: `${formatHoursMin(limits.ageMs)}, the larger of ${BASELINE_FACTOR} × the 7-day p90 time in queue (${span(b.p90Ms)}) and ${AGE_FLOOR_MS / 60_000} min`,
-	depth: `${limits.depth}, the larger of ${BASELINE_FACTOR} × the 7-day p90 depth (${b.depthP90 ?? "none"}) and ${DEPTH_FLOOR}`,
+	age: `${formatHoursMin(limits.ageMs)}, the larger of ${BASELINE_FACTOR} × the ${BASELINE_DAYS}-day p90 time in queue (${span(b.p90Ms)}) and ${AGE_FLOOR_MS / 60_000} min`,
+	depth: `${limits.depth}, the larger of ${BASELINE_FACTOR} × the ${BASELINE_DAYS}-day p90 depth (${b.depthP90 ?? "none"}) and ${DEPTH_FLOOR}`,
 });
 
 /**
@@ -125,8 +129,8 @@ function buildQueueLine({ now, waiting, baseline: b }) {
 			: `queue: ${waiting.length} waiting, the oldest queue/${oldest.name} for ${formatHoursMin(now - oldest.since)}`;
 	const times =
 		b.spans === 0
-			? "nothing landed or dropped in 7 days"
-			: `time in queue over 7 days p50 ${span(b.p50Ms)}, p90 ${span(b.p90Ms)} across ${b.spans} landed or dropped`;
+			? `nothing landed or dropped in ${BASELINE_DAYS} days`
+			: `time in queue over ${BASELINE_DAYS} days p50 ${span(b.p50Ms)}, p90 ${span(b.p90Ms)} across ${b.spans} landed or dropped`;
 	return `${head}; ${times}; depth p90 ${b.depthP90 ?? "none"}.`;
 }
 

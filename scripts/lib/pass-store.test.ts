@@ -15,7 +15,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { heldAtSha, lookup, record } = require("./pass-store.js");
+const {
+	heldAtSha,
+	lookup,
+	readCachedHandoff,
+	record,
+	writeCachedHandoff,
+} = require("./pass-store.js");
 const { markersDir } = require("./marker-root.js");
 const { EDGES_FILE, repoRoot } = require("./test-pass-marker.js");
 
@@ -394,11 +400,62 @@ describe("the newest result on the same content decides", () => {
 	});
 });
 
-describe("a run whose per-file verdicts cannot be trusted records nothing", () => {
-	it("records nothing of a run that errored outside its files", () => {
+describe("a script the manifest says a file spawns", () => {
+	/** A repository whose test A spawns `script`, which loads `dep`. */
+	function spawning(script: string, dep: string, load: string) {
+		const dir = repo({ [script]: [A] });
+		write(dir, script, load);
+		write(dir, dep, `${dep} v0\n`);
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "spawned");
+		return dir;
+	}
+
+	it.each([
+		[
+			"a module the spawned script requires",
+			"scripts/tool.js",
+			"scripts/dep.js",
+			'require("./dep.js");\n',
+		],
+		[
+			"a module the spawned Python script imports",
+			"scripts/tool.py",
+			"scripts/helper.py",
+			"import helper\n",
+		],
+	])("voids the pass when %s changes", (_what, script, dep, load) => {
+		const dir = spawning(script, dep, load);
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, dep, `${dep} v1\n`);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("records no row where the spawned Python script imports a module it cannot place (#4790)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			"scripts/placed.py",
+			"import placed\n",
+		);
+		expect(run(dir, [A])).toBe(1);
+		fs.rmSync(path.join(dir, "scripts/placed.py"));
+		expect(run(dir, [A])).toBe(0);
+	});
+});
+
+describe("a run whose per-file verdicts cannot be trusted records no pass", () => {
+	it("records no pass of a run that errored outside its files", () => {
 		const dir = repo();
 		expect(run(dir, [A], { clean: false })).toBe(0);
 		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("records the failures of a run that was not clean, so an older pass no longer caches", () => {
+		const dir = repo();
+		run(dir, [A, B]);
+		expect(run(dir, [A, B], { clean: false, failing: [B] })).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([A]);
 	});
 
 	it("records nothing of a run whose tree drift is unknown", () => {
@@ -508,6 +565,17 @@ describe("the uncached pragma", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
+	it("lets no row recorded before rows reached spawned scripts decide (#4790)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
+		fs.writeFileSync(
+			shardOf(dir, A),
+			`${JSON.stringify({ ...line, format: 2 })}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("runs every file of an absent store, silently", () => {
 		const dir = repo();
 		const found = lookup([A], {
@@ -616,5 +684,34 @@ describe("where the store lives", () => {
 		run(two, [A]);
 		expect(cachedOf(two, [A])).toEqual([A]);
 		expect(cachedOf(one, [A])).toEqual([A]);
+	});
+});
+
+describe("the cached files' hand-off to the vitest child", () => {
+	const sink = () => {
+		const lines: string[] = [];
+		return { lines, write: (t: string) => lines.push(t) };
+	};
+
+	it("says so where it cannot be written, since the certificate then leaves the cached files out", () => {
+		const err = sink();
+		expect(
+			writeCachedHandoff(
+				[],
+				path.join(os.tmpdir(), "no-such-dir-pst", "h.json"),
+				err,
+			),
+		).toBeNull();
+		expect(err.lines.join("")).toMatch(/hand-off was not written.*#4790/);
+	});
+
+	it("says so where it will not read", () => {
+		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pst-")));
+		dirs.push(dir);
+		const file = path.join(dir, "h.json");
+		fs.writeFileSync(file, "{ torn");
+		const err = sink();
+		expect(readCachedHandoff({ WFC_PASS_STORE_CACHED: file }, err)).toBeNull();
+		expect(err.lines.join("")).toMatch(/hand-off will not read.*#4790/);
 	});
 });

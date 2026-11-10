@@ -35,11 +35,16 @@ function writeLedger(rows: object[]) {
 	fs.writeFileSync(file, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
 }
 
-function json() {
-	const res = runInProcess(SCRIPT, ["--json"], {
+function run(args: string[], env: Record<string, string> = {}) {
+	return runInProcess(SCRIPT, args, {
 		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
 	});
+}
+
+function json() {
+	const res = run(["--json"]);
+	expect(res.status).toBe(0);
 	return JSON.parse(res.stdout) as {
 		outcome: string;
 		runs: number;
@@ -66,7 +71,27 @@ describe("check-pass-store", () => {
 		});
 	});
 
+	it("prints the week's counts and cached share on its status line", () => {
+		writeLedger([
+			{ at: new Date().toISOString(), cachedFiles: 3, ranFiles: 1 },
+		]);
+		const res = run([]);
+		expect(res.status).toBe(0);
+		expect(res.stdout + res.stderr).toContain(
+			"pass store, last 7 days: 3 file(s) cached, 1 run, over 1 run(s) that looked it up, 75% cached.",
+		);
+	});
+
 	it("reads no ledger as nothing looked up", () => {
 		expect(json()).toMatchObject({ outcome: "OK", runs: 0, hits: 0 });
+	});
+
+	it("skips where git names no canonical checkout", () => {
+		fs.rmSync(path.join(dir, ".git"), { recursive: true, force: true });
+		const res = run([], { GIT_CEILING_DIRECTORIES: path.dirname(dir) });
+		expect(res.status).toBe(0);
+		expect(res.stdout + res.stderr).toContain(
+			"git names no canonical checkout.",
+		);
 	});
 });

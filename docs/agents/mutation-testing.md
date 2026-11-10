@@ -26,9 +26,9 @@ such as `pytest`.
 
 **Plant a mutant in your own worktree, never in the main checkout.** Every
 session's hooks load the main checkout's working copy, so a mutant there runs
-in their gates (#4170, #4187). **Enforced** once the main checkout is cut
-over: `scripts/guard-dispatch.js` (its `guard-main-checkout-write` core) refuses the
-write; with the `landing` module off, nothing does.
+in their gates (#4170, #4187). **Enforced** from a session in a worktree, and
+from any once the main checkout is cut over: `scripts/guard-dispatch.js` (its
+`guard-main-checkout-write` core) refuses the write (#4697).
 
 ## Prove the mutation landed
 
