@@ -40,7 +40,11 @@ describe("lib/launch-charge.js", () => {
 			{ kind: "tsc", major: 6 },
 			2045,
 		],
-		["a lander's whole run (#3323)", { kind: "lander", files: [] }, 2630],
+		[
+			"a lander's whole run, a shard's (#4771)",
+			{ kind: "lander", files: [] },
+			1929,
+		],
 		[
 			"a lander's named run of one file",
 			{ kind: "lander", files: named(1) },
@@ -54,7 +58,7 @@ describe("lib/launch-charge.js", () => {
 		[
 			"a lander's named run past six files, whole (#3973)",
 			{ kind: "lander", files: named(7) },
-			2630,
+			1929,
 		],
 	] as const)("charges %s", (_, launch, mb) => {
 		expect(chargeMb(launch)).toBe(mb);

@@ -24,6 +24,7 @@ import { writeCostTable } from "./lib/cost-table-testkit";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { ceilingsOf } from "./lib/seat-reading.js";
 import { SESSION_COST_TABLE } from "./lib/session-spend.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
@@ -690,10 +691,11 @@ describe("stop and status", () => {
 	});
 
 	describe("the seats: line off fixture seats (#3733)", () => {
+		/* ~/.claude2 reads the default week ceiling, so it is passed over. */
+		const Week = ceilingsOf({}).week;
 		const seats = () => [".claude2", ".claude3"].map((n) => path.join(dir, n));
 		const markerPath = () => path.join(dir, "typed-marker");
-		const expectedLine =
-			"~/.claude3 week 40% 5h 20%, ~/.claude2 week 98% 5h 95%; next ~/.claude3 (last typed on); passed over ~/.claude2 week 98% ≥ 97%, 5h 95% ≥ 90%";
+		const expectedLine = `~/.claude3 week 40% 5h 20%, ~/.claude2 week ${Week}% 5h 95%; next ~/.claude3 (last typed on); passed over ~/.claude2 week ${Week}% ≥ ${Week}%, 5h 95% ≥ 90%`;
 
 		beforeEach(() => {
 			fs.mkdirSync(path.join(dir, ".claude"));
@@ -703,7 +705,7 @@ describe("stop and status", () => {
 			);
 			const now = Date.now();
 			const bars = [
-				{ week: 98, session: 95 },
+				{ week: Week, session: 95 },
 				{ week: 40, session: 20 },
 			];
 			seats().forEach((seat, i) => {
@@ -751,7 +753,7 @@ describe("stop and status", () => {
 				"~/.claude2",
 			]);
 			expect(view.readings[1]).toMatchObject({
-				week: 98,
+				week: Week,
 				session: 95,
 				fresh: true,
 			});
@@ -763,7 +765,7 @@ describe("stop and status", () => {
 				{
 					seat: "~/.claude2",
 					limits: [
-						{ bar: "week", percent: 98, ceiling: 97 },
+						{ bar: "week", percent: Week, ceiling: Week },
 						{ bar: "5h", percent: 95, ceiling: 90 },
 					],
 					hold: null,
