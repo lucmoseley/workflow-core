@@ -551,7 +551,18 @@ describe("a plan seat on an overflow seat's dir (#3693)", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Allowance OK");
-		expect(readBgLaunches()).toEqual(["--bg /implement 341"]);
+		expect(readBgLaunches()).toEqual(["--bg -- /implement 341"]);
+	});
+
+	it("launches a prompt opening with a dash as the prompt, never an option (#4820)", () => {
+		stub();
+		const r = spawnSync("bash", [SCRIPT, "opus", "--resume /implement 341"], {
+			cwd: fx.dir,
+			encoding: "utf8",
+			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
+		});
+		expect(r.status).toBe(0);
+		expect(readBgLaunches()).toEqual(["--bg -- --resume /implement 341"]);
 	});
 });
 

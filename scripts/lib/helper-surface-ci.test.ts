@@ -16,25 +16,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseJob, type Step } from "./workflow-yaml-testkit";
 
-interface Step {
-	id?: string;
-	uses?: string;
-	run?: string;
-	env?: Record<string, string>;
-	with?: Record<string, unknown>;
-}
-
-// js-yaml ships no types, and only its load is needed.
-const yaml: { load: (text: string) => unknown } = require("js-yaml");
 const { resolveCore } = require("./resolve-core.js");
 
 const DOC = path.join(__dirname, "..", "..", "docs/agents/helper-surface.md");
 const block = fs.readFileSync(DOC, "utf8").match(/```yaml\n([\s\S]*?)```/);
-const recipe = (block ? yaml.load(block[1]) : null) as {
-	env?: Record<string, string>;
-	steps?: Step[];
-} | null;
+const recipe = block?.[1] ? parseJob(block[1]) : null;
 const steps = recipe?.steps ?? [];
 const pinStep = steps.find((s) => s.id === "core-pin");
 const keyStep = steps.find((s) => s.env && "DEPLOY_KEY" in s.env);
