@@ -195,8 +195,8 @@ const readRotations = (at: Fixture) =>
 	);
 
 /**
- * The hook's environment. CLAUDE_PID is dropped: it names the ending session's own pid, which the
- * live count excludes, and a real one in the runner's env must not leak in.
+ * The hook's environment. CLAUDE_PID is dropped: it names the ending
+ * session's own pid, which the live count excludes.
  */
 function sessionEnv(at: Fixture, extra: Record<string, string> = {}) {
 	const env: Record<string, string | undefined> = {
@@ -690,15 +690,24 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 		expect(sessionEnd(at, procs).text).toContain("(pid 300)");
 	});
 
-	/** A daemon and one spare pair, its `bg-spare` half sitting in `spareCwd`. */
+	/**
+	 * A daemon and one spare pair as the daemon spawns them, the host on a
+	 * versioned binary, its `bg-spare` half sitting in `spareCwd`.
+	 */
 	function sparePair(at: Fixture, spareCwd: string) {
 		const dir = "/tmp/cc-daemon-1000/abc/spare";
+		const bin = "/home/x/.local/share/claude/versions/2.1.312";
 		return [
 			{ pid: "500", args: "claude daemon run" },
-			{ pid: "501", args: `claude bg-pty-host ${dir}/k7Q2.pty.sock` },
+			{
+				pid: "501",
+				args: `${bin} bg-pty-host --bg-pty-host ${dir}/k7Q2.pty.sock 200 50`,
+				ppid: "500",
+			},
 			{
 				pid: "502",
 				args: `claude bg-spare --bg-spare ${dir}/k7Q2.claim.sock`,
+				ppid: "501",
 				cwd: spareCwd,
 			},
 		].map((r) => ({ ...r, configDir: at.configDir }));
@@ -717,12 +726,12 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 		).toHaveLength(1);
 	});
 
-	it("defers on a claimed spare pair, naming both halves (#4741)", () => {
+	it("defers on a claimed spare pair, counting it one session and naming both halves (#4741)", () => {
 		const at = consenting();
 		const procs = procFixture(at, sparePair(at, at.root));
 		const got = sessionEnd(at, procs);
-		expect(got.text).toContain("2 other Claude session(s)");
-		expect(got.text).toContain("(pid 501, 502)");
+		expect(got.text).toContain("1 other Claude session(s)");
+		expect(got.text).toContain("(pid 501+502)");
 		expect(readRotations(at)).toEqual([]);
 	});
 
@@ -740,18 +749,50 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 });
 
 describe("reconcile-plugin.js's command line", () => {
-	it("says why it stopped when run by hand with no CLAUDE_PLUGIN_ROOT (#4741)", () => {
-		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
-		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
+	/** A run by hand: no CLAUDE_PLUGIN_ROOT, so the plugin root is the repo's. */
+	function handRun(at: Fixture) {
 		const env = sessionEnv(at);
 		delete env.CLAUDE_PLUGIN_ROOT;
 		const r = runInProcess(SCRIPT, ["--session-end"], { env });
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("reconcile-plugin: stopped");
-		expect(r.stdout).toContain("set CLAUDE_PLUGIN_ROOT");
-		expect(readClaudeCalls(at)).toEqual([]);
-		expect(readReportOutcome(at)).toBeNull();
-	});
+		return r;
+	}
+
+	it.each([
+		["no-plugin", "set CLAUDE_PLUGIN_ROOT", null],
+		[
+			"no-pin",
+			"pins no git-sourced plugin",
+			(at: Fixture) =>
+				writeJson(path.join(at.root, ".claude", "settings.json"), {}),
+		],
+		[
+			"declined",
+			"declined the pinned tag",
+			(at: Fixture) => decline(at.root, "v2.0.0", { configDir: at.configDir }),
+		],
+		["no-consent", "no consent is pending", null],
+	])(
+		"says on stderr why a hand run stopped at %s (#4741)",
+		(stop, why, arrange) => {
+			const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
+			if (stop !== "no-plugin")
+				fs.cpSync(
+					path.join(at.pluginRoot, ".claude-plugin"),
+					path.join(at.root, ".claude-plugin"),
+					{ recursive: true },
+				);
+			if (stop !== "no-consent")
+				setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
+			arrange?.(at);
+			const r = handRun(at);
+			expect(r.stderr).toContain("reconcile-plugin: stopped — ");
+			expect(r.stderr).toContain(why);
+			expect(r.stdout).toBe("");
+			expect(readClaudeCalls(at)).toEqual([]);
+			expect(readReportOutcome(at)).toBeNull();
+		},
+	);
 
 	it("does nothing at all without the flag", () => {
 		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });

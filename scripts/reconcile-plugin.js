@@ -150,8 +150,8 @@ const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 /* Overridable so the live-session count can be tested against a stub `ps` and
  * a fixture /proc tree — WFC_PS here, WFC_PROC in lib/proc-root.js. */
 const PS_BIN = () => process.env.WFC_PS || "ps";
-/** A `ps -eo pid=,args=` line: the pid, then argv as one string. */
-const PS_LINE = /^(\d+)\s+(\S.*)$/;
+/** A `ps -eo pid=,args=` line: the pid, argv[0], then the rest of argv. */
+const PS_LINE = /^(\d+)\s+(\S+)((?:\s.*)?)$/;
 
 /** @param {string} at @returns {any} a raw JSON parse, or null */
 function readJsonSafe(at) {
@@ -163,37 +163,43 @@ function readJsonSafe(at) {
 }
 
 /**
- * Every Claude process holding a session: argv[0] a Claude process's, less
- * the daemon and each idle spare pair it keeps warm (#4741). The daemon
- * refills a spare after every claim, so counting one would defer every exit
- * on a machine running background jobs. Idle is admission's cwd test
- * (`sparePairs`, #2502), which reads a pair claimed wherever it cannot say,
- * so a doubt defers. `ps -eo pid=,args=` rather than `comm=`, for the reason
- * `lib/claude-argv0.js` states.
- * @returns {string[]}
+ * Every Claude session's pids, one list per session: argv[0] a Claude
+ * process's, less the daemon and each idle spare pair it keeps warm (#4741),
+ * and a claimed pair folded into one session. Idle is admission's cwd test
+ * (`sparePairs`,
+ * #2502), fed every row as admission feeds it; it reads a pair claimed
+ * wherever it cannot say, so a doubt defers. `ps -eo pid=,args=` rather than
+ * `comm=`, for the reason `lib/claude-argv0.js` states.
+ * @returns {string[][]}
  */
-function readClaudePids() {
+function readClaudeSessions() {
 	const out = execFileSync(PS_BIN(), ["-eo", "pid=,args="], {
 		encoding: "utf8",
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
-	/** @type {{ pid: string, args: string }[]} */
+	/** @type {{ pid: string, argv0: string, args: string }[]} */
 	const procs = [];
 	for (const line of out.split("\n")) {
 		const m = line.trim().match(PS_LINE);
 		if (!m) continue;
-		const args = requiredGroup(m, 2, PS_LINE);
-		if (isClaudeArgv0(args.split(/\s/)[0] ?? ""))
-			procs.push({ pid: requiredGroup(m, 1, PS_LINE), args });
+		const argv0 = requiredGroup(m, 2, PS_LINE);
+		procs.push({
+			pid: requiredGroup(m, 1, PS_LINE),
+			argv0,
+			args: argv0 + requiredGroup(m, 3, PS_LINE),
+		});
 	}
-	const idle = new Set(
-		sparePairs(procs, (pid) => readProcCwd(pid))
-			.filter((p) => p.idle)
-			.flatMap((p) => p.pids),
-	);
-	return procs
-		.filter(({ pid, args }) => !idle.has(pid) && !isDaemon(args))
-		.map(({ pid }) => pid);
+	const pairs = sparePairs(procs, (pid) => readProcCwd(pid));
+	const paired = new Set(pairs.flatMap((p) => p.pids));
+	return [
+		...pairs.filter((p) => !p.idle).map((p) => p.pids),
+		...procs
+			.filter(
+				({ pid, argv0, args }) =>
+					!paired.has(pid) && isClaudeArgv0(argv0) && !isDaemon(args),
+			)
+			.map(({ pid }) => [pid]),
+	];
 }
 
 /**
@@ -233,19 +239,23 @@ function readOwnPids(pid) {
 }
 
 /**
- * Claude sessions running alongside this one under the same config dir.
+ * Claude sessions running alongside this one under the same config dir, each
+ * named by its pids, a claimed spare pair's joined by `+`.
  * @param {{configDir: string, selfPid?: string}} at
  * @returns {{count: number, pids: string[]}}
  */
 function countLiveNeighbours({ configDir, selfPid = String(process.pid) }) {
 	const mine = readOwnPids(selfPid);
 	const want = path.resolve(configDir);
+	/** @type {string[]} */
 	const pids = [];
-	for (const pid of readClaudePids()) {
-		if (mine.has(pid)) continue;
-		const cfg = readConfigDirOf(pid);
-		if (cfg !== null && path.resolve(cfg) !== want) continue;
-		pids.push(pid);
+	for (const session of readClaudeSessions()) {
+		if (session.some((pid) => mine.has(pid))) continue;
+		const elsewhere = session.every((pid) => {
+			const cfg = readConfigDirOf(pid);
+			return cfg !== null && path.resolve(cfg) !== want;
+		});
+		if (!elsewhere) pids.push(session.join("+"));
 	}
 	return { count: pids.length, pids };
 }
@@ -473,14 +483,17 @@ const WARNING_ACTIONS = new Set([
 	"materialised-walk-broken",
 ]);
 
-/** Why a silent stop stopped, for a hand run (#4741). */
-const QUIET_STOPS = {
-	"no-plugin": (/** @type {string} */ pluginRoot) =>
-		`no .claude-plugin/plugin.json under ${pluginRoot}. Run by hand, set CLAUDE_PLUGIN_ROOT to the installed plugin's root.`,
-	"no-pin": () => "this repo pins no git-sourced plugin to reconcile.",
-	declined: () => "this repo declined the pinned tag.",
-	"no-consent": () => "no consent is pending for this repo's pinned tag.",
-};
+/** @type {Map<string, (pluginRoot: string) => string>} */
+const QUIET_STOPS = new Map([
+	[
+		"no-plugin",
+		(pluginRoot) =>
+			`no .claude-plugin/plugin.json under ${pluginRoot}. Run by hand, set CLAUDE_PLUGIN_ROOT to the installed plugin's root.`,
+	],
+	["no-pin", () => "this repo pins no git-sourced plugin to reconcile."],
+	["declined", () => "this repo declined the pinned tag."],
+	["no-consent", () => "no consent is pending for this repo's pinned tag."],
+]);
 
 /** @param {string[]} argv */
 function main(argv) {
@@ -502,9 +515,9 @@ function main(argv) {
 		const byHand = process.env.CLAUDE_PLUGIN_ROOT === undefined;
 		const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? root;
 		const { action } = reconcile({ root, pluginRoot, emit });
-		const quiet = QUIET_STOPS[/** @type {keyof typeof QUIET_STOPS} */ (action)];
+		const quiet = QUIET_STOPS.get(action);
 		if (byHand && quiet)
-			writeFd(1, `reconcile-plugin: stopped — ${quiet(pluginRoot)}\n`);
+			writeFd(2, `reconcile-plugin: stopped — ${quiet(pluginRoot)}\n`);
 		if (said.length > 0)
 			writeReport("reconcile-plugin", {
 				outcome: WARNING_ACTIONS.has(action) ? "WARN" : "OK",
