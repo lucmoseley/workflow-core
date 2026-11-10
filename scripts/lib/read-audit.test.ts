@@ -721,6 +721,26 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(/faulted/);
 	});
 
+	it("doubts a sleep in the checkout whose log names its program as no list of paths", () => {
+		const root = checkout();
+		const dir = logs({
+			"100.100.jsonl": [
+				self(100),
+				{ k: "claim", file: "a.test.ts" },
+				{
+					k: "child",
+					file: "sleep",
+					bin: "/usr/bin/sleep",
+					args: ["0"],
+					cwd: root,
+				},
+			],
+		});
+		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(
+			/ran in the checkout/,
+		);
+	});
+
 	it("doubts a file whose log holds a line that will not parse", () => {
 		const root = checkout();
 		const dir = logs({

@@ -783,6 +783,34 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 		).toEqual([]);
 	});
 
+	it("judges a legacy basis beneath a gate line the edit moved or added", () => {
+		const legacy =
+			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** the body sets a week";
+		const fault = [{ kind: "no-warrant", text: "the body sets a week" }];
+		expect(
+			introducedBasisFaults(legacy, legacy.replace("2099-01-01", "2099-02-01")),
+		).toEqual(fault);
+		const prose =
+			"Read it a week after it lands.\n**Gate basis:** the body sets a week";
+		expect(
+			introducedBasisFaults(prose, `**Gated until:** 2099-01-01 — x\n${prose}`),
+		).toEqual(fault);
+	});
+
+	it("judges a basis whose text is a window the old body wrote", () => {
+		const bare =
+			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** a week";
+		const fault = [{ kind: "no-warrant", text: "a week" }];
+		expect(
+			introducedBasisFaults(bare, bare.replace("2099-01-01", "2099-02-01")),
+		).toEqual(fault);
+		const wait =
+			"Read it a week after it lands.\n**Gate basis:** #12 ruled a week";
+		expect(
+			introducedBasisFaults(wait, wait.replace("#12 ruled a week", "a week")),
+		).toEqual(fault);
+	});
+
 	it("refuses naming the basis and the template", () => {
 		const refusal = basisRefusal(
 			basisFaults(`${week}\n**Gate basis:** the body sets a week`),

@@ -43,6 +43,18 @@ function startLander({ holder, waiting, owed, spawnRun }) {
 	return { started: spawnRun(), waiting: refs, owed: drops };
 }
 
+/**
+ * The line a start prints and the lander's log opens its run with.
+ * @param {{started: number, waiting: string[], owed: string[]}} result
+ * @param {{at: string, by: string, log: string}} o `at` the start's ISO
+ *   time, `by` its launcher, `log` the run's output file
+ */
+function buildStartedLine({ started, waiting, owed }, { at, by, log }) {
+	/** @param {string[]} refs */
+	const named = (refs) => (refs.length > 0 ? `: ${refs.join(", ")}` : "");
+	return `${at} started the queue lander, ${waiting.length} queue ref(s) waiting${named(waiting)}, ${owed.length} drop(s) owed a decision${named(owed)} (launched by ${by}; pid ${started}); its output: ${log}`;
+}
+
 /* A guess: a session-start launch can read the oracle before its session is
  * listed, so an unlisted id is asked again this many times, this far apart. */
 const NAME_TRIES = 5;
@@ -162,6 +174,7 @@ function spawnDetachedRun({
 
 module.exports = {
 	startLander,
+	buildStartedLine,
 	launcherName,
 	spawnDetachedRun,
 	landerLog,

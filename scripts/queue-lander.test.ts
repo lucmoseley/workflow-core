@@ -573,7 +573,7 @@ describe("a run", () => {
 		]);
 	});
 
-	it("drops a ref whose merge a gate refuses with the gate's findings, not its first line, and lands the other", async () => {
+	it("drops a ref whose merge a gate refuses with the gate's verdict lines and its end, not its first line, and lands the other", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const a = pushQueue("a", seed, () =>
 			fs.writeFileSync(path.join(work, "gated.txt"), "a\n"),
@@ -587,6 +587,8 @@ describe("a run", () => {
 				"#!/bin/sh",
 				"[ -e gated.txt ] || exit 0",
 				"echo 'OK: a linked worktree' >&2",
+				"echo 'not carried gated.txt — both sides changed lib.js.' >&2",
+				'for i in $(seq 41); do echo "rule: $i" >&2; done',
 				"printf '\\033[31mSTALE-PROSE\\033[0m gated.txt\\n' >&2",
 				"echo 'run: re-anchor gated.txt' >&2",
 				"exit 1",
@@ -616,12 +618,12 @@ describe("a run", () => {
 			kind: "refused",
 			name: "a",
 			reason: expect.stringMatching(
-				/^OK: a linked worktree\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt$/,
+				/^\[…\]\nnot carried gated\.txt — both sides changed lib\.js\.\n\[…\]\nrule: 4\n[\s\S]*\nrule: 41\nSTALE-PROSE gated\.txt\nrun: re-anchor gated\.txt$/,
 			),
 		});
 		const [ticket] = readStore();
 		expect(ticket.body).toContain(
-			"its merge was refused, the refusal ending:\n\n```text\nOK: a linked worktree\nSTALE-PROSE gated.txt\nrun: re-anchor gated.txt\n",
+			"its merge was refused, the refusal's verdict lines and its end:\n\n```text\n[…]\nnot carried gated.txt — both sides changed lib.js.\n[…]\nrule: 4\n",
 		);
 	});
 
@@ -1040,6 +1042,13 @@ describe("the adapters", () => {
 			files: [],
 			noRun: true,
 		});
+		/* A red at the type-check keeps its errors, or its drop's fix ticket
+		 * reads as a red naming no file (#4800). */
+		verdictLedger(verdicts).add("s5", [], {
+			kind: "red",
+			files: [],
+			typecheck: ["a.js(1,1): error TS1: x"],
+		});
 		verdictLedger(verdicts).add("s1", [], { kind: "green", run: 7 });
 		/* A green its in-job retry reached keeps the files it cleared, the
 		 * batch's flakes (#4558). */
@@ -1079,6 +1088,11 @@ describe("the adapters", () => {
 			kind: "red",
 			files: [],
 			noRun: true,
+		});
+		expect(verdictLedger(verdicts).get("s5", [])?.verdict).toEqual({
+			kind: "red",
+			files: [],
+			typecheck: ["a.js(1,1): error TS1: x"],
 		});
 		/* Its time read back, as a no-run red stands only so long, and a row
 		 * with none readable as the epoch (#4572). */

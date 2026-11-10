@@ -303,6 +303,73 @@ describe("a bare run under landing", () => {
 		]);
 	});
 
+	describe("with a checker-only file in the session's diff (#4967)", () => {
+		const Anchors = "scripts/instruction-surface-anchors.json";
+		const Reader = "scripts/test_anchors.py";
+		/** `pyRepo()` with the anchors file, its checker test and a pytest
+		 * file naming it, the anchors file then regenerated. */
+		function regenerated() {
+			const root = pyRepo();
+			fs.mkdirSync(path.join(root, "docs"));
+			for (const [f, text] of Object.entries({
+				/* A readable manifest: the fallback narrows nothing. */
+				"docs/test-read-edges.json": '{ "edges": {} }\n',
+				[Anchors]: "{}\n",
+				"scripts/check-instruction-surface.test.ts": "export {};\n",
+				[Reader]: 'ANCHORS = HERE / "instruction-surface-anchors.json"\n',
+			}))
+				fs.writeFileSync(path.join(root, f), text);
+			for (const args of [
+				["add", "."],
+				["commit", "-qm", "anchors"],
+			])
+				spawnSync("git", args, { cwd: root });
+			fs.appendFileSync(path.join(root, Anchors), "\n");
+			return root;
+		}
+
+		it("spawns nothing where only the anchors file changed, and its ledger line lists the reader left out", async () => {
+			const root = regenerated();
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], Landing);
+
+			expect(readCalls()).toEqual([]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("LEFT TO THE LANDER — 1 test file(s)");
+			expect(r.stdout).toMatch(/NO TOUCHED TESTS.*left to the lander above/);
+			expect(readLedger(root)).toMatchObject([
+				{
+					kind: "touched",
+					suite: "pytest",
+					resolvedFiles: 0,
+					leftOut: [Reader],
+				},
+			]);
+		});
+
+		it("lists the reader left out on the record of a run that ran another test", async () => {
+			const root = regenerated();
+			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			await wrap(python, root, [], Landing);
+
+			expect(readCalls()[0]?.args.at(-1)).toBe("scripts/test_scan.py");
+			expect(readCalls()[0]?.args).not.toContain(Reader);
+			expect(readMarkers({ root })).toMatchObject([
+				{ scope: { touched: true, leftOut: [Reader] } },
+			]);
+			expect(readLedger(root)).toMatchObject([
+				{ kind: "touched", resolvedFiles: 1, leftOut: [Reader] },
+			]);
+		});
+	});
+
 	/* The write ledger, in the sandbox's config dir, says which dirt is whose. */
 	describe("with a session id, in the shared tree", () => {
 		const sb = freshSandbox();
@@ -418,10 +485,14 @@ describe("a bare run under landing", () => {
 });
 
 describe("the exit code", () => {
-	it("is the child's own, so a red pytest run is still red", async () => {
-		const [python] = fakePytest({ passed: false, scope: null }, 1);
-		expect((await wrap(python, repo())).status).toBe(1);
-	});
+	// 5 is pytest's "no tests collected", standing for every code above 1.
+	it.each([1, 5])(
+		"is 1 where pytest exits %i, so a red run is red on one listed code (#4779)",
+		async (code) => {
+			const [python] = fakePytest({ passed: false, scope: null }, code);
+			expect((await wrap(python, repo())).status).toBe(1);
+		},
+	);
 
 	it("is zero on a green run", async () => {
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
@@ -464,7 +535,7 @@ describe("the marker it records", () => {
 		// shutdown, so an INTERNALERROR after it — or earlyoom killing python
 		// between the two — leaves `passed: true` behind a non-zero exit.
 		const [python] = fakePytest({ passed: true, scope: scope() }, 3);
-		expect((await wrap(python, root)).status).toBe(3);
+		expect((await wrap(python, root)).status).toBe(1);
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
@@ -641,7 +712,7 @@ describe("the run-cost report (#1884)", () => {
 		expect(r.stdout).not.toContain("test_same.py");
 	});
 
-	it("prints after a red run too, and the exit code stays the suite's own", async () => {
+	it("prints after a red run too, and the exit code stays red", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(timed(root), false), 1);
 		const r = await wrap(python, root, [], noCi);

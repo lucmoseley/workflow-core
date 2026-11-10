@@ -188,6 +188,7 @@ export function refillSandbox() {
 		stub(
 			"admission.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("ticks"))}, "tick\\n");
+require("node:fs").appendFileSync(${JSON.stringify(at("admitted-in"))}, process.cwd() + " " + process.env.CLAUDE_PROJECT_DIR + "\\n");
 process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, slots: Number(process.env.FAKE_SLOTS) }));\n`,
 		);
 		stub(

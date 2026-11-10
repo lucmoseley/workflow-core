@@ -149,6 +149,30 @@ const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 const FREE_SLOT_ARGS = ["--json", "--launch", "--skip-allowance"];
 
 /**
+ * The served checkout the free-slot count is read in, as the dispatcher's
+ * re-read runs in its member's: the one whose type-check is charged most,
+ * that lump being what admission's reserve holds back (#4956, #4962). The
+ * first served wins a tie, one holding no compiler included. Undefined where
+ * nothing is served. Residual: a launch bound for a lighter served checkout
+ * is counted at the heaviest one's reserve.
+ * @param {string[]} served
+ * @param {(root: string) => number} peakMbOf a checkout's type-check charge
+ * @returns {string|undefined}
+ */
+function admissionRoot(served, peakMbOf) {
+	let best;
+	let bestMb = -1;
+	for (const root of served) {
+		const mb = peakMbOf(root);
+		if (mb > bestMb) {
+			best = root;
+			bestMb = mb;
+		}
+	}
+	return best;
+}
+
+/**
  * The loop log's line for a finished launch.
  * @param {LoopLaunch} l
  */
@@ -233,7 +257,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *   readLoopLastActAt: (launches: LoopLaunch[], served: string[]) => number|null,
  *   readCause: import("./refill-blocks.js").CauseOf,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
- *   readFreeSlots: () => {slots: number,
+ *   typecheckPeakMb: (root: string) => number,
+ *   readFreeSlots: (root: string|undefined) => {slots: number,
  *     admission: import("./admission.js").AdmissionJson|null},
  *   readSeats: (seats: string[], slots: number, root: string|undefined,
  *     how: {typedSeat: string|null, sizeAll?: boolean,
@@ -619,7 +644,9 @@ function settleRoom(
 			overflow: [],
 		};
 	}
-	const { slots: free, admission } = io.readFreeSlots();
+	const { slots: free, admission } = io.readFreeSlots(
+		admissionRoot(served, io.typecheckPeakMb),
+	);
 	const limitSlots = Math.min(
 		free,
 		unprovenRoom({ history: judged, lastActAt }),
@@ -1129,6 +1156,7 @@ module.exports = {
 	buildFinishLine,
 	buildReviewSkip,
 	FREE_SLOT_ARGS,
+	admissionRoot,
 	parseProbeOutcome,
 	runTick,
 	settleLaunching,
