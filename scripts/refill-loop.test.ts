@@ -57,6 +57,12 @@ const commandEnv = (extra: Record<string, string> = {}) => ({
 const runEnv = (extra: Record<string, string>, ...argv: string[]) =>
 	runInProcessAsync(SCRIPT, argv, { cwd: dir, env: commandEnv(extra) });
 const run = (...argv: string[]) => runEnv({}, ...argv);
+/* The commands' one clock read, pinned so a written time asserts exactly. */
+const AT = "2026-11-10T09:00:00.000Z";
+const AT_MS = Date.parse(AT);
+const LATER = new Date(AT_MS + 60 * 60_000).toISOString();
+const runAt = (at: string, ...argv: string[]) =>
+	runEnv({ WFC_NOW: at }, ...argv);
 
 const readControl = () =>
 	JSON.parse(
@@ -81,11 +87,10 @@ describe("start", () => {
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({ noProgressFrom: 1, stopRequested: true, seats: [] }),
 		);
-		const before = Date.now();
-		const r = await run("start");
+		const r = await runAt(AT, "start");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`refill loop running: pid ${pid}`);
-		expect(readControl().noProgressFrom).toBeGreaterThanOrEqual(before);
+		expect(readControl().noProgressFrom).toBe(AT_MS);
 		expect(readControl().stopRequested).toBe(false);
 		expect(fs.existsSync(path.join(dir, ".refill-loop.log"))).toBe(false);
 	});
@@ -860,14 +865,12 @@ describe("set (#3856)", () => {
 
 	it("pauses, writing only the pause, touching the wake and printing it", async () => {
 		writeControl();
-		const before = Date.now();
-		const r = await run("set", "--pause");
+		const r = await runAt(AT, "set", "--pause");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^paused by founder at \S+Z$/m);
 		const { paused: written, ...rest } = readControl();
 		expect(rest).toEqual(plainControl);
-		expect(written.by).toBe("founder");
-		expect(written.at).toBeGreaterThanOrEqual(before);
+		expect(written).toEqual({ by: "founder", at: AT_MS });
 		expect(fs.existsSync(wakeFile())).toBe(true);
 		expect(fs.existsSync(lockFile())).toBe(false);
 	});
@@ -875,15 +878,14 @@ describe("set (#3856)", () => {
 	it("resumes, dropping the pause and moving only the no-progress count's point", async () => {
 		writeControl({ paused });
 		holdPidfile();
-		const before = Date.now();
-		const r = await run("set", "--resume");
+		const r = await runAt(AT, "set", "--resume");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("not paused");
 		expect(r.stdout).toContain("counting:  no-progress count from ");
 		const { noProgressFrom, ...rest } = readControl();
 		const { noProgressFrom: _n, ...kept } = plainControl;
 		expect(rest).toEqual(kept);
-		expect(noProgressFrom).toBeGreaterThanOrEqual(before);
+		expect(noProgressFrom).toBe(AT_MS);
 		/* The pidfile's holder is the one process: nothing started a second. */
 		expect(r.stdout).not.toContain("refill loop started");
 		expect(fs.readFileSync(path.join(dir, ".refill-loop.pid"), "utf8")).toBe(
@@ -1084,9 +1086,8 @@ describe("set (#3856)", () => {
 
 	it("holds launches and releases them, a founder's pause standing through both (#4354)", async () => {
 		writeControl({ paused });
-		const before = Date.now();
 		const held = await runEnv(
-			{ CLAUDE_CODE_SESSION_ID: "s1" },
+			{ CLAUDE_CODE_SESSION_ID: "s1", WFC_NOW: AT },
 			"set",
 			"--hold-launches",
 			"20",
@@ -1098,8 +1099,7 @@ describe("set (#3856)", () => {
 		const { launchHold, ...rest } = readControl();
 		expect(rest).toEqual({ ...plainControl, paused });
 		expect(launchHold.holder).toBe("s1");
-		expect(launchHold.until).toBeGreaterThanOrEqual(before + 20 * 60_000);
-		expect(launchHold.until).toBeLessThanOrEqual(Date.now() + 20 * 60_000);
+		expect(launchHold.until).toBe(AT_MS + 20 * 60_000);
 
 		const released = await runEnv(
 			{ CLAUDE_CODE_SESSION_ID: "s1" },
@@ -1246,12 +1246,10 @@ describe("a stop told from a crash (#3861)", () => {
 
 	it("records the time of a stop, keeping the first through a repeat", async () => {
 		writeControl();
-		const before = Date.now();
-		expect((await run("stop")).status).toBe(0);
-		const { stopRequestedAt } = readControl();
-		expect(stopRequestedAt).toBeGreaterThanOrEqual(before);
-		expect((await run("stop")).status).toBe(0);
-		expect(readControl().stopRequestedAt).toBe(stopRequestedAt);
+		expect((await runAt(AT, "stop")).status).toBe(0);
+		expect(readControl().stopRequestedAt).toBe(AT_MS);
+		expect((await runAt(LATER, "stop")).status).toBe(0);
+		expect(readControl().stopRequestedAt).toBe(AT_MS);
 	});
 
 	it("reads a dead loop a `stop` reached as stopped, before any tick recorded it", async () => {
@@ -1347,12 +1345,11 @@ describe("the ticked set and the mode (#3862)", () => {
 	});
 
 	it("records when away was switched on, a repeat keeping it, and drops it on normal", async () => {
-		const before = Date.now();
-		const switched = await run("set", "--away");
+		const switched = await runAt(AT, "set", "--away");
 		expect(switched.status).toBe(0);
 		expect(switched.stdout).toContain("mode:      away");
 		const { away } = readControl();
-		expect(away.since).toBeGreaterThanOrEqual(before);
+		expect(away.since).toBe(AT_MS);
 		expect(away.absentSeen).toBe(false);
 
 		await run("set", "--away");
@@ -1581,7 +1578,9 @@ describe("the goal (#3864)", () => {
 			"issue view 500 *": printed(JSON.stringify({ state: "CLOSED" })),
 			"issue view *": printed(JSON.stringify({ state: "OPEN" })),
 		}).env;
-	const setGoal = (...argv: string[]) => runEnv(fakeGh(), "set", ...argv);
+	const setGoalEnv = (extra: Record<string, string>, ...argv: string[]) =>
+		runEnv({ ...fakeGh(), ...extra }, "set", ...argv);
+	const setGoal = (...argv: string[]) => setGoalEnv({}, ...argv);
 	const ref = (repo: string, number: number) => ({ repo, number });
 
 	let core: string;
@@ -1593,8 +1592,7 @@ describe("the goal (#3864)", () => {
 	});
 
 	it("stores bare numbers against the one ticked repo, with the text as typed", async () => {
-		const before = Date.now();
-		const r = await setGoal("--goal", "2518,#2520");
+		const r = await setGoalEnv({ WFC_NOW: AT }, "--goal", "2518,#2520");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
 			'goal:      issues "2518,#2520": core#2518, core#2520',
@@ -1605,7 +1603,7 @@ describe("the goal (#3864)", () => {
 			text: "2518,#2520",
 			refs: [ref("core", 2518), ref("core", 2520)],
 		});
-		expect(goal.setAt).toBeGreaterThanOrEqual(before);
+		expect(goal.setAt).toBe(AT_MS);
 	});
 
 	it("takes a goal joined to its flag, as the panel sends it, so typed words reach no other flag", async () => {
