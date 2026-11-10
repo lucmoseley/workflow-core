@@ -25,7 +25,7 @@ const {
 	readCachedHandoff,
 	record,
 } = require("./lib/pass-store.js");
-const { looksUpPassStore } = require("./lib/launch-route.js");
+const { isPassStoreLaunch } = require("./lib/launch-route.js");
 const { EDGES_FILE, storePath } = require("./lib/test-pass-marker.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { RUN_LEDGER } = require("./lib/run-ledger.js");
@@ -242,11 +242,11 @@ describe("a launch the pass store caches whole", () => {
 });
 
 describe("launches that look nothing up", () => {
-	it("runs every file under `--no-cache`, handing the child no inherited cache", async () => {
+	it("runs every file under `--fresh`, handing the child no inherited cache", async () => {
 		const dir = repo();
 		passed(dir, [A]);
 		vi.stubEnv(CACHED_ENV, path.join(dir, "inherited.json"));
-		const ran = await launch(dir, [A, "--no-cache"]);
+		const ran = await launch(dir, [A, "--fresh"]);
 		expect(ran.calls[0]?.args).toContain(A);
 		expect(ran.calls[0]?.env).not.toHaveProperty(CACHED_ENV);
 	});
@@ -263,13 +263,13 @@ describe("launches that look nothing up", () => {
 	it.each([
 		["a full run", { kind: "full", source: "full" }, []],
 		["a retest", { kind: "named", source: "retest" }, []],
-		["`--no-cache`", { kind: "named", source: "named" }, ["--no-cache"]],
+		["`--fresh`", { kind: "named", source: "named" }, ["--fresh"]],
 	])("looks nothing up for %s", (_name, route, argv) => {
-		expect(looksUpPassStore(route, argv)).toBe(false);
+		expect(isPassStoreLaunch(route, argv)).toBe(false);
 	});
 
 	it("looks up a named run otherwise", () => {
-		expect(looksUpPassStore({ kind: "named", source: "named" }, [A])).toBe(
+		expect(isPassStoreLaunch({ kind: "named", source: "named" }, [A])).toBe(
 			true,
 		);
 	});

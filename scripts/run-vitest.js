@@ -186,7 +186,7 @@ const {
 	FULL_FLAG,
 	FULL_PREFIX,
 	fullFlagWord,
-	looksUpPassStore,
+	isPassStoreLaunch,
 	launchRoute,
 	isTouchedRun,
 	npmSwallowedRefusal,
@@ -2603,7 +2603,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 		 * escalation `full` names (#182). */
 		fullCause: fullCauseOf(fullWord),
 		argv,
-		passStore: looksUpPassStore(route, argv),
+		passStore: isPassStoreLaunch(route, argv),
 	};
 	const runOptions = { ...options, launch };
 	const ranged = buildNeighbourRangeNote(route, runOptions);

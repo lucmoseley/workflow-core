@@ -1,6 +1,8 @@
 /*
  * code-edges.js — the files one script reaches, read lexically, comment lines
- * skipped, for surface-closure.js's and hook-code.js's walks (#4259):
+ * skipped, for surface-closure.js's and hook-code.js's walks (#4259) and the
+ * pass store's reach, which also reads the paths each specifier tried before
+ * its target (`shadowsOf`, #4814):
  *   JS and TypeScript — a relative `require`/`from`/`import()` specifier,
  *     resolved as node resolves it, or as vitest does an extensionless `.ts`;
  *     and `path.join|resolve(__dirname, "<literal>", …)` naming a .js, .sh or
@@ -96,10 +98,10 @@ const isFile = (c) =>
  */
 function resolutionOf(abs) {
 	const candidates = candidatesOf(abs);
-	const hit = candidates.findIndex(isFile);
-	return hit < 0
-		? { target: abs, tried: [] }
-		: { target: candidates[hit] ?? abs, tried: candidates.slice(0, hit) };
+	for (const [i, candidate] of candidates.entries())
+		if (isFile(candidate))
+			return { target: candidate, tried: candidates.slice(0, i) };
+	return { target: abs, tried: [] };
 }
 
 /** @type {Set<string> | null} */

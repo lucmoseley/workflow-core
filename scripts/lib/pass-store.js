@@ -24,7 +24,7 @@
  * "run" with one notice, and a line that will not parse runs the files it
  * names; a row whose input list is missing or empty never matches; a run
  * that errored outside its files, was interrupted or filtered by name
- * records no row; an input rewritten while the run ran, untracked, gitignored
+ * records its failures alone; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -57,14 +57,13 @@ const {
 	absentAsId,
 	readTreeIds,
 	readWorkingIds,
-	sameContent,
+	isSameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
 const { edgesOf, isFile, shadowsOf } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
-	EDGES_FILE,
-	docsReadBy,
+	readDocsByTest,
 	shortSha,
 } = require("./test-pass-marker.js");
 const idSeam = require("./session-id.js");
@@ -85,7 +84,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 2;
+const FORMAT = 3;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -113,7 +112,8 @@ const storeDir = (storeRoot) => path.join(markersDir(storeRoot), STORE);
 
 /**
  * The shard holding `file`'s rows: named by a hash of its path, so any path
- * makes one flat, safe file name.
+ * makes one flat, safe file name. 16 hex digits are 64 bits: two of a repo's
+ * few thousand test files share a shard with odds near 1 in 10^12.
  * @param {string} storeRoot
  * @param {string} file repo-relative
  */
@@ -190,17 +190,10 @@ function readIgnored(root, paths) {
  * @returns {Map<string, string[]>}
  */
 function readManifestReads(root, files) {
-	const manifest = JSON.parse(
-		fs.readFileSync(path.join(root, EDGES_FILE), "utf8"),
+	const byTest = readDocsByTest(root);
+	return new Map(
+		files.map((file) => [file, [...(byTest.get(file) ?? [])].sort()]),
 	);
-	/** @type {Map<string, string[]>} */
-	const reads = new Map();
-	for (const file of files) {
-		const docs = docsReadBy(manifest, new Set([file]));
-		if (!docs) throw new Error(`${EDGES_FILE} is not {edges: {doc: [test]}}`);
-		reads.set(file, [...docs].sort());
-	}
-	return reads;
 }
 
 /**
@@ -218,11 +211,14 @@ function snapshotOf(root, file) {
 	return fs.existsSync(path.join(root, snap)) ? [snap] : [];
 }
 
-/* A foreign Python module bounds no edge of the reach's. */
-const ignoreFault = () => undefined;
+/* A Python import neither stdlib nor beside its importer, such as one found
+ * through `sys.path`, leaves the reach unknown: the file records no row. */
+const refuseFault = (/** @type {string} */ why) => {
+	throw new Error(why);
+};
 
 /* A file whose lexical edges the reach follows: code a test loads or spawns. */
-const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh)$/;
+const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh|py)$/;
 
 /**
  * @typedef {{edges: string[], shadows: string[]}} Reach repo-relative: the
@@ -258,8 +254,8 @@ function lexicalReach(root) {
 		/** @type {Set<string>} */
 		const shadows = new Set();
 		const queue = [file];
-		while (queue.length > 0) {
-			const found = reachFrom(/** @type {string} */ (queue.shift()));
+		for (const rel of queue) {
+			const found = reachFrom(rel);
 			if (!found) return null;
 			for (const p of found.shadows) shadows.add(p);
 			for (const next of found.edges)
@@ -288,7 +284,7 @@ function readEdges(root, rel) {
 		return {
 			edges: repoRelative(
 				root,
-				edgesOf(abs, read.data, ignoreFault).filter(isFile),
+				edgesOf(abs, read.data, refuseFault).filter(isFile),
 			),
 			shadows: repoRelative(root, shadowsOf(abs, read.data)),
 		};
@@ -324,26 +320,34 @@ const sharedInputs = (root, shared) => [
 ];
 
 /**
- * Append one row per file `run` ran. Never throws: a store that cannot be
- * written costs the rows, never the run, and says why on `err`. Returns how
- * many rows landed.
+ * Append one row per file `run` ran. A run that was not clean — filtered,
+ * bailed, interrupted, or erred outside its files — records its failures
+ * alone: its passes cannot be trusted, but a fail row only ever makes a file
+ * run. Never throws: a store that cannot be written costs the rows, never the
+ * run, and says why on `err`. Returns how many rows landed.
  * @param {Run} run
  * @param {{storeRoot: string|null,
  *   err?: {write: (s: string) => unknown}} & Seams} options
  * @returns {number}
  */
 function record(run, { storeRoot, err = process.stderr, ...seams }) {
-	if (!storeRoot || !run.clean || run.files.length === 0) return 0;
+	const files = run.clean
+		? run.files
+		: run.files.filter((f) => f.outcome === "fail");
+	if (!storeRoot || files.length === 0) return 0;
 	if (seams.lander ?? idSeam.isLanderRun()) return 0;
 	try {
 		const reads = readManifestReads(
 			run.root,
-			run.files.map((f) => f.file),
+			files.map((f) => f.file),
 		);
 		const shared = sharedInputs(run.root, run.shared);
 		const reach = lexicalReach(run.root);
-		const own = run.files.flatMap((f) => {
-			const reaches = [f.file, ...f.imports].map(reach);
+		const own = files.flatMap((f) => {
+			/* A script the manifest says the file spawns is reached too: its own
+			 * requires are inputs that no import and no `__dirname` join names. */
+			const spawned = (reads.get(f.file) ?? []).filter((p) => FOLLOWED.test(p));
+			const reaches = [f.file, ...f.imports, ...spawned].map(reach);
 			if (reaches.includes(null)) return [];
 			const reached = /** @type {Reach[]} */ (reaches);
 			const paths = [
@@ -437,7 +441,9 @@ function sweepOrSay(storeRoot, err) {
 
 /**
  * Delete every shard untouched for a day past the retention: a test file
- * deleted or never run again leaves one, which no append would prune.
+ * deleted or never run again leaves one, which no append would prune. The
+ * day past the retention is the prune's own slack (lib/retained-jsonl.js), so
+ * a shard goes no sooner than an append to it would have emptied it.
  * @param {string} storeRoot
  */
 function sweepShards(storeRoot) {
@@ -530,7 +536,12 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 	const cached = candidates.flatMap((file) => {
 		if (unparsed.has(file)) return [];
 		const held = (byFile.get(file) ?? []).find(({ row, run }) =>
-			holds(row, run, { file, now, values, reads: reads.get(file) ?? [] }),
+			isRowHolding(row, run, {
+				file,
+				now,
+				values,
+				reads: reads.get(file) ?? [],
+			}),
 		);
 		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
 	});
@@ -644,7 +655,7 @@ const inputPaths = (v) =>
  * @param {{file: string, now: Map<string, string|null>,
  *   values: Record<string, string>, reads: string[]}} at
  */
-function holds(row, run, { file, now, values, reads }) {
+function isRowHolding(row, run, { file, now, values, reads }) {
 	if (run.format !== FORMAT) return false;
 	const own = asIds(row.inputs);
 	const shared = asIds(run.shared);
@@ -656,7 +667,7 @@ function holds(row, run, { file, now, values, reads }) {
 		return false;
 	const then = new Map([...shared, ...own]);
 	if (reads.some((p) => !then.has(p))) return false;
-	return sameContent([...then.keys()], then, now);
+	return isSameContent([...then.keys()], then, now);
 }
 
 /**
@@ -678,7 +689,7 @@ function asIds(v) {
  */
 function buildCachedBanner(cached, nowMs = Date.now()) {
 	if (cached.length === 0) return "";
-	return `CACHED — ${cached.length} selected file(s) not run: a recorded pass attests each on identical inputs (#4790; \`--no-cache\` runs them):\n${cached
+	return `CACHED — ${cached.length} selected file(s) not run: a recorded pass attests each on identical inputs (#4790; \`--fresh\` runs them):\n${cached
 		.map(
 			({ file, source }) =>
 				`  ${file} — passed at ${shortSha(source.sha)}, ${age(nowMs - Date.parse(source.at))} ago\n`,
@@ -710,14 +721,18 @@ const buildPragmaRefusal = (files) =>
  * direction.
  * @param {Cached[]|null} cached null where the run looked nothing up
  * @param {string} file
+ * @param {{write: (s: string) => unknown}} [err]
  * @returns {Record<string, string>|null}
  */
-function writeCachedHandoff(cached, file) {
+function writeCachedHandoff(cached, file, err = process.stderr) {
 	if (cached === null) return null;
 	try {
 		fs.writeFileSync(file, JSON.stringify(cached));
 		return { [CACHED_ENV]: file };
-	} catch {
+	} catch (e) {
+		err.write(
+			`pass-store.js: the cached files' hand-off was not written (${caught(e).message}), so this run's certificate leaves them out (#4790)\n`,
+		);
 		return null;
 	}
 }
@@ -726,15 +741,20 @@ function writeCachedHandoff(cached, file) {
  * The cached files the launcher handed this vitest child, or null where it
  * looked nothing up or the hand-off will not read.
  * @param {Record<string, string|undefined>} [env]
+ * @param {{write: (s: string) => unknown}} [err]
  * @returns {Cached[]|null}
  */
-function readCachedHandoff(env = process.env) {
+function readCachedHandoff(env = process.env, err = process.stderr) {
 	const file = env[CACHED_ENV];
 	if (!file) return null;
 	try {
 		const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-		return Array.isArray(parsed) ? parsed.filter(isCached) : null;
-	} catch {
+		if (Array.isArray(parsed)) return parsed.filter(isCached);
+		throw new Error("it holds no list");
+	} catch (e) {
+		err.write(
+			`pass-store.js: the cached files' hand-off will not read (${caught(e).message}), so this run's certificate leaves them out (#4790)\n`,
+		);
 		return null;
 	}
 }
@@ -839,7 +859,7 @@ function heldRow(file, entries, { sha, before, git, values }) {
 	if (paths.length === 0) return;
 	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));
 	return earlier.find(({ row, run }) =>
-		holds(row, run, { file, now, values, reads: [] }),
+		isRowHolding(row, run, { file, now, values, reads: [] }),
 	);
 }
 
