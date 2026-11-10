@@ -6,27 +6,29 @@
  */
 import { describe, expect, it } from "vitest";
 
-const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
-	TSC_RUNG_MB: number;
-	tscDenial: (
-		rows: { pid: number | null; args: string }[] | null,
-		mb: number | null,
-		climbMb?: number,
-		windows?:
-			| { state: "fresh"; mb: number; ageS: number }
-			| { state: "absent" }
-			| { state: "stale"; why: string },
-	) => {
-		limb: string;
-		pids?: (number | null)[];
-		memory?: { mb: number; rungMb: number; climbMb?: number };
-		mb?: number;
-		rungMb?: number;
-		climbMb?: number;
-		needMb?: number;
-	} | null;
-	isTscLaunch: (words: string[]) => boolean;
-};
+const { TSC_PEAK_MB, TSC_RUNG_MB, tscDenial, isTscLaunch } =
+	require("./tsc-slot.js") as {
+		TSC_PEAK_MB: number;
+		TSC_RUNG_MB: number;
+		tscDenial: (
+			rows: { pid: number | null; args: string }[] | null,
+			mb: number | null,
+			climbMb?: number,
+			windows?:
+				| { state: "fresh"; mb: number; ageS: number }
+				| { state: "absent" }
+				| { state: "stale"; why: string },
+		) => {
+			limb: string;
+			pids?: (number | null)[];
+			memory?: { mb: number; rungMb: number; climbMb?: number };
+			mb?: number;
+			rungMb?: number;
+			climbMb?: number;
+			needMb?: number;
+		} | null;
+		isTscLaunch: (words: string[]) => boolean;
+	};
 
 const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 
@@ -67,42 +69,50 @@ describe("lib/tsc-slot.js", () => {
 		[
 			"MemAvailable under the rung",
 			rows("bash -l"),
-			3149,
-			{ limb: "memory", mb: 3149, rungMb: 3150 },
+			TSC_RUNG_MB - 1,
+			{ limb: "memory", mb: TSC_RUNG_MB - 1, rungMb: TSC_RUNG_MB },
 		],
 		[
 			"one running under the rung, naming both (#4359)",
 			[{ pid: 4242, args: "node /r/node_modules/.bin/tsc" }],
-			3149,
-			{ limb: "count", pids: [4242], memory: { mb: 3149, rungMb: 3150 } },
+			TSC_RUNG_MB - 1,
+			{
+				limb: "count",
+				pids: [4242],
+				memory: { mb: TSC_RUNG_MB - 1, rungMb: TSC_RUNG_MB },
+			},
 		],
-		["neither", rows("bash -l"), 3150, null],
+		["neither", rows("bash -l"), TSC_RUNG_MB, null],
 		["`ps` and MemAvailable both unread", null, null, null],
 	])("denies on %s", (_label, ps, mb, expected) => {
 		expect(tscDenial(ps, mb)).toEqual(expected);
 	});
 
 	it("charges what a climbing suite has yet to draw on the rung, naming it apart (#3416)", () => {
-		expect(tscDenial(rows("bash -l"), 3400, 251)).toEqual({
+		const mb = TSC_RUNG_MB + 250;
+		expect(tscDenial(rows("bash -l"), mb, 251)).toEqual({
 			limb: "memory",
-			mb: 3400,
-			rungMb: 3150,
+			mb,
+			rungMb: TSC_RUNG_MB,
 			climbMb: 251,
 		});
-		expect(tscDenial(rows("bash -l"), 3400, 250)).toBeNull();
+		expect(tscDenial(rows("bash -l"), mb, 250)).toBeNull();
 	});
 
 	it("holds a `tsc` the guest admits while Windows has less free than its peak, the climb and the margin (#4557)", () => {
 		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
-		// 2045 peak + 100 climb + 300 margin.
-		expect(tscDenial(rows("bash -l"), 9000, 100, windows(2444))).toEqual({
+		// Peak + 100 climb + 300 margin.
+		const needMb = TSC_PEAK_MB + 100 + 300;
+		expect(tscDenial(rows("bash -l"), 9000, 100, windows(needMb - 1))).toEqual({
 			limb: "windows",
-			mb: 2444,
-			needMb: 2445,
+			mb: needMb - 1,
+			needMb,
 		});
-		expect(tscDenial(rows("bash -l"), 9000, 100, windows(2445))).toBeNull();
+		expect(tscDenial(rows("bash -l"), 9000, 100, windows(needMb))).toBeNull();
 		// The guest rung is named first.
-		expect(tscDenial(rows("bash -l"), 3149, 0, windows(10))).toMatchObject({
+		expect(
+			tscDenial(rows("bash -l"), TSC_RUNG_MB - 1, 0, windows(10)),
+		).toMatchObject({
 			limb: "memory",
 		});
 	});

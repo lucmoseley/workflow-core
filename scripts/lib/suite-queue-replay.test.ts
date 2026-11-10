@@ -10,9 +10,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { suiteRungMb, WHOLE_SUITE_MAX } from "./suite-ladder";
+import { DRAW_MARGIN_MB, suiteRungMb, WHOLE_SUITE_MAX } from "./suite-ladder";
 import { PART_PASS_AGE_MS, turnOf } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
+import { TSC_PEAK_MB, TSC_RUNG_MB } from "./tsc-slot";
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-10-27T00:00:00Z");
@@ -464,16 +465,18 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 	/* A whole head charged a 1,587 MB climb against its 3,650 MB rung, a
 	 * 1-worker run beside it, a `tsc` running, and a younger `tsc` waiting.
 	 * Each 10 minutes the head is held on another limb: the climb (4,000 MB
-	 * available, Windows 2,400 MB free), the Windows hold alone (5,500 MB,
-	 * Windows' 2,100 MB free under its ~2,300 MB need and the `tsc`'s
-	 * ~2,345 MB), then the rung itself (3,500 MB, over the `tsc`'s 3,150 MB
-	 * rung, Windows 2,400 MB). */
+	 * available), the Windows hold (5,500 MB, Windows' 2,100 MB free under
+	 * its ~2,300 MB need and the `tsc`'s), then the rung itself (the `tsc`'s
+	 * rung available). Outside the middle phase Windows has the `tsc`'s need
+	 * free. */
 	const head = (at: string, { tsc = 1, wholeSlot = false } = {}) => {
 		const base = Date.parse(at);
 		const shift = (t: number) => t - T0 + base;
 		const minute = (m: number) => Math.floor(base / MIN) + m;
-		const used = (m: number) => [6000, 4500, 6500][Math.floor(m / 10)];
-		const win = (m: number) => [2400, 2100, 2400][Math.floor(m / 10)];
+		const used = (m: number) =>
+			[6000, 4500, 10_000 - TSC_RUNG_MB][Math.floor(m / 10)];
+		const tscWin = TSC_PEAK_MB + DRAW_MARGIN_MB;
+		const win = (m: number) => [tscWin, 2100, tscWin][Math.floor(m / 10)];
 		const w = window();
 		const r = replay(
 			{
