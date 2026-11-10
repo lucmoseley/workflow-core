@@ -851,15 +851,32 @@ it("reads the whole suite of a run alone off the lander/iso-suite-<k> ref it pus
 	expect(r.calls()).toBe(0);
 });
 
-it("starts a batch's run by pushing its sha to the slot's ref, and pushes no ref for named files alone (#4573, #4910)", async () => {
-	const r = queueReads([() => []]);
+it("starts a batch's run by pushing its sha to the slot's ref, pushes named files alone to lander/iso-<k> before dispatching them, and pushes nothing for a batch's named files (#4573, #4910)", async () => {
+	const r = queueReads([() => [run(1, "success")]]);
 	const tester = queueOf(r);
 	tester.start?.({ kind: "batch", slot: 3 }, SHA);
 	expect(r.pushed).toEqual([`lander/batch-3@${SHA}`]);
+	/* named-rerun.yml fetches the sha from the remote, which a local
+	 * isolation merge reaches only by this push. */
 	expect(await tester.verdict(ISO1, ISO, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
 	});
-	expect(r.pushed).toEqual([`lander/batch-3@${SHA}`]);
+	expect(await tester.verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"])).toEqual({
+		kind: "green",
+		run: 1,
+	});
+	expect(r.pushed).toEqual([`lander/batch-3@${SHA}`, `lander/iso-1@${ISO}`]);
+	const unpushed = queueReads([() => []]);
+	unpushed.push = () => {
+		throw new Error("pre-receive hook declined");
+	};
+	expect(
+		await queueOf(unpushed).verdict(ISO1, ISO, ["scripts/lib/a.test.ts"]),
+	).toEqual({
+		kind: "unknown",
+		reason: `lander/iso-1 not pushed at ${ISO.slice(0, 9)}: pre-receive hook declined`,
+	});
+	expect(unpushed.dispatched).toEqual([]);
 	const failing = queueReads([() => []]);
 	failing.push = () => {
 		throw new Error("network down");
@@ -1319,7 +1336,7 @@ it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-*,
 	);
 });
 
-it("pushes and reads lander/batch-<k> and lander/iso-suite-* runs through git and gh, pushes no ref for named files alone, and cancels a run through gh (#4458, #4556, #4910)", async () => {
+it("pushes and reads lander/batch-<k> and lander/iso-suite-* runs through git and gh, pushes named files alone to lander/iso-<k>, and cancels a run through gh (#4458, #4556, #4910)", async () => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-"));
 	const remote = path.join(tmp, "remote.git");
 	const work = path.join(tmp, "work");
@@ -1372,10 +1389,11 @@ const out = (v) => process.stdout.write(JSON.stringify(v));
 if (argv[0] === "run" && argv[1] === "cancel") {
 	fs.writeFileSync(${JSON.stringify(cancelFile)}, argv[2]);
 } else if (argv[0] === "workflow") {
-	fs.writeFileSync(${JSON.stringify(nonceFile)}, argv.find((x) => x.startsWith("nonce=")).slice(6));
+	const field = (k) => argv.find((x) => x.startsWith(k + "=")).slice(k.length + 1);
+	fs.writeFileSync(${JSON.stringify(nonceFile)}, field("sha") + " " + field("nonce"));
 } else if (argv[1] === "list" && argv.includes("named-rerun.yml")) {
 	out([{ databaseId: 8, conclusion: "success",
-		displayTitle: "named-rerun ${iso} " + fs.readFileSync(${JSON.stringify(nonceFile)}, "utf8") }]);
+		displayTitle: "named-rerun " + fs.readFileSync(${JSON.stringify(nonceFile)}, "utf8") }]);
 } else if (argv[1] === "list") {
 	const branch = argv[argv.indexOf("--branch") + 1];
 	if (branch === "lander/iso-suite-0") out(a.suite);
@@ -1405,10 +1423,17 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	expect(
 		git(work, "ls-remote", "origin", "refs/heads/lander/iso-suite-0"),
 	).toBe(`${iso}\trefs/heads/lander/iso-suite-0`);
-	expect(await tester.verdict(ISO1, iso, ["scripts/lib/a.test.ts"])).toEqual({
+	/* An isolation commit no pushed ref reaches, as a local merge is. */
+	git(work, "checkout", "-q", "-b", "side", iso);
+	commit("alone");
+	const alone = git(work, "rev-parse", "HEAD");
+	git(work, "checkout", "-q", "-");
+	expect(await tester.verdict(ISO1, alone, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
 	});
-	expect(git(work, "ls-remote", "origin", "refs/heads/lander/iso-1")).toBe("");
+	expect(git(work, "ls-remote", "origin", "refs/heads/lander/iso-1")).toBe(
+		`${alone}\trefs/heads/lander/iso-1`,
+	);
 	expect(
 		await tester.verdict(Batch1, batch, ["scripts/lib/a.test.ts"]),
 	).toEqual({
@@ -1437,6 +1462,37 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	expect(git(work, "ls-remote", "origin", "refs/heads/lander/batch-2")).toBe(
 		`${unheld}\trefs/heads/lander/batch-2`,
 	);
+});
+
+it("reads a lander ref push its hook refuses, quoting a network fault, as a non-transient no verdict, never retried (#4513, #4910)", async () => {
+	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-refused-"));
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
+	git("init", "-q");
+	git("remote", "add", "origin", tmp);
+	git(
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"a",
+	);
+	const sha = git("rev-parse", "HEAD");
+	fs.writeFileSync(
+		path.join(tmp, ".git", "hooks", "pre-push"),
+		"#!/bin/sh\necho 'test said: Connection reset' >&2\nexit 1\n",
+		{ mode: 0o755 },
+	);
+	const v = await queueTester({ root: tmp, ...clock() }).verdict(BATCH0, sha);
+	expect(v).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/^lander\/batch-0 not pushed at /),
+	});
+	expect(v).not.toHaveProperty("transient");
 });
 
 it("cancels every unfinished run on a batch ref but those at the sha kept, naming every sha it lists a run at (#4556, #4576)", () => {

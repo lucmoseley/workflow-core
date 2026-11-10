@@ -34,7 +34,8 @@
  * (#4524). Where none at the sha is listed, as when its ref was pushed
  * while Actions fired nothing, the ref is pushed again once before the
  * tree is read as firing none (#4572). Named files asked alone are run by
- * named-rerun.yml, which takes the sha itself, so no ref is pushed for them.
+ * named-rerun.yml, which fetches the sha from the remote, so the tester
+ * first pushes it to `lander/iso-<k>`, a ref no suite run fires on.
  * Asked at a batch slot, they are read off its ref's run at the sha, a
  * failed one rerunning its failed jobs; where it lists none they go to
  * named-rerun.yml too, under its daily cap. Its `cancel` cancels every
@@ -61,6 +62,7 @@ const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
 const { CLEARED, STILL_FAILING } = require("../retry-failed-files.js");
 const {
+	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	VERIFIED_BRANCH,
 	batchBranch,
@@ -784,16 +786,17 @@ function queueTester({
 			reads.push(suiteRef(place), sha);
 		},
 		async verdict(place, sha, files = [], again = false) {
-			if (files.length > 0 && place.kind === "iso")
-				return namedVerdict(named, sha, files, true);
-			const branch = suiteRef(place);
-			if (files.length === 0) {
+			const alone = files.length > 0 && place.kind === "iso";
+			const branch = alone ? `${LANDER_ISO_PREFIX}${place.k}` : suiteRef(place);
+			/* A batch's named files are read off the run its ref already has. */
+			if (alone || files.length === 0) {
 				try {
 					reads.push(branch, sha);
 				} catch (err) {
 					return unpushed(branch, sha, err);
 				}
 			}
+			if (alone) return namedVerdict(named, sha, files, true);
 			const on = {
 				...poll,
 				branch,
@@ -832,12 +835,12 @@ const suiteRef = (place) =>
  * @param {string} branch
  * @param {string} sha
  * @param {unknown} err
- * @param {string} [again] ` again` where it was a push again
+ * @param {boolean} [again] where it was a push again
  * @returns {Verdict}
  */
-const unpushed = (branch, sha, err, again = "") => ({
+const unpushed = (branch, sha, err, again = false) => ({
 	kind: "unknown",
-	reason: `${branch} not pushed${again} at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
+	reason: `${branch} not pushed${again ? " again" : ""} at ${sha.slice(0, SHORT_SHA)}: ${parseErrorText(err)}`,
 	...(isNetworkFault(err) ? { transient: true } : {}),
 });
 
@@ -946,7 +949,7 @@ function repushFailure({ reads, branch }, sha) {
 	try {
 		pushed = reads.repush(branch, sha);
 	} catch (err) {
-		return unpushed(branch, sha, err, " again");
+		return unpushed(branch, sha, err, true);
 	}
 	return pushed
 		? null

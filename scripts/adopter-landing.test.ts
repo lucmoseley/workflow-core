@@ -29,6 +29,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderSessionRules } from "./lib/adopter-skeleton.js";
 import { runEventCores, toolCall } from "./lib/guard-core-testkit";
+import { readJsonl } from "./lib/jsonl.js";
 import { queueLanderFiles } from "./lib/lander-files.js";
 import {
 	commit,
@@ -204,14 +205,13 @@ describe("with the landing module on and the local tester", () => {
 		expect(remoteHeads()).not.toContain("refs/heads/lander/");
 		const isolations = [
 			...new Set(
-				fs
-					.readFileSync(files.verdicts, "utf8")
-					.split("\n")
-					.filter(Boolean)
-					.map(
-						(l) =>
-							JSON.parse(l) as { sha: string; files: string[]; pass?: number },
-					)
+				(
+					(readJsonl(files.verdicts)?.rows ?? []) as {
+						sha: string;
+						files: string[];
+						pass?: number;
+					}[]
+				)
 					.filter((r) => r.files.length > 0 && (r.pass ?? 1) === 1)
 					.map((r) => r.sha),
 			),

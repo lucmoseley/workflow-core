@@ -1980,6 +1980,20 @@ function forgetAsks(run, sha) {
 }
 
 /**
+ * The placement of the batch in `slot`.
+ * @param {number} slot
+ * @returns {Placement}
+ */
+const batchPlace = (slot) => ({ kind: "batch", slot });
+
+/**
+ * The placement of a run alone, `k` its member's index or `base` for `main`.
+ * @param {number | "base"} k
+ * @returns {Placement}
+ */
+const isoPlace = (k) => ({ kind: "iso", k });
+
+/**
  * Has the tester cancel every unfinished run of the batch in `slot` not
  * at `keep`, saying each sha of `expected` it listed no run at; a cancel
  * that throws is reported and stops nothing, as the runs' verdicts are only
@@ -1995,7 +2009,7 @@ function cancelRuns(deps, slot, keep, expected) {
 	/** @type {string[]|undefined} */
 	let listed;
 	try {
-		listed = deps.tester.cancel?.({ kind: "batch", slot }, keep);
+		listed = deps.tester.cancel?.(batchPlace(slot), keep);
 	} catch (err) {
 		say(
 			`runs on ${branch} not cancelled: ${parseRefusal(parseErrorText(err))}`,
@@ -2011,13 +2025,6 @@ function cancelRuns(deps, slot, keep, expected) {
 }
 
 /**
- * Where the acting batch's asks are judged.
- * @param {QueueRun} run
- * @returns {Placement}
- */
-const batchPlace = (run) => ({ kind: "batch", slot: batchOf(run).slot });
-
-/**
  * Starts the ask of the whole suite at `sha` as the batch's.
  * @param {BatchDeps} deps
  * @param {string} sha
@@ -2029,7 +2036,7 @@ function testSha(deps, sha, run) {
 	return startAsk(
 		run,
 		[r],
-		() => verdictAt(deps, batchPlace(run), sha),
+		() => verdictAt(deps, batchPlace(batchOf(run).slot), sha),
 		(d, next, v) => {
 			if (v.kind === "green" && v.cleared)
 				d.say?.(buildClearedLine(sha, v.run, v.cleared));
@@ -2063,8 +2070,7 @@ function testIsolated(deps, { runs, files, pass }, run) {
 	return runs.reduce((next, { k, sha }) => {
 		const r = { sha, files, pass };
 		const after = ahead;
-		/** @type {Placement} */
-		const place = { kind: "iso", k };
+		const place = isoPlace(k);
 		const ask = () =>
 			verdictAt(deps, place, sha, { files: [...files], again: pass === 2 });
 		const out = startAsk(
@@ -2206,7 +2212,7 @@ function mergeBatch(deps, action, run) {
 		(sha) => {
 			if (!tester.start) return;
 			try {
-				tester.start(batchPlace(run), sha);
+				tester.start(batchPlace(slot), sha);
 				started = sha;
 			} catch (err) {
 				deps.say?.(
@@ -2315,7 +2321,7 @@ async function actRed(deps, action, run) {
 				run,
 				[r],
 				() =>
-					verdictAt(deps, batchPlace(run), sha, {
+					verdictAt(deps, batchPlace(batchOf(run).slot), sha, {
 						files: [...files],
 						again: pass === 2,
 					}),
@@ -2384,7 +2390,7 @@ function checkBase(deps, { sha, files }, run) {
 		run,
 		[r],
 		() =>
-			verdictAt(deps, { kind: "iso", k: "base" }, sha, {
+			verdictAt(deps, isoPlace("base"), sha, {
 				files: [...files],
 				again: true,
 			}),

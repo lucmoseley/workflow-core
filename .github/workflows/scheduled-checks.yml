@@ -10,9 +10,9 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 # settled at mantahostels#906 and mantahostels#905, landed at mantahostels#910)
 # and on every push to a `lander/batch-<k>` ref, a queue lander batch's
 # integration commit, whose run it reads as its tester (#4458, #4556), and to `lander/iso-suite-*`, its
-# whole-suite runs of `main` and of a member alone (#4485). Its named-file
-# runs alone go to named-rerun.yml by sha, pushing no ref (#4910), so they
-# fire nothing here. Minutes are free
+# whole-suite runs of `main` and of a member alone (#4485). Its
+# `lander/iso-<k>` refs run named files through named-rerun.yml instead,
+# so they fire nothing here. Minutes are free
 # on the public repo (#1930), so a push's jobs cost wall time alone.
 #
 # WHY A SCHEDULE AS WELL. `main` moves only to a `lander/batch-<k>` tip a push run
