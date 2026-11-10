@@ -1,0 +1,132 @@
+{
+	"recordedBy": "node scripts/record-gate-judge-reply.js",
+	"harness": "2.1.322 (Claude Code)",
+	"body": "Re-check the queue depth once 300 landings have been logged.\n\n**Gate basis:** the ticket asks for 300 landings.\n",
+	"result": {
+		"duration_api_ms": 2173,
+		"stop_reason": "tool_use",
+		"session_id": "5e551011-0000-4000-8000-000000000000",
+		"total_cost_usd": 0.00027065,
+		"usage": {
+			"input_tokens": 2,
+			"cache_creation_input_tokens": 0,
+			"cache_read_input_tokens": 5545,
+			"output_tokens": 430,
+			"output_tokens_details": {
+				"thinking_tokens": 270
+			},
+			"server_tool_use": {
+				"web_search_requests": 0,
+				"web_fetch_requests": 0
+			},
+			"service_tier": "standard",
+			"cache_creation": {
+				"ephemeral_1h_input_tokens": 0,
+				"ephemeral_5m_input_tokens": 0
+			},
+			"inference_geo": "global",
+			"iterations": [
+				{
+					"input_tokens": 2,
+					"output_tokens": 430,
+					"cache_read_input_tokens": 5545,
+					"cache_creation_input_tokens": 0,
+					"cache_creation": {
+						"ephemeral_5m_input_tokens": 0,
+						"ephemeral_1h_input_tokens": 0
+					},
+					"type": "message"
+				}
+			],
+			"speed": "standard",
+			"fallback_credit": null
+		},
+		"modelUsage": {
+			"claude-haiku-5-5": {
+				"inputTokens": 2,
+				"outputTokens": 430,
+				"cacheReadInputTokens": 5545,
+				"cacheCreationInputTokens": 0,
+				"webSearchRequests": 0,
+				"costUSD": 0.00027065,
+				"contextWindow": 1000000,
+				"maxOutputTokens": 128000,
+				"thinkingTokens": 270,
+				"cacheCreationEphemeral5mInputTokens": 0,
+				"cacheCreationEphemeral1hInputTokens": 0,
+				"canonicalModel": "claude-haiku-5-5",
+				"provider": "firstParty",
+				"costBasis": "list"
+			}
+		},
+		"permission_denials": [],
+		"terminal_reason": "completed",
+		"fast_mode_state": "off",
+		"fast_mode_disabled_reason": "sdk_opt_in_required",
+		"subagent_stats": {
+			"spawned": 0,
+			"requested": {
+				"background": 0,
+				"foreground": 0,
+				"unset": 0
+			},
+			"started_in_background": 0,
+			"max_depth": 0,
+			"spawned_by_subagents": 0,
+			"completed": 0,
+			"failed": 0,
+			"killed": {
+				"parent": 0,
+				"user": 0,
+				"system": 0
+			},
+			"refused": {
+				"depth_limit": 0,
+				"concurrency_limit": 0,
+				"budget": 0
+			},
+			"by_type": {}
+		},
+		"safety_stops": 0,
+		"is_error": false,
+		"num_turns": 2,
+		"subtype": "success",
+		"api_error_status": null,
+		"result": "{\"waits\":[{\"sentence\":\"Re-check the queue depth once 300 landings have been logged.\",\"on\":\"data\",\"window\":\"300 landings\",\"basisNamesWindow\":true}],\"bases\":[{\"basis\":\"the ticket asks for 300 landings.\",\"class\":\"restated\"}]}",
+		"structured_output": {
+			"waits": [
+				{
+					"sentence": "Re-check the queue depth once 300 landings have been logged.",
+					"on": "data",
+					"window": "300 landings",
+					"basisNamesWindow": true
+				}
+			],
+			"bases": [
+				{
+					"basis": "the ticket asks for 300 landings.",
+					"class": "restated"
+				}
+			]
+		},
+		"ttft_ms": 2151,
+		"type": "result",
+		"duration_ms": 2517,
+		"uuid": "0e5017ed-0000-4000-8000-000000000000",
+		"ttft_stream_ms": 1304,
+		"time_to_request_ms": 348,
+		"first_content_frame_ms": 1304,
+		"queued_turn_count": 0,
+		"result_index": 0
+	},
+	"observed": {
+		"tools": [
+			"StructuredOutput"
+		],
+		"mcpServers": 0,
+		"slashCommands": 0,
+		"plugins": [],
+		"hookEvents": 0,
+		"transcripts": 0
+	}
+}
