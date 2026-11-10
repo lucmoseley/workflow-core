@@ -131,7 +131,7 @@ describe("a prompt that unparks nothing", () => {
 		["a mod's delivery", "Delivered by the wfc-delivery mod: a report"],
 		["the loop's API-error resume", API_PROMPT],
 		["the loop's resumed-idle prompt", IDLE_PROMPT],
-		["a script's typed prompt (#4844)", scriptPrompt("go with (A)")],
+		["a script's typed prompt", scriptPrompt("go with (A)")],
 	])("leaves the label for %s (#3369)", (_, prompt) => {
 		park(31);
 		run({ prompt });

@@ -15,5 +15,8 @@ const SCRIPTED_PROMPT = scriptPrompt(PROMPT);
 /* The launch prompt of the job the typed attach types into. */
 const ASK =
 	"Ask me one question, whether I prefer red or blue, with the AskUserQuestion tool. Use no other tool.";
+/* Under `--permission-mode manual` a Bash write prompts. */
+const PERMISSION_ASK =
+	"Run exactly this Bash command and nothing else: touch /tmp/wfc-permission-probe. Use no other tool.";
 
-module.exports = { ASK, PROMPT, SCRIPTED_PROMPT };
+module.exports = { ASK, PERMISSION_ASK, PROMPT, SCRIPTED_PROMPT };

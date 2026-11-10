@@ -91,7 +91,8 @@ const LIVENESS_ASK =
  * a longer message mentioning "progress" is the founder briefing new work.
  * Only `origin.kind` human counts: a subagent log's dispatch prompt is a plain
  * user string too. A refill-loop resume prompt, or another script's typed
- * one, is human too, so it is skipped by its text (#3381, #4844). Each `[image]` marker in the text counts toward the cap. */
+ * one, is human too, so it is skipped by its text (#3381, #4844). Each
+ * `[image]` marker in the text counts toward the cap. */
 const LIVENESS_ASK_MAX = 200;
 
 /** @typedef {{toolErrors: number, classifierDenials: number, stopBlocks: number,

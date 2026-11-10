@@ -141,7 +141,7 @@ describe("hand-off (#2659)", () => {
 		);
 		expect(body).toContain("A: Shall we ship it?");
 		expect(body).not.toContain("USER: [refill loop]");
-		expect(body).not.toContain("USER: [script]");
+		expect(body).not.toContain(scriptPrompt("carry on"));
 	});
 
 	it("tells it to ask first where no narration was read (#3980)", () => {

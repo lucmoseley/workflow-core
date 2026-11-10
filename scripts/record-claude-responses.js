@@ -67,7 +67,12 @@ const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
-const { ASK, PROMPT, SCRIPTED_PROMPT } = require("./lib/recorder-prompts.js");
+const {
+	ASK,
+	PERMISSION_ASK,
+	PROMPT,
+	SCRIPTED_PROMPT,
+} = require("./lib/recorder-prompts.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -88,9 +93,6 @@ const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
  * "No job matching". */
 const NO_JOB = "00000000";
-/* Under `--permission-mode manual` a Bash write prompts. */
-const PERMISSION_ASK =
-	"Run exactly this Bash command and nothing else: touch /tmp/wfc-permission-probe. Use no other tool.";
 /* A guess: one such Haiku turn took about 25 s here, under load. */
 const WAIT_MS = 180_000;
 /* A guess: lib/reaper.js stops a done job within a tick, so the poll is
