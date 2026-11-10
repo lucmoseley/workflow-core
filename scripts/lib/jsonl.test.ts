@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * lib/jsonl.js's answers (#3452): a torn last line, an unparsable row, an
- * empty file, a missing one, a line `keep` refuses, and one streamed line.
+ * empty file, a missing one, a line `keep` refuses, one streamed line, and
+ * the last row read from the file's end.
  * In-process over real temp files: the reader's one port is the filesystem,
  * and its ENOENT-versus-other-error split is only real on a real one.
  * Every JSONL read in scripts/ goes through this reader (#3453), so a break
@@ -15,7 +16,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const load = createRequire(__filename);
-const { parseJsonlRow, parseJsonl, readJsonl } = load("./jsonl.js");
+const { parseJsonlRow, parseJsonl, readJsonl, readLastJsonlRow } =
+	load("./jsonl.js");
 
 let dir: string;
 beforeEach(() => {
@@ -151,5 +153,38 @@ describe("parseJsonlRow", () => {
 		expect(parseJsonlRow("bad")).toBeUndefined();
 		expect(parseJsonlRow("[1]")).toBeUndefined();
 		expect(parseJsonlRow("null")).toBeUndefined();
+	});
+});
+
+describe("readLastJsonlRow", () => {
+	const texts = {
+		"a terminated last row": '{"a":1}\n{"a":2}\n',
+		"an unterminated last row": '{"a":1}\n{"a":2}',
+		"a torn last line": '{"a":1}\n{"a":2}\n{"a":',
+		"bad and blank lines after the last row": '{"a":1}\n[1]\nnot json\n\n\n',
+		"CRLF endings": '{"a":1}\r\n{"a":2}\r\n',
+		"one row": '{"a":1}',
+		"no row": "not json\n\n",
+		"an empty file": "",
+		/* Past one read of the file's end, and split inside a multi-byte character. */
+		"a last row longer than one read": `{"a":1}\n{"a":"${"é".repeat(70_000)}"}\n`,
+		"a last row with more than one read of bad lines after it": `{"a":1}\n${"not json\n".repeat(8000)}`,
+	};
+
+	it.each(Object.entries(texts))(
+		"gives the row readJsonl ends on: %s",
+		(_name, text) => {
+			const file = write(text);
+			expect(readLastJsonlRow(file)).toEqual(readJsonl(file).rows.at(-1));
+		},
+	);
+
+	it("gives undefined for a file with no row, null for a missing one", () => {
+		expect(readLastJsonlRow(write("\n"))).toBeUndefined();
+		expect(readLastJsonlRow(path.join(dir, "absent.jsonl"))).toBeNull();
+	});
+
+	it("throws on a read error other than a missing file", () => {
+		expect(() => readLastJsonlRow(dir)).toThrow();
 	});
 });

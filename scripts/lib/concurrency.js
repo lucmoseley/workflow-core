@@ -26,7 +26,7 @@
  */
 
 const { caught } = require("./caught.js");
-const { readJsonl } = require("./jsonl.js");
+const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
 const {
 	NOTHING_LAUNCHABLE,
 	PROBE_HOLD_WAIT,
@@ -500,17 +500,28 @@ function readRecords() {
 }
 
 /**
+ * The record's newest tick, read from its end, as the panel reads it every few
+ * seconds (#4821); null where there is none or the record would not read.
+ * @returns {TickRecord|null}
+ */
+function readNewestTick() {
+	try {
+		return /** @type {TickRecord|null} */ (
+			readLastJsonlRow(concurrencyFiles().record) ?? null
+		);
+	} catch {
+		return null;
+	}
+}
+
+/**
  * What `refill-loop.js status --json` carries for the panel. `working`,
  * `ceiling` and `stateWorking` are null where unread or the newest tick is
  * stale or a stop.
  * @param {number} now
  */
 function readConcurrencyStatus(now) {
-	const files = concurrencyFiles();
-	const ticks = /** @type {TickRecord[]|null} */ (
-		readJsonLines(files.record, [])
-	);
-	const newest = ticks?.at(-1);
+	const newest = readNewestTick();
 	const tick =
 		newest &&
 		now - Date.parse(newest.at) <= STALE_MS &&
