@@ -62,6 +62,7 @@ const {
 	DEFAULT_SUITE,
 	recordFailure,
 	shortSha,
+	formatCachedClause,
 } = require("./lib/test-pass-marker.js");
 const { launchEnv } = require("./lib/suite-handoff.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
@@ -189,6 +190,7 @@ const {
 	isPassStoreLaunch,
 	launchRoute,
 	isTouchedRun,
+	noCacheRefusal,
 	npmSwallowedRefusal,
 } = require("./lib/launch-route.js");
 
@@ -427,10 +429,9 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 		startedAtMs: Date.now(),
 		sessionId: session,
 	});
+	const clause = formatCachedClause((looked.cached ?? []).map((c) => c.file));
 	out.write(
-		landed
-			? "Every selected file was cached: nothing ran, and the certificate is written (#4790).\n"
-			: "Every selected file was cached: nothing ran, but the certificate could not be written (#4790).\n",
+		`Every selected file was cached — ${clause} — so nothing ran, ${landed ? "and the certificate is written" : "but the certificate could not be written"}.\n`,
 	);
 	return 0;
 }
@@ -2726,11 +2727,13 @@ function main(argv = process.argv.slice(2), options = {}) {
 
 if (require.main === module) {
 	/* Refused before the load hold, so a launch npm half-swallowed, or one
-	 * vitest would be handed a selection flag raw, never waits for a slot it
-	 * would then misuse (#2284, #2764). */
+	 * vitest would be handed a selection flag or `--no-cache` raw, never
+	 * waits for a slot it would then misuse (#2284, #2764, #4790). */
 	const argv = process.argv.slice(2);
 	const refusal =
-		npmSwallowedRefusal(argv, process.env) ?? selectionClashRefusal(argv);
+		npmSwallowedRefusal(argv, process.env) ??
+		noCacheRefusal(argv) ??
+		selectionClashRefusal(argv);
 	if (refusal) {
 		process.stderr.write(refusal);
 		process.exitCode = 1;
