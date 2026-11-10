@@ -19,7 +19,8 @@
  *
  *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<tree>]
  *     prints that ref, or the pushed ref's branch, for the checkout at <tree>,
- *     else the host root, for shell and workflows
+ *     else the host root, for shell and workflows; the config read is the
+ *     host's, <tree>'s main checkout, as for the library's callers (#4280)
  */
 
 const path = require("node:path");
@@ -224,7 +225,9 @@ if (require.main === module) {
 		);
 		process.exit(2);
 	}
-	writeFd(1, `${answer(tree ? { root: tree, tree } : undefined)}\n`);
+	const root =
+		tree && (require("./main-checkout.js").mainCheckout(tree) ?? tree);
+	writeFd(1, `${answer(tree ? { root, tree } : undefined)}\n`);
 }
 
 module.exports = {
