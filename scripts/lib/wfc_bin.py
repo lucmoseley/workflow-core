@@ -14,6 +14,7 @@ VARS = {
     "ps": "WFC_PS",
     "git": "WFC_GIT",
     "systemctl": "WFC_SYSTEMCTL",
+    "journalctl": "WFC_JOURNALCTL",
 }
 
 
