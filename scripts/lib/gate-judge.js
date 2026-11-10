@@ -49,8 +49,8 @@ A gate line, one that starts \`**Gated until:**\` or \`**Gated on:**\`, counts w
 These are NOT waits, so leave them out:
 - a span that only says what data a figure covers or covered, with nothing held back until it is over ("42 failures in the last 30 days");
 - a frequency or a schedule ("runs twice a day");
-- a threshold, timeout or age in how something behaves ("the cache expires after 90 minutes");
-- an account of what already happened ("two days later the fix went in");
+- a threshold, timeout, age or time window in how a tool, check or program behaves, even one said to wait ("the cache expires after 90 minutes", "the sweeper waits an hour before it deletes"): that describes machinery, and holds none of this ticket's work back;
+- an account of what already happened ("two days later the fix went in"), a wait the body says is already over, and a report of a reading already taken, whose point was reached and whose figures are in hand;
 - waiting on an event alone, with no stretch of time and no amount of data (a commit landing, an issue closing, a release, a reply);
 - anything inside a code span or a fenced code block: those are quoted examples, not this body's own words.
 
@@ -63,7 +63,7 @@ For each wait give:
 QUESTION 2 — BASES. For every line that starts \`**Gate basis:**\`, outside code, give:
 - "basis": the text after the marker, copied character for character.
 - "class": how the line comes by the window's length or count, one of
-  - "derived": it works the window out from data. It gives a count or a measured figure, says where that figure comes from, and the figure yields this window: a rate and the number of events the window then holds, a baseline and the sample needed to tell a change from it, a measured cycle the window has to span.
+  - "derived": it works the window out from data. It gives a count or a measured figure, says where that figure comes from, and the figure yields this window: a rate and the number of events the window then holds, a baseline and the sample needed to tell a change from it, a statistical bound a count gives (no failure in so many tries puts the rate under a stated level), or a cycle the window has to span, named with the dated events or measured load that fell in it.
   - "inherited": it takes the window from somewhere else that it names: another issue, a ruling, a spec, an earlier reading whose window it matches.
   - "restated": it only repeats the window, or says the ticket, the body or its acceptance criteria ask for it. Nothing outside the ticket's own ask stands behind the length.
   - "asserted": it gives a reason in words with no figure behind it: a round length said to be enough, to cover a pattern, or to be safe.
@@ -247,7 +247,8 @@ const isUnwarranted = (b, own) =>
  * @param {string} body
  * @param {Reading} reading
  * @param {number} [own] the body's own issue number
- * @returns {{faults: JudgedFault[], dropped: number}}
+ * @returns {{faults: JudgedFault[], dropped: number, waits: JudgedWait[],
+ *   bases: JudgedBasis[]}} `waits` and `bases`: the quotes kept
  */
 function readingFaults(body, reading, own) {
 	const facts = gateFacts(body);
@@ -280,7 +281,7 @@ function readingFaults(body, reading, own) {
 	for (const [kind, text] of raised)
 		if (!faults.some((f) => f.kind === kind && f.text === text))
 			faults.push({ kind, text, by: "model" });
-	return { faults, dropped };
+	return { faults, dropped, waits, bases };
 }
 
 /**
@@ -296,10 +297,29 @@ function isSameFault(a, b) {
 }
 
 /**
- * A body's gate faults by both readings: the patterns', whole, then what the
- * model adds. With `before`, the body an edit replaces, a fault is raised only
- * where the edit brought it: a pattern fault by lib/issue-gate.js's own edit
- * rule, a model fault unless `before` already held its text verbatim.
+ * The patterns' faults, whole, then what the model adds to them: a model
+ * fault the patterns already raise is theirs, and one whose text `before`
+ * held verbatim is not the edit's.
+ *
+ * @param {import("./issue-gate.js").BasisFault[]} patterns
+ * @param {JudgedFault[]} model
+ * @param {string} [before] the body an edit replaces
+ * @returns {JudgedFault[]}
+ */
+function mergeFaults(patterns, model, before) {
+	/** @type {JudgedFault[]} */
+	const faults = patterns.map((f) => ({ ...f, by: "patterns" }));
+	const added = model.filter(
+		(f) => !before?.includes(f.text) && !faults.some((p) => isSameFault(p, f)),
+	);
+	return [...faults, ...added];
+}
+
+/**
+ * A body's gate faults by both readings. With `before`, the body an edit
+ * replaces, a fault is raised only where the edit brought it: a pattern fault
+ * by lib/issue-gate.js's own edit rule, a model fault unless `before` already
+ * held its text verbatim.
  *
  * `fallback` is why the model reading did not run, the faults then being the
  * patterns' alone; null where it ran.
@@ -312,23 +332,24 @@ function isSameFault(a, b) {
  */
 function judgedBasisFaults(body, { own, before, boundMs, env }) {
 	const text = String(body || "");
-	/** @type {JudgedFault[]} */
-	const faults = (
+	const patterns =
 		before === undefined
 			? basisFaults(text, own)
-			: introducedBasisFaults(before, text, own)
-	).map((f) => ({ ...f, by: "patterns" }));
+			: introducedBasisFaults(before, text, own);
 	const startedAt = Date.now();
 	const read = readJudge(text, { boundMs, env });
 	const ms = Date.now() - startedAt;
 	if ("why" in read)
-		return { faults, fallback: read.why, reading: null, dropped: 0, ms };
+		return {
+			faults: mergeFaults(patterns, []),
+			fallback: read.why,
+			reading: null,
+			dropped: 0,
+			ms,
+		};
 	const judged = readingFaults(text, read.reading, own);
-	const added = judged.faults.filter(
-		(f) => !before?.includes(f.text) && !faults.some((p) => isSameFault(p, f)),
-	);
 	return {
-		faults: [...faults, ...added],
+		faults: mergeFaults(patterns, judged.faults, before),
 		fallback: null,
 		reading: read.reading,
 		dropped: judged.dropped,
@@ -336,4 +357,11 @@ function judgedBasisFaults(body, { own, before, boundMs, env }) {
 	};
 }
 
-module.exports = { buildPrompt, judgedBasisFaults, parseReading };
+module.exports = {
+	buildPrompt,
+	judgedBasisFaults,
+	mergeFaults,
+	parseReading,
+	readJudge,
+	readingFaults,
+};
