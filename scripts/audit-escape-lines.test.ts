@@ -179,7 +179,7 @@ describe("the batch", () => {
 		path.join(dir, ".claude", "tmp", "markers", ".escape-audit-lock");
 
 	it("stands aside while a live run holds the lock, however old", async () => {
-		plantLiveLock(lockFile(), "audit-escape-lines.js");
+		await plantLiveLock(lockFile(), "audit-escape-lines.js");
 		expect(await run()).toMatchObject({ reason: "locked" });
 	});
 

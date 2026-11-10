@@ -9,12 +9,13 @@
  * so only a process of its own holds it and a second runner meets it.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import { liveScriptProcess } from "./lib/pid-lock-testkit";
 import { LADDER_BENCH, LADDER_STAMP } from "./lib/quiet-bench.js";
 
 const RUNNER = path.join(__dirname, "quiet-bench-run.js");
@@ -181,24 +182,10 @@ it("exits 1 where its directory cannot be made", () => {
 
 it("exits at once and runs no bench beside a live runner", async () => {
 	stubBench('open("ran", "w").close()\n');
-	const holder = spawn(
-		process.execPath,
-		["-e", "setTimeout(() => {}, 60000)", "quiet-bench-run.js"],
-		{ stdio: "ignore" },
-	);
-	try {
-		await new Promise((resolve) => holder.once("spawn", resolve));
-		const cmdline = `/proc/${holder.pid}/cmdline`;
-		while (!fs.readFileSync(cmdline, "utf8").includes("quiet-bench-run.js"));
-		fs.mkdirSync(refill, { recursive: true });
-		fs.writeFileSync(
-			path.join(refill, ".refill-quiet-bench.pid"),
-			String(holder.pid),
-		);
-		expect(runner("run").status).toBe(0);
-		expect(fs.existsSync(path.join(checkout, "ran"))).toBe(false);
-		expect(fs.readdirSync(path.join(refill, "quiet-bench-runs"))).toEqual([]);
-	} finally {
-		holder.kill("SIGKILL");
-	}
+	const pid = await liveScriptProcess("quiet-bench-run.js");
+	fs.mkdirSync(refill, { recursive: true });
+	fs.writeFileSync(path.join(refill, ".refill-quiet-bench.pid"), String(pid));
+	expect(runner("run").status).toBe(0);
+	expect(fs.existsSync(path.join(checkout, "ran"))).toBe(false);
+	expect(fs.readdirSync(path.join(refill, "quiet-bench-runs"))).toEqual([]);
 });
