@@ -57,8 +57,8 @@ function matchLines(a, b) {
  * The middle snake of `box`, as its start `[x, y]` and end x, in whole-list
  * coordinates (Myers 1986, §4b). Both ranges are non-empty and differ at
  * each end.
- * @param {Graph} g accumulator: its `fwd` and `back` are this search's
- *   scratch, overwritten
+ * @param {Graph} g accumulator: its `fwd` and `back` are scratch,
+ *   overwritten
  * @param {Box} box
  * @returns {[number, number, number]}
  */

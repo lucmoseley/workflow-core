@@ -7,8 +7,7 @@
  * the working copy is byte for byte one of them. LANDED BY LINES where one of
  * them made the change in place: each run of lines the change replaces is
  * gone from it, the lines either side of the run are kept, and the run's new
- * lines stand there against one of them (#4903). Lines it adds elsewhere,
- * however alike, never stand in for the change.
+ * lines stand there against one of them (#4903).
  */
 
 const fs = require("node:fs");
@@ -95,7 +94,7 @@ function buildHunks(head, now) {
  *
  * Residual: `matchLines` keeps one longest common subsequence of several, so
  * where a line repeats beside a hunk the verdict can rest on which copy it
- * kept; a wrong pick reads not landed as often as landed.
+ * kept, and a wrong pick can read an unlanded change as landed.
  * @param {string[]} head
  * @param {Hunk[]} hunks
  * @param {string[]} there
@@ -108,9 +107,8 @@ function isChangeMade(head, hunks, there) {
 /**
  * Whether `there` made `hunk`: the head lines either side of it kept, the
  * lines it replaces gone, and its new lines standing against one of those
- * neighbours. The other side may hold lines landed since, as where a later
- * commit built on the change (#4439); a rewritten span around it never
- * stands in (#4903). A deletion leaves its neighbours adjacent.
+ * neighbours. The other side may hold lines landed since (#4439). A
+ * deletion leaves its neighbours adjacent.
  * @param {Int32Array} at each line of `head`'s index in `there`, or -1
  * @param {Hunk} hunk
  * @param {string[]} there

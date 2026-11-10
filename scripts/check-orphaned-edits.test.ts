@@ -716,7 +716,6 @@ describe("a linked worktree's dirt", () => {
 		expect(bodyOf()[0]).toContain("| no |");
 	});
 
-	/** Commit `a.txt` as `content` on the main checkout, as worktrees' base. */
 	function baseA(content: string) {
 		fs.writeFileSync(path.join(sb.repo, "a.txt"), content);
 		commitAll(sb, "base");

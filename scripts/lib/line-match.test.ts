@@ -1,6 +1,6 @@
 /*
  * line-match.test.ts — pins lib/line-match.js's matcher (#4903) against the
- * textbook LCS table on seeded random lists, so a failure replays. A short
+ * textbook LCS table on seeded random lists. A short
  * match makes lib/landed-edit.js see a kept line as dropped, which can read
  * an unlanded change as landed and so offer `git worktree remove --force`
  * over it.
@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { matchLines } from "./line-match.js";
 
-/** A longest common subsequence's length, by the textbook table. */
+/** A longest common subsequence's length. */
 function lcsLength(a: string[], b: string[]) {
 	let row = new Array<number>(b.length + 1).fill(0);
 	for (const x of a) {
@@ -30,25 +30,26 @@ function lcsLength(a: string[], b: string[]) {
 function seeded(seed: number) {
 	let s = seed;
 	return () => {
-		s = (s * 1_103_515_245 + 12_345) % 2 ** 31;
+		s = (Math.imul(s, 1_103_515_245) + 12_345) & 0x7f_ff_ff_ff;
 		return s / 2 ** 31;
 	};
 }
 
-/* Guesses, not measured: enough lists, short enough for the table, over
- * alphabets of one to four lines so repeats, the hard case, are common. */
+/* Guesses, not measured: enough lists, each shorter than LENGTH_LIMIT so
+ * the table stays small, drawn from the first one to all of ALPHABET's
+ * lines so repeats, the hard case, are common. */
 const TRIALS = 3000;
-const MAX_LENGTH = 12;
-const MAX_ALPHABET = 4;
+const LENGTH_LIMIT = 12;
+const ALPHABET = "abcd";
 
 describe("matchLines (#4903)", () => {
 	it("matches a longest common subsequence, in order, line for line", () => {
 		const rand = seeded(4903);
 		for (let t = 0; t < TRIALS; t++) {
-			const alphabet = "abcd".slice(0, 1 + (t % MAX_ALPHABET));
+			const alphabet = ALPHABET.slice(0, 1 + (t % ALPHABET.length));
 			const list = () =>
 				Array.from(
-					{ length: Math.floor(rand() * MAX_LENGTH) },
+					{ length: Math.floor(rand() * LENGTH_LIMIT) },
 					() => alphabet[Math.floor(rand() * alphabet.length)] ?? "a",
 				);
 			const a = list();
