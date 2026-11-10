@@ -5,6 +5,7 @@
  */
 
 const fs = require("node:fs");
+const { readProcStartOf } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
 const { readMachineSetting } = require("./machine-setting.js");
 const { meminfoPath } = require("./proc-root.js");
@@ -16,25 +17,19 @@ const { meminfoPath } = require("./proc-root.js");
 
 /*
  * THE MEMORY-HOLD ADD-BACK (#4862). While the memory switchback holds RAM on
- * purpose, `~/.claude/memory-hold` (or `WFC_MEMORY_HOLD`) reads `<MB> <pid>`,
- * and every reader here adds the MB back to MemAvailable, so admission, the
- * suite ladder and the reap launch as if nothing were held and only the
- * kernel feels the hold. A pid no longer alive adds nothing: a holder killed
- * past its unit's cleanup leaves no phantom memory behind.
+ * purpose, `~/.claude/memory-hold` (or `WFC_MEMORY_HOLD`) reads
+ * `<MB> <pid> <procStart>`, and every reader here adds the MB back to
+ * MemAvailable. The holder counts
+ * only while its pid still carries that start token, the arbiter's liveness
+ * test (mantahostels#104).
  */
 
 /** The held MB in kB, 0 where no live hold is declared. */
-function heldKb() {
+function readHeldKb() {
 	const { text } = readMachineSetting("memory-hold", "WFC_MEMORY_HOLD");
-	const m = text?.match(/^\s*(\d+)\s+(\d+)\s*$/);
-	if (!m) return 0;
-	try {
-		process.kill(Number(m[2]), 0);
-	} catch (e) {
-		// EPERM is a live process of another user's; anything else is gone.
-		if (caught(e).code !== "EPERM") return 0;
-	}
-	return Number(m[1]) * 1024;
+	const [, mb, pid, start] = text?.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/) ?? [];
+	if (!mb || !pid || readProcStartOf(pid) !== start) return 0;
+	return Number(mb) * 1024;
 }
 
 /**
@@ -57,7 +52,7 @@ function readMeminfoKb() {
 		return {
 			ok: true,
 			totalKb: kb("MemTotal"),
-			availableKb: availableKb + heldKb(),
+			availableKb: availableKb + readHeldKb(),
 			swapTotalKb: kb("SwapTotal"),
 			swapFreeKb: kb("SwapFree"),
 		};

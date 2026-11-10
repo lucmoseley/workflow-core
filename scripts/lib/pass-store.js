@@ -61,7 +61,7 @@ const {
 	isSameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
-const { edgesOf, isFile, shadowsOf } = require("./code-edges.js");
+const { isFile, reachOf } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
 	readDocsByTest,
@@ -212,10 +212,10 @@ function snapshotOf(root, file) {
 	return fs.existsSync(path.join(root, snap)) ? [snap] : [];
 }
 
-/* A Python import neither stdlib nor beside its importer, such as one found
- * through `sys.path`, leaves the reach unknown: the file records no row
- * (#4790). Residual: a test spawning such a script is never cached, and no
- * notice says so. */
+/* A Python import code-edges.js cannot place, such as a third-party package
+ * or one found after a sys.path edit it cannot read, leaves the reach
+ * unknown: the file records no row (#4790, #4864). Residual: a test spawning
+ * such a script is never cached, and no notice says so. */
 const refuseFault = (/** @type {string} */ why) => {
 	throw new Error(why);
 };
@@ -284,12 +284,10 @@ function readEdges(root, rel) {
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
+		const { edges, shadows } = reachOf(abs, read.data, refuseFault);
 		return {
-			edges: repoRelative(
-				root,
-				edgesOf(abs, read.data, refuseFault).filter(isFile),
-			),
-			shadows: repoRelative(root, shadowsOf(abs, read.data)),
+			edges: repoRelative(root, edges.filter(isFile)),
+			shadows: repoRelative(root, shadows),
 		};
 	} catch {
 		return null;

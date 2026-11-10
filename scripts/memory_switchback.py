@@ -7,22 +7,28 @@ fair coin per pair gives one block a hold and the other none. Each block's
 first 5 minutes are a washout and are not read (load_switchback.py's shape).
 
 The hold is one more session's launch charge as admission computes it at
-`draw` (`nextNeedMb - drawNeedMb` in ~/.claude/concurrency.jsonl, 668 MB on
-10 Nov). Pair 0 holds half of it and is never read: the low-side start. While
-a hold runs, ~/.claude/memory-hold reads `<MB> <pid>`, and lib/meminfo.js adds
-the MB back to MemAvailable for admission, the suite ladder and the reap, so
-launches stay fixed and only the kernel feels the hold.
+`draw` (`nextNeedMb - drawNeedMb` in ~/.claude/concurrency.jsonl). Pair 0
+holds half of it and is never read: the low-side start. While a hold runs,
+~/.claude/memory-hold reads `<MB> <pid> <procStart>`, and lib/meminfo.js
+adds the MB back to MemAvailable for admission, the suite ladder and the reap,
+so launches stay fixed and only the kernel feels the hold. The Windows-memory
+limb of the suite and tsc gates (lib/windows-memory.js)
+gets no add-back: it guards the VM against freezing, and how much of a guest
+hold reaches Windows is unmeasured. The readout counts its stand-down minutes
+per arm instead, as a balance check.
 
-  draw     pre-draw the schedule and the hold size into <home>/.claude/memory-switchback/
+  draw     pre-draw the schedule and the hold size into <home>/.claude/memory-switchback/;
+           run it right before `run`, which refuses a schedule whose pair 0 has passed
   run      walk the schedule, starting and ending the holder at each block's edges.
-           Ends at the schedule's end, at USABLE_PAIRS usable pairs, at a stop
-           rule or when the minute log falls silent, and removes the hold either
-           way. Run it detached, the unit removing the hold file even on a kill
-           the script cannot see; stopping the unit kills the holder with it:
+           Ends at the schedule's end, at USABLE_PAIRS usable pairs or at a stop
+           rule, and removes the hold whichever way it ends. Run it detached, the
+           unit removing the hold file even on a kill the script cannot see;
+           stopping the unit kills the holder with it:
              systemd-run --user --unit=wfc-memory-switchback --collect \\
                -p ExecStopPost="/bin/rm -f $HOME/.claude/memory-hold" \\
                python3 "$PWD/scripts/memory_switchback.py" run
-           A run restarted after a reboot resumes at the block in progress.
+           Restarted after a reboot or a kill, it resumes at the block in
+           progress; after a stop rule or a finished trial it refuses.
   hold     the holder itself: resident anonymous memory, re-touched every
            TOUCH_S seconds at low CPU, `ready` on stdout once every page is in
   readout  print the markdown readout for the ticket
@@ -32,22 +38,25 @@ rule re-set on #4862). Each binds while a hold runs and through the washout
 after it, where its harm would show; any one ends the trial:
   an earlyoom kill; guest MemAvailable under 1,094 MB for 2 min; swap used over
   1,800 MB; memory PSI full avg60 >= 10% for 5 min; Windows available memory
-  (`win_avail_mb`, the minute log) under 500 MB for 5 minute lines.
+  (`win_avail_mb`, the minute log) under 500 MB for 5 minute lines; and the
+  minute log silent for 3 min, which blinds the Windows rule; and a holder
+  that does not report ready within READY_S.
 
 The readout reads each block's last 10 minutes. Decision: the within-pair log
 ratio of block median Bash round-trip, hold over none, by a two-sided sign-flip
-test at ALPHA. Companions: hook-timeout refusals per minute, CPU-s per Bash
-call. Guardrail, spending no alpha: closes per hour. A pair counts only where
-both blocks are usable: a refill-loop tick, a median of >= 3 active
-transcripts and >= 20 Bash calls in the read window.
+test at ALPHA. Companions: hook-timeout refusals per minute, machine CPU-s per
+Bash call. Guardrail, spending no alpha: closes per hour. A pair counts only
+where both blocks are usable: a refill-loop tick, a median of >= 3 active
+transcripts over the minutes with a call (#4162's sizing mask) and >= 20 Bash
+calls in the read window.
 """
 
 import argparse
 import json
 import math
 import os
-import random
 import secrets
+import selectors
 import signal
 import statistics
 import subprocess
@@ -67,25 +76,43 @@ from load_switchback import (
     _events,
     _iso,
     _log,
+    block_span,
     closes,
+    load_schedule,
     minute_log,
+    sign_flip_p,
 )
+from memwatch_minute import json_lines
+from wfc_bin import bin_path
 
 HOLD, NONE = "hold", "none"
 # #4162: 77 usable pairs detect a 14% slowdown at 80% power, two-sided ALPHA.
 USABLE_PAIRS = 77
+# The slowdown at which one more session stops paying for itself (#4162).
+BREAK_EVEN = 1.14
 # Half of loop-on pairs were usable on 4-10 Nov (#4162), and the loop is not
 # always on: a week of schedule bounds the run, USABLE_PAIRS ends it sooner.
 SCHEDULE_H = 7 * 24
+# #4162's usable-block mask.
 MIN_ACTIVE = 3
 MIN_BASH = 20
-# The pairs each read skips: pair 0 is the half-size low-side start (#4162).
 UNREAD_PAIRS = {0}
+# Ticks admitting no session by memory, of which the hold size is the median:
+# the newest 50 span ~1 h of the loop's ticks (concurrency.jsonl, 10 Nov).
+CHARGE_TICKS = 50
 
 PAGE = 4096
+# Re-touching keeps the pages on the active list, as a working session's are;
+# 10 s costs ~0.1 CPU-s per 100 MB (measured on #4862) and is far inside the
+# kernel's LRU ageing.
 TOUCH_S = 10
-READY_S = 120
+# A 668 MB fill takes under 1 s; a holder that has not filled in 60 s is
+# stuck behind reclaim, the harm the stop rules exist for.
+READY_S = 60
+# Stop rules are read every 15 s: the shortest sustained window is 2 min.
 TICK_S = 15
+# How long a holder has to exit on SIGTERM before it is killed.
+STOP_GRACE_S = 30
 
 AVAIL_STOP_MB = 1094  # earlyoom's 794 MB floor + 300 margin
 AVAIL_STOP_S = 2 * 60
@@ -99,9 +126,17 @@ PSI_FULL_STOP_S = 5 * 60
 # 668 MB taken off every line.
 WIN_STOP_MB = 500
 WIN_STOP_LINES = 5
+# The minute log's newest lines the Windows rule reads, and the bytes that
+# hold them: 10 lines at the log's ~800-byte lines.
+WIN_READ_S = 10 * 60
+WIN_TAIL_BYTES = 8 * 1024
+# Silent for 3 lines, the Windows rule has lost most of its 5-line window.
 SILENT_S = 3 * 60
-
-SIGN_FLIP_DRAWS = 100_000
+# lib/windows-memory.js's WINDOWS_FLOOR_MB, under which suites and tsc wait:
+# the readout's balance row. Move both, or neither.
+WINDOWS_FLOOR_MB = 1000
+# An end that a restart must not resume past.
+FINAL = ("stop rule", "schedule complete", "usable pairs")
 
 
 def paths(home):
@@ -120,33 +155,28 @@ def paths(home):
 
 def launch_charge_mb(rows):
     """One more session's launch charge, `nextNeedMb - drawNeedMb`, as the
-    median of the last 50 ticks admitting no session by memory. Only there is
-    nextNeedMb the need for exactly one more: past that it carries the spare
-    pairs a 2nd launch warms (lib/admission-figures.js's launchNeedFor)."""
+    median of the newest CHARGE_TICKS ticks admitting no session by memory.
+    Only there is nextNeedMb the need for exactly one more: past that it
+    carries the spare pairs a 2nd launch warms (lib/admission-figures.js's
+    launchNeedFor)."""
     deltas = [
         m["nextNeedMb"] - m["drawNeedMb"]
         for m in (r.get("memory") or {} for r in rows)
         if m.get("memorySlots") == 0
         and isinstance(m.get("nextNeedMb"), int)
         and isinstance(m.get("drawNeedMb"), int)
-    ][-50:]
+    ][-CHARGE_TICKS:]
     return round(statistics.median(deltas)) if deltas else None
 
 
 def read_jsonl(path):
-    out = []
+    """`path`'s JSON lines; none where it does not exist yet."""
     try:
         with open(path) as f:
-            for line in f:
-                try:
-                    out.append(json.loads(line))
-                except ValueError:
-                    # A torn line carries no tick (#4862).
-                    continue
+            return list(json_lines(f))
     except FileNotFoundError:
-        # No log is no tick; the caller reads that as absent (#4862).
-        pass
-    return out
+        # No log is no tick; the readout says so where that empties a block (#4862).
+        return []
 
 
 def draw(start, hold_mb, rng=None):
@@ -162,68 +192,70 @@ def draw(start, hold_mb, rng=None):
     return {"start": start, "hold_mb": hold_mb, "blocks": blocks}
 
 
-def load_schedule(p):
-    with open(p["schedule"]) as f:
-        return json.load(f)
-
-
-def block_span(sched, b):
-    start = sched["start"] + b["i"] * BLOCK_S
-    return start, start + BLOCK_S
-
-
 # ---- hold -----------------------------------------------------------------
 
 
-def hold(mb, touch_s=TOUCH_S, stdout=sys.stdout):
+def hold(mb):
     """Hold `mb` MB of anonymous memory resident: one byte written per page
-    makes each resident, and rewriting it every `touch_s` keeps the pages
-    recently used, the way a working session's are. Runs until killed."""
+    makes each resident, and rewriting it every TOUCH_S keeps the pages
+    recently used. Runs until killed."""
     os.nice(19)
     buf = bytearray(mb * 2**20)
     pages = len(buf) // PAGE
     v = 1
     buf[::PAGE] = bytes([v]) * pages
-    print("ready", file=stdout, flush=True)
+    print("ready", flush=True)
     while True:
-        time.sleep(touch_s)
+        time.sleep(TOUCH_S)
         v = 3 - v
         buf[::PAGE] = bytes([v]) * pages
+
+
+def proc_start(pid):
+    """/proc/<pid>/stat field 22, the start token lib/arbiter-proc.js reads."""
+    with open(f"/proc/{pid}/stat") as f:
+        return f.read().rsplit(")", 1)[1].split()[19]
+
+
+class HolderNotReadyError(RuntimeError):
+    pass
 
 
 class Holder:
     """The holder child and its declaration, ~/.claude/memory-hold."""
 
-    def __init__(self, p, spawn=None):
+    def __init__(self, p):
         self.p = p
         self.proc = None
-        self.spawn = spawn or (
-            lambda mb: subprocess.Popen(
-                [sys.executable, os.path.abspath(__file__), "hold", str(mb)],
-                stdout=subprocess.PIPE,
-                text=True,
-            )
-        )
 
     def start(self, mb):
-        self.proc = self.spawn(mb)
+        self.proc = subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "hold", str(mb)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
         # The pages go in before the add-back does: the brief window between
         # holds memory unannounced, the conservative side for admission.
-        line = self.proc.stdout.readline()
-        if line.strip() != "ready":
-            self.stop()
-            raise RuntimeError(f"holder of {mb} MB never reported ready")
-        tmp = self.p["hold"] + ".tmp"
         try:
+            with selectors.DefaultSelector() as sel:
+                sel.register(self.proc.stdout, selectors.EVENT_READ)
+                ready = (
+                    sel.select(READY_S)
+                    and self.proc.stdout.readline().strip() == "ready"
+                )
+            if not ready:
+                raise HolderNotReadyError(
+                    f"stop rule: holder of {mb} MB not ready in {READY_S} s"
+                )
+            tmp = self.p["hold"] + ".tmp"
             with open(tmp, "w") as f:
-                f.write(f"{mb} {self.proc.pid}\n")
+                f.write(f"{mb} {self.proc.pid} {proc_start(self.proc.pid)}\n")
             os.replace(tmp, self.p["hold"])
         except BaseException:
             self.stop()
             raise
 
     def stop(self):
-        # The add-back goes before the pages do, the conservative order again.
         try:
             os.remove(self.p["hold"])
         except FileNotFoundError:
@@ -232,7 +264,7 @@ class Holder:
         if self.proc:
             self.proc.terminate()
             try:
-                self.proc.wait(timeout=30)
+                self.proc.wait(timeout=STOP_GRACE_S)
             except subprocess.TimeoutExpired:
                 # A holder deaf to SIGTERM still holds the pages: kill it (#4862).
                 self.proc.kill()
@@ -265,7 +297,7 @@ def earlyoom_kills(since):
     """earlyoom's kill lines since epoch `since`, from the journal."""
     out = subprocess.run(
         [
-            "journalctl",
+            bin_path("journalctl"),
             "-u",
             "earlyoom",
             "--since",
@@ -301,6 +333,17 @@ class Stops:
         return now - t0 >= window
 
     def check(self, now, *, avail_mb, swap_mb, psi_full, win_lines, kills):
+        why = self._why(
+            now,
+            avail_mb=avail_mb,
+            swap_mb=swap_mb,
+            psi_full=psi_full,
+            win_lines=win_lines,
+            kills=kills,
+        )
+        return f"stop rule: {why}" if why else None
+
+    def _why(self, now, *, avail_mb, swap_mb, psi_full, win_lines, kills):
         if kills:
             return f"earlyoom killed: {kills[0]}"
         if self._held("avail", avail_mb < AVAIL_STOP_MB, now, AVAIL_STOP_S):
@@ -314,6 +357,8 @@ class Stops:
             PSI_FULL_STOP_S,
         ):
             return f"memory PSI full avg60 >= {PSI_FULL_STOP:g}% for {PSI_FULL_STOP_S // 60} min"
+        if not any(r["t"] >= now - SILENT_S for r in win_lines):
+            return f"no minute-log line in the last {SILENT_S // 60} min, so the Windows rule cannot see"
         recent = [
             r.get("win_avail_mb")
             for r in win_lines
@@ -336,7 +381,9 @@ def live_reading(p, now, kills_since):
         "avail_mb": avail,
         "swap_mb": swap,
         "psi_full": read_psi_full_avg60(),
-        "win_lines": minute_log(p["minute_log"], now - 10 * 60, math.inf, 8 * 1024),
+        "win_lines": minute_log(
+            p["minute_log"], now - WIN_READ_S, math.inf, WIN_TAIL_BYTES
+        ),
         "kills": earlyoom_kills(kills_since),
     }
 
@@ -344,15 +391,40 @@ def live_reading(p, now, kills_since):
 # ---- run ------------------------------------------------------------------
 
 
-def run(p, *, now=time.time, sleep=time.sleep, reading=None, holder=None, usable=None):
+def refusal(sched, events, now):
+    """Why `run` must not start, or None: a trial already over, or a schedule
+    drawn so long ago that its half-size pair 0 has passed unrun."""
+    ends = [e["why"] for e in events if e.get("event") == "end"]
+    final = [w for w in ends if any(w.startswith(f) or w.endswith(f) for f in FINAL)]
+    if final:
+        return f"the trial ended ({final[-1]}); draw a new schedule to run again"
+    started = any(e.get("event") == "block" for e in events)
+    if not started and now >= block_span(sched, sched["blocks"][0])[0] + WASHOUT_S:
+        return "the schedule's pair 0 has passed unrun; move it aside and draw again"
+    return None
+
+
+def run(
+    p,
+    *,
+    now=time.time,
+    sleep=time.sleep,
+    reading=None,
+    holder=None,
+    usable=None,
+    target=USABLE_PAIRS,
+):
     """Walk the schedule from now. Returns the reason it ended."""
     sched = load_schedule(p)
+    past = _events(p)
+    refused = refusal(sched, past, now())
+    if refused:
+        return f"refused: {refused}"
     holder = holder or Holder(p)
     stops = Stops()
     reading = reading or (lambda t, since: live_reading(p, t, since))
     usable = usable or (lambda pair: pair_usable(p, sched, pair))
-    # Resume-safe: a restarted run counts the pairs its last life logged.
-    count = sum(bool(e.get("usable")) for e in _events(p) if e.get("event") == "pair")
+    count = sum(bool(e.get("usable")) for e in past if e.get("event") == "pair")
     guard_until = 0.0  # the end of the washout after the last hold
     hold_began = None
 
@@ -361,9 +433,6 @@ def run(p, *, now=time.time, sleep=time.sleep, reading=None, holder=None, usable
 
     def check():
         t = now()
-        lines = minute_log(p["minute_log"], t - 10 * 60, math.inf, 8 * 1024)
-        if not any(r["t"] >= t - SILENT_S for r in lines):
-            return f"no minute-log line in the last {SILENT_S // 60} min, so the Windows stop cannot see"
         if holder.proc is None and t >= guard_until:
             stops.reset()
             return None
@@ -391,7 +460,12 @@ def run(p, *, now=time.time, sleep=time.sleep, reading=None, holder=None, usable
                 return why
             if b["arm"] == HOLD:
                 hold_began = now()
-                holder.start(b["mb"])
+                try:
+                    holder.start(b["mb"])
+                except HolderNotReadyError as e:
+                    # A fill stuck behind reclaim is the harm a stop rule ends on (#4862).
+                    why = str(e)
+                    return why
             _log(p, now(), event="block", i=b["i"], arm=b["arm"], mb=b["mb"])
             stop = wait_until(end)
             if b["arm"] == HOLD:
@@ -404,7 +478,7 @@ def run(p, *, now=time.time, sleep=time.sleep, reading=None, holder=None, usable
                 ok = usable(b["pair"])
                 count += ok
                 _log(p, now(), event="pair", pair=b["pair"], usable=ok, count=count)
-                if count >= USABLE_PAIRS:
+                if count >= target:
                     why = f"{count} usable pairs"
                     return why
         return why
@@ -443,9 +517,8 @@ def blocks_read(sched, events, *, minute_rows, mem, ticks, close_ts, until):
             continue
         mins = [m for k, m in minute_rows.items() if lo <= k < hi]
         bash = [x for m in mins for x in m["bash"]]
-        cpu_s = sum(
-            (r.get("cpu_busy_pct") or 0) / 100 * 60 for r in mem if lo <= r["t"] < hi
-        )
+        in_block = [r for r in mem if lo <= r["t"] < hi]
+        cpu_s = sum((r.get("cpu_busy_pct") or 0) / 100 * 60 for r in in_block)
         active = median([m["active"] for m in mins]) if mins else 0
         rows.append(
             {
@@ -454,6 +527,12 @@ def blocks_read(sched, events, *, minute_rows, mem, ticks, close_ts, until):
                 "hto_min": sum(m["hto"] for m in mins) / READ_MIN,
                 "cpu_per_call": cpu_s / len(bash) if bash else None,
                 "closes_h": sum(lo <= t < hi for t in close_ts) * 60 / READ_MIN,
+                "win_floor_min": sum(
+                    r.get("win_avail_mb") is not None
+                    and r["win_avail_mb"] < WINDOWS_FLOOR_MB
+                    for r in in_block
+                ),
+                "ticked": any(lo <= t < hi for t in ticks),
                 "usable": any(lo <= t < hi for t in ticks)
                 and (active or 0) >= MIN_ACTIVE
                 and len(bash) >= MIN_BASH,
@@ -475,26 +554,14 @@ def usable_pairs(rows):
     }
 
 
-def sign_flip_two_sided(diffs, draws=SIGN_FLIP_DRAWS, seed=4862):
-    """Two-sided p that the mean within-pair difference is this far from 0 by
-    the coin alone, by sampled sign flips."""
-    if not diffs:
-        return None
-    obs = abs(sum(diffs))
-    rng = random.Random(seed)
-    hits = sum(
-        abs(sum(d if rng.random() < 0.5 else -d for d in diffs)) >= obs - 1e-12
-        for _ in range(draws)
-    )
-    return (hits + 1) / (draws + 1)
-
-
-# The companions: label, key. Each is read as a within-pair hold − none
-# difference beside the decision; the guardrail spends no alpha.
 COMPANIONS = (
     ("Hook-timeout refusals / min", "hto_min"),
     ("Machine CPU-s per Bash call", "cpu_per_call"),
     ("Closes / h (guardrail)", "closes_h"),
+    (
+        f"Minutes Windows under its {WINDOWS_FLOOR_MB} MB launch floor (balance)",
+        "win_floor_min",
+    ),
 )
 
 
@@ -502,35 +569,47 @@ def _fmt(x, f="{:.3f}"):
     return "–" if x is None else f.format(x)
 
 
-def report(rows, end_why, draws=SIGN_FLIP_DRAWS):
+def verdict(p, mean, lo, hi):
+    if p is None:
+        return "no reading — no usable pair"
+    if p < ALPHA and mean > 0:
+        side = "beyond" if lo > math.log(BREAK_EVEN) else "not clearly beyond"
+        return f"the hold slows Bash round-trip ({side} the {BREAK_EVEN - 1:.0%} break-even)"
+    if p < ALPHA:
+        return "the hold speeds Bash round-trip"
+    if hi is not None and hi < math.log(BREAK_EVEN):
+        return f"no slowdown detected at p < {ALPHA}, and the interval rules out the {BREAK_EVEN - 1:.0%} break-even"
+    return f"inconclusive: no slowdown detected at p < {ALPHA}, but the interval reaches the {BREAK_EVEN - 1:.0%} break-even"
+
+
+def report(rows, end_why):
     pairs = usable_pairs(rows)
     logs = [
         math.log(pr[HOLD]["bash_p50"] / pr[NONE]["bash_p50"])
         for pr in pairs.values()
         if pr[HOLD]["bash_p50"] and pr[NONE]["bash_p50"]
     ]
-    p = sign_flip_two_sided(logs, draws)
+    p = sign_flip_p(logs, two_sided=True)
     mean = statistics.fmean(logs) if logs else None
     half = (
         1.96 * statistics.stdev(logs) / math.sqrt(len(logs)) if len(logs) > 1 else None
     )
-    out = [
-        "| Measure | Hold arm | No-hold arm | Within-pair hold − none | p (two-sided) |",
-        "|---|---|---|---|---|",
-    ]
+    lo, hi = (mean - half, mean + half) if half is not None else (None, None)
     arm = {a: [pr[a] for pr in pairs.values()] for a in (HOLD, NONE)}
 
     def med(a, k):
         return median([r[k] for r in arm[a] if r[k] is not None]) if arm[a] else None
 
     ratio = (
-        f"× {math.exp(mean):.3f} [{math.exp(mean - half):.3f}, {math.exp(mean + half):.3f}]"
+        f"× {math.exp(mean):.3f} [{math.exp(lo):.3f}, {math.exp(hi):.3f}]"
         if half is not None
         else "–"
     )
-    out.append(
-        f"| Bash median round-trip, s (decision) | {_fmt(med(HOLD, 'bash_p50'))} | {_fmt(med(NONE, 'bash_p50'))} | {ratio} | {_fmt(p)} |"
-    )
+    out = [
+        "| Measure | Hold arm | No-hold arm | Within-pair hold − none | p (two-sided) |",
+        "|---|---|---|---|---|",
+        f"| Bash median round-trip, s (decision) | {_fmt(med(HOLD, 'bash_p50'))} | {_fmt(med(NONE, 'bash_p50'))} | {ratio} | {_fmt(p)} |",
+    ]
     for label, key in COMPANIONS:
         diffs = [
             pr[HOLD][key] - pr[NONE][key]
@@ -540,21 +619,17 @@ def report(rows, end_why, draws=SIGN_FLIP_DRAWS):
         out.append(
             f"| {label} | {_fmt(med(HOLD, key))} | {_fmt(med(NONE, key))} | {_fmt(median(diffs) if diffs else None)} | |"
         )
-    if p is None:
-        verdict = "no reading — no usable pair"
-    elif p >= ALPHA:
-        verdict = f"no slowdown detected at p < {ALPHA}"
-    elif mean > 0:
-        clears = math.exp(mean - half) > 1.14
-        verdict = f"the hold slows Bash round-trip ({'beyond' if clears else 'not clearly beyond'} the 14% break-even)"
-    else:
-        verdict = "the hold speeds Bash round-trip"
+    read = {r["pair"] for r in rows} - UNREAD_PAIRS
     out += [
         "",
-        f"Ended: {end_why}. {len(pairs)} usable pairs of {len({r['pair'] for r in rows} - UNREAD_PAIRS)} read; "
+        f"Ended: {end_why}. {len(pairs)} usable pairs of {len(read)} read; "
         f"each block read over its last {READ_MIN} minutes; ratio is the geometric mean with its 95% interval.",
-        f"**Verdict: {verdict}.**",
     ]
+    if rows and not any(r["ticked"] for r in rows):
+        out.append(
+            "No block saw a refill-loop tick in ~/.claude/concurrency.jsonl, so none was usable."
+        )
+    out.append(f"**Verdict: {verdict(p, mean, lo, hi)}.**")
     return "\n".join(out)
 
 
@@ -578,13 +653,14 @@ def read_rows(p, sched, until, *, since=None, with_closes=True):
 
 
 def pair_usable(p, sched, pair):
-    """Whether `pair`, just ended, counts: read over its own hour alone, so
-    the check costs one pair's transcripts, not the whole run's."""
+    """Whether `pair`, just ended, counts: read over its own half hour alone,
+    so the check costs one pair's transcripts, not the whole run's."""
     blocks = [b for b in sched["blocks"] if b["pair"] == pair]
-    one = {**sched, "blocks": blocks}
     since, _ = block_span(sched, blocks[0])
     _, until = block_span(sched, blocks[-1])
-    rows, _, _ = read_rows(p, one, until, since=since, with_closes=False)
+    rows, _, _ = read_rows(
+        p, {**sched, "blocks": blocks}, until, since=since, with_closes=False
+    )
     return pair in usable_pairs(rows)
 
 
@@ -621,7 +697,10 @@ def main(argv=None):
             f"draw: {SCHEDULE_H} h of paired blocks from {_iso(start)}, hold {mb} MB -> {p['schedule']}"
         )
     elif a.cmd == "run":
-        print(f"run: ended — {run(p)}")
+        why = run(p)
+        print(f"run: ended — {why}")
+        if why.startswith("refused"):
+            sys.exit(1)
     elif a.cmd == "hold":
         hold(a.mb)
     else:

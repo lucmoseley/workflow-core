@@ -88,6 +88,7 @@ const { deref } = require("./deref.js");
 const { readGitFileCommonDir } = require("./git-file.js");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
+const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { gitCommonDir, gitOutcome, gitReader } = require("./git.js");
 const { hostRoot } = require("./host-root.js");
@@ -1312,19 +1313,12 @@ function fileProbeIssue(root, hold, failure, log) {
 		return;
 	}
 	const filed = fileThrough(
-		[
-			"--title",
+		buildScriptFilerArgv({
 			title,
-			"--label",
-			takesLabel("triage"),
-			"--standalone",
-			PROBE_FILED_WHY,
-			"--origin",
-			"incident",
-			"--no-fault",
-			"--body-file",
-			"-",
-		],
+			labels: [takesLabel("triage")],
+			placement: { standalone: PROBE_FILED_WHY },
+			origin: "incident",
+		}),
 		buildProbeIssueBody(root, failure),
 		root,
 	);
