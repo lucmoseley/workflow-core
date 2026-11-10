@@ -56,7 +56,7 @@ const TYPED_COMMAND = /<command-name>\/([\w:-]+)<\/command-name>/g;
  * @param {string} file
  * @param {"main" | "subagent"} tier
  * @param {number} [chunkSize]
- * @returns {Generator<Record<string, any>>}
+ * @returns {Generator<import("./transcript.js").TranscriptRecord>}
  */
 function* streamRecords(file, tier, chunkSize = 1 << 20) {
 	const fd = fs.openSync(file, "r");
