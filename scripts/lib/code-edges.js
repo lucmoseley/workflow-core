@@ -167,6 +167,23 @@ const INTERPRETERS = [
 const interpreterNamed = (name) => INTERPRETERS.find((i) => i.test.test(name));
 
 /**
+ * The interpreter the `#!` line of a script's `text` names, if it names one
+ * of `INTERPRETERS`.
+ * @param {string} text
+ * @returns {InterpreterRow|undefined}
+ */
+function parseShebang(text) {
+	if (!text.startsWith("#!")) return;
+	const words = text.slice(2, text.indexOf("\n") + 1 || undefined).split(/\s+/);
+	const program = words.filter(Boolean).map((w) => path.basename(w));
+	const name =
+		program[0] === "env"
+			? program.slice(1).find((w) => !w.startsWith("-"))
+			: program[0];
+	return name === undefined ? undefined : interpreterNamed(name);
+}
+
+/**
  * The language of a script by its extension, or for a file with none, as a
  * git hook, by its `#!` line.
  * @param {string} file
@@ -176,14 +193,7 @@ const interpreterNamed = (name) => INTERPRETERS.find((i) => i.test.test(name));
 function scriptLanguage(file, text) {
 	const named = languageOf(file);
 	if (named !== null || !isExtensionless(file)) return named;
-	if (!text.startsWith("#!")) return null;
-	const words = text.slice(2, text.indexOf("\n") + 1 || undefined).split(/\s+/);
-	const program = words.filter(Boolean).map((w) => path.basename(w));
-	const name =
-		program[0] === "env"
-			? program.slice(1).find((w) => !w.startsWith("-"))
-			: program[0];
-	return name === undefined ? null : (interpreterNamed(name)?.language ?? null);
+	return parseShebang(text)?.language ?? null;
 }
 
 /**
@@ -2196,8 +2206,10 @@ module.exports = {
 	languageOf,
 	isFile,
 	isScript,
+	parseShebang,
 	pythonVersion,
 	reachOf,
+	scriptLanguage,
 	JS_SPEC,
 	jsSpecifier,
 };

@@ -858,6 +858,14 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		[["check-ignore", "--stdin"]],
 		[["rev-list", "--stdin"]],
 		[["diff", "--no-index", "-", "scripts/lib/hooks.js"]],
+		[["grep", "-l", "-f-"]],
+		[["ls-files", "-o", "--exclude-from=-"]],
+		[["check-ignore", "--stdi", "-v"]],
+		[["rev-list", "--std"]],
+		[["name-rev", "--annotate-std"]],
+		[["show-ref", "--exclude-e"]],
+		[["show-ref", "--exclude-e=refs/heads/"]],
+		[["cat-file", "--b"]],
 	])(
 		"doubts a git call fed by standard input, which a run again never has: %j",
 		(words) => {
@@ -870,6 +878,84 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			).toEqual([{ cwd: ".", args: ["cat-file", "-p", "HEAD"] }]);
 		},
 	);
+
+	it.each([
+		[["ls-files", "--stage", "--exclude-standard"]],
+		[["log", "--stat", "--all", "--branches", "--parents"]],
+		[["rev-parse", "--abbrev-ref", "HEAD", "--"]],
+	])(
+		"keeps a git call whose options only resemble one fed by standard input: %j",
+		(words) => {
+			const root = checkout();
+			expect(judged(root, [], [[root, words]]).reads.git).toEqual([
+				{ cwd: ".", args: words },
+			]);
+		},
+	);
+
+	it("names a shell script of the checkout run as the program itself, and doubts any other program there", () => {
+		const root = checkout();
+		const program = (file: string, text: string) => {
+			write(root, file, text);
+			fs.chmodSync(path.join(root, file), 0o755);
+			return path.join(root, file);
+		};
+		const sh = program("scripts/run.sh", "#!/bin/sh\ntrue\n");
+		const outside = quoted(os.tmpdir());
+		expect(
+			ran(
+				root,
+				`require("node:child_process").execFileSync(${quoted(sh)}, [], { cwd: ${outside} });`,
+			).reads.scripts,
+		).toEqual(["scripts/run.sh"]);
+
+		const child = (abs: string, real = abs) => ({
+			k: "child",
+			file: abs,
+			bin: [abs, real],
+			args: [],
+			cwd: os.tmpdir(),
+		});
+		const unread = /a child \(.*\) ran a program of the checkout/;
+		const py = program("scripts/run.py", "#!/usr/bin/env python3\nprint(1)\n");
+		expect(judged(root, [child(py)], []).doubt).toMatch(unread);
+		const elf = program("scripts/tool", "\x7fELF");
+		expect(judged(root, [child(elf)], []).doubt).toMatch(unread);
+		/* A shell runs it, and the reach reads it by its name, as Python. */
+		const misnamed = program("scripts/sh.py", "#!/bin/sh\ntrue\n");
+		expect(judged(root, [child(misnamed)], []).doubt).toMatch(unread);
+		const link = path.join(os.tmpdir(), "elsewhere", "run");
+		expect(judged(root, [child(link, py)], []).doubt).toMatch(unread);
+	});
+
+	it("holds a node script of the checkout run as the program itself by the log it left, and doubts one that left none", () => {
+		const root = checkout();
+		write(
+			root,
+			"scripts/tool.js",
+			'#!/usr/bin/env node\nrequire("./lib/hooks.js")();\n',
+		);
+		const tool = path.join(root, "scripts/tool.js");
+		fs.chmodSync(tool, 0o755);
+		const reads = ran(
+			root,
+			`require("node:child_process").execFileSync(${quoted(tool)}, [], { cwd: ${quoted(os.tmpdir())} });`,
+		).reads;
+		expect(reads.scripts).toEqual(["scripts/tool.js"]);
+		expect(reads.files).toContain(".claude/settings.json");
+
+		const child = (isAudited: boolean) => ({
+			k: "child",
+			file: tool,
+			bin: [tool, tool],
+			args: [],
+			cwd: os.tmpdir(),
+			audited: isAudited,
+			pid: 101,
+		});
+		expect(judged(root, [child(true)], []).doubt).toMatch(/left no audit log/);
+		expect(judged(root, [child(false)], []).doubt).toMatch(/without the audit/);
+	});
 
 	it("doubts a Python child handed a checkout script from outside, and still names a shell's", () => {
 		const root = checkout();

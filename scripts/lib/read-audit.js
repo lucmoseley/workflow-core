@@ -38,7 +38,10 @@
  *   child handed a checkout script to run, from outside the root, is seen:
  *   the script is a read, and the lexical reach keys what it loads (#4790).
  *   A Python child handed one is not: the reach holds a Python script's
- *   imports, never the files it opens off its own directory. One of
+ *   imports, never the files it opens off its own directory. A checkout
+ *   file run as the program itself is judged alike, by its `#!` line: a
+ *   shell's is a read, a Node one's reads are in the log it left, and any
+ *   other's are unseen. One of
  *   `CWD_BLIND` is seen, which reads nothing of its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
@@ -47,6 +50,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { parseShebang, scriptLanguage } = require("./code-edges.js");
+const { readText } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
@@ -81,11 +86,39 @@ const RERUN = new Set([
 	"grep",
 ]);
 
-/* The words that feed a `RERUN` subcommand its standard input, which a run
- * again never has: an object list, a path list, a revision list, a pattern
- * file or a file to compare named `-`. */
-const STDIN_FED =
-	/^(?:-|--stdin|--annotate-stdin|--parseopt|--batch.*|--exclude-existing(?:=.*)?)$/;
+/* The long options that feed a `RERUN` subcommand its standard input, which
+ * a run again never has: an object list, a path list, a revision list. */
+const STDIN_OPTIONS = [
+	"--stdin",
+	"--annotate-stdin",
+	"--parseopt",
+	"--batch",
+	"--exclude-existing",
+];
+
+/* A file named `-`, which git reads its standard input for: a word of its
+ * own, the value stuck to a short option (`-f-`) or given to a long one
+ * (`--exclude-from=-`). */
+const STDIN_FILE = /^(?:-|-[^-].*-|--.+=-)$/;
+
+/**
+ * Whether a word of a git call may feed it its standard input. git takes
+ * any prefix of a long option that names no other, so every prefix of one
+ * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
+ * whether or not another option there shares it: a call kept is run again
+ * with no input, so the doubt goes to not keeping it (#4790).
+ * @param {string} word
+ */
+function isStdinFed(word) {
+	if (STDIN_FILE.test(word)) return true;
+	const valueAt = word.indexOf("=");
+	const name = valueAt < 0 ? word : word.slice(0, valueAt);
+	if (!name.startsWith("--") || name === "--") return false;
+	return (
+		name.startsWith("--batch") ||
+		STDIN_OPTIONS.some((option) => option.startsWith(name))
+	);
+}
 
 /* git's options before the subcommand that take the next word as a value. */
 const VALUED = new Set([
@@ -310,7 +343,7 @@ function buildCollector(logs, root, isScratch, readTrace) {
 		child: (e) => {
 			if (typeof e.trace === "string") return takeTrace(e);
 			const why = childDoubt(e, logs, root, isScratch);
-			if (!why) for (const f of childReads(e, root)) scripts.add(f);
+			if (!why) for (const f of childReads(e, root, isScratch)) scripts.add(f);
 			return why;
 		},
 	};
@@ -394,7 +427,7 @@ function rerunnable([steered, dir = "", ...args], root) {
 	}
 	if (!RERUN.has(String(args[i])))
 		return `a git call (${shown}) read this repository`;
-	if (args.slice(i + 1).some((a) => STDIN_FED.test(a)))
+	if (args.slice(i + 1).some(isStdinFed))
 		return `a git call (${shown}) read its standard input`;
 	return { cwd, args };
 }
@@ -421,7 +454,10 @@ function childDoubt(e, logs, root, isScratch) {
 	const file = String(e.file);
 	const args = /** @type {string[]} */ (e.args ?? []);
 	const shown = shownChild(e);
-	if (e.audited && isNode(file)) {
+	if (
+		e.audited &&
+		(isNode(file) || readProgram(e, root, isScratch)?.runs === "node")
+	) {
 		if (typeof e.pid !== "number")
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
@@ -441,7 +477,8 @@ function childDoubt(e, logs, root, isScratch) {
 
 /**
  * Why a child nothing logs or traces leaves its file's reads unknown, or
- * null where it read nothing of the checkout beside a shell script it ran.
+ * null where it read nothing of the checkout beside a shell script it ran,
+ * handed to a shell or as the program itself.
  * @param {Entry} e
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
@@ -461,7 +498,10 @@ function unseenDoubt(e, root, isScratch) {
 	const script = scriptOf(e, root);
 	if (args.some((a) => a !== script && isCheckoutPath(a, root, isScratch)))
 		return `a child (${shown}) was handed a path in the checkout`;
-	if (script !== null && isNode(file))
+	const program = readProgram(e, root, isScratch);
+	if (program?.runs === "other")
+		return `a child (${shown}) ran a program of the checkout, whose own reads no reach holds`;
+	if (program?.runs === "node" || (script !== null && isNode(file)))
 		return `a Node child (${shown}) ran without the audit`;
 	if (script !== null && PYTHON_RUNNERS.has(path.basename(file)))
 		return `a Python child (${shown}) ran a checkout script, whose own reads no reach holds`;
@@ -549,15 +589,58 @@ function scriptOf(e, root) {
 }
 
 /**
- * The checkout script a child ran, repo-relative, as a read.
+ * @typedef {{script: string, runs: "shell"|"node"|"other"}} Program
+ *   a checkout file a child ran as its program, repo-relative, and what runs
+ *   it: a shell or Node where its `#!` line names one and the lexical reach
+ *   reads the file as that language, so keys what it loads; else `other`,
+ *   Python and a binary among them, whose reads no reach holds
+ */
+
+/**
+ * The checkout file a child ran as its program, outside a test's scratch
+ * (#4790); null where its program is no such file. One run through a link
+ * is `other`: a script finds its own directory by the path it was run as.
  * @param {Entry} e
  * @param {string} root real path
+ * @param {(p: string) => boolean} isScratch
+ * @returns {Program|null}
+ */
+function readProgram(e, root, isScratch) {
+	const bin = Array.isArray(e.bin) ? e.bin.map(String) : [];
+	const [script] = bin
+		.filter((at) => isUnder(at, [root], path.sep))
+		.map((at) => toPosix(path.relative(root, at)))
+		.filter((rel) => !isScratch(rel));
+	const real = bin.at(-1);
+	if (script === undefined || real === undefined) return null;
+	const read = readText(real);
+	if (bin[0] !== real || read.state !== "read")
+		return { script, runs: "other" };
+	const runner = parseShebang(read.data)?.kind;
+	const language = scriptLanguage(real, read.data);
+	if (runner === "shell" && language === "sh") return { script, runs: "shell" };
+	if (runner === "node" && language === "js") return { script, runs: "node" };
+	return { script, runs: "other" };
+}
+
+/**
+ * The checkout scripts a child ran, repo-relative, as reads: the one a
+ * runner was handed, and the child's own program where a shell or Node
+ * runs it.
+ * @param {Entry} e
+ * @param {string} root real path
+ * @param {(p: string) => boolean} isScratch
  * @returns {string[]}
  */
-function childReads(e, root) {
+function childReads(e, root, isScratch) {
 	const script = scriptOf(e, root);
-	if (script === null) return [];
-	return [toPosix(path.relative(root, path.resolve(String(e.cwd), script)))];
+	const program = readProgram(e, root, isScratch);
+	return [
+		...(script === null
+			? []
+			: [toPosix(path.relative(root, path.resolve(String(e.cwd), script)))]),
+		...(program === null || program.runs === "other" ? [] : [program.script]),
+	];
 }
 
 module.exports = { install, readAudits, remove };

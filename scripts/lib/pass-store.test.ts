@@ -490,17 +490,78 @@ describe("the newest result on the same content decides", () => {
 				values: VALUES,
 			}).get(A);
 
-		it("voids an older pass on the same content, until a newer pass or an edit to the test file", () => {
+		it("voids an older pass on the same content, until a newer pass", () => {
 			const dir = repo();
 			run(dir, [A]);
 			expect(cachedOf(dir, [A])).toEqual([A]);
 			expect(run(dir, [A], { failing: [A], audits: { [A]: Doubt } })).toBe(1);
 			expect(cachedOf(dir, [A])).toEqual([]);
-			write(dir, "lib.js", "an input the voiding row never keyed\n");
-			expect(cachedOf(dir, [A])).toEqual([]);
 
 			run(dir, [A]);
 			expect(cachedOf(dir, [A])).toEqual([A]);
+		});
+
+		it.each([
+			["a module it imports", "lib.js"],
+			["a file every test shares", "vitest.setup.ts"],
+			["a document the manifest maps to it", "doc.md"],
+		])(
+			"leaves the older pass standing where %s shows the red ran on other content",
+			(_what, input) => {
+				const dir = repo();
+				run(dir, [A]);
+				write(dir, input, "broken\n");
+				expect(run(dir, [A], { failing: [A], audits: { [A]: Doubt } })).toBe(1);
+				expect(cachedOf(dir, [A])).toEqual([]);
+				git(dir, "checkout", "-q", input);
+				expect(cachedOf(dir, [A])).toEqual([A]);
+			},
+		);
+
+		it("voids the older pass over an input rewritten while the red run ran, whose content then nothing tells", () => {
+			const dir = repo();
+			run(dir, [A]);
+			write(dir, "lib.js", "left behind by the run\n");
+			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
+			git(dir, "checkout", "-q", "lib.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("keys nothing reached through a file rewritten while the red run ran", () => {
+			const dir = repo();
+			write(dir, "far.js", "far.js v0\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "far");
+			run(dir, [A]);
+			write(dir, "lib.js", 'require("./far.js");\n');
+			write(dir, "far.js", "far.js v1\n");
+			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
+			git(dir, "checkout", "-q", "lib.js", "far.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it.each([
+			["was rewritten while its red run ran", { drifted: [A] }],
+			["may have been, the tree's drift being unknown", { drifted: null }],
+		])(
+			"voids the older pass at any content of a test file that %s",
+			(_why, how) => {
+				const dir = repo();
+				run(dir, [A]);
+				write(dir, A, "left behind by the run\n");
+				expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
+				git(dir, "checkout", "-q", A);
+				expect(cachedOf(dir, [A])).toEqual([]);
+			},
+		);
+
+		it("lets no voiding row that names a pass decide", () => {
+			const dir = repo();
+			run(dir, [A], { failing: [A], audits: { [A]: Doubt } });
+			const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
+			line.files[0].outcome = "pass";
+			fs.writeFileSync(shardOf(dir, A), `${JSON.stringify(line)}\n`);
+			expect(cachedOf(dir, [A])).toEqual([]);
 		});
 
 		it.each([
@@ -1028,7 +1089,11 @@ describe("a store it cannot trust runs every file", () => {
 	 * and its rows rested on audits that missed a git call from a scratch
 	 * directory or fed by stdin, a path handed to git, an empty trace, a
 	 * Python script's own reads, `openAsBlob`, a worker thread and a read
-	 * through a link outside the checkout. */
+	 * through a link outside the checkout. Format 9 is round 2's findings
+	 * 1-4: its voiding rows held on the test file's content alone, as the run
+	 * left it, and its rows rested on audits that missed a checkout script
+	 * run as the program itself and git's abbreviated spellings of an option
+	 * fed by stdin. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -1044,6 +1109,10 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before a red file in doubt voided an older pass, and the audit doubted the reads of pass 3's findings 2-6 and 8-10 (#4790)",
 			8,
+		],
+		[
+			"before a voiding row keyed the inputs it could read, and the audit doubted a checkout script run as the program and git's abbreviated stdin options (#4790)",
+			9,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
