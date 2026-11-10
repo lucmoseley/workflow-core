@@ -676,6 +676,14 @@
 			{
 				"needle": "0.98",
 				"scanned": false
+			},
+			{
+				"needle": "97% of the week",
+				"scanned": true
+			},
+			{
+				"needle": "90/97",
+				"scanned": true
 			}
 		]
 	},

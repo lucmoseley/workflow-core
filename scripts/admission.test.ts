@@ -2120,7 +2120,7 @@ describe("the allowance re-read (#293, #294)", () => {
 		expect(status).toBe(1);
 	});
 
-	/* #371 item 5: the 90/97 thresholds are the launcher's cap alone, so a set
+	/* #371 item 5: the 90/99 thresholds are the launcher's cap alone, so a set
 	 * the cap admitted is not refused member by member on the same reading. */
 	it("admits past the launcher's thresholds, and carries no allowance warning", () => {
 		const configDir = cacheDir();
