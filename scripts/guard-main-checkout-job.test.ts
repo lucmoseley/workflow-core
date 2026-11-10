@@ -214,6 +214,7 @@ const carriedPath = (name: string) =>
 		".claude",
 		"tmp",
 		"attachments",
+		RECORD.daemonShort,
 		"tmp",
 		name,
 	);
@@ -254,8 +255,24 @@ it("carries a file the prompt names through a symlinked spelling of the job's di
 	);
 });
 
-/* A program case, not a module one on `decide`: it pins the real copy's
+/* Program cases, not module ones on `decide`: they pin the real copy's
  * failure and the real `..` resolution, which a stubbed `carry` would not. */
+it("relaunches nothing where a file the prompt names will not copy, so removal never deletes it (#4750)", () => {
+	const shots = path.join(jobDir, "tmp", "shots");
+	fs.mkdirSync(shots, { recursive: true });
+	writeRecord({ ...RECORD, intent: `/wayfinder why? ${shots}` });
+
+	const r = run(startup());
+
+	expect(r.status, r.stderr).toBe(0);
+	const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+	expect(told).toContain(`carrying ${shots} out of its job directory failed`);
+	expect(told).toContain(
+		`Bash \`cd ${path.join(worktrees(), cutNames()[0])}\``,
+	);
+	expect(readCalls()).toEqual([]);
+});
+
 it.each([
 	["a file that is gone", () => path.join(jobDir, "tmp", "pasted-gone.png")],
 	[
@@ -266,7 +283,7 @@ it.each([
 		},
 	],
 ])(
-	"relaunches nothing where the prompt names %s, so removal never deletes it (#4750)",
+	"relaunches with %s named as it was, since removal cannot delete it (#4750)",
 	(_, named) => {
 		const file = named();
 		writeRecord({ ...RECORD, intent: `/wayfinder why? ${file}` });
@@ -274,12 +291,8 @@ it.each([
 		const r = run(startup());
 
 		expect(r.status, r.stderr).toBe(0);
-		const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
-		expect(told).toContain(`carrying ${file} into its worktree failed`);
-		expect(told).toContain(
-			`Bash \`cd ${path.join(worktrees(), cutNames()[0])}\``,
-		);
-		expect(readCalls()).toEqual([]);
+		const [launch] = readCalls();
+		expect(launch.args.at(-1)).toBe(`/wayfinder why? ${file}`);
 	},
 );
 

@@ -613,6 +613,142 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(root)).toEqual(before);
 	});
 
+	describe("a row already stale at HEAD (#4756)", () => {
+		interface Repo {
+			root: string;
+			git: (...a: string[]) => string;
+		}
+
+		/* TWO_GUARDS anchored and committed: guard-branch.sh sources lib/deny.sh. */
+		function anchoredRepo(): Repo {
+			const root = committedRepo(TWO_GUARDS);
+			const git = (...args: string[]) =>
+				execFileSync("git", args, { cwd: root, encoding: "utf8" });
+			reviewIn(root, [], env([]));
+			git("add", ANCHORS);
+			git("commit", "-qm", "anchor");
+			return { root, git };
+		}
+
+		const write = (root: string, rel: string, text: string) =>
+			fs.writeFileSync(path.join(root, rel), text);
+
+		/* The library changes in a commit that leaves guard-branch.sh's row stale. */
+		function staleAtHead(): Repo {
+			const repo = anchoredRepo();
+			write(repo.root, "scripts/lib/deny.sh", "deny() { exit 3; }\n");
+			repo.git("commit", "-qam", "change the library unread");
+			return repo;
+		}
+
+		/** A --review of guard-branch.sh over this session's own edit to it. */
+		function reviewBranch(root: string): string {
+			write(
+				root,
+				"scripts/guard-branch.sh",
+				'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 1\n',
+			);
+			return reviewIn(
+				root,
+				["scripts/guard-branch.sh", "--own", "scripts/guard-branch.sh"],
+				env([]),
+			);
+		}
+
+		const readAnchorsAt = (git: Repo["git"], rev: string) =>
+			JSON.parse(git("show", `${rev}:${ANCHORS}`)) as Record<string, string>;
+
+		const short = (git: Repo["git"], rev: string) =>
+			git("rev-parse", "--short=9", rev).trim();
+
+		it("names the row, the inputs changed since its anchor was written, and the way out", () => {
+			const { root, git } = staleAtHead();
+			const out = reviewBranch(root);
+			const at = short(git, "HEAD~1");
+			/* The library HEAD changed is named; the guard, this commit's own
+			 * uncommitted change, is not. */
+			expect(out).toContain(
+				`Already stale at HEAD — re-anchoring this row also asserts a re-read of what changed under it before this commit (#4756):\n  scripts/guard-branch.sh — anchored at ${at}; changed since: scripts/lib/deny.sh\n    git diff ${at} HEAD -- scripts/lib/deny.sh\nRead each against the rules printed for its row, or leave the row stale: restore its HEAD anchor in ${ANCHORS} before committing.`,
+			);
+			expect(out).not.toContain("  scripts/guard-amend.sh —");
+		});
+
+		it("names nothing where only this commit's change moved the row", () => {
+			const { root, git } = staleAtHead();
+			reviewIn(root, ["scripts/guard-branch.sh"], env([]));
+			git("commit", "-qam", "re-anchor");
+			dirty(root, "guard-amend.sh");
+			const out = reviewIn(
+				root,
+				["scripts/guard-amend.sh", "--own", "scripts/guard-amend.sh"],
+				env([]),
+			);
+			expect(out).toContain("anchored scripts/guard-amend.sh @");
+			expect(out).not.toContain("Already stale at HEAD");
+		});
+
+		it("names nothing for a row fresh at HEAD whose closure this commit grows over a file changed since", () => {
+			const { root, git } = anchoredRepo();
+			write(root, "scripts/lib/other.sh", "other() { :; }\n");
+			git("add", "scripts/lib/other.sh");
+			git("commit", "-qm", "a library no guard sources yet");
+			write(
+				root,
+				"scripts/guard-amend.sh",
+				'#!/bin/sh\nsource "$(dirname "$0")/lib/other.sh"\nexit 2\n',
+			);
+			const out = reviewIn(
+				root,
+				["scripts/guard-amend.sh", "--own", "scripts/guard-amend.sh"],
+				env([]),
+			);
+			expect(out).toContain("anchored scripts/guard-amend.sh @");
+			expect(out).not.toContain("Already stale at HEAD");
+		});
+
+		it("names a row whose anchor was written stale, saying no input changed since", () => {
+			const { root, git } = anchoredRepo();
+			write(root, "scripts/lib/deny.sh", "deny() { exit 3; }\n");
+			reviewIn(root, ["scripts/guard-branch.sh"], env(ownLocks(root, self)));
+			git("commit", "-qm", "anchor from unstaged bytes", "--", ANCHORS);
+			git("checkout", "--", "scripts/lib/deny.sh");
+			const out = reviewBranch(root);
+			expect(out).toContain(
+				`  scripts/guard-branch.sh — HEAD's anchor ${readAnchorsAt(git, "HEAD")["scripts/guard-branch.sh"]}, written at ${short(git, "HEAD")}, was already stale there: no input changed since, so what made it stale is not named.`,
+			);
+		});
+
+		it("takes no reformat of the anchors file for the row's writer", () => {
+			const { root, git } = staleAtHead();
+			const at = short(git, "HEAD~1");
+			write(root, ANCHORS, `${JSON.stringify(readAnchors(root), null, 2)}\n`);
+			git("commit", "-qam", "reformat the anchors file");
+			const out = reviewBranch(root);
+			expect(out).toContain(
+				`  scripts/guard-branch.sh — anchored at ${at}; changed since: scripts/lib/deny.sh`,
+			);
+		});
+
+		it("takes a merge that carried the row for its writer (#4514)", () => {
+			const { root, git } = anchoredRepo();
+			git("checkout", "-qb", "side");
+			write(root, "scripts/lib/deny.sh", "deny() { exit 3; }\n");
+			git("commit", "-qam", "side changes the library");
+			git("checkout", "-q", "-");
+			git("merge", "-q", "--no-ff", "--no-commit", "side");
+			reviewIn(root, ["scripts/guard-branch.sh"], env([]));
+			git("add", ANCHORS);
+			git("commit", "-qm", "merge, re-anchored");
+			const merge = short(git, "HEAD");
+			write(root, "scripts/lib/deny.sh", "deny() { exit 4; }\n");
+			git("commit", "-qam", "change the library unread");
+			const out = reviewBranch(root);
+			expect(out).toContain(
+				`  scripts/guard-branch.sh — anchored at ${merge}; changed since: scripts/lib/deny.sh`,
+			);
+		});
+	});
+
 	it("--own is refused where the claims went unread, so a neighbour's hold is unknown (#4078)", () => {
 		const root = twoGuards();
 		reviewIn(root);

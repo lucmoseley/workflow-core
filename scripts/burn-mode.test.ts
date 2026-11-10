@@ -1,19 +1,20 @@
 // @vitest-environment node
 /*
- * Pins that burn-mode.sh's `on` moves Opus 5.5's effort to high in every plan
- * and never its model, that `off` puts back what `on` found — or, with no
- * record, reverts only a plan still on the burn effort — and that `status`
- * writes nothing (#126, #127, #355).
+ * Pins that burn-mode.sh's `on` moves every plan's session model through the
+ * burn layer — plain Opus to Fable 5.2 — and never its per-model effort, that
+ * `off` puts back what `on` found — or, with no record, reverts only a plan
+ * still on the burn model — and that `status` writes nothing (#126, #127,
+ * #4919).
  *
  * burn-mode.sh is the switch: a marker file the guard and the launcher read,
- * and Opus 5.5's per-model effort in every plan's settings.json. Both writes land in a
+ * and the `model` key in every plan's settings.json. Both writes land in a
  * scratch HOME and a scratch marker here — the real ones are the machine's
  * live default.
  *
  * The burn-mode skill runs it, and lib/dispatch-rewrite.js and
  * dispatch-sessions.sh read its marker: loosen a case and an `off` can leave a
- * plan burning allowance at high effort unannounced, or an `on` can flatten
- * an effort the founder set by hand.
+ * plan burning allowance on Fable unannounced, or an `on` can flatten a model
+ * the founder set by hand.
  */
 
 import { spawnSync } from "node:child_process";
@@ -24,6 +25,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "burn-mode.sh");
 
+/** The standing session model, and what burn mode moves it to. */
+const OPUS = "claude-opus-5-5[1m]";
+const FABLE = "claude-fable-5-2[1m]";
+
 let dir: string;
 let home: string;
 let marker: string;
@@ -31,14 +36,15 @@ let marker: string;
 const settings = (plan: string) => path.join(home, plan, "settings.json");
 const read = (plan: string) =>
 	JSON.parse(fs.readFileSync(settings(plan), "utf8"));
-const effortOf = (plan: string) =>
-	read(plan).modelSettings?.["claude-opus-5-5"]?.effortLevel;
+const modelOf = (plan: string) => read(plan).model;
 const write = (plan: string, json: object) =>
 	fs.writeFileSync(settings(plan), JSON.stringify(json));
-const withEffort = (effortLevel: string) => ({
-	model: "claude-opus-5-5[1m]",
-	modelSettings: { "claude-opus-5-5": { effortLevel } },
+const withModel = (model: string) => ({
+	model,
+	modelSettings: { "claude-opus-5-5": { effortLevel: "medium" } },
 });
+const recorded = () =>
+	Object.keys(JSON.parse(fs.readFileSync(marker, "utf8")).model);
 
 const run = (arg: string, asHome = home) => {
 	const r = spawnSync(SCRIPT, [arg], {
@@ -56,7 +62,7 @@ beforeEach(() => {
 	for (const plan of [".claude", ".claude2"]) {
 		fs.mkdirSync(path.join(home, plan), { recursive: true });
 		write(plan, {
-			model: "claude-opus-5-5[1m]",
+			model: OPUS,
 			modelSettings: {
 				"claude-opus-5": { effortLevel: "medium" },
 				"claude-opus-5-5": { effortLevel: "medium" },
@@ -72,37 +78,44 @@ afterEach(() => {
 });
 
 describe("on", () => {
-	it("writes the marker and moves every plan's Opus 5.5 effort to high", () => {
+	it("writes the marker and moves every plan's session model to Fable 5.2", () => {
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(fs.existsSync(marker)).toBe(true);
-		expect(effortOf(".claude")).toBe("high");
-		expect(effortOf(".claude2")).toBe("high");
+		expect(modelOf(".claude")).toBe(FABLE);
+		expect(modelOf(".claude2")).toBe(FABLE);
 	});
 
-	it("touches nothing but Opus 5.5's effort — never the model", () => {
+	it("touches nothing but the model — never modelSettings", () => {
 		run("on");
 		expect(read(".claude")).toEqual({
-			model: "claude-opus-5-5[1m]",
+			model: FABLE,
 			modelSettings: {
 				"claude-opus-5": { effortLevel: "medium" },
-				"claude-opus-5-5": { effortLevel: "high" },
+				"claude-opus-5-5": { effortLevel: "medium" },
 			},
 			effortLevel: "medium",
 			keep: 1,
 		});
 	});
 
+	it("leaves a plan on a model the burn layer does not move as it was", () => {
+		write(".claude2", withModel("fable"));
+		expect(run("on").status).toBe(0);
+		expect(modelOf(".claude2")).toBe("fable");
+		expect(modelOf(".claude")).toBe(FABLE);
+	});
+
 	// mantahostels#3547
 	it("run twice with no off between leaves the first on's record intact", () => {
-		write(".claude2", withEffort("low"));
+		write(".claude2", withModel("opus[1m]"));
 		run("on");
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("already on");
 		run("off");
-		expect(effortOf(".claude")).toBe("medium");
-		expect(effortOf(".claude2")).toBe("low");
+		expect(modelOf(".claude")).toBe(OPUS);
+		expect(modelOf(".claude2")).toBe("opus[1m]");
 	});
 });
 
@@ -130,69 +143,69 @@ describe("the closing warnings", () => {
 });
 
 describe("off", () => {
-	it("removes the marker and restores medium", () => {
+	it("removes the marker and restores the standing model", () => {
 		run("on");
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(fs.existsSync(marker)).toBe(false);
-		expect(effortOf(".claude")).toBe("medium");
-		expect(effortOf(".claude2")).toBe("medium");
+		expect(modelOf(".claude")).toBe(OPUS);
+		expect(modelOf(".claude2")).toBe(OPUS);
 	});
 
 	// mantahostels#130: off must not flatten a hand-set plan
 	it("restores what on found, not the standing default", () => {
-		write(".claude2", withEffort("xhigh"));
+		write(".claude2", withModel("claude-opus-5[1m]"));
 		run("on");
-		expect(effortOf(".claude2")).toBe("high");
+		expect(modelOf(".claude2")).toBe(FABLE);
 		run("off");
-		expect(effortOf(".claude2")).toBe("xhigh");
-		expect(effortOf(".claude")).toBe("medium");
+		expect(modelOf(".claude2")).toBe("claude-opus-5[1m]");
+		expect(modelOf(".claude")).toBe(OPUS);
 	});
 
 	it("touches no settings file when already off", () => {
-		write(".claude", withEffort("low"));
+		write(".claude", withModel("claude-haiku-5-5[1m]"));
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("already off");
-		expect(effortOf(".claude")).toBe("low");
+		expect(modelOf(".claude")).toBe("claude-haiku-5-5[1m]");
 	});
 
 	/* #126, which this file's four cases below guard. */
-	it("restores a plan stranded on high when the marker has gone", () => {
+	it("restores a plan stranded on Fable when the marker has gone", () => {
 		run("on");
 		fs.rmSync(marker);
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("no record for");
-		expect(effortOf(".claude")).toBe("medium");
-		expect(effortOf(".claude2")).toBe("medium");
+		expect(modelOf(".claude")).toBe(OPUS);
+		expect(modelOf(".claude2")).toBe(OPUS);
 	});
 
-	it("leaves a plan on some other effort alone when the marker has gone", () => {
+	it("leaves a plan on some other model alone when the marker has gone", () => {
 		run("on");
 		fs.rmSync(marker);
-		write(".claude2", withEffort("low"));
+		write(".claude2", withModel("claude-haiku-5-5[1m]"));
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(r.stdout).not.toContain(".claude2/settings.json — restoring");
-		expect(effortOf(".claude")).toBe("medium");
-		expect(effortOf(".claude2")).toBe("low");
+		expect(modelOf(".claude")).toBe(OPUS);
+		expect(modelOf(".claude2")).toBe("claude-haiku-5-5[1m]");
 	});
 
 	it("restores a plan added after on, which the record cannot name", () => {
 		run("on");
 		fs.mkdirSync(path.join(home, ".claude3"));
-		write(".claude3", withEffort("high"));
+		write(".claude3", withModel(FABLE));
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("no record for .claude3/settings.json");
-		expect(effortOf(".claude3")).toBe("medium");
+		expect(modelOf(".claude3")).toBe(OPUS);
 	});
 
 	/* A read-only plan directory is the only fixture that reaches the
 	 * self-check: the write renames over the file, which a read-only file
 	 * alone does not stop. */
-	it("exits 1 naming the plan it could not move off the burn effort", () => {
+	it("exits 1 naming the plan it could not move off the burn model", () => {
 		run("on");
 		fs.rmSync(marker);
 		const plan = path.dirname(settings(".claude2"));
@@ -200,14 +213,14 @@ describe("off", () => {
 		const r = run("off");
 		fs.chmodSync(plan, 0o755);
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("still on the burn effort after off");
+		expect(r.stderr).toContain("still on the burn model after off");
 		expect(r.stderr).toContain(".claude2/settings.json");
-		expect(effortOf(".claude2")).toBe("high");
-		expect(effortOf(".claude")).toBe("medium");
+		expect(modelOf(".claude2")).toBe(FABLE);
+		expect(modelOf(".claude")).toBe(OPUS);
 	});
 
 	it("keeps the record through a failed off, so a second off restores what on found", () => {
-		write(".claude2", withEffort("low"));
+		write(".claude2", withModel("opus[1m]"));
 		run("on");
 		const plan = path.dirname(settings(".claude2"));
 		fs.chmodSync(plan, 0o555);
@@ -215,55 +228,44 @@ describe("off", () => {
 		fs.chmodSync(plan, 0o755);
 		expect(failed.status).toBe(1);
 		expect(fs.existsSync(marker)).toBe(true);
-		expect(effortOf(".claude2")).toBe("high");
+		expect(modelOf(".claude2")).toBe(FABLE);
 		expect(run("off").status).toBe(0);
 		expect(fs.existsSync(marker)).toBe(false);
-		expect(effortOf(".claude2")).toBe("low");
+		expect(modelOf(".claude2")).toBe("opus[1m]");
 	});
 
 	it("leaves a marker through a failed on, so off undoes the plans it moved", () => {
-		write(".claude", withEffort("low"));
+		write(".claude", withModel("opus[1m]"));
 		const plan = path.dirname(settings(".claude2"));
 		fs.chmodSync(plan, 0o555);
 		const failed = run("on");
 		fs.chmodSync(plan, 0o755);
 		expect(failed.status).toBe(1);
-		expect(failed.stderr).toContain("could not write effortLevel=high");
+		expect(failed.stderr).toContain(`could not write model=${FABLE}`);
 		expect(fs.existsSync(marker)).toBe(true);
-		expect(effortOf(".claude")).toBe("high");
+		expect(modelOf(".claude")).toBe(FABLE);
 		expect(run("off").status).toBe(0);
-		expect(effortOf(".claude")).toBe("low");
-		expect(effortOf(".claude2")).toBe("medium");
+		expect(modelOf(".claude")).toBe("opus[1m]");
+		expect(modelOf(".claude2")).toBe(OPUS);
 	});
 
-	it("leaves a plan that was already on high before on there, exiting 0", () => {
-		write(".claude2", withEffort("high"));
+	it("leaves a plan that was already on Fable before on there, exiting 0", () => {
+		write(".claude2", withModel(FABLE));
 		run("on");
 		const r = run("off");
 		expect(r.status).toBe(0);
-		expect(effortOf(".claude2")).toBe("high");
-		expect(effortOf(".claude")).toBe("medium");
+		expect(modelOf(".claude2")).toBe(FABLE);
+		expect(modelOf(".claude")).toBe(OPUS);
 	});
 
 	it("removes the key again from a plan that had none, keeping the rest", () => {
 		write(".claude2", { keep: 1 });
 		run("on");
-		expect(effortOf(".claude2")).toBe("high");
+		expect(modelOf(".claude2")).toBe(FABLE);
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(r.stdout).not.toContain("no record for");
 		expect(read(".claude2")).toEqual({ keep: 1 });
-	});
-
-	it("keeps a sibling model's settings when removing the key", () => {
-		write(".claude2", {
-			modelSettings: { "claude-opus-5": { effortLevel: "medium" } },
-		});
-		run("on");
-		run("off");
-		expect(read(".claude2")).toEqual({
-			modelSettings: { "claude-opus-5": { effortLevel: "medium" } },
-		});
 	});
 
 	/* #187: the machine's ~/.claude2 and ~/.claude3 settings.json are symlinks
@@ -281,13 +283,11 @@ describe("off", () => {
 		// fs.realpathSync, because the scratch HOME is under os.tmpdir(), which
 		// is a symlink on some hosts and would not equal the script's resolved
 		// key there.
-		expect(
-			Object.keys(JSON.parse(fs.readFileSync(marker, "utf8")).effort),
-		).toEqual([fs.realpathSync(settings(".claude"))]);
+		expect(recorded()).toEqual([fs.realpathSync(settings(".claude"))]);
 		const r = run("off");
 		expect(r.status).toBe(0);
-		expect(r.stderr).not.toContain("still on the burn effort");
-		expect(effortOf(".claude")).toBe("medium");
+		expect(r.stderr).not.toContain("still on the burn model");
+		expect(modelOf(".claude")).toBe(OPUS);
 		// The alias is gone AND the real file is still listed — a status
 		// listing no plan at all would satisfy the negative on its own.
 		const listed = run("status").stdout;
@@ -303,9 +303,9 @@ describe("off", () => {
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(r.stderr.split(".claude2/settings.json")).toHaveLength(2);
-		expect(effortOf(".claude")).toBe("high");
+		expect(modelOf(".claude")).toBe(FABLE);
 		expect(run("off").status).toBe(0);
-		expect(effortOf(".claude")).toBe("medium");
+		expect(modelOf(".claude")).toBe(OPUS);
 	});
 
 	it("names and skips a plan whose settings.json loops", () => {
@@ -314,7 +314,7 @@ describe("off", () => {
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(".claude2/settings.json");
-		expect(effortOf(".claude")).toBe("high");
+		expect(modelOf(".claude")).toBe(FABLE);
 	});
 
 	it("is idempotent — off when already off still exits 0", () => {
@@ -323,26 +323,45 @@ describe("off", () => {
 });
 
 describe("status", () => {
-	it("reports off and each plan's effort without writing", () => {
+	it("reports off and each plan's model without writing", () => {
 		const before = fs.readFileSync(settings(".claude"), "utf8");
 		const r = run("status");
 		expect(r.stdout).toContain("burn mode: off");
 		expect(r.stdout).toContain(".claude/settings.json");
-		expect(r.stdout).toContain("claude-opus-5-5 effort=medium");
+		expect(r.stdout).toContain(`model=${OPUS}`);
 		expect(fs.readFileSync(settings(".claude"), "utf8")).toBe(before);
 	});
 
-	it("reports on, at high in every plan, after on", () => {
+	it("reports on, on Fable in every plan, after on", () => {
 		run("on");
 		const out = run("status").stdout;
 		expect(out).toContain("burn mode: on");
-		expect(out.match(/claude-opus-5-5 effort=high\n/g)).toHaveLength(2);
+		expect(out.match(/model=claude-fable-5-2\[1m\]\n/g)).toHaveLength(2);
 	});
 
-	it("flags a plan whose effort disagrees with the mode", () => {
-		write(".claude2", withEffort("high"));
+	it("names a plan absent a model key as absent", () => {
+		write(".claude2", { keep: 1 });
+		expect(run("status").stdout).toMatch(
+			/\.claude2\/settings\.json\s+model=absent\n/,
+		);
+	});
+
+	it("flags a plan on the burn model while off", () => {
+		write(".claude2", withModel(FABLE));
 		const out = run("status").stdout;
-		expect(out).toMatch(/\.claude2\/settings\.json.*not the standing default/);
+		expect(out).toMatch(
+			/\.claude2\/settings\.json.*not the standing model, claude-opus-5-5\[1m\]/,
+		);
+		expect(out).not.toMatch(/\.claude\/settings\.json.*not the/);
+	});
+
+	it("flags a plan the burn layer would still move while on", () => {
+		run("on");
+		write(".claude2", withModel(OPUS));
+		const out = run("status").stdout;
+		expect(out).toMatch(
+			/\.claude2\/settings\.json.*not the burn model, claude-fable-5-2\[1m\]/,
+		);
 		expect(out).not.toMatch(/\.claude\/settings\.json.*not the/);
 	});
 });
@@ -381,7 +400,7 @@ describe("the marker is one per machine, not one per checkout", () => {
 		expect(runIn(b, "status").stdout).toContain("burn mode: on");
 		expect(runIn(b, "off").status).toBe(0);
 		expect(runIn(a, "status").stdout).toContain("burn mode: off");
-		expect(effortOf(".claude")).toBe("medium");
+		expect(modelOf(".claude")).toBe(OPUS);
 	});
 
 	it("writes it beside the settings files it is the record for", () => {
@@ -400,29 +419,27 @@ describe("the plan dirs", () => {
 			settings(".claude2"),
 		);
 		fs.mkdirSync(path.join(home, ".claude-exp-a"));
-		write(".claude-exp-a", withEffort("medium"));
+		write(".claude-exp-a", withModel(OPUS));
 		expect(run("on").status).toBe(0);
-		expect(effortOf(".claude")).toBe("high");
-		expect(effortOf(".claude-exp-a")).toBe("medium");
-		expect(
-			Object.keys(JSON.parse(fs.readFileSync(marker, "utf8")).effort),
-		).toEqual([fs.realpathSync(settings(".claude"))]);
+		expect(modelOf(".claude")).toBe(FABLE);
+		expect(modelOf(".claude-exp-a")).toBe(OPUS);
+		expect(recorded()).toEqual([fs.realpathSync(settings(".claude"))]);
 		const listed = run("status").stdout;
 		expect(listed).toContain(".claude/settings.json");
 		expect(listed).not.toContain(".claude-exp-a");
 		expect(listed).not.toContain(".claude2/settings.json");
-		write(".claude-exp-a", withEffort("high"));
+		write(".claude-exp-a", withModel(FABLE));
 		expect(run("off").status).toBe(0);
-		expect(effortOf(".claude")).toBe("medium");
-		expect(effortOf(".claude-exp-a")).toBe("high");
+		expect(modelOf(".claude")).toBe(OPUS);
+		expect(modelOf(".claude-exp-a")).toBe(FABLE);
 	});
 
 	it("finds the plans under a HOME that is itself a symlink", () => {
 		const linked = path.join(dir, "linked-home");
 		fs.symlinkSync(home, linked);
 		expect(run("on", linked).status).toBe(0);
-		expect(effortOf(".claude")).toBe("high");
-		expect(effortOf(".claude2")).toBe("high");
+		expect(modelOf(".claude")).toBe(FABLE);
+		expect(modelOf(".claude2")).toBe(FABLE);
 	});
 
 	it("refuses on, recording nothing, when HOME cannot be read", () => {

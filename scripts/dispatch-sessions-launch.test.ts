@@ -219,10 +219,21 @@ describe("the session's directory (#4245)", () => {
 	});
 });
 
-describe("burn mode (scripts/burn-mode.sh) — Sonnet launches up to Opus", () => {
+describe("the model table (lib/burn-mode.js, #4919)", () => {
 	const burnOn = () => fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
 
-	it("launches a sonnet member as the pinned Opus default, with no advisor", () => {
+	it("launches a sonnet member as Haiku 5.5, with an advisor", () => {
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341"]);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain("model table: sonnet -> claude-haiku-5-5[1m]");
+		expect(r.stderr).not.toContain("burn mode");
+		const launch = launchArgv();
+		expect(launch).toContain("--model claude-haiku-5-5[1m]");
+		expect(launch).toContain("--advisor");
+	});
+
+	it("launches a sonnet member as Opus 5.5 under burn mode, with no advisor", () => {
 		stubClaude({});
 		burnOn();
 		const r = run(["sonnet", "/implement 341"]);
@@ -233,33 +244,37 @@ describe("burn mode (scripts/burn-mode.sh) — Sonnet launches up to Opus", () =
 		expect(launch).not.toContain("--advisor");
 	});
 
-	it("says so when a spelling the table does not know launches as written", () => {
+	it("launches a bare opus as Fable 5.2 under burn mode, with no advisor", () => {
 		stubClaude({});
 		burnOn();
-		const r = run(["claude-sonnet-4-5", "/implement 341"]);
-		expect(r.stderr).toContain("burn mode: claude-sonnet-4-5 unmapped");
-		expect(launchArgv()).toContain("--model claude-sonnet-4-5");
+		const r = run(["opus", "/wayfinder 341"]);
+		expect(r.stderr).toContain("burn mode: opus -> claude-fable-5-2[1m]");
+		const launch = launchArgv();
+		expect(launch).toContain("--model claude-fable-5-2[1m]");
+		expect(launch).not.toContain("--advisor");
 	});
 
-	it("still passes no flag for a bare opus — the default carries the change", () => {
-		stubClaude({});
-		burnOn();
-		run(["opus", "/wayfinder 341"]);
-		expect(launchArgv()).not.toContain("--model");
-	});
-
-	it("leaves an explicit opus[1m] on Opus", () => {
+	it("launches an explicit opus[1m] as Fable 5.2 under burn mode", () => {
 		stubClaude({});
 		burnOn();
 		run(["opus[1m]", "/wayfinder 341"]);
-		expect(launchArgv()).toContain("--model opus[1m]");
+		expect(launchArgv()).toContain("--model claude-fable-5-2[1m]");
 	});
 
-	it("is inert while the marker is absent", () => {
+	it("launches a spelling the table does not know as written, naming no remap", () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		burnOn();
+		const r = run(["claude-sonnet-4-5", "/implement 341"]);
+		expect(r.stderr).not.toContain("claude-sonnet-4-5 ->");
+		expect(launchArgv()).toContain("--model claude-sonnet-4-5");
+	});
+
+	it("leaves opus alone while the marker is absent", () => {
+		stubClaude({});
+		const r = run(["opus[1m]", "/wayfinder 341"]);
 		expect(r.stderr).not.toContain("burn mode");
-		expect(launchArgv()).toContain("--model sonnet");
+		expect(r.stderr).not.toContain("model table");
+		expect(launchArgv()).toContain("--model opus[1m]");
 	});
 });
 

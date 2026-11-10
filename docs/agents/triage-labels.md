@@ -112,7 +112,7 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 **The rest file with one fixed value each:**
 
 - `scripts/report-retro-due.js` — `takes:implement`, *Weekly retro due* (#969).
-- `scripts/release-plugin.js` — `takes:implement`, a `Bump workflow-core to <tag>` issue in each adopter's tracker.
+- `scripts/release-plugin.js` — `takes:implement` and `urgent`, a `Bump workflow-core to <tag>` issue in each adopter's tracker.
 - `scripts/check-band-drift.js` — `takes:wayfinder`, *Price bands are narrowing — the close-rivals guard may be priced around* (#487), and *Top figures are bunching at 70 — the low-top test may be priced around* (#2329, #2519).
 - `scripts/repo-checks.js` — `takes:triage`, *Repo checks: standing findings* (#1510).
 - `scripts/report-red-suite.js` — `takes:triage`, *The scheduled full-suite run is red on main*.

@@ -20,13 +20,16 @@ const pExecFile = promisify(execFile);
 
 const LAUNCH_CHECK = path.join(__dirname, "launch-auth.js");
 
-/* Sonnet as resolver: untraced (#3596 §Values). No tools, as titles are untrusted
- * text and the answer is only read. `/` and no setting sources keep every repo's and
- * seat's hooks, output style and memory out. */
+/* Haiku at xhigh as resolver, the cheap tier (#4919). No tools, as titles are
+ * untrusted text and the answer is only read. `/` and no setting sources keep every
+ * repo's and seat's hooks, output style and memory out — the standing per-model effort
+ * among them, so the effort is named here. */
 const CLAUDE_ARGV = [
 	"-p",
 	"--model",
-	"sonnet",
+	"haiku",
+	"--effort",
+	"xhigh",
 	"--tools",
 	"",
 	"--setting-sources",

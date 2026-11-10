@@ -1080,13 +1080,29 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		).toEqual([]);
 	});
 
-	it("reports a git grep reading its patterns from a file as unseen, whatever its pathspecs (#4790)", () => {
-		for (const flag of ["-f", "--file"]) {
-			const body = `${anchored}execFileSync("git", ["grep", "-l", "${flag}", "${dir}/p.txt", "--", "${dir}"], { cwd: ROOT });`;
+	it("reports a git grep reading its patterns from a file, whatever its pathspecs (#4790)", () => {
+		for (const flags of [
+			`"-f", "${dir}/p.txt"`,
+			`"-f${dir}/p.txt"`,
+			`"-lf", "${dir}/p.txt"`,
+		]) {
+			const body = `${anchored}execFileSync("git", ["grep", ${flags}, "--", "${dir}"], { cwd: ROOT });`;
 			expect(sitesOf(body).map((s) => s.shape)).toEqual([
-				"a `git ls-files` or `git grep` pathspec that is not a literal",
+				"a `git grep` flag reading a pattern file, or one that is not a literal",
 			]);
 		}
+		expect(
+			sitesOf(
+				`${anchored}execFileSync("git", ["grep", "-lE", "x", "--", "${dir}"], { cwd: ROOT });`,
+			),
+		).toEqual([]);
+	});
+
+	it("reports a git grep flag held other than as a literal (#4790)", () => {
+		const body = `${anchored}execFileSync("git", ["grep", flag, "x", "--", "${dir}"], { cwd: ROOT });`;
+		expect(sitesOf(body).map((s) => s.shape)).toEqual([
+			"a `git grep` flag reading a pattern file, or one that is not a literal",
+		]);
 	});
 
 	it("reports a path run spread across a + chain from an anchor", () => {

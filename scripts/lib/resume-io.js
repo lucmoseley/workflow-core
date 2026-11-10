@@ -7,7 +7,9 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { readLogged } = require("./caught.js");
+const { caught, readLogged } = require("./caught.js");
+const { carryJobFiles, readUserTurnsNaming } = require("./carry-job-files.js");
+const { transcriptPath } = require("./project-slug.js");
 const { claudeBin } = require("./claude-bin.js");
 const { runTickChild: runChild } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
@@ -52,6 +54,32 @@ const buildResumeIo = (log) => ({
 	findResumed,
 	copyTranscript,
 	hasJobRecord: (seat, jobId) => fs.existsSync(jobDirPath(seat, jobId)),
+	carryJobFiles: (seat, jobId, cwd) => {
+		try {
+			const rec = readJobRecord(seat, jobId);
+			const turns =
+				typeof rec?.sessionId === "string"
+					? readUserTurnsNaming(
+							transcriptPath(
+								seat,
+								typeof rec.cwd === "string" ? rec.cwd : cwd,
+								rec.sessionId,
+							),
+							jobId,
+						)
+					: "";
+			const intent = typeof rec?.intent === "string" ? rec.intent : "";
+			const { carried } = carryJobFiles({
+				text: `${intent}\n${turns}`,
+				jobDir: jobDirPath(seat, jobId),
+				jobId,
+				checkout: cwd,
+			});
+			return { carried };
+		} catch (e) {
+			return { why: caught(e).message };
+		}
+	},
 	writeJobName,
 	stop: stopOn,
 	overflowLookup: (root) => readOverflowLookup([root]),

@@ -14,8 +14,10 @@
  * takes OVERFLOW_PREFIX, so the run's row says it spends API credits; the
  * child is handed that prefix pinned to its session id, which
  * name-issue-session.sh keeps on each rename, and which a session the child
- * starts, under another id, does not take (#3701). No `--model`: Opus is the
- * default (mantahostels#1093). `resume` continues a session headless on the
+ * starts, under another id, does not take (#3701). The model is named, never
+ * the plans' settings `model`, which burn mode moves; and the child carries
+ * its session id under lib/burn-mode.js's OVERFLOW_SESSION_VAR, so burn mode
+ * never reaches the seat (#4919). `resume` continues a session headless on the
  * same seat and key.
  *
  * THE KEY reaches the child only through lib/overflow-key.js's
@@ -39,6 +41,7 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { readCurrentBootId, readProcStartOf } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { OVERFLOW_MODEL, OVERFLOW_SESSION_VAR } = require("./burn-mode.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const {
@@ -114,6 +117,7 @@ function launch({
 	const sessionId = resume ?? crypto.randomUUID();
 	env.WFC_NAME_PREFIX = OVERFLOW_PREFIX;
 	env.WFC_NAME_PREFIX_SESSION = sessionId;
+	env[OVERFLOW_SESSION_VAR] = sessionId;
 
 	const out = fs.openSync(log, "a");
 	const err = fs.openSync(stderr, "a");
@@ -126,6 +130,8 @@ function launch({
 			"--output-format",
 			"stream-json",
 			"--verbose",
+			"--model",
+			OVERFLOW_MODEL,
 			...(budgetUsd === undefined
 				? []
 				: ["--max-budget-usd", String(budgetUsd)]),

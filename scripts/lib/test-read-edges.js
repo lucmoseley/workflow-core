@@ -109,7 +109,8 @@
  * `rule-text.js` for the test, a file inside a subdirectory a plain readdir
  * returns, a listing's directory reached any way but a `const` or a `path`
  * call, a pathspec reached any way but a literal in the list or at a
- * helper's call site, and a `git ls-files` naming no pathspec or a
+ * helper's call site, a `git grep` flag reading a pattern file or held
+ * other than as a literal, and a `git ls-files` naming no pathspec or a
  * `git grep` none after `--` — the whole tree, left unattributed.
  *
  * UNSEEN READ SITES — the second output, asked for with `sites` (#1881).
@@ -816,26 +817,16 @@ function pathspecMatcher(spec) {
  * The literal pathspecs reaching a git listing's argument list: a quoted
  * element itself, or — where an element is a parameter of the function the
  * list sits in — the literal each call of that function passes in its place,
- * the shape of a `tracked(glob)` helper (#1770).
- * @param {string} source
- * @param {string[]} elements  the list's, its subcommand first
- * @returns {string[]}
- */
-function pathspecsOf(source, elements) {
-	return readPathspecs(source, elements).specs;
-}
-
-/**
- * A git listing's pathspecs, and whether any element names one the selector
- * cannot read: neither a quoted literal nor a parameter some call fills.
+ * the shape of a `tracked(glob)` helper (#1770); and whether any element
+ * names one the selector cannot read, neither of those.
  * @param {string} source
  * @param {string[]} elements  the list's, its subcommand first
  * @returns {{ specs: string[], unreadable: boolean }}
  */
-function readPathspecs(source, elements) {
+function parsePathspecs(source, elements) {
 	const specs = [];
 	let unreadable = false;
-	for (const el of pathspecElements(elements)) {
+	for (const el of splitListing(elements).pathspecs) {
 		const lit = PATHSPEC.exec(el)?.[1];
 		const filled =
 			lit === undefined && IDENT.test(el) ? argsFor(source, el) : [];
@@ -847,39 +838,45 @@ function readPathspecs(source, elements) {
 	return { specs, unreadable };
 }
 
-/** A `grep` flag reading its patterns from a file, which no pathspec names. */
-const GREP_PATTERN_FILE = /^["'](?:-f|--file(?:=.*)?)["']$/;
+/** A quoted short-flag cluster holding `f`, which reads grep's patterns from
+ * a file: `-f`, `-fp.txt`, `-lf` (#4790). */
+const GREP_PATTERN_FILE = /^["'`]-[A-Za-z]*f/;
 
 /**
- * Whether a git listing is a `grep` reading its patterns from a file (#4790).
+ * Whether a `grep`'s flags may read a file no pathspec names: a pattern
+ * file, or a flag the selector cannot read as a literal (#4790).
  * @param {string[]} elements  the list's, its subcommand first
  * @returns {boolean}
  */
-function isGrepFromFile(elements) {
-	const [subcommand, ...rest] = elements;
-	if (!/^["']grep["']$/.test(subcommand ?? "")) return false;
-	const dashes = rest.findIndex((el) => /^["']--["']$/.test(el));
-	return (dashes === -1 ? rest : rest.slice(0, dashes)).some((el) =>
-		GREP_PATTERN_FILE.test(el),
+function isGrepReadingFlagFile(elements) {
+	return splitListing(elements).flags.some(
+		(el) => GREP_PATTERN_FILE.test(el) || !QUOTED_ELEMENT.test(el),
 	);
 }
+
+/** A quoted literal argument-list element. */
+const QUOTED_ELEMENT = /^(["'`])[^"'`]*\1$/;
 
 /** A git call listing tracked files, the list opening its arguments:
  * `ls-files`, or `grep`, which reads every file its pathspecs name (#4790). */
 const GIT_LISTING = /\[\s*["'](?:ls-files|grep)["']/g;
 
 /**
- * The elements of a git listing's argument list that may name pathspecs:
- * every one after `ls-files`, and each after `grep`'s `--`, its pattern and
- * flags standing before; a `grep` with no `--` reads the whole tree.
+ * A git listing's argument list split into the elements that may name
+ * pathspecs — every one after `ls-files`, each after `grep`'s `--` — and a
+ * `grep`'s pattern and flags before it; a `grep` with no `--` reads the
+ * whole tree.
  * @param {string[]} elements  the list's, its subcommand first
- * @returns {string[]}
+ * @returns {{ pathspecs: string[], flags: string[] }}
  */
-function pathspecElements(elements) {
+function splitListing(elements) {
 	const [subcommand, ...rest] = elements;
-	if (!/^["']grep["']$/.test(subcommand ?? "")) return rest;
+	if (!/^["']grep["']$/.test(subcommand ?? ""))
+		return { pathspecs: rest, flags: [] };
 	const dashes = rest.findIndex((el) => /^["']--["']$/.test(el));
-	return dashes === -1 ? [] : rest.slice(dashes + 1);
+	return dashes === -1
+		? { pathspecs: [], flags: rest }
+		: { pathspecs: rest.slice(dashes + 1), flags: rest.slice(0, dashes) };
 }
 
 /** A quoted pathspec, an exclude's `:!`, `:^` or `:(exclude)` included. */
@@ -990,7 +987,7 @@ function addListingEdges(scan, source) {
 		const open = m.index ?? 0;
 		const close = closeOf(source, open);
 		if (close === -1) continue;
-		const specs = pathspecsOf(
+		const { specs } = parsePathspecs(
 			source,
 			topLevelArgs(source.slice(open + 1, close - 1)),
 		);
@@ -1176,6 +1173,8 @@ const SHAPE = {
 	composed: "a path composed through a declared name",
 	listing: "a listing whose directory it cannot trace",
 	pathspec: "a `git ls-files` or `git grep` pathspec that is not a literal",
+	grepFlags:
+		"a `git grep` flag reading a pattern file, or one that is not a literal",
 	wholeTree:
 		"a `git ls-files` naming no pathspec, or a `git grep` none after `--`, the whole tree",
 };
@@ -2062,8 +2061,8 @@ function optionCwd(opts) {
  * @returns {string | null}
  */
 function listingShape(scan, elements) {
-	if (isGrepFromFile(elements)) return SHAPE.pathspec;
-	const { specs, unreadable } = readPathspecs(scan.source, elements);
+	if (isGrepReadingFlagFile(elements)) return SHAPE.grepFlags;
+	const { specs, unreadable } = parsePathspecs(scan.source, elements);
 	if (unreadable) return SHAPE.pathspec;
 	return specs.length === 0 ? SHAPE.wholeTree : null;
 }

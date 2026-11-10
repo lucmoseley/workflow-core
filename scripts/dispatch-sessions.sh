@@ -51,7 +51,7 @@
 #
 # Example:
 #   scripts/dispatch-sessions.sh \
-#     sonnet "/implement 341 353" \
+#     haiku  "/implement 341 353" \
 #     opus   "/wayfinder 1114"
 #
 # A set is recorded to `.pick-next/dispatched.jsonl` as it launches. A MEMBER
@@ -225,18 +225,19 @@ fi
 # agent-liveness.js, whichever plan this runs under (#3512).
 export WFC_CLAUDE_BIN="${WFC_CLAUDE_BIN:-claude}"
 
-# The advisor a Sonnet session gets — the escalation path that makes mantahostels#1093's
-# Sonnet arm acceptable between checks.
+# The advisor a Haiku session gets — the escalation path that makes the cheap
+# arm acceptable between checks (mantahostels#1093, #4919).
 ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 
-# Burn mode (scripts/burn-mode.sh) moves Sonnet spellings to
-# `claude-opus-5-5[1m]`; an Opus spelling stays, since the higher effort it
-# runs at comes from settings.json, which burn mode has already set. The table
-# and the marker's path are lib/burn-mode.js's; the per-member line below
-# names each remap, and an unmapped spelling as unmapped, because the table is
-# exact-match and `is_known_non_sonnet` above is a deny-list — a spelling
-# neither knows launches as written. The advisor is NOT remapped: it attaches
-# only to a spelling the remap left as Sonnet, which is none of the known ones.
+# Every member's model goes through lib/burn-mode.js's table before any gate
+# reads it (#4919): the standing layer moves a Sonnet spelling to
+# `claude-haiku-5-5[1m]`, and while burn mode is on its layer moves Haiku to
+# `claude-opus-5-5[1m]` and Opus to `claude-fable-5-2[1m]`. An overflow seat
+# never runs burn mode, so it takes the standing layer alone. The effort each
+# runs at is settings.json's per-model `modelSettings`. The per-member line
+# names each remap; a spelling the exact-match table does not know launches as
+# written. The advisor is judged on the remapped spelling, so it attaches to a
+# Haiku launch and never to one burn mode moved to Opus.
 BURN_LIB="$here/lib/burn-mode.js"
 
 dry_run=0
@@ -409,29 +410,30 @@ keep_first() {
   done
 }
 
-# Sonnet gets an advisor; plain Opus/Fable does not. Deny-list, not
+# Haiku gets an advisor; plain Opus/Fable does not. Deny-list, not
 # allow-list (mantahostels#1199): only a spelling KNOWN to run as Opus/Fable is skipped —
-# `opusplan` and any unrecognised spelling default to getting an advisor.
+# any unrecognised spelling defaults to getting an advisor.
 # Residual: an Opus/Fable spelling missing from this list gets a redundant
 # advisor rather than none — the opposite failure from mantahostels#1199, with a warning
 # rather than a silent gap. Full-id entries are from `claude --help` and
 # docs/effort-guide.md's model-id table.
-is_known_non_sonnet() {
+is_known_unadvised() {
   case "$1" in
     opus | opus\[*\] | fable | fable\[*\] | \
       claude-opus-5 | claude-opus-5\[*\] | claude-opus-5-5 | claude-opus-5-5\[*\] | \
-      claude-fable-5 | claude-fable-5\[*\] | claude-fable-5-1 | claude-fable-5-1\[*\])
+      claude-fable-5 | claude-fable-5\[*\] | claude-fable-5-1 | claude-fable-5-1\[*\] | \
+      claude-fable-5-2 | claude-fable-5-2\[*\])
       return 0
       ;;
     *) return 1 ;;
   esac
 }
 
-# Spellings known to run as Sonnet — used only to decide whether an
+# Spellings known to run as Haiku — used only to decide whether an
 # unrecognised spelling is worth a WARNING, not to gate the advisor itself.
-is_known_sonnet() {
+is_known_advised() {
   case "$1" in
-    sonnet | sonnet\[*\] | claude-sonnet-5 | claude-sonnet-5\[*\] | claude-sonnet-5-5 | claude-sonnet-5-5\[*\] | opusplan | opusplan\[*\])
+    haiku | haiku\[*\] | claude-haiku-5-5 | claude-haiku-5-5\[*\])
       return 0
       ;;
     *) return 1 ;;
@@ -440,7 +442,7 @@ is_known_sonnet() {
 
 wants_advisor() {
   [[ $advisor -eq 1 ]] || return 1
-  is_known_non_sonnet "$1" && return 1
+  is_known_unadvised "$1" && return 1
   return 0
 }
 
@@ -490,11 +492,26 @@ case "$seat_kind" in
     ;;
 esac
 
-# Only Opus's spellings are admitted, after burn mode's remap.
+# Burn mode never reaches an overflow seat (#4919).
+[[ $overflow -eq 1 ]] && burn=0
+burn_flag=()
+[[ $burn -eq 1 ]] && burn_flag=(--burn)
+
+remapped=()
+for ((i = 1; i <= $#; i += 2)); do
+  j=$((i + 1))
+  m="${!i}"
+  to="$(node "$BURN_LIB" launch "$m" "${burn_flag[@]}")"
+  [[ "$to" != "$m" ]] && printf '%s: %s -> %s\n' \
+    "$([[ $burn -eq 1 ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
+  remapped+=("$to" "${!j}")
+done
+set -- "${remapped[@]}"
+
+# Only Opus's spellings are admitted on an overflow seat.
 if [[ $overflow -eq 1 ]]; then
   for ((i = 1; i <= $#; i += 2)); do
     m="${!i}"
-    [[ $burn -eq 1 ]] && m="$(node "$BURN_LIB" launch "$m")"
     case "$m" in
       opus | opus\[1m\] | claude-opus-5-5\[1m\]) ;;
       *)
@@ -588,7 +605,7 @@ unknown_models=()
 for ((i = 1; i <= $#; i += 2)); do
   m="${!i}"
   if wants_advisor "$m"; then set_wants_advisor=1; fi
-  if [[ $advisor -eq 1 ]] && ! is_known_non_sonnet "$m" && ! is_known_sonnet "$m"; then
+  if [[ $advisor -eq 1 ]] && ! is_known_unadvised "$m" && ! is_known_advised "$m"; then
     unknown_models+=("$m")
   fi
 done
@@ -597,9 +614,9 @@ done
 # unrecognised spelling (mantahostels#1199, the ticket that added this warning).
 if [[ ${#unknown_models[@]} -gt 0 ]]; then
   printf 'WARNING: unrecognised model spelling(s): %s\n' "${unknown_models[*]}" >&2
-  printf '  Treating as Sonnet-equivalent and attaching an advisor. If this runs as\n' >&2
-  printf '  Opus/Fable, add it to is_known_non_sonnet() in %s.\n' "$0" >&2
-  printf '  If it runs as Sonnet, add it to is_known_sonnet() there to silence this —\n' >&2
+  printf '  Treating as Haiku-equivalent and attaching an advisor. If this runs as\n' >&2
+  printf '  Opus/Fable, add it to is_known_unadvised() in %s.\n' "$0" >&2
+  printf '  If it runs as Haiku, add it to is_known_advised() there to silence this —\n' >&2
   printf '  the advisor already attaches either way.\n' >&2
 fi
 
@@ -607,7 +624,7 @@ fi
 # Fails CLOSED on allowance: an unparseable reading refuses the launch rather
 # than assuming headroom, because the cost of a wrong "plenty left" is a set of
 # half-finished sessions, and the cost of a wrong refusal is one --force.
-# The advisor check only ever WARNS — a Sonnet session with no advisor still
+# The advisor check only ever WARNS — a Haiku session with no advisor still
 # runs, just with no escalation path, and that is the founder's call to make.
 # So --force silences the REFUSALS below and not the advisor line: --force is
 # how you get past a near-full bar, and it would otherwise take the one report
@@ -622,7 +639,7 @@ debug_log="$(mktemp -t dispatch-sessions-debug.XXXXXX 2>/dev/null)" || debug_log
 usage=""
 probe_ran=0
 if [[ $overflow -eq 0 && -n "$debug_log" ]]; then
-  usage="$(node "$here/usage-probe.js" -- --model sonnet \
+  usage="$(node "$here/usage-probe.js" -- --model haiku \
     --advisor "$ADVISOR_MODEL" --debug --debug-file "$debug_log" 2>/dev/null)"
   [[ $? -ne 3 ]] && probe_ran=1
 fi
@@ -815,16 +832,6 @@ while [[ $# -gt 0 ]]; do
   model="$1"
   prompt="$2"
   shift 2
-  if [[ $burn -eq 1 ]]; then
-    burned="$(node "$BURN_LIB" launch "$model")"
-    if [[ "$burned" == "$model" ]]; then
-      printf 'burn mode: %s unmapped, launching as written\n' "$model" >&2
-    else
-      printf 'burn mode: %s -> %s\n' "$model" "$burned" >&2
-    fi
-    model="$burned"
-  fi
-
   if [[ $dry_run -eq 0 ]]; then
     if [[ $force_memory -eq 0 ]]; then
       admission_args=(--launch)

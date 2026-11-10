@@ -67,6 +67,9 @@ const SPREAD_CAP = 10;
  *   the next tick's read
  * @property {number|null} ceiling admission's working count plus its slots,
  *   which a start or stop does not move
+ * @property {number|null} stateWorking the tick's agents listing's sessions
+ *   in state `working`, the agents view's own count (#4747); null where the
+ *   listing went unread
  * @property {Failing|null} binding
  * @property {Failing[]} also
  * @property {TickMemory|null} memory
@@ -204,9 +207,10 @@ function failingAt({ input, decision, admission }) {
 /**
  * @typedef {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision,
- *   admission: AdmissionJson|null, workingChange: number}} Tick
+ *   admission: AdmissionJson|null, workingChange: number,
+ *   agents: import("./agent-liveness.js").AgentRecord[]|null}} Tick
  *   `workingChange` nets the sessions the tick started and stopped after
- *   reading `admission`
+ *   reading `admission`; `agents` is the tick's listing
  */
 
 /**
@@ -215,7 +219,7 @@ function failingAt({ input, decision, admission }) {
  * @returns {TickRecord}
  */
 function buildTickRecord(tick) {
-	const { input, admission: a, workingChange } = tick;
+	const { input, admission: a, workingChange, agents } = tick;
 	const [binding = null, ...also] = failingAt(tick);
 	const count = a?.memory?.working?.count;
 	const admitted = typeof count === "number" ? count : null;
@@ -226,6 +230,9 @@ function buildTickRecord(tick) {
 			admitted !== null && typeof a?.slots === "number"
 				? admitted + a.slots
 				: null,
+		stateWorking: agents
+			? agents.filter((r) => r.state === "working").length
+			: null,
 		binding,
 		also,
 		memory: a ? buildTickMemory(a) : null,
@@ -475,8 +482,9 @@ function readRecords() {
 }
 
 /**
- * What `refill-loop.js status --json` carries for the panel. `working` and
- * `ceiling` are null where unread or the newest tick is stale or a stop.
+ * What `refill-loop.js status --json` carries for the panel. `working`,
+ * `ceiling` and `stateWorking` are null where unread or the newest tick is
+ * stale or a stop.
  * @param {number} now
  */
 function readConcurrencyStatus(now) {
@@ -494,6 +502,7 @@ function readConcurrencyStatus(now) {
 	return {
 		working: tick?.working ?? null,
 		ceiling: tick?.ceiling ?? null,
+		stateWorking: tick?.stateWorking ?? null,
 	};
 }
 

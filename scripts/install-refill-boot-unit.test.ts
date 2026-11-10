@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildJournalLine, writeJournalctl } from "./lib/earlyoom-journal-fake";
+import { buildJournalLine, writeJournalctl } from "./lib/journalctl-fake";
 import { type LoginctlAnswers, writeLoginctl } from "./lib/loginctl-fake";
 import { runInProcess } from "./lib/run-in-process.js";
 import { writeSystemctl } from "./lib/systemctl-fake";

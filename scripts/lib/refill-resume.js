@@ -21,6 +21,7 @@ const { buildSeatEnv } = require("./seat-claude.js");
 const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
+const { buildCarriedNote } = require("./carry-job-files.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -38,6 +39,11 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  */
 /** @typedef {ReturnType<typeof import("./child-spawn.js").spawnChild>} ChildRun */
 /** @typedef {import("./dispatch-ledger.js").OverflowLookup} OverflowLookup */
+/**
+ * @typedef {{carried: {from: string, to: string}[]} | {why: string}} Carry
+ *   the files job `jobId`'s prompt names in its job directory, copied into
+ *   checkout `cwd` (lib/carry-job-files.js), else why one would not copy
+ */
 
 /**
  * The reads, writes and child processes a resume runs through.
@@ -57,6 +63,7 @@ const { buildLaunchRecordReader } = require("./launch-record.js");
  *   findResumed: typeof import("./resumed-copy.js").findResumed,
  *   copyTranscript: typeof import("./seat-move.js").copyTranscript,
  *   hasJobRecord: (seat: string, jobId: string) => boolean,
+ *   carryJobFiles: (seat: string, jobId: string, cwd: string) => Carry,
  *   writeJobName: typeof import("./job-name.js").writeJobName,
  *   stop: (seat: string, jobId: string) => import("./claude-stop.js").StopOutcome,
  *   overflowLookup: (root: string) => OverflowLookup,
@@ -443,10 +450,12 @@ function resumeSteps(io) {
 	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
-	 * @param {{move?: MoveTarget, name?: string, flags?: string[]}} [moved]
+	 * @param {{move?: MoveTarget, name?: string, flags?: string[],
+	 *   carried?: Carry}} [moved]
 	 *   `move`, the target of a move onto `l`'s seat, which `l` already names;
 	 *   `name`, the name the resumed job takes, which left out keeps the
-	 *   session's; `flags`, launch flags passed before it
+	 *   session's; `flags`, launch flags passed before it; `carried`, its job's
+	 *   files carried already, from a record since removed or on another seat
 	 * @returns {Resumed}
 	 */
 	function resumeStopped(session, prompt, target, moved = {}) {
@@ -462,18 +471,31 @@ function resumeSteps(io) {
 	 * @param {StoppedResumable} session
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} target
-	 * @param {{move?: MoveTarget, name?: string, flags?: string[]}} [moved]
+	 * @param {{move?: MoveTarget, name?: string, flags?: string[],
+	 *   carried?: Carry}} [moved] as resumeStopped's
 	 * @returns {Resumed}
 	 */
 	function startResume(
 		session,
 		prompt,
 		{ sessionId, cwd },
-		{ move, name, flags = [] } = {},
+		{ move, name, flags = [], carried } = {},
 	) {
 		const l = { ...session, issues: session.issues ?? [] };
+		/* The job's directory goes with its record, on a copy or a move, so its
+		 * files are carried and the resumed turn told where (#4750). A wake in
+		 * place removes nothing, so a file that will not carry only goes
+		 * unnoted. */
+		const carry =
+			carried ?? io.carryJobFiles(l.seat, shortJobId(sessionId), cwd);
+		if ("why" in carry)
+			log(
+				`${sessionId}'s job files not carried before its resume: ${carry.why}`,
+			);
+		const note = "why" in carry ? "" : buildCarriedNote(carry.carried);
+		const told = note ? `${prompt}\n\n${note}` : prompt;
 		if (l.keyVar)
-			return resumeHeadless({ ...l, keyVar: l.keyVar }, prompt, {
+			return resumeHeadless({ ...l, keyVar: l.keyVar }, told, {
 				sessionId,
 				cwd,
 				move,
@@ -484,7 +506,7 @@ function resumeSteps(io) {
 		if (refusal) return { failed: refusal };
 		const nameArgs = name === undefined ? [] : ["-n", name];
 		const r = io.runClaude(
-			["--bg", "--resume", sessionId, ...flags, ...nameArgs, prompt],
+			["--bg", "--resume", sessionId, ...flags, ...nameArgs, told],
 			{
 				cwd,
 				env,
@@ -518,9 +540,15 @@ function resumeSteps(io) {
 		});
 		if (refusal) return { failed: refusal };
 		const flags = ids.flags ?? resumeFlagsOf(l, ids);
+		const carried = io.carryJobFiles(
+			l.seat,
+			shortJobId(ids.sessionId),
+			ids.cwd,
+		);
+		if ("why" in carried) return { failed: carried.why };
 		const retired = retireJob(l.seat, ids.sessionId, ids.cwd);
 		if (retired) return { failed: retired };
-		const r = startResume(l, prompt, ids, { flags });
+		const r = startResume(l, prompt, ids, { flags, carried });
 		if (r.failed !== null) stopFailed(l.seat, ids.sessionId);
 		return r;
 	}
@@ -697,8 +725,8 @@ function resumeSteps(io) {
 
 	/**
 	 * Remove any job record for session `sessionId`'s short id on seat `seat`
-	 * (`claude rm`, which keeps transcripts); null once none is left, else why
-	 * not.
+	 * (`claude rm`, which keeps transcripts), the files its prompt names in its
+	 * job directory carried first; null once none is left, else why not.
 	 * @param {string} seat
 	 * @param {string} sessionId
 	 * @param {string} cwd
@@ -706,6 +734,9 @@ function resumeSteps(io) {
 	function removeJobRecord(seat, sessionId, cwd) {
 		const jobId = shortJobId(sessionId);
 		if (!io.hasJobRecord(seat, jobId)) return null;
+		const carry = io.carryJobFiles(seat, jobId, cwd);
+		if ("why" in carry)
+			return `keeping its job's files on ${seat}: ${carry.why}`;
 		const failed = childFailure(
 			io.runClaude(["rm", jobId], { cwd, env: buildSeatEnv(io.env(), seat) }),
 		);
@@ -729,6 +760,8 @@ function resumeSteps(io) {
 	function moveSession(l, target, prompt, ids) {
 		const { seat } = target;
 		const { sessionId, cwd } = ids;
+		const carried = io.carryJobFiles(l.seat, shortJobId(sessionId), cwd);
+		if ("why" in carried) return { failed: carried.why };
 		const prepared =
 			io.copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
 			removeJobRecord(seat, sessionId, cwd);
@@ -737,6 +770,7 @@ function resumeSteps(io) {
 		const r = resumeStopped(movedOnto(l, target), prompt, ids, {
 			move: target,
 			name,
+			carried,
 		});
 		if (r.failed === null) return r;
 		stopFailed(seat, sessionId);

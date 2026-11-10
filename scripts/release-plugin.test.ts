@@ -940,7 +940,7 @@ describe("release-plugin", () => {
 		}
 	};
 
-	it("files one bump issue per adopter tracker, labelled for /pick-next", () =>
+	it("files one bump issue per adopter tracker, labelled for /pick-next and urgent", () =>
 		withBumpStub("[]", (gh, calls) => {
 			const r = fileBumps(gh, "lucmoseley/workflow-core-dryrun-adopter");
 			expect(r.status).toBe(0);
@@ -952,6 +952,7 @@ describe("release-plugin", () => {
 			);
 			expect(calls()).toContain("title=Bump workflow-core to v2.3.4");
 			expect(calls()).toContain("labels[]=takes:implement");
+			expect(calls()).toContain("labels[]=urgent");
 			expect(calls()).not.toContain("dependencies/blocked_by");
 			expect(calls()).not.toContain("walks through the notes");
 		}));
