@@ -41,17 +41,19 @@ const OUTSIDE_FILE = ".refill-outside.json";
  * @typedef {import("./refill-blocks.js").SessionRef} SessionRef
  * @typedef {import("./refill-blocks.js").CauseOf} CauseOf
  * @typedef {import("./refill-blocks.js").Unretired} Unretired
- * @typedef {{sessionId: string, cwd: string}} StoppedTarget  the full
- *   session id and directory a stopped session's `--bg --resume` runs under
+ * @typedef {import("./refill-blocks.js").ResumeTarget & {sessionId: string}}
+ *   StoppedTarget  what a stopped session's `--bg --resume` runs under
  * @typedef {{seat: string, jobId: string, name: string, cwd: string,
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
- *   nextAt?: number, attachAt?: number, handsOff?: true, capped?: true,
+ *   nextAt?: number, attachAt?: number, handsOff?: true, typedUnread?: true,
+ *   capped?: true,
  *   held?: StoppedTarget, unretired?: Unretired[]}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
  *   `attachAt`, a typed resume not yet seen arrive; `handsOff`, the founder
- *   typed into it since this stop; `capped`, its resumes reached the cap,
+ *   typed into it since this stop; `typedUnread`, whether it
+ *   did is unread, logged once; `capped`, its resumes reached the cap,
  *   after which the loop leaves this stop alone; `held`, the session the
  *   loop stopped whose `--bg --resume` failed, resumed when next due;
  *   `unretired`, the originals of its copies whose jobs would not retire
@@ -78,7 +80,8 @@ const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
  * @param {Outside} o
  * @param {Tick} seen
  */
-const mayRun = (o, seen) => !seen.barred && netGateOf(seen).admit(nameOf(o));
+const isRunAdmitted = (o, seen) =>
+	!seen.barred && netGateOf(seen).admit(nameOf(o));
 
 /**
  * `o` between stops: its resume count kept, its stop's fields dropped; none
@@ -88,7 +91,14 @@ const mayRun = (o, seen) => !seen.barred && netGateOf(seen).admit(nameOf(o));
  */
 function betweenStops(o) {
 	if (o.capped) return null;
-	const { since: _, attachAt: __, handsOff: ___, held: ____, ...rest } = o;
+	const {
+		since: _,
+		attachAt: __,
+		handsOff: ___,
+		held: ____,
+		typedUnread: _____,
+		...rest
+	} = o;
 	return rest;
 }
 
@@ -208,7 +218,7 @@ function retryHeld(o, seen) {
 		);
 		return null;
 	}
-	if ((o.nextAt ?? 0) > now || !mayRun(o, seen)) return o;
+	if ((o.nextAt ?? 0) > now || !isRunAdmitted(o, seen)) return o;
 	const tries = o.tries + 1;
 	return relaunch(
 		{ ...o, tries, triedAt: now, nextAt: nextTryAt(tries, now) },
@@ -252,7 +262,7 @@ function actOn(o, seen) {
 		if (verdict === "pending") return o;
 		const { attachAt: _, ...settled } = o;
 		if (verdict === "arrived") return settled;
-		if (!mayRun(o, seen)) return o;
+		if (!isRunAdmitted(o, seen)) return o;
 		return fallBack(settled, seen);
 	}
 	const act = blockAct(
@@ -273,7 +283,7 @@ function actOn(o, seen) {
 		);
 		return { ...o, capped: true };
 	}
-	if (act !== "resume" || !mayRun(o, seen)) return o;
+	if (act !== "resume" || !isRunAdmitted(o, seen)) return o;
 	return resume(o, seen);
 }
 
@@ -297,15 +307,24 @@ function judge(o, row, causeOf, seen) {
 	if (o.capped || o.handsOff) return o;
 	const stopped = { ...o, since: o.since ?? now };
 	const typed = io.hasFounderTypedSinceStop(ref);
-	if (typed !== false) {
+	if (typed) {
 		io.log(
-			typed
-				? `leaving ${nameOf(o)} alone: the founder typed into it since its API-error stop`
-				: `leaving ${nameOf(o)} alone: its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
+			`leaving ${nameOf(o)} alone: the founder typed into it since its API-error stop`,
 		);
 		return { ...stopped, handsOff: true };
 	}
-	return actOn(stopped, seen);
+	if (typed === null) {
+		/* Unknown is not typed-into: it waits and is read again next tick, as
+		 * the read may be passing (#4815); one whose stop row never shows is
+		 * never resumed, the residual. */
+		if (!o.typedUnread)
+			io.log(
+				`leaving ${nameOf(o)} alone while its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
+			);
+		return { ...stopped, typedUnread: true };
+	}
+	const { typedUnread: _, ...read } = stopped;
+	return actOn(read, seen);
 }
 
 /**

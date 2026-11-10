@@ -894,7 +894,7 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 		expect(hasFounderTypedSinceApiStop(resumed)).toBe(true);
 	});
 
-	it("is null unread or with no stop", () => {
+	it("reads no founder typing and no turn unread or with no stop", () => {
 		expect(hasFounderTypedSinceApiStop(null)).toBeNull();
 		expect(hasFounderTypedSinceApiStop([typed(0, "hi")])).toBeNull();
 		expect(hasTurnSinceApiStop(null, null)).toBe(false);
