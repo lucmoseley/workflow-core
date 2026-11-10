@@ -36,7 +36,7 @@ const git = (dir: string, ...args: string[]) =>
 
 const A = "scripts/a.test.ts";
 const B = "scripts/b.test.ts";
-const VALUES = { node: "v22.0.0", arch: "arm64" };
+const VALUES: Record<string, string> = { node: "v22.0.0", arch: "arm64" };
 
 /** The shard holding `file`'s rows in the store at `dir`. */
 const shardOf = (dir: string, file: string) =>
