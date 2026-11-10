@@ -1527,7 +1527,7 @@ describe("a gate line with no basis (#577)", () => {
 	const until = "**Gated until:** 2099-01-01 — waiting on the data";
 	const on = "**Gated on:** 4 weeks of data — abandon if: the map is abandoned";
 	const basis =
-		"**Gate basis:** the export lands weekly, so four runs is the first sample";
+		"**Gate basis:** #12 measured the weekly export, so 4 weeks is the first sample";
 	const faulted = async (body: string) => {
 		const r = await run([], stubGh([{ number: 450, body }]));
 		return { r, fault: r.out.includes("NO-GATE-BASIS") };
@@ -1552,6 +1552,39 @@ describe("a gate line with no basis (#577)", () => {
 	it("passes either gate carrying a basis", async () => {
 		expect((await faulted(`${until}\n${basis}`)).fault).toBe(false);
 		expect((await faulted(`${on}\n${basis}`)).fault).toBe(false);
+	});
+
+	it("warns on a window the basis does not name, naming the window (#4946)", async () => {
+		const { r, fault } = await faulted(
+			`${on}\n**Gate basis:** #12 ruled 2 weeks`,
+		);
+		expect(fault).toBe(true);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			'writes the window "4 weeks", which its `**Gate basis:**` does not name',
+		);
+		expect(r.out).not.toContain("with no warrant");
+	});
+
+	it("warns on a basis with no warrant, quoting it, its own number no warrant (#4946)", async () => {
+		const { r, fault } = await faulted(
+			`${on}\n**Gate basis:** #450 asks for 4 weeks`,
+		);
+		expect(fault).toBe(true);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			'`**Gate basis:**` with no warrant — "#450 asks for 4 weeks"',
+		);
+		expect(r.out).toContain("a count derivation");
+		expect(r.out).not.toContain("does not name");
+	});
+
+	it("raises no basis fault on a closed issue", async () => {
+		const r = await run(
+			[],
+			stubGh([{ number: 450, state: "closed", body: on }]),
+		);
+		expect(r.out).not.toContain("NO-GATE-BASIS");
 	});
 
 	it("warns on an empty basis", async () => {

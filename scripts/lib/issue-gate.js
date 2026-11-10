@@ -267,28 +267,70 @@ const COUNT_WORDS = [
 	"ten",
 ];
 const COUNT = `(?:a|an|${COUNT_WORDS.join("|")}|\\d+)`;
-const UNIT = "(?:weeks?|days?|months?)";
+const LONG_UNIT = "(?:days?|weeks?|months?)";
+const UNIT = `(?:hours?|${LONG_UNIT})`;
+/* What may sit between a count and its unit: "7 or more days", "a full day",
+ * "7 consecutive UTC days". */
+const MODIFIER = "(?: or more| full| consecutive(?: UTC)?)?";
+/* No window: a frequency — "once a day", "every 2 hours" — or the tail of a
+ * decimal or a range, "7.5 h", "3-4 hours". */
+const NOT_A_WINDOW = "(?<!\\b(?:once|twice|per|every) )(?<!\\d[.,–-])";
+/* No wait: a frequency, though "once 7 days pass" is one, or a span measured,
+ * "in 7 h after", "past 2 days since", "20 min to 6 h after". */
+const NOT_A_SPAN =
+	"(?<!\\b(?:per|every|in|past) )(?<!\\b(?:once|twice) (?=an? ))(?<!\\d[.,–-])(?<!\\d ?(?:min|minutes?|h|hours?|days?) to )";
+/* A count and a unit, "3-day" and "24 h" included. */
+const COUNTED = `(?:\\d+ ?h|${COUNT}${MODIFIER}[ -]${UNIT})`;
+const COUNTED_LONG = `${COUNT}${MODIFIER}[ -]${LONG_UNIT}`;
+/* A determiner or ordinal standing for a count of one: "the week", "the first
+ * full day". Read only inside a wait or a basis: on its own it is ordinary
+ * prose. */
+const DETERMINED = "the(?: first| next)?(?: full)? (?:day|week|month)";
+const ELAPSES = "(?:pass(?:es|ed)?|elapse[sd]?|go(?:ne)? by|run|accrued)";
 
 /*
  * A wait written as prose sets a window as surely as a gate line does (#616,
  * #672). A bare duration never matches: "N days" alone is nearly always a
  * measurement window ("in 30 days"), measured on #672. A verb of elapsing may
  * sit before "after" — "7 days pass after" (#823) — and only one, so "two
- * weeks right after launch" stays a measurement.
+ * weeks right after launch" stays a measurement. Each alternative is a
+ * wording the #4929 audit found escaping, cut back to what a run over every
+ * issue body showed to be a wait (#4949): an hour count before "later" or
+ * after "after" is a threshold or a span, and so is an "N-day window".
  */
 const WAIT_RE = new RegExp(
-	`\\b(?:${COUNT} ${UNIT} (?:(?:(?:pass(?:es|ed)?|elapse[sd]?|go(?:ne)? by) )?after|later|live|from now|of (?:soak|running|live))|after ${COUNT} ${UNIT}|no earlier than)\\b`,
+	`\\b(?:${[
+		`${NOT_A_SPAN}${COUNTED} (?:(?:(?:ha(?:ve|s) )?${ELAPSES} )?(?:after|since)|live|of (?:soak|running|live))`,
+		`${NOT_A_SPAN}${COUNTED_LONG} (?:later|from now)`,
+		// "24 h of suite-queue logs have accrued since"
+		`${NOT_A_SPAN}${COUNTED} of [\\w-]+(?: [\\w-]+){0,2} ha(?:ve|s) ${ELAPSES} since`,
+		`${DETERMINED} after`,
+		// "the 24 h window after cutover", "the week of memwatch after"
+		`(?:(?:the )?${NOT_A_WINDOW}${COUNTED}|${DETERMINED}) (?:window|of [\\w-]+) after`,
+		`after ${COUNTED_LONG}`,
+		`has run ${COUNTED}`,
+		`${COUNT} full ${UNIT} of`,
+		// "a 7-day post-rollout reading": the noun within two words
+		`${NOT_A_WINDOW}${COUNT}-${LONG_UNIT}(?:(?: [\\w-]+)? (?:reading|soak|trial)s?| measurement windows?)`,
+		"week (?:one|1)",
+		"no earlier than",
+	].join("|")})\\b`,
 	"gi",
 );
 
 /*
- * A window, as the per-window check reads one (#823): a count and a unit,
- * "3-day" included. Compared by length, so a basis naming "24 hours" names a
- * gate's "a day"; a month has no fixed length and matches only a month. A
- * frequency — "once a day", "every 2 hours" — is no window.
+ * A window, as the per-window check reads one (#823). Compared by length, so
+ * a basis naming "24 hours" names a gate's "a day"; a month has no fixed
+ * length and matches only a month. The determiner forms are read only where
+ * `determined` is asked for.
  */
-const DURATION_RE = new RegExp(
-	`(?<!\\b(?:once|twice|per|every) )\\b(${COUNT})[ -](hours?|${UNIT})\\b`,
+const COUNTED_WINDOW = `(\\d+) ?(h)|(${COUNT})${MODIFIER}[ -](${UNIT})`;
+const WINDOW_RE = new RegExp(
+	`${NOT_A_WINDOW}\\b(?:${COUNTED_WINDOW})\\b`,
+	"gi",
+);
+const DETERMINED_WINDOW_RE = new RegExp(
+	`${NOT_A_WINDOW}\\b(?:${COUNTED_WINDOW}|the(?: first| next)?(?: full)? (day|week|month)|(week) (?:one|1))\\b`,
 	"gi",
 );
 /** @type {Record<string, number>} */
@@ -302,7 +344,7 @@ const UNIT_HOURS = { hour: 1, day: 24, week: 168 };
 function durationKey(count, unit) {
 	const c = count.toLowerCase();
 	const n = /^an?$/.test(c) ? 1 : COUNT_WORDS.indexOf(c) + 1 || Number(c);
-	const u = unit.toLowerCase().replace(/s$/, "");
+	const u = unit.toLowerCase().replace(/s$/, "").replace(/^h$/, "hour");
 	const hours = UNIT_HOURS[u];
 	return hours === undefined ? `${n}${u}` : `${n * hours}h`;
 }
@@ -327,11 +369,13 @@ function checkSpan(line) {
  *
  * @param {string} body
  * @param {RegExpMatchArray} at
+ * @param {{determined?: boolean}} [opts] `determined` reads "the week" and
+ *   "week one" as windows too: a wait or a basis, never a whole gate line
  * @returns {{written: string, key: string}[]}
  */
-function durationsIn(body, at) {
+function durationsIn(body, at, opts = {}) {
 	const skip = checkSpan(at[0]);
-	return [...at[0].matchAll(DURATION_RE)]
+	return [...at[0].matchAll(opts.determined ? DETERMINED_WINDOW_RE : WINDOW_RE)]
 		.filter((m) => {
 			const i = m.index ?? 0;
 			return (
@@ -341,45 +385,152 @@ function durationsIn(body, at) {
 		})
 		.map((m) => ({
 			written: m[0],
-			key: durationKey(
-				requiredGroup(m, 1, DURATION_RE),
-				requiredGroup(m, 2, DURATION_RE),
-			),
+			key: durationKey(m[1] ?? m[3] ?? "1", m[2] ?? m[4] ?? m[5] ?? m[6] ?? ""),
 		}));
 }
 
+const BASIS_WARRANTS =
+	"a count derivation (a baseline `k/N`, a target bound and the count that results, with a source), a named cycle with a measured figure and a source, or another issue cited for what sets the window, never only as the event it starts from";
+
 const basisRule = () =>
-	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). This checks only that a basis names each window, never that it holds up: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. The line's template: ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "a `**Gate basis:**` line naming what sets the window", "issue-gate")}`;
+	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Where the body writes a window, the basis carries a warrant (#4946). Wait windows are the shortest the data defends (#616, #672). This checks that a basis names each window and carries a warrant, never that it holds up: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. The line's template: ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "a `**Gate basis:**` line naming what sets the window", "issue-gate")}`;
+
+const ISSUE_REF_RE = /#(\d+)\b/g;
+/* `mantahostels#12` and `owner/repo#12` name another repo's issue. */
+const REPO_BEFORE_REF_RE = /[\w.-]$/;
+const SHA_RE = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/;
+const REPO_PATH_RE = /\/[\w-]+\.[a-z]{1,5}\b/;
+const CODE_SPAN_RE = /`[^`\n]+`/;
+const FRACTION_RE = /\b(\d[\d,]*)(?:\/| of )(\d[\d,]*)\b/g;
+const PERCENT_RE = /\d(?:\.\d+)? ?%/;
+const RATE_RE =
+	/\d(?: [\w-]+){0,4} (?:a|an|per|each) (?:minute|hour|day|week|month)\b/i;
+const CYCLE_RE =
+	/\b(?:daily|weekly|day-of-week|weekdays?|weekends?|work units?|load cycles?|cron|cadence|sweep schedule)\b/i;
+const EVENT =
+	"(?:land(?:s|ed|ing)?|clos(?:e[sd]?|ing)|merg(?:e[sd]?|ing)|ship(?:s|ped|ping)?|install(?:s|ed)?|beg[ai]ns?|start(?:s|ed)?|(?:went|goes|go) live)";
+/* "#4807 (the fix) landed", "#2741's archive landed": the event is said of the
+ * issue. */
+const EVENT_AFTER_REF_RE = new RegExp(
+	`^(?:\\s*\\([^)]*\\))?(?:['’]s)?(?:\\s+[\\w-]+){0,2}\\s+${EVENT}\\b`,
+	"i",
+);
+const EVENT_RE = new RegExp(`\\b${EVENT}\\b`, "i");
+const TEMPORAL_BEFORE_REF_RE = /\b(?:after|since|once|until|when)\s+$/i;
+const CLAUSE_END_RE = /[,;:](?=\s)|\.(?=\s|$)|\s[—–]\s/g;
+
+/**
+ * A reference that only names the event a window starts from — "#4807 landed
+ * on 10 Nov", "after #4807", "the try began 27 Oct (#3278)" — says nothing of
+ * the window's length, so it is no warrant.
+ *
+ * @param {string} basis
+ * @param {RegExpMatchArray} ref
+ * @returns {boolean}
+ */
+function isEventAnchor(basis, ref) {
+	const at = ref.index ?? 0;
+	const end = at + ref[0].length;
+	if (EVENT_AFTER_REF_RE.test(basis.slice(end))) return true;
+	const before = basis.slice(0, at);
+	if (TEMPORAL_BEFORE_REF_RE.test(before)) return true;
+	const clauseStart = Math.max(
+		0,
+		...[...before.matchAll(CLAUSE_END_RE)].map(
+			(m) => (m.index ?? 0) + m[0].length,
+		),
+	);
+	return (
+		before.endsWith("(") &&
+		basis.charAt(end) === ")" &&
+		EVENT_RE.test(before.slice(clauseStart))
+	);
+}
+
+/**
+ * Which warrant a basis carries, read as form and never as truth (#4946).
+ *
+ * @param {string} basis the basis text
+ * @param {number} [own] the body's own issue number: a reference to it is
+ *   neither a warrant nor a source
+ * @returns {"count"|"cycle"|"issue"|null}
+ */
+function warrantOf(basis, own) {
+	const refs = [...basis.matchAll(ISSUE_REF_RE)].filter(
+		(m) =>
+			Number(m[1]) !== own || REPO_BEFORE_REF_RE.test(basis.slice(0, m.index)),
+	);
+	if (refs.some((m) => !isEventAnchor(basis, m))) return "issue";
+	const sourced =
+		refs.length > 0 ||
+		SHA_RE.test(basis) ||
+		REPO_PATH_RE.test(basis) ||
+		CODE_SPAN_RE.test(basis);
+	if (!sourced) return null;
+	const fractions = [...basis.matchAll(FRACTION_RE)];
+	const hasBound = PERCENT_RE.test(basis) || RATE_RE.test(basis);
+	if (fractions.length > 0 && hasBound) {
+		const baseline = new Set(fractions.flatMap((m) => [m[1], m[2]]));
+		// A count of something: an integer before a word, less the references.
+		const counts = basis
+			.replace(ISSUE_REF_RE, "")
+			.matchAll(/(?<![\w.,/#-])(\d[\d,]*)(?= +[a-z])/gi);
+		for (const c of counts) if (!baseline.has(c[1])) return "count";
+	}
+	if (CYCLE_RE.test(basis) && (fractions.length > 0 || hasBound))
+		return "cycle";
+	return null;
+}
+
+/**
+ * @typedef {{kind: "no-basis"|"unnamed-window"|"no-warrant", text: string}} BasisFault
+ *   `text` is what the fault is read off, as written: a gate line or prose
+ *   wait with no basis, a window no basis names, or a basis with no warrant.
+ */
 
 /**
  * What in a body needs a `**Gate basis:**` and lacks one. With no live basis:
- * the first live gate line, and each live prose wait, as written. With one:
- * each window (DURATION_RE) a live gate line or prose wait writes that no live
- * basis names (#823).
+ * the first live gate line, and each live prose wait. With one: each window a
+ * live gate line or prose wait writes that no live basis names (#823), and,
+ * where the body writes a window at all, each live basis carrying no warrant
+ * (#4946).
  *
  * @param {string} body the issue body
- * @returns {string[]}
+ * @param {number} [own] the body's own issue number, where the caller knows it
+ * @returns {BasisFault[]}
  */
-function basisFaults(body) {
+function basisFaults(body, own) {
 	const text = String(body || "");
 	const bases = liveBases(text);
 	if (bases.length === 0) {
-		const faults = [];
 		const gate =
 			firstLiveMatch(GATE_RE, text) || firstLiveMatch(GATE_ON_RE, text);
-		if (gate) faults.push(gate[0].trim());
-		for (const m of liveWaits(text)) faults.push(m[0]);
-		return faults;
+		return [
+			...(gate ? [gate[0].trim()] : []),
+			...liveWaits(text).map((m) => m[0]),
+		].map((t) => ({ kind: "no-basis", text: t }));
 	}
 	const named = new Set(
-		bases.flatMap((m) => durationsIn(text, m).map((d) => d.key)),
+		bases.flatMap((m) =>
+			durationsIn(text, m, { determined: true }).map((d) => d.key),
+		),
 	);
-	/** @type {Map<string, string>} */
-	const unnamed = new Map();
-	for (const d of windowsOf(text))
-		if (!named.has(d.key) && !unnamed.has(d.written.toLowerCase()))
-			unnamed.set(d.written.toLowerCase(), d.written);
-	return [...unnamed.values()];
+	const windows = windowsOf(text);
+	/** @type {Map<string, BasisFault>} */
+	const faults = new Map();
+	for (const d of windows)
+		if (!named.has(d.key) && !faults.has(d.written.toLowerCase()))
+			faults.set(d.written.toLowerCase(), {
+				kind: "unnamed-window",
+				text: d.written,
+			});
+	if (windows.length > 0)
+		for (const m of bases) {
+			const basis = requiredGroup(m, 1, BASIS_RE);
+			if (!warrantOf(basis, own))
+				faults.set(basis.toLowerCase(), { kind: "no-warrant", text: basis });
+		}
+	return [...faults.values()];
 }
 
 /**
@@ -399,9 +550,12 @@ function liveWaits(text) {
  * @returns {{written: string, key: string}[]}
  */
 function windowsOf(text) {
-	return [...parseLiveGateLines(text), ...liveWaits(text)].flatMap((m) =>
-		durationsIn(text, m),
-	);
+	return [
+		...parseLiveGateLines(text).flatMap((m) => durationsIn(text, m)),
+		...liveWaits(text).flatMap((m) =>
+			durationsIn(text, m, { determined: true }),
+		),
+	];
 }
 
 /**
@@ -437,20 +591,23 @@ function inCodeSpan(body, index) {
  * what it adds and an old body stays editable. A gate line whose date changed
  * counts as added: a moved window needs its basis as much as a new one. A
  * window `before` already wrote is held too, so adding a basis beside an old
- * wait is not refused for the wait (#823).
+ * wait is not refused for the wait (#823). A warrant fault is its basis text,
+ * so an untouched legacy basis is held and a rewritten one is judged (#4946).
  *
  * @param {string} before
  * @param {string} after
- * @returns {string[]}
+ * @param {number} [own] the issue's number
+ * @returns {BasisFault[]}
  */
-function introducedBasisFaults(before, after) {
+function introducedBasisFaults(before, after, own) {
 	const b = String(before || "");
 	const held = new Set(
-		[...basisFaults(b), ...windowsOf(b).map((d) => d.written)].map((f) =>
-			f.toLowerCase(),
-		),
+		[
+			...basisFaults(b, own).map((f) => f.text),
+			...windowsOf(b).map((d) => d.written),
+		].map((t) => t.toLowerCase()),
 	);
-	return basisFaults(after).filter((f) => !held.has(f.toLowerCase()));
+	return basisFaults(after, own).filter((f) => !held.has(f.text.toLowerCase()));
 }
 
 /**
@@ -483,22 +640,29 @@ function resolveGate(body, at = Date.now()) {
 	};
 }
 
+/** @type {Record<BasisFault["kind"], (quoted: string, many: boolean) => string>} */
+const FAULT_SAYS = {
+	"no-basis": (quoted) => `${quoted} with no \`**Gate basis:**\` line`,
+	"unnamed-window": (quoted, many) =>
+		`${quoted}, ${many ? "windows" : "a window"} the \`**Gate basis:**\` line does not name`,
+	"no-warrant": (quoted, many) =>
+		`the ${many ? "bases" : "basis"} ${quoted}, which ${many ? "carry" : "carries"} no warrant: ${BASIS_WARRANTS}`,
+};
+
 /**
  * The refusal every write route gives, completing "<the body> carries …".
  *
- * @param {string[]} faults from basisFaults or introducedBasisFaults
- * @param {string} body the body they were read from
+ * @param {BasisFault[]} faults from basisFaults or introducedBasisFaults
  * @returns {string}
  */
-function basisRefusal(faults, body) {
-	const quoted = faults.map((f) => `"${f}"`).join(", ");
-	if (liveBases(String(body || "")).length === 0)
-		return `${quoted} with no \`**Gate basis:**\` line. ${basisRule()}`;
-	const which =
-		faults.length === 1
-			? "a window the `**Gate basis:**` line does not name"
-			: "windows the `**Gate basis:**` line does not name";
-	return `${quoted}, ${which}. ${basisRule()}`;
+function basisRefusal(faults) {
+	const says = Object.entries(FAULT_SAYS).flatMap(([kind, say]) => {
+		const texts = faults.filter((f) => f.kind === kind).map((f) => f.text);
+		return texts.length === 0
+			? []
+			: [say(texts.map((t) => `"${t}"`).join(", "), texts.length > 1)];
+	});
+	return `${says.join("; and ")}. ${basisRule()}`;
 }
 
 /**
@@ -656,6 +820,7 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
+	BASIS_WARRANTS,
 	gateRuleHandover,
 	isNewlyGated,
 	parseAddedGateLines,

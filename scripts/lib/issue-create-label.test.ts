@@ -1352,7 +1352,7 @@ describe("the basis limb (#672)", () => {
 			const out = readDenyReason(call);
 			expect(out).toContain(unbased);
 			expect(out).toContain(named);
-			expect(out).toContain("why nothing sooner fits it");
+			expect(out).toContain("The line's template: `**Gate basis:** <claim");
 		}
 	});
 
@@ -1363,12 +1363,23 @@ describe("the basis limb (#672)", () => {
 		expect(out).toContain("sets a wait with nothing behind it");
 	});
 
+	it("denies a basis with no warrant beneath a window, printing the template (#4946)", () => {
+		const out = readDenyReason(
+			`${create} --body-file - <<'BODY'\n**Gated until:** 2026-09-29 — a day live\n**Gate basis:** the body asks for a day\nBODY`,
+		);
+		expect(out).toContain(unbased);
+		expect(out).toContain(
+			'the basis "the body asks for a day", which carries no warrant: a count derivation',
+		);
+		expect(out).toContain("baseline 27/449 attempts");
+	});
+
 	it("allows the same bodies once a basis is written, and a measurement window", () => {
 		for (const call of [
-			`${create} --body-file - <<'BODY'\n**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours\nBODY`,
+			`${create} --body-file - <<'BODY'\n**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours (#616)\nBODY`,
 			`${create} --body "80 asks in 30 days"`,
 			`${create} --body-file - <<'BODY'\nquoted as \`after a week\` here\nBODY`,
-			`${REST_CREATE} -f 'body=**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours'`,
+			`${REST_CREATE} -f 'body=**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours (#616)'`,
 		]) {
 			expect(verdict(call)).toBe("allow");
 		}

@@ -51,7 +51,7 @@
 		},
 		"gate-basis-line": {
 			"source": "docs/agents/issue-tracker.md",
-			"trigger": "a `gh issue create`, `scripts/file-issue.js` or `scripts/issue-body.js` write adding a gate line or a prose wait with no basis naming its windows"
+			"trigger": "a `gh issue create`, `scripts/file-issue.js` or `scripts/issue-body.js` write adding a gate line or a prose wait with no basis naming its windows, or a basis with no warrant"
 		},
 		"gh-cli-limits": {
 			"source": "docs/agents/issue-tracker.md",
