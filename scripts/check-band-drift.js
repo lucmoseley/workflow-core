@@ -502,7 +502,7 @@ const SPEC = {
 	usage: "node check-band-drift.js [--days <n>] [--json] [--write]",
 	valueFlags: ["--days"],
 	flags: ["--write"],
-	/** @param {import("./lib/check").CheckContext} ctx */
+	/** @param {import("./lib/check").Ctx} ctx */
 	run(ctx) {
 		const days = ctx.has("--days") ? Number(ctx.value("--days")) : DEFAULT_DAYS;
 		if (!Number.isFinite(days) || days <= 0)

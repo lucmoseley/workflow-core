@@ -74,7 +74,7 @@ function parseAskedRefs(text) {
 
 /**
  * The ticked roots the loop serves, and why each other ticked root is not.
- * @typedef {ReturnType<import("./refill-loop.js")["scopeRoots"]>} Served
+ * @typedef {ReturnType<typeof import("./refill-loop.js").scopeRoots>} Served
  */
 
 /**

@@ -179,7 +179,7 @@ const ageDays = (iso) => (Date.now() - Date.parse(iso)) / 86_400_000;
  * The two report rows. Both carry the issue's own labels in `has`, which is
  * what the printed line quotes back.
  *
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{number: number, title: string, url: string, has: string[],
  *   severity: string, tag: string, says: string, fix: string}} TakesFault
  * @typedef {{number: number, title: string, url: string, has: string[],

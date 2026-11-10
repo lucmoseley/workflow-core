@@ -114,7 +114,7 @@ function readRoadmapRule() {
 	).split("\n");
 }
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 const HTML = "docs/reference-roadmap.html";
 const BASELINE = `HEAD:${HTML}`;

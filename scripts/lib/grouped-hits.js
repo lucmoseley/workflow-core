@@ -3,7 +3,7 @@
  * One copy, so the four reports cannot drift apart in layout (#1984).
  */
 
-/** @typedef {import("./check").CheckContext} Ctx */
+/** @typedef {import("./check").Ctx} Ctx */
 
 /**
  * @template {{file: string, line: number, text: string}} H

@@ -86,7 +86,7 @@ const path = require("node:path");
  * construction and says the marker is not under the clock; `ageSidecar` may
  * clear it.
  *
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{
  *   where: string,
  *   dateFrom: string,

@@ -616,8 +616,13 @@ const BULLET_ITEM = /^\s{0,3}[-*+]\s+\S/;
  * @typedef {{ letter: string, confidence: number }} PricedOption
  */
 
-/** @type {(o: Option) => o is PricedOption} */
-const isPriced = (o) => o.confidence !== null;
+/**
+ * @param {Option} o
+ * @returns {o is PricedOption}
+ */
+function isPriced(o) {
+	return o.confidence !== null;
+}
 
 /**
  * A block with fewer than two lettered options.

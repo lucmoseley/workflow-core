@@ -874,28 +874,39 @@ function judgeEdit(run, cmd, args) {
 			`${APPLIES_HUMAN}${first ?? "?"}`,
 		);
 	}
-	edit.numbers.forEach((word, i) => {
-		const ref = issueWord(word, run.parsed.spans);
-		if (!ref) open(run.ctx, UNREAD_NUMBER);
-		if (i >= FETCH_CAP)
-			open(
-				run.ctx,
-				`more than ${FETCH_CAP} issues on one takes:human relabel — #${ref.number} allowed unchecked`,
-			);
-		const repo = ref.repo || edit.repo;
-		if (cmd.cwd === "" && !repo)
-			open(
-				run.ctx,
-				`could not tell which directory a gh issue edit runs in — #${ref.number}'s takes:human relabel allowed unchecked`,
-			);
-		const text = fetchBody(run, cmd, ref.number, repo);
-		if (text === null)
-			open(
-				run.ctx,
-				`could not fetch #${ref.number}'s body for a takes:human relabel — relabel allowed unchecked`,
-			);
-		judgeHumanText(run, cmd.segment, text, `${APPLIES_HUMAN}${ref.number}`);
-	});
+	for (const entry of edit.numbers.entries())
+		judgeEditNumber(run, cmd, edit.repo, entry);
+}
+
+/**
+ * One issue number of a takes:human relabel: its body fetched and judged,
+ * the FETCH_CAP-th and later allowed unchecked.
+ * @param {Run} run
+ * @param {Command} cmd
+ * @param {Edit["repo"]} namedRepo the repo the edit names, if any
+ * @param {[number, string]} entry the number's place on the command, and its word
+ */
+function judgeEditNumber(run, cmd, namedRepo, [i, word]) {
+	const ref = issueWord(word, run.parsed.spans);
+	if (!ref) return open(run.ctx, UNREAD_NUMBER);
+	if (i >= FETCH_CAP)
+		open(
+			run.ctx,
+			`more than ${FETCH_CAP} issues on one takes:human relabel — #${ref.number} allowed unchecked`,
+		);
+	const repo = ref.repo || namedRepo;
+	if (cmd.cwd === "" && !repo)
+		open(
+			run.ctx,
+			`could not tell which directory a gh issue edit runs in — #${ref.number}'s takes:human relabel allowed unchecked`,
+		);
+	const text = fetchBody(run, cmd, ref.number, repo);
+	if (text === null)
+		return open(
+			run.ctx,
+			`could not fetch #${ref.number}'s body for a takes:human relabel — relabel allowed unchecked`,
+		);
+	judgeHumanText(run, cmd.segment, text, `${APPLIES_HUMAN}${ref.number}`);
 }
 
 /* A relabel's verb, the issue number following it. */
@@ -1058,7 +1069,7 @@ function judgeApi(run, cmd, args) {
 	 * `…/dependencies/blocked_by` creates something that takes no label. */
 	if (endpoint !== null && !isIssueCollection(endpoint)) return;
 	if (method === null || endpoint === null || call.input)
-		open(
+		return open(
 			run.ctx,
 			"could not read a gh api issue creation — create allowed unchecked",
 		);

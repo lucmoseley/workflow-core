@@ -34,7 +34,7 @@ const { caught } = require("./lib/caught.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { readStagedDiff } = require("./lib/staged.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {Record<string, unknown>} Json */
 
 const MANIFEST = "package.json";

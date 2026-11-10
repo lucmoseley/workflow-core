@@ -125,7 +125,7 @@ function refuseClobber(run, segment) {
 		"issue-body-clobber",
 		"Every issue-body edit goes through node scripts/issue-body.js",
 	);
-	deny(
+	return deny(
 		ctx,
 		segment,
 		`This writes an issue body whole, erasing any parallel session's edit: @CMD@\n\n${rule}`,

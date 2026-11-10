@@ -12,7 +12,7 @@ const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { spawnGitSync } = require("./git.js");
 
-/** @typedef {import("./check").CheckContext} Ctx */
+/** @typedef {import("./check").Ctx} Ctx */
 
 /**
  * A child that exits before reading all of `input` leaves spawnSync an EPIPE

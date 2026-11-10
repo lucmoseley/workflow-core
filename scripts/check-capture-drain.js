@@ -84,7 +84,7 @@ function refreshState(ctx) {
 	try {
 		captures = fetchCaptures();
 	} catch (e) {
-		raiseGhFailure(e, "The capture-drain state file was not refreshed.");
+		return raiseGhFailure(e, "The capture-drain state file was not refreshed.");
 	}
 	if (!writeState(captures, Date.now()))
 		ctx.broken(
@@ -157,7 +157,7 @@ function undrainedFromScan() {
 	try {
 		captures = fetchCaptures();
 	} catch (e) {
-		raiseGhFailure(e, "No conclusion drawn about undrained captures.");
+		return raiseGhFailure(e, "No conclusion drawn about undrained captures.");
 	}
 	const undrained = captures.filter(
 		(/** @type {{ drained: unknown }} */ c) => !c.drained,

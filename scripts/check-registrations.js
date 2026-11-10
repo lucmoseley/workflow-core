@@ -60,7 +60,7 @@ const {
 } = require("./lib/core-hooks.js");
 const R = require("./lib/registrations.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
 /** The plugin's own needles, which key every core guard a host may register. */

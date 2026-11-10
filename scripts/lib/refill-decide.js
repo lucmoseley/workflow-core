@@ -20,6 +20,7 @@ const { buildRowPrompt } = require("./unclosed-launch.js");
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
+/** @type {"unread"} */
 const UNREAD = "unread";
 /* Sonnet's founder check does not happen while he is away (#1920). */
 const MODEL = "opus";
