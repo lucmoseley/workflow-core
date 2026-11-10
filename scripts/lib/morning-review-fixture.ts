@@ -18,8 +18,8 @@ import {
 	stubGhScript,
 } from "./gh-stub";
 import {
-	buildReadingLine,
-	buildSignalLine,
+	buildEarlyoomReadingLine,
+	buildEarlyoomSignalLine,
 	writeJournalctl,
 } from "./journalctl-fake";
 import { runInProcessAsync } from "./run-in-process";
@@ -273,8 +273,8 @@ export function morningReviewFixture(
 		/* One earlyoom kill 3 h ago, its incident ticketed as #61. */
 		const killedAt = Date.now() - 3 * HOUR;
 		writeJournalctl(path.join(sb.dir, "gh"), [
-			buildReadingLine(killedAt),
-			buildSignalLine(killedAt, 9, "2.1.310"),
+			buildEarlyoomReadingLine(killedAt),
+			buildEarlyoomSignalLine(killedAt, 9, "2.1.310"),
 		]);
 		const { incidentTitle } = require("./earlyoom-kills.js");
 		fs.writeFileSync(

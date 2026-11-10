@@ -26,10 +26,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import {
+	buildEarlyoomBannerLine,
+	buildEarlyoomReadingLine,
+	buildEarlyoomSignalLine,
 	buildKernelLine,
-	buildOtherLine,
-	buildReadingLine,
-	buildSignalLine,
 	type FakeBoot,
 	writeJournalctl,
 } from "./journalctl-fake";
@@ -50,13 +50,13 @@ const T0 = Math.floor((Date.now() - 60 * MIN) / 1000) * 1000;
 const WINDOW_MS = 7 * 24 * 60 * MIN;
 
 const FAKE_JOURNAL = [
-	buildSignalLine(T0 - 2 * MIN, 77, "dbus-daemon", { rss: 1 }),
-	buildOtherLine(T0 - MIN),
-	buildReadingLine(T0, 776),
-	buildSignalLine(T0, 658_446, "MainThread"),
-	buildSignalLine(T0 + 3000, 658_446, "MainThread", { sig: "SIGKILL" }),
-	buildReadingLine(T0 + MIN, 790, 12),
-	buildSignalLine(T0 + MIN, 369_866, "2.1.310", { rss: 450 }),
+	buildEarlyoomSignalLine(T0 - 2 * MIN, 77, "dbus-daemon", { rss: 1 }),
+	buildEarlyoomBannerLine(T0 - MIN),
+	buildEarlyoomReadingLine(T0, 776),
+	buildEarlyoomSignalLine(T0, 658_446, "MainThread"),
+	buildEarlyoomSignalLine(T0 + 3000, 658_446, "MainThread", { sig: "SIGKILL" }),
+	buildEarlyoomReadingLine(T0 + MIN, 790, 12),
+	buildEarlyoomSignalLine(T0 + MIN, 369_866, "2.1.310", { rss: 450 }),
 ];
 const FAKE_KERNEL = [buildKernelLine(T0, "Booting Linux on physical CPU 0x0")];
 
@@ -116,7 +116,7 @@ interface Side {
 	tail: { short: string[]; cat: string[] };
 }
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "earlyoom-contract-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "journalctl-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /**
@@ -260,9 +260,9 @@ const CASES: Case[] = [
 		name: "every earlyoom line is a shape the fake builds or one the reader ignores",
 		check({ lines }: Side) {
 			const built = [
-				buildSignalLine(T0, 1, "x"),
-				buildReadingLine(T0),
-				buildOtherLine(T0),
+				buildEarlyoomSignalLine(T0, 1, "x"),
+				buildEarlyoomReadingLine(T0),
+				buildEarlyoomBannerLine(T0),
 			].map((l) => shape(message(l) ?? ""));
 			/* Since earlyoom last started: the journal's past holds what older
 			 * versions printed. */

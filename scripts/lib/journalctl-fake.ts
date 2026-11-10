@@ -13,10 +13,10 @@ const stamp = (ms: number) =>
 	new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
 
 /** The `mem avail … swap free …` line earlyoom prints before a signal. */
-export const buildReadingLine = (ms: number, avail = 776, swap = 0) =>
+export const buildEarlyoomReadingLine = (ms: number, avail = 776, swap = 0) =>
 	`${stamp(ms)} Luctop earlyoom[180]: mem avail:   ${avail} of  9924 MiB ( 7.83%), swap free:    ${swap} of 2048 MiB ( 0.00%)`;
 
-export const buildSignalLine = (
+export const buildEarlyoomSignalLine = (
 	ms: number,
 	pid: number,
 	name: string,
@@ -25,7 +25,7 @@ export const buildSignalLine = (
 	`${stamp(ms)} Luctop earlyoom[180]: sending ${sig} to process ${pid} uid 1000 "${name}": badness 741, VmRSS ${rss} MiB`;
 
 /** A line earlyoom prints that is neither: its startup banner's. */
-export const buildOtherLine = (ms: number) =>
+export const buildEarlyoomBannerLine = (ms: number) =>
 	`${stamp(ms)} Luctop earlyoom[180]: sending SIGTERM when mem <=  8.00% and swap <= 100.00%,`;
 
 /** A line as `-o short-iso` prints it: its stamp, host and ident, then `msg`. */

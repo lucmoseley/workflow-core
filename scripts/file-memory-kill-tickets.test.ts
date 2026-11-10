@@ -13,8 +13,8 @@ import { freshSandbox } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { INCIDENT_GH_STUB } from "./lib/incident-gh-stub";
 import {
-	buildReadingLine,
-	buildSignalLine,
+	buildEarlyoomReadingLine,
+	buildEarlyoomSignalLine,
 	ONE_BOOT,
 	writeFailingJournalctl,
 	writeJournalctl,
@@ -42,8 +42,12 @@ function seed(minutesAgo: number[], tickets: object[] = []) {
 	writeJournalctl(
 		path.join(sb.dir, "gh"),
 		minutesAgo.flatMap((m, i) => [
-			buildReadingLine(now - m * MIN),
-			buildSignalLine(now - m * MIN, 100 + i, i % 2 ? "2.1.310" : "MainThread"),
+			buildEarlyoomReadingLine(now - m * MIN),
+			buildEarlyoomSignalLine(
+				now - m * MIN,
+				100 + i,
+				i % 2 ? "2.1.310" : "MainThread",
+			),
 		]),
 	);
 }
