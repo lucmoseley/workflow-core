@@ -471,19 +471,15 @@ function prePass(st, parsed) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			const carried = carriesVar(
-				"WFC_SUITE_CONCURRENT",
-				cmd.leading,
-				cmd.words,
-				st.spans,
-			);
-			const words = unwrap(cmd.words, st.spans).words;
-			if (words.length === 0) return;
-			const launch = launchOf(st, words);
-			if (!isTest(launch)) return;
-			if (carried) st.escaped = true;
-			if (launch?.kind === "npm-watch" && !st.watcherSegment)
-				st.watcherSegment = cmd.segment;
+			for (const { words, wrapperWords } of unwrap(cmd.words, st.spans)) {
+				if (words.length === 0) continue;
+				const launch = launchOf(st, words);
+				if (!isTest(launch)) continue;
+				if (carriesVar("WFC_SUITE_CONCURRENT", cmd.leading, wrapperWords))
+					st.escaped = true;
+				if (launch?.kind === "npm-watch" && !st.watcherSegment)
+					st.watcherSegment = cmd.segment;
+			}
 		},
 		st.ctx,
 	);
@@ -525,13 +521,14 @@ function wholeSuiteLaunch(st, parsed) {
 		parsed,
 		(cmd) => {
 			if (found) return;
-			const words = unwrap(cmd.words, st.spans).words;
-			if (words.length === 0 || launchKey(words) !== key) return;
-			const launch = launchOf(st, words);
-			if (launch?.kind === "wrapper") return;
-			if (launch?.script && st.launchPorts.isWrapperScript(launch.script))
-				return;
-			found = true;
+			found = unwrap(cmd.words, st.spans).some(({ words }) => {
+				if (words.length === 0 || launchKey(words) !== key) return false;
+				const launch = launchOf(st, words);
+				if (launch?.kind === "wrapper") return false;
+				return !(
+					launch?.script && st.launchPorts.isWrapperScript(launch.script)
+				);
+			});
 		},
 		st.ctx,
 	);
@@ -1127,7 +1124,23 @@ function noteMemoryFigure(st, s, mb) {
  * @returns {Verdict | undefined}
  */
 function judge(st, cmd) {
-	const words = unwrap(cmd.words, st.spans).words;
+	/** @type {Verdict | undefined} */
+	let verdict;
+	for (const run of unwrap(cmd.words, st.spans)) {
+		verdict = judgeRun(st, cmd, run.words);
+		if (verdict !== undefined) break;
+	}
+	return verdict;
+}
+
+/**
+ * One unwrap run's words judged, as judge answers.
+ * @param {St} st
+ * @param {Command} cmd
+ * @param {string[]} words
+ * @returns {Verdict | undefined}
+ */
+function judgeRun(st, cmd, words) {
 	if (words.length === 0) return;
 	const got = subjectOf(st, words, cmd.segment);
 	if (!("subject" in got)) return got.verdict;

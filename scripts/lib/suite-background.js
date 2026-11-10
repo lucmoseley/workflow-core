@@ -338,25 +338,36 @@ function decide(command, ctx) {
 	let escaped = false;
 	/** @type {{ from: string, to: string }[]} */
 	const timed = [];
+	/**
+	 * One unwrap run's suite launch, noted; null where it launches none.
+	 * @param {string[]} leading
+	 * @param {import("./shell-words.js").Unwrapped} run
+	 */
+	const noteLaunch = (leading, { words, wrapperWords }) => {
+		const launch = suiteLaunchKind(words.map(typed), launchPorts);
+		if (!launch) return null;
+		if (carriesVar("WFC_SUITE_DETACH", leading, wrapperWords)) escaped = true;
+		foundSuite = true;
+		return launch;
+	};
 	walkCommands(
 		parsed,
 		(cmd) => {
-			const { words } = unwrap(cmd.words, spans);
+			const [first, ...later] = unwrap(cmd.words, spans);
+			for (const run of later) noteLaunch(cmd.leading, run);
+			const { words, wrapperWords } = first;
 			/* An `env -S` split can leave more words than it took, so none are
-			 * read there. */
+			 * read there; nor is a `-c` string's later command, which no cut of
+			 * the segment's words reaches. */
 			const nwrap = cmd.words.length - words.length;
 			const isTimed =
 				nwrap > 0 &&
 				cmd.words.slice(0, nwrap).some((w) => afterSlash(w) === "timeout");
 			if (words.length === 0) return;
-			const launch = suiteLaunchKind(words.map(typed), launchPorts);
+			const launch = noteLaunch(cmd.leading, first);
 			if (!launch) return;
-			if (carriesVar("WFC_SUITE_DETACH", cmd.leading, cmd.words, spans))
-				escaped = true;
-			foundSuite = true;
 			if (!isTimed || !isUnbounded(launch, words, spans)) return;
-			if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, cmd.words, spans))
-				return;
+			if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return;
 			let stripped = stripTimeout(cmd.segment, words[0] ?? "");
 			if (stripped === null) {
 				ctx.log(

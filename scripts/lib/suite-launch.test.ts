@@ -20,7 +20,7 @@ const { parseCommand, walkCommands } = require("./shell-parse.js") as {
 const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
 	QUOTED: string;
 	literal: (w: string, spans: string[]) => { known: boolean; text: string };
-	unwrap: (words: string[], spans: string[]) => { words: string[] };
+	unwrap: (words: string[], spans: string[]) => [{ words: string[] }];
 };
 const { buildIsWrapperScript, isOtherRunner, suiteLaunchKind } =
 	require("./suite-launch.js") as {
@@ -59,7 +59,7 @@ const kindOf = (command: string) => {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			const typed = unwrap(cmd.words, parsed.spans).words.map((w) => {
+			const typed = unwrap(cmd.words, parsed.spans)[0].words.map((w) => {
 				if (!w.includes(QUOTED)) return w;
 				const lit = literal(w, parsed.spans);
 				return lit.known ? lit.text : w;

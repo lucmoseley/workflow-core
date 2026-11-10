@@ -1737,6 +1737,14 @@ describe('walkGit, scope "shared"', () => {
 		).toContain(`[checkout][${SHARED}]`);
 	});
 
+	it("judges a git command a -c string runs after its first (#4699)", () => {
+		expect(
+			walkGitRun(`env -S 'flock /l -c "true\\ngit checkout x"'`, {
+				unwrap: true,
+			}).out,
+		).toContain(`[checkout][${SHARED}]`);
+	});
+
 	it('reads a git -C relative to the tree before it, and a -C "" as no move', () => {
 		expect(walkGitRun("git -C wt checkout x", {}, DIR).out).toBe("");
 		expect(walkGitRun("git -C shared checkout x", {}, DIR).out).toContain(

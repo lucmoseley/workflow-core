@@ -484,9 +484,23 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
  * @returns {Refusal | null}
  */
 function judgeGh(ctx, spans, { segment, words, leading, cwd }) {
-	const repoEnv = carriesVar("GH_REPO", leading, words, spans);
-	const gh = ghWords(words, spans);
-	if (!gh) return null;
+	for (const gh of ghWords(words, spans)) {
+		const refusal = judgeGhRun(ctx, spans, gh, { segment, leading, cwd });
+		if (refusal) return refusal;
+	}
+	return null;
+}
+
+/**
+ * One `gh` run, as judgeGh answers.
+ * @param {BranchPublishContext} ctx
+ * @param {string[]} spans
+ * @param {import("./shell-words.js").GhCall & { wrapperWords: string[] }} gh
+ * @param {{ segment: string, leading: string[], cwd: string }} cmd
+ * @returns {Refusal | null}
+ */
+function judgeGhRun(ctx, spans, gh, { segment, leading, cwd }) {
+	const repoEnv = carriesVar("GH_REPO", leading, gh.wrapperWords);
 	/* The word as the shell would pass it, so a quoted `"create"` still reads
 	 * as `create`; an expansion it cannot read stays masked and matches
 	 * nothing. */

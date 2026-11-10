@@ -224,11 +224,11 @@ function countLaunches(subject, ctx) {
 	walkCommands(
 		parsed,
 		({ words }) => {
-			const own = unwrap(words, parsed.spans).words.map(
-				(w) => literal(w, parsed.spans).text,
-			);
-			const kind = suiteLaunchKind(own, ctx)?.kind;
-			if (kind === "npm-vitest" || kind === "wrapper") launches += 1;
+			for (const run of unwrap(words, parsed.spans)) {
+				const own = run.words.map((w) => literal(w, parsed.spans).text);
+				const kind = suiteLaunchKind(own, ctx)?.kind;
+				if (kind === "npm-vitest" || kind === "wrapper") launches += 1;
+			}
 		},
 		ctx,
 	);

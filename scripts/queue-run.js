@@ -161,7 +161,22 @@ function classify(words) {
  * @returns {string}
  */
 function readingOf(words, ports) {
-	const inner = unwrap(words, []).words;
+	const readings = unwrap(words, []).map(({ words: inner }) =>
+		runReading(inner, ports),
+	);
+	return READING_RANK.find((r) => readings.includes(r)) ?? "none";
+}
+
+/* The reading a command takes from its runs' readings: a refusal first. */
+const READING_RANK = ["vitest", "unread", "queue", "queued"];
+
+/**
+ * One unwrap run's reading, as readingOf answers.
+ * @param {string[]} inner
+ * @param {import("./lib/suite-launch.js").LaunchPorts} ports
+ * @returns {string}
+ */
+function runReading(inner, ports) {
 	if (inner.length === 0) return "none";
 	if (isQueueable(inner, ports)) return "queue";
 	if (inner[0] === "node" && /(^|\/)queue-run\.js$/.test(inner[1] ?? "")) {
@@ -304,7 +319,11 @@ function slotWait(slot, options, words) {
 			};
 		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
 	}
-	const chargeMb = queuedRunnerPeakMb(unwrap(words, []).words);
+	const charges = unwrap(words, []).flatMap(({ words: inner }) => {
+		const mb = queuedRunnerPeakMb(inner);
+		return mb === undefined ? [] : [mb];
+	});
+	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	return {
 		queue: options,
 		join: chargeMb === undefined ? options : { ...options, chargeMb },

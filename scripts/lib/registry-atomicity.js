@@ -292,8 +292,22 @@ function readCommit(args) {
  * @param {RegistryContext} ctx
  */
 function judgeCommitPaths(words, cwd, spans, ctx) {
-	const args = commitPathsArgs(words, spans);
-	const call = args && commitPathsParse(args, spans);
+	for (const args of commitPathsArgs(words, spans)) {
+		const reason = judgeCommitPathsRun(args, cwd, spans, ctx);
+		if (reason) return reason;
+	}
+	return "";
+}
+
+/**
+ * One commit-paths.js call's arguments, as judgeCommitPaths answers.
+ * @param {string[]} args
+ * @param {string} cwd
+ * @param {string[]} spans
+ * @param {RegistryContext} ctx
+ */
+function judgeCommitPathsRun(args, cwd, spans, ctx) {
+	const call = commitPathsParse(args, spans);
 	if (!call || call.tree) return "";
 	const paths = [...call.paths];
 	if (paths.length === 0 && !call.patch) return "";

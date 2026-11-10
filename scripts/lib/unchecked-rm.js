@@ -127,34 +127,44 @@ function scan(subject, ctx) {
 	walkCommands(
 		parsed,
 		({ words, assigned }) => {
-			const run = unwrap(words, parsed.spans).words;
-			if (run.length === 0) return;
-			const head = lit(run[0] ?? "");
-			if (!head.known) return;
-			const args = run.slice(1);
-			switch (head.text.slice(head.text.lastIndexOf("/") + 1)) {
-				case "rm":
-					return judgeRm(args, seen, lit, assigned);
-				case "cd":
-					seen.cdSeen = true;
-					return;
-				case "bash":
-				case "sh":
-				case "zsh":
-				case "dash":
-					if (!seen.shellRun) judgeShell(args, seen, lit);
-					return;
-				case "export":
-				case "declare":
-				case "typeset":
-				case "readonly":
-				case "local":
-					return judgeDeclare(args, seen, lit);
-			}
+			for (const run of unwrap(words, parsed.spans))
+				judgeRun(run.words, { seen, lit, assigned });
 		},
 		ctx,
 	);
 	return seen;
+}
+
+/**
+ * One unwrap run's words, judged.
+ * @param {string[]} run masked
+ * @param {{ seen: Scan, lit: (w: string) => { text: string, known: boolean },
+ *   assigned: (name: string) => boolean }} with `seen` written
+ */
+function judgeRun(run, { seen, lit, assigned }) {
+	if (run.length === 0) return;
+	const head = lit(run[0] ?? "");
+	if (!head.known) return;
+	const args = run.slice(1);
+	switch (head.text.slice(head.text.lastIndexOf("/") + 1)) {
+		case "rm":
+			return judgeRm(args, seen, lit, assigned);
+		case "cd":
+			seen.cdSeen = true;
+			return;
+		case "bash":
+		case "sh":
+		case "zsh":
+		case "dash":
+			if (!seen.shellRun) judgeShell(args, seen, lit);
+			return;
+		case "export":
+		case "declare":
+		case "typeset":
+		case "readonly":
+		case "local":
+			return judgeDeclare(args, seen, lit);
+	}
 }
 
 /**

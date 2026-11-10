@@ -122,7 +122,7 @@ describe("ghWords (#772)", () => {
 	 * where it answered null. */
 	const read = (command: string) =>
 		each(command, (c, spans) => {
-			const r = ghWords(c.words, spans);
+			const [r] = ghWords(c.words, spans);
 			return r ? bracket(r.args, spans) : "none";
 		});
 
@@ -170,7 +170,7 @@ describe("ghWords (#772)", () => {
 	/** The repo ghWords kept, as `text`, `?text` where unknown, or `none`. */
 	const repoOf = (command: string) =>
 		one(command, (c, spans) => {
-			const r = ghWords(c.words, spans)?.repo;
+			const r = ghWords(c.words, spans)[0]?.repo;
 			return r ? `${r.known ? "" : "?"}${r.text}` : "none";
 		});
 
@@ -202,7 +202,7 @@ describe("ghWords (#772)", () => {
 	});
 
 	it("answers nothing where -R has no value left", () => {
-		expect(one("gh -R", (c, spans) => ghWords(c.words, spans))).toBeNull();
+		expect(one("gh -R", (c, spans) => ghWords(c.words, spans))).toEqual([]);
 	});
 });
 
@@ -210,7 +210,7 @@ describe("gitWords (#2383)", () => {
 	/** The subcommand, then each word after it read back; `none` for null. */
 	const read = (command: string) =>
 		each(command, (c, spans) => {
-			const r = gitWords(c.words, spans);
+			const [r] = gitWords(c.words, spans);
 			return r ? `${r.sub}:${bracket(r.args, spans)}` : "none";
 		});
 
@@ -243,7 +243,7 @@ describe("gitWords (#2383)", () => {
 	it("hands the words after the subcommand over raw, still masked", () => {
 		const args = one(
 			'git commit -m "a b"',
-			(c, spans) => gitWords(c.words, spans)?.args,
+			(c, spans) => gitWords(c.words, spans)[0]?.args,
 		);
 		expect(args?.[1]).not.toBe("a b");
 	});
@@ -252,7 +252,9 @@ describe("gitWords (#2383)", () => {
 describe("carriesVar (#1499)", () => {
 	const carriesFoo = (command: string) =>
 		each(command, (c, spans) =>
-			carriesVar("FOO", c.leading, c.words, spans) ? "yes" : "no",
+			carriesVar("FOO", c.leading, unwrap(c.words, spans)[0].wrapperWords)
+				? "yes"
+				: "no",
 		);
 
 	it.each([
@@ -283,18 +285,20 @@ describe("carriesVar (#1499)", () => {
 	it("leaves unwrap's answer over the words it was handed", () => {
 		expect(
 			one("env FOO=1 nohup npm test", (c, spans) => unwrap(c.words, spans)),
-		).toEqual({
-			words: ["npm", "test"],
-			wrapperWords: ["FOO=1"],
-			chdirs: [],
-			watched: false,
-		});
+		).toEqual([
+			{
+				words: ["npm", "test"],
+				wrapperWords: ["FOO=1"],
+				chdirs: [],
+				watched: false,
+			},
+		]);
 	});
 });
 
 describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () => {
 	const strip = (command: string) =>
-		one(command, (c, spans) => unwrap(c.words, spans));
+		one(command, (c, spans) => unwrap(c.words, spans)[0]);
 
 	it.each([
 		["nohup npm test", ["npm", "test"]],
@@ -391,7 +395,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 
 describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 	const strip = (command: string) =>
-		one(command, (c, spans) => unwrap(c.words, spans));
+		one(command, (c, spans) => unwrap(c.words, spans)[0]);
 
 	it.each([
 		[`env -S 'npm run "test"'`, ["npm", "run", "test"], "its double quotes"],
@@ -544,14 +548,82 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 	});
 
 	it("leaves a wrapper its caller judges standing, past the ones it strips", () => {
-		const { words } = one("nohup taskset 1 yes", (c, spans) =>
-			unwrap(c.words, spans, ["taskset"]),
+		const { words } = one(
+			"nohup taskset 1 yes",
+			(c, spans) => unwrap(c.words, spans, ["taskset"])[0],
 		);
 		expect(words).toEqual(["taskset", "1", "yes"]);
 	});
 
 	it("reads no flags on a word it cannot name", () => {
 		expect(strip("$W -C /x git status").words[0]).toBe("$W");
+	});
+});
+
+describe("unwrap reads every command a -c string runs (#4699)", () => {
+	/** Each run's words, joined by a space. */
+	const runs = (command: string) =>
+		one(command, (c, spans) =>
+			unwrap(c.words, spans).map((r) => r.words.join(" ")),
+		);
+
+	it.each([
+		[`env -S 'flock /l -c "true\\ngit push"'`, "a second line"],
+		[`env -S 'flock /l -c "true\\r\\ngit push"'`, "a \\r\\n line end"],
+		[`flock /l -c "true; git push"`, "a ;"],
+		[`flock /l -c "true && git push"`, "a &&"],
+		[`flock /l -c "true | git push"`, "a |"],
+	])("reads git push from %s (%s)", (command) => {
+		expect(runs(command)).toContain("git push");
+	});
+
+	it("answers the runs in the order sh runs them", () => {
+		expect(runs(`flock /l -c "a\nflock /m -c b\nd"`)).toEqual(["a", "b", "d"]);
+	});
+
+	it("drops the rest of a line from its comment, not the lines after it", () => {
+		expect(runs(`flock /l -c "a # b; c\nd"`)).toEqual(["a", "d"]);
+	});
+
+	it("strips each later command's own wrappers", () => {
+		expect(runs(`flock /l -c "true\nnohup git push"`)).toEqual([
+			"true",
+			"git push",
+		]);
+	});
+
+	it("carries the wrappers stripped before the string to each later run", () => {
+		const later = one(
+			`env -C /d A=1 flock /l -c "true; git push"`,
+			(c, spans) => unwrap(c.words, spans).at(1),
+		);
+		expect(later).toEqual({
+			words: ["git", "push"],
+			wrapperWords: ["A=1"],
+			chdirs: ["/d"],
+			watched: false,
+		});
+	});
+
+	it("keeps a first run's own env off the runs after it", () => {
+		const later = one(`flock /l -c "env A=1 true; git push"`, (c, spans) =>
+			unwrap(c.words, spans).at(1),
+		);
+		expect(later?.wrapperWords).toEqual([]);
+	});
+
+	it("marks each of watch's runs watched", () => {
+		const watched = one(`watch "true; git push"`, (c, spans) =>
+			unwrap(c.words, spans).map((r) => r.watched),
+		);
+		expect(watched).toEqual([true, true]);
+	});
+
+	it("hands gitWords the git push a later line runs", () => {
+		const subs = one(`env -S 'flock /l -c "true\\ngit push"'`, (c, spans) =>
+			gitWords(c.words, spans).map((g) => g.sub),
+		);
+		expect(subs).toEqual(["push"]);
 	});
 });
 
@@ -595,7 +667,7 @@ describe("findStarts (#2060)", () => {
 describe("commitPathsArgs (#1727, #2022)", () => {
 	const args = (command: string) =>
 		one(command, (c, spans) => {
-			const r = commitPathsArgs(c.words, spans);
+			const [r] = commitPathsArgs(c.words, spans);
 			return r ? r.map((w) => literal(w, spans).text) : null;
 		});
 
@@ -626,8 +698,8 @@ describe("commitPathsParse (#2147, #2383)", () => {
 	/** The parse, every word read back through literal. */
 	const parse = (argv: string) =>
 		one(`node scripts/commit-paths.js ${argv}`, (c, spans) => {
-			const a = commitPathsArgs(c.words, spans);
-			const r = a && commitPathsParse(a, spans);
+			const [a] = commitPathsArgs(c.words, spans);
+			const r = a ? commitPathsParse(a, spans) : null;
 			const read = (w: string) => literal(w, spans).text;
 			return (
 				r && {

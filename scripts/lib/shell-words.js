@@ -535,8 +535,10 @@ const WRAPPERS = new Map([
  * `sudo` IS STRIPPED, DELIBERATELY: stripping only ever widens what is judged.
  *
  * `watch` AND `flock <file> -c` RUN THEIR COMMAND THROUGH `sh -c`, so the words
- * holding it are split on whitespace (#3376, #4046); a quote, a `;` or a second
- * line inside them is not read.
+ * holding it are cut into commands at each line end, `;`, `&` and `|`, and each
+ * command split on whitespace (#3376, #4046); a quote inside them is not read.
+ * Every command the string runs is a run of its own, stripped in turn under the
+ * `env` assignments and directories its wrappers set (#4699).
  *
  * `env -S <string>` IS SPLIT, NOT SKIPPED, as `env` splits it, and read on as
  * `env`'s own words.
@@ -549,18 +551,48 @@ const WRAPPERS = new Map([
  * @param {string[]} spans
  * @param {string[]} [judged] wrappers the caller judges itself, left standing
  *   as the command word
- * @returns {{ words: string[], wrapperWords: string[], chdirs: string[],
- *   watched: boolean }}
+ * @returns {[Unwrapped, ...Unwrapped[]]} one run per command the words run, in
+ *   the order they run, the words' own command first
  */
 function unwrap(words, spans, judged = []) {
+	/** @type {Unwrapped[]} */
+	const pending = [];
+	const first = stripRun(
+		{ words, wrapperWords: [], chdirs: [], watched: false },
+		{ spans, judged, pending },
+	);
+	/** @type {Unwrapped[]} */
+	const later = [];
+	for (let run = pending.shift(); run !== undefined; run = pending.shift())
+		later.push(stripRun(run, { spans, judged, pending }));
+	return [first, ...later];
+}
+
+/**
+ * @typedef {object} Unwrapped one command unwrap reads the words to run
+ * @property {string[]} words
+ * @property {string[]} wrapperWords
+ * @property {string[]} chdirs
+ * @property {boolean} watched
+ */
+
+/**
+ * Strip one run's wrappers.
+ * @param {Unwrapped} run as it stands before the strip
+ * @param {{ spans: string[], judged: string[], pending: Unwrapped[] }} with
+ *   `pending` written: a `-c` string's later commands go to its front
+ * @returns {Unwrapped}
+ */
+function stripRun(run, { spans, judged, pending }) {
 	/** @type {Strip} */
 	const st = {
-		ws: [...words],
+		ws: [...run.words],
 		judged,
 		inEnv: false,
-		wrapperWords: [],
-		chdirs: [],
-		watched: false,
+		wrapperWords: [...run.wrapperWords],
+		chdirs: [...run.chdirs],
+		watched: run.watched,
+		pending,
 	};
 	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
 		const step = stripOne(st, first, spans);
@@ -584,6 +616,7 @@ function unwrap(words, spans, judged = []) {
  * @property {string[]} wrapperWords
  * @property {string[]} chdirs
  * @property {boolean} watched
+ * @property {Unwrapped[]} pending the runs still to strip
  */
 
 /**
@@ -632,20 +665,41 @@ function stripOne(st, first, spans) {
  */
 function stepAfterFlags(st, wrapper, spans) {
 	const [head, ...tail] = st.ws;
+	/** @param {string[]} ws */
+	const read = (ws) => ws.map((w) => literal(w, spans).text).join(" ");
 	if (wrapper.command === "flock-command" && head !== undefined) {
 		const f = literal(head, spans).text;
 		if (f === "-c" || f === "--command") {
 			const [string] = tail;
 			if (string === undefined) return "cut";
-			st.ws = splitString(string, spans);
+			runScript(st, read([string]));
 		}
 	}
 	if (wrapper.command === "sh-string") {
-		st.ws = st.ws.flatMap((w) => splitString(w, spans));
-		if (st.ws.length === 0) return "cut";
 		st.watched = true;
+		runScript(st, read(st.ws));
+		if (st.ws.length === 0) return "cut";
 	}
 	return "next";
+}
+
+/**
+ * Stand on a `sh -c` script's first command, and queue each later one, ahead
+ * of any run already pending, under the wrappers stripped so far.
+ * @param {Strip} st accumulator: its `ws` and `pending` are written
+ * @param {string} script
+ */
+function runScript(st, script) {
+	const [first = [], ...later] = scriptCommands(script);
+	st.ws = first;
+	st.pending.unshift(
+		...later.map((words) => ({
+			words,
+			wrapperWords: [...st.wrapperWords],
+			chdirs: [...st.chdirs],
+			watched: st.watched,
+		})),
+	);
 }
 
 /**
@@ -833,22 +887,26 @@ function stepEnvEscape(split, next) {
 }
 
 /**
- * The words of a string a wrapper hands to `sh -c`: read back through literal,
- * the words of its first line carrying any, split on IFS whitespace and cut at
- * a word opening `#`, as sh skips blank and comment lines to reach its first
- * command (#4281).
- * @param {string} word
- * @param {string[]} spans
+ * The commands of a script a wrapper hands to `sh -c`, each as its words: cut
+ * at each line end, `;`, `&` and `|`, split on IFS whitespace, the rest of a
+ * line dropped from a word opening `#`, and a command of no words skipped, as
+ * sh skips blank and comment lines (#4281, #4699).
+ * @param {string} script
+ * @returns {string[][]}
  */
-const splitString = (word, spans) =>
-	literal(word, spans)
-		.text.split("\n")
-		.map((line) => {
-			const words = line.split(IFS_SPLIT).filter(Boolean);
+const scriptCommands = (script) =>
+	script.split("\n").flatMap((line) => {
+		/** @type {string[][]} */
+		const commands = [];
+		for (const piece of line.split(/[;&|]/)) {
+			const words = piece.split(IFS_SPLIT).filter(Boolean);
 			const comment = words.findIndex((w) => w.startsWith("#"));
-			return comment < 0 ? words : words.slice(0, comment);
-		})
-		.find((words) => words.length > 0) ?? [];
+			const kept = comment < 0 ? words : words.slice(0, comment);
+			if (kept.length > 0) commands.push(kept);
+			if (comment >= 0) break;
+		}
+		return commands;
+	});
 
 /**
  * Does the command carry `name` set to a non-empty value (#1499), as an escape
@@ -865,11 +923,9 @@ const splitString = (word, spans) =>
  * it.
  * @param {string} name
  * @param {string[]} leading a walked Command's `leading`
- * @param {string[]} words its `words`
- * @param {string[]} spans
+ * @param {string[]} wrapperWords the `wrapperWords` of the unwrap run judged
  */
-function carriesVar(name, leading, words, spans) {
-	const { wrapperWords } = unwrap(words, spans);
+function carriesVar(name, leading, wrapperWords) {
 	return [...leading, ...wrapperWords].some(
 		(w) => w.startsWith(`${name}=`) && w.length > name.length + 1,
 	);
@@ -892,17 +948,27 @@ const GIT_VALUE_OPTIONS = [
 const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
 
 /**
- * Where one command's words, past any launcher wrapper and git's own options,
- * are a `git` subcommand: `{ sub, args }`, the subcommand read through
- * literal and the words after it RAW (#2383). Null where the command is not
- * `git` or carries no subcommand. For a reader judging the command and not the
- * tree it runs against, which takes shell-parse.js's walkGit instead.
+ * Each `git` subcommand one command's words run, past any launcher wrapper and
+ * git's own options: `{ sub, args }`, the subcommand read through literal and
+ * the words after it RAW (#2383), one per unwrap run that is `git` with a
+ * subcommand. For a reader judging the command and not the tree it runs
+ * against, which takes shell-parse.js's walkGit instead.
  * @param {string[]} words masked
+ * @param {string[]} spans
+ * @returns {{ sub: string, args: string[] }[]}
+ */
+const gitWords = (words, spans) =>
+	unwrap(words, spans).flatMap((run) => {
+		const git = gitRunWords(run.words, spans);
+		return git ? [git] : [];
+	});
+
+/**
+ * @param {string[]} ws one unwrap run's words
  * @param {string[]} spans
  * @returns {{ sub: string, args: string[] } | null}
  */
-function gitWords(words, spans) {
-	const ws = unwrap(words, spans).words;
+function gitRunWords(ws, spans) {
 	const [cmd] = ws;
 	if (cmd === undefined || afterSlash(literal(cmd, spans).text) !== "git")
 		return null;
@@ -924,14 +990,25 @@ function gitWords(words, spans) {
  * wrapper, a path to the binary, and `gh`'s own flags before the command
  * word, of which only `-R`/`--repo` takes a value.
  *
- * Null where the command is not `gh`, or where `--help`/`-h` stands anywhere in
- * it: usage prints and dispatches nothing.
+ * One per unwrap run that is `gh`, `wrapperWords` that run's; none for a run
+ * where `--help`/`-h` stands anywhere: usage prints and dispatches nothing.
  * @param {string[]} words masked
+ * @param {string[]} spans
+ * @returns {(GhCall & { wrapperWords: string[] })[]}
+ */
+const ghWords = (words, spans) =>
+	unwrap(words, spans).flatMap(({ words: ws, wrapperWords }) => {
+		const gh = ghRunWords(ws, spans);
+		return gh ? [{ ...gh, wrapperWords }] : [];
+	});
+
+/**
+ * @param {string[]} ws one unwrap run's words
  * @param {string[]} spans
  * @returns {GhCall | null}
  */
-function ghWords(words, spans) {
-	const [cmd, ...args] = unwrap(words, spans).words;
+function ghRunWords(ws, spans) {
+	const [cmd, ...args] = ws;
 	if (cmd === undefined || !isGhCommand(literal(cmd, spans).text)) return null;
 	const read = (/** @type {string} */ w) => literal(w, spans).text;
 	if (args.some((w) => read(w) === "--help" || read(w) === "-h")) return null;
@@ -1012,12 +1089,24 @@ const NODE_VALUE_FLAGS = [
  * spelling hides its directory and keeps its basename. Residual: a node flag
  * taking a value outside NODE_VALUE_FLAGS leaves the value in the script's
  * place, and the call is not recognised.
+ *
+ * One argument list per unwrap run that is such a call.
  * @param {string[]} words masked
+ * @param {string[]} spans
+ * @returns {string[][]}
+ */
+const commitPathsArgs = (words, spans) =>
+	unwrap(words, spans).flatMap((run) => {
+		const args = commitPathsRunArgs(run.words, spans);
+		return args ? [args] : [];
+	});
+
+/**
+ * @param {string[]} ws one unwrap run's words
  * @param {string[]} spans
  * @returns {string[] | null}
  */
-function commitPathsArgs(words, spans) {
-	const ws = unwrap(words, spans).words;
+function commitPathsRunArgs(ws, spans) {
 	const [cmd] = ws;
 	if (cmd === undefined) return null;
 	const head = afterSlash(literal(cmd, spans).text);

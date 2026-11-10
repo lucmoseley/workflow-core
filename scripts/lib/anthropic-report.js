@@ -30,7 +30,7 @@ const {
 	walkVerdict,
 } = require("./guard-verdict.js");
 const { parseCommand } = require("./shell-parse.js");
-const { ghWords, literal, unwrap } = require("./shell-words.js");
+const { ghWords, literal } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -154,11 +154,13 @@ function urlRepo(word) {
  */
 function judge(run, cmd) {
 	if (cmd.words[0] === "export") noteExport(run, cmd.words);
-	const gh = ghWords(cmd.words, run.parsed.spans);
-	if (!gh) return;
-	const group = captured(run, gh.args[0] ?? "");
-	if (group === "issue" || group === "pr") judgeFlagForm(run, cmd, group, gh);
-	else if (group === "api") judgeApi(run, cmd, gh.args.slice(1));
+	for (const gh of ghWords(cmd.words, run.parsed.spans)) {
+		/* The run's `env` assignments lead it as the segment's own do. */
+		const at = { ...cmd, leading: [...cmd.leading, ...gh.wrapperWords] };
+		const group = captured(run, gh.args[0] ?? "");
+		if (group === "issue" || group === "pr") judgeFlagForm(run, at, group, gh);
+		else if (group === "api") judgeApi(run, at, gh.args.slice(1));
+	}
 }
 
 /**
@@ -291,8 +293,7 @@ function judgeUnnamed(run, cmd) {
  * @param {Command} cmd
  */
 function ghRepoEnv(run, cmd) {
-	const { wrapperWords } = unwrap(cmd.words, run.parsed.spans);
-	for (const w of [...cmd.leading, ...wrapperWords])
+	for (const w of cmd.leading)
 		if (w.startsWith("GH_REPO="))
 			return captured(run, w.slice("GH_REPO=".length));
 	if (run.exported !== "") return run.exported;
