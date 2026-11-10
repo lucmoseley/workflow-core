@@ -1784,12 +1784,14 @@ function fileReconcile(
 	map,
 	{ instructions, source, had },
 ) {
-	if (dry || map === null)
+	if (dry)
 		return report(
 			"reconcile",
 			"would",
 			`"${buildReconcileTitle(inp)}" under the first map, labelled ${RECONCILE_LABELS.join(" + ")}, unassigned${had ? "" : `, where ${instructions.map((m) => m.from).join(" or ")} was set aside`}`,
 		);
+	if (map === null)
+		throw new Error("new-repo.js: no first map outside a dry run");
 	const n = fileIssue(clone, env, {
 		slug: "reconcile",
 		noun: "the reconcile ticket",

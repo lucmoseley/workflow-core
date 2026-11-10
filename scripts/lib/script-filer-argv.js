@@ -14,7 +14,8 @@
  * @property {string} title
  * @property {readonly string[]} labels
  * @property {Placement} placement
- * @property {string} origin one of lib/issue-origin.js's ORIGINS
+ * @property {string} origin one of lib/issue-origin.js's ORIGINS, which
+ *   file-issue.js refuses a filing off
  * @property {readonly number[]} [distinctFrom] open lookalikes already
  *   ruled out
  * @property {readonly number[]} [sizeLineChecked]
@@ -44,8 +45,8 @@ function buildScriptFilerArgv({
 		"--origin",
 		origin,
 		"--no-fault",
-		...listFlag("--distinct-from", distinctFrom),
-		...listFlag("--size-line-checked", sizeLineChecked),
+		...buildListFlag("--distinct-from", distinctFrom),
+		...buildListFlag("--size-line-checked", sizeLineChecked),
 		"--body-file",
 		bodyFile,
 	];
@@ -55,6 +56,6 @@ function buildScriptFilerArgv({
  * @param {string} flag
  * @param {readonly number[]} ns
  */
-const listFlag = (flag, ns) => (ns.length > 0 ? [flag, ns.join(",")] : []);
+const buildListFlag = (flag, ns) => (ns.length > 0 ? [flag, ns.join(",")] : []);
 
 module.exports = { buildScriptFilerArgv };
