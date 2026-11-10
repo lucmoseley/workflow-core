@@ -5,6 +5,7 @@
  *
  *   node scripts/claude-child.js usage --config-dir <dir>
  *   node scripts/claude-child.js chrome --config-dir <dir> --pages <1-6> --prompt-file <f>
+ *   node scripts/claude-child.js judge --config-dir <dir> --timeout-ms <n> < prompt
  *
  * A launch spelt out in a skill is judged afresh by the auto-mode classifier
  * each time; a fixed script is what a
@@ -20,6 +21,10 @@
  *         prompt on stdin, since `--allowedTools` takes a list and swallows
  *         a prompt after it; the JSON result on stdout. Killed after
  *         lib/child-spawn.js's limit a page.
+ * judge   the gate judge's one question of one issue body (#4964), for
+ *         lib/gate-judge.js: lib/gate-judge-mode.js's flags, the prompt on
+ *         stdin, an empty working directory; the JSON result on stdout. Killed once --timeout-ms have passed since this
+ *         script started, the auth read included.
  *
  * --config-dir must be one of this machine's own seats (lib/arbiter-store.js's
  * configDirs). There is no free-prompt mode and no way to pass another flag.
@@ -34,11 +39,14 @@
 const { spawnSync } = require("node:child_process");
 const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
+const { JUDGE_ARGS } = require("./lib/gate-judge-mode.js");
 const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { realKey } = require("./lib/deref.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
@@ -47,6 +55,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const USAGE = [
 	`usage: node ${scriptPath("claude-child.js")} usage --config-dir <dir>`,
 	`       node ${scriptPath("claude-child.js")} chrome --config-dir <dir> --pages <1-6> --prompt-file <f>`,
+	`       node ${scriptPath("claude-child.js")} judge --config-dir <dir> --timeout-ms <n> < prompt`,
 ].join("\n");
 
 /* All three carried from the skill text they replace, never measured: the 60 s
@@ -107,7 +116,42 @@ function promptFdOrFail(given) {
 	}
 }
 
+/**
+ * The judge child's working directory: one per user, kept, since the harness
+ * leaves an empty project directory in the seat for each directory a child
+ * runs in. Refused where it is not this user's or holds anything, a CLAUDE.md
+ * for the child to load included.
+ */
+function emptyDirOrFail() {
+	const dir = path.join(
+		os.tmpdir(),
+		`wfc-gate-judge-${os.userInfo().username}`,
+	);
+	try {
+		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+		if (fs.statSync(dir).uid !== os.userInfo().uid)
+			return fail(`the judge's working directory ${dir} is another user's.`, 2);
+		if (fs.readdirSync(dir).length > 0)
+			return fail(`the judge's working directory ${dir} is not empty.`, 2);
+	} catch (e) {
+		return fail(
+			`the judge's working directory ${dir} could not be made (${caught(e).message}).`,
+			2,
+		);
+	}
+	return dir;
+}
+
+/** @param {string | true | undefined} given */
+function timeoutOrFail(given) {
+	const ms = Number(given);
+	if (typeof given !== "string" || !/^\d+$/.test(given) || ms < 1)
+		fail("--timeout-ms is a whole number of milliseconds, 1 or more.", 2);
+	return ms;
+}
+
 function main() {
+	const startedAt = Date.now();
 	const { command, flags } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
 		flags: { "--config-dir": "value" },
@@ -117,6 +161,7 @@ function main() {
 				usage: USAGE,
 				flags: { "--pages": "value", "--prompt-file": "value" },
 			},
+			judge: { usage: USAGE, flags: { "--timeout-ms": "value" } },
 		},
 	});
 	const seat = seatOrFail(flags["--config-dir"]);
@@ -125,7 +170,13 @@ function main() {
 	let args;
 	/** @type {import("node:child_process").SpawnSyncOptions} */
 	let opts;
-	if (command === "usage") {
+	/** @type {number | undefined} */
+	let boundMs;
+	if (command === "judge") {
+		boundMs = timeoutOrFail(flags["--timeout-ms"]);
+		args = JUDGE_ARGS;
+		opts = { stdio: "inherit", cwd: emptyDirOrFail() };
+	} else if (command === "usage") {
 		args = ["-p", "/usage", "--permission-mode", "manual"];
 		opts = {
 			stdio: ["ignore", "inherit", "inherit"],
@@ -159,9 +210,22 @@ function main() {
 		command === "usage"
 			? ` Read the cached bars instead: node ${scriptPath("allowance.js")} --config-dir ${seat}`
 			: "";
-	const refusal = launchAuthRefusal({ bin, env, cwd: process.cwd() });
+	const refusal = launchAuthRefusal({
+		bin,
+		env,
+		cwd: typeof opts.cwd === "string" ? opts.cwd : process.cwd(),
+	});
 	if (refusal) fail(`${refusal}${cached}`, 2);
+	if (boundMs !== undefined)
+		opts.timeout = Math.max(1, boundMs - (Date.now() - startedAt));
 	const r = spawnSync(bin, args, { ...opts, env });
+	if (
+		boundMs !== undefined &&
+		r.error &&
+		"code" in r.error &&
+		r.error.code === "ETIMEDOUT"
+	)
+		fail(`the child was killed at its ${boundMs} ms bound.`, 1);
 	if (r.error)
 		fail(`the child did not finish (${r.error.message}).${cached}`, 1);
 	if (r.signal) fail(`the child was killed by ${r.signal}.`, 1);

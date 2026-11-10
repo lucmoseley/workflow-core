@@ -19,6 +19,7 @@ import {
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
+import { JUDGE_ARGS } from "./lib/gate-judge-mode.js";
 
 const SCRIPT = path.resolve(__dirname, "claude-child.js");
 
@@ -33,9 +34,12 @@ fs.writeFileSync(out, JSON.stringify({
 	argv: process.argv.slice(2),
 	configDir: process.env.CLAUDE_CONFIG_DIR,
 	stdin: (() => { try { return fs.readFileSync(0, "utf8"); } catch { return null; } })(),
+	cwd: process.cwd(),
+	cwdEntries: fs.readdirSync(process.cwd()),
 }));
 process.stdout.write("child said hello\\n");
-process.exit(Number(process.env.STUB_EXIT || 0));
+if (process.env.STUB_HANG) setInterval(() => {}, 1000);
+else process.exit(Number(process.env.STUB_EXIT || 0));
 `;
 
 beforeEach(() => {
@@ -49,9 +53,14 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const run = (args: string[], extra: Record<string, string> = {}) =>
+const run = (
+	args: string[],
+	extra: Record<string, string> = {},
+	input?: string,
+) =>
 	spawnSync(process.execPath, [SCRIPT, ...args], {
 		encoding: "utf8",
+		input,
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: seat,
@@ -181,6 +190,67 @@ describe("chrome", () => {
 		]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("could not read the prompt file");
+		expect(launched()).toBe(false);
+	});
+});
+
+describe("judge", () => {
+	const judge = (ms = "60000", extra: Record<string, string> = {}) =>
+		run(
+			["judge", "--config-dir", seat, "--timeout-ms", ms],
+			extra,
+			"What waits does this body make?\n",
+		);
+
+	it("gives the child the judge mode's flags, the prompt on stdin, in an empty directory", () => {
+		const r = judge();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("child said hello\n");
+		expect(readSeen().argv).toEqual(JUDGE_ARGS);
+		expect(readSeen().argv).toEqual(
+			expect.arrayContaining([
+				"haiku",
+				"--tools",
+				"--setting-sources",
+				"--strict-mcp-config",
+				"--disable-slash-commands",
+				"--no-session-persistence",
+				"--json-schema",
+			]),
+		);
+		expect(readSeen().stdin).toBe("What waits does this body make?\n");
+		expect(readSeen().cwdEntries).toEqual([]);
+		expect(readSeen().cwd).not.toBe(process.cwd());
+		expect(readSeen().configDir).toBe(seat);
+	});
+
+	it("kills a child still running at the bound", () => {
+		const r = judge("1500", { STUB_HANG: "1" });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("the child was killed at its 1500 ms bound");
+	});
+
+	it.each([
+		["no bound", ["judge", "--config-dir", "SEAT"]],
+		[
+			"a bound that is no number",
+			["judge", "--config-dir", "SEAT", "--timeout-ms", "soon"],
+		],
+		[
+			"a bound of nothing",
+			["judge", "--config-dir", "SEAT", "--timeout-ms", "0"],
+		],
+	])("refuses %s, launching nothing", (_, args) => {
+		const r = run(args.map((a) => (a === "SEAT" ? seat : a)));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--timeout-ms is a whole number");
+		expect(launched()).toBe(false);
+	});
+
+	it.each(REFUSED_AUTH)("refuses under %s, launching nothing", (name, env) => {
+		const r = judge("60000", env);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`${name} is set`);
 		expect(launched()).toBe(false);
 	});
 });
