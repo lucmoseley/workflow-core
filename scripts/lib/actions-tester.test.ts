@@ -488,6 +488,64 @@ it("reads a failed dependency install as red, a broken lockfile being the code's
 	expect(r.reran).toEqual([]);
 });
 
+it("names on a red that failed the step ci.yml runs the type-check at the first ten tsc errors that step printed, and none on a red that passed it (#4800)", async () => {
+	const ci = fs.readFileSync(
+		path.join(__dirname, "..", "..", ".github", "workflows", "ci.yml"),
+		"utf8",
+	);
+	const typecheckStep =
+		/\n\s+- name: (.+)\n(?:\s+if: .+\n)?\s+run: npm run typecheck\n/.exec(
+			ci,
+		)?.[1] ?? "no step of ci.yml runs the type-check";
+	const lint = (step: string): Job => ({
+		name: "Full suite / Lint and types",
+		conclusion: "failure",
+		steps: [
+			{ name: "ESLint", conclusion: "success" },
+			{ name: step, conclusion: "failure" },
+		],
+	});
+	const errors = Array.from(
+		{ length: 12 },
+		(_, i) => `scripts/a.js(${i + 1},5): error TS2304: Cannot find name 'c'.`,
+	);
+	/* `gh` names a step, or prints UNKNOWN STEP for a job a reusable
+	 * workflow calls, as on run 39747307904. */
+	const logOf = (step: string) =>
+		[
+			`Full suite / Vitest (1/2)\t${step}\t2026-11-10T08:30:00.0Z fixture.js(1,1): error TS1: another job's`,
+			`Full suite / Lint and types\tESLint\t2026-11-10T08:30:00.5Z fixture.js(2,2): error TS2: another step's`,
+			`Full suite / Lint and types\t${step}\t2026-11-10T08:30:01.0Z > workflow-core@0.1.0 typecheck`,
+			...errors.map(
+				(e) =>
+					`Full suite / Lint and types\t${step}\t2026-11-10T08:30:01.5Z ${e}`,
+			),
+			`Full suite / Lint and types\t${step}\t2026-11-10T08:30:02.0Z ##[error]Process completed with exit code 2.`,
+		].join("\n");
+	let typedLog = logOf(typecheckStep);
+	const verdictWith = (step: string) => {
+		const r = reads([() => [run(6, "failure")]], [lint(step)]);
+		r.failedLogOf = () => typedLog;
+		return verdictOf(r);
+	};
+
+	expect(await verdictWith(typecheckStep)).toEqual({
+		kind: "red",
+		files: [],
+		jobs: ["Full suite / Lint and types"],
+		typecheck: errors.slice(0, 10),
+	});
+	typedLog = logOf("UNKNOWN STEP");
+	expect(await verdictWith(typecheckStep)).toMatchObject({
+		typecheck: errors.slice(0, 10),
+	});
+	expect(await verdictWith("Biome ci")).toEqual({
+		kind: "red",
+		files: [],
+		jobs: ["Full suite / Lint and types"],
+	});
+});
+
 it("reads a failed run through gh and the tree through git", async () => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "actions-tester-"));
 	const git = (...args: string[]) =>

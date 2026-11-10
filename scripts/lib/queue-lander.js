@@ -176,12 +176,13 @@ class TransientFault extends Error {}
  *   of one failure
  * @typedef {{kind: "green", run?: number, cleared?: string[]}
  *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
- *      retried?: boolean, noRun?: true}
+ *      retried?: boolean, noRun?: true, typecheck?: string[]}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
  *   CI run that passed it and `jobs` the failing CI jobs, where the tester
  *   read a CI run; `cleared` the files that run's in-job retry cleared, its
  *   flakes (#4558); `failures` where it named the failing tests; `noRun`
- *   where no CI run fired for the tree at all, naming no file; `transient`
+ *   where no CI run fired for the tree at all, naming no file; `typecheck`
+ *   the type-check's first errors, where that failed; `transient`
  *   where asking again shortly can reach a verdict, as when its suite slot
  *   stayed shut
  * @typedef {{readonly kind: "batch", readonly slot: number}
@@ -873,10 +874,14 @@ function redAction(b, s, main, { sha, whole }) {
 }
 
 /**
+ * What a drop's cause keeps of the red `v` beside its files.
  * @param {Extract<Verdict, {kind: "red"}>} v
- * @returns {{noRun?: true}}
+ * @returns {import("./lander-records.js").RedMarks}
  */
-const noRunOf = (v) => (v.noRun ? { noRun: v.noRun } : {});
+const redMarksOf = (v) => ({
+	...(v.noRun ? { noRun: v.noRun } : {}),
+	...(v.typecheck ? { typecheck: v.typecheck } : {}),
+});
 
 /**
  * @param {QueueState} s
@@ -972,7 +977,7 @@ function isolationAction(b, s, blame) {
 				name: m.name,
 				files,
 				iso: i.iso,
-				...noRunOf(v),
+				...redMarksOf(v),
 			},
 			s,
 		);
@@ -1055,7 +1060,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 				files: v.files,
 				step: sha,
 				after: landed,
-				...noRunOf(v),
+				...redMarksOf(v),
 			},
 			s,
 		);
