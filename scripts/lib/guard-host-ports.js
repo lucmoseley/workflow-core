@@ -35,9 +35,9 @@ const { relativeUnder } = require("./is-under.js");
  *   environment the entry was run in
  * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts
  *   & Partial<Pick<KitContext, "fallbackCwd" | "vars">>} Adapters
- *   the hook's own directory and expansion scope, which test support fills
- *   in place of the hook's; the dispatcher's entry leaves both to the kit's,
- *   the process's cwd and environment
+ *   the walk's fallback directory and expansion scope, which test support
+ *   fills in place of the hook's; the dispatcher's entry leaves both to the
+ *   kit's, lib/host-root.js's sessionDir and the process's environment
  */
 
 /**

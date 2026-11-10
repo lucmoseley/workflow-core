@@ -13,6 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readText } = require("./file-read.js");
 const { toolOf } = require("./guard-cores.js");
+const { sessionDir } = require("./host-root.js");
 const { markersDir } = require("./marker-root.js");
 const { moduleReader } = require("./workflow-core-config.js");
 const { segment } = require("./review-suffix.js");
@@ -161,7 +162,7 @@ function kitContext({ root, payload, log }, readers) {
 				? payload.permission_mode
 				: undefined,
 		cwd: typeof payload.cwd === "string" ? payload.cwd : undefined,
-		fallbackCwd: process.cwd(),
+		fallbackCwd: sessionDir(payload),
 		vars: shellVars(),
 		isDir: (p) =>
 			fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,

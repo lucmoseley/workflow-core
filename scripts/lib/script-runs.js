@@ -7,7 +7,7 @@
  * `source` or `.`; as the command itself where the command word holds a `/`;
  * each of those behind a WRAPPERS prefix; and inside a shell's `-c` text.
  * A relative path resolves against the walker's tracked `cd`, else the
- * hook's own directory.
+ * session's directory.
  *
  * LIMITS
  *  - It reads the PARSED command form, so a grep, an echo or a heredoc

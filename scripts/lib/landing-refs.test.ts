@@ -101,6 +101,18 @@ describe("pushedRef", () => {
 		}
 	});
 
+	it("reads the tree's host's config where no root is named (#4692)", () => {
+		host(["suites", "landing"]);
+		const tree = sessionWorktree("fix-it");
+		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tree, ".claude/workflow-core.json"),
+			JSON.stringify({ contract: 1, modules: ["suites"] }),
+		);
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
+		expect(pushedRef({ tree })).toBe("origin/queue/fix-it");
+	});
+
 	it("is origin/main for the host itself, with the module on", () => {
 		host(["suites", "landing"]);
 		expect(pushedRef({ root })).toBe("origin/main");
@@ -198,6 +210,26 @@ describe("the CLI", () => {
 		const r = cli(["pushed-branch", root]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("main\n");
+	});
+
+	it("reads the host's config for a linked worktree, not the worktree's own copy (#4692)", () => {
+		host(["suites", "landing"]);
+		const tree = sessionWorktree("fix-it");
+		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tree, ".claude/workflow-core.json"),
+			JSON.stringify({ contract: 1, modules: ["suites"] }),
+		);
+		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
+		for (const [verb, out] of [
+			["pushed", "origin/queue/fix-it"],
+			["unpushed", "origin/queue/fix-it"],
+			["pushed-branch", "queue/fix-it"],
+		]) {
+			const r = cli([verb, tree]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toBe(`${out}\n`);
+		}
 	});
 
 	it("fails the pushed branch on a config that will not read, never naming main", () => {

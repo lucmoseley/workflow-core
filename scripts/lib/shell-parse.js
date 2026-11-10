@@ -1056,8 +1056,8 @@ function resolveWord(word, scope) {
  * @typedef {object} WalkPorts
  * @property {string | undefined} cwd the payload's `.cwd`, where the session's
  *   shell stands (mantahostels#2682)
- * @property {string} fallbackCwd the hook's own directory, for a payload
- *   carrying no absolute cwd
+ * @property {string} fallbackCwd where a walk stands with no absolute `cwd`:
+ *   under a hook, lib/host-root.js's sessionDir (#4695)
  * @property {Record<string, string | undefined>} vars what an unassigned
  *   `$VAR` reads
  * @property {(path: string) => boolean} isDir
@@ -1295,7 +1295,7 @@ function absolutePath(walk, word) {
  * Call `fn` once per command `parsed` runs, in order. Segments that run
  * nothing are skipped, bar redirections alone under `bareRedirects`.
  *
- * Seeded from the payload's cwd, else the hook's own (mantahostels#2682). The
+ * Seeded from the payload's cwd, else `ports.fallbackCwd` (mantahostels#2682). The
  * cwd is moved AFTER each callback, so a `cd`'s own callback reads the
  * directory it ran from. A subshell's `)` hands back the cwd its `(` saw.
  * @param {Parsed} parsed
@@ -1392,8 +1392,8 @@ function walkCommands(parsed, fn, ports) {
  * whose tree will not resolve is recorded through `ports.log`, as is a tree
  * git could not answer for (mantahostels#147).
  *
- * SEEDED FROM `ports.fallbackCwd`, the hook's own directory, where walkCommands
- * seeds from the payload's.
+ * Seeded from `ports.fallbackCwd`, which a hook's context sets to the
+ * session's directory (#4695).
  * @param {Parsed} parsed
  * @param {(call: GitCall) => void} fn
  * @param {GitWalkPorts} ports
@@ -1877,7 +1877,7 @@ function readGitDir(word, target, scope) {
 
 /**
  * The unresolved-tree record's detail (#315, #320): what the walk could not
- * resolve as typed, the hook's own directory, and the walk's cwd.
+ * resolve as typed, the session's directory, and the walk's cwd.
  * @param {GitTarget} git
  * @param {Walk} walk
  * @param {string} pwd

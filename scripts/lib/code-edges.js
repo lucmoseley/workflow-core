@@ -66,22 +66,40 @@ const parseCodeLines = (text, comment) =>
 	text.split("\n").filter((line) => !comment.test(line));
 
 /**
- * The file node would load for a relative specifier, or vitest would where a
- * `.js` specifier names a `.ts` source; the bare join where none exists — so
- * a miss names the path as written.
+ * The paths node tries, in order, for a relative specifier, with vitest's
+ * `.ts` for a `.js` specifier naming a `.ts` source. Residual: node's
+ * `.node`, a directory's `package.json` "main", and vite's `.mjs`, `.mts`,
+ * `.jsx`, `.tsx` and `index.ts` are not tried, so a file appearing there is
+ * neither an edge nor a shadow.
  * @param {string} abs
  */
-function resolveJs(abs) {
-	for (const c of [
-		abs,
-		`${abs}.js`,
-		`${abs}.json`,
-		`${abs}.ts`,
-		...(abs.endsWith(".js") ? [`${abs.slice(0, -3)}.ts`] : []),
-		path.join(abs, "index.js"),
-	])
-		if (fs.statSync(c, { throwIfNoEntry: false })?.isFile()) return c;
-	return abs;
+const candidatesOf = (abs) => [
+	abs,
+	`${abs}.js`,
+	`${abs}.json`,
+	`${abs}.ts`,
+	...(abs.endsWith(".js") ? [`${abs.slice(0, -3)}.ts`] : []),
+	path.join(abs, "index.js"),
+];
+
+/** @param {string} c */
+const isFile = (c) =>
+	fs.statSync(c, { throwIfNoEntry: false })?.isFile() ?? false;
+
+/**
+ * The file node would load for a relative specifier, or vitest would where a
+ * `.js` specifier names a `.ts` source — the bare join where none exists, so
+ * a miss names the path as written — and the candidates tried before it,
+ * none where nothing resolved.
+ * @param {string} abs
+ * @returns {{target: string, tried: string[]}}
+ */
+function resolutionOf(abs) {
+	const candidates = candidatesOf(abs);
+	const hit = candidates.findIndex(isFile);
+	return hit < 0
+		? { target: abs, tried: [] }
+		: { target: candidates[hit] ?? abs, tried: candidates.slice(0, hit) };
 }
 
 /** @type {Set<string> | null} */
@@ -117,22 +135,50 @@ function edgesOf(file, text, fault) {
 }
 
 /**
+ * Each relative `require`, import or `createRequire(…)(…)` specifier in
+ * `code`, joined to `dir`.
+ * @param {string} dir
+ * @param {string} code comment lines already cut
+ * @returns {string[]}
+ */
+function relativeSpecifiers(dir, code) {
+	/** @type {string[]} */
+	const joined = [];
+	for (const m of code.matchAll(JS_SPEC)) {
+		const spec = jsSpecifier(m);
+		if (spec.startsWith(".")) joined.push(path.join(dir, spec));
+	}
+	for (const m of code.matchAll(CREATE_REQUIRE_SPEC))
+		joined.push(path.join(dir, requiredGroup(m, 1, CREATE_REQUIRE_SPEC)));
+	return joined;
+}
+
+/**
+ * The paths a JS or TypeScript file's relative specifiers tried before the
+ * file each resolved to (#4814): a file appearing at one would take the
+ * import over.
+ * @param {string} file absolute
+ * @param {string} text
+ * @returns {string[]} absolute
+ */
+function shadowsOf(file, text) {
+	if (!/\.[cm]?[jt]s$/.test(file)) return [];
+	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
+	return relativeSpecifiers(path.dirname(file), code).flatMap(
+		(abs) => resolutionOf(abs).tried,
+	);
+}
+
+/**
  * @param {string} dir the file's directory
  * @param {string} text
  * @returns {string[]}
  */
 function jsEdges(dir, text) {
-	/** @type {string[]} */
-	const edges = [];
 	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
-	for (const m of code.matchAll(JS_SPEC)) {
-		const spec = jsSpecifier(m);
-		if (spec.startsWith(".")) edges.push(resolveJs(path.join(dir, spec)));
-	}
-	for (const m of code.matchAll(CREATE_REQUIRE_SPEC))
-		edges.push(
-			resolveJs(path.join(dir, requiredGroup(m, 1, CREATE_REQUIRE_SPEC))),
-		);
+	const edges = relativeSpecifiers(dir, code).map(
+		(abs) => resolutionOf(abs).target,
+	);
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
 		const parts = [...requiredGroup(m, 1, DIRNAME_JOIN).matchAll(QUOTED)].map(
 			(p) => requiredGroup(p, 1, QUOTED),
@@ -198,7 +244,7 @@ function pyNames(list) {
  */
 function pyImportedModules(m) {
 	/* Group 1 is the `from` branch, which always carries group 2; group
-	 * 3 is the bare `import` branch. The two throws check that invariant. */
+	 * 3 is the bare `import` branch. */
 	const [, from, fromNames, bareNames] = m;
 	if (from === undefined) {
 		if (bareNames === undefined)
@@ -231,4 +277,4 @@ function pushPyModuleEdge(dir, mod, edges, fault) {
 		fault(`imports ${top}, which is neither stdlib nor shipped beside it`);
 }
 
-module.exports = { edgesOf, JS_SPEC, jsSpecifier };
+module.exports = { edgesOf, isFile, shadowsOf, JS_SPEC, jsSpecifier };
