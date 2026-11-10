@@ -697,7 +697,21 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 		const derived =
 			"baseline 27/449 attempts (6.0%, `jq -s length .queue-log.jsonl`); pass = 0 refusals in 69 attempts";
 		expect(warrantFaults(derived)).toEqual([]);
+		// the template's "n = 69", with no unit after it
+		expect(
+			warrantFaults(
+				"baseline 27/449 (6.0%, `jq`); pass = 0 refusals in n = 69",
+			),
+		).toEqual([]);
 		for (const short of [
+			// "n =" one of the baseline's own numbers, or no whole number
+			"baseline 27/449 attempts (6.0%, `jq`); n = 449",
+			"baseline 27/449 attempts (6.0%, `jq`); n = 6.5",
+			// nor a date, a percentage, a range or a leading zero
+			"baseline 27/449 attempts (6.0%, `jq`); n = 12 Nov 2026",
+			"baseline 27/449 attempts (`jq`); n = 5%",
+			"baseline 27/449 attempts (6.0%, `jq`); n = 12 – 14",
+			"baseline 27/449 attempts (6.0%, `jq`); n = 00",
 			// no source
 			"baseline 27/449 attempts (6.0%); pass = 0 refusals in 69 attempts",
 			// no bound
@@ -781,6 +795,20 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 				legacy.replace("the body sets a week", "#12 ruled a week"),
 			),
 		).toEqual([]);
+	});
+
+	it("judges a legacy basis beneath a gate line the edit moved or added", () => {
+		const legacy =
+			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** the body sets a week";
+		const fault = [{ kind: "no-warrant", text: "the body sets a week" }];
+		expect(
+			introducedBasisFaults(legacy, legacy.replace("2099-01-01", "2099-02-01")),
+		).toEqual(fault);
+		const prose =
+			"Read it a week after it lands.\n**Gate basis:** the body sets a week";
+		expect(
+			introducedBasisFaults(prose, `**Gated until:** 2099-01-01 — x\n${prose}`),
+		).toEqual(fault);
 	});
 
 	it("refuses naming the basis and the template", () => {
