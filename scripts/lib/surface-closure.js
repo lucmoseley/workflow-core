@@ -6,7 +6,7 @@
  *
  * A PRESENCE CLOSURE, NOT A LOAD CLOSURE: a file loaded lazily, or run rather
  * than imported, still has to ship. The edges are code-edges.js's. A Python
- * module neither stdlib nor beside its importer is a fault. A JS file's npm
+ * module code-edges.js cannot place is a fault. A JS file's npm
  * package is not judged here: plugin-tree.js's scan already faults one in
  * every shipped file.
  */

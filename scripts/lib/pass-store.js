@@ -212,10 +212,10 @@ function snapshotOf(root, file) {
 	return fs.existsSync(path.join(root, snap)) ? [snap] : [];
 }
 
-/* A Python import neither stdlib nor beside its importer, such as one found
- * through `sys.path`, leaves the reach unknown: the file records no row
- * (#4790). Residual: a test spawning such a script is never cached, and no
- * notice says so. */
+/* A Python import code-edges.js cannot place, such as a third-party package
+ * or one found after a sys.path edit it cannot read, leaves the reach
+ * unknown: the file records no row (#4790, #4864). Residual: a test spawning
+ * such a script is never cached, and no notice says so. */
 const refuseFault = (/** @type {string} */ why) => {
 	throw new Error(why);
 };

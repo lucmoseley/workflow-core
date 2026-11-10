@@ -144,8 +144,9 @@ describe("the render's helper-surface closure", () => {
 		);
 		write("scripts/lib/sib.py", "import sys\n");
 		write("scripts/lib/pkg/__init__.py", "import yaml\n");
+		write("scripts/lib/pkg/sub.py", "");
 		expect(() => buildTree(root, out)).toThrow(
-			/^helper surface: scripts\/lib\/pkg\/__init__\.py imports yaml, which is neither stdlib nor shipped beside it$/,
+			/^helper surface: scripts\/lib\/pkg\/__init__\.py imports yaml, which is neither stdlib nor found beside it or on a sys.path entry it adds$/,
 		);
 		fs.rmSync(path.join(root, "scripts/lib/sib.py"));
 		fs.writeFileSync(path.join(root, "scripts/lib/pkg/__init__.py"), "");
@@ -159,7 +160,7 @@ describe("the render's helper-surface closure", () => {
 		write("scripts/lib/p.py", "from sib import x\n");
 		write("scripts/lib/sib.py", "import yaml\n");
 		expect(() => buildTree(root, out)).toThrow(
-			"helper surface: scripts/lib/sib.py imports yaml, which is neither stdlib nor shipped beside it",
+			"helper surface: scripts/lib/sib.py imports yaml, which is neither stdlib nor found beside it or on a sys.path entry it adds",
 		);
 	});
 });
