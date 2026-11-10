@@ -41,15 +41,19 @@ const OUTSIDE_FILE = ".refill-outside.json";
  * @typedef {import("./refill-blocks.js").SessionRef} SessionRef
  * @typedef {import("./refill-blocks.js").CauseOf} CauseOf
  * @typedef {import("./refill-blocks.js").Unretired} Unretired
+ * @typedef {import("./refill-blocks.js").ResumeTarget & {sessionId: string}}
+ *   StoppedTarget  what a stopped session's `--bg --resume` runs under
  * @typedef {{seat: string, jobId: string, name: string, cwd: string,
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
- *   nextAt?: number, attachAt?: number, handsOff?: true, capped?: true,
- *   held?: {sessionId: string, cwd: string}, unretired?: Unretired[]}}
+ *   nextAt?: number, attachAt?: number, handsOff?: true, typedUnread?: true,
+ *   capped?: true,
+ *   held?: StoppedTarget, unretired?: Unretired[]}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
  *   `attachAt`, a typed resume not yet seen arrive; `handsOff`, the founder
- *   typed into it since this stop; `capped`, its resumes reached the cap,
+ *   typed into it since this stop; `typedUnread`, whether it
+ *   did is unread, logged once; `capped`, its resumes reached the cap,
  *   after which the loop leaves this stop alone; `held`, the session the
  *   loop stopped whose `--bg --resume` failed, resumed when next due;
  *   `unretired`, the originals of its copies whose jobs would not retire
@@ -71,6 +75,15 @@ const sessionRefOf = (o) => ({
 const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
 
 /**
+ * Whether the tick may set `o` running: launching unbarred and the network
+ * up (netGateOf, which logs a resume it holds back).
+ * @param {Outside} o
+ * @param {Tick} seen
+ */
+const isRunAdmitted = (o, seen) =>
+	!seen.barred && netGateOf(seen).admit(nameOf(o));
+
+/**
  * `o` between stops: its resume count kept, its stop's fields dropped; none
  * where it was capped.
  * @param {Outside} o
@@ -78,7 +91,14 @@ const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
  */
 function betweenStops(o) {
 	if (o.capped) return null;
-	const { since: _, attachAt: __, handsOff: ___, held: ____, ...rest } = o;
+	const {
+		since: _,
+		attachAt: __,
+		handsOff: ___,
+		held: ____,
+		typedUnread: _____,
+		...rest
+	} = o;
 	return rest;
 }
 
@@ -120,7 +140,7 @@ function withoutHeld(o) {
  * @param {number} now
  * @returns {Outside|null}
  */
-function takenUp(a, now) {
+function buildOutside(a, now) {
 	if (a.kind !== "background" || !a.id || !a.seat || !a.cwd) return null;
 	return {
 		seat: a.seat,
@@ -138,7 +158,7 @@ function takenUp(a, now) {
  * prompt: `o` moved onto the job it runs as, else marked `held` for a retry
  * when next due.
  * @param {Outside} o
- * @param {{sessionId: string, cwd: string}} target
+ * @param {StoppedTarget} target
  * @param {Tick} seen
  * @returns {Outside}
  */
@@ -160,7 +180,7 @@ function relaunch(o, target, { io }) {
 
 /**
  * Stop `o`'s session and relaunch it under its full id, its typed resume
- * unseen; never where it took a prompt since its stop (isTakenSinceStop).
+ * unseen; never where it took a turn since its stop (isTakenSinceStop).
  * @param {Outside} o  its typed resume settled
  * @param {Tick} seen
  * @returns {Outside}
@@ -186,7 +206,7 @@ function fallBack(o, seen) {
 /**
  * `o`, stopped by the loop with its relaunch failed, tried again once due: a
  * try of its own; at the cap, logged and dropped, left stopped.
- * @param {Outside & {held: {sessionId: string, cwd: string}}} o
+ * @param {Outside & {held: StoppedTarget}} o
  * @param {Tick} seen
  * @returns {Outside|null}
  */
@@ -198,8 +218,7 @@ function retryHeld(o, seen) {
 		);
 		return null;
 	}
-	if ((o.nextAt ?? 0) > now || seen.barred || !netGateOf(seen).admit(nameOf(o)))
-		return o;
+	if ((o.nextAt ?? 0) > now || !isRunAdmitted(o, seen)) return o;
 	const tries = o.tries + 1;
 	return relaunch(
 		{ ...o, tries, triedAt: now, nextAt: nextTryAt(tries, now) },
@@ -243,7 +262,7 @@ function actOn(o, seen) {
 		if (verdict === "pending") return o;
 		const { attachAt: _, ...settled } = o;
 		if (verdict === "arrived") return settled;
-		if (seen.barred || !netGateOf(seen).admit(nameOf(o))) return o;
+		if (!isRunAdmitted(o, seen)) return o;
 		return fallBack(settled, seen);
 	}
 	const act = blockAct(
@@ -264,15 +283,15 @@ function actOn(o, seen) {
 		);
 		return { ...o, capped: true };
 	}
-	if (act !== "resume" || seen.barred || !netGateOf(seen).admit(nameOf(o)))
-		return o;
+	if (act !== "resume" || !isRunAdmitted(o, seen)) return o;
 	return resume(o, seen);
 }
 
 /**
  * `o` this tick, blocked live on the listing: taken up on a transient API
- * error, left alone where capped or the founder has typed since its stop, else
- * acted on; null where it is blocked on anything else.
+ * error, left alone where capped or where the founder has typed since its
+ * stop or that cannot be read, else acted on; null where it is blocked on
+ * anything else.
  * @param {Outside} o
  * @param {AgentRecord} row
  * @param {CauseOf} causeOf
@@ -287,13 +306,25 @@ function judge(o, row, causeOf, seen) {
 		return o.tries > 0 ? betweenStops(o) : null;
 	if (o.capped || o.handsOff) return o;
 	const stopped = { ...o, since: o.since ?? now };
-	if (io.hasFounderTypedSinceStop(ref)) {
+	const typed = io.hasFounderTypedSinceStop(ref);
+	if (typed) {
 		io.log(
 			`leaving ${nameOf(o)} alone: the founder typed into it since its API-error stop`,
 		);
 		return { ...stopped, handsOff: true };
 	}
-	return actOn(stopped, seen);
+	if (typed === null) {
+		/* Unknown is not typed-into: it waits and is read again next tick, as
+		 * the read may be passing (#4815); one whose stop row never shows is
+		 * never resumed, the residual. */
+		if (!o.typedUnread)
+			io.log(
+				`leaving ${nameOf(o)} alone while its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
+			);
+		return { ...stopped, typedUnread: true };
+	}
+	const { typedUnread: _, ...read } = stopped;
+	return actOn(read, seen);
 }
 
 /**
@@ -375,7 +406,7 @@ function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 		if (k) next.push(k);
 	};
 	for (const row of registry) {
-		const fresh = takenUp(row, seen.now);
+		const fresh = buildOutside(row, seen.now);
 		if (!fresh || known.has(fresh.jobId)) continue;
 		const key = `${fresh.seat}\0${fresh.jobId}`;
 		const o = byJob.get(key);

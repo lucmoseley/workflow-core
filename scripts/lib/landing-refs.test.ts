@@ -19,7 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
 
-const { pushedRef, queueRefOf, readUnpushedRef } =
+const { ownQueueRef, pushedRef, readUnpushedRef } =
 	createRequire(__filename)("./landing-refs.js");
 const SCRIPT = path.join(__dirname, "landing-refs.js");
 
@@ -180,17 +180,35 @@ describe("readUnpushedRef", () => {
 	});
 });
 
-describe("queueRefOf", () => {
+describe("ownQueueRef", () => {
 	it("names a worktree under the host's .claude/worktrees by its directory", () => {
 		expect(
-			queueRefOf("/h", path.join("/h", ".claude", "worktrees", "fix-it")),
+			ownQueueRef(path.join("/h", ".claude", "worktrees", "fix-it"), "/h"),
 		).toBe("queue/fix-it");
 	});
 
 	it("names no queue ref for the host itself or a tree elsewhere", () => {
-		expect(queueRefOf("/h", "/h")).toBeNull();
-		expect(queueRefOf("/h", "/elsewhere/.claude/worktrees/x")).toBeNull();
-		expect(queueRefOf("/h", null)).toBeNull();
+		expect(ownQueueRef("/h", "/h")).toBeNull();
+		expect(ownQueueRef("/elsewhere/.claude/worktrees/x", "/h")).toBeNull();
+		expect(ownQueueRef(null, "/h")).toBeNull();
+	});
+
+	/* #4856: every caller asks here, so a host or tree reached through a
+	 * symlink names the one ref a land pushes. */
+	it("names the same ref through a symlinked host or tree", () => {
+		const tree = path.join(root, ".claude", "worktrees", "fix-it");
+		fs.mkdirSync(tree, { recursive: true });
+		const linkedHost = `${root}-host`;
+		const linkedTree = `${root}-tree`;
+		fs.symlinkSync(root, linkedHost);
+		fs.symlinkSync(tree, linkedTree);
+		try {
+			expect(ownQueueRef(tree, linkedHost)).toBe("queue/fix-it");
+			expect(ownQueueRef(linkedTree, root)).toBe("queue/fix-it");
+		} finally {
+			fs.rmSync(linkedHost);
+			fs.rmSync(linkedTree);
+		}
 	});
 });
 

@@ -11,6 +11,7 @@ const { MOVED_LINE } = require("./land-refusal.js");
 const { QUEUE_PREFIX, VERIFIED_REF } = require("./landing-refs.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const { escapeRe } = require("./regex-group.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /** A levelling pass's own reflog message on `main` (lib/level-main.js). */
 const FAST_FORWARD = /^merge [0-9a-f]{40}: Fast-forward$/;
@@ -270,6 +271,8 @@ function landingOutcome(span) {
 	return PUSHED.test(span.result) ? { kind: "pushed" } : null;
 }
 
+const IN_WORKTREE = new RegExp(`^${escapeRe(WORKTREES)}/[^/]+/(.+)$`);
+
 /**
  * The repo-relative path an `Edit` wrote, where it is this repo's: under the
  * main checkout or one of its `.claude/worktrees/<name>/` worktrees.
@@ -281,9 +284,9 @@ function repoPath(root, file) {
 	if (typeof file !== "string") return null;
 	const rel = relativeUnder(root, file);
 	if (!rel) return null;
-	const inWorktree = /^\.claude\/worktrees\/[^/]+\/(.+)$/.exec(rel);
+	const inWorktree = IN_WORKTREE.exec(rel);
 	if (inWorktree) return group(inWorktree, 1);
-	return isUnder(rel, [".claude/worktrees"]) ? null : rel;
+	return isUnder(rel, [WORKTREES]) ? null : rel;
 }
 
 /**

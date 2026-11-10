@@ -20,6 +20,7 @@ export function kitContextFake<P extends object = object>(
 		fallbackCwd: "/repo",
 		vars: {},
 		isDir: () => false,
+		statKind: () => "absent",
 		moduleOn: () => false,
 		treeClass: fakeTreeClassifier({}),
 		log: () => undefined,

@@ -150,19 +150,9 @@ function ownTree(procs) {
 	]);
 }
 
-/** Minutes under 90 m, hours under 48 h, else days: edges a judgement, so no
- * figure prints above 90 or 48 of its unit.
- * @param {number} s seconds */
-function describeAge(s) {
-	if (s < 90 * 60) return `${Math.floor(s / 60)}m`;
-	if (s < 48 * 3600) return `${Math.floor(s / 3600)}h`;
-	return `${Math.floor(s / 86_400)}d`;
-}
-
 module.exports = {
 	USER_HZ,
 	ageSeconds,
-	describeAge,
 	ownTree,
 	readProcTable,
 	readStartTicks,

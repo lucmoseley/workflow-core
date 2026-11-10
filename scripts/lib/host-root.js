@@ -214,7 +214,7 @@ function sessionDir({ cwd }) {
 
 /**
  * The session's tree: the git top level of `sessionDir(input)`, symlinks
- * dereferenced. Null where git names no top level — outside every repository,
+ * dereferenced, whatever repository it belongs to. Null where git names no top level — outside every repository,
  * or git failing — never the host. `scripts/lib/guard-root.sh`'s
  * `gr_session_tree` is the shell half; change the two together.
  * @param {{ cwd?: unknown }} input
@@ -232,9 +232,11 @@ function sessionTree(input) {
 }
 
 /**
- * The session's tree: the git top level of the working directory where that
- * is a linked worktree of the host repository, else `hostRoot()`. It is what a
- * test run reads and where a script writing tracked files writes (#4438).
+ * The host's tree for `cwd`: its git top level where that is a linked
+ * worktree of the host repository, else `hostRoot()`, so never another
+ * repository's. It is what a test run reads and where a script writing
+ * tracked files writes (#4438); lib/tree-or.js's `linkedTreeOrRoot` is a
+ * core's half, over its ports.
  *
  * NOT `hostRoot()` ALONE (#2940). `hostRoot()` names the main checkout, so a
  * run launched inside a linked worktree would otherwise test the main

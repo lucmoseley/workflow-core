@@ -40,6 +40,11 @@ delete process.env.WFC_LANDER_RUN;
  * Deleted in the worker, so vitest's own process still reads them. */
 delete process.env.WFC_PASS_STORE_CACHED;
 
+/* A live memory-hold trial's declaration is the machine's, not a case's:
+ * blank, it reads as no hold, so a meminfo fixture is never lifted by the
+ * real holder's MB (#4862). A case naming its own still wins. */
+process.env.WFC_MEMORY_HOLD = "";
+
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
  * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on

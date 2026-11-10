@@ -10,7 +10,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LANDER_WORKTREE } from "./lander-worktree.js";
 import {
 	localTester,
 	parseFailingTests,
@@ -23,6 +22,7 @@ import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
 import { queueSeat } from "./suite-queue.js";
 import { admitted } from "./suite-slot-fake";
+import { LANDER_WORKTREE } from "./worktree-dirs.js";
 
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };

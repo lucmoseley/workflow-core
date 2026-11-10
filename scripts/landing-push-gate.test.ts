@@ -103,6 +103,14 @@ describe("with the landing module on", () => {
 		expect(r.stderr).toContain("session-checkout.js land");
 	});
 
+	it("refuses a push to main where the green ledger will not read, naming the fault (#4856)", () => {
+		fs.mkdirSync(ledger(), { recursive: true });
+		const r = check(buildRefLine(sha, "refs/heads/main"));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("green ledger");
+		expect(r.stderr).toContain("EISDIR");
+	});
+
 	it("passes a push creating main on a remote that has none: a new repo's first push (#2412)", () => {
 		const r = check(buildRefLine(sha, "refs/heads/main", ZERO));
 		expect(r.status, r.stderr).toBe(0);
