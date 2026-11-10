@@ -65,6 +65,7 @@ const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
 const idSeam = require("./lib/session-id.js");
 const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
 const { monotonicMs } = require("./lib/suite-ceiling.js");
 const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
@@ -240,9 +241,11 @@ function pytestPlan(argv, root) {
 	} catch (error) {
 		writeFd(
 			2,
-			`\nNARROWING FAILED, SO NOTHING RAN (#2934) — ${String(error instanceof Error ? error.message : error).trim()}\n\n` +
-				"A failed narrowing is never widened to the whole suite. Fix the cause and re-run, or run the whole suite on purpose:\n\n" +
-				"  npm run test:py -- scripts\n\n",
+			narrowingRefusal({
+				ruling: "(#2934)",
+				cause: error,
+				wholeSuite: "npm run test:py -- scripts",
+			}),
 		);
 		return 1;
 	}
