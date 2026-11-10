@@ -919,13 +919,16 @@ describe("output path", () => {
 });
 
 describe("memory bound", () => {
-	/** Peak RSS in KB of `node <args>`, through a preload that records it. */
+	/** Peak RSS in KB of `node <args>`, through a preload that records it.
+	 * VmHWM, not resourceUsage().maxRSS: Linux carries the spawning process's
+	 * high-water mark across exec into maxRSS, so under a vitest worker grown
+	 * past the whole read's peak every child reads the worker's figure (#4881). */
 	const peakKb = (args: string[]) => {
 		const preload = path.join(repo, "peak.js");
 		const record = path.join(repo, "peak.txt");
 		fs.writeFileSync(
 			preload,
-			`process.on("exit", () => require("fs").writeFileSync(${JSON.stringify(record)}, String(process.resourceUsage().maxRSS)));`,
+			`process.on("exit", () => { const fs = require("fs"); fs.writeFileSync(${JSON.stringify(record)}, /VmHWM:\\s+(\\d+)/.exec(fs.readFileSync("/proc/self/status", "utf8"))[1]); });`,
 		);
 		/* A small heap and nursery so GC runs promptly: without them a streaming
 		 * read's garbage lingers and its peak tracks the file size anyway. 24 MB:
