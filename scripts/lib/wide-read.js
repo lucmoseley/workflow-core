@@ -215,8 +215,19 @@ function decide(subject, ctx) {
  * @param {Thresholds} t
  * @returns {string[]}
  */
-function judge(words, spans, ctx, t) {
-	const [head, ...args] = unwrap(words, spans).words;
+const judge = (words, spans, ctx, t) =>
+	unwrap(words, spans).flatMap((run) => judgeRun(run.words, spans, ctx, t));
+
+/**
+ * One unwrap run's findings.
+ * @param {string[]} words the run's words
+ * @param {string[]} spans
+ * @param {WideReadContext} ctx
+ * @param {Thresholds} t
+ * @returns {string[]}
+ */
+function judgeRun(words, spans, ctx, t) {
+	const [head, ...args] = words;
 	if (head === undefined) return [];
 	const base = literal(head, spans);
 	if (!base.known) return [];

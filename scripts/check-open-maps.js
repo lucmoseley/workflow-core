@@ -32,6 +32,7 @@
  */
 
 const { runCheck } = require("./lib/check");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	ghApiSlurp,
 	ghOpenIssuesWithLabel,
@@ -292,7 +293,7 @@ function reportMissingPointers(ctx, missingPointers) {
 				`  #${p.child} — closed, no pointer on map #${p.map} ${p.mapTitle}\n    ${p.mapUrl}`,
 			);
 		ctx.say(
-			'\n  Add the pointer: node scripts/issue-body.js append-section <map> --heading "Decisions so far" --text "- #<child> — …"\n' +
+			`\n  Add the pointer: node ${scriptPath("issue-body.js")} append-section <map> --heading "Decisions so far" --text "- #<child> — …"\n` +
 				"  (docs/agents/issue-tracker.md — only appends into a heading that already exists).",
 		);
 	}
@@ -317,7 +318,7 @@ function reportNearCap(ctx, nearCap) {
 				`  #${m.number} ${m.title} — ${m.count} sub-issue(s)\n    ${m.url}`,
 			);
 		ctx.say(
-			"\n  Run: node scripts/archive-closed-children.js <map>\n" +
+			`\n  Run: node ${scriptPath("archive-closed-children.js")} <map>\n` +
 				"  (docs/agents/issue-tracker.md §Placing a new issue).",
 		);
 	}

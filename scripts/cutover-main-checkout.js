@@ -15,6 +15,7 @@
  */
 
 const { listedAgents } = require("./lib/agent-liveness.js");
+const { scriptPath } = require("./lib/script-path.js");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
@@ -32,7 +33,7 @@ const { cut, land } = require("./lib/session-checkout.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const CLI = { usage: "usage: node scripts/cutover-main-checkout.js" };
+const CLI = { usage: `usage: node ${scriptPath("cutover-main-checkout.js")}` };
 
 /**
  * @param {string[]} [argv]

@@ -93,15 +93,14 @@ function bareSegment(command, ports) {
 		parsed,
 		(cmd) => {
 			if (found) return;
-			const words = unwrap(cmd.words, spans).words;
-			if (words.length === 0) return;
-			const launch = suiteLaunchKind(words.map(typed), LAUNCH_PORTS);
-			if (launch?.kind !== "npm-vitest") return;
-			const asked = words
-				.slice(launch.taken)
-				.some((w) => w !== "--" && literal(w, spans).text !== "--queue");
-			if (asked) return;
-			found = { segment: cmd.segment, cwd: cmd.cwd };
+			const bare = unwrap(cmd.words, spans).some(({ words }) => {
+				const launch = suiteLaunchKind(words.map(typed), LAUNCH_PORTS);
+				if (launch?.kind !== "npm-vitest") return false;
+				return !words
+					.slice(launch.taken)
+					.some((w) => w !== "--" && literal(w, spans).text !== "--queue");
+			});
+			if (bare) found = { segment: cmd.segment, cwd: cmd.cwd };
 		},
 		ports,
 	);

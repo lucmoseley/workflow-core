@@ -51,6 +51,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
@@ -74,15 +75,12 @@ const {
 	selfPluginSetup,
 } = require("./lib/core-hooks.js");
 
-const CONFIG_USAGE =
-	"Usage: node scripts/build-arm-sandbox.js config --from <config dir> --to <new dir> [--override <path>=<file>]...";
-const TASK_USAGE =
-	"Usage: node scripts/build-arm-sandbox.js task --repo <repo> --at <rev> --to <new dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <arm config dir>]";
+const CONFIG_USAGE = `Usage: node ${scriptPath("build-arm-sandbox.js")} config --from <config dir> --to <new dir> [--override <path>=<file>]...`;
+const TASK_USAGE = `Usage: node ${scriptPath("build-arm-sandbox.js")} task --repo <repo> --at <rev> --to <new dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <arm config dir>]`;
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage:
-		"Usage: node scripts/build-arm-sandbox.js (config --from <dir> --to <dir> [--override <path>=<file>]... | task --repo <repo> --at <rev> --to <dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <dir>])",
+	usage: `Usage: node ${scriptPath("build-arm-sandbox.js")} (config --from <dir> --to <dir> [--override <path>=<file>]... | task --repo <repo> --at <rev> --to <dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <dir>])`,
 	commands: {
 		config: {
 			usage: CONFIG_USAGE,

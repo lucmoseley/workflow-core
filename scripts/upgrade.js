@@ -37,6 +37,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { ghLabels } = require("./lib/core-owned-files.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
@@ -47,8 +48,7 @@ const { upgrade } = require("./lib/upgrade-walk.js");
 /** @param {string[]} argv */
 function main(argv) {
 	const { flags } = parseOrExit(argv, {
-		usage:
-			"usage: node scripts/upgrade.js [--root <dir>] [--plugin-root <dir>] [--dry-run]",
+		usage: `usage: node ${scriptPath("upgrade.js")} [--root <dir>] [--plugin-root <dir>] [--dry-run]`,
 		flags: {
 			"--root": "value",
 			"--plugin-root": "value",

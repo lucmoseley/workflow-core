@@ -3,7 +3,7 @@
  * lib/queue-gauge.js sets, the oldest waiting ref's wait or the queue's
  * depth, the refill loop files that crossing's ticket, as lib/queue-issue.js
  * files the stall ticket, and closes it once the queue is back within the
- * limit.
+ * limit (#4485, spec #4458).
  *
  * ONCE PER CROSSING: a record in the markers directory names the crossings
  * already alerted, so a pass still past a limit files nothing and reads no

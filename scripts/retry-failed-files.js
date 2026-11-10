@@ -22,6 +22,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -65,7 +66,7 @@ function readFailedFiles(file, root) {
 /** @param {string[]} [argv] @returns {number} */
 function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, {
-		usage: "usage: node scripts/retry-failed-files.js <report.json>",
+		usage: `usage: node ${scriptPath("retry-failed-files.js")} <report.json>`,
 		min: 1,
 	});
 	if (typeof parsed === "number") return parsed;

@@ -166,6 +166,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { logError } = require("./lib/arbiter-core");
 const { parseOrExit } = require("./lib/cli-args");
 const { now } = require("./lib/check");
@@ -1172,7 +1173,7 @@ function fileOrHold(existing, commits, undercounts) {
 
 function main() {
 	parseOrExit(process.argv.slice(2), {
-		usage: "usage: node scripts/report-remeasure-due.js",
+		usage: `usage: node ${scriptPath("report-remeasure-due.js")}`,
 	});
 	const root = hostRoot();
 	const home = homeDir();

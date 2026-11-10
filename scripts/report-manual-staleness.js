@@ -20,6 +20,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { fileOrRefresh } = require("./lib/tracking-issue");
@@ -128,7 +129,7 @@ function body(report) {
 
 function main() {
 	parseOrExit(process.argv.slice(2), {
-		usage: "usage: node scripts/report-manual-staleness.js",
+		usage: `usage: node ${scriptPath("report-manual-staleness.js")}`,
 	});
 	exitUnlessModule(MANUAL_HALF);
 	// Lazy for the reason freshness() gives: the checker loads lib/check.

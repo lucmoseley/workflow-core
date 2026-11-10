@@ -31,6 +31,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { configDir } = require("./lib/config-dir.js");
 const {
@@ -82,8 +83,7 @@ function die(message) {
  */
 function main(argv) {
 	const parsed = parseOrCode(argv, {
-		usage:
-			"usage: node scripts/session-context.js [<session-id>] [--cap <tokens>] [--json]",
+		usage: `usage: node ${scriptPath("session-context.js")} [<session-id>] [--cap <tokens>] [--json]`,
 		flags: { "--cap": "value", "--json": "boolean" },
 		max: 1,
 	});

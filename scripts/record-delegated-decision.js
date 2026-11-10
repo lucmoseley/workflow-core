@@ -28,6 +28,7 @@
  */
 
 const { parseErrLine, gh } = require("./lib/gh.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
@@ -35,7 +36,7 @@ const { findOwnComment, scriptIo } = require("./lib/tracker-ops.js");
 const decision = require("./lib/delegated-decision.js");
 const { LOW_TOP } = require("./lib/close-rivals.js");
 
-const USAGE = `usage: node scripts/record-delegated-decision.js <n> --question "<q>" --taken "<option>" --taken-figure <n>% --runner-up "<option>" --runner-up-figure <n>% --rung-rulings "<fact>|none" --rung-web "<fact>|none" --rung-subagent "<fact>|none" --still-caught yes|no (yes: top two rivals still close, or no option above ${LOW_TOP}%) --reverse "<how>"`;
+const USAGE = `usage: node ${scriptPath("record-delegated-decision.js")} <n> --question "<q>" --taken "<option>" --taken-figure <n>% --runner-up "<option>" --runner-up-figure <n>% --rung-rulings "<fact>|none" --rung-web "<fact>|none" --rung-subagent "<fact>|none" --still-caught yes|no (yes: top two rivals still close, or no option above ${LOW_TOP}%) --reverse "<how>"`;
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("record-delegated-decision");

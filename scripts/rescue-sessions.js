@@ -32,6 +32,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
+const { scriptPath } = require("./lib/script-path.js");
 const os = require("node:os");
 const path = require("node:path");
 const {
@@ -670,7 +671,7 @@ function cmdList(args) {
 	writeFd(1, "Snapshot them before stopping any:\n");
 	writeFd(
 		1,
-		`  node scripts/rescue-sessions.js snapshot --from ${dir} --out .claude/tmp/rescue\n`,
+		`  node ${scriptPath("rescue-sessions.js")} snapshot --from ${dir} --out .claude/tmp/rescue\n`,
 	);
 }
 
@@ -1749,7 +1750,7 @@ async function cmdTakeover(args) {
 	/* Out of scope (#2570): a headless run cannot take a typed prompt. */
 	if (after.holder?.row.kind === "headless")
 		io.fail(
-			`${who.sessionId} is a headless overflow run, which takeover does not handle. Stop it with node scripts/lib/headless-sessions.js stop ${after.holder.row.id}. Nothing written.`,
+			`${who.sessionId} is a headless overflow run, which takeover does not handle. Stop it with node ${scriptPath("lib/headless-sessions.js")} stop ${after.holder.row.id}. Nothing written.`,
 			2,
 		);
 	const n = who.issue;
@@ -2058,7 +2059,6 @@ function buildRedispatchText(rec, kept) {
 		...(held ? ["--force"] : []),
 		...(flags.includes("--advisor") ? [] : ["--no-advisor"]),
 	];
-	const { scriptPath } = require("./lib/script-path.js");
 	const command = [
 		scriptPath("dispatch-sessions.sh"),
 		...opts,
@@ -2282,7 +2282,6 @@ function buildWhereLine({ cwd, cwdGuessed }) {
 	if (!cwd) return "in this session";
 	if (cwdGuessed) return "in the worktree git worktree list shows it worked in";
 	const { isSessionWorktreeDir } = require("./lib/worktree-dirs.js");
-	const { scriptPath } = require("./lib/script-path.js");
 	const { shellQuote } = require("./lib/sh-quote.js");
 	const dir = shellQuote(cwd);
 	const core = require("./lib/arbiter-core");

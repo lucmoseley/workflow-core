@@ -255,6 +255,30 @@ describe("a review that left both artefacts", () => {
 		expect(r.status).toBe(0);
 		expect(readMarkerText()).toContain(`tree=${tree}\npaths=a.js,lib/b.js\n`);
 	});
+
+	it("writes HEAD's tree for a --patch change already committed (#4700)", () => {
+		artefact("standards");
+		artefact("spec");
+		const base = git("rev-parse", "HEAD");
+		fs.writeFileSync(path.join(repo, "a.js"), "two\n");
+		const patch = path.join(repo, ".claude", "tmp", "own.patch");
+		fs.writeFileSync(patch, `${git("diff", "-U0", "--", "a.js")}\n`);
+		git("commit", "-qam", "reviewed after");
+		const r = run([
+			"--base",
+			base,
+			"--findings",
+			"0",
+			"--paths",
+			"a.js",
+			"--patch",
+			patch,
+		]);
+		expect(r.status).toBe(0);
+		expect(readMarkerText()).toContain(
+			`tree=${git("rev-parse", "HEAD^{tree}")}\npaths=a.js\n`,
+		);
+	});
 });
 
 describe("mid-merge (#4426)", () => {

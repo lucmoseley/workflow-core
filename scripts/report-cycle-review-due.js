@@ -27,6 +27,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
@@ -232,7 +233,7 @@ const HEADLINE = {
 
 function main() {
 	parseOrExit(process.argv.slice(2), {
-		usage: "usage: node scripts/report-cycle-review-due.js",
+		usage: `usage: node ${scriptPath("report-cycle-review-due.js")}`,
 	});
 	exitUnlessModule("governance");
 	const logPath = cycleLogPath();

@@ -176,8 +176,9 @@ function npmLaunch(words) {
 function isQueuedLaunch(words, ports) {
 	const rest = words[0] === "--" ? words.slice(1) : words;
 	if (rest.length === 0) return false;
-	const inner = unwrap(rest, []).words;
-	return inner.length > 0 && isQueueable(inner, ports);
+	return unwrap(rest, []).some(
+		({ words: inner }) => inner.length > 0 && isQueueable(inner, ports),
+	);
 }
 
 /**

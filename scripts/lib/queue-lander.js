@@ -122,9 +122,6 @@
  *   verdict, as its suite slot staying shut) is retried with backoff and the
  *   run's state kept; any other throw, or one outlasting the tries, exits
  *   naming it.
- *
- * Unbuilt caller: the cutover's launcher, which starts scripts/queue-lander.js
- * on a queue push (#4485)
  */
 
 const { caught, parseErrorText } = require("./caught.js");
@@ -811,13 +808,11 @@ function baseAction(s, main, { base, baseOnly, noRun }, land) {
 	)
 		return { kind: "file-base-red", sha: main, files: base };
 	if (!baseOnly) return null;
-	/* Spec #4458's story 26 lands a red only `main` shares, but GitHub's
-	 * `main: suite passed` ruleset, with no bypass, takes no sha whose
-	 * `Suite passed` failed: where `main` takes only a sha a CI run passed
-	 * the batch is held instead, never ledgered green, and its fix lands as a
-	 * later batch (#4485). Residual: held, the queue waits on that fix, a new
-	 * ref or a move of `main`; the local tester lands past `main`'s reds, its
-	 * base-red ticket their one trace. */
+	/* GitHub's `main: suite passed` ruleset, with no bypass, takes no sha
+	 * whose `Suite passed` failed, so where `main` takes only a sha a CI run
+	 * passed the batch is held, never ledgered green, and the first batch
+	 * carrying the fix lands the rest (#4458 story 26, #4854). The local
+	 * tester lands past `main`'s reds, its base-red ticket their one trace. */
 	return s.requiresRun
 		? {
 				kind: "hold",

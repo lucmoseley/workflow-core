@@ -114,8 +114,8 @@
  *    `core.worktree`, and an alias written to a config file by other than `git
  *    config` earlier in the same command; so, by the `if` below, a quoted `git`
  *    or one a tab follows; a launcher outside that class, `chrt` and `unshare`
- *    measured; and a quote, `;` or second line inside the string `watch` or `flock -c` runs
- *    (#4046).
+ *    measured; and a quote inside the string `watch` or `flock -c` runs
+ *    (#4046), whose every line and `;`-joined command is judged (#4699).
  *  - Its lib/guard-cores.json row narrows it to `Bash(*git *)`
  *    (mantahostels#2127, #4009) — not loaded unless the command holds the word,
  *    unanchored because the walk reads past a wrapper.

@@ -22,6 +22,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const cache = require("./lib/write-set-cache");
 const { hostRoot } = require("./lib/host-root.js");
@@ -33,10 +34,9 @@ const { execGit } = require("./lib/git.js");
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
 const CARRIED_HASH = /<!-- body-hash: ([0-9a-f]{64}) -->/;
 
-const PUT_USAGE =
-	'usage: node scripts/pick-next-cache.js put <n> (--body-hash <hex> | --body-file <f>) [--write-set "a.js,b.ts"] [--size <s>] [--gist "<one line>"]';
-const GET_USAGE = "usage: node scripts/pick-next-cache.js get <n>";
-const LIST_USAGE = "usage: node scripts/pick-next-cache.js list";
+const PUT_USAGE = `usage: node ${scriptPath("pick-next-cache.js")} put <n> (--body-hash <hex> | --body-file <f>) [--write-set "a.js,b.ts"] [--size <s>] [--gist "<one line>"]`;
+const GET_USAGE = `usage: node ${scriptPath("pick-next-cache.js")} get <n>`;
+const LIST_USAGE = `usage: node ${scriptPath("pick-next-cache.js")} list`;
 
 /** @type {import("./lib/cli-args").Parsed} */
 let parsed;

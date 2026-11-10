@@ -80,6 +80,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 
 const { now, runCheck } = require("./lib/check");
@@ -546,7 +547,7 @@ function sayMissDetail(ctx, { mixed, unknownModel, unclassified }) {
 			`  ${unclassified} transcript(s) would not answer a stat or yield a command name, so their launch model is unread.`,
 		);
 	ctx.say(
-		"  Only the founder can act on this: scripts/launch.sh pick-next routes it, the agents view does not.",
+		`  Only the founder can act on this: ${scriptPath("launch.sh")} pick-next routes it, the agents view does not.`,
 	);
 	if (ctx.notify)
 		ctx.say(

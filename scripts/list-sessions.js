@@ -23,6 +23,7 @@
  */
 
 const { readEverySeat } = require("./lib/agent-liveness.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 
 /**
@@ -68,7 +69,7 @@ function readRows() {
 
 function main() {
 	const { flags } = parseOrExit(process.argv.slice(2), {
-		usage: "usage: node scripts/list-sessions.js [--json]",
+		usage: `usage: node ${scriptPath("list-sessions.js")} [--json]`,
 		flags: { "--json": "boolean" },
 	});
 	const { rows, failures } = readRows();

@@ -69,6 +69,7 @@
  */
 
 const { gitOutcome } = require("./lib/git.js");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -864,7 +865,7 @@ function checkHookCommandsGone(raise, hookCommands, baseline) {
 		/** @type {Record<string, string>} */ (baseline.hookCommands),
 	)) {
 		const parsed = parseHookKey(key);
-		const { event, path: scriptPath } = parsed;
+		const { event, path: hookPath } = parsed;
 		const now = hookCommands[key];
 		if (now === undefined) {
 			const successor = successorOf(parsed, Object.keys(hookCommands));
@@ -875,7 +876,7 @@ function checkHookCommandsGone(raise, hookCommands, baseline) {
 				buildGoneMessage(key, parsed, successor),
 				{
 					event,
-					path: scriptPath,
+					path: hookPath,
 					baseline: was,
 					movedTo: movedTo ?? null,
 				},
@@ -889,7 +890,7 @@ function checkHookCommandsGone(raise, hookCommands, baseline) {
 			`${key}'s live hook command has changed since the census recorded it (was \`${was}\`, now \`${now}\`). Table A's row for it is unverified.`,
 			{
 				event,
-				path: scriptPath,
+				path: hookPath,
 				live: now,
 				baseline: was,
 			},
@@ -911,11 +912,11 @@ function checkHookCommandsNew(raise, hookCommands, baseline, reportedMoves) {
 	for (const [key, now] of Object.entries(hookCommands)) {
 		if (key in baseline.hookCommands) continue;
 		if (reportedMoves.has(key)) continue;
-		const { event, path: scriptPath } = parseHookKey(key);
+		const { event, path: hookPath } = parseHookKey(key);
 		raise(
 			"HOOK-COMMAND-NEW",
 			`${key} runs as a hook command with no row in the census's hookCommands (\`${now}\`). Table A has never covered it.`,
-			{ event, path: scriptPath, live: now },
+			{ event, path: hookPath, live: now },
 			`HOOK-COMMAND-NEW\t${key}`,
 		);
 	}
@@ -1033,10 +1034,10 @@ function sayFindings(ctx, against, counted, lines) {
 		"  Re-measure a guard: feed it a triggering payload and read what it prints (mantahostels#886), then re-anchor.",
 	);
 	ctx.say(
-		"  Re-anchor everything:  node scripts/check-instruction-surface.js --rebaseline",
+		`  Re-anchor everything:  node ${scriptPath("check-instruction-surface.js")} --rebaseline`,
 	);
 	ctx.say(
-		"  Re-anchor named rows only, leaving the rest reporting:  node scripts/check-instruction-surface.js --rebaseline --only <key>[,<key>...]  (mantahostels#2105)",
+		`  Re-anchor named rows only, leaving the rest reporting:  node ${scriptPath("check-instruction-surface.js")} --rebaseline --only <key>[,<key>...]  (mantahostels#2105)`,
 	);
 }
 
@@ -1128,7 +1129,7 @@ function runTouched(ctx, root, file, baseline) {
 	);
 	for (const line of lines) ctx.say(line);
 	for (const rel of keys) {
-		const reanchor = `node scripts/check-instruction-surface.js --rebaseline --only ${rel}`;
+		const reanchor = `node ${scriptPath("check-instruction-surface.js")} --rebaseline --only ${rel}`;
 		if (digests[rel] === null) {
 			ctx.say(
 				`  ${rel} is gone: drop its row with  ${reanchor}  and commit ${anchors}. If it moved, measure it at its new path and add a row there.`,
