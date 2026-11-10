@@ -1,12 +1,10 @@
 /*
  * lander-records.js — the queue lander's two record files, the pipeline
- * record and the drop record: each one's shape, its validator and its read
- * and write, side by side (#4897).
+ * record and the drop record (#4897).
  *
  * A read takes a record any older lander wrote: a field added after a record
  * shipped is optional on read and given its default here, a field no longer
- * written and any unknown field are ignored, so the read returns the current
- * shape whatever the record's age. No field is made required after it
+ * written and any unknown field are ignored. No field is made required after it
  * ships, and the files carry no version.
  */
 
@@ -76,8 +74,7 @@ const PHASES = Object.freeze(
  *   the pipeline's batches
  * @property {readonly Member[]} members in push order
  * @property {readonly string[]} deferred the names of members left out, to
- *   be taken again once their deferral no longer holds them; read as none
- *   where the record has none
+ *   be taken again once their deferral no longer holds them
  * @property {readonly string[]} dropped
  * @property {string} onto the base its members were merged onto: `main`
  *   for the line's head and a search, else the integration commit of the
@@ -91,8 +88,7 @@ const PHASES = Object.freeze(
  * @property {readonly Isolated[]} isolated
  * @property {Serial|null} serial
  * @property {Hold|null} hold
- * @property {readonly BaseVerdict[]} bases the base checks this batch asked;
- *   read as none where the record has none
+ * @property {readonly BaseVerdict[]} bases the base checks this batch asked
  * @typedef {object} Pipeline
  * @property {readonly Batch[]} line the batches in flight, in queue order,
  *   the head first
@@ -137,8 +133,6 @@ const isStringList = (list) =>
 	Array.isArray(list) && list.every((f) => typeof f === "string");
 
 /**
- * A field added after its record shipped: `fallback` where the record has
- * none.
  * @param {unknown} value
  * @param {unknown} fallback
  */
@@ -164,7 +158,6 @@ const parseGreen = (o) => ({
 });
 
 /**
- * A stored verdict where it is a green or a red, else null.
  * @param {unknown} v
  * @returns {Exclude<Verdict, {kind: "unknown"}>|null}
  */
@@ -233,7 +226,6 @@ const isHold = (h) => {
 };
 
 /**
- * A base check, its verdict narrowed to the fields a verdict carries.
  * @param {unknown} x
  * @returns {BaseVerdict|null}
  */
@@ -256,8 +248,7 @@ const isMember = (m) => {
 };
 
 /**
- * A batch in the current shape, or null where it is none. A field added
- * after the record shipped is read as its default where the record has none.
+ * A batch in the current shape, or null where it is none.
  * @param {unknown} parsed
  * @returns {Batch|null}
  */
@@ -376,8 +367,7 @@ function readRecordFile(file) {
 
 /**
  * The pipeline record: the batches a run is landing, so the next run
- * resumes them. Its read is absent, torn where the file is no pipeline, or
- * the pipeline.
+ * resumes them.
  * @param {string} file
  * @returns {PipelineRecord}
  */
@@ -396,8 +386,7 @@ function pipelineRecord(file) {
 }
 
 /**
- * The drop record's file: absent, torn where it is no list, or its drops, a
- * row that is not a drop skipped.
+ * The drop record's file, a row that is not a drop skipped.
  * @param {string} file
  * @returns {RecordRead<Drop[]>}
  */

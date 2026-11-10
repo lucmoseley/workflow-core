@@ -2,8 +2,8 @@
 /*
  * lib/lander-records.js through each record's read and write on a real temp
  * file, as the lander's next run reads what an older lander wrote (#4897,
- * #4912). The older-shape case pins the records' no-version contract: break
- * it and a lander upgraded mid-batch reads its own pipeline as torn and
+ * #4912). The older-shape cases pin the records' no-version contract: break
+ * them and a lander upgraded mid-batch reads its own pipeline as torn and
  * drops the batches in flight.
  */
 import fs from "node:fs";
