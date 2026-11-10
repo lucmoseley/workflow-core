@@ -52,9 +52,21 @@ const PROVENANCE_HEADING = "## Plugin provenance";
  * `rewriteRuleCommands` re-points at the plugin root. */
 const RUNNER = /\b(node|bash|sh|python3) scripts\//g;
 
-/** @param {string} name */
-const readTemplate = (name) =>
-	fs.readFileSync(path.join(TEMPLATES, name), "utf8");
+/* Each template by its name, its path spelled whole (lib/code-edges.js's
+ * WHOLE PATHS). */
+const TEMPLATE_FILES = {
+	"AGENTS.md": path.join(TEMPLATES, "AGENTS.md"),
+	"CLAUDE.md": path.join(TEMPLATES, "CLAUDE.md"),
+	"called-cards.md": path.join(TEMPLATES, "called-cards.md"),
+	"code-standards.md": path.join(TEMPLATES, "code-standards.md"),
+	"doc-map.md": path.join(TEMPLATES, "doc-map.md"),
+	"reference-roadmap.html": path.join(TEMPLATES, "reference-roadmap.html"),
+	"reference.md": path.join(TEMPLATES, "reference.md"),
+	"session-rules.md": path.join(TEMPLATES, "session-rules.md"),
+};
+
+/** @param {keyof typeof TEMPLATE_FILES} name */
+const readTemplate = (name) => fs.readFileSync(TEMPLATE_FILES[name], "utf8");
 
 /**
  * The module tag a rules-file line opens with, if any: `- [roadmap] …` or

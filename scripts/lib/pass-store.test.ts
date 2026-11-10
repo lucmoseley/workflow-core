@@ -296,6 +296,39 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	/* #4790: a path two joins off __dirname, as
+	 * pretool-guard-testkit.ts's DISPATCH off CHECKOUT, was no input. */
+	it("voids it when a script a module joins off a __dirname-joined const changes", () => {
+		const dir = repo();
+		write(
+			dir,
+			"lib.js",
+			'const ROOT = path.resolve(__dirname, "scripts");\nconst D = path.join(ROOT, "d.js");\n',
+		);
+		write(dir, "scripts/d.js", "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/d.js", "v1\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/* #4790: the setup exports the plugin config to every
+	 * test, and vite reads tsconfig.json for every file. */
+	it.each(["tsconfig.json", ".claude/workflow-core.json"])(
+		"voids it when %s changes",
+		(input) => {
+			const dir = repo();
+			fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+			write(dir, input, "{}\n");
+			git(dir, "add", "-f", input);
+			git(dir, "commit", "-q", "-m", "config");
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			write(dir, input, '{"x": 1}\n');
+			expect(cachedOf(dir, [A])).toEqual([]);
+		},
+	);
+
 	it("voids it when an input is deleted since", () => {
 		const dir = repo();
 		run(dir, [A]);
@@ -663,6 +696,28 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(run(dir, [A])).toBe(0);
 	});
 
+	/* #4790: a join off __dirname of a parameter names a file
+	 * in the tree the walk cannot tell. */
+	it("records no row for a file reaching a join off __dirname it cannot tell", () => {
+		const dir = repo();
+		write(
+			dir,
+			"lib.js",
+			"module.exports = (f) => fs.readFileSync(path.join(__dirname, f));\n",
+		);
+		expect(run(dir, [A])).toBe(0);
+	});
+
+	it("leaves a test file's own such join to the read-edge selector", () => {
+		const dir = repo();
+		write(
+			dir,
+			A,
+			'const at = path.join(__dirname, "..", "doc.md");\nconst f = (n) => path.join(__dirname, n);\n',
+		);
+		expect(run(dir, [A])).toBe(1);
+	});
+
 	it("records no row for a file whose input was rewritten mid-run", () => {
 		const dir = repo();
 		expect(run(dir, [A, B], { drifted: ["doc.md"] })).toBe(1);
@@ -755,7 +810,9 @@ describe("a store it cannot trust runs every file", () => {
 	 * finding 1: its rows missed what a shell script's inline node program
 	 * loads, and an inline Python's python3. Format 6 is round 4's findings
 	 * 2-4: its rows missed every guard core, a data file joined off
-	 * `__dirname` and what the setup file reaches. */
+	 * `__dirname` and what the setup file reaches. Format 7 is round 5's
+	 * findings 1, 2 and 7: its rows missed a path two joins off `__dirname`,
+	 * `.claude/workflow-core.json` and `tsconfig.json`. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -763,6 +820,10 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before the walk read guard cores, data joined off __dirname and the setup's reach (#4790)",
 			6,
+		],
+		[
+			"before the walk read a path two joins off __dirname and the plugin config (#4790)",
+			7,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();

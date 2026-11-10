@@ -146,7 +146,7 @@ const notices = (
 /** One tick's holds over the checkout at `now`; its log lines. */
 const holdTick = (now = NOW) => {
 	const lines: string[] = [];
-	tendHolds([repo], [repo], now, (l) => lines.push(l));
+	tendHolds([repo], [repo], now, { log: (l) => lines.push(l) });
 	return lines.join("\n");
 };
 
