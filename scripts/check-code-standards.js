@@ -524,7 +524,6 @@ const HEADER = /^(?:#![^\n]*\n)?(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*))*/;
  */
 const BLANKS = "[^\\S\\n\\r\\u2028\\u2029]*";
 const LINE_START = `^${BLANKS}`;
-/** A JS comment line's marker. */
 const JS_COMMENT = String.raw`(?:\/\*+|\*|\/\/)`;
 /**
  * A header line naming the unbuilt caller a module was built ahead of, and
@@ -538,22 +537,18 @@ const UNBUILT_CALLER = new RegExp(
 );
 /**
  * A header line keeping a caller list by hand — `Caller:`, `Callers:` or
- * `Callers of …:` (#4720). Every caller edit then rewrites a header a
- * guard-registry checker may hash, forcing unrelated re-anchors (#4404);
- * `git grep` names the callers instead. `Unbuilt caller:` is not one. The
- * marker is optional: a header is all comment, a docstring included.
+ * `Callers of …:`, which `git grep` answers instead (#4720, #4404).
+ * `Unbuilt caller:` is not one. The marker is optional: a header is all
+ * comment, a docstring included.
  */
 const HAND_CALLER = new RegExp(
 	String.raw`${LINE_START}(?:(?:${JS_COMMENT}|#)${BLANKS})?(Callers?(?: of [^:\n]*)?:.*)$`,
 	"gim",
 );
-/** The scripts whose headers HAND_CALLER reads: JS and TS, shell and Python. */
 const HAND_CALLER_SCOPE =
 	/^(?:scripts\/|\.claude\/skills\/[^/]+\/scripts\/)[\w./-]+\.(?:[cm]?[jt]sx?|sh|bash|py)$/;
-/** The `#`-commented ones, whose header is their leading `#` and blank lines. */
 const HASH_COMMENTED = /\.(?:sh|bash|py)$/;
 const HASH_HEADER = /^(?:[^\S\n]*(?:#[^\n]*)?\n)*/;
-/** A Python module docstring, read as header after the `#` lines. */
 const PY_DOCSTRING = /^[^\S\n]*[rRuU]?("""|''')[\s\S]*?\1/;
 /**
  * The harness whose generic `entry.exports?.main` read IS the run-in-process
