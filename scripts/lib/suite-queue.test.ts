@@ -30,9 +30,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
 import { mkScratchDir } from "./git-fixture";
+import { chargeMb as launchChargeMb } from "./launch-charge";
 import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
-import { TSC_PEAK_MB, TSC_PEAKS_MB, tscDenial } from "./tsc-slot";
+import { tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
 const {
@@ -70,9 +71,11 @@ const weighed = (files: number | null) => ({
 });
 /** A part-suite's carried weight. */
 const PART = weighed(2);
-/** `PEAK_MB` for the suite queue (#4592), pinned by "charges a spawned
- * suite its measured 1,929 MB peak less its tree". */
-const SUITE_PEAK_MB = 1929;
+/** `PEAK_MB` for each queue, which lib/launch-charge.test.ts pins. */
+const SUITE_PEAK_MB = launchChargeMb({ kind: "suite" });
+const TSC_PEAK_MB = launchChargeMb({ kind: "tsc" });
+const TSC7_PEAK_MB = launchChargeMb({ kind: "tsc", major: 7 });
+const TSC5_PEAK_MB = launchChargeMb({ kind: "tsc", major: 5 });
 /** A 200-file named run: past the whole-slot bound, still a touched run. */
 const NAMED_200 = Array.from(
 	{ length: 200 },
@@ -1452,11 +1455,11 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 
 	it("charges a spawned `tsc` the peak of the compiler its marker names (#4892)", () => {
 		const { suiteDir, tscDir } = queues();
-		joined(tscDir, 22, 0, { chargeMb: TSC_PEAKS_MB[7] }).spawned();
-		expect(climbOf(suiteDir, 400)).toBe(TSC_PEAKS_MB[7] - 400);
-		joined(tscDir, 23, 0, { chargeMb: TSC_PEAKS_MB[5] }).spawned();
+		joined(tscDir, 22, 0, { chargeMb: TSC7_PEAK_MB }).spawned();
+		expect(climbOf(suiteDir, 400)).toBe(TSC7_PEAK_MB - 400);
+		joined(tscDir, 23, 0, { chargeMb: TSC5_PEAK_MB }).spawned();
 		expect(climbOf(suiteDir, 400)).toBe(
-			TSC_PEAKS_MB[7] - 400 + TSC_PEAKS_MB[5] - 400,
+			TSC7_PEAK_MB - 400 + TSC5_PEAK_MB - 400,
 		);
 	});
 
@@ -1470,13 +1473,13 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		stamp(true);
 		expect(climbOf(tscDir, 100)).toBe(0);
 		stamp(false);
-		expect(climbOf(tscDir, 100)).toBe(1829);
+		expect(climbOf(tscDir, 100)).toBe(SUITE_PEAK_MB - 100);
 	});
 
-	it("charges a spawned suite its measured 1,929 MB peak less its tree", () => {
+	it("charges a spawned suite its measured peak less its tree", () => {
 		const { suiteDir, tscDir } = queues();
 		spawnedIn(suiteDir, 11);
-		expect(climbOf(tscDir, 100)).toBe(1829);
+		expect(climbOf(tscDir, 100)).toBe(SUITE_PEAK_MB - 100);
 	});
 
 	const partIn = (
@@ -1494,9 +1497,12 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	it("charges a part-suite its own peak by its workers and files (#3806)", () => {
 		const { suiteDir, tscDir } = queues();
 		partIn(suiteDir, 11, 1);
-		expect(climbOf(tscDir, 100)).toBe(458);
+		const one = launchChargeMb({ kind: "part", files: 1, workers: 1 }) - 100;
+		expect(climbOf(tscDir, 100)).toBe(one);
 		partIn(suiteDir, 12, 40);
-		expect(climbOf(tscDir, 100)).toBe(458 + 1275);
+		expect(climbOf(tscDir, 100)).toBe(
+			one + launchChargeMb({ kind: "part", files: 40, workers: 5 }) - 100,
+		);
 	});
 
 	it("never charges a part-suite above a whole suite's peak", () => {
@@ -1507,27 +1513,38 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 
 	it("charges a lander marker the charge it carries (#3973)", () => {
 		const { suiteDir, tscDir } = queues();
-		joined(suiteDir, 11, 0, { role: "lander", chargeMb: 940 }).spawned();
-		expect(climbOf(tscDir, 100)).toBe(840);
+		const named = launchChargeMb({ kind: "lander", files: ["a.test.ts"] });
+		joined(suiteDir, 11, 0, { role: "lander", chargeMb: named }).spawned();
+		expect(climbOf(tscDir, 100)).toBe(named - 100);
 	});
 
-	it("charges a lander marker carrying 2,630 MB above a whole suite's peak (#3973)", () => {
+	it("charges a lander marker carrying a whole run's charge above a whole suite's peak (#3973)", () => {
 		const { suiteDir, tscDir } = queues();
-		joined(suiteDir, 11, 0, { role: "lander", chargeMb: 2630 }).spawned();
-		expect(climbOf(tscDir, 100)).toBe(2530);
+		const whole = launchChargeMb({ kind: "lander", files: [] });
+		expect(whole).toBeGreaterThan(SUITE_PEAK_MB);
+		joined(suiteDir, 11, 0, { role: "lander", chargeMb: whole }).spawned();
+		expect(climbOf(tscDir, 100)).toBe(whole - 100);
 	});
 
 	it("charges a queued pytest its runner's peak, not a whole suite's (#4648)", () => {
 		const { suiteDir, tscDir } = queues();
 		const chargeMb = queuedRunnerPeakMb(["python3", "-m", "pytest", "-n", "2"]);
 		joined(suiteDir, 11, 0, { chargeMb }).spawned();
-		expect(climbOf(tscDir, 100)).toBe(150 + 2 * 75 - 100);
+		expect(climbOf(tscDir, 100)).toBe(
+			launchChargeMb({ kind: "pytest", workers: 2 }) - 100,
+		);
 	});
 
 	it("reads a queued launch's peak off its runner class (#4648)", () => {
-		expect(queuedRunnerPeakMb(["pytest", "-n", "8"])).toBe(150 + 8 * 75);
-		expect(queuedRunnerPeakMb(["python3", "a.test.py"])).toBe(150);
-		expect(queuedRunnerPeakMb(["node", "--test", "a.test.js"])).toBe(381);
+		expect(queuedRunnerPeakMb(["pytest", "-n", "8"])).toBe(
+			launchChargeMb({ kind: "pytest", workers: 8 }),
+		);
+		expect(queuedRunnerPeakMb(["python3", "a.test.py"])).toBe(
+			launchChargeMb({ kind: "pytest", workers: 0 }),
+		);
+		expect(queuedRunnerPeakMb(["node", "--test", "a.test.js"])).toBe(
+			launchChargeMb({ kind: "node-test" }),
+		);
 		expect(queuedRunnerPeakMb(["node", "scripts/run-host-suite.js"])).toBe(
 			undefined,
 		);
@@ -1707,11 +1724,11 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			const native =
 				"/r/node_modules/@typescript/typescript-linux-arm64/lib/tsc --noEmit";
 			expect(climbOn(suiteDir, machine({ 22: native }))).toBe(
-				TSC_PEAKS_MB[7] - 400,
+				TSC7_PEAK_MB - 400,
 			);
 			expect(
 				climbOn(suiteDir, machine({ 22: `node ${pkg}/bin/tsc --noEmit` })),
-			).toBe(TSC_PEAKS_MB[5] - 400);
+			).toBe(TSC5_PEAK_MB - 400);
 		});
 
 		it("names a sibling queue that will not read, its runners left unmarked", () => {
@@ -1755,13 +1772,17 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 				const { suiteDir, tscDir } = queues();
 				expect(
 					climbOn(tscDir, { ...machine({ 33: Pytest }), treePssKb: () => 0 }),
-				).toBe(150 + 2 * 75);
+				).toBe(launchChargeMb({ kind: "pytest", workers: 2 }));
 				const m = { ...machine({ 33: "pytest -n 8" }), treePssKb: () => 0 };
-				expect(climbOn(tscDir, m)).toBe(150 + 8 * 75);
+				expect(climbOn(tscDir, m)).toBe(
+					launchChargeMb({ kind: "pytest", workers: 8 }),
+				);
 				expect(climbOn(suiteDir, m)).toBe(0);
 				vi.stubEnv("TMPDIR", path.dirname(suiteDir));
 				expect(readQueuesClimbMb("off-rung", m)).toBe(0);
-				expect(readQueuesClimbMb("all", m)).toBe(150 + 8 * 75);
+				expect(readQueuesClimbMb("all", m)).toBe(
+					launchChargeMb({ kind: "pytest", workers: 8 }),
+				);
 			});
 
 			it("reads `-n auto` as a worker a CPU, and no `-n` as none", () => {
@@ -1769,29 +1790,48 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 				const at = (args: string) =>
 					climbOn(tscDir, { ...machine({ 33: args }), treePssKb: () => 0 });
 				expect(at("python3 -m pytest -n auto")).toBe(
-					150 + 75 * os.availableParallelism(),
+					launchChargeMb({
+						kind: "pytest",
+						workers: os.availableParallelism(),
+					}),
 				);
-				expect(at("python3 -m pytest --numprocesses=3")).toBe(150 + 3 * 75);
-				expect(at("python3 -m pytest -n=4")).toBe(150 + 4 * 75);
-				expect(at("python3 -m pytest -n2")).toBe(150 + 2 * 75);
-				expect(at("python3 -m pytest -q")).toBe(150);
+				expect(at("python3 -m pytest --numprocesses=3")).toBe(
+					launchChargeMb({ kind: "pytest", workers: 3 }),
+				);
+				expect(at("python3 -m pytest -n=4")).toBe(
+					launchChargeMb({ kind: "pytest", workers: 4 }),
+				);
+				expect(at("python3 -m pytest -n2")).toBe(
+					launchChargeMb({ kind: "pytest", workers: 2 }),
+				);
+				expect(at("python3 -m pytest -q")).toBe(
+					launchChargeMb({ kind: "pytest", workers: 0 }),
+				);
 			});
 
 			it("charges `node --test` its one measured peak", () => {
 				const { tscDir } = queues();
 				expect(
 					climbOn(tscDir, { ...machine({ 33: NodeTest }), treePssKb: () => 0 }),
-				).toBe(381);
+				).toBe(launchChargeMb({ kind: "node-test" }));
 			});
 
 			it("charges a build at every gate, no rung counting it", () => {
 				const { suiteDir, tscDir } = queues();
 				const m = machine({ 44: Build });
-				expect(climbOn(suiteDir, m)).toBe(979 - 400);
-				expect(climbOn(tscDir, m)).toBe(979 - 400);
+				expect(climbOn(suiteDir, m)).toBe(
+					launchChargeMb({ kind: "next-build" }) - 400,
+				);
+				expect(climbOn(tscDir, m)).toBe(
+					launchChargeMb({ kind: "next-build" }) - 400,
+				);
 				vi.stubEnv("TMPDIR", path.dirname(suiteDir));
-				expect(readQueuesClimbMb("off-rung", m)).toBe(979 - 400);
-				expect(readQueuesClimbMb("all", m)).toBe(979 - 400);
+				expect(readQueuesClimbMb("off-rung", m)).toBe(
+					launchChargeMb({ kind: "next-build" }) - 400,
+				);
+				expect(readQueuesClimbMb("all", m)).toBe(
+					launchChargeMb({ kind: "next-build" }) - 400,
+				);
 			});
 
 			it("charges no host runner, npm's shell line or a pytest worker", () => {
@@ -1821,14 +1861,14 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			const { tscDir } = queues();
 			const named = `${Vitest} scripts/a.test.ts scripts/b.test.ts`;
 			expect(climbOn(tscDir, machine({ 33: named }))).toBe(
-				380 + 2 * 175 + 2 * 3 - 400,
+				launchChargeMb({ kind: "part", files: 2, workers: 2 }) - 400,
 			);
 			expect(
 				climbOn(tscDir, {
 					...machine({ 33: Vitest }),
 					carriedOf: () => ({ resolvedFiles: 4, wholeSlot: false }),
 				}),
-			).toBe(380 + 4 * 175 + 4 * 3 - 400);
+			).toBe(launchChargeMb({ kind: "part", files: 4, workers: 4 }) - 400);
 		});
 
 		it("leaves out a runner under a live marker in either queue, charging it once", () => {
@@ -1846,7 +1886,9 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			const chargeMb = queuedRunnerPeakMb(["pytest", "-n", "2"]);
 			joined(suiteDir, 50, 0, { chargeMb }).spawned();
 			const m = machine({ 33: "pytest -n 2" }, { 33: 50 });
-			expect(climbOn(tscDir, { ...m, treePssKb: () => 0 })).toBe(150 + 2 * 75);
+			expect(climbOn(tscDir, { ...m, treePssKb: () => 0 })).toBe(
+				launchChargeMb({ kind: "pytest", workers: 2 }),
+			);
 		});
 
 		it("charges a runner whose marker's holder is dead", () => {

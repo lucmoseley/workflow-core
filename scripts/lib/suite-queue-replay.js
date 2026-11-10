@@ -62,7 +62,8 @@ const {
 	isClimbKept,
 	turnOf,
 } = require("./suite-queue");
-const { TSC_MAX, TSC_PEAKS_MB, isTscRunner } = require("./tsc-slot");
+const { chargeMb } = require("./launch-charge");
+const { TSC_MAX, isTscRunner } = require("./tsc-slot");
 const {
 	WINDOWS_FRESH_S,
 	windowsReadingOf,
@@ -688,7 +689,7 @@ const rungOf = (e, tick) =>
  * TypeScript 5, 5's.
  * @param {Waiter} e
  */
-const tscChargeOf = (e) => e.chargeMb ?? TSC_PEAKS_MB[5];
+const tscChargeOf = (e) => e.chargeMb ?? chargeMb({ kind: "tsc", major: 5 });
 
 /**
  * @param {Waiter} e

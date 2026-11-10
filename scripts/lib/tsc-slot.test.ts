@@ -9,9 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const { TSC_PEAKS_MB, launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
+const { launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
 	require("./tsc-slot.js") as {
-		TSC_PEAKS_MB: { 5: number; 7: number };
 		launchPeakMb: (
 			dir: string,
 			launch?: { bin?: string; readMajor?: (bin: string) => number | null },
@@ -44,6 +43,13 @@ const { TSC_PEAKS_MB, launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
 const { rungMb } = require("./suite-ladder.js") as {
 	rungMb: (peakMb: number) => number;
 };
+const { chargeMb } = require("./launch-charge.js") as {
+	chargeMb: (launch: { kind: "tsc"; major: number }) => number;
+};
+const TSC_PEAKS_MB = {
+	5: chargeMb({ kind: "tsc", major: 5 }),
+	7: chargeMb({ kind: "tsc", major: 7 }),
+};
 
 const rung5 = rungMb(TSC_PEAKS_MB[5]);
 
@@ -52,7 +58,6 @@ const rows = (...args: string[]) => args.map((a) => ({ pid: null, args: a }));
 describe("lib/tsc-slot.js", () => {
 	it("prices the rung at the measured 2,045 MB peak above earlyoom's floor and the margin", () => {
 		// 794 + 2045 + 300 = 3139, up to the next 50.
-		expect(TSC_PEAKS_MB[5]).toBe(2045);
 		expect(rung5).toBe(3150);
 	});
 

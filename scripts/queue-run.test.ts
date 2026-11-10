@@ -17,10 +17,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
+import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { rungMb } from "./lib/suite-ladder";
-import { TSC_PEAK_MB, TSC_PEAKS_MB } from "./lib/tsc-slot";
+
+const TSC_PEAK_MB = launchChargeMb({ kind: "tsc" });
+const TSC7_PEAK_MB = launchChargeMb({ kind: "tsc", major: 7 });
 
 const tscRung = rungMb(TSC_PEAK_MB);
 
@@ -137,10 +140,14 @@ describe("queue-run.js", () => {
 			return chargeMb;
 		};
 		expect(await chargeOf(["env", "CI=1", "pytest", "-n", "4"])).toBe(
-			150 + 4 * 75,
+			launchChargeMb({ kind: "pytest", workers: 4 }),
 		);
-		expect(await chargeOf(["node", "--test", "a.test.js"])).toBe(381);
-		expect(await chargeOf(["python3", "scripts/x.test.py"])).toBe(150);
+		expect(await chargeOf(["node", "--test", "a.test.js"])).toBe(
+			launchChargeMb({ kind: "node-test" }),
+		);
+		expect(await chargeOf(["python3", "scripts/x.test.py"])).toBe(
+			launchChargeMb({ kind: "pytest", workers: 0 }),
+		);
 	});
 
 	it("puts on its exit line the older part-suites its turn passed (#3115)", async () => {
@@ -455,17 +462,17 @@ describe("queue-run.js", () => {
 
 		it("admits a TypeScript 7 launch on its own rung, logging its charge (#4892)", async () => {
 			const f = fixture();
-			const mb = rungMb(TSC_PEAKS_MB[7]);
+			const mb = rungMb(TSC7_PEAK_MB);
 			expect(mb).toBeLessThan(tscRung);
 			machine(f.dir, ["bash -l"], mb);
-			main(typecheck, own(f, { tscPeakMb: TSC_PEAKS_MB[7] }));
+			main(typecheck, own(f, { tscPeakMb: TSC7_PEAK_MB }));
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 			expect(f.readLog()).toEqual([
 				expect.objectContaining({
 					reason: "opened",
 					kind: "tsc",
-					chargeMb: TSC_PEAKS_MB[7],
+					chargeMb: TSC7_PEAK_MB,
 				}),
 			]);
 		});

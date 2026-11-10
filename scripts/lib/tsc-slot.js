@@ -14,24 +14,19 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { chargeMb } = require("./launch-charge.js");
 const { requiredGroup } = require("./regex-group.js");
 const { rungMb } = require("./suite-ladder.js");
 const { windowsShortfall } = require("./windows-memory.js");
-
-/* The cold peak of `npm run typecheck`, by the TypeScript major version it
- * runs: the higher of two runs' cgroup `memory.peak` with no build info, 5's
- * (#4849) and 7's at `--checkers 2` (#4892). MOVE ONE ONLY WITH A
- * RE-MEASUREMENT. */
-const TSC_PEAKS_MB = Object.freeze({ 5: 2045, 7: 1497 });
-const TSC_PEAK_MB = Math.max(...Object.values(TSC_PEAKS_MB));
 
 /**
  * The peak a `tsc` of TypeScript `major` is charged.
  * @param {number | null} major
  */
-const tscPeakMb = (major) =>
-	Object.entries(TSC_PEAKS_MB).find(([m]) => Number(m) === major)?.[1] ??
-	TSC_PEAK_MB;
+const tscPeakMb = (major) => chargeMb({ kind: "tsc", major });
+
+/* What a `tsc` whose compiler is unread is charged: the highest. */
+const TSC_PEAK_MB = chargeMb({ kind: "tsc" });
 
 /* How many `tsc` run at once, machine-wide (#3163): one, as docs/environment.md
  * §6 keeps every unmeasured concurrent workload; only one `tsc` at a time has
@@ -261,8 +256,6 @@ function tscLaunchBin(words) {
 
 module.exports = {
 	TSC_BUSY_EXIT,
-	TSC_PEAK_MB,
-	TSC_PEAKS_MB,
 	TSC_NO_WAIT_ENV,
 	TSC_QUEUE_NAME,
 	TSC_MAX,

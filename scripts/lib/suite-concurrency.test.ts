@@ -76,8 +76,12 @@ const { rungMb, suiteRungMb } = require("./suite-ladder.js") as {
 	rungMb: (peakMb: number) => number;
 	suiteRungMb: (workers: number) => number;
 };
-const { TSC_PEAKS_MB } = require("./tsc-slot.js") as {
-	TSC_PEAKS_MB: { 5: number; 7: number };
+const { chargeMb } = require("./launch-charge.js") as {
+	chargeMb: (launch: { kind: "tsc"; major: number }) => number;
+};
+const TSC_PEAKS_MB = {
+	5: chargeMb({ kind: "tsc", major: 5 }),
+	7: chargeMb({ kind: "tsc", major: 7 }),
 };
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js") as {
 	WHOLE_SUITE_WORKERS: number;
