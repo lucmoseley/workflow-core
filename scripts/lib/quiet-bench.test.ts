@@ -12,9 +12,11 @@ import {
 	buildRunComment,
 	countUsableRows,
 	decideQuietBench,
+	isLoneSuiteFit,
 	isRunAnswering,
 	LADDER_BENCH,
 	LADDER_STAMP,
+	loneSuiteFitMs,
 	parseBenchState,
 	parseFree,
 } from "./quiet-bench.js";
@@ -287,6 +289,24 @@ describe("the founder back, or the route off", () => {
 			expect(step.state.phase).toBe("run");
 		},
 	);
+});
+
+describe("the lone whole suite the bench waits for (#4931)", () => {
+	it("fits 3 suites at 3 workers in the ceiling on 8 cores at 1.875 times a lone 5-worker suite", () => {
+		expect(loneSuiteFitMs(8)).toBe(448_000);
+	});
+
+	it("is due at the fit and not past it", () => {
+		expect(isLoneSuiteFit({ durationMs: 448_000 }, 8)).toBe(true);
+		expect(isLoneSuiteFit({ durationMs: 448_001 }, 8)).toBe(false);
+	});
+
+	it("is not due on a lone suite killed at the ceiling, or none", () => {
+		expect(isLoneSuiteFit({ durationMs: 1000, ceilingKill: true }, 8)).toBe(
+			false,
+		);
+		expect(isLoneSuiteFit(null, 8)).toBe(false);
+	});
 });
 
 describe("the bench's command", () => {
