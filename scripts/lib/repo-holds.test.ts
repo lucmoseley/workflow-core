@@ -5,6 +5,8 @@
  * and a probe hold's filing through the real file-issue.js that lib/file-through.js
  * spawns. The tick's wiring of these, one case per adapter it crosses, is
  * refill-loop-run-holds.test.ts's; the CLI's is repo-hold.test.ts's (#4314).
+ * The probe is lib/guard-probe.js's, run for real on its git half; its guard
+ * entry's answer is injected here, guard-probe.test.ts running the hook line.
  *
  * Broken, a repo hold (#3857) or probe hold (#3860) that never lifts stops every
  * launch into a served checkout, and one that never raises launches sessions into
@@ -16,13 +18,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RefusedCall } from "./block-cause.js";
 import { CORE_FAULT_TEXT } from "./core-fault.js";
 import { readGhAnswer } from "./gh-fake";
 import { page, printed, stubGhRoutes } from "./gh-stub";
 import { writeFaultyGit } from "./git-fault-fake";
-import { buildHookEnv } from "./hook-env.js";
 import {
-	GUARD_HOOKS_JSON,
 	ISSUE,
 	LOGGED_OUT,
 	MIN,
@@ -45,11 +46,6 @@ import {
 } from "./repo-holds.js";
 import { runInProcess } from "./run-in-process.js";
 
-/* This repo's own hook lines and the runner they name, spelt whole so a
- * change to either selects this file. */
-const REAL_HOOKS = path.join(__dirname, "../../self-plugin/hooks/hooks.json");
-const REAL_RUNNER = path.join(__dirname, "../run-pinned-guards.js");
-
 const PROBE_TITLE = "Refill loop probe: shared .git failing in repo";
 
 let dir: string;
@@ -70,8 +66,6 @@ beforeEach(() => {
 	probedCheckout.instantiate(repo);
 	writeConfig(repo);
 	vi.stubEnv("WFC_REFILL_DIR", dir);
-	/* The guard-load probe's re-run at once, as a sandboxed tick has it. */
-	vi.stubEnv("WFC_GUARD_PROBE_RETRY_MS", "0");
 	vi.stubEnv("WFC_MODULES", "");
 });
 
@@ -130,10 +124,18 @@ const serve = ({
 	vi.stubEnv("WFC_GH", gh);
 };
 
-/** One tick's holds over `served`, each settled and probed, at `now`. */
-const tick = (now = NOW, served = [repo]) => {
+/** One tick's holds over `served`, each settled and probed, at `now`, through
+ * lib/guard-probe.js unless `probe` stands in for it. */
+const tick = (
+	now = NOW,
+	served = [repo],
+	probe?: Parameters<typeof tendHolds>[3]["probe"],
+) => {
 	const lines: string[] = [];
-	const broken = tendHolds(served, served, now, (l) => lines.push(l));
+	const broken = tendHolds(served, served, now, {
+		log: (l) => lines.push(l),
+		probe,
+	});
 	return { broken, text: lines.join("\n") };
 };
 
@@ -671,153 +673,31 @@ describe("the probe hold (#3860)", () => {
 		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
-	describe("the hook environment (#4736)", () => {
-		/* What a login shell already holds, which the harness need not give. */
-		const LoginVars = new Set(["HOME", "PATH"]);
-		/* Each variable a hooks.json's command lines need set: none behind a default or an alternate. */
-		const parseRequiredVars = (hooksJson: string) => {
-			const commands: string[] = [];
-			JSON.parse(hooksJson, (key, value) => {
-				if (key === "command" && typeof value === "string")
-					commands.push(value);
-				return value;
-			});
-			return new Set(
-				commands.flatMap((c) =>
-					[
-						...c.matchAll(
-							/\$\{([A-Za-z_]\w*)(:?[-=?+])?[^}]*\}|\$([A-Za-z_]\w*)/g,
-						),
-					]
-						.filter(
-							([, , op]) =>
-								!["-", ":-", "=", ":=", "+", ":+"].includes(String(op)),
-						)
-						.map(([, braced, , bare]) => String(braced ?? bare)),
-				),
-			);
+	describe("a guard entry that will not load (#4226), the probe's answer injected", () => {
+		/* What lib/guard-probe.js answers: guard-probe.test.ts runs the hook
+		 * line itself. */
+		let failure: { text: string; isOutage: boolean } | null;
+		let replayFailure: (command: unknown) => string | null;
+		const probe = {
+			readProbeFailure: () => failure,
+			readReplayFailure: (_root: string, call: RefusedCall) =>
+				replayFailure((call.tool_input as { command?: unknown })?.command),
 		};
-		const findUnsetVars = (hooksJson: string) => {
-			const env = buildHookEnv(repo, {});
-			return [...parseRequiredVars(hooksJson)].filter(
-				(v) => !LoginVars.has(v) && env[v] === undefined,
-			);
+		const probeTick = (now = NOW) => tick(now, [repo], probe);
+		const Loading = {
+			text: "guard entry: Lexer is not defined",
+			isOutage: false,
 		};
 
-		it("sets every variable this repo's self-plugin hook lines read", () => {
-			const real = fs.readFileSync(REAL_HOOKS, "utf8");
-
-			expect(parseRequiredVars(real)).toContain("CLAUDE_PLUGIN_ROOT");
-			expect(findUnsetVars(real)).toEqual([]);
-		});
-
-		it("sets every variable the probe fixture's hook line reads", () => {
-			expect(findUnsetVars(GUARD_HOOKS_JSON)).toEqual([]);
-		});
-
-		it("names a variable a hook line reads that it does not set", () => {
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			const command = 'node "${CLAUDE_ENV_FILE}" "${WFC_X:-y}" ${WFC_Y:+z}';
-			const drifted = JSON.stringify({
-				hooks: { Stop: [{ hooks: [{ command }] }] },
-			});
-
-			expect(findUnsetVars(drifted)).toEqual(["CLAUDE_ENV_FILE"]);
-		});
-	});
-
-	describe("a guard entry that will not load (#4226)", () => {
-		const guardEntry = () => path.join(repo, "scripts", "guard-dispatch.js");
-		/* The shared tree's own entry, under the served checkout. */
-		const writeGuardEntry = (body: string) => {
-			fs.mkdirSync(path.dirname(guardEntry()), { recursive: true });
-			fs.writeFileSync(
-				guardEntry(),
-				`const fs = require("node:fs");
-fs.appendFileSync(${JSON.stringify(at("guard-runs"))}, "run\\n");
-${body}`,
-			);
-		};
-		const Failing =
-			'process.stderr.write("\\nLexer is not defined\\n");\nprocess.exit(1);\n';
-		const Healthy = "process.exit(0);\n";
-		const guardRuns = () =>
-			fs.existsSync(at("guard-runs"))
-				? fs.readFileSync(at("guard-runs"), "utf8").split("\n").filter(Boolean)
-				: [];
-
-		/* The probe runs the guard hook line the checkout registers, here one
-		 * that runs the shared tree's own entry. */
 		beforeEach(() => {
-			const hooks = path.join(repo, "self-plugin", "hooks", "hooks.json");
-			fs.mkdirSync(path.dirname(hooks), { recursive: true });
-			fs.writeFileSync(hooks, GUARD_HOOKS_JSON);
-		});
-
-		/* The checkout registers this repo's own hook lines, run as written: the
-		 * pinned guard code's link names the served checkout, so its entry is the
-		 * one each case writes. */
-		const registerRealHooks = () => {
-			const scripts = path.join(repo, "scripts");
-			fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
-			fs.copyFileSync(REAL_RUNNER, path.join(scripts, "run-pinned-guards.js"));
-			fs.writeFileSync(path.join(scripts, "lib", "guard-dispatch.js"), "");
-			fs.copyFileSync(
-				REAL_HOOKS,
-				path.join(repo, "self-plugin", "hooks", "hooks.json"),
-			);
-			fs.symlinkSync(repo, `${at("guard-code")}.current`);
-			vi.stubEnv("WFC_GUARD_CODE_DIR", at("guard-code"));
-		};
-
-		it("passes this repo's own hook lines over a healthy entry, and fails them over a broken one", () => {
-			serve();
-			registerRealHooks();
-			writeGuardEntry(Healthy);
-
-			expect(tick().broken).toEqual([]);
-			expect(guardRuns()).toHaveLength(1);
-
-			writeGuardEntry(Failing);
-
-			expect(tick(NOW + MIN).text).toContain(
-				"guard entry: Lexer is not defined",
-			);
-		});
-
-		it("reads a deny of its benign Read as a failure", () => {
-			serve();
-			writeGuardEntry(
-				`process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "kit fault\\nmore" } }));\n`,
-			);
-
-			const { broken, text } = tick();
-
-			expect(text).toContain("guard entry: refused a benign Read: kit fault");
-			expect(broken).toEqual([repo]);
-		});
-
-		it("raises nothing where the re-run passes", () => {
-			serve();
-			writeGuardEntry(
-				`const once = ${JSON.stringify(at("failed-once"))};
-if (!fs.existsSync(once)) { fs.writeFileSync(once, ""); process.exit(1); }
-process.exit(0);
-`,
-			);
-
-			const { broken, text } = tick();
-
-			expect(guardRuns()).toHaveLength(2);
-			expect(text).not.toContain("probe failed");
-			expect(broken).toEqual([]);
-			expect(readFiled()).toHaveLength(0);
+			failure = null;
+			replayFailure = () => null;
 		});
 
 		it("raises on its first tick, with no outage window, and clears the tick the entry loads again, closing its issue once", () => {
 			serve();
-			writeGuardEntry(Failing);
-			const raised = tick();
+			failure = Loading;
+			const raised = probeTick();
 			expect(raised.text).toContain(
 				`probe failed in ${repo}: guard entry: Lexer is not defined`,
 			);
@@ -825,9 +705,9 @@ process.exit(0);
 			expect(raised.text).toContain("repo hold raised: probe in");
 			expect(readFiled()).toHaveLength(1);
 			expect(readBodies()).toContain("guard entry: Lexer is not defined");
-			writeGuardEntry(Healthy);
+			failure = null;
 
-			const { broken, text } = tick(NOW + MIN);
+			const { broken, text } = probeTick(NOW + MIN);
 
 			expect(text).toContain("repo hold cleared: probe in");
 			expect(text).not.toContain("could not close");
@@ -840,12 +720,13 @@ process.exit(0);
 
 		describe("a locked-out session's hold (#4228)", () => {
 			const Fault = `guard-x ${CORE_FAULT_TEXT}, and it fails closed: boom`;
-			/* Refuses a Bash `locked` as a core it could not run would, and a
-			 * Bash `merits` as a healthy guard would; lets all else through. */
-			const Judging = `const p = JSON.parse(fs.readFileSync(0, "utf8"));
-const why = p.tool_name !== "Bash" ? null : p.tool_input.command === "locked" ? ${JSON.stringify(Fault)} : p.tool_input.command === "merits" ? "Refused: rule:x" : null;
-if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } }));
-`;
+			/* A kept `locked` call still fails, as a core the guard could not run
+			 * refuses it; a `merits` call passes, refused only on its merits. */
+			const StillLocked = `refused a replayed Bash: ${Fault}`;
+			beforeEach(() => {
+				replayFailure = (command) =>
+					command === "locked" ? StillLocked : null;
+			});
 			const lockOut = (job: string, command: string) => {
 				const lines: string[] = [];
 				const held = holdLockedOut(
@@ -863,7 +744,6 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 
 			it("raises the probe hold with the refusal as its step, files its issue, and attaches each session to it", () => {
 				serve();
-				writeGuardEntry(Judging);
 
 				const first = lockOut("job7", "locked");
 				const second = lockOut("job8", "locked");
@@ -879,15 +759,14 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 				expect(readHolds(repo).holds[0]?.sessions).toEqual(["job7", "job8"]);
 			});
 
-			it("keeps the hold while a kept call is still refused for want of a guard, though the benign Read passes", () => {
+			it("keeps the hold while a kept call still fails, though the probe passes", () => {
 				serve();
-				writeGuardEntry(Judging);
 				lockOut("job7", "locked");
 
-				const { text } = tick(NOW + MIN);
+				const { text } = probeTick(NOW + MIN);
 
 				expect(text).toContain(
-					`repo hold probe: a kept call still fails: refused a replayed Bash: ${Fault}`,
+					`repo hold probe: a kept call still fails: ${StillLocked}`,
 				);
 				expect(text).not.toContain("repo hold cleared");
 				expect(readHolds(repo).holds).toHaveLength(1);
@@ -895,13 +774,12 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 
 			it("keeps the hold on its kept call before its issue files, the session not yet attached", () => {
 				serve({ isFiling: false });
-				writeGuardEntry(Judging);
 				const first = lockOut("job7", "locked");
 				expect(first.held).toEqual({
 					why: "its probe hold has no issue filed yet",
 				});
 
-				const { text } = tick(NOW + MIN);
+				const { text } = probeTick(NOW + MIN);
 
 				expect(text).toContain("a kept call still fails");
 				expect(readHolds(repo).holds).toHaveLength(1);
@@ -909,9 +787,8 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 
 			it("raises a fresh hold for a session locked out again after the lift", () => {
 				serve();
-				writeGuardEntry(Judging);
 				lockOut("job7", "merits");
-				expect(tick(NOW + MIN).text).toContain("repo hold cleared");
+				expect(probeTick(NOW + MIN).text).toContain("repo hold cleared");
 
 				const again = lockOut("job7", "locked");
 
@@ -920,27 +797,14 @@ if (why) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventNa
 				expect(readHolds(repo).holds[0]?.raisedAt).toBe(NOW);
 			});
 
-			it("lifts the hold where the kept call is refused only on its merits", () => {
+			it("lifts the hold where the kept call passes", () => {
 				serve();
-				writeGuardEntry(Judging);
 				lockOut("job7", "merits");
 
-				const { text } = tick(NOW + MIN);
+				const { text } = probeTick(NOW + MIN);
 
 				expect(text).toContain("repo hold cleared: probe in");
 			});
-		});
-
-		it("runs no step in a checkout with no self-plugin", () => {
-			serve();
-			fs.rmSync(path.join(repo, "self-plugin"), { recursive: true });
-			writeGuardEntry(Failing);
-
-			const { broken, text } = tick();
-
-			expect(guardRuns()).toHaveLength(0);
-			expect(text).not.toContain("probe failed");
-			expect(broken).toEqual([]);
 		});
 	});
 
@@ -1066,7 +930,7 @@ describe("a tick's store resolution (#4398)", () => {
 		const lines: string[] = [];
 		const log = (l: string) => lines.push(l);
 		run(() => {
-			const broken = holds.tendHolds(served, served, NOW, log);
+			const broken = holds.tendHolds(served, served, NOW, { log });
 			holds.readTickHolds(served, broken);
 			holds.attachProbeParks(broken, [], log);
 			holds.readLiftedHolds(served, log);

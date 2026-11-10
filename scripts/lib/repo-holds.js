@@ -20,33 +20,26 @@
  * outlast it, however it ended, until the tick's resume step has taken each up
  * (#3863). Each lift has a directory of its own, as a fixed id can be lifted twice.
  *
- * THE PROBE (#3860): each tick, each served checkout's shared `.git` must fetch
- * origin and resolve `main`. A checkout that fails holds the one `probe` hold
- * its store can hold, under a fixed id, so a raise never makes a second and a
- * torn one is written over. The failing roots are also returned to the tick, which stops launches on them even
- * where no record could be written (#3860). A ref git says will not resolve
- * raises the hold on its tick. A failed fetch, or a git that never answered, is
- * an outage: it reads the same as a network blip or a failed fork, so it stops
- * launches on its tick and raises the hold only once it has lasted
- * OUTAGE_HOLD_AFTER_MS, on a file of its own beside the holds (#3899). A probe
- * hold's issue is filed once its record stands, and the filing retried each tick;
- * a hand lift of one still failing is raised anew, with a new issue, on the next
- * tick, unless it now fails as an outage younger than the window.
- *
- * THE GUARD-LOAD PROBE (#4226): a self-plugin host's sessions run the guard hook
- * line its `self-plugin/hooks/hooks.json` registers, so the probe also runs that
- * line on a benign `Read`, as a session would, whatever code it runs. A failure is run once more after
- * GUARD_PROBE_RETRY_MS; a second raises the hold on its tick, with no outage
+ * THE PROBE (#3860): each tick asks lib/guard-probe.js what fails in each served
+ * checkout, its shared `.git` and its guard entry; a test injects that answer.
+ * A checkout that fails holds the one `probe` hold its store can hold, under a
+ * fixed id, so a raise never makes a second and a torn one is written over. The
+ * failing roots are also returned to the tick, which stops launches on them even
+ * where no record could be written (#3860). A failure that is no outage raises the
+ * hold on its tick. An outage stops launches on its tick and raises the hold only
+ * once it has lasted OUTAGE_HOLD_AFTER_MS, on a file of its own beside the holds
+ * (#3899). A probe hold's issue is filed once its record stands, and the filing
+ * retried each tick; a hand lift of one still failing is raised anew, with a new
+ * issue, on the next tick, unless it now fails as an outage younger than the
  * window. While it stands, each loop session that parks there is attached to it
- * (attachProbeParks). An adopter loads its guards from its pinned plugin
- * release, so runs no step.
+ * (attachProbeParks).
  *
  * A LOCKED-OUT SESSION (#4228), one every call of which its guards refused for
  * want of a guard that could judge it, raises the probe hold where none stands
  * and attaches to it (holdLockedOut). Its first refused call is kept in a
  * replay file beside the hold, written before the hold's issue files, and the
- * hold's clear check replays each kept call through the hook line beside the
- * benign `Read`, so a fault that `Read` does not touch keeps the hold.
+ * hold's clear check has the probe replay each kept call, so a fault the probe's
+ * benign `Read` does not touch keeps the hold.
  *
  * RESIDUAL: during an outage's window launches are withheld with no hold to show
  * for it, so `status` reads no hold open, only the log says why, and no notice is
@@ -79,10 +72,7 @@ const path = require("node:path");
 const { createHash, randomBytes } = require("node:crypto");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
-const { isLockoutText } = require("./core-fault.js");
 const { readText } = require("./file-read.js");
-const { parseFirstLine } = require("./first-line.js");
-const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
 const { readGitFileCommonDir } = require("./git-file.js");
@@ -90,16 +80,14 @@ const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
-const { gitCommonDir, gitOutcome, gitReader } = require("./git.js");
+const { gitCommonDir } = require("./git.js");
+const guardProbe = require("./guard-probe.js");
 const { hostRoot } = require("./host-root.js");
 const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
-const { FETCH_TIMEOUT_MS } = require("./pinned-code.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildAgeText } = require("./hold-age.js");
-const { buildHookEnv } = require("./hook-env.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { sleepSync } = require("./sleep-sync.js");
 const {
 	KILLED_EXIT,
 	RUN_BUDGETED,
@@ -144,8 +132,14 @@ const { resolveKey } = require("./workflow-core-config.js");
  * @property {string[]} jobs  those and its attach files', the sessions parked on it
  * @property {boolean} isClearNoticeOwed  a raise notice went and its clear is not done
  *
- * @typedef {{text: string, isOutage: boolean}} ProbeFailure
+ * @typedef {import("./guard-probe.js").ProbeFailure} ProbeFailure
  * @typedef {import("./block-cause.js").RefusedCall} RefusedCall
+ *
+ * What a tick asks of a checkout's probe: lib/guard-probe.js's answers, which a
+ * test injects in place of a git fetch and a spawned hook line.
+ * @typedef {object} Probe
+ * @property {(root: string) => ProbeFailure|null} readProbeFailure
+ * @property {(root: string, call: RefusedCall) => string|null} readReplayFailure
  */
 
 /* Untraced: the budget of one call a tick makes for a hold or its notice, a clear
@@ -207,40 +201,8 @@ const PROBE_FILED_WHY =
 /* A guess: 48 bits of the key's hash, in a directory holding a few checkouts. */
 const STORE_KEY_LENGTH = 12;
 
-/* Untraced: under the hook's own 60 s, and about 200 times a healthy run's
- * 0.05 s, measured on this repo's tree. */
-const GUARD_PROBE_TIMEOUT_MS = 10_000;
-
-/* Untraced: long enough for a write in progress to land. */
-const GUARD_PROBE_RETRY_MS = 2000;
-
-/**
- * The wait, ms, before the guard-load probe's re-run: `WFC_GUARD_PROBE_RETRY_MS`,
- * which a sandboxed tick sets to 0 (#4282), else GUARD_PROBE_RETRY_MS. Unset,
- * empty, negative or unreadable is the default, as a NaN would never wake
- * sleepSync.
- */
-function guardProbeRetryMs() {
-	const ms = Number(
-		process.env.WFC_GUARD_PROBE_RETRY_MS || GUARD_PROBE_RETRY_MS,
-	);
-	return Number.isNaN(ms) || ms < 0 ? GUARD_PROBE_RETRY_MS : ms;
-}
-
-/* The probe's own, so it leaves no latch on a real session. */
-const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
-
-const SELF_PLUGIN_DIR = "self-plugin";
-
-/* The probe's `Read` names it, as it is tracked wherever the step runs, and
- * the step runs the guard hook line it registers. */
-const SELF_PLUGIN_HOOKS = path.join(SELF_PLUGIN_DIR, "hooks", "hooks.json");
-
 /* What a lockout's hold asks repaired. */
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
-
-/* The entry the guard hook line runs, whatever runs it. */
-const GUARD_ENTRY = "guard-dispatch.js";
 
 /**
  * The checkout a command run from `cwd` holds holds in.
@@ -1089,167 +1051,6 @@ function isIssueClosed(hold, issue, log) {
 }
 
 /**
- * The guard hook line `root`'s `self-plugin/hooks/hooks.json` registers for a
- * PreToolUse call of `tool`, else why there is none to run: a self-plugin host
- * with none runs no guard on the call, which is a fault of its own.
- * @param {string} root
- * @param {string} tool
- * @returns {{line: string}|{why: string}}
- */
-function readGuardHookLine(root, tool) {
-	const read = readText(path.join(root, SELF_PLUGIN_HOOKS));
-	if (read.state === "absent") return { why: `no ${SELF_PLUGIN_HOOKS}` };
-	if (read.state === "unreadable")
-		return { why: `${SELF_PLUGIN_HOOKS} unread: ${read.message}` };
-	let config;
-	try {
-		config = JSON.parse(read.data);
-	} catch (err) {
-		return { why: `${SELF_PLUGIN_HOOKS} unparsed: ${caught(err).message}` };
-	}
-	const groups = config?.hooks?.PreToolUse;
-	for (const group of Array.isArray(groups) ? groups : []) {
-		const matcher = String(group?.matcher ?? "");
-		if (
-			matcher !== "" &&
-			matcher !== "*" &&
-			!new RegExp(`^(?:${matcher})$`).test(tool)
-		)
-			continue;
-		const line = (Array.isArray(group?.hooks) ? group.hooks : []).find(
-			(/** @type {{command?: unknown}} */ h) =>
-				typeof h?.command === "string" && h.command.includes(GUARD_ENTRY),
-		)?.command;
-		if (line) return { line };
-	}
-	return { why: `${SELF_PLUGIN_HOOKS} registers no guard line for ${tool}` };
-}
-
-/**
- * The benign `Read` the probe runs in `root`.
- * @param {string} root
- * @returns {RefusedCall}
- */
-const buildBenignRead = (root) => ({
-	tool_name: "Read",
-	tool_input: { file_path: path.join(root, SELF_PLUGIN_HOOKS), limit: 1 },
-});
-
-/**
- * What one run of `root`'s guard hook line on `call` fails on, or null where it
- * lets the call through, run from the main checkout's files, never the loop's code
- * copy, under the probe's own session id. `isAnyDeny`, whether any deny fails
- * it, as for the benign `Read`; else only one for want of a guard that could
- * judge the call, as a replayed call may be refused on its merits.
- * @param {string} root
- * @param {RefusedCall} call
- * @param {boolean} isAnyDeny
- * @returns {string|null}
- */
-function readGuardRunFailure(root, call, isAnyDeny) {
-	const hookLine = readGuardHookLine(root, String(call.tool_name));
-	if ("why" in hookLine) return hookLine.why;
-	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it. */
-	const run = spawnChild("sh", ["-c", hookLine.line], {
-		cwd: root,
-		env: buildHookEnv(root),
-		input: JSON.stringify({
-			session_id: GUARD_PROBE_SESSION,
-			hook_event_name: "PreToolUse",
-			cwd: root,
-			...call,
-		}),
-		timeout: GUARD_PROBE_TIMEOUT_MS,
-	});
-	if (run.error)
-		return caught(run.error).code === "ETIMEDOUT"
-			? `outlived ${GUARD_PROBE_TIMEOUT_MS} ms`
-			: run.error.message;
-	if (run.status !== 0)
-		return parseFirstLine(String(run.stderr)) || `exited ${run.status}`;
-	const out = readHookOutput(String(run.stdout));
-	if (out?.permissionDecision !== "deny") return null;
-	const reason = String(out.permissionDecisionReason ?? "");
-	if (!isAnyDeny && !isLockoutText(reason)) return null;
-	const first = parseFirstLine(reason);
-	return `refused a ${isAnyDeny ? "benign " : "replayed "}${call.tool_name}${first ? `: ${first}` : ""}`;
-}
-
-/**
- * A hook run's `hookSpecificOutput`, or null where its stdout carries none: plain
- * text on exit 0 refuses nothing.
- * @param {string} stdout
- * @returns {{permissionDecision?: unknown, permissionDecisionReason?: unknown}|null}
- */
-function readHookOutput(stdout) {
-	try {
-		return JSON.parse(stdout)?.hookSpecificOutput ?? null;
-	} catch {
-		/* Not JSON: no decision, so no refusal (#4226). */
-		return null;
-	}
-}
-
-/**
- * The guard-load probe's failure in `root`, or null where it passes or `root` is
- * no self-plugin host.
- * @param {string} root
- * @returns {ProbeFailure|null}
- */
-function readGuardLoadFailure(root) {
-	if (!fs.existsSync(path.join(root, SELF_PLUGIN_DIR))) return null;
-	const read = buildBenignRead(root);
-	if (readGuardRunFailure(root, read, true) === null) return null;
-	sleepSync(guardProbeRetryMs());
-	const failure = readGuardRunFailure(root, read, true);
-	return failure === null
-		? null
-		: { text: `guard entry: ${failure}`, isOutage: false };
-}
-
-/**
- * What fails of `root`'s shared `.git` and guard entry, or null where the probe
- * passes. `origin` and `main` are the main checkout's.
- * @param {string} root
- * @returns {ProbeFailure|null}
- */
-function readProbeFailure(root) {
-	const fetched = gitOutcome(
-		["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin"],
-		[],
-		root,
-		FETCH_TIMEOUT_MS,
-	);
-	const refs = [{ name: "main", rev: "refs/heads/main" }];
-	const unresolved = refs.flatMap(({ name, rev }) => {
-		const read = readCommit(gitReader(root), rev);
-		if (!read.ok)
-			return [
-				{
-					text: `resolve ${name}: ${read.why}`,
-					isOutage: read.isUnrun === true,
-				},
-			];
-		return read.sha === null
-			? [{ text: `resolve ${name}: names no commit`, isOutage: false }]
-			: [];
-	});
-	const failed = [
-		...(fetched.ok
-			? []
-			: [{ text: `fetch origin: ${fetched.why}`, isOutage: true }]),
-		...unresolved,
-		...[readGuardLoadFailure(root)].filter((f) => f !== null),
-	];
-	return failed.length > 0
-		? {
-				text: failed.map((f) => f.text).join("; "),
-				isOutage: failed.every((f) => f.isOutage),
-			}
-		: null;
-}
-
-/**
  * Close a probe hold's filed issue, with `why`: null once closed or where there
  * is none to close, else what failed.
  * @param {RepoHold} hold
@@ -1278,15 +1079,20 @@ function closeProbeIssue(hold, why) {
 
 /**
  * @param {RepoHold} hold
- * @param {(root: string) => ProbeFailure|null} readFailure  the tick's one probe of a
- *   checkout, shared with its failing-tick raise
+ * @param {Probe} probe  the tick's, its one probe of a checkout shared with its
+ *   failing-tick raise
  * @param {Log} log
  */
-function isCheckPassed(hold, readFailure, log) {
+function isCheckPassed(hold, probe, log) {
 	if ("probe" in hold.clearCheck)
 		return (
-			readFailure(hold.checkout) === null &&
-			isEveryReplayPassed(hold, readHoldReplays(hold.checkout, hold.id), log)
+			probe.readProbeFailure(hold.checkout) === null &&
+			isEveryReplayPassed(
+				hold,
+				readHoldReplays(hold.checkout, hold.id),
+				probe,
+				log,
+			)
 		);
 	return "command" in hold.clearCheck
 		? isCommandPassed(hold, hold.clearCheck.command, log)
@@ -1342,11 +1148,12 @@ function keepProbeReplay(root, job, call) {
  * is logged.
  * @param {RepoHold} hold
  * @param {RefusedCall[]} replays
+ * @param {Probe} probe
  * @param {Log} log
  */
-function isEveryReplayPassed(hold, replays, log) {
+function isEveryReplayPassed(hold, replays, probe, log) {
 	return replays.every((call) => {
-		const failure = readGuardRunFailure(hold.checkout, call, false);
+		const failure = probe.readReplayFailure(hold.checkout, call);
 		if (failure !== null)
 			log(`repo hold ${hold.id}: a kept call still fails: ${failure}`);
 		return failure === null;
@@ -1366,13 +1173,12 @@ const readStoreRoots = (roots) => [
  * and costs this hold alone its tick, never the launches (#3857).
  * @param {string} root
  * @param {RepoHold} hold
- * @param {(root: string) => ProbeFailure|null} readFailure  as isCheckPassed's
+ * @param {Probe} probe  as isCheckPassed's
  * @param {Log} log
  */
-function settleHold(root, hold, readFailure, log) {
+function settleHold(root, hold, probe, log) {
 	try {
-		if (!isCheckPassed(hold, readFailure, log) || !removeHold(root, hold.id))
-			return;
+		if (!isCheckPassed(hold, probe, log) || !removeHold(root, hold.id)) return;
 		log(
 			`repo hold cleared: ${buildHoldRef(hold)}; passed ${buildCheckText(hold.clearCheck)}`,
 		);
@@ -1669,29 +1475,33 @@ function holdLockedOut(root, { job, refusal, call }, now, log) {
  * @param {string[]} roots  every checkout whose holds are settled
  * @param {string[]} served  the checkouts probed
  * @param {number} now
- * @param {Log} log  passed, as lib/refill-tick.js, which owns the loop's, requires this
+ * @param {{log: Log, probe?: Probe}} with  `log` passed, as lib/refill-tick.js,
+ *   which owns the loop's, requires this; `probe` lib/guard-probe.js unless injected
  * @returns {string[]} the served checkouts whose probe failed
  */
-function tendHolds(roots, served, now, log) {
+function tendHolds(roots, served, now, { log, probe = guardProbe }) {
 	/** @type {Map<string, ProbeFailure|null>} */
 	const probed = new Map();
-	/** One fetch a checkout a tick, for its hold's check and its probe alike.
-	 * @param {string} root */
-	const readFailure = (root) => {
-		const known = probed.get(root);
-		if (known !== undefined) return known;
-		const failure = readProbeFailure(root);
-		probed.set(root, failure);
-		return failure;
+	/** One probe a checkout a tick, for its hold's check and its raise alike.
+	 * @type {Probe} */
+	const tickProbe = {
+		readProbeFailure: (root) => {
+			const known = probed.get(root);
+			if (known !== undefined) return known;
+			const failure = probe.readProbeFailure(root);
+			probed.set(root, failure);
+			return failure;
+		},
+		readReplayFailure: probe.readReplayFailure,
 	};
 	for (const root of readStoreRoots(roots)) {
 		const { holds, unread } = readHolds(root);
 		for (const why of unread)
 			log(`repo holds unread, read as not open this tick: ${why}`);
-		for (const hold of holds) settleHold(root, hold, readFailure, log);
+		for (const hold of holds) settleHold(root, hold, tickProbe, log);
 	}
 	return served.filter((root) => {
-		const failure = readFailure(root);
+		const failure = tickProbe.readProbeFailure(root);
 		const lasted = now - tendOutage(root, failure, now, log);
 		if (failure === null) return false;
 		const isRaiseDue = !failure.isOutage || lasted >= OUTAGE_HOLD_AFTER_MS;
