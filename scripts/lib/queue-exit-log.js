@@ -33,6 +33,8 @@
  * absent where none did.
  * `peerS`, the seconds the wait was held on that peer, to its last poll on a
  * killed line; absent where none held it, and on every line before #4765.
+ * Where waiters ahead in its own queue close the turn too, the turn names
+ * them, so that time is not `peerS` and a refusal there says `turn`.
  * `noWait`, true on a `--tsc` line from a try under TSC_NO_WAIT_ENV, the
  * pre-commit hook's, bar a killed one, absent otherwise (#3803).
  * `chargeMb`, on a `--tsc` line, the peak of the compiler the launch ran,

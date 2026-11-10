@@ -141,7 +141,8 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, pid: number, slotFree?: boolean,
  *   skipped?: boolean, passed?: number, climbMb?: number,
- *   chargeMb?: number, peerS?: number, limb?: string }} Exit
+ *   chargeMb?: number, peerS?: number,
+ *   limb?: import("./queue-exit-log.js").HeldLimb }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   modulesRun: number | null, modulesTotal: number | null }} Run
@@ -1074,8 +1075,8 @@ function render(r, w) {
 			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
 			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
 		"",
-		...["tsc", "suite"].map((k) => {
-			const p = r.peers[/** @type {"tsc" | "suite"} */ (k)];
+		.../** @type {const} */ (["tsc", "suite"]).map((k) => {
+			const p = r.peers[k];
 			return `Recorded peer holds, ${k} waits: ${p.held} held on an older waiter in the other queue the climb charge holds, ${hours(p.heldS)} h, ${p.atBound} still held at the bound (#4765).`;
 		}),
 		"",

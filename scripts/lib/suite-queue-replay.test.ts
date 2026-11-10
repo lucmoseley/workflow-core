@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chargeMb } from "./launch-charge";
+import type { HeldLimb } from "./queue-exit-log";
 import {
 	DRAW_MARGIN_MB,
 	rungMb,
@@ -41,7 +42,7 @@ interface Waiter {
 	climbMb?: number;
 	chargeMb?: number;
 	peerS?: number;
-	limb?: string;
+	limb?: HeldLimb;
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",

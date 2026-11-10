@@ -2417,7 +2417,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 
 	it("keeps the highest charge for a killed wait's exit line (#3806)", async () => {
 		const stamps = seatStamps({ queueDir: qdir() });
-		expect(stamps.killedHold()).toEqual({});
+		expect(stamps.polledHold()).toEqual({});
 		let polls = 0;
 		const limbs = [Climb(1900), Climb(1400), null];
 		await waitForGate({
@@ -2427,7 +2427,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 			sleepFn: () => Promise.resolve(),
 			out: { write: () => true },
 		});
-		expect(stamps.killedHold()).toEqual({ climbMb: 1900 });
+		expect(stamps.polledHold()).toEqual({ climbMb: 1900 });
 	});
 
 	it("records no charge where the reading alone sat under the rung (#3806)", async () => {
@@ -2520,7 +2520,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		it("gives a killed wait's line the peer seconds to its last poll", async () => {
 			const stamps = seatStamps({ queueDir: qdir() });
 			await peerWait([null], { ...stamps, climbMb: () => 0 });
-			expect(stamps.killedHold()).toEqual({ peerS: 30 });
+			expect(stamps.polledHold()).toEqual({ peerS: 30 });
 		});
 	});
 

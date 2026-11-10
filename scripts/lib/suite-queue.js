@@ -780,13 +780,13 @@ function buildHoldListeners(listen) {
  * others: `admit` (`queueAdmit`), a listener per `HOLD_STAMPS` stamp that
  * writes it to the marker, and `climbMb`, what
  * its peer queues' launches have yet to draw (#3416). `onClimbHeld` keeps the highest charge that held the wait, and
- * `onPeerHeld` the time the `peer` limb held it to the last poll (#4765), for
- * `killedHold` to give a killed wait's exit line, which `waitForGate` never
- * reaches (#3806).
+ * `onPeerHeld` the seconds the `peer` limb held it to the last poll (#4765), for
+ * `polledHold` to give an exit line `waitForGate` never writes: a killed
+ * wait's (#3806) or one a failed re-check refuses.
  *
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (ms: number) => void, killedHold: () => WaitHold } & Required<HoldListeners>}
+ * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
@@ -795,10 +795,10 @@ function queueStamps(file, options = {}) {
 		onClimbHeld: (climbMb) => {
 			climbHeldMb = climbMb;
 		},
-		onPeerHeld: (ms) => {
-			peerS = Math.round(ms / 1000);
+		onPeerHeld: (secs) => {
+			peerS = secs;
 		},
-		killedHold: () => ({
+		polledHold: () => ({
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 			...(peerS > 0 ? { peerS } : {}),
 		}),
@@ -1245,19 +1245,6 @@ function heldLimb(denial, turnHold) {
 	return turnHold?.limb === "peer" ? "peer" : "turn";
 }
 
-const HELD_LINE = {
-	count: "gate still denies on its count cap",
-	turn: "turn still closed",
-	peer: "turn still closed on an older waiter in the other queue the climb charge holds",
-};
-
-/**
- * What holds a wait on one poll: a gate denial, who holds the turn shut, a
- * turn closed by a caller's own `turn` (`{ limb: "turn" }`), or a yield to a
- * launch admitted on the same poll.
- * @typedef {GateDenial | TurnHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
- */
-
 const LIMB_NAMES = {
 	count: "the count cap",
 	memory: "the memory rung",
@@ -1268,6 +1255,19 @@ const LIMB_NAMES = {
 	turn: "the queue's turn",
 	yielded: "yielding to a launch admitted on the same poll",
 };
+
+const HELD_LINE = {
+	count: "gate still denies on its count cap",
+	turn: "turn still closed",
+	peer: `turn still closed on ${LIMB_NAMES.peer}`,
+};
+
+/**
+ * What holds a wait on one poll: a gate denial, who holds the turn shut, a
+ * turn closed by a caller's own `turn` (`{ limb: "turn" }`), or a yield to a
+ * launch admitted on the same poll.
+ * @typedef {GateDenial | TurnHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
+ */
 
 /** @param {(number | null)[]} pids */
 const pidList = (pids) =>
@@ -1561,7 +1561,7 @@ function changesOnly(listener) {
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
  * changes, and the time held on each limb as the wait ends (#4359).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (ms: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1643,6 +1643,7 @@ function waitForGate({
 		return null;
 	};
 	const trace = limbTrace(clock, started);
+	const peerHeldS = () => Math.round(trace.heldMs("peer") / 1000);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
 	const sayBreakdown = () => {
 		const spent = breakdown();
@@ -1650,7 +1651,7 @@ function waitForGate({
 	};
 	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome @param {HeldLimb} [limb] */
 	const exit = (reason, outcome, limb) => {
-		const peerS = Math.round(trace.heldMs("peer") / 1000);
+		const peerS = peerHeldS();
 		const heldBy = {
 			...(limb ? { limb } : {}),
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
@@ -1682,7 +1683,7 @@ function waitForGate({
 		const also =
 			traceLimbs && denial ? readAlsoHeld(denial, turn, turnHold) : [];
 		const line = trace.see(waitLimb(denial, open, turnHold), also);
-		onPeerHeld(trace.heldMs("peer"));
+		onPeerHeld(peerHeldS());
 		if (!traceLimbs || !line) return;
 		announce();
 		out.write(`${label}: after ${secs()}s, held on ${line}\n`);
@@ -1927,7 +1928,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 			waiting = false;
 			logExit?.("killed", Date.now() - started, {
 				signal,
-				...stamps.killedHold(),
+				...stamps.polledHold(),
 			});
 		},
 		leave,
