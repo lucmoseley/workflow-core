@@ -56,8 +56,6 @@ const CONCURRENCY_WINDOWS = {
 	day: { ms: DAY_MS, span: "24 h" },
 	week: { ms: 7 * DAY_MS, span: "7 days" },
 };
-/* Untraced: spec #1995's "first tick after 07:00", machine-local. */
-const REVIEW_HOUR = 7;
 
 /** @param {string} date machine-local `YYYY-MM-DD` */
 const buildReviewTitle = (date) => `Morning review — ${date}`;
@@ -843,7 +841,6 @@ function parseEntries(body) {
 
 module.exports = {
 	CONCURRENCY_WINDOWS,
-	REVIEW_HOUR,
 	commentLink,
 	parseEntries,
 	parseReviewDate,

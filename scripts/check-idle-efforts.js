@@ -84,7 +84,7 @@ const {
 	readHostTracker,
 } = require("./lib/refill-repos.js");
 const { readTickHolds } = require("./lib/repo-holds.js");
-const { servedRoots } = require("./lib/refill-tick.js");
+const { servedRoots } = require("./lib/refill-io.js");
 const {
 	IDLE_DAYS,
 	QUERY,

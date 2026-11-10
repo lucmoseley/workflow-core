@@ -1366,18 +1366,18 @@ describe("the ticked set and the mode (#3862)", () => {
 		).toBeNull();
 	});
 
-	it("re-arms a repeat --away, so the prompt behind the ask reads as no return", async () => {
+	it("leaves a repeat --away's absent read as it stands", async () => {
 		await run("set", "--away");
 		const control = readControl();
-		const { since } = control.away;
+		const away = { since: control.away.since, absentSeen: true };
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ ...control, away: { since, absentSeen: true } }),
+			JSON.stringify({ ...control, away }),
 		);
 		const r = await run("set", "--away");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("unchanged: mode away");
-		expect(readControl().away).toEqual({ since, absentSeen: false });
+		expect(readControl().away).toEqual(away);
 	});
 
 	it("reads in status --json the sessions handed off since this switch", async () => {

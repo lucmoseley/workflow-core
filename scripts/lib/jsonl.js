@@ -22,6 +22,9 @@
  *
  * A reader that streams a log line by line, never holding it whole, takes
  * each line's answer from parseJsonlRow.
+ *
+ * A reader that wants only the newest row of a log takes it from
+ * readLastJsonlRow, which reads the file's end and never the whole.
  */
 
 const fs = require("node:fs");
@@ -111,4 +114,52 @@ function readJsonl(file, keep) {
 	return parseJsonl(text, keep);
 }
 
-module.exports = { parseJsonl, parseJsonlRow, readJsonl };
+/* The bytes read from the file's end at first, doubled until a row is found;
+ * untraced, set past any row a log here writes. */
+const TAIL_BYTES = 64 * 1024;
+
+/**
+ * The last row among `text`'s lines, undefined where none holds one. Its
+ * first line is left out where `partial`, the text starting mid-file.
+ * @param {string} text
+ * @param {boolean} partial
+ */
+function lastRowOf(text, partial) {
+	const lines = text.split("\n");
+	/** @type {Record<string, unknown> | undefined} */
+	let row;
+	for (let i = lines.length - 1; !row && i >= (partial ? 1 : 0); i--)
+		row = parseJsonlRow(lines[i] ?? "") || undefined;
+	return row;
+}
+
+/**
+ * The file's last row, as `readJsonl(file).rows.at(-1)` gives it: null where
+ * the file is missing, undefined where it holds no row.
+ * @param {string} file
+ * @returns {Record<string, unknown> | null | undefined}
+ */
+function readLastJsonlRow(file) {
+	let fd;
+	try {
+		fd = fs.openSync(file, "r");
+	} catch (e) {
+		/* lib/file-read.js reads a file whole, and this one must not be. */
+		if (caught(e).code === "ENOENT") return null;
+		throw e;
+	}
+	try {
+		const { size } = fs.fstatSync(fd);
+		for (let want = TAIL_BYTES; ; want *= 2) {
+			const start = Math.max(0, size - want);
+			const tail = Buffer.alloc(size - start);
+			const read = fs.readSync(fd, tail, 0, tail.length, start);
+			const row = lastRowOf(tail.toString("utf8", 0, read), start > 0);
+			if (row || start === 0) return row;
+		}
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+module.exports = { parseJsonl, parseJsonlRow, readJsonl, readLastJsonlRow };
