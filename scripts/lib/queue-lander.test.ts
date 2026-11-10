@@ -2265,6 +2265,69 @@ describe("the red path", () => {
 		expect((await run(true)).peak).toBe(3);
 		expect((await run()).peak).toBe(1);
 	});
+
+	/** Holds each named-file verdict alone until its ask and its confirm's
+	 * are both made, so a confirm asked only after it never opens the gate. */
+	const pairGate = (key: string, events: readonly string[]) =>
+		!/^merge\(m0;[abc]1\):/.test(key) ||
+		events.filter((e) => e === `ask ${key}`).length === 2;
+
+	it("asks each member's confirm beside its first run alone on a parallel tester, dropping the culprit on the pair (#4951)", async () => {
+		const { end, actions, peak } = await land(abc(), freshDisk(), {
+			parallel: true,
+			verdict: redWhereHeld("b"),
+			gate: pairGate,
+		});
+
+		expect(peak).toBe(6);
+		expect(kinds(actions).filter((k) => /^(isolate|confirm)-/.test(k))).toEqual(
+			["isolate-members", "confirm-members"],
+		);
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+	});
+
+	it("never stops on a passer's confirm that reached no verdict (#4951)", async () => {
+		const remote = abc();
+		const culprit = redWhereHeld("b");
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			parallel: true,
+			gate: pairGate,
+			verdict: (sha, r, files, nth) =>
+				sha === "merge(m0;a1)" && files.length > 0 && nth === 2
+					? { kind: "unknown", reason: "no run" }
+					: culprit(sha, r, files),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
+		expect(remote.main).toBe("merge(m0;a1,c1)");
+	});
+
+	it("asks a whole-suite confirm only once its first run alone is red, as it reruns that run's failed jobs (#4951)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		disk.verdicts.set(verdictKey("m0", [], 1), Green);
+		/* A guess: the run takes its next step within 20 turns of the loop. */
+		let turns = 0;
+
+		const { events } = await land(remote, disk, {
+			parallel: true,
+			verdict: (sha) => (sha.includes("b1") ? red() : Green),
+			gate: (key) => key !== "merge(m0;b1)" || ++turns > 20,
+		});
+
+		const b = events.filter((e) => e.endsWith(" merge(m0;b1)"));
+		expect(b.slice(0, 3)).toEqual([
+			"ask merge(m0;b1)",
+			"verdict merge(m0;b1)",
+			"ask merge(m0;b1)",
+		]);
+	});
 });
 
 describe("a push main refuses", () => {
