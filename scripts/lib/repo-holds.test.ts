@@ -631,12 +631,13 @@ describe("the probe hold (#3860)", () => {
 		fs.writeFileSync(gitFile, "garbage\n");
 		raiseProbe(worktree, "while broken", NOW + MIN);
 		const broken = holdsDir(worktree);
+		fs.writeFileSync(path.join(broken, "probe.attached.job-a"), "");
 		fs.writeFileSync(gitFile, text);
 
-		expect(readHolds(worktree).holds.map((h) => h.act)).toEqual([
-			"before the break",
+		expect(readHolds(worktree).holds.map((h) => [h.act, h.sessions])).toEqual([
+			["before the break", ["job-a"]],
 		]);
-		expect(fs.existsSync(path.join(broken, "probe.json"))).toBe(true);
+		expect(fs.readdirSync(broken)).toEqual(["probe.json"]);
 
 		liftHold(worktree, "probe");
 
@@ -644,6 +645,30 @@ describe("the probe hold (#3860)", () => {
 			"while broken",
 		]);
 		expect(fs.existsSync(broken)).toBe(false);
+	});
+
+	it("reports a broken keying's store it cannot adopt, and the tick runs on (#4718)", () => {
+		serve();
+		const worktree = at("worktree");
+		execFileSync("git", ["worktree", "add", "-q", worktree], { cwd: repo });
+		const gitFile = path.join(worktree, ".git");
+		const text = fs.readFileSync(gitFile, "utf8");
+		fs.writeFileSync(gitFile, "garbage\n");
+		tick(NOW, [worktree]);
+		const broken = holdsDir(worktree);
+		fs.writeFileSync(gitFile, text);
+		fs.chmodSync(broken, 0o000);
+		try {
+			const { text: logged } = tick(NOW + MIN, [worktree, repo]);
+
+			expect(logged).toContain(`${broken}: `);
+			expect(readHolds(worktree).unread).toEqual([
+				expect.stringContaining("so repair the directory"),
+			]);
+		} finally {
+			fs.chmodSync(broken, 0o755);
+		}
+		expect(readHolds(worktree).holds.map((h) => h.id)).toEqual(["probe"]);
 	});
 
 	describe("the hook environment (#4736)", () => {
