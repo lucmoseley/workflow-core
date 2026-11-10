@@ -37,6 +37,7 @@ const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught, readLogged } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
 const { runTickChild: runChild } = require("./child-spawn.js");
+const { checkoutPeakMb } = require("./tsc-slot.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
@@ -268,15 +269,19 @@ function runMachineChild(script, label) {
  * Admission's free slots, read as the dispatcher's re-read reads them
  * (lib/refill-tick-core.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
  * broken read launches nothing (#2012). `admission` is the verdict behind
- * them, for the concurrency record, or null where it did not read.
+ * them, for the concurrency record, or null where it did not read. Read in
+ * the served checkout core.admissionRoot picks.
+ * @param {string[]} served
  * @returns {{slots: number,
  *   admission: import("./admission.js").AdmissionJson | null}}
  */
-function readFreeSlots() {
-	const r = runChild(process.execPath, [
-		path.join(SCRIPTS, "admission.js"),
-		...core.FREE_SLOT_ARGS,
-	]);
+function readFreeSlots(served) {
+	const root = core.admissionRoot(served, checkoutPeakMb);
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, "admission.js"), ...core.FREE_SLOT_ARGS],
+		root ? { cwd: root, env: buildCheckoutEnv(root) } : {},
+	);
 	try {
 		/* admission.js's own `--json` shape (writeJson), typed, not checked. */
 		/** @type {import("./admission.js").AdmissionJson | {ok: false}} */
@@ -785,10 +790,13 @@ function tendClosedParks(served) {
 
 /**
  * The dispatcher's per-member re-read for a resume: null, or why it waits.
+ * @param {string[]} served
  * @returns {string|null}
  */
-const admitResume = () =>
-	readFreeSlots().slots > 0 ? null : "admission's re-read finds no free slot";
+const admitResume = (served) =>
+	readFreeSlots(served).slots > 0
+		? null
+		: "admission's re-read finds no free slot";
 
 const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 
@@ -807,7 +815,7 @@ const launchOrResume = (batch, served) =>
 				sessionId,
 				cwd,
 			}),
-		admitResume,
+		admitResume: () => admitResume(served),
 		stagger: staggerResume,
 		recordLaunch,
 		launchFresh: launchBatch,
@@ -890,7 +898,7 @@ const blockIo = (served) => ({
 	resumeOwnId: resume.resumeOwnId,
 	adoptResumed: resume.adoptResumed,
 	writeLaunch,
-	admitResume,
+	admitResume: () => admitResume(served),
 	stagger: staggerResume,
 	moveSession: resume.moveSession,
 	removeJobRecord: resume.removeJobRecord,

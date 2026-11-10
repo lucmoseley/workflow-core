@@ -35,7 +35,7 @@ import {
 	WFC,
 } from "./refill-loop-fixture";
 import { loopStateOf } from "./refill-state-testkit";
-import { runTick } from "./refill-tick-core.js";
+import { admissionRoot, runTick } from "./refill-tick-core.js";
 
 type TickIo = import("./refill-tick-core.js").TickIo;
 type TickActs = import("./refill-tick-core.js").TickActs;
@@ -847,6 +847,40 @@ describe("a limit-held launch through the tick (#3735)", () => {
 				working: ADMISSION_VERDICT.memory.working.count + 1,
 			}),
 		]);
+	});
+});
+
+describe("the checkout the free-slot count is read in (#4962)", () => {
+	const peaks: Record<string, number> = {
+		"/no-tsc": 0,
+		"/ts6": 1497,
+		"/ts7": 1938,
+	};
+	const peakMbOf = (root: string) => peaks[root] ?? 0;
+
+	it("is the served checkout whose type-check is charged most", () => {
+		expect(admissionRoot(["/no-tsc", "/ts7", "/ts6"], peakMbOf)).toBe("/ts7");
+	});
+
+	it("is a served checkout even where none holds a compiler", () => {
+		expect(admissionRoot(["/no-tsc"], peakMbOf)).toBe("/no-tsc");
+	});
+
+	it("is none where nothing is served", () => {
+		expect(admissionRoot([], peakMbOf)).toBeUndefined();
+	});
+
+	it("hands the tick's served checkouts to the free-slot read", async () => {
+		const readIn: string[][] = [];
+		const { io } = fakeIo(stateOf(), {
+			readFreeSlots: (served) => {
+				readIn.push(served);
+				return { slots: 0, admission: null };
+			},
+		});
+		const c = control();
+		await tickOf(io, c);
+		expect(readIn).toEqual([c.scope.repos]);
 	});
 });
 
