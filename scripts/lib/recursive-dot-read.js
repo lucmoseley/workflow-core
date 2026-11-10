@@ -484,15 +484,16 @@ const isRootSpelling = (w, root) =>
  * @param {string} cwd where it runs
  */
 function judge(scene, segment, words, cwd) {
-	const { words: w, watched } = unwrap(words, scene.spans);
-	const [head, ...args] = w;
-	if (head === undefined) return;
-	scene.judgement.inWatch = watched;
-	const kind = SEARCHES.get(head);
-	if (kind) judgeSearch(scene, { segment, words, cwd, head, kind, args });
-	else if (head === "cd" || head === "pushd" || head === "popd")
-		scene.judgement.moved = true;
-	else if (head === "find") judgeFind(scene, args, cwd);
+	for (const { words: w, watched } of unwrap(words, scene.spans)) {
+		const [head, ...args] = w;
+		if (head === undefined) continue;
+		scene.judgement.inWatch = watched;
+		const kind = SEARCHES.get(head);
+		if (kind) judgeSearch(scene, { segment, words, cwd, head, kind, args });
+		else if (head === "cd" || head === "pushd" || head === "popd")
+			scene.judgement.moved = true;
+		else if (head === "find") judgeFind(scene, args, cwd);
+	}
 }
 
 /**

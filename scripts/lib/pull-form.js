@@ -114,8 +114,8 @@
  *    `core.worktree`, and an alias written to a config file by other than `git
  *    config` earlier in the same command; so, by the `if` below, a quoted `git`
  *    or one a tab follows; a launcher outside that class, `chrt` and `unshare`
- *    measured; and a quote, `;` or second line inside the string `watch` or `flock -c` runs
- *    (#4046).
+ *    measured; and a quote inside the string `watch` or `flock -c` runs
+ *    (#4046), whose every line and `;`-joined command is judged (#4699).
  *  - Its lib/guard-cores.json row narrows it to `Bash(*git *)`
  *    (mantahostels#2127, #4009) — not loaded unless the command holds the word,
  *    unanchored because the walk reads past a wrapper.
@@ -150,6 +150,7 @@ const { parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
  * @typedef {object} PullFormPorts
@@ -776,7 +777,7 @@ An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C ${landing ? `.claude/worktrees/<session-name> merge ${VERIFIED_REF}` : `.claude/worktrees/reconcile merge ${VERIFIED_REF}`}\` — or assign
+command — \`git -C ${WORKTREES}/${landing ? "<session-name>" : "reconcile"} merge ${VERIFIED_REF}\` — or assign
 it literally in the same Bash call${landing ? "" : ", as the recipe below does"}. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 

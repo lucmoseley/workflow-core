@@ -14,6 +14,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -26,7 +27,7 @@ const {
 const { writeFd } = require("./lib/write-fd.js");
 
 parseOrExit(process.argv.slice(2), {
-	usage: "Usage: node scripts/adopt-guard-code.js",
+	usage: `Usage: node ${scriptPath("adopt-guard-code.js")}`,
 });
 
 const adoption = adoptGuardCodeAt(hostRoot());

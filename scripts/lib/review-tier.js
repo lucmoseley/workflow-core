@@ -42,7 +42,7 @@ const { reviewSuffix } = require("./review-suffix.js");
 const { CONFIG_PATH } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
-const { treeOrHost } = require("./tree-or.js");
+const { linkedTreeOrRoot } = require("./tree-or.js");
 
 /**
  * @typedef {import("./sensitive-paths.js").Match} Match
@@ -91,7 +91,10 @@ function decide(skill, ctx) {
 	)
 		return null;
 
-	const tree = treeOf(ctx);
+	/* The host's tree for the session's directory (#4242): its own where a
+	 * linked worktree of the root's repository (#2386, #4493, spec #1612
+	 * §Detection moments). */
+	const tree = linkedTreeOrRoot(ctx);
 	const base = sessionBaseIn(tree, ctx);
 	const paths = [...stagedIn(tree, ctx), ...ownChanges(tree, base, ctx)];
 	/* A config warning is the config reader's to report, not this core's. */
@@ -221,28 +224,6 @@ function tierDecision(prelude, notLive, globless) {
 			"review-tier-records",
 		],
 	};
-}
-
-/**
- * The tree whose paths are matched: the session's (#4242), where it is a
- * linked worktree of the root's repository, since the root is its main
- * checkout (#2386, #4493, spec #1612 §Detection moments); else the root.
- * @param {TierContext} ctx
- * @returns {string}
- */
-function treeOf(ctx) {
-	const { root } = treeOrHost(ctx);
-	if (root === ctx.root) return root;
-	/* A git before 2.31 rejects --path-format (#2529). */
-	const common = ctx.commonDir(root);
-	const rootCommon = ctx.commonDir(ctx.root);
-	if (common === null || rootCommon === null) {
-		ctx.log(
-			`git rev-parse --git-common-dir failed in ${root} or ${ctx.root} — worktree paths left unmatched`,
-		);
-		return ctx.root;
-	}
-	return common === rootCommon ? root : ctx.root;
 }
 
 /**

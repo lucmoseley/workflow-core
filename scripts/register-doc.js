@@ -83,6 +83,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
@@ -236,9 +237,9 @@ const VALUE_FLAGS = [
 ];
 
 const USAGE =
-	"usage: node scripts/register-doc.js <path> --class <token> --section <name> [--reader <token>] [--qualifier <text>] [--role <text>] [--route <text>]\n" +
-	"       node scripts/register-doc.js <path> --role <text>\n" +
-	"       node scripts/register-doc.js <path> --route <text>";
+	`usage: node ${scriptPath("register-doc.js")} <path> --class <token> --section <name> [--reader <token>] [--qualifier <text>] [--role <text>] [--route <text>]\n` +
+	`       node ${scriptPath("register-doc.js")} <path> --role <text>\n` +
+	`       node ${scriptPath("register-doc.js")} <path> --route <text>`;
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {

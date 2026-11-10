@@ -35,7 +35,7 @@
  *
  * THE REGISTRATION ALLOWS 1200 s, the cut's own bounds summed: a fetch of up
  * to 3 tries and two more git steps at 30 s each, and an `npm ci` (or a wait
- * on a neighbour's) at 15 minutes (lib/session-checkout.js). A cut slower than
+ * on a neighbour's) at 15 minutes (lib/dep-store.js). A cut slower than
  * that — a wait on a builder that then dies, and a build after it — is killed
  * before any launch. The launch and the removal start only with
  * `LAUNCH_ROOM_MS` left, so a kill never falls between them and leaves two

@@ -5,7 +5,7 @@
  * refuse one: these lines are how a seat dropped by mistake is seen.
  */
 
-const { describeAge } = require("./proc-table.js");
+const { describeAge } = require("./age-text.js");
 const { buildSeatLabel, buildSeatName } = require("./refill-seats.js");
 
 /**
@@ -124,7 +124,7 @@ function buildPlanSeatText(
 	const age =
 		weekReadAt === null
 			? "age unknown"
-			: `read ${describeAge(Math.max(0, (at - weekReadAt) / 1000))} ${ageSuffix}`;
+			: `read ${describeAge(Math.max(0, at - weekReadAt))} ${ageSuffix}`;
 	const reading =
 		percent === null ? "no weekly reading" : `${percent}% of the week, ${age}`;
 	return `${buildSeatName(seat)}: ${reading}, ${weekFull ? "weekly-full" : "not weekly-full"}`;

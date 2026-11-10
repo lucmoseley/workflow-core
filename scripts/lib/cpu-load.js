@@ -551,11 +551,14 @@ const JUDGES = new Map([
  * @returns {Verdict | null}
  */
 function judge(at, raw, spans, scan) {
-	const { words } = unwrap(raw, spans, ["taskset"]);
-	if (words.length === 0) return null;
-	const cmd = afterSlash(lit(words[0] ?? "", spans).text);
-	const by = JUDGES.get(cmd) ?? (cmd.endsWith(".sh") ? judgeScript : null);
-	return by ? by(at, words, spans, scan) : null;
+	for (const { words } of unwrap(raw, spans, ["taskset"])) {
+		if (words.length === 0) continue;
+		const cmd = afterSlash(lit(words[0] ?? "", spans).text);
+		const by = JUDGES.get(cmd) ?? (cmd.endsWith(".sh") ? judgeScript : null);
+		const verdict = by ? by(at, words, spans, scan) : null;
+		if (verdict) return verdict;
+	}
+	return null;
 }
 
 /** @param {string[]} words */

@@ -226,6 +226,8 @@ describe("a push of a branch other than main is denied", () => {
 		["env X=1 git push origin feature-x", "feature-x"],
 		["timeout 60 git push origin feature-x", "feature-x"],
 		["command git push origin feature-x", "feature-x"],
+		// A later command a -c string runs (#4699).
+		[`env -S 'flock /l -c "true\\ngit push origin feature-x"'`, "feature-x"],
 	])("%s", (command, branch) => {
 		const why = denial(command);
 		expect(why).toContain(`a branch other than main, ${branch}`);

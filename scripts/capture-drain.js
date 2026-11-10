@@ -25,6 +25,7 @@
  */
 
 const { gh, parseErrLine } = require("./lib/gh");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { DRAIN_REACTION, fetchCaptures } = require("./lib/captures");
 const { parseOrExit } = require("./lib/cli-args");
@@ -77,7 +78,7 @@ function list({ all, json }) {
 	}
 	writeFd(
 		1,
-		"Mark one consumed once its fact is placed (or found already recorded):\n  node scripts/capture-drain.js mark <comment-id>\n",
+		`Mark one consumed once its fact is placed (or found already recorded):\n  node ${scriptPath("capture-drain.js")} mark <comment-id>\n`,
 	);
 }
 

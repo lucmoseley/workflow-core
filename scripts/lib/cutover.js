@@ -226,11 +226,11 @@ function cutover(root, ports) {
 /**
  * The result as report lines.
  * @param {CutoverResult} r
- * @param {{ describeAge: (ms: number) => string,
- *   renderLevel: (o: LevelOutcome) => string[], now: number }} how
+ * @param {{ renderBlocker: (b: Blocker) => string,
+ *   renderLevel: (o: LevelOutcome) => string[] }} how
  * @returns {string[]}
  */
-function renderCutover(r, { describeAge, renderLevel, now }) {
+function renderCutover(r, { renderBlocker, renderLevel }) {
 	switch (r.status) {
 		case "module-off":
 			return [
@@ -266,10 +266,7 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 			if (r.orphanedEdits.length > 0)
 				lines.push(
 					`${r.orphanedEdits.length} edit(s) remain in the main checkout, none discarded — judge each, moving it into a session worktree or discarding it by hand:`,
-					...r.orphanedEdits.map(
-						(b) =>
-							`  ${b.path} — ${b.ageMs === null ? "deleted" : `${describeAge(b.ageMs)} old`}; last writer ${b.writer ? `session ${b.writer.sessionId}, ${describeAge(now - b.writer.at)} ago` : "unknown"}`,
-					),
+					...r.orphanedEdits.map(renderBlocker),
 				);
 			lines.push(...renderLevel(r.level));
 			return lines;

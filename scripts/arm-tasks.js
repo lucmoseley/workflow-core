@@ -49,6 +49,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
@@ -79,13 +80,11 @@ const HIDDEN_TEST_TIMEOUT_MS = 600_000;
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
-	usage:
-		"Usage: node scripts/arm-tasks.js (build <id> --at <rev> --to <dir> [--issues <dir>] [--node-modules <dir>] [--config-dir <dir>] [--known-good] [--hold <s>] | accept <id> --sandbox <dir> [--json] | verify [<id>...] --at <rev> --node-modules <dir> [--scratch <dir>] | freeze [<id>...] --issues <dir> | coverage)",
+	usage: `Usage: node ${scriptPath("arm-tasks.js")} (build <id> --at <rev> --to <dir> [--issues <dir>] [--node-modules <dir>] [--config-dir <dir>] [--known-good] [--hold <s>] | accept <id> --sandbox <dir> [--json] | verify [<id>...] --at <rev> --node-modules <dir> [--scratch <dir>] | freeze [<id>...] --issues <dir> | coverage)`,
 	commands: {
 		build: {
 			min: 1,
-			usage:
-				"Usage: node scripts/arm-tasks.js build <id> --at <rev> --to <dir> [--issues <dir>] [--node-modules <dir>] [--config-dir <dir>] [--known-good] [--hold <s>]",
+			usage: `Usage: node ${scriptPath("arm-tasks.js")} build <id> --at <rev> --to <dir> [--issues <dir>] [--node-modules <dir>] [--config-dir <dir>] [--known-good] [--hold <s>]`,
 			flags: {
 				"--at": "value",
 				"--to": "value",
@@ -98,14 +97,12 @@ const CLI = {
 		},
 		accept: {
 			min: 1,
-			usage:
-				"Usage: node scripts/arm-tasks.js accept <id> --sandbox <dir> [--json]",
+			usage: `Usage: node ${scriptPath("arm-tasks.js")} accept <id> --sandbox <dir> [--json]`,
 			flags: { "--sandbox": "value", "--json": "boolean" },
 		},
 		verify: {
 			max: Number.POSITIVE_INFINITY,
-			usage:
-				"Usage: node scripts/arm-tasks.js verify [<id>...] --at <rev> --node-modules <dir> [--scratch <dir>]",
+			usage: `Usage: node ${scriptPath("arm-tasks.js")} verify [<id>...] --at <rev> --node-modules <dir> [--scratch <dir>]`,
 			flags: {
 				"--at": "value",
 				"--node-modules": "value",
@@ -114,10 +111,10 @@ const CLI = {
 		},
 		freeze: {
 			max: Number.POSITIVE_INFINITY,
-			usage: "Usage: node scripts/arm-tasks.js freeze [<id>...] --issues <dir>",
+			usage: `Usage: node ${scriptPath("arm-tasks.js")} freeze [<id>...] --issues <dir>`,
 			flags: { "--issues": "value" },
 		},
-		coverage: { usage: "Usage: node scripts/arm-tasks.js coverage" },
+		coverage: { usage: `Usage: node ${scriptPath("arm-tasks.js")} coverage` },
 	},
 };
 

@@ -431,9 +431,20 @@ describe("a script the manifest says a file spawns", () => {
 		write(dir, dep, `${dep} v1\n`);
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
+
+	it("records no row where the spawned Python script imports a module it cannot place (#4790)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			"scripts/placed.py",
+			"import placed\n",
+		);
+		expect(run(dir, [A])).toBe(1);
+		fs.rmSync(path.join(dir, "scripts/placed.py"));
+		expect(run(dir, [A])).toBe(0);
+	});
 });
 
-describe("a run whose per-file verdicts cannot be trusted records nothing", () => {
+describe("a run whose per-file verdicts cannot be trusted records no pass", () => {
 	it("records no pass of a run that errored outside its files", () => {
 		const dir = repo();
 		expect(run(dir, [A], { clean: false })).toBe(0);
@@ -554,6 +565,17 @@ describe("the uncached pragma", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
+	it("lets no row recorded before rows reached spawned scripts decide (#4790)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
+		fs.writeFileSync(
+			shardOf(dir, A),
+			`${JSON.stringify({ ...line, format: 2 })}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("runs every file of an absent store, silently", () => {
 		const dir = repo();
 		const found = lookup([A], {

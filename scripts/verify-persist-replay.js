@@ -86,6 +86,7 @@
  */
 
 const { execFile } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 
@@ -203,8 +204,7 @@ function buildWiredLine(producers) {
 	return `The hooks' persist set has drifted from this table — wired but untested: ${extra.join(", ") || "none"}; tested but unwired: ${missing.join(", ") || "none"}.`;
 }
 
-const USAGE =
-	"usage: node scripts/verify-persist-replay.js [--json] [--timeout <s>] [--only <key>[,<key>...]] [--no-control]";
+const USAGE = `usage: node ${scriptPath("verify-persist-replay.js")} [--json] [--timeout <s>] [--only <key>[,<key>...]] [--no-control]`;
 
 /** @param {string[]} argv */
 function parseArgs(argv) {

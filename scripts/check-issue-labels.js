@@ -598,8 +598,8 @@ function checkSpeccedBrief(iss, own, specs, raise) {
 			"kind:brief still holding its open kind:spec — the move up under its map was never run",
 			/* promote-spec.js refuses a brief with more than one spec child. */
 			specs === 1
-				? `check the brief's rulings are in the spec body, then \`node scripts/promote-spec.js ${iss.number}\``
-				: `${specs} open kind:spec children — close or re-parent all but one by hand, then \`node scripts/promote-spec.js ${iss.number}\``,
+				? `check the brief's rulings are in the spec body, then \`node ${scriptPath("promote-spec.js")} ${iss.number}\``
+				: `${specs} open kind:spec children — close or re-parent all but one by hand, then \`node ${scriptPath("promote-spec.js")} ${iss.number}\``,
 		);
 }
 

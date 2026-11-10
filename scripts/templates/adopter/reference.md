@@ -8,7 +8,7 @@
 
 ## Switching a module on
 
-The modules are `roadmap`, `governance`, `suites`, `site`, `mutation` and `landing`; `landing` stays off until a release turns it on. To switch one on, add it to `modules` in `.claude/workflow-core.json`, then run `node scripts/init-adopter.js --no-plugin-install`: it keeps the founder, modules and plugin pin already written. Commit what it wrote; the new rules load at the next session. Until a subject's switch is set, `check-gate-switches.js` refuses every commit.
+The modules are `roadmap`, `governance`, `suites`, `site`, `mutation` and `landing`; a new repo starts with `landing` on. To switch one on, add it to `modules` in `.claude/workflow-core.json`, then run `node scripts/init-adopter.js --no-plugin-install`: it keeps the founder, modules and plugin pin already written. Commit what it wrote; the new rules load at the next session. Until a subject's switch is set, `check-gate-switches.js` refuses every commit.
 
 ## Repo-health checks on demand
 

@@ -63,6 +63,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -118,8 +119,7 @@ const {
 } = require("./lib/fault-signature.js");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 
-const USAGE =
-	'usage: node scripts/file-issue.js --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- --origin <class> (--fault-signature <file> | --no-fault) [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node scripts/file-issue.js --check "<title>"';
+const USAGE = `usage: node ${scriptPath("file-issue.js")} --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- --origin <class> (--fault-signature <file> | --no-fault) [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node ${scriptPath("file-issue.js")} --check "<title>"`;
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const SPEC = {
@@ -339,7 +339,7 @@ function main() {
 	const willClaim =
 		opts.assignSelf || (labels.includes(MAP_LABEL) && sessionId !== null);
 	const claimLater = willClaim
-		? ` It is not yet claimed: node scripts/claim-issue.js ${n} once it is placed.`
+		? ` It is not yet claimed: node ${scriptPath("claim-issue.js")} ${n} once it is placed.`
 		: "";
 	if (parent) linkFiled({ repo, parent, n, claimLater });
 	else {
@@ -389,7 +389,7 @@ function logSignature(issue, declared) {
 		const root = worktreeRoot();
 		const file = appendSignatureLine(root, line);
 		io.out(
-			`Signature logged in ${file} — commit it with your work: node scripts/commit-paths.js -m "<what>" -- ${path.relative(root, file)}\n`,
+			`Signature logged in ${file} — commit it with your work: node ${scriptPath("commit-paths.js")} -m "<what>" -- ${path.relative(root, file)}\n`,
 		);
 	} catch (e) {
 		io.fail(
@@ -759,10 +759,10 @@ function linkRemedy(error, parent, n) {
 	// tells the 7-layer one: a reword by GitHub demotes either to the
 	// generic remedy, which still names the finishing link.
 	if (/7 layers/.test(error))
-		return `#${parent.number} is at GitHub's 7-layer cap: give #${n} #${parent.number}'s own parent${grand ? ` — scripts/link-sub-issue.sh ${grand} ${n}` : ""} — and say in its body why it is a peer.`;
+		return `#${parent.number} is at GitHub's 7-layer cap: give #${n} #${parent.number}'s own parent${grand ? ` — ${scriptPath("link-sub-issue.sh")} ${grand} ${n}` : ""} — and say in its body why it is a peer.`;
 	if (/100 sub-issues/.test(error))
-		return `#${parent.number} is at GitHub's 100-child cap: node scripts/archive-closed-children.js ${parent.number}, then scripts/link-sub-issue.sh ${parent.number} ${n}.`;
-	return `Finish it with scripts/link-sub-issue.sh ${parent.number} ${n} once the cause is fixed.`;
+		return `#${parent.number} is at GitHub's 100-child cap: node ${scriptPath("archive-closed-children.js")} ${parent.number}, then ${scriptPath("link-sub-issue.sh")} ${parent.number} ${n}.`;
+	return `Finish it with ${scriptPath("link-sub-issue.sh")} ${parent.number} ${n} once the cause is fixed.`;
 }
 
 /**
@@ -779,7 +779,7 @@ function claimFiled(repo, n, sessionId) {
 		const claim = claimIfFree(n, sessionId);
 		if (claim.status !== "claimed" && claim.status !== "reclaimed")
 			io.fail(
-				`#${n} is filed and placed, but the arbiter would not record the claim (${claim.status === "unreadable" ? claim.why : claim.status}). Claim it with node scripts/claim-issue.js ${n}.`,
+				`#${n} is filed and placed, but the arbiter would not record the claim (${claim.status === "unreadable" ? claim.why : claim.status}). Claim it with node ${scriptPath("claim-issue.js")} ${n}.`,
 				1,
 			);
 		recorded = `Recorded the arbiter claim for session ${sessionId}.`;
@@ -787,7 +787,7 @@ function claimFiled(repo, n, sessionId) {
 	const assignError = assignSelf(repo, n);
 	if (assignError)
 		io.fail(
-			`${recorded} But assigning #${n} failed (${assignError}) — re-run node scripts/claim-issue.js ${n} to assign.`,
+			`${recorded} But assigning #${n} failed (${assignError}) — re-run node ${scriptPath("claim-issue.js")} ${n} to assign.`,
 			1,
 		);
 	io.out(`${recorded} Assigned #${n} to @me.\n`);

@@ -10,6 +10,7 @@
  */
 
 const os = require("node:os");
+const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { loadCeiling } = require("./lib/cpu-sample");
@@ -19,7 +20,7 @@ const { readLogs, render, replay } = require("./lib/suite-queue-replay");
 const { minuteLogPath } = require("./lib/windows-memory");
 const { writeFd } = require("./lib/write-fd");
 
-const USAGE = `usage: node scripts/replay-suite-queue-wait.js --since <utc> --until <utc> [options]
+const USAGE = `usage: node ${scriptPath("replay-suite-queue-wait.js")} --since <utc> --until <utc> [options]
   --since, --until   the window, ISO UTC; --until is the alarm's reading time
   --era <label>=<utc>   split the limbs where a change to the gate landed in
                      the window, at its commit time; repeatable

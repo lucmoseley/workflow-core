@@ -15,6 +15,7 @@
  */
 
 const { listedAgents } = require("./lib/agent-liveness.js");
+const { scriptPath } = require("./lib/script-path.js");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
@@ -22,7 +23,7 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { cutover, renderCutover } = require("./lib/cutover.js");
 const { GIT_TIMEOUT_MS, gitReader } = require("./lib/git.js");
 const {
-	describeAge,
+	renderBlocker,
 	level,
 	readOrphanedEdits,
 	renderOutcome,
@@ -32,7 +33,7 @@ const { cut, land } = require("./lib/session-checkout.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const CLI = { usage: "usage: node scripts/cutover-main-checkout.js" };
+const CLI = { usage: `usage: node ${scriptPath("cutover-main-checkout.js")}` };
 
 /**
  * @param {string[]} [argv]
@@ -60,9 +61,8 @@ function main(argv = process.argv.slice(2)) {
 			gitIn: (dir) => gitReader(dir, GIT_TIMEOUT_MS),
 		});
 		const lines = renderCutover(result, {
-			describeAge,
+			renderBlocker: (b) => renderBlocker(b, at),
 			renderLevel: (o) => renderOutcome(o, at),
-			now: at,
 		});
 		writeFd(2, `${lines.join("\n")}\n`);
 		return result.status === "cut-over" ? 0 : 1;

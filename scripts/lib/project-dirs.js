@@ -22,12 +22,11 @@ const { hostRoot } = require("./host-root.js");
 const { configDir } = require("./config-dir.js");
 const { caught } = require("./caught.js");
 const { realKey } = require("./deref.js");
-
-const WORKTREES_DIR = path.join(".claude", "worktrees");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
  * Whether a name under `projects/` is this repo's: the main checkout's slug,
- * or a worktree's under `WORKTREES_DIR`. Matched on the spelling, never on
+ * or a worktree's under `WORKTREES`. Matched on the spelling, never on
  * `git worktree list`, because a reaped worktree's transcripts stay behind
  * (#4236).
  *
@@ -36,7 +35,7 @@ const WORKTREES_DIR = path.join(".claude", "worktrees");
  */
 function repoSlugMatcher(root) {
 	const main = projectSlug(root);
-	const worktree = `${projectSlug(path.join(root, WORKTREES_DIR))}-`;
+	const worktree = `${projectSlug(path.join(root, WORKTREES))}-`;
 	return (name) => name === main || name.startsWith(worktree);
 }
 
@@ -284,7 +283,6 @@ function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
 }
 
 module.exports = {
-	WORKTREES_DIR,
 	hasSeatRunSince,
 	corpusDirs,
 	listTranscripts,

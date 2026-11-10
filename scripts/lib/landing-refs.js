@@ -24,6 +24,7 @@
  */
 
 const path = require("node:path");
+const { WORKTREES } = require("./worktree-dirs.js");
 
 /* The config and git load where an answer first needs them, so a reader of
  * the names alone, a hook among them, pays for neither. */
@@ -67,7 +68,6 @@ const DROPPED_PREFIX = "dropped/";
 function ownQueueRef(tree, root) {
 	if (!tree) return null;
 	const fs = require("node:fs");
-	const { WORKTREES_DIR } = require("./project-dirs.js");
 	/* realpath fails only on a path that is gone or unreadable, which no live
 	 * session's tree is; its spelling is then the only name it has, and every
 	 * caller reads that same fallback here (#4856). */
@@ -81,7 +81,7 @@ function ownQueueRef(tree, root) {
 	const host = root ?? require("./main-checkout.js").mainCheckout(tree);
 	if (!host) return null;
 	const at = real(tree);
-	return path.dirname(at) === path.join(real(host), WORKTREES_DIR)
+	return path.dirname(at) === path.join(real(host), WORKTREES)
 		? `${QUEUE_PREFIX}${path.basename(at)}`
 		: null;
 }

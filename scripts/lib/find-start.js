@@ -102,13 +102,14 @@ function decide(command, ctx) {
  * @param {string[]} spans
  */
 function startsAtRoot(words, cwd, spans) {
-	const [head, ...rest] = unwrap(words, spans).words;
-	if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
-		return false;
-	const starts = findStarts(rest, spans);
-	return (starts.length > 0 ? starts : ["."]).some((start) =>
-		isRoot(start, cwd, spans),
-	);
+	return unwrap(words, spans).some(({ words: [head, ...rest] }) => {
+		if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
+			return false;
+		const starts = findStarts(rest, spans);
+		return (starts.length > 0 ? starts : ["."]).some((start) =>
+			isRoot(start, cwd, spans),
+		);
+	});
 }
 
 /**

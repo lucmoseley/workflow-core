@@ -105,7 +105,9 @@ const UNREADABLE =
 const buildUnreadableReport = (checker) =>
 	`${checker}'s persisted report could not be read, so whether it is one ` +
 	"this session's start produced is unknown — not nothing (mantahostels#174). " +
-	"Run `node scripts/replay-notify-reports.js` to see what the store holds.";
+	"Run `node " +
+	scriptPath("replay-notify-reports.js") +
+	"` to see what the store holds.";
 
 const ledgerDir = () => path.join(notify.base(), "delivered");
 

@@ -1167,7 +1167,7 @@ function unwiredNarrowingFindings(wired) {
  * DEFEAT RECORDS, IT NEVER DEMANDS, and `convenience` is as legal an answer as
  * `fail-safe`. mantahostels#1181 ruled Archon's "individually defeatable" clause does not
  * transfer: their worktree-per-run isolation means a behaviour protects only its
- * own run, while this repo's sessions share stores and one `landing`, so almost
+ * own run, while this repo's sessions share stores and one `main`, so almost
  * every implicit behaviour protects NEIGHBOURS, where a per-session off switch is a hole by construction.
  * The assertion is that the script SAYS what it does and which kind it is;
  * whether convenience is good enough is a reader's call.

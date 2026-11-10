@@ -100,6 +100,7 @@
  */
 
 const fs = require("node:fs");
+const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -136,7 +137,7 @@ const { byCodeUnit } = require("./lib/by-code-unit.js");
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
 	usage: [
-		"Usage: node scripts/lost-deny-rates.js [--dir <path>] [--since <date>]",
+		`Usage: node ${scriptPath("lost-deny-rates.js")} [--dir <path>] [--since <date>]`,
 		"         [--until <date>] [--json] [--triggers]",
 		"         [--scope deny|nondeny|all] [--event PreToolUse|PostToolUse]",
 		"         [--failures] [--union]",

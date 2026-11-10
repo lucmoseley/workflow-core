@@ -13,7 +13,7 @@
  *   - dropped: a drop row or the drop record names it, with its fix ticket
  *     off the drop record and the dropped ref holding it, or that ref reaped.
  *
- * Stays read oldest first, the ref's waiting sha last.
+ * Stays read oldest first, the ref's waiting sha last (#4485, spec #4458).
  */
 
 const fs = require("node:fs");
