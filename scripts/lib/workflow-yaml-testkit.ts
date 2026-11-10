@@ -16,7 +16,6 @@ const yaml: { load: (text: string) => unknown } = createRequire(
 
 export interface Step {
 	id?: string;
-	name?: string;
 	uses?: string;
 	run?: string;
 	env?: Record<string, unknown>;
@@ -45,7 +44,6 @@ export function parseJob(text: string): Job {
 	return yaml.load(text) as Job;
 }
 
-/** The workflow at `file`, parsed. */
 export function loadWorkflow(file: string): Workflow {
 	return yaml.load(fs.readFileSync(file, "utf8")) as Workflow;
 }

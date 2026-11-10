@@ -22,8 +22,10 @@ const workflow = loadWorkflow(
 );
 const job = workflow.jobs.quiet;
 const step = job?.steps?.find((s) => s.run);
-const script = step?.run ?? "";
-const quietHours = step?.env?.QUIET_HOURS;
+if (!step?.run)
+	throw new Error("landing-quiet.yml's quiet job has no run step");
+const script = step.run;
+const quietHours = step.env?.QUIET_HOURS;
 
 let dir: string;
 beforeEach(() => {
