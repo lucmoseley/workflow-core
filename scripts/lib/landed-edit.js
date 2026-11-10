@@ -5,9 +5,9 @@
  * The landed versions of a file are its copy at the ref and its copy as each
  * commit since `HEAD`'s merge base with the ref left it. LANDED BY BLOB where
  * the working copy is byte for byte one of them. LANDED BY LINES where one of
- * them made the change: each line the change adds is at least as frequent
- * there as in the working copy, each it removes at most as frequent. A
- * reordering, which moves no line's count, is never landed.
+ * them made the change in place: each run of lines the change replaces is
+ * gone from it, the lines either side of the run are kept, and the run's new
+ * lines stand there against one of them (#4903).
  */
 
 const fs = require("node:fs");
@@ -16,15 +16,7 @@ const { gitRead } = require("./dirty-tree.js");
 const { matchBlobGroups } = require("./blob-batch-stream.js");
 const { GIT_TIMEOUT_MS } = require("./git.js");
 const { logError } = require("./arbiter-core");
-
-/** @param {string} text */
-function countLines(text) {
-	/** @type {Map<string, number>} */
-	const counts = new Map();
-	for (const line of text.split("\n"))
-		counts.set(line, (counts.get(line) ?? 0) + 1);
-	return counts;
-}
+const { matchLines } = require("./line-match.js");
 
 /**
  * The blob id of every landed version of `rel`: at `ref`, then as each commit
@@ -64,28 +56,94 @@ function readLandedBlobs(tree, rel, ref) {
 }
 
 /**
- * Whether `there` made every line change `now` makes off `head`, at least as
- * far, and at least one line changed.
- * @param {Map<string, number>} head
- * @param {Map<string, number>} now
- * @param {Map<string, number>} there
+ * @typedef {{from: number, to: number, lines: string[]}} Hunk
+ *   a run of lines a change replaces: `head[from..to)` gone, `lines` in its
+ *   place
  */
-function isChangeMade(head, now, there) {
-	let moved = 0;
-	for (const line of new Set([...head.keys(), ...now.keys()])) {
-		const before = head.get(line) ?? 0;
-		const after = now.get(line) ?? 0;
-		if (after === before) continue;
-		moved++;
-		const landed = there.get(line) ?? 0;
-		if (after > before ? landed < after : landed > after) return false;
+
+/**
+ * The hunks `now` makes off `head`.
+ * @param {string[]} head
+ * @param {string[]} now
+ * @returns {Hunk[]}
+ */
+function buildHunks(head, now) {
+	const at = matchLines(head, now);
+	/** @type {Hunk[]} */
+	const hunks = [];
+	let i = 0;
+	let j = 0;
+	while (i < head.length || j < now.length) {
+		if (i < head.length && at[i] === j) {
+			i++;
+			j++;
+			continue;
+		}
+		const from = i;
+		while (i < head.length && at[i] === -1) i++;
+		/* Past `head`'s end `at[i]` is undefined; before it, a kept line. */
+		const next = at[i] ?? now.length;
+		hunks.push({ from, to: i, lines: now.slice(j, next) });
+		j = next;
 	}
-	return moved > 0;
+	return hunks;
 }
 
 /**
- * The line counts a file's change runs between: at `HEAD`, and in its
- * working copy — or null where the working copy will not read.
+ * Whether `there` made each of `hunks` off `head` in place.
+ *
+ * Residual: `matchLines` keeps one longest common subsequence of several, so
+ * where a line repeats beside a hunk the verdict can rest on which copy it
+ * kept, and a wrong pick can read an unlanded change as landed.
+ * @param {string[]} head
+ * @param {Hunk[]} hunks
+ * @param {string[]} there
+ */
+function isChangeMade(head, hunks, there) {
+	const at = matchLines(head, there);
+	return hunks.length > 0 && hunks.every((h) => isHunkMade(at, h, there));
+}
+
+/**
+ * Whether `there` made `hunk`: the head lines either side of it kept, the
+ * lines it replaces gone, and its new lines standing against one of those
+ * neighbours. The other side may hold lines landed since (#4439). A
+ * deletion leaves its neighbours adjacent.
+ * @param {Int32Array} at each line of `head`'s index in `there`, or -1
+ * @param {Hunk} hunk
+ * @param {string[]} there
+ */
+function isHunkMade(at, { from, to, lines }, there) {
+	if (at.subarray(from, to).some((j) => j !== -1)) return false;
+	const before = placeOf(at, from - 1, there.length);
+	const after = placeOf(at, to, there.length);
+	if (before === null || after === null) return false;
+	const lo = before + 1;
+	if (lines.length === 0) return after === lo;
+	const standsAt = (/** @type {number} */ s) =>
+		s >= lo &&
+		s + lines.length <= after &&
+		lines.every((line, k) => there[s + k] === line);
+	return standsAt(lo) || standsAt(after - lines.length);
+}
+
+/**
+ * Where `head[i]` stands in `there`: -1 before `there`'s first line, `end`
+ * past its last, null where `there` dropped it.
+ * @param {Int32Array} at each line of `head`'s index in `there`, or -1
+ * @param {number} i
+ * @param {number} end `there`'s length
+ */
+function placeOf(at, i, end) {
+	if (i < 0) return -1;
+	const j = at[i];
+	if (j === undefined) return end;
+	return j === -1 ? null : j;
+}
+
+/**
+ * The lines of a file at `HEAD` and the runs its working copy replaces there,
+ * or null where the working copy will not read.
  * @param {string} tree
  * @param {string} rel
  */
@@ -96,8 +154,8 @@ function readChange(tree, rel) {
 	} catch {
 		return null;
 	}
-	const head = countLines(gitRead(["show", `HEAD:${rel}`], tree) ?? "");
-	return { head, now: countLines(work) };
+	const head = (gitRead(["show", `HEAD:${rel}`], tree) ?? "").split("\n");
+	return { head, hunks: buildHunks(head, work.split("\n")) };
 }
 
 /**
@@ -130,8 +188,8 @@ async function readLanded(tree, files, ref) {
 			test: (body) =>
 				isChangeMade(
 					change.head,
-					change.now,
-					countLines(body.toString("utf8")),
+					change.hunks,
+					body.toString("utf8").split("\n"),
 				),
 		});
 		fileAt.push(i);

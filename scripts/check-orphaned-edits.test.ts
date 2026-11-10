@@ -651,7 +651,7 @@ describe("a linked worktree's dirt", () => {
 		await run();
 
 		const [body] = bodyOf();
-		expect(body).toContain("| yes, every changed line |");
+		expect(body).toContain("| yes, its change in place |");
 		expect(body).toContain("holds nothing unlanded");
 	});
 
@@ -703,7 +703,7 @@ describe("a linked worktree's dirt", () => {
 
 		await run();
 
-		expect(bodyOf()[0]).toContain("| yes, every changed line |");
+		expect(bodyOf()[0]).toContain("| yes, its change in place |");
 	});
 
 	it("does not read a line added twice as landed where landing added it once (#4439)", async () => {
@@ -714,6 +714,62 @@ describe("a linked worktree's dirt", () => {
 		await run();
 
 		expect(bodyOf()[0]).toContain("| no |");
+	});
+
+	function baseA(content: string) {
+		fs.writeFileSync(path.join(sb.repo, "a.txt"), content);
+		commitAll(sb, "base");
+	}
+
+	it("does not read lines added out of place as landed where main holds them elsewhere (#4903)", async () => {
+		baseA("function a() {\n  return 1;\n}\n");
+		landOnOrigin({
+			"a.txt":
+				"function a() {\n  return 1;\n}\nfunction b() {\n  return 1;\n}\n",
+		});
+		const wt = worktreeOf("dead-owner-14", 30);
+		dirtyIn(
+			wt,
+			"a.txt",
+			30,
+			"function a() {\n  return 1;\n  return 1;\n}\n}\n",
+		);
+
+		await run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| no |");
+		expect(body).not.toContain("holds nothing unlanded");
+		expect(body).toContain("Read the diff, then land it");
+	});
+
+	it("does not read a change as landed where main rewrote the lines around it (#4903)", async () => {
+		baseA("H\nA\nB\nC\nD\nE\nT\n");
+		landOnOrigin({ "a.txt": "H\nX\nY\nZ\nNEW\nW\nT\n" });
+		const wt = worktreeOf("dead-owner-16", 30);
+		dirtyIn(wt, "a.txt", 30, "H\nA\nNEW\nB\nC\nD\nE\nT\n");
+
+		await run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| no |");
+		expect(body).not.toContain("holds nothing unlanded");
+	});
+
+	it("reads a change landed in place beside an unrelated landed change (#4903)", async () => {
+		baseA("function a() {\n  return 1;\n}\n");
+		landOnOrigin({
+			"a.txt":
+				"function a() {\n  log();\n  return 1;\n}\nfunction b() {\n  return 2;\n}\n",
+		});
+		const wt = worktreeOf("dead-owner-15", 30);
+		dirtyIn(wt, "a.txt", 30, "function a() {\n  log();\n  return 1;\n}\n");
+
+		await run();
+
+		const [body] = bodyOf();
+		expect(body).toContain("| yes, its change in place |");
+		expect(body).toContain(`git worktree remove --force ${wt}`);
 	});
 
 	/** A `git` stand-in that logs each call's arguments, a line each, then runs git. */
@@ -748,7 +804,7 @@ describe("a linked worktree's dirt", () => {
 		await run([], false, git.env);
 
 		expect(bodyOf()[0]).toContain("| `a.txt` | 30h | ");
-		expect(bodyOf()[0]?.match(/\| yes, every changed line \|/g)).toHaveLength(
+		expect(bodyOf()[0]?.match(/\| yes, its change in place \|/g)).toHaveLength(
 			2,
 		);
 		expect(git.landedReads().filter((c) => c.startsWith("cat-file"))).toEqual([

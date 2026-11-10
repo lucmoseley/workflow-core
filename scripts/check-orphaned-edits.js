@@ -432,7 +432,7 @@ function buildFileIssue(f) {
 
 const LANDED_AS = {
 	blob: "yes, byte for byte",
-	lines: "yes, every changed line",
+	lines: "yes, its change in place",
 };
 
 /** @param {"blob"|"lines"|null|undefined} landed */
