@@ -21,10 +21,13 @@ const EXEC_WAIT_MS = TEST_TIMEOUT_MS / 2;
 /* A guess, unmeasured: fine enough to add little to a fast exec. */
 const EXEC_POLL_MS = 10;
 
+/* A guess, unmeasured: how long an orphaned holder outlives its worker. */
+const ORPHAN_POLL_MS = 1000;
 /* The holder's program: it idles, and exits once its parent is gone, so a
- * worker killed before its cleanup leaves no holder behind. */
-const HOLDER_CODE =
-	"const parent = process.ppid; setInterval(() => { if (process.ppid !== parent) process.exit(); }, 1000)";
+ * worker killed before its cleanup leaves no holder behind. Residual: a worker
+ * dead before the holder's first line runs leaves it reading the reaper as its
+ * parent, and it lives on. */
+const HOLDER_CODE = `const parent = process.ppid; setInterval(() => { if (process.ppid !== parent) process.exit(); }, ${ORPHAN_POLL_MS})`;
 
 /** @param file the lock's path, its directory made where missing */
 export function plantDeadLock(file: string) {
@@ -57,10 +60,13 @@ export async function liveScriptProcess(script: string) {
 	await Promise.race([
 		died,
 		vi.waitFor(
-			() =>
+			() => {
+				/* Ended: `died` has failed the race, so stop polling. */
+				if (proc.exitCode !== null || proc.signalCode !== null) return;
 				expect(
 					fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"),
-				).toContain(script),
+				).toContain(script);
+			},
 			{ timeout: EXEC_WAIT_MS, interval: EXEC_POLL_MS },
 		),
 	]);
