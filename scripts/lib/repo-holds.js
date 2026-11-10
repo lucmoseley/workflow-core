@@ -255,8 +255,7 @@ const tickStores = new AsyncLocalStorage();
  * The checkout's store: named for a reader, and hashed because two paths can
  * flatten to one name. A broken `.git` that git will not name keys on the
  * common dir it points at, or else on its own path, as a probe hold raised on
- * one must be found once it is repaired (#4402). So a keying off a common dir
- * first adopts the store a `.git` naming none keyed on (#4718).
+ * one must be found once it is repaired (#4402).
  * @param {string} root
  */
 function holdsDir(root) {
@@ -273,7 +272,6 @@ function holdsDir(root) {
 }
 
 /**
- * The store directory for `root` keyed on `key`, a git dir.
  * @param {string} root
  * @param {string} key
  */
@@ -293,7 +291,6 @@ const adoptFaults = new Map();
 /**
  * Adopt store `from` into `to`, a failure kept for readHolds to report: the
  * tick has no per-root catch, so a throw would stop every checkout's (#4718).
- * The next keying tries again.
  * @param {string} from
  * @param {string} to
  */
@@ -316,8 +313,7 @@ const STORE_FILES = new Set([`${PROBE_ID}.paged`, `${PROBE_ID}.outage`]);
 const OCCUPIED_CODES = new Set(["EEXIST", "ENOTEMPTY"]);
 
 /**
- * Move store `from`'s entries into store `to`, then remove `from` once empty
- * (#4718). A hold whose id `to` already holds stays, with its notice, until
+ * Move store `from`'s entries into store `to` (#4718). A hold whose id `to` already holds stays, with its notice, until
  * that one lifts; the sessions parked on it move to `to`'s at once, as each
  * attach and replay file is named for its job. Any other file overwrites
  * `to`'s, as a raise clears what a lift left behind, save STORE_FILES. A
@@ -351,7 +347,6 @@ function adoptStore(from, to) {
 }
 
 /**
- * Move each finished lift under `from`'s `lifted/` to `to`'s (#4718).
  * @param {string} from
  * @param {string} to
  */
@@ -397,7 +392,6 @@ function linkEntry(from, to) {
 }
 
 /**
- * The names in `dir`; none where it is gone.
  * @param {string} dir
  */
 function readNamesOrNone(dir) {
@@ -410,7 +404,6 @@ function readNamesOrNone(dir) {
 }
 
 /**
- * Remove `dir` where nothing is left in it (#4718).
  * @param {string} dir
  */
 function removeDirIfEmpty(dir) {
@@ -439,13 +432,11 @@ const withTickStores = (fn) => tickStores.run(new Map(), fn);
 const buildHoldFileName = (id) => `${id}.json`;
 
 /**
- * Whether a store entry's name is a hold's record.
  * @param {string} name
  */
 const isHoldFileName = (name) => name.endsWith(".json");
 
 /**
- * The hold id a store entry's name begins with.
  * @param {string} name
  */
 const parseEntryId = (name) => name.split(".")[0] ?? name;
