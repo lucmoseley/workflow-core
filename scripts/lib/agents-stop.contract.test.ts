@@ -166,6 +166,15 @@ describe("the fake's listing answers", () => {
 		expect(listedAgents({ requireSelf: false }).why).toContain("exit 4");
 	});
 
+	it("appends each call's argv to the file it is given, then answers", () => {
+		const log = path.join(dir, "calls");
+		const row = buildJobRow("own", "working");
+		const bin = claudeOf(buildAgentsBranch([row], {}, log));
+		expect(readListing(bin)).toEqual([row]);
+		readListing(bin);
+		expect(fs.readFileSync(log, "utf8")).toBe("agents --json\nagents --json\n");
+	});
+
 	it("answers a seat it maps as that seat's, any other as the fallback", () => {
 		const seat = path.join(dir, "seat-a");
 		fs.mkdirSync(seat);

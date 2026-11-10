@@ -18,12 +18,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type AgentsAnswer,
+	buildAgentsBranch,
+	buildListedRow,
+} from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
+import {
 	declareOverflowSeat,
 	writeOverflowCheckout,
 	writeUnreadableLedgerCheckout,
 } from "./lib/overflow-launch-fake";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 import {
 	type Bars,
 	buildUsageCache,
@@ -155,15 +160,10 @@ describe("--cap (#371)", () => {
 	/** A `claude` whose `agents --json` answers `listing`, and a $10-mean
 	 * cost table: 4.7 points of the 5-hour bar a session, all of it landing
 	 * within an hour. */
-	const capEnv = (listing: string) => {
-		const bin = path.join(dir, "claude");
-		fs.writeFileSync(
-			bin,
-			`#!/bin/bash\nprintf '%s\\n' ${shellQuote(listing)}\n`,
-			{
-				mode: 0o755,
-			},
-		);
+	const capEnv = (listing: AgentsAnswer) => {
+		const bin = writeClaudeStub(path.join(dir, "claude"), [
+			buildAgentsBranch(listing),
+		]);
 		const table = path.join(dir, "table.json");
 		fs.writeFileSync(
 			table,
@@ -187,7 +187,7 @@ describe("--cap (#371)", () => {
 	 * at `sessionResetsAt`, else one window out. */
 	const capRun = (
 		args: string[],
-		listing: string,
+		listing: AgentsAnswer,
 		sessionResetsAt?: string,
 	) => {
 		writeCache(dir, { session: 94, week: 7 }, sessionResetsAt);
@@ -219,13 +219,8 @@ describe("--cap (#371)", () => {
 				}),
 			);
 		}
-		const listing = JSON.stringify(
-			[plan, overflow].map((sessionId) => ({
-				sessionId,
-				kind: "background",
-				state: "running",
-				startedAt: Date.now(),
-			})),
+		const listing = [plan, overflow].map((sessionId) =>
+			buildListedRow({ sessionId, startedAt: Date.now() }),
 		);
 		const cap = capRun(thresholds, listing);
 		expect(cap.error).toBeUndefined();
@@ -240,23 +235,23 @@ describe("--cap (#371)", () => {
 	it("refuses the launch where an overflow seat is declared and the launch record will not read", () => {
 		declareOverflowSeat(dir);
 		writeUnreadableLedgerCheckout(dir, "broken-checkout");
-		const cap = capRun(thresholds, "[]");
+		const cap = capRun(thresholds, []);
 		expect(cap.launch).toBe(0);
 		expect(cap.error).toContain(path.join(dir, "broken-checkout"));
 		expect(cap.error).toContain("fix that read and re-run");
 	});
 
 	it("caps as before where no overflow seat is declared, however the launch record reads (#4393)", () => {
-		const readable = capRun(thresholds, "[]");
+		const readable = capRun(thresholds, []);
 		writeUnreadableLedgerCheckout(dir, "broken-checkout");
-		const unreadable = capRun(thresholds, "[]");
+		const unreadable = capRun(thresholds, []);
 		expect(readable.error).toBeUndefined();
 		expect(unreadable).toEqual(readable);
 	});
 
 	it("reads an empty listing as nothing running, not as unreadable", () => {
 		// Headroom 100 − 94 = 6: two 4.7-point members reach it.
-		const cap = capRun(thresholds, "[]");
+		const cap = capRun(thresholds, []);
 		expect(cap.error).toBeUndefined();
 		expect(cap).toMatchObject({ launch: 2, running: [] });
 	});
@@ -265,7 +260,9 @@ describe("--cap (#371)", () => {
 		// Half an hour to the reset: half of each $10 lands before it, 2.35
 		// points. Headroom 6 − 2.35 for the running session leaves room for two.
 		const resetsAt = new Date(Date.now() + 1_800_000).toISOString();
-		const listing = '[{"sessionId":"s1","state":"working"}]';
+		const listing = [
+			buildListedRow({ sessionId: "s1", startedAt: Date.now() }),
+		];
 		const soon = capRun(thresholds, listing, resetsAt);
 		expect(soon.error).toBeUndefined();
 		expect(soon.binding.runningPoints).toBeCloseTo(2.35, 1);
@@ -278,7 +275,7 @@ describe("--cap (#371)", () => {
 	});
 
 	it("refuses to size the cap on a listing that is not JSON", () => {
-		const cap = capRun(thresholds, "garbage");
+		const cap = capRun(thresholds, { malformed: "garbage" });
 		expect(cap).toMatchObject({ launch: 0 });
 		expect(cap.error).toMatch(/running sessions unreadable/);
 	});
@@ -293,7 +290,7 @@ describe("--cap (#371)", () => {
 			{
 				stdin: "",
 				env: {
-					...capEnv("[]"),
+					...capEnv([]),
 					WFC_SESSION_COST_TABLE: path.join(dir, "no-such-table.json"),
 					WFC_SCRIPT_ROOT: install,
 				},
@@ -306,7 +303,7 @@ describe("--cap (#371)", () => {
 	});
 
 	it("refuses a missing threshold, launching none and asking for numbers, rather than reading it as NaN and launching all", () => {
-		const cap = capRun(["--session-threshold", "90"], "[]");
+		const cap = capRun(["--session-threshold", "90"], []);
 		expect(cap).toMatchObject({ launch: 0 });
 		expect(cap.error).toMatch(/need numbers/);
 	});
@@ -314,7 +311,7 @@ describe("--cap (#371)", () => {
 	it("launches the whole set below both thresholds without reading the listing", () => {
 		const cap = capRun(
 			["--session-threshold", "95", "--week-threshold", "97"],
-			"garbage",
+			{ malformed: "garbage" },
 		);
 		expect(cap).toMatchObject({ launch: 3, binding: null });
 	});

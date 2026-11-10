@@ -126,17 +126,20 @@ const buildListingAnswer = (answer: AgentsAnswer): string => {
 
 /**
  * The `agents` branch: answers as `answer`, or, where `bySeat` maps the
- * call's CLAUDE_CONFIG_DIR, as that seat's answer.
+ * call's CLAUDE_CONFIG_DIR, as that seat's answer. Where `callLog` is given,
+ * it first appends the call's argv to that file.
  */
 export function buildAgentsBranch(
 	answer: AgentsAnswer,
 	bySeat: Record<string, AgentsAnswer> = {},
+	callLog?: string,
 ) {
 	const seatCases = Object.entries(bySeat).map(
 		([seat, a]) => `${shellQuote(seat)}) ${buildListingAnswer(a)} ;;`,
 	);
 	return [
 		'if [ "$1" = "agents" ]; then',
+		callLog ? `echo "$*" >> ${shellQuote(callLog)}` : "",
 		seatCases.length > 0
 			? `case "$CLAUDE_CONFIG_DIR" in\n${seatCases.join("\n")}\nesac`
 			: "",

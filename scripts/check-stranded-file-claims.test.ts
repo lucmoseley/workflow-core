@@ -21,7 +21,14 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import {
+	type AgentsAnswer,
+	buildAgentsBranch,
+	buildListedRow,
+	buildUnrecordedRow,
+} from "./lib/agents-stop-fake";
 import { freshSandbox, locks, store } from "./lib/arbiter-testkit";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stranded-file-claims.js");
@@ -63,11 +70,11 @@ const readLocksOnDisk = () =>
 		.filter((f) => f.endsWith(".json"))
 		.map((f) => fs.readFileSync(path.join(locksDir(), f), "utf8")) as string[];
 
-/** A `claude` stand-in: `agents --json` prints `body`, exits `code`. */
-function fakeClaude(body: string, code = 0) {
-	const bin = path.join(sb.dir, "bin", "claude");
-	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`);
-	fs.chmodSync(bin, 0o755);
+/** A `claude` stand-in whose `agents --json` answers `answer`. */
+function fakeClaude(answer: AgentsAnswer) {
+	const bin = writeClaudeStub(path.join(sb.dir, "bin", "claude"), [
+		buildAgentsBranch(answer),
+	]);
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	return bin;
 }
@@ -95,40 +102,38 @@ function gitRepo() {
 }
 
 const agentsListing = (...sessionIds: string[]) =>
-	JSON.stringify(
-		sessionIds.map((sessionId, i) => ({
+	sessionIds.map((sessionId, i) =>
+		buildListedRow({
 			pid: 100 + i,
 			id: sessionId.slice(0, 8),
 			sessionId,
 			status: "busy",
-			state: "working",
-		})),
+		}),
 	);
 
 /* A background session the oracle still lists but has marked done — mantahostels#2765's
  * exact shape: finished but not yet reaped. */
 const finishedListing = (...sessionIds: string[]) =>
-	JSON.stringify(
-		sessionIds.map((sessionId, i) => ({
+	sessionIds.map((sessionId, i) =>
+		buildListedRow({
 			pid: 100 + i,
 			id: sessionId.slice(0, 8),
 			sessionId,
-			kind: "background",
 			state: "done",
-		})),
+		}),
 	);
 
 /* A background session the oracle still lists but which ended some way other
  * than `done` (mantahostels#2774; https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F2). */
 const endedListing = (state: string, ...sessionIds: string[]) =>
-	JSON.stringify(
-		sessionIds.map((sessionId, i) => ({
+	sessionIds.map((sessionId, i) =>
+		buildUnrecordedRow({
 			pid: 100 + i,
 			id: sessionId.slice(0, 8),
 			sessionId,
 			kind: "background",
 			state,
-		})),
+		}),
 	);
 
 /* GITHUB_ACTIONS off: these assert on the human report, and check.js writes
@@ -209,7 +214,7 @@ describe("what it reports", () => {
 	 * widening would call every live holder stranded. */
 	it("still says nothing about a listed holder the oracle calls working", () => {
 		claim("docs/doc-map.md", "busy-session", 300);
-		fakeClaude(endedListing("working", "busy-session"));
+		fakeClaude(agentsListing("busy-session"));
 
 		expect(report(run())).not.toContain("STRANDED-CLAIM");
 	});
@@ -395,16 +400,19 @@ describe("it degrades to silence, never to dead", () => {
 				);
 			},
 		],
-		["it exits non-zero", () => fakeClaude("[]", 3)],
-		["it prints something that is not JSON", () => fakeClaude("not json")],
+		["it exits non-zero", () => fakeClaude({ exit: 3 })],
+		[
+			"it prints something that is not JSON",
+			() => fakeClaude({ malformed: "not json" }),
+		],
 		[
 			"it returns an object rather than a list",
-			() => fakeClaude('{"agents":[]}'),
+			() => fakeClaude({ malformed: '{"agents":[]}' }),
 		],
-		["it lists nothing at all", () => fakeClaude("[]")],
+		["it lists nothing at all", () => fakeClaude([])],
 		[
 			"its entries carry no session id",
-			() => fakeClaude('[{"pid":1,"status":"busy"}]'),
+			() => fakeClaude([buildUnrecordedRow({ pid: 1, status: "busy" })]),
 		],
 	];
 
@@ -458,7 +466,7 @@ describe("it degrades to silence, never to dead", () => {
 
 	it("says nothing under --notify when the oracle is unreadable", () => {
 		claim("docs/doc-map.md", "dead-session", 500);
-		fakeClaude("not json");
+		fakeClaude({ malformed: "not json" });
 
 		const r = run(["--notify"]);
 		expect(r.stdout.trim()).toBe("");
@@ -466,7 +474,7 @@ describe("it degrades to silence, never to dead", () => {
 	});
 
 	it("never calls the oracle when nothing is claimed", () => {
-		fakeClaude("not json");
+		fakeClaude({ malformed: "not json" });
 		expect(report(run())).toContain("no files are claimed");
 	});
 });
