@@ -1009,7 +1009,7 @@ function replay(logs, w) {
 /**
  * What the waits' own exit lines record of the `peer` limb (#4765), `tsc`
  * waits and suite waits apart: the waits it held, their seconds on it, and
- * those it still held at the bound. Absent from every line before #4765.
+ * those it still held at the queue's wait bound. Absent from every line before #4765.
  *
  * @param {Waiter[]} waiters
  */
@@ -1077,7 +1077,7 @@ function render(r, w) {
 		"",
 		.../** @type {const} */ (["tsc", "suite"]).map((k) => {
 			const p = r.peers[k];
-			return `Recorded peer holds, ${k} waits: ${p.held} held on an older waiter in the other queue the climb charge holds, ${hours(p.heldS)} h, ${p.atBound} still held at the bound (#4765).`;
+			return `Recorded peer holds, ${k} waits: ${p.held} held on an older waiter in the other queue the climb charge holds, ${hours(p.heldS)} h, ${p.atBound} still held at the queue's wait bound (#4765).`;
 		}),
 		"",
 		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,

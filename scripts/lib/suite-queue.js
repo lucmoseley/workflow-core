@@ -1233,8 +1233,7 @@ function gateDenies(
 
 /**
  * What held a wait neither memory limb did: the count cap where the
- * gate denied, else the queue's turn, `peer` where an older waiter in the
- * other queue the climb charge holds is what closes it (#4765).
+ * gate denied, else the queue's turn, `peer` where a peer closes it (#4765).
  *
  * @param {GateDenial | null} denial
  * @param {TurnHold | undefined} turnHold
@@ -1425,7 +1424,7 @@ function limbTrace(clock, started) {
 		},
 		/**
 		 * @param {WaitLimb["limb"]} limb
-		 * @returns {number} the milliseconds `limb` has held the wait
+		 * @returns {number}
 		 */
 		heldMs(limb) {
 			accrue();

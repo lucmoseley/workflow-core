@@ -174,10 +174,10 @@ describe("the peer holds the waiters recorded (#4765)", () => {
 		});
 		const said = render(r, window());
 		expect(said).toContain(
-			"Recorded peer holds, tsc waits: 2 held on an older waiter in the other queue the climb charge holds, 0.68 h, 1 still held at the bound (#4765).",
+			"Recorded peer holds, tsc waits: 2 held on an older waiter in the other queue the climb charge holds, 0.68 h, 1 still held at the queue's wait bound (#4765).",
 		);
 		expect(said).toContain(
-			"Recorded peer holds, suite waits: 1 held on an older waiter in the other queue the climb charge holds, 0.01 h, 0 still held at the bound (#4765).",
+			"Recorded peer holds, suite waits: 1 held on an older waiter in the other queue the climb charge holds, 0.01 h, 0 still held at the queue's wait bound (#4765).",
 		);
 	});
 });
