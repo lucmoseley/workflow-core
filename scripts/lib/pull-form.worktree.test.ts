@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * guard-pull-form in a session's own worktree (#4242): with
- * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
- * worktree, a reset is judged in the tree the command stands in — the
+ * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
+ * checkout, a reset is judged in the tree the command stands in — the
  * worktree's own ref — not the host's, and the module config is the host's.
  */
 

@@ -31,6 +31,8 @@
  * working in process — the PostToolUse cores' scratch stores and the
  * arbiter's record — carries none: only the entry's timeout bounds a hang
  * there, and it costs every core still to run on that call its say.
+ *
+ * code-edges loads: guard-cores.json host
  */
 
 const { CORE_FAULT_TEXT } = require("./core-fault.js");
@@ -39,7 +41,7 @@ const { watchRepoFault } = require("./refuse-on-throw.js");
 const { withGitReadMemo, withoutGitReadMemo } = require("./git-read-memo.js");
 const { hasOwnText, render, subjectFor } = require("./guard-entry.js");
 const { kitContext } = require("./kit-context.js");
-const { sessionTree } = require("./host-root.js");
+const { sessionDir, sessionTree } = require("./host-root.js");
 const { TreeUnresolved } = require("./tree-or.js");
 const { corePath, isDispatchedOn } = require("./guard-cores.js");
 const { treePorts } = require("./guard-host-ports.js");
@@ -232,10 +234,8 @@ function lazyTree(payload, adapters, root) {
  * @returns {{ ports: TreePorts } | { fault: Error }}
  */
 function resolveTree(payload, adapters, root) {
-	const cwd =
-		typeof payload.cwd === "string" && payload.cwd
-			? payload.cwd
-			: (adapters.fallbackCwd ?? process.cwd());
+	/* The fallback a core's context carries: test support's where it fills one. */
+	const cwd = sessionDir(payload, adapters.fallbackCwd);
 	const dir = sessionTree({ cwd });
 	if (dir === null) return { fault: new TreeUnresolved(cwd) };
 	return { ports: dir === root ? adapters : treePorts(dir) };

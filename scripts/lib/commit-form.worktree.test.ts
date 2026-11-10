@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * guard-commit-form in a session's own worktree (#4242): with
- * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
- * worktree, a pathspec commit's untracked-path warn reads the worktree's
+ * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
+ * checkout, a pathspec commit's untracked-path warn reads the worktree's
  * files, never the main checkout's, an amend reads the worktree's HEAD, and
  * `git commit -a` is denied there as in the main checkout.
  */

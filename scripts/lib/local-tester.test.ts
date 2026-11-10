@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { chargeMb as launchChargeMb } from "./launch-charge";
 import {
 	localTester,
 	parseFailingTests,
@@ -20,6 +21,7 @@ import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
+import { rungMb } from "./suite-ladder.js";
 import { queueSeat } from "./suite-queue.js";
 import { admitted } from "./suite-slot-fake";
 import { LANDER_WORKTREE } from "./worktree-dirs.js";
@@ -27,7 +29,7 @@ import { LANDER_WORKTREE } from "./worktree-dirs.js";
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
 /* A whole suite's lander charge (#3323). */
-const WHOLE = { chargeMb: 2630 };
+const WHOLE = { chargeMb: launchChargeMb({ kind: "lander", files: [] }) };
 
 let tmp: string;
 let work: string;
@@ -583,14 +585,25 @@ it("shows session admission the held slot as a lander (#2416)", async () => {
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
 	expect(readLiveLanders({ queueDir: tmp })).toEqual([
-		{ pid: process.pid, chargeMb: 2630 },
+		{ pid: process.pid, ...WHOLE },
 	]);
 	if (slot.ok) slot.release();
 	expect(readLiveLanders({ queueDir: tmp })).toEqual([]);
 });
 
-it("charges a whole suite 2,630 MB, a named-file rerun 940 and one past six files whole on the marker (#3323, #3973)", async () => {
-	const charged: unknown[] = [];
+it("holds a lander marker whose charge is not a number a whole run's (#3323)", () => {
+	const seat = queueSeat({
+		queue: { queueDir: tmp, pid: process.pid },
+		join: { role: "lander" },
+	});
+	expect(readLiveLanders({ queueDir: tmp })).toEqual([
+		{ pid: process.pid, ...WHOLE },
+	]);
+	seat.leave();
+});
+
+it("charges a whole suite, a named-file rerun and one past six files as lander runs of those files on the marker, a named run under a whole one (#3323, #3973)", async () => {
+	const charged: (number | undefined)[] = [];
 	const tester = localTester({
 		root: work,
 		admit: async (charge) => {
@@ -611,10 +624,15 @@ it("charges a whole suite 2,630 MB, a named-file rerun 940 and one past six file
 	await tester.verdict(passing);
 	await tester.verdict(passing, ["a.check.js"]);
 	await tester.verdict(many, seven);
-	expect(charged).toEqual([2630, 940, 2630]);
+	expect(charged).toEqual([
+		launchChargeMb({ kind: "lander", files: [] }),
+		launchChargeMb({ kind: "lander", files: ["a.check.js"] }),
+		launchChargeMb({ kind: "lander", files: seven }),
+	]);
+	expect(charged[1]).toBeLessThan(Number(charged[0]));
 });
 
-it("opens the gate's memory rung at 3,750 MB for a whole suite and 2,050 for a named-file rerun (#3323, #3973)", async () => {
+it("opens the gate's memory rung at a whole suite's and a named-file rerun's charge (#3323, #3973)", async () => {
 	const at = (mb: number, chargeMb: number) =>
 		suiteSlot({
 			chargeMb,
@@ -628,16 +646,17 @@ it("opens the gate's memory rung at 3,750 MB for a whole suite and 2,050 for a n
 		if (slot.ok) slot.release();
 		return slot.ok;
 	};
-	expect(await at(3749, 2630)).toMatchObject({
-		ok: false,
-		reason: expect.stringContaining("3749 MB available against 3750 MB"),
-	});
-	expect(release(await at(3750, 2630))).toBe(true);
-	expect(await at(2049, 940)).toMatchObject({
-		ok: false,
-		reason: expect.stringContaining("against 2050 MB"),
-	});
-	expect(release(await at(2050, 940))).toBe(true);
+	for (const files of [[], ["a.check.js"]]) {
+		const charge = launchChargeMb({ kind: "lander", files });
+		const rung = rungMb(charge);
+		expect(await at(rung - 1, charge)).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining(
+				`${rung - 1} MB available against ${rung} MB`,
+			),
+		});
+		expect(release(await at(rung, charge))).toBe(true);
+	}
 });
 
 it("appends each run's kind, file count and tree-PSS peak to the lander run record (#3323)", async () => {

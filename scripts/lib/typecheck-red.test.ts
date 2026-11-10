@@ -10,7 +10,7 @@
  * through git's common directory, which a fake would not cross.
  *
  * The seam-2 case (#4242) runs it from a linked worktree of a main checkout,
- * CLAUDE_PROJECT_DIR on the main one: the record is taken from the main
+ * CLAUDE_PROJECT_DIR on the worktree too: the record is taken from the main
  * checkout's store.
  */
 
