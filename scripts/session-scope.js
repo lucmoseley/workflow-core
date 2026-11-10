@@ -144,6 +144,8 @@ function startWatcher(unit, leader, startTicks) {
 		"--quiet",
 		"--collect",
 		"--expand-environment=no",
+		/* The manager's default of 200 made this 1 MiB `sh` earlyoom's first kill (#4848). */
+		"--property=OOMScoreAdjust=0",
 		`--unit=${watcherOf(unit)}`,
 		`--description=Kill ${unit} once session ${String(leader)} ends`,
 		"--",

@@ -132,7 +132,7 @@ describe("session-scope.js", () => {
 		);
 		const watch = rest.at(-1);
 		expect(watch).toMatch(
-			/^systemd-run --user .*--expand-environment=no --unit=wfc-session-500-\d+-watch\.service/,
+			/^systemd-run --user .*--expand-environment=no --property=OOMScoreAdjust=0 --unit=wfc-session-500-\d+-watch\.service/,
 		);
 		expect(watch).toMatch(/ sh 500 \d+ wfc-session-500-\d+\.scope ?$/);
 	});
