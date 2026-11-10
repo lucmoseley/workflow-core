@@ -68,7 +68,7 @@ const {
 } = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
-const { relativeUnder } = require("./is-under.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 const {
 	execGit,
 	gitBinary,
@@ -410,7 +410,8 @@ const sharedInputs = (root, shared) => [
  *   git: (key: string) => string|null}} TreeAt
  *   what a tree answers beyond its files: each directory's listing id, null
  *   where none stands; whether one stands; and a git call's output id, by its
- *   key (lib/read-audit.js's `GitCall` as JSON), null where it cannot run
+ *   key (lib/read-audit.js's `GitCall` as JSON, the key a row stores), null
+ *   where it cannot run
  */
 
 /* The variables that point git at a repository: a test's call ran with
@@ -573,11 +574,11 @@ function trackedListings(root) {
  * track: an untracked input records no row.
  * @param {import("./read-audit.js").Reads} reads
  * @param {() => Map<string, Set<string>>} listings
- * @param {TreeAt} disk the working tree's directories
+ * @param {TreeAt} working the working tree: its directories and git calls
  * @returns {{files: string[], absent: string[], dirs: string[],
  *   listings: Record<string, string>, git: Record<string, string>}|null}
  */
-function auditInputs(reads, listings, disk) {
+function auditInputs(reads, listings, working) {
 	const lists = Object.entries(reads.lists);
 	const tracked =
 		lists.length + reads.trees.length > 0 ? listings() : new Map();
@@ -591,7 +592,7 @@ function auditInputs(reads, listings, disk) {
 	}
 	const files = [...reads.files];
 	for (const top of reads.trees) {
-		const tree = treeInputs(top, tracked, disk);
+		const tree = treeInputs(top, tracked, working);
 		if (!tree) return null;
 		files.push(...tree.files);
 		Object.assign(listed, tree.listings);
@@ -600,7 +601,7 @@ function auditInputs(reads, listings, disk) {
 	const git = {};
 	for (const call of reads.git) {
 		const key = JSON.stringify(call);
-		const id = disk.git(key);
+		const id = working.git(key);
 		if (id === null) return null;
 		git[key] = id;
 	}
@@ -616,21 +617,21 @@ function auditInputs(reads, listings, disk) {
 /**
  * What a tree walked or copied whole rests on: every tracked file under
  * `top`, or `top` itself where it is no tracked directory, and every tracked
- * directory's listing under it. Null where a listing on disk holds a name
+ * directory's listing under it. Null where a listing on working holds a name
  * git does not track, which the walk saw.
  * @param {string} top
  * @param {Map<string, Set<string>>} tracked
- * @param {TreeAt} disk
+ * @param {TreeAt} working
  * @returns {{files: string[], listings: Record<string, string>}|null}
  */
-function treeInputs(top, tracked, disk) {
+function treeInputs(top, tracked, working) {
 	const files = tracked.has(top) ? [] : [top];
 	/** @type {Record<string, string>} */
 	const listings = {};
 	for (const [dir, names] of tracked) {
-		if (!(top === "." || dir === top || dir.startsWith(`${top}/`))) continue;
+		if (top !== "." && !isUnder(dir, [top])) continue;
 		const id = listingId([...names]);
-		if (disk.listing(dir) !== id) return null;
+		if (working.listing(dir) !== id) return null;
 		listings[dir] = id;
 		for (const name of names) {
 			const p = dir === "." ? name : `${dir}/${name}`;
@@ -647,12 +648,12 @@ function treeInputs(top, tracked, disk) {
  * @param {FileResult} f
  * @param {{run: Run, reads: Map<string, string[]>,
  *   reach: (file: string) => Reach|null,
- *   listings: () => Map<string, Set<string>>, disk: TreeAt}} ctx
+ *   listings: () => Map<string, Set<string>>, working: TreeAt}} ctx
  */
-function fileInputs(f, { run, reads, reach, listings, disk }) {
+function fileInputs(f, { run, reads, reach, listings, working }) {
 	const audit = run.audits?.get(f.file);
 	if (!audit || !("reads" in audit)) return null;
-	const seen = auditInputs(audit.reads, listings, disk);
+	const seen = auditInputs(audit.reads, listings, working);
 	if (!seen) return null;
 	/* A script the manifest says the file reads is reached too, as it
 	 * may spawn it: its own requires are inputs that no import and no
@@ -685,7 +686,7 @@ function fileInputs(f, { run, reads, reach, listings, disk }) {
 		...new Set([...reached.flatMap((r) => r.shadows), ...seen.absent]),
 	].filter((p) => !paths.includes(p));
 	const python = reached.some((r) => r.python);
-	if (!isTreeHolding(seen, disk)) return null;
+	if (!isTreeHolding(seen, working)) return null;
 	return { ...f, paths, absent, python, seen };
 }
 
@@ -714,9 +715,9 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const shared = sharedInputs(run.root, run.shared);
 		const reach = lexicalReach(run.root);
 		const listings = trackedListings(run.root);
-		const disk = workingAt(run.root);
+		const working = workingAt(run.root);
 		const own = files.flatMap((f) => {
-			const found = fileInputs(f, { run, reads, reach, listings, disk });
+			const found = fileInputs(f, { run, reads, reach, listings, working });
 			return found ? [found] : [];
 		});
 		const all = [...shared, ...own.flatMap((f) => f.paths)];

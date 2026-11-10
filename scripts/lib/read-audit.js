@@ -37,8 +37,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { caught } = require("./caught.js");
+const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
+const { pathKind } = require("./path-kind.js");
 
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
 
@@ -95,7 +96,7 @@ const VALUED = new Set([
  * inherits. Returns the log directory, or null where this process is itself
  * under an audit (a test's nested run), whose logs are its owner's.
  * @param {string} root
- * @param {NodeJS.ProcessEnv} [env]
+ * @param {NodeJS.ProcessEnv} [env] written: the three variables are set on it
  * @returns {string|null}
  */
 function install(root, env = process.env) {
@@ -220,8 +221,7 @@ function judge(logs, git, root) {
 		.flat()
 		.filter((e) => e.k === "minted")
 		.map((e) => String(e.p));
-	const isScratch = (/** @type {string} */ p) =>
-		minted.some((m) => p === m || p.startsWith(`${m}/`));
+	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
 	const reads = collector(logs, root, isScratch);
 	for (const record of git) {
 		const why = reads.takeGit(record);
@@ -328,8 +328,8 @@ function collector(logs, root, isScratch) {
  * @returns {GitCall|string|null}
  */
 function rerunnable([steered, dir = "", ...args], root, isScratch) {
-	const shown = `git ${args.join(" ")}`.slice(0, 200);
-	if (!isUnder(root, dir))
+	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
+	if (!isUnder(dir, [root], path.sep))
 		return `a git call (${shown}) read another checkout of this repository`;
 	const cwd = toPosix(path.relative(root, dir)) || ".";
 	if (isScratch(cwd)) return null;
@@ -345,6 +345,10 @@ function rerunnable([steered, dir = "", ...args], root, isScratch) {
 		return `a git call (${shown}) read this repository`;
 	return { cwd, args };
 }
+
+/* How much of a call a doubt line quotes: a guess, long enough to name the
+ * call, short enough to keep the cached-run banner readable. */
+const SHOWN_MAX = 200;
 
 /* Programs that run their first non-option argument as a script. */
 const SCRIPT_RUNNERS = new Set(["bash", "sh", "python3", "python"]);
@@ -362,15 +366,18 @@ function childDoubt(e, logs, root, isScratch) {
 	const file = String(e.file);
 	const name = path.basename(file);
 	const args = /** @type {string[]} */ (e.args ?? []);
-	const shown = `${name} ${args.join(" ")}`.slice(0, 200);
+	const shown = `${name} ${args.join(" ")}`.slice(0, SHOWN_MAX);
 	if (e.audited && isNode(file)) {
 		if (typeof e.pid !== "number")
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
-	if (name === "git" && e.audited) return null;
+	if (e.guarded && e.audited) return null;
 	const cwd = String(e.cwd);
-	if (isUnder(root, cwd) && !isScratch(toPosix(path.relative(root, cwd))))
+	if (
+		isUnder(cwd, [root], path.sep) &&
+		!isScratch(toPosix(path.relative(root, cwd)))
+	)
 		return `a child (${shown}) ran in the checkout`;
 	const script = scriptOf(e, root);
 	if (args.some((a) => a !== script && namesCheckout(a, root, isScratch)))
@@ -409,7 +416,7 @@ function scriptOf(e, root) {
 	if (args.slice(0, at).some((a) => a === "-c" || a === "-e" || a === "--eval"))
 		return null;
 	const abs = path.resolve(String(e.cwd), String(args[at]));
-	return isUnder(root, abs) && fileKind(abs) === "file"
+	return isUnder(abs, [root], path.sep) && pathKind(abs) === "file"
 		? String(args[at])
 		: null;
 }
@@ -429,26 +436,8 @@ function childReads(e, root) {
 /** @param {string} p */
 const toPosix = (p) => p.split(path.sep).join("/");
 
-/**
- * @param {string} root
- * @param {string} p absolute
- */
-const isUnder = (root, p) => p === root || p.startsWith(root + path.sep);
-
 /** @param {string} file */
 const isNode = (file) =>
 	file === process.execPath || path.basename(file) === "node";
 
-/** @param {string} abs */
-function fileKind(abs) {
-	try {
-		const st = fs.statSync(abs);
-		if (st.isFile()) return "file";
-		return st.isDirectory() ? "dir" : "other";
-	} catch (e) {
-		const code = caught(e).code;
-		return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "other";
-	}
-}
-
-module.exports = { install, readAudits, remove, PRELOAD };
+module.exports = { install, readAudits, remove };

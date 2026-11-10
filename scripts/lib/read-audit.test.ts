@@ -15,8 +15,10 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { install, readAudits, remove, PRELOAD } = require("./read-audit.js");
+const { install, readAudits, remove } = require("./read-audit.js");
 const { listingId } = require("./listing-id.js");
+const { lookup, record } = require("./pass-store.js");
+const { EDGES_FILE } = require("./test-pass-marker.js");
 
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 
@@ -220,6 +222,82 @@ describe("what a test file reads, as the audit sees it", () => {
 			/^a git call \(git -C /,
 		);
 	});
+
+	it("doubts a git run by absolute path in the checkout, which no guard logs", () => {
+		const root = checkout();
+		const real = execFileSync("sh", ["-c", "command -v git"], {
+			encoding: "utf8",
+		}).trim();
+		const log = audited(
+			root,
+			T,
+			`require("node:child_process").execFileSync(${JSON.stringify(real)}, ["status"], { cwd: ${JSON.stringify(root)} });`,
+			{ env: { PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}` } },
+		);
+		expect(readAudits(log, root).get(T).doubt).toMatch(/ran in the checkout/);
+	});
+});
+
+describe("from a real audited run to a cached row (#4916)", () => {
+	const Values = { node: "v22.0.0", arch: "arm64" };
+
+	/** Record `log`'s run of T at `root`, as the suite's teardown does. */
+	const recordRun = (root: string, log: string) =>
+		record(
+			{
+				sha: git(root, "rev-parse", "HEAD"),
+				at: new Date().toISOString(),
+				tree: null,
+				root,
+				files: [{ file: T, outcome: "pass", imports: [] }],
+				shared: ["vitest.config.ts", "vitest.setup.ts"],
+				clean: true,
+				drifted: [],
+				audits: readAudits(log, root),
+			},
+			{ storeRoot: root, lander: false, values: Values },
+		);
+	const isCached = (root: string) =>
+		lookup([T], { root, storeRoot: root, values: Values, lander: false }).cached
+			.length === 1;
+
+	it("voids the row on a skill dir added, and on a settings file read through a helper's default root", () => {
+		const root = checkout();
+		for (const f of ["vitest.config.ts", "vitest.setup.ts", "package.json"])
+			write(root, f, "{}\n");
+		write(root, ".gitignore", ".claude/tmp/\n");
+		write(root, EDGES_FILE, JSON.stringify({ edges: {} }));
+		const log = audited(
+			root,
+			T,
+			[
+				'require("./lib/hooks.js")();',
+				'require("node:fs").readdirSync(require("node:path").join(__dirname, "../.claude/skills"));',
+			].join("\n"),
+		);
+		git(root, "add", "-A");
+		git(
+			root,
+			"-c",
+			"user.email=t@example.com",
+			"-c",
+			"user.name=T",
+			"commit",
+			"-q",
+			"-m",
+			"base",
+		);
+		expect(recordRun(root, log)).toBe(1);
+		expect(isCached(root)).toBe(true);
+
+		write(root, ".claude/skills/three/SKILL.md", "three\n");
+		expect(isCached(root)).toBe(false);
+		fs.rmSync(path.join(root, ".claude/skills/three"), { recursive: true });
+		expect(isCached(root)).toBe(true);
+
+		write(root, ".claude/settings.json", '{"hooks":{"Stop":[]}}\n');
+		expect(isCached(root)).toBe(false);
+	});
 });
 
 describe("a read it cannot charge to one test file records no row for it", () => {
@@ -296,8 +374,9 @@ describe("arming", () => {
 		const env: NodeJS.ProcessEnv = { NODE_OPTIONS: "--max-old-space-size=99" };
 		const dir = install(root, env);
 		dirs.push(dir);
+		const preload = path.join(__dirname, "read-audit-preload.js");
 		expect(env.NODE_OPTIONS).toBe(
-			`--max-old-space-size=99 --import=${JSON.stringify(pathToFileURL(PRELOAD).href)}`,
+			`--max-old-space-size=99 --import=${JSON.stringify(pathToFileURL(preload).href)}`,
 		);
 		expect(install(root, { WFC_READ_AUDIT_OWNER: "1" })).toBeNull();
 		remove(dir);

@@ -25,7 +25,10 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
+const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
+const { pathKind } = require("./path-kind.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
@@ -43,8 +46,7 @@ registerHooks({
 		try {
 			return next(url, context);
 		} catch (e) {
-			if (/** @type {any} */ (e)?.code !== "ERR_UNKNOWN_FILE_EXTENSION")
-				throw e;
+			if (caught(e).code !== "ERR_UNKNOWN_FILE_EXTENSION") throw e;
 			return next(url, { ...context, format: "commonjs" });
 		}
 	},
@@ -53,7 +55,19 @@ registerHooks({
 const DIR = process.env.WFC_READ_AUDIT;
 const ROOT = process.env.WFC_READ_AUDIT_ROOT;
 
-if (DIR && ROOT && !(/** @type {any} */ (globalThis).__wfcReadAudit)) install();
+/* The global the audit's api hangs on, for vitest.setup.ts to claim with. */
+const scope =
+	/** @type {{ __wfcReadAudit?: { claim: (file: string) => void } }} */ (
+		/** @type {unknown} */ (globalThis)
+	);
+
+/**
+ * An `fs` function's argument or result, of whatever type that function
+ * takes; also Node's internal spawn bindings, which carry no types.
+ * @typedef {any} Untyped
+ */
+
+if (DIR && ROOT && !scope.__wfcReadAudit) install();
 
 function install() {
 	const dir = /** @type {string} */ (DIR);
@@ -87,8 +101,6 @@ function install() {
 			// The log will not take it: its reads are already short.
 		}
 	};
-	const prefix = root.endsWith(path.sep) ? root : root + path.sep;
-
 	/**
 	 * `p` repo-relative where it names a path under the root outside every
 	 * `node_modules`, else null.
@@ -102,10 +114,9 @@ function install() {
 			if (p.protocol !== "file:") return null;
 			s = decodeURIComponent(p.pathname);
 		} else return null;
-		const abs = path.resolve(s);
-		if (abs !== root && !abs.startsWith(prefix)) return null;
-		const r = abs === root ? "." : abs.slice(prefix.length);
-		const posix = r.split(path.sep).join("/");
+		const r = relativeUnder(root, path.resolve(s));
+		if (r === null) return null;
+		const posix = (r || ".").split(path.sep).join("/");
 		return posix.split("/").includes("node_modules") ? null : posix;
 	};
 
@@ -118,23 +129,11 @@ function install() {
 		}
 	};
 
-	/**
-	 * What stands at `abs` now: file, dir, absent or other.
-	 * @param {string} abs
-	 */
-	const kindAt = (abs) => {
-		try {
-			const st = realStatSync(abs);
-			if (st.isFile()) return "file";
-			return st.isDirectory() ? "dir" : "other";
-		} catch (e) {
-			const code = /** @type {{code?: string}} */ (e).code;
-			return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "other";
-		}
-	};
+	/** What stands at `abs` now, through the `statSync` this does not wrap. */
+	const kindAt = (/** @type {string} */ abs) => pathKind(abs, realStatSync);
 
-	/** @param {unknown} p */
-	const read = (p) =>
+	/** Record a probe of `p` with what it found. @param {unknown} p */
+	const probe = (p) =>
 		guard(() => {
 			const r = rel(p);
 			if (r !== null) add({ k: "probe", p: r, s: kindAt(path.join(root, r)) });
@@ -166,18 +165,18 @@ function install() {
 	const realStatSync = fs.statSync;
 
 	/**
-	 * Wrap `obj[name]`, calling `before(args)` ahead of it and `after(args,
-	 * result)` behind a sync return.
-	 * @param {any} obj
+	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
+	 * with no result where it threw or failed.
+	 * @param {Untyped} obj
 	 * @param {string} name
-	 * @param {(args: any[], result?: any) => void} on
+	 * @param {(args: Untyped[], result?: Untyped) => void} on
 	 * @param {"sync"|"callback"|"promise"} shape
 	 */
 	const wrap = (obj, name, on, shape) => {
 		const orig = obj?.[name];
 		if (typeof orig !== "function") return;
 		const wrapped = {
-			/** @param {any[]} args */
+			/** @param {Untyped[]} args */
 			[name](...args) {
 				if (shape === "sync") {
 					let out;
@@ -192,11 +191,11 @@ function install() {
 				}
 				if (shape === "promise") {
 					return orig.apply(this, args).then(
-						(/** @type {any} */ out) => {
+						(/** @type {Untyped} */ out) => {
 							on(args, out);
 							return out;
 						},
-						(/** @type {any} */ e) => {
+						(/** @type {Untyped} */ e) => {
 							on(args);
 							throw e;
 						},
@@ -208,8 +207,8 @@ function install() {
 					return orig.apply(this, args);
 				}
 				args[args.length - 1] = (
-					/** @type {any} */ e,
-					/** @type {any} */ out,
+					/** @type {Untyped} */ e,
+					/** @type {Untyped} */ out,
 				) => {
 					on(args, e ? undefined : out);
 					return cb(e, out);
@@ -221,21 +220,21 @@ function install() {
 		obj[name] = wrapped;
 	};
 
-	/** @param {any[]} a */
-	const first = (a) => read(a[0]);
-	/** @param {any[]} a @param {any} [out] */
+	/** @param {Untyped[]} a */
+	const probeFirst = (a) => probe(a[0]);
+	/** @param {Untyped[]} a @param {Untyped} [out] */
 	const listing = (a, out) => {
 		const opts = a[1];
 		if (opts && typeof opts === "object" && opts.recursive) tree(a[0]);
 		else list(a[0], out);
 	};
-	/** @param {any[]} a */
+	/** @param {Untyped[]} a */
 	const copy = (a) => {
 		const opts = a[2];
 		if (opts && typeof opts === "object" && opts.recursive) tree(a[0]);
-		else read(a[0]);
+		else probe(a[0]);
 	};
-	/** @param {any[]} a */
+	/** @param {Untyped[]} a */
 	const glob = (a) => {
 		const opts = a[1];
 		tree(
@@ -243,7 +242,7 @@ function install() {
 		);
 	};
 	/** A directory handle lists what its reads return; one is all names. */
-	/** @param {any[]} a */
+	/** @param {Untyped[]} a */
 	const opendir = (a) => tree(a[0]);
 
 	const reads = [
@@ -257,12 +256,12 @@ function install() {
 		"readlink",
 	];
 	for (const name of reads) {
-		wrap(fs, `${name}Sync`, first, "sync");
-		wrap(fs, name, first, "callback");
-		wrap(fs.promises, name, first, "promise");
+		wrap(fs, `${name}Sync`, probeFirst, "sync");
+		wrap(fs, name, probeFirst, "callback");
+		wrap(fs.promises, name, probeFirst, "promise");
 	}
-	wrap(fs, "createReadStream", first, "sync");
-	wrap(fs.realpathSync, "native", first, "sync");
+	wrap(fs, "createReadStream", probeFirst, "sync");
+	wrap(fs.realpathSync, "native", probeFirst, "sync");
 	wrap(fs, "readdirSync", listing, "sync");
 	wrap(fs, "readdir", listing, "callback");
 	wrap(fs.promises, "readdir", listing, "promise");
@@ -270,7 +269,7 @@ function install() {
 	wrap(fs, "opendir", opendir, "callback");
 	wrap(fs.promises, "opendir", opendir, "promise");
 	/* A directory the test mints is its own scratch, not the checkout. */
-	/** @param {any[]} _a @param {any} [out] */
+	/** @param {Untyped[]} _a @param {Untyped} [out] */
 	const minted = (_a, out) =>
 		guard(() => {
 			const r = typeof out === "string" ? rel(out) : null;
@@ -282,14 +281,14 @@ function install() {
 	wrap(fs, "cpSync", copy, "sync");
 	wrap(fs, "cp", copy, "callback");
 	wrap(fs.promises, "cp", copy, "promise");
-	wrap(fs, "copyFileSync", first, "sync");
-	wrap(fs, "copyFile", first, "callback");
-	wrap(fs.promises, "copyFile", first, "promise");
+	wrap(fs, "copyFileSync", probeFirst, "sync");
+	wrap(fs, "copyFile", probeFirst, "callback");
+	wrap(fs.promises, "copyFile", probeFirst, "promise");
 	wrap(fs, "globSync", glob, "sync");
 	wrap(fs, "glob", glob, "callback");
 	wrap(fs.promises, "glob", glob, "sync");
-	wrap(fs, "watch", first, "sync");
-	wrap(fs, "watchFile", first, "sync");
+	wrap(fs, "watch", probeFirst, "sync");
+	wrap(fs, "watchFile", probeFirst, "sync");
 	require("node:module").syncBuiltinESMExports();
 
 	/* Children: the bindings every spawn API reaches, sync and async. */
@@ -303,7 +302,21 @@ function install() {
 				e.startsWith("NODE_OPTIONS=") &&
 				e.includes(SELF),
 		);
-	/** @param {any} opts @param {number|undefined} pid */
+	/* A bare `git` whose PATH puts the host git guard first: the guard logs
+	 * what it reads of this repository. */
+	const guarded = (/** @type {Untyped} */ opts) => {
+		if (opts?.file !== "git" || !Array.isArray(opts?.envPairs)) return false;
+		const at = opts.envPairs.find(
+			(/** @type {unknown} */ e) =>
+				typeof e === "string" && e.startsWith("PATH="),
+		);
+		const head =
+			String(at ?? "")
+				.slice(5)
+				.split(path.delimiter)[0] ?? "";
+		return path.basename(head) === "host-git-guard";
+	};
+	/** @param {Untyped} opts @param {number|undefined} pid */
 	const spawned = (opts, pid) =>
 		guard(() => {
 			add({
@@ -314,23 +327,24 @@ function install() {
 					typeof opts?.cwd === "string" ? opts.cwd : process.cwd(),
 				),
 				audited: audited(opts?.envPairs),
+				guarded: guarded(opts),
 				pid: pid ?? null,
 			});
 		});
-	const bindings = /** @type {any} */ (process).binding;
+	const bindings = /** @type {Untyped} */ (process).binding;
 	const quiet = process.noDeprecation;
 	process.noDeprecation = true;
 	try {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
-		sync.spawn = function (/** @type {any} */ opts) {
+		sync.spawn = function (/** @type {Untyped} */ opts) {
 			const out = syncSpawn.call(this, opts);
 			spawned(opts, out?.pid);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
 		const asyncSpawn = Process.prototype.spawn;
-		Process.prototype.spawn = function (/** @type {any} */ opts) {
+		Process.prototype.spawn = function (/** @type {Untyped} */ opts) {
 			const err = asyncSpawn.call(this, opts);
 			spawned(opts, this.pid);
 			return err;
@@ -350,7 +364,7 @@ function install() {
 			});
 		},
 	};
-	/** @type {any} */ (globalThis).__wfcReadAudit = api;
+	scope.__wfcReadAudit = api;
 }
 
 /**

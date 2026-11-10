@@ -107,8 +107,10 @@ args=("${@:i+1}")
 # on this repository — any worktree of it — reads what `fs` never sees, so it
 # is logged against the test that made it. A call whose directory, `-C`
 # and git-dir variables all lie outside the repository's checkouts asks git
-# nothing more; `init` and `clone` make a repository of their own.
-if [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$sub" != init && "$sub" != clone ]]; then
+# nothing more; `init` and `clone` make a repository of their own. Only the
+# outermost call: a nested one runs inside a call already judged, and its
+# probes would fan out at every depth of a git that calls this guard back.
+if ((depth == 1)) && [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$sub" != init && "$sub" != clone ]]; then
   under=
   [[ -n "$GIT_DIR$GIT_WORK_TREE$GIT_COMMON_DIR" ]] && under=1
   for a in "${@:1:i-1}"; do [[ "$a" == -C || "$a" == --git-dir* || "$a" == --work-tree* ]] && under=1; done
