@@ -7,7 +7,8 @@
  *
  * KEPT, one output line per item, each opening `L<n>` — the line of the log it
  * came from: founder messages; the refill loop's resume prompts, as LOOP;
- * assistant text; each tool call's name and a short input; each tool result's
+ * another script's typed prompts, as SCRIPT; assistant text; each tool
+ * call's name and a short input; each tool result's
  * error flag and its first 300 characters; hook feedback; compaction
  * boundaries; API errors. Everything else — thinking, the compaction summary,
  * task notifications, peer and plugin messages, and every bookkeeping record —
@@ -54,7 +55,7 @@ const { StringDecoder } = require("node:string_decoder");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
-const { isLoopPrompt } = require("./lib/loop-prompts");
+const { isLoopPrompt, isScriptPrompt } = require("./lib/loop-prompts");
 const { buildMasker } = require("./lib/token-shapes");
 const { writeStreamAtomic } = require("./lib/atomic-write.js");
 const { readStoredSecrets, secretsFile } = require("./lib/env-file.js");
@@ -213,13 +214,12 @@ function reduceUser(record, tier) {
 	const reduced = { items, toolIds: [] };
 	const text = parseContentText(content);
 	const kind = record.origin?.kind;
+	const typist = typistLabelOf(text);
 	if (items.length > 0 || !text || record.isCompactSummary) return reduced;
 	if (record.isMeta) {
 		if (STOP_FEEDBACK.test(text))
 			items.push(["HOOK Stop", short(text, LIMIT.hook)]);
-	} else if (isLoopPrompt(text))
-		/* Origin `human` too, but the loop typed it (#3381). */
-		items.push(["LOOP", short(text, LIMIT.founder)]);
+	} else if (typist) items.push([typist, short(text, LIMIT.founder)]);
 	else if (isFounder(kind))
 		/* A subagent's opening message is its dispatch prompt, not the founder. */
 		items.push([
@@ -341,9 +341,9 @@ function reduceAttachment(record) {
 		]);
 	else if (a.type === "hook_cancelled")
 		items.push([`HOOK CANCELLED${hook}`, ""]);
-	else if (isLoopQueued(a))
+	else if (queuedTypistOf(a))
 		items.push([
-			"LOOP queued",
+			`${queuedTypistOf(a)} queued`,
 			short(parseContentText(a.prompt), LIMIT.founder),
 		]);
 	else if (isFounderQueued(a))
@@ -360,13 +360,24 @@ function reduceAttachment(record) {
 const isPromptQueued = (a) =>
 	a.type === "queued_command" && a.commandMode === "prompt";
 
+/**
+ * The label of a prompt the refill loop (#3381) or another script (#4844)
+ * typed, read off its prefix since its origin is `human` too; null for any
+ * other prompt.
+ * @param {string} text
+ */
+function typistLabelOf(text) {
+	if (isLoopPrompt(text)) return "LOOP";
+	return isScriptPrompt(text) ? "SCRIPT" : null;
+}
+
 /** @param {TranscriptRecord["attachment"]} a */
-const isLoopQueued = (a) =>
-	isPromptQueued(a) && isLoopPrompt(parseContentText(a.prompt));
+const queuedTypistOf = (a) =>
+	isPromptQueued(a) ? typistLabelOf(parseContentText(a.prompt)) : null;
 
 /** @param {TranscriptRecord["attachment"]} a */
 const isFounderQueued = (a) =>
-	isPromptQueued(a) && !isLoopQueued(a) && isFounder(a.origin?.kind);
+	isPromptQueued(a) && !queuedTypistOf(a) && isFounder(a.origin?.kind);
 
 /** @type {Map<unknown, (record: TranscriptRecord, tier: "main" | "subagent") => Reduced>} */
 const REDUCERS = new Map([

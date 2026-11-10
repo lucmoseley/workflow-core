@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { API_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs } from "./lib/seat-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -448,10 +448,11 @@ describe("signals and score", () => {
 		expect(s.subagentDir).toBe(path.join(file.slice(0, -6), "subagents"));
 	});
 
-	it("counts no refill-loop resume prompt as a liveness ask, even one worded like one (#3381)", () => {
-		session(repos.core, "resumed", {
-			lines: [founder(`${API_PROMPT} are you stuck?`)],
-		});
+	it.each([
+		["refill-loop resume prompt (#3381)", `${API_PROMPT} are you stuck?`],
+		["script's typed prompt (#4844)", scriptPrompt("are you stuck?")],
+	])("counts no %s as a liveness ask, even one worded like one", (_, text) => {
+		session(repos.core, "resumed", { lines: [founder(text)] });
 
 		const [s] = run().json.sessions;
 		expect(s.signals.livenessAsks).toBe(0);
