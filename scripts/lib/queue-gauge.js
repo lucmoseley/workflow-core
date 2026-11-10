@@ -28,7 +28,7 @@ const {
 } = require("./queue-log.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
-const BASELINE_DAYS = `${BASELINE_MS / DAY_MS}-day`;
+const BASELINE_DAYS = BASELINE_MS / DAY_MS;
 
 const AGE_FLOOR_MS = 60 * 60 * 1000;
 const DEPTH_FLOOR = 10;
@@ -98,8 +98,8 @@ const span = (ms) => (ms === null ? "none" : formatHoursMin(ms));
  * @param {import("./queue-log.js").QueueBaseline} b
  */
 const buildLimitText = (limits, b) => ({
-	age: `${formatHoursMin(limits.ageMs)}, the larger of ${BASELINE_FACTOR} × the ${BASELINE_DAYS} p90 time in queue (${span(b.p90Ms)}) and ${AGE_FLOOR_MS / 60_000} min`,
-	depth: `${limits.depth}, the larger of ${BASELINE_FACTOR} × the ${BASELINE_DAYS} p90 depth (${b.depthP90 ?? "none"}) and ${DEPTH_FLOOR}`,
+	age: `${formatHoursMin(limits.ageMs)}, the larger of ${BASELINE_FACTOR} × the ${BASELINE_DAYS}-day p90 time in queue (${span(b.p90Ms)}) and ${AGE_FLOOR_MS / 60_000} min`,
+	depth: `${limits.depth}, the larger of ${BASELINE_FACTOR} × the ${BASELINE_DAYS}-day p90 depth (${b.depthP90 ?? "none"}) and ${DEPTH_FLOOR}`,
 });
 
 /**
@@ -129,8 +129,8 @@ function buildQueueLine({ now, waiting, baseline: b }) {
 			: `queue: ${waiting.length} waiting, the oldest queue/${oldest.name} for ${formatHoursMin(now - oldest.since)}`;
 	const times =
 		b.spans === 0
-			? `nothing landed or dropped in ${BASELINE_MS / DAY_MS} days`
-			: `time in queue over ${BASELINE_MS / DAY_MS} days p50 ${span(b.p50Ms)}, p90 ${span(b.p90Ms)} across ${b.spans} landed or dropped`;
+			? `nothing landed or dropped in ${BASELINE_DAYS} days`
+			: `time in queue over ${BASELINE_DAYS} days p50 ${span(b.p50Ms)}, p90 ${span(b.p90Ms)} across ${b.spans} landed or dropped`;
 	return `${head}; ${times}; depth p90 ${b.depthP90 ?? "none"}.`;
 }
 

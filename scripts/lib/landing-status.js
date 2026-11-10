@@ -5,7 +5,7 @@
  */
 
 const { caught } = require("./caught.js");
-const { LANDER_GIT_TIMEOUT_MS } = require("./lander-git.js");
+const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
 const {
 	pushedRef,
 	QUEUE_REFSPEC,
@@ -60,7 +60,7 @@ function stateOf(sha, git) {
  *   where its tree is no session worktree
  */
 function buildStateLine({ sha, state }, subject, queue) {
-	const head = `${sha.slice(0, 9)} ${subject}`;
+	const head = `${short(sha)} ${subject}`;
 	switch (state.kind) {
 		case "landed":
 			return `landed: ${head} — on main`;
