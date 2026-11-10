@@ -14,7 +14,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { reachOf } = require("./code-edges.js");
+const { inlineCodeSpawns, reachOf } = require("./code-edges.js");
 
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -69,6 +69,21 @@ describe("a dotted import", () => {
 			tree("import pkg.sub\n", ["tool/pkg/__init__.py", "tool/pkg/sub.py"])
 				.shadows,
 		).toContain("tool/pkg/sub/__init__.py");
+	});
+
+	/* #4790 pass 2 review, finding 6: a from-imported name's package form
+	 * went unwatched once its module was found. */
+	it("names what a from-imported name tried before its module as a shadow", () => {
+		expect(
+			tree("from pkg import sub\n", ["tool/pkg/__init__.py", "tool/pkg/sub.py"])
+				.shadows,
+		).toContain("tool/pkg/sub/__init__.py");
+	});
+
+	it("names a relative import's from-imported names' shadows", () => {
+		const found = tree("from . import sub\n", ["tool/sub.py"]);
+		expect(found.edges).toEqual(["tool/sub.py"]);
+		expect(found.shadows).toEqual(["tool/sub/__init__.py"]);
 	});
 
 	it("faults a from-imported name a namespace package does not hold", () => {
@@ -134,10 +149,24 @@ describe("a sys.path entry the file adds", () => {
 		["sys.path[:0] = [LIB]"],
 		["sys.path.pop(0)"],
 		["del sys.path[0]"],
-	])("faults a later non-stdlib import after %s", (edit) => {
-		const { faults } = tree(`${edit}\nimport os\nimport helper\n`, [
-			"tool/helper.py",
+	])("faults every later import but a builtin module's after %s", (edit) => {
+		const { faults } = tree(
+			`${edit}\nimport sys\nimport json\nimport helper\n`,
+			["tool/helper.py"],
+		);
+		expect(faults).toEqual([
+			"imports json after a sys.path edit the walk cannot read",
+			"imports helper after a sys.path edit the walk cannot read",
 		]);
+	});
+
+	/* #4790 pass 2 review, finding 5: the unreadable front entry may hold a
+	 * json.py, so a stdlib name cached past it. */
+	it("places a stdlib import past an unreadable entry appended after the stdlib's", () => {
+		const { faults } = tree(
+			"sys.path.append(sys.argv[1])\nimport json\nimport helper\n",
+			[],
+		);
 		expect(faults).toEqual([
 			"imports helper after a sys.path edit the walk cannot read",
 		]);
@@ -171,5 +200,102 @@ describe("a sys.path entry the file adds", () => {
 		expect(tree("import playwright\n", []).faults).toEqual([
 			"imports playwright, which is neither stdlib nor found beside it or on a sys.path entry it adds",
 		]);
+	});
+});
+
+/* #4790 pass 2 review, finding 4: each of these dropped its import with no
+ * fault, so the pass store cached a test past a change to helper.py. */
+describe("a statement the parse may miss", () => {
+	it.each([
+		[
+			"a one-line compound statement's body",
+			"try: import helper\nexcept ImportError: pass\n",
+		],
+		[
+			"an import after a comment holding a triple quote",
+			'# a """ in prose\nimport helper\n',
+		],
+	])("places %s", (_shape, code) => {
+		const { edges, faults } = tree(code, ["tool/helper.py"]);
+		expect({ edges: [...new Set(edges)], faults }).toEqual({
+			edges: ["tool/helper.py"],
+			faults: [],
+		});
+	});
+
+	it("faults a file ending inside an open bracket", () => {
+		expect(tree("import helper\nx = (\n", ["tool/helper.py"]).faults).toEqual([
+			"ends inside an open bracket, so its last statement goes unread",
+		]);
+	});
+
+	it("faults an import it cannot parse", () => {
+		expect(
+			tree("if f(lambda: 1): import helper\n", ["tool/helper.py"]).faults,
+		).toEqual([
+			"imports through 1): import helper, which the walk cannot parse",
+		]);
+	});
+});
+
+describe("a file the walk cannot read", () => {
+	it("faults JSX or TSX code rather than answering no edges", () => {
+		const faults: string[] = [];
+		reachOf("/x/a.tsx", 'import "./b.js";\n', (m: string) => faults.push(m));
+		expect(faults).toEqual(["is .tsx code, whose loads the walk cannot read"]);
+	});
+
+	it("answers a data file no edges and no fault", () => {
+		const faults: string[] = [];
+		expect(reachOf("/x/a.json", "{}", (m: string) => faults.push(m))).toEqual({
+			edges: [],
+			shadows: [],
+		});
+		expect(faults).toEqual([]);
+	});
+});
+
+/* #4790 pass 2 review, finding 1: scripts/host-root-byte-identity.test.ts
+ * imported host_root inside `python3 -c`, so editing host_root.py left it
+ * cached. */
+describe("an interpreter handed its program inline", () => {
+	const spawns = (code: string) => inlineCodeSpawns("/x/a.test.ts", code);
+
+	it.each([
+		[
+			'spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); from host_root import host_root", LIB]);',
+		],
+		['spawnSync("python3", ["-I", "-c", CODE]);'],
+		[
+			`spawnSync(process.execPath, [\n\t"-e",\n\t\`require(\${JSON.stringify(p)})\`,\n]);`,
+		],
+		['spawnSync("node", ["--eval", "require(process.argv[1])", p]);'],
+		['spawnSync("python3", ["-"], { input: code });'],
+		["execSync(`python3 -c 'import helper'`);"],
+	])("names %s", (code) => {
+		expect(spawns(code)).toHaveLength(1);
+	});
+
+	it.each([
+		['spawnSync("git", ["-c", "user.name=t", "commit"]);'],
+		['spawnSync("grep", ["-e", "x", file]);'],
+		['spawnSync(process.execPath, ["-e", "setInterval(() => {}, 1000)", s]);'],
+		[
+			"spawnSync(process.execPath, [\"-e\", \"require('node:fs').writeFileSync(1, 'x')\"]);",
+		],
+		['spawnSync("python3", ["-c", "import sys; print(sys.argv[1])", x]);'],
+		['spawnSync("python3", [script, "-c", "x"]);'],
+		['// spawnSync("python3", ["-c", "import helper"]);'],
+	])("lets pass %s, which loads no file", (code) => {
+		expect(spawns(code)).toEqual([]);
+	});
+
+	it("reads a Python list's spawn too", () => {
+		expect(
+			inlineCodeSpawns(
+				"/x/t.py",
+				'subprocess.run([sys.executable, "-c", "import helper"])\n',
+			),
+		).toHaveLength(1);
 	});
 });

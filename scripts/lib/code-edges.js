@@ -5,8 +5,8 @@
  * its target (`reachOf`'s shadows, #4814):
  *   JS and TypeScript — a relative `require`/`from`/`import()` specifier,
  *     resolved as node resolves it, or as vitest does an extensionless `.ts`;
- *     and `path.join|resolve(__dirname, "<literal>", …)` naming a .js, .sh or
- *     .py, the spelling of check.js's notify-report.js (#459) and
+ *     and `path.join|resolve(__dirname, "<literal>", …)` naming a code file,
+ *     the spelling of check.js's notify-report.js (#459) and
  *     doc-map-generator.js's session-arbiter.js spawn (#460).
  *   shell — a path spelled from the file's own directory,
  *     `$(dirname "${BASH_SOURCE[0]}")/x` or `${BASH_SOURCE[0]%/*}/x`, whether
@@ -18,25 +18,43 @@
  *     assigned from them; then each dotted part, and each `Z` that is a
  *     submodule, in the package found. Read in lexical order; an indented
  *     sys.path edit may never have run, so a module found on its entry
- *     settles nothing, and an indented import is placed again on the
- *     file's final search path.
- * A path built any other way is unseen.
+ *     settles nothing, and an indented import, or one on a one-line compound
+ *     statement's body, is placed again on the file's final search path.
+ * A path built any other way is unseen. A JSX or TSX file is code the walk
+ * cannot read.
  *
  * FOREIGN: a Python import the walk cannot place — a module neither stdlib
  * (python3's own sys.stdlib_module_names, so 3.10 or later) nor on that
- * search path, a dotted part it cannot find, or any import after a sys.path
- * edit it cannot read — is handed to the caller's `fault`. Residuals: a
- * repo file appearing on the search path under a stdlib module's name is
- * not a shadow; and a module is walked on its own directory and edits, not
- * on the sys.path of the script that imports it.
+ * search path, a dotted part it cannot find, an import whose search meets an
+ * entry the walk cannot read before it is placed (a builtin module never
+ * meets one, and a stdlib one only an entry appended after the stdlib's), an
+ * import statement it cannot parse, or a file ending inside an open bracket —
+ * is handed to the caller's `fault`, as is a JSX or TSX file. Residual: a
+ * module is walked on its own directory and edits, not on the sys.path of
+ * the script that imports it (#4870).
+ *
+ * INLINE CODE: `inlineCodeSpawns` names each spawn of python, node, perl or
+ * ruby handed its program inline (`-c`, `-e`, `-p`, `--eval`, `--print`) or
+ * on stdin (`-`), whose loads no walk here reads, unless the program is one
+ * plain literal that loads only builtin modules. Residual: a shell's `-c`,
+ * through which tests run any command, and an interpreter named by a variable.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { isBuiltin } = require("node:module");
 const { JS_COMMENT_LINE } = require("./qualify-citations.js");
 const { requiredGroup } = require("./regex-group.js");
-const CODE_FILE = /\.(?:[cm]?js|sh|py)$/;
+/* The code files the walk reads, and those it cannot: a JSX or TSX source,
+ * whose loads it never parses. */
+const WALKED_CODE = /\.(?:[cm]?[jt]s|sh|py)$/;
+const UNWALKED_CODE = /\.[cm]?[jt]sx$/;
+/**
+ * Whether `file` is code a script may load or spawn, walked or not.
+ * @param {string} file
+ */
+const isCodeFile = (file) => WALKED_CODE.test(file) || UNWALKED_CODE.test(file);
 /* Every literal module specifier: `require(…)`, `require.resolve(…)`,
  * `from "…"`, `import(…)` and a bare `import "…"`. plugin-tree.js's package
  * scan reads the same. */
@@ -68,9 +86,19 @@ const SH_SIBLING =
 	/(?:\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)|\$\{BASH_SOURCE\[0\]%\/\*\})\/([\w./-]+\.(?:sh|js|py))/g;
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
-const PY_STRING_BLOCK = /("""|''')[\s\S]*?\1/g;
+/* Any statement that may load a module, read with its strings blanked: one
+ * `PY_IMPORT` does not match is an import the walk cannot parse. */
+const PY_LOAD = /\bimport\b|\b__import__\s*\(|\bimport_module\s*\(/;
+/* A triple-quoted block, a one-line string or a comment, whichever starts
+ * first, so a quote inside a comment opens nothing. */
+const PY_LEXEME =
+	/("""|''')[\s\S]*?\1|"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'|#[^\n]*/g;
 const PY_STRING = /"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'/g;
-const PY_STRING_OR_COMMENT = new RegExp(`(${PY_STRING.source})|#.*`, "g");
+/* A compound statement's header with its body on the same line, read with
+ * strings blanked: `try: import x`, `if X: import y`. A colon in the header
+ * itself cuts it early, leaving a body the walk then faults. */
+const PY_COMPOUND =
+	/^\s*(?:(?:try|else|finally)\s*|(?:if|elif|while|for|with|except|def|class|match|case|async\s+(?:def|for|with))\b[^:]*):(?=\s*\S)/;
 /* Any statement that changes sys.path; SYS_PATH_ADD is the shape of one
  * the walk reads, `insert(0, …)` (group 1) or `append(…)` (group 2). */
 const SYS_PATH_EDIT =
@@ -131,23 +159,48 @@ function resolutionOf(abs) {
 	return { target: abs, tried: [] };
 }
 
-/** @type {Set<string> | null} */
-let stdlib = null;
-/** @returns {Set<string>} */
-function readPythonStdlib() {
-	if (stdlib) return stdlib;
+/**
+ * @typedef {{version: string, builtins: Set<string>, stdlib: Set<string>}}
+ *   Python this machine's python3: its version, the modules compiled into it,
+ *   which no sys.path entry can shadow, and its stdlib's module names
+ */
+
+/* readPython's spawn's answer: the version, then two name lists. */
+const PYTHON_ANSWER = /^(\S+)\n(.*)\n(.*)\n$/;
+/** @type {Python | null} */
+let python = null;
+/**
+ * This machine's python3, read once a process.
+ * @returns {Python}
+ */
+function readPython() {
+	if (python) return python;
+	/* Builtin modules only, so the walk's own spawn loads no file. */
 	const r = spawnSync(
 		"python3",
-		["-c", "import sys; print('\\n'.join(sys.stdlib_module_names))"],
+		[
+			"-c",
+			"import sys; print('.'.join(map(str, sys.version_info))); print(' '.join(sys.builtin_module_names)); print(' '.join(sys.stdlib_module_names))",
+		],
 		{ encoding: "utf8" },
 	);
-	if (r.status !== 0)
+	const answer = r.status === 0 ? r.stdout.match(PYTHON_ANSWER) : null;
+	if (!answer)
 		throw new Error(
-			`python3 cannot list its stdlib (${(r.stderr || String(r.error)).trim().split("\n")[0]})`,
+			`python3 cannot list its stdlib (${(r.stderr || String(r.error) || r.stdout).trim().split("\n")[0]})`,
 		);
-	stdlib = new Set(r.stdout.split("\n").filter(Boolean));
-	return stdlib;
+	const names = (/** @type {number} */ g) =>
+		new Set(requiredGroup(answer, g, PYTHON_ANSWER).split(" "));
+	python = {
+		version: requiredGroup(answer, 1, PYTHON_ANSWER),
+		builtins: names(2),
+		stdlib: names(3),
+	};
+	return python;
 }
+
+/** This machine's python3 version, as `major.minor.micro.level.serial`. */
+const pythonVersion = () => readPython().version;
 
 /**
  * @typedef {{edges: string[], shadows: string[]}} Reach absolute: the files
@@ -165,6 +218,8 @@ function reachOf(file, text, fault) {
 	if (/\.[cm]?[jt]s$/.test(file)) return jsReach(dir, text);
 	if (file.endsWith(".sh")) return { edges: shEdges(dir, text), shadows: [] };
 	if (file.endsWith(".py")) return pyReach(file, text, fault);
+	if (UNWALKED_CODE.test(file))
+		fault(`is ${path.extname(file)} code, whose loads the walk cannot read`);
 	return { edges: [], shadows: [] };
 }
 
@@ -212,7 +267,7 @@ function jsReach(dir, text) {
 			(p) => requiredGroup(p, 1, QUOTED),
 		);
 		const target = path.join(dir, ...parts);
-		if (CODE_FILE.test(target)) edges.push(target);
+		if (isCodeFile(target)) edges.push(target);
 	}
 	return { edges, shadows: resolved.flatMap((r) => r.tried) };
 }
@@ -232,13 +287,14 @@ function shEdges(dir, text) {
 }
 
 /**
- * @typedef {{dir: string | null, maybe: boolean}} PyEntry one sys.path
- *   entry: a null `dir` is one the walk cannot read; `maybe` marks one an
- *   indented statement added, which may never have run.
+ * @typedef {{dir: string | null, maybe: boolean, tail: boolean}} PyEntry one
+ *   sys.path entry: a null `dir` is one the walk cannot read; `maybe` marks
+ *   one an indented statement added, which may never have run; `tail` one
+ *   appended, so searched after the stdlib's own entries.
  * @typedef {{search: PyEntry[], names: Map<string, string>}} PyScope
  *   `search` is sys.path as the file has left it, its own directory
  *   included.
- * @typedef {{dir: string, scope: PyScope, reach: Reach,
+ * @typedef {{file: string, dir: string, scope: PyScope, reach: Reach,
  *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
  */
@@ -252,21 +308,25 @@ function shEdges(dir, text) {
 function pyReach(file, text, fault) {
 	const dir = path.dirname(file);
 	/** @type {Set<string>} */
-	const said = new Set();
+	const faulted = new Set();
 	/** @type {PyWalk} */
 	const walk = {
+		file,
 		dir,
-		scope: { search: [{ dir, maybe: false }], names: new Map() },
+		scope: {
+			search: [{ dir, maybe: false, tail: false }],
+			names: new Map(),
+		},
 		reach: { edges: [], shadows: [] },
 		/* An indented import is placed twice, so one fault can come twice. */
 		fault: (msg) => {
-			if (!said.has(msg)) fault(msg);
-			said.add(msg);
+			if (!faulted.has(msg)) fault(msg);
+			faulted.add(msg);
 		},
 	};
 	/** @type {PyImportTarget[]} */
 	const deferred = [];
-	for (const statement of pyStatements(text)) {
+	for (const statement of pyStatements(text, walk.fault)) {
 		const imp = statement.text.match(PY_IMPORT);
 		if (imp) {
 			const targets = pyImportTargets(imp);
@@ -274,50 +334,74 @@ function pyReach(file, text, fault) {
 			/* A function's import runs when it is called, perhaps after a
 			 * later sys.path edit: place it on the final search path too. */
 			if (statement.indented) deferred.push(...targets);
-		} else if (SYS_PATH_EDIT.test(statement.text))
-			editSysPath(file, walk.scope, statement);
-		else bindPyName(file, walk.scope, statement.text);
+		} else if (PY_LOAD.test(blankPyStrings(statement.text)))
+			walk.fault(
+				`imports through ${statement.text.trim()}, which the walk cannot parse`,
+			);
+		else if (SYS_PATH_EDIT.test(statement.text)) editSysPath(walk, statement);
+		else bindPyName(walk, statement.text);
 	}
 	for (const target of deferred) placePyImport(walk, target);
 	return walk.reach;
 }
 
 /**
- * Records `NAME = <path expression>` in the scope, or forgets NAME where the
- * value is no path the walk reads.
- * @param {string} file
- * @param {PyScope} scope accumulator: `names` gains or loses the name
+ * `text` with each one-line string's body blanked to spaces, quotes and
+ * length kept, so an index into it is one into `text`.
  * @param {string} text
  */
-function bindPyName(file, scope, text) {
+const blankPyStrings = (text) =>
+	text.replace(
+		PY_STRING,
+		(s) => `${s.charAt(0)}${" ".repeat(s.length - 2)}${s.charAt(0)}`,
+	);
+
+/**
+ * Records `NAME = <path expression>` in the scope, or forgets NAME where the
+ * value is no path the walk reads.
+ * @param {PyWalk} walk accumulator: its scope's `names` gains or loses the
+ *   name
+ * @param {string} text
+ */
+function bindPyName(walk, text) {
 	const assign = text.match(PY_ASSIGN);
 	if (!assign) return;
 	const name = requiredGroup(assign, 1, PY_ASSIGN);
-	const value = evalPyPath(requiredGroup(assign, 2, PY_ASSIGN), file, scope);
-	if (value === null) scope.names.delete(name);
-	else scope.names.set(name, value);
+	const value = evalPyPath(requiredGroup(assign, 2, PY_ASSIGN), walk);
+	if (value === null) walk.scope.names.delete(name);
+	else walk.scope.names.set(name, value);
 }
 
 /**
- * The file's logical statements in order: triple-quoted blocks and comments
- * cut, bracketed and backslash continuations joined, `;` split, each marked
- * where its first line is indented.
+ * The file's logical statements in order: strings' triple-quoted blocks and
+ * comments cut, bracketed and backslash continuations joined, `;` split, a
+ * one-line compound statement's body split from its header, each marked
+ * where it is indented or such a body. A file ending inside an open bracket
+ * faults: its last statement is not read whole.
  * @param {string} text
+ * @param {(msg: string) => void} fault
  * @returns {PyStatement[]}
  */
-function pyStatements(text) {
+function pyStatements(text, fault) {
 	/** @type {PyStatement[]} */
 	const statements = [];
 	let pending = "";
 	let indented = false;
 	let depth = 0;
 	const flush = () => {
-		for (const part of pending.split(";"))
-			statements.push({ text: part, indented });
+		let inBody = indented;
+		for (const part of pending.split(";")) {
+			const header = blankPyStrings(part).match(PY_COMPOUND);
+			if (header) inBody = true;
+			statements.push({
+				text: header ? part.slice(header[0].length) : part,
+				indented: inBody,
+			});
+		}
 		pending = "";
 	};
-	for (const raw of text.replace(PY_STRING_BLOCK, "").split("\n")) {
-		const line = raw.replace(PY_STRING_OR_COMMENT, (_m, s) => s ?? "");
+	const code = text.replace(PY_LEXEME, cutPyLexeme);
+	for (const line of code.split("\n")) {
 		if (pending === "") indented = /^\s/.test(line);
 		const blank = line.replace(PY_STRING, '""');
 		depth +=
@@ -329,26 +413,38 @@ function pyStatements(text) {
 		flush();
 		depth = 0;
 	}
+	if (depth > 0)
+		fault("ends inside an open bracket, so its last statement goes unread");
 	if (pending) flush();
 	return statements;
+}
+
+/**
+ * A `PY_LEXEME` as `pyStatements` reads it: a comment goes, a triple-quoted
+ * block stands as an empty string, and a one-line string stays.
+ * @param {string} m
+ */
+function cutPyLexeme(m) {
+	if (m.startsWith("#")) return "";
+	return /^("""|''')/.test(m) ? '""' : m;
 }
 
 /**
  * Applies one sys.path edit to the scope: a literal `insert(0, …)` or
  * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
  * cannot read at the front.
- * @param {string} file
- * @param {PyScope} scope accumulator: `search` gains the entry
+ * @param {PyWalk} walk accumulator: its scope's `search` gains the entry
  * @param {PyStatement} statement
  */
-function editSysPath(file, scope, statement) {
+function editSysPath(walk, statement) {
 	const m = statement.text.match(SYS_PATH_ADD);
 	const dir = m
-		? evalPyPath(m[1] ?? requiredGroup(m, 2, SYS_PATH_ADD), file, scope)
+		? evalPyPath(m[1] ?? requiredGroup(m, 2, SYS_PATH_ADD), walk)
 		: null;
-	const entry = { dir, maybe: statement.indented };
-	if (m?.[2] === undefined) scope.search.unshift(entry);
-	else scope.search.push(entry);
+	const tail = m?.[2] !== undefined;
+	const entry = { dir, maybe: statement.indented, tail };
+	if (tail) walk.scope.search.push(entry);
+	else walk.scope.search.unshift(entry);
 }
 
 /**
@@ -356,11 +452,10 @@ function editSysPath(file, scope, statement) {
  * built from anything but `__file__`, string literals, the names this file
  * assigned from them, and `Path`, `os.path` and `str` over those.
  * @param {string} expr
- * @param {string} file
- * @param {PyScope} scope
+ * @param {PyWalk} walk
  * @returns {string | null}
  */
-function evalPyPath(expr, file, scope) {
+function evalPyPath(expr, walk) {
 	/** @type {string[]} */
 	const tokens = [];
 	const tokenRe = new RegExp(PY_PATH_TOKEN.source, "g");
@@ -368,7 +463,7 @@ function evalPyPath(expr, file, scope) {
 	for (const m of expr.matchAll(tokenRe))
 		tokens.push(m[1] ?? m[2] ?? requiredGroup(m, 3, PY_PATH_TOKEN));
 	try {
-		const parser = new PyPathParser(tokens, file, scope);
+		const parser = new PyPathParser(tokens, walk);
 		const v = parser.pathExpr();
 		return parser.done() && path.isAbsolute(v) ? path.normalize(v) : null;
 	} catch {
@@ -384,14 +479,12 @@ const pyJoin = (/** @type {string[]} */ parts) =>
 class PyPathParser {
 	/**
 	 * @param {string[]} tokens
-	 * @param {string} file
-	 * @param {PyScope} scope
+	 * @param {PyWalk} walk its file and the names it assigned
 	 */
-	constructor(tokens, file, scope) {
+	constructor(tokens, walk) {
 		this.tokens = tokens;
 		this.i = 0;
-		this.file = file;
-		this.scope = scope;
+		this.walk = walk;
 	}
 
 	done() {
@@ -441,11 +534,12 @@ class PyPathParser {
 			return v;
 		}
 		if (this.peek() === "(" && PY_PATH_CALLS.has(t)) return this.call(t);
-		const [base, ...rest] = t.split(".");
+		const dot = t.indexOf(".");
+		const base = dot === -1 ? t : t.slice(0, dot);
 		const v =
-			base === "__file__" ? this.file : this.scope.names.get(base ?? "");
+			base === "__file__" ? this.walk.file : this.walk.scope.names.get(base);
 		if (v === undefined) throw new Error(`unknown ${base}`);
-		return rest.length > 0 ? this.attrs(v, rest.join(".")) : v;
+		return dot === -1 ? v : this.attrs(v, t.slice(dot + 1));
 	}
 
 	/** @param {string} name one of `PY_PATH_CALLS` */
@@ -582,7 +676,13 @@ const isDir = (c) =>
  *   import's next part is looked for: a package directory, null below a
  *   plain module; `namespace` where that directory has no __init__.py
  * @typedef {{kind: "placed", places: PyPlace[]} | {kind: "absent"}
- *   | {kind: "opaque"}} PyTop
+ *   | {kind: "opaque", tail: boolean}} PyTopPlacement where the search for a
+ *   top-level module ended: found, on no entry, or at an entry the walk
+ *   cannot read, `tail` where that entry was appended
+ * @typedef {{name: string, isPart: boolean, at: PyPlace,
+ *   namespace: string | null}} PyMiss a dotted part, or a from-imported
+ *   name, `descend` found no file for, the place it looked in, and the
+ *   namespace directory standing there, if any
  */
 
 /** @param {string} found */
@@ -599,100 +699,97 @@ const placeOf = (found) =>
  */
 function placePyImport(walk, target) {
 	if (target.dots > 0) {
-		placeRelativePyImport(walk.dir, target, walk.reach);
+		placeRelativePyImport(walk, target);
 		return;
 	}
-	const [top] = target.parts;
+	const [top, ...below] = target.parts;
 	if (top === undefined) throw new Error("an absolute import names no module");
 	const placed = placePyTop(walk.scope, top, walk.reach);
-	if (placed.kind !== "placed") {
-		if (!readPythonStdlib().has(top))
+	if (placed.kind === "absent") {
+		if (!readPython().stdlib.has(top))
 			walk.fault(
-				placed.kind === "absent"
-					? `imports ${top}, which is neither stdlib nor found beside it or on a sys.path entry it adds`
-					: `imports ${top} after a sys.path edit the walk cannot read`,
+				`imports ${top}, which is neither stdlib nor found beside it or on a sys.path entry it adds`,
 			);
 		return;
 	}
-	for (const place of placed.places) {
-		const last = placeBelow(walk, place, target.parts);
-		if (last) placeNames(walk, last, target);
+	if (placed.kind === "opaque") {
+		/* A builtin module is found before sys.path is searched, and a stdlib
+		 * one before an entry appended after the stdlib's. */
+		const { builtins, stdlib } = readPython();
+		if (!builtins.has(top) && !(placed.tail && stdlib.has(top)))
+			walk.fault(`imports ${top} after a sys.path edit the walk cannot read`);
+		return;
 	}
+	const dotted = target.parts.join(".");
+	for (const place of placed.places)
+		descend(walk, place, { parts: below, names: target.names }, (miss) => {
+			/* A name a regular package lacks may be an attribute its
+			 * __init__.py defines; a namespace package defines none. */
+			if (miss.isPart)
+				walk.fault(
+					`imports ${dotted}, whose ${miss.name} the walk cannot place`,
+				);
+			else if (miss.at.namespace && !miss.namespace)
+				walk.fault(
+					`imports ${miss.name} from ${dotted}, a namespace package that holds no ${miss.name}`,
+				);
+		});
 }
 
 /**
- * Walks a dotted import's parts below its top-level one, pushing each file
- * and what it tried first; returns where the last part leaves the import,
- * or null where the walk faulted.
+ * Walks an import's parts down from `at`, then its from-imported names in
+ * the package the parts leave it in, pushing each file found and the paths
+ * tried before it. A part or name with no file goes to `miss`; a part ends
+ * the descent there, as does one below a plain module, whose names are no
+ * submodules.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
- * @param {PyPlace} place the top-level module's
- * @param {string[]} parts
- * @returns {PyPlace | null}
+ * @param {PyPlace} at
+ * @param {{parts: string[], names: string[]}} below the parts under `at`
+ *   and the names from-imported at the last
+ * @param {(miss: PyMiss) => void} miss
  */
-function placeBelow(walk, place, parts) {
-	let at = place;
-	for (const part of parts.slice(1)) {
-		const here = at.pkg === null ? null : pyModuleIn(at.pkg, part);
-		if (here) walk.reach.shadows.push(...here.tried);
-		if (here?.found) {
-			walk.reach.edges.push(here.found);
-			at = placeOf(here.found);
-		} else if (here?.namespace) at = { pkg: here.namespace, namespace: true };
+function descend(walk, at, { parts, names }, miss) {
+	let here = at;
+	for (const part of parts) {
+		if (here.pkg === null) {
+			miss({ name: part, isPart: true, at: here, namespace: null });
+			return;
+		}
+		const found = pyModuleIn(here.pkg, part);
+		walk.reach.shadows.push(...found.tried);
+		if (found.found) {
+			walk.reach.edges.push(found.found);
+			here = placeOf(found.found);
+		} else if (found.namespace)
+			here = { pkg: found.namespace, namespace: true };
 		else {
-			walk.fault(
-				`imports ${parts.join(".")}, whose ${part} the walk cannot place`,
-			);
-			return null;
+			miss({ name: part, isPart: true, at: here, namespace: null });
+			return;
 		}
 	}
-	return at;
-}
-
-/**
- * Pushes each from-imported name that is a submodule of the package; faults
- * one a namespace package does not hold, since no __init__.py can define it.
- * @param {PyWalk} walk accumulator: `reach` gains the files
- * @param {PyPlace} place
- * @param {PyImportTarget} target
- */
-function placeNames(walk, place, { parts, names }) {
-	if (place.pkg === null) return;
+	if (here.pkg === null) return;
 	for (const name of names) {
-		const { found, namespace } = pyModuleIn(place.pkg, name);
-		if (found) walk.reach.edges.push(found);
-		else if (place.namespace && !namespace)
-			walk.fault(
-				`imports ${name} from ${parts.join(".")}, a namespace package that holds no ${name}`,
-			);
+		const found = pyModuleIn(here.pkg, name);
+		walk.reach.shadows.push(...found.tried);
+		if (found.found) walk.reach.edges.push(found.found);
+		else miss({ name, isPart: false, at: here, namespace: found.namespace });
 	}
 }
 
 /**
  * A relative import never faults: a target missing from the tree stays an
  * edge, so surface-closure.js reports it unshipped.
- * @param {string} dir the importer's directory
+ * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
- * @param {Reach} reach accumulator: gains the files and shadows
  */
-function placeRelativePyImport(dir, { dots, parts, names }, reach) {
-	let pkg = path.resolve(dir, "../".repeat(dots - 1));
+function placeRelativePyImport(walk, { dots, parts, names }) {
+	const pkg = path.resolve(walk.dir, "../".repeat(dots - 1));
 	const init = path.join(pkg, "__init__.py");
-	if (parts.length === 0 && isFile(init)) reach.edges.push(init);
-	for (const part of parts) {
-		const { found, tried, namespace } = pyModuleIn(pkg, part);
-		reach.shadows.push(...tried);
-		if (!found && namespace) {
-			pkg = namespace;
-			continue;
-		}
-		reach.edges.push(found ?? path.join(pkg, `${part}.py`));
-		if (!found?.endsWith("__init__.py")) return;
-		pkg = path.dirname(found);
-	}
-	for (const name of names)
-		reach.edges.push(
-			pyModuleIn(pkg, name).found ?? path.join(pkg, `${name}.py`),
-		);
+	if (parts.length === 0 && isFile(init)) walk.reach.edges.push(init);
+	descend(walk, { pkg, namespace: false }, { parts, names }, (miss) => {
+		if (miss.at.pkg !== null)
+			walk.reach.edges.push(path.join(miss.at.pkg, `${miss.name}.py`));
+	});
 }
 
 /**
@@ -703,7 +800,7 @@ function placeRelativePyImport(dir, { dots, parts, names }, reach) {
  * @param {PyScope} scope
  * @param {string} top
  * @param {Reach} reach accumulator: gains the files and shadows
- * @returns {PyTop}
+ * @returns {PyTopPlacement}
  */
 function placePyTop(scope, top, reach) {
 	/** @type {PyPlace[]} */
@@ -711,7 +808,7 @@ function placePyTop(scope, top, reach) {
 	/** @type {string | null} */
 	let namespace = null;
 	for (const entry of scope.search) {
-		if (entry.dir === null) return { kind: "opaque" };
+		if (entry.dir === null) return { kind: "opaque", tail: entry.tail };
 		const here = pyModuleIn(entry.dir, top);
 		reach.shadows.push(...here.tried);
 		namespace ??= here.namespace;
@@ -726,4 +823,104 @@ function placePyTop(scope, top, reach) {
 	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 
-module.exports = { edgesOf, isFile, reachOf, JS_SPEC, jsSpecifier };
+/* A literal an argument list may hold, and one read whole as a program: no
+ * interpolation, no escape it would have to undo. */
+const ARG_LITERAL =
+	String.raw`(?:"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'|` +
+	"`[^`]*`)";
+const PLAIN_LITERAL =
+	String.raw`"[^"\\\n]*(?:\\.[^"\\\n]*)*"|'[^'\\\n]*(?:\\.[^'\\\n]*)*'|` +
+	"`[^`$\\\\]*`";
+/* An interpreter handed its program inline in an argument list:
+ * `"python3", ["-c", code]`, `process.execPath, ["-e", code]`,
+ * `[sys.executable, "-c", code]`, or `"-"` for a program on stdin. Group 1
+ * names the interpreter; group 2 is the program, where one plain literal is
+ * the whole argument. */
+const INLINE_ARGV = new RegExp(
+	String.raw`(["'\x60](?:python(?:3(?:\.\d+)?)?|node|perl|ruby)["'\x60]|process\.execPath|sys\.executable)\s*,\s*(?:\[\s*)?(?:${ARG_LITERAL}\s*,\s*)*?["'\x60](?:-[A-Za-z]{0,2}[cep]|--eval|--print|-)["'\x60]\s*(?:,\s*(${PLAIN_LITERAL})\s*(?=[,\])]))?`,
+	"g",
+);
+/* The same handed to a shell as one command string: `execSync("python3 -c …")`. */
+const INLINE_COMMAND =
+	/\bexec(?:Sync)?\(\s*["'`][^"'`]*?\b(?:python(?:3(?:\.\d+)?)?|node|perl|ruby)\s+(?:-\S+\s+)*?(?:-[A-Za-z]{0,2}[cep]|--eval|--print|-)(?=[\s"'`])/g;
+
+/**
+ * Whether an inline `program` for `interpreter` may load a file: any program
+ * not one plain literal, and one that loads a module other than a builtin.
+ * @param {"python"|"node"|"other"} interpreter
+ * @param {string | undefined} program the literal, quotes included
+ */
+function loadsUnseen(interpreter, program) {
+	if (program === undefined) return true;
+	const body = program.slice(1, -1);
+	if (interpreter === "python") {
+		const { builtins } = readPython();
+		return pyStatements(body, () => undefined).some((s) => {
+			const imp = s.text.match(PY_IMPORT);
+			if (!imp) return PY_LOAD.test(blankPyStrings(s.text));
+			return pyImportTargets(imp).some(
+				(t) => t.dots > 0 || !builtins.has(t.parts[0] ?? ""),
+			);
+		});
+	}
+	if (interpreter === "node") {
+		const specs = [...body.matchAll(JS_SPEC)].map(jsSpecifier);
+		const loads = body.match(/\brequire\b|\bimport\b/g)?.length ?? 0;
+		return loads !== specs.length || !specs.every((s) => isBuiltin(s));
+	}
+	return /\b(?:require|use|do|load|eval)\b/.test(body);
+}
+
+/**
+ * Each spawn in `file` of an interpreter handed its program inline, whose
+ * loads no walk here reads: the pass store's reach cannot know them.
+ * @param {string} file
+ * @param {string} text
+ * @returns {string[]} each such spawn as written, whitespace folded
+ */
+function inlineCodeSpawns(file, text) {
+	const comment = commentLineOf(file);
+	if (comment === null) return [];
+	const code = parseCodeLines(text, comment).join("\n");
+	/** @type {string[]} */
+	const found = [];
+	for (const m of code.matchAll(INLINE_ARGV))
+		if (loadsUnseen(interpreterOf(requiredGroup(m, 1, INLINE_ARGV)), m[2]))
+			found.push(m[0].replace(/\s+/g, " "));
+	for (const m of code.matchAll(INLINE_COMMAND))
+		found.push(m[0].replace(/\s+/g, " "));
+	return found;
+}
+
+/**
+ * A comment line in `file`'s language, or null where `inlineCodeSpawns`
+ * reads no spawns in it.
+ * @param {string} file
+ * @returns {RegExp | null}
+ */
+function commentLineOf(file) {
+	if (file.endsWith(".py")) return /^\s*#/;
+	if (/\.[cm]?[jt]sx?$/.test(file)) return JS_COMMENT_LINE;
+	return null;
+}
+
+/**
+ * @param {string} head an `INLINE_ARGV` interpreter as written
+ * @returns {"python"|"node"|"other"}
+ */
+function interpreterOf(head) {
+	if (/python|executable/.test(head)) return "python";
+	if (/node|execPath/.test(head)) return "node";
+	return "other";
+}
+
+module.exports = {
+	edgesOf,
+	inlineCodeSpawns,
+	isCodeFile,
+	isFile,
+	pythonVersion,
+	reachOf,
+	JS_SPEC,
+	jsSpecifier,
+};
