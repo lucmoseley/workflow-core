@@ -2,8 +2,7 @@
 
 The runner is driven by an injected clock, sleep, reading and holder against
 a temp home holding the schedule and events, so a week's walk runs in
-milliseconds. The holder cases run the real child for a few MB, and `draw`
-runs as a program against a temp home. Loosen a case and the trial holds
+milliseconds. Loosen a case and the trial holds
 memory with no add-back, runs past a stop rule, resumes a trial a stop rule
 ended, or reads a verdict the data does not support.
 """
@@ -330,9 +329,7 @@ def test_blocks_read_marks_usability_and_reads_the_last_ten_minutes():
 
 
 def test_the_real_holder_declares_itself_and_dies_on_stop(tmp_path):
-    # Crosses the real child process and /proc: a holder that never reports
-    # ready, declares a wrong start token, or outlives its stop would leave
-    # memory held with no add-back, or an add-back with no memory.
+    # Crosses the real child process and /proc.
     p = ms.paths(str(tmp_path))
     Path(p["hold"]).parent.mkdir()
     h = ms.Holder(p)
