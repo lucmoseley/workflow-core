@@ -19,7 +19,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+	MatcherError,
 	SELF_PLUGIN_HOOKS,
+	isToolCovered,
 	readRunningHooks,
 	flattenHooks,
 	readHostHookSources,
@@ -441,6 +443,38 @@ describe("selfPluginSetup (#2461)", () => {
 		});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`\n! ${selfPluginSetup(root)}\n`);
+	});
+});
+
+describe("isToolCovered, the one reading of a hook matcher (#4914)", () => {
+	it.each([
+		["absent", undefined],
+		["empty", ""],
+		["a star", "*"],
+	])(
+		"covers every tool where the matcher is %s, as Claude Code reads it",
+		(_, matcher) => {
+			expect(isToolCovered(matcher, "Read")).toBe(true);
+			expect(isToolCovered(matcher, "mcp__x__y")).toBe(true);
+		},
+	);
+
+	it("anchors a tool name whole, so Write does not answer for WriteFile", () => {
+		expect(isToolCovered("Write", "Write")).toBe(true);
+		expect(isToolCovered("Write", "WriteFile")).toBe(false);
+	});
+
+	it("covers each tool of an alternation and none beside them", () => {
+		expect(isToolCovered("Bash|Read", "Read")).toBe(true);
+		expect(isToolCovered("Bash|Read", "Bash")).toBe(true);
+		expect(isToolCovered("Bash|Read", "BashOutput")).toBe(false);
+	});
+
+	it("throws a MatcherError naming a matcher that is not a valid regex", () => {
+		expect(() => isToolCovered("Bash|(", "Bash")).toThrow(MatcherError);
+		expect(() => isToolCovered("Bash|(", "Bash")).toThrow(
+			/^the matcher "Bash\|\(" is not a valid regular expression/,
+		);
 	});
 });
 
