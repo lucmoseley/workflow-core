@@ -78,7 +78,7 @@
 	"scripts/reconcile-plugin.js": "f0edaf03492243c2",
 	"scripts/record-acts.js": "ef2cbc741ea7b17c",
 	"scripts/record-delegated-decision.js": "d63b07cf8f496f18",
-	"scripts/record-divergence.js": "d6b052d20391cc2f",
+	"scripts/record-divergence.js": "5648f3dd618e8d67",
 	"scripts/record-issue-claim.js": "e5407b0fd98681b9",
 	"scripts/refill-wake.sh": "34cdae6c697efdc5",
 	"scripts/register-doc.js": "08069f1091cc1409",
