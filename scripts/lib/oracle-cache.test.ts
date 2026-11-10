@@ -213,7 +213,7 @@ describe("the shared reading wait polls (#3561)", () => {
 });
 
 describe("the shown reading the refill panel polls (#4169)", () => {
-	/* Ages either side of agent-liveness.js's DISPLAY_MAX_AGE_MS, 120 s. */
+	/* Ages either side of agent-liveness.js's DISPLAY_MAX_AGE_MS. */
 	const aged = (bin: string, ageMs: number) => {
 		const at = Date.now() - ageMs;
 		fs.writeFileSync(
@@ -240,7 +240,7 @@ describe("the shown reading the refill panel polls (#4169)", () => {
 
 	it("spawns past its own age", () => {
 		const fake = countingClaude(listing("a", "b"));
-		aged(fake.bin, 121_000);
+		aged(fake.bin, liveness.DISPLAY_MAX_AGE_MS + 1000);
 		const r = liveness.readAgentsForDisplay();
 		expect(r.agents.map((a: Rec) => a.sessionId)).toEqual(["a", "b"]);
 		expect(fake.spawns()).toBe(1);

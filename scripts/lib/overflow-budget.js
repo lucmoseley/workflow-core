@@ -38,7 +38,6 @@ const { readJsonl } = require("./jsonl.js");
 const { readJsonOutcome } = require("./refill-json.js");
 const { localDate } = require("./local-date.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
-const { readSeatTranscripts } = require("./project-dirs.js");
 const { refillPath } = require("./refill-dir.js");
 const {
 	buildSeatLabel,
@@ -116,6 +115,10 @@ function readLedger(seat) {
  * @throws where a project dir will not read: its sessions must not read as free
  */
 function readTranscripts(dir) {
+	/* Loaded here, by a pricing: a reader shown the kept budget, the panel's
+	 * poll among them, lists no transcript and so loads none of the session
+	 * store behind it (#4821). */
+	const { readSeatTranscripts } = require("./project-dirs.js");
 	const { files, unreadable } = readSeatTranscripts([dir]);
 	if (unreadable.length > 0)
 		throw new Error(`cannot list ${unreadable.join(", ")}`);

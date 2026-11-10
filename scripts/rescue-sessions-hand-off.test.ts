@@ -24,7 +24,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { doneShas, handOffFaults, parseHandOff } from "./lib/hand-off.js";
-import { BOOT_PROMPT } from "./lib/loop-prompts.js";
+import { BOOT_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import {
 	rescueKit,
 	SCRIPT,
@@ -129,6 +129,10 @@ describe("hand-off (#2659)", () => {
 		writeTranscript([
 			said("Shall we ship it?"),
 			JSON.stringify({ type: "user", message: { content: BOOT_PROMPT } }),
+			JSON.stringify({
+				type: "user",
+				message: { content: scriptPrompt("carry on") },
+			}),
 		]);
 		handOff();
 		const body = fs.readFileSync(commentFile(), "utf8");
@@ -137,6 +141,7 @@ describe("hand-off (#2659)", () => {
 		);
 		expect(body).toContain("A: Shall we ship it?");
 		expect(body).not.toContain("USER: [refill loop]");
+		expect(body).not.toContain(scriptPrompt("carry on"));
 	});
 
 	it("tells it to ask first where no narration was read (#3980)", () => {

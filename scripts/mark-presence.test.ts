@@ -6,14 +6,18 @@
  *
  * WHAT BREAKING IT COSTS: a dispatched launch counted as his typing keeps a
  * slot idle for 30 minutes after every launch; a typed prompt missed lets the
- * loop take the slot he would have used.
+ * loop take the slot he would have used; a script's typed line counted as his
+ * spends the away reminder where he never sees it (#4844); a reminder missed
+ * leaves away mode on for hours after he is back, his questions going to
+ * issues (#4846).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
+import { ASK, SCRIPTED_PROMPT } from "./lib/recorder-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "mark-presence.js");
@@ -57,7 +61,7 @@ function buildJob(intent: string, template: string | null = "bg") {
 	return jobDir;
 }
 
-function run(
+function runHook(
 	prompt: string,
 	opts: {
 		jobDir?: string;
@@ -79,13 +83,19 @@ function run(
 			CLAUDE_PROJECT_DIR: dir,
 			WFC_REPO_ROOT: dir,
 			WFC_PRESENCE_MARKER: marker,
+			WFC_REFILL_DIR: dir,
 			CLAUDE_JOB_DIR: opts.jobDir,
 			CLAUDE_CODE_ENTRYPOINT: opts.entrypoint ?? "cli",
 			CLAUDE_CONFIG_DIR: opts.configDir ?? path.join(dir, "seat"),
 		},
 	});
 	expect(r.status).toBe(0);
-	expect(r.stdout).toBe("");
+	return r.stdout;
+}
+
+/** A prompt the hook must answer in silence. */
+function run(...args: Parameters<typeof runHook>) {
+	expect(runHook(...args)).toBe("");
 }
 
 const isMarked = () => fs.existsSync(marker);
@@ -155,6 +165,18 @@ describe("a prompt nobody typed", () => {
 		expect(isMarked()).toBe(false);
 	});
 
+	/* record-claude-responses.js's attach step: its question job, typed into
+	 * through `claude attach` and pty_type.py. */
+	it("writes nothing for the line record-claude-responses.js types into its question job (#4844)", () => {
+		run(SCRIPTED_PROMPT, { jobDir: buildJob(ASK) });
+		expect(isMarked()).toBe(false);
+	});
+
+	it("writes nothing for a script's prompt outside a job", () => {
+		run(scriptPrompt("carry on"));
+		expect(isMarked()).toBe(false);
+	});
+
 	it("writes nothing for a subagent's payload", () => {
 		run("Search the tracker", { agentId: "a1" });
 		expect(isMarked()).toBe(false);
@@ -164,6 +186,76 @@ describe("a prompt nobody typed", () => {
 		fs.writeFileSync(marker, "2026-10-18T08:00:00.000Z\n");
 		run("/implement 2004", { jobDir: buildJob("/implement 2004") });
 		expect(fs.readFileSync(marker, "utf8")).toBe("2026-10-18T08:00:00.000Z\n");
+	});
+});
+
+describe("the away reminder (#4846)", () => {
+	const Reminder = JSON.stringify({
+		systemMessage:
+			"away mode is on — run `node scripts/refill-loop.js set --normal`",
+	});
+	const Hour = 60 * 60 * 1000;
+	const control = (mode: string, away?: object) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({
+				noProgressFrom: 0,
+				seats: [],
+				scope: { mode, repos: [], goal: null },
+				...(away ? { away } : {}),
+			}),
+		);
+	const typedAgo = (ms: number) =>
+		fs.writeFileSync(marker, `${new Date(Date.now() - ms).toISOString()}\n`);
+	const absentSeen = { since: 7, absentSeen: true };
+
+	it("shows at his first prompt after an absent read, and not at the next", () => {
+		control("away", absentSeen);
+		typedAgo(8 * Hour);
+		expect(runHook("morning")).toBe(Reminder);
+		expect(runHook("what parked overnight?")).toBe("");
+		expect(isMarked()).toBe(true);
+	});
+
+	it("shows again at the first prompt of a later absence", () => {
+		control("away", absentSeen);
+		typedAgo(8 * Hour);
+		expect(runHook("morning")).toBe(Reminder);
+		typedAgo(2 * Hour);
+		expect(runHook("back from lunch")).toBe(Reminder);
+	});
+
+	it("shows where no prompt was ever recorded", () => {
+		control("away", absentSeen);
+		expect(runHook("morning")).toBe(Reminder);
+	});
+
+	it("stays silent in away mode before any tick read him absent", () => {
+		control("away", { since: 7, absentSeen: false });
+		typedAgo(8 * Hour);
+		expect(runHook("one more thing")).toBe("");
+	});
+
+	it("stays silent in normal mode, and where no loop was ever started", () => {
+		typedAgo(8 * Hour);
+		expect(runHook("morning")).toBe("");
+		control("normal");
+		typedAgo(8 * Hour);
+		expect(runHook("morning")).toBe("");
+	});
+
+	it("stays silent, and marks nothing, for a prompt nobody typed", () => {
+		control("away", absentSeen);
+		expect(
+			runHook("/implement 2004", { jobDir: buildJob("/implement 2004") }),
+		).toBe("");
+		expect(isMarked()).toBe(false);
+	});
+
+	it("records the prompt and stays silent where the control is damaged", () => {
+		fs.writeFileSync(path.join(dir, ".refill-loop-control.json"), "{");
+		expect(runHook("morning")).toBe("");
+		expect(isMarked()).toBe(true);
 	});
 });
 
