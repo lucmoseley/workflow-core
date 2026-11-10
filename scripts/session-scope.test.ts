@@ -132,9 +132,11 @@ describe("session-scope.js", () => {
 		);
 		const watch = rest.at(-1);
 		expect(watch).toMatch(
-			/^systemd-run --user .*--expand-environment=no --unit=wfc-session-500-\d+-watch\.service/,
+			/^systemd-run --user .*--expand-environment=no .*--unit=wfc-session-500-\d+-watch\.service/,
 		);
 		expect(watch).toMatch(/ sh 500 \d+ wfc-session-500-\d+\.scope ?$/);
+		/* #4848: at the manager's default of 200, earlyoom killed watchers first. */
+		expect(watch).toContain(" --property=OOMScoreAdjust=0 ");
 	});
 
 	/* #4590: under the manager's default OOMPolicy `stop`, the bound's first

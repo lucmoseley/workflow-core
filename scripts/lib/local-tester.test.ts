@@ -84,8 +84,8 @@ const recordingExec = () => {
 	return {
 		npm,
 		exec: (bin: string, args: string[], cwd: string) => {
-			if (bin === "npm") {
-				npm.push(cwd);
+			if (args[0] === "ci") {
+				npm.push(bin);
 				fs.mkdirSync(path.join(cwd, "node_modules"), { recursive: true });
 				return;
 			}
@@ -241,7 +241,7 @@ it("returns unknown, never green, where it cannot check out, install or start", 
 		root: work,
 		admit,
 		exec: (bin, args, cwd) => {
-			if (bin === "npm") throw new Error("npm ci exploded");
+			if (args[0] === "ci") throw new Error("npm ci exploded");
 			execFileSync(bin, args, { cwd, stdio: "ignore" });
 		},
 	});
@@ -295,7 +295,9 @@ it("runs the Python suite alone where it is routed and no test command is declar
 	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
 });
 
-it("installs once per lockfile, again only when it changes", async () => {
+it("installs once per lockfile through WFC_NPM, again only when it changes", async () => {
+	const stub = path.join(tmp, "stub-npm");
+	vi.stubEnv("WFC_NPM", stub);
 	write("package-lock.json", '{"v":1}');
 	const first = commit("lock v1");
 	write("c.check.js", "");
@@ -306,11 +308,11 @@ it("installs once per lockfile, again only when it changes", async () => {
 	const tester = localTester({ root: work, admit: admitted().admit, exec });
 
 	await tester.verdict(first);
-	expect(npm).toHaveLength(1);
+	expect(npm).toEqual([stub]);
 	await tester.verdict(sameLock);
-	expect(npm).toHaveLength(1);
+	expect(npm).toEqual([stub]);
 	await tester.verdict(changed);
-	expect(npm).toHaveLength(2);
+	expect(npm).toEqual([stub, stub]);
 });
 
 it("runs the declared full_test over test, and the Python suite only where the config routes Python tests", async () => {

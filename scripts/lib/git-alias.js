@@ -16,7 +16,7 @@
  *
  * LIMITS: an alias written to a config file some other way earlier in the same
  * command is read as absent, and a tree that will not resolve has its repo's
- * aliases unread: the hook's own directory's are read in its place.
+ * aliases unread: the session's directory's are read in its place.
  */
 
 const { literal } = require("./shell-words.js");
