@@ -15,7 +15,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListedSessions } from "./agent-liveness.js";
 import { readOwner } from "./queue-owner.js";
-import { worktreeOwners } from "./session-worktrees.js";
 
 let tmp: string;
 let root: string;
@@ -70,7 +69,6 @@ const read = (
 	readOwner(root, "wt-1", {
 		worktrees,
 		listed,
-		owners: worktreeOwners,
 		say: (line) => said.push(line),
 	});
 
