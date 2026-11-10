@@ -1044,7 +1044,7 @@ async function readLinkedDirt(root, { hours, now }) {
 	return { linked, sorted, total, unread, youngIn };
 }
 
-/** @param {import("./lib/check").CheckContext} ctx */
+/** @param {import("./lib/check").Ctx} ctx */
 async function run(ctx) {
 	const hours = ctx.numberValue("--hours", ORPHAN_AFTER_HOURS, "non-negative");
 

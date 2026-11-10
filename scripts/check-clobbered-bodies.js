@@ -109,7 +109,7 @@ const { scriptPath } = require("./lib/script-path.js");
  * One body as some revision left it, the two derivations of the live body a
  * restoration test needs, and one finding.
  *
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  * @typedef {{at: string|null, body: string|null, live?: boolean}} BodyState
  * @typedef {{editedAt?: string|null, diff?: string|null}} Revision
  * @typedef {{keys: Set<string>, lines: string[]}} LiveIndex
@@ -905,7 +905,7 @@ runCheck({
 			issues = allIssues(ctx, cutoff);
 			issues.push(...rescanIssues(ctx, rescan, issues));
 		} catch (e) {
-			raiseGhFailure(e);
+			return raiseGhFailure(e);
 		}
 
 		/* Two states make no transition, so an issue needs at least two recorded
@@ -926,7 +926,7 @@ runCheck({
 			try {
 				histories = historiesOf(group.map((i) => i.number));
 			} catch (e) {
-				raiseGhFailure(
+				return raiseGhFailure(
 					e,
 					`${group.map((i) => `#${i.number}`).join(", ")} not examined.`,
 				);

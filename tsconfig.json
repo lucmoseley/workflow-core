@@ -36,6 +36,9 @@
 		"resolveJsonModule": true,
 		"isolatedModules": true,
 		"jsx": "react-jsx",
+		// The ambient type packages, named: TypeScript 6 and 7 load none by
+		// default, and the JS under `scripts/` reads Node's globals (#4892).
+		"types": ["node"],
 		"incremental": true,
 		"plugins": [
 			{

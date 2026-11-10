@@ -442,7 +442,7 @@ function isAgentIdOwed(state, version) {
 /**
  * The session-start run: a red or fixed verdict for this version, else
  * silence, after launching the probe where it is owed.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {State} state
  * @param {string} version
  * @param {{ okLine: string, core: boolean }} opts
@@ -468,7 +468,7 @@ function atStart(ctx, state, version, { okLine, core }) {
 
 /**
  * A red listing verdict: a failure, with its text.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {Verdict} last
  */
 function reportRed(ctx, last) {
@@ -478,7 +478,7 @@ function reportRed(ctx, last) {
 
 /**
  * A warning, printed as well as recorded.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} tag
  * @param {string} msg
  * @param {object} [data]
@@ -502,7 +502,7 @@ const AGENT_ID_PROBE = {
 
 /**
  * The warning on a probe that has not run on `version`, or could not.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} version
  * @param {{ verdict: string, reasons: string[] } | undefined} last
  * @param {ProbeKind} which
@@ -525,7 +525,7 @@ function warnUnprobed(ctx, version, last, { prefix, name, flag }) {
 /**
  * A hand run's finding on a version that has not passed, or whose re-probe
  * went red.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} version
  * @param {Verdict | undefined} last
  */
@@ -537,7 +537,7 @@ function report(ctx, version, last) {
 /**
  * A hand run's agent_id finding: a warning on anything but "not fixed", which
  * returns the sentence the OK line carries.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} version
  * @param {AgentIdVerdict | undefined} a
  */
@@ -553,7 +553,7 @@ function reportAgentId(ctx, version, a) {
 
 /**
  * A hand-run `--probe` or `--probe-agent-id`: the listing verdict it leaves.
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {string} version
  * @param {boolean} core
  */

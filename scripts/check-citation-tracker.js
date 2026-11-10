@@ -36,7 +36,7 @@ const {
 } = require("./lib/citation-tracker.js");
 const { requiredGroup } = require("./lib/regex-group");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 const DEFEAT = "WFC_CITATION_TRACKER_OFF";
 

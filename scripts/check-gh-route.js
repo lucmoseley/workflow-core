@@ -44,7 +44,7 @@ const { judgeTree } = require("./lib/gh-route.js");
 const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
 const { hasOwnGit } = require("./lib/tree-members.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
 const ROOTS = ["scripts", ".claude/skills", ".husky", "hooks"];

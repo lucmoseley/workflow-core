@@ -36,7 +36,7 @@ const BACKTICKED = /`([^`]+)`/g;
 /**
  * lib/check.js's reporting context, imported because a local copy drifts from
  * it silently (mantahostels#1315). `broken` throws, so nothing after a call to it runs.
- * @typedef {InstanceType<typeof import("./check.js").CheckContext>} CheckContext
+ * @typedef {import("./check.js").Ctx} CheckContext
  */
 
 /**

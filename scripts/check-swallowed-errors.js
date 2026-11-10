@@ -45,7 +45,7 @@ const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
 const { scriptPath } = require("./lib/script-path.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {import("./lib/workflow-core-config.js").PythonKind} PythonKind */
 /** @typedef {{ line: number, function: string, caught: string }} Breach */
 /** @typedef {{ name: string, breaches?: Breach[], error?: string }} Result */

@@ -121,7 +121,7 @@ function phrasesOn(list, text) {
 	);
 }
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /**
  * @typedef {{

@@ -35,7 +35,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck, now } = require("./lib/check");
 const { getPoolFiles } = require("./lib/always-loaded-pool");
 const { hostRoot } = require("./lib/host-root.js");

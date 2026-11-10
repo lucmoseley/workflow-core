@@ -32,7 +32,14 @@ describe("lib/launch-charge.js", () => {
 		["pytest at 8 workers", { kind: "pytest", workers: 8 }, 150 + 75 * 8],
 		["`node --test`", { kind: "node-test" }, 381],
 		["`next build`", { kind: "next-build" }, 979],
-		["a type-check (#4849)", { kind: "tsc" }, 2045],
+		["a TypeScript 5 type-check (#4849)", { kind: "tsc", major: 5 }, 2045],
+		["a TypeScript 7 type-check (#4892)", { kind: "tsc", major: 7 }, 1497],
+		["a type-check on an unread compiler, the highest", { kind: "tsc" }, 2045],
+		[
+			"a type-check on a major unmeasured, the highest",
+			{ kind: "tsc", major: 6 },
+			2045,
+		],
 		["a lander's whole run (#3323)", { kind: "lander", files: [] }, 2630],
 		[
 			"a lander's named run of one file",

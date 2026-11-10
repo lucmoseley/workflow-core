@@ -34,7 +34,7 @@ const { isOtherRunner } = require("./suite-launch.js");
 const { scriptPath } = require("./script-path.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
 const { chargeMb: launchChargeMb } = require("./launch-charge.js");
-const { TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
+const { TSC_QUEUE_NAME, isTscRunner, runnerPeakMb } = require("./tsc-slot.js");
 const { describeWindowsHold } = require("./windows-memory.js");
 
 /**
@@ -405,10 +405,11 @@ const RUNNERS = [
 		peakMbOf: ({ args }) =>
 			launchChargeMb({ kind: "pytest", workers: pytestWorkersOf(args) }),
 	},
+	/* Charged its own compiler's peak, read off its line (#4892). */
 	{
 		queue: TSC_QUEUE_NAME,
 		isRunner: isTscRunner,
-		peakMbOf: () => launchChargeMb({ kind: "tsc" }),
+		peakMbOf: (row) => runnerPeakMb(row),
 	},
 	{
 		queue: null,

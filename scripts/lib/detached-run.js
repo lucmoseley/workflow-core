@@ -74,7 +74,9 @@ const RUN_FILE = "wfc-detached-run.json";
  * The two jobs that file a record here — `check-hook-liveness.js` imports
  * these same two for `DETACHED_HOW`'s keys.
  */
+/** @type {"prune-markers"} */
 const JOB_PRUNE_MARKERS = "prune-markers";
+/** @type {"retire-stale-containers"} */
 const JOB_RETIRE_STALE_CONTAINERS = "retire-stale-containers";
 
 /**

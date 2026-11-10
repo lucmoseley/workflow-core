@@ -141,7 +141,7 @@ const { caught } = require("./lib/caught.js");
 const { reportGroupedHits } = require("./lib/grouped-hits");
 
 /**
- * @typedef {import("./lib/check").CheckContext} Ctx
+ * @typedef {import("./lib/check").Ctx} Ctx
  *
  * One needle admitted to the scan. `pattern` is stateful (`lastIndex`), which is
  * why every reader resets it either side of a test, or reads it with `search`,

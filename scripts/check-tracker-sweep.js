@@ -66,7 +66,7 @@ const { caught } = require("./lib/caught.js");
  * reading its main checkout's run wrote. Only a directory that is no
  * checkout is a SKIP; git failing any other way is the apparatus broken.
  *
- * @param {import("./lib/check.js").CheckContext} ctx
+ * @param {import("./lib/check.js").Ctx} ctx
  * @returns {string}
  */
 function resultPath(ctx) {
@@ -86,7 +86,7 @@ function resultPath(ctx) {
 }
 
 /**
- * @param {import("./lib/check.js").CheckContext} ctx
+ * @param {import("./lib/check.js").Ctx} ctx
  * @param {string} file
  * @returns {SweepResult}
  */
@@ -145,7 +145,7 @@ function buildHandLine(name) {
 /**
  * Raise every standing key a job holds, or that it drew no conclusion.
  *
- * @param {import("./lib/check.js").CheckContext} ctx
+ * @param {import("./lib/check.js").Ctx} ctx
  * @param {SweepJob} job
  * @param {JobTally} tally accumulator: the job's block lines and its count
  *   are added
@@ -190,7 +190,7 @@ function judgeJob(ctx, job, tally) {
 
 /**
  * Both blocks lead with a bracketed-count header.
- * @param {import("./lib/check.js").CheckContext} ctx
+ * @param {import("./lib/check.js").Ctx} ctx
  * @param {JobTally} tally
  * @param {{ jobs: number, when: string, file: string }} reading
  */

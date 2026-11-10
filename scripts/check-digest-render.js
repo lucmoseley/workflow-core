@@ -31,7 +31,7 @@ const { runCheck } = require("./lib/check");
 const { coreRoot } = require("./lib/script-path");
 const { caught } = require("./lib/caught.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /* How many differing lines the failure quotes before it stops. A GUESS, and
  * stated as one: the digest is one line per card, so a real hand-edit touches

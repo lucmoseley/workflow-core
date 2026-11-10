@@ -13,7 +13,7 @@ const { hostRoot } = require("./host-root.js");
 const { blankComments } = require("./strip-comments.js");
 const { isJsTestFile } = require("./test-kind.js");
 
-/** @typedef {import("./check").CheckContext} Ctx */
+/** @typedef {import("./check").Ctx} Ctx */
 const { runCheck } = require("./check");
 
 const PROGRAM = /\.(?:c|m)?js$/;

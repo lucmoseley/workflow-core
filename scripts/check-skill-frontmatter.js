@@ -28,7 +28,7 @@ const path = require("node:path");
 const { hostPackage } = require("./lib/host-package.js");
 const { hostRoot } = require("./lib/host-root.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 const { runCheck } = require("./lib/check");
 
 const SKILLS_DIR = path.join(".claude", "skills");

@@ -77,7 +77,7 @@ const CHECKER = "refill-loop-stop";
 const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/refill-loop.js").Control|null} control
  * @param {number} seen the stamp's time
  * @returns {number|null} the pause time it named, for the stamp
@@ -96,7 +96,7 @@ function reportNoProgressPause(ctx, control, seen) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {number|null} since restartWaitOf's
  */
 function reportRestartWait(ctx, since) {
@@ -111,7 +111,7 @@ function reportRestartWait(ctx, since) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/overflow-notice.js").OverflowStart|null} start
  * @param {string} seenFile
  * @returns {number|null} the launch time it named, for the stamp
