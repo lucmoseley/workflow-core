@@ -15,7 +15,7 @@
 	"scripts/check-digest-version.js": "9fab00f8a67cf6e6",
 	"scripts/check-doc-map.js": "bb5e6be1240fef10",
 	"scripts/check-gate-switches.js": "4e3b532ceaa87231",
-	"scripts/check-guard-registry.js": "aa90f0c2f333c95e",
+	"scripts/check-guard-registry.js": "941b2fd3bb0cff6f",
 	"scripts/check-harness-canary.js": "5795b180f4087c0d",
 	"scripts/check-idle-efforts.js": "8b8dd108c76b0e65",
 	"scripts/check-interop-latency.js": "f0071c229bf82ebe",
