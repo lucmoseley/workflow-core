@@ -121,8 +121,6 @@ function readShallow(root, git) {
 }
 
 /**
- * The row each line of one commit's diff adds and removes.
- *
  * @param {string[]} lines
  * @returns {{ added: Map<string, string>, removed: Map<string, string> }}
  */
@@ -140,13 +138,11 @@ function parseDiff(lines) {
 }
 
 /**
- * Each sought row's writer, from one `git log -p` over the anchors file: the
- * first commit, newest first, whose diff adds the row at its HEAD value and
- * does not remove it at that value.
+ * Each sought row's writer, from one `git log -p` over the anchors file.
  *
  * @param {GitReader} git
  * @param {Map<string, string>} sought guard → HEAD anchor
- * @param {string[]} mode the log's merge handling
+ * @param {string[]} mode
  * @returns {{ writers: Map<string, string>, error: string | null }}
  */
 function readWriters(git, sought, mode) {
