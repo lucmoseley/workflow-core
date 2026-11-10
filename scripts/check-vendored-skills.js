@@ -8,7 +8,7 @@
  *   node scripts/check-vendored-skills.js --declare <path> --issue <n> --why "<one line>"
  *   node scripts/check-vendored-skills.js --drop <path>
  *   node scripts/check-vendored-skills.js --forget <path>
- *   node scripts/check-vendored-skills.js --revendor --at <rev>
+ *   node scripts/check-vendored-skills.js --revendor --at <rev> [--from <upstream clone>]
  *   node scripts/check-vendored-skills.js --upstream [--write]
  *   node scripts/check-vendored-skills.js --covered <dir>
  *
@@ -82,6 +82,21 @@
  * two paths differently from the checking machine's. So re-read the port against
  * upstream before acting on a LOCK-HASH that names more than one or two skills.
  *
+ * RECORDING A PULL. `--revendor` rebuilds the record from blobs at a revision,
+ * never from a working tree, which is where local edits live. Two routes:
+ *   --at <rev> --from <clone>  what a re-pull runs (#4802). <clone> is a local
+ *                              clone of the upstream repo and <rev> a tag or
+ *                              commit in it. For every skill the lock sources
+ *                              from that repo — read off the clone's `origin` —
+ *                              it records the manifest, the lock's
+ *                              `computedHash` and `vendoredAt`, as
+ *                              `<source>@<sha> (<rev>)`. Another source's
+ *                              skills keep their rows.
+ *   --at <rev>                 a commit of THIS repo holding the vendor's bytes
+ *                              pristine: the first vendoring. A re-pull has no
+ *                              such commit — upstream's bytes over a declared
+ *                              edit are DRIFTED, so the gate below refuses it.
+ *
  * WHERE IT RUNS. `.husky/pre-commit`, scoped to commits that stage a path under
  * `.agents/skills/`, or the manifest, or `skills-lock.json` — an unrelated
  * commit pays nothing. Deliberately NOT a SessionStart notifier: a declared
@@ -133,8 +148,8 @@
  * It names one mattpocock/skills commit for every file, but `animate`'s two
  * arrived at f13eec839, so every verdict line quoting the field misdescribes
  * those two. Nothing compares against it, so no gate is wrong, and every file
- * of every skill vendored outside a --revendor joins it. #906 and #4633 set it by hand;
- * the next --revendor writes a revision of this repo instead. Per-path
+ * of every skill vendored outside a --revendor joins it, and a --revendor
+ * --from names the one source it pulled. Per-path
  * provenance, a data-format change plus a write command, was declined at
  * mantahostels#3025; revisit at a third upstream, when the field misdescribes
  * enough of the manifest to pay.
@@ -268,9 +283,20 @@ function skillFolderHash(dir) {
 	/** @type {{ rel: string, content: Buffer }[]} */
 	const files = [];
 	collectSkillFiles(dir, dir, files);
-	files.sort((a, b) => a.rel.localeCompare(b.rel));
+	return hashSkillFiles(files);
+}
+
+/**
+ * `skillFolderHash`'s digest, over one skill folder's files however they were
+ * read: off disk, or out of an upstream clone's blobs.
+ *
+ * @param {{ rel: string, content: Buffer }[]} files each `rel` relative to the skill folder
+ * @returns {string}
+ */
+function hashSkillFiles(files) {
+	const sorted = [...files].sort((a, b) => a.rel.localeCompare(b.rel));
 	const h = crypto.createHash("sha256");
-	for (const f of files) {
+	for (const f of sorted) {
 		h.update(f.rel);
 		h.update(f.content);
 	}
@@ -455,6 +481,155 @@ function revendor(root, rev) {
 	sidecar.vendored = vendored;
 	writeJson(path.join(root, SIDECAR), sidecar);
 	return `recorded ${listed.length} vendored file(s) as supplied at ${at}`;
+}
+
+/**
+ * The `owner/repo` a clone's `origin` names on GitHub, which is how the lock
+ * spells a `source`.
+ *
+ * @param {string} clone
+ * @returns {string}
+ */
+function readCloneSource(clone) {
+	let url;
+	try {
+		url = execGit(["config", "--get", "remote.origin.url"], {
+			cwd: clone,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch (e) {
+		throw new Error(
+			`${clone} has no \`origin\` remote, so nothing says which upstream it is a clone of. Clone the upstream repo from GitHub and pass that.`,
+			{ cause: e },
+		);
+	}
+	const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(url);
+	if (!m?.[1])
+		throw new Error(
+			`${clone}'s \`origin\` (${url}) is not a GitHub repo, so it matches no \`source\` in ${LOCK}.`,
+		);
+	return m[1];
+}
+
+/**
+ * One skill folder's files as `sha` holds them in `clone`, each path relative
+ * to the folder. Regular files only, and none under `node_modules`: what
+ * `collectSkillFiles` reads of the same folder once installed.
+ *
+ * @param {string} clone
+ * @param {string} sha
+ * @param {string} folder repo-relative, POSIX
+ * @returns {{ rel: string, content: Buffer }[]}
+ */
+function readUpstreamFolder(clone, sha, folder) {
+	const listed = execGit(
+		["ls-tree", "-r", "-z", "--full-tree", sha, "--", `${folder}/`],
+		{ cwd: clone, encoding: "utf8" },
+	)
+		.split("\0")
+		.filter(Boolean);
+	/** @type {{ rel: string, content: Buffer }[]} */
+	const files = [];
+	for (const row of listed) {
+		const tab = row.indexOf("\t");
+		const mode = row.slice(0, 6);
+		const file = row.slice(tab + 1);
+		if (mode !== "100644" && mode !== "100755") continue;
+		const rel = file.slice(folder.length + 1);
+		if (rel.split("/").includes("node_modules")) continue;
+		files.push({
+			rel,
+			content: execGit(["show", `${sha}:${file}`], { cwd: clone }),
+		});
+	}
+	return files;
+}
+
+/**
+ * Swap one skill's manifest rows for the files upstream supplied.
+ *
+ * @param {Record<string, string>} vendored mutated in place
+ * @param {string} name
+ * @param {{ rel: string, content: Buffer }[]} supplied
+ */
+function replaceSkillRows(vendored, name, supplied) {
+	const prefix = `${SKILLS_DIR}/${name}/`;
+	for (const rel of Object.keys(vendored))
+		if (rel.startsWith(prefix)) delete vendored[rel];
+	for (const f of supplied) vendored[prefix + f.rel] = sha256(f.content);
+}
+
+/**
+ * Record a re-pull from a clone of the upstream repo (#4802): for each skill
+ * the lock sources from that repo, the manifest rows and the lock's
+ * `computedHash` as the clone's `rev` supplies them, and `vendoredAt`.
+ *
+ * Everything is read and hashed before either file is written, so a refusal
+ * leaves both as they were.
+ *
+ * @param {string} root
+ * @param {string} rev
+ * @param {string} from
+ */
+function revendorFrom(root, rev, from) {
+	const clone = path.resolve(from);
+	if (!fs.existsSync(clone)) throw new Error(`no such directory: ${from}`);
+	const source = readCloneSource(clone);
+	const sha = execGit(["rev-parse", "--verify", `${rev}^{commit}`], {
+		cwd: clone,
+		encoding: "utf8",
+	}).trim();
+	const lockFile = path.join(root, LOCK);
+	const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+	const sidecar = loadSidecar(root);
+	/* A lock entry with no directory is LOCK-ORPHAN's: recording its files would
+	 * only turn each into a REMOVED. */
+	const skills = Object.entries(
+		/** @type {Record<string, { source?: string, skillPath?: string, computedHash?: string }>} */ (
+			lock.skills
+		),
+	).filter(
+		([name, e]) =>
+			e.source === source &&
+			e.skillPath &&
+			fs.existsSync(path.join(root, SKILLS_DIR, name)),
+	);
+	if (skills.length === 0)
+		throw new Error(
+			`${LOCK} sources no skill under ${SKILLS_DIR}/ from ${source}, which is what ${from}'s \`origin\` names.`,
+		);
+	const vendored = { ...sidecar.vendored };
+	let files = 0;
+	/** @type {string[]} */
+	const moved = [];
+	for (const [name, entry] of skills) {
+		const folder = path.posix.dirname(/** @type {string} */ (entry.skillPath));
+		const supplied = readUpstreamFolder(clone, sha, folder);
+		if (supplied.length === 0)
+			throw new Error(
+				`${source} has no ${folder}/ at ${rev}, where ${LOCK} places "${name}" — renamed or dropped upstream. Nothing was written.`,
+			);
+		replaceSkillRows(vendored, name, supplied);
+		files += supplied.length;
+		const hash = hashSkillFiles(supplied);
+		if (entry.computedHash !== hash) moved.push(name);
+		entry.computedHash = hash;
+	}
+	const short = execGit(["rev-parse", "--short=8", sha], {
+		cwd: clone,
+		encoding: "utf8",
+	}).trim();
+	sidecar.vendoredAt = `${source}@${short}${sha.startsWith(rev) ? "" : ` (${rev})`}`;
+	sidecar.vendored = sortKeys(vendored);
+	writeJson(path.join(root, SIDECAR), sidecar);
+	/* Two spaces, as the installer writes it: Biome leaves this file alone. */
+	fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+	const lockLine =
+		moved.length > 0
+			? `${LOCK} takes a new computedHash for ${moved.join(", ")}`
+			: `${LOCK} already held every computedHash`;
+	return `recorded ${files} file(s) of ${skills.length} skill(s) as ${sidecar.vendoredAt} supplies them; ${lockLine}.`;
 }
 
 /** @param {Record<string, any>} obj */
@@ -947,7 +1122,8 @@ const WRITE_COMMANDS = [
 		(ctx, root) => {
 			const rev = ctx.value("--at", "");
 			if (!rev) ctx.usageError("--revendor needs --at <rev>.");
-			ctx.say(revendor(root, rev));
+			const from = ctx.value("--from", "");
+			ctx.say(from ? revendorFrom(root, rev, from) : revendor(root, rev));
 			return { okLine: "re-recorded." };
 		},
 	],
@@ -1082,7 +1258,7 @@ function runUpstream(ctx, root) {
 	 * section refresh its own message names (#1951). */
 	if (rows.some((r) => UPSTREAM_WARNINGS[r.state]))
 		ctx.say(
-			"  Re-pull, then: --revendor --at <the pull's commit>, re-apply each edit by hand, and --declare it again.",
+			"  Re-pull, then: --revendor --at <the pulled tag> --from <a clone of the upstream repo>, re-apply each edit by hand, and --declare it again.",
 		);
 	writeRecord(ctx, root, read, licences);
 	return {
@@ -1235,7 +1411,7 @@ function upstreamMode(ctx, root) {
 const SPEC = {
 	name: "check-vendored-skills",
 	usage:
-		'node check-vendored-skills.js [--root <dir>] [--json] [--warn] | --declare <path> --issue <n> --why "<line>" | --drop <path> | --forget <path> | --revendor --at <rev> | --upstream [--write] | --covered <dir>',
+		'node check-vendored-skills.js [--root <dir>] [--json] [--warn] | --declare <path> --issue <n> --why "<line>" | --drop <path> | --forget <path> | --revendor --at <rev> [--from <upstream clone>] | --upstream [--write] | --covered <dir>',
 	valueFlags: [
 		"--root",
 		"--covered",
@@ -1243,6 +1419,7 @@ const SPEC = {
 		"--drop",
 		"--forget",
 		"--at",
+		"--from",
 		"--issue",
 		"--why",
 	],
@@ -1265,6 +1442,10 @@ const SPEC = {
 			return ctx.broken(errMessage(e));
 		}
 
+		if (ctx.has("--from"))
+			ctx.usageError(
+				"--from names the clone --revendor reads, so it needs --revendor.",
+			);
 		if (ctx.has("--upstream")) return upstreamMode(ctx, root);
 		if (ctx.has("--write"))
 			ctx.usageError(
