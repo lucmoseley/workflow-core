@@ -5,7 +5,8 @@
  * reviewer never cites a rule against the wrong lines; and no §N7 export block
  * offers a name nothing consumes (mantahostels#1799), or only tests consume
  * (#1361); and `pythonRoutes` in .claude/workflow-core.json routes Python as
- * the local file's route table does, which wins (#1863, lib/python-routes.js).
+ * the local file's route table does, which wins (#1863, lib/python-routes.js);
+ * and no script header keeps a hand-written `Caller:` list (#4720).
  *
  * Usage:
  *   node scripts/check-code-standards.js [--warn] [--json] [--touching <rev>] [<doc>]
@@ -527,6 +528,14 @@ const HEADER = /^(?:#![^\n]*\n)?(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*))*/;
 const UNBUILT_CALLER =
 	/^[^\S\n\r\u2028\u2029]*(?:\/\*+|\*|\/\/)\s*Unbuilt caller:.*#\d+/im;
 /**
+ * A header line keeping a caller list by hand \u2014 `Caller:`, `Callers:` or
+ * `Callers of \u2026:` (#4720). Every caller edit then rewrites a header a
+ * guard-registry checker may hash, forcing unrelated re-anchors (#4404);
+ * `git grep` names the callers instead. `Unbuilt caller:` is not one.
+ */
+const HAND_CALLER =
+	/^[^\S\n\r\u2028\u2029]*(?:\/\*+|\*|\/\/)\s*(Callers?(?: of [^:\n]*)?:.*)$/gim;
+/**
  * The harness whose generic `entry.exports?.main` read IS the run-in-process
  * consumption the entry-point exemption models, so it vouches for no `main`
  * (#1361) — nor does `require.main`, a program's own guard.
@@ -567,6 +576,35 @@ function readExportBlocks(tracked) {
 		if (block) out.push(block);
 	}
 	return out;
+}
+
+/**
+ * Every hand-kept caller line in a script header, test-kind files included.
+ *
+ * @param {{set: Set<string>}} tracked
+ * @returns {Finding[]}
+ */
+function handCallerLines(tracked) {
+	/** @type {Finding[]} */
+	const findings = [];
+	for (const rel of [...tracked.set].sort()) {
+		if (!EXPORT_SCOPE.test(rel)) continue;
+		const header = HEADER.exec(readText(rel) ?? "")?.[0] ?? "";
+		for (const m of header.matchAll(HAND_CALLER)) {
+			const line = header.slice(0, m.index).split("\n").length;
+			findings.push({
+				kind: "HAND-CALLER",
+				docLine: 0,
+				where: `${rel}:${line}`,
+				rel,
+				pin: requiredGroup(m, 1, HAND_CALLER).trim(),
+				detail:
+					"a hand-kept caller list goes stale on every caller edit and forces re-anchors (#4404) — " +
+					"delete the line; `git grep` names the callers. A module built ahead of its caller names it on an `Unbuilt caller: <caller> (#N)` line instead",
+			});
+		}
+	}
+	return findings;
 }
 
 /**
@@ -1376,7 +1414,7 @@ function scopeToTouching(ctx, { touching, findings, read }) {
 /* The kinds that are no citation, so neither citations_stale nor the "fix
  * the document" line takes them. UNSHIPPED is a citation, but the release,
  * not the document, may be what is wrong. */
-const NOT_CITATIONS = ["DEAD-EXPORT", "ROUTE-DRIFT"];
+const NOT_CITATIONS = ["DEAD-EXPORT", "ROUTE-DRIFT", "HAND-CALLER"];
 
 /**
  * @param {import("./lib/check").Ctx} ctx
@@ -1454,6 +1492,7 @@ function okLineOf({
 		(routeDrifts === 0
 			? ` pythonRoutes agrees with the ${pythonRows} route row(s) reaching Python.`
 			: "") +
+		" No script header keeps a hand-written caller list." +
 		(touching ? ` (--touching ${touching}: ${findings.length} in scope)` : "")
 	);
 }
@@ -1516,7 +1555,12 @@ runCheck({
 		const dead = deadExports(blocks, consumersOf(tracked.set, blocks));
 		const routes = routeDrift(ctx, docs, read);
 
-		let findings = [...stale, ...dead.findings, ...routes.findings];
+		let findings = [
+			...stale,
+			...dead.findings,
+			...routes.findings,
+			...handCallerLines(tracked),
+		];
 		let scopeNote = "";
 		if (touching)
 			({ findings, scopeNote } = scopeToTouching(ctx, {
@@ -1540,7 +1584,7 @@ runCheck({
 				touching,
 				findings,
 			}),
-			noun: "stale citation(s), export(s) nothing consumes and Python route row(s) out of step",
+			noun: "stale citation(s), export(s) nothing consumes, Python route row(s) out of step and hand-kept caller line(s)",
 			data: {
 				citations,
 				documents: read.map((r) => r.doc),
@@ -1560,6 +1604,7 @@ runCheck({
 				),
 				exports_dead: findings.filter((f) => f.kind === "DEAD-EXPORT"),
 				routes_drift: findings.filter((f) => f.kind === "ROUTE-DRIFT"),
+				callers_hand_kept: findings.filter((f) => f.kind === "HAND-CALLER"),
 			},
 		};
 	},
