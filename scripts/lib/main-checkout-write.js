@@ -378,7 +378,12 @@ function refusalGround(ctx) {
 		if (cutOver)
 			return "The main checkout takes no edits or commits: its `main` follows `origin/main` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229).";
 	}
-	if (ctx.treeClass(ctx.tree().root) !== "linked") return null;
+	const cls = ctx.treeClass(ctx.fallbackCwd);
+	if (cls === "unknown")
+		ctx.log(
+			"git could not say which tree holds the session's cwd — the worktree refusal skipped",
+		);
+	if (cls !== "linked") return null;
 	return "A session in a linked worktree edits and commits only there: the claim and write stores key a write by the path in the writer's own tree, so one here goes unclaimed and unledgered, unseen by the turn-end uncommitted-work check (#4697).";
 }
 
@@ -389,10 +394,10 @@ function refusalGround(ctx) {
  */
 function decide(subject, ctx) {
 	try {
-		const ground = refusalGround(ctx);
-		if (ground === null) return null;
 		const w = findWrite(subject, ctx);
 		if (w === null) return null;
+		const ground = refusalGround(ctx);
+		if (ground === null) return null;
 		const { what, cmd } = describe(w, subject);
 		const back =
 			"rel" in w
