@@ -957,7 +957,7 @@ describe("repo-checks: the standing issue (#1554)", () => {
 			.filter((c) => /^issue (create|edit|close)/.test(c))
 			.concat(f.issueBody.calls());
 
-	it("files exactly one issue on the first reading a check holds a key, labelled takes:triage, with each check's outcome, its own count and hand command", () => {
+	it("files exactly one issue on the first reading a check holds a key, labelled takes:triage and its origin, with each check's outcome, its own count and hand command", () => {
 		const warn = findings("roadmap-valid", ["r1"], "WARN");
 		const f = fixture({
 			config: tracked,
@@ -970,7 +970,10 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		expect(f.issues()).toEqual([
 			expect.objectContaining({
 				title,
-				labels: [{ name: "takes:triage" }],
+				labels: [
+					{ name: "takes:triage" },
+					{ name: "origin:repo-checks-script" },
+				],
 			}),
 		]);
 		const body = f.issueBody.body();

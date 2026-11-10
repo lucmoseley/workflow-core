@@ -663,6 +663,8 @@ describe("measure-outcome-review.js", () => {
 		closed(25, "Closed too long ago", 49, ["bug"]);
 		closed(26, "Fix the dropped queue ref", 57, ["origin:lander-script"]);
 		closed(27, "Lander drops a ref", 57, ["bug", "origin:triage"]);
+		closed(28, "Fix the bump's stale pin", 57, ["origin:release-bump"]);
+		closed(29, "Fix the broken check", 57, ["origin:repo-checks-script"]);
 		f.commit("Read refs once (#20)", 55);
 		f.commit("Stop the dashboard stalling (#21)", 56);
 		f.commit("Add the panel (#22)", 56);
@@ -670,6 +672,8 @@ describe("measure-outcome-review.js", () => {
 		f.commit("Old (#25)", 48);
 		f.commit("Fix the dropped ref (#26)", 56);
 		f.commit("Keep the ref (#27)", 56);
+		f.commit("Fix the stale pin (#28)", 56);
+		f.commit("Fix the broken check (#29)", 56);
 		f.signatureLine(24, { signature: null, why: "no trace" });
 		closed(40, "no-fault bug", 57, ["bug", "origin:triage"]);
 		closed(41, "signed bug", 57, ["bug", "origin:audit"]);

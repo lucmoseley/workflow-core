@@ -33,7 +33,8 @@ const ORIGINS = /** @type {const} */ ([
 ]);
 
 /**
- * The origins a script files under, declaring `--no-fault` in code: the
+ * The origins a script files under, declaring `--no-fault` in code or, off
+ * file-issue.js, stamping the label on its own create call: the
  * outcome review's miss backstop passes them over, and holds every other
  * origin's undeclared fault-shaped ticket to account. Nothing stops a session
  * passing one of these `--origin` by hand, and its ticket then skips the
@@ -45,6 +46,8 @@ const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 	"ci-red",
 	"incident",
 	"morning-review-script",
+	"release-bump",
+	"repo-checks-script",
 ]);
 
 const ORIGIN_PREFIX = "origin:";
