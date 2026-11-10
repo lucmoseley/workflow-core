@@ -1878,7 +1878,7 @@ function readGitDir(word, target, scope) {
 
 /**
  * The unresolved-tree record's detail (#315, #320): what the walk could not
- * resolve as typed, the hook's own directory, and the walk's cwd.
+ * resolve as typed, the session's directory, and the walk's cwd.
  * @param {GitTarget} git
  * @param {Walk} walk
  * @param {string} pwd

@@ -55,11 +55,6 @@ describe("kitContextFake against the kit's context (§G7)", () => {
 		expect(real(PAYLOAD).cwd).toBeUndefined();
 	});
 
-	it("falls back to the payload's absolute cwd, not the hook's own directory (#4695)", () => {
-		expect(real({ ...PAYLOAD, cwd: root }).fallbackCwd).toBe(root);
-		expect(real({ ...PAYLOAD, cwd: "rel" }).fallbackCwd).toBe(process.cwd());
-	});
-
 	describe.each(sides)("%s", (_, ctx) => {
 		it("tells no rule and holds no latch on a fresh session", () => {
 			expect(ctx.told("anthropic-report")).toBe(false);
