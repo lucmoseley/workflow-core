@@ -468,7 +468,7 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 	 * available), the Windows hold (5,500 MB, Windows' 2,100 MB free under
 	 * its ~2,300 MB need and the `tsc`'s), then the rung itself (the `tsc`'s
 	 * rung available). Outside the middle phase Windows has the `tsc`'s need
-	 * free. */
+	 * free. The head's figures hold for a `tsc` peak of ~1,800 to ~2,500 MB. */
 	const head = (at: string, { tsc = 1, wholeSlot = false } = {}) => {
 		const base = Date.parse(at);
 		const shift = (t: number) => t - T0 + base;

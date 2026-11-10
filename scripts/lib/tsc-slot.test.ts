@@ -5,6 +5,7 @@
  * 10 GB cap, as #3113's earlyoom kill did, or a launch goes uncounted.
  */
 import { describe, expect, it } from "vitest";
+import { DRAW_MARGIN_MB } from "./suite-ladder";
 
 const { TSC_PEAK_MB, TSC_RUNG_MB, tscDenial, isTscLaunch } =
 	require("./tsc-slot.js") as {
@@ -101,8 +102,8 @@ describe("lib/tsc-slot.js", () => {
 
 	it("holds a `tsc` the guest admits while Windows has less free than its peak, the climb and the margin (#4557)", () => {
 		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
-		// Peak + 100 climb + 300 margin.
-		const needMb = TSC_PEAK_MB + 100 + 300;
+		// Peak + 100 climb + the margin.
+		const needMb = TSC_PEAK_MB + 100 + DRAW_MARGIN_MB;
 		expect(tscDenial(rows("bash -l"), 9000, 100, windows(needMb - 1))).toEqual({
 			limb: "windows",
 			mb: needMb - 1,
