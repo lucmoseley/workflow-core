@@ -6,15 +6,18 @@
  *
  * WHAT BREAKING IT COSTS: a dispatched launch counted as his typing keeps a
  * slot idle for 30 minutes after every launch; a typed prompt missed lets the
- * loop take the slot he would have used; a reminder missed leaves away mode on
- * for hours after he is back, his questions going to issues (#4846).
+ * loop take the slot he would have used; a script's typed line counted as his
+ * spends the away reminder where he never sees it (#4844); a reminder missed
+ * leaves away mode on for hours after he is back, his questions going to
+ * issues (#4846).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
+import { ASK, SCRIPTED_PROMPT } from "./lib/recorder-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "mark-presence.js");
@@ -159,6 +162,18 @@ describe("a prompt nobody typed", () => {
 		["the loop's resumed-idle prompt", IDLE_PROMPT],
 	])("writes nothing for %s (#3369)", (_, prompt) => {
 		run(prompt);
+		expect(isMarked()).toBe(false);
+	});
+
+	/* record-claude-responses.js's attach step: its question job, typed into
+	 * through `claude attach` and pty_type.py. */
+	it("writes nothing for the line record-claude-responses.js types into its question job (#4844)", () => {
+		run(SCRIPTED_PROMPT, { jobDir: buildJob(ASK) });
+		expect(isMarked()).toBe(false);
+	});
+
+	it("writes nothing for a script's prompt outside a job", () => {
+		run(scriptPrompt("carry on"));
 		expect(isMarked()).toBe(false);
 	});
 
