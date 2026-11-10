@@ -50,6 +50,7 @@ const { pathToFileURL } = require("node:url");
 const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
+const { isNode, readRealTmpdir, toPosix } = require("./read-audit-paths.js");
 const { buildTraceReader, findStrace } = require("./read-audit-trace.js");
 
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
@@ -116,7 +117,9 @@ const VALUED = new Set([
  * inherits. Returns the log directory, or null where this process is itself
  * under an audit (a test's nested run), whose logs are its owner's.
  * @param {string} root
- * @param {NodeJS.ProcessEnv} [env] written
+ * @param {NodeJS.ProcessEnv} [env] accumulator: `WFC_READ_AUDIT`,
+ *   `WFC_READ_AUDIT_ROOT`, `WFC_READ_AUDIT_STRACE` and `NODE_OPTIONS` are
+ *   filled here
  * @param {{write(s: string): unknown}} [err] told where no tracer works
  * @returns {string|null}
  */
@@ -151,7 +154,7 @@ function remove(dir) {
 	try {
 		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
-		// A leftover directory in the tmpdir costs only disk.
+		// A leftover directory in the tmpdir costs only disk (#4916).
 	}
 }
 
@@ -206,7 +209,7 @@ function readOwners(dir) {
 	for (const name of fs.readdirSync(dir)) {
 		const text = () => fs.readFileSync(path.join(dir, name), "utf8");
 		const git = /^(\d+)\.git$/.exec(name);
-		if (git) at(String(git[1])).git.push(...gitRecords(text()));
+		if (git) at(String(git[1])).git.push(...parseGitRecords(text()));
 		const log = /^(\d+)\.(\d+)\.jsonl$/.exec(name);
 		if (!log) continue;
 		/* A line that will not parse is a read that may be lost: a fault. */
@@ -223,7 +226,7 @@ function readOwners(dir) {
  * @param {string} text
  * @returns {string[][]}
  */
-function gitRecords(text) {
+function parseGitRecords(text) {
 	const fields = text.split("\0");
 	/** @type {string[][]} */
 	const out = [];
@@ -253,7 +256,7 @@ function judge(logs, git, root, readTrace) {
 		.filter((e) => e.k === "minted")
 		.map((e) => String(e.p));
 	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
-	const reads = collector(logs, root, isScratch, readTrace);
+	const reads = buildCollector(logs, root, isScratch, readTrace);
 	for (const record of git) {
 		const why = reads.takeGit(record);
 		if (why) return { doubt: why };
@@ -273,7 +276,7 @@ function judge(logs, git, root, readTrace) {
  * @param {(p: string) => boolean} isScratch
  * @param {ReturnType<typeof buildTraceReader>} readTrace
  */
-function collector(logs, root, isScratch, readTrace) {
+function buildCollector(logs, root, isScratch, readTrace) {
 	/** @type {Record<"file"|"dir"|"absent", Set<string>>} */
 	const probed = { file: new Set(), dir: new Set(), absent: new Set() };
 	/** @type {Map<string, Set<string>>} */
@@ -427,7 +430,7 @@ function childDoubt(e, logs, root, isScratch) {
 	 * clone of the checkout, or a file there handed to a call made elsewhere,
 	 * is in no record. */
 	if (e.guarded && e.audited)
-		return args.some((a) => namesCheckout(a, root, isScratch))
+		return args.some((a) => isCheckoutPath(a, root, isScratch))
 			? `a git call (${shown}) was handed a path in the checkout`
 			: null;
 	/* A tracer already following the process that spawned it follows it too:
@@ -456,7 +459,7 @@ function unseenDoubt(e, root, isScratch) {
 	)
 		return `a child (${shown}) ran in the checkout`;
 	const script = scriptOf(e, root);
-	if (args.some((a) => a !== script && namesCheckout(a, root, isScratch)))
+	if (args.some((a) => a !== script && isCheckoutPath(a, root, isScratch)))
 		return `a child (${shown}) was handed a path in the checkout`;
 	if (script !== null && isNode(file))
 		return `a Node child (${shown}) ran without the audit`;
@@ -489,7 +492,7 @@ const CWD_BLIND = new Map([
 	["gitleaks", "version"],
 ]);
 
-const TMP = fs.realpathSync(os.tmpdir());
+const TMP = readRealTmpdir();
 
 /**
  * Whether a child reads nothing of the directory it runs in (#4932): one of
@@ -515,7 +518,7 @@ function isCwdBlind(e, root) {
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
  */
-function namesCheckout(a, root, isScratch) {
+function isCheckoutPath(a, root, isScratch) {
 	const at = a.indexOf(root);
 	if (at < 0) return false;
 	const rest = a.slice(at + root.length).split(/[\s"';:]/)[0] ?? "";
@@ -556,12 +559,5 @@ function childReads(e, root) {
 	if (script === null) return [];
 	return [toPosix(path.relative(root, path.resolve(String(e.cwd), script)))];
 }
-
-/** @param {string} p */
-const toPosix = (p) => p.split(path.sep).join("/");
-
-/** @param {string} file */
-const isNode = (file) =>
-	file === process.execPath || path.basename(file) === "node";
 
 module.exports = { install, readAudits, remove };

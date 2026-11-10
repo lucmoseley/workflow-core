@@ -29,8 +29,9 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const { isUnder, relativeUnder } = require("./is-under.js");
+const { isUnder } = require("./is-under.js");
 const { pathKind } = require("./path-kind.js");
+const { repoPath } = require("./read-audit-paths.js");
 const { sleepSync } = require("./sleep-sync.js");
 
 /* Signals stay in the trace: without them strace writes no line for a
@@ -483,10 +484,8 @@ function resolved(n, dirs) {
  * @param {boolean} absent
  */
 function entryOf(abs, root, call, absent) {
-	const rel = relativeUnder(root, abs);
-	if (rel === null) return null;
-	const p = (rel || ".").split(path.sep).join("/");
-	if (p.split("/").includes("node_modules")) return null;
+	const p = repoPath(root, abs);
+	if (p === null) return null;
 	const now = pathKind(abs);
 	if (absent) return { k: "probe", p, s: "absent" };
 	if (now === "absent" && !call.errno) return { k: "probe", p, s: "gone" };
@@ -512,7 +511,7 @@ function pathsIn(args) {
 	/** @type {string|null} */
 	let from = null;
 	let torn = false;
-	for (const t of tokens(args)) {
+	for (const t of parseTokens(args)) {
 		if (!t.fd) named.push({ text: t.text, from });
 		else if (t.cut || t.text.endsWith(" (deleted)")) torn = true;
 		else if (t.text.startsWith("/")) {
@@ -538,7 +537,7 @@ const DEPTH = { "[": 1, "{": 1, "]": -1, "}": -1 };
  * @param {string} args
  * @returns {Token[]}
  */
-function tokens(args) {
+function parseTokens(args) {
 	const out = [];
 	let depth = 0;
 	for (let i = 0; i < args.length; ) {

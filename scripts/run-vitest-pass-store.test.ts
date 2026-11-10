@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NO_READS } from "./lib/pass-store-testkit";
 
 const require = createRequire(import.meta.url);
 const { main } = require("./run-vitest.js");
@@ -61,17 +62,6 @@ function repo() {
 	git(dir, "commit", "-q", "-m", "base");
 	return dir;
 }
-
-/* A file's audit that saw it read nothing beside its inputs (#4916). */
-const NO_READS = {
-	files: [],
-	absent: [],
-	dirs: [],
-	lists: {},
-	trees: [],
-	scripts: [],
-	git: [],
-};
 
 /** A clean vitest run at `dir` in which each of `files` passed. */
 function passed(dir: string, files: string[]) {

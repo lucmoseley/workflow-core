@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { type Audit, NO_READS, type Reads } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
 const {
@@ -85,27 +86,6 @@ let clock = Date.now() - DAY;
 const nextAt = () => {
 	clock += 60_000;
 	return new Date(clock).toISOString();
-};
-
-interface Reads {
-	files: string[];
-	absent: string[];
-	dirs: string[];
-	lists: Record<string, string>;
-	trees: string[];
-	scripts: string[];
-	git: { cwd: string; args: string[] }[];
-}
-type Audit = { reads: Reads } | { doubt: string };
-
-const NO_READS: Reads = {
-	files: [],
-	absent: [],
-	dirs: [],
-	lists: {},
-	trees: [],
-	scripts: [],
-	git: [],
 };
 
 /**

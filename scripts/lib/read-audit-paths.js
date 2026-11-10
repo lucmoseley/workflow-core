@@ -1,0 +1,44 @@
+/*
+ * read-audit-paths.js — the path tests the read audit's modules share
+ * (#4916). lib/read-audit-preload.js loads it into every audited process,
+ * so it requires nothing beside Node's own modules and lib/is-under.js,
+ * which the preload loads already.
+ */
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { relativeUnder } = require("./is-under.js");
+
+/**
+ * Whether `file` runs Node: this process's own binary, or one of its name.
+ * @param {string} file
+ */
+const isNode = (file) =>
+	file === process.execPath || path.basename(file) === "node";
+
+/** @param {string} p */
+const toPosix = (p) => p.split(path.sep).join("/");
+
+/**
+ * `abs` repo-relative, with POSIX separators, where it lies under `root`
+ * outside every `node_modules`; else null.
+ * @param {string} root
+ * @param {string} abs
+ * @returns {string|null}
+ */
+function repoPath(root, abs) {
+	const rel = relativeUnder(root, abs);
+	if (rel === null) return null;
+	const posix = toPosix(rel || ".");
+	return posix.split("/").includes("node_modules") ? null : posix;
+}
+
+/**
+ * The temporary directory with its links followed.
+ * @param {(p: string) => string} [realpath] the preload hands in the
+ *   `realpathSync` it does not wrap
+ */
+const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
+
+module.exports = { isNode, readRealTmpdir, repoPath, toPosix };

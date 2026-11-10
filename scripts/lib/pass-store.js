@@ -74,7 +74,12 @@ const {
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
-const { execGit, spawnGitSync, GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	execGit,
+	spawnGitSync,
+	GIT_DIR_VARS,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
 	ABSENT,
@@ -99,6 +104,7 @@ const {
 } = require("./test-pass-marker.js");
 const { readWorkingTree } = require("./test-read-edges.js");
 const { listingId } = require("./listing-id.js");
+const { pathKind } = require("./path-kind.js");
 const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
@@ -448,18 +454,6 @@ const sharedInputs = (root, shared) => [
  *   where it cannot run
  */
 
-/* The variables that point git at a repository: a test's call ran with
- * none (vitest.setup.ts), so its run again does too. */
-const GIT_DIR_VARS = [
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_PREFIX",
-];
-
 /**
  * A git call run again at `root`: the id of its exit status and output.
  * Memoised, as many rows rest on one call. Null where its key will not
@@ -467,9 +461,11 @@ const GIT_DIR_VARS = [
  * @param {string} root
  * @returns {(key: string) => string|null}
  */
-function gitRunner(root) {
+function buildGitRunner(root) {
 	/** @type {Map<string, string|null>} */
 	const memo = new Map();
+	/* A test's call ran with no variable pointing git at a repository
+	 * (vitest.setup.ts), so its run again does too. */
 	const env = { ...process.env };
 	for (const v of GIT_DIR_VARS) delete env[v];
 	return (key) => {
@@ -489,6 +485,8 @@ function gitRunner(root) {
 					.update(r.stdout)
 					.digest("hex");
 		} catch {
+			// A key that will not parse is a call that cannot run: no id, so
+			// the row resting on it is not recorded and never holds (#4916).
 			id = null;
 		}
 		memo.set(key, id);
@@ -501,23 +499,19 @@ function gitRunner(root) {
  * @param {string} root
  * @returns {TreeAt}
  */
-function workingAt(root) {
+function buildWorkingAt(root) {
 	return {
-		git: gitRunner(root),
+		git: buildGitRunner(root),
 		listing: (dir) => {
 			try {
 				return listingId(fs.readdirSync(path.join(root, dir)));
 			} catch {
+				// No directory to list is no listing: a row resting on one
+				// there never holds (#4916).
 				return null;
 			}
 		},
-		isDir: (dir) => {
-			try {
-				return fs.statSync(path.join(root, dir)).isDirectory();
-			} catch {
-				return false;
-			}
-		},
+		isDir: (dir) => pathKind(path.join(root, dir)) === "dir",
 	};
 }
 
@@ -527,7 +521,7 @@ function workingAt(root) {
  * @param {string} treeish
  * @returns {TreeAt}
  */
-function commitAt(git, treeish) {
+function buildCommitAt(git, treeish) {
 	const names = (/** @type {string} */ dir) => {
 		try {
 			const spec = `${treeish}:${dir === "." ? "" : dir}`;
@@ -536,6 +530,8 @@ function commitAt(git, treeish) {
 				.split("\0")
 				.filter(Boolean);
 		} catch {
+			// A path the commit holds no tree at, or a git that will not
+			// answer, is no directory there: the row never holds (#4916).
 			return null;
 		}
 	};
@@ -573,7 +569,7 @@ function isTreeHolding({ listings, dirs, git }, at) {
  * @param {string} root
  * @returns {() => Map<string, Set<string>>}
  */
-function trackedListings(root) {
+function buildTrackedListings(root) {
 	/** @type {Map<string, Set<string>> | undefined} */
 	let byDir;
 	return () => {
@@ -734,8 +730,8 @@ function knownRows(run, files, seams) {
 	);
 	const shared = sharedInputs(run.root, run.shared);
 	const reach = lexicalReach(run.root);
-	const listings = trackedListings(run.root);
-	const working = workingAt(run.root);
+	const listings = buildTrackedListings(run.root);
+	const working = buildWorkingAt(run.root);
 	const own = files.flatMap((f) => {
 		const found = fileInputs(f, { run, reads, reach, listings, working });
 		return found ? [found] : [];
@@ -985,7 +981,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 		);
 	}
 	const values = todayValues(seams);
-	const dirs = workingAt(root);
+	const tree = buildWorkingAt(root);
 	const cached = candidates.flatMap((file) => {
 		if (unparsed.has(file)) return [];
 		const held = (byFile.get(file) ?? []).find(({ row, run }) =>
@@ -994,7 +990,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 				now,
 				values,
 				reads: reads.get(file) ?? [],
-				dirs,
+				tree,
 			}),
 		);
 		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
@@ -1108,9 +1104,9 @@ const inputPaths = (v) =>
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {{file: string, now: Map<string, string|null>,
- *   values: Values, reads: string[], dirs: TreeAt}} at
+ *   values: Values, reads: string[], tree: TreeAt}} at
  */
-function isRowHolding(row, run, { file, now, values, reads, dirs }) {
+function isRowHolding(row, run, { file, now, values, reads, tree }) {
 	if (run.format !== FORMAT) return false;
 	const own = asIds(row.inputs);
 	const shared = asIds(run.shared);
@@ -1130,7 +1126,7 @@ function isRowHolding(row, run, { file, now, values, reads, dirs }) {
 		return false;
 	const then = new Map([...shared, ...own]);
 	if (reads.some((p) => !then.has(p))) return false;
-	return isSameContent([...then.keys()], then, now) && isTreeHolding(row, dirs);
+	return isSameContent([...then.keys()], then, now) && isTreeHolding(row, tree);
 }
 
 /**
@@ -1325,9 +1321,9 @@ function heldRow(file, entries, { sha, before, git, values }) {
 	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
 	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));
-	const dirs = commitAt(git, sha);
+	const tree = buildCommitAt(git, sha);
 	return earlier.find(({ row, run }) =>
-		isRowHolding(row, run, { file, now, values, reads: [], dirs }),
+		isRowHolding(row, run, { file, now, values, reads: [], tree }),
 	);
 }
 

@@ -31,12 +31,12 @@
  */
 
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
+const { isNode, readRealTmpdir, repoPath } = require("./read-audit-paths.js");
 const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
@@ -90,6 +90,8 @@ function install() {
 	try {
 		log = fs.openSync(path.join(dir, `${owner}.${process.pid}.jsonl`), "a");
 	} catch {
+		// No log, which the audit's reader doubts: never a throw into the
+		// process this watches (#4916).
 		return;
 	}
 	const fd = log;
@@ -107,7 +109,7 @@ function install() {
 		try {
 			add({ k: "fault" });
 		} catch {
-			// The log will not take it: its reads are already short.
+			// The log will not take it: its reads are already short (#4916).
 		}
 	};
 	/**
@@ -125,12 +127,12 @@ function install() {
 			s = decodeURIComponent(p.pathname);
 		} else return null;
 		const abs = path.resolve(s);
-		const r =
-			relativeUnder(root, abs) ??
-			relativeUnder(root, realOf(abs, realRealpathSync.native) ?? abs);
-		if (r === null) return null;
-		const posix = (r || ".").split(path.sep).join("/");
-		return posix.split("/").includes("node_modules") ? null : posix;
+		return repoPath(
+			root,
+			relativeUnder(root, abs) === null
+				? (realOf(abs, realRealpathSync.native) ?? abs)
+				: abs,
+		);
 	};
 
 	/** @param {() => void} f */
@@ -138,6 +140,8 @@ function install() {
 		try {
 			f();
 		} catch {
+			// A hook that faults drops its record and marks the log, which the
+			// reader doubts, sooner than throw into the code it watches (#4916).
 			fault();
 		}
 	};
@@ -392,7 +396,7 @@ function install() {
 		return words.split("\0").some((w) => path.dirname(w) === dir);
 	};
 	let traces = 0;
-	const tmp = realRealpathSync(os.tmpdir());
+	const tmp = readRealTmpdir(realRealpathSync);
 	const isStub = (/** @type {string[]} */ bin) =>
 		bin.some((at) => relativeUnder(tmp, at) !== null);
 	const argvOf = (/** @type {Untyped} */ opts) =>
@@ -414,7 +418,7 @@ function install() {
 	 * @param {Untyped} opts
 	 * @returns {Route}
 	 */
-	const tracing = (opts) => {
+	const routeOf = (opts) => {
 		const file = String(opts?.file ?? "");
 		const argv = argvOf(opts);
 		const cwd = cwdOf(opts);
@@ -436,9 +440,9 @@ function install() {
 	 * @param {Untyped} opts
 	 * @returns {{opts: Untyped, route: Route}}
 	 */
-	const traced = (opts) => {
+	const underTracer = (opts) => {
 		try {
-			const route = tracing(opts);
+			const route = routeOf(opts);
 			if (!route || !("trace" in route)) return { opts, route };
 			const args = buildTraceArgv(
 				String(STRACE),
@@ -447,6 +451,8 @@ function install() {
 			);
 			return { opts: { ...opts, file: args[0], args }, route };
 		} catch {
+			// The child runs as the test spawned it, untraced, and the log is
+			// marked, which the reader doubts (#4966).
 			fault();
 			return { opts, route: null };
 		}
@@ -456,7 +462,7 @@ function install() {
 	 * @param {number|undefined} pid
 	 * @param {Route} route
 	 */
-	const spawned = (opts, pid, route) =>
+	const logChild = (opts, pid, route) =>
 		guard(() => {
 			const file = String(opts?.file ?? "");
 			const cwd = cwdOf(opts);
@@ -479,9 +485,9 @@ function install() {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const { opts, route } = traced(args[0]);
+			const { opts, route } = underTracer(args[0]);
 			const out = syncSpawn.apply(this, [opts, ...args.slice(1)]);
-			spawned(args[0], out?.pid, route);
+			logChild(args[0], out?.pid, route);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
@@ -494,17 +500,19 @@ function install() {
 			const asked = positional
 				? { file: first, args: argv, cwd, envPairs }
 				: first;
-			const { opts, route } = traced(asked);
+			const { opts, route } = underTracer(asked);
 			const err = asyncSpawn.apply(
 				this,
 				positional
 					? [opts.file, opts.args, ...args.slice(2)]
 					: [opts, ...args.slice(1)],
 			);
-			spawned(asked, this.pid, route);
+			logChild(asked, this.pid, route);
 			return err;
 		};
 	} catch {
+		// A Node whose spawn bindings will not patch runs its children
+		// unlogged: the log is marked, which the reader doubts (#4916).
 		fault();
 	} finally {
 		process.noDeprecation = quiet;
@@ -525,10 +533,6 @@ function install() {
 const SHELLS = new Set(["sh", "bash", "dash"]);
 
 const ELF = Buffer.from("\x7fELF", "latin1");
-
-/** @param {string} file */
-const isNode = (file) =>
-	file === process.execPath || path.basename(file) === "node";
 
 /** @param {unknown} n */
 function nameOf(n) {

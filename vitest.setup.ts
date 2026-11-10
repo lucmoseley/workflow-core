@@ -26,16 +26,10 @@ import "@testing-library/jest-dom/vitest";
  * into vitest is covered; vitest's own process keeps its git environment, so
  * the tree-watch globalSetup still reads a hook's private index.
  */
-for (const name of [
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_PREFIX",
-])
-	delete process.env[name];
+const { GIT_DIR_VARS } = createRequire(import.meta.url)(
+	"./scripts/lib/git.js",
+) as { GIT_DIR_VARS: string[] };
+for (const name of GIT_DIR_VARS) delete process.env[name];
 
 /* A run a case starts is no lander's, though the lander started the suite
  * (#4757). Deleted in the worker, so vitest's own process still marks the
