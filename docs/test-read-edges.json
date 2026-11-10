@@ -3207,6 +3207,7 @@
 			"scripts/lib/claimed-bash-write.test.ts",
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/core-hooks.test.ts",
+			"scripts/lib/gate-judge.test.ts",
 			"scripts/lib/hook-deadline.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
