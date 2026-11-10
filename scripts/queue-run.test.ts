@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
+import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { TSC_RUNG_MB } from "./lib/tsc-slot";
@@ -132,10 +133,14 @@ describe("queue-run.js", () => {
 			return chargeMb;
 		};
 		expect(await chargeOf(["env", "CI=1", "pytest", "-n", "4"])).toBe(
-			150 + 4 * 75,
+			launchChargeMb({ kind: "pytest", workers: 4 }),
 		);
-		expect(await chargeOf(["node", "--test", "a.test.js"])).toBe(381);
-		expect(await chargeOf(["python3", "scripts/x.test.py"])).toBe(150);
+		expect(await chargeOf(["node", "--test", "a.test.js"])).toBe(
+			launchChargeMb({ kind: "node-test" }),
+		);
+		expect(await chargeOf(["python3", "scripts/x.test.py"])).toBe(
+			launchChargeMb({ kind: "pytest", workers: 0 }),
+		);
 	});
 
 	it("puts on its exit line the older part-suites its turn passed (#3115)", async () => {

@@ -5,8 +5,9 @@
  * launch short, into the 10 GB cap, or holds one back for memory it never
  * draws.
  *
- * The one place each figure is pinned as a literal: the callers' tests ask
- * this module by kind, so they check classification, never a figure.
+ * The one place each peak is pinned as a literal: the callers' tests ask
+ * this module by kind, so they check classification; tsc-slot.test.ts pins
+ * only the rung built on the type-check peak.
  */
 import { describe, expect, it } from "vitest";
 import { chargeMb } from "./launch-charge";

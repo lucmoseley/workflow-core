@@ -602,8 +602,8 @@ it("holds a lander marker whose charge is not a number a whole run's (#3323)", (
 	seat.leave();
 });
 
-it("charges a whole suite, a named-file rerun and one past six files as lander runs of those files on the marker (#3323, #3973)", async () => {
-	const charged: unknown[] = [];
+it("charges a whole suite, a named-file rerun and one past six files as lander runs of those files on the marker, a named run under a whole one (#3323, #3973)", async () => {
+	const charged: (number | undefined)[] = [];
 	const tester = localTester({
 		root: work,
 		admit: async (charge) => {
@@ -629,7 +629,7 @@ it("charges a whole suite, a named-file rerun and one past six files as lander r
 		launchChargeMb({ kind: "lander", files: ["a.check.js"] }),
 		launchChargeMb({ kind: "lander", files: seven }),
 	]);
-	expect(charged[1]).toBeLessThan(charged[0] as number);
+	expect(charged[1]).toBeLessThan(Number(charged[0]));
 });
 
 it("opens the gate's memory rung at a whole suite's and a named-file rerun's charge (#3323, #3973)", async () => {
