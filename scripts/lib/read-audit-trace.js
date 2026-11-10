@@ -247,6 +247,7 @@ const TORN = "left a trace line that will not parse";
 const CHDIR = new Set(["chdir", "fchdir"]);
 const GONE = new Set(["ENOENT", "ENOTDIR"]);
 const SIGNALS = new Set(["kill", "tkill", "tgkill"]);
+const READLINKS = new Set(["readlink", "readlinkat"]);
 const SENDS = new Set(["connect", "sendto", "sendmsg", "sendmmsg"]);
 
 /**
@@ -397,7 +398,10 @@ function takeCall(body, seen, where) {
  *   where it lies in another: absent there, not gone
  */
 function pathsOf(call, seen) {
-	const { named, held, torn } = pathsIn(call.args);
+	const { named: strings, held, torn } = pathsIn(call.args);
+	/* A link read prints where it points as a second string: no path the
+	 * call named, and what follows the link is a call of its own. */
+	const named = READLINKS.has(call.name) ? strings.slice(0, 1) : strings;
 	const opened = tokenAt(call.result, call.result.indexOf("<"));
 	if (torn || opened?.cut) return "held a path its trace cut short";
 	const dirs = [...seen.stood];

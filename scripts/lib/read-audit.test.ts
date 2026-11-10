@@ -653,6 +653,20 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 			return readAudits(dir, root, clock).get("a.test.ts");
 		};
 
+		it("holds the link a child read, and nothing for where it points", () => {
+			const root = checkout();
+			const audit = traced(
+				root,
+				[
+					'7 readlink("/usr/bin/cat", "../lib/cargo/bin/coreutils/cat", 4095) = 30',
+					`7 readlinkat(AT_FDCWD<${root}>, "scripts/lib/hooks.js", "elsewhere/gone", 4095) = 14`,
+					Exit,
+				].join("\n"),
+			);
+			expect(audit.doubt).toBeUndefined();
+			expect(audit.reads.files).toContain("scripts/lib/hooks.js");
+		});
+
 		it("holds a path named with no directory beside it under each directory a process stood in", () => {
 			const root = checkout();
 			const audit = traced(
