@@ -2281,7 +2281,7 @@ function buildResumptionText(job, t) {
 function buildWhereLine({ cwd, cwdGuessed }) {
 	if (!cwd) return "in this session";
 	if (cwdGuessed) return "in the worktree git worktree list shows it worked in";
-	const { isSessionWorktreeDir } = require("./lib/session-checkout.js");
+	const { isSessionWorktreeDir } = require("./lib/worktree-dirs.js");
 	const { scriptPath } = require("./lib/script-path.js");
 	const { shellQuote } = require("./lib/sh-quote.js");
 	const dir = shellQuote(cwd);

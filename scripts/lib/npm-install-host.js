@@ -19,6 +19,7 @@ const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { entryStartedAt } = require("./hook-deadline.js");
 const { npmBin } = require("./npm-bin.js");
+const { STORES } = require("./worktree-dirs.js");
 
 const NPM_TIMEOUT_MS = 12_000;
 const CURL_MAX_TIME_S = 8;
@@ -66,9 +67,7 @@ function buildHostPorts(root) {
 				throw err;
 			}
 		},
-		/* Loaded on a judged write only: the module brings the lander and git
-		 * with it (#4269). */
-		storesDir: () => path.join(root, require("./session-checkout.js").STORES),
+		storesDir: () => path.join(root, STORES),
 		npmView: (name) =>
 			call(npm, ["view", name, "time.created", "--json"], NPM_TIMEOUT_MS),
 		downloads: (name) =>

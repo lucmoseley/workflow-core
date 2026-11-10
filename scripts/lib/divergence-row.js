@@ -18,6 +18,11 @@
  */
 
 const { basename } = require("node:path").posix;
+const {
+	FETCH_FIRST,
+	NON_FAST_FORWARD,
+	REJECTED,
+} = require("./land-refusal.js");
 
 /**
  * The refusal strings, in git's own words, probed in this order; the first
@@ -32,9 +37,9 @@ const MARKERS = [
 	"Not possible to fast-forward",
 	"Need to specify how to reconcile divergent branches",
 	"Updates were rejected because",
-	"non-fast-forward",
-	"! [rejected]",
-	"fetch first",
+	NON_FAST_FORWARD,
+	`! ${REJECTED}`,
+	FETCH_FIRST,
 ];
 
 /**

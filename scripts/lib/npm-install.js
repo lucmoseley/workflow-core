@@ -12,7 +12,7 @@
  *      uninstall, update, dedupe, prune, rebuild, link, `audit fix`, every
  *      spelling npm derefs — where the directory it installs into holds a
  *      `node_modules` linking under the host root's dependency stores
- *      (lib/session-checkout.js `STORES`). A session worktree's
+ *      (lib/worktree-dirs.js `STORES`). A session worktree's
  *      `node_modules` links a store every worktree on its lockfile shares
  *      (#4255), so a write through it lands under each neighbour. A
  *      `node_modules` linked anywhere else is not judged here.
