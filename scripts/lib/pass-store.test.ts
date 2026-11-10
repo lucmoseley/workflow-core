@@ -486,7 +486,44 @@ describe("a script the manifest says a file spawns", () => {
 		const dir = spawning(
 			"scripts/tool.py",
 			["scripts/placed.py"],
+			"import os, sys\nsys.path.insert(0, os.path.dirname(__file__))\nimport placed\n",
+		);
+		expect(run(dir, [A])).toBe(1);
+		write(
+			dir,
+			"scripts/tool.py",
 			"import sys\nsys.path.insert(0, sys.argv[1])\nimport placed\n",
+		);
+		expect(run(dir, [A])).toBe(0);
+	});
+
+	/* #4790 pass 2 review, finding 2: a python3 upgrade left a pass resting
+	 * on its stdlib list cached. */
+	it("voids a pass resting on a Python file when python3's version changes", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/helper.py"],
+			"import helper\n",
+		);
+		const values = { ...VALUES, python: "3.12.0.final.0" };
+		expect(run(dir, [A], { values })).toBe(1);
+		expect(cachedOf(dir, [A], { values })).toEqual([A]);
+		expect(
+			cachedOf(dir, [A], { values: { ...VALUES, python: "3.13.0.final.0" } }),
+		).toEqual([]);
+	});
+});
+
+/* #4790 pass 2 review, finding 1: a test importing host_root inside
+ * `python3 -c` stayed cached after host_root.py changed. */
+describe("a spawn of an interpreter handed inline code", () => {
+	it("records no row for a file whose reach spawns one", () => {
+		const dir = repo();
+		expect(run(dir, [A])).toBe(1);
+		write(
+			dir,
+			"lib.js",
+			'spawnSync("python3", ["-c", "import host_root", LIB]);\n',
 		);
 		expect(run(dir, [A])).toBe(0);
 	});
@@ -613,13 +650,18 @@ describe("the uncached pragma", () => {
 });
 
 describe("a store it cannot trust runs every file", () => {
-	it("lets no row recorded before rows reached spawned scripts decide (#4790)", () => {
+	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
+	 * sys.path a spawned Python script builds (#4864). */
+	it.each([
+		["before rows reached spawned scripts (#4790)", 2],
+		["before the walk read a Python script's sys.path (#4864)", 3],
+	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
 		run(dir, [A]);
 		const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
 		fs.writeFileSync(
 			shardOf(dir, A),
-			`${JSON.stringify({ ...line, format: 2 })}\n`,
+			`${JSON.stringify({ ...line, format })}\n`,
 		);
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});

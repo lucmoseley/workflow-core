@@ -10,7 +10,8 @@
  * the graph records no `createRequire` load; the documents the read-edge manifest maps to it, spawned
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
  * closure, `package.json` and the lockfiles; a snapshot file beside it; and,
- * as values, the Node version and the architecture. Each path a relative
+ * as values, the Node version and the architecture, and python3's version
+ * where its inputs hold a Python file. Each path a relative
  * specifier on the way tried before the file it resolved to is an input with
  * the id `absent` (#4814), so a file that appears there and takes the import
  * over voids the row. `globalSetup`'s closure
@@ -25,7 +26,9 @@
  * names; a row whose input list is missing or empty never matches; a run
  * that errored outside its files, was interrupted or filtered by name
  * records its failures alone; a spawned Python import the reach cannot
- * place records no row; an input rewritten while the run ran, untracked, gitignored
+ * place, a JSX or TSX file on the reach, or a spawn on it of an interpreter
+ * handed its program inline (lib/code-edges.js's `inlineCodeSpawns`), records
+ * no row for the files it reaches; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -61,7 +64,13 @@ const {
 	isSameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
-const { isFile, reachOf } = require("./code-edges.js");
+const {
+	inlineCodeSpawns,
+	isCodeFile,
+	isFile,
+	pythonVersion,
+	reachOf,
+} = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
 	readDocsByTest,
@@ -85,7 +94,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 3;
+const FORMAT = 4;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -106,6 +115,10 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{cached: Cached[], run: string[], refused: string[],
  *   notice: string|null}} Lookup
  * @typedef {{values?: Record<string, string>, lander?: boolean}} Seams
+ *   `values` today's, python3's read off the machine where it names none
+ * @typedef {{base: Record<string, string>, python: () => string|null}} Values
+ *   today's: the node and arch every row rests on, and python3's version,
+ *   read only for a row that rests on it, null where python3 will not answer
  */
 
 /** @param {string} storeRoot the canonical checkout */
@@ -126,6 +139,39 @@ const shardFile = (storeRoot, file) =>
 
 /** @returns {Record<string, string>} */
 const currentValues = () => ({ node: process.version, arch: process.arch });
+
+/**
+ * Today's values under `seams`.
+ * @param {Seams} seams
+ * @returns {Values}
+ */
+function todayValues(seams) {
+	const { python, ...base } = seams.values ?? currentValues();
+	return { base, python: () => python ?? readPythonVersion() };
+}
+
+/** python3's version, or null where it will not answer. */
+function readPythonVersion() {
+	try {
+		return pythonVersion();
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The values a row with input paths `paths` rests on: a Python file among
+ * them was walked against python3's stdlib and runs under python3, so its
+ * version joins node and arch. Null where python3 will not answer.
+ * @param {string[]} paths
+ * @param {Values} today
+ * @returns {Record<string, string>|null}
+ */
+function rowValues(paths, today) {
+	if (!paths.some((p) => p.endsWith(".py"))) return today.base;
+	const python = today.python();
+	return python === null ? null : { ...today.base, python };
+}
 
 /**
  * Options for a git in `root` fed `input` on stdin.
@@ -220,9 +266,6 @@ const refuseFault = (/** @type {string} */ why) => {
 	throw new Error(why);
 };
 
-/* A file whose lexical edges the reach follows: code a test loads or spawns. */
-const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh|py)$/;
-
 /**
  * @typedef {{edges: string[], shadows: string[]}} Reach repo-relative: the
  *   files reached, and the paths a specifier on the way tried before the file
@@ -246,7 +289,7 @@ function lexicalReach(root) {
 	/** @param {string} rel */
 	const reachFrom = (rel) => {
 		if (memo.has(rel)) return memo.get(rel) ?? null;
-		const found = FOLLOWED.test(rel)
+		const found = isCodeFile(rel)
 			? readEdges(root, rel)
 			: { edges: [], shadows: [] };
 		memo.set(rel, found);
@@ -274,7 +317,8 @@ function lexicalReach(root) {
 
 /**
  * The in-repo files `rel` names lexically and the paths its specifiers tried
- * before them, or null where it will not read.
+ * before them, or null where it will not read, faults, or spawns inline code
+ * whose loads no walk reads.
  * @param {string} root
  * @param {string} rel
  * @returns {Reach|null}
@@ -284,6 +328,7 @@ function readEdges(root, rel) {
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
+		if (inlineCodeSpawns(abs, read.data).length > 0) return null;
 		const { edges, shadows } = reachOf(abs, read.data, refuseFault);
 		return {
 			edges: repoRelative(root, edges.filter(isFile)),
@@ -347,7 +392,7 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const own = files.flatMap((f) => {
 			/* A script the manifest says the file spawns is reached too: its own
 			 * requires are inputs that no import and no `__dirname` join names. */
-			const spawned = (reads.get(f.file) ?? []).filter((p) => FOLLOWED.test(p));
+			const spawned = (reads.get(f.file) ?? []).filter(isCodeFile);
 			const reaches = [f.file, ...f.imports, ...spawned].map(reach);
 			if (reaches.includes(null)) return [];
 			const reached = /** @type {Reach[]} */ (reaches);
@@ -384,16 +429,18 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const areAllAbsent = (/** @type {string[]} */ paths) =>
 			paths.every((p) => ids.has(p) && ids.get(p) === null);
 		if (!known(shared)) return 0;
+		const today = todayValues(seams);
 		const rows = own
 			.filter((f) => known(f.paths) && areAllAbsent(f.absent))
-			.map((f) => ({
-				file: f.file,
-				outcome: f.outcome,
-				inputs: Object.fromEntries([
+			.flatMap((f) => {
+				const values = rowValues([...f.paths, ...f.absent], today);
+				if (values === null) return [];
+				const inputs = Object.fromEntries([
 					...f.paths.map((p) => [p, ids.get(p)]),
 					...f.absent.map((p) => [p, ABSENT]),
-				]),
-			}));
+				]);
+				return [{ values, row: { file: f.file, outcome: f.outcome, inputs } }];
+			});
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
 		const line = {
@@ -401,13 +448,12 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 			at: run.at,
 			sha: run.sha,
 			tree: run.tree,
-			values: seams.values ?? currentValues(),
 			shared: Object.fromEntries(shared.map((p) => [p, ids.get(p)])),
 		};
-		const landed = rows.filter((row) =>
+		const landed = rows.filter(({ values, row }) =>
 			appendRetained(
 				shardFile(storeRoot, row.file),
-				{ ...line, files: [row] },
+				{ ...line, values, files: [row] },
 				ARCHIVE_MS,
 				// The prune drops a line that will not parse, after which rows
 				// older than it decide again, and it may have been a newer fail.
@@ -533,7 +579,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 			{ cause: e },
 		);
 	}
-	const values = seams.values ?? currentValues();
+	const values = todayValues(seams);
 	const cached = candidates.flatMap((file) => {
 		if (unparsed.has(file)) return [];
 		const held = (byFile.get(file) ?? []).find(({ row, run }) =>
@@ -648,13 +694,13 @@ const inputPaths = (v) =>
 
 /**
  * Whether one recorded row's verdict holds now: its file is `file`, it
- * recorded a non-empty input list with every id unchanged, the run's values
- * equal today's, it is in this store's `FORMAT`, and every document the manifest now maps to the file is
+ * recorded a non-empty input list with every id unchanged, the values it
+ * rests on equal today's, it is in this store's `FORMAT`, and every document the manifest now maps to the file is
  * among its inputs.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {{file: string, now: Map<string, string|null>,
- *   values: Record<string, string>, reads: string[]}} at
+ *   values: Values, reads: string[]}} at
  */
 function isRowHolding(row, run, { file, now, values, reads }) {
 	if (run.format !== FORMAT) return false;
@@ -664,7 +710,11 @@ function isRowHolding(row, run, { file, now, values, reads }) {
 	const recordedValues = /** @type {Record<string, unknown>} */ (
 		run.values ?? {}
 	);
-	if (Object.entries(values).some(([k, v]) => recordedValues[k] !== v))
+	const wanted = rowValues([...own.keys()], values);
+	if (
+		wanted === null ||
+		Object.entries(wanted).some(([k, v]) => recordedValues[k] !== v)
+	)
 		return false;
 	const then = new Map([...shared, ...own]);
 	if (reads.some((p) => !then.has(p))) return false;
@@ -832,7 +882,7 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 				sha,
 				before,
 				git,
-				values: values ?? currentValues(),
+				values: todayValues({ values }),
 			});
 			if (hit)
 				held.set(file, {
@@ -852,7 +902,7 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
  * @param {string} file
  * @param {Entry[]} entries newest first
  * @param {{ sha: string, before: string, git: (args: string[]) => string,
- *   values: Record<string, string> }} at
+ *   values: Values }} at
  */
 function heldRow(file, entries, { sha, before, git, values }) {
 	const earlier = entries.filter(({ run }) => String(run.at) < before);
