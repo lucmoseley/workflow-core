@@ -83,6 +83,17 @@ describe("settingsLockout", () => {
 		expect(settingsLockout(at)).toContain("it denied the call on stdout");
 	});
 
+	it("refuses a line that exits 125 itself, never reading it as the probe's own failure", () => {
+		const at = repo.cutWorktree("exits125", (text) =>
+			text.replace(/"command": "(.*?)",/, '"command": "exit 125",'),
+		);
+		const said: string[] = [];
+		expect(settingsLockout(at, (line) => said.push(line))).toContain(
+			"it exited 125",
+		);
+		expect(said).toEqual([]);
+	});
+
 	it("refuses a worktree whose settings will not parse", () => {
 		const at = repo.cutWorktree("unparsed", (text) => `${text},`);
 		expect(settingsLockout(at)).toContain("does not parse as JSON");

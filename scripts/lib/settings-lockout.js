@@ -41,6 +41,7 @@ const { parseFirstLine } = require("./first-line.js");
 const { gitOrNull } = require("./git.js");
 const {
 	APPARATUS_EXIT,
+	APPARATUS_PREFIX,
 	KILLED_EXIT,
 	RUN_BUDGETED,
 	TIMEOUT_EXIT,
@@ -191,7 +192,14 @@ function verdictOf(line, { dir, env, input }) {
 		{ cwd: dir, env, encoding: "utf8" },
 	);
 	if (r.error) return { unrun: r.error.message };
-	if (r.status === APPARATUS_EXIT) return { unrun: parseFirstLine(r.stderr) };
+	/* 125 is also a status the line may exit with itself, which
+	 * run-budgeted.js passes through; only its own prefixed line marks its
+	 * failure. */
+	if (
+		r.status === APPARATUS_EXIT &&
+		r.stderr.trimStart().startsWith(APPARATUS_PREFIX)
+	)
+		return { unrun: parseFirstLine(r.stderr) };
 	const blocked = blockOf(line, r, budgetS);
 	return blocked === null ? null : { blocked };
 }
@@ -266,7 +274,15 @@ function probeLines(dir, main, { own, landed }) {
 				};
 			/* origin/main's lines failing too puts the fault outside the edit,
 			 * so restoring them is no fix: the canary's own refusal speaks. */
-			if (landed?.some((l) => verdictOf(l, probe) !== null)) return null;
+			const landedVerdicts = (landed ?? []).map((l) => verdictOf(l, probe));
+			if (landedVerdicts.some((v) => v !== null && "blocked" in v)) return null;
+			const landedUnrun = landedVerdicts.find(
+				(v) => v !== null && "unrun" in v,
+			);
+			if (landedUnrun && "unrun" in landedUnrun)
+				return {
+					unrun: `the probe of origin/main's lines would not run: ${landedUnrun.unrun}`,
+				};
 			return { line, blocked: verdict.blocked };
 		}
 		return null;
