@@ -16,24 +16,31 @@ const { probeUserScope, spawnOutliving } = require("./user-scope.js");
  * @typedef {object} StartDeps
  * @property {() => number|null} holder the live lander's pid, or null
  * @property {() => string[]} waiting the queue refs waiting on the remote
+ * @property {() => string[]} owed the dropped refs whose drop is owed a
+ *   decision: open, with no fix ticket
  * @property {() => number} spawnRun starts a detached queue lander,
  *   returning its pid
  */
 
 /**
- * Starts a queue lander only where none runs and a queue ref waits.
- * Residual: two starts inside one lander's startup both spawn, and the
- * second exits on the lock.
+ * Starts a queue lander only where none runs and a queue ref waits or a drop
+ * is owed a decision (#4950). Residual: two starts inside one lander's
+ * startup both spawn, and the second exits on the lock; and while an owed
+ * drop's owning session works, each start runs a lander that reads that and
+ * ends.
  * @param {StartDeps} deps
- * @returns {{started: number, waiting: string[]} | {skipped: string}}
+ * @returns {{started: number, waiting: string[], owed: string[]}
+ *   | {skipped: string}}
  */
-function startLander({ holder, waiting, spawnRun }) {
+function startLander({ holder, waiting, owed, spawnRun }) {
 	const pid = holder();
 	if (pid !== null)
 		return { skipped: `a lander is already running (pid ${pid})` };
 	const refs = waiting();
-	if (refs.length === 0) return { skipped: "no queue ref waits" };
-	return { started: spawnRun(), waiting: refs };
+	const drops = owed();
+	if (refs.length === 0 && drops.length === 0)
+		return { skipped: "no queue ref waits and no drop is owed a decision" };
+	return { started: spawnRun(), waiting: refs, owed: drops };
 }
 
 /* A guess: a session-start launch can read the oracle before its session is

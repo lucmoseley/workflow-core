@@ -1,10 +1,13 @@
 // @vitest-environment node
 /*
- * The queue lander's fix tickets (#4485, spec #4458), filed through fake
- * file-issue.js and gh calls.
+ * The queue lander's fix tickets (#4485, spec #4458; #4950, spec #4947),
+ * filed, updated and closed through fake file-issue.js and gh calls.
  *
  * Loosen it and a dropped queue ref's work can go unrecorded, land under a
- * closed ticket no map offers, or be filed twice.
+ * closed ticket no map offers, or be filed twice; a branch dropped again can
+ * get a second ticket or leave its ticket naming an old drop, a closed cited
+ * ticket can be reopened by an update, or a filing fault can read as a
+ * loader's file path.
  */
 
 import { createRequire } from "node:module";
@@ -28,7 +31,10 @@ const DROP: Drop = {
 	cause: { kind: "conflict", name: "wt-1", files: ["x.js", "y.js"] },
 	ticket: null,
 	at: 0,
+	state: "open",
+	decidedAt: 0,
 };
+const HELD = [{ ref: DROP.ref, sha: A }];
 
 describe("dropTicketFiler", () => {
 	/**
@@ -39,16 +45,19 @@ describe("dropTicketFiler", () => {
 	function dropFiler(
 		subjects: string[],
 		states: Record<number, "open" | "closed"> = {},
-		listed: { number: number; title: string }[] = [],
+		listed: { number: number; title: string; body?: string }[] = [],
 		{
 			units = {} as Record<string, number[]>,
 			status = 0,
 			refuseParent = null as string | null,
+			stderr = "file-issue: rule:x refused it\n",
 		} = {},
 	) {
 		const files: { args: string[]; input: string }[] = [];
 		const ranges: string[] = [];
 		const reopened: number[] = [];
+		const updates: { n: number; body: string; comment: string }[] = [];
+		const closes: { n: number; comment: string }[] = [];
 		const tracker = dropTicketFiler({
 			subjectsOf: (base, tip) => {
 				ranges.push(`${base}..${tip}`);
@@ -56,12 +65,16 @@ describe("dropTicketFiler", () => {
 			},
 			openUnits: (parent) => units[String(parent)] ?? [],
 			similar: () => listed,
-			readTicketsTitled: (prefix) =>
-				new Map(
-					listed
-						.filter((c) => c.title.startsWith(prefix))
-						.map((c) => [c.title, c.number]),
-				),
+			openTitled: (prefix) =>
+				listed
+					.filter((c) => c.title.startsWith(prefix))
+					.map((c) => ({ body: "", ...c })),
+			update: (n, body, comment) => {
+				updates.push({ n, body, comment });
+			},
+			close: (n, comment) => {
+				closes.push({ n, comment });
+			},
 			fileIssue: (args, input) => {
 				files.push({ args, input });
 				if (refuseParent !== null && args.includes("--parent"))
@@ -72,7 +85,7 @@ describe("dropTicketFiler", () => {
 					};
 				return status === 0
 					? { status, stdout: "Filed #9: https://x/9\n", stderr: "" }
-					: { status, stdout: "", stderr: "file-issue: rule:x refused it\n" };
+					: { status, stdout: "", stderr };
 			},
 			stateOf: (n) => {
 				const state = states[n];
@@ -84,36 +97,114 @@ describe("dropTicketFiler", () => {
 			},
 		});
 		return {
+			filed: (d: Partial<Drop> = {}, held = HELD) =>
+				tracker.fileDropTicket({ ...DROP, ...d }, held),
 			said: (d: Partial<Drop> = {}) =>
-				tracker.fileDropTicket({ ...DROP, ...d }),
-			found: () => tracker.findDropTicket(DROP.name, DROP.sha),
+				tracker.fileDropTicket({ ...DROP, ...d }, HELD).line,
+			found: () => tracker.findDropTicket(DROP.name),
+			close: (n: number, main: string) =>
+				tracker.closeDropTicket(n, DROP, main),
 			files,
 			ranges,
 			reopened,
+			updates,
+			closes,
 		};
 	}
 
-	it("finds the lowest-numbered ticket whose title starts with the drop's prefix, and none where only a near title does", () => {
+	it("finds the lowest-numbered open ticket whose title starts with the branch's prefix, whatever sha it was filed at, and none where only a near name does", () => {
 		const titled = (number: number, title: string) => ({ number, title });
 		const near = [
-			titled(5, "Fix queue/wt-10 at aaaaaaaaa, dropped by the queue lander: x"),
-			titled(6, "Fix queue/wt-1 at bbbbbbbbb, dropped by the queue lander: x"),
+			titled(5, "Fix queue/wt-10, dropped by the queue lander: x"),
+			titled(6, "Fix queue/wt-1-b, dropped by the queue lander: x"),
 		];
 
 		expect(dropFiler([], {}, near).found()).toBeNull();
 		expect(
 			dropFiler([], {}, [
 				...near,
-				titled(
-					8,
-					"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: y",
-				),
-				titled(
-					7,
-					"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: x",
-				),
+				titled(8, "Fix queue/wt-1, dropped by the queue lander: y"),
+				titled(7, "Fix queue/wt-1, dropped by the queue lander: x"),
 			]).found(),
 		).toBe(7);
+	});
+
+	it("updates the branch's open ticket in place on a further drop: its body replaced, one comment naming the new sha and cause, nothing filed or reopened", () => {
+		const B = "b".repeat(40);
+		const f = dropFiler(["Add the widget (#12)"], { 12: "closed" }, [
+			{
+				number: 5,
+				title: "Fix queue/wt-1, dropped by the queue lander: Start",
+				body: `dropped \`queue/wt-1\` at ${A}`,
+			},
+		]);
+
+		const out = f.filed({ sha: B, ref: "dropped/wt-1-bbbbbbbbb" }, [
+			{ ref: "dropped/wt-1-bbbbbbbbb", sha: B },
+			{ ref: "dropped/wt-1", sha: A },
+		]);
+
+		expect(out).toEqual({
+			number: 5,
+			line: "fix ticket updated: #5 now names queue/wt-1 at bbbbbbbbb",
+		});
+		expect(f.files).toEqual([]);
+		expect(f.reopened).toEqual([]);
+		expect(f.updates).toHaveLength(1);
+		const [{ n, body, comment }] = f.updates;
+		expect(n).toBe(5);
+		expect(body).toContain(`\`queue/wt-1\` at ${B}`);
+		expect(body).toContain(`onto \`main\` at ${M}`);
+		expect(body).toContain("- `x.js`\n- `y.js`");
+		expect(body).toContain(`- \`dropped/wt-1-bbbbbbbbb\` at ${B}, this drop`);
+		expect(body).toContain(`- \`dropped/wt-1\` at ${A}\n`);
+		expect(body).toContain("- [ ] bbbbbbbbb's change merges onto `main`");
+		expect(comment).toBe(
+			`The queue lander dropped \`queue/wt-1\` again, at ${B}: it conflicts with \`main\`. This ticket's body now describes that drop.`,
+		);
+	});
+
+	it("leaves an open ticket whose body already names the drop's sha as it is, naming it", () => {
+		const f = dropFiler(["Tidy"], {}, [
+			{
+				number: 5,
+				title: "Fix queue/wt-1, dropped by the queue lander: Tidy",
+				body: `dropped \`queue/wt-1\` at ${A}`,
+			},
+		]);
+
+		expect(f.filed()).toEqual({
+			number: 5,
+			line: "fix ticket already open: #5",
+		});
+		expect(f.files).toEqual([]);
+		expect(f.updates).toEqual([]);
+	});
+
+	it("closes an open ticket with a comment naming the main sha that holds the work, and leaves a closed one alone", () => {
+		const f = dropFiler([], { 5: "open", 6: "closed" });
+
+		f.close(5, M);
+		f.close(6, M);
+
+		expect(f.closes).toEqual([
+			{
+				n: 5,
+				comment: `Closed by the queue lander: \`main\` at ${M} holds the work of \`queue/wt-1\` dropped at ${A}.`,
+			},
+		]);
+	});
+
+	it("names the thrown error's message line, not the loader's file path, where file-issue.js would not load", () => {
+		const f = dropFiler(["Tidy"], {}, [], {
+			status: 1,
+			stderr:
+				"node:internal/modules/cjs/loader:1520\n  throw err;\n  ^\n\nError: Cannot find module './lib/x.js'\nRequire stack:\n- /r/scripts/file-issue.js\n",
+		});
+
+		expect(() => f.said()).toThrow(
+			"fix ticket for a commit on queue/wt-1 not filed: Error: Cannot find module './lib/x.js'",
+		);
 	});
 
 	it("files an unrecorded drop's ticket saying why is unknown", () => {
@@ -175,18 +266,18 @@ describe("dropTicketFiler", () => {
 		expect(flag(f.files[0].args, "--distinct-from")).toBe("5,6");
 	});
 
-	it("files an unassigned takes:implement sub-issue of the ticket the newest citing commit cites, naming the ref, sha, dropped ref and conflicted files", () => {
+	it("files an unassigned takes:implement sub-issue of the ticket the newest citing commit cites, titled by the queue ref's name alone, naming the ref, sha, dropped ref and conflicted files", () => {
 		const f = dropFiler(["Tidy", "Add the widget (#12)", "Start (#40)"], {
 			12: "open",
 		});
 
-		expect(f.said()).toBe("Filed #9: https://x/9");
+		expect(f.filed()).toEqual({ number: 9, line: "Filed #9: https://x/9" });
 
 		const [{ args, input }] = f.files;
 		expect(f.ranges).toEqual([`${M}..${A}`]);
 		expect(flag(args, "--parent")).toBe("12");
 		expect(flag(args, "--title")).toBe(
-			"Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: Tidy",
+			"Fix queue/wt-1, dropped by the queue lander: Tidy",
 		);
 		expect(args).toEqual(
 			expect.arrayContaining(["takes:implement", "kind:ticket"]),
@@ -195,7 +286,7 @@ describe("dropTicketFiler", () => {
 		expect(input).toContain(`\`queue/wt-1\` at ${A}`);
 		expect(input).toContain(`onto \`main\` at ${M}`);
 		expect(input).toContain("- `x.js`\n- `y.js`");
-		expect(input).toContain("`dropped/wt-1`");
+		expect(input).toContain(`- \`dropped/wt-1\` at ${A}, this drop`);
 	});
 
 	it("files standalone where no commit cites a ticket, naming a merge's refusal as its evidence", () => {
@@ -292,18 +383,6 @@ describe("dropTicketFiler", () => {
 		expect(unnamed).toContain(
 			"- [ ] aaaaaaaaa's change passes the whole suite merged onto `main`, and is pushed to `queue/wt-1` again.",
 		);
-	});
-
-	it("files nothing where a listed open ticket already names the ref at its sha", () => {
-		const f = dropFiler(["Tidy"], {}, [
-			{
-				number: 5,
-				title: "Fix queue/wt-1 at aaaaaaaaa, dropped by the queue lander: Tidy",
-			},
-		]);
-
-		expect(f.said()).toBe("fix ticket already open: #5");
-		expect(f.files).toEqual([]);
 	});
 
 	it("names each open ticket under its placement checked past rule:size-line, as each drop is its own fix", () => {
