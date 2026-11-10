@@ -1,14 +1,11 @@
 /*
- * loop-prompts.js — the prompts the refill loop types into, or resumes, a
- * session it launched. Each opens with LOOP_PROMPT_PREFIX, so `isLoopPrompt`
- * tells lib/founder-typing.js, lib/tool-calls-since.js, retro-transcript.js
- * and pick-retro-sessions.js it is not the founder's typing (#3369, #3378,
- * #3381).
- *
- * A prompt any other script types or resumes with opens with
- * SCRIPT_PROMPT_PREFIX, through `scriptPrompt`, so lib/founder-typing.js
- * reads it as no typing of his either (#4844). At UserPromptSubmit a typed
- * line carries no origin, so its text is the only mark it can bear.
+ * loop-prompts.js — the prompts a script types into, or resumes, a session
+ * with, each opening with a prefix that marks it no typing of the founder's:
+ * the refill loop's with LOOP_PROMPT_PREFIX (#3369, #3378, #3381), any other
+ * script's with SCRIPT_PROMPT_PREFIX, through `scriptPrompt` (#4844).
+ * `isPrefixedPrompt` reads either, for lib/founder-typing.js,
+ * lib/tool-calls-since.js, lib/claude-attach.js, pick-retro-sessions.js and
+ * rescue-sessions.js; retro-transcript.js labels each by its own.
  */
 
 const { scriptPath } = require("./script-path.js");
@@ -70,6 +67,12 @@ const scriptPrompt = (text) => `${SCRIPT_PROMPT_PREFIX}${text}`;
 const isScriptPrompt = (text) =>
 	text.trimStart().startsWith(SCRIPT_PROMPT_PREFIX);
 
+/**
+ * Whether `text` opens with the loop's prefix or a script's.
+ * @param {string} text
+ */
+const isPrefixedPrompt = (text) => isLoopPrompt(text) || isScriptPrompt(text);
+
 module.exports = {
 	API_PROMPT,
 	BOOT_PROMPT,
@@ -80,6 +83,7 @@ module.exports = {
 	MOVED_PROMPT,
 	hasNothingToRepeat,
 	isLoopPrompt,
+	isPrefixedPrompt,
 	isScriptPrompt,
 	parkedPromptOf,
 	scriptPrompt,

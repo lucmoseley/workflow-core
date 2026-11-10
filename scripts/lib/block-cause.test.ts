@@ -22,7 +22,7 @@ import {
 	hasTurnSinceApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
-import { API_PROMPT, HOLD_PROMPT } from "./loop-prompts.js";
+import { API_PROMPT, HOLD_PROMPT, scriptPrompt } from "./loop-prompts.js";
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
@@ -900,7 +900,7 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 		expect(hasTurnSinceApiStop(null, null)).toBe(false);
 	});
 
-	it("counts the founder's typing, never the loop's or the harness's", () => {
+	it("counts the founder's typing, never the loop's, a script's or the harness's", () => {
 		expect(hasFounderTypedSinceApiStop([stop(1), typed(2, "resume")])).toBe(
 			true,
 		);
@@ -909,6 +909,7 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 				stop(1),
 				typed(2, API_PROMPT),
 				typed(3, "<task-notification>done</task-notification>"),
+				typed(4, scriptPrompt("resume")),
 			]),
 		).toBe(false);
 		expect(hasFounderTypedSinceApiStop([typed(2, "resume"), stop(3)])).toBe(

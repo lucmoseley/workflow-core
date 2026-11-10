@@ -39,8 +39,9 @@
  *  - A prompt lib/founder-typing.js's `isMachineWrittenPrompt` marks — a
  *    background-task notification, a subagent's hand-back, a mod's delivery,
  *    the refill loop's resume, another script's prompt — never fires,
- *    whatever it quotes (#652, #3378). So a founder paste opening with one is silent too, and any other
- *    pasted transcript quoting the phrases fires.
+ *    whatever it quotes (#652, #3378, #4844). So a founder paste opening
+ *    with one is silent too, and any other pasted transcript quoting the
+ *    phrases fires.
  *  - The prompt route is not latched: every matching prompt fires, since each
  *    may name a different fault or follow a different reply that missed. The
  *    Skill route is, once per session, agent and pattern, through the kit's

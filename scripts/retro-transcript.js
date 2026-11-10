@@ -7,6 +7,7 @@
  *
  * KEPT, one output line per item, each opening `L<n>` — the line of the log it
  * came from: founder messages; the refill loop's resume prompts, as LOOP;
+ * another script's typed prompts, as SCRIPT;
  * assistant text; each tool call's name and a short input; each tool result's
  * error flag and its first 300 characters; hook feedback; compaction
  * boundaries; API errors. Everything else — thinking, the compaction summary,
@@ -54,7 +55,7 @@ const { StringDecoder } = require("node:string_decoder");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
-const { isLoopPrompt } = require("./lib/loop-prompts");
+const { isLoopPrompt, isScriptPrompt } = require("./lib/loop-prompts");
 const { buildMasker } = require("./lib/token-shapes");
 const { writeStreamAtomic } = require("./lib/atomic-write.js");
 const { readStoredSecrets, secretsFile } = require("./lib/env-file.js");
@@ -220,6 +221,9 @@ function reduceUser(record, tier) {
 	} else if (isLoopPrompt(text))
 		/* Origin `human` too, but the loop typed it (#3381). */
 		items.push(["LOOP", short(text, LIMIT.founder)]);
+	else if (isScriptPrompt(text))
+		/* As the loop's: a script typed it (#4844). */
+		items.push(["SCRIPT", short(text, LIMIT.founder)]);
 	else if (isFounder(kind))
 		/* A subagent's opening message is its dispatch prompt, not the founder. */
 		items.push([
@@ -346,6 +350,11 @@ function reduceAttachment(record) {
 			"LOOP queued",
 			short(parseContentText(a.prompt), LIMIT.founder),
 		]);
+	else if (isScriptQueued(a))
+		items.push([
+			"SCRIPT queued",
+			short(parseContentText(a.prompt), LIMIT.founder),
+		]);
 	else if (isFounderQueued(a))
 		/* Typed while the session was busy, so logged only here, never as a
 		 * user record. A peer's queued message fails `isFounder`. */
@@ -365,8 +374,15 @@ const isLoopQueued = (a) =>
 	isPromptQueued(a) && isLoopPrompt(parseContentText(a.prompt));
 
 /** @param {TranscriptRecord["attachment"]} a */
+const isScriptQueued = (a) =>
+	isPromptQueued(a) && isScriptPrompt(parseContentText(a.prompt));
+
+/** @param {TranscriptRecord["attachment"]} a */
 const isFounderQueued = (a) =>
-	isPromptQueued(a) && !isLoopQueued(a) && isFounder(a.origin?.kind);
+	isPromptQueued(a) &&
+	!isLoopQueued(a) &&
+	!isScriptQueued(a) &&
+	isFounder(a.origin?.kind);
 
 /** @type {Map<unknown, (record: TranscriptRecord, tier: "main" | "subagent") => Reduced>} */
 const REDUCERS = new Map([

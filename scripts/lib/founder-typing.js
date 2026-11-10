@@ -30,12 +30,12 @@
  * BLIND SPOTS: a scheduled task's or `/loop` iteration's prompt is its own
  * text, and counts. A `claude --bg` he types himself reads as a dispatcher's.
  * A script that types into a session by a route of its own, with no prefix,
- * counts.
+ * counts. A prompt he types or pastes that opens with either prefix does not.
  */
 
 const { isHisJobRecord } = require("./background-start.js");
 const { readJobRecordIn } = require("./job-paths.js");
-const { isLoopPrompt, isScriptPrompt } = require("./loop-prompts.js");
+const { isPrefixedPrompt } = require("./loop-prompts.js");
 const { isSubagentPayload } = require("./subagent-payload.js");
 
 const HARNESS_PROMPT =
@@ -61,7 +61,7 @@ function isDispatchedLaunchPrompt(prompt) {
  * @param {string} prompt
  */
 const isMachineWrittenPrompt = (prompt) =>
-	HARNESS_PROMPT.test(prompt) || isLoopPrompt(prompt) || isScriptPrompt(prompt);
+	HARNESS_PROMPT.test(prompt) || isPrefixedPrompt(prompt);
 
 /** @param {unknown} payload  the hook's parsed stdin */
 function isFounderTyping(payload) {

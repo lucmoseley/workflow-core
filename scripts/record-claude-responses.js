@@ -66,8 +66,8 @@ const { configDir } = require("./lib/config-dir.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
-const { scriptPrompt } = require("./lib/loop-prompts.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
+const { ASK, PROMPT, SCRIPTED_PROMPT } = require("./lib/recorder-prompts.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -88,13 +88,6 @@ const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
  * "No job matching". */
 const NO_JOB = "00000000";
-const PROMPT = "Reply with the single word ok. Use no tools.";
-/* PROMPT as typed into, or resumed in, a job whose launch intent it is not:
- * there only the prefix tells the presence hook it is no typing of the
- * founder's (#4844). */
-const SCRIPTED_PROMPT = scriptPrompt(PROMPT);
-const ASK =
-	"Ask me one question, whether I prefer red or blue, with the AskUserQuestion tool. Use no other tool.";
 /* Under `--permission-mode manual` a Bash write prompts. */
 const PERMISSION_ASK =
 	"Run exactly this Bash command and nothing else: touch /tmp/wfc-permission-probe. Use no other tool.";

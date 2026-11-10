@@ -12,7 +12,7 @@
 
 const path = require("node:path");
 const { claudeBin } = require("./claude-bin.js");
-const { isLoopPrompt, isScriptPrompt } = require("./loop-prompts.js");
+const { isPrefixedPrompt } = require("./loop-prompts.js");
 
 /* Untraced: a hang guard on the typed resume, past pty_type.py's longest run
  * (its DRAW_MAX_S draw wait then AFTER_ENTER_S, both untraced) plus a guessed
@@ -28,7 +28,7 @@ const ATTACH_TIMEOUT_MS = 30 * 1000;
  * @throws where `prompt` opens with neither prefix
  */
 function buildTypedAttach(jobId, prompt) {
-	if (!isLoopPrompt(prompt) && !isScriptPrompt(prompt))
+	if (!isPrefixedPrompt(prompt))
 		throw new Error(
 			`a prompt typed into ${jobId} must open with the loop's or a script's prefix (lib/loop-prompts.js), or it counts as the founder's typing: ${prompt}`,
 		);

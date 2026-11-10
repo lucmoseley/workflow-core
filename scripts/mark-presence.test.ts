@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
+import { ASK, SCRIPTED_PROMPT } from "./lib/recorder-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "mark-presence.js");
@@ -159,17 +160,13 @@ describe("a prompt nobody typed", () => {
 
 	/* record-claude-responses.js's attach step: its question job, typed into
 	 * through `claude attach` and pty_type.py. */
-	it("writes nothing for a line a script types into a job through `claude attach` (#4844)", () => {
-		run(scriptPrompt("Reply with the single word ok. Use no tools."), {
-			jobDir: buildJob(
-				"Ask me one question, whether I prefer red or blue, with the AskUserQuestion tool. Use no other tool.",
-			),
-		});
+	it("writes nothing for the line record-claude-responses.js types into its question job (#4844)", () => {
+		run(SCRIPTED_PROMPT, { jobDir: buildJob(ASK) });
 		expect(isMarked()).toBe(false);
 	});
 
 	it("writes nothing for a script's prompt outside a job", () => {
-		run(scriptPrompt("Reply with the single word ok. Use no tools."));
+		run(scriptPrompt("carry on"));
 		expect(isMarked()).toBe(false);
 	});
 
