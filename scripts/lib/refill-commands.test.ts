@@ -45,6 +45,7 @@ const NO_SEATS = {
 const NO_CONCURRENCY = {
 	working: null,
 	ceiling: null,
+	stateWorking: null,
 };
 
 describe("what status prints", () => {

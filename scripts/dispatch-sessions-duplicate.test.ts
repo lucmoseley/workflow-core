@@ -78,7 +78,7 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 			.split("\n")
 			.map((l) => JSON.parse(l));
 		expect(lines.map((l) => l.issues)).toEqual([[341], [1114]]);
-		expect(lines[0].model).toBe("sonnet");
+		expect(lines[0].model).toBe("claude-haiku-5-5[1m]");
 	});
 
 	it("records why each launch went on its seat: its caller's own, else the loop's pick (#3732)", () => {

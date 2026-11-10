@@ -313,6 +313,7 @@ describe("the SessionStart housekeeping launcher", () => {
 				CLAUDE_CODE_SESSION_ID: "starter",
 				CLAUDE_JOB_DIR: "/the/job",
 				WFC_REPORT_OWNER: "stale",
+				CLAUDE_PID: "4242",
 				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 			},
 		});
@@ -338,7 +339,7 @@ describe("the SessionStart housekeeping launcher", () => {
 		]);
 	});
 
-	it("launches every job but the session's scope as no session, owned by the starter, capped at 45 minutes (#4706)", async () => {
+	it("launches every job but the session's scope as no session, owned by the starter, capped at 45 minutes, marked as outliving its session (#4706, #4749)", async () => {
 		const { lines, fake } = await launchOutliving(true);
 		expect(fake.probes()).toBe(1);
 		expect(lines.find((l) => l.includes("check-self-throttling.js"))).toMatch(
@@ -351,6 +352,7 @@ describe("the SessionStart housekeeping launcher", () => {
 				sid: "",
 				job: "",
 				owner: "starter",
+				outlives: "4242:2700",
 			});
 		expect(calls.some((c) => c.command.includes("session-scope.js"))).toBe(
 			false,

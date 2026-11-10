@@ -14,7 +14,7 @@
 
 # kind=model. Rows ruled at mantahostels#1093, mantahostels#1334, #354 and #1920.
 LAUNCH_MODELS=(
-  pick-next=sonnet
+  pick-next=haiku
   to-tickets=opus triage=opus implement=opus wayfinder=opus to-spec=opus code-review=opus manual-sync=opus
   concision-pass=opus research=opus card-close=opus roadmap-edit=opus
 )

@@ -51,6 +51,7 @@ function rewrite(
 			/* Unchecked: a case may hand the core a malformed input. */
 			input: input as Record<string, unknown>,
 			env: { WFC_BURN_MARKER: "/burn-marker", HOME: home },
+			session: "s1",
 			artefactFile: () => file,
 			makeDir: (at: string) => made.push(at) > 0,
 			isFile: () => burn,
@@ -77,11 +78,12 @@ describe("the composed rewrite", () => {
 		);
 		expect(out?.updatedInput).toMatchObject({
 			model: "opus",
+			effort: "medium",
 			description: "d",
 			prompt: expect.stringContaining(`Artefact: ${FILE}`),
 		});
 		expect(out?.prelude).toContain("watch-artefact.js");
-		expect(out?.prelude).toContain("from `sonnet` to `opus`");
+		expect(out?.prelude).toContain("from `sonnet` to `opus` at `medium`");
 		expect(out?.made).toEqual([path.dirname(FILE)]);
 	});
 
@@ -93,18 +95,21 @@ describe("the composed rewrite", () => {
 		expect(out?.made).toEqual([]);
 	});
 
-	it("leaves the model alone while burn mode is off", () => {
+	it("applies the standing layer alone while burn mode is off", () => {
 		const out = rewrite(
 			{ prompt: "x", model: "sonnet" },
 			{ file: FILE, burn: false },
 		);
-		expect(out?.updatedInput).toMatchObject({ model: "sonnet" });
+		expect(out?.updatedInput).toMatchObject({
+			model: "haiku",
+			effort: "xhigh",
+		});
 	});
 
 	it("tells the watch on a prompt's own artefact, changing nothing (#2013)", () => {
 		const out = rewrite(
 			{ prompt: "Artefact: a/b.md", model: "opus" },
-			{ file: FILE, burn: true },
+			{ file: FILE, burn: false },
 		);
 		expect(out).not.toHaveProperty("updatedInput");
 		expect(out?.prelude).toContain("This dispatch names its artefact: a/b.md.");
@@ -152,7 +157,7 @@ describe("the composed rewrite", () => {
 	it.each([
 		[
 			"a tier the guide routes away from",
-			{ model: "haiku" },
+			{ model: "sonnet" },
 			["dispatch-tier"],
 		],
 		[
@@ -160,7 +165,7 @@ describe("the composed rewrite", () => {
 			{ prompt: "Search the repo for it." },
 			["dispatch-search-tracker"],
 		],
-		["neither", { model: "sonnet" }, []],
+		["neither", { model: "haiku" }, []],
 	])("names the rules %s trips", (_n, call, rules) => {
 		const out = rewrite(
 			{ prompt: "Do it.", ...call },
@@ -169,12 +174,13 @@ describe("the composed rewrite", () => {
 		expect(out?.tripped).toEqual(rules);
 	});
 
-	it("judges the tier as asked, before burn mode's remap", () => {
+	it("judges the tier as asked, before the table's remap", () => {
 		const out = rewrite(
 			{ prompt: "Do it.", model: "sonnet" },
 			{ file: FILE, burn: true },
 		);
-		expect(out?.tripped).toEqual([]);
+		expect(out?.updatedInput).toMatchObject({ model: "opus" });
+		expect(out?.tripped).toEqual(["dispatch-tier"]);
 	});
 
 	it.each([
@@ -351,28 +357,29 @@ describe("burn mode, in the same rewrite", () => {
 	// (anthropics/claude-code#83353); one rewrite is what #515 built to stop it.
 	it("moves the model and supplies the line in one rewrite", () => {
 		burnOn();
-		const v = envelopeOf(dispatch({ model: "sonnet" }));
+		const v = envelopeOf(dispatch({ model: "haiku" }));
 		expect(v.updatedInput.model).toBe("opus");
+		expect(v.updatedInput.effort).toBe("medium");
 		expect(v.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(v.updatedInput.description).toBe("do a thing");
-		expect(v.additionalContext).toContain("from `sonnet` to `opus`");
+		expect(v.additionalContext).toContain("from `haiku` to `opus` at `medium`");
 		expect(v.additionalContext).toContain("watch-artefact.js");
 	});
 
-	it("changes only the model where the prompt already names an artefact", () => {
+	it("changes only the model and effort where the prompt already names an artefact", () => {
 		burnOn();
 		const prompt = "Do it.\nArtefact: .claude/tmp/x.md";
-		const v = envelopeOf(dispatch({ model: "sonnet", prompt }));
+		const v = envelopeOf(dispatch({ model: "opus", effort: "high", prompt }));
 		expect(v.updatedInput).toEqual({
 			prompt,
 			description: "do a thing",
-			model: "opus",
+			model: "fable",
+			effort: "medium",
 		});
 		expect(v.additionalContext).toContain("names its artefact");
 	});
 
 	it.each([
-		["opus", "opus"],
 		["fable", "fable"],
 		["no model", undefined],
 	])("changes nothing on %s with a usable line", (_n, model) => {
@@ -383,16 +390,37 @@ describe("burn mode, in the same rewrite", () => {
 		expect(v).not.toHaveProperty("updatedInput");
 	});
 
-	it("leaves the model alone while the marker is absent", () => {
-		const v = envelopeOf(dispatch({ model: "sonnet" }));
-		expect(v.updatedInput.model).toBe("sonnet");
+	it("keeps Haiku on Haiku while the marker is absent", () => {
+		const v = envelopeOf(dispatch({ model: "haiku" }));
+		expect(v.updatedInput.model).toBe("haiku");
+		expect(v.updatedInput.effort).toBe("xhigh");
+	});
+
+	it("skips the burn layer, keeping the standing one, in a session on an overflow seat (#4919)", () => {
+		burnOn();
+		const overflow = { WFC_BURN_MARKER: marker, WFC_OVERFLOW_SESSION: "s1" };
+		const opus = run(
+			dispatch({ model: "opus" }),
+			overflow,
+		) as unknown as HookOut;
+		expect(opus.updatedInput.model).toBe("opus");
+		const sonnet = run(
+			dispatch({ model: "sonnet" }),
+			overflow,
+		) as unknown as HookOut;
+		expect(sonnet.updatedInput.model).toBe("haiku");
+		const other = run(dispatch({ model: "opus" }), {
+			WFC_BURN_MARKER: marker,
+			WFC_OVERFLOW_SESSION: "s2",
+		}) as unknown as HookOut;
+		expect(other.updatedInput.model).toBe("fable");
 	});
 
 	it("judges a Task payload, the other spelling of a dispatch", () => {
 		burnOn();
 		const v = envelopeOf({
 			tool_name: "Task",
-			tool_input: { model: "sonnet", prompt: "Artefact: a/b.md" },
+			tool_input: { model: "haiku", prompt: "Artefact: a/b.md" },
 		});
 		expect(v.updatedInput.model).toBe("opus");
 	});
@@ -400,11 +428,11 @@ describe("burn mode, in the same rewrite", () => {
 
 describe("the dispatch rules, printed at the call (#2013)", () => {
 	it("hands over the effort guide rule whole on a tier it routes away from, once a session", () => {
-		const first = envelopeOf(dispatch({ model: "haiku" }));
-		expect(first.additionalContext).toContain("This dispatch names `haiku`");
+		const first = envelopeOf(dispatch({ model: "sonnet" }));
+		expect(first.additionalContext).toContain("This dispatch names `sonnet`");
 		expect(first.additionalContext).toContain(readFragment("dispatch-tier"));
-		const again = envelopeOf(dispatch({ model: "haiku" }));
-		expect(again.additionalContext).toContain("This dispatch names `haiku`");
+		const again = envelopeOf(dispatch({ model: "sonnet" }));
+		expect(again.additionalContext).toContain("This dispatch names `sonnet`");
 		expect(again.additionalContext).not.toContain(
 			readFragment("dispatch-tier"),
 		);
@@ -425,7 +453,7 @@ describe("the dispatch rules, printed at the call (#2013)", () => {
 	it("prints neither off its trigger", () => {
 		const v = envelopeOf(
 			dispatch({
-				model: "sonnet",
+				model: "haiku",
 				prompt: "Search the repo and the tracker for the figure.",
 			}),
 		);
@@ -437,13 +465,13 @@ describe("the dispatch rules, printed at the call (#2013)", () => {
 
 	it("puts the notes first, then each tripped rule in turn", () => {
 		const v = envelopeOf(
-			dispatch({ model: "haiku", prompt: "Search the repo for the figure." }),
+			dispatch({ model: "sonnet", prompt: "Search the repo for the figure." }),
 		);
 		const notes = rewrite(
 			{
 				prompt: v.updatedInput.prompt.split("\nArtefact:")[0],
 				description: "do a thing",
-				model: "haiku",
+				model: "sonnet",
 			},
 			{
 				file: /^Artefact: (\S+)$/m.exec(v.updatedInput.prompt)?.[1] ?? "",
@@ -517,7 +545,7 @@ describe("failing open", () => {
 		);
 	});
 
-	it("still supplies the line, and records the lost remap, when the burn-mode table is broken", () => {
+	it("still supplies the line, and records the lost remap, when the model table is broken", () => {
 		burnOn();
 		const restore = breakBurnMode(new Error("broken"));
 		let v: HookOut;
@@ -529,7 +557,7 @@ describe("failing open", () => {
 		expect(v.updatedInput.model).toBe("sonnet");
 		expect(v.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(logs).toContain(
-			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
+			"lib/burn-mode.js unreadable — the model table left this dispatch unmapped: broken",
 		);
 	});
 
@@ -546,7 +574,7 @@ describe("failing open", () => {
 		}
 		expect(v.updatedInput.model).toBe("sonnet");
 		expect(logs).toContain(
-			"lib/burn-mode.js unreadable — burn mode left this dispatch unmapped",
+			"lib/burn-mode.js unreadable — the model table left this dispatch unmapped: gone",
 		);
 	});
 
@@ -560,9 +588,10 @@ describe("failing open", () => {
 		);
 	});
 
-	it("still supplies the line, and records the loss, when the burn marker cannot be placed", () => {
-		const out = run(dispatch({ model: "sonnet" }), {}) as unknown as HookOut;
-		expect(out.updatedInput.model).toBe("sonnet");
+	it("applies the standing layer alone, recorded, when the burn marker cannot be placed", () => {
+		const out = run(dispatch({ model: "haiku" }), {}) as unknown as HookOut;
+		expect(out.updatedInput.model).toBe("haiku");
+		expect(out.updatedInput.effort).toBe("xhigh");
 		expect(out.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(logs).toContain(
 			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
@@ -595,14 +624,14 @@ describe("the cases a mutant must not survive (#2791)", () => {
 
 	it("reads the marker as present only where it is a file", () => {
 		fs.mkdirSync(marker);
-		const v = envelopeOf(dispatch({ model: "sonnet" }));
-		expect(v.updatedInput.model).toBe("sonnet");
+		const v = envelopeOf(dispatch({ model: "haiku" }));
+		expect(v.updatedInput.model).toBe("haiku");
 	});
 
 	it("latches a rule only once it is said, so the other is still owed", () => {
-		envelopeOf(dispatch({ model: "haiku" }));
+		envelopeOf(dispatch({ model: "sonnet" }));
 		const v = envelopeOf(
-			dispatch({ model: "haiku", prompt: "Search the repo for the figure." }),
+			dispatch({ model: "sonnet", prompt: "Search the repo for the figure." }),
 		);
 		expect(v.additionalContext).not.toContain(readFragment("dispatch-tier"));
 		expect(v.additionalContext).toContain(
