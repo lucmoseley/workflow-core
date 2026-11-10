@@ -12,10 +12,16 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterAll } from "vitest";
+import { afterAll, beforeEach, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
+
+// Husky's `_/h` exits 0 before any hook runs under an inherited `HUSKY=0`,
+// so every suite that installs the shim runs its `git` calls without it (#4715).
+beforeEach(() => {
+	vi.stubEnv("HUSKY", undefined);
+});
 
 let repo: string | null = null;
 let generated: string | null = null;
@@ -30,12 +36,9 @@ function shimDir(): string {
 	if (generated === null) {
 		const at = mkScratchDir("husky-shim-");
 		repo = at;
-		const env = { ...process.env };
-		delete env.HUSKY;
 		const run = (args: string[]) =>
 			execFileSync(process.execPath, args, {
 				cwd: at,
-				env,
 				encoding: "utf8",
 				stdio: "pipe",
 			});
