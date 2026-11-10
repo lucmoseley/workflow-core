@@ -66,7 +66,7 @@ const { landingOn, VERIFIED_REF } = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
-const { readTreeIds, sameContent } = require("./content-ids.js");
+const { readTreeIds, isSameContent } = require("./content-ids.js");
 
 /**
  * One run as either store records it, and how much of the suite it covered.
@@ -923,7 +923,18 @@ const isAdmissibleRun = (m) => isAdmissibleScope(m.scope);
  */
 function docsReadBy(manifest, tests) {
 	const byTest = docsByTest(manifest);
-	if (!byTest) return null;
+	return byTest ? docsOfTests(byTest, tests) : null;
+}
+
+/**
+ * The documents a manifest turned round (`docsByTest`) maps to any of `tests`.
+ *
+ * @param {Map<string, Set<string>>} byTest
+ * @param {Iterable<string>} tests
+ * @returns {Set<string>}
+ */
+function docsOfTests(byTest, tests) {
+	/** @type {Set<string>} */
 	const docs = new Set();
 	for (const t of tests) for (const doc of byTest.get(t) ?? []) docs.add(doc);
 	return docs;
@@ -949,6 +960,22 @@ function docsByTest(manifest) {
 			byTest.set(t, docs);
 		}
 	}
+	return byTest;
+}
+
+/**
+ * The working tree's manifest at `root`, turned round as `docsByTest` does —
+ * the one reading for the reporter stamping a closure and the pass store
+ * keying a row. Throws where it cannot be read or is malformed.
+ *
+ * @param {string} root
+ * @returns {Map<string, Set<string>>}
+ */
+function readDocsByTest(root) {
+	const byTest = docsByTest(
+		JSON.parse(fs.readFileSync(path.join(root, EDGES_FILE), "utf8")),
+	);
+	if (!byTest) throw new Error(`${EDGES_FILE} is not {edges: {doc: [test]}}`);
 	return byTest;
 }
 
@@ -1301,7 +1328,7 @@ function holdsTestByTree(m, test, sha, options = {}) {
 			...(view.docsOf().get(test) ?? []),
 			...m.roots,
 		];
-		return sameContent(
+		return isSameContent(
 			reads,
 			readTreeIds(git, m.treeAtEnd, reads),
 			readTreeIds(git, `${sha}^{tree}`, reads),
@@ -2175,7 +2202,8 @@ module.exports = {
 	holdsAt,
 	gitReader,
 	holdsTestByTree,
-	docsReadBy,
+	docsOfTests,
+	readDocsByTest,
 	attestationOf,
 	buildRerunLines,
 	namesTests,
