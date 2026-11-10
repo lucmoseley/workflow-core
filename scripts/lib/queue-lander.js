@@ -39,6 +39,12 @@
  *   batch's pass skips, the merges are pushed to the batch's ref before that
  *   pass, so the run starts alongside it, and cancelled where the pass
  *   refuses or commits edits (#4573).
+ * - **Stale base.** Each merged tree is judged whole on its gating
+ *   guard-registry faults (#4807): one adding a fault its base lacks is
+ *   refused as a gate refusal is; one whose every such fault its base holds
+ *   too ends the run, naming them, and drops no member, as `main` must be
+ *   re-anchored first. A batch carrying the re-anchor lands, so the next run
+ *   a new ref starts takes it.
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
  *   a commit gate refused, it is dropped: its batch leaves it out and
@@ -250,7 +256,8 @@ class TransientFault extends Error {}
  *   having passed alone; `noRun` where no CI run fired for that tree
  * @typedef {{readonly kind: "unrecorded", readonly name: string}} Unrecorded
  *   a dropped ref no drop record entry named
- * @typedef {Unmerged | RedAlone | Collision | Unrecorded} Cause
+ * @typedef {Exclude<Unmerged, {kind: "stale-base"}> | RedAlone | Collision
+ *   | Unrecorded} Cause
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly onto: string, readonly main: string}} Deferral a member left
  *   out of its batch, at `sha`, as it would not merge onto `onto` though it
@@ -269,9 +276,12 @@ class TransientFault extends Error {}
  *   | {readonly kind: "conflict", readonly name: string,
  *     readonly files: readonly string[]}
  *   | {readonly kind: "refused", readonly name: string,
- *     readonly reason: string}} MergeResult the integration commit, or the
- *   first member that would not merge: conflicting in `files`, or its merge
- *   refused, as by a commit gate
+ *     readonly reason: string}
+ *   | {readonly kind: "stale-base", readonly name: string,
+ *     readonly onto: string, readonly rows: readonly string[]}} MergeResult
+ *   the integration commit, or the first member that would not merge:
+ *   conflicting in `files`, or its merge refused, as by a commit gate; or a
+ *   tree whose gating guard-registry faults, `rows`, `onto` holds too (#4807)
  * @typedef {Exclude<MergeResult, {kind: "merged"}>} Unmerged
  * @typedef {{readonly onto: string, readonly result: MergeResult}} Merge
  * @typedef {{readonly branch: string, readonly sha: string}} IsoRun a run
@@ -586,13 +596,47 @@ function unmergedAction(members, s, u, main) {
 	const { name } = u.result;
 	const m = members.find((x) => x.name === name);
 	if (!m) return exit(`queue/${name} did not merge, but is no batch member`);
+	if (u.result.kind === "stale-base") return staleBaseExit(u.result, main);
 	if (members[0] === m && u.onto === main)
 		return dropAction(m, main, u.result, s);
 	const alone = aloneAt(s, name, main);
 	if (alone === null) return { kind: "merge-alone", onto: main, member: m };
 	if (alone.kind === "merged")
 		return { kind: "defer-member", name, sha: m.sha, onto: u.onto, main };
-	return dropAction(m, main, alone, s);
+	return notMergedAction(m, main, alone, s);
+}
+
+/**
+ * The drop of `m`, which did not merge onto `onto`, or the run's end where
+ * its tree's only gating guard-registry faults are ones `onto` holds too.
+ * @param {Member} m
+ * @param {string} onto
+ * @param {Unmerged} result
+ * @param {QueueState} s
+ * @returns {QueueAction}
+ */
+const notMergedAction = (m, onto, result, s) =>
+	result.kind === "stale-base"
+		? staleBaseExit(result, s.main ?? onto)
+		: dropAction(m, onto, result, s);
+
+/**
+ * The run's end on a base holding gating guard-registry faults (#4807).
+ * Stop the line: no member is dropped for faults it did not add, and no
+ * batch lands until `main` is re-anchored, which a new ref carrying the
+ * re-anchor does, as a new ref waiting starts a run that merges it in.
+ * @param {Extract<MergeResult, {kind: "stale-base"}>} result
+ * @param {string} main
+ * @returns {QueueEnd}
+ */
+function staleBaseExit({ onto, rows }, main) {
+	const base =
+		onto === main
+			? `main is stale: main at ${short(main)}`
+			: `the batch ahead at ${short(onto)}`;
+	return exit(
+		`held: ${base} holds ${rows.length} gating guard-registry fault(s), so no batch onto it lands; main must be re-anchored first: ${rows.join("; ")}`,
+	);
 }
 
 /** @param {readonly string[]} a @param {readonly string[]} b */
@@ -886,7 +930,7 @@ function isolationAction(b, s, blame) {
 		if (b.isolated.some((i) => i.name === m.name)) continue;
 		const alone = aloneAt(s, m.name, onto);
 		if (alone !== null && alone.kind !== "merged")
-			return dropAction(m, onto, alone, s);
+			return notMergedAction(m, onto, alone, s);
 		return { kind: "merge-iso", onto, member: m };
 	}
 	const isolated = b.isolated.flatMap((i, k) =>

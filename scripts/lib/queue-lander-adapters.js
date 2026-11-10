@@ -9,10 +9,12 @@
  * no push time.
  */
 
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { newFaultItems } = require("./fault-diff.js");
+const { PROFILES } = require("./fault-profiles.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
 const { gitCommonDirOrThrow } = require("./git.js");
@@ -51,6 +53,13 @@ const {
 const { TransientFault } = require("./queue-lander.js");
 const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+
+const REGISTRY_PROFILE = (() => {
+	const profile = PROFILES["guard-registry"];
+	if (!profile)
+		throw new Error("lib/fault-profiles.js carries no guard-registry profile");
+	return profile;
+})();
 
 /* Untraced, a first guess and stated as one: a verdict is read again only
  * for a batch a run resumes, which waits hours, never weeks. */
@@ -220,7 +229,7 @@ function queueGit(
 					lone &&
 					isAncestor(root, onto, lone.sha)
 				)
-					return { kind: "merged", sha: lone.sha };
+					return judgeWhole(onto, { kind: "merged", sha: lone.sha }, lone);
 				const whole = mergeGated(onto, members, started);
 				if (whole.kind !== "refused" || members.length === 1) return whole;
 				/* The batch's gates refused: the first member they refuse alone,
@@ -278,7 +287,98 @@ function queueGit(
 				const last = members.at(-1);
 				if (sha === onto || !last) return { kind: "merged", sha };
 				if (ciRepeats) started?.(sha);
-				return batchPass({ onto, sha, last }, inTree, gates);
+				return judgeWhole(
+					onto,
+					batchPass({ onto, sha, last }, inTree, gates),
+					last,
+				);
+			},
+		);
+	}
+
+	/**
+	 * `merged` judged on its whole tree's guard-registry faults, not only the
+	 * ones its merges add (#4807): a tree holding a gating one `onto` lacks is
+	 * refused, naming `last`; one whose every such fault `onto` holds too is
+	 * `stale-base`, which stops the line rather than drops a member, since
+	 * `main` must be re-anchored first. Any other result passes through.
+	 * @param {string} onto
+	 * @param {MergeResult} merged
+	 * @param {Member} last
+	 * @returns {MergeResult}
+	 */
+	function judgeWhole(onto, merged, last) {
+		if (merged.kind !== "merged") return merged;
+		const tree = readRegistry(merged.sha);
+		const gating = tree ? newFaultItems(tree, {}, REGISTRY_PROFILE) : [];
+		if (!tree || gating.length === 0) return merged;
+		const base = readRegistry(onto);
+		const added = base ? newFaultItems(tree, base, REGISTRY_PROFILE) : gating;
+		if (added.length > 0)
+			return {
+				kind: "refused",
+				name: last.name,
+				reason: `its tree holds guard-registry fault(s) ${short(onto)} does not: ${added.map((f) => f.line).join("; ")}`,
+			};
+		return {
+			kind: "stale-base",
+			name: last.name,
+			onto,
+			rows: gating.map((f) => f.line),
+		};
+	}
+
+	/**
+	 * check-guard-registry.js's --json envelope over `sha`'s tree, run as the
+	 * commit gate runs it: `WFC_PLUGIN_ROOT`'s copy, else the tree's own; null
+	 * where neither carries one or the checker skips, as with its module off.
+	 * @param {string} sha
+	 * @returns {Record<string, unknown> | null}
+	 */
+	function readRegistry(sha) {
+		return withThrowawayTree(
+			root,
+			sha,
+			{ program: "queue-lander", use: "registry" },
+			(dir) => {
+				const checker = path.join(
+					process.env.WFC_PLUGIN_ROOT || dir,
+					"scripts",
+					"check-guard-registry.js",
+				);
+				if (!fs.existsSync(checker)) return null;
+				const r = spawnSync(
+					process.execPath,
+					[checker, "--root", dir, "--json"],
+					{
+						cwd: dir,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "pipe"],
+						timeout: mergeTimeoutMs,
+						maxBuffer: 64 * 1024 * 1024,
+					},
+				);
+				/** @type {Record<string, unknown>} */
+				let envelope;
+				try {
+					envelope = JSON.parse(r.stdout);
+				} catch (err) {
+					throw new Error(
+						`check-guard-registry.js gave no --json envelope over ${short(sha)} (exit ${r.status}): ${String(
+							r.stderr ?? r.error?.message ?? "",
+						)
+							.trim()
+							.split("\n")
+							.at(-1)}`,
+						{ cause: err },
+					);
+				}
+				if (envelope.outcome === "SKIP") return null;
+				if (envelope.outcome === "BROKEN")
+					throw new Error(
+						`check-guard-registry.js could not judge ${short(sha)}: ${envelope.summary}`,
+					);
+				return envelope;
 			},
 		);
 	}
