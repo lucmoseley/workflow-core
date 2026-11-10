@@ -55,6 +55,9 @@
 
 const { spawnSync } = require("node:child_process");
 const { findFiledLine } = require("../../../../scripts/lib/filed-line.js");
+const {
+	buildScriptFilerArgv,
+} = require("../../../../scripts/lib/script-filer-argv.js");
 const { execGit, spawnGitSync } = require("../../../../scripts/lib/git.js");
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
@@ -1486,8 +1489,8 @@ function buildMapBody(inp, map) {
  * @param {string} clone
  * @param {NodeJS.ProcessEnv} env
  * @param {{slug: string, noun: string, title: string, labels: string[],
- *   place: string[], body: string, manual: string}} issue `place` is
- *   file-issue.js's `--parent` or `--standalone` pair
+ *   place: import("../../../../scripts/lib/script-filer-argv.js").Placement,
+ *   body: string, manual: string}} issue
  * @returns {number}
  */
 function fileIssue(
@@ -1503,15 +1506,13 @@ function fileIssue(
 		[
 			process.execPath,
 			path.join(CORE, "scripts/file-issue.js"),
-			"--title",
-			title,
-			...labels.flatMap((l) => ["--label", l]),
-			...place,
-			"--origin",
-			"wayfinder",
-			"--no-fault",
-			"--body-file",
-			bodyFile,
+			...buildScriptFilerArgv({
+				title,
+				labels,
+				placement: place,
+				origin: "wayfinder",
+				bodyFile,
+			}),
 		],
 		filerEnv,
 	);
@@ -1616,7 +1617,7 @@ function firstMap({ inp, clone, env, dry }, repoExists) {
 			noun: "the map",
 			title: inp.title,
 			labels: MAP_LABELS,
-			place: ["--standalone", "the new repo's first map, filed by new-repo.js"],
+			place: { standalone: "the new repo's first map, filed by new-repo.js" },
 			body: buildMapBody(inp, null),
 			manual:
 				"file-issue.js refused the map as above — fix the idea or title file it names",
@@ -1789,12 +1790,14 @@ function fileReconcile(
 			"would",
 			`"${buildReconcileTitle(inp)}" under the first map, labelled ${RECONCILE_LABELS.join(" + ")}, unassigned${had ? "" : `, where ${instructions.map((m) => m.from).join(" or ")} was set aside`}`,
 		);
+	if (map === null)
+		throw new Error("new-repo.js: no first map outside a dry run");
 	const n = fileIssue(clone, env, {
 		slug: "reconcile",
 		noun: "the reconcile ticket",
 		title: buildReconcileTitle(inp),
 		labels: RECONCILE_LABELS,
-		place: ["--parent", String(map)],
+		place: { parent: map },
 		body: [
 			`new-repo.js set the source repo's agent instructions aside, where no session loads them: they bind every session, and a source repo's often carry rules this repo's core contradicts — pull requests, feature branches, Conventional Commits.`,
 			/** @type {typeof ASIDE} */ (had)

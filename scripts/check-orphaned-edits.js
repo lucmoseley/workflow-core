@@ -85,6 +85,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const { buildScriptFilerArgv } = require("./lib/script-filer-argv.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -547,17 +548,15 @@ function fileOne(f, root, supersedes) {
 		f.worktree === null ? buildFileIssue(f) : buildWorktreeIssue(f, supersedes);
 	const args = [
 		filerPath(),
-		"--title",
-		title,
-		"--label",
-		ORPHAN_LABEL,
-		"--standalone",
-		"cross-cutting: an orphaned edit has no single originating issue (#813)",
-		"--origin",
-		"orphaned-edit-script",
-		"--no-fault",
-		"--body-file",
-		"-",
+		...buildScriptFilerArgv({
+			title,
+			labels: [ORPHAN_LABEL],
+			placement: {
+				standalone:
+					"cross-cutting: an orphaned edit has no single originating issue (#813)",
+			},
+			origin: "orphaned-edit-script",
+		}),
 	];
 	const deadline = Date.now() + FILER_TIMEOUT_MS;
 	const spawnFiler = (/** @type {string[]} */ a) =>
