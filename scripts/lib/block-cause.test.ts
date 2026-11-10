@@ -20,7 +20,6 @@ import {
 	hasFounderTypedSinceApiStop,
 	hasRepliedSince,
 	hasTurnSinceApiStop,
-	promptsAfterApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { API_PROMPT, HOLD_PROMPT } from "./loop-prompts.js";
@@ -884,18 +883,21 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 		const rows = [
 			typed(0, "fix it"),
 			stop(1),
-			typed(2, API_PROMPT),
+			typed(2, "go on"),
 			stop(3),
 			{ ...toolResult, timestamp: at(4) },
-			typed(5, "resume"),
 		];
-		expect(promptsAfterApiStop(rows)).toEqual(["resume"]);
-		expect(promptsAfterApiStop(rows.slice(0, 4))).toEqual([]);
+		expect(hasTurnSinceApiStop(rows, null)).toBe(false);
+		expect(hasFounderTypedSinceApiStop(rows)).toBe(false);
+		const resumed = [...rows, typed(5, "resume")];
+		expect(hasTurnSinceApiStop(resumed, null)).toBe(true);
+		expect(hasFounderTypedSinceApiStop(resumed)).toBe(true);
 	});
 
 	it("is null unread or with no stop", () => {
-		expect(promptsAfterApiStop(null)).toBeNull();
-		expect(promptsAfterApiStop([typed(0, "hi")])).toBeNull();
+		expect(hasFounderTypedSinceApiStop(null)).toBeNull();
+		expect(hasFounderTypedSinceApiStop([typed(0, "hi")])).toBeNull();
+		expect(hasTurnSinceApiStop(null, null)).toBe(false);
 	});
 
 	it("counts the founder's typing, never the loop's or the harness's", () => {

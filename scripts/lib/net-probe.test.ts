@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { probeNetwork } from "./net-probe.js";
 import { NET_PROBE_OFFLINE_LINE } from "./net-probe-fake";
+import { shellQuote } from "./sh-quote.js";
 
 let dir: string;
 
@@ -27,7 +28,7 @@ function probe(code: number, stderr = "") {
 	const file = path.join(dir, "probe");
 	fs.writeFileSync(
 		file,
-		`#!/bin/bash\n${stderr ? `echo ${JSON.stringify(stderr)} >&2\n` : ""}exit ${code}\n`,
+		`#!/bin/bash\n${stderr ? `echo ${shellQuote(stderr)} >&2\n` : ""}exit ${code}\n`,
 		{ mode: 0o755 },
 	);
 	return { ...process.env, WFC_NET_PROBE: file };

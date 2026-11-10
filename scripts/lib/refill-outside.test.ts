@@ -120,6 +120,19 @@ it("leaves one the founder typed into since its stop alone, and says why once", 
 	]);
 });
 
+it("leaves one alone where its transcript cannot tell whether the founder typed", () => {
+	const l = loop({ hasFounderTypedSinceStop: () => null });
+	l.tick(NOW);
+	l.tick(NOW + 60 * MIN);
+	expect(typed(l.calls)).toBe(0);
+	expect(l.calls).not.toContain("stop f1");
+	expect(
+		logs(l.calls).filter((s) => s.startsWith(`leaving ${NAME} alone`)),
+	).toEqual([
+		`leaving ${NAME} alone: its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
+	]);
+});
+
 it("holds a due resume back while the network is down, no try spent, then types once it is up", () => {
 	let why: string | null = NET_PROBE_OFFLINE_LINE;
 	const l = loop({ probeNetwork: () => why });
@@ -171,7 +184,7 @@ it("neither stops nor copies one that took a prompt since its stop, and counts t
 	expect(l.calls).not.toContain("stop f1");
 	expect(l.calls.some((c) => c.startsWith("resume "))).toBe(false);
 	expect(logs(l.calls)).toContain(
-		`${NAME}'s session took a prompt since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
+		`${NAME}'s session took a turn since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived`,
 	);
 });
 

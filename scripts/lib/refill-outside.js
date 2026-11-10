@@ -41,10 +41,12 @@ const OUTSIDE_FILE = ".refill-outside.json";
  * @typedef {import("./refill-blocks.js").SessionRef} SessionRef
  * @typedef {import("./refill-blocks.js").CauseOf} CauseOf
  * @typedef {import("./refill-blocks.js").Unretired} Unretired
+ * @typedef {{sessionId: string, cwd: string}} StoppedTarget  the full
+ *   session id and directory a stopped session's `--bg --resume` runs under
  * @typedef {{seat: string, jobId: string, name: string, cwd: string,
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
  *   nextAt?: number, attachAt?: number, handsOff?: true, capped?: true,
- *   held?: {sessionId: string, cwd: string}, unretired?: Unretired[]}}
+ *   held?: StoppedTarget, unretired?: Unretired[]}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
@@ -69,6 +71,14 @@ const sessionRefOf = (o) => ({
 
 /** @param {Outside} o */
 const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
+
+/**
+ * Whether the tick may set `o` running: launching unbarred and the network
+ * up (netGateOf, which logs a resume it holds back).
+ * @param {Outside} o
+ * @param {Tick} seen
+ */
+const mayRun = (o, seen) => !seen.barred && netGateOf(seen).admit(nameOf(o));
 
 /**
  * `o` between stops: its resume count kept, its stop's fields dropped; none
@@ -120,7 +130,7 @@ function withoutHeld(o) {
  * @param {number} now
  * @returns {Outside|null}
  */
-function takenUp(a, now) {
+function buildOutside(a, now) {
 	if (a.kind !== "background" || !a.id || !a.seat || !a.cwd) return null;
 	return {
 		seat: a.seat,
@@ -138,7 +148,7 @@ function takenUp(a, now) {
  * prompt: `o` moved onto the job it runs as, else marked `held` for a retry
  * when next due.
  * @param {Outside} o
- * @param {{sessionId: string, cwd: string}} target
+ * @param {StoppedTarget} target
  * @param {Tick} seen
  * @returns {Outside}
  */
@@ -160,7 +170,7 @@ function relaunch(o, target, { io }) {
 
 /**
  * Stop `o`'s session and relaunch it under its full id, its typed resume
- * unseen; never where it took a prompt since its stop (isTakenSinceStop).
+ * unseen; never where it took a turn since its stop (isTakenSinceStop).
  * @param {Outside} o  its typed resume settled
  * @param {Tick} seen
  * @returns {Outside}
@@ -186,7 +196,7 @@ function fallBack(o, seen) {
 /**
  * `o`, stopped by the loop with its relaunch failed, tried again once due: a
  * try of its own; at the cap, logged and dropped, left stopped.
- * @param {Outside & {held: {sessionId: string, cwd: string}}} o
+ * @param {Outside & {held: StoppedTarget}} o
  * @param {Tick} seen
  * @returns {Outside|null}
  */
@@ -198,8 +208,7 @@ function retryHeld(o, seen) {
 		);
 		return null;
 	}
-	if ((o.nextAt ?? 0) > now || seen.barred || !netGateOf(seen).admit(nameOf(o)))
-		return o;
+	if ((o.nextAt ?? 0) > now || !mayRun(o, seen)) return o;
 	const tries = o.tries + 1;
 	return relaunch(
 		{ ...o, tries, triedAt: now, nextAt: nextTryAt(tries, now) },
@@ -243,7 +252,7 @@ function actOn(o, seen) {
 		if (verdict === "pending") return o;
 		const { attachAt: _, ...settled } = o;
 		if (verdict === "arrived") return settled;
-		if (seen.barred || !netGateOf(seen).admit(nameOf(o))) return o;
+		if (!mayRun(o, seen)) return o;
 		return fallBack(settled, seen);
 	}
 	const act = blockAct(
@@ -264,15 +273,15 @@ function actOn(o, seen) {
 		);
 		return { ...o, capped: true };
 	}
-	if (act !== "resume" || seen.barred || !netGateOf(seen).admit(nameOf(o)))
-		return o;
+	if (act !== "resume" || !mayRun(o, seen)) return o;
 	return resume(o, seen);
 }
 
 /**
  * `o` this tick, blocked live on the listing: taken up on a transient API
- * error, left alone where capped or the founder has typed since its stop, else
- * acted on; null where it is blocked on anything else.
+ * error, left alone where capped or where the founder has typed since its
+ * stop or that cannot be read, else acted on; null where it is blocked on
+ * anything else.
  * @param {Outside} o
  * @param {AgentRecord} row
  * @param {CauseOf} causeOf
@@ -287,9 +296,12 @@ function judge(o, row, causeOf, seen) {
 		return o.tries > 0 ? betweenStops(o) : null;
 	if (o.capped || o.handsOff) return o;
 	const stopped = { ...o, since: o.since ?? now };
-	if (io.hasFounderTypedSinceStop(ref)) {
+	const typed = io.hasFounderTypedSinceStop(ref);
+	if (typed !== false) {
 		io.log(
-			`leaving ${nameOf(o)} alone: the founder typed into it since its API-error stop`,
+			typed
+				? `leaving ${nameOf(o)} alone: the founder typed into it since its API-error stop`
+				: `leaving ${nameOf(o)} alone: its transcript is unread or shows no API-error stop, so whether the founder typed since cannot be told`,
 		);
 		return { ...stopped, handsOff: true };
 	}
@@ -375,7 +387,7 @@ function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 		if (k) next.push(k);
 	};
 	for (const row of registry) {
-		const fresh = takenUp(row, seen.now);
+		const fresh = buildOutside(row, seen.now);
 		if (!fresh || known.has(fresh.jobId)) continue;
 		const key = `${fresh.seat}\0${fresh.jobId}`;
 		const o = byJob.get(key);
