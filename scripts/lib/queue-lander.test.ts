@@ -2789,6 +2789,7 @@ describe("a base holding gating guard-registry faults (#4807)", () => {
 				: {
 						kind: "stale-base",
 						name: ms.at(-1)?.name ?? "",
+						sha: mergeSha(onto, ms),
 						onto,
 						rows: [Row],
 					};
@@ -2811,6 +2812,27 @@ describe("a base holding gating guard-registry faults (#4807)", () => {
 		expect(pushed).toEqual([]);
 		expect(remote.main).toBe("m0");
 		expect([...remote.refs.keys()]).toEqual(["a", "b"]);
+	});
+
+	it("isolates a red batch onto the stale main, its members merged alone taken as merged, so the re-anchor still lands", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			fix: { sha: "f1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const failing = "scripts/a.test.ts";
+
+		const { end, actions } = await land(remote, disk, {
+			merge: staleUnlessFixed(remote),
+			verdict: (sha, _r, files) =>
+				sha.includes("a1") && (files.length === 0 || files.includes(failing))
+					? { kind: "red", files: [failing] }
+					: { kind: "green", run: 1, cleared: [] },
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions).map((d) => d.name)).toEqual(["a"]);
+		expect(remote.main).toContain("f1");
 	});
 
 	it("lands the batch once a ref carrying the re-anchor waits beside the rest", async () => {

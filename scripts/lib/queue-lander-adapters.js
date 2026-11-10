@@ -17,6 +17,7 @@ const { newFaultItems } = require("./fault-diff.js");
 const { PROFILES } = require("./fault-profiles.js");
 const { now } = require("./check.js");
 const { caught, parseErrorText } = require("./caught.js");
+const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -112,6 +113,51 @@ const BROKEN_OBJECT =
  *   RecordRead a record file: absent, torn where it will not parse or is not
  *   the record, or read
  */
+
+/**
+ * The copy of `rel` the commit gate runs over the merged tree at `dir`:
+ * `WFC_PLUGIN_ROOT`'s, else the tree's own.
+ * @param {string} dir
+ * @param {string} rel
+ */
+const gateCopy = (dir, rel) =>
+	path.join(process.env.WFC_PLUGIN_ROOT || dir, rel);
+
+/**
+ * The registry checker's --json envelope out of its run over `sha`, null
+ * where it skipped. A timeout is transient, as a merge's own gates' is.
+ * @param {import("node:child_process").SpawnSyncReturns<string>} r
+ * @param {string} sha
+ * @param {number} timeoutMs
+ * @returns {Record<string, unknown> | null}
+ */
+function readEnvelope(r, sha, timeoutMs) {
+	const over = `check-guard-registry.js over ${short(sha)}`;
+	if (caught(r.error).code === "ETIMEDOUT")
+		throw new TransientFault(`${over} timed out after ${timeoutMs / 1000} s`, {
+			cause: r.error,
+		});
+	/** @type {Record<string, unknown>} */
+	let envelope;
+	try {
+		envelope = JSON.parse(r.stdout);
+	} catch (err) {
+		const last = String(r.stderr ?? r.error?.message ?? "")
+			.trim()
+			.split("\n")
+			.at(-1);
+		throw new Error(
+			`${over} gave no --json envelope (exit ${r.status}): ${last}`,
+			{
+				cause: err,
+			},
+		);
+	}
+	if (envelope.outcome === "SKIP") return null;
+	if (envelope.outcome === "BROKEN")
+		throw new Error(`${over} could not judge it: ${envelope.summary}`);
+	return envelope;
+}
 
 /**
  * The queue lander's git, run in `root`. Merges are made in a throwaway
@@ -314,15 +360,21 @@ function queueGit(
 		if (!tree || gating.length === 0) return merged;
 		const base = readRegistry(onto);
 		const added = base ? newFaultItems(tree, base, REGISTRY_PROFILE) : gating;
+		const inherited = gating.filter((f) => !added.includes(f));
 		if (added.length > 0)
 			return {
 				kind: "refused",
 				name: last.name,
-				reason: `its tree holds guard-registry fault(s) ${short(onto)} does not: ${added.map((f) => f.line).join("; ")}`,
+				reason: `its tree holds guard-registry fault(s) ${short(onto)} does not: ${added.map((f) => f.line).join("; ")}${
+					inherited.length > 0
+						? `; ${short(onto)} is stale too, and must be re-anchored first: ${inherited.map((f) => f.line).join("; ")}`
+						: ""
+				}`,
 			};
 		return {
 			kind: "stale-base",
 			name: last.name,
+			sha: merged.sha,
 			onto,
 			rows: gating.map((f) => f.line),
 		};
@@ -341,11 +393,7 @@ function queueGit(
 			sha,
 			{ program: "queue-lander", use: "registry" },
 			(dir) => {
-				const checker = path.join(
-					process.env.WFC_PLUGIN_ROOT || dir,
-					"scripts",
-					"check-guard-registry.js",
-				);
+				const checker = gateCopy(dir, "scripts/check-guard-registry.js");
 				if (!fs.existsSync(checker)) return null;
 				const r = spawnSync(
 					process.execPath,
@@ -355,30 +403,10 @@ function queueGit(
 						encoding: "utf8",
 						stdio: ["ignore", "pipe", "pipe"],
 						timeout: mergeTimeoutMs,
-						maxBuffer: 64 * 1024 * 1024,
+						maxBuffer: CHILD_MAX_BUFFER,
 					},
 				);
-				/** @type {Record<string, unknown>} */
-				let envelope;
-				try {
-					envelope = JSON.parse(r.stdout);
-				} catch (err) {
-					throw new Error(
-						`check-guard-registry.js gave no --json envelope over ${short(sha)} (exit ${r.status}): ${String(
-							r.stderr ?? r.error?.message ?? "",
-						)
-							.trim()
-							.split("\n")
-							.at(-1)}`,
-						{ cause: err },
-					);
-				}
-				if (envelope.outcome === "SKIP") return null;
-				if (envelope.outcome === "BROKEN")
-					throw new Error(
-						`check-guard-registry.js could not judge ${short(sha)}: ${envelope.summary}`,
-					);
-				return envelope;
+				return readEnvelope(r, sha, mergeTimeoutMs);
 			},
 		);
 	}
@@ -499,11 +527,10 @@ function queueGit(
 	 * @param {(args: string[]) => string} inTree
 	 */
 	function regenerate(dir, inTree) {
-		const pluginRoot = process.env.WFC_PLUGIN_ROOT || dir;
 		for (const [file, { generator }] of regenerated) {
 			/* Absent: the merge deleted it, and a deletion stands. */
 			if (!fs.existsSync(path.join(dir, file))) continue;
-			execFileSync(process.execPath, [path.join(pluginRoot, generator)], {
+			execFileSync(process.execPath, [gateCopy(dir, generator)], {
 				cwd: dir,
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],

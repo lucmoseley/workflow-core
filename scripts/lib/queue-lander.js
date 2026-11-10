@@ -41,10 +41,12 @@
  *   refuses or commits edits (#4573).
  * - **Stale base.** Each merged tree is judged whole on its gating
  *   guard-registry faults (#4807): one adding a fault its base lacks is
- *   refused as a gate refusal is; one whose every such fault its base holds
- *   too ends the run, naming them, and drops no member, as `main` must be
- *   re-anchored first. A batch carrying the re-anchor lands, so the next run
- *   a new ref starts takes it.
+ *   refused as a gate refusal is. A batch whose every such fault its base
+ *   holds too ends the run, naming them, and drops no member, as `main` must
+ *   be re-anchored first; a member merged alone, in an isolation or a serial
+ *   step, is taken as merged, so the search still reaches the member
+ *   carrying the re-anchor. A batch carrying it lands, so the next run a new
+ *   ref starts takes it.
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
  *   a commit gate refused, it is dropped: its batch leaves it out and
@@ -278,10 +280,11 @@ class TransientFault extends Error {}
  *   | {readonly kind: "refused", readonly name: string,
  *     readonly reason: string}
  *   | {readonly kind: "stale-base", readonly name: string,
- *     readonly onto: string, readonly rows: readonly string[]}} MergeResult
- *   the integration commit, or the first member that would not merge:
- *   conflicting in `files`, or its merge refused, as by a commit gate; or a
- *   tree whose gating guard-registry faults, `rows`, `onto` holds too (#4807)
+ *     readonly sha: string, readonly onto: string,
+ *     readonly rows: readonly string[]}} MergeResult the integration commit,
+ *   or the first member that would not merge: conflicting in `files`, or its
+ *   merge refused, as by a commit gate; or the commit `sha` whose gating
+ *   guard-registry faults, `rows`, `onto` holds too (#4807)
  * @typedef {Exclude<MergeResult, {kind: "merged"}>} Unmerged
  * @typedef {{readonly onto: string, readonly result: MergeResult}} Merge
  * @typedef {{readonly branch: string, readonly sha: string}} IsoRun a run
@@ -601,24 +604,20 @@ function unmergedAction(members, s, u, main) {
 		return dropAction(m, main, u.result, s);
 	const alone = aloneAt(s, name, main);
 	if (alone === null) return { kind: "merge-alone", onto: main, member: m };
-	if (alone.kind === "merged")
+	if (mergedAlone(alone))
 		return { kind: "defer-member", name, sha: m.sha, onto: u.onto, main };
-	return notMergedAction(m, main, alone, s);
+	return dropAction(m, main, alone, s);
 }
 
 /**
- * The drop of `m`, which did not merge onto `onto`, or the run's end where
- * its tree's only gating guard-registry faults are ones `onto` holds too.
- * @param {Member} m
- * @param {string} onto
- * @param {Unmerged} result
- * @param {QueueState} s
- * @returns {QueueAction}
+ * Whether a member's merge alone made a commit: merged, or `stale-base`,
+ * whose faults are its base's and not the member's. Only a batch's merge
+ * stops the line on them (#4807); an isolation or serial step that did
+ * would never reach the member carrying the re-anchor.
+ * @param {MergeResult} r
+ * @returns {r is Extract<MergeResult, {kind: "merged" | "stale-base"}>}
  */
-const notMergedAction = (m, onto, result, s) =>
-	result.kind === "stale-base"
-		? staleBaseExit(result, s.main ?? onto)
-		: dropAction(m, onto, result, s);
+const mergedAlone = (r) => r.kind === "merged" || r.kind === "stale-base";
 
 /**
  * The run's end on a base holding gating guard-registry faults (#4807).
@@ -929,8 +928,8 @@ function isolationAction(b, s, blame) {
 	for (const m of members) {
 		if (b.isolated.some((i) => i.name === m.name)) continue;
 		const alone = aloneAt(s, m.name, onto);
-		if (alone !== null && alone.kind !== "merged")
-			return notMergedAction(m, onto, alone, s);
+		if (alone !== null && !mergedAlone(alone))
+			return dropAction(m, onto, alone, s);
 		return { kind: "merge-iso", onto, member: m };
 	}
 	const isolated = b.isolated.flatMap((i, k) =>
@@ -2421,7 +2420,7 @@ function mergeAlone(deps, action, run) {
 	const { kind, member, onto } = action;
 	const fresh = action.kind === "serial-land-step" && action.fresh;
 	const result = deps.git.mergeMembers(onto, [member], fresh);
-	if (result.kind !== "merged")
+	if (!mergedAlone(result))
 		return { ...run, alone: { name: member.name, onto, result } };
 	const b = batchOf(run);
 	const { name, sha } = member;

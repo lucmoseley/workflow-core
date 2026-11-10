@@ -222,7 +222,7 @@ const OUTCOMES = {
  *   materialise: "tree" | "blobs",
  *   pathspecs?: (ctx: CheckContext, rev: string) => string[],
  *   baseline?: "lazy" | "always",
- *   baselineCode?: "self" | "rev",
+ *   baselineCode?: "rev",
  *   refuse?: (ctx: CheckContext) => void,
  *   settle?: (ctx: CheckContext, added: FaultItem[], sides: Sides) => { refuse: FaultItem[], remedy: string[], data?: object },
  * }} AgainstSpec `settle`'s `data` joins the --json envelope, under the
@@ -1055,7 +1055,7 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
 	const code =
 		which === "baseline" && against.baselineCode === "rev"
-			? codeIn(dir)
+			? checkerCopyIn(dir)
 			: undefined;
 	return reread(
 		dir,
@@ -1072,7 +1072,7 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
  * its own.
  * @param {string} dir
  */
-function codeIn(dir) {
+function checkerCopyIn(dir) {
 	const self = process.argv[1];
 	if (self === undefined) return;
 	const abs = path.resolve(self);
