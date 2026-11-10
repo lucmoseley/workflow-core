@@ -6,10 +6,12 @@
  *
  * A FILE'S INPUTS are the file; its runtime import closure off vitest's
  * module graph, with every file it or that closure reaches through a relative
- * require, import or `__dirname`-spelled spawn, read lexically and transitively, since
+ * require, import, `__dirname`-spelled spawn or read, or declared load,
+ * read lexically and transitively, since
  * the graph records no `createRequire` load; the documents the read-edge manifest maps to it, spawned
  * scripts' loads included (#1113); the Vitest config, its `setupFiles`
- * closure, `package.json` and the lockfiles; a snapshot file beside it; and,
+ * closure and what those reach lexically, as the git shim the setup puts on
+ * every test's `PATH`; `package.json` and the lockfiles; a snapshot file beside it; and,
  * as values, the Node version and the architecture, and python3's version
  * where its inputs hold a Python file or a file on its reach runs Python
  * inline. Each path a relative
@@ -28,9 +30,12 @@
  * that errored outside its files, was interrupted or filtered by name
  * records its failures alone; a spawned Python import the reach cannot
  * place, a JSX or TSX file on the reach, or a load on it the walk cannot
- * read (lib/code-edges.js's `unread`: an inline program's, or a shell load
- * spelled off anything but the script's own directory), records no row for
- * the files it reaches; an input rewritten while the run ran, untracked, gitignored
+ * read (lib/code-edges.js's `unread`: an inline program's, a JS load of no
+ * literal, or a shell load spelled off anything but the script's own
+ * directory), records no row for the files it reaches, as a test file
+ * making a read the read-edge selector cannot attribute records none
+ * (`generate-test-read-edges.js --unseen`, its `full-sweep-only:` header
+ * aside; a helper's own such read is the residual); an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -67,8 +72,8 @@ const {
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
 const {
-	isCodeFile,
 	isFile,
+	isScript,
 	languageOf,
 	pythonVersion,
 	reachOf,
@@ -78,6 +83,7 @@ const {
 	readDocsByTest,
 	shortSha,
 } = require("./test-pass-marker.js");
+const { readWorkingTree, unseenReadsOf } = require("./test-read-edges.js");
 const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
@@ -96,7 +102,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 6;
+const FORMAT = 7;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -298,11 +304,7 @@ function lexicalReach(root) {
 	/** @param {string} rel */
 	const reachFrom = (rel) => {
 		if (memo.has(rel)) return memo.get(rel) ?? null;
-		/* A file with no extension, as a git hook, may be a script. */
-		const script =
-			isCodeFile(rel) ||
-			(!path.basename(rel).includes(".") && isFile(path.join(root, rel)));
-		const found = script
+		const found = isScript(path.join(root, rel))
 			? readEdges(root, rel)
 			: { edges: [], shadows: [], python: false };
 		memo.set(rel, found);
@@ -346,13 +348,36 @@ function readEdges(root, rel) {
 		const reach = reachOf(abs, read.data, refuseFault);
 		if (reach.unread.length > 0) return null;
 		return {
-			edges: repoRelative(root, reach.edges.filter(isFile)),
+			edges: repoRelative(
+				root,
+				[...reach.edges, ...reach.reads].filter(isFile),
+			),
 			shadows: repoRelative(root, reach.shadows),
 			python: reach.python,
 		};
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Whether a test file at `root` makes a read the read-edge selector cannot
+ * attribute (lib/test-read-edges.js's `unseenReadsOf`, which
+ * `generate-test-read-edges.js --unseen` lists): an input the reach cannot
+ * know, so the file records no row. A file that will not read is unseen.
+ * The tracked list is read once, where a file first needs it.
+ * @param {string} root
+ * @returns {(file: string, reads: string[]) => boolean}
+ */
+function unseenReader(root) {
+	/** @type {Set<string> | undefined} */
+	let tracked;
+	return (file, reads) => {
+		const read = readText(path.join(root, file));
+		if (read.state !== "read") return true;
+		tracked ??= readWorkingTree(root).tracked;
+		return unseenReadsOf(file, read.data, tracked, new Set(reads)).length > 0;
+	};
 }
 
 /**
@@ -405,12 +430,18 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		);
 		const shared = sharedInputs(run.root, run.shared);
 		const reach = lexicalReach(run.root);
+		const isUnseen = unseenReader(run.root);
 		const own = files.flatMap((f) => {
+			if (isUnseen(f.file, reads.get(f.file) ?? [])) return [];
 			/* A script the manifest says the file reads is reached too, as it
 			 * may spawn it: its own requires are inputs that no import and no
-			 * `__dirname` join names. A read holding no script reaches none. */
+			 * `__dirname` join names. A read holding no script reaches none.
+			 * The config and setup files run before every file, so what they
+			 * reach, which vite's graph never records, is each file's too. */
 			const spawned = reads.get(f.file) ?? [];
-			const reaches = [f.file, ...f.imports, ...spawned].map(reach);
+			const reaches = [f.file, ...f.imports, ...spawned, ...run.shared].map(
+				reach,
+			);
 			if (reaches.includes(null)) return [];
 			const reached = /** @type {Reach[]} */ (reaches);
 			const paths = [

@@ -49,6 +49,8 @@ export WFC_HOST_GIT_GUARD_DEPTH=$depth
 #
 # Residual: with two checkouts' copies on `PATH`, the first judges only its
 # own host, so a write to the other's runs unguarded.
+#
+# code-edges caller: real
 real=
 before=
 mine=

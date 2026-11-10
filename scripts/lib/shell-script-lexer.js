@@ -54,8 +54,10 @@ const SH_RESERVED = new Set([
 /* A variable's assignment: the name, an element's index, then the value
  * from `=` on. */
 const SH_ASSIGN = /^([A-Za-z_]\w*)(\[[^\]]*\])?\+?=/;
-/* An array's assignment up to its `(`. */
-const SH_ARRAY_OPEN = /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=$/;
+/* An array's assignment up to its `(`: an assignment with no value yet. */
+const SH_ARRAY_OPEN = new RegExp(`${SH_ASSIGN.source}$`);
+/* `name()`'s empty brackets, which define a function. */
+const SH_DEFINITION = /\(\s*\)/y;
 
 /** @returns {ShCommand} */
 const emptyCommand = (/** @type {ShCommand | null} */ prev, joined = "") => ({
@@ -77,6 +79,13 @@ class ShLexer {
 		this.heredocs = [];
 		/** @type {RegExpExecArray | null} */
 		this.lastMatch = null;
+		/* This lexer's own sticky regexes: one moves `lastIndex` as it reads. */
+		this.re = {
+			operator: new RegExp(SH_OPERATOR),
+			redirect: new RegExp(SH_REDIRECT),
+			blanks: new RegExp(SH_BLANKS),
+			definition: new RegExp(SH_DEFINITION),
+		};
 	}
 
 	/**
@@ -127,8 +136,8 @@ class ShLexer {
 			this.balanced();
 		else if (state.pattern && "|()".includes(c)) this.patternEnd(state, c);
 		else if (c === "(" || c === ")") this.paren(state, c);
-		else if (this.sticky(SH_REDIRECT)) this.redirect();
-		else if (this.sticky(SH_OPERATOR)) this.operator(state);
+		else if (this.sticky(this.re.redirect)) this.redirect();
+		else if (this.sticky(this.re.operator)) this.operator(state);
 		else this.addWord(state);
 	}
 
@@ -195,10 +204,12 @@ class ShLexer {
 	 * @param {string} c
 	 */
 	paren(state, c) {
-		const definition = /^\(\s*\)/.exec(this.code.slice(this.i, this.i + 8));
-		if (c === "(" && state.command.words.length === 1 && definition) {
+		if (
+			c === "(" &&
+			state.command.words.length === 1 &&
+			this.sticky(this.re.definition)
+		) {
 			state.command.words = [];
-			this.i += definition[0].length;
 			return;
 		}
 		if (c === "(") state.depth++;
@@ -211,7 +222,7 @@ class ShLexer {
 	 * delimiter is kept until its line ends. */
 	redirect() {
 		const heredoc = this.lastMatch?.[1];
-		this.sticky(SH_BLANKS);
+		this.sticky(this.re.blanks);
 		const target = this.word();
 		if (heredoc !== undefined && target !== null)
 			this.heredocs.push({
@@ -244,7 +255,8 @@ class ShLexer {
 
 	/**
 	 * Matches sticky `re` at the cursor, moving past a non-empty match.
-	 * @param {RegExp} re accumulator: its lastIndex moves
+	 * @param {RegExp} re accumulator: one of this lexer's own; its lastIndex
+	 *   moves
 	 */
 	sticky(re) {
 		re.lastIndex = this.i;

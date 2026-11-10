@@ -257,6 +257,45 @@ describe("a change to any input voids the pass", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	/* #4790 round 4 review, finding 2: the setup file's reach was vite's
+	 * graph alone, so the git shim on every test's PATH was no input. */
+	it("voids it when a file the setup file reaches changes", () => {
+		const dir = repo();
+		write(dir, "vitest.setup.ts", "// code-edges loads: shim\n");
+		write(dir, "shim", "#!/bin/bash\nexit 0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "shim", "#!/bin/bash\nexit 1\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/* Finding 3: guard-core-load.js requires each core off guard-cores.json. */
+	it("voids it when a module a declared manifest names changes", () => {
+		const dir = repo();
+		write(
+			dir,
+			"lib.js",
+			"// code-edges loads: cores.json core\nmodule.exports = (row) => require(corePath(row.core));\n",
+		);
+		write(dir, "cores.json", '{"Pre": [{"core": "core.js"}]}\n');
+		write(dir, "core.js", "v0\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "core.js", "v1\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/* Finding 4: a data file joined off __dirname was dropped. */
+	it("voids it when a data file a module joins off __dirname changes", () => {
+		const dir = repo();
+		write(dir, "lib.js", 'const M = nodePath.join(__dirname, "m.json");\n');
+		write(dir, "m.json", "{}\n");
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "m.json", '{"x": 1}\n');
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("voids it when an input is deleted since", () => {
 		const dir = repo();
 		run(dir, [A]);
@@ -595,6 +634,35 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
+	/* #4790 round 4 review, finding 1: count-guard-fires.test.ts read every
+	 * core through a segment held in a variable, and still recorded a row. */
+	it.each([
+		["no header", ""],
+		[
+			"a full-sweep-only header",
+			"/*\n * full-sweep-only: reads a set built at runtime.\n */\n",
+		],
+	])(
+		"records no row for a test making a read the selector cannot attribute, under %s",
+		(_under, header) => {
+			const dir = repo();
+			write(
+				dir,
+				A,
+				`${header}const ROOT = path.resolve(__dirname, "..");\nconst f = pick();\nfs.readFileSync(path.join(ROOT, "docs", f));\n`,
+			);
+			expect(run(dir, [A, B])).toBe(1);
+			expect(cachedOf(dir, [A, B])).toEqual([B]);
+		},
+	);
+
+	/* Finding 3: a load of no literal is unread, never dropped. */
+	it("records no row for a file reaching a load of no literal", () => {
+		const dir = repo();
+		write(dir, "lib.js", "module.exports = (file) => require(file);\n");
+		expect(run(dir, [A])).toBe(0);
+	});
+
 	it("records no row for a file whose input was rewritten mid-run", () => {
 		const dir = repo();
 		expect(run(dir, [A, B], { drifted: ["doc.md"] })).toBe(1);
@@ -685,11 +753,17 @@ describe("a store it cannot trust runs every file", () => {
 	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
 	 * sys.path a spawned Python script builds (#4864). Format 4 is pass 3's
 	 * finding 1: its rows missed what a shell script's inline node program
-	 * loads, and an inline Python's python3. */
+	 * loads, and an inline Python's python3. Format 6 is round 4's findings
+	 * 2-4: its rows missed every guard core, a data file joined off
+	 * `__dirname` and what the setup file reaches. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
 		["before the walk read a shell script's inline programs (#4790)", 4],
+		[
+			"before the walk read guard cores, data joined off __dirname and the setup's reach (#4790)",
+			6,
+		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
 		run(dir, [A]);

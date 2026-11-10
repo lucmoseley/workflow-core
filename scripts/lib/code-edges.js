@@ -2,17 +2,27 @@
  * code-edges.js — the files one script reaches, read lexically, for
  * surface-closure.js's and hook-code.js's walks (#4259) and the pass store's
  * reach, which also reads the paths each specifier tried before its target
- * (`reachOf`'s shadows, #4814) and each load the walk cannot read (`unread`,
- * #4790), on which the store records no row:
+ * (`reachOf`'s shadows, #4814), the data files a script reads off its own
+ * directory (`reads`) and each load the walk cannot read (`unread`, #4790),
+ * on which the store records no row:
  *   JS and TypeScript, comment lines skipped — a relative
  *     `require`/`from`/`import()` specifier, resolved as node resolves it, or
- *     as vitest does an extensionless `.ts`; and
- *     `path.join|resolve(__dirname, "<literal>", …)` naming a code file, the
- *     spelling of check.js's notify-report.js (#459) and
- *     doc-map-generator.js's session-arbiter.js spawn (#460).
+ *     as vitest does an extensionless `.ts`;
+ *     `<path>.join|resolve(__dirname, "<literal>", …)` naming a file that
+ *     exists, an edge where it is code and a read where not, the spelling of
+ *     check.js's notify-report.js (#459), doc-map-generator.js's
+ *     session-arbiter.js spawn (#460) and guard-cores.js's manifest; and
+ *     each script a `code-edges loads: <path> [<key>]` comment line
+ *     declares, off the file's directory: the path itself, or with a key, a
+ *     JSON manifest, read, and every script its key's values name, as
+ *     guard-core-load.js requires each `core` of guard-cores.json. A
+ *     `require(`/`import(` of anything but one quoted literal, or a `const`
+ *     bound to one, to such a join or to `process.env.X` (the caller's), is
+ *     unread, unless such a line declares the file's loads.
  *   shell, a `.sh` file or one with no extension and a shell `#!` line,
  *     cut into simple commands (lib/shell-script-lexer.js) — every word
- *     naming a code path, and every load: a file sourced or `.`-read, run
+ *     naming a code path, or holding one as a blank-separated token, as a
+ *     message spelling a command does, and every load: a file sourced or `.`-read, run
  *     through an interpreter or by its path, behind a wrapper such as `exec`
  *     or a function running its arguments, named by node's `--require`, or
  *     loaded by an inline node program as `require(process.argv[N])` off an
@@ -23,7 +33,9 @@
  *     assignment, read where the word stands, so an `unset` after it clears
  *     nothing (#460, #4790). A load word that is one value the caller hands
  *     in, whole — an argument, or an inherited variable or its default
- *     command name — is the caller's to name. A load word built any other way
+ *     command name, or a variable a `# code-edges caller: <name>…` line
+ *     says holds a program found off `PATH` (host-git-guard/git's real git)
+ *     — is the caller's to name. A load word built any other way
  *     is unread, never dropped (#4790): off `$0`, which in a sourced file is
  *     its caller, off an argument or an inherited variable, or off the
  *     working directory; so is a program on stdin or in a heredoc, a shell's
@@ -58,10 +70,13 @@
  * TypeScript or Python, is unread unless its program is one plain literal,
  * its escapes undone, loading only builtin modules; in a shell script the
  * program must be single-quoted, and node's `require(process.argv[N])` of
- * an argument read as a path is an edge. Residual: in JS and TypeScript, a
- * spawn handing a shell its command (`bash -c`), through which tests run any
- * command, an interpreter named by a variable, and a script spawned by a
- * path not spelled off `__dirname`.
+ * an argument read as a path is an edge, as it is in JS and TypeScript
+ * where the spawn writes its argument list out and the argument is a
+ * `__dirname` join, itself or through a `const` (claimed-bash-write-host.js's
+ * ledger writer). Residual: in JS and TypeScript, a spawn handing a shell
+ * its command (`bash -c`), through which tests run any command, an
+ * interpreter named by a variable, and a script spawned by a path not
+ * spelled off `__dirname`.
  */
 
 const fs = require("node:fs");
@@ -72,7 +87,8 @@ const {
 	HASH_COMMENT_LINE,
 	JS_COMMENT_LINE,
 } = require("./qualify-citations.js");
-const { requiredGroup } = require("./regex-group.js");
+const { closeOf, inertSpans, topLevelArgs } = require("./js-lex.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const {
 	SH_ASSIGN,
 	SH_RESERVED,
@@ -94,19 +110,36 @@ function languageOf(file) {
 	if (file.endsWith(".py")) return "python";
 	return null;
 }
-/* The interpreter an extensionless script's `#!` line names, by its
- * program's basename, or `env`'s first word that is not a flag. */
-/** @type {Map<string, "js"|"python"|"sh">} */
-const SHEBANG_LANGUAGE = new Map([
-	["node", "js"],
-	["python", "python"],
-	["python3", "python"],
-	["sh", "sh"],
-	["bash", "sh"],
-	["dash", "sh"],
-	["zsh", "sh"],
-	["ksh", "sh"],
-]);
+/**
+ * @typedef {"node"|"python"|"other"|"shell"} InterpreterKind how an
+ *   interpreter takes a program: its flags, and how its inline program loads
+ * @typedef {{name: string, test: RegExp, kind: InterpreterKind,
+ *   language: "js"|"python"|"sh"|null}} InterpreterRow an interpreter by its
+ *   program's name (`name` an alternation, `test` it whole), and the
+ *   language of a script whose `#!` line names it, null for one the walk
+ *   does not read
+ */
+
+/* Every interpreter a script may run a file or a program through: the one
+ * table the `#!` line, the shell walk and the inline-program reader read. */
+/** @type {InterpreterRow[]} */
+const INTERPRETERS = [
+	["node(?:js)?", "node", "js"],
+	[String.raw`python(?:3(?:\.\d+)?)?`, "python", "python"],
+	["perl|ruby", "other", null],
+	["bash|sh|dash|zsh|ksh", "shell", "sh"],
+].map(([name, kind, language]) => ({
+	name: String(name),
+	test: new RegExp(`^(?:${name})$`),
+	kind: /** @type {InterpreterKind} */ (kind),
+	language: /** @type {InterpreterRow["language"]} */ (language),
+}));
+
+/**
+ * The interpreter `name` is, as a program's name, if any.
+ * @param {string} name
+ */
+const interpreterNamed = (name) => INTERPRETERS.find((i) => i.test.test(name));
 
 /**
  * The language of a script by its extension, or for a file with none, as a
@@ -117,7 +150,7 @@ const SHEBANG_LANGUAGE = new Map([
  */
 function scriptLanguage(file, text) {
 	const named = languageOf(file);
-	if (named !== null || path.basename(file).includes(".")) return named;
+	if (named !== null || !isExtensionless(file)) return named;
 	if (!text.startsWith("#!")) return null;
 	const words = text.slice(2, text.indexOf("\n") + 1 || undefined).split(/\s+/);
 	const program = words.filter(Boolean).map((w) => path.basename(w));
@@ -125,7 +158,7 @@ function scriptLanguage(file, text) {
 		program[0] === "env"
 			? program.slice(1).find((w) => !w.startsWith("-"))
 			: program[0];
-	return name === undefined ? null : (SHEBANG_LANGUAGE.get(name) ?? null);
+	return name === undefined ? null : (interpreterNamed(name)?.language ?? null);
 }
 
 /**
@@ -133,6 +166,21 @@ function scriptLanguage(file, text) {
  * @param {string} file
  */
 const isCodeFile = (file) => languageOf(file) !== null;
+
+/**
+ * Whether `file`'s name has no extension, as a git hook's, so its `#!` line
+ * names its language.
+ * @param {string} file
+ */
+const isExtensionless = (file) => !path.basename(file).includes(".");
+
+/**
+ * Whether the file at `file` may be a script `reachOf` walks: code by its
+ * extension, or a file with none.
+ * @param {string} file absolute
+ */
+const isScript = (file) =>
+	isCodeFile(file) || (isExtensionless(file) && isFile(file));
 /* Every literal module specifier: `require(…)`, `require.resolve(…)`,
  * `from "…"`, `import(…)` and a bare `import "…"`. plugin-tree.js's package
  * scan reads the same. */
@@ -157,8 +205,27 @@ function jsSpecifier(m) {
 	return spec;
 }
 
-const DIRNAME_JOIN =
-	/\bpath\.(?:join|resolve)\(\s*__dirname((?:\s*,\s*["'][^"']+["'])+)\s*(?:,\s*)?\)/g;
+/* A path built off the file's own directory from literals, through any
+ * binding of node's path module: `path.join(__dirname, "<literal>", …)`,
+ * `nodePath.resolve(…)`. */
+const DIRNAME_JOIN_SOURCE = String.raw`\b[A-Za-z_$][\w$]*\.(?:join|resolve)\(\s*__dirname((?:\s*,\s*["'][^"']+["'])+)\s*(?:,\s*)?\)`;
+const DIRNAME_JOIN = new RegExp(DIRNAME_JOIN_SOURCE, "g");
+const DIRNAME_JOIN_WHOLE = new RegExp(`^${DIRNAME_JOIN_SOURCE}$`);
+/* A load call, `require(` or `import(`, not another object's method; a
+ * spread (`...require(x)`) is one. */
+const LOAD_CALL = /(?:(?<![\w$.])|(?<=\.\.\.))(?:require|import)\s*\(/g;
+/* A load argument the walk reads: one quoted literal, which `JS_SPEC` reads. */
+const LOAD_LITERAL = /^(["'])[^"'\\]*\1$/;
+/* A `const` binding whose value a load of it reads: a quoted literal, a path
+ * `DIRNAME_JOIN` reads, or `process.env.X`, a module the caller names. */
+const LOAD_CONST_VALUE = new RegExp(
+	String.raw`^(?:["'][^"'\\]*["']|${DIRNAME_JOIN_SOURCE}|process\.env\.\w+)$`,
+);
+/* A file's declaration of what its loads that name no literal load: a path,
+ * off the file's directory, of a script; or of a JSON manifest and the key
+ * whose every value, at any depth, names a script off the same directory. */
+const LOADS_PRAGMA =
+	/^[ \t]*(?:\/\/|\/?\*)[ \t]*code-edges loads: (\S+)(?: (\w+))?[ \t]*$/gm;
 const QUOTED = /["']([^"']+)["']/g;
 const PY_IMPORT =
 	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
@@ -290,10 +357,11 @@ const pythonVersion = () => readPython().version;
 /**
  * @typedef {{edges: string[], shadows: string[]}} Found absolute: the files
  *   reached, and the paths tried on the way before the file each resolved to
- * @typedef {{edges: string[], shadows: string[], unread: string[],
- *   python: boolean}} Reach absolute: the files reached, the paths tried on
- *   the way before the file each resolved to, each load the walk cannot
- *   read, and whether the file runs an inline Python program
+ * @typedef {{edges: string[], shadows: string[], reads: string[],
+ *   unread: string[], python: boolean}} Reach absolute: the files reached,
+ *   the paths tried on the way before the file each resolved to, the data
+ *   files it reads off its own directory, each load the walk cannot read,
+ *   and whether the file runs an inline Python program
  */
 
 /**
@@ -308,16 +376,22 @@ function reachOf(file, text, fault) {
 	if (language === "jsx")
 		fault(`is ${path.extname(file)} code, whose loads the walk cannot read`);
 	if (language !== "js" && language !== "python")
-		return { edges: [], shadows: [], unread: [], python: false };
+		return { edges: [], shadows: [], reads: [], unread: [], python: false };
 	const code = parseCodeLines(
 		text,
 		language === "js" ? JS_COMMENT_LINE : HASH_COMMENT_LINE,
 	).join("\n");
-	const { edges, shadows } =
-		language === "js"
-			? jsReach(path.dirname(file), code)
-			: pyReach(file, text, fault);
-	return { edges, shadows, ...inlineSpawns(code) };
+	const inline = inlineSpawns(file, code);
+	const own =
+		language === "python"
+			? { ...pyReach(file, text, fault), reads: [], unread: [] }
+			: jsReach(file, text, code);
+	return {
+		...own,
+		edges: [...own.edges, ...inline.edges],
+		unread: [...own.unread, ...inline.unread],
+		python: inline.python,
+	};
 }
 
 /**
@@ -348,24 +422,161 @@ function relativeSpecifiers(dir, code) {
 }
 
 /**
- * A JS or TypeScript file's edges, and the paths its relative specifiers
- * tried before the file each resolved to (#4814): a file appearing at one
- * would take the import over.
- * @param {string} dir the file's directory
+ * A JS or TypeScript file's reach: its relative specifiers' targets and the
+ * paths each tried before the file it resolved to (#4814), a file appearing
+ * at one would take the import over; each existing file joined off
+ * `__dirname`, walked where it is code and read as data where not; the
+ * scripts its `code-edges loads:` lines declare; and each load whose
+ * argument the walk cannot read, unread unless such a line declares the
+ * file's loads.
+ * @param {string} file absolute
+ * @param {string} text
  * @param {string} code comment lines already cut
- * @returns {{edges: string[], shadows: string[]}}
+ * @returns {Found & {reads: string[], unread: string[]}}
  */
-function jsReach(dir, code) {
+function jsReach(file, text, code) {
+	const dir = path.dirname(file);
 	const resolved = relativeSpecifiers(dir, code).map(resolutionOf);
 	const edges = resolved.map((r) => r.target);
+	/** @type {string[]} */
+	const reads = [];
 	for (const m of code.matchAll(DIRNAME_JOIN)) {
 		const parts = [...requiredGroup(m, 1, DIRNAME_JOIN).matchAll(QUOTED)].map(
 			(p) => requiredGroup(p, 1, QUOTED),
 		);
 		const target = path.join(dir, ...parts);
 		if (isCodeFile(target)) edges.push(target);
+		else if (isFile(target)) reads.push(target);
 	}
-	return { edges, shadows: resolved.flatMap((r) => r.tried) };
+	const declared = declaredLoads(file, text);
+	edges.push(...declared.edges);
+	reads.push(...declared.reads);
+	const unread = [...declared.unread];
+	if (!declared.declares) unread.push(...unreadLoads(code));
+	return { edges, shadows: resolved.flatMap((r) => r.tried), reads, unread };
+}
+
+/**
+ * The loads `code` makes of an argument the walk cannot read: anything but
+ * one quoted literal, or a name the file binds by `const` to a value
+ * `LOAD_CONST_VALUE` reads.
+ * @param {string} code comment lines already cut
+ * @returns {string[]}
+ */
+function unreadLoads(code) {
+	const spans = inertSpans(code);
+	const isInert = (/** @type {number} */ i) =>
+		spans.some(([first, last]) => i >= first && i <= last);
+	/** @type {string[]} */
+	const unread = [];
+	for (const m of code.matchAll(LOAD_CALL)) {
+		const open = (m.index ?? 0) + m[0].length - 1;
+		const close = closeOf(code, open);
+		if (isInert(m.index ?? 0) || close === -1) continue;
+		const arg = code.slice(open + 1, close - 1).trim();
+		if (LOAD_LITERAL.test(arg) || isReadConst(code, arg)) continue;
+		unread.push(`loads ${code.slice(m.index, close).replace(/\s+/g, " ")}`);
+	}
+	return unread;
+}
+
+/**
+ * Whether `name` is bound by `const` in `code`, in every binding of it, to a
+ * value `LOAD_CONST_VALUE` reads.
+ * @param {string} code
+ * @param {string} name
+ */
+function isReadConst(code, name) {
+	const values = constValues(code, name);
+	return values.length > 0 && values.every((v) => LOAD_CONST_VALUE.test(v));
+}
+
+/**
+ * The one-line value of every `const` binding `name` in `code`; none where
+ * `name` is no identifier.
+ * @param {string} code
+ * @param {string} name
+ * @returns {string[]}
+ */
+function constValues(code, name) {
+	if (!/^[A-Za-z_$][\w$]*$/.test(name)) return [];
+	const bound = new RegExp(
+		String.raw`\bconst\s+${escapeRe(name)}\s*=\s*([^;\n]+?)\s*;?\s*$`,
+		"gm",
+	);
+	return [...code.matchAll(bound)].map((m) => requiredGroup(m, 1, bound));
+}
+
+/**
+ * `expr` read through one `const` binding where it is a name `code` binds
+ * to one value, else itself.
+ * @param {string} code
+ * @param {string} expr
+ */
+function constOrSelf(code, expr) {
+	const values = new Set(constValues(code, expr));
+	const [only] = values;
+	return values.size === 1 && only !== undefined ? only : expr;
+}
+
+/**
+ * The loads `text`'s `code-edges loads:` lines declare: each script named,
+ * and for a JSON manifest, the manifest as a read and every script its key's
+ * values name. A declared path that is no file, or a manifest that will not
+ * parse, is unread.
+ * @param {string} file absolute
+ * @param {string} text
+ * @returns {{declares: boolean, edges: string[], reads: string[], unread: string[]}}
+ */
+function declaredLoads(file, text) {
+	const dir = path.dirname(file);
+	/** @type {{declares: boolean, edges: string[], reads: string[], unread: string[]}} */
+	const out = { declares: false, edges: [], reads: [], unread: [] };
+	for (const m of text.matchAll(LOADS_PRAGMA)) {
+		out.declares = true;
+		const named = path.join(dir, requiredGroup(m, 1, LOADS_PRAGMA));
+		const key = m[2];
+		if (!isFile(named)) out.unread.push(`declares ${m[0].trim()}, no file`);
+		else if (key === undefined) out.edges.push(named);
+		else {
+			const values = manifestValues(named, key);
+			if (values === null)
+				out.unread.push(`declares ${m[0].trim()}, which will not parse`);
+			else {
+				out.reads.push(named);
+				out.edges.push(...values.map((v) => path.join(dir, v)));
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * Every string value under `key`, at any depth, of the JSON at `file`; null
+ * where it will not parse.
+ * @param {string} file
+ * @param {string} key
+ * @returns {string[] | null}
+ */
+function manifestValues(file, key) {
+	let data;
+	try {
+		data = JSON.parse(fs.readFileSync(file, "utf8"));
+	} catch {
+		return null;
+	}
+	/** @type {string[]} */
+	const found = [];
+	const visit = (/** @type {unknown} */ node) => {
+		if (Array.isArray(node)) node.forEach(visit);
+		else if (node !== null && typeof node === "object")
+			for (const [k, v] of Object.entries(node)) {
+				if (k === key && typeof v === "string") found.push(v);
+				else visit(v);
+			}
+	};
+	visit(data);
+	return found;
 }
 
 /**
@@ -905,16 +1116,19 @@ function placePyTop(scope, top, reach) {
 	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 
-/* The interpreters whose inline programs are read, and the flag that hands
- * one its program: `-c`, `-e` or `-p` closing any bundle of single-letter
+/* The interpreters whose inline programs are read, every one but a shell
+ * (the residual in the header), and the flag that hands one its program: `-c`, `-e` or `-p` closing any bundle of single-letter
  * flags (python3's `-c` and `-Ic`, node's `-pe`, perl's `-lane`),
  * `--eval`, `--print`, or `-` for a program on stdin. */
-const INTERPRETER = String.raw`python(?:3(?:\.\d+)?)?|node|perl|ruby`;
+const INTERPRETER = INTERPRETERS.filter((i) => i.kind !== "shell")
+	.map((i) => i.name)
+	.join("|");
 const INLINE_FLAG = "-[A-Za-z]*[cep]|--eval|--print|-";
 /* A literal an argument list may hold, and one read whole as a program: a
  * template only where it interpolates nothing and escapes nothing. */
 const ARG_LITERAL = String.raw`(?:${ONE_LINE_STRING}|\x60[^\x60]*\x60)`;
 const PLAIN_LITERAL = String.raw`${ONE_LINE_STRING}|\x60[^\x60$\\]*\x60`;
+const PLAIN_LITERAL_WHOLE = new RegExp(`^(?:${PLAIN_LITERAL})$`);
 /* An interpreter handed its program inline in an argument list:
  * `"python3", ["-c", code]`, `process.execPath, ["-e", code]`,
  * `[sys.executable, "-c", code]`, or `"-"` for a program on stdin. Group 1
@@ -924,9 +1138,10 @@ const INLINE_ARGV = new RegExp(
 	String.raw`(["'\x60](?:${INTERPRETER})["'\x60]|process\.execPath|sys\.executable)\s*,\s*(?:\[\s*)?(?:${ARG_LITERAL}\s*,\s*)*?["'\x60](${INLINE_FLAG})["'\x60]\s*(?:,\s*(${PLAIN_LITERAL})\s*(?=[,\])]))?`,
 	"g",
 );
-/* The same handed to a shell as one command string: `execSync("python3 -c …")`. */
+/* The same handed to a shell as one command string: `execSync("python3 -c …")`;
+ * group 1 names the interpreter. */
 const INLINE_COMMAND = new RegExp(
-	String.raw`\bexec(?:Sync)?\(\s*["'\x60][^"'\x60]*?\b(?:${INTERPRETER})\s+(?:-\S+\s+)*?(?:${INLINE_FLAG})(?=[\s"'\x60])`,
+	String.raw`\bexec(?:Sync)?\(\s*["'\x60][^"'\x60]*?\b(${INTERPRETER})\s+(?:-\S+\s+)*?(?:${INLINE_FLAG})(?=[\s"'\x60])`,
 	"g",
 );
 /* A node program's load of a path handed to it as an argument. */
@@ -970,7 +1185,7 @@ function literalBody(literal) {
  * needs python3 for a shell script's inline program.
  * @returns {Set<string> | null}
  */
-function pythonBuiltins() {
+function readPythonBuiltins() {
 	try {
 		return readPython().builtins;
 	} catch {
@@ -989,7 +1204,7 @@ function pythonBuiltins() {
 function programLoads(interpreter, program) {
 	if (program === null) return { unread: true, argv: [] };
 	if (interpreter === "python") {
-		const builtins = pythonBuiltins();
+		const builtins = readPythonBuiltins();
 		if (builtins === null) return { unread: true, argv: [] };
 		const unread = pyStatements(program, () => undefined).some((s) => {
 			const imp = s.text.match(PY_IMPORT);
@@ -1019,31 +1234,92 @@ function programLoads(interpreter, program) {
 
 /**
  * The inline programs a JS, TypeScript or Python file spawns: one whose
- * loads no walk reads, or that loads an argument by path, which no walk
- * here reads in these languages, is unread.
+ * loads no walk reads is unread. Node's `require(process.argv[N])` of an
+ * argument is an edge where the spawn's argument list is written out and
+ * that argument is a path `DIRNAME_JOIN` reads, itself or through a `const`;
+ * any other load of an argument is unread. A program held in a `const` is
+ * read as its literal.
+ * @param {string} file absolute
  * @param {string} code comment lines already cut
- * @returns {{unread: string[], python: boolean}}
+ * @returns {{edges: string[], unread: string[], python: boolean}}
  */
-function inlineSpawns(code) {
+function inlineSpawns(file, code) {
+	/** @type {string[]} */
+	const edges = [];
 	/** @type {string[]} */
 	const unread = [];
 	let runsPython = false;
 	for (const m of code.matchAll(INLINE_ARGV)) {
 		const interpreter = interpreterOf(requiredGroup(m, 1, INLINE_ARGV));
 		runsPython ||= interpreter === "python";
+		const flag = requiredGroup(m, 2, INLINE_ARGV);
+		const listed = argvList(code, m, flag);
+		const literal = m[3] ?? listed?.program;
 		const program =
-			m[3] === undefined || requiredGroup(m, 2, INLINE_ARGV) === "-"
-				? null
-				: literalBody(m[3]);
+			literal === undefined || flag === "-" ? null : literalBody(literal);
 		const loads = programLoads(interpreter, program);
-		if (loads.unread || loads.argv.length > 0)
-			unread.push(`spawns ${m[0].replace(/\s+/g, " ")}`);
+		const said = `spawns ${m[0].replace(/\s+/g, " ")}`;
+		const loaded = loads.argv.map((n) =>
+			dirnamePath(file, code, listed?.args[n - 1] ?? ""),
+		);
+		if (loads.unread || loaded.includes(null)) unread.push(said);
+		else edges.push(.../** @type {string[]} */ (loaded));
 	}
 	for (const m of code.matchAll(INLINE_COMMAND)) {
-		runsPython ||= interpreterOf(m[0]) === "python";
+		runsPython ||=
+			interpreterOf(requiredGroup(m, 1, INLINE_COMMAND)) === "python";
 		unread.push(`spawns ${m[0].replace(/\s+/g, " ")}`);
 	}
-	return { unread, python: runsPython };
+	return { edges, unread, python: runsPython };
+}
+
+/**
+ * The argument list an `INLINE_ARGV` match opens, where it opens one after
+ * its interpreter: the program after `flag`, a plain literal itself or
+ * through a `const`, and the arguments after it as written; null where the
+ * list will not read.
+ * @param {string} code
+ * @param {RegExpMatchArray} m
+ * @param {string} flag
+ * @returns {{program: string | undefined, args: string[]} | null}
+ */
+function argvList(code, m, flag) {
+	const open = (m.index ?? 0) + m[0].indexOf("[");
+	if (
+		open < (m.index ?? 0) ||
+		!/^\s*,\s*\[/.test(m[0].slice(requiredGroup(m, 1, INLINE_ARGV).length))
+	)
+		return null;
+	const close = closeOf(code, open);
+	if (close === -1) return null;
+	const elements = topLevelArgs(code.slice(open + 1, close - 1)).map((e) =>
+		e.trim(),
+	);
+	const at = elements.findIndex((e) => e.slice(1, -1) === flag);
+	if (at === -1) return null;
+	const program = constOrSelf(code, elements[at + 1] ?? "");
+	return {
+		program: PLAIN_LITERAL_WHOLE.test(program) ? program : undefined,
+		args: elements.slice(at + 2),
+	};
+}
+
+/**
+ * The path `expr` names off `file`'s directory, itself or through a
+ * `const`, as `DIRNAME_JOIN` reads one; null for any other.
+ * @param {string} file absolute
+ * @param {string} code
+ * @param {string} expr
+ * @returns {string | null}
+ */
+function dirnamePath(file, code, expr) {
+	const m = constOrSelf(code, expr).match(DIRNAME_JOIN_WHOLE);
+	if (!m) return null;
+	const parts = [...requiredGroup(m, 1, DIRNAME_JOIN_WHOLE).matchAll(QUOTED)];
+	return path.join(
+		path.dirname(file),
+		...parts.map((p) => requiredGroup(p, 1, QUOTED)),
+	);
 }
 
 /**
@@ -1051,9 +1327,10 @@ function inlineSpawns(code) {
  * @returns {Interpreter}
  */
 function interpreterOf(head) {
-	if (/python|executable/.test(head)) return "python";
-	if (/node|execPath/.test(head)) return "node";
-	return "other";
+	if (head === "sys.executable") return "python";
+	if (head === "process.execPath") return "node";
+	const kind = interpreterNamed(head.replace(/^["'\x60]|["'\x60]$/g, ""))?.kind;
+	return kind === "node" || kind === "python" ? kind : "other";
 }
 
 /* ---------------------------------------------------------------- shell */
@@ -1061,17 +1338,14 @@ function interpreterOf(head) {
 /**
  * @typedef {import("./shell-script-lexer.js").ShWord} ShWord
  * @typedef {import("./shell-script-lexer.js").ShCommand} ShCommand
+ * @typedef {"caller"|"bare"|"array"|"value"} ShBindingKind a value the
+ *   caller hands in (`isCallerWord`), a literal name, as `true`, an array's
+ *   literal elements, or any other
  * @typedef {{name: string, at: number, value: string | null,
- *   caller: boolean, bare: boolean, array: boolean}} ShBinding a variable's
- *   assignment: its value an absolute path or null for any other; `caller`
- *   where the value is one the caller hands in (`shCallerWord`), `bare`
- *   where it is a literal name, as `true`, `array` where it is an array's
- *   literal elements
+ *   kind: ShBindingKind}} ShBinding a variable's assignment: its value an
+ *   absolute path or null for any other
  */
 
-/* The interpreters a shell command may run a file or a program through. */
-const SH_INTERPRETER =
-	/^(?:node(?:js)?|python(?:3(?:\.\d+)?)?|perl|ruby|bash|sh|dash|zsh|ksh)$/;
 /* Matches nothing: a flag kind an interpreter lacks. */
 const NONE = /(?!)/;
 /* Per interpreter kind: the flag closing a bundle that hands it its program
@@ -1147,14 +1421,25 @@ const SH_ONE_PARAMETER =
  * 2). */
 const SH_PARAMETER =
 	/^\$\{?PWD\}?\/(?=\$)|^\$\{(\w+)(?:\[0\])?(%\/\*)?\}|^\$(\w+)(?!\w)/;
+/* A blank-separated token inside a word holding blanks, as a message's,
+ * its enclosing quotes, brackets and trailing punctuation cut. */
+const SH_TOKEN = /[^\s]+/g;
+const SH_TOKEN_OPEN = /^["'`(]+/;
+const SH_TOKEN_CLOSE = "\"'`),.;:";
+/* `# code-edges caller: <name>…`: variables a script assigns a program it
+ * finds off `PATH`, as host-git-guard/git finds the real git, whose load is
+ * the caller's to name, as a bare command name's is. */
+const SH_CALLER_PRAGMA =
+	/^[ \t]*#[ \t]*code-edges caller: (\w+(?:[ \t]+\w+)*)[ \t]*$/gm;
 /* `${X:-default}` or `${X-default}`: an inherited X reads as its default,
  * the value where the caller sets none. */
 const SH_DEFAULTED = /^\$\{(\w+):?-/;
 
 /**
  * @typedef {{file: string, bindings: Map<string, ShBinding[]>,
- *   unsets: Map<string, number[]>}} ShScope a script's variables: every
- *   assignment of each, and where each is unset
+ *   unsets: Map<string, number[]>, callers: Set<string>}} ShScope a
+ *   script's variables: every assignment of each, where each is unset, and
+ *   those its `code-edges caller:` lines say hold a value the caller names
  * @typedef {{scope: ShScope, reach: Reach, said: string}} ShRun one
  *   command's walk: the script's variables, the reach it adds to, and the
  *   command as written, which an unread load names
@@ -1170,14 +1455,19 @@ const SH_DEFAULTED = /^\$\{(\w+):?-/;
  */
 function shReach(file, code) {
 	const commands = shCommands(code);
-	const scope = shScope(file, commands);
+	const scope = shScope(file, commands, code);
 	/** @type {Reach} */
-	const reach = { edges: [], shadows: [], unread: [], python: false };
+	const reach = {
+		edges: [],
+		shadows: [],
+		reads: [],
+		unread: [],
+		python: false,
+	};
 	for (const command of commands) {
-		for (const word of command.words) {
-			const p = shPath(word, scope);
-			if (p !== null && p !== file && isCodeFile(p)) reach.edges.push(p);
-		}
+		for (const word of command.words)
+			for (const p of codePathsIn(word, scope))
+				if (p !== file) reach.edges.push(p);
 		shLoads(command, scope, reach);
 	}
 	reach.edges = [...new Set(reach.edges)];
@@ -1185,21 +1475,65 @@ function shReach(file, code) {
 }
 
 /**
+ * The code paths a word names: itself where it reads as one, and, where it
+ * holds blanks, each token inside it, as a path a message spells
+ * (`refuse "… node $SELF_DIR/issue-body.js …"`).
+ * @param {ShWord} word
+ * @param {ShScope} scope
+ * @returns {string[]}
+ */
+function codePathsIn(word, scope) {
+	const tokens = /\s/.test(word.text)
+		? [...word.text.matchAll(SH_TOKEN)].map((m) => {
+				let end = m[0].length;
+				while (end > 0 && SH_TOKEN_CLOSE.includes(m[0].charAt(end - 1))) end--;
+				const text = m[0].slice(0, end).replace(SH_TOKEN_OPEN, "");
+				return { text, at: word.at + (m.index ?? 0) };
+			})
+		: [];
+	/* A token holding a bracket is a piece of a `$(…)`, no path of its own. */
+	const paths = tokens.filter(
+		(t) => isCodeFile(t.text) && !/[()]/.test(t.text),
+	);
+	return [word, ...paths].flatMap((w) => {
+		const p = shPath(w, scope);
+		return p !== null && isCodeFile(p) ? [p] : [];
+	});
+}
+
+/**
  * Every variable binding in `commands`, each value read on the bindings
  * written before it.
  * @param {string} file absolute
  * @param {ShCommand[]} commands
+ * @param {string} code
  * @returns {ShScope}
  */
-function shScope(file, commands) {
+function shScope(file, commands, code) {
 	/** @type {ShScope} */
-	const scope = { file, bindings: new Map(), unsets: new Map() };
+	const scope = {
+		file,
+		bindings: new Map(),
+		unsets: new Map(),
+		callers: new Set(
+			[...code.matchAll(SH_CALLER_PRAGMA)].flatMap((m) =>
+				requiredGroup(m, 1, SH_CALLER_PRAGMA).split(/\s+/),
+			),
+		),
+	};
 	for (const command of commands) {
-		const [head, ...rest] = command.words;
-		if (head === undefined) continue;
+		/* A command after `then` or `do` binds as one standing alone. */
+		const words = command.words.slice(
+			Math.max(
+				0,
+				command.words.findIndex((w) => !SH_RESERVED.has(w.text)),
+			),
+		);
+		const [head, ...rest] = words;
+		if (head === undefined || SH_RESERVED.has(head.text)) continue;
 		if (head.text === "unset")
 			for (const w of rest) pushTo(scope.unsets, w.text, w.at);
-		for (const w of assignmentWords(command)) bindAssignment(scope, command, w);
+		for (const w of assignmentWords(words)) bindAssignment(scope, command, w);
 		for (const w of reboundNames(head.text, rest))
 			bind(scope, unknownBinding(w.text, w.at));
 	}
@@ -1247,21 +1581,19 @@ const unknownBinding = (name, at) => ({
 	name,
 	at,
 	value: null,
-	caller: false,
-	bare: false,
-	array: false,
+	kind: "value",
 });
 
 /**
  * The assignment words a command opens with, or that a declaration such as
  * `local` or `export` holds.
- * @param {ShCommand} command
+ * @param {ShWord[]} command its words from its head
  * @returns {ShWord[]}
  */
 function assignmentWords(command) {
-	const [head, ...rest] = command.words;
+	const [head, ...rest] = command;
 	const declares = SH_DECLARES.test(head?.text ?? "");
-	const words = declares ? rest : command.words;
+	const words = declares ? rest : command;
 	const skipped = (/** @type {ShWord} */ w) =>
 		declares && /^(?:-\w+|[A-Za-z_]\w*)$/.test(w.text);
 	const end = words.findIndex((w) => !SH_ASSIGN.test(w.text) && !skipped(w));
@@ -1289,7 +1621,7 @@ function bindAssignment(scope, command, word) {
 	if (m[2] !== undefined || value.text.startsWith("(")) {
 		bind(scope, {
 			...unknownBinding(name, word.at),
-			array: m[2] === undefined,
+			kind: m[2] === undefined ? "array" : "value",
 		});
 		return;
 	}
@@ -1297,10 +1629,19 @@ function bindAssignment(scope, command, word) {
 		name,
 		at: word.at,
 		value: shPath(value, scope),
-		caller: shCallerWord(value.text, scope),
-		bare: /^(["']?)[\w.+-]+\1$/.test(value.text),
-		array: false,
+		kind: bindingKind(value.text, scope),
 	});
+}
+
+/**
+ * The kind of an assignment's value.
+ * @param {string} text
+ * @param {ShScope} scope
+ * @returns {ShBindingKind}
+ */
+function bindingKind(text, scope) {
+	if (isCallerWord(text, scope)) return "caller";
+	return /^(["']?)[\w.+-]+\1$/.test(text) ? "bare" : "value";
 }
 
 /**
@@ -1322,13 +1663,13 @@ function isBareNameFallback(command, name) {
  * @param {ShScope} scope
  * @returns {boolean}
  */
-function shCallerWord(text, scope) {
+function isCallerWord(text, scope) {
 	const m = text.match(SH_ONE_PARAMETER);
 	if (!m) return false;
 	const name = m[1] ?? m[4];
-	if (name === undefined) return true;
+	if (name === undefined || scope.callers.has(name)) return true;
 	if (m[2] !== undefined && !/^[\w.+-]+$/.test(m[2])) return false;
-	return (scope.bindings.get(name) ?? []).every((b) => b.caller);
+	return (scope.bindings.get(name) ?? []).every((b) => b.kind === "caller");
 }
 
 /**
@@ -1338,10 +1679,14 @@ function shCallerWord(text, scope) {
  * @param {string} text
  * @param {ShScope} scope
  */
-function namesCommand(text, scope) {
+function isCommandName(text, scope) {
 	const name = text.match(SH_ONE_PARAMETER)?.[4];
+	if (name !== undefined && scope.callers.has(name)) return true;
 	const bindings = name === undefined ? [] : (scope.bindings.get(name) ?? []);
-	return bindings.length > 0 && bindings.every((b) => b.bare || b.caller);
+	return (
+		bindings.length > 0 &&
+		bindings.every((b) => b.kind === "bare" || b.kind === "caller")
+	);
 }
 
 /**
@@ -1353,7 +1698,7 @@ function namesCommand(text, scope) {
 function isLiteralArray(text, scope) {
 	const name = text.match(/^"?\$\{(\w+)\[[@*]\]\}"?$/)?.[1];
 	const bindings = name === undefined ? [] : (scope.bindings.get(name) ?? []);
-	return bindings.length > 0 && bindings.every((b) => b.array);
+	return bindings.length > 0 && bindings.every((b) => b.kind === "array");
 }
 
 /**
@@ -1516,20 +1861,23 @@ function shLoads(command, scope, reach) {
 	if (head === undefined) return;
 	/** @type {ShRun} */
 	const run = { scope, reach, said: words.map((w) => w.text).join(" ") };
-	if (SH_INTERPRETER.test(head.text)) {
-		shInterpreterLoads(run, head.text, args);
+	const named = interpreterNamed(head.text);
+	if (named) {
+		shInterpreterLoads(run, named.kind, args);
 		return;
 	}
 	/* An array's elements are a command only where an interpreter heads them. */
 	if (command.array) return;
 	/* A function running its arguments, as `hook_bound node x.js`. */
-	const nested = args.findIndex((w) => SH_INTERPRETER.test(w.text));
-	const nestedHead = args[nested];
-	if (nestedHead && !SH_NAMING_HEAD.test(head.text))
-		shInterpreterLoads(run, nestedHead.text, args.slice(nested + 1));
+	const nestedKind = args
+		.map((w) => interpreterNamed(w.text)?.kind)
+		.find((kind) => kind !== undefined);
+	const nested = args.findIndex((w) => interpreterNamed(w.text));
+	if (nestedKind && !SH_NAMING_HEAD.test(head.text))
+		shInterpreterLoads(run, nestedKind, args.slice(nested + 1));
 	const [first] = args;
 	if ((head.text === "source" || head.text === ".") && first) load(run, first);
-	else if (/[/$`]/.test(head.text) && !namesCommand(head.text, scope))
+	else if (/[/$`]/.test(head.text) && !isCommandName(head.text, scope))
 		load(run, head);
 }
 
@@ -1542,7 +1890,7 @@ function shLoads(command, scope, reach) {
 function load(run, word) {
 	const p = shPath(word, run.scope);
 	if (p !== null) (isFile(p) ? run.reach.edges : run.reach.shadows).push(p);
-	else if (!shCallerWord(word.text, run.scope))
+	else if (!isCallerWord(word.text, run.scope))
 		run.reach.unread.push(`loads ${word.text} in \`${run.said}\``);
 }
 
@@ -1594,11 +1942,10 @@ function wrappedAt(words, k, valued, timed) {
  * an inline program's loads. A program on stdin, a module off the
  * interpreter's search path and a shell's inline command are unread.
  * @param {ShRun} run accumulator: its reach gains the run's loads
- * @param {string} name the interpreter as written
+ * @param {InterpreterKind} kind
  * @param {ShWord[]} args
  */
-function shInterpreterLoads(run, name, args) {
-	const kind = interpreterKind(name);
+function shInterpreterLoads(run, kind, args) {
 	const flags = SH_FLAGS[kind];
 	for (let k = 0; k < args.length; k++) {
 		const t = args[k]?.text ?? "";
@@ -1615,10 +1962,16 @@ function shInterpreterLoads(run, name, args) {
 		if (/^--?$/.test(t) || flags.module.test(t) || flags.inline.test(t)) break;
 		k += shFlagValue(run, flags, args, k);
 	}
+	unreadProgram(run);
+}
+
+/**
+ * @param {ShRun} run accumulator: its reach gains the run as unread
+ */
+const unreadProgram = (run) =>
 	run.reach.unread.push(
 		`runs \`${run.said}\`, whose program the walk cannot read`,
 	);
-}
 
 /**
  * The script an interpreter's argument `k` names: itself where it is no
@@ -1649,16 +2002,6 @@ function shFlagValue(run, flags, args, k) {
 }
 
 /**
- * @param {string} name an interpreter as written
- * @returns {"node"|"python"|"other"|"shell"}
- */
-function interpreterKind(name) {
-	if (name.startsWith("node")) return "node";
-	if (name.startsWith("python")) return "python";
-	return /^(?:perl|ruby)$/.test(name) ? "other" : "shell";
-}
-
-/**
  * Adds an inline program's loads: node's `require(process.argv[N])` of an
  * argument read as a path; any other load but a builtin module's is unread.
  * Only a single-quoted program is read, as the shell leaves it as written.
@@ -1675,9 +2018,7 @@ function shInlineProgram(run, kind, words) {
 			: null;
 	const { unread, argv } = programLoads(kind, text);
 	if (unread) {
-		run.reach.unread.push(
-			`runs \`${run.said}\`, whose program the walk cannot read`,
-		);
+		unreadProgram(run);
 		return;
 	}
 	for (const n of argv) {
@@ -1696,6 +2037,7 @@ module.exports = {
 	isCodeFile,
 	languageOf,
 	isFile,
+	isScript,
 	pythonVersion,
 	reachOf,
 	JS_SPEC,

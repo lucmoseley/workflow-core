@@ -263,6 +263,7 @@ describe("a file the walk cannot read", () => {
 		expect(reachOf("/x/a.json", "{}", (m: string) => faults.push(m))).toEqual({
 			edges: [],
 			shadows: [],
+			reads: [],
 			unread: [],
 			python: false,
 		});
@@ -521,8 +522,53 @@ describe("a shell script's loads", () => {
 		["a heredoc's body", 'cat <<EOF\nsource "$X/a.sh"\nEOF\n'],
 		["an array of data", "PROSE=(\n  . ':(exclude)*.js'\n)\n"],
 		["arithmetic", "if (( $# > 0 )); then :; fi\n"],
+		/* R4-ST5: a definition's brackets may hold any run of blanks. */
+		["a function defined with spaced brackets", "./x.sh (        ) { :; }\n"],
+		/* R4-SP2: the git shim's real git, found off PATH, is the caller's. */
+		[
+			"a program a `code-edges caller:` line declares found off PATH",
+			'# code-edges caller: real\nfor d in $PATH; do real="$d/git"; done\n"$real" status\n',
+		],
 	])("reads %s as no load", (_what, code) => {
 		expect(sh(code).unread).toEqual([]);
+	});
+
+	it("reads the real git off PATH as unread where no line declares it the caller's", () => {
+		expect(
+			sh('for d in $PATH; do real="$d/git"; done\n"$real" status\n').unread,
+		).toHaveLength(1);
+	});
+
+	/* Found in round 4: an assignment after `then` or `do` bound nothing, so
+	 * its variable read as inherited, the caller's, and its load dropped. */
+	it("binds an assignment after `then` or `do`, so a load off it is read", () => {
+		expect(
+			sh('if c; then X="$PWD/a.sh"; fi\nsource "$X"\n').unread,
+		).toHaveLength(1);
+		const read = sh(`${dirOf("D")}\nif c; then X="$D/b.sh"; fi\nsource "$X"\n`);
+		expect(read.unread).toEqual([]);
+		expect(read.shadows).toEqual(["/x/s/b.sh"]);
+	});
+
+	/* R4-ST1: a code path inside a message word is an edge, as
+	 * park-blocked.sh's `refuse "… node $SELF_DIR/issue-body.js …"`. */
+	it("reaches a code path a message spells inside a quoted word", () => {
+		expect(
+			sh(
+				`${dirOf("D")}\nrefuse "run node $D/issue-body.js append, or \${BASH_SOURCE[0]%/*}/x.sh."\n`,
+			).edges,
+		).toEqual(["/x/s/issue-body.js", "/x/s/x.sh"]);
+	});
+
+	/* R4-ST2: one interpreter table, so a versioned python3 is Python. */
+	it("walks a script whose #! line names a versioned python3 as Python", () => {
+		const faults: string[] = [];
+		reachOf(
+			"/x/hooks/run",
+			"#!/usr/bin/env python3.12\nimport nosuchmod\n",
+			(m: string) => faults.push(m),
+		);
+		expect(faults).toHaveLength(1);
 	});
 
 	it("walks a script with no extension by its #! line, as a git hook", () => {
@@ -555,5 +601,93 @@ describe("a shell script's loads", () => {
 		expect(
 			edgesOf("/x/s/a.sh", 'node "$UNSET/x.js"\n', () => undefined),
 		).toEqual([]);
+	});
+});
+
+describe("a JS file's loads and reads (#4790 round 4)", () => {
+	/** A tree holding `files` (path to text), and the reach of `lib/l.js` reading `code`. */
+	function js(code: string, files: Record<string, string> = {}) {
+		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
+		for (const [rel, text] of Object.entries({ ...files, "lib/l.js": code })) {
+			fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+			fs.writeFileSync(path.join(root, rel), text);
+		}
+		const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
+		const r = reachOf(path.join(root, "lib/l.js"), code, () => undefined);
+		return { edges: rel(r.edges), reads: rel(r.reads), unread: r.unread };
+	}
+
+	/* R4-SP3: a non-literal load is unread, never dropped. */
+	it.each([
+		[
+			"a name bound to nothing it reads",
+			"module.exports = (file) => require(file);\n",
+		],
+		["a call", 'require(path.join(dir, "x.js"));\n'],
+		["a template", ["require(`./lib/$", "{name}`);\n"].join("")],
+		["a spread", "const c = { ...require(file) };\n"],
+		["a dynamic import", "await import(pathToFileURL(file).href);\n"],
+	])("names a load of %s unread", (_what, code) => {
+		expect(js(code).unread).toHaveLength(1);
+	});
+
+	it.each([
+		["a literal", 'require("./x.js");\n'],
+		[
+			"a const bound to a __dirname join",
+			'const LIB = path.resolve(__dirname, "x.js");\nrequire(LIB);\n',
+		],
+		[
+			"a const the caller names",
+			"const MOD = process.env.WFC_MOD;\nrequire(MOD);\n",
+		],
+		["a const bound to a package name", 'const SDK = "ai";\nrequire(SDK);\n'],
+		["a load inside a string", 'const RECORD = "require(process.argv[1])";\n'],
+		["require.resolve", "require.resolve(name, { paths });\n"],
+	])("reads a load of %s", (_what, code) => {
+		expect(js(code).unread).toEqual([]);
+	});
+
+	/* R4-SP4: a data file joined off __dirname is a read, any path binding. */
+	it("reads a data file joined off __dirname, through any binding of path", () => {
+		const r = js(
+			'const M = nodePath.join(__dirname, "m.json");\nconst C = path.join(__dirname, "c.js");\nconst G = path.join(__dirname, "gone.json");\n',
+			{ "lib/m.json": "{}", "lib/c.js": "" },
+		);
+		expect(r.reads).toEqual(["lib/m.json"]);
+		expect(r.edges).toEqual(["lib/c.js"]);
+	});
+
+	/* R4-SP3: guard-core-load.js's cores, off guard-cores.json. */
+	it("reaches each script a declared manifest's key names, and reads the manifest", () => {
+		const r = js(
+			"// code-edges loads: m.json core\nconst load = (row) => require(corePath(row.core));\n",
+			{
+				"lib/m.json":
+					'{"Pre": [{"core": "a.js"}, {"core": "b.js", "host": "h.js"}]}',
+			},
+		);
+		expect(r).toEqual({
+			edges: ["lib/a.js", "lib/b.js"],
+			reads: ["lib/m.json"],
+			unread: [],
+		});
+	});
+
+	it("names a declared manifest that is no file, or will not parse, unread", () => {
+		expect(js("// code-edges loads: m.json core\n").unread).toHaveLength(1);
+		expect(
+			js("// code-edges loads: m.json core\n", { "lib/m.json": "{" }).unread,
+		).toHaveLength(1);
+	});
+
+	/* claimed-bash-write-host.js's ledger writer. */
+	it("reaches the file a listed node program requires off a __dirname-joined argument", () => {
+		const r = js(
+			'const STORE = path.join(__dirname, "s.js");\nconst RECORD = "require(process.argv[1]).f()";\nspawnSync(process.execPath, ["-e", RECORD, STORE, rel]);\n',
+			{ "lib/s.js": "" },
+		);
+		expect(r.unread).toEqual([]);
+		expect([...new Set(r.edges)]).toEqual(["lib/s.js"]);
 	});
 });
