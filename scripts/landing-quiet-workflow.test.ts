@@ -10,34 +10,22 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
+import { loadWorkflow } from "./lib/workflow-yaml-testkit";
 
-// Through `require`: js-yaml ships no types.
-const yaml = createRequire(import.meta.url)("js-yaml");
-
-interface Step {
-	run: string;
-	env: Record<string, unknown>;
-}
-interface Workflow {
-	name: string;
-	on: { schedule: { cron: string }[] };
-	jobs: { quiet: { name: string; if: string; steps: Partial<Step>[] } };
-}
-
-const workflow = yaml.load(
-	fs.readFileSync(
-		path.join(ROOT, ".github/workflows/landing-quiet.yml"),
-		"utf8",
-	),
-) as Workflow;
+const workflow = loadWorkflow(
+	path.join(ROOT, ".github/workflows/landing-quiet.yml"),
+);
 const job = workflow.jobs.quiet;
-const step = job.steps.find((s) => s.run) as Step;
+const step = job?.steps?.find((s) => s.run);
+if (!step?.run)
+	throw new Error("landing-quiet.yml's quiet job has no run step");
+const script = step.run;
+const quietHours = step.env?.QUIET_HOURS;
 
 let dir: string;
 beforeEach(() => {
@@ -57,7 +45,7 @@ const runStep = (body: string | null, forceFailure = "") => {
 			: `#!/bin/sh\ncat ${shellQuote(payload)}\n`,
 		{ mode: 0o755 },
 	);
-	return spawnSync("bash", ["-eo", "pipefail", "-c", step.run], {
+	return spawnSync("bash", ["-eo", "pipefail", "-c", script], {
 		encoding: "utf8",
 		env: {
 			PATH: `${dir}:${process.env.PATH}`,
@@ -65,7 +53,7 @@ const runStep = (body: string | null, forceFailure = "") => {
 			GITHUB_API_URL: "https://api.github.test",
 			GITHUB_REPOSITORY: "owner/repo",
 			FORCE_FAILURE: forceFailure,
-			QUIET_HOURS: String(step.env.QUIET_HOURS),
+			QUIET_HOURS: String(quietHours),
 		},
 	});
 };
@@ -77,20 +65,18 @@ const pushed = (hours: number) =>
 
 describe("landing-quiet.yml", () => {
 	it("runs hourly, in the code repo alone", () => {
-		expect(workflow.on.schedule).toEqual([{ cron: "17 * * * *" }]);
-		expect(job.if).toContain("lucmoseley/workflow-core");
+		expect(workflow.on?.schedule).toEqual([{ cron: "17 * * * *" }]);
+		expect(job?.if).toContain("lucmoseley/workflow-core");
 	});
 
 	it("asks the ref switch which branch it watches, from this checkout", () => {
-		expect(step.run).toContain(
-			"node scripts/lib/landing-refs.js pushed-branch",
-		);
+		expect(script).toContain("node scripts/lib/landing-refs.js pushed-branch");
 	});
 
 	it("names the threshold it applies on the run page the notice links", () => {
-		const hours = step.env.QUIET_HOURS;
+		const hours = quietHours;
 		expect(workflow.name).toContain(`${hours}h`);
-		expect(job.name).toContain(`${hours} hours`);
+		expect(job?.name).toContain(`${hours} hours`);
 	});
 
 	it("passes on a push inside the 14 hours", () => {

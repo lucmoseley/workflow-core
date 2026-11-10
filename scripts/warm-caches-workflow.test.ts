@@ -8,32 +8,14 @@
  */
 
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { expect, it } from "vitest";
 import { ROOT } from "./lib/precommit-gate-testkit";
-
-// Through `require`: js-yaml ships no types.
-const yaml: { load: (text: string) => unknown } = createRequire(
-	import.meta.url,
-)("js-yaml");
-
-interface Step {
-	uses?: string;
-	with?: { "node-version"?: string | number };
-}
-interface Job {
-	steps?: Step[];
-	strategy?: { matrix?: { node?: number[] } };
-}
-interface Workflow {
-	jobs: Record<string, Job>;
-}
+import { loadWorkflow } from "./lib/workflow-yaml-testkit";
 
 const WORKFLOWS = path.join(ROOT, ".github/workflows");
 const WARM = "warm-caches.yml";
-const load = (file: string) =>
-	yaml.load(fs.readFileSync(path.join(WORKFLOWS, file), "utf8")) as Workflow;
+const load = (file: string) => loadWorkflow(path.join(WORKFLOWS, file));
 
 it("warms node_modules on every Node major a node-deps caller sets up", () => {
 	const callers = new Set<string>();

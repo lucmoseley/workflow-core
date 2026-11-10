@@ -6,7 +6,8 @@
  *
  * `install` arms it for one suite run, from vitest's globalSetup: a log
  * directory, and lib/read-audit-preload.js on `NODE_OPTIONS`, which every
- * worker and every Node child inheriting the environment loads. The git
+ * worker and every Node child inheriting the environment loads, and names it
+ * the `strace` to run a stub or a shell under, where one works here. The git
  * guard (lib/host-git-guard/git) logs each git call on this checkout's
  * repository, word for word.
  *
@@ -24,11 +25,15 @@
  * - any other git call on this repository, a worktree of it outside the root
  *   included;
  * - a Node child that left no log, or one spawned without the audit on;
- * - any other child — a shell, Python, a binary — run from a directory under
- *   the root, or handed an argument naming a path there. A shell or Python child handed a checkout script to run, from
- *   outside the root, is seen: the script is a read, and the lexical reach
- *   keys what it loads (#4790). So is one of `CWD_BLIND`, which reads
- *   nothing of its directory (#4932);
+ * - any other child — a shell, Python, a binary, a stub a test wrote — run
+ *   from a directory under the root, or handed an argument naming a path
+ *   there, where no `strace` traced it. The preload traces a stub and a
+ *   shell (#4966): its reads are the paths its file calls named, and only
+ *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a shell
+ *   or Python child handed a checkout script to run, from outside the root,
+ *   is seen: the script is a read, and the lexical reach keys what it loads
+ *   (#4790). So is one of `CWD_BLIND`, which reads nothing of its directory
+ *   (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -39,8 +44,12 @@ const { pathToFileURL } = require("node:url");
 const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
+const { buildTraceReader, findStrace } = require("./read-audit-trace.js");
 
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
+
+const NO_TRACER =
+	"read audit: no working strace on PATH, so a test file that runs a stub or a shell in the checkout records no pass-store row (#4966).\n";
 
 /* Subcommands that read and never write, so the store may run one again.
  * `status` is left out: it refreshes the index. */
@@ -96,13 +105,20 @@ const VALUED = new Set([
  * under an audit (a test's nested run), whose logs are its owner's.
  * @param {string} root
  * @param {NodeJS.ProcessEnv} [env] written
+ * @param {{write(s: string): unknown}} [err] told where no tracer works
  * @returns {string|null}
  */
-function install(root, env = process.env) {
+function install(root, env = process.env, err = process.stderr) {
 	if (env.WFC_READ_AUDIT_OWNER) return null;
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-read-audit-"));
 	env.WFC_READ_AUDIT = dir;
 	env.WFC_READ_AUDIT_ROOT = fs.realpathSync(root);
+	const strace = findStrace(dir, env);
+	if (strace) env.WFC_READ_AUDIT_STRACE = strace;
+	else {
+		delete env.WFC_READ_AUDIT_STRACE;
+		err.write(NO_TRACER);
+	}
 	/* `--import`, not `--require`: a require'd preload resolves through the
 	 * working directory's package.json, which a test may break on purpose. */
 	env.NODE_OPTIONS = [
@@ -132,11 +148,14 @@ function remove(dir) {
  * the result was never claimed by a process of its own.
  * @param {string} dir
  * @param {string} root the root the audit was armed over
+ * @param {import("./read-audit-trace.js").Clock} [clock] the wait for a
+ *   trace to settle
  * @returns {Map<string, Audit>}
  */
-function readAudits(dir, root) {
+function readAudits(dir, root, clock) {
 	const owners = readOwners(dir);
 	const real = fs.realpathSync(root);
+	const readTrace = buildTraceReader(dir, real, clock);
 	/** @type {Map<string, Audit>} */
 	const out = new Map();
 	for (const [owner, { logs, git }] of owners) {
@@ -149,7 +168,7 @@ function readAudits(dir, root) {
 		/** @type {Audit} */
 		let audit;
 		if (!own) audit = { doubt: "its process left no audit log" };
-		else if (claims.size === 1) audit = judge(logs, git, real);
+		else if (claims.size === 1) audit = judge(logs, git, real, readTrace);
 		else audit = { doubt: "its process ran more than one test file" };
 		for (const f of named)
 			out.set(f, out.has(f) ? { doubt: "two processes claimed it" } : audit);
@@ -210,9 +229,10 @@ function gitRecords(text) {
  * @param {Map<number, Entry[]>} logs
  * @param {string[][]} git the guard's records for this owner
  * @param {string} root real path
+ * @param {ReturnType<typeof buildTraceReader>} readTrace
  * @returns {Audit}
  */
-function judge(logs, git, root) {
+function judge(logs, git, root, readTrace) {
 	for (const [pid, entries] of logs)
 		if (entries[0]?.k !== "self" || entries.some((e) => e.k === "fault"))
 			return { doubt: `the audit faulted in process ${pid}` };
@@ -221,7 +241,7 @@ function judge(logs, git, root) {
 		.filter((e) => e.k === "minted")
 		.map((e) => String(e.p));
 	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
-	const reads = collector(logs, root, isScratch);
+	const reads = collector(logs, root, isScratch, readTrace);
 	for (const record of git) {
 		const why = reads.takeGit(record);
 		if (why) return { doubt: why };
@@ -239,8 +259,9 @@ function judge(logs, git, root) {
  * @param {Map<number, Entry[]>} logs
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
+ * @param {ReturnType<typeof buildTraceReader>} readTrace
  */
-function collector(logs, root, isScratch) {
+function collector(logs, root, isScratch, readTrace) {
 	/** @type {Record<"file"|"dir"|"absent", Set<string>>} */
 	const probed = { file: new Set(), dir: new Set(), absent: new Set() };
 	/** @type {Map<string, Set<string>>} */
@@ -270,17 +291,32 @@ function collector(logs, root, isScratch) {
 			return null;
 		},
 		child: (e) => {
+			if (typeof e.trace === "string") return takeTrace(e);
 			const why = childDoubt(e, logs, root, isScratch);
 			if (!why) for (const f of childReads(e, root)) scripts.add(f);
 			return why;
 		},
 	};
+	/** @param {Entry} e */
+	const take = (e) =>
+		typeof e.p === "string" && isScratch(e.p)
+			? null
+			: (takers[String(e.k)]?.(e) ?? null);
+	/**
+	 * @param {Entry} e
+	 * @returns {string|null}
+	 */
+	const takeTrace = (e) => {
+		const got = readTrace(String(e.trace), String(e.cwd));
+		if ("doubt" in got) return `a traced child (${shownChild(e)}) ${got.doubt}`;
+		for (const read of got.entries) {
+			const why = take(read);
+			if (why) return why;
+		}
+		return null;
+	};
 	return {
-		/** @param {Entry} e */
-		take: (e) =>
-			typeof e.p === "string" && isScratch(e.p)
-				? null
-				: (takers[String(e.k)]?.(e) ?? null),
+		take,
 		/**
 		 * @param {string[]} record
 		 * @returns {string|null}
@@ -363,15 +399,17 @@ const SCRIPT_RUNNERS = new Set(["bash", "sh", "python3", "python"]);
  */
 function childDoubt(e, logs, root, isScratch) {
 	const file = String(e.file);
-	const name = path.basename(file);
 	const args = /** @type {string[]} */ (e.args ?? []);
-	const shown = `${name} ${args.join(" ")}`.slice(0, SHOWN_MAX);
+	const shown = shownChild(e);
 	if (e.audited && isNode(file)) {
 		if (typeof e.pid !== "number")
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
 	if (e.guarded && e.audited) return null;
+	/* A tracer already following the process that spawned it follows it too:
+	 * its reads are in that child's trace. */
+	if (e.within) return null;
 	const cwd = String(e.cwd);
 	if (
 		isUnder(cwd, [root], path.sep) &&
@@ -385,6 +423,18 @@ function childDoubt(e, logs, root, isScratch) {
 	if (script !== null && isNode(file))
 		return `a Node child (${shown}) ran without the audit`;
 	return null;
+}
+
+/**
+ * A child as a doubt quotes it.
+ * @param {Entry} e
+ */
+function shownChild(e) {
+	const args = /** @type {string[]} */ (e.args ?? []);
+	return `${path.basename(String(e.file))} ${args.join(" ")}`.slice(
+		0,
+		SHOWN_MAX,
+	);
 }
 
 /* Programs that read nothing of the directory they run in, each traced with

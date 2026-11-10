@@ -73,8 +73,7 @@ function parseResultText(content) {
 /**
  * A record the person typed — not a tool result, and not the harness's own
  * `isMeta` injection, which is how a Stop hook's feedback arrives.
- * @param {Record<string, any>} record typed as loosely as `mainChainRecords`
- *   yields it — a transcript is an external format this repo does not define.
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {boolean}
  */
 function isHumanPrompt(record) {
@@ -116,9 +115,8 @@ function refusalsThisTurn(text, tier) {
 
 /**
  * One content block's refusal, if it is one.
- * @param {Record<string, any>} record as `mainChainRecords` yields it
- * @param {any} block `any`: one entry of that record's `message.content`, an
- *   external format this repo does not define
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
+ * @param {import("./lib/transcript.js").TranscriptBlock} block
  * @param {Map<string, {name?: unknown, input?: unknown}>} uses the tool_use
  *   blocks seen so far, by id
  * @returns {Refusal | null}

@@ -153,20 +153,20 @@ function fieldFault(row, job) {
 }
 
 /**
- * @param {Record<string, any>} row
- * @returns {Record<string, any>[]}
+ * @param {import("./transcript.js").TranscriptRecord} row
+ * @returns {import("./transcript.js").TranscriptBlock[]}
  */
 const contentOf = (row) =>
 	Array.isArray(row.message?.content) ? row.message.content : [];
 
-/** @param {Record<string, any>} row */
+/** @param {import("./transcript.js").TranscriptRecord} row */
 const textOf = (row) =>
 	contentOf(row)
 		.filter((b) => b?.type === "text" && typeof b.text === "string")
 		.map((b) => b.text)
 		.join("\n");
 
-/** @param {Record<string, any>} row */
+/** @param {import("./transcript.js").TranscriptRecord} row */
 const rowText = (row) =>
 	typeof row.message?.content === "string" ? row.message.content : textOf(row);
 
@@ -176,7 +176,7 @@ const REFUSAL_HEAD = /^PreToolUse:\S+ hook error: (\[[^\]\n]*\]: )?/;
 
 /**
  * A tool result's text.
- * @param {Record<string, any>} block
+ * @param {import("./transcript.js").TranscriptBlock} block
  */
 function resultText(block) {
 	const { content } = block;
@@ -191,7 +191,7 @@ function resultText(block) {
 
 /**
  * Each tool result's text in `tail`, with the call it answers.
- * @param {Record<string, any>[]} tail
+ * @param {import("./transcript.js").TranscriptRecord[]} tail
  * @returns {{text: string, call: RefusedCall|null}[]}
  */
 function resultsOf(tail) {
@@ -211,7 +211,7 @@ function resultsOf(tail) {
 	return results;
 }
 
-/** @param {Record<string, any>} row */
+/** @param {import("./transcript.js").TranscriptRecord} row */
 const isHoldResumeRow = (row) =>
 	row.type === "user" && rowText(row).trimStart().startsWith(HOLD_PROMPT);
 
@@ -219,7 +219,7 @@ const isHoldResumeRow = (row) =>
  * The session's lockout, read off its transcript since the loop last resumed
  * it off a hold: its first refusal there for want of a guard that could judge
  * the call, where every call's result there is a hook's refusal.
- * @param {Record<string, any>[]} tail
+ * @param {import("./transcript.js").TranscriptRecord[]} tail
  * @returns {Lockout|null}
  */
 function lockoutOf(tail) {
@@ -238,8 +238,8 @@ function lockoutOf(tail) {
 
 /**
  * @typedef {{job: Record<string, any>, needs: string, detail: string,
- *   waiting: string, last: Record<string, any>|undefined,
- *   said: Record<string, any>, lockout: Lockout|null}} Facts
+ *   waiting: string, last: import("./transcript.js").TranscriptRecord|undefined,
+ *   said: import("./transcript.js").TranscriptRecord, lockout: Lockout|null}} Facts
  *   `waiting`, the row's `waitingFor` while its status is `waiting`; `last`,
  *   the last main-chain row; `said`, the last assistant row; `lockout`,
  *   lockoutOf's
@@ -436,7 +436,7 @@ function hasTurnedSince(rows, at) {
 
 /**
  * Whether `r` is a reply the model wrote, not the harness's `<synthetic>` error row.
- * @param {Record<string, any>} r
+ * @param {import("./transcript.js").TranscriptRecord} r
  */
 const isModelReply = (r) =>
 	r.type === "assistant" && r.message?.model !== "<synthetic>";
