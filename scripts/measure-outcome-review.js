@@ -9,9 +9,8 @@
  * retro files the unwinds).
  *
  * THE REPOS read are `--root` and every repo root a seat's session ran in
- * (lib/session-head.js's repoRootOf on its cwd, one head read per project
- * directory, whose sessions share the cwd it is named for) holding a
- * workflow-core config. Each is read for its config's tracker; where two roots
+ * (lib/session-head.js's repoRootOf on its cwd) holding a workflow-core
+ * config. Each is read for its config's tracker; where two roots
  * resolve to one tracker, the one whose origin/main was updated last is read.
  * Each repo's origin/main is read as last fetched, never fetched here: a ref
  * with no update in the STALE_REF_HOURS to `now` is a failed read for its
@@ -146,8 +145,8 @@ const TOKEN_BUDGET = 30_000;
 /** Runs over the budget that bring the flip check forward (#4796). */
 const FLIP_OVER_BUDGET_RUNS = 2;
 /** Hours without an update after which a repo's origin/main is stale (#4858:
- * untraced, a guess). A busy repo's sessions fetch or push daily; how often
- * an adopter's ref really moves is unmeasured, and #4872 weighs it. */
+ * untraced, a guess). How often an adopter's ref really moves is unmeasured,
+ * and #4872 weighs it. */
 const STALE_REF_HOURS = 24;
 /** Bytes read from a transcript's head to find its first timestamp. */
 const START_PROBE_BYTES = 65_536;
@@ -270,7 +269,7 @@ function readRefUpdatedAt(root) {
 }
 
 /**
- * The signature log on `root`'s origin/main; no rows where it is absent.
+ * The signature log on `root`'s origin/main.
  * @param {string} root
  * @param {string} tracker  for a failure line
  * @param {string[]} failures  accumulator: a log that will not read, and each
@@ -346,7 +345,6 @@ function findRoots(root, seats, failures) {
 	return roots;
 }
 
-/** Hours from a ref's update to `nowMs`. */
 const refAgeHours = (
 	/** @type {number} */ refAt,
 	/** @type {number} */ nowMs,
@@ -758,7 +756,7 @@ function judge({ observed, expected, harm, extendedBefore }) {
  * The latest fix of `ref` across every repo whose origin/main read. A repo
  * that did not read is passed over, so a newer fix citing `ref` in full there
  * goes unseen and the reading takes an older one; the run still exits 1 on
- * that repo's failure. Only the finding's own repo holds it (#4858 §Design).
+ * that repo's failure.
  * @param {Map<string, Repo>} repos
  * @param {{repo: string, number: number}} ref
  * @returns {{fix: Commit, commits: Commit[]} | null}  the fix and its repo's

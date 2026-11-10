@@ -19,7 +19,6 @@ import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
 const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
-/** The second repo's tracker (#4858). */
 const ADOPTER_TRACKER = "o/m";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
