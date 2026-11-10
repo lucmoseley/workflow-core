@@ -281,8 +281,10 @@ describe("carriesVar (#1499)", () => {
 			"no",
 		]);
 	});
+});
 
-	it("leaves unwrap's answer over the words it was handed", () => {
+describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () => {
+	it("answers one run for words that run one command", () => {
 		expect(
 			one("env FOO=1 nohup npm test", (c, spans) => unwrap(c.words, spans)),
 		).toEqual([
@@ -294,9 +296,7 @@ describe("carriesVar (#1499)", () => {
 			},
 		]);
 	});
-});
 
-describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () => {
 	const strip = (command: string) =>
 		one(command, (c, spans) => unwrap(c.words, spans)[0]);
 
@@ -561,7 +561,6 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 });
 
 describe("unwrap reads every command a -c string runs (#4699)", () => {
-	/** Each run's words, joined by a space. */
 	const runs = (command: string) =>
 		one(command, (c, spans) =>
 			unwrap(c.words, spans).map((r) => r.words.join(" ")),
@@ -573,8 +572,17 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		[`flock /l -c "true; git push"`, "a ;"],
 		[`flock /l -c "true && git push"`, "a &&"],
 		[`flock /l -c "true | git push"`, "a |"],
+		[`flock /l -c "true |& git push"`, "a |&"],
 	])("reads git push from %s (%s)", (command) => {
 		expect(runs(command)).toContain("git push");
+	});
+
+	it.each([
+		[`flock /l -c "git push 2>&1"`, "2>&1"],
+		[`flock /l -c "git push >| log"`, ">|"],
+		[`flock /l -c "git push &> log"`, "&>"],
+	])("leaves %s one command, its %s a redirection", (command) => {
+		expect(runs(command)).toHaveLength(1);
 	});
 
 	it("answers the runs in the order sh runs them", () => {
@@ -610,6 +618,10 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 			unwrap(c.words, spans).at(1),
 		);
 		expect(later?.wrapperWords).toEqual([]);
+	});
+
+	it("reads watch -x's words as one command", () => {
+		expect(runs(`watch -x echo "a; git push"`)).toHaveLength(1);
 	});
 
 	it("marks each of watch's runs watched", () => {

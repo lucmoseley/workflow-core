@@ -139,7 +139,8 @@ function scan(subject, ctx) {
  * One unwrap run's words, judged.
  * @param {string[]} run masked
  * @param {{ seen: Scan, lit: (w: string) => { text: string, known: boolean },
- *   assigned: (name: string) => boolean }} with `seen` written
+ *   assigned: (name: string) => boolean }} with accumulator: its `seen` is
+ *   written
  */
 function judgeRun(run, { seen, lit, assigned }) {
 	if (run.length === 0) return;

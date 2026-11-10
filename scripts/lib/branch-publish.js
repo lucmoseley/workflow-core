@@ -78,7 +78,8 @@
  *    in the segment's own directory (walkCommands' cwd). A merge through `gh
  *    api` is not read. Adopters get the limb too (#2020).
  *  - Only a segment's own command word is read, after shell-words.js's unwrap
- *    wrappers (`env`, `timeout`, `command`, …), a push included (#1731). A
+ *    wrappers (`env`, `timeout`, `command`, …), a push included (#1731), and
+ *    each command a `flock -c` or `watch` string runs (#4699). A
  *    wrapper's own `-C DIR` is followed, so `env -C /x git push` is judged
  *    against `/x`. `sh -c "…"`, a script, the GitHub web UI and the
  *    founder's terminal are not seen, and Dependabot's PRs are opened by

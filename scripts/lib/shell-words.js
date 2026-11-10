@@ -504,9 +504,10 @@ const WRAPPERS = new Map([
 ]);
 
 /**
- * Strip the launcher wrappers off one command's words, so the command
+ * Strip the launcher wrappers off one command's words, so each command
  * actually being run stands first (mantahostels#2511, mantahostels#2524,
- * mantahostels#2552): `{ words, wrapperWords, watched }`. A wrapper, its flags
+ * mantahostels#2552): one run `{ words, wrapperWords, chdirs, watched }` per
+ * command, the words' own first and each a `-c` string runs after it. A wrapper, its flags
  * and an `env` assignment are read through literal as the shell hands them to it
  * (#4046); the words left stay raw.
  *
@@ -534,11 +535,14 @@ const WRAPPERS = new Map([
  *
  * `sudo` IS STRIPPED, DELIBERATELY: stripping only ever widens what is judged.
  *
- * `watch` AND `flock <file> -c` RUN THEIR COMMAND THROUGH `sh -c`, so the words
+ * `watch` (BAR `watch -x`) AND `flock <file> -c` RUN THEIR COMMAND THROUGH
+ * `sh -c`, so the words
  * holding it are cut into commands at each line end, `;`, `&` and `|`, and each
  * command split on whitespace (#3376, #4046); a quote inside them is not read.
- * Every command the string runs is a run of its own, stripped in turn under the
- * `env` assignments and directories its wrappers set (#4699).
+ * Each command so cut is a run of its own, stripped in turn under the `env`
+ * assignments and directories its wrappers set (#4699). Residual: the cut is
+ * no parse — a reserved word, a leading assignment, a `$(…)`, and a
+ * `cd` or `export` moving the commands after it, are not read inside it.
  *
  * `env -S <string>` IS SPLIT, NOT SKIPPED, as `env` splits it, and read on as
  * `env`'s own words.
@@ -551,8 +555,7 @@ const WRAPPERS = new Map([
  * @param {string[]} spans
  * @param {string[]} [judged] wrappers the caller judges itself, left standing
  *   as the command word
- * @returns {[Unwrapped, ...Unwrapped[]]} one run per command the words run, in
- *   the order they run, the words' own command first
+ * @returns {[Unwrapped, ...Unwrapped[]]} the runs, in the order they run
  */
 function unwrap(words, spans, judged = []) {
 	/** @type {Unwrapped[]} */
@@ -569,7 +572,7 @@ function unwrap(words, spans, judged = []) {
 }
 
 /**
- * @typedef {object} Unwrapped one command unwrap reads the words to run
+ * @typedef {object} Unwrapped one run unwrap answers: a command the words run
  * @property {string[]} words
  * @property {string[]} wrapperWords
  * @property {string[]} chdirs
@@ -580,7 +583,8 @@ function unwrap(words, spans, judged = []) {
  * Strip one run's wrappers.
  * @param {Unwrapped} run as it stands before the strip
  * @param {{ spans: string[], judged: string[], pending: Unwrapped[] }} with
- *   `pending` written: a `-c` string's later commands go to its front
+ *   accumulator: its `pending` is written, a `-c` string's later commands
+ *   going to its front
  * @returns {Unwrapped}
  */
 function stripRun(run, { spans, judged, pending }) {
@@ -589,6 +593,7 @@ function stripRun(run, { spans, judged, pending }) {
 		ws: [...run.words],
 		judged,
 		inEnv: false,
+		execs: false,
 		wrapperWords: [...run.wrapperWords],
 		chdirs: [...run.chdirs],
 		watched: run.watched,
@@ -617,6 +622,7 @@ function stripRun(run, { spans, judged, pending }) {
  * @property {string[]} chdirs
  * @property {boolean} watched
  * @property {Unwrapped[]} pending the runs still to strip
+ * @property {boolean} execs a `watch -x` execs its words, through no `sh -c`
  */
 
 /**
@@ -658,7 +664,7 @@ function stripOne(st, first, spans) {
 /**
  * Stand on the command after a wrapper's flags and positionals. `flock` looks
  * for its `-c` by exact spelling after its file, no cluster or abbreviation.
- * @param {Strip} st accumulator: its `ws` and `watched` are written
+ * @param {Strip} st accumulator: its `ws`, `watched` and `pending` are written
  * @param {WrapperGrammar} wrapper
  * @param {string[]} spans
  * @returns {"next" | "cut"}
@@ -677,7 +683,7 @@ function stepAfterFlags(st, wrapper, spans) {
 	}
 	if (wrapper.command === "sh-string") {
 		st.watched = true;
-		runScript(st, read(st.ws));
+		if (!st.execs) runScript(st, read(st.ws));
 		if (st.ws.length === 0) return "cut";
 	}
 	return "next";
@@ -773,14 +779,17 @@ function wholeLongName(long, flag) {
 }
 
 /**
- * Keep the directory an option moves to and, under `env`, put a `-S` string's
- * words at the front of `st.ws`; false where its value ran out.
- * @param {Strip} st accumulator: its `ws` and `chdirs` are written
+ * Keep the directory an option moves to, note a `watch -x` and, under `env`,
+ * put a `-S` string's words at the front of `st.ws`; false where its value ran
+ * out.
+ * @param {Strip} st accumulator: its `ws`, `chdirs` and `execs` are written
  * @param {WrapperGrammar} wrapper
  * @param {WrapperOption} option
  */
 function takeOption(st, wrapper, { kind, name, value }) {
 	if (kind === "dangling") return false;
+	if (wrapper.command === "sh-string" && (name === "-x" || name === "--exec"))
+		st.execs = true;
 	if (kind !== "opt") return true;
 	if (wrapper.splits && (name === "-S" || name === "--split-string"))
 		st.ws = [...splitEnvString(value), ...st.ws];
@@ -887,10 +896,19 @@ function stepEnvEscape(split, next) {
 }
 
 /**
+ * A control operator between two commands: `;`, `&&`, `||`, `|&`, and a `|`
+ * or `&` that no redirection (`>|`, `2>&1`, `&>`) spells.
+ */
+const CONTROL_OPERATOR = /;|&&|\|\||\|&|(?<![<>])&(?!>)|(?<!>)\|/;
+
+/**
  * The commands of a script a wrapper hands to `sh -c`, each as its words: cut
- * at each line end, `;`, `&` and `|`, split on IFS whitespace, the rest of a
- * line dropped from a word opening `#`, and a command of no words skipped, as
- * sh skips blank and comment lines (#4281, #4699).
+ * at each line end and control operator, split on IFS whitespace, the rest of
+ * a line dropped from a word opening `#`, and a command of no words skipped,
+ * as sh skips blank and comment lines (#4281, #4699).
+ *
+ * Residual: the cut reads no quote, so a `;`, `&` or `|` inside one cuts its
+ * command in two, which only widens what is judged.
  * @param {string} script
  * @returns {string[][]}
  */
@@ -898,7 +916,7 @@ const scriptCommands = (script) =>
 	script.split("\n").flatMap((line) => {
 		/** @type {string[][]} */
 		const commands = [];
-		for (const piece of line.split(/[;&|]/)) {
+		for (const piece of line.split(CONTROL_OPERATOR)) {
 			const words = piece.split(IFS_SPLIT).filter(Boolean);
 			const comment = words.findIndex((w) => w.startsWith("#"));
 			const kept = comment < 0 ? words : words.slice(0, comment);
@@ -1089,8 +1107,6 @@ const NODE_VALUE_FLAGS = [
  * spelling hides its directory and keeps its basename. Residual: a node flag
  * taking a value outside NODE_VALUE_FLAGS leaves the value in the script's
  * place, and the call is not recognised.
- *
- * One argument list per unwrap run that is such a call.
  * @param {string[]} words masked
  * @param {string[]} spans
  * @returns {string[][]}

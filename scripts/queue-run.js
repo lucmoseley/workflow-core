@@ -167,8 +167,10 @@ function readingOf(words, ports) {
 	return READING_RANK.find((r) => readings.includes(r)) ?? "none";
 }
 
-/* The reading a command takes from its runs' readings: a refusal first. */
-const READING_RANK = ["vitest", "unread", "queue", "queued"];
+/* The reading a command takes from its runs' readings, the first here any
+ * run reads: each refusal before the launch this script takes; `none` where
+ * every run reads none. */
+const READING_RANK = ["vitest", "queued", "queue"];
 
 /**
  * One unwrap run's reading, as readingOf answers.
@@ -323,6 +325,8 @@ function slotWait(slot, options, words) {
 		const mb = queuedRunnerPeakMb(inner);
 		return mb === undefined ? [] : [mb];
 	});
+	/* The heaviest run's: runs a `&` or `|` sets side by side are charged as
+	 * that one alone. */
 	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	return {
 		queue: options,

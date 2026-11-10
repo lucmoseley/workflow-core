@@ -20,7 +20,10 @@ const { parseCommand, walkCommands } = require("./shell-parse.js") as {
 const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
 	QUOTED: string;
 	literal: (w: string, spans: string[]) => { known: boolean; text: string };
-	unwrap: (words: string[], spans: string[]) => [{ words: string[] }];
+	unwrap: (
+		words: string[],
+		spans: string[],
+	) => [{ words: string[] }, ...{ words: string[] }[]];
 };
 const { buildIsWrapperScript, isOtherRunner, suiteLaunchKind } =
 	require("./suite-launch.js") as {

@@ -1533,18 +1533,21 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	const runs = how.unwrapped
 		? unwrap(own, walk.scope.spans)
 		: [{ words: own, wrapperWords: [], chdirs: [] }];
-	if (runs.some((run) => commandName(run.words[0] ?? "") !== "git"))
-		markRepoVarsUnread(walk, words, false);
-	return runs.flatMap((run) => {
-		if (commandName(run.words[0] ?? "") !== "git") return [];
+	const gitRuns = runs.filter(
+		(run) => commandName(run.words[0] ?? "") === "git",
+	);
+	const gits = gitRuns.flatMap((run) => {
 		const git = readGitRun(walk, run, leading, how.isDir);
 		return git ? [git] : [];
 	});
+	/* After the git runs, which a later run's mention of a variable cannot
+	 * reach back to. */
+	if (gitRuns.length < runs.length) markRepoVarsUnread(walk, words, false);
+	return gits;
 }
 
 /**
- * One `git` command's subcommand and the tree it runs against; null where it
- * carries no subcommand.
+ * One `git` command's subcommand and the tree it runs against.
  * @param {Walk} walk
  * @param {{ words: string[], wrapperWords: string[], chdirs: string[] }} run
  *   its words from `git` on, and what its wrappers carried

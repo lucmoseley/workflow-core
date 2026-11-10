@@ -14,7 +14,8 @@
  * `N`, any `timeout` flags, queued or not, `run_in_background` or not, a
  * compound command too.
  *   Only a `timeout` among the wrappers `unwrap` took off is read; one after
- * the command word is an argument. Line one is the command with each such
+ * the command word is an argument, and one over a `-c` string's later command
+ * goes unread (#4699). Line one is the command with each such
  * `timeout`, its flags and duration dropped (`stripTimeout`), and never adds
  * `--queue`, which stays the count cap's to add. Its escape is
  * `WFC_SUITE_TIMEOUT=<non-empty>`, read like `WFC_SUITE_DETACH` but per
@@ -357,8 +358,10 @@ function decide(command, ctx) {
 			for (const run of later) noteLaunch(cmd.leading, run);
 			const { words, wrapperWords } = first;
 			/* An `env -S` split can leave more words than it took, so none are
-			 * read there; nor is a `-c` string's later command, which no cut of
-			 * the segment's words reaches. */
+			 * read there.
+			 * Residual: a `-c` string's later command is never judged for an
+			 * unbounded `timeout`, as no cut of the segment's words reaches it
+			 * (#4699). */
 			const nwrap = cmd.words.length - words.length;
 			const isTimed =
 				nwrap > 0 &&

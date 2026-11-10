@@ -293,9 +293,9 @@ function judgeUnnamed(run, cmd) {
  * @param {Command} cmd
  */
 function ghRepoEnv(run, cmd) {
-	for (const w of cmd.leading)
-		if (w.startsWith("GH_REPO="))
-			return captured(run, w.slice("GH_REPO=".length));
+	/* The last wins: `env` sets its own after the segment's. */
+	const set = cmd.leading.findLast((w) => w.startsWith("GH_REPO="));
+	if (set !== undefined) return captured(run, set.slice("GH_REPO=".length));
 	if (run.exported !== "") return run.exported;
 	return cmd.resolveWord("$GH_REPO") ?? "";
 }

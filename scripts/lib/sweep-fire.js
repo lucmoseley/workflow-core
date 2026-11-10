@@ -98,21 +98,20 @@ const GH_VALUE_FLAGS = "--ref -r --field -F --raw-field -f --input --repo -R";
  * @param {string[]} spans
  */
 const firesSweep = (words, spans) =>
-	ghWords(words, spans).some((gh) => runFiresSweep(gh.args, spans));
+	ghWords(words, spans).some((gh) => isSweepRun(gh.args, spans));
 
 /**
- * @param {string[]} args one `gh` run's words past its own flags
+ * Whether one `gh` run fires a sweep workflow, as firesSweep reads it.
+ * @param {string[]} args the run's words past `gh`'s own flags
  * @param {string[]} spans
  */
-function runFiresSweep(args, spans) {
-	const gh = { args };
+function isSweepRun(args, spans) {
 	const read = (/** @type {string | undefined} */ w) =>
 		literal(w ?? "", spans).text;
-	if (read(gh.args[0]) !== "workflow" || read(gh.args[1]) !== "run")
-		return false;
+	if (read(args[0]) !== "workflow" || read(args[1]) !== "run") return false;
 	let named = false;
 	let seen = false;
-	scanFlags(GH_VALUE_FLAGS, gh.args.slice(2), (kind, _name, value) => {
+	scanFlags(GH_VALUE_FLAGS, args.slice(2), (kind, _name, value) => {
 		if (kind !== "arg" || seen) return;
 		seen = true;
 		/* Through literal, not the raw word: the parser masks every quoted span,

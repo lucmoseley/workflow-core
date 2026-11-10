@@ -1743,6 +1743,11 @@ describe('walkGit, scope "shared"', () => {
 				unwrap: true,
 			}).out,
 		).toContain(`[checkout][${SHARED}]`);
+		expect(
+			walkGitRun(`env -S 'flock /l -c "true\\ngit status"'`, {
+				unwrap: true,
+			}).out,
+		).toBe("");
 	});
 
 	it('reads a git -C relative to the tree before it, and a -C "" as no move', () => {
