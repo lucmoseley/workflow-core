@@ -14,6 +14,7 @@
 
 const path = require("node:path");
 const { scriptPath } = require("./script-path.js");
+const { queueBranch } = require("./landing-refs.js");
 const { buildCrossingLines, formatHoursMin } = require("./queue-gauge.js");
 const { QUEUE_ALERT_TITLES: TITLES } = require("./queue-tickets.js");
 const { recordTicket } = require("./record-ticket.js");
@@ -60,7 +61,7 @@ const buildAlertBody = (kind, line, g) => `## What to build
 
 ${line}.
 
-- Refs waiting: ${g.waiting.length > 0 ? g.waiting.map((w) => `\`queue/${w.name}\` since ${new Date(w.since).toISOString()}`).join(", ") : "none"}
+- Refs waiting: ${g.waiting.length > 0 ? g.waiting.map((w) => `\`${queueBranch(w.name)}\` since ${new Date(w.since).toISOString()}`).join(", ") : "none"}
 
 ${kind === "age" ? "The queue lander takes every waiting ref" : "Each ref waits for the queue lander"}; its runs log to \`.queue-log.jsonl\` in the checkout's markers directory, and \`node ${scriptPath("landing-status.js")}\` prints the queue's line.
 

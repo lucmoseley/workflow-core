@@ -27,10 +27,10 @@ const { execGit } = require("./git.js");
 const { fileLedger, queueLanderFiles } = require("./lander-files.js");
 const { isAncestor, parseRefusal, short } = require("./lander-git.js");
 const {
-	QUEUE_HEADS,
-	QUEUE_PREFIX,
 	droppedRefsOf,
-	ownQueueRef,
+	ownQueueName,
+	queueBranch,
+	queueHead,
 } = require("./landing-refs.js");
 const { pipelineRecord, readDropFile } = require("./lander-records.js");
 const { batchesOf } = require("./queue-lander.js");
@@ -184,7 +184,7 @@ function waitingState(r, sha, mine) {
  * @returns {RefState[]}
  */
 function queueRefStates(r) {
-	const ref = `${QUEUE_HEADS}${r.name}`;
+	const ref = queueHead(r.name);
 	const mine = r.rows.filter((x) => x.ref === ref && x.at >= r.since);
 	/** @type {Map<string, RefState>} */
 	const left = new Map();
@@ -239,7 +239,7 @@ function dropText(s) {
  * @returns {string}
  */
 function buildQueueRefLine(s) {
-	const at = `${QUEUE_PREFIX}${s.name} at ${short(s.sha)}`;
+	const at = `${queueBranch(s.name)} at ${short(s.sha)}`;
 	switch (s.state) {
 		case "queued":
 			return s.snapshot === null
@@ -314,9 +314,8 @@ const ledgerMainReached = (root, main, green) => (sha) => {
  * @returns {RefState[]}
  */
 function readQueueRefStates(root, tree, refs, rows) {
-	const own = ownQueueRef(tree, root);
-	if (own === null || !tree) return [];
-	const name = own.slice(QUEUE_PREFIX.length);
+	const name = ownQueueName(tree, root);
+	if (name === null || !tree) return [];
 	const files = queueLanderFiles(root);
 	const green = new Set(fileLedger(files.ledger).readShas());
 	const held = refs.queue.find((q) => q.name === name);

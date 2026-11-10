@@ -84,31 +84,25 @@ const logEnqueue = (file, push) => logQueueEvent(file, "enqueue", push);
 function readEnqueueTimes(file) {
 	/** @type {Map<string, number>} */
 	const times = new Map();
-	for (const row of readJsonl(file)?.rows ?? []) {
-		if (row.event !== "enqueue") continue;
-		const at = Date.parse(String(row.at));
-		if (typeof row.ref !== "string" || typeof row.sha !== "string") continue;
-		if (!Number.isFinite(at)) continue;
-		const key = `${row.ref} ${row.sha}`;
+	for (const { event, ref, sha, at } of readWrittenRows(file)) {
+		if (event !== "enqueue") continue;
+		const key = `${ref} ${sha}`;
 		times.set(key, Math.max(at, times.get(key) ?? at));
 	}
 	return (ref, sha) => times.get(`${ref} ${sha}`) ?? null;
 }
 
 /**
- * The event of the newest row naming `ref` at `sha`, null where none does.
+ * The event of the last well-formed row written naming `ref` at `sha`, null
+ * where none does.
  * @param {string} file
  * @param {string} ref
  * @param {string} sha
  * @returns {string|null}
  */
-function readNewestEvent(file, ref, sha) {
-	let newest = null;
-	for (const row of readJsonl(file)?.rows ?? [])
-		if (row.ref === ref && row.sha === sha && typeof row.event === "string")
-			newest = row.event;
-	return newest;
-}
+const readNewestEvent = (file, ref, sha) =>
+	readWrittenRows(file).findLast((r) => r.ref === ref && r.sha === sha)
+		?.event ?? null;
 
 /**
  * @typedef {{at: number, event: QueueEvent, ref: string, sha: string}} LoggedRow
@@ -125,13 +119,13 @@ function readNewestEvent(file, ref, sha) {
 const EVENTS = new Set(["enqueue", "take", "land", "drop", "settle", "close"]);
 
 /**
- * The log's well-formed rows, oldest first; a line that will not parse, or
+ * The log's well-formed rows as written; a line that will not parse, or
  * names no known event, is left out. An absent log has none; a read failing
  * for any reason but absence throws.
  * @param {string} file
  * @returns {LoggedRow[]}
  */
-function readQueueRows(file) {
+function readWrittenRows(file) {
 	/** @type {LoggedRow[]} */
 	const rows = [];
 	for (const row of readJsonl(file)?.rows ?? []) {
@@ -145,8 +139,15 @@ function readQueueRows(file) {
 			sha: row.sha,
 		});
 	}
-	return rows.sort((a, b) => a.at - b.at);
+	return rows;
 }
+
+/**
+ * readWrittenRows, oldest first.
+ * @param {string} file
+ */
+const readQueueRows = (file) =>
+	readWrittenRows(file).sort((a, b) => a.at - b.at);
 
 /**
  * A land or drop row's act on its ref's pending rows: its time in queue,

@@ -1,6 +1,6 @@
 /*
  * queue-alarms.js — the agent-side reader of the two off-machine queue alarms
- * (#4772), .github/workflows/landing-quiet.yml and main-lag.yml. The morning
+ * (#4772), .github/workflows/landing-quiet.yml and queue-wait.yml. The morning
  * review lists each alarm firing, and the refill loop's landing supervision keeps the
  * alarm ticket (lib/alarm-ticket.js) open while one fires. Off the machine,
  * scripts/alarm-notice.js reads the same two (#4939).
@@ -16,7 +16,7 @@ const path = require("node:path");
 
 const ALARMS = /** @type {const} */ ([
 	{ name: "Landing quiet 14h", file: "landing-quiet.yml" },
-	{ name: "Queue ref waiting 2h", file: "main-lag.yml" },
+	{ name: "Queue ref waiting 2h", file: "queue-wait.yml" },
 ]);
 
 /* A guess: a day of hourly runs, past which a stall has long been ticketed. */

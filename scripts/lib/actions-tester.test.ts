@@ -163,6 +163,7 @@ it("reads a failed run as red, naming its failing jobs and the tree's failing fi
 	];
 	expect(await verdictOf(reads([() => [run(1, "failure")]], jobs))).toEqual({
 		kind: "red",
+		run: 1,
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 		jobs: ["Full suite / Vitest (2/6)", "Full suite / Python"],
 		failures: [
@@ -531,6 +532,7 @@ it("names on a red that failed the step ci.yml runs the type-check at the first 
 
 	expect(await verdictWith(typecheckStep)).toEqual({
 		kind: "red",
+		run: 6,
 		files: [],
 		jobs: ["Full suite / Lint and types"],
 		typecheck: errors.slice(0, 10),
@@ -542,6 +544,7 @@ it("names on a red that failed the step ci.yml runs the type-check at the first 
 	expect(await verdictWith("Biome ci")).toEqual({
 		kind: "red",
 		files: [],
+		run: 6,
 		jobs: ["Full suite / Lint and types"],
 	});
 });
@@ -580,6 +583,7 @@ process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed")
 	const v = await queueTester({ root: tmp, ...clock() }).verdict(BATCH0, sha);
 	expect(v).toEqual({
 		kind: "red",
+		run: 7,
 		files: ["scripts/lib/a.test.ts"],
 		jobs: ["Full suite / Vitest (2/6)"],
 		failures: [{ file: "scripts/lib/a.test.ts", test: "a > b" }],
@@ -653,9 +657,9 @@ const askNamed = (
 	}).verdict(place, SHA, ["scripts/lib/a.test.ts"]);
 };
 
-it("dispatches the named files at the sha and reads its own run's green, naming no run (#3764)", async () => {
+it("dispatches the named files at the sha and reads its own run's green, naming it as a named run, which lands nothing (#3764)", async () => {
 	const r = fakeNamedReads({ conclusion: "success" });
-	expect(await askNamed(r)).toEqual({ kind: "green" });
+	expect(await askNamed(r)).toEqual({ kind: "green", named: 7 });
 	expect(r.dispatched).toEqual([
 		{
 			sha: SHA,
@@ -671,7 +675,7 @@ it("waits out a named run concluded with its job still running (#4347)", async (
 	r.reads.jobsOf = () => [
 		{ name: "Named files", conclusion: n++ === 0 ? "" : "success" },
 	];
-	expect(await askNamed(r)).toEqual({ kind: "green" });
+	expect(await askNamed(r)).toEqual({ kind: "green", named: 7 });
 	expect(n).toBe(2);
 });
 
@@ -695,7 +699,7 @@ it("judges only the files the tree at the sha holds, green with no dispatch wher
 		},
 		...clock(),
 	}).verdict(ISO1, SHA, ["scripts/lib/a.test.ts", "scripts/new.test.ts"]);
-	expect(await ask).toEqual({ kind: "green" });
+	expect(await ask).toEqual({ kind: "green", named: 7 });
 	expect(some.dispatched.map((d) => d.files)).toEqual([
 		["scripts/lib/a.test.ts"],
 	]);
@@ -712,6 +716,7 @@ it("judges only the files the tree at the sha holds, green with no dispatch wher
 it("reads a failed named run as red on the tree's failing files, and one naming none as no verdict (#3764)", async () => {
 	expect(await askNamed(fakeNamedReads({ conclusion: "failure" }))).toEqual({
 		kind: "red",
+		run: 7,
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 		failures: [
 			{ file: "scripts/lib/a.test.ts", test: "a > b" },
@@ -785,7 +790,7 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 		askNamed(r, { root, start: nowMs, place: BATCH0 });
 	for (let i = 0; i < 12; i++) {
 		r.dispatched.length = 0;
-		expect(await ask(DayOne)).toEqual({ kind: "green" });
+		expect(await ask(DayOne)).toEqual({ kind: "green", named: 7 });
 	}
 	r.dispatched.length = 0;
 	expect(await ask(DayOne)).toEqual({
@@ -793,7 +798,10 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
 	expect(r.dispatched).toEqual([]);
-	expect(await ask(DayOne + 2 * 60 * 60 * 1000)).toEqual({ kind: "green" });
+	expect(await ask(DayOne + 2 * 60 * 60 * 1000)).toEqual({
+		kind: "green",
+		named: 7,
+	});
 	expect(r.dispatched).toHaveLength(1);
 });
 
@@ -917,6 +925,7 @@ it("starts a batch's run by pushing its sha to the slot's ref, pushes named file
 	 * isolation merge reaches only by this push. */
 	expect(await tester.verdict(ISO1, ISO, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
+		named: 100,
 	});
 	expect(await tester.verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
@@ -1022,6 +1031,7 @@ it("dispatches named files at an isolation sha to named-rerun.yml, red naming th
 		await queueOf(r).verdict(ISO1, ISO, ["scripts/lib/a.test.ts"]),
 	).toEqual({
 		kind: "red",
+		run: 100,
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 		failures: [
 			{ file: "scripts/lib/a.test.ts", test: "a > b" },
@@ -1046,16 +1056,23 @@ it("exempts isolation dispatches from the daily cap, and counts a dispatch at ma
 	/* A batch slot whose ref lists no run at OTHER. */
 	const Batch1 = { kind: "batch", slot: 1 } as const;
 	for (let i = 0; i < 3; i++)
-		expect(await tester.verdict(ISO1, ISO, files)).toEqual({ kind: "green" });
+		expect(await tester.verdict(ISO1, ISO, files)).toEqual({
+			kind: "green",
+			named: expect.any(Number),
+		});
 	for (let i = 0; i < 12; i++)
 		expect(await tester.verdict(Batch1, OTHER, files)).toEqual({
 			kind: "green",
+			named: expect.any(Number),
 		});
 	expect(await tester.verdict(Batch1, OTHER, files)).toEqual({
 		kind: "unknown",
 		reason: "named-rerun.yml's 12-a-day cap is spent",
 	});
-	expect(await tester.verdict(ISO1, ISO, files)).toEqual({ kind: "green" });
+	expect(await tester.verdict(ISO1, ISO, files)).toEqual({
+		kind: "green",
+		named: expect.any(Number),
+	});
 	expect(r.dispatched.filter((d) => d.sha === ISO)).toHaveLength(4);
 	expect(r.dispatched.filter((d) => d.sha === OTHER)).toHaveLength(12);
 });
@@ -1487,6 +1504,7 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	git(work, "checkout", "-q", "-");
 	expect(await tester.verdict(ISO1, alone, ["scripts/lib/a.test.ts"])).toEqual({
 		kind: "green",
+		named: 8,
 	});
 	expect(git(work, "ls-remote", "origin", "refs/heads/lander/iso-1")).toBe(
 		`${alone}\trefs/heads/lander/iso-1`,

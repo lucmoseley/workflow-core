@@ -17,15 +17,8 @@
  * baseline the floor alone holds.
  */
 
-const { QUEUE_HEADS } = require("./landing-refs.js");
-const { queueGit } = require("./queue-lander-adapters.js");
-const {
-	BASELINE_MS,
-	pendingSince,
-	queueBaseline,
-	queueLogFile,
-	readQueueRows,
-} = require("./queue-log.js");
+const { queueBranch, queueHead } = require("./landing-refs.js");
+const { BASELINE_MS, pendingSince, queueBaseline } = require("./queue-log.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const BASELINE_DAYS = BASELINE_MS / DAY_MS;
@@ -112,7 +105,7 @@ function buildCrossingLines(c, b) {
 	return {
 		age:
 			c.age &&
-			`queue/${c.age.name} has waited ${formatHoursMin(c.age.waitedMs)}, since ${new Date(c.age.since).toISOString()}, past its limit of ${limit.age}`,
+			`${queueBranch(c.age.name)} has waited ${formatHoursMin(c.age.waitedMs)}, since ${new Date(c.age.since).toISOString()}, past its limit of ${limit.age}`,
 		depth:
 			c.depth === null
 				? null
@@ -126,7 +119,7 @@ function buildQueueLine({ now, waiting, baseline: b }) {
 	const head =
 		oldest === null
 			? "queue: none waiting"
-			: `queue: ${waiting.length} waiting, the oldest queue/${oldest.name} for ${formatHoursMin(now - oldest.since)}`;
+			: `queue: ${waiting.length} waiting, the oldest ${queueBranch(oldest.name)} for ${formatHoursMin(now - oldest.since)}`;
 	const times =
 		b.spans === 0
 			? `nothing landed or dropped in ${BASELINE_DAYS} days`
@@ -148,34 +141,17 @@ function queueGaugeOf(queue, rows, now) {
 		waiting: queue.map(({ name, sha, pushedAt }) => ({
 			name,
 			sha,
-			since: pending.get(`${QUEUE_HEADS}${name}`) ?? pushedAt,
+			since: pending.get(queueHead(name)) ?? pushedAt,
 		})),
 		baseline: queueBaseline(rows, now),
 	};
 }
 
-/**
- * The gauge of `root`'s remote and queue log at `now`. Throws where the
- * remote or the log cannot be read.
- * @param {string} root the canonical checkout's root
- * @param {number} now
- * @returns {QueueGauge}
- */
-const readQueueGauge = (root, now) =>
-	queueGaugeOf(
-		queueGit(root).refs().queue,
-		readQueueRows(queueLogFile(root)),
-		now,
-	);
-
 module.exports = {
-	AGE_FLOOR_MS,
-	DEPTH_FLOOR,
 	buildCrossingLines,
 	buildQueueLine,
 	formatHoursMin,
 	oldestWaiting,
 	queueCrossings,
 	queueGaugeOf,
-	readQueueGauge,
 };

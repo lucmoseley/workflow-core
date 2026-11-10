@@ -34,7 +34,7 @@ const {
 	startLander,
 	buildStartedLine,
 } = require("./lib/lander-start.js");
-const { QUEUE_PREFIX } = require("./lib/landing-refs.js");
+const { queueBranch } = require("./lib/landing-refs.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -75,7 +75,7 @@ function main(argv = process.argv.slice(2)) {
 		waiting: () =>
 			queueGit(root)
 				.refs()
-				.queue.map((q) => `${QUEUE_PREFIX}${q.name}`),
+				.queue.map((q) => queueBranch(q.name)),
 		owed: () => readOwedDrops(queueLanderFiles(root).drops).map((d) => d.ref),
 		spawnRun: () => {
 			/* Named before the spawn, so the started line opens the run's log.
