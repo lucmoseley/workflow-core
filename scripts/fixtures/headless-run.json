@@ -476,6 +476,15 @@
 			"flags": "-w, --worktree [name]"
 		}
 	],
+	"hidden": [
+		{
+			"names": [
+				"--max-turns"
+			],
+			"value": "required",
+			"flags": "--max-turns <turns>"
+		}
+	],
 	"result": {
 		"duration_api_ms": 1260,
 		"stop_reason": "end_turn",

@@ -219,6 +219,31 @@ describe("a launch the pass store caches whole", () => {
 		});
 	});
 
+	it("carries a touched plan's left-out tests onto that certificate and ledger line (#4967)", async () => {
+		const dir = repo();
+		passed(dir, [A]);
+		const leftOut = ["scripts/reader.test.ts"];
+		const ran = await launch(dir, ["--changed"], {
+			expand: () => ({
+				argv: [A],
+				files: [A],
+				own: [A],
+				added: [],
+				admissible: false,
+				changed: ["scripts/lib.js"],
+				base: null,
+				banner: "PLAN\n",
+				leftOut,
+			}),
+		});
+		expect(ran.calls).toEqual([]);
+		expect(lastLine(storePath(dir)).scope).toMatchObject({ leftOut });
+		expect(lastLine(path.join(markersDir(dir), RUN_LEDGER))).toMatchObject({
+			cachedFiles: 1,
+			leftOut,
+		});
+	});
+
 	it("joins no queue", async () => {
 		const dir = repo();
 		passed(dir, [A]);

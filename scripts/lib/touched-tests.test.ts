@@ -73,10 +73,10 @@ const FILES: Record<string, string> = {
 };
 const EDGES = { "doc.md": ["doc.test.ts"] };
 
-function repo() {
+function repo(files: Record<string, string> = FILES) {
 	const dir = mkScratchDir("touched-");
 	dirs.push(dir);
-	for (const [f, text] of Object.entries(FILES)) {
+	for (const [f, text] of Object.entries(files)) {
 		fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
 		fs.writeFileSync(path.join(dir, f), text);
 	}
@@ -409,5 +409,164 @@ describe("selectTouched's changed paths", () => {
 			renderEdges: edges,
 		});
 		expect(changed).toEqual(["scripts/m/scan.py", "scripts/m/test_new.py"]);
+	});
+});
+
+/* The three checker-only files (#4967), each with its checker tests and readers
+ * that only read it as part of the tree: `bystander.test.ts` reads all three
+ * and `notes.md`; `reader.test.ts` reads both anchors files and imports
+ * `unit.js`; `test_anchors.py` names the instruction-surface anchors. */
+const GUARD = ".claude/guard-registry-anchors.json";
+const MANIFEST = "docs/test-read-edges.json";
+const SURFACE = "scripts/instruction-surface-anchors.json";
+const GUARD_CHECKERS = [
+	"scripts/check-guard-registry-carry.test.ts",
+	"scripts/check-guard-registry.test.ts",
+	"scripts/lib/registry-anchors-merge.test.ts",
+];
+const COPIES = "scripts/lib/generated-rule-copies.test.ts";
+const SURFACE_CHECKER = "scripts/check-instruction-surface.test.ts";
+const BYSTANDER = "scripts/bystander.test.ts";
+const READER = "scripts/reader.test.ts";
+const PY_READER = "scripts/test_anchors.py";
+const CHECKER_ONLY_FILES: Record<string, string> = {
+	[GUARD]: "{}\n",
+	[MANIFEST]: "{}\n",
+	[SURFACE]: "{}\n",
+	...Object.fromEntries(
+		[...GUARD_CHECKERS, COPIES, SURFACE_CHECKER, BYSTANDER].map((t) => [
+			t,
+			"export {};\n",
+		]),
+	),
+	"scripts/unit.js": "module.exports = 1;\n",
+	[READER]: 'import "./unit.js";\n',
+	[PY_READER]: 'ANCHORS = HERE / "instruction-surface-anchors.json"\n',
+	"notes.md": "# notes\n",
+};
+const CHECKER_ONLY_EDGES = {
+	[GUARD]: [...GUARD_CHECKERS, BYSTANDER, READER],
+	[MANIFEST]: [COPIES, BYSTANDER],
+	[SURFACE]: [SURFACE_CHECKER, COPIES, BYSTANDER, READER],
+	"notes.md": [BYSTANDER],
+};
+
+describe("a checker-only file selects its checker tests alone (#4967)", () => {
+	/* Built once, every case but those minting their own only reading it:
+	 * popped, so `afterEach` leaves it for `afterAll`. */
+	let tree: string;
+	beforeAll(() => {
+		tree = repo(CHECKER_ONLY_FILES);
+		dirs.pop();
+	});
+	afterAll(() => fs.rmSync(tree, { recursive: true, force: true }));
+
+	const pick = (changed: string[], options: Options = {}, dir: string = tree) =>
+		select(dir, changed, {
+			loadEdges: () => CHECKER_ONLY_EDGES,
+			renderEdges: () => CHECKER_ONLY_EDGES,
+			...options,
+		});
+
+	it.each([
+		[GUARD, GUARD_CHECKERS, [BYSTANDER, READER]],
+		[MANIFEST, [COPIES], [BYSTANDER]],
+		[SURFACE, [SURFACE_CHECKER, COPIES], [BYSTANDER, READER]],
+	])(
+		"%s changed alone selects only its checker tests and returns its other readers as left out",
+		(file, checkers, readers) => {
+			const { files, leftOut } = pick([file]);
+			expect(files).toEqual(checkers);
+			expect(leftOut).toEqual(readers);
+		},
+	);
+
+	it("keeps a reader that also imports another changed path", () => {
+		const { files, leftOut } = pick([GUARD, "scripts/unit.js"]);
+		expect(files).toEqual([...GUARD_CHECKERS, READER]);
+		expect(leftOut).toEqual([BYSTANDER]);
+	});
+
+	it("keeps a reader that also reads another changed path off the manifest", () => {
+		const { files, leftOut } = pick([GUARD, "notes.md"]);
+		expect(files).toEqual([BYSTANDER, ...GUARD_CHECKERS]);
+		expect(leftOut).toEqual([READER]);
+	});
+
+	it("keeps a reader the session edited", () => {
+		const { files, leftOut } = pick([GUARD, BYSTANDER]);
+		expect(files).toEqual([BYSTANDER, ...GUARD_CHECKERS]);
+		expect(leftOut).toEqual([READER]);
+	});
+
+	it("leaves out a reader of two checker-only files changed together, and keeps one's checker that reads the other", () => {
+		const { files, leftOut } = pick([MANIFEST, SURFACE]);
+		expect(files).toEqual([SURFACE_CHECKER, COPIES]);
+		expect(leftOut).toEqual([BYSTANDER, READER]);
+	});
+
+	it("selects every reader of a path outside the table, leaving nothing out", () => {
+		const { files, leftOut, banner } = pick(["notes.md", "scripts/unit.js"]);
+		expect(files).toEqual([BYSTANDER, READER]);
+		expect(leftOut).toEqual([]);
+		expect(banner).not.toContain("LEFT TO THE LANDER");
+	});
+
+	it("selects no pytest file naming a checker-only file in a string literal by that file's change alone", () => {
+		const { files, leftOut, banner } = pick([SURFACE], { suite: "pytest" });
+		expect(files).toEqual([]);
+		expect(leftOut).toEqual([PY_READER]);
+		expect(banner).toContain("LEFT TO THE LANDER — 1 test file(s)");
+		expect(banner).toMatch(/NO TOUCHED TESTS.*left to the lander/);
+	});
+
+	it("keeps that pytest file where the session edited it", () => {
+		const { files, leftOut } = pick([SURFACE, PY_READER], {
+			suite: "pytest",
+		});
+		expect(files).toEqual([PY_READER]);
+		expect(leftOut).toEqual([]);
+	});
+
+	it("cuts nothing in the same-stem-sibling fallback: lexical readers and siblings stay selected", () => {
+		const broken = { loadEdges: failing, renderEdges: failing };
+		const py = pick([SURFACE], { suite: "pytest", ...broken });
+		expect(py.files).toEqual([PY_READER]);
+		expect(py.leftOut).toEqual([]);
+		expect(py.banner).toContain("FELL BACK");
+		expect(py.banner).not.toContain("LEFT TO THE LANDER");
+		const js = pick([GUARD, "scripts/unit.js"], broken);
+		expect(js.files).toEqual([READER]);
+		expect(js.leftOut).toEqual([]);
+	});
+
+	it("says in one banner block how many tests were left out, which files would have selected them, and that the lander runs them", () => {
+		const { banner } = pick([GUARD, MANIFEST, "scripts/unit.js"]);
+		const blocks = banner
+			.split("\n")
+			.filter((l: string) => l.startsWith("LEFT TO THE LANDER"));
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]).toContain("1 test file(s)");
+		expect(blocks[0]).toContain(`${GUARD}, ${MANIFEST}`);
+		expect(blocks[0]).toMatch(/lander's full suite runs these/);
+		expect(banner).toContain("TOUCHED TESTS ONLY");
+	});
+
+	it("counts no left-out test the runner does not collect", () => {
+		const dir = repo(CHECKER_ONLY_FILES);
+		fs.writeFileSync(
+			path.join(dir, "pytest.ini"),
+			"[pytest]\npython_files = check_*.py\n",
+		);
+		const { leftOut, banner } = pick([SURFACE], { suite: "pytest" }, dir);
+		expect(leftOut).toEqual([]);
+		expect(banner).not.toContain("LEFT TO THE LANDER");
+	});
+
+	it("selects a checker-only file's readers as any other's in a tree holding none of its checker tests", () => {
+		const { [COPIES]: _copies, ...withoutChecker } = CHECKER_ONLY_FILES;
+		const { files, leftOut } = pick([MANIFEST], {}, repo(withoutChecker));
+		expect(files).toEqual([BYSTANDER]);
+		expect(leftOut).toEqual([]);
 	});
 });

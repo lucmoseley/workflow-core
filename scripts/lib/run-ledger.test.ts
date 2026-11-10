@@ -63,6 +63,15 @@ const lineFor = (over: Record<string, unknown>, green = true) => {
 };
 
 describe("the ledger beside the marker stores (#2824)", () => {
+	it("carries the tests a touched run left to the lander (#4967)", () => {
+		const scope = { touched: true, resolvedFiles: 2, modulesRun: 2 };
+		expect(
+			lineFor({ scope: { ...scope, leftOut: ["lib/b.test.ts"] } }).leftOut,
+		).toEqual(["lib/b.test.ts"]);
+		expect(lineFor({ scope: { ...scope, leftOut: [] } }).leftOut).toEqual([]);
+		expect(lineFor({ scope }).leftOut).toBeNull();
+	});
+
 	it("writes one line for a certificate and one for a red marker", () => {
 		const root = sandbox();
 		expect(record(marker(), { root })).toBe(true);
@@ -81,6 +90,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 				treeAtEnd: TREE,
 				argv: [],
 				resolvedFiles: null,
+				leftOut: null,
 				wholeSlot: false,
 				cachedFiles: null,
 				ranFiles: 3,

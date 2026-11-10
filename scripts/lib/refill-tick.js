@@ -37,6 +37,7 @@ const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught, readLogged } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
 const { runTickChild: runChild } = require("./child-spawn.js");
+const { checkoutPeakMb } = require("./tsc-slot.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
@@ -154,6 +155,12 @@ const SCRIPTS = path.dirname(__dirname);
 const REVIEW_ROOT = path.dirname(SCRIPTS);
 const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.sh");
 
+/**
+ * The spawn options of a child run in checkout `root`.
+ * @param {string} root
+ */
+const inCheckout = (root) => ({ cwd: root, env: buildCheckoutEnv(root) });
+
 const files = loopFiles();
 
 /** What the loop may serve now, whatever its scope chose. */
@@ -209,7 +216,7 @@ function superviseLanding(root) {
 	const r = runChild(
 		process.execPath,
 		[path.join(SCRIPTS, "supervise-landing.js")],
-		{ cwd: root, env: buildCheckoutEnv(root) },
+		inCheckout(root),
 	);
 	if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
 }
@@ -257,10 +264,11 @@ const startReapPass = (root) =>
  */
 function runMachineChild(script, label) {
 	if (!hasConfig(REVIEW_ROOT)) return;
-	const r = runChild(process.execPath, [path.join(SCRIPTS, script)], {
-		cwd: REVIEW_ROOT,
-		env: buildCheckoutEnv(REVIEW_ROOT),
-	});
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, script)],
+		inCheckout(REVIEW_ROOT),
+	);
 	if (r.out || r.failed) log(blocks.buildChildLine(label, r));
 }
 
@@ -268,15 +276,19 @@ function runMachineChild(script, label) {
  * Admission's free slots, read as the dispatcher's re-read reads them
  * (lib/refill-tick-core.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
  * broken read launches nothing (#2012). `admission` is the verdict behind
- * them, for the concurrency record, or null where it did not read.
+ * them, for the concurrency record, or null where it did not read. Read in
+ * `root`, core.admissionRoot's pick; with nothing served, in the loop's own
+ * directory, where the type-check reserve is 0.
+ * @param {string|undefined} root
  * @returns {{slots: number,
  *   admission: import("./admission.js").AdmissionJson | null}}
  */
-function readFreeSlots() {
-	const r = runChild(process.execPath, [
-		path.join(SCRIPTS, "admission.js"),
-		...core.FREE_SLOT_ARGS,
-	]);
+function readFreeSlots(root) {
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, "admission.js"), ...core.FREE_SLOT_ARGS],
+		root ? inCheckout(root) : {},
+	);
 	try {
 		/* admission.js's own `--json` shape (writeJson), typed, not checked. */
 		/** @type {import("./admission.js").AdmissionJson | {ok: false}} */
@@ -784,11 +796,15 @@ function tendClosedParks(served) {
 }
 
 /**
- * The dispatcher's per-member re-read for a resume: null, or why it waits.
+ * The dispatcher's per-member re-read for a resume, in the member's checkout:
+ * null, or why it waits.
+ * @param {string} root
  * @returns {string|null}
  */
-const admitResume = () =>
-	readFreeSlots().slots > 0 ? null : "admission's re-read finds no free slot";
+const admitResume = (root) =>
+	readFreeSlots(root).slots > 0
+		? null
+		: "admission's re-read finds no free slot";
 
 const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 
@@ -870,10 +886,7 @@ const postHandOff = (root, args) =>
 	runChild(
 		process.execPath,
 		[path.join(SCRIPTS, "rescue-sessions.js"), ...args],
-		{
-			cwd: root,
-			env: buildCheckoutEnv(root),
-		},
+		inCheckout(root),
 	);
 
 /**
@@ -1048,6 +1061,7 @@ const productionIo = {
 	attachProbeParks: (broken, launches) =>
 		attachProbeParks(broken, launches, log),
 	readLiftedHolds: (roots) => readLiftedHolds(roots, log),
+	typecheckPeakMb: checkoutPeakMb,
 	readFreeSlots,
 	readSeats,
 	probeDueSeats,
