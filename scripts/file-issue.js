@@ -304,7 +304,7 @@ function main() {
 	const given = [
 		...new Set([
 			...opts.labels,
-			originLabel(/** @type {string} */ (opts.origin)),
+			originLabel(/** @type {typeof ORIGINS[number]} */ (opts.origin)),
 			...(declared === null ? [] : [SIGNATURE_LABEL]),
 		]),
 	];

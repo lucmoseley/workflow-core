@@ -52,7 +52,7 @@ const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 
 const ORIGIN_PREFIX = "origin:";
 
-/** @param {string} origin */
+/** @param {typeof ORIGINS[number]} origin */
 const originLabel = (origin) => `${ORIGIN_PREFIX}${origin}`;
 
 /** @param {string} v @returns {boolean} */
