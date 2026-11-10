@@ -940,7 +940,10 @@ function refuseGateFaults(before, after, repo, issue) {
 		gateRuleHanded = true;
 		writeFd(2, handover);
 	}
-	const added = introducedBasisFaults(before, after, Number(issue));
+	const own = Number(issue);
+	if (!Number.isInteger(own))
+		throw new CallerError(`not an issue number: ${issue}`);
+	const added = introducedBasisFaults(before, after, own);
 	if (added.length > 0)
 		throw new CallerError(
 			`Nothing written: this edit adds ${basisRefusal(added)}`,

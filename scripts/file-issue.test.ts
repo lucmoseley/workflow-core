@@ -308,7 +308,7 @@ describe("the body", () => {
 		});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			'Nothing filed: the body carries the basis "the body asks for a day", which carries no warrant: a count derivation',
+			'Nothing filed: the body carries the basis "the body asks for a day", which carries no warrant. Every gate line',
 		);
 		expect(r.stderr).toContain("baseline 27/449 attempts");
 		expect(readGhCalls()).toEqual([]);

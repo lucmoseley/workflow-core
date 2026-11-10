@@ -68,11 +68,7 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isRouteStep } = require("./lib/decision-labels");
 const { hostRoot } = require("./lib/host-root");
-const {
-	resolveGate,
-	basisFaults,
-	BASIS_WARRANTS,
-} = require("./lib/issue-gate");
+const { resolveGate, basisFaults } = require("./lib/issue-gate");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	isHeldWithoutReads,
@@ -491,7 +487,7 @@ function checkGates(iss, raise) {
 			"WARN",
 			"NO-GATE-BASIS",
 			`**${marker}:** line with no \`**Gate basis:**\` — nothing says what data sets its date or window`,
-			`add \`**Gate basis:** <the data that sets it, and why nothing sooner fits>\` directly beneath the ${marker} line`,
+			`add a \`**Gate basis:**\` line directly beneath the ${marker} line, to the template in docs/agents/issue-tracker.md §Gating an issue`,
 		);
 	for (const f of faults)
 		if (f.kind === "unnamed-window")
@@ -506,7 +502,7 @@ function checkGates(iss, raise) {
 				"WARN",
 				"NO-GATE-BASIS",
 				`\`**Gate basis:**\` with no warrant — "${f.text}"`,
-				`rewrite the basis to carry ${BASIS_WARRANTS}`,
+				"rewrite the basis to carry one of the three warrants in docs/agents/issue-tracker.md §Gating an issue",
 			);
 }
 

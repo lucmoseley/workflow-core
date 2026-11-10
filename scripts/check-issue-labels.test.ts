@@ -1575,7 +1575,9 @@ describe("a gate line with no basis (#577)", () => {
 		expect(r.out).toContain(
 			'`**Gate basis:**` with no warrant — "#450 asks for 4 weeks"',
 		);
-		expect(r.out).toContain("a count derivation");
+		expect(r.out).toContain(
+			"one of the three warrants in docs/agents/issue-tracker.md §Gating an issue",
+		);
 		expect(r.out).not.toContain("does not name");
 	});
 

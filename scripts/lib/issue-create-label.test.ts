@@ -1369,7 +1369,7 @@ describe("the basis limb (#672)", () => {
 		);
 		expect(out).toContain(unbased);
 		expect(out).toContain(
-			'the basis "the body asks for a day", which carries no warrant: a count derivation',
+			'the basis "the body asks for a day", which carries no warrant. Every gate line',
 		);
 		expect(out).toContain("baseline 27/449 attempts");
 	});

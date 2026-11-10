@@ -268,13 +268,14 @@ const COUNT_WORDS = [
 ];
 const COUNT = `(?:a|an|${COUNT_WORDS.join("|")}|\\d+)`;
 const LONG_UNIT = "(?:days?|weeks?|months?)";
-const UNIT = `(?:hours?|${LONG_UNIT})`;
+const UNIT = `(?:hours?|hrs?|${LONG_UNIT})`;
 /* What may sit between a count and its unit: "7 or more days", "a full day",
  * "7 consecutive UTC days". */
 const MODIFIER = "(?: or more| full| consecutive(?: UTC)?)?";
-/* No window: a frequency — "once a day", "every 2 hours" — or the tail of a
- * decimal or a range, "7.5 h", "3-4 hours". */
-const NOT_A_WINDOW = "(?<!\\b(?:once|twice|per|every) )(?<!\\d[.,–-])";
+/* No window: a frequency, "once a day", "every 2 hours". */
+const NOT_A_RATE = "(?<!\\b(?:once|twice|per|every) )";
+/* The tail of a decimal or a range, "7.5 h", "3-4 h". */
+const NOT_A_TAIL = "(?<!\\d[.,–-])";
 /* No wait: a frequency, though "once 7 days pass" is one, or a span measured,
  * "in 7 h after", "past 2 days since", "20 min to 6 h after". */
 const NOT_A_SPAN =
@@ -285,7 +286,10 @@ const COUNTED_LONG = `${COUNT}${MODIFIER}[ -]${LONG_UNIT}`;
 /* A determiner or ordinal standing for a count of one: "the week", "the first
  * full day". Read only inside a wait or a basis: on its own it is ordinary
  * prose. */
-const DETERMINED = "the(?: first| next)?(?: full)? (?:day|week|month)";
+/** @param {string} unit */
+const determined = (unit) => `the(?: first| next)?(?: full)? ${unit}`;
+const DETERMINED = determined("(?:day|week|month)");
+const WEEK_ONE = "week (?:one|1)";
 const ELAPSES = "(?:pass(?:es|ed)?|elapse[sd]?|go(?:ne)? by|run|accrued)";
 
 /*
@@ -293,26 +297,29 @@ const ELAPSES = "(?:pass(?:es|ed)?|elapse[sd]?|go(?:ne)? by|run|accrued)";
  * #672). A bare duration never matches: "N days" alone is nearly always a
  * measurement window ("in 30 days"), measured on #672. A verb of elapsing may
  * sit before "after" — "7 days pass after" (#823) — and only one, so "two
- * weeks right after launch" stays a measurement. Each alternative is a
- * wording the #4929 audit found escaping, cut back to what a run over every
- * issue body showed to be a wait (#4949): an hour count before "later" or
- * after "after" is a threshold or a span, and so is an "N-day window".
+ * weeks right after launch" stays a measurement. An hour count before
+ * "later" or after "after" is a threshold or a span, and so is an "N-day
+ * window" (#4949). The first alternative is the reading before #4949,
+ * unguarded, so nothing it refused is released.
  */
 const WAIT_RE = new RegExp(
 	`\\b(?:${[
+		`${COUNT} ${LONG_UNIT} (?:(?:(?:pass(?:es|ed)?|elapse[sd]?|go(?:ne)? by) )?after|later|live|from now|of (?:soak|running|live))`,
 		`${NOT_A_SPAN}${COUNTED} (?:(?:(?:ha(?:ve|s) )?${ELAPSES} )?(?:after|since)|live|of (?:soak|running|live))`,
 		`${NOT_A_SPAN}${COUNTED_LONG} (?:later|from now)`,
-		// "24 h of suite-queue logs have accrued since"
+		// "24 h of suite-queue logs have accrued since": up to three words, a
+		// first guess fitted to that wording and unmeasured
 		`${NOT_A_SPAN}${COUNTED} of [\\w-]+(?: [\\w-]+){0,2} ha(?:ve|s) ${ELAPSES} since`,
-		`${DETERMINED} after`,
+		// "the day after the merge" is ordinary prose
+		`(?!the day after\\b)${DETERMINED} after`,
 		// "the 24 h window after cutover", "the week of memwatch after"
-		`(?:(?:the )?${NOT_A_WINDOW}${COUNTED}|${DETERMINED}) (?:window|of [\\w-]+) after`,
+		`(?:(?:the )?${NOT_A_RATE}${NOT_A_TAIL}${COUNTED}|${DETERMINED}) (?:window|of [\\w-]+) after`,
 		`after ${COUNTED_LONG}`,
 		`has run ${COUNTED}`,
 		`${COUNT} full ${UNIT} of`,
 		// "a 7-day post-rollout reading": the noun within two words
-		`${NOT_A_WINDOW}${COUNT}-${LONG_UNIT}(?:(?: [\\w-]+)? (?:reading|soak|trial)s?| measurement windows?)`,
-		"week (?:one|1)",
+		`${NOT_A_RATE}${NOT_A_TAIL}${COUNT}-${LONG_UNIT}(?:(?: [\\w-]+)? (?:reading|soak|trial)s?| measurement windows?)`,
+		WEEK_ONE,
 		"no earlier than",
 	].join("|")})\\b`,
 	"gi",
@@ -321,16 +328,12 @@ const WAIT_RE = new RegExp(
 /*
  * A window, as the per-window check reads one (#823). Compared by length, so
  * a basis naming "24 hours" names a gate's "a day"; a month has no fixed
- * length and matches only a month. The determiner forms are read only where
- * `determined` is asked for.
+ * length and matches only a month.
  */
-const COUNTED_WINDOW = `(\\d+) ?(h)|(${COUNT})${MODIFIER}[ -](${UNIT})`;
-const WINDOW_RE = new RegExp(
-	`${NOT_A_WINDOW}\\b(?:${COUNTED_WINDOW})\\b`,
-	"gi",
-);
+const COUNTED_WINDOW = `${NOT_A_TAIL}(\\d+) ?(h)|(${COUNT})${MODIFIER}[ -](${UNIT})`;
+const WINDOW_RE = new RegExp(`${NOT_A_RATE}\\b(?:${COUNTED_WINDOW})\\b`, "gi");
 const DETERMINED_WINDOW_RE = new RegExp(
-	`${NOT_A_WINDOW}\\b(?:${COUNTED_WINDOW}|the(?: first| next)?(?: full)? (day|week|month)|(week) (?:one|1))\\b`,
+	`${NOT_A_RATE}\\b(?:${COUNTED_WINDOW}|${determined("(day|week|month)")}|(?=(week))${WEEK_ONE})\\b`,
 	"gi",
 );
 /** @type {Record<string, number>} */
@@ -344,7 +347,7 @@ const UNIT_HOURS = { hour: 1, day: 24, week: 168 };
 function durationKey(count, unit) {
 	const c = count.toLowerCase();
 	const n = /^an?$/.test(c) ? 1 : COUNT_WORDS.indexOf(c) + 1 || Number(c);
-	const u = unit.toLowerCase().replace(/s$/, "").replace(/^h$/, "hour");
+	const u = unit.toLowerCase().replace(/s$/, "").replace(/^hr?$/, "hour");
 	const hours = UNIT_HOURS[u];
 	return hours === undefined ? `${n}${u}` : `${n * hours}h`;
 }
@@ -375,7 +378,8 @@ function checkSpan(line) {
  */
 function durationsIn(body, at, opts = {}) {
 	const skip = checkSpan(at[0]);
-	return [...at[0].matchAll(opts.determined ? DETERMINED_WINDOW_RE : WINDOW_RE)]
+	const re = opts.determined ? DETERMINED_WINDOW_RE : WINDOW_RE;
+	return [...at[0].matchAll(re)]
 		.filter((m) => {
 			const i = m.index ?? 0;
 			return (
@@ -383,26 +387,31 @@ function durationsIn(body, at, opts = {}) {
 				!inCodeSpan(body, (at.index ?? 0) + i)
 			);
 		})
-		.map((m) => ({
-			written: m[0],
-			key: durationKey(m[1] ?? m[3] ?? "1", m[2] ?? m[4] ?? m[5] ?? m[6] ?? ""),
-		}));
+		.map((m) => {
+			const unit = m[2] ?? m[4] ?? m[5] ?? m[6];
+			if (unit === undefined)
+				throw new Error(`no unit group took part in a match of /${re.source}/`);
+			// A determiner stands for a count of one.
+			return { written: m[0], key: durationKey(m[1] ?? m[3] ?? "1", unit) };
+		});
 }
 
-const BASIS_WARRANTS =
-	"a count derivation (a baseline `k/N`, a target bound and the count that results, with a source), a named cycle with a measured figure and a source, or another issue cited for what sets the window, never only as the event it starts from";
-
 const basisRule = () =>
-	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Where the body writes a window, the basis carries a warrant (#4946). Wait windows are the shortest the data defends (#616, #672). This checks that a basis names each window and carries a warrant, never that it holds up: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. The line's template: ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "a `**Gate basis:**` line naming what sets the window", "issue-gate")}`;
+	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Where the body writes a window, the basis carries a warrant (#4946). Wait windows are the shortest the data defends (#616, #672). The check reads the basis's form, each window named and a warrant present, and never judges it: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
 
 const ISSUE_REF_RE = /#(\d+)\b/g;
 /* `mantahostels#12` and `owner/repo#12` name another repo's issue. */
 const REPO_BEFORE_REF_RE = /[\w.-]$/;
 const SHA_RE = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/;
-const REPO_PATH_RE = /\/[\w-]+\.[a-z]{1,5}\b/;
+const REPO_PATH_RE = /\/[\w-]+\.[a-z]+\b/;
+/* A web address is no repo path. */
+const URL_RE = /\bhttps?:\/\/\S+/g;
 const CODE_SPAN_RE = /`[^`\n]+`/;
 const FRACTION_RE = /\b(\d[\d,]*)(?:\/| of )(\d[\d,]*)\b/g;
 const PERCENT_RE = /\d(?:\.\d+)? ?%/;
+/* Up to four words between the figure and its period, "200 attempts a day",
+ * and up to two between an issue and its event below: first guesses fitted to
+ * the tracker's bases, unmeasured. */
 const RATE_RE =
 	/\d(?: [\w-]+){0,4} (?:a|an|per|each) (?:minute|hour|day|week|month)\b/i;
 const CYCLE_RE =
@@ -418,6 +427,13 @@ const EVENT_AFTER_REF_RE = new RegExp(
 const EVENT_RE = new RegExp(`\\b${EVENT}\\b`, "i");
 const TEMPORAL_BEFORE_REF_RE = /\b(?:after|since|once|until|when)\s+$/i;
 const CLAUSE_END_RE = /[,;:](?=\s)|\.(?=\s|$)|\s[—–]\s/g;
+const MONTH = "(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*";
+/* A count of something: an integer before a word, zero and a date's day, year
+ * or clock time excepted. */
+const COUNT_OF_RE = new RegExp(
+	`(?<![\\w.,/#:-])(?<!\\b${MONTH} )(?!0\\b)(\\d[\\d,]*)(?= +(?!${MONTH}\\b)[a-z])`,
+	"gi",
+);
 
 /**
  * A reference that only names the event a window starts from — "#4807 landed
@@ -464,17 +480,18 @@ function warrantOf(basis, own) {
 	const sourced =
 		refs.length > 0 ||
 		SHA_RE.test(basis) ||
-		REPO_PATH_RE.test(basis) ||
+		REPO_PATH_RE.test(basis.replace(URL_RE, "")) ||
 		CODE_SPAN_RE.test(basis);
 	if (!sourced) return null;
 	const fractions = [...basis.matchAll(FRACTION_RE)];
 	const hasBound = PERCENT_RE.test(basis) || RATE_RE.test(basis);
 	if (fractions.length > 0 && hasBound) {
 		const baseline = new Set(fractions.flatMap((m) => [m[1], m[2]]));
-		// A count of something: an integer before a word, less the references.
+		// The count that results is no reference and no window.
 		const counts = basis
 			.replace(ISSUE_REF_RE, "")
-			.matchAll(/(?<![\w.,/#-])(\d[\d,]*)(?= +[a-z])/gi);
+			.replace(WINDOW_RE, "~")
+			.matchAll(COUNT_OF_RE);
 		for (const c of counts) if (!baseline.has(c[1])) return "count";
 	}
 	if (CYCLE_RE.test(basis) && (fractions.length > 0 || hasBound))
@@ -646,7 +663,7 @@ const FAULT_SAYS = {
 	"unnamed-window": (quoted, many) =>
 		`${quoted}, ${many ? "windows" : "a window"} the \`**Gate basis:**\` line does not name`,
 	"no-warrant": (quoted, many) =>
-		`the ${many ? "bases" : "basis"} ${quoted}, which ${many ? "carry" : "carries"} no warrant: ${BASIS_WARRANTS}`,
+		`the ${many ? "bases" : "basis"} ${quoted}, which ${many ? "carry" : "carries"} no warrant`,
 };
 
 /**
@@ -820,7 +837,6 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
-	BASIS_WARRANTS,
 	gateRuleHandover,
 	isNewlyGated,
 	parseAddedGateLines,

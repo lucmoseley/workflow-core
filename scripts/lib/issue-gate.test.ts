@@ -418,7 +418,7 @@ describe("basisFaults — each window its basis names (#823)", () => {
 	it("prints the basis template from its span", () => {
 		const body = `${gate816}\n**Gate basis:**\n**Gate basis:** 3 days`;
 		expect(basisRefusal(basisFaults(body))).toContain(
-			`The line's template: ${readRuleText("gate-basis-line")}`,
+			`§Gating an issue. ${readRuleText("gate-basis-line")}`,
 		);
 	});
 
@@ -435,7 +435,7 @@ describe("basisFaults — each window its basis names (#823)", () => {
 		expect(faults).toEqual([{ kind: "unnamed-window", text: "7 days" }]);
 		const refusal = basisRefusal(faults);
 		expect(refusal).toContain('"7 days", a window the `**Gate basis:**` line');
-		expect(refusal).toContain("never that it holds up");
+		expect(refusal).toContain("and never judges it");
 	});
 
 	it("passes a basis naming every window, by length rather than spelling", () => {
@@ -508,6 +508,25 @@ describe("basisFaults — the wordings the #4929 audit found escaping (#4946)", 
 		expect(fault(`${gate}\n**Gate basis:** #12 ruled 3 days`)).toEqual([
 			"24 h",
 		]);
+		expect(
+			fault(
+				"**Gated on:** 24 hrs of data — abandon if: never\n**Gate basis:** #12 ruled 3 days",
+			),
+		).toEqual(["24 hrs"]);
+	});
+
+	it("still reads every wait the reading before #4949 read", () => {
+		for (const [body, wait] of [
+			["Check in 7 days after launch.", "7 days after"],
+			["Wait 3-4 days after launch.", "4 days after"],
+			["past 2 days after the fix", "2 days after"],
+		])
+			expect(fault(body)).toEqual([wait]);
+		expect(
+			fault(
+				"**Gated on:** 3-4 hours of data — abandon if: never\n**Gate basis:** #12 ruled a week",
+			),
+		).toEqual(["4 hours"]);
 	});
 
 	it("reads a determiner or an ordinal as a count of one", () => {
@@ -520,6 +539,7 @@ describe("basisFaults — the wordings the #4929 audit found escaping (#4946)", 
 			["flips if week 1 shows the cap spent", "week 1"],
 		])
 			expect(fault(body)).toEqual([wait]);
+		expect(fault("Ship it the day after the merge.")).toEqual([]);
 		expect(
 			fault(
 				"count them over the week after it lands\n**Gate basis:** #12 ruled 3 days",
@@ -684,6 +704,14 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 			"baseline 27/449 attempts (`jq`); pass = 0 refusals in 69 attempts",
 			// no count but the baseline's own
 			"baseline 27/449 attempts (6.0%, `jq`), so 449 attempts again",
+			// the window, a date, a year and a clock time are no count
+			"7 days; baseline 27/449 (6.0%), `jq`",
+			"baseline 27/449 attempts (6.0%, `jq`) measured on 10 Nov",
+			"baseline 27/449 attempts (6.0%, `jq`), read in Nov 2026 at 16:06 UTC",
+			// nor is zero
+			"baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals",
+			// a web address is no source
+			"baseline 27/449 attempts (6.0%), 69 attempts, see https://example.com/log.txt",
 		])
 			expect(warrantFaults(short)).toEqual([short]);
 	});
@@ -755,20 +783,17 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 		).toEqual([]);
 	});
 
-	it("refuses naming the basis, the three warrants and the template", () => {
+	it("refuses naming the basis and the template", () => {
 		const refusal = basisRefusal(
 			basisFaults(`${week}\n**Gate basis:** the body sets a week`),
 		);
 		expect(refusal).toContain(
-			'the basis "the body sets a week", which carries no warrant: a count derivation',
-		);
-		expect(refusal).toContain("a named cycle with a measured figure");
-		expect(refusal).toContain(
-			"or another issue cited for what sets the window",
+			'the basis "the body sets a week", which carries no warrant. Every gate line',
 		);
 		expect(refusal).toContain(
-			`The line's template: ${readRuleText("gate-basis-line")}`,
+			`§Gating an issue. ${readRuleText("gate-basis-line")}`,
 		);
+		expect(refusal.split("The line's template:")).toHaveLength(2);
 	});
 });
 

@@ -719,7 +719,7 @@ describe("the CLI", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			'this edit adds the basis "#96 asks for a week", which carries no warrant: a count derivation',
+			'this edit adds the basis "#96 asks for a week", which carries no warrant. Every gate line',
 		);
 		expect(r.stderr).toContain("baseline 27/449 attempts");
 		expect(readEdits()).toBe(0);
