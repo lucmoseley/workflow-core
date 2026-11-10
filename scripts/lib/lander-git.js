@@ -43,14 +43,11 @@ const parseRefusal = (text) => readGitLines(text)[0] ?? parseFirstLine(text);
 /* A first guess, unmeasured: room for a gate's remedy and the command it
  * names to settle its findings. */
 const REFUSAL_TAIL_LINES = 40;
-/* Untraced: room for the row a verdict line names and its reason. A registry
- * finding goes on to list every rule of its row, thousands of characters on
- * a wide one, and an issue body holds 65,536. */
+/* Untraced: room for the row a verdict line names and its reason (#4800). */
 const VERDICT_LINE_MAX = 300;
-/* GitHub holds an issue body to 65,536 characters; the rest is room for the
- * ticket's own text. */
+/* GitHub holds an issue body to 65,536 characters; the rest, a first guess
+ * and unmeasured, is room for the ticket's own text. */
 const REFUSAL_MAX = 50_000;
-/* Stands where lines are left out. */
 const REFUSAL_CUT = "[…]";
 
 /* The lines a commit gate gives its verdict on. lib/check.js opens the list
@@ -58,8 +55,8 @@ const REFUSAL_CUT = "[…]";
  * and ends on a `FAIL:` summary; check-guard-registry.js says why a merge
  * carried no row, or not one row (#4514), before either. Residual: the
  * phrases are restated here, so a gate that rewords one has its reason cut
- * from the ticket again; check-guard-registry-carry.test.ts reads a real
- * refusal through parseGateRefusal. */
+ * from the ticket; check-guard-registry-carry.test.ts reads a real refusal
+ * through parseGateRefusal, which pins each but `no row carried`. */
 const ADDED_FAULTS = /^The fault\(s\) below are NOT in /;
 const VERDICT_LINE =
 	/^(?:not carried |no row carried across this merge: |FAIL: )/;
@@ -81,9 +78,9 @@ const cutLine = (line) =>
  * @param {string} text
  */
 function parseGateRefusal(text) {
-	const whole = readRefusalLines(text, false);
+	const whole = parseRefusalText(text, false);
 	if (whole.length <= REFUSAL_MAX) return whole;
-	const cut = readRefusalLines(text, true);
+	const cut = parseRefusalText(text, true);
 	return cut.length <= REFUSAL_MAX
 		? cut
 		: `${cut.slice(0, REFUSAL_MAX)}\n${REFUSAL_CUT}`;
@@ -94,7 +91,7 @@ function parseGateRefusal(text) {
  * @param {boolean} cutTail whether the tail's lines are cut as the verdict
  *   lines ahead of it are
  */
-function readRefusalLines(text, cutTail) {
+function parseRefusalText(text, cutTail) {
 	const lines = stripVTControlCharacters(text)
 		.split("\n")
 		.map((l) => l.trimEnd())

@@ -174,7 +174,7 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(git("show", `:${ANCHORS}`)).toBe(staged);
 	});
 
-	it("refuses a merge where both sides changed the same library, though git merges it cleanly, naming the row and the file", () => {
+	it("refuses a merge where both sides changed the same library, though git merges it cleanly, naming the row and the file, in lines the queue lander's fix ticket keeps (#4800)", () => {
 		const { root, git, tryGit, change, hooks } = mergeRepo();
 		const [first, ...rest] = LIB_A_BODY;
 		change("main", {

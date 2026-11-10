@@ -119,6 +119,9 @@ const RETRY_STEP = "Retry failed files";
 /* ci.yml's step running `npm run typecheck`, and a `tsc` error line. */
 const TYPECHECK_STEP = "Typecheck";
 const TYPE_ERROR = /\berror TS\d+: /;
+/* What `gh run view --log-failed` prints for the step of a job a reusable
+ * workflow calls. */
+const UNNAMED_STEP = "UNKNOWN STEP";
 /* Untraced: enough to name the fault, one mistake often printing many. */
 const TYPE_ERRORS_MAX = 10;
 /* New attempts of a run whose runner failed to ready, before no verdict. A
@@ -284,8 +287,11 @@ function readRed(sha, id, failed, reads) {
 	 * `Suite passed` fails beside any red shard and holds no retry step. */
 	const shards = failed.filter((j) => j.name !== SUITE_PASSED_JOB);
 	const atRetry =
-		shards.length > 0 && shards.every((j) => failedAt(j, RETRY_STEP));
+		shards.length > 0 && shards.every((j) => hasFailedStep(j, RETRY_STEP));
 	const raw = reads.failedLogOf(id);
+	const typed = failed
+		.filter((j) => hasFailedStep(j, TYPECHECK_STEP))
+		.map((j) => j.name);
 	const read = readFailed(sha, stripLogPrefix(raw), reads, atRetry);
 	const retried = atRetry && read.files.length > 0;
 	return {
@@ -293,30 +299,35 @@ function readRed(sha, id, failed, reads) {
 		...read,
 		jobs: names,
 		...(retried ? { retried } : {}),
-		...(failed.some((j) => failedAt(j, TYPECHECK_STEP))
-			? { typecheck: parseTypeErrors(raw) }
-			: {}),
+		...(typed.length > 0 ? { typecheck: parseTypeErrors(raw, typed) } : {}),
 	};
 }
 
 /**
- * Whether `job` failed at its step `name`.
  * @param {Job} job
  * @param {string} name
  */
-const failedAt = (job, name) =>
+const hasFailedStep = (job, name) =>
 	(job.steps ?? []).some((s) => s.conclusion === "failure" && s.name === name);
 
 /**
- * The first TYPE_ERRORS_MAX `tsc` errors the type-check step printed to a
- * failed run's log: a test's fixture can print one from another step.
+ * The first TYPE_ERRORS_MAX `tsc` errors the type-check printed to a failed
+ * run's log: the lines of the `jobs` that failed at it, less those `gh`
+ * names another step for, since a test's fixture can print one.
  * @param {string} log as `gh` prints it, each line led by its job and step
+ * @param {readonly string[]} jobs
  */
-const parseTypeErrors = (log) =>
+const parseTypeErrors = (log, jobs) =>
 	stripLogPrefix(
 		log
 			.split("\n")
-			.filter((l) => l.split("\t")[1] === TYPECHECK_STEP)
+			.filter((l) => {
+				const [job = "", step] = l.split("\t");
+				return (
+					jobs.includes(job) &&
+					(step === TYPECHECK_STEP || step === UNNAMED_STEP)
+				);
+			})
 			.join("\n"),
 	)
 		.split("\n")

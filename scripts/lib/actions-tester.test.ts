@@ -509,15 +509,20 @@ it("names on a red that failed the step ci.yml runs the type-check at the first 
 		{ length: 12 },
 		(_, i) => `scripts/a.js(${i + 1},5): error TS2304: Cannot find name 'c'.`,
 	);
-	const at = (step: string, text: string) =>
-		`Full suite / Lint and types\t${step}\t2026-11-10T08:30:01.0Z ${text}`;
-	const typedLog = [
-		/* A test's fixture, printed by another step. */
-		at("Vitest", "fixture.js(1,1): error TS1: printed by a test"),
-		at(typecheckStep, "> workflow-core@0.1.0 typecheck"),
-		...errors.map((e) => at(typecheckStep, e)),
-		at(typecheckStep, "##[error]Process completed with exit code 2."),
-	].join("\n");
+	/* `gh` names a step, or prints UNKNOWN STEP for a job a reusable
+	 * workflow calls, as on run 39747307904. */
+	const logOf = (step: string) =>
+		[
+			`Full suite / Vitest (1/2)\t${step}\t2026-11-10T08:30:00.0Z fixture.js(1,1): error TS1: another job's`,
+			`Full suite / Lint and types\tESLint\t2026-11-10T08:30:00.5Z fixture.js(2,2): error TS2: another step's`,
+			`Full suite / Lint and types\t${step}\t2026-11-10T08:30:01.0Z > workflow-core@0.1.0 typecheck`,
+			...errors.map(
+				(e) =>
+					`Full suite / Lint and types\t${step}\t2026-11-10T08:30:01.5Z ${e}`,
+			),
+			`Full suite / Lint and types\t${step}\t2026-11-10T08:30:02.0Z ##[error]Process completed with exit code 2.`,
+		].join("\n");
+	let typedLog = logOf(typecheckStep);
 	const verdictWith = (step: string) => {
 		const r = reads([() => [run(6, "failure")]], [lint(step)]);
 		r.failedLogOf = () => typedLog;
@@ -528,6 +533,10 @@ it("names on a red that failed the step ci.yml runs the type-check at the first 
 		kind: "red",
 		files: [],
 		jobs: ["Full suite / Lint and types"],
+		typecheck: errors.slice(0, 10),
+	});
+	typedLog = logOf("UNKNOWN STEP");
+	expect(await verdictWith(typecheckStep)).toMatchObject({
 		typecheck: errors.slice(0, 10),
 	});
 	expect(await verdictWith("Biome ci")).toEqual({

@@ -402,8 +402,9 @@ describe("dropTicketFiler", () => {
 		const red = { kind: "red" as const, name: "wt-1", iso };
 
 		f.said({ cause: { ...red, files: [], typecheck } });
-		/* Only a collision's whole-suite step names files and the type-check
-		 * both: a member red on files is confirmed on those files alone. */
+		/* The lander names files and the type-check both only on a
+		 * collision's whole-suite step, a member red on files being confirmed
+		 * on those files alone; a red holding both still reads so. */
 		const collision = {
 			kind: "collision" as const,
 			name: "wt-1",
@@ -412,9 +413,13 @@ describe("dropTicketFiler", () => {
 		};
 		f.said({ cause: { ...collision, files: ["x.test.ts"], typecheck: [] } });
 		f.said({ cause: { ...collision, files: [], typecheck } });
+		f.said({ cause: { ...red, files: ["x.test.ts"], typecheck } });
 
-		const [alone, both, collided] = f.files.map((x) => x.input);
+		const [alone, both, collided, redBoth] = f.files.map((x) => x.input);
 		const quoted = `its first errors:\n\n\`\`\`text\n${typecheck.join("\n")}\n\`\`\``;
+		expect(redBoth).toContain(
+			`- \`x.test.ts\`\n\nIt also failed the type-check twice, where \`main\` passes it, ${quoted}`,
+		);
 		expect(alone).toContain(
 			`as ${iso}, it failed the type-check twice, where \`main\` passes it, ${quoted}`,
 		);
