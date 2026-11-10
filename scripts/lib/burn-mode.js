@@ -40,7 +40,7 @@ const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 const { readPlanDirs } = require("./plan-dirs.js");
-const { coreRoot, scriptPath } = require("./script-path.js");
+const { coreRoot, docPath, scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
 /** The marker file's name, under `~/.claude`. */
@@ -236,7 +236,7 @@ function remapModel(input, burn) {
 		input: moved,
 		note: burn
 			? `Burn mode moved this dispatch from ${what} (scripts/burn-mode.sh; \`${scriptPath("burn-mode.sh")} off\` ends it).`
-			: `The standing model table moved this dispatch from ${what} (scripts/lib/burn-mode.js; docs/effort-guide.md §Which model each subagent dispatch runs on).`,
+			: `The standing model table moved this dispatch from ${what} (${scriptPath("lib/burn-mode.js")}; ${docPath("effort-guide.md")} §Which model each subagent dispatch runs on).`,
 	};
 }
 
