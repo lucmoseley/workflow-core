@@ -78,3 +78,21 @@ it("cuts a verdict line ahead of the tail to 300 characters, and leaves the tail
 	expect(said[0]).toBe(`${long.slice(0, 299)}…`);
 	expect(said.at(-1)).toBe(long);
 });
+
+it("cuts the tail's lines too where the whole passes 50,000 characters, and the text there where it still does, so an issue body holds it", () => {
+	const wide = `  findings: scripts/a.js — ${"x".repeat(4500)}`;
+	const tail = parseGateRefusal(new Array(40).fill(wide).join("\n")).split(
+		"\n",
+	);
+	const rows = Array.from(
+		{ length: 400 },
+		(_, i) => `not carried scripts/${i}.js — ${"x".repeat(400)}`,
+	);
+	const many = parseGateRefusal([...rows, ...rules(40)].join("\n"));
+
+	expect(tail).toHaveLength(40);
+	expect(tail[0]).toBe(`${wide.slice(0, 299)}…`);
+	expect(many.length).toBeLessThan(50_010);
+	expect(many.startsWith("not carried scripts/0.js — ")).toBe(true);
+	expect(many.endsWith("\n[…]")).toBe(true);
+});

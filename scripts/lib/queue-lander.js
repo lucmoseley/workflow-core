@@ -876,7 +876,7 @@ function redAction(b, s, main, { sha, whole }) {
 /**
  * What a drop's cause keeps of the red `v` beside its files.
  * @param {Extract<Verdict, {kind: "red"}>} v
- * @returns {{noRun?: true, typecheck?: string[]}}
+ * @returns {import("./lander-records.js").RedMarks}
  */
 const redMarksOf = (v) => ({
 	...(v.noRun ? { noRun: v.noRun } : {}),

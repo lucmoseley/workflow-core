@@ -86,11 +86,11 @@ const citedByAny = (subjects) =>
  * @param {{files: readonly string[], typecheck?: readonly string[]}} cause
  */
 function buildOwedPass({ files, typecheck }) {
-	if (typecheck === undefined)
-		return files.length > 0 ? "each file above" : "the whole suite";
-	return files.length > 0
-		? "each file above and the type-check"
-		: "the type-check";
+	const failed = [
+		...(files.length > 0 ? ["each file above"] : []),
+		...(typecheck ? ["the type-check"] : []),
+	];
+	return failed.length > 0 ? failed.join(" and ") : "the whole suite";
 }
 
 /** @param {Drop} d */

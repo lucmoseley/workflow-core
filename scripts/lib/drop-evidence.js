@@ -31,14 +31,14 @@ const buildTypeErrors = (errors) =>
  */
 function buildFailed({ files, typecheck }, onMain) {
 	const where = onMain ? ", where `main` passes it" : "";
-	const typed =
+	const typecheckClause =
 		typecheck && `the type-check twice${where}, ${buildTypeErrors(typecheck)}`;
 	if (files.length === 0)
-		return `failed ${typed ?? `the whole suite twice, naming no file${where}`}`;
+		return `failed ${typecheckClause ?? `the whole suite twice, naming no file${where}`}`;
 	const listed = onMain
 		? "these files twice, which pass on `main` there"
 		: "twice";
-	return `failed ${listed}:\n${buildFileList(files)}${typed ? `\n\nIt also failed ${typed}` : ""}`;
+	return `failed ${listed}:\n${buildFileList(files)}${typecheckClause ? `\n\nIt also failed ${typecheckClause}` : ""}`;
 }
 
 const NO_RUN =

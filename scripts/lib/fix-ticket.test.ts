@@ -402,17 +402,16 @@ describe("dropTicketFiler", () => {
 		const red = { kind: "red" as const, name: "wt-1", iso };
 
 		f.said({ cause: { ...red, files: [], typecheck } });
-		f.said({ cause: { ...red, files: ["x.test.ts"], typecheck: [] } });
-		f.said({
-			cause: {
-				kind: "collision",
-				name: "wt-1",
-				files: [],
-				step: iso,
-				after: [],
-				typecheck,
-			},
-		});
+		/* Only a collision's whole-suite step names files and the type-check
+		 * both: a member red on files is confirmed on those files alone. */
+		const collision = {
+			kind: "collision" as const,
+			name: "wt-1",
+			step: iso,
+			after: [],
+		};
+		f.said({ cause: { ...collision, files: ["x.test.ts"], typecheck: [] } });
+		f.said({ cause: { ...collision, files: [], typecheck } });
 
 		const [alone, both, collided] = f.files.map((x) => x.input);
 		const quoted = `its first errors:\n\n\`\`\`text\n${typecheck.join("\n")}\n\`\`\``;
@@ -424,7 +423,7 @@ describe("dropTicketFiler", () => {
 			"- [ ] aaaaaaaaa's change passes the type-check merged onto `main`, and is pushed to `queue/wt-1` again.",
 		);
 		expect(both).toContain(
-			"- `x.test.ts`\n\nIt also failed the type-check twice, where `main` passes it, whose errors its log did not name",
+			"- `x.test.ts`\n\nIt also failed the type-check twice, whose errors its log did not name",
 		);
 		expect(both).toContain(
 			"change passes each file above and the type-check merged onto `main`",

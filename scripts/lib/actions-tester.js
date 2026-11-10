@@ -284,37 +284,41 @@ function readRed(sha, id, failed, reads) {
 	 * `Suite passed` fails beside any red shard and holds no retry step. */
 	const shards = failed.filter((j) => j.name !== SUITE_PASSED_JOB);
 	const atRetry =
-		shards.length > 0 && shards.every((j) => hasFailedStep([j], RETRY_STEP));
-	const log = stripLogPrefix(reads.failedLogOf(id));
-	const read = readFailed(sha, log, reads, atRetry);
+		shards.length > 0 && shards.every((j) => failedAt(j, RETRY_STEP));
+	const raw = reads.failedLogOf(id);
+	const read = readFailed(sha, stripLogPrefix(raw), reads, atRetry);
 	const retried = atRetry && read.files.length > 0;
 	return {
 		kind: "red",
 		...read,
 		jobs: names,
 		...(retried ? { retried } : {}),
-		...(hasFailedStep(failed, TYPECHECK_STEP)
-			? { typecheck: parseTypeErrors(log) }
+		...(failed.some((j) => failedAt(j, TYPECHECK_STEP))
+			? { typecheck: parseTypeErrors(raw) }
 			: {}),
 	};
 }
 
 /**
- * Whether a job of `failed` failed at its step `name`.
- * @param {Job[]} failed
+ * Whether `job` failed at its step `name`.
+ * @param {Job} job
  * @param {string} name
  */
-const hasFailedStep = (failed, name) =>
-	failed.some((j) =>
-		(j.steps ?? []).some((s) => s.conclusion === "failure" && s.name === name),
-	);
+const failedAt = (job, name) =>
+	(job.steps ?? []).some((s) => s.conclusion === "failure" && s.name === name);
 
 /**
- * The first TYPE_ERRORS_MAX `tsc` errors a failed run's log holds.
- * @param {string} log its prefix stripped
+ * The first TYPE_ERRORS_MAX `tsc` errors the type-check step printed to a
+ * failed run's log: a test's fixture can print one from another step.
+ * @param {string} log as `gh` prints it, each line led by its job and step
  */
 const parseTypeErrors = (log) =>
-	log
+	stripLogPrefix(
+		log
+			.split("\n")
+			.filter((l) => l.split("\t")[1] === TYPECHECK_STEP)
+			.join("\n"),
+	)
 		.split("\n")
 		.filter((l) => TYPE_ERROR.test(l))
 		.slice(0, TYPE_ERRORS_MAX)
@@ -997,4 +1001,4 @@ function repushFailure({ reads, branch }, sha) {
 			};
 }
 
-module.exports = { queueTester, TYPECHECK_STEP };
+module.exports = { queueTester };

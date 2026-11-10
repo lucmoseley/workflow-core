@@ -15,12 +15,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-	type Job,
-	queueTester,
-	type Run,
-	TYPECHECK_STEP,
-} from "./actions-tester.js";
+import { type Job, queueTester, type Run } from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
 import type { Placement } from "./queue-lander.js";
@@ -493,7 +488,15 @@ it("reads a failed dependency install as red, a broken lockfile being the code's
 	expect(r.reran).toEqual([]);
 });
 
-it("names on a red whose type-check step failed the first ten tsc errors its log holds, and none on a red that passed it (#4800)", async () => {
+it("names on a red that failed the step ci.yml runs the type-check at the first ten tsc errors that step printed, and none on a red that passed it (#4800)", async () => {
+	const ci = fs.readFileSync(
+		path.join(__dirname, "..", "..", ".github", "workflows", "ci.yml"),
+		"utf8",
+	);
+	const typecheckStep =
+		/\n\s+- name: (.+)\n(?:\s+if: .+\n)?\s+run: npm run typecheck\n/.exec(
+			ci,
+		)?.[1] ?? "no step of ci.yml runs the type-check";
 	const lint = (step: string): Job => ({
 		name: "Full suite / Lint and types",
 		conclusion: "failure",
@@ -506,13 +509,14 @@ it("names on a red whose type-check step failed the first ten tsc errors its log
 		{ length: 12 },
 		(_, i) => `scripts/a.js(${i + 1},5): error TS2304: Cannot find name 'c'.`,
 	);
+	const at = (step: string, text: string) =>
+		`Full suite / Lint and types\t${step}\t2026-11-10T08:30:01.0Z ${text}`;
 	const typedLog = [
-		"Full suite / Lint and types\tTypecheck\t2026-11-10T08:30:00.0Z > workflow-core@0.1.0 typecheck",
-		...errors.map(
-			(e) =>
-				`Full suite / Lint and types\tTypecheck\t2026-11-10T08:30:01.0Z ${e}`,
-		),
-		"Full suite / Lint and types\tTypecheck\t2026-11-10T08:30:02.0Z ##[error]Process completed with exit code 2.",
+		/* A test's fixture, printed by another step. */
+		at("Vitest", "fixture.js(1,1): error TS1: printed by a test"),
+		at(typecheckStep, "> workflow-core@0.1.0 typecheck"),
+		...errors.map((e) => at(typecheckStep, e)),
+		at(typecheckStep, "##[error]Process completed with exit code 2."),
 	].join("\n");
 	const verdictWith = (step: string) => {
 		const r = reads([() => [run(6, "failure")]], [lint(step)]);
@@ -520,7 +524,7 @@ it("names on a red whose type-check step failed the first ten tsc errors its log
 		return verdictOf(r);
 	};
 
-	expect(await verdictWith(TYPECHECK_STEP)).toEqual({
+	expect(await verdictWith(typecheckStep)).toEqual({
 		kind: "red",
 		files: [],
 		jobs: ["Full suite / Lint and types"],
@@ -531,18 +535,6 @@ it("names on a red whose type-check step failed the first ten tsc errors its log
 		files: [],
 		jobs: ["Full suite / Lint and types"],
 	});
-});
-
-it("names the type-check step as ci.yml does, the step running `npm run typecheck`", () => {
-	const ci = fs.readFileSync(
-		path.join(__dirname, "..", "..", ".github", "workflows", "ci.yml"),
-		"utf8",
-	);
-	const step = ci
-		.split(/\n\s+- name: /)
-		.find((s) => s.startsWith(`${TYPECHECK_STEP}\n`));
-
-	expect(step).toMatch(/\n\s+run: npm run typecheck\n/);
 });
 
 it("reads a failed run through gh and the tree through git", async () => {
