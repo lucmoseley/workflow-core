@@ -2705,7 +2705,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		]);
 	});
 
-	it("selects every reader of a narrowed file on `--changed`, which the touched run's rule never reaches (#4967)", async () => {
+	it("selects every reader of a checker-only file on `--changed`, which the touched run's rule never reaches (#4967)", async () => {
 		const anchors = ".claude/guard-registry-anchors.json";
 		const { spawnFn, calls } = spawnReturning({ code: 0 });
 		await main(["--changed"], {
@@ -8161,7 +8161,7 @@ describe("under `landing`, the bare run takes only the touched tests (#2930)", (
 		expect(out).not.toContain("ESCALATED");
 	});
 
-	describe("with a narrowed file in the session's diff (#4967)", () => {
+	describe("with a checker-only file in the session's diff (#4967)", () => {
 		const Anchors = "scripts/instruction-surface-anchors.json";
 		const Checker = "scripts/check-instruction-surface.test.ts";
 		const Reader = "lib/reader.test.ts";
@@ -8195,7 +8195,27 @@ describe("under `landing`, the bare run takes only the touched tests (#2930)", (
 			});
 		});
 
-		it("carries no left-out list on a touched run that left nothing out", async () => {
+		it("lists the reader left out on the ledger line of a run whose only selected test vitest does not collect", async () => {
+			const dir = regenerated();
+			fs.writeFileSync(path.join(dir, "vitest.config.ts"), "export {};\n");
+			const { execFileSync } = require("node:child_process");
+			const { code, out, spawned } = await launch(dir, edges, [], {
+				/* vitest's own listing, collecting the reader and not the checker. */
+				execFn: (cmd: string, args: string[], opts: object) =>
+					args[0] === "list" ? `${Reader}\n` : execFileSync(cmd, args, opts),
+			});
+			expect(code).toBe(0);
+			expect(spawned).toEqual([]);
+			expect(out).toContain("LEFT TO THE LANDER — 1 test file(s)");
+			const ledger = path.join(dir, ".claude/tmp/markers/.test-runs.jsonl");
+			expect(readJsonl(ledger).at(-1)).toMatchObject({
+				kind: "touched",
+				resolvedFiles: 0,
+				leftOut: [Reader],
+			});
+		});
+
+		it("carries an empty left-out list on a touched run that left nothing out", async () => {
 			const dir = landingRepo();
 			fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
 			const { out, spawned } = await launch(dir);

@@ -12,13 +12,14 @@
  * holds no import edge. The manifest scans no pytest file, so on pytest's
  * route a read is lexical too: the test names the path in string literals.
  *
- * THE ONE EXCEPTION (#4967): a changed path that is a row of `NARROWED`, a
- * file a tool rewrites as a side effect of ordinary work, selects its
- * checker tests alone, the tests that check it against the tool writing it,
+ * THE ONE EXCEPTION (#4967): a changed path that is a row of
+ * `CHECKER_ONLY`, a file a tool rewrites as a side effect of ordinary work,
+ * a checker-only file, selects its checker tests alone, the tests that
+ * check it against the tool writing it,
  * and these whether or not an edge reaches them. Its other readers are left
  * to the lander and returned as `leftOut`. Every other changed path, and
  * every edited test, selects as above, so a test is left out only where each
- * edge that would select it comes from a narrowed file. A row is added only
+ * edge that would select it comes from a checker-only file. A row is added only
  * with a measured miss rate for that file: the share of red touched runs in
  * which the tests it would leave out caught a fault the session's own change
  * caused.
@@ -33,7 +34,7 @@
  * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`
  * (`<stem>.test.*`, `<stem>.spec.*`, `<stem>.<infix>.test.*`), or
  * `test_<stem>.py` and `<stem>_test.py` on pytest's route. The lexical edges, needing no
- * manifest, stay. It never widens, and nothing is narrowed there.
+ * manifest, stay. It never widens, and no checker-only file cuts it.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -66,16 +67,15 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 /** @typedef {import("./own-selection.js").OwnSet} OwnSet */
 
 /**
- * The narrowed files, each with its checker tests: a path, or a pattern
+ * The checker-only files, each with its checker tests: a path, or a pattern
  * over one family of them. A ROW IS ADDED ONLY WITH A MEASURED MISS RATE FOR
- * THAT FILE (#4967): no file selects fewer tests than its readers on a
- * guess. `touched-tests.live.test.ts` holds each row against this tree,
- * failing where its file or a checker test is gone; a new row adds its case
- * there.
+ * THAT FILE; these three rest on #4967's. `touched-tests.live.test.ts` holds
+ * each row against this tree, failing where its file or a checker test is
+ * gone; a new row adds its case there.
  *
  * @type {{ file: string, checkers: (string|RegExp)[] }[]}
  */
-const NARROWED = [
+const CHECKER_ONLY = [
 	{
 		file: ".claude/guard-registry-anchors.json",
 		checkers: [
@@ -108,7 +108,7 @@ const checkerMatches = (checker, tracked) =>
 
 /**
  * The checker tests `tracked` holds for `p`, or null where `p` is no
- * narrowed file here: a tree holding none of a row's checker tests, an
+ * checker-only file here: a tree holding none of a row's checker tests, an
  * adopting repo's, selects that path's readers as any other's.
  *
  * @param {string} p
@@ -116,7 +116,7 @@ const checkerMatches = (checker, tracked) =>
  * @returns {string[]|null}
  */
 function checkerTests(p, tracked) {
-	const row = NARROWED.find(({ file }) => file === p);
+	const row = CHECKER_ONLY.find(({ file }) => file === p);
 	if (!row) return null;
 	const tests = row.checkers.flatMap((c) => checkerMatches(c, tracked));
 	return tests.length > 0 ? tests : null;
@@ -325,9 +325,9 @@ function lexicalTests(tree, changed, { isTest, edges }) {
  *   loadEdges?: () => Record<string, string[]>,
  *   renderEdges?: () => Record<string, string[]> }} [options]
  * @returns {{ files: string[], uncollected: string[], leftOut: string[],
- *   narrowedBy: string[], fallback: unknown }}
+ *   leftBy: string[], fallback: unknown }}
  *   `uncollected` the touched tests the runner does not collect; `leftOut`
- *   the collected tests only narrowed files would select, and `narrowedBy`
+ *   the collected tests only checker-only files would select, and `leftBy`
  *   those files; `fallback` null where the manifest selected
  * @throws where the runner's collection cannot be read: a selection it
  *   cannot check is never run, the fallback's included
@@ -345,20 +345,23 @@ function resolveTouched(
 	const { isTest, isSibling, collected } = ROUTES[suite];
 	/**
 	 * @param {string[]} owed the tests selected
-	 * @param {[string, string[]][]} [cuts] each narrowed file's other readers
+	 * @param {[string, string[]][]} [cuts] each checker-only file's other readers
 	 */
 	const settle = (owed, cuts = []) => {
-		const running = new Set(
+		const collectedSet = new Set(
 			collected(root, sortedUnion(owed, ...cuts.map(([, t]) => t)), execFn),
 		);
 		const left = cuts
-			.map(([p, tests]) => ({ p, tests: tests.filter((t) => running.has(t)) }))
+			.map(([p, tests]) => ({
+				p,
+				tests: tests.filter((t) => collectedSet.has(t)),
+			}))
 			.filter(({ tests }) => tests.length > 0);
 		return {
-			files: owed.filter((f) => running.has(f)),
-			uncollected: owed.filter((f) => !running.has(f)),
+			files: owed.filter((f) => collectedSet.has(f)),
+			uncollected: owed.filter((f) => !collectedSet.has(f)),
 			leftOut: sortedUnion(...left.map(({ tests }) => tests)),
-			narrowedBy: left.map(({ p }) => p),
+			leftBy: left.map(({ p }) => p),
 		};
 	};
 	const edited = changed.filter((p) => isTest(p) && isOnDisk(root, p));
@@ -389,21 +392,21 @@ function resolveTouched(
 		...(lexical.get(p) ?? []),
 		...testsReading([p], graph).filter((t) => isTest(t) && isOnDisk(root, t)),
 	];
-	/** @type {Map<string, string[]>} each narrowed changed path's checker tests */
-	const kept = new Map();
+	/** @type {Map<string, string[]>} each changed checker-only file's checker tests */
+	const checkers = new Map();
 	for (const p of changed) {
 		const tests = checkerTests(p, tree.tracked);
-		if (tests) kept.set(p, tests.filter(isTest));
+		if (tests) checkers.set(p, tests.filter(isTest));
 	}
 	const touched = sortedUnion(
 		edited,
-		...changed.map((p) => kept.get(p) ?? reach(p)),
+		...changed.map((p) => checkers.get(p) ?? reach(p)),
 	);
 	const selected = new Set(touched);
 	return {
 		...settle(
 			touched,
-			[...kept.keys()].map((p) => [
+			[...checkers.keys()].map((p) => [
 				p,
 				reach(p).filter((t) => !selected.has(t)),
 			]),
@@ -477,7 +480,7 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
  * @param {string} base
  */
 function touchedBanner(
-	{ files, uncollected, leftOut, narrowedBy, fallback },
+	{ files, uncollected, leftOut, leftBy, fallback },
 	base,
 ) {
 	const lines = [];
@@ -492,7 +495,7 @@ function touchedBanner(
 		);
 	if (leftOut.length > 0)
 		lines.push(
-			`LEFT TO THE LANDER — ${leftOut.length} test file(s) that only ${narrowedBy.join(", ")} would select. A file regenerated as a side effect of ordinary work selects its checker tests alone; the lander's full suite runs these (#4967).`,
+			`LEFT TO THE LANDER — ${leftOut.length} test file(s) that only ${leftBy.join(", ")} would select. A file regenerated as a side effect of ordinary work selects its checker tests alone; the lander's full suite runs these (#4967).`,
 		);
 	if (files.length === 0 && uncollected.length > 0)
 		lines.push(

@@ -178,7 +178,7 @@ function appendEmptyTouchedLine(
 				skipped: 0,
 				touched: true,
 				resolvedFiles: 0,
-				...(leftOut.length > 0 ? { leftOut } : {}),
+				leftOut,
 			},
 			sessionId,
 			argv,

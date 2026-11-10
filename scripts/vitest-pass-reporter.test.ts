@@ -624,13 +624,13 @@ describe("which command started the run (mantahostels#2303)", () => {
 		expect(await scopeWith({})).not.toHaveProperty("touched");
 	});
 
-	it("records the tests a touched run left to the lander, and no empty list (#4967)", async () => {
+	it("records the tests a touched run left to the lander, an empty list included, and none off any other run (#4967)", async () => {
 		expect(
 			await scopeWith({ touched: true, leftOut: ["lib/b.test.ts"] }),
 		).toMatchObject({ leftOut: ["lib/b.test.ts"] });
-		expect(await scopeWith({ touched: true, leftOut: [] })).not.toHaveProperty(
-			"leftOut",
-		);
+		expect(await scopeWith({ touched: true, leftOut: [] })).toMatchObject({
+			leftOut: [],
+		});
 		expect(await scopeWith({})).not.toHaveProperty("leftOut");
 	});
 

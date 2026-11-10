@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The narrowed files of touched-tests.js against this tree (#4967): each one
+ * The checker-only files of touched-tests.js against this tree (#4967): each one
  * tracked, and its change alone selecting exactly its checker tests, every
  * one a test vitest collects. A renamed checker test fails here rather than
  * emptying a row's kept set, which would send the file's change back to

@@ -68,6 +68,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 		expect(
 			lineFor({ scope: { ...scope, leftOut: ["lib/b.test.ts"] } }).leftOut,
 		).toEqual(["lib/b.test.ts"]);
+		expect(lineFor({ scope: { ...scope, leftOut: [] } }).leftOut).toEqual([]);
 		expect(lineFor({ scope }).leftOut).toBeNull();
 	});
 

@@ -303,7 +303,7 @@ describe("a bare run under landing", () => {
 		]);
 	});
 
-	describe("with a narrowed file in the session's diff (#4967)", () => {
+	describe("with a checker-only file in the session's diff (#4967)", () => {
 		const Anchors = "scripts/instruction-surface-anchors.json";
 		const Reader = "scripts/test_anchors.py";
 		/** `pyRepo()` with the anchors file, its checker test and a pytest
@@ -337,7 +337,9 @@ describe("a bare run under landing", () => {
 			const r = await wrap(python, root, [], Landing);
 
 			expect(readCalls()).toEqual([]);
+			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("LEFT TO THE LANDER — 1 test file(s)");
+			expect(r.stdout).toMatch(/NO TOUCHED TESTS.*left to the lander above/);
 			expect(readLedger(root)).toMatchObject([
 				{
 					kind: "touched",

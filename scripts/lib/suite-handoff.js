@@ -65,8 +65,9 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   test files its selection resolved to in its own repo, null where that
  *   could not be counted, and whether that count took the whole-suite slot.
  *   The queue and the `ps` weighers read these.
- * - `leftOut`: the tests a touched run left to the lander, a narrowed file
- *   alone selecting them (#4967); null on any other run.
+ * - `leftOut`: the tests a touched run left to the lander, a checker-only
+ *   file alone selecting them (#4967), empty where it left none; null on any
+ *   other run.
  * - `changedPaths`, `base`: the diff the narrowed selection was computed from
  *   and what it was diffed against (#189); absent on an expansion that failed
  *   open, so such a certificate attests no path by them. A full run carries

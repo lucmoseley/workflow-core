@@ -196,12 +196,7 @@ function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
 function runScope(scope, resolvedFiles, leftOut) {
 	return resolvedFiles === null || !scope
 		? scope
-		: {
-				...scope,
-				touched: true,
-				resolvedFiles,
-				...(leftOut.length > 0 ? { leftOut } : {}),
-			};
+		: { ...scope, touched: true, resolvedFiles, leftOut };
 }
 
 /**
