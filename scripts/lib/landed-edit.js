@@ -5,9 +5,10 @@
  * The landed versions of a file are its copy at the ref and its copy as each
  * commit since `HEAD`'s merge base with the ref left it. LANDED BY BLOB where
  * the working copy is byte for byte one of them. LANDED BY LINES where one of
- * them made the change: each line the change adds is at least as frequent
- * there as in the working copy, each it removes at most as frequent. A
- * reordering, which moves no line's count, is never landed.
+ * them made the change in place: each run of lines the change replaces is
+ * gone from it, and the run's new lines stand there whole, in order, between
+ * the same unchanged lines (#4903). Lines it adds elsewhere, however alike,
+ * never stand in for the change.
  */
 
 const fs = require("node:fs");
@@ -16,15 +17,7 @@ const { gitRead } = require("./dirty-tree.js");
 const { matchBlobGroups } = require("./blob-batch-stream.js");
 const { GIT_TIMEOUT_MS } = require("./git.js");
 const { logError } = require("./arbiter-core");
-
-/** @param {string} text */
-function countLines(text) {
-	/** @type {Map<string, number>} */
-	const counts = new Map();
-	for (const line of text.split("\n"))
-		counts.set(line, (counts.get(line) ?? 0) + 1);
-	return counts;
-}
+const { matchLines } = require("./line-match.js");
 
 /**
  * The blob id of every landed version of `rel`: at `ref`, then as each commit
@@ -64,28 +57,88 @@ function readLandedBlobs(tree, rel, ref) {
 }
 
 /**
- * Whether `there` made every line change `now` makes off `head`, at least as
- * far, and at least one line changed.
- * @param {Map<string, number>} head
- * @param {Map<string, number>} now
- * @param {Map<string, number>} there
+ * The runs of lines `now` replaces in `head`: each `head[from..to)` gone, and
+ * `lines` in its place.
+ * @param {string[]} head
+ * @param {string[]} now
+ * @returns {{from: number, to: number, lines: string[]}[]}
  */
-function isChangeMade(head, now, there) {
-	let moved = 0;
-	for (const line of new Set([...head.keys(), ...now.keys()])) {
-		const before = head.get(line) ?? 0;
-		const after = now.get(line) ?? 0;
-		if (after === before) continue;
-		moved++;
-		const landed = there.get(line) ?? 0;
-		if (after > before ? landed < after : landed > after) return false;
+function readHunks(head, now) {
+	const at = matchLines(head, now);
+	/** @type {{from: number, to: number, lines: string[]}[]} */
+	const hunks = [];
+	let i = 0;
+	let j = 0;
+	while (i < head.length || j < now.length) {
+		if (i < head.length && at[i] === j) {
+			i++;
+			j++;
+			continue;
+		}
+		const from = i;
+		while (i < head.length && at[i] === -1) i++;
+		const next = i < head.length ? /** @type {number} */ (at[i]) : now.length;
+		hunks.push({ from, to: i, lines: now.slice(j, next) });
+		j = next;
 	}
-	return moved > 0;
+	return hunks;
 }
 
 /**
- * The line counts a file's change runs between: at `HEAD`, and in its
- * working copy — or null where the working copy will not read.
+ * Whether `there` made each of `hunks` off `head` in place, in order.
+ * @param {string[]} head
+ * @param {{from: number, to: number, lines: string[]}[]} hunks
+ * @param {string[]} there
+ */
+function isChangeMade(head, hunks, there) {
+	const at = matchLines(head, there);
+	let cursor = 0;
+	for (const { from, to, lines } of hunks) {
+		if (at.subarray(from, to).some((j) => j !== -1)) return false;
+		const [lo, hi] = gapAt(at, from, to, there.length);
+		const start = findRun(there, lines, Math.max(cursor, lo), hi);
+		if (start === -1) return false;
+		cursor = start + lines.length;
+	}
+	return hunks.length > 0;
+}
+
+/**
+ * The lines of `there` between where the nearest line kept around
+ * `head[from..to)` stands: `[lo, hi)`.
+ * @param {Int32Array} at each line of `head`'s index in `there`, or -1
+ * @param {number} from
+ * @param {number} to
+ * @param {number} end `there`'s length
+ * @returns {[number, number]}
+ */
+function gapAt(at, from, to, end) {
+	let before = from - 1;
+	while (before >= 0 && at[before] === -1) before--;
+	let after = to;
+	while (after < at.length && at[after] === -1) after++;
+	return [
+		before < 0 ? 0 : /** @type {number} */ (at[before]) + 1,
+		after < at.length ? /** @type {number} */ (at[after]) : end,
+	];
+}
+
+/**
+ * The first index in `[lo, hi)` where `run` stands whole in `lines`, or -1.
+ * @param {string[]} lines
+ * @param {string[]} run
+ * @param {number} lo
+ * @param {number} hi
+ */
+function findRun(lines, run, lo, hi) {
+	for (let s = lo; s + run.length <= hi; s++)
+		if (run.every((line, k) => lines[s + k] === line)) return s;
+	return -1;
+}
+
+/**
+ * The lines of a file at `HEAD` and the runs its working copy replaces there,
+ * or null where the working copy will not read.
  * @param {string} tree
  * @param {string} rel
  */
@@ -96,8 +149,8 @@ function readChange(tree, rel) {
 	} catch {
 		return null;
 	}
-	const head = countLines(gitRead(["show", `HEAD:${rel}`], tree) ?? "");
-	return { head, now: countLines(work) };
+	const head = (gitRead(["show", `HEAD:${rel}`], tree) ?? "").split("\n");
+	return { head, hunks: readHunks(head, work.split("\n")) };
 }
 
 /**
@@ -130,8 +183,8 @@ async function readLanded(tree, files, ref) {
 			test: (body) =>
 				isChangeMade(
 					change.head,
-					change.now,
-					countLines(body.toString("utf8")),
+					change.hunks,
+					body.toString("utf8").split("\n"),
 				),
 		});
 		fileAt.push(i);
