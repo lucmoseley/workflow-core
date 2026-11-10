@@ -1,7 +1,8 @@
 /*
  * launch-route.js — the wrapper flags `scripts/run-vitest.js` consumes, the
- * one place a launch's route is decided from them (#1498), and the refusal of
- * a launch whose runner flags npm swallowed (#2284). A module of
+ * one place a launch's route is decided from them (#1498), and the refusals
+ * of a launch whose runner flags npm swallowed (#2284) and of one handing
+ * vitest `--no-cache` (#4790). A module of
  * its own so the route table is tested through its export rather than one
  * exported for the test (#1633).
  */
@@ -305,6 +306,22 @@ function npmSwallowedRefusal(argv, env) {
 	);
 }
 
+/* Vitest's own flag, which would leave the pass store skipping files. */
+const NO_CACHE_FLAG = "--no-cache";
+
+/**
+ * The refusal for a launch handing vitest `--no-cache`, which would take it
+ * as its own option while the pass store still skipped files (#4790) — or
+ * null where argv carries none.
+ * @param {string[]} argv
+ * @returns {string|null}
+ */
+function noCacheRefusal(argv) {
+	return argv.includes(NO_CACHE_FLAG)
+		? `\n${NO_CACHE_FLAG} is vitest's own flag: the pass store would still skip the files it holds a pass for. Nothing ran. To run every selected file, pass ${FRESH_FLAG}.\n\n`
+		: null;
+}
+
 /**
  * Whether a launch looks its files up in the pass store (#4790): never where
  * it asks every file to run — a typed full run, a retest, `--fresh`.
@@ -326,5 +343,6 @@ module.exports = {
 	isFullRunArgv,
 	launchRoute,
 	isTouchedRun,
+	noCacheRefusal,
 	npmSwallowedRefusal,
 };

@@ -13,17 +13,11 @@
 
 const os = require("node:os");
 const path = require("node:path");
+const { chargeMb } = require("./launch-charge.js");
 const { rungMb } = require("./suite-ladder.js");
 const { windowsShortfall } = require("./windows-memory.js");
 
-/* The peak of `npm run typecheck`, measured at 5b1610b7e on 10 Nov 2026
- * (#4849): its cold first pass, `tsc --noEmit` with no `tsconfig.tsbuildinfo`,
- * the higher of two runs' cgroup `memory.peak` (2,045 MiB; three runs' RSS
- * 2,000–2,029). A warm pass peaks near 1,284 MiB, so a fresh worktree's
- * first type-check sets the figure. MOVE IT ONLY WITH A RE-MEASUREMENT. */
-const TSC_PEAK_MB = 2045;
-
-const TSC_RUNG_MB = rungMb(TSC_PEAK_MB);
+const TSC_RUNG_MB = rungMb(chargeMb({ kind: "tsc" }));
 
 /* How many `tsc` run at once, machine-wide (#3163): one, as docs/environment.md
  * §6 keeps every unmeasured concurrent workload; only one `tsc` at a time has
@@ -120,7 +114,6 @@ function isTscLaunch(words) {
 
 module.exports = {
 	TSC_BUSY_EXIT,
-	TSC_PEAK_MB,
 	TSC_NO_WAIT_ENV,
 	TSC_QUEUE_NAME,
 	TSC_RUNG_MB,

@@ -316,6 +316,7 @@ module.exports = {
 	bareCitationGrep,
 	CITATION_CEILING,
 	buildCitableLineTest,
+	HASH_COMMENT_LINE,
 	JS_COMMENT_LINE,
 	JS_TS_FILE,
 	qualifyCitations,

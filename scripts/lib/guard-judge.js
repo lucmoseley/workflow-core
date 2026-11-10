@@ -31,6 +31,8 @@
  * working in process — the PostToolUse cores' scratch stores and the
  * arbiter's record — carries none: only the entry's timeout bounds a hang
  * there, and it costs every core still to run on that call its say.
+ *
+ * code-edges loads: guard-cores.json host
  */
 
 const { CORE_FAULT_TEXT } = require("./core-fault.js");
