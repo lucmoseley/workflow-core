@@ -224,9 +224,9 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   job (lib/claude-stop.js's stopOn)
  * @property {(l: SessionRef, prompt: string) => string|null} type  type
  *   `prompt` into the live session
- * @property {(l: SessionRef & import("./refill-resume.js").StoppedResumable,
- *   prompt: string, target: ResumeTarget & {sessionId: string}) => Resumed}
- *   resumeStopped  `claude --bg --resume` of the stopped job
+ * @property {(l: SessionRef & {issues?: number[]}, prompt: string,
+ *   target: ResumeTarget & {sessionId: string}) => Resumed} resumeStopped
+ *   `claude --bg --resume` of the stopped job, moving its claims on `issues`
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeOwnId  `claude --bg --resume` of
  *   a job a restart killed, its record removed first so it keeps its id
