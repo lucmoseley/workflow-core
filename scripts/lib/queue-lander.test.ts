@@ -1301,6 +1301,28 @@ describe("drop and defer", () => {
 		expect(remote.main).toBe("b1");
 	});
 
+	it("files again a fix ticket that would not file before a run a batch step ends, as on no verdict", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
+			b: { sha: "b1", pushedAt: 2, onMain: true },
+		});
+		const disk = freshDisk();
+		let faults = 1;
+
+		const { end, said } = await land(remote, disk, {
+			fileFault: () =>
+				faults-- > 0 ? new Error("file-issue: refused") : undefined,
+			verdict: () => ({ kind: "unknown", reason: "no run at the sha" }),
+		});
+
+		expect(end.reason).toMatch(/^no verdict at /);
+		expect(said).toEqual([
+			"fix ticket for dropped/a not filed, filed again before this run ends: file-issue: refused",
+			"Filed #100: https://x/100",
+		]);
+		expect(disk.drops.map((d) => d.ticket)).toEqual([100]);
+	});
+
 	it("leaves a fix ticket that fails to file twice to the next run, which files it with no queue ref waiting", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
@@ -1490,6 +1512,36 @@ describe("a drop owed a decision (#4950)", () => {
 			["ticketed", 100, NOW],
 		]);
 	});
+
+	it.each([
+		{
+			was: "settled and reaped",
+			earlier: { state: "settled", settledOn: "m9", reapedAt: NOW - 1000 },
+		},
+		{
+			was: "ticketed, its ticket closed and its ref reaped",
+			earlier: { state: "ticketed", ticket: 7, reapedAt: NOW - 1000 },
+		},
+	] as const)(
+		"decides afresh a sha dropped again after its earlier drop was $was: its dropped ref kept, one ticket filed",
+		async ({ earlier }) => {
+			const remote = remoteOf("m0", {
+				a: { sha: "a1", pushedAt: 1, conflicts: ["main"] },
+			});
+			const disk = freshDisk();
+			disk.tickets.set(7, "closed");
+			disk.drops = [dropped("a1", earlier)];
+
+			const { end } = await land(remote, disk);
+
+			expect(end).toEqual(NO_QUEUE);
+			expect(disk.filed.map((f) => f.drop.ref)).toEqual(["dropped/a"]);
+			expect(disk.drops.map((d) => [d.state, d.ticket, d.reapedAt])).toEqual([
+				["ticketed", 101, undefined],
+			]);
+			expect(remote.dropped).toEqual(new Map([["dropped/a", "a1"]]));
+		},
+	);
 
 	it("settles a drop whose sha main already holds: no ticket, its dropped ref deleted, a settle row", async () => {
 		const remote = remoteOf("m0", {}, { "dropped/a": "a1" });

@@ -210,6 +210,10 @@ describe("what a test file reads, as the audit sees it", () => {
 			fs.chmodSync(path.join(scratch, "sleep"), 0o755);
 			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
 
+			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
+			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
+
 			const linked = fs.mkdtempSync(path.join(os.homedir(), ".rda-link-"));
 			try {
 				fs.symlinkSync(
@@ -434,6 +438,26 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 			"100.101.jsonl": [self(101), { k: "fault" }],
 		});
 		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(/faulted/);
+	});
+
+	it("doubts a sleep in the checkout whose log names its program as no list of paths", () => {
+		const root = checkout();
+		const dir = logs({
+			"100.100.jsonl": [
+				self(100),
+				{ k: "claim", file: "a.test.ts" },
+				{
+					k: "child",
+					file: "sleep",
+					bin: "/usr/bin/sleep",
+					args: ["0"],
+					cwd: root,
+				},
+			],
+		});
+		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(
+			/ran in the checkout/,
+		);
 	});
 
 	it("doubts a file whose log holds a line that will not parse", () => {

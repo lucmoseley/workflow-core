@@ -77,7 +77,7 @@ describe("dropTicketFiler", () => {
 			comment: (n, text) => {
 				comments.push({ n, text });
 			},
-			commented: (n, text) =>
+			hasComment: (n, text) =>
 				[...had, ...comments].some((c) => c.n === n && c.text.includes(text)),
 			close: (n, comment) => {
 				closes.push({ n, comment });
@@ -211,6 +211,15 @@ describe("dropTicketFiler", () => {
 			`- \`dropped/wt-1-bbbbbbbbb\` at ${B}, this drop`,
 		);
 		expect(f.bodies[0].body).not.toContain("`dropped/wt-1` at");
+	});
+
+	it("throws, refreshing nothing, where the drop has no commit off main", () => {
+		const f = dropFiler([]);
+
+		expect(() => f.refresh(5, {}, [])).toThrow(
+			"queue/wt-1 at aaaaaaaaa has no commit off fffffffff",
+		);
+		expect(f.bodies).toEqual([]);
 	});
 
 	it("leaves an open ticket whose body already names the drop's sha as it is, naming it", () => {
