@@ -19,14 +19,13 @@
  *     submodule, in the package found. Read in lexical order; an indented
  *     sys.path edit may never have run, so a module found on its entry
  *     settles nothing, and an indented import is placed again on the
- *     file's final search path, since a function runs when it is called.
+ *     file's final search path.
  * A path built any other way is unseen.
  *
  * FOREIGN: a Python import the walk cannot place — a module neither stdlib
  * (python3's own sys.stdlib_module_names, so 3.10 or later) nor on that
  * search path, a dotted part it cannot find, or any import after a sys.path
- * edit it cannot read — is handed to the caller's `fault`. A third-party
- * package is foreign: no tracked file pins what is installed. Residuals: a
+ * edit it cannot read — is handed to the caller's `fault`. Residuals: a
  * repo file appearing on the search path under a stdlib module's name is
  * not a shadow; and a module is walked on its own directory and edits, not
  * on the sys.path of the script that imports it.
@@ -240,14 +239,11 @@ function shEdges(dir, text) {
  *   `search` is sys.path as the file has left it, its own directory
  *   included.
  * @typedef {{dir: string, scope: PyScope, reach: Reach,
- *   fault: (msg: string) => void}} PyWalk one file's walk: its directory,
- *   its sys.path so far, what it reaches, and its caller's fault
+ *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
  */
 
 /**
- * A Python file's reach: the files its imports load, and the paths each
- * import tried before the file it found (#4864).
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
@@ -589,7 +585,7 @@ const isDir = (c) =>
  *   | {kind: "opaque"}} PyTop
  */
 
-/** @param {string} found a file `pyModuleIn` found */
+/** @param {string} found */
 const placeOf = (found) =>
 	found.endsWith("__init__.py")
 		? { pkg: path.dirname(found), namespace: false }
