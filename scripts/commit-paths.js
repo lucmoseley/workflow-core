@@ -15,7 +15,8 @@
  * `tree=` and the `refs/reviewed/` pin both take — and writes nothing. It is
  * built by the same private-index code and refused on the same grounds, save
  * that a set changing nothing prints HEAD's own tree, so a change already
- * committed can still be named (#4288). It takes no message, runs no tests,
+ * committed can still be named (#4288) — a patch whose every section's
+ * postimage HEAD already holds among them (#4700). It takes no message, runs no tests,
  * and logs no outcome line.
  *
  * --CHECK (#4207) gives the verdict that commit would get and makes none: it
@@ -116,7 +117,7 @@
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
  * with untracked files or no tracked ones, nothing to commit — never under
  * --tree, which prints HEAD's tree there — a patch not cut
- * against HEAD, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
+ * against HEAD, save under --tree one HEAD already holds, not applying to it or whose lines this tree lacks); 3 a pre-lock gate or the
  * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or under --check a hook refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
  * just works — the output above being the work either way; 4
@@ -680,6 +681,23 @@ function stalePreimages(sections, base) {
 	return stale;
 }
 
+/**
+ * Whether `base` holds every section's postimage — the patch already
+ * committed. A section with no `index` line cannot be told apart from a stale
+ * one, so it answers no; an all-zero postimage is a deletion, held where
+ * `base` has no such file.
+ * @param {PatchSection[]} sections
+ * @param {string} base
+ */
+function holdsPostimages(sections, base) {
+	return sections.every(({ section, file }) => {
+		const post = /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(section)?.[1];
+		if (!post) return false;
+		const blob = readBlobSha(base, file);
+		return /^0+$/.test(post) ? blob === "" : blob.startsWith(post);
+	});
+}
+
 /** `path`'s blob sha at `rev`, or "" where it has none. @type {(rev: string, file: string) => string} */
 const readBlobSha = (rev, file) =>
 	git(["rev-parse", "-q", "--verify", `${rev}:${file}`]).stdout.trim();
@@ -1140,7 +1158,8 @@ function buildOnHead(b) {
 /**
  * The private index: `base`, the whole paths as on disk, and the patch
  * applied; refuses where any step fails, or nothing would change and
- * `refuseUnchanged` is set.
+ * `refuseUnchanged` is set. Where it is not, a patch HEAD already holds is
+ * left unapplied.
  * @param {PatchBuild} b
  * @param {string} base
  */
@@ -1175,6 +1194,9 @@ function buildIndex(
 			);
 	}
 	const stale = stalePreimages(sections, base);
+	// --tree after the commit landed: HEAD's tree, the whole paths staged.
+	if (stale.length > 0 && !refuseUnchanged && holdsPostimages(sections, base))
+		return;
 	if (stale.length > 0)
 		fail(
 			`the patch was not cut against HEAD for ${stale.join("; ")}. Where this command already committed it, it is done; otherwise cut it again from \`git diff HEAD -U0 -- <path>\`. Nothing written.`,

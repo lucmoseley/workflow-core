@@ -1187,11 +1187,33 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 		expect(readLog()).toBe(before);
 	});
 
-	it("refuses a patch already committed, as the commit would", () => {
+	it("prints HEAD's tree for a patch already committed, a deletion included, where the commit refuses (#4700)", () => {
+		write("gone.md");
+		git("add", "gone.md");
+		git("commit", "-qm", "seed");
+		write("a.md", "mine\na\n");
+		fs.rmSync(path.join(sb.repo, "gone.md"));
+		const patch = path.join(sb.dir, "mine.patch");
+		fs.writeFileSync(
+			patch,
+			git("diff", "HEAD", "-U0", "--", "a.md", "gone.md"),
+		);
+		expect(run(["-m", "x", "--patch", patch]).status).toBe(0);
+		expect(tree(["--patch", patch])).toBe(
+			git("rev-parse", "HEAD^{tree}").trim(),
+		);
+		const r = run(["-m", "x", "--patch", patch]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("was not cut against HEAD");
+	});
+
+	it("refuses a patch cut against neither HEAD nor its commit", () => {
 		write("a.md", "mine\na\n");
 		const patch = path.join(sb.dir, "mine.patch");
 		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md"));
-		expect(run(["-m", "x", "--patch", patch]).status).toBe(0);
+		write("a.md", "other\n");
+		git("commit", "-qam", "other");
+		write("a.md", "mine\na\n");
 		const r = run(["--tree", "--patch", patch]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("was not cut against HEAD");
