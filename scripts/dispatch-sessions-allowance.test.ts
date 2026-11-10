@@ -126,12 +126,12 @@ describe("the allowance cap (#371)", () => {
 		const r = run(set, table());
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain(
-			`weekly allowance 100% used (threshold 97%), resets ${printedResets.week} — the bar is full`,
+			`weekly allowance 100% used (threshold 99%), resets ${printedResets.week} — the bar is full`,
 		);
 		expect(readLaunches()).toHaveLength(0);
 	});
 
-	it("caps on the weekly bar at its own 97% threshold", () => {
+	it("caps on the weekly bar at its own 99% threshold", () => {
 		// Headroom 100 − 99 − 0.54 = 0.46: one 0.54-point member reaches it.
 		stubClaude({ week: "99", session: "12" });
 		const r = run(set, table());
@@ -143,10 +143,10 @@ describe("the allowance cap (#371)", () => {
 	});
 
 	it("launches the whole set below both thresholds", () => {
-		stubClaude({ week: "96", session: "89" });
+		stubClaude({ week: "98", session: "89" });
 		const r = run(set, table());
 		expect(r.code).toBe(0);
-		expect(r.stdout).toContain("Allowance OK: week 96%, session 89%.");
+		expect(r.stdout).toContain("Allowance OK: week 98%, session 89%.");
 		expect(readLaunches()).toHaveLength(3);
 	});
 

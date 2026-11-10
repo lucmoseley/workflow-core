@@ -44,8 +44,10 @@ const FORWARDED = /** @type {const} */ (["SIGINT", "SIGTERM", "SIGHUP"]);
  *   `schedule` reaches `armCeiling`, for a test to fire the ceiling on an
  *   event (#3520)
  * @returns {Promise<{ status: number|null, error: Error|null,
- *   forcedRed: boolean }>} `forcedRed` on a run killed at the ceiling or one
- *   that hit its scope's task cap, which fails whatever pytest said
+ *   forcedRed: boolean, ceilingKill: CeilingKill|null }>} `forcedRed` on a
+ *   run killed at the ceiling or one that hit its scope's task cap, which
+ *   fails whatever pytest said; `ceilingKill` what the ceiling found, for the
+ *   wrapper's fail-store row (#4776)
  */
 function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 	const ceiling = ceilingMs();
@@ -78,7 +80,8 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 			},
 		);
 		const spawnedAtMono = monotonicMs();
-		let ceilingKilled = false;
+		/** @type {CeilingKill|null} */
+		let ceilingKill = null;
 		const forward = (/** @type {NodeJS.Signals} */ signal) => {
 			const unreached = child.pid ? killGroup(child.pid, signal) : null;
 			if (unreached)
@@ -97,12 +100,18 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 			now: spawnedAtMono,
 			schedule,
 			onCeiling: () => {
-				ceilingKilled = true;
+				const kill = {
+					at: new Date().toISOString(),
+					ceilingMs: ceiling,
+					elapsedMs: monotonicMs() - spawnedAtMono,
+					inflight: readInflight(inflightFile),
+				};
+				ceilingKill = kill;
 				writeFd(
 					2,
-					buildCeilingReport(readInflight(inflightFile), {
+					buildCeilingReport(kill.inflight, {
 						ceiling,
-						elapsed: monotonicMs() - spawnedAtMono,
+						elapsed: kill.elapsedMs,
 					}),
 				);
 				const unkilled = child.pid ? killGroup(child.pid) : null;
@@ -128,7 +137,12 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 			for (const signal of FORWARDED) process.off(signal, forward);
 			const capped = endRunScope(child);
 			if (capped) writeFd(2, capped);
-			resolve({ status, error, forcedRed: ceilingKilled || capped !== null });
+			resolve({
+				status,
+				error,
+				forcedRed: ceilingKill !== null || capped !== null,
+				ceilingKill,
+			});
 		};
 		child.on("error", (error) => settle(null, error));
 		child.on("close", (status) => settle(status, null));
@@ -138,7 +152,49 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
 /**
  * @typedef {{ open: { nodeid: string, stage: string }[], finished: number,
  *   collected: number|null }} PytestInflight
+ * @typedef {{ at: string, ceilingMs: number, elapsedMs: number,
+ *   inflight: PytestInflight|null }} CeilingKill
  */
+
+/**
+ * The fail-store row for a run killed at the ceiling (#4776). An empty `sha`
+ * is one the store refuses, which `recordKill` says.
+ *
+ * @param {CeilingKill} kill
+ * @param {{ sha: string, startedAtMs: number, argv: string[],
+ *   sessionId: string|null, lander: boolean }} run
+ * @returns {import("./test-pass-marker.js").KillRow}
+ */
+function ceilingKillRow(kill, { sha, startedAtMs, argv, sessionId, lander }) {
+	const { inflight } = kill;
+	return {
+		sha,
+		at: kill.at,
+		suite: "pytest",
+		startedAt: new Date(startedAtMs).toISOString(),
+		durationMs: kill.elapsedMs,
+		ceilingKill: true,
+		ceilingMs: kill.ceilingMs,
+		testsInFlight: inflight?.open ?? null,
+		testsFinished: inflight?.finished ?? null,
+		testsNeverStarted: inflight ? neverStartedCount(inflight) : null,
+		argv,
+		sessionId,
+		...(lander ? { lander: true } : {}),
+	};
+}
+
+/**
+ * Tests collected but neither finished nor in flight, or null where pytest
+ * reported no collected count.
+ * @param {PytestInflight} inflight
+ * @returns {number|null}
+ */
+function neverStartedCount(inflight) {
+	return inflight.collected === null
+		? null
+		: inflight.collected - inflight.finished - inflight.open.length;
+}
 
 /**
  * @param {string|null} file
@@ -175,11 +231,12 @@ function buildCeilingReport(inflight, run) {
 			for (const row of inflight.open)
 				lines.push(`  ${row.nodeid} — ${row.stage}`);
 		} else lines.push("No test was in flight.");
+		const never = neverStartedCount(inflight);
 		lines.push(
 			"",
-			inflight.collected === null
+			never === null
 				? "Never started: unavailable, as pytest reported no collected count."
-				: `Never started: ${String(inflight.collected - inflight.finished - inflight.open.length)} test(s).`,
+				: `Never started: ${String(never)} test(s).`,
 			`Finished: ${String(inflight.finished)} test(s).`,
 		);
 	}
@@ -187,4 +244,4 @@ function buildCeilingReport(inflight, run) {
 	return lines.join("\n");
 }
 
-module.exports = { runPytest };
+module.exports = { runPytest, ceilingKillRow };

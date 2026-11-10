@@ -3,10 +3,10 @@
  * The `npm run test:py` wrapper that leaves pytest's pre-push marker (mantahostels#1256).
  *
  * Run in process through runInProcessAsync (§X3), its python3 a fake injected at
- * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the last case,
- * which spawns the wrapper as a script against a real pytest, and the module
- * cases on `lib/pytest-child.js`'s `runPytest`, which fire the ceiling on an
- * event (#3520).
+ * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the case that
+ * spawns the wrapper as a script against a real pytest, and the module cases
+ * on `lib/pytest-child.js`: `runPytest`, which fire the ceiling on an event
+ * (#3520), and `ceilingKillRow`.
  *
  * `.husky/pre-push` and `npm run push:check` read the certificate it leaves:
  * loosen a case and a red or dead run leaves one the push gate counts as
@@ -25,10 +25,10 @@ import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 
 const require = createRequire(import.meta.url);
-const { readMarkers } = require("./lib/test-pass-marker.js");
+const { readFailures, readMarkers } = require("./lib/test-pass-marker.js");
 const { CEILING_ENV, DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
-const { runPytest } = require("./lib/pytest-child.js");
+const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 
 const SCRIPT = path.join(__dirname, "run-pytest.js");
 
@@ -377,7 +377,7 @@ describe("a bare run under landing", () => {
 		expect(r.stderr).toContain("this session's own work could not be read");
 	});
 
-	it("runs the whole suite as before with landing off", async () => {
+	it("runs the whole suite with landing off", async () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
 		const [python, readCalls] = fakePytest(undefined, 0);
@@ -809,6 +809,80 @@ describe("the suite ceiling (#2702)", () => {
 		);
 		expect(r.stderr).toContain("Never started: 8 test(s).");
 		expect(r.stderr).toContain("Finished: 41 test(s).");
+		expect(r.ceilingKill).toMatchObject({
+			ceilingMs: 1000,
+			inflight: {
+				open: [{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" }],
+				finished: 41,
+				collected: 50,
+			},
+		});
+	});
+
+	it("gives a kill's fail-store row the ceiling, its duration, the tests in flight with their stage and the never-started and finished counts (#4776)", () => {
+		const row = ceilingKillRow(
+			{
+				at: "2026-11-10T12:00:01.002Z",
+				ceilingMs: 1000,
+				elapsedMs: 1002,
+				inflight: {
+					open: [
+						{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" },
+					],
+					finished: 41,
+					collected: 50,
+				},
+			},
+			{
+				sha: "a".repeat(40),
+				startedAtMs: Date.parse("2026-11-10T12:00:00Z"),
+				argv: ["scripts"],
+				sessionId: null,
+				lander: false,
+			},
+		);
+
+		expect(row).toEqual({
+			sha: "a".repeat(40),
+			at: "2026-11-10T12:00:01.002Z",
+			suite: "pytest",
+			startedAt: "2026-11-10T12:00:00.000Z",
+			durationMs: 1002,
+			ceilingKill: true,
+			ceilingMs: 1000,
+			testsInFlight: [
+				{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" },
+			],
+			testsFinished: 41,
+			testsNeverStarted: 8,
+			argv: ["scripts"],
+			sessionId: null,
+		});
+	});
+
+	it("leaves a kill's row with no tests named where pytest reported none in flight", () => {
+		const row = ceilingKillRow(
+			{
+				at: "2026-11-10T12:00:01Z",
+				ceilingMs: 1000,
+				elapsedMs: 1001,
+				inflight: null,
+			},
+			{
+				sha: "a".repeat(40),
+				startedAtMs: 0,
+				argv: [],
+				sessionId: null,
+				lander: true,
+			},
+		);
+
+		expect(row).toMatchObject({
+			testsInFlight: null,
+			testsNeverStarted: null,
+			testsFinished: null,
+			lander: true,
+		});
 	});
 
 	it("says the never-started count is unavailable where pytest reported no collected count", async () => {
@@ -834,6 +908,13 @@ describe("the suite ceiling (#2702)", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("SUITE CEILING");
 		expect(readMarkers({ root })).toEqual([]);
+		expect(readFailures({ root })).toEqual([
+			expect.objectContaining({
+				suite: "pytest",
+				ceilingKill: true,
+				ceilingMs: 1000,
+			}),
+		]);
 	});
 
 	it("says the list is unavailable where pytest reported none", async () => {

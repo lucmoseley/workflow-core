@@ -15,6 +15,6 @@
 	"scripts/lib/hook-envelope.js:15-30": "f3a622d13a0d315b",
 	"scripts/lib/standards-pins.js:176": "7033c4610b0d5372",
 	"scripts/lib/suite-handoff.js:203-222": "65147fec3243a221",
-	"scripts/lib/test-pass-marker.js:1352": "53c88662a6833e4d",
+	"scripts/lib/test-pass-marker.js:1426": "53c88662a6833e4d",
 	"scripts/session-arbiter.js:145-157": "f64d79653094ad42"
 }

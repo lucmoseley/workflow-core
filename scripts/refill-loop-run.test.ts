@@ -107,6 +107,7 @@ import {
 } from "./lib/refill-loop-run-testkit";
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
+import { ceilingsOf } from "./lib/seat-reading.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import {
 	buildShortlist,
@@ -1088,8 +1089,8 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 			...readProgramLibs("allowance.js").map((l) => `lib/${l}`),
 		])
 			fs.copyFileSync(path.join(__dirname, f), path.join(scripts, f));
-		// Past the week ceiling, so the cap reads the cost table.
-		weekAt(98);
+		// At the week ceiling, so the cap reads the cost table.
+		weekAt(ceilingsOf({}).week);
 	});
 
 	const writeTable = (root: string) =>
