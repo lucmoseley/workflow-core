@@ -2363,9 +2363,12 @@ function checkNamedPaths(st, file, rule, guards) {
 		 * BROKEN-CLAIM. */
 		const onDisk = (/** @type {string} */ base) =>
 			fs.existsSync(path.join(base, g));
-		const inTree = (/** @type {string} */ base) =>
+		const inTreeAndOnDisk = (/** @type {string} */ base) =>
 			isTreeFileOrDir(base, g) && onDisk(base);
-		if (!inTree(root) && (rootIsCore() || !inTree(CORE_ROOT))) {
+		if (
+			!inTreeAndOnDisk(root) &&
+			(rootIsCore() || !inTreeAndOnDisk(CORE_ROOT))
+		) {
 			const untracked = !isTreeFileOrDir(root, g) && onDisk(root);
 			reportRule(
 				st,
