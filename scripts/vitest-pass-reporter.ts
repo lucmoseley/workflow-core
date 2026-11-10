@@ -39,6 +39,7 @@ const require = createRequire(import.meta.url);
 const {
 	formatFilteredRun,
 	isFullScope,
+	docsOfTests,
 	readDocsByTest,
 	fullAttestationOf,
 	CLOSURE_ROOTS,
@@ -61,10 +62,6 @@ async function writeEmptyRunMarker(root?: string) {
 	watch.setup({ config: { root } });
 	watch.runTeardown();
 }
-
-/** The documents the manifest, turned round, maps to any of `tests`. */
-const docsOf = (byTest: Map<string, Set<string>>, tests: Set<string>) =>
-	[...tests].flatMap((t) => [...(byTest.get(t) ?? [])]);
 
 /** The two `ModuleNode` fields the closure walk reads. */
 interface ModuleNodeLike {
@@ -381,7 +378,8 @@ export default class TestPassReporter {
 			for (const p of reached) closure.add(p);
 		}
 		const selected = new Set(imports.keys());
-		for (const doc of docsOf(readDocsByTest(root), selected)) closure.add(doc);
+		for (const doc of docsOfTests(readDocsByTest(root), selected))
+			closure.add(doc);
 		/* `CLOSURE_ROOTS`, with the vitest config file resolved off the
 		 * instance: a sibling `vite.config.*` it did not load is outside the
 		 * closure. NOT THE MANIFEST (#799, #795): it matters only through the

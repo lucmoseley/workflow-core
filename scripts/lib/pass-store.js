@@ -24,7 +24,7 @@
  * "run" with one notice, and a line that will not parse runs the files it
  * names; a row whose input list is missing or empty never matches; a run
  * that errored outside its files, was interrupted or filtered by name
- * records no row; an input rewritten while the run ran, untracked, gitignored
+ * records its failures alone; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A file whose header carries `uncached: <reason>`
@@ -84,7 +84,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 2;
+const FORMAT = 3;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -211,8 +211,11 @@ function snapshotOf(root, file) {
 	return fs.existsSync(path.join(root, snap)) ? [snap] : [];
 }
 
-/* A foreign Python module bounds no edge of the reach's. */
-const ignoreFault = () => undefined;
+/* A Python import neither stdlib nor beside its importer, such as one found
+ * through `sys.path`, leaves the reach unknown: the file records no row. */
+const refuseFault = (/** @type {string} */ why) => {
+	throw new Error(why);
+};
 
 /* A file whose lexical edges the reach follows: code a test loads or spawns. */
 const FOLLOWED = /\.(?:[cm]?[jt]sx?|sh|py)$/;
@@ -281,7 +284,7 @@ function readEdges(root, rel) {
 		return {
 			edges: repoRelative(
 				root,
-				edgesOf(abs, read.data, ignoreFault).filter(isFile),
+				edgesOf(abs, read.data, refuseFault).filter(isFile),
 			),
 			shadows: repoRelative(root, shadowsOf(abs, read.data)),
 		};
@@ -728,7 +731,7 @@ function writeCachedHandoff(cached, file, err = process.stderr) {
 		return { [CACHED_ENV]: file };
 	} catch (e) {
 		err.write(
-			`pass-store.js: the cached files' hand-off was not written (${caught(e).message ?? e}), so this run's certificate leaves them out (#4790)\n`,
+			`pass-store.js: the cached files' hand-off was not written (${caught(e).message}), so this run's certificate leaves them out (#4790)\n`,
 		);
 		return null;
 	}
@@ -750,7 +753,7 @@ function readCachedHandoff(env = process.env, err = process.stderr) {
 		throw new Error("it holds no list");
 	} catch (e) {
 		err.write(
-			`pass-store.js: the cached files' hand-off will not read (${caught(e).message ?? e}), so this run's certificate leaves them out (#4790)\n`,
+			`pass-store.js: the cached files' hand-off will not read (${caught(e).message}), so this run's certificate leaves them out (#4790)\n`,
 		);
 		return null;
 	}
