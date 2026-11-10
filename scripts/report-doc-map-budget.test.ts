@@ -21,9 +21,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-doc-map-budget.js");
 const { BUDGET_WORDS } = require("./report-doc-map-budget.js");
@@ -307,6 +307,8 @@ function fixture(opts: {
 	historyCommits?: { mapText: string; daysAgo: number }[];
 	/** What the stub's `gh issue edit` exits with — for the label-edit failure path. */
 	ghEditExitCode?: number;
+	/** Every `gh` call fails, as a logged-out gh's does. */
+	ghRefuses?: boolean;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "b-budget-"));
 	temps.push(root);
@@ -350,42 +352,39 @@ function fixture(opts: {
 	// observable without a network call.
 	const issueBody = fakeIssueBody(root, opts.existingBody);
 
-	const bin = path.join(root, "bin");
-	fs.mkdirSync(bin);
-	const argvLog = path.join(root, "gh-argv.log");
-	const ghStub = path.join(bin, "gh");
-	fs.writeFileSync(
-		ghStub,
-		[
-			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
-			'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
-			`  cat ${shellQuote(path.join(root, "issues.json"))}`,
-			'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
-			`  cat ${shellQuote(issueBody.bodyFile)}`,
-			'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
-			"  echo https://github.com/o/r/issues/999",
-			'elif [ "$1" = "issue" ] && [ "$2" = "edit" ]; then',
-			`  echo "label edit refused" >&2; exit ${opts.ghEditExitCode ?? 0}`,
-			"fi",
-			"exit 0",
-		].join("\n"),
-	);
-	fs.chmodSync(ghStub, 0o755);
-	fs.writeFileSync(
-		path.join(root, "issues.json"),
-		JSON.stringify(opts.ghIssueList),
-	);
-
-	return { root, ghStub, argvLog, issueBody };
+	return {
+		root,
+		argvLog: path.join(root, "gh-argv.log"),
+		issueBody,
+		issues: JSON.stringify(opts.ghIssueList),
+		ghEditExitCode: opts.ghEditExitCode ?? 0,
+		ghRefuses: opts.ghRefuses ?? false,
+	};
 }
+
+/** The `gh` a run calls, its `issue view` answering the body as it stands. */
+const stubGh = (fx: ReturnType<typeof fixture>) =>
+	stubGhRoutes(
+		fx.root,
+		{
+			"issue list*": printed(fx.issues),
+			"issue view*": printed(fx.issueBody.body()),
+			"issue create*": printed("https://github.com/o/r/issues/999\n"),
+			"issue edit*": {
+				status: fx.ghEditExitCode,
+				stdout: "",
+				stderr: "label edit refused\n",
+			},
+		},
+		{ log: fx.argvLog, failing: fx.ghRefuses },
+	);
 
 function run(fx: ReturnType<typeof fixture>, ...args: string[]) {
 	const r = runInProcess(SCRIPT, args, {
 		cwd: fx.root,
 		env: {
 			...process.env,
-			WFC_GH: fx.ghStub,
+			...stubGh(fx).env,
 			WFC_ISSUE_BODY: fx.issueBody.script,
 		},
 	});
@@ -684,9 +683,7 @@ describe("the scheduled §B budget reporter", () => {
 	});
 
 	it("is BROKEN, not silently red, when gh refuses, saying it could not file or refresh the tracking issue", () => {
-		const fx = fixture({ words: OVER, ghIssueList: [] });
-		fs.writeFileSync(fx.ghStub, "#!/bin/sh\necho 'gh: HTTP 403' >&2\nexit 1\n");
-		fs.chmodSync(fx.ghStub, 0o755);
+		const fx = fixture({ words: OVER, ghIssueList: [], ghRefuses: true });
 
 		const { code, output } = run(fx);
 		expect(code).toBe(2);

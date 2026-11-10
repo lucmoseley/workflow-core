@@ -26,16 +26,34 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildJqLines, GH_NOT_FOUND } from "./lib/gh-fake";
-import { buildLinkReadArms } from "./lib/gh-stub";
-import { shellQuote } from "./lib/sh-quote.js";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
+import {
+	buildJqLines,
+	GH_NOT_FOUND,
+	type GhAnswer,
+	LINK_READ_FAKE,
+	LINK_READS,
+	type LinkReadAnswers,
+} from "./lib/gh-fake";
+import {
+	type GhStubServer,
+	printed,
+	serveGhStub,
+	stubGhScript,
+} from "./lib/gh-stub";
 
 const SCRIPT = path.resolve(__dirname, "link-sub-issue.sh");
 
 let dir: string;
 let calls: string;
-let counter: string;
 
 interface Gh {
 	/** What `gh api repos/o/r/issues/<child> --jq .id` prints. */
@@ -51,40 +69,64 @@ interface Gh {
 	state?: string;
 }
 
-/** The parent's list stays empty for its first `lag` reads, which this counts. */
-const buildPastLagCondition = (lag: number) =>
-	`{ n=0; [[ -f ${shellQuote(counter)} ]] && n="$(cat ${shellQuote(counter)})"; printf '%s' "$((n + 1))" > ${shellQuote(counter)}; (( n >= ${lag} )); }`;
+const refused = (stderr: string): GhAnswer => ({
+	status: 1,
+	stdout: "",
+	stderr: `${stderr}\n`,
+});
 
-/** A `gh` stub for WFC_GH, logging one line of argv per call. */
-const stubGh = (g: Gh) => {
-	const bin = path.join(dir, "bin");
-	fs.mkdirSync(bin, { recursive: true });
-	const reads = buildLinkReadArms(
-		{
-			state: buildJqLines(g.state ?? "open"),
-			id: g.idFails ? GH_NOT_FOUND : buildJqLines(g.dbId ?? "987654"),
-			children: buildJqLines(...(g.children ?? [])),
-		},
-		{ childrenWhen: buildPastLagCondition(g.lag ?? 0) },
-	);
-	const script = `#!/usr/bin/env bash
-printf '%s\\n' "$*" >> ${shellQuote(calls)}
-args="$*"
-case "$args" in
-  *"--method POST"*)
-    case ${shellQuote(g.post ?? "ok")} in
-      ok) echo '{"number":1}'; exit 0 ;;
-      dup) echo 'gh: Sub issue may only have one parent (HTTP 422)' >&2; exit 1 ;;
-      layers) echo "gh: You can't add more than 7 layers of sub-issues (HTTP 422)" >&2; exit 1 ;;
-      err) echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1 ;;
-    esac ;;
-${reads}
-esac
-exit 0
+const POSTS: Record<NonNullable<Gh["post"]>, GhAnswer> = {
+	ok: printed('{"number":1}\n'),
+	dup: refused("gh: Sub issue may only have one parent (HTTP 422)"),
+	layers: refused(
+		"gh: You can't add more than 7 layers of sub-issues (HTTP 422)",
+	),
+	err: refused("gh: Bad credentials (HTTP 401)"),
+};
+
+const ANSWERS_FILE = "gh-answers.json";
+const CALLS_FILE = "calls.log";
+
+/*
+ * The `gh` every run calls, logging one line of argv per call under the
+ * directory GH_STUB_DIR names and answering from its ANSWERS_FILE. The
+ * parent's list stays empty for its first `lag` reads, which `reads` counts.
+ */
+const HANDLER = `${LINK_READ_FAKE}
+const fs = require("node:fs");
+const path = require("node:path");
+const at = (name) => path.join(env.GH_STUB_DIR, name);
+fs.appendFileSync(at(${JSON.stringify(CALLS_FILE)}), argv.join(" ") + "\\n");
+const g = JSON.parse(fs.readFileSync(at(${JSON.stringify(ANSWERS_FILE)}), "utf8"));
+const serve = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
+if (argv.join(" ").includes("--method POST")) serve(g.post);
+if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}) {
+	const n = fs.existsSync(at("reads")) ? Number(fs.readFileSync(at("reads"), "utf8")) : 0;
+	fs.writeFileSync(at("reads"), String(n + 1));
+	if (n < g.lag) exit(0);
+}
+const read = answerLinkRead(argv, g.reads);
+if (read) serve(read);
 `;
-	const gh = path.join(bin, "gh");
-	fs.writeFileSync(gh, script, { mode: 0o755 });
-	return gh;
+
+let server: GhStubServer;
+beforeAll(async () => {
+	server = await serveGhStub(HANDLER);
+});
+afterAll(() => server.close());
+
+/** Points the stub server at `g` for this run. */
+const stubGh = (g: Gh) => {
+	const reads: LinkReadAnswers = {
+		state: buildJqLines(g.state ?? "open"),
+		id: g.idFails ? GH_NOT_FOUND : buildJqLines(g.dbId ?? "987654"),
+		children: buildJqLines(...(g.children ?? [])),
+	};
+	fs.writeFileSync(
+		path.join(dir, ANSWERS_FILE),
+		JSON.stringify({ post: POSTS[g.post ?? "ok"], lag: g.lag ?? 0, reads }),
+	);
+	return stubGhScript(dir, server.script).env;
 };
 
 const run = (
@@ -95,7 +137,8 @@ const run = (
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		CLAUDE_PROJECT_DIR: dir,
-		WFC_GH: stubGh(g),
+		GH_STUB_DIR: dir,
+		...stubGh(g),
 		WFC_LINK_RETRIES: "3",
 		WFC_LINK_SLEEP: "0",
 	};
@@ -133,8 +176,7 @@ const readPosts = () => readLog().filter((l) => l.includes("--method POST"));
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "link-sub-issue-"));
-	calls = path.join(dir, "calls.log");
-	counter = path.join(dir, "reads");
+	calls = path.join(dir, CALLS_FILE);
 });
 
 afterEach(() => {
