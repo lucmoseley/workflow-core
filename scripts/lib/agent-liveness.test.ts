@@ -346,14 +346,6 @@ describe("the array is empty", () => {
 		);
 	});
 
-	it("keeps the self-test for the cutover inside a session (#4743)", () => {
-		fakeClaude([{ sessionId: "other" }]);
-		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		expect(liveness.readAgentsForCutover().why).toContain(
-			"does not list this very session (me)",
-		);
-	});
-
 	it("still refuses to admission inside a session, and to every other reader however asked", () => {
 		fakeClaude([]);
 		expect(
@@ -397,6 +389,14 @@ describe("no record carries a sessionId", () => {
 });
 
 describe("the self-test: the list omits the session this is running in", () => {
+	it("keeps the self-test for the cutover inside a session (#4743)", () => {
+		fakeClaude([{ sessionId: "other" }]);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
+		expect(liveness.readAgentsForCutover().why).toContain(
+			"does not list this very session (me)",
+		);
+	});
+
 	it("refuses, naming the session, when the oracle does not list it", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("someone-else"));

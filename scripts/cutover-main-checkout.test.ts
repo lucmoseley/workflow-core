@@ -36,13 +36,17 @@ const commitIn = (cwd: string, files: Record<string, string>, msg: string) => {
 	return git(cwd, "rev-parse", "HEAD");
 };
 
-/** The listing `claude agents --json` answers: one session, in `cwd`. */
-const listSessionIn = (cwd: string) => {
-	const body = JSON.stringify([{ name: "live", sessionId: "s-1", cwd }]);
+/** The listing `claude agents --json` answers. */
+const listAgents = (records: object[]) => {
 	const bin = path.join(config, "bin", "claude");
+	const body = JSON.stringify(records);
 	fs.writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${body}\nEOF\n`);
 	fs.chmodSync(bin, 0o755);
 };
+
+/** One session, in `cwd`. */
+const listSessionIn = (cwd: string) =>
+	listAgents([{ name: "live", sessionId: "s-1", cwd }]);
 
 const run = (cwd: string, ...args: string[]) => {
 	const env: NodeJS.ProcessEnv = {
@@ -129,9 +133,7 @@ it("exits 0 having pushed main's local commit to a queue ref, named the edit lef
 });
 
 it("cuts over, run outside a session, while the listing names no session at all (#4743)", () => {
-	const bin = path.join(config, "bin", "claude");
-	fs.writeFileSync(bin, "#!/bin/sh\necho '[]'\n");
-	fs.chmodSync(bin, 0o755);
+	listAgents([]);
 
 	const r = run(main);
 

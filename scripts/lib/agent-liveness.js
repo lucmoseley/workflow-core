@@ -50,9 +50,11 @@
  * The second, `admissionSessionIds`, reads an empty listing as nothing live,
  * outside a session only, where nothing says the list must name anyone
  * (#2180). Inside a session an empty list is still a fault. It is its own
- * export, never an option, so no reader judging by absence can pass it. The
- * readers that may are `readAgentsAfterBoot`, `readAgentsForBudget` and
- * `readAgentsForLevelling`, whose names say when (#3880, #3695, #4229).
+ * export, never an option, so no reader judging by absence can pass it unnamed.
+ * The readers that may are `readAgentsAfterBoot`, `readAgentsForBudget`,
+ * `readAgentsForLevelling` and `readAgentsForCutover`, whose names say when
+ * (#3880, #3695, #4229, #4743); the cutover judges by absence and takes the
+ * residual.
  *
  * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
