@@ -35,7 +35,7 @@
  * only — see LOCK-HASH.
  *
  * THE RECORD. `.agents/vendored-skill-edits.json`, two sections:
- *   vendored  every tracked file under .agents/skills/ as the vendoring commit
+ *   vendored  every tracked file under .agents/skills/ as its upstream
  *             supplied it, path -> sha256.
  *   edits     only the files that diverge or were added, each with the hash
  *             it was declared at, the issue that approved it and one line of
