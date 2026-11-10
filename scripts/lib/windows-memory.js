@@ -110,9 +110,8 @@ function windowsReadingOf(row) {
 }
 
 /**
- * Whether a reading is young enough to hold a launch: the one freshness
- * test, the live reader's and the queue-wait replay's.
- * @param {WindowsMinute} reading
+ * Whether a reading is young enough to hold a launch.
+ * @param {{ ageS: number }} reading
  */
 const isWindowsFresh = (reading) => reading.ageS <= WINDOWS_FRESH_S;
 

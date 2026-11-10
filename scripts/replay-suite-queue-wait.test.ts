@@ -2,7 +2,9 @@
 /*
  * replay-suite-queue-wait.test.ts — the replay's command line (#3060). Break
  * it and a bad window prints a reading over nothing, or a good one prints
- * none. The replay itself is pinned in lib/suite-queue-replay.test.ts.
+ * none. The replay itself is pinned in lib/suite-queue-replay.test.ts, which
+ * hands it readings; the read of the minute log, and which of its rows count
+ * as fresh, is reached only from here.
  */
 
 import fs from "node:fs";
@@ -120,7 +122,8 @@ it.each([
 			"2026-11-10T01:00:00.000Z",
 		);
 		expect(r.status).toBe(0);
-		expect(r.stdout.includes("| windows | 0.17 |")).toBe(held);
+		if (held) expect(r.stdout).toContain("| windows | 0.17 |");
+		else expect(r.stdout).not.toMatch(/\| windows \|/);
 	},
 );
 
