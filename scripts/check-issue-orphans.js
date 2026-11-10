@@ -61,7 +61,7 @@ runCheck({
 		try {
 			issues = ghAllIssues();
 		} catch (e) {
-			raiseGhFailure(e);
+			return raiseGhFailure(e);
 		}
 
 		/** @param {unknown} u */

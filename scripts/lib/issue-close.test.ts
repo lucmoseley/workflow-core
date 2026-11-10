@@ -599,7 +599,7 @@ describe("the card's issue it refuses to close by hand", () => {
 		 * vi.stubEnv calls off from process.env. */
 		beforeEach(() => {
 			at = splitCheckout(path.join(dir, "split"));
-			vi.stubEnv("CLAUDE_PROJECT_DIR", at.main);
+			vi.stubEnv("CLAUDE_PROJECT_DIR", at.worktree);
 			fs.mkdirSync(path.join(at.worktree, "docs"), { recursive: true });
 			fs.writeFileSync(
 				path.join(at.worktree, "docs", "reference-roadmap.html"),

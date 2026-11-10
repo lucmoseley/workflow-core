@@ -97,7 +97,8 @@ const { mainCheckout } = require("./main-checkout.js");
 const { FETCH_TIMEOUT_MS } = require("./pinned-code.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildAgeText } = require("./hold-age.js");
-const { buildHookEnv } = require("./hook-env.js");
+const { SELF_PLUGIN_HOOKS } = require("./core-hooks.js");
+const { buildHookEnv, selfPluginRoot } = require("./hook-env.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { sleepSync } = require("./sleep-sync.js");
 const {
@@ -229,12 +230,6 @@ function guardProbeRetryMs() {
 
 /* The probe's own, so it leaves no latch on a real session. */
 const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
-
-const SELF_PLUGIN_DIR = "self-plugin";
-
-/* The probe's `Read` names it, as it is tracked wherever the step runs, and
- * the step runs the guard hook line it registers. */
-const SELF_PLUGIN_HOOKS = path.join(SELF_PLUGIN_DIR, "hooks", "hooks.json");
 
 /* What a lockout's hold asks repaired. */
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
@@ -1197,7 +1192,7 @@ function readHookOutput(stdout) {
  * @returns {ProbeFailure|null}
  */
 function readGuardLoadFailure(root) {
-	if (!fs.existsSync(path.join(root, SELF_PLUGIN_DIR))) return null;
+	if (!fs.existsSync(selfPluginRoot(root))) return null;
 	const read = buildBenignRead(root);
 	if (readGuardRunFailure(root, read, true) === null) return null;
 	sleepSync(guardProbeRetryMs());

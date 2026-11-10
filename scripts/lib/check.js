@@ -2054,10 +2054,12 @@ const now = (env = process.env) => {
 
 /* The outcome errors and the outcome table stay internal: `lib/gh.js` raises
  * a SKIP or BROKEN through skipError/brokenError and never inspects one. */
-// CheckContext is exported for its TYPE alone (also reachable as `Ctx`), and
-// errMessage and failureReason for their narrowing logic, so a checker imports
-// either instead of
-// re-deriving it locally (mantahostels#1315).
+// CheckContext is exported for a script that builds one outside runCheck
+// (report-manual-staleness.js); a type reference names it `Ctx`, as
+// TypeScript 7 resolves no class through `import("./lib/check").CheckContext`
+// (#4892). errMessage and failureReason are exported for their narrowing
+// logic, so a checker imports either instead of re-deriving it locally
+// (mantahostels#1315).
 module.exports = {
 	runCheck,
 	now,

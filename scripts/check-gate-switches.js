@@ -33,7 +33,7 @@ const { readIndexSubjects } = require("./lib/gate-subjects.js");
 const { caught } = require("./lib/caught.js");
 const { corePath } = require("./lib/script-path.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /**
  * @typedef {{on: (cfg: ReturnType<typeof config.readConfig>) => boolean,
  *   gate: string, fix: string}} Switch whether the host has set it, the line

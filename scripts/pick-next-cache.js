@@ -68,10 +68,10 @@ try {
  * @param {string} msg
  * @returns {never}
  */
-const die = (msg) => {
+function die(msg) {
 	writeFd(2, `FAILED: ${msg}\n`);
 	process.exit(1);
-};
+}
 
 /** Tracked paths, or null where git could not answer. */
 function readTrackedFiles() {

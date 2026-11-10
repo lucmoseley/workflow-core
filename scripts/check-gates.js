@@ -175,7 +175,7 @@ function gateRow(iss, timeoutMs) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {GateRow[]} rows
  * @param {GateRow[]} warned
  */
@@ -206,7 +206,7 @@ function printTable(ctx, rows, warned) {
 }
 
 /**
- * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/check").Ctx} ctx
  * @param {GateRow} r
  */
 function sayRow(ctx, r) {
@@ -272,7 +272,7 @@ runCheck({
 		try {
 			issues = readIssues(only);
 		} catch (e) {
-			raiseGhFailure(e, "No gate was read.");
+			return raiseGhFailure(e, "No gate was read.");
 		}
 
 		/** @type {GateRow[]} */

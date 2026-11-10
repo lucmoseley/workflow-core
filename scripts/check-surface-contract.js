@@ -32,7 +32,7 @@ const { MIGRATIONS_DIR } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {Record<string, string[]>} EntryPoints */
 /** @typedef {{name: string, values?: string[]}} Positional */
 /** @typedef {Record<string, {positionals: Positional[], flags: {name: string}[], exit: Record<string, string>}>} Commands */

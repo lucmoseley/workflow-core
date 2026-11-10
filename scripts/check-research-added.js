@@ -22,7 +22,7 @@ const { runCheck } = require("./lib/check.js");
 const { readRuleTextOr } = require("./lib/rule-text");
 const { spawnGitSync } = require("./lib/git.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 const RESEARCH_DIR = "docs/research/";
 

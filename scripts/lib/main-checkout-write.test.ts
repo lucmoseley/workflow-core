@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * guard-main-checkout-write at the hook input contract (#4248): with
- * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
- * worktree, a write to the main checkout's tracked tree is refused whether
+ * the session and CLAUDE_PROJECT_DIR in a linked worktree of a main
+ * checkout, a write to the main checkout's tracked tree is refused whether
  * or not it is cut over (#4697), naming the worktree; from a session whose
  * cwd is the main checkout, only once it is. The worktree's own files and
  * gitignored stores stay writable. Driven through runCore on the testkit's split

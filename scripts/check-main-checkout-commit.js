@@ -25,7 +25,7 @@ const { checkoutOfCommonDir } = require("./lib/main-checkout.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { WORKTREES } = require("./lib/worktree-dirs.js");
 
-/** @typedef {import("./lib/check").CheckContext} Ctx */
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /** @param {Ctx} ctx */
 function run(ctx) {

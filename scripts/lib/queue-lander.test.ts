@@ -34,6 +34,7 @@ import {
 	type Member,
 	type MergeResult,
 	type Pipeline,
+	type Placement,
 	type QueueAction,
 	type QueueLanderDeps,
 	redPathAtRest,
@@ -63,9 +64,13 @@ interface Remote {
 	main: string;
 	refs: Map<string, Ref>;
 	dropped: Map<string, string>;
-	/** The `lander/iso-<k>` refs pushed, by branch. */
-	iso: Map<string, string>;
+	/** The sha last asked at each placement, by its `placeOf` label. */
+	placed: Map<string, string>;
 }
+
+/** A placement's label: `batch-<slot>`, or `iso-<k>` for a run alone. */
+const placeOf = (p: Placement) =>
+	p.kind === "batch" ? `batch-${p.slot}` : `iso-${p.k}`;
 
 const remoteOf = (
 	main: string,
@@ -75,7 +80,7 @@ const remoteOf = (
 	main,
 	refs: new Map(Object.entries(refs)),
 	dropped: new Map(Object.entries(dropped)),
-	iso: new Map(),
+	placed: new Map(),
 });
 
 /** The disk a restart keeps: the ledgers, records, queue log and tracker. */
@@ -121,8 +126,8 @@ interface Options {
 	/** Runs as an ask is made, before its verdict is awaited. */
 	onAsk?: (sha: string, remote: Remote) => void;
 	/** Holds an ask's verdict until it reads true; the events so far, each
-	 * `ask <key>`, `verdict <key>`, `cancel <sha>`, `push <sha>` or
-	 * `main <sha>`. */
+	 * `ask <key>`, `verdict <key>`, `start <sha> at <place>`,
+	 * `run <sha> at <place>`, `cancel <sha> at <place>` or `main <sha>`. */
 	gate?: (key: string, events: readonly string[]) => boolean;
 	/** The merge's outcome; every member merged where absent. */
 	merge?: (
@@ -131,7 +136,8 @@ interface Options {
 		fresh?: boolean,
 		started?: (sha: string) => void,
 	) => MergeResult;
-	/** Throws in place of a call, by its name, while it returns an error. */
+	/** Throws in place of a call, by its name, while it returns an error: a
+	 * git call's, `start`, or `ask <placement kind>` as an ask is made. */
 	fault?: (call: string) => Error | undefined;
 	/** Runs before a compare-and-delete reads the ref. */
 	beforeDelete?: (branch: string, remote: Remote) => void;
@@ -139,9 +145,10 @@ interface Options {
 	refuse?: (sha: string) => string | undefined;
 	/** Throws in place of filing a fix ticket while it returns an error. */
 	fileFault?: () => Error | undefined;
-	/** Unfinished runs on batch refs before the run starts, as a crash leaves. */
-	runs?: readonly { branch: string; sha: string }[];
-	/** The cancels a run pushed at `sha` goes unlisted for; none where absent. */
+	/** Unfinished runs at batch placements before the run starts, as a crash
+	 * leaves, `at` the placement's label. */
+	runs?: readonly { at: string; sha: string }[];
+	/** The cancels a run started at `sha` goes unlisted for; none where absent. */
 	unlisted?: (sha: string) => number;
 	/** Throws in place of the fix ticket search, while it returns an error. */
 	findFault?: () => Error | undefined;
@@ -190,6 +197,8 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	const actions: QueueAction[] = [];
 	/** Each ask: the sha for the whole suite, else `<sha>:<files>`. */
 	const asked: string[] = [];
+	/** Each ask as `<place> <ask>`. */
+	const placements: string[] = [];
 	let inFlight = 0;
 	let peak = 0;
 	const said: string[] = [];
@@ -202,8 +211,13 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		const err = o.fault?.(name);
 		if (err) throw err;
 	};
-	/** The Actions runs on batch refs. */
+	/** The tester's runs, each at a placement's label, as an Actions one
+	 * fires them: one per start, or per whole-suite ask where none is there. */
 	const runs = (o.runs ?? []).map((r) => ({ ...r, done: false, unlisted: 0 }));
+	const fire = (at: string, sha: string) => {
+		events.push(`run ${sha} at ${at}`);
+		runs.push({ at, sha, done: false, unlisted: o.unlisted?.(sha) ?? 0 });
+	};
 	const finish = (sha: string) => {
 		for (const r of runs) if (r.sha === sha) r.done = true;
 	};
@@ -227,20 +241,6 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 					o.merge?.(onto, members, fresh, started) ??
 					fakeMerge(remote, onto, members, fresh)
 				);
-			},
-			pushBatch: (slot, sha) => {
-				call("pushBatch");
-				events.push(`push ${sha} on lander/batch-${slot}`);
-				runs.push({
-					branch: `lander/batch-${slot}`,
-					sha,
-					done: false,
-					unlisted: o.unlisted?.(sha) ?? 0,
-				});
-			},
-			pushIso: (branch, sha) => {
-				call("pushIso");
-				remote.iso.set(branch, sha);
 			},
 			pushMain: (sha) => {
 				call("pushMain");
@@ -276,9 +276,23 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		tester: {
 			requiresRun: o.requiresRun ?? true,
 			...(o.parallel === undefined ? {} : { parallel: o.parallel }),
-			verdict: async (sha, files = []) => {
+			start: (place, sha) => {
+				call("start");
+				events.push(`start ${sha} at ${placeOf(place)}`);
+				fire(placeOf(place), sha);
+			},
+			verdict: async (place, sha, files = []) => {
+				call(`ask ${place.kind}`);
+				const at = placeOf(place);
 				const ask = files.length > 0 ? `${sha}:${files.join(",")}` : sha;
 				asked.push(ask);
+				placements.push(`${at} ${ask}`);
+				remote.placed.set(at, sha);
+				if (
+					files.length === 0 &&
+					!runs.some((r) => r.at === at && r.sha === sha)
+				)
+					fire(at, sha);
 				events.push(`ask ${ask}`);
 				o.onAsk?.(sha, remote);
 				const nth = asked.filter((a) => a === ask).length;
@@ -296,10 +310,11 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 					o.verdict?.(sha, remote, files, nth) ?? { kind: "green", run: 1 }
 				);
 			},
-			cancel: (branch, keep) => {
+			cancel: (place, keep) => {
+				const at = placeOf(place);
 				const listed: string[] = [];
 				for (const r of runs) {
-					if (r.branch !== branch) continue;
+					if (r.at !== at) continue;
 					if (r.unlisted > 0) {
 						r.unlisted--;
 						continue;
@@ -307,7 +322,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 					listed.push(r.sha);
 					if (r.done || r.sha === keep) continue;
 					r.done = true;
-					events.push(`cancel ${r.sha} on ${branch}`);
+					events.push(`cancel ${r.sha} at ${at}`);
 				}
 				return listed;
 			},
@@ -341,7 +356,10 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		record: {
-			read: () => disk.pipeline,
+			read: () =>
+				disk.pipeline
+					? { kind: "read" as const, value: disk.pipeline }
+					: { kind: "absent" as const },
 			write: (p) => {
 				disk.pipeline = p;
 				if (depths.at(-1) !== p.depth) depths.push(p.depth);
@@ -395,7 +413,17 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		...(o.mainMoved && { mainMoved: o.mainMoved }),
 	};
 	const end = await runQueueLander(deps);
-	return { end, actions, asked, said, peak, pushed, events, depths };
+	return {
+		end,
+		actions,
+		asked,
+		placements,
+		said,
+		peak,
+		pushed,
+		events,
+		depths,
+	};
 }
 
 const seed = (disk: Disk, b: Omit<Batch, "slot">) => {
@@ -407,6 +435,10 @@ const seed = (disk: Disk, b: Omit<Batch, "slot">) => {
 
 const batchIn = (disk: Disk) =>
 	disk.pipeline?.search ?? disk.pipeline?.line[0] ?? null;
+
+/** The placements alone asked at, each with the sha last asked there. */
+const isoPlaced = (remote: Remote) =>
+	[...remote.placed].filter(([at]) => at.startsWith("iso-"));
 
 const verdictKey = (sha: string, files: readonly string[], pass: number) =>
 	`${sha} ${files.join(",")}${pass === 1 ? "" : ` #${pass}`}`;
@@ -534,54 +566,62 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 		});
 
 	it("tests the merges the run started on where the gates pass them as merged, cancelling nothing", async () => {
-		const { events, asked } = await land(remote(), freshDisk(), {
+		const { events, asked, placements } = await land(remote(), freshDisk(), {
 			merge: (onto, ms, _fresh, started) => {
 				started?.(mergeSha(onto, ms));
 				return { kind: "merged", sha: mergeSha(onto, ms) };
 			},
 		});
 
-		expect(events.indexOf(`push ${merges} on lander/batch-0`)).toBeLessThan(
+		expect(events.indexOf(`start ${merges} at batch-0`)).toBeLessThan(
 			events.indexOf(`ask ${merges}`),
 		);
+		expect(events.filter((e) => e.startsWith("run"))).toEqual([
+			`run ${merges} at batch-0`,
+		]);
 		expect(events.some((e) => e.startsWith("cancel"))).toBe(false);
+		expect(placements).toEqual([`batch-0 ${merges}`]);
 		expect(asked).toEqual([merges]);
 	});
 
 	it("cancels the run where the gates commit edits, and tests the edited sha", async () => {
 		const edited = `${merges}+fixes`;
 		const remoteNow = remote();
-		const { events, asked } = await land(remoteNow, freshDisk(), {
+		const { events, asked, placements } = await land(remoteNow, freshDisk(), {
 			merge: (onto, ms, _fresh, started) => {
 				started?.(mergeSha(onto, ms));
 				return { kind: "merged", sha: `${mergeSha(onto, ms)}+fixes` };
 			},
 		});
 
-		expect(events).toContain(`cancel ${merges} on lander/batch-0`);
-		expect(events).toContain(`push ${edited} on lander/batch-0`);
+		expect(events).toContain(`cancel ${merges} at batch-0`);
+		expect(placements).toEqual([`batch-0 ${edited}`]);
 		expect(asked).toEqual([edited]);
 		expect(remoteNow.main).toBe(edited);
 	});
 
-	it("leaves the push to test-sha where the early one fails, cancelling nothing", async () => {
-		let pushes = 0;
-		const { events, asked, said } = await land(remote(), freshDisk(), {
-			merge: (onto, ms, _fresh, started) => {
-				started?.(mergeSha(onto, ms));
-				return { kind: "merged", sha: mergeSha(onto, ms) };
+	it("leaves the start to test-sha's ask where the early one fails, cancelling nothing", async () => {
+		let starts = 0;
+		const { events, asked, said, placements } = await land(
+			remote(),
+			freshDisk(),
+			{
+				merge: (onto, ms, _fresh, started) => {
+					started?.(mergeSha(onto, ms));
+					return { kind: "merged", sha: mergeSha(onto, ms) };
+				},
+				fault: (name) =>
+					name === "start" && starts++ === 0
+						? new Error("network down")
+						: undefined,
 			},
-			fault: (name) =>
-				name === "pushBatch" && pushes++ === 0
-					? new Error("network down")
-					: undefined,
-		});
+		);
 
 		expect(
-			said.some((l) => l.includes("not pushed before its gate pass")),
+			said.some((l) => l.includes("not started before its gate pass")),
 		).toBe(true);
 		expect(events.some((e) => e.startsWith("cancel"))).toBe(false);
-		expect(events).toContain(`push ${merges} on lander/batch-0`);
+		expect(placements).toEqual([`batch-0 ${merges}`]);
 		expect(asked).toEqual([merges]);
 	});
 
@@ -598,7 +638,7 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 			},
 		});
 
-		expect(events).toContain(`cancel ${merges} on lander/batch-0`);
+		expect(events).toContain(`cancel ${merges} at batch-0`);
 		expect(disk.drops.map((d) => d.name)).toEqual(["b"]);
 		expect(remoteNow.main).toBe(mergeSha("m0", [members[0] as Member]));
 	});
@@ -621,9 +661,9 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 			`no run at ${merges.slice(0, SHORT_SHA)} listed on lander/batch-0 to cancel; the next merge there, if any, cancels one listed later`,
 			"Filed #100: https://x/100",
 		]);
-		expect(
-			events.indexOf(`cancel ${merges} on lander/batch-0`),
-		).toBeGreaterThan(events.indexOf(`push ${alone} on lander/batch-0`));
+		expect(events.indexOf(`cancel ${merges} at batch-0`)).toBeGreaterThan(
+			events.indexOf(`start ${alone} at batch-0`),
+		);
 		expect(events.some((e) => e.startsWith(`cancel ${alone}`))).toBe(false);
 		expect(remoteNow.main).toBe(alone);
 	});
@@ -634,10 +674,10 @@ describe("a batch's run started before its gate pass (#4573)", () => {
 				started?.(mergeSha(onto, ms));
 				return { kind: "merged", sha: mergeSha(onto, ms) };
 			},
-			runs: [{ branch: "lander/batch-0", sha: "orphan" }],
+			runs: [{ at: "batch-0", sha: "orphan" }],
 		});
 
-		expect(events).toContain("cancel orphan on lander/batch-0");
+		expect(events).toContain("cancel orphan at batch-0");
 		expect(events.some((e) => e.startsWith(`cancel ${merges}`))).toBe(false);
 		expect(asked).toEqual([merges]);
 	});
@@ -973,7 +1013,7 @@ describe("faults", () => {
 
 		const { end } = await land(remote, freshDisk(), {
 			fault: (c) =>
-				c === "pushBatch" && ++pushes === 1
+				c === "pushMain" && ++pushes === 1
 					? new PushRefused("push", {
 							cause: Object.assign(new Error("push"), {
 								status: 1,
@@ -1590,7 +1630,7 @@ describe("the red path", () => {
 		expect(end).toEqual(NO_QUEUE);
 		expect(asked).toEqual([integration, `${integration}:scripts/x.test.ts`]);
 		expect(remote.main).toBe(integration);
-		expect(remote.iso.size).toBe(0);
+		expect(isoPlaced(remote)).toEqual([]);
 	});
 
 	it("takes no rerun of a red its own run retried, going straight to the base check (#4545)", async () => {
@@ -1621,7 +1661,7 @@ describe("the red path", () => {
 		});
 
 		expect(asked).not.toContain("m0:scripts/x.test.ts");
-		expect(remote.iso.has("lander/iso-base")).toBe(false);
+		expect(remote.placed.has("iso-base")).toBe(false);
 	});
 
 	it("asks the base check where main went green over an hour ago (#4564)", async () => {
@@ -1655,7 +1695,7 @@ describe("the red path", () => {
 		expect(disk.baseRed).toEqual(["m0 scripts/x.test.ts"]);
 		expect(said).toContain("base-red issue: filed #90");
 		expect(remote.main).toBe("merge(m0;a1,b1)");
-		expect([...remote.iso]).toEqual([["lander/iso-base", "m0"]]);
+		expect(isoPlaced(remote)).toEqual([["iso-base", "m0"]]);
 		expect(disk.drops).toEqual([]);
 	});
 
@@ -1745,7 +1785,7 @@ describe("the red path", () => {
 		const { asked } = await land(remote, disk, {
 			requiresRun: false,
 			verdict: (sha, r) => {
-				if (sha === "m0") isoAtAsk.push(r.iso.get("lander/iso-base"));
+				if (sha === "m0") isoAtAsk.push(r.placed.get("iso-base"));
 				return red("scripts/x.test.ts");
 			},
 		});
@@ -1788,10 +1828,8 @@ describe("the red path", () => {
 		const { end, actions, asked } = await land(remote, disk, {
 			verdict: (sha, r, files) => {
 				if (isos.includes(sha)) {
-					if (![...r.iso.values()].includes(sha))
-						throw new Error(
-							`${sha} asked before its lander/iso ref was pushed`,
-						);
+					if (!isoPlaced(r).some(([, x]) => x === sha))
+						throw new Error(`${sha} asked at no placement alone`);
 					r.refs.set("d", { sha: "d1", pushedAt: 9 });
 				}
 				const v = base(sha, r, files);
@@ -1986,10 +2024,10 @@ describe("the red path", () => {
 			"merge(m0;b1)",
 		]);
 		expect(kinds(actions)).toContain("start-isolation");
-		expect([...remote.iso]).toEqual([
-			["lander/iso-suite-base", "m0"],
-			["lander/iso-suite-0", "merge(m0;a1)"],
-			["lander/iso-suite-1", "merge(m0;b1)"],
+		expect(isoPlaced(remote)).toEqual([
+			["iso-base", "m0"],
+			["iso-0", "merge(m0;a1)"],
+			["iso-1", "merge(m0;b1)"],
 		]);
 		expect(dropsOf(actions).map((d) => d.cause.kind)).toEqual(["collision"]);
 		expect(dropsOf(actions).map((d) => d.name)).toEqual(["b"]);
@@ -2150,7 +2188,7 @@ describe("the red path", () => {
 		const first = await land(remote, disk, {
 			verdict: redWhereHeld("b"),
 			fault: (c) =>
-				c === "pushIso" && ++pushes === 4 ? new Error("killed") : undefined,
+				c === "ask iso" && ++pushes === 4 ? new Error("killed") : undefined,
 		});
 		const second = await land(remote, disk, { verdict: redWhereHeld("b") });
 
@@ -2452,7 +2490,7 @@ describe("a serial step", () => {
 		});
 
 		expect(asked).toContain(`merge(m0;a1):${Z}`);
-		expect(r.iso.get("lander/iso-base")).toBe("merge(m0;a1)");
+		expect(r.placed.get("iso-base")).toBe("merge(m0;a1)");
 		expect(dropsOf(actions)).toEqual([]);
 		expect(disk.baseRed).toContain(`merge(m0;a1) ${Z}`);
 		expect(end.reason).toMatch(
@@ -2622,7 +2660,7 @@ describe("the pipeline (#4556)", () => {
 
 		expect(end).toEqual(NO_QUEUE);
 		expect(kinds(actions)).toContain("detach");
-		expect(events).toContain(`cancel ${stale} on lander/batch-1`);
+		expect(events).toContain(`cancel ${stale} at batch-1`);
 		expect(at(events, `ask ${rebuilt}`)).toBeLessThan(
 			at(events, `verdict ${isoA}`),
 		);
@@ -2658,11 +2696,11 @@ describe("the pipeline (#4556)", () => {
 		const { end, actions, events } = await land(remote, disk, {
 			parallel: true,
 			verdict: redWhereA,
-			runs: [{ branch: "lander/batch-1", sha: B }],
+			runs: [{ at: "batch-1", sha: B }],
 		});
 
 		expect(end).toEqual(NO_QUEUE);
-		expect(events).toContain(`cancel ${B} on lander/batch-1`);
+		expect(events).toContain(`cancel ${B} at batch-1`);
 		expect(dropsOf(actions).map((d) => d.name)).toEqual(["a"]);
 		expect(remote.main).toBe("merge(m0;b1)");
 	});

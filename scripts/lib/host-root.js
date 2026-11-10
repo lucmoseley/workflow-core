@@ -204,12 +204,14 @@ function declaredHost(dir, timeoutMs, onTimeout) {
  * absolute, else the process's, as lib/shell-parse.js's walkCommands seeds.
  * Takes the payload, or a core's context, whose `cwd` is the
  * payload's. What a hook resolving a command's relative paths, `git -C` among
- * them, seeds from; `sessionTree()` is its top level.
+ * them, seeds from; `sessionTree()` is its top level. `fallback` stands in
+ * for the process's where a caller seeds the walk elsewhere.
  * @param {{ cwd?: unknown }} input
+ * @param {string} [fallback]
  * @returns {string}
  */
-function sessionDir({ cwd }) {
-	return typeof cwd === "string" && cwd.startsWith("/") ? cwd : process.cwd();
+function sessionDir({ cwd }, fallback = process.cwd()) {
+	return typeof cwd === "string" && cwd.startsWith("/") ? cwd : fallback;
 }
 
 /**
