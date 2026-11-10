@@ -43,7 +43,6 @@ function whyFailed(r) {
 }
 
 /**
- * The arguments after the verb, in the arbiter's own order.
  * @param {string} subject
  * @param {string | null | undefined} session
  * @param {boolean} generator
@@ -58,13 +57,12 @@ function argsFor(subject, session, generator) {
 
 /**
  * `subject` claimed through the arbiter's CLI. Exit 0 is `claimed`, a
- * contended claim included: the arbiter then took nothing, and its stderr, the
- * warning naming the live neighbour that also holds the subject (#4249), is
- * `warning`. Any other exit, a timeout or a failed spawn is `why`.
+ * contended claim included, and its stderr, the warning naming the live
+ * neighbour that also holds the subject (#4249), is `warning`. Any other exit,
+ * a timeout or a failed spawn is `why`.
  *
  * `claimCmd` stands in for the arbiter, for tests: it is run with the subject
- * as `$1`, then the session, then `--generator`, which is the arbiter's own
- * argument order after `claim`.
+ * as `$1`, then the session, then `--generator`.
  *
  * @param {string} subject
  * @param {{ claimCmd?: string | null, session?: string | null, cwd?: string,
