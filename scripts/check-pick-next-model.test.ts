@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Pins that check-pick-next-model.js counts and prices every non-Sonnet
+ * Pins that check-pick-next-model.js counts and prices every non-Haiku
  * `/pick-next` session in its window, and never calls a window clean that it
  * could not read.
  *
@@ -9,7 +9,7 @@
  * sandbox so the founder's own transcript corpus is never read.
  *
  * Three properties carry the ruling (mantahostels#2449):
- *   1. a non-Sonnet `/pick-next` session is COUNTED and PRICED, and the count
+ *   1. a non-Haiku `/pick-next` session is COUNTED and PRICED, and the count
  *      is what a mutation to the miss detection would move;
  *   2. a corpus this scan cannot read is SKIP, never "0 misses" — the
  *      subject-vs-apparatus split lib/check.js draws;
@@ -131,8 +131,8 @@ function session(
 
 const OPUS = "claude-opus-5-20260401";
 const OPUS_5_5 = "claude-opus-5-5";
-const SONNET = "claude-sonnet-5-20260401";
-const HAIKU = "claude-haiku-4-5-20251001";
+const HAIKU = "claude-haiku-5-5";
+const SONNET = "claude-sonnet-5-5";
 
 const run = (args: string[] = [], env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, args, {
@@ -171,7 +171,7 @@ const json = (args: string[] = []) =>
 		missed: number;
 		opus: number;
 		mixed: number;
-		sonnet: number;
+		haiku: number;
 		unknownModel: number;
 		unclassifiedFiles: number;
 		unreadableDirs: string[];
@@ -190,9 +190,9 @@ describe("a clean window", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("is OK when every /pick-next session ran on Sonnet", () => {
-		session("pick-next", [{ model: SONNET, out: 500_000 }]);
-		session("pick-next", [{ model: SONNET, out: 500_000 }]);
+	it("is OK when every /pick-next session ran on Haiku", () => {
+		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 
 		const r = run();
 		const out = report(r);
@@ -202,7 +202,7 @@ describe("a clean window", () => {
 	});
 
 	it("says nothing at all under --notify when the window is clean", () => {
-		session("pick-next", [{ model: SONNET, out: 500_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 
 		const r = run(["--notify"]);
 		expect(report(r).trim()).toBe("");
@@ -221,23 +221,23 @@ describe("a clean window", () => {
 
 describe("a window carrying misses", () => {
 	it("WARNs with the count, the rate and the forfeited cost", () => {
-		// 1,000,000 Opus 5 output tokens at $75/Mtok = $75 spent; 60% of that forfeited.
+		// 1,000,000 Opus 5 output tokens at $75/Mtok = $75 spent; 98% of that forfeited.
 		session("pick-next", [{ model: OPUS, out: 1_000_000 }]);
-		session("pick-next", [{ model: SONNET, out: 1_000_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 1_000_000 }]);
 
 		const r = run();
 		const out = report(r);
 		expect(out).toContain("PICK-NEXT-ON-OPUS (1 of 2)");
 		expect(out).toContain("50% of them");
-		expect(out).toContain("They spent $75; $45 of that was forfeited");
+		expect(out).toContain("They spent $75; $74 of that was forfeited");
 		expect(out).toContain("scripts/launch.sh pick-next");
-		expect(out).toContain("WARN: 1 /pick-next session(s) launched off Sonnet");
+		expect(out).toContain("WARN: 1 /pick-next session(s) launched off Haiku");
 		expect(r.status).toBe(0);
 	});
 
 	it("counts a session that switched model mid-run as a miss, and says so", () => {
 		session("pick-next", [
-			{ model: SONNET, out: 100_000 },
+			{ model: HAIKU, out: 100_000 },
 			{ model: OPUS, out: 100_000 },
 		]);
 
@@ -308,15 +308,15 @@ describe("what it will not call clean", () => {
 	it("does not read a `<synthetic>` API-error record as an Opus turn", () => {
 		// The harness writes a rejected request back as a real assistant record
 		// with model `<synthetic>` and four zero token classes. Counting its model
-		// would book this Sonnet session `mixed`, a miss at $0.
+		// would book this Haiku session `mixed`, a miss at $0.
 		session("pick-next", [
-			{ model: SONNET, out: 500_000 },
+			{ model: HAIKU, out: 500_000 },
 			{ model: "<synthetic>", out: 0 },
 		]);
 
 		const envelope = json();
 		expect(envelope.outcome).toBe("OK");
-		expect(envelope.sonnet).toBe(1);
+		expect(envelope.haiku).toBe(1);
 		expect(envelope.mixed).toBe(0);
 		expect(envelope.missed).toBe(0);
 	});
@@ -370,7 +370,7 @@ describe("what it will not call clean", () => {
 		expect(envelope.sessions).toBe(1);
 		expect(envelope.unknownModel).toBe(1);
 		expect(envelope.missed).toBe(0);
-		expect(envelope.sonnet).toBe(0);
+		expect(envelope.haiku).toBe(0);
 	});
 
 	it("SKIPs, and does not WARN, where no config dir holds this repo at all", () => {
@@ -395,7 +395,7 @@ describe("what it will not call clean", () => {
 	});
 
 	it("does not WARN about a sibling config dir that simply is not there", () => {
-		session("pick-next", [{ model: SONNET, out: 500_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 
 		const gone = path.join(sandbox, "no-such-config-dir");
 		const out = report(
@@ -412,7 +412,7 @@ describe("what it will not call clean", () => {
 	it("drops a transcript that vanished between the listing and the stat, uncounted", () => {
 		// A dangling symlink is the same ENOENT the readdir/stat race produces: the
 		// file is gone, so it is no session this window could have read either way.
-		session("pick-next", [{ model: SONNET, out: 500_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 		fs.symlinkSync(
 			path.join(corpus, "nothing-here"),
 			path.join(corpus, "z.jsonl"),
@@ -426,7 +426,7 @@ describe("what it will not call clean", () => {
 	it("counts a transcript it can list but cannot stat", () => {
 		// A file that IS there and will not answer is not the race above — it is a
 		// session whose command and model both went unread.
-		session("pick-next", [{ model: SONNET, out: 500_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 		// Readable but not searchable: readdir lists, stat is refused.
 		fs.chmodSync(corpus, 0o444);
 
@@ -486,8 +486,8 @@ describe("what it will not call clean", () => {
 });
 
 describe("a tier this checker cannot price (mantahostels#2476)", () => {
-	it("counts a Haiku /pick-next session as unknown, not as an Opus miss", () => {
-		session("pick-next", [{ model: HAIKU, out: 1_000_000 }]);
+	it("counts a Sonnet /pick-next session as unknown, not as an Opus miss", () => {
+		session("pick-next", [{ model: SONNET, out: 1_000_000 }]);
 
 		const envelope = json();
 		expect(envelope.outcome).toBe("OK");
@@ -498,20 +498,20 @@ describe("a tier this checker cannot price (mantahostels#2476)", () => {
 	});
 
 	it("keeps it in the denominator rather than dropping it", () => {
-		session("pick-next", [{ model: HAIKU, out: 1_000_000 }]);
 		session("pick-next", [{ model: SONNET, out: 1_000_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 1_000_000 }]);
 
 		const envelope = json();
 		expect(envelope.sessions).toBe(2);
-		expect(envelope.sonnet).toBe(1);
+		expect(envelope.haiku).toBe(1);
 		expect(envelope.unknownModel).toBe(1);
 	});
 
 	it("takes precedence over mixed, so a three-tier session is never priced", () => {
 		session("pick-next", [
 			{ model: OPUS, out: 1_000_000 },
-			{ model: SONNET, out: 1_000_000 },
 			{ model: HAIKU, out: 1_000_000 },
+			{ model: SONNET, out: 1_000_000 },
 		]);
 
 		const envelope = json();
@@ -523,11 +523,11 @@ describe("a tier this checker cannot price (mantahostels#2476)", () => {
 
 	it("leaves an Opus session that also carries an unpriceable turn out of the cost", () => {
 		// The cost is summed over every request in the file, not per model, so a
-		// mixed Opus/Haiku session cannot be priced at Opus rates without
+		// mixed Opus/Sonnet session cannot be priced at Opus rates without
 		// inflating the figure the header calls a floor.
 		session("pick-next", [
 			{ model: OPUS, out: 1_000_000 },
-			{ model: HAIKU, out: 1_000_000 },
+			{ model: SONNET, out: 1_000_000 },
 		]);
 
 		const envelope = json();
@@ -584,7 +584,7 @@ describe("a SKIP under --notify (mantahostels#2476)", () => {
 	});
 
 	it("stays silent under --notify on a genuinely clean window", () => {
-		session("pick-next", [{ model: SONNET, out: 1_000_000 }]);
+		session("pick-next", [{ model: HAIKU, out: 1_000_000 }]);
 
 		const r = run(["--notify"]);
 		expect(r.stdout).toBe("");
@@ -705,13 +705,8 @@ describe("pricing each request at its own model (#359)", () => {
 		const ratio55 = 0.561 * 0.4 + 0.439 * 0.8;
 		expect(envelope.spent).toBeCloseTo(opus5 * ratio55, 6);
 		expect(envelope.forfeited / envelope.spent).toBeCloseTo(
-			(ratio55 - 0.4) / ratio55,
+			(ratio55 - 0.02) / ratio55,
 			9,
-		);
-		// The ticket's rounded figure.
-		expect(envelope.forfeited / envelope.spent).toBeCloseTo(
-			(0.576 - 0.4) / 0.576,
-			2,
 		);
 	});
 
@@ -720,20 +715,20 @@ describe("pricing each request at its own model (#359)", () => {
 
 		const envelope = json();
 		expect(envelope.spent).toBeCloseTo(1500, 6);
-		expect(envelope.forfeited).toBeCloseTo(1500 * 0.6, 6);
+		expect(envelope.forfeited).toBeCloseTo(1500 * 0.98, 6);
 	});
 
-	it("books no forfeit on a mixed session's Sonnet requests", () => {
+	it("books no forfeit on a mixed session's Haiku requests", () => {
 		session("pick-next", [
-			{ model: SONNET, out: 1_000_000 },
+			{ model: HAIKU, out: 1_000_000 },
 			{ model: OPUS_5_5, out: 1_000_000 },
 		]);
 
 		const envelope = json();
 		expect(envelope.mixed).toBe(1);
-		// $75 * 0.4 Sonnet + $75 * 0.8 Opus 5.5; only the Opus request forfeits.
-		expect(envelope.spent).toBeCloseTo(30 + 60, 6);
-		expect(envelope.forfeited).toBeCloseTo(60 - 30, 6);
+		// $75 * 0.02 Haiku + $75 * 0.8 Opus 5.5; only the Opus request forfeits.
+		expect(envelope.spent).toBeCloseTo(1.5 + 60, 6);
+		expect(envelope.forfeited).toBeCloseTo(60 - 1.5, 6);
 	});
 });
 
@@ -764,14 +759,14 @@ describe("pricing each cache write at its own TTL (#1203)", () => {
 		expect(json().spent).toBeCloseTo(18.75 + 60, 6);
 	});
 
-	it("prices an Opus 5.5 1-hour write at 0.8 of Opus 5's, forfeiting the half Sonnet would not have spent", () => {
+	it("prices an Opus 5.5 1-hour write at 0.8 of Opus 5's, forfeiting all but what Haiku would have spent", () => {
 		session("pick-next", [
 			{ model: OPUS_5_5, out: 0, cw: 1_000_000, cw1h: 1_000_000 },
 		]);
 
 		const envelope = json();
 		expect(envelope.spent).toBeCloseTo(24, 6);
-		expect(envelope.forfeited).toBeCloseTo(24 - 12, 6);
+		expect(envelope.forfeited).toBeCloseTo(24 - 0.6, 6);
 	});
 
 	it("counts one request's 1-hour write once when a later record drops the split", () => {
@@ -816,13 +811,13 @@ describe("pricing each cache write at its own TTL (#1203)", () => {
 
 describe("a session held on two seats (#382)", () => {
 	it("counts it once, from the larger copy", () => {
-		const first = session("pick-next", [{ model: SONNET, out: 500_000 }]);
+		const first = session("pick-next", [{ model: HAIKU, out: 500_000 }]);
 		const seat2 = path.join(sandbox, "seat2");
 		const corpus2 = path.join(seat2, "projects", slugForRepo());
 		fs.mkdirSync(corpus2, { recursive: true });
 		// Resumed on seat 2 on Opus: the copy there holds the whole session.
 		const resumed = session("pick-next", [
-			{ model: SONNET, out: 500_000 },
+			{ model: HAIKU, out: 500_000 },
 			{ model: OPUS, out: 1_000_000 },
 		]);
 		fs.renameSync(resumed, path.join(corpus2, path.basename(first)));

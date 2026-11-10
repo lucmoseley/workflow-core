@@ -11644,6 +11644,7 @@
 			"scripts/lib/dispatch-rewrite.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/refill-batch.test.ts",
 			"scripts/lib/refill-loop.test.ts",

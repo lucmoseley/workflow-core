@@ -16,11 +16,12 @@ const GUIDE = `${docPath("effort-guide.md")} §Which model each subagent dispatc
 
 /**
  * Where a call's named model departs from the effort guide's dispatch routing
- * — `sonnet`, with `opus` for its two carve-outs — or null. Under burn mode
- * `opus` goes unjudged, and so does the reviewer's `sonnet`, which the remap
- * turns into the `opus` the guide asks for. Legal research, the
- * second carve-out, is invisible from the call, so an `opus` dispatch outside
- * the code reviewer is always named. A call-level `effort` is not judged.
+ * — `haiku`, with `opus` for its two carve-outs — or null. Under burn mode
+ * `opus` goes unjudged: burn mode spends on purpose. A `sonnet` call is named
+ * though the model table moves it to Haiku, so the next dispatch names Haiku
+ * itself. Legal research, the second carve-out, is invisible from the call, so
+ * an `opus` dispatch outside the code reviewer is always named. A call-level
+ * `effort` is not judged.
  *
  * @param {Record<string, unknown>} call the tool_input object, before any rewrite
  * @param {boolean} burn
@@ -33,10 +34,10 @@ function tierDeparture(call, burn) {
 	if (type === "fork")
 		return `This dispatch names \`${model}\` on a fork, which ignores a \`model\` override and inherits this session's — see ${GUIDE}.`;
 	if (REVIEWER.test(type))
-		return model === "opus" || (model === "sonnet" && burn)
+		return model === "opus"
 			? null
 			: `This dispatch names \`${model}\` for the code reviewer, a departure from ${GUIDE}.`;
-	if (model === "sonnet" || (model === "opus" && burn)) return null;
+	if (model === "haiku" || (model === "opus" && burn)) return null;
 	return `This dispatch names \`${model}\`, a departure from ${GUIDE} unless it is one of that section's carve-outs.`;
 }
 

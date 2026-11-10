@@ -161,6 +161,12 @@ tool if a deny ever matters.
     },
     "claude-opus-5-5": {
       "effortLevel": "medium"
+    },
+    "claude-haiku-5-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-fable-5-2": {
+      "effortLevel": "medium"
     }
   },
   "theme": "dark",
@@ -363,7 +369,7 @@ fi
 # every checkout once #127 moved the marker out of it (workflow-core#131).
 #
 # The marker is read live and the flip is HALF live: scripts/lib/dispatch-rewrite.js
-# moves the next `sonnet` Agent dispatch to `opus` at once, while the `model`
+# moves the next `haiku` Agent dispatch to `opus` and `opus` to `fable` at once, while the `model`
 # key the toggle also writes is read at startup, so this session keeps the
 # model it booted on. Hence `(restart: model)` and not the design segment's
 # bare `(restart)`: the badge names the half that is still waiting. Only this
@@ -1211,11 +1217,11 @@ The founder only clicks Authorize; a session does the rest.
 
 ## What the settings do
 
-- `modelSettings` — effort per model. Opus 5.5, the standing default, ignores
-  the top-level `effortLevel` and takes its entry here instead
-  (`docs/effort-guide.md` §Effort).
-- `effortLevel: medium` — read by Fable 5.1 and earlier models, which have no
-  `modelSettings` entry here. Per-surface policy is `docs/effort-guide.md`,
+- `modelSettings` — effort per model, which a model with an entry here takes
+  over the top-level `effortLevel` (`docs/effort-guide.md` §Effort): Opus 5.5
+  and Fable 5.2 at medium, Haiku 5.5, the standing table's cheap slot, at xhigh
+  (#4919).
+- `effortLevel: medium` — read by a model with no `modelSettings` entry here. Per-surface policy is `docs/effort-guide.md`,
   which overrides both keys by task, not by config.
 - `model` — the standing default (`docs/effort-guide.md`), which a restore puts
   back. The drift check ignores it (`VOLATILE_KEYS` in

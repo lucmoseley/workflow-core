@@ -10,7 +10,7 @@ import { tierDeparture, untrackedSearch } from "./dispatch-rules";
 describe("tierDeparture", () => {
 	it.each([
 		["no model", {}],
-		["sonnet", { model: "sonnet" }],
+		["haiku", { model: "haiku" }],
 		[
 			"the code reviewer on opus",
 			{ model: "opus", subagent_type: "code-reviewer" },
@@ -24,7 +24,7 @@ describe("tierDeparture", () => {
 	});
 
 	it.each([
-		["haiku", { model: "haiku" }, "`haiku`, a departure"],
+		["sonnet", { model: "sonnet" }, "`sonnet`, a departure"],
 		["fable", { model: "fable" }, "`fable`, a departure"],
 		["opus outside the reviewer", { model: "opus" }, "unless it is one of"],
 		[
@@ -41,12 +41,13 @@ describe("tierDeparture", () => {
 		expect(tierDeparture(call, false)).toContain(said);
 	});
 
-	it("leaves opus alone under burn mode, which asks for it", () => {
+	it("leaves opus alone under burn mode, which spends on purpose", () => {
 		expect(tierDeparture({ model: "opus" }, true)).toBeNull();
+		expect(tierDeparture({ model: "haiku" }, true)).toBeNull();
 		expect(
 			tierDeparture({ model: "sonnet", subagent_type: "code-reviewer" }, true),
-		).toBeNull();
-		expect(tierDeparture({ model: "haiku" }, true)).not.toBeNull();
+		).not.toBeNull();
+		expect(tierDeparture({ model: "sonnet" }, true)).not.toBeNull();
 	});
 });
 
