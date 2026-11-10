@@ -52,7 +52,8 @@
  *   and one the tracker refuses for good stops the run. Where it merges
  *   alone, it conflicts only with an earlier member, and it is deferred: left
  *   out of this batch, and taken again by the next. A later member still
- *   merges into this one.
+ *   merges into this one. A batch left with no member holds its deferred ones
+ *   untaken while the batch it was merged onto is in the line (#4841).
  * - **Green.** The integration sha is written to the green ledger, then `main`
  *   moves to it by a plain push. Each member merged into it whose ref still
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
@@ -1408,16 +1409,24 @@ function batchStep(s, main, live) {
 
 /**
  * The names a live batch holds, and the queue refs waiting for a take: in
- * no live batch, at no sha a batch landed or a delete found moved.
+ * no live batch, at no sha a batch landed or a delete found moved. A batch
+ * whose every member was deferred is spent, but its members stay held while
+ * the batch they conflict with is live, else each is retaken onto it, and
+ * deferred again, with no end (#4841).
  * @param {QueueState} s
  * @param {Live} live
  */
 function waitingOf(s, { line, search }) {
-	const flying = new Set(
-		[...line, ...(search && !isDone(search) ? [search] : [])].flatMap((b) =>
+	const bases = new Set(line.map((b) => b.integration));
+	const deferred = s.pipeline.line.filter(
+		(b) => !line.includes(b) && bases.has(b.onto),
+	);
+	const flying = new Set([
+		...[...line, ...(search && !isDone(search) ? [search] : [])].flatMap((b) =>
 			b.members.map((m) => m.name),
 		),
-	);
+		...deferred.flatMap((b) => b.deferred),
+	]);
 	const landed = batchesOf(s.pipeline).flatMap((b) =>
 		landedOf(b).map((m) => `${m.name}@${m.sha}`),
 	);
