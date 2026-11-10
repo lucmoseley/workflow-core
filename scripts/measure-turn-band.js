@@ -115,9 +115,7 @@ function sessionRow(text, threshold) {
 
 /**
  * How many tool calls one assistant record makes.
- * @param {Record<string, any>} record one parsed transcript line; `any`
- *   because JSON.parse types nothing, and `message.content` is checked to be an
- *   array before it is read
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {number}
  */
 function toolUses(record) {

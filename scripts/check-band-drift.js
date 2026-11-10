@@ -141,8 +141,7 @@ function* questionsIn(text, cutoff, seen) {
 /**
  * An assistant record sent at or after `cutoff` and not already in `seen`.
  *
- * @param {Record<string, any>} record a parsed transcript line, as
- *   lib/transcript.js yields it: unchecked JSON, so its fields stay `any`
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @param {number} cutoff
  * @param {Set<string>} seen
  */

@@ -176,7 +176,7 @@ const REFUSAL_HEAD = /^PreToolUse:\S+ hook error: (\[[^\]\n]*\]: )?/;
 
 /**
  * A tool result's text.
- * @param {Record<string, any>} block
+ * @param {import("./transcript.js").TranscriptBlock} block
  */
 function resultText(block) {
 	const { content } = block;
@@ -436,7 +436,7 @@ function hasTurnedSince(rows, at) {
 
 /**
  * Whether `r` is a reply the model wrote, not the harness's `<synthetic>` error row.
- * @param {Record<string, any>} r
+ * @param {import("./transcript.js").TranscriptRecord} r
  */
 const isModelReply = (r) =>
 	r.type === "assistant" && r.message?.model !== "<synthetic>";
