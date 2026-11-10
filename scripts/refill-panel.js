@@ -1,0 +1,255 @@
+#!/usr/bin/env node
+/*
+ * refill-panel.js — the refill loop's control panel beside an agents view (workflow-core#3873,
+ * workflow-core#3877, workflow-core#3879, workflow-core#3881, workflow-core#3883, workflow-core#3884, workflow-core#3887, workflow-core#3948, workflow-core#3958, workflow-core#4065, spec workflow-core#3596): a terminal program with no Claude process that shows the Refill
+ * loop switch and its status block, and pauses or resumes the loop on a click;
+ * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
+ * which flips burn mode on a click; the Goal switch and its field, which clear or
+ * replace the goal, free text through one `claude -p` and a confirm press; and a tick box per checkout, which sets whether the loop serves it.
+ * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
+ *
+ *   node scripts/refill-panel.js <agents-view-pid> [windows-terminal|tmux]
+ *   node scripts/refill-panel.js --print [--columns <n> [--rows <n>]]
+ *
+ * `--print` reads status once and prints, as plain text, the screen a pane shows
+ * (workflow-core#4114): at `--columns`, every row unless `--rows` cuts it, or else at each running
+ * panel's own size.
+ *
+ * The route names the split that opened it (lib/refill-panel-routes.js), which is how a
+ * click or Esc hands focus back to the agents pane; run by hand, there is none to name.
+ * After Alt+→ the keys work every control: ↑↓, space and Esc. The wheel scrolls a pane too short for the rows.
+ *
+ * Joins no §N3 family: it gates nothing and is no hook.
+ *
+ * It reads `refill-loop.js status --json` on a poll and after every press, and
+ * writes only by running `refill-loop.js set` and `burn-mode.sh`. It exits when the given pid is
+ * gone, and on Ctrl+C. A SIGKILL runs no code, so it leaves the terminal to the
+ * pane closing with the process.
+ *
+ * Exit codes: 0 on either exit or a pid already gone, or a print; 1 with no terminal,
+ * on a crash, or on a print whose status read failed or that finds no panel to size
+ * it by; 2 on a command line it refuses; 128 plus a catchable signal's number.
+ */
+
+const { execFile } = require("node:child_process");
+const path = require("node:path");
+const { pidAlive } = require("./lib/arbiter-proc.js");
+const { flagValue, parseOrCode } = require("./lib/cli-args");
+const { buildFocusReturn } = require("./lib/refill-panel-routes.js");
+const {
+	buildScreensText,
+	findPanelSizes,
+} = require("./lib/refill-panel-print.js");
+const { openPanel } = require("./lib/refill-panel-terminal.js");
+const { resolveTopic } = require("./lib/refill-panel-topic.js");
+const { readViewEnv } = require("./lib/refill-panel-view-env.js");
+const { scriptPath } = require("./lib/script-path.js");
+const { writeFd } = require("./lib/write-fd.js");
+const { FETCH_TIMEOUT_MS } = require("./lib/pinned-code.js");
+
+const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid> [windows-terminal|tmux]
+       node ${scriptPath("refill-panel.js")} --print [--columns <n> [--rows <n>]]
+
+Shows the refill loop, away mode, burn mode, the goal and the repos it can serve, and changes each on a click, a goal by typing it, until that pid exits.
+
+  --print           print the screen a pane shows, from one status read: at --columns, or at each running panel's size
+  --columns <n>     the pane's width
+  --rows <n>        the pane's height; every row where it is not given
+`;
+
+const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
+const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
+/* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
+ * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
+const READ_TIMEOUT_MS = 30_000;
+/* A `set --resume` with no process fetches the loop's code first (workflow-core#3861); killed
+ * mid-fetch, it would leave the loop unpaused with no process. */
+const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
+/* Untraced, a first guess: nothing waits on it, and it need only outlast a slow cmd.exe. */
+const FOCUS_TIMEOUT_MS = 10_000;
+/* Run by hand, the panel has no way to name the pane to go to. */
+const FOCUS_NOT_MOVED = { code: 0, stdout: "", stderr: "" };
+
+/**
+ * @param {string} file
+ * @param {string[]} argv
+ * @param {number} timeout
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {ReturnType<import("./lib/refill-panel.js").Runner>}
+ */
+const runCommand = (file, argv, timeout, env) =>
+	new Promise((resolve) => {
+		execFile(file, argv, { timeout, env }, (err, stdout, stderr) => {
+			if (!err) {
+				resolve({ code: 0, stdout, stderr });
+				return;
+			}
+			const code = typeof err.code === "number" ? err.code : 1;
+			resolve({ code, stdout, stderr: stderr || err.message });
+		});
+	});
+
+/** @param {unknown} err */
+const reportCrash = (err) =>
+	writeFd(
+		2,
+		`refill-panel: ${err instanceof Error ? (err.stack ?? err.message) : err}\n`,
+	);
+
+/** @param {string} given */
+const isCount = (given) => /^[1-9]\d*$/.test(given);
+
+/**
+ * @param {{columns: number, rows: number|null, pid?: number, tty?: string}[]} sizes
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<number>}
+ */
+async function printScreens(sizes, env) {
+	const { text, readError } = await buildScreensText(sizes, {
+		run: (args) =>
+			runCommand(
+				process.execPath,
+				[LOOP_PROGRAM, ...args],
+				READ_TIMEOUT_MS,
+				env,
+			),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
+		now: Date.now,
+	});
+	writeFd(1, text);
+	return readError ? 1 : 0;
+}
+
+/**
+ * @param {Record<string, string | true>} flags
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number|Promise<number>}
+ */
+function print(flags, env) {
+	const given = {
+		columns: flagValue(flags, "--columns"),
+		rows: flagValue(flags, "--rows"),
+	};
+	for (const [name, value] of Object.entries(given))
+		if (value !== undefined && !isCount(value)) {
+			writeFd(2, `refill-panel: --${name} is not a count: ${value}\n${USAGE}`);
+			return 2;
+		}
+	if (given.columns !== undefined)
+		return printScreens(
+			[
+				{
+					columns: Number(given.columns),
+					rows: given.rows ? Number(given.rows) : null,
+				},
+			],
+			env,
+		);
+	if (given.rows !== undefined) {
+		writeFd(2, `refill-panel: --rows needs --columns\n${USAGE}`);
+		return 2;
+	}
+	const { sizes, unsized } = findPanelSizes();
+	for (const { pid, why } of unsized)
+		writeFd(
+			2,
+			`refill-panel: panel ${pid} left out, its terminal unread: ${why}\n`,
+		);
+	if (sizes.length === 0) {
+		writeFd(
+			2,
+			`refill-panel: ${unsized.length > 0 ? "no running panel's size reads" : "no panel is running"} to size the print by: give --columns\n`,
+		);
+		return 1;
+	}
+	return printScreens(sizes, env);
+}
+
+/** @param {string[]} [argv] */
+function main(argv = process.argv.slice(2)) {
+	const parsed = parseOrCode(argv, {
+		usage: USAGE,
+		flags: { "--print": "boolean", "--columns": "value", "--rows": "value" },
+		min: 0,
+		max: 2,
+	});
+	if (typeof parsed === "number") return parsed;
+	if (parsed.flags["--print"]) {
+		if (parsed.positionals.length > 0) {
+			writeFd(2, `refill-panel: --print takes no pid\n${USAGE}`);
+			return 2;
+		}
+		return print(parsed.flags, process.env);
+	}
+	if (parsed.flags["--columns"] || parsed.flags["--rows"]) {
+		writeFd(2, `refill-panel: --columns and --rows go with --print\n${USAGE}`);
+		return 2;
+	}
+	if (parsed.positionals.length === 0) {
+		writeFd(2, `refill-panel: needs a pid\n${USAGE}`);
+		return 2;
+	}
+	const [given = "", route] = parsed.positionals;
+	if (!isCount(given)) {
+		writeFd(2, `refill-panel: not a pid: ${given}\n${USAGE}`);
+		return 2;
+	}
+	const env = { ...process.env, ...readViewEnv(Number(given)) };
+	const focusReturn = buildFocusReturn(route, env, process.env);
+	if (route !== undefined && !focusReturn) {
+		writeFd(2, `refill-panel: not a route: ${route}\n${USAGE}`);
+		return 2;
+	}
+	const pid = Number(given);
+	if (!pidAlive(pid)) return 0;
+	if (!process.stdin.isTTY || !process.stdout.isTTY) {
+		writeFd(2, "refill-panel: needs a terminal\n");
+		return 1;
+	}
+	openPanel({
+		pid,
+		stdin: process.stdin,
+		stdout: process.stdout,
+		proc: process,
+		run: (args) =>
+			runCommand(
+				process.execPath,
+				[LOOP_PROGRAM, ...args],
+				args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
+				env,
+			),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
+		resolveTopic: (text, repos, signal) =>
+			resolveTopic(text, repos, { env, signal }),
+		returnFocus: focusReturn
+			? () =>
+					runCommand(
+						focusReturn.file,
+						focusReturn.args,
+						FOCUS_TIMEOUT_MS,
+						focusReturn.env,
+					)
+			: async () => FOCUS_NOT_MOVED,
+		isAlive: pidAlive,
+		now: Date.now,
+		reportCrash,
+	});
+	return null;
+}
+
+module.exports = { main };
+
+if (require.main === module) {
+	const code = main();
+	if (code instanceof Promise)
+		code.then(
+			(printed) => {
+				process.exitCode = printed;
+			},
+			(err) => {
+				reportCrash(err);
+				process.exitCode = 1;
+			},
+		);
+	else if (code !== null) process.exitCode = code;
+}

@@ -1,0 +1,3 @@
+`docs/effort-guide.md` IS THE SOLE AUTHORITY ON MODEL AND EFFORT — WHICH TIER, WHICH SURFACE.
+
+Read it before choosing a model or effort for non-trivial work: §Which model each subagent dispatch runs on for a dispatch, §Which model to launch each session on for a session. A dispatch naming no model inherits this session's, which is no fault.

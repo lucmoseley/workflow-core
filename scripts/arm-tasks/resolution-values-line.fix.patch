@@ -1,0 +1,64 @@
+diff --git a/.claude/skills/architecture-scan/SKILL.md b/.claude/skills/architecture-scan/SKILL.md
+index 33b25921d6fd2f9dc4f1fae7affdd56bc4e2e16e..78d043e402716941531c919842511c6c3dd00f8f 100644
+--- a/.claude/skills/architecture-scan/SKILL.md
++++ b/.claude/skills/architecture-scan/SKILL.md
+@@ -241,6 +241,8 @@ commented on instead of filing, and the record commit, then:
+   filed.
+ - `**Bound:**` which hot files and partners were read in full and which only
+   sampled, and any §2 search that failed twice.
++- `**Values:**` each value the comment relies on that is house or untraced,
++  or `none`.
+ - `**Practice:**` the Leading practice call: `ran`, `covered`, `skipped` or
+   `none-fits`.
+ - `**Outstanding:**` the map.
+@@ -270,6 +272,7 @@ commented on instead of filing, and the record commit, then:
+ 5. **Close the map** with `node scripts/resolve-ticket.js <map> --comment-file <f>`:
+    Y, the declined, the threshold change and the record commit, with a
+    `**Door:**` line (two-way: revert the record commit and reopen the map), a
+-   `**Bound:**` line, a `**Practice:**` line
++   `**Bound:**` line, a `**Values:**` line (each house or untraced value it
++   relies on, or `none`), a `**Practice:**` line
+    and an `**Outstanding:**` line (none, or what the builds left open
+    elsewhere).
+diff --git a/.claude/skills/retro-sweep/SKILL.md b/.claude/skills/retro-sweep/SKILL.md
+index c1a6cae52775e1a44e6dacd432a37f995ee59c84..9cfa4594fc8721fccafd21e4a881231fedbec24f 100644
+--- a/.claude/skills/retro-sweep/SKILL.md
++++ b/.claude/skills/retro-sweep/SKILL.md
+@@ -229,7 +229,8 @@ names the model or models the picks ran on: where `medianTokens` exceeds
+ `**Door:**` line — two-way: revert the record commit and close the issues it
+ filed — a `**Bound:**` line naming which picks had a full retro and
+ which were read selectively, finished from an artefact or dropped, a
+-`**Practice:**` line, and an `**Outstanding:**` line naming the filed issues, or none, each
++`**Values:**` line naming each house or untraced value it relies on, or
++`none`, a `**Practice:**` line, and an `**Outstanding:**` line naming the filed issues, or none, each
+ with the snapshot search that came back empty for it.
+ `resolve-ticket.js` refuses an issue with an unticked criterion: tick each
+ the run met with `node scripts/issue-body.js tick <issue> --match "<criterion>"`
+diff --git a/scripts/resolve-ticket.js b/scripts/resolve-ticket.js
+index 3c6bbbcf5960a5069eee0e8202a652ca8d8ea6d9..5fe05abe269bd8a8c6b04b156a7feec58763a009 100644
+--- a/scripts/resolve-ticket.js
++++ b/scripts/resolve-ticket.js
+@@ -229,7 +229,7 @@ function checkCommentOrFail(comment, notPlanned) {
+ 		);
+ 	if (
+ 		outstandingLine.hasSha(comment) &&
+-		!/^\s*\*\*Door:\*\*\s*(two|one)-way\b/m.test(comment)
++		!hasLine(comment, "Door", "(two|one)-way\\b")
+ 	)
+ 		io.fail(
+ 			'the comment names a commit sha but has no **Door:** line reading two-way or one-way — "**Door:** two-way — <what undoing it takes>", or "**Door:** one-way — <which entry on the one-way list in docs/agents/issue-tracker.md>; <what undoing it takes, or that it cannot be undone>". Only a --reason "not planned" close is exempt. Nothing written.',
+diff --git a/scripts/resolve-ticket.test.ts b/scripts/resolve-ticket.test.ts
+index 19fbb884cd1e17704b05345b5b343a9846ac0809..365e823d179d793b857e9a04262358dcf64b3952 100644
+--- a/scripts/resolve-ticket.test.ts
++++ b/scripts/resolve-ticket.test.ts
+@@ -469,6 +469,10 @@ describe("refusals, all before any write", () => {
+ 	it.each([
+ 		["no Door line", ""],
+ 		["a Door line with neither label", "**Door:** probably fine.\n"],
++		[
++			"an empty Door line, its label on the next (#1750)",
++			"**Door:**\ntwo-way\n",
++		],
+ 	])("refuses a comment naming a commit sha with %s (#895)", (_, door) => {
+ 		setUp();
+ 		const r = run(

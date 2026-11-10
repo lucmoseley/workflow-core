@@ -1,0 +1,1502 @@
+diff --git a/docs/agents/rules/mutation-hold.txt b/docs/agents/rules/mutation-hold.txt
+index fa23d07763e11717cd64c6274c44d1e98554ca79..3fe88f55464afc7bf6e19a1aaff18a469cfe84cb 100644
+--- a/docs/agents/rules/mutation-hold.txt
++++ b/docs/agents/rules/mutation-hold.txt
+@@ -1 +1 @@
+-A COMMIT CHANGING A LINE ON A DECLARED SENSITIVE PATH IS HELD WHILE A PLANTED BUG ON THAT LINE SURVIVES EVERY TEST. StrykerJS plants the bugs, its mutants, on the lines the commit adds or changes there, and the hold refuses while it cannot judge them too: tests red on HEAD plus the commit's changes, Stryker or vitest not installed, or Stryker not finishing — fix what the refusal names and commit again. Where it lists mutants, `Survived` means every test still passed with that one in place, `NoCoverage` that no test ran the line at all. Clear each one of two ways. Write a test that fails with that mutant in place — its line names the file, line, column, mutator and what the source was changed to, so no run by hand is needed. Or, where the mutant cannot change behaviour (an unreachable guard, a sort tie-break, display text), put `// Stryker disable next-line <mutator>: <why it cannot change behaviour>` above its line, or wrap a message table in `// Stryker disable <mutators>: <why>` … `// Stryker restore <mutators>`. Mutants on lines this commit did not change are never charged to it, and there is no score to meet (#1851).
++A COMMIT CHANGING A LINE ON A DECLARED SENSITIVE PATH IS HELD WHILE A PLANTED BUG ON THAT LINE SURVIVES EVERY TEST. StrykerJS plants the bugs, its mutants, on the lines the commit adds or changes there, and the hold refuses while it cannot judge them too: tests red on HEAD plus the commit's changes, Stryker or vitest not installed, or Stryker not finishing — fix what the refusal names and commit again. Where it lists mutants, `Survived` means every test still passed with that one in place, `NoCoverage` that no test ran the line at all. Clear each one of two ways. Write a test that fails with that mutant in place — its line names the file, line, column, mutator and what the source was changed to, so no run by hand is needed. Or, where the mutant cannot change behaviour (an unreachable guard, a sort tie-break, display text), put `// Stryker disable next-line <mutator>: <why it cannot change behaviour>` above its line, or wrap a message table in `// Stryker disable <mutators>: <why>` … `// Stryker restore <mutators>`. A disable comment with no reason after its colon is refused, naming its line, where this commit adds it, turns old text into it, or widens its reach over a line it adds. Mutants on lines this commit did not change are never charged to it, and there is no score to meet (#1851).
+diff --git a/scripts/lib/stryker-comments.js b/scripts/lib/stryker-comments.js
+index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931062237f4 100644
+--- a/scripts/lib/stryker-comments.js
++++ b/scripts/lib/stryker-comments.js
+@@ -1,14 +1,78 @@
+ /*
+- * stryker-comments.js — the host Stryker config, loaded as the mutation hold's
+- * wrapper loads it for Stryker.
++ * stryker-comments.js — the comments Stryker 10's instrumenter reads in a
++ * file, parsed as it parses them, for the mutation hold's disable-comment
++ * check (#2366, #2573, #2624); and the host Stryker config, loaded as the
++ * hold's wrapper loads it for Stryker.
++ *
++ *   node scripts/lib/stryker-comments.js < request.json
++ *
++ * is `readComments` over the request on stdin, `{files}` holding its result
++ * as JSON on fd RESULT_FD, or `{error}` where Babel will not load: not stdout,
++ * where a host Babel or Stryker config may print (#2727). A child, since the
++ * instrumenter parses with `parseAsync`, which alone loads a Babel config
++ * holding top-level await, and the host config is loaded by `import()`.
+  */
+ 
+ const fs = require("node:fs");
++const { createRequire } = require("node:module");
+ const path = require("node:path");
+ const { pathToFileURL } = require("node:url");
+ const { caught } = require("./caught.js");
++const { parseErrorFirstLine } = require("./first-line.js");
++const { readFdAll } = require("./read-fd.js");
++const { writeFd } = require("./write-fd.js");
+ 
+ const HOST_CONFIG_FAULT = "could not read the host's Stryker config";
++const RESULT_FD = 3;
++const NOT_CHILDREN = new Set([
++	"leadingComments",
++	"trailingComments",
++	"innerComments",
++	"loc",
++	"extra",
++]);
++
++/* The parser plugins Stryker 10's instrumenter passes Babel
++ * (`parsers/js-parser.js`, and `ts-parser.js` through its presets), each
++ * parse a module, as both set or default it. A JS parse takes the host's
++ * `mutator.plugins` in their place where set. Residual: a host Stryker at
++ * another version than the hold's STRYKER_VERSION may parse with other
++ * plugins. */
++const JS_PLUGINS = [
++	"doExpressions",
++	"exportDefaultFrom",
++	"functionBind",
++	"functionSent",
++	"importMeta",
++	["pipelineOperator", { proposal: "fsharp" }],
++	"throwExpressions",
++	"v8intrinsic",
++	"partialApplication",
++	"decorators",
++	"jsx",
++];
++const TS_PLUGINS = [
++	"typescript",
++	"decorators-legacy",
++	"explicitResourceManagement",
++];
++/* `ts-parser.js` adds `preset-react`, so JSX, for a TSX parse. */
++const TSX_PLUGINS = [...TS_PLUGINS, "jsx"];
++
++/** @typedef {"js"|"ts"|"tsx"} ParseKind */
++/**
++ * Set here: `leads`, the line the node it is a leading comment of starts on,
++ * since Stryker reads only those, binding a `next-line` directive to that line
++ * and opening a region there (instrumenter `directive-bookkeeper.js`);
++ * `within`, the line spans of that node's ancestors, since Stryker reads no
++ * directive under one overlapping none of its `mutate` ranges
++ * (`babel-transformer.js` skips its subtree); and `block` and `blockEnd`, the
++ * piece it sits in and that piece's last line, since each `<script>` block has
++ * a bookkeeper of its own (`html-transformer.js`).
++ * @typedef {{type: string, value: string, start: number, loc: {start: {line: number}, end: {line: number}}, leads?: number, within?: [number, number][], block: number, blockEnd: number}} BabelComment
++ */
++/** @typedef {{id: string, filename: string, pieces: {code: string, kind: ParseKind}[]}} ParseEntry */
++/** @typedef {Record<string, {comments: BabelComment[]} | {error: string}>} ReadComments */
+ 
+ /**
+  * The options object a host Stryker config at `file` exports, its default
+@@ -34,4 +98,131 @@ async function loadStrykerConfig(file) {
+ 	return base;
+ }
+ 
+-module.exports = { HOST_CONFIG_FAULT, loadStrykerConfig };
++/**
++ * Babel's core as the host's Stryker install ships it, beside its
++ * instrumenter, which parses through it.
++ * @param {string} root
++ * @returns {{parseAsync: (code: string, opts: object) => Promise<{comments: BabelComment[], program: unknown} | null>}}
++ */
++function hostBabel(root) {
++	const core = createRequire(
++		path.join(root, "node_modules", "@stryker-mutator/core", "package.json"),
++	);
++	return createRequire(
++		core.resolve("@stryker-mutator/instrumenter/package.json"),
++	)("@babel/core");
++}
++
++/**
++ * Set `leads` and `within` on every leading comment under `node`, the
++ * outermost node's where several share one.
++ * @param {unknown} node accumulator: its comment objects are written in place
++ * @param {[number, number][]} within the spans of `node`'s ancestors
++ */
++function markLeads(node, within) {
++	if (typeof node !== "object" || node === null) return;
++	if (Array.isArray(node)) {
++		for (const n of node) markLeads(n, within);
++		return;
++	}
++	const n =
++		/** @type {{loc?: {start: {line: number}, end: {line: number}}, leadingComments?: BabelComment[]}} */ (
++			node
++		);
++	if (n.loc === undefined) {
++		markChildren(n, within);
++		return;
++	}
++	for (const c of n.leadingComments ?? [])
++		if (c.leads === undefined) {
++			c.leads = n.loc.start.line;
++			c.within = within;
++		}
++	markChildren(n, [
++		...within,
++		/** @type {[number, number]} */ ([n.loc.start.line, n.loc.end.line]),
++	]);
++}
++
++/**
++ * markLeads over each child of `node`.
++ * @param {object} node
++ * @param {[number, number][]} within
++ */
++function markChildren(node, within) {
++	for (const [k, v] of Object.entries(node))
++		if (!NOT_CHILDREN.has(k)) markLeads(v, within);
++}
++
++/**
++ * Every comment Babel reads in each entry's pieces, keyed by its id, or the
++ * first line of why it would not: JS under the host's Babel config and
++ * `mutator.plugins` (`parsers/js-parser.js` passes `filename` and leaves
++ * config loading on), TypeScript under neither (`ts-parser.js` turns it off).
++ * @param {{root: string, strykerConfig: string|null, entries: ParseEntry[]}} request
++ * @returns {Promise<ReadComments>}
++ */
++async function readComments({ root, strykerConfig, entries }) {
++	const babel = hostBabel(root);
++	/** @type {Promise<unknown[]> | undefined} */
++	let jsPlugins;
++	const pluginsFor = (/** @type {ParseKind} */ kind) => {
++		if (kind === "ts") return TS_PLUGINS;
++		if (kind === "tsx") return TSX_PLUGINS;
++		jsPlugins ??=
++			strykerConfig === null
++				? Promise.resolve(JS_PLUGINS)
++				: loadStrykerConfig(path.join(root, strykerConfig)).then(
++						(c) =>
++							/** @type {{mutator?: {plugins?: unknown[] | null}}} */ (c)
++								.mutator?.plugins ?? JS_PLUGINS,
++					);
++		return jsPlugins;
++	};
++	/** @type {ReadComments} */
++	const out = {};
++	for (const { id, filename, pieces } of entries) {
++		try {
++			/** @type {BabelComment[]} */
++			const comments = [];
++			for (const [block, { code, kind }] of pieces.entries()) {
++				const ast = await babel.parseAsync(code, {
++					cwd: root,
++					filename: path.join(root, filename),
++					sourceType: "module",
++					parserOpts: { plugins: [...(await pluginsFor(kind))] },
++					...(kind === "js" ? {} : { configFile: false, babelrc: false }),
++				});
++				if (ast === null) throw new Error("the host's Babel config ignores it");
++				markLeads(ast.program, []);
++				const blockEnd = code.split("\n").length;
++				for (const c of ast.comments) {
++					c.block = block;
++					c.blockEnd = blockEnd;
++				}
++				comments.push(...ast.comments);
++			}
++			out[id] = { comments };
++		} catch (e) {
++			out[id] = { error: parseErrorFirstLine(e) };
++		}
++	}
++	return out;
++}
++
++/** @param {object} result */
++function answerAndExit(result) {
++	writeFd(RESULT_FD, JSON.stringify(result));
++	// A host config's timer or open handle would keep the child past its answer.
++	process.exit();
++}
++
++if (require.main === module)
++	readComments(JSON.parse(readFdAll(0).toString("utf8"))).then(
++		(files) => answerAndExit({ files }),
++		(e) => answerAndExit({ error: parseErrorFirstLine(e) }),
++	);
++
++// The hold's wrapper imports loadStrykerConfig from ESM by name, which
++// Node finds only while this stays a literal object.
++module.exports = { HOST_CONFIG_FAULT, RESULT_FD, loadStrykerConfig };
+diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
+index d039641485676c6bd34da8b944af6ef8b0f547f3..dd306f672be452bc9d2dd9cbe3a3ce63a44b7712 100644
+--- a/scripts/mutation-hold-gate.js
++++ b/scripts/mutation-hold-gate.js
+@@ -4,9 +4,9 @@
+  * declared sensitive path, while a planted bug on it survives every test
+  * (#1906, spec #1871).
+  *
+- * IMPLICIT:  with the `mutation` module on, refuses a commit whose staged code paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json` while any mutant StrykerJS plants on a line the commit adds or changes survives, or has no covering test, or while the suite is red on HEAD plus the commit's changes; the refusal names the areas, one line per mutant and rule:mutation-hold.
++ * IMPLICIT:  with the `mutation` module on, refuses a commit whose staged code paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json` while any mutant StrykerJS plants on a line the commit adds or changes survives, or has no covering test, or while the suite is red on HEAD plus the commit's changes; the refusal names the areas, one line per mutant and rule:mutation-hold. It refuses too, running nothing, a `Stryker disable` comment stating no reason that the commit adds, arms, or widens over a line it adds.
+  * JUSTIFIED: fail-safe — branch coverage reads high where planted bugs survive every test (#1851), so a test gap on money or personal-data code is seen at commit or not at all.
+- * DEFEAT:    a `// Stryker disable` comment over the mutant; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack; WFC_STRYKER names the Stryker binary, so a value writing an all-killed report defeats it.
++ * DEFEAT:    a reasoned `// Stryker disable` comment over the mutant; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack; WFC_STRYKER names the Stryker binary, so a value writing an all-killed report defeats it; WFC_MUTATION_COMMENTS_TIMEOUT_MS set too short leaves the disable comments unread, so Stryker honours an unreasoned one.
+  *
+  *   node scripts/mutation-hold-gate.js             from .husky/pre-commit
+  *   node scripts/mutation-hold-gate.js --due       from commit-paths
+@@ -57,6 +57,15 @@
+  * report carries cached results from other ranges (#1901). A failed initial
+  * test run refuses as red tests.
+  *
++ * DISABLE COMMENTS are read after the missing-tool check (#2366): the read
++ * goes through the instrumenter's `@babel/core` under the host's Babel config
++ * and `mutator.plugins`, asynchronously as Stryker parses (#2573, #2624), so a
++ * missing Stryker refuses first, and an unreasoned comment refuses before
++ * Stryker runs. Residual: a Babel that will not load, a file it or git will
++ * not read, or a config that throws, ignores the file or runs past
++ * COMMENTS_TIMEOUT_MS leaves that file's comments unread, named on stderr and
++ * logged, and Stryker still judges every file (#2727).
++ *
+  * MISSING TOOLS refuse, never pass (#1911): either Stryker package, or vitest,
+  * absent from the checkout's own `node_modules`, the one the run's worktree
+  * links. The refusal prints the install line at STRYKER_VERSION. Residual: a
+@@ -106,16 +115,18 @@ const { pathToFileURL } = require("node:url");
+ const { writeFileAtomic } = require("./lib/atomic-write.js");
+ const { parseOrCode } = require("./lib/cli-args.js");
+ const { caught } = require("./lib/caught.js");
++const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+ const { shellQuote } = require("./lib/sh-quote.js");
+ const { failOpenLogger } = require("./lib/fail-open-logger.js");
+-const { parseErrorFirstLine } = require("./lib/first-line.js");
++const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
+ const { hostRoot } = require("./lib/host-root.js");
+ const { readFileAt } = require("./lib/git-objects.js");
+ const { parseHeader } = require("./lib/hunk-header.js");
+ const { runInTree } = require("./lib/isolated-worktree.js");
+ const { readRuleTextOr } = require("./lib/rule-text.js");
+ const { matchSensitivePaths } = require("./lib/sensitive-paths.js");
+-const { HOST_CONFIG_FAULT } = require("./lib/stryker-comments.js");
++const { requiredGroup } = require("./lib/regex-group.js");
++const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
+ const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
+ const { writeFd } = require("./lib/write-fd.js");
+ 
+@@ -139,7 +150,12 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
+ const RED_INITIAL = "There were failed tests in the initial test run";
+ 
+ /** @typedef {{start: number, end: number}} LineRange 1-based, inclusive */
++/** @typedef {{at: string, text: string}} Disable `path:line` and the comment */
+ /** @typedef {import("./lib/hunk-header.js").HunkHeader} HunkHeader */
++/** @typedef {import("./lib/stryker-comments.js").BabelComment} BabelComment */
++/** @typedef {import("./lib/stryker-comments.js").ParseEntry} ParseEntry */
++/** @typedef {import("./lib/stryker-comments.js").ParseKind} ParseKind */
++/** @typedef {import("./lib/stryker-comments.js").ReadComments} ReadComments */
+ 
+ const REFUSING = new Set(["Survived", "NoCoverage"]);
+ const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
+@@ -189,7 +205,26 @@ const CONFIG_NAMES = ["", "."].flatMap((dot) =>
+ const TEST_RUNNER = "vitest";
+ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
+ 
++/* Stryker 10's own directive parser, matched against a comment's text
++ * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. Every
++ * disable it matches must hold DISABLE_TEXT verbatim. */
++const DIRECTIVE =
++	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
++/* The text every disable DIRECTIVE matches holds: a staged copy without it
++ * can be charged nothing, so is never parsed (#4307). */
++const DISABLE_TEXT = "Stryker disable";
++const COMPONENT = /\.(html|vue|svelte)$/;
++const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
++const ATTRIBUTE = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
++/* Stryker 10's script types (`parsers/html-parser.js`). */
++const TSX_SCRIPT_TYPES = ["tsx", "text/tsx"];
++const TS_SCRIPT_TYPES = ["ts", "text/typescript", "typescript"];
++const JS_SCRIPT_TYPES = ["js", "text/javascript", "javascript", "module"];
++const DISABLES_UNREAD = "could not read the added disable comments";
+ const STRYKER_COMMENTS = path.join(__dirname, "lib", "stryker-comments.js");
++/* How long the comment read may run: a guess, far past Babel's load and parse
++ * of a commit's files, short of a hang anyone waits out. */
++const COMMENTS_TIMEOUT_MS = 30_000;
+ 
+ const CACHE_NAME = "wfc-mutation-incremental.json";
+ 
+@@ -374,6 +409,24 @@ const addedRanges = (hunks) =>
+ 		.filter((h) => h.newCount > 0)
+ 		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
+ 
++/**
++ * The line HEAD holds where the staged file holds `line`, or null where the
++ * commit adds it.
++ * @param {HunkHeader[]} hunks the file's, from a zero-context diff
++ * @param {number} line
++ */
++function findHeadLine(hunks, line) {
++	let shift = 0;
++	for (const h of hunks) {
++		const last = h.newStart + h.newCount - 1;
++		if (h.newCount > 0 && h.newStart <= line && line <= last) return null;
++		// A pure deletion's new start is the line it follows.
++		if ((h.newCount > 0 ? last : h.newStart) < line)
++			shift += h.oldCount - h.newCount;
++	}
++	return line + shift;
++}
++
+ /**
+  * Says a fail-open on stderr and writes it to the fail-open log.
+  * @param {string} stderrLine after its `pre-commit: ` prefix
+@@ -384,6 +437,375 @@ function reportFailOpen(stderrLine, logLine) {
+ 	failOpenLogger("mutation-hold-gate.js")?.(logLine);
+ }
+ 
++/**
++ * Says on stderr and in the fail-open log that the disable comments `where`
++ * names went unread, and `why`.
++ * @param {string} where
++ * @param {string} why
++ */
++function reportUnread(where, why) {
++	const detail = `${where}: ${why}`;
++	reportFailOpen(
++		`the mutation hold ${DISABLES_UNREAD} in ${detail}, so Stryker alone judges them.`,
++		`${DISABLES_UNREAD} — a commit's disable comments went unchecked\t${detail}`,
++	);
++}
++
++/**
++ * How Stryker parses a `<script>` block, from its attributes, or null where it
++ * parses none: Svelte's `parsers/svelte-parser.js` reads `lang`
++ * alone; `parsers/html-parser.js`'s `getScriptType` skips a `src` script and
++ * reads `type`, else `lang`, skipping a type it does not know.
++ * @param {string} file
++ * @param {string} attributes
++ * @returns {ParseKind | null}
++ */
++function scriptKind(file, attributes) {
++	/** @type {Map<string, string>} */
++	const attrs = new Map(
++		[...attributes.matchAll(ATTRIBUTE)].map((a) => [
++			requiredGroup(a, 1, ATTRIBUTE).toLowerCase(),
++			// An attribute with no value (`<script setup>`) reads as "", as the DOM reads it.
++			a[2] ?? a[3] ?? a[4] ?? "",
++		]),
++	);
++	if (file.endsWith(".svelte")) return attrs.get("lang") === "ts" ? "ts" : "js";
++	if (attrs.has("src")) return null;
++	const type = (attrs.get("type") ?? attrs.get("lang"))?.toLowerCase();
++	if (type === undefined || JS_SCRIPT_TYPES.includes(type)) return "js";
++	if (TSX_SCRIPT_TYPES.includes(type)) return "tsx";
++	return TS_SCRIPT_TYPES.includes(type) ? "ts" : null;
++}
++
++/**
++ * How Stryker parses a file that is not a component format.
++ * @param {string} file
++ * @returns {ParseKind}
++ */
++function fileKind(file) {
++	if (file.endsWith(".tsx")) return "tsx";
++	return /\.[cm]?ts$/.test(file) ? "ts" : "js";
++}
++
++/**
++ * The code Stryker parses in `file`, each piece with how it parses it: the whole
++ * file, or each `<script>` block of a component format it parses, padded so
++ * its lines keep the file's numbers.
++ * Residual: a comment inside a Svelte template expression, which Stryker also
++ * mutates, is never read.
++ * @param {string} file
++ * @param {string} source
++ */
++function scriptsOf(file, source) {
++	if (!COMPONENT.test(file))
++		return [
++			{
++				code: source,
++				kind: fileKind(file),
++			},
++		];
++	return [...source.matchAll(SCRIPT)].flatMap((m) => {
++		const kind = scriptKind(file, requiredGroup(m, 2, SCRIPT));
++		if (kind === null) return [];
++		const opened = m.index + requiredGroup(m, 1, SCRIPT).length;
++		return [
++			{
++				code: `${source.slice(0, opened).replace(/[^\n]/g, " ")}${requiredGroup(m, 3, SCRIPT)}`,
++				kind,
++			},
++		];
++	});
++}
++
++/**
++ * Every comment in each entry, or the first line of why none was (#2624).
++ * @param {string} root
++ * @param {string|null} strykerConfig the host's Stryker config, named under `root`
++ * @param {ParseEntry[]} entries
++ * @returns {{files: ReadComments} | {error: string}}
++ */
++function readCommentsInChild(root, strykerConfig, entries) {
++	const timeout =
++		Number(process.env.WFC_MUTATION_COMMENTS_TIMEOUT_MS) || COMMENTS_TIMEOUT_MS;
++	const r = spawnSync(process.execPath, [STRYKER_COMMENTS], {
++		input: JSON.stringify({ root, strykerConfig, entries }),
++		encoding: "utf8",
++		// The result's own fd: a host config may print on stdout (#2727).
++		stdio: ["pipe", "ignore", "pipe", "pipe"],
++		maxBuffer: CHILD_MAX_BUFFER,
++		timeout,
++	});
++	if (caught(r.error).code === "ETIMEDOUT")
++		return { error: `timed out after ${timeout} ms` };
++	try {
++		return JSON.parse(r.output[RESULT_FD] ?? "");
++	} catch {
++		return {
++			error: r.error
++				? parseErrorFirstLine(r.error)
++				: parseFirstLine(r.stderr ?? "") || `exit ${r.status}`,
++		};
++	}
++}
++
++/**
++ * The line a comment's directive sits on: its first, or the next where its
++ * text opens on the line break DIRECTIVE's `^\s?` lets through.
++ * @param {BabelComment} c
++ */
++const findDirectiveLine = (c) =>
++	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
++
++/** @typedef {{verb: string, scope: string | undefined, mutators: string[], reason: string | undefined}} ParsedDirective a DIRECTIVE match by part */
++/** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive a comment and its directive */
++
++/**
++ * A comment's Stryker directive by part, its mutators lower-cased, or null
++ * where its text holds none.
++ * @param {string} text the comment's value
++ * @returns {ParsedDirective | null}
++ */
++function parseDirective(text) {
++	const d = DIRECTIVE.exec(text);
++	if (d === null) return null;
++	return {
++		verb: requiredGroup(d, 1, DIRECTIVE),
++		scope: d[2],
++		mutators: requiredGroup(d, 3, DIRECTIVE)
++			.split(",")
++			.map((m) => m.trim().toLowerCase()),
++		reason: d[4],
++	};
++}
++
++/**
++ * The comments holding a `Stryker disable` directive stating no reason after
++ * its colon, each with its directive.
++ * @param {BabelComment[]} comments
++ * @returns {Directive[]}
++ */
++const unreasonedIn = (comments) =>
++	comments.flatMap((comment) => {
++		const directive = parseDirective(comment.value);
++		return directive?.verb === "disable" &&
++			(directive.reason === undefined || directive.reason.trim() === "")
++			? [{ comment, directive }]
++			: [];
++	});
++
++/**
++ * Whether the commit adds a line from `from` to `to`, inclusive.
++ * @param {LineRange[]} added
++ * @param {number} from
++ * @param {number} to
++ */
++const hasAddedBetween = (added, from, to) =>
++	added.some((r) => r.start <= to && from <= r.end);
++
++/**
++ * Whether Stryker reads a comment's directive: one leading a node no ancestor
++ * of which it skips for overlapping no line the commit adds.
++ * @param {BabelComment} c
++ * @param {LineRange[]} added
++ * @returns {c is BabelComment & {leads: number}}
++ */
++const isRead = (c, added) =>
++	c.leads !== undefined &&
++	(c.within ?? []).every(([s, e]) => hasAddedBetween(added, s, e));
++
++/**
++ * The line a region directive's reach ends before: the line the first later
++ * `restore` comment Stryker reads in its block leads that lifts every mutator
++ * it names, as Stryker's bookkeeper lifts them, or the line past its block.
++ * @param {Directive} disable
++ * @param {BabelComment[]} comments the file's, in source order
++ * @param {LineRange[]} added
++ */
++function regionEnd({ comment: c, directive }, comments, added) {
++	let open = directive.mutators;
++	for (const r of comments) {
++		if (r.start <= c.start || r.block !== c.block || !isRead(r, added))
++			continue;
++		const d = parseDirective(r.value);
++		if (d?.verb !== "restore" || d.scope === "next-line") continue;
++		const lifted = d.mutators;
++		if (!lifted.includes("all") && open.includes("all")) continue;
++		open = lifted.includes("all")
++			? []
++			: open.filter((m) => !lifted.includes(m));
++		if (open.length === 0) return r.leads;
++	}
++	return c.blockEnd + 1;
++}
++
++/**
++ * Whether a disable directive Stryker reads reaches a line the commit adds: a
++ * `next-line` one the line of the node its comment leads, a region from there
++ * to its regionEnd.
++ * @param {Directive} disable
++ * @param {BabelComment[]} comments the file's, in source order
++ * @param {LineRange[]} added
++ */
++function hasAddedInReach(disable, comments, added) {
++	if (!isRead(disable.comment, added)) return false;
++	const from = disable.comment.leads;
++	const until =
++		disable.directive.scope === "next-line"
++			? from + 1
++			: regionEnd(disable, comments, added);
++	return hasAddedBetween(added, from, until - 1);
++}
++
++/**
++ * The unreasoned `Stryker disable` directives in a staged file the commit
++ * answers for (#1909): each whose line the commit adds, or maps to a line
++ * where HEAD holds no such directive, since editing an enclosing comment's
++ * text or delimiters can turn old text into a directive (#2573, #2624); and
++ * each whose reach the commit widens over a line it adds, by adding a line
++ * under it or deleting its `restore` (#2727). Where HEAD's copy went unread
++ * (`held` null), one whose comment's opening line the commit adds stands in
++ * for the HEAD comparison.
++ * @param {BabelComment[]} comments the staged file's
++ * @param {HunkHeader[]} fileHunks
++ * @param {Set<number> | null} held HEAD's unreasoned directive lines
++ */
++function chargedIn(comments, fileHunks, held) {
++	const added = addedRanges(fileHunks);
++	return unreasonedIn(comments)
++		.filter((disable) => {
++			const line = findDirectiveLine(disable.comment);
++			const was = findHeadLine(fileHunks, line);
++			if (was === null) return true;
++			const armed =
++				held === null
++					? hasAddedBetween(added, disable.comment.loc.start.line, line)
++					: !held.has(was);
++			return armed || hasAddedInReach(disable, comments, added);
++		})
++		.map((disable) => disable.comment);
++}
++
++/**
++ * Says on stderr and in the fail-open log that `file`'s copy at HEAD went
++ * unread, and `why`.
++ * @param {string} file
++ * @param {string} why
++ */
++function reportDegraded(file, why) {
++	reportFailOpen(
++		`the mutation hold could not read ${file} at HEAD (${why}), so it charges only the directives on lines this commit adds, in comments whose opening line it adds, or whose reach it widens.`,
++		`could not read a file at HEAD — an old disable comment the commit arms went unchecked\t${file}: ${why}`,
++	);
++}
++
++/**
++ * The unreasoned `Stryker disable` comments the commit answers for, by
++ * chargedIn. Each staged file holding DISABLE_TEXT, and its HEAD copy, is
++ * read through Babel's parser as Stryker reads it, so a `//` inside a string
++ * is no comment and a directive on its own line inside a block comment is one
++ * (#2366). A git fault reading one file's copy costs that file alone: its
++ * staged copy unread, or its HEAD copy read as unparseable (#2727).
++ * Residual: any text after the colon passes, `: x` included; one armed in a
++ * file the commit adds no line to passes, since that file is not read (and a
++ * deletion-only commit runs nothing, #1871 story 30); where HEAD's copy went
++ * unread, one armed by any edit but to its comment's opening line passes; a
++ * region a later reasoned directive overrides is charged as its own; a file
++ * holding no DISABLE_TEXT goes unparsed, so a read that would have failed on
++ * it is never reported; and the configs are read from the working tree,
++ * Stryker's from the staged one, so an unstaged edit to either parts the two
++ * reads.
++ * @param {string} root
++ * @param {string|null} strykerConfig the host's Stryker config the staged tree holds
++ * @param {Map<string, HunkHeader[]>} hunks each read file's
++ * @returns {Disable[]}
++ */
++function unreasonedDisables(root, strykerConfig, hunks) {
++	/** @type {string[]} */
++	const files = [];
++	/** @type {Map<string, string>} why a file's HEAD copy went unread */
++	const headUnread = new Map();
++	/** @type {ParseEntry[]} */
++	const entries = [];
++	/** @param {unknown} e */
++	const buildFaultText = (e) => {
++		if (!(e instanceof HoldFaultError)) throw e;
++		return `${e.message}: ${e.detail}`;
++	};
++	for (const file of hunks.keys()) {
++		let staged;
++		try {
++			staged = readStagedFile(file);
++		} catch (e) {
++			// Fails open for this file alone; Stryker still judges every file (#2727).
++			reportUnread(file, buildFaultText(e));
++			continue;
++		}
++		if (!staged.includes(DISABLE_TEXT)) continue;
++		files.push(file);
++		entries.push({
++			id: `:${file}`,
++			filename: file,
++			pieces: scriptsOf(file, staged),
++		});
++		try {
++			const head = readFileOrFault(
++				"HEAD",
++				file,
++				"could not read a file at HEAD",
++			);
++			if (head !== null)
++				entries.push({
++					id: `HEAD:${file}`,
++					filename: file,
++					pieces: scriptsOf(file, head),
++				});
++		} catch (e) {
++			// Fails open to the degraded charge, reported per file below (#2727).
++			headUnread.set(file, buildFaultText(e));
++		}
++	}
++	if (files.length === 0) return [];
++	const read = readCommentsInChild(root, strykerConfig, entries);
++	if ("error" in read) {
++		// Fails open, logged: the tools the missing-tool check reads are
++		// installed, so only a Stryker laid out unlike 10.0.0's, a host config
++		// that hangs, or a child that will not run, gets here (#2366, #2727).
++		reportUnread(files.join(", "), read.error);
++		return [];
++	}
++	const byId = read.files;
++	return files.flatMap((file) => {
++		const staged = byId[`:${file}`];
++		if (staged === undefined || "error" in staged) {
++			// Fails open to Stryker's own parse. On a file Stryker cannot parse
++			// either, no mutant is judged green unread (#2366); on one the
++			// working-tree configs alone break, Stryker honours what went unread.
++			reportUnread(file, staged?.error ?? "no result");
++			return [];
++		}
++		const head = byId[`HEAD:${file}`];
++		const headError =
++			headUnread.get(file) ??
++			(head !== undefined && "error" in head ? head.error : undefined);
++		/** @type {Set<number> | null} */
++		let held = new Set();
++		if (headError !== undefined) {
++			reportDegraded(file, headError);
++			held = null;
++		} else if (head !== undefined && "comments" in head)
++			held = new Set(
++				unreasonedIn(head.comments).map((d) => findDirectiveLine(d.comment)),
++			);
++		return chargedIn(staged.comments, hunks.get(file) ?? [], held).map((c) => ({
++			at: `${file}:${findDirectiveLine(c)}`,
++			text: (c.type === "CommentLine"
++				? `//${c.value}`
++				: `/*${c.value}*/`
++			).replace(/\s+/g, " "),
++		}));
++	});
++}
++
+ /**
+  * The mutated span's source text. A location outside the source is a report
+  * that will not read, so the hold fails open on it (#2078, #1871 §Faults).
+@@ -702,7 +1124,8 @@ function judge(report, ranges) {
+ 
+ /**
+  * The areas the staged paths touch, under the declaration at HEAD or as
+- * staged, and the ranges of the lines they add on paths Stryker can mutate.
++ * staged, and the ranges of the lines they add on paths Stryker can mutate,
++ * with each such path's hunks.
+  * @param {ConfigCopy[]} copies
+  * @param {string[]} staged
+  */
+@@ -719,11 +1142,16 @@ function readHeldRanges(copies, staged) {
+ 		}
+ 	/** @type {Map<string, LineRange[]>} */
+ 	const ranges = new Map();
++	/** @type {Map<string, HunkHeader[]>} */
++	const hunks = new Map();
+ 	for (const p of mutableReportingSkips([...matched].sort(), HOOK_VOICE)) {
+-		const rs = addedRanges(readStagedHunks(p));
+-		if (rs.length > 0) ranges.set(p, rs);
++		const hs = readStagedHunks(p);
++		const rs = addedRanges(hs);
++		if (rs.length === 0) continue;
++		ranges.set(p, rs);
++		hunks.set(p, hs);
+ 	}
+-	return { areas: [...areas].sort(), ranges };
++	return { areas: [...areas].sort(), ranges, hunks };
+ }
+ 
+ /**
+@@ -799,6 +1227,16 @@ function readRuleOrPointer() {
+ 	);
+ }
+ 
++/** @param {Disable[]} unreasoned */
++function unreasonedRefusal(unreasoned) {
++	return [
++		"pre-commit: this commit adds, arms or widens over its own lines a `Stryker disable` comment stating no reason on a declared sensitive path, so no mutant was judged (#1909, #2727).",
++		...unreasoned.map(({ at, text }) => `  ${at}  ${text.trim()}`),
++		"  Say after a colon why the mutants it clears cannot change behaviour — `// Stryker disable next-line <mutator>: <reason>` — and commit again.",
++		"",
++	].join("\n");
++}
++
+ /**
+  * The refusal for a run's outcome, or null where it passes.
+  * @param {ReturnType<typeof runStryker>} run
+@@ -852,6 +1290,12 @@ function hold(mode) {
+ 		const missing = missingToolRefusal(root, HOOK_VOICE);
+ 		if (missing !== null) return refuse(missing);
+ 		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();
++		const unreasoned = unreasonedDisables(
++			root,
++			readHostConfig(tree),
++			held.hunks,
++		);
++		if (unreasoned.length > 0) return refuse(unreasonedRefusal(unreasoned));
+ 		writeFd(
+ 			2,
+ 			`pre-commit: the mutation hold is running Stryker over ${[...held.ranges.values()].flat().length} changed range(s) on ${held.areas.join(", ")}.\n`,
+diff --git a/scripts/mutation-hold-gate.test.ts b/scripts/mutation-hold-gate.test.ts
+index f99945d18b83e2851b98d9390dccc7157b1c11cb..b680477a772db3275063de9f7fd8b7e9f051219d 100644
+--- a/scripts/mutation-hold-gate.test.ts
++++ b/scripts/mutation-hold-gate.test.ts
+@@ -248,6 +248,16 @@ const gitRefuses = (
+ 		{ under: scratch },
+ 	).git,
+ });
++/** A `git cat-file --batch` asked for `object` fails; every other call runs. */
++const batchRefuses = (object: string) => ({
++	WFC_GIT: writeFaultyGit(
++		{ words: ["cat-file", "--batch"] },
++		{
++			script: `in="$(cat)"; case "$in" in *${shellQuote(object)}*) ${STUB_GIT_REFUSAL} ;; esac; printf '%s\\n' "$in" | "$REAL_GIT" "$@"; exit $?`,
++		},
++		{ under: scratch },
++	).git,
++});
+ const routeRefuses = () =>
+ 	onPath(
+ 		"sh",
+@@ -528,6 +538,342 @@ describe("mutation-hold-gate.js — the verdict", () => {
+ });
+ 
+ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
++	/** SEED with `comment` added above line 2, the fee guard. */
++	const HangingBabel =
++		"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n";
++	const HangTimeout = { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "300" };
++	const disableAbove = (comment: string) =>
++		write(
++			MONEY,
++			SEED.replace("  if (amount > 100)", `  ${comment}\n  if (amount > 100)`),
++		);
++
++	it.each([
++		"// Stryker disable next-line all",
++		"// Stryker disable next-line ConditionalExpression:",
++		"// Stryker disable next-line all:   ",
++		"/* Stryker disable next-line all: */",
++		"// Stryker disable StringLiteral,ObjectLiteral",
++		"/* Stryker disable next-line all */ const x = a ? b : c;",
++		"/* Stryker disable all */ const t = { a: 1 };",
++	])("refuses an added %j, naming its line, and runs nothing", (comment) => {
++		disableAbove(comment);
++		const r = commit([MONEY]);
++		expectHeld(r);
++		expect(r.stderr).toContain("stating no reason");
++		expect(r.stderr).toContain("Say after a colon why");
++		const printed = /^(\/\/.*|\/\*.*?\*\/)/.exec(comment)?.[1].trim();
++		expect(r.stderr).toContain(`  lib/money.js:2  ${printed}`);
++		expectRuleAppended(r);
++		expect(readRuns()).toEqual([]);
++	});
++
++	it.each([
++		[
++			"a directive on its own line inside a block comment",
++			"/*\nStryker disable next-line all\n*/",
++			"/* Stryker disable next-line all */",
++			3,
++		],
++		[
++			"a line comment after a string holding //",
++			'const u = "https://x"; // Stryker disable all',
++			"// Stryker disable all",
++			2,
++		],
++		[
++			"a line comment after a string holding /*",
++			'const s = "/*"; // Stryker disable next-line all',
++			"// Stryker disable next-line all",
++			2,
++		],
++	])(
++		"refuses %s, as Babel's parser reads it (#2366)",
++		(_, comment, printed, line) => {
++			disableAbove(comment);
++			const r = commit([MONEY]);
++			expectHeld(r);
++			expect(r.stderr).toContain(`  lib/money.js:${line}  ${printed}\n`);
++			expect(readRuns()).toEqual([]);
++		},
++	);
++
++	it.each([
++		"/* Stryker disable next-line all: an unreachable guard */ // Stryker disable all",
++		"/* Stryker disable all */ // Stryker disable next-line all: an unreachable guard",
++	])(
++		"refuses a line where any directive is unreasoned, naming it once: %j",
++		(comment) => {
++			disableAbove(comment);
++			const r = commit([MONEY]);
++			expectHeld(r);
++			expect(r.stderr).toContain("stating no reason");
++			expect(r.stderr.match(/ {2}lib\/money\.js:2 {2}/g)).toHaveLength(1);
++		},
++	);
++
++	it.each([
++		["lib/Widget.vue", 'setup lang="ts"', "const n: number = 1;"],
++		["lib/Widget.vue", 'lang="tsx"', "const n = <b>{1 as number}</b>;"],
++		["lib/page.html", 'type="text/typescript"', "const n: number = 1;"],
++		["lib/Widget.svelte", 'lang="ts"', "const n: number = 1;"],
++	])(
++		"refuses an unreasoned directive in %s's <script %s> block, on its own line",
++		(widget, attrs, code) => {
++			write(
++				widget,
++				`<template>\n  <p>{{ "// Stryker disable all" }}</p>\n</template>\n<script ${attrs}>\n${code}\n// Stryker disable next-line all\nexport const m = n > 0;\n</script>\n`,
++			);
++			git("add", widget);
++			const r = commit([widget]);
++			expectHeld(r);
++			expect(r.stderr).toContain(
++				`  ${widget}:6  // Stryker disable next-line all\n`,
++			);
++			expect(r.stderr).not.toContain(`${widget}:2`);
++			expect(r.stderr).not.toContain("could not read");
++		},
++	);
++
++	it.each(['src="./a.js"', 'type="text/x-template"'])(
++		"reads no <script %s> block, which Stryker does not parse",
++		(attrs) => {
++			const widget = "lib/Widget.vue";
++			write(
++				widget,
++				`<script ${attrs}>\n// Stryker disable next-line all\nconst n: number = 1;\n</script>\n`,
++			);
++			git("add", widget);
++			report([]);
++			const r = commit([widget]);
++			expect(r.status).toBe(0);
++			expect(r.stderr).not.toContain("stating no reason");
++			expect(r.stderr).not.toContain("could not read");
++		},
++	);
++
++	it("charges no directive already in a block comment the commit adds a line to below its directive", () => {
++		write(
++			MONEY,
++			SEED.replace(
++				"  if (amount > 100)",
++				"  /*\nStryker disable next-line all\n  */\n  if (amount > 100)",
++			),
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "an old unreasoned comment, landed unheld");
++		write(
++			MONEY,
++			fs
++				.readFileSync(path.join(repo, MONEY), "utf8")
++				.replace("  */", "  a note\n  */"),
++		);
++		report([]);
++		const before = commitCount();
++		const r = commit([MONEY]);
++		expect(r.stderr).not.toContain("stating no reason");
++		expect(r.status).toBe(0);
++		expect(commitCount()).toBe(before + 1);
++	});
++
++	it("refuses an old note the commit arms as a directive by editing the comment's opening line, naming its line (#2573)", () => {
++		write(
++			MONEY,
++			SEED.replace(
++				"  if (amount > 100)",
++				"  /* note\nStryker disable all\n  */\n  if (amount > 100)",
++			),
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "a note, no directive, landed unheld");
++		write(
++			MONEY,
++			fs
++				.readFileSync(path.join(repo, MONEY), "utf8")
++				.replace("  /* note", "  /*"),
++		);
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).toContain("  lib/money.js:3  /* Stryker disable all */\n");
++		expect(readRuns()).toEqual([]);
++	});
++
++	it("refuses an old directive the commit arms by editing its enclosing block comment's delimiters, naming its line (#2624)", () => {
++		write(
++			MONEY,
++			SEED.replace(
++				"  if (amount > 100)",
++				"  /* outer\n  // Stryker disable all\n  */\n  if (amount > 100)",
++			),
++		);
++		git("add", MONEY);
++		git(
++			"commit",
++			"-qm",
++			"commented-out code holding a directive, landed unheld",
++		);
++		write(
++			MONEY,
++			fs
++				.readFileSync(path.join(repo, MONEY), "utf8")
++				.replace("  /* outer", "  // outer")
++				.replace("  */", "  // end"),
++		);
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).toContain("  lib/money.js:3  // Stryker disable all\n");
++		expect(readRuns()).toEqual([]);
++	});
++
++	it("refuses an old note the commit arms by deleting a line inside its comment, where it adds a line to the file, naming its line (#2624)", () => {
++		write(
++			MONEY,
++			SEED.replace(
++				"  if (amount > 100)",
++				"  /*\n  a note\nStryker disable all\n  */\n  if (amount > 100)",
++			),
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "a note, no directive, landed unheld");
++		write(
++			MONEY,
++			fs
++				.readFileSync(path.join(repo, MONEY), "utf8")
++				.replace("  a note\n", "")
++				.replace("amount * 0.2", "amount * 0.25"),
++		);
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).toContain("  lib/money.js:3  /* Stryker disable all */\n");
++		expect(readRuns()).toEqual([]);
++	});
++
++	it.each([
++		["babel.config.json", "#2573", '{ "plugins": ["./flow-syntax.js"] }\n'],
++		[
++			"babel.config.mjs",
++			"top-level await, #2624",
++			'await Promise.resolve();\nexport default { plugins: ["./flow-syntax.js"] };\n',
++		],
++	])(
++		"refuses an unreasoned disable in a Flow file the host's %s parses, naming its line, not reporting it unread (%s)",
++		(config, _, text) => {
++			write(
++				"flow-syntax.js",
++				'module.exports = () => ({ manipulateOptions: (_, p) => p.plugins.push("flow") });\n',
++			);
++			write(config, text);
++			git("add", "flow-syntax.js", config);
++			git("commit", "-qm", "a host Babel config for Flow, landed unheld");
++			write(
++				MONEY,
++				SEED.replace(
++					"  if (amount > 100)",
++					"  const n: number = 1;\n  // Stryker disable next-line all\n  if (amount > 100)",
++				),
++			);
++			const r = commit([MONEY]);
++			expect(r.status).toBe(1);
++			expect(commitCount()).toBe(2);
++			expect(r.stderr).not.toContain("could not read");
++			expect(r.stderr).toContain(
++				"  lib/money.js:3  // Stryker disable next-line all\n",
++			);
++			expect(readRuns()).toEqual([]);
++		},
++	);
++
++	it("refuses an unreasoned disable in a file the host's Babel config parses only under its mutator.plugins, naming its line, not reporting it unread (#2624)", () => {
++		write(
++			"legacy-decorators.js",
++			'module.exports = () => ({ manipulateOptions: (_, p) => p.plugins.push("decorators-legacy") });\n',
++		);
++		write("babel.config.json", '{ "plugins": ["./legacy-decorators.js"] }\n');
++		write(
++			"stryker.config.json",
++			JSON.stringify({ testRunner: "vitest", mutator: { plugins: [] } }),
++		);
++		landHostConfig();
++		disableAbove("// Stryker disable next-line all");
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).not.toContain("could not read");
++		expect(r.stderr).toContain(
++			"  lib/money.js:2  // Stryker disable next-line all\n",
++		);
++		expect(readRuns()).toEqual([]);
++	});
++
++	it("reads the disable comments only once the tools are installed, so a missing Stryker refuses first", () => {
++		fs.rmSync(path.join(repo, "node_modules", "@stryker-mutator"), {
++			recursive: true,
++		});
++		disableAbove("// Stryker disable next-line all");
++		const r = commit([MONEY]);
++		expectHeld(r);
++		expect(r.stderr).toContain(INSTALL);
++		expect(r.stderr).not.toContain("stating no reason");
++	});
++
++	it.each([
++		[
++			"no instrumenter to load the parser beside",
++			() =>
++				fs.rmSync(
++					path.join(repo, "node_modules/@stryker-mutator/instrumenter"),
++					{
++						recursive: true,
++					},
++				),
++		],
++		[
++			"a file the parser will not read",
++			() =>
++				write(MONEY, `${fs.readFileSync(path.join(repo, MONEY), "utf8")}}}}\n`),
++		],
++	])(
++		"leaves the file to Stryker, named and logged, where it has %s",
++		(_, breakIt) => {
++			disableAbove("// Stryker disable next-line all");
++			breakIt();
++			report([]);
++			const r = commit([MONEY]);
++			expect(r.status).toBe(0);
++			expect(r.stderr).toContain(
++				"could not read the added disable comments in lib/money.js: ",
++			);
++			expect(r.stderr).toContain("so Stryker alone judges them");
++			expect(readRuns()).toHaveLength(1);
++			expect(readLog()).toContain("a commit's disable comments went unchecked");
++		},
++	);
++
++	it.each([
++		"// Stryker disable next-line ConditionalExpression: the 100 tier is unreachable from checkout",
++		"/* Stryker disable next-line all: an unreachable guard */",
++	])("passes the same comment with a reason: %j", (comment) => {
++		disableAbove(comment);
++		report([{ line: 3, status: "Ignored" }]);
++		expectLanded(commit([MONEY]));
++		expect(readRuns()[0].config).toMatchObject({
++			mutate: ["lib/money.js:2-2"],
++		});
++	});
++
++	it.each([
++		"//   Stryker disable next-line all",
++		"/**\n   * Stryker disable next-line all\n   */",
++		'const u = "// Stryker disable all";',
++	])("refuses no comment Stryker reads as no directive: %j", (comment) => {
++		disableAbove(comment);
++		report([]);
++		expectLanded(commit([MONEY]));
++	});
++
+ 	it("honours a reasoned region disable over a message table, judging the mutants Stryker ignores inside it", () => {
+ 		write(
+ 			MONEY,
+@@ -540,11 +886,358 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+ 		]);
+ 		const r = commit([MONEY]);
+ 		expectLanded(r);
++		expect(r.stderr).not.toContain("stating no reason");
+ 		expect(readRuns()[0].config).toMatchObject({
+ 			mutate: ["lib/money.js:8-13"],
+ 		});
+ 	});
+ 
++	const landOldDirective = (seed = SEED) => {
++		write(
++			MONEY,
++			`// fees\n// in pence\n${seed.replace(
++				"  if (amount > 100)",
++				"  // Stryker disable next-line all\n  // spare\n  if (amount > 100)",
++			)}`,
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "an old unreasoned comment, landed unheld");
++	};
++	const changeTax = (t: string) => t.replace("amount * 0.2", "amount * 0.25");
++
++	it.each([
++		["adding a line below it", changeTax],
++		["adding a line above it, moving it down", (t: string) => `// rates\n${t}`],
++		[
++			"deleting a line above it, moving it up",
++			(t: string) => changeTax(t.replace("// in pence\n", "")),
++		],
++		[
++			"replacing a line above it with two",
++			(t: string) => t.replace("// in pence\n", "// in\n// pence\n"),
++		],
++		[
++			"deleting the line just below it",
++			(t: string) => changeTax(t.replace("  // spare\n", "")),
++		],
++	])(
++		"charges no disable comment the commit did not add, %s (#2624)",
++		(_, edit) => {
++			landOldDirective();
++			write(MONEY, edit(fs.readFileSync(path.join(repo, MONEY), "utf8")));
++			report([]);
++			const r = commit([MONEY]);
++			expect(r.stderr).not.toContain("stating no reason");
++			expect(r.status).toBe(0);
++			expect(commitCount()).toBe(3);
++		},
++	);
++
++	it("charges no old directive in a file HEAD's copy of will not parse, saying so (#2624)", () => {
++		landOldDirective(`${SEED}}}}\n`);
++		write(
++			MONEY,
++			changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")).replace(
++				"}}}\n",
++				"",
++			),
++		);
++		report([]);
++		const r = commit([MONEY]);
++		expect(r.stderr).toContain("could not read lib/money.js at HEAD");
++		expect(r.stderr).not.toContain("stating no reason");
++		expect(r.status).toBe(0);
++		expect(commitCount()).toBe(3);
++		expect(readLog()).toContain(
++			"could not read a file at HEAD — an old disable comment the commit arms went unchecked lib/money.js: ",
++		);
++	});
++
++	it("refuses an old note armed by editing its comment's opening line where HEAD's copy will not parse (#2727)", () => {
++		write(
++			MONEY,
++			`${SEED.replace(
++				"  if (amount > 100)",
++				"  /* note\nStryker disable all\n  */\n  if (amount > 100)",
++			)}}}}\n`,
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "a note in a file that will not parse, landed unheld");
++		write(
++			MONEY,
++			fs
++				.readFileSync(path.join(repo, MONEY), "utf8")
++				.replace("  /* note", "  /*")
++				.replace("}}}\n", ""),
++		);
++		const r = commit([MONEY]);
++		expect(r.stderr).toContain("could not read lib/money.js at HEAD");
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).toContain("  lib/money.js:3  /* Stryker disable all */\n");
++		expect(readRuns()).toEqual([]);
++	});
++
++	it("refuses an old next-line directive the commit adds a line directly under (#2727)", () => {
++		disableAbove("// Stryker disable next-line all");
++		git("add", MONEY);
++		git("commit", "-qm", "an old unreasoned comment, landed unheld");
++		write(
++			MONEY,
++			fs
++				.readFileSync(path.join(repo, MONEY), "utf8")
++				.replace(
++					"all\n  if (amount > 100)",
++					"all\n  const big = amount > 100;\n  if (amount > 100)",
++				),
++		);
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).toContain(
++			"  lib/money.js:2  // Stryker disable next-line all\n",
++		);
++		expect(readRuns()).toEqual([]);
++	});
++
++	/** HEAD holding `open` above fee and `close` between fee and tax, landed unheld. */
++	const landRegion = (open: string, close: string) => {
++		write(
++			MONEY,
++			SEED.replace(
++				"export function fee",
++				`${open}\nexport function fee`,
++			).replace("export function tax", `${close}\nexport function tax`),
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "an old unreasoned region, landed unheld");
++	};
++
++	it.each([
++		[
++			"a restore of one mutator lifting no `all`",
++			"// Stryker disable all",
++			"// Stryker restore StringLiteral",
++		],
++		[
++			"a restore lifting one of two mutators",
++			"// Stryker disable StringLiteral,ObjectLiteral",
++			"// Stryker restore ObjectLiteral",
++		],
++		[
++			"a next-line restore",
++			"// Stryker disable all",
++			"// Stryker restore next-line all",
++		],
++	])(
++		"refuses an old unreasoned region reaching a line the commit adds past %s (#2727)",
++		(_, open, close) => {
++			landRegion(open, close);
++			write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
++			const r = commit([MONEY]);
++			expect(r.status).toBe(1);
++			expect(commitCount()).toBe(2);
++			expect(r.stderr).toContain(`  lib/money.js:1  ${open}\n`);
++			expect(readRuns()).toEqual([]);
++		},
++	);
++
++	it("refuses an old unreasoned region the commit widens over a line it adds by deleting its restore (#2727)", () => {
++		landRegion("// Stryker disable all", "// Stryker restore all");
++		write(
++			MONEY,
++			changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")).replace(
++				"// Stryker restore all\n",
++				"",
++			),
++		);
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(r.stderr).toContain("  lib/money.js:1  // Stryker disable all\n");
++	});
++
++	it("refuses an old unreasoned region whose restore sits in code the commit leaves untouched (#2727)", () => {
++		write(
++			MONEY,
++			`// Stryker disable all\n${SEED.replace("  return 0;", "  // Stryker restore all\n  return 0;")}`,
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "an old unreasoned region, landed unheld");
++		write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(r.stderr).toContain("  lib/money.js:1  // Stryker disable all\n");
++	});
++
++	it("charges no old unreasoned region inside code the commit leaves untouched (#2727)", () => {
++		write(
++			MONEY,
++			SEED.replace("  return 0;", "  // Stryker disable all\n  return 0;"),
++		);
++		git("add", MONEY);
++		git("commit", "-qm", "an old unreasoned region, landed unheld");
++		write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
++		report([]);
++		const r = commit([MONEY]);
++		expect(r.stderr).not.toContain("stating no reason");
++		expect(r.status).toBe(0);
++	});
++
++	it("charges no old unreasoned region in one <script> block, read for a line added above it, for a line the commit adds in another (#2727)", () => {
++		const widget = "lib/Widget.vue";
++		write(
++			widget,
++			"<script>\n// Stryker disable all\nexport const a = 1 > 0;\n</script>\n<script setup>\nconst b = 2 > 1;\n</script>\n",
++		);
++		git("add", widget);
++		git("commit", "-qm", "an old unreasoned region, landed unheld");
++		write(
++			widget,
++			fs
++				.readFileSync(path.join(repo, widget), "utf8")
++				.replace("<script>\n", "<script>\nconst z = 0;\n")
++				.replace("2 > 1", "2 >= 1"),
++		);
++		report([]);
++		const r = commit([widget]);
++		expect(r.stderr).not.toContain("stating no reason");
++		expect(r.status).toBe(0);
++	});
++
++	it.each([
++		["// Stryker disable all", "// Stryker restore all"],
++		[
++			"// Stryker disable StringLiteral,ObjectLiteral",
++			"// Stryker restore ObjectLiteral, StringLiteral",
++		],
++	])(
++		"charges no old unreasoned region %j its restore closes above the lines the commit adds",
++		(open, close) => {
++			landRegion(open, close);
++			write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
++			report([]);
++			const r = commit([MONEY]);
++			expect(r.stderr).not.toContain("stating no reason");
++			expect(r.status).toBe(0);
++			expect(commitCount()).toBe(3);
++		},
++	);
++
++	it("reads the disable comments past a host Babel config printing on stdout (#2727)", () => {
++		write(
++			"babel.config.js",
++			'console.log("hello from babel config");\nmodule.exports = {};\n',
++		);
++		landHostConfig();
++		disableAbove("// Stryker disable next-line all");
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).not.toContain("could not read");
++		expect(r.stderr).toContain(
++			"  lib/money.js:2  // Stryker disable next-line all\n",
++		);
++	});
++
++	it("reads the disable comments past a host Babel config whose timer outlives the read (#2727)", () => {
++		write(
++			"babel.config.js",
++			"setInterval(() => {}, 1000);\nmodule.exports = {};\n",
++		);
++		landHostConfig();
++		disableAbove("// Stryker disable next-line all");
++		const r = commit([MONEY]);
++		expect(r.status).toBe(1);
++		expect(r.stderr).not.toContain("could not read");
++		expect(r.stderr).toContain(
++			"  lib/money.js:2  // Stryker disable next-line all\n",
++		);
++	});
++
++	it("leaves the file to Stryker, named and logged, where a host Babel config hangs the read past its timeout (#2727)", () => {
++		write("babel.config.mjs", HangingBabel);
++		landHostConfig();
++		disableAbove("// Stryker disable next-line all");
++		report([]);
++		// A real hang on the real clock: the child's timeout is a spawnSync
++		// option, reached by no fake timer. The read never ends, so any timeout
++		// times out; 300 ms keeps the wait short.
++		const r = commit([MONEY], { extra: HangTimeout });
++		expect(r.status).toBe(0);
++		expect(r.stderr).toContain(
++			"could not read the added disable comments in lib/money.js: timed out after 300 ms",
++		);
++		expect(readRuns()).toHaveLength(1);
++		expect(readLog()).toContain("a commit's disable comments went unchecked");
++	});
++
++	it("starts no read of a staged file holding no directive, so a host Babel config that hangs it costs nothing (#4307)", () => {
++		write("babel.config.mjs", HangingBabel);
++		landHostConfig();
++		changeLine2();
++		report([]);
++		const r = commit([MONEY], { extra: HangTimeout });
++		expect(r.status).toBe(0);
++		expect(r.stderr).not.toContain("could not read");
++		expect(readRuns()).toHaveLength(1);
++		expect(readLog()).not.toContain("disable comments went unchecked");
++	});
++
++	it("leaves only the file whose staged copy git will not show to Stryker, named and logged (#2727)", () => {
++		disableAbove("// Stryker disable next-line all");
++		report([]);
++		const r = commit([MONEY], { extra: batchRefuses(`:${MONEY}`) });
++		expect(r.status).toBe(0);
++		expect(r.stderr).toContain(
++			`could not read the added disable comments in ${MONEY}: could not read a staged file: git cat-file failed while fetching ${MONEY} at the index: fatal: stub git will not answer`,
++		);
++		expect(r.stderr).not.toContain("NOT checked");
++		expect(readRuns()).toHaveLength(1);
++		expect(readLog()).toContain("a commit's disable comments went unchecked");
++	});
++
++	it("reads a file HEAD holds a directory at as unparseable, still refusing an added unreasoned directive, logged (#3174)", () => {
++		git("rm", "-q", MONEY);
++		write(`${MONEY}/x`, "x\n");
++		git("add", "-A");
++		git("commit", "-qm", "a directory at the file's path, landed unheld");
++		fs.rmSync(path.join(repo, MONEY), { recursive: true });
++		disableAbove("// Stryker disable next-line all");
++		// Staged by hand: `commit -- lib/money.js` alone commits only the
++		// directory's deletion, leaving the new file untracked and unheld.
++		git("add", "-A");
++		const r = commit([]);
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(2);
++		expect(r.stderr).toContain(
++			`could not read ${MONEY} at HEAD (could not read a file at HEAD: ${MONEY} at HEAD is not a file)`,
++		);
++		expect(r.stderr).toContain(
++			"  lib/money.js:2  // Stryker disable next-line all\n",
++		);
++		expect(r.stderr).toContain("Say after a colon why");
++		expect(readLog()).toContain(
++			`could not read a file at HEAD — an old disable comment the commit arms went unchecked ${MONEY}: could not read a file at HEAD: ${MONEY} at HEAD is not a file`,
++		);
++	});
++
++	it("reads a file whose HEAD copy git will not show as unparseable, still refusing an added unreasoned directive, logged (#2727)", () => {
++		disableAbove("// Stryker disable next-line all");
++		const r = commit([MONEY], { extra: batchRefuses(`HEAD:${MONEY}`) });
++		expect(r.status).toBe(1);
++		expect(commitCount()).toBe(1);
++		expect(r.stderr).toContain(
++			`could not read ${MONEY} at HEAD (could not read a file at HEAD: git cat-file failed while fetching ${MONEY} at HEAD: fatal: stub git will not answer)`,
++		);
++		expect(r.stderr).toContain(
++			"  lib/money.js:2  // Stryker disable next-line all\n",
++		);
++		expect(r.stderr).toContain("Say after a colon why");
++		expect(readLog()).toContain(
++			`could not read a file at HEAD — an old disable comment the commit arms went unchecked ${MONEY}: `,
++		);
++	});
++
+ 	it("ships no mutator exclusion with the core, and passes the host's own as written", () => {
+ 		changeLine2();
+ 		report([]);

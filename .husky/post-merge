@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+# post-merge — re-points a session worktree's node_modules at the store for
+# the lockfile a merge brought in (workflow-core#4702), and keeps the shims live sessions
+# need at hook scripts a merge deleted from this checkout (workflow-core#2879). A port often
+# lands by merge, which never fires post-commit.
+#
+# IMPLICIT:  where node_modules links a dependency store its merged lockfile no longer keys, re-points it at the store standing for that lockfile, or names the attach command where none stands; and where a shim exists or a script was deleted since the keeper's last run, writes an exit-0 shim at each hook script a live session's hook lines still name but the main checkout no longer has, and deletes each shim no live session needs.
+# JUSTIFIED: fail-safe — a worktree left on the old store runs every test and tsc against a tree built for another lockfile; a session started before a port runs its old hook line until it ends, and a deleted script on a fail-closed line refuses every call that line matches; git ignores post-merge's exit status.
+# DEFEAT:    no flag; the relink skipped when scripts/lib/relink-store.sh, scripts/session-checkout.js or node is missing, the keeper when scripts/keep-hook-shims.js or node is.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (workflow-core#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (workflow-core#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# Every `node` and `bash` below under one wall-clock limit (workflow-core#4187); unbounded where the lib is missing.
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+
+toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# shellcheck source=scripts/lib/relink-store.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh" ] || . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh"
+! command -v wfc_relink_store >/dev/null 2>&1 || wfc_relink_store "$toplevel"
+
+script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/keep-hook-shims.js"
+[ -f "$script" ] || exit 0
+command -v node >/dev/null 2>&1 || exit 0
+
+# git exports GIT_DIR and GIT_INDEX_FILE into a hook; post-commit's
+# report_new_shared_faults says why each is unset. The keeper always exits 0.
+(
+  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+  node "$script" --lazy
+)

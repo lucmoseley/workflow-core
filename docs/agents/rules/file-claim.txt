@@ -1,0 +1,30 @@
+A FILE A LIVE SESSION HAS WRITTEN IS CLAIMED. Writing it yourself is not
+refused: each session edits its own worktree, so the claim protects no bytes.
+It tells you that you and the holder are both changing the file, and that
+whichever of you lands second will likely meet a merge conflict there (#4249).
+
+Writing the file is what takes the claim. It runs until the holder releases it,
+its own commit lands all its hunks (#2058, #2148), or its process ends.
+
+TWO TIERS, and only the first ever warns:
+
+  docs/ .claude/ CLAUDE.md AGENTS.md   warn — a write to a file a neighbour
+                                       holds goes ahead, with the warning
+  scripts/                             detect only — the claim is taken and
+                                       recorded, and nothing is said on it
+                                       (mantahostels#287)
+
+Everything else is left to git.
+
+On docs/doc-map.md alone the claim is per REGION — one `### B<n>` entry, one §A
+register row, or one top-level section (mantahostels#848, mantahostels#970).
+
+YOUR PRIOR BYTES ARE PINNED, so a clobber by any route is reported at your next
+write and again at release, with the recovery command below. A claim keeps the
+ten versions before this one; an unclaimed write — a held file's second writer,
+or any Bash-route write — gets one, re-minted each write:
+
+  node scripts/session-arbiter.js versions <path>
+
+WARNED? Keep your change to that file small and land it soon, or do another
+part of your ticket first. Read what is held: `node scripts/session-arbiter.js list`.

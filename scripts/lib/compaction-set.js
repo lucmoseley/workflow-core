@@ -1,0 +1,135 @@
+/*
+ * compaction-set.js — the per-session set of autocompactions, one boundary key
+ * a line, the sentence that reports its size, the advice after a compaction,
+ * and the `**Compactions:**` line a unit's close or hand-off logs it on. One writer for the ceiling
+ * guard (workflow-core#1032) and inject-compaction-count.js (workflow-core#1148), so their counts agree.
+ *
+ * A running set rather than a fresh count, because a large transcript is read
+ * from its tail and an early boundary scrolls out of it.
+ *
+ * RESIDUAL: `readSeen` reads an unreadable set as empty, so the next write
+ * keeps only the boundaries still in the tail.
+ */
+
+const path = require("node:path");
+const { repoRoot } = require("./hook-block");
+const { markersDir } = require("./marker-root");
+const { readSeen, writeSeen } = require("./report-once");
+const { buildLineRe } = require("./marker-line");
+
+const COMPACTIONS_PREFIX = ".session-ceiling-compactions-";
+/* A compaction counted before its boundary reached the transcript. */
+const PENDING_PREFIX = "pending:";
+
+/** @param {string} sid */
+const compactionSetFile = (sid) =>
+	path.join(markersDir(repoRoot()), COMPACTIONS_PREFIX + sid);
+
+/**
+ * Adds `keys` to the session's set, drops every `pending:` key not among them,
+ * and returns its size.
+ *
+ * DROPPED, NOT SETTLED ONE FOR ONE (workflow-core#1785). A subagent's compaction fires both
+ * hooks with its parent's session id and no `agent_id` (harness 2.1.301), so it
+ * leaves a pending key no main-tier boundary will ever settle. A main
+ * compaction's boundary is in the transcript by the next Stop and by the next
+ * compaction, which both pass it, so a dropped key is counted again as its
+ * boundary or was never the main session's.
+ *
+ * RESIDUAL: a subagent's `SessionStart:compact` landing between its parent's
+ * own compaction hooks and that boundary's write drops the parent's key early,
+ * so the set reads one low until the parent's next Stop.
+ * @param {string} sid
+ * @param {string[]} keys
+ * @returns {number}
+ */
+function recordCompactions(sid, keys) {
+	const file = compactionSetFile(sid);
+	const seen = readSeen(file);
+	const before = [...seen].join("\n");
+	for (const key of seen) if (key.startsWith(PENDING_PREFIX)) seen.delete(key);
+	for (const key of keys) seen.add(key);
+	if ([...seen].join("\n") !== before && !writeSeen(file, seen)) {
+		try {
+			require("./arbiter-core").logError(
+				"compaction-set",
+				new Error(`unwritable: ${file}`),
+			);
+		} catch {
+			/* A log that cannot be written must not break the hook. */
+		}
+	}
+	return seen.size;
+}
+
+/**
+ * The size of `sid`'s set, read without writing: 0 where it never
+ * autocompacted. RESIDUAL: an unreadable set reads as 0 too, so its unit is
+ * logged as never having compacted.
+ * @param {string} sid
+ */
+function countCompactions(sid) {
+	return readSeen(compactionSetFile(sid)).size;
+}
+
+/* The per-unit log line a close or a backstop hand-off carries (workflow-core#4410). The
+ * count is the session's running total, so the line names its session: a unit
+ * sums the newest count per session, never every line one session wrote. */
+const COMPACTIONS_MARKER = "Compactions";
+/** @param {number} count @param {string} sid */
+const buildCompactionsLine = (count, sid) =>
+	`**${COMPACTIONS_MARKER}:** ${count} (session ${sid})`;
+/** Captures the count, then the session where the line names one. A hand-off
+ * line is typed by the model, so a list marker or the hook text's backtick
+ * before it still counts. */
+const COMPACTIONS_LINE_RE = buildLineRe(
+	COMPACTIONS_MARKER,
+	"(\\d+)(?:[ \\t]+\\(session ([^)\\s]+)\\))?",
+	"gm",
+	"(?:[-*+][ \\t]+)?`?",
+);
+/** @param {string} comment @param {string} sid */
+const hasSessionCompactionsLine = (comment, sid) =>
+	[...comment.matchAll(COMPACTIONS_LINE_RE)].some((m) => m[2] === sid);
+
+/** @param {number} count */
+function buildCompactionSentence(count) {
+	const times = `${count.toLocaleString("en-GB")} time${count === 1 ? "" : "s"}`;
+	return `This session has autocompacted ${times}.`;
+}
+
+/* The autocompaction count at which a build session hands off and ends (workflow-core#4380).
+ * `docs/agents/issue-tracker.md`'s
+ * size-line rule derives its 21-slice figure from it; move the two together. */
+const COMPACTION_BACKSTOP = 10;
+
+/**
+ * @param {number} count
+ * @param {{issue: number|null, stateFile: string|null}} unit the issue this
+ *   session's claim holds, and its build state file where one exists
+ * @param {string} sid the session its hand-off line names
+ */
+function compactionAdvice(count, { issue, stateFile }, sid) {
+	const theIssue = issue ? `issue #${issue}` : "the issue you are working";
+	if (count >= COMPACTION_BACKSTOP) {
+		const update = stateFile
+			? `, update the build state file ${stateFile}`
+			: "";
+		return `That is the backstop (${COMPACTION_BACKSTOP}): commit what exists${update}, comment the unfinished state on ${theIssue} with a \`${buildCompactionsLine(count, sid)}\` line, leave it open, and end.`;
+	}
+	const state = stateFile ? `the build state file ${stateFile}, ` : "";
+	return `Re-read ${state}${theIssue}, and \`git log\` and \`git diff\` of your own commits on it; where the compaction summary disagrees with them, the summary is only a hint. Carry on with the unit in flight, and start no new unit after it.`;
+}
+
+module.exports = {
+	PENDING_PREFIX,
+	recordCompactions,
+	buildCompactionSentence,
+	COMPACTION_BACKSTOP,
+	compactionAdvice,
+	countCompactions,
+	COMPACTIONS_MARKER,
+	COMPACTIONS_LINE_RE,
+	buildCompactionsLine,
+	hasSessionCompactionsLine,
+};

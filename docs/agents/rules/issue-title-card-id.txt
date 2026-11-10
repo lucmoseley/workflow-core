@@ -1,0 +1,1 @@
+An issue that carries a roadmap card **must** be titled with the card id, an em dash, then the title — e.g. `id-match — Build the hostel ID-matching layer`. `/card-close` parses the prefix to find which card to mark `done`, and refuses to guess if it doesn't resolve to exactly one card — so an issue opened without the prefix cannot be closed by that command.

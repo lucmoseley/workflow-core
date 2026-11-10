@@ -1,0 +1,115 @@
+diff --git a/scripts/commit-paths.js b/scripts/commit-paths.js
+index 9463d7ba63e090f6d8baccdb4c91780e311d21b4..dc09b94cdda993c350202ac7a63910c70cfb26a5 100644
+--- a/scripts/commit-paths.js
++++ b/scripts/commit-paths.js
+@@ -85,8 +85,9 @@
+  * runs them in the lock alone, and `.husky/pre-commit.local` is never run
+  * here, its contract being that it runs after every core gate.
+  *
+- * Per path: tracked (a deleted one included) passes; untracked, on disk and
+- * not ignored is intent-added (`git add -N`) so the pathspec reaches it;
++ * Per path: tracked in the index or HEAD (a deleted one, staged or not,
++ * included) passes; untracked, on disk and not ignored is intent-added
++ * (`git add -N`) so the pathspec reaches it;
+  * ignored is refused, naming the matching rule; on disk nowhere and untracked
+  * is refused; a directory is refused where it holds any untracked, unignored
+  * file, listing them — git would commit its tracked files and leave those
+@@ -761,11 +762,31 @@ function readDiskKind(p) {
+ 
+ /**
+  * The files git tracks at or under `p`, or the refusal git gave for the word
+- * (a path outside the repository, say).
++ * (a path outside the repository, say). A file is tracked where the index
++ * lists it, or where HEAD does and it is gone from disk, a `git mv` source
++ * (#1794) or a `git rm` — so a file untracked with `git rm --cached` and still
++ * on disk meets the ignore check (#2363).
++ * Residual: on an unborn branch there is no HEAD to read, so a `git mv`
++ * source still refuses.
+  * @param {string} p
++ * @param {"dir"|"file"|null} kind
++ */
++function trackedUnder(p, kind) {
++	const indexed = lsFiles(p);
++	if (kind === "file" || !hasHeadCommit()) return indexed;
++	const inIndex = new Set(indexed);
++	return lsFiles(p, "--with-tree=HEAD").filter(
++		(f) => inIndex.has(f) || readDiskKind(f) === null,
++	);
++}
++
++/**
++ * `git ls-files` at or under `p`, refusing on git's error.
++ * @param {string} p
++ * @param {string[]} flags
+  */
+-function trackedUnder(p) {
+-	const r = git(["ls-files", "-z", "--", literal(p)]);
++function lsFiles(p, ...flags) {
++	const r = git(["ls-files", "-z", ...flags, "--", literal(p)]);
+ 	if (r.status !== 0) fail(`${p}: ${r.stderr.trim()}. Nothing written.`, 2);
+ 	return nulList(r.stdout);
+ }
+@@ -800,7 +821,7 @@ function classify(paths) {
+ 	const toAdd = [];
+ 	for (const p of paths) {
+ 		const kind = readDiskKind(p);
+-		const tracked = trackedUnder(p);
++		const tracked = trackedUnder(p, kind);
+ 		if (kind === "dir") {
+ 			assertDirectoryCommittable(p, tracked);
+ 			continue;
+diff --git a/scripts/commit-paths.test.ts b/scripts/commit-paths.test.ts
+index 7edacc99042dca1c1b215e1941cbb99702784566..9cfeb96aec7c58c51821e896b15d455ed03f710b 100644
+--- a/scripts/commit-paths.test.ts
++++ b/scripts/commit-paths.test.ts
+@@ -264,6 +264,50 @@ describe("commits — exit 0, the hash and subject printed", () => {
+ 		expect(readCommitted()).toBe("drop a\nD\ta.md");
+ 	});
+ 
++	it("commits a `git mv` as a rename, its source gone from the index as well as the disk (#1794)", () => {
++		git("mv", "a.md", "moved.md");
++		lands(["-m", "move a", "--", "a.md", "moved.md"]);
++		expect(readCommitted()).toBe("move a\nR100\ta.md\tmoved.md");
++		expect(git("status", "--porcelain")).toBe("");
++	});
++
++	it("commits a `git mv` of a directory, each file under it as a rename (#1794)", () => {
++		write("src/one.md");
++		git("add", "src");
++		git("commit", "-qm", "seed src");
++		git("mv", "src", "lib");
++		lands(["-m", "move src", "--", "src", "lib"]);
++		expect(readCommitted()).toBe("move src\nR100\tsrc/one.md\tlib/one.md");
++		expect(git("status", "--porcelain")).toBe("");
++	});
++
++	it("commits a directory whose only file went by `git mv` or `git rm`, named with an ignored file left in it (#2363)", () => {
++		write(".gitignore", "*.log\n");
++		write("src/one.md");
++		write("src/s.log");
++		write("old/two.md");
++		write("old/s.log");
++		git("add", ".gitignore", "src", "old");
++		git("commit", "-qm", "seed src and old");
++		git("mv", "src/one.md", "one.md");
++		git("rm", "-q", "old/two.md");
++		lands(["-m", "move one, drop two", "--", "src", "one.md", "old"]);
++		expect(readCommitted()).toBe(
++			"move one, drop two\nD\told/two.md\nR100\tsrc/one.md\tone.md",
++		);
++	});
++
++	it("commits a new file on an unborn branch, where there is no HEAD to read, and still refuses a misspelt path", () => {
++		git("checkout", "-q", "--orphan", "fresh");
++		git("rm", "-rqf", "--cached", ".");
++		write("new.md");
++		const refusal = run(["-m", "x", "--", "new.md", "typo.md"]);
++		expect(refusal.status).toBe(2);
++		expect(refusal.stderr).toMatch(/typo\.md exists nowhere/);
++		lands(["-m", "first", "--", "new.md"]);
++		expect(readCommitted()).toBe("first\nA\tnew.md");
++	});
++
+ 	it("commits a directory holding only tracked files", () => {
+ 		write("src/one.md");
+ 		write("src/two.md");

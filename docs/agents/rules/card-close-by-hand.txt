@@ -1,0 +1,22 @@
+A ROADMAP CARD'S OWN ISSUE IS CLOSED BY /card-close, NEVER BY HAND.
+
+/card-close does the whole thing in one pass: it marks the card done,
+regenerates the digest, commits both files, and closes the issue itself as its
+last step.
+
+Closing by hand forecloses the fix: /card-close step 1 refuses to run on an issue
+that is already CLOSED, so the roadmap edit then has to happen outside the one
+thing that sequences it (mantahostels#165).
+
+The discriminator (mantahostels#275): a child ticket that merely borrows a card-id prefix has
+a parent; a card's own issue has none. A `wayfinder:map` label exempts (mantahostels#1490),
+a map being unparented for the same reason and never a card's own issue.
+
+ESCAPES, where this is not that card's own issue — a spin-off that borrowed the
+prefix — or the work is being abandoned: close with `--reason "not planned"`, or
+run /card-close itself.
+
+KNOWN RESIDUAL: an unparented issue that borrows a card's prefix, carries no
+`wayfinder:map` label and is neither the card's issue nor a map is
+indistinguishable from the real thing and is refused wrongly. Take the same
+escape.

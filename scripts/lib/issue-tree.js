@@ -1,0 +1,61 @@
+/*
+ * issue-tree.js — an issue's parent in its own repository, its sub-issues in
+ * every repository (workflow-core#778), and the title that marks an archive container.
+ *
+ * `parent_issue_url` carries the parent's repo, and a number alone collides
+ * across repos: a local child of design-vault#17 is not a child of this
+ * repo's workflow-core#17. A parent in another repo is therefore null, never a local
+ * number. The converse — a local issue's children filed elsewhere — is
+ * visible only on its own `/sub_issues`, never on this repo's issue list.
+ *
+ * Residual: a row missing `repository_url` counts its parent as this repo's,
+ * as check-issue-cycles.js does. GitHub's REST issue rows always carry it.
+ */
+
+const { ghApiSlurp } = require("./gh");
+
+/**
+ * @typedef {{ state?: string, pull_request?: object }} SubIssue
+ */
+
+/**
+ * @param {{ parent_issue_url?: string | null, repository_url?: string }} iss
+ * @returns {number | null}
+ */
+function localParentOf(iss) {
+	const m = /^(.*)\/issues\/(\d+)$/.exec(String(iss.parent_issue_url ?? ""));
+	if (!m) return null;
+	if (iss.repository_url && m[1] !== iss.repository_url) return null;
+	return Number(m[2]);
+}
+
+/**
+ * Every sub-issue of `n` in `repo`, closed ones and other repos' included,
+ * across every page — the endpoint defaults to 30. Throws as lib/gh.js does.
+ * @param {number} n
+ * @param {string} [repo] owner/name, gh's default repo where omitted
+ * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @returns {any[]}
+ */
+const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}) =>
+	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`], opts);
+
+/** The title that marks `map`'s archival container, which holds no work of its
+ *  own: scripts/archive-closed-children.js finds it by this, never by a label.
+ *  @param {number} map */
+const buildArchiveContainerTitle = (map) =>
+	`Archive: closed children of #${map}`;
+
+/** @param {{ sub_issues_summary?: { total?: number } }} k */
+const subIssueTotal = (k) => k.sub_issues_summary?.total ?? 0;
+
+/** @param {SubIssue} k */
+const isOpenChild = (k) => k.state === "open" && !k.pull_request;
+
+module.exports = {
+	buildArchiveContainerTitle,
+	localParentOf,
+	readSubIssues,
+	isOpenChild,
+	subIssueTotal,
+};

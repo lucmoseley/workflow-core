@@ -1,0 +1,32 @@
+EVERY ISSUE-BODY EDIT GOES THROUGH `node scripts/issue-body.js`.
+
+Never `gh issue edit --body` or `--body-file`, and never a `gh api` PATCH or a
+GraphQL `updateIssue` carrying a `body` field. Each of those writes the body
+whole.
+
+GitHub offers no conditional write (mantahostels#128), so the second of two sessions
+editing one issue silently wipes the first. The helper re-fetches after writing
+and re-applies your change onto the other session's body where it was
+overwritten:
+
+  node scripts/issue-body.js append         <n> --text "…"
+  node scripts/issue-body.js append-section <n> --heading "Decisions so far" --text "…"
+  node scripts/issue-body.js append-section <n> --heading "…" --file <lines.md>
+  node scripts/issue-body.js tick           <n> --match "…"
+  node scripts/issue-body.js annotate       <n> --match "…" --text "…"
+  node scripts/issue-body.js delete-lines   <n> --match "…"
+
+Prefer a comment where the content allows it — `gh issue comment` creates a new
+resource and cannot be clobbered at all.
+
+Out of scope and allowed: `gh issue create --body`, which writes a body that
+does not yet exist; every field-only `gh issue edit`; and `gh pr edit --body`, a
+different resource with no helper to route to.
+
+WHAT NOTHING SEES, so the rule binds you rather than the hook: a write reached
+through a wrapper (`xargs gh issue edit`, a shell function, a script), a non-`gh`
+client, and the founder's own terminal, which no Bash hook binds.
+`scripts/check-clobbered-bodies.js` finds those after the fact, never before.
+
+Spellings, warn cases and recovery: docs/agents/issue-tracker.md §Editing an
+issue body.

@@ -1,0 +1,1 @@
+STOP WAITING ONLY ON A BEAT NO NEWER THAN THE LAST LANDING'S, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it.

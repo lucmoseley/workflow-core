@@ -1,0 +1,10 @@
+ONLY THE QUEUE LANDER MOVES `main`, AND NEVER BACKWARDS.
+
+With the landing module on, the lander alone moves `main`, forward to a sha
+the full suite passed. A force-push to `main` (`--force`,
+`--force-with-lease`, a `+` refspec) or deleting it on the remote drops every
+commit landed after the one you name from everyone's `origin/main`, and the
+lander's next batch builds on the rewound tip.
+
+UNDO A COMMIT WITH A FOLLOW-UP COMMIT — `git revert <sha>`, or the fix itself
+— pushed to your queue ref, which the lander lands like any other.

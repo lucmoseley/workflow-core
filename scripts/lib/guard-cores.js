@@ -1,0 +1,234 @@
+/*
+ * guard-cores.js — lib/guard-cores.json read without loading a core (workflow-core#2786):
+ * the rows guard-dispatch.js runs, and the static readers' view of one
+ * dispatcher registration as the cores it runs. The guard dispatcher, not
+ * subagent dispatch (lib/dispatch-*.js).
+ *
+ * A reader that keys on one script per hook line — the rule-byte figures, the
+ * guard registry, the fire needles — would read the dispatcher as one guard
+ * on its entry's union matcher, pricing every core's rules against every tool
+ * in it. expandDispatched hands such a reader one registration per core, on
+ * the core's own tools, its command the core's module.
+ */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { isDenyingCore } = require("./deny-capable.js");
+const { clausesAdmit } = require("./if-clause.js");
+
+const DISPATCH_ENTRY = "scripts/guard-dispatch.js";
+
+const MANIFEST_REL = "scripts/lib/guard-cores.json";
+
+const MANIFEST = path.join(__dirname, "guard-cores.json");
+
+/**
+ * @typedef {import("./workflow-core-config.js").Module} Module
+ * @typedef {{ name: string, core: string, tools: string,
+ *   failure: "open" | "closed", tree: "session" | "host" | "both",
+ *   module?: Module, host?: string,
+ *   if?: string[] }} CoreRow `tree` is which tree the core reads (workflow-core#4242):
+ *   the session's, for `git status`, `HEAD`, the index or working files; the
+ *   host root's, for the shared stores; or both. `if` narrows the row's calls
+ *   of the tools its clauses name, as a registration's `if` would
+ *   (lib/if-clause.js)
+ * @typedef {Record<string, CoreRow[]>} Manifest
+ */
+
+/**
+ * @param {string} [file]
+ * @returns {Manifest}
+ */
+function readManifest(file = MANIFEST) {
+	return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+/**
+ * Every row of the manifest at `file`, across events.
+ * @param {string} [file]
+ * @returns {CoreRow[]}
+ */
+const readManifestRows = (file = MANIFEST) =>
+	Object.values(readManifest(file)).flat();
+
+/**
+ * The manifest a tree rooted at `root` dispatches from: its own where it ships
+ * one, so a materialised revision is read as committed rather than as the
+ * live tree holds it (workflow-core#2924); else this plugin's, as in an adopting host.
+ * @param {string} root
+ * @returns {string}
+ */
+function manifestAt(root) {
+	const own = path.join(root, MANIFEST_REL);
+	return fs.existsSync(own) ? own : MANIFEST;
+}
+
+/**
+ * A row's module as a path from the repo root.
+ * @param {string} module a file under scripts/lib
+ */
+const modulePath = (module) => path.join("scripts", "lib", module);
+
+/**
+ * A row's module or host as an absolute path, for a require.
+ * @param {string} module a file under scripts/lib
+ * @param {string} [dir] the scripts/lib holding it, this plugin's where unnamed
+ */
+const corePath = (module, dir = __dirname) => path.join(dir, module);
+
+/**
+ * Whether `row`'s core judges a call of `tool`: its `tools` matched whole.
+ * @param {Pick<CoreRow, "tools">} row
+ * @param {string | undefined} tool
+ */
+const isCoreFor = (row, tool) =>
+	tool !== undefined && new RegExp(`^(?:${row.tools})$`).test(tool);
+
+/**
+ * The tool `payload`'s call names, undefined where it names none as a string.
+ * @param {Record<string, unknown>} payload
+ * @returns {string | undefined}
+ */
+const toolOf = (payload) =>
+	typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+
+/**
+ * Whether `row`'s `if` clauses let `payload`'s call through, each matched
+ * against the call's `command`; true where the row carries none.
+ * @param {Pick<CoreRow, "if">} row
+ * @param {Record<string, unknown>} payload
+ */
+function isAdmitted(row, payload) {
+	if (!row.if) return true;
+	const input = /** @type {Record<string, unknown> | undefined} */ (
+		payload.tool_input
+	);
+	const command = typeof input?.command === "string" ? input.command : "";
+	return clausesAdmit(row.if, toolOf(payload), command);
+}
+
+/**
+ * Whether the dispatcher runs `row`'s core on `payload`'s call: its tools and
+ * `if` clauses admit the call, the host has not disabled it, and its module,
+ * where it names one, is on.
+ * @param {CoreRow} row
+ * @param {Record<string, unknown>} payload
+ * @param {{ disabled: (name: string) => boolean,
+ *   moduleOn: (module: Module) => boolean }} host
+ */
+function isDispatchedOn(row, payload, { disabled, moduleOn }) {
+	return (
+		isCoreFor(row, toolOf(payload)) &&
+		isAdmitted(row, payload) &&
+		!disabled(row.name) &&
+		!(row.module && !moduleOn(row.module))
+	);
+}
+
+/**
+ * The PreToolUse cores able to deny that the dispatcher runs on `payload`'s
+ * call, by name: what a killed dispatcher call lost (workflow-core#3272).
+ * @param {Record<string, unknown>} payload
+ * @param {Parameters<typeof isDispatchedOn>[2]} host
+ * @returns {string[]}
+ */
+function denyingCoresOn(payload, host) {
+	return readDispatchRows("PreToolUse")
+		.filter(
+			(row) =>
+				isDispatchedOn(row, payload, host) && isDenyingCore(corePath(row.core)),
+		)
+		.map((row) => row.name);
+}
+
+/**
+ * @param {string} event
+ * @param {string} [file]
+ * @returns {CoreRow[]}
+ */
+function readDispatchRows(event, file = MANIFEST) {
+	return readManifest(file)[event] ?? [];
+}
+
+/**
+ * Every core and host module the dispatcher can load, on any event, as a path
+ * from the repo root: what the kit loads that no `require` names.
+ * @param {string} [file]
+ * @returns {string[]}
+ */
+function readDispatchedCores(file = MANIFEST) {
+	return coresOf(readManifest(file));
+}
+
+/**
+ * readDispatchedCores over a manifest already read.
+ * @param {Manifest} manifest
+ * @returns {string[]}
+ */
+function coresOf(manifest) {
+	return [
+		...new Set(
+			Object.values(manifest)
+				.flat()
+				.flatMap((r) => [r.core, ...(r.host ? [r.host] : [])])
+				.map(modulePath),
+		),
+	];
+}
+
+/**
+ * The host module `manifest` binds the core at `rel` to, both paths from the
+ * repo root; null where it binds none.
+ * @param {Manifest} manifest
+ * @param {string} rel
+ * @returns {string | null}
+ */
+function hostOf(manifest, rel) {
+	const row = Object.values(manifest)
+		.flat()
+		.find((r) => r.host && modulePath(r.core) === rel);
+	return row?.host ? modulePath(row.host) : null;
+}
+
+/**
+ * `regs` with each registration that runs the dispatcher replaced by one per
+ * core of `event`: matcher the core's tools, command line its module's path.
+ * @template {{ matcher?: string, commandLine: string }} R
+ * @param {string} event
+ * @param {R[]} regs
+ * @param {Manifest} [manifest]
+ * @returns {(R & { core?: string })[]}
+ */
+function expandDispatched(event, regs, manifest = readManifest()) {
+	return regs.flatMap((reg) =>
+		reg.commandLine.includes(DISPATCH_ENTRY)
+			? (manifest[event] ?? []).map((row) => ({
+					...reg,
+					matcher: row.tools,
+					commandLine: modulePath(row.core),
+					core: row.name,
+				}))
+			: [reg],
+	);
+}
+
+module.exports = {
+	DISPATCH_ENTRY,
+	MANIFEST,
+	MANIFEST_REL,
+	corePath,
+	coresOf,
+	denyingCoresOn,
+	hostOf,
+	readDispatchedCores,
+	expandDispatched,
+	isAdmitted,
+	isCoreFor,
+	isDispatchedOn,
+	manifestAt,
+	readManifestRows,
+	modulePath,
+	readDispatchRows,
+	readManifest,
+	toolOf,
+};

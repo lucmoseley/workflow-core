@@ -1,0 +1,187 @@
+/*
+ * A vitest globalSetup that says whether the tree moved while the suite ran.
+ *
+ * Why, and what it can and cannot see: `scripts/lib/tree-drift.js`, which owns
+ * the policy. In short — mantahostels#273, where a suite imported half-written
+ * source and went red with a different set of failures each run.
+ *
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (workflow-core#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (workflow-core#3624).
+ * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
+ * DEFEAT:    none — it prints and records, and never fails a run.
+ */
+
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const {
+	readTreeSnapshot,
+	drift,
+	format,
+	endOfRunTreeIdentity,
+} = require("./lib/tree-drift.js");
+const {
+	markerFrom,
+	record,
+	recordFailure,
+	failureRecoveryCommand,
+	FAIL_STORE,
+	storePath,
+	repoRoot,
+} = require("./lib/test-pass-marker.js");
+const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
+const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
+const { readAlreadyRedLines } = require("./lib/already-red.js");
+const { record: recordFileResults } = require("./lib/pass-store.js");
+
+/*
+ * The tree under test: vitest's own root, handed to `setup`. Never this file's
+ * location, which in a plugin install is the plugin cache (workflow-core#552). The cwd
+ * stands in where `setup` never ran, as for a test driving the teardown.
+ */
+let treeRoot = process.cwd();
+
+let before: unknown = null;
+
+export function setup(project?: { config?: { root?: string } }) {
+	const root = project?.config?.root;
+	if (typeof root === "string" && root) treeRoot = root;
+	before = readTreeSnapshot(treeRoot);
+}
+
+export function teardown() {
+	runTeardown();
+}
+
+/**
+ * The run's per-file rows in the pass store (workflow-core#4790), off the marker's sha,
+ * time and tree. A run whose tree drift is unknown, or whose HEAD moved,
+ * says nothing of the content each file read, and records none. An
+ * untracked path counts as moved: drift watches tracked files alone, so one
+ * rewritten mid-run would be recorded with content the run never read.
+ */
+function recordFiles(
+	marker: { sha: string; at?: string; treeAtEnd?: string },
+	files: { results: unknown[]; shared: string[]; clean: boolean } | null,
+	{
+		drifted,
+		untracked,
+		root,
+	}: {
+		drifted: { headMoved: boolean; moved: { path: string }[] } | null;
+		untracked: string[];
+		root: string | null;
+	},
+) {
+	if (!files || !marker.at) return;
+	recordFileResults(
+		{
+			sha: marker.sha,
+			at: marker.at,
+			tree: marker.treeAtEnd ?? null,
+			root: treeRoot,
+			files: files.results,
+			shared: files.shared,
+			clean: files.clean,
+			drifted:
+				before === null || drifted?.headMoved
+					? null
+					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
+		},
+		{ storeRoot: root },
+	);
+}
+
+/*
+ * `teardown` split out so a test can point the marker write at a sandbox
+ * instead of this checkout's own store — vitest calls `teardown()` bare, so
+ * that export stays zero-arg and this is the only way in (mantahostels#2182).
+ *
+ * `runTeardown` is exported and `rootOverride` is unguarded: any caller, not
+ * only a test, can redirect the pre-push marker write away from the store
+ * `check-test-marker.js` and the push gate actually read.
+ */
+export function runTeardown(rootOverride?: string | null) {
+	const after = readTreeSnapshot(treeRoot);
+	const drifted = drift(before, after);
+	const untracked = [before, after].flatMap(
+		(s) => (s as { untracked?: string[] } | null)?.untracked ?? [],
+	);
+
+	// stderr, so it survives a reporter writing the summary to stdout.
+	const moved = format(drifted);
+	if (moved) process.stderr.write(`${moved}\n`);
+
+	/*
+	 * The marker the pre-push hook reads (mantahostels#987). Written here rather than in the
+	 * reporter because this is where the tree findings are — and only on a
+	 * verdict the reporter actually left, so a run whose result was never
+	 * observed records nothing rather than a false certificate.
+	 *
+	 * `after.head` is HEAD as it stood when the suite finished, which is the sha
+	 * a push straight afterwards carries.
+	 */
+	// The one take CLEARS the whole report, so the two branches below share
+	// its result — a second take would come back empty.
+	const { outcome, ...report } = takeRunReport();
+	const launch = readLaunch();
+	// A function, so a run with no verdict asks git nothing.
+	const buildMarkerRun = () => ({
+		...report,
+		isolated: launch.isolated,
+		argv: launch.argv,
+		// Taken in treeRoot — the worktree this process is actually running
+		// against, frozen or shared — and AFTER the run, unlike every other
+		// tree field (mantahostels#2187's own point: they all describe the start).
+		treeAtEnd: endOfRunTreeIdentity(treeRoot),
+	});
+
+	// The canonical checkout of treeRoot, so an isolated worktree's run lands in the
+	// shared store. `rootOverride` exists only so a test can point the write at a
+	// sandbox instead of this checkout's own store.
+	const root = rootOverride ?? repoRoot(treeRoot);
+
+	/* A run that hit its scope's task cap fails, however green (workflow-core#3401); the
+	 * wrapper names the cap. Read here, inside the scope, which the manager
+	 * collects once the run's last process exits. */
+	const capped = outcome === true && hasOwnScopeHitCap();
+	if (outcome === true && after && !capped) {
+		const marker = markerFrom(before, after, drifted, buildMarkerRun());
+		record(marker, { root });
+		recordFiles(marker, report.files, { drifted, untracked, root });
+	}
+
+	/*
+	 * The red half (mantahostels#1942), carrying the failing names in `scope.failures`. It
+	 * gates nothing: no certificate is recorded here, and `check-test-marker.js` reads
+	 * the certificate store alone, so a red sha still warns exactly as it did before.
+	 *
+	 * `outcome === false` and not `!== true`: a null outcome means the reporter
+	 * never ran, so nothing observed the result and there is nothing to attest,
+	 * red or green.
+	 */
+	if (outcome === false && after) {
+		const marker = markerFrom(before, after, drifted, buildMarkerRun());
+		const written = recordFailure(marker, { root });
+		recordFiles(marker, report.files, { drifted, untracked, root });
+		/*
+		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
+		 * nobody opens, and the whole point is that a session which piped the run
+		 * through `tail` still gets the names. stderr, beside the drift findings
+		 * above, because the reporter owns stdout.
+		 *
+		 * Never on a `rootOverride` run (mantahostels#2182): the recipe below names the real
+		 * checkout's `FAIL_STORE`, which a sandboxed write never touched — printing
+		 * it there is a false claim about where the names actually landed.
+		 */
+		if (written && rootOverride == null)
+			process.stderr.write(
+				`\n  The failing test names are recorded in ${storePath(root, FAIL_STORE)}, so this run\n` +
+					"  need not be repeated to recover them. This run's line, names only:\n" +
+					`    ${failureRecoveryCommand(root, marker)}\n`,
+			);
+		/* Whose failures these are, off the record, so no run is repeated to
+		 * find out (workflow-core#3624). */
+		const owners = readAlreadyRedLines(marker, root);
+		if (owners.length > 0) process.stderr.write(`\n${owners.join("\n")}\n`);
+	}
+}

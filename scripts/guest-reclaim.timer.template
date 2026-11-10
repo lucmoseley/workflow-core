@@ -1,0 +1,12 @@
+[Unit]
+Description=Reclaim cold guest page cache when Windows runs short (#4791)
+
+[Timer]
+# OnUnitInactiveSec= alone never fires on a unit that has never run.
+OnActiveSec=1min
+OnUnitInactiveSec=1min
+# The default 1min accuracy measured a firing every 120 s (#4759).
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,138 @@
+diff --git a/scripts/check-issue-citations.js b/scripts/check-issue-citations.js
+index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547bd453d122 100644
+--- a/scripts/check-issue-citations.js
++++ b/scripts/check-issue-citations.js
+@@ -82,6 +82,35 @@ const HEADING = /^\s{0,3}#{1,6}\s/;
+ const CITED = /#\d+\s*(?:\([^)]*\))?/g;
+ const REFERRING_PHRASE =
+ 	/\bthe\s+[\w'-]+(?:\s+[\w'-]+){0,3}\s+(ticket|decision|route|question|audit|check|clean|issue)\b/i;
++/*
++ * "Blocked by nothing." states there is no blocker (#1656, #2389): none,
++ * nothing or no blocker(s), after the verb or, after Blocking or Blocks, a
++ * one-word label ending in a colon ("**Blocking question:** none.", where
++ * "Blocked by upstream: nothing" names its blocker), wrapped in emphasis, a
++ * bracket, a backtick, a quote or a dash, and ending its clause at the line's
++ * end or at . ; : , ( or a dash. So "Blocked by the scope ticket; nothing
++ * else" and "Blocked by nothing but the scope ticket" still report, and so
++ * does an absence whose sentence goes on to a referring phrase
++ * with no number ("Blocked by nothing, except the scope ticket."). That phrase
++ * test is as narrow here as above: "Blocked by nothing, except upstream" passes.
++ */
++const NO_BLOCKER = new RegExp(
++	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
++	`${BLOCKER_LINE.source}(?:(?<!by)\\s+\\w+(?=[*_]*:))?[\\s:*_\`'"(\\[—–-]*` +
++		`(?:none|nothing|no blockers?)\\b[*_\`'")\\]]*\\s*(?:$|([.;:,(—–-]))`,
++	"i",
++);
++
++/** @param {string} line */
++function statesNoBlocker(line) {
++	const m = NO_BLOCKER.exec(line);
++	if (!m) return false;
++	if (!m[1] || m[1] === ".") return true;
++	const [sentence = ""] = line
++		.slice(m.index + m[0].length)
++		.split(/[.?!](?:\s|$)/);
++	return !REFERRING_PHRASE.test(sentence.replace(CITED, " "));
++}
+ 
+ /** @param {string} text */
+ function numberlessBlockers(text) {
+@@ -90,7 +119,7 @@ function numberlessBlockers(text) {
+ 		const line = raw.trim();
+ 		if (!line || HEADING.test(line)) continue;
+ 		if (!BLOCKER_LINE.test(line)) continue;
+-		if (/\bnone\b/i.test(line)) continue;
++		if (statesNoBlocker(line)) continue;
+ 		if (/#\d+/.test(line) && !REFERRING_PHRASE.test(line.replace(CITED, " ")))
+ 			continue;
+ 		found.push(line.slice(0, 120));
+diff --git a/scripts/check-issue-citations.test.ts b/scripts/check-issue-citations.test.ts
+index 8a99d9899c04c3e1cde3af2a288935fe08064ecd..11d960d1af658c546b57b7788e438abcc183e4ef 100644
+--- a/scripts/check-issue-citations.test.ts
++++ b/scripts/check-issue-citations.test.ts
+@@ -10,8 +10,10 @@
+  * which is the thing the script reports on and so cannot also be its fixture.
+  *
+  * The exclusion cases are not hypothetical. `## Blocked by` is the section
+- * header /to-tickets emits on every ticket, "None — can start immediately" is
+- * how an unblocked ticket says so, and research tickets cite other projects'
++ * header /to-tickets emits on every ticket, "None — can start immediately",
++ * "Blocked by nothing: …", "**Blocked by nothing**, but …" and "**Blocking
++ * question:** none." are how an unblocked ticket says so (fantasy-books carried
++ * all four, #2389), and research tickets cite other projects'
+  * trackers constantly — each would swamp the report if it counted.
+  *
+  * It runs daily in the repo-checks run, report-only, and is the only check on
+@@ -183,13 +185,58 @@ describe("number-less blockers", () => {
+ 		expect(r.out).toContain("OK:");
+ 	});
+ 
+-	it("ignores an explicit `Blocked by: None`", () => {
+-		const stub = stubGh([
+-			{ number: 70, body: "Blocked by: None — can start immediately." },
+-		]);
+-		expect(run([], stub).status).toBe(0);
++	it.each([
++		"Blocked by: None — can start immediately.",
++		"Blocked by nothing.",
++		"Blocked by nothing: every row is on disk.",
++		"**Blocked by nothing**, but it must not land before the rewrite.",
++		"**Blocking question:** none.",
++		"Blocked by: none, can start",
++		"Blocked by none: the rule has landed.",
++		"Blocked by (none)",
++		"Blocked by `none`",
++		'Blocked by "none".',
++		"Blocked by [none]",
++		"Blocked by — none",
++		"Blocked by: **None**",
++		"Blocking: no blocker — can start now.",
++		"Blocked by: no blockers.",
++	])(
++		"ignores `%s`, which states there is no blocker (#1656, #2389)",
++		(body) => {
++			const r = run([], stubGh([{ number: 70, body }]));
++			expect(r.status).toBe(0);
++			expect(r.out).toContain("OK:");
++		},
++	);
++
++	it("still flags `Blocked by the scope ticket.`, whose blocker is real but unnumbered", () => {
++		const stub = stubGh([{ number: 72, body: "Blocked by the scope ticket." }]);
++		const r = run([], stub);
++		expect(r.status).toBe(1);
++		expect(r.out).toContain("NO-NUMBER");
++		expect(r.out).toContain("scope ticket");
+ 	});
+ 
++	it.each([
++		"Blocked by the scope ticket; nothing else.",
++		"Blocked by nothing but the audit ticket.",
++		"Blocked by the nav-layer ticket, none of the others.",
++		"Blocked by nothing, except the scope ticket.",
++		"Blocked by none, only the audit ticket.",
++		"Blocks: nothing, but the nav-layer ticket waits on it",
++		"Blocked by nothing: the scope ticket must land first.",
++		"Blocked by upstream: nothing.",
++	])(
++		"still flags `%s`, a described blocker beside `nothing` or `none` (#2389)",
++		(body) => {
++			const r = run([], stubGh([{ number: 73, body }]));
++			expect(r.status).toBe(1);
++			expect(r.out).toContain("NO-NUMBER");
++			expect(r.out).toContain(body);
++		},
++	);
++
+ 	it("flags a half-cited line as NO-NUMBER: one numbered blocker beside a described one", () => {
+ 		// mantahostels#26's real form. A bare `#\d+` test passes this and the described half
+ 		// stays unfindable.
+@@ -202,6 +249,7 @@ describe("number-less blockers", () => {
+ 		const r = run([], stub);
+ 		expect(r.status).toBe(1);
+ 		expect(r.out).toContain("NO-NUMBER");
++		expect(r.out).toContain("nav-layer ticket");
+ 	});
+ 
+ 	it("accepts a fully numbered line that still contains ordinary prose", () => {

@@ -1,0 +1,12 @@
+AN `rm` CLAUDE CODE CANNOT CHECK IS A PERMISSION PROMPT, AND NO ALLOW ENTRY
+CLEARS IT. Its built-in removal check denies, before any allow rule is read, an
+`rm` whose target it cannot resolve. In away mode or a headless session nobody
+answers that prompt, so the call is denied or the session stalls (#2360, #2436).
+Two spellings never meet the check:
+
+- A LITERAL PATH, in a Bash call of its own: `rm -rf .claude/tmp/abc-1234`, not
+  `rm -rf $T/*` or a relative glob after a `cd`. Put it in its own call, apart
+  from any `bash -c` or `bash $script`, because the check gives up on the whole
+  command when it cannot read the script and then refuses even a literal.
+- NO `rm` AT ALL. `.claude/tmp/` is swept at 24 hours (`docs/environment.md`
+  §12), so a probe's temp directory there never needs removing.

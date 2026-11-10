@@ -1,0 +1,1 @@
+THE FOCUSED RUN: a third `Agent` call in the same message, the same subagent type and model as the two axes, on the focus Artefact path above. Hand it the diff and commit list, the spec, any `**Deviations:**` record, and each touched area's name, description and focus. It reports against that focus only.
