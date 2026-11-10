@@ -1,6 +1,10 @@
 // @vitest-environment node
 /*
- * lib/lander-records.js through each record's read and write on a temp file.
+ * lib/lander-records.js through each record's read and write on a real temp
+ * file, as the lander's next run reads what an older lander wrote (#4897,
+ * #4912). The older-shape case pins the records' no-version contract: break
+ * it and a lander upgraded mid-batch reads its own pipeline as torn and
+ * drops the batches in flight.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -63,13 +67,30 @@ describe("the pipeline record", () => {
 		});
 	});
 
-	it("reads a batch an older lander wrote, before deferred, bases or retakeAt, as the current shape", () => {
-		const { deferred, bases, ...older } = b;
-		const { retakeAt, ...hold } = b.hold;
-		writeRaw(holding({ ...older, hold }));
+	it("reads a batch written before deferred as having none", () => {
+		const { deferred, ...older } = b;
+		writeRaw(holding(older));
 		expect(pipelineRecord(file).read()).toEqual({
 			kind: "read",
-			value: holding({ ...b, deferred: [], bases: [], hold }),
+			value: holding({ ...b, deferred: [] }),
+		});
+	});
+
+	it("reads a batch written before bases as having asked none", () => {
+		const { bases, ...older } = b;
+		writeRaw(holding(older));
+		expect(pipelineRecord(file).read()).toEqual({
+			kind: "read",
+			value: holding({ ...b, bases: [] }),
+		});
+	});
+
+	it("reads a base hold written before retakeAt with none", () => {
+		const { retakeAt, ...hold } = b.hold;
+		writeRaw(holding({ ...b, hold }));
+		expect(pipelineRecord(file).read()).toEqual({
+			kind: "read",
+			value: holding({ ...b, hold }),
 		});
 	});
 

@@ -184,15 +184,12 @@ class TransientFault extends Error {}
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
  *   after `queue/`, `pushedAt` its push time in ms
  * @typedef {import("./lander-records.js").Member} Member
- * @typedef {import("./lander-records.js").Phase} Phase
  * @typedef {import("./lander-records.js").Hold} Hold
  * @typedef {import("./lander-records.js").Blame} Blame
  * @typedef {import("./lander-records.js").Isolated} Isolated
- * @typedef {import("./lander-records.js").Serial} Serial
  * @typedef {import("./lander-records.js").Step} Step
  * @typedef {import("./lander-records.js").Batch} Batch
  * @typedef {import("./lander-records.js").Pipeline} Pipeline
- * @typedef {import("./lander-records.js").BaseVerdict} BaseVerdict
  * @typedef {import("./lander-records.js").Drop} Drop
  * @typedef {import("./lander-records.js").Cause} Cause
  * @typedef {import("./lander-records.js").PipelineRecord} PipelineRecord

@@ -10,9 +10,9 @@
  * ships, and the files carry no version.
  */
 
-const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
+const { asObject } = require("./json-shape.js");
 
 /**
  * @typedef {import("./queue-lander.js").Verdict} Verdict
@@ -132,12 +132,6 @@ const PHASES = Object.freeze(
  * @property {(drops: readonly Drop[]) => void} write
  */
 
-/** @param {unknown} v @returns {Record<string, unknown>|null} */
-const objectOf = (v) =>
-	v !== null && typeof v === "object"
-		? /** @type {Record<string, unknown>} */ (v)
-		: null;
-
 /** @param {unknown} list @returns {list is string[]} */
 const isStringList = (list) =>
 	Array.isArray(list) && list.every((f) => typeof f === "string");
@@ -175,7 +169,7 @@ const parseGreen = (o) => ({
  * @returns {Exclude<Verdict, {kind: "unknown"}>|null}
  */
 function parseVerdict(v) {
-	const o = objectOf(v);
+	const o = asObject(v);
 	if (o?.kind === "green")
 		return /** @type {Extract<Verdict, {kind: "green"}>} */ (parseGreen(o));
 	if (o?.kind === "red" && isStringList(o.files))
@@ -192,7 +186,7 @@ function parseVerdict(v) {
 
 /** @param {unknown} b @returns {b is Blame} */
 const isBlame = (b) => {
-	const o = objectOf(b);
+	const o = asObject(b);
 	return (
 		isStringList(o?.files) && isStringList(o?.base) && isStringList(o?.members)
 	);
@@ -200,7 +194,7 @@ const isBlame = (b) => {
 
 /** @param {unknown} i @returns {i is Isolated} */
 const isIsolated = (i) => {
-	const o = objectOf(i);
+	const o = asObject(i);
 	return (
 		typeof o?.name === "string" &&
 		typeof o.sha === "string" &&
@@ -210,8 +204,8 @@ const isIsolated = (i) => {
 
 /** @param {unknown} s @returns {s is Serial} */
 const isSerial = (s) => {
-	const o = objectOf(s);
-	const step = objectOf(o?.step);
+	const o = asObject(s);
+	const step = asObject(o?.step);
 	return (
 		isStringList(o?.landed) &&
 		(o?.step === null ||
@@ -223,7 +217,7 @@ const isSerial = (s) => {
 
 /** @param {unknown} h @returns {h is Hold} */
 const isHold = (h) => {
-	const o = objectOf(h);
+	const o = asObject(h);
 	if (typeof o?.main !== "string") return false;
 	if (o.kind === "base")
 		return (
@@ -244,7 +238,7 @@ const isHold = (h) => {
  * @returns {BaseVerdict|null}
  */
 const parseBaseVerdict = (x) => {
-	const o = objectOf(x);
+	const o = asObject(x);
 	const verdict = parseVerdict(o?.verdict);
 	return typeof o?.sha === "string" && isStringList(o.files) && verdict
 		? { sha: o.sha, files: o.files, verdict }
@@ -253,7 +247,7 @@ const parseBaseVerdict = (x) => {
 
 /** @param {unknown} m @returns {m is Member} */
 const isMember = (m) => {
-	const o = objectOf(m);
+	const o = asObject(m);
 	return (
 		typeof o?.name === "string" &&
 		typeof o.sha === "string" &&
@@ -268,7 +262,7 @@ const isMember = (m) => {
  * @returns {Batch|null}
  */
 function parseBatch(parsed) {
-	const b = objectOf(parsed);
+	const b = asObject(parsed);
 	if (!b) return null;
 	const { slot, members, onto, integration, phase, ahead, isolated } = b;
 	const deferred = orDefault(b.deferred, []);
@@ -315,7 +309,7 @@ function parseBatch(parsed) {
  * @returns {Pipeline|null}
  */
 function parsePipeline(parsed) {
-	const p = objectOf(parsed);
+	const p = asObject(parsed);
 	if (!p || !Array.isArray(p.line) || !Number.isInteger(p.depth)) return null;
 	const line = p.line.map(parseBatch);
 	const search = p.search === null ? null : parseBatch(p.search);
@@ -330,7 +324,7 @@ function parsePipeline(parsed) {
 
 /** @param {unknown} u @returns {u is Cause} */
 const isCause = (u) => {
-	const o = objectOf(u);
+	const o = asObject(u);
 	if (typeof o?.name !== "string") return false;
 	/** @type {Record<Cause["kind"], () => boolean>} */
 	const valid = {
@@ -350,7 +344,7 @@ const isCause = (u) => {
 
 /** @param {unknown} d @returns {d is Drop} */
 const isDrop = (d) => {
-	const o = objectOf(d);
+	const o = asObject(d);
 	return (
 		typeof o?.name === "string" &&
 		typeof o.sha === "string" &&
@@ -370,15 +364,11 @@ const isDrop = (d) => {
  * @returns {RecordRead<unknown>}
  */
 function readRecordFile(file) {
-	let text;
+	const r = readText(file);
+	if (r.state === "absent") return { kind: "absent" };
+	if (r.state === "unreadable") throw r.error;
 	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return { kind: "absent" };
-		throw err;
-	}
-	try {
-		return { kind: "read", value: JSON.parse(text) };
+		return { kind: "read", value: JSON.parse(r.data) };
 	} catch {
 		return { kind: "torn" };
 	}
@@ -440,7 +430,6 @@ function dropRecord(file) {
 }
 
 module.exports = {
-	PHASES,
 	dropRecord,
 	isStringList,
 	parseVerdict,
