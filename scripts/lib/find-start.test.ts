@@ -160,8 +160,6 @@ describe("a find started at / is refused (#1006)", () => {
 		},
 	);
 
-	/* `/missing` is no directory, so a `cd` to it fails and leaves the find
-	 * where it stood. */
 	const missing = (p: string) => !p.startsWith("/missing");
 
 	it.each([

@@ -644,11 +644,14 @@ const holdsAt = ({ holds }, dir, isDir) =>
 function runCwd(cwds, chdirs, spans, isDir) {
 	let dirs = cwds;
 	for (const cd of chdirs) {
-		const [first, ...rest] = dirs.flatMap((from) => {
+		/** @param {string} from @returns {Dirs} */
+		const step = (from) => {
 			const to = moveRun(from, cd, spans);
 			return holdsAt(cd, to, isDir) ? [to] : [to, from];
-		});
-		dirs = [first ?? "", ...new Set(rest)];
+		};
+		const [head, ...tail] = dirs;
+		const [first, ...rest] = [...step(head), ...tail.flatMap(step)];
+		dirs = [first, ...new Set(rest.filter((d) => d !== first))];
 	}
 	return dirs;
 }

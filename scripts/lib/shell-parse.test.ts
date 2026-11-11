@@ -536,7 +536,6 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 });
 
 describe("Command.cwds — every directory a doubted cd leaves the command in (#4980)", () => {
-	/* `/missing` and what lies under it are no directory. */
 	const isDir = (p: string) => !p.startsWith("/missing");
 	const last = (command: string, from = "/start") =>
 		walkMap(command, (c) => c.cwds, { cwd: from, isDir }).at(-1);

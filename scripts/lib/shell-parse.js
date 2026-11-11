@@ -1961,7 +1961,6 @@ function stepCwd(walk, own, segIdx, isDir) {
 		if (!held(from, to)) unmade.push(from);
 		return to;
 	});
-	/* What a `&&` chains off the `cd` runs only where it was made. */
 	if (walk.parsed.joins[segIdx + 1] === "a") {
 		walk.cwdDoubt = moved;
 		walk.cwdPending = [...walk.cwdPending, ...unmade];
