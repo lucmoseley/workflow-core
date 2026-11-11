@@ -183,9 +183,8 @@ const asCat = (short: string[]) =>
 	unindented(short.map((l) => l.replace(KERNEL, "")));
 const unindented = (lines: string[]) => lines.map((l) => l.trimStart());
 
-/** Read from the kernel log, which every host's journal holds. The two reads
- * are a pair unless the kernel logged between them, so a mismatched pair is
- * read once more. */
+/** The two reads are a pair unless the kernel logged between them, so a
+ * mismatched pair is read once more. */
 function readTail(bin: string): Side["tail"] {
 	const read = (output: string) =>
 		lineList(
