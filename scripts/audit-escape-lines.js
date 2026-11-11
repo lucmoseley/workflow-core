@@ -351,11 +351,12 @@ function kick(root) {
  * @param {Map<string, import("./lib/escape-audit").Verdict>} verdicts
  */
 function tally(items, verdicts) {
-	/** @type {Map<string, {judged: number, bears: number, pending: number, withheld: number}>} */
+	/** @type {Map<string, {sight: import("./lib/escape-audit").Item["sight"], judged: number, bears: number, pending: number, withheld: number}>} */
 	const rows = new Map();
 	for (const window of audit.WINDOWS)
-		for (const sight of ["first", "after-refusal"])
+		for (const sight of /** @type {const} */ (["first", "after-refusal"]))
 			rows.set(`${window} ${sight}`, {
+				sight,
 				judged: 0,
 				bears: 0,
 				pending: 0,
@@ -414,7 +415,7 @@ async function main() {
 function sayRows(ctx, rows) {
 	for (const [name, r] of rows) {
 		if (!r.judged && !r.pending && !r.withheld) continue;
-		const after = name.endsWith("after-refusal");
+		const after = r.sight === "after-refusal";
 		const count = after ? r.judged - r.bears : r.bears;
 		const share = r.judged ? `${Math.round((100 * count) / r.judged)}%` : "—";
 		ctx.say(
