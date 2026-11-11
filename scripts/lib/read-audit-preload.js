@@ -19,7 +19,7 @@
  * sync spawn (lib/read-audit-handed.js). No other program is traced: a
  * traced process that is killed stays until its tracer reaps it, which a
  * test of what a real program leaves running would see. A test timing
- * what its child does sets `WFC_READ_AUDIT_UNTRACED=1` in that child's
+ * or signalling its child sets `WFC_READ_AUDIT_UNTRACED=1` in that child's
  * environment (#4982), which runs it untraced, so it doubts where it is in
  * reach.
  *
