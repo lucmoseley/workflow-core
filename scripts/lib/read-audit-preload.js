@@ -417,14 +417,13 @@ function install() {
 		/** @type {string[]} */ bin,
 		/** @type {boolean} */ audited,
 	) => file === "git" && isGuard(bin[1]) && audited;
-	const isGuarded = (/** @type {Untyped} */ opts) => {
-		const file = String(opts?.file ?? "");
-		return isGuardedBy(
-			file,
-			binOf(file, cwdOf(opts), opts?.envPairs),
+	const isGuarded = (/** @type {Untyped} */ opts) =>
+		opts?.file === "git" &&
+		isGuardedBy(
+			"git",
+			binOf("git", cwdOf(opts), opts?.envPairs),
 			isAudited(opts?.envPairs),
 		);
-	};
 	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
 	const isProgram = (/** @type {string} */ abs) => {
 		const head = Buffer.alloc(4);
