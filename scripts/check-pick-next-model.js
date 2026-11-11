@@ -207,7 +207,7 @@ function readHead(file) {
 }
 
 /**
- * @param {any} record
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @returns {number | null}
  */
 function timestampOf(record) {
@@ -219,7 +219,7 @@ function timestampOf(record) {
 /**
  * Add one assistant record's model to `models` and its usage to `requests`.
  *
- * @param {any} record
+ * @param {import("./lib/transcript.js").TranscriptRecord} record
  * @param {{ models: Set<string>, requests: Map<string, import("./lib/session-spend").RequestUsage> }} into accumulator: models and requests are both filled
  */
 function tallyAssistant(record, { models, requests }) {

@@ -153,7 +153,7 @@ function parseContentText(content) {
  * @param {string} text
  * @param {"main" | "subagent"} tier
  * @param {{skipped: number}} [stats] accumulator: counts each line that does not parse
- * @returns {Generator<Record<string, any>>}
+ * @returns {Generator<TranscriptRecord>}
  */
 function* mainChainRecords(text, tier, stats) {
 	if (tier !== "main" && tier !== "subagent")

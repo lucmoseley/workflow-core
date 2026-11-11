@@ -413,7 +413,7 @@ function resumedIdleSince({ job, rows }) {
  * Whether `r` is a row stamped after `at`, ms.
  * @param {unknown} r
  * @param {number} at
- * @returns {r is Record<string, any>}
+ * @returns {r is import("./transcript.js").TranscriptRecord}
  */
 const isRowAfter = (r, at) =>
 	isObject(r) &&
