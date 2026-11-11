@@ -13,7 +13,11 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
-const { mapSessionModel, SESSION_DEFAULT } = require("./model-table.js");
+const {
+	BURN_SESSION_EFFORT,
+	mapSessionModel,
+	SESSION_DEFAULT,
+} = require("./model-table.js");
 const { readPlanDirs } = require("./plan-dirs.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
@@ -100,16 +104,19 @@ function readRecord(marker) {
 /**
  * Whether one plan's session model disagrees with the switch: on, a model
  * other than the burn layer's target for what `on` found there (the model it
- * holds, where the marker records none); off, the model `on` moves the default
- * to. A file that will not parse disagrees with both.
+ * holds, where the marker records none), or a Fable effort other than burn's
+ * (#5004); off, the model `on` moves the default to. A file that will not parse disagrees with both.
  * @param {string} file the real settings path
  * @param {boolean} on
  * @param {Record<string, string>} record the marker's record of each plan's prior model
  */
 function isPlanDisagreeing(file, on, record) {
 	let model;
+	let effort;
 	try {
-		model = trimmed(JSON.parse(fs.readFileSync(file, "utf8"))?.model);
+		const settings = JSON.parse(fs.readFileSync(file, "utf8"));
+		model = trimmed(settings?.model);
+		effort = settings?.modelSettings?.[BURN_SESSION_EFFORT.model]?.effortLevel;
 	} catch {
 		// #3877: the script's own jq fails on this file too, so it is no plan in step.
 		return true;
@@ -117,7 +124,10 @@ function isPlanDisagreeing(file, on, record) {
 	const session = model || SESSION_DEFAULT;
 	if (!on) return session === mapSessionModel("", true);
 	const basis = Object.hasOwn(record, file) ? record[file] : model;
-	return session !== mapSessionModel(basis, true);
+	return (
+		session !== mapSessionModel(basis, true) ||
+		effort !== BURN_SESSION_EFFORT.burn
+	);
 }
 
 /**

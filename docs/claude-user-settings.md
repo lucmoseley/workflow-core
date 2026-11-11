@@ -1221,7 +1221,8 @@ The founder only clicks Authorize; a session does the rest.
 - `modelSettings` — effort per model, which a model with an entry here takes
   over the top-level `effortLevel` (`docs/effort-guide.md` §Effort): Opus 5.5
   and Fable 5.2 at medium, Haiku 5.5, the standing table's cheap slot, at xhigh
-  (#4919).
+  (#4919). `scripts/burn-mode.sh on` lowers Fable 5.2's to low and `off` puts
+  it back (#5004).
 - `effortLevel: medium` — read by a model with no `modelSettings` entry here. Per-surface policy is `docs/effort-guide.md`,
   which overrides both keys by task, not by config.
 - `model` — the standing default (`docs/effort-guide.md`), which a restore puts

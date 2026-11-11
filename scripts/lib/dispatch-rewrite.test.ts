@@ -421,7 +421,7 @@ describe("burn mode, in the same rewrite", () => {
 			prompt,
 			description: "do a thing",
 			model: "fable",
-			effort: "medium",
+			effort: "low",
 		});
 		expect(v.additionalContext).toContain("names its artefact");
 	});

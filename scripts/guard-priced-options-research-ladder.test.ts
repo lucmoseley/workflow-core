@@ -262,6 +262,17 @@ describe("qualifying calls", () => {
 			"rulings",
 			'gh "--repo=acme/core" issue list --state all -S x',
 		],
+		[
+			"a -R expanding from a literal for-loop list (#4945)",
+			"rulings",
+			'for r in other core; do gh issue list -R acme/$r --state all --search "x"; done',
+		],
+		[
+			"a braced loop variable, the loop over lines (#4945)",
+			"rulings",
+			"for r in other core\ndo\n  gh search issues --repo acme/$" +
+				"{r} x\ndone",
+		],
 	])("counts %s", (_name, rung, command) => {
 		refuseOnce();
 		append(...others(rung as Rung), bash(command));
@@ -299,6 +310,18 @@ describe("qualifying calls", () => {
 		[
 			"gh's own -R off the corpus",
 			"gh -R other/repo issue list --state all -S x",
+		],
+		[
+			"a for-loop list off the corpus",
+			"for r in a b; do gh issue list -R other/$r --state all -S x; done",
+		],
+		[
+			"a for-loop list that is not literal",
+			"for r in $(cat repos); do gh issue list -R acme/$r --state all -S x; done",
+		],
+		[
+			"a loop variable read after its done",
+			"for r in core; do :; done; gh issue list -R acme/$r --state all -S x",
 		],
 	])("does not count %s for past rulings", (_name, command) => {
 		refuseOnce();
