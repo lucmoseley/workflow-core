@@ -531,6 +531,8 @@ const WRAPPERS = new Map([
  *   unread        each git-reading variable a `-c` string changed in a way
  *                 its reader does not follow.
  *   watched       a `watch` was stripped: the command reruns on a timer.
+ *   scripted      its words are a command a `-c` string runs, not the
+ *                 command line's own (#4978).
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
  * nothing, so an assignment after any other wrapper is the command word and
@@ -567,10 +569,7 @@ const WRAPPERS = new Map([
 function unwrap(words, spans, judged = []) {
 	/** @type {Unwrapped[]} */
 	const pending = [];
-	const first = stripRun(
-		{ words, wrapperWords: [], chdirs: [], unread: [], watched: false },
-		{ spans, judged, pending },
-	);
+	const first = stripRun(buildBareRun(words), { spans, judged, pending });
 	/** @type {Unwrapped[]} */
 	const later = [];
 	for (let run = pending.shift(); run !== undefined; run = pending.shift())
@@ -600,6 +599,7 @@ function unwrapArgv(argv) {
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
+ * @property {boolean} scripted
  * @property {true} [envReset] a `-c` string's later command, behind a wrapper
  *   that may have replaced the environment, while unwrap still strips it
  */
@@ -690,32 +690,103 @@ function moveRun(at, cd, spans) {
  * @returns {Unwrapped}
  */
 function stripRun(run, { spans, judged, pending }) {
-	/** @type {Strip} */
-	const st = {
-		ws: [...run.words],
-		judged,
-		inEnv: false,
-		envReset: run.envReset ?? false,
-		execs: false,
-		wrapperWords: [...run.wrapperWords],
-		chdirs: [...run.chdirs],
-		unread: [...run.unread],
-		watched: run.watched,
-		pending,
-	};
-	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
-		const step = stripOne(st, first, spans);
-		if (step === "cut") st.ws = [];
-		if (step !== "next") break;
-	}
+	const st = buildStrip(run, judged, pending);
+	stripWrappers(st, spans);
 	return {
 		words: st.ws,
 		wrapperWords: st.wrapperWords,
 		chdirs: st.chdirs,
 		unread: st.unread,
 		watched: st.watched,
+		scripted: st.scripted,
 	};
 }
+
+/**
+ * @param {Strip} st accumulator: its fields are written
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
+ */
+function stripWrappers(st, spans) {
+	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
+		const step = stripOne(st, first, spans);
+		if (step === "cut") st.ws = [];
+		if (step !== "next") break;
+	}
+}
+
+/**
+ * Do `words`, a command's words up to a word not yet typed, end where a
+ * wrapper unwrap reads takes the script it runs through `sh -c` — `flock
+ * <file> -c` or a `watch` with no `-x` — so the next word is that script?
+ * @param {string[]} words masked, from the command word on
+ * @param {string[]} spans
+ */
+function isScriptNext(words, spans) {
+	const st = buildStrip(buildBareRun(words), [], []);
+	stripWrappers(st, [...spans]);
+	return st.awaitsScript;
+}
+
+/**
+ * The script a run standing on `flock <file> -c` or a `watch` with no `-x`
+ * hands to `sh -c`, read through literal; null for any other run (#4978).
+ * Only the run's own first wrapper is read.
+ * @param {string[]} words masked, from the wrapper on
+ * @param {string[]} spans
+ * @returns {string | null}
+ */
+function wrapperScript(words, spans) {
+	const [first] = words;
+	if (first === undefined) return null;
+	const st = buildStrip(buildBareRun(words), [], []);
+	stripOne(st, first, [...spans]);
+	return st.script;
+}
+
+/**
+ * A run's own text, masked: the segment holding it, or for a command a `-c`
+ * string runs, that command's words alone, so a guard handing back a rewrite
+ * never writes past the string's closing quote (#4978).
+ * @param {Pick<Unwrapped, "words" | "scripted">} run
+ * @param {string} segment
+ */
+const runText = (run, segment) =>
+	run.scripted ? run.words.join(" ") : segment;
+
+/**
+ * @param {string[]} words
+ * @returns {Unwrapped}
+ */
+const buildBareRun = (words) => ({
+	words,
+	wrapperWords: [],
+	chdirs: [],
+	unread: [],
+	watched: false,
+	scripted: false,
+});
+
+/**
+ * @param {Unwrapped} run
+ * @param {string[]} judged
+ * @param {Unwrapped[]} pending
+ * @returns {Strip}
+ */
+const buildStrip = (run, judged, pending) => ({
+	ws: [...run.words],
+	judged,
+	inEnv: false,
+	envReset: run.envReset ?? false,
+	execs: false,
+	awaitsScript: false,
+	script: null,
+	wrapperWords: [...run.wrapperWords],
+	chdirs: [...run.chdirs],
+	unread: [...run.unread],
+	watched: run.watched,
+	scripted: run.scripted,
+	pending,
+});
 
 /**
  * Whether a wrapper may hand its command another environment: `sudo`, which
@@ -744,6 +815,11 @@ const resetsEnv = (w, flags) =>
  * @property {boolean} watched
  * @property {Unwrapped[]} pending the runs still to strip
  * @property {boolean} execs a `watch -x` execs its words, through no `sh -c`
+ * @property {boolean} awaitsScript the words ran out where a wrapper takes the
+ *   script it runs through `sh -c`
+ * @property {string | null} script the script the last wrapper ran through
+ *   `sh -c`, read through literal
+ * @property {boolean} scripted
  */
 
 /**
@@ -805,13 +881,24 @@ function stepAfterFlags(st, wrapper, spans) {
 		const f = literal(head, spans).text;
 		if (f === "-c" || f === "--command") {
 			const [string] = tail;
-			if (string === undefined) return "cut";
-			runScript(st, read([string]), spans);
+			if (string === undefined) {
+				st.awaitsScript = true;
+				return "cut";
+			}
+			st.script = read([string]);
+			runScript(st, st.script, spans);
 		}
 	}
 	if (wrapper.command === "sh-string") {
 		st.watched = true;
-		if (!st.execs) runScript(st, read(st.ws), spans);
+		if (st.ws.length === 0) {
+			st.awaitsScript = !st.execs;
+			return "cut";
+		}
+		if (!st.execs) {
+			st.script = read(st.ws);
+			runScript(st, st.script, spans);
+		}
 		if (st.ws.length === 0) return "cut";
 	}
 	return "next";
@@ -838,10 +925,12 @@ function runScript(st, script, spans) {
 		],
 		unread: [...st.unread, ...cmd.unread],
 		watched: st.watched,
+		scripted: true,
 		...(st.envReset && { envReset: /** @type {const} */ (true) }),
 	}));
 	const [first, ...later] = runs;
 	st.ws = first?.words ?? [];
+	st.scripted = true;
 	if (first)
 		Object.assign(st, {
 			wrapperWords: first.wrapperWords,
@@ -1551,6 +1640,9 @@ module.exports = {
 	literal,
 	unwrap,
 	unwrapArgv,
+	isScriptNext,
+	wrapperScript,
+	runText,
 	holdsAt,
 	runCwd,
 	carriesVar,

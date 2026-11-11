@@ -294,6 +294,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 				chdirs: [],
 				unread: [],
 				watched: false,
+				scripted: false,
 			},
 		]);
 	});
@@ -351,6 +352,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			chdirs: [],
 			unread: [],
 			watched: false,
+			scripted: false,
 		});
 	});
 
@@ -361,6 +363,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			chdirs: [],
 			unread: [],
 			watched: false,
+			scripted: false,
 		});
 	});
 
@@ -389,6 +392,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			chdirs: [],
 			unread: [],
 			watched: false,
+			scripted: false,
 		});
 	});
 
@@ -523,6 +527,7 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 			chdirs: [],
 			unread: [],
 			watched: false,
+			scripted: false,
 		});
 	});
 
@@ -616,6 +621,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 			chdirs: [{ dir: "/d", read: true, holds: "always" }],
 			unread: [],
 			watched: false,
+			scripted: true,
 		});
 	});
 
