@@ -1796,15 +1796,17 @@ describe('walkGit, scope "shared"', () => {
 	});
 
 	describe("reads a run's chdirs as the shell that makes them does (#4981)", () => {
+		/** The trees judged and the fail-opens logged, from `cwd`. */
 		const trees = (
 			command: string,
 			cwd: string,
 			vars: Record<string, string> = ENV,
+			over: Partial<GitWalkPorts> = {},
 		) => {
 			const run = walkGitWith(
 				command,
 				{ unwrap: true },
-				{ fallbackCwd: cwd, vars, isDir: () => true },
+				{ fallbackCwd: cwd, vars, isDir: () => true, ...over },
 			);
 			return { trees: run.calls.map((c) => c.tree), logged: run.logged };
 		};
@@ -1812,15 +1814,8 @@ describe('walkGit, scope "shared"', () => {
 
 		it("takes a wrapper's quoted directory as written, expanding nothing", () => {
 			const X = { ...ENV, X: SHARED, HOME: SHARED };
-			/** The trees judged and the fail-opens logged, whatever each class. */
-			const asked = (command: string) => {
-				const run = walkGitWith(
-					command,
-					{ unwrap: true },
-					{ fallbackCwd: DIR, vars: X, treeClass: () => "shared" },
-				);
-				return { trees: run.calls.map((c) => c.tree), logged: run.logged };
-			};
+			const asked = (command: string) =>
+				trees(command, DIR, X, { treeClass: () => "shared" });
 			/* A tree spelt with a `$` is one the walk declines to judge. */
 			expect(asked(`env -C '$X' git checkout x`)).toEqual(lost);
 			expect(asked(`env -C '~' git checkout x`).trees).toEqual([`${DIR}/~`]);
@@ -1858,7 +1853,7 @@ describe('walkGit, scope "shared"', () => {
 		});
 
 		it("loses the tree at a name the session set, or the script changed unread", () => {
-			const X = { ...ENV, X: ELSEWHERE };
+			const X = { ...ENV, X: ELSEWHERE, _: ELSEWHERE };
 			for (const command of [
 				`X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
 				`export X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
@@ -1867,6 +1862,16 @@ describe('walkGit, scope "shared"', () => {
 				`flock /l -c 'true || X=${ELSEWHERE}; cd $X; git checkout x'`,
 				`flock /l -c 'cd $PWD; git checkout x'`,
 				`flock /l -c 'cd $OLDPWD; git checkout x'`,
+				`flock /l -c 'mkdir -p /a; cd $_; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; X+=/a; cd $X; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; export X+=/a; cd $X; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; ((X=1)); cd $X; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; : $((X=1)); cd $X; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; (X=/a); cd $X; git checkout x'`,
+				`env -i flock /l -c 'cd $X; git checkout x'`,
+				`env -u Y flock /l -c 'cd $X; git checkout x'`,
+				`sudo flock /l -c 'cd $X; git checkout x'`,
+				`sudo flock /l -c 'true; cd $X; git checkout x'`,
 			])
 				expect(trees(command, WORKTREE, X), command).toEqual(lost);
 		});

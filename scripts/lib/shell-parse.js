@@ -1378,6 +1378,13 @@ function walkCommands(parsed, fn, ports) {
  */
 
 /**
+ * @typedef {object} ScriptAt where in a script a segment stands
+ * @property {Parsed} parsed
+ * @property {number} segIdx
+ * @property {string[]} spans
+ */
+
+/**
  * @typedef {object} ScriptState what a script's next command runs under
  * @property {Chdir[]} chdirs
  * @property {{ at: number, holds: Chdir["holds"] }[]} pending each `cd` a
@@ -1423,9 +1430,16 @@ function parseScript(script, spans) {
 			stack.push(state);
 			return;
 		}
-		/* A `)` with no `(` open is a `case` pattern, which moves nothing. */
+		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
+		 * `((…))` or `$((…))` parses as brackets too, and its assignments
+		 * stand, so each name the brackets changed is lost. */
 		if (segment === `${SCOPE_MARK})`) {
-			state = stack.pop() ?? state;
+			const outer = stack.pop();
+			if (outer)
+				state = {
+					...outer,
+					lost: settleLost(outer.lost, changedNames(state, outer), false),
+				};
 			return;
 		}
 		state = settleScriptChain(state, parsed.joins[segIdx]);
@@ -1438,10 +1452,10 @@ function parseScript(script, spans) {
 				chdirs: state.chdirs,
 				unread: state.unread,
 			});
-		const at = { parsed, segIdx, spans };
+		const where = { parsed, segIdx, spans };
 		state = cw.ran
-			? stepScript(state, cw, at)
-			: assignAlone(state, cw.words, assigned, at);
+			? stepScript(state, cw, where)
+			: assignAlone(state, cw.words, assigned, where);
 	});
 	return out;
 }
@@ -1469,11 +1483,11 @@ function settleScriptChain(state, join) {
  * @param {ScriptState} state
  * @param {string[]} words the segment's
  * @param {string[]} assigned
- * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function assignAlone(state, words, assigned, at) {
-	const { spans } = at;
+function assignAlone(state, words, assigned, where) {
+	const { spans } = where;
 	const locals = new Map(state.locals);
 	let { exports } = state;
 	for (const w of assigned) {
@@ -1482,10 +1496,14 @@ function assignAlone(state, words, assigned, at) {
 		if (exports.some((e) => assignedName(e, spans) === name))
 			exports = [...withoutName(exports, name, spans), w];
 	}
+	const { set, lostTo } = assignedNames(
+		assigned.map((w) => literal(w, spans).text),
+		false,
+	);
 	const lost = settleLost(
-		state.lost,
-		assigned.map((w) => assignedName(w, spans)),
-		surelyAssigns(at),
+		settleLost(state.lost, set, isSureAssignment(where)),
+		lostTo,
+		false,
 	);
 	return markScriptUnread(
 		{ ...state, locals, exports, lost },
@@ -1499,12 +1517,44 @@ function assignAlone(state, words, assigned, at) {
 const BARE_NAME_RE = /(?<![\w$])(?<!\$\{)[A-Za-z_]\w*/g;
 
 /**
+ * The names assignment texts set, and those they leave lost: every one where
+ * `empties` (an `unset`), else each `+=`, which appends to a value this file
+ * does not add up. A name alone sets nothing.
+ * @param {string[]} texts
+ * @param {boolean} empties
+ */
+function assignedNames(texts, empties) {
+	/** @type {string[]} */
+	const set = [];
+	/** @type {string[]} */
+	const lostTo = [];
+	for (const t of texts) {
+		const name = (t.split("=", 1)[0] ?? "").replace(/\+$/, "");
+		if (empties || /^[^=]*\+=/.test(t)) lostTo.push(name);
+		else if (t.includes("=")) set.push(name);
+	}
+	return { set, lostTo };
+}
+
+/**
+ * Each name `inner` lost or holds a different word for than `outer`.
+ * @param {ScriptState} inner
+ * @param {ScriptState} outer
+ */
+const changedNames = (inner, outer) => [
+	...inner.lost,
+	...[...inner.locals].flatMap(([name, w]) =>
+		outer.locals.get(name) === w ? [] : [name],
+	),
+];
+
+/**
  * Whether a segment's assignments surely stand after it: no `&&` or `||`
  * before it, no compound command in the script, and not in a pipeline or
  * behind `&`.
- * @param {{ parsed: Parsed, segIdx: number }} at
+ * @param {Pick<ScriptAt, "parsed" | "segIdx">} where
  */
-const surelyAssigns = ({ parsed, segIdx }) =>
+const isSureAssignment = ({ parsed, segIdx }) =>
 	isSureMove(parsed, segIdx, []) && !runsApart(parsed.joins, segIdx);
 
 /**
@@ -1524,21 +1574,21 @@ const settleLost = (lost, names, sure) =>
  * but `git` may mark variables unread.
  * @param {ScriptState} state
  * @param {CommandWords} cw
- * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function stepScript(state, cw, at) {
-	const { spans } = at;
+function stepScript(state, cw, where) {
+	const { spans } = where;
 	const own = cw.words.slice(cw.wi);
 	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
-	const apart = runsApart(at.parsed.joins, at.segIdx);
+	const apart = runsApart(where.parsed.joins, where.segIdx);
 	const kind = exportKind(head, rest);
 	if (kind !== null)
 		return apart
 			? state
-			: exportInScript(state, { head, kind }, own.slice(1), at);
+			: exportInScript(state, { head, kind }, own.slice(1), where);
 	if (head === "cd" || losesCwd(head, rest[0]))
-		return apart ? state : cdInScript(state, own, at);
+		return apart ? state : cdInScript(state, own, where);
 	const runs = unwrap(own, spans);
 	if (runs.every((run) => commandName(run.words[0] ?? "") === "git"))
 		return state;
@@ -1556,21 +1606,21 @@ function stepScript(state, cw, at) {
  * @param {{ head: string, kind: "export" | "drop" }} command its command word,
  *   and what exportKind reads it as
  * @param {string[]} args the words after the command word, masked
- * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function exportInScript(state, command, args, at) {
-	const { spans } = at;
+function exportInScript(state, command, args, where) {
+	const { spans } = where;
 	const texts = args
 		.map((w) => literal(w, spans).text)
 		.filter((t) => !t.startsWith("-"));
-	const names = texts.map((t) => t.split("=", 1)[0] ?? "");
-	const set =
-		command.kind === "export" ? names.filter((n, i) => n !== texts[i]) : [];
-	const unset = command.head === "unset" ? names : [];
+	const { set, lostTo } =
+		command.kind === "export"
+			? assignedNames(texts, false)
+			: assignedNames(texts, command.head === "unset");
 	const lost = settleLost(
-		settleLost(state.lost, set, surelyAssigns(at)),
-		unset,
+		settleLost(state.lost, set, isSureAssignment(where)),
+		lostTo,
 		false,
 	);
 	return { ...exportWords(state, command, args, spans), lost };
@@ -1611,18 +1661,20 @@ function exportWords(state, { head, kind }, args, spans) {
  * resolves; one a `&&` chains a command off holds always for that chain.
  * @param {ScriptState} state
  * @param {string[]} own its words, masked
- * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function cdInScript(state, own, at) {
-	const texts = own.map((w) => literal(w, at.spans).text);
+function cdInScript(state, own, where) {
+	const texts = own.map((w) => literal(w, where.spans).text);
 	const [head, arg] = texts;
 	const known =
 		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
 	const dir = known || `$(${texts.join(" ")})`;
 	/** @type {Chdir["holds"]} */
-	const holds = isSureMove(at.parsed, at.segIdx, own) ? "if-dir" : "maybe";
-	const chained = at.parsed.joins[at.segIdx + 1] === "a";
+	const holds = isSureMove(where.parsed, where.segIdx, own)
+		? "if-dir"
+		: "maybe";
+	const chained = where.parsed.joins[where.segIdx + 1] === "a";
 	const pending = chained
 		? [...state.pending, { at: state.chdirs.length, holds }]
 		: state.pending;
@@ -1659,7 +1711,7 @@ function markScriptUnread(state, words, assigning, spans) {
  * @param {string[]} spans
  */
 const assignedName = (w, spans) =>
-	literal(w, spans).text.split("=", 1)[0] ?? "";
+	(literal(w, spans).text.split("=", 1)[0] ?? "").replace(/\+$/, "");
 
 /**
  * @param {string[]} words
@@ -1915,8 +1967,8 @@ function readGitRun(walk, run, leading, isDir) {
 		/** @type {number[]} */
 		const unsure = [];
 		dirs.forEach((cd, at) => {
-			const { r, emptyNames } = chdirArg(cd, walk.scope);
-			moveGitTarget(target, r, cd.dir, emptyNames);
+			const { resolved, emptyNames } = chdirArg(cd, walk.scope);
+			moveGitTarget(target, resolved, cd.dir, emptyNames);
 			if (!holdsAt(cd, target.tree, isDir)) unsure.push(at);
 		});
 		const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
@@ -2274,7 +2326,8 @@ function readGitDir(word, target, scope) {
 
 /**
  * Move `target` to a directory as pathArg answered it.
- * @param {GitTarget} target
+ * @param {GitTarget} target accumulator: its tree, fromCwd, names and written
+ *   are moved
  * @param {ReturnType<typeof pathArg>} r
  * @param {string} word as written, for the unresolved record
  * @param {string[]} emptyNames the unset names `r` read as empty
@@ -2301,23 +2354,26 @@ function moveGitTarget(target, r, word, emptyNames) {
 
 /**
  * One chdir's directory as the shell that makes it reads it (#4981): a `read`
- * one as it stands; a `-c` string's `cd` under scriptScope; any other — a
+ * one as it stands; a `-c` string's `cd` under buildScriptScope; any other — a
  * wrapper's word the outer shell expands — under the outer `scope`. Null
  * past an unquoted glob or a `-` flag.
  * @param {Chdir} cd
  * @param {Scope} scope the outer command's
- * @returns {{ r: ReturnType<typeof pathArg>, emptyNames: string[] }}
+ * @returns {{ resolved: ReturnType<typeof pathArg>, emptyNames: string[] }}
  */
 function chdirArg(cd, scope) {
-	const none = { r: null, emptyNames: [] };
+	const none = { resolved: null, emptyNames: [] };
 	if (cd.read && cd.dir.startsWith("-")) return none;
 	if (cd.read)
-		return { r: cd.dir ? { path: cd.dir } : { empty: true }, emptyNames: [] };
+		return {
+			resolved: cd.dir ? { path: cd.dir } : { empty: true },
+			emptyNames: [],
+		};
 	if (isGlobPattern(cd.dir)) return none;
-	const inner = cd.vars ? scriptScope(cd.vars, scope) : scope;
+	const inner = cd.vars ? buildScriptScope(cd, scope) : scope;
 	const r = pathArg(cd.dir, inner);
 	if (r && "path" in r && r.path.startsWith("-")) return none;
-	return { r, emptyNames: inner.emptyNames };
+	return { resolved: r, emptyNames: inner.emptyNames };
 }
 
 /**
@@ -2325,7 +2381,7 @@ function chdirArg(cd, scope) {
  * @param {string[]} spans
  * @returns {Scope}
  */
-const bareScope = (spans) => ({
+const buildBareScope = (spans) => ({
 	spans,
 	locals: new Map(),
 	dead: new Set(),
@@ -2337,30 +2393,30 @@ const bareScope = (spans) => ({
 });
 
 /** Names a script's shell sets itself, whatever the script did. */
-const SHELL_SET = ["PWD", "OLDPWD"];
+const SHELL_SET = ["PWD", "OLDPWD", "_"];
 
 /**
  * What a `-c` string's word reads under: each name its script set at that
  * value, read itself under the environment alone; any other at the
  * environment the outer command hands down. Unknown: a name the script
- * changed unfollowed or set to a value that will not resolve, `PWD` and
- * `OLDPWD`, and an environment name the outer command names bare — it may
- * have set it, exported or not — or any under a `source`, `.` or `eval`.
- * @param {Map<string, string | null>} vars the cd's: each name its script set
- *   before it, its assignment word masked, or null where changed unfollowed
+ * changed unfollowed or set to a value that will not resolve, `PWD`,
+ * `OLDPWD` and `_`, and an environment name the outer command names bare — it
+ * may have set it, exported or not — or any under a `source`, `.` or `eval`,
+ * or behind a wrapper that may replace the environment.
+ * @param {Chdir} cd a `-c` string's `cd`
  * @param {Scope} outer
  * @returns {Scope}
  */
-function scriptScope(vars, outer) {
+function buildScriptScope({ vars = new Map(), envReset }, outer) {
 	const { subject } = outer;
-	const sourcing = SOURCING_RE.test(subject);
+	const inherits = !envReset && !SOURCING_RE.test(subject);
 	/** @type {Record<string, string | undefined>} */
 	const env = {};
 	for (const [name, value] of Object.entries(outer.vars))
-		if (!sourcing && bareMentions(name, subject) === 0) env[name] = value;
+		if (inherits && bareMentions(name, subject) === 0) env[name] = value;
 	/** @type {Scope} */
 	const scope = {
-		...bareScope(outer.spans),
+		...buildBareScope(outer.spans),
 		dead: new Set([...SHELL_SET, ...vars.keys()]),
 		vars: env,
 	};
@@ -2778,7 +2834,7 @@ module.exports = {
 	normAbs,
 	walkGit,
 	chdirArg,
-	bareScope,
+	buildBareScope,
 	unsetText,
 	BASH_SPACE: SPACE,
 };
