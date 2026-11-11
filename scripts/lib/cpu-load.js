@@ -19,15 +19,16 @@
  *
  * WHAT COUNTS AS A CAP — at most half the machine's cores, #2710's delegated
  * value:
- *  - `systemd-run … -p CPUQuota=<n>%` with n at most 50 × cores (400 here);
+ *  - `systemd-run … -p CPUQuota=<n>%` with n at most 50 × cores;
  *  - `taskset` to at most half the cores.
  * A cap covers everything its command runs, a `bash -c` string or a script
  * included. TWO CAPS DO NOT ADD UP TO ONE: a second capped generator in the
  * same text, or one backgrounded inside a loop, is refused.
  *
- * WHERE IT LOOKS. The command; a `bash -c`/`sh -c` or `eval` string; and the
- * script a shell runs or sources — `bash x.sh`, `./x.sh`, `source x.sh`, or
- * `bg-run.sh run <name> bash x.sh` — read through the `readScript` port.
+ * WHERE IT LOOKS. The command; a `bash -c`/`sh -c`, `flock -c`, `watch` or
+ * `eval` string; and the script a shell runs or sources — `bash x.sh`,
+ * `./x.sh`, `source x.sh`, or `bg-run.sh run <name> bash x.sh` — read through
+ * the `readScript` port.
  *
  * NUMBERS READ AS BASH ARITHMETIC READS THEM: 64-bit, wrapping, a leading 0
  * octal and an invalid octal no number at all. The split is this core's own,
@@ -58,7 +59,7 @@
  */
 
 const { parseCommand, unmask } = require("./shell-parse.js");
-const { literal, unwrap } = require("./shell-words.js");
+const { literal, unwrap, wrapperScript } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /* bash arithmetic's constants: the BigInt literal outruns the ES2018 target
@@ -105,6 +106,8 @@ const RELEVANT = [
 	"source",
 	".",
 	"eval",
+	"flock",
+	"watch",
 	"bash",
 	"sh",
 	"dash",
@@ -113,6 +116,10 @@ const RELEVANT = [
 ];
 
 const SHELLS = ["bash", "sh", "dash", "zsh", "ksh"];
+
+const SCRIPT_WRAPPERS = ["flock", "watch"];
+
+const CAP_WRAPPERS = ["taskset"];
 
 /* The sinks a piped `yes` is still load into. */
 const SINKS = ["cat", "tee", "dd", "pv"];
@@ -528,8 +535,22 @@ function judgeShell(at, words, spans, scan) {
 const judgeScript = (at, words, spans, scan) =>
 	scanScript(words[0] ?? "", spans, at.depth + 1, scan);
 
+/**
+ * A `flock -c` or `watch` script, scanned as a shell's `-c` string is
+ * (#4978).
+ * @type {Judge}
+ */
+function judgeScriptWrapper(at, words, spans, scan) {
+	const script = wrapperScript(words, spans);
+	if (script === null)
+		return judgeRuns(at, words, { spans, scan, judged: CAP_WRAPPERS });
+	return scanText(script, at.depth + 1, at.where, scan);
+}
+
 /** @type {Map<string, Judge>} */
 const JUDGES = new Map([
+	["flock", judgeScriptWrapper],
+	["watch", judgeScriptWrapper],
 	["systemd-run", judgeQuota],
 	["taskset", judgeTaskset],
 	["yes", judgeYes],
@@ -550,8 +571,22 @@ const JUDGES = new Map([
  * @param {Scan} scan
  * @returns {Verdict | null}
  */
-function judge(at, raw, spans, scan) {
-	for (const { words } of unwrap(raw, spans, ["taskset"])) {
+const judge = (at, raw, spans, scan) =>
+	judgeRuns(at, raw, {
+		spans,
+		scan,
+		judged: [...CAP_WRAPPERS, ...SCRIPT_WRAPPERS],
+	});
+
+/**
+ * judge, `judged` the wrappers left standing for a judge of their own.
+ * @param {At} at
+ * @param {string[]} raw
+ * @param {{ spans: string[], scan: Scan, judged: string[] }} with
+ * @returns {Verdict | null}
+ */
+function judgeRuns(at, raw, { spans, scan, judged }) {
+	for (const { words } of unwrap(raw, spans, judged)) {
 		if (words.length === 0) continue;
 		const cmd = afterSlash(lit(words[0] ?? "", spans).text);
 		const by = JUDGES.get(cmd) ?? (cmd.endsWith(".sh") ? judgeScript : null);
@@ -709,8 +744,6 @@ function scanLine(st, line, idx) {
 	if (words.length === 0 || first.startsWith("#")) return null;
 	const loop = loopWord(st, words, sep);
 	if (loop !== undefined) return loop;
-	/* A loop body running anything but a builtin may block, so is no busy
-	 * loop. */
 	const top = st.frames.at(-1);
 	if (top && !BUSY_BODY.includes(first) && !/^[A-Za-z_].*=/s.test(first))
 		top.busy = false;
@@ -718,8 +751,6 @@ function scanLine(st, line, idx) {
 	const verdict = judge(lineAt(st, words, sep, idx), words, st.spans, st.scan);
 	if (verdict === null) return null;
 	if (verdict.kind !== "capped") return verdict;
-	/* A second capped generator, or one started over and over in a loop, adds
-	 * its cap to the first. */
 	if (st.capped !== null || (st.frames.length > 0 && sep === "&"))
 		return { ...verdict, kind: "multi" };
 	st.capped = verdict;

@@ -123,7 +123,8 @@ const DESCRIPTOR_PATH =
 	/\/(?:dev\/(?:stdin|stdout|stderr|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
 
 /**
- * Whether a word of a git call may feed it its standard input. git takes
+ * Whether a word of a git call may feed it its standard input, or hand it
+ * another descriptor of the test's by path. git takes
  * any prefix of a long option that names no other, so every prefix of one
  * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
  * whether or not another option there shares it: a call kept is run again
@@ -133,7 +134,7 @@ const DESCRIPTOR_PATH =
  * folds away no more than the option the path is stuck to.
  * @param {string} word
  */
-function isStdinFed(word) {
+function isDescriptorFed(word) {
 	if (STDIN_FILE.test(word)) return true;
 	if (DESCRIPTOR_PATH.test(path.posix.normalize(`/${word}`))) return true;
 	const valueAt = word.indexOf("=");
@@ -509,8 +510,8 @@ function rerunnable({ steered, dir, args }, root) {
 	 * hashed off, holds none of it (#4993). */
 	if (args.some((a) => a === "--output" || String(a).startsWith("--output=")))
 		return `a git call (${shown}) wrote its answer to a file`;
-	if (args.slice(i + 1).some(isStdinFed))
-		return `a git call (${shown}) read its standard input`;
+	if (args.slice(i + 1).some(isDescriptorFed))
+		return `a git call (${shown}) read its standard input or another descriptor`;
 	return { cwd, args };
 }
 

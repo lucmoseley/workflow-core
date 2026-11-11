@@ -22,6 +22,7 @@ const path = require("node:path");
 const { readText } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
 const { EXITED, SHOWN_MAX } = require("./read-audit-paths.js");
+const { requiredGroup } = require("./regex-group.js");
 
 /* Each quote within the path as `'\''` (git's connect.c, sq_quote). */
 const TRANSPORT =
@@ -108,8 +109,9 @@ function closeKilled(open, helped, pid) {
  * @param {string} sid
  */
 function pidOf(sid) {
-	const named = /-P([0-9a-f]{8})$/.exec(sid);
-	return named ? Number.parseInt(String(named[1]), 16) : Number.NaN;
+	const re = /-P([0-9a-f]{8})$/;
+	const named = re.exec(sid);
+	return named ? Number.parseInt(requiredGroup(named, 1, re), 16) : Number.NaN;
 }
 
 /** @param {Record<string, unknown>} row a `child_start` event */

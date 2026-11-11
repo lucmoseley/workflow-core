@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type Audit, NO_READS, type Reads } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
-const { readTreeSnapshot } = require("./tree-drift.js");
+const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const {
 	heldAtSha,
 	lookup,
@@ -92,7 +92,7 @@ const nextAt = () => {
 /**
  * A run of `files` at `dir`, each passing unless named in `failing`, each
  * audited as reading nothing unless `audits` names it; `audits: null` is a
- * run nothing audited.
+ * run nothing audited. `startMark` defaults to a mark taken now.
  */
 function run(
 	dir: string,
@@ -102,6 +102,7 @@ function run(
 		clean = true,
 		drifted = [] as string[] | null,
 		after = undefined as ReturnType<typeof readTreeSnapshot> | undefined,
+		startMark = undefined as bigint | null | undefined,
 		values = VALUES,
 		storeRoot = dir,
 		at = nextAt(),
@@ -123,6 +124,7 @@ function run(
 			clean,
 			drifted,
 			after: after === undefined ? readTreeSnapshot(dir) : after,
+			startMark: startMark === undefined ? markStart(dir) : startMark,
 			audits:
 				audits === null
 					? null
@@ -133,6 +135,17 @@ function run(
 		{ storeRoot, values, lander: false },
 	);
 }
+
+/** What the store holds for `A` at the repo's HEAD. */
+const heldAtHead = (dir: string) =>
+	heldAtSha([A], {
+		storeRoot: dir,
+		sha: git(dir, "rev-parse", "HEAD"),
+		before: "9999",
+		git: (args: string[]) =>
+			execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+		values: VALUES,
+	}).get(A);
 
 const cachedOf = (
 	dir: string,
@@ -498,15 +511,6 @@ describe("the newest result on the same content decides", () => {
 
 	describe("a red file whose inputs are unknown (#4790 pass 3)", () => {
 		const Doubt = { doubt: "its process left no audit log" };
-		const heldAtHead = (dir: string) =>
-			heldAtSha([A], {
-				storeRoot: dir,
-				sha: git(dir, "rev-parse", "HEAD"),
-				before: "9999",
-				git: (args: string[]) =>
-					execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
-				values: VALUES,
-			}).get(A);
 
 		it("voids an older pass on the same content, until a newer pass", () => {
 			const dir = repo();
@@ -1122,6 +1126,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			clean: true,
 			drifted: [],
 			after: readTreeSnapshot(dir),
+			startMark: markStart(dir),
 			audits: new Map([[A, { reads: NO_READS }]]),
 		};
 		expect(record(base, { storeRoot: dir, lander: true })).toBe(0);
@@ -1247,6 +1252,75 @@ describe("the reads the audit saw", () => {
 		expect(run(dir, [A])).toBe(1);
 	});
 
+	/* Two snapshots see no change put back between them: each file's change
+	 * time does (#5018). */
+	describe("an input changed and put back while the run ran (#5018)", () => {
+		const readsOther = { [A]: audited({ files: ["other.md"] }) };
+
+		it("records no pass row for a test that read a file while it stood edited", () => {
+			const dir = repo();
+			const startMark = markStart(dir);
+			write(dir, "other.md", "other.md edited\n");
+			write(dir, "other.md", "other.md v0\n");
+			expect(run(dir, [A, B], { startMark, audits: readsOther })).toBe(1);
+			expect(cachedOf(dir, [A, B])).toEqual([B]);
+		});
+
+		it("records no pass row for a tree walked while a file under it was removed, then restored", () => {
+			const dir = repo();
+			withSkill(dir);
+			const startMark = markStart(dir);
+			const skill = path.join(dir, Skills, "one/SKILL.md");
+			const text = fs.readFileSync(skill);
+			fs.rmSync(skill);
+			fs.writeFileSync(skill, text);
+			expect(
+				run(dir, [A, B], {
+					startMark,
+					audits: { [A]: audited({ trees: [Skills] }) },
+				}),
+			).toBe(1);
+			expect(cachedOf(dir, [A, B])).toEqual([B]);
+		});
+
+		it("records no pass row where a file changed after the end snapshot is put back before the record reads it", () => {
+			const dir = repo();
+			const startMark = markStart(dir);
+			const end = readTreeSnapshot(dir);
+			write(dir, "other.md", "other.md late\n");
+			write(dir, "other.md", "other.md v0\n");
+			expect(
+				run(dir, [A, B], { startMark, after: end, audits: readsOther }),
+			).toBe(1);
+			expect(cachedOf(dir, [A, B])).toEqual([B]);
+		});
+
+		it("still records the pass of a test whose inputs stood untouched since the run began", () => {
+			const dir = repo();
+			write(dir, "other.md", "other.md v1\n");
+			const startMark = markStart(dir);
+			expect(run(dir, [A, B], { startMark, audits: readsOther })).toBe(2);
+			expect(cachedOf(dir, [A, B])).toEqual([A, B]);
+		});
+
+		it("records no pass row where the run's start was never marked", () => {
+			const dir = repo();
+			expect(run(dir, [A, B], { startMark: null })).toBe(0);
+		});
+	});
+
+	it("voids an older pass with a red recorded after the tree moved past the run's end snapshot, once the move is undone (#4790)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		const ran = fs.readFileSync(path.join(dir, "lib.js"), "utf8");
+		const end = readTreeSnapshot(dir);
+		write(dir, "lib.js", "lib.js edited after the end snapshot\n");
+		expect(run(dir, [A], { failing: [A], after: end })).toBe(1);
+		write(dir, "lib.js", ran);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("rests a tree walked whole on every file and listing under it", () => {
 		const dir = repo();
 		withSkill(dir);
@@ -1356,15 +1430,6 @@ describe("a red recorded at another layout (#4995)", () => {
 			`${[...lines, JSON.stringify({ ...last, format })].join("\n")}\n`,
 		);
 	};
-	const heldAtHead = (dir: string) =>
-		heldAtSha([A], {
-			storeRoot: dir,
-			sha: git(dir, "rev-parse", "HEAD"),
-			before: "9999",
-			git: (args: string[]) =>
-				execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
-			values: VALUES,
-		}).get(A);
 	const formatOf = (dir: string) =>
 		JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n")[0])
 			.format as number;

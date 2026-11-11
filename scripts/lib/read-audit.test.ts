@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { readTreeSnapshot } = require("./tree-drift.js");
+const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
@@ -1411,6 +1411,7 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				clean: true,
 				drifted: [],
 				after: readTreeSnapshot(root),
+				startMark: markStart(root),
 				audits: readAudits(log, root),
 			},
 			{ storeRoot: root, lander: false, values: Values },
@@ -1824,11 +1825,11 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		[["grep", "-l", "--file=/dev/stdout"]],
 		[["grep", "-lf/dev/stderr"]],
 	])(
-		"doubts a git call fed by standard input, which a run again never has: %j",
+		"doubts a git call fed by its standard input or another descriptor, which a run again never has: %j",
 		(words) => {
 			const root = checkout();
 			expect(judged(root, [], [[root, words]]).doubt).toMatch(
-				/a git call \(git .*\) read its standard input/,
+				/a git call \(git .*\) read its standard input or another descriptor/,
 			);
 			expect(
 				judged(root, [], [[root, ["cat-file", "-p", "HEAD"]]]).reads.git,
@@ -1845,7 +1846,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		[["log", "--stat", "--all", "--branches", "--parents"]],
 		[["rev-parse", "--abbrev-ref", "HEAD", "--"]],
 	])(
-		"keeps a git call whose options only resemble one fed by standard input: %j",
+		"keeps a git call whose options only resemble one fed by a descriptor: %j",
 		(words) => {
 			const root = checkout();
 			expect(judged(root, [], [[root, words]]).reads.git).toEqual([

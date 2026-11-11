@@ -22,6 +22,7 @@ const {
 	readSentinels,
 	literal,
 	unwrap,
+	holdsAt,
 	commandName,
 	isGitValueOption,
 	isGlobPattern,
@@ -445,7 +446,8 @@ const isWriteRedirect = (kind) =>
  * segment. The join is ABANDONED the moment it would absorb a line that runs
  * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
  * a stray quote would hide every line after it — EXCEPT inside a message
- * argument (mantahostels#232), whose lines are prose.
+ * argument (mantahostels#232), whose lines are prose, and a script unwrap
+ * reads (#4978).
  *
  * Each command substitution a double-quoted span runs is LIFTED into segments
  * of its own, bracketed as a subshell, ahead of the segment holding the span
@@ -671,10 +673,9 @@ function parseHeredocTerm(mask, line) {
 /**
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
- * line outside a message argument (mantahostels#232). The abandon is the
- * fail-closed read of a quote typed by mistake: a stray apostrophe that a
- * later line's quote closes would hide every command between them. A quote
- * opening a message argument was meant, so only there does the join hold.
+ * line outside a message argument (mantahostels#232) or a script unwrap reads
+ * (#4978). A `sh -c` script is not among them: no git guard reads one. Residual: three cores read no unwrap run, so such a
+ * script's later `gh` or text line passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -689,18 +690,17 @@ function joinLogicalLines(commandLines, lx, spans) {
 		pending = [];
 		lx.reset();
 	};
-	/* Whether the open quote is a message is asked once per span. */
-	let messageAt = "";
-	let prose = false;
+	let heldAt = "";
+	let held = false;
 	lx.reset();
 	for (const line of commandLines) {
 		if (pending.length > 0) {
 			const at = `${lx.opens}${lx.frames ? "open" : ""}`;
-			if (messageAt !== at) {
-				messageAt = at;
-				prose = isMessageOpen(lx);
+			if (heldAt !== at) {
+				heldAt = at;
+				held = isJoinHeld(lx, spans);
 			}
-			if (!prose && isCommandAbsorbed(line, spans)) {
+			if (!held && isCommandAbsorbed(line, spans)) {
 				pending.push(line);
 				keepPerLine();
 				continue;
@@ -763,6 +763,26 @@ function isMessageOpen(lx) {
 		basename(words[wi] ?? "") === "gh" &&
 		["-b", "--body", "-t", "--title"].includes(word)
 	);
+}
+
+/**
+ * Does the lexer's still-open quote hold its join through a GUARDED_HEADS line?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+const isJoinHeld = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
+
+/**
+ * Is the lexer's still-open quote, opening a word of its own, the script a
+ * `flock -c` or `watch` runs (#4978)?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+function isScriptOpen(lx, spans) {
+	if (!/[ \t]$/.test(lx.prefix)) return false;
+	const lines = flatten(lx.prefix).split("\n");
+	const { words, wi, ran } = commandWords(lines.at(-2) ?? "");
+	return ran && shellWords.isScriptNext(words.slice(wi), spans);
 }
 
 /**
@@ -1061,8 +1081,11 @@ function resolveWord(word, scope) {
  *   every redirection removed (#1488)
  * @property {string[]} leading the words before the command — reserved words
  *   and the leading assignments (#1013)
- * @property {string} cwd the directory it runs in; "" where the walk cannot
- *   know it, which the caller records before it fails open (mantahostels#3453)
+ * @property {string} cwd the directory it runs in, every `cd` before it taken
+ *   as made; "" where the walk cannot know it, which the caller records before
+ *   it fails open (mantahostels#3453)
+ * @property {import("./shell-words.js").Dirs} cwds every directory it may
+ *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[]) => WriteTarget[]} writeTargets
  * @property {(word: string) => string | null} resolveWord
@@ -1259,23 +1282,34 @@ function harvest(walk, words, segIdx) {
  * stays unknown.
  * @param {Walk} walk
  * @param {string[]} words
+ * @returns {((dir: string) => string) | null} the move, from any directory to
+ *   where it lands, "" where unknown; null where the command moves nothing
  */
 function moveCwd(walk, words) {
 	const [head = "", arg] = words;
-	if (losesCwd(head, arg)) return loseCwd(walk, words);
-	if (head !== "cd") return false;
+	if (losesCwd(head, arg)) {
+		loseCwd(walk, words);
+		return () => "";
+	}
+	if (head !== "cd") return null;
 	const r = pathArg(arg ?? "", walk.scope);
 	const names = walk.scope.emptyNames;
-	if (r && "empty" in r) walk.cwdNames = [...walk.cwdNames, ...names];
-	else if (!r || r.path.startsWith("-")) loseCwd(walk, words);
-	else if (r.path.startsWith("/")) {
-		walk.cwd = r.path;
-		walk.cwdNames = [...names];
-	} else if (walk.cwd) {
-		walk.cwd = `${walk.cwd}/${r.path}`;
+	if (r && "empty" in r) {
 		walk.cwdNames = [...walk.cwdNames, ...names];
+		return (dir) => dir;
 	}
-	return true;
+	if (!r || r.path.startsWith("-")) {
+		loseCwd(walk, words);
+		return () => "";
+	}
+	const { path: to } = r;
+	/** @param {string} dir */
+	const move = (dir) => (to.startsWith("/") ? to : dir && `${dir}/${to}`);
+	walk.cwdNames = to.startsWith("/")
+		? [...names]
+		: [...walk.cwdNames, ...names];
+	walk.cwd = move(walk.cwd);
+	return move;
 }
 
 /**
@@ -1299,7 +1333,6 @@ function loseCwd(walk, words) {
 	walk.cwd = "";
 	walk.cwdNames = [];
 	walk.cwdLost = words.join(" ");
-	return true;
 }
 
 /**
@@ -1320,8 +1353,9 @@ function absolutePath(walk, word) {
  * nothing are skipped, bar redirections alone under `bareRedirects`.
  *
  * Seeded from the payload's cwd, else `ports.fallbackCwd` (mantahostels#2682). The
- * cwd is moved AFTER each callback, so a `cd`'s own callback reads the
- * directory it ran from. A subshell's `)` hands back the cwd its `(` saw.
+ * cwd is moved AFTER each callback, as stepCwd moves it, so a `cd`'s own
+ * callback reads the directory it ran from. A subshell's `)` hands back the
+ * cwd its `(` saw.
  * @param {Parsed} parsed
  * @param {(cmd: Command) => void} fn
  * @param {WalkPorts} ports
@@ -1335,28 +1369,33 @@ function walkCommands(parsed, fn, ports) {
 	const { scope } = walk;
 	/** @param {string} word */
 	const abs = (word) => absolutePath(walk, word);
-	eachSegment(walk, (segment, { words, wi, assignEnd, redirs, ran }) => {
-		if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
-		const own = ran ? words.slice(wi) : [];
-		const redirects = () => readRedirects(redirs, scope, abs);
-		fn({
-			segment,
-			words: own,
-			leading: words.slice(0, assignEnd),
-			cwd: walk.cwd,
-			redirects,
-			writeTargets: (w = own) =>
-				writeTargets(w, redirects(), {
-					spans: scope.spans,
-					resolveAbs: abs,
-					resolve: (word) => resolveWord(word, scope),
-					isDir: ports.isDir,
-				}),
-			resolveWord: (word) => resolveWord(word, scope),
-			assigned: (name) => scope.locals.has(name),
-		});
-		if (ran) moveCwd(walk, own);
-	});
+	eachSegment(
+		walk,
+		(segment, { words, wi, assignEnd, redirs, ran }, segIdx) => {
+			settleCwdDoubt(walk, segIdx);
+			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
+			const own = ran ? words.slice(wi) : [];
+			const redirects = () => readRedirects(redirs, scope, abs);
+			fn({
+				segment,
+				words: own,
+				leading: words.slice(0, assignEnd),
+				cwd: walk.cwd,
+				cwds: [walk.cwd, ...walk.cwdDoubt],
+				redirects,
+				writeTargets: (w = own) =>
+					writeTargets(w, redirects(), {
+						spans: scope.spans,
+						resolveAbs: abs,
+						resolve: (word) => resolveWord(word, scope),
+						isDir: ports.isDir,
+					}),
+				resolveWord: (word) => resolveWord(word, scope),
+				assigned: (name) => scope.locals.has(name),
+			});
+			if (ran) stepCwd(walk, own, segIdx, ports.isDir);
+		},
+	);
 }
 
 /**
@@ -1759,7 +1798,10 @@ const withoutName = (words, name, spans) =>
  *   substituted EMPTY and judged, which in quotes is the cwd. Shell state does
  *   not carry between Bash calls, so that is the tree the command runs in
  * @property {boolean} [unwrap] judge a git command behind shell-words.js's
- *   unwrap wrappers (#1731)
+ *   unwrap wrappers (#1731). Without it, a command a `flock -c` or `watch`
+ *   script runs is still judged (#4978), behind an outer wrapper too
+ *   (`timeout 5 flock … -c "git …"`), while a bare `timeout 5 git …` stays
+ *   unread
  */
 
 /**
@@ -1898,8 +1940,8 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  * @param {CommandWords} cw
  * @param {number} segIdx
  * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
- *   `unwrapped` judges past the launcher wrappers (#1731), each command a
- *   `-c` string runs among them (#4699)
+ *   `unwrapped` judges past the launcher wrappers (#1731); each command a
+ *   `-c` string runs is judged either way (#4699, #4978)
  * @returns {(GitTarget & { sub: string, args: string[] })[]}
  */
 function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
@@ -1912,9 +1954,13 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	if (stepCwd(walk, own, segIdx, how.isDir)) return [];
 	if (trackExport(walk, own)) return [];
 	const leading = words.slice(0, assignEnd);
+	const unwrapped = unwrap(own, walk.scope.spans);
 	const runs = how.unwrapped
-		? unwrap(own, walk.scope.spans)
-		: [{ words: own, wrapperWords: [], chdirs: [], unread: [] }];
+		? unwrapped
+		: [
+				{ words: own, wrapperWords: [], chdirs: [], unread: [] },
+				...unwrapped.filter((run) => run.scripted),
+			];
 	const gitRuns = runs.filter(
 		(run) => commandName(run.words[0] ?? "") === "git",
 	);
@@ -1994,15 +2040,6 @@ function readGitRun(walk, run, leading, isDir) {
 	return { ...target, sub: spelt.text, args };
 }
 
-/**
- * Whether a run surely stands where a move put it.
- * @param {Chdir} cd
- * @param {string} tree where it put it; "" where that will not resolve
- * @param {(path: string) => boolean} isDir
- */
-const holdsAt = ({ holds }, tree, isDir) =>
-	holds === "always" || (holds === "if-dir" && tree !== "" && isDir(tree));
-
 /* A segment opening a compound command, whose parts a `cd` may run in any order
  * or not at all. */
 const COMPOUND_START =
@@ -2058,7 +2095,9 @@ function settleCwdDoubt(walk, segIdx) {
  * pipeline or behind `&` it runs in a subshell and moves nothing (measured). A
  * move sticks where the `cd` always runs and its directory is there now; failing
  * that, only what a `&&` chains off it is sure of it (#4009). A `&` closing that
- * chain backgrounds the `cd` with it.
+ * chain backgrounds the `cd` with it. Each directory already doubted moves the
+ * same way, as runCwd moves a run's (#4980); one a `&&` chain holds stays
+ * put, as nothing in that chain runs there.
  * @param {Walk} walk accumulator: its cwd and doubts are moved
  * @param {string[]} own
  * @param {number} segIdx
@@ -2066,18 +2105,27 @@ function settleCwdDoubt(walk, segIdx) {
  */
 function stepCwd(walk, own, segIdx, isDir) {
 	const { cwd, cwdNames, cwdLost } = walk;
-	if (!moveCwd(walk, own)) return false;
+	const move = moveCwd(walk, own);
+	if (!move) return false;
 	if (runsApart(walk.parsed.joins, segIdx)) {
 		Object.assign(walk, { cwd, cwdNames, cwdLost });
 		return true;
 	}
-	if (walk.cwd === cwd) return true;
-	const sure =
-		isSureMove(walk.parsed, segIdx, own) && walk.cwd !== "" && isDir(walk.cwd);
-	if (sure) return true;
-	if (walk.parsed.joins[segIdx + 1] === "a")
-		walk.cwdPending = [...walk.cwdPending, cwd];
-	else walk.cwdDoubt = [...walk.cwdDoubt, cwd];
+	const surely = isSureMove(walk.parsed, segIdx, own);
+	/** @param {string} from @param {string} to */
+	const held = (from, to) => to === from || (surely && to !== "" && isDir(to));
+	/** @type {string[]} where a move may not have been made */
+	const unmade = held(cwd, walk.cwd) ? [] : [cwd];
+	const moved = walk.cwdDoubt.map((from) => {
+		const to = move(from);
+		if (!held(from, to)) unmade.push(from);
+		return to;
+	});
+	if (walk.parsed.joins[segIdx + 1] === "a") {
+		walk.cwdDoubt = moved;
+		walk.cwdPending = [...walk.cwdPending, ...unmade];
+	} else walk.cwdDoubt = [...moved, ...unmade];
+	walk.cwdDoubt = [...new Set(walk.cwdDoubt)].filter((d) => d !== walk.cwd);
 	return true;
 }
 

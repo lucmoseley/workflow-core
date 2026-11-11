@@ -18,14 +18,12 @@
  * own sequence of gates; the #4392 and #4425 cases also copy the scripts into a
  * loop code worktree or a session worktree, since the subject is a launch
  * from one.
- *
- * Loosen one and a manual or loop dispatch to an overflow seat spends past
- * its grant, is refused for having no plan bars, or bills the plan.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { holderAlive } from "./lib/arbiter-proc.js";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	readOverflowLookup,
@@ -39,7 +37,7 @@ import {
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import type { HeadlessCall } from "./lib/headless-run-fake";
-import { readRun } from "./lib/headless-runs.js";
+import { readRun, readStoredRuns, stop } from "./lib/headless-runs.js";
 import { launchBatch } from "./lib/refill-batch.js";
 import { sleepSync } from "./lib/sleep-sync.js";
 import { isTestKind } from "./lib/test-kind.js";
@@ -138,12 +136,40 @@ function dispatch(
 
 const refill = () => path.join(fx.dir, "refill");
 
-/** The run the headless launcher stored for `jobId`, read under the fixture's
- * refill dir. */
+const readFixtureStore = () => vi.stubEnv("WFC_REFILL_DIR", refill());
+
 function storedRun(jobId: string) {
-	vi.stubEnv("WFC_REFILL_DIR", refill());
+	readFixtureStore();
 	return readRun(jobId);
 }
+
+/* Ends every stored run before the fixture's teardown removes the tree (#5014):
+ * a detached run still writing as `rmSync` walks it throws ENOTEMPTY. It runs
+ * first because it is registered after dispatchFixture's, under vitest's
+ * default `sequence.hooks: "stack"`. RESIDUAL: a run whose `run.json` is not
+ * yet written is not listed, so not stopped. */
+function endLaunchedRuns() {
+	readFixtureStore();
+	const failed: unknown[] = [];
+	for (const r of readStoredRuns())
+		try {
+			stop(r.jobId);
+		} catch (err) {
+			failed.push(err);
+		}
+	if (failed.length > 0)
+		throw new AggregateError(failed, "a run would not stop");
+}
+/* A throw here ends vitest's afterEach chain before dispatchFixture's removal,
+ * so this removes the fixture itself before failing the case. */
+afterEach(() => {
+	try {
+		endLaunchedRuns();
+	} catch (err) {
+		fs.rmSync(fx.dir, { recursive: true, force: true });
+		throw err;
+	}
+});
 
 const readStoredJobIds = () => {
 	const store = path.join(refill(), ".headless-runs");
@@ -310,6 +336,8 @@ describe("an overflow seat (#2610)", () => {
 			WFC_MODULES: LANDING_MODULES,
 		});
 		expect(r.failed).toBeNull();
+		// The run records its cwd after the launcher returns.
+		expect(readHeadlessLaunches(1)).toHaveLength(1);
 		const [cwd = ""] = fx.launchCwds();
 		expect(path.dirname(cwd)).toBe(
 			fs.realpathSync(path.join(fx.dir, ".claude", "worktrees")),
@@ -610,5 +638,23 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 			].sort(),
 		);
 		expect(readLookup()({ jobId: entry?.jobId, sessionId: "any" })).toBeNull();
+	});
+});
+
+describe("the teardown (#5014)", () => {
+	let held: ReturnType<typeof readStoredRuns> = [];
+
+	it("leaves a case's held runs running when it returns", () => {
+		stub({ headless: "hold" });
+		dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
+		expect(readHeadlessLaunches(2)).toHaveLength(2);
+		readFixtureStore();
+		held = readStoredRuns();
+		expect(held.filter(holderAlive)).toHaveLength(2);
+	});
+
+	it("has ended them by the next case, so none was left writing into the fixture it removed", () => {
+		expect(held).toHaveLength(2);
+		expect(held.filter(holderAlive)).toEqual([]);
 	});
 });
