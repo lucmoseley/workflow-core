@@ -571,6 +571,47 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /a & gh x")).toEqual(["/start"]);
 		expect(last("cd /a | true; gh x")).toEqual(["/start"]);
 	});
+
+	it("runs a cd after || only where the cd before it failed (#5010)", () => {
+		expect(last("cd /missing || cd /usr; gh x")).toEqual(["/usr", "/missing"]);
+		expect(last("cd /a || cd /missing; gh x")).toEqual(["/missing", "/a"]);
+		expect(last("(cd /missing || cd /usr; gh x)")).toEqual([
+			"/usr",
+			"/missing",
+		]);
+		expect(last("true && cd /missing || cd /usr; gh x")).toContain("/start");
+		expect(last("cd /missing || cd /usr || cd /b; gh x")).toContain("/missing");
+		expect(last("cd /missing || cd /usr & gh x")).toContain("/start");
+		expect(last("cd /a || cd /b && gh x")).toEqual(["/b", "/a"]);
+	});
+
+	it("holds a cd in a { …; } group that surely runs (#5010)", () => {
+		expect(last("{ cd /usr; }; gh x")).toEqual(["/usr"]);
+		expect(last("{ true; { cd /usr; }; }; gh x")).toEqual(["/usr"]);
+		expect(last("false && { true; cd /usr; }; gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last("false || { true; cd /usr; }; gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last("{ true; cd /usr; } && true & gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last("{ true; cd /usr; } | cat; gh x")).toEqual(["/usr", "/start"]);
+		expect(last("true | { true; cd /usr; }; gh x")).toEqual(["/usr", "/start"]);
+		expect(last("f() { cd /usr; }; gh x")).toEqual(["/usr", "/start"]);
+		expect(last("{ cd /usr; }; if true; then true; fi; gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+	});
+
+	it("backgrounds a cd with the && or || list & closes (#5010)", () => {
+		expect(last("cd /usr || true & gh x")).toEqual(["/usr", "/start"]);
+	});
 });
 
 describe("Command.redirects — redirections out of the words and into a lookup (#1488)", () => {
