@@ -65,7 +65,10 @@
  * LIMITS
  *  - The Bash limb reads writeTargets' spellings and no others, so `dd of=`, a
  *    heredoc body and a script that writes on the session's behalf are unread,
- *    as at the sibling.
+ *    as at the sibling. Each command is read as lib/shell-words.js's unwrap
+ *    strips it (#5012): past a wrapper (`timeout 5 tee …`) and in each command
+ *    a `flock -c` or `watch` string runs, bar that string's own redirects,
+ *    which unwrap drops. A `sh -c` string is unread.
  *  - A single-source `cp`/`mv` to `$CLAUDE_JOB_DIR/tmp` with no trailing `/` is
  *    judged as a write to the folder itself, and warned rather than refused,
  *    wherever the hook cannot see that folder on disk.
@@ -85,7 +88,7 @@
 
 const path = require("node:path");
 const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
-const { literal } = require("./shell-words.js");
+const { literal, runCwd, unwrap } = require("./shell-words.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");
@@ -155,13 +158,17 @@ function decide(subject, ctx) {
 		walkCommands(
 			parsed,
 			(cmd) => {
-				for (const t of cmd.writeTargets())
-					if (t.mode === "write" && !found.flat)
-						considerTarget(t.target, t.path, {
-							spans: parsed.spans,
-							where: { pwd: ctx.fallbackCwd, jobDir },
-							classify,
-						});
+				for (const run of unwrap(cmd.words, parsed.spans))
+					for (const t of cmd.writeTargets(
+						run.words,
+						runCwd(cmd.cwds, run.chdirs, parsed.spans, ctx.isDir)[0],
+					))
+						if (t.mode === "write" && !found.flat)
+							considerTarget(t.target, t.path, {
+								spans: parsed.spans,
+								where: { pwd: ctx.fallbackCwd, jobDir },
+								classify,
+							});
 			},
 			{
 				...ctx,

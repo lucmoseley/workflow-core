@@ -39,6 +39,7 @@ import {
 	splitCheckout,
 	toolCall,
 } from "./guard-core-testkit";
+import { isAdmitted, readManifest } from "./guard-cores.js";
 import { UNFILLED_DESTINATION } from "./issue-gate";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -257,6 +258,52 @@ describe("the creates it denies", () => {
 		}
 	});
 
+	/* #5012: each run ghWords reads is judged as the bare call is, and a
+	 * `-c` string's is shown on its own words. */
+	it.each([
+		["timeout 5 ", "", "timeout 5 gh issue create"],
+		["env ", "", "env gh issue create"],
+		['flock /l -c "true; ', '"', "gh issue create"],
+		['flock /l -c "true\n', '"', "gh issue create"],
+	])("denies a create behind `%s`", (before, after, shown) => {
+		for (const call of [
+			"gh issue create --title x --body y",
+			"gh api --method POST repos/o/r/issues -f title=x -f body=y",
+		])
+			expect(verdict(`${before}${call}${after}`)).toBe("deny");
+		expect(
+			readDenyReason(`${before}gh issue create --title x --body y${after}`),
+		).toContain(`${MISSING}: ${shown} --title x --body y`);
+		expect(
+			verdict(
+				`${before}gh issue create --title x --body y --label takes:implement${after}`,
+			),
+		).toBe("allow");
+	});
+
+	it("denies a create whose --body value is -h, which files and prints no usage (#5012)", () => {
+		for (const call of [
+			"gh issue create --title x --body -h",
+			"timeout 5 gh issue create --title x --body -h",
+		])
+			expect(readDenyReason(call)).toContain(MISSING);
+	});
+
+	it("is dispatched on a gh call that does not open the command (#5012)", () => {
+		const row = readManifest().PreToolUse?.find(
+			(r) => r.name === "guard-issue-create-label",
+		);
+		for (const command of [
+			"gh issue create --title x",
+			"timeout 5 gh issue create --title x",
+			'flock /l -c "true; gh issue create --title x"',
+		])
+			expect(
+				row !== undefined &&
+					isAdmitted(row, { tool_name: "Bash", tool_input: { command } }),
+			).toBe(true);
+	});
+
 	it("names all seven values in the refusal, so the fix needs no other document", () => {
 		const out = said("gh issue create --title x");
 		for (const v of [
@@ -335,6 +382,17 @@ describe("the creates it allows", () => {
 
 	it("allows a create asking for help, which files nothing", () => {
 		expect(verdict("gh issue create --help")).toBe("allow");
+	});
+
+	it.each([
+		"gh --help issue create --title x",
+		"timeout 5 gh -h issue create --title x",
+	])("allows %s, whose help flag stands among gh's own (#5012)", (command) => {
+		expect(verdict(command)).toBe("allow");
+	});
+
+	it("still reads a create whose -R value is -h (#5012)", () => {
+		expect(verdict("gh -R -h issue create --title x")).toBe("deny");
 	});
 });
 
@@ -1474,6 +1532,11 @@ describe("the second-map limb (#717)", () => {
 		);
 	});
 
+	it("reads the repo a -R before the subcommand names (#5012)", () => {
+		verdict(create.replace(/^gh /, "gh -R acme/widgets "), shared, env([]));
+		expect(listCalls()[0]).toMatch(/^issue list --repo acme\/widgets /);
+	});
+
 	it("runs its call where the create runs, so gh resolves the same repo", () => {
 		verdict(`cd ${elsewhere} && ${create}`, shared, env([]));
 		expect(listCalls()[0]).toContain(`(in ${elsewhere})`);
@@ -1912,9 +1975,11 @@ describe("the edit route (mantahostels#3555)", () => {
 			shared,
 			e,
 		);
+		verdict("gh -R acme/cogs issue edit 14 --add-label takes:human", shared, e);
 		expect(calls.map((c) => c.split(" --json")[0])).toEqual([
 			"issue view 12 --repo acme/widgets",
 			"issue view 13 --repo acme/gears",
+			"issue view 14 --repo acme/cogs",
 		]);
 	});
 
