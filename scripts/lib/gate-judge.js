@@ -8,8 +8,7 @@
  * body before an edit.
  *
  * readGateWrite is the three write routes' one entry (#4969): it words the
- * reading for the writing session, as advice, and logs each call to
- * .gate-judge-calls.jsonl under lib/marker-root.js's directory.
+ * reading for the writing session, as advice, and logs each call.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -358,7 +357,6 @@ function mergeFaults(patterns, model, before) {
 }
 
 /**
- * The patterns' faults: a body's, or with `before` those an edit brings.
  * @param {string} body
  * @param {number} [own]
  * @param {string} [before]
@@ -461,9 +459,7 @@ function readingNotes(model, fallback) {
 }
 
 /**
- * One record on the call log, append-only and gitignored, for the outcome
- * review to count. Advice, so a log that cannot be written costs the record,
- * never the write (#4969).
+ * One record on the call log, append-only, for the outcome review to count.
  * @param {Record<string, unknown>} record
  */
 function logCall(record) {
@@ -480,13 +476,11 @@ function logCall(record) {
 /** @param {JudgedFault} f */
 const unmarked = ({ by: _by, ...f }) => f;
 
-/* Below this a call cannot answer: the corpus's fastest calls took seconds
- * (#4968). */
+/* Below this a call cannot be expected to answer (#4968's latency table);
+ * a first guess. */
 const MIN_BOUND_MS = 5000;
 
 /**
- * A route's answer: a refusal where the patterns fault the body, the notes
- * riding in it, else the notes as advice.
  * @param {import("./issue-gate.js").BasisFault[]} patterns
  * @param {string} notes
  * @returns {{refusal: string|null, advice: string}}

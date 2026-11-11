@@ -112,8 +112,7 @@
  *    either that the basis does not name (#823), or a basis with no warrant
  *    beneath a window (#4946), through lib/issue-gate.js. The model reading
  *    (lib/gate-judge.js, #4964) of the same body rides as hook context, or
- *    in the refusal, and refuses nothing; one bound covers every body of a
- *    call, leaving the hook's 60 s.
+ *    in the refusal, and refuses nothing.
  *  - THE CHECK LIMB (#3487) refuses, on the same body, a gate `check:` that
  *    cannot run as a command, and warns that one which can was not run.
  *  - THE SECOND-MAP LIMB (#717) refuses a flag-form or REST create carrying
