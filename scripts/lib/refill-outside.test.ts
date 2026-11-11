@@ -268,7 +268,7 @@ const at = (ms: number) => new Date(ms).toISOString();
 /**
  * A loop whose first typed resume goes unseen, so its second tick stops the
  * session, and whose every --bg --resume fails while `fails()`: `resumedAt`,
- * the minutes past NOW of each one; `run`, the two ticks to that stop.
+ * the minutes past NOW of each one.
  */
 function stoppedLoop(fails: () => boolean, over: Partial<BlockIo> = {}) {
 	const resumedAt: number[] = [];
@@ -283,7 +283,6 @@ function stoppedLoop(fails: () => boolean, over: Partial<BlockIo> = {}) {
 		},
 		...over,
 	});
-	/** One tick at `now`, the stopped session off the listing. */
 	const tick = (now: number, opts: Parameters<typeof l.tick>[1] = {}) => {
 		clock = now;
 		l.tick(now, { rows: [], ...opts });
@@ -309,7 +308,6 @@ it("relaunches a session it stopped whose --bg --resume failed a minute later, n
 	expect(logs(l.calls).at(-1)).toBe(
 		`resumed ${NAME} by --bg --resume, woken in place`,
 	);
-	/* Still its first try: the second comes on the schedule, blocked again. */
 	l.tick(nextTryAt(1, NOW), { rows: [row()] });
 	expect(logs(l.calls).at(-1)).toMatch(
 		new RegExp(`^resume 2 of ${RESUME_CAP} after an API error`),
@@ -352,14 +350,22 @@ it("makes no re-attempt, and spends none, on a tick with the network down or lau
 	expect(logs(l.calls).at(-1)).toMatch(/^re-attempt 1 of 3 /);
 });
 
-/** Whether `l`'s scheduled tries and the re-attempts of the last are spent. */
-const isSpent = (l: { calls: string[] }) => {
-	const lines = logs(l.calls);
-	return (
-		lines.filter((s) => s.startsWith("could not resume")).length ===
-			RESUME_CAP && /^re-attempt 3 of 3 /.test(lines.at(-1) ?? "")
-	);
-};
+/**
+ * Tick `l` each minute until its scheduled tries and the re-attempts of the
+ * last are spent: the minute after.
+ */
+function tickToSpent(l: ReturnType<typeof stoppedLoop>) {
+	const isSpent = () => {
+		const lines = logs(l.calls);
+		return (
+			lines.filter((s) => s.startsWith("could not resume")).length ===
+				RESUME_CAP && /^re-attempt 3 of 3 /.test(lines.at(-1) ?? "")
+		);
+	};
+	let m = 3;
+	for (; !isSpent(); m++) l.tick(NOW + m * MIN);
+	return m;
+}
 
 it("at the cap makes one last relaunch of a session it holds stopped before it logs and drops it", () => {
 	const l = stoppedLoop(() => true);
@@ -379,8 +385,7 @@ it("at the cap makes one last relaunch of a session it holds stopped before it l
 it("holds the last relaunch, unspent, while the network is down", () => {
 	let why: string | null = null;
 	const l = stoppedLoop(() => true, { probeNetwork: () => why });
-	let m = 3;
-	for (; !isSpent(l); m++) l.tick(NOW + m * MIN);
+	let m = tickToSpent(l);
 	why = NET_PROBE_OFFLINE_LINE;
 	const made = l.resumedAt.length;
 	for (const end = m + 60; m < end; m++) l.tick(NOW + m * MIN);
@@ -394,8 +399,7 @@ it("holds the last relaunch, unspent, while the network is down", () => {
 it("leaves a session its last relaunch set live alone where it blocks again, saying it stays blocked", () => {
 	let fail = true;
 	const l = stoppedLoop(() => fail);
-	let m = 3;
-	for (; !isSpent(l); m++) l.tick(NOW + m * MIN);
+	let m = tickToSpent(l);
 	fail = false;
 	for (; logs(l.calls).at(-1)?.startsWith("re-attempt"); m++)
 		l.tick(NOW + m * MIN);

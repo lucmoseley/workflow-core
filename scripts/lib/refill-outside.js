@@ -7,16 +7,11 @@
  * one is unseen. Unlike a loop launch it is never held stopped between tries,
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
- * job list shows as needs input (#4689). Where that `--bg --resume` fails
- * after the stop, the session is stopped until one works, so each scheduled
- * try that fails earns up to 3 short re-attempts at doubling gaps, none of
- * them a try, and at the cap one last relaunch before the loop logs that it
- * stays stopped and drops it (#4871). The bound: 3 re-attempts for each of
- * the 16 scheduled tries and that last one, 65 relaunch attempts for one stop
- * at most; never one without `--resume` (#2359). Where the founder has typed into it
- * since its stop the loop leaves that stop alone. Where its fallback started
- * a copy whose original would not retire, each tick tries that retirement
- * again as for a launch's copy (#4829), keeping the record until it is done.
+ * job list shows as needs input (#4689). Only where that `--bg --resume`
+ * fails after the stop is it stopped, until a relaunch works: at most 3 short
+ * re-attempts after each of the 16 scheduled tries, none of them a try, plus
+ * one last relaunch at the cap, so 65 relaunch attempts for one stop at most
+ * (#4871), never one without `--resume` (#2359).
  *
  * Its records live in their own file, OUTSIDE_FILE, as they are no launches:
  * nothing that counts, ranks or finishes launches reads them.
@@ -176,7 +171,7 @@ function buildOutside(a, now) {
  * @param {Tick["io"]} io
  * @returns {Outside|string}
  */
-function relaunched(o, target, io) {
+function relaunchOrWhy(o, target, io) {
 	const r = io.resumeStopped(sessionRefOf(o), API_PROMPT, target);
 	if (r.failed !== null) return r.failed;
 	io.log(`resumed ${nameOf(o)} by --bg --resume, ${buildResumedHow(r)}`);
@@ -197,12 +192,12 @@ function relaunched(o, target, io) {
  * @param {Outside} o
  * @param {StoppedTarget} target
  * @param {Tick} seen
- * @param {number} [spent]  the short re-attempts spent since the last
- *   scheduled try, this one counted where it is one
+ * @param {number} [spent]  which short re-attempt this is, 0 for a
+ *   scheduled try
  * @returns {Outside}
  */
 function relaunch(o, target, { io, now }, spent = 0) {
-	const moved = relaunched(o, target, io);
+	const moved = relaunchOrWhy(o, target, io);
 	if (typeof moved !== "string") return moved;
 	const gap = RE_ATTEMPT_GAPS_MS[spent];
 	const reAttemptAt = gap === undefined ? undefined : now + gap;
@@ -224,14 +219,13 @@ function relaunch(o, target, { io, now }, spent = 0) {
 
 /**
  * The loop's last act on `o`, held at the cap: one more relaunch, and where
- * that fails too, logged and dropped, left stopped, as nothing but a relaunch
- * makes a stopped session live.
+ * that fails too, logged and dropped, left stopped.
  * @param {Outside & {held: StoppedTarget}} o
  * @param {Tick["io"]} io
  * @returns {Outside|null}
  */
 function lastRelaunch(o, io) {
-	const moved = relaunched(o, o.held, io);
+	const moved = relaunchOrWhy(o, o.held, io);
 	if (typeof moved !== "string") return moved;
 	io.log(
 		`stopped trying to resume ${nameOf(o)} after ${o.tries} resumes, its last --bg --resume failing too (${moved}): it stays stopped on its last error`,
@@ -265,10 +259,9 @@ function fallBack(o, seen) {
 }
 
 /**
- * `o`, stopped by the loop with its relaunch failed, relaunched again on a
- * tick that admits it: at its scheduled try once due, a try of its own, or at
- * the cap the last relaunch; before then at a short re-attempt once due, no
- * try. A tick that does not admit it spends nothing.
+ * `o`, stopped by the loop with its relaunch failed, relaunched again once
+ * its scheduled try or a short re-attempt is due, on a tick that admits it;
+ * one that does not spends nothing.
  * @param {Outside & {held: StoppedTarget}} o
  * @param {Tick} seen
  * @returns {Outside|null}
