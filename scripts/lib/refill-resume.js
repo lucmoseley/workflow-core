@@ -22,6 +22,7 @@ const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 const { buildCarriedNote } = require("./carry-job-files.js");
+const { relaunchFlags } = require("./burn-mode.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -539,7 +540,14 @@ function resumeSteps(io) {
 			cwd: ids.cwd,
 		});
 		if (refusal) return { failed: refusal };
-		const flags = ids.flags ?? resumeFlagsOf(l, ids);
+		/* The saved flags name the model the session launched on; a burn-mode
+		 * Fable one comes back as Opus once burn mode is off (#4992). */
+		const asSaved = ids.flags ?? resumeFlagsOf(l, ids);
+		const flags = relaunchFlags(asSaved, io.env());
+		if (flags !== asSaved)
+			log(
+				`${ids.sessionId} resumes on its launch model as burn mode stands: ${asSaved.join(" ")} -> ${flags.join(" ")}`,
+			);
 		const carried = io.carryJobFiles(
 			l.seat,
 			shortJobId(ids.sessionId),

@@ -19,7 +19,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isOverflowSession, readBurnState, remapModel } from "./burn-mode";
+import {
+	isFable,
+	isOverflowSession,
+	readBurnState,
+	relaunchFlags,
+	remapModel,
+} from "./burn-mode";
 import { runInProcess } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "burn-mode.js");
@@ -45,7 +51,7 @@ describe("the dispatch table, exact match", () => {
 		["sonnet", "haiku · xhigh"],
 		["haiku", "haiku · xhigh"],
 		["opus", "opus"],
-		["fable", "fable"],
+		["fable", "opus"],
 	])("off: %s -> %s", (from, to) => {
 		expect(dispatched({ model: from }, false)).toBe(to);
 	});
@@ -102,7 +108,15 @@ describe("the launch table", () => {
 		expect(launched(from, false)).toBe(to);
 	});
 
-	it.each(["opus", "opus[1m]", "claude-opus-5-5[1m]", "haiku", "fable"])(
+	// Fable runs only through the burn layer (#4992).
+	it.each(["fable", "claude-fable-5-1[1m]", "claude-fable-5-2[1m]"])(
+		"off: moves %s to Opus",
+		(model) => {
+			expect(launched(model, false)).toBe("claude-opus-5-5[1m]");
+		},
+	);
+
+	it.each(["opus", "opus[1m]", "claude-opus-5-5[1m]", "haiku"])(
 		"off: leaves %s alone",
 		(model) => {
 			expect(launched(model, false)).toBe(model);
@@ -188,12 +202,63 @@ describe("remapModel — the table's transform over one Agent call", () => {
 			"a fork, which ignores the field",
 			{ model: "sonnet", subagent_type: "fork" },
 		],
-		["fable, which neither layer moves", { model: "fable" }],
 		["a non-object", "opus"],
 		["null", null],
 	])("is null for %s", (_name, input) => {
 		expect(remapModel(input, true)).toBeNull();
 		expect(remapModel(input, false)).toBeNull();
+	});
+	it("is null for fable while burn mode is on, and moves it to opus while off (#4992)", () => {
+		expect(remapModel({ model: "fable" }, true)).toBeNull();
+		expect(remapModel({ model: "fable" }, false)?.input.model).toBe("opus");
+	});
+});
+
+describe("a dispatch inheriting Fable (#4992)", () => {
+	it.each([
+		["no model", {}],
+		["a type pinning none", { subagent_type: "general-purpose" }],
+	])("pins %s to opus with burn mode off", (_n, call) => {
+		const r = remapModel(call, false, "claude-fable-5-2");
+		expect(r?.input.model).toBe("opus");
+		expect(r?.note).toContain("would have inherited");
+	});
+
+	it("leaves it alone while burn mode is on, on a non-Fable session, and on a fork", () => {
+		expect(remapModel({}, true, "claude-fable-5-2")).toBeNull();
+		expect(remapModel({}, false, "claude-opus-5-5")).toBeNull();
+		expect(remapModel({}, false, "")).toBeNull();
+		expect(
+			remapModel({ subagent_type: "fork" }, false, "claude-fable-5-2"),
+		).toBeNull();
+	});
+});
+
+describe("relaunchFlags — a saved launch's model as burn mode stands (#4992)", () => {
+	const off = { WFC_BURN_MARKER: "/no/such/burn-marker" };
+	it("moves a saved Fable model to Opus with burn mode off, every other flag kept", () => {
+		expect(
+			relaunchFlags(["--name", "n", "--model", "claude-fable-5-2[1m]"], off),
+		).toEqual(["--name", "n", "--model", "claude-opus-5-5[1m]"]);
+	});
+
+	it("hands back the same array where nothing moves", () => {
+		const flags = ["--model", "claude-opus-5-5[1m]"];
+		expect(relaunchFlags(flags, off)).toBe(flags);
+		const bare = ["--name", "n"];
+		expect(relaunchFlags(bare, off)).toBe(bare);
+		const dangling = ["--model"];
+		expect(relaunchFlags(dangling, off)).toBe(dangling);
+	});
+});
+
+describe("isFable", () => {
+	it("knows every Fable spelling and nothing else", () => {
+		expect(isFable("claude-fable-5-2")).toBe(true);
+		expect(isFable("claude-fable-5-2[1m]")).toBe(true);
+		expect(isFable("fable")).toBe(true);
+		expect(isFable("claude-opus-5-5")).toBe(false);
+		expect(isFable("")).toBe(false);
 	});
 });
 

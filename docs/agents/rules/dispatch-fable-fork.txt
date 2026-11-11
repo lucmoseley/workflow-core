@@ -1,0 +1,3 @@
+A FORK FROM THIS SESSION WOULD RUN ON FABLE, AND BURN MODE IS OFF.
+
+This session started on Fable under burn mode, and a fork always runs on its parent's model, whatever `model` the call names. Nothing runs on Fable while burn mode is off (#4992). Dispatch the same work as `subagent_type: "general-purpose"` with `model: "opus"`, putting the context the fork would have inherited into its prompt.

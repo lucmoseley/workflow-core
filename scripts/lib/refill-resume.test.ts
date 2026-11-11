@@ -10,6 +10,9 @@
  * still stopped or another session's as resumed, leave a failed move's resume
  * starting, or run a move's job on a key unrecorded.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FAKE_COPY } from "./bg-resume-fake";
 import { buildCarriedNote } from "./carry-job-files.js";
@@ -316,7 +319,7 @@ describe("resumeOwnId (#4098)", () => {
 	});
 
 	it("takes the flags read before an earlier try removed its record over any read now", () => {
-		const flags = ["--model", "sonnet"];
+		const flags = ["--model", "claude-opus-5-5[1m]"];
 		const { steps, callsTo, lines } = fakeIo({
 			readJobRecord: "working",
 			runClaude: "ownId",
@@ -330,6 +333,51 @@ describe("resumeOwnId (#4098)", () => {
 			PROMPT,
 		]);
 		expect(lines.join("\n")).not.toContain("no saved launch flags");
+	});
+
+	// A session launched under burn mode saved its Fable spelling; resumed as
+	// saved, it came back on Fable after `off` (#4992).
+	it("resumes a burn-mode Fable launch on Opus once burn mode is off", () => {
+		const flags = ["--model", "claude-fable-5-2[1m]", "--name", "n"];
+		const { steps, callsTo, lines } = fakeIo({
+			readJobRecord: "working",
+			runClaude: "ownId",
+		});
+		steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
+		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			"--model",
+			"claude-opus-5-5[1m]",
+			"--name",
+			"n",
+			PROMPT,
+		]);
+		expect(lines.join("\n")).toContain("resumes on its launch model");
+	});
+
+	it("keeps a Fable launch on Fable while burn mode is on", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "resume-burn-"));
+		const marker = path.join(dir, "burn-mode");
+		fs.writeFileSync(marker, "{}");
+		try {
+			const flags = ["--model", "claude-fable-5-2[1m]"];
+			const { steps, callsTo } = fakeIo(
+				{ readJobRecord: "working", runClaude: "ownId" },
+				{ PATH: "/bin", WFC_BURN_MARKER: marker },
+			);
+			steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
+			expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+				"--bg",
+				"--resume",
+				SESSION,
+				...flags,
+				PROMPT,
+			]);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("stops what a failed resume may still be starting under its id", () => {

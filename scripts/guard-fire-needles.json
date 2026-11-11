@@ -721,6 +721,12 @@
 					"text": "A SUBAGENT DOES NOT SPAWN SUBAGENTS."
 				},
 				{
+					"id": "dispatch-fable-fork",
+					"core": "guard-dispatch-rewrite",
+					"kind": "deny",
+					"text": "A FORK FROM THIS SESSION WOULD RUN ON FABLE, AND BURN MODE IS OFF."
+				},
+				{
 					"id": "unchecked",
 					"core": "guard-blind-dispatch",
 					"kind": "deny",

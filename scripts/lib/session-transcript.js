@@ -179,4 +179,46 @@ function readStartedAt(file) {
 	}
 }
 
-module.exports = { resolve, read, readStartedAt, readWholeLines };
+/* The tail lastModel reads: one turn's records, a large tool result
+ * included, fit well inside it; a miss reads as unknown, never as a model. */
+const MODEL_TAIL_BYTES = 1024 * 1024;
+
+/**
+ * The model the session's newest real assistant record answered on — the
+ * harness's `<synthetic>` stand-in skipped — or "" where the tail holds none
+ * or the file will not read. Read on every dispatch, so only the tail.
+ * @param {string} file
+ * @returns {string}
+ */
+function lastModel(file) {
+	let text;
+	try {
+		const size = fs.statSync(file).size;
+		const fd = fs.openSync(file, "r");
+		try {
+			const len = Math.min(size, MODEL_TAIL_BYTES);
+			const buf = Buffer.alloc(len);
+			const got = fs.readSync(fd, buf, 0, len, size - len);
+			text = buf.subarray(0, got).toString("utf8");
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return "";
+	}
+	const lines = text.split("\n");
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const line = lines[i] ?? "";
+		if (!line.includes('"type":"assistant"')) continue;
+		const row =
+			/** @type {{message?: {model?: unknown}} | null | undefined} */ (
+				parseJsonlRow(line)
+			);
+		const model = row?.message?.model;
+		if (typeof model === "string" && model && model !== "<synthetic>")
+			return model;
+	}
+	return "";
+}
+
+module.exports = { lastModel, resolve, read, readStartedAt, readWholeLines };

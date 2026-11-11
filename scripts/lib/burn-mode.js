@@ -10,6 +10,12 @@
  *   burn     — only while the marker exists. Haiku work runs on Opus 5.5 at
  *              medium, and Opus work, the code reviewer's included, on
  *              Fable 5.2 at medium.
+ *   off      — only while it does not: a Fable dispatch or launch spelling
+ *              is moved to Opus, so Fable runs under burn mode alone (#4992).
+ *
+ * A dispatch naming no model inherits its session's, so a session launched
+ * under burn mode would go on handing Fable to its subagents after `off`:
+ * with the marker gone, a call inheriting Fable is pinned to Opus (#4992).
  *
  * Effort rides with the dispatch remap on the call's own `effort` field, which
  * replaces an agent definition's `effort:` (forks excepted). A launch's effort comes
@@ -83,13 +89,36 @@ const BURN_EFFORT = "medium";
 
 const DISPATCH_HAIKU = "haiku";
 
+const DISPATCH_OPUS = "opus";
+
 const DISPATCH = {
 	standing: new Map([["sonnet", DISPATCH_HAIKU]]),
+	off: new Map([["fable", DISPATCH_OPUS]]),
 	burn: new Map([
 		[DISPATCH_HAIKU, "opus"],
 		["opus", "fable"],
 	]),
 };
+
+/** Every Fable spelling a launch, a settings `model` or a transcript carries. */
+const FABLE_SPELLINGS = [
+	"fable",
+	"fable[1m]",
+	"claude-fable-5",
+	"claude-fable-5[1m]",
+	"claude-fable-5-1",
+	"claude-fable-5-1[1m]",
+	"claude-fable-5-2",
+	"claude-fable-5-2[1m]",
+];
+
+/**
+ * @param {string} model a model id as a transcript or a launch spells it
+ * @returns {boolean} whether it runs as Fable
+ */
+function isFable(model) {
+	return FABLE_SPELLINGS.includes(model.trim());
+}
 
 /**
  * Launch spellings `scripts/dispatch-sessions.sh` and the plans' settings
@@ -108,6 +137,11 @@ const LAUNCH = {
 			"opusplan",
 			"opusplan[1m]",
 		].map((m) => [m, LAUNCH_HAIKU]),
+	),
+	off: new Map(
+		FABLE_SPELLINGS.map(
+			(m) => /** @type {[string, string]} */ ([m, LAUNCH_OPUS]),
+		),
 	),
 	burn: new Map([
 		...["haiku", "haiku[1m]", "claude-haiku-5-5", "claude-haiku-5-5[1m]"].map(
@@ -138,15 +172,51 @@ function markerPath(env = process.env) {
 
 /**
  * One model through a table's standing layer, then its burn layer where burn
- * applies; a spelling neither knows comes back as given.
- * @param {{standing: Map<string, string>, burn: Map<string, string>}} table
+ * applies and its off layer where it does not; a spelling none knows comes
+ * back as given.
+ * @param {{standing: Map<string, string>, burn: Map<string, string>,
+ *   off: Map<string, string>}} table
  * @param {string} model
  * @param {boolean} burn
  * @returns {string}
  */
 function mapModel(table, model, burn) {
 	const standing = table.standing.get(model) ?? model;
-	return burn ? (table.burn.get(standing) ?? standing) : standing;
+	const layer = burn ? table.burn : table.off;
+	return layer.get(standing) ?? standing;
+}
+
+/**
+ * Whether burn mode's marker exists now; a marker that cannot be placed reads
+ * as off.
+ * @param {Record<string, string | undefined>} env
+ * @returns {boolean}
+ */
+function burnMarkerOn(env) {
+	try {
+		return fs.existsSync(markerPath(env));
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * A job's saved launch flags with their `--model` moved through the launch
+ * table as burn mode stands now. A session launched under burn mode saved its
+ * Fable spelling, and a resume carrying it would bring Fable back after `off`
+ * (#4992). Every other flag is carried as saved.
+ * @param {string[]} flags
+ * @param {Record<string, string | undefined>} env
+ * @returns {string[]}
+ */
+function relaunchFlags(flags, env) {
+	const at = flags.indexOf("--model");
+	const saved = at === -1 ? undefined : flags[at + 1];
+	if (saved === undefined) return flags;
+	const moved = mapModel(LAUNCH, saved, burnMarkerOn(env));
+	return moved === saved
+		? flags
+		: [...flags.slice(0, at + 1), moved, ...flags.slice(at + 2)];
 }
 
 /**
@@ -202,8 +272,8 @@ function dispatchedModel(call) {
  */
 function translate(from, asked, burn) {
 	const to = mapModel(DISPATCH, from, burn);
-	const standing = mapModel(DISPATCH, from, false);
-	if (to !== standing) return { to, effort: BURN_EFFORT };
+	const standing = DISPATCH.standing.get(from) ?? from;
+	if (burn && to !== standing) return { to, effort: BURN_EFFORT };
 	if (to === DISPATCH_HAIKU) return { to, effort: STANDING_EFFORT };
 	return { to, effort: asked };
 }
@@ -218,15 +288,26 @@ function translate(from, asked, burn) {
  * Every other field is carried through untouched, `updatedInput` replacing the whole
  * input.
  *
+ * A call inheriting Fable while burn mode is off is the exception: it is
+ * pinned to `opus` (#4992).
+ *
  * @param {unknown} input the tool_input object
  * @param {boolean} burn whether burn mode's marker exists
+ * @param {string} [inherited] the session's own model, "" where unknown
  * @returns {null | {input: Record<string, unknown>, note: string}}
  */
-function remapModel(input, burn) {
+function remapModel(input, burn, inherited = "") {
 	if (input === null || typeof input !== "object") return null;
 	const call = /** @type {Record<string, unknown>} */ (input);
 	const from = dispatchedModel(call);
-	if (!from) return null;
+	if (!from) {
+		if (burn || !isFable(inherited) || trimmed(call.subagent_type) === "fork")
+			return null;
+		return {
+			input: { ...call, model: DISPATCH_OPUS },
+			note: `Burn mode is off, so this dispatch, which would have inherited this session's \`${inherited}\`, runs on \`${DISPATCH_OPUS}\` (#4992).`,
+		};
+	}
 	const asked = trimmed(call.effort);
 	const { to, effort } = translate(from, asked, burn);
 	if (to === from && effort === asked) return null;
@@ -335,11 +416,13 @@ function readBurnState(env = process.env) {
 }
 
 module.exports = {
+	isFable,
 	isOverflowSession,
 	markerPath,
 	OVERFLOW_MODEL,
 	OVERFLOW_SESSION_VAR,
 	readBurnState,
+	relaunchFlags,
 	remapModel,
 };
 
