@@ -189,8 +189,7 @@ function relaunch(o, target, { io }) {
 function fallBack(o, seen) {
 	const { io } = seen;
 	const ref = sessionRefOf(o);
-	if (isTakenSinceStop({ ...ref, since: o.since }, nameOf(o), io) !== false)
-		return o;
+	if (isTakenSinceStop(ref, nameOf(o), io, o.since) !== false) return o;
 	const { sessionId, cwd } = io.resumeTargetOf(ref);
 	const what = `${nameOf(o)} by stop and --bg --resume, the typed one unseen`;
 	if (!sessionId) {

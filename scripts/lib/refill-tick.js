@@ -52,7 +52,7 @@ const { readSwapHold } = require("./admission.js");
 const {
 	resumedIdleSince,
 	hasRepliedSince,
-	hasTurnSinceApiStop,
+	isResumedSinceApiStop,
 	hasFounderTypedSinceApiStop,
 	hasTurnedSince,
 } = require("./block-cause.js");
@@ -663,21 +663,18 @@ function readOutside() {
 }
 
 /**
- * Whether `l`'s session took a turn after its API-error stop, first read at
- * `since`: its tempo `active`, or block-cause.js's hasTurnSinceApiStop, null
- * where that cannot tell (BlockReads' isResumedSinceStop, #4815).
+ * block-cause.js's isResumedSinceApiStop on `l`'s job record, transcript and
+ * timeline (BlockReads' isResumedSinceStop, #4815).
  * @param {import("./refill-blocks.js").SessionRef} l
  * @param {number} [since]
  */
 function isResumedSinceStop(l, since) {
 	const job = readJobRecordOf(l);
-	if (/** @type {{tempo?: unknown}|null} */ (job)?.tempo === "active")
-		return true;
-	return hasTurnSinceApiStop(
-		readTranscriptRows(l, job),
-		readTimelineOf(l),
+	return isResumedSinceApiStop(job, {
+		rows: readTranscriptRows(l, job),
+		timeline: readTimelineOf(l),
 		since,
-	);
+	});
 }
 
 /** @param {import("./refill-loop.js").LoopLaunch} l */

@@ -474,9 +474,8 @@ function apiStopAt(rows) {
 }
 
 /**
- * Whether `timeline` holds a `working` row stamped after `at`, ms.
  * @param {unknown[]} timeline  a job's timeline rows
- * @param {number} at
+ * @param {number} at  ms
  */
 const hasWorkedSince = (timeline, at) =>
 	timeline.some(
@@ -521,6 +520,19 @@ function hasTurnSinceApiStop(rows, timeline, since) {
 		return Array.isArray(timeline) && hasWorkedSince(timeline, at);
 	if (since === undefined || !Array.isArray(timeline)) return null;
 	return hasWorkedSince(timeline, Math.max(since, blockedAt(timeline)));
+}
+
+/**
+ * Whether a session resumed after its API-error stop, first read at `since`:
+ * its job record's `tempo` reads `active`, or hasTurnSinceApiStop.
+ * @param {unknown} job  its job record, null unread
+ * @param {{rows: unknown, timeline: unknown, since?: number}} read
+ *   hasTurnSinceApiStop's
+ * @returns {boolean|null}
+ */
+function isResumedSinceApiStop(job, { rows, timeline, since }) {
+	if (isObject(job) && job.tempo === "active") return true;
+	return hasTurnSinceApiStop(rows, timeline, since);
 }
 
 /**
@@ -585,6 +597,7 @@ module.exports = {
 	hasEndedUnblocked,
 	hasFounderTypedSinceApiStop,
 	hasTurnSinceApiStop,
+	isResumedSinceApiStop,
 	hasRepliedSince,
 	hasTurnedSince,
 	resumedIdleSince,

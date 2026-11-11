@@ -20,6 +20,7 @@ import {
 	hasFounderTypedSinceApiStop,
 	hasRepliedSince,
 	hasTurnSinceApiStop,
+	isResumedSinceApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { API_PROMPT, HOLD_PROMPT, scriptPrompt } from "./loop-prompts.js";
@@ -894,7 +895,7 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 		expect(hasFounderTypedSinceApiStop(resumed)).toBe(true);
 	});
 
-	it("reads no founder typing and no turn unread or with no stop", () => {
+	it("reads no founder typing unread or with no stop", () => {
 		expect(hasFounderTypedSinceApiStop(null)).toBeNull();
 		expect(hasFounderTypedSinceApiStop([typed(0, "hi")])).toBeNull();
 	});
@@ -955,5 +956,19 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 			expect(hasTurnSinceApiStop(rows, null, since)).toBeNull();
 			expect(hasTurnSinceApiStop(rows, [mark(2, "working")])).toBeNull();
 		}
+	});
+
+	it("reads an active job resumed whatever its transcript shows, else the turn reading from the loop's anchor", () => {
+		const worked = [{ at: at(2), state: "working" }];
+		const read = { rows: null, timeline: worked, since: Date.parse(at(1)) };
+		expect(
+			isResumedSinceApiStop(
+				{ tempo: "active" },
+				{ rows: null, timeline: null },
+			),
+		).toBe(true);
+		expect(isResumedSinceApiStop({ tempo: "blocked" }, read)).toBe(true);
+		expect(isResumedSinceApiStop(null, { ...read, timeline: [] })).toBe(false);
+		expect(isResumedSinceApiStop(null, { ...read, timeline: null })).toBeNull();
 	});
 });

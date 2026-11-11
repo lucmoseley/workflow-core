@@ -2986,7 +2986,6 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		}
 	});
 
-	/* Held stopped between tries; a resume is due, by stop and --bg --resume. */
 	const heldDue = () =>
 		resuming({
 			resumes: {
@@ -3050,10 +3049,10 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		},
 	);
 
-	it("holds the fallback, a try counted, while neither transcript nor timeline can tell, and parks at the cap (#4873)", () => {
+	it("holds the fallback while neither transcript nor timeline can tell, counting a try of its own, and parks at the cap (#4873)", () => {
 		const unknown = reading(null, null);
 		const Held =
-			"design-vault /implement 42's session shows no API-error stop in its transcript and its timeline is unread, so whether it took a turn since cannot be told: it is neither stopped nor copied this try";
+			"design-vault /implement 42's transcript shows no API-error stop, and its timeline is unread or the loop holds no time for the stop, so whether its session took a turn since cannot be told: it is neither stopped nor copied this try";
 		/* The typed resume's fallback is that same try: held, none added. */
 		const again = blocks([typedUnseen()], blocked, "normal", unknown);
 		expect(acts(again.calls)).toEqual([]);
@@ -3077,7 +3076,6 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 			l = out[0] as Launch;
 			expect(l.resumes).toMatchObject({ tries, heldAt: NOW - 25 * MIN });
 			expect(l.resumes?.nextAt).toBeGreaterThan(now);
-			/* Not yet due: nothing is tried, nothing logged. */
 			const early = blocks([l], stopped, "normal", {
 				now: now + MIN,
 				...unknown,
@@ -3088,6 +3086,30 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		const capped = blocks([l], stopped, "normal", { now, ...unknown });
 		all.push(...capped.calls);
 		expect(capped.out[0]?.parkStopped).toBe(now);
+		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
+	});
+
+	it("counts a live one's failed typing as a try on an unknown reading, stops it only on the schedule's hold, and parks it at the cap (#4873)", () => {
+		const io = { ...reading(null, null).io, type: () => "attach failed" };
+		const first = blocks([resuming()], blocked, "normal", { io });
+		expect(acts(first.calls)).toEqual([]);
+		expect(first.out[0]?.resumes).toEqual({
+			tries: 1,
+			triedAt: NOW,
+			nextAt: NOW + 4 * MIN,
+		});
+		let l = first.out[0] as Launch;
+		let agents = blocked;
+		const all: string[] = [];
+		for (let tick = 0; tick < 2 * RESUME_CAP && !l.parkStopped; tick++) {
+			const now = l.resumes?.nextAt as number;
+			const { out, calls } = blocks([l], agents, "normal", { now, io });
+			all.push(...calls);
+			if (calls.includes("stop p")) agents = stopped;
+			l = out[0] as Launch;
+		}
+		expect(l.parkStopped).toBeDefined();
+		expect(l.resumes?.tries).toBe(RESUME_CAP);
 		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
 	});
 });

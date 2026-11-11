@@ -200,9 +200,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   the API host is reachable, else why not
  * @property {(l: SessionRef, since?: number) => boolean|null}
  *   isResumedSinceStop  whether its session took a turn after its API-error
- *   stop, first read at `since`: its job's `tempo` reads `active`, or
- *   lib/block-cause.js's hasTurnSinceApiStop reads one; null where neither
- *   its transcript nor its timeline can tell
+ *   stop, first read at `since`: lib/block-cause.js's isResumedSinceApiStop,
+ *   null where neither its transcript nor its timeline can tell
  * @property {() => import("./refill-outside.js").Outside[]} readOutside
  *   lib/refill-outside.js's records, none where its file is absent or will
  *   not read
@@ -786,17 +785,16 @@ function afterFallBack(l, now, { failed, again }) {
 }
 
 /**
- * `l` after a fallback held at `now`, whether its session took a turn since
- * the stop being unknown: a try of its own counted, the next due on the
- * schedule, its session left as it was, stopped or live (#4873).
+ * `l` after a fallback not made at `now`, whether its session took a turn
+ * since the stop being unknown: counted as afterFallBack counts one made, its
+ * session left as it was, stopped or live (#4873).
  * @param {JobLaunch} l
  * @param {number} now
  * @param {boolean} again  as fallBack's
  * @returns {LoopLaunch}
  */
-function afterUnknown(l, now, again) {
-	if (again) return l;
-	const tried = afterResume(l, now, { typed: false, failed: false });
+function afterTurnUnknown(l, now, again) {
+	const tried = afterFallBack(l, now, { failed: false, again });
 	const heldAt = l.resumes?.heldAt;
 	return heldAt === undefined ? tried : withHeld(tried, heldAt);
 }
@@ -822,12 +820,8 @@ function fallBack(l, seen, { route, again }) {
 		);
 		return l;
 	}
-	const taken = isTakenSinceStop(
-		{ ...l, since: l.block?.since },
-		launchName(l),
-		seen.io,
-	);
-	if (taken === null) return afterUnknown(l, seen.now, again);
+	const taken = isTakenSinceStop(l, launchName(l), seen.io, l.block?.since);
+	if (taken === null) return afterTurnUnknown(l, seen.now, again);
 	if (taken) {
 		if (!l.resumes) return l;
 		const { heldAt: _, ...resumes } = l.resumes;
@@ -908,20 +902,21 @@ function typedVerdict(attachAt, l, { now, io }) {
 
 /**
  * Whether `l`'s session, told as `name`, took a turn since its API-error
- * stop, first read at `l.since`: the founder's own resume, or a typed one the
+ * stop, first read at `since`: the founder's own resume, or a typed one the
  * arrival check missed. A stop and relaunch then would make two sessions of
  * one (#4815), so the resume counts as arrived. Null where that cannot be
- * told, logged: the caller holds its fallback, stopping nothing (#4873).
- * @param {SessionRef & {since?: number}} l
+ * told, logged (#4873).
+ * @param {SessionRef} l
  * @param {string} name
  * @param {BlockIo} io
+ * @param {number} [since]
  * @returns {boolean|null}
  */
-function isTakenSinceStop(l, name, io) {
-	const resumed = io.isResumedSinceStop(l, l.since);
+function isTakenSinceStop(l, name, io, since) {
+	const resumed = io.isResumedSinceStop(l, since);
 	if (resumed === null)
 		io.log(
-			`${name}'s session shows no API-error stop in its transcript and its timeline is unread, so whether it took a turn since cannot be told: it is neither stopped nor copied this try`,
+			`${name}'s transcript shows no API-error stop, and its timeline is unread or the loop holds no time for the stop, so whether its session took a turn since cannot be told: it is neither stopped nor copied this try`,
 		);
 	else if (resumed)
 		io.log(
