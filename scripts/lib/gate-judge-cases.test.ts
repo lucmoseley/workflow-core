@@ -28,6 +28,8 @@ const LABELS = [
 ];
 /* Shorter lines are markdown furniture any prompt may share. */
 const MIN_LINE = 20;
+/* Shorter quotes are window words ("the first week") any prompt may share. */
+const MIN_QUOTE_WORDS = 4;
 
 describe("the labelled set", () => {
 	it("gives every case a source issue, a label, a part and a text", () => {
@@ -38,6 +40,14 @@ describe("the labelled set", () => {
 			expect(["development", "held-out"], String(c.id)).toContain(c.part);
 			expect(String(c.text ?? "").trim(), String(c.id)).not.toBe("");
 		}
+	});
+
+	it("draws no held-out case from an issue the development part draws on", () => {
+		const developed = new Set(
+			cases.filter((c) => c.part === "development").map((c) => c.source),
+		);
+		for (const held of cases.filter((c) => c.part === "held-out"))
+			expect(developed.has(held.source), String(held.id)).toBe(false);
 	});
 
 	it("names each case once", () => {
@@ -63,5 +73,18 @@ describe("the labelled set", () => {
 				if (line.length >= MIN_LINE)
 					expect(prompt.includes(line), `${c.id}: ${line}`).toBe(false);
 		}
+	});
+
+	it("is the source of none of the prompt's quoted examples", () => {
+		const texts = cases.map((c) => String(c.text).toLowerCase());
+		const quotes = [...buildPrompt("").matchAll(/"([^"]+)"/g)]
+			.map((m) => String(m[1]))
+			.filter((q) => q.trim().split(/\s+/).length >= MIN_QUOTE_WORDS);
+		expect(quotes.length).toBeGreaterThan(0);
+		for (const q of quotes)
+			expect(
+				texts.some((t) => t.includes(q.toLowerCase())),
+				q,
+			).toBe(false);
 	});
 });

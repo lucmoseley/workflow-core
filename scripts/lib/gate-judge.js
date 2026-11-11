@@ -54,17 +54,22 @@ const QUESTION = `You are reading one issue body from a software project's track
 
 Answer two questions about it.
 
-QUESTION 1 — WAITS. Find every sentence or line that makes work wait on time passing or on data accumulating: something (a measurement, a re-check, a reading, a comparison, a decision, the next step, the ticket itself) is not to happen until a stretch of time has gone by, or until an amount of data exists.
+QUESTION 1 — WAITS. Find every sentence or line that makes THIS issue's own work wait on time passing or on data accumulating: something this issue asks for (a measurement, a re-check, a reading, a comparison, a decision, the next step, one of its acceptance criteria, its close) is not to happen until a stretch of time has gone by, or until an amount of data exists.
 
 - "time": a stretch of calendar time must pass first. Hours, days, weeks, "the first week", a period that has to end, or a date not yet reached that stands for such a stretch.
-- "data": an amount of records, events, runs, samples, or a period's worth of logs must have built up first. A count of events to reach is a wait as much as a number of days is.
+- "data": an amount of records, events, runs, samples, or a period's worth of logs must have built up first, data that builds up on its own as the project runs (scheduled runs, real landings, real sessions, a log filling) and that nobody can make by running something now. A count of events to reach is a wait as much as a number of days is.
 
 A gate line, one that starts \`**Gated until:**\` or \`**Gated on:**\`, counts when what it waits for is a stretch of time or an amount of data.
 
-These are NOT waits, so leave them out:
+Most time words in a body are not waits. Before you report a sentence, ask: is it this issue's own work that is held back, and is it held back until time or data has built up? Leave a sentence out unless both answers are yes. These are NOT waits:
 - a span that only says what data a figure covers or covered, with nothing held back until it is over ("42 failures in the last 30 days");
 - a frequency or a schedule ("runs twice a day");
-- a threshold, timeout, age or time window in how a tool, check or program behaves, even one said to wait ("the cache expires after 90 minutes", "the sweeper waits an hour before it deletes"): that describes machinery, and holds none of this ticket's work back;
+- how a program, script, check, loop, hook or report is to behave, or already behaves: its timeouts, bounds, retries, cooldowns, stop rules, the stretch it waits through, when it reads, files, refiles, alerts or gives up. This holds wherever it is written: as a design rule, a user story ("As a user, I want the job to pause until …"), an acceptance criterion or test that checks that behaviour, or text a script writes into the issues it files. The machinery waits; this issue's work does not;
+- runs, repetitions, pairs or samples that whoever does the work takes on demand, back to back ("time it over five runs", "passes 10 of 10 times", "a 20-minute sample"): nothing has to build up on its own;
+- a wait that belongs to another issue, named or cited: its window, its gate, its reading, as narrated, summarised in a list or map row, or given as evidence;
+- the options of a question put to a reader, and the condition on which a recommendation would change: none of them is this issue's work until someone chooses it;
+- a person told to wait a few minutes while doing a step by hand ("let the screen settle", "wait 30 seconds, then reload");
+- a date or limit stated as a fact about the world ("the key is locked until 1 March");
 - an account of what already happened ("two days later the fix went in"), a wait the body says is already over, and a report of a reading already taken, whose point was reached and whose figures are in hand;
 - waiting on an event alone, with no stretch of time and no amount of data (a commit landing, an issue closing, a release, a reply);
 - anything inside a code span or a fenced code block: those are quoted examples, not this body's own words.
@@ -80,7 +85,7 @@ QUESTION 2 — BASES. For every line that starts \`**Gate basis:**\`, outside co
 - "class": how the line comes by the window's length or count, one of
   - "derived": it works the window out from data. It gives a count or a measured figure, says where that figure comes from, and the figure yields this window: a rate and the number of events the window then holds, a baseline and the sample needed to tell a change from it, a statistical bound a count gives (no failure in so many tries puts the rate under a stated level), or a cycle the window has to span, named with the dated events or measured load that fell in it.
   - "inherited": it takes the window from somewhere else that it names: another issue, a ruling, a spec, an earlier reading whose window it matches.
-  - "restated": it only repeats the window, or says the ticket, the body or its acceptance criteria ask for it. Nothing outside the ticket's own ask stands behind the length.
+  - "restated": it only repeats the window, or says the issue, the body or its acceptance criteria ask for it. Nothing outside the issue's own ask stands behind the length.
   - "asserted": it gives a reason in words with no figure behind it: a round length said to be enough, to cover a pattern, or to be safe.
   A line that names a figure and a source but whose figure does not lead to this window's length is not "derived": class it by what it does do.
 
