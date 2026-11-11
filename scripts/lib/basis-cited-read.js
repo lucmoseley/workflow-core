@@ -145,7 +145,7 @@ function takePage(data, repos, p, into) {
  * lower-cased: null for a number its readable repository holds no issue
  * under, absent where it was not read.
  *
- * @param {Wanted[]} wanted
+ * @param {Wanted[]} wanted each issue once, its repo lower-cased
  * @param {{timeoutMs: number}} opts `timeoutMs` bounds the whole
  *   read, its comment pages included
  * @returns {{issues: Map<string, CitedIssue|null>, why: string|null, ms: number}}
@@ -153,27 +153,19 @@ function takePage(data, repos, p, into) {
  */
 function readCitedIssues(wanted, { timeoutMs }) {
 	const startedAt = Date.now();
-	const unique = [
-		...new Map(
-			wanted.map((w) => [
-				citedKey({ repo: w.repo.toLowerCase(), number: w.number }),
-				w,
-			]),
-		).values(),
-	];
-	const sendable = unique.filter((w) =>
+	const sendable = wanted.filter((w) =>
 		w.repo.split("/").every((part) => REPO_PART_RE.test(part)),
 	);
 	/** @type {string|null} */
 	let why =
-		sendable.length < unique.length
+		sendable.length < wanted.length
 			? "a repository name was not readable"
 			: null;
 	/** @type {Into} */
 	const into = { issues: new Map(), building: new Map() };
 	/** @type {Page[]} */
 	let pages = sendable.map((w) => ({
-		repo: w.repo.toLowerCase(),
+		repo: w.repo,
 		number: w.number,
 		after: null,
 	}));
@@ -237,7 +229,7 @@ function readTracker(root) {
 
 /**
  * Reads the issues the bases `collect` judges cite, in one batched call:
- * undefined where no basis's only warrant is another issue.
+ * undefined where no basis's warrant is an issue reference.
  *
  * @param {(follow: import("./issue-gate.js").Follow) => void} collect runs
  *   the judgement over an empty read with the `follow` it is handed, whose

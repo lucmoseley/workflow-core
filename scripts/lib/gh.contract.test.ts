@@ -699,8 +699,7 @@ describe("live: computed answers", () => {
 		(argv: string[], issues: Record<string, object>) => GhAnswer
 	>(CITED_GRAPHQL_FAKE, "answerCited");
 
-	/* #2331 is closed with a few comments, so the shape holds; its words are
-	 * never compared. */
+	/* #2331 is closed, its comments on one page, so the answer's shape holds. */
 	it("lib/basis-cited-read.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
