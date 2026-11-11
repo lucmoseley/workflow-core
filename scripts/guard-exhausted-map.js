@@ -41,7 +41,7 @@ const { logError, readClaimedIssues } = require("./lib/arbiter-store");
 const { ghJson } = require("./lib/gh");
 const hookBlock = require("./lib/hook-block");
 const hookMessage = require("./lib/hook-message");
-const { MAP_LABEL, resolveGate } = require("./lib/issue-gate");
+const { isGateHolding, MAP_LABEL } = require("./lib/issue-gate");
 const { isOpenChild, readSubIssues } = require("./lib/issue-tree");
 const { trackerOf } = require("./lib/outstanding-line");
 const { PARKED_LABEL } = require("./lib/parked");
@@ -74,8 +74,7 @@ function isExhaustedMap(tracker, n, deadline) {
 	if (issue.state !== "open" || !labels.includes(MAP_LABEL)) return false;
 	if (!labels.includes(TAKES_WAYFINDER) || labels.includes(PARKED_LABEL))
 		return false;
-	const { gateHolds, gateOnHolds } = resolveGate(issue.body ?? "");
-	if (gateHolds || gateOnHolds) return false;
+	if (isGateHolding(issue.body ?? "")) return false;
 	return !readSubIssues(n, tracker, opts()).some(isOpenChild);
 }
 

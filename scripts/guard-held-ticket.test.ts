@@ -39,6 +39,11 @@ const sb = freshSandbox((s) => {
 });
 
 const UNMET = "## Acceptance criteria\n\n- [x] one\n- [ ] two\n";
+const HOLDING_UNTIL = "**Gated until:** 2999-01-01 — data accrues";
+const LAPSED_UNTIL = "**Gated until:** 2000-01-01 — data accrued";
+const HOLDING_ON =
+	"**Gated on:** 368 post-change stays recorded — abandon if: the change is reverted";
+const MALFORMED_ON = "**Gated on:** 368 post-change stays recorded";
 
 const unit = ({
 	state = "open",
@@ -117,6 +122,16 @@ describe("a claimed unfinished build unit", () => {
 		);
 	});
 
+	it.each([
+		["a lapsed `**Gated until:**` line", LAPSED_UNTIL],
+		["a malformed `**Gated on:**` line", MALFORMED_ON],
+		["both gate lines, which gate nothing", `${HOLDING_UNTIL}\n${HOLDING_ON}`],
+	])("refuses where the unit carries %s", (_, gate) => {
+		expect(
+			reasonFor({ [AT]: unit({ body: `${UNMET}\n${gate}\n` }) }),
+		).toContain(`#${UNIT}`);
+	});
+
 	it("blocks at most three times a session", () => {
 		const reasons = [1, 2, 3, 4].map(() => reasonFor());
 		expect(reasons.slice(0, 3).every((r) => r.includes(`#${UNIT}`))).toBe(true);
@@ -143,6 +158,14 @@ describe("a stop it allows", () => {
 			}),
 		],
 		["not a kind:ticket", unit({ labels: ["wayfinder:map"] })],
+		[
+			"held by its `**Gated until:**` line",
+			unit({ body: `${UNMET}\n${HOLDING_UNTIL}\n` }),
+		],
+		[
+			"held by its `**Gated on:**` line",
+			unit({ body: `${UNMET}\n${HOLDING_ON}\n` }),
+		],
 	])("allows where the unit is %s", (_, answer) => {
 		expect(reasonFor({ [AT]: answer })).toBe("");
 	});
