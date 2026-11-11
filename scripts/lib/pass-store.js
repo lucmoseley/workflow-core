@@ -133,7 +133,7 @@ const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never caches (#4814),
  * though its red still voids an older pass (#4995). */
-const FORMAT = 17;
+const FORMAT = 18;
 
 /* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;

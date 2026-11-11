@@ -526,12 +526,13 @@ function install() {
 	 * A sync spawn's `input`; what is written to an async child's pipe later
 	 * `watchInput` weighs.
 	 * @param {Untyped} opts
+	 * @param {string} at the directory it resolves a relative path against
 	 * @returns {Hand[]}
 	 */
-	const stdinHands = (opts) => {
+	const stdinHands = (opts, at) => {
 		const input = Array.isArray(opts?.stdio) ? opts.stdio[0]?.input : null;
 		if (!ArrayBuffer.isView(input)) return [];
-		const p = handed.from(cwdOf(opts), { text: true })(textOf(input));
+		const p = handed.from(at, { text: true })(textOf(input));
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
@@ -567,6 +568,33 @@ function install() {
 		return [{ by: "repo", p: ["."] }];
 	};
 	/**
+	 * Where a child resolves a relative path: its directory, or for a git
+	 * the one its `-C` words move it to, each `-C` value read against the
+	 * directory the ones before it reached (git(1), `-C`).
+	 * @param {Untyped} opts
+	 * @param {string[]} words its words after the program
+	 * @param {string} cwd
+	 * @returns {{moved: string, before: Map<number, string>}} `before` each
+	 *   `-C` value's place with the directory it is read against
+	 */
+	const movesOf = (opts, words, cwd) => {
+		/** @type {Map<number, string>} */
+		const before = new Map();
+		if (path.basename(String(opts?.file ?? "")) !== "git")
+			return { moved: cwd, before };
+		let moved = cwd;
+		for (let at = 0; at < words.length; at++) {
+			const word = String(words[at]);
+			if (!word.startsWith("-")) break;
+			if (word === "-C" && at + 1 < words.length) {
+				before.set(at + 1, moved);
+				moved = path.resolve(moved, String(words[at + 1]));
+			}
+			if (GIT_VALUED.has(word)) at++;
+		}
+		return { moved, before };
+	};
+	/**
 	 * What hands a child paths in the checkout; none for a Node child that
 	 * logs its own reads.
 	 * @param {Untyped} opts
@@ -575,17 +603,19 @@ function install() {
 	const handsOf = (opts) => {
 		if (isAuditedNode(opts)) return [];
 		const cwd = cwdOf(opts);
-		const named = handed.from(cwd);
 		const words = argvOf(opts).slice(1);
+		const { moved, before } = movesOf(opts, words, cwd);
+		const named = handed.from(moved);
 		return [
 			...words.flatMap(
 				(/** @type {string} */ word, /** @type {number} */ at) => {
-					const p = named(word);
+					const from = before.get(at);
+					const p = (from === undefined ? named : handed.from(from))(word);
 					return p.length === 0 ? [] : [{ by: "arg", at, p }];
 				},
 			),
 			...envHands(opts, cwd, named),
-			...stdinHands(opts),
+			...stdinHands(opts, moved),
 			...repoHands(opts, cwd),
 		];
 	};
@@ -755,9 +785,9 @@ function install() {
 		guard(() => {
 			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
 			if (typeof pid !== "number" || route || isAuditedNode(asked)) return;
-			const cwd = cwdOf(asked);
+			const { moved } = movesOf(asked, argvOf(asked).slice(1), cwdOf(asked));
 			for (const [descriptor, entry] of stdio.entries())
-				watchEntry(entry, descriptor, pid, cwd);
+				watchEntry(entry, descriptor, pid, moved);
 		});
 
 	/**

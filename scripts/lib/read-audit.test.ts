@@ -985,6 +985,20 @@ describe("a guarded git the guard keeps no record of (#5015)", () => {
 		].join("\n");
 		expect(judgedRun(root, body)).toHaveProperty("reads");
 	});
+
+	it("reads a word against the directory -C moves it to, not the one it was spawned in", () => {
+		const root = checkout();
+		const cwd = scratchRepo();
+		fs.mkdirSync(path.join(cwd, "scripts"));
+		fs.writeFileSync(path.join(cwd, "scripts/a"), "a\n");
+		const moved = runsGit(["-C", cwd, "add", "scripts"], root);
+		expect(judgedRun(root, moved)).toHaveProperty("reads");
+		const spelt = path.relative(cwd, path.join(root, settingsFile));
+		const out = runsGit(["-C", cwd, "hash-object", spelt], root);
+		expect(judgedRun(root, out).doubt).toMatch(
+			/the guard kept no record of was handed a path in the checkout$/,
+		);
+	});
 });
 
 describe("the routes still open after #4982 (#4997)", () => {
@@ -1254,8 +1268,9 @@ describe("the routes still open after #4982 (#4997)", () => {
 			]
 				.join("\n")
 				.replace('"PLACE"', "scratch");
+			/* `..` read against the scratch it follows names the checkout. */
 			expect(untraced(root, walked).doubt).toMatch(
-				/by the repository it finds from its directory/,
+				/was handed a path in the checkout/,
 			);
 			const inScratch = [
 				minting(root),
