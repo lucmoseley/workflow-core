@@ -119,6 +119,25 @@ describe("on", () => {
 		expect(modelOf(".claude")).toBe(FABLE);
 	});
 
+	it("on over a marker with no effort record records and lowers the Fable effort", () => {
+		run("on");
+		const old = JSON.parse(fs.readFileSync(marker, "utf8"));
+		fs.writeFileSync(marker, JSON.stringify({ model: old.model }));
+		write(".claude", {
+			...read(".claude"),
+			modelSettings: { "claude-fable-5-2": { effortLevel: "medium" } },
+		});
+		expect(run("on").status).toBe(0);
+		expect(read(".claude").modelSettings["claude-fable-5-2"].effortLevel).toBe(
+			"low",
+		);
+		expect(run("off").status).toBe(0);
+		expect(read(".claude").modelSettings["claude-fable-5-2"].effortLevel).toBe(
+			"medium",
+		);
+		expect(modelOf(".claude")).toBe(OPUS);
+	});
+
 	// mantahostels#3547
 	it("run twice with no off between leaves the first on's record intact", () => {
 		write(".claude2", withModel("opus[1m]"));
@@ -186,6 +205,19 @@ describe("off", () => {
 		expect(read(".claude2").modelSettings).toEqual({
 			"claude-opus-5-5": { effortLevel: "medium" },
 		});
+	});
+
+	it("with burn mode already off, leaves a hand-set low Fable effort alone", () => {
+		write(".claude", {
+			model: OPUS,
+			modelSettings: { "claude-fable-5-2": { effortLevel: "low" } },
+		});
+		const r = run("off");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("already off");
+		expect(read(".claude").modelSettings["claude-fable-5-2"].effortLevel).toBe(
+			"low",
+		);
 	});
 
 	it("with no record, restores a plan's low Fable effort to the standing medium", () => {
@@ -262,7 +294,7 @@ describe("off", () => {
 		const r = run("off");
 		fs.chmodSync(plan, 0o755);
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("still on the burn model after off");
+		expect(r.stderr).toContain("still on the burn model or effort after off");
 		expect(r.stderr).toContain(".claude2/settings.json");
 		expect(modelOf(".claude2")).toBe(FABLE);
 		expect(modelOf(".claude")).toBe(OPUS);
