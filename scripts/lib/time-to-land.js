@@ -40,8 +40,9 @@ const { DAY_MS } = require("./retained-jsonl.js");
 const TARGET_MULTIPLE = 3;
 /* A guess, about a day's members at #4951's ~100 a day: fewer give no p90. */
 const MIN_STAYS = 100;
-/* A read's unit, not its bound. */
-const CHUNK_BYTES = 4 * 1024 * 1024;
+/* The first window readLogSince reads, doubled until it reaches past
+ * `since`; a guess, never measured against the log's daily growth. */
+const FIRST_WINDOW_BYTES = 4 * 1024 * 1024;
 
 const STAMPED = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) ([a-z-]+)(?: (.*))?$/;
 const FIRST_STAMP = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) /m;
@@ -110,7 +111,7 @@ function memberStays(rows) {
  * @returns {string}
  */
 function readLogSince(file, since) {
-	for (let want = CHUNK_BYTES; ; want *= 2) {
+	for (let want = FIRST_WINDOW_BYTES; ; want *= 2) {
 		const tail = readTail(file, want);
 		if (tail.state === "absent") return "";
 		if (tail.state === "unreadable") throw tail.error;
