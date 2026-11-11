@@ -139,7 +139,7 @@ describe("the registry-atomicity core", () => {
 	it.each([
 		["sh -c", 'sh -c "git commit -m x -- scripts/check-new.js"'],
 		[
-			"a launcher unwrap does not strip",
+			"a launcher outside unwrap's class (chrt)",
 			"chrt 1 git commit -m x -- scripts/check-new.js",
 		],
 	])(
@@ -150,17 +150,12 @@ describe("the registry-atomicity core", () => {
 		},
 	);
 
-	it("says nothing about a wrapped commit landing no member", () => {
+	it.each([
+		["a commit", 'git commit -m "x" -- scripts/README.md'],
+		["a wrapped commit", "timeout 30 git commit -m x -- scripts/README.md"],
+	])("says nothing about %s landing no member", (_, command) => {
 		fs.writeFileSync(path.join(repo, "scripts", "README.md"), "# edited\n");
-		expect(
-			emission("timeout 30 git commit -m x -- scripts/README.md"),
-		).toBeNull();
-		expect(readFailOpenRecords(config, repo)).toEqual([]);
-	});
-
-	it("says nothing about a commit landing no member", () => {
-		fs.writeFileSync(path.join(repo, "scripts", "README.md"), "# edited\n");
-		expect(emission('git commit -m "x" -- scripts/README.md')).toBeNull();
+		expect(emission(command)).toBeNull();
 		expect(readFailOpenRecords(config, repo)).toEqual([]);
 	});
 
