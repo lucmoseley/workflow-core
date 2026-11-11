@@ -4,14 +4,12 @@
  * input. The read audit's preload (lib/read-audit-preload.js) asks at the
  * spawn, while the links a word goes through still stand.
  *
- * A WORD NAMES A PATH TWO WAYS. Spelt: the root's own absolute spelling
- * anywhere in it, up to what ends a path. Resolved: the word, a piece of
- * it, or a piece from its first `/`, `./` or `../` (`-C/tmp/link`,
- * `-I../x`) that,
- * read against the child's working directory with every link followed,
- * lands under the root — `../../<root>/x` from outside, or a link to the
- * checkout. A candidate holding no `/` is a path only where it stands in
- * that directory: any word resolves there, and most are no path.
+ * Spelt: the root's own absolute spelling anywhere in it, up to what ends a
+ * path. Resolved: the word, a piece of it, or a piece from its first `/`,
+ * `./` or `../` (`-C/tmp/link`, `-I../x`) that, read against the child's
+ * working directory with every link followed, lands under the root —
+ * `../../<root>/x` from outside, or a link to the checkout. A candidate
+ * holding no `/` is a path only where it stands in that directory.
  *
  * Residual: a relative path glued behind a prefix with no `./` or `../` to
  * start it (`-Iin/x`, `in` a link) is resolved only as the whole piece.
@@ -40,8 +38,7 @@ const STOPS = /[\s"';:]/;
  * value off its name or lists several. */
 const PARTS = /[\s"';:=,]+/;
 
-/* Taken as this module loads, before the preload wraps `fs`: a lookup made
- * here is no read of the test's. */
+/* Taken as this module loads, before the preload wraps `fs`. */
 const realpath = fs.realpathSync;
 
 /* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
@@ -116,8 +113,6 @@ function buildHanded(root) {
 }
 
 /**
- * What of `word` may be a path: the word, each piece, and each piece from
- * its first `/`, `./` or `../`.
  * @param {string} word
  * @returns {Set<string>}
  */

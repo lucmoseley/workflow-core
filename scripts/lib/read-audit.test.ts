@@ -521,7 +521,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 		dirs.push(dir);
 		return dir;
 	};
-	/** A test body spawning `program` from `cwd`, with `env` over its own and `input` on its standard input. */
 	const spawns = (
 		program: string,
 		args: string[],

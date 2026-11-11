@@ -28,7 +28,7 @@
  * - any other child — a shell, Python, a binary, a stub a test wrote — run
  *   from a directory under the root, or handed a path there by an argument,
  *   an environment variable or a sync spawn's input, however spelt
- *   (lib/read-audit-handed.js, #4982), where no `strace` traced it. The preload traces a stub and a
+ *   (#4982), where no `strace` traced it. The preload traces a stub and a
  *   shell (#4966): its reads are the paths its file calls named, and only
  *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a shell
  *   or Python child handed a checkout script to run, from outside the root,
@@ -465,9 +465,7 @@ const ENV_BLIND = new Set([
 
 /**
  * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
- * as the installed program. A file of that name under the temporary
- * directory, or under the checkout outside `node_modules`, is one a test
- * can write.
+ * as the installed program.
  * @param {Entry} e
  * @param {string} root real path
  */
@@ -482,7 +480,6 @@ function readsNoVariable(e, root) {
 	);
 }
 
-/** How a doubt names the hand, after "was handed a path in the checkout". */
 const handedBy = (/** @type {Hand} */ hand) => {
 	if (hand.by === "env") return ` by its environment (${hand.name})`;
 	return hand.by === "stdin" ? " on its standard input" : "";
@@ -503,9 +500,8 @@ function shownChild(e) {
 /* Programs that read nothing of the directory they run in, each traced with
  * `strace -e trace=file` to make no file call outside the system directories
  * and its own: under any arguments (null), or under the one argument named
- * (#4932). So none reads a path an argument, a variable or its input names;
- * the traces ran under the suite's own environment, not under each
- * variable.
+ * (#4932). The traces ran under the suite's own environment, not under
+ * each variable.
  * Not weighed: a relative LD_PRELOAD, LD_LIBRARY_PATH or LOCPATH in the
  * child's environment, which makes the loader probe that directory. */
 const BLIND = new Map([

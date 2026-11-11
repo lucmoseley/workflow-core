@@ -18,11 +18,10 @@
  * a path there — by an argument, an environment variable or the input of a
  * sync spawn (lib/read-audit-handed.js). No other program is traced: a
  * traced process that is killed stays until its tracer reaps it, which a
- * test of what a real program leaves running would see. A variable every
- * child inherits puts nearly every shell and stub in reach (#4982), and a
- * traced process runs slower: a test timing what its child does sets
- * `WFC_READ_AUDIT_UNTRACED=1` in that child's environment, which runs it
- * untraced, so it doubts where it is in reach.
+ * test of what a real program leaves running would see. A test timing
+ * what its child does sets `WFC_READ_AUDIT_UNTRACED=1` in that child's
+ * environment (#4982), which runs it untraced, so it doubts where it is in
+ * reach.
  *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
@@ -411,7 +410,7 @@ function install() {
 	const guardDir = rel(path.dirname(guardFile));
 	/* The environment every child of this run inherits untouched, as the
 	 * suite's setup left it: `settle` writes it down and names the file for
-	 * the processes below. None is standing where no setup settled it. */
+	 * the processes below. */
 	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
@@ -522,8 +521,7 @@ function install() {
 		const file = String(opts?.file ?? "");
 		const argv = argvOf(opts);
 		/* A child launching the tracer on a program of its own would be
-		 * refused it under this one (#4982): untraced, it doubts where it is
-		 * in reach. */
+		 * refused it under this one (#4982). */
 		if (argv.includes(String(STRACE))) return false;
 		/* The tracer runs the program by its name, as the spawn would: only a
 		 * name the spawn passes as the program's own first word, found as a
@@ -649,7 +647,6 @@ function install() {
 				add({ k: "claim", file: r ?? String(file) });
 			});
 		},
-		/** The environment as the suite's setup left it is every child's. */
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
