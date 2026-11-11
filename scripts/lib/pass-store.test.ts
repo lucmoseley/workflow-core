@@ -134,6 +134,17 @@ function run(
 	);
 }
 
+/** What the store holds for `A` at the repo's HEAD. */
+const heldAtHead = (dir: string) =>
+	heldAtSha([A], {
+		storeRoot: dir,
+		sha: git(dir, "rev-parse", "HEAD"),
+		before: "9999",
+		git: (args: string[]) =>
+			execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+		values: VALUES,
+	}).get(A);
+
 const cachedOf = (
 	dir: string,
 	files: string[],
@@ -498,15 +509,6 @@ describe("the newest result on the same content decides", () => {
 
 	describe("a red file whose inputs are unknown (#4790 pass 3)", () => {
 		const Doubt = { doubt: "its process left no audit log" };
-		const heldAtHead = (dir: string) =>
-			heldAtSha([A], {
-				storeRoot: dir,
-				sha: git(dir, "rev-parse", "HEAD"),
-				before: "9999",
-				git: (args: string[]) =>
-					execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
-				values: VALUES,
-			}).get(A);
 
 		it("voids an older pass on the same content, until a newer pass", () => {
 			const dir = repo();
@@ -1247,6 +1249,18 @@ describe("the reads the audit saw", () => {
 		expect(run(dir, [A])).toBe(1);
 	});
 
+	it("voids an older pass with a red recorded after the tree moved past the run's end snapshot, once the move is undone (#4790)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		const ran = fs.readFileSync(path.join(dir, "lib.js"), "utf8");
+		const end = readTreeSnapshot(dir);
+		write(dir, "lib.js", "lib.js edited after the end snapshot\n");
+		expect(run(dir, [A], { failing: [A], after: end })).toBe(1);
+		write(dir, "lib.js", ran);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("rests a tree walked whole on every file and listing under it", () => {
 		const dir = repo();
 		withSkill(dir);
@@ -1356,15 +1370,6 @@ describe("a red recorded at another layout (#4995)", () => {
 			`${[...lines, JSON.stringify({ ...last, format })].join("\n")}\n`,
 		);
 	};
-	const heldAtHead = (dir: string) =>
-		heldAtSha([A], {
-			storeRoot: dir,
-			sha: git(dir, "rev-parse", "HEAD"),
-			before: "9999",
-			git: (args: string[]) =>
-				execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
-			values: VALUES,
-		}).get(A);
 	const formatOf = (dir: string) =>
 		JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n")[0])
 			.format as number;

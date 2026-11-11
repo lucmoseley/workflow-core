@@ -292,6 +292,9 @@ describe("the sanctioned pushes pass", () => {
 		"git push origin main 2>/dev/null",
 		"git push origin main >out",
 		"git push 2> err.txt",
+		// A -c string's later line, its closing quote not on the refspec (#4978).
+		'flock /l -c "true\ngit push origin main"',
+		'flock /l -c "true; git push origin main"',
 	])("%s", (command) => {
 		expect(denial(command)).toBeNull();
 	});
@@ -327,6 +330,17 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 		["git push origin --dele main", "deletes `main` on the remote"],
 		["git push origin :heads/main", "deletes `main` on the remote"],
 		["git push -f origin HEAD:heads/main", "force-pushes `main`"],
+		// A -c string's later line, newline or `;` (#4978).
+		[
+			'flock /l -c "true\ngit push origin :main"',
+			"deletes `main` on the remote",
+		],
+		[
+			'flock /l -c "true; git push origin :main"',
+			"deletes `main` on the remote",
+		],
+		['flock /l -c "true\ngit push --force origin main"', "force-pushes `main`"],
+		['flock /l -c "true; git push --force origin main"', "force-pushes `main`"],
 	])("%s is denied, naming that it %s", (command, what) => {
 		const why = denial(command);
 		expect(why).toContain(what);

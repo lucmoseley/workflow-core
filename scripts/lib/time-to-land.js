@@ -17,7 +17,8 @@
  * where it began and ended inside it.
  *
  * THE TARGET: the stays' p90 at or under TARGET_MULTIPLE times the green
- * suite's p50, both over the window.
+ * suite's p50, both over the window, judged by an exact binomial count of
+ * the stays over that time (overCountNeeded, #4989).
  *
  * A RED BATCH is replayed off the lander log: each `take-batch` opens a batch
  * in its slot, a `detach` of that slot makes it the search, and each red-path
@@ -38,8 +39,13 @@ const { DAY_MS } = require("./retained-jsonl.js");
 
 /* The stays' p90 over the green suite's p50 (#4951's design comment). */
 const TARGET_MULTIPLE = 3;
-/* A guess, about a day's members at #4951's ~100 a day: fewer give no p90. */
-const MIN_STAYS = 100;
+/* The stays' percentile the target holds, so a queue on target has at most
+ * OVER_SHARE of its stays over the time. */
+const TARGET_PERCENTILE = 90;
+const OVER_SHARE = 1 - TARGET_PERCENTILE / 100;
+/* The one-sided chance a queue on target is called over: the conventional
+ * 5% significance level, chosen at #4989. */
+const CHANCE = 0.05;
 /* The first window readLogSince reads, doubled until it reaches past
  * `since`; a guess, never measured against the log's daily growth. */
 const FIRST_WINDOW_BYTES = 4 * 1024 * 1024;
@@ -212,16 +218,36 @@ function windowOf(flags, at) {
 const spanIn = (w, from, to) => from >= w.since && to < w.until;
 
 /**
+ * The fewest of `n` stays over the time that a queue on target, each stay
+ * over it with OVER_SHARE's chance, reaches at most CHANCE of the time:
+ * `n + 1`, never reached, where no count of `n` is that rare.
+ * @param {number} n
+ * @returns {number}
+ */
+function overCountNeeded(n) {
+	const odds = Math.log(OVER_SHARE / (1 - OVER_SHARE));
+	let logMass = n * Math.log(1 - OVER_SHARE);
+	let below = 0;
+	for (let x = 0; x <= n; x++) {
+		if (1 - below <= CHANCE) return x;
+		below += Math.exp(logMass);
+		logMass += Math.log((n - x) / (x + 1)) + odds;
+	}
+	return n + 1;
+}
+
+/**
  * @typedef {object} Reading
  * @property {number} stays stays that began and ended in the window
  * @property {number|null} overTarget stays longer than targetMs
+ * @property {number} overNeeded overCountNeeded of the stays
  * @property {number|null} p50Ms
  * @property {number|null} p90Ms
  * @property {number} greens green runs that began and ended in the window
  * @property {number|null} greenP50Ms
  * @property {number|null} targetMs TARGET_MULTIPLE × greenP50Ms
- * @property {boolean} judged whether the window holds MIN_STAYS and a green run
- * @property {boolean} over whether a judged p90 is past its target
+ * @property {boolean} judged whether the window holds a green run
+ * @property {boolean} over whether overTarget reaches overNeeded
  */
 
 /** @param {number|null} ms @returns {string} whole seconds, `-` for none */
@@ -241,21 +267,22 @@ function judgeTimeToLand(stays, greens, w) {
 	const runs = greens
 		.filter((g) => spanIn(w, g.from, g.at))
 		.map((g) => g.at - g.from);
-	const p90Ms = percentile(times, 90);
 	const greenP50Ms = percentile(runs, 50);
 	const targetMs = greenP50Ms === null ? null : TARGET_MULTIPLE * greenP50Ms;
-	const judged = times.length >= MIN_STAYS && targetMs !== null;
+	const overTarget =
+		targetMs === null ? null : times.filter((t) => t > targetMs).length;
+	const overNeeded = overCountNeeded(times.length);
 	return {
 		stays: times.length,
-		overTarget:
-			targetMs === null ? null : times.filter((t) => t > targetMs).length,
+		overTarget,
+		overNeeded,
 		p50Ms: percentile(times, 50),
-		p90Ms,
+		p90Ms: percentile(times, TARGET_PERCENTILE),
 		greens: runs.length,
 		greenP50Ms,
 		targetMs,
-		judged,
-		over: judged && p90Ms !== null && targetMs !== null && p90Ms > targetMs,
+		judged: targetMs !== null,
+		over: overTarget !== null && overTarget >= overNeeded,
 	};
 }
 
@@ -462,7 +489,6 @@ function replayBatches(events) {
 }
 
 module.exports = {
-	MIN_STAYS,
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
 	memberStays,

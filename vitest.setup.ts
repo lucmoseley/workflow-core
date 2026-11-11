@@ -48,8 +48,14 @@ process.env.WFC_MEMORY_HOLD = "";
 
 /* No write route a case drives launches the gate judge (#4969): each launch
  * is a child process, and its fallback line would join every create's
- * output. A case that drives the judge blanks it. */
+ * output. A case that drives the judge blanks it. The judge honours it only
+ * beside VITEST_WORKER_ID, which a vitest worker sets. */
 process.env.WFC_GATE_JUDGE = "off";
+
+/* Nor does one read the issues a basis cites (#5007): that is a real gh call
+ * wherever the case set no stub. A case that drives the read blanks it.
+ * Honoured only beside VITEST_WORKER_ID, as the judge's seam is. */
+process.env.WFC_GATE_CITED = "off";
 
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call

@@ -1,8 +1,10 @@
 // @vitest-environment node
 /*
- * lib/gate-judge.js's judgedBasisFaults, driven with a body and a fake in
- * place of the `claude` binary (lib/gate-judge-fake.ts), through the real
- * launcher (#4964).
+ * lib/gate-judge.js's judgedBasisFaults and readGateWrite, the three write
+ * routes' one entry, driven with a body and a fake in place of the `claude`
+ * binary (lib/gate-judge-fake.ts), through the real launcher (#4964). Broken,
+ * a wait or basis the model faults files unrefused, or a write the model
+ * cannot read is refused.
  *
  * spawn-kept: a real fd (§X3) — the judge pipes its prompt to the launcher,
  * which hands the child its own stdin.
@@ -11,7 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	JUDGE_BOUND_MS,
 	judgedBasisFaults,
@@ -29,6 +31,7 @@ import {
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
+import { type CitedFixture, stubGhRoutes, stubGhScript } from "./gh-stub";
 import { basisFaults, basisRefusal } from "./issue-gate.js";
 import { readJsonl } from "./jsonl.js";
 
@@ -200,7 +203,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 			"A session may write `500 ticks` and see the gate refuse it.\n",
 			"A session may write `500 ticks` and see the gate refuse it.",
 		],
-	])("%s", (_, body, quote) => {
+	])("drops %s", (_, body, quote) => {
 		const r = judge(body, reading([wait(quote, "500 ticks")]));
 		expect(r.faults).toEqual([]);
 		expect(r.dropped).toBe(1);
@@ -216,7 +219,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		expect(r.dropped).toBe(0);
 	});
 
-	it("a basis quote two basis lines hold", () => {
+	it("drops a basis quote two basis lines hold", () => {
 		const r = judge(
 			`${WAIT}\n\n**Gate basis:** the ticket asks for 500 ticks.\n\n**Gate basis:** the ticket asks for 500 ticks, twice over.\n`,
 			reading(
@@ -228,7 +231,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		expect(r.dropped).toBe(1);
 	});
 
-	it("a basis no live basis line holds", () => {
+	it("drops a basis quote no live basis line holds", () => {
 		const r = judge(
 			`${WAIT}\n\n**Gate basis:** 250 ticks a shift (#7), so 500 is two shifts.\n`,
 			reading(
@@ -303,14 +306,16 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 			},
 			"the judge's call failed: Usage limit reached",
 		],
-	])("%s", (_, plan, why) => {
+	])("falls back on %s", (_, plan, why) => {
 		const r = judge(Body, plan);
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toContain(why);
 		expect(r.reading).toBeNull();
 	});
 
-	it("a hang past the bound", () => {
+	it("falls back on a hang past the bound", () => {
+		/* The launcher's real kill, not a faked one: the fallback reason is read
+		 * off its timeout exit. */
 		const r = judge(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
@@ -406,6 +411,29 @@ describe("an edit", () => {
 				text: "the body sets 500 ticks.",
 				by: "model",
 				class: "restated",
+			},
+		]);
+	});
+
+	it("that moves a gate judges the basis under it afresh", () => {
+		const basis = "**Gate basis:** 500 ticks, the count #7 set.";
+		const before = `**Gated until:** 2026-11-20\n${basis}\n\n${WAIT}\n`;
+		const after = `**Gated until:** 2026-11-27\n${basis}\n\n${WAIT}\n`;
+		const r = judge(
+			after,
+			reading(
+				[wait(WAIT, "500 ticks", true)],
+				[{ basis: "500 ticks, the count #7 set.", class: "asserted" }],
+			),
+			{ before },
+		);
+		expect(basisFaults(after)).toEqual([]);
+		expect(r.faults).toEqual([
+			{
+				kind: "no-warrant",
+				text: "500 ticks, the count #7 set.",
+				by: "model",
+				class: "asserted",
 			},
 		]);
 	});
@@ -586,11 +614,225 @@ describe("a write route's reading", () => {
 		expect(write(`${WAIT}\n`, NOTHING, { before: `${WAIT}\n` })).toEqual({
 			refusal: null,
 			advice: "",
+			citedMs: 0,
 		});
 		expect(write(`${Gate}\n`, NOTHING, {}, { WFC_GATE_JUDGE: "off" })).toEqual({
 			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
 			advice: "",
+			citedMs: 0,
 		});
 		expect(readJudgeCalls(log)).toEqual([]);
+	});
+
+	it("reads the body with the judge switched off outside a test worker", () => {
+		const r = write(
+			`${WAIT}\n`,
+			reading([wait(WAIT, "500 ticks")]),
+			{},
+			{ WFC_GATE_JUDGE: "off", VITEST_WORKER_ID: "" },
+		);
+		expect(r.refusal).toContain(MODEL_LEAD);
+		expect(readJudgeCalls(log)).toHaveLength(1);
+	});
+});
+
+describe("a write route follows a cited issue one hop (#5007)", () => {
+	const Week = "**Gated until:** 2099-01-01 — a week after it lands";
+	const cites = (basis: string) => `${Week}\n**Gate basis:** ${basis}\n`;
+	const Count =
+		"**Gate basis:** a week: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
+	let ghLog = "";
+
+	beforeEach(() => {
+		fs.writeFileSync(
+			path.join(dir, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, tracker: "o/r" }),
+		);
+		ghLog = path.join(dir, "gh.log");
+	});
+	afterEach(() => vi.unstubAllEnvs());
+
+	const serving = (cited: Record<string, Record<number, CitedFixture>>) =>
+		vi.stubEnv("WFC_GH", stubGhRoutes(dir, {}, { log: ghLog, cited }).gh);
+	const graphqlCalls = () =>
+		fs.existsSync(ghLog)
+			? fs
+					.readFileSync(ghLog, "utf8")
+					.split("\n")
+					.filter((l) => l.startsWith("api graphql")).length
+			: 0;
+	const write = (
+		body: string,
+		opts: {
+			before?: string;
+			own?: number;
+			boundMs?: number;
+			citedBoundMs?: number;
+		} = {},
+		extraEnv: Record<string, string> = {},
+	) =>
+		readGateWrite(body, {
+			route: "file-issue",
+			boundMs: BOUND_MS,
+			...opts,
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_GATE_CITED: "",
+				WFC_GATE_JUDGE: "off",
+				...extraEnv,
+			},
+		});
+
+	it("refuses a basis whose cited issue has no basis, quoting it, naming the issue and its reason, then the rule", () => {
+		serving({ "o/r": { 4884: { body: "A baseline, read over 24 h." } } });
+		const r = write(cites("#4884 read the baseline over a week"));
+		expect(r.refusal).toContain(
+			'"#4884 read the baseline over a week" (it cites #4884, which has no `**Gate basis:**` line), which carries no warrant, as the wording patterns read it.',
+		);
+		expect(r.refusal).toContain("Rule: ");
+		expect(graphqlCalls()).toBe(1);
+	});
+
+	it("passes where a cited issue's comment derives the window, reading four issues in one call", () => {
+		serving({
+			"o/r": {
+				2821: { state: "CLOSED", body: "Ruled." },
+				2826: { body: "x" },
+				2823: { body: "x" },
+				2824: { body: "x", comments: ["Plain.", Count] },
+			},
+		});
+		const r = write(cites("#2821, #2826, #2823 and #2824 set a week"));
+		expect(r).toEqual({
+			refusal: null,
+			advice: "",
+			citedMs: expect.any(Number),
+		});
+		expect(graphqlCalls()).toBe(1);
+	});
+
+	it("reads a basis past a cited issue's first 100 comments", () => {
+		const comments = [...Array.from({ length: 150 }, (_, i) => `c${i}`), Count];
+		serving({ "o/r": { 12: { body: "x", comments } } });
+		expect(write(cites("#12 set a week")).refusal).toBeNull();
+		expect(graphqlCalls()).toBe(2);
+	});
+
+	it("passes a question round the cited issue holds, and refuses one it does not", () => {
+		serving({
+			"o/r": { 1556: { body: "x", comments: ["❓ **Q4** - **The count**"] } },
+		});
+		expect(write(cites("a week is #1556 Q4 (A)'s ruling")).refusal).toBeNull();
+		expect(write(cites("a week is #1556 Q9 (A)'s ruling")).refusal).toContain(
+			"(it cites #1556 Q9, where that question round is not found)",
+		);
+	});
+
+	it("reads `name#N` under the tracker's owner and `owner/name#N` in that repo", () => {
+		serving({
+			"o/lib": { 5: { body: Count } },
+			"acme/x": { 6: { body: Count } },
+		});
+		expect(write(cites("lib#5 set a week")).refusal).toBeNull();
+		expect(write(cites("acme/x#6 set a week")).refusal).toBeNull();
+	});
+
+	it("makes no read for an own warrant, an event anchor, its own number or an untouched legacy basis", () => {
+		serving({});
+		expect(
+			write(cites(`${Count.replace("**Gate basis:** ", "")} (#12)`)).refusal,
+		).toBeNull();
+		write(cites("#12 landed on 5 Nov, and the body asks for a week"));
+		write(cites("#77 ruled a week"), { own: 77 });
+		const legacy = cites("#12 set a week");
+		expect(write(`${legacy}note\n`, { before: legacy, own: 1 })).toEqual({
+			refusal: null,
+			advice: "",
+			citedMs: 0,
+		});
+		expect(graphqlCalls()).toBe(0);
+	});
+
+	it("judges on form, with one note naming the unread issues, where the read fails", () => {
+		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
+		const r = write(cites("#12 and #13 set a week"));
+		expect(r.refusal).toBeNull();
+		expect(
+			r.advice.startsWith("The issues a basis cites were not read ("),
+		).toBe(true);
+		expect(r.advice).toContain(
+			"): #12, #13, so a basis whose only warrant is one of them was judged on its form alone.",
+		);
+	});
+
+	it("judges on form, with the same note, where too little of the cited read's budget is left", () => {
+		serving({ "o/r": { 12: { body: "x" } } });
+		const r = write(cites("#12 set a week"), { citedBoundMs: 1000 });
+		expect(r.refusal).toBeNull();
+		expect(r.advice).toBe(
+			`The issues a basis cites were not read (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
+		);
+		expect(graphqlCalls()).toBe(0);
+	});
+
+	it("says no tracker resolves, judging on form, where the config names none", () => {
+		const bare = fs.mkdtempSync(path.join(os.tmpdir(), "gate-judge-bare-"));
+		try {
+			const r = write(
+				cites("#12 set a week"),
+				{},
+				{ CLAUDE_PROJECT_DIR: bare },
+			);
+			expect(r.refusal).toBeNull();
+			expect(r.advice).toBe(
+				"The issues a basis cites were not read (no tracker resolves from `.claude/workflow-core.json`): #12, so a basis whose only warrant is one of them was judged on its form alone.",
+			);
+			expect(graphqlCalls()).toBe(0);
+		} finally {
+			fs.rmSync(bare, { recursive: true, force: true });
+		}
+	});
+
+	it("logs the cited issues, their verdicts, the read's wall time and any fallback", () => {
+		serving({ "o/r": { 12: { body: "x" } } });
+		fs.rmSync(callLogPath(), { force: true });
+		const r = readGateWrite(cites("#12 set a week"), {
+			route: "file-issue",
+			boundMs: BOUND_MS,
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
+				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
+				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, NOTHING),
+				WFC_GATE_CITED: "",
+				WFC_GATE_JUDGE: "",
+			},
+		});
+		expect(r.refusal).toContain(
+			"(it cites #12, which has no `**Gate basis:**` line)",
+		);
+		const [row] = readJsonl(callLogPath())?.rows ?? [];
+		expect(row).toEqual(
+			expect.objectContaining({
+				cited: [
+					{
+						basis: "#12 set a week",
+						cited: [
+							{
+								ref: "#12",
+								key: "o/r#12",
+								repo: "o/r",
+								number: 12,
+								verdict: "no-basis",
+							},
+						],
+					},
+				],
+				citedMs: expect.any(Number),
+				citedFallback: null,
+			}),
+		);
 	});
 });
