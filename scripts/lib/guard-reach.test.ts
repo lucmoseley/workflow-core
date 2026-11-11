@@ -335,6 +335,15 @@ describe("run edges", () => {
 		).toEqual(["scripts/lib/x.js", "scripts/session-arbiter.js"]);
 	});
 
+	it("reads a run beneath a directory variable built off one assigned before it", () => {
+		expect(
+			guard(
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+				'a="$here/lib"\nb="$a/sub"\nsh "$b/x.sh"\nnode "${b%/*}/y.js"',
+			),
+		).toEqual(["scripts/lib/sub/x.sh", "scripts/lib/y.js"]);
+	});
+
 	it("reads a run off the file's own path stripped as its directory", () => {
 		expect(
 			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template

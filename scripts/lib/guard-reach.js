@@ -318,8 +318,8 @@ function destructuredBefore(text, at) {
 /**
  * A variable's value is read off its assignments' text alone; a lead
  * naming a directory variable, `$lib/` or `${lib%/*}/` (#5000), is read
- * beneath that variable's assigned directory, or the file's own where the
- * file assigns it none. Limit: so a lead naming a scratch directory
+ * beneath each directory VAR_DIR_RE reads assigned to it, or the file's own
+ * where it reads none. Limit: so a lead naming a scratch directory
  * (`$tmp/x.sh`) or a directory the file took in resolves to a path that
  * need not exist; the digest hashes nothing for such a path
  * (lib/guard-digest.js).
@@ -335,7 +335,7 @@ function parseRuns(dir, text, isFile) {
 	const dirs = parseAssignments(
 		text,
 		VAR_DIR_RE,
-		new Map(),
+		null,
 		(p) => !PROGRAM_SUFFIXES.some((s) => p.endsWith(s)),
 	);
 	const assigned = parseAssignments(text, VAR_PATH_RE, dirs);
@@ -367,21 +367,19 @@ function parseRuns(dir, text, isFile) {
  * its `$` and its slash: beneath each directory `dirs` holds for the
  * variable `lead` names, or that directory's parent where `lead` strips its
  * last segment; the file's own directory stands in for a variable `dirs`
- * lacks. Any other lead is the file's own directory.
+ * lacks and for any other lead.
  * @param {string} lead
  * @param {string} value
  * @param {Map<string, string[]>} dirs
  * @returns {string[]}
  */
 function underLead(lead, value, dirs) {
-	const parent = LEAD_PARENT_RE.exec(lead)?.[1];
-	if (parent !== undefined)
-		return (dirs.get(parent) ?? ["."]).map((d) =>
-			path.posix.join(d, "..", value),
-		);
-	const name = LEAD_VAR_RE.exec(lead)?.[1];
-	const under = name === undefined ? undefined : dirs.get(name);
-	return under ? under.map((d) => `${d}/${value}`) : [value];
+	const strippedVar = LEAD_PARENT_RE.exec(lead)?.[1];
+	const name = strippedVar ?? LEAD_VAR_RE.exec(lead)?.[1];
+	const up = strippedVar === undefined ? "." : "..";
+	return ((name === undefined ? undefined : dirs.get(name)) ?? ["."]).map((d) =>
+		path.posix.join(d, up, value),
+	);
 }
 
 /**
@@ -390,19 +388,22 @@ function underLead(lead, value, dirs) {
  * @param {string} text
  * @param {RegExp} re a `gm` regex, the name its group 1, the lead its group 2
  *   and the path its group 3
- * @param {Map<string, string[]>} dirs
+ * @param {Map<string, string[]> | null} dirs the directories leads name, or
+ *   null for the map being built, so a directory built off one assigned
+ *   before it reads beneath that one
  * @param {(path: string) => boolean} [keep]
  * @returns {Map<string, string[]>}
  */
 function parseAssignments(text, re, dirs, keep = () => true) {
 	/** @type {Map<string, string[]>} */
 	const out = new Map();
+	const under = dirs ?? out;
 	for (const m of text.matchAll(re)) {
 		const value = requiredGroup(m, 3, re);
 		if (!keep(value)) continue;
 		const name = requiredGroup(m, 1, re);
 		const lead = requiredGroup(m, 2, re);
-		out.set(name, [...(out.get(name) ?? []), ...underLead(lead, value, dirs)]);
+		out.set(name, [...(out.get(name) ?? []), ...underLead(lead, value, under)]);
 	}
 	return out;
 }
