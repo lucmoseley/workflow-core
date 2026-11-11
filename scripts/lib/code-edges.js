@@ -1240,11 +1240,9 @@ const placeOf = (found) => ({
 
 /**
  * Places a name in `dirs` as CPython's PathFinder does, pushing each file
- * it may load and the candidates tried before the one that settles it. A
- * `maybe` directory may never have been searched, so a module found there
- * settles nothing: the search goes on, and every file found counts. Where no
- * regular module or package settles the name and a namespace directory of
- * that name stands, the namespace package is one more place.
+ * it may load and the candidates tried before the one that settles it.
+ * Where no regular module or package settles the name and a namespace
+ * directory of that name stands, the namespace package is one more place.
  * @param {Found} reach accumulator: gains the files and shadows
  * @param {PyDir[]} dirs
  * @param {string} name

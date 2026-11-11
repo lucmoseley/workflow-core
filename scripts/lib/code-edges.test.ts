@@ -50,8 +50,8 @@ function tree(code: string, files: string[]) {
 	return { edges, shadows, faults };
 }
 
-/** The statement putting the tree's `dir` first on the sys.path of the file
- * under tool/ or lib/ that reads it. */
+/** Python for a file directly under tool/ or lib/, putting the tree's `dir`
+ * first on sys.path. */
 const putFirst = (dir: string) =>
 	`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "${dir}"))`;
 
