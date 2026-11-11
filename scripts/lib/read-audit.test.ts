@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { readTreeSnapshot } = require("./tree-drift.js");
@@ -28,7 +28,6 @@ const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
 const { parseJsonl } = require("./jsonl.js");
-const { isGitSteer } = require("./git.js");
 
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 
@@ -81,13 +80,14 @@ function checkout() {
 /**
  * Run `body` as the test file `file` in a process under the audit armed over
  * `root`; returns the audit's log dir. `trace: false` arms it as on a machine
- * with no tracer.
+ * with no tracer; `settle: false` leaves the environment unsettled, as no
+ * setup ran.
  */
 function audited(
 	root: string,
 	file: string,
 	body: string,
-	{ env = {} as Record<string, string>, trace = true } = {},
+	{ env = {} as Record<string, string>, trace = true, settle = true } = {},
 ) {
 	const scope: NodeJS.ProcessEnv = { ...process.env, ...env };
 	delete scope.WFC_READ_AUDIT_OWNER;
@@ -98,7 +98,7 @@ function audited(
 	write(
 		root,
 		file,
-		`globalThis.__wfcReadAudit.claim(${JSON.stringify(path.join(root, file))});\n${body}\n`,
+		`${settle ? "globalThis.__wfcReadAudit.settle();\n" : ""}globalThis.__wfcReadAudit.claim(${JSON.stringify(path.join(root, file))});\n${body}\n`,
 	);
 	// spawn-kept: the preload arms only through NODE_OPTIONS in a fresh process.
 	const r = spawnSync(process.execPath, [path.join(root, file)], {
@@ -323,16 +323,10 @@ describe("what a test file reads, as the audit sees it", () => {
 		const listing = execFileSync("git", ["ls-files", "-z"], {
 			cwd: path.join(root, "scripts"),
 		});
-		const steering = Object.fromEntries(
-			Object.entries({ ...process.env, ...env }).filter(([name]) =>
-				isGitSteer(name),
-			),
-		);
 		expect(readAudits(listed, root).get(T).reads.git).toEqual([
 			{
 				cwd: "scripts",
 				args: ["ls-files", "-z"],
-				env: steering,
 				answer: `0:${createHash("sha1").update(listing).digest("hex")}`,
 			},
 		]);
@@ -370,13 +364,7 @@ describe("what a test file reads, as the audit sees it", () => {
 		const logged = (log: string, answer: string) => {
 			const fields = fs.readFileSync(log, "latin1").split("\0");
 			const n = Number(fields[0]);
-			return [
-				fields[0],
-				fields[1],
-				fields[2],
-				answer,
-				...fields.slice(4, n + 1),
-			]
+			return [...fields.slice(0, 3), answer, ...fields.slice(4, n + 1)]
 				.map((f) => `${f}\0`)
 				.join("");
 		};
@@ -391,6 +379,54 @@ describe("what a test file reads, as the audit sees it", () => {
 		expect(readAudits(twice, root).get(T).doubt).toMatch(
 			/git call \(git ls-files\) answered differently within the run/,
 		);
+	});
+
+	/** A body running `git ls-files -o` in `cwd` with the spawn's environment
+	 * changed by `set` (a name to a value, or to null to delete it). */
+	const lsFiles = (cwd: string, set: Record<string, string | null>) =>
+		[
+			"const env = { ...process.env };",
+			`for (const [k, v] of Object.entries(${JSON.stringify(set)})) if (v === null) delete env[k]; else env[k] = v;`,
+			`require("node:child_process").execFileSync("git", ["ls-files", "-o", "--exclude-standard"], { cwd: ${JSON.stringify(cwd)}, env });`,
+		].join("\n");
+
+	it.each([
+		["HOME", { HOME: os.tmpdir() }],
+		["GIT_CONFIG_GLOBAL", { GIT_CONFIG_GLOBAL: "/dev/null" }],
+		["HOME", { HOME: null }],
+		["TZ", { TZ: "Pacific/Chatham" }],
+		["LANGUAGE", { LANGUAGE: "de" }],
+		["LC_ALL", { LC_ALL: "C" }],
+		["XDG_CONFIG_HOME", { XDG_CONFIG_HOME: os.tmpdir() }],
+	] as const)(
+		"doubts a checkout git call a test steered by %s apart from the settled environment (#5017)",
+		(name, set) => {
+			const root = checkout();
+			const log = audited(root, T, lsFiles(root, set), { env: guarded(root) });
+			expect(readAudits(log, root).get(T).doubt).toBe(
+				`a git call (git ls-files -o --exclude-standard) ran under a variable that steers git (${name})`,
+			);
+		},
+	);
+
+	it("keeps a checkout git call under the settled environment, an unsteering variable set, and passes a scratch repository's git under GIT_AUTHOR_NAME (#5017)", () => {
+		const root = checkout();
+		const kept = audited(root, T, lsFiles(root, { WFC_UNSTEERING: "1" }), {
+			env: guarded(root),
+		});
+		expect(readAudits(kept, root).get(T).reads.git).toHaveLength(1);
+		const fixture = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-own-")),
+		);
+		dirs.push(fixture);
+		git(fixture, "init", "-q");
+		const own = audited(
+			root,
+			T,
+			lsFiles(fixture, { GIT_AUTHOR_NAME: "T", HOME: os.tmpdir() }),
+			{ env: guarded(root) },
+		);
+		expect(readAudits(own, root).get(T).reads.git).toEqual([]);
 	});
 
 	it("doubts an untraced git run by absolute path in the checkout, which no guard logs", () => {
@@ -771,7 +807,10 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const below = `require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(spawns("grep", ["x", "/dev/null"], cwd, { env: { MINE: root } }))}], { cwd: ${quoted(cwd)} });`;
 			expect(audit(below).doubt).toMatch(/by its environment \(MINE\)/);
 			const unsettled = readAudits(
-				audited(root, T, spawns("grep", ["x", "/dev/null"], cwd), settled),
+				audited(root, T, spawns("grep", ["x", "/dev/null"], cwd), {
+					...settled,
+					settle: false,
+				}),
 				root,
 			).get(T);
 			expect(unsettled.doubt).toMatch(/by its environment \(RULES\)/);
@@ -1365,56 +1404,29 @@ describe("from a real audited run to a cached row (#4916)", () => {
 		expect(recordRun(root, moved)).toBe(0);
 	});
 
-	/* The store's own variables hide `*.swp` through the developer's global
-	 * excludes, named by one of HOME and GIT_CONFIG_GLOBAL; the test steered
-	 * its git by the other to a config that hides nothing. */
-	it.each([
-		["HOME", "GIT_CONFIG_GLOBAL"],
-		["GIT_CONFIG_GLOBAL", "HOME"],
-	])(
-		"holds a row only while a git call the test steered by %s answers as it would under it, whatever the store's %s (#5017)",
-		(name, theirs) => {
-			const root = keyed();
-			commit(root);
-			const scratch = fs.realpathSync(
-				fs.mkdtempSync(path.join(os.tmpdir(), "rda-steer-")),
-			);
-			dirs.push(scratch);
-			write(scratch, "ignore", "*.swp\n");
-			const hiding = path.join(scratch, "home/.gitconfig");
-			write(
-				scratch,
-				"home/.gitconfig",
-				`[core]\n\texcludesFile = ${path.join(scratch, "ignore")}\n`,
-			);
-			write(scratch, "bare/.gitconfig", "");
-			const hides: Record<string, string> = {
-				GIT_CONFIG_GLOBAL: hiding,
-				HOME: path.dirname(hiding),
-			};
-			const given: Record<string, string> = {
-				GIT_CONFIG_GLOBAL: path.join(scratch, "bare/.gitconfig"),
-				HOME: path.join(scratch, "bare"),
-			};
-			const body = [
-				`const env = { ...process.env, ${name}: ${JSON.stringify(given[name])} };`,
-				`delete env.XDG_CONFIG_HOME; delete env.${theirs};`,
-				`require("node:child_process").execFileSync("git", ["ls-files", "-o", "--exclude-standard", "--", "*.swp"], { cwd: ${JSON.stringify(root)}, env });`,
-			].join("\n");
-			const log = audited(root, T, body, { env: guarded(root) });
-			commit(root);
-			expect(readAudits(log, root).get(T).reads.git[0].env[name]).toBe(
-				given[name],
-			);
-			vi.stubEnv("XDG_CONFIG_HOME", undefined);
-			vi.stubEnv(name, undefined);
-			vi.stubEnv(theirs, hides[theirs]);
-			expect(recordRun(root, log)).toBe(1);
-			expect(isCached(root)).toBe(true);
-			write(root, "x.swp", "swap\n");
-			expect(isCached(root)).toBe(false);
-		},
-	);
+	it("records no row for a git call the test steered by HOME, and one for the same call under the settled environment (#5017)", () => {
+		const root = keyed();
+		commit(root);
+		const call = (env: string) =>
+			`require("node:child_process").execFileSync("git", ["ls-files", "-o", "--exclude-standard", "--", "*.swp"], { cwd: ${JSON.stringify(root)}, env: ${env} });`;
+		const scratch = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-home-")),
+		);
+		dirs.push(scratch);
+		const steered = audited(
+			root,
+			T,
+			call(`{ ...process.env, HOME: ${JSON.stringify(scratch)} }`),
+			{ env: guarded(root) },
+		);
+		commit(root);
+		expect(recordRun(root, steered)).toBe(0);
+		const settled = audited(root, T, call("process.env"), {
+			env: guarded(root),
+		});
+		commit(root);
+		expect(recordRun(root, settled)).toBe(1);
+	});
 
 	it("records no row for a git call naming a pattern file outside the checkout, gone by the record, and one where it stands (#4993)", () => {
 		const root = keyed();
@@ -1716,7 +1728,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			/a git call \(git status\) read this repository/,
 		);
 		expect(judged(root, minted, [[scratch, ["ls-files"]]]).reads.git).toEqual([
-			{ cwd: "scratch", args: ["ls-files"], env: {}, answer: Answer },
+			{ cwd: "scratch", args: ["ls-files"], answer: Answer },
 		]);
 	});
 
@@ -1778,7 +1790,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			expect(
 				judged(root, [], [[root, ["cat-file", "-p", "HEAD"]]]).reads.git,
 			).toEqual([
-				{ cwd: ".", args: ["cat-file", "-p", "HEAD"], env: {}, answer: Answer },
+				{ cwd: ".", args: ["cat-file", "-p", "HEAD"], answer: Answer },
 			]);
 		},
 	);
@@ -1794,7 +1806,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		(words) => {
 			const root = checkout();
 			expect(judged(root, [], [[root, words]]).reads.git).toEqual([
-				{ cwd: ".", args: words, env: {}, answer: Answer },
+				{ cwd: ".", args: words, answer: Answer },
 			]);
 		},
 	);

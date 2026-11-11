@@ -601,7 +601,6 @@ describe("the newest result on the same content decides", () => {
 						{
 							cwd: ".",
 							args: ["rev-parse", "other"],
-							env: {},
 							answer: `0:${createHash("sha1").update(`${seen}\n`).digest("hex")}`,
 						},
 					],

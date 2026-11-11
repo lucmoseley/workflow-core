@@ -79,7 +79,7 @@ const { drift, readTreeSnapshot } = require("./tree-drift.js");
 const {
 	execGit,
 	spawnGitSync,
-	isGitSteer,
+	GIT_DIR_VARS,
 	GIT_TIMEOUT_MS,
 } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -572,19 +572,18 @@ const sharedInputs = (root, shared) => [
 function buildGitRunner(root) {
 	/** @type {Map<string, string|null>} */
 	const memo = new Map();
-	/* The run again steers git with the test's variables alone, none of this
-	 * process's own (#5017). */
-	const base = Object.fromEntries(
-		Object.entries(process.env).filter(([name]) => !isGitSteer(name)),
-	);
+	/* A test's call ran with no variable pointing git at a repository
+	 * (vitest.setup.ts), so its run again does too. */
+	const env = { ...process.env };
+	for (const v of GIT_DIR_VARS) delete env[v];
 	return (key) => {
 		if (memo.has(key)) return memo.get(key) ?? null;
 		let id = null;
 		try {
-			const { cwd, args, env } = JSON.parse(key);
+			const { cwd, args } = JSON.parse(key);
 			const r = spawnGitSync(args, {
 				cwd: path.join(root, cwd),
-				env: { ...base, ...env },
+				env,
 				timeout: GIT_TIMEOUT_MS,
 			});
 			if (!r.error && r.status !== null)
@@ -733,8 +732,8 @@ function auditInputs(reads, listings, working, drifted) {
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
-	for (const { cwd, args, env, answer } of reads.git) {
-		const key = JSON.stringify({ cwd, args, env });
+	for (const { cwd, args, answer } of reads.git) {
+		const key = JSON.stringify({ cwd, args });
 		const id = working.git(key);
 		if (id !== answer) return null;
 		git[key] = id;

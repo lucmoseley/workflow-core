@@ -18,10 +18,12 @@
  * subcommands in `RERUN`, made from a directory under the root with no `-C`,
  * `--git-dir`, `--work-tree`, git-dir variable or `--output` steering it and
  * nothing fed to it on standard input, is kept word for word with the answer
- * the guard saw it give and the variables steering it: the store keys it on
- * its output run again under them, and only where that equals what the test
- * got (#4993, #5017). A call the guard logged begun
+ * the guard saw it give: the store keys it on its output run again, and only
+ * where that equals what the test got (#4993). A call the guard logged begun
  * and never answered, or that answered the same words two ways, is a doubt.
+ * So is one made under a variable steering git's answer (`GIT_STEERS`) set
+ * otherwise than the suite's setup settled it: the store's run again would
+ * not heed it, and a scratch `HOME` it names is gone by then (#5017).
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
  * another file, or holds a read the audit cannot see, reads as `doubt`. What
@@ -63,6 +65,8 @@ const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	buildGuardTest,
+	GIT_EVENTS,
+	GIT_STEERS,
 	GIT_VALUED,
 	isNode,
 	readRealTmpdir,
@@ -148,11 +152,9 @@ function isDescriptorFed(word) {
 }
 
 /**
- * @typedef {{cwd: string, args: string[], env: Record<string, string>,
- *   answer: string}} GitCall
- *   a git call to run again: its directory, repo-relative, its words, the
- *   variables steering it (lib/git.js's `isGitSteer`), and the answer the
- *   test got, `<status>:<sha1 of stdout>`
+ * @typedef {{cwd: string, args: string[], answer: string}} GitCall
+ *   a git call to run again: its directory, repo-relative, its words, and
+ *   the answer the test got, `<status>:<sha1 of stdout>`
  * @typedef {{files: string[], absent: string[], dirs: string[],
  *   lists: Record<string, string>, trees: string[], scripts: string[],
  *   git: GitCall[]}} Reads
@@ -228,7 +230,8 @@ function readAudits(dir, root, clock) {
 	};
 	/** @type {Map<string, Audit>} */
 	const out = new Map();
-	for (const [owner, { logs, git }] of owners) {
+	for (const [owner, record] of owners) {
+		const { logs } = record;
 		const own = logs.get(Number(owner));
 		const claimsIn = (/** @type {Entry[]} */ entries) =>
 			entries.filter((e) => e.k === "claim").map((e) => String(e.file));
@@ -238,7 +241,7 @@ function readAudits(dir, root, clock) {
 		/** @type {Audit} */
 		let audit;
 		if (!own) audit = { doubt: "its process left no audit log" };
-		else if (claims.size === 1) audit = judge(logs, git, real, readers);
+		else if (claims.size === 1) audit = judge(record, real, readers);
 		else audit = { doubt: "its process ran more than one test file" };
 		for (const f of named)
 			out.set(f, out.has(f) ? { doubt: "two processes claimed it" } : audit);
@@ -247,17 +250,22 @@ function readAudits(dir, root, clock) {
 }
 
 /**
- * Each owner's logs, by process, and the git calls the guard logged for it.
+ * @typedef {{logs: Map<number, Entry[]>, git: string[][],
+ *   standing: Record<string, string>}} Owner
+ *   one owner's logs, by process; the git calls the guard logged for it;
+ *   and the environment its suite's setup settled, none where it wrote none
+ *   or the file will not parse
+ */
+/**
  * @param {string} dir
- * @returns {Map<string, {logs: Map<number, Entry[]>, git: string[][]}>}
+ * @returns {Map<string, Owner>}
  */
 function readOwners(dir) {
-	/** @typedef {{logs: Map<number, Entry[]>, git: string[][]}} Owner */
 	/** @type {Map<string, Owner>} */
 	const owners = new Map();
 	const at = (/** @type {string} */ owner) => {
 		/** @type {Owner} */
-		const o = owners.get(owner) ?? { logs: new Map(), git: [] };
+		const o = owners.get(owner) ?? { logs: new Map(), git: [], standing: {} };
 		owners.set(owner, o);
 		return o;
 	};
@@ -265,6 +273,8 @@ function readOwners(dir) {
 		const text = () => fs.readFileSync(path.join(dir, name), "utf8");
 		const git = /^(\d+)\.git$/.exec(name);
 		if (git) at(String(git[1])).git.push(...parseGitRecords(text()));
+		const standing = /^(\d+)\.standing\.json$/.exec(name);
+		if (standing) at(String(standing[1])).standing = parseStanding(text());
 		const log = /^(\d+)\.(\d+)\.jsonl$/.exec(name);
 		if (!log) continue;
 		/* A line that will not parse is a read that may be lost: a fault. */
@@ -276,9 +286,24 @@ function readOwners(dir) {
 }
 
 /**
+ * A settled environment off its file; none where it will not parse, so
+ * every steering variable a guarded git ran under reads as set apart.
+ * @param {string} text
+ * @returns {Record<string, string>}
+ */
+function parseStanding(text) {
+	try {
+		const env = JSON.parse(text);
+		return env !== null && typeof env === "object" ? env : {};
+	} catch {
+		return {};
+	}
+}
+
+/**
  * The guard's records: each its field count, then that many NUL-ended
  * fields — the git-dir flag, the directory, the answer, the count of
- * steering variables, each as `name=value`, the words.
+ * steering variables and each as `name=value`, the words.
  * @param {string} text
  * @returns {string[][]}
  */
@@ -288,7 +313,10 @@ function parseGitRecords(text) {
 	const out = [];
 	for (let i = 0; i < fields.length - 1; ) {
 		const n = Number(fields[i]);
+		const pairs = Number(fields[i + 4]);
 		if (!Number.isInteger(n) || n < 4) throw new Error("a git record is torn");
+		if (!Number.isInteger(pairs) || pairs < 0 || pairs > n - 4)
+			throw new Error("a git record is torn");
 		out.push(fields.slice(i + 1, i + 1 + n));
 		i += n + 1;
 	}
@@ -297,13 +325,12 @@ function parseGitRecords(text) {
 
 /**
  * One owner's reads, or the doubt that voids them.
- * @param {Map<number, Entry[]>} logs
- * @param {string[][]} git the guard's records for this owner
+ * @param {Owner} owner
  * @param {string} root real path
  * @param {Readers} readers
  * @returns {Audit}
  */
-function judge(logs, git, root, readers) {
+function judge({ logs, git, standing }, root, readers) {
 	for (const [pid, entries] of logs)
 		if (entries[0]?.k !== "self" || entries.some((e) => e.k === "fault"))
 			return { doubt: `the audit faulted in process ${pid}` };
@@ -314,7 +341,7 @@ function judge(logs, git, root, readers) {
 	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
 	const reads = buildCollector(logs, root, isScratch, readers);
 	for (const record of git) {
-		const why = reads.takeGit(record);
+		const why = steeredApart(record, standing) ?? reads.takeGit(record);
 		if (why) return { doubt: why };
 	}
 	for (const entries of logs.values())
@@ -347,8 +374,8 @@ function buildCollector(logs, root, isScratch, readers) {
 	const trees = new Set();
 	/** @type {Set<string>} */
 	const scripts = new Set();
-	/** @type {Map<string, {cwd: string, args: string[],
-	 *   env: Record<string, string>, begun: number, answers: string[]}>} */
+	/** @type {Map<string, {cwd: string, args: string[], begun: number,
+	 *   answers: string[]}>} */
 	const calls = new Map();
 	/** @type {Map<number, Entry>} */
 	const children = new Map();
@@ -408,13 +435,12 @@ function buildCollector(logs, root, isScratch, readers) {
 		 * @param {string[]} record
 		 * @returns {string|null}
 		 */
-		takeGit([steered = "", dir = "", answer = "", count = "0", ...rest]) {
-			const n = Number(count);
-			const call = rerunnable([steered, dir, ...rest.slice(n)], root);
+		takeGit([steered = "", dir = "", answer = "", pairs = "0", ...rest]) {
+			const args = rest.slice(Number(pairs));
+			const call = rerunnable([steered, dir, ...args], root);
 			if (typeof call === "string") return call;
-			const steering = { ...call, env: envOf(rest.slice(0, n)) };
-			const key = JSON.stringify(steering);
-			const at = calls.get(key) ?? { ...steering, begun: 0, answers: [] };
+			const key = JSON.stringify(call);
+			const at = calls.get(key) ?? { ...call, begun: 0, answers: [] };
 			if (answer === "") at.begun += 1;
 			else at.answers.push(answer);
 			calls.set(key, at);
@@ -450,36 +476,16 @@ function buildCollector(logs, root, isScratch, readers) {
 }
 
 /**
- * `name=value` pairs as a record, by name, so one environment keys alike
- * however the guard listed it.
- * @param {string[]} pairs
- * @returns {Record<string, string>}
- */
-function envOf(pairs) {
-	return Object.fromEntries(
-		pairs
-			.map((pair) => {
-				const eq = pair.indexOf("=");
-				return /** @type {[string, string]} */ ([
-					pair.slice(0, eq),
-					pair.slice(eq + 1),
-				]);
-			})
-			.sort(([a], [b]) => (a < b ? -1 : 1)),
-	);
-}
-
-/**
  * Each git call with the one answer the test got, or the doubt where one has
  * none or two.
- * @param {Iterable<{cwd: string, args: string[], env: Record<string, string>,
- *   begun: number, answers: string[]}>} calls
+ * @param {Iterable<{cwd: string, args: string[], begun: number,
+ *   answers: string[]}>} calls
  * @returns {GitCall[]|{doubt: string}}
  */
 function answeredCalls(calls) {
 	/** @type {GitCall[]} */
 	const git = [];
-	for (const { cwd, args, env, begun, answers } of calls) {
+	for (const { cwd, args, begun, answers } of calls) {
 		const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
 		const [answer, ...rest] = answers;
 		if (answer === undefined || answers.length !== begun)
@@ -488,9 +494,37 @@ function answeredCalls(calls) {
 			return {
 				doubt: `a git call (${shown}) answered differently within the run`,
 			};
-		git.push({ cwd, args, env, answer });
+		git.push({ cwd, args, answer });
 	}
 	return git;
+}
+
+/**
+ * The doubt a guard record leaves where a variable steering git's answer
+ * was set, or unset, otherwise than the setup settled it; null where none
+ * was. The audit's own event target is no test's. The setup's own
+ * `GIT_CONFIG_*` (vitest.setup.ts) stands in the settled environment but
+ * not in the store's run again; neither changes a read-only answer.
+ * @param {string[]} record as `parseGitRecords` gives it
+ * @param {Record<string, string>} standing
+ * @returns {string|null}
+ */
+function steeredApart([, , , pairs = "0", ...rest], standing) {
+	const n = Number(pairs);
+	/** @type {Record<string, string>} */
+	const ran = {};
+	for (const pair of rest.slice(0, n)) {
+		const eq = pair.indexOf("=");
+		ran[pair.slice(0, eq)] = pair.slice(eq + 1);
+	}
+	const names = new Set([...Object.keys(ran), ...Object.keys(standing)]);
+	const apart = [...names]
+		.filter((v) => GIT_STEERS.test(v) && v !== GIT_EVENTS)
+		.filter((v) => ran[v] !== standing[v])
+		.sort();
+	if (apart.length === 0) return null;
+	const shown = `git ${rest.slice(n).join(" ")}`.slice(0, SHOWN_MAX);
+	return `a git call (${shown}) ran under a variable that steers git (${apart.join(", ")})`;
 }
 
 /**

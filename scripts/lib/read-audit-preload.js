@@ -48,6 +48,8 @@ const { buildHanded } = require("./read-audit-handed.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	buildGuardTest,
+	GIT_EVENTS,
+	GIT_READS,
 	GIT_VALUED,
 	GUARD,
 	EXITED,
@@ -934,9 +936,6 @@ function readStanding(file) {
 
 const SHELLS = new Set(["sh", "bash", "dash"]);
 
-/* The variable naming git's event target (git's api-trace2). */
-const GIT_EVENTS = "GIT_TRACE2_EVENT";
-
 /* The variables that steer which program a child runs by name, or with
  * what options (#4997). */
 const STEERS = [...new Set([...STEERED_BY.values()].flat())];
@@ -966,10 +965,6 @@ function textOf(chunk) {
 }
 
 const ELF = Buffer.from("\x7fELF", "latin1");
-
-/* The variables git reads a path from: its own, and where its configuration
- * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
-const GIT_READS = /^(GIT_.*|HOME|XDG_CONFIG_HOME)$/;
 
 /**
  * Where a git call finds its repository: the directory it looks up from,
