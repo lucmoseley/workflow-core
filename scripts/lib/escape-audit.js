@@ -16,7 +16,7 @@
  * FIRST SIGHT OR AFTER REFUSAL. After refusal where an earlier close-rivals
  * refusal named the block's question in its flagged lines and still holds:
  * then every re-send is taken, close or not, escape line or not, paired with
- * the block as first refused and the tool calls since (#4945). A refusal
+ * the block as first refused and what came since (#4945, #5003). A refusal
  * holds, as the guard's record does (`refusal-limb.js` `liveRecord`), until
  * the founder speaks or the question passes. RESIDUAL: a re-send pairs by
  * round number, as the guard does, so a question renumbered into a refused
@@ -65,12 +65,13 @@ const CLOSE_REFUSAL = /top two rivals sit close|could flip/;
 const REFUSAL_FLAGGED = /top two rivals sit close[^\n]*\n\n((?:.+\n?)*)/;
 const REFUSED_LINE = /^Q(\d+): /gm;
 
-/* What of the calls between a refusal and its re-send reaches the judge:
- * each call's input and result cut to a head, the whole trail to a ceiling.
- * Chosen, not measured (#4945). */
+/* What of the trail between a refusal and its re-send reaches the judge:
+ * each call's input, result and the session's text between cut to a head,
+ * the whole trail to its head and tail. Chosen, not measured (#4945, #5003). */
 const CALL_CHARS = 400;
-const RESULT_CHARS = 1200;
-const TRAIL_CHARS = 20_000;
+const RESULT_CHARS = 4000;
+const SAID_CHARS = 2000;
+const TRAIL_CHARS = 40_000;
 
 /* The two escapes a close question may carry, read like `Relation:`: a line of
  * its own, the label optionally bold, a colon, then text. The tail is captured
@@ -103,10 +104,11 @@ function escapesIn(lines) {
  * @typedef {{ key: string, round: string, session: string, at: string,
  *   window: (typeof WINDOWS)[number], sight: "first" | "after-refusal",
  *   escape: "checked" | "unmeasured" | "both" | "none", text: string,
- *   refusedText?: string, calls?: string }} Item
+ *   refusedText?: string, message?: string, calls?: string }} Item
  * `text` is the question block; on an after-refusal item, `refusedText` the
- * block as first refused and `calls` the tool calls since. All three are held
- * in memory for the judge and never written to the items index.
+ * block as first refused, `message` the whole text the re-send went in, and
+ * `calls` the tool calls and the session's text since. All four are held in
+ * memory for the judge and never written to the items index.
  */
 
 /**
@@ -118,8 +120,9 @@ function escapesIn(lines) {
  *   `pending` holds the rounds of the latest question, committed once a send
  *   passes; `refused`, each question a close-rivals refusal named that still
  *   holds, its block as first refused and the `trail` length then;
- *   `lastAsk`, the latest text carrying a question; `trail`, the tool calls
- *   and results since the first refusal still holding.
+ *   `lastAsk`, the latest text carrying a question; `trail`, the tool calls,
+ *   their results and the session's text since the first refusal still
+ *   holding.
  */
 
 /**
@@ -188,13 +191,15 @@ const keyOf = (...parts) =>
 		.slice(0, 16);
 
 /**
- * The turn's trail from `from`, cut to `TRAIL_CHARS`.
  * @param {string[]} trail
  * @param {number} from
  */
 function trailFrom(trail, from) {
 	const calls = trail.slice(from).join("\n");
-	return calls ? cut(calls, TRAIL_CHARS) : "(no tool call)";
+	if (!calls) return "(no tool call)";
+	if (calls.length <= TRAIL_CHARS) return calls;
+	const half = TRAIL_CHARS / 2;
+	return `${calls.slice(0, half)}\n[…${calls.length - TRAIL_CHARS} chars cut…]\n${calls.slice(-half)}`;
 }
 
 /**
@@ -225,6 +230,7 @@ function auditedRounds(said, at, ctx) {
 				key: keyOf(session, "after-refusal", prior.text, text),
 				sight: "after-refusal",
 				refusedText: prior.text,
+				message: said,
 				calls: trailFrom(turn.trail, prior.from),
 			});
 		else if (escapes && deps.rivalPair(block)?.close)
@@ -338,9 +344,19 @@ function readUser(rec, turn, { out, deps }) {
 }
 
 /**
+ * @param {string} said
+ * @param {Turn} turn accumulator: `trail` grows
+ */
+function trailSaid(said, turn) {
+	if (turn.refused.size > 0 && said.trim())
+		turn.trail.push(`said: ${cut(said.trim(), SAID_CHARS)}`);
+}
+
+/**
  * An assistant record: a tool call drops the pending rounds, as the turn did
- * not end there; a text
- * carrying a question replaces them with its own.
+ * not end there; a text carrying a question replaces them with its own. While
+ * a refusal holds, the record's text joins the trail after its rounds are
+ * read, so a re-send's own text reaches only a later re-send's trail.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
  * @param {{session: string, deps: Deps}} ctx
@@ -351,20 +367,23 @@ function readAssistant(rec, turn, ctx) {
 	const calls = Array.isArray(content)
 		? content.filter((p) => p?.type === "tool_use")
 		: [];
+	const said = textOf(rec);
 	if (calls.length > 0) {
 		turn.pending = [];
 		turn.lastAsk = "";
+		trailSaid(said, turn);
 		if (turn.refused.size > 0) turn.trail.push(...calls.map(renderCall));
 		return;
 	}
-	const said = textOf(rec);
-	if (!said.includes("❓")) return;
-	turn.lastAsk = said;
-	const ms = Date.parse(rec.timestamp);
-	const window = windowOf(ms);
-	turn.pending = window
-		? auditedRounds(said, { ms, window }, { ...ctx, turn })
-		: [];
+	if (said.includes("❓")) {
+		turn.lastAsk = said;
+		const ms = Date.parse(rec.timestamp);
+		const window = windowOf(ms);
+		turn.pending = window
+			? auditedRounds(said, { ms, window }, { ...ctx, turn })
+			: [];
+	}
+	trailSaid(said, turn);
 }
 
 /**
@@ -405,13 +424,14 @@ function writeItems(root, items, unreadable = 0) {
 			at: new Date().toISOString(),
 			unreadable,
 			items: items.map(
-				({ text: _t, refusedText: _r, calls: _c, ...rest }) => rest,
+				({ text: _t, refusedText: _r, message: _m, calls: _c, ...rest }) =>
+					rest,
 			),
 		}),
 	);
 }
 
-/** @typedef {Omit<Item, "text" | "refusedText" | "calls">} IndexedItem */
+/** @typedef {Omit<Item, "text" | "refusedText" | "message" | "calls">} IndexedItem */
 
 /**
  * The items index, or null where no batch has run.
@@ -428,11 +448,12 @@ function readItems(root) {
 }
 
 /**
- * @typedef {{ key: string, at: string,
+ * @typedef {{ key: string, at: string, question?: string,
  *   outcome: "bears" | "misses" | "outage" | "malformed" | "unswept" | "finding",
  *   probability?: number }} Verdict
  * `bears`/`misses` are answers; the rest are retried on a later run, bar
- * `finding`: gitleaks hit the block, so it is never sent.
+ * `finding`: gitleaks hit the block, so it is never sent. `question` is the
+ * judge's question key the row answers.
  */
 
 const ANSWERED = new Set(["bears", "misses", "finding"]);
