@@ -304,6 +304,7 @@ describe("the report", () => {
 		expect(out).not.toContain("671 first");
 		expect(out).toContain("1061 refuses every close question once again");
 		expect(out).toContain("unmeasured (#667)");
+		expect(out).toContain("the unsupported share over-counts");
 	});
 
 	it("gives an after-refusal row the share judged unsupported", async () => {

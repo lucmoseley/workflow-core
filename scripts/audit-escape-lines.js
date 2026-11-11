@@ -21,8 +21,10 @@
  * sweep `guard-jev-advisory.js` exports — nothing leaves unswept. A first-sight
  * item sends its question block alone; an after-refusal item sends the block
  * as refused, the tool calls and results since cut to a head each, and the
- * re-send (#4945). ITS OWN ACCURACY rides on #667; on after-refusal items it
- * is checked against #4945's 31 hand-classified re-sends. An outage or
+ * re-send (#4945). ITS FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT
+ * DOES NOT DISCRIMINATE: on #4945's 22 hand-classified re-sends, run once
+ * with the question frozen, it judged 1 of 14 genuine supported and 5 of 5
+ * unsupported unsupported, so its unsupported share over-counts. An outage or
  * malformed reply is logged and the item retried on a later run.
  *
  * `--judge` scans every seat's transcripts for this repo (`lib/escape-audit.js`
@@ -456,8 +458,9 @@ function reportRun(ctx) {
 		"\n  pre-660 is the baseline: first-sight lines not yet refused (#660).\n" +
 			"  660 refused every close question once; 671 refused only a missing or\n" +
 			"  unchanged line; 1061 refuses every close question once again.\n" +
-			"  The judge's first-sight accuracy is unmeasured (#667); its after-refusal\n" +
-			"  accuracy is checked against #4945's hand-classified re-sends.\n" +
+			"  The judge's first-sight accuracy is unmeasured (#667). After refusal it\n" +
+			"  judged 1 of 14 hand-classified genuine re-sends supported (#4945), so\n" +
+			"  the unsupported share over-counts.\n" +
 			(index.unreadable
 				? `  ${index.unreadable} transcript(s) would not read, so these counts are short.\n`
 				: "") +
