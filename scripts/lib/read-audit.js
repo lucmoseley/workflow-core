@@ -415,6 +415,10 @@ function rerunnable([steered, dir = "", ...args], root, isScratch) {
 	}
 	if (!RERUN.has(String(args[i])))
 		return `a git call (${shown}) read this repository`;
+	/* `--output` sends the answer to a file, so stdout, which the answer is
+	 * hashed off, holds none of it (#4993). */
+	if (args.some((a) => a === "--output" || String(a).startsWith("--output=")))
+		return `a git call (${shown}) wrote its answer to a file`;
 	return { cwd, args };
 }
 

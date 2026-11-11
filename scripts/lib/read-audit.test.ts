@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { readTreeSnapshot } = require("./tree-drift.js");
 const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
@@ -319,6 +320,15 @@ describe("what a test file reads, as the audit sees it", () => {
 				answer: `0:${createHash("sha1").update(listing).digest("hex")}`,
 			},
 		]);
+		const output = audited(
+			root,
+			T,
+			call(root, ["diff", `--output=${path.join(fixture, "d")}`]),
+			{ env },
+		);
+		expect(readAudits(output, root).get(T).doubt).toMatch(
+			/git call \(git diff --output=.*\) wrote its answer to a file/,
+		);
 		const status = audited(root, T, call(root, ["status"]), { env });
 		expect(readAudits(status, root).get(T).doubt).toMatch(
 			/git call \(git status\) read this repository/,
@@ -547,6 +557,7 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				shared: ["vitest.config.ts", "vitest.setup.ts"],
 				clean: true,
 				drifted: [],
+				after: readTreeSnapshot(root),
 				audits: readAudits(log, root),
 			},
 			{ storeRoot: root, lander: false, values: Values },

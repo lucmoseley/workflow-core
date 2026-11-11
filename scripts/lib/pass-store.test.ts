@@ -15,6 +15,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { readTreeSnapshot } = require("./tree-drift.js");
 const {
 	heldAtSha,
 	lookup,
@@ -120,6 +121,7 @@ function run(
 		failing = [] as string[],
 		clean = true,
 		drifted = [] as string[] | null,
+		after = undefined as ReturnType<typeof readTreeSnapshot> | undefined,
 		values = VALUES,
 		storeRoot = dir,
 		at = nextAt(),
@@ -140,6 +142,7 @@ function run(
 			shared: ["vitest.config.ts", "vitest.setup.ts"],
 			clean,
 			drifted,
+			after: after === undefined ? readTreeSnapshot(dir) : after,
 			audits:
 				audits === null
 					? null
@@ -768,6 +771,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			shared: [],
 			clean: true,
 			drifted: [],
+			after: readTreeSnapshot(dir),
 			audits: new Map([[A, { reads: NO_READS }]]),
 		};
 		expect(record(base, { storeRoot: dir, lander: true })).toBe(0);
@@ -882,6 +886,15 @@ describe("the reads the audit saw", () => {
 			}),
 		).toBe(1);
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	it("records no row where the tree moved after the run's end snapshot, or that snapshot is missing (#4993)", () => {
+		const dir = repo();
+		const end = readTreeSnapshot(dir);
+		write(dir, "lib.js", "lib.js v1\n");
+		expect(run(dir, [A], { after: end })).toBe(0);
+		expect(run(dir, [A], { after: null })).toBe(0);
+		expect(run(dir, [A])).toBe(1);
 	});
 
 	it("rests a tree walked whole on every file and listing under it", () => {

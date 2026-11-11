@@ -95,6 +95,7 @@ const {
 	shortSha,
 } = require("./test-pass-marker.js");
 const { readWorkingTree } = require("./test-read-edges.js");
+const { drift, readTreeSnapshot } = require("./tree-drift.js");
 const { listingId } = require("./listing-id.js");
 const idSeam = require("./session-id.js");
 
@@ -131,11 +132,13 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{sha: string, at: string, tree: string|null, root: string,
  *   files: FileResult[], shared: string[], clean: boolean,
  *   drifted: string[]|null,
+ *   after: import("./tree-drift.js").Snapshot|null,
  *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
  *   `root` the tree vitest ran in, paths relative to it; `shared` the config
  *   file and its `setupFiles` closure; `clean` false where the run errored
  *   outside its files, was interrupted or filtered by name; `drifted` the
- *   paths rewritten while it ran, null where that is unknown; `audits` each
+ *   paths rewritten while it ran, null where that is unknown; `after` the
+ *   tree's snapshot that `drifted` ends on; `audits` each
  *   file's reads as the read audit saw them (lib/read-audit.js), null where
  *   the run was not audited
  * @typedef {{sha: string, at: string, tree: string|null}} Source
@@ -725,6 +728,18 @@ function fileInputs(f, { run, reads, reach, listings, working, drifted }) {
 }
 
 /**
+ * Whether the tree stands as the run's end snapshot found it, read after the
+ * record read the index and every id: the drift watch's window closes at
+ * that snapshot, so a file removed or rewritten after it would be keyed
+ * though no test saw it (#4993).
+ * @param {Run} run
+ */
+function isSettled(run) {
+	const now = readTreeSnapshot(run.root);
+	return run.after != null && now !== null && drift(run.after, now) === null;
+}
+
+/**
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
  * alone: its passes cannot be trusted, but a fail row only ever makes a file
@@ -779,7 +794,7 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		 * leaves the resolution the run used unknown. */
 		const areAllAbsent = (/** @type {string[]} */ paths) =>
 			paths.every((p) => ids.has(p) && ids.get(p) === null);
-		if (!known(shared)) return 0;
+		if (!known(shared) || !isSettled(run)) return 0;
 		const today = todayValues(seams);
 		const rows = own
 			.filter((f) => known(f.paths) && areAllAbsent(f.absent))

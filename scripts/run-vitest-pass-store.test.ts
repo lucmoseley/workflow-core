@@ -19,6 +19,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { readTreeSnapshot } = require("./lib/tree-drift.js");
 const { main } = require("./run-vitest.js");
 const {
 	CACHED_ENV,
@@ -85,6 +86,7 @@ function passed(dir: string, files: string[]) {
 			shared: ["vitest.config.ts"],
 			clean: true,
 			drifted: [],
+			after: readTreeSnapshot(dir),
 			audits: new Map(files.map((file) => [file, { reads: NO_READS }])),
 		},
 		{ storeRoot: dir, lander: false },
