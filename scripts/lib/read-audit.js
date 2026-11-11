@@ -65,8 +65,8 @@ const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	buildGuardTest,
-	GIT_EVENTS,
 	GIT_ANSWER_VARS,
+	GIT_EVENTS,
 	GIT_VALUED,
 	isNode,
 	parseStanding,
@@ -251,11 +251,6 @@ function readAudits(dir, root, clock) {
 }
 
 /**
- * @typedef {{at: number, steered: boolean, dir: string, answer: string,
- *   env: Record<string, string>, args: string[]}} GitRecord
- *   one guard record: its byte offset in the log, whether a git-dir variable
- *   was set, the directory, the answer (`""` where begun), the variables
- *   changing git's answer, and the words
  * @typedef {import("./read-audit-paths.js").Standing} Standing
  * @typedef {{logs: Map<number, Entry[]>, git: GitRecord[],
  *   standing: Standing}} Owner
@@ -299,11 +294,19 @@ function readOwners(dir) {
 }
 
 /**
+ * @typedef {{at: number, steered: string, dir: string, pid: number,
+ *   answer: string, env: Record<string, string>, args: string[]}} GitRecord
+ *   one guard record, at its byte offset in the log; `answer` is empty on
+ *   the record made before git ran; `env` the variables changing git's
+ *   answer
+ */
+
+/**
  * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the answer, the count of
- * variables changing git's answer and each as `name=value`, the words.
- * Read as Latin-1, one character a byte, so each record's offset is its
- * byte's; each field is then decoded as UTF-8.
+ * fields — the git-dir flag, the directory, the pid, the answer, the count
+ * of `env`'s pairs and each as `name=value`, the words. Read as Latin-1,
+ * one character a byte, so each record's offset is its byte's; each field
+ * is then decoded as UTF-8.
  * @param {Buffer} bytes
  * @returns {GitRecord[]}
  */
@@ -315,18 +318,19 @@ function parseGitRecords(bytes) {
 	const out = [];
 	for (let i = 0, at = 0; i < fields.length - 1; ) {
 		const n = Number(fields[i]);
-		const pairs = Number(fields[i + 4]);
-		if (!Number.isInteger(n) || n < 4) throw new Error("a git record is torn");
-		if (!Number.isInteger(pairs) || pairs < 0 || pairs > n - 4)
+		const pairs = Number(fields[i + 5]);
+		if (!Number.isInteger(n) || n < 5) throw new Error("a git record is torn");
+		if (!Number.isInteger(pairs) || pairs < 0 || pairs > n - 5)
 			throw new Error("a git record is torn");
-		const [steered, dir, answer, , ...rest] = fields
+		const [steered = "", dir = "", pid = "", answer = "", , ...rest] = fields
 			.slice(i + 1, i + 1 + n)
 			.map(utf8);
 		out.push({
 			at,
-			steered: steered !== "",
-			dir: String(dir),
-			answer: String(answer),
+			steered,
+			dir,
+			pid: Number(pid),
+			answer,
 			env: parseEnvPairs(rest.slice(0, pairs)),
 			args: rest.slice(pairs),
 		});
@@ -367,7 +371,8 @@ function judge({ logs, git, standing }, root, readers) {
 		.filter((e) => e.k === "minted")
 		.map((e) => String(e.p));
 	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
-	const reads = buildCollector(logs, root, isScratch, readers);
+	const recorded = new Set(git.map((record) => record.pid));
+	const reads = buildCollector(logs, { root, isScratch, recorded }, readers);
 	for (const record of git) {
 		const why = setApart(record, standing) ?? reads.takeGit(record);
 		if (why) return { doubt: why };
@@ -387,13 +392,20 @@ function judge({ logs, git, standing }, root, readers) {
  */
 
 /**
+ * @typedef {{root: string, isScratch: (p: string) => boolean,
+ *   recorded: Set<number>}} Scope
+ *   one owner's judging: the root's real path, a test's scratch, and the
+ *   pids of the git calls the guard recorded
+ */
+
+/**
  * The reads one owner's log entries add up to.
  * @param {Map<number, Entry[]>} logs
- * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
+ * @param {Scope} scope
  * @param {Readers} readers
  */
-function buildCollector(logs, root, isScratch, readers) {
+function buildCollector(logs, scope, readers) {
+	const { root, isScratch } = scope;
 	/** @type {Record<"file"|"dir"|"absent", Set<string>>} */
 	const probed = { file: new Set(), dir: new Set(), absent: new Set() };
 	/** @type {Map<string, Set<string>>} */
@@ -427,14 +439,14 @@ function buildCollector(logs, root, isScratch, readers) {
 		},
 		worker: () =>
 			"it started a worker thread, whose reads the audit cannot see",
-		piped: (e) => pipedDoubt(e, children.get(Number(e.pid)), root, isScratch),
+		piped: (e) => pipedDoubt(e, children.get(Number(e.pid)), scope),
 		child: (e) => {
 			if (typeof e.pid === "number") children.set(e.pid, e);
 			if (typeof e.trace === "string") return takeTrace(e);
 			const ran = gitChildDoubt(e, readers.gitEvents);
 			if (ran) return ran;
 			const program = readProgram(e, root, isScratch);
-			const why = childDoubt(e, program, { logs, root, isScratch });
+			const why = childDoubt(e, program, logs, scope);
 			if (!why) for (const f of childReads(e, program, root)) scripts.add(f);
 			return why;
 		},
@@ -530,9 +542,10 @@ function answeredCalls(calls) {
 /**
  * The doubt a git call made after the setup settled leaves where a variable
  * changing git's answer was set, or unset, otherwise than settled; null
- * where none was, or the call was made before, as the setup's own. The audit's own event target is no test's. The setup's
- * own `GIT_CONFIG_*` (vitest.setup.ts) stands in the settled environment but
- * not in the store's run again; neither changes a read-only answer.
+ * where none was, or the call was made before, as the setup's own. The
+ * audit's own event target is no test's. The setup's own `GIT_CONFIG_*`
+ * (vitest.setup.ts) stands in the settled environment but not in the
+ * store's run again; neither changes a read-only answer.
  * @param {GitRecord} record
  * @param {Standing} standing
  * @returns {string|null}
@@ -589,30 +602,43 @@ const PYTHON_RUNNERS = new Set(["python3", "python"]);
  * reads are seen.
  * @param {Entry} e
  * @param {Program|null} program the checkout file it ran as its program
- * @param {{logs: Map<number, Entry[]>, root: string,
- *   isScratch: (p: string) => boolean}} at the owner's logs, and the root's
- *   real path
+ * @param {Map<number, Entry[]>} logs the owner's logs
+ * @param {Scope} scope
  * @returns {string|null}
  */
-function childDoubt(e, program, { logs, root, isScratch }) {
+function childDoubt(e, program, logs, scope) {
+	const { root, isScratch } = scope;
 	const file = String(e.file);
-	const args = /** @type {string[]} */ (e.args ?? []);
 	const shown = shownChild(e);
 	if (e.audited && (isNode(file) || program?.runs === "node")) {
 		if (typeof e.pid !== "number")
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
-	/* The guard logs a git call only where its own repository is this one: a
-	 * clone of the checkout, or a file there handed to a call made elsewhere,
-	 * is in no record. */
-	if (e.guarded && e.audited)
-		return args.some((a) => isCheckoutPath(a, root, isScratch))
-			? `a git call (${shown}) was handed a path in the checkout`
-			: null;
+	if (e.guarded && e.audited) return guardedDoubt(e, scope);
 	/* A tracer already following the process that spawned it follows it too. */
 	if (e.within) return null;
 	return unseenDoubt(e, program, root, isScratch);
+}
+
+/**
+ * Why a git call the guard ran leaves its file's reads unknown, or null.
+ * One it kept no record of is judged on what handed it the
+ * checkout, as any other child (#5015).
+ * @param {Entry} e
+ * @param {Scope} scope
+ * @returns {string|null}
+ */
+function guardedDoubt(e, { root, isScratch, recorded }) {
+	const args = /** @type {string[]} */ (e.args ?? []);
+	const shown = shownChild(e);
+	if (args.some((a) => isCheckoutPath(a, root, isScratch)))
+		return `a git call (${shown}) was handed a path in the checkout`;
+	if (recorded.has(Number(e.pid))) return null;
+	const hand = handOf(e, null, root, isScratch);
+	return hand
+		? `a git call (${shown}) the guard kept no record of was handed a path in the checkout${handedBy(hand)}`
+		: null;
 }
 
 /**
@@ -777,11 +803,13 @@ function readsNoVariable(e, root) {
  * @param {Entry} e the `piped` entry: the paths written, or none for a
  *   stream handed whole
  * @param {Entry|undefined} child the child it was written to
- * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
+ * @param {Scope} scope a recorded git's run again vouches for what its
+ *   input fed it
  * @returns {string|null}
  */
-function pipedDoubt(e, child, root, isScratch) {
+function pipedDoubt(e, child, { root, isScratch, recorded }) {
+	if (child?.guarded && child.audited && recorded.has(Number(child.pid)))
+		return null;
 	if (child === undefined)
 		return "a child the audit logged no spawn of was written a path in the checkout";
 	if (!Array.isArray(e.p))

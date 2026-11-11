@@ -114,9 +114,10 @@ args=("${@:i+1}")
 # judged.
 audit_log=
 # log_call <answer> <word>… — one record, as lib/read-audit.js's
-# `parseGitRecords` reads it.
+# `parseGitRecords` reads it. `$$` is the pid the test spawned, which tells
+# the audit this call is in a record (#5015).
 log_call() {
-  printf '%s\0' "$(($# + 3 + ${#git_env[@]}))" "$steered" "$PWD" "$1" \
+  printf '%s\0' "$(($# + 4 + ${#git_env[@]}))" "$steered" "$PWD" "$$" "$1" \
     "${#git_env[@]}" "${git_env[@]}" "${@:2}" >>"$audit_log"
 }
 

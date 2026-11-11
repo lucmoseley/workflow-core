@@ -458,10 +458,14 @@ function install() {
 		bin.some((at) => rel(at) !== null);
 	const argvOf = (/** @type {Untyped} */ opts) =>
 		Array.isArray(opts?.args) ? opts.args.map(String) : [];
-	/** A child whose reads a log of its own holds: audited Node, guarded git. */
-	const isSelfLogging = (/** @type {Untyped} */ opts) =>
-		isGuarded(opts) ||
-		(isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs));
+	/** A Node child that logs its own reads. */
+	const isAuditedNode = (/** @type {Untyped} */ opts) =>
+		isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs);
+	/* A guarded git is never traced: the guard logs a call on this
+	 * repository, and the reader weighs its hands where it logged none
+	 * (#5015). */
+	const isUntraceable = (/** @type {Untyped} */ opts) =>
+		isGuarded(opts) || isAuditedNode(opts);
 	const handed = buildHanded(root);
 	const guardDir = rel(path.dirname(GUARD));
 	/* The environment every child of this run inherits untouched, as the
@@ -496,9 +500,9 @@ function install() {
 		!isStub(bin);
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
 	/**
-	 * Real git is weighed only on the variables it reads a path from itself
-	 * (#4982): what it runs, which inherits the rest, its own event log
-	 * names (`gitEventsOf`).
+	 * Real git, and the guard that runs it, is weighed only on the variables
+	 * git reads a path from itself (#4982, #5015): what it runs, which
+	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @param {(word: string) => string[]} named
@@ -506,7 +510,8 @@ function install() {
 	 */
 	const envHands = (opts, cwd, named) => {
 		const file = String(opts?.file ?? "");
-		const gitOnly = isRealGit(file, binOf(file, cwd, opts?.envPairs));
+		const bin = binOf(file, cwd, opts?.envPairs);
+		const gitOnly = isRealGit(file, bin) || isGuard(bin[1]);
 		const pairs = Array.isArray(opts?.envPairs)
 			? opts.envPairs.map(String)
 			: [];
@@ -524,12 +529,13 @@ function install() {
 	 * A sync spawn's `input`; what is written to an async child's pipe later
 	 * `watchInput` weighs.
 	 * @param {Untyped} opts
+	 * @param {string} base the directory it resolves a relative path against
 	 * @returns {Hand[]}
 	 */
-	const stdinHands = (opts) => {
+	const stdinHands = (opts, base) => {
 		const input = Array.isArray(opts?.stdio) ? opts.stdio[0]?.input : null;
 		if (!ArrayBuffer.isView(input)) return [];
-		const p = handed.from(cwdOf(opts), { text: true })(textOf(input));
+		const p = handed.from(base, { text: true })(textOf(input));
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
@@ -539,12 +545,12 @@ function install() {
 	 * look for none, but one asked for `--help` does, through `git help`.
 	 * `--git-dir` and `GIT_DIR` name it, weighed as a word and a variable.
 	 * @param {Untyped} opts
-	 * @param {string} cwd
+	 * @param {string[]} words its words after the program
+	 * @param {GitOptions} git
 	 * @returns {Hand[]}
 	 */
-	const repoHands = (opts, cwd) => {
-		if (path.basename(String(opts?.file ?? "")) !== "git") return [];
-		const asked = gitDirOf(argvOf(opts).slice(1), cwd);
+	const repoHands = (opts, words, git) => {
+		const asked = gitDirOf(words, git);
 		if (asked === null || pairValue(opts?.envPairs, "GIT_DIR") !== undefined)
 			return [];
 		return repoHandAt(realOrAsIs(asked.at), asked.bare);
@@ -565,26 +571,29 @@ function install() {
 		return [{ by: "repo", p: ["."] }];
 	};
 	/**
-	 * What hands a child paths in the checkout; none for a child that logs
-	 * its own reads.
+	 * What hands a child paths in the checkout; none for a Node child that
+	 * logs its own reads.
 	 * @param {Untyped} opts
 	 * @returns {Hand[]}
 	 */
 	const handsOf = (opts) => {
-		if (isSelfLogging(opts)) return [];
+		if (isAuditedNode(opts)) return [];
 		const cwd = cwdOf(opts);
-		const named = handed.from(cwd);
 		const words = argvOf(opts).slice(1);
+		const git = isGitFile(opts) ? readGitOptions(words, cwd) : null;
+		const base = git?.moved ?? cwd;
+		const named = handed.from(base);
 		return [
 			...words.flatMap(
 				(/** @type {string} */ word, /** @type {number} */ at) => {
-					const p = named(word);
+					const from = git?.baseOfValue.get(at);
+					const p = (from === undefined ? named : handed.from(from))(word);
 					return p.length === 0 ? [] : [{ by: "arg", at, p }];
 				},
 			),
 			...envHands(opts, cwd, named),
-			...stdinHands(opts),
-			...repoHands(opts, cwd),
+			...stdinHands(opts, base),
+			...(git ? repoHands(opts, words, git) : []),
 		];
 	};
 	/**
@@ -636,7 +645,7 @@ function install() {
 	 */
 	const routeOf = (opts, hands) => {
 		const cwd = cwdOf(opts);
-		if (!STRACE || !isInReach(opts, cwd, hands) || isSelfLogging(opts))
+		if (!STRACE || !isInReach(opts, cwd, hands) || isUntraceable(opts))
 			return null;
 		if (!isTraceable(opts, cwd)) return null;
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
@@ -655,7 +664,7 @@ function install() {
 	 */
 	const gitEventsOf = (opts) => {
 		const file = String(opts?.file ?? "");
-		if (path.basename(file) !== "git") return { opts };
+		if (!isGitFile(opts)) return { opts };
 		const bin = binOf(file, cwdOf(opts), opts?.envPairs);
 		if (!isRealGit(file, bin) && !isGuard(bin[1])) return { opts };
 		const pairs = Array.isArray(opts?.envPairs) ? opts.envPairs : [];
@@ -740,7 +749,8 @@ function install() {
 	};
 	/**
 	 * Watch every pipe to an async child where nothing else sees its reads:
-	 * no tracer follows it and it keeps no log of its own. A stream the test
+	 * no tracer follows it and it is no Node child keeping a log of its own;
+	 * a guarded git is watched (#5015). A stream the test
 	 * handed it whole (`wrap`) on a descriptor it may read carries what the
 	 * audit cannot read: a doubt.
 	 * @param {Untyped} asked
@@ -750,10 +760,13 @@ function install() {
 	const watchIfUnseen = (asked, pid, route) =>
 		guard(() => {
 			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
-			if (typeof pid !== "number" || route || isSelfLogging(asked)) return;
+			if (typeof pid !== "number" || route || isAuditedNode(asked)) return;
 			const cwd = cwdOf(asked);
+			const base = isGitFile(asked)
+				? readGitOptions(argvOf(asked).slice(1), cwd).moved
+				: cwd;
 			for (const [descriptor, entry] of stdio.entries())
-				watchEntry(entry, descriptor, pid, cwd);
+				watchEntry(entry, descriptor, pid, base);
 		});
 
 	/**
@@ -984,29 +997,59 @@ function textOf(chunk) {
 
 const ELF = Buffer.from("\x7fELF", "latin1");
 
+/** @param {Untyped} opts whether a child's program is named git */
+function isGitFile(opts) {
+	return path.basename(String(opts?.file ?? "")) === "git";
+}
+
 /**
- * Where a git call finds its repository: the directory it looks up from,
- * its own moved by each `-C` before the subcommand, or under `--bare` the
- * repository itself, the directory the `-C` words before it reached (git
- * sets `GIT_DIR` there); null where it looks for none.
+ * @typedef {{moved: string, baseOfValue: Map<number, string>,
+ *   bare: string|null, namesGitDir: boolean, sub: number}} GitOptions
+ *   what a git call's options before its subcommand do: the directory each
+ *   `-C` moves it to in turn (git(1), `-C`), `moved` where they end; each
+ *   `-C` value's place with the directory it is read against; where
+ *   `--bare` stood, the directory the `-C` words before it reached;
+ *   whether `--git-dir` names its repository; the subcommand's place
+ */
+
+/**
  * @param {string[]} words the call's words after the program
  * @param {string} cwd
- * @returns {{at: string, bare: boolean}|null}
+ * @returns {GitOptions}
  */
-function gitDirOf(words, cwd) {
+function readGitOptions(words, cwd) {
 	let moved = cwd;
+	/** @type {Map<number, string>} */
+	const baseOfValue = new Map();
 	/** @type {string|null} */
 	let bare = null;
+	let namesGitDir = false;
 	let at = 0;
 	for (; at < words.length; at++) {
 		const word = String(words[at]);
 		if (!word.startsWith("-")) break;
-		if (word.split("=")[0] === "--git-dir") return null;
+		if (word.split("=")[0] === "--git-dir") namesGitDir = true;
 		if (word === "--bare") bare = moved;
-		if (word === "-C") moved = path.resolve(moved, words[at + 1] ?? "");
+		if (word === "-C" && at + 1 < words.length) {
+			baseOfValue.set(at + 1, moved);
+			moved = path.resolve(moved, String(words[at + 1]));
+		}
 		if (GIT_VALUED.has(word)) at++;
 	}
-	if (makesItsOwn(words, at)) return null;
+	return { moved, baseOfValue, bare, namesGitDir, sub: at };
+}
+
+/**
+ * Where a git call finds its repository: the directory it looks up from,
+ * its own moved by each `-C` before the subcommand, or under `--bare` the
+ * repository itself (git sets `GIT_DIR` there); null where it looks for
+ * none.
+ * @param {string[]} words the call's words after the program
+ * @param {GitOptions} git
+ * @returns {{at: string, bare: boolean}|null}
+ */
+function gitDirOf(words, { moved, bare, namesGitDir, sub }) {
+	if (namesGitDir || makesItsOwn(words, sub)) return null;
 	return { at: bare ?? moved, bare: bare !== null };
 }
 

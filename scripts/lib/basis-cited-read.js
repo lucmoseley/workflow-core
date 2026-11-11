@@ -11,6 +11,7 @@
 
 const { gh } = require("./gh.js");
 const { caught } = require("./caught.js");
+const { citedKey } = require("./issue-gate.js");
 
 /* Comments read per page, GitHub's own ceiling for one connection. */
 const COMMENTS_PAGE = 100;
@@ -111,7 +112,7 @@ function runQuery(query, timeoutMs) {
  * @returns {{next?: Page, why?: string}}
  */
 function takePage(data, repos, p, into) {
-	const key = `${p.repo}#${p.number}`;
+	const key = citedKey(p);
 	const repoNode = data[`r${repos.indexOf(p.repo)}`];
 	if (!repoNode) {
 		into.building.delete(key);
@@ -144,7 +145,7 @@ function takePage(data, repos, p, into) {
  * lower-cased: null for a number its readable repository holds no issue
  * under, absent where it was not read.
  *
- * @param {Wanted[]} wanted
+ * @param {Wanted[]} wanted each issue once, its repo lower-cased
  * @param {{timeoutMs: number}} opts `timeoutMs` bounds the whole
  *   read, its comment pages included
  * @returns {{issues: Map<string, CitedIssue|null>, why: string|null, ms: number}}
@@ -152,24 +153,19 @@ function takePage(data, repos, p, into) {
  */
 function readCitedIssues(wanted, { timeoutMs }) {
 	const startedAt = Date.now();
-	const unique = [
-		...new Map(
-			wanted.map((w) => [`${w.repo.toLowerCase()}#${w.number}`, w]),
-		).values(),
-	];
-	const sendable = unique.filter((w) =>
+	const sendable = wanted.filter((w) =>
 		w.repo.split("/").every((part) => REPO_PART_RE.test(part)),
 	);
 	/** @type {string|null} */
 	let why =
-		sendable.length < unique.length
+		sendable.length < wanted.length
 			? "a repository name was not readable"
 			: null;
 	/** @type {Into} */
 	const into = { issues: new Map(), building: new Map() };
 	/** @type {Page[]} */
 	let pages = sendable.map((w) => ({
-		repo: w.repo.toLowerCase(),
+		repo: w.repo,
 		number: w.number,
 		after: null,
 	}));
@@ -233,7 +229,7 @@ function readTracker(root) {
 
 /**
  * Reads the issues the bases `collect` judges cite, in one batched call:
- * undefined where none cites one.
+ * undefined where no basis's warrant is an issue reference.
  *
  * @param {(follow: import("./issue-gate.js").Follow) => void} collect runs
  *   the judgement over an empty read with the `follow` it is handed, whose
@@ -250,12 +246,14 @@ function readCitedFor(collect, { root, timeoutMs, minMs = 0 }) {
 	/** @type {import("./issue-gate.js").FollowRecord[]} */
 	const trace = [];
 	collect({ tracker: tracker ?? NO_TRACKER, issues: new Map(), trace });
+	if (trace.length === 0) return;
 	const wanted = wantedIn(trace);
-	if (wanted.length === 0) return;
-	/** @param {string} why */
+	/** @param {string|null} why */
 	const unreadAll = (why) => ({ issues: new Map(), why, ms: 0 });
 	let read;
-	if (!tracker)
+	/* A basis citing only its own issue is judged with nothing to read. */
+	if (wanted.length === 0) read = unreadAll(null);
+	else if (!tracker)
 		read = unreadAll("no tracker resolves from `.claude/workflow-core.json`");
 	else if (timeoutMs < minMs)
 		read = unreadAll("too little of the hook's time was left for it");
@@ -278,4 +276,4 @@ function readCitedFor(collect, { root, timeoutMs, minMs = 0 }) {
 const unreadNote = (lead, names, why) =>
 	`${lead} (${why ?? "GitHub did not answer for them"}): ${names.join(", ")}, so a basis whose only warrant is one of them was judged on its form alone.`;
 
-module.exports = { readCitedFor, readCitedIssues, unreadNote };
+module.exports = { readCitedFor, unreadNote };

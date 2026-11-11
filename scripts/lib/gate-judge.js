@@ -509,6 +509,14 @@ const MIN_BOUND_MS = 5000;
 const MIN_CITED_MS = 3000;
 const CITED_BOUND_MS = 10_000;
 
+/** The cited read where nothing is read and no note is owed. */
+const NOTHING_CITED = Object.freeze({
+	follow: undefined,
+	note: "",
+	ms: 0,
+	fallback: null,
+});
+
 /**
  * The issues the bases a write would judge cite, read in one batched call
  * (#5007), and the note where any went unread. A basis an edit leaves
@@ -526,7 +534,7 @@ const CITED_BOUND_MS = 10_000;
  */
 function readCited(body, { own, before, citedBoundMs, env }) {
 	if (env.WFC_GATE_CITED === "off" && env.VITEST_WORKER_ID)
-		return { follow: undefined, note: "", ms: 0, fallback: null };
+		return NOTHING_CITED;
 	const read = readCitedFor(
 		(follow) => patternFaults(body, own, before, follow),
 		{
@@ -535,7 +543,7 @@ function readCited(body, { own, before, citedBoundMs, env }) {
 			minMs: MIN_CITED_MS,
 		},
 	);
-	if (!read) return { follow: undefined, note: "", ms: 0, fallback: null };
+	if (!read) return NOTHING_CITED;
 	const unread = read.unread.map((w) => w.ref);
 	return {
 		follow: read.follow,

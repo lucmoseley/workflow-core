@@ -754,6 +754,28 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		expect(graphqlCalls()).toBe(0);
 	});
 
+	it.each(["o/r#77", "r#77"])(
+		"refuses a basis citing only its own issue as %s, reading nothing",
+		(self) => {
+			serving({ "o/r": { 77: { body: Count } } });
+			const r = write(cites(`${self} set a week`), { own: 77 });
+			expect(r.refusal).toContain(
+				`"${self} set a week", which carries no warrant, as the wording patterns read it.`,
+			);
+			expect(graphqlCalls()).toBe(0);
+		},
+	);
+
+	it("follows only the other issue where a basis cites itself beside it", () => {
+		serving({ "o/r": { 77: { body: Count }, 12: { body: "No basis." } } });
+		const r = write(cites("o/r#77 and #12 set a week"), { own: 77 });
+		expect(r.refusal).toContain(
+			"(it cites #12, which has no `**Gate basis:**` line)",
+		);
+		expect(r.refusal).not.toContain("it cites o/r#77");
+		expect(graphqlCalls()).toBe(1);
+	});
+
 	it("judges on form, with one note naming the unread issues, where the read fails", () => {
 		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
 		const r = write(cites("#12 and #13 set a week"));

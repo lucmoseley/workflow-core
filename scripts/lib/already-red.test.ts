@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { NO_READS } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
-const { readTreeSnapshot } = require("./tree-drift.js");
+const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const {
 	classifyFailures,
 	readAlreadyRedLines,
@@ -213,6 +213,7 @@ function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 			clean: true,
 			drifted: [],
 			after: readTreeSnapshot(dir),
+			startMark: markStart(dir),
 			/* The read audit saw it read nothing beyond its imports. */
 			audits: new Map([[TEST, { reads: NO_READS }]]),
 		},
