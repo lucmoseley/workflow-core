@@ -1307,6 +1307,95 @@ describe("the uncached pragma", () => {
 	});
 });
 
+describe("a red recorded at another layout (#4995)", () => {
+	/** Rewrite the newest line of `file`'s shard to `format`. */
+	const reformatNewest = (dir: string, file: string, format: number) => {
+		const lines = fs
+			.readFileSync(shardOf(dir, file), "utf8")
+			.trim()
+			.split("\n");
+		const last = JSON.parse(lines.pop() as string);
+		fs.writeFileSync(
+			shardOf(dir, file),
+			`${[...lines, JSON.stringify({ ...last, format })].join("\n")}\n`,
+		);
+	};
+	const heldAtHead = (dir: string) =>
+		heldAtSha([A], {
+			storeRoot: dir,
+			sha: git(dir, "rev-parse", "HEAD"),
+			before: "9999",
+			git: (args: string[]) =>
+				execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+			values: VALUES,
+		}).get(A);
+	/* This layout's, read off a row the store writes. */
+	const formatOf = (dir: string) =>
+		JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n")[0])
+			.format as number;
+
+	it.each([
+		["an older", -1],
+		["a newer", 1],
+	])(
+		"%s layout's newer red on the same content voids an older pass",
+		(_which, step) => {
+			const dir = repo();
+			run(dir, [A]);
+			run(dir, [A], { failing: [A] });
+			reformatNewest(dir, A, formatOf(dir) + step);
+			expect(cachedOf(dir, [A])).toEqual([]);
+			expect(heldAtHead(dir)).toBeUndefined();
+		},
+	);
+
+	it("leaves the pass standing where an input proves the red ran on other content", () => {
+		const dir = repo();
+		run(dir, [A]);
+		write(dir, "lib.js", "broken\n");
+		run(dir, [A], { failing: [A] });
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		write(dir, "lib.js", "lib.js v0\n");
+		expect(cachedOf(dir, [A])).toEqual([A]);
+	});
+
+	it("leaves a newer pass caching over it", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		expect(heldAtHead(dir)?.red).toBe(false);
+	});
+
+	it("voids an older pass where its line names no row this layout can read", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const format = formatOf(dir) + 1;
+		fs.appendFileSync(
+			shardOf(dir, A),
+			`${JSON.stringify({ format, at: nextAt(), results: [{ path: A }] })}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("is no evidence for the already-red classifier of a red at a commit", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		expect(heldAtHead(dir)?.red).toBe(true);
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		expect(heldAtHead(dir)).toBeUndefined();
+	});
+
+	it("never lets another layout's pass cache over this layout's red", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		run(dir, [A]);
+		reformatNewest(dir, A, formatOf(dir) + 1);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+});
+
 describe("a store it cannot trust runs every file", () => {
 	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
 	 * sys.path a spawned Python script builds (#4864). Format 4 is pass 3's
