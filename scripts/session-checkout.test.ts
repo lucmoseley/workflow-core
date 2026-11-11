@@ -677,6 +677,26 @@ it("pushes a worktree already ahead of origin/main with no merge, and lands noth
 	expect(again.stderr).toContain("on origin/main or origin/queue/one already");
 });
 
+it("warns at a land whose work touches a test no local pass covers, naming it and the command, and pushes all the same (#5016)", () => {
+	expect(run(main, "cut", "one").status).toBe(0);
+	const dir = worktree("one");
+	const mine = commitIn(
+		dir,
+		{ "scripts/a.test.ts": "it('a', () => {});\n" },
+		"mine",
+	);
+
+	const r = run(dir, "land");
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(queueTip()).toBe(mine);
+	expect(r.stderr).toContain(
+		"session checkout: warning: no local pass covers 1 of the 1 test file your work touches",
+	);
+	expect(r.stderr).toContain("\n  scripts/a.test.ts\n");
+	expect(r.stderr).toContain("Run them with `npm run test`");
+});
+
 it("reports a push refused as no fast-forward of its queue ref with the merge route, records its row, and lands once merged", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	const dir = worktree("one");

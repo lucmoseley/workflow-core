@@ -25,8 +25,9 @@
  *   node scripts/session-checkout.js land
  *     merges origin/main into the current directory's worktree and pushes
  *     HEAD to its queue ref, queue/<worktree name>, saying on stderr what it
- *     did and how to read the outcome; refused, it says why and what to do
- *     before landing again
+ *     did and how to read the outcome, and warning where a test its work
+ *     touches has no local pass (lib/push-coverage.js); refused, it says why
+ *     and what to do before landing again
  *   node scripts/session-checkout.js reap
  *     removes landed, clean worktrees no session can resume and none
  *     finished in the last 3 days, stray directories and unlinked dependency
@@ -217,6 +218,10 @@ const RUN = {
 				? `session checkout: pushed ${made.head} to ${made.queue}${made.merged ? `, ${VERIFIED_REF} merged in first` : ""}\n${made.lander}\nIt has not landed: the queue lander moves main to it once the full suite passes. Wait on its outcome with \`node ${scriptPath("landing-status.js")} --wait\`, run in the background (\`run_in_background\`): it exits the moment the lander lands or drops it, so no timer is guessed.\n`
 				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on ${VERIFIED_REF} or ${REMOTE}/${made.queue} already\n`,
 		);
+		/* Here, as in land(), so no other command loads the pass store. */
+		const { buildCoverageWarning } = require("./lib/push-coverage.js");
+		const warning = made.coverage && buildCoverageWarning(made.coverage);
+		if (warning) writeFd(2, `session checkout: ${warning}\n`);
 	},
 	reap: () => {
 		const r = reap(process.cwd());
