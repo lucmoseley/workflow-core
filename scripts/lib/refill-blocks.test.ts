@@ -15,8 +15,8 @@ import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
 import {
 	hasTurnedSince,
-	hasTurnSinceApiStop,
 	type IdleReading,
+	isResumedSinceApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { buildErrorText } from "./caught.js";
@@ -3004,7 +3004,7 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 	const reading = (rows: unknown, timeline: unknown) => ({
 		io: {
 			isResumedSinceStop: (_: unknown, since?: number) =>
-				hasTurnSinceApiStop(rows, timeline, since),
+				isResumedSinceApiStop(null, { rows, timeline, since }),
 		},
 	});
 	const NoStopRow = [{ type: "user", message: { content: "fix it" } }];
@@ -3089,7 +3089,7 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
 	});
 
-	it("counts a live one's failed typing as a try on an unknown reading, stops it only on the schedule's hold, and parks it at the cap (#4873)", () => {
+	it("counts a live one's failed typing as a try on an unknown reading, and stops it only to park it at the cap (#4873)", () => {
 		const io = { ...reading(null, null).io, type: () => "attach failed" };
 		const first = blocks([resuming()], blocked, "normal", { io });
 		expect(acts(first.calls)).toEqual([]);
@@ -3101,13 +3101,18 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 		let l = first.out[0] as Launch;
 		let agents = blocked;
 		const all: string[] = [];
+		const stops: number[] = [];
 		for (let tick = 0; tick < 2 * RESUME_CAP && !l.parkStopped; tick++) {
 			const now = l.resumes?.nextAt as number;
 			const { out, calls } = blocks([l], agents, "normal", { now, io });
 			all.push(...calls);
-			if (calls.includes("stop p")) agents = stopped;
+			if (calls.includes("stop p")) {
+				agents = stopped;
+				stops.push(tick);
+			}
 			l = out[0] as Launch;
 		}
+		expect(stops).toEqual([RESUME_CAP - 1]);
 		expect(l.parkStopped).toBeDefined();
 		expect(l.resumes?.tries).toBe(RESUME_CAP);
 		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);

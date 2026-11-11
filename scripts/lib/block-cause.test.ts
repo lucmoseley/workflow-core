@@ -19,11 +19,17 @@ import {
 	hasEndedUnblocked,
 	hasFounderTypedSinceApiStop,
 	hasRepliedSince,
-	hasTurnSinceApiStop,
 	isResumedSinceApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { API_PROMPT, HOLD_PROMPT, scriptPrompt } from "./loop-prompts.js";
+
+/** The turn reading alone, the job record unread. */
+const hasTurnSinceApiStop = (
+	rows: unknown,
+	timeline: unknown,
+	since?: number,
+) => isResumedSinceApiStop(null, { rows, timeline, since });
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
