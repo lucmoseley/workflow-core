@@ -15,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	greenSuiteSpans,
 	judgeTimeToLand,
-	MIN_STAYS,
 	memberStays,
 	parseLanderLog,
 	readLogSince,
@@ -207,17 +206,18 @@ describe("the lander log", () => {
 });
 
 describe("the reading against the target", () => {
-	/** `n` stays ended a minute ago, a tenth and one more of them `slow` s and the rest 200 s. */
-	const stays = (n: number, slow: number) =>
+	/** `n` stays ended a minute ago, `over` of them `slow` s and the rest 200 s. */
+	const stays = (n: number, over: number, slow: number) =>
 		Array.from({ length: n }, (_, k) => ({
 			ref: `r${k}`,
 			sha: A,
 			event: "land" as const,
-			take: NOW - 60 * S - (k < n / 10 + 1 ? slow : 200) * S,
+			take: NOW - 60 * S - (k < over ? slow : 200) * S,
 			at: NOW - 60 * S,
 			takes: 1,
 		}));
 	const greens = [{ from: NOW - 400 * S, at: NOW - 220 * S }];
+	const target = TARGET_MULTIPLE * 180;
 	/** The default window: the week before `at`. */
 	const week = (at = NOW) => {
 		const w = windowOf({}, at);
@@ -225,31 +225,50 @@ describe("the reading against the target", () => {
 		return w;
 	};
 
-	it("is over where the p90 passes the multiple of the green p50, and not at it", () => {
-		const target = TARGET_MULTIPLE * 180;
+	it("needs the fewest stays over the time that a tenth's chance reaches at most 5% of the time", () => {
+		// P(X >= x | n, 0.1): n=5, x=2 0.0815, x=3 0.0086; n=10, x=3 0.0702,
+		// x=4 0.0128; n=100, x=15 0.0726, x=16 0.0399.
+		const needed = (n: number) =>
+			judgeTimeToLand(stays(n, 0, 200), greens, week()).needed;
 
-		expect(
-			judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, week()),
-		).toMatchObject({
+		expect([0, 1, 5, 10, 100].map(needed)).toEqual([1, 2, 3, 4, 16]);
+	});
+
+	it("is over where the stays over the time reach the count needed, and not one short of it", () => {
+		const over = judgeTimeToLand(stays(100, 16, target + 1), greens, week());
+		const short = judgeTimeToLand(stays(100, 15, target + 1), greens, week());
+
+		expect(over).toMatchObject({
 			judged: true,
 			over: true,
+			overTarget: 16,
+			needed: 16,
 			p90Ms: (target + 1) * S,
 			targetMs: target * S,
 		});
-		expect(judgeTimeToLand(stays(MIN_STAYS, target), greens, week()).over).toBe(
+		expect([short.p90Ms, short.overTarget, short.over]).toEqual([
+			(target + 1) * S,
+			15,
 			false,
-		);
+		]);
 	});
 
-	it("counts the stays over the target, and none before a window start it is given", () => {
-		const target = TARGET_MULTIPLE * 180;
-		const all = judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, week());
-		const later = judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, {
+	it("counts only stays past the time, and calls a few stays over where enough are", () => {
+		const at = judgeTimeToLand(stays(100, 100, target), greens, week());
+		const few = judgeTimeToLand(stays(5, 3, 9000), greens, week());
+		const one = judgeTimeToLand(stays(1, 1, 9000), greens, week());
+
+		expect([at.overTarget, at.over]).toEqual([0, false]);
+		expect([few.needed, few.over]).toEqual([3, true]);
+		expect([one.needed, one.overTarget, one.over]).toEqual([2, 1, false]);
+	});
+
+	it("counts no stay before a window start it is given", () => {
+		const later = judgeTimeToLand(stays(100, 16, target + 1), greens, {
 			...week(),
 			since: NOW - 30 * S,
 		});
 
-		expect(all.overTarget).toBe(MIN_STAYS / 10 + 1);
 		expect([later.stays, later.overTarget, later.judged]).toEqual([
 			0,
 			null,
@@ -274,17 +293,19 @@ describe("the reading against the target", () => {
 		expect(windowOf({ until: iso(NOW + S) }, NOW)).toMatch(/no later than now/);
 	});
 
-	it("judges nothing on too few stays, on no green run, or on stays older than the week", () => {
-		const few = judgeTimeToLand(stays(MIN_STAYS - 1, 9000), greens, week());
-		const noGreen = judgeTimeToLand(stays(MIN_STAYS, 9000), [], week());
+	it("judges nothing on no green run, or on stays older than the week", () => {
+		const noGreen = judgeTimeToLand(stays(100, 100, 9000), [], week());
 		const old = judgeTimeToLand(
-			stays(MIN_STAYS, 9000),
+			stays(100, 100, 9000),
 			greens,
 			week(NOW + 8 * 24 * 3600 * S),
 		);
 
-		expect([few.judged, few.over]).toEqual([false, false]);
-		expect([noGreen.judged, noGreen.targetMs]).toEqual([false, null]);
-		expect([old.stays, old.judged]).toEqual([0, false]);
+		expect([noGreen.judged, noGreen.targetMs, noGreen.over]).toEqual([
+			false,
+			null,
+			false,
+		]);
+		expect([old.stays, old.judged, old.over]).toEqual([0, false, false]);
 	});
 });

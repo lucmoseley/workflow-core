@@ -10,12 +10,11 @@
  * change's own stays are read apart from those before it
  * (lib/time-to-land.js THE WINDOW).
  *
- * With fewer than MIN_STAYS stays, or no green run, it names the window as
- * unjudged and warns of nothing.
+ * With no green run it names the window as unjudged and warns of nothing.
  *
  * WARN-ONLY, ALWAYS, as check-suite-margin.js is (#1797).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js) where the `landing` module is on, reads the queue log and the tail of the lander's log and warns where the window's p90 time, the last 7 days by default, from a queue ref's first take to its land or drop is over 3 times the green suite's p50 run. It refuses nothing.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js) where the `landing` module is on, reads the queue log and the tail of the lander's log and warns where enough of the window's queue refs, the last 7 days by default, took from first take to land or drop over 3 times the green suite's p50 run that a queue with its p90 on target would show as many at most 5% of the time. It refuses nothing.
  * JUSTIFIED: fail-safe — the queue's alerts read a ref's wait against the queue's own past week, so a queue slow every week reads as normal and nothing else holds it to the suite's time.
  * DEFEAT:    none needed — it never blocks.
  */
@@ -26,7 +25,6 @@ const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
-	MIN_STAYS,
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
 	memberStays,
@@ -55,7 +53,7 @@ runCheck({
 			greenSuiteSpans(parseLanderLog(readLogSince(landerLog(root), w.since))),
 			w,
 		);
-		const reading = `take-to-land p90 ${secs(r.p90Ms)} s, p50 ${secs(r.p50Ms)} s, over ${r.stays} queue ref(s) taken and landed or dropped ${w.label}; target ${secs(r.targetMs)} s, ${TARGET_MULTIPLE} times the green suite's p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s); ${r.overTarget ?? "-"} of ${r.stays} over the target`;
+		const reading = `take-to-land p90 ${secs(r.p90Ms)} s, p50 ${secs(r.p50Ms)} s, over ${r.stays} queue ref(s) taken and landed or dropped ${w.label}; target ${secs(r.targetMs)} s, ${TARGET_MULTIPLE} times the green suite's p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s); ${r.overTarget ?? "-"} of ${r.stays} over the target, ${r.needed} calling it over`;
 		if (r.over) {
 			ctx.warn("SLOW-LANDING", reading);
 			ctx.say(`SLOW-LANDING — ${reading}\n`);
@@ -66,7 +64,7 @@ runCheck({
 		return {
 			okLine: r.judged
 				? `${reading}.`
-				: `time-to-land unjudged: ${r.stays} queue ref(s) taken and landed or dropped ${w.label}, under the ${MIN_STAYS} a p90 needs, or no green run; ${r.overTarget ?? "-"} of ${r.stays} over the target.`,
+				: `time-to-land unjudged: no green run ${w.label} to set a target; ${r.stays} queue ref(s) taken and landed or dropped.`,
 			noun: "landing queue over its time-to-land target",
 			count: r.over ? 1 : 0,
 			data: r,
