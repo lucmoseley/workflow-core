@@ -152,7 +152,7 @@ describe("what got past", () => {
 		);
 	});
 
-	it("gives a re-send its whole message and the session's text between calls (#5003)", () => {
+	it("gives a re-send its whole message and the session's text between calls", () => {
 		const said = `I ran the count.\n\n${NOT_CLOSE("Checked: ls showed it; A")}`;
 		const [item] = items(
 			founder(),
