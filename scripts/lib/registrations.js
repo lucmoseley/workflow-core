@@ -13,6 +13,7 @@
  * through lib/registry-atomicity.js.
  */
 
+const { isToolCovered, MatcherError } = require("./core-hooks.js");
 const { siblingTests, spellSiblingTests } = require("./test-kind.js");
 
 /** The host registry, every adopter seeded with `emptyRegistry()`. */
@@ -121,7 +122,6 @@ function allRegistrations(settings) {
 }
 
 /**
- * One registration as a single command line.
  * @param {Pick<Registration, "command" | "args">} r
  */
 function buildCommandLine(r) {
@@ -133,8 +133,8 @@ const labelOf = (r) =>
 	`${r.event}: ${buildCommandLine(r)}${r.if ? ` if: ${r.if}` : ""}`;
 
 /**
- * Does `row` pin `r`? The core's own match: same event, the id a substring of
- * the command line, the same narrowing.
+ * The core's own match: same event, the id a substring of the command line,
+ * the same narrowing.
  * @param {Row} row
  * @param {Registration} r
  */
@@ -188,7 +188,7 @@ function suggestedRow(r) {
 }
 
 /**
- * How the one registration a row pins has drifted from it, a clause each.
+ * A clause each for how the one registration a row pins has drifted.
  * @param {Row} row
  * @param {Registration} r
  * @returns {string[]}
@@ -200,11 +200,16 @@ function rowDrift(row, r) {
 		out.push(
 			`pins matcher ${JSON.stringify(row.matcher)}, but the hook is registered with ${JSON.stringify(matcher)}`,
 		);
-	for (const tool of row.covers ?? [])
-		if (!new RegExp(`^(${matcher ?? ""})$`).test(tool))
-			out.push(
-				`says it covers ${tool}, and the registered matcher no longer fires on it`,
-			);
+	try {
+		for (const tool of row.covers ?? [])
+			if (!isToolCovered(r.matcher ?? undefined, tool))
+				out.push(
+					`says it covers ${tool}, and the registered matcher no longer fires on it`,
+				);
+	} catch (err) {
+		if (!(err instanceof MatcherError)) throw err;
+		out.push(`says what it covers, and ${err.message}`);
+	}
 	const bounded = typeof r.timeout === "number";
 	if (row.unbounded && bounded)
 		out.push("says unbounded, but the hook has gained a timeout");

@@ -16,7 +16,7 @@
  * name-issue-session.sh keeps on each rename, and which a session the child
  * starts, under another id, does not take (#3701). The model is named, never
  * the plans' settings `model`, which burn mode moves; and the child carries
- * its session id under lib/burn-mode.js's OVERFLOW_SESSION_VAR, so burn mode
+ * its session id under lib/model-table.js's OVERFLOW_SESSION_VAR, so burn mode
  * never reaches the seat (#4919). `resume` continues a session headless on the
  * same seat and key.
  *
@@ -41,7 +41,7 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { readCurrentBootId, readProcStartOf } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { OVERFLOW_MODEL, OVERFLOW_SESSION_VAR } = require("./burn-mode.js");
+const { OVERFLOW_MODEL, OVERFLOW_SESSION_VAR } = require("./model-table.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const {
