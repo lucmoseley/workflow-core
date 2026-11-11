@@ -754,6 +754,15 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		expect(graphqlCalls()).toBe(0);
 	});
 
+	it("refuses a basis citing only its own issue by the tracker's name, reading nothing", () => {
+		serving({ "o/r": { 77: { body: Count } } });
+		const r = write(cites("o/r#77 set a week"), { own: 77 });
+		expect(r.refusal).toContain(
+			'"o/r#77 set a week", which carries no warrant, as the wording patterns read it.',
+		);
+		expect(graphqlCalls()).toBe(0);
+	});
+
 	it("judges on form, with one note naming the unread issues, where the read fails", () => {
 		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
 		const r = write(cites("#12 and #13 set a week"));

@@ -29,6 +29,7 @@ import {
 	BLOCKED_BY_GRAPHQL_FAKE,
 	buildCreateAnswer,
 	buildJqLines,
+	CITED_GRAPHQL_FAKE,
 	type GhAnswer,
 	GRAPHQL_FAKE,
 	ghAnswerHandler,
@@ -692,6 +693,53 @@ describe("live: computed answers", () => {
 		expect(
 			await observe(ghServe(answerBlockedBy(args, blockers)), args),
 		).toEqual(real);
+	});
+
+	const answerCited = ghComputed<
+		(argv: string[], issues: Record<string, object>) => GhAnswer
+	>(CITED_GRAPHQL_FAKE, "answerCited");
+
+	/* #2331 is closed with a few comments, so the shape holds; its words are
+	 * never compared. */
+	it("lib/basis-cited-read.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
+		skip,
+	}) => {
+		liveSkip ??= { reason: liveSkipReason() };
+		if (liveSkip.reason) return skip(liveSkip.reason);
+		const { readCitedFor } = await import("./basis-cited-read.js");
+		const { basisFaults } = await import("./issue-gate.js");
+		const root = fs.mkdtempSync(path.join(dir, "cited-root-"));
+		fs.mkdirSync(path.join(root, ".claude"));
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, tracker: readTracker() }),
+		);
+		const issues = {
+			[readTracker().toLowerCase()]: {
+				2331: { state: "CLOSED", body: "x", comments: ["y"] },
+			},
+		};
+		const log = path.join(dir, "cited-calls");
+		const stub = computedStub(
+			CITED_GRAPHQL_FAKE,
+			`answerCited(argv, ${JSON.stringify(issues)})`,
+			log,
+		);
+		vi.stubEnv("WFC_GH", stub);
+		const body = `**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** #2331, #999999999 and ${noRepo}#3 set a week\n`;
+		readCitedFor((follow) => basisFaults(body, undefined, follow), {
+			root,
+			timeoutMs: 20_000,
+		});
+		const args: string[] = JSON.parse(
+			fs.readFileSync(log, "utf8").trim().split("\n")[0] as string,
+		);
+		const real = await throughSeam(realGh as string, args);
+		expect(real).toMatchObject({ verdict: "broken" });
+		expect(await throughSeam(stub, args)).toEqual(real);
+		expect(await observe(ghServe(answerCited(args, issues)), args)).toEqual(
+			real,
+		);
 	});
 
 	/* Production's own flags, narrowed to the issue-list page's rows so #948
