@@ -1652,9 +1652,7 @@ describe("a gate line with no basis (#577)", () => {
 				[],
 				stubGh([{ number: 450, body: `${on}\n${basis}` }]),
 			);
-			expect(r.out).toContain(
-				"Unread: the issues o/r#12, which open gates' bases cite (",
-			);
+			expect(r.out).toContain("Unread: the issues open gates' bases cite (");
 			expect(r.out).not.toContain("NO-GATE-BASIS");
 		});
 	});

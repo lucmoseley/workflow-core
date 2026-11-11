@@ -20,8 +20,6 @@ const REPO_PART_RE = /^[\w.-]+$/;
 /**
  * @typedef {import("./issue-gate.js").CitedIssue} CitedIssue
  * @typedef {{repo: string, number: number}} Wanted
- * @typedef {(args: string[], opts: {timeout: number}) => string} Gh gh's
- *   stdout; throws as lib/gh.js's gh throws
  * @typedef {any} GhJson GitHub's answer as parsed, every reader defaulting a
  *   missing field
  */
@@ -72,13 +70,12 @@ function failedWhy(err, timeoutMs) {
  *
  * @param {string} query
  * @param {number} timeoutMs
- * @param {Gh} run
  * @returns {{data: GhJson}|{why: string}}
  */
-function runQuery(query, timeoutMs, run) {
+function runQuery(query, timeoutMs) {
 	try {
 		const data = JSON.parse(
-			run(["api", "graphql", "-f", `query=${query}`], { timeout: timeoutMs }),
+			gh(["api", "graphql", "-f", `query=${query}`], { timeout: timeoutMs }),
 		)?.data;
 		return data && typeof data === "object"
 			? { data }
@@ -109,7 +106,8 @@ function runQuery(query, timeoutMs, run) {
  * @param {GhJson} data
  * @param {string[]} repos
  * @param {Page} p
- * @param {Into} into
+ * @param {Into} into accumulator: `into.issues` gains the issue once its
+ *   comments are all read, `into.building` holds it until then
  * @returns {{next?: Page, why?: string}}
  */
 function takePage(data, repos, p, into) {
@@ -147,12 +145,12 @@ function takePage(data, repos, p, into) {
  * under, absent where it was not read.
  *
  * @param {Wanted[]} wanted
- * @param {{timeoutMs: number, run?: Gh}} opts `timeoutMs` bounds the whole
+ * @param {{timeoutMs: number}} opts `timeoutMs` bounds the whole
  *   read, its comment pages included
  * @returns {{issues: Map<string, CitedIssue|null>, why: string|null, ms: number}}
  *   `why`: what left any issue unread
  */
-function readCitedIssues(wanted, { timeoutMs, run = gh }) {
+function readCitedIssues(wanted, { timeoutMs }) {
 	const startedAt = Date.now();
 	const unique = [
 		...new Map(
@@ -180,7 +178,7 @@ function readCitedIssues(wanted, { timeoutMs, run = gh }) {
 		const repos = [...new Set(pages.map((p) => p.repo))];
 		const read =
 			left > 0
-				? runQuery(buildQuery(repos, pages), left, run)
+				? runQuery(buildQuery(repos, pages), left)
 				: { why: `GitHub did not answer within ${timeoutMs} ms` };
 		if ("why" in read) {
 			why = read.why;
@@ -197,25 +195,87 @@ function readCitedIssues(wanted, { timeoutMs, run = gh }) {
  * The issues a trace of followed bases cites, once each.
  *
  * @param {import("./issue-gate.js").FollowRecord[]} trace
- * @returns {{repo: string, number: number, key: string, ref: string}[]}
+ * @returns {(Wanted & {key: string, ref: string})[]}
  */
 const wantedIn = (trace) => [
 	...new Map(
 		trace.flatMap((t) =>
-			t.cited.map((c) => {
-				const at = c.key.lastIndexOf("#");
-				return [
-					c.key,
-					{
-						repo: c.key.slice(0, at),
-						number: Number(c.key.slice(at + 1)),
-						key: c.key,
-						ref: c.ref,
-					},
-				];
-			}),
+			t.cited.map((c) => [
+				c.key,
+				{ repo: c.repo, number: c.number, key: c.key, ref: c.ref },
+			]),
 		),
 	).values(),
 ];
 
-module.exports = { readCitedIssues, wantedIn, COMMENTS_PAGE };
+/* Stands in for the tracker where none resolves, so the citations a body
+ * makes are still found; a name never read. */
+const NO_TRACKER = "unresolved/tracker";
+
+/**
+ * The tracker a bare `#N` names, or null where none resolves.
+ *
+ * @param {string|undefined} root the project whose config names it
+ */
+function readTracker(root) {
+	try {
+		const t = require("./workflow-core-config.js").resolveKey(
+			"tracker",
+			root ? { root } : {},
+		);
+		return typeof t === "string" && t.includes("/") ? t : null;
+	} catch {
+		// An unreadable config resolves no tracker, which the caller's note
+		// names (#5007): the citations are judged on their form alone.
+		return null;
+	}
+}
+
+/**
+ * Reads the issues the bases `collect` judges cite, in one batched call:
+ * undefined where none cites one.
+ *
+ * @param {(follow: import("./issue-gate.js").Follow) => void} collect runs
+ *   the judgement over an empty read with the `follow` it is handed, whose
+ *   trace gathers what the bases cite
+ * @param {{root?: string, timeoutMs: number, minMs?: number}} opts
+ *   below `minMs` nothing is read, the hook's time being too short
+ * @returns {{follow: import("./issue-gate.js").Follow,
+ *   unread: (Wanted & {key: string, ref: string})[], why: string|null,
+ *   ms: number}|undefined} `follow` carries the issues read; `why`, what
+ *   left any unread
+ */
+function readCitedFor(collect, { root, timeoutMs, minMs = 0 }) {
+	const tracker = readTracker(root);
+	/** @type {import("./issue-gate.js").FollowRecord[]} */
+	const trace = [];
+	collect({ tracker: tracker ?? NO_TRACKER, issues: new Map(), trace });
+	const wanted = wantedIn(trace);
+	if (wanted.length === 0) return;
+	/** @param {string} why */
+	const unreadAll = (why) => ({ issues: new Map(), why, ms: 0 });
+	let read;
+	if (!tracker)
+		read = unreadAll("no tracker resolves from `.claude/workflow-core.json`");
+	else if (timeoutMs < minMs)
+		read = unreadAll("too little of the hook's time was left for it");
+	else read = readCitedIssues(wanted, { timeoutMs });
+	return {
+		follow: { tracker: tracker ?? NO_TRACKER, issues: read.issues, trace: [] },
+		unread: wanted.filter((w) => !read.issues.has(w.key)),
+		why: read.why,
+		ms: read.ms,
+	};
+}
+
+/**
+ * The note naming the citations left unread.
+ *
+ * @param {string} lead what went unread, ahead of why
+ * @param {string[]} names the citations
+ * @param {string|null} why
+ */
+const unreadNote = (lead, names, why) =>
+	`${lead} (${why ?? "GitHub did not answer for them"}): ${names.join(", ")}, so a basis whose only warrant is one of them was judged on its form alone.`;
+
+module.exports = { readCitedFor, readCitedIssues, unreadNote };

@@ -1185,11 +1185,11 @@ describe("basisFaults — a cited issue followed one hop (#5007)", () => {
 		).toEqual([]);
 	});
 
-	it("judges a basis on its form where a cited issue went unread, and faults a number that is no issue", () => {
+	it("judges a basis on its form where a cited issue went unread, and faults a number that is no issue as holding no basis", () => {
 		expect(judge(cites("#12 set a week"), 1, new Map()).faults).toEqual([]);
 		expect(
 			reasons(judge(cites("#12 set a week"), 1, at(12, null)).faults),
-		).toEqual([{ ref: "#12", reason: "no-issue" }]);
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
 	});
 
 	it("follows no basis an edit leaves untouched, and every basis on a re-gate", () => {

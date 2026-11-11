@@ -146,7 +146,11 @@
  *    create (#668) and on a relabel (#669), refused above.
  */
 
-const { JUDGE_BOUND_MS, readGateWrite } = require("./gate-judge.js");
+const {
+	CITED_BOUND_MS,
+	JUDGE_BOUND_MS,
+	readGateWrite,
+} = require("./gate-judge.js");
 const {
 	MAP_LABEL,
 	openMapsArgs,
@@ -263,6 +267,8 @@ const API_FORM_COST =
  * @property {number} judgeLeftMs what the model readings of this call's
  *   bodies may still spend: one bound for them all, so two creates in one
  *   command stay inside the hook's 60 s
+ * @property {number} citedLeftMs what the reads of the issues those bodies'
+ *   bases cite may still spend, a bound of their own beside it
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  */
 
@@ -280,6 +286,7 @@ function decide(command, ctx) {
 		checkNotes: [],
 		humanApplied: false,
 		judgeLeftMs: JUDGE_BOUND_MS,
+		citedLeftMs: CITED_BOUND_MS,
 	};
 	const stopped = walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx);
 	if (stopped !== undefined) return stopped;
@@ -511,11 +518,13 @@ ${route.blank}`,
  */
 function judgeBasis(run, segment, text) {
 	const startedAt = Date.now();
-	const { refusal, advice } = readGateWrite(text, {
+	const { refusal, advice, citedMs } = readGateWrite(text, {
 		route: "create-guard",
 		boundMs: Math.min(JUDGE_BOUND_MS, run.judgeLeftMs),
+		citedBoundMs: run.citedLeftMs,
 	});
-	run.judgeLeftMs -= Date.now() - startedAt;
+	run.citedLeftMs -= citedMs;
+	run.judgeLeftMs -= Date.now() - startedAt - citedMs;
 	if (!refusal) {
 		if (advice) run.checkNotes.push(advice);
 		return;

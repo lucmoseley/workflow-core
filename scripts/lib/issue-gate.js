@@ -559,9 +559,9 @@ const ROUND_AFTER_REF_RE = /^\s+(Q\d+)\b/;
  *   spells it
  * @typedef {{state: string, texts: string[]}} CitedIssue its body, then each
  *   comment
- * @typedef {"no-basis"|"no-window"|"no-own-warrant"|"no-round"|"no-issue"} CitedReason
- * @typedef {{basis: string, cited: {ref: string, key: string,
- *   verdict: "stands"|"unread"|CitedReason}[]}} FollowRecord
+ * @typedef {"no-basis"|"no-window"|"no-own-warrant"|"no-round"} CitedReason
+ * @typedef {{basis: string, cited: {ref: string, key: string, repo: string,
+ *   number: number, verdict: "stands"|"unread"|CitedReason}[]}} FollowRecord
  * @typedef {{tracker: string, issues: Map<string, CitedIssue|null>,
  *   skip?: Set<string>, trace?: FollowRecord[]}} Follow the cited issues
  *   read, by citedKey, null for a number the repo holds no issue under and
@@ -623,7 +623,8 @@ function citedRefsOf(basis, own, tracker) {
  * @returns {CitedReason|null}
  */
 function citedFault(ref, issue, windows) {
-	if (!issue) return "no-issue";
+	/* A number that is no issue, a pull request among them, holds no basis. */
+	if (!issue) return "no-basis";
 	if (ref.round) {
 		const marker = `**${ref.round}**`;
 		const live = (/** @type {string} */ t) => {
@@ -664,7 +665,8 @@ function citedFault(ref, issue, windows) {
  * @param {string} text the citing body
  * @param {RegExpMatchArray} m the basis's match in it
  * @param {number|undefined} own
- * @param {Follow} follow
+ * @param {Follow} follow accumulator: `follow.trace`, where one is given,
+ *   gains this basis's record
  * @returns {{ref: string, reason: CitedReason}[]|null} the reasons where it
  *   faults
  */
@@ -691,6 +693,8 @@ function followCited(text, m, own, follow) {
 		cited: verdicts.map((v) => ({
 			ref: v.ref.written,
 			key: v.key,
+			repo: v.ref.repo,
+			number: v.ref.number,
 			verdict: /** @type {FollowRecord["cited"][number]["verdict"]} */ (
 				v.verdict
 			),
@@ -1038,7 +1042,6 @@ const CITED_SAYS = {
 	"no-own-warrant":
 		"whose basis naming its window carries no count or cycle warrant of its own",
 	"no-round": "where that question round is not found",
-	"no-issue": "which is no issue",
 };
 
 /**
@@ -1238,8 +1241,6 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
-	citedRefsOf,
-	citedKey,
 	citedSays,
 	basisRule,
 	gateFacts,

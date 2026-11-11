@@ -74,7 +74,7 @@ const {
 	citedSays,
 	judgeOverrideOf,
 } = require("./lib/issue-gate");
-const { readCitedIssues, wantedIn } = require("./lib/basis-cited-read");
+const { readCitedFor, unreadNote } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	isHeldWithoutReads,
@@ -481,38 +481,34 @@ const CITED_STATUS_MS = 60_000;
 
 /**
  * The issues every open gate's basis cites, read in one batched call (#5007),
- * saying which went unread; undefined where no basis cites one or no tracker
- * resolves.
+ * saying which went unread; undefined where no basis cites one.
  * @param {any[]} issues
  * @param {Ctx} ctx
  * @returns {import("./lib/issue-gate").Follow|undefined}
  */
 function readGateCitations(issues, ctx) {
-	let tracker;
-	try {
-		tracker = require("./lib/workflow-core-config").resolveKey("tracker");
-	} catch {
-		return;
-	}
-	if (typeof tracker !== "string" || !tracker.includes("/")) return;
-	/** @type {import("./lib/issue-gate").FollowRecord[]} */
-	const trace = [];
-	for (const iss of issues)
-		if (
-			!iss.pull_request &&
-			iss.state === "open" &&
-			gateMarkerOf(resolveGate(iss.body))
-		)
-			basisFaults(iss.body, iss.number, { tracker, issues: new Map(), trace });
-	const wanted = wantedIn(trace);
-	if (wanted.length === 0) return;
-	const read = readCitedIssues(wanted, { timeoutMs: CITED_STATUS_MS });
-	const unread = wanted.filter((w) => !read.issues.has(w.key));
-	if (unread.length > 0)
+	const read = readCitedFor(
+		(follow) => {
+			for (const iss of issues)
+				if (
+					!iss.pull_request &&
+					iss.state === "open" &&
+					gateMarkerOf(resolveGate(iss.body))
+				)
+					basisFaults(iss.body, iss.number, follow);
+		},
+		{ timeoutMs: CITED_STATUS_MS },
+	);
+	if (!read) return;
+	if (read.unread.length > 0)
 		ctx.say(
-			`Unread: the issues ${unread.map((w) => w.key).join(", ")}, which open gates' bases cite (${read.why ?? "GitHub did not answer for them"}), so a basis whose only warrant is one of them was judged on its form alone.\n`,
+			`${unreadNote(
+				"Unread: the issues open gates' bases cite",
+				read.unread.map((w) => w.key),
+				read.why,
+			)}\n`,
 		);
-	return { tracker, issues: read.issues };
+	return read.follow;
 }
 
 /**

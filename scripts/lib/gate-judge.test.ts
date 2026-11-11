@@ -13,7 +13,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	CITED_LEAD,
 	JUDGE_BOUND_MS,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
@@ -588,10 +587,12 @@ describe("a write route's reading", () => {
 		expect(write(`${WAIT}\n`, NOTHING, { before: `${WAIT}\n` })).toEqual({
 			refusal: null,
 			advice: "",
+			citedMs: 0,
 		});
 		expect(write(`${Gate}\n`, NOTHING, {}, { WFC_GATE_JUDGE: "off" })).toEqual({
 			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
 			advice: "",
+			citedMs: 0,
 		});
 		expect(readJudgeCalls(log)).toEqual([]);
 	});
@@ -624,7 +625,12 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 			: 0;
 	const write = (
 		body: string,
-		opts: { before?: string; own?: number; boundMs?: number } = {},
+		opts: {
+			before?: string;
+			own?: number;
+			boundMs?: number;
+			citedBoundMs?: number;
+		} = {},
 		extraEnv: Record<string, string> = {},
 	) =>
 		readGateWrite(body, {
@@ -660,7 +666,11 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 			},
 		});
 		const r = write(cites("#2821, #2826, #2823 and #2824 set a week"));
-		expect(r).toEqual({ refusal: null, advice: "" });
+		expect(r).toEqual({
+			refusal: null,
+			advice: "",
+			citedMs: expect.any(Number),
+		});
 		expect(graphqlCalls()).toBe(1);
 	});
 
@@ -701,6 +711,7 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		expect(write(`${legacy}note\n`, { before: legacy, own: 1 })).toEqual({
 			refusal: null,
 			advice: "",
+			citedMs: 0,
 		});
 		expect(graphqlCalls()).toBe(0);
 	});
@@ -709,20 +720,40 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
 		const r = write(cites("#12 and #13 set a week"));
 		expect(r.refusal).toBeNull();
-		expect(r.advice.startsWith(`${CITED_LEAD} (`)).toBe(true);
+		expect(
+			r.advice.startsWith("The issues a basis cites were not read ("),
+		).toBe(true);
 		expect(r.advice).toContain(
 			"): #12, #13, so a basis whose only warrant is one of them was judged on its form alone.",
 		);
 	});
 
-	it("judges on form, with the same note, where too little of the budget is left", () => {
+	it("judges on form, with the same note, where too little of the cited read's budget is left", () => {
 		serving({ "o/r": { 12: { body: "x" } } });
-		const r = write(cites("#12 set a week"), { boundMs: 1000 });
+		const r = write(cites("#12 set a week"), { citedBoundMs: 1000 });
 		expect(r.refusal).toBeNull();
 		expect(r.advice).toBe(
-			`${CITED_LEAD} (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
+			`The issues a basis cites were not read (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
 		);
 		expect(graphqlCalls()).toBe(0);
+	});
+
+	it("says no tracker resolves, judging on form, where the config names none", () => {
+		const bare = fs.mkdtempSync(path.join(os.tmpdir(), "gate-judge-bare-"));
+		try {
+			const r = write(
+				cites("#12 set a week"),
+				{},
+				{ CLAUDE_PROJECT_DIR: bare },
+			);
+			expect(r.refusal).toBeNull();
+			expect(r.advice).toBe(
+				"The issues a basis cites were not read (no tracker resolves from `.claude/workflow-core.json`): #12, so a basis whose only warrant is one of them was judged on its form alone.",
+			);
+			expect(graphqlCalls()).toBe(0);
+		} finally {
+			fs.rmSync(bare, { recursive: true, force: true });
+		}
 	});
 
 	it("logs the cited issues, their verdicts, the read's wall time and any fallback", () => {
@@ -750,7 +781,15 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 				cited: [
 					{
 						basis: "#12 set a week",
-						cited: [{ ref: "#12", key: "o/r#12", verdict: "no-basis" }],
+						cited: [
+							{
+								ref: "#12",
+								key: "o/r#12",
+								repo: "o/r",
+								number: 12,
+								verdict: "no-basis",
+							},
+						],
 					},
 				],
 				citedMs: expect.any(Number),
