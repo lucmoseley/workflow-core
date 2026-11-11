@@ -679,7 +679,18 @@ function runCwd(cwds, chdirs, scope, isDir) {
 function moveRun(at, cd, scope) {
 	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
 	const { chdirArg } = require("./shell-parse.js");
-	const { resolved } = chdirArg(cd, scope);
+	return moveDir(at, chdirArg(cd, scope).resolved);
+}
+
+/**
+ * Where a move to a directory word, as pathArg read it, puts a run standing
+ * at `at`.
+ * @param {string} at "" where unknown
+ * @param {{ path: string } | { empty: true } | null} resolved null where the
+ *   word will not resolve
+ * @returns {string} "" where unknown
+ */
+function moveDir(at, resolved) {
 	if (!resolved) return "";
 	if ("empty" in resolved) return at;
 	if (resolved.path.startsWith("/")) return resolved.path;
@@ -1669,8 +1680,8 @@ module.exports = {
 	isScriptNext,
 	wrapperScript,
 	runText,
-	holdsAt,
 	runCwd,
+	moveDir,
 	carriesVar,
 	commandName,
 	isGhCommand,

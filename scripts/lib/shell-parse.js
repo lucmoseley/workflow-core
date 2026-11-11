@@ -23,6 +23,7 @@ const {
 	literal,
 	unwrap,
 	runCwd,
+	moveDir,
 	commandName,
 	isGitValueOption,
 	isGlobPattern,
@@ -1936,8 +1937,8 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  * @property {string | null} workTree the tree `--work-tree` or `GIT_WORK_TREE`
  *   names, "" where it will not resolve; null where none does
  * @property {string[]} doubted where the command may stand instead of `tree`
- * @property {string | null} fromCwd the relative moves its `-C`s made off the
- *   cwd, each `/`-led; null where an absolute one ended the cwd's say
+ * @property {ReturnType<typeof pathArg>[]} dirMoves each `-C`'s directory
+ *   as pathArg read it, in order
  * @property {string[]} names the unset names read as empty on the way (#325)
  * @property {string} written an unresolved `-C` as typed, for the record
  * @property {import("./git-alias.js").AliasTable} aliases what the command
@@ -2014,7 +2015,7 @@ function readGitRun(walk, run, leading, isDir) {
 		named: null,
 		workTree: null,
 		doubted: [],
-		fromCwd: "",
+		dirMoves: [],
 		names: walk.cwdNames,
 		written: "",
 		aliases: emptyAliasTable(),
@@ -2025,8 +2026,6 @@ function readGitRun(walk, run, leading, isDir) {
 		const { resolved, emptyNames } = chdirArg(cd, walk.scope);
 		moveGitTarget(target, resolved, cd.dir, emptyNames);
 	}
-	/* fromCwd from here is the `-C`s' own move, which each doubted tree takes. */
-	target.fromCwd = "";
 	const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
 	const word = own[i];
 	if (word === undefined) return null;
@@ -2036,10 +2035,8 @@ function readGitRun(walk, run, leading, isDir) {
 		walk.scope,
 		isDir,
 	);
-	/* An absolute `-C` says where it stands whatever a `cd` did. */
-	const { fromCwd } = target;
-	if (fromCwd !== null)
-		target.doubted = doubted.map((d) => d && `${d}${fromCwd}`);
+	const moved = doubted.map((d) => target.dirMoves.reduce(moveDir, d));
+	target.doubted = [...new Set(moved)].filter((d) => d !== target.tree);
 	/* The config read follows `tree`, which the doubt says it may not stand in. */
 	target.aliases.anyUnread ||= target.doubted.length > 0;
 	const args = own.slice(i + 1);
@@ -2380,12 +2377,14 @@ const treeOfGitDir = (dir) => normAbs(dir).replace(/\/\.git$/, "") || "/";
  * @param {Scope} scope
  */
 function readGitDir(word, target, scope) {
-	moveGitTarget(target, pathArg(word, scope), word, scope.emptyNames);
+	const r = pathArg(word, scope);
+	target.dirMoves.push(r);
+	moveGitTarget(target, r, word, scope.emptyNames);
 }
 
 /**
  * Move `target` to a directory as pathArg answered it.
- * @param {GitTarget} target accumulator: its tree, fromCwd, names and written
+ * @param {GitTarget} target accumulator: its tree, names and written
  *   are moved
  * @param {ReturnType<typeof pathArg>} r
  * @param {string} word as written, for the unresolved record
@@ -2401,12 +2400,10 @@ function moveGitTarget(target, r, word, emptyNames) {
 		target.written = `-C ${word}`;
 	} else if (r.path.startsWith("/")) {
 		target.tree = r.path;
-		target.fromCwd = null;
 		target.names = [...emptyNames];
 		target.written = "";
 	} else if (target.tree) {
 		target.tree = `${target.tree}/${r.path}`;
-		if (target.fromCwd !== null) target.fromCwd += `/${r.path}`;
 		target.names = [...target.names, ...emptyNames];
 	}
 }
