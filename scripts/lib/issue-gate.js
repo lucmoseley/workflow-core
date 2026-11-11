@@ -654,7 +654,7 @@ function lineShape(line) {
 /**
  * @param {LineShape|null} prev the line above, `null` at the body's start
  * @param {LineShape} line
- * @returns {boolean} whether `line` starts a block
+ * @returns {boolean}
  */
 function opensBlock(prev, line) {
 	if (prev === null || prev.blank || prev.ownLine) return true;
@@ -662,7 +662,7 @@ function opensBlock(prev, line) {
 }
 
 /**
- * The bounds of the block holding `index`, the most a code span can cover.
+ * The bounds of the block holding `index`.
  *
  * @param {string} body
  * @param {number} index
@@ -688,8 +688,8 @@ function blockAround(body, index) {
 /**
  * Inside an inline code span — a phrase quoted as an example. A run of N
  * backticks opens a span that the next run of exactly N closes, across line
- * breaks within one block; a run with no closer is literal, and a
- * backslash-escaped backtick opens nothing (CommonMark 0.31.2 §6.1).
+ * breaks within one block, and a run with no closer is literal (CommonMark
+ * 0.31.2 §6.1).
  *
  * @param {string} body
  * @param {number} index
