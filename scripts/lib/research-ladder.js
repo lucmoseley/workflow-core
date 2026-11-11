@@ -12,10 +12,12 @@
  *   subagent  an Agent call (`Task`, its older name, too)
  *
  * Commands are read through shell-parse.js, a `$(…)` quoted or not,
- * backticks and each side of `&&` included. RESIDUALS: a `gh` call inside
- * `bash -c`, `eval`, a script or an alias, or behind a wrapper shell-words.js's
- * unwrap does not strip, is unseen; and a repo named by a shell variable never
- * matches the corpus.
+ * backticks and each side of `&&` included. A repo named by a `for` loop's
+ * variable is read as each word of its list, where every word is literal
+ * (#4945). RESIDUALS: a `gh` call inside `bash -c`, `eval`, a script or an
+ * alias, or behind a wrapper shell-words.js's unwrap does not strip, is
+ * unseen; and a repo named by any other shell variable never matches the
+ * corpus.
  */
 
 const { scriptPath } = require("./script-path.js");
@@ -101,22 +103,31 @@ function isOnCorpus(repos, owners, corpus) {
 	);
 }
 
+/** @typedef {(value: string) => string[]} Expand a repo or owner word's
+ *   readings under the enclosing `for` loops */
+
 /**
  * @param {string[]} args the words after `gh issue list`
  * @param {Corpus} corpus
+ * @param {Expand} expand
  */
-function isRulingsList(args, corpus) {
+function isRulingsList(args, corpus, expand) {
 	if (parseFlagValues(args, ["--search", "-S"]).length === 0) return false;
 	const states = parseFlagValues(args, ["--state", "-s"]);
 	if (!states.some((s) => s === "closed" || s === "all")) return false;
-	return isOnCorpus(parseFlagValues(args, ["--repo", "-R"]), [], corpus);
+	return isOnCorpus(
+		parseFlagValues(args, ["--repo", "-R"]).flatMap(expand),
+		[],
+		corpus,
+	);
 }
 
 /**
  * @param {string[]} args the words after `gh search issues`
  * @param {Corpus} corpus
+ * @param {Expand} expand
  */
-function isRulingsSearch(args, corpus) {
+function isRulingsSearch(args, corpus, expand) {
 	if (parseFlagValues(args, ["--state"]).includes("open")) return false;
 	/** @type {string[]} */
 	const query = [];
@@ -133,13 +144,40 @@ function isRulingsSearch(args, corpus) {
 			return m ? [requiredGroup(m, 1, re)] : [];
 		});
 	return isOnCorpus(
-		[...parseFlagValues(args, ["--repo", "-R"]), ...qualifier(/^repo:(\S+)$/i)],
+		[
+			...parseFlagValues(args, ["--repo", "-R"]),
+			...qualifier(/^repo:(\S+)$/i),
+		].flatMap(expand),
 		[
 			...parseFlagValues(args, ["--owner"]),
 			...qualifier(/^(?:user|org):(\S+)$/i),
-		],
+		].flatMap(expand),
 		corpus,
 	);
+}
+
+/* A `$name` or `${name}` reference inside a word. */
+const VAR_REF = /\$(?:\{(\w+)\}|(\w+))/g;
+
+/**
+ * A word's readings with each loop variable it names replaced by every word
+ * of that loop's list; a word naming none, or one no loop binds, reads as
+ * itself.
+ * @param {string} value
+ * @param {Map<string, string[]>} loops each enclosing loop's variable and list
+ * @returns {string[]}
+ */
+function expandLoopVars(value, loops) {
+	const m = [...value.matchAll(VAR_REF)].find((r) =>
+		loops.has(r[1] ?? r[2] ?? ""),
+	);
+	if (!m || m.index === undefined) return [value];
+	const values = loops.get(m[1] ?? m[2] ?? "") ?? [];
+	const [head, tail] = [
+		value.slice(0, m.index),
+		value.slice(m.index + m[0].length),
+	];
+	return values.flatMap((v) => expandLoopVars(`${head}${v}${tail}`, loops));
 }
 
 /**
@@ -150,19 +188,45 @@ function isRulingsSearch(args, corpus) {
 function isRulingsCommand(command, corpus) {
 	const parsed = parseCommand(command);
 	const read = (/** @type {string} */ w) => literal(w, parsed.spans).text;
+	/** @type {{ name: string, list: string[] | null }[]} the open `for` loops,
+	 *  innermost last; `list` null where a word of it is not literal */
+	const loops = [];
+	/** @type {Expand} */
+	const expand = (value) => {
+		/** @type {Map<string, string[]>} */
+		const bound = new Map();
+		for (const { name, list } of loops)
+			if (list) bound.set(name, list);
+			else bound.delete(name);
+		return expandLoopVars(value, bound);
+	};
 	let found = false;
 	walkCommands(
 		parsed,
 		(cmd) => {
 			if (found) return;
+			const [first, name, keyword, ...list] = cmd.words;
+			if (first === "for" && name !== undefined && keyword === "in") {
+				const words = list.map((w) => literal(w, parsed.spans));
+				loops.push({
+					name,
+					list: words.every((w) => w.known && !w.text.includes("$"))
+						? words.map((w) => w.text)
+						: null,
+				});
+				return;
+			}
+			if (first === "done") loops.pop();
 			found = ghWords(cmd.words, parsed.spans).some((gh) => {
 				const [sub, verb, ...args] = gh.args.map(read);
 				if (gh.repo) args.push("--repo", gh.repo.text);
 				return (
-					(sub === "issue" && verb === "list" && isRulingsList(args, corpus)) ||
+					(sub === "issue" &&
+						verb === "list" &&
+						isRulingsList(args, corpus, expand)) ||
 					(sub === "search" &&
 						verb === "issues" &&
-						isRulingsSearch(args, corpus))
+						isRulingsSearch(args, corpus, expand))
 				);
 			});
 		},
