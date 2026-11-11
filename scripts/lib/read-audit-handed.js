@@ -24,11 +24,13 @@ const { relativeUnder } = require("./is-under.js");
  * What handed a child a checkout path, as the preload logs it on the
  * child's entry: an argument by its place after the program's name; a
  * variable by its name, `standing` where the process that spawned the child
- * holds the same value; the input of a sync spawn. `p` is the repo-relative
- * paths it names.
+ * holds the same value; the input of a sync spawn; the checkout's repository
+ * where git finds it above its directory. `p` is the repo-relative paths it
+ * names.
  * @typedef {{by: "arg", at: number, p: string[]}
  *   | {by: "env", name: string, standing: boolean, p: string[]}
- *   | {by: "stdin", p: string[]}} Hand
+ *   | {by: "stdin", p: string[]}
+ *   | {by: "repo", p: string[]}} Hand
  */
 
 /* What ends a path inside a word. */

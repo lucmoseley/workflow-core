@@ -643,6 +643,41 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
+		it("doubts a shell whose PATH holds a checkout directory, from outside", () => {
+			const root = checkout();
+			const body = spawns("sh", ["-c", "tool"], outsideDir(), {
+				env: {
+					PATH: `${path.join(root, "scripts")}${path.delimiter}${process.env.PATH}`,
+				},
+			});
+			expect(untraced(root, body).doubt).toMatch(/by its environment \(PATH\)/);
+		});
+
+		it("doubts a git with the audit stripped in a scratch directory under the root that is no repository, or steered by GIT_DIR", () => {
+			const root = checkout();
+			const stripped = (args: string[], cwd: string, env = {}) =>
+				`const env = { ...process.env, ...${quoted(env)}, PATH: ${quoted(GUARD_DIR + path.delimiter)} + process.env.PATH }; delete env.WFC_READ_AUDIT; try { require("node:child_process").execFileSync("git", ${quoted(args)}, { cwd: ${cwd}, env, stdio: "ignore" }); } catch {}`;
+			const inScratch = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				stripped(["rev-parse", "--show-toplevel"], "scratch"),
+			].join("\n");
+			expect(untraced(root, inScratch).doubt).toMatch(
+				/by the repository above its directory/,
+			);
+			const own = inScratch.replace(
+				"const env",
+				'require("node:fs").mkdirSync(scratch + "/.git"); const env',
+			);
+			expect(untraced(root, own)).toHaveProperty("reads");
+			const steered = stripped(["status"], quoted(outsideDir()), {
+				GIT_DIR: path.join(root, ".git"),
+				GIT_WORK_TREE: root,
+			});
+			expect(untraced(root, steered).doubt).toMatch(
+				/by its environment \(GIT_/,
+			);
+		});
+
 		it("keeps the reads of a file whose child is handed only its own scratch, the audit's own variables or a node_modules on PATH", () => {
 			const root = checkout();
 			const cwd = outsideDir();
@@ -706,6 +741,24 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 				env: { RULES: path.join(root, ".claude") },
 			});
 			expect(readAudits(log, root).get(T).reads.files).toContain(settingsFile);
+		});
+
+		it("holds what a checkout script read that a shell found through PATH, from outside", () => {
+			const root = checkout();
+			write(
+				root,
+				"scripts/tool",
+				`#!/bin/sh\ncat ${path.join(root, settingsFile)}\n`,
+			);
+			fs.chmodSync(path.join(root, "scripts/tool"), 0o755);
+			const body = spawns("sh", ["-c", "tool"], outsideDir(), {
+				env: {
+					PATH: `${path.join(root, "scripts")}${path.delimiter}${process.env.PATH}`,
+				},
+			});
+			const files = traced(root, body).reads.files;
+			expect(files).toContain(settingsFile);
+			expect(files).toContain("scripts/tool");
 		});
 
 		it("holds the file a shell read off its sync input", () => {

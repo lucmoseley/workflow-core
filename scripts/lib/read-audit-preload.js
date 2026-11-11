@@ -364,6 +364,14 @@ function install() {
 			return cwd;
 		}
 	};
+	const stands = (/** @type {string} */ abs) => {
+		try {
+			realRealpathSync(abs);
+			return true;
+		} catch {
+			return false;
+		}
+	};
 	const guardFile = path.join(__dirname, "host-git-guard", "git");
 	/* A bare `git` its PATH finds as the host git guard, which logs what it
 	 * reads of this repository where it carries the audit. */
@@ -480,6 +488,29 @@ function install() {
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
+	 * A git no guard logs, in a directory under the root with no repository
+	 * of its own between: it reads the checkout's (#4982). `init` and `clone`
+	 * make one and read none; `GIT_DIR` is weighed as a variable.
+	 * @param {Untyped} opts
+	 * @param {string} cwd
+	 * @returns {Hand[]}
+	 */
+	const repoHands = (opts, cwd) => {
+		const words = argvOf(opts).slice(1);
+		const isGit = path.basename(String(opts?.file ?? "")) === "git";
+		if (!isGit || !relativeUnder(root, cwd)) return [];
+		if (words[0] === "init" || words[0] === "clone") return [];
+		if (
+			argvOf({ args: opts?.envPairs }).some((/** @type {string} */ p) =>
+				p.startsWith("GIT_DIR="),
+			)
+		)
+			return [];
+		for (let at = cwd; at !== root; at = path.dirname(at))
+			if (stands(path.join(at, ".git"))) return [];
+		return [{ by: "repo", p: ["."] }];
+	};
+	/**
 	 * What hands a child paths in the checkout; none for a child that logs
 	 * its own reads.
 	 * @param {Untyped} opts
@@ -498,6 +529,7 @@ function install() {
 			),
 			...envHands(opts, cwd),
 			...stdinHands(opts, cwd),
+			...repoHands(opts, cwd),
 		];
 	};
 	/**

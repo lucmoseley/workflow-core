@@ -482,6 +482,7 @@ function readsNoVariable(e, root) {
 
 const handedBy = (/** @type {Hand} */ hand) => {
 	if (hand.by === "env") return ` by its environment (${hand.name})`;
+	if (hand.by === "repo") return " by the repository above its directory";
 	return hand.by === "stdin" ? " on its standard input" : "";
 };
 
