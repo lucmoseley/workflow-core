@@ -23,7 +23,8 @@
  */
 const { caught } = require("./lib/caught.js");
 const { readLiveSessions } = require("./lib/burn-off-listing.js");
-const { isBurnMarkerOn, isFable } = require("./lib/burn-mode.js");
+const { isBurnMarkerOn } = require("./lib/burn-mode.js");
+const { isFable } = require("./lib/model-table.js");
 const { buildResumeIo } = require("./lib/resume-io.js");
 const { resumeSteps } = require("./lib/refill-resume.js");
 const { scriptPath } = require("./lib/script-path.js");

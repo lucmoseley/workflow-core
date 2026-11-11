@@ -52,6 +52,7 @@
 
 const path = require("node:path");
 const { registeredGuards } = require("./guard-fires.js");
+const { buildToolCoverage, MatcherError } = require("./core-hooks.js");
 const { cutAt } = require("./cut-at.js");
 const { clausesAdmit, globToRegExp, parseIfClause } = require("./if-clause.js");
 const { isDenyCapableIn, isDenyingCore } = require("./deny-capable.js");
@@ -115,10 +116,10 @@ const SCOPES = new Set(["deny", "nondeny", "all"]);
  *   on the row so a caller reading a `nondeny` or `all` table can say WHY a
  *   guard has no deny rate — it cannot have one — rather than reporting it as
  *   an unmeasured zero (mantahostels#3350).
- * @property {Array<{matcher: RegExp | null, raw: string, tool: string | null,
- *   glob: string | null, test: RegExp | null}>} rules one per settings.json
- *   registration; `raw` is the matcher as settings.json spells it, which is
- *   what reporting prints.
+ * @property {Array<{isToolCovered: (tool: string) => boolean, raw: string,
+ *   tool: string | null, glob: string | null, test: RegExp | null}>} rules one
+ *   per settings.json registration; `raw` is the matcher as settings.json
+ *   spells it, which is what reporting prints.
  * @property {string[]} conditions the raw `if` clauses, for reporting
  * @property {string | null} unknown why this guard's population cannot be
  *   counted, or null where it can. EVERY unreadable registration is named, not
@@ -203,29 +204,21 @@ function ensureRow(table, guard, capable, via = null) {
  */
 function addRegistration(row, reg, note) {
 	const { guard } = row;
-	// Claude Code reads an absent matcher, `"*"` and `""` alike as "every
-	// tool". A null RegExp carries that: `"*"` will not compile at all and
-	// `""` compiles to `^(?:)$`, which matches only the empty tool name and
-	// would report a silent zero population.
-	//
-	// All three normalise to `*` for reporting: they are one route (mantahostels#3296).
+	// An absent matcher, `"*"` and `""` are one route, so all three report
+	// as `*` (mantahostels#3296).
 	const spelling = reg.matcher ?? "*";
 	const raw = spelling === "" ? "*" : spelling;
-	let matcher = null;
-	if (raw !== "*") {
-		try {
-			matcher = new RegExp(`^(?:${raw})$`);
-		} catch {
-			row.unknown = note(
-				guard,
-				`matcher ${JSON.stringify(raw)} is not a regexp`,
-			);
-			return;
-		}
+	let isToolCovered;
+	try {
+		isToolCovered = buildToolCoverage(raw);
+	} catch (err) {
+		if (!(err instanceof MatcherError)) throw err;
+		row.unknown = note(guard, `matcher ${JSON.stringify(raw)} is not a regexp`);
+		return;
 	}
 
 	if (reg.if === undefined) {
-		row.rules.push({ matcher, raw, tool: null, glob: null, test: null });
+		row.rules.push({ isToolCovered, raw, tool: null, glob: null, test: null });
 		return;
 	}
 	const parsed = parseIfClause(reg.if);
@@ -238,7 +231,7 @@ function addRegistration(row, reg, note) {
 	}
 	row.conditions.push(reg.if);
 	row.rules.push({
-		matcher,
+		isToolCovered,
 		raw,
 		tool: parsed.tool,
 		glob: parsed.glob,
@@ -266,7 +259,7 @@ function addCore(row, core, note) {
 		return;
 	}
 	row.rules.push({
-		matcher,
+		isToolCovered: (tool) => matcher.test(tool),
 		raw: core.tools,
 		tool: null,
 		glob: null,
@@ -389,12 +382,11 @@ function firesOn(trigger, toolName, command) {
 	if (trigger.unknown) return false;
 	if (trigger.via)
 		return (
-			trigger.rules.some((r) => r.matcher?.test(toolName)) &&
+			trigger.rules.some((r) => r.isToolCovered(toolName)) &&
 			clausesAdmit(trigger.conditions, toolName, command)
 		);
 	for (const rule of trigger.rules) {
-		// A null matcher is the all-tools wildcard.
-		if (rule.matcher !== null && !rule.matcher.test(toolName)) continue;
+		if (!rule.isToolCovered(toolName)) continue;
 		if (rule.test === null) return true;
 		// An `if` names the tool its glob is written against; a registration
 		// whose matcher admits several tools narrows to that one here.
