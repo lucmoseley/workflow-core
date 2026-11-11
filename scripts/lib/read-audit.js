@@ -22,9 +22,8 @@
  * where that equals what the test got (#4993). A call the guard logged begun
  * and never answered, or that answered the same words two ways, is a doubt.
  * So is one made after the suite's setup settled under a variable changing
- * git's answer (`GIT_ANSWER_VARS`) set otherwise than it was settled: the
- * store's run again would not heed it, and a scratch `HOME` it names is gone
- * by then (#5017).
+ * git's answer (`GIT_ANSWER_VARS`) set otherwise than it was settled
+ * (#5017).
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
  * another file, or holds a read the audit cannot see, reads as `doubt`. What
