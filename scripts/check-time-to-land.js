@@ -53,7 +53,7 @@ runCheck({
 			greenSuiteSpans(parseLanderLog(readLogSince(landerLog(root), w.since))),
 			w,
 		);
-		const reading = `take-to-land p90 ${secs(r.p90Ms)} s, p50 ${secs(r.p50Ms)} s, over ${r.stays} queue ref(s) taken and landed or dropped ${w.label}; target ${secs(r.targetMs)} s, ${TARGET_MULTIPLE} times the green suite's p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s); ${r.overTarget ?? "-"} of ${r.stays} over the target, ${r.needed} calling it over`;
+		const reading = `take-to-land p90 ${secs(r.p90Ms)} s, p50 ${secs(r.p50Ms)} s, over ${r.stays} queue ref(s) taken and landed or dropped ${w.label}; target ${secs(r.targetMs)} s, ${TARGET_MULTIPLE} times the green suite's p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s); ${r.overTarget ?? "-"} of ${r.stays} over the target, ${r.overNeeded} calling it over`;
 		if (r.over) {
 			ctx.warn("SLOW-LANDING", reading);
 			ctx.say(`SLOW-LANDING — ${reading}\n`);

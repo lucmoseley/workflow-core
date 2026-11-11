@@ -41,9 +41,12 @@ const { DAY_MS } = require("./retained-jsonl.js");
 
 /* The stays' p90 over the green suite's p50 (#4951's design comment). */
 const TARGET_MULTIPLE = 3;
-/* A queue on target has at most this share of its stays over the time. */
-const OVER_SHARE = 0.1;
-/* The one-sided chance a queue on target is called over: a 95% call. */
+/* The stays' percentile the target holds, so a queue on target has at most
+ * OVER_SHARE of its stays over the time. */
+const TARGET_PERCENTILE = 90;
+const OVER_SHARE = 1 - TARGET_PERCENTILE / 100;
+/* The one-sided chance a queue on target is called over: the conventional
+ * 5% significance level, chosen at #4989. */
 const CHANCE = 0.05;
 /* The first window readLogSince reads, doubled until it reaches past
  * `since`; a guess, never measured against the log's daily growth. */
@@ -239,14 +242,14 @@ function overCountNeeded(n) {
  * @typedef {object} Reading
  * @property {number} stays stays that began and ended in the window
  * @property {number|null} overTarget stays longer than targetMs
- * @property {number} needed overCountNeeded of the stays
+ * @property {number} overNeeded overCountNeeded of the stays
  * @property {number|null} p50Ms
  * @property {number|null} p90Ms
  * @property {number} greens green runs that began and ended in the window
  * @property {number|null} greenP50Ms
  * @property {number|null} targetMs TARGET_MULTIPLE × greenP50Ms
  * @property {boolean} judged whether the window holds a green run
- * @property {boolean} over whether overTarget reaches needed
+ * @property {boolean} over whether overTarget reaches overNeeded
  */
 
 /** @param {number|null} ms @returns {string} whole seconds, `-` for none */
@@ -270,18 +273,18 @@ function judgeTimeToLand(stays, greens, w) {
 	const targetMs = greenP50Ms === null ? null : TARGET_MULTIPLE * greenP50Ms;
 	const overTarget =
 		targetMs === null ? null : times.filter((t) => t > targetMs).length;
-	const needed = overCountNeeded(times.length);
+	const overNeeded = overCountNeeded(times.length);
 	return {
 		stays: times.length,
 		overTarget,
-		needed,
+		overNeeded,
 		p50Ms: percentile(times, 50),
-		p90Ms: percentile(times, 90),
+		p90Ms: percentile(times, TARGET_PERCENTILE),
 		greens: runs.length,
 		greenP50Ms,
 		targetMs,
 		judged: targetMs !== null,
-		over: overTarget !== null && overTarget >= needed,
+		over: overTarget !== null && overTarget >= overNeeded,
 	};
 }
 

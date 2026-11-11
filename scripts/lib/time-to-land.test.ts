@@ -227,11 +227,14 @@ describe("the reading against the target", () => {
 
 	it("needs the fewest stays over the time that a tenth's chance reaches at most 5% of the time", () => {
 		// P(X >= x | n, 0.1): n=5, x=2 0.0815, x=3 0.0086; n=10, x=3 0.0702,
-		// x=4 0.0128; n=100, x=15 0.0726, x=16 0.0399.
+		// x=4 0.0128; n=100, x=15 0.0726, x=16 0.0399; n=10000, where 0.9^n
+		// underflows, 1051 (scipy binom.sf).
 		const needed = (n: number) =>
-			judgeTimeToLand(stays(n, 0, 200), greens, week()).needed;
+			judgeTimeToLand(stays(n, 0, 200), greens, week()).overNeeded;
 
-		expect([0, 1, 5, 10, 100].map(needed)).toEqual([1, 2, 3, 4, 16]);
+		expect([0, 1, 5, 10, 100, 10_000].map(needed)).toEqual([
+			1, 2, 3, 4, 16, 1051,
+		]);
 	});
 
 	it("is over where the stays over the time reach the count needed, and not one short of it", () => {
@@ -242,7 +245,7 @@ describe("the reading against the target", () => {
 			judged: true,
 			over: true,
 			overTarget: 16,
-			needed: 16,
+			overNeeded: 16,
 			p90Ms: (target + 1) * S,
 			targetMs: target * S,
 		});
@@ -259,8 +262,8 @@ describe("the reading against the target", () => {
 		const one = judgeTimeToLand(stays(1, 1, 9000), greens, week());
 
 		expect([at.overTarget, at.over]).toEqual([0, false]);
-		expect([few.needed, few.over]).toEqual([3, true]);
-		expect([one.needed, one.overTarget, one.over]).toEqual([2, 1, false]);
+		expect([few.overNeeded, few.over]).toEqual([3, true]);
+		expect([one.overNeeded, one.overTarget, one.over]).toEqual([2, 1, false]);
 	});
 
 	it("counts no stay before a window start it is given", () => {

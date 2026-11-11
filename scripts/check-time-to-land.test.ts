@@ -96,7 +96,7 @@ it("warns of nothing one stay short of the count, however slow the stays over", 
 	expect(r.status, r.stderr).toBe(0);
 	expect(JSON.parse(r.stdout)).toMatchObject({
 		overTarget: 15,
-		needed: 16,
+		overNeeded: 16,
 		over: false,
 	});
 });
