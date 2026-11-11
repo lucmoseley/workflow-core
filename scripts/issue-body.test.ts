@@ -28,6 +28,7 @@ import {
 	type JudgeFakePlan,
 	judgeFakeEnv,
 	MODEL_LEAD,
+	OVERRIDE_LEAD,
 	readJudgeCalls,
 } from "./lib/gate-judge-fake";
 import { asRecorded } from "./lib/gh-fake";
@@ -760,21 +761,57 @@ describe("the model reading of an edit (#4969)", () => {
 		});
 	};
 
-	it("writes an edit whose wait only the model reads, printing the finding as advice", () => {
+	const Override = "**Gate judge override:** the records build up on demand";
+	const found = { reading: { waits: [wait(Wait, "seven days")], bases: [] } };
+
+	it("refuses an edit whose wait only the model reads, printing the template and the override", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(found, "append", "96", "--text", Wait);
+		expect(r.status).toBe(2);
+		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing written:"));
+		expect(refusal).toContain(`Nothing written: this edit adds ${MODEL_LEAD}:`);
+		expect(refusal).toContain(`"${Wait}" makes work wait on data accumulating`);
+		expect(refusal).toContain("The line's template: `**Gate basis:**");
+		expect(refusal).toContain(
+			"`**Gate judge override:** <why its reading is wrong>`",
+		);
+		expect(readEdits()).toBe(0);
+	});
+
+	it("writes an edit whose override gives a reason, saying it was honoured", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(found, "append", "96", "--text", `${Wait}\n${Override}`);
+		expect(r.status).toBe(0);
+		expect(readBody()).toContain(Wait);
+		expect(r.stderr.split(OVERRIDE_LEAD)).toHaveLength(2);
+	});
+
+	it("refuses an edit whose override gives no reason", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		const r = edit(
-			{ reading: { waits: [wait(Wait, "seven days")], bases: [] } },
+			found,
 			"append",
 			"96",
 			"--text",
-			Wait,
+			`${Wait}\n**Gate judge override:**`,
 		);
-		expect(r.status).toBe(0);
-		expect(readBody()).toContain(Wait);
-		expect(r.stderr.split(MODEL_LEAD)).toHaveLength(2);
-		expect(r.stderr).toContain(
-			`"${Wait}" makes work wait on data accumulating`,
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("gives no reason, so it clears nothing");
+		expect(readEdits()).toBe(0);
+	});
+
+	it("refuses an edit the patterns fault, an override line present", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(
+			found,
+			"append",
+			"96",
+			"--text",
+			`**Gated until:** 2026-10-05 — a week\n\n${Wait}\n${Override}`,
 		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("as the wording patterns read it");
+		expect(readEdits()).toBe(0);
 	});
 
 	it("prints nothing about an old wait the edit leaves untouched", () => {
@@ -824,7 +861,7 @@ describe("the model reading of an edit (#4969)", () => {
 		expect(r.status).toBe(2);
 		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing written:"));
 		expect(refusal).toContain("no `**Gate basis:**` line");
-		expect(refusal).toContain(MODEL_LEAD);
+		expect(refusal).toContain(`It also carries ${MODEL_LEAD}:`);
 		expect(readEdits()).toBe(0);
 	});
 

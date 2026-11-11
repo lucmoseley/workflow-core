@@ -29,6 +29,7 @@ import {
 	type JudgeFakePlan,
 	judgeFakeEnv,
 	MODEL_LEAD,
+	OVERRIDE_LEAD,
 } from "./lib/gate-judge-fake";
 import { buildJqLines } from "./lib/gh-fake";
 import { buildLinkReadArms, stubGhScript } from "./lib/gh-stub";
@@ -384,16 +385,57 @@ describe("the model reading (#4969)", () => {
 		},
 	};
 
-	it("files a body whose wait only the model reads, printing the finding as advice", () => {
+	const Override = "**Gate judge override:** the records build up on demand";
+
+	it("refuses a body whose wait only the model reads, printing the template and the override", () => {
 		setUp();
 		const r = judged(`Build it.\n\n${Wait}\n`, waitFound);
+		expect(r.status).toBe(2);
+		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing filed:"));
+		expect(refusal).toContain(`Nothing filed: the body carries ${MODEL_LEAD}:`);
+		expect(refusal).toContain(`"${Wait}" makes work wait on data accumulating`);
+		expect(refusal).toContain("question 1:");
+		expect(refusal).toContain("The line's template: `**Gate basis:**");
+		expect(refusal).toContain(
+			"`**Gate judge override:** <why its reading is wrong>`",
+		);
+		expect(readGhCalls()).toEqual([]);
+	});
+
+	it("files a body whose override gives a reason, saying it was honoured, and logs it", () => {
+		setUp();
+		fs.rmSync(callLogPath(), { force: true });
+		const r = judged(`Build it.\n\n${Wait}\n${Override}\n`, waitFound);
 		expect(r.status).toBe(0);
 		expect(readCreates()).toHaveLength(1);
-		expect(r.stderr).toContain(MODEL_LEAD);
 		expect(r.stderr).toContain(
-			`"${Wait}" makes work wait on data accumulating`,
+			`${OVERRIDE_LEAD} ("the records build up on demand")`,
 		);
-		expect(r.stderr).toContain("question 1:");
+		expect(readJsonl(callLogPath())?.rows).toEqual([
+			expect.objectContaining({ override: "the records build up on demand" }),
+		]);
+	});
+
+	it("refuses a body whose override gives no reason", () => {
+		setUp();
+		const r = judged(
+			`Build it.\n\n${Wait}\n**Gate judge override:**\n`,
+			waitFound,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("gives no reason, so it clears nothing");
+		expect(readGhCalls()).toEqual([]);
+	});
+
+	it("refuses a body the patterns fault, an override line present", () => {
+		setUp();
+		const r = judged(
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${Override}\n`,
+			waitFound,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("as the wording patterns read it");
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("refuses a body the patterns fault as before, the model's finding in the same message", () => {
@@ -408,7 +450,7 @@ describe("the model reading (#4969)", () => {
 		expect(refusal).toContain(
 			"no `**Gate basis:**` line, as the wording patterns read it.",
 		);
-		expect(refusal).toContain(MODEL_LEAD);
+		expect(refusal).toContain(`It also carries ${MODEL_LEAD}:`);
 		expect(refusal).toContain(`"${Wait}"`);
 		expect(readGhCalls()).toEqual([]);
 	});

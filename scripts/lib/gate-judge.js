@@ -8,7 +8,8 @@
  * body before an edit.
  *
  * readGateWrite is the three write routes' one entry (#4969): it words the
- * reading for the writing session, as advice, and logs each call.
+ * reading for the writing session, refusing what either reading faults
+ * (#4970), and logs each call.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -19,7 +20,6 @@ const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { configDirFrom } = require("./config-dir.js");
 const { hostRoot } = require("./host-root.js");
 const { markersDir } = require("./marker-root.js");
-const { docPath } = require("./script-path.js");
 const {
 	BASIS_CLASSES,
 	JUDGE_TIMEOUT_EXIT,
@@ -29,8 +29,10 @@ const { now } = require("./check.js");
 const {
 	basisFaults,
 	basisRefusal,
+	basisRule,
 	gateFacts,
 	introducedBasisFaults,
+	judgeOverrideOf,
 	otherIssueRefs,
 } = require("./issue-gate.js");
 
@@ -416,12 +418,15 @@ function judgedBasisFaults(
 	};
 }
 
-/* Each note's lead: the outcome review counts a model finding and a fallback
- * apart from a pattern fault, whose refusal says the wording patterns read
- * it (lib/issue-gate.js basisRefusal). */
-const MODEL_LEAD =
-	"Advice from the model reading of this body, which refuses nothing yet";
+/* Each message's lead: the outcome review counts a model fault, an override
+ * and a fallback apart from a pattern fault, whose refusal says the wording
+ * patterns read it (lib/issue-gate.js basisRefusal). */
+const MODEL_LEAD = "faults the model reading of this body raises";
+const OVERRIDE_LEAD = "Gate judge override honoured";
 const FALLBACK_LEAD = "The model reading of this body did not run";
+
+const OVERRIDE_FORM =
+	"Where the model reading is wrong, write a live body line `**Gate judge override:** <why its reading is wrong>`: with a reason it clears every fault of the model reading on this body and no wording-pattern fault, and `npm run status` lists the issue for review.";
 
 const QUESTION_WAIT =
 	"question 1: does this body make work wait on time passing or on data accumulating?";
@@ -449,19 +454,15 @@ function modelFinding(f) {
 	return `the basis "${f.text}" reads as ${f.class ? CLASS_SAYS[f.class] : "unwarranted"} (${QUESTION_BASIS})`;
 }
 
+/** @param {JudgedFault[]} model */
+const findings = (model) => model.map((f) => `- ${modelFinding(f)}`).join("\n");
+
 /**
- * What a write route prints of the model reading: its findings as advice,
- * the line saying it did not run, or "" where it ran and found nothing.
- *
- * @param {JudgedFault[]} model the model's faults
- * @param {string|null} fallback
+ * @param {string} reason
+ * @param {JudgedFault[]} model the faults it clears
  */
-function readingNotes(model, fallback) {
-	if (fallback)
-		return `${FALLBACK_LEAD} (${fallback}), so it was judged on the wording patterns alone.`;
-	if (model.length === 0) return "";
-	return `${MODEL_LEAD}:\n${model.map((f) => `- ${modelFinding(f)}`).join("\n")}\nWhere a finding is right, give the wait a \`**Gate basis:**\` line that derives its window: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
-}
+const overrideNote = (reason, model) =>
+	`${OVERRIDE_LEAD} ("${reason}"): ${model.length > 0 ? `it clears the model reading's faults on this body:\n${findings(model)}\n` : "the model reading raised no fault on this body. "}It clears no wording-pattern fault, and \`npm run status\` lists the issue for review.`;
 
 /**
  * One record on the call log, append-only, for the outcome review to count.
@@ -486,22 +487,64 @@ const unmarked = ({ by: _by, ...f }) => f;
 const MIN_BOUND_MS = 5000;
 
 /**
+ * The refusal's model part: the faults, then the rule's template where no
+ * pattern refusal printed it, then how to override.
+ *
+ * @param {JudgedFault[]} model
+ * @param {boolean} afterPatterns
+ * @param {{reason: string}|null} override
+ */
+function modelRefusal(model, afterPatterns, override) {
+	return [
+		`${afterPatterns ? "It also carries " : ""}${MODEL_LEAD}:`,
+		findings(model),
+		...(afterPatterns ? [] : [basisRule()]),
+		...(override?.reason === ""
+			? [
+					"The `**Gate judge override:**` line gives no reason, so it clears nothing.",
+				]
+			: []),
+		OVERRIDE_FORM,
+	].join("\n");
+}
+
+/**
+ * The route's answer: a pattern fault refuses, and so does a model fault
+ * unless `override` gives a reason (#4970). A fallback refuses nothing.
+ *
  * @param {import("./issue-gate.js").BasisFault[]} patterns
- * @param {string} notes
+ * @param {{model: JudgedFault[]}|{fallback: string}|null} read the model
+ *   reading's faults, why it did not run, or null where it was not asked
+ * @param {{reason: string}|null} override the body's override line
  * @returns {{refusal: string|null, advice: string}}
  */
-function answer(patterns, notes) {
-	if (patterns.length === 0) return { refusal: null, advice: notes };
-	const refusal = basisRefusal(patterns, "the wording patterns");
-	return { refusal: notes ? `${refusal}\n\n${notes}` : refusal, advice: "" };
+function answer(patterns, read, override) {
+	const model = read && "model" in read ? read.model : null;
+	const reason = model && override?.reason;
+	/** @type {string[]} */
+	const notes = [];
+	if (read && "fallback" in read)
+		notes.push(
+			`${FALLBACK_LEAD} (${read.fallback}), so it was judged on the wording patterns alone.`,
+		);
+	if (model && reason) notes.push(overrideNote(reason, model));
+	const refusing = reason ? [] : (model ?? []);
+	if (patterns.length === 0 && refusing.length === 0)
+		return { refusal: null, advice: notes.join("\n\n") };
+	const parts =
+		patterns.length > 0 ? [basisRefusal(patterns, "the wording patterns")] : [];
+	if (refusing.length > 0)
+		parts.push(modelRefusal(refusing, parts.length > 0, override));
+	return { refusal: [...parts, ...notes].join("\n\n"), advice: "" };
 }
 
 /**
  * One write route's gate reading (#4964): `refusal` completes "<the body>
- * carries …" where the patterns fault the body, the model's notes riding in
- * it; else `advice`, the notes the route prints beside its output, or "".
- * Each model call is logged. An edit that changes nothing calls no model,
- * and a bound under MIN_BOUND_MS is a fallback without one.
+ * carries …" where the patterns or the model fault the body, a live
+ * `**Gate judge override:** <reason>` clearing the model's faults (#4970);
+ * else `advice`, the notes the route prints beside its output, or "". Each
+ * model call is logged. An edit that changes nothing calls no model, and a
+ * bound under MIN_BOUND_MS is a fallback without one.
  *
  * `WFC_GATE_JUDGE=off` is the suites' seam (vitest.setup.ts): no call, no
  * note and no record.
@@ -518,34 +561,36 @@ function readGateWrite(
 	if (before !== undefined && before === body)
 		return { refusal: null, advice: "" };
 	if (env.WFC_GATE_JUDGE === "off")
-		return answer(patternFaults(body, own, before), "");
-	if (boundMs < MIN_BOUND_MS) {
-		const patterns = patternFaults(body, own, before);
-		const fallback = "too little of the hook's time was left for it";
+		return answer(patternFaults(body, own, before), null, null);
+	const override = judgeOverrideOf(body);
+	const log = (/** @type {Record<string, unknown>} */ record) =>
 		logCall({
 			route,
 			issue: own ?? null,
-			patterns,
-			model: [],
-			ms: 0,
-			dropped: 0,
-			fallback,
+			...record,
+			override: override?.reason || null,
 		});
-		return answer(patterns, readingNotes([], fallback));
+	if (boundMs < MIN_BOUND_MS) {
+		const patterns = patternFaults(body, own, before);
+		const fallback = "too little of the hook's time was left for it";
+		log({ patterns, model: [], ms: 0, dropped: 0, fallback });
+		return answer(patterns, { fallback }, override);
 	}
 	const r = judgedBasisFaults(body, { own, before, boundMs, env });
 	const patterns = r.faults.filter((f) => f.by === "patterns").map(unmarked);
 	const model = r.faults.filter((f) => f.by === "model");
-	logCall({
-		route,
-		issue: own ?? null,
+	log({
 		patterns,
 		model: model.map(unmarked),
 		ms: r.ms,
 		dropped: r.dropped,
 		fallback: r.fallback,
 	});
-	return answer(patterns, readingNotes(model, r.fallback));
+	return answer(
+		patterns,
+		r.fallback ? { fallback: r.fallback } : { model },
+		override,
+	);
 }
 
 module.exports = {

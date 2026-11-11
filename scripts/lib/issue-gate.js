@@ -254,6 +254,26 @@ function basisOf(body) {
 	return firstLiveMatch(BASIS_RE, String(body || ""))?.[1] || null;
 }
 
+const OVERRIDE_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
+	`${AT_LINE_HEAD}\\*\\*Gate judge override:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
+	"gim",
+);
+
+/**
+ * The body's first live `**Gate judge override:**` line (#4970), outside a
+ * fence: with a reason it clears the model reading's faults on the body
+ * (lib/gate-judge.js), and no pattern fault.
+ *
+ * @param {string} body
+ * @returns {{reason: string}|null} `reason` "" where the line gives none;
+ *   null where the body carries no such line
+ */
+function judgeOverrideOf(body) {
+	const m = firstLiveMatch(OVERRIDE_RE, String(body || ""));
+	return m ? { reason: (m[1] ?? "").trim() } : null;
+}
+
 const COUNT_WORDS = [
 	"one",
 	"two",
@@ -397,7 +417,7 @@ function durationsIn(body, at, opts = {}) {
 }
 
 const basisRule = () =>
-	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). The check reads the basis's form, each window named and a warrant present, and never judges it: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
+	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). The wording patterns read the basis's form, each window named and a warrant present; a model reading also asks which sentences make work wait and whether each basis derives its window, and refuses a wait or basis it faults. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
 
 const ISSUE_REF_RE = /#(\d+)\b/g;
 /* `mantahostels#12` and `owner/repo#12` name another repo's issue. */
@@ -876,7 +896,9 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
+	basisRule,
 	gateFacts,
+	judgeOverrideOf,
 	otherIssueRefs,
 	gateRuleHandover,
 	isNewlyGated,

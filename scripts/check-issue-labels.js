@@ -68,7 +68,11 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isRouteStep } = require("./lib/decision-labels");
 const { hostRoot } = require("./lib/host-root");
-const { resolveGate, basisFaults } = require("./lib/issue-gate");
+const {
+	resolveGate,
+	basisFaults,
+	judgeOverrideOf,
+} = require("./lib/issue-gate");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	isHeldWithoutReads,
@@ -506,6 +510,22 @@ function checkGates(iss, raise) {
 			);
 }
 
+/**
+ * A WARN (#4970) on each open issue whose body overrides the gate judge, so
+ * every disputed model reading is reviewed. The judge is not called here.
+ * @param {any} iss @param {Raise} raise
+ */
+function checkJudgeOverride(iss, raise) {
+	const reason = judgeOverrideOf(iss.body)?.reason;
+	if (reason)
+		raise(
+			"WARN",
+			"GATE-JUDGE-OVERRIDE",
+			`a session overrode the gate judge's model reading of this body — "${reason}"`,
+			"read the body against the reason: where the model was right, give the wait a `**Gate basis:**` that derives its window and delete the override line; where it was wrong, leave the line",
+		);
+}
+
 /** @param {any} iss @param {string[]} own @param {Raise} raise */
 function checkHumanIdle(iss, own, raise) {
 	/*
@@ -632,6 +652,7 @@ function checkTakesFaults(iss, own, counts, raise) {
 	checkContradictions(own, counts.openSteps.get(iss.number) || 0, raise);
 	checkHumanBody(iss, own, raise);
 	checkGates(iss, raise);
+	checkJudgeOverride(iss, raise);
 	checkHumanIdle(iss, own, raise);
 	checkAgentStep(iss, own, raise);
 	checkContainer(iss, own, children, raise);

@@ -25,6 +25,7 @@ import {
 	type JudgeFakePlan,
 	judgeFakeEnv,
 	MODEL_LEAD,
+	OVERRIDE_LEAD,
 } from "./lib/gate-judge-fake";
 import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
@@ -207,12 +208,44 @@ describe("the model reading (#4969)", () => {
 			{ env: judgeFakeEnv(dir, plan, config).env },
 		);
 
-	it("lets the create through, its finding reaching the session as context", () => {
+	const Override = "**Gate judge override:** the records build up on demand";
+
+	it("denies a create whose wait only the model reads, with the template and the override", () => {
 		const out = create(`Build it.\n\n${Wait}`, found);
+		expect(out.permissionDecision).toBe("deny");
+		const reason = out.permissionDecisionReason ?? "";
+		expect(reason).toContain(`It carries ${MODEL_LEAD}:`);
+		expect(reason).toContain(`"${Wait}" makes work wait on data accumulating`);
+		expect(reason).toContain("The line's template: `**Gate basis:**");
+		expect(reason).toContain(
+			"`**Gate judge override:** <why its reading is wrong>`",
+		);
+	});
+
+	it("lets a create through whose override gives a reason, saying so as context", () => {
+		const out = create(`Build it.\n\n${Wait}\n${Override}`, found);
 		expect(out.permissionDecision).toBeUndefined();
-		expect(out.additionalContext).toContain(MODEL_LEAD);
 		expect(out.additionalContext).toContain(
-			`"${Wait}" makes work wait on data accumulating`,
+			`${OVERRIDE_LEAD} ("the records build up on demand")`,
+		);
+	});
+
+	it("denies a create whose override gives no reason", () => {
+		const out = create(`Build it.\n\n${Wait}\n**Gate judge override:**`, found);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"gives no reason, so it clears nothing",
+		);
+	});
+
+	it("denies a create the patterns fault, an override line present", () => {
+		const out = create(
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${Override}`,
+			found,
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"as the wording patterns read it",
 		);
 	});
 
@@ -223,7 +256,9 @@ describe("the model reading (#4969)", () => {
 		);
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain("no `**Gate basis:**` line");
-		expect(out.permissionDecisionReason).toContain(MODEL_LEAD);
+		expect(out.permissionDecisionReason).toContain(
+			`It also carries ${MODEL_LEAD}:`,
+		);
 	});
 
 	it("lets the create through where the launch is refused, saying so", () => {

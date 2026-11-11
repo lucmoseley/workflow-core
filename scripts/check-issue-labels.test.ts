@@ -1523,6 +1523,30 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 	});
 });
 
+describe("a gate judge override on the body (#4970)", () => {
+	const line = "**Gate judge override:** the records build up on demand";
+	const report = async (body: string, state = "open") =>
+		(await run([], stubGh([{ number: 451, state, body }]))).out;
+
+	it("warns on an open issue carrying one, quoting its reason", async () => {
+		const out = await report(`Build it.\n\n${line}\n`);
+		expect(out).toContain("GATE-JUDGE-OVERRIDE");
+		expect(out).toContain("#451");
+		expect(out).toContain('"the records build up on demand"');
+		expect(out).not.toContain("NO-GATE-BASIS");
+	});
+
+	it("raises none on a closed issue, an empty line or one in a fence", async () => {
+		expect(await report(line, "closed")).not.toContain("GATE-JUDGE-OVERRIDE");
+		expect(await report("**Gate judge override:**\n")).not.toContain(
+			"GATE-JUDGE-OVERRIDE",
+		);
+		expect(await report(`\`\`\`\n${line}\n\`\`\`\n`)).not.toContain(
+			"GATE-JUDGE-OVERRIDE",
+		);
+	});
+});
+
 describe("a gate line with no basis (#577)", () => {
 	const until = "**Gated until:** 2099-01-01 — waiting on the data";
 	const on = "**Gated on:** 4 weeks of data — abandon if: the map is abandoned";
