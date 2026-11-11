@@ -532,8 +532,7 @@ const WRAPPERS = new Map([
  *                 its reader does not follow.
  *   watched       a `watch` was stripped: the command reruns on a timer.
  *   scripted      its words are a command a `-c` string runs, not the
- *                 command line's own, so a guard handing back a rewrite of
- *                 them hands it as the command inside the string (#4978).
+ *                 command line's own (#4978).
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
  * nothing, so an assignment after any other wrapper is the command word and
@@ -663,7 +662,6 @@ function stripRun(run, { spans, judged, pending }) {
 }
 
 /**
- * Strip `st`'s wrappers in turn until a command word stands first.
  * @param {Strip} st accumulator: its fields are written
  * @param {string[]} spans accumulator: a `-c` string's spans are appended
  */
@@ -679,8 +677,6 @@ function stripWrappers(st, spans) {
  * Do `words`, a command's words up to a word not yet typed, end where a
  * wrapper unwrap reads takes the script it runs through `sh -c` — `flock
  * <file> -c` or a `watch` with no `-x` — so the next word is that script?
- * The line join asks it of a quote left open (#4978): the script's lines are
- * each a run unwrap judges, so joining them hides none.
  * @param {string[]} words masked, from the command word on
  * @param {string[]} spans
  */
@@ -717,7 +713,6 @@ const runText = (run, segment) =>
 	run.scripted ? run.words.join(" ") : segment;
 
 /**
- * A run of `words` under no wrapper.
  * @param {string[]} words
  * @returns {Unwrapped}
  */
@@ -731,7 +726,6 @@ const buildBareRun = (words) => ({
 });
 
 /**
- * unwrap's state at the start of `run`'s strip.
  * @param {Unwrapped} run
  * @param {string[]} judged
  * @param {Unwrapped[]} pending

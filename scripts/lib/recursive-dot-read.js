@@ -497,7 +497,6 @@ function judge(scene, segment, words, cwd) {
 		if (head === undefined) continue;
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
-		/* A search a `-c` string runs is rewritten as itself (#4978). */
 		const own = { segment: runText(run, segment), words: scripted ? w : words };
 		const base = scripted
 			? trimRun(asWritten(own.segment, scene.spans), BASH_SPACE)

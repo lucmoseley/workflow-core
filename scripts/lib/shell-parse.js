@@ -448,7 +448,7 @@ const isWriteRedirect = (kind) =>
  * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
  * a stray quote would hide every line after it — EXCEPT inside a message
  * argument (mantahostels#232), whose lines are prose, and a script unwrap
- * reads (#4978), whose lines it judges each as a run.
+ * reads (#4978).
  *
  * Each command substitution a double-quoted span runs is LIFTED into segments
  * of its own, bracketed as a subshell, ahead of the segment holding the span
@@ -675,12 +675,7 @@ function parseHeredocTerm(mask, line) {
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
  * line outside a message argument (mantahostels#232) or a script unwrap reads
- * (#4978). The abandon is the fail-closed read of a quote typed by mistake: a
- * stray apostrophe that a later line's quote closes would hide every command
- * between them. A quote opening a message argument was meant, and one opening
- * a `flock -c` or `watch` script hides nothing, unwrap judging each of its
- * lines; only there does the join hold. A `sh -c` script is not among them:
- * no git guard reads one. Residual: three cores read no unwrap run, so such a
+ * (#4978). A `sh -c` script is not among them: no git guard reads one. Residual: three cores read no unwrap run, so such a
  * script's later `gh` or text line passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
@@ -696,7 +691,6 @@ function joinLogicalLines(commandLines, lx, spans) {
 		pending = [];
 		lx.reset();
 	};
-	/* Whether the open quote holds the join is asked once per span. */
 	let heldAt = "";
 	let held = false;
 	lx.reset();
@@ -1652,10 +1646,9 @@ const withoutName = (words, name, spans) =>
  *   not carry between Bash calls, so that is the tree the command runs in
  * @property {boolean} [unwrap] judge a git command behind shell-words.js's
  *   unwrap wrappers (#1731). Without it, a command a `flock -c` or `watch`
- *   script runs is still judged (#4978): the line join reads that script
- *   whole, so a walk reading no script would see none of its lines. That
- *   holds behind an outer wrapper too (`timeout 5 flock … -c "git …"`), while
- *   a bare `timeout 5 git …` stays unread
+ *   script runs is still judged (#4978), behind an outer wrapper too
+ *   (`timeout 5 flock … -c "git …"`), while a bare `timeout 5 git …` stays
+ *   unread
  */
 
 /**

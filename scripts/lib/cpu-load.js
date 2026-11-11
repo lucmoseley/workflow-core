@@ -19,7 +19,7 @@
  *
  * WHAT COUNTS AS A CAP — at most half the machine's cores, #2710's delegated
  * value:
- *  - `systemd-run … -p CPUQuota=<n>%` with n at most 50 × cores (400 here);
+ *  - `systemd-run … -p CPUQuota=<n>%` with n at most 50 × cores;
  *  - `taskset` to at most half the cores.
  * A cap covers everything its command runs, a `bash -c` string or a script
  * included. TWO CAPS DO NOT ADD UP TO ONE: a second capped generator in the
@@ -117,10 +117,8 @@ const RELEVANT = [
 
 const SHELLS = ["bash", "sh", "dash", "zsh", "ksh"];
 
-/* The wrappers whose script runs through `sh -c`, judged by judgeScriptWrapper. */
 const SCRIPT_WRAPPERS = ["flock", "watch"];
 
-/* The caps judged as wrappers of their own, standing as the command word. */
 const CAP_WRAPPERS = ["taskset"];
 
 /* The sinks a piped `yes` is still load into. */
@@ -539,7 +537,7 @@ const judgeScript = (at, words, spans, scan) =>
 
 /**
  * A `flock -c` or `watch` script, scanned as a shell's `-c` string is
- * (#4978); any other run of the wrapper judged on what it runs.
+ * (#4978).
  * @type {Judge}
  */
 function judgeScriptWrapper(at, words, spans, scan) {
@@ -746,8 +744,6 @@ function scanLine(st, line, idx) {
 	if (words.length === 0 || first.startsWith("#")) return null;
 	const loop = loopWord(st, words, sep);
 	if (loop !== undefined) return loop;
-	/* A loop body running anything but a builtin may block, so is no busy
-	 * loop. */
 	const top = st.frames.at(-1);
 	if (top && !BUSY_BODY.includes(first) && !/^[A-Za-z_].*=/s.test(first))
 		top.busy = false;
@@ -755,8 +751,6 @@ function scanLine(st, line, idx) {
 	const verdict = judge(lineAt(st, words, sep, idx), words, st.spans, st.scan);
 	if (verdict === null) return null;
 	if (verdict.kind !== "capped") return verdict;
-	/* A second capped generator, or one started over and over in a loop, adds
-	 * its cap to the first. */
 	if (st.capped !== null || (st.frames.length > 0 && sep === "&"))
 		return { ...verdict, kind: "multi" };
 	st.capped = verdict;
