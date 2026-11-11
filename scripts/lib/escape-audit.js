@@ -198,9 +198,6 @@ function trailFrom(trail, from) {
 }
 
 /**
- * Each round in one assistant text the audit takes: every re-send of a
- * question the turn's close-rivals refusal named, and on first sight each
- * close round carrying an escape line.
  * @param {string} said  the assistant text
  * @param {{ms: number, window: Item["window"]}} at
  * @param {{session: string, deps: Deps, turn: Turn}} ctx
@@ -237,7 +234,6 @@ function auditedRounds(said, at, ctx) {
 }
 
 /**
- * A tool result's text, or its parts' text joined.
  * @param {unknown} content
  * @returns {string}
  */
@@ -294,7 +290,6 @@ const newTurn = () => ({
 });
 
 /**
- * A tool result's parts onto the trail, while a refusal holds.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: `trail` grows
  */
@@ -308,7 +303,7 @@ function trailToolResult(rec, turn) {
 
 /**
  * Commit the pending rounds as passed, retiring the refusal of each re-send
- * among them; the founder speaking retires every refusal.
+ * among them.
  * @param {TranscriptRecord} rec the user record that ended the send
  * @param {Turn} turn accumulator: the turn's state, advanced in place
  * @param {Item[]} out accumulator: each committed item is pushed here
@@ -323,12 +318,9 @@ function commitPending(rec, turn, out) {
 }
 
 /**
- * A user record: a tool result joins the trail while a refusal holds; Stop
- * feedback drops the pending rounds and may open refusals; any other record
- * commits them.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
- * @param {{out: Item[], deps: Deps}} ctx `out`, accumulator: each committed item is pushed here
+ * @param {{out: Item[], deps: Deps}} ctx
  * @returns {void}
  */
 function readUser(rec, turn, { out, deps }) {
@@ -347,7 +339,7 @@ function readUser(rec, turn, { out, deps }) {
 
 /**
  * An assistant record: a tool call drops the pending rounds, as the turn did
- * not end there, and joins the trail once the turn holds a refusal; a text
+ * not end there; a text
  * carrying a question replaces them with its own.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
@@ -376,7 +368,6 @@ function readAssistant(rec, turn, ctx) {
 }
 
 /**
- * Every round the audit takes that got past the guard, in one transcript.
  * @param {string} text the transcript
  * @param {string} session
  * @param {Deps} deps

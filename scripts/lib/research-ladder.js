@@ -159,10 +159,7 @@ function isRulingsSearch(args, corpus, expand) {
 /* A `$name` or `${name}` reference inside a word. */
 const VAR_REF = /\$(?:\{(\w+)\}|(\w+))/g;
 
-/**
- * The name a `VAR_REF` match names, braced or bare.
- * @param {RegExpMatchArray} m
- */
+/** @param {RegExpMatchArray} m */
 function varName(m) {
 	const name = m[1] ?? m[2];
 	if (name === undefined) throw new Error("VAR_REF matched with no name");
@@ -174,7 +171,7 @@ function varName(m) {
  * of that loop's list; a word naming none, or one no loop binds, reads as
  * itself.
  * @param {string} value
- * @param {Map<string, string[]>} loops each enclosing loop's variable and list
+ * @param {Map<string, string[]>} loops
  * @returns {string[]}
  */
 function expandLoopVars(value, loops) {
@@ -197,7 +194,7 @@ function isRulingsCommand(command, corpus) {
 	const parsed = parseCommand(command);
 	const read = (/** @type {string} */ w) => literal(w, parsed.spans).text;
 	/** @type {{ name: string, list: string[] | null }[]} the open `for` loops,
-	 *  innermost last; `list` null where a word of it is not literal */
+	 *  innermost last */
 	const loops = [];
 	/** @type {Expand} */
 	const expand = (value) => {

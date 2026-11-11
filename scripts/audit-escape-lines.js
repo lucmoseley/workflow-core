@@ -18,13 +18,10 @@
  * question once again, so its after-refusal lines are not #671's.
  *
  * THE JUDGE is Jev over the Vercel AI Gateway, the route, key and gitleaks
- * sweep `guard-jev-advisory.js` exports — nothing leaves unswept. A first-sight
- * item sends its question block alone; an after-refusal item sends the block
- * as refused, the tool calls and results since cut to a head each, and the
- * re-send (#4945). ITS FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT
- * DOES NOT DISCRIMINATE: on #4945's 22 hand-classified re-sends, run once
- * with the question frozen, it judged 1 of 14 genuine supported and 5 of 5
- * unsupported unsupported, so its unsupported share over-counts. An outage or
+ * sweep `guard-jev-advisory.js` exports — nothing leaves unswept, and each
+ * tool result an after-refusal item sends is cut to a head (#4945). ITS
+ * FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT DOES NOT DISCRIMINATE,
+ * so its unsupported share over-counts (#4945, #5003). An outage or
  * malformed reply is logged and the item retried on a later run.
  *
  * `--judge` scans every seat's transcripts for this repo (`lib/escape-audit.js`
@@ -33,8 +30,8 @@
  * capped at `RUN_MS` and held by a lock file so two never overlap.
  *
  * The report (the default, read on `npm run status`) prints, per window and
- * first-sight/after-refusal, how many were judged, the share judged to bear —
- * after refusal, the share judged unsupported — and how many wait.
+ * first-sight/after-refusal, how many were judged, the share judged to bear or
+ * unsupported, and how many wait.
  * `--notify`, at session start, prints nothing (#2038).
  *
  * IN NO FAMILY (code-standards §N3, §G4): the report is a `check-*` in all
@@ -115,8 +112,6 @@ const QUESTIONS_BY_SIGHT = {
 };
 
 /**
- * What the judge reads for an item: a first-sight block alone, an
- * after-refusal one beside the refused block and the calls between.
  * @param {import("./lib/escape-audit").Item} item
  */
 function messageOf(item) {
@@ -407,8 +402,7 @@ async function main() {
 }
 
 /**
- * One line per window and sight that holds anything: first sight, the share
- * whose line bore; after refusal, the share whose move was unsupported.
+ * One line per window and sight that holds anything.
  * @param {import("./lib/check").Ctx} ctx
  * @param {ReturnType<typeof tally>} rows
  */
