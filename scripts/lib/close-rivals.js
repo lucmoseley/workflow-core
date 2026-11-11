@@ -29,7 +29,6 @@ const {
 const {
 	PRICED,
 	isRivalSet,
-	parseOptionBody,
 	optionSpans,
 	splitQuestions,
 } = require("./round-marker");
@@ -85,7 +84,7 @@ function bandsOf(block) {
 	return bands;
 }
 
-/* What a re-send's option lines may cite that its refused send did not: a
+/* What a re-send's block may cite that its refused send's did not: a
  * URL less its sentence-ending punctuation, an issue number (`#12`,
  * `mantahostels#12`, `acme/core#12`) or a `path:line[:col]` whose path has a
  * lettered extension or a `/`. Lexical, a reading for the log and never a
@@ -95,14 +94,13 @@ const PATH_LINE_CITE =
 	/(?<![\w/.-])(?:[\w.-]*(?:\/[\w.-]+)*\.[A-Za-z]\w*|[\w.-]+(?:\/[\w.-]+)+):\d+(?::\d+)?(?![\d:])/g;
 
 /**
- * The citations in a block's option lines, each once, in the order found.
+ * The citations in a block, its `Checked:` paragraph included, each once, in
+ * the order found (#4945).
  * @param {QuestionBlock} block
  * @returns {string[]}
  */
 function citesOf(block) {
-	const text = optionSpans(block.lines)
-		.map((o) => parseOptionBody(o.span))
-		.join("\n");
+	const text = block.lines.join("\n");
 	const withoutUrls = text.replace(URL_CITE, " ");
 	return [
 		...new Set([

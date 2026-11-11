@@ -61,8 +61,8 @@
  * Also on `passed-after-refusal` only, for reading the ladder's effect
  * (#2010): `rungs`, the qualifying calls per rung since the first refusal,
  * null where the transcript cannot say; `flipped`, whether the top letter
- * differs from the refused send's; `citesNewFact`, whether the option lines
- * carry a URL, issue number or `path:line` the refused send's lacked. Both
+ * differs from the refused send's; `citesNewFact`, whether the question block
+ * carries a URL, issue number or `path:line` the refused send's lacked. Both
  * null on a question the passing send left out, and `citesNewFact` on one
  * refused before #2010. Lines written before #2010 carry none of the three.
  */
