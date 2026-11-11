@@ -80,7 +80,7 @@ const DISPATCH_FABLE = "fable";
 
 /** The effort each layer's target runs at on a dispatch: the founder's rulings (#4919, #5004). */
 const STANDING_EFFORT = "xhigh";
-const BURN_EFFORT = new Map([[DISPATCH_FABLE, "low"]]);
+const BURN_EFFORT = "low";
 
 /*
  * The same Fable level for a session or launch under burn mode: the model id
@@ -90,7 +90,7 @@ const BURN_EFFORT = new Map([[DISPATCH_FABLE, "low"]]);
  */
 const BURN_SESSION_EFFORT = {
 	model: "claude-fable-5-2",
-	burn: BURN_EFFORT.get(DISPATCH_FABLE),
+	burn: BURN_EFFORT,
 	standing: "medium",
 };
 
@@ -259,8 +259,7 @@ function translate(from, asked, burn) {
 	const to = mapModel(DISPATCH, from, burn);
 	const standing = DISPATCH.standing.get(from) ?? from;
 	const burned = burn && to !== standing;
-	const burnEffort = BURN_EFFORT.get(to);
-	if (burned && burnEffort) return { to, effort: burnEffort, burned };
+	if (burned) return { to, effort: BURN_EFFORT, burned };
 	if (to === DISPATCH_HAIKU) return { to, effort: STANDING_EFFORT, burned };
 	return { to, effort: asked, burned };
 }

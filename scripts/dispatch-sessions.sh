@@ -495,16 +495,16 @@ esac
 
 # Burn mode never reaches an overflow seat (#4919).
 [[ $overflow -eq 1 ]] && burn=0
-burn_flag=()
-[[ $burn -eq 1 ]] && burn_flag=(--burn)
 
 remapped=()
 for ((i = 1; i <= $#; i += 2)); do
   j=$((i + 1))
   m="${!i}"
-  to="$(node "$MODEL_TABLE" launch "$m" "${burn_flag[@]}")"
+  standing="$(node "$MODEL_TABLE" launch "$m")"
+  to="$standing"
+  [[ $burn -eq 1 ]] && to="$(node "$MODEL_TABLE" launch "$m" --burn)"
   [[ "$to" != "$m" ]] && printf '%s: %s -> %s\n' \
-    "$([[ $burn -eq 1 ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
+    "$([[ "$to" != "$standing" ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
   remapped+=("$to" "${!j}")
 done
 set -- "${remapped[@]}"
