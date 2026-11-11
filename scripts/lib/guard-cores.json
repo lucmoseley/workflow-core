@@ -296,7 +296,7 @@
 			"failure": "closed",
 			"tree": "host",
 			"host": "issue-create-label-host.js",
-			"if": ["Bash(gh *)"]
+			"if": ["Bash(*gh *)"]
 		},
 		{
 			"name": "guard-issue-phase-scope",

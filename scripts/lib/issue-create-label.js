@@ -31,8 +31,11 @@
  * LIMITS
  *  - It matches the parsed command form — a segment whose command word is
  *    `gh`, subcommand pair `issue create` — never a substring, so a grep, an
- *    echo or a heredoc mentioning `gh issue create` passes. So does a wrapped
- *    call — `timeout N gh …`, `env gh …` — whose command word is not `gh`.
+ *    echo or a heredoc mentioning `gh issue create` passes. The command word
+ *    is read as lib/shell-words.js's ghWords reads it (#5012): past any
+ *    wrapper unwrap strips (`timeout N gh …`, `env gh …`), and in each command
+ *    a `flock -c` or `watch` string runs. A `sh -c` string and a launcher
+ *    outside unwrap's list pass.
  *  - `gh api --method POST …/issues` IS chased (mantahostels#511), and gh's
  *    own default with it — a call carrying fields and no --method at all is a
  *    POST.
@@ -126,11 +129,9 @@
  *    command, so an unparented issue still passes;
  *    scripts/check-issue-orphans.js remains the only control there
  *    (mantahostels#453).
- *  - Its manifest row runs it only on a command `Bash(gh *)` admits
- *    (mantahostels#2127): some segment leads with `gh`. NEARLY the same test
- *    as the core's own basename check, which differs on one spelling:
- *    `/usr/bin/gh …` passes the basename but matches no `Bash(gh *)`
- *    pattern, so a path-spelled call is unjudged.
+ *  - Its manifest row runs it only on a command `Bash(*gh *)` admits
+ *    (mantahostels#2127): `gh ` anywhere in it, unanchored so a wrapped call
+ *    and a `-c` string's reach the core (#5012), as does `/usr/bin/gh …`.
  *  - It FAILS OPEN (mantahostels#103 §6): a label value it cannot read — an
  *    unexpanded $VAR, a command substitution — lets the whole call through
  *    unjudged, RECORDED (mantahostels#147) for check-guard-errors.js to
@@ -179,7 +180,13 @@ const {
 	walkVerdict,
 } = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
-const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
+const {
+	ghWords,
+	literal,
+	runCwd,
+	runText,
+	scanFlags,
+} = require("./shell-words.js");
 const {
 	CLOSE_WHEN_LINE,
 	TAKES_VALUES,
@@ -304,19 +311,27 @@ const readActsLine = (ctx) =>
 	ruleOrFallback(ctx, "founder-acts", "one of the founder's own acts");
 
 /**
- * One command the call runs: `gh issue create`, `gh issue edit` and `gh api`
- * are judged, by the command word's basename.
+ * Each `gh` the command runs, as ghWords reads one: `gh issue create`, `gh
+ * issue edit` and `gh api` are judged, each in the directory its own moves
+ * put it and shown as runText shows it.
  * @param {Run} run
  * @param {Command} cmd
  */
 function judge(run, cmd) {
-	const [head = "", sub, verb] = cmd.words;
-	if (!isGhCommand(head)) return;
-	if (sub === "issue" && verb === "create")
-		judgeCreate(run, cmd, cmd.words.slice(3));
-	else if (sub === "issue" && verb === "edit")
-		judgeEdit(run, cmd, cmd.words.slice(3));
-	else if (sub === "api") judgeApi(run, cmd, cmd.words.slice(2));
+	const { spans } = run.parsed;
+	for (const { args, run: ran } of ghWords(cmd.words, spans)) {
+		const [sub, verb] = args;
+		const at = {
+			...cmd,
+			segment: runText(ran, cmd.segment),
+			cwd: runCwd(cmd.cwds, ran.chdirs, spans, run.ctx.isDir)[0],
+		};
+		if (sub === "issue" && verb === "create")
+			judgeCreate(run, at, args.slice(2));
+		else if (sub === "issue" && verb === "edit")
+			judgeEdit(run, at, args.slice(2));
+		else if (sub === "api") judgeApi(run, at, args.slice(1));
+	}
 }
 
 /**

@@ -37,7 +37,11 @@
  *    with no row emits nothing, silently.
  *  - It matches the PARSED command form — a command whose command word is
  *    `gh`, followed by the row's own subcommand words — so a grep, an echo or
- *    a heredoc mentioning those words emits nothing.
+ *    a heredoc mentioning those words emits nothing. The command word is read
+ *    as lib/shell-words.js's ghWords reads it (#5012): past any wrapper unwrap
+ *    strips (`timeout 5 gh …`, `env gh …`), and in each command a `flock -c`
+ *    or `watch` string runs. A `sh -c` string and a launcher outside unwrap's
+ *    list are unread.
  *  - THE issue-body.js LIMB IS THE ONE EXCEPTION TO THAT COMMAND-WORD TEST,
  *    and it reads a WORD instead: any word whose basename is `issue-body.js`,
  *    wherever it sits, PROVIDED THE NEXT WORD IS ONE OF THE SCRIPT'S WRITING
@@ -84,7 +88,14 @@ const { expandHome } = require("./home-path.js");
 const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
+const {
+	ghWords,
+	isGhCommand,
+	literal,
+	runCwd,
+	scanFlags,
+	unwrap,
+} = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
@@ -376,7 +387,8 @@ function ghBodyPaths(args, spans) {
 }
 
 /**
- * @param {string[]} words the command's words, its head included
+ * Each body path one unwrap run names.
+ * @param {string[]} words one unwrap run's words, its head included
  * @param {string[]} spans
  */
 function bodyPathWords([head = "", ...args], spans) {
@@ -384,6 +396,17 @@ function bodyPathWords([head = "", ...args], spans) {
 		return args.map((w) => lit(w, spans)).filter((t) => !t.startsWith("-"));
 	return isGhCommand(head) ? ghBodyPaths(args, spans) : [];
 }
+
+/**
+ * The directory a run stands in, through its own moves (`env -C`, a `-c`
+ * string's `cd`); "" where unknown.
+ * @param {Command} cmd
+ * @param {import("./shell-words.js").Chdir[]} chdirs
+ * @param {string[]} spans
+ * @param {TrackerContext} ctx
+ */
+const runDir = (cmd, chdirs, spans, ctx) =>
+	runCwd(cmd.cwds, chdirs, spans, ctx.isDir)[0];
 
 /**
  * Whether ANY command of this call names a job-dir body path, answered before
@@ -407,13 +430,16 @@ function scanJobDir(parsed, ctx) {
 	let seen = false;
 	walkCommands(
 		parsed,
-		({ words, cwd }) => {
-			const where = { pwd: cwd || ctx.fallbackCwd, jobDir };
-			seen ||= bodyPathWords(words, parsed.spans).some((text) => {
-				if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
-					return false;
-				return isJobDir(expandHome(text, home) ?? text.slice(1), where);
-			});
+		(cmd) => {
+			for (const run of unwrap(cmd.words, parsed.spans)) {
+				const cwd = runDir(cmd, run.chdirs, parsed.spans, ctx);
+				const where = { pwd: cwd || ctx.fallbackCwd, jobDir };
+				seen ||= bodyPathWords(run.words, parsed.spans).some((text) => {
+					if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
+						return false;
+					return isJobDir(expandHome(text, home) ?? text.slice(1), where);
+				});
+			}
 		},
 		ctx,
 	);
@@ -434,19 +460,22 @@ function judge(cmd, matched, call) {
 	 * on the MASKED word, so a quoted mention never reaches it. THE WORD AFTER
 	 * IT DECIDES (mantahostels#2652): a writing subcommand is what a RUN of the
 	 * script always has and a read of it almost never does. */
-	const runsIssueBody = cmd.words.some(
-		(w, i) =>
-			w.includes("issue-body.js") &&
-			basename(lit(w, spans)) === "issue-body.js" &&
-			ISSUE_BODY_SUBCOMMANDS.has(lit(cmd.words[i + 1], spans)),
+	const runsIssueBody = unwrap(cmd.words, spans).some(({ words }) =>
+		words.some(
+			(w, i) =>
+				w.includes("issue-body.js") &&
+				basename(lit(w, spans)) === "issue-body.js" &&
+				ISSUE_BODY_SUBCOMMANDS.has(lit(words[i + 1], spans)),
+		),
 	);
 	if (runsIssueBody) matched.add("issue-body-success-signal");
-	const [head = "", ...words] = cmd.words;
-	if (!isGhCommand(head)) return;
-	for (const [subcmd, pred, ids] of TRIGGERS) {
-		if (!subcmd.every((s, i) => words[i] === s)) continue;
-		if (pred && !pred(words, { ...call, cmd })) continue;
-		for (const id of ids) matched.add(id);
+	for (const { args, run } of ghWords(cmd.words, spans)) {
+		const at = { ...cmd, cwd: runDir(cmd, run.chdirs, spans, call.ctx) };
+		for (const [subcmd, pred, ids] of TRIGGERS) {
+			if (!subcmd.every((s, i) => args[i] === s)) continue;
+			if (pred && !pred(args, { ...call, cmd: at })) continue;
+			for (const id of ids) matched.add(id);
+		}
 	}
 }
 

@@ -257,6 +257,51 @@ describe("the creates it denies", () => {
 		}
 	});
 
+	/* #5012: each run ghWords reads is judged as the bare call is, and a
+	 * `-c` string's is shown on its own words. */
+	it.each([
+		["timeout 5 ", "", "timeout 5 gh issue create"],
+		["env ", "", "env gh issue create"],
+		['flock /l -c "true; ', '"', "gh issue create"],
+		['flock /l -c "true\n', '"', "gh issue create"],
+	])("denies a create behind `%s`", (before, after, shown) => {
+		for (const call of [
+			"gh issue create --title x --body y",
+			"gh api --method POST repos/o/r/issues -f title=x -f body=y",
+		])
+			expect(verdict(`${before}${call}${after}`)).toBe("deny");
+		expect(
+			readDenyReason(`${before}gh issue create --title x --body y${after}`),
+		).toContain(`${MISSING}: ${shown} --title x --body y`);
+		expect(
+			verdict(
+				`${before}gh issue create --title x --body y --label takes:implement${after}`,
+			),
+		).toBe("allow");
+	});
+
+	it("is dispatched on a gh call that does not open the command (#5012)", () => {
+		const manifest = JSON.parse(
+			fs.readFileSync(path.join(__dirname, "guard-cores.json"), "utf8"),
+		);
+		const [row] = Object.values(manifest)
+			.flat()
+			.filter(
+				(r) => (r as { name?: string }).name === "guard-issue-create-label",
+			);
+		const { isAdmitted } = require("./guard-cores.js") as {
+			isAdmitted: (row: unknown, payload: unknown) => boolean;
+		};
+		for (const command of [
+			"gh issue create --title x",
+			"timeout 5 gh issue create --title x",
+			'flock /l -c "true; gh issue create --title x"',
+		])
+			expect(
+				isAdmitted(row, { tool_name: "Bash", tool_input: { command } }),
+			).toBe(true);
+	});
+
 	it("names all seven values in the refusal, so the fix needs no other document", () => {
 		const out = said("gh issue create --title x");
 		for (const v of [
