@@ -110,8 +110,9 @@
  *  - THE BASIS LIMB (#672) refuses, on a body the blank-body limb read, a
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
  *    either that the basis does not name (#823), or a basis with no warrant
- *    beneath a window (#4946), through lib/issue-gate.js. Form only: the
- *    basis is never judged.
+ *    beneath a window (#4946), through lib/issue-gate.js. The model reading
+ *    (lib/gate-judge.js, #4964) of the same body rides as hook context, or
+ *    in the refusal, and refuses nothing.
  *  - THE CHECK LIMB (#3487) refuses, on the same body, a gate `check:` that
  *    cannot run as a command, and warns that one which can was not run.
  *  - THE SECOND-MAP LIMB (#717) refuses a flag-form or REST create carrying
@@ -145,9 +146,8 @@
  *    create (#668) and on a relabel (#669), refused above.
  */
 
+const { JUDGE_BOUND_MS, readGateWrite } = require("./gate-judge.js");
 const {
-	basisFaults,
-	basisRefusal,
 	MAP_LABEL,
 	openMapsArgs,
 	secondMapVerdict,
@@ -257,8 +257,12 @@ const API_FORM_COST =
  * @property {Parsed} parsed
  * @property {LabelContext} ctx
  * @property {string} warning the GraphQL warn
- * @property {string[]} checkNotes the check limb's warnings
+ * @property {string[]} checkNotes the check limb's warnings and the model
+ *   reading's notes
  * @property {boolean} humanApplied a `takes:human` passed every limb
+ * @property {number} judgeLeftMs what the model readings of this call's
+ *   bodies may still spend: one bound for them all, so two creates in one
+ *   command stay inside the hook's 60 s
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  */
 
@@ -275,6 +279,7 @@ function decide(command, ctx) {
 		warning: "",
 		checkNotes: [],
 		humanApplied: false,
+		judgeLeftMs: JUDGE_BOUND_MS,
 	};
 	const stopped = walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx);
 	if (stopped !== undefined) return stopped;
@@ -505,16 +510,24 @@ ${route.blank}`,
  * @param {string} text
  */
 function judgeBasis(run, segment, text) {
-	const faults = basisFaults(text);
-	if (faults.length === 0) return;
+	const startedAt = Date.now();
+	const { refusal, advice } = readGateWrite(text, {
+		route: "create-guard",
+		boundMs: Math.min(JUDGE_BOUND_MS, run.judgeLeftMs),
+	});
+	run.judgeLeftMs -= Date.now() - startedAt;
+	if (!refusal) {
+		if (advice) run.checkNotes.push(advice);
+		return;
+	}
 	deny(
 		run.ctx,
 		segment,
 		`This files an issue whose body sets a wait with nothing behind it: @CMD@
 
-It carries ${basisRefusal(faults)}
+Ask of the window: what data sets it, and does anything shorter hold? Where the answer is a round figure, cut the window to what the data defends.
 
-Ask of the window: what data sets it, and does anything shorter hold? Where the answer is a round figure, cut the window to what the data defends.`,
+It carries ${refusal}`,
 	);
 }
 
