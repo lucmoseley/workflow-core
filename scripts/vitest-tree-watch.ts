@@ -5,7 +5,7 @@
  * the policy. In short — mantahostels#273, where a suite imported half-written
  * source and went red with a different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside the lander's run, arms the read audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916), under which a stub, a shell or a checkout program a test runs in the checkout, or hands a path there, runs traced by `strace`, where one works (#4966, #4982), and each real git and the git guard is handed an event log of the audit's on `GIT_TRACE2_EVENT` (#4997); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside the lander's run, arms the read audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916), under which a stub, a shell or a checkout program a test runs in the checkout, or hands a path there, runs traced by `strace`, where one works (#4966, #4982), and each real git and the git guard is handed an event log of the audit's on `GIT_TRACE2_EVENT` (#4997); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), none keyed on an input whose change time passed a mark the setup took as the run began (#5018), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
  * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
@@ -18,6 +18,8 @@ const {
 	drift,
 	format,
 	endOfRunTreeIdentity,
+	markStart,
+	readHandedMark,
 } = require("./lib/tree-drift.js");
 const {
 	markerFrom,
@@ -45,6 +47,11 @@ let treeRoot = process.cwd();
 
 let before: unknown = null;
 
+/* The mark of the run's start the pass store checks each input's change
+ * time against (#5018): the launcher's, taken before vitest read its config,
+ * else this setup's own; null where neither was taken. */
+let startMark: bigint | null = null;
+
 /* The read audit's log directory (#4916), null where this run is unaudited:
  * a test's nested run, whose reads its owner's audit holds, or the lander's,
  * which records no row. */
@@ -62,6 +69,11 @@ function disarmAudit() {
 export function setup(project?: { config?: { root?: string } }) {
 	const root = project?.config?.root;
 	if (typeof root === "string" && root) treeRoot = root;
+	startMark = readHandedMark() ?? markStart(treeRoot);
+	if (startMark === null)
+		process.stderr.write(
+			"vitest-tree-watch: no start mark could be taken in this tree, so this run records no pass (#5018)\n",
+		);
 	before = readTreeSnapshot(treeRoot);
 	armAudit();
 }
@@ -107,6 +119,7 @@ function recordFiles(
 					? null
 					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
 			after,
+			startMark,
 			audits: readAuditsOrNone(),
 		},
 		{ storeRoot: root },

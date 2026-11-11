@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NO_READS } from "./lib/pass-store-testkit";
 
 const require = createRequire(import.meta.url);
-const { readTreeSnapshot } = require("./lib/tree-drift.js");
+const { markStart, readTreeSnapshot } = require("./lib/tree-drift.js");
 const { main } = require("./run-vitest.js");
 const {
 	CACHED_ENV,
@@ -77,6 +77,7 @@ function passed(dir: string, files: string[]) {
 			clean: true,
 			drifted: [],
 			after: readTreeSnapshot(dir),
+			startMark: markStart(dir),
 			audits: new Map(files.map((file) => [file, { reads: NO_READS }])),
 		},
 		{ storeRoot: dir, lander: false },
