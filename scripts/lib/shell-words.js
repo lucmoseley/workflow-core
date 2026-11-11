@@ -659,10 +659,14 @@ function runCwd(cwds, chdirs, spans, isDir) {
 	let went = new Set();
 	for (const cd of chdirs) {
 		const left = cd.afterFailed ? went : new Set();
+		/* Where the move before went unnamed, this one may run from anywhere. */
+		const unsure = left.has("");
 		/** @param {string} from @returns {Dirs} */
 		const step = (from) => {
 			const to = moveRun(from, cd, spans);
-			return holdsAt(cd, to, isDir) && !left.has(from) ? [to] : [to, from];
+			return holdsAt(cd, to, isDir) && !unsure && !left.has(from)
+				? [to]
+				: [to, from];
 		};
 		went = new Set(dirs.map((from) => moveRun(from, cd, spans)));
 		const [head, ...tail] = dirs;

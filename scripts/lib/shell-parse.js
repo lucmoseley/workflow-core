@@ -1736,7 +1736,7 @@ function cdInScript(state, own, where) {
 		(opens || afterCd) && isSureOnceReached(parsed, segIdx, own)
 			? "if-dir"
 			: "maybe";
-	const chained = isChainedOff(parsed.joins, segIdx);
+	const chained = isChainedOff(parsed, segIdx);
 	const pending = chained
 		? [...state.pending, { at: state.chdirs.length, holds }]
 		: state.pending;
@@ -1751,7 +1751,7 @@ function cdInScript(state, own, where) {
 		vars,
 	};
 	if (afterCd) cd.afterFailed = true;
-	const cdAt = opens ? segIdx : -1;
+	const cdAt = opens && !isNegated(parsed.segments, segIdx) ? segIdx : -1;
 	return { ...state, chdirs: [...state.chdirs, cd], pending, cdAt };
 }
 
@@ -2096,7 +2096,8 @@ const opensList = (joins, segIdx) =>
 
 /**
  * Whether the segment is a `cd` after `||` whose left side is the `cd` that
- * opened the list at `cdAt`: it runs only where that one failed (#5010).
+ * opened the list at `cdAt`, unnegated: it runs only where that one failed
+ * (#5010).
  * @param {string[]} joins
  * @param {number} segIdx
  * @param {number} cdAt -1 where no such `cd` stands
@@ -2105,14 +2106,28 @@ const isAfterCd = (joins, segIdx, cdAt) =>
 	joins[segIdx] === "o" && cdAt === segIdx - 1;
 
 /**
- * Whether a `&&` chains the next command off the segment alone, so it runs only
- * where the segment's command worked: not where `||` stands before it, whose
- * left side working runs that command too (measured, #5010).
- * @param {string[]} joins
+ * Whether the segment's command is negated by `!`, past any `{` opening it,
+ * so its status is the reverse of its command's.
+ * @param {string[]} segments
  * @param {number} segIdx
  */
-const isChainedOff = (joins, segIdx) =>
-	joins[segIdx + 1] === "a" && joins[segIdx] !== "o";
+function isNegated(segments, segIdx) {
+	const words = (segments[segIdx] ?? "").trim().split(/\s+/);
+	return words.find((w) => w !== "{") === "!";
+}
+
+/**
+ * Whether a `&&` chains the next command off the segment alone, so it runs only
+ * where the segment's command worked: not where `||` stands before it, whose
+ * left side working runs that command too, nor where `!` reverses its status
+ * (measured, #5010).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const isChainedOff = ({ joins, segments }, segIdx) =>
+	joins[segIdx + 1] === "a" &&
+	joins[segIdx] !== "o" &&
+	!isNegated(segments, segIdx);
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
@@ -2236,8 +2251,10 @@ function stepCwd(walk, own, segIdx, isDir) {
 	const { joins } = walk.parsed;
 	const left = walk.cdTargets;
 	/* A `cd` after `||` runs only where the `cd` before it failed, so it holds
-	 * from every directory but where that one may have gone (#5010). */
-	const afterCd = isAfterCd(joins, segIdx, left?.segIdx ?? -1);
+	 * from every directory but where that one may have gone, where the walk
+	 * can name each (#5010). */
+	const afterCd =
+		isAfterCd(joins, segIdx, left?.segIdx ?? -1) && !left?.dirs.has("");
 	const surely =
 		(opensList(joins, segIdx) || afterCd) &&
 		isSureOnceReached(walk.parsed, segIdx, own);
@@ -2252,14 +2269,15 @@ function stepCwd(walk, own, segIdx, isDir) {
 		if (!held(from, to)) unmade.push(from);
 		return to;
 	});
-	if (isChainedOff(joins, segIdx)) {
+	if (isChainedOff(walk.parsed, segIdx)) {
 		walk.cwdDoubt = moved;
 		walk.cwdPending = [...walk.cwdPending, ...unmade];
 	} else walk.cwdDoubt = [...moved, ...unmade];
 	walk.cwdDoubt = [...new Set(walk.cwdDoubt)].filter((d) => d !== walk.cwd);
-	walk.cdTargets = opensList(joins, segIdx)
-		? { segIdx, dirs: new Set([walk.cwd, ...moved]) }
-		: null;
+	walk.cdTargets =
+		opensList(joins, segIdx) && !isNegated(walk.parsed.segments, segIdx)
+			? { segIdx, dirs: new Set([walk.cwd, ...moved]) }
+			: null;
 	return true;
 }
 

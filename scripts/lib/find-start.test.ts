@@ -177,6 +177,12 @@ describe("a find started at / is refused (#1006)", () => {
 		"f() { cd /usr; }; find . -x",
 		"cd / || cd /usr && find . -x",
 		'flock /l -c "cd / || cd /usr && find . -x"',
+		"! cd /missing || cd /usr; find . -x",
+		'flock /l -c "! cd /missing || cd /usr; find . -x"',
+		"cd -P /tmp/.. || cd /usr; find . -x",
+		'flock /l -c "cd -P /tmp/.. || cd /usr; find . -x"',
+		'cd "$Q" || cd /usr; find . -x',
+		"! cd /missing && find . -x",
 	])(
 		"judges too where a cd may not have moved it: %s from / (#4980)",
 		(command) => {

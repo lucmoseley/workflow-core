@@ -583,6 +583,9 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /missing || cd /usr || cd /b; gh x")).toContain("/missing");
 		expect(last("cd /missing || cd /usr & gh x")).toContain("/start");
 		expect(last("cd /a || cd /b && gh x")).toEqual(["/b", "/a"]);
+		expect(last("! cd /missing || cd /usr; gh x")).toContain("/start");
+		expect(last("cd -P /a || cd /usr; gh x")).toContain("/start");
+		expect(last("! cd /missing && gh x")).toEqual(["/missing", "/start"]);
 	});
 
 	it("holds a cd in a { …; } group that surely runs (#5010)", () => {
