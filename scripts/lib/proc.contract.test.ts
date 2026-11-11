@@ -18,12 +18,12 @@ import fs from "node:fs";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 import {
+	buildLaunchEntry,
 	buildLoadavgLine,
+	buildSmapsRollup,
 	buildStatLine,
 	buildUptimeLine,
-	launchEntry,
 	makeProcRoot,
-	smapsRollup,
 	writeCwd,
 	writeEnviron,
 } from "./proc-fake";
@@ -52,13 +52,16 @@ const { sample } = require("./cpu-sample.js") as {
 const PATH = `PATH=${process.env.PATH ?? "/bin"}`;
 
 const CASES: [string, string[]][] = [
-	["a part-suite", [PATH, launchEntry({ resolvedFiles: 7, wholeSlot: false })]],
+	[
+		"a part-suite",
+		[PATH, buildLaunchEntry({ resolvedFiles: 7, wholeSlot: false })],
+	],
 	[
 		"a whole run",
-		[PATH, launchEntry({ resolvedFiles: null, wholeSlot: true })],
+		[PATH, buildLaunchEntry({ resolvedFiles: null, wholeSlot: true })],
 	],
 	["no record", [PATH]],
-	["a record carrying no weight", [PATH, launchEntry({ isolated: true })]],
+	["a record carrying no weight", [PATH, buildLaunchEntry({ isolated: true })]],
 ];
 
 const hasProc = fs.existsSync("/proc/self/environ");
@@ -172,7 +175,7 @@ describe.skipIf(!hasProc)("a fake smaps_rollup (needs Linux /proc)", () => {
 		const real = fs.readFileSync(`/proc/${process.pid}/smaps_rollup`, "utf8");
 		const kb = (key: string) =>
 			Number(real.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"))?.[1]);
-		const built = smapsRollup({
+		const built = buildSmapsRollup({
 			rssKb: kb("Rss"),
 			pssKb: kb("Pss"),
 			pssDirtyKb: kb("Pss_Dirty"),

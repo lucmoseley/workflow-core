@@ -22,7 +22,7 @@ const { launchEnv } = require("./suite-handoff.js") as {
 };
 
 /** A launch record as an environment entry, `KEY=value`. */
-export function launchEntry(launch: object): string {
+export function buildLaunchEntry(launch: object): string {
 	const [entry] = Object.entries(launchEnv(launch));
 	if (!entry) throw new Error("proc-fake: launchEnv wrote no entry");
 	return `${entry[0]}=${entry[1]}`;
@@ -55,7 +55,7 @@ export function carrying(
 ): number {
 	return writeEnviron(proc, pid, [
 		"PATH=/bin",
-		...(launch ? [launchEntry(launch)] : []),
+		...(launch ? [buildLaunchEntry(launch)] : []),
 	]);
 }
 
@@ -110,7 +110,7 @@ export function buildStatLine(
  * default Rss is one no test charges and the Pss_Dirty line follows Pss, so a
  * reader taking Rss, the last line or a `Pss`-prefixed line in place of Pss
  * fails. */
-export const smapsRollup = ({
+export const buildSmapsRollup = ({
 	rssKb = 999_999,
 	pssKb,
 	pssDirtyKb = 0,
@@ -139,7 +139,7 @@ export function writeSmapsRollup(proc: string, pid: string, pssKb: number) {
 	fs.mkdirSync(path.join(proc, pid), { recursive: true });
 	fs.writeFileSync(
 		path.join(proc, pid, "smaps_rollup"),
-		smapsRollup({ pssKb }),
+		buildSmapsRollup({ pssKb }),
 	);
 }
 
