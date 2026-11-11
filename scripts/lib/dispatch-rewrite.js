@@ -31,6 +31,9 @@
  *   * a named model the effort guide routes away from (lib/dispatch-rules.js)
  *     gets rule:dispatch-tier, and a "search the repo" prompt naming no tracker
  *     rule:dispatch-search-tracker, each fragment once a session;
+ *   * with burn mode off, a call inheriting the session's Fable is pinned to
+ *     `opus`, and a fork from a Fable session, which no field can move, is
+ *     DENIED with rule:dispatch-fable-fork (#4992);
  *   * a dispatch from inside a subagent, `agent_id` on the payload, is DENIED
  *     with rule:dispatch-grandchild;
  *   * `statusline-setup`, which has no tool that can create a file, and
@@ -42,7 +45,7 @@
  * The subject is the dispatch's `prompt`, a field the harness requires of
  * every `Agent` and `Task` call; the core judges the whole `tool_input`.
  *
- * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a `sonnet` dispatch to `haiku` and runs every `haiku` one at xhigh; while burn mode is on moves `haiku` to `opus` and `opus` to `fable`, each at medium — none asked for by the session dispatching; denies a dispatch made from inside a subagent.
+ * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a `sonnet` dispatch to `haiku` and runs every `haiku` one at xhigh; while burn mode is on moves `haiku` to `opus` and `opus` to `fable`, each at medium, and while it is off moves `fable`, named or inherited, to `opus` — none asked for by the session dispatching; denies a dispatch made from inside a subagent, and a fork from a Fable session with burn mode off.
  * JUSTIFIED: convenience — the session would have added the line itself after a refusal, at the cost of re-issuing the whole prompt (#482); the model table is the founder's own ruling, and burn mode his own switch (#4919).
  * DEFEAT:    none for the line — name a real path in the prompt and it is left alone; `scripts/burn-mode.sh off` ends the burn remap; none for the subagent deny short of dispatching from the parent.
  *
@@ -77,10 +80,12 @@ const { shellQuote } = require("./sh-quote.js");
  *   "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText" | "session"> & {
  *   artefactFile: (description: unknown) => string,
  *   makeDir: (dir: string) => boolean,
- * }} RewriteContext a fresh artefact path for a dispatch's description, and
- *   the making of a directory, false where it could not be made
+ *   sessionModel: (session: string) => string,
+ * }} RewriteContext a fresh artefact path for a dispatch's description; the
+ *   making of a directory, false where it could not be made; and the model a
+ *   session's transcript last answered on, "" where none is read
  * @typedef {import("./guard-entry.js").Injection} Injection
- * @typedef {Pick<typeof import("./burn-mode.js"), "isOverflowSession" | "markerPath" | "remapModel">} ModelTable
+ * @typedef {Pick<typeof import("./burn-mode.js"), "isFable" | "isOverflowSession" | "markerPath" | "remapModel">} ModelTable
  */
 
 // Resolved from this file, so an adopter is handed the plugin's copy (#541).
@@ -112,14 +117,15 @@ const END_TURN =
  * Every change to one `Agent` call, and what the session is told of it.
  *
  * @param {unknown} input the tool_input object
- * @param {{file: string, burn: boolean, home?: string, table: ModelTable | null}} opts
+ * @param {{file: string, burn: boolean, home?: string, inherited?: string, table: ModelTable | null}} opts
  *   the artefact path to supply where one is needed, whether burn mode is on,
- *   the home directory a prompt's `~/` artefact names, and the model table
+ *   the home directory a prompt's `~/` artefact names, the session's own
+ *   model, and the model table
  * @returns {null | {artefact: string | null, rules: string[], context: string, updatedInput?: Record<string, unknown>}}
  *   the artefact supplied, if any; the ids of the rules it tripped (#2013);
  *   the notes, joined; and the call as rewritten, where it changed
  */
-function rewrite(input, { file, burn, home, table }) {
+function rewrite(input, { file, burn, home, inherited = "", table }) {
 	if (input === null || typeof input !== "object") return null;
 	const asked = /** @type {Record<string, unknown>} */ (input);
 	let call = asked;
@@ -137,7 +143,7 @@ function rewrite(input, { file, burn, home, table }) {
 	} else {
 		notes.push(buildWatchNote(call, watchCommand, home) ?? END_TURN);
 	}
-	const remapped = table ? table.remapModel(call, burn) : null;
+	const remapped = table ? table.remapModel(call, burn, inherited) : null;
 	if (remapped) {
 		call = remapped.input;
 		notes.push(remapped.note);
@@ -171,17 +177,19 @@ function rewrite(input, { file, burn, home, table }) {
 function loadTable(ctx) {
 	try {
 		const {
+			isFable,
 			isOverflowSession,
 			markerPath,
 			remapModel,
 		} = require("./burn-mode.js");
 		if (
+			typeof isFable !== "function" ||
 			typeof isOverflowSession !== "function" ||
 			typeof markerPath !== "function" ||
 			typeof remapModel !== "function"
 		)
 			throw new Error("its exports are not functions");
-		return { isOverflowSession, markerPath, remapModel };
+		return { isFable, isOverflowSession, markerPath, remapModel };
 	} catch (e) {
 		ctx.log(
 			`lib/burn-mode.js unreadable — the model table left this dispatch unmapped: ${caught(e).message}`,
@@ -226,10 +234,20 @@ function decide(_prompt, ctx) {
 	let out;
 	try {
 		const table = loadTable(ctx);
+		const burn = table ? burnOn(table, ctx) : false;
+		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
+		/* A fork runs on its parent's model whatever the call names, so with
+		 * burn mode off a fork from a Fable session can only be refused. */
+		if (
+			table?.isFable(inherited) &&
+			String(ctx.input.subagent_type ?? "").trim() === "fork"
+		)
+			return { deny: ctx.corePaths(ctx.ruleText("dispatch-fable-fork")) };
 		out = rewrite(ctx.input, {
 			file: ctx.artefactFile(ctx.input.description),
-			burn: table ? burnOn(table, ctx) : false,
+			burn,
 			home: ctx.env.HOME,
+			inherited,
 			table,
 		});
 	} catch (e) {

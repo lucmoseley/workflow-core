@@ -1467,6 +1467,17 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"docs/agents/rules/dispatch-fable-fork.txt": [
+			"scripts/adopter-landing.test.ts",
+			"scripts/count-guard-fires.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/review-tier.test.ts",
+			"scripts/lib/rule-text.test.ts",
+			"scripts/lib/tracker-rules.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"docs/agents/rules/dispatch-grandchild.txt": [
 			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
@@ -4056,6 +4067,28 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/burn-mode.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/burn-off-sessions.js": [
+			"scripts/burn-mode.test.ts",
+			"scripts/burn-off-sessions.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/burn-off-sessions.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -11921,6 +11954,7 @@
 		"scripts/lib/burn-mode.js": [
 			"scripts/admission.test.ts",
 			"scripts/allowance.test.ts",
+			"scripts/burn-mode.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -11953,6 +11987,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/refill-batch.test.ts",
 			"scripts/lib/refill-loop.test.ts",
+			"scripts/lib/refill-resume-worktree.test.ts",
+			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/seat-reading.test.ts",
 			"scripts/measure-spare-warm.test.ts",
@@ -11964,9 +12000,59 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/burn-mode.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/burn-off-listing.js": [
+			"scripts/burn-mode.test.ts",
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/burn-off-listing.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/lib/burn-off-listing.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -12280,6 +12366,7 @@
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/allowance.test.ts",
+			"scripts/burn-mode.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
@@ -12484,6 +12571,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/upgrade.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -35040,6 +35128,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-resume.js": [
+			"scripts/burn-mode.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -35060,9 +35149,12 @@
 			"scripts/lib/refill-resume.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/refill-resume.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -36768,6 +36860,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/resume-io.js": [
+			"scripts/burn-mode.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -36787,9 +36880,12 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/resumed-copy.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -38859,6 +38955,7 @@
 			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/allowance.test.ts",
+			"scripts/burn-mode.test.ts",
 			"scripts/check-context-budget-admission.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
@@ -38990,6 +39087,7 @@
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],
@@ -46230,6 +46328,7 @@
 			"scripts/adopter-landing.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/allowance.test.ts",
+			"scripts/burn-mode.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
@@ -46375,6 +46474,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
