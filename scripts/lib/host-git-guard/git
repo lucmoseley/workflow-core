@@ -121,7 +121,12 @@ log_call() { printf '%s\0' "$(($# + 2))" "$steered" "$PWD" "$@" >>"$audit_log"; 
 # is the answer; a `tee` that failed, or a `PATH` holding no `tee` or
 # `sha1sum`, as a symlinked one (#3399), logs none, which the audit reads as a
 # call left unanswered. The scratch is emptied, not removed, to spare a fork:
-# the audit's log directory goes whole at the run's end.
+# the audit's log directory goes whole at the run's end. A git a signal ended
+# ends the guard by the same signal, so the caller sees what git would show.
+#
+# Residual: under the audit the caller's pid is this shell, not git, so a
+# process listing shows bash, and a signal sent to it, a timeout's, leaves git
+# and tee running until their next write to the closed pipe ends them.
 run() {
   if [[ -z "$audit_log" ]] || ! type -P tee sha1sum >/dev/null; then
     exec -a git "$real" "$@"
@@ -133,6 +138,10 @@ run() {
     log_call "${status[0]}:${sum%% *}" "$@"
   fi
   : >"$out"
+  if ((status[0] > 128)); then
+    trap - "$((status[0] - 128))"
+    kill -s "$((status[0] - 128))" "$$"
+  fi
   exit "${status[0]}"
 }
 

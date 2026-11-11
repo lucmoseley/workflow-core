@@ -623,10 +623,10 @@ function auditInputs(reads, listings, working, drifted) {
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
-	for (const { cwd, args, seen } of reads.git) {
+	for (const { cwd, args, answer } of reads.git) {
 		const key = JSON.stringify({ cwd, args });
 		const id = working.git(key);
-		if (id === null || id !== seen) return null;
+		if (id !== answer) return null;
 		git[key] = id;
 	}
 	return {
@@ -647,7 +647,7 @@ function auditInputs(reads, listings, working, drifted) {
  */
 const hasMovedUnder = (top, drifted) =>
 	drifted === null ||
-	[...drifted].some((p) => top === "." || p === top || isUnder(p, [top]));
+	[...drifted].some((p) => top === "." || isUnder(p, [top]));
 
 /**
  * What a tree walked or copied whole rests on: every tracked file under

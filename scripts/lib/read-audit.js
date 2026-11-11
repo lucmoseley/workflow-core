@@ -89,7 +89,7 @@ const VALUED = new Set([
 ]);
 
 /**
- * @typedef {{cwd: string, args: string[], seen: string}} GitCall
+ * @typedef {{cwd: string, args: string[], answer: string}} GitCall
  *   a git call to run again: its directory, repo-relative, its words, and
  *   the answer the test got, `<status>:<sha1 of stdout>`
  * @typedef {{files: string[], absent: string[], dirs: string[],
@@ -379,13 +379,14 @@ function answeredCalls(calls) {
 	const git = [];
 	for (const { cwd, args, begun, answers } of calls) {
 		const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
-		if (answers.length !== begun)
+		const [answer, ...rest] = answers;
+		if (answer === undefined || answers.length !== begun)
 			return { doubt: `a git call (${shown}) was logged without its answer` };
-		if (new Set(answers).size > 1)
+		if (rest.some((a) => a !== answer))
 			return {
 				doubt: `a git call (${shown}) answered differently within the run`,
 			};
-		git.push({ cwd, args, seen: /** @type {string} */ (answers[0]) });
+		git.push({ cwd, args, answer });
 	}
 	return git;
 }

@@ -105,6 +105,17 @@ function audited(
 
 const T = "scripts/x.test.js";
 
+/* The guard on PATH, as vitest.setup.ts puts it, for a test's git calls. */
+const guarded = (root: string) => ({
+	PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
+	WFC_HOST_GIT_DIR: git(
+		root,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	),
+});
+
 describe("what a test file reads, as the audit sees it", () => {
 	it("holds a file a helper read through its default root", () => {
 		const root = checkout();
@@ -282,15 +293,7 @@ describe("what a test file reads, as the audit sees it", () => {
 
 	it("keeps a read-only git call on the checkout's repository to run again, and doubts any other", () => {
 		const root = checkout();
-		const env = {
-			PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
-			WFC_HOST_GIT_DIR: git(
-				root,
-				"rev-parse",
-				"--path-format=absolute",
-				"--git-common-dir",
-			),
-		};
+		const env = guarded(root);
 		const call = (cwd: string, args: string[]) =>
 			`require("node:child_process").execFileSync("git", ${JSON.stringify(args)}, { cwd: ${JSON.stringify(cwd)} });`;
 		const fixture = fs.realpathSync(
@@ -313,7 +316,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			{
 				cwd: "scripts",
 				args: ["ls-files", "-z"],
-				seen: `0:${createHash("sha1").update(listing).digest("hex")}`,
+				answer: `0:${createHash("sha1").update(listing).digest("hex")}`,
 			},
 		]);
 		const status = audited(root, T, call(root, ["status"]), { env });
@@ -330,15 +333,7 @@ describe("what a test file reads, as the audit sees it", () => {
 
 	it("doubts a git call the guard logged begun and never answered, or answered two ways", () => {
 		const root = checkout();
-		const env = {
-			PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
-			WFC_HOST_GIT_DIR: git(
-				root,
-				"rev-parse",
-				"--path-format=absolute",
-				"--git-common-dir",
-			),
-		};
+		const env = guarded(root);
 		const body = `require("node:child_process").execFileSync("git", ["ls-files"], { cwd: ${JSON.stringify(root)} });`;
 		const logged = (answer: string) =>
 			["4", "", root, answer, "ls-files", ""].join("\0");
@@ -598,17 +593,6 @@ describe("from a real audited run to a cached row (#4916)", () => {
 		},
 	);
 
-	/* The guard on PATH, as vitest.setup.ts puts it, for a test's git calls. */
-	const guarded = (root: string) => ({
-		PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
-		WFC_HOST_GIT_DIR: git(
-			root,
-			"rev-parse",
-			"--path-format=absolute",
-			"--git-common-dir",
-		),
-	});
-
 	it("records no row where a ref the test read moved before the record (#4993)", () => {
 		const root = keyed();
 		commit(root);
@@ -624,27 +608,24 @@ describe("from a real audited run to a cached row (#4916)", () => {
 		expect(recordRun(root, moved)).toBe(0);
 	});
 
-	it("records no row for a git call naming a pattern file outside the checkout, gone by the record (#4993)", () => {
+	it("records no row for a git call naming a pattern file outside the checkout, gone by the record, and one where it stands (#4993)", () => {
 		const root = keyed();
 		write(root, "docs/n.md", "needle\n");
 		commit(root);
-		const log = audited(
-			root,
-			T,
-			[
-				'const fs = require("node:fs");',
-				'const os = require("node:os");',
-				'const path = require("node:path");',
-				'const s = fs.mkdtempSync(path.join(os.tmpdir(), "rda-pats-"));',
-				'fs.writeFileSync(path.join(s, "pats"), "needle\\n");',
-				`require("node:child_process").execFileSync("git", ["grep", "-l", "-f", path.join(s, "pats")], { cwd: ${JSON.stringify(root)} });`,
-				"fs.rmSync(s, { recursive: true });",
-			].join("\n"),
-			{ env: guarded(root) },
+		const pats = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-pats-")),
 		);
+		dirs.push(pats);
+		write(pats, "pats", "needle\n");
+		const body = `require("node:child_process").execFileSync("git", ["grep", "-l", "-f", ${JSON.stringify(path.join(pats, "pats"))}], { cwd: ${JSON.stringify(root)} });`;
+		const kept = audited(root, T, body, { env: guarded(root) });
 		commit(root);
-		expect(readAudits(log, root).get(T).reads.git).toHaveLength(1);
-		expect(recordRun(root, log)).toBe(0);
+		expect(recordRun(root, kept)).toBe(1);
+
+		const gone = audited(root, T, body, { env: guarded(root) });
+		fs.rmSync(path.join(pats, "pats"));
+		expect(readAudits(gone, root).get(T).reads.git).toHaveLength(1);
+		expect(recordRun(root, gone)).toBe(0);
 	});
 
 	it("voids the row on a skill dir added, and on a settings file read through a helper's default root", () => {
