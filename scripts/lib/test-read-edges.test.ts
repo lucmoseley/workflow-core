@@ -58,7 +58,7 @@ describe("a test's direct reads", () => {
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([]);
 	});
 
-	it("accepts each anchor spelling the repo actually uses", () => {
+	it("accepts each anchor spelling the repo uses", () => {
 		for (const anchor of [
 			'path.join(ROOT, "X")',
 			'path.join(REPO, "X")',
@@ -332,7 +332,7 @@ describe("a test's direct reads through a directory listing (#1770)", () => {
 		expect(reads(src)).toHaveLength(4);
 	});
 
-	it("narrows nothing on a filter it cannot read as a conjunction of tests, which would otherwise keep the inverse (#1770 review)", () => {
+	it("narrows nothing on a filter it cannot read as a conjunction of tests, which would otherwise keep the inverse (#1770)", () => {
 		for (const body of [
 			'(f) => !(f.endsWith(".md"))',
 			"(f) => !(/\\.md$/.test(f))",
@@ -1175,7 +1175,7 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 			expect(sitesOf(body)).toEqual([{ line: body.split("\n").length, shape }]);
 	});
 
-	it("reports a git listing whose pathspec is the root as the whole tree (#4922 review)", () => {
+	it("reports a git listing whose pathspec is the root as the whole tree (#4922)", () => {
 		for (const spec of ['"."', '"./"'])
 			expect(
 				sitesOf(

@@ -89,8 +89,7 @@
  * (#4567) — ARE attributed to
  * the test, with each launched script's own `require`s or `source`s one hop
  * (#4505). Where a test runs a shell script that launches a sibling by its
- * own directory, the tracked sibling runs, not a fixture's copy, so the
- * break #2093 measured absent is real here.
+ * own directory, the tracked sibling runs, not a fixture's copy.
  *
  * A SPAWNED SCRIPT'S OWN READS — what `fileReadsOf` finds in its code — join
  * the closure at the script's depth under the same nearest-reader fallback
@@ -883,8 +882,7 @@ const GIT_CONFIG_OPTION = /^["']-c["']$/;
 /**
  * The git listing whose argument list opens at `open`: each `-C` value as
  * written and in order, whether a global option ahead of the subcommand is
- * one it does not read — `--git-dir`, `--work-tree` or any but `-C` and
- * `-c` — its elements from the subcommand on, and where the list closes;
+ * one it does not read — any but `-C` and `-c` — its elements from the subcommand on, and where the list closes;
  * null where the list holds no `ls-files` or `grep` subcommand (#4922).
  * @param {string} source
  * @param {number} open
