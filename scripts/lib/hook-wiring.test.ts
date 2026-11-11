@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { MatcherError } from "./core-hooks.js";
 import {
 	allRegistrations,
 	buildCommandLine,
@@ -219,6 +220,28 @@ describe("hookIsWired", () => {
 
 	it("treats an entry with no matcher as covering every tool", () => {
 		expect(hookIsWired("Stop", "backstop.sh", "anything", settings)).toBe(true);
+	});
+
+	it('reads "" and "*" as covering every tool, as core-hooks does (#4917)', () => {
+		for (const matcher of ["", "*"]) {
+			const wild = {
+				hooks: {
+					PreToolUse: [{ matcher, hooks: [{ command: "guard-w.sh" }] }],
+				},
+			};
+			expect(hookIsWired("PreToolUse", "guard-w.sh", "Bash", wild)).toBe(true);
+		}
+	});
+
+	it("throws core-hooks' MatcherError on a matcher that will not compile", () => {
+		const broken = {
+			hooks: {
+				PreToolUse: [{ matcher: "[", hooks: [{ command: "guard-x.sh" }] }],
+			},
+		};
+		expect(() =>
+			hookIsWired("PreToolUse", "guard-x.sh", "Bash", broken),
+		).toThrow(MatcherError);
 	});
 
 	it("is false when the script is wired on a different event", () => {

@@ -138,23 +138,35 @@ class MatcherError extends Error {
 }
 
 /**
- * Does a hook group's `matcher` cover `tool`? THE ONE READING of a matcher
- * (#4914). Absent, `""` and `"*"` cover every tool, as Claude Code reads them;
- * any other is anchored whole, so `Write` does not answer for `WriteFile`.
+ * Which tools a hook group's `matcher` covers, compiled once. THE ONE READING
+ * of a matcher (#4914). Absent, `""` and `"*"` cover every tool, as Claude Code
+ * reads them; any other is anchored whole, so `Write` does not answer for
+ * `WriteFile`.
  * @param {string | undefined} matcher
- * @param {string} tool
- * @returns {boolean}
+ * @returns {(tool: string) => boolean}
  * @throws {MatcherError} where `matcher` is not a valid regex
  */
-function isToolCovered(matcher, tool) {
-	if (matcher === undefined || matcher === "" || matcher === "*") return true;
+function buildToolCoverage(matcher) {
+	if (matcher === undefined || matcher === "" || matcher === "*")
+		return () => true;
 	let re;
 	try {
 		re = new RegExp(`^(?:${matcher})$`);
 	} catch (e) {
 		throw new MatcherError(matcher, { cause: e });
 	}
-	return re.test(tool);
+	return (tool) => re.test(tool);
+}
+
+/**
+ * Does a hook group's `matcher` cover `tool`? `buildToolCoverage`, asked once.
+ * @param {string | undefined} matcher
+ * @param {string} tool
+ * @returns {boolean}
+ * @throws {MatcherError} where `matcher` is not a valid regex
+ */
+function isToolCovered(matcher, tool) {
+	return buildToolCoverage(matcher)(tool);
 }
 
 /**
@@ -553,6 +565,7 @@ module.exports = {
 	SELF_PLUGIN_HOOKS,
 	SELF_PLUGIN_ID,
 	SELF_PLUGIN_MARKETPLACE,
+	buildToolCoverage,
 	readRunningHooks,
 	toScriptsRel,
 	flattenHooks,

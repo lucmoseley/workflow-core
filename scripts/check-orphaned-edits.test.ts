@@ -24,10 +24,13 @@ import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import {
 	AS_ROOT,
 	commitAll,
+	DEAD,
 	freshSandbox,
 	gitRepo,
 	locks,
 	proc,
+	putLock,
+	registerSession,
 	store,
 } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
@@ -210,6 +213,21 @@ describe("check-orphaned-edits", () => {
 			);
 
 			expect((await run()).out).not.toContain("ORPHANED-EDIT");
+		});
+
+		it("by a claim whose holder's pid is dead but whose session the registry shows resumed (#4902)", async () => {
+			dirty("docs/b.md", 30);
+			registerSession(sb, "holder", process.pid);
+			putLock("docs/b.md", { sessionId: "holder", ...DEAD });
+
+			expect((await run()).out).not.toContain("ORPHANED-EDIT");
+		});
+
+		it("but not by a claim whose holder ended", async () => {
+			dirty("docs/b.md", 30);
+			putLock("docs/b.md", { sessionId: "holder", ...DEAD });
+
+			expect((await run()).out).toContain("ORPHANED-EDIT");
 		});
 
 		it("by a live session's observation", async () => {
@@ -473,6 +491,23 @@ describe("check-orphaned-edits", () => {
 			}
 			expect(readFilings()).toEqual([]);
 		});
+
+		it.skipIf(AS_ROOT)(
+			"the sessions registry, behind a dead-pid claim (#4902)",
+			async () => {
+				dirty("docs/b.md", 30);
+				putLock("docs/b.md", { sessionId: "holder", ...DEAD });
+				fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
+				try {
+					expect(JSON.parse((await run(["--json"])).stdout).outcome).toBe(
+						"SKIP",
+					);
+				} finally {
+					fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
+				}
+				expect(readFilings()).toEqual([]);
+			},
+		);
 
 		it.skipIf(AS_ROOT)("the observation store", async () => {
 			dirty("a.txt", 30);

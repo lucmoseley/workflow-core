@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Toggle burn mode: spend allowance on purpose. Haiku work runs on Opus 5.5,
 # and Opus work on Fable 5.2, each at medium. Off by default;
-# docs/effort-guide.md §Burn mode is the rule, and lib/burn-mode.js the table.
+# docs/effort-guide.md §Burn mode is the rule, lib/model-table.js the table, and lib/burn-mode.js the marker.
 #
 #   scripts/burn-mode.sh on | off | status
 #
@@ -45,6 +45,7 @@ here="$(cd "$here" && pwd)"
 # shellcheck source=scripts/lib/atomic-write.sh
 source "$here/lib/atomic-write.sh"
 lib="$here/lib/burn-mode.js"
+table="$here/lib/model-table.js"
 # A person runs this script, so the one way the marker can fail to resolve
 # says so rather than exiting on `set -e` with nothing printed.
 marker="$(node "$lib" marker)" ||
@@ -53,8 +54,8 @@ marker="$(node "$lib" marker)" ||
     exit 2
   }
 # The standing session model, and what burn mode moves it to.
-off_model="$(node "$lib" session "")"
-on_model="$(node "$lib" session "" --burn)"
+off_model="$(node "$table" session "")"
+on_model="$(node "$table" session "" --burn)"
 
 # The plans' settings files, ONE ENTRY PER REAL FILE (#187). `~/.claude2` and
 # `~/.claude3` hold symlinks to `~/.claude/settings.json` on the machine this
@@ -86,7 +87,7 @@ model_of() { jq -r '.model // ""' "$1"; }
 
 # burned <model> — what the burn layer makes of a plan's model, "" meaning
 # the default session model.
-burned() { node "$lib" session "$1" --burn; }
+burned() { node "$table" session "$1" --burn; }
 
 show_status() {
   local on=0 f model expect shown basis
