@@ -117,7 +117,7 @@ const {
 	isListedLive,
 	sweepSessionIds,
 } = require("./lib/agent-liveness");
-const proc = require("./lib/arbiter-proc");
+const core = require("./lib/arbiter-core");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { landingCutOver } = require("./lib/cutover.js");
@@ -326,12 +326,13 @@ function readOwnedByLive() {
 	const locks = store.readLocks();
 	if (locks === null) return { why: "the arbiter's lock store would not read" };
 	const held = heldLockPaths(locks);
+	if (!held.paths) return { why: held.why };
 
 	const listed = sweepSessionIds();
 	if (!listed.ids) return { why: listed.why };
 	const live = readLiveSessionPaths(listed);
 	if (live.paths === undefined) return { why: live.why };
-	const owned = new Set([...held, ...live.paths]);
+	const owned = new Set([...held.paths, ...live.paths]);
 	return { owned, names: listed.names, listed };
 }
 
@@ -343,20 +344,30 @@ function readOwnedByLive() {
 const ownedKey = (tree, rel) => `${tree}\0${rel}`;
 
 /**
+ * The ownedKey of every lock a live holder has, a holder resumed onto a fresh
+ * host included — or why that cannot be told: a dead-pid lock whose session
+ * the registry would not answer for may be a live one's.
  * @param {any[]} locks
- * @returns {string[]} the ownedKey of every lock a live holder has
+ * @returns {{paths: string[], why?: undefined} | {why: string, paths?: undefined}}
  */
 function heldLockPaths(locks) {
+	const wasResumed = core.resumedHolderTest(
+		"orphaned-edits",
+		"the sessions registry could not be read, so a claim held by a resumed " +
+			"session cannot be told from a dead one's — the orphan check skips",
+	);
 	/** @type {string[]} */
 	const paths = [];
 	for (const lock of locks) {
 		if (!lock || lock.unreadable) continue;
-		if (proc.holderAlive(lock))
+		if (core.liveOrResumed(lock, wasResumed))
 			paths.push(
 				ownedKey(store.recordTree(lock), store.subjectPath(lock.path)),
 			);
 	}
-	return paths;
+	if (wasResumed.registryUnreadable())
+		return { why: "the sessions registry would not read" };
+	return { paths };
 }
 
 /**

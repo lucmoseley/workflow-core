@@ -114,6 +114,17 @@ describe("a guard's closure, read on disk in a plain directory", () => {
 		expect(d.hashed.has("scripts/lib/gone.js")).toBe(true);
 	});
 
+	it("hashes nothing for a program it runs that is not in the tree, but keeps it an input (#4890)", () => {
+		const guard = '#!/bin/bash\ntmp="$(mktemp -d)"\nbash "$tmp/inj.sh"\n';
+		const d = digestOf(plainTree({ "scripts/g.sh": guard }), "scripts/g.sh");
+
+		expect(d.digest).toBe(
+			createHash("sha256").update(guard).digest("hex").slice(0, 16),
+		);
+		expect(sorted(d.absent)).toEqual(["scripts/inj.sh"]);
+		expect(d.hashed.has("scripts/inj.sh")).toBe(true);
+	});
+
 	it("moves when only a dispatch manifest row changes (#3124)", () => {
 		const manifest = (tools: string) =>
 			`${JSON.stringify({
@@ -266,6 +277,21 @@ describe("a guard's closure in a git checkout: the index's members, the disk's b
 		writeTree(other, { "scripts/lib/a.js": "2\n" });
 
 		expect(digestOf(other, "scripts/g.js").digest).not.toBe(clean);
+	});
+
+	it("moves on a staged removal of a program it runs, which stays an input (#4890)", () => {
+		const root = committed({
+			"scripts/g.sh":
+				'#!/bin/bash\nhere="$(dirname "$0")"\nnode "$here/x.js"\n',
+			"scripts/x.js": "1\n",
+		});
+		const clean = digestOf(root, "scripts/g.sh").digest;
+		const other = worktreeOf(root);
+		git(other, "rm", "-q", "scripts/x.js");
+		const removed = digestOf(other, "scripts/g.sh");
+
+		expect(removed.digest).not.toBe(clean);
+		expect(sorted(removed.absent)).toEqual(["scripts/x.js"]);
 	});
 
 	it("gives a guard outside the index no digest, whatever lies on disk (#4517)", () => {
