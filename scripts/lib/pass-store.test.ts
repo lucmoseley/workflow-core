@@ -92,7 +92,7 @@ const nextAt = () => {
 /**
  * A run of `files` at `dir`, each passing unless named in `failing`, each
  * audited as reading nothing unless `audits` names it; `audits: null` is a
- * run nothing audited. `since` defaults to a mark taken now, as though the
+ * run nothing audited. `startMark` defaults to a mark taken now, as though the
  * run began once the repository was written.
  */
 function run(
@@ -103,7 +103,7 @@ function run(
 		clean = true,
 		drifted = [] as string[] | null,
 		after = undefined as ReturnType<typeof readTreeSnapshot> | undefined,
-		since = undefined as bigint | null | undefined,
+		startMark = undefined as bigint | null | undefined,
 		values = VALUES,
 		storeRoot = dir,
 		at = nextAt(),
@@ -125,7 +125,7 @@ function run(
 			clean,
 			drifted,
 			after: after === undefined ? readTreeSnapshot(dir) : after,
-			since: since === undefined ? markStart() : since,
+			startMark: startMark === undefined ? markStart(dir) : startMark,
 			audits:
 				audits === null
 					? null
@@ -1125,7 +1125,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			clean: true,
 			drifted: [],
 			after: readTreeSnapshot(dir),
-			since: markStart(),
+			startMark: markStart(dir),
 			audits: new Map([[A, { reads: NO_READS }]]),
 		};
 		expect(record(base, { storeRoot: dir, lander: true })).toBe(0);
@@ -1258,24 +1258,24 @@ describe("the reads the audit saw", () => {
 
 		it("records no pass row for a test that read a file while it stood edited", () => {
 			const dir = repo();
-			const since = markStart();
+			const startMark = markStart(dir);
 			write(dir, "other.md", "other.md edited\n");
 			write(dir, "other.md", "other.md v0\n");
-			expect(run(dir, [A, B], { since, audits: readsOther })).toBe(1);
+			expect(run(dir, [A, B], { startMark, audits: readsOther })).toBe(1);
 			expect(cachedOf(dir, [A, B])).toEqual([B]);
 		});
 
 		it("records no pass row for a tree walked while a file under it was removed, then restored", () => {
 			const dir = repo();
 			withSkill(dir);
-			const since = markStart();
+			const startMark = markStart(dir);
 			const skill = path.join(dir, Skills, "one/SKILL.md");
 			const text = fs.readFileSync(skill);
 			fs.rmSync(skill);
 			fs.writeFileSync(skill, text);
 			expect(
 				run(dir, [A, B], {
-					since,
+					startMark,
 					audits: { [A]: audited({ trees: [Skills] }) },
 				}),
 			).toBe(1);
@@ -1284,27 +1284,27 @@ describe("the reads the audit saw", () => {
 
 		it("records no pass row where a file changed after the end snapshot is put back before the record reads it", () => {
 			const dir = repo();
-			const since = markStart();
+			const startMark = markStart(dir);
 			const end = readTreeSnapshot(dir);
 			write(dir, "other.md", "other.md late\n");
 			write(dir, "other.md", "other.md v0\n");
-			expect(run(dir, [A, B], { since, after: end, audits: readsOther })).toBe(
-				1,
-			);
+			expect(
+				run(dir, [A, B], { startMark, after: end, audits: readsOther }),
+			).toBe(1);
 			expect(cachedOf(dir, [A, B])).toEqual([B]);
 		});
 
 		it("still records the pass of a test whose inputs stood untouched since the run began", () => {
 			const dir = repo();
 			write(dir, "other.md", "other.md v1\n");
-			const since = markStart();
-			expect(run(dir, [A, B], { since, audits: readsOther })).toBe(2);
+			const startMark = markStart(dir);
+			expect(run(dir, [A, B], { startMark, audits: readsOther })).toBe(2);
 			expect(cachedOf(dir, [A, B])).toEqual([A, B]);
 		});
 
 		it("records no pass row where the run's start was never marked", () => {
 			const dir = repo();
-			expect(run(dir, [A, B], { since: null })).toBe(0);
+			expect(run(dir, [A, B], { startMark: null })).toBe(0);
 		});
 	});
 

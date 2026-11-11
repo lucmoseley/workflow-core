@@ -40,6 +40,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { execGit } = require("./git.js");
+const { sleepSync } = require("./sleep-sync.js");
 
 /**
  * A tree as one moment saw it, and the claim rows `neighbourDirty` reads.
@@ -395,23 +396,32 @@ function privateIndexTree(root) {
 	}
 }
 
-/* How long `markStart` waits for the clock files are stamped with to pass
- * its mark: a coarse stamp moves once a kernel tick, a few milliseconds. */
-const MARK_WAIT_MS = 1000;
+/* How long `markStart` waits for a fresh stamp to pass its mark: a stamp
+ * moves once a kernel tick, 1 to 10 ms, or once a second on a filesystem
+ * that keeps whole seconds. A guess, past one second: a wait that runs out
+ * takes no mark, so the run records no pass. */
+const MARK_WAIT_MS = 2000;
+
+/* The variable `scripts/run-vitest.js` hands its run's mark on, taken
+ * before vitest loads its config. */
+const START_MARK_ENV = "WFC_RUN_START_MARK";
 
 /**
- * A mark of now on the clock the kernel stamps a file's change time with: a
- * change made after it stamps a later time, one made before it no later
+ * A mark of now on the clock the kernel stamps a file's change time with in
+ * `root`, stamped there, as git stamps its index beside the files it judges:
+ * a change made after it stamps a later time, one made before it no later
  * (git's racy-git, where an equal stamp is no proof either way). It returns
  * only once a fresh stamp has passed the mark, so nothing changed after the
- * mark can share its stamp. Null where no stamp can be taken.
+ * mark can share its stamp. Null where no stamp can be taken, or none moves,
+ * as on a filesystem that never restamps a change time.
+ * @param {string} root
  * @param {{fs?: typeof nodeFs}} [opts]
  * @returns {bigint|null}
  */
-function markStart({ fs = nodeFs } = {}) {
+function markStart(root, { fs = nodeFs } = {}) {
 	let dir;
 	try {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "run-start-"));
+		dir = fs.mkdtempSync(path.join(root, ".run-start-"));
 	} catch {
 		return null;
 	}
@@ -419,11 +429,10 @@ function markStart({ fs = nodeFs } = {}) {
 		const stamp = () => fs.statSync(dir, { bigint: true }).ctimeNs;
 		const mark = stamp();
 		const until = Date.now() + MARK_WAIT_MS;
-		const tick = new Int32Array(new SharedArrayBuffer(4));
 		while (Date.now() < until) {
 			fs.utimesSync(dir, new Date(), new Date());
 			if (stamp() > mark) return mark;
-			Atomics.wait(tick, 0, 0, 1);
+			sleepSync(1);
 		}
 		return null;
 	} catch {
@@ -432,29 +441,40 @@ function markStart({ fs = nodeFs } = {}) {
 		try {
 			fs.rmdirSync(dir);
 		} catch {
-			// A leftover empty directory in the tmpdir costs only an inode.
+			// A leftover empty directory, which git never lists, costs an inode.
 		}
 	}
 }
 
 /**
- * Which of `paths` under `root` changed since `since`, a `markStart` mark:
+ * The mark `scripts/run-vitest.js` handed this process, null where it
+ * handed none or none that reads.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {bigint|null}
+ */
+function readHandedMark(env = process.env) {
+	const handed = env[START_MARK_ENV];
+	return handed && /^\d+$/.test(handed) ? BigInt(handed) : null;
+}
+
+/**
+ * Which of `paths` under `root` changed since `mark`, a `markStart` mark:
  * each whose change time is later, and each that will not stat for any
  * reason but its absence. A path absent now is not named; a file made and
  * removed again since leaves no stamp to read. Null where there is no mark.
  * @param {string} root
  * @param {string[]} paths repo-relative
- * @param {bigint|null} since
+ * @param {bigint|null} mark
  * @param {{fs?: typeof nodeFs}} [opts]
  * @returns {Set<string>|null}
  */
-function readChangedSince(root, paths, since, { fs = nodeFs } = {}) {
-	if (since === null) return null;
+function readChangedSince(root, paths, mark, { fs = nodeFs } = {}) {
+	if (mark === null) return null;
 	/** @type {Set<string>} */
 	const changed = new Set();
 	for (const p of paths) {
 		try {
-			if (fs.lstatSync(path.join(root, p), { bigint: true }).ctimeNs > since)
+			if (fs.lstatSync(path.join(root, p), { bigint: true }).ctimeNs > mark)
 				changed.add(p);
 		} catch (e) {
 			const { code } = caught(e);
@@ -467,6 +487,8 @@ function readChangedSince(root, paths, since, { fs = nodeFs } = {}) {
 module.exports = {
 	markStart,
 	readChangedSince,
+	readHandedMark,
+	START_MARK_ENV,
 	readTreeSnapshot,
 	drift,
 	format,

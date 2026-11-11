@@ -1284,7 +1284,7 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				clean: true,
 				drifted: [],
 				after: readTreeSnapshot(root),
-				since: markStart(),
+				startMark: markStart(root),
 				audits: readAudits(log, root),
 			},
 			{ storeRoot: root, lander: false, values: Values },

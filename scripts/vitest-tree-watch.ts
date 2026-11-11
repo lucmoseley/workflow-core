@@ -19,6 +19,7 @@ const {
 	format,
 	endOfRunTreeIdentity,
 	markStart,
+	readHandedMark,
 } = require("./lib/tree-drift.js");
 const {
 	markerFrom,
@@ -47,8 +48,9 @@ let treeRoot = process.cwd();
 let before: unknown = null;
 
 /* The mark of the run's start the pass store checks each input's change
- * time against (#5018), null where none was taken. */
-let since: bigint | null = null;
+ * time against (#5018): the launcher's, taken before vitest read its config,
+ * else this setup's own; null where neither was taken. */
+let startMark: bigint | null = null;
 
 /* The read audit's log directory (#4916), null where this run is unaudited:
  * a test's nested run, whose reads its owner's audit holds, or the lander's,
@@ -67,7 +69,11 @@ function disarmAudit() {
 export function setup(project?: { config?: { root?: string } }) {
 	const root = project?.config?.root;
 	if (typeof root === "string" && root) treeRoot = root;
-	since = markStart();
+	startMark = readHandedMark() ?? markStart(treeRoot);
+	if (startMark === null)
+		process.stderr.write(
+			"vitest-tree-watch: no start mark could be taken in this tree, so this run records no pass (#5018)\n",
+		);
 	before = readTreeSnapshot(treeRoot);
 	armAudit();
 }
@@ -113,7 +119,7 @@ function recordFiles(
 					? null
 					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
 			after,
-			since,
+			startMark,
 			audits: readAuditsOrNone(),
 		},
 		{ storeRoot: root },

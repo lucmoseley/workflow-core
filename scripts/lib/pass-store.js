@@ -151,13 +151,13 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{sha: string, at: string, tree: string|null, root: string,
  *   files: FileResult[], shared: string[], clean: boolean,
  *   drifted: string[]|null, after: import("./tree-drift.js").Snapshot|null,
- *   since: bigint|null,
+ *   startMark: bigint|null,
  *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
  *   `root` the tree vitest ran in, paths relative to it; `shared` the config
  *   file and its `setupFiles` closure; `clean` false where the run errored
  *   outside its files, was interrupted or filtered by name; `drifted` the
  *   paths rewritten while it ran, null where that is unknown; `after` the
- *   drift watch's end snapshot; `since` the mark lib/tree-drift.js's
+ *   drift watch's end snapshot; `startMark` the mark lib/tree-drift.js's
  *   `markStart` took as it began, null where none was taken; `audits` each
  *   file's reads as the read audit saw them (lib/read-audit.js), null where
  *   the run was not audited
@@ -918,8 +918,9 @@ function readRunInputs(run, files) {
 	/* Read after the ids, so a change before they were read is seen: two
 	 * snapshots miss a file edited and put back between them, which a test
 	 * may have read edited (#5018). */
-	const changed = readChangedSince(run.root, [...new Set(tried)], run.since);
-	const ignored = readIgnored(run.root, [...new Set(tried)]);
+	const triedOnce = [...new Set(tried)];
+	const changed = readChangedSince(run.root, triedOnce, run.startMark);
+	const ignored = readIgnored(run.root, triedOnce);
 	const isSteady = (/** @type {string} */ p) =>
 		drifted !== null &&
 		changed !== null &&

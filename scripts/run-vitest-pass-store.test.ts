@@ -77,7 +77,7 @@ function passed(dir: string, files: string[]) {
 			clean: true,
 			drifted: [],
 			after: readTreeSnapshot(dir),
-			since: markStart(),
+			startMark: markStart(dir),
 			audits: new Map(files.map((file) => [file, { reads: NO_READS }])),
 		},
 		{ storeRoot: dir, lander: false },

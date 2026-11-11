@@ -27,6 +27,8 @@ const {
 	endOfRunTreeIdentity,
 	markStart,
 	readChangedSince,
+	readHandedMark,
+	START_MARK_ENV,
 } = require("./tree-drift.js");
 
 /** A lock as `arbiter-store.listLocks()` returns it. */
@@ -285,45 +287,65 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 
 describe("markStart and readChangedSince (#5018)", () => {
 	it("names a file edited and put back, or flipped executable and back, since the mark", () => {
-		const since = markStart();
+		const mark = markStart(repo);
 		write("src/a.js", "edited\n");
 		write("src/a.js", "one\n");
 		fs.chmodSync(path.join(repo, "src/b.js"), 0o755);
 		fs.chmodSync(path.join(repo, "src/b.js"), 0o644);
 		expect(drift(readTreeSnapshot(repo), readTreeSnapshot(repo))).toBeNull();
 		expect(
-			[...readChangedSince(repo, ["src/a.js", "src/b.js"], since)].sort(),
+			[...readChangedSince(repo, ["src/a.js", "src/b.js"], mark)].sort(),
 		).toEqual(["src/a.js", "src/b.js"]);
 	});
 
 	it("names nothing changed before the mark, nor a path absent now", () => {
 		write("src/a.js", "edited\n");
-		const since = markStart();
+		const mark = markStart(repo);
 		expect(
-			readChangedSince(repo, ["src/a.js", "src/b.js", "src/gone.js"], since),
+			readChangedSince(repo, ["src/a.js", "src/b.js", "src/gone.js"], mark),
 		).toEqual(new Set());
 	});
 
 	it("names a path that will not stat for any reason but its absence", () => {
-		const since = markStart();
+		const mark = markStart(repo);
 		const failing = {
 			lstatSync: () => {
 				throw Object.assign(new Error("EACCES"), { code: "EACCES" });
 			},
 		};
-		expect(
-			readChangedSince(repo, ["src/a.js"], since, { fs: failing }),
-		).toEqual(new Set(["src/a.js"]));
+		expect(readChangedSince(repo, ["src/a.js"], mark, { fs: failing })).toEqual(
+			new Set(["src/a.js"]),
+		);
 	});
 
-	it("knows nothing without a mark, and takes none where no stamp can be made", () => {
+	it("knows nothing without a mark, and takes none where no stamp can be made or none moves", () => {
 		expect(readChangedSince(repo, ["src/a.js"], null)).toBeNull();
 		const broken = {
 			mkdtempSync: () => {
 				throw new Error("EROFS");
 			},
 		};
-		expect(markStart({ fs: broken })).toBeNull();
+		expect(markStart(repo, { fs: broken })).toBeNull();
+		const frozen = {
+			mkdtempSync: fs.mkdtempSync,
+			statSync: () => ({ ctimeNs: BigInt(1) }),
+			utimesSync: () => undefined,
+			rmdirSync: fs.rmdirSync,
+		};
+		expect(markStart(repo, { fs: frozen })).toBeNull();
+		expect(
+			fs.readdirSync(repo).filter((n) => n.startsWith(".run-start-")),
+		).toEqual([]);
+	});
+});
+
+describe("readHandedMark (#5018)", () => {
+	it("reads the mark the launcher handed, and none that will not read", () => {
+		expect(readHandedMark({ [START_MARK_ENV]: "1794404172708671998" })).toBe(
+			BigInt("1794404172708671998"),
+		);
+		expect(readHandedMark({ [START_MARK_ENV]: "soon" })).toBeNull();
+		expect(readHandedMark({})).toBeNull();
 	});
 });
 

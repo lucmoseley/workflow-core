@@ -213,7 +213,7 @@ function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 			clean: true,
 			drifted: [],
 			after: readTreeSnapshot(dir),
-			since: markStart(),
+			startMark: markStart(dir),
 			/* The read audit saw it read nothing beyond its imports. */
 			audits: new Map([[TEST, { reads: NO_READS }]]),
 		},
