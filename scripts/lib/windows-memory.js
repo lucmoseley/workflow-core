@@ -17,10 +17,9 @@
  * caller to record.
  */
 
-const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { readTail } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
 
 /* The free memory under which Windows holds every launch. A first guess, and
@@ -59,31 +58,6 @@ function minuteLogPath() {
  *   | { state: "absent" }
  *   | { state: "stale", why: string }} WindowsRead
  */
-
-/**
- * The last TAIL_BYTES of `file`, null where it does not exist. Its own read,
- * not file-read.js's: that reads a whole file, and the log runs to tens of MB.
- * @param {string} file
- * @returns {string | null}
- */
-function readTail(file) {
-	let fd;
-	try {
-		fd = fs.openSync(file, "r");
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return null;
-		throw e;
-	}
-	try {
-		const size = fs.fstatSync(fd).size;
-		const length = Math.min(size, TAIL_BYTES);
-		const buf = Buffer.alloc(length);
-		fs.readSync(fd, buf, 0, length, size - length);
-		return buf.toString("utf8");
-	} finally {
-		fs.closeSync(fd);
-	}
-}
 
 /**
  * The Windows reading a memwatch minute row carries, aged by the reading's
@@ -136,17 +110,11 @@ function newestReading(tail) {
  * @returns {WindowsRead}
  */
 function readWindowsMemory({ file = minuteLogPath(), now = Date.now() } = {}) {
-	let tail;
-	try {
-		tail = readTail(file);
-	} catch (e) {
-		return {
-			state: "stale",
-			why: `${file} unreadable: ${caught(e).message}`,
-		};
-	}
-	if (tail === null) return { state: "absent" };
-	const newest = newestReading(tail);
+	const tail = readTail(file, TAIL_BYTES);
+	if (tail.state === "absent") return { state: "absent" };
+	if (tail.state === "unreadable")
+		return { state: "stale", why: `${file} unreadable: ${tail.message}` };
+	const newest = newestReading(tail.data.text);
 	if (newest === null)
 		return {
 			state: "stale",

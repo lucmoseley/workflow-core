@@ -29,6 +29,7 @@
 
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
+const { readTail } = require("./file-read.js");
 
 /**
  * @typedef {{ rows: Record<string, unknown>[], entries: { row: Record<string, unknown>, line: number }[], bad: number[], torn: boolean }} Jsonl
@@ -140,25 +141,13 @@ function lastRowOf(text, partial) {
  * @returns {Record<string, unknown> | null | undefined}
  */
 function readLastJsonlRow(file) {
-	let fd;
-	try {
-		fd = fs.openSync(file, "r");
-	} catch (e) {
-		/* lib/file-read.js reads a file whole, and this one must not be. */
-		if (caught(e).code === "ENOENT") return null;
-		throw e;
-	}
-	try {
-		const { size } = fs.fstatSync(fd);
-		for (let want = TAIL_BYTES; ; want *= 2) {
-			const start = Math.max(0, size - want);
-			const tail = Buffer.alloc(size - start);
-			const read = fs.readSync(fd, tail, 0, tail.length, start);
-			const row = lastRowOf(tail.toString("utf8", 0, read), start > 0);
-			if (row || start === 0) return row;
-		}
-	} finally {
-		fs.closeSync(fd);
+	for (let want = TAIL_BYTES; ; want *= 2) {
+		const tail = readTail(file, want);
+		if (tail.state === "absent") return null;
+		if (tail.state === "unreadable") throw tail.error;
+		const { text, partial } = tail.data;
+		const row = lastRowOf(text, partial);
+		if (row || !partial) return row;
 	}
 }
 

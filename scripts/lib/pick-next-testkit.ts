@@ -29,7 +29,7 @@ import {
 	RECORDED_SHAPES,
 } from "./gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./gh-stub";
-import { loadavgLine, writeCwd, writeSmapsRollup } from "./proc-fake";
+import { buildLoadavgLine, writeCwd, writeSmapsRollup } from "./proc-fake";
 import { projectSlug } from "./project-slug.js";
 import { writePsStub } from "./ps-stub";
 import { runInProcessAsync } from "./run-in-process";
@@ -576,7 +576,7 @@ const stubMachine = () => {
 	for (const [pid, cwd] of Object.entries(kit.procCwds))
 		writeCwd(proc, pid, cwd);
 	const loadavg = path.join(kit.dir, "loadavg");
-	fs.writeFileSync(loadavg, loadavgLine(kit.load1));
+	fs.writeFileSync(loadavg, buildLoadavgLine(kit.load1));
 	return {
 		WFC_PS: ps,
 		WFC_MEMINFO: meminfo,

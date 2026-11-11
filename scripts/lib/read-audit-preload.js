@@ -9,7 +9,11 @@
  * `node_modules`: a file's content read through `fs`; a directory's listing,
  * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
  * process spawned, sync or not, with its program, the file that name runs
- * as found and with links followed, its arguments, working directory and whether it carries this audit on.
+ * as found and with links followed, its arguments, working directory and whether it carries this audit on,
+ * and any checkout path the test writes down an untraced child's input pipe
+ * once it runs. Each real git, and the git guard, is handed an event log of
+ * the audit's, in which git names every process it starts
+ * (lib/read-audit-git-events.js).
  * A worker thread started is recorded too, as a start alone: one started
  * from a string, or handed an environment of its own, loads no preload.
  *
@@ -44,8 +48,13 @@ const { buildHanded } = require("./read-audit-handed.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	buildGuardTest,
+	GIT_VALUED,
 	GUARD,
+	EXITED,
 	isNode,
+	PATH_MAX,
+	pairValue,
+	STEERED_BY,
 	readRealTmpdir,
 	repoPath,
 } = require("./read-audit-paths.js");
@@ -378,17 +387,19 @@ function install() {
 		const hit = tries.find((abs) => kindAt(abs) === "file" && isRunnable(abs));
 		return hit === undefined ? [] : [hit, realRealpathSync(hit)];
 	};
-	/** A child's working directory, its links followed where it stands. */
-	const cwdOf = (/** @type {Untyped} */ opts) => {
-		const cwd = path.resolve(
-			typeof opts?.cwd === "string" ? opts.cwd : process.cwd(),
-		);
+	/** `abs` with its links followed where it stands, else as given. */
+	const realOrAsIs = (/** @type {string} */ abs) => {
 		try {
-			return realRealpathSync(cwd);
+			return realRealpathSync(abs);
 		} catch {
-			return cwd;
+			return abs;
 		}
 	};
+	/** A child's working directory, its links followed where it stands. */
+	const cwdOf = (/** @type {Untyped} */ opts) =>
+		realOrAsIs(
+			path.resolve(typeof opts?.cwd === "string" ? opts.cwd : process.cwd()),
+		);
 	const stands = (/** @type {string} */ abs) => {
 		try {
 			realRealpathSync(abs);
@@ -453,13 +464,12 @@ function install() {
 	 * its own reads, and every `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
-	 * @param {string} cwd
+	 * @param {(word: string) => string[]} named
 	 */
-	const envPaths = (name, value, cwd) => {
+	const envPaths = (name, value, named) => {
 		if (name === "WFC_READ_AUDIT_ROOT") return [];
-		const paths = handed.named(
+		const paths = named(
 			name === "NODE_OPTIONS" ? value.split(SELF).join("") : value,
-			cwd,
 		);
 		if (name !== "PATH") return paths;
 		return paths.filter(
@@ -475,14 +485,14 @@ function install() {
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
 	/**
 	 * Real git is weighed only on the variables it reads a path from itself
-	 * (#4982). Residual: a hook, alias or helper git runs inherits the rest
-	 * unweighed; in the checkout's repository the guard's log doubts the
-	 * call, and in a fixture's the hook is the test's own file.
+	 * (#4982): what it runs, which inherits the rest, its own event log
+	 * names (`gitEventsOf`).
 	 * @param {Untyped} opts
 	 * @param {string} cwd
+	 * @param {(word: string) => string[]} named
 	 * @returns {Hand[]}
 	 */
-	const envHands = (opts, cwd) => {
+	const envHands = (opts, cwd, named) => {
 		const file = String(opts?.file ?? "");
 		const gitOnly = isRealGit(file, binOf(file, cwd, opts?.envPairs));
 		const pairs = Array.isArray(opts?.envPairs)
@@ -493,47 +503,53 @@ function install() {
 			const name = pair.slice(0, eq);
 			const value = pair.slice(eq + 1);
 			if (gitOnly && !GIT_READS.test(name)) return [];
-			const p = envPaths(name, value, cwd);
+			const p = envPaths(name, value, named);
 			if (p.length === 0) return [];
 			return [{ by: "env", name, standing: standing[name] === value, p }];
 		});
 	};
 	/**
-	 * Residual (#4982): input written to a child's pipe after the spawn never
-	 * passes here, and no rule sees it; only a sync spawn's `input` does.
+	 * A sync spawn's `input`; what is written to an async child's pipe later
+	 * `watchInput` weighs.
 	 * @param {Untyped} opts
-	 * @param {string} cwd
 	 * @returns {Hand[]}
 	 */
-	const stdinHands = (opts, cwd) => {
+	const stdinHands = (opts) => {
 		const input = Array.isArray(opts?.stdio) ? opts.stdio[0]?.input : null;
 		if (!ArrayBuffer.isView(input)) return [];
-		const { buffer, byteOffset, byteLength } = input;
-		const text = Buffer.from(buffer, byteOffset, byteLength).toString("latin1");
-		const p = handed.named(text, cwd);
+		const p = handed.from(cwdOf(opts), { text: true })(textOf(input));
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
-	 * A git no guard logs, in a directory under the root with no repository
-	 * of its own between: it reads the checkout's (#4982). `init` and `clone`
-	 * make one and read none; `GIT_DIR` is weighed as a variable.
+	 * A git no guard logs, whose directory — its own, or where its `-C`
+	 * words move it — lies under the root with no repository of its own
+	 * between: it reads the checkout's (#4982, #4997). `init` and `clone`
+	 * look for none, but one asked for `--help` does, through `git help`.
+	 * `--git-dir` and `GIT_DIR` name it, weighed as a word and a variable.
 	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @returns {Hand[]}
 	 */
 	const repoHands = (opts, cwd) => {
-		const words = argvOf(opts).slice(1);
-		const isGit = path.basename(String(opts?.file ?? "")) === "git";
-		if (!isGit || !relativeUnder(root, cwd)) return [];
-		if (words[0] === "init" || words[0] === "clone") return [];
-		if (
-			argvOf({ args: opts?.envPairs }).some((/** @type {string} */ p) =>
-				p.startsWith("GIT_DIR="),
-			)
-		)
+		if (path.basename(String(opts?.file ?? "")) !== "git") return [];
+		const asked = gitDirOf(argvOf(opts).slice(1), cwd);
+		if (asked === null || pairValue(opts?.envPairs, "GIT_DIR") !== undefined)
 			return [];
-		for (let at = cwd; at !== root; at = path.dirname(at))
-			if (stands(path.join(at, ".git"))) return [];
+		return repoHandAt(realOrAsIs(asked.at), asked.bare);
+	};
+	/**
+	 * @param {string} at where the git looks for its repository, real path
+	 * @param {boolean} bare whether that directory is the repository itself
+	 * @returns {Hand[]}
+	 */
+	const repoHandAt = (at, bare) => {
+		if (relativeUnder(root, at) === null) return [];
+		if (bare) {
+			const p = rel(at);
+			return p === null ? [] : [{ by: "repo", p: [p] }];
+		}
+		for (let up = at; up !== root; up = path.dirname(up))
+			if (stands(path.join(up, ".git"))) return [];
 		return [{ by: "repo", p: ["."] }];
 	};
 	/**
@@ -545,16 +561,17 @@ function install() {
 	const handsOf = (opts) => {
 		if (isSelfLogging(opts)) return [];
 		const cwd = cwdOf(opts);
+		const named = handed.from(cwd);
 		const words = argvOf(opts).slice(1);
 		return [
 			...words.flatMap(
 				(/** @type {string} */ word, /** @type {number} */ at) => {
-					const p = handed.named(word, cwd);
+					const p = named(word);
 					return p.length === 0 ? [] : [{ by: "arg", at, p }];
 				},
 			),
-			...envHands(opts, cwd),
-			...stdinHands(opts, cwd),
+			...envHands(opts, cwd, named),
+			...stdinHands(opts),
 			...repoHands(opts, cwd),
 		];
 	};
@@ -612,42 +629,205 @@ function install() {
 		if (!isTraceable(opts, cwd)) return null;
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
 	};
+	let gitLogs = 0;
 	/**
+	 * Where a git child logs each process it starts — a hook, an alias, a
+	 * helper, a pager, each of which inherits every variable — on git's own
+	 * event target (`GIT_TRACE2_EVENT`, git's api-trace2) (#4997): a file of
+	 * this audit's, handed on; the one it already names, where that is this
+	 * audit's (a git a hook ran); null where it names one of its own, so what
+	 * it ran goes unlogged. No `events` for a child that is no real git and
+	 * no guard.
 	 * @param {Untyped} opts
-	 * @returns {{opts: Untyped, route: Route, hands: Hand[]}}
+	 * @returns {{opts: Untyped, events?: string|null}}
 	 */
-	const buildTracedSpawn = (opts) => {
+	const gitEventsOf = (opts) => {
+		const file = String(opts?.file ?? "");
+		if (path.basename(file) !== "git") return { opts };
+		const bin = binOf(file, cwdOf(opts), opts?.envPairs);
+		if (!isRealGit(file, bin) && !isGuard(bin[1])) return { opts };
+		const pairs = Array.isArray(opts?.envPairs) ? opts.envPairs : [];
+		const target = pairValue(pairs, GIT_EVENTS);
+		if (target !== undefined) {
+			const ours = path.dirname(target) === dir;
+			return { opts, events: ours ? path.basename(target) : null };
+		}
+		const events = `${owner}.${process.pid}.${++gitLogs}.git-events`;
+		const told = [...pairs, `${GIT_EVENTS}=${path.join(dir, events)}`];
+		return { opts: { ...opts, envPairs: told }, events };
+	};
+	/**
+	 * @typedef {{opts: Untyped, route: Route, hands: Hand[],
+	 *   events?: string|null}} Spawn
+	 */
+	/**
+	 * @param {Untyped} asked
+	 * @returns {Spawn}
+	 */
+	const buildTracedSpawn = (asked) => {
 		try {
 			/* A tracer already following this process follows the child too,
 			 * and would take the hands' lookups for reads of its own. */
 			if (STRACE && isUnderTracer())
-				return { opts, route: { within: true }, hands: [] };
-			const hands = handsOf(opts);
-			const route = routeOf(opts, hands);
-			if (!route || !("trace" in route)) return { opts, route, hands };
+				return { opts: asked, route: { within: true }, hands: [] };
+			const hands = handsOf(asked);
+			const route = routeOf(asked, hands);
+			const { opts, events } = gitEventsOf(asked);
+			if (!route || !("trace" in route)) return { opts, route, hands, events };
 			const args = buildTraceArgv(
 				String(STRACE),
 				path.join(dir, route.trace),
 				argvOf(opts),
 			);
-			return { opts: { ...opts, file: args[0], args }, route, hands };
+			return {
+				opts: { ...opts, file: args[0], args },
+				route,
+				hands,
+				events,
+			};
 		} catch {
 			// The child runs as the test spawned it, untraced, and the log is
 			// marked, which the reader doubts (#4966).
 			fault();
-			return { opts, route: null, hands: [] };
+			return { opts: asked, route: null, hands: [] };
+		}
+	};
+	/**
+	 * Weigh what the test writes to an untraced child's input pipe once it
+	 * runs, which no spawn option holds (#4997): each write with the end of
+	 * the one before, so a path split across two is still whole.
+	 * @param {Untyped} handle the pipe's end this process writes
+	 * @param {number} pid
+	 * @param {string} cwd
+	 */
+	const watchInput = (handle, pid, cwd) => {
+		const named = handed.from(cwd, { text: true });
+		let tail = "";
+		const weigh = (/** @type {unknown[]} */ chunks) =>
+			guard(() => {
+				const text = tail + chunks.map(textOf).join("");
+				tail = text.slice(-PATH_MAX);
+				const p = named(text);
+				if (p.length > 0) add({ k: "piped", pid, p });
+			});
+		for (const name of PIPE_WRITES) {
+			const write = handle?.[name];
+			if (typeof write !== "function") continue;
+			handle[name] = function (
+				/** @type {unknown} */ req,
+				/** @type {Untyped} */ data,
+				/** @type {unknown[]} */ ...rest
+			) {
+				/* `writev` takes each chunk with its encoding after it, unless
+				 * all are buffers. */
+				if (name === "writev") weigh(rest[0] ? data : data.filter(isEven));
+				else weigh([data]);
+				return write.call(this, req, data, ...rest);
+			};
+		}
+	};
+	/**
+	 * Watch every pipe to an async child where nothing else sees its reads:
+	 * no tracer follows it and it keeps no log of its own. A stream the test
+	 * handed it whole (`wrap`) on a descriptor it may read carries what the
+	 * audit cannot read: a doubt.
+	 * @param {Untyped} asked
+	 * @param {number|undefined} pid
+	 * @param {Route} route
+	 */
+	const watchIfUnseen = (asked, pid, route) =>
+		guard(() => {
+			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
+			if (typeof pid !== "number" || route || isSelfLogging(asked)) return;
+			const cwd = cwdOf(asked);
+			for (const [descriptor, entry] of stdio.entries())
+				watchEntry(entry, descriptor, pid, cwd);
+		});
+
+	/**
+	 * @param {Untyped} entry one of a spawn's `stdio`
+	 * @param {number} descriptor its number in the child
+	 * @param {number} pid
+	 * @param {string} cwd
+	 */
+	const watchEntry = (entry, descriptor, pid, cwd) => {
+		if (entry?.type === "pipe") watchInput(entry.handle, pid, cwd);
+		const isOutput = descriptor === 1 || descriptor === 2;
+		if (entry?.type === "wrap" && !isOutput) add({ k: "piped", pid, p: null });
+	};
+	/**
+	 * The variables steering which program a child runs by name, or with
+	 * what options, that differ from the environment the setup settled.
+	 * @param {unknown} envPairs
+	 */
+	const steeredOf = (envPairs) =>
+		STEERS.filter((name) => pairValue(envPairs, name) !== standing[name]);
+	/**
+	 * Append to a git child's event log, where it wrote one, that the git
+	 * the test killed has exited: a git killed by a signal logs no end of
+	 * its own.
+	 * @param {string|null|undefined} events
+	 * @param {unknown} pid
+	 */
+	const markExited = (events, pid) =>
+		guard(() => {
+			if (typeof events !== "string" || typeof pid !== "number") return;
+			const flags = fs.constants.O_WRONLY | fs.constants.O_APPEND;
+			let at;
+			try {
+				at = realOpenSync(path.join(dir, events), flags);
+			} catch {
+				// A git that wrote no log is doubted for that by the reader.
+				return;
+			}
+			try {
+				fs.writeSync(at, `${JSON.stringify({ event: EXITED, pid })}\n`);
+			} finally {
+				fs.closeSync(at);
+			}
+		});
+	/**
+	 * Mark an async git child's log once it exits, where the test killed it
+	 * through its handle while it still ran git. Exited on its own, a git
+	 * logs its end; one that ran `git help` became `man` under the same
+	 * pid, which no mark may vouch for.
+	 * @param {Untyped} handle the child's process handle
+	 * @param {string|null|undefined} events
+	 */
+	const markOnKill = (handle, events) =>
+		guard(() => {
+			const { kill, onexit } = handle;
+			if (typeof events !== "string") return;
+			if (typeof kill !== "function" || typeof onexit !== "function") return;
+			let killedGit = false;
+			handle.kill = function (/** @type {Untyped[]} */ ...args) {
+				killedGit ||= isGitNow(handle.pid);
+				return kill.apply(this, args);
+			};
+			handle.onexit = function (/** @type {Untyped[]} */ ...args) {
+				if (killedGit) markExited(events, handle.pid);
+				return onexit.apply(this, args);
+			};
+		});
+	/** @param {unknown} pid whether that process runs a binary named git */
+	const isGitNow = (pid) => {
+		try {
+			return path.basename(realRealpathSync(`/proc/${pid}/exe`)) === "git";
+		} catch {
+			// Gone, or not ours to read: no mark, so its open log doubts.
+			return false;
 		}
 	};
 	/**
 	 * @param {Untyped} opts as the test spawned it
 	 * @param {number|undefined} pid
-	 * @param {Route} route
-	 * @param {Hand[]} hands
+	 * @param {Spawn} spawned
 	 */
-	const logChild = (opts, pid, route, hands) =>
+	const logChild = (opts, pid, { route, hands, events }) =>
 		guard(() => {
 			const file = String(opts?.file ?? "");
 			const cwd = cwdOf(opts);
+			const steered = steeredOf(opts?.envPairs);
 			add({
 				k: "child",
 				file,
@@ -658,6 +838,8 @@ function install() {
 				guarded: isGuarded(opts),
 				pid: pid ?? null,
 				...(hands.length > 0 ? { hands } : {}),
+				...(steered.length > 0 ? { steered } : {}),
+				...(events === undefined ? {} : { events }),
 				...route,
 			});
 		});
@@ -668,9 +850,9 @@ function install() {
 		const sync = bindings("spawn_sync");
 		const syncSpawn = sync.spawn;
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const { opts, route, hands } = buildTracedSpawn(args[0]);
-			const out = syncSpawn.apply(this, [opts, ...args.slice(1)]);
-			logChild(args[0], out?.pid, route, hands);
+			const spawned = buildTracedSpawn(args[0]);
+			const out = syncSpawn.apply(this, [spawned.opts, ...args.slice(1)]);
+			logChild(args[0], out?.pid, spawned);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
@@ -678,19 +860,22 @@ function install() {
 		/* Node through 24.18 hands the handle one options object; 24.22 hands
 		 * it positional `file, args, cwd, envPairs, stdio, …`. */
 		Process.prototype.spawn = function (/** @type {Untyped[]} */ ...args) {
-			const [first, argv, cwd, envPairs] = args;
+			const [first, argv, cwd, envPairs, stdio] = args;
 			const positional = typeof first === "string";
 			const asked = positional
-				? { file: first, args: argv, cwd, envPairs }
+				? { file: first, args: argv, cwd, envPairs, stdio }
 				: first;
-			const { opts, route, hands } = buildTracedSpawn(asked);
+			const spawned = buildTracedSpawn(asked);
+			const { opts } = spawned;
 			const err = asyncSpawn.apply(
 				this,
 				positional
-					? [opts.file, opts.args, ...args.slice(2)]
+					? [opts.file, opts.args, cwd, opts.envPairs, ...args.slice(4)]
 					: [opts, ...args.slice(1)],
 			);
-			logChild(asked, this.pid, route, hands);
+			logChild(asked, this.pid, spawned);
+			watchIfUnseen(asked, this.pid, spawned.route);
+			markOnKill(this, spawned.events);
 			return err;
 		};
 	} catch {
@@ -738,11 +923,79 @@ function readStanding(file) {
 
 const SHELLS = new Set(["sh", "bash", "dash"]);
 
+/* The variable naming git's event target (git's api-trace2). */
+const GIT_EVENTS = "GIT_TRACE2_EVENT";
+
+/* The variables that steer which program a child runs by name, or with
+ * what options (#4997). */
+const STEERS = [...new Set([...STEERED_BY.values()].flat())];
+
+/* A pipe handle's writes, as Node's stream code calls them. */
+const PIPE_WRITES = [
+	"writeBuffer",
+	"writev",
+	"writeUtf8String",
+	"writeLatin1String",
+	"writeAsciiString",
+	"writeUcs2String",
+];
+
+const isEven = (/** @type {unknown} */ _, /** @type {number} */ i) =>
+	i % 2 === 0;
+
+/**
+ * A chunk as text: a string as it is, bytes as Latin-1, one character each.
+ * @param {unknown} chunk
+ */
+function textOf(chunk) {
+	if (typeof chunk === "string") return chunk;
+	if (!ArrayBuffer.isView(chunk)) return "";
+	const { buffer, byteOffset, byteLength } = chunk;
+	return Buffer.from(buffer, byteOffset, byteLength).toString("latin1");
+}
+
 const ELF = Buffer.from("\x7fELF", "latin1");
 
 /* The variables git reads a path from: its own, and where its configuration
  * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
 const GIT_READS = /^(GIT_.*|HOME|XDG_CONFIG_HOME)$/;
+
+/**
+ * Where a git call finds its repository: the directory it looks up from,
+ * its own moved by each `-C` before the subcommand, or under `--bare` the
+ * repository itself, the directory the `-C` words before it reached (git
+ * sets `GIT_DIR` there); null where it looks for none.
+ * @param {string[]} words the call's words after the program
+ * @param {string} cwd
+ * @returns {{at: string, bare: boolean}|null}
+ */
+function gitDirOf(words, cwd) {
+	let moved = cwd;
+	/** @type {string|null} */
+	let bare = null;
+	let at = 0;
+	for (; at < words.length; at++) {
+		const word = String(words[at]);
+		if (!word.startsWith("-")) break;
+		if (word.split("=")[0] === "--git-dir") return null;
+		if (word === "--bare") bare = moved;
+		if (word === "-C") moved = path.resolve(moved, words[at + 1] ?? "");
+		if (GIT_VALUED.has(word)) at++;
+	}
+	if (makesItsOwn(words, at)) return null;
+	return { at: bare ?? moved, bare: bare !== null };
+}
+
+/**
+ * Whether the subcommand at `at` makes a repository rather than look for
+ * one: an `init` or a `clone` not asked for `--help`.
+ * @param {string[]} words
+ * @param {number} at
+ */
+function makesItsOwn(words, at) {
+	const sub = words[at];
+	return (sub === "init" || sub === "clone") && !words.includes("--help");
+}
 
 /** @param {unknown} n */
 function nameOf(n) {

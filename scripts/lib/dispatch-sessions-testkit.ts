@@ -36,7 +36,7 @@ import {
 	readHeadlessCalls,
 	writeHeadlessFake,
 } from "./headless-run-fake";
-import { loadavgLine } from "./proc-fake";
+import { buildLoadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fake";
 import { shellQuote } from "./sh-quote.js";
@@ -276,7 +276,7 @@ export function dispatchFixture(): DispatchFixture {
 		// The re-read's CPU limb (#830) reads this rather than the live load, so a
 		// busy machine never refuses a case; the load cases overwrite it.
 		fx.loadavg = path.join(fx.dir, "loadavg");
-		fs.writeFileSync(fx.loadavg, loadavgLine(0.5));
+		fs.writeFileSync(fx.loadavg, buildLoadavgLine(0.5));
 		// The kernel-stall check (#867) reads this rather than the machine's own
 		// kernel log, so a stalled boot never refuses a case.
 		kernelClean = path.join(fx.dir, "kernel-clean.log");

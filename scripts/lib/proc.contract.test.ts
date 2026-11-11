@@ -18,12 +18,12 @@ import fs from "node:fs";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 import {
-	launchEntry,
-	loadavgLine,
+	buildLaunchEntry,
+	buildLoadavgLine,
+	buildSmapsRollup,
+	buildStatLine,
+	buildUptimeLine,
 	makeProcRoot,
-	smapsRollup,
-	statLine,
-	uptimeLine,
 	writeCwd,
 	writeEnviron,
 } from "./proc-fake";
@@ -52,13 +52,16 @@ const { sample } = require("./cpu-sample.js") as {
 const PATH = `PATH=${process.env.PATH ?? "/bin"}`;
 
 const CASES: [string, string[]][] = [
-	["a part-suite", [PATH, launchEntry({ resolvedFiles: 7, wholeSlot: false })]],
+	[
+		"a part-suite",
+		[PATH, buildLaunchEntry({ resolvedFiles: 7, wholeSlot: false })],
+	],
 	[
 		"a whole run",
-		[PATH, launchEntry({ resolvedFiles: null, wholeSlot: true })],
+		[PATH, buildLaunchEntry({ resolvedFiles: null, wholeSlot: true })],
 	],
 	["no record", [PATH]],
-	["a record carrying no weight", [PATH, launchEntry({ isolated: true })]],
+	["a record carrying no weight", [PATH, buildLaunchEntry({ isolated: true })]],
 ];
 
 const hasProc = fs.existsSync("/proc/self/environ");
@@ -142,9 +145,9 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 		const realUptime = fs.readFileSync("/proc/uptime", "utf8");
 
 		expect(
-			parseStatFields(statLine(process.pid, { comm, ...live })),
+			parseStatFields(buildStatLine(process.pid, { comm, ...live })),
 		).toHaveLength(parseStatFields(realStat)?.length ?? -1);
-		expect(uptimeLine(Number.parseFloat(realUptime))).toMatch(
+		expect(buildUptimeLine(Number.parseFloat(realUptime))).toMatch(
 			/^\d+\.\d\d \d+\.\d\d\n$/,
 		);
 		expect(realUptime).toMatch(/^\d+\.\d\d \d+\.\d\d\n$/);
@@ -172,7 +175,7 @@ describe.skipIf(!hasProc)("a fake smaps_rollup (needs Linux /proc)", () => {
 		const real = fs.readFileSync(`/proc/${process.pid}/smaps_rollup`, "utf8");
 		const kb = (key: string) =>
 			Number(real.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"))?.[1]);
-		const built = smapsRollup({
+		const built = buildSmapsRollup({
 			rssKb: kb("Rss"),
 			pssKb: kb("Pss"),
 			pssDirtyKb: kb("Pss_Dirty"),
@@ -204,13 +207,13 @@ describe.skipIf(!hasProc)("a fake loadavg line (needs Linux /proc)", () => {
 	it("has the real line's shape, and reads back as the real one does", () => {
 		const shape = /^\d+\.\d\d \d+\.\d\d \d+\.\d\d \d+\/\d+ \d+\n$/;
 		expect(fs.readFileSync("/proc/loadavg", "utf8")).toMatch(shape);
-		expect(loadavgLine(3.5)).toMatch(shape);
+		expect(buildLoadavgLine(3.5)).toMatch(shape);
 		vi.stubEnv("WFC_LOADAVG", "");
 		expect(Number.isFinite(sample()?.load1)).toBe(true);
 
 		const fake = mkScratchDir("proc-loadavg-");
 		try {
-			fs.writeFileSync(`${fake}/loadavg`, loadavgLine(3.5));
+			fs.writeFileSync(`${fake}/loadavg`, buildLoadavgLine(3.5));
 			vi.stubEnv("WFC_LOADAVG", `${fake}/loadavg`);
 			expect(sample()?.load1).toBe(3.5);
 		} finally {

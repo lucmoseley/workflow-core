@@ -12,6 +12,7 @@ const fs = require("node:fs");
 
 const store = require("./arbiter-store");
 const { findNewestTranscript } = require("./transcript");
+const { readTail } = require("./file-read.js");
 const { parseJsonlRow } = require("./jsonl.js");
 
 /* A whole-file read is affordable at the handful of Stops a session has. The
@@ -66,19 +67,21 @@ function read(file) {
 	const size = fs.statSync(file).size;
 	if (size <= WHOLE_FILE_LIMIT) return fs.readFileSync(file, "utf8");
 
-	const fd = fs.openSync(file, "r");
-	try {
-		const buf = Buffer.alloc(TAIL_BYTES);
-		const got = fs.readSync(fd, buf, 0, TAIL_BYTES, size - TAIL_BYTES);
-		const text = buf.subarray(0, got).toString("utf8");
-		const cut = text.indexOf("\n");
-		/* No newline in 8 MB means the whole tail is one line's tail and there is
-		 * no whole record in it — an empty read says that, where returning the
-		 * fragment would have the caller skip it and report corruption. */
-		return cut === -1 ? "" : text.slice(cut + 1);
-	} finally {
-		fs.closeSync(fd);
-	}
+	const tail = readTail(file, TAIL_BYTES);
+	/* Absent here is a file deleted since the stat above, which throws as the
+	 * stat would have: every caller reads a throw as "cannot say". */
+	if (tail.state === "absent")
+		throw Object.assign(new Error(`ENOENT: ${file} deleted mid-read`), {
+			code: "ENOENT",
+		});
+	if (tail.state === "unreadable") throw tail.error;
+	const { text, partial } = tail.data;
+	if (!partial) return text;
+	const cut = text.indexOf("\n");
+	/* No newline in 8 MB means the whole tail is one line's tail and there is
+	 * no whole record in it — an empty read says that, where returning the
+	 * fragment would have the caller skip it and report corruption. */
+	return cut === -1 ? "" : text.slice(cut + 1);
 }
 
 /** A read chunk for `startedAt`. One record can run to ~60 KB, so the scan
@@ -192,24 +195,11 @@ const MODEL_TAIL_BYTES = 1024 * 1024;
  * @returns {string}
  */
 function readLastModel(file) {
-	let text;
-	try {
-		const size = fs.statSync(file).size;
-		const fd = fs.openSync(file, "r");
-		try {
-			const len = Math.min(size, MODEL_TAIL_BYTES);
-			const buf = Buffer.alloc(len);
-			const got = fs.readSync(fd, buf, 0, len, size - len);
-			text = buf.subarray(0, got).toString("utf8");
-		} finally {
-			fs.closeSync(fd);
-		}
-	} catch {
-		/* An unreadable transcript is a model unknown: the dispatch remap then
-		 * leaves the call as asked, and burn-off-sessions names it (#4992). */
-		return "";
-	}
-	const lines = text.split("\n");
+	const tail = readTail(file, MODEL_TAIL_BYTES);
+	/* An unreadable transcript is a model unknown: the dispatch remap then
+	 * leaves the call as asked, and burn-off-sessions names it (#4992). */
+	if (tail.state !== "read") return "";
+	const lines = tail.data.text.split("\n");
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const line = lines[i] ?? "";
 		if (!line.includes('"type":"assistant"')) continue;
