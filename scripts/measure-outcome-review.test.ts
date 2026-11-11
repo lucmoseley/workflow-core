@@ -28,6 +28,12 @@ const TRACKER = "o/t";
 const FORBIDDEN = readGhAnswer(
 	path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
 );
+/* The recorded commits-endpoint row the stub's commit rows are filled from,
+ * so a key the recording renames or drops reaches these tests. */
+const COMMIT_ROW = JSON.parse(
+	readGhAnswer(path.join(__dirname, "lib/fixtures/gh/commits-page.json"))
+		.stdout,
+)[0];
 const ADOPTER_TRACKER = "o/m";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
@@ -221,6 +227,9 @@ const issues = ${JSON.stringify(issues)};
 const upstream = ${JSON.stringify(upstream)};
 const notFound = ${JSON.stringify(GH_NOT_FOUND)};
 const forbidden = ${JSON.stringify(FORBIDDEN)};
+const commitRow = ${JSON.stringify(COMMIT_ROW)};
+const put = (o, keys, v) => { const at = keys.slice(0, -1).reduce((x, k) => x?.[k], o); if (at && keys.at(-1) in at) at[keys.at(-1)] = v; };
+const rowOf = (c) => { const r = structuredClone(commitRow); put(r, ["sha"], c.sha); put(r, ["commit", "message"], c.message); put(r, ["commit", "committer", "date"], c.at); return r; };
 const failingView = ${failingView};
 const failingList = ${JSON.stringify(failingList)};
 const failingCommits = ${JSON.stringify(failingCommits)};
@@ -239,7 +248,7 @@ if (api && api[2] === "commits") {
     .filter((c) => Date.parse(c.at) >= from && Date.parse(c.at) <= to)
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || b.seq - a.seq)
     .slice(0, Number(q.get("per_page")))
-    .map((c) => ({ sha: c.sha, commit: { message: c.message, committer: { date: c.at } } }));
+    .map(rowOf);
   out(JSON.stringify(argv.includes("--slurp") ? [main] : main));
 } else if (api) {
   if (api[1] === failingLog) { out(forbidden.stdout); err(forbidden.stderr); exit(forbidden.status); }
