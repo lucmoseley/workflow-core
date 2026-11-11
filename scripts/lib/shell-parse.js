@@ -447,7 +447,8 @@ const isWriteRedirect = (kind) =>
  * segment. The join is ABANDONED the moment it would absorb a line that runs
  * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
  * a stray quote would hide every line after it — EXCEPT inside a message
- * argument (mantahostels#232), whose lines are prose.
+ * argument (mantahostels#232), whose lines are prose, and a script unwrap
+ * reads (#4978), whose lines it judges each as a run.
  *
  * Each command substitution a double-quoted span runs is LIFTED into segments
  * of its own, bracketed as a subshell, ahead of the segment holding the span
@@ -673,10 +674,13 @@ function parseHeredocTerm(mask, line) {
 /**
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
- * line outside a message argument (mantahostels#232). The abandon is the
- * fail-closed read of a quote typed by mistake: a stray apostrophe that a
- * later line's quote closes would hide every command between them. A quote
- * opening a message argument was meant, so only there does the join hold.
+ * line outside a message argument (mantahostels#232) or a script unwrap reads
+ * (#4978). The abandon is the fail-closed read of a quote typed by mistake: a
+ * stray apostrophe that a later line's quote closes would hide every command
+ * between them. A quote opening a message argument was meant, and one opening
+ * a `flock -c` or `watch` script hides nothing, unwrap judging each of its
+ * lines; only there does the join hold. A `sh -c` script is not among them:
+ * no git guard reads one.
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -691,18 +695,18 @@ function joinLogicalLines(commandLines, lx, spans) {
 		pending = [];
 		lx.reset();
 	};
-	/* Whether the open quote is a message is asked once per span. */
-	let messageAt = "";
-	let prose = false;
+	/* Whether the open quote holds the join is asked once per span. */
+	let heldAt = "";
+	let held = false;
 	lx.reset();
 	for (const line of commandLines) {
 		if (pending.length > 0) {
 			const at = `${lx.opens}${lx.frames ? "open" : ""}`;
-			if (messageAt !== at) {
-				messageAt = at;
-				prose = isMessageOpen(lx);
+			if (heldAt !== at) {
+				heldAt = at;
+				held = holdsJoin(lx, spans);
 			}
-			if (!prose && isCommandAbsorbed(line, spans)) {
+			if (!held && isCommandAbsorbed(line, spans)) {
 				pending.push(line);
 				keepPerLine();
 				continue;
@@ -765,6 +769,26 @@ function isMessageOpen(lx) {
 		basename(words[wi] ?? "") === "gh" &&
 		["-b", "--body", "-t", "--title"].includes(word)
 	);
+}
+
+/**
+ * Does the lexer's still-open quote hold its join through a GUARDED_HEADS line?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+const holdsJoin = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
+
+/**
+ * Is the lexer's still-open quote, opening a word of its own, the script a
+ * `flock -c` or `watch` runs (#4978)?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+function isScriptOpen(lx, spans) {
+	if (!/[ \t]$/.test(lx.prefix)) return false;
+	const lines = flatten(lx.prefix).split("\n");
+	const { words, wi, ran } = commandWords(lines.at(-2) ?? "");
+	return ran && shellWords.opensScript(words.slice(wi), spans);
 }
 
 /**

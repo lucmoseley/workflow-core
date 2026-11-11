@@ -655,17 +655,14 @@ function stripRun(run, { spans, judged, pending }) {
 		judged,
 		inEnv: false,
 		execs: false,
+		awaitsScript: false,
 		wrapperWords: [...run.wrapperWords],
 		chdirs: [...run.chdirs],
 		unread: [...run.unread],
 		watched: run.watched,
 		pending,
 	};
-	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
-		const step = stripOne(st, first, spans);
-		if (step === "cut") st.ws = [];
-		if (step !== "next") break;
-	}
+	stripWrappers(st, spans);
 	return {
 		words: st.ws,
 		wrapperWords: st.wrapperWords,
@@ -673,6 +670,46 @@ function stripRun(run, { spans, judged, pending }) {
 		unread: st.unread,
 		watched: st.watched,
 	};
+}
+
+/**
+ * Strip `st`'s wrappers in turn until a command word stands first.
+ * @param {Strip} st accumulator: its fields are written
+ * @param {string[]} spans accumulator: a `-c` string's spans are appended
+ */
+function stripWrappers(st, spans) {
+	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
+		const step = stripOne(st, first, spans);
+		if (step === "cut") st.ws = [];
+		if (step !== "next") break;
+	}
+}
+
+/**
+ * Do `words`, a command's words up to a word not yet typed, end where a
+ * wrapper unwrap reads takes the script it runs through `sh -c` — `flock
+ * <file> -c` or a `watch` with no `-x` — so the next word is that script?
+ * The line join asks it of a quote left open (#4978): the script's lines are
+ * each a run unwrap judges, so joining them hides none.
+ * @param {string[]} words masked, from the command word on
+ * @param {string[]} spans
+ */
+function opensScript(words, spans) {
+	/** @type {Strip} */
+	const st = {
+		ws: [...words],
+		judged: [],
+		inEnv: false,
+		execs: false,
+		awaitsScript: false,
+		wrapperWords: [],
+		chdirs: [],
+		unread: [],
+		watched: false,
+		pending: [],
+	};
+	stripWrappers(st, [...spans]);
+	return st.awaitsScript;
 }
 
 /**
@@ -687,6 +724,8 @@ function stripRun(run, { spans, judged, pending }) {
  * @property {boolean} watched
  * @property {Unwrapped[]} pending the runs still to strip
  * @property {boolean} execs a `watch -x` execs its words, through no `sh -c`
+ * @property {boolean} awaitsScript the words ran out where a wrapper takes the
+ *   script it runs through `sh -c`
  */
 
 /**
@@ -742,12 +781,19 @@ function stepAfterFlags(st, wrapper, spans) {
 		const f = literal(head, spans).text;
 		if (f === "-c" || f === "--command") {
 			const [string] = tail;
-			if (string === undefined) return "cut";
+			if (string === undefined) {
+				st.awaitsScript = true;
+				return "cut";
+			}
 			runScript(st, read([string]), spans);
 		}
 	}
 	if (wrapper.command === "sh-string") {
 		st.watched = true;
+		if (st.ws.length === 0) {
+			st.awaitsScript = !st.execs;
+			return "cut";
+		}
 		if (!st.execs) runScript(st, read(st.ws), spans);
 		if (st.ws.length === 0) return "cut";
 	}
@@ -1484,6 +1530,7 @@ module.exports = {
 	literal,
 	unwrap,
 	unwrapArgv,
+	opensScript,
 	runCwd,
 	carriesVar,
 	commandName,

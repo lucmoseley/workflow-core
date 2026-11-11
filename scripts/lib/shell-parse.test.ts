@@ -28,12 +28,13 @@ import {
 	asWritten,
 	normAbs,
 	parseCommand,
+	parseScript,
 	unmask,
 	unsetText,
 	walkCommands,
 	walkGit,
 } from "./shell-parse.js";
-import { literal, QUOTED } from "./shell-words.js";
+import { literal, QUOTED, unwrap } from "./shell-words.js";
 
 /* A fixture's directories (`dir`, `shared`, `wt`, `elsewhere`), as plain
  * strings. */
@@ -1170,6 +1171,39 @@ describe("logical lines (mantahostels#182)", () => {
 			),
 		).toBe(true);
 	});
+
+	/** Each run the command's words hold, through unwrap, read literal. */
+	const runsOf = (command: string) => {
+		const spans: string[] = [];
+		return parseScript(command, spans).flatMap((cmd) =>
+			unwrap(cmd.words, spans).map((run) =>
+				run.words.map((w) => literal(w, spans).text),
+			),
+		);
+	};
+
+	it.each([
+		['flock /l -c "true\ngit push origin :main"'],
+		['flock /l --command "true\ngit push origin :main"'],
+		['timeout 30 flock -w 5 /l -c "true\ngit push origin :main"'],
+		['watch -n 1 "true\ngit push origin :main"'],
+		["flock /l -c 'true\ngit push origin :main'"],
+	])("keeps the join through a script unwrap reads: %s (#4978)", (command) => {
+		expect(lines(command)).toHaveLength(1);
+		expect(runsOf(command)).toContainEqual(["git", "push", "origin", ":main"]);
+	});
+
+	it.each([
+		['bash -c "true\ngit push origin :main"'],
+		['watch -x "true\ngit push origin :main"'],
+		['flock "/l\ngit push origin :main" true'],
+		['flock /l -c x"true\ngit push origin :main"'],
+	])(
+		"still gives up the join on a quote that opens no script unwrap reads: %s (#4978)",
+		(command) => {
+			expect(lines(command)).toHaveLength(2);
+		},
+	);
 
 	it("hands over a real branch move that follows a closed message", () => {
 		expect(
