@@ -4,7 +4,7 @@
  */
 
 const {
-	holdsOther,
+	isEitherHeld,
 	mergeFaults,
 	parseReading,
 	readingFaults,
@@ -147,14 +147,14 @@ function compareReadings(issue, body, judged) {
 		.filter((f) => f.kind === "no-warrant")
 		.map((f) => f.text);
 	const isPatterns = (/** @type {string} */ w) =>
-		patterns.some((p) => holdsOther(p, w));
+		patterns.some((p) => isEitherHeld(p, w));
 	return {
 		both: judged.waits.filter(isPatterns).length,
 		modelOnly: judged.waits
 			.filter((w) => !isPatterns(w))
 			.map((w) => `${at} ${cell(w)} | |`),
 		patternOnly: patterns
-			.filter((p) => !judged.waits.some((w) => holdsOther(p, w)))
+			.filter((p) => !judged.waits.some((w) => isEitherHeld(p, w)))
 			.map((p) => `${at} ${cell(p)} | |`),
 		basesFlagged: judged.model
 			.filter((f) => f.kind === "no-warrant")
@@ -190,9 +190,13 @@ function wilson(k, n) {
 /**
  * @param {number[]} sorted ascending
  * @param {number} q
+ * @returns {number} throws on an empty list, which has none
  */
-const quantile = (sorted, q) =>
-	sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
+function quantile(sorted, q) {
+	const v = sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+	if (v === undefined) throw new Error("no quantile of an empty list");
+	return v;
+}
 
 module.exports = {
 	compareReadings,

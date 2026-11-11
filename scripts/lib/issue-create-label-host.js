@@ -15,6 +15,9 @@ const GH_TIMEOUT_MS = 3000;
 const buildHostPorts = () => ({
 	readFile: readBodyFile,
 	gh: (args, cwd) => gh(args, { cwd, timeout: GH_TIMEOUT_MS }),
+	/* Real time, not check.js's WFC_NOW: a pinned clock never spends the
+	 * judge's shared bound. */
+	now: () => Date.now(),
 });
 
 module.exports = { buildHostPorts };
