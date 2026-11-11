@@ -18,7 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { dmesgLine, writeDmesg } from "./lib/dmesg-fake";
+import { buildDmesgLine, writeDmesg } from "./lib/dmesg-fake";
 import { makeProcRoot } from "./lib/proc-fake";
 import { regCalls, writeReg } from "./lib/reg-fake";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -64,7 +64,7 @@ function ring(): string[] {
 		" vmbus_alloc_ring+0x94/0xf8",
 		" vmbus_open+0x38/0xa8",
 		" hvs_probe+0x214/0x4e8",
-	].map((msg, i) => dmesgLine(t0 + i, msg));
+	].map((msg, i) => buildDmesgLine(t0 + i, msg));
 }
 
 function run(args: string[], reg: string, env: Record<string, string> = {}) {

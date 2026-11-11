@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { dmesgLine, writeDmesg } from "./dmesg-fake";
+import { buildDmesgLine, writeDmesg } from "./dmesg-fake";
 import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
@@ -34,8 +34,8 @@ const MONOTONIC = /^\[\s*\d+\.\d{6}\] /;
 
 const T0 = Date.parse("2026-10-07T22:43:24Z");
 const FAKE_RING = [
-	dmesgLine(T0, "Booting Linux on physical CPU 0x0000000000"),
-	dmesgLine(T0 + 1500, "hv_balloon: Max. dynamic memory size: 10240 MB"),
+	buildDmesgLine(T0, "Booting Linux on physical CPU 0x0000000000"),
+	buildDmesgLine(T0 + 1500, "hv_balloon: Max. dynamic memory size: 10240 MB"),
 ];
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dmesg-contract-"));
