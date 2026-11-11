@@ -5,13 +5,14 @@
  * checks shape and verdict, never values. A week of the earlyoom journal is
  * read through lib/earlyoom-kills.js's readIncidents, the kernel log through
  * check-kernel-stall.js, each case checking the text the reader was served,
- * and its tail in `-o cat` as the boot unit's ExecStopPost= logs it.
+ * and the kernel log's tail in `-o cat`, the output the boot unit's
+ * ExecStopPost= logs in.
  * Loosened, every incident-filer and kernel-stall test stays green on the fake
  * while production reads nothing from what a new earlyoom or journalctl
  * prints.
  *
- * The real side runs where the earlyoom unit has journal lines, never in CI
- * (§G7 item 2).
+ * The real side runs wherever journalctl does, never in CI (§G7 item 2); there
+ * a case that needs journal data skips where its reader's journal holds none.
  *
  * Case 1 is the only net for a drifted mem avail reading that no kill follows.
  *
@@ -112,7 +113,7 @@ interface Side {
 	kernel: { outcome: string; lines: string[] };
 	/** readBoots' reading of `--list-boots -o json`. */
 	boots: { boots: FakeBoot[]; why: string | null };
-	/** The earlyoom unit's last lines in `-o short-iso`, then in `-o cat`. */
+	/** The kernel log's last lines in `-o short-iso`, then in `-o cat`. */
 	tail: { short: string[]; cat: string[] };
 }
 
@@ -176,21 +177,26 @@ function readKernel(bin: string, name: string): Side["kernel"] {
 /* Lines enough to hold a multi-line message and its neighbours. */
 const TAIL_LINES = "5";
 
-/** The two reads are a pair unless earlyoom logged between them, so a
+/** `-o short-iso` lines as `-o cat` prints them; a multi-line message's later
+ * lines lose the indent short-iso gives them and cat does not. */
+const asCat = (short: string[]) =>
+	unindented(short.map((l) => l.replace(KERNEL, "")));
+const unindented = (lines: string[]) => lines.map((l) => l.trimStart());
+
+/** The two reads are a pair unless the kernel logged between them, so a
  * mismatched pair is read once more. */
 function readTail(bin: string): Side["tail"] {
 	const read = (output: string) =>
 		lineList(
-			spawnSync(
-				bin,
-				["-u", "earlyoom", "-n", TAIL_LINES, "--no-pager", "-o", output],
-				{ encoding: "utf8", timeout: READ_TIMEOUT_MS },
-			).stdout ?? "",
+			spawnSync(bin, ["-k", "-n", TAIL_LINES, "--no-pager", "-o", output], {
+				encoding: "utf8",
+				timeout: READ_TIMEOUT_MS,
+			}).stdout ?? "",
 		);
 	const pair = () => ({ short: read("short-iso"), cat: read("cat") });
 	const first = pair();
-	const stripped = first.short.map((l) => l.replace(KERNEL, ""));
-	return JSON.stringify(stripped) === JSON.stringify(first.cat)
+	return JSON.stringify(asCat(first.short)) ===
+		JSON.stringify(unindented(first.cat))
 		? first
 		: pair();
 }
@@ -222,7 +228,7 @@ function readSide(
 			empty: t.last().trim(),
 			kernel: readKernel(kernelBin, name),
 			boots: readBoots(),
-			tail: readTail(bin),
+			tail: readTail(kernelBin),
 		},
 	};
 }
@@ -238,6 +244,9 @@ function lineOf(lines: string[], k: Kill): number {
 
 const countOf = (lines: string[], re: RegExp) =>
 	lines.filter((l) => re.test(message(l) ?? "")).length;
+
+const earlyoomLineCount = (lines: string[]) =>
+	lines.filter((l) => message(l) !== undefined).length;
 
 type Skip = (note?: string) => never;
 
@@ -258,7 +267,9 @@ interface Case {
 const CASES: Case[] = [
 	{
 		name: "every earlyoom line is a shape the fake builds or one the reader ignores",
-		check({ lines }: Side) {
+		check(side: Side, skip: Skip) {
+			const { lines } = side;
+			holds(side, earlyoomLineCount(lines), "earlyoom line", skip);
 			const built = [
 				buildEarlyoomSignalLine(T0, 1, "x"),
 				buildEarlyoomReadingLine(T0),
@@ -280,7 +291,9 @@ const CASES: Case[] = [
 	},
 	{
 		name: "every signal line reads as one signal, and no other line does",
-		check({ lines, kills }: Side) {
+		check(side: Side, skip: Skip) {
+			const { lines, kills } = side;
+			holds(side, earlyoomLineCount(lines), "earlyoom line", skip);
 			expect(kills.reduce((n, k) => n + k.signals, 0)).toBe(
 				countOf(lines, SIGNAL),
 			);
@@ -340,10 +353,14 @@ const CASES: Case[] = [
 	},
 	{
 		name: "the kernel log reads in check-kernel-stall.js, in buildKernelLine's shape",
-		check({ kernel }: Side) {
-			expect(kernel.outcome).not.toBe("SKIP");
+		check(side: Side, skip: Skip) {
+			const { kernel } = side;
 			/* A message's later lines come indented under its first. */
 			const stamped = kernel.lines.filter((l) => !/^\s/.test(l));
+			/* Gated on the tail's read, not the reader's: a broken `-k` read
+			 * fails here rather than skipping. */
+			holds(side, side.tail.short.length, "kernel line", skip);
+			expect(kernel.outcome).not.toBe("SKIP");
 			expect(stamped.some((l) => KERNEL_IDENT.test(l))).toBe(true);
 			for (const l of stamped) {
 				expect(l).toMatch(KERNEL);
@@ -369,8 +386,8 @@ const CASES: Case[] = [
 		name: "-o cat prints each line's message alone, less its stamp, host and ident",
 		check(side: Side, skip: Skip) {
 			const { tail } = side;
-			holds(side, tail.cat.length, "earlyoom line", skip);
-			expect(tail.cat).toEqual(tail.short.map((l) => l.replace(KERNEL, "")));
+			holds(side, tail.short.length, "kernel line", skip);
+			expect(unindented(tail.cat)).toEqual(asCat(tail.short));
 		},
 	},
 ];
@@ -382,10 +399,9 @@ function readReal(): { side?: Side; skip?: string } {
 	if (process.env.GITHUB_ACTIONS)
 		return { skip: "CI: the live journal is the founder's machine's (§G7)" };
 	const { side, why } = readSide("real", "journalctl", "journalctl");
-	if (why !== undefined && !why.includes("ENOENT")) throw new Error(why);
-	if (!side?.lines.some((l) => message(l) !== undefined))
-		return { skip: why ?? "this host has no earlyoom unit with journal lines" };
-	return { side };
+	if (why === undefined) return { side };
+	if (why.includes("ENOENT")) return { skip: why };
+	throw new Error(why);
 }
 
 describe.each(CASES)("$name", (c) => {
