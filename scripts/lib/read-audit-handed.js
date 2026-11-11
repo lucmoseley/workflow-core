@@ -101,8 +101,7 @@ function buildHanded(root) {
 	};
 	/**
 	 * What words name, resolved from one working directory, each name it
-	 * may hold looked up once. Input text is not searched for glued paths:
-	 * a megabyte down a pipe would cost a lookup a character.
+	 * may hold looked up once. Input text is not searched for glued paths.
 	 * @param {string} cwd the child's working directory, real path
 	 * @param {{text?: boolean}} [kind]
 	 */
@@ -162,9 +161,6 @@ function candidates(word, isHeld) {
 }
 
 /**
- * The rests of `piece` from a later point of its first part that begin
- * with a name the working directory holds, or with `.` or `..` stuck to a
- * short option.
  * @param {string} piece
  * @param {(name: string) => boolean} isHeld
  * @returns {string[]}

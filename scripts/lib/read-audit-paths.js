@@ -41,6 +41,10 @@ function repoPath(root, abs) {
  */
 const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
 
+/* The event the preload appends to a git child's event log once that git
+ * has exited, naming its pid (lib/read-audit-git-events.js). */
+const EXITED = "wfc_exited";
+
 /* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
 const PATH_MAX = 4096;
 
@@ -98,6 +102,7 @@ module.exports = {
 	buildGuardTest,
 	GIT_VALUED,
 	GUARD,
+	EXITED,
 	isNode,
 	PATH_MAX,
 	pairValue,

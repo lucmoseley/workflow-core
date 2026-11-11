@@ -419,7 +419,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 				"if (r.status !== 3 || Number(r.stdout) !== r.pid) throw new Error(JSON.stringify(r));",
 				/* Crosses the real clock: the kill Node sends at its timeout is
 				 * what the case tests. 300 ms is a guess above a shell's start
-				 * under the tracer (~20 ms); the 30 s sleep, one far past it. */
+				 * under the tracer; the 30 s sleep, one far past it. */
 				'const k = cp.spawnSync("sh", ["-c", "exec sleep 30"], { ...at, timeout: 300 });',
 				'if (k.signal !== "SIGTERM") throw new Error(JSON.stringify(k));',
 			].join("\n"),
@@ -964,6 +964,16 @@ describe("the routes still open after #4982 (#4997)", () => {
 			expect(untraced(root, plain)).toHaveProperty("reads");
 		});
 
+		it("keeps a git the test kills, which logs no end of its own, once it has exited", () => {
+			const root = checkout();
+			const repo = fixture();
+			const body = [
+				`const c = require("node:child_process").spawn(${quoted(realGit)}, ["cat-file", "--batch"], { cwd: ${quoted(repo)}, stdio: ["pipe", "ignore", "ignore"] });`,
+				'c.on("spawn", () => setTimeout(() => c.kill("SIGTERM"), 200));',
+			].join("\n");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
 		it("doubts a git handed an event target of its own, which leaves what it ran unlogged", () => {
 			const root = checkout();
 			const repo = fixture();
@@ -1042,8 +1052,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 			expect(
 				untraced(root, inScratch(["clone", "-q", source, "made"])),
 			).toHaveProperty("reads");
-			/* `git help` runs `man`, which the call's event log doubts first:
-			 * the hand is read off the log. */
+			/* `git help` runs `man`, which the call's event log doubts first. */
 			const log = audited(root, T, inScratch(["init", "--help"]), {
 				trace: false,
 			});
@@ -1125,7 +1134,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 		});
 
 		/* The timeout bounds a systemctl that waits on a user bus this machine
-		 * may not run; one that answers does so in well under a second. */
+		 * may not run. */
 		const systemctl = (cwd: string, args: string[], env = {}) =>
 			`try { require("node:child_process").execFileSync("systemctl", ${quoted(["--user", ...args, "--no-ask-password", "no-such.service"])}, { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true", ...${quoted(env)} }, stdio: "ignore", timeout: 10000 }); } catch {}`;
 

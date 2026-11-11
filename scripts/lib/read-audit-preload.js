@@ -50,6 +50,7 @@ const {
 	buildGuardTest,
 	GIT_VALUED,
 	GUARD,
+	EXITED,
 	isNode,
 	PATH_MAX,
 	pairValue,
@@ -522,10 +523,8 @@ function install() {
 	 * A git no guard logs, whose directory — its own, or where its `-C`
 	 * words move it — lies under the root with no repository of its own
 	 * between: it reads the checkout's (#4982, #4997). `init` and `clone`
-	 * look for none, but one asked for `--help` does, through `git help`
-	 * (each traced once, git 2.43). `--bare` makes that directory the
-	 * repository itself; `--git-dir` and `GIT_DIR` name it, weighed as a
-	 * word and a variable.
+	 * look for none, but one asked for `--help` does, through `git help`.
+	 * `--git-dir` and `GIT_DIR` name it, weighed as a word and a variable.
 	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @returns {Hand[]}
@@ -759,6 +758,43 @@ function install() {
 	const steeredOf = (envPairs) =>
 		STEERS.filter((name) => pairValue(envPairs, name) !== standing[name]);
 	/**
+	 * Append to a git child's event log, where it wrote one, that the git
+	 * has exited: a git killed by a signal logs no end of its own.
+	 * @param {string|null|undefined} events
+	 * @param {unknown} pid
+	 */
+	const markExited = (events, pid) =>
+		guard(() => {
+			if (typeof events !== "string" || typeof pid !== "number") return;
+			const flags = fs.constants.O_WRONLY | fs.constants.O_APPEND;
+			let at;
+			try {
+				at = realOpenSync(path.join(dir, events), flags);
+			} catch {
+				// A git that wrote no log is doubted for that by the reader.
+				return;
+			}
+			try {
+				fs.writeSync(at, `${JSON.stringify({ event: EXITED, pid })}\n`);
+			} finally {
+				fs.closeSync(at);
+			}
+		});
+	/**
+	 * Mark an async git child's log once it exits.
+	 * @param {Untyped} handle the child's process handle
+	 * @param {string|null|undefined} events
+	 */
+	const markOnExit = (handle, events) =>
+		guard(() => {
+			const prior = handle.onexit;
+			if (typeof events !== "string" || typeof prior !== "function") return;
+			handle.onexit = function (/** @type {Untyped[]} */ ...args) {
+				markExited(events, handle.pid);
+				return prior.apply(this, args);
+			};
+		});
+	/**
 	 * @param {Untyped} opts as the test spawned it
 	 * @param {number|undefined} pid
 	 * @param {Spawn} spawned
@@ -793,6 +829,7 @@ function install() {
 			const spawned = buildTracedSpawn(args[0]);
 			const out = syncSpawn.apply(this, [spawned.opts, ...args.slice(1)]);
 			logChild(args[0], out?.pid, spawned);
+			markExited(spawned.events, out?.pid);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
@@ -815,6 +852,7 @@ function install() {
 			);
 			logChild(asked, this.pid, spawned);
 			watchIfUnseen(asked, this.pid, spawned.route);
+			markOnExit(this, spawned.events);
 			return err;
 		};
 	} catch {
@@ -866,9 +904,7 @@ const SHELLS = new Set(["sh", "bash", "dash"]);
 const GIT_EVENTS = "GIT_TRACE2_EVENT";
 
 /* The variables that steer which program a child runs by name, or with
- * what options: lib/read-audit.js passes a program measured to read no
- * variable only where those it heeds are as the setup settled them
- * (#4997). */
+ * what options (#4997). */
 const STEERS = ["PATH", "TAR_OPTIONS"];
 
 /* A pipe handle's writes, as Node's stream code calls them. */

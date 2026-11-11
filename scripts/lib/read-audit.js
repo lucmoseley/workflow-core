@@ -562,9 +562,7 @@ function handOf(e, script, root, isScratch) {
  * `OLDPWD`, `INIT_CWD`, `WFC_RULES_DIR` and `WFC_ALWAYS_LOADED` naming it,
  * to make no file call under the root but for its own file. One invocation
  * each (`tar` list, extract and create). What one runs by name it finds on
- * `PATH`: `tar`'s compressor, through `/bin/sh` on a create, which stats
- * `PWD` and nothing else (each of gzip, bzip2, xz and zstd, create and
- * extract, traced so, #4997). So one passes only where the variables it
+ * `PATH`: `tar`'s compressor, through `/bin/sh` on a create. So one passes only where the variables it
  * heeds for that (`STEERED_BY`) are as the setup settled them, and no word
  * asks it to run a command a test names (`RUNS_A_COMMAND`). A pager runs only on a terminal,
  * which a test's process never holds: its output is a socket. Any program
@@ -606,7 +604,7 @@ function isTarRunningCommand(args) {
 
 /* The words that have a program of `ENV_BLIND` run a command a test can
  * name, by its manual: `tar`'s above; `systemctl edit`, which runs an
- * editor, and `-H`/`--host`, which runs ssh. The rest have none. */
+ * editor, and `-H`/`--host`, which runs ssh. */
 const RUNS_A_COMMAND = new Map([
 	["tar", isTarRunningCommand],
 	[
@@ -619,9 +617,7 @@ const RUNS_A_COMMAND = new Map([
 ]);
 
 /* The variables a program of `ENV_BLIND` heeds to find what it runs by
- * name or with what options: `tar` its compressor on `PATH`, and its
- * options off `TAR_OPTIONS`; `systemctl` its pager, editor and ssh on
- * `PATH`. The rest run nothing by name. */
+ * name or with what options. */
 const STEERED_BY = new Map([
 	["tar", ["PATH", "TAR_OPTIONS"]],
 	["systemctl", ["PATH"]],
@@ -629,7 +625,7 @@ const STEERED_BY = new Map([
 
 /**
  * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
- * as the installed program, finding what it runs where the setup left it.
+ * as the installed program.
  * @param {Entry} e
  * @param {string} root real path
  */

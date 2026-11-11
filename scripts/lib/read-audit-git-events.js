@@ -13,17 +13,17 @@
  * quoted path, which git finds in its own exec path ahead of `PATH`. A
  * process git looked for and never found (`pid` -1 at its exit) ran
  * nothing. A git that logged its start and never its end may still be
- * running: a doubt too.
+ * running: a doubt too, unless the preload logged, after it, that the
+ * process it spawned had exited (`EXITED`): git 2.43 logs a SIGPIPE, but
+ * not the SIGTERM a test kills a long-lived git with.
  */
 
 const path = require("node:path");
 const { readText } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
-const { SHOWN_MAX } = require("./read-audit-paths.js");
+const { EXITED, SHOWN_MAX } = require("./read-audit-paths.js");
 
-/* The command a local transport runs: its program, then the repository's
- * path in single quotes, each quote within as `'\''` (git's connect.c,
- * sq_quote). */
+/* Each quote within the path as `'\''` (git's connect.c, sq_quote). */
 const TRANSPORT =
 	/^git-(?:upload-pack|receive-pack|upload-archive) '(?:[^']|'\\'')*'$/;
 
@@ -64,8 +64,7 @@ function otherChildDoubt(rows, shown) {
 }
 
 /**
- * The processes the log's gits started, by git process and child, those
- * never found, and the gits that logged a start and no end.
+ * The processes the log's gits started, by git process and child.
  * @param {Record<string, unknown>[]} rows
  */
 function tally(rows) {
@@ -75,6 +74,9 @@ function tally(rows) {
 	const unfound = new Set();
 	/** @type {Set<string>} */
 	const open = new Set();
+	const exited = new Set(
+		rows.filter((row) => row.event === EXITED).map((row) => row.pid),
+	);
 	for (const row of rows) {
 		const sid = String(row.sid);
 		const child = `${sid} ${row.child_id}`;
@@ -83,7 +85,18 @@ function tally(rows) {
 		else if (row.event === "child_start") started.set(child, row);
 		else if (row.event === "child_exit" && row.pid === -1) unfound.add(child);
 	}
+	for (const sid of open) if (exited.has(pidOf(sid))) open.delete(sid);
 	return { started, unfound, open };
+}
+
+/**
+ * The pid a sid's last part names, `P` and eight hex digits (git's
+ * trace2/tr2_sid.c); NaN where it names none.
+ * @param {string} sid
+ */
+function pidOf(sid) {
+	const named = /-P([0-9a-f]{8})$/.exec(sid);
+	return named ? Number.parseInt(String(named[1]), 16) : Number.NaN;
 }
 
 /** @param {Record<string, unknown>} row a `child_start` event */
