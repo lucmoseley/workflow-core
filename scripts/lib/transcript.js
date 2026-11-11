@@ -237,13 +237,9 @@ function countTurns(text, tier) {
  * does, and on this key rather than a restatement of it, so the measurement
  * cannot drift from the band it prices.
  *
- * `record` is the parsed transcript line, typed as loosely as `mainChainRecords`
- * yields it — a transcript is an external format this repo does not define, so
- * a narrower type here would assert a shape nothing guarantees.
- *
  * @param {string} text
  * @param {"main" | "subagent"} tier
- * @returns {Generator<{record: Record<string, any>, usage: Usage,
+ * @returns {Generator<{record: TranscriptRecord, usage: Usage,
  *   key: string | null}>}
  */
 function* turnRecords(text, tier) {

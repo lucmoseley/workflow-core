@@ -103,8 +103,8 @@ const API_NEEDS = new Set([
  */
 
 /* `any`, not `unknown`, in this file's records: the harness owns their
- * schemas, and each rule reads a field only after fieldFault has checked its
- * type. */
+ * schemas. A `row` or `job` field is read only after fieldFault has checked its
+ * type; a transcript row is a TranscriptRecord, for that typedef's reason. */
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObject = (v) =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
