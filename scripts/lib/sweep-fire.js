@@ -53,8 +53,8 @@
  * 30 B of full (docs/doc-map.md §Capture and placement §3), so the rule reaches
  * a session on the deny alone.
  *
- * IMPLICIT: it SPENDS one unit of the day's sweep budget on every matching
- *   command it allows, writing the shared `.sweep-autofire` marker in the git
+ * IMPLICIT: it SPENDS one unit of the day's sweep budget on every sweep fire
+ *   it allows, each run a `-c` string holds counting as its own, writing the shared `.sweep-autofire` marker in the git
  *   common dir before the command runs.
  * JUSTIFIED: fail-safe — the spend has to happen before the dispatch or a fire
  *   that hangs, 403s or is denied downstream leaves the budget unspent and the
@@ -90,15 +90,16 @@ const SWEEP_WORKFLOWS = [
 const GH_VALUE_FLAGS = "--ref -r --field -F --raw-field -f --input --repo -R";
 
 /**
- * Whether one command fires a sweep workflow: `gh workflow run <file>`, the
- * file as typed or as a path ending in it. Flags may sit either side of it,
+ * How many sweep workflows one command fires: one per run that is `gh
+ * workflow run <file>`, the file as typed or as a path ending in it, so each
+ * fire a `-c` string holds counts (#4978). Flags may sit either side of it,
  * so the workflow is the first true positional — anything after it is `gh`'s
  * own extra argument and never a second workflow.
  * @param {string[]} words
  * @param {string[]} spans
  */
-const firesSweep = (words, spans) =>
-	ghWords(words, spans).some((gh) => isSweepRun(gh.args, spans));
+const sweepFires = (words, spans) =>
+	ghWords(words, spans).filter((gh) => isSweepRun(gh.args, spans)).length;
 
 /**
  * Whether one `gh` run fires a sweep workflow, as firesSweep reads it.
@@ -156,16 +157,21 @@ function decide(command, ctx) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			if (verdict || !firesSweep(cmd.words, parsed.spans)) return;
-			const spend = ctx.spendSweep(ctx.env);
-			if ("fault" in spend) {
-				/* A budget that cannot be counted refuses nothing (mantahostels#103 §6). */
-				ctx.log(
-					`the sweep budget could not be counted (${spend.fault}) — a hand-fired sweep allowed uncounted`,
-				);
-				return;
+			for (
+				let n = sweepFires(cmd.words, parsed.spans);
+				n > 0 && !verdict;
+				n--
+			) {
+				const spend = ctx.spendSweep(ctx.env);
+				if ("fault" in spend) {
+					/* A budget that cannot be counted refuses nothing (mantahostels#103 §6). */
+					ctx.log(
+						`the sweep budget could not be counted (${spend.fault}) — a hand-fired sweep allowed uncounted`,
+					);
+					return;
+				}
+				if (spend.out) verdict = { deny: refusal(spend, cmd.segment, ctx) };
 			}
-			if (spend.out) verdict = { deny: refusal(spend, cmd.segment, ctx) };
 		},
 		ctx,
 	);

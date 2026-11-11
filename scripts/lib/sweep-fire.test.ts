@@ -173,6 +173,22 @@ describe("what counts as firing the sweep", () => {
 		expect(denial(`${FIRE} && ${FIRE}`)).toBeNull();
 		expect(spent()).toBe(2);
 	});
+
+	it.each([`flock /l -c "true\n${FIRE}"`, `flock /l -c "true; ${FIRE}"`])(
+		"spends a unit on a fire a -c string runs later: %s (#4978)",
+		(command) => {
+			expect(denial(command)).toBeNull();
+			expect(spent()).toBe(1);
+		},
+	);
+
+	it.each([`flock /l -c "${FIRE}; ${FIRE}"`, `flock /l -c "${FIRE}\n${FIRE}"`])(
+		"spends once per fire a -c string runs: %s (#4978)",
+		(command) => {
+			expect(denial(command)).toBeNull();
+			expect(spent()).toBe(2);
+		},
+	);
 });
 
 describe("the day's budget", () => {
@@ -194,6 +210,14 @@ describe("the day's budget", () => {
 		for (let i = 1; i < budget.AUTOFIRE_DAILY_CAP; i++) autofire();
 		expect(denial(`${FIRE} && gh workflow run ci.yml`)).toMatch(
 			/The command: gh workflow run ci\.yml$/,
+		);
+		expect(spent()).toBe(budget.AUTOFIRE_DAILY_CAP);
+	});
+
+	it("refuses a -c string's second fire the day runs out on, having spent the first (#4978)", () => {
+		for (let i = 1; i < budget.AUTOFIRE_DAILY_CAP; i++) autofire();
+		expect(denial(`flock /l -c "${FIRE}; ${FIRE}"`)).toMatch(
+			/Today's sweep budget is gone/,
 		);
 		expect(spent()).toBe(budget.AUTOFIRE_DAILY_CAP);
 	});
