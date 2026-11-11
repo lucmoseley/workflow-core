@@ -20,9 +20,8 @@
  * THE JUDGE is Jev over the Vercel AI Gateway, the route, key and gitleaks
  * sweep `guard-jev-advisory.js` exports — nothing leaves unswept, and each
  * tool result an after-refusal item sends is cut to a head (#4945). ITS
- * FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT DOES NOT DISCRIMINATE:
- * on a held-out hand-classified set it passed nearly every re-send, the
- * unsupported among them (#5003). An outage or
+ * FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT DOES NOT DISCRIMINATE
+ * (#5003). An outage or
  * malformed reply is logged and the item retried on a later run.
  *
  * `--judge` scans every seat's transcripts for this repo (`lib/escape-audit.js`
@@ -83,8 +82,7 @@ const KICK_NAME = ".escape-audit-kicked";
 /**
  * @typedef {{ caught: number, of: number }} Rate
  * @typedef {{ unsupported: Rate, genuine: Rate, partial: Rate }} HeldOut
- *   how the frozen question did on a hand-classified set it was never tuned
- *   on: `unsupported` caught, `genuine` and `partial` passed
+ *   on a held-out set: `unsupported` caught, `genuine` and `partial` passed
  */
 
 /**
@@ -135,8 +133,7 @@ const SIGHTS = {
 				"RE-SEND (the whole message it went in):",
 				item.message ?? item.text,
 			].join("\n"),
-		/* 122 re-sends outside #4945's seen set, labelled blind; the prompt
-		 * frozen on that set and run once (#5003). */
+		/* Measured once, the prompt frozen (#5003). */
 		heldOut: {
 			unsupported: { caught: 1, of: 12 },
 			genuine: { caught: 58, of: 64 },
@@ -147,8 +144,7 @@ const SIGHTS = {
 
 /**
  * A verdict's outcome where it answers the question its item's sight is asked
- * now, else undefined. A row naming no question predates #5003, when only the
- * first-sight question kept its key.
+ * now, else undefined. A row naming no question answers the first-sight one.
  * @param {import("./lib/escape-audit").Verdict | undefined} v
  * @param {import("./lib/escape-audit").Item["sight"]} sight
  */

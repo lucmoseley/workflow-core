@@ -16,8 +16,7 @@
  * FIRST SIGHT OR AFTER REFUSAL. After refusal where an earlier close-rivals
  * refusal named the block's question in its flagged lines and still holds:
  * then every re-send is taken, close or not, escape line or not, paired with
- * the block as first refused, the whole re-sent message, and the tool calls
- * and the session's own text since (#4945, #5003). A refusal
+ * the block as first refused and what came since (#4945, #5003). A refusal
  * holds, as the guard's record does (`refusal-limb.js` `liveRecord`), until
  * the founder speaks or the question passes. RESIDUAL: a re-send pairs by
  * round number, as the guard does, so a question renumbered into a refused
@@ -192,7 +191,6 @@ const keyOf = (...parts) =>
 		.slice(0, 16);
 
 /**
- * The turn's trail from `from`, its head and tail kept to `TRAIL_CHARS`.
  * @param {string[]} trail
  * @param {number} from
  */
@@ -346,7 +344,6 @@ function readUser(rec, turn, { out, deps }) {
 }
 
 /**
- * The session's own text, onto the trail while a refusal holds.
  * @param {string} said
  * @param {Turn} turn accumulator: `trail` grows
  */
