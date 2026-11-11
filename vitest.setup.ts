@@ -257,3 +257,10 @@ for (const [key, value] of Object.entries(SUITE_GIT_CONFIG)) {
 	gitConfigCount++;
 }
 process.env.GIT_CONFIG_COUNT = String(gitConfigCount);
+
+/* THE ENVIRONMENT AS LEFT HERE IS EVERY CHILD'S (#4982): the read audit
+ * weighs a variable naming the checkout apart where a test set it itself.
+ * Last, after every default above. */
+(
+	globalThis as { __wfcReadAudit?: { settle: () => void } }
+).__wfcReadAudit?.settle();
