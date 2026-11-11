@@ -4,7 +4,7 @@
  * transient API error is typed into on the schedule of #2359 (the API-error
  * resume schedule), through the tick's network gate, and falls
  * back to a stop and `claude --bg --resume` under its own id where the typed
- * one is unseen. Unlike a loop launch it is never held stopped between tries,
+ * one is unseen. Unlike a loop launch it is not stopped to wait between tries,
  * takes no slot, and is never parked, labelled or commented on: at the cap the
  * loop logs that it stopped and leaves it blocked on its last error, which the
  * job list shows as needs input (#4689). Only where that `--bg --resume`
@@ -261,7 +261,8 @@ function fallBack(o, seen) {
 /**
  * `o`, stopped by the loop with its relaunch failed, relaunched again once
  * its scheduled try or a short re-attempt is due, on a tick that admits it;
- * one that does not spends nothing.
+ * one that does not spends nothing. At the cap, its last relaunch: null where
+ * that fails too.
  * @param {Outside & {held: StoppedTarget}} o
  * @param {Tick} seen
  * @returns {Outside|null}
