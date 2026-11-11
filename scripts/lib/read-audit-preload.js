@@ -682,7 +682,7 @@ function install() {
 	 */
 	const buildTracedSpawn = (asked) => {
 		/* A `binOf` that throws leaves `bin` empty, as for no file at all: its
-		 * record is still kept, in a log the fault marks a doubt. */
+		 * record is still kept, in a log the fault marks a doubt (#5009). */
 		/** @type {string[]} */
 		let bin = [];
 		let within = false;
