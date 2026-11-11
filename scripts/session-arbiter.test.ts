@@ -2431,6 +2431,10 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535, on #
 			"a malformed `**Gated on:**` line",
 			"**Gated on:** 368 post-change stays recorded",
 		],
+		[
+			"both gate lines, which gate nothing",
+			`**Gated until:** 2999-01-01 — data accrues\n${HoldingOn}`,
+		],
 	])("still refuses where the unit carries only %s (#4991)", (_, gate) => {
 		claimAs("alice");
 		fakeGh(sb, { [At]: unit({ body: `${Unmet}\n${gate}\n` }) });
@@ -2502,6 +2506,16 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535, on #
 		expect(r.stderr).toContain("session nobody is not running");
 		expect(r.stderr).toContain("refusing to release #645");
 		expect(out(["issue-claims"])).toMatch(/^#645\talice/m);
+	});
+
+	it("moves a gated unit's claim to a session not running (#4991)", () => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: unit({ body: `${Unmet}\n${HoldingOn}\n` }) });
+		const r = cli(["move-issue", "645", "nobody"], {
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+		expect(r.status).toBe(0);
+		expect(out(["issue-claims"])).not.toMatch(/alice/);
 	});
 
 	it("moves nothing where this session holds no claim", () => {
