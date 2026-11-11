@@ -72,9 +72,10 @@ retry_sleep="${WFC_LINK_SLEEP:-2}"
 
 # Does the parent already list this child?
 parent_lists_child() {
-  "$gh" api "repos/$repo/issues/$parent/sub_issues" --paginate \
-    --jq '.[].number' 2>/dev/null |
-    grep -qx "$child"
+  local listed
+  listed="$("$gh" api "repos/$repo/issues/$parent/sub_issues" --paginate \
+    --jq '.[].number' 2>/dev/null)" || return 1
+  grep -qx -- "$child" <<<"$listed"
 }
 
 # The same read, retried. BOTH callers need the retry, not just the one after a

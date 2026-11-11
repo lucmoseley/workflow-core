@@ -1545,7 +1545,11 @@ function cdInScript(state, own, at) {
 	const pending = chained
 		? [...state.pending, { at: state.chdirs.length, holds }]
 		: state.pending;
-	const cd = { dir, holds: chained ? /** @type {const} */ ("always") : holds };
+	const cd = {
+		dir,
+		read: false,
+		holds: chained ? /** @type {const} */ ("always") : holds,
+	};
 	return { ...state, chdirs: [...state.chdirs, cd], pending };
 }
 

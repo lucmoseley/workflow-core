@@ -848,19 +848,19 @@ while [[ $# -gt 0 ]]; do
       # admission.js names a CPU hold on a `cpu load` or `cpu sessions` line,
       # the last ending `the only hold` where memory and allowance would admit
       # (#834, #2141).
-      if printf '%s\n' "$admission_out" | grep -q '^cpu load '; then
+      if grep -q '^cpu load ' <<<"$admission_out"; then
         printf '  A CPU load hold: wait for load1 to fall under the ceiling, then re-run\n' >&2
         printf '  this member — `cat /proc/loadavg` reads it. Neither --force nor\n' >&2
         printf '  --force-memory lifts it; WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling does, at the risk of\n' >&2
         printf '  freezing WSL (#830).\n' >&2
       fi
       # `so 0 slot` keeps the unread-count warning line out of this remedy.
-      if printf '%s\n' "$admission_out" | grep -q '^cpu sessions .*so 0 slot'; then
+      if grep -q '^cpu sessions .*so 0 slot' <<<"$admission_out"; then
         printf '  A CPU session hold: wait for a live session to finish, then re-run this\n' >&2
         printf '  member. Neither --force nor --force-memory lifts it;\n' >&2
         printf '  WFC_SESSION_CEILING=0 does, at the cost of every session slowing (#2141).\n' >&2
       fi
-      if ! printf '%s\n' "$admission_out" | grep -qE '^cpu (load|sessions) .* the only hold$'; then
+      if ! grep -qE '^cpu (load|sessions) .* the only hold$' <<<"$admission_out"; then
         if [[ $force -eq 1 ]]; then
           printf '  --force does not cover memory; --force-memory overrides it, at the risk\n' >&2
           printf '  of freezing the machine.\n' >&2
