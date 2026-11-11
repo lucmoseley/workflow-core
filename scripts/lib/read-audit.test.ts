@@ -949,6 +949,8 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		[["diff", "--no-index", "../../dev/fd/0", "scripts/lib/hooks.js"]],
 		[["grep", "-l", "--file=/../dev/stdin"]],
 		[["grep", "-l", "-F/../dev/stdin"]],
+		[["grep", "-l", "--file=/dev/stdout"]],
+		[["grep", "-lf/dev/stderr"]],
 	])(
 		"doubts a git call fed by standard input, which a run again never has: %j",
 		(words) => {

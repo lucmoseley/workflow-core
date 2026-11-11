@@ -1203,6 +1203,10 @@ describe("a store it cannot trust runs every file", () => {
 			"before an absent input was one the drift watch saw steady, and the audit knew the guard by its real file and doubted a checkout script a shell no tracer followed ran (#4790)",
 			11,
 		],
+		[
+			"before the audit doubted a git call handed its standard output or error by path (#4790)",
+			12,
+		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
 		run(dir, [A]);

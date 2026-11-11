@@ -1,7 +1,8 @@
 /*
  * read-audit-paths.js — the path tests the read audit's modules share
  * (#4916). lib/read-audit-preload.js loads it into every audited process,
- * so it requires nothing beside Node's own modules and lib/is-under.js.
+ * so it requires nothing beside Node's own modules and lib/is-under.js,
+ * which the preload loads already.
  */
 
 const fs = require("node:fs");

@@ -131,7 +131,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 12;
+const FORMAT = 13;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -886,9 +886,9 @@ const buildVoidingRow = (
  * a red whose inputs are unknown still voids an older pass (#4790). Its row
  * keys every input whose content as the run read it is known, and leaves
  * the rest unkeyed, so it decides wherever those stand as they did,
- * whatever the rest hold. A file reached only through
- * one whose content is unknown is unkeyed too, the run's reach being that
- * file's as it then stood. Beyond files it keys only what the audit logged
+ * whatever the rest hold. A file reached only through one whose content is
+ * unknown is unkeyed too, the run's reach being that file's as it then
+ * stood. Beyond files it keys only what the audit logged
  * as the test got it, a listing it made and a directory it found: a git
  * call's answer and a walked tree's listings are read once the run ended,
  * and one that moved since the test read it would key the row off the
@@ -963,9 +963,8 @@ function buildRows(inputs, seams) {
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
  * alone: its passes cannot be trusted, but a fail row only ever makes a file
- * run. Never
- * throws: a store that cannot be written costs the rows, never the run, and
- * says why on `err`. Returns how many rows landed.
+ * run. Never throws: a store that cannot be written costs the rows, never
+ * the run, and says why on `err`. Returns how many rows landed.
  * @param {Run} run
  * @param {{storeRoot: string|null,
  *   err?: {write: (s: string) => unknown}} & Seams} options
@@ -1452,7 +1451,8 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 				});
 		}
 	} catch {
-		// The classifier is left the marker stores alone (#4790).
+		// A store or a commit that will not read is no evidence of a red at
+		// `sha`: the classifier is left the marker stores alone (#4790).
 		return new Map();
 	}
 	return held;

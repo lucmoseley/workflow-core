@@ -38,9 +38,9 @@
  *   shell or Python child handed a checkout script to run, from outside
  *   the root, is unseen (#4790). A checkout file run as the program itself
  *   is judged by its `#!` line: a Node one's reads are in the log it left,
- *   and any other's are unseen, a shell script's among them: `$0` is its
- *   own path (#4790). The git guard alone is a read (`Program`), and the
- *   git it runs is judged as any git child. One of `CWD_BLIND` is seen,
+ *   and any other's are unseen, a shell script's among them (#4790,
+ *   `Program`). The git guard alone is a read (`Program`), and the git it
+ *   runs is judged as any git child. One of `CWD_BLIND` is seen,
  *   which reads nothing of its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
@@ -110,15 +110,17 @@ const STDIN_FILE = /^(?:-|-[^-].*-|--.+=-)$/;
  * to a short option, or the value of a long one. A run again holds none of
  * the test's descriptors, so any of them counts, not standard input alone. */
 const DESCRIPTOR_PATH =
-	/\/(?:dev\/(?:stdin|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
+	/\/(?:dev\/(?:stdin|stdout|stderr|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
 
 /**
  * Whether a word of a git call may feed it its standard input. git takes
  * any prefix of a long option that names no other, so every prefix of one
  * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
- * whether or not another option there shares it (#4790). A word naming a
- * descriptor by path counts however it is spelt, `.`, `..` and doubled
- * slashes folded away below a root of the word's own.
+ * whether or not another option there shares it: a call kept is run again
+ * with no input, so the doubt goes to not keeping it (#4790). A word
+ * naming a descriptor by path counts however it is spelt, `.`, `..` and
+ * doubled slashes folded away below a root of the word's own, so a `..`
+ * folds away no more than the option the path is stuck to.
  * @param {string} word
  */
 function isStdinFed(word) {
@@ -612,8 +614,8 @@ const isGuard = buildGuardTest();
  *   Python and a binary among them, whose reads no reach holds; `guard`,
  *   the git guard, which reads of the checkout only where a git directory
  *   stands, its own repository's and the call's (`rev-parse
- *   --git-common-dir`, in a child nothing logs): a path, which no file's
- *   content moves. A shell script's reads are a trace's alone: the reach
+ *   --git-common-dir`, in a child nothing logs): a path, which no tracked
+ *   file's content moves. A shell script's reads are a trace's alone: the reach
  *   holds its loads, never what it opens beside itself
  */
 
