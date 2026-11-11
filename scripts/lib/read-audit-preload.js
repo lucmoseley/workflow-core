@@ -420,8 +420,8 @@ function install() {
 	const isGuarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
 		isGuardedBy(
-			"git",
-			binOf("git", cwdOf(opts), opts?.envPairs),
+			opts.file,
+			binOf(opts.file, cwdOf(opts), opts?.envPairs),
 			isAudited(opts?.envPairs),
 		);
 	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
