@@ -8,8 +8,6 @@
  * directory test `cp` needs arrive as ports; the guard's entry wires the real
  * ones (lib/guard-entry.js).
  *
- * Each behaviour here carries the ticket that set it.
- *
  * FAIL OPEN is the house rule (mantahostels#103 §6): a word this file cannot read
  * comes back unresolved — null, or an empty path — and the guard decides what
  * that costs. Nothing here ever runs the text.
@@ -26,6 +24,7 @@ const {
 	unwrap,
 	commandName,
 	isGitValueOption,
+	isGlobPattern,
 	ASSIGNMENT_RE,
 } = shellWords;
 const { expandTildeWord } = require("./home-path.js");
@@ -55,8 +54,7 @@ const OP_MARK = "\x05";
 /**
  * The command names whose line the logical-line join refuses to absorb.
  *
- * IT STAYS AT `git` AND `gh` (mantahostels#1818 tried wider and reverted it, and
- * mantahostels#2346 made the ruling a gate): the deny guards are safe here only because a
+ * IT STAYS AT `git` AND `gh` (mantahostels#2346): the deny guards are safe here only because a
  * line they refuse begins with one of these, and a wider list exposes quoted
  * prose as commands.
  */
@@ -399,7 +397,7 @@ function skipExec(words, start) {
 /**
  * Collapse `.`, `..` and doubled slashes, so two spellings of one absolute
  * path compare equal as strings (mantahostels#3315). Textual, never
- * symlink-resolved: session-arbiter.js's claimKey is lexical too. One
+ * symlink-resolved. One
  * line only, as the bash reader's `read`.
  * @param {string} p
  */
@@ -918,6 +916,18 @@ function isProvablyEmpty(name, allowed, scope) {
 	const { subject } = scope;
 	if (!scope.emptyUnset || scope.conditional >= 0) return false;
 	if (SOURCING_RE.test(subject)) return false;
+	if (bareMentions(name, subject) > allowed) return false;
+	if (!allowed) scope.emptyNames.push(name);
+	return true;
+}
+
+/**
+ * How often `subject` names `name` as a whole word but not as a `$name` or
+ * `${name}` reference, which assigns nothing.
+ * @param {string} name
+ * @param {string} subject
+ */
+function bareMentions(name, subject) {
 	let mentions = 0;
 	for (
 		let at = subject.indexOf(name);
@@ -927,12 +937,10 @@ function isProvablyEmpty(name, allowed, scope) {
 		const before = subject.slice(0, at);
 		const after = subject.slice(at + name.length);
 		if (/[A-Za-z0-9_]$/.test(before) || /^[A-Za-z0-9_]/.test(after)) continue;
-		/* A plain reference — `$W` or `${W}` — assigns nothing. */
 		if (before.endsWith("$") || before.endsWith("${")) continue;
-		if (++mentions > allowed) return false;
+		mentions++;
 	}
-	if (!allowed) scope.emptyNames.push(name);
-	return true;
+	return mentions;
 }
 
 /**
@@ -1367,6 +1375,13 @@ function walkCommands(parsed, fn, ports) {
  */
 
 /**
+ * @typedef {object} ScriptAt where in a script a segment stands
+ * @property {Parsed} parsed
+ * @property {number} segIdx
+ * @property {string[]} spans
+ */
+
+/**
  * @typedef {object} ScriptState what a script's next command runs under
  * @property {Chdir[]} chdirs
  * @property {{ at: number, holds: Chdir["holds"] }[]} pending each `cd` a
@@ -1375,6 +1390,9 @@ function walkCommands(parsed, fn, ports) {
  * @property {string[]} exports
  * @property {Map<string, string>} locals each name an assignment alone set,
  *   its word
+ * @property {string[]} lost each name the script may have changed in a way
+ *   not followed: an assignment that may not have run, an `unset`, or any
+ *   other command naming it bare (`read X`, `for X in`)
  * @property {string[]} unread
  */
 
@@ -1399,6 +1417,7 @@ function parseScript(script, spans) {
 		pending: [],
 		exports: [],
 		locals: new Map(),
+		lost: [],
 		unread: [],
 	};
 	/** @type {ScriptState[]} */
@@ -1408,9 +1427,16 @@ function parseScript(script, spans) {
 			stack.push(state);
 			return;
 		}
-		/* A `)` with no `(` open is a `case` pattern, which moves nothing. */
+		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
+		 * `((…))` or `$((…))` parses as brackets too, and its assignments
+		 * stand, so each name the brackets changed is lost. */
 		if (segment === `${SCOPE_MARK})`) {
-			state = stack.pop() ?? state;
+			const outer = stack.pop();
+			if (outer)
+				state = {
+					...outer,
+					lost: settleLost(outer.lost, changedNames(state, outer), false),
+				};
 			return;
 		}
 		state = settleScriptChain(state, parsed.joins[segIdx]);
@@ -1423,9 +1449,10 @@ function parseScript(script, spans) {
 				chdirs: state.chdirs,
 				unread: state.unread,
 			});
+		const where = { parsed, segIdx, spans };
 		state = cw.ran
-			? stepScript(state, cw, { parsed, segIdx, spans })
-			: assignAlone(state, cw.words, assigned, spans);
+			? stepScript(state, cw, where)
+			: assignAlone(state, cw.words, assigned, where);
 	});
 	return out;
 }
@@ -1453,10 +1480,11 @@ function settleScriptChain(state, join) {
  * @param {ScriptState} state
  * @param {string[]} words the segment's
  * @param {string[]} assigned
- * @param {string[]} spans
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function assignAlone(state, words, assigned, spans) {
+function assignAlone(state, words, assigned, where) {
+	const { spans } = where;
 	const locals = new Map(state.locals);
 	let { exports } = state;
 	for (const w of assigned) {
@@ -1465,33 +1493,108 @@ function assignAlone(state, words, assigned, spans) {
 		if (exports.some((e) => assignedName(e, spans) === name))
 			exports = [...withoutName(exports, name, spans), w];
 	}
-	return markScriptUnread({ ...state, locals, exports }, words, true, spans);
+	const { set, lostTo } = assignedNames(
+		assigned.map((w) => literal(w, spans).text),
+		false,
+	);
+	const lost = settleLost(
+		settleLost(state.lost, set, isSureAssignment(where)),
+		lostTo,
+		false,
+	);
+	return markScriptUnread(
+		{ ...state, locals, exports, lost },
+		words,
+		true,
+		spans,
+	);
 }
+
+/** A name a word spells other than as a `$name` or `${name}` reference. */
+const BARE_NAME_RE = /(?<![\w$])(?<!\$\{)[A-Za-z_]\w*/g;
+
+/**
+ * The names assignment texts set, and those they leave lost: every one where
+ * `empties` (an `unset`), else each `+=`, which appends to a value this file
+ * does not add up.
+ * @param {string[]} texts
+ * @param {boolean} empties
+ */
+function assignedNames(texts, empties) {
+	/** @type {string[]} */
+	const set = [];
+	/** @type {string[]} */
+	const lostTo = [];
+	for (const t of texts) {
+		const name = (t.split("=", 1)[0] ?? "").replace(/\+$/, "");
+		if (empties || /^[^=]*\+=/.test(t)) lostTo.push(name);
+		else if (t.includes("=")) set.push(name);
+	}
+	return { set, lostTo };
+}
+
+/**
+ * @param {ScriptState} inner
+ * @param {ScriptState} outer
+ */
+const changedNames = (inner, outer) => [
+	...inner.lost,
+	...[...inner.locals].flatMap(([name, w]) =>
+		outer.locals.get(name) === w ? [] : [name],
+	),
+];
+
+/**
+ * Whether a segment's assignments surely stand after it: no `&&` or `||`
+ * before it, no compound command in the script, and not in a pipeline or
+ * behind `&`.
+ * @param {Pick<ScriptAt, "parsed" | "segIdx">} where
+ */
+const isSureAssignment = ({ parsed, segIdx }) =>
+	isSureMove(parsed, segIdx, []) && !runsApart(parsed.joins, segIdx);
+
+/**
+ * `lost` after `names` are assigned: followed where the assignment surely
+ * stands, lost where it may not.
+ * @param {string[]} lost
+ * @param {string[]} names
+ * @param {boolean} sure
+ */
+const settleLost = (lost, names, sure) =>
+	sure
+		? lost.filter((n) => !names.includes(n))
+		: [...lost, ...names.filter((n) => !lost.includes(n))];
 
 /**
  * The state after one command: a `cd` or `export` moves it; any other command
  * but `git` may mark variables unread.
  * @param {ScriptState} state
  * @param {CommandWords} cw
- * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function stepScript(state, cw, at) {
-	const { spans } = at;
+function stepScript(state, cw, where) {
+	const { spans } = where;
 	const own = cw.words.slice(cw.wi);
 	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
-	const apart = runsApart(at.parsed.joins, at.segIdx);
+	const apart = runsApart(where.parsed.joins, where.segIdx);
 	const kind = exportKind(head, rest);
 	if (kind !== null)
 		return apart
 			? state
-			: exportInScript(state, { head, kind }, own.slice(1), spans);
+			: exportInScript(state, { head, kind }, own.slice(1), where);
 	if (head === "cd" || losesCwd(head, rest[0]))
-		return apart ? state : cdInScript(state, own, at);
+		return apart ? state : cdInScript(state, own, where);
 	const runs = unwrap(own, spans);
 	if (runs.every((run) => commandName(run.words[0] ?? "") === "git"))
 		return state;
-	return markScriptUnread(state, cw.words, false, spans);
+	const named = [head, ...rest].flatMap((t) => t.match(BARE_NAME_RE) ?? []);
+	return markScriptUnread(
+		{ ...state, lost: settleLost(state.lost, named, false) },
+		cw.words,
+		false,
+		spans,
+	);
 }
 
 /**
@@ -1499,10 +1602,34 @@ function stepScript(state, cw, at) {
  * @param {{ head: string, kind: "export" | "drop" }} command its command word,
  *   and what exportKind reads it as
  * @param {string[]} args the words after the command word, masked
+ * @param {ScriptAt} where
+ * @returns {ScriptState}
+ */
+function exportInScript(state, command, args, where) {
+	const { spans } = where;
+	const texts = args
+		.map((w) => literal(w, spans).text)
+		.filter((t) => !t.startsWith("-"));
+	const { set, lostTo } =
+		command.kind === "export"
+			? assignedNames(texts, false)
+			: assignedNames(texts, command.head === "unset");
+	const lost = settleLost(
+		settleLost(state.lost, set, isSureAssignment(where)),
+		lostTo,
+		false,
+	);
+	return { ...exportWords(state, command, args, spans), lost };
+}
+
+/**
+ * @param {ScriptState} state
+ * @param {{ head: string, kind: "export" | "drop" }} command
+ * @param {string[]} args the words after the command word, masked
  * @param {string[]} spans
  * @returns {ScriptState}
  */
-function exportInScript(state, { head, kind }, args, spans) {
+function exportWords(state, { head, kind }, args, spans) {
 	let { exports, unread } = state;
 	const locals = new Map(state.locals);
 	for (const w of args) {
@@ -1530,25 +1657,31 @@ function exportInScript(state, { head, kind }, args, spans) {
  * resolves; one a `&&` chains a command off holds always for that chain.
  * @param {ScriptState} state
  * @param {string[]} own its words, masked
- * @param {{ parsed: Parsed, segIdx: number, spans: string[] }} at
+ * @param {ScriptAt} where
  * @returns {ScriptState}
  */
-function cdInScript(state, own, at) {
-	const texts = own.map((w) => literal(w, at.spans).text);
+function cdInScript(state, own, where) {
+	const texts = own.map((w) => literal(w, where.spans).text);
 	const [head, arg] = texts;
 	const known =
 		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
 	const dir = known || `$(${texts.join(" ")})`;
 	/** @type {Chdir["holds"]} */
-	const holds = isSureMove(at.parsed, at.segIdx, own) ? "if-dir" : "maybe";
-	const chained = at.parsed.joins[at.segIdx + 1] === "a";
+	const holds = isSureMove(where.parsed, where.segIdx, own)
+		? "if-dir"
+		: "maybe";
+	const chained = where.parsed.joins[where.segIdx + 1] === "a";
 	const pending = chained
 		? [...state.pending, { at: state.chdirs.length, holds }]
 		: state.pending;
+	/** @type {Map<string, string | null>} */
+	const vars = new Map(state.locals);
+	for (const name of state.lost) vars.set(name, null);
 	const cd = {
 		dir,
 		read: false,
 		holds: chained ? /** @type {const} */ ("always") : holds,
+		vars,
 	};
 	return { ...state, chdirs: [...state.chdirs, cd], pending };
 }
@@ -1574,7 +1707,7 @@ function markScriptUnread(state, words, assigning, spans) {
  * @param {string[]} spans
  */
 const assignedName = (w, spans) =>
-	literal(w, spans).text.split("=", 1)[0] ?? "";
+	(literal(w, spans).text.split("=", 1)[0] ?? "").replace(/\+$/, "");
 
 /**
  * @param {string[]} words
@@ -1830,7 +1963,8 @@ function readGitRun(walk, run, leading, isDir) {
 		/** @type {number[]} */
 		const unsure = [];
 		dirs.forEach((cd, at) => {
-			readGitDir(cd.dir, target, walk.scope);
+			const { resolved, emptyNames } = chdirArg(cd, walk.scope);
+			moveGitTarget(target, resolved, cd.dir, emptyNames);
 			if (!holdsAt(cd, target.tree, isDir)) unsure.push(at);
 		});
 		const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
@@ -2183,9 +2317,20 @@ const treeOfGitDir = (dir) => normAbs(dir).replace(/\/\.git$/, "") || "/";
  * @param {Scope} scope
  */
 function readGitDir(word, target, scope) {
-	const r = pathArg(word, scope);
+	moveGitTarget(target, pathArg(word, scope), word, scope.emptyNames);
+}
+
+/**
+ * Move `target` to a directory as pathArg answered it.
+ * @param {GitTarget} target accumulator: its tree, fromCwd, names and written
+ *   are moved
+ * @param {ReturnType<typeof pathArg>} r
+ * @param {string} word as written, for the unresolved record
+ * @param {string[]} emptyNames the unset names `r` read as empty
+ */
+function moveGitTarget(target, r, word, emptyNames) {
 	if (r && "empty" in r) {
-		target.names = [...target.names, ...scope.emptyNames];
+		target.names = [...target.names, ...emptyNames];
 		return;
 	}
 	if (!r) {
@@ -2194,13 +2339,92 @@ function readGitDir(word, target, scope) {
 	} else if (r.path.startsWith("/")) {
 		target.tree = r.path;
 		target.fromCwd = null;
-		target.names = [...scope.emptyNames];
+		target.names = [...emptyNames];
 		target.written = "";
 	} else if (target.tree) {
 		target.tree = `${target.tree}/${r.path}`;
 		if (target.fromCwd !== null) target.fromCwd += `/${r.path}`;
-		target.names = [...target.names, ...scope.emptyNames];
+		target.names = [...target.names, ...emptyNames];
 	}
+}
+
+/**
+ * One chdir's directory as the shell that makes it reads it (#4981): a `read`
+ * one as it stands; a `-c` string's `cd` under buildScriptScope; any other — a
+ * wrapper's word the outer shell expands — under the outer `scope`. Null
+ * past an unquoted glob or a `-` flag.
+ * @param {Chdir} cd
+ * @param {Scope} scope the outer command's
+ * @returns {{ resolved: ReturnType<typeof pathArg>, emptyNames: string[] }}
+ */
+function chdirArg(cd, scope) {
+	const none = { resolved: null, emptyNames: [] };
+	if (cd.read && cd.dir.startsWith("-")) return none;
+	if (cd.read)
+		return {
+			resolved: cd.dir ? { path: cd.dir } : { empty: true },
+			emptyNames: [],
+		};
+	if (isGlobPattern(cd.dir)) return none;
+	const inner = cd.vars ? buildScriptScope(cd, scope) : scope;
+	const r = pathArg(cd.dir, inner);
+	if (r && "path" in r && r.path.startsWith("-")) return none;
+	return { resolved: r, emptyNames: inner.emptyNames };
+}
+
+/**
+ * @param {string[]} spans
+ * @returns {Scope}
+ */
+const buildBareScope = (spans) => ({
+	spans,
+	locals: new Map(),
+	dead: new Set(),
+	vars: {},
+	subject: "",
+	conditional: -1,
+	emptyUnset: false,
+	emptyNames: [],
+});
+
+/** Names a script's shell sets itself, whatever the script did. */
+const SHELL_SET = ["PWD", "OLDPWD", "_"];
+
+/**
+ * What a `-c` string's word reads under: each name its script set at that
+ * value, read itself under the environment alone; any other at the
+ * environment the outer command hands down. Unknown: a name the script
+ * changed unfollowed or set to a value that will not resolve, SHELL_SET, and
+ * an environment name the outer command names bare — it
+ * may have set it, exported or not — or any under a `source`, `.` or `eval`,
+ * or behind a wrapper that may replace the environment.
+ * @param {Chdir} cd a `-c` string's `cd`
+ * @param {Scope} outer
+ * @returns {Scope}
+ */
+function buildScriptScope({ vars = new Map(), envReset }, outer) {
+	const { subject } = outer;
+	const inherits = !envReset && !SOURCING_RE.test(subject);
+	/** @type {Record<string, string | undefined>} */
+	const env = {};
+	for (const [name, value] of Object.entries(outer.vars))
+		if (inherits && bareMentions(name, subject) === 0) env[name] = value;
+	/** @type {Scope} */
+	const scope = {
+		...buildBareScope(outer.spans),
+		dead: new Set([...SHELL_SET, ...vars.keys()]),
+		vars: env,
+	};
+	/** @type {Map<string, string>} */
+	const locals = new Map();
+	const dead = new Set(SHELL_SET);
+	for (const [name, word] of vars) {
+		const raw = word?.slice(word.indexOf("=") + 1);
+		const val = raw === undefined ? null : assignedValue(raw, scope);
+		if (val) locals.set(name, val);
+		else dead.add(name);
+	}
+	return { ...scope, locals, dead, emptyNames: [] };
 }
 
 /**
@@ -2604,6 +2828,8 @@ module.exports = {
 	asWritten,
 	normAbs,
 	walkGit,
+	chdirArg,
+	buildBareScope,
 	unsetText,
 	BASH_SPACE: SPACE,
 };
