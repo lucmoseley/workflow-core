@@ -245,10 +245,10 @@ function readAudits(dir, root, clock) {
 /**
  * Each owner's logs, by process, and the git calls the guard logged for it.
  * @param {string} dir
- * @returns {Map<string, {logs: Map<number, Entry[]>, git: string[][]}>}
+ * @returns {Map<string, {logs: Map<number, Entry[]>, git: GitRecord[]}>}
  */
 function readOwners(dir) {
-	/** @typedef {{logs: Map<number, Entry[]>, git: string[][]}} Owner */
+	/** @typedef {{logs: Map<number, Entry[]>, git: GitRecord[]}} Owner */
 	/** @type {Map<string, Owner>} */
 	const owners = new Map();
 	const at = (/** @type {string} */ owner) => {
@@ -272,20 +272,28 @@ function readOwners(dir) {
 }
 
 /**
+ * @typedef {{steered: string, dir: string, pid: number, answer: string,
+ *   args: string[]}} GitRecord
+ *   one guard record: its git-dir flag, the directory, the guard's pid, the
+ *   answer, empty on the record made before git ran, and the words
+ */
+
+/**
  * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the guard's pid, the answer,
- * the words.
+ * fields, in `GitRecord`'s order.
  * @param {string} text
- * @returns {string[][]}
+ * @returns {GitRecord[]}
  */
 function parseGitRecords(text) {
 	const fields = text.split("\0");
-	/** @type {string[][]} */
+	/** @type {GitRecord[]} */
 	const out = [];
 	for (let i = 0; i < fields.length - 1; ) {
 		const n = Number(fields[i]);
 		if (!Number.isInteger(n) || n < 4) throw new Error("a git record is torn");
-		out.push(fields.slice(i + 1, i + 1 + n));
+		const [steered = "", dir = "", pid = "", answer = "", ...args] =
+			fields.slice(i + 1, i + 1 + n);
+		out.push({ steered, dir, pid: Number(pid), answer, args });
 		i += n + 1;
 	}
 	return out;
@@ -294,7 +302,7 @@ function parseGitRecords(text) {
 /**
  * One owner's reads, or the doubt that voids them.
  * @param {Map<number, Entry[]>} logs
- * @param {string[][]} git the guard's records for this owner
+ * @param {GitRecord[]} git the guard's records for this owner
  * @param {string} root real path
  * @param {Readers} readers
  * @returns {Audit}
@@ -308,8 +316,8 @@ function judge(logs, git, root, readers) {
 		.filter((e) => e.k === "minted")
 		.map((e) => String(e.p));
 	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
-	const recorded = new Set(git.map((record) => Number(record[2])));
-	const reads = buildCollector(logs, root, { isScratch, recorded }, readers);
+	const recorded = new Set(git.map((record) => record.pid));
+	const reads = buildCollector(logs, { root, isScratch, recorded }, readers);
 	for (const record of git) {
 		const why = reads.takeGit(record);
 		if (why) return { doubt: why };
@@ -329,14 +337,20 @@ function judge(logs, git, root, readers) {
  */
 
 /**
+ * @typedef {{root: string, isScratch: (p: string) => boolean,
+ *   recorded: Set<number>}} Scope
+ *   one owner's judging: the root's real path, a test's scratch, and the
+ *   pids of the git calls the guard recorded
+ */
+
+/**
  * The reads one owner's log entries add up to.
  * @param {Map<number, Entry[]>} logs
- * @param {string} root real path
- * @param {{isScratch: (p: string) => boolean, recorded: Set<number>}} at
- *   a test's scratch, and the pids of the git calls the guard recorded
+ * @param {Scope} scope
  * @param {Readers} readers
  */
-function buildCollector(logs, root, { isScratch, recorded }, readers) {
+function buildCollector(logs, scope, readers) {
+	const { root, isScratch } = scope;
 	/** @type {Record<"file"|"dir"|"absent", Set<string>>} */
 	const probed = { file: new Set(), dir: new Set(), absent: new Set() };
 	/** @type {Map<string, Set<string>>} */
@@ -370,15 +384,14 @@ function buildCollector(logs, root, { isScratch, recorded }, readers) {
 		},
 		worker: () =>
 			"it started a worker thread, whose reads the audit cannot see",
-		piped: (e) =>
-			pipedDoubt(e, children.get(Number(e.pid)), root, { isScratch, recorded }),
+		piped: (e) => pipedDoubt(e, children.get(Number(e.pid)), scope),
 		child: (e) => {
 			if (typeof e.pid === "number") children.set(e.pid, e);
 			if (typeof e.trace === "string") return takeTrace(e);
 			const ran = gitChildDoubt(e, readers.gitEvents);
 			if (ran) return ran;
 			const program = readProgram(e, root, isScratch);
-			const why = childDoubt(e, program, { logs, root, isScratch, recorded });
+			const why = childDoubt(e, program, logs, scope);
 			if (!why) for (const f of childReads(e, program, root)) scripts.add(f);
 			return why;
 		},
@@ -404,11 +417,12 @@ function buildCollector(logs, root, { isScratch, recorded }, readers) {
 	return {
 		take,
 		/**
-		 * @param {string[]} record
+		 * @param {GitRecord} record
 		 * @returns {string|null}
 		 */
-		takeGit([steered = "", dir = "", _pid = "", answer = "", ...args]) {
-			const call = rerunnable([steered, dir, ...args], root);
+		takeGit(record) {
+			const { answer } = record;
+			const call = rerunnable(record, root);
 			if (typeof call === "string") return call;
 			const key = JSON.stringify(call);
 			const at = calls.get(key) ?? { ...call, begun: 0, answers: [] };
@@ -473,11 +487,11 @@ function answeredCalls(calls) {
 /**
  * A guard record as a git call to run again, or the doubt it leaves where it
  * cannot be run again.
- * @param {string[]} record the git-dir flag, the directory, the words
+ * @param {GitRecord} record
  * @param {string} root real path
  * @returns {{cwd: string, args: string[]}|string}
  */
-function rerunnable([steered, dir = "", ...args], root) {
+function rerunnable({ steered, dir, args }, root) {
 	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
 	if (!isUnder(dir, [root], path.sep))
 		return `a git call (${shown}) read another checkout of this repository`;
@@ -510,12 +524,12 @@ const PYTHON_RUNNERS = new Set(["python3", "python"]);
  * reads are seen.
  * @param {Entry} e
  * @param {Program|null} program the checkout file it ran as its program
- * @param {{logs: Map<number, Entry[]>, root: string,
- *   isScratch: (p: string) => boolean, recorded: Set<number>}} at the
- *   owner's logs, the root's real path, and the pids the guard recorded
+ * @param {Map<number, Entry[]>} logs the owner's logs
+ * @param {Scope} scope
  * @returns {string|null}
  */
-function childDoubt(e, program, { logs, root, isScratch, recorded }) {
+function childDoubt(e, program, logs, scope) {
+	const { root, isScratch } = scope;
 	const file = String(e.file);
 	const shown = shownChild(e);
 	if (e.audited && (isNode(file) || program?.runs === "node")) {
@@ -523,8 +537,7 @@ function childDoubt(e, program, { logs, root, isScratch, recorded }) {
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
-	if (e.guarded && e.audited)
-		return guardedDoubt(e, { root, isScratch, recorded });
+	if (e.guarded && e.audited) return guardedDoubt(e, scope);
 	/* A tracer already following the process that spawned it follows it too. */
 	if (e.within) return null;
 	return unseenDoubt(e, program, root, isScratch);
@@ -537,9 +550,7 @@ function childDoubt(e, program, { logs, root, isScratch, recorded }) {
  * record. One it kept no record of is judged on what handed it the
  * checkout, as any other child (#5015).
  * @param {Entry} e
- * @param {{root: string, isScratch: (p: string) => boolean,
- *   recorded: Set<number>}} at the root's real path, and the pids the guard
- *   recorded
+ * @param {Scope} scope
  * @returns {string|null}
  */
 function guardedDoubt(e, { root, isScratch, recorded }) {
@@ -716,13 +727,11 @@ function readsNoVariable(e, root) {
  * @param {Entry} e the `piped` entry: the paths written, or none for a
  *   stream handed whole
  * @param {Entry|undefined} child the child it was written to
- * @param {string} root real path
- * @param {{isScratch: (p: string) => boolean, recorded: Set<number>}} at
- *   a test's scratch, and the pids of the git calls the guard recorded,
- *   whose run again vouches for what their input fed them
+ * @param {Scope} scope a recorded git's run again vouches for what its
+ *   input fed it
  * @returns {string|null}
  */
-function pipedDoubt(e, child, root, { isScratch, recorded }) {
+function pipedDoubt(e, child, { root, isScratch, recorded }) {
 	if (child?.guarded && child.audited && recorded.has(Number(child.pid)))
 		return null;
 	if (child === undefined)

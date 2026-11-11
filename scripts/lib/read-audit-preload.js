@@ -526,13 +526,13 @@ function install() {
 	 * A sync spawn's `input`; what is written to an async child's pipe later
 	 * `watchInput` weighs.
 	 * @param {Untyped} opts
-	 * @param {string} at the directory it resolves a relative path against
+	 * @param {string} base the directory it resolves a relative path against
 	 * @returns {Hand[]}
 	 */
-	const stdinHands = (opts, at) => {
+	const stdinHands = (opts, base) => {
 		const input = Array.isArray(opts?.stdio) ? opts.stdio[0]?.input : null;
 		if (!ArrayBuffer.isView(input)) return [];
-		const p = handed.from(at, { text: true })(textOf(input));
+		const p = handed.from(base, { text: true })(textOf(input));
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
@@ -542,12 +542,12 @@ function install() {
 	 * look for none, but one asked for `--help` does, through `git help`.
 	 * `--git-dir` and `GIT_DIR` name it, weighed as a word and a variable.
 	 * @param {Untyped} opts
-	 * @param {string} cwd
+	 * @param {string[]} words its words after the program
+	 * @param {GitOptions} git what its options before the subcommand do
 	 * @returns {Hand[]}
 	 */
-	const repoHands = (opts, cwd) => {
-		if (path.basename(String(opts?.file ?? "")) !== "git") return [];
-		const asked = gitDirOf(argvOf(opts).slice(1), cwd);
+	const repoHands = (opts, words, git) => {
+		const asked = gitDirOf(words, git);
 		if (asked === null || pairValue(opts?.envPairs, "GIT_DIR") !== undefined)
 			return [];
 		return repoHandAt(realOrAsIs(asked.at), asked.bare);
@@ -568,35 +568,10 @@ function install() {
 		return [{ by: "repo", p: ["."] }];
 	};
 	/**
-	 * Where a child resolves a relative path: its directory, or for a git
-	 * the one its `-C` words move it to, each `-C` value read against the
-	 * directory the ones before it reached (git(1), `-C`).
-	 * @param {Untyped} opts
-	 * @param {string[]} words its words after the program
-	 * @param {string} cwd
-	 * @returns {{moved: string, before: Map<number, string>}} `before` each
-	 *   `-C` value's place with the directory it is read against
-	 */
-	const movesOf = (opts, words, cwd) => {
-		/** @type {Map<number, string>} */
-		const before = new Map();
-		if (path.basename(String(opts?.file ?? "")) !== "git")
-			return { moved: cwd, before };
-		let moved = cwd;
-		for (let at = 0; at < words.length; at++) {
-			const word = String(words[at]);
-			if (!word.startsWith("-")) break;
-			if (word === "-C" && at + 1 < words.length) {
-				before.set(at + 1, moved);
-				moved = path.resolve(moved, String(words[at + 1]));
-			}
-			if (GIT_VALUED.has(word)) at++;
-		}
-		return { moved, before };
-	};
-	/**
 	 * What hands a child paths in the checkout; none for a Node child that
-	 * logs its own reads.
+	 * logs its own reads. A git reads a relative path against the directory
+	 * its `-C` words move it to, each `-C` value against the one the words
+	 * before it reached (git(1), `-C`).
 	 * @param {Untyped} opts
 	 * @returns {Hand[]}
 	 */
@@ -604,19 +579,20 @@ function install() {
 		if (isAuditedNode(opts)) return [];
 		const cwd = cwdOf(opts);
 		const words = argvOf(opts).slice(1);
-		const { moved, before } = movesOf(opts, words, cwd);
-		const named = handed.from(moved);
+		const git = isGitFile(opts) ? readGitOptions(words, cwd) : null;
+		const base = git?.moved ?? cwd;
+		const named = handed.from(base);
 		return [
 			...words.flatMap(
 				(/** @type {string} */ word, /** @type {number} */ at) => {
-					const from = before.get(at);
+					const from = git?.baseOfValue.get(at);
 					const p = (from === undefined ? named : handed.from(from))(word);
 					return p.length === 0 ? [] : [{ by: "arg", at, p }];
 				},
 			),
 			...envHands(opts, cwd, named),
-			...stdinHands(opts, moved),
-			...repoHands(opts, cwd),
+			...stdinHands(opts, base),
+			...(git ? repoHands(opts, words, git) : []),
 		];
 	};
 	/**
@@ -687,7 +663,7 @@ function install() {
 	 */
 	const gitEventsOf = (opts) => {
 		const file = String(opts?.file ?? "");
-		if (path.basename(file) !== "git") return { opts };
+		if (!isGitFile(opts)) return { opts };
 		const bin = binOf(file, cwdOf(opts), opts?.envPairs);
 		if (!isRealGit(file, bin) && !isGuard(bin[1])) return { opts };
 		const pairs = Array.isArray(opts?.envPairs) ? opts.envPairs : [];
@@ -785,9 +761,12 @@ function install() {
 		guard(() => {
 			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
 			if (typeof pid !== "number" || route || isAuditedNode(asked)) return;
-			const { moved } = movesOf(asked, argvOf(asked).slice(1), cwdOf(asked));
+			const cwd = cwdOf(asked);
+			const base = isGitFile(asked)
+				? readGitOptions(argvOf(asked).slice(1), cwd).moved
+				: cwd;
 			for (const [descriptor, entry] of stdio.entries())
-				watchEntry(entry, descriptor, pid, moved);
+				watchEntry(entry, descriptor, pid, base);
 		});
 
 	/**
@@ -1008,29 +987,59 @@ const ELF = Buffer.from("\x7fELF", "latin1");
  * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
 const GIT_READS = /^(GIT_.*|HOME|XDG_CONFIG_HOME)$/;
 
+/** @param {Untyped} opts whether a child's program is named git */
+function isGitFile(opts) {
+	return path.basename(String(opts?.file ?? "")) === "git";
+}
+
+/**
+ * @typedef {{moved: string, baseOfValue: Map<number, string>,
+ *   bare: string|null, namesGitDir: boolean, sub: number}} GitOptions
+ *   what a git call's options before its subcommand do: the directory each
+ *   `-C` moves it to in turn, `moved` where they end; each `-C` value's
+ *   place with the directory it is read against; where `--bare` stood,
+ *   the directory the `-C` words before it reached; whether `--git-dir`
+ *   names its repository; the subcommand's place
+ */
+
+/**
+ * @param {string[]} words the call's words after the program
+ * @param {string} cwd
+ * @returns {GitOptions}
+ */
+function readGitOptions(words, cwd) {
+	let moved = cwd;
+	/** @type {Map<number, string>} */
+	const baseOfValue = new Map();
+	/** @type {string|null} */
+	let bare = null;
+	let namesGitDir = false;
+	let at = 0;
+	for (; at < words.length; at++) {
+		const word = String(words[at]);
+		if (!word.startsWith("-")) break;
+		if (word.split("=")[0] === "--git-dir") namesGitDir = true;
+		if (word === "--bare") bare = moved;
+		if (word === "-C" && at + 1 < words.length) {
+			baseOfValue.set(at + 1, moved);
+			moved = path.resolve(moved, String(words[at + 1]));
+		}
+		if (GIT_VALUED.has(word)) at++;
+	}
+	return { moved, baseOfValue, bare, namesGitDir, sub: at };
+}
+
 /**
  * Where a git call finds its repository: the directory it looks up from,
  * its own moved by each `-C` before the subcommand, or under `--bare` the
  * repository itself, the directory the `-C` words before it reached (git
  * sets `GIT_DIR` there); null where it looks for none.
  * @param {string[]} words the call's words after the program
- * @param {string} cwd
+ * @param {GitOptions} git
  * @returns {{at: string, bare: boolean}|null}
  */
-function gitDirOf(words, cwd) {
-	let moved = cwd;
-	/** @type {string|null} */
-	let bare = null;
-	let at = 0;
-	for (; at < words.length; at++) {
-		const word = String(words[at]);
-		if (!word.startsWith("-")) break;
-		if (word.split("=")[0] === "--git-dir") return null;
-		if (word === "--bare") bare = moved;
-		if (word === "-C") moved = path.resolve(moved, words[at + 1] ?? "");
-		if (GIT_VALUED.has(word)) at++;
-	}
-	if (makesItsOwn(words, at)) return null;
+function gitDirOf(words, { moved, bare, namesGitDir, sub }) {
+	if (namesGitDir || makesItsOwn(words, sub)) return null;
 	return { at: bare ?? moved, bare: bare !== null };
 }
 
