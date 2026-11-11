@@ -303,6 +303,31 @@ const GATES = [
 		floor: true,
 	},
 	/*
+	 * A script header line keeping a caller list by hand, which goes stale on
+	 * every caller edit (#4885). Identity is the line's text and its
+	 * occurrence in the file, never `line`, which a line added above moves, so
+	 * an adopter's inherited lines warn and only a new one refuses. A renamed
+	 * script's lines read as new and refuse.
+	 */
+	{
+		id: "hand-callers",
+		script: "scripts/check-hand-callers.js",
+		flag: "against",
+		ere: String.raw`^(scripts/|\.claude/skills/[^/]+/scripts/)`,
+		lander: "batch",
+		staged: "scripts/a.js",
+		identity: ["severity", "tag", "file", "match", "nth"],
+		refusals: [
+			"a hand-kept caller list goes stale on every caller edit (#4404).",
+		],
+		notice: {
+			scope: "every script header under scripts/ and a skill's scripts/",
+			cite: "(#4885)",
+			cost: "warns every other session's commit staging a script",
+		},
+		floor: true,
+	},
+	/*
 	 * A hook, guard or checker of the repo's own left unregistered, untested or
 	 * uncounted (#1456), standing down wherever the repo carries the core's
 	 * registration tests; there it refuses any settings hook but the

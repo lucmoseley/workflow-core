@@ -357,6 +357,10 @@ if ! lander_batch && armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-frontmatter.js --against HEAD || exit "$?"
 fi
 
+if armed '^(scripts/|\.claude/skills/[^/]+/scripts/)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-hand-callers.js --against HEAD || exit "$?"
+fi
+
 if armed '^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-registrations.js --against HEAD || exit "$?"
 fi
