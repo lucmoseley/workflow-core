@@ -396,6 +396,7 @@ describe("what a test file reads, as the audit sees it", () => {
 		["HOME", { HOME: null }],
 		["TZ", { TZ: "Pacific/Chatham" }],
 		["LANGUAGE", { LANGUAGE: "de" }],
+		["LANG", { LANG: "C" }],
 		["LC_ALL", { LC_ALL: "C" }],
 		["XDG_CONFIG_HOME", { XDG_CONFIG_HOME: os.tmpdir() }],
 	] as const)(
@@ -408,6 +409,26 @@ describe("what a test file reads, as the audit sees it", () => {
 			);
 		},
 	);
+
+	it("weighs no git call made before the setup settled, which is the setup's own (#5017)", () => {
+		const root = checkout();
+		const body = `${lsFiles(root, { HOME: os.tmpdir() })}\nglobalThis.__wfcReadAudit.settle();`;
+		const log = audited(root, T, body, { env: guarded(root), settle: false });
+		expect(readAudits(log, root).get(T).reads.git).toHaveLength(1);
+	});
+
+	it("weighs the owner's settled environment, not one a Node child of it settled (#5017)", () => {
+		const root = checkout();
+		const home = JSON.stringify(os.tmpdir());
+		const body = [
+			`require("node:child_process").execFileSync(process.execPath, ["-e", "globalThis.__wfcReadAudit.settle()"], { env: { ...process.env, HOME: ${home} } });`,
+			lsFiles(root, { HOME: os.tmpdir() }),
+		].join("\n");
+		const log = audited(root, T, body, { env: guarded(root), trace: false });
+		expect(readAudits(log, root).get(T).doubt).toMatch(
+			/ran under a variable that steers git \(HOME\)/,
+		);
+	});
 
 	it("keeps a checkout git call under the settled environment, an unsteering variable set, and passes a scratch repository's git under GIT_AUTHOR_NAME (#5017)", () => {
 		const root = checkout();
