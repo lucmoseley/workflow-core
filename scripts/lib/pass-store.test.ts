@@ -1247,6 +1247,18 @@ describe("the reads the audit saw", () => {
 		expect(run(dir, [A])).toBe(1);
 	});
 
+	it("voids an older pass with a red recorded after the tree moved past the run's end snapshot, once the move is undone (#4790)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		const ran = fs.readFileSync(path.join(dir, "lib.js"), "utf8");
+		const end = readTreeSnapshot(dir);
+		write(dir, "lib.js", "lib.js edited after the end snapshot\n");
+		expect(run(dir, [A], { failing: [A], after: end })).toBe(1);
+		write(dir, "lib.js", ran);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
 	it("rests a tree walked whole on every file and listing under it", () => {
 		const dir = repo();
 		withSkill(dir);
