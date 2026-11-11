@@ -1,0 +1,115 @@
+{
+	"1556": {
+		"state": "CLOSED",
+		"body": "",
+		"comments": [
+			"❓ **Q1** - **The extra reviewer on a commit that touches a sensitive path**\n❓ **Q2** - **What makes a change mission-critical**\n❓ **Q3** - **How many Opus 5.5 high runs a mission-critical change gets (the standard review counts as run 1)**\n❓ **Q4** - **Whether to pay for a replay that measures the gaps**",
+			"❓ **Q5** - **Where the escalated run's focus comes from**\n❓ **Q6** - **The third Opus run on a mission-critical change**"
+		]
+	},
+	"1776": {
+		"state": "CLOSED",
+		"body": "**Gate basis:** the 3-day window: each day since 13 Oct with design-vault dispatch has 17 or more distinct stand-downs (17, 44, 87, 53). On that record, 3 days of dispatch all below 10 is not a chance result, and one or two quiet days could be.",
+		"comments": []
+	},
+	"1836": {
+		"state": "OPEN",
+		"body": "**Gated on:** design-vault pins a workflow-core release carrying `scripts/queue-run.js` (none does at v1.3.15) and has dispatched sessions on 3 days since that pin landed — check: `git -C ~/design-vault fetch -q; git -C ~/design-vault show origin/main:.claude/settings.json | grep -o '\"ref\": *\"[^\"]*\"'; git -C ~/design-vault log -1 --format=%ci origin/main -- .claude/settings.json; for t in $(git -C ~/workflow-core tag --list 'v*' --sort=version:refname); do git -C ~/workflow-core cat-file -e $t:scripts/queue-run.js 2>/dev/null && { echo \"first release with queue-run.js: $t\"; break; }; done; find ~/.claude*/projects/ -maxdepth 2 -path '*-home-lucmo-design-vault*' -name '*.jsonl' -newermt '2026-10-22 18:08Z' -printf '%TF\\n' 2>/dev/null | sort -u | tr '\\n' ' ' | sed 's/^/design-vault dispatch days since the v1.3.17 pin: /'` — abandon if: design-vault turns the `suites` module off or no longer runs `node --test`/pytest suites.\n**Gate basis:** the 3-day window is #1776's: each day since 13 Oct with design-vault dispatch has 17 or more distinct stand-downs (17, 44, 87, 53), so 3 dispatch days all below 10 is not a chance result, and one or two quiet days could be.",
+		"comments": []
+	},
+	"2821": {
+		"state": "CLOSED",
+		"body": "",
+		"comments": []
+	},
+	"2823": {
+		"state": "CLOSED",
+		"body": "",
+		"comments": []
+	},
+	"2824": {
+		"state": "CLOSED",
+		"body": "",
+		"comments": []
+	},
+	"2826": {
+		"state": "CLOSED",
+		"body": "",
+		"comments": ["❓ **Q1** - **What does the map do with the 90% goal?**"]
+	},
+	"2827": {
+		"state": "OPEN",
+		"body": "**Gated on:** steps 1–2 of #2815 (the lever set) have both landed on `main` — step 1 is #2726 (lone whole suite under 180 s) and #2413 (Actions tester, sharded run under 180 s per verdict), step 2 the touched-tests-only spec not yet filed — and 7 consecutive UTC days after the later landing each hold at least 48 active session-hours — abandon if: #2809 (the map) redraws its 90% destination, or step 2 is dropped from the set\n**Gate basis:** #2821 (the verifying figure) ruled each step gets its own 7-day reading, from the UTC day after it lands, on days of at least 48 active session-hours; fewer days or thinner days fall under that ruling's floor. #2826 ruled the residue is priced on that real reading, not modelled. #2823 and #2824, the instruments, are closed.",
+		"comments": []
+	},
+	"3432": {
+		"state": "OPEN",
+		"body": "**Gated on:** #3576 (count adopter areas only) is closed and #3423 (the re-measure trigger) reports at least 15 counted commits on adopter areas — check: gh issue view 3423 --json body --jq '.body | split(\"\\n\")[0]' — abandon if: spec #1612's escalated and mission-critical tiers are re-ruled or removed by another route\n**Gate basis:** 15 commits is #1556 Q4 (A)'s \"about 15\", made exact by spec #1612 §The re-measure trigger (`THRESHOLD` in `scripts/report-remeasure-due.js`); no date fits, since no mantahostels card carries one for its RLS, money or reward-code code (#3431).",
+		"comments": []
+	},
+	"4781": {
+		"state": "OPEN",
+		"body": "**Gated on:** at least 20 whole-suite or half-suite markers carry `machine.load1AtStart`, spread across start loads from 0 to 20 — check: python3 -I -c \"import json,glob,os,subprocess as s;d=s.check_output([\\\"git\\\",\\\"rev-parse\\\",\\\"--path-format=absolute\\\",\\\"--git-common-dir\\\"],text=True).strip()+\\\"/../.claude/tmp/markers/\\\";L=[(m.get(\\\"machine\\\")or{}).get(\\\"load1AtStart\\\") for f in glob.glob(d+\\\".test-*-markers*.jsonl\\\") for m in map(lambda x:json.loads(x) if \\\"load1AtStart\\\" in x and x.rstrip().endswith(\\\"}\\\") else {},open(f)) if isinstance(m.get(\\\"scope\\\"),dict) and (m[\\\"scope\\\"].get(\\\"full\\\") or m[\\\"scope\\\"].get(\\\"shard\\\")) and m[\\\"scope\\\"].get(\\\"modulesRun\\\") and not m.get(\\\"ceilingKill\\\")];L=[x for x in L if x is not None];print(len(L),\\\"whole/half-suite runs carry load1AtStart; range\\\",min(L,default=None),\\\"-\\\",max(L,default=None))\" — abandon if: the fit over those 20 runs predicts no 840 s crossing (this body then closes the ticket), or #2729 makes a whole suite run far enough under 840 s that no load reaches it\n**Gate basis:** the 20 runs and the 0 to 20 load spread are this ticket's own data floor from #4757; `load1AtStart` first landed in 6e5453ba4 on 9 Nov, and on 9 Nov the stores held 0 such runs (the reading above), at about 6 whole or half-suite runs a day, so nothing sooner than several days of runs can meet it.",
+		"comments": []
+	},
+	"4791": {
+		"state": "OPEN",
+		"body": "**Gated until:** 2026-11-11 — criterion 3 needs a day of ~/guest-reclaim.jsonl from the 2026-11-10 08:26 +08 install\n**Gate basis:** criterion 3 compares one daily cycle of the reclaimer's log with 9 Nov's calendar day, 74.0% of 1,048 minutes under 2,000 MB (`python3 scripts/guest_reclaim.py report --since 2026-11-09T00:00:00+0800 --until 2026-11-10T00:00:00+0800`). The share swings with the daily load cycle: on 9 Nov it read 203/204 minutes at 00–06 +08 (99.5%, mean 8.2 sessions), 201/337 at 06–12 (59.6%, 3.6), 254/263 at 12–18 (96.6%, 8.7) and 155/301 at 18–24 (51.5%, 7.2) (`~/memwatch-minute.jsonl`), so a span shorter than the day compares a different population. The day runs from the 2026-11-10 08:26 +08 install to 2026-11-11 08:26 +08; time floor 24 h, one daily cycle; assumes the day's load matches 9 Nov's.",
+		"comments": []
+	},
+	"4852": {
+		"state": "OPEN",
+		"body": "**Gated until:** 2026-11-12 — the window starts at 23:30 +08 on 10 Nov 2026, when the AI host was ended with its service disabled (this ticket's 15:31 UTC comment of 10 Nov), after Windows restarted at 13:56:47 UTC (`LastBootUpTime`), so its 24 h of minute log ends at 23:30 +08 on 11 Nov.\n**Gate basis:** one full daily cycle of minute log after the baseline change, the same length as the baseline's, the 24 h to 01:20 UTC 10 Nov (#4850): heavy paging in 19.1% ±4.8% of 256 minutes under 1,000 MB, 6.5% ±2.8% of 293 at 1,000–1,500, 4.1% ±1.7% of 510 at 1,500–2,500 and 1.0% ±1.4% of 201 above (95% intervals). The daily cycle alone moves the rate sevenfold: over 6–10 Nov heavy paging came in 21/995 minutes at 00–06 +08 (2.1%, mean 4.8 sessions), 87/1,061 at 06–12 (8.2%, 5.5), 133/910 at 12–18 (14.6%, 7.8) and 127/1,012 at 18–24 (12.5%, 5.9) (`~/memwatch-minute.jsonl`), so a window shorter than the day samples part of the cycle and compares a different population; time floor 24 h, one daily cycle; assumes the day's session load matches the baseline's.",
+		"comments": []
+	},
+	"4862": {
+		"state": "OPEN",
+		"body": "**Gated on:** the memory-hold trial has written its `end` line — check: `grep -q '\"event\": \"end\"' ~/.claude/memory-switchback/events.jsonl && echo \"trial ended\" || echo \"trial still running\"` — abandon if: the trial unit dies with no `end` line and a resume (`run` alone) refuses\n**Gate basis:** the trial ends itself at 77 usable pairs (#4162's sizing, `USABLE_PAIRS` in `scripts/memory_switchback.py`), its first stop rule, or its 168 h schedule (`SCHEDULE_H`), whichever is first; started 2026-11-11 13:27 +08 (#4862 comments); nothing short of its `end` line gives the readout its data",
+		"comments": []
+	},
+	"4884": {
+		"state": "OPEN",
+		"body": "",
+		"comments": []
+	},
+	"4893": {
+		"state": "OPEN",
+		"body": "**Gated on:** 24 h of suite-queue logs have accrued since lucmoseley/mantahostels#3864 closed, so every adopting repo that type-checks has run a full day on TypeScript 7.0 — check: gh issue view 3864 --repo lucmoseley/mantahostels --json state,closedAt -q '.state+\" closed at \"+(.closedAt//\"never\")' — abandon if: workflow-core or mantahostels moves its type-check off TypeScript 7.0 before the window completes\n**Gate basis:** the 10 Nov 2026 baseline on #4884 was read over a 24 h window to 06:42 UTC, so the comparison needs the same 24 h shape, all of it on 7.0; nothing shorter matches the baseline.",
+		"comments": []
+	},
+	"4951": {
+		"state": "CLOSED",
+		"body": "**Gate basis:** the lander takes about 100 batches a day (748 members in 7 days), and 21% go red. So 7 days holds about 150 red batches, enough for a p90 of the red path. 1 day holds about 20, too few for a p90.",
+		"comments": []
+	},
+	"4961": {
+		"state": "OPEN",
+		"body": "**Gated on:** 368 queue-ref stays landed or dropped since 2026-11-10T16:13:04Z — check: node scripts/check-time-to-land.js --since 2026-11-10T16:13:04Z --json — abandon if: the lander's isolation path is reverted or replaced before the count is met, so the reading would measure another change\n**Gate basis:** the share of stays over 3 × the green p50 since the change is above the 10% a p90 at target allows; baseline 79/557 stays over target (14.2%, `scripts/lib/time-to-land.js` judgeTimeToLand over the 7 days to 2026-11-10 16:13 UTC); target 10% (the stated bound: a p90 at target puts 10% of stays over it, #4951); 95% one-sided, exact binomial, 80% power against the 14.2% baseline; pass = 47 stays over target in n = 368 stays (about 3 days at 110 to 138 stays a day: 557 stays 5 to 10 Nov, and 45 in the first 8 hours after the change); fail at 46 or fewer of 368; time floor none, as 368 stays span more than two daily load cycles at that rate; assumes independent stays (45 stays in 40 batches since the change, `node scripts/time-to-land.js --since 2026-11-10T16:13:04Z`), same mix of work as the baseline",
+		"comments": []
+	},
+	"4967": {
+		"state": "OPEN",
+		"body": "**Gate basis:** a faulty change passes its touched run because of this rule in under 1% of red touched runs; baseline 0/300 red touched runs (0%, the miss-rate script in this spec's first comment, 1–10 Nov 2026); target 1.0% (the baseline's one-sided 95% upper bound, the stated bound); 95% one-sided, exact binomial with zero events (the rule of three); pass = 0 events in n = 300 red touched runs (about 15 days at 20 red touched runs a day, #4958: 137 in 7 days); fail at event 1; time floor for the run-time part one weekly cycle, 7 days after the rule lands, weekday and weekend, 443 touched runs a week (#4958); assumes independent runs, same mix of work as the baseline",
+		"comments": []
+	},
+	"4972": {
+		"state": "OPEN",
+		"body": "**Gate basis:** a faulty change passes its touched run because of this rule in under 1% of red touched runs; baseline 0/300 red touched runs (0%, the miss-rate script in #4967's first comment, 1–10 Nov 2026); target 1.0% (the baseline's one-sided 95% upper bound, the stated bound); 95% one-sided, exact binomial with zero events (the rule of three); pass = 0 events in n = 300 red touched runs (about 15 days at 20 red touched runs a day, #4958: 137 in 7 days); fail at event 1; time floor for the run-time part one weekly cycle, 7 days after the rule lands, weekday and weekend, 443 touched runs a week (#4958); assumes independent runs, same mix of work as the baseline\n**Gated until:** 2026-11-18 — the run-time part reads the 7 days after the rule landed on `main` (e1c9d903f, 2026-11-10 17:38 UTC), a window that closes 2026-11-17 17:38 UTC; the miss-rate part falls due later, at 300 red touched runs (about 2026-11-25)\n**Gate basis:** a faulty change passes its touched run because of this rule in under 1% of red touched runs; baseline 0/300 red touched runs (0%, the miss-rate script in #4967's first comment, 1–10 Nov 2026); target 1.0% (the baseline's one-sided 95% upper bound, the stated bound); 95% one-sided, exact binomial with zero events (the rule of three); pass = 0 events in n = 300 red touched runs (about 15 days at 20 red touched runs a day, #4958: 137 in 7 days); fail at event 1; time floor for the run-time part one weekly cycle, 7 days after the rule lands, weekday and weekend, 443 touched runs a week (#4958); assumes independent runs, same mix of work as the baseline",
+		"comments": []
+	},
+	"4961-filed": {
+		"state": "OPEN",
+		"body": "**Gated until:** 2026-11-18 — the reading is the 7 days after the change reached `main` on 2026-11-10.\n**Gate basis:** 7 days is the window the checker judges; the lander takes about 100 queue refs a day with 9% of batches red, so 7 days holds about 60 red batches where 1 day holds about 9, too few for a p90 that the red path sets.",
+		"comments": []
+	},
+	"4530-gated": {
+		"state": "OPEN",
+		"body": "**Gated until:** 2026-11-13 — the post-carry week ends 2026-11-13T02:38Z; count from then on.\n**Gate basis:** the carry reached `main` at 2026-11-06T02:38:12Z (queue log `land` event for `queue/implement-4514-152aad` at `4d74950a9`), and the ticket's window is the 7 days after that; no shorter window answers its question.",
+		"comments": []
+	},
+	"4961-rewritten": {
+		"state": "OPEN",
+		"body": "**Gated until:** 2026-11-18 — the reading is the 7 days after the change reached `main` on 2026-11-10.\n**Gate basis:** 7 days is the window #4951 set.",
+		"comments": []
+	}
+}

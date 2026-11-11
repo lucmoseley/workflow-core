@@ -283,7 +283,8 @@ function queueRefOrRefuse(dir, root) {
 
 /**
  * @param {string} cwd anywhere in the worktree
- * @returns {{ dir: string, queue: string, head: string, merged: boolean, pushed: boolean, lander: string | null }}
+ * @returns {{ dir: string, queue: string, head: string, merged: boolean, pushed: boolean, lander: string | null,
+ *   coverage: import("./push-coverage.js").Coverage | null }} `coverage` null where nothing was pushed
  */
 function land(cwd) {
 	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
@@ -300,7 +301,12 @@ function land(cwd) {
 			merged: false,
 			pushed: false,
 			lander: null,
+			coverage: null,
 		};
+	/* Judged before `main` is merged in, so only the session's own work is.
+	 * Required here, so the relink every checkout runs loads no pass store. */
+	const { readUncovered } = require("./push-coverage.js");
+	const coverage = readUncovered(dir);
 	const merged = !isAncestor(VERIFIED_REF, "HEAD", dir);
 	if (merged) mergeMain(dir);
 	const head = git(["rev-parse", "HEAD"], dir);
@@ -326,6 +332,7 @@ function land(cwd) {
 		merged,
 		pushed: true,
 		lander: startLanderFor(root, dir),
+		coverage,
 	};
 }
 

@@ -29,6 +29,7 @@ import {
 	subIssuesAnswer,
 } from "./lib/gh-fake";
 import {
+	type CitedFixture,
 	HERE,
 	page,
 	type RouteAnswer,
@@ -141,6 +142,9 @@ const stubGh = (
 		failing = false,
 		children = {} as Record<number, Issue[] | "fail" | "unreachable">,
 		foreign = {} as Record<number, string>,
+		cited = undefined as
+			| Record<string, Record<number, CitedFixture>>
+			| undefined,
 	} = {},
 ) => {
 	const rows = issues.map(rowOf);
@@ -172,7 +176,7 @@ const stubGh = (
 	/* Every argv line, so a test can assert what was NOT asked for. */
 	const callLog = path.join(dir, "calls.log");
 	return {
-		...stubGhRoutes(dir, routes, { log: callLog, failing }),
+		...stubGhRoutes(dir, routes, { log: callLog, failing, cited }),
 		callLog,
 	};
 };
@@ -1604,6 +1608,56 @@ describe("a gate line with no basis (#577)", () => {
 			"one of the three warrants in docs/agents/issue-tracker.md §Gating an issue",
 		);
 		expect(r.out).not.toContain("does not name");
+	});
+
+	describe("whose basis only cites another issue (#5007)", () => {
+		const Count =
+			"**Gate basis:** 4 weeks: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
+		beforeEach(() => {
+			fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(dir, ".claude", "workflow-core.json"),
+				JSON.stringify({ contract: 1, tracker: "o/r" }),
+			);
+		});
+		const graphqlCalls = (log: string) =>
+			fs
+				.readFileSync(log, "utf8")
+				.split("\n")
+				.filter((l) => l.includes("issueOrPullRequest")).length;
+
+		it("warns where the cited issue has no basis, naming it, reading every gate's citations in one call", async () => {
+			const stub = stubGh(
+				[
+					{ number: 450, body: `${on}\n${basis}` },
+					{ number: 451, body: `${on}\n**Gate basis:** #13 set the 4 weeks` },
+				],
+				{
+					cited: { "o/r": { 12: { body: "No basis." }, 13: { body: Count } } },
+				},
+			);
+			const r = await run([], stub);
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(
+				`\`**Gate basis:**\` with no warrant — "${basis.replace("**Gate basis:** ", "")}" (it cites #12, which has no \`**Gate basis:**\` line)`,
+			);
+			expect(r.out).not.toMatch(
+				/#451[^\n]*NO-GATE-BASIS|NO-GATE-BASIS[^\n]*#451/,
+			);
+			expect(graphqlCalls(stub.callLog)).toBe(1);
+		});
+
+		it("says which cited issues went unread, judging their bases on form", async () => {
+			const r = await run(
+				[],
+				stubGh([{ number: 450, body: `${on}\n${basis}` }]),
+			);
+			expect(r.out).toContain("Unread: the issues open gates' bases cite (");
+			expect(r.out).toContain(
+				"): o/r#12, so a basis whose only warrant is one of them was judged on its form alone.",
+			);
+			expect(r.out).not.toContain("NO-GATE-BASIS");
+		});
 	});
 
 	it("raises no basis fault on a closed issue", async () => {

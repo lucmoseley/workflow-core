@@ -45,7 +45,7 @@
  * directory), or a join off a file's own directory naming a file the walk
  * cannot tell (its `unknown`), records no row for the files it reaches,
  * a test file's own such join aside, which its audit saw; a file the audit
- * holds no reads for, or doubts, records none; an input rewritten while the run ran, untracked, gitignored
+ * holds no reads for, or doubts, records none; an input rewritten while the run ran, or changed and put back since it began (#5018), untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
  * other content than the run read. A FAILED file that would record none
@@ -75,7 +75,11 @@ const {
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
-const { drift, readTreeSnapshot } = require("./tree-drift.js");
+const {
+	drift,
+	readChangedSince,
+	readTreeSnapshot,
+} = require("./tree-drift.js");
 const {
 	execGit,
 	spawnGitSync,
@@ -133,7 +137,7 @@ const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never caches (#4814),
  * though its red still voids an older pass (#4995). */
-const FORMAT = 17;
+const FORMAT = 18;
 
 /* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -147,12 +151,14 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{sha: string, at: string, tree: string|null, root: string,
  *   files: FileResult[], shared: string[], clean: boolean,
  *   drifted: string[]|null, after: import("./tree-drift.js").Snapshot|null,
+ *   startMark: bigint|null,
  *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
  *   `root` the tree vitest ran in, paths relative to it; `shared` the config
  *   file and its `setupFiles` closure; `clean` false where the run errored
  *   outside its files, was interrupted or filtered by name; `drifted` the
  *   paths rewritten while it ran, null where that is unknown; `after` the
- *   drift watch's end snapshot; `audits` each
+ *   drift watch's end snapshot; `startMark` the mark lib/tree-drift.js's
+ *   `markStart` took as it began, null where none was taken; `audits` each
  *   file's reads as the read audit saw them (lib/read-audit.js), null where
  *   the run was not audited
  * @typedef {{sha: string, at: string, tree: string|null}} Source
@@ -909,9 +915,16 @@ function readRunInputs(run, files) {
 		]),
 	];
 	const ids = readWorkingIds(gitHasher(run.root), run.root, tried);
-	const ignored = readIgnored(run.root, [...new Set(tried)]);
+	/* Read after the ids, so a change before they were read is seen (#5018). */
+	const triedOnce = [...new Set(tried)];
+	const changed = readChangedSince(run.root, triedOnce, run.startMark);
+	const ignored = readIgnored(run.root, triedOnce);
 	const isSteady = (/** @type {string} */ p) =>
-		drifted !== null && !drifted.has(p) && !ignored.has(p);
+		drifted !== null &&
+		changed !== null &&
+		!drifted.has(p) &&
+		!changed.has(p) &&
+		!ignored.has(p);
 	return {
 		gathered,
 		shared,
