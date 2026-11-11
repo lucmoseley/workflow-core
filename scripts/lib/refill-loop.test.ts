@@ -1259,7 +1259,7 @@ describe("a tick's log line (#2362)", () => {
 		};
 		settleOnce(idle("nothing launchable"), 1, [], {
 			mode: "away",
-			awaySwitch: { since: 7, absentSeen: false },
+			awaySwitch: { since: 7 },
 			past: [parked, { ...parked, jobId: "job8", parkStopped: NOW - 1 }],
 			writes,
 		});

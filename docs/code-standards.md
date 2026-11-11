@@ -21,7 +21,7 @@ The core's own primitives, beside the base's table.
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
 | Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
-| Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
+| Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable; `readTail` there for a file's last N bytes | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
 | Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
 | Escaping a literal into a regex | `escapeRe` in `scripts/lib/regex-group.js` | `scripts/lib/run-cost-report.js` | §LG5 | Standards axis criterion |
@@ -37,7 +37,7 @@ Outside it: an expansion in a shell script, which is §S1; quoting for anything 
 
 ### §LG2 · A file that may be absent is read through the one reader — **judgement**
 
-**Every code kind.** A read of a file that may be absent goes through `readText` or `readBytes` in `scripts/lib/file-read.js`, and maps its absent, read and unreadable answers onto the caller's own values. A hand-written ENOENT catch, or an `existsSync` test before the read, is the breach (#3902).
+**Every code kind.** A read of a file that may be absent goes through `readText`, `readBytes` or, for its last N bytes, `readTail` in `scripts/lib/file-read.js`, and maps its absent, read and unreadable answers onto the caller's own values. A hand-written ENOENT catch, or an `existsSync` test before the read, is the breach (#3902).
 
 Outside it: a catch that guards more than the one read, such as a rename then a read, a `readdir`, a `readlink`, or a JSON parse inside the same `try`.
 

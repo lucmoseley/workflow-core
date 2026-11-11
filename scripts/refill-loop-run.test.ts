@@ -1549,27 +1549,22 @@ describe("a ticked repo its owner opts out, on the real tick (#4188)", () => {
 	});
 });
 
-describe("away mode's absent read on the real tick (#4846)", () => {
+describe("a control change on the real tick, under a held lock (#4846, #4188)", () => {
 	const controlFile = () => at(".refill-loop-control.json");
 	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
-	/* Paused, so each tick dispatches nothing and the run outlasts it. */
-	const seedAway = () => {
-		const control = readControl();
-		fs.writeFileSync(
-			controlFile(),
-			JSON.stringify({
-				...control,
-				paused: { by: "founder", at: 7 },
-				away: { since: 7, absentSeen: false },
-				scope: { ...control.scope, mode: "away" },
-			}),
-		);
-	};
 	const wake = () =>
 		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
 
-	it("leaves the absent read to the next tick while another writer holds the lock", async () => {
-		seedAway();
+	it("leaves the untick to the next tick while another writer holds the lock", async () => {
+		/* Paused, so each tick dispatches nothing and the run outlasts it. */
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({ ...readControl(), paused: { by: "founder", at: 7 } }),
+		);
+		fs.writeFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			JSON.stringify({ refillLoop: false }),
+		);
 		const holder = spawnIdleHolder(loopEnv({}));
 		try {
 			fs.writeFileSync(`${controlFile()}.lock`, String(holder.pid));
@@ -1578,21 +1573,18 @@ describe("away mode's absent read on the real tick (#4846)", () => {
 				() => fs.existsSync(at(".refill-loop-state.json")),
 				"no tick wrote its state",
 			);
-			expect(readControl().away.absentSeen).toBe(false);
+			expect(readControl().scope.repos).toContain(repo);
 
 			holder.kill();
 			wake();
 			await polled(
-				() => readControl().away.absentSeen === true,
-				"no tick recorded the absent read",
+				() => readControl().scope.repos.length === 0,
+				"no tick unticked the opted-out repo",
 			);
-			expect(readControl().scope.mode).toBe("away");
 			requestStop();
 			const r = await settled(running, "run past a held lock");
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain(
-				"away mode's absent read waits for the next tick",
-			);
+			expect(r.stdout).toContain("the opt-out untick waits for the next tick");
 		} finally {
 			holder.kill();
 		}

@@ -45,6 +45,7 @@ const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
 const { expandHome } = require("./lib/home-path.js");
 const { caught } = require("./lib/caught.js");
+const { readTail } = require("./lib/file-read.js");
 const { parseJsonl } = require("./lib/jsonl.js");
 const { isPrefixedPrompt } = require("./lib/loop-prompts.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
@@ -938,24 +939,11 @@ function subagentSizes(mainTranscript, sessionId) {
  */
 function readLastTurnMarker(transcript) {
 	const { governingMarker } = require("./lib/status-marker");
-	let text;
-	try {
-		const fd = fs.openSync(transcript, "r");
-		try {
-			const size = fs.fstatSync(fd).size;
-			const len = Math.min(size, TAIL_BYTES);
-			const buf = Buffer.alloc(len);
-			fs.readSync(fd, buf, 0, len, size - len);
-			text = buf.toString("utf8");
-		} finally {
-			fs.closeSync(fd);
-		}
-	} catch {
-		// takeSample has already stat'd it, so an unreadable transcript is UNKNOWN there.
-		return "";
-	}
+	const tail = readTail(transcript, TAIL_BYTES);
+	// takeSample has already stat'd it, so an unreadable transcript is UNKNOWN there.
+	if (tail.state !== "read") return "";
 	for (const j of /** @type {TranscriptRecord[]} */ (
-		parseJsonl(text).rows
+		parseJsonl(tail.data.text).rows
 	).reverse()) {
 		if (isUserPrompt(j)) return "prompt";
 		if (j.type !== "assistant" || !Array.isArray(j.message?.content)) continue;

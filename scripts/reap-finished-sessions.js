@@ -115,6 +115,7 @@ const {
 } = require("./lib/arbiter-store");
 const { transcriptPath } = require("./lib/project-slug.js");
 const { lastTurn } = require("./lib/transcript.js");
+const { readTail } = require("./lib/file-read.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { persisting: sharedPersisting } = require("./lib/persist-mode.js");
@@ -432,20 +433,9 @@ const TURN_TAIL_BYTES = 256 * 1024;
 function readLastTurn(agent) {
 	const own = readOwnTranscript(agent);
 	if (!own) return null;
-	let fd;
-	try {
-		fd = fs.openSync(own.file, "r");
-		const size = fs.fstatSync(fd).size;
-		const length = Math.min(size, TURN_TAIL_BYTES);
-		const buf = Buffer.alloc(length);
-		fs.readSync(fd, buf, 0, length, size - length);
-		return lastTurn(buf.toString("utf8"));
-	} catch {
-		/* null is "cannot say", which lib/reaper.js holds for HOLD_MS (#2980). */
-		return null;
-	} finally {
-		if (fd !== undefined) fs.closeSync(fd);
-	}
+	const tail = readTail(own.file, TURN_TAIL_BYTES);
+	/* null is "cannot say", which lib/reaper.js holds for HOLD_MS (#2980). */
+	return tail.state === "read" ? lastTurn(tail.data.text) : null;
 }
 
 /**

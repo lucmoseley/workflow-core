@@ -402,6 +402,32 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 			expect(faultTexts(body)).toEqual([]);
 	});
 
+	it("reads a double-backtick span and one across a line break as code (#4973)", () => {
+		for (const body of [
+			"the phrase ``after a week`` is an example",
+			"the phrase ``a `tick` after a week`` is an example",
+			"the phrase `quoted over\nafter a week` is an example",
+			"> a quote `quoted over\n> after a week` is an example",
+		])
+			expect(faultTexts(body)).toEqual([]);
+	});
+
+	it("still names a wait outside every span (#4973)", () => {
+		for (const body of [
+			"a `span` here, then re-run after a week",
+			"a ``span`` here, then re-run after a week",
+			"an unpaired ` tick, then re-run after a week",
+			"a `span left open\n\nre-run after a week` in the next paragraph",
+			"- an item `left open\n- re-run after a week, the next item",
+			"an escaped \\`, then re-run after a week`",
+			"# A heading `left open\nre-run after a week` below it",
+			"## A heading `left open, re-run after a week\nnext` line",
+			"A title `left open\n=====\nre-run after a week` below it",
+			"`a closer after a backslash \\`after a week",
+		])
+			expect(faultTexts(body)).toEqual(["after a week"]);
+	});
+
 	it("counts only what an edit adds, a moved date included", () => {
 		const old = "**Gated until:** 2026-10-05 — x\nafter a week live";
 		expect(introducedTexts(old, `${old}\nnote`)).toEqual([]);
@@ -435,7 +461,9 @@ describe("basisFaults — each window its basis names (#823)", () => {
 		expect(faults).toEqual([{ kind: "unnamed-window", text: "7 days" }]);
 		const refusal = basisRefusal(faults);
 		expect(refusal).toContain('"7 days", a window the `**Gate basis:**` line');
-		expect(refusal).toContain("and never judges it");
+		expect(refusal).toContain(
+			"a model reading also asks which sentences make work wait",
+		);
 	});
 
 	it("passes a basis naming every window, by length rather than spelling", () => {

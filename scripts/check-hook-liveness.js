@@ -784,7 +784,7 @@ function refreshEntry(scan, prev, transcript, budgetSpent) {
 	 */
 	const spent = from < size && budgetSpent(scan.scanned);
 	if (from < size && !spent) {
-		const { buf, got } = readTail(file, from, size);
+		const { buf, got } = readFrom(file, from, size);
 		scan.bytes += got;
 		scan.scanned++;
 		const days = structuredClone(entry.days);
@@ -807,7 +807,7 @@ function refreshEntry(scan, prev, transcript, budgetSpent) {
  * @param {number} size
  * @returns {{ buf: Buffer, got: number }}
  */
-function readTail(file, from, size) {
+function readFrom(file, from, size) {
 	const len = size - from;
 	const buf = Buffer.allocUnsafe(len);
 	const fd = fs.openSync(file, "r");

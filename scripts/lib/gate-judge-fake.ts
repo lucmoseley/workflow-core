@@ -21,8 +21,11 @@ import { markersDir } from "./marker-root.js";
 
 /* The leads a write route's notes open with, pinned here so a change to
  * them is a change to these suites. */
-export const MODEL_LEAD =
-	"Advice from the model reading of this body, which refuses nothing yet";
+export const MODEL_LEAD = "faults the model reading of this body raises";
+export const OVERRIDE_LEAD = "Gate judge override honoured";
+/** An override line the suites write, and its reason. */
+export const OVERRIDE_REASON = "the records build up on demand";
+export const OVERRIDE_LINE = `**Gate judge override:** ${OVERRIDE_REASON}`;
 export const FALLBACK_LEAD = "The model reading of this body did not run";
 
 /** Where lib/gate-judge.js logs each write route's model call. */

@@ -469,6 +469,7 @@
 		],
 		".git-blame-ignore-revs": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -482,6 +483,7 @@
 		".gitattributes": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-format-staged.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
 			"scripts/claude-child.test.ts",
@@ -598,6 +600,7 @@
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry-reads.test.ts",
 			"scripts/check-history-trim.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/file-issue.test.ts",
@@ -923,6 +926,7 @@
 		],
 		".shellcheckrc": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -935,6 +939,7 @@
 		],
 		".sonarcloud.properties": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -973,6 +978,7 @@
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",
 			"scripts/check-instruction-surface.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -1014,6 +1020,7 @@
 		"GLOSSARY.md": [
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/file-issue.test.ts",
@@ -1034,6 +1041,7 @@
 		],
 		"biome.json": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -3204,6 +3212,7 @@
 		"eslint.config.mjs": [
 			"eslint.config.test.ts",
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -3217,6 +3226,7 @@
 		],
 		"eslint.config.test.ts": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -3394,6 +3404,7 @@
 		],
 		"package-lock.json": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
@@ -3439,6 +3450,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-marker-integrity.test.ts",
 			"scripts/check-plugin-gap.test.ts",
@@ -3530,6 +3542,7 @@
 		],
 		"pytest.ini": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
@@ -3547,6 +3560,7 @@
 		],
 		"requirements-dev.in": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -3561,6 +3575,7 @@
 		],
 		"requirements-dev.txt": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
@@ -3578,6 +3593,7 @@
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-format-staged.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-swallowed-errors.test.ts",
 			"scripts/claude-child.test.ts",
@@ -7334,6 +7350,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/gate-judge-reply.json": [
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -18320,11 +18337,13 @@
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts",
 			"scripts/session-start-outliving.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts",
 			"vitest.setup.test.ts"
 		],
 		"scripts/lib/file-read.test.ts": [
@@ -22151,6 +22170,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -39354,9 +39374,6 @@
 			"scripts/lib/empty-secret.test.ts",
 			"scripts/lib/failed-call-rules.test.ts",
 			"scripts/lib/file-claim.test.ts",
-			"scripts/lib/gate-judge-cases.test.ts",
-			"scripts/lib/gate-judge.contract.test.ts",
-			"scripts/lib/gate-judge.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-fires.test.ts",
@@ -51252,6 +51269,7 @@
 		],
 		"skills-lock.json": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/check-vendored-skills.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
@@ -51270,6 +51288,7 @@
 		],
 		"tsconfig.build.json": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -51282,6 +51301,7 @@
 		],
 		"tsconfig.json": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -51297,6 +51317,7 @@
 		],
 		"tsconfig.strict.json": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -51311,6 +51332,7 @@
 		"vitest.config.ts": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/file-issue.test.ts",
@@ -51331,6 +51353,7 @@
 		],
 		"vitest.setup.test.ts": [
 			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
@@ -51344,6 +51367,7 @@
 		"vitest.setup.ts": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-context-budget.test.ts",
+			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",

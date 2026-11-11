@@ -4,9 +4,9 @@
  *
  * ITS FILES, under lib/refill-dir.js's directory, so `start`, `stop` and `set`
  * never race the loop's own tick:
- *   - control, written by `start`, `stop`, `set`, the tick's absent read and the
- *     loop's own no-progress pause, each read and write under withControlLock, so
- *     no writer loses another's change;
+ *   - control, written by `start`, `stop`, `set`, the tick's opt-out untick and
+ *     the loop's own no-progress pause, each read and write under
+ *     withControlLock, so no writer loses another's change;
  *   - pidfile, created by the loop exclusively, so a second loop exits;
  *   - the launch's pidfile (#4139), held by a process spawning the loop, which
  *     `watch` reads so as to stand down;
