@@ -81,7 +81,7 @@ export interface ProcSpec {
 
 /** One stat line: `pid (comm)`, its state, parent, group and start time, and
  * zeros for every other field. */
-export function statLine(
+export function buildStatLine(
 	pid: number,
 	{
 		comm = "bash",
@@ -145,17 +145,17 @@ export function writeSmapsRollup(proc: string, pid: string, pssKb: number) {
 
 /** `load1` as the kernel writes /proc/loadavg: three loads, the running and
  * total task counts, and the newest pid. */
-export const loadavgLine = (load1: number) =>
+export const buildLoadavgLine = (load1: number) =>
 	`${load1.toFixed(2)} 1.00 1.00 2/300 1\n`;
 
 /** `seconds` as the kernel writes /proc/uptime: uptime, then idle time. */
-export const uptimeLine = (seconds: number) =>
+export const buildUptimeLine = (seconds: number) =>
 	`${seconds.toFixed(2)} ${seconds.toFixed(2)}\n`;
 
 /** A fresh /proc root on a machine `uptime` seconds up, and its writer. */
 export function makeProcRoot(uptime = UPTIME) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "proc-fake-"));
-	fs.writeFileSync(path.join(root, "uptime"), uptimeLine(uptime));
+	fs.writeFileSync(path.join(root, "uptime"), buildUptimeLine(uptime));
 
 	function proc(
 		pid: number,
@@ -168,7 +168,7 @@ export function makeProcRoot(uptime = UPTIME) {
 		const startTicks = Math.round((uptime - ageS) * USER_HZ);
 		fs.writeFileSync(
 			path.join(dir, "stat"),
-			stat ?? statLine(pid, { ...fields, startTicks }),
+			stat ?? buildStatLine(pid, { ...fields, startTicks }),
 		);
 	}
 

@@ -18,12 +18,12 @@ import fs from "node:fs";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 import {
+	buildLoadavgLine,
+	buildStatLine,
+	buildUptimeLine,
 	launchEntry,
-	loadavgLine,
 	makeProcRoot,
 	smapsRollup,
-	statLine,
-	uptimeLine,
 	writeCwd,
 	writeEnviron,
 } from "./proc-fake";
@@ -142,9 +142,9 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 		const realUptime = fs.readFileSync("/proc/uptime", "utf8");
 
 		expect(
-			parseStatFields(statLine(process.pid, { comm, ...live })),
+			parseStatFields(buildStatLine(process.pid, { comm, ...live })),
 		).toHaveLength(parseStatFields(realStat)?.length ?? -1);
-		expect(uptimeLine(Number.parseFloat(realUptime))).toMatch(
+		expect(buildUptimeLine(Number.parseFloat(realUptime))).toMatch(
 			/^\d+\.\d\d \d+\.\d\d\n$/,
 		);
 		expect(realUptime).toMatch(/^\d+\.\d\d \d+\.\d\d\n$/);
@@ -204,13 +204,13 @@ describe.skipIf(!hasProc)("a fake loadavg line (needs Linux /proc)", () => {
 	it("has the real line's shape, and reads back as the real one does", () => {
 		const shape = /^\d+\.\d\d \d+\.\d\d \d+\.\d\d \d+\/\d+ \d+\n$/;
 		expect(fs.readFileSync("/proc/loadavg", "utf8")).toMatch(shape);
-		expect(loadavgLine(3.5)).toMatch(shape);
+		expect(buildLoadavgLine(3.5)).toMatch(shape);
 		vi.stubEnv("WFC_LOADAVG", "");
 		expect(Number.isFinite(sample()?.load1)).toBe(true);
 
 		const fake = mkScratchDir("proc-loadavg-");
 		try {
-			fs.writeFileSync(`${fake}/loadavg`, loadavgLine(3.5));
+			fs.writeFileSync(`${fake}/loadavg`, buildLoadavgLine(3.5));
 			vi.stubEnv("WFC_LOADAVG", `${fake}/loadavg`);
 			expect(sample()?.load1).toBe(3.5);
 		} finally {
