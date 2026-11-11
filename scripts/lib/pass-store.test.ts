@@ -592,6 +592,10 @@ describe("a script the manifest says a file spawns", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	/** Python putting `name`, beside the file that reads it, first on sys.path. */
+	const insert = (name: string) =>
+		`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+
 	/** `spawning`'s tool.py, putting `lib` and then its own directory first
 	 * on sys.path as list_shape.py does, and loading `lib/mod.py`, which
 	 * reads `modCode`. */
@@ -629,10 +633,10 @@ describe("a script the manifest says a file spawns", () => {
 	});
 
 	it("voids the pass when a file appears on the entry one module adds ahead of another module's import (#4870)", () => {
-		const dir = spawningModule(
-			'import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "x"))\nimport other\n',
-			["scripts/lib/other.py", "scripts/lib/helper.py"],
-		);
+		const dir = spawningModule(`${insert("../x")}import other\n`, [
+			"scripts/lib/other.py",
+			"scripts/lib/helper.py",
+		]);
 		write(dir, "scripts/lib/other.py", "import helper\n");
 		git(dir, "commit", "-qam", "sibling");
 		expect(run(dir, [A])).toBe(1);
@@ -648,11 +652,7 @@ describe("a script the manifest says a file spawns", () => {
 			["scripts/mod.py", "scripts/helper.py"],
 			"import mod\nimport helper\n",
 		);
-		write(
-			dir,
-			"scripts/mod.py",
-			'import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "x"))\n',
-		);
+		write(dir, "scripts/mod.py", insert("x"));
 		git(dir, "commit", "-qam", "module");
 		expect(run(dir, [A])).toBe(1);
 		expect(cachedOf(dir, [A])).toEqual([A]);
@@ -662,8 +662,6 @@ describe("a script the manifest says a file spawns", () => {
 	});
 
 	it("voids the pass when a file appears on the entry an imported module adds ahead of its importer's own (#4870)", () => {
-		const insert = (name: string) =>
-			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
 		const dir = spawning(
 			"scripts/tool.py",
 			["scripts/mod.py", "scripts/x/helper.py"],
@@ -686,8 +684,6 @@ describe("a script the manifest says a file spawns", () => {
 	])(
 		"records a row where the entries two same-named modules add, %j and %j, decide which of them loads (#4870)",
 		(one, other) => {
-			const insert = (name: string) =>
-				`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
 			const dir = spawning(
 				"scripts/tool.py",
 				[
@@ -709,8 +705,6 @@ describe("a script the manifest says a file spawns", () => {
 	);
 
 	it("voids the pass when a namespace package's module changes on the entry a module added last (#4870)", () => {
-		const insert = (name: string) =>
-			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
 		const dir = spawning(
 			"scripts/tool.py",
 			[
@@ -730,8 +724,6 @@ describe("a script the manifest says a file spawns", () => {
 	});
 
 	it("records a row where two modules import each other, each adding to sys.path (#4870)", () => {
-		const insert = (name: string) =>
-			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
 		const dir = spawningModule(`${insert("a")}import other\n`, [
 			"scripts/lib/other.py",
 		]);

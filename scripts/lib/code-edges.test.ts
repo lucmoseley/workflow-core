@@ -109,7 +109,7 @@ describe("a dotted import", () => {
 		]);
 	});
 
-	it("reaches a submodule in whichever of a namespace package's directories holds it", () => {
+	it("reaches a submodule in whichever of a namespace package's directories holds it (#4870)", () => {
 		const code = [
 			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
 			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
@@ -121,6 +121,23 @@ describe("a dotted import", () => {
 			faults: ["imports gone from ns, a namespace package that holds no gone"],
 		});
 	});
+
+	it.each([
+		["a regular package", "b/ns/sub/__init__.py"],
+		["a plain module", "b/ns/sub.py"],
+	])(
+		"faults a part %s in one namespace directory lacks, though another directory holds it (#4870)",
+		(_what, regular) => {
+			const code = [
+				'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
+				'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
+				"import ns.sub.leaf",
+			].join("\n");
+			expect(tree(code, ["a/ns/sub/leaf.py", regular]).faults).toEqual([
+				"imports ns.sub.leaf, whose leaf the walk cannot place",
+			]);
+		},
+	);
 
 	it("faults a submodule the walk cannot place", () => {
 		const { faults } = tree("import pkg.gone\n", ["tool/pkg/__init__.py"]);

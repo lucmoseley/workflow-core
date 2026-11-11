@@ -770,12 +770,12 @@ function readManifestValues(file, key) {
  *   sys.path entry: a null `dir` is one the walk cannot read; `maybe` marks
  *   one an indented statement added, which may never have run; `tail` one
  *   appended, so searched after the stdlib's own entries.
- * @typedef {{searches: PyEntry[][], added: Set<PyEntry>,
+ * @typedef {{own: PyEntry[], shared: PyEntry[], handed: boolean,
  *   names: Map<string, string>}} PyScope
- *   `searches` holds each sys.path the file's imports may be resolved on, as
- *   the file has left it: one led by its own directory, then its importer's
- *   where the caller hands one; `added` holds the entries its own edits put
- *   there.
+ *   sys.path as the file has left it, twice: `own`, led by its own
+ *   directory, and `shared`, the path the files of its script's run hand
+ *   round, where each entry this file added may never have run. Its imports
+ *   are placed on `shared` too where the caller `handed` one in.
  * @typedef {{file: string, dir: string, scope: PyScope, reach: Found,
  *   fault: (msg: string) => void}} PyWalk
  * @typedef {{text: string, indented: boolean}} PyStatement
@@ -821,11 +821,7 @@ function pyReach(file, text, fault, importerSearch) {
 const pyWalkFound = (walk) => ({
 	edges: [...new Set(walk.reach.edges)],
 	shadows: [...new Set(walk.reach.shadows)],
-	pySearch: settledPySearch(
-		(walk.scope.searches.at(-1) ?? []).map((entry) =>
-			walk.scope.added.has(entry) ? { ...entry, maybe: true } : entry,
-		),
-	),
+	pySearch: settledPySearch(walk.scope.shared),
 });
 
 /**
@@ -838,15 +834,14 @@ function pyWalkOf(file, fault, importerSearch) {
 	const dir = path.dirname(file);
 	/** @type {Set<string>} */
 	const faulted = new Set();
+	const first = { dir, maybe: false, tail: false };
 	return {
 		file,
 		dir,
 		scope: {
-			searches: [
-				[{ dir, maybe: false, tail: false }],
-				...(importerSearch ? [[...importerSearch]] : []),
-			],
-			added: new Set(),
+			own: [first],
+			shared: [...(importerSearch ?? [first])],
+			handed: importerSearch !== null,
 			names: new Map(),
 		},
 		reach: { edges: [], shadows: [] },
@@ -974,9 +969,8 @@ function cutPyLexeme(m) {
  * Applies one sys.path edit to the scope: a literal `insert(0, …)` or
  * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
  * cannot read at the front.
- * @param {PyWalk} walk accumulator: each of its scope's `searches`, and its
- *   `added`, gains the entry, the handed search as one that may never have
- *   run
+ * @param {PyWalk} walk accumulator: its scope's `own` and `shared` gain
+ *   the entry
  * @param {PyStatement} statement
  */
 function editSysPath(walk, statement) {
@@ -986,13 +980,11 @@ function editSysPath(walk, statement) {
 		: null;
 	const tail = m?.[2] !== undefined;
 	const entry = { dir, maybe: statement.indented, tail };
-	walk.scope.added.add(entry);
-	const [own, shared] = walk.scope.searches;
 	/* On the path the run's files share, another file's import may run
 	 * before this edit, and this file's after another's: it settles nothing. */
 	const put = tail ? "push" : "unshift";
-	own?.[put](entry);
-	shared?.[put]({ ...entry, maybe: true });
+	walk.scope.own[put](entry);
+	walk.scope.shared[put]({ ...entry, maybe: true });
 }
 
 /**
@@ -1240,6 +1232,13 @@ const placeOf = (found) =>
 		: { pkg: null, namespace: false };
 
 /**
+ * Each path an import is placed on.
+ * @param {PyScope} scope
+ */
+const pySearches = ({ own, shared, handed }) =>
+	handed ? [own, shared] : [own];
+
+/**
  * Pushes the files one import loads onto the walk's reach, placed on each of
  * the scope's search paths, or faults an import the walk cannot place: one
  * no path holds, or one whose search on either meets what it cannot read.
@@ -1253,7 +1252,7 @@ function placePyImport(walk, target) {
 	}
 	const [top] = target.parts;
 	if (top === undefined) throw new Error("an absolute import names no module");
-	const placements = walk.scope.searches.map((search) =>
+	const placements = pySearches(walk.scope).map((search) =>
 		placePyTop(search, top, walk.reach),
 	);
 	if (placements.every((placed) => placed.kind === "absent")) {
@@ -1277,28 +1276,33 @@ function placePyImport(walk, target) {
 
 /**
  * Walks an absolute import's parts below each place its top-level module was
- * found, faulting a part or name no file stands for. A regular module or
- * package stands alone; a namespace package's directories are one package,
- * which lacks only what every one of them lacks.
+ * found, faulting a part or name no file stands for. A namespace package's
+ * directories are one package, which lacks only what every one of them
+ * lacks; a regular module or package, at the top or inside one of those
+ * directories, stands alone.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
  * @param {PyPlace[]} places
  */
 function descendPlaced(walk, target, places) {
 	const below = { parts: target.parts.slice(1), names: target.names };
-	const missed = places.map((place) => {
+	const missesByPlace = places.map((place) => {
 		/** @type {PyMiss[]} */
 		const misses = [];
 		descend(walk, place, below, (miss) => misses.push(miss));
 		return { place, misses };
 	});
-	const portions = missed.filter((m) => m.place.namespace);
+	const inNamespace = (/** @type {PyMiss} */ miss) => miss.at.namespace;
 	const dotted = target.parts.join(".");
 	for (const miss of [
-		...missed
-			.filter((m) => !m.place.namespace)
-			.flatMap((m) => m.misses.filter(isUnplaced)),
-		...namespaceMisses(portions.map((m) => m.misses)),
+		...missesByPlace
+			.flatMap((m) => m.misses)
+			.filter((m) => !inNamespace(m) && isUnplaced(m)),
+		...namespaceMisses(
+			missesByPlace
+				.filter((m) => m.place.namespace)
+				.map((m) => m.misses.filter(inNamespace)),
+		),
 	])
 		walk.fault(
 			miss.isPart
@@ -1316,16 +1320,17 @@ const isUnplaced = (miss) =>
 	miss.isPart || (miss.at.namespace && !miss.namespace);
 
 /**
- * What a namespace package lacks, from what each of its directories missed:
- * a dotted part none of them holds, or else each name every directory
- * holding the parts fails to place.
- * @param {PyMiss[][]} portions one list a directory
+ * What a namespace package lacks, from what each of its directories missed
+ * at a namespace level: a dotted part none of them holds, or else each name
+ * every directory holding the parts fails to place.
+ * @param {PyMiss[][]} missesByDir
  * @returns {PyMiss[]}
  */
-function namespaceMisses(portions) {
-	const whole = portions.filter((misses) => !misses.some((m) => m.isPart));
+function namespaceMisses(missesByDir) {
+	const whole = missesByDir.filter((misses) => !misses.some((m) => m.isPart));
 	const [first] = whole;
-	if (first === undefined) return (portions[0] ?? []).filter((m) => m.isPart);
+	if (first === undefined)
+		return (missesByDir[0] ?? []).filter((m) => m.isPart);
 	return first.filter((miss) =>
 		whole.every((misses) =>
 			misses.some((m) => m.name === miss.name && isUnplaced(m)),
@@ -1403,12 +1408,13 @@ function placePyTop(search, top, reach) {
 	/** @type {PyPlace[]} */
 	const places = [];
 	/** @type {PyPlace[]} */
-	const portions = [];
+	const namespaceDirs = [];
 	for (const entry of search) {
 		if (entry.dir === null) return { kind: "opaque", tail: entry.tail };
 		const here = pyModuleIn(entry.dir, top);
 		reach.shadows.push(...here.tried);
-		if (here.namespace) portions.push({ pkg: here.namespace, namespace: true });
+		if (here.namespace)
+			namespaceDirs.push({ pkg: here.namespace, namespace: true });
 		if (!here.found) continue;
 		reach.edges.push(here.found);
 		places.push(placeOf(here.found));
@@ -1416,7 +1422,7 @@ function placePyTop(search, top, reach) {
 	}
 	/* A namespace package, which CPython takes only where no entry holds a
 	 * regular module or package, and builds from every entry's directory. */
-	places.push(...portions);
+	places.push(...namespaceDirs);
 	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 
