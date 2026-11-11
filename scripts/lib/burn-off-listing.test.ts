@@ -6,13 +6,13 @@
  * move one it should not, or read a plan it could not list as empty.
  */
 import { describe, expect, it } from "vitest";
-import { listing } from "./burn-off-listing.js";
+import { readLiveSessions } from "./burn-off-listing.js";
 
 const plans = () => ["/h/.claude", "/h/.claude2"];
 
-describe("listing", () => {
-	it("takes background sessions alone, each with its seat and model", () => {
-		const r = listing("/h", {
+describe("readLiveSessions", () => {
+	it("takes live background sessions alone, a finished one left out, each with its seat and model", () => {
+		const r = readLiveSessions("/h", {
 			plans,
 			read: (seat) =>
 				seat === "/h/.claude2"
@@ -20,6 +20,12 @@ describe("listing", () => {
 							agents: [
 								{ kind: "background", sessionId: "a", cwd: "/w", name: "A" },
 								{ kind: "interactive", sessionId: "b", cwd: "/w" },
+								{
+									kind: "background",
+									sessionId: "c",
+									cwd: "/w",
+									state: "done",
+								},
 							],
 						}
 					: { agents: [] },
@@ -40,7 +46,7 @@ describe("listing", () => {
 	});
 
 	it("names a plan whose listing will not read, and reads the rest", () => {
-		const r = listing("/h", {
+		const r = readLiveSessions("/h", {
 			plans,
 			read: (seat) => {
 				if (seat === "/h/.claude") throw new Error("no daemon");

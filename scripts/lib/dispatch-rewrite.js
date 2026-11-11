@@ -238,7 +238,10 @@ function decide(_prompt, ctx) {
 		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
 		/* A fork runs on its parent's model whatever the call names, so with
 		 * burn mode off a fork from a Fable session can only be refused. */
-		if (table?.isFable(inherited) && ctx.input.subagent_type === "fork")
+		if (
+			table?.isFable(inherited) &&
+			String(ctx.input.subagent_type ?? "").trim() === "fork"
+		)
 			return { deny: ctx.corePaths(ctx.ruleText("dispatch-fable-fork")) };
 		out = rewrite(ctx.input, {
 			file: ctx.artefactFile(ctx.input.description),

@@ -10,9 +10,6 @@
  * still stopped or another session's as resumed, leave a failed move's resume
  * starting, or run a move's job on a key unrecorded.
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FAKE_COPY } from "./bg-resume-fake";
 import { buildCarriedNote } from "./carry-job-files.js";
@@ -86,6 +83,39 @@ describe("readResumeTarget", () => {
 });
 
 describe("resumeStopped", () => {
+	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
+	// A wake in place relaunches on the saved flags, so a burn-mode Fable job
+	// would wake on Fable after `off` (#4992).
+	it("names Opus on the wake of a job whose saved model is a burn-mode Fable one, burn mode off", () => {
+		const { steps, callsTo, lines } = fakeIo({ readJobRecord: "savedFable" });
+		steps.resumeStopped(LAUNCH, PROMPT, IDS);
+		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			"--model",
+			"claude-opus-5-5[1m]",
+			PROMPT,
+		]);
+		expect(lines.join("\n")).toContain("wakes on Opus");
+	});
+
+	it("names no model on the wake where burn mode is on, or the saved model is not Fable", () => {
+		for (const picks of [
+			{ readJobRecord: "savedFable", burnOn: "on" },
+			{ readJobRecord: "saved" },
+		] as const) {
+			const { steps, callsTo } = fakeIo(picks);
+			steps.resumeStopped(LAUNCH, PROMPT, IDS);
+			expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+				"--bg",
+				"--resume",
+				SESSION,
+				PROMPT,
+			]);
+		}
+	});
+
 	it("refuses the resume where its worktree's own settings would lock the session out, launching nothing (#4752)", () => {
 		const { steps, callsTo } = fakeIo({ settingsLockout: "lockedOut" });
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS)).toEqual({
@@ -189,7 +219,7 @@ describe("a copy's original retired (#4098)", () => {
 	it("names the copy after its original and stops and removes the original's job row", () => {
 		const { steps, callsTo } = fakeIo({
 			runClaude: ["copy", "removed"],
-			readJobRecord: ["copyWorking", "working"],
+			readJobRecord: ["stopped", "copyWorking", "working"],
 			hasJobRecord: "present",
 			sessionName: "named",
 		});
@@ -207,7 +237,7 @@ describe("a copy's original retired (#4098)", () => {
 
 	it("leaves a job row naming another session where the original's would be", () => {
 		const { steps, callsTo } = fakeIo({
-			readJobRecord: ["copyWorking", "otherSession"],
+			readJobRecord: ["stopped", "copyWorking", "otherSession"],
 			hasJobRecord: "present",
 		});
 		steps.resumeStopped(LAUNCH, PROMPT, IDS);
@@ -217,7 +247,7 @@ describe("a copy's original retired (#4098)", () => {
 
 	it("keeps an original it could not stop for a later tick, and a copy it could not name, logging both (#4646)", () => {
 		const { steps, callsTo, lines } = fakeIo({
-			readJobRecord: ["copyWorking", "working"],
+			readJobRecord: ["stopped", "copyWorking", "working"],
 			hasJobRecord: "present",
 			stop: "busy",
 			sessionName: "named",
@@ -358,26 +388,20 @@ describe("resumeOwnId (#4098)", () => {
 	});
 
 	it("keeps a Fable launch on Fable while burn mode is on", () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "resume-burn-"));
-		const marker = path.join(dir, "burn-mode");
-		fs.writeFileSync(marker, "{}");
-		try {
-			const flags = ["--model", "claude-fable-5-2[1m]"];
-			const { steps, callsTo } = fakeIo(
-				{ readJobRecord: "working", runClaude: "ownId" },
-				{ PATH: "/bin", WFC_BURN_MARKER: marker },
-			);
-			steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
-			expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
-				"--bg",
-				"--resume",
-				SESSION,
-				...flags,
-				PROMPT,
-			]);
-		} finally {
-			fs.rmSync(dir, { recursive: true, force: true });
-		}
+		const flags = ["--model", "claude-fable-5-2[1m]"];
+		const { steps, callsTo } = fakeIo({
+			readJobRecord: "working",
+			runClaude: "ownId",
+			burnOn: "on",
+		});
+		steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
+		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			...flags,
+			PROMPT,
+		]);
 	});
 
 	it("stops what a failed resume may still be starting under its id", () => {
@@ -580,7 +604,7 @@ describe("a job's named files carried before its record is removed (#4750)", () 
 		const { steps, callsTo } = fakeIo({
 			carryJobFiles: "carried",
 			runClaude: ["copy", "removed"],
-			readJobRecord: ["copyWorking", "working"],
+			readJobRecord: ["stopped", "copyWorking", "working"],
 			hasJobRecord: "present",
 		});
 		expect(steps.resumeStopped(LAUNCH, PROMPT, IDS).failed).toBeNull();

@@ -7,19 +7,30 @@
 
 const { artefactFile } = require("./dispatch-artefact.js");
 const { makeDir } = require("./guard-entry.js");
-const { lastModel, resolve } = require("./session-transcript.js");
+const { caught } = require("./caught.js");
+const { readLastModel, resolve } = require("./session-transcript.js");
 
-/** @param {string} root */
-function buildHostPorts(root) {
+/**
+ * @param {string} root
+ * @param {(what: string) => void} [log]
+ */
+function buildHostPorts(root, log = () => undefined) {
 	return {
 		/** @param {unknown} description */
 		artefactFile: (description) => artefactFile(root, description),
 		makeDir,
-		/** @param {string} session */
+		/** A lookup that throws reads as a model unknown, logged, so it costs
+		 * the Fable pin and never the rest of the rewrite (#4992).
+		 * @param {string} session */
 		sessionModel: (session) => {
 			if (!session) return "";
-			const file = resolve({}, session);
-			return file ? lastModel(file) : "";
+			try {
+				const file = resolve({}, session);
+				return file ? readLastModel(file) : "";
+			} catch (e) {
+				log(`session model unread — no Fable pin: ${caught(e).message}`);
+				return "";
+			}
 		},
 	};
 }

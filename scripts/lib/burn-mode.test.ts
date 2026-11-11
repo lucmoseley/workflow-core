@@ -232,23 +232,36 @@ describe("a dispatch inheriting Fable (#4992)", () => {
 			remapModel({ subagent_type: "fork" }, false, "claude-fable-5-2"),
 		).toBeNull();
 	});
+
+	it("reads a call naming `inherit` as one naming none", () => {
+		expect(
+			remapModel({ model: "inherit" }, false, "claude-fable-5-2")?.input.model,
+		).toBe("opus");
+	});
 });
 
-describe("relaunchFlags — a saved launch's model as burn mode stands (#4992)", () => {
-	const off = { WFC_BURN_MARKER: "/no/such/burn-marker" };
-	it("moves a saved Fable model to Opus with burn mode off, every other flag kept", () => {
+describe("relaunchFlags — a saved Fable launch resumed with burn mode off (#4992)", () => {
+	it("moves a saved Fable model to Opus, every other flag kept", () => {
 		expect(
-			relaunchFlags(["--name", "n", "--model", "claude-fable-5-2[1m]"], off),
+			relaunchFlags(["--name", "n", "--model", "claude-fable-5-2[1m]"], false),
 		).toEqual(["--name", "n", "--model", "claude-opus-5-5[1m]"]);
+		expect(relaunchFlags(["--model=fable", "--name", "n"], false)).toEqual([
+			"--model=claude-opus-5-5[1m]",
+			"--name",
+			"n",
+		]);
 	});
 
-	it("hands back the same array where nothing moves", () => {
-		const flags = ["--model", "claude-opus-5-5[1m]"];
-		expect(relaunchFlags(flags, off)).toBe(flags);
-		const bare = ["--name", "n"];
-		expect(relaunchFlags(bare, off)).toBe(bare);
-		const dangling = ["--model"];
-		expect(relaunchFlags(dangling, off)).toBe(dangling);
+	it("hands back the very array given where nothing moves", () => {
+		for (const flags of [
+			["--model", "claude-opus-5-5[1m]"],
+			["--model", "sonnet"],
+			["--name", "n"],
+			["--model"],
+		])
+			expect(relaunchFlags(flags, false)).toBe(flags);
+		const fable = ["--model", "claude-fable-5-2[1m]"];
+		expect(relaunchFlags(fable, true)).toBe(fable);
 	});
 });
 

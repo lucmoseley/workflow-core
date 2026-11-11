@@ -4075,6 +4075,7 @@
 		],
 		"scripts/burn-off-sessions.js": [
 			"scripts/burn-mode.test.ts",
+			"scripts/burn-off-sessions.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -4086,6 +4087,13 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/burn-off-sessions.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/capture-drain.js": [
 			"scripts/capture-drain.test.ts",
@@ -11979,6 +11987,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/refill-batch.test.ts",
 			"scripts/lib/refill-loop.test.ts",
+			"scripts/lib/refill-resume-worktree.test.ts",
+			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/seat-reading.test.ts",
 			"scripts/measure-spare-warm.test.ts",
@@ -12356,6 +12366,7 @@
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/allowance.test.ts",
+			"scripts/burn-mode.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
@@ -12560,6 +12571,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/upgrade.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -38919,6 +38931,7 @@
 			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/allowance.test.ts",
+			"scripts/burn-mode.test.ts",
 			"scripts/check-context-budget-admission.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
@@ -39050,6 +39063,7 @@
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"scripts/write-back-routes.test.ts"
 		],

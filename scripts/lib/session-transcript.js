@@ -179,8 +179,9 @@ function readStartedAt(file) {
 	}
 }
 
-/* The tail lastModel reads: one turn's records, a large tool result
- * included, fit well inside it; a miss reads as unknown, never as a model. */
+/* The tail readLastModel reads, a first guess never measured: one turn's
+ * records, a large tool result included, are assumed to fit; a miss reads as
+ * unknown, never as a model. */
 const MODEL_TAIL_BYTES = 1024 * 1024;
 
 /**
@@ -190,7 +191,7 @@ const MODEL_TAIL_BYTES = 1024 * 1024;
  * @param {string} file
  * @returns {string}
  */
-function lastModel(file) {
+function readLastModel(file) {
 	let text;
 	try {
 		const size = fs.statSync(file).size;
@@ -204,6 +205,8 @@ function lastModel(file) {
 			fs.closeSync(fd);
 		}
 	} catch {
+		/* An unreadable transcript is a model unknown: the dispatch remap then
+		 * leaves the call as asked, and burn-off-sessions names it (#4992). */
 		return "";
 	}
 	const lines = text.split("\n");
@@ -221,4 +224,10 @@ function lastModel(file) {
 	return "";
 }
 
-module.exports = { lastModel, resolve, read, readStartedAt, readWholeLines };
+module.exports = {
+	readLastModel,
+	resolve,
+	read,
+	readStartedAt,
+	readWholeLines,
+};

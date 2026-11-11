@@ -5,9 +5,9 @@
  * plan with no sessions.
  */
 const { caught } = require("./caught.js");
-const { readSeatListing } = require("./agent-liveness.js");
+const { isTerminalAgent, readSeatListing } = require("./agent-liveness.js");
 const { readPlanDirs } = require("./plan-dirs.js");
-const { lastModel } = require("./session-transcript.js");
+const { readLastModel } = require("./session-transcript.js");
 const { findTranscript } = require("./transcript.js");
 
 /** A hang guard on one plan's `claude agents --json`, never measured. */
@@ -19,7 +19,8 @@ const LISTING_TIMEOUT_MS = 20_000;
  */
 
 /**
- * One listed record as a LiveSession, null where it is not a background job.
+ * One listed record as a LiveSession, null where it is not a live background
+ * job: a finished one (done, failed, stopped) is never woken.
  * @param {string} seat
  * @param {any} a a `claude agents --json` record, untyped: the harness owns it
  * @param {(seat: string, sessionId: string) => string} modelOf
@@ -27,6 +28,7 @@ const LISTING_TIMEOUT_MS = 20_000;
  */
 function liveSession(seat, a, modelOf) {
 	if (a?.kind !== "background" || typeof a.sessionId !== "string") return null;
+	if (isTerminalAgent(a)) return null;
 	return {
 		seat,
 		sessionId: a.sessionId,
@@ -37,9 +39,9 @@ function liveSession(seat, a, modelOf) {
 }
 
 /** @type {(seat: string, sessionId: string) => string} */
-function transcriptModel(seat, sessionId) {
+function readTranscriptModel(seat, sessionId) {
 	const file = findTranscript(seat, sessionId);
-	return file ? lastModel(file) : "";
+	return file ? readLastModel(file) : "";
 }
 
 /**
@@ -48,11 +50,11 @@ function transcriptModel(seat, sessionId) {
  *   modelOf?: (seat: string, sessionId: string) => string}} [ports]
  * @returns {{sessions: LiveSession[], faults: string[]}}
  */
-function listing(home, ports = {}) {
+function readLiveSessions(home, ports = {}) {
 	const {
 		read = readSeatListing,
 		plans = readPlanDirs,
-		modelOf = transcriptModel,
+		modelOf = readTranscriptModel,
 	} = ports;
 	/** @type {LiveSession[]} */
 	const sessions = [];
@@ -76,4 +78,4 @@ function listing(home, ports = {}) {
 	return { sessions, faults };
 }
 
-module.exports = { listing };
+module.exports = { readLiveSessions };

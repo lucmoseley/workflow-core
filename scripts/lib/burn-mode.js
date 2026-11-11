@@ -187,12 +187,12 @@ function mapModel(table, model, burn) {
 }
 
 /**
- * Whether burn mode's marker exists now; a marker that cannot be placed reads
- * as off.
+ * Whether burn mode's marker exists now. A marker that cannot be placed (HOME
+ * unset or relative) reads as off, as the dispatch remap's does (#4992).
  * @param {Record<string, string | undefined>} env
  * @returns {boolean}
  */
-function burnMarkerOn(env) {
+function isBurnMarkerOn(env) {
 	try {
 		return fs.existsSync(markerPath(env));
 	} catch {
@@ -201,22 +201,31 @@ function burnMarkerOn(env) {
 }
 
 /**
- * A job's saved launch flags with their `--model` moved through the launch
- * table as burn mode stands now. A session launched under burn mode saved its
- * Fable spelling, and a resume carrying it would bring Fable back after `off`
- * (#4992). Every other flag is carried as saved.
+ * A job's saved launch flags for a resume while burn mode is off: a Fable
+ * `--model`, saved by a launch under burn mode, moved to Opus, since resumed
+ * as saved it brings Fable back after `off` (#4992). Anything else, and every
+ * flag under burn mode, comes back as the very array given, so a caller tells
+ * a move by identity.
  * @param {string[]} flags
- * @param {Record<string, string | undefined>} env
+ * @param {boolean} burn whether burn mode's marker exists
  * @returns {string[]}
  */
-function relaunchFlags(flags, env) {
-	const at = flags.indexOf("--model");
-	const saved = at === -1 ? undefined : flags[at + 1];
-	if (saved === undefined) return flags;
-	const moved = mapModel(LAUNCH, saved, burnMarkerOn(env));
-	return moved === saved
-		? flags
-		: [...flags.slice(0, at + 1), moved, ...flags.slice(at + 2)];
+function relaunchFlags(flags, burn) {
+	if (burn) return flags;
+	const at = flags.findIndex(
+		(f) => f === "--model" || f.startsWith("--model="),
+	);
+	if (at === -1) return flags;
+	const flag = flags[at] ?? "";
+	const joined = flag.startsWith("--model=");
+	const saved = joined ? flag.slice("--model=".length) : flags[at + 1];
+	if (saved === undefined || !isFable(saved)) return flags;
+	const moved = joined ? [`--model=${LAUNCH_OPUS}`] : ["--model", LAUNCH_OPUS];
+	return [
+		...flags.slice(0, at),
+		...moved,
+		...flags.slice(at + (joined ? 1 : 2)),
+	];
 }
 
 /**
@@ -261,7 +270,9 @@ function readDefinitionModel(type) {
 function dispatchedModel(call) {
 	const type = trimmed(call.subagent_type);
 	if (type === "fork") return "";
-	return trimmed(call.model) || (type ? readDefinitionModel(type) : "");
+	const named = trimmed(call.model);
+	if (named === "inherit") return "";
+	return named || (type ? readDefinitionModel(type) : "");
 }
 
 /**
@@ -416,6 +427,7 @@ function readBurnState(env = process.env) {
 }
 
 module.exports = {
+	isBurnMarkerOn,
 	isFable,
 	isOverflowSession,
 	markerPath,
