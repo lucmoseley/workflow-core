@@ -18,9 +18,6 @@
  * own sequence of gates; the #4392 and #4425 cases also copy the scripts into a
  * loop code worktree or a session worktree, since the subject is a launch
  * from one.
- *
- * Loosen one and a manual or loop dispatch to an overflow seat spends past
- * its grant, is refused for having no plan bars, or bills the plan.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -139,10 +136,8 @@ function dispatch(
 
 const refill = () => path.join(fx.dir, "refill");
 
-/** Points the run store at the fixture's refill dir. */
 const readFixtureStore = () => vi.stubEnv("WFC_REFILL_DIR", refill());
 
-/** The run the headless launcher stored for `jobId`. */
 function storedRun(jobId: string) {
 	readFixtureStore();
 	return readRun(jobId);
