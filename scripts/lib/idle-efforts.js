@@ -47,7 +47,7 @@ const {
 const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
-const { resolveGate } = require("./issue-gate.js");
+const { isGateHolding } = require("./issue-gate.js");
 const { scriptPath } = require("./script-path.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
@@ -316,7 +316,6 @@ function parseIssueNodes(pages, now) {
 		if (!Array.isArray(issues))
 			throw new Error("gh's GraphQL answer named no issues");
 		return issues.map((/** @type {GhJson} */ i) => {
-			const gate = resolveGate(i.body ?? "", now);
 			return {
 				number: i.number,
 				title: i.title ?? "",
@@ -325,7 +324,7 @@ function parseIssueNodes(pages, now) {
 					(/** @type {GhJson} */ l) => l.name,
 				),
 				blocked: isBlocked(i.blockedBy),
-				gated: gate.gateHolds || gate.gateOnHolds,
+				gated: isGateHolding(i.body ?? "", now),
 				children: (i.subIssues?.nodes ?? []).map((/** @type {GhJson} */ k) => ({
 					repo: k.repository?.nameWithOwner ?? "",
 					number: k.number,

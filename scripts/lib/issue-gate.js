@@ -1043,6 +1043,18 @@ function resolveGate(body, at = Date.now()) {
 	};
 }
 
+/**
+ * Whether a gate line holds the issue: an active `**Gated until:**` or a
+ * well-formed `**Gated on:**`, the two not in conflict.
+ *
+ * @param {string} body the issue body
+ * @param {number} [at] epoch ms, forwarded to `resolveGate`
+ */
+function isGateHolding(body, at = Date.now()) {
+	const { gateHolds, gateOnHolds } = resolveGate(body, at);
+	return gateHolds || gateOnHolds;
+}
+
 /** @type {Record<CitedReason, string>} */
 const CITED_SAYS = {
 	"no-basis": "which has no `**Gate basis:**` line",
@@ -1246,6 +1258,7 @@ module.exports = {
 	gateOnOf,
 	gateOnLineOf,
 	resolveGate,
+	isGateHolding,
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
