@@ -35,6 +35,7 @@ const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 const { readAlreadyRedLines } = require("./lib/already-red.js");
 const { record: recordFileResults } = require("./lib/pass-store.js");
 const readAudit = require("./lib/read-audit.js");
+const { keepRun } = require("./lib/row-measure.js");
 const { isLanderRun } = require("./lib/session-id.js");
 const { caught } = require("./lib/caught.js");
 
@@ -57,11 +58,17 @@ let startMark: bigint | null = null;
  * which records no row. */
 let auditDir: string | null = null;
 
+/* The run this teardown handed the pass store, which lib/row-measure.js's
+ * `keepRun` keeps beside the logs under its switch (#5029). */
+let recordedRun: Record<string, unknown> | null = null;
+
 function armAudit() {
 	auditDir = isLanderRun() ? null : readAudit.install(treeRoot);
+	recordedRun = null;
 }
 
 function disarmAudit() {
+	keepRun(auditDir, recordedRun);
 	readAudit.remove(auditDir);
 	auditDir = null;
 }
@@ -105,23 +112,23 @@ function recordFiles(
 	},
 ) {
 	if (!files || !marker.at) return;
+	recordedRun = {
+		sha: marker.sha,
+		at: marker.at,
+		tree: marker.treeAtEnd ?? null,
+		root: treeRoot,
+		files: files.results,
+		shared: files.shared,
+		clean: files.clean,
+		drifted:
+			before === null || drifted?.headMoved
+				? null
+				: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
+		after,
+		startMark,
+	};
 	recordFileResults(
-		{
-			sha: marker.sha,
-			at: marker.at,
-			tree: marker.treeAtEnd ?? null,
-			root: treeRoot,
-			files: files.results,
-			shared: files.shared,
-			clean: files.clean,
-			drifted:
-				before === null || drifted?.headMoved
-					? null
-					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
-			after,
-			startMark,
-			audits: readAuditsOrNone(),
-		},
+		{ ...recordedRun, audits: readAuditsOrNone() },
 		{ storeRoot: root },
 	);
 }
