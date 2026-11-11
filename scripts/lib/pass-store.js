@@ -872,25 +872,16 @@ function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
  * as the test got it, a listing it made and a directory it found: a git
  * call's answer and a walked tree's listings are read once the run ended,
  * and one that moved since the test read it would key the row off the
- * content the red ran on. With `inputs` null, the tree unread, it keys
- * nothing and decides at any content.
- * @param {FileResult[]} failed
- * @param {RunInputs|null} inputs
+ * content the red ran on.
+ * @param {Gathered[]} failed
+ * @param {RunInputs} inputs
  * @param {Seams} seams
  * @returns {Recorded[]}
  */
 function buildVoidingRows(failed, inputs, seams) {
 	const values = todayValues(seams).base;
-	return failed.map(({ file }) => {
-		const g = inputs?.gathered.find((one) => one.file === file);
-		const row = { file, outcome: "fail", voiding: true };
-		if (!inputs || !g)
-			return {
-				values,
-				shared: {},
-				row: { ...row, inputs: {}, listings: {}, dirs: [], git: {} },
-			};
-		const { ids, isKnown, isAbsent } = inputs;
+	const { ids, isKnown, isAbsent } = inputs;
+	return failed.map((g) => {
 		const sound = g.reached.filter((r) => [r.from, ...r.edges].every(isKnown));
 		const paths = [
 			...new Set([...g.direct, ...sound.flatMap((r) => r.edges)]),
@@ -905,7 +896,9 @@ function buildVoidingRows(failed, inputs, seams) {
 			values,
 			shared: idsOf(inputs.shared.filter(isKnown), ids),
 			row: {
-				...row,
+				file: g.file,
+				outcome: "fail",
+				voiding: true,
 				inputs: {
 					...idsOf(paths, ids),
 					...Object.fromEntries(absent.map((p) => [p, ABSENT])),
@@ -916,6 +909,46 @@ function buildVoidingRows(failed, inputs, seams) {
 			},
 		};
 	});
+}
+
+/**
+ * A voiding row for each of `failed` where the tree would not read: it keys
+ * nothing, and decides at any content (#4790).
+ * @param {FileResult[]} failed
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function buildUnkeyedVoidingRows(failed, seams) {
+	const values = todayValues(seams).base;
+	return failed.map(({ file }) => ({
+		values,
+		shared: {},
+		row: {
+			file,
+			outcome: "fail",
+			voiding: true,
+			inputs: {},
+			listings: {},
+			dirs: [],
+			git: {},
+		},
+	}));
+}
+
+/**
+ * A run's rows off its inputs: each file's known row, and a voiding row for
+ * each failed file that has none.
+ * @param {RunInputs} inputs
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function buildRows(inputs, seams) {
+	const known = buildKnownRows(inputs, seams);
+	const keyed = new Set(known.map(({ row }) => row.file));
+	const failed = inputs.gathered.filter(
+		(g) => g.outcome === "fail" && !keyed.has(g.file),
+	);
+	return [...known, ...buildVoidingRows(failed, inputs, seams)];
 }
 
 /**
@@ -946,12 +979,12 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		);
 	}
 	try {
-		const known = inputs ? buildKnownRows(inputs, seams) : [];
-		const keyed = new Set(known.map(({ row }) => row.file));
-		const failed = files.filter(
-			(f) => f.outcome === "fail" && !keyed.has(f.file),
-		);
-		const rows = [...known, ...buildVoidingRows(failed, inputs, seams)];
+		const rows = inputs
+			? buildRows(inputs, seams)
+			: buildUnkeyedVoidingRows(
+					files.filter((f) => f.outcome === "fail"),
+					seams,
+				);
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
 		const line = { format: FORMAT, at: run.at, sha: run.sha, tree: run.tree };

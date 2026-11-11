@@ -55,7 +55,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { parseShebang, scriptLanguage } = require("./code-edges.js");
 const { readText } = require("./file-read.js");
-const { isUnder } = require("./is-under.js");
+const { isUnder, relativeUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
 const { isNode, readRealTmpdir, toPosix } = require("./read-audit-paths.js");
@@ -359,8 +359,9 @@ function buildCollector(logs, root, isScratch, readTrace) {
 			"it started a worker thread, whose reads the audit cannot see",
 		child: (e) => {
 			if (typeof e.trace === "string") return takeTrace(e);
-			const why = childDoubt(e, logs, root, isScratch);
-			if (!why) for (const f of childReads(e, root, isScratch)) scripts.add(f);
+			const program = readProgram(e, root, isScratch);
+			const why = childDoubt(e, program, { logs, root, isScratch });
+			if (!why) for (const f of childReads(e, program, root)) scripts.add(f);
 			return why;
 		},
 	};
@@ -462,19 +463,17 @@ const PYTHON_RUNNERS = new Set(["python3", "python"]);
  * Why a spawned child leaves its file's reads unknown, or null where its
  * reads are seen.
  * @param {Entry} e
- * @param {Map<number, Entry[]>} logs
- * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
+ * @param {Program|null} program the checkout file it ran as its program
+ * @param {{logs: Map<number, Entry[]>, root: string,
+ *   isScratch: (p: string) => boolean}} at the owner's logs, and the root's
+ *   real path
  * @returns {string|null}
  */
-function childDoubt(e, logs, root, isScratch) {
+function childDoubt(e, program, { logs, root, isScratch }) {
 	const file = String(e.file);
 	const args = /** @type {string[]} */ (e.args ?? []);
 	const shown = shownChild(e);
-	if (
-		e.audited &&
-		(isNode(file) || readProgram(e, root, isScratch)?.runs === "node")
-	) {
+	if (e.audited && (isNode(file) || program?.runs === "node")) {
 		if (typeof e.pid !== "number")
 			return `a Node child (${shown}) never started`;
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
@@ -489,7 +488,7 @@ function childDoubt(e, logs, root, isScratch) {
 	/* A tracer already following the process that spawned it follows it too:
 	 * its reads are in that child's trace. */
 	if (e.within) return null;
-	return unseenDoubt(e, root, isScratch);
+	return unseenDoubt(e, program, root, isScratch);
 }
 
 /**
@@ -497,11 +496,12 @@ function childDoubt(e, logs, root, isScratch) {
  * null where it read nothing of the checkout beside a script a shell was
  * handed to run, or the git guard a git call ran through.
  * @param {Entry} e
+ * @param {Program|null} program the checkout file it ran as its program
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
  * @returns {string|null}
  */
-function unseenDoubt(e, root, isScratch) {
+function unseenDoubt(e, program, root, isScratch) {
 	const file = String(e.file);
 	const args = /** @type {string[]} */ (e.args ?? []);
 	const shown = shownChild(e);
@@ -515,7 +515,6 @@ function unseenDoubt(e, root, isScratch) {
 	const script = scriptOf(e, root);
 	if (args.some((a) => a !== script && isCheckoutPath(a, root, isScratch)))
 		return `a child (${shown}) was handed a path in the checkout`;
-	const program = readProgram(e, root, isScratch);
 	if (program?.runs === "other")
 		return `a child (${shown}) ran a program of the checkout, whose own reads no reach holds`;
 	if (program?.runs === "shell")
@@ -635,8 +634,10 @@ const GUARD = realOf(path.join(__dirname, "host-git-guard", "git"));
 function readProgram(e, root, isScratch) {
 	const bin = Array.isArray(e.bin) ? e.bin.map(String) : [];
 	const [script] = bin
-		.filter((at) => isUnder(at, [root], path.sep))
-		.map((at) => toPosix(path.relative(root, at)))
+		.flatMap((at) => {
+			const rel = relativeUnder(root, at);
+			return rel === null ? [] : [toPosix(rel)];
+		})
 		.filter((rel) => !isScratch(rel));
 	const real = bin.at(-1);
 	if (script === undefined || real === undefined) return null;
@@ -656,13 +657,12 @@ function readProgram(e, root, isScratch) {
  * reads: the one a runner was handed, and the child's own program, any but
  * one whose reads no reach holds.
  * @param {Entry} e
+ * @param {Program|null} program the checkout file it ran as its program
  * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
  * @returns {string[]}
  */
-function childReads(e, root, isScratch) {
+function childReads(e, program, root) {
 	const script = scriptOf(e, root);
-	const program = readProgram(e, root, isScratch);
 	return [
 		...(script === null
 			? []

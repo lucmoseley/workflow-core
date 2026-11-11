@@ -1149,15 +1149,16 @@ describe("a store it cannot trust runs every file", () => {
 	 * and its rows rested on audits that missed a git call from a scratch
 	 * directory or fed by stdin, a path handed to git, an empty trace, a
 	 * Python script's own reads, `openAsBlob`, a worker thread and a read
-	 * through a link outside the checkout. Format 9 is round 2's findings
-	 * 1-4: its voiding rows held on the test file's content alone, as the run
-	 * left it, and its rows rested on audits that missed a checkout script
-	 * run as the program itself and git's abbreviated spellings of an option
-	 * fed by stdin. Format 10 is #4790 pass 3 round 3's findings 1-3: its
-	 * voiding rows keyed a git call's answer and a walked tree's listings as
-	 * they stood once the run ended, and its rows rested on audits that named
-	 * a checkout shell script run as the program itself without its reads,
-	 * and kept a git call handed its standard input by path. */
+	 * through a link outside the checkout. Format 9 is #4790 pass 3 round
+	 * 2's findings 1-4: its voiding rows held on the test file's content
+	 * alone, as the run left it, and its rows rested on audits that missed a
+	 * checkout script run as the program itself and git's abbreviated
+	 * spellings of an option fed by stdin. Format 10 is #4790 pass 3 round
+	 * 3's findings 1-3: its voiding rows keyed a git call's answer and a
+	 * walked tree's listings as they stood once the run ended, and its rows
+	 * rested on audits that named a checkout shell script run as the program
+	 * itself without its reads, and kept a git call handed its standard
+	 * input by path. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
