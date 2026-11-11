@@ -233,11 +233,20 @@ function gateOnOf(body) {
 	return { condition, command, abandonIf };
 }
 
-const BASIS_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
-	"gim",
-);
+/**
+ * A `**<label>:** <text>` body line, its text, possibly empty, in group 1.
+ * It backtracks super-linearly, as GATE_RE does: input is issue, comment,
+ * commit or reply text from the repo's own writers, and a crafted one slows
+ * the hook, nothing worse (#4642).
+ * @param {string} label
+ */
+const fieldLineRe = (label) =>
+	new RegExp(
+		`${AT_LINE_HEAD}\\*\\*${label}:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
+		"gim",
+	);
+
+const BASIS_RE = fieldLineRe("Gate basis");
 
 /**
  * The first live `**Gate basis:**` anywhere in the body, under the gate lines'
@@ -252,6 +261,21 @@ const BASIS_RE = new RegExp(
  */
 function basisOf(body) {
 	return firstLiveMatch(BASIS_RE, String(body || ""))?.[1] || null;
+}
+
+const OVERRIDE_RE = fieldLineRe("Gate judge override");
+
+/**
+ * The body's first live `**Gate judge override:**` line (#4970), outside a
+ * fence, which lib/gate-judge.js honours.
+ *
+ * @param {string} body
+ * @returns {{reason: string}|null} `reason` "" where the line gives none;
+ *   null where the body carries no such line
+ */
+function judgeOverrideOf(body) {
+	const m = firstLiveMatch(OVERRIDE_RE, String(body || ""));
+	return m ? { reason: (m[1] ?? "").trim() } : null;
 }
 
 const COUNT_WORDS = [
@@ -397,7 +421,7 @@ function durationsIn(body, at, opts = {}) {
 }
 
 const basisRule = () =>
-	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). The check reads the basis's form, each window named and a warrant present, and never judges it: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
+	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). The wording patterns read the basis's form, each window named and a warrant present; a model reading also asks which sentences make work wait and whether each basis derives its window, and refuses a wait or basis it faults. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "The line is `**Gate basis:** <what sets the window, with its warrant>`", "issue-gate")}`;
 
 const ISSUE_REF_RE = /#(\d+)\b/g;
 /* `mantahostels#12` and `owner/repo#12` name another repo's issue. */
@@ -617,16 +641,117 @@ function gateFacts(body) {
 	};
 }
 
+/*
+ * The block structure a code span cannot cross (CommonMark 0.31.2 §4–§5,
+ * #4973), read off each line's head once its `>` quote markers are stripped.
+ * A heading, fence, thematic break, setext underline or table row is a block
+ * of its own; a list item opens one; a deeper quote opens one, a shallower
+ * line continuing the paragraph lazily. Indented code and HTML blocks are not
+ * read: their lines join the paragraph around them.
+ */
+const OWN_LINE_BLOCK =
+	/^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$|=+[ \t]*$|-+[ \t]*$|\|)/;
+const LIST_ITEM = /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+const QUOTE_MARKER = /^[ \t]{0,3}>[ \t]?/;
+
+/** @typedef {{depth: number, blank: boolean, ownLine: boolean, item: boolean}} LineShape */
+
 /**
- * Inside an inline code span on its own line — a phrase quoted as an example.
+ * @param {string} line
+ * @returns {LineShape}
+ */
+function lineShape(line) {
+	let depth = 0;
+	let rest = line;
+	for (let m = QUOTE_MARKER.exec(rest); m; m = QUOTE_MARKER.exec(rest)) {
+		depth++;
+		rest = rest.slice(m[0].length);
+	}
+	return {
+		depth,
+		blank: rest.trim() === "",
+		ownLine: OWN_LINE_BLOCK.test(rest),
+		item: LIST_ITEM.test(rest),
+	};
+}
+
+/**
+ * @param {LineShape|null} prev the line above, `null` at the body's start
+ * @param {LineShape} line
+ * @returns {boolean}
+ */
+function opensBlock(prev, line) {
+	if (prev === null || prev.blank || prev.ownLine) return true;
+	return line.blank || line.ownLine || line.item || line.depth > prev.depth;
+}
+
+/**
+ * The bounds of the block holding `index`.
+ *
+ * @param {string} body
+ * @param {number} index
+ * @returns {[number, number]}
+ */
+function blockAround(body, index) {
+	let from = 0;
+	let at = 0;
+	/** @type {LineShape|null} */
+	let prev = null;
+	for (const line of body.split("\n")) {
+		const shape = lineShape(line);
+		if (opensBlock(prev, shape)) {
+			if (at > index) return [from, at - 1];
+			from = at;
+		}
+		prev = shape;
+		at += line.length + 1;
+	}
+	return [from, body.length];
+}
+
+/**
+ * Inside an inline code span — a phrase quoted as an example. A run of N
+ * backticks opens a span that the next run of exactly N closes, across line
+ * breaks within one block, and a run with no closer is literal (CommonMark
+ * 0.31.2 §6.1).
  *
  * @param {string} body
  * @param {number} index
  * @returns {boolean}
  */
 function inCodeSpan(body, index) {
-	const lineStart = body.lastIndexOf("\n", index - 1) + 1;
-	return (body.slice(lineStart, index).match(/`/g) || []).length % 2 === 1;
+	const [from, to] = blockAround(body, index);
+	const runs = parseBacktickRuns(body.slice(from, to), from);
+	let resume = 0;
+	for (const run of runs) {
+		if (run.k < resume || run.opens === 0) continue;
+		if (run.opensAt > index) return false;
+		const close = runs.find((r) => r.k > run.k && r.len === run.opens);
+		if (close === undefined) continue;
+		if (index > run.opensAt && index < close.at + close.len) return true;
+		resume = close.k + 1;
+	}
+	return false;
+}
+
+/**
+ * Each backtick run in `block`, in order: where it sits and its length as a
+ * closer, and where it opens and with how many — one fewer after a
+ * backslash, which escapes an opener only.
+ *
+ * @param {string} block
+ * @param {number} from the block's offset in the body
+ * @returns {{k: number, at: number, len: number, opensAt: number, opens: number}[]}
+ */
+function parseBacktickRuns(block, from) {
+	return [...block.matchAll(/`+/g)].map((m, k) => {
+		const escaped = /(?:^|[^\\])(?:\\\\)*\\$/.test(block.slice(0, m.index))
+			? 1
+			: 0;
+		const at = from + m.index;
+		const len = m[0].length;
+		return { k, at, len, opensAt: at + escaped, opens: len - escaped };
+	});
 }
 
 /**
@@ -707,16 +832,18 @@ const FAULT_SAYS = {
  * The refusal every write route gives, completing "<the body> carries …".
  *
  * @param {BasisFault[]} faults from basisFaults or introducedBasisFaults
+ * @param {string} [reading] what read them, named where another reading
+ *   also speaks (lib/gate-judge.js)
  * @returns {string}
  */
-function basisRefusal(faults) {
+function basisRefusal(faults, reading) {
 	const says = Object.entries(FAULT_SAYS).flatMap(([kind, say]) => {
 		const texts = faults.filter((f) => f.kind === kind).map((f) => f.text);
 		return texts.length === 0
 			? []
 			: [say(texts.map((t) => `"${t}"`).join(", "), texts.length > 1)];
 	});
-	return `${says.join("; and ")}. ${basisRule()}`;
+	return `${says.join("; and ")}${reading ? `, as ${reading} read it` : ""}. ${basisRule()}`;
 }
 
 /**
@@ -874,7 +1001,9 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
+	basisRule,
 	gateFacts,
+	judgeOverrideOf,
 	otherIssueRefs,
 	gateRuleHandover,
 	isNewlyGated,

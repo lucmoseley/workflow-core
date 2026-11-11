@@ -25,7 +25,6 @@ import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
 import { fakeIo as blockFake } from "./refill-blocks-fixture";
 import { buildHeldStopText } from "./refill-limits.js";
-import { controlInMode } from "./refill-loop.js";
 import {
 	type Launch,
 	MIN,
@@ -262,11 +261,10 @@ const tickOf = (io: TickIo, c: Control | null = control(), dryRun = false) =>
 
 const stateOf = (over: Record<string, unknown> = {}) => loopStateOf(over);
 
-/** An away control no tick has yet read the founder absent under. */
 const awayControl = () =>
 	control({
 		scope: { ...normal([WFC]), mode: "away" },
-		away: { since: NOW - 60 * MIN, absentSeen: false },
+		away: { since: NOW - 60 * MIN },
 	});
 
 const expectOrder = (calls: string[], a: string, b: string) => {
@@ -420,15 +418,11 @@ const actingTick = (over: Partial<TickIo> = {}) =>
 
 describe("the tick's step order (#4212)", () => {
 	it("settles what a kill left before reading the registry, and the relief before the listing (#4180, #2665)", async () => {
-		const { io, calls } = actingTick();
-		await runTick(io, {
-			dryRun: false,
-			now: NOW,
-			opening: {
-				...opening(awayControl()),
-				typed: { at: null, seat: null },
-			},
+		const optedOut = "/opted-out";
+		const { io, calls } = actingTick({
+			isOptedOut: (root) => root === optedOut,
 		});
+		await tickOf(io, control({ scope: normal([WFC, optedOut]) }));
 		expectOrder(calls, "changeControl", "reap");
 		expectOrder(calls, "reap", "readState");
 		expectOrder(calls, "readState", "adoptKilledLaunches");
@@ -1122,7 +1116,7 @@ describe("the dry-run policy (#4212)", () => {
 /**
  * The control file under its lock, each change made on its fresh read. No
  * contract test holds it to refill-tick.js's changeControl; the sandbox case
- * "leaves the absent read to the next tick while another writer holds the lock"
+ * "leaves the untick to the next tick while another writer holds the lock"
  * crosses the real lock (#4356).
  */
 const controlFileFake = (initial: Control) => {
@@ -1143,76 +1137,54 @@ const controlFileFake = (initial: Control) => {
 	};
 };
 
-describe("a control change under the lock (#4846)", () => {
+describe("a control change under the lock (#4846, #4188)", () => {
+	const ticked = () => control({ scope: normal([WFC]) });
+	const optedOut = { isOptedOut: (root: string) => root === WFC };
+
 	it("goes on over the change a dry run previews, writing and logging none", async () => {
-		const away = awayControl();
-		const { io, calls } = fakeIo(stateOf());
-		const r = await runTick(io, {
-			dryRun: true,
-			now: NOW,
-			opening: {
-				...opening(away),
-				typed: { at: null, seat: null },
+		const served: string[][] = [];
+		const { io, calls, lines } = fakeIo(stateOf(), {
+			...optedOut,
+			servedRoots: (scope) => {
+				served.push(scope.repos);
+				return { roots: scope.repos, dropped: [] };
 			},
 		});
+		await runTick(io, { dryRun: true, now: NOW, opening: opening(ticked()) });
+		expect(served[0]).toEqual([]);
 		expect(calls).not.toContain("changeControl");
-		expect(r.decision).not.toHaveProperty("stop");
+		expect(lines.join("\n")).not.toContain("unticked:");
 	});
 
 	it("leaves a change to the next tick where the lock stays held", async () => {
-		const away = awayControl();
 		const { io, lines } = fakeIo(stateOf(), {
+			...optedOut,
 			changeControl: () => ({ busy: "pid 7" }),
 		});
-		await runTick(io, {
-			dryRun: false,
-			now: NOW,
-			opening: {
-				...opening(away),
-				typed: { at: null, seat: null },
-			},
-		});
+		await tickOf(io, ticked());
 		expect(lines).toContain(
-			"away mode's absent read waits for the next tick: pid 7",
+			"the opt-out untick waits for the next tick: pid 7",
 		);
 	});
 });
 
-describe("away mode through the tick (#4846)", () => {
-	const tickAt = (
-		io: TickIo,
-		file: ReturnType<typeof controlFileFake>,
-		now: number,
-		typedAt: number | null,
-	) =>
-		runTick(io, {
-			dryRun: false,
-			now,
-			opening: { ...opening(file.read()), typed: { at: typedAt, seat: null } },
-		});
-
-	it("records an absent read, and stays away through the present read after it", async () => {
-		const since = NOW - 60 * MIN;
+describe("away mode through the tick (#4846, #4976)", () => {
+	it("leaves the mode and its switch as they stand, absent or present", async () => {
 		const file = controlFileFake(awayControl());
 		const { io } = fakeIo(stateOf(), { changeControl: file.changeControl });
-		await tickAt(io, file, NOW, null);
-		expect(file.read().away).toEqual({ since, absentSeen: true });
-
-		await tickAt(io, file, NOW + MIN, NOW);
-		expect(file.read().scope.mode).toBe("away");
-		expect(file.read().away).toEqual({ since, absentSeen: true });
-	});
-
-	it("reads the switch as presence for its first window (#4184)", async () => {
-		const file = controlFileFake(
-			controlInMode(control({ scope: normal([WFC]) }), "away", NOW),
-		);
-		const { io } = fakeIo(stateOf(), { changeControl: file.changeControl });
-		await tickAt(io, file, NOW + MIN, null);
-		expect(file.read().away).toEqual({ since: NOW, absentSeen: false });
-
-		await tickAt(io, file, NOW + 120 * MIN, null);
-		expect(file.read().away).toEqual({ since: NOW, absentSeen: true });
+		for (const [now, typedAt] of [
+			[NOW, null],
+			[NOW + MIN, NOW],
+		] as const)
+			await runTick(io, {
+				dryRun: false,
+				now,
+				opening: {
+					...opening(file.read()),
+					typed: { at: typedAt, seat: null },
+				},
+			});
+		expect(file.read()).toEqual(awayControl());
 	});
 });
 

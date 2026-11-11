@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **10 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **11 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -1162,6 +1162,7 @@ plan's config dir links it. Edit it at
 - node-and-python-cli-scripts: Node or Python command-line tools and scripts.
 - test-design-and-reliability: writing unit/integration tests, fixing flaky tests.
 - test-and-ci-performance: making suites or CI faster or lighter.
+- measurement-and-experiment-design: sizing an observation window, a soak or a before/after measurement; sample size, stopping rules and confidence bounds for a rate or a change.
 - capacity-planning-and-admission: sizing and admitting concurrent jobs or sessions against memory and CPU, and reading out utilisation and why work waits.
 - process-supervision-and-oom: keeping long-running processes alive on one machine: systemd units and timers, restart policy, graceful upgrades, and OOM ranking and recovery.
 - ci-and-repo-quality-gates: linters, pre-commit/CI gates, repo health checks, coding-standards enforcement.

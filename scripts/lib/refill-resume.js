@@ -22,7 +22,7 @@ const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 const { buildCarriedNote } = require("./carry-job-files.js");
-const { relaunchFlags } = require("./burn-mode.js");
+const { relaunchFlags } = require("./model-table.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */

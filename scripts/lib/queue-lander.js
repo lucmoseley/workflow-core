@@ -1893,7 +1893,7 @@ function stepOrEnd(s) {
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed, updated or left unfiled, one whose state was not read or that
  *   would not close, and a run not cancelled or an early batch push that
- *   failed
+ *   failed, and a torn pipeline record moved aside
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "deferrals" | "kept" | "unfiled" | "leftToNextRun" | "isClosed" | "baseFiled"
  *   | "baseTicket" | "superseded"> & {pending: Map<string, Pending>,
@@ -2995,47 +2995,68 @@ function pruneReaped(deps) {
  * @returns {Promise<QueueEnd>}
  */
 async function runQueueLander(deps) {
-	const { lock, log = () => undefined } = deps;
+	const { lock, log = () => undefined, say = () => undefined } = deps;
 	if (!lock.acquire()) {
 		const held = exit("another lander holds the lock");
 		log(held);
 		return held;
 	}
-	pruneReaped(deps);
-	/** @type {QueueRun} */
-	let run = {
-		pipeline: pipelineOf(deps.record.read()),
-		pending: new Map(),
-		acting: null,
-		unread: [],
-		unmerged: null,
-		alone: null,
-		deferrals: [],
-		kept: [],
-		unfiled: [],
-		leftToNextRun: [],
-		owners: new Map(),
-		isClosed: readClosedTickets(deps),
-		baseFiled: [],
-		baseTicket: null,
-	};
 	try {
-		for (;;) {
-			const from = run;
-			const next = await remote(
-				deps,
-				() => step(deps, from, log),
-				isTransientFault,
+		pruneReaped(deps);
+		const pipelineRead = deps.record.read();
+		/* A torn record is kept aside, never overwritten, and the run starts
+		 * empty: the queue refs it rebuilds from outlive it. One it cannot
+		 * move aside stops every run until someone moves it by hand (#4905). */
+		if (pipelineRead.kind === "torn") {
+			let aside;
+			try {
+				aside = deps.record.quarantine();
+			} catch (err) {
+				const end = exit(
+					`pipeline record torn and not moved aside: ${parseRefusal(parseErrorText(err))}`,
+				);
+				log(end);
+				return end;
+			}
+			say(
+				`pipeline record torn, moved to ${aside}; starting from an empty pipeline`,
 			);
-			if ("kind" in next) return next;
-			run = next;
 		}
-	} catch (err) {
-		const end = exit(
-			`stopped on an error: ${parseRefusal(parseErrorText(err))}`,
-		);
-		log(end);
-		return end;
+		/** @type {QueueRun} */
+		let run = {
+			pipeline: pipelineOf(pipelineRead),
+			pending: new Map(),
+			acting: null,
+			unread: [],
+			unmerged: null,
+			alone: null,
+			deferrals: [],
+			kept: [],
+			unfiled: [],
+			leftToNextRun: [],
+			owners: new Map(),
+			isClosed: readClosedTickets(deps),
+			baseFiled: [],
+			baseTicket: null,
+		};
+		try {
+			for (;;) {
+				const from = run;
+				const next = await remote(
+					deps,
+					() => step(deps, from, log),
+					isTransientFault,
+				);
+				if ("kind" in next) return next;
+				run = next;
+			}
+		} catch (err) {
+			const end = exit(
+				`stopped on an error: ${parseRefusal(parseErrorText(err))}`,
+			);
+			log(end);
+			return end;
+		}
 	} finally {
 		lock.release();
 	}

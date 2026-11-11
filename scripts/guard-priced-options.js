@@ -216,7 +216,8 @@
  * limb replaces a per-session record in the markers directory
  * (`.close-rivals-record-`, swept with the counters): every question it
  * refused, by round number, with each priced option's letter, figure and band,
- * the citations its option lines carry (#2010) and the time it was refused.
+ * the citations its question block carries (#2010, #4945) and the time it
+ * was refused.
  * At a later Stop, a question of the same number whose figures or bands
  * differ from the record's, with no tool call in the transcript since that
  * time, is refused again — still caught or not, escape

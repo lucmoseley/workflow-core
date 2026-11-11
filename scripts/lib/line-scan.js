@@ -63,7 +63,7 @@ function nextOnLine(text, endAt) {
 /**
  * The matches a `gm` regex `^([^#\n]*?)(?:^|<boundary>)<tail>` finds, in
  * order, each as its prefix (the text from the line start to the boundary)
- * and the value `tailAt` reads off the tail.
+ * and the fields `tailAt` reads off the tail.
  *
  * A prefix may end at `prefixEnd` where, at a line start, the tail opens
  * there, or, before a `boundary` character, just past it. A tail opens only
@@ -73,9 +73,11 @@ function nextOnLine(text, endAt) {
  * @param {string} text
  * @param {RegExp} boundary one character
  * @param {string[]} heads every tail `tailAt` reads opens with one of these
- * @param {(tailStart: number) => {end: number, value: string} | null} tailAt
- *   the tail's end and value where it opens at `tailStart`, else null
- * @returns {{prefix: string, value: string}[]}
+ * @template {{end: number}} T
+ * @param {(tailStart: number) => T | null} tailAt the tail's end and fields
+ *   where it opens at `tailStart`, else null
+ * @returns {({prefix: string} & Omit<T, "end">)[]} each match's prefix and
+ *   `tailAt`'s fields bar `end`
  */
 function lineHeadMatches(text, boundary, heads, tailAt) {
 	const n = text.length;
@@ -123,11 +125,9 @@ function lineHeadMatches(text, boundary, heads, tailAt) {
 			lineStart = stop + 1;
 			continue;
 		}
-		out.push({
-			prefix: text.slice(lineStart, hit.prefixEnd),
-			value: hit.found.value,
-		});
-		lineStart = hit.found.end;
+		const { end, ...fields } = hit.found;
+		out.push({ prefix: text.slice(lineStart, hit.prefixEnd), ...fields });
+		lineStart = end;
 	}
 	return out;
 }
@@ -163,11 +163,12 @@ function hasRunDollar(/** @type {string} */ text) {
  * `\s(|;&`, then blanks, an optional `"` and a `$`, then the first `/<tail>`
  * later on that line, where `<tail>` opens with `[\w-]` and is the longest
  * run of `[\w./-]` characters ending in `.js` or `.sh`. The same matches as
- * `/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))/gm`,
- * the prefix its group 1 and the value its group 2.
+ * `/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$([^\n]*?)\/([\w-][\w./-]*\.(?:js|sh))/gm`,
+ * the prefix its group 1, the lead its group 2 and the value its group 3.
  * @param {string} text
- * @returns {{prefix: string, value: string}[]} each line's text before the
- *   runner, and the path after the `/`
+ * @returns {{prefix: string, lead: string, value: string}[]} each line's text
+ *   before the runner, what lies between the `$` and the `/` (`lib` of
+ *   `"$lib/x.sh"`), and the path after the `/`
  */
 function parseProgramRuns(text) {
 	if (!hasRunDollar(text)) return [];
@@ -193,7 +194,11 @@ function parseProgramRuns(text) {
 		const slash = pathFrom < 0 ? -1 : (nextTail[pathFrom] ?? -1);
 		if (slash < 0) return null;
 		const end = tailEnd(slash);
-		return { end, value: text.slice(slash + "/".length, end) };
+		return {
+			end,
+			lead: text.slice(pathFrom, slash),
+			value: text.slice(slash + "/".length, end),
+		};
 	});
 }
 

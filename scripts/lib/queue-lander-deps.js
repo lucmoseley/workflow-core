@@ -128,7 +128,8 @@ function buildLanderDeps(
 		ledger: fileLedger(files.ledger),
 		verdicts: verdictLedger(files.verdicts),
 		refused: refusedRecord(files.refused),
-		record: pipelineRecord(files.batch),
+		/* A torn record's aside name is stamped off `now`, WFC_NOW included. */
+		record: pipelineRecord(files.batch, now),
 		drops: dropRecord(files.drops),
 		tracker: trackerOf(root),
 		logQueue: queueLogger(root),

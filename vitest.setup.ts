@@ -26,16 +26,10 @@ import "@testing-library/jest-dom/vitest";
  * into vitest is covered; vitest's own process keeps its git environment, so
  * the tree-watch globalSetup still reads a hook's private index.
  */
-for (const name of [
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_PREFIX",
-])
-	delete process.env[name];
+const { GIT_DIR_VARS } = createRequire(import.meta.url)(
+	"./scripts/lib/git.js",
+) as { GIT_DIR_VARS: string[] };
+for (const name of GIT_DIR_VARS) delete process.env[name];
 
 /* A run a case starts is no lander's, though the lander started the suite
  * (#4757). Deleted in the worker, so vitest's own process still marks the
@@ -51,6 +45,11 @@ delete process.env.WFC_PASS_STORE_CACHED;
  * blank, it reads as no hold, so a meminfo fixture is never lifted by the
  * real holder's MB (#4862). A case naming its own still wins. */
 process.env.WFC_MEMORY_HOLD = "";
+
+/* No write route a case drives launches the gate judge (#4969): each launch
+ * is a child process, and its fallback line would join every create's
+ * output. A case that drives the judge blanks it. */
+process.env.WFC_GATE_JUDGE = "off";
 
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
@@ -257,3 +256,10 @@ for (const [key, value] of Object.entries(SUITE_GIT_CONFIG)) {
 	gitConfigCount++;
 }
 process.env.GIT_CONFIG_COUNT = String(gitConfigCount);
+
+/* THE ENVIRONMENT AS LEFT HERE IS EVERY CHILD'S (#4982): the read audit
+ * weighs a variable naming the checkout apart where a test set it itself.
+ * Last, after every default above. */
+(
+	globalThis as { __wfcReadAudit?: { settle: () => void } }
+).__wfcReadAudit?.settle();

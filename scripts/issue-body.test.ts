@@ -22,8 +22,20 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { store as arbiter, freshSandbox } from "./lib/arbiter-testkit";
+import {
+	callLogPath,
+	FALLBACK_LEAD,
+	type JudgeFakePlan,
+	judgeFakeEnv,
+	MODEL_LEAD,
+	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
+	readJudgeCalls,
+} from "./lib/gate-judge-fake";
 import { asRecorded } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
+import { readJsonl } from "./lib/jsonl.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -719,12 +731,185 @@ describe("the CLI", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			'this edit adds the basis "#96 asks for a week", which carries no warrant. Every gate line',
+			'this edit adds the basis "#96 asks for a week", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
 		expect(r.stderr).toContain("baseline 27/449 attempts");
 		expect(readEdits()).toBe(0);
 		run("append", "96", "--text", "**Gate basis:** #97 ruled a week");
 		expect(readBody()).toContain("#97 ruled a week");
+	});
+});
+
+describe("the model reading of an edit (#4969)", () => {
+	const Wait = "Re-measure over seven days of those records.";
+	const OldWait = "Re-measure once those records hold 500 ticks.";
+	const wait = (sentence: string, window: string) => ({
+		sentence,
+		on: "data",
+		window,
+		basisNamesWindow: false,
+	});
+	let log = "";
+	const nextBody = (text: string) => {
+		const file = path.join(dir, "next.md");
+		fs.writeFileSync(file, text);
+		return file;
+	};
+	const edit = (plan: JudgeFakePlan, ...args: string[]) => {
+		const judge = judgeFakeEnv(dir, plan);
+		log = judge.log;
+		return runInProcess(SCRIPT, args, {
+			env: { ...process.env, ...judge.env },
+		});
+	};
+
+	const found = { reading: { waits: [wait(Wait, "seven days")], bases: [] } };
+
+	it("refuses an edit whose wait only the model reads, printing the template and the override", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(found, "append", "96", "--text", Wait);
+		expect(r.status).toBe(2);
+		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing written:"));
+		expect(refusal).toContain(`Nothing written: this edit adds ${MODEL_LEAD}:`);
+		expect(refusal).toContain(`"${Wait}" makes work wait on data accumulating`);
+		expect(refusal).toContain("The line's template: `**Gate basis:**");
+		expect(refusal).toContain(
+			"`**Gate judge override:** <why the reading is wrong>`",
+		);
+		expect(readEdits()).toBe(0);
+	});
+
+	it("writes an edit whose override gives a reason, saying it was honoured", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(
+			found,
+			"append",
+			"96",
+			"--text",
+			`${Wait}\n${OVERRIDE_LINE}`,
+		);
+		expect(r.status).toBe(0);
+		expect(readBody()).toContain(Wait);
+		expect(r.stderr.split(OVERRIDE_LEAD)).toHaveLength(2);
+		expect(readJsonl(callLogPath())?.rows).toContainEqual(
+			expect.objectContaining({
+				route: "issue-body",
+				issue: 96,
+				override: OVERRIDE_REASON,
+			}),
+		);
+	});
+
+	it("refuses an edit whose override gives no reason", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(
+			found,
+			"append",
+			"96",
+			"--text",
+			`${Wait}\n**Gate judge override:**`,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("gives no reason, so it clears nothing");
+		expect(readEdits()).toBe(0);
+	});
+
+	it("refuses an edit the patterns fault, an override line present", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(
+			found,
+			"append",
+			"96",
+			"--text",
+			`**Gated until:** 2026-10-05 — a week\n\n${Wait}\n${OVERRIDE_LINE}`,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("as the wording patterns read it");
+		expect(readEdits()).toBe(0);
+	});
+
+	it("prints nothing about an old wait the edit leaves untouched", () => {
+		fs.writeFileSync(store, `${OldWait}\n`);
+		const r = edit(
+			{ reading: { waits: [wait(OldWait, "500 ticks")], bases: [] } },
+			"append",
+			"96",
+			"--text",
+			"unrelated note",
+		);
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain(MODEL_LEAD);
+	});
+
+	it("judges a basis the edit rewrites", () => {
+		const basis = "**Gate basis:** 12 ticks an hour (#7), so 90 ticks a shift.";
+		fs.writeFileSync(store, `${OldWait}\n\n${basis}\n`);
+		const rewritten = "the ticket asks for 500 ticks.";
+		const r = edit(
+			{
+				reading: {
+					waits: [{ ...wait(OldWait, "500 ticks"), basisNamesWindow: true }],
+					bases: [{ basis: rewritten, class: "restated" }],
+				},
+			},
+			"replace",
+			"96",
+			"--file",
+			nextBody(`${OldWait}\n\n**Gate basis:** ${rewritten}\n`),
+		);
+		expect(r.stderr).toContain(
+			`the basis "${rewritten}" reads as restated, repeating the window or its own ticket's ask`,
+		);
+		expect(r.stderr).toContain("question 2:");
+	});
+
+	it("refuses what the patterns fault, the model's finding in the same message", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(
+			{ reading: { waits: [wait(Wait, "seven days")], bases: [] } },
+			"append",
+			"96",
+			"--text",
+			`**Gated until:** 2026-10-05 — a week\n\n${Wait}`,
+		);
+		expect(r.status).toBe(2);
+		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing written:"));
+		expect(refusal).toContain("no `**Gate basis:**` line");
+		expect(refusal).toContain(`It also carries ${MODEL_LEAD}:`);
+		expect(readEdits()).toBe(0);
+	});
+
+	it("writes on the patterns alone where the reply fails, saying so once", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit({ stdout: "not json" }, "append", "96", "--text", Wait);
+		expect(r.status).toBe(0);
+		expect(readBody()).toContain(Wait);
+		expect(r.stderr.split(FALLBACK_LEAD)).toHaveLength(2);
+		expect(r.stderr).toContain(
+			`${FALLBACK_LEAD} (the judge's reply was not JSON)`,
+		);
+	});
+
+	it("reads each body once a run, and logs the call with the issue's number", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		fs.rmSync(callLogPath(), { force: true });
+		edit(
+			{ reading: { waits: [], bases: [] } },
+			"append",
+			"96",
+			"--text",
+			"a note",
+		);
+		expect(readJudgeCalls(log)).toHaveLength(1);
+		expect(readJsonl(callLogPath())?.rows).toEqual([
+			expect.objectContaining({
+				route: "issue-body",
+				issue: 96,
+				patterns: [],
+				model: [],
+				fallback: null,
+			}),
+		]);
 	});
 });
 

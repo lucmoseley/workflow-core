@@ -22,6 +22,11 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
+/* The watchdog races a process chain that forks every 50 ms: under the read
+ * audit's tracer its sweep lost that race on a loaded machine (#4982).
+ * env-write-kept: every child of this file's own process, for its whole life. */
+process.env.WFC_READ_AUDIT_UNTRACED = "1";
+
 const HOME = os.homedir();
 const MEMCHECK = path.join(HOME, "memcheck.sh");
 const MEMWATCH = path.join(HOME, "memwatch.sh");

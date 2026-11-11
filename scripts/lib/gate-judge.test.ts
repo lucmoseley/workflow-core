@@ -16,12 +16,21 @@ import {
 	JUDGE_BOUND_MS,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
+	readGateWrite,
 } from "./gate-judge.js";
 import {
+	callLogPath,
+	FALLBACK_LEAD,
 	type JudgeFakePlan,
+	MODEL_LEAD,
+	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
+import { basisFaults, basisRefusal } from "./issue-gate.js";
+import { readJsonl } from "./jsonl.js";
 
 /* Far over a faked call, which is three Node starts. */
 const BOUND_MS = 60_000;
@@ -77,7 +86,9 @@ describe("a judged wait", () => {
 			`Build it.\n\n${WAIT}\n`,
 			reading([wait(WAIT, "500 ticks")]),
 		);
-		expect(r.faults).toEqual([{ kind: "no-basis", text: WAIT, by: "model" }]);
+		expect(r.faults).toEqual([
+			{ kind: "no-basis", text: WAIT, by: "model", on: "data" },
+		]);
 		expect(r.fallback).toBeNull();
 	});
 
@@ -96,7 +107,7 @@ describe("a judged wait", () => {
 			),
 		);
 		expect(r.faults).toEqual([
-			{ kind: "unnamed-window", text: "500 ticks", by: "model" },
+			{ kind: "unnamed-window", text: "500 ticks", by: "model", on: "data" },
 		]);
 	});
 
@@ -132,7 +143,7 @@ describe("a judged basis", () => {
 		(cls) => {
 			const basis = "the ticket asks for 500 ticks.";
 			expect(judged(basis, cls)).toEqual([
-				{ kind: "no-warrant", text: basis, by: "model" },
+				{ kind: "no-warrant", text: basis, by: "model", class: cls },
 			]);
 		},
 	);
@@ -150,7 +161,7 @@ describe("a judged basis", () => {
 	it("classed inherited is a no-warrant fault where it cites only its own number", () => {
 		const basis = "the 500 ticks #12 asks for.";
 		expect(judged(basis, "inherited", 12)).toEqual([
-			{ kind: "no-warrant", text: basis, by: "model" },
+			{ kind: "no-warrant", text: basis, by: "model", class: "inherited" },
 		]);
 	});
 
@@ -164,7 +175,7 @@ describe("a judged basis", () => {
 			),
 		);
 		expect(r.faults).toEqual([
-			{ kind: "no-warrant", text: basis, by: "model" },
+			{ kind: "no-warrant", text: basis, by: "model", class: "restated" },
 		]);
 		expect(r.dropped).toBe(0);
 	});
@@ -200,7 +211,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		const sentence = "Re-measure once 500 ticks are in `ticks.jsonl`";
 		const r = judge(`${sentence}\n`, reading([wait(sentence, "500 ticks")]));
 		expect(r.faults).toEqual([
-			{ kind: "no-basis", text: sentence, by: "model" },
+			{ kind: "no-basis", text: sentence, by: "model", on: "data" },
 		]);
 		expect(r.dropped).toBe(0);
 	});
@@ -255,7 +266,7 @@ describe("the patterns stay the floor", () => {
 		);
 		expect(r.faults).toEqual([
 			{ kind: "no-basis", text: "a week after", by: "patterns" },
-			{ kind: "no-basis", text: WAIT, by: "model" },
+			{ kind: "no-basis", text: WAIT, by: "model", on: "data" },
 		]);
 	});
 });
@@ -332,7 +343,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 
 describe("an edit", () => {
 	const Old = `Some context.\n\n${WAIT}\n`;
-	const model = [{ kind: "no-basis", text: WAIT, by: "model" }];
+	const model = [{ kind: "no-basis", text: WAIT, by: "model", on: "data" }];
 
 	it("that leaves a judged wait untouched raises nothing for it", () => {
 		const r = judge(
@@ -353,7 +364,7 @@ describe("an edit", () => {
 			{ before: Old },
 		);
 		expect(r.faults).toEqual([
-			{ kind: "no-basis", text: rewritten, by: "model" },
+			{ kind: "no-basis", text: rewritten, by: "model", on: "data" },
 		]);
 	});
 
@@ -366,7 +377,7 @@ describe("an edit", () => {
 			{ before: `${WAIT}\n\n${basis}\n` },
 		);
 		expect(r.faults).toEqual([
-			{ kind: "unnamed-window", text: "500 ticks", by: "model" },
+			{ kind: "unnamed-window", text: "500 ticks", by: "model", on: "data" },
 		]);
 	});
 
@@ -390,7 +401,12 @@ describe("an edit", () => {
 		expect(
 			judge(after, cls("the body sets 500 ticks."), { before }).faults,
 		).toEqual([
-			{ kind: "no-warrant", text: "the body sets 500 ticks.", by: "model" },
+			{
+				kind: "no-warrant",
+				text: "the body sets 500 ticks.",
+				by: "model",
+				class: "restated",
+			},
 		]);
 	});
 
@@ -405,5 +421,176 @@ describe("an edit", () => {
 		expect(judge(Old, reading([wait(WAIT, "500 ticks")])).faults).toEqual(
 			model,
 		);
+	});
+});
+
+describe("a write route's reading", () => {
+	const write = (
+		body: string,
+		plan: JudgeFakePlan,
+		opts: { before?: string; own?: number; boundMs?: number } = {},
+		extraEnv: Record<string, string> = {},
+	) =>
+		readGateWrite(body, {
+			route: "file-issue",
+			boundMs: BOUND_MS,
+			...opts,
+			env: {
+				...process.env,
+				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
+				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
+				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
+				WFC_GATE_JUDGE: "",
+				...extraEnv,
+			},
+		});
+	const Gate = "**Gated until:** 2026-10-05 — a week live";
+	const PatternSays = [
+		"with no `**Gate basis:**` line",
+		"line does not name",
+		"carries no warrant",
+		"carry no warrant",
+	];
+
+	const Found = reading([wait(WAIT, "500 ticks")]);
+	it("gives a model fault, a pattern fault, an override and a fallback text the review can count apart", () => {
+		const model = write(`${WAIT}\n`, Found).refusal ?? "";
+		const pattern = write(`${Gate}\n`, NOTHING).refusal ?? "";
+		const fallback = write(`${WAIT}\n`, { exit: 1 }).advice;
+		const override = write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found).advice;
+		const leads = {
+			model: MODEL_LEAD,
+			fallback: FALLBACK_LEAD,
+			override: OVERRIDE_LEAD,
+		};
+		const texts = { model, pattern, fallback, override };
+		for (const [name, text] of Object.entries(texts)) {
+			for (const [lead, says] of Object.entries(leads))
+				expect(text.includes(says), `${name} carries ${lead}`).toBe(
+					lead === name,
+				);
+			expect(
+				PatternSays.some((says) => text.includes(says)),
+				`${name} carries a pattern fault`,
+			).toBe(name === "pattern");
+		}
+		expect(pattern).toContain("as the wording patterns read it");
+	});
+
+	it("refuses a model fault, quoting it, naming its question, the template and the override", () => {
+		const r = write(`Build it.\n\n${WAIT}\n`, Found);
+		expect(r.advice).toBe("");
+		const refusal = r.refusal ?? "";
+		expect(refusal.startsWith(`${MODEL_LEAD}:`)).toBe(true);
+		expect(refusal).toContain(`"${WAIT}" makes work wait on data accumulating`);
+		expect(refusal).toContain("question 1:");
+		expect(refusal).toContain("The line's template: `**Gate basis:**");
+		expect(refusal).toContain(
+			"write a live body line `**Gate judge override:** <why the reading is wrong>`",
+		);
+	});
+
+	it("refuses a basis the model reads as asserted, naming question 2", () => {
+		const r = write(
+			`${WAIT}\n**Gate basis:** 500 ticks is plenty\n`,
+			reading(
+				[wait(WAIT, "500 ticks", true)],
+				[{ basis: "500 ticks is plenty", class: "asserted" }],
+			),
+		);
+		expect(r.refusal).toContain(
+			'the basis "500 ticks is plenty" reads as asserted',
+		);
+		expect(r.refusal).toContain("question 2:");
+	});
+
+	it("refuses on both readings in one message, the pattern faults first", () => {
+		const r = write(`${Gate}\n\n${WAIT}\n`, Found);
+		expect(r.advice).toBe("");
+		expect(
+			r.refusal?.startsWith(
+				`${basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns")}\n\nIt also carries ${MODEL_LEAD}:`,
+			),
+		).toBe(true);
+		expect(r.refusal).toContain(
+			`"${WAIT}" makes work wait on data accumulating`,
+		);
+	});
+
+	it("lets an override with a reason clear the model's faults, saying it was honoured", () => {
+		const r = write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found);
+		expect(r.refusal).toBeNull();
+		expect(r.advice).toContain(`${OVERRIDE_LEAD} ("${OVERRIDE_REASON}")`);
+		expect(r.advice).toContain(
+			`"${WAIT}" makes work wait on data accumulating`,
+		);
+	});
+
+	it("clears nothing with an empty override, or one quoted in a fence", () => {
+		const empty = write(`${WAIT}\n**Gate judge override:**\n`, Found);
+		expect(empty.refusal).toContain(MODEL_LEAD);
+		expect(empty.refusal).toContain("gives no reason, so it clears nothing");
+		const fenced = write(
+			`${WAIT}\n\n\`\`\`\n${OVERRIDE_LINE}\n\`\`\`\n`,
+			Found,
+		);
+		expect(fenced.refusal).toContain(MODEL_LEAD);
+		expect(fenced.advice).toBe("");
+	});
+
+	it("clears no pattern fault with an override", () => {
+		const r = write(`${Gate}\n\n${WAIT}\n${OVERRIDE_LINE}\n`, Found);
+		expect(r.refusal).toContain("as the wording patterns read it");
+		expect(r.refusal).not.toContain(`It also carries ${MODEL_LEAD}`);
+		expect(r.refusal).toContain(OVERRIDE_LEAD);
+	});
+
+	it("never refuses on a fallback, an override present or not", () => {
+		for (const body of [`${WAIT}\n`, `${WAIT}\n**Gate judge override:**\n`]) {
+			const r = write(body, { exit: 1 });
+			expect(r.refusal).toBeNull();
+			expect(r.advice).toContain(FALLBACK_LEAD);
+		}
+	});
+
+	it("falls back without a call where too little of the bound is left", () => {
+		const r = write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), {
+			boundMs: 1000,
+		});
+		expect(r.advice).toContain(
+			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
+		);
+		expect(readJudgeCalls(log)).toEqual([]);
+	});
+
+	it("appends one record a call to the log", () => {
+		fs.rmSync(callLogPath(), { force: true });
+		write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), { own: 12 });
+		write(`${WAIT}\n`, { exit: 3 });
+		write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found);
+		expect(readJsonl(callLogPath())?.rows).toEqual([
+			expect.objectContaining({
+				route: "file-issue",
+				issue: 12,
+				patterns: [],
+				model: [{ kind: "no-basis", text: WAIT, on: "data" }],
+				fallback: null,
+				override: null,
+			}),
+			expect.objectContaining({ model: [], fallback: "the judge exited 3" }),
+			expect.objectContaining({ override: OVERRIDE_REASON }),
+		]);
+	});
+
+	it("calls no model for an edit that changes nothing, nor with the judge off", () => {
+		expect(write(`${WAIT}\n`, NOTHING, { before: `${WAIT}\n` })).toEqual({
+			refusal: null,
+			advice: "",
+		});
+		expect(write(`${Gate}\n`, NOTHING, {}, { WFC_GATE_JUDGE: "off" })).toEqual({
+			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
+			advice: "",
+		});
+		expect(readJudgeCalls(log)).toEqual([]);
 	});
 });

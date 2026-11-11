@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { type Audit, NO_READS, type Reads } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
 const { readTreeSnapshot } = require("./tree-drift.js");
@@ -86,27 +87,6 @@ let clock = Date.now() - DAY;
 const nextAt = () => {
 	clock += 60_000;
 	return new Date(clock).toISOString();
-};
-
-interface Reads {
-	files: string[];
-	absent: string[];
-	dirs: string[];
-	lists: Record<string, string>;
-	trees: string[];
-	scripts: string[];
-	git: { cwd: string; args: string[] }[];
-}
-type Audit = { reads: Reads } | { doubt: string };
-
-const NO_READS: Reads = {
-	files: [],
-	absent: [],
-	dirs: [],
-	lists: {},
-	trees: [],
-	scripts: [],
-	git: [],
 };
 
 /**
@@ -461,6 +441,21 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	it.each([
+		["the drift watch saw while the run ran", { drifted: ["data.js"] }, ""],
+		["git ignores, which the drift watch never sees", {}, "data.js\n"],
+	])(
+		"records no row over a shadowing path, gone once the run ended, that %s (#4790 pass 3)",
+		(_which, how, ignore) => {
+			const dir = repo();
+			write(dir, "lib.js", 'require("./data");\n');
+			write(dir, "data.json", "{}\n");
+			fs.appendFileSync(path.join(dir, ".gitignore"), ignore);
+			expect(run(dir, [A], how)).toBe(0);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		},
+	);
+
 	it("leaves the shadowing paths out of the reads a cached file attests", () => {
 		const dir = repo();
 		write(dir, "lib.js", 'require("./data");\n');
@@ -499,6 +494,220 @@ describe("the newest result on the same content decides", () => {
 		write(dir, "lib.js", "lib.js v0\n");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
+	});
+
+	describe("a red file whose inputs are unknown (#4790 pass 3)", () => {
+		const Doubt = { doubt: "its process left no audit log" };
+		const heldAtHead = (dir: string) =>
+			heldAtSha([A], {
+				storeRoot: dir,
+				sha: git(dir, "rev-parse", "HEAD"),
+				before: "9999",
+				git: (args: string[]) =>
+					execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+				values: VALUES,
+			}).get(A);
+
+		it("voids an older pass on the same content, until a newer pass", () => {
+			const dir = repo();
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			expect(run(dir, [A], { failing: [A], audits: { [A]: Doubt } })).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([]);
+
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		});
+
+		it.each([
+			["a module it imports", "lib.js"],
+			["a file every test shares", "vitest.setup.ts"],
+			["a document the manifest maps to it", "doc.md"],
+		])(
+			"leaves the older pass standing where %s shows the red ran on other content",
+			(_what, input) => {
+				const dir = repo();
+				run(dir, [A]);
+				write(dir, input, "broken\n");
+				expect(run(dir, [A], { failing: [A], audits: { [A]: Doubt } })).toBe(1);
+				expect(cachedOf(dir, [A])).toEqual([]);
+				git(dir, "checkout", "-q", input);
+				expect(cachedOf(dir, [A])).toEqual([A]);
+			},
+		);
+
+		it("voids the older pass over an input rewritten while the red run ran, whose content then nothing tells", () => {
+			const dir = repo();
+			run(dir, [A]);
+			write(dir, "lib.js", "left behind by the run\n");
+			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
+			git(dir, "checkout", "-q", "lib.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("voids the older pass on a shadowing path the red run may have loaded, gone once the run ended and back (#4790 pass 3)", () => {
+			const dir = repo();
+			write(dir, "lib.js", 'require("./data");\n');
+			write(dir, "data.json", "{}\n");
+			write(dir, "data.js", "v0\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "data");
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			fs.rmSync(path.join(dir, "data.js"));
+			expect(run(dir, [A], { failing: [A], drifted: ["data.js"] })).toBe(1);
+			git(dir, "checkout", "-q", "data.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("keys nothing reached through a file rewritten while the red run ran", () => {
+			const dir = repo();
+			write(dir, "far.js", "far.js v0\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "far");
+			run(dir, [A]);
+			write(dir, "lib.js", 'require("./far.js");\n');
+			write(dir, "far.js", "far.js v1\n");
+			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
+			git(dir, "checkout", "-q", "lib.js", "far.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it.each([
+			["was rewritten while its red run ran", { drifted: [A] }],
+			["may have been, the tree's drift being unknown", { drifted: null }],
+		])(
+			"voids the older pass at any content of a test file that %s",
+			(_why, how) => {
+				const dir = repo();
+				run(dir, [A]);
+				write(dir, A, "left behind by the run\n");
+				expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
+				git(dir, "checkout", "-q", A);
+				expect(cachedOf(dir, [A])).toEqual([]);
+			},
+		);
+
+		it("voids the older pass where a git answer the red run saw had moved once the run ended, and is back (#4790 pass 3)", () => {
+			const dir = repo();
+			git(dir, "branch", "other");
+			const seen = git(dir, "rev-parse", "other");
+			const askedGit: Audit = {
+				reads: {
+					...NO_READS,
+					git: [
+						{
+							cwd: ".",
+							args: ["rev-parse", "other"],
+							answer: `0:${createHash("sha1").update(`${seen}\n`).digest("hex")}`,
+						},
+					],
+				},
+			};
+			run(dir, [A], { audits: { [A]: askedGit } });
+			expect(cachedOf(dir, [A])).toEqual([A]);
+
+			git(dir, "commit", "-q", "--allow-empty", "-m", "two");
+			git(dir, "update-ref", "refs/heads/other", "HEAD");
+			const red = { failing: [A], drifted: ["lib.js"] };
+			expect(run(dir, [A], { ...red, audits: { [A]: askedGit } })).toBe(1);
+			git(dir, "update-ref", "refs/heads/other", seen);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("voids the older pass where a tree the red run walked listed otherwise once the run ended, and is back (#4790 pass 3)", () => {
+			const dir = repo();
+			const walked: Audit = { reads: { ...NO_READS, trees: ["docs"] } };
+			write(dir, "docs/one.md", "one\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "docs");
+			run(dir, [A], { audits: { [A]: walked } });
+			expect(cachedOf(dir, [A])).toEqual([A]);
+
+			write(dir, "docs/late.md", "late\n");
+			git(dir, "add", "docs/late.md");
+			const red = { failing: [A], drifted: ["lib.js", "docs/late.md"] };
+			expect(run(dir, [A], { ...red, audits: { [A]: walked } })).toBe(1);
+			git(dir, "rm", "-q", "-f", "docs/late.md");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("leaves the older pass standing where a listing the red run made shows it ran on other content", () => {
+			const dir = repo();
+			write(dir, "docs/one.md", "one\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "docs");
+			const listed = (): Audit => ({
+				reads: {
+					...NO_READS,
+					lists: { docs: listingId(fs.readdirSync(path.join(dir, "docs"))) },
+				},
+			});
+			run(dir, [A], { audits: { [A]: listed() } });
+
+			write(dir, "docs/two.md", "two\n");
+			git(dir, "add", "docs/two.md");
+			const red = { failing: [A], drifted: ["lib.js"] };
+			expect(run(dir, [A], { ...red, audits: { [A]: listed() } })).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([]);
+			git(dir, "rm", "-q", "-f", "docs/two.md");
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		});
+
+		it("lets no voiding row that names a pass decide", () => {
+			const dir = repo();
+			run(dir, [A], { failing: [A], audits: { [A]: Doubt } });
+			const line = JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8"));
+			line.files[0].outcome = "pass";
+			fs.writeFileSync(shardOf(dir, A), `${JSON.stringify(line)}\n`);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it.each([
+			["nothing audited the run", { audits: null }],
+			["the tree's drift is unknown", { drifted: null }],
+		])("voids the older pass where %s", (_why, how) => {
+			const dir = repo();
+			run(dir, [A]);
+			expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("voids the older pass where a module on its reach will not read", () => {
+			const dir = repo();
+			write(dir, A, 'require("./deep.js");\n');
+			write(dir, "scripts/deep.js", "module.exports = 1;\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "deep");
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			const deep = path.join(dir, "scripts/deep.js");
+			fs.chmodSync(deep, 0o000);
+			try {
+				expect(run(dir, [A], { failing: [A] })).toBe(1);
+			} finally {
+				fs.chmodSync(deep, 0o644);
+			}
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("is no evidence of a red at a commit: the older pass still answers there", () => {
+			const dir = repo();
+			run(dir, [A]);
+			run(dir, [A], { failing: [A], audits: { [A]: Doubt } });
+			expect(heldAtHead(dir)).toMatchObject({ red: false });
+		});
+
+		it("still records a red file's own inputs where they are known", () => {
+			const dir = repo();
+			run(dir, [A]);
+			run(dir, [A], { failing: [A] });
+			expect(heldAtHead(dir)).toMatchObject({ red: true });
+			write(dir, "lib.js", "fixed\n");
+			run(dir, [A]);
+			git(dir, "checkout", "-q", "lib.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
 	});
 
 	it("a file that passed inside a red run caches; the red one runs", () => {
@@ -593,6 +802,147 @@ describe("a script the manifest says a file spawns", () => {
 		fs.mkdirSync(path.join(dir, "scripts/lib"));
 		write(dir, "scripts/lib/helper.py", "shadow\n");
 		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/** Python putting `name`, beside the file that reads it, first on sys.path. */
+	const insert = (name: string) =>
+		`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+
+	/** `spawning`'s tool.py, putting `lib` and then its own directory first
+	 * on sys.path as list_shape.py does, and loading `lib/mod.py`, which
+	 * reads `modCode`. */
+	function spawningModule(modCode: string, deps: string[] = []) {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/lib/mod.py", ...deps],
+			[
+				"import os, sys",
+				"HERE = os.path.dirname(os.path.abspath(__file__))",
+				'sys.path.insert(0, os.path.join(HERE, "lib"))',
+				"sys.path.insert(0, HERE)",
+				"import mod  # noqa: E402",
+			].join("\n"),
+		);
+		write(dir, "scripts/lib/mod.py", modCode);
+		git(dir, "commit", "-qam", "module");
+		return dir;
+	}
+
+	it("voids the pass when a file appears where the script's sys.path shadows its module's import (#4870)", () => {
+		const dir = spawningModule("import helper\n", ["scripts/lib/helper.py"]);
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a module's import found only on the script's sys.path changes (#4870)", () => {
+		const dir = spawningModule("import beside\n", ["scripts/beside.py"]);
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/beside.py", "changed\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a file appears on the entry one module adds ahead of another module's import (#4870)", () => {
+		const dir = spawningModule(`${insert("../x")}import other\n`, [
+			"scripts/lib/other.py",
+			"scripts/lib/helper.py",
+		]);
+		write(dir, "scripts/lib/other.py", "import helper\n");
+		git(dir, "commit", "-qam", "sibling");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/x"));
+		write(dir, "scripts/x/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a file appears on the entry a module adds ahead of its importer's later import (#4870)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/mod.py", "scripts/helper.py"],
+			"import mod\nimport helper\n",
+		);
+		write(dir, "scripts/mod.py", insert("x"));
+		git(dir, "commit", "-qam", "module");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/x"));
+		write(dir, "scripts/x/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("voids the pass when a file appears on the entry an imported module adds ahead of its importer's own (#4870)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/mod.py", "scripts/x/helper.py"],
+			`${insert("x")}import mod\nimport helper\n`,
+		);
+		write(dir, "scripts/mod.py", insert("y"));
+		git(dir, "commit", "-qam", "module");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/y"));
+		write(dir, "scripts/y/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	/* The second pair differs by a soft hyphen, which a locale's collation
+	 * ignores. */
+	it.each([
+		["x", "y"],
+		["x", "x\u00ad"],
+	])(
+		"records a row where the entries two same-named modules add, %j and %j, decide which of them loads (#4870)",
+		(one, other) => {
+			const dir = spawning(
+				"scripts/tool.py",
+				[
+					"scripts/setup.py",
+					"scripts/mod.py",
+					`scripts/${one}/mod.py`,
+					`scripts/${other}/mod.py`,
+				],
+				"import setup\nimport mod\n",
+			);
+			write(dir, "scripts/setup.py", `${insert(one)}${insert(other)}`);
+			write(dir, "scripts/mod.py", "");
+			write(dir, `scripts/${one}/mod.py`, insert("."));
+			write(dir, `scripts/${other}/mod.py`, insert("."));
+			git(dir, "commit", "-qam", "reordering modules");
+			expect(run(dir, [A])).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		},
+	);
+
+	it("voids the pass when a namespace package's module changes on the entry a module added last (#4870)", () => {
+		const dir = spawning(
+			"scripts/tool.py",
+			[
+				"scripts/setup.py",
+				"scripts/ns/sub.py",
+				"scripts/a/ns/sub.py",
+				"scripts/b/ns/sub.py",
+			],
+			"import setup\nimport ns.sub\n",
+		);
+		write(dir, "scripts/setup.py", `${insert("a")}${insert("b")}`);
+		git(dir, "commit", "-qam", "namespace portions");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/b/ns/sub.py", "changed\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("records a row where two modules import each other, each adding to sys.path (#4870)", () => {
+		const dir = spawningModule(`${insert("a")}import other\n`, [
+			"scripts/lib/other.py",
+		]);
+		write(dir, "scripts/lib/other.py", `${insert("b")}import mod\n`);
+		git(dir, "commit", "-qam", "cycle");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
 	});
 
 	it("records no row where the spawned Python script imports a module it cannot place (#4790)", () => {
@@ -994,6 +1344,124 @@ describe("the uncached pragma", () => {
 	});
 });
 
+describe("a red recorded at another layout (#4995)", () => {
+	const reformatNewest = (dir: string, file: string, format: number) => {
+		const lines = fs
+			.readFileSync(shardOf(dir, file), "utf8")
+			.trim()
+			.split("\n");
+		const last = JSON.parse(lines.pop() as string);
+		fs.writeFileSync(
+			shardOf(dir, file),
+			`${[...lines, JSON.stringify({ ...last, format })].join("\n")}\n`,
+		);
+	};
+	const heldAtHead = (dir: string) =>
+		heldAtSha([A], {
+			storeRoot: dir,
+			sha: git(dir, "rev-parse", "HEAD"),
+			before: "9999",
+			git: (args: string[]) =>
+				execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+			values: VALUES,
+		}).get(A);
+	const formatOf = (dir: string) =>
+		JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n")[0])
+			.format as number;
+
+	it.each([
+		["an older", -1],
+		["a newer", 1],
+	])(
+		"%s layout's newer red on the same content voids an older pass",
+		(_which, step) => {
+			const dir = repo();
+			run(dir, [A]);
+			run(dir, [A], { failing: [A] });
+			reformatNewest(dir, A, formatOf(dir) + step);
+			expect(cachedOf(dir, [A])).toEqual([]);
+			expect(heldAtHead(dir)).toBeUndefined();
+		},
+	);
+
+	it.each([
+		["an older", -1],
+		["a newer", 1],
+	])(
+		"%s layout's red leaves the pass standing where an input proves it ran on other content",
+		(_which, step) => {
+			const dir = repo();
+			run(dir, [A]);
+			write(dir, "lib.js", "broken\n");
+			run(dir, [A], { failing: [A] });
+			reformatNewest(dir, A, formatOf(dir) + step);
+			write(dir, "lib.js", "lib.js v0\n");
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		},
+	);
+
+	it("takes no path its red found absent as proof of other content", () => {
+		const dir = repo();
+		run(dir, [A]);
+		run(dir, [A], { failing: [A] });
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		const lines = fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n");
+		const red = JSON.parse(lines.pop() as string);
+		red.files[0].inputs["other.md"] = "absent";
+		fs.writeFileSync(
+			shardOf(dir, A),
+			`${[...lines, JSON.stringify(red)].join("\n")}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("leaves the classifier an older red of this layout behind the pass it voids", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		run(dir, [A]);
+		run(dir, [A], { failing: [A] });
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		expect(heldAtHead(dir)?.red).toBe(true);
+	});
+
+	it("leaves a newer pass caching over it", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		run(dir, [A]);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		expect(heldAtHead(dir)?.red).toBe(false);
+	});
+
+	it("voids an older pass where its line names no row this layout can read", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const format = formatOf(dir) + 1;
+		fs.appendFileSync(
+			shardOf(dir, A),
+			`${JSON.stringify({ format, at: nextAt(), results: [{ path: A }] })}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+		expect(heldAtHead(dir)).toBeUndefined();
+	});
+
+	it("is no evidence for the already-red classifier of a red at a commit", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		expect(heldAtHead(dir)?.red).toBe(true);
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		expect(heldAtHead(dir)).toBeUndefined();
+	});
+
+	it("never lets another layout's pass cache over this layout's red", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		run(dir, [A]);
+		reformatNewest(dir, A, formatOf(dir) + 1);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+});
+
 describe("a store it cannot trust runs every file", () => {
 	/* Format 3 is #4790 pass 2 review's finding 3: its rows ignored the
 	 * sys.path a spawned Python script builds (#4864). Format 4 is pass 3's
@@ -1002,7 +1470,8 @@ describe("a store it cannot trust runs every file", () => {
 	 * 2-4: its rows missed every guard core, a data file joined off
 	 * `__dirname` and what the setup file reaches. Format 7 is round 5's
 	 * findings 1, 2 and 7: its rows missed a path two joins off `__dirname`,
-	 * `.claude/workflow-core.json` and `tsconfig.json`. */
+	 * `.claude/workflow-core.json` and `tsconfig.json`. Format 8's rows
+	 * placed a Python module's imports on its own directory alone (#4870). */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -1014,6 +1483,38 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before the walk read a path two joins off __dirname and the plugin config (#4790)",
 			7,
+		],
+		[
+			"before a red file in doubt voided an older pass, and the audit doubted the reads of pass 3's findings 2-6 and 8-10 (#4790)",
+			8,
+		],
+		[
+			"before a voiding row keyed the inputs it could read, and the audit doubted a checkout script run as the program and git's abbreviated stdin options (#4790)",
+			9,
+		],
+		[
+			"before a voiding row left a git answer and a walked tree's listing unkeyed, and the audit traced or doubted a checkout shell script run as the program and doubted a git call handed a descriptor by path (#4790)",
+			10,
+		],
+		[
+			"before an absent input was one the drift watch saw steady, and the audit knew the guard by its real file and doubted a checkout script a shell no tracer followed ran (#4790)",
+			11,
+		],
+		[
+			"before the audit doubted a git call handed its standard output or error by path (#4790)",
+			12,
+		],
+		[
+			"before the walk placed a module's imports on its importer's sys.path (#4870)",
+			8,
+		],
+		[
+			"before one layout held both that walk (#4870) and the audit's doubts of #4790's third review",
+			13,
+		],
+		[
+			"before one layout held both the handed-checkout doubts (#4982) and the audit's doubts of #4790's third review",
+			14,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();

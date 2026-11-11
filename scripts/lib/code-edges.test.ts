@@ -20,6 +20,25 @@ const { edgesOf, reachOf } = require("./code-edges.js");
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
+/** The reach of `file` under `root`, reading `text`: as a script run on its
+ * own, or, handed the `search` its importer left, as that file's module. */
+function walk(file: string, text: string, search?: unknown) {
+	const faults: string[] = [];
+	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
+	const found = reachOf(
+		path.join(root, file),
+		text,
+		(m: string) => faults.push(m),
+		search,
+	);
+	return {
+		edges: rel(found.edges),
+		shadows: rel(found.shadows),
+		faults,
+		pySearch: found.pySearch,
+	};
+}
+
 /** A tree holding `files`, and the importer `tool/t.py` reading `code`. */
 function tree(code: string, files: string[]) {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
@@ -27,12 +46,14 @@ function tree(code: string, files: string[]) {
 		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 		fs.writeFileSync(path.join(root, rel), rel === "tool/t.py" ? code : "");
 	}
-	const file = path.join(root, "tool/t.py");
-	const faults: string[] = [];
-	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-	const { edges, shadows } = reachOf(file, code, (m: string) => faults.push(m));
-	return { edges: rel(edges), shadows: rel(shadows), faults };
+	const { edges, shadows, faults } = walk("tool/t.py", code);
+	return { edges, shadows, faults };
 }
+
+/** Python for a file directly under tool/ or lib/, putting the tree's `dir`
+ * first on sys.path. */
+const putFirst = (dir: string) =>
+	`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "${dir}"))`;
 
 describe("a dotted import", () => {
 	it("reaches the package and each submodule it names", () => {
@@ -93,6 +114,132 @@ describe("a dotted import", () => {
 		]);
 	});
 
+	it("reaches a submodule in whichever of a namespace package's directories holds it (#4870)", () => {
+		const code = [
+			putFirst("a"),
+			putFirst("b"),
+			"import ns.sub",
+			"from ns import other, gone",
+		].join("\n");
+		expect(tree(code, ["a/ns/sub.py", "b/ns/other.py"])).toMatchObject({
+			edges: ["a/ns/sub.py", "b/ns/other.py"],
+			faults: ["imports gone from ns, a namespace package that holds no gone"],
+		});
+	});
+
+	it.each([
+		["a regular package", "b/ns/sub/__init__.py"],
+		["a plain module", "b/ns/sub.py"],
+	])(
+		"faults a part %s in one namespace directory lacks, though another directory holds it (#4870)",
+		(_what, regular) => {
+			const code = [putFirst("a"), putFirst("b"), "import ns.sub.leaf"].join(
+				"\n",
+			);
+			expect(tree(code, ["a/ns/sub/leaf.py", regular]).faults).toEqual([
+				"imports ns.sub.leaf, whose leaf the walk cannot place",
+			]);
+		},
+	);
+
+	it("keeps to a regular package's own directory below it, whatever a sibling namespace directory holds (#4870)", () => {
+		const code = [
+			putFirst("a"),
+			putFirst("b"),
+			"import ns.reg.inner.x",
+			"import ns.reg.inner.gone",
+		].join("\n");
+		const files = [
+			"a/ns/reg/inner/gone.py",
+			"b/ns/reg/__init__.py",
+			"b/ns/reg/inner/x.py",
+		];
+		expect(tree(code, files)).toMatchObject({
+			edges: ["b/ns/reg/__init__.py", "b/ns/reg/inner/x.py"],
+			faults: ["imports ns.reg.inner.gone, whose gone the walk cannot place"],
+		});
+	});
+
+	it.each([
+		[
+			"import pkg.ns.gone",
+			"imports pkg.ns.gone, whose gone the walk cannot place",
+		],
+		[
+			"from pkg.ns import gone",
+			"imports gone from pkg.ns, a namespace package that holds no gone",
+		],
+		[
+			"import pkg.ns.sub.gone",
+			"imports pkg.ns.sub.gone, whose sub the walk cannot place",
+		],
+	])(
+		"faults `%s`, missing from a namespace directory inside a regular package (#4870)",
+		(code, fault) => {
+			const found = tree(`import pkg.ns.x\n${code}\n`, [
+				"tool/pkg/__init__.py",
+				"tool/pkg/ns/x.py",
+			]);
+			expect(found.faults).toEqual([fault]);
+			expect(found.edges).toContain("tool/pkg/ns/x.py");
+		},
+	);
+
+	it("reaches only the first of a namespace package's directories to hold a submodule (#4870)", () => {
+		const code = [putFirst("a"), putFirst("b"), "import ns.mod"].join("\n");
+		expect(tree(code, ["a/ns/mod.py", "b/ns/mod.py"]).edges).toEqual([
+			"b/ns/mod.py",
+		]);
+	});
+
+	it("names a submodule's place under an earlier entry holding no directory of its namespace package as a shadow (#4870)", () => {
+		const code = [putFirst("b"), putFirst("a"), "import ns.sub"].join("\n");
+		const found = tree(code, ["a/other.py", "b/ns/sub.py"]);
+		expect(found.edges).toEqual(["b/ns/sub.py"]);
+		expect(found.shadows).toEqual(
+			expect.arrayContaining(["a/ns/sub/__init__.py", "a/ns/sub.py"]),
+		);
+	});
+
+	it("takes a from-imported name that is a directory of a namespace package for a package (#4870)", () => {
+		const code = [putFirst("a"), putFirst("b"), "from ns import sub"].join(
+			"\n",
+		);
+		expect(tree(code, ["a/ns/x.py", "b/ns/sub/y.py"]).faults).toEqual([]);
+	});
+
+	it("counts a submodule in each namespace directory an indented insert may or may not have put first (#4870)", () => {
+		const code = [
+			putFirst("d"),
+			"if CHECK:",
+			`    ${putFirst("m")}`,
+			"import ns.sub",
+		].join("\n");
+		expect(tree(code, ["d/ns/sub.py", "m/ns/sub.py"]).edges).toEqual([
+			"m/ns/sub.py",
+			"d/ns/sub.py",
+		]);
+	});
+
+	it.each([
+		["the regular package", "m/pkg/sub.py"],
+		["the namespace package", "d/pkg/sub.py"],
+	])(
+		"faults a submodule only %s holds, where an indented insert decides which package Python takes (#4870)",
+		(_what, sub) => {
+			const code = [
+				putFirst("d"),
+				"if CHECK:",
+				`    ${putFirst("m")}`,
+				"import pkg.sub",
+			].join("\n");
+			const files = ["m/pkg/__init__.py", "d/pkg/other.py", sub];
+			expect(tree(code, files).faults).toEqual([
+				"imports pkg.sub, whose sub the walk cannot place",
+			]);
+		},
+	);
+
 	it("faults a submodule the walk cannot place", () => {
 		const { faults } = tree("import pkg.gone\n", ["tool/pkg/__init__.py"]);
 		expect(faults).toEqual([
@@ -121,11 +268,7 @@ describe("a sys.path entry the file adds", () => {
 	});
 
 	it("searches the newest insert first and names what it tried before the module", () => {
-		const code = [
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
-			"import helper",
-		].join("\n");
+		const code = [putFirst("b"), putFirst("a"), "import helper"].join("\n");
 		const found = tree(code, ["a/other.py", "b/helper.py", "tool/helper.py"]);
 		expect(found.edges).toEqual(["b/helper.py"]);
 		expect(found.shadows).toEqual([
@@ -174,11 +317,9 @@ describe("a sys.path entry the file adds", () => {
 	});
 
 	it("counts every file an indented insert may or may not have put first", () => {
-		const code = [
-			"if CHECK:",
-			'    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))',
-			"import helper",
-		].join("\n");
+		const code = ["if CHECK:", `    ${putFirst("lib")}`, "import helper"].join(
+			"\n",
+		);
 		expect(tree(code, ["lib/helper.py", "tool/helper.py"]).edges).toEqual([
 			"lib/helper.py",
 			"tool/helper.py",
@@ -186,11 +327,9 @@ describe("a sys.path entry the file adds", () => {
 	});
 
 	it("places a function's import on the search path as the file leaves it too", () => {
-		const code = [
-			"def run():",
-			"    import helper",
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))',
-		].join("\n");
+		const code = ["def run():", "    import helper", putFirst("lib")].join(
+			"\n",
+		);
 		expect(tree(code, ["lib/helper.py", "tool/helper.py"]).edges).toEqual([
 			"tool/helper.py",
 			"lib/helper.py",
@@ -201,6 +340,156 @@ describe("a sys.path entry the file adds", () => {
 		expect(tree("import playwright\n", []).faults).toEqual([
 			"imports playwright, which is neither stdlib nor found beside it or on a sys.path entry it adds",
 		]);
+	});
+});
+
+describe("a module walked on its importer's sys.path (#4870)", () => {
+	/** `lib/m.py`'s reach, reading `code`, alone and as the module the script
+	 * `tool/t.py`, reading `script`, imports; `files` stand beside them. */
+	function moduleTree(script: string, code: string, files: string[]) {
+		tree(script, [...files, "lib/m.py"]);
+		const { pySearch } = walk("tool/t.py", script);
+		return {
+			alone: walk("lib/m.py", code),
+			imported: walk("lib/m.py", code, pySearch),
+		};
+	}
+	/* list_shape.py's shape: `lib`, then its own directory ahead of it. */
+	const listShape = [
+		"HERE = os.path.dirname(os.path.abspath(__file__))",
+		'sys.path.insert(0, os.path.join(HERE, "..", "lib"))',
+		"sys.path.insert(0, HERE)",
+		"import m",
+	].join("\n");
+
+	it("names what the importer's earlier entry tried before the module's import as a shadow", () => {
+		const { alone, imported } = moduleTree(listShape, "import helper\n", [
+			"lib/helper.py",
+		]);
+		expect(alone.shadows).toEqual(["lib/helper/__init__.py"]);
+		expect(imported.shadows).toEqual(
+			expect.arrayContaining(["tool/helper/__init__.py", "tool/helper.py"]),
+		);
+		expect(imported.edges).toContain("lib/helper.py");
+		expect(imported.faults).toEqual([]);
+	});
+
+	it("reaches the file on the importer's earlier entry that shadows the module's import", () => {
+		const { alone, imported } = moduleTree(listShape, "import helper\n", [
+			"lib/helper.py",
+			"tool/helper.py",
+		]);
+		expect(alone.edges).toEqual(["lib/helper.py"]);
+		expect([...imported.edges].sort()).toEqual([
+			"lib/helper.py",
+			"tool/helper.py",
+		]);
+	});
+
+	it("reaches the file the module's import found before the importer's later entry shadowed it", () => {
+		const script = [
+			"HERE = os.path.dirname(os.path.abspath(__file__))",
+			'sys.path.insert(0, os.path.join(HERE, "..", "lib"))',
+			"import m",
+			'sys.path.insert(0, os.path.join(HERE, "..", "late"))',
+		].join("\n");
+		const { imported } = moduleTree(script, "import helper\n", [
+			"tool/helper.py",
+			"late/helper.py",
+		]);
+		expect(imported).toMatchObject({
+			edges: ["late/helper.py", "tool/helper.py"],
+			faults: [],
+		});
+	});
+
+	it("names a stdlib import's shadow on the importer's entries", () => {
+		const { alone, imported } = moduleTree(listShape, "import json\n", []);
+		expect(alone.shadows).not.toContain("tool/json.py");
+		expect(imported.shadows).toContain("tool/json.py");
+	});
+
+	it("places an import only the importer's sys.path holds, which faults walked alone", () => {
+		const { alone, imported } = moduleTree(listShape, "import beside\n", [
+			"tool/beside.py",
+		]);
+		expect(alone.faults).toEqual([
+			"imports beside, which is neither stdlib nor found beside it or on a sys.path entry it adds",
+		]);
+		expect(imported).toMatchObject({ edges: ["tool/beside.py"], faults: [] });
+	});
+
+	/* A package may rewrite its own __path__, so one lacking the submodule
+	 * may still be the one Python takes, and loads what the walk cannot see. */
+	it("faults a submodule one package of its name on the handed path lacks, though another holds it", () => {
+		const { imported } = moduleTree(listShape, "import pkg.sub\n", [
+			"lib/pkg/__init__.py",
+			"tool/pkg/__init__.py",
+			"tool/pkg/sub.py",
+		]);
+		expect(imported.faults).toEqual([
+			"imports pkg.sub, whose sub the walk cannot place",
+		]);
+		expect(imported.edges).toContain("tool/pkg/sub.py");
+	});
+
+	it("faults the module's relative import from a namespace package, which walked alone or from a regular package is none", () => {
+		const { alone, imported } = moduleTree(listShape, "from . import sub\n", [
+			"lib/sub.py",
+		]);
+		expect(alone).toMatchObject({ edges: ["lib/sub.py"], faults: [] });
+		expect(imported.faults).toEqual([
+			"imports . relative to a namespace package, whose other directories the walk cannot tell",
+		]);
+		const regular = moduleTree(listShape, "from . import sub\n", [
+			"lib/sub.py",
+			"lib/__init__.py",
+		]);
+		expect(regular.imported).toMatchObject({
+			edges: ["lib/__init__.py", "lib/sub.py"],
+			faults: [],
+		});
+	});
+
+	it("faults an import neither path holds", () => {
+		const { imported } = moduleTree(listShape, "import playwright\n", []);
+		expect(imported.faults).toEqual([
+			"imports playwright, which is neither stdlib nor found beside it or on a sys.path entry it adds",
+		]);
+	});
+
+	it("faults the module's import where the importer's sys.path holds an entry the walk cannot read", () => {
+		const { alone, imported } = moduleTree(
+			"sys.path.insert(0, sys.argv[1])\n",
+			"import sys\nimport helper\n",
+			["lib/helper.py"],
+		);
+		expect(alone.faults).toEqual([]);
+		expect(imported.faults).toEqual([
+			"imports helper after a sys.path edit the walk cannot read",
+		]);
+	});
+
+	it("hands the module's own edits on, atop its importer's, to what it imports", () => {
+		const code = `${putFirst("deep")}\nimport n\n`;
+		const { imported } = moduleTree(listShape, code, [
+			"deep/n.py",
+			"deep/x.py",
+			"tool/y.py",
+		]);
+		const below = walk("deep/n.py", "import x\nimport y\n", imported.pySearch);
+		expect(below).toMatchObject({
+			edges: ["deep/x.py", "tool/y.py"],
+			faults: [],
+		});
+	});
+
+	it("hands on a path that walking the module on it again leaves as it was", () => {
+		const code = `${putFirst("deep")}\n`;
+		const { imported } = moduleTree(listShape, code, []);
+		expect(walk("lib/m.py", code, imported.pySearch).pySearch).toEqual(
+			imported.pySearch,
+		);
 	});
 });
 
@@ -267,6 +556,7 @@ describe("a file the walk cannot read", () => {
 			unread: [],
 			unknown: [],
 			python: false,
+			pySearch: null,
 		});
 		expect(faults).toEqual([]);
 	});

@@ -488,7 +488,7 @@ function buildLadderReadingLines(events, answers, nowMs) {
 		`Research ladder (#2006, #2010), read from ${minute(start)} for ${LADDER_DAYS} days: ${reached ? `ended ${minute(end)}` : `figures so far at ${minute(nowMs)}`}.`,
 		`- Refused on the ladder: ${ladderRefusals.length} refusal(s) of ${refusedQuestions} question(s); ${stillCaught.filter((e) => e.missing?.length).length} still-caught re-send(s) let through at its cap with rungs missing.`,
 		`- Still-caught re-sends passed: ${stillCaught.length}, of ${resends.length} re-sends. Rungs tried, of ${rungsKnown.length} with a readable transcript: ${RUNGS.map((rung) => `${RUNG_LABEL[rung]} ${tried(rung)}`).join(", ")}; all three ${climbed}.`,
-		`- Flipped top option: ${ratio(flips.length, flipKnown.length)} re-sends; ${flips.filter((e) => e.citesNewFact === true).length} of those flips cite a new fact. A new citation in the option lines: ${ratio(citeKnown.filter((e) => e.citesNewFact).length, citeKnown.length)}.`,
+		`- Flipped top option: ${ratio(flips.length, flipKnown.length)} re-sends; ${flips.filter((e) => e.citesNewFact === true).length} of those flips cite a new fact. A new citation in the question block (its option lines alone before #4945): ${ratio(citeKnown.filter((e) => e.citesNewFact).length, citeKnown.length)}.`,
 		`- Success line: stock floor ${ratio(stock, replied.length)} answered still-caught re-sends drew a research prompt. Baseline ${LADDER_BASELINE}. Line ${Math.round(LADDER_LINE * 100)}% or less: ${success.text}.`,
 		...(success.state === "undecided"
 			? [

@@ -8,7 +8,9 @@
  * ships, and the files carry no version.
  */
 
+const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { asObject } = require("./json-shape.js");
 
@@ -98,6 +100,9 @@ const PHASES = Object.freeze(
  * @typedef {object} PipelineRecord
  * @property {() => RecordRead<Pipeline>} read
  * @property {(p: Pipeline) => void} write
+ * @property {() => string} quarantine moves the record file aside, beside
+ *   it, under a name that sorts by time and never replaces an earlier one,
+ *   and returns that path
  * @typedef {{readonly file: string, readonly test: string,
  *   readonly message: string}} QuotedFailure a failing test and its error,
  *   cut to a ticket's length
@@ -475,9 +480,10 @@ function readRecordFile(file) {
  * The pipeline record: the batches a run is landing, so the next run
  * resumes them.
  * @param {string} file
+ * @param {() => number} [now] the clock a quarantine names its file by, in ms
  * @returns {PipelineRecord}
  */
-function pipelineRecord(file) {
+function pipelineRecord(file, now = Date.now) {
 	return {
 		read() {
 			const r = readRecordFile(file);
@@ -487,6 +493,23 @@ function pipelineRecord(file) {
 		},
 		write(p) {
 			writeFileAtomic(file, `${JSON.stringify(p)}\n`);
+		},
+		quarantine() {
+			const stem = `${file}.torn-${new Date(now()).toISOString()}`;
+			for (let n = 0; ; n++) {
+				const aside = n === 0 ? stem : `${stem}-${n}`;
+				try {
+					/* A link refuses an existing name where a rename replaces it
+					 * (#4905). A crash before the unlink leaves the record under
+					 * both names, and the next run moves a second copy aside. */
+					fs.linkSync(file, aside);
+				} catch (err) {
+					if (caught(err).code === "EEXIST") continue;
+					throw err;
+				}
+				fs.unlinkSync(file);
+				return aside;
+			}
 		},
 	};
 }

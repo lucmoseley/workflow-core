@@ -25,6 +25,13 @@ import HUMAN_BODIES from "../fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import { freshSandbox } from "./arbiter-testkit";
+import {
+	FALLBACK_LEAD,
+	judgeFakeEnv,
+	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	readJudgeCalls,
+} from "./gate-judge-fake";
 import { ghFake, readGhAnswer } from "./gh-fake";
 import {
 	latchesAt,
@@ -1369,7 +1376,7 @@ describe("the basis limb (#672)", () => {
 		);
 		expect(out).toContain(unbased);
 		expect(out).toContain(
-			'the basis "the body asks for a day", which carries no warrant. Every gate line',
+			'the basis "the body asks for a day", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
 		expect(out).toContain("baseline 27/449 attempts");
 	});
@@ -2207,5 +2214,44 @@ describe("a session in its own worktree (#4242)", () => {
 		expect(out?.permissionDecision).toBe("deny");
 		expect(latchesAt(at.main)).toEqual([]);
 		expect(latchesAt(at.worktree)).toEqual([]);
+	});
+});
+
+describe("the model reading's one bound for a call (#4969)", () => {
+	const Wait = "Re-measure over seven days of those records.";
+	const found = {
+		reading: {
+			waits: [
+				{
+					sentence: Wait,
+					on: "data",
+					window: "seven days",
+					basisNamesWindow: false,
+				},
+			],
+			bases: [],
+		},
+	};
+
+	it("gives a second create in the command only what the first left of it", () => {
+		const config = path.join(dir, "judge-config");
+		fs.mkdirSync(config);
+		const fake = judgeFakeEnv(dir, found, config);
+		for (const [k, v] of Object.entries(fake.env)) vi.stubEnv(k, v);
+		/* Each clock read 26 s on: the first reading spends past 25 s of the
+		 * 30 s bound, whatever number of reads it takes. */
+		let t = Date.parse("2026-11-11T00:00:00Z");
+		const clock = vi.spyOn(Date, "now").mockImplementation(() => {
+			t += 26_000;
+			return t;
+		});
+		const create = `gh issue create --title t --label takes:implement --body '${Wait}\n${OVERRIDE_LINE}'`;
+		const told = said(`${create} && ${create}`);
+		clock.mockRestore();
+		expect(told).toContain(OVERRIDE_LEAD);
+		expect(told).toContain(
+			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
+		);
+		expect(readJudgeCalls(fake.log)).toHaveLength(1);
 	});
 });

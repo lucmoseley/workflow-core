@@ -123,6 +123,21 @@ describe("the lander log", () => {
 		});
 	});
 
+	it("widens its window past the first until it reaches back past the time asked", () => {
+		const file = path.join(tmp, "lander.log");
+		const recent = `${line(-10, "test-sha aaa")}\n`;
+		fs.writeFileSync(
+			file,
+			`${line(-900, "exit old")}\n${recent.repeat(Math.ceil((5 * 1024 * 1024) / recent.length))}`,
+		);
+
+		expect(parseLanderLog(readLogSince(file, NOW - 60 * S))[0]).toEqual({
+			t: NOW - 900 * S,
+			kind: "exit",
+			rest: "old",
+		});
+	});
+
 	it("charges a red batch's steps to it, each to its next line, while the batch behind lands", () => {
 		const batches = replayBatches(
 			parseLanderLog(

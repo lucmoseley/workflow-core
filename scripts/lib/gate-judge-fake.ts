@@ -15,7 +15,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildAuthStatusNodeBranch } from "./auth-status-fake";
 import { recorded as headless } from "./headless-run-fake";
+import { hostRoot } from "./host-root.js";
 import { readJsonl } from "./jsonl.js";
+import { markersDir } from "./marker-root.js";
+
+/* The leads a write route's notes open with, pinned here so a change to
+ * them is a change to these suites. */
+export const MODEL_LEAD = "faults the model reading of this body raises";
+export const OVERRIDE_LEAD = "Gate judge override honoured";
+/** An override line the suites write, and its reason. */
+export const OVERRIDE_REASON = "the records build up on demand";
+export const OVERRIDE_LINE = `**Gate judge override:** ${OVERRIDE_REASON}`;
+export const FALLBACK_LEAD = "The model reading of this body did not run";
+
+/** Where lib/gate-judge.js logs each write route's model call. */
+export const callLogPath = () =>
+	path.join(markersDir(hostRoot()), ".gate-judge-calls.jsonl");
 
 export const recorded: {
 	harness: string;
@@ -88,3 +103,24 @@ else {
 /** Every launch the fake logged to `log`, in order. */
 export const readJudgeCalls = (log: string) =>
 	(readJsonl(log)?.rows ?? []) as unknown as JudgeCall[];
+
+/**
+ * What a write route under test needs to reach the fake through the real
+ * launcher: the judge on (the suites' setup turns it off), the fake as the
+ * binary, and the config dir a seat. Launches log to `<dir>/judge-calls.jsonl`.
+ */
+export function judgeFakeEnv(
+	dir: string,
+	plan: JudgeFakePlan,
+	configDir = process.env.CLAUDE_CONFIG_DIR ?? "",
+) {
+	const log = path.join(dir, "judge-calls.jsonl");
+	return {
+		log,
+		env: {
+			WFC_GATE_JUDGE: "",
+			WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude-judge"), log, plan),
+			WFC_CLAUDE_CONFIG_A: configDir,
+		},
+	};
+}

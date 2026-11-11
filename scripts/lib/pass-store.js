@@ -27,8 +27,8 @@
  * found absent is `absent`; each directory it found must still be one; each
  * directory it listed keeps its listing's id, judged on the names git tracks
  * when recorded and on the names standing at lookup; a tree it walked whole
- * stands for every tracked file and listing under it; a script a shell or
- * Python child ran is reached as a spawned script is.
+ * stands for every tracked file and listing under it; a script a shell
+ * child ran is reached as a spawned script is.
  *
  * THE LOOKUP IS BY CONTENT (lib/content-ids.js, the classifier's judge): the
  * newest result whose every input holds unchanged in the working tree
@@ -48,7 +48,11 @@
  * holds no reads for, or doubts, records none; an input rewritten while the run ran, untracked, gitignored
  * or that will not read records none for the files it reaches: the drift
  * watch sees tracked paths alone, so an untracked or ignored one may hold
- * other content than the run read. A file whose header carries `uncached: <reason>`
+ * other content than the run read. A FAILED file that would record none
+ * records a voiding row, resting on each of its inputs whose content as the
+ * run read it is known: a fail wherever those stand as they did, whatever
+ * the rest hold, so no older pass on what may be the same content caches,
+ * and no evidence of a red at a commit. A file whose header carries `uncached: <reason>`
  * is never cached; one carrying the pragma with no reason refuses the run.
  *
  * THE STORE is a directory beside the marker stores, in the canonical
@@ -70,8 +74,14 @@ const {
 } = require("./retained-jsonl.js");
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
-const { isUnder, relativeUnder } = require("./is-under.js");
-const { execGit, spawnGitSync, GIT_TIMEOUT_MS } = require("./git.js");
+const { isUnder } = require("./is-under.js");
+const { drift, readTreeSnapshot } = require("./tree-drift.js");
+const {
+	execGit,
+	spawnGitSync,
+	GIT_DIR_VARS,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
 	ABSENT,
@@ -95,8 +105,9 @@ const {
 	shortSha,
 } = require("./test-pass-marker.js");
 const { readWorkingTree } = require("./test-read-edges.js");
-const { drift, readTreeSnapshot } = require("./tree-drift.js");
 const { listingId } = require("./listing-id.js");
+const { pathKind } = require("./path-kind.js");
+const { repoPath } = require("./read-audit-paths.js");
 const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
@@ -120,8 +131,12 @@ const RUN_INPUTS = [
 const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
-/* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 9;
+/* The row layout: a run line of another, or none, never caches (#4814),
+ * though its red still voids an older pass (#4995). */
+const FORMAT = 17;
+
+/* A content id as every layout since #4814 writes it: a mode and a blob id. */
+const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -131,14 +146,13 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{file: string, outcome: Outcome, imports: string[]}} FileResult
  * @typedef {{sha: string, at: string, tree: string|null, root: string,
  *   files: FileResult[], shared: string[], clean: boolean,
- *   drifted: string[]|null,
- *   after: import("./tree-drift.js").Snapshot|null,
+ *   drifted: string[]|null, after: import("./tree-drift.js").Snapshot|null,
  *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
  *   `root` the tree vitest ran in, paths relative to it; `shared` the config
  *   file and its `setupFiles` closure; `clean` false where the run errored
  *   outside its files, was interrupted or filtered by name; `drifted` the
  *   paths rewritten while it ran, null where that is unknown; `after` the
- *   tree's snapshot that `drifted` ends on; `audits` each
+ *   drift watch's end snapshot; `audits` each
  *   file's reads as the read audit saw them (lib/read-audit.js), null where
  *   the run was not audited
  * @typedef {{sha: string, at: string, tree: string|null}} Source
@@ -187,6 +201,8 @@ function readPythonVersion() {
 	try {
 		return pythonVersion();
 	} catch {
+		// No python3 that answers is no version: a row that would rest on
+		// one is not recorded, and none recorded under one holds (#4790).
 		return null;
 	}
 }
@@ -309,16 +325,21 @@ const refuseFault = (/** @type {string} */ why) => {
  *   repo-relative: the files reached, the paths a specifier on the way tried
  *   before the file it resolved to, and whether a file on the way runs inline
  *   Python
- * @typedef {Reach & {unknown: boolean}} FileReach one file's own: with
- *   whether it joins a path off its directory the walk cannot tell
- *   (lib/code-edges.js's `unknown`)
+ * @typedef {Reach & {unknown: boolean, pySearch: PySearch}} FileReach one
+ *   file's own: with whether it joins a path off its directory the walk
+ *   cannot tell (lib/code-edges.js's `unknown`), and sys.path as a Python
+ *   file leaves it (its `pySearch`), null for any other
+ * @typedef {import("./code-edges.js").Reach["pySearch"]} PySearch
  */
 
 /**
  * Every in-repo file `file` reaches through relative `require`s, imports and
  * `__dirname`-spelled spawns, transitively, read lexically off the working
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
- * records. Null
+ * records, since this repo's tests reach their subjects through
+ * `createRequire` and spawns. A Python file is read on the sys.path its
+ * script's run builds, so once for each such path (#4870). Memoised
+ * across the files of one run. Null
  * where any file on the way will not read, or joins a path off its own
  * directory the walk cannot tell: an input left unknown records no row. A
  * test file's own such join is excused (`ownReadsJudged`): the read audit
@@ -330,55 +351,148 @@ const refuseFault = (/** @type {string} */ why) => {
 function lexicalReach(root) {
 	/** @type {Map<string, FileReach|null>} */
 	const memo = new Map();
-	/** @param {string} rel */
-	const readFrom = (rel) => {
-		if (memo.has(rel)) return memo.get(rel) ?? null;
-		const found = isScript(path.join(root, rel))
-			? readEdges(root, rel)
-			: { edges: [], shadows: [], python: false, unknown: false };
-		memo.set(rel, found);
+	/** @param {Visit} visit */
+	const readFrom = (visit) => {
+		const key = visitKey(visit);
+		if (memo.has(key)) return memo.get(key) ?? null;
+		const found = isScript(path.join(root, visit.rel))
+			? readEdges(root, visit)
+			: NO_REACH;
+		memo.set(key, found);
 		return found;
 	};
 	/**
-	 * `rel`'s own reach, null where it will not read or, its reads not
-	 * `judged` by the selector, it joins a path the walk cannot tell.
-	 * @param {string} rel
+	 * A visit's own reach, null where its file will not read or, its reads
+	 * not `judged` by the selector, it joins a path the walk cannot tell.
+	 * @param {Visit} visit
 	 * @param {boolean} judged
 	 */
-	const reachFrom = (rel, judged) => {
-		const found = readFrom(rel);
+	const reachFrom = (visit, judged) => {
+		const found = readFrom(visit);
 		return found?.unknown && !judged ? null : found;
 	};
 	return (file, ownReadsJudged = false) =>
-		walkReach(file, (rel) => reachFrom(rel, ownReadsJudged && rel === file));
+		walkReach(file, (visit) =>
+			reachFrom(visit, ownReadsJudged && visit.rel === file),
+		);
 }
 
+/** @type {FileReach} */
+const NO_REACH = {
+	edges: [],
+	shadows: [],
+	python: false,
+	unknown: false,
+	pySearch: null,
+};
+
 /**
- * The files `file` reaches, each file's own reach read by `reachOne`; null
- * where any is null.
+ * @typedef {{rel: string, pySearch: PySearch}} Visit one file as the walk
+ *   meets it: with sys.path as the files of its script's run have left it,
+ *   or none
+ * @typedef {{edges: Set<string>, shadows: Set<string>, spawned: Set<string>,
+ *   python: boolean, pySearch: PySearch}} ScriptReach what one script's run
+ *   reaches: every file, the paths tried first, the files among them it does
+ *   not import but runs or loads as scripts of their own, whether one runs
+ *   inline Python, and sys.path as its files leave it
+ */
+
+/** @param {Visit} visit */
+const visitKey = ({ rel, pySearch }) => JSON.stringify([rel, pySearch]);
+
+/**
+ * The files `file` reaches, each visit's own reach read by `reachOne`; null
+ * where any is null. `file` itself, and each file another's run spawns or
+ * loads, is a script run on its own (`scriptReach`).
  * @param {string} file
- * @param {(rel: string) => FileReach|null} reachOne
+ * @param {(visit: Visit) => FileReach|null} reachOne
  * @returns {Reach|null} `file` left out of `edges`
  */
 function walkReach(file, reachOne) {
-	const seen = new Set([file]);
+	const scripts = [file];
+	const seen = new Set(scripts);
+	/** @type {Set<string>} */
+	const edges = new Set();
 	/** @type {Set<string>} */
 	const shadows = new Set();
-	const queue = [file];
 	let python = false;
-	for (const rel of queue) {
-		const found = reachOne(rel);
+	for (const script of scripts) {
+		const found = scriptReach(script, reachOne);
 		if (!found) return null;
 		python ||= found.python;
 		for (const p of found.shadows) shadows.add(p);
-		for (const next of found.edges)
+		for (const rel of found.edges) edges.add(rel);
+		for (const next of found.spawned)
 			if (!seen.has(next)) {
 				seen.add(next);
-				queue.push(next);
+				scripts.push(next);
 			}
 	}
-	seen.delete(file);
-	return { edges: [...seen], shadows: [...shadows], python };
+	edges.delete(file);
+	return { edges: [...edges], shadows: [...shadows], python };
+}
+
+/**
+ * What the run of `script` reaches. A Python process holds one sys.path, so
+ * a module's edit moves what its importer and every other module import
+ * (#4870): its files are walked again, each on the path they all left, until
+ * a pass leaves that path as it found it.
+ * @param {string} script
+ * @param {(visit: Visit) => FileReach|null} reachOne
+ * @returns {ScriptReach|null}
+ */
+function scriptReach(script, reachOne) {
+	/** @type {PySearch} */
+	let pySearch = null;
+	/* Ends: code-edges.js hands the path back in one order whatever order
+	 * the files were walked in, so a pass can only add an entry, and the
+	 * entries its files' edits name are a finite set. A pass that moves the
+	 * path without lengthening it is one the walk cannot tell: no row. */
+	for (;;) {
+		const pass = scriptPass({ rel: script, pySearch }, reachOne);
+		if (!pass) return null;
+		if (JSON.stringify(pass.pySearch) === JSON.stringify(pySearch)) return pass;
+		if ((pass.pySearch?.length ?? 0) <= (pySearch?.length ?? -1)) return null;
+		pySearch = pass.pySearch;
+	}
+}
+
+/**
+ * One pass over a script and the modules it imports, each handed sys.path
+ * as the file before it left it. A Python file's edge to a Python file is
+ * an import; any other edge is a file spawned or loaded.
+ * @param {Visit} start the script, and the path the last pass left
+ * @param {(visit: Visit) => FileReach|null} reachOne
+ * @returns {ScriptReach|null}
+ */
+function scriptPass(start, reachOne) {
+	const files = [start.rel];
+	const loaded = new Set(files);
+	/** @type {ScriptReach} */
+	const pass = {
+		edges: new Set(),
+		shadows: new Set(),
+		spawned: new Set(),
+		python: false,
+		pySearch: start.pySearch,
+	};
+	for (const rel of files) {
+		const found = reachOne({ rel, pySearch: pass.pySearch });
+		if (!found) return null;
+		pass.python ||= found.python;
+		pass.pySearch = found.pySearch ?? pass.pySearch;
+		for (const p of found.shadows) pass.shadows.add(p);
+		for (const next of found.edges) {
+			pass.edges.add(next);
+			if (!found.pySearch || languageOf(next) !== "python")
+				pass.spawned.add(next);
+			else if (!loaded.has(next)) {
+				loaded.add(next);
+				files.push(next);
+			}
+		}
+	}
+	return pass;
 }
 
 /**
@@ -387,15 +501,15 @@ function walkReach(file, reachOne) {
  * the walk cannot tell; or null where it will not read, faults, or holds a
  * load the walk cannot read.
  * @param {string} root
- * @param {string} rel
+ * @param {Visit} visit
  * @returns {FileReach|null}
  */
-function readEdges(root, rel) {
+function readEdges(root, { rel, pySearch }) {
 	const abs = path.join(root, rel);
 	const read = readText(abs);
 	if (read.state !== "read") return null;
 	try {
-		const reach = reachOf(abs, read.data, refuseFault);
+		const reach = reachOf(abs, read.data, refuseFault, pySearch);
 		if (reach.unread.length > 0) return null;
 		return {
 			edges: repoRelative(
@@ -405,23 +519,24 @@ function readEdges(root, rel) {
 			shadows: repoRelative(root, reach.shadows),
 			python: reach.python,
 			unknown: reach.unknown.length > 0,
+			pySearch: reach.pySearch,
 		};
 	} catch {
+		// A walk that faults leaves the file's reach unknown: no row is
+		// recorded for a file reaching it (#4790).
 		return null;
 	}
 }
 
 /**
- * `paths` under `root` and outside every `node_modules`, repo-relative.
+ * `paths` beneath `root` and outside every `node_modules`, repo-relative.
  * @param {string} root
  * @param {string[]} paths absolute
  */
 const repoRelative = (root, paths) =>
 	paths.flatMap((e) => {
-		const under = relativeUnder(root, e);
-		if (!under) return [];
-		const posix = under.split(path.sep).join("/");
-		return posix.split("/").includes("node_modules") ? [] : [posix];
+		const rel = repoPath(root, e);
+		return rel === null || rel === "." ? [] : [rel];
 	});
 
 /**
@@ -447,28 +562,18 @@ const sharedInputs = (root, shared) => [
  *   where it cannot run
  */
 
-/* The variables that point git at a repository: a test's call ran with
- * none (vitest.setup.ts), so its run again does too. */
-const GIT_DIR_VARS = [
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_PREFIX",
-];
-
 /**
  * A git call run again at `root`: the id of its exit status and output.
- * Null where its key will not
+ * Memoised, as many rows rest on one call. Null where its key will not
  * parse or the call will not run.
  * @param {string} root
  * @returns {(key: string) => string|null}
  */
-function gitRunner(root) {
+function buildGitRunner(root) {
 	/** @type {Map<string, string|null>} */
 	const memo = new Map();
+	/* A test's call ran with no variable pointing git at a repository
+	 * (vitest.setup.ts), so its run again does too. */
 	const env = { ...process.env };
 	for (const v of GIT_DIR_VARS) delete env[v];
 	return (key) => {
@@ -484,6 +589,8 @@ function gitRunner(root) {
 			if (!r.error && r.status !== null)
 				id = `${r.status}:${crypto.createHash("sha1").update(r.stdout).digest("hex")}`;
 		} catch {
+			// A key that will not parse is a call that cannot run: no id, so
+			// the row resting on it is not recorded and never holds (#4916).
 			id = null;
 		}
 		memo.set(key, id);
@@ -496,23 +603,19 @@ function gitRunner(root) {
  * @param {string} root
  * @returns {TreeAt}
  */
-function workingAt(root) {
+function buildWorkingAt(root) {
 	return {
-		git: gitRunner(root),
+		git: buildGitRunner(root),
 		listing: (dir) => {
 			try {
 				return listingId(fs.readdirSync(path.join(root, dir)));
 			} catch {
+				// No directory to list is no listing: a row resting on one
+				// there never holds (#4916).
 				return null;
 			}
 		},
-		isDir: (dir) => {
-			try {
-				return fs.statSync(path.join(root, dir)).isDirectory();
-			} catch {
-				return false;
-			}
-		},
+		isDir: (dir) => pathKind(path.join(root, dir)) === "dir",
 	};
 }
 
@@ -522,7 +625,7 @@ function workingAt(root) {
  * @param {string} treeish
  * @returns {TreeAt}
  */
-function commitAt(git, treeish) {
+function buildCommitAt(git, treeish) {
 	const names = (/** @type {string} */ dir) => {
 		try {
 			const spec = `${treeish}:${dir === "." ? "" : dir}`;
@@ -531,6 +634,8 @@ function commitAt(git, treeish) {
 				.split("\0")
 				.filter(Boolean);
 		} catch {
+			// A path the commit holds no tree at, or a git that will not
+			// answer, is no directory there: the row never holds (#4916).
 			return null;
 		}
 	};
@@ -568,7 +673,7 @@ function isTreeHolding({ listings, dirs, git }, at) {
  * @param {string} root
  * @returns {() => Map<string, Set<string>>}
  */
-function trackedListings(root) {
+function buildTrackedListings(root) {
 	/** @type {Map<string, Set<string>> | undefined} */
 	let byDir;
 	return () => {
@@ -599,7 +704,8 @@ function trackedListings(root) {
  * @param {TreeAt} working the working tree: its directories and git calls
  * @param {Set<string>|null} drifted
  * @returns {{files: string[], absent: string[], dirs: string[],
- *   listings: Record<string, string>, git: Record<string, string>}|null}
+ *   logged: Record<string, string>, listings: Record<string, string>,
+ *   git: Record<string, string>}|null}
  */
 function auditInputs(reads, listings, working, drifted) {
 	const lists = Object.entries(reads.lists);
@@ -608,11 +714,13 @@ function auditInputs(reads, listings, working, drifted) {
 	const idOf = (/** @type {string} */ dir) =>
 		listingId([...(tracked.get(dir) ?? [])]);
 	/** @type {Record<string, string>} */
-	const listed = {};
+	const logged = {};
 	for (const [dir, id] of lists) {
 		if (idOf(dir) !== id) return null;
-		listed[dir] = id;
+		logged[dir] = id;
 	}
+	/** @type {Record<string, string>} */
+	const walked = {};
 	const files = [...reads.files];
 	for (const top of reads.trees) {
 		const tree = hasMovedUnder(top, drifted)
@@ -620,7 +728,7 @@ function auditInputs(reads, listings, working, drifted) {
 			: treeInputs(top, tracked, working);
 		if (!tree) return null;
 		files.push(...tree.files);
-		Object.assign(listed, tree.listings);
+		Object.assign(walked, tree.listings);
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
@@ -634,7 +742,8 @@ function auditInputs(reads, listings, working, drifted) {
 		files: [...new Set(files)],
 		absent: reads.absent,
 		dirs: reads.dirs,
-		listings: listed,
+		logged,
+		listings: { ...logged, ...walked },
 		git,
 	};
 }
@@ -653,8 +762,8 @@ const hasMovedUnder = (top, drifted) =>
 /**
  * What a tree walked or copied whole rests on: every tracked file under
  * `top`, or `top` itself where it is no tracked directory, and every tracked
- * directory's listing under it, off the index. Null where a listing on
- * working holds a name git does not track.
+ * directory's listing under it. Null where a listing on working holds a name
+ * git does not track.
  * @param {string} top
  * @param {Map<string, Set<string>>} tracked
  * @param {TreeAt} working
@@ -678,51 +787,296 @@ function treeInputs(top, tracked, working) {
 }
 
 /**
- * One ran file's inputs, or null where any is unknown: its audit is missing
- * or in doubt, a listing it rests on holds an untracked name, or a file on
- * its reach will not read.
+ * @typedef {{logged: Record<string, string>,
+ *   listings: Record<string, string>, dirs: string[],
+ *   git: Record<string, string>}} Seen
+ *   what a file's audit saw it rest on beyond files, each as the working
+ *   tree answered it once the run ended: `logged` the listings the test
+ *   made, each under the id it got, `listings` those and every listing of a
+ *   tree it walked, and each git call's answer, run again
+ * @typedef {Reach & {from: string}} Reached the reach of the path `from`
+ * @typedef {FileResult & {direct: string[], reached: Reached[],
+ *   probed: string[], seen: Seen|null, whole: boolean}} Gathered
+ *   one ran file's inputs as far as they can be told: `direct` the paths
+ *   named for it outright, `reached` each reach that read whole, `probed`
+ *   the paths its audit found absent, `seen` null where its audit is missing,
+ *   in doubt or rests on a listing holding an untracked name; `whole` false
+ *   where any of it is unknown
+ */
+
+/**
+ * One ran file's inputs, as far as they can be told.
  * @param {FileResult} f
  * @param {{run: Run, reads: Map<string, string[]>,
  *   reach: (file: string, ownReadsJudged?: boolean) => Reach|null,
  *   listings: () => Map<string, Set<string>>, working: TreeAt,
  *   drifted: Set<string>|null}} ctx
+ * @returns {Gathered}
  */
-function fileInputs(f, { run, reads, reach, listings, working, drifted }) {
+function gatherInputs(f, { run, reads, reach, listings, working, drifted }) {
 	const audit = run.audits?.get(f.file);
-	if (!audit || !("reads" in audit)) return null;
-	const seen = auditInputs(audit.reads, listings, working, drifted);
-	if (!seen) return null;
+	const audited = audit && "reads" in audit ? audit.reads : null;
+	const found = audited && auditInputs(audited, listings, working, drifted);
+	const seen = found && isTreeHolding(found, working) ? found : null;
 	/* A script the manifest says the file reads is reached too, as it
 	 * may spawn it: its own requires are inputs that no import and no
 	 * `__dirname` join names. A read holding no script reaches none.
 	 * The config and setup files run before every file, so what they
 	 * reach, which vite's graph never records, is each file's too. */
 	const spawned = reads.get(f.file) ?? [];
-	const reaches = [
-		reach(f.file, true),
-		...[...f.imports, ...spawned, ...run.shared, ...audit.reads.scripts].map(
-			(p) => reach(p),
-		),
+	const scripts = audited?.scripts ?? [];
+	const roots = [...f.imports, ...spawned, ...run.shared, ...scripts];
+	/** @type {Reached[]} */
+	const reached = [];
+	const walk = (/** @type {string} */ from, /** @type {boolean} */ own) => {
+		const r = reach(from, own);
+		if (r) reached.push({ from, ...r });
+	};
+	walk(f.file, true);
+	for (const p of roots) walk(p, false);
+	return {
+		...f,
+		direct: [
+			...new Set([
+				f.file,
+				...f.imports,
+				...spawned,
+				...snapshotOf(run.root, f.file),
+				...scripts,
+				...(found?.files ?? audited?.files ?? []),
+			]),
+		],
+		reached,
+		probed: audited?.absent ?? [],
+		seen,
+		whole: seen !== null && reached.length === roots.length + 1,
+	};
+}
+
+/**
+ * @typedef {{file: string, outcome: string, voiding?: boolean,
+ *   inputs: Record<string, string|null|undefined>,
+ *   listings: Record<string, string>, dirs: string[],
+ *   git: Record<string, string>}} Row
+ *   one file's verdict and what it rests on, as its shard line carries it
+ * @typedef {{values: Record<string, string>, shared: Record<string, unknown>,
+ *   row: Row}} Recorded
+ *   one file's row with the values and shared inputs its run line carries
+ * @typedef {{gathered: Gathered[], shared: string[],
+ *   ids: Map<string, string|null>, isDriftKnown: boolean, isSettled: boolean,
+ *   isKnown: (p: string) => boolean, isAbsent: (p: string) => boolean}} RunInputs
+ *   a run's inputs as read off the tree once it ended: each file's, the
+ *   shared ones, every path's content id, whether the drift watch saw the
+ *   run through, whether the tree still stands as its end snapshot found it
+ *   once those were read, and whether a path's content as the run read it
+ *   is known, or known to be none
+ */
+
+/**
+ * The inputs of each of `files` and of the run, with what the tree tells of
+ * each path. Throws where the tree or the manifest will not read.
+ * @param {Run} run
+ * @param {FileResult[]} files
+ * @returns {RunInputs}
+ */
+function readRunInputs(run, files) {
+	const reads = readManifestReads(
+		run.root,
+		files.map((f) => f.file),
+	);
+	const shared = sharedInputs(run.root, run.shared);
+	const reach = lexicalReach(run.root);
+	const listings = buildTrackedListings(run.root);
+	const working = buildWorkingAt(run.root);
+	/* The content a path held while the run ran is what the tree holds now
+	 * only where the drift watch says it was not rewritten; the watch sees
+	 * no ignored path, and where it saw nothing no path's content is known. */
+	const drifted = run.drifted === null ? null : new Set(run.drifted);
+	const gathered = files.map((f) =>
+		gatherInputs(f, { run, reads, reach, listings, working, drifted }),
+	);
+	const edges = (/** @type {Gathered} */ g) =>
+		g.reached.flatMap((r) => r.edges);
+	const all = [
+		...shared,
+		...gathered.flatMap((g) => [...g.direct, ...edges(g)]),
 	];
-	if (reaches.includes(null)) return null;
-	const reached = /** @type {Reach[]} */ (reaches);
-	const paths = [
-		...new Set([
-			f.file,
-			...f.imports,
-			...reached.flatMap((r) => r.edges),
-			...(reads.get(f.file) ?? []),
-			...snapshotOf(run.root, f.file),
-			...audit.reads.scripts,
-			...seen.files,
+	const tried = [
+		...all,
+		...gathered.flatMap((g) => [
+			...g.probed,
+			...g.reached.flatMap((r) => r.shadows),
 		]),
 	];
-	const absent = [
-		...new Set([...reached.flatMap((r) => r.shadows), ...seen.absent]),
-	].filter((p) => !paths.includes(p));
-	const python = reached.some((r) => r.python);
-	if (!isTreeHolding(seen, working)) return null;
-	return { ...f, paths, absent, python, seen };
+	const ids = readWorkingIds(gitHasher(run.root), run.root, tried);
+	const ignored = readIgnored(run.root, [...new Set(tried)]);
+	const isSteady = (/** @type {string} */ p) =>
+		drifted !== null && !drifted.has(p) && !ignored.has(p);
+	return {
+		gathered,
+		shared,
+		ids,
+		isDriftKnown: drifted !== null,
+		isSettled: isSettled(run),
+		isKnown: (p) => isSteady(p) && typeof ids.get(p) === "string",
+		/* A path tried before the resolved file must read as no file: one that
+		 * appeared since the reach was read, or a symlink, which no id answers,
+		 * leaves the resolution the run used unknown, as does one that held a
+		 * file while the run ran and is gone now. */
+		isAbsent: (p) => isSteady(p) && ids.has(p) && ids.get(p) === null,
+	};
+}
+
+/**
+ * `paths` with each one's content id.
+ * @param {string[]} paths
+ * @param {Map<string, string|null>} ids
+ */
+const idsOf = (paths, ids) =>
+	Object.fromEntries(paths.map((p) => [p, ids.get(p)]));
+
+/**
+ * The row of each file whose every input is known.
+ * @param {RunInputs} inputs
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
+	if (!shared.every(isKnown)) return [];
+	const today = todayValues(seams);
+	const sharedIds = idsOf(shared, ids);
+	return gathered.flatMap((g) => {
+		if (!g.whole || !g.seen) return [];
+		const paths = [
+			...new Set([
+				g.file,
+				...g.imports,
+				...g.reached.flatMap((r) => r.edges),
+				...g.direct,
+			]),
+		];
+		const absent = [
+			...new Set([...g.reached.flatMap((r) => r.shadows), ...g.probed]),
+		].filter((p) => !paths.includes(p));
+		if (!paths.every(isKnown) || !absent.every(isAbsent)) return [];
+		const values = rowValues(
+			g.reached.some((r) => r.python) || holdsPython([...paths, ...absent]),
+			today,
+		);
+		if (values === null) return [];
+		const row = {
+			file: g.file,
+			outcome: g.outcome,
+			inputs: {
+				...idsOf(paths, ids),
+				...Object.fromEntries(absent.map((p) => [p, ABSENT])),
+			},
+			listings: g.seen.listings,
+			dirs: g.seen.dirs,
+			git: g.seen.git,
+		};
+		return [{ values, shared: sharedIds, row }];
+	});
+}
+
+/**
+ * A failed file's voiding row, resting on `keyed`: the inputs, logged
+ * listings and directories it names, and nothing where it names none.
+ * @param {string} file
+ * @param {{inputs?: Row["inputs"], listings?: Row["listings"],
+ *   dirs?: Row["dirs"]}} [keyed]
+ * @returns {Row}
+ */
+const buildVoidingRow = (
+	file,
+	{ inputs = {}, listings = {}, dirs = [] } = {},
+) => ({
+	file,
+	outcome: "fail",
+	voiding: true,
+	inputs,
+	listings,
+	dirs,
+	git: {},
+});
+
+/**
+ * A voiding row for each of `failed`, the failed files no known row holds:
+ * a red whose inputs are unknown still voids an older pass (#4790). Its row
+ * keys every input whose content as the run read it is known, and leaves
+ * the rest unkeyed, so it decides wherever those stand as they did,
+ * whatever the rest hold. A file reached only through one whose content is
+ * unknown is unkeyed too, the run's reach being that file's as it then
+ * stood. Beyond files it keys only what the audit logged
+ * as the test got it, a listing it made and a directory it found: a git
+ * call's answer and a walked tree's listings are read once the run ended,
+ * and one that moved since the test read it would key the row off the
+ * content the red ran on.
+ * @param {Gathered[]} failed
+ * @param {RunInputs} inputs
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function buildVoidingRows(failed, inputs, seams) {
+	const values = todayValues(seams).base;
+	const { ids, isKnown, isAbsent } = inputs;
+	return failed.map((g) => {
+		const sound = g.reached.filter((r) => [r.from, ...r.edges].every(isKnown));
+		const paths = [
+			...new Set([...g.direct, ...sound.flatMap((r) => r.edges)]),
+		].filter(isKnown);
+		const absent = [
+			...new Set([...sound.flatMap((r) => r.shadows), ...g.probed]),
+		].filter(isAbsent);
+		/* Where the drift is unknown, nothing says what the audit logged
+		 * beyond files stood so while the run ran. */
+		const seen = inputs.isDriftKnown ? g.seen : null;
+		return {
+			values,
+			shared: idsOf(inputs.shared.filter(isKnown), ids),
+			row: buildVoidingRow(g.file, {
+				inputs: {
+					...idsOf(paths, ids),
+					...Object.fromEntries(absent.map((p) => [p, ABSENT])),
+				},
+				listings: seen?.logged,
+				dirs: seen?.dirs,
+			}),
+		};
+	});
+}
+
+/**
+ * A voiding row for each of `failed` where the tree would not read: it keys
+ * nothing, and decides at any content (#4790).
+ * @param {FileResult[]} failed
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function buildUnkeyedVoidingRows(failed, seams) {
+	const values = todayValues(seams).base;
+	return failed.map(({ file }) => ({
+		values,
+		shared: {},
+		row: buildVoidingRow(file),
+	}));
+}
+
+/**
+ * A run's rows off its inputs: each file's known row, none where the tree
+ * moved after the run's end snapshot, and a voiding row for each failed
+ * file that has none.
+ * @param {RunInputs} inputs
+ * @param {Seams} seams
+ * @returns {Recorded[]}
+ */
+function buildRows(inputs, seams) {
+	const known = inputs.isSettled ? buildKnownRows(inputs, seams) : [];
+	const keyed = new Set(known.map(({ row }) => row.file));
+	const failed = inputs.gathered.filter(
+		(g) => g.outcome === "fail" && !keyed.has(g.file),
+	);
+	return [...known, ...buildVoidingRows(failed, inputs, seams)];
 }
 
 /**
@@ -741,8 +1095,8 @@ function isSettled(run) {
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
  * alone: its passes cannot be trusted, but a fail row only ever makes a file
- * run. Never throws: a store that cannot be written costs the rows, never the
- * run, and says why on `err`. Returns how many rows landed.
+ * run. Never throws: a store that cannot be written costs the rows, never
+ * the run, and says why on `err`. Returns how many rows landed.
  * @param {Run} run
  * @param {{storeRoot: string|null,
  *   err?: {write: (s: string) => unknown}} & Seams} options
@@ -754,81 +1108,29 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		: run.files.filter((f) => f.outcome === "fail");
 	if (!storeRoot || files.length === 0) return 0;
 	if (seams.lander ?? idSeam.isLanderRun()) return 0;
+	/** @type {RunInputs|null} */
+	let inputs = null;
 	try {
-		const reads = readManifestReads(
-			run.root,
-			files.map((f) => f.file),
+		inputs = readRunInputs(run, files);
+	} catch (e) {
+		err.write(
+			`pass-store.js: this run's inputs will not read (${caught(e).message ?? e}), so it records no pass (#4790)\n`,
 		);
-		const shared = sharedInputs(run.root, run.shared);
-		const reach = lexicalReach(run.root);
-		const listings = trackedListings(run.root);
-		const working = workingAt(run.root);
-		const drifted = run.drifted === null ? null : new Set(run.drifted);
-		const own = files.flatMap((f) => {
-			const found = fileInputs(f, {
-				run,
-				reads,
-				reach,
-				listings,
-				working,
-				drifted,
-			});
-			return found ? [found] : [];
-		});
-		const all = [...shared, ...own.flatMap((f) => f.paths)];
-		const ids = readWorkingIds(gitHasher(run.root), run.root, [
-			...all,
-			...own.flatMap((f) => f.absent),
-		]);
-		const ignored = readIgnored(run.root, [...new Set(all)]);
-		const known = (/** @type {string[]} */ paths) =>
-			drifted !== null &&
-			paths.every(
-				(p) =>
-					typeof ids.get(p) === "string" && !drifted.has(p) && !ignored.has(p),
-			);
-		/* A path tried before the resolved file must read as no file: one that
-		 * appeared since the reach was read, or a symlink, which no id answers,
-		 * leaves the resolution the run used unknown. */
-		const areAllAbsent = (/** @type {string[]} */ paths) =>
-			paths.every((p) => ids.has(p) && ids.get(p) === null);
-		if (!known(shared) || !isSettled(run)) return 0;
-		const today = todayValues(seams);
-		const rows = own
-			.filter((f) => known(f.paths) && areAllAbsent(f.absent))
-			.flatMap((f) => {
-				const values = rowValues(
-					f.python || holdsPython([...f.paths, ...f.absent]),
-					today,
+	}
+	try {
+		const rows = inputs
+			? buildRows(inputs, seams)
+			: buildUnkeyedVoidingRows(
+					files.filter((f) => f.outcome === "fail"),
+					seams,
 				);
-				if (values === null) return [];
-				const inputs = Object.fromEntries([
-					...f.paths.map((p) => [p, ids.get(p)]),
-					...f.absent.map((p) => [p, ABSENT]),
-				]);
-				const row = {
-					file: f.file,
-					outcome: f.outcome,
-					inputs,
-					listings: f.seen.listings,
-					dirs: f.seen.dirs,
-					git: f.seen.git,
-				};
-				return [{ values, row }];
-			});
 		if (rows.length === 0) return 0;
 		fs.mkdirSync(storeDir(storeRoot), { recursive: true });
-		const line = {
-			format: FORMAT,
-			at: run.at,
-			sha: run.sha,
-			tree: run.tree,
-			shared: Object.fromEntries(shared.map((p) => [p, ids.get(p)])),
-		};
-		const landed = rows.filter(({ values, row }) =>
+		const line = { format: FORMAT, at: run.at, sha: run.sha, tree: run.tree };
+		const landed = rows.filter(({ values, shared, row }) =>
 			appendRetained(
 				shardFile(storeRoot, row.file),
-				{ ...line, values, files: [row] },
+				{ ...line, shared, values, files: [row] },
 				ARCHIVE_MS,
 				// The prune drops a line that will not parse, after which rows
 				// older than it decide again, and it may have been a newer fail.
@@ -955,16 +1257,16 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 		);
 	}
 	const values = todayValues(seams);
-	const dirs = workingAt(root);
+	const tree = buildWorkingAt(root);
 	const cached = candidates.flatMap((file) => {
 		if (unparsed.has(file)) return [];
-		const held = (byFile.get(file) ?? []).find(({ row, run }) =>
+		const held = findDeciding(byFile.get(file) ?? [], now, (row, run) =>
 			isRowHolding(row, run, {
 				file,
 				now,
 				values,
 				reads: reads.get(file) ?? [],
-				dirs,
+				tree,
 			}),
 		);
 		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
@@ -1005,11 +1307,92 @@ function readEntries(storeRoot, candidates) {
 		 * past the retention: none of them decides. */
 		const since = Date.now() - ARCHIVE_MS;
 		runs.push(
-			...(read?.rows ?? []).filter((r) => Date.parse(String(r.at)) >= since),
+			...(read?.rows ?? [])
+				.filter((r) => Date.parse(String(r.at)) >= since)
+				.map((r) => asReadableRun(r, file)),
 		);
 	}
 	return { byFile: groupByFile(runs), unparsed };
 }
+
+/**
+ * A line of another layout naming no row `groupByFile` can read stands as a
+ * red on unknown inputs of `file`, whose shard holds it: its outcome may have
+ * been a fail (#4995).
+ * @param {Record<string, unknown>} line
+ * @param {string} file
+ * @returns {Record<string, unknown>}
+ */
+function asReadableRun(line, file) {
+	if (line.format === FORMAT) return line;
+	const rows = Array.isArray(line.files) ? line.files : [];
+	if (rows.some((r) => r && typeof r.file === "string")) return line;
+	return {
+		at: line.at,
+		format: line.format,
+		files: [buildVoidingRow(file)],
+	};
+}
+
+/**
+ * The row of this layout that decides its file among `entries`: the newest
+ * that `holds`, or, behind a red of another layout no input proves was on
+ * other content, the newest that holds and failed. That red's layout is one
+ * this checkout cannot fully read, so it never decides a verdict itself, but
+ * no pass older than it stands (#4995).
+ * @param {Entry[]} entries newest first
+ * @param {Map<string, string|null>} now each read path's content id here
+ * @param {(row: Record<string, unknown>, run: Record<string, unknown>) => boolean} holds
+ * @returns {Entry|undefined}
+ */
+function findDeciding(entries, now, holds) {
+	let voided = false;
+	return entries.find(({ row, run }) => {
+		if (run.format === FORMAT)
+			return holds(row, run) && (!voided || row.outcome === "fail");
+		voided ||= row.outcome !== "pass" && !isOtherContent(row, run, now);
+		return false;
+	});
+}
+
+/**
+ * Whether some input a row of another layout keys held other content than
+ * it does `now`: a blob id that differs, or a file that has gone since. A
+ * mode alone, an id of any other shape, or a path the row found absent
+ * proves nothing: layouts up to 10 recorded as absent a path the run may yet
+ * have read.
+ * @param {Record<string, unknown>} row
+ * @param {Record<string, unknown>} run
+ * @param {Map<string, string|null>} now
+ */
+function isOtherContent(row, run, now) {
+	return [row.inputs, run.shared].some((ids) =>
+		Object.entries(asRecord(ids) ?? {}).some(([p, id]) => {
+			const then = parseBlobId(id);
+			const here = now.get(p);
+			return (
+				then !== null &&
+				(here === ABSENT || (parseBlobId(here) ?? then) !== then)
+			);
+		}),
+	);
+}
+
+/**
+ * @param {unknown} id
+ * @returns {string|null} the blob id, null where `id` names none
+ */
+const parseBlobId = (id) =>
+	typeof id === "string" ? (BLOB_ID.exec(id)?.[1] ?? null) : null;
+
+/**
+ * @param {unknown} v
+ * @returns {Record<string, unknown>|null} null where `v` is no plain object
+ */
+const asRecord = (v) =>
+	v && typeof v === "object" && !Array.isArray(v)
+		? /** @type {Record<string, unknown>} */ (v)
+		: null;
 
 /**
  * The store's run lines turned into each file's rows, newest first.
@@ -1066,24 +1449,33 @@ const entryReads = ({ row, run }) => [
 ];
 
 /** @param {unknown} v */
-const inputPaths = (v) =>
-	v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : [];
+const inputPaths = (v) => Object.keys(asRecord(v) ?? {});
 
 /**
  * Whether one recorded row's verdict holds now: its file is `file`, it
  * recorded a non-empty input list with every id unchanged, the values it
  * rests on equal today's, it is in this store's `FORMAT`, and every document the manifest now maps to the file is
- * among its inputs.
+ * among its inputs. A voiding row, which only ever records a
+ * fail, holds wherever every input it keyed stands as recorded, the file's
+ * own among them or not.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {{file: string, now: Map<string, string|null>,
- *   values: Values, reads: string[], dirs: TreeAt}} at
+ *   values: Values, reads: string[], tree: TreeAt}} at
  */
-function isRowHolding(row, run, { file, now, values, reads, dirs }) {
+function isRowHolding(row, run, { file, now, values, reads, tree }) {
 	if (run.format !== FORMAT) return false;
 	const own = asIds(row.inputs);
 	const shared = asIds(run.shared);
-	if (!own || !shared || own.size === 0 || !own.has(file)) return false;
+	if (!own || !shared) return false;
+	const then = new Map([...shared, ...own]);
+	if (row.voiding === true)
+		return (
+			row.outcome === "fail" &&
+			(then.size === 0 || isSameContent([...then.keys()], then, now)) &&
+			isTreeHolding(row, tree)
+		);
+	if (own.size === 0 || !own.has(file)) return false;
 	const recordedValues = /** @type {Record<string, unknown>} */ (
 		run.values ?? {}
 	);
@@ -1096,9 +1488,8 @@ function isRowHolding(row, run, { file, now, values, reads, dirs }) {
 		Object.entries(wanted).some(([k, v]) => recordedValues[k] !== v)
 	)
 		return false;
-	const then = new Map([...shared, ...own]);
 	if (reads.some((p) => !then.has(p))) return false;
-	return isSameContent([...then.keys()], then, now) && isTreeHolding(row, dirs);
+	return isSameContent([...then.keys()], then, now) && isTreeHolding(row, tree);
 }
 
 /**
@@ -1106,9 +1497,14 @@ function isRowHolding(row, run, { file, now, values, reads, dirs }) {
  * @returns {Map<string, string|null>|null} null where `v` is no path-to-id map
  */
 function asIds(v) {
-	if (!v || typeof v !== "object" || Array.isArray(v)) return null;
-	const entries = Object.entries(v);
-	if (entries.some(([, id]) => typeof id !== "string")) return null;
+	const ids = asRecord(v);
+	if (!ids) return null;
+	/** @type {[string, string][]} */
+	const entries = [];
+	for (const [p, id] of Object.entries(ids)) {
+		if (typeof id !== "string") return null;
+		entries.push([p, id]);
+	}
 	return new Map(entries);
 }
 
@@ -1148,7 +1544,8 @@ const buildPragmaRefusal = (files) =>
  * Write the cached files a run that looked the store up carries for its
  * vitest child — none cached included, which the run's records count — and
  * the environment entry naming them. Null where the file cannot be written,
- * which leaves the cached files out of the certificate.
+ * which leaves the cached files out of the certificate: the unattested
+ * direction.
  * @param {Cached[]|null} cached null where the run looked nothing up
  * @param {string} file
  * @param {{write: (s: string) => unknown}} [err]
@@ -1271,26 +1668,35 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 				});
 		}
 	} catch {
+		// A store or a commit that will not read is no evidence of a red at
+		// `sha`: the classifier is left the marker stores alone (#4790).
 		return new Map();
 	}
 	return held;
 }
 
 /**
- * The newest of `entries` before `before` that holds at `sha`'s tree.
+ * The row of `entries` before `before` that decides at `sha`'s tree.
  * @param {string} file
  * @param {Entry[]} entries newest first
  * @param {{ sha: string, before: string, git: (args: string[]) => string,
  *   values: Values }} at
  */
 function heldRow(file, entries, { sha, before, git, values }) {
-	const earlier = entries.filter(({ run }) => String(run.at) < before);
+	/* A voiding row of this layout says what its file's content failed on
+	 * beside unknown inputs: no evidence of a red at a commit. Another
+	 * layout's only ever voids an older pass. */
+	const earlier = entries.filter(
+		({ row, run }) =>
+			String(run.at) < before &&
+			(row.voiding !== true || run.format !== FORMAT),
+	);
 	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
 	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));
-	const dirs = commitAt(git, sha);
-	return earlier.find(({ row, run }) =>
-		isRowHolding(row, run, { file, now, values, reads: [], dirs }),
+	const tree = buildCommitAt(git, sha);
+	return findDeciding(earlier, now, (row, run) =>
+		isRowHolding(row, run, { file, now, values, reads: [], tree }),
 	);
 }
 

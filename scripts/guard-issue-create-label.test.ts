@@ -20,9 +20,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import {
+	FALLBACK_LEAD,
+	type JudgeFakePlan,
+	judgeFakeEnv,
+	MODEL_LEAD,
+	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
+} from "./lib/gate-judge-fake";
 import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
+import { readJsonl } from "./lib/jsonl.js";
+import { markersDir } from "./lib/marker-root.js";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -177,6 +188,103 @@ describe("each exit", () => {
 			'It carries "3 days", a window the `**Gate basis:**` line does not name; and the basis',
 		);
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
+	});
+});
+
+describe("the model reading (#4969)", () => {
+	const Wait = "Re-measure over seven days of those records.";
+	const found = {
+		reading: {
+			waits: [
+				{
+					sentence: Wait,
+					on: "data",
+					window: "seven days",
+					basisNamesWindow: false,
+				},
+			],
+			bases: [],
+		},
+	};
+	const create = (body: string, plan: JudgeFakePlan) =>
+		emission(
+			`gh issue create --title t --label takes:implement --body '${body}'`,
+			{ env: judgeFakeEnv(dir, plan, config).env },
+		);
+
+	it("denies a create whose wait only the model reads, with the template and the override", () => {
+		const out = create(`Build it.\n\n${Wait}`, found);
+		expect(out.permissionDecision).toBe("deny");
+		const reason = out.permissionDecisionReason ?? "";
+		expect(reason).toContain(`It carries ${MODEL_LEAD}:`);
+		expect(reason).toContain(`"${Wait}" makes work wait on data accumulating`);
+		expect(reason).toContain("The line's template: `**Gate basis:**");
+		expect(reason).toContain(
+			"`**Gate judge override:** <why the reading is wrong>`",
+		);
+	});
+
+	it("lets a create through whose override gives a reason, saying so as context", () => {
+		const out = create(`Build it.\n\n${Wait}\n${OVERRIDE_LINE}`, found);
+		expect(out.permissionDecision).toBeUndefined();
+		expect(out.additionalContext).toContain(
+			`${OVERRIDE_LEAD} ("${OVERRIDE_REASON}")`,
+		);
+		expect(
+			readJsonl(path.join(markersDir(dir), ".gate-judge-calls.jsonl"))?.rows,
+		).toContainEqual(
+			expect.objectContaining({
+				route: "create-guard",
+				override: OVERRIDE_REASON,
+			}),
+		);
+	});
+
+	it("denies a create whose override gives no reason", () => {
+		const out = create(`Build it.\n\n${Wait}\n**Gate judge override:**`, found);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"gives no reason, so it clears nothing",
+		);
+	});
+
+	it("denies a create the patterns fault, an override line present", () => {
+		const out = create(
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${OVERRIDE_LINE}`,
+			found,
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"as the wording patterns read it",
+		);
+	});
+
+	it("refuses what the patterns fault, the model's finding in the same reason", () => {
+		const out = create(
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}`,
+			found,
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain("no `**Gate basis:**` line");
+		expect(out.permissionDecisionReason).toContain(
+			`It also carries ${MODEL_LEAD}:`,
+		);
+	});
+
+	it("lets the create through where the launch is refused, saying so", () => {
+		const out = emission(
+			`gh issue create --title t --label takes:implement --body '${Wait}'`,
+			{
+				env: {
+					...judgeFakeEnv(dir, found, config).env,
+					ANTHROPIC_API_KEY: "sk-test",
+				},
+			},
+		);
+		expect(out.permissionDecision).toBeUndefined();
+		expect(out.additionalContext).toContain(
+			`${FALLBACK_LEAD} (the launch was refused`,
+		);
 	});
 });
 
