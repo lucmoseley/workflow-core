@@ -13,8 +13,8 @@
  * quoted path, which git finds in its own exec path ahead of `PATH`. A
  * process git looked for and never found (`pid` -1 at its exit) ran
  * nothing. A git that logged its start and never its end may still be
- * running: a doubt too, unless the preload logged, after it, that the
- * process it spawned had exited (`EXITED`): git 2.43 logs a SIGPIPE, but
+ * running: a doubt too, unless the preload logged, after it, that the test
+ * killed that git and it exited (`EXITED`): git 2.43 logs a SIGPIPE, but
  * not the SIGTERM a test kills a long-lived git with.
  */
 
@@ -74,19 +74,32 @@ function tally(rows) {
 	const unfound = new Set();
 	/** @type {Set<string>} */
 	const open = new Set();
-	const exited = new Set(
-		rows.filter((row) => row.event === EXITED).map((row) => row.pid),
-	);
+	/** @type {Set<string>} */
+	const helped = new Set();
 	for (const row of rows) {
 		const sid = String(row.sid);
 		const child = `${sid} ${row.child_id}`;
-		if (row.event === "start") open.add(sid);
+		if (row.event === EXITED) closeKilled(open, helped, row.pid);
+		else if (row.event === "start") open.add(sid);
 		else if (row.event === "atexit") open.delete(sid);
+		else if (row.event === "cmd_name" && row.name === "help") helped.add(sid);
 		else if (row.event === "child_start") started.set(child, row);
 		else if (row.event === "child_exit" && row.pid === -1) unfound.add(child);
 	}
-	for (const sid of open) if (exited.has(pidOf(sid))) open.delete(sid);
 	return { started, unfound, open };
+}
+
+/**
+ * Close the open gits a mark says were killed: those whose sid names its
+ * pid, started before it, and none that ran `git help`, which execs the
+ * viewer in its place.
+ * @param {Set<string>} open
+ * @param {Set<string>} helped
+ * @param {unknown} pid
+ */
+function closeKilled(open, helped, pid) {
+	for (const sid of open)
+		if (pidOf(sid) === pid && !helped.has(sid)) open.delete(sid);
 }
 
 /**

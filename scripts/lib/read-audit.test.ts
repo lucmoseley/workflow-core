@@ -886,13 +886,22 @@ describe("the routes still open after #4982 (#4997)", () => {
 			const cut = Math.floor(file.length / 2);
 			for (const chunks of [[file], [file.slice(0, cut), file.slice(cut)]])
 				expect(untraced(root, writes(cwd, chunks)).doubt).toMatch(
-					/a child \(cat \) was written a path in the checkout on its standard input/,
+					/a child \(cat \) was written a path in the checkout down a pipe/,
 				);
 			const asBuffer = writes(cwd, []).replace(
 				"c.stdin.end();",
 				`c.stdin.end(Buffer.from(${quoted(file)}));`,
 			);
-			expect(untraced(root, asBuffer).doubt).toMatch(/on its standard input/);
+			expect(untraced(root, asBuffer).doubt).toMatch(/down a pipe/);
+		});
+
+		it("doubts a checkout path written down a pipe on a descriptor past the standard three", () => {
+			const root = checkout();
+			const file = path.join(root, settingsFile);
+			const body = `const c = require("node:child_process").spawn("cat", [], { cwd: ${quoted(outsideDir())}, stdio: ["ignore", "ignore", "ignore", "pipe"] });\nc.stdio[3].on("error", () => {});\nc.stdio[3].end(${quoted(file)});`;
+			expect(untraced(root, body).doubt).toMatch(
+				/a child \(cat \) was written a path in the checkout down a pipe/,
+			);
 		});
 
 		it("keeps the reads of a file that writes a child only its own scratch, or nothing of the checkout", () => {
@@ -964,14 +973,38 @@ describe("the routes still open after #4982 (#4997)", () => {
 			expect(untraced(root, plain)).toHaveProperty("reads");
 		});
 
-		it("keeps a git the test kills, which logs no end of its own, once it has exited", () => {
+		/** A body that starts git on `args` and, once it first answers, ends it
+		 * by `stop`. */
+		const stopped = (repo: string, args: string[], stop: string) =>
+			[
+				`const c = require("node:child_process").spawn(${quoted(realGit)}, ${quoted(args)}, { cwd: ${quoted(repo)}, stdio: ["pipe", "pipe", "ignore"] });`,
+				`c.stdout.once("data", () => ${stop});`,
+				'c.stdin.write("HEAD\\n");',
+			].join("\n");
+
+		it("keeps a git the test kills through its handle, which logs no end of its own", () => {
+			const root = checkout();
+			const body = stopped(fixture(), ["cat-file", "--batch"], "c.kill()");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
+		it("doubts a git killed past its handle, or once `git help` put a viewer in its place", () => {
 			const root = checkout();
 			const repo = fixture();
-			const body = [
-				`const c = require("node:child_process").spawn(${quoted(realGit)}, ["cat-file", "--batch"], { cwd: ${quoted(repo)}, stdio: ["pipe", "ignore", "ignore"] });`,
-				'c.on("spawn", () => setTimeout(() => c.kill("SIGTERM"), 200));',
-			].join("\n");
-			expect(untraced(root, body)).toHaveProperty("reads");
+			const byPid = stopped(
+				repo,
+				["cat-file", "--batch"],
+				"process.kill(c.pid)",
+			);
+			expect(untraced(root, byPid).doubt).toMatch(/logged no end/);
+			const viewer = [
+				"-c",
+				"man.viewer=x",
+				"-c",
+				"man.x.cmd=echo up; sleep 30",
+			];
+			const help = stopped(repo, [...viewer, "help", "git"], "c.kill()");
+			expect(untraced(root, help).doubt).toMatch(/logged no end/);
 		});
 
 		it("doubts a git handed an event target of its own, which leaves what it ran unlogged", () => {
@@ -998,6 +1031,17 @@ describe("the routes still open after #4982 (#4997)", () => {
 					/a child \(ls .*\) was handed a path in the checkout$/,
 				);
 			expect(untraced(root, spawns(["-Ino-such/x"]))).toHaveProperty("reads");
+		});
+
+		it("doubts `..` stuck to a short-option cluster from a scratch directory, which names the checkout", () => {
+			const root = checkout();
+			const body = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				'try { require("node:child_process").execFileSync("ls", ["-dI.."], { cwd: scratch, stdio: "ignore" }); } catch {}',
+			].join("\n");
+			expect(untraced(root, body).doubt).toMatch(
+				/a child \(ls -dI\.\.\) was handed a path in the checkout$/,
+			);
 		});
 	});
 
@@ -1067,12 +1111,12 @@ describe("the routes still open after #4982 (#4997)", () => {
 			expect(hands).toContainEqual({ by: "repo", p: ["."] });
 		});
 
-		it("doubts a bare git that -C words walk out of a scratch directory into the checkout, and keeps one left in it", () => {
+		it("doubts a bare git whose -C words walked out of a scratch directory into the checkout before --bare, and keeps one left in it", () => {
 			const root = checkout();
 			const walked = [
 				minting(root),
 				stripped(
-					["--bare", "-C", "PLACE", "-C", "..", "rev-parse", "--git-dir"],
+					["-C", "PLACE", "-C", "..", "--bare", "rev-parse", "--git-dir"],
 					quoted(outsideDir()),
 				),
 			]
@@ -1086,6 +1130,20 @@ describe("the routes still open after #4982 (#4997)", () => {
 				stripped(["--bare", "rev-parse", "--git-dir"], "scratch"),
 			].join("\n");
 			expect(untraced(root, inScratch)).toHaveProperty("reads");
+			/* git takes the repository where `--bare` is read: -C words after
+			 * it move only the work tree. */
+			const after = [
+				minting(root),
+				stripped(
+					["--bare", "-C", "PLACE", "-C", "..", "rev-parse", "--git-dir"],
+					quoted(outsideDir()),
+				),
+			]
+				.join("\n")
+				.replace('"PLACE"', "scratch");
+			expect(untraced(root, after).doubt ?? "").not.toMatch(
+				/by the repository/,
+			);
 		});
 	});
 
@@ -1133,8 +1191,9 @@ describe("the routes still open after #4982 (#4997)", () => {
 				);
 		});
 
-		/* The timeout bounds a systemctl that waits on a user bus this machine
-		 * may not run. */
+		/* The timeout bounds a systemctl that waits on a user bus, or a host,
+		 * this machine may not reach: 10 s, a guess far past the second or so
+		 * one that answers takes. */
 		const systemctl = (cwd: string, args: string[], env = {}) =>
 			`try { require("node:child_process").execFileSync("systemctl", ${quoted(["--user", ...args, "--no-ask-password", "no-such.service"])}, { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true", ...${quoted(env)} }, stdio: "ignore", timeout: 10000 }); } catch {}`;
 
@@ -1150,7 +1209,12 @@ describe("the routes still open after #4982 (#4997)", () => {
 		it("doubts a systemctl asked to edit, which runs an editor, or to reach a host, which runs ssh", () => {
 			const root = checkout();
 			const cwd = outsideDir();
-			for (const args of [["edit"], ["-H", "nowhere.invalid", "is-active"]])
+			for (const args of [
+				["edit"],
+				["-H", "nowhere.invalid", "is-active"],
+				["-Hnowhere.invalid", "is-active"],
+				["--ho=nowhere.invalid", "is-active"],
+			])
 				expect(settled(root, systemctl(cwd, args)).doubt).toMatch(
 					/a child \(systemctl .*\) was handed a path in the checkout by its environment/,
 				);

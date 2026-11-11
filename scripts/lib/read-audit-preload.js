@@ -54,6 +54,7 @@ const {
 	isNode,
 	PATH_MAX,
 	pairValue,
+	STEERED_BY,
 	readRealTmpdir,
 	repoPath,
 } = require("./read-audit-paths.js");
@@ -728,7 +729,8 @@ function install() {
 	/**
 	 * Watch every pipe to an async child where nothing else sees its reads:
 	 * no tracer follows it and it keeps no log of its own. A stream the test
-	 * handed it whole (`wrap`) carries what the audit cannot read: a doubt.
+	 * handed it whole (`wrap`) on a descriptor it may read carries what the
+	 * audit cannot read: a doubt.
 	 * @param {Untyped} asked
 	 * @param {number|undefined} pid
 	 * @param {Route} route
@@ -738,17 +740,20 @@ function install() {
 			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
 			if (typeof pid !== "number" || route || isSelfLogging(asked)) return;
 			const cwd = cwdOf(asked);
-			for (const entry of stdio) watchEntry(entry, pid, cwd);
+			for (const [descriptor, entry] of stdio.entries())
+				watchEntry(entry, descriptor, pid, cwd);
 		});
 
 	/**
 	 * @param {Untyped} entry one of a spawn's `stdio`
+	 * @param {number} descriptor its number in the child
 	 * @param {number} pid
 	 * @param {string} cwd
 	 */
-	const watchEntry = (entry, pid, cwd) => {
+	const watchEntry = (entry, descriptor, pid, cwd) => {
 		if (entry?.type === "pipe") watchInput(entry.handle, pid, cwd);
-		if (entry?.type === "wrap") add({ k: "piped", pid, p: null });
+		const isOutput = descriptor === 1 || descriptor === 2;
+		if (entry?.type === "wrap" && !isOutput) add({ k: "piped", pid, p: null });
 	};
 	/**
 	 * The variables steering which program a child runs by name, or with
@@ -759,7 +764,8 @@ function install() {
 		STEERS.filter((name) => pairValue(envPairs, name) !== standing[name]);
 	/**
 	 * Append to a git child's event log, where it wrote one, that the git
-	 * has exited: a git killed by a signal logs no end of its own.
+	 * the test killed has exited: a git killed by a signal logs no end of
+	 * its own.
 	 * @param {string|null|undefined} events
 	 * @param {unknown} pid
 	 */
@@ -781,19 +787,37 @@ function install() {
 			}
 		});
 	/**
-	 * Mark an async git child's log once it exits.
+	 * Mark an async git child's log once it exits, where the test killed it
+	 * through its handle while it still ran git. Exited on its own, a git
+	 * logs its end; one that ran `git help` became `man` under the same
+	 * pid, which no mark may vouch for.
 	 * @param {Untyped} handle the child's process handle
 	 * @param {string|null|undefined} events
 	 */
-	const markOnExit = (handle, events) =>
+	const markOnKill = (handle, events) =>
 		guard(() => {
-			const prior = handle.onexit;
-			if (typeof events !== "string" || typeof prior !== "function") return;
+			const { kill, onexit } = handle;
+			if (typeof events !== "string") return;
+			if (typeof kill !== "function" || typeof onexit !== "function") return;
+			let killedGit = false;
+			handle.kill = function (/** @type {Untyped[]} */ ...args) {
+				killedGit ||= isGitNow(handle.pid);
+				return kill.apply(this, args);
+			};
 			handle.onexit = function (/** @type {Untyped[]} */ ...args) {
-				markExited(events, handle.pid);
-				return prior.apply(this, args);
+				if (killedGit) markExited(events, handle.pid);
+				return onexit.apply(this, args);
 			};
 		});
+	/** @param {unknown} pid whether that process runs a binary named git */
+	const isGitNow = (pid) => {
+		try {
+			return path.basename(realRealpathSync(`/proc/${pid}/exe`)) === "git";
+		} catch {
+			// Gone, or not ours to read: no mark, so its open log doubts.
+			return false;
+		}
+	};
 	/**
 	 * @param {Untyped} opts as the test spawned it
 	 * @param {number|undefined} pid
@@ -829,7 +853,6 @@ function install() {
 			const spawned = buildTracedSpawn(args[0]);
 			const out = syncSpawn.apply(this, [spawned.opts, ...args.slice(1)]);
 			logChild(args[0], out?.pid, spawned);
-			markExited(spawned.events, out?.pid);
 			return out;
 		};
 		const Process = bindings("process_wrap").Process;
@@ -852,7 +875,7 @@ function install() {
 			);
 			logChild(asked, this.pid, spawned);
 			watchIfUnseen(asked, this.pid, spawned.route);
-			markOnExit(this, spawned.events);
+			markOnKill(this, spawned.events);
 			return err;
 		};
 	} catch {
@@ -905,7 +928,7 @@ const GIT_EVENTS = "GIT_TRACE2_EVENT";
 
 /* The variables that steer which program a child runs by name, or with
  * what options (#4997). */
-const STEERS = ["PATH", "TAR_OPTIONS"];
+const STEERS = [...new Set([...STEERED_BY.values()].flat())];
 
 /* A pipe handle's writes, as Node's stream code calls them. */
 const PIPE_WRITES = [
@@ -939,27 +962,39 @@ const GIT_READS = /^(GIT_.*|HOME|XDG_CONFIG_HOME)$/;
 
 /**
  * Where a git call finds its repository: the directory it looks up from,
- * its own moved by each `-C` before the subcommand, or that directory as
- * the repository itself under `--bare`; null where it looks for none.
+ * its own moved by each `-C` before the subcommand, or under `--bare` the
+ * repository itself, the directory the `-C` words before it reached (git
+ * sets `GIT_DIR` there); null where it looks for none.
  * @param {string[]} words the call's words after the program
  * @param {string} cwd
  * @returns {{at: string, bare: boolean}|null}
  */
 function gitDirOf(words, cwd) {
 	let moved = cwd;
-	let bare = false;
+	/** @type {string|null} */
+	let bare = null;
 	let at = 0;
 	for (; at < words.length; at++) {
 		const word = String(words[at]);
 		if (!word.startsWith("-")) break;
 		if (word.split("=")[0] === "--git-dir") return null;
-		if (word === "--bare") bare = true;
+		if (word === "--bare") bare = moved;
 		if (word === "-C") moved = path.resolve(moved, words[at + 1] ?? "");
 		if (GIT_VALUED.has(word)) at++;
 	}
+	if (makesItsOwn(words, at)) return null;
+	return { at: bare ?? moved, bare: bare !== null };
+}
+
+/**
+ * Whether the subcommand at `at` makes a repository rather than look for
+ * one: an `init` or a `clone` not asked for `--help`.
+ * @param {string[]} words
+ * @param {number} at
+ */
+function makesItsOwn(words, at) {
 	const sub = words[at];
-	const makes = sub === "init" || sub === "clone";
-	return makes && !words.includes("--help") ? null : { at: moved, bare };
+	return (sub === "init" || sub === "clone") && !words.includes("--help");
 }
 
 /** @param {unknown} n */

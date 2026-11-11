@@ -1,8 +1,9 @@
 /*
  * read-audit-paths.js — the path tests, limits and git and environment
- * readings the read audit's modules share (#4916). lib/read-audit-preload.js loads it into every audited process,
- * so it requires nothing beside Node's own modules and lib/is-under.js,
- * which the preload loads already.
+ * readings the read audit's modules share (#4916).
+ * lib/read-audit-preload.js loads it into every audited process, so it
+ * requires nothing beside Node's own modules and lib/is-under.js, which the
+ * preload loads already.
  */
 
 const fs = require("node:fs");
@@ -44,6 +45,17 @@ const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
 /* The event the preload appends to a git child's event log once that git
  * has exited, naming its pid (lib/read-audit-git-events.js). */
 const EXITED = "wfc_exited";
+
+/* The variables a program lib/read-audit.js passes as reading none heeds
+ * to find what it runs by name or with what options: `tar` its compressor
+ * on `PATH` and its options off `TAR_OPTIONS`; `systemctl` its editor and
+ * ssh on `PATH`; `biome` the node its `#!/usr/bin/env node` finds there
+ * (#4997). */
+const STEERED_BY = new Map([
+	["tar", ["PATH", "TAR_OPTIONS"]],
+	["systemctl", ["PATH"]],
+	["biome", ["PATH"]],
+]);
 
 /* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
 const PATH_MAX = 4096;
@@ -109,5 +121,6 @@ module.exports = {
 	readRealTmpdir,
 	repoPath,
 	SHOWN_MAX,
+	STEERED_BY,
 	toPosix,
 };

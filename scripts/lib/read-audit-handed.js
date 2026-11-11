@@ -27,8 +27,8 @@ const { PATH_MAX } = require("./read-audit-paths.js");
  * child's entry: an argument by its place after the program's name; a
  * variable by its name, `standing` where the process that spawned the child
  * holds the same value; the input of a sync spawn; the checkout's repository
- * where git finds it from its directory, or in it under `--bare`. `p` is the repo-relative paths it
- * names.
+ * where git finds it from its directory, or in it under `--bare`. `p` is
+ * the repo-relative paths it names.
  * @typedef {{by: "arg", at: number, p: string[]}
  *   | {by: "env", name: string, standing: boolean, p: string[]}
  *   | {by: "stdin", p: string[]}
@@ -101,7 +101,10 @@ function buildHanded(root) {
 	};
 	/**
 	 * What words name, resolved from one working directory, each name it
-	 * may hold looked up once. Input text is not searched for glued paths.
+	 * may hold looked up once. Input text is not searched for glued paths,
+	 * so a relative path stuck behind a prefix there (`-Iin/x` written down
+	 * a pipe) goes unseen: a lookup a character would cost a megabyte of
+	 * input a million.
 	 * @param {string} cwd the child's working directory, real path
 	 * @param {{text?: boolean}} [kind]
 	 */
@@ -173,8 +176,8 @@ function glued(piece, isHeld) {
 	for (let at = Math.max(1, end - NAME_MAX); at < end; at++) {
 		const name = piece.slice(at, end);
 		const isDots = name === "." || name === "..";
-		if (isDots ? at === 2 && piece[0] === "-" : isHeld(name))
-			out.push(piece.slice(at));
+		const isCluster = piece[0] === "-" && piece[1] !== "-" && at >= 2;
+		if (isDots ? isCluster : isHeld(name)) out.push(piece.slice(at));
 	}
 	return out;
 }

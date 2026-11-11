@@ -65,6 +65,7 @@ const {
 	isNode,
 	readRealTmpdir,
 	SHOWN_MAX,
+	STEERED_BY,
 	toPosix,
 } = require("./read-audit-paths.js");
 const { buildGitEventsReader } = require("./read-audit-git-events.js");
@@ -562,11 +563,12 @@ function handOf(e, script, root, isScratch) {
  * `OLDPWD`, `INIT_CWD`, `WFC_RULES_DIR` and `WFC_ALWAYS_LOADED` naming it,
  * to make no file call under the root but for its own file. One invocation
  * each (`tar` list, extract and create). What one runs by name it finds on
- * `PATH`: `tar`'s compressor, through `/bin/sh` on a create. So one passes only where the variables it
- * heeds for that (`STEERED_BY`) are as the setup settled them, and no word
- * asks it to run a command a test names (`RUNS_A_COMMAND`). A pager runs only on a terminal,
- * which a test's process never holds: its output is a socket. Any program
- * not named here is doubted on such a variable. */
+ * `PATH`: `tar`'s compressor, through `/bin/sh` on a create. So one passes
+ * only where the variables it heeds for that (`STEERED_BY`) are as the
+ * setup settled them, and no word asks it to run a command a test names
+ * (`RUNS_A_COMMAND`). A pager runs only on a terminal, which a test's
+ * process never holds: its output is a socket. Any program not named here
+ * is doubted on such a variable. */
 const ENV_BLIND = new Set([
 	...["tar", "grep", "pgrep", "free", "dmesg"],
 	...["systemctl", "curl", "ruff", "biome"],
@@ -607,21 +609,25 @@ function isTarRunningCommand(args) {
  * editor, and `-H`/`--host`, which runs ssh. */
 const RUNS_A_COMMAND = new Map([
 	["tar", isTarRunningCommand],
-	[
-		"systemctl",
-		(/** @type {string[]} */ args) =>
-			args.some(
-				(a) => a === "edit" || a === "-H" || a.split("=")[0] === "--host",
-			),
-	],
+	["systemctl", isSystemctlRunningCommand],
 ]);
 
-/* The variables a program of `ENV_BLIND` heeds to find what it runs by
- * name or with what options. */
-const STEERED_BY = new Map([
-	["tar", ["PATH", "TAR_OPTIONS"]],
-	["systemctl", ["PATH"]],
-]);
+/**
+ * Whether systemctl's words ask it to edit, or to reach a host: `-H` in a
+ * short-option cluster, its value glued on or not, or `--host` by any
+ * prefix getopt takes for it.
+ * @param {string[]} args
+ */
+function isSystemctlRunningCommand(args) {
+	return args.some((a) => {
+		if (a === "edit") return true;
+		if (a.startsWith("--")) {
+			const name = a.split("=")[0] ?? "";
+			return name.length > 3 && "--host".startsWith(name);
+		}
+		return /^-[^-]*H/.test(a);
+	});
+}
 
 /**
  * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
@@ -663,7 +669,7 @@ function pipedDoubt(e, child, root, isScratch) {
 		return `a child (${shownChild(child)}) was handed a stream whose content the audit cannot read`;
 	const paths = e.p.map(String);
 	if (isBlind(child, root) || paths.every(isScratch)) return null;
-	return `a child (${shownChild(child)}) was written a path in the checkout on its standard input`;
+	return `a child (${shownChild(child)}) was written a path in the checkout down a pipe`;
 }
 
 /**
