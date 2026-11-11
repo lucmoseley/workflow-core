@@ -32,8 +32,9 @@
  *   its own, loads no preload;
  * - any other child — a shell, Python, a binary, a stub a test wrote — run
  *   from a directory under the root, or handed a path there by an argument,
- *   an environment variable or a sync spawn's input, however spelt
- *   (#4982), where no `strace` traced it. The preload traces a stub and a
+ *   an environment variable, a sync spawn's input or a write to its pipe
+ *   once it runs, however spelt (#4982, #4997), where no `strace` traced
+ *   it. The preload traces a stub and a
  *   shell (#4966): its reads are the paths its file calls named, and only
  *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a
  *   shell or Python child handed a checkout script to run, from outside
@@ -43,6 +44,9 @@
  *   `Program`). The git guard alone is a read (`Program`), and the git it
  *   runs is judged as any git child. One of `BLIND` is seen, which reads
  *   nothing of its directory, its environment or its input (#4932);
+ * - a process an untraced git child started that is not git again — a
+ *   hook, an alias, a helper — off the event log git kept for it
+ *   (lib/read-audit-git-events.js, #4997);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -57,10 +61,14 @@ const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	buildGuardTest,
+	GIT_VALUED,
 	isNode,
 	readRealTmpdir,
+	SHOWN_MAX,
+	STEERED_BY,
 	toPosix,
 } = require("./read-audit-paths.js");
+const { buildGitEventsReader } = require("./read-audit-git-events.js");
 const { buildTraceReader, findStrace } = require("./read-audit-trace.js");
 
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
@@ -136,17 +144,6 @@ function isStdinFed(word) {
 	);
 }
 
-/* git's options before the subcommand that take the next word as a value. */
-const VALUED = new Set([
-	"-C",
-	"-c",
-	"--git-dir",
-	"--work-tree",
-	"--namespace",
-	"--config-env",
-	"--attr-source",
-]);
-
 /**
  * @typedef {{cwd: string, args: string[]}} GitCall
  *   a git call to run again: its directory, repo-relative, and its words
@@ -219,7 +216,10 @@ function remove(dir) {
 function readAudits(dir, root, clock) {
 	const owners = readOwners(dir);
 	const real = fs.realpathSync(root);
-	const readTrace = buildTraceReader(dir, real, clock);
+	const readers = {
+		trace: buildTraceReader(dir, real, clock),
+		gitEvents: buildGitEventsReader(dir),
+	};
 	/** @type {Map<string, Audit>} */
 	const out = new Map();
 	for (const [owner, { logs, git }] of owners) {
@@ -232,7 +232,7 @@ function readAudits(dir, root, clock) {
 		/** @type {Audit} */
 		let audit;
 		if (!own) audit = { doubt: "its process left no audit log" };
-		else if (claims.size === 1) audit = judge(logs, git, real, readTrace);
+		else if (claims.size === 1) audit = judge(logs, git, real, readers);
 		else audit = { doubt: "its process ran more than one test file" };
 		for (const f of named)
 			out.set(f, out.has(f) ? { doubt: "two processes claimed it" } : audit);
@@ -293,10 +293,10 @@ function parseGitRecords(text) {
  * @param {Map<number, Entry[]>} logs
  * @param {string[][]} git the guard's records for this owner
  * @param {string} root real path
- * @param {ReturnType<typeof buildTraceReader>} readTrace
+ * @param {Readers} readers
  * @returns {Audit}
  */
-function judge(logs, git, root, readTrace) {
+function judge(logs, git, root, readers) {
 	for (const [pid, entries] of logs)
 		if (entries[0]?.k !== "self" || entries.some((e) => e.k === "fault"))
 			return { doubt: `the audit faulted in process ${pid}` };
@@ -305,7 +305,7 @@ function judge(logs, git, root, readTrace) {
 		.filter((e) => e.k === "minted")
 		.map((e) => String(e.p));
 	const isScratch = (/** @type {string} */ p) => isUnder(p, minted);
-	const reads = buildCollector(logs, root, isScratch, readTrace);
+	const reads = buildCollector(logs, root, isScratch, readers);
 	for (const record of git) {
 		const why = reads.takeGit(record);
 		if (why) return { doubt: why };
@@ -319,13 +319,19 @@ function judge(logs, git, root, readTrace) {
 }
 
 /**
+ * @typedef {{trace: ReturnType<typeof buildTraceReader>,
+ *   gitEvents: ReturnType<typeof buildGitEventsReader>}} Readers
+ *   a traced child's reads, and what a git child ran
+ */
+
+/**
  * The reads one owner's log entries add up to.
  * @param {Map<number, Entry[]>} logs
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
- * @param {ReturnType<typeof buildTraceReader>} readTrace
+ * @param {Readers} readers
  */
-function buildCollector(logs, root, isScratch, readTrace) {
+function buildCollector(logs, root, isScratch, readers) {
 	/** @type {Record<"file"|"dir"|"absent", Set<string>>} */
 	const probed = { file: new Set(), dir: new Set(), absent: new Set() };
 	/** @type {Map<string, Set<string>>} */
@@ -336,6 +342,8 @@ function buildCollector(logs, root, isScratch, readTrace) {
 	const scripts = new Set();
 	/** @type {Map<string, GitCall>} */
 	const calls = new Map();
+	/** @type {Map<number, Entry>} */
+	const children = new Map();
 	/** @type {Record<string, (e: Entry) => string|null>} */
 	const takers = {
 		probe: (e) => {
@@ -356,8 +364,12 @@ function buildCollector(logs, root, isScratch, readTrace) {
 		},
 		worker: () =>
 			"it started a worker thread, whose reads the audit cannot see",
+		piped: (e) => pipedDoubt(e, children.get(Number(e.pid)), root, isScratch),
 		child: (e) => {
+			if (typeof e.pid === "number") children.set(e.pid, e);
 			if (typeof e.trace === "string") return takeTrace(e);
+			const ran = gitChildDoubt(e, readers.gitEvents);
+			if (ran) return ran;
 			const program = readProgram(e, root, isScratch);
 			const why = childDoubt(e, program, { logs, root, isScratch });
 			if (!why) for (const f of childReads(e, program, root)) scripts.add(f);
@@ -374,7 +386,7 @@ function buildCollector(logs, root, isScratch, readTrace) {
 	 * @returns {string|null}
 	 */
 	const takeTrace = (e) => {
-		const got = readTrace(String(e.trace), String(e.cwd));
+		const got = readers.trace(String(e.trace), String(e.cwd));
 		if ("doubt" in got) return `a traced child (${shownChild(e)}) ${got.doubt}`;
 		for (const read of got.entries) {
 			const why = take(read);
@@ -439,7 +451,7 @@ function rerunnable([steered, dir = "", ...args], root) {
 		const a = String(args[i]);
 		if (a === "-C" || a.startsWith("--git-dir") || a.startsWith("--work-tree"))
 			return `a git call (${shown}) named its repository`;
-		i += VALUED.has(a) ? 2 : 1;
+		i += GIT_VALUED.has(a) ? 2 : 1;
 	}
 	if (!RERUN.has(String(args[i])))
 		return `a git call (${shown}) read this repository`;
@@ -447,10 +459,6 @@ function rerunnable([steered, dir = "", ...args], root) {
 		return `a git call (${shown}) read its standard input`;
 	return { cwd, args };
 }
-
-/* How much of a call a doubt line quotes: a guess, long enough to name the
- * call, short enough to keep the cached-run banner readable. */
-const SHOWN_MAX = 200;
 
 /* Programs that run their first non-option argument as a script. */
 const SHELL_RUNNERS = new Set(["bash", "sh"]);
@@ -554,13 +562,72 @@ function handOf(e, script, root, isScratch) {
  * `strace -f -e trace=%file` from outside the checkout, under `PWD`,
  * `OLDPWD`, `INIT_CWD`, `WFC_RULES_DIR` and `WFC_ALWAYS_LOADED` naming it,
  * to make no file call under the root but for its own file. One invocation
- * each (`tar` list, extract and create), so an option that runs a command
- * (`tar --to-command`, `grep` has none) is not covered. Any program not
- * named here is doubted on such a variable. */
+ * each (`tar` list, extract and create). What one runs by name it finds on
+ * `PATH`: `tar`'s compressor, through `/bin/sh` on a create. So one passes
+ * only where the variables it heeds for that (`STEERED_BY`) are as the
+ * setup settled them, and no word asks it to run a command a test names
+ * (`RUNS_A_COMMAND`). A pager runs only on a terminal, which a test's
+ * process never holds: its output is a socket. Any program not named here
+ * is doubted on such a variable. */
 const ENV_BLIND = new Set([
 	...["tar", "grep", "pgrep", "free", "dmesg"],
 	...["systemctl", "curl", "ruff", "biome"],
 ]);
+
+/* The long options that have `tar` run a command a test names (tar(1)):
+ * tar takes any unique prefix, so a prefix of one counts. Their short
+ * spellings are `-I` and `-F`. */
+const TAR_RUNS = [
+	"--to-command",
+	"--use-compress-program",
+	"--checkpoint-action",
+	"--info-script",
+	"--new-volume-script",
+	"--rsh-command",
+	"--rmt-command",
+];
+
+/**
+ * Whether a `tar` call's words may have it run a command a test names: a
+ * long option above, or `I` or `F` in a cluster of short ones, the first
+ * word's dashless cluster included.
+ * @param {string[]} args
+ */
+function isTarRunningCommand(args) {
+	return args.some((word, at) => {
+		if (word.startsWith("--")) {
+			const name = word.split("=")[0] ?? "";
+			return name.length > 2 && TAR_RUNS.some((o) => o.startsWith(name));
+		}
+		const cluster = word.startsWith("-") || at === 0 ? word : "";
+		return /[IF]/.test(cluster);
+	});
+}
+
+/* The words that have a program of `ENV_BLIND` run a command a test can
+ * name, by its manual: `tar`'s above; `systemctl edit`, which runs an
+ * editor, and `-H`/`--host`, which runs ssh. */
+const RUNS_A_COMMAND = new Map([
+	["tar", isTarRunningCommand],
+	["systemctl", isSystemctlRunningCommand],
+]);
+
+/**
+ * Whether systemctl's words ask it to edit, or to reach a host: `-H` in a
+ * short-option cluster, its value glued on or not, or `--host` by any
+ * prefix getopt takes for it.
+ * @param {string[]} args
+ */
+function isSystemctlRunningCommand(args) {
+	return args.some((a) => {
+		if (a === "edit") return true;
+		if (a.startsWith("--")) {
+			const name = a.split("=")[0] ?? "";
+			return name.length > 3 && "--host".startsWith(name);
+		}
+		return /^-[^-]*H/.test(a);
+	});
+}
 
 /**
  * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
@@ -570,8 +637,13 @@ const ENV_BLIND = new Set([
  */
 function readsNoVariable(e, root) {
 	const bin = Array.isArray(e.bin) ? e.bin.map(String) : [];
-	if (bin.length === 0 || !ENV_BLIND.has(path.basename(String(e.file))))
-		return false;
+	const name = path.basename(String(e.file));
+	if (bin.length === 0 || !ENV_BLIND.has(name)) return false;
+	const heeds = STEERED_BY.get(name) ?? [];
+	const steered = Array.isArray(e.steered) ? e.steered.map(String) : [];
+	if (steered.some((v) => heeds.includes(v))) return false;
+	const args = /** @type {string[]} */ (e.args ?? []);
+	if (RUNS_A_COMMAND.get(name)?.(args)) return false;
 	return !bin.some(
 		(at) =>
 			isUnder(at, [TMP], path.sep) ||
@@ -579,9 +651,45 @@ function readsNoVariable(e, root) {
 	);
 }
 
+/**
+ * Why what a test wrote to an untraced child's input pipe once it ran
+ * leaves its file's reads unknown (#4997), or null where the child reads
+ * none of its input or the paths are the test's own scratch.
+ * @param {Entry} e the `piped` entry: the paths written, or none for a
+ *   stream handed whole
+ * @param {Entry|undefined} child the child it was written to
+ * @param {string} root real path
+ * @param {(p: string) => boolean} isScratch
+ * @returns {string|null}
+ */
+function pipedDoubt(e, child, root, isScratch) {
+	if (child === undefined)
+		return "a child the audit logged no spawn of was written a path in the checkout";
+	if (!Array.isArray(e.p))
+		return `a child (${shownChild(child)}) was handed a stream whose content the audit cannot read`;
+	const paths = e.p.map(String);
+	if (isBlind(child, root) || paths.every(isScratch)) return null;
+	return `a child (${shownChild(child)}) was written a path in the checkout down a pipe`;
+}
+
+/**
+ * Why what a git child ran leaves its file's reads unknown, off the event
+ * log its spawn handed it (lib/read-audit-git-events.js), or null where it
+ * ran only git, or never started.
+ * @param {Entry} e
+ * @param {Readers["gitEvents"]} readEvents
+ * @returns {string|null}
+ */
+function gitChildDoubt(e, readEvents) {
+	if (!("events" in e) || typeof e.pid !== "number") return null;
+	const name = typeof e.events === "string" ? e.events : null;
+	return readEvents(name, shownChild(e));
+}
+
 const handedBy = (/** @type {Hand} */ hand) => {
 	if (hand.by === "env") return ` by its environment (${hand.name})`;
-	if (hand.by === "repo") return " by the repository above its directory";
+	if (hand.by === "repo")
+		return " by the repository it finds from its directory";
 	return hand.by === "stdin" ? " on its standard input" : "";
 };
 
