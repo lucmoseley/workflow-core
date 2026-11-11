@@ -14,9 +14,12 @@ interface Match {
 	prefix: string;
 	value: string;
 }
+interface RunMatch extends Match {
+	lead: string;
+}
 const { parseProgramRuns, parseProgramVars, segmentTailMatches } =
 	require("./line-scan.js") as {
-		parseProgramRuns: (text: string) => Match[];
+		parseProgramRuns: (text: string) => RunMatch[];
 		parseProgramVars: (text: string) => Match[];
 		segmentTailMatches: (
 			text: string,
@@ -27,15 +30,23 @@ const { parseProgramRuns, parseProgramVars, segmentTailMatches } =
 	};
 
 const RUN_RE =
-	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))/gm;
+	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$([^\n]*?)\/([\w-][\w./-]*\.(?:js|sh))/gm;
 const VAR_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
-const groups = (re: RegExp, text: string): Match[] =>
-	[...text.matchAll(re)].map((m) => ({
-		prefix: m[1] ?? "",
-		value: m[2] ?? "",
-	}));
+/** Each match of `re` as an object keyed by `fields`, group 1 onwards. */
+const parseGroups = <T>(
+	re: RegExp,
+	text: string,
+	fields: readonly (keyof T & string)[],
+): T[] =>
+	[...text.matchAll(re)].map(
+		(m) => Object.fromEntries(fields.map((f, i) => [f, m[i + 1] ?? ""])) as T,
+	);
+const parseVarGroups = (text: string) =>
+	parseGroups<Match>(VAR_RE, text, ["prefix", "value"]);
+const parseRunGroups = (text: string) =>
+	parseGroups<RunMatch>(RUN_RE, text, ["prefix", "lead", "value"]);
 
 const PLANTED = [
 	'source "$here/lib/guard-log.sh"',
@@ -78,19 +89,19 @@ const PLANTED = [
 
 describe("parseProgramRuns", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseProgramRuns(text)).toEqual(groups(RUN_RE, text));
+		expect(parseProgramRuns(text)).toEqual(parseRunGroups(text));
 	});
 
 	it("returns the text before node with the path after the slash", () => {
 		expect(parseProgramRuns('x; node "$here/a/b.js"')).toEqual([
-			{ prefix: "x;", value: "a/b.js" },
+			{ prefix: "x;", lead: "here", value: "a/b.js" },
 		]);
 	});
 });
 
 describe("parseProgramVars", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseProgramVars(text)).toEqual(groups(VAR_RE, text));
+		expect(parseProgramVars(text)).toEqual(parseVarGroups(text));
 	});
 });
 
@@ -142,9 +153,9 @@ describe("every parser against its regex over generated texts", () => {
 		const off = texts.filter(
 			(t) =>
 				JSON.stringify(parseProgramRuns(t)) !==
-					JSON.stringify(groups(RUN_RE, t)) ||
+					JSON.stringify(parseRunGroups(t)) ||
 				JSON.stringify(parseProgramVars(t)) !==
-					JSON.stringify(groups(VAR_RE, t)),
+					JSON.stringify(parseVarGroups(t)),
 		);
 		expect(off).toEqual([]);
 	});
