@@ -100,6 +100,23 @@ it("warns of nothing at the target, nor with the landing module off", () => {
 	expect(off.stdout).toBe("");
 });
 
+it("reads only the stays since a time it is given, counting those over the target, and refuses a time that is none", () => {
+	writeLogs(5000);
+	const since = new Date(Date.now() - 3600 * S + 5.5 * S).toISOString();
+
+	const r = run(CHECK, ["--since", since, "--json"]);
+	const bad = run(CHECK, ["--since", "yesterday"]);
+
+	expect(r.status, r.stderr).toBe(0);
+	const out = JSON.parse(r.stdout);
+	expect([out.stays, out.overTarget]).toEqual([94, 5]);
+	expect(out.summary).toContain(
+		`94 queue ref(s) landed or dropped since ${since}`,
+	);
+	expect(out.summary).toContain("5 of 94 over the target");
+	expect(bad.status).toBe(2);
+});
+
 it("reports the window's batches and queue refs against the target, and refuses a time that is none", () => {
 	writeLogs(541);
 

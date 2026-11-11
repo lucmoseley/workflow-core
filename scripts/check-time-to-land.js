@@ -3,7 +3,10 @@
  * check-time-to-land.js — is the landing queue's take-to-land time within
  * its target (#4951)? lib/time-to-land.js reads and judges it.
  *
- * Usage:  node scripts/check-time-to-land.js [--notify] [--json]
+ * Usage:  node scripts/check-time-to-land.js [--since <ISO time>] [--notify] [--json]
+ *
+ * `--since` reads the window from that time to now in place of the last 7
+ * days, so a change's own stays are read apart from those before it.
  *
  * With fewer than MIN_STAYS stays, or no green run, it names the window as
  * unjudged and warns of nothing.
@@ -37,19 +40,27 @@ const {
 
 runCheck({
 	name: "time-to-land",
-	usage: "node check-time-to-land.js [--notify] [--json]",
+	usage: "node check-time-to-land.js [--since <ISO time>] [--notify] [--json]",
 	module: "landing",
+	valueFlags: ["--since"],
 	run(ctx) {
 		const root = repoRoot() ?? ctx.skip("not in a git checkout.");
 		const at = now();
+		const sinceFlag = ctx.value("--since");
+		const since = sinceFlag === null ? at - BASELINE_MS : Date.parse(sinceFlag);
+		if (!Number.isFinite(since) || since >= at)
+			ctx.usageError(`--since must be an ISO time before now: ${sinceFlag}`);
+		const window =
+			sinceFlag === null
+				? "in 7 days"
+				: `since ${new Date(since).toISOString()}`;
 		const r = judgeTimeToLand(
 			memberStays(readQueueRows(queueLogFile(root))),
-			greenSuiteSpans(
-				parseLanderLog(readLogSince(landerLog(root), at - BASELINE_MS)),
-			),
+			greenSuiteSpans(parseLanderLog(readLogSince(landerLog(root), since))),
 			at,
+			since,
 		);
-		const reading = `take-to-land p90 ${secs(r.p90Ms)} s, p50 ${secs(r.p50Ms)} s, over ${r.stays} queue ref(s) landed or dropped in 7 days; target ${secs(r.targetMs)} s, ${TARGET_MULTIPLE} times the green suite's p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s)`;
+		const reading = `take-to-land p90 ${secs(r.p90Ms)} s, p50 ${secs(r.p50Ms)} s, over ${r.stays} queue ref(s) landed or dropped ${window}; target ${secs(r.targetMs)} s, ${TARGET_MULTIPLE} times the green suite's p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s); ${r.overTarget ?? "-"} of ${r.stays} over the target`;
 		if (r.over) {
 			ctx.warn("SLOW-LANDING", reading);
 			ctx.say(`SLOW-LANDING — ${reading}\n`);
@@ -60,7 +71,7 @@ runCheck({
 		return {
 			okLine: r.judged
 				? `${reading}.`
-				: `time-to-land unjudged: ${r.stays} queue ref(s) landed or dropped in 7 days, under the ${MIN_STAYS} a p90 needs, or no green run.`,
+				: `time-to-land unjudged: ${r.stays} queue ref(s) landed or dropped ${window}, under the ${MIN_STAYS} a p90 needs, or no green run; ${r.overTarget ?? "-"} of ${r.stays} over the target.`,
 			noun: "landing queue over its time-to-land target",
 			count: r.over ? 1 : 0,
 			data: r,
