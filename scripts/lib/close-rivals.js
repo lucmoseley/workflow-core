@@ -30,6 +30,7 @@ const {
 	PRICED,
 	isRivalSet,
 	optionSpans,
+	roundNumber,
 	splitQuestions,
 } = require("./round-marker");
 const {
@@ -94,13 +95,19 @@ const PATH_LINE_CITE =
 	/(?<![\w/.-])(?:[\w.-]*(?:\/[\w.-]+)*\.[A-Za-z]\w*|[\w.-]+(?:\/[\w.-]+)+):\d+(?::\d+)?(?![\d:])/g;
 
 /**
- * The citations in a block, its `Checked:` paragraph included, each once, in
- * the order found (#4945).
- * @param {QuestionBlock} block
+ * A message's first question block carries `lead`, the message's lines above
+ * its first marker, where a re-send often opens its `Checked:` paragraph.
+ * @typedef {QuestionBlock & { lead?: string[] }} LedBlock
+ */
+
+/**
+ * The citations in a block, its lead and `Checked:` paragraph included, each
+ * once, in the order found (#4945).
+ * @param {LedBlock} block
  * @returns {string[]}
  */
 function citesOf(block) {
-	const text = block.lines.join("\n");
+	const text = [...(block.lead ?? []), ...block.lines].join("\n");
 	const withoutUrls = text.replace(URL_CITE, " ");
 	return [
 		...new Set([
@@ -184,7 +191,7 @@ function caughtBy(block) {
  * What the close-rivals limb last refused or passed this session: each refused
  * question's round number, priced options and `refusedAt` (#489) — a record
  * written before #1098 carries only its own `at`, which reading fills in —
- * and `cites`, its option lines' citations, absent on one written before
+ * and `cites`, its question block's citations, absent on one written before
  * #2010;
  * and each passed one's `Passed` (#1844); `at`, when the record was written;
  * `unreadable` where a record exists that would not read, which empties it.
@@ -758,7 +765,14 @@ function closeRivalsTurn(
 	const record = readRefusalRecord(sessionId, transcript);
 	const passes = record?.questions.filter(isPassed) ?? [];
 	const passed = new Set(passes.map((q) => q.number));
+	/** @type {LedBlock[]} */
 	const blocks = splitQuestions(message);
+	const [first] = blocks;
+	if (first) {
+		const lines = message.split("\n");
+		const at = lines.findIndex((line) => roundNumber(line) !== null);
+		first.lead = lines.slice(0, at);
+	}
 	const skipped = new Set([...passed, ...roundPasses]);
 	/** @type {Corpus | undefined} */
 	let trackers;

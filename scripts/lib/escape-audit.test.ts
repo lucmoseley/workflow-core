@@ -101,7 +101,7 @@ describe("what got past", () => {
 		expect(items(founder(), assistant(round()))).toHaveLength(1);
 	});
 
-	it("takes a refused question's re-send, close or not and with no escape line, beside its refused block and the calls between", () => {
+	it("takes a refused question's re-send, close or not and with no escape line, beside its refused block and the calls between (#4945)", () => {
 		const [item, ...rest] = items(
 			founder(),
 			assistant(round()),
@@ -118,7 +118,7 @@ describe("what got past", () => {
 		expect(item.calls).toBe("→ Bash: ls\n← ok");
 	});
 
-	it("takes a low-top question's re-send", () => {
+	it("takes a low-top question's re-send (#4945)", () => {
 		const lowTop = round("")
 			.replace("55% (45% - 65%)", "60% (55% - 65%)")
 			.replace("45% (35% - 55%)", "20% (15% - 25%)");
@@ -150,7 +150,7 @@ describe("what got past", () => {
 		expect(item.calls).toBe("→ Bash: ls\n← ok");
 	});
 
-	it("says so where no call came between", () => {
+	it("gives `(no tool call)` as the calls where none came between", () => {
 		const [item] = items(
 			founder(),
 			assistant(round()),
@@ -166,7 +166,7 @@ describe("what got past", () => {
 		expect(got.map((i) => i.sight)).toEqual(["after-refusal", "first"]);
 	});
 
-	it("keeps a refusal past a mod's delivery, which is not the founder speaking", () => {
+	it("keeps a refusal past a mod's delivery, which is not the founder speaking (#4945)", () => {
 		const got = items(
 			founder(),
 			assistant(round()),
@@ -193,7 +193,7 @@ describe("what got past", () => {
 		expect(got.map((i) => i.sight)).toEqual(["after-refusal", "first"]);
 	});
 
-	it("reads only the close-rivals refusal's own flagged lines, not another limb's", () => {
+	it("reads only the close-rivals refusal's own flagged lines, not another limb's (#4945)", () => {
 		const two = `${round()}\n\n${NOT_CLOSE().replace("Q1", "Q2")}`;
 		const got = items(
 			founder(),

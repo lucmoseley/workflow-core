@@ -160,6 +160,16 @@ function isRulingsSearch(args, corpus, expand) {
 const VAR_REF = /\$(?:\{(\w+)\}|(\w+))/g;
 
 /**
+ * The name a `VAR_REF` match names, braced or bare.
+ * @param {RegExpMatchArray} m
+ */
+function varName(m) {
+	const name = m[1] ?? m[2];
+	if (name === undefined) throw new Error("VAR_REF matched with no name");
+	return name;
+}
+
+/**
  * A word's readings with each loop variable it names replaced by every word
  * of that loop's list; a word naming none, or one no loop binds, reads as
  * itself.
@@ -168,11 +178,9 @@ const VAR_REF = /\$(?:\{(\w+)\}|(\w+))/g;
  * @returns {string[]}
  */
 function expandLoopVars(value, loops) {
-	const m = [...value.matchAll(VAR_REF)].find((r) =>
-		loops.has(r[1] ?? r[2] ?? ""),
-	);
+	const m = [...value.matchAll(VAR_REF)].find((r) => loops.has(varName(r)));
 	if (!m || m.index === undefined) return [value];
-	const values = loops.get(m[1] ?? m[2] ?? "") ?? [];
+	const values = loops.get(varName(m)) ?? [];
 	const [head, tail] = [
 		value.slice(0, m.index),
 		value.slice(m.index + m[0].length),

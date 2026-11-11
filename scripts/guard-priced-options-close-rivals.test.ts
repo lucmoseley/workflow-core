@@ -1201,11 +1201,22 @@ describe("the close-check log (#1101)", () => {
 		expect(readKinds()).toEqual(["refused", "passed-after-refusal"]);
 	});
 
-	it("reads a re-send's new citation from its Checked: paragraph, not its option lines alone", () => {
+	it("reads a re-send's new citation from its Checked: paragraph, not its option lines alone (#4945)", () => {
 		stop(round(BOTH));
 		append(toolCallAt(Date.now() + LATER));
 		expect(
 			stop(round(NEITHER, { extra: "Checked: #4945 counts 31 re-sends." })),
+		).toBe("");
+		expect(readLogLines()[1]).toEqual(
+			expect.objectContaining({ citesNewFact: true }),
+		);
+	});
+
+	it("reads a re-send's new citation from a Checked: paragraph above its marker (#4945)", () => {
+		stop(round(BOTH));
+		append(toolCallAt(Date.now() + LATER));
+		expect(
+			stop(`Checked: #4945 counts 31 re-sends.\n\n${round(NEITHER)}`),
 		).toBe("");
 		expect(readLogLines()[1]).toEqual(
 			expect.objectContaining({ citesNewFact: true }),

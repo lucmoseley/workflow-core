@@ -62,7 +62,7 @@ const CLOSE_REFUSAL = /top two rivals sit close|could flip/;
 /* The refusal's opening, its flagged lines the paragraph after it, one per
  * question and naming the round first; other limbs' lines in the same
  * feedback name rounds they flag, not these. */
-const REFUSAL_OPENING = /top two rivals sit close[^\n]*\n\n/;
+const REFUSAL_FLAGGED = /top two rivals sit close[^\n]*\n\n((?:.+\n?)*)/;
 const REFUSED_LINE = /^Q(\d+): /gm;
 
 /* What of the calls between a refusal and its re-send reaches the judge:
@@ -269,13 +269,13 @@ function renderCall({ name = "?", input = {} }) {
  * @param {Deps} deps
  */
 function openRefusals(said, turn, deps) {
-	const opening = said.match(REFUSAL_OPENING);
-	if (!opening || opening.index === undefined) return;
-	const flagged =
-		said.slice(opening.index + opening[0].length).split("\n\n")[0] ?? "";
+	const opening = said.match(REFUSAL_FLAGGED);
+	if (!opening) return;
+	const flagged = requiredGroup(opening, 1, REFUSAL_FLAGGED);
 	const blocks = deps.splitQuestions(turn.lastAsk);
-	for (const [, number] of flagged.matchAll(REFUSED_LINE)) {
-		if (number === undefined || turn.refused.has(number)) continue;
+	for (const m of flagged.matchAll(REFUSED_LINE)) {
+		const number = requiredGroup(m, 1, REFUSED_LINE);
+		if (turn.refused.has(number)) continue;
 		const block = blocks.find((b) => b.number === number);
 		if (block)
 			turn.refused.set(number, {
@@ -298,7 +298,7 @@ const newTurn = () => ({
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: `trail` grows
  */
-function readToolResult(rec, turn) {
+function trailToolResult(rec, turn) {
 	const content = rec.message?.content;
 	if (turn.refused.size === 0 || !Array.isArray(content)) return;
 	for (const p of content)
@@ -333,7 +333,7 @@ function commitPending(rec, turn, out) {
  */
 function readUser(rec, turn, { out, deps }) {
 	if (isToolResult(rec)) {
-		readToolResult(rec, turn);
+		trailToolResult(rec, turn);
 		return;
 	}
 	const said = textOf(rec);
