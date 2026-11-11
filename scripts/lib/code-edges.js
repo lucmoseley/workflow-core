@@ -84,13 +84,15 @@
  * AN IMPORTED MODULE (#4870) resolves its imports on the sys.path of the
  * script that imported it, not on its own directory. `reachOf` hands back
  * sys.path as a Python file leaves it (`pySearch`); a caller walking the
- * files of one script's run hands each the path the others left, and each
- * import is then placed on both paths, faulting only where neither places
- * it. An import may run before any one of those edits, so each entry a file
- * added is handed on as one that may never have run: a module found there
- * settles nothing. pass-store.js does;
- * hook-code.js and surface-closure.js, walking no one script's run, place a
- * module on its own directory and edits alone.
+ * files of one script's run, as pass-store.js does, hands each the path the
+ * others left, and each import is then placed on both paths, faulting only
+ * where neither places it. An import may run before any one of those edits,
+ * so on the handed path each entry a file added is one that may never have
+ * run: a module found there settles nothing. Residual: that over-reaches, so a file
+ * on an added entry that CPython never loads is an edge, and a change to it
+ * voids a pass it could not have moved. hook-code.js and surface-closure.js,
+ * walking no one script's run, place a module on its own directory and
+ * edits alone.
  *
  * WHOLE PATHS: a join of a parameter is one the walk declines to read, by
  * design (#4790), so a module whose files a test's reach must hold spells
@@ -857,23 +859,29 @@ function pyWalkOf(file, fault, importerSearch) {
 }
 
 /**
- * `search` less each entry no import's search can reach: a directory an
- * earlier entry already names, unless that one may never have run and this
- * one did, and all that follows an entry the walk cannot read. Bounds the
- * path two modules importing each other hand back and forth.
+ * A handed-on `search` in the one order every walk of the same entries
+ * gives: the inserted entries that may never have run, by directory, then
+ * the entries that did run as they stand, then the appended ones, by
+ * directory; each directory once in its group, and nothing past an entry
+ * the walk cannot read. No entry that may never have run settles a search,
+ * so their order moves no placement, and a path a caller hands round the
+ * files of one run only ever gains entries.
  * @param {PyEntry[]} search
  * @returns {PyEntry[]}
  */
 function settledPySearch(search) {
-	/** @type {PyEntry[]} */
-	const settled = [];
-	for (const entry of search) {
-		if (settled.some((e) => e.dir === entry.dir && (!e.maybe || entry.maybe)))
-			continue;
-		settled.push(entry);
-		if (entry.dir === null) break;
-	}
-	return settled;
+	const group = (/** @type {(e: PyEntry) => boolean} */ keep) => [
+		...new Map(search.filter(keep).map((e) => [e.dir, e])).values(),
+	];
+	const byDir = (/** @type {PyEntry} */ a, /** @type {PyEntry} */ b) =>
+		(a.dir ?? "").localeCompare(b.dir ?? "");
+	const ordered = [
+		...group((e) => e.maybe && !e.tail).sort(byDir),
+		...group((e) => !e.maybe),
+		...group((e) => e.maybe && e.tail).sort(byDir),
+	];
+	const unread = ordered.findIndex((e) => e.dir === null);
+	return unread === -1 ? ordered : ordered.slice(0, unread + 1);
 }
 
 /**
@@ -965,7 +973,8 @@ function cutPyLexeme(m) {
  * `append(…)` whose path `evalPyPath` reads, or else an entry the walk
  * cannot read at the front.
  * @param {PyWalk} walk accumulator: each of its scope's `searches`, and its
- *   `added`, gains the entry
+ *   `added`, gains the entry, the handed search as one that may never have
+ *   run
  * @param {PyStatement} statement
  */
 function editSysPath(walk, statement) {
@@ -976,9 +985,12 @@ function editSysPath(walk, statement) {
 	const tail = m?.[2] !== undefined;
 	const entry = { dir, maybe: statement.indented, tail };
 	walk.scope.added.add(entry);
-	for (const search of walk.scope.searches)
-		if (tail) search.push(entry);
-		else search.unshift(entry);
+	const [own, shared] = walk.scope.searches;
+	/* On the path the run's files share, another file's import may run
+	 * before this edit, and this file's after another's: it settles nothing. */
+	const put = tail ? "push" : "unshift";
+	own?.[put](entry);
+	shared?.[put]({ ...entry, maybe: true });
 }
 
 /**

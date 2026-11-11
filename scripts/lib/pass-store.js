@@ -372,7 +372,7 @@ const NO_REACH = {
  *   meets it: with sys.path as the files of its script's run have left it,
  *   or none
  * @typedef {{edges: Set<string>, shadows: Set<string>, spawned: Set<string>,
- *   python: boolean, pySearch: PySearch}} ProcessReach what one script's run
+ *   python: boolean, pySearch: PySearch}} ScriptReach what one script's run
  *   reaches: every file, the paths tried first, the files among them it does
  *   not import but runs or loads as scripts of their own, whether one runs
  *   inline Python, and sys.path as its files leave it
@@ -384,7 +384,7 @@ const visitKey = ({ rel, pySearch }) => JSON.stringify([rel, pySearch]);
 /**
  * The files `file` reaches, each visit's own reach read by `reachOne`; null
  * where any is null. `file` itself, and each file another's run spawns or
- * loads, is a script run on its own (`processReach`).
+ * loads, is a script run on its own (`scriptReach`).
  * @param {string} file
  * @param {(visit: Visit) => FileReach|null} reachOne
  * @returns {Reach|null} `file` left out of `edges`
@@ -398,7 +398,7 @@ function walkReach(file, reachOne) {
 	const shadows = new Set();
 	let python = false;
 	for (const script of scripts) {
-		const found = processReach(script, reachOne);
+		const found = scriptReach(script, reachOne);
 		if (!found) return null;
 		python ||= found.python;
 		for (const p of found.shadows) shadows.add(p);
@@ -420,13 +420,16 @@ function walkReach(file, reachOne) {
  * a pass leaves that path as it found it.
  * @param {string} script
  * @param {(visit: Visit) => FileReach|null} reachOne
- * @returns {ProcessReach|null}
+ * @returns {ScriptReach|null}
  */
-function processReach(script, reachOne) {
+function scriptReach(script, reachOne) {
 	/** @type {PySearch} */
 	let pySearch = null;
+	/* Ends: code-edges.js hands the path back in one order whatever order
+	 * the files were walked in, so a pass can only add an entry, and the
+	 * entries its files' edits name are a finite set. */
 	for (;;) {
-		const pass = processPass({ rel: script, pySearch }, reachOne);
+		const pass = scriptPass({ rel: script, pySearch }, reachOne);
 		if (!pass) return null;
 		if (JSON.stringify(pass.pySearch) === JSON.stringify(pySearch)) return pass;
 		pySearch = pass.pySearch;
@@ -439,12 +442,12 @@ function processReach(script, reachOne) {
  * an import; any other edge is a file spawned or loaded.
  * @param {Visit} start the script, and the path the last pass left
  * @param {(visit: Visit) => FileReach|null} reachOne
- * @returns {ProcessReach|null}
+ * @returns {ScriptReach|null}
  */
-function processPass(start, reachOne) {
+function scriptPass(start, reachOne) {
 	const files = [start.rel];
 	const loaded = new Set(files);
-	/** @type {ProcessReach} */
+	/** @type {ScriptReach} */
 	const pass = {
 		edges: new Set(),
 		shadows: new Set(),

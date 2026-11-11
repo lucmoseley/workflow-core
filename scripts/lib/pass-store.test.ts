@@ -661,6 +661,45 @@ describe("a script the manifest says a file spawns", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	it("voids the pass when a file appears on the entry an imported module adds ahead of its importer's own (#4870)", () => {
+		const insert = (name: string) =>
+			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+		const dir = spawning(
+			"scripts/tool.py",
+			["scripts/mod.py", "scripts/x/helper.py"],
+			`${insert("x")}import mod\nimport helper\n`,
+		);
+		write(dir, "scripts/mod.py", insert("y"));
+		git(dir, "commit", "-qam", "module");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+		fs.mkdirSync(path.join(dir, "scripts/y"));
+		write(dir, "scripts/y/helper.py", "shadow\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("records a row where the entries two same-named modules add decide which of them loads (#4870)", () => {
+		const insert = (name: string) =>
+			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+		const dir = spawning(
+			"scripts/tool.py",
+			[
+				"scripts/setup.py",
+				"scripts/mod.py",
+				"scripts/x/mod.py",
+				"scripts/y/mod.py",
+			],
+			"import setup\nimport mod\n",
+		);
+		write(dir, "scripts/setup.py", `${insert("x")}${insert("y")}`);
+		write(dir, "scripts/mod.py", "");
+		write(dir, "scripts/x/mod.py", insert("."));
+		write(dir, "scripts/y/mod.py", insert("."));
+		git(dir, "commit", "-qam", "reordering modules");
+		expect(run(dir, [A])).toBe(1);
+		expect(cachedOf(dir, [A])).toEqual([A]);
+	});
+
 	it("records a row where two modules import each other, each adding to sys.path (#4870)", () => {
 		const insert = (name: string) =>
 			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
