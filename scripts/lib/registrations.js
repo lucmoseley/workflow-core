@@ -13,6 +13,7 @@
  * through lib/registry-atomicity.js.
  */
 
+const { isToolCovered, MatcherError } = require("./core-hooks.js");
 const { siblingTests, spellSiblingTests } = require("./test-kind.js");
 
 /** The host registry, every adopter seeded with `emptyRegistry()`. */
@@ -200,11 +201,16 @@ function rowDrift(row, r) {
 		out.push(
 			`pins matcher ${JSON.stringify(row.matcher)}, but the hook is registered with ${JSON.stringify(matcher)}`,
 		);
-	for (const tool of row.covers ?? [])
-		if (!new RegExp(`^(${matcher ?? ""})$`).test(tool))
-			out.push(
-				`says it covers ${tool}, and the registered matcher no longer fires on it`,
-			);
+	try {
+		for (const tool of row.covers ?? [])
+			if (!isToolCovered(r.matcher ?? undefined, tool))
+				out.push(
+					`says it covers ${tool}, and the registered matcher no longer fires on it`,
+				);
+	} catch (err) {
+		if (!(err instanceof MatcherError)) throw err;
+		out.push(`says what it covers, and ${err.message}`);
+	}
 	const bounded = typeof r.timeout === "number";
 	if (row.unbounded && bounded)
 		out.push("says unbounded, but the hook has gained a timeout");

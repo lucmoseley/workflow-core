@@ -11,7 +11,7 @@
  * registration through lib/core-hooks.js.
  */
 
-import { readRunningHooks } from "./core-hooks.js";
+import { isToolCovered, MatcherError, readRunningHooks } from "./core-hooks.js";
 import type { HOOK_EVENTS } from "./hook-events.js";
 import { coreRoot } from "./script-path.js";
 
@@ -118,9 +118,8 @@ export function allRegistrations(
 }
 
 /**
- * Does `event` really run `script` for a matcher covering `tool`? Anchored, so
- * a matcher of `Write` does not answer for `WriteFile`; an entry with no matcher
- * covers every tool.
+ * Does `event` really run `script` for a matcher covering `tool`, as
+ * core-hooks' `isToolCovered` reads the matcher?
  */
 export function hookIsWired(
 	event: HookEvent,
@@ -128,7 +127,12 @@ export function hookIsWired(
 	tool: string,
 	settings: SettingsShape = readCoreHooks(),
 ): boolean {
-	return registrationsOf(event, script, settings).some(
-		(r) => r.matcher === undefined || new RegExp(`^(${r.matcher})$`).test(tool),
-	);
+	return registrationsOf(event, script, settings).some((r) => {
+		try {
+			return isToolCovered(r.matcher, tool);
+		} catch (err) {
+			if (!(err instanceof MatcherError)) throw err;
+			throw new Error(`${event} ${script}: ${err.message}`, { cause: err });
+		}
+	});
 }

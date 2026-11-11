@@ -221,6 +221,30 @@ describe("hookIsWired", () => {
 		expect(hookIsWired("Stop", "backstop.sh", "anything", settings)).toBe(true);
 	});
 
+	it('reads "" and "*" as covering every tool, as core-hooks does', () => {
+		for (const matcher of ["", "*"]) {
+			const wild = {
+				hooks: {
+					PreToolUse: [{ matcher, hooks: [{ command: "guard-w.sh" }] }],
+				},
+			};
+			expect(hookIsWired("PreToolUse", "guard-w.sh", "Bash", wild)).toBe(true);
+		}
+	});
+
+	it("names the event and script of a matcher that will not compile", () => {
+		const broken = {
+			hooks: {
+				PreToolUse: [{ matcher: "[", hooks: [{ command: "guard-x.sh" }] }],
+			},
+		};
+		expect(() =>
+			hookIsWired("PreToolUse", "guard-x.sh", "Bash", broken),
+		).toThrow(
+			/^PreToolUse guard-x\.sh: the matcher "\[" is not a valid regular expression/,
+		);
+	});
+
 	it("is false when the script is wired on a different event", () => {
 		expect(hookIsWired("PostToolUse", "guard-a.sh", "Bash", settings)).toBe(
 			false,
