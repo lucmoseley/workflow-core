@@ -132,7 +132,7 @@
  *    (mantahostels#453).
  *  - Its manifest row runs it only on a command `Bash(*gh *)` admits
  *    (mantahostels#2127): `gh ` anywhere in it, unanchored so a wrapped call
- *    and a `-c` string's reach the core (#5012), as does `/usr/bin/gh …`.
+ *    and a `-c` string's reach the core (#5012).
  *  - It FAILS OPEN (mantahostels#103 §6): a label value it cannot read — an
  *    unexpanded $VAR, a command substitution — lets the whole call through
  *    unjudged, RECORDED (mantahostels#147) for check-guard-errors.js to
@@ -401,7 +401,7 @@ function bodyEnv(run, cmd) {
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
- * @param {GhRepo | null} repo what a `-R` before the subcommand named
+ * @param {GhRepo | null} repo
  */
 function judgeCreate(run, cmd, args, repo) {
 	/** @type {Creation} */
@@ -898,7 +898,7 @@ ${v.refusal}`,
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
- * @param {GhRepo | null} repo what a `-R` before the subcommand named
+ * @param {GhRepo | null} repo
  */
 function judgeEdit(run, cmd, args, repo) {
 	const edit = scanEdit(run, args, repo);

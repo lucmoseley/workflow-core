@@ -1235,9 +1235,9 @@ const isHelpWord = (w, spans) => {
 };
 
 /**
- * One unwrap run's `gh` call, `gh`'s own flags stepped as ghWords steps them;
- * null where the run is no `gh` or a help flag stands among `gh`'s own: usage
- * prints and dispatches nothing. A `--help` after the command word is left in
+ * One unwrap run's `gh` call, `gh`'s own flags stepped; null where the run
+ * is no `gh` or a help flag stands among `gh`'s own: usage prints and
+ * dispatches nothing. A `--help` after the command word is left in
  * `args`, for a caller whose own flag scan tells a help flag from a flag's
  * value (#5012).
  * @param {string[]} ws one unwrap run's words

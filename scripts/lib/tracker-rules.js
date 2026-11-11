@@ -145,7 +145,7 @@ const basename = (p) => p.slice(p.lastIndexOf("/") + 1);
 
 // --- the flag predicates a TRIGGERS row may name -----------------------------
 //
-// Each takes the raw words after `gh` and answers whether the row applies. A
+// Each takes the raw words after `gh` and its own flags and answers whether the row applies. A
 // row naming null runs none and matches on the subcommand alone.
 
 /** Whether any word is one of `flags`, a long one's `=`-joined form included.
@@ -307,7 +307,7 @@ const labelsWaiting = (words, { parsed }) =>
 // priority order.
 //
 // THE SUBCOMMAND WORDS ARE MATCHED WHOLE, word for word, against the raw words
-// following `gh`. `api` is one word; `issue create` is two; an empty list
+// following `gh` and its own flags. `api` is one word; `issue create` is two; an empty list
 // matches every `gh` call.
 
 /** @type {[string[], Predicate | null, string[]][]} */
@@ -468,12 +468,7 @@ function matchRows(args, call, matched) {
 }
 
 /**
- * The non-`gh` limb, which reads WORDS rather than a command word: `node
- * scripts/issue-body.js tick 12 --match "…"` has `node` at its head, and
- * `./scripts/issue-body.js` has the script itself. Gated on the MASKED word,
- * so a quoted mention never reaches it. THE WORD AFTER IT DECIDES
- * (mantahostels#2652): a writing subcommand is what a RUN of the script
- * always has and a read of it almost never does.
+ * The issue-body.js limb the header describes.
  * @param {string[]} words one unwrap run's
  * @param {string[]} spans
  */
