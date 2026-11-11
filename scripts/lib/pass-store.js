@@ -861,6 +861,27 @@ function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
 }
 
 /**
+ * A failed file's voiding row, resting on `keyed`: the inputs, logged
+ * listings and directories it names, and nothing where it names none.
+ * @param {string} file
+ * @param {{inputs?: Row["inputs"], listings?: Row["listings"],
+ *   dirs?: Row["dirs"]}} [keyed]
+ * @returns {Row}
+ */
+const buildVoidingRow = (
+	file,
+	{ inputs = {}, listings = {}, dirs = [] } = {},
+) => ({
+	file,
+	outcome: "fail",
+	voiding: true,
+	inputs,
+	listings,
+	dirs,
+	git: {},
+});
+
+/**
  * A voiding row for each of `failed`, the failed files no known row holds:
  * a red whose inputs are unknown still voids an older pass (#4790). Its row
  * keys every input whose content as the run read it is known, and leaves
@@ -895,18 +916,14 @@ function buildVoidingRows(failed, inputs, seams) {
 		return {
 			values,
 			shared: idsOf(inputs.shared.filter(isKnown), ids),
-			row: {
-				file: g.file,
-				outcome: "fail",
-				voiding: true,
+			row: buildVoidingRow(g.file, {
 				inputs: {
 					...idsOf(paths, ids),
 					...Object.fromEntries(absent.map((p) => [p, ABSENT])),
 				},
-				listings: seen?.logged ?? {},
-				dirs: seen?.dirs ?? [],
-				git: {},
-			},
+				listings: seen?.logged,
+				dirs: seen?.dirs,
+			}),
 		};
 	});
 }
@@ -923,15 +940,7 @@ function buildUnkeyedVoidingRows(failed, seams) {
 	return failed.map(({ file }) => ({
 		values,
 		shared: {},
-		row: {
-			file,
-			outcome: "fail",
-			voiding: true,
-			inputs: {},
-			listings: {},
-			dirs: [],
-			git: {},
-		},
+		row: buildVoidingRow(file),
 	}));
 }
 

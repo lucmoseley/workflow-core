@@ -41,9 +41,11 @@
  *   the program itself is judged by its `#!` line: a Node one's reads are
  *   in the log it left, and any other's are unseen, a shell script's among
  *   them: `$0` is its own path, and what it opens beside itself no reach
- *   holds (#4790). The git guard alone is a read: it opens nothing of the
- *   checkout, and the git it runs is judged as any git child. One of
- *   `CWD_BLIND` is seen, which reads nothing of its directory (#4932);
+ *   holds (#4790). The git guard alone is a read: of the checkout it asks
+ *   only where a git directory stands, its own repository's and the
+ *   call's, a path no file's content moves, and the git it runs is judged
+ *   as any git child. One of `CWD_BLIND` is seen, which reads nothing of
+ *   its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -615,9 +617,11 @@ const isGuard = buildGuardTest();
  *   it: a shell or Node where its `#!` line names one and the lexical reach
  *   reads the file as that language, so keys what it loads; else `other`,
  *   Python and a binary among them, whose reads no reach holds; `guard`,
- *   the git guard, which opens nothing of the checkout. A shell script's
- *   reads are a trace's alone: the reach holds its loads, never what it
- *   opens beside itself
+ *   the git guard, which reads of the checkout only where a git directory
+ *   stands, its own repository's and the call's (`rev-parse
+ *   --git-common-dir`, in a child nothing logs): a path, which no file's
+ *   content moves. A shell script's reads are a trace's alone: the reach
+ *   holds its loads, never what it opens beside itself
  */
 
 /**
