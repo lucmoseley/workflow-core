@@ -10,6 +10,7 @@
 
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { asObject } = require("./json-shape.js");
 
@@ -498,11 +499,12 @@ function pipelineRecord(file, now = Date.now) {
 			for (let n = 0; ; n++) {
 				const aside = n === 0 ? stem : `${stem}-${n}`;
 				try {
-					/* A link refuses an existing name where a rename replaces it. */
+					/* A link refuses an existing name where a rename replaces it
+					 * (#4905). A crash before the unlink leaves the record under
+					 * both names, and the next run moves a second copy aside. */
 					fs.linkSync(file, aside);
 				} catch (err) {
-					if (/** @type {NodeJS.ErrnoException} */ (err).code === "EEXIST")
-						continue;
+					if (caught(err).code === "EEXIST") continue;
 					throw err;
 				}
 				fs.unlinkSync(file);

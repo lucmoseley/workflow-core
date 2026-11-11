@@ -1878,7 +1878,7 @@ describe("a torn pipeline record (#4905)", () => {
 		const { said } = await land(waiting(), disk);
 
 		expect(disk.recordCalls).not.toContain("quarantine");
-		expect(said.filter((l) => l.includes("pipeline record"))).toEqual([]);
+		expect(said).toEqual([]);
 	});
 
 	it("exits naming the failure, and never writes the record, where the move aside fails", async () => {
