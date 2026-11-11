@@ -210,6 +210,8 @@ function isBurnApplied(table, ctx) {
 	let markerPath;
 	try {
 		({ markerPath } = require("./burn-mode.js"));
+		if (typeof markerPath !== "function")
+			throw new Error("its markerPath is not a function");
 	} catch (e) {
 		ctx.log(
 			`lib/burn-mode.js unreadable — burn mode left this dispatch unmapped: ${caught(e).message}`,

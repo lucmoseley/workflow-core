@@ -1,7 +1,7 @@
 /*
  * burn-mode.js — burn mode's state: the one resolver for its marker, and what
  * the switch left on the machine. Which model each layer moves to is
- * lib/model-table.js's; this file says only whether burn applies.
+ * lib/model-table.js's.
  *
  * The state is one marker file per MACHINE, beside the settings files it is
  * the record for. `on` writes the model it found into it, so `off` restores
