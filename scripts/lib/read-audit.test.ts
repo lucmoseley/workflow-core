@@ -6,8 +6,9 @@
  * rests on a read nobody recorded.
  *
  * Cost: every case runs one to three real Node processes under the preload,
- * and a traced one its tracer; the spawn hooks and the links a hand goes
- * through are what is under test, which no seeded log reaches.
+ * and a traced one its tracer; some spawn real git, tar or systemctl too.
+ * The spawn hooks, the links a hand goes through and what those programs
+ * run are what is under test, which no seeded log reaches.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -24,6 +25,7 @@ const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
+const { parseJsonl } = require("./jsonl.js");
 
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 
@@ -736,7 +738,7 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 				stripped(["rev-parse", "--show-toplevel"], "scratch"),
 			].join("\n");
 			expect(untraced(root, inScratch).doubt).toMatch(
-				/by the repository above its directory/,
+				/by the repository it finds from its directory/,
 			);
 			const own = inScratch.replace(
 				"const env",
@@ -1007,7 +1009,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 				.join("\n")
 				.replace('"PLACE"', "scratch");
 			expect(untraced(root, body).doubt).toMatch(
-				/by the repository above its directory/,
+				/by the repository it finds from its directory/,
 			);
 		});
 
@@ -1048,13 +1050,33 @@ describe("the routes still open after #4982 (#4997)", () => {
 			const hands = fs
 				.readdirSync(log)
 				.filter((f) => f.endsWith(".jsonl"))
-				.flatMap((f) =>
-					fs.readFileSync(path.join(log, f), "utf8").trim().split("\n"),
+				.flatMap(
+					(f) => parseJsonl(fs.readFileSync(path.join(log, f), "utf8")).rows,
 				)
-				.map((line) => JSON.parse(line))
 				.filter((e) => e.k === "child" && e.args?.includes("--help"))
 				.flatMap((e) => e.hands ?? []);
 			expect(hands).toContainEqual({ by: "repo", p: ["."] });
+		});
+
+		it("doubts a bare git that -C words walk out of a scratch directory into the checkout, and keeps one left in it", () => {
+			const root = checkout();
+			const walked = [
+				minting(root),
+				stripped(
+					["--bare", "-C", "PLACE", "-C", "..", "rev-parse", "--git-dir"],
+					quoted(outsideDir()),
+				),
+			]
+				.join("\n")
+				.replace('"PLACE"', "scratch");
+			expect(untraced(root, walked).doubt).toMatch(
+				/by the repository it finds from its directory/,
+			);
+			const inScratch = [
+				minting(root),
+				stripped(["--bare", "rev-parse", "--git-dir"], "scratch"),
+			].join("\n");
+			expect(untraced(root, inScratch)).toHaveProperty("reads");
 		});
 	});
 
@@ -1102,11 +1124,27 @@ describe("the routes still open after #4982 (#4997)", () => {
 				);
 		});
 
-		it("doubts a systemctl asked to edit, which runs an editor", () => {
+		/* The timeout bounds a systemctl that waits on a user bus this machine
+		 * may not run; one that answers does so in well under a second. */
+		const systemctl = (cwd: string, args: string[], env = {}) =>
+			`try { require("node:child_process").execFileSync("systemctl", ${quoted(["--user", ...args, "--no-ask-password", "no-such.service"])}, { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true", ...${quoted(env)} }, stdio: "ignore", timeout: 10000 }); } catch {}`;
+
+		it("keeps a plain systemctl, and one whose TAR_OPTIONS alone changed", () => {
 			const root = checkout();
 			const cwd = outsideDir();
-			const body = `try { require("node:child_process").execFileSync("systemctl", ["--user", "edit", "--no-ask-password", "no-such.service"], { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true" }, stdio: "ignore", timeout: 10000 }); } catch {}`;
-			expect(settled(root, body).doubt).toMatch(/a child \(systemctl .*edit/);
+			for (const env of [{}, { TAR_OPTIONS: "--to-command=cat" }])
+				expect(
+					settled(root, systemctl(cwd, ["is-active"], env)),
+				).toHaveProperty("reads");
+		});
+
+		it("doubts a systemctl asked to edit, which runs an editor, or to reach a host, which runs ssh", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			for (const args of [["edit"], ["-H", "nowhere.invalid", "is-active"]])
+				expect(settled(root, systemctl(cwd, args)).doubt).toMatch(
+					/a child \(systemctl .*\) was handed a path in the checkout by its environment/,
+				);
 		});
 	});
 });

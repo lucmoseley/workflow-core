@@ -64,6 +64,7 @@ const {
 	GIT_VALUED,
 	isNode,
 	readRealTmpdir,
+	SHOWN_MAX,
 	toPosix,
 } = require("./read-audit-paths.js");
 const { buildGitEventsReader } = require("./read-audit-git-events.js");
@@ -366,7 +367,7 @@ function buildCollector(logs, root, isScratch, readers) {
 		child: (e) => {
 			if (typeof e.pid === "number") children.set(e.pid, e);
 			if (typeof e.trace === "string") return takeTrace(e);
-			const ran = gitRan(e, readers.gitEvents);
+			const ran = gitChildDoubt(e, readers.gitEvents);
 			if (ran) return ran;
 			const program = readProgram(e, root, isScratch);
 			const why = childDoubt(e, program, { logs, root, isScratch });
@@ -457,10 +458,6 @@ function rerunnable([steered, dir = "", ...args], root) {
 		return `a git call (${shown}) read its standard input`;
 	return { cwd, args };
 }
-
-/* How much of a call a doubt line quotes: a guess, long enough to name the
- * call, short enough to keep the cached-run banner readable. */
-const SHOWN_MAX = 200;
 
 /* Programs that run their first non-option argument as a script. */
 const SHELL_RUNNERS = new Set(["bash", "sh"]);
@@ -567,9 +564,9 @@ function handOf(e, script, root, isScratch) {
  * each (`tar` list, extract and create). What one runs by name it finds on
  * `PATH`: `tar`'s compressor, through `/bin/sh` on a create, which stats
  * `PWD` and nothing else (each of gzip, bzip2, xz and zstd, create and
- * extract, traced so, #4997). So one passes only where `PATH` and
- * `TAR_OPTIONS` are as the setup settled them, and no word asks it to run a
- * command a test names (`RUNS_A_COMMAND`). A pager runs only on a terminal,
+ * extract, traced so, #4997). So one passes only where the variables it
+ * heeds for that (`STEERED_BY`) are as the setup settled them, and no word
+ * asks it to run a command a test names (`RUNS_A_COMMAND`). A pager runs only on a terminal,
  * which a test's process never holds: its output is a socket. Any program
  * not named here is doubted on such a variable. */
 const ENV_BLIND = new Set([
@@ -596,7 +593,7 @@ const TAR_RUNS = [
  * word's dashless cluster included.
  * @param {string[]} args
  */
-function tarRuns(args) {
+function isTarRunningCommand(args) {
 	return args.some((word, at) => {
 		if (word.startsWith("--")) {
 			const name = word.split("=")[0] ?? "";
@@ -609,10 +606,25 @@ function tarRuns(args) {
 
 /* The words that have a program of `ENV_BLIND` run a command a test can
  * name, by its manual: `tar`'s above; `systemctl edit`, which runs an
- * editor. The rest have none. */
+ * editor, and `-H`/`--host`, which runs ssh. The rest have none. */
 const RUNS_A_COMMAND = new Map([
-	["tar", tarRuns],
-	["systemctl", (/** @type {string[]} */ args) => args.includes("edit")],
+	["tar", isTarRunningCommand],
+	[
+		"systemctl",
+		(/** @type {string[]} */ args) =>
+			args.some(
+				(a) => a === "edit" || a === "-H" || a.split("=")[0] === "--host",
+			),
+	],
+]);
+
+/* The variables a program of `ENV_BLIND` heeds to find what it runs by
+ * name or with what options: `tar` its compressor on `PATH`, and its
+ * options off `TAR_OPTIONS`; `systemctl` its pager, editor and ssh on
+ * `PATH`. The rest run nothing by name. */
+const STEERED_BY = new Map([
+	["tar", ["PATH", "TAR_OPTIONS"]],
+	["systemctl", ["PATH"]],
 ]);
 
 /**
@@ -625,7 +637,9 @@ function readsNoVariable(e, root) {
 	const bin = Array.isArray(e.bin) ? e.bin.map(String) : [];
 	const name = path.basename(String(e.file));
 	if (bin.length === 0 || !ENV_BLIND.has(name)) return false;
-	if (Array.isArray(e.steered) && e.steered.length > 0) return false;
+	const heeds = STEERED_BY.get(name) ?? [];
+	const steered = Array.isArray(e.steered) ? e.steered.map(String) : [];
+	if (steered.some((v) => heeds.includes(v))) return false;
 	const args = /** @type {string[]} */ (e.args ?? []);
 	if (RUNS_A_COMMAND.get(name)?.(args)) return false;
 	return !bin.some(
@@ -639,16 +653,19 @@ function readsNoVariable(e, root) {
  * Why what a test wrote to an untraced child's input pipe once it ran
  * leaves its file's reads unknown (#4997), or null where the child reads
  * none of its input or the paths are the test's own scratch.
- * @param {Entry} e the `piped` entry
+ * @param {Entry} e the `piped` entry: the paths written, or none for a
+ *   stream handed whole
  * @param {Entry|undefined} child the child it was written to
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
  * @returns {string|null}
  */
 function pipedDoubt(e, child, root, isScratch) {
-	const paths = Array.isArray(e.p) ? e.p.map(String) : [];
 	if (child === undefined)
 		return "a child the audit logged no spawn of was written a path in the checkout";
+	if (!Array.isArray(e.p))
+		return `a child (${shownChild(child)}) was handed a stream whose content the audit cannot read`;
+	const paths = e.p.map(String);
 	if (isBlind(child, root) || paths.every(isScratch)) return null;
 	return `a child (${shownChild(child)}) was written a path in the checkout on its standard input`;
 }
@@ -661,7 +678,7 @@ function pipedDoubt(e, child, root, isScratch) {
  * @param {Readers["gitEvents"]} readEvents
  * @returns {string|null}
  */
-function gitRan(e, readEvents) {
+function gitChildDoubt(e, readEvents) {
 	if (!("events" in e) || typeof e.pid !== "number") return null;
 	const name = typeof e.events === "string" ? e.events : null;
 	return readEvents(name, shownChild(e));
@@ -669,7 +686,8 @@ function gitRan(e, readEvents) {
 
 const handedBy = (/** @type {Hand} */ hand) => {
 	if (hand.by === "env") return ` by its environment (${hand.name})`;
-	if (hand.by === "repo") return " by the repository above its directory";
+	if (hand.by === "repo")
+		return " by the repository it finds from its directory";
 	return hand.by === "stdin" ? " on its standard input" : "";
 };
 

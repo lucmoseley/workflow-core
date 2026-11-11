@@ -1,6 +1,6 @@
 /*
- * read-audit-paths.js — the path tests the read audit's modules share
- * (#4916). lib/read-audit-preload.js loads it into every audited process,
+ * read-audit-paths.js — the path tests, limits and git and environment
+ * readings the read audit's modules share (#4916). lib/read-audit-preload.js loads it into every audited process,
  * so it requires nothing beside Node's own modules and lib/is-under.js,
  * which the preload loads already.
  */
@@ -41,6 +41,28 @@ function repoPath(root, abs) {
  */
 const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
 
+/* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
+const PATH_MAX = 4096;
+
+/* How much of a call a doubt line quotes: a guess, long enough to name the
+ * call, short enough to keep the cached-run banner readable. */
+const SHOWN_MAX = 200;
+
+/**
+ * The value an environment's pairs give `name`; undefined where they set
+ * none.
+ * @param {unknown} envPairs
+ * @param {string} name
+ * @returns {string|undefined}
+ */
+function pairValue(envPairs, name) {
+	if (!Array.isArray(envPairs)) return;
+	const pair = envPairs.find(
+		(e) => typeof e === "string" && e.startsWith(`${name}=`),
+	);
+	return pair === undefined ? undefined : String(pair).slice(name.length + 1);
+}
+
 /* git's options before the subcommand that take the next word as a value. */
 const GIT_VALUED = new Set([
 	"-C",
@@ -77,7 +99,10 @@ module.exports = {
 	GIT_VALUED,
 	GUARD,
 	isNode,
+	PATH_MAX,
+	pairValue,
 	readRealTmpdir,
 	repoPath,
+	SHOWN_MAX,
 	toPosix,
 };

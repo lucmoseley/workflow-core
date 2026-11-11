@@ -51,6 +51,8 @@ const {
 	GIT_VALUED,
 	GUARD,
 	isNode,
+	PATH_MAX,
+	pairValue,
 	readRealTmpdir,
 	repoPath,
 } = require("./read-audit-paths.js");
@@ -508,13 +510,12 @@ function install() {
 	 * A sync spawn's `input`; what is written to an async child's pipe later
 	 * `watchInput` weighs.
 	 * @param {Untyped} opts
-	 * @param {(word: string) => string[]} named
 	 * @returns {Hand[]}
 	 */
-	const stdinHands = (opts, named) => {
+	const stdinHands = (opts) => {
 		const input = Array.isArray(opts?.stdio) ? opts.stdio[0]?.input : null;
 		if (!ArrayBuffer.isView(input)) return [];
-		const p = named(textOf(input));
+		const p = handed.from(cwdOf(opts), { text: true })(textOf(input));
 		return p.length === 0 ? [] : [{ by: "stdin", p }];
 	};
 	/**
@@ -522,8 +523,9 @@ function install() {
 	 * words move it — lies under the root with no repository of its own
 	 * between: it reads the checkout's (#4982, #4997). `init` and `clone`
 	 * look for none, but one asked for `--help` does, through `git help`
-	 * (each traced once, git 2.43); `--git-dir`, `--bare` and `GIT_DIR` name
-	 * the repository, the first and last weighed as a word and a variable.
+	 * (each traced once, git 2.43). `--bare` makes that directory the
+	 * repository itself; `--git-dir` and `GIT_DIR` name it, weighed as a
+	 * word and a variable.
 	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @returns {Hand[]}
@@ -531,9 +533,21 @@ function install() {
 	const repoHands = (opts, cwd) => {
 		if (path.basename(String(opts?.file ?? "")) !== "git") return [];
 		const asked = gitDirOf(argvOf(opts).slice(1), cwd);
-		if (asked === null || hasPair(opts?.envPairs, "GIT_DIR")) return [];
-		const at = realOrAsIs(asked);
+		if (asked === null || pairValue(opts?.envPairs, "GIT_DIR") !== undefined)
+			return [];
+		return repoHandAt(realOrAsIs(asked.at), asked.bare);
+	};
+	/**
+	 * @param {string} at where the git looks for its repository, real path
+	 * @param {boolean} bare whether that directory is the repository itself
+	 * @returns {Hand[]}
+	 */
+	const repoHandAt = (at, bare) => {
 		if (relativeUnder(root, at) === null) return [];
+		if (bare) {
+			const p = rel(at);
+			return p === null ? [] : [{ by: "repo", p: [p] }];
+		}
 		for (let up = at; up !== root; up = path.dirname(up))
 			if (stands(path.join(up, ".git"))) return [];
 		return [{ by: "repo", p: ["."] }];
@@ -557,7 +571,7 @@ function install() {
 				},
 			),
 			...envHands(opts, cwd, named),
-			...stdinHands(opts, named),
+			...stdinHands(opts),
 			...repoHands(opts, cwd),
 		];
 	};
@@ -633,12 +647,8 @@ function install() {
 		const bin = binOf(file, cwdOf(opts), opts?.envPairs);
 		if (!isRealGit(file, bin) && !isGuard(bin[1])) return { opts };
 		const pairs = Array.isArray(opts?.envPairs) ? opts.envPairs : [];
-		const set = pairs.find(
-			(/** @type {unknown} */ e) =>
-				typeof e === "string" && e.startsWith(`${GIT_EVENTS}=`),
-		);
-		if (set !== undefined) {
-			const target = set.slice(GIT_EVENTS.length + 1);
+		const target = pairValue(pairs, GIT_EVENTS);
+		if (target !== undefined) {
 			const ours = path.dirname(target) === dir;
 			return { opts, events: ours ? path.basename(target) : null };
 		}
@@ -691,12 +701,12 @@ function install() {
 	 * @param {string} cwd
 	 */
 	const watchInput = (handle, pid, cwd) => {
-		const named = handed.from(cwd);
+		const named = handed.from(cwd, { text: true });
 		let tail = "";
 		const weigh = (/** @type {unknown[]} */ chunks) =>
 			guard(() => {
 				const text = tail + chunks.map(textOf).join("");
-				tail = text.slice(-PIPE_TAIL);
+				tail = text.slice(-PATH_MAX);
 				const p = named(text);
 				if (p.length > 0) add({ k: "piped", pid, p });
 			});
@@ -717,31 +727,37 @@ function install() {
 		}
 	};
 	/**
-	 * Watch an async child's input where nothing else sees its reads: no
-	 * tracer follows it and it keeps no log of its own.
+	 * Watch every pipe to an async child where nothing else sees its reads:
+	 * no tracer follows it and it keeps no log of its own. A stream the test
+	 * handed it whole (`wrap`) carries what the audit cannot read: a doubt.
 	 * @param {Untyped} asked
 	 * @param {number|undefined} pid
 	 * @param {Route} route
 	 */
 	const watchIfUnseen = (asked, pid, route) =>
 		guard(() => {
-			const input = Array.isArray(asked?.stdio) ? asked.stdio[0] : null;
-			if (typeof pid !== "number" || route || input?.type !== "pipe") return;
-			if (isSelfLogging(asked)) return;
-			watchInput(input.handle, pid, cwdOf(asked));
+			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
+			if (typeof pid !== "number" || route || isSelfLogging(asked)) return;
+			const cwd = cwdOf(asked);
+			for (const entry of stdio) watchEntry(entry, pid, cwd);
 		});
+
+	/**
+	 * @param {Untyped} entry one of a spawn's `stdio`
+	 * @param {number} pid
+	 * @param {string} cwd
+	 */
+	const watchEntry = (entry, pid, cwd) => {
+		if (entry?.type === "pipe") watchInput(entry.handle, pid, cwd);
+		if (entry?.type === "wrap") add({ k: "piped", pid, p: null });
+	};
 	/**
 	 * The variables steering which program a child runs by name, or with
 	 * what options, that differ from the environment the setup settled.
 	 * @param {unknown} envPairs
 	 */
-	const steeredOf = (envPairs) => {
-		const pairs = Array.isArray(envPairs) ? envPairs.map(String) : [];
-		return STEERS.filter((name) => {
-			const pair = pairs.find((e) => e.startsWith(`${name}=`));
-			return pair?.slice(name.length + 1) !== standing[name];
-		});
-	};
+	const steeredOf = (envPairs) =>
+		STEERS.filter((name) => pairValue(envPairs, name) !== standing[name]);
 	/**
 	 * @param {Untyped} opts as the test spawned it
 	 * @param {number|undefined} pid
@@ -851,7 +867,8 @@ const GIT_EVENTS = "GIT_TRACE2_EVENT";
 
 /* The variables that steer which program a child runs by name, or with
  * what options: lib/read-audit.js passes a program measured to read no
- * variable only where these are as the setup settled them (#4997). */
+ * variable only where those it heeds are as the setup settled them
+ * (#4997). */
 const STEERS = ["PATH", "TAR_OPTIONS"];
 
 /* A pipe handle's writes, as Node's stream code calls them. */
@@ -863,10 +880,6 @@ const PIPE_WRITES = [
 	"writeAsciiString",
 	"writeUcs2String",
 ];
-
-/* How much of what went down a pipe is weighed again with the next write:
- * Linux's PATH_MAX, the longest path a split write could cut. */
-const PIPE_TAIL = 4096;
 
 const isEven = (/** @type {unknown} */ _, /** @type {number} */ i) =>
 	i % 2 === 0;
@@ -889,37 +902,28 @@ const ELF = Buffer.from("\x7fELF", "latin1");
 const GIT_READS = /^(GIT_.*|HOME|XDG_CONFIG_HOME)$/;
 
 /**
- * The directory a git call looks for its repository from: its own, moved
- * by each `-C` before the subcommand; null where it looks for none.
+ * Where a git call finds its repository: the directory it looks up from,
+ * its own moved by each `-C` before the subcommand, or that directory as
+ * the repository itself under `--bare`; null where it looks for none.
  * @param {string[]} words the call's words after the program
  * @param {string} cwd
- * @returns {string|null}
+ * @returns {{at: string, bare: boolean}|null}
  */
 function gitDirOf(words, cwd) {
 	let moved = cwd;
+	let bare = false;
 	let at = 0;
 	for (; at < words.length; at++) {
 		const word = String(words[at]);
 		if (!word.startsWith("-")) break;
-		if (word === "--bare" || word.split("=")[0] === "--git-dir") return null;
+		if (word.split("=")[0] === "--git-dir") return null;
+		if (word === "--bare") bare = true;
 		if (word === "-C") moved = path.resolve(moved, words[at + 1] ?? "");
 		if (GIT_VALUED.has(word)) at++;
 	}
 	const sub = words[at];
 	const makes = sub === "init" || sub === "clone";
-	return makes && !words.includes("--help") ? null : moved;
-}
-
-/**
- * Whether an environment's pairs set `name`.
- * @param {unknown} envPairs
- * @param {string} name
- */
-function hasPair(envPairs, name) {
-	return (
-		Array.isArray(envPairs) &&
-		envPairs.some((e) => typeof e === "string" && e.startsWith(`${name}=`))
-	);
+	return makes && !words.includes("--help") ? null : { at: moved, bare };
 }
 
 /** @param {unknown} n */

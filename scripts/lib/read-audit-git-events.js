@@ -8,20 +8,24 @@
  * api-trace2), and this reads it back.
  *
  * A PROCESS GIT STARTS IS A DOUBT unless it is git again, which logs to the
- * same file: by the name `git`, or as the `git-upload-pack`,
- * `git-receive-pack` or `git-upload-archive` a local transport runs, which
- * git finds in its own exec path ahead of `PATH`. A process git looked for
- * and never found (`pid` -1 at its exit) ran nothing. A git that logged its
- * start and never its end may still be running: a doubt too.
+ * same file: run as `git` itself, or as the `git-upload-pack`,
+ * `git-receive-pack` or `git-upload-archive` a local transport runs on one
+ * quoted path, which git finds in its own exec path ahead of `PATH`. A
+ * process git looked for and never found (`pid` -1 at its exit) ran
+ * nothing. A git that logged its start and never its end may still be
+ * running: a doubt too.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
+const { readText } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
+const { SHOWN_MAX } = require("./read-audit-paths.js");
 
-/* The programs a local transport runs, by its first word (git's
- * connect.c). */
-const TRANSPORT = /^git-(?:upload-pack|receive-pack|upload-archive)(?:\s|$)/;
+/* The command a local transport runs: its program, then the repository's
+ * path in single quotes, each quote within as `'\''` (git's connect.c,
+ * sq_quote). */
+const TRANSPORT =
+	/^git-(?:upload-pack|receive-pack|upload-archive) '(?:[^']|'\\'')*'$/;
 
 /**
  * @param {string} dir the audit's log directory
@@ -32,15 +36,12 @@ function buildGitEventsReader(dir) {
 	return (name, shown) => {
 		if (name === null)
 			return `a git call (${shown}) named an event target of its own, so what it ran is unlogged`;
-		let text;
-		try {
-			text = fs.readFileSync(path.join(dir, name), "utf8");
-		} catch {
+		const read = readText(path.join(dir, name));
+		if (read.state !== "read")
 			return `a git call (${shown}) left no log of what it ran`;
-		}
-		const { rows, bad } = parseJsonl(text);
+		const { rows, bad } = parseJsonl(read.data);
 		if (bad.length > 0) return `a git call (${shown}) left a torn log`;
-		return ranOther(rows, shown);
+		return otherChildDoubt(rows, shown);
 	};
 }
 
@@ -49,14 +50,15 @@ function buildGitEventsReader(dir) {
  * @param {string} shown
  * @returns {string|null}
  */
-function ranOther(rows, shown) {
+function otherChildDoubt(rows, shown) {
 	const { started, unfound, open } = tally(rows);
 	if (open.size > 0)
 		return `a git call (${shown}) logged no end, so what it ran may still be running`;
 	for (const [child, row] of started) {
 		if (unfound.has(child) || isGit(row)) continue;
 		const argv = Array.isArray(row.argv) ? row.argv.map(String) : [];
-		return `a git call (${shown}) ran ${String(argv[0] ?? "a process").slice(0, 80)} (${row.child_class}), whose reads no log holds`;
+		const ran = String(argv[0] ?? "a process").slice(0, SHOWN_MAX);
+		return `a git call (${shown}) ran ${ran} (${row.child_class}), whose reads no log holds`;
 	}
 	return null;
 }
@@ -89,7 +91,7 @@ function isGit(row) {
 	const first = Array.isArray(row.argv) ? String(row.argv[0] ?? "") : "";
 	if (row.use_shell === true)
 		return row.child_class === "transport/file" && TRANSPORT.test(first);
-	return path.basename(first) === "git";
+	return first === "git";
 }
 
 module.exports = { buildGitEventsReader };
