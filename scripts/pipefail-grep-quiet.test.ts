@@ -5,16 +5,18 @@
  *
  * `grep -q` exits on its first match; a producer still writing is then killed
  * by SIGPIPE (141), and `pipefail` makes the whole test read false — or true,
- * negated — at random (BashFAQ/105). That dropped or flipped
- * dispatch-sessions.sh's CPU-hold remedy lines and turned the scheduled sweep
- * red. Read the text with a here-string instead: `grep -q PAT <<<"$var"`.
+ * negated — at random (BashFAQ/105). Read the text with a here-string instead: `grep -q PAT <<<"$var"`.
  *
  * Every bash file is scanned, not only those that set `pipefail`: a sourced lib
- * runs under its caller's options. POSIX sh files are skipped, having neither
- * `pipefail` nor here-strings. Static so it covers every file, not only the
+ * runs under its caller's options. POSIX sh files are skipped: sh has no
+ * here-string to rewrite to. Static so it covers every file, not only the
  * site a behavioural case would drive. Loosen it and the race comes back
- * unseen, at 1 run in 5 to 1 in 25.
+ * unseen.
+ *
+ * The literal `git ls-files` pathspecs let the test selector run this on an
+ * edit to any shell file; readTrackedShellFiles adds the extensionless ones.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,10 +34,7 @@ function isQuietGrep(segment: string): boolean {
 		.some((w) => /^-[A-Za-pr-z]*q[A-Za-z]*$|^--(quiet|silent)$/.test(w));
 }
 
-/**
- * The 1-based lines where a pipe feeds `grep -q`. A pipe continued onto a later
- * line counts, across a `\` and comment lines; an `||` does not.
- */
+/** The 1-based lines where a pipe feeds `grep -q`. */
 function findPipedQuietGrep(src: string): number[] {
 	const hits: number[] = [];
 	let pipeOpen = false;
@@ -48,7 +47,6 @@ function findPipedQuietGrep(src: string): number[] {
 	return hits;
 }
 
-/** A bash file by its shebang or `# shellcheck shell=` line; bash by default. */
 function isBash(src: string): boolean {
 	const head = src.split("\n", 3).join("\n");
 	if (/^#!.*\bbash\b/.test(head)) return true;
@@ -115,7 +113,14 @@ describe("isBash", () => {
 
 describe("tracked bash files (#4983)", () => {
 	it("none pipes into grep -q", () => {
-		const files = readTrackedShellFiles();
+		const listed = execFileSync(
+			"git",
+			["ls-files", "*.sh", "*.bash", ".husky/*"],
+			{ cwd: ROOT, encoding: "utf8" },
+		)
+			.split("\n")
+			.filter(Boolean);
+		const files = [...new Set([...listed, ...readTrackedShellFiles()])];
 		expect(files).toContain("scripts/dispatch-sessions.sh");
 		const hits: string[] = [];
 		for (const rel of files) {
