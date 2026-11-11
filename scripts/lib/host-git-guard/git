@@ -110,19 +110,17 @@ args=("${@:i+1}")
 # their own. Only the outermost call: a nested one runs inside a call already
 # judged.
 audit_log=
-# log_call <answer> <word>… — one record: its field count, whether a git-dir
-# variable steered it, the directory, the answer, then every word, each
-# NUL-ended.
+# log_call <answer> <word>… — one record, as lib/read-audit.js's
+# `gitRecords` reads it.
 log_call() { printf '%s\0' "$(($# + 2))" "$steered" "$PWD" "$@" >>"$audit_log"; }
 
 # run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
-# process listing reads as it would without the guard. Under the audit its
-# stdout passes through `tee` into a scratch file beside the log, whose sha1
-# is the answer; a `tee` that failed, or a `PATH` holding no `tee` or
-# `sha1sum`, as a symlinked one (#3399), logs none, which the audit reads as a
-# call left unanswered. The scratch is emptied, not removed, to spare a fork:
+# process listing off the audit reads as it would without the guard. A `tee`
+# that failed, or a `PATH` holding no `tee` or `sha1sum`, as a symlinked one
+# (#3399), logs no answer, which the audit reads as a call left unanswered.
+# The file `tee` copies stdout into is emptied, not removed, to spare a fork:
 # the audit's log directory goes whole at the run's end. A git a signal ended
-# ends the guard by the same signal, so the caller sees what git would show.
+# ends the guard by the same signal.
 #
 # Residual: under the audit the caller's pid is this shell, not git, so a
 # process listing shows bash, and a signal sent to it, a timeout's, leaves git

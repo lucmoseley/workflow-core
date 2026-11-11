@@ -1,8 +1,7 @@
 /*
  * read-audit.js — the runtime read audit the pass store keys a test file's
  * row on (#4916). A path a test builds at run time — a directory listing, a
- * helper's default root — is invisible to the lexical reach; the audit sees
- * the read itself.
+ * helper's default root — is invisible to the lexical reach.
  *
  * `install` arms it for one suite run, from vitest's globalSetup: a log
  * directory, and lib/read-audit-preload.js on `NODE_OPTIONS`, which every
@@ -16,15 +15,15 @@
  *
  * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees. One of the
  * read-only subcommands in `RERUN`, made from a directory under the root with
- * no `-C`, `--git-dir`, `--work-tree` or git-dir variable steering it, is
- * kept word for word with the answer the guard saw it give, its status and
- * the sha1 of its stdout: the store keys it on its output run again, and only
- * where that equals what the test got (#4993). A call the guard logged begun
+ * no `-C`, `--git-dir`, `--work-tree`, git-dir variable or `--output`
+ * steering it, is kept word for word with the answer the guard saw it give:
+ * the store keys it on its output run again, and only where that equals what
+ * the test got (#4993). A call the guard logged begun
  * and never answered, or that answered the same words two ways, is a doubt.
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
- * another file, or holds a read the audit cannot see, reads as `doubt`, which
- * the store records no row for. What cannot be seen:
+ * another file, or holds a read the audit cannot see, reads as `doubt`. What
+ * cannot be seen:
  * - any other git call on this repository, a worktree of it outside the root
  *   included;
  * - a Node child that left no log, or one spawned without the audit on;
@@ -367,9 +366,8 @@ function collector(logs, root, isScratch, readTrace) {
 }
 
 /**
- * Each git call with the one answer the test got, or the doubt where one was
- * logged begun more often than answered, as a call killed mid-way is, or
- * answered two ways.
+ * Each git call with the one answer the test got, or the doubt where one has
+ * none or two.
  * @param {Iterable<{cwd: string, args: string[], begun: number,
  *   answers: string[]}>} calls
  * @returns {GitCall[]|{doubt: string}}
@@ -448,8 +446,7 @@ function childDoubt(e, logs, root, isScratch) {
 		return logs.has(e.pid) ? null : `a Node child (${shown}) left no audit log`;
 	}
 	if (e.guarded && e.audited) return null;
-	/* A tracer already following the process that spawned it follows it too:
-	 * its reads are in that child's trace. */
+	/* A tracer already following the process that spawned it follows it too. */
 	if (e.within) return null;
 	const cwd = String(e.cwd);
 	if (

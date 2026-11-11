@@ -318,8 +318,7 @@ const refuseFault = (/** @type {string} */ why) => {
  * Every in-repo file `file` reaches through relative `require`s, imports and
  * `__dirname`-spelled spawns, transitively, read lexically off the working
  * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
- * records, since this repo's tests reach their subjects through
- * `createRequire` and spawns. Memoised across the files of one run. Null
+ * records. Null
  * where any file on the way will not read, or joins a path off its own
  * directory the walk cannot tell: an input left unknown records no row. A
  * test file's own such join is excused (`ownReadsJudged`): the read audit
@@ -462,7 +461,7 @@ const GIT_DIR_VARS = [
 
 /**
  * A git call run again at `root`: the id of its exit status and output.
- * Memoised, as many rows rest on one call. Null where its key will not
+ * Null where its key will not
  * parse or the call will not run.
  * @param {string} root
  * @returns {(key: string) => string|null}
@@ -598,8 +597,7 @@ function trackedListings(root) {
  * @param {import("./read-audit.js").Reads} reads
  * @param {() => Map<string, Set<string>>} listings
  * @param {TreeAt} working the working tree: its directories and git calls
- * @param {Set<string>|null} drifted the paths that moved while the run ran,
- *   null where that is unknown
+ * @param {Set<string>|null} drifted
  * @returns {{files: string[], absent: string[], dirs: string[],
  *   listings: Record<string, string>, git: Record<string, string>}|null}
  */
@@ -655,8 +653,8 @@ const hasMovedUnder = (top, drifted) =>
 /**
  * What a tree walked or copied whole rests on: every tracked file under
  * `top`, or `top` itself where it is no tracked directory, and every tracked
- * directory's listing under it, all read off the index now. Null where a
- * listing on working holds a name git does not track.
+ * directory's listing under it, off the index. Null where a listing on
+ * working holds a name git does not track.
  * @param {string} top
  * @param {Map<string, Set<string>>} tracked
  * @param {TreeAt} working
@@ -1150,8 +1148,7 @@ const buildPragmaRefusal = (files) =>
  * Write the cached files a run that looked the store up carries for its
  * vitest child — none cached included, which the run's records count — and
  * the environment entry naming them. Null where the file cannot be written,
- * which leaves the cached files out of the certificate: the unattested
- * direction.
+ * which leaves the cached files out of the certificate.
  * @param {Cached[]|null} cached null where the run looked nothing up
  * @param {string} file
  * @param {{write: (s: string) => unknown}} [err]
