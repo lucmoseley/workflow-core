@@ -304,6 +304,16 @@ describe("run edges", () => {
 		).toEqual(["scripts/hooks/x.sh", "scripts/y.js"]);
 	});
 
+	it("reads a run through a variable whose program path climbs out of its own directory", () => {
+		expect(
+			targets(
+				"scripts/lib/g.sh",
+				'here="$(dirname "$0")"\nprog="$here/../hooks/x.js"\nnode "$prog"',
+				"run",
+			),
+		).toEqual(["scripts/hooks/x.js"]);
+	});
+
 	it("reads a run through a variable assigned no directory off its own tail", () => {
 		expect(guard('tmp="$(mktemp -d)"\nbash "$tmp/inj.sh"')).toEqual([
 			"scripts/inj.sh",

@@ -81,7 +81,7 @@ const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
  * whole: the lazy expansion would otherwise run on past it to `lib`.
  * @param {string} pathRe
  */
-const varAssignRe = (pathRe) =>
+const buildVarAssignRe = (pathRe) =>
 	new RegExp(
 		`^[ \\t]*(?:local\\s+|readonly\\s+)?(\\w+)="?\\$[^\\n]*?\\/(${pathRe})"?[ \\t]*(?:#[^\\n]*)?$`,
 		"gm",
@@ -92,7 +92,7 @@ const varAssignRe = (pathRe) =>
  * `lib="$here/lib/x.js"` and then `node "$lib"`, or a `.sh` run by `bash`
  * or `sh` (#4730). Self-relative, as parseProgramRuns' path is.
  */
-const VAR_PATH_RE = varAssignRe(
+const VAR_PATH_RE = buildVarAssignRe(
 	`(?:\\.\\.\\/)*[\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")})`,
 );
 
@@ -101,7 +101,7 @@ const VAR_PATH_RE = varAssignRe(
  * (#4890), `lib="$(cd "$here" && pwd)/lib"` and then `sh "$lib/x.sh"`.
  * A path ending in a program suffix is VAR_PATH_RE's, and parseRuns drops it.
  */
-const VAR_DIR_RE = varAssignRe(
+const VAR_DIR_RE = buildVarAssignRe(
 	"(?:\\.\\.|[\\w-][\\w.-]*)(?:\\/(?:\\.\\.|[\\w-][\\w.-]*))*",
 );
 

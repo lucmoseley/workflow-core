@@ -35,7 +35,7 @@ const VAR_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
 /** Each match of `re` as an object keyed by `fields`, group 1 onwards. */
-const groups = <T>(
+const parseGroups = <T>(
 	re: RegExp,
 	text: string,
 	fields: readonly (keyof T & string)[],
@@ -43,10 +43,10 @@ const groups = <T>(
 	[...text.matchAll(re)].map(
 		(m) => Object.fromEntries(fields.map((f, i) => [f, m[i + 1] ?? ""])) as T,
 	);
-const varGroups = (text: string) =>
-	groups<Match>(VAR_RE, text, ["prefix", "value"]);
-const runGroups = (text: string) =>
-	groups<RunMatch>(RUN_RE, text, ["prefix", "lead", "value"]);
+const parseVarGroups = (text: string) =>
+	parseGroups<Match>(VAR_RE, text, ["prefix", "value"]);
+const parseRunGroups = (text: string) =>
+	parseGroups<RunMatch>(RUN_RE, text, ["prefix", "lead", "value"]);
 
 const PLANTED = [
 	'source "$here/lib/guard-log.sh"',
@@ -89,7 +89,7 @@ const PLANTED = [
 
 describe("parseProgramRuns", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseProgramRuns(text)).toEqual(runGroups(text));
+		expect(parseProgramRuns(text)).toEqual(parseRunGroups(text));
 	});
 
 	it("returns the text before node with the path after the slash", () => {
@@ -101,7 +101,7 @@ describe("parseProgramRuns", () => {
 
 describe("parseProgramVars", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseProgramVars(text)).toEqual(varGroups(text));
+		expect(parseProgramVars(text)).toEqual(parseVarGroups(text));
 	});
 });
 
@@ -152,8 +152,10 @@ describe("every parser against its regex over generated texts", () => {
 	it("finds exactly the oracle's matches on each", () => {
 		const off = texts.filter(
 			(t) =>
-				JSON.stringify(parseProgramRuns(t)) !== JSON.stringify(runGroups(t)) ||
-				JSON.stringify(parseProgramVars(t)) !== JSON.stringify(varGroups(t)),
+				JSON.stringify(parseProgramRuns(t)) !==
+					JSON.stringify(parseRunGroups(t)) ||
+				JSON.stringify(parseProgramVars(t)) !==
+					JSON.stringify(parseVarGroups(t)),
 		);
 		expect(off).toEqual([]);
 	});
