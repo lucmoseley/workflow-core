@@ -275,6 +275,50 @@ describe("run edges", () => {
 	it("skips a .sh path that no runner runs", () => {
 		expect(guard('lib="$here/lib/x.sh"\n. "$lib"')).toEqual([]);
 	});
+
+	it("reads a run beneath a variable holding a directory, braced or quoted (#4890)", () => {
+		expect(
+			guard(
+				[
+					'lib="$(cd "$here" && pwd)/lib"',
+					'sh "$lib/serialised.sh" x',
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'node "${lib}/a.js"',
+					'bash "$lib"/b.sh',
+				].join("\n"),
+			),
+		).toEqual([
+			"scripts/lib/serialised.sh",
+			"scripts/lib/a.js",
+			"scripts/lib/b.sh",
+		]);
+	});
+
+	it("reads a run beneath a directory variable climbing out of its own directory", () => {
+		expect(
+			targets(
+				"scripts/lib/g.sh",
+				'here="$(dirname "$0")"\nroot="$here/../.."\nlib="$here/../hooks"\nsh "$lib/x.sh"\nnode "$root/scripts/y.js"',
+				"run",
+			),
+		).toEqual(["scripts/hooks/x.sh", "scripts/y.js"]);
+	});
+
+	it("reads a run through a variable whose program path climbs out of its own directory", () => {
+		expect(
+			targets(
+				"scripts/lib/g.sh",
+				'here="$(dirname "$0")"\nprog="$here/../hooks/x.js"\nnode "$prog"',
+				"run",
+			),
+		).toEqual(["scripts/hooks/x.js"]);
+	});
+
+	it("reads a run through a variable assigned no directory off its own tail", () => {
+		expect(guard('tmp="$(mktemp -d)"\nbash "$tmp/inj.sh"')).toEqual([
+			"scripts/inj.sh",
+		]);
+	});
 });
 
 describe("launch edges (#4567)", () => {
