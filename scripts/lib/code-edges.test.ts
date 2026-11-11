@@ -50,8 +50,9 @@ function tree(code: string, files: string[]) {
 	return { edges, shadows, faults };
 }
 
-/** The statement putting the tree's `dir` first on tool/t.py's sys.path. */
-const first = (dir: string) =>
+/** The statement putting the tree's `dir` first on the sys.path of the file
+ * under tool/ or lib/ that reads it. */
+const putFirst = (dir: string) =>
 	`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "${dir}"))`;
 
 describe("a dotted import", () => {
@@ -115,8 +116,8 @@ describe("a dotted import", () => {
 
 	it("reaches a submodule in whichever of a namespace package's directories holds it (#4870)", () => {
 		const code = [
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
+			putFirst("a"),
+			putFirst("b"),
 			"import ns.sub",
 			"from ns import other, gone",
 		].join("\n");
@@ -132,11 +133,9 @@ describe("a dotted import", () => {
 	])(
 		"faults a part %s in one namespace directory lacks, though another directory holds it (#4870)",
 		(_what, regular) => {
-			const code = [
-				'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
-				'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
-				"import ns.sub.leaf",
-			].join("\n");
+			const code = [putFirst("a"), putFirst("b"), "import ns.sub.leaf"].join(
+				"\n",
+			);
 			expect(tree(code, ["a/ns/sub/leaf.py", regular]).faults).toEqual([
 				"imports ns.sub.leaf, whose leaf the walk cannot place",
 			]);
@@ -145,8 +144,8 @@ describe("a dotted import", () => {
 
 	it("keeps to a regular package's own directory below it, whatever a sibling namespace directory holds (#4870)", () => {
 		const code = [
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
+			putFirst("a"),
+			putFirst("b"),
 			"import ns.reg.inner.x",
 			"import ns.reg.inner.gone",
 		].join("\n");
@@ -187,14 +186,14 @@ describe("a dotted import", () => {
 	);
 
 	it("reaches only the first of a namespace package's directories to hold a submodule (#4870)", () => {
-		const code = [first("a"), first("b"), "import ns.mod"].join("\n");
+		const code = [putFirst("a"), putFirst("b"), "import ns.mod"].join("\n");
 		expect(tree(code, ["a/ns/mod.py", "b/ns/mod.py"]).edges).toEqual([
 			"b/ns/mod.py",
 		]);
 	});
 
 	it("names a submodule's place under an earlier entry holding no directory of its namespace package as a shadow (#4870)", () => {
-		const code = [first("b"), first("a"), "import ns.sub"].join("\n");
+		const code = [putFirst("b"), putFirst("a"), "import ns.sub"].join("\n");
 		const found = tree(code, ["a/other.py", "b/ns/sub.py"]);
 		expect(found.edges).toEqual(["b/ns/sub.py"]);
 		expect(found.shadows).toEqual(
@@ -203,15 +202,17 @@ describe("a dotted import", () => {
 	});
 
 	it("takes a from-imported name that is a directory of a namespace package for a package (#4870)", () => {
-		const code = [first("a"), first("b"), "from ns import sub"].join("\n");
+		const code = [putFirst("a"), putFirst("b"), "from ns import sub"].join(
+			"\n",
+		);
 		expect(tree(code, ["a/ns/x.py", "b/ns/sub/y.py"]).faults).toEqual([]);
 	});
 
 	it("counts a submodule in each namespace directory an indented insert may or may not have put first (#4870)", () => {
 		const code = [
-			first("d"),
+			putFirst("d"),
 			"if CHECK:",
-			`    ${first("m")}`,
+			`    ${putFirst("m")}`,
 			"import ns.sub",
 		].join("\n");
 		expect(tree(code, ["d/ns/sub.py", "m/ns/sub.py"]).edges).toEqual([
@@ -227,9 +228,9 @@ describe("a dotted import", () => {
 		"faults a submodule only %s holds, where an indented insert decides which package Python takes (#4870)",
 		(_what, sub) => {
 			const code = [
-				first("d"),
+				putFirst("d"),
 				"if CHECK:",
-				`    ${first("m")}`,
+				`    ${putFirst("m")}`,
 				"import pkg.sub",
 			].join("\n");
 			const files = ["m/pkg/__init__.py", "d/pkg/other.py", sub];
@@ -267,11 +268,7 @@ describe("a sys.path entry the file adds", () => {
 	});
 
 	it("searches the newest insert first and names what it tried before the module", () => {
-		const code = [
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
-			"import helper",
-		].join("\n");
+		const code = [putFirst("b"), putFirst("a"), "import helper"].join("\n");
 		const found = tree(code, ["a/other.py", "b/helper.py", "tool/helper.py"]);
 		expect(found.edges).toEqual(["b/helper.py"]);
 		expect(found.shadows).toEqual([
@@ -320,11 +317,9 @@ describe("a sys.path entry the file adds", () => {
 	});
 
 	it("counts every file an indented insert may or may not have put first", () => {
-		const code = [
-			"if CHECK:",
-			'    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))',
-			"import helper",
-		].join("\n");
+		const code = ["if CHECK:", `    ${putFirst("lib")}`, "import helper"].join(
+			"\n",
+		);
 		expect(tree(code, ["lib/helper.py", "tool/helper.py"]).edges).toEqual([
 			"lib/helper.py",
 			"tool/helper.py",
@@ -332,11 +327,9 @@ describe("a sys.path entry the file adds", () => {
 	});
 
 	it("places a function's import on the search path as the file leaves it too", () => {
-		const code = [
-			"def run():",
-			"    import helper",
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))',
-		].join("\n");
+		const code = ["def run():", "    import helper", putFirst("lib")].join(
+			"\n",
+		);
 		expect(tree(code, ["lib/helper.py", "tool/helper.py"]).edges).toEqual([
 			"tool/helper.py",
 			"lib/helper.py",
@@ -440,6 +433,24 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 		expect(imported.edges).toContain("tool/pkg/sub.py");
 	});
 
+	it("faults the module's relative import from a namespace package, which walked alone or from a regular package is none", () => {
+		const { alone, imported } = moduleTree(listShape, "from . import sub\n", [
+			"lib/sub.py",
+		]);
+		expect(alone).toMatchObject({ edges: ["lib/sub.py"], faults: [] });
+		expect(imported.faults).toEqual([
+			"imports . relative to a namespace package, whose other directories the walk cannot tell",
+		]);
+		const regular = moduleTree(listShape, "from . import sub\n", [
+			"lib/sub.py",
+			"lib/__init__.py",
+		]);
+		expect(regular.imported).toMatchObject({
+			edges: ["lib/__init__.py", "lib/sub.py"],
+			faults: [],
+		});
+	});
+
 	it("faults an import neither path holds", () => {
 		const { imported } = moduleTree(listShape, "import playwright\n", []);
 		expect(imported.faults).toEqual([
@@ -460,8 +471,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 	});
 
 	it("hands the module's own edits on, atop its importer's, to what it imports", () => {
-		const code =
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "deep"))\nimport n\n';
+		const code = `${putFirst("deep")}\nimport n\n`;
 		const { imported } = moduleTree(listShape, code, [
 			"deep/n.py",
 			"deep/x.py",
@@ -475,8 +485,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 	});
 
 	it("hands on a path that walking the module on it again leaves as it was", () => {
-		const code =
-			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "deep"))\n';
+		const code = `${putFirst("deep")}\n`;
 		const { imported } = moduleTree(listShape, code, []);
 		expect(walk("lib/m.py", code, imported.pySearch).pySearch).toEqual(
 			imported.pySearch,

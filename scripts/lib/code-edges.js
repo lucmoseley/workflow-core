@@ -1331,7 +1331,7 @@ function descendPlaced(walk, target, places) {
 	const below = { parts: target.parts.slice(1), names: target.names };
 	const dotted = target.parts.join(".");
 	const misses = places.flatMap((place) => descend(walk, place, below));
-	for (const miss of misses.filter(isUnplaced))
+	for (const miss of misses.filter(isFaultingMiss))
 		walk.fault(
 			miss.isPart
 				? `imports ${dotted}, whose ${miss.name} the walk cannot place`
@@ -1344,7 +1344,7 @@ function descendPlaced(walk, target, places) {
  * defines; a namespace package defines none.
  * @param {PyMiss} miss
  */
-const isUnplaced = (miss) =>
+const isFaultingMiss = (miss) =>
 	miss.isPart || (miss.at.namespace && !miss.namespace);
 
 /**
@@ -1378,14 +1378,21 @@ function descend(walk, at, { parts, names }) {
 }
 
 /**
- * A relative import never faults: a target missing from the tree stays an
- * edge, so surface-closure.js reports it unshipped.
+ * A relative import's target missing from the tree is no fault: it stays an
+ * edge, so surface-closure.js reports it unshipped. The one fault is a
+ * module of a run importing from a namespace package, which spans a
+ * directory under every sys.path entry: which of them are its own the walk
+ * cannot tell from the one the module stands in.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
  */
 function placeRelativePyImport(walk, { dots, parts, names }) {
 	const pkg = path.resolve(walk.dir, "../".repeat(dots - 1));
 	const init = path.join(pkg, "__init__.py");
+	if (walk.scope.handed && !isFile(init))
+		walk.fault(
+			`imports ${".".repeat(dots)}${parts.join(".")} relative to a namespace package, whose other directories the walk cannot tell`,
+		);
 	if (parts.length === 0 && isFile(init)) walk.reach.edges.push(init);
 	const at = { dirs: [{ dir: pkg, maybe: false }], namespace: false };
 	for (const miss of descend(walk, at, { parts, names }))
