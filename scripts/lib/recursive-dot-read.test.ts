@@ -189,6 +189,32 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"ls; grep -rn PAT <EXP>",
 			"a search in a later segment",
 		],
+		/* #4978: the search a -c string runs, rewritten as itself. */
+		[
+			'flock /l -c "grep -rn gp_begin ."',
+			"grep -rn gp_begin <EXP>",
+			"a flock -c string's search",
+		],
+		[
+			'flock /l -c "true\ngrep -rn gp_begin ."',
+			"grep -rn gp_begin <EXP>",
+			"a flock -c string's second line",
+		],
+		[
+			'flock /l -c "true; grep -rn gp_begin ."',
+			"grep -rn gp_begin <EXP>",
+			"a flock -c string's second command",
+		],
+		[
+			'flock /l -c "true\nrg gp_begin"',
+			"rg gp_begin <EXP>",
+			"a flock -c string's path-less rg",
+		],
+		[
+			'flock /l -c "true; rg gp_begin"',
+			"rg gp_begin <EXP>",
+			"a flock -c string's path-less rg after a `;`",
+		],
 		[
 			"grep -rn @CMD@ .",
 			"grep -rn @CMD@ <EXP>",
