@@ -5,7 +5,8 @@
  *
  * `grep -q` exits on its first match; a producer still writing is then killed
  * by SIGPIPE (141), and `pipefail` makes the whole test read false — or true,
- * negated — at random (BashFAQ/105). Read the text with a here-string instead: `grep -q PAT <<<"$var"`.
+ * negated — at random (BashFAQ/105). Read the text with a here-string
+ * instead: `grep -q PAT <<<"$var"`.
  *
  * Every bash file is scanned, not only those that set `pipefail`: a sourced lib
  * runs under its caller's options. POSIX sh files are skipped: sh has no
@@ -14,7 +15,8 @@
  * unseen.
  *
  * The literal `git ls-files` pathspecs let the test selector run this on an
- * edit to any shell file; readTrackedShellFiles adds the extensionless ones.
+ * edit to any shell file; readTrackedShellFiles adds the extensionless ones,
+ * which an edit does not select: a full sweep checks those.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
