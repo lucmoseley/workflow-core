@@ -74,17 +74,17 @@ function rewrite(
 describe("the composed rewrite", () => {
 	it("carries both changes in one updatedInput", () => {
 		const out = rewrite(
-			{ prompt: "Do it.", description: "d", model: "sonnet" },
+			{ prompt: "Do it.", description: "d", model: "opus" },
 			{ file: FILE, burn: true },
 		);
 		expect(out?.updatedInput).toMatchObject({
-			model: "opus",
-			effort: "medium",
+			model: "fable",
+			effort: "low",
 			description: "d",
 			prompt: expect.stringContaining(`Artefact: ${FILE}`),
 		});
 		expect(out?.prelude).toContain("watch-artefact.js");
-		expect(out?.prelude).toContain("from `sonnet` to `opus` at `medium`");
+		expect(out?.prelude).toContain("from `opus` to `fable` at `low`");
 		expect(out?.made).toEqual([path.dirname(FILE)]);
 	});
 
@@ -180,7 +180,7 @@ describe("the composed rewrite", () => {
 			{ prompt: "Do it.", model: "sonnet" },
 			{ file: FILE, burn: true },
 		);
-		expect(out?.updatedInput).toMatchObject({ model: "opus" });
+		expect(out?.updatedInput).toMatchObject({ model: "haiku" });
 		expect(out?.tripped).toEqual(["dispatch-tier"]);
 	});
 
@@ -404,12 +404,12 @@ describe("burn mode, in the same rewrite", () => {
 	// (anthropics/claude-code#83353); one rewrite is what #515 built to stop it.
 	it("moves the model and supplies the line in one rewrite", () => {
 		burnOn();
-		const v = envelopeOf(dispatch({ model: "haiku" }));
-		expect(v.updatedInput.model).toBe("opus");
-		expect(v.updatedInput.effort).toBe("medium");
+		const v = envelopeOf(dispatch({ model: "opus" }));
+		expect(v.updatedInput.model).toBe("fable");
+		expect(v.updatedInput.effort).toBe("low");
 		expect(v.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(v.updatedInput.description).toBe("do a thing");
-		expect(v.additionalContext).toContain("from `haiku` to `opus` at `medium`");
+		expect(v.additionalContext).toContain("from `opus` to `fable` at `low`");
 		expect(v.additionalContext).toContain("watch-artefact.js");
 	});
 
@@ -437,11 +437,20 @@ describe("burn mode, in the same rewrite", () => {
 		expect(v).not.toHaveProperty("updatedInput");
 	});
 
-	it("keeps Haiku on Haiku while the marker is absent", () => {
-		const v = envelopeOf(dispatch({ model: "haiku" }));
-		expect(v.updatedInput.model).toBe("haiku");
-		expect(v.updatedInput.effort).toBe("xhigh");
-	});
+	it.each([
+		["absent", false],
+		["present", true],
+	])(
+		"keeps Haiku and Sonnet on Haiku at xhigh while the marker is %s",
+		(_n, on) => {
+			if (on) burnOn();
+			for (const model of ["haiku", "sonnet"]) {
+				const v = envelopeOf(dispatch({ model }));
+				expect(v.updatedInput.model).toBe("haiku");
+				expect(v.updatedInput.effort).toBe("xhigh");
+			}
+		},
+	);
 
 	it("skips the burn layer, keeping the standing one, in a session on an overflow seat (#4919)", () => {
 		burnOn();
@@ -467,9 +476,9 @@ describe("burn mode, in the same rewrite", () => {
 		burnOn();
 		const v = envelopeOf({
 			tool_name: "Task",
-			tool_input: { model: "haiku", prompt: "Artefact: a/b.md" },
+			tool_input: { model: "opus", prompt: "Artefact: a/b.md" },
 		});
-		expect(v.updatedInput.model).toBe("opus");
+		expect(v.updatedInput.model).toBe("fable");
 	});
 });
 
@@ -650,13 +659,16 @@ describe("failing open", () => {
 		burnOn();
 		const restore = breakModule("./burn-mode.js", new Error("broken"));
 		let v: HookOut;
+		let opus: HookOut;
 		try {
-			v = envelopeOf(dispatch({ model: "haiku" }));
+			v = envelopeOf(dispatch({ model: "sonnet" }));
+			opus = envelopeOf(dispatch({ model: "opus" }));
 		} finally {
 			restore();
 		}
 		expect(v.updatedInput.model).toBe("haiku");
 		expect(v.updatedInput.effort).toBe("xhigh");
+		expect(opus.updatedInput.model).toBe("opus");
 		expect(logs).toContain(
 			"lib/burn-mode.js unreadable — burn mode left this dispatch unmapped: broken",
 		);
@@ -688,8 +700,8 @@ describe("the cases a mutant must not survive (#2791)", () => {
 
 	it("reads the marker as present only where it is a file", () => {
 		fs.mkdirSync(marker);
-		const v = envelopeOf(dispatch({ model: "haiku" }));
-		expect(v.updatedInput.model).toBe("haiku");
+		const v = envelopeOf(dispatch({ model: "opus" }));
+		expect(v.updatedInput.model).toBe("opus");
 	});
 
 	it("latches a rule only once it is said, so the other is still owed", () => {
