@@ -1,27 +1,30 @@
 /*
  * escape-audit.js — the escape-line audit's reading half (#671 step 3): which
- * close-rivals rounds got past `guard-priced-options.js` on a `Checked:` or
- * `Unmeasured:` line, and what the judge made of each.
+ * close-rivals rounds got past `guard-priced-options.js`, and what the judge
+ * made of each.
  *
  * `audit-escape-lines.js` owns the judging and the report; this file owns the
  * extraction and the two stores.
  *
  * WHAT COUNTS AS GETTING PAST. A `❓ **Qn**` block in an assistant text record
- * whose top two rivals are close (`rivalPair`) and which carries a non-empty
- * escape line, where the next user record that is not a tool result is not a
- * Stop hook's feedback. A text record followed by a tool call before any such
- * user record was not the turn's last message, so the Stop guard never read
- * it, and it is dropped. RESIDUAL: a transcript cut off mid-turn commits its
- * last text as passed.
+ * where the next user record that is not a tool result is not a Stop hook's
+ * feedback. A text record followed by a tool call before any such user record
+ * was not the turn's last message, so the Stop guard never read it, and it is
+ * dropped. RESIDUAL: a transcript cut off mid-turn commits its last text as
+ * passed.
  *
  * FIRST SIGHT OR AFTER REFUSAL. After refusal where an earlier Stop feedback
- * in the same turn carried the close-rivals refusal's own words. A turn is
- * what lies between two user records that are neither a tool result nor Stop
- * feedback — a task notification opens one too.
+ * in the same turn carried the close-rivals refusal and named the block's
+ * question: then every re-send is taken, close or not, escape line or not,
+ * paired with the block as first refused and the tool calls since (#4945).
+ * First sight, a block is taken only where its top two rivals are close
+ * (`rivalPair`) and it carries a non-empty escape line. A turn is what lies
+ * between two user records that are neither a tool result nor Stop feedback
+ * — a task notification opens one too.
  *
  * THE STORES live in the markers directory under a prefix no sweep family
  * claims, so they outlive the 24 h marker sweep: the items index (rewritten
- * whole by each batch run, carrying no escape-line text) and the verdict log
+ * whole by each batch run, carrying no question text) and the verdict log
  * (append-only JSONL, the last line per key winning).
  */
 
@@ -51,6 +54,15 @@ const AT_1061 = Date.parse("2026-10-09T19:01:58+08:00");
 
 /* Words only the close-rivals refusal prints, every text since #488 alike. */
 const CLOSE_REFUSAL = /top two rivals sit close|could flip/;
+/* The refusal's line per question it flags, naming the round first. */
+const REFUSED_LINE = /^Q(\d+): /gm;
+
+/* What of the calls between a refusal and its re-send reaches the judge:
+ * each call's input and result cut to a head, the whole trail to a ceiling.
+ * Chosen, not measured (#4945). */
+const CALL_CHARS = 400;
+const RESULT_CHARS = 1200;
+const TRAIL_CHARS = 20_000;
 
 /* The two escapes a close question may carry, read like `Relation:`: a line of
  * its own, the label optionally bold, a colon, then text. The tail is captured
@@ -82,18 +94,24 @@ function escapesIn(lines) {
 /**
  * @typedef {{ key: string, session: string, at: string,
  *   window: (typeof WINDOWS)[number], sight: "first" | "after-refusal",
- *   escape: "checked" | "unmeasured" | "both", text: string }} Item
- * `text` is the question block, held in memory for the judge and never
- * written to the items index.
+ *   escape: "checked" | "unmeasured" | "both" | "none", text: string,
+ *   refusedText?: string, calls?: string }} Item
+ * `text` is the question block; on an after-refusal item, `refusedText` the
+ * block as first refused and `calls` the tool calls since. All three are held
+ * in memory for the judge and never written to the items index.
  */
 
 /**
  * @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord
- * @typedef {{ rivalPair: Function, splitQuestions: Function }} Deps
- * @typedef {{ pending: Item[], refused: boolean }} Turn
+ * @typedef {{ rivalPair: Function,
+ *   splitQuestions: (text: string) => import("./round-marker.js").QuestionBlock[] }} Deps
+ * @typedef {{ pending: Item[], refused: Map<string, { text: string, from: number }>,
+ *   lastAsk: string, trail: string[] }} Turn
  *   `pending` holds the rounds of the turn's latest question, committed once a
- *   new turn opens; `refused` is whether Stop feedback in the turn carried the
- *   close-rivals refusal.
+ *   new turn opens; `refused`, each question the close-rivals refusal named in
+ *   the turn, its block as first refused and the `trail` length then;
+ *   `lastAsk`, the turn's latest text carrying a question; `trail`, the tool
+ *   calls and results since the turn's first refusal.
  */
 
 /**
@@ -138,67 +156,162 @@ function escapeKindOf(escapes) {
 	const checked = /^checked:/m.test(escapes);
 	const unmeasured = /^unmeasured:/m.test(escapes);
 	if (checked && unmeasured) return "both";
-	return checked ? "checked" : "unmeasured";
+	if (checked) return "checked";
+	return unmeasured ? "unmeasured" : "none";
 }
 
 /**
- * Each close round in one assistant text that carries an escape line.
+ * @param {string} text
+ * @param {number} max
+ */
+const cut = (text, max) =>
+	text.length > max
+		? `${text.slice(0, max)} […${text.length - max} more]`
+		: text;
+
+/**
+ * @param {...string} parts
+ */
+const keyOf = (...parts) =>
+	crypto
+		.createHash("sha256")
+		.update(parts.join("\n"))
+		.digest("hex")
+		.slice(0, 16);
+
+/**
+ * The turn's trail from `from`, cut to `TRAIL_CHARS`.
+ * @param {string[]} trail
+ * @param {number} from
+ */
+function trailFrom(trail, from) {
+	const calls = trail.slice(from).join("\n");
+	return calls ? cut(calls, TRAIL_CHARS) : "(no tool call)";
+}
+
+/**
+ * Each round in one assistant text the audit takes: every re-send of a
+ * question the turn's close-rivals refusal named, and on first sight each
+ * close round carrying an escape line.
  * @param {string} said  the assistant text
- * @param {{ms: number, window: Item["window"], sight: Item["sight"]}} at
- * @param {{session: string, deps: Deps}} ctx
+ * @param {{ms: number, window: Item["window"]}} at
+ * @param {{session: string, deps: Deps, turn: Turn}} ctx
  * @returns {Item[]}
  */
-function escapedRounds(said, at, ctx) {
-	const { session, deps } = ctx;
+function auditedRounds(said, at, ctx) {
+	const { session, deps, turn } = ctx;
 	/** @type {Item[]} */
 	const items = [];
 	for (const block of deps.splitQuestions(said)) {
-		if (!deps.rivalPair(block)?.close) continue;
+		const prior = turn.refused.get(block.number);
 		const escapes = escapesIn(block.lines);
-		if (!escapes) continue;
-		const blockText = block.lines.join("\n");
-		items.push({
-			key: crypto
-				.createHash("sha256")
-				.update(`${session}\n${blockText}`)
-				.digest("hex")
-				.slice(0, 16),
+		const text = block.lines.join("\n");
+		const base = {
 			session,
 			at: new Date(at.ms).toISOString(),
 			window: at.window,
-			sight: at.sight,
 			escape: escapeKindOf(escapes),
-			text: blockText,
-		});
+			text,
+		};
+		if (prior)
+			items.push({
+				...base,
+				key: keyOf(session, "after-refusal", prior.text, text),
+				sight: "after-refusal",
+				refusedText: prior.text,
+				calls: trailFrom(turn.trail, prior.from),
+			});
+		else if (escapes && deps.rivalPair(block)?.close)
+			items.push({ ...base, key: keyOf(session, text), sight: "first" });
 	}
 	return items;
 }
 
 /**
- * A user record: Stop feedback drops the turn's pending rounds and may mark
- * the turn refused; any other record that is not a tool result commits them
- * to `out` and opens a new turn.
+ * A tool result's text, or its parts' text joined.
+ * @param {unknown} content
+ * @returns {string}
+ */
+function resultText(content) {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((p) => p?.type === "text")
+		.map((p) => p.text ?? "")
+		.join("\n");
+}
+
+/**
+ * One tool call as the trail records it: its name and input, a Bash call's
+ * command alone.
+ * @param {{ name?: string, input?: Record<string, unknown> }} part
+ */
+function renderCall({ name = "?", input = {} }) {
+	const said =
+		typeof input.command === "string" ? input.command : JSON.stringify(input);
+	return `→ ${name}: ${cut(said, CALL_CHARS)}`;
+}
+
+/**
+ * Open a refusal for each question a close-rivals Stop feedback names that
+ * the turn has not yet refused, its block read from the turn's latest ask.
+ * @param {string} said the feedback
+ * @param {Turn} turn accumulator: `refused` gains the newly named questions
+ * @param {Deps} deps
+ */
+function openRefusals(said, turn, deps) {
+	const blocks = deps.splitQuestions(turn.lastAsk);
+	for (const [, number] of said.matchAll(REFUSED_LINE)) {
+		if (number === undefined || turn.refused.has(number)) continue;
+		const block = blocks.find((b) => b.number === number);
+		if (block)
+			turn.refused.set(number, {
+				text: block.lines.join("\n"),
+				from: turn.trail.length,
+			});
+	}
+}
+
+/** @returns {Turn} */
+const newTurn = () => ({
+	pending: [],
+	refused: new Map(),
+	lastAsk: "",
+	trail: [],
+});
+
+/**
+ * A user record: a tool result joins the trail once the turn holds a
+ * refusal; Stop feedback drops the turn's pending rounds and may open
+ * refusals; any other record commits the rounds to `out` and opens a new turn.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
- * @param {Item[]} out accumulator: each committed item is pushed here
+ * @param {{out: Item[], deps: Deps}} ctx `out`, accumulator: each committed item is pushed here
  * @returns {void}
  */
-function readUser(rec, turn, out) {
-	if (isToolResult(rec)) return;
+function readUser(rec, turn, { out, deps }) {
+	const content = rec.message?.content;
+	if (isToolResult(rec)) {
+		if (turn.refused.size > 0 && Array.isArray(content))
+			for (const p of content)
+				if (p?.type === "tool_result")
+					turn.trail.push(`← ${cut(resultText(p.content), RESULT_CHARS)}`);
+		return;
+	}
 	const said = textOf(rec);
 	if (STOP_FEEDBACK.test(said)) {
 		turn.pending = [];
-		if (CLOSE_REFUSAL.test(said)) turn.refused = true;
+		if (CLOSE_REFUSAL.test(said)) openRefusals(said, turn, deps);
 		return;
 	}
 	out.push(...turn.pending);
-	turn.pending = [];
-	turn.refused = false;
+	Object.assign(turn, newTurn());
 }
 
 /**
  * An assistant record: a tool call drops the pending rounds, as the turn did
- * not end there; a text carrying a question replaces them with its own.
+ * not end there, and joins the trail once the turn holds a refusal; a text
+ * carrying a question replaces them with its own.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
  * @param {{session: string, deps: Deps}} ctx
@@ -206,26 +319,27 @@ function readUser(rec, turn, out) {
  */
 function readAssistant(rec, turn, ctx) {
 	const content = rec.message?.content;
-	if (Array.isArray(content) && content.some((p) => p?.type === "tool_use")) {
+	const calls = Array.isArray(content)
+		? content.filter((p) => p?.type === "tool_use")
+		: [];
+	if (calls.length > 0) {
 		turn.pending = [];
+		turn.lastAsk = "";
+		if (turn.refused.size > 0) turn.trail.push(...calls.map(renderCall));
 		return;
 	}
 	const said = textOf(rec);
 	if (!said.includes("❓")) return;
+	turn.lastAsk = said;
 	const ms = Date.parse(rec.timestamp);
 	const window = windowOf(ms);
 	turn.pending = window
-		? escapedRounds(
-				said,
-				{ ms, window, sight: turn.refused ? "after-refusal" : "first" },
-				ctx,
-			)
+		? auditedRounds(said, { ms, window }, { ...ctx, turn })
 		: [];
 }
 
 /**
- * Every close round that got past the guard on an escape line, in one
- * transcript.
+ * Every round the audit takes that got past the guard, in one transcript.
  * @param {string} text the transcript
  * @param {string} session
  * @param {Deps} deps
@@ -234,10 +348,9 @@ function readAssistant(rec, turn, ctx) {
 function itemsIn(text, session, deps) {
 	/** @type {Item[]} */
 	const out = [];
-	/** @type {Turn} */
-	const turn = { pending: [], refused: false };
+	const turn = newTurn();
 	for (const rec of mainChainRecords(text, "main")) {
-		if (rec.type === "user") readUser(rec, turn, out);
+		if (rec.type === "user") readUser(rec, turn, { out, deps });
 		else if (rec.type === "assistant")
 			readAssistant(rec, turn, { session, deps });
 	}
@@ -251,7 +364,7 @@ const itemsPath = (root) => path.join(markersDir(root), ITEMS_NAME);
 const verdictsPath = (root) => path.join(markersDir(root), VERDICTS_NAME);
 
 /**
- * Replace the items index, text stripped, atomically, with the count of
+ * Replace the items index, question text stripped, atomically, with the count of
  * transcripts that would not read, so the report can say it under-counts.
  * @param {string} root
  * @param {Item[]} items
@@ -263,15 +376,19 @@ function writeItems(root, items, unreadable = 0) {
 		JSON.stringify({
 			at: new Date().toISOString(),
 			unreadable,
-			items: items.map(({ text: _text, ...rest }) => rest),
+			items: items.map(
+				({ text: _t, refusedText: _r, calls: _c, ...rest }) => rest,
+			),
 		}),
 	);
 }
 
+/** @typedef {Omit<Item, "text" | "refusedText" | "calls">} IndexedItem */
+
 /**
  * The items index, or null where no batch has run.
  * @param {string} root
- * @returns {{ at: string, unreadable?: number, items: Omit<Item, "text">[] } | null}
+ * @returns {{ at: string, unreadable?: number, items: IndexedItem[] } | null}
  */
 function readItems(root) {
 	try {

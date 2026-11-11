@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
- * Which close questions got past the close-rivals check on an escape line
- * (#671 step 3), read from fixture transcripts.
+ * Which questions got past the close-rivals check — close ones on an escape
+ * line, and every re-send of a refused one (#671 step 3, #4945) — read from
+ * fixture transcripts.
  *
  * The fixtures are hand-built transcript lines in a temp dir, read through
  * lib/close-rivals.js's `rivalPair` and lib/round-marker.js's
@@ -62,7 +63,13 @@ const feedback = (text: string) =>
 		timestamp: IN_660,
 		message: { role: "user", content: `Stop hook feedback:\n${text}` },
 	});
-const CLOSE_REFUSAL = feedback("…whose top two rivals sit close…");
+const CLOSE_REFUSAL = feedback(
+	"…whose top two rivals sit close…\n\nQ1: (A) 55% against (B) 45% — so the recommendation could flip.",
+);
+const NOT_CLOSE = (line = "") =>
+	round(line)
+		.replace("55% (45% - 65%)", "80% (75% - 85%)")
+		.replace("45% (35% - 55%)", "20% (15% - 25%)");
 
 const items = (...lines: string[]) =>
 	audit.itemsIn(lines.join("\n"), "s1", deps);
@@ -81,6 +88,71 @@ describe("what got past", () => {
 
 	it("takes the last message of a transcript", () => {
 		expect(items(founder(), assistant(round()))).toHaveLength(1);
+	});
+
+	it("takes a refused question's re-send, close or not and with no escape line, beside its refused block and the calls between", () => {
+		const [item, ...rest] = items(
+			founder(),
+			assistant(round()),
+			CLOSE_REFUSAL,
+			toolUse(),
+			toolResult(),
+			assistant(NOT_CLOSE()),
+			founder(),
+		);
+		expect(rest).toEqual([]);
+		expect(item).toMatchObject({ sight: "after-refusal", escape: "none" });
+		expect(item.refusedText).toContain("55% (45% - 65%)");
+		expect(item.text).toContain("80% (75% - 85%)");
+		expect(item.calls).toBe("→ Bash: ls\n← ok");
+	});
+
+	it("takes a low-top question's re-send", () => {
+		const lowTop = round("")
+			.replace("55% (45% - 65%)", "60% (55% - 65%)")
+			.replace("45% (35% - 55%)", "20% (15% - 25%)");
+		const got = items(
+			founder(),
+			assistant(lowTop),
+			feedback(
+				"…whose top two rivals sit close…\n\nQ1: top option (A) 60% — no option is priced above 65, so none is likely right.",
+			),
+			assistant(lowTop.replace("60% (55% - 65%)", "70% (65% - 75%)")),
+		);
+		expect(got.map((i) => i.sight)).toEqual(["after-refusal"]);
+	});
+
+	it("pairs a re-send refused again with the block as first refused", () => {
+		const [item] = items(
+			founder(),
+			assistant(round()),
+			CLOSE_REFUSAL,
+			assistant(NOT_CLOSE()),
+			feedback(
+				"…whose top two rivals sit close…\n\nQ1: re-priced from (A) 55% to (A) 80% with no tool call since this check refused it.",
+			),
+			toolUse(),
+			toolResult(),
+			assistant(NOT_CLOSE("Checked: ran ls; A")),
+		);
+		expect(item.refusedText).toContain("55% (45% - 65%)");
+		expect(item.calls).toBe("→ Bash: ls\n← ok");
+	});
+
+	it("says so where no call came between", () => {
+		const [item] = items(
+			founder(),
+			assistant(round()),
+			CLOSE_REFUSAL,
+			assistant(NOT_CLOSE()),
+		);
+		expect(item.calls).toBe("(no tool call)");
+	});
+
+	it("takes on first sight a question the turn's refusal did not name", () => {
+		const two = `${round()}\n\n${round().replace("Q1", "Q2")}`;
+		const got = items(founder(), assistant(two), CLOSE_REFUSAL, assistant(two));
+		expect(got.map((i) => i.sight)).toEqual(["after-refusal", "first"]);
 	});
 
 	it("drops a send a Stop hook refused, and marks the resend after-refusal", () => {
@@ -191,14 +263,23 @@ describe("the stores", () => {
 	});
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-	it("writes the items index without the block text", () => {
-		audit.writeItems(dir, items(assistant(round())));
+	it("writes the items index without any question text or calls", () => {
+		audit.writeItems(dir, [
+			...items(assistant(round())),
+			...items(
+				assistant(round()),
+				CLOSE_REFUSAL,
+				toolUse(),
+				toolResult(),
+				assistant(NOT_CLOSE()),
+			),
+		]);
 		const written = fs
 			.readdirSync(dir, { recursive: true, withFileTypes: true })
 			.filter((e) => e.isFile())
 			.map((e) => fs.readFileSync(path.join(e.parentPath, e.name), "utf8"));
 		expect(written).toHaveLength(1);
-		expect(written[0]).not.toContain("Checked:");
+		expect(written[0]).not.toMatch(/Checked:|Confidence|→ Bash/);
 		expect(audit.readItems(dir)?.items[0].window).toBe("660");
 	});
 
