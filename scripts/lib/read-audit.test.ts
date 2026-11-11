@@ -223,6 +223,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			expect(sleepOn(path.join(root, "bin"))).toMatch(/ran in the checkout/);
 
 			const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
+			dirs.push(scratch);
 			fs.copyFileSync(
 				path.join(root, "bin/sleep"),
 				path.join(scratch, "sleep"),
@@ -231,6 +232,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
 
 			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+			dirs.push(relinked);
 			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
 			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
 

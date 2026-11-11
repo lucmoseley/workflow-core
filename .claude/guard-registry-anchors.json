@@ -46,7 +46,7 @@
 	"scripts/concision-backstop.sh": "863de7a3a9cbb099",
 	"scripts/cutover-main-checkout.js": "17da34bf9826663f",
 	"scripts/guard-automode-refusal.js": "e19b38482b191007",
-	"scripts/guard-dispatch.js": "f5b77fb75f623de0",
+	"scripts/guard-dispatch.js": "61e38ab947b0f242",
 	"scripts/guard-exhausted-map.js": "7177726e382e5622",
 	"scripts/guard-failed-call-rules.js": "5438d390032901a5",
 	"scripts/guard-held-ticket.js": "afa1ca5bc6003949",
@@ -87,7 +87,7 @@
 	"scripts/report-suite-queue-wait.js": "7570fc41760499c4",
 	"scripts/review-hold-gate.sh": "4327fff08d583823",
 	"scripts/run-pinned-guards.js": "d31cd85a73158684",
-	"scripts/run-vitest.js": "6b5e26dcce9a2d77",
+	"scripts/run-vitest.js": "029213550e252f96",
 	"scripts/self-plugin-canary.sh": "f8221b6482b2769d",
 	"scripts/session-arbiter.js": "97ecdb83d31516bd",
 	"scripts/session-start-sweeps.sh": "b368b5f2f736c76b",
@@ -95,8 +95,8 @@
 	"scripts/unpark-on-prompt.js": "abe78bbd9cd14a7a",
 	"scripts/vitest-inflight-reporter.ts": "455b64d1abe8eb0c",
 	"scripts/vitest-json-reporter.ts": "6caf007578bc2159",
-	"scripts/vitest-pass-reporter.ts": "a0a7646bf0bae0af",
-	"scripts/vitest-tree-watch.ts": "fad709a4860e8a19",
+	"scripts/vitest-pass-reporter.ts": "612a458fc838ddbf",
+	"scripts/vitest-tree-watch.ts": "cd864a107048315d",
 	"scripts/watch-artefact.js": "315971b546e0a06e",
 	"scripts/write-self-plugin-marker.sh": "da926c91383737b7"
 }

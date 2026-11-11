@@ -828,14 +828,16 @@ function install() {
 			const file = String(opts?.file ?? "");
 			const cwd = cwdOf(opts);
 			const steered = steeredOf(opts?.envPairs);
+			const bin = binOf(file, cwd, opts?.envPairs);
+			const audited = isAudited(opts?.envPairs);
 			add({
 				k: "child",
 				file,
-				bin: binOf(file, cwd, opts?.envPairs),
+				bin,
 				args: Array.isArray(opts?.args) ? opts.args.slice(1).map(String) : [],
 				cwd,
-				audited: isAudited(opts?.envPairs),
-				guarded: isGuarded(opts),
+				audited,
+				guarded: file === "git" && isGuard(bin[1]) && audited,
 				pid: pid ?? null,
 				...(hands.length > 0 ? { hands } : {}),
 				...(steered.length > 0 ? { steered } : {}),
