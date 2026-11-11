@@ -1923,6 +1923,27 @@ describe('walkGit, scope "shared"', () => {
 					.trees,
 			).toEqual([SHARED]);
 		});
+
+		it("judges the tree two failed cds in the string leave it in (#5013)", () => {
+			const command = `flock /l -c "cd ${WORKTREE} || true; cd ${ELSEWHERE} || true; git checkout x"`;
+			expect(judged(command, SHARED, false).trees).toEqual([SHARED]);
+			expect(judged(command, SHARED, true).trees).toEqual([]);
+		});
+
+		it("moves a doubted cwd by a wrapper's word reading a variable the command set (#5013)", () => {
+			const command = `D=shared; cd ${ELSEWHERE} || true; env -C "$D" git checkout x`;
+			expect(judged(command, DIR, false).trees).toEqual([SHARED]);
+		});
+
+		it("moves a doubted cwd by a relative -C after a cd that will not resolve (#5013)", () => {
+			const command = `flock /l -c 'cd $NOPE || true; git -C shared checkout x'`;
+			expect(judged(command, DIR, true).trees).toContain(SHARED);
+		});
+
+		it("leaves a doubted cwd unknown past a -C that will not resolve (#5013)", () => {
+			const command = `flock /l -c 'cd ${WORKTREE} || true; git -C $Q checkout x'`;
+			expect(judged(command, SHARED, false).trees).not.toContain(SHARED);
+		});
 	});
 
 	describe("reads a run's chdirs as the shell that makes them does (#4981)", () => {

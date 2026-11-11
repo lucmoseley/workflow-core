@@ -76,14 +76,15 @@ const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
 
 /**
  * A whole-line assignment of an expansion-led path to a variable, the name
- * its group 1 and the path after the expansion's slash, matching `pathRe`,
- * its group 2. A `pathRe` admitting a leading `..` keeps `$here/../lib`
- * whole: the lazy expansion would otherwise run on past it to `lib`.
+ * its group 1, the expansion between the `$` and its slash its group 2, and
+ * the path after that slash, matching `pathRe`, its group 3. A `pathRe`
+ * admitting a leading `..` keeps `$here/../lib` whole: the lazy expansion
+ * would otherwise run on past it to `lib`.
  * @param {string} pathRe
  */
 const buildVarAssignRe = (pathRe) =>
 	new RegExp(
-		`^[ \\t]*(?:local\\s+|readonly\\s+)?(\\w+)="?\\$[^\\n]*?\\/(${pathRe})"?[ \\t]*(?:#[^\\n]*)?$`,
+		`^[ \\t]*(?:local\\s+|readonly\\s+)?(\\w+)="?\\$([^\\n]*?)\\/(${pathRe})"?[ \\t]*(?:#[^\\n]*)?$`,
 		"gm",
 	);
 
@@ -107,6 +108,13 @@ const VAR_DIR_RE = buildVarAssignRe(
 
 /** The variable a run's lead names alone: `lib` of `$lib/`, `${lib}/`, `"$lib"/`. */
 const LEAD_VAR_RE = /^\{?(\w+)\}?"?$/;
+
+/**
+ * The variable a lead strips its last segment off (#5000): `_cs_dir` of
+ * `${_cs_dir%/*}/`. `BASH_SOURCE` and a positional parameter name a file or
+ * an argument, not a directory.
+ */
+const LEAD_PARENT_RE = /^\{(?!BASH_SOURCE%)([A-Za-z_]\w*)%\/\*\}"?$/;
 
 /**
  * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
@@ -308,10 +316,9 @@ function destructuredBefore(text, at) {
 }
 
 /**
- * Limit: a variable's value is read off its
- * assignments' text alone, so one built by parameter expansion
- * (`${dir%/*}/x.js`, #5000) or naming a scratch directory (`$tmp/x.sh`) resolves
- * to a path that need not exist; the digest hashes nothing for such a path
+ * Limit: a variable's value is read off its assignments' text alone, so a
+ * lead naming a scratch directory (`$tmp/x.sh`) or a directory the file
+ * took in resolves to a path that need not exist; the digest hashes nothing for such a path
  * (lib/guard-digest.js).
  * @param {string} dir
  * @param {string} text
@@ -322,18 +329,17 @@ function parseRuns(dir, text, isFile) {
 	/** A `//` before `node` makes a JS line dead. */
 	/** @template {{prefix: string}} M @param {M[]} matches */
 	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
-	const assigned = parseAssignments(text, VAR_PATH_RE);
 	const dirs = parseAssignments(
 		text,
 		VAR_DIR_RE,
+		null,
 		(p) => !PROGRAM_SUFFIXES.some((s) => p.endsWith(s)),
 	);
+	const assigned = parseAssignments(text, VAR_PATH_RE, dirs);
 	const tails = [
-		...live(parseProgramRuns(text)).flatMap((m) => {
-			const name = LEAD_VAR_RE.exec(m.lead)?.[1];
-			const under = name === undefined ? undefined : dirs.get(name);
-			return under ? under.map((d) => `${d}/${m.value}`) : [m.value];
-		}),
+		...live(parseProgramRuns(text)).flatMap((m) =>
+			underLead(m.lead, m.value, dirs),
+		),
 		...live(parseProgramVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
 	];
 	/* The root reading is offered only for a scripts/ tail, the one a run
@@ -354,20 +360,46 @@ function parseRuns(dir, text, isFile) {
 }
 
 /**
- * Each variable's assigned paths, in the order assigned, of those `keep` holds.
+ * The self-relative paths `value` names after `lead`, the expansion between
+ * its `$` and its slash: beneath each directory `dirs` holds for the
+ * variable `lead` names, or that directory's parent where `lead` strips its
+ * last segment; the file's own directory stands in for a variable `dirs`
+ * lacks and for any other lead.
+ * @param {string} lead
+ * @param {string} value
+ * @param {Map<string, string[]>} dirs
+ * @returns {string[]}
+ */
+function underLead(lead, value, dirs) {
+	const strippedVar = LEAD_PARENT_RE.exec(lead)?.[1];
+	const name = strippedVar ?? LEAD_VAR_RE.exec(lead)?.[1];
+	const up = strippedVar === undefined ? "." : "..";
+	return ((name === undefined ? undefined : dirs.get(name)) ?? ["."]).map((d) =>
+		path.posix.join(d, up, value),
+	);
+}
+
+/**
+ * Each variable's assigned paths, in the order assigned, of those `keep`
+ * holds, each read beneath its lead (underLead).
  * @param {string} text
- * @param {RegExp} re a `gm` regex, the name its group 1 and the path its group 2
+ * @param {RegExp} re a `gm` regex built by buildVarAssignRe
+ * @param {Map<string, string[]> | null} dirs the directories leads name, or
+ *   null for the map being built, so a directory built off one assigned
+ *   before it reads beneath that one
  * @param {(path: string) => boolean} [keep]
  * @returns {Map<string, string[]>}
  */
-function parseAssignments(text, re, keep = () => true) {
+function parseAssignments(text, re, dirs, keep = () => true) {
 	/** @type {Map<string, string[]>} */
 	const out = new Map();
+	const under = dirs ?? out;
 	for (const m of text.matchAll(re)) {
-		const value = requiredGroup(m, 2, re);
+		const value = requiredGroup(m, 3, re);
 		if (!keep(value)) continue;
 		const name = requiredGroup(m, 1, re);
-		out.set(name, [...(out.get(name) ?? []), value]);
+		const lead = requiredGroup(m, 2, re);
+		out.set(name, [...(out.get(name) ?? []), ...underLead(lead, value, under)]);
 	}
 	return out;
 }

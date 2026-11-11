@@ -147,7 +147,25 @@ describe("what got past", () => {
 			assistant(NOT_CLOSE("Checked: ran ls; A")),
 		);
 		expect(item.refusedText).toContain("55% (45% - 65%)");
-		expect(item.calls).toBe("→ Bash: ls\n← ok");
+		expect(item.calls).toMatch(
+			/^said: [\s\S]*80% \(75% - 85%\)[\s\S]*\n→ Bash: ls\n← ok$/,
+		);
+	});
+
+	it("gives a re-send its whole message and the session's text between calls", () => {
+		const said = `I ran the count.\n\n${NOT_CLOSE("Checked: ls showed it; A")}`;
+		const [item] = items(
+			founder(),
+			assistant(round()),
+			CLOSE_REFUSAL,
+			assistant("Checking the log first."),
+			toolUse(),
+			toolResult(),
+			assistant(said),
+		);
+		expect(item.message).toBe(said);
+		expect(item.text).not.toContain("I ran the count.");
+		expect(item.calls).toBe("said: Checking the log first.\n→ Bash: ls\n← ok");
 	});
 
 	it("gives `(no tool call)` as the calls where none came between", () => {
