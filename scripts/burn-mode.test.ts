@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins that burn-mode.sh's `on` moves every plan's session model through the
- * burn layer — plain Opus to Fable 5.2 — and never its per-model effort, that
+ * burn layer — plain Opus to Fable 5.2 — and of its per-model efforts only
+ * Fable 5.2's, to low (#5004), that
  * `off` puts back what `on` found — or, with no record, reverts only a plan
  * still on the burn model — and that `status` writes nothing (#126, #127,
  * #4919).
@@ -76,6 +77,7 @@ beforeEach(() => {
 			modelSettings: {
 				"claude-opus-5": { effortLevel: "medium" },
 				"claude-opus-5-5": { effortLevel: "medium" },
+				"claude-fable-5-2": { effortLevel: "medium" },
 			},
 			effortLevel: "medium",
 			keep: 1,
@@ -96,13 +98,14 @@ describe("on", () => {
 		expect(modelOf(".claude2")).toBe(FABLE);
 	});
 
-	it("touches nothing but the model — never modelSettings", () => {
+	it("touches nothing but the model and Fable 5.2's effort, which it lowers", () => {
 		run("on");
 		expect(read(".claude")).toEqual({
 			model: FABLE,
 			modelSettings: {
 				"claude-opus-5": { effortLevel: "medium" },
 				"claude-opus-5-5": { effortLevel: "medium" },
+				"claude-fable-5-2": { effortLevel: "low" },
 			},
 			effortLevel: "medium",
 			keep: 1,
@@ -160,6 +163,42 @@ describe("off", () => {
 		expect(fs.existsSync(marker)).toBe(false);
 		expect(modelOf(".claude")).toBe(OPUS);
 		expect(modelOf(".claude2")).toBe(OPUS);
+	});
+
+	// #5004: burn-off routing is untouched, so Fable's own effort comes back
+	it("restores the Fable effort on found, adding none where it had none", () => {
+		write(".claude", {
+			...read(".claude"),
+			modelSettings: { "claude-fable-5-2": { effortLevel: "high" } },
+		});
+		write(".claude2", withModel(OPUS));
+		run("on");
+		expect(read(".claude").modelSettings["claude-fable-5-2"].effortLevel).toBe(
+			"low",
+		);
+		expect(read(".claude2").modelSettings["claude-fable-5-2"].effortLevel).toBe(
+			"low",
+		);
+		expect(run("off").status).toBe(0);
+		expect(read(".claude").modelSettings).toEqual({
+			"claude-fable-5-2": { effortLevel: "high" },
+		});
+		expect(read(".claude2").modelSettings).toEqual({
+			"claude-opus-5-5": { effortLevel: "medium" },
+		});
+	});
+
+	it("with no record, restores a plan's low Fable effort to the standing medium", () => {
+		run("on");
+		fs.rmSync(marker);
+		const r = run("off");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"restoring the standing claude-fable-5-2 effort, medium",
+		);
+		expect(read(".claude").modelSettings["claude-fable-5-2"].effortLevel).toBe(
+			"medium",
+		);
 	});
 
 	// mantahostels#130: off must not flatten a hand-set plan

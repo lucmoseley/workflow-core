@@ -20,8 +20,9 @@
  *
  * The settings comparison is semantic, not textual — both sides are parsed and
  * compared as JSON, so key order and indentation never register as drift. Only a
- * real difference in settings does. The file copies compare as text. `model` is excluded outright (VOLATILE_KEYS
- * below).
+ * real difference in settings does. The file copies compare as text. `model` and Fable 5.2's
+ * `modelSettings` effort, both moved by burn mode, are excluded outright
+ * (VOLATILE_KEYS below).
  *
  * MISSING SOURCE IS NOT A FAILURE. ~/.claude/settings.json lives outside the
  * repo, so its absence SKIPs at exit 0. Absence of the DOC, or a doc whose JSON
@@ -46,6 +47,7 @@ const {
 	USER_SETTINGS_SNAPSHOT_DEFAULT,
 } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
+const { BURN_SESSION_EFFORT } = require("./lib/model-table.js");
 const { copyBlockPattern } = require("./lib/settings-copy");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -157,11 +159,22 @@ function diff(a, b, at = "", out = []) {
 // many times a day, so comparing it would report drift almost continuously —
 // and a guard that fires every day is one that gets read as noise, which costs
 // the real drift it exists to catch. The doc's block still carries it, as the
-// standing default a restore puts back (#353).
+// standing default a restore puts back (#353). Burn mode moves one more key on
+// the same switch: its model's `modelSettings` effort (#5004).
 const VOLATILE_KEYS = new Set(["model"]);
+const VOLATILE_EFFORT_MODEL = BURN_SESSION_EFFORT.model;
 
-const withoutVolatile = (/** @type {object} */ o) =>
-	Object.fromEntries(Object.entries(o).filter(([k]) => !VOLATILE_KEYS.has(k)));
+const withoutVolatile = (/** @type {Record<string, any>} */ o) => {
+	const out = Object.fromEntries(
+		Object.entries(o).filter(([k]) => !VOLATILE_KEYS.has(k)),
+	);
+	const entry = out.modelSettings?.[VOLATILE_EFFORT_MODEL];
+	if (entry && typeof entry === "object") {
+		const { effortLevel: _moved, ...rest } = entry;
+		out.modelSettings = { ...out.modelSettings, [VOLATILE_EFFORT_MODEL]: rest };
+	}
+	return out;
+};
 
 /**
  * Where the snapshot is read. An explicit argument is taken from the working

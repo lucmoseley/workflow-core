@@ -9,7 +9,7 @@
  *              spelling is moved to Haiku.
  *   burn     — only while burn mode's marker exists (lib/burn-mode.js). Haiku
  *              work runs on Opus 5.5 at medium, and Opus work, the code
- *              reviewer's included, on Fable 5.2 at medium.
+ *              reviewer's included, on Fable 5.2 at low (#5004).
  *   off      — only while it does not: a Fable dispatch or launch spelling
  *              is moved to Opus, so Fable runs under burn mode alone (#4992).
  *
@@ -22,7 +22,9 @@
  *
  * Effort rides with the dispatch remap on the call's own `effort` field, which
  * replaces an agent definition's `effort:` (forks excepted). A launch's effort comes
- * from settings.json's per-model `modelSettings`, read at session start.
+ * from settings.json's per-model `modelSettings`, read at session start, so
+ * scripts/burn-mode.sh writes BURN_SESSION_EFFORT's level there while burn
+ * mode is on and restores it on `off`.
  *
  * The maps are exact-match on purpose. An `Agent` call takes only the four
  * bare aliases, so a suffix there is impossible; a launch spelling this table
@@ -67,20 +69,37 @@ function isOverflowSession(env, session) {
 	return Boolean(pinned) && pinned === session;
 }
 
-/** The effort each layer's target runs at on a dispatch: the founder's ruling (#4919). */
-const STANDING_EFFORT = "xhigh";
-const BURN_EFFORT = "medium";
-
 const DISPATCH_HAIKU = "haiku";
 
 const DISPATCH_OPUS = "opus";
+
+const DISPATCH_FABLE = "fable";
+
+/** The effort each layer's target runs at on a dispatch: the founder's rulings (#4919, #5004). */
+const STANDING_EFFORT = "xhigh";
+const BURN_EFFORT = new Map([
+	[DISPATCH_OPUS, "medium"],
+	[DISPATCH_FABLE, "low"],
+]);
+
+/*
+ * The same Fable level for a session or launch under burn mode: the model id
+ * settings.json's `modelSettings` keys it by, and the effort burn-mode.sh
+ * writes there. STANDING is the level `off` restores where the marker holds
+ * no record of the plan's own (docs/claude-user-settings.md).
+ */
+const BURN_SESSION_EFFORT = {
+	model: "claude-fable-5-2",
+	burn: BURN_EFFORT.get(DISPATCH_FABLE),
+	standing: "medium",
+};
 
 const DISPATCH = {
 	standing: new Map([["sonnet", DISPATCH_HAIKU]]),
 	off: new Map([["fable", DISPATCH_OPUS]]),
 	burn: new Map([
-		[DISPATCH_HAIKU, "opus"],
-		["opus", "fable"],
+		[DISPATCH_HAIKU, DISPATCH_OPUS],
+		[DISPATCH_OPUS, DISPATCH_FABLE],
 	]),
 };
 
@@ -245,7 +264,8 @@ function dispatchedModel(call) {
 function translate(from, asked, burn) {
 	const to = mapModel(DISPATCH, from, burn);
 	const standing = DISPATCH.standing.get(from) ?? from;
-	if (burn && to !== standing) return { to, effort: BURN_EFFORT };
+	const burnEffort = BURN_EFFORT.get(to);
+	if (burn && to !== standing && burnEffort) return { to, effort: burnEffort };
 	if (to === DISPATCH_HAIKU) return { to, effort: STANDING_EFFORT };
 	return { to, effort: asked };
 }
@@ -294,6 +314,7 @@ function remapModel(input, burn, inherited = "") {
 }
 
 module.exports = {
+	BURN_SESSION_EFFORT,
 	isFable,
 	isOverflowSession,
 	OVERFLOW_MODEL,
@@ -313,6 +334,8 @@ module.exports = {
  *   session <model> [--burn]
  *                     the same for a plan's settings `model`, "" meaning the
  *                     default session model
+ *   session-effort    prints BURN_SESSION_EFFORT's model id, burn level and
+ *                     standing level, one per line
  *
  * stdout is always a pipe here, so it is written synchronously before the
  * exit — process.stdout.write can be cut off by process.exit on a pipe.
@@ -329,6 +352,11 @@ if (require.main === module) {
 		const burn = values.burn === true;
 		if (mode === "launch" && arg !== undefined && arg !== "") {
 			say(mapModel(LAUNCH, arg, burn));
+			process.exit(0);
+		}
+		if (mode === "session-effort" && arg === undefined) {
+			const { model, burn: level, standing } = BURN_SESSION_EFFORT;
+			say(`${model}\n${level}\n${standing}`);
 			process.exit(0);
 		}
 		if (mode === "session" && arg !== undefined) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Toggle burn mode: spend allowance on purpose. Haiku work runs on Opus 5.5,
-# and Opus work on Fable 5.2, each at medium. Off by default;
+# Toggle burn mode: spend allowance on purpose. Haiku work runs on Opus 5.5
+# at medium, and Opus work on Fable 5.2 at low. Off by default;
 # docs/effort-guide.md §Burn mode is the rule, lib/model-table.js the table, and lib/burn-mode.js the marker.
 #
 #   scripts/burn-mode.sh on | off | status
@@ -14,13 +14,14 @@
 # 5.2). Claude Code reads it at startup, so a running session keeps its model;
 # the dispatch remap applies to the next Agent call at once. So `off` also
 # resumes each live background session still on Fable on Opus
-# (scripts/burn-off-sessions.js, #4992). Effort is never
-# written here: each model's effort is settings.json's standing
-# `modelSettings`, and a dispatch's rides on the call (#4919).
+# (scripts/burn-off-sessions.js, #4992). One effort is written: Fable 5.2's
+# `modelSettings` level, which a session or launch on Fable reads at start, is
+# lowered while burn mode is on (#5004); every other model's stays at its
+# standing level, and a dispatch's rides on the call (#4919).
 #
-# `on` records each plan's model in the marker, and `off` puts THAT back — a
-# plan the founder set to something else by hand is not flattened to the
-# standing default. A plan that had no model key has it removed again.
+# `on` records each plan's model and Fable effort in the marker, and `off`
+# puts THAT back — a plan the founder set to something else by hand is not
+# flattened to the standing default. A key that was absent is removed again.
 #
 # `off` WITH NO RECORD STILL REVERTS (#126). Without a record it falls back to
 # the standing default, and only for a plan reading the burn model exactly: a
@@ -56,6 +57,14 @@ marker="$(node "$lib" marker)" ||
 # The standing session model, and what burn mode moves it to.
 off_model="$(node "$table" session "")"
 on_model="$(node "$table" session "" --burn)"
+# The model whose `modelSettings` effort burn mode moves, its burn level, and
+# the standing level a plan with no record is restored to.
+session_effort="$(node "$table" session-effort)"
+{
+  read -r effort_model
+  read -r on_effort
+  read -r off_effort
+} <<<"$session_effort"
 
 # The plans' settings files, ONE ENTRY PER REAL FILE (#187). `~/.claude2` and
 # `~/.claude3` hold symlinks to `~/.claude/settings.json` on the machine this
@@ -84,6 +93,9 @@ rel() { printf '%s' "${1#"$home_real"/}"; }
 
 # model_of <file> — the plan's session model, or "" where the key is absent.
 model_of() { jq -r '.model // ""' "$1"; }
+
+# effort_of <file> — the plan's Fable effort, or "" where the key is absent.
+effort_of() { jq -r --arg m "$effort_model" '.modelSettings[$m].effortLevel // ""' "$1"; }
 
 # burned <model> — what the burn layer makes of a plan's model, "" meaning
 # the default session model.
@@ -125,6 +137,19 @@ write_model() {
     if $v == "" then del(.model) else .model = $v end' "$1"
 }
 
+# write_effort <file> <level> — the same for the Fable effort. An empty level
+# removes the key, and the model's entry and `modelSettings` with it where
+# that leaves either empty.
+write_effort() {
+  aw_write "$1" jq -e --arg m "$effort_model" --arg v "$2" '
+    if $v != "" then .modelSettings[$m].effortLevel = $v
+    elif (.modelSettings[$m] | type) != "object" then .
+    else del(.modelSettings[$m].effortLevel)
+      | if .modelSettings[$m] == {} then del(.modelSettings[$m]) else . end
+      | if .modelSettings == {} then del(.modelSettings) else . end
+    end' "$1"
+}
+
 # set_model <file> <model> — `on`'s write: abort naming the file, with the
 # record already holding every plan, so `off` undoes whatever moved. `off` does
 # NOT use this — it warns and carries on, so its self-check below is the one
@@ -153,17 +178,25 @@ case "$1" in
       # move would otherwise strand it on the burn model with no record, and
       # `off` would then flatten a hand-set plan to the standing default.
       mkdir -p "$(dirname "$marker")"
-      record='{}'
+      record='{}' efforts='{}'
       while IFS= read -r -d '' f; do
         prior="$(model_of "$f")"
         record="$(jq -c --arg f "$f" --arg m "$prior" '.[$f] = $m' <<<"$record")"
+        prior="$(effort_of "$f")"
+        efforts="$(jq -c --arg f "$f" --arg e "$prior" '.[$f] = $e' <<<"$efforts")"
       done < <(settings_files)
-      jq -n --argjson r "$record" '{model: $r}' >"$marker"
+      jq -n --argjson r "$record" --argjson e "$efforts" '{model: $r, effort: $e}' >"$marker"
       while IFS= read -r -d '' f; do
         prior="$(model_of "$f")"
         target="$(burned "$prior")"
-        [[ "$target" == "${prior:-$off_model}" && -n "$prior" ]] && continue
-        set_model "$f" "$target"
+        if [[ "$target" != "${prior:-$off_model}" || -z "$prior" ]]; then
+          set_model "$f" "$target"
+        fi
+        [[ "$(effort_of "$f")" == "$on_effort" ]] && continue
+        write_effort "$f" "$on_effort" || {
+          echo "error: could not write $effort_model effortLevel=$on_effort into $(rel "$f")" >&2
+          exit 1
+        }
       done < <(settings_files)
     fi
     ;;
@@ -172,7 +205,7 @@ case "$1" in
     # before `on` ran — a deliberate setting, restored as such, and so exempt
     # from the self-check below, which would otherwise read them as a failed
     # revert.
-    declare -A kept=()
+    declare -A kept=() kept_effort=()
     reverted=0
     while IFS= read -r -d '' f; do
       # `has` rather than a non-empty value: a plan with no model key is
@@ -194,6 +227,17 @@ case "$1" in
         write_model "$f" "$off_model" || echo "error: could not write $(rel "$f")" >&2
         reverted=1
       fi
+      # The Fable effort, by the same rules as the model.
+      if [[ -f "$marker" ]] && jq -e --arg f "$f" '.effort | has($f)' "$marker" >/dev/null 2>&1; then
+        prior="$(jq -r --arg f "$f" '.effort[$f]' "$marker")"
+        write_effort "$f" "$prior" || echo "error: could not write $(rel "$f")" >&2
+        reverted=1
+        [[ "$prior" == "$on_effort" ]] && kept_effort["$f"]=1
+      elif [[ "$(effort_of "$f")" == "$on_effort" ]]; then
+        echo "no record for $(rel "$f") — restoring the standing $effort_model effort, $off_effort"
+        write_effort "$f" "$off_effort" || echo "error: could not write $(rel "$f")" >&2
+        reverted=1
+      fi
     done < <(settings_files)
     [[ $reverted -eq 1 ]] || echo "burn mode was already off — no settings file touched"
     # The self-check, and `off`'s only failure exit. Reached on every off,
@@ -206,9 +250,11 @@ case "$1" in
     # can see.
     stuck=""
     while IFS= read -r -d '' f; do
-      [[ "$(model_of "$f")" == "$on_model" ]] || continue
-      [[ -n "${kept["$f"]:-}" ]] && continue
-      stuck+="  $(rel "$f")"$'\n'
+      if [[ "$(model_of "$f")" == "$on_model" && -z "${kept["$f"]:-}" ]]; then
+        stuck+="  $(rel "$f")"$'\n'
+      elif [[ "$(effort_of "$f")" == "$on_effort" && -z "${kept_effort["$f"]:-}" ]]; then
+        stuck+="  $(rel "$f") ($effort_model effortLevel=$on_effort)"$'\n'
+      fi
     done < <(settings_files)
     if [[ -n "$stuck" ]]; then
       show_status
