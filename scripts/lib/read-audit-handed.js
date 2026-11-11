@@ -9,10 +9,10 @@
  * `./` or `../` (`-C/tmp/link`, `-I../x`) that, read against the child's
  * working directory with every link followed, lands under the root —
  * `../../<root>/x` from outside, or a link to the checkout. A candidate
- * holding no `/` is a path only where it stands in that directory.
- *
- * Residual: a relative path glued behind a prefix with no `./` or `../` to
- * start it (`-Iin/x`, `in` a link) is resolved only as the whole piece.
+ * holding no `/` is a path only where it stands in that directory. Glued:
+ * a piece from any later point of its first part, where that part's rest
+ * is a name the directory holds (`-Iin/x`, `-Iin`, `in` a link), or `.` or
+ * `..` (#4997).
  */
 
 const fs = require("node:fs");
@@ -42,9 +42,13 @@ const PARTS = /[\s"';:=,]+/;
 
 /* Taken as this module loads, before the preload wraps `fs`. */
 const realpath = fs.realpathSync;
+const lstat = fs.lstatSync;
+const NO_THROW = { throwIfNoEntry: false };
 
-/* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
+/* Linux's PATH_MAX and NAME_MAX: a longer piece is no path the kernel would
+ * take, and a longer part no name. */
 const PATH_MAX = 4096;
+const NAME_MAX = 255;
 
 /** @param {string} root real path */
 function buildHanded(root) {
@@ -96,36 +100,77 @@ function buildHanded(root) {
 		return [...out];
 	};
 	/**
-	 * The repo-relative paths `word` names, spelt or resolved from `cwd`.
-	 * @param {string} word
+	 * What words name, resolved from one working directory, each name it
+	 * may hold looked up once.
 	 * @param {string} cwd the child's working directory, real path
-	 * @returns {string[]}
 	 */
-	const named = (word, cwd) => {
-		const out = new Set(spelt(word));
-		for (const tried of candidates(word)) {
-			const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
-			const real = realOf(path.resolve(cwd, tried), isBare);
-			const r = real === null ? null : relOf(real);
-			if (r !== null) out.add(r);
-		}
-		return [...out];
+	const from = (cwd) => {
+		/** @type {Map<string, boolean>} */
+		const known = new Map();
+		const holds = (/** @type {string} */ name) => {
+			if (name === "." || name === "..") return true;
+			let held = known.get(name);
+			if (held === undefined) {
+				try {
+					held = lstat(path.join(cwd, name), NO_THROW) !== undefined;
+				} catch {
+					held = false;
+				}
+				known.set(name, held);
+			}
+			return held;
+		};
+		/**
+		 * The repo-relative paths `word` names, spelt or resolved.
+		 * @param {string} word
+		 * @returns {string[]}
+		 */
+		return (word) => {
+			const out = new Set(spelt(word));
+			for (const tried of candidates(word, holds)) {
+				const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
+				const real = realOf(path.resolve(cwd, tried), isBare);
+				const r = real === null ? null : relOf(real);
+				if (r !== null) out.add(r);
+			}
+			return [...out];
+		};
 	};
-	return { spelt, named };
+	return { spelt, from };
 }
 
 /**
  * @param {string} word
+ * @param {(name: string) => boolean} holds whether the working directory
+ *   holds a name
  * @returns {Set<string>}
  */
-function candidates(word) {
+function candidates(word, holds) {
 	/** @type {Set<string>} */
 	const out = new Set();
-	for (const piece of [word, ...word.split(PARTS)])
-		for (const from of [0, piece.indexOf("/"), piece.search(/\.\.?\//)]) {
-			const tried = from < 0 ? "" : piece.slice(from);
-			if (tried && tried.length <= PATH_MAX) out.add(tried);
-		}
+	for (const piece of [word, ...word.split(PARTS)]) {
+		if (piece.length > PATH_MAX) continue;
+		for (const from of [0, piece.indexOf("/"), piece.search(/\.\.?\//)])
+			if (from >= 0 && from < piece.length) out.add(piece.slice(from));
+		for (const tried of glued(piece, holds)) out.add(tried);
+	}
+	return out;
+}
+
+/**
+ * The rests of `piece` from a later point of its first part that begin
+ * with a name the working directory holds.
+ * @param {string} piece
+ * @param {(name: string) => boolean} holds
+ * @returns {string[]}
+ */
+function glued(piece, holds) {
+	const slash = piece.indexOf("/");
+	const end = slash < 0 ? piece.length : slash;
+	/** @type {string[]} */
+	const out = [];
+	for (let at = Math.max(1, end - NAME_MAX); at < end; at++)
+		if (holds(piece.slice(at, end))) out.push(piece.slice(at));
 	return out;
 }
 

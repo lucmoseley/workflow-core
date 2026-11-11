@@ -41,6 +41,17 @@ function repoPath(root, abs) {
  */
 const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
 
+/* git's options before the subcommand that take the next word as a value. */
+const GIT_VALUED = new Set([
+	"-C",
+	"-c",
+	"--git-dir",
+	"--work-tree",
+	"--namespace",
+	"--config-env",
+	"--attr-source",
+]);
+
 /* The git guard the suites put on every test's `PATH` (#3161). */
 const GUARD = path.join(__dirname, "host-git-guard", "git");
 
@@ -63,6 +74,7 @@ function buildGuardTest(realpath = fs.realpathSync) {
 
 module.exports = {
 	buildGuardTest,
+	GIT_VALUED,
 	GUARD,
 	isNode,
 	readRealTmpdir,

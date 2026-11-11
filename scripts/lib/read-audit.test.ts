@@ -853,6 +853,264 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 	});
 });
 
+describe("the routes still open after #4982 (#4997)", () => {
+	const outsideDir = () => {
+		const dir = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-out-")),
+		);
+		dirs.push(dir);
+		return dir;
+	};
+	const untraced = (root: string, body: string) =>
+		readAudits(audited(root, T, body, { trace: false }), root).get(T);
+	const settingsFile = ".claude/settings.json";
+	const realGit = execFileSync("sh", ["-c", "command -v git"], {
+		encoding: "utf8",
+	}).trim();
+
+	describe("input written to a child's pipe once it runs", () => {
+		/** A body that starts `cat` and writes `chunks` down its input. */
+		const writes = (cwd: string, chunks: string[]) =>
+			[
+				`const c = require("node:child_process").spawn("cat", [], { cwd: ${quoted(cwd)}, stdio: ["pipe", "ignore", "ignore"] });`,
+				...chunks.map((chunk) => `c.stdin.write(${quoted(chunk)});`),
+				"c.stdin.end();",
+			].join("\n");
+
+		it("doubts a checkout path written whole, as a buffer, or split across two writes", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const file = path.join(root, settingsFile);
+			const cut = Math.floor(file.length / 2);
+			for (const chunks of [[file], [file.slice(0, cut), file.slice(cut)]])
+				expect(untraced(root, writes(cwd, chunks)).doubt).toMatch(
+					/a child \(cat \) was written a path in the checkout on its standard input/,
+				);
+			const asBuffer = writes(cwd, []).replace(
+				"c.stdin.end();",
+				`c.stdin.end(Buffer.from(${quoted(file)}));`,
+			);
+			expect(untraced(root, asBuffer).doubt).toMatch(/on its standard input/);
+		});
+
+		it("keeps the reads of a file that writes a child only its own scratch, or nothing of the checkout", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const body = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				writes(cwd, ["plain text\n"]).replace(
+					"c.stdin.end();",
+					"c.stdin.end(scratch);",
+				),
+			].join("\n");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+	});
+
+	describe("what real git runs", () => {
+		/** A fixture repository outside the checkout, with a hook if asked. */
+		const fixture = (hook?: string) => {
+			const dir = outsideDir();
+			git(dir, "init", "-q");
+			if (hook !== undefined) {
+				write(dir, "hooks/pre-commit", hook);
+				fs.chmodSync(path.join(dir, "hooks/pre-commit"), 0o755);
+				git(dir, "config", "core.hooksPath", "hooks");
+			}
+			return dir;
+		};
+		const runsGit = (
+			cwd: string,
+			args: string[],
+			env: Record<string, string> = {},
+		) =>
+			`require("node:child_process").execFileSync(${quoted(realGit)}, ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, stdio: "ignore" });`;
+		const commit = ["-c", "user.email=t@t", "-c", "user.name=t"];
+
+		it("doubts a git that ran a hook, which inherits every variable unweighed", () => {
+			const root = checkout();
+			const repo = fixture(
+				`#!/bin/sh\ncat "$RULES/settings.json" >/dev/null\n`,
+			);
+			const body = runsGit(
+				repo,
+				[...commit, "commit", "-q", "--allow-empty", "-m", "x"],
+				{
+					RULES: path.join(root, ".claude"),
+				},
+			);
+			expect(untraced(root, body).doubt).toMatch(
+				/a git call \(git .*commit.*\) ran hooks\/pre-commit \(hook\), whose reads no log holds/,
+			);
+		});
+
+		it("doubts a git that ran a shell alias, and keeps one that ran only git", () => {
+			const root = checkout();
+			const repo = fixture();
+			const shell = runsGit(repo, ["-c", "alias.zz=!true", "zz"]);
+			expect(untraced(root, shell).doubt).toMatch(/ran true \(shell_alias\)/);
+			const own = runsGit(repo, ["-c", "alias.st=status", "st"]);
+			expect(untraced(root, own)).toHaveProperty("reads");
+			const plain = runsGit(repo, [
+				...commit,
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"x",
+			]);
+			expect(untraced(root, plain)).toHaveProperty("reads");
+		});
+
+		it("doubts a git handed an event target of its own, which leaves what it ran unlogged", () => {
+			const root = checkout();
+			const repo = fixture();
+			const body = runsGit(repo, ["status"], {
+				GIT_TRACE2_EVENT: path.join(repo, "events.json"),
+			});
+			expect(untraced(root, body).doubt).toMatch(
+				/named an event target of its own/,
+			);
+		});
+	});
+
+	describe("a relative path glued behind a prefix", () => {
+		it("doubts a link glued to an option with no slash before it, with or without a path after", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.symlinkSync(root, path.join(cwd, "in"));
+			const spawns = (args: string[]) =>
+				`try { require("node:child_process").execFileSync("ls", ${quoted(args)}, { cwd: ${quoted(cwd)}, stdio: "ignore" }); } catch {}`;
+			for (const word of ["-Iin/.claude", "-Iin"])
+				expect(untraced(root, spawns([word])).doubt).toMatch(
+					/a child \(ls .*\) was handed a path in the checkout$/,
+				);
+			expect(untraced(root, spawns(["-Ino-such/x"]))).toHaveProperty("reads");
+		});
+	});
+
+	describe("the repository a git looks for", () => {
+		const stripped = (args: string[], cwd: string) =>
+			`const env = { ...process.env, PATH: ${quoted(GUARD_DIR + path.delimiter)} + process.env.PATH }; delete env.WFC_READ_AUDIT; try { require("node:child_process").execFileSync("git", ${quoted(args)}, { cwd: ${cwd}, env, stdio: "ignore" }); } catch {}`;
+		const minting = (root: string) =>
+			`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`;
+
+		it("doubts a git moved by -C into a scratch directory under the root that is no repository, from outside", () => {
+			const root = checkout();
+			const body = [
+				minting(root),
+				stripped(
+					["-C", "PLACE", "rev-parse", "--show-toplevel"],
+					quoted(outsideDir()),
+				),
+			]
+				.join("\n")
+				.replace('"PLACE"', "scratch");
+			expect(untraced(root, body).doubt).toMatch(
+				/by the repository above its directory/,
+			);
+		});
+
+		it("keeps a git moved by -C out of the checkout from a directory under it", () => {
+			const root = checkout();
+			const away = outsideDir();
+			git(away, "init", "-q");
+			const body = [
+				minting(root),
+				stripped(["-C", away, "status"], "scratch"),
+			].join("\n");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
+		it("keeps an init or a clone, which looks for none, and doubts one asked for --help, which does", () => {
+			const root = checkout();
+			const inScratch = (args: string[]) =>
+				[minting(root), stripped(args, "scratch")].join("\n");
+			expect(untraced(root, inScratch(["init", "-q", "made"]))).toHaveProperty(
+				"reads",
+			);
+			expect(
+				untraced(
+					root,
+					inScratch(["-c", "init.defaultBranch=x", "init", "-q", "made"]),
+				),
+			).toHaveProperty("reads");
+			const source = outsideDir();
+			git(source, "init", "-q");
+			expect(
+				untraced(root, inScratch(["clone", "-q", source, "made"])),
+			).toHaveProperty("reads");
+			/* `git help` runs `man`, which the call's event log doubts first:
+			 * the hand is read off the log. */
+			const log = audited(root, T, inScratch(["init", "--help"]), {
+				trace: false,
+			});
+			const hands = fs
+				.readdirSync(log)
+				.filter((f) => f.endsWith(".jsonl"))
+				.flatMap((f) =>
+					fs.readFileSync(path.join(log, f), "utf8").trim().split("\n"),
+				)
+				.map((line) => JSON.parse(line))
+				.filter((e) => e.k === "child" && e.args?.includes("--help"))
+				.flatMap((e) => e.hands ?? []);
+			expect(hands).toContainEqual({ by: "repo", p: ["."] });
+		});
+	});
+
+	describe("a program measured to read no variable, run on a settled one", () => {
+		const settled = (root: string, body: string) =>
+			readAudits(
+				audited(root, T, `globalThis.__wfcReadAudit.settle();\n${body}`, {
+					env: { RULES: path.join(root, ".claude") },
+					trace: false,
+				}),
+				root,
+			).get(T);
+		const tar = (cwd: string, args: string[], env = {}) =>
+			`try { require("node:child_process").execFileSync("tar", ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, stdio: "ignore" }); } catch {}`;
+
+		it("keeps a plain tar, and doubts one asked to run a command, by a long option, its prefix or a short one", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.writeFileSync(path.join(cwd, "a.txt"), "a\n");
+			execFileSync("tar", ["-cf", "a.tar", "a.txt"], { cwd });
+			expect(settled(root, tar(cwd, ["-tf", "a.tar"]))).toHaveProperty("reads");
+			for (const args of [
+				["--to-command=cat", "-xf", "a.tar"],
+				["--to-com=cat", "-xf", "a.tar"],
+				["-I", "cat", "-xf", "a.tar"],
+				["xIf", "cat", "a.tar"],
+			])
+				expect(settled(root, tar(cwd, args)).doubt).toMatch(
+					/a child \(tar .*\) was handed a path in the checkout by its environment \(RULES\)/,
+				);
+		});
+
+		it("doubts one whose PATH or TAR_OPTIONS the test changed, which steers what it runs", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.writeFileSync(path.join(cwd, "a.txt"), "a\n");
+			execFileSync("tar", ["-cf", "a.tar", "a.txt"], { cwd });
+			const stub = stubTool("#!/bin/sh\nexit 0\n");
+			for (const env of [
+				{ PATH: `${stub}${path.delimiter}${process.env.PATH}` },
+				{ TAR_OPTIONS: "--to-command=cat" },
+			])
+				expect(settled(root, tar(cwd, ["-tf", "a.tar"], env)).doubt).toMatch(
+					/by its environment \(RULES\)/,
+				);
+		});
+
+		it("doubts a systemctl asked to edit, which runs an editor", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const body = `try { require("node:child_process").execFileSync("systemctl", ["--user", "edit", "--no-ask-password", "no-such.service"], { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true" }, stdio: "ignore", timeout: 10000 }); } catch {}`;
+			expect(settled(root, body).doubt).toMatch(/a child \(systemctl .*edit/);
+		});
+	});
+});
+
 describe("from a real audited run to a cached row (#4916)", () => {
 	const Values = { node: "v22.0.0", arch: "arm64" };
 

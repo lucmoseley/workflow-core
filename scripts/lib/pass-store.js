@@ -131,7 +131,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 15;
+const FORMAT = 16;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
