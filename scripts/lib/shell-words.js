@@ -613,13 +613,18 @@ function unwrapArgv(argv) {
  *   stands there: "always" for a wrapper's, whose failure runs nothing, and a
  *   `cd` a `&&` chains it off; "if-dir" where the `cd` surely ran had its
  *   directory been there; "maybe" where it may not have run
+ * @property {Map<string, string | null>} [vars] a `-c` string's `cd`'s: each
+ *   name its script set before it, its assignment word masked, or null where
+ *   the script may have changed it in a way not followed
  */
 
 /**
- * The directory a run stands in: `cwd` moved through its `chdirs`, an
- * absolute one replacing it, a relative one joined to it and `""` staying
- * put (#4869). Unknown past a directory no word gives whole: one reading a
- * variable, which a `-c` string may set itself, a `~`, a glob, or a `-` flag.
+ * The directory a run stands in: `cwd` moved through its `chdirs`, each read
+ * as shell-parse.js's chdirArg reads it with no environment, an absolute one
+ * replacing it, a relative one joined to it and `""` staying put (#4869).
+ * Unknown past a directory no word gives whole: a wrapper's word reading a
+ * variable or a `~`, a `-c` string's `cd` reading one its script did not set
+ * (#4981), a glob, or a `-` flag.
  *
  * Residual: each move is taken as made whatever its `holds`, as a walk's cwd
  * takes a `cd` (#4980).
@@ -629,13 +634,15 @@ function unwrapArgv(argv) {
  * @returns {string} "" where unknown
  */
 function runCwd(cwd, chdirs, spans) {
+	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
+	const { bareScope, chdirArg } = require("./shell-parse.js");
 	let at = cwd;
-	for (const { dir, read } of chdirs) {
-		const word = read ? { text: dir, known: true } : literal(dir, spans);
-		const expands = !read && shellExpands(dir);
-		if (!word.known || expands || word.text.startsWith("-")) at = "";
-		else if (word.text.startsWith("/")) at = word.text;
-		else if (at && word.text) at = `${at}/${word.text}`;
+	for (const cd of chdirs) {
+		const { r } = chdirArg(cd, bareScope(spans));
+		if (!r) at = "";
+		else if ("empty" in r) continue;
+		else if (r.path.startsWith("/")) at = r.path;
+		else if (at) at = `${at}/${r.path}`;
 	}
 	return at;
 }

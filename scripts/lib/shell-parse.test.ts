@@ -1795,6 +1795,83 @@ describe('walkGit, scope "shared"', () => {
 		});
 	});
 
+	describe("reads a run's chdirs as the shell that makes them does (#4981)", () => {
+		const trees = (
+			command: string,
+			cwd: string,
+			vars: Record<string, string> = ENV,
+		) => {
+			const run = walkGitWith(
+				command,
+				{ unwrap: true },
+				{ fallbackCwd: cwd, vars, isDir: () => true },
+			);
+			return { trees: run.calls.map((c) => c.tree), logged: run.logged };
+		};
+		const lost = { trees: [], logged: [FAIL_OPEN] };
+
+		it("takes a wrapper's quoted directory as written, expanding nothing", () => {
+			const X = { ...ENV, X: SHARED, HOME: SHARED };
+			/** The trees judged and the fail-opens logged, whatever each class. */
+			const asked = (command: string) => {
+				const run = walkGitWith(
+					command,
+					{ unwrap: true },
+					{ fallbackCwd: DIR, vars: X, treeClass: () => "shared" },
+				);
+				return { trees: run.calls.map((c) => c.tree), logged: run.logged };
+			};
+			/* A tree spelt with a `$` is one the walk declines to judge. */
+			expect(asked(`env -C '$X' git checkout x`)).toEqual(lost);
+			expect(asked(`env -C '~' git checkout x`).trees).toEqual([`${DIR}/~`]);
+			expect(asked("env -C $X git checkout x").trees).toEqual([SHARED]);
+		});
+
+		it("reads a -c string's cd at what the script set", () => {
+			const X = { ...ENV, X: ELSEWHERE };
+			expect(
+				trees(`flock /l -c 'X=${SHARED}; cd $X; git checkout x'`, DIR, X).trees,
+			).toEqual([SHARED]);
+			expect(
+				trees(
+					`flock /l -c 'X=${SHARED}; export X; echo $X \${X}; cd "$X"; git checkout x'`,
+					DIR,
+					X,
+				).trees,
+			).toEqual([SHARED]);
+			expect(
+				trees(
+					`flock /l -c 'X=${DIR}; Y=$X/shared; cd $Y; git checkout x'`,
+					WORKTREE,
+					X,
+				),
+			).toEqual(lost);
+		});
+
+		it("reads a name the script did not set at the exported environment", () => {
+			expect(
+				trees(`flock /l -c 'cd $X; git checkout x'`, DIR, {
+					...ENV,
+					X: SHARED,
+				}).trees,
+			).toEqual([SHARED]);
+		});
+
+		it("loses the tree at a name the session set, or the script changed unread", () => {
+			const X = { ...ENV, X: ELSEWHERE };
+			for (const command of [
+				`X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
+				`export X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; read X; cd $X; git checkout x'`,
+				`flock /l -c 'X=${ELSEWHERE}; unset X; cd $X; git checkout x'`,
+				`flock /l -c 'true || X=${ELSEWHERE}; cd $X; git checkout x'`,
+				`flock /l -c 'cd $PWD; git checkout x'`,
+				`flock /l -c 'cd $OLDPWD; git checkout x'`,
+			])
+				expect(trees(command, WORKTREE, X), command).toEqual(lost);
+		});
+	});
+
 	it('reads a git -C relative to the tree before it, and a -C "" as no move', () => {
 		expect(walkGitRun("git -C wt checkout x", {}, DIR).out).toBe("");
 		expect(walkGitRun("git -C shared checkout x", {}, DIR).out).toContain(
