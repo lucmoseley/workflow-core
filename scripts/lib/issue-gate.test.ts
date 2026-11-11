@@ -461,7 +461,9 @@ describe("basisFaults — each window its basis names (#823)", () => {
 		expect(faults).toEqual([{ kind: "unnamed-window", text: "7 days" }]);
 		const refusal = basisRefusal(faults);
 		expect(refusal).toContain('"7 days", a window the `**Gate basis:**` line');
-		expect(refusal).toContain("and never judges it");
+		expect(refusal).toContain(
+			"a model reading also asks which sentences make work wait",
+		);
 	});
 
 	it("passes a basis naming every window, by length rather than spelling", () => {

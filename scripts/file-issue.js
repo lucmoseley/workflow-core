@@ -420,7 +420,8 @@ function logSignature(pending, issue) {
 /**
  * The body's own refusals — the `takes:` tests, the basis check and a gate
  * `check:` that prints no reading (#3487) — and the model reading of its
- * waits and bases, printed as advice (#4964).
+ * waits and bases (#4964), whose faults refuse unless a `**Gate judge
+ * override:**` line gives a reason (#4970).
  * @param {string[]} labels
  * @param {string} body
  */

@@ -28,7 +28,8 @@ import { freshSandbox } from "./arbiter-testkit";
 import {
 	FALLBACK_LEAD,
 	judgeFakeEnv,
-	MODEL_LEAD,
+	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
 	readJudgeCalls,
 } from "./gate-judge-fake";
 import { ghFake, readGhAnswer } from "./gh-fake";
@@ -2244,10 +2245,10 @@ describe("the model reading's one bound for a call (#4969)", () => {
 			t += 26_000;
 			return t;
 		});
-		const create = `gh issue create --title t --label takes:implement --body '${Wait}'`;
+		const create = `gh issue create --title t --label takes:implement --body '${Wait}\n${OVERRIDE_LINE}'`;
 		const told = said(`${create} && ${create}`);
 		clock.mockRestore();
-		expect(told).toContain(MODEL_LEAD);
+		expect(told).toContain(OVERRIDE_LEAD);
 		expect(told).toContain(
 			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
 		);
