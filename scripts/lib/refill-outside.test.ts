@@ -195,6 +195,19 @@ it("neither stops nor copies one that took a prompt since its stop, and counts t
 	);
 });
 
+it("neither stops nor copies one where whether it took a turn since its stop cannot be told, and types again when next due (#4873)", () => {
+	const l = loop({ isResumedSinceStop: () => null });
+	l.tick(NOW);
+	l.tick(NOW + 2 * MIN);
+	expect(l.calls).not.toContain("stop f1");
+	expect(l.calls.some((c) => c.startsWith("resume "))).toBe(false);
+	expect(logs(l.calls)).toContain(
+		`${NAME}'s transcript shows no API-error stop, and its timeline is unread or the loop holds no time for the stop, so whether its session took a turn since cannot be told: it is neither stopped nor copied this try`,
+	);
+	l.tick(NOW + 4 * MIN);
+	expect(typed(l.calls)).toBe(2);
+});
+
 it("at the cap stops trying, says so, and neither parks, labels, comments on nor stops it", () => {
 	const labelled: string[] = [];
 	const l = loop({

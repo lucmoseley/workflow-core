@@ -993,7 +993,7 @@ describe("the manifest", () => {
 		).toEqual({
 			"guard-branch": ["Bash(git *)"],
 			"guard-commit-form": ["Bash(git *)", "Bash(*commit-paths.js*)"],
-			"guard-registry-atomicity": ["Bash(git *)", "Bash(*commit-paths.js*)"],
+			"guard-registry-atomicity": ["Bash(*git *)", "Bash(*commit-paths.js*)"],
 			"guard-pull-form": ["Bash(*git *)"],
 			"guard-push-rules": ["Bash(git *)"],
 			"guard-node-heap": [
