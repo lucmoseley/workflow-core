@@ -63,6 +63,17 @@ const feedback = (text: string) =>
 		timestamp: IN_660,
 		message: { role: "user", content: `Stop hook feedback:\n${text}` },
 	});
+const delivery = () =>
+	JSON.stringify({
+		type: "user",
+		isMeta: true,
+		origin: { kind: "plugin", name: "wfc-delivery" },
+		timestamp: IN_660,
+		message: {
+			role: "user",
+			content: [{ type: "text", text: "Delivered by the wfc-delivery mod" }],
+		},
+	});
 const CLOSE_REFUSAL = feedback(
 	"…whose top two rivals sit close…\n\nQ1: (A) 55% against (B) 45% — so the recommendation could flip.",
 );
@@ -153,6 +164,51 @@ describe("what got past", () => {
 		const two = `${round()}\n\n${round().replace("Q1", "Q2")}`;
 		const got = items(founder(), assistant(two), CLOSE_REFUSAL, assistant(two));
 		expect(got.map((i) => i.sight)).toEqual(["after-refusal", "first"]);
+	});
+
+	it("keeps a refusal past a mod's delivery, which is not the founder speaking", () => {
+		const got = items(
+			founder(),
+			assistant(round()),
+			CLOSE_REFUSAL,
+			delivery(),
+			toolUse(),
+			toolResult(),
+			assistant(NOT_CLOSE()),
+		);
+		expect(got.map((i) => [i.sight, i.calls])).toEqual([
+			["after-refusal", "→ Bash: ls\n← ok"],
+		]);
+	});
+
+	it("retires a refusal once its re-send passes", () => {
+		const got = items(
+			founder(),
+			assistant(round()),
+			CLOSE_REFUSAL,
+			assistant(NOT_CLOSE()),
+			delivery(),
+			assistant(round()),
+		);
+		expect(got.map((i) => i.sight)).toEqual(["after-refusal", "first"]);
+	});
+
+	it("reads only the close-rivals refusal's own flagged lines, not another limb's", () => {
+		const two = `${round()}\n\n${NOT_CLOSE().replace("Q1", "Q2")}`;
+		const got = items(
+			founder(),
+			assistant(two),
+			feedback(
+				"This turn puts a choice to the founder whose top two rivals sit close, or…:\n\n" +
+					"Q1: (A) 55% against (B) 45% — so the recommendation could flip.\n\n" +
+					"Two tests make a pair close.\n\n" +
+					"Q2: 6 tool calls since the founder last spoke, under the 10",
+			),
+			assistant(two),
+		);
+		expect(got.map((i) => [i.round, i.sight])).toEqual([
+			["1", "after-refusal"],
+		]);
 	});
 
 	it("drops a send a Stop hook refused, and marks the resend after-refusal", () => {

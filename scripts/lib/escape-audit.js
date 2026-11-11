@@ -13,14 +13,18 @@
  * dropped. RESIDUAL: a transcript cut off mid-turn commits its last text as
  * passed.
  *
- * FIRST SIGHT OR AFTER REFUSAL. After refusal where an earlier Stop feedback
- * in the same turn carried the close-rivals refusal and named the block's
- * question: then every re-send is taken, close or not, escape line or not,
- * paired with the block as first refused and the tool calls since (#4945).
- * First sight, a block is taken only where its top two rivals are close
- * (`rivalPair`) and it carries a non-empty escape line. A turn is what lies
- * between two user records that are neither a tool result nor Stop feedback
- * — a task notification opens one too.
+ * FIRST SIGHT OR AFTER REFUSAL. After refusal where an earlier close-rivals
+ * refusal named the block's question in its flagged lines and still holds:
+ * then every re-send is taken, close or not, escape line or not, paired with
+ * the block as first refused and the tool calls since (#4945). A refusal
+ * holds, as the guard's record does (`refusal-limb.js` `liveRecord`), until
+ * the founder speaks or the question passes. RESIDUAL: a re-send pairs by
+ * round number, as the guard does, so a question renumbered into a refused
+ * one's slot is judged against the wrong refused block. First sight, a block is taken
+ * only where its top two rivals are close (`rivalPair`) and it carries a
+ * non-empty escape line. A send is committed as passed at the next user
+ * record that is neither a tool result nor Stop feedback — a task
+ * notification or a mod's delivery too.
  *
  * THE STORES live in the markers directory under a prefix no sweep family
  * claims, so they outlive the 24 h marker sweep: the items index (rewritten
@@ -34,6 +38,7 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { markersDir } = require("./marker-root.js");
 const { STOP_FEEDBACK, mainChainRecords } = require("./transcript");
+const { isFounderMessage } = require("./tool-calls-since.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
@@ -54,7 +59,10 @@ const AT_1061 = Date.parse("2026-10-09T19:01:58+08:00");
 
 /* Words only the close-rivals refusal prints, every text since #488 alike. */
 const CLOSE_REFUSAL = /top two rivals sit close|could flip/;
-/* The refusal's line per question it flags, naming the round first. */
+/* The refusal's opening, its flagged lines the paragraph after it, one per
+ * question and naming the round first; other limbs' lines in the same
+ * feedback name rounds they flag, not these. */
+const REFUSAL_OPENING = /top two rivals sit close[^\n]*\n\n/;
 const REFUSED_LINE = /^Q(\d+): /gm;
 
 /* What of the calls between a refusal and its re-send reaches the judge:
@@ -92,7 +100,7 @@ function escapesIn(lines) {
 }
 
 /**
- * @typedef {{ key: string, session: string, at: string,
+ * @typedef {{ key: string, round: string, session: string, at: string,
  *   window: (typeof WINDOWS)[number], sight: "first" | "after-refusal",
  *   escape: "checked" | "unmeasured" | "both" | "none", text: string,
  *   refusedText?: string, calls?: string }} Item
@@ -107,11 +115,11 @@ function escapesIn(lines) {
  *   splitQuestions: (text: string) => import("./round-marker.js").QuestionBlock[] }} Deps
  * @typedef {{ pending: Item[], refused: Map<string, { text: string, from: number }>,
  *   lastAsk: string, trail: string[] }} Turn
- *   `pending` holds the rounds of the turn's latest question, committed once a
- *   new turn opens; `refused`, each question the close-rivals refusal named in
- *   the turn, its block as first refused and the `trail` length then;
- *   `lastAsk`, the turn's latest text carrying a question; `trail`, the tool
- *   calls and results since the turn's first refusal.
+ *   `pending` holds the rounds of the latest question, committed once a send
+ *   passes; `refused`, each question a close-rivals refusal named that still
+ *   holds, its block as first refused and the `trail` length then;
+ *   `lastAsk`, the latest text carrying a question; `trail`, the tool calls
+ *   and results since the first refusal still holding.
  */
 
 /**
@@ -207,6 +215,7 @@ function auditedRounds(said, at, ctx) {
 		const escapes = escapesIn(block.lines);
 		const text = block.lines.join("\n");
 		const base = {
+			round: block.number,
 			session,
 			at: new Date(at.ms).toISOString(),
 			window: at.window,
@@ -260,8 +269,12 @@ function renderCall({ name = "?", input = {} }) {
  * @param {Deps} deps
  */
 function openRefusals(said, turn, deps) {
+	const opening = said.match(REFUSAL_OPENING);
+	if (!opening || opening.index === undefined) return;
+	const flagged =
+		said.slice(opening.index + opening[0].length).split("\n\n")[0] ?? "";
 	const blocks = deps.splitQuestions(turn.lastAsk);
-	for (const [, number] of said.matchAll(REFUSED_LINE)) {
+	for (const [, number] of flagged.matchAll(REFUSED_LINE)) {
 		if (number === undefined || turn.refused.has(number)) continue;
 		const block = blocks.find((b) => b.number === number);
 		if (block)
@@ -281,21 +294,46 @@ const newTurn = () => ({
 });
 
 /**
- * A user record: a tool result joins the trail once the turn holds a
- * refusal; Stop feedback drops the turn's pending rounds and may open
- * refusals; any other record commits the rounds to `out` and opens a new turn.
+ * A tool result's parts onto the trail, while a refusal holds.
+ * @param {TranscriptRecord} rec
+ * @param {Turn} turn accumulator: `trail` grows
+ */
+function readToolResult(rec, turn) {
+	const content = rec.message?.content;
+	if (turn.refused.size === 0 || !Array.isArray(content)) return;
+	for (const p of content)
+		if (p?.type === "tool_result")
+			turn.trail.push(`← ${cut(resultText(p.content), RESULT_CHARS)}`);
+}
+
+/**
+ * Commit the pending rounds as passed, retiring the refusal of each re-send
+ * among them; the founder speaking retires every refusal.
+ * @param {TranscriptRecord} rec the user record that ended the send
+ * @param {Turn} turn accumulator: the turn's state, advanced in place
+ * @param {Item[]} out accumulator: each committed item is pushed here
+ */
+function commitPending(rec, turn, out) {
+	out.push(...turn.pending);
+	for (const item of turn.pending)
+		if (item.sight === "after-refusal") turn.refused.delete(item.round);
+	turn.pending = [];
+	if (isFounderMessage(rec)) Object.assign(turn, newTurn());
+	else if (turn.refused.size === 0) turn.trail = [];
+}
+
+/**
+ * A user record: a tool result joins the trail while a refusal holds; Stop
+ * feedback drops the pending rounds and may open refusals; any other record
+ * commits them.
  * @param {TranscriptRecord} rec
  * @param {Turn} turn accumulator: the turn's state, advanced in place
  * @param {{out: Item[], deps: Deps}} ctx `out`, accumulator: each committed item is pushed here
  * @returns {void}
  */
 function readUser(rec, turn, { out, deps }) {
-	const content = rec.message?.content;
 	if (isToolResult(rec)) {
-		if (turn.refused.size > 0 && Array.isArray(content))
-			for (const p of content)
-				if (p?.type === "tool_result")
-					turn.trail.push(`← ${cut(resultText(p.content), RESULT_CHARS)}`);
+		readToolResult(rec, turn);
 		return;
 	}
 	const said = textOf(rec);
@@ -304,8 +342,7 @@ function readUser(rec, turn, { out, deps }) {
 		if (CLOSE_REFUSAL.test(said)) openRefusals(said, turn, deps);
 		return;
 	}
-	out.push(...turn.pending);
-	Object.assign(turn, newTurn());
+	commitPending(rec, turn, out);
 }
 
 /**
