@@ -8,7 +8,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readGitFileCommonDir } from "./git-file.js";
+import {
+	readGitFileCommonDir,
+	readRegisteredTree,
+	readRegistrations,
+} from "./git-file.js";
 
 let dir: string;
 let worktree: string;
@@ -56,5 +60,25 @@ describe("readGitFileCommonDir (#4402)", () => {
 		fs.chmodSync(path.join(worktree, ".git"), 0o000);
 
 		expect(() => readGitFileCommonDir(worktree)).toThrow(/EACCES/);
+	});
+});
+
+describe("a common dir's registrations (#4880)", () => {
+	const common = () => path.join(dir, "main", ".git");
+
+	it("lists each registration and reads the worktree its gitdir names", () => {
+		fs.mkdirSync(registration, { recursive: true });
+		fs.writeFileSync(
+			path.join(registration, "gitdir"),
+			`${path.join(worktree, ".git")}\n`,
+		);
+
+		expect(readRegistrations(common())).toEqual([registration]);
+		expect(readRegisteredTree(registration)).toBe(worktree);
+	});
+
+	it("is empty with no worktrees/ directory, and null where gitdir is gone", () => {
+		expect(readRegistrations(common())).toEqual([]);
+		expect(readRegisteredTree(registration)).toBeNull();
 	});
 });

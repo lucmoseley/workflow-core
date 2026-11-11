@@ -1,7 +1,8 @@
 /*
  * git-file.js — a linked worktree's `.git` file read without spawning git: for
  * a hook-path caller that spawns none (lib/overflow-key.js), and for one whose
- * git will not answer for that worktree (lib/repo-holds.js, #4402).
+ * git will not answer for that worktree (lib/repo-holds.js, #4402), and a
+ * common dir's registrations read back to the worktrees they name (#4880).
  */
 
 const fs = require("node:fs");
@@ -63,6 +64,32 @@ function readGitFileCommonDir(root) {
 }
 
 /**
+ * The registration directory of each linked worktree under common dir
+ * `common`; none where it registers none.
+ * @param {string} common
+ * @returns {string[]}
+ */
+function readRegistrations(common) {
+	const base = path.join(common, "worktrees");
+	try {
+		return fs.readdirSync(base).map((name) => path.join(base, name));
+	} catch (err) {
+		if (ABSENT_CODES.has(caught(err).code ?? "")) return [];
+		throw err;
+	}
+}
+
+/**
+ * The worktree root a registration's `gitdir` file names; null where that
+ * file is gone or empty.
+ * @param {string} registration
+ */
+function readRegisteredTree(registration) {
+	const gitFile = readTextOrNull(path.join(registration, "gitdir"))?.trim();
+	return gitFile ? path.dirname(path.resolve(registration, gitFile)) : null;
+}
+
+/**
  * The nearest `.git` file at or above `start`, and the directory holding it;
  * null where the nearest `.git` is a directory, or there is none.
  * @param {string} start
@@ -85,5 +112,7 @@ module.exports = {
 	parseGitFileTarget,
 	readGitFile,
 	readGitFileCommonDir,
+	readRegisteredTree,
 	readRegistrationCommonDir,
+	readRegistrations,
 };

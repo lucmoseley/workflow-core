@@ -13,7 +13,8 @@
  * out a hold the founder has yet to answer. Where git will not name the common
  * dir, a linked worktree keys on the one its `.git` file points at (#4402).
  * One that points nowhere keys on its own path, and its store is adopted into
- * the common dir's once the file names one again (#4718).
+ * the common dir's once the file names one again: the root's own (#4718), and
+ * its main checkout's, which reads its registered worktrees (#4880).
  *
  * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
  * lift racing get one winner and one log line, and the sessions parked on the hold
@@ -46,8 +47,7 @@
  * sent. A hold rises on the first tick past the window, so a tick's gap later.
  *
  * RESIDUAL: a close that fails on a clear is logged and not retried, there being
- * no hold left to retry it from. The issue's body says what to do, and the fetch
- * that just passed makes `gh` likely to answer.
+ * no hold left to retry it from. The issue's body says what to do.
  *
  * AN ATTACH IS A FILE OF ITS OWN beside the hold's (#3858), never a rewrite of
  * it: a rewrite could resurrect a hold a lift has just unlinked, or lose a
@@ -75,7 +75,14 @@ const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
-const { readGitFileCommonDir } = require("./git-file.js");
+const {
+	parseGitFileTarget,
+	readGitFile,
+	readGitFileCommonDir,
+	readRegisteredTree,
+	readRegistrations,
+	readRegistrationCommonDir,
+} = require("./git-file.js");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
@@ -84,7 +91,7 @@ const { gitCommonDir } = require("./git.js");
 const guardProbe = require("./guard-probe.js");
 const { hostRoot } = require("./host-root.js");
 const { parseJobDir } = require("./job-paths.js");
-const { mainCheckout } = require("./main-checkout.js");
+const { checkoutOfCommonDir, mainCheckout } = require("./main-checkout.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildAgeText } = require("./hold-age.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
@@ -204,10 +211,28 @@ const STORE_KEY_LENGTH = 12;
 const LOCKOUT_REPAIR = "the guard code the hook line runs, as its refusal says";
 
 /**
- * The checkout a command run from `cwd` holds holds in.
+ * The checkout a common dir names, symlinks dereferenced; null where it names
+ * none.
+ * @param {string} common
+ */
+const checkoutOf = (common) => checkoutOfCommonDir(deref(common));
+
+/**
+ * The checkout a command run from `cwd` holds holds in. Where git will not
+ * name it, the one the common dir the nearest `.git` file points at names, or
+ * else the directory holding that file, so a raise from anywhere in a broken
+ * worktree keys where its repair is adopted from (#4880).
  * @param {string} cwd
  */
-const readCheckout = (cwd) => mainCheckout(cwd) ?? cwd;
+function readCheckout(cwd) {
+	const main = mainCheckout(cwd);
+	if (main !== null) return main;
+	const found = readGitFile(cwd);
+	if (found === null) return cwd;
+	const registration = parseGitFileTarget(found.dir, found.text);
+	const common = registration && readRegistrationCommonDir(registration);
+	return (common && checkoutOf(common)) ?? found.dir;
+}
 
 /** @type {AsyncLocalStorage<Map<string, string>>} */
 const tickStores = new AsyncLocalStorage();
@@ -227,7 +252,17 @@ function holdsDir(root) {
 	const common = gitCommonDir(root) ?? readGitFileCommonDir(root);
 	const dir = buildStoreDir(root, common ?? own);
 	const broken = buildStoreDir(root, own);
-	if (common !== null && broken !== dir) tryAdoptStore(broken, dir);
+	/** @type {Adoption[]} */
+	const adoptions = [];
+	if (common !== null && broken !== dir)
+		adoptions.push({
+			from: broken,
+			remedy: STORE_REMEDY,
+			adopt: () => adoptStore(broken, dir, root),
+		});
+	if (common !== null && checkoutOf(common) === deref(root))
+		adoptions.push(...readWorktreeAdoptions(root, common, dir));
+	runAdoptions(dir, adoptions);
 	stores?.set(root, dir);
 	return dir;
 }
@@ -246,25 +281,80 @@ function buildStoreDir(root, key) {
 	);
 }
 
-/** @type {Map<string, string>} why adopting into each store last failed, by that store, for readHolds */
+/**
+ * One store's move into another, `from` naming what it reads for its fault.
+ * @typedef {{from: string, remedy: string, adopt: () => void}} Adoption
+ */
+
+const STORE_REMEDY =
+	"its holds read nowhere until it moves, so repair the directory";
+
+const REGISTRY_REMEDY =
+	"a hold its worktree raised while its .git file named nothing reads nowhere until it does, so repair it";
+
+/** @type {Map<string, Map<string, string>>} why each adoption into a store last failed, by that store and then by what it reads, for readHolds */
 const adoptFaults = new Map();
 
 /**
- * Adopt store `from` into `to`, a failure kept for readHolds to report: the
- * tick has no per-root catch, so a throw would stop every checkout's (#4718).
- * @param {string} from
+ * Run each adoption into store `to`, a failure kept for readHolds to report
+ * in place of a throw: the tick has no per-root catch, so a throw would stop
+ * every checkout's (#4718). A fault whose source this keying no longer reads
+ * goes, as a pruned registration's would.
  * @param {string} to
+ * @param {Adoption[]} adoptions
  */
-function tryAdoptStore(from, to) {
-	try {
-		adoptStore(from, to);
-		adoptFaults.delete(to);
-	} catch (err) {
-		adoptFaults.set(
-			to,
-			`${from}: ${caught(err).message}; its holds read nowhere until it moves into ${to}, so repair the directory`,
-		);
+function runAdoptions(to, adoptions) {
+	/** @type {Map<string, string>} */
+	const faults = new Map();
+	for (const { from, remedy, adopt } of adoptions) {
+		try {
+			adopt();
+		} catch (err) {
+			faults.set(from, `${from}: ${caught(err).message}; ${remedy}`);
+		}
 	}
+	adoptFaults.set(to, faults);
+}
+
+/**
+ * The adoptions into main checkout `root`'s store `dir` of each store a
+ * linked worktree of it keyed on its own `.git` while that file named nothing,
+ * taken once the file names `common` again (#4880). Each registration is one adoption, so one that will not
+ * read stops none of the others. RESIDUAL: a worktree whose registration is
+ * pruned while its file is broken has no registration to name it, and its
+ * holds read nowhere.
+ * @param {string} root
+ * @param {string} common
+ * @param {string} dir
+ * @returns {Adoption[]}
+ */
+function readWorktreeAdoptions(root, common, dir) {
+	const registry = path.join(common, "worktrees");
+	let registrations;
+	try {
+		registrations = readRegistrations(common);
+	} catch (err) {
+		return [
+			{
+				from: registry,
+				remedy: REGISTRY_REMEDY,
+				adopt: () => {
+					throw err;
+				},
+			},
+		];
+	}
+	return registrations.map((registration) => ({
+		from: registration,
+		remedy: REGISTRY_REMEDY,
+		adopt: () => {
+			const tree = readRegisteredTree(registration);
+			if (tree === null) return;
+			const named = readGitFileCommonDir(tree);
+			if (named !== null && deref(named) === deref(common))
+				adoptStore(buildStoreDir(tree, path.join(tree, ".git")), dir, root);
+		},
+	}));
 }
 
 /** Files that belong to a store, not to a hold: the store adopted into keeps its own. */
@@ -279,11 +369,12 @@ const OCCUPIED_CODES = new Set(["EEXIST", "ENOTEMPTY"]);
  * attach and replay file is named for its job. Any other file overwrites
  * `to`'s, as a raise clears what a lift left behind, save STORE_FILES. A
  * hold's record moves after the files named for it, so a reader of `to` never
- * meets it short of its notice.
+ * meets it short of its notice, and names `root`, the checkout `to` serves.
  * @param {string} from
  * @param {string} to
+ * @param {string} root
  */
-function adoptStore(from, to) {
+function adoptStore(from, to, root) {
 	const names = readNamesOrNone(from);
 	if (names.length === 0) return;
 	fs.mkdirSync(to, { recursive: true });
@@ -302,9 +393,27 @@ function adoptStore(from, to) {
 			renameEntry(path.join(from, name), path.join(to, name));
 	}
 	for (const name of names.filter(isHoldFileName))
-		if (!held.has(parseEntryId(name)))
+		if (!held.has(parseEntryId(name))) {
+			rehomeRecord(path.join(from, name), name, root);
 			renameEntry(path.join(from, name), path.join(to, name));
+		}
 	removeDirIfEmpty(from);
+}
+
+/**
+ * Point hold record `file` at checkout `root` where it names another, in
+ * place before it moves, so a death between leaves it to the next adoption
+ * already rewritten: a hold raised from a broken worktree runs its clear
+ * check and reads its config in the main checkout it now holds (#4880). A
+ * torn record or one lifted already is left to its reader.
+ * @param {string} file
+ * @param {string} name
+ * @param {string} root
+ */
+function rehomeRecord(file, name, root) {
+	const read = readHoldFile(file, name);
+	if (read === null || "torn" in read || read.hold.checkout === root) return;
+	writeFileAtomic(file, JSON.stringify({ ...read.hold, checkout: root }));
 }
 
 /**
@@ -549,8 +658,10 @@ function isHold(value, name) {
 function readHolds(root) {
 	const dir = holdsDir(root);
 	const read = readStoreHolds(dir);
-	const fault = adoptFaults.get(dir);
-	return fault ? { ...read, unread: [fault, ...read.unread] } : read;
+	const faults = [...(adoptFaults.get(dir)?.values() ?? [])];
+	return faults.length > 0
+		? { ...read, unread: [...faults, ...read.unread] }
+		: read;
 }
 
 /**
