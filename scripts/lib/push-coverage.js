@@ -39,10 +39,15 @@ function readUncovered(
 	try {
 		({ files } = select(dir));
 	} catch (err) {
+		/* Fails open: the land goes ahead, the warning saying why (#5016). */
 		return { why: caught(err).message.trim() };
 	}
 	if (files.length === 0) return { files: [], touched: 0, notice: null };
 	const found = look(files, { root: dir, storeRoot });
+	if (found.refused.length > 0)
+		return {
+			why: `${found.refused.join(", ")} carr${found.refused.length === 1 ? "ies" : "y"} an \`uncached:\` pragma naming no reason, which \`npm run test\` refuses`,
+		};
 	return { files: found.run, touched: files.length, notice: found.notice };
 }
 
