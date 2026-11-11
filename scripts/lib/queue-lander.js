@@ -404,7 +404,7 @@ const emptyPipeline = () => ({ line: [], search: null, depth: DEPTH_START });
 
 /**
  * The pipeline a run resumes: the record's, or an empty one where the record
- * is absent or torn.
+ * is absent or torn, a torn one moved aside first.
  * @param {import("./lander-records.js").RecordRead<Pipeline>} r
  * @returns {Pipeline}
  */
@@ -1893,7 +1893,7 @@ function stepOrEnd(s) {
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed, updated or left unfiled, one whose state was not read or that
  *   would not close, and a run not cancelled or an early batch push that
- *   failed
+ *   failed, and a torn pipeline record moved aside
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "deferrals" | "kept" | "unfiled" | "leftToNextRun" | "isClosed" | "baseFiled"
  *   | "baseTicket" | "superseded"> & {pending: Map<string, Pending>,
@@ -2995,16 +2995,33 @@ function pruneReaped(deps) {
  * @returns {Promise<QueueEnd>}
  */
 async function runQueueLander(deps) {
-	const { lock, log = () => undefined } = deps;
+	const { lock, log = () => undefined, say = () => undefined } = deps;
 	if (!lock.acquire()) {
 		const held = exit("another lander holds the lock");
 		log(held);
 		return held;
 	}
 	pruneReaped(deps);
+	const read = deps.record.read();
+	if (read.kind === "torn") {
+		let aside;
+		try {
+			aside = deps.record.quarantine();
+		} catch (err) {
+			const end = exit(
+				`pipeline record torn and not moved aside: ${parseRefusal(parseErrorText(err))}`,
+			);
+			log(end);
+			lock.release();
+			return end;
+		}
+		say(
+			`pipeline record torn, moved to ${aside}; starting from an empty pipeline`,
+		);
+	}
 	/** @type {QueueRun} */
 	let run = {
-		pipeline: pipelineOf(deps.record.read()),
+		pipeline: pipelineOf(read),
 		pending: new Map(),
 		acting: null,
 		unread: [],

@@ -127,6 +127,28 @@ describe("the pipeline record", () => {
 	});
 });
 
+describe("a torn pipeline record moved aside (#4905)", () => {
+	const at = Date.parse("2026-11-06T12:00:00Z");
+	const torn = '{"line": [';
+
+	it("renames the file beside itself, its contents intact, and never over an earlier one", () => {
+		const record = pipelineRecord(file, () => at);
+		fs.writeFileSync(file, torn);
+
+		const first = record.quarantine();
+		fs.writeFileSync(file, `${torn} 2`);
+		const second = record.quarantine();
+
+		expect(first).toBe(`${file}.torn-2026-11-06T12:00:00.000Z`);
+		expect(second).not.toBe(first);
+		expect(path.dirname(second)).toBe(dir);
+		expect(fs.readFileSync(first, "utf8")).toBe(torn);
+		expect(fs.readFileSync(second, "utf8")).toBe(`${torn} 2`);
+		expect(fs.existsSync(file)).toBe(false);
+		expect(record.read()).toEqual({ kind: "absent" });
+	});
+});
+
 describe("the drop record", () => {
 	const d = {
 		name: "a",

@@ -97,6 +97,10 @@ const freshDisk = () => ({
 	/** The refused record: each sha `main` refused, with its refusal. */
 	refused: new Map<string, string>(),
 	pipeline: null as Pipeline | null,
+	/** Whether the pipeline record reads as torn, until it is moved aside. */
+	torn: false,
+	/** Each pipeline record call that changes the file, in order. */
+	recordCalls: [] as ("write" | "quarantine")[],
 	drops: [] as Drop[],
 	log: [] as string[],
 	/** Each ticket's state; the filed ones open. */
@@ -170,6 +174,9 @@ interface Options {
 	runs?: readonly { at: string; sha: string }[];
 	/** The cancels a run started at `sha` goes unlisted for; none where absent. */
 	unlisted?: (sha: string) => number;
+	/** Throws in place of moving a torn pipeline record aside, while it
+	 * returns an error. */
+	quarantineFault?: () => Error | undefined;
 	/** Throws in place of the fix ticket search, while it returns an error. */
 	findFault?: () => Error | undefined;
 	/** Throws in place of closing a fix ticket, while it returns an error. */
@@ -380,13 +387,24 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			},
 		},
 		record: {
-			read: () =>
-				disk.pipeline
+			read: () => {
+				if (disk.torn) return { kind: "torn" as const };
+				return disk.pipeline
 					? { kind: "read" as const, value: disk.pipeline }
-					: { kind: "absent" as const },
+					: { kind: "absent" as const };
+			},
 			write: (p) => {
+				disk.recordCalls.push("write");
+				disk.torn = false;
 				disk.pipeline = p;
 				if (depths.at(-1) !== p.depth) depths.push(p.depth);
+			},
+			quarantine: () => {
+				disk.recordCalls.push("quarantine");
+				const err = o.quarantineFault?.();
+				if (err) throw err;
+				disk.torn = false;
+				return TORN_ASIDE;
 			},
 		},
 		drops: {
@@ -520,6 +538,8 @@ const taken = (actions: QueueAction[]) =>
 	);
 const NO_QUEUE = { kind: "exit", reason: "no queue ref waits" };
 const NOW = Date.parse("2026-11-06T12:00:00Z");
+const TORN_ASIDE =
+	"/markers/.queue-lander-batch.json.torn-2026-11-06T12:00:00.000Z";
 const DAY = 24 * 60 * 60 * 1000;
 /** A drop's decision state as dropped, and once its branch's ticket names it. */
 const OPEN = { state: "open", decidedAt: NOW } as const;
@@ -1828,6 +1848,56 @@ describe("a crash after main moved", () => {
 		]);
 		expect(disk.log).toEqual(["take x@x1", "land x@x1"]);
 		expect(batchIn(disk)?.phase).toBe("landed");
+	});
+});
+
+describe("a torn pipeline record (#4905)", () => {
+	const waiting = () =>
+		remoteOf("m0", { a: { sha: "a1", pushedAt: 1, onMain: true } });
+
+	it("moves the record aside before any write, says where, and runs as on an absent record", async () => {
+		const disk = freshDisk();
+		disk.torn = true;
+		const absent = await land(waiting(), freshDisk());
+
+		const { end, actions, said } = await land(waiting(), disk);
+
+		expect(disk.recordCalls[0]).toBe("quarantine");
+		expect(disk.recordCalls.filter((c) => c === "quarantine")).toHaveLength(1);
+		expect(said.filter((l) => l.includes(TORN_ASIDE))).toEqual([
+			`pipeline record torn, moved to ${TORN_ASIDE}; starting from an empty pipeline`,
+		]);
+		expect(actions).toEqual(absent.actions);
+		expect(end).toEqual(absent.end);
+		expect(said.slice(1)).toEqual(absent.said);
+	});
+
+	it("moves nothing aside and says nothing of the record where it is absent", async () => {
+		const disk = freshDisk();
+
+		const { said } = await land(waiting(), disk);
+
+		expect(disk.recordCalls).not.toContain("quarantine");
+		expect(said.filter((l) => l.includes("pipeline record"))).toEqual([]);
+	});
+
+	it("exits naming the failure, and never writes the record, where the move aside fails", async () => {
+		const remote = waiting();
+		const disk = freshDisk();
+		disk.torn = true;
+
+		const { end, actions } = await land(remote, disk, {
+			quarantineFault: () => new Error("EACCES: permission denied"),
+		});
+
+		expect(end).toEqual({
+			kind: "exit",
+			reason:
+				"pipeline record torn and not moved aside: EACCES: permission denied",
+		});
+		expect(actions).toEqual([end]);
+		expect(disk.recordCalls).toEqual(["quarantine"]);
+		expect(remote.main).toBe("m0");
 	});
 });
 
