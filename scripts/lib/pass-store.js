@@ -1076,15 +1076,22 @@ function buildUnkeyedVoidingRows(failed, seams) {
 }
 
 /**
- * A run's rows off its inputs: each file's known row, none where the tree
- * moved after the run's end snapshot, and a voiding row for each failed
- * file that has none.
+ * A run's rows off its inputs: each file's known row, and a voiding row for
+ * each failed file that has none. Where the tree moved after the run's end
+ * snapshot, every id was read off content no test saw, so it keys no row
+ * and its failures void unkeyed.
  * @param {RunInputs} inputs
  * @param {Seams} seams
  * @returns {Recorded[]}
  */
 function buildRows(inputs, seams) {
-	const known = inputs.isSettled ? buildKnownRows(inputs, seams) : [];
+	if (!inputs.isSettled) {
+		return buildUnkeyedVoidingRows(
+			inputs.gathered.filter((g) => g.outcome === "fail"),
+			seams,
+		);
+	}
+	const known = buildKnownRows(inputs, seams);
 	const keyed = new Set(known.map(({ row }) => row.file));
 	const failed = inputs.gathered.filter(
 		(g) => g.outcome === "fail" && !keyed.has(g.file),

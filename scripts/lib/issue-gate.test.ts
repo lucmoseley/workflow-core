@@ -15,6 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import MEASURED from "./fixtures/gate-cited-bases.json" with { type: "json" };
 import { readRuleText } from "./rule-text";
 
 const {
@@ -783,6 +784,16 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 		);
 	});
 
+	it("reads a count derivation that also cites issues as a count warrant, before any issue warrant (#5007)", () => {
+		const trace: unknown[] = [];
+		const follow = { tracker: "o/r", issues: new Map(), trace };
+		for (const n of ["4961", "4967", "4972", "4852"] as const) {
+			const { body } = MEASURED[n];
+			expect(basisFaults(body, Number(n), follow), n).toEqual([]);
+		}
+		expect(trace).toEqual([]);
+	});
+
 	it("owes no warrant on an event-only gate", () => {
 		expect(
 			basisFaults(
@@ -978,5 +989,248 @@ describe("reading an open map's Destination", () => {
 
 	it("reads nothing where the body has no Destination heading", () => {
 		expect(unfilled(`## Notes\n\n${UNFILLED_DESTINATION}`)).toBe(false);
+	});
+});
+
+describe("basisFaults — a cited issue followed one hop (#5007)", () => {
+	const Tracker = "lucmoseley/workflow-core-tracker";
+	interface Fixture {
+		state: string;
+		body: string;
+		comments: string[];
+	}
+	const fixtures = MEASURED as Record<string, Fixture>;
+	const issueOf = (f: Fixture) => ({
+		state: f.state.toLowerCase(),
+		texts: [f.body, ...f.comments],
+	});
+	/** The measured issues, read, keyed as the follow keys them. */
+	const read = () =>
+		new Map(
+			Object.entries(fixtures)
+				.filter(([n]) => /^\d+$/.test(n))
+				.map(([n, f]) => [`${Tracker}#${n}`, issueOf(f)]),
+		);
+	const judge = (
+		body: string,
+		own?: number,
+		issues: Map<string, unknown> = read(),
+	) => {
+		const trace: { cited: { key: string }[] }[] = [];
+		const faults = basisFaults(body, own, { tracker: Tracker, issues, trace });
+		return { faults, read: trace.flatMap((t) => t.cited.map((c) => c.key)) };
+	};
+	const reasons = (f: { cited?: { ref: string; reason: string }[] }[]) =>
+		f.flatMap((x) => x.cited ?? []);
+
+	// #5007's measured table, each body as its issue wrote it.
+	it.each([
+		[
+			"4961-rewritten",
+			undefined,
+			[{ ref: "#4951", reason: "no-own-warrant" }],
+			1,
+		],
+		["4893", 4893, [{ ref: "#4884", reason: "no-basis" }], 1],
+		[
+			"2827",
+			2827,
+			["#2821", "#2826", "#2823", "#2824"].map((ref) => ({
+				ref,
+				reason: "no-basis",
+			})),
+			4,
+		],
+		["1836", 1836, [{ ref: "#1776", reason: "no-own-warrant" }], 1],
+	])(
+		"faults %s, naming each cited issue and its reason",
+		(n, own, cited, reads) => {
+			const r = judge(fixtures[n].body, own);
+			expect(r.faults.map((f: { kind: string }) => f.kind)).toEqual([
+				"no-warrant",
+			]);
+			expect(reasons(r.faults)).toEqual(cited);
+			expect(r.read).toHaveLength(reads);
+		},
+	);
+
+	it.each([
+		["4961-filed", 4961],
+		["4530-gated", 4530],
+	])("faults %s for no warrant, following nothing", (n, own) => {
+		const r = judge(fixtures[n].body, own);
+		expect(r.faults.map((f: { kind: string }) => f.kind)).toEqual([
+			"no-warrant",
+		]);
+		expect(reasons(r.faults)).toEqual([]);
+		expect(r.read).toEqual([]);
+	});
+
+	it.each(["4961", "4791", "4862", "3432", "4781", "4967", "4972", "4852"])(
+		"passes #%s, following nothing",
+		(n) => {
+			const r = judge(fixtures[n].body, Number(n));
+			expect(r.faults).toEqual([]);
+			expect(r.read).toEqual([]);
+		},
+	);
+
+	const week = "**Gated until:** 2099-01-01 — a week after it lands";
+	const cites = (basis: string) => `${week}\n**Gate basis:** ${basis}`;
+	const issue = (...texts: string[]) => ({ state: "open", texts });
+	const Count =
+		"**Gate basis:** a week: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
+	const at = (n: number, i: unknown, repo = Tracker) =>
+		new Map([[`${repo.toLowerCase()}#${n}`, i]]);
+
+	it("stands on a cited basis naming the window with a count warrant, in the body or a comment", () => {
+		expect(
+			judge(cites("#12 set the week"), 1, at(12, issue(Count))).faults,
+		).toEqual([]);
+		expect(
+			judge(cites("#12 set the week"), 1, at(12, issue("Plain body.", Count)))
+				.faults,
+		).toEqual([]);
+	});
+
+	it("stands on a cited basis with a cycle warrant", () => {
+		const cycle =
+			"**Gate basis:** 7 days: the weekly export, 4 of 28 days carry it (`scripts/export-log.js`)";
+		expect(
+			judge(cites("#12 set a week"), 1, at(12, issue(cycle))).faults,
+		).toEqual([]);
+	});
+
+	it("faults a cited issue whose bases name another window, or carry no warrant of their own", () => {
+		const other = Count.replace(/a week/g, "a day");
+		expect(
+			reasons(judge(cites("#12 set a week"), 1, at(12, issue(other))).faults),
+		).toEqual([{ ref: "#12", reason: "no-window" }]);
+		const onward = "**Gate basis:** #13 set a week";
+		expect(
+			reasons(judge(cites("#12 set a week"), 1, at(12, issue(onward))).faults),
+		).toEqual([{ ref: "#12", reason: "no-own-warrant" }]);
+	});
+
+	it("stands where any one of a cited issue's bases stands, and any one cited issue", () => {
+		const two = issue("**Gate basis:** #13 set a week", Count);
+		expect(judge(cites("#12 set a week"), 1, at(12, two)).faults).toEqual([]);
+		const issues = new Map([
+			[`${Tracker}#12`, issue("no basis here")],
+			[`${Tracker}#14`, issue(Count)],
+		]);
+		expect(judge(cites("#12 and #14 set a week"), 1, issues).faults).toEqual(
+			[],
+		);
+	});
+
+	it("reads a closed issue as an open one, and counts no basis quoted in a fence or code span", () => {
+		expect(
+			reasons(
+				judge(
+					cites("#12 set a week"),
+					1,
+					at(12, { state: "closed", texts: ["x"] }),
+				).faults,
+			),
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
+		expect(
+			reasons(
+				judge(
+					cites("#12 set a week"),
+					1,
+					at(12, issue(`\`\`\`\n${Count}\n\`\`\``)),
+				).faults,
+			),
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
+		expect(
+			reasons(
+				judge(cites("#12 set a week"), 1, at(12, issue(`\`${Count}\``))).faults,
+			),
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
+	});
+
+	it("stands on a question round the cited issue holds, needing no basis there", () => {
+		const round = cites("a week is #1556 Q4 (A)'s ruling");
+		expect(judge(round, 1).faults).toEqual([]);
+		const typo = cites("a week is #1556 Q9 (A)'s ruling");
+		expect(reasons(judge(typo, 1).faults)).toEqual([
+			{ ref: "#1556 Q9", reason: "no-round" },
+		]);
+		expect(
+			reasons(judge(round, 1, at(1556, issue("`**Q4**` quoted"))).faults),
+		).toEqual([{ ref: "#1556 Q4", reason: "no-round" }]);
+	});
+
+	it("follows no event anchor and not the body's own number", () => {
+		expect(
+			judge(cites("#12 landed on 5 Nov, and the body asks for a week"), 1).read,
+		).toEqual([]);
+		expect(judge(cites("#77 ruled a week"), 77).read).toEqual([]);
+	});
+
+	it("reads `owner/name#N` in that repo and `name#N` under the tracker's owner", () => {
+		expect(judge(cites("acme/lib#12 set a week"), 1, new Map()).read).toEqual([
+			"acme/lib#12",
+		]);
+		expect(
+			judge(cites("mantahostels#12 set a week"), 1, new Map()).read,
+		).toEqual(["lucmoseley/mantahostels#12"]);
+		expect(
+			judge(
+				cites("acme/Lib#12 set a week"),
+				1,
+				at(12, issue(Count), "acme/lib"),
+			).faults,
+		).toEqual([]);
+	});
+
+	it("judges a basis on its form where a cited issue went unread, and faults a number that is no issue as holding no basis", () => {
+		expect(judge(cites("#12 set a week"), 1, new Map()).faults).toEqual([]);
+		expect(
+			reasons(judge(cites("#12 set a week"), 1, at(12, null)).faults),
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
+	});
+
+	it("follows no basis an edit leaves untouched, and every basis on a re-gate", () => {
+		const legacy = cites("#12 set a week");
+		const trace: unknown[] = [];
+		const follow = { tracker: Tracker, issues: at(12, issue("x")), trace };
+		expect(introducedBasisFaults(legacy, `${legacy}\nnote`, 1, follow)).toEqual(
+			[],
+		);
+		expect(trace).toEqual([]);
+		expect(
+			reasons(
+				introducedBasisFaults(
+					legacy,
+					legacy.replace("2099-01-01", "2099-02-01"),
+					1,
+					follow,
+				),
+			),
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
+		expect(
+			reasons(
+				introducedBasisFaults(
+					legacy,
+					legacy.replace("set a week", "set the week, a week"),
+					1,
+					follow,
+				),
+			),
+		).toEqual([{ ref: "#12", reason: "no-basis" }]);
+	});
+
+	it("words each cited issue's reason in the refusal", () => {
+		const text = basisRefusal(judge(fixtures["2827"].body, 2827).faults);
+		expect(text).toContain(
+			"(it cites #2821, which has no `**Gate basis:**` line; and #2826, which has no `**Gate basis:**` line;",
+		);
+		expect(
+			basisRefusal(judge(fixtures["4961-rewritten"].body).faults),
+		).toContain(
+			'"7 days is the window #4951 set." (it cites #4951, whose basis naming its window carries no count or cycle warrant of its own), which carries no warrant',
+		);
 	});
 });

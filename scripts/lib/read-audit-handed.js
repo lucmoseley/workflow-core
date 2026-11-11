@@ -20,7 +20,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
-const { PATH_MAX } = require("./read-audit-paths.js");
+const { PATH_MAX, toPosix } = require("./read-audit-paths.js");
 
 /**
  * What handed a child a checkout path, as the preload logs it on the
@@ -55,7 +55,7 @@ function buildHanded(root) {
 	/** @param {string} abs */
 	const relOf = (abs) => {
 		const r = relativeUnder(root, abs);
-		return r === null ? null : r.split(path.sep).join("/") || ".";
+		return r === null ? null : toPosix(r) || ".";
 	};
 	/**
 	 * `abs` with its links followed, through the deepest part of it that
