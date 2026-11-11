@@ -2,8 +2,8 @@
 /*
  * guard-held-ticket.js — Stop hook. Refuses a turn ending `result:` or with no
  * status marker while the session holds the arbiter claim on an unfinished
- * build unit: an open, unparked `kind:ticket` with an unticked, unwaived
- * criterion (lib/held-unit.js).
+ * build unit: an open, unparked, ungated `kind:ticket` with an unticked,
+ * unwaived criterion (lib/held-unit.js).
  *
  * IMPLICIT:  at every Stop of a session holding an issue claim and ending on
  *            `result:` or no marker, reads each claimed issue from GitHub and
@@ -66,7 +66,7 @@ function isPastTripwire(payload, sid) {
 function buildReason(units) {
 	const named = units.map((n) => `#${n}`).join(", ");
 	return (
-		`This session claims ${named}, an open \`kind:ticket\` with an unticked, unwaived acceptance criterion and no \`parked\` label — so the build unit is not finished, and this turn would end the session on it. No ticket comment or body note moves a unit's boundary; it was set at filing by the size line (\`rule:size-line\`).\n` +
+		`This session claims ${named}, an open \`kind:ticket\` with an unticked, unwaived acceptance criterion, no \`parked\` label and no holding gate line — so the build unit is not finished, and this turn would end the session on it. No ticket comment or body note moves a unit's boundary; it was set at filing by the size line (\`rule:size-line\`).\n` +
 		`Carry on with the unit: its remaining criteria, the closing review, and the close through \`node ${scriptPath("resolve-ticket.js")}\`, which releases the claim.\n` +
 		`Where it genuinely cannot be finished, leave by one of the four exits: ${EXITS}.\n` +
 		"Then re-send the message this turn was going to end on, its status marker included — this block discarded it."

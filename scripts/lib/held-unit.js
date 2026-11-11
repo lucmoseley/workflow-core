@@ -1,6 +1,9 @@
 /*
  * held-unit.js — an unfinished build unit: an open `kind:ticket` with an
- * unticked, unwaived criterion (lib/ticket-criteria.js) and no `parked` label.
+ * unticked, unwaived criterion (lib/ticket-criteria.js), no `parked` label and
+ * no holding `**Gated until:**` or `**Gated on:**` line (lib/issue-gate.js).
+ * A gate that holds waits on data, not on the session, and pick-next already
+ * holds the ticket out of the shortlist (#4991).
  * session-arbiter.js's `release-issue` refuses to drop the claim on one, and
  * guard-held-ticket.js refuses a session-ending turn while one is claimed.
  *
@@ -19,6 +22,7 @@
 const { readCommitsBy } = require("./arbiter-store");
 const { gitIn } = require("./arbiter-core");
 const { ghJson } = require("./gh");
+const { resolveGate } = require("./issue-gate");
 const { PARKED_LABEL } = require("./parked");
 const { scriptPath } = require("./script-path");
 const { TRIPWIRE } = require("./session-tripwire");
@@ -36,12 +40,15 @@ function isUnfinishedUnit(issue) {
 	const labels = (issue.labels ?? []).map((l) =>
 		typeof l === "string" ? l : l.name,
 	);
-	return (
-		issue.state === "open" &&
-		labels.includes(KIND_TICKET) &&
-		!labels.includes(PARKED_LABEL) &&
-		unmetCriteria(issue.body).length > 0
-	);
+	if (
+		issue.state !== "open" ||
+		!labels.includes(KIND_TICKET) ||
+		labels.includes(PARKED_LABEL) ||
+		unmetCriteria(issue.body).length === 0
+	)
+		return false;
+	const gate = resolveGate(issue.body ?? "");
+	return !(gate.gateHolds || gate.gateOnHolds);
 }
 
 /**

@@ -2335,6 +2335,8 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535, on #
 	const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 	const At = "repos/acme/widgets/issues/645";
 	const Unmet = "## Acceptance criteria\n\n- [x] one\n- [ ] two\n";
+	const HoldingOn =
+		"**Gated on:** 368 post-change stays recorded — abandon if: the change is reverted";
 	const unit = ({
 		state = "open",
 		labels = ["kind:ticket", "takes:implement"],
@@ -2404,12 +2406,37 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535, on #
 			}),
 		],
 		["not a kind:ticket", unit({ labels: ["kind:brief"] })],
+		[
+			"held by its `**Gated until:**` line (#4991)",
+			unit({ body: `${Unmet}\n**Gated until:** 2999-01-01 — data accrues\n` }),
+		],
+		[
+			"held by its `**Gated on:**` line (#4991)",
+			unit({ body: `${Unmet}\n${HoldingOn}\n` }),
+		],
 	])("releases where the issue is %s", (_, answer) => {
 		claimAs("alice");
 		fakeGh(sb, { [At]: answer });
 		const r = release();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/Released the claim on #645/);
+	});
+
+	it.each([
+		[
+			"a lapsed `**Gated until:**` line",
+			"**Gated until:** 2000-01-01 — data accrued",
+		],
+		[
+			"a malformed `**Gated on:**` line",
+			"**Gated on:** 368 post-change stays recorded",
+		],
+	])("still refuses where the unit carries only %s (#4991)", (_, gate) => {
+		claimAs("alice");
+		fakeGh(sb, { [At]: unit({ body: `${Unmet}\n${gate}\n` }) });
+		const r = release();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("refusing to release #645");
 	});
 
 	it("releases the claim park-blocked.sh's record names, reading nothing", () => {
