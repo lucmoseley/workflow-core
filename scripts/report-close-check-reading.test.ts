@@ -719,7 +719,7 @@ describe("the research ladder (#2010)", () => {
 		expect(lines.slice(1, 5)).toEqual([
 			"- Refused on the ladder: 2 refusal(s) of 1 question(s); 1 still-caught re-send(s) let through at its cap with rungs missing.",
 			"- Still-caught re-sends passed: 3, of 4 re-sends. Rungs tried, of 2 with a readable transcript: past rulings 2, web 1, subagent 2; all three 1.",
-			"- Flipped top option: 2 of 4 (50%) re-sends; 1 of those flips cite a new fact. A new citation in the option lines: 2 of 4 (50%).",
+			"- Flipped top option: 2 of 4 (50%) re-sends; 1 of those flips cite a new fact. A new citation in the question block (its option lines alone before #4945): 2 of 4 (50%).",
 			"- Success line: stock floor 0 of 3 (0%) answered still-caught re-sends drew a research prompt. Baseline about 19% of still-close re-sends (7 of the 8 traced prompts followed one, #1894), close re-sends alone, so low-top re-sends have none. Line 10% or less: undecided — missed if 1 of the 3 listed repl(ies) are prompts.",
 		]);
 		expect(lines).toContain(
