@@ -25,7 +25,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	readOverflowLookup,
@@ -39,7 +39,12 @@ import {
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import type { HeadlessCall } from "./lib/headless-run-fake";
-import { readRun } from "./lib/headless-runs.js";
+import {
+	readLiveAgents,
+	readRun,
+	readStoredRuns,
+	stop,
+} from "./lib/headless-runs.js";
 import { launchBatch } from "./lib/refill-batch.js";
 import { sleepSync } from "./lib/sleep-sync.js";
 import { isTestKind } from "./lib/test-kind.js";
@@ -144,6 +149,21 @@ function storedRun(jobId: string) {
 	vi.stubEnv("WFC_REFILL_DIR", refill());
 	return readRun(jobId);
 }
+
+/* Ends every run the case launched, before the fixture's teardown removes
+ * the tree it writes into (#5014). The launch detaches each run, so a case
+ * that returns before its run has written all it will, as the #4245 and #3700
+ * cases did, left it writing as `rmSync` walked the fixture, which threw
+ * ENOTEMPTY: the file's only red in a lander batch for a sha that then landed
+ * (`.queue-lander-verdicts.jsonl`, 2026-11-06 to 2026-11-11). Registered after
+ * dispatchFixture's, so it runs before that removal. */
+function endLaunchedRuns() {
+	vi.stubEnv("WFC_REFILL_DIR", refill());
+	return readStoredRuns().map((r) => stop(r.jobId, { graceMs: 1000 }));
+}
+afterEach(() => {
+	endLaunchedRuns();
+});
 
 const readStoredJobIds = () => {
 	const store = path.join(refill(), ".headless-runs");
@@ -310,6 +330,7 @@ describe("an overflow seat (#2610)", () => {
 			WFC_MODULES: LANDING_MODULES,
 		});
 		expect(r.failed).toBeNull();
+		readHeadlessLaunches(1);
 		const [cwd = ""] = fx.launchCwds();
 		expect(path.dirname(cwd)).toBe(
 			fs.realpathSync(path.join(fx.dir, ".claude", "worktrees")),
@@ -610,5 +631,15 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 			].sort(),
 		);
 		expect(readLookup()({ jobId: entry?.jobId, sessionId: "any" })).toBeNull();
+	});
+});
+
+describe("the teardown (#5014)", () => {
+	it("ends every run a case launched, so none is left writing into the fixture it removes", () => {
+		stub({ headless: "hold" });
+		dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
+		expect(readHeadlessLaunches(2)).toHaveLength(2);
+		expect(endLaunchedRuns()).toEqual(["stopped", "stopped"]);
+		expect(readLiveAgents()).toEqual([]);
 	});
 });
