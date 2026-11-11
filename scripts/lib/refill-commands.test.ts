@@ -1018,7 +1018,7 @@ describe("planSet's resume with no process (#3861)", () => {
 });
 
 describe("a set's switch to away (#3870)", () => {
-	it("dates the switch now with no absent read, so a tick takes only a later prompt for his return", () => {
+	it("dates the switch now, so only a later prompt reads as his return", () => {
 		const back = {
 			noProgressFrom: 5,
 			stopRequested: false,
@@ -1038,7 +1038,7 @@ describe("a set's switch to away (#3870)", () => {
 		expect(plan).toMatchObject({
 			write: {
 				scope: { mode: "away", repos: ["/repo"] },
-				away: { since: NOW, absentSeen: false },
+				away: { since: NOW },
 			},
 			lines: ["mode:      away"],
 		});

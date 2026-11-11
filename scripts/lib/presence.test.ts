@@ -13,7 +13,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { markPresent, presenceAt, readLastTyped } from "./presence";
+import {
+	isAbsentSinceSwitch,
+	markPresent,
+	presenceAt,
+	readLastTyped,
+} from "./presence";
 import { readDeclaredSeats } from "./refill-seats";
 
 const NOW = new Date("2026-10-18T09:00:00.000Z");
@@ -37,6 +42,33 @@ describe("presenceAt", () => {
 
 	it("reads a record later than the clock as away", () => {
 		expect(presenceAt(ago(-60 * 1000), NOW)).toBe("away");
+	});
+});
+
+describe("isAbsentSinceSwitch (#4846, #4976)", () => {
+	const Switched = ago(8 * 3600 * 1000);
+
+	it("reads him away once the later of the last prompt and the switch is a window old", () => {
+		expect(isAbsentSinceSwitch(Switched, Switched - 60 * 1000, NOW)).toBe(true);
+		expect(isAbsentSinceSwitch(Switched, ago(WINDOW_MS), NOW)).toBe(true);
+	});
+
+	it("reads him present for a prompt inside the window", () => {
+		expect(isAbsentSinceSwitch(Switched, ago(WINDOW_MS - 1), NOW)).toBe(false);
+	});
+
+	it("reads a switch inside the window as presence, however old the last prompt (#4184)", () => {
+		expect(isAbsentSinceSwitch(ago(60 * 1000), ago(8 * 3600 * 1000), NOW)).toBe(
+			false,
+		);
+		expect(isAbsentSinceSwitch(ago(60 * 1000), null, NOW)).toBe(false);
+		expect(isAbsentSinceSwitch(ago(WINDOW_MS), null, NOW)).toBe(true);
+	});
+
+	it("reads the last prompt alone where the control holds no readable switch", () => {
+		expect(isAbsentSinceSwitch(undefined, ago(WINDOW_MS), NOW)).toBe(true);
+		expect(isAbsentSinceSwitch(undefined, ago(0), NOW)).toBe(false);
+		expect(isAbsentSinceSwitch(undefined, null, NOW)).toBe(true);
 	});
 });
 
