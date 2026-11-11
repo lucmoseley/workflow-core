@@ -74,23 +74,33 @@ const SOURCED_TAIL_RE = /^[\w.-]+(?:\/[\w.-]+)*\.sh$/;
 
 const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
 
+/**
+ * A whole-line assignment of an expansion-led path to a variable, the name
+ * its group 1 and the path after the expansion's slash, matching `pathRe`,
+ * its group 2.
+ * @param {string} pathRe
+ */
+const varAssignRe = (pathRe) =>
+	new RegExp(
+		`^[ \\t]*(?:local\\s+|readonly\\s+)?(\\w+)="?\\$[^\\n]*?\\/(${pathRe})"?[ \\t]*(?:#[^\\n]*)?$`,
+		"gm",
+	);
+
 /*
  * A program's path assigned to a variable the guard then runs (#2487),
  * `lib="$here/lib/x.js"` and then `node "$lib"`, or a `.sh` run by `bash`
  * or `sh` (#4730). Self-relative, as parseProgramRuns' path is.
  */
-const VAR_PATH_RE = new RegExp(
-	`^[ \\t]*(?:local\\s+|readonly\\s+)?(\\w+)="?\\$[^\\n]*?\\/([\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")}))"?[ \\t]*(?:#[^\\n]*)?$`,
-	"gm",
+const VAR_PATH_RE = varAssignRe(
+	`[\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")})`,
 );
 
 /**
  * A directory assigned to a variable a guard then runs a program in
- * (#4890), `lib="$(cd "$here" && pwd)/lib"` and then `sh "$lib/x.sh"`:
- * VAR_PATH_RE's shape, ending in a path that names no program.
+ * (#4890), `lib="$(cd "$here" && pwd)/lib"` and then `sh "$lib/x.sh"`.
+ * A path ending in a program suffix is VAR_PATH_RE's, and parseRuns drops it.
  */
-const VAR_DIR_RE =
-	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w.-]*(?:\/[\w-][\w.-]*)*)"?[ \t]*(?:#[^\n]*)?$/gm;
+const VAR_DIR_RE = varAssignRe("[\\w-][\\w.-]*(?:\\/[\\w-][\\w.-]*)*");
 
 /** The variable a run's lead names alone: `lib` of `$lib/`, `${lib}/`, `"$lib"/`. */
 const LEAD_VAR_RE = /^\{?(\w+)\}?"?$/;
@@ -311,8 +321,8 @@ function parseRuns(dir, text, isFile) {
 	/** A `//` before `node` makes a JS line dead. */
 	/** @template {{prefix: string}} M @param {M[]} matches */
 	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
-	const assigned = assignments(text, VAR_PATH_RE);
-	const dirs = assignments(
+	const assigned = parseAssignments(text, VAR_PATH_RE);
+	const dirs = parseAssignments(
 		text,
 		VAR_DIR_RE,
 		(p) => !PROGRAM_SUFFIXES.some((s) => p.endsWith(s)),
@@ -349,7 +359,7 @@ function parseRuns(dir, text, isFile) {
  * @param {(path: string) => boolean} [keep]
  * @returns {Map<string, string[]>}
  */
-function assignments(text, re, keep = () => true) {
+function parseAssignments(text, re, keep = () => true) {
 	/** @type {Map<string, string[]>} */
 	const out = new Map();
 	for (const m of text.matchAll(re)) {

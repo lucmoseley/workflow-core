@@ -34,17 +34,19 @@ const RUN_RE =
 const VAR_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
-const groups = (re: RegExp, text: string): Match[] =>
-	[...text.matchAll(re)].map((m) => ({
-		prefix: m[1] ?? "",
-		value: m[2] ?? "",
-	}));
-const runGroups = (text: string): RunMatch[] =>
-	[...text.matchAll(RUN_RE)].map((m) => ({
-		prefix: m[1] ?? "",
-		lead: m[2] ?? "",
-		value: m[3] ?? "",
-	}));
+/** Each match of `re` as an object keyed by `fields`, group 1 onwards. */
+const groups = <T>(
+	re: RegExp,
+	text: string,
+	fields: readonly (keyof T & string)[],
+): T[] =>
+	[...text.matchAll(re)].map(
+		(m) => Object.fromEntries(fields.map((f, i) => [f, m[i + 1] ?? ""])) as T,
+	);
+const varGroups = (text: string) =>
+	groups<Match>(VAR_RE, text, ["prefix", "value"]);
+const runGroups = (text: string) =>
+	groups<RunMatch>(RUN_RE, text, ["prefix", "lead", "value"]);
 
 const PLANTED = [
 	'source "$here/lib/guard-log.sh"',
@@ -99,7 +101,7 @@ describe("parseProgramRuns", () => {
 
 describe("parseProgramVars", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseProgramVars(text)).toEqual(groups(VAR_RE, text));
+		expect(parseProgramVars(text)).toEqual(varGroups(text));
 	});
 });
 
@@ -151,8 +153,7 @@ describe("every parser against its regex over generated texts", () => {
 		const off = texts.filter(
 			(t) =>
 				JSON.stringify(parseProgramRuns(t)) !== JSON.stringify(runGroups(t)) ||
-				JSON.stringify(parseProgramVars(t)) !==
-					JSON.stringify(groups(VAR_RE, t)),
+				JSON.stringify(parseProgramVars(t)) !== JSON.stringify(varGroups(t)),
 		);
 		expect(off).toEqual([]);
 	});

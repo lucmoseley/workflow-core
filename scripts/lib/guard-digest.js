@@ -234,7 +234,8 @@ function hashClosure(base, rel, acc, inStack) {
  * still moves the digest by the bytes it drops.
  * @param {string} base
  * @param {string} lib
- * @param {{ hashed: Set<string>, absent: Set<string> }} acc hashClosure's
+ * @param {{ hashed: Set<string>, absent: Set<string> }} acc accumulator:
+ *   hashClosure's; a dependency absent from the tree is added to both
  * @param {{ stack: boolean, onlyRun: boolean }} how reached from a gate
  *   stack, and only run by its dependant
  * @returns {string | null}
