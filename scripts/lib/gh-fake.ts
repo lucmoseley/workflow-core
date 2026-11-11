@@ -242,6 +242,49 @@ function answerGraphql(argv, closed, missing, missingRepos = []) {
 }`;
 
 /**
+ * The source of `answerCited(argv, issues)`: lib/basis-cited-read.js's
+ * batched read of the issues a basis cites, each page of comments cut at the
+ * query's own `first:` from its `after:` cursor (#5007). `issues` maps
+ * `owner/name` to that repo's issues by number, `{state, body, comments}`;
+ * a repo it does not name answers null, as a number its repo lacks does.
+ */
+export const CITED_GRAPHQL_FAKE = String.raw`${GRAPHQL_FAKE}
+function answerCited(argv, issues) {
+	const query = argv.find((a) => a.startsWith("query=")).slice(6);
+	const data = {};
+	for (const chunk of query.split(/ (?=r\d+: repository\()/).slice(1)) {
+		const alias = chunk.split(":")[0];
+		const [, owner, name] = chunk.match(/repository\(owner: ("(?:[^"\\]|\\.)*"), name: ("(?:[^"\\]|\\.)*")\)/);
+		const held = issues[(JSON.parse(owner) + "/" + JSON.parse(name)).toLowerCase()];
+		if (!held) {
+			data[alias] = null;
+			continue;
+		}
+		data[alias] = {};
+		const pages = /n(\d+): issueOrPullRequest\(number: \d+\) \{ __typename \.\.\. on Issue \{ (state body )?comments\(first: (\d+)(?:, after: "(\d+)")?\)/g;
+		for (const [, n, first, size, after] of chunk.matchAll(pages)) {
+			const issue = held[n];
+			if (!issue) {
+				data[alias]["n" + n] = null;
+				continue;
+			}
+			const comments = issue.comments ?? [];
+			const from = Number(after ?? 0);
+			const to = from + Number(size);
+			data[alias]["n" + n] = {
+				__typename: "Issue",
+				...(first ? { state: issue.state ?? "OPEN", body: issue.body ?? "" } : {}),
+				comments: {
+					pageInfo: { hasNextPage: to < comments.length, endCursor: String(to) },
+					nodes: comments.slice(from, to).map((body) => ({ body })),
+				},
+			};
+		}
+	}
+	return answerIssueData(argv, data);
+}`;
+
+/**
  * The source of `answerBlockedBy(argv, rowsOf)`: lib/blocked-by-batch.js's
  * batched blockers read. `rowsOf(n)` gives issue n's blockers as
  * `{number, state, repo?, title?, body?, labels?}` rows, or null for an

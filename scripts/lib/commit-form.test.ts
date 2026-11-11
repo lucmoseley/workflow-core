@@ -647,6 +647,11 @@ describe("`git commit -a` is denied — it sweeps in every dirty tracked file", 
 			'git commit -m "one" -- docs/x.md && git commit -am "two"',
 			"later in a chain",
 		],
+		[
+			'flock /l -c "true\ngit commit -am fix"',
+			"a -c string's later line (#4978)",
+		],
+		['flock /l -c "true; git commit -am fix"', "a -c string's later command"],
 	])("%s — %s", (command) => {
 		expect(readDenyReason(command)).toContain(Sweeps);
 	});
@@ -1192,6 +1197,14 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		// Whatever the scope, the pathspec rule is never scoped out: it is about
 		// the act, not about a gate that will judge the result.
 		expect(got).toContain("commit-pathspec");
+	});
+
+	it.each([
+		'flock /l -c "true\ngit commit -m x -- docs/x.md"',
+		'flock /l -c "true; git commit -m x -- docs/x.md"',
+	])("%s is handed the path-gated rule its bare form is (#4978)", (command) => {
+		expect(idsIn(command)).toEqual(idsIn('git commit -m "x" -- docs/x.md'));
+		expect(idsIn(command)).toContain("doc-map-precommit");
 	});
 
 	/* A path each rule is scoped IN on, so only the module decides (#449). */

@@ -138,8 +138,21 @@ describe("an uncapped generator is refused (#2710)", () => {
 		"yes >/dev/null | true &",
 		"bash --rcfile x.sh -c 'yes >/dev/null &'",
 		"systemd-run --user --scope -p CPUQuota=400.5% yes >/dev/null &",
+		// A flock -c or watch script, first line or later (#4978).
+		'flock /l -c "yes > /dev/null &"',
+		'flock /l -c "true\nyes > /dev/null &"',
+		'flock /l -c "true; yes > /dev/null &"',
+		'timeout 9 flock -w 5 /l --command "yes &"',
+		'watch -n 5 "yes > /dev/null &"',
+		"flock /l yes &",
 	])("%s", (command) => {
 		expect(refusal(command)).toContain(G);
+	});
+
+	it("names a generator a flock -c string runs, and the string (#4978)", () => {
+		expect(refusal('flock /l -c "yes >/dev/null"')).toBe(
+			refused8('yes >/dev/null (in flock /l -c "…")'),
+		);
 	});
 
 	it.each([
@@ -268,6 +281,9 @@ describe("what counts as a generator", () => {
 		"stress -?",
 		"stress-ng --help",
 		'"yes" > /dev/null',
+		'flock /l -c "yes | head"',
+		"flock /l true",
+		'flock /l -c "taskset -c 0-3 yes > /dev/null &"',
 	])("passes %s", (command) => {
 		expect(refusal(command)).toBeNull();
 	});

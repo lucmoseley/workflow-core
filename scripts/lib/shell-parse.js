@@ -446,7 +446,8 @@ const isWriteRedirect = (kind) =>
  * segment. The join is ABANDONED the moment it would absorb a line that runs
  * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
  * a stray quote would hide every line after it — EXCEPT inside a message
- * argument (mantahostels#232), whose lines are prose.
+ * argument (mantahostels#232), whose lines are prose, and a script unwrap
+ * reads (#4978).
  *
  * Each command substitution a double-quoted span runs is LIFTED into segments
  * of its own, bracketed as a subshell, ahead of the segment holding the span
@@ -672,10 +673,9 @@ function parseHeredocTerm(mask, line) {
 /**
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
- * line outside a message argument (mantahostels#232). The abandon is the
- * fail-closed read of a quote typed by mistake: a stray apostrophe that a
- * later line's quote closes would hide every command between them. A quote
- * opening a message argument was meant, so only there does the join hold.
+ * line outside a message argument (mantahostels#232) or a script unwrap reads
+ * (#4978). A `sh -c` script is not among them: no git guard reads one. Residual: three cores read no unwrap run, so such a
+ * script's later `gh` or text line passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -690,18 +690,17 @@ function joinLogicalLines(commandLines, lx, spans) {
 		pending = [];
 		lx.reset();
 	};
-	/* Whether the open quote is a message is asked once per span. */
-	let messageAt = "";
-	let prose = false;
+	let heldAt = "";
+	let held = false;
 	lx.reset();
 	for (const line of commandLines) {
 		if (pending.length > 0) {
 			const at = `${lx.opens}${lx.frames ? "open" : ""}`;
-			if (messageAt !== at) {
-				messageAt = at;
-				prose = isMessageOpen(lx);
+			if (heldAt !== at) {
+				heldAt = at;
+				held = isJoinHeld(lx, spans);
 			}
-			if (!prose && isCommandAbsorbed(line, spans)) {
+			if (!held && isCommandAbsorbed(line, spans)) {
 				pending.push(line);
 				keepPerLine();
 				continue;
@@ -764,6 +763,26 @@ function isMessageOpen(lx) {
 		basename(words[wi] ?? "") === "gh" &&
 		["-b", "--body", "-t", "--title"].includes(word)
 	);
+}
+
+/**
+ * Does the lexer's still-open quote hold its join through a GUARDED_HEADS line?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+const isJoinHeld = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
+
+/**
+ * Is the lexer's still-open quote, opening a word of its own, the script a
+ * `flock -c` or `watch` runs (#4978)?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+function isScriptOpen(lx, spans) {
+	if (!/[ \t]$/.test(lx.prefix)) return false;
+	const lines = flatten(lx.prefix).split("\n");
+	const { words, wi, ran } = commandWords(lines.at(-2) ?? "");
+	return ran && shellWords.isScriptNext(words.slice(wi), spans);
 }
 
 /**
@@ -1779,7 +1798,10 @@ const withoutName = (words, name, spans) =>
  *   substituted EMPTY and judged, which in quotes is the cwd. Shell state does
  *   not carry between Bash calls, so that is the tree the command runs in
  * @property {boolean} [unwrap] judge a git command behind shell-words.js's
- *   unwrap wrappers (#1731)
+ *   unwrap wrappers (#1731). Without it, a command a `flock -c` or `watch`
+ *   script runs is still judged (#4978), behind an outer wrapper too
+ *   (`timeout 5 flock … -c "git …"`), while a bare `timeout 5 git …` stays
+ *   unread
  */
 
 /**
@@ -1918,8 +1940,8 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  * @param {CommandWords} cw
  * @param {number} segIdx
  * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
- *   `unwrapped` judges past the launcher wrappers (#1731), each command a
- *   `-c` string runs among them (#4699)
+ *   `unwrapped` judges past the launcher wrappers (#1731); each command a
+ *   `-c` string runs is judged either way (#4699, #4978)
  * @returns {(GitTarget & { sub: string, args: string[] })[]}
  */
 function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
@@ -1932,9 +1954,13 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	if (stepCwd(walk, own, segIdx, how.isDir)) return [];
 	if (trackExport(walk, own)) return [];
 	const leading = words.slice(0, assignEnd);
+	const unwrapped = unwrap(own, walk.scope.spans);
 	const runs = how.unwrapped
-		? unwrap(own, walk.scope.spans)
-		: [{ words: own, wrapperWords: [], chdirs: [], unread: [] }];
+		? unwrapped
+		: [
+				{ words: own, wrapperWords: [], chdirs: [], unread: [] },
+				...unwrapped.filter((run) => run.scripted),
+			];
 	const gitRuns = runs.filter(
 		(run) => commandName(run.words[0] ?? "") === "git",
 	);
