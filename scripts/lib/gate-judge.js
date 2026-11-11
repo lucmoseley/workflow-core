@@ -485,7 +485,7 @@ const MIN_BOUND_MS = 5000;
 
 /**
  * The refusal's model part: the faults, then the rule, with its template and
- * the override line's form, where no pattern refusal printed it.
+ * the override line's form.
  *
  * @param {JudgedFault[]} model
  * @param {boolean} afterPatterns
@@ -538,8 +538,7 @@ function answer(patterns, read, override) {
  * One write route's gate reading (#4964): `refusal` completes "<the body>
  * carries …" where the patterns or the model fault the body, a live
  * `**Gate judge override:** <reason>` clearing the model's faults (#4970);
- * else `advice`, the notes the route prints beside its output, or "". Each
- * model call is logged. An edit that changes nothing calls no model, and a
+ * else `advice`, the notes the route prints beside its output, or "". An edit that changes nothing calls no model, and a
  * bound under MIN_BOUND_MS is a fallback without one.
  *
  * `WFC_GATE_JUDGE=off` is the suites' seam (vitest.setup.ts): no call, no

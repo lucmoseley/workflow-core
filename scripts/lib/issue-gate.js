@@ -267,8 +267,7 @@ const OVERRIDE_RE = fieldLineRe("Gate judge override");
 
 /**
  * The body's first live `**Gate judge override:**` line (#4970), outside a
- * fence: with a reason it clears the model reading's faults on the body
- * (lib/gate-judge.js), and no pattern fault.
+ * fence, which lib/gate-judge.js honours.
  *
  * @param {string} body
  * @returns {{reason: string}|null} `reason` "" where the line gives none;
