@@ -26,6 +26,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { holderAlive } from "./lib/arbiter-proc.js";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	readOverflowLookup,
@@ -39,12 +40,7 @@ import {
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import type { HeadlessCall } from "./lib/headless-run-fake";
-import {
-	readLiveAgents,
-	readRun,
-	readStoredRuns,
-	stop,
-} from "./lib/headless-runs.js";
+import { readRun, readStoredRuns, stop } from "./lib/headless-runs.js";
 import { launchBatch } from "./lib/refill-batch.js";
 import { sleepSync } from "./lib/sleep-sync.js";
 import { isTestKind } from "./lib/test-kind.js";
@@ -143,26 +139,41 @@ function dispatch(
 
 const refill = () => path.join(fx.dir, "refill");
 
-/** The run the headless launcher stored for `jobId`, read under the fixture's
- * refill dir. */
+/** Points the run store at the fixture's refill dir. */
+const readFixtureStore = () => vi.stubEnv("WFC_REFILL_DIR", refill());
+
+/** The run the headless launcher stored for `jobId`. */
 function storedRun(jobId: string) {
-	vi.stubEnv("WFC_REFILL_DIR", refill());
+	readFixtureStore();
 	return readRun(jobId);
 }
 
-/* Ends every run the case launched, before the fixture's teardown removes
- * the tree it writes into (#5014). The launch detaches each run, so a case
- * that returns before its run has written all it will, as the #4245 and #3700
- * cases did, left it writing as `rmSync` walked the fixture, which threw
- * ENOTEMPTY: the file's only red in a lander batch for a sha that then landed
- * (`.queue-lander-verdicts.jsonl`, 2026-11-06 to 2026-11-11). Registered after
- * dispatchFixture's, so it runs before that removal. */
+/* Ends every stored run before the fixture's teardown removes the tree (#5014):
+ * a detached run still writing as `rmSync` walks it throws ENOTEMPTY. It runs
+ * first because it is registered after dispatchFixture's, under vitest's
+ * default `sequence.hooks: "stack"`. RESIDUAL: a run whose `run.json` is not
+ * yet written is not listed, so not stopped. */
 function endLaunchedRuns() {
-	vi.stubEnv("WFC_REFILL_DIR", refill());
-	return readStoredRuns().map((r) => stop(r.jobId, { graceMs: 1000 }));
+	readFixtureStore();
+	const failed: unknown[] = [];
+	for (const r of readStoredRuns())
+		try {
+			stop(r.jobId);
+		} catch (err) {
+			failed.push(err);
+		}
+	if (failed.length > 0)
+		throw new AggregateError(failed, "a run would not stop");
 }
+/* A throw here ends vitest's afterEach chain before dispatchFixture's removal,
+ * so this removes the fixture itself before failing the case. */
 afterEach(() => {
-	endLaunchedRuns();
+	try {
+		endLaunchedRuns();
+	} catch (err) {
+		fs.rmSync(fx.dir, { recursive: true, force: true });
+		throw err;
+	}
 });
 
 const readStoredJobIds = () => {
@@ -330,7 +341,8 @@ describe("an overflow seat (#2610)", () => {
 			WFC_MODULES: LANDING_MODULES,
 		});
 		expect(r.failed).toBeNull();
-		readHeadlessLaunches(1);
+		// The run records its cwd after the launcher returns.
+		expect(readHeadlessLaunches(1)).toHaveLength(1);
 		const [cwd = ""] = fx.launchCwds();
 		expect(path.dirname(cwd)).toBe(
 			fs.realpathSync(path.join(fx.dir, ".claude", "worktrees")),
@@ -635,11 +647,19 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 });
 
 describe("the teardown (#5014)", () => {
-	it("ends every run a case launched, so none is left writing into the fixture it removes", () => {
+	let held: ReturnType<typeof readStoredRuns> = [];
+
+	it("leaves a case's held runs running when it returns", () => {
 		stub({ headless: "hold" });
 		dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
 		expect(readHeadlessLaunches(2)).toHaveLength(2);
-		expect(endLaunchedRuns()).toEqual(["stopped", "stopped"]);
-		expect(readLiveAgents()).toEqual([]);
+		readFixtureStore();
+		held = readStoredRuns();
+		expect(held.filter(holderAlive)).toHaveLength(2);
+	});
+
+	it("has ended them by the next case, so none was left writing into the fixture it removed", () => {
+		expect(held).toHaveLength(2);
+		expect(held.filter(holderAlive)).toEqual([]);
 	});
 });
