@@ -178,6 +178,7 @@ function greenSuiteSpans(events) {
 /**
  * @typedef {object} Reading
  * @property {number} stays stays that ended in the window
+ * @property {number|null} overTarget stays longer than targetMs
  * @property {number|null} p50Ms
  * @property {number|null} p90Ms
  * @property {number} greens green runs that ended in the window
@@ -191,15 +192,16 @@ function greenSuiteSpans(events) {
 const secs = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
 
 /**
- * The BASELINE_MS before `now` against the target.
+ * The window from `since` to `now` against the target.
  * @param {readonly Stay[]} stays
  * @param {readonly {from: number, at: number}[]} greens
  * @param {number} now
+ * @param {number} [since] the BASELINE_MS before `now` where absent
  * @returns {Reading}
  */
-function judgeTimeToLand(stays, greens, now) {
+function judgeTimeToLand(stays, greens, now, since = now - BASELINE_MS) {
 	/** @param {{at: number}} x */
-	const inWindow = (x) => x.at > now - BASELINE_MS && x.at <= now;
+	const inWindow = (x) => x.at > since && x.at <= now;
 	const times = stays.filter(inWindow).map((s) => s.at - s.take);
 	const runs = greens.filter(inWindow).map((g) => g.at - g.from);
 	const p90Ms = percentile(times, 90);
@@ -208,6 +210,8 @@ function judgeTimeToLand(stays, greens, now) {
 	const judged = times.length >= MIN_STAYS && targetMs !== null;
 	return {
 		stays: times.length,
+		overTarget:
+			targetMs === null ? null : times.filter((t) => t > targetMs).length,
 		p50Ms: percentile(times, 50),
 		p90Ms,
 		greens: runs.length,

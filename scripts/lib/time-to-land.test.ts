@@ -219,6 +219,24 @@ describe("the reading against the target", () => {
 		);
 	});
 
+	it("counts the stays over the target, and none before a window start it is given", () => {
+		const target = TARGET_MULTIPLE * 180;
+		const all = judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, NOW);
+		const later = judgeTimeToLand(
+			stays(MIN_STAYS, target + 1),
+			greens,
+			NOW,
+			NOW - 30 * S,
+		);
+
+		expect(all.overTarget).toBe(MIN_STAYS / 10 + 1);
+		expect([later.stays, later.overTarget, later.judged]).toEqual([
+			0,
+			null,
+			false,
+		]);
+	});
+
 	it("judges nothing on too few stays, on no green run, or on stays older than the week", () => {
 		const few = judgeTimeToLand(stays(MIN_STAYS - 1, 9000), greens, NOW);
 		const noGreen = judgeTimeToLand(stays(MIN_STAYS, 9000), [], NOW);
