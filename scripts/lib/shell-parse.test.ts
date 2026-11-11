@@ -973,8 +973,7 @@ describe("path resolution", () => {
 
 /*
  * Logical lines (mantahostels#182). Physical lines are still the unit for
- * heredoc detection; only the masking and the segment split moved to logical
- * ones.
+ * heredoc detection.
  */
 describe("logical lines (mantahostels#182)", () => {
 	/** The segments outside every bracket, a body's `"$(…)"` lifting its own
@@ -1358,7 +1357,7 @@ interface GitWalkRun {
 	details: string[];
 }
 
-/** Every call a git walk made, its ports as `over` sets them over the defaults. */
+/** Every call a git walk made. */
 const walkGitWith = (
 	command: string,
 	opts: Partial<GitWalkOpts>,
@@ -1752,7 +1751,6 @@ describe('walkGit, scope "shared"', () => {
 
 	describe("judges a -c string's git command as the same command bare (#4863)", () => {
 		const Nope = `${DIR}/nope`;
-		/** The trees judged and the fail-opens logged, from `cwd`. */
 		const judged = (command: string, cwd: string, isDir: boolean) => {
 			const run = walkGitWith(
 				command,
@@ -1796,7 +1794,6 @@ describe('walkGit, scope "shared"', () => {
 	});
 
 	describe("reads a run's chdirs as the shell that makes them does (#4981)", () => {
-		/** The trees judged and the fail-opens logged, from `cwd`. */
 		const trees = (
 			command: string,
 			cwd: string,
@@ -1852,7 +1849,7 @@ describe('walkGit, scope "shared"', () => {
 			).toEqual([SHARED]);
 		});
 
-		it("loses the tree at a name the session set, or the script changed unread", () => {
+		it("loses the tree at a name its shell may hold otherwise", () => {
 			const X = { ...ENV, X: ELSEWHERE, _: ELSEWHERE };
 			for (const command of [
 				`X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
@@ -2055,7 +2052,7 @@ describe("path resolution through the git walk", () => {
 
 	it("reads an empty path as the cwd, which is where the shell leaves it (#301)", () => {
 		// Judged from `elsewhere`, so staying put means no verdict — and no
-		// fail-open record either, which is the half that matters.
+		// fail-open record either.
 		for (const command of ['cd "" && git checkout x', 'git -C "" checkout x']) {
 			const r = judged(command);
 			expect(r.out).toBe("");
@@ -2411,8 +2408,7 @@ describe("unsetText", () => {
  * near-miss): the logical-line join abandons only at a `git` or `gh` line, so
  * a quoted multi-line argument whose prose line begins with any other command
  * name stays one argument. Widen the list and an issue body reaches the deny
- * guards as commands. The heads are illustrative; the bait
- * line is an `npm install`, which the guard-npm-install core refuses.
+ * guards as commands. The heads are illustrative.
  */
 describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 	const Heads = ["cp", "mv", "sed", "perl", "cat", "grep", "awk", "rm", "tee"];
@@ -2429,8 +2425,7 @@ describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 const wordsOf = (command: string) => walkMap(command, (c) => c.words);
 
 /*
- * Cases a differential mutation run over the parser found unpinned (#4134):
- * each input tells the parser apart from a one-token change to it.
+ * Mutation-run cases (#4134): each input tells the parser apart from a one-token change to it.
  */
 describe("the lexer reads quotes, comments and heredocs as bash does", () => {
 	it("comments out a word opening on #, and only to its line's end (#490, #510)", () => {

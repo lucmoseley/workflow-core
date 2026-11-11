@@ -1,7 +1,7 @@
 /*
  * shell-words.js — the guard parser's word helpers in Node (#2785, programme
  * #2733): given one command's words, masked as lib/shell-parse.js hands them
- * over, what do they say?
+ * over.
  *
  * A CORE: it does no I/O and reads nothing but its arguments. A word's quoted
  * spans arrive as the `spans` array lib/shell-parse.js's parseCommand records.
@@ -619,13 +619,11 @@ function unwrapArgv(argv) {
  *   name its script set before it, its assignment word masked, or null where
  *   the script may have changed it in a way not followed
  * @property {boolean} [envReset] a `-c` string's `cd` behind a wrapper that
- *   may replace the environment its script inherits: `sudo`, an `env -i`,
- *   `env -` or `env -u`
+ *   may replace the environment its script inherits, as resetsEnv reads one
  */
 
 /**
- * The directory a run stands in: `cwd` moved through its `chdirs`, each read
- * as shell-parse.js's chdirArg reads it with no environment, an absolute one
+ * The directory a run stands in: `cwd` moved through its `chdirs`, an absolute one
  * replacing it, a relative one joined to it and `""` staying put (#4869).
  * Unknown past a directory no word gives whole: a wrapper's word reading a
  * variable or a `~`, a `-c` string's `cd` reading one its script did not set

@@ -8,8 +8,6 @@
  * directory test `cp` needs arrive as ports; the guard's entry wires the real
  * ones (lib/guard-entry.js).
  *
- * Each behaviour here carries the ticket that set it.
- *
  * FAIL OPEN is the house rule (mantahostels#103 §6): a word this file cannot read
  * comes back unresolved — null, or an empty path — and the guard decides what
  * that costs. Nothing here ever runs the text.
@@ -56,8 +54,7 @@ const OP_MARK = "\x05";
 /**
  * The command names whose line the logical-line join refuses to absorb.
  *
- * IT STAYS AT `git` AND `gh` (mantahostels#1818 tried wider and reverted it, and
- * mantahostels#2346 made the ruling a gate): the deny guards are safe here only because a
+ * IT STAYS AT `git` AND `gh` (mantahostels#2346): the deny guards are safe here only because a
  * line they refuse begins with one of these, and a wider list exposes quoted
  * prose as commands.
  */
@@ -400,7 +397,7 @@ function skipExec(words, start) {
 /**
  * Collapse `.`, `..` and doubled slashes, so two spellings of one absolute
  * path compare equal as strings (mantahostels#3315). Textual, never
- * symlink-resolved: session-arbiter.js's claimKey is lexical too. One
+ * symlink-resolved. One
  * line only, as the bash reader's `read`.
  * @param {string} p
  */
@@ -1519,7 +1516,7 @@ const BARE_NAME_RE = /(?<![\w$])(?<!\$\{)[A-Za-z_]\w*/g;
 /**
  * The names assignment texts set, and those they leave lost: every one where
  * `empties` (an `unset`), else each `+=`, which appends to a value this file
- * does not add up. A name alone sets nothing.
+ * does not add up.
  * @param {string[]} texts
  * @param {boolean} empties
  */
@@ -1537,7 +1534,6 @@ function assignedNames(texts, empties) {
 }
 
 /**
- * Each name `inner` lost or holds a different word for than `outer`.
  * @param {ScriptState} inner
  * @param {ScriptState} outer
  */
@@ -2377,7 +2373,6 @@ function chdirArg(cd, scope) {
 }
 
 /**
- * A scope that reads spans alone: no assignment, no environment.
  * @param {string[]} spans
  * @returns {Scope}
  */
@@ -2399,8 +2394,8 @@ const SHELL_SET = ["PWD", "OLDPWD", "_"];
  * What a `-c` string's word reads under: each name its script set at that
  * value, read itself under the environment alone; any other at the
  * environment the outer command hands down. Unknown: a name the script
- * changed unfollowed or set to a value that will not resolve, `PWD`,
- * `OLDPWD` and `_`, and an environment name the outer command names bare — it
+ * changed unfollowed or set to a value that will not resolve, SHELL_SET, and
+ * an environment name the outer command names bare — it
  * may have set it, exported or not — or any under a `source`, `.` or `eval`,
  * or behind a wrapper that may replace the environment.
  * @param {Chdir} cd a `-c` string's `cd`
