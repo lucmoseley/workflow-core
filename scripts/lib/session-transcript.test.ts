@@ -16,7 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mainChainRecords } from "./transcript";
 
-const { read, readStartedAt } = require("./session-transcript");
+const { read, readLastModel, readStartedAt } = require("./session-transcript");
 
 let dir: string;
 
@@ -125,5 +125,34 @@ describe("readStartedAt", () => {
 		expect(readStartedAt(file())).toBeNull();
 		fs.writeFileSync(file(), '{"type":"summary"}\nnot json');
 		expect(readStartedAt(file())).toBeNull();
+	});
+});
+
+// The dispatch remap and burn-off-sessions judge a session by this (#4992).
+describe("readLastModel", () => {
+	let tmp: string;
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "last-model-"));
+	});
+	afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+	const writeRows = (rows: unknown[]) => {
+		const f = path.join(tmp, "t.jsonl");
+		fs.writeFileSync(f, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
+		return f;
+	};
+
+	it("reads the newest real assistant record's model, past a synthetic one", () => {
+		const f = writeRows([
+			{ type: "assistant", message: { model: "claude-opus-5-5" } },
+			{ type: "assistant", message: { model: "claude-fable-5-2" } },
+			{ type: "user", message: {} },
+			{ type: "assistant", message: { model: "<synthetic>" } },
+		]);
+		expect(readLastModel(f)).toBe("claude-fable-5-2");
+	});
+
+	it("reads none where no assistant record is, or the file will not read", () => {
+		expect(readLastModel(writeRows([{ type: "user", message: {} }]))).toBe("");
+		expect(readLastModel(path.join(tmp, "absent.jsonl"))).toBe("");
 	});
 });

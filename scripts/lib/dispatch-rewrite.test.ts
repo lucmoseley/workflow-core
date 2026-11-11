@@ -41,13 +41,14 @@ const WATCHER = path.join(__dirname, "..", "watch-artefact.js");
  */
 function rewrite(
 	input: unknown,
-	{ file = FILE, burn = false, home = "/home/u" } = {},
+	{ file = FILE, burn = false, home = "/home/u", model = "" } = {},
 ) {
 	const made: string[] = [];
 	const logged: string[] = [];
 	const out = decide(
 		"",
 		kitContextFake({
+			sessionModel: () => model,
 			/* Unchecked: a case may hand the core a malformed input. */
 			input: input as Record<string, unknown>,
 			env: { WFC_BURN_MARKER: "/burn-marker", HOME: home },
@@ -196,6 +197,52 @@ const watchCommand = (file: string) =>
 	/backgrounded `([^`]+)`/.exec(
 		String(rewrite({ prompt: "Do it." }, { file })?.prelude),
 	)?.[1] ?? expect.fail("the context names no backgrounded watch");
+
+describe("a Fable session with burn mode off (#4992)", () => {
+	const Fable = "claude-fable-5-2";
+	it("pins a dispatch that would inherit Fable to opus", () => {
+		const v = rewrite(
+			{ prompt: "Artefact: .claude/tmp/x.md", description: "d" },
+			{ model: Fable },
+		);
+		expect(v?.updatedInput?.model).toBe("opus");
+		expect(v?.prelude).toContain("would have inherited");
+	});
+
+	it("leaves the inherited model alone while burn mode is on", () => {
+		const v = rewrite(
+			{ prompt: "Artefact: .claude/tmp/x.md", description: "d" },
+			{ model: Fable, burn: true },
+		);
+		expect(v).not.toHaveProperty("updatedInput");
+	});
+
+	it("refuses a fork, whose model no field moves, with the rule", () => {
+		const out = decide(
+			"",
+			kitContextFake({
+				sessionModel: () => Fable,
+				input: { subagent_type: "fork", prompt: "p", description: "d" },
+				env: { WFC_BURN_MARKER: "/burn-marker", HOME: "/home/u" },
+				session: "s1",
+				artefactFile: () => FILE,
+				makeDir: () => true,
+				isFile: () => false,
+				log: () => undefined,
+				ruleText: (id: string) => `rule ${id}`,
+			}),
+		);
+		expect(out).toEqual({ deny: "rule dispatch-fable-fork" });
+	});
+
+	it("lets a fork through from an Opus session", () => {
+		const v = rewrite(
+			{ subagent_type: "fork", prompt: "p", description: "d" },
+			{ model: "claude-opus-5-5" },
+		);
+		expect(v).not.toBeNull();
+	});
+});
 
 describe("the watch command", () => {
 	it("names the watcher that ships beside this file", () => {

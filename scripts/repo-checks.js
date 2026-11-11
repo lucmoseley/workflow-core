@@ -51,7 +51,8 @@
  * THE STANDING ISSUE (#1554), `Repo checks: standing findings`, holds what
  * the notify report goes silent on: each check with findings, its outcome,
  * count and hand command. It is filed the first time a check holds a key,
- * labelled `takes:triage` at filing, and found again by its exact title
+ * labelled `takes:triage` and `origin:repo-checks-script` at filing, and found
+ * again by its exact title
  * alone: triage moves the label, and a find by label would then file a
  * second. It is written only on a reading where some key set differs from
  * the sets it was last written with, kept in
@@ -125,6 +126,7 @@ const {
 } = require("./lib/repo-checks-reading");
 const { gitCommonDirOrThrow } = require("./lib/git.js");
 const { caught } = require("./lib/caught.js");
+const { originLabel } = require("./lib/issue-origin");
 const { takesLabel } = require("./lib/takes-label");
 
 const STAMP = ".repo-checks-read";
@@ -133,7 +135,7 @@ const SINCE = ".repo-checks-since.json";
 const RESCAN = ".repo-checks-rescan.json";
 const ISSUE_SETS = ".repo-checks-issue.json";
 const ISSUE_TITLE = "Repo checks: standing findings";
-const ISSUE_LABEL = takesLabel("triage");
+const ISSUE_LABELS = [takesLabel("triage"), originLabel("repo-checks-script")];
 const DAY_MS = 24 * 3_600_000;
 /* Spec #1510's chosen ceilings, §Cost and limits. */
 const CHECK_MS = 300_000;
@@ -698,7 +700,7 @@ function writeStandingIssue(host, jobs, { file, startMs }) {
 	const body = buildStandingBody(jobs, sets, startMs);
 	try {
 		if (Object.values(sets).some((keys) => keys.length > 0))
-			fileOrRefresh({ title: ISSUE_TITLE, labels: [ISSUE_LABEL], body });
+			fileOrRefresh({ title: ISSUE_TITLE, labels: ISSUE_LABELS, body });
 		else {
 			const open = openTrackingIssue({ title: ISSUE_TITLE });
 			if (open) refresh(open.number, body);

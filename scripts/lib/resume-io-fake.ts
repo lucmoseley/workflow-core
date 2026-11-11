@@ -70,6 +70,7 @@ export const ANSWERS = {
 		admitted: null,
 		refused: "an apiKeyHelper setting is in force (#2236)",
 	},
+	burnOn: { off: false, on: true },
 	settingsLockout: {
 		admitted: null,
 		lockedOut:
@@ -126,6 +127,12 @@ export const ANSWERS = {
 			respawnFlags: SAVED_FLAGS,
 		},
 		stopped: { state: "stopped", sessionId: SESSION },
+		/* A job launched under burn mode, its Fable model saved (#4992). */
+		savedFable: {
+			state: "stopped",
+			sessionId: SESSION,
+			respawnFlags: ["--model", "claude-fable-5-2[1m]"],
+		},
 		otherSession: { state: "working", sessionId: "s-other" },
 		/* No record yet: the resume is not confirmed. */
 		unread: null,
@@ -249,6 +256,7 @@ export function fakeResumeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 	const io: ResumeIo = {
 		log: (line) => lines.push(line),
 		env: () => processEnv,
+		burnOn: served("burnOn"),
 		authRefusal: served("authRefusal"),
 		settingsLockout: served("settingsLockout"),
 		launchHeadless: served("launchHeadless"),

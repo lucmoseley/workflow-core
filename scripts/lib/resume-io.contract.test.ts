@@ -234,6 +234,7 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 		return r && { jobId: typeof r.jobId, sessionId: r.sessionId === SESSION };
 	},
 	authRefusal: (v) => (v === null ? null : typeof v),
+	burnOn: (v) => v,
 	settingsLockout: (v) =>
 		v === null
 			? null
@@ -338,6 +339,18 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			return io().findHeadlessRun(SESSION, 1000);
 		},
 	},
+	burnOn: {
+		off: () => {
+			vi.stubEnv("WFC_BURN_MARKER", path.join(dir, "no-burn-marker"));
+			return io().burnOn();
+		},
+		on: () => {
+			const marker = path.join(dir, "burn-marker");
+			fs.writeFileSync(marker, "{}");
+			vi.stubEnv("WFC_BURN_MARKER", marker);
+			return io().burnOn();
+		},
+	},
 	settingsLockout: {
 		admitted: () =>
 			io().settingsLockout(
@@ -385,6 +398,14 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		},
 		stopped: () => {
 			writeJobRecord(JOB, { state: "stopped", sessionId: SESSION });
+			return io().readJobRecord(seat, JOB);
+		},
+		savedFable: () => {
+			writeJobRecord(JOB, {
+				state: "stopped",
+				sessionId: SESSION,
+				respawnFlags: ["--model", "claude-fable-5-2[1m]"],
+			});
 			return io().readJobRecord(seat, JOB);
 		},
 		otherSession: () => {

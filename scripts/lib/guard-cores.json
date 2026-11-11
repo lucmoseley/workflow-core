@@ -176,7 +176,7 @@
 			"failure": "closed",
 			"tree": "session",
 			"host": "registry-atomicity-host.js",
-			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
+			"if": ["Bash(*git *)", "Bash(*commit-paths.js*)"]
 		},
 		{
 			"name": "guard-pull-form",

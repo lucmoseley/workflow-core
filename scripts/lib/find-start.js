@@ -19,8 +19,10 @@
  *  - `/` is recognised after collapsing `.`, `..` and doubled slashes. A symlink to `/` is not followed.
  *  - A RELATIVE start point, or none at all (`find` defaults to `.`), is
  *    resolved against the walk's cwd — the payload's, moved by any `cd` before
- *    it. So `cd / && find . -name x` is refused, and a session standing in `/`
- *    is refused `find . -name x`. Where the cwd is unknown, it passes.
+ *    it and by each directory its launchers move to (`env -C /`, a `flock -c`
+ *    string's `cd`), as lib/shell-words.js's runCwd reads them, its residual
+ *    included. So `cd / && find . -name x` is refused, and a session standing
+ *    in `/` is refused `find . -name x`. Where the cwd is unknown, it passes.
  *  - The command word must be `find`, by basename, after shell-words.js's
  *    launcher unwrapping. `sh -c "find / …"`, a heredoc fed to a shell, `fd`,
  *    `locate`, `du /`, `ls -R /` and `grep -r … /` are all unjudged (#1006
@@ -37,7 +39,7 @@ const {
 	parseCommand,
 	walkCommands,
 } = require("./shell-parse.js");
-const { findStarts, literal, unwrap } = require("./shell-words.js");
+const { findStarts, literal, runCwd, unwrap } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -72,9 +74,9 @@ function decide(command, ctx) {
 	let refused = null;
 	walkCommands(
 		parsed,
-		({ segment, words, cwd }) => {
-			if (refused === null && startsAtRoot(words, cwd, parsed.spans))
-				refused = segment;
+		(cmd) => {
+			if (refused === null && startsAtRoot(cmd, parsed.spans))
+				refused = cmd.segment;
 		},
 		ctx,
 	);
@@ -97,14 +99,14 @@ function decide(command, ctx) {
 }
 
 /**
- * @param {string[]} words the command's own words, masked
- * @param {string} cwd the directory it runs in; "" where unknown
+ * @param {import("./shell-parse.js").Command} cmd
  * @param {string[]} spans
  */
-function startsAtRoot(words, cwd, spans) {
-	return unwrap(words, spans).some(({ words: [head, ...rest] }) => {
+function startsAtRoot(cmd, spans) {
+	return unwrap(cmd.words, spans).some(({ words: [head, ...rest], chdirs }) => {
 		if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
 			return false;
+		const cwd = runCwd(cmd.cwd, chdirs, spans);
 		const starts = findStarts(rest, spans);
 		return (starts.length > 0 ? starts : ["."]).some((start) =>
 			isRoot(start, cwd, spans),
@@ -116,7 +118,7 @@ function startsAtRoot(words, cwd, spans) {
  * Whether a start point names `/`. A word that will not read — an unexpanded
  * variable or substitution — does not, nor a relative one from an unknown cwd.
  * @param {string} word masked
- * @param {string} cwd
+ * @param {string} cwd the directory its run stands in; "" where unknown
  * @param {string[]} spans
  */
 function isRoot(word, cwd, spans) {

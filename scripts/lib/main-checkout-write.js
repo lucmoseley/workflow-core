@@ -21,7 +21,9 @@
  * directory in
  * that tree whose program is no existing file — `python3 -`, `node -e`,
  * `bash -c`, a piped or heredoc-fed program, through any wrapper lib/
- * shell-words.js's unwrap strips — since what it writes lives in another
+ * shell-words.js's unwrap strips, in the directory its runCwd says the
+ * wrappers move it to (`env -C`, a `flock -c` string's `cd`) — since what it
+ * writes lives in another
  * language's strings and cannot be read (#4469). That refusal is a guess
  * that the program writes, taken because its way out — `cd` into the
  * session's worktree and run it there — costs nothing. `python3 -m` names no
@@ -36,7 +38,8 @@
  *    on the session's behalf, an inline interpreter run from outside the
  *    main checkout naming a path in it — or one it cannot resolve is not
  *    seen; so is a command run outside Claude Code; an interpreter whose cwd
- *    the walk loses (`cd "$X"`, `pushd`), recorded; one run from a gitignored
+ *    the walk or runCwd loses (`cd "$X"`, `pushd`, `env -C $X`), recorded,
+ *    or runCwd's residual misplaces; one run from a gitignored
  *    directory under the main checkout, which may still write `../` into
  *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
  *    Once it is cut over, the pre-commit limb holds a commit made by any
@@ -61,6 +64,7 @@ const {
 	absolute,
 	literal,
 	programSource,
+	runCwd,
 	unwrap,
 } = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
@@ -255,7 +259,7 @@ function interpreterDir(cmd, spans, ctx) {
 	for (const run of unwrap(cmd.words, spans)) {
 		const dir = runDir(
 			run.words.map((w) => literal(w, spans).text),
-			cmd,
+			runCwd(cmd.cwd, run.chdirs, spans),
 			ctx,
 		);
 		if (dir !== null) return dir;
@@ -267,24 +271,24 @@ function interpreterDir(cmd, spans, ctx) {
  * The main-checkout directory one unwrap run's interpreter runs in, as
  * interpreterDir answers it.
  * @param {string[]} words the run's words, read through literal
- * @param {import("./shell-parse.js").Command} cmd
+ * @param {string} cwd the directory the run stands in; "" where unknown
  * @param {CoreContext} ctx
  * @returns {string | null}
  */
-function runDir(words, cmd, ctx) {
+function runDir(words, cwd, ctx) {
 	const prog = path.basename(words[0] ?? "");
 	const program = programSource(prog, words.slice(1));
 	if (!program) return null;
-	if (!cmd.cwd) {
+	if (!cwd) {
 		ctx.log(`the walk lost the cwd of a ${prog} — run unchecked`);
 		return null;
 	}
 	if (
 		program.script &&
-		ctx.statKind(path.resolve(cmd.cwd, program.script)) === "file"
+		ctx.statKind(path.resolve(cwd, program.script)) === "file"
 	)
 		return null;
-	return refusedPath(cmd.cwd, ctx, true);
+	return refusedPath(cwd, ctx, true);
 }
 
 /**

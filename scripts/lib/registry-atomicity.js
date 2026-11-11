@@ -52,9 +52,17 @@
  * guards no index, only the commit's own contents.
  *
  * LIMITS
- *  - Its lib/guard-cores.json row carries two `if` clauses: `Bash(git *)`, as
- *    its neighbour guard-commit-form's does (mantahostels#2127), and
- *    `Bash(*commit-paths.js*)` for the form CLAUDE.md requires (#1727).
+ *  - Its lib/guard-cores.json row carries two `if` clauses: `Bash(*git *)`,
+ *    unanchored because the walk reads past a wrapper (#4879), and
+ *    `Bash(*commit-paths.js*)` for the form CLAUDE.md requires (#1727). The
+ *    unanchored arm also admits a call that only quotes the word, `echo "a
+ *    git mention"`: the core parses it and reads no git, finding no commit.
+ *  - A hand commit is judged where `git` is a segment's own command word or
+ *    stands behind a wrapper shell-words.js's WRAPPERS names — `timeout`,
+ *    `env` and the string `flock -c` or `watch` runs among them. `sh -c "git
+ *    commit …"`, `eval`, a launcher outside that class and the paths an
+ *    `xargs` reads from stdin pass unjudged; an `xargs git commit` writing no
+ *    path is judged as a bare commit, on the index.
  *  - A commit-paths.js `--patch` commit lands only its patch's hunks of each
  *    file it carries, but each is judged whole from the working tree, so
  *    uncommitted lines in one count as landing.
@@ -241,7 +249,13 @@ function decide(command, ctx) {
 			});
 		},
 		ctx,
-		{ subs: ["commit"], noun: "commit", scope: "repo", emptyUnset: true },
+		{
+			subs: ["commit"],
+			noun: "commit",
+			scope: "repo",
+			emptyUnset: true,
+			unwrap: true,
+		},
 	);
 	walkCommands(
 		parsed,

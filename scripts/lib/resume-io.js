@@ -19,6 +19,7 @@ const { jobDirPath, readJobRecord } = require("./job-paths.js");
 const { findRunSince, readRunAsJob } = require("./headless-runs.js");
 const { launch: launchHeadless } = require("./headless-sessions.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
+const { isBurnMarkerOn } = require("./burn-mode.js");
 const { movePassMarkers } = require("./move-pass-markers.js");
 const { moveParkedBy } = require("./parked.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
@@ -38,6 +39,7 @@ const SCRIPTS = path.dirname(__dirname);
 const buildResumeIo = (log) => ({
 	log,
 	env: () => process.env,
+	burnOn: () => isBurnMarkerOn(process.env),
 	authRefusal: (launch) =>
 		launchAuthRefusal({ bin: claudeBin(launch.env), ...launch }),
 	settingsLockout: (cwd) => settingsLockout(cwd, log),
