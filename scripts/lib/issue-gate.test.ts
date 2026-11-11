@@ -407,6 +407,7 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 			"the phrase ``after a week`` is an example",
 			"the phrase ``a `tick` after a week`` is an example",
 			"the phrase `quoted over\nafter a week` is an example",
+			"> a quote `quoted over\n> after a week` is an example",
 		])
 			expect(faultTexts(body)).toEqual([]);
 	});
@@ -419,6 +420,10 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 			"a `span left open\n\nre-run after a week` in the next paragraph",
 			"- an item `left open\n- re-run after a week, the next item",
 			"an escaped \\`, then re-run after a week`",
+			"# A heading `left open\nre-run after a week` below it",
+			"## A heading `left open, re-run after a week\nnext` line",
+			"A title `left open\n=====\nre-run after a week` below it",
+			"`a closer after a backslash \\`after a week",
 		])
 			expect(faultTexts(body)).toEqual(["after a week"]);
 	});

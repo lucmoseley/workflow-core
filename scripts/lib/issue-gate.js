@@ -618,11 +618,48 @@ function gateFacts(body) {
 }
 
 /*
- * A line that is no part of the paragraph above it: a blank line, or one that
- * opens a heading, quote, list item, thematic break or fence.
+ * The block structure a code span cannot cross (CommonMark 0.31.2 §4–§5,
+ * #4973), read off each line's head once its `>` quote markers are stripped.
+ * A heading, fence, thematic break, setext underline or table row is a block
+ * of its own; a list item opens one; a deeper quote opens one, a shallower
+ * line continuing the paragraph lazily. Indented code and HTML blocks are not
+ * read: their lines join the paragraph around them.
  */
-const BLOCK_EDGE =
-	/^(?:[ \t]*$|[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|`{3,}|~{3,}))/;
+const OWN_LINE_BLOCK =
+	/^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$|=+[ \t]*$|-+[ \t]*$|\|)/;
+const LIST_ITEM = /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+const QUOTE_MARKER = /^[ \t]{0,3}>[ \t]?/;
+
+/** @typedef {{depth: number, blank: boolean, ownLine: boolean, item: boolean}} LineShape */
+
+/**
+ * @param {string} line
+ * @returns {LineShape}
+ */
+function lineShape(line) {
+	let depth = 0;
+	let rest = line;
+	for (let m = QUOTE_MARKER.exec(rest); m; m = QUOTE_MARKER.exec(rest)) {
+		depth++;
+		rest = rest.slice(m[0].length);
+	}
+	return {
+		depth,
+		blank: rest.trim() === "",
+		ownLine: OWN_LINE_BLOCK.test(rest),
+		item: LIST_ITEM.test(rest),
+	};
+}
+
+/**
+ * @param {LineShape|null} prev the line above, `null` at the body's start
+ * @param {LineShape} line
+ * @returns {boolean} whether `line` starts a block
+ */
+function opensBlock(prev, line) {
+	if (prev === null || prev.blank || prev.ownLine) return true;
+	return line.blank || line.ownLine || line.item || line.depth > prev.depth;
+}
 
 /**
  * The bounds of the block holding `index`, the most a code span can cover.
@@ -632,19 +669,20 @@ const BLOCK_EDGE =
  * @returns {[number, number]}
  */
 function blockAround(body, index) {
-	const lines = body.split("\n");
-	const starts = [];
-	for (let i = 0, at = 0; i < lines.length; i++) {
-		starts.push(at);
-		at += (lines[i] ?? "").length + 1;
+	let from = 0;
+	let at = 0;
+	/** @type {LineShape|null} */
+	let prev = null;
+	for (const line of body.split("\n")) {
+		const shape = lineShape(line);
+		if (opensBlock(prev, shape)) {
+			if (at > index) return [from, at - 1];
+			from = at;
+		}
+		prev = shape;
+		at += line.length + 1;
 	}
-	let first = starts.findLastIndex((s) => s <= index);
-	const isEdge = (/** @type {number} */ i) => BLOCK_EDGE.test(lines[i] ?? "");
-	while (first > 0 && !isEdge(first) && (lines[first - 1] ?? "").trim())
-		first--;
-	let last = starts.findLastIndex((s) => s <= index);
-	while (last + 1 < lines.length && !isEdge(last + 1)) last++;
-	return [starts[first] ?? 0, (starts[last] ?? 0) + (lines[last] ?? "").length];
+	return [from, body.length];
 }
 
 /**
@@ -659,33 +697,36 @@ function blockAround(body, index) {
  */
 function inCodeSpan(body, index) {
 	const [from, to] = blockAround(body, index);
-	const runs = backtickRuns(body.slice(from, to), from);
-	for (let i = 0; i < runs.length; i++) {
-		const { at, opens } = runs[i] ?? { at: 0, opens: 0 };
-		if (at > index) return false;
-		const j = runs.findIndex((r, k) => k > i && opens > 0 && r.len === opens);
-		const close = runs[j];
-		if (!close) continue;
-		if (index > at && index < close.at + close.len) return true;
-		i = j;
+	const runs = parseBacktickRuns(body.slice(from, to), from);
+	let resume = 0;
+	for (const run of runs) {
+		if (run.k < resume || run.opens === 0) continue;
+		if (run.opensAt > index) return false;
+		const close = runs.find((r) => r.k > run.k && r.len === run.opens);
+		if (close === undefined) continue;
+		if (index > run.opensAt && index < close.at + close.len) return true;
+		resume = close.k + 1;
 	}
 	return false;
 }
 
 /**
- * Each backtick run in `block`: where it sits, its length as a closer, and the
- * length it opens with — one less after a backslash, which escapes only an
- * opener.
+ * Each backtick run in `block`, in order: where it sits and its length as a
+ * closer, and where it opens and with how many — one fewer after a
+ * backslash, which escapes an opener only.
  *
  * @param {string} block
  * @param {number} from the block's offset in the body
- * @returns {{at: number, len: number, opens: number}[]}
+ * @returns {{k: number, at: number, len: number, opensAt: number, opens: number}[]}
  */
-function backtickRuns(block, from) {
-	return [...block.matchAll(/`+/g)].map((m) => {
-		const escaped = /(?:^|[^\\])(?:\\\\)*\\$/.test(block.slice(0, m.index));
-		const at = from + (m.index ?? 0) + (escaped ? 1 : 0);
-		return { at, len: m[0].length, opens: m[0].length - (escaped ? 1 : 0) };
+function parseBacktickRuns(block, from) {
+	return [...block.matchAll(/`+/g)].map((m, k) => {
+		const escaped = /(?:^|[^\\])(?:\\\\)*\\$/.test(block.slice(0, m.index))
+			? 1
+			: 0;
+		const at = from + m.index;
+		const len = m[0].length;
+		return { k, at, len, opensAt: at + escaped, opens: len - escaped };
 	});
 }
 
