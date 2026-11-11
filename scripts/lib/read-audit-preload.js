@@ -35,8 +35,8 @@
  * claimed. Each process appends its log, `<dir>/<owner>.<pid>.jsonl`; a process that
  * cannot open one leaves none, which lib/read-audit.js reads as a doubt.
  *
- * It never throws into the code it watches: a fault in a hook drops the
- * record and marks the log, which reads as a doubt too.
+ * It never throws into the code it watches: a fault in a hook marks the
+ * log, which reads as a doubt too.
  */
 
 const fs = require("node:fs");
@@ -681,13 +681,17 @@ function install() {
 	 * @returns {Spawn}
 	 */
 	const buildTracedSpawn = (asked) => {
+		/* A `binOf` that throws leaves `bin` empty, as for no file at all: its
+		 * record is still kept, in a log the fault marks a doubt. */
 		/** @type {string[]} */
 		let bin = [];
+		let within = false;
 		try {
-			bin = binOf(String(asked?.file ?? ""), cwdOf(asked), asked?.envPairs);
 			/* A tracer already following this process follows the child too,
 			 * and would take the hands' lookups for reads of its own. */
-			if (STRACE && isUnderTracer())
+			within = Boolean(STRACE) && isUnderTracer();
+			bin = binOf(String(asked?.file ?? ""), cwdOf(asked), asked?.envPairs);
+			if (within)
 				return { opts: asked, bin, route: { within: true }, hands: [] };
 			const hands = handsOf(asked, bin);
 			const route = routeOf(asked, hands, bin);
@@ -710,7 +714,12 @@ function install() {
 			// The child runs as the test spawned it, untraced, and the log is
 			// marked, which the reader doubts (#4966).
 			fault();
-			return { opts: asked, bin, route: null, hands: [] };
+			return {
+				opts: asked,
+				bin,
+				route: within ? { within: true } : null,
+				hands: [],
+			};
 		}
 	};
 	/**
