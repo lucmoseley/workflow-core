@@ -967,10 +967,10 @@ function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
 		const row = {
 			file: g.file,
 			outcome: g.outcome,
-			inputs: {
-				...idsOf(paths, ids),
-				...Object.fromEntries(absent.map((p) => [p, ABSENT])),
-			},
+			inputs: Object.assign(
+				idsOf(paths, ids),
+				Object.fromEntries(absent.map((p) => [p, ABSENT])),
+			),
 			listings: g.seen.listings,
 			dirs: g.seen.dirs,
 			git: g.seen.git,

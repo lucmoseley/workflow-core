@@ -564,10 +564,10 @@ function unseenDoubt(e, program, root, isScratch) {
 		return `a child (${shown}) ran a shell script of the checkout that no tracer followed, whose own reads no reach holds`;
 	if (program?.runs === "node" || (script !== null && isNode(file)))
 		return `a Node child (${shown}) ran without the audit`;
-	if (script !== null && PYTHON_RUNNERS.has(path.basename(file)))
-		return `a Python child (${shown}) ran a checkout script, whose own reads no reach holds`;
-	if (script !== null)
-		return `a shell child (${shown}) ran a checkout script that no tracer followed, whose own reads no reach holds`;
+	if (script !== null) {
+		const runner = PYTHON_RUNNERS.has(path.basename(file)) ? "Python" : "shell";
+		return `a ${runner} child (${shown}) ran a checkout script that no tracer followed, whose own reads no reach holds`;
+	}
 	return null;
 }
 

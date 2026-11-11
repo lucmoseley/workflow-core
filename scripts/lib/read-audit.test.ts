@@ -236,6 +236,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			expect(sleepOn(path.join(root, "bin"))).toMatch(/ran in the checkout/);
 
 			const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
+			dirs.push(scratch);
 			fs.copyFileSync(
 				path.join(root, "bin/sleep"),
 				path.join(scratch, "sleep"),
@@ -244,6 +245,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
 
 			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+			dirs.push(relinked);
 			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
 			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
 
@@ -1850,7 +1852,9 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		});
 		expect(
 			judged(root, [child("python3", "scripts/run.py")], []).doubt,
-		).toMatch(/a Python child \(python3 .*run\.py\) ran a checkout script/);
+		).toMatch(
+			/a Python child \(python3 .*run\.py\) ran a checkout script that no tracer followed/,
+		);
 		for (const shell of ["bash", "sh"])
 			expect(judged(root, [child(shell, "scripts/run.sh")], []).doubt).toMatch(
 				/a shell child \(.*run\.sh\) ran a checkout script that no tracer followed/,
