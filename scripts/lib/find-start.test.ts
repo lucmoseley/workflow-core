@@ -28,6 +28,7 @@ interface Over {
 	cwd?: string;
 	fallbackCwd?: string;
 	vars?: Record<string, string>;
+	isDir?: (path: string) => boolean;
 	root?: string | null;
 	corePaths?: (t: string) => string;
 }
@@ -159,6 +160,44 @@ describe("a find started at / is refused (#1006)", () => {
 		},
 	);
 
+	/* `/missing` is no directory, so a `cd` to it fails and leaves the find
+	 * where it stood. */
+	const missing = (p: string) => p !== "/missing";
+
+	it.each([
+		"cd /missing; find . -x",
+		"false && cd /usr; find . -x",
+		'flock /l -c "cd /missing; find . -x"',
+		'flock /l -c "false && cd /usr; find . -x"',
+		'flock /l -c "cd /missing || true; find . -x"',
+		'flock /l -c "cd -; find . -x"',
+	])(
+		"judges too where a cd may not have moved it: %s from / (#4980)",
+		(command) => {
+			expect(judge(command, { cwd: "/", isDir: missing })?.deny).toBe(
+				refusal(command.startsWith("flock") ? 'flock /l -c "…"' : "find . -x"),
+			);
+		},
+	);
+
+	it.each([
+		"cd /usr; find . -x",
+		"cd /usr && find . -x",
+		"cd /missing && find . -x",
+		'flock /l -c "cd /usr; find . -x"',
+		'flock /l -c "cd /missing && find . -x"',
+	])(
+		"takes a cd that surely ran, or chains the find: %s from / (#4980)",
+		(command) => {
+			expect(judge(command, { cwd: "/", isDir: missing })).toBeNull();
+		},
+	);
+
+	it("refuses where a cd behind && may have moved it to /: from the project (#4980)", () => {
+		const command = "false && cd /; find . -x";
+		expect(judge(command, { isDir: missing })?.deny).toBe(refusal("find . -x"));
+	});
+
 	it("resolves a relative start against a cd that reads a set variable", () => {
 		expect(judge("cd $X && find . -x", { vars: { X: "/" } })).not.toBeNull();
 	});
@@ -256,7 +295,7 @@ describe("every other start point passes silently", () => {
 		["env -C usr find . -x", "/"],
 		["env -C $UNSET find . -x", "/"],
 		['flock /l -c "cd /usr; find . -x"', "/"],
-		['flock /l -c "cd -; find . -x"', "/"],
+		['flock /l -c "cd - && find . -x"', "/"],
 		['flock /l -c "find . -x; cd /"', PROJECT],
 		['flock /l -c "(cd /); find . -x"', PROJECT],
 	])("%s from %s", (command, cwd) => {

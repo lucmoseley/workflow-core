@@ -251,6 +251,27 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 			expect(fromMain(command), command).toBeNull();
 	});
 
+	it("refuses one a cd may have left in the main checkout (#4980)", () => {
+		for (const command of [
+			`cd /nonexistent; python3 -c 'x'`,
+			`false && cd ${at.worktree}; python3 -c 'x'`,
+			`flock /l -c "cd /nonexistent; python3 -c 'x'"`,
+			`flock /l -c "false && cd ${at.worktree}; python3 -c 'x'"`,
+		])
+			expect(fromMain(command), command).toContain(
+				`${Refused}, in the main checkout`,
+			);
+	});
+
+	it("allows one a cd surely moved out, or chains it off (#4980)", () => {
+		for (const command of [
+			`cd ${at.worktree}; python3 -c 'x'`,
+			`cd /nonexistent && python3 -c 'x'`,
+			`flock /l -c "cd /nonexistent && python3 -c 'x'"`,
+		])
+			expect(fromMain(command), command).toBeNull();
+	});
+
 	it("takes a launcher's quoted directory as written, expanding nothing (#4869)", () => {
 		expect(fromMain(`env -C '~' python3 -c 'x'`)).toContain(
 			`${Refused}, in the main checkout, at ~`,

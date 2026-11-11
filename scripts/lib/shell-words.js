@@ -616,28 +616,55 @@ function unwrapArgv(argv) {
  */
 
 /**
- * The directory a run stands in: `cwd` moved through its `chdirs`, an
+ * Whether a run surely stands where a move put it.
+ * @param {Chdir} cd
+ * @param {string} dir where it put it; "" where that will not resolve
+ * @param {(path: string) => boolean} isDir
+ */
+const holdsAt = ({ holds }, dir, isDir) =>
+	holds === "always" || (holds === "if-dir" && dir !== "" && isDir(dir));
+
+/**
+ * Every directory a run may stand in: `cwd` moved through its `chdirs`, an
  * absolute one replacing it, a relative one joined to it and `""` staying
- * put (#4869). Unknown past a directory no word gives whole: one reading a
- * variable, which a `-c` string may set itself, a `~`, a glob, or a `-` flag.
- *
- * Residual: each move is taken as made whatever its `holds`, as a walk's cwd
- * takes a `cd` (#4980).
+ * put (#4869), each move not sure to hold by holdsAt also left unmade (#4980).
+ * The first is where every move holds. Unknown, `""`, past a directory no
+ * word gives whole: one reading a variable, which a `-c` string may set
+ * itself, a `~`, a glob, or a `-` flag.
  * @param {string} cwd "" where unknown
  * @param {Chdir[]} chdirs
  * @param {string[]} spans
+ * @param {(path: string) => boolean} isDir
+ * @returns {string[]} each "" where unknown
+ */
+function runCwd(cwd, chdirs, spans, isDir) {
+	let ats = [cwd];
+	for (const cd of chdirs) {
+		/** @type {string[]} */
+		const next = [];
+		for (const at of ats) {
+			const to = moveRun(at, cd, spans);
+			next.push(to);
+			if (!holdsAt(cd, to, isDir)) next.push(at);
+		}
+		ats = [...new Set(next)];
+	}
+	return ats;
+}
+
+/**
+ * Where one move puts a run standing at `at`.
+ * @param {string} at "" where unknown
+ * @param {Chdir} cd
+ * @param {string[]} spans
  * @returns {string} "" where unknown
  */
-function runCwd(cwd, chdirs, spans) {
-	let at = cwd;
-	for (const { dir, read } of chdirs) {
-		const word = read ? { text: dir, known: true } : literal(dir, spans);
-		const expands = !read && shellExpands(dir);
-		if (!word.known || expands || word.text.startsWith("-")) at = "";
-		else if (word.text.startsWith("/")) at = word.text;
-		else if (at && word.text) at = `${at}/${word.text}`;
-	}
-	return at;
+function moveRun(at, { dir, read }, spans) {
+	const word = read ? { text: dir, known: true } : literal(dir, spans);
+	const expands = !read && shellExpands(dir);
+	if (!word.known || expands || word.text.startsWith("-")) return "";
+	if (word.text.startsWith("/")) return word.text;
+	return at && word.text ? `${at}/${word.text}` : at;
 }
 
 /**
@@ -1484,6 +1511,7 @@ module.exports = {
 	literal,
 	unwrap,
 	unwrapArgv,
+	holdsAt,
 	runCwd,
 	carriesVar,
 	commandName,

@@ -24,6 +24,7 @@ const {
 	readSentinels,
 	literal,
 	unwrap,
+	holdsAt,
 	commandName,
 	isGitValueOption,
 	ASSIGNMENT_RE,
@@ -1053,8 +1054,11 @@ function resolveWord(word, scope) {
  *   every redirection removed (#1488)
  * @property {string[]} leading the words before the command — reserved words
  *   and the leading assignments (#1013)
- * @property {string} cwd the directory it runs in; "" where the walk cannot
- *   know it, which the caller records before it fails open (mantahostels#3453)
+ * @property {string} cwd the directory it runs in, every `cd` before it taken
+ *   as made; "" where the walk cannot know it, which the caller records before
+ *   it fails open (mantahostels#3453)
+ * @property {string[]} cwds every directory it may stand in, `cwd` first: a
+ *   `cd` may not have run or have failed (#4980)
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[]) => WriteTarget[]} writeTargets
  * @property {(word: string) => string | null} resolveWord
@@ -1312,8 +1316,9 @@ function absolutePath(walk, word) {
  * nothing are skipped, bar redirections alone under `bareRedirects`.
  *
  * Seeded from the payload's cwd, else `ports.fallbackCwd` (mantahostels#2682). The
- * cwd is moved AFTER each callback, so a `cd`'s own callback reads the
- * directory it ran from. A subshell's `)` hands back the cwd its `(` saw.
+ * cwd is moved AFTER each callback, as stepCwd moves it, so a `cd`'s own
+ * callback reads the directory it ran from. A subshell's `)` hands back the
+ * cwd its `(` saw.
  * @param {Parsed} parsed
  * @param {(cmd: Command) => void} fn
  * @param {WalkPorts} ports
@@ -1327,28 +1332,33 @@ function walkCommands(parsed, fn, ports) {
 	const { scope } = walk;
 	/** @param {string} word */
 	const abs = (word) => absolutePath(walk, word);
-	eachSegment(walk, (segment, { words, wi, assignEnd, redirs, ran }) => {
-		if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
-		const own = ran ? words.slice(wi) : [];
-		const redirects = () => readRedirects(redirs, scope, abs);
-		fn({
-			segment,
-			words: own,
-			leading: words.slice(0, assignEnd),
-			cwd: walk.cwd,
-			redirects,
-			writeTargets: (w = own) =>
-				writeTargets(w, redirects(), {
-					spans: scope.spans,
-					resolveAbs: abs,
-					resolve: (word) => resolveWord(word, scope),
-					isDir: ports.isDir,
-				}),
-			resolveWord: (word) => resolveWord(word, scope),
-			assigned: (name) => scope.locals.has(name),
-		});
-		if (ran) moveCwd(walk, own);
-	});
+	eachSegment(
+		walk,
+		(segment, { words, wi, assignEnd, redirs, ran }, segIdx) => {
+			settleCwdDoubt(walk, segIdx);
+			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
+			const own = ran ? words.slice(wi) : [];
+			const redirects = () => readRedirects(redirs, scope, abs);
+			fn({
+				segment,
+				words: own,
+				leading: words.slice(0, assignEnd),
+				cwd: walk.cwd,
+				cwds: [...new Set([walk.cwd, ...walk.cwdDoubt])],
+				redirects,
+				writeTargets: (w = own) =>
+					writeTargets(w, redirects(), {
+						spans: scope.spans,
+						resolveAbs: abs,
+						resolve: (word) => resolveWord(word, scope),
+						isDir: ports.isDir,
+					}),
+				resolveWord: (word) => resolveWord(word, scope),
+				assigned: (name) => scope.locals.has(name),
+			});
+			if (ran) stepCwd(walk, own, segIdx, ports.isDir);
+		},
+	);
 }
 
 /**
@@ -1859,15 +1869,6 @@ function readGitRun(walk, run, leading, isDir) {
 		};
 	return { ...target, sub: spelt.text, args };
 }
-
-/**
- * Whether a run surely stands where a move put it.
- * @param {Chdir} cd
- * @param {string} tree where it put it; "" where that will not resolve
- * @param {(path: string) => boolean} isDir
- */
-const holdsAt = ({ holds }, tree, isDir) =>
-	holds === "always" || (holds === "if-dir" && tree !== "" && isDir(tree));
 
 /* A segment opening a compound command, whose parts a `cd` may run in any order
  * or not at all. */

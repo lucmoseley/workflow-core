@@ -21,9 +21,9 @@
  * directory in
  * that tree whose program is no existing file — `python3 -`, `node -e`,
  * `bash -c`, a piped or heredoc-fed program, through any wrapper lib/
- * shell-words.js's unwrap strips, in the directory its runCwd says the
- * wrappers move it to (`env -C`, a `flock -c` string's `cd`) — since what it
- * writes lives in another
+ * shell-words.js's unwrap strips, in any directory the walk and its runCwd
+ * say it may stand in (a `cd` that may not have run or failed, `env -C`, a
+ * `flock -c` string's `cd`) — since what it writes lives in another
  * language's strings and cannot be read (#4469). That refusal is a guess
  * that the program writes, taken because its way out — `cd` into the
  * session's worktree and run it there — costs nothing. `python3 -m` names no
@@ -38,8 +38,8 @@
  *    on the session's behalf, an inline interpreter run from outside the
  *    main checkout naming a path in it — or one it cannot resolve is not
  *    seen; so is a command run outside Claude Code; an interpreter whose cwd
- *    the walk or runCwd loses (`cd "$X"`, `pushd`, `env -C $X`), recorded,
- *    or runCwd's residual misplaces; one run from a gitignored
+ *    the walk or runCwd loses (`cd "$X"`, `pushd`, `env -C $X`), recorded;
+ *    one run from a gitignored
  *    directory under the main checkout, which may still write `../` into
  *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
  *    Once it is cut over, the pre-commit limb holds a commit made by any
@@ -257,12 +257,13 @@ function refusedPath(p, ctx, dir = false) {
  */
 function interpreterDir(cmd, spans, ctx) {
 	for (const run of unwrap(cmd.words, spans)) {
-		const dir = runDir(
-			run.words.map((w) => literal(w, spans).text),
-			runCwd(cmd.cwd, run.chdirs, spans),
-			ctx,
-		);
-		if (dir !== null) return dir;
+		const words = run.words.map((w) => literal(w, spans).text);
+		for (const cwd of cmd.cwds.flatMap((c) =>
+			runCwd(c, run.chdirs, spans, ctx.isDir),
+		)) {
+			const dir = runDir(words, cwd, ctx);
+			if (dir !== null) return dir;
+		}
 	}
 	return null;
 }
