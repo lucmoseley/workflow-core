@@ -268,6 +268,53 @@ describe("a write by any spelling the shared reader reads (#1827)", () => {
 	});
 });
 
+// #5012
+describe("a write behind a wrapper or in a `flock -c` string", () => {
+	const wrappers: [string, string][] = [
+		["timeout 5 ", ""],
+		["env ", ""],
+		['flock /l -c "true; ', '"'],
+		['flock /l -c "true\n', '"'],
+	];
+	const targets = [
+		"$CLAUDE_JOB_DIR/tmp/x.out",
+		"$CLAUDE_JOB_DIR/tmp/fx/a.out",
+		`${JOB_DIR}/notes.md`,
+	];
+	it.each(
+		wrappers.flatMap(([before, after]) =>
+			targets.map((t) => [before, t, after] as const),
+		),
+	)("judges `%s` tee %s as the bare tee", (before, target, after) => {
+		const bare = bash(`tee ${target}`, { sid: "bare" });
+		const v = bash(`${before}tee ${target}${after}`, { sid: "wrapped" });
+		expect(bare).not.toBeNull();
+		expect(v).toEqual(bare);
+	});
+
+	it("reads a cp's destination folder where the run's own move puts it", () => {
+		const job = path.join(dir, "jobs", "abc");
+		fs.mkdirSync(path.join(job, "tmp"), { recursive: true });
+		expect(
+			refused(
+				bash(`flock /l -c "cd ${job} && cp /tmp/a.md tmp"`, { jobDir: job }),
+			),
+		).toContain(`lands at ${job}/tmp/a.md`);
+	});
+
+	it.each([
+		`flock /l -c "cd ${JOB_DIR} && tee tmp/x.out"`,
+		`env -C ${JOB_DIR} tee tmp/x.out`,
+	])(
+		"resolves a relative target where the run's own move puts it: %s",
+		(command) => {
+			expect(refused(bash(command, { jobDir: JOB_DIR }))).toContain(
+				`lands at ${JOB_DIR}/tmp/x.out`,
+			);
+		},
+	);
+});
+
 // #1030
 describe("a redirect target resolved as the shell lands it", () => {
 	it("refuses a relative target after a leading cd into the job directory, naming where it lands and the .claude/tmp/ path to use", () => {

@@ -37,7 +37,11 @@
  *    with no row emits nothing, silently.
  *  - It matches the PARSED command form — a command whose command word is
  *    `gh`, followed by the row's own subcommand words — so a grep, an echo or
- *    a heredoc mentioning those words emits nothing.
+ *    a heredoc mentioning those words emits nothing. The command word is read
+ *    as lib/shell-words.js's ghCall reads it (#5012): past any wrapper unwrap
+ *    strips (`timeout 5 gh …`, `env gh …`), in each command a `flock -c` or
+ *    `watch` string runs, and past `gh`'s own flags (`gh -R o/r issue …`). A
+ *    `sh -c` string and a launcher outside unwrap's list are unread.
  *  - THE issue-body.js LIMB IS THE ONE EXCEPTION TO THAT COMMAND-WORD TEST,
  *    and it reads a WORD instead: any word whose basename is `issue-body.js`,
  *    wherever it sits, PROVIDED THE NEXT WORD IS ONE OF THE SCRIPT'S WRITING
@@ -84,7 +88,13 @@ const { expandHome } = require("./home-path.js");
 const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
+const {
+	ghCall,
+	literal,
+	runCwd,
+	scanFlags,
+	unwrap,
+} = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
@@ -135,7 +145,7 @@ const basename = (p) => p.slice(p.lastIndexOf("/") + 1);
 
 // --- the flag predicates a TRIGGERS row may name -----------------------------
 //
-// Each takes the raw words after `gh` and answers whether the row applies. A
+// Each takes the raw words after `gh` and its own flags and answers whether the row applies. A
 // row naming null runs none and matches on the subcommand alone.
 
 /** Whether any word is one of `flags`, a long one's `=`-joined form included.
@@ -297,7 +307,7 @@ const labelsWaiting = (words, { parsed }) =>
 // priority order.
 //
 // THE SUBCOMMAND WORDS ARE MATCHED WHOLE, word for word, against the raw words
-// following `gh`. `api` is one word; `issue create` is two; an empty list
+// following `gh` and its own flags. `api` is one word; `issue create` is two; an empty list
 // matches every `gh` call.
 
 /** @type {[string[], Predicate | null, string[]][]} */
@@ -376,13 +386,16 @@ function ghBodyPaths(args, spans) {
 }
 
 /**
- * @param {string[]} words the command's words, its head included
+ * Each body path one unwrap run names.
+ * @param {string[]} words one unwrap run's words, its head included
  * @param {string[]} spans
  */
-function bodyPathWords([head = "", ...args], spans) {
+function bodyPathWords(words, spans) {
+	const [head = "", ...args] = words;
 	if (basename(lit(head, spans)) === "cat")
 		return args.map((w) => lit(w, spans)).filter((t) => !t.startsWith("-"));
-	return isGhCommand(head) ? ghBodyPaths(args, spans) : [];
+	const gh = ghCall(words, spans);
+	return gh ? ghBodyPaths(gh.args, spans) : [];
 }
 
 /**
@@ -407,13 +420,16 @@ function scanJobDir(parsed, ctx) {
 	let seen = false;
 	walkCommands(
 		parsed,
-		({ words, cwd }) => {
-			const where = { pwd: cwd || ctx.fallbackCwd, jobDir };
-			seen ||= bodyPathWords(words, parsed.spans).some((text) => {
-				if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
-					return false;
-				return isJobDir(expandHome(text, home) ?? text.slice(1), where);
-			});
+		(cmd) => {
+			for (const run of unwrap(cmd.words, parsed.spans)) {
+				const cwd = runCwd(cmd.cwds, run.chdirs, parsed.spans, ctx.isDir)[0];
+				const where = { pwd: cwd || ctx.fallbackCwd, jobDir };
+				seen ||= bodyPathWords(run.words, parsed.spans).some((text) => {
+					if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
+						return false;
+					return isJobDir(expandHome(text, home) ?? text.slice(1), where);
+				});
+			}
 		},
 		ctx,
 	);
@@ -421,34 +437,48 @@ function scanJobDir(parsed, ctx) {
 }
 
 /**
- * The ids one command engages, added to `matched`.
+ * The ids one command engages, added to `matched`: each unwrap run's.
  * @param {Command} cmd
  * @param {Set<string>} matched
  * @param {Omit<Call, "cmd">} call
  */
 function judge(cmd, matched, call) {
 	const { spans } = call.parsed;
-	/* The non-`gh` limb, judged first because it reads WORDS rather than a
-	 * command word: `node scripts/issue-body.js tick 12 --match "…"` has `node`
-	 * at its head, and `./scripts/issue-body.js` has the script itself. Gated
-	 * on the MASKED word, so a quoted mention never reaches it. THE WORD AFTER
-	 * IT DECIDES (mantahostels#2652): a writing subcommand is what a RUN of the
-	 * script always has and a read of it almost never does. */
-	const runsIssueBody = cmd.words.some(
-		(w, i) =>
-			w.includes("issue-body.js") &&
-			basename(lit(w, spans)) === "issue-body.js" &&
-			ISSUE_BODY_SUBCOMMANDS.has(lit(cmd.words[i + 1], spans)),
-	);
-	if (runsIssueBody) matched.add("issue-body-success-signal");
-	const [head = "", ...words] = cmd.words;
-	if (!isGhCommand(head)) return;
+	for (const { words, chdirs } of unwrap(cmd.words, spans)) {
+		if (runsIssueBody(words, spans)) matched.add("issue-body-success-signal");
+		const gh = ghCall(words, spans);
+		if (!gh) continue;
+		const cwd = runCwd(cmd.cwds, chdirs, spans, call.ctx.isDir)[0];
+		matchRows(gh.args, { ...call, cmd: { ...cmd, cwd } }, matched);
+	}
+}
+
+/**
+ * Each TRIGGERS row one `gh` call's words match, its ids added to `matched`.
+ * @param {string[]} args the words after `gh` and its own flags
+ * @param {Call} call
+ * @param {Set<string>} matched
+ */
+function matchRows(args, call, matched) {
 	for (const [subcmd, pred, ids] of TRIGGERS) {
-		if (!subcmd.every((s, i) => words[i] === s)) continue;
-		if (pred && !pred(words, { ...call, cmd })) continue;
+		if (!subcmd.every((s, i) => args[i] === s)) continue;
+		if (pred && !pred(args, call)) continue;
 		for (const id of ids) matched.add(id);
 	}
 }
+
+/**
+ * The issue-body.js limb the header describes.
+ * @param {string[]} words one unwrap run's
+ * @param {string[]} spans
+ */
+const runsIssueBody = (words, spans) =>
+	words.some(
+		(w, i) =>
+			w.includes("issue-body.js") &&
+			basename(lit(w, spans)) === "issue-body.js" &&
+			ISSUE_BODY_SUBCOMMANDS.has(lit(words[i + 1], spans)),
+	);
 
 /**
  * @param {string} command
