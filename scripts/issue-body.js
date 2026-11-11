@@ -946,8 +946,9 @@ function readGateWriteOnce(before, after, own) {
  * with a window its basis does not name, is refused before anything is
  * written (#672, #823) — after `rule:roadmap-gating` is handed over where the
  * write adds a gate line — and so is an added `check:` that prints no
- * reading (#3487). The model reading of what the edit adds is printed as
- * advice (#4964). The command line only: a script calling editIssueBody
+ * reading (#3487), and so is what the model reading faults in what the edit
+ * adds (#4964), unless a `**Gate judge override:**` line gives a reason
+ * (#4970). The command line only: a script calling editIssueBody
  * writes machine text, and is left alone.
  *
  * @param {string} before

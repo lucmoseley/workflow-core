@@ -1002,10 +1002,9 @@ while [[ $# -gt 0 ]]; do
       overflow_record=(--overflow-key "$seat_key" --allowance-usd "$headroom"
         --session-id "$session_id")
     fi
-    # Residual: the issue list is every integer in the prompt, so a prompt
-    # carrying a non-issue number records a phantom issue and refuses an
-    # unrelated dispatch of it, under the same command, for the ledger window
-    # (#752). `--force` is the way out.
+    # Residual: a `#<n>` in the prompt's prose records that issue too, and
+    # refuses a dispatch of it under the same command for the ledger window
+    # (#752, #4985). `--force` is the way out.
     node "$here/check-duplicate-dispatch.js" --record \
       --issues "$prompt" --model "$model" --prompt "$prompt" --job-id "$job_id" \
       --seat-reason "$seat_reason" "${overflow_record[@]}" || true

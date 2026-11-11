@@ -41,7 +41,11 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { readCurrentBootId, readProcStartOf } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { OVERFLOW_MODEL, OVERFLOW_SESSION_VAR } = require("./model-table.js");
+const {
+	OVERFLOW_MODEL,
+	OVERFLOW_PREFIX,
+	OVERFLOW_SESSION_VAR,
+} = require("./model-table.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const {
@@ -60,8 +64,6 @@ const { settingsLockout } = require("./settings-lockout.js");
 const { writeFd } = require("./write-fd.js");
 
 const CONTRACT = path.join(__dirname, "headless-contract.md");
-
-const OVERFLOW_PREFIX = "Overflow · ";
 
 /** @param {string} name */
 const buildOverflowName = (name) =>

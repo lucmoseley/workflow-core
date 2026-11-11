@@ -84,10 +84,12 @@ function recordFiles(
 		drifted,
 		untracked,
 		root,
+		after,
 	}: {
 		drifted: { headMoved: boolean; moved: { path: string }[] } | null;
 		untracked: string[];
 		root: string | null;
+		after: ReturnType<typeof readTreeSnapshot>;
 	},
 ) {
 	if (!files || !marker.at) return;
@@ -104,6 +106,7 @@ function recordFiles(
 				before === null || drifted?.headMoved
 					? null
 					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
+			after,
 			audits: readAuditsOrNone(),
 		},
 		{ storeRoot: root },
@@ -182,7 +185,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === true && after && !capped) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		record(marker, { root });
-		recordFiles(marker, report.files, { drifted, untracked, root });
+		recordFiles(marker, report.files, { drifted, untracked, root, after });
 	}
 
 	/*
@@ -197,7 +200,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
-		recordFiles(marker, report.files, { drifted, untracked, root });
+		recordFiles(marker, report.files, { drifted, untracked, root, after });
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run

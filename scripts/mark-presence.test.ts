@@ -207,10 +207,10 @@ describe("the away reminder (#4846)", () => {
 		);
 	const typedAgo = (ms: number) =>
 		fs.writeFileSync(marker, `${new Date(Date.now() - ms).toISOString()}\n`);
-	const absentSeen = { since: 7, absentSeen: true };
+	const switchedLongAgo = { since: 7 };
 
-	it("shows at his first prompt after an absent read, and not at the next", () => {
-		control("away", absentSeen);
+	it("shows at his first prompt back after an absence, with no tick between, and not at the next (#4976)", () => {
+		control("away", switchedLongAgo);
 		typedAgo(8 * Hour);
 		expect(runHook("morning")).toBe(Reminder);
 		expect(runHook("what parked overnight?")).toBe("");
@@ -218,7 +218,7 @@ describe("the away reminder (#4846)", () => {
 	});
 
 	it("shows again at the first prompt of a later absence", () => {
-		control("away", absentSeen);
+		control("away", switchedLongAgo);
 		typedAgo(8 * Hour);
 		expect(runHook("morning")).toBe(Reminder);
 		typedAgo(2 * Hour);
@@ -226,12 +226,18 @@ describe("the away reminder (#4846)", () => {
 	});
 
 	it("shows where no prompt was ever recorded", () => {
-		control("away", absentSeen);
+		control("away", switchedLongAgo);
 		expect(runHook("morning")).toBe(Reminder);
 	});
 
-	it("stays silent in away mode before any tick read him absent", () => {
-		control("away", { since: 7, absentSeen: false });
+	it("shows where the control holds no readable switch, by the last prompt alone", () => {
+		control("away");
+		typedAgo(8 * Hour);
+		expect(runHook("morning")).toBe(Reminder);
+	});
+
+	it("stays silent inside the window after the switch, however long since the last prompt (#4184)", () => {
+		control("away", { since: Date.now() - 60 * 1000 });
 		typedAgo(8 * Hour);
 		expect(runHook("one more thing")).toBe("");
 	});
@@ -245,7 +251,7 @@ describe("the away reminder (#4846)", () => {
 	});
 
 	it("stays silent, and marks nothing, for a prompt nobody typed", () => {
-		control("away", absentSeen);
+		control("away", switchedLongAgo);
 		expect(
 			runHook("/implement 2004", { jobDir: buildJob("/implement 2004") }),
 		).toBe("");

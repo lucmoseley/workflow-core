@@ -23,6 +23,9 @@ import {
 	FALLBACK_LEAD,
 	type JudgeFakePlan,
 	MODEL_LEAD,
+	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
@@ -449,37 +452,105 @@ describe("a write route's reading", () => {
 		"carry no warrant",
 	];
 
-	it("gives a model finding, a pattern fault and a fallback text the review can count apart", () => {
-		const advice = write(
-			`${WAIT}\n`,
-			reading([wait(WAIT, "500 ticks")]),
-		).advice;
+	const Found = reading([wait(WAIT, "500 ticks")]);
+	it("gives a model fault, a pattern fault, an override and a fallback text the review can count apart", () => {
+		const model = write(`${WAIT}\n`, Found).refusal ?? "";
+		const pattern = write(`${Gate}\n`, NOTHING).refusal ?? "";
 		const fallback = write(`${WAIT}\n`, { exit: 1 }).advice;
-		const refusal = write(`${Gate}\n`, NOTHING).refusal ?? "";
-		expect(advice).toContain(MODEL_LEAD);
-		expect(fallback).toContain(FALLBACK_LEAD);
-		expect(refusal).toContain("as the wording patterns read it");
-		for (const text of [advice, fallback]) {
-			for (const says of PatternSays) expect(text).not.toContain(says);
+		const override = write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found).advice;
+		const leads = {
+			model: MODEL_LEAD,
+			fallback: FALLBACK_LEAD,
+			override: OVERRIDE_LEAD,
+		};
+		const texts = { model, pattern, fallback, override };
+		for (const [name, text] of Object.entries(texts)) {
+			for (const [lead, says] of Object.entries(leads))
+				expect(text.includes(says), `${name} carries ${lead}`).toBe(
+					lead === name,
+				);
+			expect(
+				PatternSays.some((says) => text.includes(says)),
+				`${name} carries a pattern fault`,
+			).toBe(name === "pattern");
 		}
-		expect(PatternSays.some((says) => refusal.includes(says))).toBe(true);
-		for (const text of [refusal, fallback])
-			expect(text).not.toContain(MODEL_LEAD);
-		for (const text of [refusal, advice])
-			expect(text).not.toContain(FALLBACK_LEAD);
+		expect(pattern).toContain("as the wording patterns read it");
 	});
 
-	it("refuses on the pattern faults alone, the model's riding in the refusal as advice", () => {
-		const r = write(`${Gate}\n\n${WAIT}\n`, reading([wait(WAIT, "500 ticks")]));
+	it("refuses a model fault, quoting it, naming its question, the template and the override", () => {
+		const r = write(`Build it.\n\n${WAIT}\n`, Found);
 		expect(r.advice).toBe("");
-		expect(r.refusal).toMatch(
-			new RegExp(
-				`^${basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n\n${MODEL_LEAD}`,
+		const refusal = r.refusal ?? "";
+		expect(refusal.startsWith(`${MODEL_LEAD}:`)).toBe(true);
+		expect(refusal).toContain(`"${WAIT}" makes work wait on data accumulating`);
+		expect(refusal).toContain("question 1:");
+		expect(refusal).toContain("The line's template: `**Gate basis:**");
+		expect(refusal).toContain(
+			"write a live body line `**Gate judge override:** <why the reading is wrong>`",
+		);
+	});
+
+	it("refuses a basis the model reads as asserted, naming question 2", () => {
+		const r = write(
+			`${WAIT}\n**Gate basis:** 500 ticks is plenty\n`,
+			reading(
+				[wait(WAIT, "500 ticks", true)],
+				[{ basis: "500 ticks is plenty", class: "asserted" }],
 			),
 		);
 		expect(r.refusal).toContain(
+			'the basis "500 ticks is plenty" reads as asserted',
+		);
+		expect(r.refusal).toContain("question 2:");
+	});
+
+	it("refuses on both readings in one message, the pattern faults first", () => {
+		const r = write(`${Gate}\n\n${WAIT}\n`, Found);
+		expect(r.advice).toBe("");
+		expect(
+			r.refusal?.startsWith(
+				`${basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns")}\n\nIt also carries ${MODEL_LEAD}:`,
+			),
+		).toBe(true);
+		expect(r.refusal).toContain(
 			`"${WAIT}" makes work wait on data accumulating`,
 		);
+	});
+
+	it("lets an override with a reason clear the model's faults, saying it was honoured", () => {
+		const r = write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found);
+		expect(r.refusal).toBeNull();
+		expect(r.advice).toContain(`${OVERRIDE_LEAD} ("${OVERRIDE_REASON}")`);
+		expect(r.advice).toContain(
+			`"${WAIT}" makes work wait on data accumulating`,
+		);
+	});
+
+	it("clears nothing with an empty override, or one quoted in a fence", () => {
+		const empty = write(`${WAIT}\n**Gate judge override:**\n`, Found);
+		expect(empty.refusal).toContain(MODEL_LEAD);
+		expect(empty.refusal).toContain("gives no reason, so it clears nothing");
+		const fenced = write(
+			`${WAIT}\n\n\`\`\`\n${OVERRIDE_LINE}\n\`\`\`\n`,
+			Found,
+		);
+		expect(fenced.refusal).toContain(MODEL_LEAD);
+		expect(fenced.advice).toBe("");
+	});
+
+	it("clears no pattern fault with an override", () => {
+		const r = write(`${Gate}\n\n${WAIT}\n${OVERRIDE_LINE}\n`, Found);
+		expect(r.refusal).toContain("as the wording patterns read it");
+		expect(r.refusal).not.toContain(`It also carries ${MODEL_LEAD}`);
+		expect(r.refusal).toContain(OVERRIDE_LEAD);
+	});
+
+	it("never refuses on a fallback, an override present or not", () => {
+		for (const body of [`${WAIT}\n`, `${WAIT}\n**Gate judge override:**\n`]) {
+			const r = write(body, { exit: 1 });
+			expect(r.refusal).toBeNull();
+			expect(r.advice).toContain(FALLBACK_LEAD);
+		}
 	});
 
 	it("falls back without a call where too little of the bound is left", () => {
@@ -496,6 +567,7 @@ describe("a write route's reading", () => {
 		fs.rmSync(callLogPath(), { force: true });
 		write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), { own: 12 });
 		write(`${WAIT}\n`, { exit: 3 });
+		write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found);
 		expect(readJsonl(callLogPath())?.rows).toEqual([
 			expect.objectContaining({
 				route: "file-issue",
@@ -503,8 +575,10 @@ describe("a write route's reading", () => {
 				patterns: [],
 				model: [{ kind: "no-basis", text: WAIT, on: "data" }],
 				fallback: null,
+				override: null,
 			}),
 			expect.objectContaining({ model: [], fallback: "the judge exited 3" }),
+			expect.objectContaining({ override: OVERRIDE_REASON }),
 		]);
 	});
 

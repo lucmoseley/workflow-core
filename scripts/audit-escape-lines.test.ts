@@ -71,19 +71,66 @@ function session(name: string, at: string, ...texts: string[]) {
 	);
 }
 
-/** A gateway answering each ask from `answers` in turn: a probability, or a status to fail with. */
+/** A refused question re-sent after one tool call, at `at`. */
+function refusedSession(name: string, at: string, resend: string) {
+	const user = (content: unknown, meta = false) =>
+		JSON.stringify({
+			type: "user",
+			timestamp: at,
+			...(meta && { isMeta: true }),
+			message: { role: "user", content },
+		});
+	const said = (content: unknown[]) =>
+		JSON.stringify({
+			type: "assistant",
+			timestamp: at,
+			message: { role: "assistant", content },
+		});
+	const lines = [
+		user("go"),
+		said([{ type: "text", text: round(1, "") }]),
+		user(
+			"Stop hook feedback:\n…whose top two rivals sit close…\n\nQ1: (A) 55% against (B) 45%, so the recommendation could flip.",
+			true,
+		),
+		said([
+			{
+				type: "tool_use",
+				id: "t",
+				name: "Bash",
+				input: { command: "grep -c hit log" },
+			},
+		]),
+		user([{ type: "tool_result", tool_use_id: "t", content: "7" }]),
+		said([{ type: "text", text: resend }]),
+	];
+	fs.writeFileSync(
+		path.join(transcripts, `${name}.jsonl`),
+		`${lines.join("\n")}\n`,
+	);
+}
+
+/** A gateway answering each ask from `answers` in turn: a probability, or a
+ *  status to fail with; `bodies` holds each request as sent. */
 async function gateway(answers: (number | { status: number })[]) {
 	let calls = 0;
+	const bodies: string[] = [];
 	const server = http.createServer((req, res) => {
-		req.resume();
+		let body = "";
+		req.on("data", (c) => {
+			body += c;
+		});
 		req.on("end", () => {
+			bodies.push(body);
 			const a = answers[Math.min(calls++, answers.length - 1)];
 			if (typeof a === "number") {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end(
 					JSON.stringify({
 						answers: {
-							bears_on_separator: { type: "boolean", probability: a },
+							[body.includes("move_supported")
+								? "move_supported"
+								: "bears_on_separator"]: { type: "boolean", probability: a },
 						},
 					}),
 				);
@@ -97,7 +144,11 @@ async function gateway(answers: (number | { status: number })[]) {
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
 	const addr = server.address();
 	if (!addr || typeof addr === "string") throw new Error("no port");
-	return { base: `http://127.0.0.1:${addr.port}`, calls: () => calls };
+	return {
+		base: `http://127.0.0.1:${addr.port}`,
+		calls: () => calls,
+		bodies,
+	};
 }
 
 function gitleaks(code: number) {
@@ -148,6 +199,26 @@ describe("the batch", () => {
 		expect(readOutcomes()).toEqual(["bears", "misses"]);
 		await run();
 		expect(g.calls()).toBe(2);
+	});
+
+	it("asks of a re-send whether the calls since its refusal support its move, sending all three", async () => {
+		refusedSession(
+			"s1",
+			"2026-10-20T12:00:00Z",
+			round(1, "Checked: 7 hits; A").replace(
+				"55% (45% - 65%)",
+				"80% (75% - 85%)",
+			),
+		);
+		const g = await callable([0.2]);
+		expect(await run()).toMatchObject({ items: 1, answered: 1 });
+		expect(readOutcomes()).toEqual(["misses"]);
+		const [body] = g.bodies;
+		expect(body).toContain("move_supported");
+		expect(body).not.toContain("bears_on_separator");
+		expect(body).toMatch(/REFUSED SEND:[\s\S]*55% \(45% - 65%\)/);
+		expect(body).toContain("→ Bash: grep -c hit log");
+		expect(body).toMatch(/RE-SEND:[\s\S]*80% \(75% - 85%\)/);
 	});
 
 	it("records an outage and retries it on the next run", async () => {
@@ -233,6 +304,17 @@ describe("the report", () => {
 		expect(out).not.toContain("671 first");
 		expect(out).toContain("1061 refuses every close question once again");
 		expect(out).toContain("unmeasured (#667)");
+		expect(out).toContain("the unsupported share over-counts");
+	});
+
+	it("gives an after-refusal row the share judged unsupported", async () => {
+		refusedSession("s1", "2026-10-20T12:00:00Z", round(1, "Checked: 7 hits"));
+		refusedSession("s2", "2026-10-20T12:00:00Z", round(1, "Checked: 9 hits"));
+		await callable([0.9, 0.1]);
+		await run();
+		expect(outOf(await report())).toMatch(
+			/1061 after-refusal\s+2 judged,\s+50% unsupported; 0 pending/,
+		);
 	});
 
 	it("prints nothing at session start, a verdict having landed (#2038)", async () => {

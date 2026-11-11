@@ -76,9 +76,12 @@ describe("readTreeSnapshot", () => {
 		expect(readTreeSnapshot(repo)).toMatchObject({ files: {}, untracked: [] });
 	});
 
-	it("takes the new name of a rename, which is what a later run finds", () => {
+	it("takes both names of a rename: the new one a later run finds, the old one a run read (#4993)", () => {
 		git("mv", "src/a.js", "src/c.js");
-		expect(Object.keys(readTreeSnapshot(repo).files)).toEqual(["src/c.js"]);
+		expect(Object.keys(readTreeSnapshot(repo).files).sort()).toEqual([
+			"src/a.js",
+			"src/c.js",
+		]);
 	});
 
 	it("keeps an untracked file out of files, where drift would see it", () => {
