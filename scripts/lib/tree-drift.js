@@ -408,7 +408,7 @@ const START_MARK_ENV = "WFC_RUN_START_MARK";
 
 /**
  * A mark of now on the clock the kernel stamps a file's change time with in
- * `root`, stamped there, as git stamps its index beside the files it judges:
+ * `root`, stamped there, since another filesystem may keep another clock:
  * a change made after it stamps a later time, one made before it no later
  * (git's racy-git, where an equal stamp is no proof either way). It returns
  * only once a fresh stamp has passed the mark, so nothing changed after the
@@ -460,8 +460,8 @@ function readHandedMark(env = process.env) {
 /**
  * Which of `paths` under `root` changed since `mark`, a `markStart` mark:
  * each whose change time is later, and each that will not stat for any
- * reason but its absence. A path absent now is not named; a file made and
- * removed again since leaves no stamp to read. Null where there is no mark.
+ * reason but its absence. A file made and removed again since leaves no
+ * stamp to read. Null where there is no mark.
  * @param {string} root
  * @param {string[]} paths repo-relative
  * @param {bigint|null} mark

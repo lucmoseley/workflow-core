@@ -92,8 +92,7 @@ const nextAt = () => {
 /**
  * A run of `files` at `dir`, each passing unless named in `failing`, each
  * audited as reading nothing unless `audits` names it; `audits: null` is a
- * run nothing audited. `startMark` defaults to a mark taken now, as though the
- * run began once the repository was written.
+ * run nothing audited. `startMark` defaults to a mark taken now.
  */
 function run(
 	dir: string,

@@ -915,9 +915,7 @@ function readRunInputs(run, files) {
 		]),
 	];
 	const ids = readWorkingIds(gitHasher(run.root), run.root, tried);
-	/* Read after the ids, so a change before they were read is seen: two
-	 * snapshots miss a file edited and put back between them, which a test
-	 * may have read edited (#5018). */
+	/* Read after the ids, so a change before they were read is seen (#5018). */
 	const triedOnce = [...new Set(tried)];
 	const changed = readChangedSince(run.root, triedOnce, run.startMark);
 	const ignored = readIgnored(run.root, triedOnce);
