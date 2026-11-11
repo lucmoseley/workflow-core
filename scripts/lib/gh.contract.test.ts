@@ -9,8 +9,8 @@
  * of them. Loosened, every suite stubbing gh stays green while production
  * misreads what a new gh release prints (#2220).
  *
- * Red after a gh upgrade: re-run the case's call by hand, copy what changed
- * into its fixture. A landed write's two recordings go red on no upgrade:
+ * Red after a gh upgrade or a GitHub API change (#4990): re-run the case's
+ * call by hand, copy what changed into its fixture. A landed write's two recordings go red on no upgrade:
  * re-record them by their command below.
  */
 
