@@ -12,6 +12,7 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -20,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
+const { readTreeSnapshot } = require("./tree-drift.js");
 const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
@@ -109,6 +111,17 @@ function audited(
 }
 
 const T = "scripts/x.test.js";
+
+/* The guard on PATH, as vitest.setup.ts puts it, for a test's git calls. */
+const guarded = (root: string) => ({
+	PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
+	WFC_HOST_GIT_DIR: git(
+		root,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	),
+});
 
 describe("what a test file reads, as the audit sees it", () => {
 	it("holds a file a helper read through its default root", () => {
@@ -223,6 +236,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			expect(sleepOn(path.join(root, "bin"))).toMatch(/ran in the checkout/);
 
 			const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
+			dirs.push(scratch);
 			fs.copyFileSync(
 				path.join(root, "bin/sleep"),
 				path.join(scratch, "sleep"),
@@ -231,6 +245,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
 
 			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
+			dirs.push(relinked);
 			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
 			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
 
@@ -288,15 +303,7 @@ describe("what a test file reads, as the audit sees it", () => {
 
 	it("keeps a read-only git call on the checkout's repository to run again, and doubts any other", () => {
 		const root = checkout();
-		const env = {
-			PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
-			WFC_HOST_GIT_DIR: git(
-				root,
-				"rev-parse",
-				"--path-format=absolute",
-				"--git-common-dir",
-			),
-		};
+		const env = guarded(root);
 		const call = (cwd: string, args: string[]) =>
 			`require("node:child_process").execFileSync("git", ${JSON.stringify(args)}, { cwd: ${JSON.stringify(cwd)} });`;
 		const fixture = fs.realpathSync(
@@ -312,9 +319,25 @@ describe("what a test file reads, as the audit sees it", () => {
 			call(path.join(root, "scripts"), ["ls-files", "-z"]),
 			{ env },
 		);
+		const listing = execFileSync("git", ["ls-files", "-z"], {
+			cwd: path.join(root, "scripts"),
+		});
 		expect(readAudits(listed, root).get(T).reads.git).toEqual([
-			{ cwd: "scripts", args: ["ls-files", "-z"] },
+			{
+				cwd: "scripts",
+				args: ["ls-files", "-z"],
+				answer: `0:${createHash("sha1").update(listing).digest("hex")}`,
+			},
 		]);
+		const output = audited(
+			root,
+			T,
+			call(root, ["diff", `--output=${path.join(fixture, "d")}`]),
+			{ env },
+		);
+		expect(readAudits(output, root).get(T).doubt).toMatch(
+			/git call \(git diff --output=.*\) wrote its answer to a file/,
+		);
 		const status = audited(root, T, call(root, ["status"]), { env });
 		expect(readAudits(status, root).get(T).doubt).toMatch(
 			/git call \(git status\) read this repository/,
@@ -324,6 +347,29 @@ describe("what a test file reads, as the audit sees it", () => {
 		});
 		expect(readAudits(steered, root).get(T).doubt).toMatch(
 			/^a git call \(git -C /,
+		);
+	});
+
+	it("doubts a git call the guard logged begun and never answered, or answered two ways", () => {
+		const root = checkout();
+		const env = guarded(root);
+		const body = `require("node:child_process").execFileSync("git", ["ls-files"], { cwd: ${JSON.stringify(root)} });`;
+		const logged = (answer: string) =>
+			["4", "", root, answer, "ls-files", ""].join("\0");
+		const killed = audited(root, T, body, { env });
+		const gitLog = (dir: string) =>
+			path.join(
+				dir,
+				fs.readdirSync(dir).find((n) => n.endsWith(".git")) as string,
+			);
+		fs.appendFileSync(gitLog(killed), logged(""));
+		expect(readAudits(killed, root).get(T).doubt).toMatch(
+			/git call \(git ls-files\) was logged without its answer/,
+		);
+		const twice = audited(root, T, body, { env });
+		fs.appendFileSync(gitLog(twice), logged("") + logged("0:x"));
+		expect(readAudits(twice, root).get(T).doubt).toMatch(
+			/git call \(git ls-files\) answered differently within the run/,
 		);
 	});
 
@@ -1237,6 +1283,7 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				shared: ["vitest.config.ts", "vitest.setup.ts"],
 				clean: true,
 				drifted: [],
+				after: readTreeSnapshot(root),
 				audits: readAudits(log, root),
 			},
 			{ storeRoot: root, lander: false, values: Values },
@@ -1282,6 +1329,41 @@ describe("from a real audited run to a cached row (#4916)", () => {
 			expect(isCached(root)).toBe(false);
 		},
 	);
+
+	it("records no row where a ref the test read moved before the record (#4993)", () => {
+		const root = keyed();
+		commit(root);
+		git(root, "branch", "side");
+		const body = `require("node:child_process").execFileSync("git", ["rev-parse", "refs/heads/side"], { cwd: ${JSON.stringify(root)} });`;
+		const held = audited(root, T, body, { env: guarded(root) });
+		commit(root);
+		expect(recordRun(root, held)).toBe(1);
+		expect(isCached(root)).toBe(true);
+
+		const moved = audited(root, T, body, { env: guarded(root) });
+		git(root, "update-ref", "refs/heads/side", "HEAD");
+		expect(recordRun(root, moved)).toBe(0);
+	});
+
+	it("records no row for a git call naming a pattern file outside the checkout, gone by the record, and one where it stands (#4993)", () => {
+		const root = keyed();
+		write(root, "docs/n.md", "needle\n");
+		commit(root);
+		const pats = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-pats-")),
+		);
+		dirs.push(pats);
+		write(pats, "pats", "needle\n");
+		const body = `require("node:child_process").execFileSync("git", ["grep", "-l", "-f", ${JSON.stringify(path.join(pats, "pats"))}], { cwd: ${JSON.stringify(root)} });`;
+		const kept = audited(root, T, body, { env: guarded(root) });
+		commit(root);
+		expect(recordRun(root, kept)).toBe(1);
+
+		const gone = audited(root, T, body, { env: guarded(root) });
+		fs.rmSync(path.join(pats, "pats"));
+		expect(readAudits(gone, root).get(T).reads.git).toHaveLength(1);
+		expect(recordRun(root, gone)).toBe(0);
+	});
 
 	it("voids the row on a skill dir added, and on a settings file read through a helper's default root", () => {
 		const root = keyed();
@@ -1518,8 +1600,19 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 	const Self = { k: "self", owner: "100", pid: 100 };
 
 	/** The guard's record of one git call: its field count, then each field. */
+	/** The guard's two records of one call: begun, then answered `ANSWER`. */
+	const Answer = "0:da39a3ee5e6b4b0d3255bfef95601890afd80709";
 	const gitRecord = (dir: string, words: string[]) =>
-		[String(words.length + 2), "", dir, ...words].map((f) => `${f}\0`).join("");
+		["", Answer]
+			.flatMap((answer) => [
+				String(words.length + 3),
+				"",
+				dir,
+				answer,
+				...words,
+			])
+			.map((f) => `${f}\0`)
+			.join("");
 
 	/**
 	 * The audit of a.test.ts off a log of `lines` and the guard's record of
@@ -1551,7 +1644,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			/a git call \(git status\) read this repository/,
 		);
 		expect(judged(root, minted, [[scratch, ["ls-files"]]]).reads.git).toEqual([
-			{ cwd: "scratch", args: ["ls-files"] },
+			{ cwd: "scratch", args: ["ls-files"], answer: Answer },
 		]);
 	});
 
@@ -1612,7 +1705,9 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			);
 			expect(
 				judged(root, [], [[root, ["cat-file", "-p", "HEAD"]]]).reads.git,
-			).toEqual([{ cwd: ".", args: ["cat-file", "-p", "HEAD"] }]);
+			).toEqual([
+				{ cwd: ".", args: ["cat-file", "-p", "HEAD"], answer: Answer },
+			]);
 		},
 	);
 
@@ -1627,7 +1722,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		(words) => {
 			const root = checkout();
 			expect(judged(root, [], [[root, words]]).reads.git).toEqual([
-				{ cwd: ".", args: words },
+				{ cwd: ".", args: words, answer: Answer },
 			]);
 		},
 	);
@@ -1757,7 +1852,9 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		});
 		expect(
 			judged(root, [child("python3", "scripts/run.py")], []).doubt,
-		).toMatch(/a Python child \(python3 .*run\.py\) ran a checkout script/);
+		).toMatch(
+			/a Python child \(python3 .*run\.py\) ran a checkout script that no tracer followed/,
+		);
 		for (const shell of ["bash", "sh"])
 			expect(judged(root, [child(shell, "scripts/run.sh")], []).doubt).toMatch(
 				/a shell child \(.*run\.sh\) ran a checkout script that no tracer followed/,

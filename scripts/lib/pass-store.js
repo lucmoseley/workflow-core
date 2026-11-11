@@ -75,6 +75,7 @@ const {
 const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
+const { drift, readTreeSnapshot } = require("./tree-drift.js");
 const {
 	execGit,
 	spawnGitSync,
@@ -132,7 +133,7 @@ const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never caches (#4814),
  * though its red still voids an older pass (#4995). */
-const FORMAT = 16;
+const FORMAT = 17;
 
 /* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -145,12 +146,13 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  * @typedef {{file: string, outcome: Outcome, imports: string[]}} FileResult
  * @typedef {{sha: string, at: string, tree: string|null, root: string,
  *   files: FileResult[], shared: string[], clean: boolean,
- *   drifted: string[]|null,
+ *   drifted: string[]|null, after: import("./tree-drift.js").Snapshot|null,
  *   audits: Map<string, import("./read-audit.js").Audit>|null}} Run
  *   `root` the tree vitest ran in, paths relative to it; `shared` the config
  *   file and its `setupFiles` closure; `clean` false where the run errored
  *   outside its files, was interrupted or filtered by name; `drifted` the
- *   paths rewritten while it ran, null where that is unknown; `audits` each
+ *   paths rewritten while it ran, null where that is unknown; `after` the
+ *   drift watch's end snapshot; `audits` each
  *   file's reads as the read audit saw them (lib/read-audit.js), null where
  *   the run was not audited
  * @typedef {{sha: string, at: string, tree: string|null}} Source
@@ -585,11 +587,7 @@ function buildGitRunner(root) {
 				timeout: GIT_TIMEOUT_MS,
 			});
 			if (!r.error && r.status !== null)
-				id = crypto
-					.createHash("sha1")
-					.update(`${r.status}\0`)
-					.update(r.stdout)
-					.digest("hex");
+				id = `${r.status}:${crypto.createHash("sha1").update(r.stdout).digest("hex")}`;
 		} catch {
 			// A key that will not parse is a call that cannot run: no id, so
 			// the row resting on it is not recorded and never holds (#4916).
@@ -698,15 +696,18 @@ function buildTrackedListings(root) {
 
 /**
  * The inputs a file's audited reads add. Null where a listing the test
- * made, or a tree it walked, held a name git does not track.
+ * made, or a tree it walked, held a name git does not track, a path under a
+ * tree it walked moved while the run ran, or a git call it made answers
+ * other than it did for the test.
  * @param {import("./read-audit.js").Reads} reads
  * @param {() => Map<string, Set<string>>} listings
  * @param {TreeAt} working the working tree: its directories and git calls
+ * @param {Set<string>|null} drifted
  * @returns {{files: string[], absent: string[], dirs: string[],
  *   logged: Record<string, string>, listings: Record<string, string>,
  *   git: Record<string, string>}|null}
  */
-function auditInputs(reads, listings, working) {
+function auditInputs(reads, listings, working, drifted) {
 	const lists = Object.entries(reads.lists);
 	const tracked =
 		lists.length + reads.trees.length > 0 ? listings() : new Map();
@@ -722,17 +723,19 @@ function auditInputs(reads, listings, working) {
 	const walked = {};
 	const files = [...reads.files];
 	for (const top of reads.trees) {
-		const tree = treeInputs(top, tracked, working);
+		const tree = hasMovedUnder(top, drifted)
+			? null
+			: treeInputs(top, tracked, working);
 		if (!tree) return null;
 		files.push(...tree.files);
 		Object.assign(walked, tree.listings);
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
-	for (const call of reads.git) {
-		const key = JSON.stringify(call);
+	for (const { cwd, args, answer } of reads.git) {
+		const key = JSON.stringify({ cwd, args });
 		const id = working.git(key);
-		if (id === null) return null;
+		if (id !== answer) return null;
 		git[key] = id;
 	}
 	return {
@@ -744,6 +747,17 @@ function auditInputs(reads, listings, working) {
 		git,
 	};
 }
+
+/**
+ * Whether a path at or under `top` moved while the run ran, or that is
+ * unknown: a file removed then is in neither the index nor the working tree
+ * at the record, though the walk saw it (#4993).
+ * @param {string} top
+ * @param {Set<string>|null} drifted
+ */
+const hasMovedUnder = (top, drifted) =>
+	drifted === null ||
+	[...drifted].some((p) => top === "." || isUnder(p, [top]));
 
 /**
  * What a tree walked or copied whole rests on: every tracked file under
@@ -795,13 +809,14 @@ function treeInputs(top, tracked, working) {
  * @param {FileResult} f
  * @param {{run: Run, reads: Map<string, string[]>,
  *   reach: (file: string, ownReadsJudged?: boolean) => Reach|null,
- *   listings: () => Map<string, Set<string>>, working: TreeAt}} ctx
+ *   listings: () => Map<string, Set<string>>, working: TreeAt,
+ *   drifted: Set<string>|null}} ctx
  * @returns {Gathered}
  */
-function gatherInputs(f, { run, reads, reach, listings, working }) {
+function gatherInputs(f, { run, reads, reach, listings, working, drifted }) {
 	const audit = run.audits?.get(f.file);
 	const audited = audit && "reads" in audit ? audit.reads : null;
-	const found = audited && auditInputs(audited, listings, working);
+	const found = audited && auditInputs(audited, listings, working, drifted);
 	const seen = found && isTreeHolding(found, working) ? found : null;
 	/* A script the manifest says the file reads is reached too, as it
 	 * may spawn it: its own requires are inputs that no import and no
@@ -848,12 +863,13 @@ function gatherInputs(f, { run, reads, reach, listings, working }) {
  *   row: Row}} Recorded
  *   one file's row with the values and shared inputs its run line carries
  * @typedef {{gathered: Gathered[], shared: string[],
- *   ids: Map<string, string|null>, isDriftKnown: boolean,
+ *   ids: Map<string, string|null>, isDriftKnown: boolean, isSettled: boolean,
  *   isKnown: (p: string) => boolean, isAbsent: (p: string) => boolean}} RunInputs
  *   a run's inputs as read off the tree once it ended: each file's, the
  *   shared ones, every path's content id, whether the drift watch saw the
- *   run through, and whether a path's content as the run read it is known,
- *   or known to be none
+ *   run through, whether the tree still stands as its end snapshot found it
+ *   once those were read, and whether a path's content as the run read it
+ *   is known, or known to be none
  */
 
 /**
@@ -872,8 +888,12 @@ function readRunInputs(run, files) {
 	const reach = lexicalReach(run.root);
 	const listings = buildTrackedListings(run.root);
 	const working = buildWorkingAt(run.root);
+	/* The content a path held while the run ran is what the tree holds now
+	 * only where the drift watch says it was not rewritten; the watch sees
+	 * no ignored path, and where it saw nothing no path's content is known. */
+	const drifted = run.drifted === null ? null : new Set(run.drifted);
 	const gathered = files.map((f) =>
-		gatherInputs(f, { run, reads, reach, listings, working }),
+		gatherInputs(f, { run, reads, reach, listings, working, drifted }),
 	);
 	const edges = (/** @type {Gathered} */ g) =>
 		g.reached.flatMap((r) => r.edges);
@@ -890,10 +910,6 @@ function readRunInputs(run, files) {
 	];
 	const ids = readWorkingIds(gitHasher(run.root), run.root, tried);
 	const ignored = readIgnored(run.root, [...new Set(tried)]);
-	/* The content a path held while the run ran is what the tree holds now
-	 * only where the drift watch says it was not rewritten; the watch sees
-	 * no ignored path, and where it saw nothing no path's content is known. */
-	const drifted = run.drifted === null ? null : new Set(run.drifted);
 	const isSteady = (/** @type {string} */ p) =>
 		drifted !== null && !drifted.has(p) && !ignored.has(p);
 	return {
@@ -901,6 +917,7 @@ function readRunInputs(run, files) {
 		shared,
 		ids,
 		isDriftKnown: drifted !== null,
+		isSettled: isSettled(run),
 		isKnown: (p) => isSteady(p) && typeof ids.get(p) === "string",
 		/* A path tried before the resolved file must read as no file: one that
 		 * appeared since the reach was read, or a symlink, which no id answers,
@@ -950,10 +967,10 @@ function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
 		const row = {
 			file: g.file,
 			outcome: g.outcome,
-			inputs: {
-				...idsOf(paths, ids),
-				...Object.fromEntries(absent.map((p) => [p, ABSENT])),
-			},
+			inputs: Object.assign(
+				idsOf(paths, ids),
+				Object.fromEntries(absent.map((p) => [p, ABSENT])),
+			),
 			listings: g.seen.listings,
 			dirs: g.seen.dirs,
 			git: g.seen.git,
@@ -1046,19 +1063,32 @@ function buildUnkeyedVoidingRows(failed, seams) {
 }
 
 /**
- * A run's rows off its inputs: each file's known row, and a voiding row for
- * each failed file that has none.
+ * A run's rows off its inputs: each file's known row, none where the tree
+ * moved after the run's end snapshot, and a voiding row for each failed
+ * file that has none.
  * @param {RunInputs} inputs
  * @param {Seams} seams
  * @returns {Recorded[]}
  */
 function buildRows(inputs, seams) {
-	const known = buildKnownRows(inputs, seams);
+	const known = inputs.isSettled ? buildKnownRows(inputs, seams) : [];
 	const keyed = new Set(known.map(({ row }) => row.file));
 	const failed = inputs.gathered.filter(
 		(g) => g.outcome === "fail" && !keyed.has(g.file),
 	);
 	return [...known, ...buildVoidingRows(failed, inputs, seams)];
+}
+
+/**
+ * Whether the tree stands as the run's end snapshot found it, read after the
+ * record read the index and every id: the drift watch's window closes at
+ * that snapshot, so a file removed or rewritten after it would be keyed
+ * though no test saw it (#4993).
+ * @param {Run} run
+ */
+function isSettled(run) {
+	const now = readTreeSnapshot(run.root);
+	return run.after != null && now !== null && drift(run.after, now) === null;
 }
 
 /**

@@ -1,8 +1,7 @@
 /*
  * read-audit.js — the runtime read audit the pass store keys a test file's
  * row on (#4916). A path a test builds at run time — a directory listing, a
- * helper's default root — is invisible to the lexical reach; the audit sees
- * the read itself.
+ * helper's default root — is invisible to the lexical reach.
  *
  * `install` arms it for one suite run, from vitest's globalSetup: a log
  * directory, and lib/read-audit-preload.js on `NODE_OPTIONS`, which every
@@ -17,13 +16,15 @@
  * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees, from a test's
  * scratch as from anywhere else under the root. One of the read-only
  * subcommands in `RERUN`, made from a directory under the root with no `-C`,
- * `--git-dir`, `--work-tree` or git-dir variable steering it and nothing fed
- * to it on standard input, is kept word for word: the store keys it on its
- * output, run again.
+ * `--git-dir`, `--work-tree`, git-dir variable or `--output` steering it and
+ * nothing fed to it on standard input, is kept word for word with the answer
+ * the guard saw it give: the store keys it on its output run again, and only
+ * where that equals what the test got (#4993). A call the guard logged begun
+ * and never answered, or that answered the same words two ways, is a doubt.
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
- * another file, or holds a read the audit cannot see, reads as `doubt`, which
- * the store records no row for. What cannot be seen:
+ * another file, or holds a read the audit cannot see, reads as `doubt`. What
+ * cannot be seen:
  * - any other git call on this repository, a worktree of it outside the root
  *   included, and a git call handed a path in the checkout, which the guard
  *   logs only where the call's own repository is this one;
@@ -145,8 +146,9 @@ function isStdinFed(word) {
 }
 
 /**
- * @typedef {{cwd: string, args: string[]}} GitCall
- *   a git call to run again: its directory, repo-relative, and its words
+ * @typedef {{cwd: string, args: string[], answer: string}} GitCall
+ *   a git call to run again: its directory, repo-relative, its words, and
+ *   the answer the test got, `<status>:<sha1 of stdout>`
  * @typedef {{files: string[], absent: string[], dirs: string[],
  *   lists: Record<string, string>, trees: string[], scripts: string[],
  *   git: GitCall[]}} Reads
@@ -271,7 +273,7 @@ function readOwners(dir) {
 
 /**
  * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the words.
+ * fields — the git-dir flag, the directory, the answer, the words.
  * @param {string} text
  * @returns {string[][]}
  */
@@ -281,7 +283,7 @@ function parseGitRecords(text) {
 	const out = [];
 	for (let i = 0; i < fields.length - 1; ) {
 		const n = Number(fields[i]);
-		if (!Number.isInteger(n) || n < 2) throw new Error("a git record is torn");
+		if (!Number.isInteger(n) || n < 3) throw new Error("a git record is torn");
 		out.push(fields.slice(i + 1, i + 1 + n));
 		i += n + 1;
 	}
@@ -340,7 +342,8 @@ function buildCollector(logs, root, isScratch, readers) {
 	const trees = new Set();
 	/** @type {Set<string>} */
 	const scripts = new Set();
-	/** @type {Map<string, GitCall>} */
+	/** @type {Map<string, {cwd: string, args: string[], begun: number,
+	 *   answers: string[]}>} */
 	const calls = new Map();
 	/** @type {Map<number, Entry>} */
 	const children = new Map();
@@ -400,14 +403,20 @@ function buildCollector(logs, root, isScratch, readers) {
 		 * @param {string[]} record
 		 * @returns {string|null}
 		 */
-		takeGit(record) {
-			const call = rerunnable(record, root);
+		takeGit([steered = "", dir = "", answer = "", ...args]) {
+			const call = rerunnable([steered, dir, ...args], root);
 			if (typeof call === "string") return call;
-			calls.set(JSON.stringify(call), call);
+			const key = JSON.stringify(call);
+			const at = calls.get(key) ?? { ...call, begun: 0, answers: [] };
+			if (answer === "") at.begun += 1;
+			else at.answers.push(answer);
+			calls.set(key, at);
 			return null;
 		},
 		/** @returns {Audit} */
 		finish() {
+			const git = answeredCalls(calls.values());
+			if (!Array.isArray(git)) return git;
 			/** @type {Record<string, string>} */
 			const listed = {};
 			for (const [p, ids] of lists) {
@@ -426,7 +435,7 @@ function buildCollector(logs, root, isScratch, readers) {
 					lists: listed,
 					trees: [...trees].sort(),
 					scripts: [...scripts].sort(),
-					git: [...calls.values()],
+					git,
 				},
 			};
 		},
@@ -434,11 +443,35 @@ function buildCollector(logs, root, isScratch, readers) {
 }
 
 /**
+ * Each git call with the one answer the test got, or the doubt where one has
+ * none or two.
+ * @param {Iterable<{cwd: string, args: string[], begun: number,
+ *   answers: string[]}>} calls
+ * @returns {GitCall[]|{doubt: string}}
+ */
+function answeredCalls(calls) {
+	/** @type {GitCall[]} */
+	const git = [];
+	for (const { cwd, args, begun, answers } of calls) {
+		const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
+		const [answer, ...rest] = answers;
+		if (answer === undefined || answers.length !== begun)
+			return { doubt: `a git call (${shown}) was logged without its answer` };
+		if (rest.some((a) => a !== answer))
+			return {
+				doubt: `a git call (${shown}) answered differently within the run`,
+			};
+		git.push({ cwd, args, answer });
+	}
+	return git;
+}
+
+/**
  * A guard record as a git call to run again, or the doubt it leaves where it
  * cannot be run again.
  * @param {string[]} record the git-dir flag, the directory, the words
  * @param {string} root real path
- * @returns {GitCall|string}
+ * @returns {{cwd: string, args: string[]}|string}
  */
 function rerunnable([steered, dir = "", ...args], root) {
 	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
@@ -455,6 +488,10 @@ function rerunnable([steered, dir = "", ...args], root) {
 	}
 	if (!RERUN.has(String(args[i])))
 		return `a git call (${shown}) read this repository`;
+	/* `--output` sends the answer to a file, so stdout, which the answer is
+	 * hashed off, holds none of it (#4993). */
+	if (args.some((a) => a === "--output" || String(a).startsWith("--output=")))
+		return `a git call (${shown}) wrote its answer to a file`;
 	if (args.slice(i + 1).some(isStdinFed))
 		return `a git call (${shown}) read its standard input`;
 	return { cwd, args };
@@ -490,8 +527,7 @@ function childDoubt(e, program, { logs, root, isScratch }) {
 		return args.some((a) => isCheckoutPath(a, root, isScratch))
 			? `a git call (${shown}) was handed a path in the checkout`
 			: null;
-	/* A tracer already following the process that spawned it follows it too:
-	 * its reads are in that child's trace. */
+	/* A tracer already following the process that spawned it follows it too. */
 	if (e.within) return null;
 	return unseenDoubt(e, program, root, isScratch);
 }
@@ -527,10 +563,10 @@ function unseenDoubt(e, program, root, isScratch) {
 		return `a child (${shown}) ran a shell script of the checkout that no tracer followed, whose own reads no reach holds`;
 	if (program?.runs === "node" || (script !== null && isNode(file)))
 		return `a Node child (${shown}) ran without the audit`;
-	if (script !== null && PYTHON_RUNNERS.has(path.basename(file)))
-		return `a Python child (${shown}) ran a checkout script, whose own reads no reach holds`;
-	if (script !== null)
-		return `a shell child (${shown}) ran a checkout script that no tracer followed, whose own reads no reach holds`;
+	if (script !== null) {
+		const runner = PYTHON_RUNNERS.has(path.basename(file)) ? "Python" : "shell";
+		return `a ${runner} child (${shown}) ran a checkout script that no tracer followed, whose own reads no reach holds`;
+	}
 	return null;
 }
 

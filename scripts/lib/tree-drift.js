@@ -75,11 +75,12 @@ function dirtyPaths(porcelain) {
 	const out = [];
 	for (const line of porcelain.split("\n")) {
 		if (line.length < 4 || line.startsWith("??")) continue;
-		// `XY <path>`, and `XY <old> -> <new>` for a rename: the new name is what
-		// a later run will find on disk.
+		// `XY <path>`, and `XY <old> -> <new>` for a rename: both, as the old
+		// path is gone from where a run read it (#4993).
 		const rest = line.slice(3);
 		const arrow = rest.indexOf(" -> ");
-		out.push(arrow === -1 ? rest : rest.slice(arrow + 4));
+		if (arrow === -1) out.push(rest);
+		else out.push(rest.slice(0, arrow), rest.slice(arrow + 4));
 	}
 	return out;
 }

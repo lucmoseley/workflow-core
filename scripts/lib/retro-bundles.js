@@ -25,8 +25,7 @@ const RETRO_MARK = /^Standalone: retro-sweep finding\b/m;
 const RETRO_BUNDLE_MODEL = "opus";
 
 /* The vendored /triage skill has no bundle rule, so the launched session reads
- * this or nothing (#1195). No digit: dispatch-ledger.js reads every integer in
- * a prompt as an issue number. */
+ * this or nothing (#1195). */
 const RETRO_BUNDLE_CLAUSE =
 	"one decision, one round comment and one brief per issue";
 
