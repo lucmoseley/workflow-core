@@ -791,8 +791,8 @@ function install() {
 	 * through its handle while it still ran git. Exited on its own, a git
 	 * logs its end; one that ran `git help` became `man` under the same
 	 * pid, which no mark may vouch for.
-	 * @param {Untyped} handle the child's process handle, its `kill` and
-	 *   `onexit` wrapped in place: Node calls only the handle's own
+	 * @param {Untyped} handle the child's process handle: Node calls only
+	 *   the handle's own `kill` and `onexit`, so they are wrapped in place
 	 * @param {string|null|undefined} events
 	 */
 	const markOnKill = (handle, events) =>
