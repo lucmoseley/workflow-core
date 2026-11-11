@@ -48,12 +48,15 @@ const { buildHanded } = require("./read-audit-handed.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	buildGuardTest,
+	GIT_EVENTS,
+	GIT_READS,
 	GIT_VALUED,
 	GUARD,
 	EXITED,
 	isNode,
 	PATH_MAX,
 	pairValue,
+	parseStanding,
 	STEERED_BY,
 	readRealTmpdir,
 	repoPath,
@@ -469,6 +472,7 @@ function install() {
 	 * suite's setup left it: `settle` writes it down and names the file for
 	 * the processes below. */
 	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
+	const isOwner = owner === String(process.pid);
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
 	 * the program lookup put there themselves: the root this audit was told,
@@ -918,11 +922,16 @@ function install() {
 				add({ k: "claim", file: r ?? String(file) });
 			});
 		},
+		/* Only the owner writes the file the reader weighs its git calls
+		 * against: a vitest a test runs under the same owner settles its own
+		 * environment, which is the test's (#5017). */
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
+				if (!isOwner) return;
 				const file = path.join(dir, `${owner}.standing.json`);
-				fs.writeFileSync(file, JSON.stringify(standing));
+				const gitAt = sizeOf(path.join(dir, `${owner}.git`));
+				fs.writeFileSync(file, JSON.stringify({ env: standing, gitAt }));
 				process.env.WFC_READ_AUDIT_STANDING = file;
 			});
 		},
@@ -939,16 +948,24 @@ function install() {
 function readStanding(file) {
 	if (!file) return {};
 	try {
-		return JSON.parse(fs.readFileSync(file, "utf8"));
+		return parseStanding(fs.readFileSync(file, "utf8")).env;
 	} catch {
+		// No file to read is no settled environment (#4982).
 		return {};
 	}
 }
 
-const SHELLS = new Set(["sh", "bash", "dash"]);
+/** @param {string} file its size in bytes, 0 where none stands */
+function sizeOf(file) {
+	try {
+		return fs.statSync(file).size;
+	} catch {
+		// No git call logged yet (#5017).
+		return 0;
+	}
+}
 
-/* The variable naming git's event target (git's api-trace2). */
-const GIT_EVENTS = "GIT_TRACE2_EVENT";
+const SHELLS = new Set(["sh", "bash", "dash"]);
 
 /* The variables that steer which program a child runs by name, or with
  * what options (#4997). */
@@ -979,10 +996,6 @@ function textOf(chunk) {
 }
 
 const ELF = Buffer.from("\x7fELF", "latin1");
-
-/* The variables git reads a path from: its own, and where its configuration
- * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
-const GIT_READS = /^(GIT_.*|HOME|XDG_CONFIG_HOME)$/;
 
 /** @param {Untyped} opts whether a child's program is named git */
 function isGitFile(opts) {
