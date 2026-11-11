@@ -59,7 +59,7 @@ Most time words in a body are not waits. Before you report a sentence, ask: is i
 - runs, repetitions, pairs or samples that whoever does the work takes on demand, back to back ("time it over five runs", "passes 10 of 10 times", "a 20-minute sample"): nothing has to build up on its own;
 - a wait that belongs to another issue, named or cited: its window, its gate, its reading, as narrated, summarised in a list or map row, or given as evidence;
 - the options of a question put to a reader, and the condition on which a recommendation would change: none of them is this issue's work until someone chooses it;
-- a person told to wait a few minutes while doing a step by hand ("give it a minute", "wait 30 seconds, then reload");
+- a person told to wait a few minutes while doing a step by hand ("let the screen settle", "wait 30 seconds, then reload");
 - a date or limit stated as a fact about the world ("the key is locked until 1 March");
 - an account of what already happened ("two days later the fix went in"), a wait the body says is already over, and a report of a reading already taken, whose point was reached and whose figures are in hand;
 - waiting on an event alone, with no stretch of time and no amount of data (a commit landing, an issue closing, a release, a reply);
@@ -76,7 +76,7 @@ QUESTION 2 — BASES. For every line that starts \`**Gate basis:**\`, outside co
 - "class": how the line comes by the window's length or count, one of
   - "derived": it works the window out from data. It gives a count or a measured figure, says where that figure comes from, and the figure yields this window: a rate and the number of events the window then holds, a baseline and the sample needed to tell a change from it, a statistical bound a count gives (no failure in so many tries puts the rate under a stated level), or a cycle the window has to span, named with the dated events or measured load that fell in it.
   - "inherited": it takes the window from somewhere else that it names: another issue, a ruling, a spec, an earlier reading whose window it matches.
-  - "restated": it only repeats the window, or says the ticket, the body or its acceptance criteria ask for it. Nothing outside the ticket's own ask stands behind the length.
+  - "restated": it only repeats the window, or says the issue, the body or its acceptance criteria ask for it. Nothing outside the issue's own ask stands behind the length.
   - "asserted": it gives a reason in words with no figure behind it: a round length said to be enough, to cover a pattern, or to be safe.
   A line that names a figure and a source but whose figure does not lead to this window's length is not "derived": class it by what it does do.
 
