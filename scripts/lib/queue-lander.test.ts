@@ -97,7 +97,6 @@ const freshDisk = () => ({
 	/** The refused record: each sha `main` refused, with its refusal. */
 	refused: new Map<string, string>(),
 	pipeline: null as Pipeline | null,
-	/** Whether the pipeline record reads as torn, until it is moved aside. */
 	torn: false,
 	/** Each pipeline record call that changes the file, in order. */
 	recordCalls: [] as ("write" | "quarantine")[],
