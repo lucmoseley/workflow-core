@@ -404,6 +404,29 @@ describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)",
 });
 
 describe("the memory ladder queues a launch under its rung (#2305)", () => {
+	/* Text appended to the segment would land past the string's closing quote,
+	 * on `flock` (#4978). */
+	it.each([
+		['flock /l -c "true\nnpm run test"', "npm run test -- --queue"],
+		['flock /l -c "true; npm run test"', "npm run test -- --queue"],
+		[
+			'flock /l -c "npm run test -- a.test.ts"',
+			"npm run test -- a.test.ts --queue",
+		],
+	])(
+		"hands back the launch a -c string runs, %s, as itself",
+		(command, fix) => {
+			expect(readDenyReason(command, 1000).split("\n")[0]).toBe(
+				`Run the command with this launch in place of its own: ${fix}`,
+			);
+			const resubmitted = command.replace(
+				fix.replace(/ (-- )?--queue$/, ""),
+				fix,
+			);
+			expect(verdict(resubmitted, 1000), resubmitted).not.toBe("deny");
+		},
+	);
+
 	it("denies a `npm run test` under the floor, line one its `--queue` form", () => {
 		const reason = readDenyReason("npm run test", 1000);
 		expect(reason.split("\n")[0]).toBe("Run instead: npm run test -- --queue");

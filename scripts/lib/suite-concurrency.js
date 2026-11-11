@@ -30,7 +30,8 @@
  * sessions re-issued with `--queue`, but the fix sat inside up to 2,113 bytes.
  * Line one is the denied launch as typed, with `--queue` appended — `-- --queue`
  * on an npm launch carrying no `--`. It is the SEGMENT, not a compound command's
- * whole, so there line one says to keep the rest. The walker hands the
+ * whole, so there line one says to keep the rest; a launch a `-c` string runs
+ * is that command alone, to swap in inside the string (#4978). The walker hands the
  * `--queue` and `--` checks the words either side of a redirection (#1007,
  * #1488), so line one, re-submitted, passes; a quoted `--queue` is not the
  * flag. A non-vitest runner (#330), and an npm script that does not run
@@ -407,6 +408,8 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {string} watchLimb
  * @property {string} waitLever
  * @property {boolean} refusable a test launch not queued
+ * @property {string} launchText the launch's own text, masked: the segment,
+ *   or the command a `-c` string in it runs
  * @property {string} typedLaunch
  */
 
@@ -853,14 +856,18 @@ function waitLeverOf(running) {
 
 /**
  * @param {St} st
- * @param {{ segment: string, words: string[] }} at the segment and its words,
- *   unwrapped
+ * @param {{ segment: string, words: string[], scripted: boolean }} at the
+ *   segment and its words, unwrapped, and whether a `-c` string runs them
  * @param {Subject} s
  * @param {number} readMb
  * @returns {Judged}
  */
 function judgedOf(st, at, s, readMb) {
 	const { segment, words } = at;
+	/* A launch a `-c` string runs is handed back as the command inside the
+	 * string: text after the segment's last word would land past its closing
+	 * quote (#4978). */
+	const launchText = at.scripted ? words.join(" ") : segment;
 	const running = readRunning(st, s);
 	const busy = running?.workers ?? 0;
 	const watchLimb = watchLimbOf(st, segment);
@@ -901,7 +908,8 @@ function judgedOf(st, at, s, readMb) {
 		watchLimb,
 		waitLever: waitLeverOf(running),
 		refusable: test && !queued,
-		typedLaunch: test ? typedLaunchOf(st, segment) : "",
+		launchText,
+		typedLaunch: test ? typedLaunchOf(st, launchText) : "",
 	};
 }
 
@@ -973,7 +981,7 @@ function queueFix(st, j) {
 			? " -- --queue"
 			: " --queue";
 	const launch = viaQueueRun
-		? queuedLaunch(j.segment, st.spans, st.ctx.scriptPath("queue-run.js"))
+		? queuedLaunch(j.launchText, st.spans, st.ctx.scriptPath("queue-run.js"))
 		: `${j.typedLaunch}${flag}`;
 	const waits = viaQueueRun ? "`queue-run.js`" : "`--queue`";
 	const allWatchers = j.watching > 0 && j.watching === j.running?.total;
@@ -1154,20 +1162,20 @@ function judge(st, cmd) {
 	/** @type {Verdict | undefined} */
 	let verdict;
 	for (const run of unwrap(cmd.words, st.spans)) {
-		verdict = judgeRun(st, cmd, run.words);
+		verdict = judgeRun(st, cmd, run);
 		if (verdict !== undefined) break;
 	}
 	return verdict;
 }
 
 /**
- * One unwrap run's words judged, as judge answers.
+ * One unwrap run judged, as judge answers.
  * @param {St} st
  * @param {Command} cmd
- * @param {string[]} words
+ * @param {import("./shell-words.js").Unwrapped} run
  * @returns {Verdict | undefined}
  */
-function judgeRun(st, cmd, words) {
+function judgeRun(st, cmd, { words, scripted }) {
 	if (words.length === 0) return;
 	const got = subjectOf(st, words, cmd.segment);
 	if (!("subject" in got)) return got.verdict;
@@ -1180,7 +1188,7 @@ function judgeRun(st, cmd, words) {
 		return null;
 	}
 	noteMemoryFigure(st, s, mb);
-	const j = judgedOf(st, { segment: cmd.segment, words }, s, mb);
+	const j = judgedOf(st, { segment: cmd.segment, words, scripted }, s, mb);
 	const verdict =
 		countVerdict(st, j) ??
 		(s.countOnly ? undefined : (memoryVerdict(st, j) ?? windowsVerdict(st, j)));

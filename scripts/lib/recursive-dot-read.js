@@ -165,6 +165,8 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  * @property {"" | "root" | "bare"} fires what fired: a named root, or no path
  * @property {string} tool the searching command that fired
  * @property {string} typed for `bare`, the search as typed
+ * @property {string} base the text the rewrite substitutes in: the command,
+ *   or the search a `-c` string runs, as typed (#4978)
  * @property {boolean} moved a `cd`, `pushd` or `popd` ran — see LIMITS
  * @property {boolean} heavyTree any search's root names a heavy tree (#2060)
  * @property {boolean} inWatch the search being judged runs under `watch`,
@@ -177,7 +179,6 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  *   session's tree, null where the shell stands in no repository
  * @property {string} rootReal the session tree's root resolved physical, ""
  *   where there is none
- * @property {number} roots how many standalone root spellings it carries
  * @property {boolean} atRoot the shell stands at the repo root
  * @property {boolean} showsPrompt the permission mode can show a prompt
  * @property {string[]} spans
@@ -212,9 +213,6 @@ function decide(raw, ctx) {
 		root,
 		tree,
 		rootReal,
-		roots: tree
-			? raw.split(/[ \t\n]/).filter((w) => isRootSpelling(w, root)).length
-			: 0,
 		atRoot: tree !== null && ctx.realpath(ctx.cwd) === rootReal,
 		showsPrompt: mode !== "auto" && mode !== "bypassPermissions",
 		spans: parsed.spans,
@@ -223,6 +221,7 @@ function decide(raw, ctx) {
 			fires: "",
 			tool: "",
 			typed: "",
+			base: raw,
 			moved: false,
 			heavyTree: false,
 			inWatch: false,
@@ -249,12 +248,14 @@ function decide(raw, ctx) {
  * @param {string} mode
  * @returns {import("./core-contract.js").CoreDecision}
  */
-function rewrite({ raw, root, tree, showsPrompt, ctx, judgement }, mode) {
+function rewrite({ root, tree, showsPrompt, ctx, judgement }, mode) {
+	const raw = judgement.base;
 	/* A search fires only where the shell stands at the tree's root. */
 	if (tree === null) return null;
 	const expansion = expand(tree, ctx);
 	if (expansion === null) return null;
-	/* Textual substitution on the raw string, so quoting everywhere else
+	/* Textual substitution on the raw string — or, for a search a `-c` string
+	 * runs, on that search as typed (#4978) — so quoting everywhere else
 	 * survives untouched. For a named root, exactly one standalone root is
 	 * present — the count required it — so the first match is the search root.
 	 * For no path, the search's own text gains the expansion after it; a
@@ -484,12 +485,20 @@ const isRootSpelling = (w, root) =>
  * @param {string} cwd where it runs
  */
 function judge(scene, segment, words, cwd) {
-	for (const { words: w, watched } of unwrap(words, scene.spans)) {
+	for (const { words: w, watched, scripted } of unwrap(words, scene.spans)) {
 		const [head, ...args] = w;
 		if (head === undefined) continue;
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
-		if (kind) judgeSearch(scene, { segment, words, cwd, head, kind, args });
+		/* A search a `-c` string runs is rewritten as itself: the command's
+		 * own text holds it behind the string's quotes (#4978). */
+		const own = scripted
+			? { segment: w.join(" "), words: w }
+			: { segment, words };
+		const base = scripted
+			? trimRun(asWritten(own.segment, scene.spans), BASH_SPACE)
+			: scene.raw;
+		if (kind) judgeSearch(scene, { ...own, base, cwd, head, kind, args });
 		else if (head === "cd" || head === "pushd" || head === "popd")
 			scene.judgement.moved = true;
 		else if (head === "find") judgeFind(scene, args, cwd);
@@ -500,6 +509,7 @@ function judge(scene, segment, words, cwd) {
  * @typedef {object} Search one searching command
  * @property {string} segment the flattened segment, masked
  * @property {string[]} words the command's words, wrappers and all
+ * @property {string} base the text holding it, which a rewrite substitutes in
  * @property {string} cwd where it runs
  * @property {string} head its command word
  * @property {SearchKind} kind
@@ -539,15 +549,17 @@ function judgeSearch(scene, search) {
 	if (found.dotRoot) {
 		judgement.fires = "root";
 		judgement.tool = head;
+		judgement.base = search.base;
 		return;
 	}
 	/* No path: the bare words are the pattern alone, if any. */
 	if (found.bareWords !== bareCount - (found.files ? 1 : 0)) return;
-	const typed = bareSearch(scene, search.segment, search.words, head);
+	const typed = bareSearch(scene, search, head);
 	if (typed === null) return;
 	judgement.fires = "bare";
 	judgement.tool = head;
 	judgement.typed = typed;
+	judgement.base = search.base;
 }
 
 /**
@@ -616,19 +628,32 @@ function readArg(scene, out, { search, dotOk }, value) {
 	if (namesTree(scene, value, search.cwd)) out.heavy = true;
 	if (search.kind.grepLike && isProjectRoot(scene, value, search.cwd))
 		out.heavy = true;
-	if (dotOk && scene.roots === 1 && isRootSpelling(value, scene.root))
+	if (
+		dotOk &&
+		rootCount(search.base, scene.root) === 1 &&
+		isRootSpelling(value, scene.root)
+	)
 		out.dotRoot = true;
 }
 
 /**
- * A path-less search's text as typed, found exactly once in the command;
- * null where it reads something other than the tree or cannot be placed.
+ * How many standalone root spellings `text` carries.
+ * @param {string} text
+ * @param {string} root
+ */
+const rootCount = (text, root) =>
+	root
+		? text.split(/[ \t\n]/).filter((w) => isRootSpelling(w, root)).length
+		: 0;
+
+/**
+ * A path-less search's text as typed, found exactly once in the text holding
+ * it; null where it reads something other than the tree or cannot be placed.
  * @param {Scene} scene
- * @param {string} segment
- * @param {string[]} words the command's words, wrappers and all
+ * @param {Search} search
  * @param {string} head the search's command word
  */
-function bareSearch({ raw, spans }, segment, words, head) {
+function bareSearch({ spans }, { segment, words, base: raw }, head) {
 	for (const x of words) {
 		if (x === head) break;
 		if (afterSlash(x) === "xargs") return null;

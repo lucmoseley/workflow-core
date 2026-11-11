@@ -531,6 +531,9 @@ const WRAPPERS = new Map([
  *   unread        each git-reading variable a `-c` string changed in a way
  *                 its reader does not follow.
  *   watched       a `watch` was stripped: the command reruns on a timer.
+ *   scripted      its words are a command a `-c` string runs, not the
+ *                 command line's own, so a guard handing back a rewrite of
+ *                 them hands it as the command inside the string (#4978).
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
  * nothing, so an assignment after any other wrapper is the command word and
@@ -567,10 +570,7 @@ const WRAPPERS = new Map([
 function unwrap(words, spans, judged = []) {
 	/** @type {Unwrapped[]} */
 	const pending = [];
-	const first = stripRun(
-		{ words, wrapperWords: [], chdirs: [], unread: [], watched: false },
-		{ spans, judged, pending },
-	);
+	const first = stripRun(bareRun(words), { spans, judged, pending });
 	/** @type {Unwrapped[]} */
 	const later = [];
 	for (let run = pending.shift(); run !== undefined; run = pending.shift())
@@ -600,6 +600,7 @@ function unwrapArgv(argv) {
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
+ * @property {boolean} scripted
  */
 
 /**
@@ -649,19 +650,7 @@ function runCwd(cwd, chdirs, spans) {
  * @returns {Unwrapped}
  */
 function stripRun(run, { spans, judged, pending }) {
-	/** @type {Strip} */
-	const st = {
-		ws: [...run.words],
-		judged,
-		inEnv: false,
-		execs: false,
-		awaitsScript: false,
-		wrapperWords: [...run.wrapperWords],
-		chdirs: [...run.chdirs],
-		unread: [...run.unread],
-		watched: run.watched,
-		pending,
-	};
+	const st = newStrip(run, judged, pending);
 	stripWrappers(st, spans);
 	return {
 		words: st.ws,
@@ -669,6 +658,7 @@ function stripRun(run, { spans, judged, pending }) {
 		chdirs: st.chdirs,
 		unread: st.unread,
 		watched: st.watched,
+		scripted: st.scripted,
 	};
 }
 
@@ -695,22 +685,62 @@ function stripWrappers(st, spans) {
  * @param {string[]} spans
  */
 function opensScript(words, spans) {
-	/** @type {Strip} */
-	const st = {
-		ws: [...words],
-		judged: [],
-		inEnv: false,
-		execs: false,
-		awaitsScript: false,
-		wrapperWords: [],
-		chdirs: [],
-		unread: [],
-		watched: false,
-		pending: [],
-	};
+	const st = newStrip(bareRun(words), [], []);
 	stripWrappers(st, [...spans]);
 	return st.awaitsScript;
 }
+
+/**
+ * The script a run standing on `flock <file> -c` or a `watch` with no `-x`
+ * hands to `sh -c`, read through literal; null for any other run (#4978).
+ * Only the run's own first wrapper is read.
+ * @param {string[]} words masked, from the wrapper on
+ * @param {string[]} spans
+ * @returns {string | null}
+ */
+function wrapperScript(words, spans) {
+	const [first] = words;
+	if (first === undefined) return null;
+	const st = newStrip(bareRun(words), [], []);
+	stripOne(st, first, [...spans]);
+	return st.script;
+}
+
+/**
+ * A run of `words` under no wrapper.
+ * @param {string[]} words
+ * @returns {Unwrapped}
+ */
+const bareRun = (words) => ({
+	words,
+	wrapperWords: [],
+	chdirs: [],
+	unread: [],
+	watched: false,
+	scripted: false,
+});
+
+/**
+ * unwrap's state at the start of `run`'s strip.
+ * @param {Unwrapped} run
+ * @param {string[]} judged
+ * @param {Unwrapped[]} pending
+ * @returns {Strip}
+ */
+const newStrip = (run, judged, pending) => ({
+	ws: [...run.words],
+	judged,
+	inEnv: false,
+	execs: false,
+	awaitsScript: false,
+	script: null,
+	wrapperWords: [...run.wrapperWords],
+	chdirs: [...run.chdirs],
+	unread: [...run.unread],
+	watched: run.watched,
+	scripted: run.scripted,
+	pending,
+});
 
 /**
  * @typedef {object} Strip unwrap's running state
@@ -726,6 +756,9 @@ function opensScript(words, spans) {
  * @property {boolean} execs a `watch -x` execs its words, through no `sh -c`
  * @property {boolean} awaitsScript the words ran out where a wrapper takes the
  *   script it runs through `sh -c`
+ * @property {string | null} script the script the last wrapper ran through
+ *   `sh -c`, read through literal
+ * @property {boolean} scripted
  */
 
 /**
@@ -785,7 +818,8 @@ function stepAfterFlags(st, wrapper, spans) {
 				st.awaitsScript = true;
 				return "cut";
 			}
-			runScript(st, read([string]), spans);
+			st.script = read([string]);
+			runScript(st, st.script, spans);
 		}
 	}
 	if (wrapper.command === "sh-string") {
@@ -794,7 +828,10 @@ function stepAfterFlags(st, wrapper, spans) {
 			st.awaitsScript = !st.execs;
 			return "cut";
 		}
-		if (!st.execs) runScript(st, read(st.ws), spans);
+		if (!st.execs) {
+			st.script = read(st.ws);
+			runScript(st, st.script, spans);
+		}
 		if (st.ws.length === 0) return "cut";
 	}
 	return "next";
@@ -818,9 +855,11 @@ function runScript(st, script, spans) {
 		chdirs: [...st.chdirs, ...cmd.chdirs],
 		unread: [...st.unread, ...cmd.unread],
 		watched: st.watched,
+		scripted: true,
 	}));
 	const [first, ...later] = runs;
 	st.ws = first?.words ?? [];
+	st.scripted = true;
 	if (first)
 		Object.assign(st, {
 			wrapperWords: first.wrapperWords,
@@ -1531,6 +1570,7 @@ module.exports = {
 	unwrap,
 	unwrapArgv,
 	opensScript,
+	wrapperScript,
 	runCwd,
 	carriesVar,
 	commandName,
