@@ -352,7 +352,7 @@ function install() {
 	 * it reads of this repository. */
 	const isGuarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
-		isGuard(binOf("git", cwdOf(opts), opts?.envPairs)[1]);
+		isGuard(binOf(opts.file, cwdOf(opts), opts?.envPairs)[1]);
 	const isRunnable = (/** @type {string} */ abs) => {
 		try {
 			realAccessSync(abs, fs.constants.X_OK);
