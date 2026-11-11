@@ -2633,5 +2633,23 @@
 				"scanned": true
 			}
 		]
+	},
+	"windows-hold-floor": {
+		"needles": [
+			{
+				"needle": "1,000 MB floor",
+				"scanned": true
+			},
+			{
+				"needle": "1000 MB floor",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/fixtures/gate-judge-cases.json",
+				"lines": []
+			}
+		]
 	}
 }

@@ -3259,12 +3259,12 @@ describe("the Windows-memory hold (#4557, #4850)", () => {
 
 	it("sends a launch the guest admits to the queue while Windows is under its floor, naming the limb", () => {
 		const { verdict: v, text } = judge("npm run test", ROOMY_MB, psWith(0), {
-			windows: windows(999),
+			windows: windows(749),
 		});
-		expect(v?.gate).toEqual({ limb: "windows", mb: 999 });
+		expect(v?.gate).toEqual({ limb: "windows", mb: 749 });
 		expect(text.split("\n")[0]).toBe("Run instead: npm run test -- --queue");
 		expect(text).toContain(
-			"Windows itself has 999 MB free (memwatch's win_avail_mb), under its 1000 MB floor",
+			"Windows itself has 749 MB free (memwatch's win_avail_mb), under its 750 MB floor",
 		);
 	});
 
@@ -3321,9 +3321,9 @@ describe("the Windows-memory hold (#4557, #4850)", () => {
 
 	it("holds a bare `tsc` the slot's Windows limb holds, handing it the queue", () => {
 		const { text } = judge("tsc --noEmit", ROOMY_MB, psWith(0), {
-			windows: windows(900),
+			windows: windows(700),
 		});
 		expect(text).toMatch(/queue-run\.js --tsc/);
-		expect(text).toContain("Windows itself has 900 MB free");
+		expect(text).toContain("Windows itself has 700 MB free");
 	});
 });
