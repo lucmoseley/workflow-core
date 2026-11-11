@@ -21,6 +21,7 @@ import {
 	readLogSince,
 	replayBatches,
 	TARGET_MULTIPLE,
+	windowOf,
 } from "./time-to-land.js";
 
 const NOW = Date.parse("2026-11-10T12:00:00Z");
@@ -191,7 +192,7 @@ describe("the lander log", () => {
 });
 
 describe("the reading against the target", () => {
-	/** `n` stays ended a minute ago, a tenth of them `slow` s and the rest 200 s. */
+	/** `n` stays ended a minute ago, a tenth and one more of them `slow` s and the rest 200 s. */
 	const stays = (n: number, slow: number) =>
 		Array.from({ length: n }, (_, k) => ({
 			ref: `r${k}`,
@@ -202,32 +203,36 @@ describe("the reading against the target", () => {
 			takes: 1,
 		}));
 	const greens = [{ from: NOW - 400 * S, at: NOW - 220 * S }];
+	/** The default window: the week before `at`. */
+	const week = (at = NOW) => {
+		const w = windowOf({}, at);
+		if (typeof w === "string") throw new Error(w);
+		return w;
+	};
 
 	it("is over where the p90 passes the multiple of the green p50, and not at it", () => {
 		const target = TARGET_MULTIPLE * 180;
 
 		expect(
-			judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, NOW),
+			judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, week()),
 		).toMatchObject({
 			judged: true,
 			over: true,
 			p90Ms: (target + 1) * S,
 			targetMs: target * S,
 		});
-		expect(judgeTimeToLand(stays(MIN_STAYS, target), greens, NOW).over).toBe(
+		expect(judgeTimeToLand(stays(MIN_STAYS, target), greens, week()).over).toBe(
 			false,
 		);
 	});
 
 	it("counts the stays over the target, and none before a window start it is given", () => {
 		const target = TARGET_MULTIPLE * 180;
-		const all = judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, NOW);
-		const later = judgeTimeToLand(
-			stays(MIN_STAYS, target + 1),
-			greens,
-			NOW,
-			NOW - 30 * S,
-		);
+		const all = judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, week());
+		const later = judgeTimeToLand(stays(MIN_STAYS, target + 1), greens, {
+			...week(),
+			since: NOW - 30 * S,
+		});
 
 		expect(all.overTarget).toBe(MIN_STAYS / 10 + 1);
 		expect([later.stays, later.overTarget, later.judged]).toEqual([
@@ -237,13 +242,30 @@ describe("the reading against the target", () => {
 		]);
 	});
 
+	it("takes only an ISO time with its zone, a start before its end and an end no later than now", () => {
+		const iso = (t: number) => new Date(t).toISOString();
+
+		expect(windowOf({ since: iso(NOW - 60 * S) }, NOW)).toMatchObject({
+			since: NOW - 60 * S,
+			until: NOW,
+			label: `from ${iso(NOW - 60 * S)} to ${iso(NOW)}`,
+		});
+		expect(week().label).toBe("in 7 days");
+		for (const since of ["2026-11-10", "2026-11-10T11:00:00", "Nov 10 2026"])
+			expect(windowOf({ since }, NOW)).toMatch(
+				/takes an ISO time with its zone/,
+			);
+		expect(windowOf({ since: iso(NOW + S) }, NOW)).toMatch(/must fall before/);
+		expect(windowOf({ until: iso(NOW + S) }, NOW)).toMatch(/no later than now/);
+	});
+
 	it("judges nothing on too few stays, on no green run, or on stays older than the week", () => {
-		const few = judgeTimeToLand(stays(MIN_STAYS - 1, 9000), greens, NOW);
-		const noGreen = judgeTimeToLand(stays(MIN_STAYS, 9000), [], NOW);
+		const few = judgeTimeToLand(stays(MIN_STAYS - 1, 9000), greens, week());
+		const noGreen = judgeTimeToLand(stays(MIN_STAYS, 9000), [], week());
 		const old = judgeTimeToLand(
 			stays(MIN_STAYS, 9000),
 			greens,
-			NOW + 8 * 24 * 3600 * S,
+			week(NOW + 8 * 24 * 3600 * S),
 		);
 
 		expect([few.judged, few.over]).toEqual([false, false]);

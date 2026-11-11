@@ -12,8 +12,12 @@
  * `fast-forward-main <sha>` line at the same sha: one run that passed, paired
  * by sha, so batches under test at once never cross.
  *
+ * THE WINDOW runs from a start to an end, by default the
+ * lib/queue-log.js BASELINE_MS before now. A stay or green run counts only
+ * where it began and ended inside it.
+ *
  * THE TARGET: the stays' p90 at or under TARGET_MULTIPLE times the green
- * suite's p50, both over lib/queue-log.js's BASELINE_MS.
+ * suite's p50, both over the window.
  *
  * A RED BATCH is replayed off the lander log: each `take-batch` opens a batch
  * in its slot, a `detach` of that slot makes it the search, and each red-path
@@ -31,12 +35,13 @@
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { BASELINE_MS, percentile } = require("./queue-log.js");
+const { DAY_MS } = require("./retained-jsonl.js");
 
 /* The stays' p90 over the green suite's p50 (#4951's design comment). */
 const TARGET_MULTIPLE = 3;
 /* A guess, about a day's members at #4951's ~100 a day: fewer give no p90. */
 const MIN_STAYS = 100;
-/* A guess: a week of lander lines is a few of these. */
+/* A read's unit, not its bound. */
 const CHUNK_BYTES = 4 * 1024 * 1024;
 
 const STAMPED = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) ([a-z-]+)(?: (.*))?$/;
@@ -175,13 +180,59 @@ function greenSuiteSpans(events) {
 	return spans;
 }
 
+/* An ISO time with its zone: `Date.parse` reads a bare date as UTC and a
+ * zoneless time as local, so either would move the window unseen. */
+const ISO_TIME_RE =
+	/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/;
+
+/**
+ * @typedef {{since: number, until: number, label: string}} Window ms; `label`
+ *   names it in a reading's line
+ */
+
+/**
+ * The window a reading covers.
+ * @param {{since?: string|null, until?: string|null}} flags ISO times; the
+ *   end is `at` where `until` is absent, the start the BASELINE_MS before the
+ *   end where `since` is
+ * @param {number} at now, in ms
+ * @returns {Window|string} the window, or why the flags give none
+ */
+function windowOf(flags, at) {
+	for (const [name, value] of Object.entries(flags))
+		if (value != null && !ISO_TIME_RE.test(value))
+			return `--${name} takes an ISO time with its zone, such as 2026-11-10T16:13:04Z: ${value}`;
+	const until = flags.until == null ? at : Date.parse(flags.until);
+	const since =
+		flags.since == null ? until - BASELINE_MS : Date.parse(flags.since);
+	if (!(since < until && until <= at))
+		return "--since must fall before --until, and --until no later than now";
+	const iso = (/** @type {number} */ t) => new Date(t).toISOString();
+	return {
+		since,
+		until,
+		label:
+			flags.since == null && flags.until == null
+				? `in ${BASELINE_MS / DAY_MS} days`
+				: `from ${iso(since)} to ${iso(until)}`,
+	};
+}
+
+/**
+ * @param {Window} w
+ * @param {number} from
+ * @param {number} to
+ * @returns {boolean}
+ */
+const spanIn = (w, from, to) => from >= w.since && to < w.until;
+
 /**
  * @typedef {object} Reading
- * @property {number} stays stays that ended in the window
+ * @property {number} stays stays that began and ended in the window
  * @property {number|null} overTarget stays longer than targetMs
  * @property {number|null} p50Ms
  * @property {number|null} p90Ms
- * @property {number} greens green runs that ended in the window
+ * @property {number} greens green runs that began and ended in the window
  * @property {number|null} greenP50Ms
  * @property {number|null} targetMs TARGET_MULTIPLE × greenP50Ms
  * @property {boolean} judged whether the window holds MIN_STAYS and a green run
@@ -192,18 +243,19 @@ function greenSuiteSpans(events) {
 const secs = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
 
 /**
- * The window from `since` to `now` against the target.
+ * The window's stays against the target.
  * @param {readonly Stay[]} stays
  * @param {readonly {from: number, at: number}[]} greens
- * @param {number} now
- * @param {number} [since] the BASELINE_MS before `now` where absent
+ * @param {Window} w
  * @returns {Reading}
  */
-function judgeTimeToLand(stays, greens, now, since = now - BASELINE_MS) {
-	/** @param {{at: number}} x */
-	const inWindow = (x) => x.at > since && x.at <= now;
-	const times = stays.filter(inWindow).map((s) => s.at - s.take);
-	const runs = greens.filter(inWindow).map((g) => g.at - g.from);
+function judgeTimeToLand(stays, greens, w) {
+	const times = stays
+		.filter((s) => spanIn(w, s.take, s.at))
+		.map((s) => s.at - s.take);
+	const runs = greens
+		.filter((g) => spanIn(w, g.from, g.at))
+		.map((g) => g.at - g.from);
 	const p90Ms = percentile(times, 90);
 	const greenP50Ms = percentile(runs, 50);
 	const targetMs = greenP50Ms === null ? null : TARGET_MULTIPLE * greenP50Ms;
@@ -433,5 +485,7 @@ module.exports = {
 	readLogSince,
 	judgeTimeToLand,
 	secs,
+	spanIn,
+	windowOf,
 	replayBatches,
 };
