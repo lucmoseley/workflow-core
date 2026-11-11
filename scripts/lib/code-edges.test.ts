@@ -139,6 +139,49 @@ describe("a dotted import", () => {
 		},
 	);
 
+	it("keeps to a regular package's own directory below it, whatever a sibling namespace directory holds (#4870)", () => {
+		const code = [
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
+			"import ns.reg.inner.x",
+			"import ns.reg.inner.gone",
+		].join("\n");
+		const files = [
+			"a/ns/reg/inner/gone.py",
+			"b/ns/reg/__init__.py",
+			"b/ns/reg/inner/x.py",
+		];
+		expect(tree(code, files)).toMatchObject({
+			edges: ["b/ns/reg/__init__.py", "b/ns/reg/inner/x.py"],
+			faults: ["imports ns.reg.inner.gone, whose gone the walk cannot place"],
+		});
+	});
+
+	it.each([
+		[
+			"import pkg.ns.gone",
+			"imports pkg.ns.gone, whose gone the walk cannot place",
+		],
+		[
+			"from pkg.ns import gone",
+			"imports gone from pkg.ns, a namespace package that holds no gone",
+		],
+		[
+			"import pkg.ns.sub.gone",
+			"imports pkg.ns.sub.gone, whose sub the walk cannot place",
+		],
+	])(
+		"faults `%s`, missing from a namespace directory inside a regular package (#4870)",
+		(code, fault) => {
+			const found = tree(`import pkg.ns.x\n${code}\n`, [
+				"tool/pkg/__init__.py",
+				"tool/pkg/ns/x.py",
+			]);
+			expect(found.faults).toEqual([fault]);
+			expect(found.edges).toContain("tool/pkg/ns/x.py");
+		},
+	);
+
 	it("faults a submodule the walk cannot place", () => {
 		const { faults } = tree("import pkg.gone\n", ["tool/pkg/__init__.py"]);
 		expect(faults).toEqual([
