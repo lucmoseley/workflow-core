@@ -2,8 +2,10 @@
  * held-unit.js — an unfinished build unit: an open `kind:ticket` with an
  * unticked, unwaived criterion (lib/ticket-criteria.js), no `parked` label and
  * no holding `**Gated until:**` or `**Gated on:**` line (lib/issue-gate.js,
- * #4991). Residual: a far-future date or any well-formed `**Gated on:**` line
- * releases an unfinished ticket without one of the four exits.
+ * #4991): a holding gate waits on data, not on the session, and pick-next
+ * already holds the ticket out of the shortlist. Residual: a far-future date
+ * or any well-formed `**Gated on:**` line releases an unfinished ticket
+ * without one of the four exits.
  * session-arbiter.js's `release-issue` refuses to drop the claim on one, and
  * guard-held-ticket.js refuses a session-ending turn while one is claimed.
  *

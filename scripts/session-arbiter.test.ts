@@ -2515,6 +2515,7 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535, on #
 			CLAUDE_CODE_SESSION_ID: "alice",
 		});
 		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("Moved the claim on #645 to session nobody.");
 		expect(out(["issue-claims"])).not.toMatch(/alice/);
 	});
 
