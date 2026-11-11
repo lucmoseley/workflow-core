@@ -4,7 +4,8 @@
  * the test's temp directory: git real there, `gh` through WFC_GH's route stub,
  * and a probe hold's filing through the real file-issue.js that lib/file-through.js
  * spawns. The tick's wiring of these, one case per adapter it crosses, is
- * refill-loop-run-holds.test.ts's; the CLI's is repo-hold.test.ts's (#4314).
+ * refill-loop-run-holds.test.ts's; the CLI's is repo-hold.test.ts's (#4314),
+ * save the store a raise from a broken worktree reaches, read here (#4880).
  * The probe is lib/guard-probe.js's, run for real on its git half; its guard
  * entry's answer is injected here, guard-probe.test.ts running the hook line.
  *
@@ -840,6 +841,100 @@ describe("the probe hold (#3860)", () => {
 			);
 			expect(readHolds(repo).holds[0]?.sessions).toEqual(["job7"]);
 		});
+	});
+});
+
+describe("a hold raised through repo-hold.js from a linked worktree git refuses (#4880)", () => {
+	const Cli = path.join(__dirname, "..", "repo-hold.js");
+	let worktree: string;
+	let gitFile: string;
+	let text: string;
+	const raiseFrom = (cwd: string, projectDir = cwd) => {
+		const run = runInProcess(
+			Cli,
+			[
+				"raise",
+				"--act",
+				"repair main",
+				"--issue",
+				"12",
+				"--clear-command",
+				"false",
+			],
+			{
+				cwd,
+				env: {
+					...process.env,
+					HOME: dir,
+					CLAUDE_PROJECT_DIR: projectDir,
+					CLAUDE_JOB_DIR: "",
+					CLAUDE_CODE_SESSION_ID: "",
+				},
+			},
+		);
+		expect(run.status, run.stderr).toBe(0);
+		expect(run.stdout).toContain("repair main");
+	};
+	const readActs = (root: string) =>
+		readHolds(root).holds.map((h) => [h.act, h.checkout]);
+
+	beforeEach(() => {
+		worktree = at("worktree");
+		execFileSync("git", ["worktree", "add", "-q", worktree], { cwd: repo });
+		gitFile = path.join(worktree, ".git");
+		text = fs.readFileSync(gitFile, "utf8");
+	});
+
+	it("holds in the main checkout where the worktree's registration is broken", () => {
+		const admin = path.join(repo, ".git", "worktrees", "worktree");
+		const head = fs.readFileSync(path.join(admin, "HEAD"), "utf8");
+		fs.writeFileSync(path.join(admin, "HEAD"), "junk\n");
+
+		raiseFrom(worktree);
+		fs.writeFileSync(path.join(admin, "HEAD"), head);
+
+		expect(readActs(repo)).toEqual([["repair main", repo]]);
+	});
+
+	it("reaches the main checkout's store once a garbage .git file is repaired, naming it", () => {
+		fs.writeFileSync(gitFile, "garbage\n");
+		raiseFrom(worktree);
+		const broken = holdsDir(worktree);
+		expect(readActs(repo)).toEqual([]);
+
+		fs.writeFileSync(gitFile, text);
+
+		expect(readActs(repo)).toEqual([["repair main", repo]]);
+		expect(fs.existsSync(broken)).toBe(false);
+	});
+
+	it("keys a raise from a garbage worktree's subdirectory where its repair adopts from", () => {
+		const sub = path.join(worktree, "sub");
+		fs.mkdirSync(sub);
+		fs.writeFileSync(gitFile, "garbage\n");
+		vi.stubEnv("CLAUDE_PROJECT_DIR", "");
+		raiseFrom(sub, "");
+
+		fs.writeFileSync(gitFile, text);
+
+		expect(readActs(repo)).toEqual([["repair main", repo]]);
+	});
+
+	it("reports a repaired worktree's store it cannot adopt, then adopts it once it reads", () => {
+		fs.writeFileSync(gitFile, "garbage\n");
+		raiseFrom(worktree);
+		const broken = holdsDir(worktree);
+		fs.writeFileSync(gitFile, text);
+		fs.chmodSync(broken, 0o000);
+		try {
+			expect(readHolds(repo).unread).toEqual([
+				expect.stringContaining("named nothing reads nowhere"),
+			]);
+		} finally {
+			fs.chmodSync(broken, 0o755);
+		}
+		expect(readActs(repo)).toEqual([["repair main", repo]]);
+		expect(readHolds(repo).unread).toEqual([]);
 	});
 });
 
