@@ -1,9 +1,15 @@
 // @vitest-environment node
 /*
- * lib/burn-mode.js is burn mode's state: the one resolver for its marker, and
- * readBurnState, what the switch left on each plan. Which model each layer
- * moves to is ./model-table.test.ts's. burn-mode.sh reads the marker and the
- * plans through the CLI, so it is run here as a program too.
+ * lib/burn-mode.js is burn mode's state (#4920): the one resolver for its
+ * marker, and readBurnState, what the switch left on each plan, a symlinked
+ * plan counted once (#187) and the marker's record of what `on` found read
+ * back (mantahostels#130). Which model each layer moves to is
+ * ./model-table.test.ts's. burn-mode.sh reads the marker and the plans through
+ * the CLI, so it is run here as a program too.
+ *
+ * The dispatch remap, the launcher and the toggle all find the marker here,
+ * and the refill panel reads its state: loosen a case and they disagree on
+ * whether burn mode is on, or the panel reports a plan in step that is not.
  */
 
 import fs from "node:fs";

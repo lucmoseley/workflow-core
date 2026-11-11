@@ -199,17 +199,26 @@ function loadModelTable(ctx) {
 
 /**
  * Whether burn mode's layer applies: its marker present, on a session not on
- * an overflow seat (#4919). A marker that cannot be placed, or a
- * lib/burn-mode.js that will not load, reads as off, recorded, so the standing
+ * an overflow seat (#4919). A lib/burn-mode.js that will not load (#4920), or
+ * a marker that cannot be placed, reads as off, recorded, so the standing
  * layer still applies.
  * @param {ModelTable} table
  * @param {RewriteContext} ctx
  */
-function burnLayerApplies(table, ctx) {
+function isBurnApplied(table, ctx) {
 	if (table.isOverflowSession(ctx.env, ctx.session)) return false;
+	let markerPath;
+	try {
+		({ markerPath } = require("./burn-mode.js"));
+	} catch (e) {
+		ctx.log(
+			`lib/burn-mode.js unreadable — burn mode left this dispatch unmapped: ${caught(e).message}`,
+		);
+		return false;
+	}
 	let marker;
 	try {
-		marker = require("./burn-mode.js").markerPath(ctx.env);
+		marker = markerPath(ctx.env);
 	} catch {
 		ctx.log(
 			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
@@ -234,7 +243,7 @@ function decide(_prompt, ctx) {
 	let out;
 	try {
 		const table = loadModelTable(ctx);
-		const burn = table ? burnLayerApplies(table, ctx) : false;
+		const burn = table ? isBurnApplied(table, ctx) : false;
 		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
 		/* A fork runs on its parent's model whatever the call names, so with
 		 * burn mode off a fork from a Fable session can only be refused. */

@@ -658,7 +658,7 @@ describe("failing open", () => {
 		expect(v.updatedInput.model).toBe("haiku");
 		expect(v.updatedInput.effort).toBe("xhigh");
 		expect(logs).toContain(
-			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
+			"lib/burn-mode.js unreadable — burn mode left this dispatch unmapped: broken",
 		);
 	});
 

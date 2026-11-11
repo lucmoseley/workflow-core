@@ -3,15 +3,6 @@
  * the switch left on the machine. Which model each layer moves to is
  * lib/model-table.js's; this file says only whether burn applies.
  *
- * These read this file:
- *
- *   scripts/burn-mode.sh               the marker's path and the plans' files
- *   scripts/lib/dispatch-rewrite.js    the marker's path, per dispatch
- *   scripts/lib/dispatch-gates.js      the marker's path
- *   scripts/burn-off-sessions.js,
- *   scripts/lib/resume-io.js           isBurnMarkerOn
- *   scripts/refill-loop.js status      readBurnState, for the refill panel
- *
  * The state is one marker file per MACHINE, beside the settings files it is
  * the record for. `on` writes the model it found into it, so `off` restores
  * what was there rather than assuming the standing default (mantahostels#130).
@@ -22,8 +13,9 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
-const { SESSION_DEFAULT, sessionModel } = require("./model-table.js");
+const { mapSessionModel, SESSION_DEFAULT } = require("./model-table.js");
 const { readPlanDirs } = require("./plan-dirs.js");
+const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
 
 /** The marker file's name, under `~/.claude`. */
@@ -53,14 +45,6 @@ function isBurnMarkerOn(env) {
 	} catch {
 		return false;
 	}
-}
-
-/**
- * @param {unknown} value
- * @returns {string} the trimmed string, or "" for anything that is not one
- */
-function trimmed(value) {
-	return typeof value === "string" ? value.trim() : "";
 }
 
 /**
@@ -131,9 +115,9 @@ function isPlanDisagreeing(file, on, record) {
 		return true;
 	}
 	const session = model || SESSION_DEFAULT;
-	if (!on) return session === sessionModel("", true);
+	if (!on) return session === mapSessionModel("", true);
 	const basis = Object.hasOwn(record, file) ? record[file] : model;
-	return session !== sessionModel(basis ?? "", true);
+	return session !== mapSessionModel(basis, true);
 }
 
 /**

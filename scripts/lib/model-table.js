@@ -24,17 +24,6 @@
  * replaces an agent definition's `effort:` (forks excepted). A launch's effort comes
  * from settings.json's per-model `modelSettings`, read at session start.
  *
- * These read this file, so the mapping is written once:
- *
- *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's model and effort
- *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`; an overflow
- *                                      seat takes the standing layer alone
- *   scripts/burn-mode.sh               moves each plan's settings `model`, the
- *                                      model a session launched with no flag runs
- *   scripts/lib/burn-mode.js           readBurnState, which judges each plan's
- *                                      `model` against this table
- *   scripts/lib/refill-resume.js       relaunchFlags, for a resumed job
- *
  * The maps are exact-match on purpose. An `Agent` call takes only the four
  * bare aliases, so a suffix there is impossible; a launch spelling this table
  * does not know passes through unchanged rather than being guessed at.
@@ -44,6 +33,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { coreRoot, docPath, scriptPath } = require("./script-path.js");
+const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
 
 /*
@@ -170,12 +160,12 @@ function mapModel(table, model, burn) {
 
 /**
  * The model a plan's session runs on, its settings `model` read through the
- * launch table; "" meaning the default session model.
- * @param {string} model
+ * launch table; "" or none meaning the default session model.
+ * @param {string | undefined} model
  * @param {boolean} burn
  * @returns {string}
  */
-function sessionModel(model, burn) {
+function mapSessionModel(model, burn) {
 	return mapModel(LAUNCH, model || SESSION_DEFAULT, burn);
 }
 
@@ -205,14 +195,6 @@ function relaunchFlags(flags, burn) {
 		...moved,
 		...flags.slice(at + (joined ? 1 : 2)),
 	];
-}
-
-/**
- * @param {unknown} value
- * @returns {string} the trimmed string, or "" for anything that is not one
- */
-function trimmed(value) {
-	return typeof value === "string" ? value.trim() : "";
 }
 
 /** The plugin's own agent definitions — the code reviewer's among them. */
@@ -319,7 +301,7 @@ module.exports = {
 	relaunchFlags,
 	remapModel,
 	SESSION_DEFAULT,
-	sessionModel,
+	mapSessionModel,
 };
 
 /*
@@ -350,7 +332,7 @@ if (require.main === module) {
 			process.exit(0);
 		}
 		if (mode === "session" && arg !== undefined) {
-			say(sessionModel(arg, burn));
+			say(mapSessionModel(arg, burn));
 			process.exit(0);
 		}
 		process.exit(2);
