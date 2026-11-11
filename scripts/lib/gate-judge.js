@@ -9,7 +9,8 @@
  *
  * readGateWrite is the three write routes' one entry (#4969): it words the
  * reading for the writing session, refusing what either reading faults
- * (#4970), and logs each call.
+ * (#4970), and logs each call. It also reads the issues a basis cites, in
+ * one batched call, so the patterns can follow a citation one hop (#5007).
  */
 
 const { spawnSync } = require("node:child_process");
@@ -26,6 +27,7 @@ const {
 	WAIT_ON,
 } = require("./gate-judge-mode.js");
 const { now } = require("./check.js");
+const { readCitedIssues, wantedIn } = require("./basis-cited-read.js");
 const {
 	basisFaults,
 	basisRefusal,
@@ -367,11 +369,12 @@ function mergeFaults(patterns, model, before) {
  * @param {string} body
  * @param {number} [own]
  * @param {string} [before]
+ * @param {import("./issue-gate.js").Follow} [follow]
  */
-const patternFaults = (body, own, before) =>
+const patternFaults = (body, own, before, follow) =>
 	before === undefined
-		? basisFaults(body, own)
-		: introducedBasisFaults(before, body, own);
+		? basisFaults(body, own, follow)
+		: introducedBasisFaults(before, body, own, follow);
 
 /**
  * A body's gate faults by both readings. With `before`, the body an edit
@@ -383,9 +386,10 @@ const patternFaults = (body, own, before) =>
  * patterns' alone; null where it ran.
  *
  * @param {string} body the body written
- * @param {{own?: number, before?: string, boundMs?: number, env?: NodeJS.ProcessEnv}} opts
+ * @param {{own?: number, before?: string, boundMs?: number, env?: NodeJS.ProcessEnv,
+ *   follow?: import("./issue-gate.js").Follow}} opts
  *   `boundMs`: the child is killed once it has passed, JUDGE_BOUND_MS by
- *   default
+ *   default; `follow`, the cited issues read
  * @returns {{faults: JudgedFault[], fallback: string|null, reading: Reading|null,
  *   dropped: number, ms: number}} `reading` as the model gave it, null with
  *   `fallback`; `dropped`, its quotes the code dropped; `ms`, the call's wall
@@ -393,10 +397,10 @@ const patternFaults = (body, own, before) =>
  */
 function judgedBasisFaults(
 	body,
-	{ own, before, boundMs = JUDGE_BOUND_MS, env } = {},
+	{ own, before, boundMs = JUDGE_BOUND_MS, env, follow } = {},
 ) {
 	const text = String(body || "");
-	const patterns = patternFaults(text, own, before);
+	const patterns = patternFaults(text, own, before, follow);
 	const startedAt = Date.now();
 	const read = readJudge(text, { boundMs, env });
 	const ms = Date.now() - startedAt;
@@ -483,6 +487,93 @@ const unmarked = ({ by: _by, ...f }) => f;
  * a first guess. */
 const MIN_BOUND_MS = 5000;
 
+/* The cited read's floor and ceiling: one batched read of four issues with
+ * their comments took 1,633 ms (#5007). Both first guesses. */
+const MIN_CITED_MS = 3000;
+const CITED_BOUND_MS = 10_000;
+
+const CITED_LEAD = "The issues a basis cites were not read";
+
+/**
+ * The tracker a bare `#N` names, or null where none resolves.
+ * @param {NodeJS.ProcessEnv} env
+ */
+function trackerOf(env) {
+	const root = env.CLAUDE_PROJECT_DIR;
+	try {
+		const t = require("./workflow-core-config.js").resolveKey(
+			"tracker",
+			root ? { root } : {},
+		);
+		return typeof t === "string" && t.includes("/") ? t : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The issues the bases a write would judge cite, read in one batched call
+ * (#5007), and the note where any went unread. A basis an edit leaves
+ * untouched, an event anchor and the body's own number cite nothing.
+ *
+ * `WFC_GATE_CITED=off` is the suites' seam (vitest.setup.ts): no read, every
+ * basis judged on its form.
+ *
+ * @param {string} body
+ * @param {{own?: number, before?: string, boundMs: number, env: NodeJS.ProcessEnv}} opts
+ * @returns {{follow: import("./issue-gate.js").Follow|undefined, note: string,
+ *   ms: number, fallback: string|null}}
+ */
+function readCited(body, { own, before, boundMs, env }) {
+	const none = { follow: undefined, note: "", ms: 0, fallback: null };
+	if (env.WFC_GATE_CITED === "off") return none;
+	const tracker = trackerOf(env);
+	if (!tracker) return none;
+	/** @type {import("./issue-gate.js").FollowRecord[]} */
+	const wanted = [];
+	patternFaults(body, own, before, {
+		tracker,
+		issues: new Map(),
+		trace: wanted,
+	});
+	const refs = wantedIn(wanted);
+	if (refs.length === 0) return none;
+	const read =
+		boundMs < MIN_CITED_MS
+			? {
+					issues: new Map(),
+					why: "too little of the hook's time was left for it",
+					ms: 0,
+				}
+			: readCitedIssues(refs, {
+					timeoutMs: Math.min(CITED_BOUND_MS, boundMs),
+				});
+	const unread = refs.filter((r) => !read.issues.has(r.key)).map((r) => r.ref);
+	return {
+		follow: { tracker, issues: read.issues, trace: [] },
+		note:
+			unread.length > 0
+				? `${CITED_LEAD} (${read.why ?? "GitHub did not answer for them"}): ${unread.join(", ")}, so a basis whose only warrant is one of them was judged on its form alone.`
+				: "",
+		ms: read.ms,
+		fallback: unread.length > 0 ? read.why : null,
+	};
+}
+
+/**
+ * The write log's record of the cited read.
+ *
+ * @param {ReturnType<typeof readCited>} cited
+ */
+const citedRecord = (cited) =>
+	cited.follow
+		? {
+				cited: cited.follow.trace ?? [],
+				citedMs: cited.ms,
+				citedFallback: cited.fallback,
+			}
+		: {};
+
 /**
  * The refusal's model part: the faults, then the rule, with its template and
  * the override line's form.
@@ -512,13 +603,14 @@ function modelRefusal(model, afterPatterns, override) {
  * @param {{model: JudgedFault[]}|{fallback: string}|null} read the model
  *   reading's faults, why it did not run, or null where it was not asked
  * @param {{reason: string}|null} override the body's override line
+ * @param {string} [citedNote] where the cited issues went unread
  * @returns {{refusal: string|null, advice: string}}
  */
-function answer(patterns, read, override) {
+function answer(patterns, read, override, citedNote = "") {
 	const model = read && "model" in read ? read.model : null;
 	const reason = model && override?.reason;
 	/** @type {string[]} */
-	const notes = [];
+	const notes = citedNote ? [citedNote] : [];
 	if (read && "fallback" in read)
 		notes.push(
 			`${FALLBACK_LEAD} (${read.fallback}), so it was judged on the wording patterns alone.`,
@@ -555,23 +647,38 @@ function readGateWrite(
 ) {
 	if (before !== undefined && before === body)
 		return { refusal: null, advice: "" };
+	const cited = readCited(body, { own, before, boundMs, env });
+	const { follow } = cited;
 	if (env.WFC_GATE_JUDGE === "off")
-		return answer(patternFaults(body, own, before), null, null);
+		return answer(
+			patternFaults(body, own, before, follow),
+			null,
+			null,
+			cited.note,
+		);
 	const override = judgeOverrideOf(body);
 	const log = (/** @type {Record<string, unknown>} */ record) =>
 		logCall({
 			route,
 			issue: own ?? null,
 			...record,
+			...citedRecord(cited),
 			override: override?.reason || null,
 		});
-	if (boundMs < MIN_BOUND_MS) {
-		const patterns = patternFaults(body, own, before);
+	const leftMs = boundMs - cited.ms;
+	if (leftMs < MIN_BOUND_MS) {
+		const patterns = patternFaults(body, own, before, follow);
 		const fallback = "too little of the hook's time was left for it";
 		log({ patterns, model: [], ms: 0, dropped: 0, fallback });
-		return answer(patterns, { fallback }, override);
+		return answer(patterns, { fallback }, override, cited.note);
 	}
-	const r = judgedBasisFaults(body, { own, before, boundMs, env });
+	const r = judgedBasisFaults(body, {
+		own,
+		before,
+		boundMs: leftMs,
+		env,
+		follow,
+	});
 	const patterns = r.faults.filter((f) => f.by === "patterns").map(unmarked);
 	const model = r.faults.filter((f) => f.by === "model");
 	log({
@@ -585,10 +692,12 @@ function readGateWrite(
 		patterns,
 		r.fallback ? { fallback: r.fallback } : { model },
 		override,
+		cited.note,
 	);
 }
 
 module.exports = {
+	CITED_LEAD,
 	JUDGE_BOUND_MS,
 	LAUNCHER_GRACE_MS,
 	buildPrompt,

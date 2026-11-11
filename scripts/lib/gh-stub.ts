@@ -16,6 +16,7 @@ import path from "node:path";
 import {
 	asRecorded,
 	BLOCKED_BY_GRAPHQL_FAKE,
+	CITED_GRAPHQL_FAKE,
 	type GhAnswer,
 	ghAnswerNode,
 	ghFakeScript,
@@ -130,6 +131,16 @@ const blockerRow = (r: {
 	labels: r.labels?.map((l) => l.name),
 });
 
+/** One issue a basis cites, as gh-fake's `answerCited` serves it. */
+export interface CitedFixture {
+	state?: "OPEN" | "CLOSED";
+	body?: string;
+	comments?: string[];
+}
+
+const lowerKeys = <T>(o: Record<string, T>) =>
+	Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toLowerCase(), v]));
+
 /**
  * Write a fake `gh` under `dir` serving `routes` (#3168). A
  * `gh api` call routes on the request it sends — its path, then its `-f` and
@@ -141,7 +152,9 @@ const blockerRow = (r: {
  * `gh api graphql` is lib/blocked-by-batch.js's batched read, answering issue
  * n from the rows of its `blockedByPage` route keyed exactly
  * `…/issues/n/dependencies/blocked_by`, and null — sending n to that REST
- * path — where that route fails or there is none. `failing` is stubGhScript's.
+ * path — where that route fails or there is none; a read of the issues a
+ * basis cites is answered from `cited`, gh-fake's `answerCited` shape, every
+ * repo it leaves out answering null. `failing` is stubGhScript's.
  * `bodies` takes the body a call pipes to `--body-file -`, read as gh reads
  * it, so the writer never fails EPIPE on a stub that reads no stdin.
  */
@@ -152,7 +165,13 @@ export function stubGhRoutes(
 		log,
 		bodies,
 		failing = false,
-	}: { log?: string; bodies?: string; failing?: boolean } = {},
+		cited = {},
+	}: {
+		log?: string;
+		bodies?: string;
+		failing?: boolean;
+		cited?: Record<string, Record<number, CitedFixture>>;
+	} = {},
 ): StubGh {
 	const arms = Object.entries(routes).map(
 		([key, a]) =>
@@ -171,8 +190,14 @@ export function stubGhRoutes(
 		fs.writeFileSync(
 			file,
 			`${BLOCKED_BY_GRAPHQL_FAKE}
+${CITED_GRAPHQL_FAKE}
+const argv = process.argv.slice(2);
 const blockers = ${JSON.stringify(blockers)};
-serveAnswer(answerBlockedBy(process.argv.slice(2), (n) => blockers[n] ?? null));
+serveAnswer(
+	argv.some((a) => a.startsWith("query=") && a.includes("issueOrPullRequest") && a.includes("comments(first: "))
+		? answerCited(argv, ${JSON.stringify(lowerKeys(cited))})
+		: answerBlockedBy(argv, (n) => blockers[n] ?? null),
+);
 `,
 		);
 		arms.unshift(`  graphql) exec node ${shellQuote(file)} "$@" ;;`);

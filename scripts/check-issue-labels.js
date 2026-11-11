@@ -71,8 +71,10 @@ const { hostRoot } = require("./lib/host-root");
 const {
 	resolveGate,
 	basisFaults,
+	citedSays,
 	judgeOverrideOf,
 } = require("./lib/issue-gate");
+const { readCitedIssues, wantedIn } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	isHeldWithoutReads,
@@ -459,8 +461,65 @@ function checkHumanBody(iss, own, raise) {
 		raise("FAIL", "NO-CLOSE-WHEN", ...HUMAN_FAULTS["NO-CLOSE-WHEN"]);
 }
 
-/** @param {any} iss @param {Raise} raise */
-function checkGates(iss, raise) {
+/**
+ * The gate line whose basis the report reads, or null: a holding `**Gated
+ * on:**`, else a well-formed `**Gated until:**`. A malformed or conflicting
+ * gate is pick-next.js's to report.
+ * @param {ReturnType<typeof resolveGate>} gates
+ * @returns {string|null}
+ */
+function gateMarkerOf(gates) {
+	if (gates.gateOnHolds) return "Gated on";
+	if (!gates.conflict && gates.gate && !gates.gate.malformed)
+		return "Gated until";
+	return null;
+}
+
+/* The status run's cited read, a whole tracker's in one call: far over
+ * #5007's 1.6 s for four issues, a first guess. */
+const CITED_STATUS_MS = 60_000;
+
+/**
+ * The issues every open gate's basis cites, read in one batched call (#5007),
+ * saying which went unread; undefined where no basis cites one or no tracker
+ * resolves.
+ * @param {any[]} issues
+ * @param {Ctx} ctx
+ * @returns {import("./lib/issue-gate").Follow|undefined}
+ */
+function readGateCitations(issues, ctx) {
+	let tracker;
+	try {
+		tracker = require("./lib/workflow-core-config").resolveKey("tracker");
+	} catch {
+		return;
+	}
+	if (typeof tracker !== "string" || !tracker.includes("/")) return;
+	/** @type {import("./lib/issue-gate").FollowRecord[]} */
+	const trace = [];
+	for (const iss of issues)
+		if (
+			!iss.pull_request &&
+			iss.state === "open" &&
+			gateMarkerOf(resolveGate(iss.body))
+		)
+			basisFaults(iss.body, iss.number, { tracker, issues: new Map(), trace });
+	const wanted = wantedIn(trace);
+	if (wanted.length === 0) return;
+	const read = readCitedIssues(wanted, { timeoutMs: CITED_STATUS_MS });
+	const unread = wanted.filter((w) => !read.issues.has(w.key));
+	if (unread.length > 0)
+		ctx.say(
+			`Unread: the issues ${unread.map((w) => w.key).join(", ")}, which open gates' bases cite (${read.why ?? "GitHub did not answer for them"}), so a basis whose only warrant is one of them was judged on its form alone.\n`,
+		);
+	return { tracker, issues: read.issues };
+}
+
+/**
+ * @param {any} iss @param {Raise} raise
+ * @param {import("./lib/issue-gate").Follow} [follow] the cited issues read
+ */
+function checkGates(iss, raise, follow) {
 	const gates = resolveGate(iss.body);
 	const typed = FOUNDER_COMMAND_GATE.exec(
 		gates.gateOn?.condition ?? "",
@@ -474,18 +533,11 @@ function checkGates(iss, raise) {
 				? `relabel takes:${typed} and delete the Gated on line`
 				: "delete the Gated on line and give it the takes: value of the command that opens it",
 		);
-	/*
-	 * A WARN (#577): a gate without a basis still routes correctly. A
-	 * malformed or conflicting gate is pick-next.js's to report.
-	 */
-	/** @type {string | null} */
-	let marker = null;
-	if (gates.gateOnHolds) marker = "Gated on";
-	else if (!gates.conflict && gates.gate && !gates.gate.malformed)
-		marker = "Gated until";
+	/* A WARN (#577): a gate without a basis still routes correctly. */
+	const marker = gateMarkerOf(gates);
 	if (!marker) return;
 	// The write routes' own reading (#4946), so a body that skipped them surfaces.
-	const faults = basisFaults(iss.body, iss.number);
+	const faults = basisFaults(iss.body, iss.number, follow);
 	if (faults.some((f) => f.kind === "no-basis"))
 		raise(
 			"WARN",
@@ -505,7 +557,7 @@ function checkGates(iss, raise) {
 			raise(
 				"WARN",
 				"NO-GATE-BASIS",
-				`\`**Gate basis:**\` with no warrant — "${f.text}"`,
+				`\`**Gate basis:**\` with no warrant — "${f.text}"${citedSays(f)}`,
 				"rewrite the basis to carry one of the three warrants in docs/agents/issue-tracker.md §Gating an issue",
 			);
 }
@@ -643,7 +695,9 @@ function checkSpeccedBrief(iss, own, specs, raise) {
 
 /**
  * Every `takes:` and gate fault on one open issue, raised in report order.
- * @param {any} iss @param {string[]} own @param {ChildCounts} counts
+ * @param {any} iss @param {string[]} own
+ * @param {ChildCounts & {follow?: import("./lib/issue-gate").Follow}} counts
+ *   with the cited issues read
  * @param {Raise} raise
  */
 function checkTakesFaults(iss, own, counts, raise) {
@@ -651,7 +705,7 @@ function checkTakesFaults(iss, own, counts, raise) {
 	checkTakesCount(own, raise);
 	checkContradictions(own, counts.openSteps.get(iss.number) || 0, raise);
 	checkHumanBody(iss, own, raise);
-	checkGates(iss, raise);
+	checkGates(iss, raise, counts.follow);
 	checkJudgeOverride(iss, raise);
 	checkHumanIdle(iss, own, raise);
 	checkAgentStep(iss, own, raise);
@@ -838,7 +892,10 @@ const SPEC = {
 		for (const iss of issues)
 			if (!iss.pull_request) byNumber.set(iss.number, iss);
 
-		const counts = countOpenChildren(issues);
+		const counts = {
+			...countOpenChildren(issues),
+			follow: readGateCitations(issues, ctx),
+		};
 
 		/** @type {Unlabelled[]} */
 		const unlabelled = [];

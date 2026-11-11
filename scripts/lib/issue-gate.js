@@ -500,7 +500,10 @@ function otherIssueRefs(basis, own) {
 }
 
 /**
- * Which warrant a basis carries, read as form and never as truth (#4946).
+ * Which warrant a basis carries, read as form and never as truth (#4946): a
+ * count or cycle warrant of its own wherever it carries one, its references
+ * to other issues counting as sources for it, and an issue warrant only
+ * where it carries neither (#5007).
  *
  * @param {string} basis the basis text
  * @param {number} [own] the body's own issue number: a reference to it is
@@ -509,7 +512,18 @@ function otherIssueRefs(basis, own) {
  */
 function warrantOf(basis, own) {
 	const refs = otherIssueRefs(basis, own);
-	if (refs.some((m) => !isEventAnchor(basis, m))) return "issue";
+	return (
+		ownWarrantOf(basis, refs) ??
+		(refs.some((m) => !isEventAnchor(basis, m)) ? "issue" : null)
+	);
+}
+
+/**
+ * @param {string} basis
+ * @param {RegExpMatchArray[]} refs its references to other issues
+ * @returns {"count"|"cycle"|null}
+ */
+function ownWarrantOf(basis, refs) {
 	const sourced =
 		refs.length > 0 ||
 		SHA_RE.test(basis) ||
@@ -532,10 +546,171 @@ function warrantOf(basis, own) {
 	return null;
 }
 
+/* What precedes `#N` where it names another repo's issue: `name#N` or
+ * `owner/name#N`. */
+const REPO_PREFIX_RE = /(?<![\w./-])([\w.-]+(?:\/[\w.-]+)?)$/;
+/* `#1556 Q4 (A)`: a founder question round on the cited issue. */
+const ROUND_AFTER_REF_RE = /^\s+(Q\d+)\b/;
+
 /**
- * @typedef {{kind: "no-basis"|"unnamed-window"|"no-warrant", text: string}} BasisFault
+ * @typedef {{repo: string, number: number, round: string|null,
+ *   written: string}} CitedRef `repo`: `owner/name`, lower-cased; `round`:
+ *   `Qk` where the citation names a question round; `written`: as the basis
+ *   spells it
+ * @typedef {{state: string, texts: string[]}} CitedIssue its body, then each
+ *   comment
+ * @typedef {"no-basis"|"no-window"|"no-own-warrant"|"no-round"|"no-issue"} CitedReason
+ * @typedef {{basis: string, cited: {ref: string, key: string,
+ *   verdict: "stands"|"unread"|CitedReason}[]}} FollowRecord
+ * @typedef {{tracker: string, issues: Map<string, CitedIssue|null>,
+ *   skip?: Set<string>, trace?: FollowRecord[]}} Follow the cited issues
+ *   read, by citedKey, null for a number the repo holds no issue under and
+ *   absent for one unread; `skip`, lower-cased basis texts judged on form
+ *   alone; `trace`, where each followed basis is recorded
+ */
+
+/**
+ * The repo a citation's prefix names: none is the tracker's, `name` the
+ * tracker owner's.
+ *
+ * @param {string} prefix
+ * @param {string} tracker `owner/name`
+ */
+function citedRepo(prefix, tracker) {
+	if (!prefix) return tracker.toLowerCase();
+	if (prefix.includes("/")) return prefix.toLowerCase();
+	return `${tracker.split("/")[0]}/${prefix}`.toLowerCase();
+}
+
+/** @param {{repo: string, number: number}} ref */
+const citedKey = (ref) => `${ref.repo}#${ref.number}`;
+
+/**
+ * The issues a basis cites for its window: each reference that is neither
+ * the body's own issue nor an event anchor.
+ *
+ * @param {string} basis
+ * @param {number|undefined} own
+ * @param {string} tracker
+ * @returns {CitedRef[]}
+ */
+function citedRefsOf(basis, own, tracker) {
+	return otherIssueRefs(basis, own)
+		.filter((m) => !isEventAnchor(basis, m))
+		.map((m) => {
+			const at = m.index ?? 0;
+			const prefix = REPO_PREFIX_RE.exec(basis.slice(0, at))?.[1] ?? "";
+			const round =
+				ROUND_AFTER_REF_RE.exec(basis.slice(at + m[0].length))?.[1] ?? null;
+			return {
+				repo: citedRepo(prefix, tracker),
+				number: Number(m[1]),
+				round,
+				written: `${prefix}${m[0]}${round ? ` ${round}` : ""}`,
+			};
+		});
+}
+
+/**
+ * Why one cited issue does not stand for the citing basis's windows, or
+ * null where it does: a live basis in its body or a comment names one of
+ * `windows` and carries a count or cycle warrant of its own, or, for a
+ * question round, the round's marker is live there.
+ *
+ * @param {CitedRef} ref
+ * @param {CitedIssue|null} issue
+ * @param {Set<string>} windows the citing basis's window keys
+ * @returns {CitedReason|null}
+ */
+function citedFault(ref, issue, windows) {
+	if (!issue) return "no-issue";
+	if (ref.round) {
+		const marker = `**${ref.round}**`;
+		const live = (/** @type {string} */ t) => {
+			for (
+				let at = t.indexOf(marker);
+				at !== -1;
+				at = t.indexOf(marker, at + 1)
+			)
+				if (!isFenced(t, at) && !inCodeSpan(t, at)) return true;
+			return false;
+		};
+		return issue.texts.some(live) ? null : "no-round";
+	}
+	const bases = issue.texts.flatMap((t) =>
+		liveBases(t)
+			.filter((m) => !inCodeSpan(t, m.index ?? 0))
+			.map((m) => ({ t, m })),
+	);
+	if (bases.length === 0) return "no-basis";
+	const naming = bases.filter(({ t, m }) =>
+		durationsIn(t, m, { determined: true }).some((d) => windows.has(d.key)),
+	);
+	if (naming.length === 0) return "no-window";
+	return naming.some(({ m }) => {
+		const w = warrantOf(requiredGroup(m, 1, BASIS_RE), ref.number);
+		return w === "count" || w === "cycle";
+	})
+		? null
+		: "no-own-warrant";
+}
+
+/**
+ * One hop from a basis whose only warrant is a cited issue: it stands where
+ * any cited issue stands; it faults, with each one's reason, where every
+ * cited issue was read and none does; otherwise it is judged on its form
+ * alone, the unread ones recorded.
+ *
+ * @param {string} text the citing body
+ * @param {RegExpMatchArray} m the basis's match in it
+ * @param {number|undefined} own
+ * @param {Follow} follow
+ * @returns {{ref: string, reason: CitedReason}[]|null} the reasons where it
+ *   faults
+ */
+function followCited(text, m, own, follow) {
+	const basis = requiredGroup(m, 1, BASIS_RE);
+	const refs = citedRefsOf(basis, own, follow.tracker);
+	const windows = new Set(
+		durationsIn(text, m, { determined: true }).map((d) => d.key),
+	);
+	const verdicts = refs.map((ref) => {
+		const key = citedKey(ref);
+		const issue = follow.issues.get(key);
+		return {
+			ref,
+			key,
+			verdict:
+				issue === undefined
+					? "unread"
+					: (citedFault(ref, issue, windows) ?? "stands"),
+		};
+	});
+	follow.trace?.push({
+		basis,
+		cited: verdicts.map((v) => ({
+			ref: v.ref.written,
+			key: v.key,
+			verdict: /** @type {FollowRecord["cited"][number]["verdict"]} */ (
+				v.verdict
+			),
+		})),
+	});
+	if (verdicts.some((v) => v.verdict === "stands" || v.verdict === "unread"))
+		return null;
+	return verdicts.map((v) => ({
+		ref: v.ref.written,
+		reason: /** @type {CitedReason} */ (v.verdict),
+	}));
+}
+
+/**
+ * @typedef {{kind: "no-basis"|"unnamed-window"|"no-warrant", text: string,
+ *   cited?: {ref: string, reason: CitedReason}[]}} BasisFault
  *   `text` is what the fault is read off, as written: a gate line or prose
- *   wait with no basis, a window no basis names, or a basis with no warrant.
+ *   wait with no basis, a window no basis names, or a basis with no warrant;
+ *   `cited`, for a basis whose cited issues stand for none of its windows,
+ *   each one's reason.
  */
 
 /**
@@ -545,11 +720,17 @@ function warrantOf(basis, own) {
  * where the body writes a window at all, each live basis carrying no warrant
  * (#4946).
  *
+ * With `follow`, a basis whose only warrant is a cited issue is followed one
+ * hop (#5007): it is a no-warrant fault, with each cited issue's reason, where
+ * every cited issue was read and none stands for its windows.
+ *
  * @param {string} body the issue body
  * @param {number} [own] the body's own issue number, where the caller knows it
+ * @param {Follow} [follow] the cited issues read; without it an issue warrant
+ *   is judged on its form alone
  * @returns {BasisFault[]}
  */
-function basisFaults(body, own) {
+function basisFaults(body, own, follow) {
 	const text = String(body || "");
 	const bases = liveBases(text);
 	if (bases.length === 0) {
@@ -576,11 +757,29 @@ function basisFaults(body, own) {
 			});
 	if (windows.length > 0)
 		for (const m of bases) {
-			const basis = requiredGroup(m, 1, BASIS_RE);
-			if (!warrantOf(basis, own))
-				faults.set(basis.toLowerCase(), { kind: "no-warrant", text: basis });
+			const fault = warrantFault(text, m, own, follow);
+			if (fault) faults.set(fault.text.toLowerCase(), fault);
 		}
 	return [...faults.values()];
+}
+
+/**
+ * A live basis's no-warrant fault, or null where it carries a warrant.
+ *
+ * @param {string} text the body
+ * @param {RegExpMatchArray} m the basis's match in it
+ * @param {number|undefined} own
+ * @param {Follow|undefined} follow
+ * @returns {BasisFault|null}
+ */
+function warrantFault(text, m, own, follow) {
+	const basis = requiredGroup(m, 1, BASIS_RE);
+	const warrant = warrantOf(basis, own);
+	if (!warrant) return { kind: "no-warrant", text: basis };
+	if (warrant !== "issue" || !follow || follow.skip?.has(basis.toLowerCase()))
+		return null;
+	const cited = followCited(text, m, own, follow);
+	return cited ? { kind: "no-warrant", text: basis, cited } : null;
 }
 
 /**
@@ -764,14 +963,22 @@ function parseBacktickRuns(block, from) {
  * the edit adds or changes a gate line every basis is judged, a re-gate
  * meeting today's bar (#4946).
  *
+ * A basis `before` already held live is followed only on a re-gate.
+ *
  * @param {string} before
  * @param {string} after
  * @param {number} [own] the issue's number
+ * @param {Follow} [follow] as basisFaults takes it
  * @returns {BasisFault[]}
  */
-function introducedBasisFaults(before, after, own) {
+function introducedBasisFaults(before, after, own, follow) {
 	const b = String(before || "");
 	const regated = parseAddedGateLines(b, after).length > 0;
+	const untouched = new Set(
+		regated
+			? []
+			: liveBases(b).map((m) => requiredGroup(m, 1, BASIS_RE).toLowerCase()),
+	);
 	/** @param {BasisFault["kind"]} kind @param {string} text */
 	const keyOf = (kind, text) => `${kind}\n${text.toLowerCase()}`;
 	const held = new Set([
@@ -784,9 +991,14 @@ function introducedBasisFaults(before, after, own) {
 			keyOf("unnamed-window", d.written),
 		]),
 	]);
-	return basisFaults(after, own).filter(
-		(f) => !held.has(keyOf(f.kind, f.text)),
-	);
+	return basisFaults(
+		after,
+		own,
+		follow && {
+			...follow,
+			skip: new Set([...(follow.skip ?? []), ...untouched]),
+		},
+	).filter((f) => !held.has(keyOf(f.kind, f.text)));
 }
 
 /**
@@ -819,6 +1031,26 @@ function resolveGate(body, at = Date.now()) {
 	};
 }
 
+/** @type {Record<CitedReason, string>} */
+const CITED_SAYS = {
+	"no-basis": "which has no `**Gate basis:**` line",
+	"no-window": "whose bases name none of its windows",
+	"no-own-warrant":
+		"whose basis naming its window carries no count or cycle warrant of its own",
+	"no-round": "where that question round is not found",
+	"no-issue": "which is no issue",
+};
+
+/**
+ * Why a basis's cited issues stand for none of its windows, or "".
+ *
+ * @param {BasisFault} f
+ */
+function citedSays(f) {
+	if (!f.cited?.length) return "";
+	return ` (it cites ${f.cited.map((c) => `${c.ref}, ${CITED_SAYS[c.reason]}`).join("; and ")})`;
+}
+
 /** @type {Record<BasisFault["kind"], (quoted: string, many: boolean) => string>} */
 const FAULT_SAYS = {
 	"no-basis": (quoted) => `${quoted} with no \`**Gate basis:**\` line`,
@@ -838,10 +1070,15 @@ const FAULT_SAYS = {
  */
 function basisRefusal(faults, reading) {
 	const says = Object.entries(FAULT_SAYS).flatMap(([kind, say]) => {
-		const texts = faults.filter((f) => f.kind === kind).map((f) => f.text);
-		return texts.length === 0
+		const of = faults.filter((f) => f.kind === kind);
+		return of.length === 0
 			? []
-			: [say(texts.map((t) => `"${t}"`).join(", "), texts.length > 1)];
+			: [
+					say(
+						of.map((f) => `"${f.text}"${citedSays(f)}`).join(", "),
+						of.length > 1,
+					),
+				];
 	});
 	return `${says.join("; and ")}${reading ? `, as ${reading} read it` : ""}. ${basisRule()}`;
 }
@@ -1001,6 +1238,9 @@ module.exports = {
 	basisFaults,
 	introducedBasisFaults,
 	basisRefusal,
+	citedRefsOf,
+	citedKey,
+	citedSays,
 	basisRule,
 	gateFacts,
 	judgeOverrideOf,

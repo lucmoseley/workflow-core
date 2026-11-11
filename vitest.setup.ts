@@ -51,6 +51,10 @@ process.env.WFC_MEMORY_HOLD = "";
  * output. A case that drives the judge blanks it. */
 process.env.WFC_GATE_JUDGE = "off";
 
+/* Nor does one read the issues a basis cites (#5007): that is a real gh call
+ * wherever the case set no stub. A case that drives the read blanks it. */
+process.env.WFC_GATE_CITED = "off";
+
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
  * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on
