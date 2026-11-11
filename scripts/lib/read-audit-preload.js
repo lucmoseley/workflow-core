@@ -500,7 +500,7 @@ function install() {
 	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
 	 * @param {(word: string) => string[]} named
-	 * @param {string[]} bin its program file, as `binOf` found it
+	 * @param {string[]} bin
 	 * @returns {Hand[]}
 	 */
 	const envHands = (opts, named, bin) => {
