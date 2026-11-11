@@ -112,7 +112,7 @@ const LEAD_VAR_RE = /^\{?(\w+)\}?"?$/;
 /**
  * The variable a lead strips its last segment off (#5000): `_cs_dir` of
  * `${_cs_dir%/*}/`. `BASH_SOURCE` and a positional parameter name a file or
- * an argument, not a directory, so they are not one.
+ * an argument, not a directory.
  */
 const LEAD_PARENT_RE = /^\{(?!BASH_SOURCE%)([A-Za-z_]\w*)%\/\*\}"?$/;
 
@@ -316,12 +316,9 @@ function destructuredBefore(text, at) {
 }
 
 /**
- * A variable's value is read off its assignments' text alone; a lead
- * naming a directory variable, `$lib/` or `${lib%/*}/` (#5000), is read
- * beneath each directory VAR_DIR_RE reads assigned to it, or the file's own
- * where it reads none. Limit: so a lead naming a scratch directory
- * (`$tmp/x.sh`) or a directory the file took in resolves to a path that
- * need not exist; the digest hashes nothing for such a path
+ * Limit: a variable's value is read off its assignments' text alone, so a
+ * lead naming a scratch directory (`$tmp/x.sh`) or a directory the file
+ * took in resolves to a path that need not exist; the digest hashes nothing for such a path
  * (lib/guard-digest.js).
  * @param {string} dir
  * @param {string} text
@@ -386,8 +383,7 @@ function underLead(lead, value, dirs) {
  * Each variable's assigned paths, in the order assigned, of those `keep`
  * holds, each read beneath its lead (underLead).
  * @param {string} text
- * @param {RegExp} re a `gm` regex, the name its group 1, the lead its group 2
- *   and the path its group 3
+ * @param {RegExp} re a `gm` regex built by buildVarAssignRe
  * @param {Map<string, string[]> | null} dirs the directories leads name, or
  *   null for the map being built, so a directory built off one assigned
  *   before it reads beneath that one
