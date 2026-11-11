@@ -26,12 +26,12 @@
 	},
 	{
 		"id": "standing-report",
-		"meaning": "A script-filed standing-condition or due report: morning review, queue wait or stall alarm, release bump, census re-measure, per-file time limit, a review or retro due.",
+		"meaning": "A standing-condition or due report: morning review, queue wait or stall alarm, release bump, census re-measure, per-file time limit, a review or retro due.",
 		"firstSeen": "2026-11-11"
 	},
 	{
 		"id": "review-finding",
-		"meaning": "A code-review finding on one ticket's just-built work, filed as its own ticket.",
+		"meaning": "A code-review finding on one ticket's just-built work.",
 		"firstSeen": "2026-11-11"
 	},
 	{
@@ -41,7 +41,7 @@
 	},
 	{
 		"id": "build-slice",
-		"meaning": "A build slice cut from a spec or a ruling, implementing it.",
+		"meaning": "A build slice cut from a spec or a ruling.",
 		"firstSeen": "2026-11-11"
 	},
 	{
@@ -61,7 +61,7 @@
 	},
 	{
 		"id": "machinery-defect",
-		"meaning": "A machinery change or defect fix filed outside every labelled flow, its origin read from the title alone.",
+		"meaning": "A machinery change or defect fix filed outside every labelled flow.",
 		"firstSeen": "2026-11-11"
 	},
 	{
