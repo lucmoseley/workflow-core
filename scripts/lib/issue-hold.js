@@ -7,7 +7,7 @@
  */
 
 const { ghDefaultRepo, ghGetRetrying, ghOpenIssues } = require("./gh");
-const { resolveGate } = require("./issue-gate");
+const { isGateHolding } = require("./issue-gate");
 const { isInOtherRepo } = require("./issue-ref");
 const { judgeProseRefs, proseRefsOf } = require("./prose-blockers");
 
@@ -32,8 +32,7 @@ async function readIssueStrict(ref) {
  * @param {ProseAt} at
  */
 async function isHeldWithoutReads(iss, at) {
-	const gates = resolveGate(iss.body);
-	if (gates.gateHolds || gates.gateOnHolds) return true;
+	if (isGateHolding(iss.body)) return true;
 	const local = proseRefsOf(iss.body).filter(
 		(r) => !isInOtherRepo(r, at.ownRepo),
 	);

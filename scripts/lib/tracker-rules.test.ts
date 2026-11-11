@@ -360,6 +360,53 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		expect(idsIn(out.additionalContext)).toContain("create-command-shape");
 	});
 
+	/* #5012: each run ghWords reads gets the bare call's rules. */
+	describe.each([
+		["timeout 5 ", ""],
+		["env ", ""],
+		['flock /l -c "true; ', '"'],
+		['flock /l -c "true\n', '"'],
+	])("behind `%s`", (before, after) => {
+		it.each([
+			"gh issue create --title t",
+			"gh issue close 5 --comment x",
+			"gh issue edit 5 --add-assignee @me",
+			"gh issue comment 5 --body x",
+			"node scripts/issue-body.js tick 5 --match x",
+		])("%s is handed its bare rules", (command) => {
+			const bare = idsIn(emission(bash(command)).additionalContext);
+			const wrapped = emission(bash(`${before}${command}${after}`, "wrapped"));
+			expect(bare.length).toBeGreaterThan(0);
+			expect(idsIn(wrapped.additionalContext)).toEqual(bare);
+		});
+	});
+
+	it.each([
+		["gh -R o/r issue close 5", "close-outstanding-line"],
+		["gh issue create --help --title t", "create-command-shape"],
+	])("%s is handed its row's rules (#5012)", (command, id) => {
+		expect(idsIn(emission(bash(command)).additionalContext)).toContain(id);
+	});
+
+	it("reads a body path past gh's own -R (#5012)", () => {
+		const out = emission(
+			bash("gh -R o/r issue comment 5 --body-file $CLAUDE_JOB_DIR/tmp/b.md"),
+		);
+		expect(idsIn(out.additionalContext)).toContain("gh-job-dir-unreadable");
+	});
+
+	it("follows a `-c` string's `cd` into the job tree (#5012)", () => {
+		const job = path.join(dir, ".claude", "jobs", "abc");
+		fs.mkdirSync(job, { recursive: true });
+		const out = emission(
+			bash(
+				`flock /l -c "cd ${job} && gh issue comment 5 --body-file tmp/b.md"`,
+			),
+			{ cwd: dir, env: { CLAUDE_JOB_DIR: job } },
+		);
+		expect(idsIn(out.additionalContext)).toContain("gh-job-dir-unreadable");
+	});
+
 	it.each([
 		"gh api repos/o/r/issues/1 --jq '.[] | test(\"/sub_issues\")'",
 		"gh api repos/o/r/issues/1 -f note='see /dependencies/blocking'",

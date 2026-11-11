@@ -90,6 +90,44 @@ const GIT_VALUED = new Set([
 	"--attr-source",
 ]);
 
+/* The variables git reads a path from: its own, and where its configuration
+ * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
+const GIT_READ_NAMES = "GIT_.*|HOME|XDG_CONFIG_HOME";
+const GIT_READS = new RegExp(`^(${GIT_READ_NAMES})$`);
+
+/* The variables changing what a git call answers: those, and the locale
+ * and zone its messages and dates follow (#5017). The git guard's loop
+ * spells the same set. */
+const GIT_ANSWER_VARS = new RegExp(
+	`^(${GIT_READ_NAMES}|TZ|LANG|LANGUAGE|LC_.*)$`,
+);
+
+/**
+ * @typedef {{env: Record<string, string>, gitAt: number}} Standing
+ *   the environment a suite's setup settled, and how many bytes the owner's
+ *   git log held then: what the guard logged before is the setup's own
+ */
+/**
+ * A standing file's content; none where it will not parse, so every
+ * variable reads as set apart and every git call as made after it.
+ * @param {string} text
+ * @returns {Standing}
+ */
+function parseStanding(text) {
+	try {
+		const { env, gitAt } = JSON.parse(text);
+		if (env === null || typeof env !== "object") throw new Error("no env");
+		return { env, gitAt: Number.isInteger(gitAt) ? gitAt : 0 };
+	} catch {
+		// A torn or missing file settles nothing: the reader doubts (#5017).
+		return { env: {}, gitAt: 0 };
+	}
+}
+
+/* The variable naming git's event target (git's api-trace2), which the
+ * audit hands each git itself. */
+const GIT_EVENTS = "GIT_TRACE2_EVENT";
+
 /* The git guard the suites put on every test's `PATH` (#3161). */
 const GUARD = path.join(__dirname, "host-git-guard", "git");
 
@@ -111,7 +149,11 @@ function buildGuardTest(realpath = fs.realpathSync) {
 }
 
 module.exports = {
+	parseStanding,
 	buildGuardTest,
+	GIT_EVENTS,
+	GIT_READS,
+	GIT_ANSWER_VARS,
 	GIT_VALUED,
 	GUARD,
 	EXITED,
