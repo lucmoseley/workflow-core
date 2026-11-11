@@ -274,8 +274,7 @@ function readOwners(dir) {
 /**
  * @typedef {{steered: string, dir: string, pid: number, answer: string,
  *   args: string[]}} GitRecord
- *   one guard record: its git-dir flag, the directory, the guard's pid, the
- *   answer, empty on the record made before git ran, and the words
+ *   one guard record; `answer` is empty on the record made before git ran
  */
 
 /**
@@ -545,9 +544,7 @@ function childDoubt(e, program, logs, scope) {
 
 /**
  * Why a git call the guard ran leaves its file's reads unknown, or null.
- * The guard logs one only where its own repository is this one: a clone of
- * the checkout, or a file there handed to a call made elsewhere, is in no
- * record. One it kept no record of is judged on what handed it the
+ * One it kept no record of is judged on what handed it the
  * checkout, as any other child (#5015).
  * @param {Entry} e
  * @param {Scope} scope

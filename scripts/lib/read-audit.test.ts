@@ -902,7 +902,6 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 });
 
 describe("a guarded git the guard keeps no record of (#5015)", () => {
-	/** A repository of the test's own, outside the checkout. */
 	const scratchRepo = () => {
 		const dir = fs.realpathSync(
 			fs.mkdtempSync(path.join(os.tmpdir(), "rda-repo-")),

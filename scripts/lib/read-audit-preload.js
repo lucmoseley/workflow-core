@@ -498,8 +498,7 @@ function install() {
 	/**
 	 * Real git, and the guard that runs it, is weighed only on the variables
 	 * git reads a path from itself (#4982, #5015): what it runs, which
-	 * inherits the rest, its own event log names (`gitEventsOf`); what the
-	 * guard reads beside steers only whether it logs.
+	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @param {(word: string) => string[]} named
@@ -543,7 +542,7 @@ function install() {
 	 * `--git-dir` and `GIT_DIR` name it, weighed as a word and a variable.
 	 * @param {Untyped} opts
 	 * @param {string[]} words its words after the program
-	 * @param {GitOptions} git what its options before the subcommand do
+	 * @param {GitOptions} git
 	 * @returns {Hand[]}
 	 */
 	const repoHands = (opts, words, git) => {
@@ -569,9 +568,7 @@ function install() {
 	};
 	/**
 	 * What hands a child paths in the checkout; none for a Node child that
-	 * logs its own reads. A git reads a relative path against the directory
-	 * its `-C` words move it to, each `-C` value against the one the words
-	 * before it reached (git(1), `-C`).
+	 * logs its own reads.
 	 * @param {Untyped} opts
 	 * @returns {Hand[]}
 	 */
@@ -749,8 +746,7 @@ function install() {
 	/**
 	 * Watch every pipe to an async child where nothing else sees its reads:
 	 * no tracer follows it and it is no Node child keeping a log of its own;
-	 * a guarded git is watched, for the reader to weigh where the guard
-	 * logged no record of it (#5015). A stream the test
+	 * a guarded git is watched (#5015). A stream the test
 	 * handed it whole (`wrap`) on a descriptor it may read carries what the
 	 * audit cannot read: a doubt.
 	 * @param {Untyped} asked
@@ -996,10 +992,10 @@ function isGitFile(opts) {
  * @typedef {{moved: string, baseOfValue: Map<number, string>,
  *   bare: string|null, namesGitDir: boolean, sub: number}} GitOptions
  *   what a git call's options before its subcommand do: the directory each
- *   `-C` moves it to in turn, `moved` where they end; each `-C` value's
- *   place with the directory it is read against; where `--bare` stood,
- *   the directory the `-C` words before it reached; whether `--git-dir`
- *   names its repository; the subcommand's place
+ *   `-C` moves it to in turn (git(1), `-C`), `moved` where they end; each
+ *   `-C` value's place with the directory it is read against; where
+ *   `--bare` stood, the directory the `-C` words before it reached;
+ *   whether `--git-dir` names its repository; the subcommand's place
  */
 
 /**
@@ -1032,8 +1028,8 @@ function readGitOptions(words, cwd) {
 /**
  * Where a git call finds its repository: the directory it looks up from,
  * its own moved by each `-C` before the subcommand, or under `--bare` the
- * repository itself, the directory the `-C` words before it reached (git
- * sets `GIT_DIR` there); null where it looks for none.
+ * repository itself (git sets `GIT_DIR` there); null where it looks for
+ * none.
  * @param {string[]} words the call's words after the program
  * @param {GitOptions} git
  * @returns {{at: string, bare: boolean}|null}
