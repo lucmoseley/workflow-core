@@ -67,11 +67,7 @@ const { configDir } = require("./lib/config-dir.js");
 
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
 const { gh: ghRun, ghDefaultRepo } = require("./lib/gh");
-const {
-	basisRefusal,
-	gateRuleHandover,
-	isNewlyGated,
-} = require("./lib/issue-gate");
+const { gateRuleHandover, isNewlyGated } = require("./lib/issue-gate");
 const { readGateWrite } = require("./lib/gate-judge.js");
 const { recordOwnAct } = require("./lib/tracker-ops.js");
 const { readRuleText } = require("./lib/rule-text");
@@ -924,11 +920,12 @@ function replaceWhole(issue, repo, next, dryRun = false) {
 let gateRuleHanded = false;
 
 /* The model reading is a call of seconds, so each pair of bodies is read
- * once a run, and each note printed once. */
+ * once a run, and each piece of advice printed once. A run edits one issue,
+ * so the pair is the key. */
 /** @type {Map<string, ReturnType<typeof readGateWrite>>} */
 const readings = new Map();
 /** @type {Set<string>} */
-const notesPrinted = new Set();
+const advicePrinted = new Set();
 
 /**
  * @param {string} before
@@ -968,14 +965,12 @@ function refuseGateFaults(before, after, repo, issue) {
 		writeFd(2, handover);
 	}
 	refuseNonIssueNumber(issue);
-	const { patterns, notes } = readGateWriteOnce(before, after, Number(issue));
-	if (patterns.length > 0)
-		throw new CallerError(
-			`Nothing written: this edit adds ${basisRefusal(patterns)}${notes ? `\n\n${notes}` : ""}`,
-		);
-	if (notes && !notesPrinted.has(notes)) {
-		notesPrinted.add(notes);
-		writeFd(2, `${notes}\n`);
+	const { refusal, advice } = readGateWriteOnce(before, after, Number(issue));
+	if (refusal)
+		throw new CallerError(`Nothing written: this edit adds ${refusal}`);
+	if (advice && !advicePrinted.has(advice)) {
+		advicePrinted.add(advice);
+		writeFd(2, `${advice}\n`);
 	}
 	const checks = addedCheckVerdict(before, after, { run: true, repo });
 	for (const w of checks.warnings) writeFd(2, `${w}\n`);

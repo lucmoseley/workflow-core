@@ -6,6 +6,10 @@
  *
  * The model reads the body it is given and nothing it cites, and never the
  * body before an edit.
+ *
+ * readGateWrite is the three write routes' one entry (#4969): it words the
+ * reading for the writing session, as advice, and logs each call to
+ * .gate-judge-calls.jsonl under lib/marker-root.js's directory.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -22,8 +26,10 @@ const {
 	JUDGE_TIMEOUT_EXIT,
 	WAIT_ON,
 } = require("./gate-judge-mode.js");
+const { now } = require("./check.js");
 const {
 	basisFaults,
+	basisRefusal,
 	gateFacts,
 	introducedBasisFaults,
 	otherIssueRefs,
@@ -408,8 +414,8 @@ function judgedBasisFaults(
 }
 
 /* Each note's lead: the outcome review counts a model finding and a fallback
- * apart from a pattern fault, whose words are lib/issue-gate.js's
- * basisRefusal. */
+ * apart from a pattern fault, whose refusal says the wording patterns read
+ * it (lib/issue-gate.js basisRefusal). */
 const MODEL_LEAD =
 	"Advice from the model reading of this body, which refuses nothing yet";
 const FALLBACK_LEAD = "The model reading of this body did not run";
@@ -454,48 +460,80 @@ function readingNotes(model, fallback) {
 	return `${MODEL_LEAD}:\n${model.map((f) => `- ${modelFinding(f)}`).join("\n")}\nWhere a finding is right, give the wait a \`**Gate basis:**\` line that derives its window: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
 }
 
-/** @param {string} [root] the host repo */
-const callLogPath = (root = hostRoot()) =>
-	path.join(markersDir(root), ".gate-judge-calls.jsonl");
-
 /**
- * One record on the call log. Advice, so a log that cannot be written costs
- * the record, never the write.
+ * One record on the call log, append-only and gitignored, for the outcome
+ * review to count. Advice, so a log that cannot be written costs the record,
+ * never the write (#4969).
  * @param {Record<string, unknown>} record
  */
 function logCall(record) {
 	try {
 		fs.appendFileSync(
-			callLogPath(),
-			`${JSON.stringify({ at: new Date().toISOString(), ...record })}\n`,
+			path.join(markersDir(hostRoot()), ".gate-judge-calls.jsonl"),
+			`${JSON.stringify({ at: new Date(now()).toISOString(), ...record })}\n`,
 		);
 	} catch {
-		/* The docblock's trade: the write goes on unrecorded. */
+		/* #4969: an unwritable log loses the record, never the write. */
 	}
 }
 
 /** @param {JudgedFault} f */
 const unmarked = ({ by: _by, ...f }) => f;
 
+/* Below this a call cannot answer: the corpus's fastest calls took seconds
+ * (#4968). */
+const MIN_BOUND_MS = 5000;
+
 /**
- * One write route's gate reading (#4964): the patterns' faults, which refuse
- * as before, and the notes the route prints beside its output, the call
- * logged. An edit that changes nothing calls no model, and nor does any
- * write under `WFC_GATE_JUDGE=off`, which the suites' setup sets.
+ * A route's answer: a refusal where the patterns fault the body, the notes
+ * riding in it, else the notes as advice.
+ * @param {import("./issue-gate.js").BasisFault[]} patterns
+ * @param {string} notes
+ * @returns {{refusal: string|null, advice: string}}
+ */
+function answer(patterns, notes) {
+	if (patterns.length === 0) return { refusal: null, advice: notes };
+	const refusal = basisRefusal(patterns, "the wording patterns");
+	return { refusal: notes ? `${refusal}\n\n${notes}` : refusal, advice: "" };
+}
+
+/**
+ * One write route's gate reading (#4964): `refusal` completes "<the body>
+ * carries …" where the patterns fault the body, the model's notes riding in
+ * it; else `advice`, the notes the route prints beside its output, or "".
+ * Each model call is logged. An edit that changes nothing calls no model,
+ * and a bound under MIN_BOUND_MS is a fallback without one.
+ *
+ * `WFC_GATE_JUDGE=off` is the suites' seam (vitest.setup.ts): no call, no
+ * note and no record.
  *
  * @param {string} body the body written
  * @param {{route: "create-guard"|"file-issue"|"issue-body", own?: number,
  *   before?: string, boundMs?: number, env?: NodeJS.ProcessEnv}} opts
- * @returns {{patterns: import("./issue-gate.js").BasisFault[], notes: string}}
+ * @returns {{refusal: string|null, advice: string}}
  */
 function readGateWrite(
 	body,
-	{ route, own, before, boundMs, env = process.env },
+	{ route, own, before, boundMs = JUDGE_BOUND_MS, env = process.env },
 ) {
 	if (before !== undefined && before === body)
-		return { patterns: [], notes: "" };
+		return { refusal: null, advice: "" };
 	if (env.WFC_GATE_JUDGE === "off")
-		return { patterns: patternFaults(body, own, before), notes: "" };
+		return answer(patternFaults(body, own, before), "");
+	if (boundMs < MIN_BOUND_MS) {
+		const patterns = patternFaults(body, own, before);
+		const fallback = "too little of the hook's time was left for it";
+		logCall({
+			route,
+			issue: own ?? null,
+			patterns,
+			model: [],
+			ms: 0,
+			dropped: 0,
+			fallback,
+		});
+		return answer(patterns, readingNotes([], fallback));
+	}
 	const r = judgedBasisFaults(body, { own, before, boundMs, env });
 	const patterns = r.faults.filter((f) => f.by === "patterns").map(unmarked);
 	const model = r.faults.filter((f) => f.by === "model");
@@ -508,16 +546,13 @@ function readGateWrite(
 		dropped: r.dropped,
 		fallback: r.fallback,
 	});
-	return { patterns, notes: readingNotes(model, r.fallback) };
+	return answer(patterns, readingNotes(model, r.fallback));
 }
 
 module.exports = {
-	FALLBACK_LEAD,
 	JUDGE_BOUND_MS,
 	LAUNCHER_GRACE_MS,
-	MODEL_LEAD,
 	buildPrompt,
-	callLogPath,
 	holdsOther,
 	judgedBasisFaults,
 	mergeFaults,

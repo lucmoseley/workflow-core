@@ -15,7 +15,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildAuthStatusNodeBranch } from "./auth-status-fake";
 import { recorded as headless } from "./headless-run-fake";
+import { hostRoot } from "./host-root.js";
 import { readJsonl } from "./jsonl.js";
+import { markersDir } from "./marker-root.js";
+
+/* The leads a write route's notes open with, pinned here so a change to
+ * them is a change to these suites. */
+export const MODEL_LEAD =
+	"Advice from the model reading of this body, which refuses nothing yet";
+export const FALLBACK_LEAD = "The model reading of this body did not run";
+
+/** Where lib/gate-judge.js logs each write route's model call. */
+export const callLogPath = () =>
+	path.join(markersDir(hostRoot()), ".gate-judge-calls.jsonl");
 
 export const recorded: {
 	harness: string;

@@ -91,7 +91,6 @@ const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
 const HUMAN_LABEL = takesLabel("human");
 const { readGateWrite } = require("./lib/gate-judge.js");
 const {
-	basisRefusal,
 	gateRuleHandover,
 	listOpenMaps,
 	MAP_LABEL,
@@ -437,13 +436,9 @@ function checkBody(labels, body) {
 		readRuleText("roadmap-gating"),
 	);
 	if (handover) writeFd(2, handover);
-	const { patterns, notes } = readGateWrite(body, { route: "file-issue" });
-	if (patterns.length > 0)
-		io.fail(
-			`Nothing filed: the body carries ${basisRefusal(patterns)}${notes ? `\n\n${notes}` : ""}`,
-			2,
-		);
-	if (notes) writeFd(2, `${notes}\n\n`);
+	const { refusal, advice } = readGateWrite(body, { route: "file-issue" });
+	if (refusal) io.fail(`Nothing filed: the body carries ${refusal}`, 2);
+	if (advice) writeFd(2, `${advice}\n\n`);
 	const checks = addedCheckVerdict("", body, { run: true });
 	for (const w of checks.warnings) io.warn(w);
 	if (checks.refusals.length > 0)

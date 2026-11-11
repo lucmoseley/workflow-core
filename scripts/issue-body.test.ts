@@ -22,10 +22,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { store as arbiter, freshSandbox } from "./lib/arbiter-testkit";
-import { callLogPath, FALLBACK_LEAD, MODEL_LEAD } from "./lib/gate-judge.js";
 import {
+	callLogPath,
+	FALLBACK_LEAD,
 	type JudgeFakePlan,
 	judgeFakeEnv,
+	MODEL_LEAD,
 	readJudgeCalls,
 } from "./lib/gate-judge-fake";
 import { asRecorded } from "./lib/gh-fake";
@@ -726,7 +728,7 @@ describe("the CLI", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			'this edit adds the basis "#96 asks for a week", which carries no warrant. Every gate line',
+			'this edit adds the basis "#96 asks for a week", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
 		expect(r.stderr).toContain("baseline 27/449 attempts");
 		expect(readEdits()).toBe(0);

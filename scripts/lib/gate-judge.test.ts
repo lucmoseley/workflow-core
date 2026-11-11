@@ -13,16 +13,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	callLogPath,
-	FALLBACK_LEAD,
 	JUDGE_BOUND_MS,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
-	MODEL_LEAD,
 	readGateWrite,
 } from "./gate-judge.js";
 import {
+	callLogPath,
+	FALLBACK_LEAD,
 	type JudgeFakePlan,
+	MODEL_LEAD,
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
@@ -425,7 +425,7 @@ describe("a write route's reading", () => {
 	const write = (
 		body: string,
 		plan: JudgeFakePlan,
-		opts: { before?: string; own?: number } = {},
+		opts: { before?: string; own?: number; boundMs?: number } = {},
 		extraEnv: Record<string, string> = {},
 	) =>
 		readGateWrite(body, {
@@ -450,31 +450,46 @@ describe("a write route's reading", () => {
 	];
 
 	it("gives a model finding, a pattern fault and a fallback text the review can count apart", () => {
-		const found = write(
-			`${Gate}\n\n${WAIT}\n\n**Gate basis:** the ticket asks for a week\n`,
-			reading(
-				[wait(WAIT, "500 ticks")],
-				[{ basis: "the ticket asks for a week", class: "asserted" }],
-			),
-		);
-		const refusal = basisRefusal(found.patterns);
-		const fallback = write(`${WAIT}\n`, { exit: 1 }).notes;
-		expect(found.notes).toContain(MODEL_LEAD);
+		const advice = write(
+			`${WAIT}\n`,
+			reading([wait(WAIT, "500 ticks")]),
+		).advice;
+		const fallback = write(`${WAIT}\n`, { exit: 1 }).advice;
+		const refusal = write(`${Gate}\n`, NOTHING).refusal ?? "";
+		expect(advice).toContain(MODEL_LEAD);
 		expect(fallback).toContain(FALLBACK_LEAD);
-		for (const text of [found.notes, fallback]) {
+		expect(refusal).toContain("as the wording patterns read it");
+		for (const text of [advice, fallback]) {
 			for (const says of PatternSays) expect(text).not.toContain(says);
 		}
 		expect(PatternSays.some((says) => refusal.includes(says))).toBe(true);
 		for (const text of [refusal, fallback])
 			expect(text).not.toContain(MODEL_LEAD);
-		for (const text of [refusal, found.notes])
+		for (const text of [refusal, advice])
 			expect(text).not.toContain(FALLBACK_LEAD);
 	});
 
-	it("keeps the pattern faults apart from the model's, which only advise", () => {
+	it("refuses on the pattern faults alone, the model's riding in the refusal as advice", () => {
 		const r = write(`${Gate}\n\n${WAIT}\n`, reading([wait(WAIT, "500 ticks")]));
-		expect(r.patterns).toEqual(basisFaults(`${Gate}\n`));
-		expect(r.notes).toContain(`"${WAIT}" makes work wait on data accumulating`);
+		expect(r.advice).toBe("");
+		expect(r.refusal).toMatch(
+			new RegExp(
+				`^${basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n\n${MODEL_LEAD}`,
+			),
+		);
+		expect(r.refusal).toContain(
+			`"${WAIT}" makes work wait on data accumulating`,
+		);
+	});
+
+	it("falls back without a call where too little of the bound is left", () => {
+		const r = write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), {
+			boundMs: 1000,
+		});
+		expect(r.advice).toContain(
+			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
+		);
+		expect(readJudgeCalls(log)).toEqual([]);
 	});
 
 	it("appends one record a call to the log", () => {
@@ -495,12 +510,12 @@ describe("a write route's reading", () => {
 
 	it("calls no model for an edit that changes nothing, nor with the judge off", () => {
 		expect(write(`${WAIT}\n`, NOTHING, { before: `${WAIT}\n` })).toEqual({
-			patterns: [],
-			notes: "",
+			refusal: null,
+			advice: "",
 		});
 		expect(write(`${Gate}\n`, NOTHING, {}, { WFC_GATE_JUDGE: "off" })).toEqual({
-			patterns: basisFaults(`${Gate}\n`),
-			notes: "",
+			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
+			advice: "",
 		});
 		expect(readJudgeCalls(log)).toEqual([]);
 	});

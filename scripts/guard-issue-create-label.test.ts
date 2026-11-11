@@ -20,8 +20,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { FALLBACK_LEAD, MODEL_LEAD } from "./lib/gate-judge.js";
-import { type JudgeFakePlan, judgeFakeEnv } from "./lib/gate-judge-fake";
+import {
+	FALLBACK_LEAD,
+	type JudgeFakePlan,
+	judgeFakeEnv,
+	MODEL_LEAD,
+} from "./lib/gate-judge-fake";
 import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";

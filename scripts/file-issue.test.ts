@@ -23,8 +23,13 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import { freshSandbox, issueClaims, store } from "./lib/arbiter-testkit";
-import { callLogPath, FALLBACK_LEAD, MODEL_LEAD } from "./lib/gate-judge.js";
-import { type JudgeFakePlan, judgeFakeEnv } from "./lib/gate-judge-fake";
+import {
+	callLogPath,
+	FALLBACK_LEAD,
+	type JudgeFakePlan,
+	judgeFakeEnv,
+	MODEL_LEAD,
+} from "./lib/gate-judge-fake";
 import { buildJqLines } from "./lib/gh-fake";
 import { buildLinkReadArms, stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION as UNFILLED } from "./lib/issue-gate";
@@ -314,7 +319,7 @@ describe("the body", () => {
 		});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			'Nothing filed: the body carries the basis "the body asks for a day", which carries no warrant. Every gate line',
+			'Nothing filed: the body carries the basis "the body asks for a day", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
 		expect(r.stderr).toContain("baseline 27/449 attempts");
 		expect(readGhCalls()).toEqual([]);
@@ -400,7 +405,9 @@ describe("the model reading (#4969)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("Nothing filed: the body carries");
 		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing filed:"));
-		expect(refusal).toContain("no `**Gate basis:**` line");
+		expect(refusal).toContain(
+			"no `**Gate basis:**` line, as the wording patterns read it.",
+		);
 		expect(refusal).toContain(MODEL_LEAD);
 		expect(refusal).toContain(`"${Wait}"`);
 		expect(readGhCalls()).toEqual([]);
