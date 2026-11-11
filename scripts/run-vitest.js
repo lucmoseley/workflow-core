@@ -67,6 +67,7 @@ const {
 } = require("./lib/test-pass-marker.js");
 const { launchEnv } = require("./lib/suite-handoff.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { markStart, START_MARK_ENV } = require("./lib/tree-drift.js");
 const {
 	WHOLE_SUITE_WORKERS,
 	resolvedFileCount,
@@ -447,9 +448,19 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
  * file, and the launch record the certificate is written from.
  * `cached` is the pass store's hand-off (#4790): this run's alone, so an
  * inherited one never reaches a run that looked nothing up.
- * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null }} run
+ * `startMark` the run's start on the change-time clock (lib/tree-drift.js's
+ * `markStart`), null where none was taken.
+ * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null }} run
  */
-function vitestEnv({ inflightFile, timingsFile, plan, launch, base, cached }) {
+function vitestEnv({
+	inflightFile,
+	timingsFile,
+	plan,
+	launch,
+	base,
+	cached,
+	startMark,
+}) {
 	/* The deadline file is this run's alone: a runner a test drives inside
 	 * vitest would otherwise overwrite it, then remove it, disarming bg-run's
 	 * backstop (#2704). A runner a test drives must queue as its own launch,
@@ -474,6 +485,9 @@ function vitestEnv({ inflightFile, timingsFile, plan, launch, base, cached }) {
 			base,
 		}),
 		...(process.stdout.isTTY ? { FORCE_COLOR: "1" } : {}),
+		/* Taken before vitest reads its config, which a run keys rows on too
+		 * (#5018); an inherited one, earlier still, stands where none is. */
+		...(startMark === null ? {} : { [START_MARK_ENV]: String(startMark) }),
 	};
 }
 
@@ -778,6 +792,7 @@ function runOnce(
 					launch: weighed,
 					base: readRunBase(weighed, plan, root, expandOptions.execFn),
 					cached,
+					startMark: markStart(root),
 				}),
 				detached: true,
 			},
