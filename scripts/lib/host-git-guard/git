@@ -104,15 +104,20 @@ args=("${@:i+1}")
 # is logged against the test that made it, twice: once before git runs, its
 # answer empty, so a call killed mid-way still shows, and once after, with its
 # answer — git's status and the sha1 of its stdout, `<status>:<sha1>` — which
-# the pass store requires its own rerun to equal (#4993). A call whose
-# directory, `-C` and git-dir variables all lie outside the repository's
+# the pass store requires its own rerun to equal (#4993). Each record carries
+# the variables steering what git answers, lib/git.js's `isGitSteer` set
+# spelt again in the loop below, and the rerun runs under them (#5017). A call
+# whose directory, `-C` and git-dir variables all lie outside the repository's
 # checkouts asks git nothing more; `init` and `clone` make a repository of
 # their own. Only the outermost call: a nested one runs inside a call already
 # judged.
 audit_log=
 # log_call <answer> <word>… — one record, as lib/read-audit.js's
-# `gitRecords` reads it.
-log_call() { printf '%s\0' "$(($# + 2))" "$steered" "$PWD" "$@" >>"$audit_log"; }
+# `parseGitRecords` reads it.
+log_call() {
+  printf '%s\0' "$(($# + 3 + ${#git_env[@]}))" "$steered" "$PWD" "$1" \
+    "${#git_env[@]}" "${git_env[@]}" "${@:2}" >>"$audit_log"
+}
 
 # run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
 # process listing off the audit reads as it would without the guard. A `tee`
@@ -158,6 +163,10 @@ if ((depth == 1)) && [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$
     if [[ -n "$common" && "$common" == "$host" ]]; then
       audit_log="$WFC_READ_AUDIT/$WFC_READ_AUDIT_OWNER.git"
       steered="${GIT_DIR:+1}${GIT_WORK_TREE:+1}${GIT_COMMON_DIR:+1}${GIT_INDEX_FILE:+1}"
+      git_env=()
+      for name in ${!GIT_*} ${!LC_*} HOME XDG_CONFIG_HOME TZ LANG LANGUAGE; do
+        [[ -v $name && $name != GIT_TRACE* ]] && git_env+=("$name=${!name}")
+      done
       log_call "" "$@"
     fi
   fi

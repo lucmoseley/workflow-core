@@ -360,8 +360,7 @@ async function execGitAsync(args, opts = {}) {
 }
 
 /* The variables that point git at a repository. vitest.setup.ts deletes each
- * in every test worker; the pass store runs a test's git call again without
- * them (lib/pass-store.js). */
+ * in every test worker. */
 const GIT_DIR_VARS = [
 	"GIT_DIR",
 	"GIT_WORK_TREE",
@@ -372,9 +371,23 @@ const GIT_DIR_VARS = [
 	"GIT_PREFIX",
 ];
 
+/**
+ * Whether a variable steers what a git call answers: git's own, where its
+ * configuration lives (git-config(1), FILES), and the locale and zone its
+ * dates and messages follow. Not git's trace targets, which write no
+ * answer. The host git guard logs each with a call it audits, and the pass
+ * store runs the call again under them (#5017); the guard's own loop names
+ * the same set.
+ * @param {string} name
+ */
+const isGitSteer = (name) =>
+	/^(GIT_.*|LC_.*|HOME|XDG_CONFIG_HOME|TZ|LANG|LANGUAGE)$/.test(name) &&
+	!name.startsWith("GIT_TRACE");
+
 module.exports = {
 	SHORT_SHA,
 	GIT_DIR_VARS,
+	isGitSteer,
 	gitBinary,
 	gitSpawnOptions,
 	execGit,

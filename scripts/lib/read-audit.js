@@ -18,8 +18,9 @@
  * subcommands in `RERUN`, made from a directory under the root with no `-C`,
  * `--git-dir`, `--work-tree`, git-dir variable or `--output` steering it and
  * nothing fed to it on standard input, is kept word for word with the answer
- * the guard saw it give: the store keys it on its output run again, and only
- * where that equals what the test got (#4993). A call the guard logged begun
+ * the guard saw it give and the variables steering it: the store keys it on
+ * its output run again under them, and only where that equals what the test
+ * got (#4993, #5017). A call the guard logged begun
  * and never answered, or that answered the same words two ways, is a doubt.
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
@@ -147,9 +148,11 @@ function isDescriptorFed(word) {
 }
 
 /**
- * @typedef {{cwd: string, args: string[], answer: string}} GitCall
- *   a git call to run again: its directory, repo-relative, its words, and
- *   the answer the test got, `<status>:<sha1 of stdout>`
+ * @typedef {{cwd: string, args: string[], env: Record<string, string>,
+ *   answer: string}} GitCall
+ *   a git call to run again: its directory, repo-relative, its words, the
+ *   variables steering it (lib/git.js's `isGitSteer`), and the answer the
+ *   test got, `<status>:<sha1 of stdout>`
  * @typedef {{files: string[], absent: string[], dirs: string[],
  *   lists: Record<string, string>, trees: string[], scripts: string[],
  *   git: GitCall[]}} Reads
@@ -274,7 +277,8 @@ function readOwners(dir) {
 
 /**
  * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the answer, the words.
+ * fields — the git-dir flag, the directory, the answer, the count of
+ * steering variables, each as `name=value`, the words.
  * @param {string} text
  * @returns {string[][]}
  */
@@ -284,7 +288,7 @@ function parseGitRecords(text) {
 	const out = [];
 	for (let i = 0; i < fields.length - 1; ) {
 		const n = Number(fields[i]);
-		if (!Number.isInteger(n) || n < 3) throw new Error("a git record is torn");
+		if (!Number.isInteger(n) || n < 4) throw new Error("a git record is torn");
 		out.push(fields.slice(i + 1, i + 1 + n));
 		i += n + 1;
 	}
@@ -343,8 +347,8 @@ function buildCollector(logs, root, isScratch, readers) {
 	const trees = new Set();
 	/** @type {Set<string>} */
 	const scripts = new Set();
-	/** @type {Map<string, {cwd: string, args: string[], begun: number,
-	 *   answers: string[]}>} */
+	/** @type {Map<string, {cwd: string, args: string[],
+	 *   env: Record<string, string>, begun: number, answers: string[]}>} */
 	const calls = new Map();
 	/** @type {Map<number, Entry>} */
 	const children = new Map();
@@ -404,11 +408,13 @@ function buildCollector(logs, root, isScratch, readers) {
 		 * @param {string[]} record
 		 * @returns {string|null}
 		 */
-		takeGit([steered = "", dir = "", answer = "", ...args]) {
-			const call = rerunnable([steered, dir, ...args], root);
+		takeGit([steered = "", dir = "", answer = "", count = "0", ...rest]) {
+			const n = Number(count);
+			const call = rerunnable([steered, dir, ...rest.slice(n)], root);
 			if (typeof call === "string") return call;
-			const key = JSON.stringify(call);
-			const at = calls.get(key) ?? { ...call, begun: 0, answers: [] };
+			const steering = { ...call, env: envOf(rest.slice(0, n)) };
+			const key = JSON.stringify(steering);
+			const at = calls.get(key) ?? { ...steering, begun: 0, answers: [] };
 			if (answer === "") at.begun += 1;
 			else at.answers.push(answer);
 			calls.set(key, at);
@@ -444,16 +450,36 @@ function buildCollector(logs, root, isScratch, readers) {
 }
 
 /**
+ * `name=value` pairs as a record, by name, so one environment keys alike
+ * however the guard listed it.
+ * @param {string[]} pairs
+ * @returns {Record<string, string>}
+ */
+function envOf(pairs) {
+	return Object.fromEntries(
+		pairs
+			.map((pair) => {
+				const eq = pair.indexOf("=");
+				return /** @type {[string, string]} */ ([
+					pair.slice(0, eq),
+					pair.slice(eq + 1),
+				]);
+			})
+			.sort(([a], [b]) => (a < b ? -1 : 1)),
+	);
+}
+
+/**
  * Each git call with the one answer the test got, or the doubt where one has
  * none or two.
- * @param {Iterable<{cwd: string, args: string[], begun: number,
- *   answers: string[]}>} calls
+ * @param {Iterable<{cwd: string, args: string[], env: Record<string, string>,
+ *   begun: number, answers: string[]}>} calls
  * @returns {GitCall[]|{doubt: string}}
  */
 function answeredCalls(calls) {
 	/** @type {GitCall[]} */
 	const git = [];
-	for (const { cwd, args, begun, answers } of calls) {
+	for (const { cwd, args, env, begun, answers } of calls) {
 		const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
 		const [answer, ...rest] = answers;
 		if (answer === undefined || answers.length !== begun)
@@ -462,7 +488,7 @@ function answeredCalls(calls) {
 			return {
 				doubt: `a git call (${shown}) answered differently within the run`,
 			};
-		git.push({ cwd, args, answer });
+		git.push({ cwd, args, env, answer });
 	}
 	return git;
 }

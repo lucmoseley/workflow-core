@@ -79,7 +79,7 @@ const { drift, readTreeSnapshot } = require("./tree-drift.js");
 const {
 	execGit,
 	spawnGitSync,
-	GIT_DIR_VARS,
+	isGitSteer,
 	GIT_TIMEOUT_MS,
 } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -133,7 +133,7 @@ const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never caches (#4814),
  * though its red still voids an older pass (#4995). */
-const FORMAT = 17;
+const FORMAT = 18;
 
 /* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -572,18 +572,19 @@ const sharedInputs = (root, shared) => [
 function buildGitRunner(root) {
 	/** @type {Map<string, string|null>} */
 	const memo = new Map();
-	/* A test's call ran with no variable pointing git at a repository
-	 * (vitest.setup.ts), so its run again does too. */
-	const env = { ...process.env };
-	for (const v of GIT_DIR_VARS) delete env[v];
+	/* The run again steers git with the test's variables alone, none of this
+	 * process's own (#5017). */
+	const base = Object.fromEntries(
+		Object.entries(process.env).filter(([name]) => !isGitSteer(name)),
+	);
 	return (key) => {
 		if (memo.has(key)) return memo.get(key) ?? null;
 		let id = null;
 		try {
-			const { cwd, args } = JSON.parse(key);
+			const { cwd, args, env } = JSON.parse(key);
 			const r = spawnGitSync(args, {
 				cwd: path.join(root, cwd),
-				env,
+				env: { ...base, ...env },
 				timeout: GIT_TIMEOUT_MS,
 			});
 			if (!r.error && r.status !== null)
@@ -732,8 +733,8 @@ function auditInputs(reads, listings, working, drifted) {
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
-	for (const { cwd, args, answer } of reads.git) {
-		const key = JSON.stringify({ cwd, args });
+	for (const { cwd, args, env, answer } of reads.git) {
+		const key = JSON.stringify({ cwd, args, env });
 		const id = working.git(key);
 		if (id !== answer) return null;
 		git[key] = id;
