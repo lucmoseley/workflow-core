@@ -18,8 +18,9 @@ Researched: 2026-11-10
 
 - Fix the sample size and the stopping rule before the window starts. A look that is not planned inflates false positives ("peek ... ten times" turns 1% into 5%). Miller, "How Not To Run an A/B Test" [named expert]
 - To stop early with a pass, use a sequential test fixed in advance: a group sequential test where the maximum n is known, an always-valid test (mSPRT) where it is not. Johari, Pekelis and Walsh, "Always Valid Inference", arXiv 1512.04922; Spotify Engineering, "Choosing a Sequential Testing Framework" (2023); Miller, "Simple Sequential A/B Testing" (2015) [named expert]
-- Stop early with a fail at the first failure the plan does not allow: Argo `failureLimit`, Flagger `threshold`, a Spinnaker critical metric. Each for its own product [standard or field body]
-- Extend only by a planned maximum (truncate a sequential plan at about three times the fixed-plan n) or by a human decision on an inconclusive result, which then gives up the stated confidence. NIST e-Handbook §6.2.6 [standard or field body]; Argo Rollouts (Inconclusive pauses for a human), for its own product [standard or field body]
+- Stop early with a fail at the first failure the plan does not allow: a plan that passes at r or fewer failures can no longer pass after failure r + 1, whatever the rest of the window shows. NIST e-Handbook §8.3.1.1 (passes with "no more than a pre-specified number of failures") [standard or field body]; Argo `failureLimit`, Flagger `threshold`, a Spinnaker critical metric, each one adopter [unverified]
+- Extend only by a planned maximum: truncate a sequential plan at about three times the fixed-plan n. NIST e-Handbook §6.2.6 [standard or field body]
+- Extending by a human decision on an inconclusive result gives up the stated confidence. Argo Rollouts (Inconclusive pauses for a human), one adopter [unverified]; sets no default
 
 ## Controls and the stated plan
 
