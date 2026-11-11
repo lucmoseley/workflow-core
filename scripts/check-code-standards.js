@@ -1453,7 +1453,6 @@ function okLineOf({
 		(routeDrifts === 0
 			? ` pythonRoutes agrees with the ${pythonRows} route row(s) reaching Python.`
 			: "") +
-		" No script header keeps a hand-written caller list." +
 		(touching ? ` (--touching ${touching}: ${findings.length} in scope)` : "")
 	);
 }
