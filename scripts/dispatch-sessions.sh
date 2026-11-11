@@ -230,7 +230,7 @@ export WFC_CLAUDE_BIN="${WFC_CLAUDE_BIN:-claude}"
 # arm acceptable between checks (mantahostels#1093, #4919).
 ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 
-# Every member's model goes through lib/burn-mode.js's table before any gate
+# Every member's model goes through lib/model-table.js's table before any gate
 # reads it (#4919): the standing layer moves a Sonnet spelling to
 # `claude-haiku-5-5[1m]`, and while burn mode is on its layer moves Haiku to
 # `claude-opus-5-5[1m]` and Opus to `claude-fable-5-2[1m]`. An overflow seat
@@ -239,7 +239,7 @@ ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 # names each remap; a spelling the exact-match table does not know launches as
 # written. The advisor is judged on the remapped spelling, so it attaches to a
 # Haiku launch and never to one burn mode moved to Opus.
-BURN_LIB="$here/lib/burn-mode.js"
+MODEL_TABLE="$here/lib/model-table.js"
 
 dry_run=0
 force=0
@@ -502,7 +502,7 @@ remapped=()
 for ((i = 1; i <= $#; i += 2)); do
   j=$((i + 1))
   m="${!i}"
-  to="$(node "$BURN_LIB" launch "$m" "${burn_flag[@]}")"
+  to="$(node "$MODEL_TABLE" launch "$m" "${burn_flag[@]}")"
   [[ "$to" != "$m" ]] && printf '%s: %s -> %s\n' \
     "$([[ $burn -eq 1 ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
   remapped+=("$to" "${!j}")

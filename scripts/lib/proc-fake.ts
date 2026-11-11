@@ -22,7 +22,7 @@ const { launchEnv } = require("./suite-handoff.js") as {
 };
 
 /** A launch record as an environment entry, `KEY=value`. */
-export function launchEntry(launch: object): string {
+export function buildLaunchEntry(launch: object): string {
 	const [entry] = Object.entries(launchEnv(launch));
 	if (!entry) throw new Error("proc-fake: launchEnv wrote no entry");
 	return `${entry[0]}=${entry[1]}`;
@@ -55,7 +55,7 @@ export function carrying(
 ): number {
 	return writeEnviron(proc, pid, [
 		"PATH=/bin",
-		...(launch ? [launchEntry(launch)] : []),
+		...(launch ? [buildLaunchEntry(launch)] : []),
 	]);
 }
 
@@ -81,7 +81,7 @@ export interface ProcSpec {
 
 /** One stat line: `pid (comm)`, its state, parent, group and start time, and
  * zeros for every other field. */
-export function statLine(
+export function buildStatLine(
 	pid: number,
 	{
 		comm = "bash",
@@ -110,7 +110,7 @@ export function statLine(
  * default Rss is one no test charges and the Pss_Dirty line follows Pss, so a
  * reader taking Rss, the last line or a `Pss`-prefixed line in place of Pss
  * fails. */
-export const smapsRollup = ({
+export const buildSmapsRollup = ({
 	rssKb = 999_999,
 	pssKb,
 	pssDirtyKb = 0,
@@ -139,23 +139,23 @@ export function writeSmapsRollup(proc: string, pid: string, pssKb: number) {
 	fs.mkdirSync(path.join(proc, pid), { recursive: true });
 	fs.writeFileSync(
 		path.join(proc, pid, "smaps_rollup"),
-		smapsRollup({ pssKb }),
+		buildSmapsRollup({ pssKb }),
 	);
 }
 
 /** `load1` as the kernel writes /proc/loadavg: three loads, the running and
  * total task counts, and the newest pid. */
-export const loadavgLine = (load1: number) =>
+export const buildLoadavgLine = (load1: number) =>
 	`${load1.toFixed(2)} 1.00 1.00 2/300 1\n`;
 
 /** `seconds` as the kernel writes /proc/uptime: uptime, then idle time. */
-export const uptimeLine = (seconds: number) =>
+export const buildUptimeLine = (seconds: number) =>
 	`${seconds.toFixed(2)} ${seconds.toFixed(2)}\n`;
 
 /** A fresh /proc root on a machine `uptime` seconds up, and its writer. */
 export function makeProcRoot(uptime = UPTIME) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "proc-fake-"));
-	fs.writeFileSync(path.join(root, "uptime"), uptimeLine(uptime));
+	fs.writeFileSync(path.join(root, "uptime"), buildUptimeLine(uptime));
 
 	function proc(
 		pid: number,
@@ -168,7 +168,7 @@ export function makeProcRoot(uptime = UPTIME) {
 		const startTicks = Math.round((uptime - ageS) * USER_HZ);
 		fs.writeFileSync(
 			path.join(dir, "stat"),
-			stat ?? statLine(pid, { ...fields, startTicks }),
+			stat ?? buildStatLine(pid, { ...fields, startTicks }),
 		);
 	}
 

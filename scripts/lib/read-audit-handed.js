@@ -9,24 +9,26 @@
  * `./` or `../` (`-C/tmp/link`, `-I../x`) that, read against the child's
  * working directory with every link followed, lands under the root —
  * `../../<root>/x` from outside, or a link to the checkout. A candidate
- * holding no `/` is a path only where it stands in that directory.
- *
- * Residual: a relative path glued behind a prefix with no `./` or `../` to
- * start it (`-Iin/x`, `in` a link) is resolved only as the whole piece.
+ * holding no `/` is a path only where it stands in that directory. Glued,
+ * in a word but not in input text: a piece from any later point of its
+ * first part, where that part's rest is a name the directory holds
+ * (`-Iin/x`, `-Iin`, `in` a link), or `.` or `..` stuck to a short option
+ * (`-I..`) (#4997).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
+const { PATH_MAX } = require("./read-audit-paths.js");
 
 /**
  * What handed a child a checkout path, as the preload logs it on the
  * child's entry: an argument by its place after the program's name; a
  * variable by its name, `standing` where the process that spawned the child
  * holds the same value; the input of a sync spawn; the checkout's repository
- * where git finds it above its directory. `p` is the repo-relative paths it
- * names.
+ * where git finds it from its directory, or in it under `--bare`. `p` is
+ * the repo-relative paths it names.
  * @typedef {{by: "arg", at: number, p: string[]}
  *   | {by: "env", name: string, standing: boolean, p: string[]}
  *   | {by: "stdin", p: string[]}
@@ -42,9 +44,11 @@ const PARTS = /[\s"';:=,]+/;
 
 /* Taken as this module loads, before the preload wraps `fs`. */
 const realpath = fs.realpathSync;
+const lstat = fs.lstatSync;
+const NO_THROW = { throwIfNoEntry: false };
 
-/* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
-const PATH_MAX = 4096;
+/* Linux's NAME_MAX: a longer part is no name. */
+const NAME_MAX = 255;
 
 /** @param {string} root real path */
 function buildHanded(root) {
@@ -96,36 +100,85 @@ function buildHanded(root) {
 		return [...out];
 	};
 	/**
-	 * The repo-relative paths `word` names, spelt or resolved from `cwd`.
-	 * @param {string} word
+	 * What words name, resolved from one working directory, each name it
+	 * may hold looked up once. Input text is not searched for glued paths,
+	 * so a relative path stuck behind a prefix there (`-Iin/x` written down
+	 * a pipe) goes unseen: a lookup a character would cost a megabyte of
+	 * input a million.
 	 * @param {string} cwd the child's working directory, real path
-	 * @returns {string[]}
+	 * @param {{text?: boolean}} [kind]
 	 */
-	const named = (word, cwd) => {
-		const out = new Set(spelt(word));
-		for (const tried of candidates(word)) {
-			const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
-			const real = realOf(path.resolve(cwd, tried), isBare);
-			const r = real === null ? null : relOf(real);
-			if (r !== null) out.add(r);
-		}
-		return [...out];
+	const from = (cwd, { text = false } = {}) => {
+		/** @type {Map<string, boolean>} */
+		const known = new Map();
+		const isHeld = (/** @type {string} */ name) => {
+			let held = known.get(name);
+			if (held === undefined) {
+				try {
+					held = lstat(path.join(cwd, name), NO_THROW) !== undefined;
+				} catch {
+					held = false;
+				}
+				known.set(name, held);
+			}
+			return held;
+		};
+		const gluedBy = text ? null : isHeld;
+		/**
+		 * The repo-relative paths `word` names, spelt or resolved.
+		 * @param {string} word
+		 * @returns {string[]}
+		 */
+		return (word) => {
+			const out = new Set(spelt(word));
+			for (const tried of candidates(word, gluedBy)) {
+				const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
+				const real = realOf(path.resolve(cwd, tried), isBare);
+				const r = real === null ? null : relOf(real);
+				if (r !== null) out.add(r);
+			}
+			return [...out];
+		};
 	};
-	return { spelt, named };
+	return { spelt, from };
 }
 
 /**
  * @param {string} word
+ * @param {((name: string) => boolean)|null} isHeld whether the working
+ *   directory holds a name; null where glued paths are not searched for
  * @returns {Set<string>}
  */
-function candidates(word) {
+function candidates(word, isHeld) {
 	/** @type {Set<string>} */
 	const out = new Set();
-	for (const piece of [word, ...word.split(PARTS)])
+	for (const piece of [word, ...word.split(PARTS)]) {
 		for (const from of [0, piece.indexOf("/"), piece.search(/\.\.?\//)]) {
 			const tried = from < 0 ? "" : piece.slice(from);
 			if (tried && tried.length <= PATH_MAX) out.add(tried);
 		}
+		if (isHeld === null || piece.length > PATH_MAX) continue;
+		for (const tried of glued(piece, isHeld)) out.add(tried);
+	}
+	return out;
+}
+
+/**
+ * @param {string} piece
+ * @param {(name: string) => boolean} isHeld
+ * @returns {string[]}
+ */
+function glued(piece, isHeld) {
+	const slash = piece.indexOf("/");
+	const end = slash < 0 ? piece.length : slash;
+	/** @type {string[]} */
+	const out = [];
+	for (let at = Math.max(1, end - NAME_MAX); at < end; at++) {
+		const name = piece.slice(at, end);
+		const isDots = name === "." || name === "..";
+		const isCluster = piece[0] === "-" && piece[1] !== "-" && at >= 2;
+		if (isDots ? isCluster : isHeld(name)) out.push(piece.slice(at));
+	}
 	return out;
 }
 

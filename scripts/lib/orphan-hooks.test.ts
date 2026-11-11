@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { findOrphanHooks, killReaps, readRegistry } from "./orphan-hooks.js";
-import { makeProcRoot, statLine } from "./proc-fake";
+import { buildStatLine, makeProcRoot } from "./proc-fake";
 import { readProcTable, readUptime, USER_HZ } from "./proc-table.js";
 import {
 	isGroupDead,
@@ -209,7 +209,7 @@ describe("killReaps", () => {
 	it("kills by pgid when every target holds its start time, else each that does, and logs the reap", () => {
 		fake = makeProcRoot();
 		const stat = (pid: number, startTicks: number) =>
-			fake.proc(pid, { stat: statLine(pid, { startTicks }) });
+			fake.proc(pid, { stat: buildStatLine(pid, { startTicks }) });
 		const group = proc(10, `bash ${GUARD}`);
 		const recycled = proc(20, `bash ${GUARD}`);
 		const child = proc(21, "sleep 1", { ppid: 20, pgid: 20 });

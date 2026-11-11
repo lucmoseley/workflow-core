@@ -103,8 +103,9 @@ const API_NEEDS = new Set([
  */
 
 /* `any`, not `unknown`, in this file's records: the harness owns their
- * schemas, and each rule reads a field only after fieldFault has checked its
- * type. */
+ * schemas, and each reader tests a field's type before relying on it —
+ * fieldFault for the row and job a classification reads. A transcript row is a
+ * TranscriptRecord, for that typedef's reason. */
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObject = (v) =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
@@ -413,7 +414,7 @@ function resumedIdleSince({ job, rows }) {
  * Whether `r` is a row stamped after `at`, ms.
  * @param {unknown} r
  * @param {number} at
- * @returns {r is Record<string, any>}
+ * @returns {r is import("./transcript.js").TranscriptRecord}
  */
 const isRowAfter = (r, at) =>
 	isObject(r) &&

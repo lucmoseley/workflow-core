@@ -21,7 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { dmesgLine, writeDmesg } from "./lib/dmesg-fake";
+import { buildDmesgLine, writeDmesg } from "./lib/dmesg-fake";
 import {
 	buildKernelLine,
 	writeFailingJournalctl,
@@ -49,7 +49,10 @@ const STALL_STAMP = "2026-10-07T14:43:24+00:00";
 const STALL_MSG = "rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:";
 const STALL_LINE = buildKernelLine(Date.parse(STALL_STAMP), STALL_MSG);
 /** The stall as dmesg -T holds it, at a wall time the journal's is not. */
-const DMESG_STALL = dmesgLine(Date.parse("2026-10-07T22:43:24Z"), STALL_MSG);
+const DMESG_STALL = buildDmesgLine(
+	Date.parse("2026-10-07T22:43:24Z"),
+	STALL_MSG,
+);
 const STALLED = [
 	...CLEAN,
 	STALL_LINE,
@@ -374,7 +377,7 @@ describe("the readers", () => {
 		const r = run([], {
 			WFC_JOURNALCTL: writeJournalctl(dir, [STALL_LINE]),
 			WFC_DMESG: writeDmesg(dir, [
-				dmesgLine(Date.parse("2026-10-01T00:00:00Z"), STALL_MSG),
+				buildDmesgLine(Date.parse("2026-10-01T00:00:00Z"), STALL_MSG),
 			]),
 		});
 		expect(r.status).toBe(1);

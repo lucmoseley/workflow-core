@@ -27,7 +27,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
  * A kernel line, as `dmesg -T` prints it: `[Wed Oct  7 22:43:24 2026] <msg>`,
  * the stamp in UTC where the real one is local time.
  */
-export function dmesgLine(ms: number, msg: string): string {
+export function buildDmesgLine(ms: number, msg: string): string {
 	const d = new Date(ms);
 	const day = String(d.getUTCDate()).padStart(2, " ");
 	const time = [d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()]
@@ -41,7 +41,7 @@ export const RESTRICTED_REFUSAL =
 	"dmesg: read kernel buffer failed: Operation not permitted";
 
 /**
- * A dmesg in `dir` serving `lines` (dmesgLine's) under `-T`, and without it
+ * A dmesg in `dir` serving `lines` (buildDmesgLine's) under `-T`, and without it
  * stamped in seconds since the first, as the real one stamps time since boot,
  * so a reader that drops `-T` reads no wall time.
  * Restricted, it serves nothing and refuses as the real one does. It appends

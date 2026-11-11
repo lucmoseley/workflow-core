@@ -7,8 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-	loadavgLine,
-	statLine,
+	buildLoadavgLine,
+	buildStatLine,
 	writeCwd,
 	writeEnviron,
 	writeSmapsRollup,
@@ -67,7 +67,7 @@ export const writeProcRoot = (
 		/* A command name holding a space and a `)`, as a real one may. */
 		fs.writeFileSync(
 			path.join(root, pid, "stat"),
-			statLine(Number(pid), {
+			buildStatLine(Number(pid), {
 				comm: "node (x) y",
 				ppid: Number(ppid),
 				startTicks: 0,
@@ -106,7 +106,7 @@ export const writeReapScript = (
 export const writeLoadavg = (dir: string, load1: number | null) => {
 	const p = path.join(dir, "loadavg");
 	if (load1 === null) return path.join(dir, "no-such-loadavg");
-	fs.writeFileSync(p, loadavgLine(load1));
+	fs.writeFileSync(p, buildLoadavgLine(load1));
 	return p;
 };
 

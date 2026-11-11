@@ -6,8 +6,9 @@
  * rests on a read nobody recorded.
  *
  * Cost: every case runs one to three real Node processes under the preload,
- * and a traced one its tracer; the spawn hooks and the links a hand goes
- * through are what is under test, which no seeded log reaches.
+ * and a traced one its tracer; some spawn real git, tar or systemctl too.
+ * The spawn hooks, the links a hand goes through and what those programs
+ * run are what is under test, which no seeded log reaches.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -24,6 +25,7 @@ const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
+const { parseJsonl } = require("./jsonl.js");
 
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 
@@ -417,7 +419,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 				"if (r.status !== 3 || Number(r.stdout) !== r.pid) throw new Error(JSON.stringify(r));",
 				/* Crosses the real clock: the kill Node sends at its timeout is
 				 * what the case tests. 300 ms is a guess above a shell's start
-				 * under the tracer (~20 ms); the 30 s sleep, one far past it. */
+				 * under the tracer; the 30 s sleep, one far past it. */
 				'const k = cp.spawnSync("sh", ["-c", "exec sleep 30"], { ...at, timeout: 300 });',
 				'if (k.signal !== "SIGTERM") throw new Error(JSON.stringify(k));',
 			].join("\n"),
@@ -736,7 +738,7 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 				stripped(["rev-parse", "--show-toplevel"], "scratch"),
 			].join("\n");
 			expect(untraced(root, inScratch).doubt).toMatch(
-				/by the repository above its directory/,
+				/by the repository it finds from its directory/,
 			);
 			const own = inScratch.replace(
 				"const env",
@@ -849,6 +851,373 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const spelt = path.relative(cwd, path.join(root, settingsFile));
 			const body = spawns("sh", ["-c", `cat ${spelt}`], cwd);
 			expect(traced(root, body).reads.files).toContain(settingsFile);
+		});
+	});
+});
+
+describe("the routes still open after #4982 (#4997)", () => {
+	const outsideDir = () => {
+		const dir = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-out-")),
+		);
+		dirs.push(dir);
+		return dir;
+	};
+	const untraced = (root: string, body: string) =>
+		readAudits(audited(root, T, body, { trace: false }), root).get(T);
+	const settingsFile = ".claude/settings.json";
+	const realGit = execFileSync("sh", ["-c", "command -v git"], {
+		encoding: "utf8",
+	}).trim();
+
+	describe("input written to a child's pipe once it runs", () => {
+		/** A body that starts `cat` and writes `chunks` down its input. */
+		const writes = (cwd: string, chunks: string[]) =>
+			[
+				`const c = require("node:child_process").spawn("cat", [], { cwd: ${quoted(cwd)}, stdio: ["pipe", "ignore", "ignore"] });`,
+				...chunks.map((chunk) => `c.stdin.write(${quoted(chunk)});`),
+				"c.stdin.end();",
+			].join("\n");
+
+		it("doubts a checkout path written whole, as a buffer, or split across two writes", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const file = path.join(root, settingsFile);
+			const cut = Math.floor(file.length / 2);
+			for (const chunks of [[file], [file.slice(0, cut), file.slice(cut)]])
+				expect(untraced(root, writes(cwd, chunks)).doubt).toMatch(
+					/a child \(cat \) was written a path in the checkout down a pipe/,
+				);
+			const asBuffer = writes(cwd, []).replace(
+				"c.stdin.end();",
+				`c.stdin.end(Buffer.from(${quoted(file)}));`,
+			);
+			expect(untraced(root, asBuffer).doubt).toMatch(/down a pipe/);
+		});
+
+		it("doubts a checkout path written down a pipe on a descriptor past the standard three", () => {
+			const root = checkout();
+			const file = path.join(root, settingsFile);
+			const body = `const c = require("node:child_process").spawn("cat", [], { cwd: ${quoted(outsideDir())}, stdio: ["ignore", "ignore", "ignore", "pipe"] });\nc.stdio[3].on("error", () => {});\nc.stdio[3].end(${quoted(file)});`;
+			expect(untraced(root, body).doubt).toMatch(
+				/a child \(cat \) was written a path in the checkout down a pipe/,
+			);
+		});
+
+		it("keeps the reads of a file that writes a child only its own scratch, or nothing of the checkout", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const body = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				writes(cwd, ["plain text\n"]).replace(
+					"c.stdin.end();",
+					"c.stdin.end(scratch);",
+				),
+			].join("\n");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+	});
+
+	describe("what real git runs", () => {
+		/** A fixture repository outside the checkout, with a hook if asked. */
+		const fixture = (hook?: string) => {
+			const dir = outsideDir();
+			git(dir, "init", "-q");
+			if (hook !== undefined) {
+				write(dir, "hooks/pre-commit", hook);
+				fs.chmodSync(path.join(dir, "hooks/pre-commit"), 0o755);
+				git(dir, "config", "core.hooksPath", "hooks");
+			}
+			return dir;
+		};
+		const runsGit = (
+			cwd: string,
+			args: string[],
+			env: Record<string, string> = {},
+		) =>
+			`require("node:child_process").execFileSync(${quoted(realGit)}, ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, stdio: "ignore" });`;
+		const commit = ["-c", "user.email=t@t", "-c", "user.name=t"];
+
+		it("doubts a git that ran a hook, which inherits every variable unweighed", () => {
+			const root = checkout();
+			const repo = fixture(
+				`#!/bin/sh\ncat "$RULES/settings.json" >/dev/null\n`,
+			);
+			const body = runsGit(
+				repo,
+				[...commit, "commit", "-q", "--allow-empty", "-m", "x"],
+				{
+					RULES: path.join(root, ".claude"),
+				},
+			);
+			expect(untraced(root, body).doubt).toMatch(
+				/a git call \(git .*commit.*\) ran hooks\/pre-commit \(hook\), whose reads no log holds/,
+			);
+		});
+
+		it("doubts a git that ran a shell alias, and keeps one that ran only git", () => {
+			const root = checkout();
+			const repo = fixture();
+			const shell = runsGit(repo, ["-c", "alias.zz=!true", "zz"]);
+			expect(untraced(root, shell).doubt).toMatch(/ran true \(shell_alias\)/);
+			const own = runsGit(repo, ["-c", "alias.st=status", "st"]);
+			expect(untraced(root, own)).toHaveProperty("reads");
+			const plain = runsGit(repo, [
+				...commit,
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"x",
+			]);
+			expect(untraced(root, plain)).toHaveProperty("reads");
+		});
+
+		/** A body that starts git on `args` and, once it first answers, ends it
+		 * by `stop`. */
+		const stopped = (repo: string, args: string[], stop: string) =>
+			[
+				`const c = require("node:child_process").spawn(${quoted(realGit)}, ${quoted(args)}, { cwd: ${quoted(repo)}, stdio: ["pipe", "pipe", "ignore"] });`,
+				`c.stdout.once("data", () => ${stop});`,
+				'c.stdin.write("HEAD\\n");',
+			].join("\n");
+
+		it("keeps a git the test kills through its handle, which logs no end of its own", () => {
+			const root = checkout();
+			const body = stopped(fixture(), ["cat-file", "--batch"], "c.kill()");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
+		it("doubts a git killed past its handle, or once `git help` put a viewer in its place", () => {
+			const root = checkout();
+			const repo = fixture();
+			const byPid = stopped(
+				repo,
+				["cat-file", "--batch"],
+				"process.kill(c.pid)",
+			);
+			expect(untraced(root, byPid).doubt).toMatch(/logged no end/);
+			const viewer = [
+				"-c",
+				"man.viewer=x",
+				"-c",
+				"man.x.cmd=echo up; sleep 30",
+			];
+			const help = stopped(repo, [...viewer, "help", "git"], "c.kill()");
+			expect(untraced(root, help).doubt).toMatch(/logged no end/);
+		});
+
+		it("doubts a git handed an event target of its own, which leaves what it ran unlogged", () => {
+			const root = checkout();
+			const repo = fixture();
+			const body = runsGit(repo, ["status"], {
+				GIT_TRACE2_EVENT: path.join(repo, "events.json"),
+			});
+			expect(untraced(root, body).doubt).toMatch(
+				/named an event target of its own/,
+			);
+		});
+	});
+
+	describe("a relative path glued behind a prefix", () => {
+		it("doubts a link glued to an option with no slash before it, with or without a path after", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.symlinkSync(root, path.join(cwd, "in"));
+			const spawns = (args: string[]) =>
+				`try { require("node:child_process").execFileSync("ls", ${quoted(args)}, { cwd: ${quoted(cwd)}, stdio: "ignore" }); } catch {}`;
+			for (const word of ["-Iin/.claude", "-Iin"])
+				expect(untraced(root, spawns([word])).doubt).toMatch(
+					/a child \(ls .*\) was handed a path in the checkout$/,
+				);
+			expect(untraced(root, spawns(["-Ino-such/x"]))).toHaveProperty("reads");
+		});
+
+		it("doubts `..` stuck to a short-option cluster from a scratch directory, which names the checkout", () => {
+			const root = checkout();
+			const body = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				'try { require("node:child_process").execFileSync("ls", ["-dI.."], { cwd: scratch, stdio: "ignore" }); } catch {}',
+			].join("\n");
+			expect(untraced(root, body).doubt).toMatch(
+				/a child \(ls -dI\.\.\) was handed a path in the checkout$/,
+			);
+		});
+	});
+
+	describe("the repository a git looks for", () => {
+		const stripped = (args: string[], cwd: string) =>
+			`const env = { ...process.env, PATH: ${quoted(GUARD_DIR + path.delimiter)} + process.env.PATH }; delete env.WFC_READ_AUDIT; try { require("node:child_process").execFileSync("git", ${quoted(args)}, { cwd: ${cwd}, env, stdio: "ignore" }); } catch {}`;
+		const minting = (root: string) =>
+			`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`;
+
+		it("doubts a git moved by -C into a scratch directory under the root that is no repository, from outside", () => {
+			const root = checkout();
+			const body = [
+				minting(root),
+				stripped(
+					["-C", "PLACE", "rev-parse", "--show-toplevel"],
+					quoted(outsideDir()),
+				),
+			]
+				.join("\n")
+				.replace('"PLACE"', "scratch");
+			expect(untraced(root, body).doubt).toMatch(
+				/by the repository it finds from its directory/,
+			);
+		});
+
+		it("keeps a git moved by -C out of the checkout from a directory under it", () => {
+			const root = checkout();
+			const away = outsideDir();
+			git(away, "init", "-q");
+			const body = [
+				minting(root),
+				stripped(["-C", away, "status"], "scratch"),
+			].join("\n");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
+		it("keeps an init or a clone, which looks for none, and doubts one asked for --help, which does", () => {
+			const root = checkout();
+			const inScratch = (args: string[]) =>
+				[minting(root), stripped(args, "scratch")].join("\n");
+			expect(untraced(root, inScratch(["init", "-q", "made"]))).toHaveProperty(
+				"reads",
+			);
+			expect(
+				untraced(
+					root,
+					inScratch(["-c", "init.defaultBranch=x", "init", "-q", "made"]),
+				),
+			).toHaveProperty("reads");
+			const source = outsideDir();
+			git(source, "init", "-q");
+			expect(
+				untraced(root, inScratch(["clone", "-q", source, "made"])),
+			).toHaveProperty("reads");
+			/* `git help` runs `man`, which the call's event log doubts first. */
+			const log = audited(root, T, inScratch(["init", "--help"]), {
+				trace: false,
+			});
+			const hands = fs
+				.readdirSync(log)
+				.filter((f) => f.endsWith(".jsonl"))
+				.flatMap(
+					(f) => parseJsonl(fs.readFileSync(path.join(log, f), "utf8")).rows,
+				)
+				.filter((e) => e.k === "child" && e.args?.includes("--help"))
+				.flatMap((e) => e.hands ?? []);
+			expect(hands).toContainEqual({ by: "repo", p: ["."] });
+		});
+
+		it("doubts a bare git whose -C words walked out of a scratch directory into the checkout before --bare, and keeps one left in it", () => {
+			const root = checkout();
+			const walked = [
+				minting(root),
+				stripped(
+					["-C", "PLACE", "-C", "..", "--bare", "rev-parse", "--git-dir"],
+					quoted(outsideDir()),
+				),
+			]
+				.join("\n")
+				.replace('"PLACE"', "scratch");
+			expect(untraced(root, walked).doubt).toMatch(
+				/by the repository it finds from its directory/,
+			);
+			const inScratch = [
+				minting(root),
+				stripped(["--bare", "rev-parse", "--git-dir"], "scratch"),
+			].join("\n");
+			expect(untraced(root, inScratch)).toHaveProperty("reads");
+			/* git takes the repository where `--bare` is read: -C words after
+			 * it move only the work tree. */
+			const after = [
+				minting(root),
+				stripped(
+					["--bare", "-C", "PLACE", "-C", "..", "rev-parse", "--git-dir"],
+					quoted(outsideDir()),
+				),
+			]
+				.join("\n")
+				.replace('"PLACE"', "scratch");
+			expect(untraced(root, after).doubt ?? "").not.toMatch(
+				/by the repository/,
+			);
+		});
+	});
+
+	describe("a program measured to read no variable, run on a settled one", () => {
+		const settled = (root: string, body: string) =>
+			readAudits(
+				audited(root, T, `globalThis.__wfcReadAudit.settle();\n${body}`, {
+					env: { RULES: path.join(root, ".claude") },
+					trace: false,
+				}),
+				root,
+			).get(T);
+		const tar = (cwd: string, args: string[], env = {}) =>
+			`try { require("node:child_process").execFileSync("tar", ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, stdio: "ignore" }); } catch {}`;
+
+		it("keeps a plain tar, and doubts one asked to run a command, by a long option, its prefix or a short one", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.writeFileSync(path.join(cwd, "a.txt"), "a\n");
+			execFileSync("tar", ["-cf", "a.tar", "a.txt"], { cwd });
+			expect(settled(root, tar(cwd, ["-tf", "a.tar"]))).toHaveProperty("reads");
+			for (const args of [
+				["--to-command=cat", "-xf", "a.tar"],
+				["--to-com=cat", "-xf", "a.tar"],
+				["-I", "cat", "-xf", "a.tar"],
+				["xIf", "cat", "a.tar"],
+			])
+				expect(settled(root, tar(cwd, args)).doubt).toMatch(
+					/a child \(tar .*\) was handed a path in the checkout by its environment \(RULES\)/,
+				);
+		});
+
+		it("doubts one whose PATH or TAR_OPTIONS the test changed, which steers what it runs", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.writeFileSync(path.join(cwd, "a.txt"), "a\n");
+			execFileSync("tar", ["-cf", "a.tar", "a.txt"], { cwd });
+			const stub = stubTool("#!/bin/sh\nexit 0\n");
+			for (const env of [
+				{ PATH: `${stub}${path.delimiter}${process.env.PATH}` },
+				{ TAR_OPTIONS: "--to-command=cat" },
+			])
+				expect(settled(root, tar(cwd, ["-tf", "a.tar"], env)).doubt).toMatch(
+					/by its environment \(RULES\)/,
+				);
+		});
+
+		/* The timeout bounds a systemctl that waits on a user bus, or a host,
+		 * this machine may not reach: 10 s, a guess far past the second or so
+		 * one that answers takes. */
+		const systemctl = (cwd: string, args: string[], env = {}) =>
+			`try { require("node:child_process").execFileSync("systemctl", ${quoted(["--user", ...args, "--no-ask-password", "no-such.service"])}, { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true", ...${quoted(env)} }, stdio: "ignore", timeout: 10000 }); } catch {}`;
+
+		it("keeps a plain systemctl, and one whose TAR_OPTIONS alone changed", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			for (const env of [{}, { TAR_OPTIONS: "--to-command=cat" }])
+				expect(
+					settled(root, systemctl(cwd, ["is-active"], env)),
+				).toHaveProperty("reads");
+		});
+
+		it("doubts a systemctl asked to edit, which runs an editor, or to reach a host, which runs ssh", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			for (const args of [
+				["edit"],
+				["-H", "nowhere.invalid", "is-active"],
+				["-Hnowhere.invalid", "is-active"],
+				["--ho=nowhere.invalid", "is-active"],
+			])
+				expect(settled(root, systemctl(cwd, args)).doubt).toMatch(
+					/a child \(systemctl .*\) was handed a path in the checkout by its environment/,
+				);
 		});
 	});
 });
