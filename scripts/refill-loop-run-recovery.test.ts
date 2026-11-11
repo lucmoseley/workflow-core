@@ -994,6 +994,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 			`${JSON.stringify({
 				type: "assistant",
 				isApiErrorMessage: true,
+				timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
 				message: { content: [{ type: "text", text: "API Error: 529" }] },
 			})}\n`,
 		);
