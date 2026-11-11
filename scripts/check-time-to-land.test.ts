@@ -83,7 +83,7 @@ it("warns where the week's p90 take-to-land is over 3 times the green suite's p5
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toContain(
-		"SLOW-LANDING — take-to-land p90 541 s, p50 200 s, over 100 queue ref(s) landed or dropped in 7 days; target 540 s, 3 times the green suite's p50 of 180 s over 1 run(s)",
+		"SLOW-LANDING — take-to-land p90 541 s, p50 200 s, over 100 queue ref(s) taken and landed or dropped in 7 days; target 540 s, 3 times the green suite's p50 of 180 s over 1 run(s)",
 	);
 	expect(r.stdout).toContain("node scripts/time-to-land.js");
 });
@@ -98,6 +98,38 @@ it("warns of nothing at the target, nor with the landing module off", () => {
 	expect(at.stdout).not.toContain("SLOW-LANDING");
 	expect(off.status, off.stderr).toBe(0);
 	expect(off.stdout).toBe("");
+});
+
+it("reads only the stays begun and ended in the window it is given, counting those over the target, and refuses a time that is none", () => {
+	writeLogs(5000);
+	const now = Date.now();
+	const iso = (t: number) => new Date(t).toISOString();
+	// Ref k lands at now - 3600 s + k s; refs 0-10 took 5000 s, the rest 200 s.
+	// Every take, to ref 50's land: refs 0-50, and no green run, which ends
+	// at now - 810 s, so no target to count against.
+	const early = run(CHECK, [
+		"--since",
+		iso(now - 8700 * S),
+		"--until",
+		iso(now - 3600 * S + 50.5 * S),
+		"--json",
+	]);
+	// From now - 3794.5 s: the slow refs' takes fall before it, so refs 11-99
+	// stay.
+	const late = run(CHECK, ["--since", iso(now - 3800 * S + 5.5 * S), "--json"]);
+	const zoneless = run(CHECK, ["--since", "2026-11-10T16:13:04"]);
+	const future = run(CHECK, ["--since", iso(now + 3600 * S)]);
+
+	expect(early.status, early.stderr).toBe(0);
+	const e = JSON.parse(early.stdout);
+	expect([e.stays, e.overTarget]).toEqual([51, null]);
+	expect(e.summary).toContain("- of 51 over the target");
+	expect(JSON.parse(late.stdout)).toMatchObject({ stays: 89, overTarget: 0 });
+	expect([zoneless.status, future.status]).toEqual([2, 2]);
+	expect(zoneless.stdout + zoneless.stderr).toContain(
+		"--since takes an ISO time with its zone",
+	);
+	expect(future.stdout + future.stderr).toContain("--since must fall before");
 });
 
 it("reports the window's batches and queue refs against the target, and refuses a time that is none", () => {

@@ -6,9 +6,9 @@
  *
  *   node scripts/time-to-land.js [--since <ISO time>] [--until <ISO time>]
  *
- * The window is the last 7 days where `--since` is absent. A batch counts
- * where it was taken in the window, a queue ref where it landed or dropped
- * in it. Times are seconds; `sum` is minutes.
+ * The window is lib/time-to-land.js's THE WINDOW, the last 7 days by
+ * default. A batch counts where it was taken in it, a queue ref and a green
+ * run where they began and ended in it. Times are seconds; `sum` is minutes.
  *
  * In no family: it reads two machine-local logs and prints, gating nothing
  * and writing no file (§N3).
@@ -20,7 +20,6 @@ const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { landerLog } = require("./lib/lander-start.js");
 const {
-	BASELINE_MS,
 	percentile,
 	queueLogFile,
 	readQueueRows,
@@ -35,6 +34,8 @@ const {
 	readLogSince,
 	replayBatches,
 	secs,
+	spanIn,
+	windowOf,
 } = require("./lib/time-to-land.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -168,21 +169,18 @@ function main(argv = process.argv.slice(2)) {
 		flags: { "--since": "value", "--until": "value" },
 	});
 	if (typeof parsed === "number") return parsed;
-	const until = Date.parse(
-		String(parsed.flags["--until"] ?? new Date(now()).toISOString()),
-	);
-	const since = Date.parse(
-		String(
-			parsed.flags["--since"] ?? new Date(until - BASELINE_MS).toISOString(),
-		),
-	);
-	if (!Number.isFinite(since) || !Number.isFinite(until)) {
-		writeFd(2, `--since and --until take an ISO time\n${usage}\n`);
+	/** @param {string} flag */
+	const time = (flag) => {
+		const v = parsed.flags[flag];
+		return v === undefined ? null : String(v);
+	};
+	const w = windowOf({ since: time("--since"), until: time("--until") }, now());
+	if (typeof w === "string") {
+		writeFd(2, `${w}\n${usage}\n`);
 		return 2;
 	}
+	const { since, until } = w;
 	const root = repoRoot() ?? process.cwd();
-	/** @param {number} t */
-	const inWindow = (t) => t >= since && t < until;
 	/* A day of lead, so a batch taken before the window that ends in it is
 	 * replayed from its take. */
 	const events = parseLanderLog(
@@ -191,14 +189,16 @@ function main(argv = process.argv.slice(2)) {
 	const lines = [
 		`window ${new Date(since).toISOString()} to ${new Date(until).toISOString()}`,
 		"",
-		...buildBatchLines(replayBatches(events).filter((b) => inWindow(b.take))),
+		...buildBatchLines(
+			replayBatches(events).filter((b) => b.take >= since && b.take < until),
+		),
 		"",
 		...buildMemberLines(
 			memberStays(readQueueRows(queueLogFile(root))).filter((x) =>
-				inWindow(x.at),
+				spanIn(w, x.take, x.at),
 			),
 			greenSuiteSpans(events)
-				.filter((g) => inWindow(g.at))
+				.filter((g) => spanIn(w, g.from, g.at))
 				.map((g) => g.at - g.from),
 		),
 	];
