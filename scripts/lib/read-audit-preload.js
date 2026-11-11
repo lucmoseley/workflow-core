@@ -417,13 +417,10 @@ function install() {
 		/** @type {string[]} */ bin,
 		/** @type {boolean} */ audited,
 	) => file === "git" && isGuard(bin[1]) && audited;
-	const isGuarded = (/** @type {Untyped} */ opts) =>
-		opts?.file === "git" &&
-		isGuardedBy(
-			opts.file,
-			binOf(opts.file, cwdOf(opts), opts?.envPairs),
-			isAudited(opts?.envPairs),
-		);
+	const isGuarded = (
+		/** @type {Untyped} */ opts,
+		/** @type {string[]} */ bin,
+	) => isGuardedBy(String(opts?.file ?? ""), bin, isAudited(opts?.envPairs));
 	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
 	const isProgram = (/** @type {string} */ abs) => {
 		const head = Buffer.alloc(4);
@@ -461,8 +458,10 @@ function install() {
 	/* A guarded git is never traced: the guard logs a call on this
 	 * repository, and the reader weighs its hands where it logged none
 	 * (#5015). */
-	const isUntraceable = (/** @type {Untyped} */ opts) =>
-		isGuarded(opts) || isAuditedNode(opts);
+	const isUntraceable = (
+		/** @type {Untyped} */ opts,
+		/** @type {string[]} */ bin,
+	) => isGuarded(opts, bin) || isAuditedNode(opts);
 	const handed = buildHanded(root);
 	const guardDir = rel(path.dirname(GUARD));
 	/* The environment every child of this run inherits untouched, as the
@@ -500,13 +499,12 @@ function install() {
 	 * git reads a path from itself (#4982, #5015): what it runs, which
 	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
-	 * @param {string} cwd
 	 * @param {(word: string) => string[]} named
+	 * @param {string[]} bin its program file, as `binOf` found it
 	 * @returns {Hand[]}
 	 */
-	const envHands = (opts, cwd, named) => {
+	const envHands = (opts, named, bin) => {
 		const file = String(opts?.file ?? "");
-		const bin = binOf(file, cwd, opts?.envPairs);
 		const gitOnly = isRealGit(file, bin) || isGuard(bin[1]);
 		const pairs = Array.isArray(opts?.envPairs)
 			? opts.envPairs.map(String)
@@ -570,9 +568,10 @@ function install() {
 	 * What hands a child paths in the checkout; none for a Node child that
 	 * logs its own reads.
 	 * @param {Untyped} opts
+	 * @param {string[]} bin
 	 * @returns {Hand[]}
 	 */
-	const handsOf = (opts) => {
+	const handsOf = (opts, bin) => {
 		if (isAuditedNode(opts)) return [];
 		const cwd = cwdOf(opts);
 		const words = argvOf(opts).slice(1);
@@ -587,7 +586,7 @@ function install() {
 					return p.length === 0 ? [] : [{ by: "arg", at, p }];
 				},
 			),
-			...envHands(opts, cwd, named),
+			...envHands(opts, named, bin),
 			...stdinHands(opts, base),
 			...(git ? repoHands(opts, words, git) : []),
 		];
@@ -595,21 +594,19 @@ function install() {
 	/**
 	 * Whether a child stands in the checkout, runs a file there or is handed
 	 * a path there.
-	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @param {Hand[]} hands
+	 * @param {string[]} bin
 	 */
-	const isInReach = (opts, cwd, hands) =>
-		relativeUnder(root, cwd) !== null ||
-		hands.length > 0 ||
-		isOurs(binOf(String(opts?.file ?? ""), cwd, opts?.envPairs));
+	const isInReach = (cwd, hands, bin) =>
+		relativeUnder(root, cwd) !== null || hands.length > 0 || isOurs(bin);
 	/**
 	 * Whether the tracer can run a child in its place: a shell, a stub, or a
 	 * program file of the checkout's own.
 	 * @param {Untyped} opts
-	 * @param {string} cwd
+	 * @param {string[]} bin
 	 */
-	const isTraceable = (opts, cwd) => {
+	const isTraceable = (opts, bin) => {
 		const file = String(opts?.file ?? "");
 		const argv = argvOf(opts);
 		/* A child launching the tracer on a program of its own would be
@@ -619,7 +616,6 @@ function install() {
 		 * name the spawn passes as the program's own first word, found as a
 		 * file the kernel runs with no shell's help. */
 		if (opts?.envPairs?.includes?.("WFC_READ_AUDIT_UNTRACED=1")) return false;
-		const bin = binOf(file, cwd, opts?.envPairs);
 		if (argv[0] !== file || bin.length === 0 || !isProgram(String(bin[1])))
 			return false;
 		if (!SHELLS.has(path.basename(file)) && !isStub(bin) && !isOurs(bin))
@@ -637,13 +633,14 @@ function install() {
 	/**
 	 * @param {Untyped} opts
 	 * @param {Hand[]} hands
+	 * @param {string[]} bin
 	 * @returns {Route}
 	 */
-	const routeOf = (opts, hands) => {
+	const routeOf = (opts, hands, bin) => {
 		const cwd = cwdOf(opts);
-		if (!STRACE || !isInReach(opts, cwd, hands) || isUntraceable(opts))
+		if (!STRACE || !isInReach(cwd, hands, bin) || isUntraceable(opts, bin))
 			return null;
-		if (!isTraceable(opts, cwd)) return null;
+		if (!isTraceable(opts, bin)) return null;
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
 	};
 	let gitLogs = 0;
@@ -656,12 +653,12 @@ function install() {
 	 * it ran goes unlogged. No `events` for a child that is no real git and
 	 * no guard.
 	 * @param {Untyped} opts
+	 * @param {string[]} bin
 	 * @returns {{opts: Untyped, events?: string|null}}
 	 */
-	const gitEventsOf = (opts) => {
+	const gitEventsOf = (opts, bin) => {
 		const file = String(opts?.file ?? "");
 		if (!isGitFile(opts)) return { opts };
-		const bin = binOf(file, cwdOf(opts), opts?.envPairs);
 		if (!isRealGit(file, bin) && !isGuard(bin[1])) return { opts };
 		const pairs = Array.isArray(opts?.envPairs) ? opts.envPairs : [];
 		const target = pairValue(pairs, GIT_EVENTS);
@@ -674,7 +671,9 @@ function install() {
 		return { opts: { ...opts, envPairs: told }, events };
 	};
 	/**
-	 * @typedef {{opts: Untyped, route: Route, hands: Hand[],
+	 * `bin` is the spawn's program as `binOf` found it, once, for every test
+	 * that weighs it and for its record.
+	 * @typedef {{opts: Untyped, bin: string[], route: Route, hands: Hand[],
 	 *   events?: string|null}} Spawn
 	 */
 	/**
@@ -682,15 +681,19 @@ function install() {
 	 * @returns {Spawn}
 	 */
 	const buildTracedSpawn = (asked) => {
+		/** @type {string[]} */
+		let bin = [];
 		try {
+			bin = binOf(String(asked?.file ?? ""), cwdOf(asked), asked?.envPairs);
 			/* A tracer already following this process follows the child too,
 			 * and would take the hands' lookups for reads of its own. */
 			if (STRACE && isUnderTracer())
-				return { opts: asked, route: { within: true }, hands: [] };
-			const hands = handsOf(asked);
-			const route = routeOf(asked, hands);
-			const { opts, events } = gitEventsOf(asked);
-			if (!route || !("trace" in route)) return { opts, route, hands, events };
+				return { opts: asked, bin, route: { within: true }, hands: [] };
+			const hands = handsOf(asked, bin);
+			const route = routeOf(asked, hands, bin);
+			const { opts, events } = gitEventsOf(asked, bin);
+			if (!route || !("trace" in route))
+				return { opts, bin, route, hands, events };
 			const args = buildTraceArgv(
 				String(STRACE),
 				path.join(dir, route.trace),
@@ -698,6 +701,7 @@ function install() {
 			);
 			return {
 				opts: { ...opts, file: args[0], args },
+				bin,
 				route,
 				hands,
 				events,
@@ -706,7 +710,7 @@ function install() {
 			// The child runs as the test spawned it, untraced, and the log is
 			// marked, which the reader doubts (#4966).
 			fault();
-			return { opts: asked, route: null, hands: [] };
+			return { opts: asked, bin, route: null, hands: [] };
 		}
 	};
 	/**
@@ -845,12 +849,11 @@ function install() {
 	 * @param {number|undefined} pid
 	 * @param {Spawn} spawned
 	 */
-	const logChild = (opts, pid, { route, hands, events }) =>
+	const logChild = (opts, pid, { bin, route, hands, events }) =>
 		guard(() => {
 			const file = String(opts?.file ?? "");
 			const cwd = cwdOf(opts);
 			const steered = steeredOf(opts?.envPairs);
-			const bin = binOf(file, cwd, opts?.envPairs);
 			const audited = isAudited(opts?.envPairs);
 			add({
 				k: "child",
