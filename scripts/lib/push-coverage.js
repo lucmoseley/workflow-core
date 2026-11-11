@@ -4,7 +4,7 @@
  * (lib/touched-tests.js), less each file the per-file pass store holds a
  * pass for on the tree's present inputs (lib/pass-store.js's `lookup`, the
  * judge that same run skips a file by). Such a file's first run is the
- * lander's, and a red there costs a whole lander run and a drop.
+ * lander's.
  *
  * It warns and never refuses: the lander runs the full suite whatever this
  * says. Vitest's route alone, as the pass store records no pytest run.
@@ -39,7 +39,7 @@ function readUncovered(
 	try {
 		({ files } = select(dir));
 	} catch (err) {
-		/* Fails open: the land goes ahead, the warning saying why (#5016). */
+		/* Fails open, the warning saying why (#5016). */
 		return { why: caught(err).message.trim() };
 	}
 	if (files.length === 0) return { files: [], touched: 0, notice: null };

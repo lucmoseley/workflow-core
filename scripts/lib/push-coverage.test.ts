@@ -27,7 +27,6 @@ type Look = NonNullable<
 	NonNullable<Parameters<typeof readUncovered>[1]>["look"]
 >;
 
-/** A pass store holding passes for `covered` alone. */
 const storeCovering =
 	(covered: string[]): Look =>
 	(files) => ({
@@ -149,7 +148,6 @@ describe("over the real pass store", () => {
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 	const A = "scripts/a.test.ts";
 
-	/** A repository whose one test imports `lib.js`, with a recorded pass. */
 	function passed() {
 		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pc-")));
 		dirs.push(dir);
