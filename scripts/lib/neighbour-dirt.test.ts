@@ -1,6 +1,6 @@
 /**
  * neighbour-dirt.test.ts — `readClaimedElsewhere`'s judgement of whose claim
- * is live: a neighbour resumed onto a fresh host still holds its files (#4902).
+ * is live (#4902).
  *
  * In-process, on arbiter-testkit's sandbox lock store and sessions registry,
  * so a lock's frozen pid and the registry's live one can disagree on purpose.
