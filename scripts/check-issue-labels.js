@@ -481,8 +481,8 @@ const CITED_STATUS_MS = 60_000;
 
 /**
  * The issues every open gate's basis cites, read in one batched call (#5007),
- * saying which went unread; undefined where no basis's only warrant is
- * another issue.
+ * saying which went unread; undefined where no basis's warrant is an issue
+ * reference.
  * @param {any[]} issues GitHub issues as the API returns them
  * @param {Ctx} ctx
  * @returns {import("./lib/issue-gate").Follow|undefined}

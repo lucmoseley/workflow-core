@@ -41,6 +41,8 @@ function tracking(tracker: string) {
 	);
 }
 
+/* `cited` answers the read through the shared fake; `graphql`, given, answers
+ * every graphql call in its place. */
 const serving = (
 	cited: Record<string, Record<number, CitedFixture>>,
 	graphql?: GhAnswer,
