@@ -61,27 +61,39 @@ function ledgerPath(root = ledgerRoot()) {
 }
 
 /**
- * The issue numbers a launch prompt claims. Prompts are `/<skill> <issues>`, so
- * every integer in one is an issue number — save the map in
- * `/wayfinder <map> <ticket>`, which is context: two tickets on one map run in
+ * What opens a prompt ahead of its argument slot: any `-` options, as in
+ * `--resume /implement 341` (#4820), then its `/<skill>` — or, in a session
+ * name, a leading word.
+ */
+const LEAD_RE = /^\s*(?:-\S*\s+)*(?:\/\S+|[A-Za-z]\S*(?=\s))?/;
+
+/** The argument slot: integers up to the first token that is not one. */
+const SLOT_RE = /^[\s,]*((?:#?\d+(?=[\s,]|$)[\s,]*)*)/;
+
+/** A `#<n>` anywhere in a prompt's prose. */
+const HASH_ISSUE_RE = /(?<![\w&#])#(\d+)\b/g;
+
+/**
+ * The issue numbers a launch prompt claims: its argument slot's integers, then
+ * every `#<n>` in its prose (#4985). Any other digit run — a plan dir's
+ * `~/.claude2`, a short id's `c1c82216` — is no issue. In
+ * `/wayfinder <map> <ticket>` the map is context: two tickets on one map run in
  * parallel (#3217). `/wayfinder <map>` alone claims the map.
  *
  * Residual: a running session's NAME carries no `/wayfinder`, so a live ticket
  * session still holds its map against `/wayfinder <map>`, while a map-only
  * session or ledger row does not hold `/wayfinder <map> <ticket>` — only the
  * claim limb's parent-map check refuses that (#2211).
- *
- * Residual: a prompt carrying a non-issue integer records a phantom issue, which
- * then refuses an unrelated dispatch of that number and hides it from the
- * frontier for the window. `--force` is the way out (mantahostels#1337).
  * @param {string} prompt
  * @returns {number[]}
  */
 function issuesIn(prompt) {
-	const issues = (prompt.match(/\d+/g) || []).map(Number);
-	return commandOf(prompt) === "wayfinder" && issues.length > 1
-		? issues.slice(1)
-		: issues;
+	const rest = prompt.slice(prompt.match(LEAD_RE)?.[0].length ?? 0);
+	const slot = (rest.match(SLOT_RE)?.[1]?.match(/\d+/g) || []).map(Number);
+	const args =
+		commandOf(prompt) === "wayfinder" && slot.length > 1 ? slot.slice(1) : slot;
+	const named = [...prompt.matchAll(HASH_ISSUE_RE)].map((m) => Number(m[1]));
+	return [...new Set([...args, ...named])];
 }
 
 /**
