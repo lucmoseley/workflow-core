@@ -1759,7 +1759,9 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		});
 		expect(
 			judged(root, [child("python3", "scripts/run.py")], []).doubt,
-		).toMatch(/a Python child \(python3 .*run\.py\) ran a checkout script/);
+		).toMatch(
+			/a Python child \(python3 .*run\.py\) ran a checkout script that no tracer followed/,
+		);
 		for (const shell of ["bash", "sh"])
 			expect(judged(root, [child(shell, "scripts/run.sh")], []).doubt).toMatch(
 				/a shell child \(.*run\.sh\) ran a checkout script that no tracer followed/,

@@ -412,10 +412,19 @@ function install() {
 	/* A bare `git` its PATH finds as the host git guard, known by its real
 	 * file, which logs what it reads of this repository where it carries the
 	 * audit. */
-	const isGuarded = (/** @type {Untyped} */ opts) =>
-		opts?.file === "git" &&
-		isGuard(binOf(opts.file, cwdOf(opts), opts?.envPairs)[1]) &&
-		isAudited(opts?.envPairs);
+	const isGuardedBy = (
+		/** @type {string} */ file,
+		/** @type {string[]} */ bin,
+		/** @type {boolean} */ audited,
+	) => file === "git" && isGuard(bin[1]) && audited;
+	const isGuarded = (/** @type {Untyped} */ opts) => {
+		const file = String(opts?.file ?? "");
+		return isGuardedBy(
+			file,
+			binOf(file, cwdOf(opts), opts?.envPairs),
+			isAudited(opts?.envPairs),
+		);
+	};
 	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
 	const isProgram = (/** @type {string} */ abs) => {
 		const head = Buffer.alloc(4);
@@ -837,7 +846,7 @@ function install() {
 				args: Array.isArray(opts?.args) ? opts.args.slice(1).map(String) : [],
 				cwd,
 				audited,
-				guarded: file === "git" && isGuard(bin[1]) && audited,
+				guarded: isGuardedBy(file, bin, audited),
 				pid: pid ?? null,
 				...(hands.length > 0 ? { hands } : {}),
 				...(steered.length > 0 ? { steered } : {}),
