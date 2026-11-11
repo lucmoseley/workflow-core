@@ -17,10 +17,8 @@
  * where it began and ended inside it.
  *
  * THE TARGET: the stays' p90 at or under TARGET_MULTIPLE times the green
- * suite's p50, both over the window. The window is over it only where the
- * stays over that time reach the fewest a queue on target, a tenth of its
- * stays over, reaches by chance at most CHANCE of the time (exact binomial,
- * one-sided): an observed p90 over the time is a coin flip near it (#4989).
+ * suite's p50, both over the window, judged by an exact binomial count of
+ * the stays over that time (overCountNeeded, #4989).
  *
  * A RED BATCH is replayed off the lander log: each `take-batch` opens a batch
  * in its slot, a `detach` of that slot makes it the search, and each red-path

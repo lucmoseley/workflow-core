@@ -14,7 +14,7 @@
  *
  * WARN-ONLY, ALWAYS, as check-suite-margin.js is (#1797).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js) where the `landing` module is on, reads the queue log and the tail of the lander's log and warns where enough of the window's queue refs, the last 7 days by default, took from first take to land or drop over 3 times the green suite's p50 run that a queue with its p90 on target would show as many at most 5% of the time. It refuses nothing.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js) where the `landing` module is on, reads the queue log and the tail of the lander's log and warns where as many of the window's queue refs, the last 7 days by default, took over 3 times the green suite's p50 run from first take to land or drop as a queue on its p90 target reaches by chance at most 5% of the time. It refuses nothing.
  * JUSTIFIED: fail-safe — the queue's alerts read a ref's wait against the queue's own past week, so a queue slow every week reads as normal and nothing else holds it to the suite's time.
  * DEFEAT:    none needed — it never blocks.
  */
