@@ -12,7 +12,7 @@
  * prints.
  *
  * The real side runs wherever journalctl does, never in CI (§G7 item 2); there
- * each case skips where its own reader's journal holds nothing to check.
+ * a case that needs journal data skips where its reader's journal holds none.
  *
  * Case 1 is the only net for a drifted mem avail reading that no kill follows.
  *
@@ -177,6 +177,12 @@ function readKernel(bin: string, name: string): Side["kernel"] {
 /* Lines enough to hold a multi-line message and its neighbours. */
 const TAIL_LINES = "5";
 
+/** `-o short-iso` lines as `-o cat` prints them; a multi-line message's later
+ * lines lose the indent short-iso gives them and cat does not. */
+const asCat = (short: string[]) =>
+	unindented(short.map((l) => l.replace(KERNEL, "")));
+const unindented = (lines: string[]) => lines.map((l) => l.trimStart());
+
 /** Read from the kernel log, which every host's journal holds. The two reads
  * are a pair unless the kernel logged between them, so a mismatched pair is
  * read once more. */
@@ -190,8 +196,8 @@ function readTail(bin: string): Side["tail"] {
 		);
 	const pair = () => ({ short: read("short-iso"), cat: read("cat") });
 	const first = pair();
-	const stripped = first.short.map((l) => l.replace(KERNEL, ""));
-	return JSON.stringify(stripped) === JSON.stringify(first.cat)
+	return JSON.stringify(asCat(first.short)) ===
+		JSON.stringify(unindented(first.cat))
 		? first
 		: pair();
 }
@@ -240,7 +246,7 @@ function lineOf(lines: string[], k: Kill): number {
 const countOf = (lines: string[], re: RegExp) =>
 	lines.filter((l) => re.test(message(l) ?? "")).length;
 
-const earlyoomLines = (lines: string[]) =>
+const earlyoomLineCount = (lines: string[]) =>
 	lines.filter((l) => message(l) !== undefined).length;
 
 type Skip = (note?: string) => never;
@@ -264,7 +270,7 @@ const CASES: Case[] = [
 		name: "every earlyoom line is a shape the fake builds or one the reader ignores",
 		check(side: Side, skip: Skip) {
 			const { lines } = side;
-			holds(side, earlyoomLines(lines), "earlyoom line", skip);
+			holds(side, earlyoomLineCount(lines), "earlyoom line", skip);
 			const built = [
 				buildEarlyoomSignalLine(T0, 1, "x"),
 				buildEarlyoomReadingLine(T0),
@@ -288,7 +294,7 @@ const CASES: Case[] = [
 		name: "every signal line reads as one signal, and no other line does",
 		check(side: Side, skip: Skip) {
 			const { lines, kills } = side;
-			holds(side, earlyoomLines(lines), "earlyoom line", skip);
+			holds(side, earlyoomLineCount(lines), "earlyoom line", skip);
 			expect(kills.reduce((n, k) => n + k.signals, 0)).toBe(
 				countOf(lines, SIGNAL),
 			);
@@ -352,7 +358,9 @@ const CASES: Case[] = [
 			const { kernel } = side;
 			/* A message's later lines come indented under its first. */
 			const stamped = kernel.lines.filter((l) => !/^\s/.test(l));
-			holds(side, stamped.length, "kernel line", skip);
+			/* Gated on the tail's read, not the reader's: a broken `-k` read
+			 * fails here rather than skipping. */
+			holds(side, side.tail.short.length, "kernel line", skip);
 			expect(kernel.outcome).not.toBe("SKIP");
 			expect(stamped.some((l) => KERNEL_IDENT.test(l))).toBe(true);
 			for (const l of stamped) {
@@ -379,8 +387,8 @@ const CASES: Case[] = [
 		name: "-o cat prints each line's message alone, less its stamp, host and ident",
 		check(side: Side, skip: Skip) {
 			const { tail } = side;
-			holds(side, tail.cat.length, "kernel line", skip);
-			expect(tail.cat).toEqual(tail.short.map((l) => l.replace(KERNEL, "")));
+			holds(side, tail.short.length, "kernel line", skip);
+			expect(unindented(tail.cat)).toEqual(asCat(tail.short));
 		},
 	},
 ];
