@@ -768,7 +768,7 @@ function parseBacktickRuns(block, from) {
  */
 function introducedBasisFaults(before, after, own) {
 	const b = String(before || "");
-	const regated = parseAddedGateLines(b, after).length > 0;
+	const regated = isRegate(b, after);
 	/** @param {BasisFault["kind"]} kind @param {string} text */
 	const keyOf = (kind, text) => `${kind}\n${text.toLowerCase()}`;
 	const held = new Set([
@@ -785,6 +785,15 @@ function introducedBasisFaults(before, after, own) {
 		(f) => !held.has(keyOf(f.kind, f.text)),
 	);
 }
+
+/**
+ * Whether an edit adds or changes a gate line, so every basis beneath a window
+ * meets today's bar (#4946), on either reading.
+ * @param {string} before
+ * @param {string} after
+ */
+const isRegate = (before, after) =>
+	parseAddedGateLines(before, after).length > 0;
 
 /**
  * Resolves the two gate markers together. One gate line per issue (mantahostels#1333): a
@@ -1004,6 +1013,7 @@ module.exports = {
 	otherIssueRefs,
 	gateRuleHandover,
 	isNewlyGated,
+	isRegate,
 	parseAddedGateLines,
 	MAP_LABEL,
 	UNFILLED_DESTINATION,

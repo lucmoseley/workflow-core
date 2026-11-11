@@ -34,7 +34,7 @@ const {
 	introducedBasisFaults,
 	judgeOverrideOf,
 	otherIssueRefs,
-	parseAddedGateLines,
+	isRegate,
 } = require("./issue-gate.js");
 
 const LAUNCHER = path.join(__dirname, "..", "claude-child.js");
@@ -359,9 +359,7 @@ function mergeFaults(patterns, model, edit) {
 	/** @type {JudgedFault[]} */
 	const faults = patterns.map((f) => ({ ...f, by: "patterns" }));
 	const wasLiveAt = edit ? gateFacts(edit.before).isLiveAt : null;
-	const regated =
-		edit !== undefined &&
-		parseAddedGateLines(edit.before, edit.after).length > 0;
+	const regated = edit !== undefined && isRegate(edit.before, edit.after);
 	const isHeld = (/** @type {ModelFault} */ f) =>
 		edit !== undefined &&
 		wasLiveAt !== null &&
@@ -496,8 +494,8 @@ function logCall(record) {
 /** @param {JudgedFault} f */
 const unmarked = ({ by: _by, ...f }) => f;
 
-/* Below this a call cannot be expected to answer: #4968's corpus latency
- * was fastest 2.9 s, median 4.2 s, so 5 s is past half the calls. */
+/* Below this a call cannot be expected to answer: #4968's corpus run, 4,973
+ * calls, was fastest 2.9 s, median 4.2 s, so 5 s is past half of them. */
 const MIN_BOUND_MS = 5000;
 
 /**
@@ -559,8 +557,9 @@ function answer(patterns, read, override) {
  * bound under MIN_BOUND_MS is a fallback without one.
  *
  * `WFC_GATE_JUDGE=off` is the suites' seam (vitest.setup.ts): no call, no
- * note and no record. It holds only inside a vitest worker, so outside the
- * suites no session can switch the refusal off unseen.
+ * note and no record. It holds only where VITEST_WORKER_ID is set too, so the
+ * create guard, reading the hook's own environment, cannot be switched off by
+ * a command; the two scripts read the session's, which can set both (#5011).
  *
  * @param {string} body the body written
  * @param {{route: "create-guard"|"file-issue"|"issue-body", own?: number,
