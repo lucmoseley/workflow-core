@@ -601,15 +601,14 @@ describe("a run", () => {
 
 				/* Crosses the real clock: the ETIMEDOUT is spawnSync's kill of a
 				 * real child, which no injected clock reaches. */
-				const thrown = (() => {
-					try {
-						queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
-							member("a", a),
-						]);
-					} catch (err) {
-						return err;
-					}
-				})();
+				let thrown: unknown;
+				try {
+					queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
+						member("a", a),
+					]);
+				} catch (err) {
+					thrown = err;
+				}
 				expect(thrown).toBeInstanceOf(TransientFault);
 				expect(String(thrown)).toContain("timed out after 3 s");
 			});
