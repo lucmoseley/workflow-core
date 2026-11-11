@@ -1,8 +1,10 @@
 // @vitest-environment node
 /*
- * lib/gate-judge.js's judgedBasisFaults, driven with a body and a fake in
- * place of the `claude` binary (lib/gate-judge-fake.ts), through the real
- * launcher (#4964).
+ * lib/gate-judge.js's judgedBasisFaults and readGateWrite, the three write
+ * routes' one entry, driven with a body and a fake in place of the `claude`
+ * binary (lib/gate-judge-fake.ts), through the real launcher (#4964). Broken,
+ * a wait or basis the model faults files unrefused, or a write the model
+ * cannot read is refused.
  *
  * spawn-kept: a real fd (§X3) — the judge pipes its prompt to the launcher,
  * which hands the child its own stdin.
@@ -200,7 +202,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 			"A session may write `500 ticks` and see the gate refuse it.\n",
 			"A session may write `500 ticks` and see the gate refuse it.",
 		],
-	])("%s", (_, body, quote) => {
+	])("drops %s", (_, body, quote) => {
 		const r = judge(body, reading([wait(quote, "500 ticks")]));
 		expect(r.faults).toEqual([]);
 		expect(r.dropped).toBe(1);
@@ -216,7 +218,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		expect(r.dropped).toBe(0);
 	});
 
-	it("a basis quote two basis lines hold", () => {
+	it("drops a basis quote two basis lines hold", () => {
 		const r = judge(
 			`${WAIT}\n\n**Gate basis:** the ticket asks for 500 ticks.\n\n**Gate basis:** the ticket asks for 500 ticks, twice over.\n`,
 			reading(
@@ -228,7 +230,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		expect(r.dropped).toBe(1);
 	});
 
-	it("a basis no live basis line holds", () => {
+	it("drops a basis quote no live basis line holds", () => {
 		const r = judge(
 			`${WAIT}\n\n**Gate basis:** 250 ticks a shift (#7), so 500 is two shifts.\n`,
 			reading(
@@ -303,14 +305,16 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 			},
 			"the judge's call failed: Usage limit reached",
 		],
-	])("%s", (_, plan, why) => {
+	])("falls back on %s", (_, plan, why) => {
 		const r = judge(Body, plan);
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toContain(why);
 		expect(r.reading).toBeNull();
 	});
 
-	it("a hang past the bound", () => {
+	it("falls back on a hang past the bound", () => {
+		/* The launcher's real kill, not a faked one: the fallback reason is read
+		 * off its timeout exit. */
 		const r = judge(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
@@ -406,6 +410,29 @@ describe("an edit", () => {
 				text: "the body sets 500 ticks.",
 				by: "model",
 				class: "restated",
+			},
+		]);
+	});
+
+	it("that moves a gate judges the basis under it afresh", () => {
+		const basis = "**Gate basis:** 500 ticks, the count #7 set.";
+		const before = `**Gated until:** 2026-11-20\n${basis}\n\n${WAIT}\n`;
+		const after = `**Gated until:** 2026-11-27\n${basis}\n\n${WAIT}\n`;
+		const r = judge(
+			after,
+			reading(
+				[wait(WAIT, "500 ticks", true)],
+				[{ basis: "500 ticks, the count #7 set.", class: "asserted" }],
+			),
+			{ before },
+		);
+		expect(basisFaults(after)).toEqual([]);
+		expect(r.faults).toEqual([
+			{
+				kind: "no-warrant",
+				text: "500 ticks, the count #7 set.",
+				by: "model",
+				class: "asserted",
 			},
 		]);
 	});
@@ -592,5 +619,16 @@ describe("a write route's reading", () => {
 			advice: "",
 		});
 		expect(readJudgeCalls(log)).toEqual([]);
+	});
+
+	it("reads the body with the judge switched off outside a test worker", () => {
+		const r = write(
+			`${WAIT}\n`,
+			reading([wait(WAIT, "500 ticks")]),
+			{},
+			{ WFC_GATE_JUDGE: "off", VITEST_WORKER_ID: "" },
+		);
+		expect(r.refusal).toContain(MODEL_LEAD);
+		expect(readJudgeCalls(log)).toHaveLength(1);
 	});
 });

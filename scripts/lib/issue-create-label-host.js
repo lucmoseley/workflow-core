@@ -7,6 +7,7 @@
  */
 
 const { readBodyFile } = require("./body-file.js");
+const { now } = require("./check.js");
 const { gh } = require("./gh.js");
 
 const GH_TIMEOUT_MS = 3000;
@@ -15,6 +16,7 @@ const GH_TIMEOUT_MS = 3000;
 const buildHostPorts = () => ({
 	readFile: readBodyFile,
 	gh: (args, cwd) => gh(args, { cwd, timeout: GH_TIMEOUT_MS }),
+	now: () => now(),
 });
 
 module.exports = { buildHostPorts };

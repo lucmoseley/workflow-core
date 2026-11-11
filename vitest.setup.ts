@@ -48,7 +48,8 @@ process.env.WFC_MEMORY_HOLD = "";
 
 /* No write route a case drives launches the gate judge (#4969): each launch
  * is a child process, and its fallback line would join every create's
- * output. A case that drives the judge blanks it. */
+ * output. A case that drives the judge blanks it. The judge honours it only
+ * in a vitest worker, which sets VITEST_WORKER_ID. */
 process.env.WFC_GATE_JUDGE = "off";
 
 /*
