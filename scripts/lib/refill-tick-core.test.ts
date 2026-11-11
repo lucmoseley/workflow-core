@@ -261,7 +261,6 @@ const tickOf = (io: TickIo, c: Control | null = control(), dryRun = false) =>
 
 const stateOf = (over: Record<string, unknown> = {}) => loopStateOf(over);
 
-/** An away control, switched an hour before NOW. */
 const awayControl = () =>
 	control({
 		scope: { ...normal([WFC]), mode: "away" },
@@ -1138,13 +1137,21 @@ const controlFileFake = (initial: Control) => {
 	};
 };
 
-describe("a control change under the lock (#4846)", () => {
+describe("a control change under the lock (#4846, #4188)", () => {
 	const ticked = () => control({ scope: normal([WFC]) });
 	const optedOut = { isOptedOut: (root: string) => root === WFC };
 
 	it("goes on over the change a dry run previews, writing and logging none", async () => {
-		const { io, calls, lines } = fakeIo(stateOf(), optedOut);
+		const served: string[][] = [];
+		const { io, calls, lines } = fakeIo(stateOf(), {
+			...optedOut,
+			servedRoots: (scope) => {
+				served.push(scope.repos);
+				return { roots: scope.repos, dropped: [] };
+			},
+		});
 		await runTick(io, { dryRun: true, now: NOW, opening: opening(ticked()) });
+		expect(served[0]).toEqual([]);
 		expect(calls).not.toContain("changeControl");
 		expect(lines.join("\n")).not.toContain("unticked:");
 	});

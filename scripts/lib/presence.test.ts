@@ -66,9 +66,9 @@ describe("isAbsentSinceSwitch (#4846, #4976)", () => {
 	});
 
 	it("reads the last prompt alone where the control holds no readable switch", () => {
-		expect(isAbsentSinceSwitch(undefined, ago(WINDOW_MS), NOW)).toBe(true);
-		expect(isAbsentSinceSwitch(undefined, ago(0), NOW)).toBe(false);
-		expect(isAbsentSinceSwitch(undefined, null, NOW)).toBe(true);
+		expect(isAbsentSinceSwitch(null, ago(WINDOW_MS), NOW)).toBe(true);
+		expect(isAbsentSinceSwitch(null, ago(0), NOW)).toBe(false);
+		expect(isAbsentSinceSwitch(null, null, NOW)).toBe(true);
 	});
 });
 

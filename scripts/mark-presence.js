@@ -52,7 +52,7 @@ function isReminderOwed(now) {
 		const control = readControlFile(() => undefined);
 		return (
 			control?.scope.mode === "away" &&
-			isAbsentSinceSwitch(control.away?.since, lastTyped, now)
+			isAbsentSinceSwitch(control.away?.since ?? null, lastTyped, now)
 		);
 	} catch {
 		/* Fail open: the prompt is still recorded (#4846). */

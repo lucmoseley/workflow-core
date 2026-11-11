@@ -92,16 +92,16 @@ function presenceAt(lastTyped, now) {
 
 /**
  * Whether the founder is away at `now` since the away switch at `switchedAt`,
- * undefined where the control holds no readable switch. The switch counts as
+ * null where the control holds no readable switch. The switch counts as
  * presence, since the panel click that makes it records no typed prompt
  * (#4184), so any switch reads present for one window, whoever made it.
- * @param {number|undefined} switchedAt ms
+ * @param {number|null} switchedAt ms
  * @param {number|null} lastTyped ms
  * @param {Date} now
  */
 function isAbsentSinceSwitch(switchedAt, lastTyped, now) {
 	const lastSeen =
-		switchedAt === undefined
+		switchedAt === null
 			? lastTyped
 			: Math.max(lastTyped ?? switchedAt, switchedAt);
 	return presenceAt(lastSeen, now) === "away";
