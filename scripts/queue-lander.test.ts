@@ -16,7 +16,9 @@
  * isolated alone and dropped with its evidence, a collision is
  * not settled by serial landing, or a failure `main` shares holds the batch
  * on a local tester or goes without its base-red ticket, or a push `main`
- * refuses reads as a fault or one `main` moved under reads as a refusal.
+ * refuses reads as a fault or one `main` moved under reads as a refusal;
+ * or a hook it cannot execute holds a merge, a registry SKIP holds one, or a
+ * BROKEN, unparseable or timed-out registry run passes one (#4904).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -162,6 +164,44 @@ describe("a run", () => {
 			"pre-commit --gates=merge",
 			"pre-commit",
 		]);
+	});
+
+	it("merges past a pre-commit hook it cannot execute, as git commits past one, saying no gate ran (#4545)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = ["a", "b"].map((name, i) => ({
+			name,
+			sha: pushQueue(name, seed),
+			pushedAt: i,
+		}));
+		const calls = stubHooks(["pre-commit"], "exit 1\n");
+		const hooks = path.resolve(
+			work,
+			git(work, "rev-parse", "--git-common-dir"),
+			"hooks",
+		);
+		fs.chmodSync(path.join(hooks, "pre-commit"), 0o644);
+		const said: string[] = [];
+		/* The CommonJS fs writeFd writes through, which the ESM import is not. */
+		const cjsFs = createRequire(__filename)("node:fs");
+		const write = cjsFs.writeSync;
+		const spy = vi
+			.spyOn(cjsFs, "writeSync")
+			.mockImplementation((fd, text, ...rest) => {
+				if (fd !== 2 || !Buffer.isBuffer(text))
+					return Reflect.apply(write, cjsFs, [fd, text, ...rest]);
+				const from = Number(rest[0] ?? 0);
+				said.push(String(text.subarray(from)));
+				return text.length - from;
+			});
+		try {
+			expect(queueGit(work).mergeMembers(seed, members).kind).toBe("merged");
+		} finally {
+			spy.mockRestore();
+		}
+		expect(said.join("")).toMatch(
+			/pre-commit is not executable, so no gate ran on this merge/,
+		);
+		expect(() => calls()).toThrow();
 	});
 
 	it("runs the batch gate set where the Actions run repeats the rest, and every gate where it does not (#4545)", () => {
@@ -506,6 +546,72 @@ describe("a run", () => {
 			expect(queueGit(work).mergeMembers(main, [member("fix", fix)])).toEqual({
 				kind: "merged",
 				sha: fix,
+			});
+		});
+
+		describe("off a checker that gives no reading (#4904)", () => {
+			/** `body` as the checker's copy the batch's tree is judged with. */
+			const checker = (body: string) => {
+				const root = path.join(tmp, "plugin");
+				fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+				fs.writeFileSync(
+					path.join(root, "scripts", "check-guard-registry.js"),
+					body,
+				);
+				vi.stubEnv("WFC_PLUGIN_ROOT", root);
+			};
+			const envelope = (outcome: string) =>
+				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome, summary: `${outcome}: stub` }))});\n`;
+			afterEach(() => {
+				vi.unstubAllEnvs();
+			});
+
+			it("merges a batch whose stale row its checker SKIPped, as a SKIP gates nothing (mantahostels#155)", () => {
+				const main = staleMain();
+				const a = pushQueue("a", main);
+				checker(envelope("SKIP"));
+
+				expect(queueGit(work).mergeMembers(main, [member("a", a)])).toEqual({
+					kind: "merged",
+					sha: a,
+				});
+			});
+
+			it("throws, naming the commit, on a BROKEN envelope and on output that is no envelope", () => {
+				const main = staleMain();
+				const a = pushQueue("a", main);
+				const g = queueGit(work);
+
+				checker(envelope("BROKEN"));
+				expect(() => g.mergeMembers(main, [member("a", a)])).toThrow(
+					new RegExp(
+						`check-guard-registry\\.js over ${a.slice(0, 7)}[0-9a-f]* could not judge it: BROKEN: stub$`,
+					),
+				);
+				checker("process.stderr.write('boom\\n'); process.exit(2);\n");
+				expect(() => g.mergeMembers(main, [member("a", a)])).toThrow(
+					/gave no --json envelope \(exit 2\): boom$/,
+				);
+			});
+
+			it("throws a TransientFault where the checker outruns the merge timeout", () => {
+				const main = staleMain();
+				const a = pushQueue("a", main);
+				checker("setTimeout(() => {}, 60_000);\n");
+
+				/* Crosses the real clock: the ETIMEDOUT is spawnSync's kill of a
+				 * real child, which no injected clock reaches. */
+				const thrown = (() => {
+					try {
+						queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
+							member("a", a),
+						]);
+					} catch (err) {
+						return err;
+					}
+				})();
+				expect(thrown).toBeInstanceOf(TransientFault);
+				expect(String(thrown)).toContain("timed out after 3 s");
 			});
 		});
 	});

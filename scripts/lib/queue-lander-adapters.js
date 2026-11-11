@@ -322,7 +322,9 @@ function queueGit(
 	 * ones its merges add (#4807): a tree holding a gating one `onto` lacks is
 	 * refused, naming `last`; one whose every such fault `onto` holds too is
 	 * `stale-base`, which stops the line rather than drops a member, since
-	 * `main` must be re-anchored first. Any other result passes through.
+	 * `main` must be re-anchored first. A tree its checker SKIPs passes, as a
+	 * SKIP gates nothing (mantahostels#155, #4904). Any other result passes
+	 * through.
 	 * @param {string} onto
 	 * @param {MergeResult} merged
 	 * @param {Member} last
