@@ -12,6 +12,9 @@
  * Red after a gh upgrade or a GitHub API change (#4990): re-run the case's
  * call by hand, copy what changed into its fixture. A landed write's two
  * recordings go red on no upgrade: re-record them by their command below.
+ *
+ * Its run cost: the live cases skip under CI, so CI's record times skips and
+ * understates a logged-in run.
  */
 
 import { spawnSync } from "node:child_process";
@@ -430,7 +433,7 @@ describe("live: read-only calls", () => {
 			],
 		},
 		{
-			what: "a main-branch commits page, as the outcome review reads it",
+			what: "main's tip commit, as the outcome review reads it",
 			fixture: COMMITS_PAGE,
 			// The tracker's second commit alone, with a parent; history stays put.
 			args: [

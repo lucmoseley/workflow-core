@@ -29,7 +29,8 @@ const FORBIDDEN = readGhAnswer(
 	path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
 );
 /* The recorded commits-endpoint row the stub's commit rows are filled from,
- * so a key the recording renames or drops reaches these tests. */
+ * so a key the recording renames or drops reaches these tests (#4908).
+ * Residual: they then fail as "a commit with no sha or date", naming no key. */
 const COMMIT_ROW = JSON.parse(
 	readGhAnswer(path.join(__dirname, "lib/fixtures/gh/commits-page.json"))
 		.stdout,
@@ -228,8 +229,8 @@ const upstream = ${JSON.stringify(upstream)};
 const notFound = ${JSON.stringify(GH_NOT_FOUND)};
 const forbidden = ${JSON.stringify(FORBIDDEN)};
 const commitRow = ${JSON.stringify(COMMIT_ROW)};
-const put = (o, keys, v) => { const at = keys.slice(0, -1).reduce((x, k) => x?.[k], o); if (at && keys.at(-1) in at) at[keys.at(-1)] = v; };
-const rowOf = (c) => { const r = structuredClone(commitRow); put(r, ["sha"], c.sha); put(r, ["commit", "message"], c.message); put(r, ["commit", "committer", "date"], c.at); return r; };
+const overwriteRecorded = (o, keys, v) => { const at = keys.slice(0, -1).reduce((x, k) => x?.[k], o); if (at && keys.at(-1) in at) at[keys.at(-1)] = v; };
+const rowOf = (c) => { const r = structuredClone(commitRow); overwriteRecorded(r, ["sha"], c.sha); overwriteRecorded(r, ["commit", "message"], c.message); overwriteRecorded(r, ["commit", "committer", "date"], c.at); return r; };
 const failingView = ${failingView};
 const failingList = ${JSON.stringify(failingList)};
 const failingCommits = ${JSON.stringify(failingCommits)};
