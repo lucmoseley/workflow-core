@@ -186,6 +186,7 @@
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/guard-fires.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
+			"scripts/lib/hook-wiring.test.ts",
 			"scripts/lib/marker-root.test.ts",
 			"scripts/lib/pass-store.test.ts",
 			"scripts/lib/persist-mode.test.ts",

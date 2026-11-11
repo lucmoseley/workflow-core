@@ -122,7 +122,6 @@ function allRegistrations(settings) {
 }
 
 /**
- * One registration as a single command line.
  * @param {Pick<Registration, "command" | "args">} r
  */
 function buildCommandLine(r) {
@@ -134,8 +133,8 @@ const labelOf = (r) =>
 	`${r.event}: ${buildCommandLine(r)}${r.if ? ` if: ${r.if}` : ""}`;
 
 /**
- * Does `row` pin `r`? The core's own match: same event, the id a substring of
- * the command line, the same narrowing.
+ * The core's own match: same event, the id a substring of the command line,
+ * the same narrowing.
  * @param {Row} row
  * @param {Registration} r
  */
@@ -189,7 +188,7 @@ function suggestedRow(r) {
 }
 
 /**
- * How the one registration a row pins has drifted from it, a clause each.
+ * A clause each for how the one registration a row pins has drifted.
  * @param {Row} row
  * @param {Registration} r
  * @returns {string[]}

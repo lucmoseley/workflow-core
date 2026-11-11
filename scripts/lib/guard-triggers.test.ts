@@ -317,6 +317,21 @@ describe("triggerTable — unknown, never zero", () => {
 		}
 	});
 
+	it("fans a dispatcher registered on an absent, `*` or empty matcher out to its cores (#4917)", () => {
+		const router = "scripts/guard-dispatch.js";
+		for (const matcher of [undefined, "*", ""]) {
+			const entry = matcher === undefined ? {} : { matcher };
+			const row = triggerTable(
+				settings({ PreToolUse: [{ ...entry, hooks: [{ command: router }] }] }),
+				guardDirs,
+				{ scope: "all" },
+			).get("guard-bg-job");
+			if (!row) throw new Error("the manifest has no guard-bg-job core");
+			expect(row.via).not.toBeNull();
+			expect(firesOn(row, "Bash", "sleep 1")).toBe(true);
+		}
+	});
+
 	it("marks a guard unknown where its `if` names a tool alternation", () => {
 		// `firesOn` compares the tool name literally, so `Write|Edit(x)` would
 		// match no tool at all and narrow the denominator to nothing in silence.

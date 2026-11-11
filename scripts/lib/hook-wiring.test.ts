@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { MatcherError } from "./core-hooks.js";
 import {
 	allRegistrations,
 	buildCommandLine,
@@ -221,7 +222,7 @@ describe("hookIsWired", () => {
 		expect(hookIsWired("Stop", "backstop.sh", "anything", settings)).toBe(true);
 	});
 
-	it('reads "" and "*" as covering every tool, as core-hooks does', () => {
+	it('reads "" and "*" as covering every tool, as core-hooks does (#4917)', () => {
 		for (const matcher of ["", "*"]) {
 			const wild = {
 				hooks: {
@@ -232,7 +233,7 @@ describe("hookIsWired", () => {
 		}
 	});
 
-	it("names the event and script of a matcher that will not compile", () => {
+	it("throws core-hooks' MatcherError on a matcher that will not compile", () => {
 		const broken = {
 			hooks: {
 				PreToolUse: [{ matcher: "[", hooks: [{ command: "guard-x.sh" }] }],
@@ -240,9 +241,7 @@ describe("hookIsWired", () => {
 		};
 		expect(() =>
 			hookIsWired("PreToolUse", "guard-x.sh", "Bash", broken),
-		).toThrow(
-			/^PreToolUse guard-x\.sh: the matcher "\[" is not a valid regular expression/,
-		);
+		).toThrow(MatcherError);
 	});
 
 	it("is false when the script is wired on a different event", () => {

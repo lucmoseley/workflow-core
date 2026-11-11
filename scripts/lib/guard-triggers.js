@@ -52,7 +52,7 @@
 
 const path = require("node:path");
 const { registeredGuards } = require("./guard-fires.js");
-const { isToolCovered, MatcherError } = require("./core-hooks.js");
+const { buildToolCoverage, MatcherError } = require("./core-hooks.js");
 const { cutAt } = require("./cut-at.js");
 const { clausesAdmit, globToRegExp, parseIfClause } = require("./if-clause.js");
 const { isDenyCapableIn, isDenyingCore } = require("./deny-capable.js");
@@ -116,11 +116,10 @@ const SCOPES = new Set(["deny", "nondeny", "all"]);
  *   on the row so a caller reading a `nondeny` or `all` table can say WHY a
  *   guard has no deny rate — it cannot have one — rather than reporting it as
  *   an unmeasured zero (mantahostels#3350).
- * @property {Array<{covers: (tool: string) => boolean, raw: string,
+ * @property {Array<{isToolCovered: (tool: string) => boolean, raw: string,
  *   tool: string | null, glob: string | null, test: RegExp | null}>} rules one
- *   per settings.json registration; `covers` answers whether its matcher
- *   covers a tool, and `raw` is the matcher as settings.json spells it, which
- *   is what reporting prints.
+ *   per settings.json registration; `raw` is the matcher as settings.json
+ *   spells it, which is what reporting prints.
  * @property {string[]} conditions the raw `if` clauses, for reporting
  * @property {string | null} unknown why this guard's population cannot be
  *   counted, or null where it can. EVERY unreadable registration is named, not
@@ -209,19 +208,17 @@ function addRegistration(row, reg, note) {
 	// as `*` (mantahostels#3296).
 	const spelling = reg.matcher ?? "*";
 	const raw = spelling === "" ? "*" : spelling;
+	let isToolCovered;
 	try {
-		// Compiles the matcher, so one that will not read is caught here.
-		isToolCovered(raw, "");
+		isToolCovered = buildToolCoverage(raw);
 	} catch (err) {
 		if (!(err instanceof MatcherError)) throw err;
 		row.unknown = note(guard, `matcher ${JSON.stringify(raw)} is not a regexp`);
 		return;
 	}
-	/** @param {string} tool */
-	const covers = (tool) => isToolCovered(raw, tool);
 
 	if (reg.if === undefined) {
-		row.rules.push({ covers, raw, tool: null, glob: null, test: null });
+		row.rules.push({ isToolCovered, raw, tool: null, glob: null, test: null });
 		return;
 	}
 	const parsed = parseIfClause(reg.if);
@@ -234,7 +231,7 @@ function addRegistration(row, reg, note) {
 	}
 	row.conditions.push(reg.if);
 	row.rules.push({
-		covers,
+		isToolCovered,
 		raw,
 		tool: parsed.tool,
 		glob: parsed.glob,
@@ -262,7 +259,7 @@ function addCore(row, core, note) {
 		return;
 	}
 	row.rules.push({
-		covers: (tool) => matcher.test(tool),
+		isToolCovered: (tool) => matcher.test(tool),
 		raw: core.tools,
 		tool: null,
 		glob: null,
@@ -385,11 +382,11 @@ function firesOn(trigger, toolName, command) {
 	if (trigger.unknown) return false;
 	if (trigger.via)
 		return (
-			trigger.rules.some((r) => r.covers(toolName)) &&
+			trigger.rules.some((r) => r.isToolCovered(toolName)) &&
 			clausesAdmit(trigger.conditions, toolName, command)
 		);
 	for (const rule of trigger.rules) {
-		if (!rule.covers(toolName)) continue;
+		if (!rule.isToolCovered(toolName)) continue;
 		if (rule.test === null) return true;
 		// An `if` names the tool its glob is written against; a registration
 		// whose matcher admits several tools narrows to that one here.

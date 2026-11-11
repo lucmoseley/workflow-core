@@ -2,6 +2,11 @@
 /*
  * Tests for registrations.js's hook half: how a `hooks` row's `covers` reads
  * the matcher registered, through core-hooks' `isToolCovered` (#4917).
+ *
+ * The rows and registrations are literals, because the shapes under test — a
+ * wildcard matcher, an absent one, one that will not compile — are ones no
+ * adopter's registry holds today. A loosened case lets check-registrations.js
+ * report false drift on a wildcard row, or crash on a broken matcher.
  */
 
 import { describe, expect, it } from "vitest";
@@ -22,9 +27,18 @@ const row = (matcher: string | null) => ({
 });
 
 describe("hookFaults", () => {
-	it('reads "" and "*" as covering every tool, as core-hooks does', () => {
+	it('reads "" and "*" as covering every tool', () => {
 		for (const matcher of ["", "*"])
 			expect(hookFaults([row(matcher)], [reg(matcher)]).drifted).toEqual([]);
+	});
+
+	it("reports drift where the registered matcher no longer covers a listed tool", () => {
+		const drifted = hookFaults([row("Edit")], [reg("Edit")]).drifted;
+		expect(drifted.map((f) => f.message)).toEqual([
+			expect.stringContaining(
+				"says it covers Bash, and the registered matcher no longer fires on it",
+			),
+		]);
 	});
 
 	it("reads an absent matcher as covering every tool", () => {
