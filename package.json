@@ -51,6 +51,7 @@
 		"report:card-restatements": "node scripts/card-restatement-report.js",
 		"report:divergence": "node scripts/divergence-report.js",
 		"gen:doc-map-section-a": "node scripts/generate-doc-map-section-a.js",
+		"gen:effort-guide-routing": "node scripts/generate-effort-guide-routing.js",
 		"gen:test-read-edges": "node scripts/generate-test-read-edges.js",
 		"gen:plugin-tree": "node scripts/generate-plugin-tree.js",
 		"release:plugin": "node scripts/release-plugin.js",

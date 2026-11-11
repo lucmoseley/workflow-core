@@ -5,7 +5,8 @@ Snapshot of `~/.claude/settings.json` as of **11 November 2026**.
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
 
-**This is a copy, not the live file.** Change the real one, then re-copy here.
+**This is a copy, not the live file.** Change the real one, then re-copy here —
+every key but `model` and `modelSettings`, which the routing file sets (below).
 
 Nothing in **CI** checks this snapshot, and nothing can: the source is outside the
 repo, so a runner has no file to compare against. A CI job here could only ever
@@ -73,7 +74,6 @@ tool if a deny ever matters.
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-opus-5-5[1m]",
   "disableClaudeAiConnectors": true,
   "skillOverrides": {
     "find-skills": "name-only"
@@ -155,20 +155,6 @@ tool if a deny ever matters.
     }
   },
   "effortLevel": "medium",
-  "modelSettings": {
-    "claude-opus-5": {
-      "effortLevel": "medium"
-    },
-    "claude-opus-5-5": {
-      "effortLevel": "medium"
-    },
-    "claude-haiku-5-5": {
-      "effortLevel": "xhigh"
-    },
-    "claude-fable-5-2": {
-      "effortLevel": "medium"
-    }
-  },
   "theme": "dark",
   "autoMode": {
     "allow": [
@@ -1218,17 +1204,14 @@ The founder only clicks Authorize; a session does the rest.
 
 ## What the settings do
 
-- `modelSettings` — effort per model, which a model with an entry here takes
-  over the top-level `effortLevel` (`docs/effort-guide.md` §Effort): Opus 5.5
-  and Fable 5.2 at medium, Haiku 5.5, the standing table's cheap slot, at xhigh
-  (#4919). `scripts/burn-mode.sh on` lowers Fable 5.2's to low and `off` puts
-  it back (#5004).
+- `model` and `modelSettings` — the session model and the effort per model,
+  which a model with an entry takes over the top-level `effortLevel`
+  (`docs/effort-guide.md` §Effort). Neither is copied here: `scripts/burn-mode.sh`
+  writes both from `scripts/lib/model-routing.json` for the current mode, the
+  drift check compares them against that file, and `docs/effort-guide.md`
+  §Routing renders the values (#5033).
 - `effortLevel: medium` — read by a model with no `modelSettings` entry here. Per-surface policy is `docs/effort-guide.md`,
   which overrides both keys by task, not by config.
-- `model` — the standing default (`docs/effort-guide.md`), which a restore puts
-  back. The drift check ignores it (`VOLATILE_KEYS` in
-  `scripts/check-user-settings-drift.js`, which says why), so this block's value
-  may be stale. Read the model in use off the session, never off this file.
 - `cleanupPeriodDays: 365` — transcripts are kept a year, so a job whose
   worktree the reaper removed can still be reopened with
   `node scripts/session-checkout.js reopen <job-id>`. Every seat carries the

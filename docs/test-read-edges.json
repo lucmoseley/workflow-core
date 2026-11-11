@@ -3089,6 +3089,7 @@
 			"scripts/check-cleared-trackers.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/file-morning-review.test.ts",
+			"scripts/generate-effort-guide-routing.test.ts",
 			"scripts/lib/launch-models.test.ts",
 			"scripts/report-retro-due.test.ts"
 		],
@@ -7394,6 +7395,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
+			"scripts/generate-effort-guide-routing.test.ts",
 			"scripts/lib/burn-mode.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -7453,6 +7455,24 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-doc-map-section-a.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/generate-effort-guide-routing.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/generate-effort-guide-routing.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/generate-effort-guide-routing.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -28154,6 +28174,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-effort-guide-routing.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/model-table.test.ts",

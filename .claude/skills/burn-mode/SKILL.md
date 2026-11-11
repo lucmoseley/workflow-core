@@ -1,6 +1,6 @@
 ---
 name: burn-mode
-description: "Turn burn mode on or off, or report its state: Haiku work up to Opus 5.5 at medium, and Opus work up to Fable 5.2 at low. Use for any phrasing of burning tokens."
+description: "Turn burn mode on or off, or report its state: dispatches, launches and the session model move to the routing file's burn rows. Use for any phrasing of burning tokens."
 ---
 
 # Burn mode
@@ -23,13 +23,12 @@ is read at startup, so this session and every other running one keep the model
 they booted on, and their no-model and fork dispatches with it — and so does
 the session the agents view already created for its launch line, until one
 throwaway launch from there (`/usage` serves) spends it. The dispatch half is
-live at once — the next `Agent` call in any session naming `sonnet` or `haiku`
-runs as `opus` at medium, and one naming `opus` as `fable` at low, rewritten by
-`scripts/lib/dispatch-rewrite.js`.
+live at once — the next `Agent` call in any session runs on the mode's row in
+`docs/effort-guide.md` §Routing, rewritten by `scripts/lib/dispatch-rewrite.js`.
 
-Relay the script's warnings where they print. **`off` exits 1 where a plan is
-still on the burn model when it finishes** — a failed revert, not a warning,
-and the plan it names needs a hand.
+Relay the script's warnings where they print. **`off` exits 1 where a plan
+still departs from the standard settings when it finishes** — a failed revert,
+not a warning, and the plan it names needs a hand.
 
 ## Notes
 

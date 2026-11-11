@@ -422,6 +422,13 @@ if armed '^docs/agents/rules/' || {
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit "$?"
 fi
 
+# The effort guide's routing block is rendered from the routing file, so an
+# edit to either, or to the generator, without a re-render leaves the guide
+# disagreeing with what the code routes (#5033).
+if armed '^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js)$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-effort-guide-routing.js --check || exit "$?"
+fi
+
 # The user-settings snapshot is checked here, not in CI: its source lives
 # outside the repo, so a CI runner could only ever skip. Warn-only — drift in
 # an unrelated file must not block an unrelated commit.

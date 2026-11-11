@@ -84,6 +84,8 @@ const POOL_WIDTH = 4;
  * FAIL: here an OK or SKIP shows too.
  * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
  * reaper, which kills.
+ * `effort-guide-routing` (#5033) also runs in .husky/pre-commit, on a commit
+ * staging the guide, the routing file or the generator.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -133,6 +135,7 @@ const CHECKS = [
 	["escape-audit", "audit-escape-lines.js"],
 	["throttling", "check-self-throttling.js"],
 	["config-links", "link-config-dirs.js", "--check"],
+	["effort-guide-routing", "generate-effort-guide-routing.js", "--check"],
 	["harness-canary", "check-harness-canary.js"],
 	["concurrency", "concurrency-readout.js"],
 	["interop-latency", "check-interop-latency.js"],

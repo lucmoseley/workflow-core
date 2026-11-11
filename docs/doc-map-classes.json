@@ -1654,6 +1654,11 @@
 				"kind": "external",
 				"ref": "~/.claude/practice-crafts.md",
 				"gloss": "outside the repo"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/lib/model-routing.json",
+				"gloss": "the `model` and `modelSettings` keys the JSON block leaves out"
 			}
 		],
 		"reader": "agent"
@@ -1918,6 +1923,11 @@
 		"role": null,
 		"route": null,
 		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/lib/model-routing.json",
+				"gloss": "§Routing's block is derived from it, rendered by scripts/generate-effort-guide-routing.js and never edited directly"
+			},
 			{
 				"kind": "external",
 				"ref": "mantahostels:research/claude-model-lineup-2026-08.md"
