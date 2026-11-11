@@ -13,7 +13,7 @@
  */
 
 const { listedSessionIds } = require("./agent-liveness");
-const proc = require("./arbiter-proc");
+const core = require("./arbiter-core");
 const store = require("./arbiter-store");
 const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree");
 
@@ -56,6 +56,11 @@ function readClaimedElsewhere(
 ) {
 	const locks = source.readLocks();
 	if (locks === null) return new Set();
+	const wasResumed = core.resumedHolderTest(
+		"neighbour-dirt",
+		"the sessions registry could not be read, so a file claimed by a resumed " +
+			"neighbour is judged unclaimed and may be named as this session's dirt",
+	);
 	/** @type {Set<string>} */
 	const out = new Set();
 	for (const lock of locks) {
@@ -63,7 +68,7 @@ function readClaimedElsewhere(
 		if (lock.sessionId === sid) continue;
 		if (!lock.path) continue;
 		if (store.recordTree(lock) !== tree) continue;
-		if (!proc.holderAlive(lock)) continue;
+		if (!core.liveOrResumed(lock, wasResumed)) continue;
 		out.add(source.subjectPath(lock.path));
 	}
 	return out;
@@ -88,7 +93,7 @@ function readClaimedElsewhere(
  * under someone else's message.
  *
  * AN OBSERVATION CARRIES NO PID (`lib/arbiter-records.js`'s `ObservationRecord`),
- * so `proc.holderAlive` cannot judge one as it judges a lock. Liveness comes
+ * so `arbiter-proc.js`'s `holderAlive` cannot judge one as it judges a lock. Liveness comes
  * from the `claude agents --json` oracle, as `check-stranded-file-claims.js`
  * reads it — and "live" there INCLUDES the finished-but-resident pool
  * (`lib/agent-liveness.js`'s `finished`, a subset of `ids`), so a completed

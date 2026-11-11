@@ -117,7 +117,7 @@ const {
 	isListedLive,
 	sweepSessionIds,
 } = require("./lib/agent-liveness");
-const proc = require("./lib/arbiter-proc");
+const core = require("./lib/arbiter-core");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { landingCutOver } = require("./lib/cutover.js");
@@ -344,14 +344,20 @@ const ownedKey = (tree, rel) => `${tree}\0${rel}`;
 
 /**
  * @param {any[]} locks
- * @returns {string[]} the ownedKey of every lock a live holder has
+ * @returns {string[]} the ownedKey of every lock a live holder has, a holder
+ *   resumed onto a fresh host included
  */
 function heldLockPaths(locks) {
+	const wasResumed = core.resumedHolderTest(
+		"orphaned-edits",
+		"the sessions registry could not be read, so a path claimed by a resumed " +
+			"session is judged unowned and may be filed as an orphaned edit",
+	);
 	/** @type {string[]} */
 	const paths = [];
 	for (const lock of locks) {
 		if (!lock || lock.unreadable) continue;
-		if (proc.holderAlive(lock))
+		if (core.liveOrResumed(lock, wasResumed))
 			paths.push(
 				ownedKey(store.recordTree(lock), store.subjectPath(lock.path)),
 			);
