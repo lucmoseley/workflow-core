@@ -85,7 +85,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `commands.check_staged` | whatever the declared command refuses, under the repo's own config | where declared |
 | ESLint, `--max-warnings 0` | a finding or warning under the repo's ESLint config | staged `app/` and `lib/` `.ts`/`.tsx` and `scripts/` `.js`/`.mjs`/`.cjs`/`.ts`, where `commands.lint` is declared; skips with no `eslint` on `PATH` |
 | `commands.typecheck` | **nothing: it warns only**, reading the whole worktree | a commit staging `.js`, `.ts`, `.tsx`, `.mts` or `tsconfig.json`, where declared |
-| `scripts/check-code-standards.js` | **nothing: it warns only** of an export block offering names nothing takes, or only tests do (§N7, §G6), and of a `Caller:`, `Callers:` or `Callers of …:` line in the header of a JS, TS, shell or Python script under `scripts/` or a skill's `scripts/`, which `git grep` answers instead (#4720) | every commit, reading the worktree against `HEAD` |
+| `scripts/check-code-standards.js` | **nothing: it warns only** of an export block offering names nothing takes, or only tests do (§N7, §G6) | every commit, reading the worktree against `HEAD` |
 | shellcheck, `-x --severity=style --exclude=SC2016` | any finding at style severity or above, bar that one code | staged shell files: a husky hook or its `.local` companion, `.sh` and `.bash` files, and extensionless files with a shell shebang, minus `.gitattributes`' `linguist-vendored` and `linguist-generated` paths; skips with no binary |
 | shfmt at `-i 2 -ci`, `ruff format` at its defaults | any layout difference, so layout in either language is never a finding | the same shell files, and staged `.py`; a missing formatter refuses unless a workflow runs it |
 | actionlint | a workflow fault, shellcheck over each `run:` block included | staged `.github/workflows/*.yml` and `*.yaml`; skips with no binary |
@@ -107,6 +107,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-workflow-permissions.js` | a workflow job reaching past the timer-triggered autonomy ceiling | staged `.github/workflows/*.yml` and `*.yaml`, read from the worktree |
 | `scripts/generate-test-read-edges.js --check` | a `docs/test-read-edges.json` the commit's tests no longer match; a test read the selector cannot attribute only warns | staged test files or the manifest, where the manifest exists |
 | `scripts/check-skill-frontmatter.js`, `scripts/check-skill-body-size.js` | a skill's frontmatter YAML rejects, or a skill or command body holding an unescaped `$<digit>` | staged `.claude/skills/*/SKILL.md`; the body check on every commit |
+| `scripts/check-hand-callers.js` | a `Caller:`, `Callers:` or `Callers of …:` line the commit adds to the header of a JS, TS, shell or Python script, which `git grep` answers instead (#4720, #4885) | a commit staging `scripts/` or a skill's `scripts/`; an inherited line only warns |
 | `commands.test` | a red suite, run whole | where declared and it writes no test-pass marker |
 | `scripts/mutation-hold-gate.js` | a changed line on a declared sensitive path where a planted bug survives every test | with the `mutation` module on |
 
