@@ -234,13 +234,12 @@ function controlInMode({ away: _switch, ...control }, mode, now) {
 /**
  * `control` with its absent read set, a switch with no readable time dated `now`.
  * @param {Control} control
- * @param {boolean} absentSeen
  * @param {number} now
  * @returns {Control}
  */
-const withAbsentRead = (control, absentSeen, now) => ({
+const withAbsentRead = (control, now) => ({
 	...control,
-	away: { since: control.away?.since ?? now, absentSeen },
+	away: { since: control.away?.since ?? now, absentSeen: true },
 });
 
 /**

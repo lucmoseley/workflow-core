@@ -11,7 +11,7 @@
  */
 
 const path = require("node:path");
-const { QUEUE_HEADS } = require("./landing-refs.js");
+const { isQueueHead } = require("./landing-refs.js");
 const { readPush } = require("./push-dests.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
 
@@ -37,14 +37,7 @@ function decide(command, ctx) {
 				ctx.symbolicName(tree, src),
 			);
 			if (read.inert || read.all) return;
-			if (
-				read.rows.some(
-					(r) =>
-						r.kind === "push" &&
-						r.ref.startsWith(QUEUE_HEADS) &&
-						r.ref.length > QUEUE_HEADS.length,
-				)
-			)
+			if (read.rows.some((r) => r.kind === "push" && isQueueHead(r.ref)))
 				toQueue = true;
 		},
 		ctx,

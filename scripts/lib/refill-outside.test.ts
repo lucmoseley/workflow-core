@@ -5,10 +5,13 @@
  * typed into on #2359's schedule, left alone once the founder types, held
  * back while the network is down with no try spent, fallen back to a stop and
  * --bg --resume only where no prompt reached them since the stop, and at the
- * cap left blocked with no park, label, comment or stop; a copy's original
+ * cap left blocked with no park, label, comment or stop; one stopped whose
+ * relaunch failed relaunched again within minutes on a bounded budget that
+ * spends no try, and once more at the cap (#4871); a copy's original
  * that would not retire tried again on later ticks, its record kept until
  * then (#4829). Loosen it and the loop talks over the founder, burns its tries
- * offline, starts a second session beside one already resumed, leaves an
+ * offline, starts a second session beside one already resumed, leaves a
+ * founder's session stopped for half an hour or for good, leaves an
  * original live as a second row beside its copy, or parks a ticket it does
  * not own.
  */
@@ -192,6 +195,19 @@ it("neither stops nor copies one that took a prompt since its stop, and counts t
 	);
 });
 
+it("neither stops nor copies one where whether it took a turn since its stop cannot be told, and types again when next due (#4873)", () => {
+	const l = loop({ isResumedSinceStop: () => null });
+	l.tick(NOW);
+	l.tick(NOW + 2 * MIN);
+	expect(l.calls).not.toContain("stop f1");
+	expect(l.calls.some((c) => c.startsWith("resume "))).toBe(false);
+	expect(logs(l.calls)).toContain(
+		`${NAME}'s transcript shows no API-error stop, and its timeline is unread or the loop holds no time for the stop, so whether its session took a turn since cannot be told: it is neither stopped nor copied this try`,
+	);
+	l.tick(NOW + 4 * MIN);
+	expect(typed(l.calls)).toBe(2);
+});
+
 it("at the cap stops trying, says so, and neither parks, labels, comments on nor stops it", () => {
 	const labelled: string[] = [];
 	const l = loop({
@@ -259,33 +275,159 @@ it("names a copy its fallback started, and follows the session onto it", () => {
 	expect(l.io.readOutside()).toMatchObject([{ jobId: "f1-copy", tries: 1 }]);
 });
 
-it("tries again, when next due, the --bg --resume of a session it stopped whose relaunch failed", () => {
-	let fail = true;
+const WHY = "the launcher named no job";
+const at = (ms: number) => new Date(ms).toISOString();
+
+/**
+ * A loop whose first typed resume goes unseen, so its second tick stops the
+ * session, and whose every --bg --resume fails while `fails()`: `resumedAt`,
+ * the minutes past NOW of each one.
+ */
+function stoppedLoop(fails: () => boolean, over: Partial<BlockIo> = {}) {
+	const resumedAt: number[] = [];
+	let clock = NOW;
 	const l = loop({
 		resumeStopped: (launch) => {
 			l.calls.push(`resume ${launch.jobId}`);
-			return fail
-				? { failed: "the launcher named no job" }
+			resumedAt.push((clock - NOW) / MIN);
+			return fails()
+				? { failed: WHY }
 				: { failed: null, jobId: "f1", sessionId: "s", copy: false };
 		},
+		...over,
 	});
-	l.tick(NOW);
-	l.tick(NOW + 2 * MIN);
-	expect(l.calls.filter((c) => c === "resume f1")).toHaveLength(1);
-	/* Stopped, so no longer listed: held, not dropped. */
-	const due = nextTryAt(1, NOW);
-	l.tick(due - 1, { rows: [] });
-	expect(l.calls.filter((c) => c === "resume f1")).toHaveLength(1);
-	fail = false;
-	l.tick(due, { rows: [] });
-	expect(l.calls.filter((c) => c === "resume f1")).toHaveLength(2);
-	expect(l.calls).toEqual(expect.arrayContaining(["stop f1"]));
-	expect(l.calls.filter((c) => c === "stop f1")).toHaveLength(1);
+	const tick = (now: number, opts: Parameters<typeof l.tick>[1] = {}) => {
+		clock = now;
+		l.tick(now, { rows: [], ...opts });
+	};
+	tick(NOW, { rows: [row()] });
+	tick(NOW + 2 * MIN, { rows: [row()] });
+	return { ...l, tick, resumedAt };
+}
+
+it("relaunches a session it stopped whose --bg --resume failed a minute later, no try spent", () => {
+	let fail = true;
+	const l = stoppedLoop(() => fail);
+	expect(l.resumedAt).toEqual([2]);
 	expect(logs(l.calls)).toContain(
+		`could not resume ${NAME} by --bg --resume: ${WHY}; it stays stopped until the next attempt, due ${at(NOW + 3 * MIN)}`,
+	);
+	l.tick(NOW + 3 * MIN - 1);
+	expect(l.resumedAt).toEqual([2]);
+	fail = false;
+	l.tick(NOW + 3 * MIN);
+	expect(l.resumedAt).toEqual([2, 3]);
+	expect(l.calls.filter((c) => c === "stop f1")).toHaveLength(1);
+	expect(logs(l.calls).at(-1)).toBe(
 		`resumed ${NAME} by --bg --resume, woken in place`,
 	);
-	expect(l.io.readOutside()).toEqual([expect.objectContaining({ tries: 2 })]);
-	expect(l.io.readOutside()[0]).not.toHaveProperty("held");
+	l.tick(nextTryAt(1, NOW), { rows: [row()] });
+	expect(logs(l.calls).at(-1)).toMatch(
+		new RegExp(`^resume 2 of ${RESUME_CAP} after an API error`),
+	);
+});
+
+it("re-attempts a relaunch that keeps failing 3 times at doubling gaps, then waits for its scheduled try, which earns 3 more", () => {
+	const l = stoppedLoop(() => true);
+	for (let m = 3; m <= 15; m++) l.tick(NOW + m * MIN);
+	/* Try 2, due at 4 min, replaces the re-attempt due at 5; try 3 is due at
+	 * 14, after the three that follow try 2 at 5, 7 and 11. */
+	expect(l.resumedAt).toEqual([2, 3, 4, 5, 7, 11, 14, 15]);
+	const lines = logs(l.calls);
+	expect(lines).toContain(
+		`re-attempt 1 of 3 to resume ${NAME} by --bg --resume failed: ${WHY}; it stays stopped until the next attempt, due ${at(NOW + 4 * MIN)}`,
+	);
+	expect(lines).toContain(
+		`re-attempt 2 of 3 to resume ${NAME} by --bg --resume failed: ${WHY}; it stays stopped until the next attempt, due ${at(NOW + 11 * MIN)}`,
+	);
+	expect(lines).toContain(
+		`re-attempt 3 of 3 to resume ${NAME} by --bg --resume failed: ${WHY}; it stays stopped until the next attempt, due ${at(NOW + 14 * MIN)}`,
+	);
+	expect(typed(l.calls)).toBe(1);
+	expect(l.calls.filter((c) => c === "stop f1")).toHaveLength(1);
+});
+
+it("makes no re-attempt, and spends none, on a tick with the network down or launching barred", () => {
+	let why: string | null = null;
+	const l = stoppedLoop(() => true, { probeNetwork: () => why });
+	why = NET_PROBE_OFFLINE_LINE;
+	l.tick(NOW + 3 * MIN);
+	expect(logs(l.calls).at(-1)).toBe(
+		`the API host is unreachable (${NET_PROBE_OFFLINE_LINE}), so these due resumes wait for the next tick, no try spent: ${NAME}`,
+	);
+	why = null;
+	l.tick(NOW + 3 * MIN + 1, { barred: true });
+	expect(l.resumedAt).toEqual([2]);
+	l.tick(NOW + 3 * MIN + 2);
+	expect(l.resumedAt).toHaveLength(2);
+	expect(logs(l.calls).at(-1)).toMatch(/^re-attempt 1 of 3 /);
+});
+
+/**
+ * Tick `l` each minute until its scheduled tries and the re-attempts of the
+ * last are spent: the minute after.
+ */
+function tickToSpent(l: ReturnType<typeof stoppedLoop>) {
+	const isSpent = () => {
+		const lines = logs(l.calls);
+		return (
+			lines.filter((s) => s.startsWith("could not resume")).length ===
+				RESUME_CAP && /^re-attempt 3 of 3 /.test(lines.at(-1) ?? "")
+		);
+	};
+	let m = 3;
+	for (; !isSpent(); m++) l.tick(NOW + m * MIN);
+	return m;
+}
+
+it("at the cap makes one last relaunch of a session it holds stopped before it logs and drops it", () => {
+	const l = stoppedLoop(() => true);
+	for (let m = 3; m <= 9 * 60; m++) l.tick(NOW + m * MIN);
+	const drop = l.calls.indexOf(
+		`log stopped trying to resume ${NAME} after ${RESUME_CAP} resumes, its last --bg --resume failing too (${WHY}): it stays stopped on its last error`,
+	);
+	expect(l.calls[drop - 1]).toBe("resume f1");
+	expect(l.calls.slice(drop + 1)).toEqual([]);
+	/* 3 re-attempts a scheduled try and the last one bound it at 65; the two
+	 * tries whose gaps are shorter than 7 min spend fewer. */
+	expect(l.resumedAt.length).toBeGreaterThan(RESUME_CAP);
+	expect(l.resumedAt.length).toBeLessThanOrEqual(65);
+	expect(typed(l.calls)).toBe(1);
+});
+
+it("holds the last relaunch, unspent, while the network is down", () => {
+	let why: string | null = null;
+	const l = stoppedLoop(() => true, { probeNetwork: () => why });
+	let m = tickToSpent(l);
+	why = NET_PROBE_OFFLINE_LINE;
+	const made = l.resumedAt.length;
+	for (const end = m + 60; m < end; m++) l.tick(NOW + m * MIN);
+	expect(l.resumedAt).toHaveLength(made);
+	why = null;
+	l.tick(NOW + m * MIN);
+	expect(l.resumedAt).toHaveLength(made + 1);
+	expect(logs(l.calls).at(-1)).toMatch(/it stays stopped on its last error$/);
+});
+
+it("leaves a session its last relaunch set live alone where it blocks again, saying it stays blocked", () => {
+	let fail = true;
+	const l = stoppedLoop(() => fail);
+	let m = tickToSpent(l);
+	fail = false;
+	for (; logs(l.calls).at(-1)?.startsWith("re-attempt"); m++)
+		l.tick(NOW + m * MIN);
+	expect(logs(l.calls).at(-1)).toBe(
+		`resumed ${NAME} by --bg --resume, woken in place`,
+	);
+	const made = l.resumedAt.length;
+	for (const end = m + 120; m < end; m++)
+		l.tick(NOW + m * MIN, { rows: [row()] });
+	expect(logs(l.calls).at(-1)).toBe(
+		`stopped trying to resume ${NAME} after ${RESUME_CAP} resumes: it stays blocked on its last error`,
+	);
+	expect(l.resumedAt).toHaveLength(made);
+	expect(typed(l.calls)).toBe(1);
+	expect(l.calls.filter((c) => c === "stop f1")).toHaveLength(1);
 });
 
 it("starts afresh on a later stop once a capped session took a turn", () => {

@@ -32,6 +32,9 @@ const FABLE = "claude-fable-5-2[1m]";
 let dir: string;
 let home: string;
 let marker: string;
+/** `claude`, listing no session, so `off`'s move of live Fable sessions
+ * (scripts/burn-off-sessions.js) never reaches the machine's own. */
+let stub: string;
 
 const settings = (plan: string) => path.join(home, plan, "settings.json");
 const read = (plan: string) =>
@@ -49,7 +52,12 @@ const recorded = () =>
 const run = (arg: string, asHome = home) => {
 	const r = spawnSync(SCRIPT, [arg], {
 		encoding: "utf8",
-		env: { ...process.env, HOME: asHome, WFC_BURN_MARKER: marker },
+		env: {
+			...process.env,
+			HOME: asHome,
+			WFC_BURN_MARKER: marker,
+			WFC_CLAUDE_BIN: stub,
+		},
 	});
 	if (r.status === null) throw new Error(`script did not run: ${r.error}`);
 	return r;
@@ -59,6 +67,8 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "burn-mode-"));
 	home = path.join(dir, "home");
 	marker = path.join(dir, "burn-mode");
+	stub = path.join(dir, "claude");
+	fs.writeFileSync(stub, "#!/bin/sh\nprintf '[]'\n", { mode: 0o755 });
 	for (const plan of [".claude", ".claude2"]) {
 		fs.mkdirSync(path.join(home, plan), { recursive: true });
 		write(plan, {

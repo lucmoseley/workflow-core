@@ -22,6 +22,7 @@ const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 const { buildCarriedNote } = require("./carry-job-files.js");
+const { relaunchFlags } = require("./burn-mode.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -50,6 +51,7 @@ const { buildCarriedNote } = require("./carry-job-files.js");
  * @typedef {{
  *   log: (line: string) => void,
  *   env: () => NodeJS.ProcessEnv,
+ *   burnOn: () => boolean,
  *   authRefusal: (launch: {env: NodeJS.ProcessEnv, cwd: string}) =>
  *     string|null,
  *   settingsLockout: (cwd: string) => string|null,
@@ -506,13 +508,55 @@ function resumeSteps(io) {
 		if (refusal) return { failed: refusal };
 		const nameArgs = name === undefined ? [] : ["-n", name];
 		const r = io.runClaude(
-			["--bg", "--resume", sessionId, ...flags, ...nameArgs, told],
+			[
+				"--bg",
+				"--resume",
+				sessionId,
+				...launchFlags(flags, l.seat, sessionId),
+				...nameArgs,
+				told,
+			],
 			{
 				cwd,
 				env,
 			},
 		);
 		return settleStarted(l, r, { sessionId, cwd }, move);
+	}
+
+	/**
+	 * The flags a resume of `sessionId` launches with: those it was handed, or
+	 * for a wake in place, which is handed none, any `--model` moved off Fable.
+	 * @param {string[]} flags
+	 * @param {string} seat
+	 * @param {string} sessionId
+	 * @returns {string[]}
+	 */
+	function launchFlags(flags, seat, sessionId) {
+		return flags.length > 0 ? flags : movedModelArgs(seat, sessionId);
+	}
+
+	/**
+	 * The `--model` a wake in place of `sessionId` must name, where the model
+	 * its job record saved is a burn-mode Fable one and burn mode is off; none
+	 * otherwise. A wake in place relaunches on the saved flags, so it would
+	 * bring Fable back (#4992); naming a model starts a copy, which settles as
+	 * any copy does.
+	 * @param {string} seat
+	 * @param {string} sessionId
+	 * @returns {string[]}
+	 */
+	function movedModelArgs(seat, sessionId) {
+		const rec = io.readJobRecord(seat, shortJobId(sessionId));
+		const saved = rec?.sessionId === sessionId ? savedFlagsOf(rec) : null;
+		if (!saved) return [];
+		const moved = relaunchFlags(saved, io.burnOn());
+		if (moved === saved) return [];
+		log(`${sessionId} wakes on Opus, not its saved Fable model (#4992)`);
+		const at = moved.findIndex((f) => f.startsWith("--model"));
+		return moved[at]?.includes("=")
+			? [moved[at] ?? ""]
+			: moved.slice(at, at + 2);
 	}
 
 	/**
@@ -539,7 +583,14 @@ function resumeSteps(io) {
 			cwd: ids.cwd,
 		});
 		if (refusal) return { failed: refusal };
-		const flags = ids.flags ?? resumeFlagsOf(l, ids);
+		/* The saved flags name the model the session launched on; a burn-mode
+		 * Fable one comes back as Opus once burn mode is off (#4992). */
+		const asSaved = ids.flags ?? resumeFlagsOf(l, ids);
+		const flags = relaunchFlags(asSaved, io.burnOn());
+		if (flags !== asSaved)
+			log(
+				`${ids.sessionId} resumes on its launch model as burn mode stands: ${asSaved.join(" ")} -> ${flags.join(" ")}`,
+			);
 		const carried = io.carryJobFiles(
 			l.seat,
 			shortJobId(ids.sessionId),

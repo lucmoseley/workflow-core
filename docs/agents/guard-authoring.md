@@ -37,8 +37,8 @@ bodies are 70–670 lines of bespoke judgement.
      `ENOENT: no such file or directory, posix_spawn` that reaches the
      transcript and nothing else — no denial and no session output.
    - **An `if` field narrows which calls the guard is even exec'd on** —
-     `Bash(git *)`, `Bash(gh *)`, and `Bash(*gh *)` on two guards that
-     walk wrappers. **It
+     `Bash(git *)`, `Bash(gh *)`, and `Bash(*gh *)` or `Bash(*git *)` on the
+     guards that walk wrappers. **It
      fails toward running, not toward skipping** (`hooks.md:448`, quoted on
      mantahostels#2126) — never the sole gate on a hard refusal.
      **Measured** (mantahostels#2159 §5 and [docs/research/if-field-overmatch.md](https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/if-field-overmatch.md) §5, 22
@@ -58,13 +58,15 @@ bodies are 70–670 lines of bespoke judgement.
      `neighbour`, 31.5% of its execs across 210,695 corpus Bash calls, and
      `Bash(*git*)` on `.gitignore`, `.github/` and `legitimate`, 19.8%.
      Anchoring costs almost nothing where the guard reads only a segment's own
-     command word, which all but those two do — almost, because all of them
+     command word, which all but four do — almost, because all of them
      resolve that word through `basename`, so a path-spelled call is judged by
      the guard and matched by neither anchored spelling: 43 calls corpus-wide. **The exceptions are
      the `guard-issue-phase-scope` and `guard-anthropic-report` cores**, whose
      walkers step past a `timeout`/`env`/`nohup` prefix: anchoring would leave
      `timeout 60 gh issue create` unjudged in silence, so they keep a
-     wrapper-tolerant `Bash(*gh *)`. **Match the `if` to what the guard's own
+     wrapper-tolerant `Bash(*gh *)`; the `guard-pull-form` and
+     `guard-registry-atomicity` cores keep `Bash(*git *)` for the same reason
+     (#4009, #4879). **Match the `if` to what the guard's own
      walker reads, not to the tool word.** A new
      guard states its own `if` narrowing — one line
      where its LIMITS section already runs long, its own paragraph where it

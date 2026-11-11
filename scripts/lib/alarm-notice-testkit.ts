@@ -12,7 +12,7 @@ export const at = (hoursAgo: number) =>
 export type Conclusion = "success" | "failure" | "cancelled";
 /* One alarm's finished runs, newest first: [conclusion, hours ago]. */
 export type Runs = [Conclusion, number][];
-export type AlarmFile = "landing-quiet.yml" | "main-lag.yml";
+export type AlarmFile = "landing-quiet.yml" | "queue-wait.yml";
 export interface Comment {
 	created_at: string;
 	body: string;

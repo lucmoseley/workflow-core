@@ -152,19 +152,53 @@ const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 /* Each id spelt whole at its own call, so the registry's emitter scan reads
  * it. */
 
-/** @param {BranchPublishContext} ctx */
-const publishRule = (ctx) =>
-	ctx.moduleOn("landing")
-		? ruleOrFallback(
+/**
+ * How work reaches `main`, which decides what a refusal says and whether
+ * the lander's refs are judged: through the session's queue ref with the
+ * `landing` module on, else straight to `main`. The module is asked here
+ * alone.
+ * @typedef {object} Route
+ * @property {boolean} queued whether work lands through a queue ref
+ * @property {(ctx: BranchPublishContext, what: string) => string} reason a
+ *   refusal's reason under the publish rule; `what` its opening, "This …"
+ * @property {(ctx: BranchPublishContext, what: string) => string} rewind
+ *   the reason refusing a forced push or deletion of `main`; `what`
+ *   completing "This …"
+ */
+
+/** @type {Route} */
+const QUEUED = {
+	queued: true,
+	reason: (ctx, what) =>
+		buildOwnRefReason(
+			ctx,
+			what,
+			ruleOrFallback(
 				ctx,
 				"branch-publish-landing",
 				"Work lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request",
-			)
-		: ruleOrFallback(
-				ctx,
-				"branch-publish",
-				"Work lands on `main` directly — no branch on the remote, and never a pull request",
-			);
+			),
+		),
+	/* The lander's reading of the rewind rule. */
+	rewind: (ctx, what) =>
+		buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx)),
+};
+
+/** @type {Route} */
+const DIRECT = {
+	queued: false,
+	reason: (ctx, what) =>
+		`${what}: @CMD@\n\n${ruleOrFallback(
+			ctx,
+			"branch-publish",
+			"Work lands on `main` directly — no branch on the remote, and never a pull request",
+		)}`,
+	/* lib/main-rewind.js's shared refusal. */
+	rewind: rewindReason,
+};
+
+/** @param {BranchPublishContext} ctx @returns {Route} */
+const routeOf = (ctx) => (ctx.moduleOn("landing") ? QUEUED : DIRECT);
 
 /**
  * A refusal under the publish rule, naming the session's own queue ref with
@@ -175,25 +209,19 @@ const publishRule = (ctx) =>
  * @returns {Refusal}
  */
 const refuse = (ctx, what, segment) => ({
-	reason: ctx.moduleOn("landing")
-		? buildOwnRefReason(ctx, what, publishRule(ctx))
-		: `${what}: @CMD@\n\n${publishRule(ctx)}`,
+	reason: routeOf(ctx).reason(ctx, what),
 	segment,
 });
 
 /**
- * A forced push or deletion of `main`: with `landing` on the lander's
- * reading of the rewind rule, naming the session's own queue ref; else
- * lib/main-rewind.js's shared refusal.
+ * A forced push or deletion of `main`.
  * @param {BranchPublishContext} ctx
  * @param {string} what completing "This …"
  * @param {string} segment
  * @returns {Refusal}
  */
 const mainRewind = (ctx, what, segment) => ({
-	reason: ctx.moduleOn("landing")
-		? buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx))
-		: rewindReason(ctx, what),
+	reason: routeOf(ctx).rewind(ctx, what),
 	segment,
 });
 
@@ -328,7 +356,7 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
 	const prefix = MANAGED.find(
 		(p) => branch.startsWith(p) && branch.length > p.length,
 	);
-	if (!prefix || !ctx.moduleOn("landing")) return;
+	if (!prefix || !routeOf(ctx).queued) return;
 	const own = sessionQueueRef(ctx);
 	const named = `\`${branch}\``;
 	if (prefix !== QUEUE_PREFIX)
@@ -371,7 +399,7 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
  */
 function isAllowedDst(ref, ctx) {
 	if (ref.startsWith("refs/heads/spike/")) return true;
-	if (ref === "refs/heads/main") return !ctx.moduleOn("landing");
+	if (ref === "refs/heads/main") return !routeOf(ctx).queued;
 	return !ref.startsWith("refs/heads/");
 }
 

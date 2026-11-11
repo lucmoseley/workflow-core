@@ -721,6 +721,12 @@
 					"text": "A SUBAGENT DOES NOT SPAWN SUBAGENTS."
 				},
 				{
+					"id": "dispatch-fable-fork",
+					"core": "guard-dispatch-rewrite",
+					"kind": "deny",
+					"text": "A FORK FROM THIS SESSION WOULD RUN ON FABLE, AND BURN MODE IS OFF."
+				},
+				{
 					"id": "unchecked",
 					"core": "guard-blind-dispatch",
 					"kind": "deny",
@@ -1776,8 +1782,13 @@
 			"silent": "Applies the `parked` label to the issue a `needs input:` round was posted on, and prints nothing (#2000)."
 		},
 		"mark-presence.js": {
-			"needles": [],
-			"silent": "Writes the time of a prompt the founder typed, and the typing session's seat, to the machine's presence marker, and prints nothing (#2004, #3731)."
+			"needles": [
+				{
+					"id": "away-reminder",
+					"kind": "notice",
+					"text": "away mode is on — run"
+				}
+			]
 		},
 		"unpark-on-prompt.js": {
 			"needles": [],

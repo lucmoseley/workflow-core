@@ -9,7 +9,7 @@
  * the last status read showed, cleared only by a read showing the change or by
  * the command's refusal. An away press, a burn-mode flip, a goal or a repo's tick is
  * whole when its command exits, so any read after that exit shows it, or another writer's
- * reversal, the loop's automatic return included.
+ * reversal.
  */
 
 const path = require("node:path");

@@ -16,6 +16,7 @@ import { RESUME_CAP } from "./block-act.js";
 import {
 	hasTurnedSince,
 	type IdleReading,
+	isResumedSinceApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { buildErrorText } from "./caught.js";
@@ -2983,5 +2984,137 @@ describe("a loop launch's API-error resume and the network and duplicate checks 
 				acts(blocks(out, working, "normal", { now: NOW + MIN }).calls),
 			).toEqual([]);
 		}
+	});
+
+	const heldDue = () =>
+		resuming({
+			resumes: {
+				tries: 1,
+				triedAt: NOW - 30 * MIN,
+				nextAt: NOW,
+				heldAt: NOW - 25 * MIN,
+			},
+		});
+	const stopped = [agent("p", "stopped")];
+	const rowAt = (ms: number, state: string) => ({
+		at: new Date(ms).toISOString(),
+		state,
+	});
+	/* The loop's own reading (refill-tick.js) over a transcript and timeline. */
+	const reading = (rows: unknown, timeline: unknown) => ({
+		io: {
+			isResumedSinceStop: (_: unknown, since?: number) =>
+				isResumedSinceApiStop(null, { rows, timeline, since }),
+		},
+	});
+	const NoStopRow = [{ type: "user", message: { content: "fix it" } }];
+	const cases: [Launch, Agents][] = [
+		[typedUnseen(), blocked],
+		[heldDue(), stopped],
+	];
+
+	it.each([
+		["unread", null],
+		["holding no API-error row", NoStopRow],
+	])(
+		"neither stops nor copies one whose transcript is %s where its timeline worked since the loop first read the stop (#4873)",
+		(_, rows) => {
+			const worked = [rowAt(NOW - 3 * MIN, "working"), rowAt(NOW, "working")];
+			for (const [l, agents] of cases) {
+				const { calls } = blocks([l], agents, "normal", reading(rows, worked));
+				expect(acts(calls)).toEqual([]);
+				expect(logs(calls)).toContain(
+					"design-vault /implement 42's session took a turn since its API-error stop, so it is neither stopped nor copied: its resume counts as arrived",
+				);
+			}
+		},
+	);
+
+	it.each([
+		[
+			"none since the loop first read the stop",
+			[rowAt(NOW - 3 * MIN, "working")],
+		],
+		[
+			"only its own resume's, blocked again after",
+			[rowAt(NOW - MIN, "working"), rowAt(NOW - MIN / 2, "blocked")],
+		],
+	])(
+		"stops and relaunches one with no stop row whose read timeline shows %s (#4873)",
+		(_, timeline) => {
+			for (const [l, agents] of cases)
+				expect(
+					acts(blocks([l], agents, "normal", reading(null, timeline)).calls),
+				).toEqual(["stop p", "resume p"]);
+		},
+	);
+
+	it("holds the fallback while neither transcript nor timeline can tell, counting a try of its own, and parks at the cap (#4873)", () => {
+		const unknown = reading(null, null);
+		const Held =
+			"design-vault /implement 42's transcript shows no API-error stop, and its timeline is unread or the loop holds no time for the stop, so whether its session took a turn since cannot be told: it is neither stopped nor copied this try";
+		/* The typed resume's fallback is that same try: held, none added. */
+		const again = blocks([typedUnseen()], blocked, "normal", unknown);
+		expect(acts(again.calls)).toEqual([]);
+		expect(logs(again.calls)).toEqual([Held]);
+		expect(again.out[0]?.resumes).toEqual({
+			tries: 1,
+			triedAt: NOW - 2 * MIN,
+			nextAt: NOW + 2 * MIN,
+		});
+
+		let l = heldDue();
+		let now = NOW;
+		const all: string[] = [];
+		for (let tries = 2; tries <= RESUME_CAP; tries++) {
+			const { out, calls } = blocks([l], stopped, "normal", {
+				now,
+				...unknown,
+			});
+			expect(logs(calls)).toEqual([Held]);
+			all.push(...calls);
+			l = out[0] as Launch;
+			expect(l.resumes).toMatchObject({ tries, heldAt: NOW - 25 * MIN });
+			expect(l.resumes?.nextAt).toBeGreaterThan(now);
+			const early = blocks([l], stopped, "normal", {
+				now: now + MIN,
+				...unknown,
+			});
+			expect(early.calls.filter((c) => !c.startsWith("probe"))).toEqual([]);
+			now = l.resumes?.nextAt as number;
+		}
+		const capped = blocks([l], stopped, "normal", { now, ...unknown });
+		all.push(...capped.calls);
+		expect(capped.out[0]?.parkStopped).toBe(now);
+		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
+	});
+
+	it("counts a live one's failed typing as a try on an unknown reading, and stops it only to park it at the cap (#4873)", () => {
+		const io = { ...reading(null, null).io, type: () => "attach failed" };
+		const first = blocks([resuming()], blocked, "normal", { io });
+		expect(acts(first.calls)).toEqual([]);
+		expect(first.out[0]?.resumes).toEqual({
+			tries: 1,
+			triedAt: NOW,
+			nextAt: NOW + 4 * MIN,
+		});
+		let l = first.out[0] as Launch;
+		let agents = blocked;
+		const all: string[] = [];
+		const stops: number[] = [];
+		for (let tick = 0; tick < 2 * RESUME_CAP && !l.parkStopped; tick++) {
+			const now = l.resumes?.nextAt as number;
+			const { out, calls } = blocks([l], agents, "normal", { now, io });
+			all.push(...calls);
+			if (calls.includes("stop p")) {
+				agents = stopped;
+				stops.push(tick);
+			}
+			l = out[0] as Launch;
+		}
+		expect(stops).toEqual([RESUME_CAP - 1]);
+		expect(l.parkStopped).toBeDefined();
+		expect(l.resumes?.tries).toBe(RESUME_CAP);
+		expect(all.filter((c) => /^resume /.test(c))).toEqual([]);
 	});
 });

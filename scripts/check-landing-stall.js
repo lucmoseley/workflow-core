@@ -24,6 +24,7 @@
 
 const { now, runCheck } = require("./lib/check");
 const { readQueue, stallFindings } = require("./lib/landing-stall.js");
+const { queueBranch } = require("./lib/landing-refs.js");
 const {
 	buildCrossingLines,
 	oldestWaiting,
@@ -76,7 +77,7 @@ runCheck({
 			count: all.length,
 			data: {
 				queueWaiting: queue.gauge.waiting.length,
-				oldest: oldest && `queue/${oldest.name}`,
+				oldest: oldest && queueBranch(oldest.name),
 				main: queue.main,
 				movedAt: queue.movedAt,
 			},

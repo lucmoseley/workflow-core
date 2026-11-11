@@ -154,7 +154,7 @@ const { FilingRefusedError } = require("./filing-refused.js");
 const { HEARTBEAT_MS } = require("./lander-files.js");
 const { parseRefusal, remote, short } = require("./lander-git.js");
 const {
-	QUEUE_PREFIX,
+	queueBranch,
 	batchBranch,
 	droppedNameOf,
 	droppedRefsOf,
@@ -174,12 +174,16 @@ class TransientFault extends Error {}
  *   signature?: string}} Failure a failing test; where the runner printed its
  *   error, `message` to read and `signature` to compare, the same across runs
  *   of one failure
- * @typedef {{kind: "green", run?: number, cleared?: string[]}
- *   | {kind: "red", files: string[], jobs?: string[], failures?: Failure[],
- *      retried?: boolean, noRun?: true, typecheck?: string[]}
+ * @typedef {{kind: "green", run?: number, named?: number,
+ *      cleared?: string[]}
+ *   | {kind: "red", files: string[], run?: number, jobs?: string[],
+ *      failures?: Failure[], retried?: boolean, noRun?: true,
+ *      typecheck?: string[]}
  *   | {kind: "unknown", reason: string, transient?: true}} Verdict `run` the
- *   CI run that passed it and `jobs` the failing CI jobs, where the tester
- *   read a CI run; `cleared` the files that run's in-job retry cleared, its
+ *   CI run that passed its whole suite, or that failed, and `jobs` the
+ *   failing CI jobs, where the tester read a CI run; `named` the CI run that
+ *   passed only the files asked, which lands nothing; `cleared` the files
+ *   that run's in-job retry cleared, its
  *   flakes (#4558); `failures` where it named the failing tests; `noRun`
  *   where no CI run fired for the tree at all, naming no file; `typecheck`
  *   the type-check's first errors, where that failed; `transient`
@@ -576,7 +580,8 @@ const aloneAt = (s, name, onto) =>
 function unmergedAction(members, s, u, main) {
 	const { name } = u.result;
 	const m = members.find((x) => x.name === name);
-	if (!m) return exit(`queue/${name} did not merge, but is no batch member`);
+	if (!m)
+		return exit(`${queueBranch(name)} did not merge, but is no batch member`);
 	if (u.result.kind === "stale-base") return staleBaseExit(u.result, main);
 	if (members[0] === m && u.onto === main)
 		return dropAction(m, main, u.result, s);
@@ -691,10 +696,16 @@ const landGreen = (v, s, land) =>
 		: exit(`no verdict at ${short(land.sha)}: its green read no CI run`);
 
 /**
+ * A file set's key, whatever order names it.
+ * @param {readonly string[]} files
+ */
+const fileSetKey = (files) => [...files].sort().join(",");
+
+/**
  * @param {string} main
  * @param {readonly string[]} files
  */
-const baseKey = (main, files) => `${main} ${[...files].sort().join(",")}`;
+const baseKey = (main, files) => `${main} ${fileSetKey(files)}`;
 
 /**
  * @typedef {{readonly base: readonly string[],
@@ -873,15 +884,104 @@ function redAction(b, s, main, { sha, whole }) {
 	return { kind: "start-isolation", blame: { files: left, base, members } };
 }
 
+/* Untraced: enough to name the fault in a ticket body, one mistake often
+ * failing many tests. */
+const QUOTED_FAILURES_MAX = 10;
+const QUOTED_MESSAGE_CHARS = 300;
+
 /**
- * What a drop's cause keeps of the red `v` beside its files.
+ * The failing tests of `v` whose error the tester read, for a ticket to
+ * quote: the first QUOTED_FAILURES_MAX, each message cut to
+ * QUOTED_MESSAGE_CHARS.
+ * @param {Verdict|null} v
+ * @returns {import("./lander-records.js").QuotedFailure[]}
+ */
+const quotedFailuresOf = (v) =>
+	(v?.kind === "red" ? (v.failures ?? []) : [])
+		.flatMap(({ file, test, message }) =>
+			message
+				? [{ file, test, message: message.slice(0, QUOTED_MESSAGE_CHARS) }]
+				: [],
+		)
+		.slice(0, QUOTED_FAILURES_MAX);
+
+/**
+ * What a drop's cause keeps of the red `v`, its second, beside its files:
+ * the CI runs of it and of `first`, the red before it, and the failures
+ * `v` quotes, else `first`'s.
  * @param {Extract<Verdict, {kind: "red"}>} v
+ * @param {Verdict|null} first
  * @returns {import("./lander-records.js").RedMarks}
  */
-const redMarksOf = (v) => ({
-	...(v.noRun ? { noRun: v.noRun } : {}),
-	...(v.typecheck ? { typecheck: v.typecheck } : {}),
-});
+function redMarksOf(v, first) {
+	const runs = [
+		...new Set(
+			[first, v].flatMap((x) =>
+				x?.kind === "red" && x.run !== undefined ? [x.run] : [],
+			),
+		),
+	];
+	const quoted = quotedFailuresOf(v);
+	const failures = quoted.length > 0 ? quoted : quotedFailuresOf(first);
+	return {
+		...(v.noRun ? { noRun: v.noRun } : {}),
+		...(v.typecheck ? { typecheck: v.typecheck } : {}),
+		...(runs.length > 0 ? { runs } : {}),
+		...(failures.length > 0 ? { failures } : {}),
+	};
+}
+
+/**
+ * The CI run that passed `files` at the batch's `onto`, none being the whole
+ * suite: its base check's, else the whole-suite green ledgered there. None
+ * where the tester read no run, or the check failed any of them.
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {readonly string[]} files
+ * @returns {number|null}
+ */
+function mainRunOf(b, s, files) {
+	const base = b.bases.findLast(
+		(x) =>
+			x.sha === b.onto &&
+			(files.length === 0
+				? x.files.length === 0
+				: files.every((f) => x.files.includes(f))),
+	)?.verdict;
+	if (base?.kind === "red")
+		return files.length > 0 && !files.some((f) => base.files.includes(f))
+			? (base.run ?? null)
+			: null;
+	const checked = base?.run ?? base?.named;
+	if (checked !== undefined) return checked;
+	for (const pass of [1, 2]) {
+		const whole = ledgered(s, { sha: b.onto, files: [], pass });
+		if (whole?.kind === "green" && whole.run !== undefined) return whole.run;
+	}
+	return null;
+}
+
+/**
+ * The cause of a member's drop, red alone on `v` after `first`.
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {{name: string, iso: string, asked: readonly string[],
+ *   v: Extract<Verdict, {kind: "red"}>, first: Verdict|null}} alone its
+ *   name, its isolation commit, the files asked there and its two verdicts
+ * @returns {import("./lander-records.js").RedAlone}
+ */
+function redAloneCause(b, s, { name, iso, asked, v, first }) {
+	const files = v.files.length > 0 ? v.files : asked;
+	const mainRun = v.noRun ? null : mainRunOf(b, s, files);
+	return {
+		kind: "red",
+		name,
+		files: [...files],
+		iso,
+		...redMarksOf(v, first),
+		...(mainRun === null ? {} : { mainRun }),
+	};
+}
 
 /**
  * @param {QueueState} s
@@ -968,17 +1068,16 @@ function isolationAction(b, s, blame) {
 		const v = at(i, 2);
 		const m = members.find((x) => x.name === i.name);
 		if (v?.kind !== "red" || !m) continue;
-		const files = v.files.length > 0 ? v.files : blame.files;
 		return dropAction(
 			m,
 			onto,
-			{
-				kind: "red",
+			redAloneCause(b, s, {
 				name: m.name,
-				files,
 				iso: i.iso,
-				...redMarksOf(v),
-			},
+				asked: blame.files,
+				v,
+				first: at(i, 1),
+			}),
 			s,
 		);
 	}
@@ -1060,7 +1159,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 				files: v.files,
 				step: sha,
 				after: landed,
-				...redMarksOf(v),
+				...redMarksOf(v, first.v),
 			},
 			s,
 		);
@@ -1892,7 +1991,7 @@ function dropMember(deps, d, run) {
 	]);
 	if (left && left !== batch) deps.record.write(left);
 	deps.git.createRef(d.ref, d.sha);
-	deps.git.deleteRef(`${QUEUE_PREFIX}${d.name}`, d.sha);
+	deps.git.deleteRef(queueBranch(d.name), d.sha);
 	deps.logQueue("drop", d);
 	return { ...run, acting: left, unmerged: null, alone: null };
 }
@@ -2144,7 +2243,7 @@ async function verdictAt(deps, place, sha, { files, again } = {}) {
  */
 const askKey = (runs) =>
 	runs
-		.map(({ sha, files, pass }) => `${sha} ${pass} ${[...files].sort()}`)
+		.map(({ sha, files, pass }) => `${sha} ${pass} ${fileSetKey(files)}`)
 		.join(" + ");
 
 /**
@@ -2540,7 +2639,7 @@ async function act(deps, action, run) {
 		case "record-landed":
 			return recordLanded(deps, run);
 		case "delete-landed-ref":
-			return git.deleteRef(`${QUEUE_PREFIX}${action.name}`, action.sha)
+			return git.deleteRef(queueBranch(action.name), action.sha)
 				? run
 				: { ...run, kept: [...run.kept, `${action.name}@${action.sha}`] };
 		case "delete-dropped-ref":
@@ -2951,20 +3050,20 @@ function buildQueueActionLine(a) {
 		case "exit":
 			return `exit ${a.reason}`;
 		case "take-batch":
-			return `take-batch onto ${short(a.batch.onto)} as ${batchBranch(a.batch.slot)}: ${a.batch.members.map((m) => `queue/${m.name}@${short(m.sha)}`).join(", ")}`;
+			return `take-batch onto ${short(a.batch.onto)} as ${batchBranch(a.batch.slot)}: ${a.batch.members.map((m) => `${queueBranch(m.name)}@${short(m.sha)}`).join(", ")}`;
 		case "detach":
 			return `detach ${batchBranch(a.slot)}${a.cancel.length > 0 ? `, cancelling ${a.cancel.map((c) => short(c.sha)).join(", ")}` : ""}`;
 		case "await-verdict":
 		case "wait":
 			return a.kind;
 		case "merge-members":
-			return `merge-members onto ${short(a.onto)}: ${a.members.map((m) => `queue/${m.name}`).join(", ")}`;
+			return `merge-members onto ${short(a.onto)}: ${a.members.map((m) => queueBranch(m.name)).join(", ")}`;
 		case "merge-alone":
-			return `merge-alone onto ${short(a.onto)}: queue/${a.member.name}`;
+			return `merge-alone onto ${short(a.onto)}: ${queueBranch(a.member.name)}`;
 		case "defer-member":
-			return `defer-member queue/${a.name}`;
+			return `defer-member ${queueBranch(a.name)}`;
 		case "drop-member":
-			return `drop-member queue/${a.drop.name}@${short(a.drop.sha)} as ${a.drop.ref}`;
+			return `drop-member ${queueBranch(a.drop.name)}@${short(a.drop.sha)} as ${a.drop.ref}`;
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
 		case "settle-drop":
@@ -2972,7 +3071,7 @@ function buildQueueActionLine(a) {
 		case "adopt-dropped-ref":
 			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":
-			return `delete-landed-ref queue/${a.name}@${short(a.sha)}`;
+			return `delete-landed-ref ${queueBranch(a.name)}@${short(a.sha)}`;
 		case "delete-dropped-ref":
 			return `delete-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "rerun-files":
@@ -2984,18 +3083,18 @@ function buildQueueActionLine(a) {
 			return `hold ${a.hold.kind} at main@${short(a.hold.main)}`;
 		case "start-isolation":
 		case "start-serial":
-			return `${a.kind} ${a.blame.members.map((n) => `queue/${n}`).join(", ")}${a.blame.files.length > 0 ? ` on ${a.blame.files.join(", ")}` : ""}`;
+			return `${a.kind} ${a.blame.members.map((n) => queueBranch(n)).join(", ")}${a.blame.files.length > 0 ? ` on ${a.blame.files.join(", ")}` : ""}`;
 		case "merge-iso":
 		case "serial-land-step":
-			return `${a.kind} onto ${short(a.onto)}: queue/${a.member.name}`;
+			return `${a.kind} onto ${short(a.onto)}: ${queueBranch(a.member.name)}`;
 		case "isolate-members":
 		case "confirm-members":
 			return `${a.kind} ${a.runs.map((r) => `alone ${r.k}@${short(r.sha)}`).join(", ")}`;
 		case "rebatch-passers":
-			return `rebatch-passers ${a.ahead.map((n) => `queue/${n}`).join(", ")}`;
+			return `rebatch-passers ${a.ahead.map((n) => queueBranch(n)).join(", ")}`;
 		case "land-step":
 		case "record-step":
-			return `${a.kind} queue/${a.name} at ${a.sha}`;
+			return `${a.kind} ${queueBranch(a.name)} at ${a.sha}`;
 		default:
 			return `${a.kind} ${a.sha}`;
 	}
@@ -3005,6 +3104,7 @@ module.exports = {
 	TransientFault,
 	batchesOf,
 	buildQueueActionLine,
+	fileSetKey,
 	redPathAtRest,
 	runQueueLander,
 };

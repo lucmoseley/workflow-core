@@ -419,7 +419,7 @@ it("names an alarm read that fails and fails the pass, the queue's acts still ma
 	commit("seed", 0, "main");
 	const workflows = path.join(work, ".github", "workflows");
 	fs.mkdirSync(workflows, { recursive: true });
-	fs.writeFileSync(path.join(workflows, "main-lag.yml"), "");
+	fs.writeFileSync(path.join(workflows, "queue-wait.yml"), "");
 	fs.writeFileSync(runs, "not json");
 
 	const r = supervise();

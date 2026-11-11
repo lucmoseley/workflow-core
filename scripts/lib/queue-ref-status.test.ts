@@ -324,6 +324,29 @@ describe("a dropped ref", () => {
 	const why = () =>
 		`\n  dropped because, merged alone onto \`main\` at ${seed}, it conflicts with \`main\` in:\n- \`x\``;
 
+	it("prints a red drop's CI runs and failing tests' errors as its fix ticket does (#4857)", () => {
+		const cause = {
+			kind: "red",
+			name: "alpha",
+			files: [],
+			iso: "i0",
+			runs: [31, 32],
+			mainRun: 7,
+			failures: [{ file: "x.test.ts", test: "a > b", message: "expected 1" }],
+		};
+
+		const [line] = lines({
+			waiting: null,
+			rows: [row(2, "drop", member)],
+			drops: [drop({ cause })],
+		});
+
+		expect(line).toContain(
+			"Its red CI runs: 31, 32. `main` passed the whole suite in CI run 7. `gh run view <run>` reads one.",
+		);
+		expect(line).toContain("```text\nx.test.ts > a > b\n  expected 1\n```");
+	});
+
 	it("names its fix ticket, dropped ref, cause and evidence off the drop record", () => {
 		expect(
 			lines({

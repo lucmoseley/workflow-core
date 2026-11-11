@@ -1,13 +1,13 @@
 name: Queue ref waiting 2h
 
-# The off-machine stall check (#4443, #4458): scripts/main-lag-alarm.js
+# The off-machine stall check (#4443, #4458): scripts/queue-wait-alarm.js
 # fails where the oldest queue ref has waited past QUEUE_BACKSTOP_MS, in
-# scripts/lib/main-lag-alarm.js.
+# scripts/lib/queue-wait-alarm.js.
 # Read-only: it reads refs and the activity feed. Its red reaches the
 # founder as one bot mention per stall, from the tracker's alarm-notice.yml
 # running scripts/alarm-notice.js (#4939).
 #
-# TEST THE NOTICE: gh workflow run main-lag.yml -R lucmoseley/workflow-core -f force_failure=true,
+# TEST THE NOTICE: gh workflow run queue-wait.yml -R lucmoseley/workflow-core -f force_failure=true,
 # then gh workflow run alarm-notice.yml -R lucmoseley/workflow-core-tracker once it has failed,
 # all before this alarm's next scheduled run, whose green would end the stall.
 #
@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 jobs:
-  lag:
+  wait:
     # The run page the notice links shows this name: it carries the first look.
     name: No queue ref waited over 2 hours - if red, read the queue ticket
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            scripts/main-lag-alarm.js
+            scripts/queue-wait-alarm.js
             scripts/lib
           sparse-checkout-cone-mode: false
       - name: Read the oldest queue ref's wait
@@ -49,7 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORCE_FAILURE: ${{ inputs.force_failure }}
         run: |
-          node scripts/main-lag-alarm.js || exit
+          node scripts/queue-wait-alarm.js || exit
           if [ "$FORCE_FAILURE" = true ]; then
             echo "::error title=Forced failure::This run tests the founder's notice route."
             exit 1

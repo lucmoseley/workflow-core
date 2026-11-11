@@ -19,10 +19,17 @@ import {
 	hasEndedUnblocked,
 	hasFounderTypedSinceApiStop,
 	hasRepliedSince,
-	hasTurnSinceApiStop,
+	isResumedSinceApiStop,
 	resumedIdleSince,
 } from "./block-cause.js";
 import { API_PROMPT, HOLD_PROMPT, scriptPrompt } from "./loop-prompts.js";
+
+/** The turn reading alone, the job record unread. */
+const hasTurnSinceApiStop = (
+	rows: unknown,
+	timeline: unknown,
+	since?: number,
+) => isResumedSinceApiStop(null, { rows, timeline, since });
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
@@ -894,10 +901,9 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 		expect(hasFounderTypedSinceApiStop(resumed)).toBe(true);
 	});
 
-	it("reads no founder typing and no turn unread or with no stop", () => {
+	it("reads no founder typing unread or with no stop", () => {
 		expect(hasFounderTypedSinceApiStop(null)).toBeNull();
 		expect(hasFounderTypedSinceApiStop([typed(0, "hi")])).toBeNull();
-		expect(hasTurnSinceApiStop(null, null)).toBe(false);
 	});
 
 	it("counts the founder's typing, never the loop's, a script's or the harness's", () => {
@@ -926,6 +932,49 @@ describe("the prompts a session took after its API-error stop (#4815)", () => {
 				[working(0), { at: at(2), state: "blocked" }],
 			),
 		).toBe(false);
-		expect(hasTurnSinceApiStop([typed(0, "hi")], [working(2)])).toBe(false);
+		expect(hasTurnSinceApiStop([stop(1)], null)).toBe(false);
+	});
+
+	it("reads the timeline alone where the transcript shows no stop: resumed, not resumed, unknown (#4873)", () => {
+		const mark = (min: number, state: string) => ({ at: at(min), state });
+		const since = Date.parse(at(1));
+		for (const rows of [null, [typed(0, "hi")]]) {
+			expect(hasTurnSinceApiStop(rows, [mark(2, "working")], since)).toBe(true);
+			expect(hasTurnSinceApiStop(rows, [mark(0, "working")], since)).toBe(
+				false,
+			);
+			expect(hasTurnSinceApiStop(rows, [], since)).toBe(false);
+			/* A turn the loop's own resume bought ends on a newer `blocked` row. */
+			expect(
+				hasTurnSinceApiStop(
+					rows,
+					[mark(2, "working"), mark(3, "blocked")],
+					since,
+				),
+			).toBe(false);
+			expect(
+				hasTurnSinceApiStop(
+					rows,
+					[mark(2, "working"), mark(3, "blocked"), mark(4, "working")],
+					since,
+				),
+			).toBe(true);
+			expect(hasTurnSinceApiStop(rows, null, since)).toBeNull();
+			expect(hasTurnSinceApiStop(rows, [mark(2, "working")])).toBeNull();
+		}
+	});
+
+	it("reads an active job resumed whatever its transcript shows, else the turn reading from the loop's anchor", () => {
+		const worked = [{ at: at(2), state: "working" }];
+		const read = { rows: null, timeline: worked, since: Date.parse(at(1)) };
+		expect(
+			isResumedSinceApiStop(
+				{ tempo: "active" },
+				{ rows: null, timeline: null },
+			),
+		).toBe(true);
+		expect(isResumedSinceApiStop({ tempo: "blocked" }, read)).toBe(true);
+		expect(isResumedSinceApiStop(null, { ...read, timeline: [] })).toBe(false);
+		expect(isResumedSinceApiStop(null, { ...read, timeline: null })).toBeNull();
 	});
 });

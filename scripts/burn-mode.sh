@@ -12,7 +12,9 @@
 # because the plans are one machine: the model a session launched with no
 # model flag runs, moved through the table's burn layer (Opus 5.5 to Fable
 # 5.2). Claude Code reads it at startup, so a running session keeps its model;
-# the dispatch remap applies to the next Agent call at once. Effort is never
+# the dispatch remap applies to the next Agent call at once. So `off` also
+# resumes each live background session still on Fable on Opus
+# (scripts/burn-off-sessions.js, #4992). Effort is never
 # written here: each model's effort is settings.json's standing
 # `modelSettings`, and a dispatch's rides on the call (#4919).
 #
@@ -213,11 +215,18 @@ case "$1" in
       exit 1
     fi
     rm -f "$marker"
+    # A running session keeps the model it started on, so each live one still
+    # on Fable is resumed on Opus under its own id (#4992).
+    node "$here/burn-off-sessions.js" || sessions_failed=1
     ;;
   *) usage ;;
 esac
 
 show_status
+if [[ -n "${sessions_failed:-}" ]]; then
+  echo "error: a live session is still on Fable — scripts/burn-off-sessions.js named it above; rerun that once it is free" >&2
+  exit 1
+fi
 echo "Restart the Claude Code session to pick up the model — a session launched with no model flag runs it; the dispatch remap applies from the next Agent call."
 echo "A warm spare (\`claude bg-spare\`) booted before this keeps the old model — kill or claim it first (docs/effort-guide.md §Which model to launch each session on)."
 # #568: inferred from session timestamps, not from Claude Code's documentation.
