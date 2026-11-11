@@ -14,9 +14,12 @@ interface Match {
 	prefix: string;
 	value: string;
 }
+interface RunMatch extends Match {
+	lead: string;
+}
 const { parseProgramRuns, parseProgramVars, segmentTailMatches } =
 	require("./line-scan.js") as {
-		parseProgramRuns: (text: string) => Match[];
+		parseProgramRuns: (text: string) => RunMatch[];
 		parseProgramVars: (text: string) => Match[];
 		segmentTailMatches: (
 			text: string,
@@ -27,7 +30,7 @@ const { parseProgramRuns, parseProgramVars, segmentTailMatches } =
 	};
 
 const RUN_RE =
-	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$[^\n]*?\/([\w-][\w./-]*\.(?:js|sh))/gm;
+	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$([^\n]*?)\/([\w-][\w./-]*\.(?:js|sh))/gm;
 const VAR_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])(?:node|bash|sh)\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
@@ -35,6 +38,12 @@ const groups = (re: RegExp, text: string): Match[] =>
 	[...text.matchAll(re)].map((m) => ({
 		prefix: m[1] ?? "",
 		value: m[2] ?? "",
+	}));
+const runGroups = (text: string): RunMatch[] =>
+	[...text.matchAll(RUN_RE)].map((m) => ({
+		prefix: m[1] ?? "",
+		lead: m[2] ?? "",
+		value: m[3] ?? "",
 	}));
 
 const PLANTED = [
@@ -78,12 +87,12 @@ const PLANTED = [
 
 describe("parseProgramRuns", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
-		expect(parseProgramRuns(text)).toEqual(groups(RUN_RE, text));
+		expect(parseProgramRuns(text)).toEqual(runGroups(text));
 	});
 
 	it("returns the text before node with the path after the slash", () => {
 		expect(parseProgramRuns('x; node "$here/a/b.js"')).toEqual([
-			{ prefix: "x;", value: "a/b.js" },
+			{ prefix: "x;", lead: "here", value: "a/b.js" },
 		]);
 	});
 });
@@ -141,8 +150,7 @@ describe("every parser against its regex over generated texts", () => {
 	it("finds exactly the oracle's matches on each", () => {
 		const off = texts.filter(
 			(t) =>
-				JSON.stringify(parseProgramRuns(t)) !==
-					JSON.stringify(groups(RUN_RE, t)) ||
+				JSON.stringify(parseProgramRuns(t)) !== JSON.stringify(runGroups(t)) ||
 				JSON.stringify(parseProgramVars(t)) !==
 					JSON.stringify(groups(VAR_RE, t)),
 		);

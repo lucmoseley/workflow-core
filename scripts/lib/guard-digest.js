@@ -200,21 +200,16 @@ function hashClosure(base, rel, acc, inStack) {
 		const bytes = fs.readFileSync(path.join(base, rel));
 		const text = bytes.toString("utf8");
 		const hash = crypto.createHash("sha256").update(bytes);
-		const named = inStack ? null : parsedSources(base, rel, text).named;
+		const parsed = parsedSources(base, rel, text);
+		const named = inStack ? null : parsed.named;
 		const stack = inStack || named !== null;
 		// Sorted, so the digest does not move when the source lines are reordered.
-		/* A dependency outside the tree hashes as absent, whatever lies on disk
-		 * at its path (#4508). It stays an input, so a staged removal of it reads
-		 * as dirty. */
 		for (const lib of sourcedBy(base, rel, text, !stack).sort()) {
-			const there = isTreeMember(base, lib);
-			if (!there) {
-				acc.hashed.add(lib);
-				acc.absent.add(lib);
-			}
-			hash.update(
-				`\0${lib}\0${(there && hashClosure(base, lib, acc, stack)) || ""}`,
-			);
+			const input = depInput(base, lib, acc, {
+				stack,
+				onlyRun: parsed.runs.has(lib),
+			});
+			if (input !== null) hash.update(input);
 		}
 		/* A named file in the index but gone from disk hashes as absent,
 		 * rather than nulling the stack's whole digest. */
@@ -228,6 +223,28 @@ function hashClosure(base, rel, acc, inStack) {
 	} catch {
 		return null; // absence is the existing BROKEN-CLAIM's business, not this one's
 	}
+}
+
+/**
+ * What one dependency adds to its dependant's hash, or null for nothing. One
+ * outside the tree hashes as absent, whatever lies on disk at its path
+ * (#4508). It stays an input, so a staged removal of it reads as dirty. A
+ * program only run adds nothing there (#4890): a run spelling no regex can
+ * settle, `bash "$tmp/x.sh"`, names a path that never exists, and a removal
+ * still moves the digest by the bytes it drops.
+ * @param {string} base
+ * @param {string} lib
+ * @param {{ hashed: Set<string>, absent: Set<string> }} acc hashClosure's
+ * @param {{ stack: boolean, onlyRun: boolean }} how reached from a gate
+ *   stack, and only run by its dependant
+ * @returns {string | null}
+ */
+function depInput(base, lib, acc, { stack, onlyRun }) {
+	if (isTreeMember(base, lib))
+		return `\0${lib}\0${hashClosure(base, lib, acc, stack) || ""}`;
+	acc.hashed.add(lib);
+	acc.absent.add(lib);
+	return onlyRun ? null : `\0${lib}\0`;
 }
 
 module.exports = { DEP_KINDS, digestOf, isDep, readOptsIn };

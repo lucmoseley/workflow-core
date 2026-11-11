@@ -85,6 +85,17 @@ const VAR_PATH_RE = new RegExp(
 );
 
 /**
+ * A directory assigned to a variable a guard then runs a program in
+ * (#4890), `lib="$(cd "$here" && pwd)/lib"` and then `sh "$lib/x.sh"`:
+ * VAR_PATH_RE's shape, ending in a path that names no program.
+ */
+const VAR_DIR_RE =
+	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w.-]*(?:\/[\w-][\w.-]*)*)"?[ \t]*(?:#[^\n]*)?$/gm;
+
+/** The variable a run's lead names alone: `lib` of `$lib/`, `${lib}/`, `"$lib"/`. */
+const LEAD_VAR_RE = /^\{?(\w+)\}?"?$/;
+
+/**
  * A script a shell line launches: after `node`, `bash`, `sh` or `exec`, or in
  * command position, a path to a `.js` or `.sh` file, through an optional
  * `$var/`, `${var:-x}/` or `$(dirname "$0")/` prefix (captured) or a
@@ -105,7 +116,8 @@ const LAUNCH_RE =
  *   spelt (#3795). One on a `//` line or a `*` comment line is skipped.
  * - `run`: each program a shell guard runs self-relatively by `node`,
  *   `bash` or `sh` (#4730), `node "$here/x.js"` or through a variable
- *   (#2487), resolved against its own directory, then the root.
+ *   holding it (#2487) or its directory (#4890), resolved against its own
+ *   directory, then the root.
  * - `launch`: each `.js` or `.sh` a shell file runs by `node`, `bash`, `sh`,
  *   `exec` or in command position, self-relatively or from the root, sorted
  *   (#4567). Wider than `run`, which the registry digest keeps to the
@@ -283,6 +295,13 @@ function destructuredBefore(text, at) {
 }
 
 /**
+ * A run's path is read as the self-relative or root-relative one its spelling
+ * gives, or, through a variable `VAR_DIR_RE` assigns, beneath that
+ * variable's directory. Limit: a variable's value is read off its
+ * assignments' text alone, so one built by parameter expansion
+ * (`${dir%/*}/x.js`) or naming a scratch directory (`$tmp/x.sh`) resolves
+ * to a path that need not exist; the digest hashes nothing for such a path
+ * (lib/guard-digest.js).
  * @param {string} dir
  * @param {string} text
  * @param {(rel: string) => boolean} isFile
@@ -290,19 +309,20 @@ function destructuredBefore(text, at) {
  */
 function parseRuns(dir, text, isFile) {
 	/** A `//` before `node` makes a JS line dead. */
-	/** @param {{prefix: string, value: string}[]} matches */
+	/** @template {{prefix: string}} M @param {M[]} matches */
 	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
-	/** @type {Map<string, string[]>} */
-	const assigned = new Map();
-	for (const m of text.matchAll(VAR_PATH_RE)) {
-		const name = requiredGroup(m, 1, VAR_PATH_RE);
-		assigned.set(name, [
-			...(assigned.get(name) ?? []),
-			requiredGroup(m, 2, VAR_PATH_RE),
-		]);
-	}
+	const assigned = assignments(text, VAR_PATH_RE);
+	const dirs = assignments(
+		text,
+		VAR_DIR_RE,
+		(p) => !PROGRAM_SUFFIXES.some((s) => p.endsWith(s)),
+	);
 	const tails = [
-		...live(parseProgramRuns(text)).map((m) => m.value),
+		...live(parseProgramRuns(text)).flatMap((m) => {
+			const name = LEAD_VAR_RE.exec(m.lead)?.[1];
+			const under = name === undefined ? undefined : dirs.get(name);
+			return under ? under.map((d) => `${d}/${m.value}`) : [m.value];
+		}),
 		...live(parseProgramVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
 	];
 	/* The root reading is offered only for a scripts/ tail, the one a run
@@ -320,6 +340,25 @@ function parseRuns(dir, text, isFile) {
 			}),
 		),
 	];
+}
+
+/**
+ * Each variable's assigned paths, in the order assigned, of those `keep` holds.
+ * @param {string} text
+ * @param {RegExp} re a `gm` regex, the name its group 1 and the path its group 2
+ * @param {(path: string) => boolean} [keep]
+ * @returns {Map<string, string[]>}
+ */
+function assignments(text, re, keep = () => true) {
+	/** @type {Map<string, string[]>} */
+	const out = new Map();
+	for (const m of text.matchAll(re)) {
+		const value = requiredGroup(m, 2, re);
+		if (!keep(value)) continue;
+		const name = requiredGroup(m, 1, re);
+		out.set(name, [...(out.get(name) ?? []), value]);
+	}
+	return out;
 }
 
 /**

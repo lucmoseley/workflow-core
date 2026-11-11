@@ -275,6 +275,30 @@ describe("run edges", () => {
 	it("skips a .sh path that no runner runs", () => {
 		expect(guard('lib="$here/lib/x.sh"\n. "$lib"')).toEqual([]);
 	});
+
+	it("reads a run beneath a variable holding a directory, braced or quoted (#4890)", () => {
+		expect(
+			guard(
+				[
+					'lib="$(cd "$here" && pwd)/lib"',
+					'sh "$lib/serialised.sh" x',
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'node "${lib}/a.js"',
+					'bash "$lib"/b.sh',
+				].join("\n"),
+			),
+		).toEqual([
+			"scripts/lib/serialised.sh",
+			"scripts/lib/a.js",
+			"scripts/lib/b.sh",
+		]);
+	});
+
+	it("reads a run through a variable assigned no directory off its own tail", () => {
+		expect(guard('tmp="$(mktemp -d)"\nbash "$tmp/inj.sh"')).toEqual([
+			"scripts/inj.sh",
+		]);
+	});
 });
 
 describe("launch edges (#4567)", () => {
