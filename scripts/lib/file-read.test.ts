@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readBytes, readText } = createRequire(__filename)(
+const { readBytes, readTail, readText } = createRequire(__filename)(
 	"./file-read.js",
 ) as typeof import("./file-read.js");
 
@@ -65,5 +65,30 @@ describe("readBytes", () => {
 
 	it("reads a missing file as absent", () => {
 		expect(readBytes(path.join(dir, "nope"))).toEqual({ state: "absent" });
+	});
+});
+
+describe("readTail", () => {
+	it("reads the last bytes, partial where they start mid-file", () => {
+		const file = path.join(dir, "a");
+		fs.writeFileSync(file, "one\ntwo\nthree\n");
+		expect(readTail(file, 6)).toEqual({
+			state: "read",
+			data: { text: "three\n", partial: true },
+		});
+	});
+
+	it("reads a file shorter than the tail whole, not partial", () => {
+		const file = path.join(dir, "a");
+		fs.writeFileSync(file, "one\n");
+		expect(readTail(file, 64)).toEqual({
+			state: "read",
+			data: { text: "one\n", partial: false },
+		});
+	});
+
+	it("tells a missing file apart from an unreadable one", () => {
+		expect(readTail(path.join(dir, "nope"), 8)).toEqual({ state: "absent" });
+		expect(readTail(dir, 8).state).toBe("unreadable");
 	});
 });

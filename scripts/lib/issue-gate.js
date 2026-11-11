@@ -617,16 +617,117 @@ function gateFacts(body) {
 	};
 }
 
+/*
+ * The block structure a code span cannot cross (CommonMark 0.31.2 §4–§5,
+ * #4973), read off each line's head once its `>` quote markers are stripped.
+ * A heading, fence, thematic break, setext underline or table row is a block
+ * of its own; a list item opens one; a deeper quote opens one, a shallower
+ * line continuing the paragraph lazily. Indented code and HTML blocks are not
+ * read: their lines join the paragraph around them.
+ */
+const OWN_LINE_BLOCK =
+	/^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$|=+[ \t]*$|-+[ \t]*$|\|)/;
+const LIST_ITEM = /^[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+const QUOTE_MARKER = /^[ \t]{0,3}>[ \t]?/;
+
+/** @typedef {{depth: number, blank: boolean, ownLine: boolean, item: boolean}} LineShape */
+
 /**
- * Inside an inline code span on its own line — a phrase quoted as an example.
+ * @param {string} line
+ * @returns {LineShape}
+ */
+function lineShape(line) {
+	let depth = 0;
+	let rest = line;
+	for (let m = QUOTE_MARKER.exec(rest); m; m = QUOTE_MARKER.exec(rest)) {
+		depth++;
+		rest = rest.slice(m[0].length);
+	}
+	return {
+		depth,
+		blank: rest.trim() === "",
+		ownLine: OWN_LINE_BLOCK.test(rest),
+		item: LIST_ITEM.test(rest),
+	};
+}
+
+/**
+ * @param {LineShape|null} prev the line above, `null` at the body's start
+ * @param {LineShape} line
+ * @returns {boolean}
+ */
+function opensBlock(prev, line) {
+	if (prev === null || prev.blank || prev.ownLine) return true;
+	return line.blank || line.ownLine || line.item || line.depth > prev.depth;
+}
+
+/**
+ * The bounds of the block holding `index`.
+ *
+ * @param {string} body
+ * @param {number} index
+ * @returns {[number, number]}
+ */
+function blockAround(body, index) {
+	let from = 0;
+	let at = 0;
+	/** @type {LineShape|null} */
+	let prev = null;
+	for (const line of body.split("\n")) {
+		const shape = lineShape(line);
+		if (opensBlock(prev, shape)) {
+			if (at > index) return [from, at - 1];
+			from = at;
+		}
+		prev = shape;
+		at += line.length + 1;
+	}
+	return [from, body.length];
+}
+
+/**
+ * Inside an inline code span — a phrase quoted as an example. A run of N
+ * backticks opens a span that the next run of exactly N closes, across line
+ * breaks within one block, and a run with no closer is literal (CommonMark
+ * 0.31.2 §6.1).
  *
  * @param {string} body
  * @param {number} index
  * @returns {boolean}
  */
 function inCodeSpan(body, index) {
-	const lineStart = body.lastIndexOf("\n", index - 1) + 1;
-	return (body.slice(lineStart, index).match(/`/g) || []).length % 2 === 1;
+	const [from, to] = blockAround(body, index);
+	const runs = parseBacktickRuns(body.slice(from, to), from);
+	let resume = 0;
+	for (const run of runs) {
+		if (run.k < resume || run.opens === 0) continue;
+		if (run.opensAt > index) return false;
+		const close = runs.find((r) => r.k > run.k && r.len === run.opens);
+		if (close === undefined) continue;
+		if (index > run.opensAt && index < close.at + close.len) return true;
+		resume = close.k + 1;
+	}
+	return false;
+}
+
+/**
+ * Each backtick run in `block`, in order: where it sits and its length as a
+ * closer, and where it opens and with how many — one fewer after a
+ * backslash, which escapes an opener only.
+ *
+ * @param {string} block
+ * @param {number} from the block's offset in the body
+ * @returns {{k: number, at: number, len: number, opensAt: number, opens: number}[]}
+ */
+function parseBacktickRuns(block, from) {
+	return [...block.matchAll(/`+/g)].map((m, k) => {
+		const escaped = /(?:^|[^\\])(?:\\\\)*\\$/.test(block.slice(0, m.index))
+			? 1
+			: 0;
+		const at = from + m.index;
+		const len = m[0].length;
+		return { k, at, len, opensAt: at + escaped, opens: len - escaped };
+	});
 }
 
 /**
