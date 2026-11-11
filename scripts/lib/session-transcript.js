@@ -68,10 +68,15 @@ function read(file) {
 	if (size <= WHOLE_FILE_LIMIT) return fs.readFileSync(file, "utf8");
 
 	const tail = readTail(file, TAIL_BYTES);
-	/* Absent here is a file deleted since the stat above: no records. */
-	if (tail.state === "absent") return "";
+	/* Absent here is a file deleted since the stat above, which throws as the
+	 * stat would have: every caller reads a throw as "cannot say". */
+	if (tail.state === "absent")
+		throw Object.assign(new Error(`ENOENT: ${file} deleted mid-read`), {
+			code: "ENOENT",
+		});
 	if (tail.state === "unreadable") throw tail.error;
-	const { text } = tail.data;
+	const { text, partial } = tail.data;
+	if (!partial) return text;
 	const cut = text.indexOf("\n");
 	/* No newline in 8 MB means the whole tail is one line's tail and there is
 	 * no whole record in it — an empty read says that, where returning the

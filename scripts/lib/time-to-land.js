@@ -32,8 +32,7 @@
  * together, so the pair's time reads on `confirm-members`.
  */
 
-const fs = require("node:fs");
-const { caught } = require("./caught.js");
+const { readTail } = require("./file-read.js");
 const { BASELINE_MS, percentile } = require("./queue-log.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
@@ -104,36 +103,21 @@ function memberStays(rows) {
 
 /**
  * The tail of the log at `file` reaching back past `since`, read from its
- * end a chunk at a time, as the log grows without bound; empty where absent.
+ * end, the window doubled until it does, as the log grows without bound;
+ * empty where absent.
  * @param {string} file
  * @param {number} since ms
  * @returns {string}
  */
 function readLogSince(file, since) {
-	/** @type {number} */
-	let fd;
-	try {
-		fd = fs.openSync(file, "r");
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return "";
-		throw err;
-	}
-	try {
-		/** @type {Buffer[]} */
-		const chunks = [];
-		let pos = fs.fstatSync(fd).size;
-		while (pos > 0) {
-			const length = Math.min(CHUNK_BYTES, pos);
-			pos -= length;
-			const chunk = Buffer.alloc(length);
-			fs.readSync(fd, chunk, 0, length, pos);
-			chunks.unshift(chunk);
-			const first = FIRST_STAMP.exec(chunk.toString("latin1"));
-			if (first && Date.parse(String(first[1])) < since) break;
-		}
-		return Buffer.concat(chunks).toString("utf8");
-	} finally {
-		fs.closeSync(fd);
+	for (let want = CHUNK_BYTES; ; want *= 2) {
+		const tail = readTail(file, want);
+		if (tail.state === "absent") return "";
+		if (tail.state === "unreadable") throw tail.error;
+		const { text, partial } = tail.data;
+		const first = FIRST_STAMP.exec(text);
+		if (!partial || (first && Date.parse(String(first[1])) < since))
+			return text;
 	}
 }
 
