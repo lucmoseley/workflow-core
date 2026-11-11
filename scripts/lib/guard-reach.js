@@ -308,9 +308,7 @@ function destructuredBefore(text, at) {
 }
 
 /**
- * A run's path is read as the self-relative or root-relative one its spelling
- * gives, or, through a variable `VAR_DIR_RE` assigns, beneath that
- * variable's directory. Limit: a variable's value is read off its
+ * Limit: a variable's value is read off its
  * assignments' text alone, so one built by parameter expansion
  * (`${dir%/*}/x.js`, #5000) or naming a scratch directory (`$tmp/x.sh`) resolves
  * to a path that need not exist; the digest hashes nothing for such a path
