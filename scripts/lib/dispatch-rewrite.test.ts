@@ -551,10 +551,10 @@ it("stays out of another tool's input", () => {
 	).toBeNull();
 });
 
-/** Swap lib/burn-mode.js in the module cache for one whose table throws `e`. */
-function breakBurnMode(e: Error & { code?: string }) {
+/** Swap `lib` in the module cache for one whose exports throw `e`. */
+function breakModule(lib: string, e: Error & { code?: string }) {
 	const req = createRequire(__filename);
-	const id = req.resolve("./burn-mode.js");
+	const id = req.resolve(lib);
 	const saved = req.cache[id];
 	req.cache[id] = {
 		id,
@@ -594,7 +594,7 @@ describe("failing open", () => {
 
 	it("still supplies the line, and records the lost remap, when the model table is broken", () => {
 		burnOn();
-		const restore = breakBurnMode(new Error("broken"));
+		const restore = breakModule("./model-table.js", new Error("broken"));
 		let v: HookOut;
 		try {
 			v = envelopeOf(dispatch({ model: "sonnet" }));
@@ -604,13 +604,14 @@ describe("failing open", () => {
 		expect(v.updatedInput.model).toBe("sonnet");
 		expect(v.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(logs).toContain(
-			"lib/burn-mode.js unreadable — the model table left this dispatch unmapped: broken",
+			"lib/model-table.js unreadable — the model table left this dispatch unmapped: broken",
 		);
 	});
 
-	it("records an unreadable burn-mode table as such", () => {
+	it("records an unreadable model table as such", () => {
 		burnOn();
-		const restore = breakBurnMode(
+		const restore = breakModule(
+			"./model-table.js",
 			Object.assign(new Error("gone"), { code: "MODULE_NOT_FOUND" }),
 		);
 		let v: HookOut;
@@ -621,7 +622,7 @@ describe("failing open", () => {
 		}
 		expect(v.updatedInput.model).toBe("sonnet");
 		expect(logs).toContain(
-			"lib/burn-mode.js unreadable — the model table left this dispatch unmapped: gone",
+			"lib/model-table.js unreadable — the model table left this dispatch unmapped: gone",
 		);
 	});
 
@@ -640,6 +641,22 @@ describe("failing open", () => {
 		expect(out.updatedInput.model).toBe("haiku");
 		expect(out.updatedInput.effort).toBe("xhigh");
 		expect(out.updatedInput.prompt).toMatch(/^Artefact: \//m);
+		expect(logs).toContain(
+			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
+		);
+	});
+
+	it("applies the standing layer alone, recorded, when lib/burn-mode.js will not load", () => {
+		burnOn();
+		const restore = breakModule("./burn-mode.js", new Error("broken"));
+		let v: HookOut;
+		try {
+			v = envelopeOf(dispatch({ model: "haiku" }));
+		} finally {
+			restore();
+		}
+		expect(v.updatedInput.model).toBe("haiku");
+		expect(v.updatedInput.effort).toBe("xhigh");
 		expect(logs).toContain(
 			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
 		);

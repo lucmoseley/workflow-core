@@ -10,7 +10,8 @@
  * anthropics/claude-code#83353). So each change is a pure transform — call in,
  * call and a note out, or null — and `rewrite` applies them in turn to one
  * input. The model table, standing layer and burn layer both, is
- * lib/burn-mode.js's, burn mode's switch scripts/burn-mode.sh's. The marker is
+ * lib/model-table.js's; whether burn applies is burn mode's marker, read through
+ * lib/burn-mode.js and set by scripts/burn-mode.sh. The marker is
  * one per MACHINE, so an `off` run anywhere ends the burn remap everywhere.
  *
  * What it does to a dispatch:
@@ -24,7 +25,7 @@
  *     the prompt's own artefact path where it names one, a leading `~/` read
  *     against HOME; a dispatch with no artefact to watch is told to end the
  *     turn;
- *   * the model and effort move through lib/burn-mode.js's table: always
+ *   * the model and effort move through lib/model-table.js's table: always
  *     `sonnet` to Haiku, every Haiku call at xhigh, and while burn mode is on
  *     Haiku to Opus and Opus to Fable, each at medium, an overflow seat's
  *     session excepted (#4919);
@@ -85,7 +86,7 @@ const { shellQuote } = require("./sh-quote.js");
  *   making of a directory, false where it could not be made; and the model a
  *   session's transcript last answered on, "" where none is read
  * @typedef {import("./guard-entry.js").Injection} Injection
- * @typedef {Pick<typeof import("./burn-mode.js"), "isFable" | "isOverflowSession" | "markerPath" | "remapModel">} ModelTable
+ * @typedef {Pick<typeof import("./model-table.js"), "isFable" | "isOverflowSession" | "remapModel">} ModelTable
  */
 
 // Resolved from this file, so an adopter is handed the plugin's copy (#541).
@@ -174,25 +175,23 @@ function rewrite(input, { file, burn, home, inherited = "", table }) {
  * @param {RewriteContext} ctx
  * @returns {ModelTable | null}
  */
-function loadTable(ctx) {
+function loadModelTable(ctx) {
 	try {
 		const {
 			isFable,
 			isOverflowSession,
-			markerPath,
 			remapModel,
-		} = require("./burn-mode.js");
+		} = require("./model-table.js");
 		if (
 			typeof isFable !== "function" ||
 			typeof isOverflowSession !== "function" ||
-			typeof markerPath !== "function" ||
 			typeof remapModel !== "function"
 		)
 			throw new Error("its exports are not functions");
-		return { isFable, isOverflowSession, markerPath, remapModel };
+		return { isFable, isOverflowSession, remapModel };
 	} catch (e) {
 		ctx.log(
-			`lib/burn-mode.js unreadable — the model table left this dispatch unmapped: ${caught(e).message}`,
+			`lib/model-table.js unreadable — the model table left this dispatch unmapped: ${caught(e).message}`,
 		);
 		return null;
 	}
@@ -200,16 +199,17 @@ function loadTable(ctx) {
 
 /**
  * Whether burn mode's layer applies: its marker present, on a session not on
- * an overflow seat (#4919). A marker that cannot be placed reads as off,
- * recorded, so the standing layer still applies.
+ * an overflow seat (#4919). A marker that cannot be placed, or a
+ * lib/burn-mode.js that will not load, reads as off, recorded, so the standing
+ * layer still applies.
  * @param {ModelTable} table
  * @param {RewriteContext} ctx
  */
-function burnOn(table, ctx) {
+function burnLayerApplies(table, ctx) {
 	if (table.isOverflowSession(ctx.env, ctx.session)) return false;
 	let marker;
 	try {
-		marker = table.markerPath(ctx.env);
+		marker = require("./burn-mode.js").markerPath(ctx.env);
 	} catch {
 		ctx.log(
 			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
@@ -233,8 +233,8 @@ function decide(_prompt, ctx) {
 		return { deny: ctx.corePaths(ctx.ruleText("dispatch-grandchild")) };
 	let out;
 	try {
-		const table = loadTable(ctx);
-		const burn = table ? burnOn(table, ctx) : false;
+		const table = loadModelTable(ctx);
+		const burn = table ? burnLayerApplies(table, ctx) : false;
 		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
 		/* A fork runs on its parent's model whatever the call names, so with
 		 * burn mode off a fork from a Fable session can only be refused. */
