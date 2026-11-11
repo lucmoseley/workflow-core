@@ -25,6 +25,8 @@ const {
 	format,
 	neighbourDirty,
 	endOfRunTreeIdentity,
+	markStart,
+	readChangedSince,
 } = require("./tree-drift.js");
 
 /** A lock as `arbiter-store.listLocks()` returns it. */
@@ -278,6 +280,50 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 		}
 
 		expect(endOfRunTreeIdentity(repo)).toBeNull();
+	});
+});
+
+describe("markStart and readChangedSince (#5018)", () => {
+	it("names a file edited and put back, or flipped executable and back, since the mark", () => {
+		const since = markStart();
+		write("src/a.js", "edited\n");
+		write("src/a.js", "one\n");
+		fs.chmodSync(path.join(repo, "src/b.js"), 0o755);
+		fs.chmodSync(path.join(repo, "src/b.js"), 0o644);
+		expect(drift(readTreeSnapshot(repo), readTreeSnapshot(repo))).toBeNull();
+		expect(
+			[...readChangedSince(repo, ["src/a.js", "src/b.js"], since)].sort(),
+		).toEqual(["src/a.js", "src/b.js"]);
+	});
+
+	it("names nothing changed before the mark, nor a path absent now", () => {
+		write("src/a.js", "edited\n");
+		const since = markStart();
+		expect(
+			readChangedSince(repo, ["src/a.js", "src/b.js", "src/gone.js"], since),
+		).toEqual(new Set());
+	});
+
+	it("names a path that will not stat for any reason but its absence", () => {
+		const since = markStart();
+		const failing = {
+			lstatSync: () => {
+				throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+			},
+		};
+		expect(
+			readChangedSince(repo, ["src/a.js"], since, { fs: failing }),
+		).toEqual(new Set(["src/a.js"]));
+	});
+
+	it("knows nothing without a mark, and takes none where no stamp can be made", () => {
+		expect(readChangedSince(repo, ["src/a.js"], null)).toBeNull();
+		const broken = {
+			mkdtempSync: () => {
+				throw new Error("EROFS");
+			},
+		};
+		expect(markStart({ fs: broken })).toBeNull();
 	});
 });
 

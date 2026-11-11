@@ -21,7 +21,10 @@
  * `drift` SEES A WINDOW, NOT A STATE. Comparing two snapshots catches a file
  * written *during* the run and nothing else — a half-finished file saved
  * before the run began breaks the suite just as thoroughly and leaves no drift
- * to find.
+ * to find. Nor can two snapshots see a file edited and put back, or removed
+ * and restored, between them (#5018): `markStart` and `readChangedSince` do,
+ * off each file's change time, which every write, chmod, link or rename
+ * stamps and nothing but a clock stepped back can unset.
  *
  * `neighbourDirty` names the dirty files another session's claim covers, for
  * check-guard-registry.js's anchor stand-down (mantahostels#2636). Past it: a
@@ -35,6 +38,7 @@ const crypto = require("node:crypto");
 const nodeFs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { execGit } = require("./git.js");
 
 /**
@@ -391,7 +395,78 @@ function privateIndexTree(root) {
 	}
 }
 
+/* How long `markStart` waits for the clock files are stamped with to pass
+ * its mark: a coarse stamp moves once a kernel tick, a few milliseconds. */
+const MARK_WAIT_MS = 1000;
+
+/**
+ * A mark of now on the clock the kernel stamps a file's change time with: a
+ * change made after it stamps a later time, one made before it no later
+ * (git's racy-git, where an equal stamp is no proof either way). It returns
+ * only once a fresh stamp has passed the mark, so nothing changed after the
+ * mark can share its stamp. Null where no stamp can be taken.
+ * @param {{fs?: typeof nodeFs}} [opts]
+ * @returns {bigint|null}
+ */
+function markStart({ fs = nodeFs } = {}) {
+	let dir;
+	try {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "run-start-"));
+	} catch {
+		return null;
+	}
+	try {
+		const stamp = () => fs.statSync(dir, { bigint: true }).ctimeNs;
+		const mark = stamp();
+		const until = Date.now() + MARK_WAIT_MS;
+		const tick = new Int32Array(new SharedArrayBuffer(4));
+		while (Date.now() < until) {
+			fs.utimesSync(dir, new Date(), new Date());
+			if (stamp() > mark) return mark;
+			Atomics.wait(tick, 0, 0, 1);
+		}
+		return null;
+	} catch {
+		return null;
+	} finally {
+		try {
+			fs.rmdirSync(dir);
+		} catch {
+			// A leftover empty directory in the tmpdir costs only an inode.
+		}
+	}
+}
+
+/**
+ * Which of `paths` under `root` changed since `since`, a `markStart` mark:
+ * each whose change time is later, and each that will not stat for any
+ * reason but its absence. A path absent now is not named; a file made and
+ * removed again since leaves no stamp to read. Null where there is no mark.
+ * @param {string} root
+ * @param {string[]} paths repo-relative
+ * @param {bigint|null} since
+ * @param {{fs?: typeof nodeFs}} [opts]
+ * @returns {Set<string>|null}
+ */
+function readChangedSince(root, paths, since, { fs = nodeFs } = {}) {
+	if (since === null) return null;
+	/** @type {Set<string>} */
+	const changed = new Set();
+	for (const p of paths) {
+		try {
+			if (fs.lstatSync(path.join(root, p), { bigint: true }).ctimeNs > since)
+				changed.add(p);
+		} catch (e) {
+			const { code } = caught(e);
+			if (code !== "ENOENT" && code !== "ENOTDIR") changed.add(p);
+		}
+	}
+	return changed;
+}
+
 module.exports = {
+	markStart,
+	readChangedSince,
 	readTreeSnapshot,
 	drift,
 	format,

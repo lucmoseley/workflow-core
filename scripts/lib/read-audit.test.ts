@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { readTreeSnapshot } = require("./tree-drift.js");
+const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
@@ -1284,6 +1284,7 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				clean: true,
 				drifted: [],
 				after: readTreeSnapshot(root),
+				since: markStart(),
 				audits: readAudits(log, root),
 			},
 			{ storeRoot: root, lander: false, values: Values },
