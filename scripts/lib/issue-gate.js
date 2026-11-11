@@ -617,16 +617,76 @@ function gateFacts(body) {
 	};
 }
 
+/*
+ * A line that is no part of the paragraph above it: a blank line, or one that
+ * opens a heading, quote, list item, thematic break or fence.
+ */
+const BLOCK_EDGE =
+	/^(?:[ \t]*$|[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|`{3,}|~{3,}))/;
+
 /**
- * Inside an inline code span on its own line — a phrase quoted as an example.
+ * The bounds of the block holding `index`, the most a code span can cover.
+ *
+ * @param {string} body
+ * @param {number} index
+ * @returns {[number, number]}
+ */
+function blockAround(body, index) {
+	const lines = body.split("\n");
+	const starts = [];
+	for (let i = 0, at = 0; i < lines.length; i++) {
+		starts.push(at);
+		at += (lines[i] ?? "").length + 1;
+	}
+	let first = starts.findLastIndex((s) => s <= index);
+	const isEdge = (/** @type {number} */ i) => BLOCK_EDGE.test(lines[i] ?? "");
+	while (first > 0 && !isEdge(first) && (lines[first - 1] ?? "").trim())
+		first--;
+	let last = starts.findLastIndex((s) => s <= index);
+	while (last + 1 < lines.length && !isEdge(last + 1)) last++;
+	return [starts[first] ?? 0, (starts[last] ?? 0) + (lines[last] ?? "").length];
+}
+
+/**
+ * Inside an inline code span — a phrase quoted as an example. A run of N
+ * backticks opens a span that the next run of exactly N closes, across line
+ * breaks within one block; a run with no closer is literal, and a
+ * backslash-escaped backtick opens nothing (CommonMark 0.31.2 §6.1).
  *
  * @param {string} body
  * @param {number} index
  * @returns {boolean}
  */
 function inCodeSpan(body, index) {
-	const lineStart = body.lastIndexOf("\n", index - 1) + 1;
-	return (body.slice(lineStart, index).match(/`/g) || []).length % 2 === 1;
+	const [from, to] = blockAround(body, index);
+	const runs = backtickRuns(body.slice(from, to), from);
+	for (let i = 0; i < runs.length; i++) {
+		const { at, opens } = runs[i] ?? { at: 0, opens: 0 };
+		if (at > index) return false;
+		const j = runs.findIndex((r, k) => k > i && opens > 0 && r.len === opens);
+		const close = runs[j];
+		if (!close) continue;
+		if (index > at && index < close.at + close.len) return true;
+		i = j;
+	}
+	return false;
+}
+
+/**
+ * Each backtick run in `block`: where it sits, its length as a closer, and the
+ * length it opens with — one less after a backslash, which escapes only an
+ * opener.
+ *
+ * @param {string} block
+ * @param {number} from the block's offset in the body
+ * @returns {{at: number, len: number, opens: number}[]}
+ */
+function backtickRuns(block, from) {
+	return [...block.matchAll(/`+/g)].map((m) => {
+		const escaped = /(?:^|[^\\])(?:\\\\)*\\$/.test(block.slice(0, m.index));
+		const at = from + (m.index ?? 0) + (escaped ? 1 : 0);
+		return { at, len: m[0].length, opens: m[0].length - (escaped ? 1 : 0) };
+	});
 }
 
 /**

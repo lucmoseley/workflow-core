@@ -402,6 +402,27 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 			expect(faultTexts(body)).toEqual([]);
 	});
 
+	it("reads a double-backtick span and one across a line break as code (#4973)", () => {
+		for (const body of [
+			"the phrase ``after a week`` is an example",
+			"the phrase ``a `tick` after a week`` is an example",
+			"the phrase `quoted over\nafter a week` is an example",
+		])
+			expect(faultTexts(body)).toEqual([]);
+	});
+
+	it("still names a wait outside every span (#4973)", () => {
+		for (const body of [
+			"a `span` here, then re-run after a week",
+			"a ``span`` here, then re-run after a week",
+			"an unpaired ` tick, then re-run after a week",
+			"a `span left open\n\nre-run after a week` in the next paragraph",
+			"- an item `left open\n- re-run after a week, the next item",
+			"an escaped \\`, then re-run after a week`",
+		])
+			expect(faultTexts(body)).toEqual(["after a week"]);
+	});
+
 	it("counts only what an edit adds, a moved date included", () => {
 		const old = "**Gated until:** 2026-10-05 — x\nafter a week live";
 		expect(introducedTexts(old, `${old}\nnote`)).toEqual([]);
