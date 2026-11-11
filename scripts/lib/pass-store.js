@@ -1239,9 +1239,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 				tree,
 			}),
 		);
-		return held?.run.format === FORMAT && held.row.outcome === "pass"
-			? [cachedFrom(file, held)]
-			: [];
+		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
 	});
 	const notice =
 		unparsed.size > 0
@@ -1288,9 +1286,9 @@ function readEntries(storeRoot, candidates) {
 }
 
 /**
- * `line` as `groupByFile` reads it. A line of another layout naming no row
- * `groupByFile` can read stands as a red on unknown inputs of `file`, whose
- * shard holds it: its outcome may have been a fail (#4995).
+ * A line of another layout naming no row `groupByFile` can read stands as a
+ * red on unknown inputs of `file`, whose shard holds it: its outcome may have
+ * been a fail (#4995).
  * @param {Record<string, unknown>} line
  * @param {string} file
  * @returns {Record<string, unknown>}
@@ -1307,51 +1305,64 @@ function asReadableRun(line, file) {
 }
 
 /**
- * The newest of `entries` that decides its file: a row of this layout that
- * `holds`, or a red of another layout no input proves was on other content.
- * That red decides only to run the file, its layout being one this checkout
- * cannot fully read, so a pass older than it never caches (#4995).
+ * The row of this layout that decides its file among `entries`: the newest
+ * that `holds`, or, behind a red of another layout no input proves was on
+ * other content, the newest that holds and failed. That red's layout is one
+ * this checkout cannot fully read, so it never decides a verdict itself, but
+ * no pass older than it stands (#4995).
  * @param {Entry[]} entries newest first
  * @param {Map<string, string|null>} now each read path's content id here
  * @param {(row: Record<string, unknown>, run: Record<string, unknown>) => boolean} holds
  * @returns {Entry|undefined}
  */
 function findDeciding(entries, now, holds) {
-	return entries.find(({ row, run }) =>
-		run.format === FORMAT
-			? holds(row, run)
-			: row.outcome !== "pass" && !isOtherContent(row, run, now),
-	);
+	let voided = false;
+	return entries.find(({ row, run }) => {
+		if (run.format === FORMAT)
+			return holds(row, run) && (!voided || row.outcome === "fail");
+		voided ||= row.outcome !== "pass" && !isOtherContent(row, run, now);
+		return false;
+	});
 }
 
 /**
- * Whether some input a row of any layout keys held other content than it
- * does `now`: a blob id that differs, or a file where none stood, or none
- * where one did. A mode alone, or an id of any other shape, proves nothing.
+ * Whether some input a row of another layout keys held other content than
+ * it does `now`: a blob id that differs, or a file that has gone since. A
+ * mode alone, an id of any other shape, or a path the row found absent
+ * proves nothing: layouts up to 10 recorded as absent a path the run may yet
+ * have read.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} run
  * @param {Map<string, string|null>} now
  */
 function isOtherContent(row, run, now) {
 	return [row.inputs, run.shared].some((ids) =>
-		Object.entries(
-			ids && typeof ids === "object" && !Array.isArray(ids) ? ids : {},
-		).some(([p, id]) => {
-			const then = blobOf(id);
-			const here = blobOf(now.get(p));
-			return then !== null && here !== null && then !== here;
+		Object.entries(asRecord(ids) ?? {}).some(([p, id]) => {
+			const then = parseBlobId(id);
+			const here = now.get(p);
+			return (
+				then !== null &&
+				(here === ABSENT || (parseBlobId(here) ?? then) !== then)
+			);
 		}),
 	);
 }
 
 /**
  * @param {unknown} id
- * @returns {string|null} the blob id, `ABSENT`, or null where `id` is neither
+ * @returns {string|null} the blob id, null where `id` names none
  */
-function blobOf(id) {
-	if (id === ABSENT) return ABSENT;
-	return typeof id === "string" ? (BLOB_ID.exec(id)?.[1] ?? null) : null;
-}
+const parseBlobId = (id) =>
+	typeof id === "string" ? (BLOB_ID.exec(id)?.[1] ?? null) : null;
+
+/**
+ * @param {unknown} v
+ * @returns {Record<string, unknown>|null} null where `v` is no plain object
+ */
+const asRecord = (v) =>
+	v && typeof v === "object" && !Array.isArray(v)
+		? /** @type {Record<string, unknown>} */ (v)
+		: null;
 
 /**
  * The store's run lines turned into each file's rows, newest first.
@@ -1408,8 +1419,7 @@ const entryReads = ({ row, run }) => [
 ];
 
 /** @param {unknown} v */
-const inputPaths = (v) =>
-	v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : [];
+const inputPaths = (v) => Object.keys(asRecord(v) ?? {});
 
 /**
  * Whether one recorded row's verdict holds now: its file is `file`, it
@@ -1457,9 +1467,14 @@ function isRowHolding(row, run, { file, now, values, reads, tree }) {
  * @returns {Map<string, string|null>|null} null where `v` is no path-to-id map
  */
 function asIds(v) {
-	if (!v || typeof v !== "object" || Array.isArray(v)) return null;
-	const entries = Object.entries(v);
-	if (entries.some(([, id]) => typeof id !== "string")) return null;
+	const ids = asRecord(v);
+	if (!ids) return null;
+	/** @type {[string, string][]} */
+	const entries = [];
+	for (const [p, id] of Object.entries(ids)) {
+		if (typeof id !== "string") return null;
+		entries.push([p, id]);
+	}
 	return new Map(entries);
 }
 
@@ -1631,29 +1646,28 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 }
 
 /**
- * The newest of `entries` before `before` that holds at `sha`'s tree, none
- * where another layout's red decides first.
+ * The row of `entries` before `before` that decides at `sha`'s tree.
  * @param {string} file
  * @param {Entry[]} entries newest first
  * @param {{ sha: string, before: string, git: (args: string[]) => string,
  *   values: Values }} at
  */
 function heldRow(file, entries, { sha, before, git, values }) {
-	/* A voiding row says what its file's content failed on beside unknown
-	 * inputs: no evidence of a red at a commit. */
+	/* A voiding row of this layout says what its file's content failed on
+	 * beside unknown inputs: no evidence of a red at a commit. Another
+	 * layout's only ever voids an older pass. */
 	const earlier = entries.filter(
-		({ row, run }) => String(run.at) < before && row.voiding !== true,
+		({ row, run }) =>
+			String(run.at) < before &&
+			(row.voiding !== true || run.format !== FORMAT),
 	);
 	const paths = [...new Set(earlier.flatMap(entryReads))];
 	if (paths.length === 0) return;
 	const now = absentAsId(readTreeIds(git, `${sha}^{tree}`, paths));
 	const tree = buildCommitAt(git, sha);
-	const held = findDeciding(earlier, now, (row, run) =>
+	return findDeciding(earlier, now, (row, run) =>
 		isRowHolding(row, run, { file, now, values, reads: [], tree }),
 	);
-	/* Another layout's red is no evidence of a red at `sha`, which its
-	 * layout leaves unproven, but it leaves no older pass standing (#4995). */
-	return held?.run.format === FORMAT ? held : undefined;
 }
 
 module.exports = {

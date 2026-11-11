@@ -1308,7 +1308,6 @@ describe("the uncached pragma", () => {
 });
 
 describe("a red recorded at another layout (#4995)", () => {
-	/** Rewrite the newest line of `file`'s shard to `format`. */
 	const reformatNewest = (dir: string, file: string, format: number) => {
 		const lines = fs
 			.readFileSync(shardOf(dir, file), "utf8")
@@ -1329,7 +1328,6 @@ describe("a red recorded at another layout (#4995)", () => {
 				execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
 			values: VALUES,
 		}).get(A);
-	/* This layout's, read off a row the store writes. */
 	const formatOf = (dir: string) =>
 		JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n")[0])
 			.format as number;
@@ -1349,14 +1347,44 @@ describe("a red recorded at another layout (#4995)", () => {
 		},
 	);
 
-	it("leaves the pass standing where an input proves the red ran on other content", () => {
+	it.each([
+		["an older", -1],
+		["a newer", 1],
+	])(
+		"%s layout's red leaves the pass standing where an input proves it ran on other content",
+		(_which, step) => {
+			const dir = repo();
+			run(dir, [A]);
+			write(dir, "lib.js", "broken\n");
+			run(dir, [A], { failing: [A] });
+			reformatNewest(dir, A, formatOf(dir) + step);
+			write(dir, "lib.js", "lib.js v0\n");
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		},
+	);
+
+	it("takes no path its red found absent as proof of other content", () => {
 		const dir = repo();
 		run(dir, [A]);
-		write(dir, "lib.js", "broken\n");
 		run(dir, [A], { failing: [A] });
 		reformatNewest(dir, A, formatOf(dir) - 1);
-		write(dir, "lib.js", "lib.js v0\n");
-		expect(cachedOf(dir, [A])).toEqual([A]);
+		const lines = fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n");
+		const red = JSON.parse(lines.pop() as string);
+		red.files[0].inputs["other.md"] = "absent";
+		fs.writeFileSync(
+			shardOf(dir, A),
+			`${[...lines, JSON.stringify(red)].join("\n")}\n`,
+		);
+		expect(cachedOf(dir, [A])).toEqual([]);
+	});
+
+	it("leaves the classifier an older red of this layout behind the pass it voids", () => {
+		const dir = repo();
+		run(dir, [A], { failing: [A] });
+		run(dir, [A]);
+		run(dir, [A], { failing: [A] });
+		reformatNewest(dir, A, formatOf(dir) - 1);
+		expect(heldAtHead(dir)?.red).toBe(true);
 	});
 
 	it("leaves a newer pass caching over it", () => {
@@ -1377,6 +1405,7 @@ describe("a red recorded at another layout (#4995)", () => {
 			`${JSON.stringify({ format, at: nextAt(), results: [{ path: A }] })}\n`,
 		);
 		expect(cachedOf(dir, [A])).toEqual([]);
+		expect(heldAtHead(dir)).toBeUndefined();
 	});
 
 	it("is no evidence for the already-red classifier of a red at a commit", () => {
