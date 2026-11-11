@@ -59,6 +59,9 @@ const SESSION_DEFAULT = LAUNCH_OPUS;
 const OVERFLOW_MODEL = LAUNCH_OPUS;
 const OVERFLOW_SESSION_VAR = "WFC_OVERFLOW_SESSION";
 
+/** What opens an overflow session's name, so its row says it spends API credits. */
+const OVERFLOW_PREFIX = "Overflow · ";
+
 /**
  * @param {Record<string, string | undefined>} env
  * @param {string} session the session id the hook payload names
@@ -318,6 +321,7 @@ module.exports = {
 	isFable,
 	isOverflowSession,
 	OVERFLOW_MODEL,
+	OVERFLOW_PREFIX,
 	OVERFLOW_SESSION_VAR,
 	relaunchFlags,
 	remapModel,

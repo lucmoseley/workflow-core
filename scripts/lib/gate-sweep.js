@@ -60,9 +60,7 @@ const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
 const keyOf = (root, n) => `${root}#${n}`;
 
 /**
- * The launch prompt for one judgement. It names no number but the issue's,
- * since the dispatcher reads every integer in a prompt as an issue it holds;
- * a resolved check-gates.js path could carry a plugin version's.
+ * The launch prompt for one judgement.
  * @param {number} n
  */
 const buildJudgementPrompt = (n) =>

@@ -151,7 +151,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe("reading issue numbers out of a launch prompt", () => {
-	it("takes every integer, so a merged bundle is covered", () => {
+	it("takes every integer in the argument slot, so a merged bundle is covered", () => {
 		expect(ledger.issuesIn("/implement 341 353 366")).toEqual([341, 353, 366]);
 	});
 
@@ -159,9 +159,50 @@ describe("reading issue numbers out of a launch prompt", () => {
 		expect(ledger.issuesIn("/pick-next")).toEqual([]);
 	});
 
+	it("reads the argument slot and each `#<n>`, never a digit in prose (#4985)", () => {
+		expect(
+			ledger.issuesIn(
+				"/implement 4881 — RESUMED from ~/.claude2 session c1c82216; see #4880",
+			),
+		).toEqual([4881, 4880]);
+		expect(ledger.issuesIn("Implement 972")).toEqual([972]);
+		expect(ledger.issuesIn("341,353")).toEqual([341, 353]);
+		expect(ledger.issuesIn("--resume /implement 341")).toEqual([341]);
+		expect(ledger.issuesIn("--resume /wayfinder 3209 3212")).toEqual([3212]);
+		expect(ledger.issuesIn("/implement 4881: fix it")).toEqual([4881]);
+		expect(ledger.issuesIn("/implement 4881—x")).toEqual([4881]);
+		expect(ledger.issuesIn("/implement 12abc")).toEqual([]);
+	});
+
 	it("reads the map in `/wayfinder <map> <ticket>` as context, and claims a bare map (#3217)", () => {
 		expect(ledger.issuesIn("/wayfinder 3209 3212")).toEqual([3212]);
 		expect(ledger.issuesIn("/wayfinder 3209")).toEqual([3209]);
+	});
+});
+
+describe("a rescue prompt's plan dir and short id hold no issue (#4985)", () => {
+	it("accepts two rescues on `~/.claude2` of different issues in one window", () => {
+		stubOracle(idle);
+		const first =
+			"/implement 4880 — RESUMED from ~/.claude2 session be5c4bcc; read it";
+		const second =
+			"/implement 4881 — RESUMED from ~/.claude2 session c1c82216; read it";
+		runCli(["--record", "--issues", first, "--prompt", first]);
+		expect(readLedgerRow()).toMatchObject({ issues: [4880] });
+		const r = verdict(second);
+		expect(r.status).toBe(0);
+		expect(r.hits).toEqual([]);
+	});
+});
+
+describe("an overflow session's name holds its issue (#4985)", () => {
+	it("refuses a dispatch of the issue a running overflow session names", () => {
+		stubOracle(["Overflow · Implement 972: something"]);
+		const r = verdict("/implement 972");
+		expect(r.status).toBe(1);
+		expect(r.hits.map(({ issue, via }) => ({ issue, via }))).toEqual([
+			{ issue: 972, via: "live" },
+		]);
 	});
 });
 

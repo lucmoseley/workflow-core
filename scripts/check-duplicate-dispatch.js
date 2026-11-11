@@ -79,6 +79,7 @@ const { heldIssues } = require("./lib/arbiter-issue-claims");
 const { holderName, parentVerdictOf } = require("./lib/parent-claims");
 const { readHostTracker } = require("./lib/refill-repos");
 const { fromEnv } = require("./lib/session-id");
+const { OVERFLOW_PREFIX } = require("./lib/model-table");
 
 const {
 	DEFAULT_WINDOW_HOURS,
@@ -144,13 +145,25 @@ function liveIssues() {
 	const names = new Map(others.map((s) => [s.sessionId, s.name || ""]));
 	for (const s of others) {
 		const name = typeof s?.name === "string" ? s.name : "";
-		if (!name) continue;
-		const [prefix] = name.split(":");
-		if (prefix === undefined)
-			throw new Error(`splitting the session name ${name} yielded no part`);
-		for (const n of issuesIn(prefix)) if (!issues.has(n)) issues.set(n, name);
+		for (const n of nameIssues(name)) if (!issues.has(n)) issues.set(n, name);
 	}
 	return { ok: true, issues, listed, names };
+}
+
+/**
+ * The issues a session's name claims: its part before the first `:`, past any
+ * overflow prefix (#4985).
+ * @param {string} name
+ * @returns {number[]}
+ */
+function nameIssues(name) {
+	const bare = name.startsWith(OVERFLOW_PREFIX)
+		? name.slice(OVERFLOW_PREFIX.length)
+		: name;
+	const [prefix] = bare.split(":");
+	if (prefix === undefined)
+		throw new Error(`splitting the session name ${name} yielded no part`);
+	return issuesIn(prefix);
 }
 
 /**
