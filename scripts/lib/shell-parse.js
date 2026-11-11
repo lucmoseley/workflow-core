@@ -1087,7 +1087,10 @@ function resolveWord(word, scope) {
  * @property {import("./shell-words.js").Dirs} cwds every directory it may
  *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
  * @property {() => Redirect[]} redirects
- * @property {(words?: string[]) => WriteTarget[]} writeTargets
+ * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
+ *   `words` the command's own by default; `cwd` the directory a word target
+ *   resolves in, the walk's by default, "" where unknown (#5012) — the
+ *   redirects always resolve in the walk's
  * @property {(word: string) => string | null} resolveWord
  * @property {(name: string) => boolean} assigned whether the command assigned
  *   `name`, before this point, a value the walk resolves (#2436)
@@ -1342,10 +1345,21 @@ function loseCwd(walk, words) {
  * @param {string} word
  */
 function absolutePath(walk, word) {
-	const p = resolveWord(word, walk.scope);
+	return absoluteIn(walk.cwd, word, walk.scope);
+}
+
+/**
+ * A word as an absolute path, a relative one joined to `cwd`; "" where it
+ * will not resolve or `cwd` is unknown.
+ * @param {string} cwd
+ * @param {string} word
+ * @param {Scope} scope
+ */
+function absoluteIn(cwd, word, scope) {
+	const p = resolveWord(word, scope);
 	if (!p) return "";
 	if (p.startsWith("/")) return normAbs(p);
-	return walk.cwd ? normAbs(`${walk.cwd}/${p}`) : "";
+	return cwd ? normAbs(`${cwd}/${p}`) : "";
 }
 
 /**
@@ -1383,10 +1397,10 @@ function walkCommands(parsed, fn, ports) {
 				cwd: walk.cwd,
 				cwds: [walk.cwd, ...walk.cwdDoubt],
 				redirects,
-				writeTargets: (w = own) =>
+				writeTargets: (w = own, cwd = walk.cwd) =>
 					writeTargets(w, redirects(), {
 						spans: scope.spans,
-						resolveAbs: abs,
+						resolveAbs: (word) => absoluteIn(cwd, word, scope),
 						resolve: (word) => resolveWord(word, scope),
 						isDir: ports.isDir,
 					}),
