@@ -44,7 +44,7 @@ reps="${3:-5}"
   echo "measure-guard-forks: $guard is not executable — chmod +x it first" >&2
   exit 1
 }
-head -1 "$guard" | grep -qE '^#!.*\b(bash|sh)\b' || {
+grep -qE '^#!.*\b(bash|sh)\b' <<<"$(head -1 "$guard")" || {
   echo "measure-guard-forks: $guard's shebang is not bash/sh — this harness" >&2
   echo "  counts shell-guard forks; a node/python hook needs a different trace." >&2
   exit 1
