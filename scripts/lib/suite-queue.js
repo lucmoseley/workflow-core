@@ -1209,9 +1209,9 @@ const QUEUE_POLL_MS = 10_000;
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
 /* How long one spell of the Windows-memory hold may hold a wait before the
- * wait runs anyway, logged (#4850). Over the 24 h #4852 read, the hold's
- * spells at its floor ran p50 1, p90 4 and max 8 minutes, and no wait reached
- * this maximum. */
+ * wait runs anyway, logged (#4850). A first guess that has not yet bound:
+ * over the 24 h #4852 read, the hold's spells at the 750 MB floor ran p50 1,
+ * p90 4 and max 8 minutes, and no wait reached it. */
 const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 
 /**

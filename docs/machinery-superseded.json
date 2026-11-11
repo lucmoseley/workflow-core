@@ -2649,6 +2649,15 @@
 			{
 				"path": "scripts/fixtures/gate-judge-cases.json",
 				"lines": []
+			},
+			{
+				"path": "scripts/instruction-surface-anchors.json",
+				"anchors": [
+					{
+						"anchor": "after the hold moved to a 1,000 MB floor",
+						"needle": "1,000 MB floor"
+					}
+				]
 			}
 		]
 	}
