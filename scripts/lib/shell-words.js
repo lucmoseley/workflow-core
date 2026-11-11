@@ -570,7 +570,7 @@ const WRAPPERS = new Map([
 function unwrap(words, spans, judged = []) {
 	/** @type {Unwrapped[]} */
 	const pending = [];
-	const first = stripRun(bareRun(words), { spans, judged, pending });
+	const first = stripRun(buildBareRun(words), { spans, judged, pending });
 	/** @type {Unwrapped[]} */
 	const later = [];
 	for (let run = pending.shift(); run !== undefined; run = pending.shift())
@@ -650,7 +650,7 @@ function runCwd(cwd, chdirs, spans) {
  * @returns {Unwrapped}
  */
 function stripRun(run, { spans, judged, pending }) {
-	const st = newStrip(run, judged, pending);
+	const st = buildStrip(run, judged, pending);
 	stripWrappers(st, spans);
 	return {
 		words: st.ws,
@@ -684,8 +684,8 @@ function stripWrappers(st, spans) {
  * @param {string[]} words masked, from the command word on
  * @param {string[]} spans
  */
-function opensScript(words, spans) {
-	const st = newStrip(bareRun(words), [], []);
+function isScriptNext(words, spans) {
+	const st = buildStrip(buildBareRun(words), [], []);
 	stripWrappers(st, [...spans]);
 	return st.awaitsScript;
 }
@@ -701,17 +701,27 @@ function opensScript(words, spans) {
 function wrapperScript(words, spans) {
 	const [first] = words;
 	if (first === undefined) return null;
-	const st = newStrip(bareRun(words), [], []);
+	const st = buildStrip(buildBareRun(words), [], []);
 	stripOne(st, first, [...spans]);
 	return st.script;
 }
+
+/**
+ * A run's own text, masked: the segment holding it, or for a command a `-c`
+ * string runs, that command's words alone, so a guard handing back a rewrite
+ * never writes past the string's closing quote (#4978).
+ * @param {Pick<Unwrapped, "words" | "scripted">} run
+ * @param {string} segment
+ */
+const runText = (run, segment) =>
+	run.scripted ? run.words.join(" ") : segment;
 
 /**
  * A run of `words` under no wrapper.
  * @param {string[]} words
  * @returns {Unwrapped}
  */
-const bareRun = (words) => ({
+const buildBareRun = (words) => ({
 	words,
 	wrapperWords: [],
 	chdirs: [],
@@ -727,7 +737,7 @@ const bareRun = (words) => ({
  * @param {Unwrapped[]} pending
  * @returns {Strip}
  */
-const newStrip = (run, judged, pending) => ({
+const buildStrip = (run, judged, pending) => ({
 	ws: [...run.words],
 	judged,
 	inEnv: false,
@@ -1569,8 +1579,9 @@ module.exports = {
 	literal,
 	unwrap,
 	unwrapArgv,
-	opensScript,
+	isScriptNext,
 	wrapperScript,
+	runText,
 	runCwd,
 	carriesVar,
 	commandName,

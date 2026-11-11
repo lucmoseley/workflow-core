@@ -680,7 +680,8 @@ function parseHeredocTerm(mask, line) {
  * between them. A quote opening a message argument was meant, and one opening
  * a `flock -c` or `watch` script hides nothing, unwrap judging each of its
  * lines; only there does the join hold. A `sh -c` script is not among them:
- * no git guard reads one.
+ * no git guard reads one. Residual: three cores read no unwrap run, so such a
+ * script's later `gh` or text line passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -704,7 +705,7 @@ function joinLogicalLines(commandLines, lx, spans) {
 			const at = `${lx.opens}${lx.frames ? "open" : ""}`;
 			if (heldAt !== at) {
 				heldAt = at;
-				held = holdsJoin(lx, spans);
+				held = isJoinHeld(lx, spans);
 			}
 			if (!held && isCommandAbsorbed(line, spans)) {
 				pending.push(line);
@@ -776,7 +777,7 @@ function isMessageOpen(lx) {
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
  */
-const holdsJoin = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
+const isJoinHeld = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
 
 /**
  * Is the lexer's still-open quote, opening a word of its own, the script a
@@ -788,7 +789,7 @@ function isScriptOpen(lx, spans) {
 	if (!/[ \t]$/.test(lx.prefix)) return false;
 	const lines = flatten(lx.prefix).split("\n");
 	const { words, wi, ran } = commandWords(lines.at(-2) ?? "");
-	return ran && shellWords.opensScript(words.slice(wi), spans);
+	return ran && shellWords.isScriptNext(words.slice(wi), spans);
 }
 
 /**

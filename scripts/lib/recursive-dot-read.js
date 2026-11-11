@@ -123,7 +123,13 @@ const {
 	walkCommands,
 } = require("./shell-parse.js");
 const { escapeRe } = require("./regex-group.js");
-const { findStarts, literal, scanFlags, unwrap } = require("./shell-words.js");
+const {
+	findStarts,
+	literal,
+	runText,
+	scanFlags,
+	unwrap,
+} = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
 
@@ -249,28 +255,28 @@ function decide(raw, ctx) {
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function rewrite({ root, tree, showsPrompt, ctx, judgement }, mode) {
-	const raw = judgement.base;
+	const { base } = judgement;
 	/* A search fires only where the shell stands at the tree's root. */
 	if (tree === null) return null;
 	const expansion = expand(tree, ctx);
 	if (expansion === null) return null;
-	/* Textual substitution on the raw string — or, for a search a `-c` string
-	 * runs, on that search as typed (#4978) — so quoting everywhere else
+	/* Textual substitution on the command as typed — or, for a search a `-c`
+	 * string runs, on that search as typed (#4978) — so quoting everywhere else
 	 * survives untouched. For a named root, exactly one standalone root is
 	 * present — the count required it — so the first match is the search root.
 	 * For no path, the search's own text gains the expansion after it; a
 	 * redirection it carries may stand before a path, as shell reads it. */
 	const rewritten =
 		judgement.fires === "bare"
-			? raw.replace(judgement.typed, () => `${judgement.typed} ${expansion}`)
-			: raw.replace(
+			? base.replace(judgement.typed, () => `${judgement.typed} ${expansion}`)
+			: base.replace(
 					new RegExp(
 						`(^|[ \\t\\n\\v\\f\\r])(\\.|${escapeRe(root)})\\/?([ \\t\\n\\v\\f\\r]|$)`,
 						"m",
 					),
 					(_m, before, _r, after) => `${before}${expansion}${after}`,
 				);
-	if (rewritten === raw) {
+	if (rewritten === base) {
 		ctx.log(
 			"the standalone root did not substitute — a recursive dot search was allowed unrewritten",
 		);
@@ -485,16 +491,14 @@ const isRootSpelling = (w, root) =>
  * @param {string} cwd where it runs
  */
 function judge(scene, segment, words, cwd) {
-	for (const { words: w, watched, scripted } of unwrap(words, scene.spans)) {
+	for (const run of unwrap(words, scene.spans)) {
+		const { words: w, watched, scripted } = run;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
-		/* A search a `-c` string runs is rewritten as itself: the command's
-		 * own text holds it behind the string's quotes (#4978). */
-		const own = scripted
-			? { segment: w.join(" "), words: w }
-			: { segment, words };
+		/* A search a `-c` string runs is rewritten as itself (#4978). */
+		const own = { segment: runText(run, segment), words: scripted ? w : words };
 		const base = scripted
 			? trimRun(asWritten(own.segment, scene.spans), BASH_SPACE)
 			: scene.raw;
@@ -653,18 +657,18 @@ const rootCount = (text, root) =>
  * @param {Search} search
  * @param {string} head the search's command word
  */
-function bareSearch({ spans }, { segment, words, base: raw }, head) {
+function bareSearch({ spans }, { segment, words, base }, head) {
 	for (const x of words) {
 		if (x === head) break;
 		if (afterSlash(x) === "xargs") return null;
 	}
 	if (head === "rg" && segment.includes("<")) return null;
 	const text = trimRun(asWritten(segment, spans), BASH_SPACE);
-	const at = raw.indexOf(text);
+	const at = base.indexOf(text);
 	if (!text || at < 0) return null;
 	/* Twice in the command, and which one is this search is unreadable. */
-	if (raw.indexOf(text, at + text.length) >= 0) return null;
-	const before = trimEndRun(raw.slice(0, at), BASH_SPACE);
+	if (base.indexOf(text, at + text.length) >= 0) return null;
+	const before = trimEndRun(base.slice(0, at), BASH_SPACE);
 	if (head === "rg" && before.endsWith("|") && !before.endsWith("||"))
 		return null;
 	return text;

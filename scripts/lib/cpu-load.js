@@ -120,6 +120,9 @@ const SHELLS = ["bash", "sh", "dash", "zsh", "ksh"];
 /* The wrappers whose script runs through `sh -c`, judged by judgeScriptWrapper. */
 const SCRIPT_WRAPPERS = ["flock", "watch"];
 
+/* The caps judged as wrappers of their own, standing as the command word. */
+const CAP_WRAPPERS = ["taskset"];
+
 /* The sinks a piped `yes` is still load into. */
 const SINKS = ["cat", "tee", "dd", "pv"];
 
@@ -542,7 +545,7 @@ const judgeScript = (at, words, spans, scan) =>
 function judgeScriptWrapper(at, words, spans, scan) {
 	const script = wrapperScript(words, spans);
 	if (script === null)
-		return judgeRuns(at, words, { spans, scan, judged: ["taskset"] });
+		return judgeRuns(at, words, { spans, scan, judged: CAP_WRAPPERS });
 	return scanText(script, at.depth + 1, at.where, scan);
 }
 
@@ -574,7 +577,7 @@ const judge = (at, raw, spans, scan) =>
 	judgeRuns(at, raw, {
 		spans,
 		scan,
-		judged: ["taskset", ...SCRIPT_WRAPPERS],
+		judged: [...CAP_WRAPPERS, ...SCRIPT_WRAPPERS],
 	});
 
 /**

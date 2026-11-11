@@ -133,7 +133,13 @@ const {
 	unmask,
 	walkCommands,
 } = require("./shell-parse.js");
-const { QUOTED, carriesVar, literal, unwrap } = require("./shell-words.js");
+const {
+	QUOTED,
+	carriesVar,
+	literal,
+	runText,
+	unwrap,
+} = require("./shell-words.js");
 const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
@@ -864,10 +870,7 @@ function waitLeverOf(running) {
  */
 function judgedOf(st, at, s, readMb) {
 	const { segment, words } = at;
-	/* A launch a `-c` string runs is handed back as the command inside the
-	 * string: text after the segment's last word would land past its closing
-	 * quote (#4978). */
-	const launchText = at.scripted ? words.join(" ") : segment;
+	const launchText = runText(at, segment);
 	const running = readRunning(st, s);
 	const busy = running?.workers ?? 0;
 	const watchLimb = watchLimbOf(st, segment);

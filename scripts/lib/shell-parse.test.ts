@@ -1793,9 +1793,12 @@ describe('walkGit, scope "shared"', () => {
 		(command) => {
 			expect(walkGitRun(command).out).toContain(`[checkout][${SHARED}]`);
 			expect(walkGitRun(`timeout 5 ${command}`).out).toContain("[checkout]");
-			expect(walkGitRun("timeout 5 git checkout x").calls).toEqual([]);
 		},
 	);
+
+	it("still strips no wrapper outside a script without unwrap (#4978)", () => {
+		expect(walkGitRun("timeout 5 git checkout x").calls).toEqual([]);
+	});
 
 	describe("judges a -c string's git command as the same command bare (#4863)", () => {
 		const Nope = `${DIR}/nope`;

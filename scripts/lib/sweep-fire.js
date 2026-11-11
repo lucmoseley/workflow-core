@@ -102,7 +102,7 @@ const sweepFires = (words, spans) =>
 	ghWords(words, spans).filter((gh) => isSweepRun(gh.args, spans)).length;
 
 /**
- * Whether one `gh` run fires a sweep workflow, as firesSweep reads it.
+ * Whether one `gh` run fires a sweep workflow, as sweepFires counts it.
  * @param {string[]} args the run's words past `gh`'s own flags
  * @param {string[]} spans
  */
