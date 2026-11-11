@@ -481,6 +481,17 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		);
 	});
 
+	it("runs untraced, and doubts, a stub whose environment asks for no tracer", () => {
+		const root = checkout();
+		const body = runsTool(root, stubTool("#!/bin/sh\necho '{}'\n")).replace(
+			"...process.env,",
+			'...process.env, WFC_READ_AUDIT_UNTRACED: "1",',
+		);
+		expect(reads(root, body).doubt).toMatch(
+			/a child \(tool api user\) ran in the checkout/,
+		);
+	});
+
 	it("runs untraced, and doubts, a file the kernel will not run without a shell", () => {
 		const root = checkout();
 		const audit = reads(root, runsTool(root, stubTool("echo '{}'\n")));

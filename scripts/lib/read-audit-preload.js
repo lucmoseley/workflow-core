@@ -19,7 +19,10 @@
  * sync spawn (lib/read-audit-handed.js). No other program is traced: a
  * traced process that is killed stays until its tracer reaps it, which a
  * test of what a real program leaves running would see. A variable every
- * child inherits puts nearly every shell and stub in reach (#4982).
+ * child inherits puts nearly every shell and stub in reach (#4982), and a
+ * traced process runs slower: a test timing what its child does sets
+ * `WFC_READ_AUDIT_UNTRACED=1` in that child's environment, which runs it
+ * untraced, so it doubts where it is in reach.
  *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
@@ -525,6 +528,7 @@ function install() {
 		/* The tracer runs the program by its name, as the spawn would: only a
 		 * name the spawn passes as the program's own first word, found as a
 		 * file the kernel runs with no shell's help. */
+		if (opts?.envPairs?.includes?.("WFC_READ_AUDIT_UNTRACED=1")) return false;
 		const bin = binOf(file, cwd, opts?.envPairs);
 		if (argv[0] !== file || bin.length === 0 || !isProgram(String(bin[1])))
 			return false;
