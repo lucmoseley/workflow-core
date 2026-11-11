@@ -1,11 +1,10 @@
 /*
  * burn-mode.js — burn mode's state: the one resolver for its marker, and what
- * the switch left on the machine. Which model each layer moves to is
- * lib/model-table.js's.
+ * the switch left on the machine. What each mode writes is the routing file's,
+ * through lib/model-table.js's modeSettings.
  *
- * The state is one marker file per MACHINE, beside the settings files it is
- * the record for. `on` writes the model it found into it, so `off` restores
- * what was there rather than assuming the standing default (mantahostels#130).
+ * The state is one marker file per MACHINE, beside the settings files it
+ * governs. Its presence is the state; it holds no record.
  */
 
 const fs = require("node:fs");
@@ -13,11 +12,6 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
-const {
-	BURN_SESSION_EFFORT,
-	mapSessionModel,
-	SESSION_DEFAULT,
-} = require("./model-table.js");
 const { readPlanDirs } = require("./plan-dirs.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
@@ -87,63 +81,50 @@ function isPresent(file) {
 }
 
 /**
- * The plans' models `on` found, by real settings path, from the marker; {} for
- * a marker holding no record or one that will not parse.
- * @param {string} marker
- * @returns {Record<string, string>}
- */
-function readRecord(marker) {
-	try {
-		const model = JSON.parse(fs.readFileSync(marker, "utf8"))?.model;
-		return model && typeof model === "object" ? model : {};
-	} catch {
-		return {};
-	}
-}
-
-/**
- * Whether one plan's session model disagrees with the switch: on, a model
- * other than the burn layer's target for what `on` found there (the model it
- * holds, where the marker records none), or a Fable effort other than burn's
- * (#5004); off, the model `on` moves the default to. A file that will not parse disagrees with both.
+ * How one plan's settings depart from a mode's writes: its `model`, and each
+ * `modelSettings` effort the mode writes; one fault where the file will not
+ * parse (#3877), since the script's own jq fails on it too.
  * @param {string} file the real settings path
- * @param {boolean} on
- * @param {Record<string, string>} record the marker's record of each plan's prior model
+ * @param {boolean} burn which mode to judge by
+ * @returns {{model: string, faults: string[]}} the model it holds, "" for none
  */
-function isPlanDisagreeing(file, on, record) {
-	let model;
-	let effort;
+function readPlanFaults(file, burn) {
+	const want = require("./model-table.js").modeSettings(burn);
+	const mode = burn ? "burn" : "standard";
+	let settings;
 	try {
-		const settings = JSON.parse(fs.readFileSync(file, "utf8"));
-		model = trimmed(settings?.model);
-		effort = settings?.modelSettings?.[BURN_SESSION_EFFORT.model]?.effortLevel;
+		settings = JSON.parse(fs.readFileSync(file, "utf8"));
 	} catch {
-		// #3877: the script's own jq fails on this file too, so it is no plan in step.
-		return true;
+		return { model: "", faults: ["settings will not parse"] };
 	}
-	const session = model || SESSION_DEFAULT;
-	if (!on) return session === mapSessionModel("", true);
-	const basis = Object.hasOwn(record, file) ? record[file] : model;
-	return (
-		session !== mapSessionModel(basis, true) ||
-		effort !== BURN_SESSION_EFFORT.burn
-	);
+	const model = trimmed(settings?.model);
+	/** @type {string[]} */
+	const faults = [];
+	if (model !== want.model) faults.push(`not the ${mode} model, ${want.model}`);
+	for (const [id, { effortLevel }] of Object.entries(want.modelSettings)) {
+		const has = settings?.modelSettings?.[id]?.effortLevel;
+		if (has !== effortLevel)
+			faults.push(
+				`${id} effortLevel=${has ?? "absent"}, not the ${mode} effort, ${effortLevel}`,
+			);
+	}
+	return { model, faults };
 }
 
 /**
  * Burn mode as the script left it, read off the machine so every reader sees a
- * half-flip however long ago it happened. `on` is null, with `error`, where the
- * marker cannot be placed or the plans cannot be listed.
+ * half-flip however long ago it happened: a plan disagrees where it departs
+ * from the current mode's writes. `on` is null, with `error`, where the marker
+ * cannot be placed, the plans cannot be listed or the routing file will not
+ * load.
  * @param {Record<string, string | undefined>} [env]
  * @returns {{on: boolean|null, disagreeing: string[], error: string|null}}
  */
 function readBurnState(env = process.env) {
 	try {
-		const marker = markerPath(env);
-		const on = fs.existsSync(marker);
-		const record = on ? readRecord(marker) : {};
+		const on = fs.existsSync(markerPath(env));
 		const disagreeing = [...readPlanFiles(env.HOME ?? "").files]
-			.filter(([file]) => isPlanDisagreeing(file, on, record))
+			.filter(([file]) => readPlanFaults(file, on).faults.length > 0)
 			.map(([, name]) => name);
 		return { on, disagreeing, error: null };
 	} catch (err) {
@@ -164,6 +145,9 @@ module.exports = {
  *   plans [--quiet]   prints each plan's settings file, real and NUL-ended,
  *                     warning of each that resolves to nothing unless quiet;
  *                     2 where HOME will not list
+ *   report [--burn]   prints each plan with its model and how it departs from
+ *                     the mode's writes; 1 where any departs, 2 where the
+ *                     plans will not list or the routing file will not load
  *
  * stdout is always a pipe here, so it is written synchronously before the
  * exit — process.stdout.write can be cut off by process.exit on a pipe.
@@ -173,7 +157,7 @@ if (require.main === module) {
 		const { values, positionals } = parseArgs({
 			allowPositionals: true,
 			strict: true,
-			options: { quiet: { type: "boolean" } },
+			options: { quiet: { type: "boolean" }, burn: { type: "boolean" } },
 		});
 		const [mode] = positionals;
 		if (mode === "marker") {
@@ -200,6 +184,26 @@ if (require.main === module) {
 				);
 			writeFd(1, [...files.keys()].map((f) => `${f}\0`).join(""));
 			process.exit(0);
+		}
+		if (mode === "report") {
+			let rows;
+			try {
+				rows = [...readPlanFiles(process.env.HOME ?? "").files].map(
+					([file, name]) => ({
+						name,
+						...readPlanFaults(file, values.burn === true),
+					}),
+				);
+			} catch (err) {
+				writeFd(2, `burn-mode: ${caught(err).message}\n`);
+				process.exit(2);
+			}
+			for (const { name, model, faults } of rows)
+				writeFd(
+					1,
+					`  ${name.padEnd(32)} model=${model || "absent"}${faults.map((f) => `  (${f})`).join("")}\n`,
+				);
+			process.exit(rows.some((r) => r.faults.length > 0) ? 1 : 0);
 		}
 		process.exit(2);
 	} catch {

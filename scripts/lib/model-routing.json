@@ -1,0 +1,40 @@
+{
+	"models": {
+		"haiku": { "id": "claude-haiku-5-5", "also": [] },
+		"sonnet": {
+			"id": "claude-sonnet-5-5",
+			"also": ["claude-sonnet-5", "opusplan"]
+		},
+		"opus": { "id": "claude-opus-5-5", "also": ["claude-opus-5"] },
+		"fable": {
+			"id": "claude-fable-5-2",
+			"also": ["claude-fable-5", "claude-fable-5-1"]
+		}
+	},
+	"modes": {
+		"standard": {
+			"session": "opus",
+			"modelSettings": {
+				"haiku": "xhigh",
+				"opus": "medium",
+				"fable": "medium"
+			},
+			"route": {
+				"haiku": { "to": "haiku", "effort": "xhigh" },
+				"sonnet": { "to": "haiku", "effort": "xhigh" },
+				"opus": { "to": "opus", "effort": null },
+				"fable": { "to": "opus", "effort": null }
+			}
+		},
+		"burn": {
+			"session": "fable",
+			"modelSettings": { "haiku": "xhigh", "opus": "medium", "fable": "low" },
+			"route": {
+				"haiku": { "to": "opus", "effort": "medium" },
+				"sonnet": { "to": "opus", "effort": "medium" },
+				"opus": { "to": "fable", "effort": "low" },
+				"fable": { "to": "fable", "effort": null }
+			}
+		}
+	}
+}

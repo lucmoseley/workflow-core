@@ -1,18 +1,26 @@
 // @vitest-environment node
 /*
- * scripts/burn-off-sessions.js moves each live Fable session to Opus at
- * `burn-mode.sh off` (#4992). A red here means a session is left on Fable
- * reported as moved, or one is resumed that should not be.
+ * scripts/burn-off-sessions.js moves each live session on a model only burn
+ * mode uses back to its standard model at `burn-mode.sh off` (#4992). A red
+ * here means a session is left routed away reported as moved, or one is
+ * resumed that should not be. The routing is the fixture's, whose routed-away
+ * model is its `sonnet`.
  */
-import { describe, expect, it } from "vitest";
-import { moveOne } from "./burn-off-sessions.js";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { moveOne, sortSessions } from "./burn-off-sessions.js";
+
+const FIXTURE = path.resolve(__dirname, "fixtures/model-routing/fixture.json");
+beforeEach(() => {
+	vi.stubEnv("WFC_MODEL_ROUTING", FIXTURE);
+});
 
 const S = {
 	seat: "/h/.claude2",
 	sessionId: "s1",
 	cwd: "/w",
 	name: "Implement 1",
-	model: "claude-fable-5-2",
+	model: "test-sonnet-1[1m]",
 };
 
 function how(failed: string | null = null, extra = {}) {
@@ -49,10 +57,12 @@ describe("moveOne", () => {
 			issues: [],
 		});
 		expect(h.calls[0]?.[2]).toEqual({ sessionId: "s1", cwd: "/w" });
-		expect(h.out).toEqual(["moved to Opus: Implement 1 (/h/.claude2)"]);
+		expect(h.out).toEqual([
+			"moved to the standard model: Implement 1 (/h/.claude2)",
+		]);
 	});
 
-	it("reports a failed resume as still on Fable", () => {
+	it("reports a failed resume as still routed away", () => {
 		const h = how("its job not confirmed stopped");
 		expect(moveOne(S, h.ctx)).toBe(false);
 		expect(h.err[0]).toContain("not moved: its job not confirmed stopped");
@@ -68,5 +78,24 @@ describe("moveOne", () => {
 			moveOne(s, h.ctx);
 			expect(h.calls).toEqual([]);
 		}
+	});
+});
+
+describe("sortSessions", () => {
+	it("picks the sessions on a routed-away model by the routing file, and counts the unread", () => {
+		const err: string[] = [];
+		const sessions = [
+			{ ...S, sessionId: "a", model: "test-sonnet-0" },
+			{ ...S, sessionId: "b", model: "sonnet[1m]" },
+			{ ...S, sessionId: "c", model: "test-fable-1" },
+			{ ...S, sessionId: "d", model: "test-opus-2" },
+			{ ...S, sessionId: "e", model: "" },
+		];
+		const { routedAway, unread } = sortSessions(sessions, (l: string) =>
+			err.push(l),
+		);
+		expect(routedAway.map((s) => s.sessionId)).toEqual(["a", "b"]);
+		expect(unread).toBe(1);
+		expect(err).toHaveLength(1);
 	});
 });

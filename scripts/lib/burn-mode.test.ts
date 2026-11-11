@@ -1,10 +1,9 @@
 // @vitest-environment node
 /*
  * lib/burn-mode.js is burn mode's state (#4920): the one resolver for its
- * marker, and readBurnState, what the switch left on each plan, a symlinked
- * plan counted once (#187) and the marker's record of what `on` found read
- * back (mantahostels#130). Which model each layer moves to is
- * ./model-table.test.ts's. burn-mode.sh reads the marker and the plans through
+ * marker, and readBurnState, what the switch left on each plan against the
+ * current mode's writes, a symlinked plan counted once (#187). What each mode
+ * writes is ./model-table.test.ts's; here it is the fixture routing file's. burn-mode.sh reads the marker and the plans through
  * the CLI, so it is run here as a program too.
  *
  * The dispatch remap, the launcher and the toggle all find the marker here,
@@ -15,11 +14,38 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readBurnState } from "./burn-mode";
 import { runInProcess } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "burn-mode.js");
+const FIXTURE = path.resolve(
+	__dirname,
+	"../fixtures/model-routing/fixture.json",
+);
+
+/** The fixture routing file's writes for each mode (lib/model-table.test.ts names its rows). */
+const STANDARD = {
+	model: "test-haiku-1[1m]",
+	modelSettings: {
+		"test-haiku-1": { effortLevel: "low" },
+		"test-haiku-0": { effortLevel: "low" },
+		"test-opus-2": { effortLevel: "high" },
+		"test-opus-1": { effortLevel: "high" },
+		opusish: { effortLevel: "high" },
+	},
+};
+const BURN = {
+	model: "test-sonnet-1[1m]",
+	modelSettings: {
+		"test-haiku-1": { effortLevel: "max" },
+		"test-haiku-0": { effortLevel: "max" },
+		"test-opus-2": { effortLevel: "medium" },
+		"test-opus-1": { effortLevel: "medium" },
+		opusish: { effortLevel: "medium" },
+		"test-fable-1": { effortLevel: "xhigh" },
+	},
+};
 
 const cli = (args: string[], stdin = "", env?: NodeJS.ProcessEnv) =>
 	runInProcess(LIB, args, env ? { stdin, env } : { stdin });
@@ -59,33 +85,25 @@ describe("readBurnState — what the switch left on the machine", () => {
 		HOME: home,
 		WFC_BURN_MARKER: path.join(home, "marker"),
 	});
-	/** A plan's settings; `fable` is its Fable 5.2 effort, which burn mode sets to low (#5004). */
-	const plan = (name: string, model?: string, fable?: string) => {
+	const plan = (name: string, settings: object) => {
 		fs.mkdirSync(path.join(home, name), { recursive: true });
 		fs.writeFileSync(
 			path.join(home, name, "settings.json"),
-			JSON.stringify({
-				...(model === undefined ? {} : { model }),
-				...(fable === undefined
-					? {}
-					: { modelSettings: { "claude-fable-5-2": { effortLevel: fable } } }),
-			}),
+			JSON.stringify(settings),
 		);
 	};
-	const offModel = "claude-opus-5-5[1m]";
-	const onModel = "claude-fable-5-2[1m]";
-	const markerOn = () => fs.writeFileSync(env().WFC_BURN_MARKER, "{}");
-
+	const markerOn = () => fs.writeFileSync(env().WFC_BURN_MARKER, "");
 	beforeEach(() => {
+		vi.stubEnv("WFC_MODEL_ROUTING", FIXTURE);
 		home = fs.mkdtempSync(path.join(os.tmpdir(), "burn-state-"));
 	});
 	afterEach(() => {
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 
-	it("reads off, every plan agreeing, on the standing model or none", () => {
-		plan(".claude", offModel);
-		plan(".claude2");
+	it("reads off, every plan agreeing, where each holds the standard writes", () => {
+		plan(".claude", STANDARD);
+		plan(".claude2", { ...STANDARD, keep: 1 });
 		expect(readBurnState(env())).toEqual({
 			on: false,
 			disagreeing: [],
@@ -94,8 +112,8 @@ describe("readBurnState — what the switch left on the machine", () => {
 	});
 
 	it("names a plan left on the burn model with the marker gone", () => {
-		plan(".claude", offModel);
-		plan(".claude2", onModel);
+		plan(".claude", STANDARD);
+		plan(".claude2", { ...STANDARD, model: BURN.model });
 		expect(readBurnState(env()).disagreeing).toEqual([
 			path.join(".claude2", "settings.json"),
 		]);
@@ -103,40 +121,33 @@ describe("readBurnState — what the switch left on the machine", () => {
 
 	it("names a plan not moved while the marker reads on", () => {
 		markerOn();
-		plan(".claude", onModel, "low");
-		plan(".claude2", offModel, "low");
+		plan(".claude", BURN);
+		plan(".claude2", STANDARD);
 		const state = readBurnState(env());
 		expect(state.on).toBe(true);
 		expect(state.disagreeing).toEqual([path.join(".claude2", "settings.json")]);
 	});
 
-	it("names a plan on the burn model whose Fable effort is not burn's, while the marker reads on", () => {
+	it("names a plan whose written effort departs, under any id the mode writes, or is missing", () => {
 		markerOn();
-		plan(".claude", onModel, "low");
-		plan(".claude2", onModel, "medium");
-		expect(readBurnState(env()).disagreeing).toEqual([
+		plan(".claude", {
+			...BURN,
+			modelSettings: { ...BURN.modelSettings, opusish: { effortLevel: "low" } },
+		});
+		const { "test-fable-1": _gone, ...rest } = BURN.modelSettings;
+		plan(".claude2", { ...BURN, modelSettings: rest });
+		plan(".claude3", {
+			...BURN,
+			modelSettings: { ...BURN.modelSettings, other: { effortLevel: "low" } },
+		});
+		expect(readBurnState(env()).disagreeing.sort()).toEqual([
+			path.join(".claude", "settings.json"),
 			path.join(".claude2", "settings.json"),
 		]);
 	});
 
-	it("reads a plan in step on the burn target of what on found there", () => {
-		plan(".claude", offModel);
-		plan(".claude2", "claude-opus-5-5[1m]");
-		const real = (name: string) =>
-			fs.realpathSync(path.join(home, name, "settings.json"));
-		fs.writeFileSync(
-			env().WFC_BURN_MARKER,
-			JSON.stringify({
-				model: { [real(".claude")]: offModel, [real(".claude2")]: "haiku" },
-			}),
-		);
-		plan(".claude", onModel, "low");
-		plan(".claude2", "claude-opus-5-5[1m]", "low");
-		expect(readBurnState(env()).disagreeing).toEqual([]);
-	});
-
 	it("names one symlinked file once, and skips one resolving to nothing", () => {
-		plan(".claude", onModel);
+		plan(".claude", { ...STANDARD, model: BURN.model });
 		fs.mkdirSync(path.join(home, ".claude2"));
 		fs.symlinkSync(
 			path.join(home, ".claude", "settings.json"),
@@ -165,6 +176,16 @@ describe("readBurnState — what the switch left on the machine", () => {
 		expect(state.on).toBeNull();
 		expect(state.error).toEqual(expect.any(String));
 	});
+
+	it("claims no state, and says why, where the routing file will not load", () => {
+		plan(".claude", STANDARD);
+		const broken = path.join(home, "routing.json");
+		fs.writeFileSync(broken, "{");
+		vi.stubEnv("WFC_MODEL_ROUTING", broken);
+		const state = readBurnState(env());
+		expect(state.on).toBeNull();
+		expect(state.error).toContain(broken);
+	});
 });
 
 describe("the CLI half", () => {
@@ -181,6 +202,26 @@ describe("the CLI half", () => {
 	});
 
 	it("refuses an unknown flag", () => {
-		expect(cli(["marker", "--burn"]).status).toBe(2);
+		expect(cli(["marker", "--brun"]).status).toBe(2);
+	});
+
+	it("report prints each plan, exiting 1 where one departs from the mode's writes", () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "burn-report-"));
+		try {
+			fs.mkdirSync(path.join(home, ".claude"));
+			fs.writeFileSync(
+				path.join(home, ".claude", "settings.json"),
+				JSON.stringify(STANDARD),
+			);
+			const routed = { ...process.env, HOME: home, WFC_MODEL_ROUTING: FIXTURE };
+			const ok = cli(["report"], "", routed);
+			expect(ok.status).toBe(0);
+			expect(ok.stdout).toContain(`model=${STANDARD.model}`);
+			const off = cli(["report", "--burn"], "", routed);
+			expect(off.status).toBe(1);
+			expect(off.stdout).toContain("not the burn model");
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
 	});
 });

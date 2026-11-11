@@ -20,9 +20,10 @@
  *
  * The settings comparison is semantic, not textual — both sides are parsed and
  * compared as JSON, so key order and indentation never register as drift. Only a
- * real difference in settings does. The file copies compare as text. `model` is excluded outright, and
- * while burn mode is on so is Fable 5.2's `modelSettings` effort
- * (withoutVolatile below).
+ * real difference in settings does. The file copies compare as text. `model`
+ * and `modelSettings` are compared against the routing file's current mode
+ * (burn per its marker), never the snapshot, which leaves them out: burn mode
+ * writes them on every switch (ROUTED_KEYS below).
  *
  * MISSING SOURCE IS NOT A FAILURE. ~/.claude/settings.json lives outside the
  * repo, so its absence SKIPs at exit 0. Absence of the DOC, or a doc whose JSON
@@ -48,7 +49,7 @@ const {
 } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
 const { isBurnMarkerOn } = require("./lib/burn-mode.js");
-const { BURN_SESSION_EFFORT } = require("./lib/model-table.js");
+const { modeSettings } = require("./lib/model-table.js");
 const { copyBlockPattern } = require("./lib/settings-copy");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -84,21 +85,27 @@ const typeOf = (v) => {
 };
 
 /**
+ * @typedef {{side: string, lines: string[]}} Report diff()'s accumulator: what
+ *   the first side is called in a line, and each differing leaf's line
+ */
+
+/**
  * diff() over two objects. `any` for the reason diff() gives: both sides are
  * arbitrary parsed JSON.
  * @param {any} a
  * @param {any} b
  * @param {string} at
- * @param {string[]} out accumulator: diff()'s, each differing leaf's line pushed here
+ * @param {Report} out
  */
 function diffObject(a, b, at, out) {
 	for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
 		const where = at ? `${at}.${k}` : k;
-		if (!(k in a)) out.push(`${where}: missing from doc, present in live`);
+		if (!(k in a))
+			out.lines.push(`${where}: missing from ${out.side}, present in live`);
 		else if (k in b) diff(a[k], b[k], where, out);
-		else out.push(`${where}: present in doc, missing from live`);
+		else out.lines.push(`${where}: present in ${out.side}, missing from live`);
 	}
-	return out;
+	return out.lines;
 }
 
 /**
@@ -107,7 +114,7 @@ function diffObject(a, b, at, out) {
  * @param {any} a
  * @param {any} b
  * @param {string} at
- * @param {string[]} out accumulator: diff()'s, each differing leaf's line pushed here
+ * @param {Report} out
  */
 function diffArray(a, b, at, out) {
 	// Order matters in these settings (deny lists are read as ordered), so
@@ -116,12 +123,12 @@ function diffArray(a, b, at, out) {
 	for (let i = 0; i < n; i++) {
 		const where = `${at}[${i}]`;
 		if (i >= a.length)
-			out.push(`${where}: only in live (${JSON.stringify(b[i])})`);
+			out.lines.push(`${where}: only in live (${JSON.stringify(b[i])})`);
 		else if (i >= b.length)
-			out.push(`${where}: only in doc (${JSON.stringify(a[i])})`);
+			out.lines.push(`${where}: only in ${out.side} (${JSON.stringify(a[i])})`);
 		else diff(a[i], b[i], where, out);
 	}
-	return out;
+	return out.lines;
 }
 
 /**
@@ -130,19 +137,19 @@ function diffArray(a, b, at, out) {
  * Both sides are arbitrary parsed JSON, so `any`: typeOf() returns a string
  * tag, which narrows neither side for diffObject() and diffArray().
  *
- * @param {any} a  the doc's snapshot, at this level
+ * @param {any} a  the expected side — the doc's snapshot, or the routing file's writes — at this level
  * @param {any} b  the live settings, at this level
  * @param {string} [at]  dotted path to this level, for the report
- * @param {string[]} [out]  accumulator: each differing leaf's line is pushed here
+ * @param {Report} [out]
  * @returns {string[]}
  */
-function diff(a, b, at = "", out = []) {
+function diff(a, b, at = "", out = { side: "doc", lines: [] }) {
 	const ta = typeOf(a);
 	const tb = typeOf(b);
 
 	if (ta !== tb) {
-		out.push(`${at || "(root)"}: doc has ${ta}, live has ${tb}`);
-		return out;
+		out.lines.push(`${at || "(root)"}: ${out.side} has ${ta}, live has ${tb}`);
+		return out.lines;
 	}
 
 	if (ta === "object") return diffObject(a, b, at, out);
@@ -150,41 +157,30 @@ function diff(a, b, at = "", out = []) {
 	if (ta === "array") return diffArray(a, b, at, out);
 
 	if (a !== b) {
-		out.push(`${at}: doc ${JSON.stringify(a)} ≠ live ${JSON.stringify(b)}`);
+		out.lines.push(
+			`${at}: ${out.side} ${JSON.stringify(a)} ≠ live ${JSON.stringify(b)}`,
+		);
 	}
-	return out;
+	return out.lines;
 }
 
-// Keys that change as a matter of normal use rather than as a change of
-// configuration. `model` moves every time the model is switched, which happens
-// many times a day, so comparing it would report drift almost continuously —
-// and a guard that fires every day is one that gets read as noise, which costs
-// the real drift it exists to catch. The doc's block still carries it, as the
-// standing default a restore puts back (#353). While burn mode is on it also
-// holds its model's `modelSettings` effort at the burn level, so that one
-// field is dropped then (#5004).
-const VOLATILE_KEYS = new Set(["model"]);
+// The keys the routing file owns: burn mode writes them into every plan on each
+// switch, so they are judged against its current mode, and the snapshot leaves
+// them out.
+const ROUTED_KEYS = ["model", "modelSettings"];
 
 /**
  * @param {Record<string, unknown>} o
- * @param {boolean} burn whether burn mode's marker exists
+ * @returns {[Record<string, unknown>, Record<string, unknown>]} the rest, and the routed keys present
  */
-const withoutVolatile = (o, burn) => {
-	const out = Object.fromEntries(
-		Object.entries(o).filter(([k]) => !VOLATILE_KEYS.has(k)),
-	);
-	const settings = out.modelSettings;
-	if (!burn || !settings || typeof settings !== "object") return out;
-	const perModel = /** @type {Record<string, unknown>} */ (settings);
-	const entry = perModel[BURN_SESSION_EFFORT.model];
-	if (!entry || typeof entry !== "object") return out;
-	const { effortLevel: _moved, ...rest } =
-		/** @type {Record<string, unknown>} */ (entry);
-	return {
-		...out,
-		modelSettings: { ...perModel, [BURN_SESSION_EFFORT.model]: rest },
-	};
-};
+const splitRouted = (o) => [
+	Object.fromEntries(
+		Object.entries(o).filter(([k]) => !ROUTED_KEYS.includes(k)),
+	),
+	Object.fromEntries(
+		Object.entries(o).filter(([k]) => ROUTED_KEYS.includes(k)),
+	),
+];
 
 /**
  * Where the snapshot is read. An explicit argument is taken from the working
@@ -360,10 +356,20 @@ runCheck({
 
 		// --- Compare --------------------------------------------------------------
 
-		const settingsDiffs = diff(
-			withoutVolatile(docJson, burn),
-			withoutVolatile(liveJson, burn),
-		);
+		const [liveRest, liveRouted] = splitRouted(liveJson);
+		let routedDiffs;
+		try {
+			routedDiffs = diff(modeSettings(burn), liveRouted, "", {
+				side: "routing file",
+				lines: [],
+			});
+		} catch (e) {
+			ctx.broken(`the routing file will not load: ${caught(e).message}`);
+		}
+		const settingsDiffs = [
+			...diff(splitRouted(docJson)[0], liveRest),
+			...routedDiffs,
+		];
 
 		// --- Compare the file copies -----------------------------------------------
 
@@ -388,7 +394,9 @@ runCheck({
 			for (const d of differences) ctx.say(`  - ${d}`);
 			ctx.say(
 				"\nThe live files are the source of truth. Re-copy ~/.claude/settings.json into\n" +
-					"the ```json block and each file into its own block, from\n" +
+					"the ```json block, leaving out `model` and `modelSettings`, which the routing\n" +
+					"file owns (run scripts/burn-mode.sh for the current mode to re-apply them),\n" +
+					"and each file into its own block, from\n" +
 					`${COPIES.map((sc) => `~/.claude/${sc.live.join("/")}`).join(", ")},\n` +
 					"then re-date the snapshot line; never edit a block to change behaviour.\n" +
 					"See docs/doc-map.md §A.",

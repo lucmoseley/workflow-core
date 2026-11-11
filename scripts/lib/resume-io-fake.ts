@@ -128,10 +128,10 @@ export const ANSWERS = {
 		},
 		stopped: { state: "stopped", sessionId: SESSION },
 		/* A job launched under burn mode, its Fable model saved (#4992). */
-		savedFable: {
+		savedRoutedAway: {
 			state: "stopped",
 			sessionId: SESSION,
-			respawnFlags: ["--model", "claude-fable-5-2[1m]"],
+			respawnFlags: ["--model", "test-sonnet-1[1m]"],
 		},
 		otherSession: { state: "working", sessionId: "s-other" },
 		/* No record yet: the resume is not confirmed. */

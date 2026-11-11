@@ -33,6 +33,7 @@ import {
 import {
 	dispatchFixture,
 	LANDING_MODULES,
+	ROUTING,
 	SCRIPT,
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
@@ -399,34 +400,62 @@ describe("an overflow seat (#2610)", () => {
 		expect(readHeadlessLaunches(2)).toHaveLength(2);
 	});
 
-	it("launches an opus member as written with burn mode on, never moving it to Fable", () => {
+	it("launches an opus member by the standard row with burn mode on, the burn row never reaching it", () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
 		const r = spawnSync(
 			"bash",
 			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{ encoding: "utf8", env: baseEnv(overflowEnv(200)) },
+			{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("headless-sessions.js launch");
 		expect(r.stderr).not.toContain("burn mode");
-		expect(`${r.stdout}${r.stderr}`).not.toContain("claude-fable");
+		expect(`${r.stdout}${r.stderr}`).not.toContain("test-sonnet");
 	});
 
-	it("refuses a sonnet member with burn mode on, the standing layer alone reaching it", () => {
+	it("admits a member the standard row moves onto the overflow alias, with burn mode on", () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
-			env: baseEnv(overflowEnv(200)),
-		});
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("model table: sonnet -> claude-haiku-5-5[1m]");
+		const r = spawnSync(
+			"bash",
+			[SCRIPT, "--dry-run", "sonnet", "/implement 341"],
+			{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
+		);
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("model table: sonnet -> test-opus-2[1m]");
 		expect(r.stderr).not.toContain("burn mode");
-		expect(r.stderr).toContain("launches Opus alone (#1920); claude-haiku-5-5");
-		expect(readArgvLines()).toEqual([]);
 	});
+
+	it.each(["test-opus-2", "test-opus-2[1m]", "opus[1m]"])(
+		"admits %s, a spelling of the overflow alias's current model",
+		(spelling) => {
+			stub();
+			const r = spawnSync(
+				"bash",
+				[SCRIPT, "--dry-run", spelling, "/implement 341"],
+				{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
+			);
+			expect(r.status, r.stderr).toBe(0);
+		},
+	);
+
+	it.each(["haiku", "test-opus-1"])(
+		"refuses %s before the duplicate and budget gates, exit 2",
+		(spelling) => {
+			stub();
+			const r = spawnSync("bash", [SCRIPT, spelling, "/implement 341"], {
+				cwd: fx.dir,
+				encoding: "utf8",
+				env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+			});
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(
+				`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); ${spelling} is not.`,
+			);
+			expect(readArgvLines()).toEqual([]);
+		},
+	);
 
 	it("refuses a key Anthropic refused for credit, naming the cycle it is exhausted until", () => {
 		stub();
@@ -490,20 +519,6 @@ describe("an overflow seat (#2610)", () => {
 		);
 		expect(r.out).toContain("the budget resets at a newer Console reading.");
 		expect(readAnyLaunches()).toEqual([]);
-	});
-
-	it("refuses a non-Opus member before the duplicate and budget gates, exit 2", () => {
-		stub();
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
-			env: baseEnv(overflowEnv(200)),
-		});
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain(
-			`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); claude-haiku-5-5\\[1m\\] is not.`,
-		);
-		expect(readArgvLines()).toEqual([]);
 	});
 
 	it("refuses the set where the key is missing from the secrets file, naming the variable", () => {

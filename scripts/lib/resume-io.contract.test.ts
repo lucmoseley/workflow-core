@@ -400,11 +400,11 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			writeJobRecord(JOB, { state: "stopped", sessionId: SESSION });
 			return io().readJobRecord(seat, JOB);
 		},
-		savedFable: () => {
+		savedRoutedAway: () => {
 			writeJobRecord(JOB, {
 				state: "stopped",
 				sessionId: SESSION,
-				respawnFlags: ["--model", "claude-fable-5-2[1m]"],
+				respawnFlags: ["--model", "test-sonnet-1[1m]"],
 			});
 			return io().readJobRecord(seat, JOB);
 		},

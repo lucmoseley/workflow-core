@@ -1,3 +1,3 @@
-A FORK FROM THIS SESSION WOULD RUN ON FABLE, AND BURN MODE IS OFF.
+A FORK FROM THIS SESSION WOULD RUN ON A MODEL ONLY BURN MODE USES, AND BURN MODE IS OFF.
 
-This session started on Fable under burn mode, and a fork always runs on its parent's model, whatever `model` the call names. Dispatch the same work as `subagent_type: "general-purpose"` with `model: "opus"`, putting the context the fork would have inherited into its prompt.
+This session started on that model under burn mode, and a fork always runs on its parent's model, whatever `model` the call names. Dispatch the same work as `subagent_type: "general-purpose"` naming the model the standard rows give this session's model (the routing table in `docs/effort-guide.md` §Routing), putting the context the fork would have inherited into its prompt.

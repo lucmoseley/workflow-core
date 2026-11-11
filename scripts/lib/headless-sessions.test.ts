@@ -32,6 +32,7 @@ import {
 import { readEndResult, stop } from "./headless-runs.js";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { launch as launchRun } from "./headless-sessions.js";
+import { overflowModel } from "./model-table.js";
 import { runInProcessAsync } from "./run-in-process.js";
 import { breakCanaryPath, buildLockoutRepo } from "./settings-lockout-testkit";
 
@@ -174,7 +175,7 @@ describe("launch", () => {
 		expect(seen.argv).toContain("--verbose");
 		expect(flag(seen.argv, "--max-budget-usd")).toBe("12.5");
 		// Named outright, so burn mode's move of the shared settings `model` never reaches the seat (#4919).
-		expect(flag(seen.argv, "--model")).toBe("claude-opus-5-5[1m]");
+		expect(flag(seen.argv, "--model")).toBe(overflowModel());
 		expect(flag(seen.argv, "--append-system-prompt")).toContain("needs input:");
 		const sessionId = flag(seen.argv, "--session-id");
 		expect(r.stdout.split("\n")[1]).toBe(`session ${sessionId}`);

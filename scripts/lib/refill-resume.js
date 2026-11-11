@@ -526,7 +526,7 @@ function resumeSteps(io) {
 
 	/**
 	 * The flags a resume of `sessionId` launches with: those it was handed, or
-	 * for a wake in place, which is handed none, any `--model` moved off Fable.
+	 * for a wake in place, which is handed none, any `--model` moved off a routed-away model.
 	 * @param {string[]} flags
 	 * @param {string} seat
 	 * @param {string} sessionId
@@ -538,9 +538,9 @@ function resumeSteps(io) {
 
 	/**
 	 * The `--model` a wake in place of `sessionId` must name, where the model
-	 * its job record saved is a burn-mode Fable one and burn mode is off; none
-	 * otherwise. A wake in place relaunches on the saved flags, so it would
-	 * bring Fable back (#4992); naming a model starts a copy, which settles as
+	 * its job record saved is one the standard rows route away and burn mode
+	 * is off; none otherwise. A wake in place relaunches on the saved flags, so
+	 * it would bring that model back (#4992); naming a model starts a copy, which settles as
 	 * any copy does.
 	 * @param {string} seat
 	 * @param {string} sessionId
@@ -552,8 +552,11 @@ function resumeSteps(io) {
 		if (!saved) return [];
 		const moved = relaunchFlags(saved, io.burnOn());
 		if (moved === saved) return [];
-		log(`${sessionId} wakes on Opus, not its saved Fable model (#4992)`);
 		const at = moved.findIndex((f) => f.startsWith("--model"));
+		const to = moved[at]?.includes("=")
+			? (moved[at] ?? "").slice("--model=".length)
+			: (moved[at + 1] ?? "");
+		log(`${sessionId} wakes on ${to}, not its saved routed-away model (#4992)`);
 		return moved[at]?.includes("=")
 			? [moved[at] ?? ""]
 			: moved.slice(at, at + 2);
@@ -583,8 +586,8 @@ function resumeSteps(io) {
 			cwd: ids.cwd,
 		});
 		if (refusal) return { failed: refusal };
-		/* The saved flags name the model the session launched on; a burn-mode
-		 * Fable one comes back as Opus once burn mode is off (#4992). */
+		/* The saved flags name the model the session launched on; a routed-away
+		 * one comes back on the standard row's once burn mode is off (#4992). */
 		const asSaved = ids.flags ?? resumeFlagsOf(l, ids);
 		const flags = relaunchFlags(asSaved, io.burnOn());
 		if (flags !== asSaved)

@@ -37,6 +37,7 @@ import {
 import {
 	dispatchFixture,
 	LANDING_MODULES,
+	ROUTING,
 	SCRIPT,
 	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
@@ -219,62 +220,61 @@ describe("the session's directory (#4245)", () => {
 	});
 });
 
-describe("the model table (lib/model-table.js, #4919)", () => {
+describe("the model table (lib/model-table.js, #4919), on the fixture routing file", () => {
 	const burnOn = () => fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
 
-	it("launches a sonnet member as Haiku 5.5, with an advisor", () => {
+	it("launches a member the standard row moves as the target's id with [1m], naming the remap", () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = run(["sonnet", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
-		expect(r.stderr).toContain("model table: sonnet -> claude-haiku-5-5[1m]");
+		expect(r.stderr).toContain("model table: sonnet -> test-opus-2[1m]");
 		expect(r.stderr).not.toContain("burn mode");
-		const launch = launchArgv();
-		expect(launch).toContain("--model claude-haiku-5-5[1m]");
-		expect(launch).toContain("--advisor");
+		expect(launchArgv()).toContain("--model test-opus-2[1m]");
 	});
 
-	it("launches a sonnet member as Opus 5.5 under burn mode, with no advisor", () => {
+	it("launches a member by the burn row under burn mode", () => {
 		stubClaude({});
 		burnOn();
-		const r = run(["sonnet", "/implement 341"]);
+		const r = run(["haiku", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
-		expect(r.stderr).toContain("burn mode: sonnet -> claude-opus-5-5[1m]");
+		expect(r.stderr).toContain("burn mode: haiku -> test-fable-1[1m]");
 		const launch = launchArgv();
-		expect(launch).toContain("--model claude-opus-5-5[1m]");
+		expect(launch).toContain("--model test-fable-1[1m]");
 		expect(launch).not.toContain("--advisor");
 	});
 
-	it("launches a bare opus as Fable 5.2 under burn mode, with no advisor", () => {
+	it.each(["opus", "opus[1m]"])("moves %s under burn mode", (spelling) => {
 		stubClaude({});
 		burnOn();
-		const r = run(["opus", "/wayfinder 341"]);
-		expect(r.stderr).toContain("burn mode: opus -> claude-fable-5-2[1m]");
-		const launch = launchArgv();
-		expect(launch).toContain("--model claude-fable-5-2[1m]");
-		expect(launch).not.toContain("--advisor");
+		const r = run([spelling, "/wayfinder 341"], ROUTING);
+		expect(r.stderr).toContain(`burn mode: ${spelling} -> test-sonnet-1[1m]`);
+		expect(launchArgv()).toContain("--model test-sonnet-1[1m]");
 	});
 
-	it("launches an explicit opus[1m] as Fable 5.2 under burn mode", () => {
+	it("launches a spelling the routing file does not know as written, naming no remap", () => {
 		stubClaude({});
 		burnOn();
-		run(["opus[1m]", "/wayfinder 341"]);
-		expect(launchArgv()).toContain("--model claude-fable-5-2[1m]");
-	});
-
-	it("launches a spelling the table does not know as written, naming no remap", () => {
-		stubClaude({});
-		burnOn();
-		const r = run(["claude-sonnet-4-5", "/implement 341"]);
+		const r = run(["claude-sonnet-4-5", "/implement 341"], ROUTING);
 		expect(r.stderr).not.toContain("claude-sonnet-4-5 ->");
 		expect(launchArgv()).toContain("--model claude-sonnet-4-5");
 	});
 
-	it("leaves opus alone while the marker is absent", () => {
+	it("launches a spelling its row keeps on its own alias as written", () => {
 		stubClaude({});
-		const r = run(["opus[1m]", "/wayfinder 341"]);
+		const r = run(["opus[1m]", "/wayfinder 341"], ROUTING);
 		expect(r.stderr).not.toContain("burn mode");
 		expect(r.stderr).not.toContain("model table");
 		expect(launchArgv()).toContain("--model opus[1m]");
+	});
+
+	it("refuses every launch where the routing file will not load", () => {
+		stubClaude({});
+		const broken = path.join(fx.dir, "routing.json");
+		fs.writeFileSync(broken, "{");
+		const r = run(["haiku", "/implement 341"], { WFC_MODEL_ROUTING: broken });
+		expect(r.code).toBe(2);
+		expect(r.stderr).toContain("cannot read the routing file");
+		expect(launchArgv()).toBe(undefined);
 	});
 });
 

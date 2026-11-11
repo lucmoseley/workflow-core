@@ -9,8 +9,8 @@
  * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-ordering-plugin-vs-native.md,
  * anthropics/claude-code#83353). So each change is a pure transform — call in,
  * call and a note out, or null — and `rewrite` applies them in turn to one
- * input. The model table, standing layer and burn layer both, is
- * lib/model-table.js's; whether burn applies is burn mode's marker, read through
+ * input. The model table is lib/model-table.js's, its values the routing
+ * file's (lib/model-routing.json); whether burn applies is burn mode's marker, read through
  * lib/burn-mode.js and set by scripts/burn-mode.sh. The marker is
  * one per MACHINE, so an `off` run anywhere ends the burn remap everywhere.
  *
@@ -25,16 +25,15 @@
  *     the prompt's own artefact path where it names one, a leading `~/` read
  *     against HOME; a dispatch with no artefact to watch is told to end the
  *     turn;
- *   * the model and effort move through lib/model-table.js's table: always
- *     `sonnet` to Haiku, every Haiku call at xhigh, and while burn mode is on
- *     Haiku to Opus at medium and Opus to Fable at low, an overflow seat's
- *     session excepted (#4919);
+ *   * the model and effort move by the current mode's row in the routing
+ *     file, an overflow seat's session never taking burn mode (#4919);
  *   * a named model the effort guide routes away from (lib/dispatch-rules.js)
  *     gets rule:dispatch-tier, and a "search the repo" prompt naming no tracker
  *     rule:dispatch-search-tracker, each fragment once a session;
- *   * with burn mode off, a call inheriting the session's Fable is pinned to
- *     `opus`, and a fork from a Fable session, which no field can move, is
- *     DENIED with rule:dispatch-fable-fork (#4992);
+ *   * with burn mode off, a call inheriting a session model the standard rows
+ *     route away from is pinned to the standard row, and a fork from such a
+ *     session, which no field can move, is DENIED with rule:dispatch-fable-fork
+ *     (#4992);
  *   * a dispatch from inside a subagent, `agent_id` on the payload, is DENIED
  *     with rule:dispatch-grandchild;
  *   * `statusline-setup`, which has no tool that can create a file, and
@@ -46,7 +45,7 @@
  * The subject is the dispatch's `prompt`, a field the harness requires of
  * every `Agent` and `Task` call; the core judges the whole `tool_input`.
  *
- * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a `sonnet` dispatch to `haiku` and runs every `haiku` one at xhigh; while burn mode is on moves `haiku` to `opus` at medium and `opus` to `fable` at low, and while it is off moves `fable`, named or inherited, to `opus` — none asked for by the session dispatching; denies a dispatch made from inside a subagent, and a fork from a Fable session with burn mode off.
+ * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a dispatch's model and effort by the routing file's row for the current mode, and while burn mode is off pins one inheriting a routed-away session model — none asked for by the session dispatching; denies a dispatch made from inside a subagent, and a fork from a routed-away session with burn mode off.
  * JUSTIFIED: convenience — the session would have added the line itself after a refusal, at the cost of re-issuing the whole prompt (#482); the model table is the founder's own ruling, and burn mode his own switch (#4919).
  * DEFEAT:    none for the line — name a real path in the prompt and it is left alone; `scripts/burn-mode.sh off` ends the burn remap; none for the subagent deny short of dispatching from the parent.
  *
@@ -66,7 +65,8 @@
  * transform that throws leaves the dispatch as written, recorded as a
  * fail-open (mantahostels#103 §6); a burn-mode marker that cannot be placed
  * (HOME unset or relative) applies the standing layer alone and still
- * supplies the line; an unreadable table leaves the model as written. A rule fragment the store cannot give refuses the dispatch, as an
+ * supplies the line; an unreadable table or routing file leaves the model as
+ * written. A rule fragment the store cannot give refuses the dispatch, as an
  * injection's store fault does (mantahostels#1762).
  */
 
@@ -86,7 +86,7 @@ const { shellQuote } = require("./sh-quote.js");
  *   making of a directory, false where it could not be made; and the model a
  *   session's transcript last answered on, "" where none is read
  * @typedef {import("./guard-entry.js").Injection} Injection
- * @typedef {Pick<typeof import("./model-table.js"), "isFable" | "isOverflowSession" | "remapModel">} ModelTable
+ * @typedef {Pick<typeof import("./model-table.js"), "isRoutedAway" | "isOverflowSession" | "remapModel">} ModelTable
  */
 
 // Resolved from this file, so an adopter is handed the plugin's copy (#541).
@@ -178,17 +178,20 @@ function rewrite(input, { file, burn, home, inherited = "", table }) {
 function loadModelTable(ctx) {
 	try {
 		const {
-			isFable,
+			isRoutedAway,
 			isOverflowSession,
+			loadRouting,
 			remapModel,
 		} = require("./model-table.js");
 		if (
-			typeof isFable !== "function" ||
+			typeof isRoutedAway !== "function" ||
+			typeof loadRouting !== "function" ||
 			typeof isOverflowSession !== "function" ||
 			typeof remapModel !== "function"
 		)
 			throw new Error("its exports are not functions");
-		return { isFable, isOverflowSession, remapModel };
+		loadRouting();
+		return { isRoutedAway, isOverflowSession, remapModel };
 	} catch (e) {
 		ctx.log(
 			`lib/model-table.js unreadable — the model table left this dispatch unmapped: ${caught(e).message}`,
@@ -248,9 +251,9 @@ function decide(_prompt, ctx) {
 		const burn = table ? isBurnApplied(table, ctx) : false;
 		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
 		/* A fork runs on its parent's model whatever the call names, so with
-		 * burn mode off a fork from a Fable session can only be refused. */
+		 * burn mode off a fork from a routed-away session can only be refused. */
 		if (
-			table?.isFable(inherited) &&
+			table?.isRoutedAway(inherited) &&
 			String(ctx.input.subagent_type ?? "").trim() === "fork"
 		)
 			return { deny: ctx.corePaths(ctx.ruleText("dispatch-fable-fork")) };

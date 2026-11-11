@@ -231,14 +231,12 @@ export WFC_CLAUDE_BIN="${WFC_CLAUDE_BIN:-claude}"
 ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 
 # Every member's model goes through lib/model-table.js's table before any gate
-# reads it (#4919): the standing layer moves a Sonnet spelling to
-# `claude-haiku-5-5[1m]`, and while burn mode is on its layer moves Haiku to
-# `claude-opus-5-5[1m]` and Opus to `claude-fable-5-2[1m]`. An overflow seat
-# never runs burn mode, so it takes the standing layer alone. The effort each
-# runs at is settings.json's per-model `modelSettings`. The per-member line
-# names each remap; a spelling the exact-match table does not know launches as
-# written. The advisor is judged on the remapped spelling, so it attaches to a
-# Haiku launch and never to one burn mode moved to Opus.
+# reads it (#4919): the current mode's row in lib/model-routing.json names the
+# model each spelling launches on. An overflow seat never runs burn mode, so it
+# takes the standard rows alone. The effort each runs at is settings.json's
+# per-model `modelSettings`. The per-member line names each remap; a spelling
+# the routing file does not know launches as written. The advisor is judged on
+# the remapped spelling's alias, the routing file's to name.
 MODEL_TABLE="$here/lib/model-table.js"
 
 dry_run=0
@@ -411,39 +409,19 @@ keep_first() {
   done
 }
 
-# Haiku gets an advisor; plain Opus/Fable does not. Deny-list, not
-# allow-list (mantahostels#1199): only a spelling KNOWN to run as Opus/Fable is skipped —
-# any unrecognised spelling defaults to getting an advisor.
-# Residual: an Opus/Fable spelling missing from this list gets a redundant
-# advisor rather than none — the opposite failure from mantahostels#1199, with a warning
-# rather than a silent gap. Full-id entries are from `claude --help` and
-# docs/effort-guide.md's model-id table.
-is_known_unadvised() {
-  case "$1" in
-    opus | opus\[*\] | fable | fable\[*\] | \
-      claude-opus-5 | claude-opus-5\[*\] | claude-opus-5-5 | claude-opus-5-5\[*\] | \
-      claude-fable-5 | claude-fable-5\[*\] | claude-fable-5-1 | claude-fable-5-1\[*\] | \
-      claude-fable-5-2 | claude-fable-5-2\[*\])
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
-}
+# alias_of <spelling> — the alias it runs as by the routing file's one
+# spelling rule, "" where it names none.
+alias_of() { node "$MODEL_TABLE" alias "$1"; }
 
-# Spellings known to run as Haiku — used only to decide whether an
-# unrecognised spelling is worth a WARNING, not to gate the advisor itself.
-is_known_advised() {
-  case "$1" in
-    haiku | haiku\[*\] | claude-haiku-5-5 | claude-haiku-5-5\[*\])
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
-}
-
+# Haiku gets an advisor; Opus and Fable do not. Deny-list, not allow-list
+# (mantahostels#1199): only a spelling KNOWN to run as one of those two is
+# skipped — any other defaults to getting an advisor, with a warning below
+# where the routing file does not know it as Haiku.
 wants_advisor() {
   [[ $advisor -eq 1 ]] || return 1
-  is_known_unadvised "$1" && return 1
+  case "$(alias_of "$1")" in
+    opus | fable) return 1 ;;
+  esac
   return 0
 }
 
@@ -502,25 +480,26 @@ remapped=()
 for ((i = 1; i <= $#; i += 2)); do
   j=$((i + 1))
   m="${!i}"
-  to="$(node "$MODEL_TABLE" launch "$m" "${burn_flag[@]}")"
+  to="$(node "$MODEL_TABLE" launch "$m" "${burn_flag[@]}")" || {
+    printf 'REFUSED: the model table cannot read the routing file, so no launch model is known.\n' >&2
+    exit 2
+  }
   [[ "$to" != "$m" ]] && printf '%s: %s -> %s\n' \
     "$([[ $burn -eq 1 ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
   remapped+=("$to" "${!j}")
 done
 set -- "${remapped[@]}"
 
-# Only Opus's spellings are admitted on an overflow seat.
+# Only the overflow alias's current-model spellings are admitted on an
+# overflow seat (lib/model-table.js's `admits`).
 if [[ $overflow -eq 1 ]]; then
   for ((i = 1; i <= $#; i += 2)); do
     m="${!i}"
-    case "$m" in
-      opus | opus\[1m\] | claude-opus-5-5\[1m\]) ;;
-      *)
-        printf 'REFUSED: %s is an overflow seat, which launches Opus alone (#1920); %q is not.\n' \
-          "$seat_label" "$m" >&2
-        exit 2
-        ;;
-    esac
+    node "$MODEL_TABLE" admits opus "$m" || {
+      printf 'REFUSED: %s is an overflow seat, which launches Opus alone (#1920); %q is not.\n' \
+        "$seat_label" "$m" >&2
+      exit 2
+    }
   done
 fi
 
@@ -606,8 +585,11 @@ unknown_models=()
 for ((i = 1; i <= $#; i += 2)); do
   m="${!i}"
   if wants_advisor "$m"; then set_wants_advisor=1; fi
-  if [[ $advisor -eq 1 ]] && ! is_known_unadvised "$m" && ! is_known_advised "$m"; then
-    unknown_models+=("$m")
+  if [[ $advisor -eq 1 ]]; then
+    case "$(alias_of "$m")" in
+      opus | fable | haiku) ;;
+      *) unknown_models+=("$m") ;;
+    esac
   fi
 done
 
@@ -615,10 +597,9 @@ done
 # unrecognised spelling (mantahostels#1199, the ticket that added this warning).
 if [[ ${#unknown_models[@]} -gt 0 ]]; then
   printf 'WARNING: unrecognised model spelling(s): %s\n' "${unknown_models[*]}" >&2
-  printf '  Treating as Haiku-equivalent and attaching an advisor. If this runs as\n' >&2
-  printf '  Opus/Fable, add it to is_known_unadvised() in %s.\n' "$0" >&2
-  printf '  If it runs as Haiku, add it to is_known_advised() there to silence this —\n' >&2
-  printf '  the advisor already attaches either way.\n' >&2
+  printf '  Treating as Haiku-equivalent and attaching an advisor. If it names a\n' >&2
+  printf '  known model, add it to that alias'"'"'s `also` list in %s.\n' "$here/lib/model-routing.json" >&2
+  printf '  The advisor already attaches either way.\n' >&2
 fi
 
 # --- allowance gate, and the advisor check riding along with it -------------
@@ -910,8 +891,9 @@ while [[ $# -gt 0 ]]; do
   else
     args=(--bg)
     # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
-    # launched with no model flag"): the configured default is
-    # `claude-opus-5-5[1m]`, and `--model opus` would silently drop the session
+    # launched with no model flag"): the configured default is the plans'
+    # settings `model`, the standard session model's full id with `[1m]`
+    # (lib/model-routing.json), and `--model opus` would silently drop the session
     # to the 200k context window. Residual: on a machine whose default is
     # something else, that is what the session gets. Any other spelling,
     # `opus[1m]` included, passes verbatim.

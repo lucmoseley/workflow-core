@@ -55,6 +55,16 @@ import {
 const PROBE_HANG_SECONDS = PROBE_TIMEOUT_MS / 2 / 1000;
 
 export const SCRIPT = path.resolve(__dirname, "..", "dispatch-sessions.sh");
+/** The fixture routing file, by WFC_MODEL_ROUTING, for a case judging the routing itself (lib/model-table.test.ts names its rows). */
+export const ROUTING = {
+	WFC_MODEL_ROUTING: path.resolve(
+		__dirname,
+		"..",
+		"fixtures",
+		"model-routing",
+		"fixture.json",
+	),
+};
 const COMMITTED_COST_TABLE = path.resolve(
 	__dirname,
 	"..",

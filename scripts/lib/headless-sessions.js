@@ -42,9 +42,9 @@ const { parseArgs } = require("node:util");
 const { readCurrentBootId, readProcStartOf } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const {
-	OVERFLOW_MODEL,
 	OVERFLOW_PREFIX,
 	OVERFLOW_SESSION_VAR,
+	overflowModel,
 } = require("./model-table.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
@@ -133,7 +133,7 @@ function launch({
 			"stream-json",
 			"--verbose",
 			"--model",
-			OVERFLOW_MODEL,
+			overflowModel(),
 			...(budgetUsd === undefined
 				? []
 				: ["--max-budget-usd", String(budgetUsd)]),

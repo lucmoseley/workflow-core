@@ -724,7 +724,7 @@
 					"id": "dispatch-fable-fork",
 					"core": "guard-dispatch-rewrite",
 					"kind": "deny",
-					"text": "A FORK FROM THIS SESSION WOULD RUN ON FABLE, AND BURN MODE IS OFF."
+					"text": "A FORK FROM THIS SESSION WOULD RUN ON A MODEL ONLY BURN MODE USES, AND BURN MODE IS OFF."
 				},
 				{
 					"id": "unchecked",

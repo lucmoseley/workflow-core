@@ -16,14 +16,16 @@
  * lib/guard-core-testkit.ts over the production ports
  * (lib/dispatch-rewrite-host.js), the real rule store and a temp project. The
  * burn marker is always WFC_BURN_MARKER here — the real one, at
- * ~/.claude/.burn-mode, is the machine's live switch.
+ * ~/.claude/.burn-mode, is the machine's live switch. The routing is the
+ * fixture's, by WFC_MODEL_ROUTING (lib/model-table.test.ts names its rows), so
+ * no case here pins a real routing value; its routed-away model is `sonnet`.
  */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { decide } from "./dispatch-rewrite.js";
 import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
@@ -31,6 +33,13 @@ import { kitContextFake } from "./kit-context-fake";
 import { runInProcessAsync } from "./run-in-process.js";
 
 const FILE = "/repo/.claude/tmp/agents/d-0badf00d.md";
+const FIXTURE = path.resolve(
+	__dirname,
+	"../fixtures/model-routing/fixture.json",
+);
+beforeEach(() => {
+	vi.stubEnv("WFC_MODEL_ROUTING", FIXTURE);
+});
 const WATCHER = path.join(__dirname, "..", "watch-artefact.js");
 
 /**
@@ -74,42 +83,41 @@ function rewrite(
 describe("the composed rewrite", () => {
 	it("carries both changes in one updatedInput", () => {
 		const out = rewrite(
-			{ prompt: "Do it.", description: "d", model: "sonnet" },
+			{ prompt: "Do it.", description: "d", model: "haiku" },
 			{ file: FILE, burn: true },
 		);
 		expect(out?.updatedInput).toMatchObject({
-			model: "opus",
-			effort: "medium",
+			model: "fable",
+			effort: "high",
 			description: "d",
 			prompt: expect.stringContaining(`Artefact: ${FILE}`),
 		});
 		expect(out?.prelude).toContain("watch-artefact.js");
-		expect(out?.prelude).toContain("from `sonnet` to `opus` at `medium`");
+		expect(out?.prelude).toContain("from `haiku` to `fable` at `high`");
 		expect(out?.made).toEqual([path.dirname(FILE)]);
 	});
 
 	it("names no artefact where only the model moved", () => {
 		const out = rewrite(
-			{ prompt: "Artefact: a/b.md", model: "sonnet" },
+			{ prompt: "Artefact: a/b.md", model: "haiku" },
 			{ file: FILE, burn: true },
 		);
+		expect(out?.updatedInput).toMatchObject({ model: "fable" });
 		expect(out?.made).toEqual([]);
 	});
 
-	it("applies the standing layer alone while burn mode is off", () => {
+	it("applies the standard rows while burn mode is off", () => {
 		const out = rewrite(
 			{ prompt: "x", model: "sonnet" },
 			{ file: FILE, burn: false },
 		);
-		expect(out?.updatedInput).toMatchObject({
-			model: "haiku",
-			effort: "xhigh",
-		});
+		expect(out?.updatedInput).toMatchObject({ model: "opus" });
+		expect(out?.updatedInput).not.toHaveProperty("effort");
 	});
 
 	it("tells the watch on a prompt's own artefact, changing nothing (#2013)", () => {
 		const out = rewrite(
-			{ prompt: "Artefact: a/b.md", model: "opus" },
+			{ prompt: "Artefact: a/b.md", model: "haiku", effort: "low" },
 			{ file: FILE, burn: false },
 		);
 		expect(out).not.toHaveProperty("updatedInput");
@@ -178,7 +186,7 @@ describe("the composed rewrite", () => {
 	it("judges the tier as asked, before the table's remap", () => {
 		const out = rewrite(
 			{ prompt: "Do it.", model: "sonnet" },
-			{ file: FILE, burn: true },
+			{ file: FILE, burn: false },
 		);
 		expect(out?.updatedInput).toMatchObject({ model: "opus" });
 		expect(out?.tripped).toEqual(["dispatch-tier"]);
@@ -198,12 +206,12 @@ const watchCommand = (file: string) =>
 		String(rewrite({ prompt: "Do it." }, { file })?.prelude),
 	)?.[1] ?? expect.fail("the context names no backgrounded watch");
 
-describe("a Fable session with burn mode off (#4992)", () => {
-	const Fable = "claude-fable-5-2";
-	it("pins a dispatch that would inherit Fable to opus", () => {
+describe("a routed-away session with burn mode off (#4992)", () => {
+	const Away = "test-sonnet-1[1m]";
+	it("pins a dispatch that would inherit the session's model to the standard row", () => {
 		const v = rewrite(
 			{ prompt: "Artefact: .claude/tmp/x.md", description: "d" },
-			{ model: Fable },
+			{ model: Away },
 		);
 		expect(v?.updatedInput?.model).toBe("opus");
 		expect(v?.prelude).toContain("would have inherited");
@@ -212,7 +220,7 @@ describe("a Fable session with burn mode off (#4992)", () => {
 	it("leaves the inherited model alone while burn mode is on", () => {
 		const v = rewrite(
 			{ prompt: "Artefact: .claude/tmp/x.md", description: "d" },
-			{ model: Fable, burn: true },
+			{ model: Away, burn: true },
 		);
 		expect(v).not.toHaveProperty("updatedInput");
 	});
@@ -221,7 +229,7 @@ describe("a Fable session with burn mode off (#4992)", () => {
 		const out = decide(
 			"",
 			kitContextFake({
-				sessionModel: () => Fable,
+				sessionModel: () => Away,
 				input: { subagent_type: "fork", prompt: "p", description: "d" },
 				env: { WFC_BURN_MARKER: "/burn-marker", HOME: "/home/u" },
 				session: "s1",
@@ -235,10 +243,10 @@ describe("a Fable session with burn mode off (#4992)", () => {
 		expect(out).toEqual({ deny: "rule dispatch-fable-fork" });
 	});
 
-	it("lets a fork through from an Opus session", () => {
+	it("lets a fork through from a session not routed away", () => {
 		const v = rewrite(
 			{ subagent_type: "fork", prompt: "p", description: "d" },
-			{ model: "claude-opus-5-5" },
+			{ model: "test-opus-2" },
 		);
 		expect(v).not.toBeNull();
 	});
@@ -405,11 +413,11 @@ describe("burn mode, in the same rewrite", () => {
 	it("moves the model and supplies the line in one rewrite", () => {
 		burnOn();
 		const v = envelopeOf(dispatch({ model: "haiku" }));
-		expect(v.updatedInput.model).toBe("opus");
-		expect(v.updatedInput.effort).toBe("medium");
+		expect(v.updatedInput.model).toBe("fable");
+		expect(v.updatedInput.effort).toBe("high");
 		expect(v.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(v.updatedInput.description).toBe("do a thing");
-		expect(v.additionalContext).toContain("from `haiku` to `opus` at `medium`");
+		expect(v.additionalContext).toContain("from `haiku` to `fable` at `high`");
 		expect(v.additionalContext).toContain("watch-artefact.js");
 	});
 
@@ -420,30 +428,30 @@ describe("burn mode, in the same rewrite", () => {
 		expect(v.updatedInput).toEqual({
 			prompt,
 			description: "do a thing",
-			model: "fable",
-			effort: "low",
+			model: "sonnet",
+			effort: "high",
 		});
 		expect(v.additionalContext).toContain("names its artefact");
 	});
 
 	it.each([
-		["fable", "fable"],
-		["no model", undefined],
-	])("changes nothing on %s with a usable line", (_n, model) => {
+		["a row that keeps model and effort", { model: "sonnet", effort: "max" }],
+		["no model", {}],
+	])("changes nothing on %s with a usable line", (_n, call) => {
 		burnOn();
 		const v = envelopeOf(
-			dispatch({ model, prompt: "Artefact: .claude/tmp/x.md" }),
+			dispatch({ ...call, prompt: "Artefact: .claude/tmp/x.md" }),
 		);
 		expect(v).not.toHaveProperty("updatedInput");
 	});
 
-	it("keeps Haiku on Haiku while the marker is absent", () => {
+	it("routes by the standard rows while the marker is absent", () => {
 		const v = envelopeOf(dispatch({ model: "haiku" }));
 		expect(v.updatedInput.model).toBe("haiku");
-		expect(v.updatedInput.effort).toBe("xhigh");
+		expect(v.updatedInput.effort).toBe("low");
 	});
 
-	it("skips the burn layer, keeping the standing one, in a session on an overflow seat (#4919)", () => {
+	it("routes by the standard rows, never burn mode's, in a session on an overflow seat (#4919)", () => {
 		burnOn();
 		const overflow = { WFC_BURN_MARKER: marker, WFC_OVERFLOW_SESSION: "s1" };
 		const opus = run(
@@ -455,12 +463,12 @@ describe("burn mode, in the same rewrite", () => {
 			dispatch({ model: "sonnet" }),
 			overflow,
 		) as unknown as HookOut;
-		expect(sonnet.updatedInput.model).toBe("haiku");
+		expect(sonnet.updatedInput.model).toBe("opus");
 		const other = run(dispatch({ model: "opus" }), {
 			WFC_BURN_MARKER: marker,
 			WFC_OVERFLOW_SESSION: "s2",
 		}) as unknown as HookOut;
-		expect(other.updatedInput.model).toBe("fable");
+		expect(other.updatedInput.model).toBe("sonnet");
 	});
 
 	it("judges a Task payload, the other spelling of a dispatch", () => {
@@ -469,7 +477,7 @@ describe("burn mode, in the same rewrite", () => {
 			tool_name: "Task",
 			tool_input: { model: "haiku", prompt: "Artefact: a/b.md" },
 		});
-		expect(v.updatedInput.model).toBe("opus");
+		expect(v.updatedInput.model).toBe("fable");
 	});
 });
 
@@ -608,6 +616,19 @@ describe("failing open", () => {
 		);
 	});
 
+	it("leaves the model as written, with the unreadable note, where the routing file will not load", () => {
+		burnOn();
+		const broken = path.join(dir, "routing.json");
+		fs.writeFileSync(broken, JSON.stringify({ models: {} }));
+		vi.stubEnv("WFC_MODEL_ROUTING", broken);
+		const v = envelopeOf(dispatch({ model: "haiku" }));
+		expect(v.updatedInput.model).toBe("haiku");
+		expect(v.updatedInput.prompt).toMatch(/^Artefact: \//m);
+		expect(logs).toContain(
+			`lib/model-table.js unreadable — the model table left this dispatch unmapped: ${broken}: \`models\` names no alias`,
+		);
+	});
+
 	it("records an unreadable model table as such", () => {
 		burnOn();
 		const restore = breakModule(
@@ -636,17 +657,17 @@ describe("failing open", () => {
 		);
 	});
 
-	it("applies the standing layer alone, recorded, when the burn marker cannot be placed", () => {
+	it("routes by the standard rows, recorded, when the burn marker cannot be placed", () => {
 		const out = run(dispatch({ model: "haiku" }), {}) as unknown as HookOut;
 		expect(out.updatedInput.model).toBe("haiku");
-		expect(out.updatedInput.effort).toBe("xhigh");
+		expect(out.updatedInput.effort).toBe("low");
 		expect(out.updatedInput.prompt).toMatch(/^Artefact: \//m);
 		expect(logs).toContain(
 			"burn-mode marker path unresolved — burn mode left this dispatch unmapped",
 		);
 	});
 
-	it("applies the standing layer alone, recorded, when lib/burn-mode.js will not load", () => {
+	it("routes by the standard rows, recorded, when lib/burn-mode.js will not load", () => {
 		burnOn();
 		const restore = breakModule("./burn-mode.js", new Error("broken"));
 		let v: HookOut;
@@ -656,7 +677,7 @@ describe("failing open", () => {
 			restore();
 		}
 		expect(v.updatedInput.model).toBe("haiku");
-		expect(v.updatedInput.effort).toBe("xhigh");
+		expect(v.updatedInput.effort).toBe("low");
 		expect(logs).toContain(
 			"lib/burn-mode.js unreadable — burn mode left this dispatch unmapped: broken",
 		);

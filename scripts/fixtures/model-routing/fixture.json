@@ -1,0 +1,30 @@
+{
+	"models": {
+		"haiku": { "id": "test-haiku-1", "also": ["test-haiku-0"] },
+		"sonnet": { "id": "test-sonnet-1", "also": ["test-sonnet-0"] },
+		"opus": { "id": "test-opus-2", "also": ["test-opus-1", "opusish"] },
+		"fable": { "id": "test-fable-1", "also": [] }
+	},
+	"modes": {
+		"standard": {
+			"session": "haiku",
+			"modelSettings": { "haiku": "low", "opus": "high" },
+			"route": {
+				"haiku": { "to": "haiku", "effort": "low" },
+				"sonnet": { "to": "opus", "effort": null },
+				"opus": { "to": "opus", "effort": "high" },
+				"fable": { "to": "fable", "effort": "max" }
+			}
+		},
+		"burn": {
+			"session": "sonnet",
+			"modelSettings": { "haiku": "max", "opus": "medium", "fable": "xhigh" },
+			"route": {
+				"haiku": { "to": "fable", "effort": "high" },
+				"sonnet": { "to": "sonnet", "effort": "max" },
+				"opus": { "to": "sonnet", "effort": null },
+				"fable": { "to": "haiku", "effort": null }
+			}
+		}
+	}
+}

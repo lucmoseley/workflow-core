@@ -10,7 +10,8 @@
  * still stopped or another session's as resumed, leave a failed move's resume
  * starting, or run a move's job on a key unrecorded.
  */
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FAKE_COPY } from "./bg-resume-fake";
 import { buildCarriedNote } from "./carry-job-files.js";
 import { MODEL } from "./refill-decide.js";
@@ -82,27 +83,37 @@ describe("readResumeTarget", () => {
 	});
 });
 
+const FIXTURE = path.resolve(
+	__dirname,
+	"../fixtures/model-routing/fixture.json",
+);
+beforeEach(() => {
+	vi.stubEnv("WFC_MODEL_ROUTING", FIXTURE);
+});
+
 describe("resumeStopped", () => {
 	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
-	// A wake in place relaunches on the saved flags, so a burn-mode Fable job
-	// would wake on Fable after `off` (#4992).
-	it("names Opus on the wake of a job whose saved model is a burn-mode Fable one, burn mode off", () => {
-		const { steps, callsTo, lines } = fakeIo({ readJobRecord: "savedFable" });
+	// A wake in place relaunches on the saved flags, so a job saved on a
+	// routed-away model would wake on it after `off` (#4992).
+	it("names the standard model on the wake of a job saved on a routed-away one, burn mode off", () => {
+		const { steps, callsTo, lines } = fakeIo({
+			readJobRecord: "savedRoutedAway",
+		});
 		steps.resumeStopped(LAUNCH, PROMPT, IDS);
 		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
 			"--bg",
 			"--resume",
 			SESSION,
 			"--model",
-			"claude-opus-5-5[1m]",
+			"test-opus-2[1m]",
 			PROMPT,
 		]);
-		expect(lines.join("\n")).toContain("wakes on Opus");
+		expect(lines.join("\n")).toContain("wakes on test-opus-2[1m]");
 	});
 
-	it("names no model on the wake where burn mode is on, or the saved model is not Fable", () => {
+	it("names no model on the wake where burn mode is on, or the saved model is not routed away", () => {
 		for (const picks of [
-			{ readJobRecord: "savedFable", burnOn: "on" },
+			{ readJobRecord: "savedRoutedAway", burnOn: "on" },
 			{ readJobRecord: "saved" },
 		] as const) {
 			const { steps, callsTo } = fakeIo(picks);
@@ -365,10 +376,10 @@ describe("resumeOwnId (#4098)", () => {
 		expect(lines.join("\n")).not.toContain("no saved launch flags");
 	});
 
-	// A session launched under burn mode saved its Fable spelling; resumed as
-	// saved, it came back on Fable after `off` (#4992).
-	it("resumes a burn-mode Fable launch on Opus once burn mode is off", () => {
-		const flags = ["--model", "claude-fable-5-2[1m]", "--name", "n"];
+	// A session launched under burn mode saved a routed-away spelling; resumed
+	// as saved, it came back on that model after `off` (#4992).
+	it("resumes a routed-away launch on the standard row's model once burn mode is off", () => {
+		const flags = ["--model", "test-sonnet-0", "--name", "n"];
 		const { steps, callsTo, lines } = fakeIo({
 			readJobRecord: "working",
 			runClaude: "ownId",
@@ -379,7 +390,7 @@ describe("resumeOwnId (#4098)", () => {
 			"--resume",
 			SESSION,
 			"--model",
-			"claude-opus-5-5[1m]",
+			"test-opus-2[1m]",
 			"--name",
 			"n",
 			PROMPT,
@@ -387,8 +398,8 @@ describe("resumeOwnId (#4098)", () => {
 		expect(lines.join("\n")).toContain("resumes on its launch model");
 	});
 
-	it("keeps a Fable launch on Fable while burn mode is on", () => {
-		const flags = ["--model", "claude-fable-5-2[1m]"];
+	it("keeps a routed-away launch as saved while burn mode is on", () => {
+		const flags = ["--model", "test-sonnet-1[1m]"];
 		const { steps, callsTo } = fakeIo({
 			readJobRecord: "working",
 			runClaude: "ownId",

@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
- * Pins each /pick-next dispatch member's advisor: which models get one, the
- * deny-list spellings, and the advisor-live check.
+ * Pins each /pick-next dispatch member's advisor: which models get one, by
+ * the alias the routing file reads a spelling as (the fixture's, by
+ * WFC_MODEL_ROUTING), and the advisor-live check.
  *
  * The fixture is scripts/lib/dispatch-sessions-testkit.ts's. The dispatch's
  * cases are split by subject across dispatch-sessions.test.ts (the advisor),
@@ -21,123 +22,109 @@
  */
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
+import {
+	dispatchFixture,
+	ROUTING,
+	SCRIPT,
+} from "./lib/dispatch-sessions-testkit";
 
 const fx = dispatchFixture();
 const { stubClaude, baseEnv, launchArgv, readArgvLines, run } = fx;
 
 describe("the advisor flag", () => {
-	it("attaches an Opus advisor to a Sonnet launch, which the model table sends to Haiku (mantahostels#1102, #4919)", () => {
+	it("attaches an Opus advisor to a launch the routing runs as Haiku (mantahostels#1102, #4919)", () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = run(["haiku", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
-		expect(launch).toContain("--model claude-haiku-5-5[1m]");
+		expect(launch).toContain("--model haiku");
 		expect(launch).toContain("--advisor opus");
+	});
+
+	it("attaches no advisor to a launch the routing moves to Opus", () => {
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341"], ROUTING);
+		expect(r.code).toBe(0);
+		const launch = launchArgv();
+		expect(launch).toContain("--model test-opus-2[1m]");
+		expect(launch).not.toContain("--advisor");
 	});
 
 	it("attaches no advisor to an Opus launch (mantahostels#1102)", () => {
 		stubClaude({});
-		run(["opus", "/wayfinder 1114"]);
+		run(["opus", "/wayfinder 1114"], ROUTING);
 		const launch = launchArgv();
 		expect(launch).not.toContain("--advisor");
 	});
 
 	it("honours --no-advisor", () => {
 		stubClaude({});
-		run(["--no-advisor", "sonnet", "/implement 341"]);
+		run(["--no-advisor", "haiku", "/implement 341"], ROUTING);
 		const launch = launchArgv();
-		expect(launch).toContain("--model claude-haiku-5-5[1m]");
+		expect(launch).toContain("--model haiku");
 		expect(launch).not.toContain("--advisor");
 	});
 
-	it("honours --no-advisor on a spelling only reachable through the deny-list (mantahostels#1199)", () => {
+	it("honours --no-advisor on a spelling only the routing file's other names know (mantahostels#1199)", () => {
 		stubClaude({});
-		const r = run(["--no-advisor", "opusplan", "/implement 341"]);
+		const r = run(["--no-advisor", "test-haiku-0", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
-		expect(launch).toContain("--model claude-haiku-5-5[1m]");
+		expect(launch).toContain("--model test-haiku-0");
 		expect(launch).not.toContain("--advisor");
 	});
 
 	it("takes the advisor model from WFC_DISPATCH_ADVISOR", () => {
 		stubClaude({});
-		execFileSync("bash", [SCRIPT, "--dry-run", "sonnet", "/implement 341"], {
+		execFileSync("bash", [SCRIPT, "--dry-run", "haiku", "/implement 341"], {
 			cwd: fx.dir,
 			encoding: "utf8",
-			env: baseEnv({ WFC_DISPATCH_ADVISOR: "fable" }),
+			env: baseEnv({ ...ROUTING, WFC_DISPATCH_ADVISOR: "fable" }),
 		});
 		const probe = readArgvLines().find((l) => l.includes("--debug-file"));
 		expect(probe).toContain("--advisor fable");
 	});
 });
 
-describe("the advisor flag — deny-list spellings (mantahostels#1199)", () => {
-	it("attaches an advisor to a bracketed sonnet[1m] spelling", () => {
-		stubClaude({});
-		const r = run(["sonnet[1m]", "/implement 341"]);
-		expect(r.code).toBe(0);
-		const launch = launchArgv();
-		expect(launch).toContain("--model claude-haiku-5-5[1m]");
-		expect(launch).toContain("--advisor opus");
-	});
-
-	it("attaches an advisor to opusplan, which the model table sends to Haiku", () => {
-		stubClaude({});
-		const r = run(["opusplan", "/implement 341"]);
-		expect(r.code).toBe(0);
-		const launch = launchArgv();
-		expect(launch).toContain("--model claude-haiku-5-5[1m]");
-		expect(launch).toContain("--advisor opus");
-	});
-
-	it.each(["claude-sonnet-5", "claude-sonnet-5-5"])(
-		"attaches an advisor, and warns of none, to a full %s spelling",
+describe("the advisor flag — spellings by the routing file's one spelling rule (mantahostels#1199)", () => {
+	it.each(["haiku[1m]", "test-haiku-1", "test-haiku-0[1m]"])(
+		"attaches an advisor, and warns of none, to %s",
 		(spelling) => {
 			stubClaude({});
-			const r = run([spelling, "/implement 341"]);
+			const r = run([spelling, "/implement 341"], ROUTING);
 			expect(r.code).toBe(0);
 			expect(r.stderr).not.toContain("unrecognised model spelling");
-			const launch = launchArgv();
-			expect(launch).toContain("--advisor opus");
+			expect(launchArgv()).toContain("--advisor opus");
 		},
 	);
 
-	it.each(["claude-opus-5", "claude-opus-5-5", "claude-opus-5-5[1m]"])(
-		"attaches no advisor, and warns of none, to a full %s spelling",
+	it.each(["test-opus-1", "opusish[1m]", "test-opus-2[1m]", "test-fable-1"])(
+		"attaches no advisor, and warns of none, to %s",
 		(spelling) => {
 			stubClaude({});
-			const r = run([spelling, "/wayfinder 1114"]);
+			const r = run([spelling, "/wayfinder 1114"], ROUTING);
 			expect(r.code).toBe(0);
 			expect(r.stderr).not.toContain("unrecognised model spelling");
-			const launch = launchArgv();
-			expect(launch).not.toContain("--advisor");
+			expect(launchArgv()).not.toContain("--advisor");
 		},
 	);
-
-	it("attaches no advisor to fable", () => {
-		stubClaude({});
-		const r = run(["fable", "/wayfinder 1114"]);
-		expect(r.code).toBe(0);
-		const launch = launchArgv();
-		expect(launch).not.toContain("--advisor");
-	});
 
 	it("attaches an advisor to an unrecognised spelling, and warns with the way out", () => {
 		stubClaude({});
-		const r = run(["some-future-alias", "/implement 341"]);
+		const r = run(["some-future-alias", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
 		const launch = launchArgv();
 		expect(launch).toContain("--advisor opus");
 		expect(r.stderr).toContain(
 			"unrecognised model spelling(s): some-future-alias",
 		);
-		expect(r.stderr).toContain("add it to is_known_unadvised()");
+		expect(r.stderr).toContain("`also` list in");
+		expect(r.stderr).toContain("model-routing.json");
 	});
 
 	it("does not warn on a recognised spelling", () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = run(["sonnet", "/implement 341"], ROUTING);
 		expect(r.stderr).not.toContain("unrecognised model spelling");
 	});
 });
