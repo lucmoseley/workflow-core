@@ -866,6 +866,24 @@ describe("the reads the audit saw", () => {
 		).toBe(0);
 	});
 
+	it("records no row for a tree walked whole where a tracked file under it went while the run ran (#4993)", () => {
+		const dir = repo();
+		withSkill(dir);
+		fs.mkdirSync(path.join(dir, Skills, "two"));
+		write(dir, `${Skills}/two/SKILL.md`, "---\nname: two\n---\n");
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "-m", "two");
+		const gone = `${Skills}/one/SKILL.md`;
+		git(dir, "rm", "-q", gone);
+		expect(
+			run(dir, [A, B], {
+				drifted: [gone],
+				audits: { [A]: audited({ trees: [".claude/skills"] }) },
+			}),
+		).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
 	it("rests a tree walked whole on every file and listing under it", () => {
 		const dir = repo();
 		withSkill(dir);

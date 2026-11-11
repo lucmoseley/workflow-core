@@ -17,7 +17,10 @@
  * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees. One of the
  * read-only subcommands in `RERUN`, made from a directory under the root with
  * no `-C`, `--git-dir`, `--work-tree` or git-dir variable steering it, is
- * kept word for word: the store keys it on its output, run again.
+ * kept word for word with the answer the guard saw it give, its status and
+ * the sha1 of its stdout: the store keys it on its output run again, and only
+ * where that equals what the test got (#4993). A call the guard logged begun
+ * and never answered, or that answered the same words two ways, is a doubt.
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
  * another file, or holds a read the audit cannot see, reads as `doubt`, which
@@ -86,8 +89,9 @@ const VALUED = new Set([
 ]);
 
 /**
- * @typedef {{cwd: string, args: string[]}} GitCall
- *   a git call to run again: its directory, repo-relative, and its words
+ * @typedef {{cwd: string, args: string[], seen: string}} GitCall
+ *   a git call to run again: its directory, repo-relative, its words, and
+ *   the answer the test got, `<status>:<sha1 of stdout>`
  * @typedef {{files: string[], absent: string[], dirs: string[],
  *   lists: Record<string, string>, trees: string[], scripts: string[],
  *   git: GitCall[]}} Reads
@@ -207,7 +211,7 @@ function readOwners(dir) {
 
 /**
  * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the words.
+ * fields — the git-dir flag, the directory, the answer, the words.
  * @param {string} text
  * @returns {string[][]}
  */
@@ -217,7 +221,7 @@ function gitRecords(text) {
 	const out = [];
 	for (let i = 0; i < fields.length - 1; ) {
 		const n = Number(fields[i]);
-		if (!Number.isInteger(n) || n < 2) throw new Error("a git record is torn");
+		if (!Number.isInteger(n) || n < 3) throw new Error("a git record is torn");
 		out.push(fields.slice(i + 1, i + 1 + n));
 		i += n + 1;
 	}
@@ -270,7 +274,8 @@ function collector(logs, root, isScratch, readTrace) {
 	const trees = new Set();
 	/** @type {Set<string>} */
 	const scripts = new Set();
-	/** @type {Map<string, GitCall>} */
+	/** @type {Map<string, {cwd: string, args: string[], begun: number,
+	 *   answers: string[]}>} */
 	const calls = new Map();
 	/** @type {Record<string, (e: Entry) => string|null>} */
 	const takers = {
@@ -321,14 +326,21 @@ function collector(logs, root, isScratch, readTrace) {
 		 * @param {string[]} record
 		 * @returns {string|null}
 		 */
-		takeGit(record) {
-			const call = rerunnable(record, root, isScratch);
+		takeGit([steered = "", dir = "", answer = "", ...args]) {
+			const call = rerunnable([steered, dir, ...args], root, isScratch);
 			if (typeof call === "string") return call;
-			if (call) calls.set(JSON.stringify(call), call);
+			if (!call) return null;
+			const key = JSON.stringify(call);
+			const at = calls.get(key) ?? { ...call, begun: 0, answers: [] };
+			if (answer === "") at.begun += 1;
+			else at.answers.push(answer);
+			calls.set(key, at);
 			return null;
 		},
 		/** @returns {Audit} */
 		finish() {
+			const git = answeredCalls(calls.values());
+			if (!Array.isArray(git)) return git;
 			/** @type {Record<string, string>} */
 			const listed = {};
 			for (const [p, ids] of lists) {
@@ -347,11 +359,35 @@ function collector(logs, root, isScratch, readTrace) {
 					lists: listed,
 					trees: [...trees].sort(),
 					scripts: [...scripts].sort(),
-					git: [...calls.values()],
+					git,
 				},
 			};
 		},
 	};
+}
+
+/**
+ * Each git call with the one answer the test got, or the doubt where one was
+ * logged begun more often than answered, as a call killed mid-way is, or
+ * answered two ways.
+ * @param {Iterable<{cwd: string, args: string[], begun: number,
+ *   answers: string[]}>} calls
+ * @returns {GitCall[]|{doubt: string}}
+ */
+function answeredCalls(calls) {
+	/** @type {GitCall[]} */
+	const git = [];
+	for (const { cwd, args, begun, answers } of calls) {
+		const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
+		if (answers.length !== begun)
+			return { doubt: `a git call (${shown}) was logged without its answer` };
+		if (new Set(answers).size > 1)
+			return {
+				doubt: `a git call (${shown}) answered differently within the run`,
+			};
+		git.push({ cwd, args, seen: /** @type {string} */ (answers[0]) });
+	}
+	return git;
 }
 
 /**
@@ -360,7 +396,7 @@ function collector(logs, root, isScratch, readTrace) {
  * @param {string[]} record the git-dir flag, the directory, the words
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
- * @returns {GitCall|string|null}
+ * @returns {{cwd: string, args: string[]}|string|null}
  */
 function rerunnable([steered, dir = "", ...args], root, isScratch) {
 	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);

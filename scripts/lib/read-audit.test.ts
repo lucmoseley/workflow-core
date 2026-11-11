@@ -7,6 +7,7 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -305,8 +306,15 @@ describe("what a test file reads, as the audit sees it", () => {
 			call(path.join(root, "scripts"), ["ls-files", "-z"]),
 			{ env },
 		);
+		const listing = execFileSync("git", ["ls-files", "-z"], {
+			cwd: path.join(root, "scripts"),
+		});
 		expect(readAudits(listed, root).get(T).reads.git).toEqual([
-			{ cwd: "scripts", args: ["ls-files", "-z"] },
+			{
+				cwd: "scripts",
+				args: ["ls-files", "-z"],
+				seen: `0:${createHash("sha1").update(listing).digest("hex")}`,
+			},
 		]);
 		const status = audited(root, T, call(root, ["status"]), { env });
 		expect(readAudits(status, root).get(T).doubt).toMatch(
@@ -317,6 +325,37 @@ describe("what a test file reads, as the audit sees it", () => {
 		});
 		expect(readAudits(steered, root).get(T).doubt).toMatch(
 			/^a git call \(git -C /,
+		);
+	});
+
+	it("doubts a git call the guard logged begun and never answered, or answered two ways", () => {
+		const root = checkout();
+		const env = {
+			PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
+			WFC_HOST_GIT_DIR: git(
+				root,
+				"rev-parse",
+				"--path-format=absolute",
+				"--git-common-dir",
+			),
+		};
+		const body = `require("node:child_process").execFileSync("git", ["ls-files"], { cwd: ${JSON.stringify(root)} });`;
+		const logged = (answer: string) =>
+			["4", "", root, answer, "ls-files", ""].join("\0");
+		const killed = audited(root, T, body, { env });
+		const gitLog = (dir: string) =>
+			path.join(
+				dir,
+				fs.readdirSync(dir).find((n) => n.endsWith(".git")) as string,
+			);
+		fs.appendFileSync(gitLog(killed), logged(""));
+		expect(readAudits(killed, root).get(T).doubt).toMatch(
+			/git call \(git ls-files\) was logged without its answer/,
+		);
+		const twice = audited(root, T, body, { env });
+		fs.appendFileSync(gitLog(twice), logged("") + logged("0:x"));
+		expect(readAudits(twice, root).get(T).doubt).toMatch(
+			/git call \(git ls-files\) answered differently within the run/,
 		);
 	});
 
@@ -558,6 +597,55 @@ describe("from a real audited run to a cached row (#4916)", () => {
 			expect(isCached(root)).toBe(false);
 		},
 	);
+
+	/* The guard on PATH, as vitest.setup.ts puts it, for a test's git calls. */
+	const guarded = (root: string) => ({
+		PATH: `${GUARD_DIR}${path.delimiter}${process.env.PATH}`,
+		WFC_HOST_GIT_DIR: git(
+			root,
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-common-dir",
+		),
+	});
+
+	it("records no row where a ref the test read moved before the record (#4993)", () => {
+		const root = keyed();
+		commit(root);
+		git(root, "branch", "side");
+		const body = `require("node:child_process").execFileSync("git", ["rev-parse", "refs/heads/side"], { cwd: ${JSON.stringify(root)} });`;
+		const held = audited(root, T, body, { env: guarded(root) });
+		commit(root);
+		expect(recordRun(root, held)).toBe(1);
+		expect(isCached(root)).toBe(true);
+
+		const moved = audited(root, T, body, { env: guarded(root) });
+		git(root, "update-ref", "refs/heads/side", "HEAD");
+		expect(recordRun(root, moved)).toBe(0);
+	});
+
+	it("records no row for a git call naming a pattern file outside the checkout, gone by the record (#4993)", () => {
+		const root = keyed();
+		write(root, "docs/n.md", "needle\n");
+		commit(root);
+		const log = audited(
+			root,
+			T,
+			[
+				'const fs = require("node:fs");',
+				'const os = require("node:os");',
+				'const path = require("node:path");',
+				'const s = fs.mkdtempSync(path.join(os.tmpdir(), "rda-pats-"));',
+				'fs.writeFileSync(path.join(s, "pats"), "needle\\n");',
+				`require("node:child_process").execFileSync("git", ["grep", "-l", "-f", path.join(s, "pats")], { cwd: ${JSON.stringify(root)} });`,
+				"fs.rmSync(s, { recursive: true });",
+			].join("\n"),
+			{ env: guarded(root) },
+		);
+		commit(root);
+		expect(readAudits(log, root).get(T).reads.git).toHaveLength(1);
+		expect(recordRun(root, log)).toBe(0);
+	});
 
 	it("voids the row on a skill dir added, and on a settings file read through a helper's default root", () => {
 		const root = keyed();

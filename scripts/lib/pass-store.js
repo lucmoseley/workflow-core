@@ -120,7 +120,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 8;
+const FORMAT = 9;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -480,11 +480,7 @@ function gitRunner(root) {
 				timeout: GIT_TIMEOUT_MS,
 			});
 			if (!r.error && r.status !== null)
-				id = crypto
-					.createHash("sha1")
-					.update(`${r.status}\0`)
-					.update(r.stdout)
-					.digest("hex");
+				id = `${r.status}:${crypto.createHash("sha1").update(r.stdout).digest("hex")}`;
 		} catch {
 			id = null;
 		}
@@ -593,14 +589,18 @@ function trackedListings(root) {
 
 /**
  * The inputs a file's audited reads add. Null where a listing the test
- * made, or a tree it walked, held a name git does not track.
+ * made, or a tree it walked, held a name git does not track, a path under a
+ * tree it walked moved while the run ran, or a git call it made answers
+ * other than it did for the test.
  * @param {import("./read-audit.js").Reads} reads
  * @param {() => Map<string, Set<string>>} listings
  * @param {TreeAt} working the working tree: its directories and git calls
+ * @param {Set<string>|null} drifted the paths that moved while the run ran,
+ *   null where that is unknown
  * @returns {{files: string[], absent: string[], dirs: string[],
  *   listings: Record<string, string>, git: Record<string, string>}|null}
  */
-function auditInputs(reads, listings, working) {
+function auditInputs(reads, listings, working, drifted) {
 	const lists = Object.entries(reads.lists);
 	const tracked =
 		lists.length + reads.trees.length > 0 ? listings() : new Map();
@@ -614,17 +614,19 @@ function auditInputs(reads, listings, working) {
 	}
 	const files = [...reads.files];
 	for (const top of reads.trees) {
-		const tree = treeInputs(top, tracked, working);
+		const tree = hasMovedUnder(top, drifted)
+			? null
+			: treeInputs(top, tracked, working);
 		if (!tree) return null;
 		files.push(...tree.files);
 		Object.assign(listed, tree.listings);
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
-	for (const call of reads.git) {
-		const key = JSON.stringify(call);
+	for (const { cwd, args, seen } of reads.git) {
+		const key = JSON.stringify({ cwd, args });
 		const id = working.git(key);
-		if (id === null) return null;
+		if (id === null || id !== seen) return null;
 		git[key] = id;
 	}
 	return {
@@ -637,10 +639,21 @@ function auditInputs(reads, listings, working) {
 }
 
 /**
+ * Whether a path at or under `top` moved while the run ran, or that is
+ * unknown: a file removed then is in neither the index nor the working tree
+ * at the record, though the walk saw it (#4993).
+ * @param {string} top
+ * @param {Set<string>|null} drifted
+ */
+const hasMovedUnder = (top, drifted) =>
+	drifted === null ||
+	[...drifted].some((p) => top === "." || p === top || isUnder(p, [top]));
+
+/**
  * What a tree walked or copied whole rests on: every tracked file under
  * `top`, or `top` itself where it is no tracked directory, and every tracked
- * directory's listing under it. Null where a listing on working holds a name
- * git does not track.
+ * directory's listing under it, all read off the index now. Null where a
+ * listing on working holds a name git does not track.
  * @param {string} top
  * @param {Map<string, Set<string>>} tracked
  * @param {TreeAt} working
@@ -670,12 +683,13 @@ function treeInputs(top, tracked, working) {
  * @param {FileResult} f
  * @param {{run: Run, reads: Map<string, string[]>,
  *   reach: (file: string, ownReadsJudged?: boolean) => Reach|null,
- *   listings: () => Map<string, Set<string>>, working: TreeAt}} ctx
+ *   listings: () => Map<string, Set<string>>, working: TreeAt,
+ *   drifted: Set<string>|null}} ctx
  */
-function fileInputs(f, { run, reads, reach, listings, working }) {
+function fileInputs(f, { run, reads, reach, listings, working, drifted }) {
 	const audit = run.audits?.get(f.file);
 	if (!audit || !("reads" in audit)) return null;
-	const seen = auditInputs(audit.reads, listings, working);
+	const seen = auditInputs(audit.reads, listings, working, drifted);
 	if (!seen) return null;
 	/* A script the manifest says the file reads is reached too, as it
 	 * may spawn it: its own requires are inputs that no import and no
@@ -736,8 +750,16 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		const reach = lexicalReach(run.root);
 		const listings = trackedListings(run.root);
 		const working = workingAt(run.root);
+		const drifted = run.drifted === null ? null : new Set(run.drifted);
 		const own = files.flatMap((f) => {
-			const found = fileInputs(f, { run, reads, reach, listings, working });
+			const found = fileInputs(f, {
+				run,
+				reads,
+				reach,
+				listings,
+				working,
+				drifted,
+			});
 			return found ? [found] : [];
 		});
 		const all = [...shared, ...own.flatMap((f) => f.paths)];
@@ -746,7 +768,6 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 			...own.flatMap((f) => f.absent),
 		]);
 		const ignored = readIgnored(run.root, [...new Set(all)]);
-		const drifted = run.drifted === null ? null : new Set(run.drifted);
 		const known = (/** @type {string[]} */ paths) =>
 			drifted !== null &&
 			paths.every(
