@@ -120,6 +120,44 @@ describe("the registry-atomicity core", () => {
 		);
 	});
 
+	it.each([
+		["a timeout lead", "timeout 30 git commit -m x -- scripts/check-new.js"],
+		["an env lead", "env A=1 git commit -m x -- scripts/check-new.js"],
+		[
+			"a flock -c string behind another command",
+			"git status; flock /tmp/l -c 'true; git commit -m x -- scripts/check-new.js'",
+		],
+	])("refuses the hand commit wrapped in %s (#4879)", (_, command) => {
+		addUnwiredChecker();
+		const out = emission(command);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"scripts/check-new.js is a new checker, and this commit does not carry its wiring",
+		);
+	});
+
+	it.each([
+		["sh -c", 'sh -c "git commit -m x -- scripts/check-new.js"'],
+		[
+			"a launcher unwrap does not strip",
+			"chrt 1 git commit -m x -- scripts/check-new.js",
+		],
+	])(
+		"leaves a hand commit behind %s unjudged, as LIMITS says",
+		(_, command) => {
+			addUnwiredChecker();
+			expect(emission(command)).toBeNull();
+		},
+	);
+
+	it("says nothing about a wrapped commit landing no member", () => {
+		fs.writeFileSync(path.join(repo, "scripts", "README.md"), "# edited\n");
+		expect(
+			emission("timeout 30 git commit -m x -- scripts/README.md"),
+		).toBeNull();
+		expect(readFailOpenRecords(config, repo)).toEqual([]);
+	});
+
 	it("says nothing about a commit landing no member", () => {
 		fs.writeFileSync(path.join(repo, "scripts", "README.md"), "# edited\n");
 		expect(emission('git commit -m "x" -- scripts/README.md')).toBeNull();
