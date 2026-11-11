@@ -1,7 +1,8 @@
 /*
  * script-header.js — a script's header, the opening comment block a checker
  * reads for markers, and the line-start pieces those markers' patterns open
- * with.
+ * with. Shared because check-code-standards.js reads `Unbuilt caller:` and
+ * check-hand-callers.js reads `Caller:` off the same header (#4720, #4885).
  */
 
 /** The opening comment block, shebang and blank lines included — a file's header. */
@@ -34,4 +35,4 @@ function headerOf(rel, text) {
 	return text.slice(0, hashLength + docstring.length);
 }
 
-module.exports = { BLANKS, HEADER, JS_COMMENT, LINE_START, headerOf };
+module.exports = { BLANKS, JS_COMMENT, LINE_START, headerOf };

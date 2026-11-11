@@ -80,6 +80,8 @@ runCheck({
 			ctx.broken(`the host root ${root} does not exist — nothing was read`);
 		const files = scriptsUnder(root);
 		for (const rel of files) {
+			/** @type {Map<string, number>} */
+			const seen = new Map();
 			const header = headerOf(
 				rel,
 				fs.readFileSync(path.join(root, rel), "utf8"),
@@ -87,10 +89,13 @@ runCheck({
 			for (const m of header.matchAll(HAND_CALLER)) {
 				const line = header.slice(0, m.index).split("\n").length;
 				const match = requiredGroup(m, 1, HAND_CALLER).trim();
+				/* A copy of an inherited line is a new fault, not the same one. */
+				const nth = (seen.get(match) ?? 0) + 1;
+				seen.set(match, nth);
 				const message =
 					`${rel}:${line}  ${match} — a hand-kept caller list goes stale on every caller edit (#4404). ` +
 					"Delete the line; `git grep` names the callers. A module built ahead of its caller names it on an `Unbuilt caller: <caller> (#N)` line instead.";
-				ctx.fail("HAND-CALLER", message, { file: rel, match, line });
+				ctx.fail("HAND-CALLER", message, { file: rel, match, nth, line });
 				ctx.say(`  ${message}`);
 			}
 		}

@@ -72,6 +72,9 @@ describe("check-hand-callers", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("scripts/one.js:4  Caller: scripts/two.js — ");
+		expect(r.out).toContain(
+			"Delete the line; `git grep` names the callers. A module built ahead of its caller names it on an `Unbuilt caller: <caller> (#N)` line instead.",
+		);
 		expect(r.out).toContain("scripts/lib/two.js:1  Callers: scripts/one.js");
 		expect(r.out).toContain(
 			".claude/skills/s/scripts/three.js:2  Callers of runThing:",
@@ -122,7 +125,9 @@ describe("check-hand-callers", () => {
 			expect(refused.out).toContain("scripts/a.js:4  Caller: scripts/b.js");
 			/* Removed in the worktree but not staged: the commit still carries it. */
 			write("scripts/a.js", "/*\n * a.js\n */\n");
-			expect(run("--against", "HEAD").status).toBe(1);
+			const still = run("--against", "HEAD");
+			expect(still.status).toBe(1);
+			expect(still.out).toContain("scripts/a.js:4  Caller: scripts/b.js");
 		});
 
 		it("passes a commit that gains an Unbuilt caller: line", () => {
@@ -141,7 +146,22 @@ describe("check-hand-callers", () => {
 			commit("seed");
 			write("scripts/a.js", "/*\n * a.js\n *\n * Caller: scripts/b.js\n */\n");
 			git("add", ".");
-			expect(run("--against", "HEAD").status).toBe(0);
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("1 inherited fault(s)");
+		});
+
+		it("refuses a second copy of an inherited line", () => {
+			write("scripts/a.js", "/*\n * Caller: scripts/b.js\n */\n");
+			commit("seed");
+			write(
+				"scripts/a.js",
+				"/*\n * Caller: scripts/b.js\n * Caller: scripts/b.js\n */\n",
+			);
+			git("add", ".");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("scripts/a.js:3  Caller: scripts/b.js");
 		});
 	});
 });

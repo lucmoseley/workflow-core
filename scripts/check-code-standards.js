@@ -86,7 +86,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage, baselineOf } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group");
-const { HEADER, JS_COMMENT, LINE_START } = require("./lib/script-header.js");
+const { JS_COMMENT, LINE_START, headerOf } = require("./lib/script-header.js");
 const { isTestKind } = require("./lib/test-kind");
 const { pythonRouteDrift } = require("./lib/python-routes.js");
 const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
@@ -576,7 +576,7 @@ function readExportBlocks(tracked) {
  * @returns {ExportBlock | null}
  */
 function exportBlockOf(rel, text) {
-	const hasUnbuiltCaller = UNBUILT_CALLER.test(HEADER.exec(text)?.[0] ?? "");
+	const hasUnbuiltCaller = UNBUILT_CALLER.test(headerOf(rel, text));
 	/* runInProcessAsync calls the exported `main` of a program carrying a
 	 * `require.main` guard, and refuses one without (run-in-process.js), so
 	 * that `main` is how the program is run, not a test-only export (#1361).
