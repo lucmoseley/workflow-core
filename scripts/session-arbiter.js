@@ -1798,7 +1798,7 @@ function heldUnitRefusal(n, sid) {
 		);
 		return null;
 	}
-	return `session-arbiter: refusing to release #${n}: it is an open \`kind:ticket\` with an unticked, unwaived acceptance criterion and no \`parked\` label (#4495). No ticket comment or body note moves a unit's boundary. Finish it and close it with ${scriptPath("resolve-ticket.js")}, which releases the claim itself; or leave it by one of the four exits: ${heldUnit.EXITS}.\n`;
+	return `session-arbiter: refusing to release #${n}: it is ${heldUnit.UNFINISHED} (#4495, #4991). No ticket comment or body note moves a unit's boundary. Finish it and close it with ${scriptPath("resolve-ticket.js")}, which releases the claim itself; or leave it by one of the four exits: ${heldUnit.EXITS}.\n`;
 }
 
 /**
