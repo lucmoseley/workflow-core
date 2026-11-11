@@ -32,10 +32,11 @@
  *  - It matches the parsed command form — a segment whose command word is
  *    `gh`, subcommand pair `issue create` — never a substring, so a grep, an
  *    echo or a heredoc mentioning `gh issue create` passes. The command word
- *    is read as lib/shell-words.js's ghWords reads it (#5012): past any
- *    wrapper unwrap strips (`timeout N gh …`, `env gh …`), and in each command
- *    a `flock -c` or `watch` string runs. A `sh -c` string and a launcher
- *    outside unwrap's list pass.
+ *    is read as lib/shell-words.js's ghCall reads it (#5012): past any wrapper
+ *    unwrap strips (`timeout N gh …`, `env gh …`), in each command a `flock
+ *    -c` or `watch` string runs, and past `gh`'s own flags, a `-R` there
+ *    naming the repo. A `sh -c` string and a launcher outside unwrap's list
+ *    pass.
  *  - `gh api --method POST …/issues` IS chased (mantahostels#511), and gh's
  *    own default with it — a call carrying fields and no --method at all is a
  *    POST.
@@ -181,11 +182,12 @@ const {
 } = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
 const {
-	ghWords,
+	ghCall,
 	literal,
 	runCwd,
 	runText,
 	scanFlags,
+	unwrap,
 } = require("./shell-words.js");
 const {
 	CLOSE_WHEN_LINE,
@@ -273,6 +275,7 @@ const API_FORM_COST =
  *   bodies may still spend: one bound for them all, so two creates in one
  *   command stay inside the hook's 60 s
  * @typedef {import("./shell-parse.js").Parsed} Parsed
+ * @typedef {import("./shell-words.js").GhRepo} GhRepo
  */
 
 /**
@@ -311,28 +314,40 @@ const readActsLine = (ctx) =>
 	ruleOrFallback(ctx, "founder-acts", "one of the founder's own acts");
 
 /**
- * Each `gh` the command runs, as ghWords reads one: `gh issue create`, `gh
- * issue edit` and `gh api` are judged, each in the directory its own moves
- * put it and shown as runText shows it.
+ * Each `gh` the command runs, one per unwrap run as ghCall reads it: `gh
+ * issue create`, `gh issue edit` and `gh api` are judged, each in the
+ * directory its own moves put it and shown as runText shows it.
  * @param {Run} run
  * @param {Command} cmd
  */
 function judge(run, cmd) {
 	const { spans } = run.parsed;
-	for (const { args, run: ran } of ghWords(cmd.words, spans)) {
-		const [sub, verb] = args;
-		const at = {
+	for (const unwrapped of unwrap(cmd.words, spans)) {
+		const gh = ghCall(unwrapped.words, spans);
+		if (!gh) continue;
+		const [sub, verb] = gh.args;
+		const ghCmd = {
 			...cmd,
-			segment: runText(ran, cmd.segment),
-			cwd: runCwd(cmd.cwds, ran.chdirs, spans, run.ctx.isDir)[0],
+			segment: runText(unwrapped, cmd.segment),
+			cwd: runCwd(cmd.cwds, unwrapped.chdirs, spans, run.ctx.isDir)[0],
 		};
 		if (sub === "issue" && verb === "create")
-			judgeCreate(run, at, args.slice(2));
+			judgeCreate(run, ghCmd, gh.args.slice(2), gh.repo);
 		else if (sub === "issue" && verb === "edit")
-			judgeEdit(run, at, args.slice(2));
-		else if (sub === "api") judgeApi(run, at, args.slice(1));
+			judgeEdit(run, ghCmd, gh.args.slice(2), gh.repo);
+		else if (sub === "api") judgeApi(run, ghCmd, gh.args.slice(1));
 	}
 }
+
+/**
+ * The repo a `-R`/`--repo` before the subcommand names, as a create or an
+ * edit holds it, for its own `-R` to override.
+ * @param {GhRepo | null} repo
+ */
+const seedRepo = (repo) => ({
+	repo: repo?.known ? repo.text : "",
+	repoHidden: repo !== null && !repo.known,
+});
 
 /**
  * @typedef {object} Creation what a creation route read
@@ -386,14 +401,14 @@ function bodyEnv(run, cmd) {
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
+ * @param {GhRepo | null} repo what a `-R` before the subcommand named
  */
-function judgeCreate(run, cmd, args) {
+function judgeCreate(run, cmd, args, repo) {
 	/** @type {Creation} */
 	const made = {
 		labels: [],
 		body: newBody(),
-		repo: "",
-		repoHidden: false,
+		...seedRepo(repo),
 		route: {
 			cost: FLAG_FORM_COST,
 			blank: FLAG_FORM_BLANK,
@@ -883,9 +898,10 @@ ${v.refusal}`,
  * @param {Run} run
  * @param {Command} cmd
  * @param {string[]} args
+ * @param {GhRepo | null} repo what a `-R` before the subcommand named
  */
-function judgeEdit(run, cmd, args) {
-	const edit = scanEdit(run, args);
+function judgeEdit(run, cmd, args, repo) {
+	const edit = scanEdit(run, args, repo);
 	if (!edit?.labels.includes("takes:human")) return;
 	if (edit.unreadable) open(run.ctx, UNREAD_NUMBER);
 	if (edit.repoHidden)
@@ -995,9 +1011,10 @@ const EDIT_READS = new Map([
  * An edit's flags, read; null at --help.
  * @param {Run} run
  * @param {string[]} args
+ * @param {GhRepo | null} repo
  * @returns {Edit | null}
  */
-function scanEdit(run, args) {
+function scanEdit(run, args, repo) {
 	/** @type {Edit} */
 	const edit = {
 		run,
@@ -1005,8 +1022,7 @@ function scanEdit(run, args) {
 		numbers: [],
 		body: newBody(),
 		unreadable: false,
-		repo: "",
-		repoHidden: false,
+		...seedRepo(repo),
 	};
 	const scanned = scanFlags(
 		ISSUE_VALUE_FLAGS.edit,

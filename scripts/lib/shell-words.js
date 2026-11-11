@@ -1215,29 +1215,36 @@ function gitRunWords(ws, spans) {
  * wrapper, a path to the binary, and `gh`'s own flags before the command
  * word, of which only `-R`/`--repo` takes a value.
  *
- * One per unwrap run that is `gh`, with that run and its `wrapperWords`;
- * none for a run where `--help`/`-h` stands anywhere: usage prints and
- * dispatches nothing.
+ * One per unwrap run that is `gh`, `wrapperWords` that run's; none for a run
+ * where `--help`/`-h` stands anywhere: usage prints and dispatches nothing.
  * @param {string[]} words masked
  * @param {string[]} spans accumulator: a `-c` string's spans are appended
- * @returns {(GhCall & { wrapperWords: string[], run: Unwrapped })[]}
+ * @returns {(GhCall & { wrapperWords: string[] })[]}
  */
 const ghWords = (words, spans) =>
-	unwrap(words, spans).flatMap((run) => {
-		const gh = ghRunWords(run.words, spans);
-		return gh ? [{ ...gh, wrapperWords: run.wrapperWords, run }] : [];
+	unwrap(words, spans).flatMap(({ words: ws, wrapperWords }) => {
+		const gh = ghCall(ws, spans);
+		if (!gh || ws.slice(1).some((w) => isHelpWord(w, spans))) return [];
+		return [{ ...gh, wrapperWords }];
 	});
 
+/** @param {string} w @param {string[]} spans */
+const isHelpWord = (w, spans) => {
+	const text = literal(w, spans).text;
+	return text === "--help" || text === "-h";
+};
+
 /**
+ * One unwrap run's `gh` call, `gh`'s own flags stepped as ghWords steps them;
+ * null where the run is no `gh`. A `--help` is left in `args`, for a caller
+ * whose own flag scan tells a help flag from a flag's value (#5012).
  * @param {string[]} ws one unwrap run's words
  * @param {string[]} spans
  * @returns {GhCall | null}
  */
-function ghRunWords(ws, spans) {
+function ghCall(ws, spans) {
 	const [cmd, ...args] = ws;
 	if (cmd === undefined || !isGhCommand(literal(cmd, spans).text)) return null;
-	const read = (/** @type {string} */ w) => literal(w, spans).text;
-	if (args.some((w) => read(w) === "--help" || read(w) === "-h")) return null;
 	return stepGhFlags(args, spans);
 }
 
@@ -1652,6 +1659,7 @@ module.exports = {
 	programSource,
 	isGitValueOption,
 	gitWords,
+	ghCall,
 	ghWords,
 	stepGhFlags,
 	valueAfter,

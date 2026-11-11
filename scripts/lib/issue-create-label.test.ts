@@ -39,6 +39,7 @@ import {
 	splitCheckout,
 	toolCall,
 } from "./guard-core-testkit";
+import { isAdmitted, readManifest } from "./guard-cores.js";
 import { UNFILLED_DESTINATION } from "./issue-gate";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -280,25 +281,26 @@ describe("the creates it denies", () => {
 		).toBe("allow");
 	});
 
+	it("denies a create whose --body value is -h, which files and prints no usage (#5012)", () => {
+		for (const call of [
+			"gh issue create --title x --body -h",
+			"timeout 5 gh issue create --title x --body -h",
+		])
+			expect(readDenyReason(call)).toContain(MISSING);
+	});
+
 	it("is dispatched on a gh call that does not open the command (#5012)", () => {
-		const manifest = JSON.parse(
-			fs.readFileSync(path.join(__dirname, "guard-cores.json"), "utf8"),
+		const row = readManifest().PreToolUse?.find(
+			(r) => r.name === "guard-issue-create-label",
 		);
-		const [row] = Object.values(manifest)
-			.flat()
-			.filter(
-				(r) => (r as { name?: string }).name === "guard-issue-create-label",
-			);
-		const { isAdmitted } = require("./guard-cores.js") as {
-			isAdmitted: (row: unknown, payload: unknown) => boolean;
-		};
 		for (const command of [
 			"gh issue create --title x",
 			"timeout 5 gh issue create --title x",
 			'flock /l -c "true; gh issue create --title x"',
 		])
 			expect(
-				isAdmitted(row, { tool_name: "Bash", tool_input: { command } }),
+				row !== undefined &&
+					isAdmitted(row, { tool_name: "Bash", tool_input: { command } }),
 			).toBe(true);
 	});
 
@@ -1519,6 +1521,11 @@ describe("the second-map limb (#717)", () => {
 		);
 	});
 
+	it("reads the repo a -R before the subcommand names (#5012)", () => {
+		verdict(create.replace(/^gh /, "gh -R acme/widgets "), shared, env([]));
+		expect(listCalls()[0]).toMatch(/^issue list --repo acme\/widgets /);
+	});
+
 	it("runs its call where the create runs, so gh resolves the same repo", () => {
 		verdict(`cd ${elsewhere} && ${create}`, shared, env([]));
 		expect(listCalls()[0]).toContain(`(in ${elsewhere})`);
@@ -1957,9 +1964,11 @@ describe("the edit route (mantahostels#3555)", () => {
 			shared,
 			e,
 		);
+		verdict("gh -R acme/cogs issue edit 14 --add-label takes:human", shared, e);
 		expect(calls.map((c) => c.split(" --json")[0])).toEqual([
 			"issue view 12 --repo acme/widgets",
 			"issue view 13 --repo acme/gears",
+			"issue view 14 --repo acme/cogs",
 		]);
 	});
 

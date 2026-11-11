@@ -292,6 +292,16 @@ describe("a write behind a wrapper or in a `flock -c` string", () => {
 		expect(v).toEqual(bare);
 	});
 
+	it("reads a cp's destination folder where the run's own move puts it", () => {
+		const job = path.join(dir, "jobs", "abc");
+		fs.mkdirSync(path.join(job, "tmp"), { recursive: true });
+		expect(
+			refused(
+				bash(`flock /l -c "cd ${job} && cp /tmp/a.md tmp"`, { jobDir: job }),
+			),
+		).toContain(`lands at ${job}/tmp/a.md`);
+	});
+
 	it.each([
 		`flock /l -c "cd ${JOB_DIR} && tee tmp/x.out"`,
 		`env -C ${JOB_DIR} tee tmp/x.out`,

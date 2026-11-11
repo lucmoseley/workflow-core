@@ -381,6 +381,20 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		});
 	});
 
+	it.each([
+		["gh -R o/r issue close 5", "close-outstanding-line"],
+		["gh issue create --help --title t", "create-command-shape"],
+	])("%s is handed its row's rules (#5012)", (command, id) => {
+		expect(idsIn(emission(bash(command)).additionalContext)).toContain(id);
+	});
+
+	it("reads a body path past gh's own -R (#5012)", () => {
+		const out = emission(
+			bash("gh -R o/r issue comment 5 --body-file $CLAUDE_JOB_DIR/tmp/b.md"),
+		);
+		expect(idsIn(out.additionalContext)).toContain("gh-job-dir-unreadable");
+	});
+
 	it("follows a `-c` string's `cd` into the job tree (#5012)", () => {
 		const job = path.join(dir, ".claude", "jobs", "abc");
 		fs.mkdirSync(job, { recursive: true });

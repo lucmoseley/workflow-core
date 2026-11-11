@@ -159,7 +159,10 @@ function decide(subject, ctx) {
 			parsed,
 			(cmd) => {
 				for (const run of unwrap(cmd.words, parsed.spans))
-					for (const t of runTargets(cmd, run, parsed.spans, ctx))
+					for (const t of cmd.writeTargets(
+						run.words,
+						runCwd(cmd.cwds, run.chdirs, parsed.spans, ctx.isDir)[0],
+					))
 						if (t.mode === "write" && !found.flat)
 							considerTarget(t.target, t.path, {
 								spans: parsed.spans,
@@ -194,26 +197,6 @@ function decide(subject, ctx) {
 		),
 		latchAfter: RULE,
 	};
-}
-
-/**
- * What one unwrap run writes: the command's redirects, and its own words'
- * targets, a relative one resolved in the directory the run's own moves (`env
- * -C`, a `-c` string's `cd`) put it.
- * @param {import("./shell-parse.js").Command} cmd
- * @param {import("./shell-words.js").Unwrapped} run
- * @param {string[]} spans
- * @param {CoreContext} ctx
- */
-function runTargets(cmd, run, spans, ctx) {
-	const targets = cmd.writeTargets(run.words);
-	if (run.chdirs.length === 0) return targets;
-	const cwd = runCwd(cmd.cwds, run.chdirs, spans, ctx.isDir)[0];
-	return targets.map((t) => {
-		const p = t.route === "redirect" ? null : cmd.resolveWord(t.target);
-		if (p === null || p.startsWith("/")) return t;
-		return { ...t, path: cwd ? normAbs(`${cwd}/${p}`) : "" };
-	});
 }
 
 /**
