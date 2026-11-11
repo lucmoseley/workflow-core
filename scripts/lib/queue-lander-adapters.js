@@ -103,7 +103,7 @@ const gateCopy = (dir, rel) =>
 
 /**
  * The registry checker's --json envelope out of its run over `sha`, null
- * where it skipped.
+ * where it skipped, which it says on stderr.
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {string} sha
  * @param {number} timeoutMs
@@ -131,7 +131,13 @@ function readEnvelope(r, sha, timeoutMs) {
 			},
 		);
 	}
-	if (envelope.outcome === "SKIP") return null;
+	if (envelope.outcome === "SKIP") {
+		writeFd(
+			2,
+			`queue-lander: ${over} skipped, so no guard-registry fault was judged: ${envelope.summary}\n`,
+		);
+		return null;
+	}
 	if (envelope.outcome === "BROKEN")
 		throw new Error(`${over} could not judge it: ${envelope.summary}`);
 	return envelope;
@@ -322,7 +328,9 @@ function queueGit(
 	 * ones its merges add (#4807): a tree holding a gating one `onto` lacks is
 	 * refused, naming `last`; one whose every such fault `onto` holds too is
 	 * `stale-base`, which stops the line rather than drops a member, since
-	 * `main` must be re-anchored first. Any other result passes through.
+	 * `main` must be re-anchored first. A tree its checker SKIPs passes, as a
+	 * SKIP gates nothing (mantahostels#155, #4904). Any other result passes
+	 * through.
 	 * @param {string} onto
 	 * @param {MergeResult} merged
 	 * @param {Member} last
