@@ -22,7 +22,7 @@ const {
 	readSentinels,
 	literal,
 	unwrap,
-	holdsAt,
+	runCwd,
 	commandName,
 	isGitValueOption,
 	isGlobPattern,
@@ -1989,7 +1989,10 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 }
 
 /**
- * One `git` command's subcommand and the tree it runs against.
+ * One `git` command's subcommand and the tree it runs against. Every other
+ * directory its run may stand in, by runCwd from the walk's doubted cwds, is
+ * moved by its `-C`s into `doubted`; runCwd reads a wrapper's word under the
+ * walk's scope, as the tree's own move does.
  * @param {Walk} walk
  * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
  *   its words from `git` on, and what its wrappers and its script carried
@@ -2005,40 +2008,38 @@ function readGitRun(walk, run, leading, isDir) {
 		env.set(name, value);
 	for (const name of run.unread) env.set(name, null);
 	const { spans } = walk.scope;
-	/** @param {Chdir[]} dirs */
-	const through = (dirs) => {
-		/** @type {GitTarget} */
-		const target = {
-			tree: walk.cwd,
-			named: null,
-			workTree: null,
-			doubted: [],
-			fromCwd: "",
-			names: walk.cwdNames,
-			written: "",
-			aliases: emptyAliasTable(),
-		};
-		target.aliases.anyUnread = walk.aliasWritten;
-		defineFromEnv(target.aliases, env, spans);
-		/** @type {number[]} */
-		const unsure = [];
-		dirs.forEach((cd, at) => {
-			const { resolved, emptyNames } = chdirArg(cd, walk.scope);
-			moveGitTarget(target, resolved, cd.dir, emptyNames);
-			if (!holdsAt(cd, target.tree, isDir)) unsure.push(at);
-		});
-		const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
-		return { target, i, unsure };
+	/** @type {GitTarget} */
+	const target = {
+		tree: walk.cwd,
+		named: null,
+		workTree: null,
+		doubted: [],
+		fromCwd: "",
+		names: walk.cwdNames,
+		written: "",
+		aliases: emptyAliasTable(),
 	};
-	const { target, i, unsure } = through(chdirs);
+	target.aliases.anyUnread = walk.aliasWritten;
+	defineFromEnv(target.aliases, env, spans);
+	for (const cd of chdirs) {
+		const { resolved, emptyNames } = chdirArg(cd, walk.scope);
+		moveGitTarget(target, resolved, cd.dir, emptyNames);
+	}
+	/* fromCwd from here is the `-C`s' own move, which each doubted tree takes. */
+	target.fromCwd = "";
+	const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
 	const word = own[i];
 	if (word === undefined) return null;
+	const [, ...doubted] = runCwd(
+		[walk.cwd, ...walk.cwdDoubt],
+		chdirs,
+		walk.scope,
+		isDir,
+	);
 	/* An absolute `-C` says where it stands whatever a `cd` did. */
-	if (target.fromCwd !== null)
-		target.doubted = walk.cwdDoubt.map((d) => `${d}${target.fromCwd}`);
-	/* A `cd` that may not have run leaves it where the rest of its moves do. */
-	for (const at of unsure)
-		target.doubted.push(through(chdirs.filter((_, j) => j !== at)).target.tree);
+	const { fromCwd } = target;
+	if (fromCwd !== null)
+		target.doubted = doubted.map((d) => d && `${d}${fromCwd}`);
 	/* The config read follows `tree`, which the doubt says it may not stand in. */
 	target.aliases.anyUnread ||= target.doubted.length > 0;
 	const args = own.slice(i + 1);
