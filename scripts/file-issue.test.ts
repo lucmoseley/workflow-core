@@ -30,6 +30,8 @@ import {
 	judgeFakeEnv,
 	MODEL_LEAD,
 	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
 } from "./lib/gate-judge-fake";
 import { buildJqLines } from "./lib/gh-fake";
 import { buildLinkReadArms, stubGhScript } from "./lib/gh-stub";
@@ -385,8 +387,6 @@ describe("the model reading (#4969)", () => {
 		},
 	};
 
-	const Override = "**Gate judge override:** the records build up on demand";
-
 	it("refuses a body whose wait only the model reads, printing the template and the override", () => {
 		setUp();
 		const r = judged(`Build it.\n\n${Wait}\n`, waitFound);
@@ -397,7 +397,7 @@ describe("the model reading (#4969)", () => {
 		expect(refusal).toContain("question 1:");
 		expect(refusal).toContain("The line's template: `**Gate basis:**");
 		expect(refusal).toContain(
-			"`**Gate judge override:** <why its reading is wrong>`",
+			"`**Gate judge override:** <why the reading is wrong>`",
 		);
 		expect(readGhCalls()).toEqual([]);
 	});
@@ -405,14 +405,12 @@ describe("the model reading (#4969)", () => {
 	it("files a body whose override gives a reason, saying it was honoured, and logs it", () => {
 		setUp();
 		fs.rmSync(callLogPath(), { force: true });
-		const r = judged(`Build it.\n\n${Wait}\n${Override}\n`, waitFound);
+		const r = judged(`Build it.\n\n${Wait}\n${OVERRIDE_LINE}\n`, waitFound);
 		expect(r.status).toBe(0);
 		expect(readCreates()).toHaveLength(1);
-		expect(r.stderr).toContain(
-			`${OVERRIDE_LEAD} ("the records build up on demand")`,
-		);
+		expect(r.stderr).toContain(`${OVERRIDE_LEAD} ("${OVERRIDE_REASON}")`);
 		expect(readJsonl(callLogPath())?.rows).toEqual([
-			expect.objectContaining({ override: "the records build up on demand" }),
+			expect.objectContaining({ override: OVERRIDE_REASON }),
 		]);
 	});
 
@@ -430,7 +428,7 @@ describe("the model reading (#4969)", () => {
 	it("refuses a body the patterns fault, an override line present", () => {
 		setUp();
 		const r = judged(
-			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${Override}\n`,
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${OVERRIDE_LINE}\n`,
 			waitFound,
 		);
 		expect(r.status).toBe(2);

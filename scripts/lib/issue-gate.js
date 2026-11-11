@@ -233,11 +233,20 @@ function gateOnOf(body) {
 	return { condition, command, abandonIf };
 }
 
-const BASIS_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
-	"gim",
-);
+/**
+ * A `**<label>:** <text>` body line, its text, possibly empty, in group 1.
+ * It backtracks super-linearly, as GATE_RE does: input is issue, comment,
+ * commit or reply text from the repo's own writers, and a crafted one slows
+ * the hook, nothing worse (#4642).
+ * @param {string} label
+ */
+const fieldLineRe = (label) =>
+	new RegExp(
+		`${AT_LINE_HEAD}\\*\\*${label}:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
+		"gim",
+	);
+
+const BASIS_RE = fieldLineRe("Gate basis");
 
 /**
  * The first live `**Gate basis:**` anywhere in the body, under the gate lines'
@@ -254,11 +263,7 @@ function basisOf(body) {
 	return firstLiveMatch(BASIS_RE, String(body || ""))?.[1] || null;
 }
 
-const OVERRIDE_RE = new RegExp(
-	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-	`${AT_LINE_HEAD}\\*\\*Gate judge override:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
-	"gim",
-);
+const OVERRIDE_RE = fieldLineRe("Gate judge override");
 
 /**
  * The body's first live `**Gate judge override:**` line (#4970), outside a

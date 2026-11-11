@@ -29,6 +29,7 @@ import {
 	FALLBACK_LEAD,
 	judgeFakeEnv,
 	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
 	readJudgeCalls,
 } from "./gate-judge-fake";
 import { ghFake, readGhAnswer } from "./gh-fake";
@@ -2244,7 +2245,7 @@ describe("the model reading's one bound for a call (#4969)", () => {
 			t += 26_000;
 			return t;
 		});
-		const create = `gh issue create --title t --label takes:implement --body '${Wait}\n**Gate judge override:** the records build up on demand'`;
+		const create = `gh issue create --title t --label takes:implement --body '${Wait}\n${OVERRIDE_LINE}'`;
 		const told = said(`${create} && ${create}`);
 		clock.mockRestore();
 		expect(told).toContain(OVERRIDE_LEAD);

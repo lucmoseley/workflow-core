@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
+import { OVERRIDE_LINE, OVERRIDE_REASON } from "./lib/gate-judge-fake";
 import {
 	GH_NOT_FOUND,
 	type SubIssuesAnswer,
@@ -1524,7 +1525,7 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 });
 
 describe("a gate judge override on the body (#4970)", () => {
-	const line = "**Gate judge override:** the records build up on demand";
+	const line = OVERRIDE_LINE;
 	const report = async (body: string, state = "open") =>
 		(await run([], stubGh([{ number: 451, state, body }]))).out;
 
@@ -1532,7 +1533,7 @@ describe("a gate judge override on the body (#4970)", () => {
 		const out = await report(`Build it.\n\n${line}\n`);
 		expect(out).toContain("GATE-JUDGE-OVERRIDE");
 		expect(out).toContain("#451");
-		expect(out).toContain('"the records build up on demand"');
+		expect(out).toContain(`"${OVERRIDE_REASON}"`);
 		expect(out).not.toContain("NO-GATE-BASIS");
 	});
 

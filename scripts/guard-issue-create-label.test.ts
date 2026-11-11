@@ -26,10 +26,14 @@ import {
 	judgeFakeEnv,
 	MODEL_LEAD,
 	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
 } from "./lib/gate-judge-fake";
 import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
+import { readJsonl } from "./lib/jsonl.js";
+import { markersDir } from "./lib/marker-root.js";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -208,8 +212,6 @@ describe("the model reading (#4969)", () => {
 			{ env: judgeFakeEnv(dir, plan, config).env },
 		);
 
-	const Override = "**Gate judge override:** the records build up on demand";
-
 	it("denies a create whose wait only the model reads, with the template and the override", () => {
 		const out = create(`Build it.\n\n${Wait}`, found);
 		expect(out.permissionDecision).toBe("deny");
@@ -218,15 +220,23 @@ describe("the model reading (#4969)", () => {
 		expect(reason).toContain(`"${Wait}" makes work wait on data accumulating`);
 		expect(reason).toContain("The line's template: `**Gate basis:**");
 		expect(reason).toContain(
-			"`**Gate judge override:** <why its reading is wrong>`",
+			"`**Gate judge override:** <why the reading is wrong>`",
 		);
 	});
 
 	it("lets a create through whose override gives a reason, saying so as context", () => {
-		const out = create(`Build it.\n\n${Wait}\n${Override}`, found);
+		const out = create(`Build it.\n\n${Wait}\n${OVERRIDE_LINE}`, found);
 		expect(out.permissionDecision).toBeUndefined();
 		expect(out.additionalContext).toContain(
-			`${OVERRIDE_LEAD} ("the records build up on demand")`,
+			`${OVERRIDE_LEAD} ("${OVERRIDE_REASON}")`,
+		);
+		expect(
+			readJsonl(path.join(markersDir(dir), ".gate-judge-calls.jsonl"))?.rows,
+		).toContainEqual(
+			expect.objectContaining({
+				route: "create-guard",
+				override: OVERRIDE_REASON,
+			}),
 		);
 	});
 
@@ -240,7 +250,7 @@ describe("the model reading (#4969)", () => {
 
 	it("denies a create the patterns fault, an override line present", () => {
 		const out = create(
-			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${Override}`,
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${OVERRIDE_LINE}`,
 			found,
 		);
 		expect(out.permissionDecision).toBe("deny");

@@ -425,9 +425,6 @@ const MODEL_LEAD = "faults the model reading of this body raises";
 const OVERRIDE_LEAD = "Gate judge override honoured";
 const FALLBACK_LEAD = "The model reading of this body did not run";
 
-const OVERRIDE_FORM =
-	"Where the model reading is wrong, write a live body line `**Gate judge override:** <why its reading is wrong>`: with a reason it clears every fault of the model reading on this body and no wording-pattern fault, and `npm run status` lists the issue for review.";
-
 const QUESTION_WAIT =
 	"question 1: does this body make work wait on time passing or on data accumulating?";
 const QUESTION_BASIS =
@@ -487,8 +484,8 @@ const unmarked = ({ by: _by, ...f }) => f;
 const MIN_BOUND_MS = 5000;
 
 /**
- * The refusal's model part: the faults, then the rule's template where no
- * pattern refusal printed it, then how to override.
+ * The refusal's model part: the faults, then the rule, with its template and
+ * the override line's form, where no pattern refusal printed it.
  *
  * @param {JudgedFault[]} model
  * @param {boolean} afterPatterns
@@ -504,7 +501,6 @@ function modelRefusal(model, afterPatterns, override) {
 					"The `**Gate judge override:**` line gives no reason, so it clears nothing.",
 				]
 			: []),
-		OVERRIDE_FORM,
 	].join("\n");
 }
 

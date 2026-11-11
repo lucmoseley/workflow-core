@@ -513,10 +513,10 @@ function checkGates(iss, raise) {
 /**
  * A WARN (#4970) on each open issue whose body overrides the gate judge, so
  * every disputed model reading is reviewed. The judge is not called here.
- * @param {any} iss @param {Raise} raise
+ * @param {{body?: string|null}} iss @param {Raise} raise
  */
 function checkJudgeOverride(iss, raise) {
-	const reason = judgeOverrideOf(iss.body)?.reason;
+	const reason = judgeOverrideOf(iss.body ?? "")?.reason;
 	if (reason)
 		raise(
 			"WARN",

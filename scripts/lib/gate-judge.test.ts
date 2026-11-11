@@ -24,6 +24,8 @@ import {
 	type JudgeFakePlan,
 	MODEL_LEAD,
 	OVERRIDE_LEAD,
+	OVERRIDE_LINE,
+	OVERRIDE_REASON,
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
@@ -451,13 +453,11 @@ describe("a write route's reading", () => {
 	];
 
 	const Found = reading([wait(WAIT, "500 ticks")]);
-	const Override = "**Gate judge override:** the ticks build up on demand";
-
 	it("gives a model fault, a pattern fault, an override and a fallback text the review can count apart", () => {
 		const model = write(`${WAIT}\n`, Found).refusal ?? "";
 		const pattern = write(`${Gate}\n`, NOTHING).refusal ?? "";
 		const fallback = write(`${WAIT}\n`, { exit: 1 }).advice;
-		const override = write(`${WAIT}\n${Override}\n`, Found).advice;
+		const override = write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found).advice;
 		const leads = {
 			model: MODEL_LEAD,
 			fallback: FALLBACK_LEAD,
@@ -486,7 +486,7 @@ describe("a write route's reading", () => {
 		expect(refusal).toContain("question 1:");
 		expect(refusal).toContain("The line's template: `**Gate basis:**");
 		expect(refusal).toContain(
-			"write a live body line `**Gate judge override:** <why its reading is wrong>`",
+			"write a live body line `**Gate judge override:** <why the reading is wrong>`",
 		);
 	});
 
@@ -507,22 +507,20 @@ describe("a write route's reading", () => {
 	it("refuses on both readings in one message, the pattern faults first", () => {
 		const r = write(`${Gate}\n\n${WAIT}\n`, Found);
 		expect(r.advice).toBe("");
-		expect(r.refusal).toMatch(
-			new RegExp(
-				`^${basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\n\nIt also carries ${MODEL_LEAD}:`,
+		expect(
+			r.refusal?.startsWith(
+				`${basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns")}\n\nIt also carries ${MODEL_LEAD}:`,
 			),
-		);
+		).toBe(true);
 		expect(r.refusal).toContain(
 			`"${WAIT}" makes work wait on data accumulating`,
 		);
 	});
 
 	it("lets an override with a reason clear the model's faults, saying it was honoured", () => {
-		const r = write(`${WAIT}\n${Override}\n`, Found);
+		const r = write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found);
 		expect(r.refusal).toBeNull();
-		expect(r.advice).toContain(
-			`${OVERRIDE_LEAD} ("the ticks build up on demand")`,
-		);
+		expect(r.advice).toContain(`${OVERRIDE_LEAD} ("${OVERRIDE_REASON}")`);
 		expect(r.advice).toContain(
 			`"${WAIT}" makes work wait on data accumulating`,
 		);
@@ -532,13 +530,16 @@ describe("a write route's reading", () => {
 		const empty = write(`${WAIT}\n**Gate judge override:**\n`, Found);
 		expect(empty.refusal).toContain(MODEL_LEAD);
 		expect(empty.refusal).toContain("gives no reason, so it clears nothing");
-		const fenced = write(`${WAIT}\n\n\`\`\`\n${Override}\n\`\`\`\n`, Found);
+		const fenced = write(
+			`${WAIT}\n\n\`\`\`\n${OVERRIDE_LINE}\n\`\`\`\n`,
+			Found,
+		);
 		expect(fenced.refusal).toContain(MODEL_LEAD);
 		expect(fenced.advice).toBe("");
 	});
 
 	it("clears no pattern fault with an override", () => {
-		const r = write(`${Gate}\n\n${WAIT}\n${Override}\n`, Found);
+		const r = write(`${Gate}\n\n${WAIT}\n${OVERRIDE_LINE}\n`, Found);
 		expect(r.refusal).toContain("as the wording patterns read it");
 		expect(r.refusal).not.toContain(`It also carries ${MODEL_LEAD}`);
 		expect(r.refusal).toContain(OVERRIDE_LEAD);
@@ -566,7 +567,7 @@ describe("a write route's reading", () => {
 		fs.rmSync(callLogPath(), { force: true });
 		write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), { own: 12 });
 		write(`${WAIT}\n`, { exit: 3 });
-		write(`${WAIT}\n${Override}\n`, Found);
+		write(`${WAIT}\n${OVERRIDE_LINE}\n`, Found);
 		expect(readJsonl(callLogPath())?.rows).toEqual([
 			expect.objectContaining({
 				route: "file-issue",
@@ -577,7 +578,7 @@ describe("a write route's reading", () => {
 				override: null,
 			}),
 			expect.objectContaining({ model: [], fallback: "the judge exited 3" }),
-			expect.objectContaining({ override: "the ticks build up on demand" }),
+			expect.objectContaining({ override: OVERRIDE_REASON }),
 		]);
 	});
 
