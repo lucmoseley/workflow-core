@@ -215,8 +215,9 @@ function rate(k, n) {
 /** @param {number[]} ms */
 function latency(ms) {
 	const s = [...ms].sort((a, b) => a - b);
-	const sec = (/** @type {number} */ v) => (v / 1000).toFixed(1);
-	return `min ${sec(s[0] ?? 0)} s, median ${sec(quantile(s, 0.5))} s, p90 ${sec(quantile(s, 0.9))} s, p95 ${sec(quantile(s, 0.95))} s, p99 ${sec(quantile(s, 0.99))} s, p99.9 ${sec(quantile(s, 0.999))} s, max ${sec(s.at(-1) ?? 0)} s`;
+	if (s.length === 0) return "none";
+	const sec = (/** @type {number} */ q) => (quantile(s, q) / 1000).toFixed(1);
+	return `min ${sec(0)} s, median ${sec(0.5)} s, p90 ${sec(0.9)} s, p95 ${sec(0.95)} s, p99 ${sec(0.99)} s, p99.9 ${sec(0.999)} s, max ${sec(1)} s`;
 }
 
 /**

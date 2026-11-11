@@ -623,31 +623,62 @@ function unwrapArgv(argv) {
  */
 
 /**
- * The directory a run stands in: `cwd` moved through its `chdirs`, an absolute one
- * replacing it, a relative one joined to it and `""` staying put (#4869).
- * Unknown past a directory no word gives whole: a wrapper's word reading a
- * variable or a `~`, a `-c` string's `cd` reading one its script did not set
- * (#4981), a glob, or a `-` flag.
- *
- * Residual: each move is taken as made whatever its `holds`, as a walk's cwd
- * takes a `cd` (#4980).
- * @param {string} cwd "" where unknown
+ * Whether a run surely stands where a move put it.
+ * @param {Chdir} cd
+ * @param {string} dir where it put it; "" where that will not resolve
+ * @param {(path: string) => boolean} isDir
+ */
+const holdsAt = ({ holds }, dir, isDir) =>
+	holds === "always" || (holds === "if-dir" && dir !== "" && isDir(dir));
+
+/**
+ * @typedef {[string, ...string[]]} Dirs the directories a command may stand
+ *   in, the first where every move before it was made; each "" where unknown
+ */
+
+/**
+ * Every directory a run may stand in: each of `cwds` moved through its
+ * `chdirs`, an absolute one replacing it, a relative one joined to it and `""`
+ * staying put (#4869), each move not sure to hold by holdsAt also left unmade
+ * (#4980). Unknown past a directory no word gives whole: a wrapper's word
+ * reading a variable or a `~`, a `-c` string's `cd` reading one its script did
+ * not set (#4981), a glob, or a `-` flag.
+ * @param {Dirs} cwds
  * @param {Chdir[]} chdirs
+ * @param {string[]} spans
+ * @param {(path: string) => boolean} isDir
+ * @returns {Dirs}
+ */
+function runCwd(cwds, chdirs, spans, isDir) {
+	let dirs = cwds;
+	for (const cd of chdirs) {
+		/** @param {string} from @returns {Dirs} */
+		const step = (from) => {
+			const to = moveRun(from, cd, spans);
+			return holdsAt(cd, to, isDir) ? [to] : [to, from];
+		};
+		const [head, ...tail] = dirs;
+		const [first, ...rest] = [...step(head), ...tail.flatMap(step)];
+		dirs = [first, ...new Set(rest.filter((d) => d !== first))];
+	}
+	return dirs;
+}
+
+/**
+ * Where one move puts a run standing at `at`.
+ * @param {string} at "" where unknown
+ * @param {Chdir} cd
  * @param {string[]} spans
  * @returns {string} "" where unknown
  */
-function runCwd(cwd, chdirs, spans) {
+function moveRun(at, cd, spans) {
 	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
 	const { buildBareScope, chdirArg } = require("./shell-parse.js");
-	let at = cwd;
-	for (const cd of chdirs) {
-		const { resolved } = chdirArg(cd, buildBareScope(spans));
-		if (!resolved) at = "";
-		else if ("empty" in resolved) continue;
-		else if (resolved.path.startsWith("/")) at = resolved.path;
-		else if (at) at = `${at}/${resolved.path}`;
-	}
-	return at;
+	const { resolved } = chdirArg(cd, buildBareScope(spans));
+	if (!resolved) return "";
+	if ("empty" in resolved) return at;
+	if (resolved.path.startsWith("/")) return resolved.path;
+	return at && `${at}/${resolved.path}`;
 }
 
 /**
@@ -1612,6 +1643,7 @@ module.exports = {
 	isScriptNext,
 	wrapperScript,
 	runText,
+	holdsAt,
 	runCwd,
 	carriesVar,
 	commandName,

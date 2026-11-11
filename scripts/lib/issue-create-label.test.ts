@@ -99,7 +99,12 @@ const ghPort = (setup: Gh) => (args: string[], cwd: string) => {
 	return ghFake(answering(ISSUE_BODY, `${body}\n`))(args);
 };
 
-const run = (command: string, cwd = shared, setup: Gh = {}) =>
+const run = (
+	command: string,
+	cwd = shared,
+	setup: Gh = {},
+	clock?: () => number,
+) =>
 	decide(
 		command,
 		kitContextFake({
@@ -112,6 +117,7 @@ const run = (command: string, cwd = shared, setup: Gh = {}) =>
 			corePaths: resolveScriptPaths,
 			...buildHostPorts(),
 			gh: ghPort(setup),
+			...(clock ? { now: clock } : {}),
 		}),
 	);
 
@@ -123,8 +129,13 @@ const pointer = (cmd: string) =>
 	`${DELIVERABLE_POINTER_LEAD} ${cmd} founder-deliverable`;
 const POINTER = pointer("scripts/lib/rule-text.sh");
 
-const said = (command: string, cwd = shared, setup: Gh = {}) => {
-	const d = run(command, cwd, setup);
+const said = (
+	command: string,
+	cwd = shared,
+	setup: Gh = {},
+	clock?: () => number,
+) => {
+	const d = run(command, cwd, setup, clock);
 	if (!d) return "";
 	return "deny" in d ? d.deny : d.prelude;
 };
@@ -2241,13 +2252,12 @@ describe("the model reading's one bound for a call (#4969)", () => {
 		/* Each clock read 26 s on: the first reading spends past 25 s of the
 		 * 30 s bound, whatever number of reads it takes. */
 		let t = Date.parse("2026-11-11T00:00:00Z");
-		const clock = vi.spyOn(Date, "now").mockImplementation(() => {
+		const clock = () => {
 			t += 26_000;
 			return t;
-		});
+		};
 		const create = `gh issue create --title t --label takes:implement --body '${Wait}\n${OVERRIDE_LINE}'`;
-		const told = said(`${create} && ${create}`);
-		clock.mockRestore();
+		const told = said(`${create} && ${create}`, shared, {}, clock);
 		expect(told).toContain(OVERRIDE_LEAD);
 		expect(told).toContain(
 			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,

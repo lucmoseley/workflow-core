@@ -54,9 +54,11 @@
  *  - Relative paths resolve against the walk's cwd — the payload's, moved by
  *    any `cd` before the dumper and by each directory its launchers move to
  *    (`env -C dir`, a `flock -c` string's `cd`), as lib/shell-words.js's
- *    runCwd reads them. Where that cwd is unknown a
- *    relative path is not measured. The file must EXIST to be measured, which
- *    makes a wrong cwd a silent failure rather than a false warning.
+ *    runCwd reads them. Residual: every move is taken as made, so a `cd`
+ *    that failed has a relative path measured where it would have led
+ *    (#4980). Where that cwd is unknown a relative path is not measured. The
+ *    file must EXIST to be measured, which makes a wrong cwd a silent
+ *    failure rather than a false warning.
  *  - `sed` is judged on its LINE span, never on the bytes those lines hold, so
  *    a 150-line slice of a minified file passes.
  *  - A word literal cannot fully read — `cat "$doc"`, a command substitution —
@@ -225,7 +227,7 @@ const judge = (cmd, spans, ctx, t) =>
 		judgeRun(
 			run.words,
 			spans,
-			{ ctx, cwd: runCwd(cmd.cwd, run.chdirs, spans) },
+			{ ctx, cwd: runCwd([cmd.cwd], run.chdirs, spans, ctx.isDir)[0] },
 			t,
 		),
 	);

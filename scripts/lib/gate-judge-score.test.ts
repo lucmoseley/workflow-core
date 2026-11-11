@@ -2,7 +2,8 @@
 /*
  * lib/gate-judge-score.js: how measure-gate-judge.js counts a stored reply, a
  * labelled case over its runs and a corpus body's two readings (#4968). No
- * call is made: every reply here is written out.
+ * call is made: every reply here is written out. Broken, the rates the
+ * founder rules refusal on are miscounted.
  */
 
 import { describe, expect, it } from "vitest";
@@ -195,6 +196,6 @@ describe("the interval and the quantile", () => {
 		const sorted = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 		expect(quantile(sorted, 0.5)).toBe(6);
 		expect(quantile(sorted, 0.99)).toBe(10);
-		expect(quantile([], 0.5)).toBe(0);
+		expect(() => quantile([], 0.5)).toThrow("empty list");
 	});
 });

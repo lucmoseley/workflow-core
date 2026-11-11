@@ -536,6 +536,43 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 	});
 });
 
+describe("Command.cwds — every directory a doubted cd leaves the command in (#4980)", () => {
+	const isDir = (p: string) => !p.startsWith("/missing");
+	const last = (command: string, from = "/start") =>
+		walkMap(command, (c) => c.cwds, { cwd: from, isDir }).at(-1);
+
+	it("keeps where a cd that may not have run or failed left it", () => {
+		expect(last("cd /missing; gh x")).toEqual(["/missing", "/start"]);
+		expect(last("false && cd /a; gh x")).toEqual(["/a", "/start"]);
+		expect(last("cd /missing || true; gh x")).toEqual(["/missing", "/start"]);
+		expect(last("cd /a; gh x")).toEqual(["/a"]);
+	});
+
+	it("is sure of a cd for what a && chains off it, not after", () => {
+		expect(last("cd /missing && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && true; gh x")).toEqual(["/missing", "/start"]);
+	});
+
+	it("moves each doubted directory through a later cd", () => {
+		expect(last("cd /missing/y; cd ../..; gh x", "/a/b")).toEqual([
+			"/missing/y/../..",
+			"/a/b/../..",
+			"/missing/y",
+		]);
+		expect(last("cd /missing; cd /usr; gh x")).toEqual(["/usr"]);
+		expect(last("cd /missing; cd usr; gh x", "/r")).toEqual([
+			"/missing/usr",
+			"/r/usr",
+			"/missing",
+		]);
+	});
+
+	it("is not moved by a cd in a pipeline or behind &", () => {
+		expect(last("cd /a & gh x")).toEqual(["/start"]);
+		expect(last("cd /a | true; gh x")).toEqual(["/start"]);
+	});
+});
+
 describe("Command.redirects — redirections out of the words and into a lookup (#1488)", () => {
 	/** Per command: its words, then one `fd kind target path` line per
 	 * redirection, the target read back through literal. */

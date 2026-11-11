@@ -34,6 +34,7 @@ const {
 	introducedBasisFaults,
 	judgeOverrideOf,
 	otherIssueRefs,
+	isRegate,
 } = require("./issue-gate.js");
 
 const LAUNCHER = path.join(__dirname, "..", "claude-child.js");
@@ -253,8 +254,9 @@ function liveQuotes(body, reading, facts) {
 			same.length > 0 ? same : facts.bases.filter((t) => t.includes(quote)),
 		);
 		/* A quote two basis lines hold names neither. */
-		return holding.size === 1
-			? [{ basis: [...holding][0] ?? quote, class: b.class }]
+		const [only, ...others] = holding;
+		return only !== undefined && others.length === 0
+			? [{ basis: only, class: b.class }]
 			: [];
 	});
 	const dropped =
@@ -336,7 +338,7 @@ function readingFaults(body, reading, own) {
  * @param {string} a
  * @param {string} b
  */
-function holdsOther(a, b) {
+function isEitherHeld(a, b) {
 	const [x, y] = [a.toLowerCase(), b.toLowerCase()];
 	return x.includes(y) || y.includes(x);
 }
@@ -344,21 +346,29 @@ function holdsOther(a, b) {
 /**
  * The patterns' faults, whole, then what the model adds to them: a model
  * fault the patterns already raise is theirs, and one whose sentence or basis
- * `before` held verbatim, outside code, is not the edit's.
+ * `before` held verbatim, outside code, is not the edit's — bar a basis under
+ * a gate line the edit adds or moves, judged afresh as the patterns' edit rule
+ * judges it (#4946).
  *
  * @param {import("./issue-gate.js").BasisFault[]} patterns
  * @param {ModelFault[]} model
- * @param {string} [before] the body an edit replaces
+ * @param {{before: string, after: string}} [edit] where the write replaces a body
  * @returns {JudgedFault[]}
  */
-function mergeFaults(patterns, model, before) {
+function mergeFaults(patterns, model, edit) {
 	/** @type {JudgedFault[]} */
 	const faults = patterns.map((f) => ({ ...f, by: "patterns" }));
-	const wasLiveAt = before === undefined ? null : gateFacts(before).isLiveAt;
+	const wasLiveAt = edit ? gateFacts(edit.before).isLiveAt : null;
+	const regated = edit !== undefined && isRegate(edit.before, edit.after);
+	const isHeld = (/** @type {ModelFault} */ f) =>
+		edit !== undefined &&
+		wasLiveAt !== null &&
+		!(regated && f.kind === "no-warrant") &&
+		isLiveQuote(edit.before, f.quote, "", wasLiveAt);
 	const added = model.filter(
 		(f) =>
-			!(wasLiveAt && isLiveQuote(before ?? "", f.quote, "", wasLiveAt)) &&
-			!faults.some((p) => p.kind === f.kind && holdsOther(p.text, f.text)),
+			!isHeld(f) &&
+			!faults.some((p) => p.kind === f.kind && isEitherHeld(p.text, f.text)),
 	);
 	return [...faults, ...added.map(({ quote: _quote, ...f }) => f)];
 }
@@ -410,7 +420,11 @@ function judgedBasisFaults(
 		};
 	const judged = readingFaults(text, read.reading, own);
 	return {
-		faults: mergeFaults(patterns, judged.faults, before),
+		faults: mergeFaults(
+			patterns,
+			judged.faults,
+			before === undefined ? undefined : { before, after: text },
+		),
 		fallback: null,
 		reading: read.reading,
 		dropped: judged.dropped,
@@ -472,15 +486,16 @@ function logCall(record) {
 			`${JSON.stringify({ at: new Date(now()).toISOString(), ...record })}\n`,
 		);
 	} catch {
-		/* #4969: an unwritable log loses the record, never the write. */
+		/* #4969: an unwritable log loses the record, never the write, and
+		 * says nothing: a scratch log is no concern of the writing session. */
 	}
 }
 
 /** @param {JudgedFault} f */
 const unmarked = ({ by: _by, ...f }) => f;
 
-/* Below this a call cannot be expected to answer (#4968's latency table);
- * a first guess. */
+/* Below this a call cannot be expected to answer: #4968's corpus run, 4,973
+ * calls, was fastest 2.9 s, median 4.2 s, so 5 s is past half of them. */
 const MIN_BOUND_MS = 5000;
 
 /**
@@ -542,7 +557,9 @@ function answer(patterns, read, override) {
  * bound under MIN_BOUND_MS is a fallback without one.
  *
  * `WFC_GATE_JUDGE=off` is the suites' seam (vitest.setup.ts): no call, no
- * note and no record.
+ * note and no record. It holds only where VITEST_WORKER_ID is set too, so the
+ * create guard, reading the hook's own environment, cannot be switched off by
+ * a command; the two scripts read the session's, which can set both (#5011).
  *
  * @param {string} body the body written
  * @param {{route: "create-guard"|"file-issue"|"issue-body", own?: number,
@@ -555,7 +572,7 @@ function readGateWrite(
 ) {
 	if (before !== undefined && before === body)
 		return { refusal: null, advice: "" };
-	if (env.WFC_GATE_JUDGE === "off")
+	if (env.WFC_GATE_JUDGE === "off" && env.VITEST_WORKER_ID)
 		return answer(patternFaults(body, own, before), null, null);
 	const override = judgeOverrideOf(body);
 	const log = (/** @type {Record<string, unknown>} */ record) =>
@@ -592,7 +609,7 @@ module.exports = {
 	JUDGE_BOUND_MS,
 	LAUNCHER_GRACE_MS,
 	buildPrompt,
-	holdsOther,
+	isEitherHeld,
 	judgedBasisFaults,
 	mergeFaults,
 	parseReading,
