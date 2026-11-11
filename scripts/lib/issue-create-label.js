@@ -514,7 +514,8 @@ ${route.blank}`,
  * (lib/gate-judge.js `readGateWrite`), which file-issue.js and issue-body.js
  * share, so the three routes cannot disagree. Only a body this guard read is
  * judged — the GraphQL route, and a hidden body, pass it unjudged.
- * @param {Run} run accumulator: spends `judgeLeftMs`, pushes to `checkNotes`
+ * @param {Run} run accumulator: spends `judgeLeftMs` and `citedLeftMs`,
+ *   pushes to `checkNotes`
  * @param {string} segment
  * @param {string} text
  */

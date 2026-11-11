@@ -592,6 +592,7 @@ const citedKey = (ref) => `${ref.repo}#${ref.number}`;
  * @returns {CitedRef[]}
  */
 function citedRefsOf(basis, own, tracker) {
+	const home = tracker.toLowerCase();
 	return otherIssueRefs(basis, own)
 		.filter((m) => !isEventAnchor(basis, m))
 		.map((m) => {
@@ -605,7 +606,8 @@ function citedRefsOf(basis, own, tracker) {
 				round,
 				written: `${prefix}${m[0]}${round ? ` ${round}` : ""}`,
 			};
-		});
+		})
+		.filter((ref) => ref.repo !== home || ref.number !== own);
 }
 
 /**
@@ -665,7 +667,7 @@ function citedFault(ref, issue, windows) {
  * @param {Follow} follow accumulator: `follow.trace`, where one is given,
  *   gains this basis's record
  * @returns {{ref: string, reason: CitedReason}[]|null} the reasons where it
- *   faults
+ *   faults, none where it cites only its own issue
  */
 function followCited(text, m, own, follow) {
 	const basis = requiredGroup(m, 1, BASIS_RE);
@@ -1253,6 +1255,7 @@ module.exports = {
 	judgeOverrideOf,
 	otherIssueRefs,
 	gateRuleHandover,
+	citedKey,
 	isNewlyGated,
 	isRegate,
 	parseAddedGateLines,
