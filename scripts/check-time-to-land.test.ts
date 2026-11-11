@@ -30,10 +30,10 @@ afterEach(() => fs.rmSync(work, { recursive: true, force: true }));
 
 /**
  * The logs of 100 queue refs landed in the last hour, a green run of 180 s
- * among them: a tenth and one more took `slow` s from take to land, the rest
- * 200 s.
+ * among them: the first `over` took `slow` s from take to land, the rest
+ * 200 s. 16 of 100 is the fewest over a 540 s target that calls it over.
  */
-const writeLogs = (slow: number) => {
+const writeLogs = (slow: number, over = 16) => {
 	const now = Date.now();
 	const iso = (t: number) => new Date(t).toISOString();
 	const dir = path.join(work, ".claude", "tmp", "markers");
@@ -42,7 +42,7 @@ const writeLogs = (slow: number) => {
 		const ref = `refs/heads/queue/r${k}`;
 		const sha = String(k).padStart(40, "0");
 		const at = now - 3600 * S + k * S;
-		const took = (k < 11 ? slow : 200) * S;
+		const took = (k < over ? slow : 200) * S;
 		return [
 			{ at: iso(at - took), event: "take", ref, sha },
 			{ at: iso(at), event: "land", ref, sha },
@@ -76,16 +76,29 @@ const run = (script: string, args: string[], modules = "landing") => {
 	return runInProcess(script, args, { cwd: work, env });
 };
 
-it("warns where the week's p90 take-to-land is over 3 times the green suite's p50, naming both and the report", () => {
+it("warns where enough of the week's stays are over 3 times the green suite's p50, naming both and the report", () => {
 	writeLogs(541);
 
 	const r = run(CHECK, ["--notify"]);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toContain(
-		"SLOW-LANDING — take-to-land p90 541 s, p50 200 s, over 100 queue ref(s) taken and landed or dropped in 7 days; target 540 s, 3 times the green suite's p50 of 180 s over 1 run(s)",
+		"SLOW-LANDING — take-to-land p90 541 s, p50 200 s, over 100 queue ref(s) taken and landed or dropped in 7 days; target 540 s, 3 times the green suite's p50 of 180 s over 1 run(s); 16 of 100 over the target, 16 calling it over",
 	);
 	expect(r.stdout).toContain("node scripts/time-to-land.js");
+});
+
+it("warns of nothing one stay short of the count, however slow the stays over", () => {
+	writeLogs(5000, 15);
+
+	const r = run(CHECK, ["--json"]);
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(JSON.parse(r.stdout)).toMatchObject({
+		overTarget: 15,
+		overNeeded: 16,
+		over: false,
+	});
 });
 
 it("warns of nothing at the target, nor with the landing module off", () => {
@@ -104,7 +117,7 @@ it("reads only the stays begun and ended in the window it is given, counting tho
 	writeLogs(5000);
 	const now = Date.now();
 	const iso = (t: number) => new Date(t).toISOString();
-	// Ref k lands at now - 3600 s + k s; refs 0-10 took 5000 s, the rest 200 s.
+	// Ref k lands at now - 3600 s + k s; refs 0-15 took 5000 s, the rest 200 s.
 	// Every take, to ref 50's land: refs 0-50, and no green run, which ends
 	// at now - 810 s, so no target to count against.
 	const early = run(CHECK, [
@@ -114,7 +127,7 @@ it("reads only the stays begun and ended in the window it is given, counting tho
 		iso(now - 3600 * S + 50.5 * S),
 		"--json",
 	]);
-	// From now - 3794.5 s: the slow refs' takes fall before it, so refs 11-99
+	// From now - 3794.5 s: the slow refs' takes fall before it, so refs 16-99
 	// stay.
 	const late = run(CHECK, ["--since", iso(now - 3800 * S + 5.5 * S), "--json"]);
 	const zoneless = run(CHECK, ["--since", "2026-11-10T16:13:04"]);
@@ -123,8 +136,8 @@ it("reads only the stays begun and ended in the window it is given, counting tho
 	expect(early.status, early.stderr).toBe(0);
 	const e = JSON.parse(early.stdout);
 	expect([e.stays, e.overTarget]).toEqual([51, null]);
-	expect(e.summary).toContain("- of 51 over the target");
-	expect(JSON.parse(late.stdout)).toMatchObject({ stays: 89, overTarget: 0 });
+	expect(e.summary).toMatch(/unjudged: no green run .* 51 queue ref/);
+	expect(JSON.parse(late.stdout)).toMatchObject({ stays: 84, overTarget: 0 });
 	expect([zoneless.status, future.status]).toEqual([2, 2]);
 	expect(zoneless.stdout + zoneless.stderr).toContain(
 		"--since takes an ISO time with its zone",

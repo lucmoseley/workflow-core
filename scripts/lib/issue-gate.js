@@ -233,20 +233,13 @@ function gateOnOf(body) {
 	return { condition, command, abandonIf };
 }
 
-/**
- * A `**<label>:** <text>` body line, its text, possibly empty, in group 1.
- * It backtracks super-linearly, as GATE_RE does: input is issue, comment,
- * commit or reply text from the repo's own writers, and a crafted one slows
- * the hook, nothing worse (#4642).
- * @param {string} label
- */
-const fieldLineRe = (label) =>
-	new RegExp(
-		`${AT_LINE_HEAD}\\*\\*${label}:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
-		"gim",
-	);
-
-const BASIS_RE = fieldLineRe("Gate basis");
+/* A `**Gate basis:**` body line, its text, possibly empty, in group 1.
+ * OVERRIDE_RE repeats its shape as a literal so the regexp lint reads both. */
+const BASIS_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
+	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
+	"gim",
+);
 
 /**
  * The first live `**Gate basis:**` anywhere in the body, under the gate lines'
@@ -263,7 +256,11 @@ function basisOf(body) {
 	return firstLiveMatch(BASIS_RE, String(body || ""))?.[1] || null;
 }
 
-const OVERRIDE_RE = fieldLineRe("Gate judge override");
+const OVERRIDE_RE = new RegExp(
+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- as BASIS_RE (#4642)
+	`${AT_LINE_HEAD}\\*\\*Gate judge override:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
+	"gim",
+);
 
 /**
  * The body's first live `**Gate judge override:**` line (#4970), outside a
@@ -275,7 +272,7 @@ const OVERRIDE_RE = fieldLineRe("Gate judge override");
  */
 function judgeOverrideOf(body) {
 	const m = firstLiveMatch(OVERRIDE_RE, String(body || ""));
-	return m ? { reason: (m[1] ?? "").trim() } : null;
+	return m ? { reason: requiredGroup(m, 1, OVERRIDE_RE).trim() } : null;
 }
 
 const COUNT_WORDS = [
@@ -977,7 +974,7 @@ function parseBacktickRuns(block, from) {
  */
 function introducedBasisFaults(before, after, own, follow) {
 	const b = String(before || "");
-	const regated = parseAddedGateLines(b, after).length > 0;
+	const regated = isRegate(b, after);
 	const untouched = new Set(
 		regated
 			? []
@@ -1004,6 +1001,15 @@ function introducedBasisFaults(before, after, own, follow) {
 		},
 	).filter((f) => !held.has(keyOf(f.kind, f.text)));
 }
+
+/**
+ * Whether an edit adds or changes a gate line, so every basis beneath a window
+ * meets today's bar (#4946), on either reading.
+ * @param {string} before
+ * @param {string} after
+ */
+const isRegate = (before, after) =>
+	parseAddedGateLines(before, after).length > 0;
 
 /**
  * Resolves the two gate markers together. One gate line per issue (mantahostels#1333): a
@@ -1248,6 +1254,7 @@ module.exports = {
 	otherIssueRefs,
 	gateRuleHandover,
 	isNewlyGated,
+	isRegate,
 	parseAddedGateLines,
 	MAP_LABEL,
 	UNFILLED_DESTINATION,

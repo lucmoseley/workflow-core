@@ -111,8 +111,8 @@
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
  *    either that the basis does not name (#823), or a basis with no warrant
  *    beneath a window (#4946), through lib/issue-gate.js. The model reading
- *    (lib/gate-judge.js, #4964) of the same body rides as hook context, or
- *    in the refusal, and refuses nothing.
+ *    (lib/gate-judge.js, #4964) of the same body refuses what it faults
+ *    (#4970), unless a `**Gate judge override:**` line gives a reason.
  *  - THE CHECK LIMB (#3487) refuses, on the same body, a gate `check:` that
  *    cannot run as a command, and warns that one which can was not run.
  *  - THE SECOND-MAP LIMB (#717) refuses a flag-form or REST create carrying
@@ -200,6 +200,8 @@ const { trimEndRun } = require("./trim-run.js");
  *   text, undefined where it is absent; throws where it cannot be read
  * @property {(args: string[], cwd: string) => string} gh gh's stdout, run in
  *   `cwd`; throws where gh fails, cannot be found or outlasts its timeout
+ * @property {() => number} now the clock the model reading's shared bound is
+ *   spent against, in ms
  * @typedef {import("./kit-context.js").KitContext & LabelPorts} LabelContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -508,23 +510,24 @@ ${route.blank}`,
 }
 
 /**
- * The basis limb (#672), read by lib/issue-gate.js, which file-issue.js and
- * issue-body.js share, so the three routes cannot disagree. Only a body this
- * guard read is judged — the GraphQL route, and a hidden body, pass it
- * unjudged.
- * @param {Run} run
+ * The basis limb (#672), read by the wording patterns and the model
+ * (lib/gate-judge.js `readGateWrite`), which file-issue.js and issue-body.js
+ * share, so the three routes cannot disagree. Only a body this guard read is
+ * judged — the GraphQL route, and a hidden body, pass it unjudged.
+ * @param {Run} run accumulator: spends `judgeLeftMs`, pushes to `checkNotes`
  * @param {string} segment
  * @param {string} text
  */
 function judgeBasis(run, segment, text) {
-	const startedAt = Date.now();
+	const startedAt = run.ctx.now();
 	const { refusal, advice, citedMs } = readGateWrite(text, {
 		route: "create-guard",
 		boundMs: Math.min(JUDGE_BOUND_MS, run.judgeLeftMs),
 		citedBoundMs: run.citedLeftMs,
+		env: run.ctx.vars,
 	});
 	run.citedLeftMs -= citedMs;
-	run.judgeLeftMs -= Date.now() - startedAt - citedMs;
+	run.judgeLeftMs -= run.ctx.now() - startedAt - citedMs;
 	if (!refusal) {
 		if (advice) run.checkNotes.push(advice);
 		return;

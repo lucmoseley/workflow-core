@@ -2621,5 +2621,17 @@
 				"scanned": true
 			}
 		]
+	},
+	"time-to-land-min-stays": {
+		"needles": [
+			{
+				"needle": "MIN_STAYS",
+				"scanned": true
+			},
+			{
+				"needle": "under 100 stays",
+				"scanned": true
+			}
+		]
 	}
 }
