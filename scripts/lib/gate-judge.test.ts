@@ -13,15 +13,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	callLogPath,
+	FALLBACK_LEAD,
 	JUDGE_BOUND_MS,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
+	MODEL_LEAD,
+	readGateWrite,
 } from "./gate-judge.js";
 import {
 	type JudgeFakePlan,
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
+import { basisFaults, basisRefusal } from "./issue-gate.js";
+import { readJsonl } from "./jsonl.js";
 
 /* Far over a faked call, which is three Node starts. */
 const BOUND_MS = 60_000;
@@ -77,7 +83,9 @@ describe("a judged wait", () => {
 			`Build it.\n\n${WAIT}\n`,
 			reading([wait(WAIT, "500 ticks")]),
 		);
-		expect(r.faults).toEqual([{ kind: "no-basis", text: WAIT, by: "model" }]);
+		expect(r.faults).toEqual([
+			{ kind: "no-basis", text: WAIT, by: "model", on: "data" },
+		]);
 		expect(r.fallback).toBeNull();
 	});
 
@@ -96,7 +104,7 @@ describe("a judged wait", () => {
 			),
 		);
 		expect(r.faults).toEqual([
-			{ kind: "unnamed-window", text: "500 ticks", by: "model" },
+			{ kind: "unnamed-window", text: "500 ticks", by: "model", on: "data" },
 		]);
 	});
 
@@ -132,7 +140,7 @@ describe("a judged basis", () => {
 		(cls) => {
 			const basis = "the ticket asks for 500 ticks.";
 			expect(judged(basis, cls)).toEqual([
-				{ kind: "no-warrant", text: basis, by: "model" },
+				{ kind: "no-warrant", text: basis, by: "model", class: cls },
 			]);
 		},
 	);
@@ -150,7 +158,7 @@ describe("a judged basis", () => {
 	it("classed inherited is a no-warrant fault where it cites only its own number", () => {
 		const basis = "the 500 ticks #12 asks for.";
 		expect(judged(basis, "inherited", 12)).toEqual([
-			{ kind: "no-warrant", text: basis, by: "model" },
+			{ kind: "no-warrant", text: basis, by: "model", class: "inherited" },
 		]);
 	});
 
@@ -164,7 +172,7 @@ describe("a judged basis", () => {
 			),
 		);
 		expect(r.faults).toEqual([
-			{ kind: "no-warrant", text: basis, by: "model" },
+			{ kind: "no-warrant", text: basis, by: "model", class: "restated" },
 		]);
 		expect(r.dropped).toBe(0);
 	});
@@ -200,7 +208,7 @@ describe("a quote the body does not hold as its own words is dropped", () => {
 		const sentence = "Re-measure once 500 ticks are in `ticks.jsonl`";
 		const r = judge(`${sentence}\n`, reading([wait(sentence, "500 ticks")]));
 		expect(r.faults).toEqual([
-			{ kind: "no-basis", text: sentence, by: "model" },
+			{ kind: "no-basis", text: sentence, by: "model", on: "data" },
 		]);
 		expect(r.dropped).toBe(0);
 	});
@@ -255,7 +263,7 @@ describe("the patterns stay the floor", () => {
 		);
 		expect(r.faults).toEqual([
 			{ kind: "no-basis", text: "a week after", by: "patterns" },
-			{ kind: "no-basis", text: WAIT, by: "model" },
+			{ kind: "no-basis", text: WAIT, by: "model", on: "data" },
 		]);
 	});
 });
@@ -332,7 +340,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 
 describe("an edit", () => {
 	const Old = `Some context.\n\n${WAIT}\n`;
-	const model = [{ kind: "no-basis", text: WAIT, by: "model" }];
+	const model = [{ kind: "no-basis", text: WAIT, by: "model", on: "data" }];
 
 	it("that leaves a judged wait untouched raises nothing for it", () => {
 		const r = judge(
@@ -353,7 +361,7 @@ describe("an edit", () => {
 			{ before: Old },
 		);
 		expect(r.faults).toEqual([
-			{ kind: "no-basis", text: rewritten, by: "model" },
+			{ kind: "no-basis", text: rewritten, by: "model", on: "data" },
 		]);
 	});
 
@@ -366,7 +374,7 @@ describe("an edit", () => {
 			{ before: `${WAIT}\n\n${basis}\n` },
 		);
 		expect(r.faults).toEqual([
-			{ kind: "unnamed-window", text: "500 ticks", by: "model" },
+			{ kind: "unnamed-window", text: "500 ticks", by: "model", on: "data" },
 		]);
 	});
 
@@ -390,7 +398,12 @@ describe("an edit", () => {
 		expect(
 			judge(after, cls("the body sets 500 ticks."), { before }).faults,
 		).toEqual([
-			{ kind: "no-warrant", text: "the body sets 500 ticks.", by: "model" },
+			{
+				kind: "no-warrant",
+				text: "the body sets 500 ticks.",
+				by: "model",
+				class: "restated",
+			},
 		]);
 	});
 
@@ -405,5 +418,90 @@ describe("an edit", () => {
 		expect(judge(Old, reading([wait(WAIT, "500 ticks")])).faults).toEqual(
 			model,
 		);
+	});
+});
+
+describe("a write route's reading", () => {
+	const write = (
+		body: string,
+		plan: JudgeFakePlan,
+		opts: { before?: string; own?: number } = {},
+		extraEnv: Record<string, string> = {},
+	) =>
+		readGateWrite(body, {
+			route: "file-issue",
+			boundMs: BOUND_MS,
+			...opts,
+			env: {
+				...process.env,
+				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
+				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
+				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
+				WFC_GATE_JUDGE: "",
+				...extraEnv,
+			},
+		});
+	const Gate = "**Gated until:** 2026-10-05 — a week live";
+	const PatternSays = [
+		"with no `**Gate basis:**` line",
+		"line does not name",
+		"carries no warrant",
+		"carry no warrant",
+	];
+
+	it("gives a model finding, a pattern fault and a fallback text the review can count apart", () => {
+		const found = write(
+			`${Gate}\n\n${WAIT}\n\n**Gate basis:** the ticket asks for a week\n`,
+			reading(
+				[wait(WAIT, "500 ticks")],
+				[{ basis: "the ticket asks for a week", class: "asserted" }],
+			),
+		);
+		const refusal = basisRefusal(found.patterns);
+		const fallback = write(`${WAIT}\n`, { exit: 1 }).notes;
+		expect(found.notes).toContain(MODEL_LEAD);
+		expect(fallback).toContain(FALLBACK_LEAD);
+		for (const text of [found.notes, fallback]) {
+			for (const says of PatternSays) expect(text).not.toContain(says);
+		}
+		expect(PatternSays.some((says) => refusal.includes(says))).toBe(true);
+		for (const text of [refusal, fallback])
+			expect(text).not.toContain(MODEL_LEAD);
+		for (const text of [refusal, found.notes])
+			expect(text).not.toContain(FALLBACK_LEAD);
+	});
+
+	it("keeps the pattern faults apart from the model's, which only advise", () => {
+		const r = write(`${Gate}\n\n${WAIT}\n`, reading([wait(WAIT, "500 ticks")]));
+		expect(r.patterns).toEqual(basisFaults(`${Gate}\n`));
+		expect(r.notes).toContain(`"${WAIT}" makes work wait on data accumulating`);
+	});
+
+	it("appends one record a call to the log", () => {
+		fs.rmSync(callLogPath(), { force: true });
+		write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), { own: 12 });
+		write(`${WAIT}\n`, { exit: 3 });
+		expect(readJsonl(callLogPath())?.rows).toEqual([
+			expect.objectContaining({
+				route: "file-issue",
+				issue: 12,
+				patterns: [],
+				model: [{ kind: "no-basis", text: WAIT, on: "data" }],
+				fallback: null,
+			}),
+			expect.objectContaining({ model: [], fallback: "the judge exited 3" }),
+		]);
+	});
+
+	it("calls no model for an edit that changes nothing, nor with the judge off", () => {
+		expect(write(`${WAIT}\n`, NOTHING, { before: `${WAIT}\n` })).toEqual({
+			patterns: [],
+			notes: "",
+		});
+		expect(write(`${Gate}\n`, NOTHING, {}, { WFC_GATE_JUDGE: "off" })).toEqual({
+			patterns: basisFaults(`${Gate}\n`),
+			notes: "",
+		});
+		expect(readJudgeCalls(log)).toEqual([]);
 	});
 });

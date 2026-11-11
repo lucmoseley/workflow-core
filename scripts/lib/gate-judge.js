@@ -9,10 +9,14 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { configDirFrom } = require("./config-dir.js");
+const { hostRoot } = require("./host-root.js");
+const { markersDir } = require("./marker-root.js");
+const { docPath } = require("./script-path.js");
 const {
 	BASIS_CLASSES,
 	JUDGE_TIMEOUT_EXIT,
@@ -86,7 +90,9 @@ const buildPrompt = (body) =>
  * @typedef {{sentence: string, on: "time"|"data", window: string, basisNamesWindow: boolean}} JudgedWait
  * @typedef {{basis: string, class: "derived"|"inherited"|"restated"|"asserted"}} JudgedBasis
  * @typedef {{waits: JudgedWait[], bases: JudgedBasis[]}} Reading
- * @typedef {import("./issue-gate.js").BasisFault & {by: "patterns"|"model"}} JudgedFault
+ * @typedef {import("./issue-gate.js").BasisFault & {by: "patterns"|"model",
+ *   on?: JudgedWait["on"], class?: JudgedBasis["class"]}} JudgedFault `on`:
+ *   what a model-read wait waits on; `class`: how the model classed a basis
  * @typedef {JudgedFault & {quote: string}} ModelFault `quote`: the body's
  *   words the fault was read in, the wait's sentence or the basis
  */
@@ -287,6 +293,7 @@ function readingFaults(body, reading, own) {
 						kind: hasBasis ? "unnamed-window" : "no-basis",
 						text: hasBasis ? windowText(w) : w.sentence.trim(),
 						by: "model",
+						on: w.on,
 						quote: w.sentence,
 					}),
 			),
@@ -298,6 +305,7 @@ function readingFaults(body, reading, own) {
 						kind: "no-warrant",
 						text: b.basis,
 						by: "model",
+						class: b.class,
 						quote: b.basis,
 					}),
 			),
@@ -344,6 +352,17 @@ function mergeFaults(patterns, model, before) {
 }
 
 /**
+ * The patterns' faults: a body's, or with `before` those an edit brings.
+ * @param {string} body
+ * @param {number} [own]
+ * @param {string} [before]
+ */
+const patternFaults = (body, own, before) =>
+	before === undefined
+		? basisFaults(body, own)
+		: introducedBasisFaults(before, body, own);
+
+/**
  * A body's gate faults by both readings. With `before`, the body an edit
  * replaces, a fault is raised only where the edit brought it: a pattern fault
  * by lib/issue-gate.js's own edit rule, a model fault unless `before` already
@@ -366,10 +385,7 @@ function judgedBasisFaults(
 	{ own, before, boundMs = JUDGE_BOUND_MS, env } = {},
 ) {
 	const text = String(body || "");
-	const patterns =
-		before === undefined
-			? basisFaults(text, own)
-			: introducedBasisFaults(before, text, own);
+	const patterns = patternFaults(text, own, before);
 	const startedAt = Date.now();
 	const read = readJudge(text, { boundMs, env });
 	const ms = Date.now() - startedAt;
@@ -391,13 +407,121 @@ function judgedBasisFaults(
 	};
 }
 
+/* Each note's lead: the outcome review counts a model finding and a fallback
+ * apart from a pattern fault, whose words are lib/issue-gate.js's
+ * basisRefusal. */
+const MODEL_LEAD =
+	"Advice from the model reading of this body, which refuses nothing yet";
+const FALLBACK_LEAD = "The model reading of this body did not run";
+
+const QUESTION_WAIT =
+	"question 1: does this body make work wait on time passing or on data accumulating?";
+const QUESTION_BASIS =
+	"question 2: does each `**Gate basis:**` line derive its window from a count or a measured figure with a source?";
+
+/** @type {Record<JudgedBasis["class"], string>} */
+const CLASS_SAYS = {
+	derived: "derived",
+	inherited:
+		"inherited, taking its window from elsewhere while citing no issue but its own",
+	restated: "restated, repeating the window or its own ticket's ask",
+	asserted: "asserted, giving a reason with no figure behind it",
+};
+
+/** @param {JudgedFault} f */
+const waitsOn = (f) => (f.on === "time" ? "time passing" : "data accumulating");
+
+/** @param {JudgedFault} f */
+function modelFinding(f) {
+	if (f.kind === "no-basis")
+		return `"${f.text}" makes work wait on ${waitsOn(f)}, and the body gives it no basis (${QUESTION_WAIT})`;
+	if (f.kind === "unnamed-window")
+		return `"${f.text}" is a window the model read as a wait on ${waitsOn(f)}, and no basis names it (${QUESTION_WAIT})`;
+	return `the basis "${f.text}" reads as ${f.class ? CLASS_SAYS[f.class] : "unwarranted"} (${QUESTION_BASIS})`;
+}
+
+/**
+ * What a write route prints of the model reading: its findings as advice,
+ * the line saying it did not run, or "" where it ran and found nothing.
+ *
+ * @param {JudgedFault[]} model the model's faults
+ * @param {string|null} fallback
+ */
+function readingNotes(model, fallback) {
+	if (fallback)
+		return `${FALLBACK_LEAD} (${fallback}), so it was judged on the wording patterns alone.`;
+	if (model.length === 0) return "";
+	return `${MODEL_LEAD}:\n${model.map((f) => `- ${modelFinding(f)}`).join("\n")}\nWhere a finding is right, give the wait a \`**Gate basis:**\` line that derives its window: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+}
+
+/** @param {string} [root] the host repo */
+const callLogPath = (root = hostRoot()) =>
+	path.join(markersDir(root), ".gate-judge-calls.jsonl");
+
+/**
+ * One record on the call log. Advice, so a log that cannot be written costs
+ * the record, never the write.
+ * @param {Record<string, unknown>} record
+ */
+function logCall(record) {
+	try {
+		fs.appendFileSync(
+			callLogPath(),
+			`${JSON.stringify({ at: new Date().toISOString(), ...record })}\n`,
+		);
+	} catch {
+		/* The docblock's trade: the write goes on unrecorded. */
+	}
+}
+
+/** @param {JudgedFault} f */
+const unmarked = ({ by: _by, ...f }) => f;
+
+/**
+ * One write route's gate reading (#4964): the patterns' faults, which refuse
+ * as before, and the notes the route prints beside its output, the call
+ * logged. An edit that changes nothing calls no model, and nor does any
+ * write under `WFC_GATE_JUDGE=off`, which the suites' setup sets.
+ *
+ * @param {string} body the body written
+ * @param {{route: "create-guard"|"file-issue"|"issue-body", own?: number,
+ *   before?: string, boundMs?: number, env?: NodeJS.ProcessEnv}} opts
+ * @returns {{patterns: import("./issue-gate.js").BasisFault[], notes: string}}
+ */
+function readGateWrite(
+	body,
+	{ route, own, before, boundMs, env = process.env },
+) {
+	if (before !== undefined && before === body)
+		return { patterns: [], notes: "" };
+	if (env.WFC_GATE_JUDGE === "off")
+		return { patterns: patternFaults(body, own, before), notes: "" };
+	const r = judgedBasisFaults(body, { own, before, boundMs, env });
+	const patterns = r.faults.filter((f) => f.by === "patterns").map(unmarked);
+	const model = r.faults.filter((f) => f.by === "model");
+	logCall({
+		route,
+		issue: own ?? null,
+		patterns,
+		model: model.map(unmarked),
+		ms: r.ms,
+		dropped: r.dropped,
+		fallback: r.fallback,
+	});
+	return { patterns, notes: readingNotes(model, r.fallback) };
+}
+
 module.exports = {
+	FALLBACK_LEAD,
 	JUDGE_BOUND_MS,
 	LAUNCHER_GRACE_MS,
+	MODEL_LEAD,
 	buildPrompt,
+	callLogPath,
 	holdsOther,
 	judgedBasisFaults,
 	mergeFaults,
 	parseReading,
+	readGateWrite,
 	readingFaults,
 };

@@ -88,3 +88,24 @@ else {
 /** Every launch the fake logged to `log`, in order. */
 export const readJudgeCalls = (log: string) =>
 	(readJsonl(log)?.rows ?? []) as unknown as JudgeCall[];
+
+/**
+ * What a write route under test needs to reach the fake through the real
+ * launcher: the judge on (the suites' setup turns it off), the fake as the
+ * binary, and the config dir a seat. Launches log to `<dir>/judge-calls.jsonl`.
+ */
+export function judgeFakeEnv(
+	dir: string,
+	plan: JudgeFakePlan,
+	configDir = process.env.CLAUDE_CONFIG_DIR ?? "",
+) {
+	const log = path.join(dir, "judge-calls.jsonl");
+	return {
+		log,
+		env: {
+			WFC_GATE_JUDGE: "",
+			WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude-judge"), log, plan),
+			WFC_CLAUDE_CONFIG_A: configDir,
+		},
+	};
+}

@@ -20,6 +20,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { FALLBACK_LEAD, MODEL_LEAD } from "./lib/gate-judge.js";
+import { type JudgeFakePlan, judgeFakeEnv } from "./lib/gate-judge-fake";
 import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
@@ -177,6 +179,63 @@ describe("each exit", () => {
 			'It carries "3 days", a window the `**Gate basis:**` line does not name; and the basis',
 		);
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
+	});
+});
+
+describe("the model reading (#4969)", () => {
+	const Wait = "Re-measure over seven days of those records.";
+	const found = {
+		reading: {
+			waits: [
+				{
+					sentence: Wait,
+					on: "data",
+					window: "seven days",
+					basisNamesWindow: false,
+				},
+			],
+			bases: [],
+		},
+	};
+	const create = (body: string, plan: JudgeFakePlan) =>
+		emission(
+			`gh issue create --title t --label takes:implement --body '${body}'`,
+			{ env: judgeFakeEnv(dir, plan, config).env },
+		);
+
+	it("lets the create through, its finding reaching the session as context", () => {
+		const out = create(`Build it.\n\n${Wait}`, found);
+		expect(out.permissionDecision).toBeUndefined();
+		expect(out.additionalContext).toContain(MODEL_LEAD);
+		expect(out.additionalContext).toContain(
+			`"${Wait}" makes work wait on data accumulating`,
+		);
+	});
+
+	it("refuses what the patterns fault, the model's finding in the same reason", () => {
+		const out = create(
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}`,
+			found,
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain("no `**Gate basis:**` line");
+		expect(out.permissionDecisionReason).toContain(MODEL_LEAD);
+	});
+
+	it("lets the create through where the launch is refused, saying so", () => {
+		const out = emission(
+			`gh issue create --title t --label takes:implement --body '${Wait}'`,
+			{
+				env: {
+					...judgeFakeEnv(dir, found, config).env,
+					ANTHROPIC_API_KEY: "sk-test",
+				},
+			},
+		);
+		expect(out.permissionDecision).toBeUndefined();
+		expect(out.additionalContext).toContain(
+			`${FALLBACK_LEAD} (the launch was refused`,
+		);
 	});
 });
 

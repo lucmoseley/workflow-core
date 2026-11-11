@@ -89,8 +89,8 @@ const { takesLabel, takesRefusal } = require("./lib/takes-label.js");
 const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
 
 const HUMAN_LABEL = takesLabel("human");
+const { readGateWrite } = require("./lib/gate-judge.js");
 const {
-	basisFaults,
 	basisRefusal,
 	gateRuleHandover,
 	listOpenMaps,
@@ -420,7 +420,8 @@ function logSignature(pending, issue) {
 
 /**
  * The body's own refusals — the `takes:` tests, the basis check and a gate
- * `check:` that prints no reading (#3487).
+ * `check:` that prints no reading (#3487) — and the model reading of its
+ * waits and bases, printed as advice (#4964).
  * @param {string[]} labels
  * @param {string} body
  */
@@ -436,9 +437,13 @@ function checkBody(labels, body) {
 		readRuleText("roadmap-gating"),
 	);
 	if (handover) writeFd(2, handover);
-	const unbased = basisFaults(body);
-	if (unbased.length > 0)
-		io.fail(`Nothing filed: the body carries ${basisRefusal(unbased)}`, 2);
+	const { patterns, notes } = readGateWrite(body, { route: "file-issue" });
+	if (patterns.length > 0)
+		io.fail(
+			`Nothing filed: the body carries ${basisRefusal(patterns)}${notes ? `\n\n${notes}` : ""}`,
+			2,
+		);
+	if (notes) writeFd(2, `${notes}\n\n`);
 	const checks = addedCheckVerdict("", body, { run: true });
 	for (const w of checks.warnings) io.warn(w);
 	if (checks.refusals.length > 0)

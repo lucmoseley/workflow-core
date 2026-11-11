@@ -23,10 +23,13 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import { freshSandbox, issueClaims, store } from "./lib/arbiter-testkit";
+import { callLogPath, FALLBACK_LEAD, MODEL_LEAD } from "./lib/gate-judge.js";
+import { type JudgeFakePlan, judgeFakeEnv } from "./lib/gate-judge-fake";
 import { buildJqLines } from "./lib/gh-fake";
 import { buildLinkReadArms, stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION as UNFILLED } from "./lib/issue-gate";
 import { ORIGINS } from "./lib/issue-origin";
+import { readJsonl } from "./lib/jsonl.js";
 import { MARKERS_REL } from "./lib/marker-root";
 import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
@@ -153,11 +156,13 @@ const run = (
 		sessionId = ME as string | null,
 		bare = false,
 		cwd,
+		extraEnv = {},
 	}: {
 		stdin?: string;
 		sessionId?: string | null;
 		bare?: boolean;
 		cwd?: string;
+		extraEnv?: NodeJS.ProcessEnv;
 	} = {},
 ) => {
 	const env: NodeJS.ProcessEnv = {
@@ -167,6 +172,7 @@ const run = (
 		WFC_LINK_SLEEP: "0",
 		WFC_LINK_RETRIES: "2",
 		CLAUDE_CODE_SESSION_ID: sessionId ?? "",
+		...extraEnv,
 	};
 	if (sessionId === null) delete env.CLAUDE_CODE_SESSION_ID;
 	const declared =
@@ -349,6 +355,82 @@ describe("the body", () => {
 		expect(r.stderr).toContain("could not read the body");
 		expect(r.stderr).toContain("pipe it in with --body-file -");
 		expect(readGhCalls()).toEqual([]);
+	});
+});
+
+describe("the model reading (#4969)", () => {
+	const Wait = "Re-measure over seven days of those records.";
+	const judged = (stdin: string, plan: JudgeFakePlan) =>
+		run(filing(["takes:implement"]), {
+			stdin,
+			extraEnv: judgeFakeEnv(sb.dir, plan).env,
+		});
+	const waitFound = {
+		reading: {
+			waits: [
+				{
+					sentence: Wait,
+					on: "data",
+					window: "seven days",
+					basisNamesWindow: false,
+				},
+			],
+			bases: [],
+		},
+	};
+
+	it("files a body whose wait only the model reads, printing the finding as advice", () => {
+		setUp();
+		const r = judged(`Build it.\n\n${Wait}\n`, waitFound);
+		expect(r.status).toBe(0);
+		expect(readCreates()).toHaveLength(1);
+		expect(r.stderr).toContain(MODEL_LEAD);
+		expect(r.stderr).toContain(
+			`"${Wait}" makes work wait on data accumulating`,
+		);
+		expect(r.stderr).toContain("question 1:");
+	});
+
+	it("refuses a body the patterns fault as before, the model's finding in the same message", () => {
+		setUp();
+		const r = judged(
+			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n`,
+			waitFound,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("Nothing filed: the body carries");
+		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing filed:"));
+		expect(refusal).toContain("no `**Gate basis:**` line");
+		expect(refusal).toContain(MODEL_LEAD);
+		expect(refusal).toContain(`"${Wait}"`);
+		expect(readGhCalls()).toEqual([]);
+	});
+
+	it("files on the patterns alone where the model cannot be had, saying so once", () => {
+		setUp();
+		const r = judged(`Build it.\n\n${Wait}\n`, { exit: 1 });
+		expect(r.status).toBe(0);
+		expect(readCreates()).toHaveLength(1);
+		expect(r.stderr.split(FALLBACK_LEAD)).toHaveLength(2);
+		expect(r.stderr).toContain("the judge exited 1");
+		expect(r.stderr).not.toContain(MODEL_LEAD);
+	});
+
+	it("logs the call: route, faults by reading, wall time, fallback", () => {
+		setUp();
+		fs.rmSync(callLogPath(), { force: true });
+		judged(`Build it.\n\n${Wait}\n`, waitFound);
+		const rows = readJsonl(callLogPath())?.rows ?? [];
+		expect(rows).toEqual([
+			expect.objectContaining({
+				route: "file-issue",
+				issue: null,
+				patterns: [],
+				model: [{ kind: "no-basis", text: Wait, on: "data" }],
+				ms: expect.any(Number),
+				fallback: null,
+			}),
+		]);
 	});
 });
 
