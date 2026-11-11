@@ -219,7 +219,7 @@ describe("the session's directory (#4245)", () => {
 	});
 });
 
-describe("the model table (lib/burn-mode.js, #4919)", () => {
+describe("the model table (lib/model-table.js, #4919)", () => {
 	const burnOn = () => fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
 
 	it("launches a sonnet member as Haiku 5.5, with an advisor", () => {
