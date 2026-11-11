@@ -459,7 +459,7 @@ const findings = (model) => model.map((f) => `- ${modelFinding(f)}`).join("\n");
  * @param {JudgedFault[]} model the faults it clears
  */
 const overrideNote = (reason, model) =>
-	`${OVERRIDE_LEAD} ("${reason}"): ${model.length > 0 ? `it clears the model reading's faults on this body:\n${findings(model)}\n` : "the model reading raised no fault on this body. "}It clears no wording-pattern fault, and \`npm run status\` lists the issue for review.`;
+	`${OVERRIDE_LEAD} ("${reason}"): ${model.length > 0 ? `it clears the model reading's faults on this body:\n${findings(model)}\n` : "the model reading raised no fault on this body. "}It clears no wording-pattern fault, and \`scripts/check-issue-labels.js\` lists the issue for review as GATE-JUDGE-OVERRIDE.`;
 
 /**
  * One record on the call log, append-only, for the outcome review to count.
