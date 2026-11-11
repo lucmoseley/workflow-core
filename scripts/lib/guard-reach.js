@@ -77,7 +77,8 @@ const REQUIRE_RE = /\brequire\(\s*["'](\.\.?\/[\w./-]+)["']\s*\)/g;
 /**
  * A whole-line assignment of an expansion-led path to a variable, the name
  * its group 1 and the path after the expansion's slash, matching `pathRe`,
- * its group 2.
+ * its group 2. A `pathRe` admitting a leading `..` keeps `$here/../lib`
+ * whole: the lazy expansion would otherwise run on past it to `lib`.
  * @param {string} pathRe
  */
 const varAssignRe = (pathRe) =>
@@ -92,7 +93,7 @@ const varAssignRe = (pathRe) =>
  * or `sh` (#4730). Self-relative, as parseProgramRuns' path is.
  */
 const VAR_PATH_RE = varAssignRe(
-	`[\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")})`,
+	`(?:\\.\\.\\/)*[\\w-][\\w./-]*(?:${PROGRAM_SUFFIXES.map(escapeRe).join("|")})`,
 );
 
 /**
@@ -100,7 +101,9 @@ const VAR_PATH_RE = varAssignRe(
  * (#4890), `lib="$(cd "$here" && pwd)/lib"` and then `sh "$lib/x.sh"`.
  * A path ending in a program suffix is VAR_PATH_RE's, and parseRuns drops it.
  */
-const VAR_DIR_RE = varAssignRe("[\\w-][\\w.-]*(?:\\/[\\w-][\\w.-]*)*");
+const VAR_DIR_RE = varAssignRe(
+	"(?:\\.\\.|[\\w-][\\w.-]*)(?:\\/(?:\\.\\.|[\\w-][\\w.-]*))*",
+);
 
 /** The variable a run's lead names alone: `lib` of `$lib/`, `${lib}/`, `"$lib"/`. */
 const LEAD_VAR_RE = /^\{?(\w+)\}?"?$/;
@@ -309,7 +312,7 @@ function destructuredBefore(text, at) {
  * gives, or, through a variable `VAR_DIR_RE` assigns, beneath that
  * variable's directory. Limit: a variable's value is read off its
  * assignments' text alone, so one built by parameter expansion
- * (`${dir%/*}/x.js`) or naming a scratch directory (`$tmp/x.sh`) resolves
+ * (`${dir%/*}/x.js`, #5000) or naming a scratch directory (`$tmp/x.sh`) resolves
  * to a path that need not exist; the digest hashes nothing for such a path
  * (lib/guard-digest.js).
  * @param {string} dir
