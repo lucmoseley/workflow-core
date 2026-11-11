@@ -707,16 +707,18 @@ const FAULT_SAYS = {
  * The refusal every write route gives, completing "<the body> carries …".
  *
  * @param {BasisFault[]} faults from basisFaults or introducedBasisFaults
+ * @param {string} [reading] what read them, named where another reading
+ *   also speaks (lib/gate-judge.js)
  * @returns {string}
  */
-function basisRefusal(faults) {
+function basisRefusal(faults, reading) {
 	const says = Object.entries(FAULT_SAYS).flatMap(([kind, say]) => {
 		const texts = faults.filter((f) => f.kind === kind).map((f) => f.text);
 		return texts.length === 0
 			? []
 			: [say(texts.map((t) => `"${t}"`).join(", "), texts.length > 1)];
 	});
-	return `${says.join("; and ")}. ${basisRule()}`;
+	return `${says.join("; and ")}${reading ? `, as ${reading} read it` : ""}. ${basisRule()}`;
 }
 
 /**

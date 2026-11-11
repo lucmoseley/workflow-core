@@ -52,6 +52,11 @@ delete process.env.WFC_PASS_STORE_CACHED;
  * real holder's MB (#4862). A case naming its own still wins. */
 process.env.WFC_MEMORY_HOLD = "";
 
+/* No write route a case drives launches the gate judge (#4969): each launch
+ * is a child process, and its fallback line would join every create's
+ * output. A case that drives the judge blanks it. */
+process.env.WFC_GATE_JUDGE = "off";
+
 /*
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
  * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on
@@ -257,3 +262,10 @@ for (const [key, value] of Object.entries(SUITE_GIT_CONFIG)) {
 	gitConfigCount++;
 }
 process.env.GIT_CONFIG_COUNT = String(gitConfigCount);
+
+/* THE ENVIRONMENT AS LEFT HERE IS EVERY CHILD'S (#4982): the read audit
+ * weighs a variable naming the checkout apart where a test set it itself.
+ * Last, after every default above. */
+(
+	globalThis as { __wfcReadAudit?: { settle: () => void } }
+).__wfcReadAudit?.settle();

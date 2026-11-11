@@ -26,14 +26,15 @@
  *   included;
  * - a Node child that left no log, or one spawned without the audit on;
  * - any other child — a shell, Python, a binary, a stub a test wrote — run
- *   from a directory under the root, or handed an argument naming a path
- *   there, where no `strace` traced it. The preload traces a stub and a
+ *   from a directory under the root, or handed a path there by an argument,
+ *   an environment variable or a sync spawn's input, however spelt
+ *   (#4982), where no `strace` traced it. The preload traces a stub and a
  *   shell (#4966): its reads are the paths its file calls named, and only
  *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a shell
  *   or Python child handed a checkout script to run, from outside the root,
  *   is seen: the script is a read, and the lexical reach keys what it loads
- *   (#4790). So is one of `CWD_BLIND`, which reads nothing of its directory
- *   (#4932);
+ *   (#4790). So is one of `BLIND`, which reads nothing of its directory,
+ *   its environment or its input (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -49,7 +50,7 @@ const { buildTraceReader, findStrace } = require("./read-audit-trace.js");
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
 
 const NO_TRACER =
-	"read audit: no working strace on PATH, so a test file that runs a stub or a shell in the checkout records no pass-store row (#4966).\n";
+	"read audit: no working strace on PATH, so a test file that runs a stub, a shell or a checkout program records no pass-store row (#4966).\n";
 
 /* Subcommands that read and never write, so the store may run one again.
  * `status` is left out: it refreshes the index. */
@@ -399,7 +400,6 @@ const SCRIPT_RUNNERS = new Set(["bash", "sh", "python3", "python"]);
  */
 function childDoubt(e, logs, root, isScratch) {
 	const file = String(e.file);
-	const args = /** @type {string[]} */ (e.args ?? []);
 	const shown = shownChild(e);
 	if (e.audited && isNode(file)) {
 		if (typeof e.pid !== "number")
@@ -411,19 +411,80 @@ function childDoubt(e, logs, root, isScratch) {
 	 * its reads are in that child's trace. */
 	if (e.within) return null;
 	const cwd = String(e.cwd);
+	const blind = isBlind(e, root);
 	if (
 		isUnder(cwd, [root], path.sep) &&
 		!isScratch(toPosix(path.relative(root, cwd))) &&
-		!isCwdBlind(e, root)
+		!blind
 	)
 		return `a child (${shown}) ran in the checkout`;
 	const script = scriptOf(e, root);
-	if (args.some((a) => a !== script && namesCheckout(a, root, isScratch)))
-		return `a child (${shown}) was handed a path in the checkout`;
+	const hand = blind ? undefined : handOf(e, script, root, isScratch);
+	if (hand)
+		return `a child (${shown}) was handed a path in the checkout${handedBy(hand)}`;
 	if (script !== null && isNode(file))
 		return `a Node child (${shown}) ran without the audit`;
 	return null;
 }
+
+/** @typedef {import("./read-audit-handed.js").Hand} Hand */
+
+/**
+ * The first thing that handed a child a checkout path it may read unseen:
+ * not the script a runner was handed to run, which is a read; not a path in
+ * a test's scratch; not a standing variable handed to a program that reads
+ * none.
+ * @param {Entry} e
+ * @param {string|null} script the argument `scriptOf` found
+ * @param {string} root real path
+ * @param {(p: string) => boolean} isScratch
+ * @returns {Hand|undefined}
+ */
+function handOf(e, script, root, isScratch) {
+	const args = /** @type {string[]} */ (e.args ?? []);
+	const hands = /** @type {Hand[]} */ (e.hands ?? []);
+	const isEnvBlind = readsNoVariable(e, root);
+	return hands.find((hand) => {
+		if (hand.by === "arg" && args[hand.at] === script) return false;
+		if (hand.by === "env" && hand.standing && isEnvBlind) return false;
+		return !hand.p.every(isScratch);
+	});
+}
+
+/* Programs that open no file a variable names (#4982): each traced with
+ * `strace -f -e trace=%file` from outside the checkout, under `PWD`,
+ * `OLDPWD`, `INIT_CWD`, `WFC_RULES_DIR` and `WFC_ALWAYS_LOADED` naming it,
+ * to make no file call under the root but for its own file. One invocation
+ * each (`tar` list, extract and create), so an option that runs a command
+ * (`tar --to-command`, `grep` has none) is not covered. Any program not
+ * named here is doubted on such a variable. */
+const ENV_BLIND = new Set([
+	...["tar", "grep", "pgrep", "free", "dmesg"],
+	...["systemctl", "curl", "ruff", "biome"],
+]);
+
+/**
+ * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
+ * as the installed program.
+ * @param {Entry} e
+ * @param {string} root real path
+ */
+function readsNoVariable(e, root) {
+	const bin = Array.isArray(e.bin) ? e.bin.map(String) : [];
+	if (bin.length === 0 || !ENV_BLIND.has(path.basename(String(e.file))))
+		return false;
+	return !bin.some(
+		(at) =>
+			isUnder(at, [TMP], path.sep) ||
+			(isUnder(at, [root], path.sep) && !at.includes("/node_modules/")),
+	);
+}
+
+const handedBy = (/** @type {Hand} */ hand) => {
+	if (hand.by === "env") return ` by its environment (${hand.name})`;
+	if (hand.by === "repo") return " by the repository above its directory";
+	return hand.by === "stdin" ? " on its standard input" : "";
+};
 
 /**
  * A child as a doubt quotes it.
@@ -439,10 +500,12 @@ function shownChild(e) {
 
 /* Programs that read nothing of the directory they run in, each traced with
  * `strace -e trace=file` to make no file call outside the system directories
- * and its own: under any arguments (null), or under the one argument named.
+ * and its own: under any arguments (null), or under the one argument named
+ * (#4932). The traces ran under the suite's own environment, not under
+ * each variable.
  * Not weighed: a relative LD_PRELOAD, LD_LIBRARY_PATH or LOCPATH in the
  * child's environment, which makes the loader probe that directory. */
-const CWD_BLIND = new Map([
+const BLIND = new Map([
 	["sleep", null],
 	["ps", null],
 	["bash", "--version"],
@@ -452,34 +515,21 @@ const CWD_BLIND = new Map([
 const TMP = fs.realpathSync(os.tmpdir());
 
 /**
- * Whether a child reads nothing of the directory it runs in (#4932): one of
- * `CWD_BLIND`, run as the real program. A file of that name under the
+ * Whether a child reads nothing of the checkout, wherever it runs and
+ * whatever it is handed (#4932): one of `BLIND`, run as the real program. A file of that name under the
  * checkout or the temporary directory, or a link there to any file, is one a
  * test can write, so it is not that program.
  * @param {Entry} e
  * @param {string} root real path
  */
-function isCwdBlind(e, root) {
+function isBlind(e, root) {
 	const name = path.basename(String(e.file));
 	const bin = Array.isArray(e.bin) ? e.bin : [];
-	if (bin.length === 0 || !CWD_BLIND.has(name)) return false;
+	if (bin.length === 0 || !BLIND.has(name)) return false;
 	if (bin.some((at) => isUnder(at, [root, TMP], path.sep))) return false;
-	const sole = CWD_BLIND.get(name);
+	const sole = BLIND.get(name);
 	const args = /** @type {string[]} */ (e.args ?? []);
 	return sole === null || (args.length === 1 && args[0] === sole);
-}
-
-/**
- * Whether an argument names a path under the root outside a test's scratch.
- * @param {string} a
- * @param {string} root real path
- * @param {(p: string) => boolean} isScratch
- */
-function namesCheckout(a, root, isScratch) {
-	const at = a.indexOf(root);
-	if (at < 0) return false;
-	const rest = a.slice(at + root.length).split(/[\s"';:]/)[0] ?? "";
-	return !isScratch(rest.replace(/^\//, ""));
 }
 
 /**

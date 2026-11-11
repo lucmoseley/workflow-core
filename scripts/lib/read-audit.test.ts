@@ -4,6 +4,10 @@
  * throwaway checkout, and the logs they leave read back into each test
  * file's reads. Loosen a case and the pass store caches a file whose verdict
  * rests on a read nobody recorded.
+ *
+ * Cost: every case runs one to three real Node processes under the preload,
+ * and a traced one its tracer; the spawn hooks and the links a hand goes
+ * through are what is under test, which no seeded log reaches.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -477,6 +481,17 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		);
 	});
 
+	it("runs untraced, and doubts, a stub whose environment asks for no tracer", () => {
+		const root = checkout();
+		const body = runsTool(root, stubTool("#!/bin/sh\necho '{}'\n")).replace(
+			"...process.env,",
+			'...process.env, WFC_READ_AUDIT_UNTRACED: "1",',
+		);
+		expect(reads(root, body).doubt).toMatch(
+			/a child \(tool api user\) ran in the checkout/,
+		);
+	});
+
 	it("runs untraced, and doubts, a file the kernel will not run without a shell", () => {
 		const root = checkout();
 		const audit = reads(root, runsTool(root, stubTool("echo '{}'\n")));
@@ -495,6 +510,272 @@ describe("a stub run in the checkout with no tracer (#4966)", () => {
 		expect(readAudits(log, root).get(T).doubt).toMatch(
 			/a child \(tool api user\) ran in the checkout/,
 		);
+	});
+});
+
+describe("a child outside the checkout that is handed it (#4982)", () => {
+	const outsideDir = () => {
+		const dir = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-out-")),
+		);
+		dirs.push(dir);
+		return dir;
+	};
+	const spawns = (
+		program: string,
+		args: string[],
+		cwd: string,
+		{ env = {} as Record<string, string>, input = "" } = {},
+	) =>
+		`try { require("node:child_process").execFileSync(${quoted(program)}, ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, input: ${quoted(input)}, stdio: ["pipe", "ignore", "ignore"] }); } catch {}`;
+	const untraced = (root: string, body: string) =>
+		readAudits(audited(root, T, body, { trace: false }), root).get(T);
+	const settingsFile = ".claude/settings.json";
+
+	describe("with no tracer", () => {
+		it("doubts a child whose environment names a checkout path", () => {
+			const root = checkout();
+			const body = spawns("cat", [], outsideDir(), {
+				env: { RULES: path.join(root, ".claude") },
+			});
+			expect(untraced(root, body).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("doubts a child whose sync input names a checkout path", () => {
+			const root = checkout();
+			const body = spawns("cat", [], outsideDir(), {
+				input: `{"file_path":${quoted(path.join(root, settingsFile))}}`,
+			});
+			expect(untraced(root, body).doubt).toMatch(
+				/was handed a path in the checkout on its standard input/,
+			);
+		});
+
+		it("doubts a child handed a checkout path spelt relatively, as a word or an option's value", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const spelt = path.relative(cwd, path.join(root, settingsFile));
+			expect(spelt.startsWith("..")).toBe(true);
+			for (const word of [spelt, `--from=${spelt}`])
+				expect(untraced(root, spawns("cat", [word], cwd)).doubt).toMatch(
+					/a child \(cat .*\) was handed a path in the checkout$/,
+				);
+		});
+
+		it("doubts a child handed a checkout path through a link, in an argument or a variable", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.symlinkSync(root, path.join(cwd, "in"));
+			const byArg = spawns("cat", [`in/${settingsFile}`], cwd);
+			expect(untraced(root, byArg).doubt).toMatch(
+				/was handed a path in the checkout$/,
+			);
+			const bare = spawns("ls", ["in"], cwd);
+			expect(untraced(root, bare).doubt).toMatch(
+				/was handed a path in the checkout$/,
+			);
+			const byEnv = spawns("cat", [], cwd, {
+				env: { RULES: path.join(cwd, "in/.claude") },
+			});
+			expect(untraced(root, byEnv).doubt).toMatch(/by its environment/);
+		});
+
+		it("doubts a child handed a link's bare name in a variable, a link glued to an option, one on its input, or a link to stand in", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.symlinkSync(root, path.join(cwd, "in"));
+			const doubtOf = (body: string) => untraced(root, body).doubt;
+			expect(doubtOf(spawns("cat", [], cwd, { env: { RULES: "in" } }))).toMatch(
+				/by its environment \(RULES\)/,
+			);
+			expect(doubtOf(spawns("ls", [`-I${path.join(cwd, "in")}`], cwd))).toMatch(
+				/was handed a path in the checkout$/,
+			);
+			expect(
+				doubtOf(
+					spawns("cat", [], cwd, { input: path.join(cwd, "in", settingsFile) }),
+				),
+			).toMatch(/on its standard input/);
+			expect(doubtOf(spawns("ls", [], path.join(cwd, "in")))).toMatch(
+				/ran in the checkout/,
+			);
+		});
+
+		it("passes a variable the setup settled to a program traced to read none, and to no other, a Node child's included", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const settled = {
+				env: { RULES: path.join(root, ".claude") },
+				trace: false,
+			};
+			const audit = (body: string) =>
+				readAudits(
+					audited(
+						root,
+						T,
+						`globalThis.__wfcReadAudit.settle();\n${body}`,
+						settled,
+					),
+					root,
+				).get(T);
+			expect(audit(spawns("grep", ["x", "/dev/null"], cwd))).toHaveProperty(
+				"reads",
+			);
+			expect(audit(spawns("awk", ["BEGIN{}"], cwd)).doubt).toMatch(
+				/a child \(awk BEGIN\{\}\) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+			const below = `require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(spawns("grep", ["x", "/dev/null"], cwd, { env: { MINE: root } }))}], { cwd: ${quoted(cwd)} });`;
+			expect(audit(below).doubt).toMatch(/by its environment \(MINE\)/);
+			const unsettled = readAudits(
+				audited(root, T, spawns("grep", ["x", "/dev/null"], cwd), settled),
+				root,
+			).get(T);
+			expect(unsettled.doubt).toMatch(/by its environment \(RULES\)/);
+		});
+
+		it("doubts a git the guard runs for with the audit stripped, which logs nothing", () => {
+			const root = checkout();
+			const body = `const env = { ...process.env, PATH: ${quoted(GUARD_DIR + path.delimiter)} + process.env.PATH }; delete env.WFC_READ_AUDIT; try { require("node:child_process").execFileSync("git", ["-C", ${quoted(root)}, "status"], { cwd: ${quoted(outsideDir())}, env, stdio: "ignore" }); } catch {}`;
+			expect(untraced(root, body).doubt).toMatch(
+				/a child \(git -C .* status\) was handed a path in the checkout$/,
+			);
+		});
+
+		it("doubts a shell whose PATH holds a checkout directory, from outside", () => {
+			const root = checkout();
+			const body = spawns("sh", ["-c", "tool"], outsideDir(), {
+				env: {
+					PATH: `${path.join(root, "scripts")}${path.delimiter}${process.env.PATH}`,
+				},
+			});
+			expect(untraced(root, body).doubt).toMatch(/by its environment \(PATH\)/);
+		});
+
+		it("doubts a git with the audit stripped in a scratch directory under the root that is no repository, or steered by GIT_DIR", () => {
+			const root = checkout();
+			const stripped = (args: string[], cwd: string, env = {}) =>
+				`const env = { ...process.env, ...${quoted(env)}, PATH: ${quoted(GUARD_DIR + path.delimiter)} + process.env.PATH }; delete env.WFC_READ_AUDIT; try { require("node:child_process").execFileSync("git", ${quoted(args)}, { cwd: ${cwd}, env, stdio: "ignore" }); } catch {}`;
+			const inScratch = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				stripped(["rev-parse", "--show-toplevel"], "scratch"),
+			].join("\n");
+			expect(untraced(root, inScratch).doubt).toMatch(
+				/by the repository above its directory/,
+			);
+			const own = inScratch.replace(
+				"const env",
+				'require("node:fs").mkdirSync(scratch + "/.git"); const env',
+			);
+			expect(untraced(root, own)).toHaveProperty("reads");
+			const steered = stripped(["status"], quoted(outsideDir()), {
+				GIT_DIR: path.join(root, ".git"),
+				GIT_WORK_TREE: root,
+			});
+			expect(untraced(root, steered).doubt).toMatch(
+				/by its environment \(GIT_/,
+			);
+		});
+
+		it("keeps the reads of a file whose child is handed only its own scratch, the audit's own variables or a node_modules on PATH", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const bin = path.join(root, "node_modules/.bin");
+			const body = [
+				`const scratch = require("node:fs").mkdtempSync(${quoted(path.join(root, "tmp-"))});`,
+				spawns("cat", [], cwd, {
+					env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+				}).replace("...process.env,", "...process.env, SCRATCH: scratch,"),
+				spawns("cat", ["no-such-file", "../also-none"], cwd),
+			].join("\n");
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
+		it("keeps the reads of a file whose sleep inherits a variable naming the checkout, as it reads none", () => {
+			const root = checkout();
+			const body = spawns("sleep", ["0"], outsideDir(), {
+				env: { RULES: root },
+			});
+			expect(untraced(root, body)).toHaveProperty("reads");
+		});
+
+		it("weighs only git's own variables on a real git outside the checkout", () => {
+			const root = checkout();
+			const real = execFileSync("sh", ["-c", "command -v git"], {
+				encoding: "utf8",
+			}).trim();
+			const cwd = outsideDir();
+			const other = spawns(real, ["--version"], cwd, { env: { RULES: root } });
+			expect(untraced(root, other)).toHaveProperty("reads");
+			const steered = spawns(real, ["--version"], cwd, {
+				env: { GIT_DIR: path.join(root, ".git") },
+			});
+			expect(untraced(root, steered).doubt).toMatch(
+				/by its environment \(GIT_DIR\)/,
+			);
+		});
+	});
+
+	describe.skipIf(!STRACE)("under the tracer", () => {
+		const traced = (root: string, body: string) =>
+			readAudits(audited(root, T, body), root).get(T);
+
+		it("holds the file a stub read by a variable's name, and voids nothing for one it did not", () => {
+			const root = checkout();
+			const stub = stubTool('#!/bin/sh\ncat "$RULES/settings.json"\n');
+			const body = spawns(path.join(stub, "tool"), [], outsideDir(), {
+				env: { RULES: path.join(root, ".claude") },
+			});
+			const audit = traced(root, body);
+			expect(audit.reads.files).toContain(settingsFile);
+			expect(audit.reads.files).not.toContain("scripts/lib/hooks.js");
+		});
+
+		it("holds what a program file of the checkout's own read, run from outside by a variable every child inherits", () => {
+			const root = checkout();
+			write(root, "scripts/hook.sh", '#!/bin/sh\ncat "$RULES/settings.json"\n');
+			fs.chmodSync(path.join(root, "scripts/hook.sh"), 0o755);
+			const body = spawns(path.join(root, "scripts/hook.sh"), [], outsideDir());
+			const log = audited(root, T, body, {
+				env: { RULES: path.join(root, ".claude") },
+			});
+			expect(readAudits(log, root).get(T).reads.files).toContain(settingsFile);
+		});
+
+		it("holds what a checkout script read that a shell found through PATH, from outside", () => {
+			const root = checkout();
+			write(
+				root,
+				"scripts/tool",
+				`#!/bin/sh\ncat ${path.join(root, settingsFile)}\n`,
+			);
+			fs.chmodSync(path.join(root, "scripts/tool"), 0o755);
+			const body = spawns("sh", ["-c", "tool"], outsideDir(), {
+				env: {
+					PATH: `${path.join(root, "scripts")}${path.delimiter}${process.env.PATH}`,
+				},
+			});
+			const files = traced(root, body).reads.files;
+			expect(files).toContain(settingsFile);
+			expect(files).toContain("scripts/tool");
+		});
+
+		it("holds the file a shell read off its sync input", () => {
+			const root = checkout();
+			const body = spawns("sh", ["-c", 'cat "$(cat)"'], outsideDir(), {
+				input: path.join(root, settingsFile),
+			});
+			expect(traced(root, body).reads.files).toContain(settingsFile);
+		});
+
+		it("holds the file a shell read by a relative spelling from outside", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const spelt = path.relative(cwd, path.join(root, settingsFile));
+			const body = spawns("sh", ["-c", `cat ${spelt}`], cwd);
+			expect(traced(root, body).reads.files).toContain(settingsFile);
+		});
 	});
 });
 

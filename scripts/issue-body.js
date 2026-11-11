@@ -67,12 +67,8 @@ const { configDir } = require("./lib/config-dir.js");
 
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
 const { gh: ghRun, ghDefaultRepo } = require("./lib/gh");
-const {
-	introducedBasisFaults,
-	basisRefusal,
-	gateRuleHandover,
-	isNewlyGated,
-} = require("./lib/issue-gate");
+const { gateRuleHandover, isNewlyGated } = require("./lib/issue-gate");
+const { readGateWrite } = require("./lib/gate-judge.js");
 const { recordOwnAct } = require("./lib/tracker-ops.js");
 const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
@@ -923,13 +919,36 @@ function replaceWhole(issue, repo, next, dryRun = false) {
  * so the hand-over prints once a run. */
 let gateRuleHanded = false;
 
+/* The model reading is a call of seconds, so each pair of bodies is read
+ * once a run, and each piece of advice printed once. A run edits one issue,
+ * so the pair is the key. */
+/** @type {Map<string, ReturnType<typeof readGateWrite>>} */
+const readings = new Map();
+/** @type {Set<string>} */
+const advicePrinted = new Set();
+
+/**
+ * @param {string} before
+ * @param {string} after
+ * @param {number} own
+ */
+function readGateWriteOnce(before, after, own) {
+	const key = JSON.stringify([before, after]);
+	const known = readings.get(key);
+	if (known) return known;
+	const read = readGateWrite(after, { route: "issue-body", own, before });
+	readings.set(key, read);
+	return read;
+}
+
 /**
  * A gate or a prose wait the write would add with no `**Gate basis:**`, or
  * with a window its basis does not name, is refused before anything is
  * written (#672, #823) — after `rule:roadmap-gating` is handed over where the
  * write adds a gate line — and so is an added `check:` that prints no
- * reading (#3487). The command line only: a script calling
- * editIssueBody writes machine text, and is left alone.
+ * reading (#3487). The model reading of what the edit adds is printed as
+ * advice (#4964). The command line only: a script calling editIssueBody
+ * writes machine text, and is left alone.
  *
  * @param {string} before
  * @param {string} after
@@ -946,11 +965,13 @@ function refuseGateFaults(before, after, repo, issue) {
 		writeFd(2, handover);
 	}
 	refuseNonIssueNumber(issue);
-	const added = introducedBasisFaults(before, after, Number(issue));
-	if (added.length > 0)
-		throw new CallerError(
-			`Nothing written: this edit adds ${basisRefusal(added)}`,
-		);
+	const { refusal, advice } = readGateWriteOnce(before, after, Number(issue));
+	if (refusal)
+		throw new CallerError(`Nothing written: this edit adds ${refusal}`);
+	if (advice && !advicePrinted.has(advice)) {
+		advicePrinted.add(advice);
+		writeFd(2, `${advice}\n`);
+	}
 	const checks = addedCheckVerdict(before, after, { run: true, repo });
 	for (const w of checks.warnings) writeFd(2, `${w}\n`);
 	if (checks.refusals.length > 0)

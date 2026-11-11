@@ -70,6 +70,12 @@ export function readProcessesUnder(dir: string) {
 	});
 }
 
+/* The tests on this kit signal the wrapper, kill its process group, read
+ * which signal it recorded and time its publishes: under the read audit's
+ * tracer, standing between test and script, they fail (#4982).
+ * env-write-kept: every child of the importing file's process, for its whole life. */
+process.env.WFC_READ_AUDIT_UNTRACED = "1";
+
 export function env(extra: Record<string, string> = {}) {
 	return {
 		...process.env,
