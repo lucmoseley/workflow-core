@@ -95,7 +95,7 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 	});
 
 	it("takes off the budget the guest free memory Windows cannot back above its floor", () => {
-		const f = measured(roomy, one, { windows: fresh(1500), guestFreeMb: 3000 });
+		const f = measured(roomy, one, { windows: fresh(1250), guestFreeMb: 3000 });
 		expect(f.windowsChargeMb).toBe(2500);
 		expect(f.budgetMb).toBe(plain.budgetMb - 2500);
 		expect(f.byMemory).toBe(1);
@@ -104,7 +104,7 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 
 	it("charges Windows nothing for a session that fits in memory the VM already holds", () => {
 		for (const guestFreeMb of [0, 500]) {
-			const f = measured(roomy, one, { windows: fresh(1500), guestFreeMb });
+			const f = measured(roomy, one, { windows: fresh(1250), guestFreeMb });
 			expect(f).toMatchObject({
 				windowsChargeMb: 0,
 				windowsCapped: false,
@@ -115,10 +115,10 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 	});
 
 	it("charges all the guest's free memory, and no page cache, where Windows is under its floor", () => {
-		const f = measured(roomy, one, { windows: fresh(800), guestFreeMb: 100 });
+		const f = measured(roomy, one, { windows: fresh(550), guestFreeMb: 100 });
 		expect(f.windowsChargeMb).toBe(100);
 		expect(
-			measured(roomy, one, { windows: fresh(800), guestFreeMb: 0 }),
+			measured(roomy, one, { windows: fresh(550), guestFreeMb: 0 }),
 		).toMatchObject({ windowsChargeMb: 0, slots: plain.slots });
 	});
 
