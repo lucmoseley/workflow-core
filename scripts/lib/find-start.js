@@ -109,7 +109,7 @@ function startsAtRoot(cmd, spans, isDir) {
 	return unwrap(cmd.words, spans).some(({ words: [head, ...rest], chdirs }) => {
 		if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
 			return false;
-		const cwds = cmd.cwds.flatMap((c) => runCwd(c, chdirs, spans, isDir));
+		const cwds = runCwd(cmd.cwds, chdirs, spans, isDir);
 		const starts = findStarts(rest, spans);
 		return (starts.length > 0 ? starts : ["."]).some((start) =>
 			cwds.some((cwd) => isRoot(start, cwd, spans)),

@@ -263,6 +263,14 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 			);
 	});
 
+	it("refuses one a later cd moves from where a failed cd left it (#4980)", () => {
+		const back = path.relative(at.worktree, at.main);
+		const command = `cd /nonexistent/a; cd ${back}; python3 -c 'x'`;
+		expect(refusal("Bash", { command })).toContain(
+			`${Refused}, in the main checkout`,
+		);
+	});
+
 	it("allows one a cd surely moved out, or chains it off (#4980)", () => {
 		for (const command of [
 			`cd ${at.worktree}; python3 -c 'x'`,

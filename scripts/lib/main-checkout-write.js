@@ -258,9 +258,7 @@ function refusedPath(p, ctx, dir = false) {
 function interpreterDir(cmd, spans, ctx) {
 	for (const run of unwrap(cmd.words, spans)) {
 		const words = run.words.map((w) => literal(w, spans).text);
-		for (const cwd of cmd.cwds.flatMap((c) =>
-			runCwd(c, run.chdirs, spans, ctx.isDir),
-		)) {
+		for (const cwd of runCwd(cmd.cwds, run.chdirs, spans, ctx.isDir)) {
 			const dir = runDir(words, cwd, ctx);
 			if (dir !== null) return dir;
 		}

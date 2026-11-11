@@ -1057,8 +1057,8 @@ function resolveWord(word, scope) {
  * @property {string} cwd the directory it runs in, every `cd` before it taken
  *   as made; "" where the walk cannot know it, which the caller records before
  *   it fails open (mantahostels#3453)
- * @property {string[]} cwds every directory it may stand in, `cwd` first: a
- *   `cd` may not have run or have failed (#4980)
+ * @property {import("./shell-words.js").Dirs} cwds every directory it may
+ *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[]) => WriteTarget[]} writeTargets
  * @property {(word: string) => string | null} resolveWord
@@ -1255,23 +1255,34 @@ function harvest(walk, words, segIdx) {
  * stays unknown.
  * @param {Walk} walk
  * @param {string[]} words
+ * @returns {((dir: string) => string) | null} the move, from any directory to
+ *   where it lands, "" where unknown; null where the command moves nothing
  */
 function moveCwd(walk, words) {
 	const [head = "", arg] = words;
-	if (losesCwd(head, arg)) return loseCwd(walk, words);
-	if (head !== "cd") return false;
+	if (losesCwd(head, arg)) {
+		loseCwd(walk, words);
+		return () => "";
+	}
+	if (head !== "cd") return null;
 	const r = pathArg(arg ?? "", walk.scope);
 	const names = walk.scope.emptyNames;
-	if (r && "empty" in r) walk.cwdNames = [...walk.cwdNames, ...names];
-	else if (!r || r.path.startsWith("-")) loseCwd(walk, words);
-	else if (r.path.startsWith("/")) {
-		walk.cwd = r.path;
-		walk.cwdNames = [...names];
-	} else if (walk.cwd) {
-		walk.cwd = `${walk.cwd}/${r.path}`;
+	if (r && "empty" in r) {
 		walk.cwdNames = [...walk.cwdNames, ...names];
+		return (dir) => dir;
 	}
-	return true;
+	if (!r || r.path.startsWith("-")) {
+		loseCwd(walk, words);
+		return () => "";
+	}
+	const { path: to } = r;
+	/** @param {string} dir */
+	const move = (dir) => (to.startsWith("/") ? to : dir && `${dir}/${to}`);
+	walk.cwdNames = to.startsWith("/")
+		? [...names]
+		: [...walk.cwdNames, ...names];
+	walk.cwd = move(walk.cwd);
+	return move;
 }
 
 /**
@@ -1295,7 +1306,6 @@ function loseCwd(walk, words) {
 	walk.cwd = "";
 	walk.cwdNames = [];
 	walk.cwdLost = words.join(" ");
-	return true;
 }
 
 /**
@@ -1344,7 +1354,7 @@ function walkCommands(parsed, fn, ports) {
 				words: own,
 				leading: words.slice(0, assignEnd),
 				cwd: walk.cwd,
-				cwds: [...new Set([walk.cwd, ...walk.cwdDoubt])],
+				cwds: [walk.cwd, ...walk.cwdDoubt],
 				redirects,
 				writeTargets: (w = own) =>
 					writeTargets(w, redirects(), {
@@ -1925,7 +1935,9 @@ function settleCwdDoubt(walk, segIdx) {
  * pipeline or behind `&` it runs in a subshell and moves nothing (measured). A
  * move sticks where the `cd` always runs and its directory is there now; failing
  * that, only what a `&&` chains off it is sure of it (#4009). A `&` closing that
- * chain backgrounds the `cd` with it.
+ * chain backgrounds the `cd` with it. Each directory already doubted moves the
+ * same way, as runCwd moves a run's (#4980); one a `&&` chain holds stays
+ * put, as nothing in that chain runs there.
  * @param {Walk} walk accumulator: its cwd and doubts are moved
  * @param {string[]} own
  * @param {number} segIdx
@@ -1933,18 +1945,28 @@ function settleCwdDoubt(walk, segIdx) {
  */
 function stepCwd(walk, own, segIdx, isDir) {
 	const { cwd, cwdNames, cwdLost } = walk;
-	if (!moveCwd(walk, own)) return false;
+	const move = moveCwd(walk, own);
+	if (!move) return false;
 	if (runsApart(walk.parsed.joins, segIdx)) {
 		Object.assign(walk, { cwd, cwdNames, cwdLost });
 		return true;
 	}
-	if (walk.cwd === cwd) return true;
-	const sure =
-		isSureMove(walk.parsed, segIdx, own) && walk.cwd !== "" && isDir(walk.cwd);
-	if (sure) return true;
-	if (walk.parsed.joins[segIdx + 1] === "a")
-		walk.cwdPending = [...walk.cwdPending, cwd];
-	else walk.cwdDoubt = [...walk.cwdDoubt, cwd];
+	const surely = isSureMove(walk.parsed, segIdx, own);
+	/** @param {string} from @param {string} to */
+	const held = (from, to) => to === from || (surely && to !== "" && isDir(to));
+	/** @type {string[]} where a move may not have been made */
+	const unmade = held(cwd, walk.cwd) ? [] : [cwd];
+	const moved = walk.cwdDoubt.map((from) => {
+		const to = move(from);
+		if (!held(from, to)) unmade.push(from);
+		return to;
+	});
+	/* What a `&&` chains off the `cd` runs only where it was made. */
+	if (walk.parsed.joins[segIdx + 1] === "a") {
+		walk.cwdDoubt = moved;
+		walk.cwdPending = [...walk.cwdPending, ...unmade];
+	} else walk.cwdDoubt = [...moved, ...unmade];
+	walk.cwdDoubt = [...new Set(walk.cwdDoubt)].filter((d) => d !== walk.cwd);
 	return true;
 }
 

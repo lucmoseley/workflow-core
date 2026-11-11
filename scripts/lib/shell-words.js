@@ -625,31 +625,32 @@ const holdsAt = ({ holds }, dir, isDir) =>
 	holds === "always" || (holds === "if-dir" && dir !== "" && isDir(dir));
 
 /**
- * Every directory a run may stand in: `cwd` moved through its `chdirs`, an
- * absolute one replacing it, a relative one joined to it and `""` staying
- * put (#4869), each move not sure to hold by holdsAt also left unmade (#4980).
- * The first is where every move holds. Unknown, `""`, past a directory no
- * word gives whole: one reading a variable, which a `-c` string may set
- * itself, a `~`, a glob, or a `-` flag.
- * @param {string} cwd "" where unknown
+ * @typedef {[string, ...string[]]} Dirs the directories a command may stand
+ *   in, the first where every move before it was made; each "" where unknown
+ */
+
+/**
+ * Every directory a run may stand in: each of `cwds` moved through its
+ * `chdirs`, an absolute one replacing it, a relative one joined to it and `""`
+ * staying put (#4869), each move not sure to hold by holdsAt also left unmade
+ * (#4980). Unknown past a directory no word gives whole: one reading a
+ * variable, which a `-c` string may set itself, a `~`, a glob, or a `-` flag.
+ * @param {Dirs} cwds
  * @param {Chdir[]} chdirs
  * @param {string[]} spans
  * @param {(path: string) => boolean} isDir
- * @returns {string[]} each "" where unknown
+ * @returns {Dirs}
  */
-function runCwd(cwd, chdirs, spans, isDir) {
-	let ats = [cwd];
+function runCwd(cwds, chdirs, spans, isDir) {
+	let dirs = cwds;
 	for (const cd of chdirs) {
-		/** @type {string[]} */
-		const next = [];
-		for (const at of ats) {
-			const to = moveRun(at, cd, spans);
-			next.push(to);
-			if (!holdsAt(cd, to, isDir)) next.push(at);
-		}
-		ats = [...new Set(next)];
+		const [first, ...rest] = dirs.flatMap((from) => {
+			const to = moveRun(from, cd, spans);
+			return holdsAt(cd, to, isDir) ? [to] : [to, from];
+		});
+		dirs = [first ?? "", ...new Set(rest)];
 	}
-	return ats;
+	return dirs;
 }
 
 /**
