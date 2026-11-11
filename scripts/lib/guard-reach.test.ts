@@ -314,6 +314,43 @@ describe("run edges", () => {
 		).toEqual(["scripts/hooks/x.js"]);
 	});
 
+	it("reads a run through a variable stripping its directory's last segment (#5000)", () => {
+		expect(
+			targets(
+				"scripts/lib/code-signal.sh",
+				[
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'_cs_dir="${BASH_SOURCE[0]%/*}"',
+					'_cs_dir="$(cd "$_cs_dir" 2>/dev/null && pwd)"',
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'CS_ARBITER="${_cs_dir%/*}/session-arbiter.js"',
+					'hooks="$_cs_dir/hooks"',
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+					'node "${hooks%/*}/x.js"',
+					'node "$CS_ARBITER" own-paths',
+				].join("\n"),
+				"run",
+				{ isFile: inTree("scripts/session-arbiter.js") },
+			),
+		).toEqual(["scripts/lib/x.js", "scripts/session-arbiter.js"]);
+	});
+
+	it("reads a run beneath a directory variable built off one assigned before it", () => {
+		expect(
+			guard(
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+				'a="$here/lib"\nb="$a/sub"\nsh "$b/x.sh"\nnode "${b%/*}/y.js"',
+			),
+		).toEqual(["scripts/lib/sub/x.sh", "scripts/lib/y.js"]);
+	});
+
+	it("reads a run off the file's own path stripped as its directory", () => {
+		expect(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+			guard('p="${BASH_SOURCE[0]%/*}/a.js"\nnode "$p"\nnode "${0%/*}/b.js"'),
+		).toEqual(["scripts/b.js", "scripts/a.js"]);
+	});
+
 	it("reads a run through a variable assigned no directory off its own tail", () => {
 		expect(guard('tmp="$(mktemp -d)"\nbash "$tmp/inj.sh"')).toEqual([
 			"scripts/inj.sh",

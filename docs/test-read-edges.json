@@ -14533,6 +14533,7 @@
 			"scripts/lib/code-edges.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/guard-reach.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/push-review.contract.test.ts",
