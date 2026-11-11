@@ -611,7 +611,7 @@ function citedRefsOf(basis, own, tracker) {
 /**
  * Why one cited issue does not stand for the citing basis's windows, or
  * null where it does: a live basis in its body or a comment names one of
- * `windows` and carries a count or cycle warrant of its own, or, for a
+ * `windows` with its own warrant, `warrantOf` reading count or cycle; or, for a
  * question round, the round's marker is live there.
  *
  * @param {CitedRef} ref
