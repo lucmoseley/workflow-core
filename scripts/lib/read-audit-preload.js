@@ -5,8 +5,8 @@
  * suite run, so every vitest worker and every Node child a test spawns with
  * the environment it inherited loads it first.
  *
- * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT`, as spelt or with
- * its links followed, and outside every `node_modules`: a file's content read through `fs`; a directory's listing,
+ * WHAT IT RECORDS, each path under `WFC_READ_AUDIT_ROOT` and outside every
+ * `node_modules`: a file's content read through `fs`; a directory's listing,
  * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
  * process spawned, sync or not, with its program, the file that name runs
  * as found and with links followed, its arguments, working directory and whether it carries this audit on.

@@ -1,8 +1,7 @@
 /*
  * read-audit-paths.js — the path tests the read audit's modules share
  * (#4916). lib/read-audit-preload.js loads it into every audited process,
- * so it requires nothing beside Node's own modules and lib/is-under.js,
- * which the preload loads already.
+ * so it requires nothing beside Node's own modules and lib/is-under.js.
  */
 
 const fs = require("node:fs");
@@ -41,16 +40,13 @@ function repoPath(root, abs) {
  */
 const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
 
-/* The git guard the suites put on every test's `PATH` (#3161): this
- * checkout's own where the audit runs from it. */
+/* The git guard the suites put on every test's `PATH` (#3161). */
 const GUARD = path.join(__dirname, "host-git-guard", "git");
 
 /**
  * The test of whether a program, named with its links followed, is the git
- * guard: the one file `GUARD` names. A file of its name or its text
- * standing anywhere else is not the guard.
- * @param {(p: string) => string} [realpath] the preload hands in the
- *   `realpathSync` it does not wrap
+ * guard: the one file `GUARD` names.
+ * @param {(p: string) => string} [realpath] as `readRealTmpdir`'s
  * @returns {(real: string|undefined) => boolean}
  */
 function buildGuardTest(realpath = fs.realpathSync) {

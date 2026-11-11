@@ -1174,25 +1174,7 @@ describe("a store it cannot trust runs every file", () => {
 	 * 2-4: its rows missed every guard core, a data file joined off
 	 * `__dirname` and what the setup file reaches. Format 7 is round 5's
 	 * findings 1, 2 and 7: its rows missed a path two joins off `__dirname`,
-	 * `.claude/workflow-core.json` and `tsconfig.json`. Format 8 is pass 3's
-	 * findings 1-6 and 8-10: a red file in doubt left an older pass caching,
-	 * and its rows rested on audits that missed a git call from a scratch
-	 * directory or fed by stdin, a path handed to git, an empty trace, a
-	 * Python script's own reads, `openAsBlob`, a worker thread and a read
-	 * through a link outside the checkout. Format 9 is #4790 pass 3 round
-	 * 2's findings 1-4: its voiding rows held on the test file's content
-	 * alone, as the run left it, and its rows rested on audits that missed a
-	 * checkout script run as the program itself and git's abbreviated
-	 * spellings of an option fed by stdin. Format 10 is #4790 pass 3 round
-	 * 3's findings 1-3: its voiding rows keyed a git call's answer and a
-	 * walked tree's listings as they stood once the run ended, and its rows
-	 * rested on audits that named a checkout shell script run as the program
-	 * itself without its reads, and kept a git call handed its standard
-	 * input by path. Format 11 is #4790 pass 3 round 4's findings 2-4: its
-	 * rows keyed as absent a shadowing path that held a file while the run
-	 * ran, and rested on audits that took any `git` in a directory of the
-	 * guard's name for the guard, and named a checkout script a shell no
-	 * tracer followed ran without its reads. */
+	 * `.claude/workflow-core.json` and `tsconfig.json`. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],

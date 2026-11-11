@@ -36,16 +36,12 @@
  *   shell (#4966): its reads are the paths its file calls named, and only
  *   what lib/read-audit-trace.js cannot bound is a doubt. Untraced, a
  *   shell or Python child handed a checkout script to run, from outside
- *   the root, is unseen: the reach holds what a script loads, never the
- *   files it opens off its own directory (#4790). A checkout file run as
- *   the program itself is judged by its `#!` line: a Node one's reads are
- *   in the log it left, and any other's are unseen, a shell script's among
- *   them: `$0` is its own path, and what it opens beside itself no reach
- *   holds (#4790). The git guard alone is a read: of the checkout it asks
- *   only where a git directory stands, its own repository's and the
- *   call's, a path no file's content moves, and the git it runs is judged
- *   as any git child. One of `CWD_BLIND` is seen, which reads nothing of
- *   its directory (#4932);
+ *   the root, is unseen (#4790). A checkout file run as the program itself
+ *   is judged by its `#!` line: a Node one's reads are in the log it left,
+ *   and any other's are unseen, a shell script's among them: `$0` is its
+ *   own path (#4790). The git guard alone is a read (`Program`), and the
+ *   git it runs is judged as any git child. One of `CWD_BLIND` is seen,
+ *   which reads nothing of its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
 
@@ -120,11 +116,9 @@ const DESCRIPTOR_PATH =
  * Whether a word of a git call may feed it its standard input. git takes
  * any prefix of a long option that names no other, so every prefix of one
  * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
- * whether or not another option there shares it: a call kept is run again
- * with no input, so the doubt goes to not keeping it (#4790). A word
- * naming a descriptor by path counts however it is spelt, `.`, `..` and
- * doubled slashes folded away below a root of the word's own, so a `..`
- * folds away no more than the option the path is stuck to.
+ * whether or not another option there shares it (#4790). A word naming a
+ * descriptor by path counts however it is spelt, `.`, `..` and doubled
+ * slashes folded away below a root of the word's own.
  * @param {string} word
  */
 function isStdinFed(word) {
@@ -426,8 +420,7 @@ function buildCollector(logs, root, isScratch, readTrace) {
 
 /**
  * A guard record as a git call to run again, or the doubt it leaves where it
- * cannot be run again. The guard logs only a call on this repository, so one
- * made from a test's own scratch is judged as any other.
+ * cannot be run again.
  * @param {string[]} record the git-dir flag, the directory, the words
  * @param {string} root real path
  * @returns {GitCall|string}

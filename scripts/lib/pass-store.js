@@ -886,8 +886,7 @@ const buildVoidingRow = (
  * a red whose inputs are unknown still voids an older pass (#4790). Its row
  * keys every input whose content as the run read it is known, and leaves
  * the rest unkeyed, so it decides wherever those stand as they did,
- * whatever the rest hold: a red on other content voids no pass, and one
- * that may have been on this content voids it. A file reached only through
+ * whatever the rest hold. A file reached only through
  * one whose content is unknown is unkeyed too, the run's reach being that
  * file's as it then stood. Beyond files it keys only what the audit logged
  * as the test got it, a listing it made and a directory it found: a git
@@ -910,8 +909,8 @@ function buildVoidingRows(failed, inputs, seams) {
 		const absent = [
 			...new Set([...sound.flatMap((r) => r.shadows), ...g.probed]),
 		].filter(isAbsent);
-		/* What the audit logged beyond files stood so when the run ended;
-		 * where the drift is unknown, nothing says it did while it ran. */
+		/* Where the drift is unknown, nothing says what the audit logged
+		 * beyond files stood so while the run ran. */
 		const seen = inputs.isDriftKnown ? g.seen : null;
 		return {
 			values,
@@ -964,7 +963,7 @@ function buildRows(inputs, seams) {
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
  * alone: its passes cannot be trusted, but a fail row only ever makes a file
- * run. A failed file whose inputs are unknown records a voiding row. Never
+ * run. Never
  * throws: a store that cannot be written costs the rows, never the run, and
  * says why on `err`. Returns how many rows landed.
  * @param {Run} run
@@ -1453,8 +1452,7 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 				});
 		}
 	} catch {
-		// A store or a commit that will not read is no evidence of a red at
-		// `sha`: the classifier is left the marker stores alone (#4790).
+		// The classifier is left the marker stores alone (#4790).
 		return new Map();
 	}
 	return held;
