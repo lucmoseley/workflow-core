@@ -131,7 +131,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 10;
+const FORMAT = 11;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -601,7 +601,8 @@ function buildTrackedListings(root) {
  * @param {() => Map<string, Set<string>>} listings
  * @param {TreeAt} working the working tree: its directories and git calls
  * @returns {{files: string[], absent: string[], dirs: string[],
- *   listings: Record<string, string>, git: Record<string, string>}|null}
+ *   logged: Record<string, string>, listings: Record<string, string>,
+ *   git: Record<string, string>}|null}
  */
 function auditInputs(reads, listings, working) {
 	const lists = Object.entries(reads.lists);
@@ -610,17 +611,19 @@ function auditInputs(reads, listings, working) {
 	const idOf = (/** @type {string} */ dir) =>
 		listingId([...(tracked.get(dir) ?? [])]);
 	/** @type {Record<string, string>} */
-	const listed = {};
+	const logged = {};
 	for (const [dir, id] of lists) {
 		if (idOf(dir) !== id) return null;
-		listed[dir] = id;
+		logged[dir] = id;
 	}
+	/** @type {Record<string, string>} */
+	const walked = {};
 	const files = [...reads.files];
 	for (const top of reads.trees) {
 		const tree = treeInputs(top, tracked, working);
 		if (!tree) return null;
 		files.push(...tree.files);
-		Object.assign(listed, tree.listings);
+		Object.assign(walked, tree.listings);
 	}
 	/** @type {Record<string, string>} */
 	const git = {};
@@ -634,7 +637,8 @@ function auditInputs(reads, listings, working) {
 		files: [...new Set(files)],
 		absent: reads.absent,
 		dirs: reads.dirs,
-		listings: listed,
+		logged,
+		listings: { ...logged, ...walked },
 		git,
 	};
 }
@@ -667,10 +671,13 @@ function treeInputs(top, tracked, working) {
 }
 
 /**
- * @typedef {{listings: Record<string, string>, dirs: string[],
+ * @typedef {{logged: Record<string, string>,
+ *   listings: Record<string, string>, dirs: string[],
  *   git: Record<string, string>}} Seen
  *   what a file's audit saw it rest on beyond files, each as the working
- *   tree answered it
+ *   tree answered it once the run ended: `logged` the listings the test
+ *   made, each under the id it got, `listings` those and every listing of a
+ *   tree it walked, and each git call's answer, run again
  * @typedef {Reach & {from: string}} Reached the reach of the path `from`
  * @typedef {FileResult & {direct: string[], reached: Reached[],
  *   probed: string[], seen: Seen|null, whole: boolean}} Gathered
@@ -861,7 +868,11 @@ function buildKnownRows({ gathered, shared, ids, isKnown, isAbsent }, seams) {
  * whatever the rest hold: a red on other content voids no pass, and one
  * that may have been on this content voids it. A file reached only through
  * one whose content is unknown is unkeyed too, the run's reach being that
- * file's as it then stood. With `inputs` null, the tree unread, it keys
+ * file's as it then stood. Beyond files it keys only what the audit logged
+ * as the test got it, a listing it made and a directory it found: a git
+ * call's answer and a walked tree's listings are read once the run ended,
+ * and one that moved since the test read it would key the row off the
+ * content the red ran on. With `inputs` null, the tree unread, it keys
  * nothing and decides at any content.
  * @param {FileResult[]} failed
  * @param {RunInputs|null} inputs
@@ -887,8 +898,8 @@ function buildVoidingRows(failed, inputs, seams) {
 		const absent = [
 			...new Set([...sound.flatMap((r) => r.shadows), ...g.probed]),
 		].filter(isAbsent);
-		/* What the audit saw beyond files stood as recorded when the run
-		 * ended; where the drift is unknown, nothing says it did while it ran. */
+		/* What the audit logged beyond files stood so when the run ended;
+		 * where the drift is unknown, nothing says it did while it ran. */
 		const seen = inputs.isDriftKnown ? g.seen : null;
 		return {
 			values,
@@ -899,9 +910,9 @@ function buildVoidingRows(failed, inputs, seams) {
 					...idsOf(paths, ids),
 					...Object.fromEntries(absent.map((p) => [p, ABSENT])),
 				},
-				listings: seen?.listings ?? {},
+				listings: seen?.logged ?? {},
 				dirs: seen?.dirs ?? [],
-				git: seen?.git ?? {},
+				git: {},
 			},
 		};
 	});

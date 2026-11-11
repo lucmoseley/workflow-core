@@ -39,9 +39,12 @@
  *   the script is a read, and the lexical reach keys what it loads (#4790).
  *   A Python child handed one is not: the reach holds a Python script's
  *   imports, never the files it opens off its own directory. A checkout
- *   file run as the program itself is judged alike, by its `#!` line: a
- *   shell's is a read, a Node one's reads are in the log it left, and any
- *   other's are unseen. One of
+ *   file run as the program itself is judged by its `#!` line: a Node
+ *   one's reads are in the log it left, and any other's are unseen, a
+ *   shell script's among them: `$0` is its own path, and what it opens
+ *   beside itself no reach holds (#4790). The git guard alone is a read:
+ *   it opens nothing of the checkout, and the git it runs is judged as any
+ *   git child. One of
  *   `CWD_BLIND` is seen, which reads nothing of its directory (#4932);
  * - a symlink, socket or other non-file, non-directory path.
  */
@@ -56,7 +59,11 @@ const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
 const { isNode, readRealTmpdir, toPosix } = require("./read-audit-paths.js");
-const { buildTraceReader, findStrace } = require("./read-audit-trace.js");
+const {
+	buildTraceReader,
+	findStrace,
+	realOf,
+} = require("./read-audit-trace.js");
 
 const PRELOAD = path.join(__dirname, "read-audit-preload.js");
 
@@ -101,16 +108,26 @@ const STDIN_OPTIONS = [
  * (`--exclude-from=-`). */
 const STDIN_FILE = /^(?:-|-[^-].*-|--.+=-)$/;
 
+/* A path naming a descriptor of the process that opens it, its standard
+ * input among them, closing a word however the word spells it: bare, stuck
+ * to a short option, or the value of a long one. A run again holds none of
+ * the test's descriptors, so any of them counts, not standard input alone. */
+const DESCRIPTOR_PATH =
+	/\/(?:dev\/(?:stdin|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
+
 /**
  * Whether a word of a git call may feed it its standard input. git takes
  * any prefix of a long option that names no other, so every prefix of one
  * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
  * whether or not another option there shares it: a call kept is run again
- * with no input, so the doubt goes to not keeping it (#4790).
+ * with no input, so the doubt goes to not keeping it (#4790). A word
+ * naming a descriptor by path counts however it is spelt, `.` and doubled
+ * slashes folded away.
  * @param {string} word
  */
 function isStdinFed(word) {
 	if (STDIN_FILE.test(word)) return true;
+	if (DESCRIPTOR_PATH.test(path.posix.normalize(word))) return true;
 	const valueAt = word.indexOf("=");
 	const name = valueAt < 0 ? word : word.slice(0, valueAt);
 	if (!name.startsWith("--") || name === "--") return false;
@@ -477,8 +494,8 @@ function childDoubt(e, logs, root, isScratch) {
 
 /**
  * Why a child nothing logs or traces leaves its file's reads unknown, or
- * null where it read nothing of the checkout beside a shell script it ran,
- * handed to a shell or as the program itself.
+ * null where it read nothing of the checkout beside a script a shell was
+ * handed to run, or the git guard a git call ran through.
  * @param {Entry} e
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch
@@ -501,6 +518,8 @@ function unseenDoubt(e, root, isScratch) {
 	const program = readProgram(e, root, isScratch);
 	if (program?.runs === "other")
 		return `a child (${shown}) ran a program of the checkout, whose own reads no reach holds`;
+	if (program?.runs === "shell")
+		return `a child (${shown}) ran a shell script of the checkout that no tracer followed, whose own reads no reach holds`;
 	if (program?.runs === "node" || (script !== null && isNode(file)))
 		return `a Node child (${shown}) ran without the audit`;
 	if (script !== null && PYTHON_RUNNERS.has(path.basename(file)))
@@ -588,12 +607,20 @@ function scriptOf(e, root) {
 		: null;
 }
 
+/* The git guard the suites put on every test's `PATH` (#3161), with its
+ * links followed, as the preload logs a program: this checkout's own where
+ * the audit runs from it. */
+const GUARD = realOf(path.join(__dirname, "host-git-guard", "git"));
+
 /**
- * @typedef {{script: string, runs: "shell"|"node"|"other"}} Program
+ * @typedef {{script: string, runs: "shell"|"node"|"guard"|"other"}} Program
  *   a checkout file a child ran as its program, repo-relative, and what runs
  *   it: a shell or Node where its `#!` line names one and the lexical reach
  *   reads the file as that language, so keys what it loads; else `other`,
- *   Python and a binary among them, whose reads no reach holds
+ *   Python and a binary among them, whose reads no reach holds; `guard`,
+ *   the git guard, which opens nothing of the checkout. A shell script's
+ *   reads are a trace's alone: the reach holds its loads, never what it
+ *   opens beside itself
  */
 
 /**
@@ -616,6 +643,7 @@ function readProgram(e, root, isScratch) {
 	const read = readText(real);
 	if (bin[0] !== real || read.state !== "read")
 		return { script, runs: "other" };
+	if (real === GUARD) return { script, runs: "guard" };
 	const runner = parseShebang(read.data)?.kind;
 	const language = scriptLanguage(real, read.data);
 	if (runner === "shell" && language === "sh") return { script, runs: "shell" };
@@ -624,9 +652,9 @@ function readProgram(e, root, isScratch) {
 }
 
 /**
- * The checkout scripts a child ran, repo-relative, as reads: the one a
- * runner was handed, and the child's own program where a shell or Node
- * runs it.
+ * The checkout scripts a child whose reads are seen ran, repo-relative, as
+ * reads: the one a runner was handed, and the child's own program, any but
+ * one whose reads no reach holds.
  * @param {Entry} e
  * @param {string} root real path
  * @param {(p: string) => boolean} isScratch

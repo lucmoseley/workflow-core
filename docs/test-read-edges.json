@@ -23107,7 +23107,9 @@
 			"scripts/lib/code-edges.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/host-git-guard.test.ts",
-			"scripts/npm-run-hints-scan.test.ts"
+			"scripts/lib/read-audit.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"vitest.setup.test.ts"
 		],
 		"scripts/lib/host-package.js": [
 			"scripts/check-guard-errors.test.ts",

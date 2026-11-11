@@ -555,6 +555,66 @@ describe("the newest result on the same content decides", () => {
 			},
 		);
 
+		it("voids the older pass where a git answer the red run saw had moved once the run ended, and is back (#4790 pass 3)", () => {
+			const dir = repo();
+			git(dir, "branch", "other");
+			const seen = git(dir, "rev-parse", "other");
+			const askedGit: Audit = {
+				reads: {
+					...NO_READS,
+					git: [{ cwd: ".", args: ["rev-parse", "other"] }],
+				},
+			};
+			run(dir, [A], { audits: { [A]: askedGit } });
+			expect(cachedOf(dir, [A])).toEqual([A]);
+
+			git(dir, "commit", "-q", "--allow-empty", "-m", "two");
+			git(dir, "update-ref", "refs/heads/other", "HEAD");
+			const red = { failing: [A], drifted: ["lib.js"] };
+			expect(run(dir, [A], { ...red, audits: { [A]: askedGit } })).toBe(1);
+			git(dir, "update-ref", "refs/heads/other", seen);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("voids the older pass where a tree the red run walked listed otherwise once the run ended, and is back (#4790 pass 3)", () => {
+			const dir = repo();
+			const walked: Audit = { reads: { ...NO_READS, trees: ["docs"] } };
+			write(dir, "docs/one.md", "one\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "docs");
+			run(dir, [A], { audits: { [A]: walked } });
+			expect(cachedOf(dir, [A])).toEqual([A]);
+
+			write(dir, "docs/late.md", "late\n");
+			git(dir, "add", "docs/late.md");
+			const red = { failing: [A], drifted: ["lib.js", "docs/late.md"] };
+			expect(run(dir, [A], { ...red, audits: { [A]: walked } })).toBe(1);
+			git(dir, "rm", "-q", "-f", "docs/late.md");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("leaves the older pass standing where a listing the red run made shows it ran on other content", () => {
+			const dir = repo();
+			write(dir, "docs/one.md", "one\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "docs");
+			const listed = (): Audit => ({
+				reads: {
+					...NO_READS,
+					lists: { docs: listingId(fs.readdirSync(path.join(dir, "docs"))) },
+				},
+			});
+			run(dir, [A], { audits: { [A]: listed() } });
+
+			write(dir, "docs/two.md", "two\n");
+			git(dir, "add", "docs/two.md");
+			const red = { failing: [A], drifted: ["lib.js"] };
+			expect(run(dir, [A], { ...red, audits: { [A]: listed() } })).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([]);
+			git(dir, "rm", "-q", "-f", "docs/two.md");
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		});
+
 		it("lets no voiding row that names a pass decide", () => {
 			const dir = repo();
 			run(dir, [A], { failing: [A], audits: { [A]: Doubt } });
@@ -1093,7 +1153,11 @@ describe("a store it cannot trust runs every file", () => {
 	 * 1-4: its voiding rows held on the test file's content alone, as the run
 	 * left it, and its rows rested on audits that missed a checkout script
 	 * run as the program itself and git's abbreviated spellings of an option
-	 * fed by stdin. */
+	 * fed by stdin. Format 10 is #4790 pass 3 round 3's findings 1-3: its
+	 * voiding rows keyed a git call's answer and a walked tree's listings as
+	 * they stood once the run ended, and its rows rested on audits that named
+	 * a checkout shell script run as the program itself without its reads,
+	 * and kept a git call handed its standard input by path. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -1113,6 +1177,10 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before a voiding row keyed the inputs it could read, and the audit doubted a checkout script run as the program and git's abbreviated stdin options (#4790)",
 			9,
+		],
+		[
+			"before a voiding row left a git answer and a walked tree's listing unkeyed, and the audit traced or doubted a checkout shell script run as the program and doubted a git call handed a descriptor by path (#4790)",
+			10,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
