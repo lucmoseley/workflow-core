@@ -18744,6 +18744,12 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh/commits-page.json": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/measure-outcome-review.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh/graphql-blocked-by.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",

@@ -90,7 +90,7 @@
 	"scripts/run-vitest.js": "71773340e3987e46",
 	"scripts/self-plugin-canary.sh": "f8221b6482b2769d",
 	"scripts/session-arbiter.js": "114ceaf526acabf1",
-	"scripts/session-start-sweeps.sh": "d1c48c26c8986e2c",
+	"scripts/session-start-sweeps.sh": "53a5048ae973086e",
 	"scripts/start-lander-on-push.js": "dee994c3279ab0b9",
 	"scripts/unpark-on-prompt.js": "26e3e81d8c6c48e9",
 	"scripts/vitest-inflight-reporter.ts": "78a634378829e56a",

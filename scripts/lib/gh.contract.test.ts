@@ -12,6 +12,9 @@
  * Red after a gh upgrade or a GitHub API change (#4990): re-run the case's
  * call by hand, copy what changed into its fixture. A landed write's two
  * recordings go red on no upgrade: re-record them by their command below.
+ *
+ * Its run cost: the live cases skip under CI, so CI's record times skips and
+ * understates a logged-in run.
  */
 
 import { spawnSync } from "node:child_process";
@@ -67,6 +70,7 @@ const BLOCKED_BY_PAGE = path.join(
 const TIMELINE_PAGE = path.join(__dirname, "fixtures/gh/timeline-page.json");
 const PARENT_PAGE = path.join(__dirname, "fixtures/gh/parent-page.json");
 const COMMENTS_PAGE = path.join(__dirname, "fixtures/gh/comments-page.json");
+const COMMITS_PAGE = path.join(__dirname, "fixtures/gh/commits-page.json");
 const PARENT_NOT_FOUND = path.join(
 	__dirname,
 	"fixtures/gh/parent-not-found.json",
@@ -426,6 +430,15 @@ describe("live: read-only calls", () => {
 				"repos/{owner}/{repo}/issues/948/comments?per_page=1&page=1",
 				"--paginate",
 				"--slurp",
+			],
+		},
+		{
+			what: "main's tip commit, as the outcome review reads it",
+			fixture: COMMITS_PAGE,
+			// The tracker's second commit alone, with a parent; history stays put.
+			args: [
+				"api",
+				"repos/{owner}/{repo}/commits?sha=main&since=2026-06-25T01:00:00Z&until=2026-06-25T01:27:20Z&per_page=1",
 			],
 		},
 		{
