@@ -36,7 +36,12 @@ const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
-const { isNode, readRealTmpdir, repoPath } = require("./read-audit-paths.js");
+const {
+	buildGuardTest,
+	isNode,
+	readRealTmpdir,
+	repoPath,
+} = require("./read-audit-paths.js");
 const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
@@ -342,11 +347,12 @@ function install() {
 			.slice(5)
 			.split(path.delimiter);
 	};
-	/* A bare `git` whose PATH puts the host git guard first: the guard logs
-	 * what it reads of this repository. */
+	const isGuard = buildGuardTest(realRealpathSync);
+	/* A bare `git` its PATH finds as the host git guard: the guard logs what
+	 * it reads of this repository. */
 	const isGuarded = (/** @type {Untyped} */ opts) =>
 		opts?.file === "git" &&
-		path.basename(pathDirs(opts?.envPairs)[0] ?? "") === "host-git-guard";
+		isGuard(binOf("git", cwdOf(opts), opts?.envPairs)[1]);
 	const isRunnable = (/** @type {string} */ abs) => {
 		try {
 			realAccessSync(abs, fs.constants.X_OK);

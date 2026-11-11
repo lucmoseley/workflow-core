@@ -41,4 +41,33 @@ function repoPath(root, abs) {
  */
 const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
 
-module.exports = { isNode, readRealTmpdir, repoPath, toPosix };
+/* The git guard the suites put on every test's `PATH` (#3161): this
+ * checkout's own where the audit runs from it. */
+const GUARD = path.join(__dirname, "host-git-guard", "git");
+
+/**
+ * The test of whether a program, named with its links followed, is the git
+ * guard: the one file `GUARD` names. A file of its name or its text
+ * standing anywhere else is not the guard.
+ * @param {(p: string) => string} [realpath] the preload hands in the
+ *   `realpathSync` it does not wrap
+ * @returns {(real: string|undefined) => boolean}
+ */
+function buildGuardTest(realpath = fs.realpathSync) {
+	/** @type {string|null} */
+	let guard = null;
+	try {
+		guard = realpath(GUARD);
+	} catch {
+		// No guard stands beside this library, so no program is it (#4790).
+	}
+	return (real) => real === guard;
+}
+
+module.exports = {
+	buildGuardTest,
+	isNode,
+	readRealTmpdir,
+	repoPath,
+	toPosix,
+};

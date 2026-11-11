@@ -438,6 +438,21 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
+	it.each([
+		["the drift watch saw while the run ran", { drifted: ["data.js"] }, ""],
+		["git ignores, which the drift watch never sees", {}, "data.js\n"],
+	])(
+		"records no row over a shadowing path, gone once the run ended, that %s (#4790 pass 3)",
+		(_which, how, ignore) => {
+			const dir = repo();
+			write(dir, "lib.js", 'require("./data");\n');
+			write(dir, "data.json", "{}\n");
+			fs.appendFileSync(path.join(dir, ".gitignore"), ignore);
+			expect(run(dir, [A], how)).toBe(0);
+			expect(cachedOf(dir, [A])).toEqual([]);
+		},
+	);
+
 	it("leaves the shadowing paths out of the reads a cached file attests", () => {
 		const dir = repo();
 		write(dir, "lib.js", 'require("./data");\n');
@@ -524,6 +539,21 @@ describe("the newest result on the same content decides", () => {
 			write(dir, "lib.js", "left behind by the run\n");
 			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
 			git(dir, "checkout", "-q", "lib.js");
+			expect(cachedOf(dir, [A])).toEqual([]);
+		});
+
+		it("voids the older pass on a shadowing path the red run may have loaded, gone once the run ended and back (#4790 pass 3)", () => {
+			const dir = repo();
+			write(dir, "lib.js", 'require("./data");\n');
+			write(dir, "data.json", "{}\n");
+			write(dir, "data.js", "v0\n");
+			git(dir, "add", "-A");
+			git(dir, "commit", "-q", "-m", "data");
+			run(dir, [A]);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+			fs.rmSync(path.join(dir, "data.js"));
+			expect(run(dir, [A], { failing: [A], drifted: ["data.js"] })).toBe(1);
+			git(dir, "checkout", "-q", "data.js");
 			expect(cachedOf(dir, [A])).toEqual([]);
 		});
 
@@ -1158,7 +1188,11 @@ describe("a store it cannot trust runs every file", () => {
 	 * walked tree's listings as they stood once the run ended, and its rows
 	 * rested on audits that named a checkout shell script run as the program
 	 * itself without its reads, and kept a git call handed its standard
-	 * input by path. */
+	 * input by path. Format 11 is #4790 pass 3 round 4's findings 2-4: its
+	 * rows keyed as absent a shadowing path that held a file while the run
+	 * ran, and rested on audits that took any `git` in a directory of the
+	 * guard's name for the guard, and named a checkout script a shell no
+	 * tracer followed ran without its reads. */
 	it.each([
 		["before rows reached spawned scripts (#4790)", 2],
 		["before the walk read a Python script's sys.path (#4864)", 3],
@@ -1182,6 +1216,10 @@ describe("a store it cannot trust runs every file", () => {
 		[
 			"before a voiding row left a git answer and a walked tree's listing unkeyed, and the audit traced or doubted a checkout shell script run as the program and doubted a git call handed a descriptor by path (#4790)",
 			10,
+		],
+		[
+			"before an absent input was one the drift watch saw steady, and the audit knew the guard by its real file and doubted a checkout script a shell no tracer followed ran (#4790)",
+			11,
 		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();

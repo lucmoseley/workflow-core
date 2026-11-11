@@ -150,15 +150,16 @@ describe("what a test file reads, as the audit sees it", () => {
 		);
 	});
 
-	it("names a script an untraced shell child ran, and doubts one run in the checkout", () => {
+	it("doubts a checkout script a shell child no tracer followed ran from outside the checkout, which reads off its own directory, and one run in the checkout (#4790 pass 3)", () => {
 		const root = checkout();
-		write(root, "scripts/run.sh", "true\n");
+		write(root, "scripts/data.txt", "x\n");
+		write(root, "scripts/run.sh", 'cat "$(dirname "$0")/data.txt"\n');
 		const spawn = (cwd: string) =>
 			`require("node:child_process").execFileSync("bash", [${JSON.stringify(path.join(root, "scripts/run.sh"))}], { cwd: ${JSON.stringify(cwd)} });`;
 		const outside = audited(root, T, spawn(os.tmpdir()), { trace: false });
-		expect(readAudits(outside, root).get(T).reads.scripts).toEqual([
-			"scripts/run.sh",
-		]);
+		expect(readAudits(outside, root).get(T).doubt).toMatch(
+			/a shell child \(bash .*run\.sh\) ran a checkout script that no tracer followed/,
+		);
 		const inside = audited(root, T, spawn(root), { trace: false });
 		expect(readAudits(inside, root).get(T).doubt).toMatch(
 			/ran in the checkout/,
@@ -504,6 +505,19 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			);
 		},
 	);
+
+	it("holds what a checkout script a shell was handed from outside the checkout reads off its own directory, where a tracer followed it", () => {
+		const root = checkout();
+		write(root, "scripts/data.txt", "x\n");
+		write(root, "scripts/run.sh", 'cat "$(dirname "$0")/data.txt"\n');
+		const audit = reads(
+			root,
+			`require("node:child_process").execFileSync("sh", [${quoted(path.join(root, "scripts/run.sh"))}], { cwd: ${quoted(os.tmpdir())} });`,
+		);
+		expect(audit.reads.files).toEqual(
+			expect.arrayContaining(["scripts/data.txt", "scripts/run.sh"]),
+		);
+	});
 
 	it("holds what a shell script of the checkout reads off its own directory where a tracer followed it, as a stub", () => {
 		const root = checkout();
@@ -933,6 +947,8 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		[["ls-files", "-o", "--exclude-from=/dev/./fd//0"]],
 		[["diff", "--no-index", "/dev/stdin", "scripts/lib/hooks.js"]],
 		[["diff", "--no-index", "../../dev/fd/0", "scripts/lib/hooks.js"]],
+		[["grep", "-l", "--file=/../dev/stdin"]],
+		[["grep", "-l", "-F/../dev/stdin"]],
 	])(
 		"doubts a git call fed by standard input, which a run again never has: %j",
 		(words) => {
@@ -961,6 +977,21 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			]);
 		},
 	);
+
+	it("doubts a `git` a test wrote in a directory of the guard's name, which is not the guard (#4790 pass 3)", () => {
+		const root = checkout();
+		const stub = fs.mkdtempSync(path.join(os.tmpdir(), "rda-spoof-"));
+		dirs.push(stub);
+		const named = path.join(stub, "host-git-guard");
+		fs.mkdirSync(named);
+		fs.writeFileSync(path.join(named, "git"), READS_SETTINGS, { mode: 0o755 });
+		expect(
+			ran(
+				root,
+				`require("node:child_process").execFileSync("git", [], { cwd: ${quoted(root)}, env: { ...process.env, PATH: ${quoted(named + path.delimiter)} + process.env.PATH } });`,
+			).doubt,
+		).toMatch(/a child \(git \) ran in the checkout/);
+	});
 
 	it("doubts a shell script of the checkout run as the program itself that no tracer followed, and any other program there (#4790 pass 3)", () => {
 		const root = checkout();
@@ -1059,22 +1090,28 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		expect(judged(root, [child(false)], []).doubt).toMatch(/without the audit/);
 	});
 
-	it("doubts a Python child handed a checkout script from outside, and still names a shell's", () => {
+	it("doubts a Python or a shell child handed a checkout script from outside that no tracer followed, and names a shell's that one did (#4790 pass 3)", () => {
 		const root = checkout();
 		write(root, "scripts/run.py", "print(1)\n");
 		write(root, "scripts/run.sh", "true\n");
-		const child = (file: string, script: string) => ({
+		const child = (file: string, script: string, how = {}) => ({
 			k: "child",
 			file,
 			args: [path.join(root, script)],
 			cwd: os.tmpdir(),
+			...how,
 		});
 		expect(
 			judged(root, [child("python3", "scripts/run.py")], []).doubt,
 		).toMatch(/a Python child \(python3 .*run\.py\) ran a checkout script/);
-		expect(
-			judged(root, [child("bash", "scripts/run.sh")], []).reads.scripts,
-		).toEqual(["scripts/run.sh"]);
+		for (const shell of ["bash", "sh"])
+			expect(judged(root, [child(shell, "scripts/run.sh")], []).doubt).toMatch(
+				/a shell child \(.*run\.sh\) ran a checkout script that no tracer followed/,
+			);
+		const followed = child("bash", "scripts/run.sh", { within: true });
+		expect(judged(root, [followed], []).reads.scripts).toEqual([
+			"scripts/run.sh",
+		]);
 	});
 
 	it("holds a file read as a blob", () => {

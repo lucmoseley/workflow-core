@@ -131,7 +131,7 @@ const PRAGMA = /\buncached:(.*)$/;
 const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never decides (#4814). */
-const FORMAT = 11;
+const FORMAT = 12;
 
 /* The environment key naming the cached hand-off file a vitest child reads. */
 const CACHED_ENV = "WFC_PASS_STORE_CACHED";
@@ -779,32 +779,32 @@ function readRunInputs(run, files) {
 		...shared,
 		...gathered.flatMap((g) => [...g.direct, ...edges(g)]),
 	];
-	const ids = readWorkingIds(gitHasher(run.root), run.root, [
+	const tried = [
 		...all,
 		...gathered.flatMap((g) => [
 			...g.probed,
 			...g.reached.flatMap((r) => r.shadows),
 		]),
-	]);
-	const ignored = readIgnored(run.root, [...new Set(all)]);
+	];
+	const ids = readWorkingIds(gitHasher(run.root), run.root, tried);
+	const ignored = readIgnored(run.root, [...new Set(tried)]);
 	/* The content a path held while the run ran is what the tree holds now
 	 * only where the drift watch says it was not rewritten; the watch sees
 	 * no ignored path, and where it saw nothing no path's content is known. */
 	const drifted = run.drifted === null ? null : new Set(run.drifted);
+	const isSteady = (/** @type {string} */ p) =>
+		drifted !== null && !drifted.has(p) && !ignored.has(p);
 	return {
 		gathered,
 		shared,
 		ids,
 		isDriftKnown: drifted !== null,
-		isKnown: (p) =>
-			drifted !== null &&
-			typeof ids.get(p) === "string" &&
-			!drifted.has(p) &&
-			!ignored.has(p),
+		isKnown: (p) => isSteady(p) && typeof ids.get(p) === "string",
 		/* A path tried before the resolved file must read as no file: one that
 		 * appeared since the reach was read, or a symlink, which no id answers,
-		 * leaves the resolution the run used unknown. */
-		isAbsent: (p) => drifted !== null && ids.has(p) && ids.get(p) === null,
+		 * leaves the resolution the run used unknown, as does one that held a
+		 * file while the run ran and is gone now. */
+		isAbsent: (p) => isSteady(p) && ids.has(p) && ids.get(p) === null,
 	};
 }
 
