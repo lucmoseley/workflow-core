@@ -1653,7 +1653,9 @@ const withoutName = (words, name, spans) =>
  * @property {boolean} [unwrap] judge a git command behind shell-words.js's
  *   unwrap wrappers (#1731). Without it, a command a `flock -c` or `watch`
  *   script runs is still judged (#4978): the line join reads that script
- *   whole, so a walk reading no script would see none of its lines
+ *   whole, so a walk reading no script would see none of its lines. That
+ *   holds behind an outer wrapper too (`timeout 5 flock … -c "git …"`), while
+ *   a bare `timeout 5 git …` stays unread
  */
 
 /**

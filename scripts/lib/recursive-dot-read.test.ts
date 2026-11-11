@@ -211,6 +211,11 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"a flock -c string's path-less rg",
 		],
 		[
+			'flock /l -c "true; rg gp_begin"',
+			"rg gp_begin <EXP>",
+			"a flock -c string's path-less rg after a `;`",
+		],
+		[
 			"grep -rn @CMD@ .",
 			"grep -rn @CMD@ <EXP>",
 			"a literal @CMD@, which the splice must not eat",

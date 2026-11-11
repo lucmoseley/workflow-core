@@ -340,6 +340,7 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 			"deletes `main` on the remote",
 		],
 		['flock /l -c "true\ngit push --force origin main"', "force-pushes `main`"],
+		['flock /l -c "true; git push --force origin main"', "force-pushes `main`"],
 	])("%s is denied, naming that it %s", (command, what) => {
 		const why = denial(command);
 		expect(why).toContain(what);

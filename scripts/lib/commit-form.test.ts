@@ -1199,6 +1199,14 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(got).toContain("commit-pathspec");
 	});
 
+	it.each([
+		'flock /l -c "true\ngit commit -m x -- docs/x.md"',
+		'flock /l -c "true; git commit -m x -- docs/x.md"',
+	])("%s is handed the path-gated rule its bare form is (#4978)", (command) => {
+		expect(idsIn(command)).toEqual(idsIn('git commit -m "x" -- docs/x.md'));
+		expect(idsIn(command)).toContain("doc-map-precommit");
+	});
+
 	/* A path each rule is scoped IN on, so only the module decides (#449). */
 	it.each([
 		["digest-version-drift", "roadmap", "docs/roadmap-digest.md"],
