@@ -1213,11 +1213,13 @@ const isDir = (c) =>
 
 /**
  * @typedef {{dir: string, maybe: boolean}} PyDir a directory a name is
- *   looked for in, `maybe` where the sys.path entry it stands on may never
- *   have been added
+ *   looked for in, `maybe` where a module found in it settles nothing, the
+ *   sys.path entry above it being one that may never have been added
  * @typedef {{dirs: PyDir[], namespace: boolean}} PyPlace where an import's
- *   next part is looked for: a regular package's directory, every directory
- *   of a namespace package (`namespace`), or none below a plain module
+ *   next part is looked for: a regular package's directory; for a namespace
+ *   package (`namespace`) its directory under every entry searched, standing
+ *   or not, since one that appears joins the package; none below a plain
+ *   module
  * @typedef {{kind: "placed", places: PyPlace[]} | {kind: "absent"}
  *   | {kind: "opaque", tail: boolean}} PyTopPlacement where the search for a
  *   top-level module ended: found, on no entry, or at an entry the walk
@@ -1241,8 +1243,8 @@ const placeOf = (found) => ({
  * it may load and the candidates tried before the one that settles it. A
  * `maybe` directory may never have been searched, so a module found there
  * settles nothing: the search goes on, and every file found counts. Where no
- * regular module or package settles the name, the namespace directories of
- * that name are one more place, a single package.
+ * regular module or package settles the name and a namespace directory of
+ * that name stands, the namespace package is one more place.
  * @param {Found} reach accumulator: gains the files and shadows
  * @param {PyDir[]} dirs
  * @param {string} name
@@ -1253,17 +1255,20 @@ function placePyPart(reach, dirs, name) {
 	const places = [];
 	/** @type {PyDir[]} */
 	const namespaceDirs = [];
+	let stands = false;
 	for (const { dir, maybe } of dirs) {
 		const here = pyModuleIn(dir, name);
 		reach.shadows.push(...here.tried);
-		if (here.namespace) namespaceDirs.push({ dir: here.namespace, maybe });
-		if (!here.found) continue;
+		if (!here.found) {
+			namespaceDirs.push({ dir: path.join(dir, name), maybe });
+			stands ||= here.namespace !== null;
+			continue;
+		}
 		reach.edges.push(here.found);
 		places.push(placeOf(here.found));
 		if (!maybe) return { places, settled: true };
 	}
-	if (namespaceDirs.length > 0)
-		places.push({ dirs: namespaceDirs, namespace: true });
+	if (stands) places.push({ dirs: namespaceDirs, namespace: true });
 	return { places, settled: false };
 }
 
@@ -1299,22 +1304,25 @@ function placePyImport(walk, target) {
 		return;
 	}
 	for (const placed of placements) {
-		if (placed.kind === "opaque") {
-			/* A builtin module is found before sys.path is searched, and a
-			 * stdlib one before an entry appended after the stdlib's. */
-			const { builtins, stdlib } = readPython();
-			if (!builtins.has(top) && !(placed.tail && stdlib.has(top)))
-				walk.fault(`imports ${top} after a sys.path edit the walk cannot read`);
-		} else if (placed.kind === "placed")
-			descendPlaced(walk, target, placed.places);
+		if (placed.kind !== "opaque") continue;
+		/* A builtin module is found before sys.path is searched, and a
+		 * stdlib one before an entry appended after the stdlib's. */
+		const { builtins, stdlib } = readPython();
+		if (!builtins.has(top) && !(placed.tail && stdlib.has(top)))
+			walk.fault(`imports ${top} after a sys.path edit the walk cannot read`);
 	}
+	descendPlaced(
+		walk,
+		target,
+		placements.flatMap((placed) =>
+			placed.kind === "placed" ? placed.places : [],
+		),
+	);
 }
 
 /**
  * Walks an absolute import's parts below each place its top-level module was
- * found, faulting a part no file or directory stands for, and a name a
- * namespace package lacks: a regular package's __init__.py may define the
- * name as an attribute, and a namespace package defines none.
+ * found, faulting a part or name the import cannot be served without.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
  * @param {PyPlace[]} places
@@ -1322,46 +1330,51 @@ function placePyImport(walk, target) {
 function descendPlaced(walk, target, places) {
 	const below = { parts: target.parts.slice(1), names: target.names };
 	const dotted = target.parts.join(".");
-	for (const place of places)
-		descend(walk, place, below, (miss) => {
-			if (miss.isPart)
-				walk.fault(
-					`imports ${dotted}, whose ${miss.name} the walk cannot place`,
-				);
-			else if (miss.at.namespace && !miss.namespace)
-				walk.fault(
-					`imports ${miss.name} from ${dotted}, a namespace package that holds no ${miss.name}`,
-				);
-		});
+	const misses = places.flatMap((place) => descend(walk, place, below));
+	for (const miss of misses.filter(isUnplaced))
+		walk.fault(
+			miss.isPart
+				? `imports ${dotted}, whose ${miss.name} the walk cannot place`
+				: `imports ${miss.name} from ${dotted}, a namespace package that holds no ${miss.name}`,
+		);
 }
+
+/**
+ * A name a regular package lacks may be an attribute its __init__.py
+ * defines; a namespace package defines none.
+ * @param {PyMiss} miss
+ */
+const isUnplaced = (miss) =>
+	miss.isPart || (miss.at.namespace && !miss.namespace);
 
 /**
  * Walks an import's parts down from `at`, through each place a part may
  * stand, then its from-imported names in the package the parts leave it in,
- * pushing each file found and the paths tried before it. A part or name with
- * no file goes to `miss`; a part ends the descent there, as does one below a
- * plain module, whose names are no submodules.
+ * pushing each file found and the paths tried before it. Each place may be
+ * the one Python takes, so what any of them lacks is missed. A part ends the
+ * descent where no file stands for it, as does one below a plain module,
+ * whose names are no submodules.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyPlace} at
  * @param {{parts: string[], names: string[]}} below the parts under `at`
  *   and the names from-imported at the last
- * @param {(miss: PyMiss) => void} miss
+ * @returns {PyMiss[]} each part or name with no file
  */
-function descend(walk, at, { parts, names }, miss) {
+function descend(walk, at, { parts, names }) {
 	const [part, ...rest] = parts;
-	if (part === undefined) {
-		for (const name of at.dirs.length > 0 ? names : []) {
+	if (part === undefined)
+		return (at.dirs.length > 0 ? names : []).flatMap((name) => {
 			const { places } = placePyPart(walk.reach, at.dirs, name);
-			if (places.every((place) => place.namespace))
-				miss({ name, isPart: false, at, namespace: places.length > 0 });
-		}
-		return;
-	}
+			return places.every((place) => place.namespace)
+				? [{ name, isPart: false, at, namespace: places.length > 0 }]
+				: [];
+		});
 	const { places } = placePyPart(walk.reach, at.dirs, part);
 	if (places.length === 0)
-		miss({ name: part, isPart: true, at, namespace: false });
-	for (const place of places)
-		descend(walk, place, { parts: rest, names }, miss);
+		return [{ name: part, isPart: true, at, namespace: false }];
+	return places.flatMap((place) =>
+		descend(walk, place, { parts: rest, names }),
+	);
 }
 
 /**
@@ -1375,10 +1388,9 @@ function placeRelativePyImport(walk, { dots, parts, names }) {
 	const init = path.join(pkg, "__init__.py");
 	if (parts.length === 0 && isFile(init)) walk.reach.edges.push(init);
 	const at = { dirs: [{ dir: pkg, maybe: false }], namespace: false };
-	descend(walk, at, { parts, names }, (miss) => {
+	for (const miss of descend(walk, at, { parts, names }))
 		for (const { dir } of miss.at.dirs)
 			walk.reach.edges.push(path.join(dir, `${miss.name}.py`));
-	});
 }
 
 /**

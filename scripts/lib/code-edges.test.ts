@@ -50,6 +50,10 @@ function tree(code: string, files: string[]) {
 	return { edges, shadows, faults };
 }
 
+/** The statement putting the tree's `dir` first on tool/t.py's sys.path. */
+const first = (dir: string) =>
+	`sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "${dir}"))`;
+
 describe("a dotted import", () => {
 	it("reaches the package and each submodule it names", () => {
 		expect(
@@ -179,6 +183,59 @@ describe("a dotted import", () => {
 			]);
 			expect(found.faults).toEqual([fault]);
 			expect(found.edges).toContain("tool/pkg/ns/x.py");
+		},
+	);
+
+	it("reaches only the first of a namespace package's directories to hold a submodule (#4870)", () => {
+		const code = [first("a"), first("b"), "import ns.mod"].join("\n");
+		expect(tree(code, ["a/ns/mod.py", "b/ns/mod.py"]).edges).toEqual([
+			"b/ns/mod.py",
+		]);
+	});
+
+	it("names a submodule's place under an earlier entry holding no directory of its namespace package as a shadow (#4870)", () => {
+		const code = [first("b"), first("a"), "import ns.sub"].join("\n");
+		const found = tree(code, ["a/other.py", "b/ns/sub.py"]);
+		expect(found.edges).toEqual(["b/ns/sub.py"]);
+		expect(found.shadows).toEqual(
+			expect.arrayContaining(["a/ns/sub/__init__.py", "a/ns/sub.py"]),
+		);
+	});
+
+	it("takes a from-imported name that is a directory of a namespace package for a package (#4870)", () => {
+		const code = [first("a"), first("b"), "from ns import sub"].join("\n");
+		expect(tree(code, ["a/ns/x.py", "b/ns/sub/y.py"]).faults).toEqual([]);
+	});
+
+	it("counts a submodule in each namespace directory an indented insert may or may not have put first (#4870)", () => {
+		const code = [
+			first("d"),
+			"if CHECK:",
+			`    ${first("m")}`,
+			"import ns.sub",
+		].join("\n");
+		expect(tree(code, ["d/ns/sub.py", "m/ns/sub.py"]).edges).toEqual([
+			"m/ns/sub.py",
+			"d/ns/sub.py",
+		]);
+	});
+
+	it.each([
+		["the regular package", "m/pkg/sub.py"],
+		["the namespace package", "d/pkg/sub.py"],
+	])(
+		"faults a submodule only %s holds, where an indented insert decides which package Python takes (#4870)",
+		(_what, sub) => {
+			const code = [
+				first("d"),
+				"if CHECK:",
+				`    ${first("m")}`,
+				"import pkg.sub",
+			].join("\n");
+			const files = ["m/pkg/__init__.py", "d/pkg/other.py", sub];
+			expect(tree(code, files).faults).toEqual([
+				"imports pkg.sub, whose sub the walk cannot place",
+			]);
 		},
 	);
 
@@ -367,6 +424,20 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			"imports beside, which is neither stdlib nor found beside it or on a sys.path entry it adds",
 		]);
 		expect(imported).toMatchObject({ edges: ["tool/beside.py"], faults: [] });
+	});
+
+	/* A package may rewrite its own __path__, so one lacking the submodule
+	 * may still be the one Python takes, and loads what the walk cannot see. */
+	it("faults a submodule one package of its name on the handed path lacks, though another holds it", () => {
+		const { imported } = moduleTree(listShape, "import pkg.sub\n", [
+			"lib/pkg/__init__.py",
+			"tool/pkg/__init__.py",
+			"tool/pkg/sub.py",
+		]);
+		expect(imported.faults).toEqual([
+			"imports pkg.sub, whose sub the walk cannot place",
+		]);
+		expect(imported.edges).toContain("tool/pkg/sub.py");
 	});
 
 	it("faults an import neither path holds", () => {
