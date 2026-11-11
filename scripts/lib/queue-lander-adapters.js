@@ -103,7 +103,7 @@ const gateCopy = (dir, rel) =>
 
 /**
  * The registry checker's --json envelope out of its run over `sha`, null
- * where it skipped.
+ * where it skipped, which it says on stderr.
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {string} sha
  * @param {number} timeoutMs
@@ -131,7 +131,13 @@ function readEnvelope(r, sha, timeoutMs) {
 			},
 		);
 	}
-	if (envelope.outcome === "SKIP") return null;
+	if (envelope.outcome === "SKIP") {
+		writeFd(
+			2,
+			`queue-lander: ${over} skipped, so no guard-registry fault was judged: ${envelope.summary}\n`,
+		);
+		return null;
+	}
 	if (envelope.outcome === "BROKEN")
 		throw new Error(`${over} could not judge it: ${envelope.summary}`);
 	return envelope;

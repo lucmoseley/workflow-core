@@ -59,6 +59,7 @@ import {
 import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 
 landerSandbox();
 afterEach(removeTemps);
@@ -173,35 +174,23 @@ describe("a run", () => {
 			sha: pushQueue(name, seed),
 			pushedAt: i,
 		}));
-		const calls = stubHooks(["pre-commit"], "exit 1\n");
+		stubHooks(["pre-commit"], "exit 1\n");
 		const hooks = path.resolve(
 			work,
 			git(work, "rev-parse", "--git-common-dir"),
 			"hooks",
 		);
 		fs.chmodSync(path.join(hooks, "pre-commit"), 0o644);
-		const said: string[] = [];
-		/* The CommonJS fs writeFd writes through, which the ESM import is not. */
-		const cjsFs = createRequire(__filename)("node:fs");
-		const write = cjsFs.writeSync;
-		const spy = vi
-			.spyOn(cjsFs, "writeSync")
-			.mockImplementation((fd, text, ...rest) => {
-				if (fd !== 2 || !Buffer.isBuffer(text))
-					return Reflect.apply(write, cjsFs, [fd, text, ...rest]);
-				const from = Number(rest[0] ?? 0);
-				said.push(String(text.subarray(from)));
-				return text.length - from;
-			});
+		const stderr = spyStderr();
 		try {
 			expect(queueGit(work).mergeMembers(seed, members).kind).toBe("merged");
 		} finally {
-			spy.mockRestore();
+			restoreStderr();
 		}
-		expect(said.join("")).toMatch(
+		expect(stderr.mock.calls.join("")).toMatch(
 			/pre-commit is not executable, so no gate ran on this merge/,
 		);
-		expect(() => calls()).toThrow();
+		expect(fs.existsSync(path.join(hooks, "calls.log"))).toBe(false);
 	});
 
 	it("runs the batch gate set where the Actions run repeats the rest, and every gate where it does not (#4545)", () => {
@@ -566,32 +555,57 @@ describe("a run", () => {
 				vi.unstubAllEnvs();
 			});
 
-			it("merges a batch whose stale row its checker SKIPped, as a SKIP gates nothing (mantahostels#155)", () => {
+			it("merges a batch whose stale row its checker SKIPped, saying so, as a SKIP gates nothing (mantahostels#155)", () => {
 				const main = staleMain();
 				const a = pushQueue("a", main);
-				checker(envelope("SKIP"));
-
-				expect(queueGit(work).mergeMembers(main, [member("a", a)])).toEqual({
-					kind: "merged",
-					sha: a,
-				});
+				/* The real checker's envelope, its faults kept, relabelled SKIP:
+				 * read as a reading, it holds the batch as stale-base. */
+				checker(
+					`const { spawnSync } = require("node:child_process");
+const env = { ...process.env };
+delete env.WFC_PLUGIN_ROOT;
+const r = spawnSync(process.execPath, [${JSON.stringify(path.resolve(__dirname, "check-guard-registry.js"))}, ...process.argv.slice(2)], { encoding: "utf8", env });
+process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", summary: "SKIP: stub" }));
+`,
+				);
+				const stderr = spyStderr();
+				try {
+					expect(queueGit(work).mergeMembers(main, [member("a", a)])).toEqual({
+						kind: "merged",
+						sha: a,
+					});
+				} finally {
+					restoreStderr();
+				}
+				expect(stderr.mock.calls.join("")).toMatch(
+					new RegExp(
+						`check-guard-registry\\.js over ${a.slice(0, 7)}[0-9a-f]* skipped, so no guard-registry fault was judged: SKIP: stub`,
+					),
+				);
 			});
 
-			it("throws, naming the commit, on a BROKEN envelope and on output that is no envelope", () => {
+			it("throws a plain error, naming the commit, on a BROKEN envelope and on output that is no envelope", () => {
 				const main = staleMain();
 				const a = pushQueue("a", main);
 				const g = queueGit(work);
+				const fault = () => {
+					try {
+						g.mergeMembers(main, [member("a", a)]);
+					} catch (err) {
+						expect(err).not.toBeInstanceOf(TransientFault);
+						return String(err);
+					}
+					return "no throw";
+				};
 
 				checker(envelope("BROKEN"));
-				expect(() => g.mergeMembers(main, [member("a", a)])).toThrow(
+				expect(fault()).toMatch(
 					new RegExp(
 						`check-guard-registry\\.js over ${a.slice(0, 7)}[0-9a-f]* could not judge it: BROKEN: stub$`,
 					),
 				);
 				checker("process.stderr.write('boom\\n'); process.exit(2);\n");
-				expect(() => g.mergeMembers(main, [member("a", a)])).toThrow(
-					/gave no --json envelope \(exit 2\): boom$/,
-				);
+				expect(fault()).toMatch(/gave no --json envelope \(exit 2\): boom$/);
 			});
 
 			it("throws a TransientFault where the checker outruns the merge timeout", () => {
@@ -600,7 +614,9 @@ describe("a run", () => {
 				checker("setTimeout(() => {}, 60_000);\n");
 
 				/* Crosses the real clock: the ETIMEDOUT is spawnSync's kill of a
-				 * real child, which no injected clock reaches. */
+				 * real child, which no injected clock reaches. 3 s is a guess,
+				 * unmeasured: past the member merge's git steps here, short enough
+				 * to keep the case cheap; the stub's 60 s need only outlast it. */
 				let thrown: unknown;
 				try {
 					queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
