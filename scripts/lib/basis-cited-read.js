@@ -52,6 +52,21 @@ function buildQuery(repos, pages) {
 }
 
 /**
+ * Why a gh call failed, never from `err.message`, which repeats the whole
+ * query.
+ *
+ * @param {import("./caught.js").Caught} err
+ * @param {number} timeoutMs
+ */
+function failedWhy(err, timeoutMs) {
+	if (err.code === "ETIMEDOUT")
+		return `GitHub did not answer within ${timeoutMs} ms`;
+	const stderr = (err.stderr ?? "").trim().split("\n").at(-1);
+	const status = err.status == null ? null : `exit ${err.status}`;
+	return `the GitHub read failed (${stderr || status || err.code || "no exit status"})`;
+}
+
+/**
  * The answer's `data`. gh exits non-zero on a partly errored answer, a
  * missing number among them, yet prints the data, which is read first.
  *
@@ -75,11 +90,7 @@ function runQuery(query, timeoutMs, run) {
 		} catch {
 			// Not JSON: no partial answer to read, so the failure stands.
 		}
-		const err = caught(e);
-		if (err.code === "ETIMEDOUT")
-			return { why: `GitHub did not answer within ${timeoutMs} ms` };
-		const stderr = (err.stderr ?? "").toString().trim().split("\n").at(-1);
-		return { why: `the GitHub read failed (${stderr || err.message})` };
+		return { why: failedWhy(caught(e), timeoutMs) };
 	}
 }
 
