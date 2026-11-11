@@ -124,6 +124,10 @@ describe("the registry-atomicity core", () => {
 		["a timeout lead", "timeout 30 git commit -m x -- scripts/check-new.js"],
 		["an env lead", "env A=1 git commit -m x -- scripts/check-new.js"],
 		[
+			"an xargs writing the path out",
+			"echo | xargs git commit -m x -- scripts/check-new.js",
+		],
+		[
 			"a flock -c string behind another command",
 			"git status; flock /tmp/l -c 'true; git commit -m x -- scripts/check-new.js'",
 		],
@@ -139,7 +143,7 @@ describe("the registry-atomicity core", () => {
 	it.each([
 		["sh -c", 'sh -c "git commit -m x -- scripts/check-new.js"'],
 		[
-			"a launcher outside unwrap's class (chrt)",
+			"a launcher outside WRAPPERS (chrt)",
 			"chrt 1 git commit -m x -- scripts/check-new.js",
 		],
 	])(

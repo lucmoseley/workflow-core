@@ -61,7 +61,8 @@
  *    stands behind a wrapper shell-words.js's WRAPPERS names — `timeout`,
  *    `env` and the string `flock -c` or `watch` runs among them. `sh -c "git
  *    commit …"`, `eval`, a launcher outside that class and the paths an
- *    `xargs` reads from stdin pass unjudged.
+ *    `xargs` reads from stdin pass unjudged; an `xargs git commit` writing no
+ *    path is judged as a bare commit, on the index.
  *  - A commit-paths.js `--patch` commit lands only its patch's hunks of each
  *    file it carries, but each is judged whole from the working tree, so
  *    uncommitted lines in one count as landing.
