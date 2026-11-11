@@ -593,22 +593,36 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
-		it("weighs a variable every child inherits on a program that runs code, never on a system program", () => {
+		it("passes a variable the setup settled to a program traced to read none, and to no other, a Node child's included", () => {
 			const root = checkout();
 			const cwd = outsideDir();
-			const standing = {
+			const settled = {
 				env: { RULES: path.join(root, ".claude") },
 				trace: false,
 			};
-			const audit = (program: string, args: string[]) =>
+			const audit = (body: string) =>
 				readAudits(
-					audited(root, T, spawns(program, args, cwd), standing),
+					audited(
+						root,
+						T,
+						`globalThis.__wfcReadAudit.settle();\n${body}`,
+						settled,
+					),
 					root,
 				).get(T);
-			expect(audit("cat", [])).toHaveProperty("reads");
-			expect(audit("sh", ["-c", "true"]).doubt).toMatch(
-				/a child \(sh -c true\) was handed a path in the checkout by its environment \(RULES\)/,
+			expect(audit(spawns("grep", ["x", "/dev/null"], cwd))).toHaveProperty(
+				"reads",
 			);
+			expect(audit(spawns("awk", ["BEGIN{}"], cwd)).doubt).toMatch(
+				/a child \(awk BEGIN\{\}\) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+			const below = `require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(spawns("grep", ["x", "/dev/null"], cwd, { env: { MINE: root } }))}], { cwd: ${quoted(cwd)} });`;
+			expect(audit(below).doubt).toMatch(/by its environment \(MINE\)/);
+			const unsettled = readAudits(
+				audited(root, T, spawns("grep", ["x", "/dev/null"], cwd), settled),
+				root,
+			).get(T);
+			expect(unsettled.doubt).toMatch(/by its environment \(RULES\)/);
 		});
 
 		it("doubts a git the guard runs for with the audit stripped, which logs nothing", () => {

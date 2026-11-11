@@ -18,7 +18,8 @@
  * a path there — by an argument, an environment variable or the input of a
  * sync spawn (lib/read-audit-handed.js). No other program is traced: a
  * traced process that is killed stays until its tracer reaps it, which a
- * test of what a real program leaves running would see.
+ * test of what a real program leaves running would see. A variable every
+ * child inherits puts nearly every shell and stub in reach (#4982).
  *
  * ATTRIBUTION is by process: vitest's forks pool gives every test file a
  * process of its own, which `claim` names; `WFC_READ_AUDIT_OWNER`, the first
@@ -403,11 +404,12 @@ function install() {
 	const isSelfLogging = (/** @type {Untyped} */ opts) =>
 		isGuarded(opts) ||
 		(isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs));
-	const handed = buildHanded(root, realRealpathSync);
+	const handed = buildHanded(root);
 	const guardDir = rel(path.dirname(guardFile));
-	/* The environment a child inherits untouched: this process's own, as it
-	 * stood at the start or as `settle` last found it. */
-	let standing = { ...process.env };
+	/* The environment every child of this run inherits untouched, as the
+	 * suite's setup left it: `settle` writes it down and names the file for
+	 * the processes below. None is standing where no setup settled it. */
+	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
 	 * the program lookup put there themselves: the root this audit was told,
@@ -557,7 +559,7 @@ function install() {
 	const traced = (opts) => {
 		try {
 			/* A tracer already following this process follows the child too,
-			 * and would take a lookup made here for a read of its own. */
+			 * and would take the hands' lookups for reads of its own. */
 			if (STRACE && isUnderTracer())
 				return { opts, route: { within: true }, hands: [] };
 			const hands = handsOf(opts);
@@ -645,10 +647,30 @@ function install() {
 		},
 		/** The environment as the suite's setup left it is every child's. */
 		settle() {
-			standing = { ...process.env };
+			guard(() => {
+				standing = { ...process.env };
+				const file = path.join(dir, `${owner}.standing.json`);
+				fs.writeFileSync(file, JSON.stringify(standing));
+				process.env.WFC_READ_AUDIT_STANDING = file;
+			});
 		},
 	};
 	scope.__wfcReadAudit = api;
+}
+
+/**
+ * The environment a suite's setup settled, off the file it wrote; none
+ * where it wrote none or the file will not read.
+ * @param {string|undefined} file
+ * @returns {Record<string, string|undefined>}
+ */
+function readStanding(file) {
+	if (!file) return {};
+	try {
+		return JSON.parse(fs.readFileSync(file, "utf8"));
+	} catch {
+		return {};
+	}
 }
 
 const SHELLS = new Set(["sh", "bash", "dash"]);

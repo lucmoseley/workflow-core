@@ -432,7 +432,8 @@ function childDoubt(e, logs, root, isScratch) {
 /**
  * The first thing that handed a child a checkout path it may read unseen:
  * not the script a runner was handed to run, which is a read; not a path in
- * a test's scratch; not a standing variable handed to a system program.
+ * a test's scratch; not a standing variable handed to a program that reads
+ * none.
  * @param {Entry} e
  * @param {string|null} script the argument `scriptOf` found
  * @param {string} root real path
@@ -442,33 +443,37 @@ function childDoubt(e, logs, root, isScratch) {
 function handOf(e, script, root, isScratch) {
 	const args = /** @type {string[]} */ (e.args ?? []);
 	const hands = /** @type {Hand[]} */ (e.hands ?? []);
-	const system = isSystemProgram(e, root);
+	const isEnvBlind = readsNoVariable(e, root);
 	return hands.find((hand) => {
 		if (hand.by === "arg" && args[hand.at] === script) return false;
-		if (hand.by === "env" && hand.standing && system) return false;
+		if (hand.by === "env" && hand.standing && isEnvBlind) return false;
 		return !hand.p.every(isScratch);
 	});
 }
 
-/* Programs that run code a test or this repository wrote, which may read
- * any variable; every other program installed outside the checkout and the
- * temporary directory is the system's. */
-const CODE_RUNNERS = new Set([
-	...["sh", "bash", "dash", "zsh", "env", "node", "npm", "npx"],
-	...["python", "python3", "perl", "ruby"],
+/* Programs that open no file a variable names (#4982): each traced with
+ * `strace -f -e trace=%file` from outside the checkout, under `PWD`,
+ * `OLDPWD`, `INIT_CWD`, `WFC_RULES_DIR` and `WFC_ALWAYS_LOADED` naming it,
+ * to make no file call under the root but for its own file. One invocation
+ * each (`tar` list, extract and create), so an option that runs a command
+ * (`tar --to-command`, `grep` has none) is not covered. Any program not
+ * named here is doubted on such a variable. */
+const ENV_BLIND = new Set([
+	...["tar", "grep", "pgrep", "free", "dmesg"],
+	...["systemctl", "curl", "ruff", "biome"],
 ]);
 
 /**
- * Whether a child is a program of the system's: it knows none of this
- * repository's variables, so one every child inherits untouched hands it
- * nothing (#4982). Residual, unmeasured: such a program that opens a file
- * under `$PWD` or `$OLDPWD` by that variable, not by its directory.
+ * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
+ * as the installed program. A file of that name under the temporary
+ * directory, or under the checkout outside `node_modules`, is one a test
+ * can write.
  * @param {Entry} e
  * @param {string} root real path
  */
-function isSystemProgram(e, root) {
+function readsNoVariable(e, root) {
 	const bin = Array.isArray(e.bin) ? e.bin.map(String) : [];
-	if (bin.length === 0 || CODE_RUNNERS.has(path.basename(String(e.file))))
+	if (bin.length === 0 || !ENV_BLIND.has(path.basename(String(e.file))))
 		return false;
 	return !bin.some(
 		(at) =>

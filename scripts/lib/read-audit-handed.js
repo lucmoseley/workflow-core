@@ -17,6 +17,7 @@
  * start it (`-Iin/x`, `in` a link) is resolved only as the whole piece.
  */
 
+const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
@@ -39,16 +40,15 @@ const STOPS = /[\s"';:]/;
  * value off its name or lists several. */
 const PARTS = /[\s"';:=,]+/;
 
+/* Taken as this module loads, before the preload wraps `fs`: a lookup made
+ * here is no read of the test's. */
+const realpath = fs.realpathSync;
+
 /* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
 const PATH_MAX = 4096;
 
-/**
- * @param {string} root real path
- * @param {(abs: string) => string} realpath throws as `fs.realpathSync`
- *   does; the preload hands in the one it has not wrapped, so a lookup made
- *   here is no read of the test's
- */
-function buildHanded(root, realpath) {
+/** @param {string} root real path */
+function buildHanded(root) {
 	/** @param {string} abs */
 	const relOf = (abs) => {
 		const r = relativeUnder(root, abs);
