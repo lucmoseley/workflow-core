@@ -1236,8 +1236,10 @@ const isHelpWord = (w, spans) => {
 
 /**
  * One unwrap run's `gh` call, `gh`'s own flags stepped as ghWords steps them;
- * null where the run is no `gh`. A `--help` is left in `args`, for a caller
- * whose own flag scan tells a help flag from a flag's value (#5012).
+ * null where the run is no `gh` or a help flag stands among `gh`'s own: usage
+ * prints and dispatches nothing. A `--help` after the command word is left in
+ * `args`, for a caller whose own flag scan tells a help flag from a flag's
+ * value (#5012).
  * @param {string[]} ws one unwrap run's words
  * @param {string[]} spans
  * @returns {GhCall | null}
@@ -1245,8 +1247,19 @@ const isHelpWord = (w, spans) => {
 function ghCall(ws, spans) {
 	const [cmd, ...args] = ws;
 	if (cmd === undefined || !isGhCommand(literal(cmd, spans).text)) return null;
-	return stepGhFlags(args, spans);
+	const gh = stepGhFlags(args, spans);
+	const own = args.slice(0, gh ? args.length - gh.args.length : 0);
+	const help = own.some(
+		(w, i) => isHelpWord(w, spans) && !isRepoFlag(own[i - 1], spans),
+	);
+	return help ? null : gh;
 }
+
+/** @param {string | undefined} w @param {string[]} spans */
+const isRepoFlag = (w, spans) => {
+	const text = w === undefined ? "" : literal(w, spans).text;
+	return text === "-R" || text === "--repo";
+};
 
 /**
  * A `-R`/`--repo` value as read: `text` as literal reads it, `known` false

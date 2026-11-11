@@ -383,6 +383,17 @@ describe("the creates it allows", () => {
 	it("allows a create asking for help, which files nothing", () => {
 		expect(verdict("gh issue create --help")).toBe("allow");
 	});
+
+	it.each([
+		"gh --help issue create --title x",
+		"timeout 5 gh -h issue create --title x",
+	])("allows %s, whose help flag stands among gh's own (#5012)", (command) => {
+		expect(verdict(command)).toBe("allow");
+	});
+
+	it("still reads a create whose -R value is -h (#5012)", () => {
+		expect(verdict("gh -R -h issue create --title x")).toBe("deny");
+	});
 });
 
 /* Each shape is asserted both ways: labelled it passes, unlabelled or misspelt
