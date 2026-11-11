@@ -115,6 +115,8 @@ describe("a find started at / is refused (#1006)", () => {
 		'env -C "/" find . -x',
 		"env --chdir=/ find . -x",
 		"flock /l -c 'cd \"/\"; find . -x'",
+		"flock /l -c 'X=/; cd $X; find . -x'",
+		"flock /l -c 'X=/; export X; cd \"$X\"; find . -x'",
 	])(
 		"resolves a relative start through the directory a launcher moves to: %s (#4869)",
 		(command) => {
@@ -128,7 +130,8 @@ describe("a find started at / is refused (#1006)", () => {
 		"sudo -D ~ find -x",
 		"env -C ~/.. find . -x",
 		"flock /l -c 'cd $X; find . -x'",
-		"flock /l -c 'X=/usr; cd $X; find . -x'",
+		"flock /l -c 'X=$X; cd $X; find . -x'",
+		"flock /l -c 'X=/; read X; cd $X; find . -x'",
 		"X=/; flock /l -c 'cd $X; find . -x'",
 		"flock /l -c 'cd ~; find . -x'",
 		"flock /l -c 'cd /usr; cd $PWD; find . -x'",

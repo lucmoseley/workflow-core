@@ -1,7 +1,7 @@
 /*
  * shell-words.js — the guard parser's word helpers in Node (#2785, programme
  * #2733): given one command's words, masked as lib/shell-parse.js hands them
- * over, what do they say?
+ * over.
  *
  * A CORE: it does no I/O and reads nothing but its arguments. A word's quoted
  * spans arrive as the `spans` array lib/shell-parse.js's parseCommand records.
@@ -600,6 +600,8 @@ function unwrapArgv(argv) {
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
+ * @property {true} [envReset] a `-c` string's later command, behind a wrapper
+ *   that may have replaced the environment, while unwrap still strips it
  */
 
 /**
@@ -613,6 +615,11 @@ function unwrapArgv(argv) {
  *   stands there: "always" for a wrapper's, whose failure runs nothing, and a
  *   `cd` a `&&` chains it off; "if-dir" where the `cd` surely ran had its
  *   directory been there; "maybe" where it may not have run
+ * @property {Map<string, string | null>} [vars] a `-c` string's `cd`'s: each
+ *   name its script set before it, its assignment word masked, or null where
+ *   the script may have changed it in a way not followed
+ * @property {boolean} [envReset] a `-c` string's `cd` behind a wrapper that
+ *   may replace the environment its script inherits, as resetsEnv reads one
  */
 
 /**
@@ -633,8 +640,9 @@ const holdsAt = ({ holds }, dir, isDir) =>
  * Every directory a run may stand in: each of `cwds` moved through its
  * `chdirs`, an absolute one replacing it, a relative one joined to it and `""`
  * staying put (#4869), each move not sure to hold by holdsAt also left unmade
- * (#4980). Unknown past a directory no word gives whole: one reading a
- * variable, which a `-c` string may set itself, a `~`, a glob, or a `-` flag.
+ * (#4980). Unknown past a directory no word gives whole: a wrapper's word
+ * reading a variable or a `~`, a `-c` string's `cd` reading one its script did
+ * not set (#4981), a glob, or a `-` flag.
  * @param {Dirs} cwds
  * @param {Chdir[]} chdirs
  * @param {string[]} spans
@@ -663,12 +671,14 @@ function runCwd(cwds, chdirs, spans, isDir) {
  * @param {string[]} spans
  * @returns {string} "" where unknown
  */
-function moveRun(at, { dir, read }, spans) {
-	const word = read ? { text: dir, known: true } : literal(dir, spans);
-	const expands = !read && shellExpands(dir);
-	if (!word.known || expands || word.text.startsWith("-")) return "";
-	if (word.text.startsWith("/")) return word.text;
-	return at && word.text ? `${at}/${word.text}` : at;
+function moveRun(at, cd, spans) {
+	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
+	const { buildBareScope, chdirArg } = require("./shell-parse.js");
+	const { resolved } = chdirArg(cd, buildBareScope(spans));
+	if (!resolved) return "";
+	if ("empty" in resolved) return at;
+	if (resolved.path.startsWith("/")) return resolved.path;
+	return at && `${at}/${resolved.path}`;
 }
 
 /**
@@ -685,6 +695,7 @@ function stripRun(run, { spans, judged, pending }) {
 		ws: [...run.words],
 		judged,
 		inEnv: false,
+		envReset: run.envReset ?? false,
 		execs: false,
 		wrapperWords: [...run.wrapperWords],
 		chdirs: [...run.chdirs],
@@ -707,11 +718,26 @@ function stripRun(run, { spans, judged, pending }) {
 }
 
 /**
+ * Whether a wrapper may hand its command another environment: `sudo`, which
+ * resets it by default, or an `env` emptying it or unsetting a name.
+ * @param {string} w the wrapper's name
+ * @param {string[]} flags its flag words, read
+ */
+const resetsEnv = (w, flags) =>
+	w === "sudo" ||
+	(w === "env" &&
+		flags.some(
+			(f) => f === "-" || /^-[^-]*[iu]|^--(?:ignore-env|unset)/.test(f),
+		));
+
+/**
  * @typedef {object} Strip unwrap's running state
  * @property {string[]} ws the words still to read
  * @property {string[]} judged wrappers left standing as the command word
  * @property {boolean} inEnv whether the last wrapper was `env` or `sudo`, whose
  *   assignments are words of its own
+ * @property {boolean} envReset whether a wrapper stripped may have replaced
+ *   the environment
  * @property {string[]} wrapperWords
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
@@ -750,7 +776,13 @@ function stripOne(st, first, spans) {
 	if (!wrapper || st.judged.includes(w)) return "done";
 	st.inEnv = w === "env" || w === "sudo";
 	st.ws = st.ws.slice(1);
+	const flagged = st.ws;
 	if (!sweepFlags(st, wrapper, spans)) return "cut";
+	const flags = flagged.slice(0, flagged.length - st.ws.length);
+	st.envReset ||= resetsEnv(
+		w,
+		flags.map((f) => literal(f, spans).text),
+	);
 	if (st.ws.length < wrapper.positionals) return "cut";
 	st.ws = st.ws.slice(wrapper.positionals);
 	return stepAfterFlags(st, wrapper, spans);
@@ -800,9 +832,13 @@ function runScript(st, script, spans) {
 	const runs = parseScript(script, spans).map((cmd) => ({
 		words: cmd.words,
 		wrapperWords: [...st.wrapperWords, ...cmd.leading],
-		chdirs: [...st.chdirs, ...cmd.chdirs],
+		chdirs: [
+			...st.chdirs,
+			...cmd.chdirs.map((cd) => (st.envReset ? { ...cd, envReset: true } : cd)),
+		],
 		unread: [...st.unread, ...cmd.unread],
 		watched: st.watched,
+		...(st.envReset && { envReset: /** @type {const} */ (true) }),
 	}));
 	const [first, ...later] = runs;
 	st.ws = first?.words ?? [];
