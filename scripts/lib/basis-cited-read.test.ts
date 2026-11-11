@@ -5,49 +5,27 @@
  * unreadable repository, an unsendable name, and the failure wording, which
  * must never repeat the whole query.
  *
- * gh is crossed through WFC_GH, a stub that serves its answers in call order
- * and logs each query, so the real lib/gh.js call runs. Breaking this lets a
- * citation read as "no issue" where it went unread, refusing a write the gate
- * library should judge on its form alone.
+ * Each case drives readCitedFor over a gated body through the shared gh fake
+ * (gh-stub's `cited`, gh-fake's `answerCited`), so the real lib/gh.js call
+ * runs. Breaking this lets a citation read as "no issue" where it went
+ * unread, refusing a write the gate library should judge on its form alone.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readCitedIssues } from "./basis-cited-read.js";
-import { stubGhScript } from "./gh-stub.js";
-
-interface Answer {
-	status?: number;
-	stdout?: unknown;
-	stderr?: string;
-}
-
-/* Serves answers[n] on the nth call, logging the query it was sent. */
-const STUB = `#!/usr/bin/env node
-const fs = require("node:fs");
-const dir = __DIR__;
-const n = fs.readdirSync(dir).filter((f) => f.startsWith("q")).length;
-const q = process.argv.find((a) => a.startsWith("query=")) ?? "";
-fs.writeFileSync(dir + "/q" + n, q);
-const a = JSON.parse(fs.readFileSync(dir + "/answers.json", "utf8"))[n] ?? {};
-if (a.stdout !== undefined) process.stdout.write(typeof a.stdout === "string" ? a.stdout : JSON.stringify(a.stdout));
-if (a.stderr) process.stderr.write(a.stderr);
-process.exit(a.status ?? 0);
-`;
+import { readCitedFor } from "./basis-cited-read.js";
+import type { GhAnswer } from "./gh-fake";
+import { type CitedFixture, stubGhRoutes } from "./gh-stub.js";
+import { basisFaults } from "./issue-gate.js";
 
 let dir: string;
-let calls: string;
+let log: string;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "basis-cited-read-"));
-	calls = path.join(dir, "calls");
-	fs.mkdirSync(calls);
-	const { gh } = stubGhScript(
-		dir,
-		STUB.replace("__DIR__", JSON.stringify(calls)),
-	);
-	vi.stubEnv("WFC_GH", gh);
+	log = path.join(dir, "gh.log");
+	tracking("o/r");
 });
 
 afterEach(() => {
@@ -55,109 +33,105 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const answering = (...answers: Answer[]) =>
-	fs.writeFileSync(path.join(calls, "answers.json"), JSON.stringify(answers));
+function tracking(tracker: string) {
+	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, ".claude", "workflow-core.json"),
+		JSON.stringify({ contract: 1, tracker }),
+	);
+}
+
+/* `cited` answers the read through the shared fake; `graphql`, given, answers
+ * every graphql call in its place. */
+const serving = (
+	cited: Record<string, Record<number, CitedFixture>>,
+	graphql?: GhAnswer,
+) =>
+	vi.stubEnv(
+		"WFC_GH",
+		stubGhRoutes(dir, graphql ? { graphql } : {}, { log, cited }).gh,
+	);
 
 const queries = () =>
-	fs
-		.readdirSync(calls)
-		.filter((f) => f.startsWith("q"))
-		.sort()
-		.map((f) => fs.readFileSync(path.join(calls, f), "utf8"));
+	fs.existsSync(log)
+		? fs
+				.readFileSync(log, "utf8")
+				.split("\n")
+				.filter((l) => l.startsWith("api graphql"))
+		: [];
 
-const issueNode = (body: string, comments: string[], next?: string) => ({
-	__typename: "Issue",
-	state: "OPEN",
-	body,
-	comments: {
-		pageInfo: { hasNextPage: Boolean(next), endCursor: next ?? null },
-		nodes: comments.map((b) => ({ body: b })),
-	},
-});
+/** readCitedFor over a body gated a week whose basis is `basis`. */
+const read = (basis: string) => {
+	const body = `**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** ${basis}\n`;
+	const got = readCitedFor((follow) => basisFaults(body, undefined, follow), {
+		root: dir,
+		timeoutMs: 20_000,
+	});
+	if (!got) throw new Error("readCitedFor read nothing");
+	return { issues: got.follow.issues, why: got.why };
+};
 
-const read = (wanted: { repo: string; number: number }[]) =>
-	readCitedIssues(wanted, { timeoutMs: 20_000 });
-
-describe("readCitedIssues", () => {
+describe("readCitedFor's read", () => {
 	it("reads body, state and comments, and pages comments past one page", () => {
-		answering(
-			{
-				stdout: {
-					data: { r0: { n12: issueNode("the body", ["first"], "c1") } },
-				},
-			},
-			{ stdout: { data: { r0: { n12: issueNode("", ["second"]) } } } },
-		);
-		const got = read([{ repo: "O/R", number: 12 }]);
+		const comments = Array.from({ length: 101 }, (_, i) => `c${i}`);
+		serving({ "o/r": { 12: { body: "the body", comments } } });
+		const got = read("#12 set a week");
 		expect(got.why).toBeNull();
 		expect(got.issues.get("o/r#12")).toEqual({
 			state: "open",
-			texts: ["the body", "first", "second"],
+			texts: ["the body", ...comments],
 		});
 		const [first, second] = queries();
 		expect(first).toContain("comments(first: 100)");
-		expect(second).toContain('after: "c1"');
+		expect(second).toContain('after: "100"');
 		expect(second).not.toContain("state body");
 	});
 
 	it("reads every repository in one call, each number once", () => {
-		answering({
-			stdout: {
-				data: {
-					r0: { n1: issueNode("a", []) },
-					r1: { n2: issueNode("b", []) },
-				},
-			},
-		});
-		const got = read([
-			{ repo: "o/a", number: 1 },
-			{ repo: "o/b", number: 2 },
-			{ repo: "O/A", number: 1 },
-		]);
+		serving({ "o/r": { 1: { body: "a" } }, "o/b": { 2: { body: "b" } } });
+		const got = read("#1, b#2 and O/R#1 set a week");
 		expect(queries()).toHaveLength(1);
-		expect([...got.issues.keys()].sort()).toEqual(["o/a#1", "o/b#2"]);
+		expect([...got.issues.keys()].sort()).toEqual(["o/b#2", "o/r#1"]);
 	});
 
 	it("reads a number with no issue as null, from a partly errored answer", () => {
-		answering({
-			status: 1,
-			stdout: { data: { r0: { n9: null } } },
-			stderr: "GraphQL: Could not resolve to an issue\n",
-		});
-		const got = read([{ repo: "o/r", number: 9 }]);
+		serving({ "o/r": { 1: { body: "a" } } });
+		const got = read("#9 set a week");
 		expect(got.issues.get("o/r#9")).toBeNull();
 		expect(got.why).toBeNull();
 	});
 
 	it("leaves a repository it holds no node for unread, saying so", () => {
-		answering({ stdout: { data: { r0: null } } });
-		const got = read([{ repo: "o/gone", number: 3 }]);
+		serving({});
+		const got = read("o/gone#3 set a week");
 		expect(got.issues.has("o/gone#3")).toBe(false);
 		expect(got.why).toBe("o/gone could not be read");
 	});
 
 	it("never sends a repository name GraphQL would not take as a literal", () => {
-		const got = read([{ repo: 'o/"x', number: 1 }]);
+		tracking('o/"x');
+		serving({});
+		const got = read("#1 set a week");
 		expect(queries()).toHaveLength(0);
 		expect(got.why).toBe("a repository name was not readable");
 	});
 
 	it.each([
 		[
-			{ status: 1, stderr: "first\nHTTP 502\n" },
+			{ status: 1, stdout: "", stderr: "first\nHTTP 502\n" },
 			"the GitHub read failed (HTTP 502)",
 		],
-		[{ status: 1 }, "the GitHub read failed (exit 1)"],
+		[{ status: 1, stdout: "", stderr: "" }, "the GitHub read failed (exit 1)"],
 	])("names a failed read without repeating the query: %j", (answer, why) => {
-		answering(answer);
-		const got = read([{ repo: "o/r", number: 1 }]);
+		serving({}, answer);
+		const got = read("#1 set a week");
 		expect(got.issues.size).toBe(0);
 		expect(got.why).toBe(why);
 	});
 
 	it("names a gh that cannot be run by its error code", () => {
 		vi.stubEnv("WFC_GH", path.join(dir, "no-such-gh"));
-		const got = read([{ repo: "o/r", number: 1 }]);
+		const got = read("#1 set a week");
 		expect(got.why).toBe("the GitHub read failed (ENOENT)");
 	});
 });
