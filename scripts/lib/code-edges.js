@@ -873,8 +873,10 @@ function settledPySearch(search) {
 	const group = (/** @type {(e: PyEntry) => boolean} */ keep) => [
 		...new Map(search.filter(keep).map((e) => [e.dir, e])).values(),
 	];
+	/* By code unit: a locale's collation calls distinct paths equal. */
 	const byDir = (/** @type {PyEntry} */ a, /** @type {PyEntry} */ b) =>
-		(a.dir ?? "").localeCompare(b.dir ?? "");
+		Number((a.dir ?? "") > (b.dir ?? "")) -
+		Number((a.dir ?? "") < (b.dir ?? ""));
 	const ordered = [
 		...group((e) => e.maybe && !e.tail).sort(byDir),
 		...group((e) => !e.maybe),
@@ -1275,27 +1277,60 @@ function placePyImport(walk, target) {
 
 /**
  * Walks an absolute import's parts below each place its top-level module was
- * found, faulting a part or name no file stands for.
+ * found, faulting a part or name no file stands for. A regular module or
+ * package stands alone; a namespace package's directories are one package,
+ * which lacks only what every one of them lacks.
  * @param {PyWalk} walk accumulator: `reach` gains the files and shadows
  * @param {PyImportTarget} target
  * @param {PyPlace[]} places
  */
 function descendPlaced(walk, target, places) {
+	const below = { parts: target.parts.slice(1), names: target.names };
+	const missed = places.map((place) => {
+		/** @type {PyMiss[]} */
+		const misses = [];
+		descend(walk, place, below, (miss) => misses.push(miss));
+		return { place, misses };
+	});
+	const portions = missed.filter((m) => m.place.namespace);
 	const dotted = target.parts.join(".");
-	const below = target.parts.slice(1);
-	for (const place of places)
-		descend(walk, place, { parts: below, names: target.names }, (miss) => {
-			/* A name a regular package lacks may be an attribute its
-			 * __init__.py defines; a namespace package defines none. */
-			if (miss.isPart)
-				walk.fault(
-					`imports ${dotted}, whose ${miss.name} the walk cannot place`,
-				);
-			else if (miss.at.namespace && !miss.namespace)
-				walk.fault(
-					`imports ${miss.name} from ${dotted}, a namespace package that holds no ${miss.name}`,
-				);
-		});
+	for (const miss of [
+		...missed
+			.filter((m) => !m.place.namespace)
+			.flatMap((m) => m.misses.filter(isUnplaced)),
+		...namespaceMisses(portions.map((m) => m.misses)),
+	])
+		walk.fault(
+			miss.isPart
+				? `imports ${dotted}, whose ${miss.name} the walk cannot place`
+				: `imports ${miss.name} from ${dotted}, a namespace package that holds no ${miss.name}`,
+		);
+}
+
+/**
+ * A name a regular package lacks may be an attribute its __init__.py
+ * defines; a namespace package defines none.
+ * @param {PyMiss} miss
+ */
+const isUnplaced = (miss) =>
+	miss.isPart || (miss.at.namespace && !miss.namespace);
+
+/**
+ * What a namespace package lacks, from what each of its directories missed:
+ * a dotted part none of them holds, or else each name every directory
+ * holding the parts fails to place.
+ * @param {PyMiss[][]} portions one list a directory
+ * @returns {PyMiss[]}
+ */
+function namespaceMisses(portions) {
+	const whole = portions.filter((misses) => !misses.some((m) => m.isPart));
+	const [first] = whole;
+	if (first === undefined) return (portions[0] ?? []).filter((m) => m.isPart);
+	return first.filter((miss) =>
+		whole.every((misses) =>
+			misses.some((m) => m.name === miss.name && isUnplaced(m)),
+		),
+	);
 }
 
 /**
@@ -1367,21 +1402,21 @@ function placeRelativePyImport(walk, { dots, parts, names }) {
 function placePyTop(search, top, reach) {
 	/** @type {PyPlace[]} */
 	const places = [];
-	/** @type {string | null} */
-	let namespace = null;
+	/** @type {PyPlace[]} */
+	const portions = [];
 	for (const entry of search) {
 		if (entry.dir === null) return { kind: "opaque", tail: entry.tail };
 		const here = pyModuleIn(entry.dir, top);
 		reach.shadows.push(...here.tried);
-		namespace ??= here.namespace;
+		if (here.namespace) portions.push({ pkg: here.namespace, namespace: true });
 		if (!here.found) continue;
 		reach.edges.push(here.found);
 		places.push(placeOf(here.found));
 		if (!entry.maybe) return { kind: "placed", places };
 	}
 	/* A namespace package, which CPython takes only where no entry holds a
-	 * regular module or package. */
-	if (namespace) places.push({ pkg: namespace, namespace: true });
+	 * regular module or package, and builds from every entry's directory. */
+	places.push(...portions);
 	return places.length > 0 ? { kind: "placed", places } : { kind: "absent" };
 }
 

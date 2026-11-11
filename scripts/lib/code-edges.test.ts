@@ -109,6 +109,19 @@ describe("a dotted import", () => {
 		]);
 	});
 
+	it("reaches a submodule in whichever of a namespace package's directories holds it", () => {
+		const code = [
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "a"))',
+			'sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "b"))',
+			"import ns.sub",
+			"from ns import other, gone",
+		].join("\n");
+		expect(tree(code, ["a/ns/sub.py", "b/ns/other.py"])).toMatchObject({
+			edges: ["a/ns/sub.py", "b/ns/other.py"],
+			faults: ["imports gone from ns, a namespace package that holds no gone"],
+		});
+	});
+
 	it("faults a submodule the walk cannot place", () => {
 		const { faults } = tree("import pkg.gone\n", ["tool/pkg/__init__.py"]);
 		expect(faults).toEqual([

@@ -427,11 +427,13 @@ function scriptReach(script, reachOne) {
 	let pySearch = null;
 	/* Ends: code-edges.js hands the path back in one order whatever order
 	 * the files were walked in, so a pass can only add an entry, and the
-	 * entries its files' edits name are a finite set. */
+	 * entries its files' edits name are a finite set. A pass that moves the
+	 * path without lengthening it is one the walk cannot tell: no row. */
 	for (;;) {
 		const pass = scriptPass({ rel: script, pySearch }, reachOne);
 		if (!pass) return null;
 		if (JSON.stringify(pass.pySearch) === JSON.stringify(pySearch)) return pass;
+		if ((pass.pySearch?.length ?? 0) <= (pySearch?.length ?? -1)) return null;
 		pySearch = pass.pySearch;
 	}
 }

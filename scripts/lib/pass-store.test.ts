@@ -678,26 +678,55 @@ describe("a script the manifest says a file spawns", () => {
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
-	it("records a row where the entries two same-named modules add decide which of them loads (#4870)", () => {
+	/* The second pair differs by a soft hyphen, which a locale's collation
+	 * ignores. */
+	it.each([
+		["x", "y"],
+		["x", "x\u00ad"],
+	])(
+		"records a row where the entries two same-named modules add, %j and %j, decide which of them loads (#4870)",
+		(one, other) => {
+			const insert = (name: string) =>
+				`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+			const dir = spawning(
+				"scripts/tool.py",
+				[
+					"scripts/setup.py",
+					"scripts/mod.py",
+					`scripts/${one}/mod.py`,
+					`scripts/${other}/mod.py`,
+				],
+				"import setup\nimport mod\n",
+			);
+			write(dir, "scripts/setup.py", `${insert(one)}${insert(other)}`);
+			write(dir, "scripts/mod.py", "");
+			write(dir, `scripts/${one}/mod.py`, insert("."));
+			write(dir, `scripts/${other}/mod.py`, insert("."));
+			git(dir, "commit", "-qam", "reordering modules");
+			expect(run(dir, [A])).toBe(1);
+			expect(cachedOf(dir, [A])).toEqual([A]);
+		},
+	);
+
+	it("voids the pass when a namespace package's module changes on the entry a module added last (#4870)", () => {
 		const insert = (name: string) =>
 			`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
 		const dir = spawning(
 			"scripts/tool.py",
 			[
 				"scripts/setup.py",
-				"scripts/mod.py",
-				"scripts/x/mod.py",
-				"scripts/y/mod.py",
+				"scripts/ns/sub.py",
+				"scripts/a/ns/sub.py",
+				"scripts/b/ns/sub.py",
 			],
-			"import setup\nimport mod\n",
+			"import setup\nimport ns.sub\n",
 		);
-		write(dir, "scripts/setup.py", `${insert("x")}${insert("y")}`);
-		write(dir, "scripts/mod.py", "");
-		write(dir, "scripts/x/mod.py", insert("."));
-		write(dir, "scripts/y/mod.py", insert("."));
-		git(dir, "commit", "-qam", "reordering modules");
+		write(dir, "scripts/setup.py", `${insert("a")}${insert("b")}`);
+		git(dir, "commit", "-qam", "namespace portions");
 		expect(run(dir, [A])).toBe(1);
 		expect(cachedOf(dir, [A])).toEqual([A]);
+		write(dir, "scripts/b/ns/sub.py", "changed\n");
+		expect(cachedOf(dir, [A])).toEqual([]);
 	});
 
 	it("records a row where two modules import each other, each adding to sys.path (#4870)", () => {
