@@ -2,8 +2,7 @@
 /*
  * check-hand-callers.js — refuses a script header line keeping a caller list
  * by hand: `Caller:`, `Callers:` or `Callers of …:`, which `git grep` answers
- * instead (#4720, #4885). Each goes stale on every caller edit and forces
- * re-anchors (#4404).
+ * instead (#4720, #4885).
  *
  * Usage:
  *   node check-hand-callers.js [--root <dir>] [--against <rev>] [--json] [--warn]

@@ -123,7 +123,6 @@ describe("check-hand-callers", () => {
 			const refused = run("--against", "HEAD");
 			expect(refused.status).toBe(1);
 			expect(refused.out).toContain("scripts/a.js:4  Caller: scripts/b.js");
-			/* Removed in the worktree but not staged: the commit still carries it. */
 			write("scripts/a.js", "/*\n * a.js\n */\n");
 			const still = run("--against", "HEAD");
 			expect(still.status).toBe(1);
