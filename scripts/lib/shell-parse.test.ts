@@ -1784,6 +1784,19 @@ describe('walkGit, scope "shared"', () => {
 		).toBe("");
 	});
 
+	it.each([
+		'flock /l -c "true\ngit checkout x"',
+		'flock /l -c "true; git checkout x"',
+		'watch -n 5 "true\ngit checkout x"',
+	])(
+		"judges a git command a script runs without unwrap, %s, but no wrapper outside one (#4978)",
+		(command) => {
+			expect(walkGitRun(command).out).toContain(`[checkout][${SHARED}]`);
+			expect(walkGitRun(`timeout 5 ${command}`).out).toContain("[checkout]");
+			expect(walkGitRun("timeout 5 git checkout x").calls).toEqual([]);
+		},
+	);
+
 	describe("judges a -c string's git command as the same command bare (#4863)", () => {
 		const Nope = `${DIR}/nope`;
 		/** The trees judged and the fail-opens logged, from `cwd`. */

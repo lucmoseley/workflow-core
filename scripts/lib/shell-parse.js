@@ -1650,7 +1650,9 @@ const withoutName = (words, name, spans) =>
  *   substituted EMPTY and judged, which in quotes is the cwd. Shell state does
  *   not carry between Bash calls, so that is the tree the command runs in
  * @property {boolean} [unwrap] judge a git command behind shell-words.js's
- *   unwrap wrappers (#1731)
+ *   unwrap wrappers (#1731). Without it, a command a `flock -c` or `watch`
+ *   script runs is still judged (#4978): the line join reads that script
+ *   whole, so a walk reading no script would see none of its lines
  */
 
 /**
@@ -1789,8 +1791,8 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  * @param {CommandWords} cw
  * @param {number} segIdx
  * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
- *   `unwrapped` judges past the launcher wrappers (#1731), each command a
- *   `-c` string runs among them (#4699)
+ *   `unwrapped` judges past the launcher wrappers (#1731); each command a
+ *   `-c` string runs is judged either way (#4699, #4978)
  * @returns {(GitTarget & { sub: string, args: string[] })[]}
  */
 function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
@@ -1803,9 +1805,13 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	if (stepCwd(walk, own, segIdx, how.isDir)) return [];
 	if (trackExport(walk, own)) return [];
 	const leading = words.slice(0, assignEnd);
+	const unwrapped = unwrap(own, walk.scope.spans);
 	const runs = how.unwrapped
-		? unwrap(own, walk.scope.spans)
-		: [{ words: own, wrapperWords: [], chdirs: [], unread: [] }];
+		? unwrapped
+		: [
+				{ words: own, wrapperWords: [], chdirs: [], unread: [] },
+				...unwrapped.filter((run) => run.scripted),
+			];
 	const gitRuns = runs.filter(
 		(run) => commandName(run.words[0] ?? "") === "git",
 	);

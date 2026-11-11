@@ -647,6 +647,11 @@ describe("`git commit -a` is denied — it sweeps in every dirty tracked file", 
 			'git commit -m "one" -- docs/x.md && git commit -am "two"',
 			"later in a chain",
 		],
+		[
+			'flock /l -c "true\ngit commit -am fix"',
+			"a -c string's later line (#4978)",
+		],
+		['flock /l -c "true; git commit -am fix"', "a -c string's later command"],
 	])("%s — %s", (command) => {
 		expect(readDenyReason(command)).toContain(Sweeps);
 	});
