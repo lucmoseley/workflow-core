@@ -455,10 +455,14 @@ function install() {
 		bin.some((at) => rel(at) !== null);
 	const argvOf = (/** @type {Untyped} */ opts) =>
 		Array.isArray(opts?.args) ? opts.args.map(String) : [];
-	/** A child whose reads a log of its own holds: audited Node, guarded git. */
-	const isSelfLogging = (/** @type {Untyped} */ opts) =>
-		isGuarded(opts) ||
-		(isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs));
+	/** A Node child that logs its own reads. */
+	const isAuditedNode = (/** @type {Untyped} */ opts) =>
+		isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs);
+	/* A guarded git is never traced: the guard logs a call on this
+	 * repository, and the reader weighs its hands where it logged none
+	 * (#5015). */
+	const isUntraceable = (/** @type {Untyped} */ opts) =>
+		isGuarded(opts) || isAuditedNode(opts);
 	const handed = buildHanded(root);
 	const guardDir = rel(path.dirname(GUARD));
 	/* The environment every child of this run inherits untouched, as the
@@ -492,9 +496,10 @@ function install() {
 		!isStub(bin);
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
 	/**
-	 * Real git is weighed only on the variables it reads a path from itself
-	 * (#4982): what it runs, which inherits the rest, its own event log
-	 * names (`gitEventsOf`).
+	 * Real git, and the guard that runs it, is weighed only on the variables
+	 * git reads a path from itself (#4982, #5015): what it runs, which
+	 * inherits the rest, its own event log names (`gitEventsOf`); what the
+	 * guard reads beside steers only whether it logs.
 	 * @param {Untyped} opts
 	 * @param {string} cwd
 	 * @param {(word: string) => string[]} named
@@ -502,7 +507,8 @@ function install() {
 	 */
 	const envHands = (opts, cwd, named) => {
 		const file = String(opts?.file ?? "");
-		const gitOnly = isRealGit(file, binOf(file, cwd, opts?.envPairs));
+		const bin = binOf(file, cwd, opts?.envPairs);
+		const gitOnly = isRealGit(file, bin) || isGuard(bin[1]);
 		const pairs = Array.isArray(opts?.envPairs)
 			? opts.envPairs.map(String)
 			: [];
@@ -561,13 +567,13 @@ function install() {
 		return [{ by: "repo", p: ["."] }];
 	};
 	/**
-	 * What hands a child paths in the checkout; none for a child that logs
-	 * its own reads.
+	 * What hands a child paths in the checkout; none for a Node child that
+	 * logs its own reads.
 	 * @param {Untyped} opts
 	 * @returns {Hand[]}
 	 */
 	const handsOf = (opts) => {
-		if (isSelfLogging(opts)) return [];
+		if (isAuditedNode(opts)) return [];
 		const cwd = cwdOf(opts);
 		const named = handed.from(cwd);
 		const words = argvOf(opts).slice(1);
@@ -632,7 +638,7 @@ function install() {
 	 */
 	const routeOf = (opts, hands) => {
 		const cwd = cwdOf(opts);
-		if (!STRACE || !isInReach(opts, cwd, hands) || isSelfLogging(opts))
+		if (!STRACE || !isInReach(opts, cwd, hands) || isUntraceable(opts))
 			return null;
 		if (!isTraceable(opts, cwd)) return null;
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
@@ -736,7 +742,9 @@ function install() {
 	};
 	/**
 	 * Watch every pipe to an async child where nothing else sees its reads:
-	 * no tracer follows it and it keeps no log of its own. A stream the test
+	 * no tracer follows it and it is no Node child keeping a log of its own;
+	 * a guarded git is watched, for the reader to weigh where the guard
+	 * logged no record of it (#5015). A stream the test
 	 * handed it whole (`wrap`) on a descriptor it may read carries what the
 	 * audit cannot read: a doubt.
 	 * @param {Untyped} asked
@@ -746,7 +754,7 @@ function install() {
 	const watchIfUnseen = (asked, pid, route) =>
 		guard(() => {
 			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
-			if (typeof pid !== "number" || route || isSelfLogging(asked)) return;
+			if (typeof pid !== "number" || route || isAuditedNode(asked)) return;
 			const cwd = cwdOf(asked);
 			for (const [descriptor, entry] of stdio.entries())
 				watchEntry(entry, descriptor, pid, cwd);

@@ -355,7 +355,7 @@ describe("what a test file reads, as the audit sees it", () => {
 		const env = guarded(root);
 		const body = `require("node:child_process").execFileSync("git", ["ls-files"], { cwd: ${JSON.stringify(root)} });`;
 		const logged = (answer: string) =>
-			["4", "", root, answer, "ls-files", ""].join("\0");
+			["5", "", root, "0", answer, "ls-files", ""].join("\0");
 		const killed = audited(root, T, body, { env });
 		const gitLog = (dir: string) =>
 			path.join(
@@ -898,6 +898,92 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			const body = spawns("sh", ["-c", `cat ${spelt}`], cwd);
 			expect(traced(root, body).reads.files).toContain(settingsFile);
 		});
+	});
+});
+
+describe("a guarded git the guard keeps no record of (#5015)", () => {
+	/** A repository of the test's own, outside the checkout. */
+	const scratchRepo = () => {
+		const dir = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-repo-")),
+		);
+		dirs.push(dir);
+		git(dir, "init", "-q");
+		return dir;
+	};
+	const runsGit = (
+		args: string[],
+		cwd: string,
+		{ env = {} as Record<string, string>, input = "" } = {},
+	) =>
+		`try { require("node:child_process").execFileSync("git", ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, input: ${quoted(input)}, stdio: ["pipe", "ignore", "ignore"] }); } catch {}`;
+	const judgedRun = (root: string, body: string) =>
+		readAudits(
+			audited(root, T, body, { env: guarded(root), trace: false }),
+			root,
+		).get(T);
+	const settingsFile = ".claude/settings.json";
+
+	it("doubts one handed the checkout by a variable git reads a path from", () => {
+		const root = checkout();
+		const cwd = scratchRepo();
+		write(root, "scripts/git.cfg", "[user]\n\tname = x\n");
+		const config = runsGit(["config", "--global", "--list"], cwd, {
+			env: { GIT_CONFIG_GLOBAL: path.join(root, "scripts/git.cfg") },
+		});
+		expect(judgedRun(root, config).doubt).toMatch(
+			/a git call \(git config --global --list\) the guard kept no record of was handed a path in the checkout by its environment \(GIT_CONFIG_GLOBAL\)/,
+		);
+		const home = runsGit(["config", "--list"], cwd, { env: { HOME: root } });
+		expect(judgedRun(root, home).doubt).toMatch(/by its environment \(HOME\)/);
+	});
+
+	it("doubts one handed checkout paths on its standard input, at the spawn or down its pipe", () => {
+		const root = checkout();
+		const cwd = scratchRepo();
+		const file = path.join(root, settingsFile);
+		const atSpawn = runsGit(["hash-object", "--stdin-paths"], cwd, {
+			input: `${file}\n`,
+		});
+		expect(judgedRun(root, atSpawn).doubt).toMatch(
+			/a git call \(git hash-object --stdin-paths\) the guard kept no record of was handed a path in the checkout on its standard input/,
+		);
+		const piped = `const c = require("node:child_process").spawn("git", ["hash-object", "--stdin-paths"], { cwd: ${quoted(cwd)}, stdio: ["pipe", "ignore", "ignore"] });\nc.stdin.end(${quoted(`${file}\n`)});`;
+		expect(judgedRun(root, piped).doubt).toMatch(
+			/a child \(git hash-object --stdin-paths\) was written a path in the checkout down a pipe/,
+		);
+	});
+
+	it("doubts one handed a checkout path spelt relatively or through a link", () => {
+		const root = checkout();
+		const cwd = scratchRepo();
+		fs.writeFileSync(path.join(cwd, "a"), "a\n");
+		const spelt = path.relative(cwd, path.join(root, settingsFile));
+		expect(spelt.startsWith("..")).toBe(true);
+		const relative = runsGit(["diff", "--no-index", "a", spelt], cwd);
+		expect(judgedRun(root, relative).doubt).toMatch(
+			/a git call \(git diff --no-index a \.\..*\) the guard kept no record of was handed a path in the checkout$/,
+		);
+		fs.symlinkSync(root, path.join(cwd, "in"));
+		const linked = runsGit(
+			["diff", "--no-index", "a", `in/${settingsFile}`],
+			cwd,
+		);
+		expect(judgedRun(root, linked).doubt).toMatch(
+			/the guard kept no record of was handed a path in the checkout$/,
+		);
+	});
+
+	it("keeps the row of one in a scratch repository handed nothing of the checkout", () => {
+		const root = checkout();
+		const cwd = scratchRepo();
+		fs.writeFileSync(path.join(cwd, "a"), "a\n");
+		const body = [
+			runsGit(["add", "a"], cwd),
+			runsGit(["status", "--short"], cwd),
+			runsGit(["hash-object", "--stdin-paths"], cwd, { input: "a\n" }),
+		].join("\n");
+		expect(judgedRun(root, body)).toHaveProperty("reads");
 	});
 });
 
@@ -1599,15 +1685,15 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 	const Claim = { k: "claim", file: "a.test.ts" };
 	const Self = { k: "self", owner: "100", pid: 100 };
 
-	/** The guard's record of one git call: its field count, then each field. */
 	/** The guard's two records of one call: begun, then answered `ANSWER`. */
 	const Answer = "0:da39a3ee5e6b4b0d3255bfef95601890afd80709";
 	const gitRecord = (dir: string, words: string[]) =>
 		["", Answer]
 			.flatMap((answer) => [
-				String(words.length + 3),
+				String(words.length + 4),
 				"",
 				dir,
+				"0",
 				answer,
 				...words,
 			])

@@ -111,8 +111,9 @@ args=("${@:i+1}")
 # judged.
 audit_log=
 # log_call <answer> <word>… — one record, as lib/read-audit.js's
-# `gitRecords` reads it.
-log_call() { printf '%s\0' "$(($# + 2))" "$steered" "$PWD" "$@" >>"$audit_log"; }
+# `parseGitRecords` reads it. `$$` is the pid the test spawned, which tells
+# the audit this call is in a record (#5015).
+log_call() { printf '%s\0' "$(($# + 3))" "$steered" "$PWD" "$$" "$@" >>"$audit_log"; }
 
 # run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
 # process listing off the audit reads as it would without the guard. A `tee`
