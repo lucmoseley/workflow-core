@@ -455,17 +455,28 @@ describe("a test's direct reads through git ls-files (#1770)", () => {
 		).toEqual(["docs/zzz-specs/c.md"]);
 		expect(
 			reads(
-				`execFileSync("git", ["-c", "core.quotepath=off", "--git-dir=.git", "--work-tree", ROOT, "${LS_FILES}", "docs/zzz-elsewhere"]);`,
+				`execFileSync("git", ["-c", "core.quotepath=off", "${LS_FILES}", "docs/zzz-elsewhere"], { cwd: ROOT });`,
 			),
 		).toEqual(["docs/zzz-elsewhere/d.txt"]);
-	});
-
-	it("lists nothing from a -C directory it cannot trace (#4922)", () => {
 		expect(
 			reads(
-				`execFileSync("git", ["-C", where, "grep", "-l", "x", "--", "docs/zzz-specs"], { cwd: ROOT });`,
+				`execFileSync("git", ["-C", "docs/zzz-specs", "${LS_FILES}", "."], { cwd: ROOT });`,
 			),
-		).toEqual([]);
+		).toEqual([
+			"docs/zzz-specs/a.txt",
+			"docs/zzz-specs/c.md",
+			"docs/zzz-specs/c.test.ts",
+			"docs/zzz-specs/deep/b.txt",
+		]);
+	});
+
+	it("lists nothing from a -C directory it cannot trace, or one outside the tree (#4922)", () => {
+		for (const at of ["where", '"/docs"', '".."'])
+			expect(
+				reads(
+					`execFileSync("git", ["-C", ${at}, "grep", "-l", "x", "--", "docs/zzz-specs"], { cwd: ROOT });`,
+				),
+			).toEqual([]);
 	});
 });
 
@@ -1155,12 +1166,45 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 
 	it("reports a git -C directory it cannot trace, or one whose listing mints no edge (#4922)", () => {
 		const shape =
-			"a `git -C` or `--work-tree` directory it cannot trace, or whose listing mints no edge";
+			"a `git -C` directory it cannot trace, or whose listing mints no edge";
 		for (const body of [
 			`${anchored}execFileSync("git", ["-C", where, "grep", "-l", "x", "--", "${dir}"]);`,
+			`${anchored}execFileSync("git", ["-C", where, "grep", "-l", "x", "--", "${dir}"], { cwd: sandbox });`,
 			`${anchored}const SUB = "${dir}";\nconst D = path.join(ROOT, SUB);\nexecFileSync("git", ["-C", D, "grep", "-l", "x", "--", "${file}"]);`,
 		])
 			expect(sitesOf(body)).toEqual([{ line: body.split("\n").length, shape }]);
+	});
+
+	it("reports a git listing whose pathspec is the root as the whole tree (#4922 review)", () => {
+		for (const spec of ['"."', '"./"'])
+			expect(
+				sitesOf(
+					`${anchored}execFileSync("git", ["ls-files", ${spec}], { cwd: ROOT });`,
+				).map((s) => s.shape),
+			).toEqual([
+				"a `git ls-files` naming no pathspec, or a `git grep` none after `--` or reading untracked files, the whole tree",
+			]);
+	});
+
+	it("reports a git global option it does not read, whatever its pathspecs (#4922)", () => {
+		for (const opts of [
+			'"--git-dir", where',
+			'"--work-tree", ROOT',
+			'"--work-tree=."',
+			'"--no-pager"',
+		])
+			expect(
+				sitesOf(
+					`${anchored}execFileSync("git", [${opts}, "grep", "-l", "x", "--", "${dir}"], { cwd: ROOT });`,
+				).map((s) => s.shape),
+			).toEqual([
+				"a git global option it does not read: `--git-dir`, `--work-tree`, or one but `-C` and `-c`",
+			]);
+		expect(
+			sitesOf(
+				`${anchored}execFileSync("git", ["-c", "core.quotepath=off", "grep", "-l", "x", "--", "${dir}"], { cwd: ROOT });`,
+			),
+		).toEqual([]);
 	});
 
 	it("reports a git grep reading untracked files as the whole tree, whatever its pathspecs (#4922)", () => {
