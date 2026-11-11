@@ -11,7 +11,6 @@ const { buildAgeText } = require("./hold-age.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
 const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
-const { presenceAt } = require("./presence.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
 
@@ -216,9 +215,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  */
 
 /**
- * When away mode was switched on, ms, and whether a tick since has read the
- * founder absent.
- * @typedef {{since: number, absentSeen: boolean}} AwaySwitch
+ * When away mode was switched on, ms.
+ * @typedef {{since: number}} AwaySwitch
  */
 
 /**
@@ -1248,25 +1246,6 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 }
 
 /**
- * Whether this tick's read of the founder is the first absent one since the
- * away switch, which arms his next prompt's reminder (scripts/mark-presence.js,
- * #4846). The switch counts as presence, since the panel click that makes it
- * records no typed prompt (#4184), so any switch reads present for one window,
- * whoever made it.
- * @param {{mode: "normal"|"away", away?: AwaySwitch}} control
- * @param {number|null} lastPromptAt ms
- * @param {number} now ms
- */
-function isFirstAbsentRead({ mode, away }, lastPromptAt, now) {
-	if (mode !== "away" || away?.absentSeen === true) return false;
-	const lastSeen =
-		away === undefined
-			? lastPromptAt
-			: Math.max(lastPromptAt ?? away.since, away.since);
-	return presenceAt(lastSeen, new Date(now)) === "away";
-}
-
-/**
  * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause,
  * then a launch hold, outranks every other reason, as the reads they rest on are
  * barred (#3856).
@@ -1463,7 +1442,6 @@ module.exports = {
 	NOTHING_LAUNCHABLE,
 	UNREAD,
 	actsRead,
-	isFirstAbsentRead,
 	buildLimitCapText,
 	buildSkipReason,
 	CLASH_PREFIX,

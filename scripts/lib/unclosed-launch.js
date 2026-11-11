@@ -67,8 +67,6 @@ function unclosedLaunchOf(launches, root, n) {
 }
 
 /**
- * It names no number but the issue's, since the dispatcher reads every integer
- * in a prompt as an issue it holds.
  * @param {number} n
  */
 const buildVerifyPrompt = (n) =>

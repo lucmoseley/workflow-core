@@ -77,10 +77,6 @@ done
   exit 127 # the shell's status for a command not found
 }
 
-# run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
-# process listing reads as it would without the guard.
-run() { exec -a git "$real" "$@"; }
-
 # git's own options before the subcommand; these take their value as the next
 # word.
 i=0
@@ -105,10 +101,48 @@ args=("${@:i+1}")
 
 # THE READ AUDIT (#4916): under a suite run's audit (lib/read-audit.js), a call
 # on this repository — any worktree of it — reads what `fs` never sees, so it
-# is logged against the test that made it. A call whose directory, `-C`
-# and git-dir variables all lie outside the repository's checkouts asks git
-# nothing more; `init` and `clone` make a repository of their own. Only the
-# outermost call: a nested one runs inside a call already judged.
+# is logged against the test that made it, twice: once before git runs, its
+# answer empty, so a call killed mid-way still shows, and once after, with its
+# answer — git's status and the sha1 of its stdout, `<status>:<sha1>` — which
+# the pass store requires its own rerun to equal (#4993). A call whose
+# directory, `-C` and git-dir variables all lie outside the repository's
+# checkouts asks git nothing more; `init` and `clone` make a repository of
+# their own. Only the outermost call: a nested one runs inside a call already
+# judged.
+audit_log=
+# log_call <answer> <word>… — one record, as lib/read-audit.js's
+# `gitRecords` reads it.
+log_call() { printf '%s\0' "$(($# + 2))" "$steered" "$PWD" "$@" >>"$audit_log"; }
+
+# run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
+# process listing off the audit reads as it would without the guard. A `tee`
+# that failed, or a `PATH` holding no `tee` or `sha1sum`, as a symlinked one
+# (#3399), logs no answer, which the audit reads as a call left unanswered.
+# The file `tee` copies stdout into is emptied, not removed, to spare a fork:
+# the audit's log directory goes whole at the run's end. A git a signal ended
+# ends the guard by the same signal.
+#
+# Residual: under the audit the caller's pid is this shell, not git, so a
+# process listing shows bash, and a signal sent to it, a timeout's, leaves git
+# and tee running until their next write to the closed pipe ends them.
+run() {
+  if [[ -z "$audit_log" ]] || ! type -P tee sha1sum >/dev/null; then
+    exec -a git "$real" "$@"
+  fi
+  local out="$audit_log.$$.out" status sum
+  (exec -a git "$real" "$@") | tee -- "$out"
+  status=("${PIPESTATUS[@]}")
+  if ((status[1] == 0)) && sum=$(sha1sum <"$out"); then
+    log_call "${status[0]}:${sum%% *}" "$@"
+  fi
+  : >"$out"
+  if ((status[0] > 128)); then
+    trap - "$((status[0] - 128))"
+    kill -s "$((status[0] - 128))" "$$"
+  fi
+  exit "${status[0]}"
+}
+
 if ((depth == 1)) && [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$sub" != init && "$sub" != clone ]]; then
   under=
   [[ -n "$GIT_DIR$GIT_WORK_TREE$GIT_COMMON_DIR" ]] && under=1
@@ -121,11 +155,11 @@ if ((depth == 1)) && [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$
     common=$("$real" "${@:1:i-1}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
     host="${WFC_HOST_GIT_DIR:-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
       "$real" -C "${BASH_SOURCE[0]%/*}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)}"
-    # One record: its field count, whether a git-dir variable steered it,
-    # the directory, then every word, each NUL-ended.
-    [[ -n "$common" && "$common" == "$host" ]] &&
-      printf '%s\0' "$(($# + 2))" "${GIT_DIR:+1}${GIT_WORK_TREE:+1}${GIT_COMMON_DIR:+1}${GIT_INDEX_FILE:+1}" \
-        "$PWD" "$@" >>"$WFC_READ_AUDIT/$WFC_READ_AUDIT_OWNER.git"
+    if [[ -n "$common" && "$common" == "$host" ]]; then
+      audit_log="$WFC_READ_AUDIT/$WFC_READ_AUDIT_OWNER.git"
+      steered="${GIT_DIR:+1}${GIT_WORK_TREE:+1}${GIT_COMMON_DIR:+1}${GIT_INDEX_FILE:+1}"
+      log_call "" "$@"
+    fi
   fi
 fi
 

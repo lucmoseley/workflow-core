@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
+import { OVERRIDE_LINE, OVERRIDE_REASON } from "./lib/gate-judge-fake";
 import {
 	GH_NOT_FOUND,
 	type SubIssuesAnswer,
@@ -1520,6 +1521,30 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 			stubGh([{ number: 393, body: "The founder types /to-spec 393 later." }]),
 		);
 		expect(r.status).toBe(0);
+	});
+});
+
+describe("a gate judge override on the body (#4970)", () => {
+	const line = OVERRIDE_LINE;
+	const report = async (body: string, state = "open") =>
+		(await run([], stubGh([{ number: 451, state, body }]))).out;
+
+	it("warns on an open issue carrying one, quoting its reason", async () => {
+		const out = await report(`Build it.\n\n${line}\n`);
+		expect(out).toContain("GATE-JUDGE-OVERRIDE");
+		expect(out).toContain("#451");
+		expect(out).toContain(`"${OVERRIDE_REASON}"`);
+		expect(out).not.toContain("NO-GATE-BASIS");
+	});
+
+	it("raises none on a closed issue, an empty line or one in a fence", async () => {
+		expect(await report(line, "closed")).not.toContain("GATE-JUDGE-OVERRIDE");
+		expect(await report("**Gate judge override:**\n")).not.toContain(
+			"GATE-JUDGE-OVERRIDE",
+		);
+		expect(await report(`\`\`\`\n${line}\n\`\`\`\n`)).not.toContain(
+			"GATE-JUDGE-OVERRIDE",
+		);
 	});
 });
 

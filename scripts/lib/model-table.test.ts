@@ -3,7 +3,7 @@
  * lib/model-table.js is the one table every model choice is translated through
  * (#4919): a standing layer, always on, that sends Sonnet work to Haiku at
  * xhigh; burn mode's layer, that sends Haiku work to Opus and Opus work to
- * Fable, each at medium; and the off layer, that sends Fable to Opus (#4992).
+ * Fable, at medium and low; and the off layer, that sends Fable to Opus (#4992).
  * An unknown spelling is left alone. Burn mode's marker and plan state are
  * ./burn-mode.test.ts's.
  *
@@ -57,13 +57,13 @@ describe("the dispatch table, exact match", () => {
 	it.each([
 		["sonnet", "opus · medium"],
 		["haiku", "opus · medium"],
-		["opus", "fable · medium"],
+		["opus", "fable · low"],
 		["fable", "fable"],
 	])("on: %s -> %s", (from, to) => {
 		expect(dispatched({ model: from }, true)).toBe(to);
 	});
 
-	it("runs every haiku call at xhigh off, whatever it asked, and sets medium on whatever burn moves", () => {
+	it("runs every haiku call at xhigh off, whatever it asked, and sets burn's level on whatever it moves", () => {
 		expect(dispatched({ model: "haiku", effort: "low" }, false)).toBe(
 			"haiku · xhigh",
 		);
@@ -71,7 +71,7 @@ describe("the dispatch table, exact match", () => {
 			"haiku · xhigh",
 		);
 		expect(dispatched({ model: "opus", effort: "high" }, true)).toBe(
-			"fable · medium",
+			"fable · low",
 		);
 		expect(dispatched({ model: "haiku", effort: "xhigh" }, true)).toBe(
 			"opus · medium",
@@ -80,10 +80,10 @@ describe("the dispatch table, exact match", () => {
 
 	it("translates the code reviewer's definition model where the call names none", () => {
 		expect(dispatched({ subagent_type: "code-reviewer" }, true)).toBe(
-			"fable · medium",
+			"fable · low",
 		);
 		expect(dispatched({ subagent_type: "wfc:code-reviewer" }, true)).toBe(
-			"fable · medium",
+			"fable · low",
 		);
 		expect(remapModel({ subagent_type: "code-reviewer" }, false)).toBeNull();
 	});

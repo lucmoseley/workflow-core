@@ -59,11 +59,17 @@ describe("readBurnState — what the switch left on the machine", () => {
 		HOME: home,
 		WFC_BURN_MARKER: path.join(home, "marker"),
 	});
-	const plan = (name: string, model?: string) => {
+	/** A plan's settings; `fable` is its Fable 5.2 effort, which burn mode sets to low (#5004). */
+	const plan = (name: string, model?: string, fable?: string) => {
 		fs.mkdirSync(path.join(home, name), { recursive: true });
 		fs.writeFileSync(
 			path.join(home, name, "settings.json"),
-			JSON.stringify(model === undefined ? {} : { model }),
+			JSON.stringify({
+				...(model === undefined ? {} : { model }),
+				...(fable === undefined
+					? {}
+					: { modelSettings: { "claude-fable-5-2": { effortLevel: fable } } }),
+			}),
 		);
 	};
 	const offModel = "claude-opus-5-5[1m]";
@@ -97,11 +103,20 @@ describe("readBurnState — what the switch left on the machine", () => {
 
 	it("names a plan not moved while the marker reads on", () => {
 		markerOn();
-		plan(".claude", onModel);
-		plan(".claude2", offModel);
+		plan(".claude", onModel, "low");
+		plan(".claude2", offModel, "low");
 		const state = readBurnState(env());
 		expect(state.on).toBe(true);
 		expect(state.disagreeing).toEqual([path.join(".claude2", "settings.json")]);
+	});
+
+	it("names a plan on the burn model whose Fable effort is not burn's, while the marker reads on", () => {
+		markerOn();
+		plan(".claude", onModel, "low");
+		plan(".claude2", onModel, "medium");
+		expect(readBurnState(env()).disagreeing).toEqual([
+			path.join(".claude2", "settings.json"),
+		]);
 	});
 
 	it("reads a plan in step on the burn target of what on found there", () => {
@@ -115,7 +130,8 @@ describe("readBurnState — what the switch left on the machine", () => {
 				model: { [real(".claude")]: offModel, [real(".claude2")]: "haiku" },
 			}),
 		);
-		plan(".claude", onModel);
+		plan(".claude", onModel, "low");
+		plan(".claude2", "claude-opus-5-5[1m]", "low");
 		expect(readBurnState(env()).disagreeing).toEqual([]);
 	});
 

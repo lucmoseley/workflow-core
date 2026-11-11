@@ -36,8 +36,8 @@ const { buildSeatName } = require("./refill-seats.js");
  *   dispatcher's lease on launching (#4354), absent where none is set; one
  *   past its `until` holds nothing
  * @property {import("./refill-decide.js").AwaySwitch} [away] absent in normal
- *   mode, or where the file holds no readable switch: a tick's absent read then
- *   dates it, and until then status names no switch time
+ *   mode, or where the file holds no readable switch, status then naming no
+ *   switch time
  * @property {true} [quietBenchOff] the quiet bench route is off (#3852)
  * @property {string[]} seats config dirs, in failover order
  * @property {Scope} scope
@@ -186,7 +186,7 @@ function parseLaunchHold(raw) {
  */
 function parseAway(raw) {
 	if (!isRecord(raw) || typeof raw.since !== "number") return {};
-	return { away: { since: raw.since, absentSeen: raw.absentSeen === true } };
+	return { away: { since: raw.since } };
 }
 
 /**
@@ -216,8 +216,8 @@ function parseControl(raw) {
 }
 
 /**
- * `control` switched to `mode` at `now`: away records the switch, with no
- * absent read yet, and normal drops it.
+ * `control` switched to `mode` at `now`: away records the switch, and normal
+ * drops it.
  * @param {Control} control
  * @param {Scope["mode"]} mode
  * @param {number} now
@@ -226,21 +226,10 @@ function parseControl(raw) {
 function controlInMode({ away: _switch, ...control }, mode, now) {
 	return {
 		...control,
-		...(mode === "away" ? { away: { since: now, absentSeen: false } } : {}),
+		...(mode === "away" ? { away: { since: now } } : {}),
 		scope: { ...control.scope, mode },
 	};
 }
-
-/**
- * `control` with its absent read set, a switch with no readable time dated `now`.
- * @param {Control} control
- * @param {number} now
- * @returns {Control}
- */
-const withAbsentRead = (control, now) => ({
-	...control,
-	away: { since: control.away?.since ?? now, absentSeen: true },
-});
 
 /**
  * The sessions handed off to their issues since the away switch at `since`, a
@@ -675,7 +664,6 @@ module.exports = {
 	judgedLaunches,
 	controlInMode,
 	handedOffSince,
-	withAbsentRead,
 	actsOf,
 	lastActOf,
 	readActsSoFar,

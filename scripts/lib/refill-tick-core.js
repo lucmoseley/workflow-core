@@ -9,10 +9,9 @@
  * boot's kills, skips the block and limit acts (SKIPPED_LAUNCH_ACTS), and
  * stops at its decision.
  *
- * A TICK: read founder presence, and in away mode record its first absent read
- * under the control lock (#4846), untick each repo its owner opted out (#4188), reap,
- * take the quiet bench route's step (lib/quiet-bench-tick.js, #3852), settle
- * what a kill before the last tick's write left out of the state (#4180), stop
+ * A TICK: read founder presence, untick each repo its owner opted out under the
+ * control lock (#4188), reap, take the quiet bench route's step
+ * (lib/quiet-bench-tick.js, #3852), settle what a kill before the last tick's write left out of the state (#4180), stop
  * each job that never started, tend the served checkouts (their landing queue,
  * the machine's children, the repo holds and the `.git` probe), read the
  * listing, stop each overflow session past its allowance (#3698), send each repo
@@ -43,7 +42,6 @@ const {
 } = require("./refill-boot.js");
 const {
 	actsRead,
-	isFirstAbsentRead,
 	decideTick,
 	isLaunchBarred,
 	liveLaunchHold,
@@ -57,7 +55,6 @@ const {
 	judgedLaunches,
 	landingRoots,
 	runningOf,
-	withAbsentRead,
 } = require("./refill-loop.js");
 const { settleTick } = require("./refill-tick-settle.js");
 const { killSettled, withoutLaunching } = require("./refill-state.js");
@@ -77,25 +74,6 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
 /** @typedef {import("./refill-state.js").Hold} Hold */
 /** @typedef {import("./refill-batch.js").BatchOutcome} BatchOutcome */
 /** @typedef {import("./refill-loop.js").FrontierRead} FrontierRead */
-
-/**
- * The control this tick's read of the founder leaves (isFirstAbsentRead), null
- * where it changes nothing.
- * @param {Control} control
- * @param {number|null} lastPromptAt
- * @param {number} now
- * @returns {Control|null}
- */
-function controlAfterPresence(control, lastPromptAt, now) {
-	const { away } = control;
-	return isFirstAbsentRead(
-		{ mode: control.scope.mode, ...(away ? { away } : {}) },
-		lastPromptAt,
-		now,
-	)
-		? withAbsentRead(control, now)
-		: null;
-}
 
 /**
  * `state` with the members of the batch a kill cut off that `adopt` finds
@@ -333,23 +311,6 @@ function settleUnderLock(io, control, change, { what, said, dryRun }) {
 	if (written.wrote) said?.(written.wrote.write, written.wrote.fresh);
 	return written.control;
 }
-
-/**
- * The control after this tick's read of the founder (controlAfterPresence).
- * @param {TickIo} io
- * @param {Control|null} control
- * @param {{dryRun: boolean, lastPromptAt: number|null, now: number}} tick
- */
-const settleAwayMode = (io, control, { dryRun, lastPromptAt, now }) =>
-	settleUnderLock(
-		io,
-		control,
-		(c) => controlAfterPresence(c, lastPromptAt, now),
-		{
-			dryRun,
-			what: "away mode's absent read",
-		},
-	);
 
 /**
  * The control with each ticked repo its owner has opted out unticked
@@ -1000,11 +961,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const acts = dryRun ? SKIPPED_LAUNCH_ACTS : LIVE_LAUNCH_ACTS;
 	const { control: stored, damaged } = opening.control;
 	const { declared, typed } = opening;
-	const parsed = settleOptedOut(
-		io,
-		dryRun,
-		settleAwayMode(io, stored, { dryRun, lastPromptAt: typed.at, now }),
-	);
+	const parsed = settleOptedOut(io, dryRun, stored);
 	const unsettled = parsed ?? buildStandInControl(io, dryRun, now);
 	io.reap();
 	const control = stepQuietBench(io, {

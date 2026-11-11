@@ -58,6 +58,7 @@ const run = (
 	docSettings: object,
 	liveSettings: object,
 	docText = doc(docSettings),
+	env: Record<string, string> = {},
 ) => {
 	const docPath = path.join(dir, "snapshot.md");
 	const livePath = path.join(dir, "settings.json");
@@ -66,7 +67,12 @@ const run = (
 	// The script resolves every file copy from $HOME with no override, so point
 	// HOME at the fixture dir; absent there, each is reported and not compared.
 	const r = runInProcess(SCRIPT, [docPath, livePath], {
-		env: { ...process.env, HOME: dir },
+		env: {
+			...process.env,
+			HOME: dir,
+			WFC_BURN_MARKER: path.join(dir, "no-burn-marker"),
+			...env,
+		},
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
@@ -77,6 +83,40 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe("Fable 5.2's effort, which burn mode moves (#5004)", () => {
+	const fable = (effortLevel: string, extra = {}) => ({
+		modelSettings: { "claude-fable-5-2": { effortLevel, ...extra } },
+	});
+	const burnOn = () => {
+		const marker = path.join(dir, "burn-marker");
+		fs.writeFileSync(marker, "{}");
+		return { WFC_BURN_MARKER: marker };
+	};
+
+	it("is ignored while burn mode is on", () => {
+		const { status } = run(fable("medium"), fable("low"), undefined, burnOn());
+		expect(status).toBe(0);
+	});
+
+	it("is reported while burn mode is off", () => {
+		const { status, out } = run(fable("medium"), fable("low"));
+		expect(status).not.toBe(0);
+		expect(out).toMatch(/effortLevel/);
+	});
+
+	it("still reports a sibling key in the same entry while burn mode is on", () => {
+		const { status, out } = run(
+			fable("medium", { other: 1 }),
+			fable("low", { other: 2 }),
+			undefined,
+			burnOn(),
+		);
+		expect(status).not.toBe(0);
+		expect(out).toMatch(/other/);
+		expect(out).not.toMatch(/effortLevel/);
+	});
 });
 
 describe("VOLATILE_KEYS", () => {
