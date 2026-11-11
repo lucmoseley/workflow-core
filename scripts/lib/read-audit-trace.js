@@ -40,6 +40,7 @@ const FLAGS = [
 	"-f",
 	"-DD",
 	"--seccomp-bpf",
+	"--kill-on-exit",
 	"-q",
 	"-y",
 	"-e",

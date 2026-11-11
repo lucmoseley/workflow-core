@@ -63,6 +63,7 @@ function buildGuardTest(realpath = fs.realpathSync) {
 
 module.exports = {
 	buildGuardTest,
+	GUARD,
 	isNode,
 	readRealTmpdir,
 	repoPath,

@@ -1357,6 +1357,10 @@ describe("a store it cannot trust runs every file", () => {
 			"before one layout held both that walk (#4870) and the audit's doubts of #4790's third review",
 			13,
 		],
+		[
+			"before one layout held both the handed-checkout doubts (#4982) and the audit's doubts of #4790's third review",
+			14,
+		],
 	])("lets no row recorded %s decide", (_when, format) => {
 		const dir = repo();
 		run(dir, [A]);
