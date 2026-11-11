@@ -611,6 +611,7 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 
 	it("backgrounds a cd with the && or || list & closes (#5010)", () => {
 		expect(last("cd /usr || true & gh x")).toEqual(["/usr", "/start"]);
+		expect(last("cd /usr || true; gh x")).toEqual(["/usr"]);
 	});
 });
 

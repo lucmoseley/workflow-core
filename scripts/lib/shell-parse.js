@@ -1729,17 +1729,14 @@ function cdInScript(state, own, where) {
 		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
 	const dir = known || `$(${texts.join(" ")})`;
 	const { parsed, segIdx } = where;
-	const before = parsed.joins[segIdx];
-	const afterCd = before === "o" && state.cdAt === segIdx - 1;
+	const opens = opensList(parsed.joins, segIdx);
+	const afterCd = isAfterCd(parsed.joins, segIdx, state.cdAt);
 	/** @type {Chdir["holds"]} */
-	const holds = (
-		afterCd
-			? runsOnceReached(parsed, segIdx, own)
-			: isSureMove(parsed, segIdx, own)
-	)
-		? "if-dir"
-		: "maybe";
-	const chained = chainsOff(parsed.joins, segIdx);
+	const holds =
+		(opens || afterCd) && isSureOnceReached(parsed, segIdx, own)
+			? "if-dir"
+			: "maybe";
+	const chained = isChainedOff(parsed.joins, segIdx);
 	const pending = chained
 		? [...state.pending, { at: state.chdirs.length, holds }]
 		: state.pending;
@@ -1754,7 +1751,7 @@ function cdInScript(state, own, where) {
 		vars,
 	};
 	if (afterCd) cd.afterFailed = true;
-	const cdAt = before === "a" || before === "o" ? -1 : segIdx;
+	const cdAt = opens ? segIdx : -1;
 	return { ...state, chdirs: [...state.chdirs, cd], pending, cdAt };
 }
 
@@ -2074,7 +2071,7 @@ function readGitRun(walk, run, leading, isDir) {
 }
 
 /* A segment opening a compound command, whose parts a `cd` may run in any order
- * or not at all. A `{ …; }` group runs its parts in order: braceGroupRuns. */
+ * or not at all. A `{ …; }` group runs its parts in order: isBraceGroupSure. */
 const COMPOUND_START =
 	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
 
@@ -2090,22 +2087,40 @@ function runsApart(joins, segIdx) {
 }
 
 /**
- * Whether a `&&` chains the next command off the segment alone, so it runs only
- * where the segment's command worked: not where `||` stands before it, whose
- * left side working runs that command too (measured).
+ * Whether the segment opens its `&&` or `||` list: no `&&` or `||` before it.
  * @param {string[]} joins
  * @param {number} segIdx
  */
-const chainsOff = (joins, segIdx) =>
+const opensList = (joins, segIdx) =>
+	joins[segIdx] !== "a" && joins[segIdx] !== "o";
+
+/**
+ * Whether the segment is a `cd` after `||` whose left side is the `cd` that
+ * opened the list at `cdAt`: it runs only where that one failed (#5010).
+ * @param {string[]} joins
+ * @param {number} segIdx
+ * @param {number} cdAt -1 where no such `cd` stands
+ */
+const isAfterCd = (joins, segIdx, cdAt) =>
+	joins[segIdx] === "o" && cdAt === segIdx - 1;
+
+/**
+ * Whether a `&&` chains the next command off the segment alone, so it runs only
+ * where the segment's command worked: not where `||` stands before it, whose
+ * left side working runs that command too (measured, #5010).
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+const isChainedOff = (joins, segIdx) =>
 	joins[segIdx + 1] === "a" && joins[segIdx] !== "o";
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
- * backgrounds all of it (measured).
+ * backgrounds all of it (measured, #5010).
  * @param {string[]} joins
  * @param {number} segIdx
  */
-function listBackgrounded(joins, segIdx) {
+function isListBackgrounded(joins, segIdx) {
 	let end = segIdx + 1;
 	while (joins[end] === "a" || joins[end] === "o") end++;
 	return joins[end] === "b";
@@ -2118,14 +2133,15 @@ function listBackgrounded(joins, segIdx) {
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function braceGroupRuns({ joins, segments }, segIdx) {
+function isBraceGroupSure({ joins, segments }, segIdx) {
 	/** @type {number[]} */
 	const open = [];
 	/** @type {[number, number][]} */
 	const groups = [];
 	for (const [i, segment] of segments.entries()) {
 		const words = segment.trim().split(/\s+/);
-		if (/^\}(?=$|[<>])/.test(words[0] ?? "")) {
+		const [head] = words;
+		if (head !== undefined && /^\}(?=$|[<>])/.test(head)) {
 			const from = open.pop();
 			if (from === undefined) return false;
 			groups.push([from, i]);
@@ -2149,7 +2165,7 @@ function braceGroupRuns({ joins, segments }, segIdx) {
 			before !== "o" &&
 			before !== "p" &&
 			joins[to + 1] !== "p" &&
-			!listBackgrounded(joins, to)
+			!isListBackgrounded(joins, to)
 		);
 	});
 }
@@ -2163,23 +2179,22 @@ function braceGroupRuns({ joins, segments }, segIdx) {
  * @param {number} segIdx
  * @param {string[]} own its words
  */
-const runsOnceReached = (parsed, segIdx, own) =>
-	!listBackgrounded(parsed.joins, segIdx) &&
+const isSureOnceReached = (parsed, segIdx, own) =>
+	!isListBackgrounded(parsed.joins, segIdx) &&
 	own.length <= 2 &&
 	!parsed.segments.some((s) => COMPOUND_START.test(s)) &&
-	braceGroupRuns(parsed, segIdx);
+	isBraceGroupSure(parsed, segIdx);
 
 /**
  * Whether a `cd` surely runs, where its directory is there: as
- * runsOnceReached, with no `&&` or `||` before it.
+ * isSureOnceReached, with no `&&` or `||` before it.
  * @param {Parsed} parsed
  * @param {number} segIdx
  * @param {string[]} own its words
  */
 function isSureMove(parsed, segIdx, own) {
-	const before = parsed.joins[segIdx];
 	return (
-		before !== "a" && before !== "o" && runsOnceReached(parsed, segIdx, own)
+		opensList(parsed.joins, segIdx) && isSureOnceReached(parsed, segIdx, own)
 	);
 }
 
@@ -2204,7 +2219,8 @@ function settleCwdDoubt(walk, segIdx) {
  * before it. A `&` closing its list backgrounds the `cd` with it. Each directory already doubted moves the
  * same way, as runCwd moves a run's (#4980); one a `&&` chain holds stays
  * put, as nothing in that chain runs there.
- * @param {Walk} walk accumulator: its cwd and doubts are moved
+ * @param {Walk} walk accumulator: its cwd and doubts are moved, its
+ *   `cdTargets` replaced
  * @param {string[]} own
  * @param {number} segIdx
  * @param {(path: string) => boolean} isDir
@@ -2221,14 +2237,14 @@ function stepCwd(walk, own, segIdx, isDir) {
 	const left = walk.cdTargets;
 	/* A `cd` after `||` runs only where the `cd` before it failed, so it holds
 	 * from every directory but where that one may have gone (#5010). */
-	const afterCd = joins[segIdx] === "o" && left?.segIdx === segIdx - 1;
-	const surely = afterCd
-		? runsOnceReached(walk.parsed, segIdx, own)
-		: isSureMove(walk.parsed, segIdx, own);
+	const afterCd = isAfterCd(joins, segIdx, left?.segIdx ?? -1);
+	const surely =
+		(opensList(joins, segIdx) || afterCd) &&
+		isSureOnceReached(walk.parsed, segIdx, own);
 	/** @param {string} from @param {string} to */
 	const held = (from, to) =>
 		to === from ||
-		(surely && to !== "" && isDir(to) && !(afterCd && left.dirs.has(from)));
+		(surely && to !== "" && isDir(to) && !(afterCd && left?.dirs.has(from)));
 	/** @type {string[]} where a move may not have been made */
 	const unmade = held(cwd, walk.cwd) ? [] : [cwd];
 	const moved = walk.cwdDoubt.map((from) => {
@@ -2236,16 +2252,14 @@ function stepCwd(walk, own, segIdx, isDir) {
 		if (!held(from, to)) unmade.push(from);
 		return to;
 	});
-	if (chainsOff(joins, segIdx)) {
+	if (isChainedOff(joins, segIdx)) {
 		walk.cwdDoubt = moved;
 		walk.cwdPending = [...walk.cwdPending, ...unmade];
 	} else walk.cwdDoubt = [...moved, ...unmade];
 	walk.cwdDoubt = [...new Set(walk.cwdDoubt)].filter((d) => d !== walk.cwd);
-	const before = joins[segIdx];
-	walk.cdTargets =
-		before === "a" || before === "o"
-			? null
-			: { segIdx, dirs: new Set([walk.cwd, ...moved]) };
+	walk.cdTargets = opensList(joins, segIdx)
+		? { segIdx, dirs: new Set([walk.cwd, ...moved]) }
+		: null;
 	return true;
 }
 
