@@ -1,6 +1,11 @@
 /**
  * neighbour-dirt.test.ts — `readClaimedElsewhere`'s judgement of whose claim
  * is live: a neighbour resumed onto a fresh host still holds its files (#4902).
+ *
+ * In-process, on arbiter-testkit's sandbox lock store and sessions registry,
+ * so a lock's frozen pid and the registry's live one can disagree on purpose.
+ * Broken, `guard-uncommitted-work.js` names a resumed neighbour's file as this
+ * session's dirt, with a commit command that puts their bytes under its message.
  */
 
 import { createRequire } from "node:module";
@@ -31,7 +36,7 @@ describe("readClaimedElsewhere", () => {
 		expect([...readClaimedElsewhere("me")]).toEqual([]);
 	});
 
-	it("names a path whose holder's pid is dead but whose session the registry shows resumed", () => {
+	it("names a path whose holder's pid is dead but whose session the registry shows resumed (#4902)", () => {
 		registerSession(sb, "neighbour", process.pid);
 		putLock("docs/b.md", { sessionId: "neighbour", ...DEAD });
 		expect([...readClaimedElsewhere("me")]).toEqual(["docs/b.md"]);

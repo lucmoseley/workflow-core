@@ -492,6 +492,23 @@ describe("check-orphaned-edits", () => {
 			expect(readFilings()).toEqual([]);
 		});
 
+		it.skipIf(AS_ROOT)(
+			"the sessions registry, behind a dead-pid claim (#4902)",
+			async () => {
+				dirty("docs/b.md", 30);
+				putLock("docs/b.md", { sessionId: "holder", ...DEAD });
+				fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
+				try {
+					expect(JSON.parse((await run(["--json"])).stdout).outcome).toBe(
+						"SKIP",
+					);
+				} finally {
+					fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
+				}
+				expect(readFilings()).toEqual([]);
+			},
+		);
+
 		it.skipIf(AS_ROOT)("the observation store", async () => {
 			dirty("a.txt", 30);
 			fakeClaude("watcher");

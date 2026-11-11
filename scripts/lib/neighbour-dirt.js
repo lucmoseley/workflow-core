@@ -27,7 +27,8 @@ const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree");
  */
 
 /**
- * Paths a DIFFERENT live session holds a claim on.
+ * Paths a DIFFERENT live session holds a claim on, a holder resumed onto a
+ * fresh host included.
  *
  * The write ledger answers "did this session ever write this path", never "is
  * this dirt this session made" — so a file you wrote and committed hours ago,

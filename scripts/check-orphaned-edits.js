@@ -326,12 +326,13 @@ function readOwnedByLive() {
 	const locks = store.readLocks();
 	if (locks === null) return { why: "the arbiter's lock store would not read" };
 	const held = heldLockPaths(locks);
+	if (!held.paths) return { why: held.why };
 
 	const listed = sweepSessionIds();
 	if (!listed.ids) return { why: listed.why };
 	const live = readLiveSessionPaths(listed);
 	if (live.paths === undefined) return { why: live.why };
-	const owned = new Set([...held, ...live.paths]);
+	const owned = new Set([...held.paths, ...live.paths]);
 	return { owned, names: listed.names, listed };
 }
 
@@ -343,15 +344,17 @@ function readOwnedByLive() {
 const ownedKey = (tree, rel) => `${tree}\0${rel}`;
 
 /**
+ * The ownedKey of every lock a live holder has, a holder resumed onto a fresh
+ * host included — or why that cannot be told: a dead-pid lock whose session
+ * the registry would not answer for may be a live one's.
  * @param {any[]} locks
- * @returns {string[]} the ownedKey of every lock a live holder has, a holder
- *   resumed onto a fresh host included
+ * @returns {{paths: string[], why?: undefined} | {why: string, paths?: undefined}}
  */
 function heldLockPaths(locks) {
 	const wasResumed = core.resumedHolderTest(
 		"orphaned-edits",
-		"the sessions registry could not be read, so a path claimed by a resumed " +
-			"session is judged unowned and may be filed as an orphaned edit",
+		"the sessions registry could not be read, so a claim held by a resumed " +
+			"session cannot be told from a dead one's — the orphan check skips",
 	);
 	/** @type {string[]} */
 	const paths = [];
@@ -362,7 +365,9 @@ function heldLockPaths(locks) {
 				ownedKey(store.recordTree(lock), store.subjectPath(lock.path)),
 			);
 	}
-	return paths;
+	if (wasResumed.registryUnreadable())
+		return { why: "the sessions registry would not read" };
+	return { paths };
 }
 
 /**
