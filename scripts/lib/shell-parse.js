@@ -838,7 +838,7 @@ function asWritten(text, spans) {
 
 /**
  * `$VAR` and `${VAR}` in `s` expanded, the command's own assignments winning
- * over the environment as in shell (mantahostels#208, correcting mantahostels#183); null where the text
+ * over the environment as in shell (mantahostels#208); null where the text
  * cannot be resolved.
  *
  * DELIBERATELY NARROW. It refuses, rather than guessing, on command
@@ -1714,9 +1714,7 @@ function exportWords(state, { head, kind }, args, spans) {
 
 /**
  * The state after a `cd`: one whose target no word gives goes where nothing
- * resolves; one a `&&` chains a command off holds always for that chain; one
- * after `||` whose left side is a `cd` runs only where that one did not move,
- * as stepCwd reads it (#5010).
+ * resolves; one a `&&` chains a command off holds always for that chain.
  * @param {ScriptState} state
  * @param {string[]} own its words, masked
  * @param {ScriptAt} where
@@ -2106,14 +2104,19 @@ const isAfterCd = (joins, segIdx, cdAt) =>
 	joins[segIdx] === "o" && cdAt === segIdx - 1;
 
 /**
- * Whether the segment's command is negated by `!`, past any `{` opening it,
- * so its status is the reverse of its command's.
+ * Whether the segment's command is negated by `!`, past any `{` opening it.
  * @param {string[]} segments
  * @param {number} segIdx
  */
 function isNegated(segments, segIdx) {
-	const words = (segments[segIdx] ?? "").trim().split(/\s+/);
-	return words.find((w) => w !== "{") === "!";
+	const segment = segments[segIdx];
+	if (segment === undefined) return false;
+	return (
+		segment
+			.trim()
+			.split(/\s+/)
+			.find((w) => w !== "{") === "!"
+	);
 }
 
 /**
