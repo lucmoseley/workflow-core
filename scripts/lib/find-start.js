@@ -18,11 +18,13 @@
  *    is unread, and passes.
  *  - `/` is recognised after collapsing `.`, `..` and doubled slashes. A symlink to `/` is not followed.
  *  - A RELATIVE start point, or none at all (`find` defaults to `.`), is
- *    resolved against the walk's cwd — the payload's, moved by any `cd` before
- *    it and by each directory its launchers move to (`env -C /`, a `flock -c`
- *    string's `cd`), as lib/shell-words.js's runCwd reads them, its residual
- *    included. So `cd / && find . -name x` is refused, and a session standing
- *    in `/` is refused `find . -name x`. Where the cwd is unknown, it passes.
+ *    resolved against every directory the find may stand in — the payload's
+ *    cwd, moved by any `cd` before it and by each directory its launchers move
+ *    to (`env -C /`, a `flock -c` string's `cd`), as lib/shell-words.js's
+ *    runCwd reads them, and each of those left unmade where it may not have
+ *    run or failed. So `cd / && find . -name x` is refused, and a session
+ *    standing in `/` is refused `find . -name x` and
+ *    `cd /missing; find . -name x`. A directory unknown to the walk is no `/`.
  *  - The command word must be `find`, by basename, after shell-words.js's
  *    launcher unwrapping. `sh -c "find / …"`, a heredoc fed to a shell, `fd`,
  *    `locate`, `du /`, `ls -R /` and `grep -r … /` are all unjudged (#1006
@@ -75,7 +77,7 @@ function decide(command, ctx) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			if (refused === null && startsAtRoot(cmd, parsed.spans))
+			if (refused === null && startsAtRoot(cmd, parsed.spans, ctx.isDir))
 				refused = cmd.segment;
 		},
 		ctx,
@@ -101,15 +103,16 @@ function decide(command, ctx) {
 /**
  * @param {import("./shell-parse.js").Command} cmd
  * @param {string[]} spans
+ * @param {(path: string) => boolean} isDir
  */
-function startsAtRoot(cmd, spans) {
+function startsAtRoot(cmd, spans, isDir) {
 	return unwrap(cmd.words, spans).some(({ words: [head, ...rest], chdirs }) => {
 		if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
 			return false;
-		const cwd = runCwd(cmd.cwd, chdirs, spans);
+		const cwds = runCwd(cmd.cwds, chdirs, spans, isDir);
 		const starts = findStarts(rest, spans);
 		return (starts.length > 0 ? starts : ["."]).some((start) =>
-			isRoot(start, cwd, spans),
+			cwds.some((cwd) => isRoot(start, cwd, spans)),
 		);
 	});
 }
