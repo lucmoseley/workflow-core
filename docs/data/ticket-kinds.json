@@ -23,5 +23,55 @@
 		"id": "found-in-passing",
 		"meaning": "A defect a session met in passing while working another ticket (#4627 §3.7).",
 		"firstSeen": "2026-11-08"
+	},
+	{
+		"id": "standing-report",
+		"meaning": "A script-filed standing-condition or due report: morning review, queue wait or stall alarm, release bump, census re-measure, per-file time limit, a review or retro due.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "review-finding",
+		"meaning": "A code-review finding on one ticket's just-built work, filed as its own ticket.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "planning-question",
+		"meaning": "A spec, map, brief, ruling, audit or research question that plans work rather than changing code.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "build-slice",
+		"meaning": "A build slice cut from a spec or a ruling, implementing it.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "follow-up-measure",
+		"meaning": "A re-measurement or reading of a figure after a change landed, or a follow-up to one.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "architecture-deepening",
+		"meaning": "An architecture scan's structural change: one owner or module for a concern several modules share.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "machinery-incident",
+		"meaning": "A fault in the repo machinery reported off an incident a session met.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "machinery-defect",
+		"meaning": "A machinery change or defect fix filed outside every labelled flow, its origin read from the title alone.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "host-incident",
+		"meaning": "A host crash, watchdog reset or memory-kill incident on the machine, and its diagnosis.",
+		"firstSeen": "2026-11-11"
+	},
+	{
+		"id": "founder-ask",
+		"meaning": "A change or act the founder asked for directly.",
+		"firstSeen": "2026-11-11"
 	}
 ]

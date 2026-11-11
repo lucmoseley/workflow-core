@@ -1015,7 +1015,7 @@ describe("the manifest", () => {
 			"guard-check-sh": ["Bash(*shellcheck *)", "Bash(*npm *)"],
 			"guard-issue-body": ["Bash(gh *)"],
 			"guard-issue-close": ["Bash(gh *)"],
-			"guard-issue-create-label": ["Bash(gh *)"],
+			"guard-issue-create-label": ["Bash(*gh *)"],
 			"guard-issue-phase-scope": ["Bash(*gh *)"],
 			"guard-headroom-read": ["Bash(*free *)", "Bash(*/proc/meminfo*)"],
 			"guard-hook-escape": ["Bash(*WFC_ALLOW_*)"],
