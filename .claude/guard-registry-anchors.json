@@ -96,7 +96,7 @@
 	"scripts/vitest-inflight-reporter.ts": "455b64d1abe8eb0c",
 	"scripts/vitest-json-reporter.ts": "6caf007578bc2159",
 	"scripts/vitest-pass-reporter.ts": "e5a2c2a054c91d7f",
-	"scripts/vitest-tree-watch.ts": "d9accc5846403f68",
+	"scripts/vitest-tree-watch.ts": "b9f8788563322e1c",
 	"scripts/watch-artefact.js": "315971b546e0a06e",
 	"scripts/write-self-plugin-marker.sh": "da926c91383737b7"
 }

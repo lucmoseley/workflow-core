@@ -777,7 +777,7 @@ function install() {
 			try {
 				at = realOpenSync(path.join(dir, events), flags);
 			} catch {
-				// A git that wrote no log is doubted for that by the reader.
+				// A git that wrote no log is doubted for that by the reader (#4997).
 				return;
 			}
 			try {
@@ -791,7 +791,8 @@ function install() {
 	 * through its handle while it still ran git. Exited on its own, a git
 	 * logs its end; one that ran `git help` became `man` under the same
 	 * pid, which no mark may vouch for.
-	 * @param {Untyped} handle the child's process handle
+	 * @param {Untyped} handle the child's process handle, its `kill` and
+	 *   `onexit` wrapped in place: Node calls only the handle's own
 	 * @param {string|null|undefined} events
 	 */
 	const markOnKill = (handle, events) =>
@@ -814,7 +815,7 @@ function install() {
 		try {
 			return path.basename(realRealpathSync(`/proc/${pid}/exe`)) === "git";
 		} catch {
-			// Gone, or not ours to read: no mark, so its open log doubts.
+			// Gone, or not ours to read: no mark, so its open log doubts (#4997).
 			return false;
 		}
 	};

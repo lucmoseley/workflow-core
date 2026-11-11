@@ -123,7 +123,8 @@ const DESCRIPTOR_PATH =
 	/\/(?:dev\/(?:stdin|stdout|stderr|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
 
 /**
- * Whether a word of a git call may feed it its standard input. git takes
+ * Whether a word of a git call may feed it its standard input, or hand it
+ * another descriptor of the test's by path. git takes
  * any prefix of a long option that names no other, so every prefix of one
  * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
  * whether or not another option there shares it: a call kept is run again
@@ -133,7 +134,7 @@ const DESCRIPTOR_PATH =
  * folds away no more than the option the path is stuck to.
  * @param {string} word
  */
-function isStdinFed(word) {
+function isDescriptorFed(word) {
 	if (STDIN_FILE.test(word)) return true;
 	if (DESCRIPTOR_PATH.test(path.posix.normalize(`/${word}`))) return true;
 	const valueAt = word.indexOf("=");
@@ -492,8 +493,8 @@ function rerunnable([steered, dir = "", ...args], root) {
 	 * hashed off, holds none of it (#4993). */
 	if (args.some((a) => a === "--output" || String(a).startsWith("--output=")))
 		return `a git call (${shown}) wrote its answer to a file`;
-	if (args.slice(i + 1).some(isStdinFed))
-		return `a git call (${shown}) read its standard input`;
+	if (args.slice(i + 1).some(isDescriptorFed))
+		return `a git call (${shown}) read its standard input or another descriptor`;
 	return { cwd, args };
 }
 
@@ -666,8 +667,18 @@ function isSystemctlRunningCommand(args) {
 }
 
 /**
+ * Whether a resolved program path lies where a test can write it, under the
+ * checkout or the temporary directory, so it is not the installed program.
+ * @param {string} at real path
+ * @param {string} root real path
+ */
+function isTestWritable(at, root) {
+	return isUnder(at, [root, TMP], path.sep);
+}
+
+/**
  * Whether a child opens no file a variable names: one of `ENV_BLIND`, run
- * as the installed program.
+ * as the installed program, or one the checkout's own `node_modules` holds.
  * @param {Entry} e
  * @param {string} root real path
  */
@@ -682,8 +693,8 @@ function readsNoVariable(e, root) {
 	if (RUNS_A_COMMAND.get(name)?.(args)) return false;
 	return !bin.some(
 		(at) =>
-			isUnder(at, [TMP], path.sep) ||
-			(isUnder(at, [root], path.sep) && !at.includes("/node_modules/")),
+			isTestWritable(at, root) &&
+			!(isUnder(at, [root], path.sep) && at.includes("/node_modules/")),
 	);
 }
 
@@ -770,7 +781,7 @@ function isBlind(e, root) {
 	const name = path.basename(String(e.file));
 	const bin = Array.isArray(e.bin) ? e.bin : [];
 	if (bin.length === 0 || !BLIND.has(name)) return false;
-	if (bin.some((at) => isUnder(at, [root, TMP], path.sep))) return false;
+	if (bin.some((at) => isTestWritable(at, root))) return false;
 	const sole = BLIND.get(name);
 	const args = /** @type {string[]} */ (e.args ?? []);
 	return sole === null || (args.length === 1 && args[0] === sole);

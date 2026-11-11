@@ -134,6 +134,17 @@ function run(
 	);
 }
 
+/** What the store holds for `A` at the repo's HEAD. */
+const heldAtHead = (dir: string) =>
+	heldAtSha([A], {
+		storeRoot: dir,
+		sha: git(dir, "rev-parse", "HEAD"),
+		before: "9999",
+		git: (args: string[]) =>
+			execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
+		values: VALUES,
+	}).get(A);
+
 const cachedOf = (
 	dir: string,
 	files: string[],
@@ -498,15 +509,6 @@ describe("the newest result on the same content decides", () => {
 
 	describe("a red file whose inputs are unknown (#4790 pass 3)", () => {
 		const Doubt = { doubt: "its process left no audit log" };
-		const heldAtHead = (dir: string) =>
-			heldAtSha([A], {
-				storeRoot: dir,
-				sha: git(dir, "rev-parse", "HEAD"),
-				before: "9999",
-				git: (args: string[]) =>
-					execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
-				values: VALUES,
-			}).get(A);
 
 		it("voids an older pass on the same content, until a newer pass", () => {
 			const dir = repo();
@@ -1368,15 +1370,6 @@ describe("a red recorded at another layout (#4995)", () => {
 			`${[...lines, JSON.stringify({ ...last, format })].join("\n")}\n`,
 		);
 	};
-	const heldAtHead = (dir: string) =>
-		heldAtSha([A], {
-			storeRoot: dir,
-			sha: git(dir, "rev-parse", "HEAD"),
-			before: "9999",
-			git: (args: string[]) =>
-				execFileSync("git", args, { cwd: dir, encoding: "utf8" }),
-			values: VALUES,
-		}).get(A);
 	const formatOf = (dir: string) =>
 		JSON.parse(fs.readFileSync(shardOf(dir, A), "utf8").trim().split("\n")[0])
 			.format as number;
