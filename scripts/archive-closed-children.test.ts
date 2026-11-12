@@ -23,7 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WAIT_GRAPH_GRAPHQL_FAKE } from "./lib/gh-fake";
+import { LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -59,7 +59,7 @@ const STATE = () => path.join(dir, "state.json");
 const CALLS = () => path.join(dir, "calls.log");
 
 const STUB = `#!/usr/bin/env node
-${WAIT_GRAPH_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const statePath = process.env.ARCHIVE_STATE;
 const callsPath = process.env.ARCHIVE_CALLS;
@@ -74,7 +74,7 @@ if (s0.fx.unreachable) { ${GH_LOGGED_OUT_NODE} }
 
 const p = argv.find((a) => a.startsWith("repos/")) || "";
 const jq = argv.includes("--jq") ? argv[argv.indexOf("--jq") + 1] : null;
-if (argv[1] === "graphql") serveAnswer(answerWaitGraph(argv, () => ({})));
+if (argv[1] === "graphql") serveAnswer(answerLinks(argv, () => ({})));
 if (jq === ".full_name") { process.stdout.write("o/r\\n"); process.exit(0); }
 const fValues = argv.filter((a, i) => argv[i - 1] === "-F");
 const fVal = (name) => {

@@ -15,18 +15,17 @@ import os from "node:os";
 import path from "node:path";
 import {
 	asRecorded,
-	BLOCKED_BY_GRAPHQL_FAKE,
 	CITED_GRAPHQL_FAKE,
 	type GhAnswer,
 	ghAnswerNode,
 	ghFakeScript,
 	ghServeLines,
 	LINK_READS,
+	LINKS_GRAPHQL_FAKE,
 	type LinkReadAnswers,
 	readGhAnswer,
 	type SubIssuesAnswer,
 	subIssuesAnswer,
-	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./gh-fake";
 import { buildServerClient } from "./gh-stub-server.js";
 import { shellQuote } from "./sh-quote.js";
@@ -114,17 +113,15 @@ const routeAnswer = (a: RouteAnswer): GhAnswer => {
 /** `key` as a shell `case` pattern in which `*` alone is special. */
 const casePattern = (key: string) => key.split("*").map(shellQuote).join("*");
 
-const BLOCKED_BY_ROUTE = /^[^*]*\/issues\/(\d+)\/dependencies\/blocked_by$/;
-
 /* A link list's route, its repo `o/r` where gh's placeholder names it. */
 const LINK_LIST_ROUTE =
 	/^repos\/([^/*]+\/[^/*]+)\/issues\/(\d+)\/(dependencies\/blocked_by|sub_issues)$/;
 
-type WaitNode = { blockedBy?: unknown[]; subIssues?: unknown[] } | null;
+type LinkNode = { blockedBy?: unknown[]; subIssues?: unknown[] } | null;
 
-/** Each issue's link lists, as lib/wait-graph.js's batched read answers them. */
-function buildWaitNodes(routes: Record<string, RouteAnswer>) {
-	const nodes: Record<string, WaitNode> = {};
+/** Each issue's link lists, as lib/link-batch.js's batched read answers them. */
+function buildLinkNodes(routes: Record<string, RouteAnswer>) {
+	const nodes: Record<string, LinkNode> = {};
 	for (const [key, a] of Object.entries(routes)) {
 		const m = key.match(LINK_LIST_ROUTE);
 		if (!m) continue;
@@ -176,12 +173,10 @@ const lowerKeys = <T>(o: Record<string, T>) =>
  * first key matching wins, `*` in a key matches any run of characters, and a
  * call no key matches fails naming itself. Unless `routes` keys `graphql`
  * exactly — a catch-all `*` does not —
- * `gh api graphql` is lib/blocked-by-batch.js's batched read, answering issue
- * n from the rows of its `blockedByPage` route keyed exactly
- * `…/issues/n/dependencies/blocked_by`, and null — sending n to that REST
- * path — where that route fails or there is none; lib/wait-graph.js's read
- * answers each issue from its `…/dependencies/blocked_by` and `…/sub_issues`
- * page routes, null where either fails, and no links where it has none; a
+ * `gh api graphql` is lib/link-batch.js's batched read, answering each issue
+ * from its page routes keyed exactly `repos/<repo>/issues/n/dependencies/blocked_by`
+ * and `…/sub_issues`, a list with no route empty, and null — sending the
+ * issue to those REST paths — where either route fails or neither exists; a
  * read of the issues a
  * basis cites is answered from `cited`, gh-fake's `answerCited` shape, every
  * repo it leaves out answering null. `failing` is stubGhScript's.
@@ -208,33 +203,18 @@ export function stubGhRoutes(
 			`  ${casePattern(key)})\n${ghServeLines(routeAnswer(a))}    ;;`,
 	);
 	if (!("graphql" in routes)) {
-		const blockers: Record<number, unknown[]> = {};
-		for (const [key, a] of Object.entries(routes)) {
-			const n = key.match(BLOCKED_BY_ROUTE)?.[1];
-			if (n && "kind" in a && a.kind === "blockedByPage")
-				blockers[Number(n)] = (a.value as Parameters<typeof blockerRow>[0][][])
-					.flat()
-					.map(blockerRow);
-		}
-		const file = path.join(dir, "gh-blockers.js");
+		const file = path.join(dir, "gh-links.js");
 		fs.writeFileSync(
 			file,
-			`${BLOCKED_BY_GRAPHQL_FAKE}
-${CITED_GRAPHQL_FAKE}
-${WAIT_GRAPH_GRAPHQL_FAKE}
+			`${CITED_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 const argv = process.argv.slice(2);
-const blockers = ${JSON.stringify(blockers)};
-const waits = ${JSON.stringify(buildWaitNodes(routes))};
+const links = ${JSON.stringify(buildLinkNodes(routes))};
 const query = argv.find((a) => a.startsWith("query=")) ?? "";
 serveAnswer(
 	query.includes("issueOrPullRequest") && query.includes("comments(first: ")
 		? answerCited(argv, ${JSON.stringify(lowerKeys(cited))})
-		: query.includes("subIssues(first: ")
-			? answerWaitGraph(argv, (repo, n) => {
-				const at = repo.toLowerCase() + "#" + n;
-				return at in waits ? waits[at] : {};
-			})
-			: answerBlockedBy(argv, (n) => blockers[n] ?? null),
+		: answerLinks(argv, (repo, n) => links[repo.toLowerCase() + "#" + n] ?? null),
 );
 `,
 		);

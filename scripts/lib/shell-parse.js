@@ -2423,17 +2423,21 @@ function chainEndDepth(parsed, segIdx) {
 
 /**
  * The last segment of the command a list member starts at `segIdx`: past a
- * `( … )` it opens, the words after its `)`, and each `$(…)` or `<(…)` mid-word
- * (#5107). A bracket opening on a blank line is another command's.
+ * `( … )` or `{ …; }` it opens, the words after its `)` or `}` and any function
+ * body they open, and each `$(…)` or `<(…)` mid-word (#5107, #5112). A
+ * bracket opening on a blank line is another command's.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function commandEnd({ segments, joins }, segIdx) {
+function commandEnd(parsed, segIdx) {
+	const { segments, joins } = parsed;
 	let end =
-		segments[segIdx] === SCOPE_OPEN ? closingBracket(segments, segIdx) : segIdx;
+		segments[segIdx] === SCOPE_OPEN
+			? closingBracket(segments, segIdx)
+			: closingBrace(parsed, segIdx);
 	for (;;) {
 		const next = end + 1;
-		if (joins[next] === ")") end = next;
+		if (joins[next] === ")") end = closingBrace(parsed, next);
 		else if (
 			segments[next] === SCOPE_OPEN &&
 			joins[next] === "" &&
@@ -2462,9 +2466,22 @@ function closingBracket(segments, openIdx) {
 }
 
 /**
+ * The segment closing the outermost `{ …; }` group the segment at `segIdx`
+ * opens, or `segIdx` where it opens none or the braces are unpaired.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function closingBrace(parsed, segIdx) {
+	let end = segIdx;
+	for (const [from, to] of braceGroups(parsed) ?? [])
+		if (from === segIdx && to > end) end = to;
+	return end;
+}
+
+/**
  * Whether every `{ …; }` group holding the segment surely runs in this shell:
  * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
- * not a function's body. A group left unclosed holds none.
+ * not a function's body. False where the braces are unpaired.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */

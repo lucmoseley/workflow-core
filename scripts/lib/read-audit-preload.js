@@ -49,14 +49,13 @@ const { buildHanded } = require("./read-audit-handed.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	GIT_EVENTS,
-	GIT_READS,
-	GIT_VALUED,
 	EXITED,
 	PATH_MAX,
 	pairValue,
 	parseStanding,
 	repoPath,
 } = require("./read-audit-paths.js");
+const { GIT_READS, stepGitOptions } = require("./read-audit-git.js");
 const { buildVerdictOf, GUARD } = require("./read-audit-provenance.js");
 const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
@@ -1032,19 +1031,15 @@ function readGitOptions(words, cwd) {
 	/** @type {string|null} */
 	let bare = null;
 	let namesGitDir = false;
-	let at = 0;
-	for (; at < words.length; at++) {
-		const word = String(words[at]);
-		if (!word.startsWith("-")) break;
+	const sub = stepGitOptions(words, (word, at) => {
 		if (word.split("=")[0] === "--git-dir") namesGitDir = true;
 		if (word === "--bare") bare = moved;
 		if (word === "-C" && at + 1 < words.length) {
 			baseOfValue.set(at + 1, moved);
 			moved = path.resolve(moved, String(words[at + 1]));
 		}
-		if (GIT_VALUED.has(word)) at++;
-	}
-	return { moved, baseOfValue, bare, namesGitDir, sub: at };
+	});
+	return { moved, baseOfValue, bare, namesGitDir, sub };
 }
 
 /**

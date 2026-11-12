@@ -15,7 +15,7 @@ import { withIgnoreBlock } from "../../../../scripts/lib/adopter-skeleton.js";
 import { commandPath } from "../../../../scripts/lib/command-path-testkit";
 import {
 	LINK_READ_FAKE,
-	WAIT_GRAPH_GRAPHQL_FAKE,
+	LINKS_GRAPHQL_FAKE,
 } from "../../../../scripts/lib/gh-fake";
 import {
 	type GhStubServer,
@@ -74,7 +74,7 @@ export const RUN_TIMEOUT_MS = 170_000;
  */
 const STUB = String.raw`
 ${LINK_READ_FAKE}
-${WAIT_GRAPH_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -95,7 +95,7 @@ const shape = (i, fields) => Object.fromEntries(fields.split(",").map((f) => [f,
 
 if (joined === "auth status") failing("auth") ? die("You are not logged into any GitHub hosts.") : print("Logged in");
 if (a[0] === "api" && a[1] === "graphql") {
-	const graph = answerWaitGraph(a, (repo, n) => {
+	const graph = answerLinks(a, (repo, n) => {
 		const s = read(repo);
 		const issue = s?.issues.find((x) => x.number === n);
 		if (!issue) return null;

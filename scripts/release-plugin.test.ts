@@ -20,7 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
-import { WAIT_GRAPH_GRAPHQL_FAKE } from "./lib/gh-fake";
+import { LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
@@ -914,11 +914,11 @@ describe("release-plugin", () => {
 	 * the wait graph has no links; and a blocked issue's list names each
 	 * blocker the record shows POSTed to it, 9100 read as #100 save on #100
 	 * itself. */
-	const buildLinkReadsStub = (record: string) => `${WAIT_GRAPH_GRAPHQL_FAKE}
+	const buildLinkReadsStub = (record: string) => `${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const a = process.argv.slice(2);
 const j = a.join(" ");
-if (a[1] === "graphql") serveAnswer(answerWaitGraph(a, () => ({})));
+if (a[1] === "graphql") serveAnswer(answerLinks(a, () => ({})));
 const id = /^repos\\/[^/]+\\/[^/]+\\/issues\\/(\\d+)$/.exec(a[1] ?? "");
 if (id && j.endsWith("--jq .id")) { const n = Number(id[1]); process.stdout.write((n === 100 ? 9100 : n * 100) + "\\n"); process.exit(0); }
 const list = /^repos\\/([^/]+\\/[^/]+)\\/issues\\/(\\d+)\\/dependencies\\/blocked_by$/.exec(a[1] ?? "");

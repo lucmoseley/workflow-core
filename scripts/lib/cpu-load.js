@@ -32,9 +32,10 @@
  *
  * NUMBERS READ AS BASH ARITHMETIC READS THEM: 64-bit, wrapping, a leading 0
  * octal and an invalid octal no number at all. The split is this core's own,
- * kept rather than lib/shell-parse.js's segments: it keeps each separator,
- * which the segments lose — `yes | head` and `yes & head` split alike there —
- * and it rewrites shell arithmetic, which theirs does not.
+ * kept rather than lib/shell-parse.js's segments and joins: it keeps `|&` one
+ * separator, where the joins read a pipe then a background, and it rewrites
+ * shell arithmetic before `;` and `(` split it, which parseCommand's one
+ * masking pass leaves no room for.
  *
  * DENY, NOT WARN (mantahostels#103). NO ESCAPE VARIABLE (mantahostels#109):
  * the capped form is the route.
@@ -202,11 +203,22 @@ function arith(digits) {
 	return BigInt.asIntN(64, BigInt(digits));
 }
 
+/* The characters the split acts on, each shielded behind a private-use
+ * stand-in while it is escaped. RESIDUAL: a raw U+E000–U+E007 in the text
+ * comes back as its character, changing that word and splitting nothing. */
+const SPLIT_CHARS = "&|;()<>$";
+const SHIELD_BASE = 0xe0_00;
+/** @param {string} c */
+const shieldOf = (c) =>
+	String.fromCharCode(SHIELD_BASE + SPLIT_CHARS.indexOf(c));
+const SHIELDED = new RegExp(`[${shieldOf("&")}-${shieldOf("$")}]`, "g");
+
 /**
  * The masked text split one line per segment, each ending
- * `\x05<separator>` but a line's last. A redirection's
- * `&` and `|` are no separators; the two arithmetic headers are spelt as
- * `while true`, any other arithmetic as the `let` it is.
+ * `\x05<separator>` but a line's last. An escaped character is a word's
+ * (#5114), and a redirection's `&` and `|` are no separators; the two
+ * arithmetic headers are spelt as `while true`, any other arithmetic as the
+ * `let` it is.
  * @param {string} masked
  */
 function splitLines(masked) {
@@ -214,6 +226,11 @@ function splitLines(masked) {
 		.split("\n")
 		.map((line) =>
 			line
+				/* The lexer writes an escape as a `\`-pair, so `\\&` is a
+				 * backslash and then a separator. */
+				.replace(/\\[\s\S]/g, (m) =>
+					SPLIT_CHARS.includes(m.charAt(1)) ? `\\${shieldOf(m.charAt(1))}` : m,
+				)
 				.replace(/([<>])&/g, "$1\x03")
 				.replace(/&>/g, "\x03>")
 				.replace(/>\|/g, ">\x04")
@@ -230,7 +247,12 @@ function splitLines(masked) {
 				.replace(/(&&|\|\||\|&|[;&|()])/g, "\x05$1\n"),
 		)
 		.join("\n")
-		.split("\n");
+		.split("\n")
+		.map((line) =>
+			line.replace(SHIELDED, (c) =>
+				SPLIT_CHARS.charAt(c.charCodeAt(0) - SHIELD_BASE),
+			),
+		);
 }
 
 /** A line as `read -ra` splits it: on runs of IFS whitespace. @param {string} s */
