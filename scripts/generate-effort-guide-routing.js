@@ -27,7 +27,12 @@ const path = require("node:path");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
-const { loadRouting, routingPath } = require("./lib/model-table.js");
+const {
+	loadRouting,
+	modeSettings,
+	modelId,
+	routingPath,
+} = require("./lib/model-table.js");
 const { claimDataFile } = require("./lib/doc-map-generator");
 const { caught } = require("./lib/caught.js");
 
@@ -42,15 +47,9 @@ const MODES = /** @type {const} */ ([
 
 const code = (/** @type {string} */ s) => `\`${s}\``;
 
-/**
- * @param {ReturnType<typeof loadRouting>} routing
- * @returns {string}
- */
-function renderBlock(routing) {
-	const { models, modes } = routing;
-	/* loadRouting's shape check has proved every alias a mode names is in `models`. */
-	const idOf = (/** @type {string} */ alias) =>
-		/** @type {{ id: string }} */ (models[alias]).id;
+/** @returns {string} */
+function renderBlock() {
+	const { models, modes } = loadRouting();
 	const lines = [
 		BEGIN,
 		"",
@@ -64,17 +63,17 @@ function renderBlock(routing) {
 	for (const [mode, title] of MODES) {
 		const m = modes[mode];
 		const efforts = Object.entries(m.modelSettings)
-			.map(([alias, level]) => `${code(idOf(alias))} ${code(level)}`)
+			.map(([alias, level]) => `${code(modelId(alias))} ${code(level)}`)
 			.join(", ");
 		lines.push(
 			"",
-			`**${title}.** Session model ${code(`${idOf(m.session)}[1m]`)}; settings efforts ${efforts}.`,
+			`**${title}.** Session model ${code(modeSettings(mode === "burn").model)}; settings efforts ${efforts}.`,
 			"",
 			"| Asked for | Runs on | At effort |",
 			"|---|---|---|",
 			...Object.entries(m.route).map(
 				([alias, row]) =>
-					`| ${code(alias)} | ${code(row.to)} · ${code(idOf(row.to))} | ${row.effort ? code(row.effort) : "as asked"} |`,
+					`| ${code(alias)} | ${code(row.to)} · ${code(modelId(row.to))} | ${row.effort ? code(row.effort) : "as asked"} |`,
 			),
 		);
 	}
@@ -114,7 +113,7 @@ function main(argv) {
 	let block;
 	try {
 		text = fs.readFileSync(guide, "utf8");
-		block = renderBlock(loadRouting());
+		block = renderBlock();
 	} catch (e) {
 		console.error(`generate-effort-guide-routing: ${caught(e).message}`);
 		return 2;
@@ -150,4 +149,4 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { main, renderBlock };
+module.exports = { main };

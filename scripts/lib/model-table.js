@@ -32,6 +32,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
+const { caught } = require("./caught.js");
 const { coreRoot, docPath, scriptPath } = require("./script-path.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
@@ -59,9 +60,21 @@ function routingPath(env = process.env) {
 	return env.WFC_MODEL_ROUTING || ROUTING_FILE;
 }
 
-/** @param {unknown} v */
+/**
+ * @param {unknown} v
+ * @returns {v is Record<string, unknown>}
+ */
 const isObject = (v) =>
 	v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** @param {unknown} v */
+const isLevel = (v) => typeof v === "string" && LEVELS.includes(v);
+
+/**
+ * @param {unknown} v
+ * @param {string[]} aliases
+ */
+const isAlias = (v, aliases) => typeof v === "string" && aliases.includes(v);
 
 /**
  * The first fault the checks find, run in order; "" for none.
@@ -77,7 +90,7 @@ function firstOf(checks) {
 
 /**
  * @param {string} alias
- * @param {any} m its `models` entry
+ * @param {unknown} m its `models` entry
  * @param {Map<string, string>} seen every name read so far, to its alias
  */
 function modelFault(alias, m, seen) {
@@ -88,7 +101,7 @@ function modelFault(alias, m, seen) {
 		m.also.some((/** @type {unknown} */ a) => typeof a !== "string")
 	)
 		return `models.${alias}.also is not a list of names`;
-	for (const name of [alias, m.id, ...m.also]) {
+	for (const name of [alias, m.id, .../** @type {string[]} */ (m.also)]) {
 		const owner = seen.get(name);
 		if (owner !== undefined && owner !== alias)
 			return `\`${name}\` names both ${owner} and ${alias}`;
@@ -99,7 +112,7 @@ function modelFault(alias, m, seen) {
 
 /**
  * @param {string} at
- * @param {any} modelSettings
+ * @param {unknown} modelSettings
  * @param {string[]} aliases
  */
 function settingsFault(at, modelSettings, aliases) {
@@ -107,7 +120,7 @@ function settingsFault(at, modelSettings, aliases) {
 	for (const [alias, level] of Object.entries(modelSettings)) {
 		if (!aliases.includes(alias))
 			return `${at}.modelSettings.${alias} is not a known alias`;
-		if (!LEVELS.includes(level))
+		if (!isLevel(level))
 			return `${at}.modelSettings.${alias} is not an effort level`;
 	}
 	return "";
@@ -115,7 +128,7 @@ function settingsFault(at, modelSettings, aliases) {
 
 /**
  * @param {string} at
- * @param {any} route
+ * @param {unknown} route
  * @param {string[]} aliases
  */
 function routeFault(at, route, aliases) {
@@ -126,9 +139,9 @@ function routeFault(at, route, aliases) {
 	for (const alias of aliases) {
 		const row = route[alias];
 		if (!isObject(row)) return `${at}.route has no row for ${alias}`;
-		if (!aliases.includes(row.to))
+		if (!isAlias(row.to, aliases))
 			return `${at}.route.${alias}.to is not a known alias`;
-		if (row.effort !== null && !LEVELS.includes(row.effort))
+		if (row.effort !== null && !isLevel(row.effort))
 			return `${at}.route.${alias}.effort is neither an effort level nor null`;
 	}
 	return "";
@@ -136,7 +149,7 @@ function routeFault(at, route, aliases) {
 
 /**
  * @param {string} name
- * @param {any} mode
+ * @param {unknown} mode
  * @param {string[]} aliases
  */
 function modeFault(name, mode, aliases) {
@@ -144,7 +157,7 @@ function modeFault(name, mode, aliases) {
 	if (!isObject(mode)) return `${at} is missing`;
 	return firstOf([
 		() =>
-			aliases.includes(mode.session)
+			isAlias(mode.session, aliases)
 				? ""
 				: `${at}.session is not a known alias`,
 		() => settingsFault(at, mode.modelSettings, aliases),
@@ -154,19 +167,23 @@ function modeFault(name, mode, aliases) {
 
 /**
  * The first fault in a parsed routing file, or "" where it has none.
- * @param {any} r
+ * @param {unknown} r
  * @returns {string}
  */
 function firstFault(r) {
 	if (!isObject(r) || !isObject(r.models)) return "no `models` object";
-	const aliases = Object.keys(r.models);
+	const { models, modes } = r;
+	const aliases = Object.keys(models);
 	if (aliases.length === 0) return "`models` names no alias";
 	/** @type {Map<string, string>} */
 	const seen = new Map();
 	return firstOf([
-		...aliases.map((alias) => () => modelFault(alias, r.models[alias], seen)),
-		() => (isObject(r.modes) ? "" : "no `modes` object"),
-		...MODES.map((name) => () => modeFault(name, r.modes[name], aliases)),
+		...aliases.map((alias) => () => modelFault(alias, models[alias], seen)),
+		() => (isObject(modes) ? "" : "no `modes` object"),
+		...MODES.map(
+			(name) => () =>
+				modeFault(name, isObject(modes) ? modes[name] : undefined, aliases),
+		),
 	]);
 }
 
@@ -187,19 +204,17 @@ function loadRouting(env = process.env) {
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		throw new Error(
-			`${file}: cannot be read — ${/** @type {Error} */ (e).message}`,
-			{ cause: e },
-		);
+		throw new Error(`${file}: cannot be read — ${caught(e).message}`, {
+			cause: e,
+		});
 	}
 	let parsed;
 	try {
 		parsed = JSON.parse(text);
 	} catch (e) {
-		throw new Error(
-			`${file}: will not read as JSON — ${/** @type {Error} */ (e).message}`,
-			{ cause: e },
-		);
+		throw new Error(`${file}: will not read as JSON — ${caught(e).message}`, {
+			cause: e,
+		});
 	}
 	const fault = firstFault(parsed);
 	if (fault) throw new Error(`${file}: ${fault}`);
@@ -230,26 +245,23 @@ function aliasOf(spelling) {
 }
 
 /**
+ * An alias's current model id.
+ * @param {string} alias
+ * @returns {string}
+ * @throws where the routing file names no such alias
+ */
+function modelId(alias) {
+	const m = loadRouting().models[alias];
+	if (!m) throw new Error(`${routingPath()}: no model \`${alias}\``);
+	return m.id;
+}
+
+/**
  * An alias's launch spelling: its full id with the 1M suffix.
  * @param {string} alias
  */
 function launchSpelling(alias) {
-	return `${loadRouting().models[alias]?.id}${LONG_CONTEXT}`;
-}
-
-/**
- * Whether a spelling, alias or `[1m]` form of it, or its id or `[1m]` form,
- * names that alias's current model — the spellings a seat pinned to an alias
- * may launch. Retired ids are not among them.
- * @param {string} alias
- * @param {string} spelling
- */
-function isAdmitted(alias, spelling) {
-	const id = loadRouting().models[alias]?.id;
-	if (id === undefined) return false;
-	return [alias, id].some(
-		(s) => spelling === s || spelling === `${s}${LONG_CONTEXT}`,
-	);
+	return `${modelId(alias)}${LONG_CONTEXT}`;
 }
 
 /**
@@ -283,6 +295,20 @@ const OVERFLOW_SESSION_VAR = "WFC_OVERFLOW_SESSION";
 
 /** What opens an overflow session's name, so its row says it spends API credits. */
 const OVERFLOW_PREFIX = "Overflow · ";
+
+/**
+ * Whether a spelling may launch on an overflow seat: the overflow alias, its
+ * `[1m]` form, or its current id's `[1m]` form. The bare id is not among them,
+ * as it runs in the 200K window, nor is a retired id.
+ * @param {string} spelling
+ */
+function isOverflowAdmitted(spelling) {
+	return [
+		OVERFLOW_ALIAS,
+		`${OVERFLOW_ALIAS}${LONG_CONTEXT}`,
+		launchSpelling(OVERFLOW_ALIAS),
+	].includes(spelling);
+}
 
 /** The overflow seat's launch spelling. */
 function overflowModel() {
@@ -358,21 +384,33 @@ function modeSettings(burn) {
  */
 function relaunchFlags(flags, burn) {
 	if (burn) return flags;
+	const found = modelFlag(flags);
+	if (!found || !isRoutedAway(found.model)) return flags;
+	const to = mapLaunch(found.model, false);
+	const moved = found.width === 1 ? [`--model=${to}`] : ["--model", to];
+	return [
+		...flags.slice(0, found.at),
+		...moved,
+		...flags.slice(found.at + found.width),
+	];
+}
+
+/**
+ * Where a flag list names its `--model`, joined (`--model=x`, one element
+ * wide) or split (`--model x`, two); null where it names none.
+ * @param {string[]} flags
+ * @returns {{at: number, width: 1 | 2, model: string} | null}
+ */
+function modelFlag(flags) {
 	const at = flags.findIndex(
 		(f) => f === "--model" || f.startsWith("--model="),
 	);
-	if (at === -1) return flags;
-	const flag = flags[at] ?? "";
-	const joined = flag.startsWith("--model=");
-	const saved = joined ? flag.slice("--model=".length) : flags[at + 1];
-	if (saved === undefined || !isRoutedAway(saved)) return flags;
-	const to = mapLaunch(saved, false);
-	const moved = joined ? [`--model=${to}`] : ["--model", to];
-	return [
-		...flags.slice(0, at),
-		...moved,
-		...flags.slice(at + (joined ? 1 : 2)),
-	];
+	const flag = flags[at];
+	if (flag === undefined) return null;
+	if (flag !== "--model")
+		return { at, width: 1, model: flag.slice("--model=".length) };
+	const model = flags[at + 1];
+	return model === undefined ? null : { at, width: 2, model };
 }
 
 /** The plugin's own agent definitions — the code reviewer's among them. */
@@ -488,12 +526,11 @@ function routeNamed(call, from, burn) {
 }
 
 module.exports = {
-	aliasOf,
-	isAdmitted,
 	isOverflowSession,
 	isRoutedAway,
 	loadRouting,
-	mapSessionModel,
+	modelFlag,
+	modelId,
 	modeSettings,
 	OVERFLOW_PREFIX,
 	OVERFLOW_SESSION_VAR,
@@ -513,9 +550,8 @@ module.exports = {
  *                     the same for a plan's settings `model`, "" meaning the
  *                     mode's session model
  *   alias <spelling>  prints the alias the spelling runs as, or nothing
- *   admits <alias> <spelling>
- *                     exits 0 where the spelling names that alias's current
- *                     model, 1 where it does not
+ *   admits <spelling> exits 0 where the spelling may launch on an overflow
+ *                     seat, 1 where it may not
  *   settings [--burn] prints the mode's settings writes as JSON
  *
  * stdout is always a pipe here, so it is written synchronously before the
@@ -554,9 +590,9 @@ const CLI = {
 		},
 	},
 	admits: {
-		arity: 2,
+		arity: 1,
 		burn: false,
-		run: ([alias = "", spelling = ""]) => (isAdmitted(alias, spelling) ? 0 : 1),
+		run: ([spelling = ""]) => (isOverflowAdmitted(spelling) ? 0 : 1),
 	},
 	settings: {
 		arity: 0,
@@ -587,7 +623,7 @@ function runCli(argv) {
 	try {
 		loadRouting();
 	} catch (e) {
-		writeFd(2, `model-table: ${/** @type {Error} */ (e).message}\n`);
+		writeFd(2, `model-table: ${caught(e).message}\n`);
 		return 2;
 	}
 	return spec.run(args, burn, (line) => writeFd(1, `${line}\n`));

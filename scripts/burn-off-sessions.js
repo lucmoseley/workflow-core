@@ -154,4 +154,4 @@ function main() {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { moveOne, sortSessions };
+module.exports = { moveOne };

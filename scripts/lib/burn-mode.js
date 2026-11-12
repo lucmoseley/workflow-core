@@ -12,6 +12,7 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
+const { modeSettings } = require("./model-table.js");
 const { readPlanDirs } = require("./plan-dirs.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
@@ -89,7 +90,7 @@ function isPresent(file) {
  * @returns {{model: string, faults: string[]}} the model it holds, "" for none
  */
 function readPlanFaults(file, burn) {
-	const want = require("./model-table.js").modeSettings(burn);
+	const want = modeSettings(burn);
 	const mode = burn ? "burn" : "standard";
 	let settings;
 	try {

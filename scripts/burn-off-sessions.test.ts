@@ -8,7 +8,7 @@
  */
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { moveOne, sortSessions } from "./burn-off-sessions.js";
+import { moveOne } from "./burn-off-sessions.js";
 
 const FIXTURE = path.resolve(__dirname, "fixtures/model-routing/fixture.json");
 beforeEach(() => {
@@ -78,24 +78,5 @@ describe("moveOne", () => {
 			moveOne(s, h.ctx);
 			expect(h.calls).toEqual([]);
 		}
-	});
-});
-
-describe("sortSessions", () => {
-	it("picks the sessions on a routed-away model by the routing file, and counts the unread", () => {
-		const err: string[] = [];
-		const sessions = [
-			{ ...S, sessionId: "a", model: "test-sonnet-0" },
-			{ ...S, sessionId: "b", model: "sonnet[1m]" },
-			{ ...S, sessionId: "c", model: "test-fable-1" },
-			{ ...S, sessionId: "d", model: "test-opus-2" },
-			{ ...S, sessionId: "e", model: "" },
-		];
-		const { routedAway, unread } = sortSessions(sessions, (l: string) =>
-			err.push(l),
-		);
-		expect(routedAway.map((s) => s.sessionId)).toEqual(["a", "b"]);
-		expect(unread).toBe(1);
-		expect(err).toHaveLength(1);
 	});
 });

@@ -31,7 +31,6 @@ import {
 	vi,
 } from "vitest";
 import {
-	aliasOf,
 	isOverflowSession,
 	isRoutedAway,
 	loadRouting,
@@ -193,7 +192,9 @@ describe("the one spelling rule", () => {
 		["opus[200k]", ""],
 		["", ""],
 	])("%s runs as %s", (spelling, alias) => {
-		expect(aliasOf(spelling)).toBe(alias);
+		const r = cli(["alias", spelling]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe(`${alias}\n`);
 	});
 });
 
@@ -296,11 +297,17 @@ describe("the CLI half", () => {
 		expect(none.stdout).toBe("\n");
 	});
 
-	it("admits only the alias's current-model spellings", () => {
-		for (const s of ["opus", "opus[1m]", "test-opus-2", "test-opus-2[1m]"])
-			expect(cli(["admits", "opus", s]).status, s).toBe(0);
-		for (const s of ["test-opus-1", "opusish", "haiku", "opus[200k]"])
-			expect(cli(["admits", "opus", s]).status, s).toBe(1);
+	it("admits on an overflow seat only the overflow alias and its current model's 1M spelling", () => {
+		for (const s of ["opus", "opus[1m]", "test-opus-2[1m]"])
+			expect(cli(["admits", s]).status, s).toBe(0);
+		for (const s of [
+			"test-opus-2",
+			"test-opus-1",
+			"opusish",
+			"haiku",
+			"opus[200k]",
+		])
+			expect(cli(["admits", s]).status, s).toBe(1);
 	});
 
 	it("settings prints the mode's writes as JSON", () => {
@@ -312,7 +319,7 @@ describe("the CLI half", () => {
 	it("an unknown mode or a missing argument exits 2", () => {
 		expect(cli(["nonsense"]).status).toBe(2);
 		expect(cli(["launch"]).status).toBe(2);
-		expect(cli(["admits", "opus"]).status).toBe(2);
+		expect(cli(["admits"]).status).toBe(2);
 		expect(cli(["settings", "extra"]).status).toBe(2);
 	});
 

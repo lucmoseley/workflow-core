@@ -413,16 +413,20 @@ keep_first() {
 # spelling rule, "" where it names none.
 alias_of() { node "$MODEL_TABLE" alias "$1"; }
 
-# Haiku gets an advisor; Opus and Fable do not. Deny-list, not allow-list
-# (mantahostels#1199): only a spelling KNOWN to run as one of those two is
-# skipped — any other defaults to getting an advisor, with a warning below
-# where the routing file does not know it as Haiku.
-wants_advisor() {
-  [[ $advisor -eq 1 ]] || return 1
+# advisor_class <spelling> — `none` for a spelling known to run as Opus or
+# Fable, `advisor` for one known as Haiku, `unknown` for any other. Deny-list,
+# not allow-list (mantahostels#1199): an unknown spelling gets an advisor, with
+# a warning below.
+advisor_class() {
   case "$(alias_of "$1")" in
-    opus | fable) return 1 ;;
+    opus | fable) echo none ;;
+    haiku) echo advisor ;;
+    *) echo unknown ;;
   esac
-  return 0
+}
+
+wants_advisor() {
+  [[ $advisor -eq 1 ]] && [[ "$(advisor_class "$1")" != none ]]
 }
 
 # --- interop probe and kernel-stall check ---------------------------------
@@ -495,7 +499,7 @@ set -- "${remapped[@]}"
 if [[ $overflow -eq 1 ]]; then
   for ((i = 1; i <= $#; i += 2)); do
     m="${!i}"
-    node "$MODEL_TABLE" admits opus "$m" || {
+    node "$MODEL_TABLE" admits "$m" || {
       printf 'REFUSED: %s is an overflow seat, which launches Opus alone (#1920); %q is not.\n' \
         "$seat_label" "$m" >&2
       exit 2
@@ -584,13 +588,10 @@ set_wants_advisor=0
 unknown_models=()
 for ((i = 1; i <= $#; i += 2)); do
   m="${!i}"
-  if wants_advisor "$m"; then set_wants_advisor=1; fi
-  if [[ $advisor -eq 1 ]]; then
-    case "$(alias_of "$m")" in
-      opus | fable | haiku) ;;
-      *) unknown_models+=("$m") ;;
-    esac
-  fi
+  [[ $advisor -eq 1 ]] || continue
+  class="$(advisor_class "$m")"
+  [[ $class == none ]] || set_wants_advisor=1
+  [[ $class == unknown ]] && unknown_models+=("$m")
 done
 
 # Printed before the allowance gate so a REFUSED run still reports an

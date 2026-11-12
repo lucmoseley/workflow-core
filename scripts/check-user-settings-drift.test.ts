@@ -172,12 +172,19 @@ describe("the routed keys, judged against the routing file's current mode", () =
 		);
 	});
 
-	it("never reads model or modelSettings off the snapshot, even where it still carries them", () => {
-		const { status } = run(
+	it("reports a snapshot that still carries model or modelSettings, and judges them only against the routing file", () => {
+		const { status, out } = run(
 			{ theme: "dark", model: "stale", modelSettings: {} },
 			{ theme: "dark" },
 		);
-		expect(status).toBe(0);
+		expect(status).toBe(1);
+		expect(out).toContain(
+			"model: present in doc, which leaves it to the routing file",
+		);
+		expect(out).toContain(
+			"modelSettings: present in doc, which leaves it to the routing file",
+		);
+		expect(out).not.toContain('"stale"');
 	});
 
 	it("still reports drift in another key alongside", () => {

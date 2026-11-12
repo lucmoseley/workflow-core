@@ -95,7 +95,7 @@ const typeOf = (v) => {
  * @param {any} a
  * @param {any} b
  * @param {string} at
- * @param {Report} out
+ * @param {Report} out accumulator: each differing leaf's line is pushed to `lines`; `side` names the expected side
  */
 function diffObject(a, b, at, out) {
 	for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
@@ -114,7 +114,7 @@ function diffObject(a, b, at, out) {
  * @param {any} a
  * @param {any} b
  * @param {string} at
- * @param {Report} out
+ * @param {Report} out accumulator: each differing leaf's line is pushed to `lines`; `side` names the expected side
  */
 function diffArray(a, b, at, out) {
 	// Order matters in these settings (deny lists are read as ordered), so
@@ -140,7 +140,7 @@ function diffArray(a, b, at, out) {
  * @param {any} a  the expected side — the doc's snapshot, or the routing file's writes — at this level
  * @param {any} b  the live settings, at this level
  * @param {string} [at]  dotted path to this level, for the report
- * @param {Report} [out]
+ * @param {Report} [out]  accumulator: each differing leaf's line is pushed to `lines`; `side` names the expected side
  * @returns {string[]}
  */
 function diff(a, b, at = "", out = { side: "doc", lines: [] }) {
@@ -366,8 +366,12 @@ runCheck({
 		} catch (e) {
 			ctx.broken(`the routing file will not load: ${caught(e).message}`);
 		}
+		const [docRest, docRouted] = splitRouted(docJson);
 		const settingsDiffs = [
-			...diff(splitRouted(docJson)[0], liveRest),
+			...Object.keys(docRouted).map(
+				(k) => `${k}: present in doc, which leaves it to the routing file`,
+			),
+			...diff(docRest, liveRest),
 			...routedDiffs,
 		];
 

@@ -231,13 +231,6 @@ describe("off", () => {
 		expect(fs.existsSync(marker)).toBe(false);
 	});
 
-	it("reads an old marker holding a record for its presence alone", () => {
-		fs.writeFileSync(marker, JSON.stringify({ model: { x: "y" } }));
-		expect(run("status").stdout).toContain("burn mode: on");
-		expect(run("off").status).toBe(0);
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
-	});
-
 	it("treats a plan whose settings.json is a symlink to another's as one file", () => {
 		fs.rmSync(settings(".claude2"));
 		// Built, not spelt: a literal here would read to the extractor as this

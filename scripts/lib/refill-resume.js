@@ -22,7 +22,7 @@ const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 const { buildCarriedNote } = require("./carry-job-files.js");
-const { relaunchFlags } = require("./model-table.js");
+const { modelFlag, relaunchFlags } = require("./model-table.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -552,14 +552,12 @@ function resumeSteps(io) {
 		if (!saved) return [];
 		const moved = relaunchFlags(saved, io.burnOn());
 		if (moved === saved) return [];
-		const at = moved.findIndex((f) => f.startsWith("--model"));
-		const to = moved[at]?.includes("=")
-			? (moved[at] ?? "").slice("--model=".length)
-			: (moved[at + 1] ?? "");
-		log(`${sessionId} wakes on ${to}, not its saved routed-away model (#4992)`);
-		return moved[at]?.includes("=")
-			? [moved[at] ?? ""]
-			: moved.slice(at, at + 2);
+		const found = modelFlag(moved);
+		if (!found) return [];
+		log(
+			`${sessionId} wakes on ${found.model}, not its saved routed-away model (#4992)`,
+		);
+		return moved.slice(found.at, found.at + found.width);
 	}
 
 	/**
