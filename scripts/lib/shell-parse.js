@@ -1330,19 +1330,26 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars
- * `harvested` is left out: bareMentions counts the whole command's words, so
- * the count must span a subshell's `)` too. */
+/** The scope fields a subshell's `)` hands back, the one list copyVars and
+ * restoreVars walk. `harvested` is left out: bareMentions counts the whole
+ * command's words, so the count must span a subshell's `)` too. */
+const VAR_KEYS = /** @type {const} */ (["locals", "dead", "exported"]);
+
+/** @typedef {Pick<Scope, (typeof VAR_KEYS)[number]>} ScopeVars */
 
 /**
  * @param {Scope} scope
  * @returns {ScopeVars} a copy of its variables
  */
-const copyVars = (scope) => ({
-	locals: new Map(scope.locals),
-	dead: new Set(scope.dead),
-	exported: new Set(scope.exported),
-});
+const copyVars = (scope) =>
+	/** @type {ScopeVars} */ (
+		Object.fromEntries(
+			VAR_KEYS.map((key) => {
+				const held = scope[key];
+				return [key, held instanceof Map ? new Map(held) : new Set(held)];
+			}),
+		)
+	);
 
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
@@ -1385,12 +1392,15 @@ function closeScope(walk) {
  * @param {ScopeVars} back
  */
 function restoreVars(scope, back) {
-	scope.locals.clear();
-	for (const [name, val] of back.locals) scope.locals.set(name, val);
-	scope.dead.clear();
-	for (const name of back.dead) scope.dead.add(name);
-	scope.exported.clear();
-	for (const name of back.exported) scope.exported.add(name);
+	for (const key of VAR_KEYS) {
+		const into = scope[key];
+		const from = back[key];
+		into.clear();
+		if (into instanceof Map && from instanceof Map)
+			for (const [name, val] of from) into.set(name, val);
+		else if (into instanceof Set)
+			for (const name of from.keys()) into.add(name);
+	}
 }
 
 /** A `NAME=value` word: the name, then the value. */
