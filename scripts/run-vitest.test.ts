@@ -2069,6 +2069,58 @@ describe("the per-run in-flight file", () => {
 	});
 });
 
+describe("vitest's own temp dir (#5108)", () => {
+	/* vitest's process makes `<tmpdir>/<nanoid>` holding `client/` and
+	 * `ssr/`, and removes it only in its own `close()`. */
+	it("goes with a run killed before vitest's close, and never lands in the real temp dir", async () => {
+		const root = repo();
+		const real = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-own-tmp-"));
+		vi.stubEnv("TMPDIR", real);
+		let cacheDir = "";
+		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+		try {
+			await main([SHARED_FLAG], {
+				spawnFn: (
+					_bin: string,
+					_args: string[],
+					opts: { env: Record<string, string> },
+				) => {
+					cacheDir = path.join(opts.env.TMPDIR, "V1StGXR8_Z5jdHi6B-myT");
+					fs.mkdirSync(path.join(cacheDir, "client"), { recursive: true });
+					fs.mkdirSync(path.join(cacheDir, "ssr"));
+					const child = new EventEmitter() as EventEmitter & {
+						stdout: PassThrough;
+						stderr: PassThrough;
+					};
+					child.stdout = new PassThrough();
+					child.stderr = new PassThrough();
+					/* SIGKILLed mid-suite: no `close()` of vitest's ran. */
+					queueMicrotask(() => {
+						child.stdout.end();
+						child.stderr.end();
+						child.emit("exit", null, "SIGKILL");
+						child.emit("close", null);
+					});
+					return child;
+				},
+				root,
+				killCarrier: () => true,
+			});
+		} finally {
+			stdout.mockRestore();
+		}
+		expect(path.dirname(cacheDir)).not.toBe(real);
+		expect(path.basename(path.dirname(cacheDir))).toMatch(
+			new RegExp(`^wfc-vitest-${process.pid}-`),
+		);
+		expect(fs.existsSync(cacheDir)).toBe(false);
+		const dirsLeft = fs
+			.readdirSync(real, { withFileTypes: true })
+			.filter((e) => e.isDirectory());
+		expect(dirsLeft).toEqual([]);
+	});
+});
+
 /** A git and vitest whose answers change when `move()` is called. */
 const world = (
 	before: { changed: string[]; selects: string[] },

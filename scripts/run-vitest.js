@@ -120,7 +120,12 @@ const {
 	killPid,
 	sweepAtStart,
 } = require("./lib/suite-ceiling.js");
-const { sweepDeadRunRoots } = require("./lib/run-temp-root.js");
+const { caught } = require("./lib/caught.js");
+const {
+	makeRunRoot,
+	removeRunRoot,
+	sweepDeadRunRoots,
+} = require("./lib/run-temp-root.js");
 const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
@@ -450,8 +455,9 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
  * `cached` is the pass store's hand-off (#4790): this run's alone, so an
  * inherited one never reaches a run that looked nothing up.
  * `startMark` the run's start on the change-time clock (lib/tree-drift.js's
- * `markStart`), null where none was taken.
- * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null }} run
+ * `markStart`), null where none was taken. `tmpRoot` the run's `TMPDIR`,
+ * null where it keeps the parent's.
+ * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null }} run
  */
 function vitestEnv({
 	inflightFile,
@@ -461,6 +467,7 @@ function vitestEnv({
 	base,
 	cached,
 	startMark,
+	tmpRoot,
 }) {
 	/* The deadline file is this run's alone: a runner a test drives inside
 	 * vitest would otherwise overwrite it, then remove it, disarming bg-run's
@@ -486,6 +493,7 @@ function vitestEnv({
 			base,
 		}),
 		...(process.stdout.isTTY ? { FORCE_COLOR: "1" } : {}),
+		...(tmpRoot === null ? {} : { TMPDIR: tmpRoot }),
 		/* Taken before vitest reads its config, which a run keys rows on too
 		 * (#5018); an inherited one, earlier still, stands where none is. */
 		...(startMark === null ? {} : { [START_MARK_ENV]: String(startMark) }),
@@ -779,6 +787,7 @@ function runOnce(
 		 * before the spawn, so no signal lands between it and them. */
 		armSignals();
 		heldRuns.set(inflightFile, killCarrier);
+		const tmpRoot = openRunRoot(err);
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
 			bin,
@@ -794,6 +803,7 @@ function runOnce(
 					base: readRunBase(weighed, plan, root, expandOptions.execFn),
 					cached,
 					startMark: markStart(root),
+					tmpRoot,
 				}),
 				detached: true,
 			},
@@ -969,6 +979,7 @@ function runOnce(
 			if (settled) return;
 			settled = true;
 			heldRuns.delete(inflightFile);
+			dropRunRoot(tmpRoot, err);
 			dropCached();
 			disarm();
 			held.release();
@@ -1033,6 +1044,49 @@ const heldWorktrees = new Set();
  * kills on a signal (#3494), and its run's kill. */
 /** @type {Map<string, typeof killPid>} */
 const heldRuns = new Map();
+/* Each live run's temp root, which `releaseRunsAndWorktrees` removes on a
+ * signal. */
+/** @type {Set<string>} */
+const heldRoots = new Set();
+
+/**
+ * A temp root for one vitest child, its `TMPDIR`. vitest's own process makes
+ * its cache dir at `<tmpdir>/<nanoid>` and removes it only in `close()`, which
+ * a killed run never reaches (#5108); under this root, the wrapper removes it
+ * however the run ends, and the next wrapper start sweeps a SIGKILLed
+ * wrapper's. Null where the root will not make: vitest then runs on the real
+ * temp root.
+ * @param {Writer} err
+ * @returns {string|null}
+ */
+function openRunRoot(err) {
+	try {
+		const root = makeRunRoot("vitest");
+		heldRoots.add(root);
+		return root;
+	} catch (error) {
+		err.write(
+			`run-vitest: no temp root for this run (${caught(error).message}); vitest's cache dir stays in ${os.tmpdir()} if it is killed\n`,
+		);
+		return null;
+	}
+}
+
+/**
+ * @param {string|null} root `openRunRoot`'s, null where it made none
+ * @param {Writer} err
+ */
+function dropRunRoot(root, err) {
+	if (root === null) return;
+	heldRoots.delete(root);
+	try {
+		removeRunRoot(root);
+	} catch (error) {
+		err.write(
+			`run-vitest: ${root} would not go (${caught(error).message}); a later wrapper start removes it\n`,
+		);
+	}
+}
 
 /**
  * What a signal to this process takes down before its queue seats leave:
@@ -1051,6 +1105,8 @@ function releaseRunsAndWorktrees() {
 			/* A lost line must not strand the removals below (#3585). */
 		}
 	}
+	for (const root of heldRoots)
+		dropRunRoot(root, { write: (s) => writeFd(2, s) });
 	for (const held of heldWorktrees) {
 		try {
 			removeIsolated(held.root, held.dir);
