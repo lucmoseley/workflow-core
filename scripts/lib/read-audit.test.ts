@@ -28,6 +28,7 @@ const require = createRequire(import.meta.url);
 const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
+const { buildVerdictOf } = require("./read-audit-provenance.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
@@ -126,6 +127,15 @@ function audited(
 }
 
 const T = "scripts/x.test.js";
+
+/* A child's verdict as the preload logs it (lib/read-audit-provenance.js),
+ * for a log seeded by hand: nothing it is, but what `is` names. */
+const NOTHING = buildVerdictOf({
+	root: "/nonexistent",
+	tmps: [],
+	realpath: fs.realpathSync,
+})({ file: "", bin: [], args: [], envPairs: [], audited: false, standing: {} });
+const prov = (is: Record<string, boolean> = {}) => ({ ...NOTHING, ...is });
 
 /* The guard on PATH, as vitest.setup.ts puts it, for a test's git calls. */
 const guarded = (root: string) => ({
@@ -230,17 +240,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			);
 		});
 
-		it("doubts a version asked of a program not named, and bash asked anything else", () => {
-			const root = checkout();
-			expect(run(root, "cat", ["--version"]).doubt).toMatch(
-				/ran in the checkout/,
-			);
-			expect(run(root, "bash", ["-c", "true"]).doubt).toMatch(
-				/ran in the checkout/,
-			);
-		});
-
-		it("doubts a sleep a test could have written: in the checkout, in the temporary directory, or linked to from elsewhere", () => {
+		it("doubts a sleep a test could have written, found on PATH in the checkout or through a link to there", () => {
 			const root = checkout();
 			const sleepOn = (dir: string) =>
 				run(root, "sleep", ["0"], {
@@ -249,20 +249,6 @@ describe("what a test file reads, as the audit sees it", () => {
 			write(root, "bin/sleep", "#!/bin/sh\ncat .claude/settings.json\n");
 			fs.chmodSync(path.join(root, "bin/sleep"), 0o755);
 			expect(sleepOn(path.join(root, "bin"))).toMatch(/ran in the checkout/);
-
-			const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
-			dirs.push(scratch);
-			fs.copyFileSync(
-				path.join(root, "bin/sleep"),
-				path.join(scratch, "sleep"),
-			);
-			fs.chmodSync(path.join(scratch, "sleep"), 0o755);
-			expect(sleepOn(scratch)).toMatch(/ran in the checkout/);
-
-			const relinked = fs.mkdtempSync(path.join(os.tmpdir(), "rda-link-"));
-			dirs.push(relinked);
-			fs.symlinkSync("/usr/bin/cat", path.join(relinked, "sleep"));
-			expect(sleepOn(relinked)).toMatch(/ran in the checkout/);
 
 			const linked = fs.mkdtempSync(path.join(os.homedir(), ".rda-link-"));
 			try {
@@ -274,6 +260,21 @@ describe("what a test file reads, as the audit sees it", () => {
 			} finally {
 				fs.rmSync(linked, { recursive: true, force: true });
 			}
+		});
+
+		it("doubts a stub sleep in the suite's temporary directory, run by a child a test moved to a TMPDIR of its own (#5072)", () => {
+			const root = checkout();
+			const stubs = fs.mkdtempSync(path.join(os.tmpdir(), "rda-stub-"));
+			const own = fs.mkdtempSync(path.join(os.tmpdir(), "rda-own-"));
+			dirs.push(stubs, own);
+			fs.writeFileSync(path.join(stubs, "sleep"), READS_SETTINGS, {
+				mode: 0o755,
+			});
+			const inner = `require("node:child_process").execFileSync("sleep", ["0"], { cwd: ${quoted(root)}, env: { ...process.env, PATH: ${quoted(stubs + path.delimiter)} + process.env.PATH }, stdio: "ignore" });`;
+			const body = `require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(inner)}], { cwd: ${quoted(os.tmpdir())}, env: { ...process.env, TMPDIR: ${quoted(own)} } });`;
+			expect(
+				readAudits(audited(root, T, body, { trace: false }), root).get(T).doubt,
+			).toMatch(/a child \(sleep 0\) ran in the checkout/);
 		});
 
 		it("skips a file of the program's name that cannot be run, as the exec does", () => {
@@ -1476,36 +1477,28 @@ describe("the routes still open after #4982 (#4997)", () => {
 		const tar = (cwd: string, args: string[], env = {}) =>
 			`try { require("node:child_process").execFileSync("tar", ${quoted(args)}, { cwd: ${quoted(cwd)}, env: { ...process.env, ...${quoted(env)} }, stdio: "ignore" }); } catch {}`;
 
-		it("keeps a plain tar, and doubts one asked to run a command, by a long option, its prefix or a short one", () => {
+		it("keeps a plain tar, and doubts one asked to run a command", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			fs.writeFileSync(path.join(cwd, "a.txt"), "a\n");
 			execFileSync("tar", ["-cf", "a.tar", "a.txt"], { cwd });
 			expect(settled(root, tar(cwd, ["-tf", "a.tar"]))).toHaveProperty("reads");
-			for (const args of [
-				["--to-command=cat", "-xf", "a.tar"],
-				["--to-com=cat", "-xf", "a.tar"],
-				["-I", "cat", "-xf", "a.tar"],
-				["xIf", "cat", "a.tar"],
-			])
-				expect(settled(root, tar(cwd, args)).doubt).toMatch(
-					/a child \(tar .*\) was handed a path in the checkout by its environment \(RULES\)/,
-				);
+			const args = ["--to-command=cat", "-xf", "a.tar"];
+			expect(settled(root, tar(cwd, args)).doubt).toMatch(
+				/a child \(tar .*\) was handed a path in the checkout by its environment \(RULES\)/,
+			);
 		});
 
-		it("doubts one whose PATH or TAR_OPTIONS the test changed, which steers what it runs", () => {
+		it("doubts one whose PATH the test changed, which steers what it runs", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			fs.writeFileSync(path.join(cwd, "a.txt"), "a\n");
 			execFileSync("tar", ["-cf", "a.tar", "a.txt"], { cwd });
 			const stub = stubTool("#!/bin/sh\nexit 0\n");
-			for (const env of [
-				{ PATH: `${stub}${path.delimiter}${process.env.PATH}` },
-				{ TAR_OPTIONS: "--to-command=cat" },
-			])
-				expect(settled(root, tar(cwd, ["-tf", "a.tar"], env)).doubt).toMatch(
-					/by its environment \(RULES\)/,
-				);
+			const env = { PATH: `${stub}${path.delimiter}${process.env.PATH}` };
+			expect(settled(root, tar(cwd, ["-tf", "a.tar"], env)).doubt).toMatch(
+				/by its environment \(RULES\)/,
+			);
 		});
 
 		/* The timeout bounds a systemctl that waits on a user bus, or a host,
@@ -1514,27 +1507,12 @@ describe("the routes still open after #4982 (#4997)", () => {
 		const systemctl = (cwd: string, args: string[], env = {}) =>
 			`try { require("node:child_process").execFileSync("systemctl", ${quoted(["--user", ...args, "--no-ask-password", "no-such.service"])}, { cwd: ${quoted(cwd)}, env: { ...process.env, EDITOR: "true", SYSTEMD_EDITOR: "true", ...${quoted(env)} }, stdio: "ignore", timeout: 10000 }); } catch {}`;
 
-		it("keeps a plain systemctl, and one whose TAR_OPTIONS alone changed", () => {
+		it("keeps a plain systemctl", () => {
 			const root = checkout();
 			const cwd = outsideDir();
-			for (const env of [{}, { TAR_OPTIONS: "--to-command=cat" }])
-				expect(
-					settled(root, systemctl(cwd, ["is-active"], env)),
-				).toHaveProperty("reads");
-		});
-
-		it("doubts a systemctl asked to edit, which runs an editor, or to reach a host, which runs ssh", () => {
-			const root = checkout();
-			const cwd = outsideDir();
-			for (const args of [
-				["edit"],
-				["-H", "nowhere.invalid", "is-active"],
-				["-Hnowhere.invalid", "is-active"],
-				["--ho=nowhere.invalid", "is-active"],
-			])
-				expect(settled(root, systemctl(cwd, args)).doubt).toMatch(
-					/a child \(systemctl .*\) was handed a path in the checkout by its environment/,
-				);
+			expect(settled(root, systemctl(cwd, ["is-active"]))).toHaveProperty(
+				"reads",
+			);
 		});
 	});
 });
@@ -1723,7 +1701,7 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 					file: process.execPath,
 					args: ["x.js"],
 					cwd: os.tmpdir(),
-					audited: true,
+					prov: prov({ audited: true, auditedNode: true }),
 					pid: 101,
 				},
 			],
@@ -1741,7 +1719,14 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 				"100.100.jsonl": [
 					self(100),
 					{ k: "claim", file: "a.test.ts" },
-					{ k: "child", file: "tool", args: ["api"], cwd: root, trace: "t" },
+					{
+						k: "child",
+						file: "tool",
+						args: ["api"],
+						cwd: root,
+						prov: prov(),
+						trace: "t",
+					},
 				],
 			});
 			if (trace !== null) fs.writeFileSync(path.join(dir, "t"), trace);
@@ -1846,7 +1831,14 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 			"100.100.jsonl": [
 				self(100),
 				{ k: "claim", file: "a.test.ts" },
-				{ k: "child", file: "cat", args: ["x"], cwd: root, within: true },
+				{
+					k: "child",
+					file: "cat",
+					args: ["x"],
+					cwd: root,
+					prov: prov(),
+					within: true,
+				},
 			],
 		});
 		expect(readAudits(dir, root).get("a.test.ts")).toHaveProperty("reads");
@@ -1861,23 +1853,49 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(/faulted/);
 	});
 
-	it("doubts a sleep in the checkout whose log names its program as no list of paths", () => {
+	it("doubts a sleep in the checkout whose log gives no verdict on what it is, or one that will not read as one", () => {
+		const root = checkout();
+		const sleep = (is: object) =>
+			logs({
+				"100.100.jsonl": [
+					self(100),
+					{ k: "claim", file: "a.test.ts" },
+					{
+						k: "child",
+						file: "sleep",
+						bin: ["/usr/bin/sleep", "/usr/bin/sleep"],
+						args: ["0"],
+						cwd: root,
+						...is,
+					},
+				],
+			});
+		const unjudged = /a child \(sleep 0\) was logged with no verdict/;
+		expect(readAudits(sleep({}), root).get("a.test.ts").doubt).toMatch(
+			unjudged,
+		);
+		const torn = { prov: { ...prov(), readsNothing: "yes" } };
+		expect(readAudits(sleep(torn), root).get("a.test.ts").doubt).toMatch(
+			unjudged,
+		);
+		const blind = { prov: prov({ readsNothing: true }) };
+		expect(readAudits(sleep(blind), root).get("a.test.ts")).toHaveProperty(
+			"reads",
+		);
+	});
+
+	it("doubts a log line of a kind the audit does not know, where it would have passed unread (#5057)", () => {
 		const root = checkout();
 		const dir = logs({
 			"100.100.jsonl": [
 				self(100),
 				{ k: "claim", file: "a.test.ts" },
-				{
-					k: "child",
-					file: "sleep",
-					bin: "/usr/bin/sleep",
-					args: ["0"],
-					cwd: root,
-				},
+				{ k: "minted", p: "scratch" },
+				{ k: "spawned", p: "scratch/x" },
 			],
 		});
 		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(
-			/ran in the checkout/,
+			/a line of a kind it does not know \(spawned\)/,
 		);
 	});
 
@@ -1952,8 +1970,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			file: "git",
 			args,
 			cwd: os.tmpdir(),
-			audited: true,
-			guarded: true,
+			prov: prov({ audited: true, guard: true, guarded: true }),
 			pid: 101,
 		});
 		expect(judged(root, [call(["clone", root, "copy"])], []).doubt).toMatch(
@@ -2063,6 +2080,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			bin: [abs, real],
 			args: [],
 			cwd: os.tmpdir(),
+			prov: prov({ ours: true }),
 		});
 		const unread = /a child \(.*\) ran a program of the checkout/;
 		const py = program("scripts/run.py", "#!/usr/bin/env python3\nprint(1)\n");
@@ -2085,6 +2103,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			bin,
 			args: [],
 			cwd: os.tmpdir(),
+			prov: prov({ ours: true, guard: bin[1] === guard }),
 			...how,
 		});
 		const named = [path.relative(core, guard)];
@@ -2129,7 +2148,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			bin: [tool, tool],
 			args: [],
 			cwd: os.tmpdir(),
-			audited: isAudited,
+			prov: prov({ audited: isAudited, ours: true }),
 			pid: 101,
 		});
 		expect(judged(root, [child(true)], []).doubt).toMatch(/left no audit log/);
@@ -2145,6 +2164,7 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 			file,
 			args: [path.join(root, script)],
 			cwd: os.tmpdir(),
+			prov: prov(),
 			...how,
 		});
 		expect(

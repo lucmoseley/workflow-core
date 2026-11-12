@@ -6,8 +6,6 @@
  * preload loads already.
  */
 
-const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { relativeUnder } = require("./is-under.js");
 
@@ -35,27 +33,9 @@ function repoPath(root, abs) {
 	return posix.split("/").includes("node_modules") ? null : posix;
 }
 
-/**
- * The temporary directory with its links followed.
- * @param {(p: string) => string} [realpath] the preload hands in the
- *   `realpathSync` it does not wrap
- */
-const readRealTmpdir = (realpath = fs.realpathSync) => realpath(os.tmpdir());
-
 /* The event the preload appends to a git child's event log once that git
  * has exited, naming its pid (lib/read-audit-git-events.js). */
 const EXITED = "wfc_exited";
-
-/* The variables a program lib/read-audit.js passes as reading none heeds
- * to find what it runs by name or with what options: `tar` its compressor
- * on `PATH` and its options off `TAR_OPTIONS`; `systemctl` its editor and
- * ssh on `PATH`; `biome` the node its `#!/usr/bin/env node` finds there
- * (#4997). */
-const STEERED_BY = new Map([
-	["tar", ["PATH", "TAR_OPTIONS"]],
-	["systemctl", ["PATH"]],
-	["biome", ["PATH"]],
-]);
 
 /* Linux's PATH_MAX: a longer piece is no path the kernel would take. */
 const PATH_MAX = 4096;
@@ -128,41 +108,17 @@ function parseStanding(text) {
  * audit hands each git itself. */
 const GIT_EVENTS = "GIT_TRACE2_EVENT";
 
-/* The git guard the suites put on every test's `PATH` (#3161). */
-const GUARD = path.join(__dirname, "host-git-guard", "git");
-
-/**
- * The test of whether a program, named with its links followed, is the git
- * guard: the one file `GUARD` names.
- * @param {(p: string) => string} [realpath] as `readRealTmpdir`'s
- * @returns {(real: string|undefined) => boolean}
- */
-function buildGuardTest(realpath = fs.realpathSync) {
-	/** @type {string|null} */
-	let guard = null;
-	try {
-		guard = realpath(GUARD);
-	} catch {
-		// No guard stands beside this library, so no program is it (#4790).
-	}
-	return (real) => real === guard;
-}
-
 module.exports = {
 	parseStanding,
-	buildGuardTest,
 	GIT_EVENTS,
 	GIT_READS,
 	GIT_ANSWER_VARS,
 	GIT_VALUED,
-	GUARD,
 	EXITED,
 	isNode,
 	PATH_MAX,
 	pairValue,
-	readRealTmpdir,
 	repoPath,
 	SHOWN_MAX,
-	STEERED_BY,
 	toPosix,
 };
