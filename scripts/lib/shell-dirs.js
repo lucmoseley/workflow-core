@@ -2,8 +2,9 @@
  * shell-dirs.js — the directory model: every directory a command may stand in after the moves
  * made before it, each move handed in already classified and its directory
  * word already resolved (#5074). The walk's `cd`s, a wrapper's directory and a
- * `-c` string's `cd` all step one state through stepDirs. A `-c` string still
- * labels its chained `cd` itself, `always` until its chain ends (#5082).
+ * `-c` string's `cd` all step one state through stepDirs. Residual: a `-c`
+ * string labels its chained `cd` itself, `always` until its chain ends
+ * (#5082).
  */
 
 /**
@@ -36,7 +37,7 @@
  * @typedef {object} DirsState
  * @property {Dirs} dirs
  * @property {string[]} pending where a `&&` chain's moves may not have been
- *   made, which nothing in the chain stands in
+ *   made
  * @property {Set<string>} went where the move before may have gone
  */
 
@@ -65,7 +66,7 @@ function moveDir(at, resolved) {
  * The state after one move: each directory moved, and each it is not sure to
  * hold also left unmade (#4980) — one an `afterFailed` move makes from where
  * the move before went, or from anywhere where that one went somewhere
- * unnamed. A chained move's unmade wait in `pending`.
+ * unnamed.
  * @param {DirsState} state
  * @param {Move} move
  * @param {(path: string) => boolean} isDir
@@ -74,16 +75,22 @@ function moveDir(at, resolved) {
 function stepDirs(state, move, isDir) {
 	const left = move.afterFailed ? state.went : new Set();
 	const unsure = left.has("");
+	/** @param {string} from */
+	const step = (from) => {
+		const at = moveDir(from, move.resolved);
+		const held =
+			at === from ||
+			(!unsure && !left.has(from) && holdsAt(move.holds, at, isDir));
+		return { from, at, held };
+	};
 	const [head, ...tail] = state.dirs;
-	/** @param {string} from */
-	const to = (from) => moveDir(from, move.resolved);
-	/** @param {string} from */
-	const held = (from) =>
-		to(from) === from ||
-		(!unsure && !left.has(from) && holdsAt(move.holds, to(from), isDir));
+	const headStep = step(head);
+	const tailSteps = tail.map(step);
+	const unmade = [headStep, ...tailSteps]
+		.filter((s) => !s.held)
+		.map((s) => s.from);
 	/** @type {Dirs} */
-	const moved = [to(head), ...tail.map(to)];
-	const unmade = state.dirs.filter((from) => !held(from));
+	const moved = [headStep.at, ...tailSteps.map((s) => s.at)];
 	const [first, ...rest] = moved;
 	return {
 		dirs: distinct(first, move.chained ? rest : [...rest, ...unmade]),

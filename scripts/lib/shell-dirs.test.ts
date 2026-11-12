@@ -77,7 +77,7 @@ describe("stepDirs", () => {
 		});
 	});
 
-	it("settles a chain's unmade once, off the first", () => {
+	it("settles a chain's pending into the dirs once, without repeats (#5074)", () => {
 		const twice = [
 			to("/nope", "if-dir", { chained: true }),
 			to("/h", "maybe", { chained: true }),

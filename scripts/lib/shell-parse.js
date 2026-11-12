@@ -1280,11 +1280,10 @@ function harvest(walk, words, segIdx) {
 }
 
 /**
- * Read where a `cd`, or a command that losesCwd, moves the cwd, keeping the names and
- * words that record it. Followed:
- * `cd <path>`, and `cd ""`, which stays put (#301). Made unknown: `cd -` and
- * any other flag, a bare `cd`, `pushd`, `popd`, `builtin cd` and
- * `command cd`.
+ * Read where a `cd`, or a command that losesCwd, moves the cwd, keeping the
+ * names and words that record it. Followed: `cd <path>`, and `cd ""`, which
+ * stays put (#301). Made unknown: `cd -` and any other flag, a bare `cd`,
+ * `pushd`, `popd`, `builtin cd` and `command cd`.
  * @param {Walk} walk accumulator: its cwd names and lost words are moved
  * @param {string[]} words
  * @returns {import("./shell-dirs.js").Resolved}
