@@ -6,7 +6,9 @@
  * ports; lib/anthropic-report-host.js builds the real ones.
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
- * fail-open, which is logged and lets the whole call through unjudged.
+ * fail-open, which is logged and lets the whole call through unjudged — bar a
+ * clone directory it cannot name, which waits for the walk to end with no
+ * deny (#5067).
  *
  * NARROWED by its lib/guard-cores.json row to `if: Bash(*gh *)`, unanchored so
  * a `timeout`/`env`/`nohup` prefix still reaches the walker that steps past it
@@ -76,7 +78,12 @@ const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
  * @property {string | null} exported an earlier `export GH_REPO=…` in the
  *   same command, which the walk's own assignment harvest does not see: ""
  *   where none, null where one was set but cannot be read
+ * @property {boolean} unsettled a gh write may run in a directory the guard
+ *   cannot name, its fail-open held until the walk ends with no deny
  */
+
+const UNSETTLED =
+	"could not tell which directory a gh write runs in — its clone's remotes unchecked for an Anthropic repo";
 
 /**
  * @param {string} command
@@ -85,8 +92,15 @@ const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
  */
 function decide(command, ctx) {
 	/** @type {Run} */
-	const run = { parsed: parseCommand(command), ctx, exported: "" };
-	return walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx) ?? null;
+	const run = {
+		parsed: parseCommand(command),
+		ctx,
+		exported: "",
+		unsettled: false,
+	};
+	const verdict = walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx);
+	if (verdict === undefined && run.unsettled) ctx.log(UNSETTLED);
+	return verdict ?? null;
 }
 
 /**
@@ -157,10 +171,12 @@ function judge(run, cmd) {
 	for (const gh of ghWords(cmd.words, run.parsed.spans)) {
 		/* The run's `env` assignments lead it as the segment's own do, and it
 		 * stands wherever its wrappers' and `-c` string's moves put it. */
+		const cwds = runCwd(cmd.cwds, gh.chdirs, run.parsed.spans, run.ctx.isDir);
 		const at = {
 			...cmd,
 			leading: [...cmd.leading, ...gh.wrapperWords],
-			cwds: runCwd(cmd.cwds, gh.chdirs, run.parsed.spans, run.ctx.isDir),
+			cwd: cwds[0],
+			cwds,
 		};
 		const group = captured(run, gh.args[0] ?? "");
 		if (group === "issue" || group === "pr") judgeFlagForm(run, at, group, gh);
@@ -309,8 +325,8 @@ function ghRepoEnv(run, cmd) {
  * The anthropics repo a clone the command may run in has a remote on, each
  * directory in `cmd.cwds` its run's moves put it in; null where none has
  * one. ANY remote counts, gh choosing among them by rules the command does
- * not show. A directory it cannot name fails open, once every one it can has
- * been read.
+ * not show. A directory it cannot name marks the run unsettled, for decide to
+ * fail open on once no command is refused (#5067).
  * @param {Run} run
  * @param {Command} cmd
  */
@@ -322,11 +338,7 @@ function cloneRepo(run, cmd) {
 			if (anthropicRepo(url)) return repoSlug(url);
 		}
 	}
-	if (cmd.cwds.includes(""))
-		return open(
-			run.ctx,
-			"could not tell which directory a gh write runs in — its clone's remotes unchecked for an Anthropic repo",
-		);
+	if (cmd.cwds.includes("")) run.unsettled = true;
 	return null;
 }
 

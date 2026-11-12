@@ -7,7 +7,8 @@
  * Do not thin the refusal or allow cases.
  *
  * The clone's remotes are read by the host's own port, real git over a temp
- * clone; the entry's own cases — the JSON it prints, the hook line, the
+ * clone, bar the wrapper-move cases (#5067), whose port is faked: their
+ * directories need not exist, so each move stays in doubt. The entry's own cases — the JSON it prints, the hook line, the
  * failure policy — are guard-anthropic-report.test.ts's.
  */
 
@@ -250,7 +251,7 @@ describe("a write naming no repo, run inside a clone", () => {
 /* Only /srv/cc has an Anthropic remote; no path is a directory, so a move
  * that holds only where its directory exists may not have been made. */
 describe("a write naming no repo, from a directory a wrapper moves it to (#5067)", () => {
-	const stub = (command: string) =>
+	const movedVerdict = (command: string) =>
 		decide(
 			command,
 			kitContextFake({
@@ -273,18 +274,35 @@ describe("a write naming no repo, from a directory a wrapper moves it to (#5067)
 		`flock /tmp/l -c 'cd /srv/cc && gh issue create --title "x" --body "y"'`,
 		`flock /tmp/l -c 'cd /srv/cc; gh issue create --title "x" --body "y"'`,
 		`flock /tmp/l -c 'cd /srv/cc; cd /srv/other; gh issue create --title "x"'`,
-	])("refuses %s", (command) => {
-		expect(stub(command)).toBe("deny");
+		`flock /tmp/l -c 'cd "$D" || cd /srv/cc; gh issue create --title "x"'`,
+	])("refuses %s, from the clone its wrapper moves it to", (command) => {
+		expect(movedVerdict(command)).toBe("deny");
 	});
 
+	it.each([
+		'env -C "$D" gh issue create -t x; gh issue create --repo anthropics/claude-code -t y',
+		`flock /tmp/l -c 'cd "$D"; gh issue create -t x'; gh issue create -R anthropics/claude-code -t y`,
+	])(
+		"still refuses a later write naming an Anthropic repo, past one from a directory it cannot name: %s",
+		(command) => {
+			expect(movedVerdict(command)).toBe("deny");
+		},
+	);
+
 	it("allows it where every directory it may stand in is another repo's clone", () => {
-		expect(stub('gh issue create --title "x" --body "y"')).toBe("allow");
-		expect(stub('env -C /srv/other gh issue create --title "x"')).toBe("allow");
+		expect(movedVerdict('gh issue create --title "x" --body "y"')).toBe(
+			"allow",
+		);
+		expect(movedVerdict('env -C /srv/other gh issue create --title "x"')).toBe(
+			"allow",
+		);
 		expect(faults).toEqual([]);
 	});
 
 	it("fails open, recorded, on a move to a directory it cannot read", () => {
-		expect(stub('env -C "$D" gh issue create --title "x"')).toBe("allow");
+		expect(movedVerdict('env -C "$D" gh issue create --title "x"')).toBe(
+			"allow",
+		);
 		expect(faults).toEqual([
 			"could not tell which directory a gh write runs in — its clone's remotes unchecked for an Anthropic repo",
 		]);
