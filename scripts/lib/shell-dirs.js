@@ -32,8 +32,8 @@
  * @property {number} [depth] how many `{ … }` groups it runs inside, 0 where
  *   none (#5095)
  * @property {number} [settles] a `&&` chain ends after it, before the next
- *   move, this many groups deep: dirsAfter settles there each move as deep or
- *   deeper (#5082)
+ *   move, this many groups deep, 0 outside every group: dirsAfter settles
+ *   there each move as deep or deeper (#5082, #5095)
  */
 
 /**
@@ -109,14 +109,17 @@ function stepDirs(state, move, isDir) {
 
 /**
  * A `&&` chain's end `depth` groups deep: from here on, a move as deep or
- * deeper that opened a chain may not have been made. A chain a shallower move
- * opened runs on past the group's `}` (#5095).
+ * deeper that opened a chain may not have been made, the deepest settled
+ * first, as one chain end per group would settle them. A chain a shallower
+ * move opened runs on past the group's `}` (#5095).
  * @param {DirsState} state
  * @param {number} [depth]
  * @returns {DirsState}
  */
 function settleDirs(state, depth = 0) {
-	const ended = state.pending.filter((p) => p.depth >= depth);
+	const ended = state.pending
+		.filter((p) => p.depth >= depth)
+		.sort((a, b) => b.depth - a.depth);
 	if (ended.length === 0) return state;
 	const [first, ...rest] = state.dirs;
 	return {
