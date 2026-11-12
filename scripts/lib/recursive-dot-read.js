@@ -8,9 +8,8 @@
  * lib/recursive-dot-read-host.js.
  *
  * A SECOND LIMB, ON THE HEAVY TREES (#2060): a recursive `grep` or `rg`, a
- * `find`, or either under `watch`, whose root — resolved against where it runs,
- * past a `cd` or `env -C` (#5119) — is `node_modules`, `.next`, `.git` or
- * ignored build output, or a `find` or `grep` from the repo root, hands over
+ * `find`, or either under `watch`, whose root is `node_modules`, `.next`, `.git`
+ * or ignored build output, or a `find` or `grep` from the repo root, hands over
  * `rule:heavy-tree-search` once a session, beside any warning below. It never
  * refuses.
  *
@@ -105,13 +104,13 @@
  *    `find … -exec grep` are unjudged.
  *  - For `rg` the rewrite WIDENS the search. `rg PAT .` skips hidden
  *    directories by default, so naming `.claude` and `.github` explicitly makes
- *    rg read them. That is the same set grep already had.
+ *    rg read them.
  *  - The heavy-tree limb reads a root's last component, resolved against
- *    where the search runs, so a search inside one — `grep -rn PAT
- *    node_modules/vitest` — passes, unless it is a `.` standing there; a `..`
- *    is judged by its last component alone; so does
- *    a root behind a `cd` it cannot resolve, and a `find` from the
- *    repo root bounded by `-prune` or `-maxdepth`. `dist`, `build`, `out` and
+ *    where the search runs (#5119), so a search inside one — `grep -rn PAT
+ *    node_modules/vitest`, or a `..` reaching it — passes; only a `.` is
+ *    judged by every directory it stands in. A root behind a `cd` it cannot
+ *    resolve passes, as does a `find` from the repo root bounded by `-prune`
+ *    or `-maxdepth`. `dist`, `build`, `out` and
  *    `coverage` count only where git ignores them. A watcher other than `watch`
  *    — `inotifywait`, a bundler's `--watch` — is unjudged, and a single-word
  *    `watch` command is split on blanks, its own quoting unread.
@@ -198,8 +197,6 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(raw, ctx) {
-	/* Cheap pre-test before any of the machinery below: a command naming no
-	 * search cannot be one. */
 	if (!/grep|rg|find/.test(raw)) return null;
 	const mode = ctx.permissionMode ?? "";
 	if (!ctx.cwd) {
@@ -380,7 +377,6 @@ function expand(tree, ctx) {
 const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
 const HEAVY_TREES = ["node_modules", ".next", ".git"];
-/* Heavy only where git ignores them. */
 const BUILD_OUTPUT = ["dist", "build", "out", "coverage"];
 
 /**
@@ -396,10 +392,7 @@ function isInHeavyTree(dir, root) {
 
 /**
  * Whether a search root is node_modules, .next or .git by its last component,
- * or dist, build, out or coverage where git ignores it. A relative root is
- * judged resolved against where the search runs, so `cd node_modules && grep
- * -r PAT .` names the tree it reads (#5119); a root of `.` is also judged by
- * every directory it stands below, from the session tree's root down.
+ * or dist, build, out or coverage where git ignores it.
  * @param {Scene} scene
  * @param {string} word
  * @param {string} cwd "" where unknown

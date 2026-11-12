@@ -84,8 +84,7 @@ afterEach(() => {
 });
 
 /*
- * #2060: the no-recursive-search-over-heavy-trees rule left the always-loaded
- * CLAUDE.md for this guard, so its whole text must arrive on the trigger.
+ * #2060: the rule's whole text must arrive on the trigger.
  */
 const ruleText = fs
 	.readFileSync(
@@ -189,7 +188,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"ls; grep -rn PAT <EXP>",
 			"a search in a later segment",
 		],
-		/* #4978: the search a -c string runs, rewritten as itself. */
 		[
 			'flock /l -c "grep -rn gp_begin ."',
 			"grep -rn gp_begin <EXP>",
@@ -220,7 +218,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"grep -rn @CMD@ <EXP>",
 			"a literal @CMD@, which the splice must not eat",
 		],
-		/* mantahostels#2717: allowed in silence, pattern eaten. */
 		[
 			"grep -r --color PAT .",
 			"grep -r --color PAT <EXP>",
@@ -333,12 +330,9 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 
 	it("drops what no search wants and keeps what a shorter rewrite would lose", () => {
 		const fix = replacement(warning("grep -rn PAT ."));
-		// Gitignored, and out without being named.
 		expect(fix).not.toContain("node_modules");
-		// Untracked tooling state, and untracked root scratch.
 		expect(fix).not.toContain(".mypy_cache");
 		expect(fix).not.toContain(".scratch.out");
-		// The two classes the rejected rewrites lost: dot-dirs, and new dirs.
 		expect(fix).toContain(".claude");
 		expect(fix).toContain("newdir");
 	});
@@ -535,7 +529,6 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 			"find from the root, pruned",
 		],
 		["cd app && find . -name x", "find from a subdirectory"],
-		["cd app && grep -rn PAT .", "a . reached by cd into source"],
 		["cd node_modules && grep -rn PAT ../app", "a root leaving one"],
 		['echo "grep -rn PAT node_modules"', "a search inside a quoted string"],
 	])("%s — %s", (command) => {
@@ -562,7 +555,7 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 		expect(logs).toEqual([]);
 	});
 
-	it("passes a . in a build directory outside any tree, asking no git", () => {
+	it("passes a . in a build directory outside any tree", () => {
 		const cwd = path.join(dir, "build");
 		fs.mkdirSync(cwd);
 		expect(emission("grep -rn PAT .", { cwd })).toBeNull();

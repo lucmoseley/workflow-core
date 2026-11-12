@@ -47,7 +47,7 @@
 	"scripts/concision-backstop.sh": "33349018d7518cb6",
 	"scripts/cutover-main-checkout.js": "f3b4c7133e9b099a",
 	"scripts/guard-automode-refusal.js": "476cc47e473b56c3",
-	"scripts/guard-dispatch.js": "0a730938af982ac3",
+	"scripts/guard-dispatch.js": "a04cf13ceb9f2f25",
 	"scripts/guard-exhausted-map.js": "a8b52625b78c6dc4",
 	"scripts/guard-failed-call-rules.js": "2d868014eafbef7f",
 	"scripts/guard-held-ticket.js": "3e1b8f84ca95cbf6",
