@@ -51,12 +51,12 @@
  *  - It reads the PARSED command form for everything else, so a `cat`
  *    mentioned in an echo, a grep pattern or a heredoc body is not a read
  *    (lib/shell-parse.js).
- *  - Relative paths resolve against the walk's cwd — the payload's, moved by
- *    any `cd` before the dumper and by each directory its launchers move to
- *    (`env -C dir`, a `flock -c` string's `cd`), as lib/shell-words.js's
- *    runCwd reads them. Residual: every move is taken as made, so a `cd`
- *    that failed has a relative path measured where it would have led
- *    (#4980). Where that cwd is unknown a relative path is not measured. The
+ *  - Relative paths resolve against the first directory the walk hands the
+ *    dumper's run — the payload's cwd, moved by any `cd` before it and by
+ *    each directory its launchers move to (`env -C dir`, a `flock -c`
+ *    string's `cd`). Residual: that directory takes every move as made, so a
+ *    `cd` that failed has a relative path measured where it would have led;
+ *    the run's other directories are not measured (#4980). Where that cwd is unknown a relative path is not measured. The
  *    file must EXIST to be measured, which makes a wrong cwd a silent
  *    failure rather than a false warning.
  *  - `sed` is judged on its LINE span, never on the bytes those lines hold, so
@@ -102,8 +102,8 @@
  */
 
 const path = require("node:path");
-const { parseCommand, runCwd, walkCommands } = require("./shell-parse.js");
-const { isGlobPattern, literal, unwrap } = require("./shell-words.js");
+const { parseCommand, walkCommands } = require("./shell-parse.js");
+const { isGlobPattern, literal } = require("./shell-words.js");
 
 /**
  * @typedef {object} WideReadPorts
@@ -223,14 +223,11 @@ function decide(subject, ctx) {
  * @returns {string[]}
  */
 const judge = (cmd, spans, ctx, t) =>
-	unwrap(cmd.words, spans).flatMap((run) =>
-		judgeRun(
-			run.words,
-			spans,
-			{ ctx, cwd: runCwd([cmd.cwd], run.chdirs, spans, ctx.isDir)[0] },
-			t,
-		),
-	);
+	cmd
+		.runs()
+		.flatMap((run) =>
+			judgeRun(run.words, spans, { ctx, cwd: run.dirs()[0] }, t),
+		);
 
 /**
  * One unwrap run's findings.

@@ -127,7 +127,7 @@
  *   `disabled` silences it.
  */
 
-const { QUOTED, carriesVar, literal, unwrap } = require("./shell-words.js");
+const { QUOTED, carriesVar, literal } = require("./shell-words.js");
 const {
 	BASH_SPACE,
 	asWritten,
@@ -354,7 +354,7 @@ function decide(command, ctx) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			const [first, ...later] = unwrap(cmd.words, spans);
+			const [first, ...later] = cmd.runs();
 			for (const run of later) noteLaunch(cmd.leading, run);
 			const { words, wrapperWords } = first;
 			/* An `env -S` split can leave more words than it took, so none are

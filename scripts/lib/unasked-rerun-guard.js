@@ -47,7 +47,7 @@
 
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
-const { QUOTED, literal, unwrap } = require("./shell-words.js");
+const { QUOTED, literal } = require("./shell-words.js");
 const { suiteLaunchKind } = require("./suite-launch.js");
 const { caught } = require("./caught.js");
 
@@ -93,14 +93,14 @@ function bareSegment(command, ports) {
 		parsed,
 		(cmd) => {
 			if (found) return;
-			const bare = unwrap(cmd.words, spans).some(({ words }) => {
+			const bare = cmd.runs().find(({ words }) => {
 				const launch = suiteLaunchKind(words.map(typed), LAUNCH_PORTS);
 				if (launch?.kind !== "npm-vitest") return false;
 				return !words
 					.slice(launch.taken)
 					.some((w) => w !== "--" && literal(w, spans).text !== "--queue");
 			});
-			if (bare) found = { segment: cmd.segment, cwd: cmd.cwd };
+			if (bare) found = { segment: cmd.segment, cwd: bare.dirs()[0] };
 		},
 		ports,
 	);

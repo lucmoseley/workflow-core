@@ -123,13 +123,7 @@ const {
 	walkCommands,
 } = require("./shell-parse.js");
 const { escapeRe } = require("./regex-group.js");
-const {
-	findStarts,
-	literal,
-	runText,
-	scanFlags,
-	unwrap,
-} = require("./shell-words.js");
+const { findStarts, literal, runText, scanFlags } = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
 
@@ -235,11 +229,7 @@ function decide(raw, ctx) {
 	};
 	/* Through the shared parser rather than the raw string: a `grep` mentioned
 	 * in an echo or a heredoc body is not a search. */
-	walkCommands(
-		parsed,
-		({ segment, words, cwd }) => judge(scene, segment, words, cwd),
-		ctx,
-	);
+	walkCommands(parsed, (cmd) => judge(scene, cmd), ctx);
 	const { judgement } = scene;
 	/* A heavy-tree root with nothing to rewrite gets the rule alone. */
 	if (!judgement.fires)
@@ -486,15 +476,14 @@ const isRootSpelling = (w, root) =>
 /**
  * One command the string runs.
  * @param {Scene} scene accumulator: its `judgement` is advanced here
- * @param {string} segment the flattened segment, masked
- * @param {string[]} words its own words
- * @param {string} cwd where it runs
+ * @param {import("./shell-parse.js").Command} cmd
  */
-function judge(scene, segment, words, cwd) {
-	for (const run of unwrap(words, scene.spans)) {
+function judge(scene, { segment, words, runs }) {
+	for (const run of runs()) {
 		const { words: w, watched, scripted } = run;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
+		const [cwd] = run.dirs();
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
 		const own = { segment: runText(run, segment), words: scripted ? w : words };

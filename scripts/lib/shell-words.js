@@ -1180,19 +1180,30 @@ function gitRunWords(ws, spans) {
  * wrapper, a path to the binary, and `gh`'s own flags before the command
  * word, of which only `-R`/`--repo` takes a value.
  *
- * One per unwrap run that is `gh`, `wrapperWords` and `chdirs` that run's;
- * none for a run where `--help`/`-h` stands anywhere: usage prints and
- * dispatches nothing.
+ * One per unwrap run that is `gh`, as ghRun reads it, with that run's
+ * `wrapperWords`.
  * @param {string[]} words masked
  * @param {string[]} spans accumulator: a `-c` string's spans are appended
- * @returns {(GhCall & { wrapperWords: string[], chdirs: Chdir[] })[]}
+ * @returns {(GhCall & { wrapperWords: string[] })[]}
  */
 const ghWords = (words, spans) =>
-	unwrap(words, spans).flatMap(({ words: ws, wrapperWords, chdirs }) => {
-		const gh = ghCall(ws, spans);
-		if (!gh || ws.slice(1).some((w) => isHelpWord(w, spans))) return [];
-		return [{ ...gh, wrapperWords, chdirs }];
+	unwrap(words, spans).flatMap(({ words: ws, wrapperWords }) => {
+		const gh = ghRun(ws, spans);
+		return gh ? [{ ...gh, wrapperWords }] : [];
 	});
+
+/**
+ * One unwrap run's `gh` call as ghCall reads it; null also where `--help`/`-h`
+ * stands anywhere after the command word: usage prints and dispatches
+ * nothing.
+ * @param {string[]} ws one unwrap run's words
+ * @param {string[]} spans
+ * @returns {GhCall | null}
+ */
+function ghRun(ws, spans) {
+	const gh = ghCall(ws, spans);
+	return gh && !ws.slice(1).some((w) => isHelpWord(w, spans)) ? gh : null;
+}
 
 /** @param {string} w @param {string[]} spans */
 const isHelpWord = (w, spans) => {
@@ -1637,6 +1648,7 @@ module.exports = {
 	stepGitOptions,
 	gitWords,
 	ghCall,
+	ghRun,
 	ghWords,
 	stepGhFlags,
 	valueAfter,
