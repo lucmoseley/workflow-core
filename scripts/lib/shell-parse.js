@@ -957,8 +957,7 @@ function parseVarRef(s) {
 	return { name: m[0], rest: s.slice(m[0].length) };
 }
 
-/** A shell variable's name, the source NAME_RE, NAME_PREFIX_RE and
- * ASSIGNMENT build on. */
+/** A shell variable's name. */
 const NAME = "[A-Za-z_][A-Za-z0-9_]*";
 const NAME_RE = new RegExp(`^${NAME}$`);
 const NAME_PREFIX_RE = new RegExp(`^${NAME}`);
