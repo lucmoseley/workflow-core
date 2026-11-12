@@ -52,6 +52,7 @@ function run({
 			// A temp dir has room: C: free never warns here.
 			WFC_WIN_C: dir,
 			WFC_SYSTEMCTL: writeSystemctl(trim),
+			WFC_FSTRIM_DROPIN: path.join(dir, "absent.conf"),
 		},
 	});
 }
@@ -87,10 +88,10 @@ describe("check-wsl-disk", () => {
 		expect(r.stdout).toContain("bash scripts/install-interop-watchdog.sh");
 	});
 
-	it("WARNs where fstrim.timer has never fired, naming its installer", () => {
+	it("WARNs where fstrim.timer has never fired and its fix is absent, naming its installer", () => {
 		const r = run({ log: OK, trim: "" });
 		expect(envelope(r).outcome).toBe("WARN");
-		expect(r.stdout).toContain("fstrim.timer has never fired");
+		expect(r.stdout).toContain("its WSL fix is not installed");
 		expect(r.stdout).toContain("sudo bash scripts/install-fstrim-wsl.sh");
 	});
 });

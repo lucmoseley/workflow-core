@@ -15,7 +15,7 @@
  * release that will not read is WARN, never SKIP, which `npm run status` files
  * with the clean ones.
  *
- * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_SYSTEMCTL and WFC_NOW inject
+ * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_SYSTEMCTL, WFC_FSTRIM_DROPIN and WFC_NOW inject
  * each read (§N7).
  */
 
@@ -44,7 +44,7 @@ runCheck({
 			log: host.readCompactLog(),
 			now: now(),
 			freeGB: host.readFreeGB(),
-			lastTrim: host.readLastTrim(),
+			trim: { last: host.readLastTrim(), fixedAt: host.readTrimFixedAt() },
 		});
 		const warnings = [...unread, ...verdict.warnings];
 		if (warnings.length === 0)
