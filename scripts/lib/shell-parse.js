@@ -1566,7 +1566,7 @@ function parseScript(script, spans) {
 }
 
 /**
- * The state at a chain end isChainEnd found `depth` groups deep: the last `cd`
+ * The state at a chain end `depth` groups deep: the last `cd`
  * before it settles, for every command after, each chain a `cd` as deep or
  * deeper opened (#5082, #5095).
  * @param {ScriptState} state
@@ -2213,8 +2213,7 @@ const CLOSER_RE = /^(?:\}(?=$|[<>])|done$|fi$|esac$)/;
 
 /**
  * How many `}` a segment opens with, among the words that close a compound
- * command, and how many `{` stand among the reserved words after them: a `}`
- * may follow `done`, `fi`, `esac` or another `}`, and a `{` any reserved word
+ * command, and how many `{` stand among the reserved words after them
  * (#5095).
  * @param {string} segment
  */
@@ -2259,7 +2258,7 @@ function braceGroups(parsed) {
 
 /**
  * How many `{ …; }` groups the segment's command runs inside, a `{`'s own
- * counted (#5095). None where a `{` or `}` is left over.
+ * counted (#5095).
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
@@ -2271,8 +2270,8 @@ const runDepth = (parsed, segIdx) =>
 /**
  * The depth of the `&&` chain end at the segment, or undefined where none ends
  * there: the groups holding its join, a `}`'s own counted, as the `;` before a
- * `}` sits inside (#5095). None where a `{` or `}` is left over, so every chain
- * end settles.
+ * `}` sits inside (#5095). Where a `{` or `}` is left over, every chain end
+ * settles.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
@@ -2382,8 +2381,7 @@ function settleCwdDoubt(walk, segIdx) {
 /**
  * Move the cwd for one command's words, as moveCwd reads them, through
  * stepDirs; whether the command is one that moves it. In a pipeline or behind
- * `&` it runs in a subshell and moves nothing (measured). How the `cd` holds
- * is classifyCd's.
+ * `&` it runs in a subshell and moves nothing (measured).
  * @param {Walk} walk accumulator: its directories and `cdAt` are moved
  * @param {string[]} own
  * @param {number} segIdx
