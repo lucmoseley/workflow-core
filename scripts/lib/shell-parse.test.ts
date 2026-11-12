@@ -569,6 +569,12 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /missing && true; gh x")).toEqual(["/missing", "/start"]);
 	});
 
+	it("keeps a carried && across a blank line, which ends no chain of its own (#5099)", () => {
+		expect(last("cd /missing && true &&\n\ngh x")).toEqual(["/missing"]);
+		expect(last("cd /missing\n\ngh x")).toEqual(["/missing", "/start"]);
+		expect(last("cd /a &&\n\ntrue & gh x")).toEqual(["/a", "/start"]);
+	});
+
 	it("is not settled outside a subshell by a chain ending inside it (#5093)", () => {
 		expect(last("cd /missing && (true; gh x)")).toEqual(["/missing"]);
 		expect(last("cd /missing && (true; true) && gh x")).toEqual(["/missing"]);
@@ -579,6 +585,48 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		]);
 		expect(last("cd /missing && (true)\ngh x")).toEqual(["/missing", "/start"]);
 	});
+
+	it("is not settled outside a { …; } group by a chain ending inside it (#5095)", () => {
+		expect(last("cd /missing && { true; } && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true\n} && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("{ cd /missing && true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("cd /missing && { cd /missing2 && true; gh x; }")).toEqual([
+			"/missing2",
+			"/missing",
+		]);
+		expect(
+			last("cd /missing && true && { cd /missing2 && true; }; gh x"),
+		).toEqual(["/missing2", "/missing", "/start"]);
+	});
+
+	it.each([
+		"cd /missing && { for i in 1; do true; done }; gh x; if true; then { true; }; fi",
+		"cd /missing && { { true; } }; gh x",
+		"cd /missing && { if true; then true; fi }; gh x",
+	])(
+		"pairs a } after a closing word and a { after a reserved one, %s (#5095)",
+		(command) => {
+			const runs = walkMap(
+				command,
+				(c) => ({ head: c.words[0], cwds: c.cwds }),
+				{
+					cwd: "/start",
+					isDir,
+				},
+			);
+			expect(runs.find((r) => r.head === "gh")?.cwds).toEqual([
+				"/missing",
+				"/start",
+			]);
+		},
+	);
 
 	it("moves each doubted directory through a later cd", () => {
 		expect(last("cd /missing/y; cd ../..; gh x", "/a/b")).toEqual([
@@ -643,6 +691,54 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr || true & gh x")).toEqual(["/usr", "/start"]);
 		expect(last("cd /usr || true; gh x")).toEqual(["/usr"]);
 	});
+
+	it("reads a cd's join past the substitutions lifted from the next command (#5098)", () => {
+		expect(last('cd /missing && gh x "$(true)"')).toEqual(["/missing"]);
+		expect(last('cd /missing && gh "$(a "$(b)")" "$(c)" && gh z')).toEqual([
+			"/missing",
+		]);
+		expect(last('cd /usr | gh x "$(true)"; gh y')).toEqual(["/start"]);
+		expect(last('cd /usr && gh x "$(true)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last('{ cd /usr; } | gh "$(x)"; gh y')).toEqual(["/usr", "/start"]);
+		/* An escaped `)` is no bracket ending the lifted run. */
+		expect(last('cd /usr | gh "$(echo a\\))"; gh y')).toEqual(["/start"]);
+		expect(last('cd /usr && gh "$(a)" && gh "$(b)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last('cd /usr && gh "$(a)" || gh "$(b)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		/* The list `&` closes holds no cd. */
+		expect(last('cd /usr; gh "$(x)" & gh y')).toEqual(["/usr"]);
+		/* A cd in a substitution reads its own run's joins, not the outer list's. */
+		expect(last('true && gh "$(cd /usr; x)" && gh y')).toEqual(["/start"]);
+	});
+
+	it("backgrounds a cd's list past the ( … ) in it (#5107)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && (true) & gh y")).toEqual(both);
+		expect(last("cd /usr && ( (true) ) & gh y")).toEqual(both);
+		expect(last("cd /usr && (true)& gh y")).toEqual(both);
+		expect(last("cd /usr && (true) >o & gh y")).toEqual(both);
+		expect(last("cd /usr && (true) || (false) & gh y")).toEqual(both);
+		expect(last('cd /usr && (a "$(b)") & gh y')).toEqual(both);
+		expect(last("cd /usr && echo $(a) & gh y")).toEqual(both);
+		expect(last("cd /usr && echo $(a)$(b) & gh y")).toEqual(both);
+		expect(last("cd /usr && diff <(a) b & gh y")).toEqual(both);
+		expect(last("{ true; cd /usr; } && (true) & gh y")).toEqual(both);
+		expect(last("cd /usr && true | cat & gh y")).toEqual(both);
+		expect(last("cd /usr && (true) | cat & gh y")).toEqual(both);
+		expect(last("cd /usr && true | cat; gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && (true); gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && (true)\n(a) & gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && echo $(a)\ngh b & gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && true\n(a) & gh y")).toEqual(["/usr"]);
+	});
 });
 
 describe("Command.runs — each run with every directory it may stand in (#5075)", () => {
@@ -687,6 +783,12 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		expect(runDirs("flock /l -c 'cd /missing && gh x'")?.at(-1)).toEqual([
 			"/missing",
 		]);
+		expect(
+			runDirs("flock /l -c 'cd /missing && true &&\n\ngh x'")?.at(-1),
+		).toEqual(["/missing"]);
+		expect(
+			runDirs("flock /l -c 'cd /missing && true\n\ngh x'")?.at(-1),
+		).toEqual(["/missing", "/start"]);
 		expect(
 			runDirs("flock /l -c 'cd /missing || cd /usr; gh x'")?.at(-1),
 		).toEqual(["/usr", "/missing"]);
@@ -767,6 +869,7 @@ describe("Command.runs — a -c string's cds stand its commands where the walk w
 		"cd /nope && (cd b); git x",
 		"cd /nope && (true; git x); git y",
 		"cd /nope && cd /a || git x",
+		"cd /nope && (cd /a && true; git x); git y",
 	])("stands each command of %s", (script) => {
 		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir });
 		expect(eachRun(`flock /l -c "${script}"`)).toEqual(bare);
@@ -778,6 +881,18 @@ describe("Command.runs — a -c string's cds stand its commands where the walk w
 			"/nope",
 			"/h",
 		]);
+	});
+
+	it("leaves a chain open outside a subshell where one opened inside it ends (#5102)", () => {
+		expect(
+			eachRun(`flock /l -c "cd /nope && (cd /a && true; git x)"`).at(-1),
+		).toEqual(["/a"]);
+	});
+
+	it("stands a command substitution's command where the walk would (#5102)", () => {
+		const script = "cd /nope && echo $(cd /a && true; git x)";
+		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir });
+		expect(eachRun(`flock /l -c '${script}'`)).toEqual(bare);
 	});
 });
 
@@ -2031,6 +2146,11 @@ describe('walkGit, scope "shared"', () => {
 		expect(joins).toHaveLength(segments.length);
 	});
 
+	it("hands a carried operator across a blank line, and none where nothing is carried (#5099)", () => {
+		expect(parseCommand("a &&\n\n b").joins).toEqual(["", "a", "a", "a"]);
+		expect(parseCommand("a\n\n b").joins).toEqual(["", "", ""]);
+	});
+
 	it('codes the rest of a line a `)` closed as ")" (#5093)', () => {
 		expect(parseCommand("(a) >o && b").joins.slice(-2)).toEqual([")", "a"]);
 		expect(parseCommand("(a)\nb").joins.slice(-2)).toEqual([")", ""]);
@@ -2141,8 +2261,11 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && (true; git checkout x)`, []],
 			[`cd ${WORKTREE} && (true) && git checkout x`, []],
 			[`cd ${WORKTREE} && (true); git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { true; } && git checkout x`, []],
+			[`cd ${WORKTREE} && { true; }; git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { { true; } }; git checkout x`, [SHARED]],
 		])(
-			"doubts the tree a chain left only once it ends outside a subshell, %s (#5093)",
+			"doubts the tree a chain left only once it ends outside a subshell or group, %s (#5093, #5095)",
 			(bare, trees) => {
 				for (const command of [bare, `flock /l -c "${bare}"`])
 					expect(judged(command, SHARED, false).trees).toEqual(trees);
