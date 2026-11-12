@@ -51,7 +51,10 @@
  * - a process an untraced git child started that is not git again — a
  *   hook, an alias, a helper — off the event log git kept for it
  *   (lib/read-audit-git-events.js, #4997);
- * - a symlink, socket or other non-file, non-directory path.
+ * - a symlink, socket or other non-file, non-directory path;
+ * - a link a test makes on an absolute path a variable it left as settled
+ *   names, once a child was spawned with it: the preload looks those up
+ *   once a process (#5050).
  */
 
 const fs = require("node:fs");

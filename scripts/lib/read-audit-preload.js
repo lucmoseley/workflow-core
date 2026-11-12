@@ -471,6 +471,8 @@ function install() {
 	 * suite's setup left it: `settle` writes it down and names the file for
 	 * the processes below. */
 	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
+	/** @type {import("./read-audit-handed.js").Settled} */
+	let settled = new Map();
 	const isOwner = owner === String(process.pid);
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
@@ -479,12 +481,13 @@ function install() {
 	 * its own reads, and every `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
-	 * @param {(word: string) => string[]} named
+	 * @param {Named} named
 	 */
 	const envPaths = (name, value, named) => {
 		if (name === "WFC_READ_AUDIT_ROOT") return [];
 		const paths = named(
 			name === "NODE_OPTIONS" ? value.split(SELF).join("") : value,
+			standing[name] === value ? settled : undefined,
 		);
 		if (name !== "PATH") return paths;
 		return paths.filter(
@@ -498,12 +501,13 @@ function install() {
 		!bin.some((at) => relativeUnder(root, at) !== null) &&
 		!isStub(bin);
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
+	/** @typedef {ReturnType<ReturnType<typeof buildHanded>["from"]>} Named */
 	/**
 	 * Real git, and the guard that runs it, is weighed only on the variables
 	 * git reads a path from itself (#4982, #5015): what it runs, which
 	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
-	 * @param {(word: string) => string[]} named
+	 * @param {Named} named
 	 * @param {string[]} bin
 	 * @returns {Hand[]}
 	 */
@@ -940,6 +944,7 @@ function install() {
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
+				settled = new Map();
 				if (!isOwner) return;
 				const file = path.join(dir, `${owner}.standing.json`);
 				const gitAt = sizeOf(path.join(dir, `${owner}.git`));

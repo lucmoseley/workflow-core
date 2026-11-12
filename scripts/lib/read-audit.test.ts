@@ -746,6 +746,24 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
+		it("weighs afresh a variable whose value moved off the standing one, though its path was looked up before", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)});`,
+				spawns("cat", [], cwd, { env: { RULES: `${link}/` } }),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
 		it("doubts a child whose sync input names a checkout path", () => {
 			const root = checkout();
 			const body = spawns("cat", [], outsideDir(), {
