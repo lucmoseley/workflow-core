@@ -1,26 +1,31 @@
 #!/usr/bin/env node
 /*
- * disk-frag.js — how fragmented the WSL disk's free space is, and where on
- * the disk its used blocks sit, without root (#5054).
+ * disk-frag.js — how much of the WSL disk's free space sits in small aligned
+ * chunks, and where on the disk its used blocks sit, without root (#5054).
  *
  * Usage:  node scripts/disk-frag.js [--mount <path>] [--table <file>] [--json]
  *
+ * In no family (§N3): a readout run by hand while the disk is being measured,
+ * neither a check, a guard nor a report the sweeps run.
+ *
  * It reads the kernel's per-group buddy table, /proc/fs/ext4/<dev>/mb_groups,
- * which is world-readable where the device and `e2freefrag` are not. Each row
- * counts a block group's free chunks by order: order k holds 2^k blocks. The
- * buddy splits a free run into aligned chunks, so a gap's size reads at most
- * one order short. Free space in chunks under COMPACT_BYTES is space
- * `compact vdisk` cannot hand back to the host (docs/environment.md §1);
- * under REBUILD_BYTES is #5041's own measure of the dead space a rebuild
- * drops. A group with no free block left is "full"; one with every block free
- * was never written, or was freed whole.
+ * which is world-readable where the device is not, so `e2freefrag` needs
+ * root. Each row counts a block group's free chunks by buddy order: order k
+ * is 2^k blocks, aligned to its own size. These are NOT e2freefrag's free
+ * extents: the buddy cuts a free run into aligned chunks, so a run of 4 MiB
+ * or more that starts off a 4 MiB boundary counts partly under 4 MiB. Keep a
+ * series to one tool. Aligned chunks are what a 1 MiB-block `compact vdisk`
+ * sees, so the figure under COMPACT_BYTES is free space it cannot hand back
+ * (docs/environment.md §1).
  *
  * BANDS sums the used space per BAND_GIB of disk, so a band filling past the
- * packed region shows where new writes land: ext4's Orlov allocator spreads a
+ * packed region shows where new writes land: ext4's Orlov allocator puts a
  * top-level directory such as /tmp into an empty region of its own.
  *
- * --table reads a saved copy of the table instead; blocks are taken as 4 KiB
- * there, and the mount's block size otherwise.
+ * Residual: a group is taken to hold 8 × block-size blocks, one block bitmap's
+ * worth, which a filesystem made with `mke2fs -g` or bigalloc breaks. On a
+ * live mount the read refuses where the groups do not cover the filesystem's
+ * blocks; a saved --table is taken at TABLE_BLOCK_BYTES, unchecked.
  */
 
 const fs = require("node:fs");
@@ -31,10 +36,15 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const MIB = 2 ** 20;
 const GIB = 2 ** 30;
+/* WSL's VHDX block, the unit `compact vdisk` frees (docs/environment.md §1). */
 const COMPACT_BYTES = MIB;
+/* #5041's cut: the free space under it was the dead space its rebuild dropped. */
 const REBUILD_BYTES = 4 * MIB;
+/* A readability choice: 512 groups, so the rebuild's packed 0–128 GiB reads as
+ * two bands. */
 const BAND_GIB = 64;
-const FIXTURE_BLOCK = 4096;
+/* mke2fs.conf's default block size for any filesystem over 512 MiB. */
+const TABLE_BLOCK_BYTES = 4096;
 const USAGE =
 	"Usage: node scripts/disk-frag.js [--mount <path>] [--table <file>] [--json]";
 /* One group: `#<n> : <free> <frags> <first> [ <chunks by order> ]`. */
@@ -105,36 +115,47 @@ function summarise(text, blockBytes) {
 }
 
 /**
- * The device name /proc/fs/ext4 keys the ext4 filesystem mounted at `mount`
- * by, from /proc/self/mountinfo, or null where none is ext4.
+ * Read from /proc/self/mountinfo the device name /proc/fs/ext4 keys the ext4
+ * filesystem mounted at `mount` by, or null where none is ext4.
  * @param {string} mount
  */
-function ext4DeviceOf(mount) {
+function readExt4Device(mount) {
 	for (const line of fs
 		.readFileSync("/proc/self/mountinfo", "utf8")
 		.split("\n")) {
 		const [left = "", right] = line.split(" - ");
 		if (!right) continue;
-		const [fstype, source = ""] = right.split(" ");
-		if (left.split(" ")[4] === mount && fstype === "ext4") {
-			return path.basename(source);
-		}
+		const [fstype, source] = right.split(" ");
+		if (left.split(" ")[4] !== mount || fstype !== "ext4") continue;
+		if (!source) throw new Error(`mountinfo row names no source: ${line}`);
+		return path.basename(source);
 	}
 	return null;
 }
 
-/** @param {Frag} f */
-function render(f) {
-	const g = (/** @type {number} */ n) => `${n.toFixed(2)} GiB`;
+/** @param {number} bytes */
+function mib(bytes) {
+	return `${bytes / MIB} MiB`;
+}
+
+/** @param {Frag} frag */
+function render(frag) {
+	const gib = (/** @type {number} */ n) => `${n.toFixed(2)} GiB`;
 	return [
-		`${f.groups} groups: ${f.full} full, ${f.untouched} with every block free`,
-		`free ${g(f.freeGiB)}: in gaps under 1 MiB ${g(f.underCompactGiB)}, under 4 MiB ${g(f.underRebuildGiB)}`,
-		`last group in use ends ${g(f.lastUsedGiB)} into the disk`,
+		`${frag.groups} groups: ${frag.full} full, ${frag.untouched} with every block free`,
+		`free ${gib(frag.freeGiB)}: in aligned chunks under ${mib(COMPACT_BYTES)} ${gib(frag.underCompactGiB)}, under ${mib(REBUILD_BYTES)} ${gib(frag.underRebuildGiB)}`,
+		`last group in use ends ${gib(frag.lastUsedGiB)} into the disk`,
 		"used, by band:",
-		...f.bands.map(
-			(b) => `  ${b.fromGiB}-${b.fromGiB + BAND_GIB} GiB  ${g(b.usedGiB)}`,
+		...frag.bands.map(
+			(b) => `  ${b.fromGiB}-${b.fromGiB + BAND_GIB} GiB  ${gib(b.usedGiB)}`,
 		),
 	].join("\n");
+}
+
+/** @param {string} why */
+function refuse(why) {
+	writeFd(2, `disk-frag: ${why}\n`);
+	process.exit(2);
 }
 
 function main() {
@@ -152,22 +173,25 @@ function main() {
 	}
 	const { table, mount } = values;
 	let text;
-	let blockBytes = FIXTURE_BLOCK;
+	let blockBytes = TABLE_BLOCK_BYTES;
+	let fsBlocks = null;
 	if (table) {
 		text = fs.readFileSync(table, "utf8");
 	} else {
-		const dev = ext4DeviceOf(mount);
-		if (!dev) {
-			writeFd(2, `disk-frag: no ext4 filesystem is mounted at ${mount}\n`);
-			process.exit(2);
-		}
+		const dev = readExt4Device(mount);
+		if (!dev) return refuse(`no ext4 filesystem is mounted at ${mount}`);
 		text = fs.readFileSync(`/proc/fs/ext4/${dev}/mb_groups`, "utf8");
-		blockBytes = fs.statfsSync(mount).bsize;
+		({ bsize: blockBytes, blocks: fsBlocks } = fs.statfsSync(mount));
 	}
 	const frag = summarise(text, blockBytes);
+	if (frag.groups === 0) return refuse("the table holds no group row");
+	if (fsBlocks !== null && frag.groups * 8 * blockBytes < fsBlocks) {
+		return refuse(
+			`${frag.groups} groups of ${8 * blockBytes} blocks do not cover the filesystem's ${fsBlocks}`,
+		);
+	}
+	// console-kept: the readout is the program's product, so it goes to stdout.
 	writeFd(1, values.json ? `${JSON.stringify(frag)}\n` : `${render(frag)}\n`);
 }
 
 if (require.main === module) main();
-
-module.exports = { summarise };
