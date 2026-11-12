@@ -7464,6 +7464,7 @@
 		"scripts/generate-effort-guide-routing.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/generate-effort-guide-routing.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",

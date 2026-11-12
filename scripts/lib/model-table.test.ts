@@ -395,6 +395,13 @@ describe("a routing file that will not load", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(fault);
 	});
+
+	it("says a missing routing file cannot be read, not that it is bad JSON", () => {
+		const file = path.join(dir, "absent.json");
+		expect(() => loadRouting({ WFC_MODEL_ROUTING: file })).toThrow(
+			`${file}: cannot be read — ENOENT`,
+		);
+	});
 });
 
 describe("the real routing file — its shape, never its values", () => {

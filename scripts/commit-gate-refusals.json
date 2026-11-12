@@ -148,6 +148,14 @@
 			]
 		},
 		{
+			"id": "effort-guide-routing",
+			"lines": [
+				"'s routing block does not match",
+				"generate-effort-guide-routing: ",
+				"carries no routing:begin / routing:end marker pair"
+			]
+		},
+		{
 			"id": "skill-body-size",
 			"lines": ["unescaped $<digit> token(s) in a skill or command body"]
 		},

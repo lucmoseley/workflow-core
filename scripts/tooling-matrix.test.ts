@@ -871,6 +871,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"check-hook-liveness",
 			"generate-plugin-hooks",
 			"generate-rule-fragments",
+			"generate-effort-guide-routing",
 			"check-doc-map",
 			"check-context-budget",
 			"check-injector-margin",

@@ -183,9 +183,18 @@ function loadRouting(env = process.env) {
 	const file = routingPath(env);
 	const cached = loaded.get(file);
 	if (cached) return cached;
+	let text;
+	try {
+		text = fs.readFileSync(file, "utf8");
+	} catch (e) {
+		throw new Error(
+			`${file}: cannot be read — ${/** @type {Error} */ (e).message}`,
+			{ cause: e },
+		);
+	}
 	let parsed;
 	try {
-		parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+		parsed = JSON.parse(text);
 	} catch (e) {
 		throw new Error(
 			`${file}: will not read as JSON — ${/** @type {Error} */ (e).message}`,

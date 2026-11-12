@@ -260,6 +260,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"precommit-gates": ["scripts/generate-precommit-gates.js"],
 	"test-read-edges": ["scripts/generate-test-read-edges.js"],
 	"rule-fragments": ["scripts/generate-rule-fragments.js", ".husky/pre-commit"],
+	"effort-guide-routing": ["scripts/generate-effort-guide-routing.js"],
 	"skill-body-size": ["scripts/check-skill-body-size.js"],
 	"workflow-permissions": ["scripts/check-workflow-permissions.js"],
 	primitives: ["scripts/check-primitives.js"],
@@ -356,6 +357,7 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/lib/isolated-worktree.js": ["test"],
 	"scripts/lib/serialised.sh": ["shellcheck"],
 	"scripts/generate-rule-fragments.js": [null, "rule-fragments"],
+	"scripts/generate-effort-guide-routing.js": ["effort-guide-routing"],
 	"scripts/record-typecheck-red.js": [null],
 };
 /** The hook's inline `pre-commit:` heads that refuse nothing. */

@@ -29,15 +29,27 @@ const requiresOf = (pattern: RegExp) => (text: string) =>
 		.filter((lib) => fs.existsSync(path.resolve(__dirname, "lib", lib)));
 
 /**
- * `entry` and every lib/ file it requires, transitively, as bare filenames.
+ * The lib/ data files a lib reads by path rather than requiring, so no
+ * require walk finds them; a closure holding the lib carries them too.
  */
-const readRequiredLibs = (entry: string): string[] => [
-	entry,
-	...readLibClosure(
-		fs.readFileSync(path.resolve(__dirname, "lib", entry), "utf8"),
-		requiresOf(SIBLING_REQUIRE),
-	).filter((lib) => lib !== entry),
-];
+const READ_BY_PATH: Record<string, string[]> = {
+	"model-table.js": ["model-routing.json"],
+};
+
+/**
+ * `entry` and every lib/ file it requires, transitively, as bare filenames,
+ * with the data files READ_BY_PATH names for them.
+ */
+const readRequiredLibs = (entry: string): string[] => {
+	const libs = [
+		entry,
+		...readLibClosure(
+			fs.readFileSync(path.resolve(__dirname, "lib", entry), "utf8"),
+			requiresOf(SIBLING_REQUIRE),
+		).filter((lib) => lib !== entry),
+	];
+	return [...libs, ...libs.flatMap((lib) => READ_BY_PATH[lib] ?? [])];
+};
 
 /**
  * Every lib/ file a scripts/ program requires, transitively, as bare
