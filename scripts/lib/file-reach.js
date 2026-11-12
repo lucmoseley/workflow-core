@@ -1,15 +1,13 @@
 /*
- * file-reach.js — the files one script reaches, read lexically (#4259,
- * #5088): `fileReach`, which lib/code-edges.js's `readRunReach` reads each
- * file of a run through. Each reach also names the paths a specifier tried
- * before its target (`shadows`, #4814), the data files a script reads off
- * its own directory (`reads`), each load the walk cannot read (`unread`,
- * #4790) and each join off its own directory naming a file it cannot tell
- * (`unknown`), on which the store records no row. Its `importerSearch`
- * parameter and the `pySearch` it hands back are the one place sys.path
- * crosses this module's interface: an imported module resolves its imports
- * on the sys.path its run's other files left (code-edges.js's AN IMPORTED
- * MODULE), which only the run can know:
+ * file-reach.js — the files one script reaches, read lexically (#4259):
+ * `fileReach`, which lib/code-edges.js's `readRunReach` reads each file of
+ * a run through. Its `importerSearch` parameter and the `pySearch` it hands
+ * back are the one place sys.path crosses this module's interface
+ * (code-edges.js's AN IMPORTED MODULE). Each reach also names the paths a
+ * specifier tried before its target (`shadows`, #4814), the data files a
+ * script reads off its own directory (`reads`), each load the walk cannot
+ * read (`unread`, #4790) and each join off its own directory naming a file
+ * it cannot tell (`unknown`), on which the store records no row:
  *   JS and TypeScript, comment lines skipped — a relative
  *     `require`/`from`/`import()` specifier, resolved as node resolves it, or
  *     as vitest does an extensionless `.ts`;
