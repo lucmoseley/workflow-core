@@ -92,7 +92,7 @@ const ROUTES = [
 		secondVar: /\bWFC_\w+_GH\b/,
 		calls: "`gh`, `ghJson` or their kin",
 		exemplar: "scripts/check-issue-orphans.js",
-		shellExemplar: "scripts/link-sub-issue.sh",
+		shellExemplar: "scripts/park-blocked.sh",
 	}),
 	buildRoute({
 		bin: "claude",

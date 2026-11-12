@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
+import { WAIT_GRAPH_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
@@ -908,20 +909,49 @@ describe("release-plugin", () => {
 			}));
 	});
 
+	/* The link writer's reads (lib/link-writer.js): issue n's id is n*100, as
+	 * `bump` gives it, save the new bump #100's, which is the create's 9100;
+	 * the wait graph has no links; and a blocked issue's list names each
+	 * blocker the record shows POSTed to it, 9100 read as #100 save on #100
+	 * itself. */
+	const buildLinkReadsStub = (record: string) => `${WAIT_GRAPH_GRAPHQL_FAKE}
+const fs = require("node:fs");
+const a = process.argv.slice(2);
+const j = a.join(" ");
+if (a[1] === "graphql") serveAnswer(answerWaitGraph(a, () => ({})));
+const id = /^repos\\/[^/]+\\/[^/]+\\/issues\\/(\\d+)$/.exec(a[1] ?? "");
+if (id && j.endsWith("--jq .id")) { const n = Number(id[1]); process.stdout.write((n === 100 ? 9100 : n * 100) + "\\n"); process.exit(0); }
+const list = /^repos\\/([^/]+\\/[^/]+)\\/issues\\/(\\d+)\\/dependencies\\/blocked_by$/.exec(a[1] ?? "");
+const posted = fs.readFileSync(${JSON.stringify(record)}, "utf8").split("\\n")
+	.map((l) => /^api --method POST (repos\\/[^ ]+\\/dependencies\\/blocked_by) -F issue_id=(\\d+)$/.exec(l))
+	.filter((m) => m && m[1] === a[1])
+	.map((m) => ({ number: m[2] === "9100" && !a[1].includes("/issues/100/") ? 100 : Number(m[2]) / 100, state: "open", repository_url: "https://api.github.com/repos/" + list[1] }));
+process.stdout.write(JSON.stringify([posted]));
+`;
+
 	/* Answers as gh does for each bump-filing step: the open-issue listing
 	 * (`listed`, one page as a JSON array, slurped) and the create's
-	 * `{number, id}`. A tracker named `forbidden-repo` refuses the create;
-	 * one named `garbled-repo` lists a page that is not JSON. */
-	const bumpStub = (stubDir: string, record: string, listed = "[]") =>
-		stubGhScript(
+	 * `{number, id}`, and the link writer's reads above. A tracker named
+	 * `forbidden-repo` refuses the create; one named `garbled-repo` lists a
+	 * page that is not JSON. */
+	const bumpStub = (stubDir: string, record: string, listed = "[]") => {
+		const reads = path.join(stubDir, "link-reads.js");
+		fs.writeFileSync(reads, buildLinkReadsStub(record));
+		return stubGhScript(
 			stubDir,
-			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(record)}\ncase "$*" in\n  *"repos/adopter-b/forbidden-repo/issues -f"*) echo "gh: HTTP 403: Resource not accessible" >&2; exit 1 ;;\n  *garbled-repo/issues\\?*) echo "<html>" ;;\n  *"/issues?"*) printf '%s' ${shellQuote(`[${listed}]`)} ;;\n  *"POST repos/"*"/issues -f"*) echo '{"number":100,"id":9100}' ;;\nesac\nexit 0\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(record)}\ncase "$*" in\n  "api graphql "*|*" --jq .id"|*"/dependencies/blocked_by --paginate --slurp") exec node ${shellQuote(reads)} "$@" ;;\n  *"repos/adopter-b/forbidden-repo/issues -f"*) echo "gh: HTTP 403: Resource not accessible" >&2; exit 1 ;;\n  *garbled-repo/issues\\?*) echo "<html>" ;;\n  *"/issues?"*) printf '%s' ${shellQuote(`[${listed}]`)} ;;\n  *"POST repos/"*"/issues -f"*) echo '{"number":100,"id":9100}' ;;\nesac\nexit 0\n`,
 		);
+	};
 
 	const fileBumps = (gh: string, repos: string) =>
 		runInProcess(SCRIPT, ["--file-bump-issues", repos], {
 			cwd: dir,
-			env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WFC_GH: gh },
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_GH: gh,
+				WFC_LINK_SLEEP: "0",
+			},
 		});
 
 	const withBumpStub = (

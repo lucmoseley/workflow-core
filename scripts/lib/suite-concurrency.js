@@ -133,13 +133,7 @@ const {
 	unmask,
 	walkCommands,
 } = require("./shell-parse.js");
-const {
-	QUOTED,
-	carriesVar,
-	literal,
-	runText,
-	unwrap,
-} = require("./shell-words.js");
+const { QUOTED, carriesVar, literal, runText } = require("./shell-words.js");
 const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
@@ -491,7 +485,7 @@ function prePass(st, parsed) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			for (const { words, wrapperWords } of unwrap(cmd.words, st.spans)) {
+			for (const { words, wrapperWords } of cmd.runs()) {
 				if (words.length === 0) continue;
 				const launch = launchOf(st, words);
 				if (!isTest(launch)) continue;
@@ -541,7 +535,7 @@ function wholeSuiteLaunch(st, parsed) {
 		parsed,
 		(cmd) => {
 			if (found) return;
-			found = unwrap(cmd.words, st.spans).some(({ words }) => {
+			found = cmd.runs().some(({ words }) => {
 				if (words.length === 0 || launchKey(words) !== key) return false;
 				const launch = launchOf(st, words);
 				if (launch?.kind === "wrapper") return false;
@@ -1164,7 +1158,7 @@ function noteMemoryFigure(st, s, mb) {
 function judge(st, cmd) {
 	/** @type {Verdict | undefined} */
 	let verdict;
-	for (const run of unwrap(cmd.words, st.spans)) {
+	for (const run of cmd.runs()) {
 		verdict = judgeRun(st, cmd, run);
 		if (verdict !== undefined) break;
 	}

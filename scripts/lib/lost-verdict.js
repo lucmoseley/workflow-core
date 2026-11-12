@@ -17,7 +17,7 @@ const path = require("node:path");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const { suiteLaunchKind } = require("./suite-launch.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { literal, unwrap } = require("./shell-words.js");
+const { literal } = require("./shell-words.js");
 
 /**
  * @typedef {object} VerdictPorts
@@ -223,8 +223,8 @@ function countLaunches(subject, ctx) {
 	let launches = 0;
 	walkCommands(
 		parsed,
-		({ words }) => {
-			for (const run of unwrap(words, parsed.spans)) {
+		({ runs }) => {
+			for (const run of runs()) {
 				const own = run.words.map((w) => literal(w, parsed.spans).text);
 				const kind = suiteLaunchKind(own, ctx)?.kind;
 				if (kind === "npm-vitest" || kind === "wrapper") launches += 1;
