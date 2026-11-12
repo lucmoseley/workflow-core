@@ -425,7 +425,7 @@ fi
 # The effort guide's routing block is rendered from the routing file, so an
 # edit to either, or to the generator, without a re-render leaves the guide
 # disagreeing with what the code routes (#5033).
-if armed '^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js)$'; then
+if armed '^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js|scripts/lib/model-table\.js)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-effort-guide-routing.js --check || exit "$?"
 fi
 

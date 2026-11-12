@@ -86,7 +86,7 @@ const { shellQuote } = require("./sh-quote.js");
  *   making of a directory, false where it could not be made; and the model a
  *   session's transcript last answered on, "" where none is read
  * @typedef {import("./guard-entry.js").Injection} Injection
- * @typedef {Pick<typeof import("./model-table.js"), "isRoutedAway" | "isOverflowSession" | "remapModel">} ModelTable
+ * @typedef {Pick<typeof import("./model-table.js"), "isRoutedAway" | "isOverflowSession" | "remapModel" | "standardRoute">} ModelTable
  */
 
 // Resolved from this file, so an adopter is handed the plugin's copy (#541).
@@ -182,16 +182,18 @@ function loadModelTable(ctx) {
 			isOverflowSession,
 			loadRouting,
 			remapModel,
+			standardRoute,
 		} = require("./model-table.js");
 		if (
 			typeof isRoutedAway !== "function" ||
 			typeof loadRouting !== "function" ||
 			typeof isOverflowSession !== "function" ||
-			typeof remapModel !== "function"
+			typeof remapModel !== "function" ||
+			typeof standardRoute !== "function"
 		)
 			throw new Error("its exports are not functions");
 		loadRouting();
-		return { isRoutedAway, isOverflowSession, remapModel };
+		return { isRoutedAway, isOverflowSession, remapModel, standardRoute };
 	} catch (e) {
 		ctx.log(
 			`lib/model-table.js unreadable — the model table left this dispatch unmapped: ${caught(e).message}`,
@@ -241,7 +243,7 @@ function isBurnApplied(table, ctx) {
  * @param {{ruleText: (id: string) => string}} ctx
  */
 function forkDeny(table, inherited, ctx) {
-	const to = table.remapModel({}, false, inherited)?.input.model;
+	const to = table.standardRoute(inherited)?.to;
 	const rule = ctx.ruleText("dispatch-fable-fork");
 	return to
 		? `${rule.trimEnd()}\n\nFor this session: \`model: "${to}"\`.\n`

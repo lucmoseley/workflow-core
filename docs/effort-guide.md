@@ -65,8 +65,8 @@ What each alias runs on in each mode, rendered from `scripts/lib/model-routing.j
 |---|---|---|---|
 | `opus` | `claude-opus-5-5` | $4 / $20; cache read $0.20 | The default. The alias has resolved to Opus 5.5 since CLI 2.1.280. |
 | `haiku` | `claude-haiku-5-5` | $0.10 / $0.50; cache read $0.01 — above 100k prompt tokens $0.50 / $2.50, cache read $0.05 | `/pick-next` and every dispatch outside the carve-outs, at §Routing's effort (#4919). |
-| `fable` | `claude-fable-5-2` | $8 / $40; cache read $0.20 | Burn mode only — see §Routing and §Code review's model. |
-| `sonnet` | `claude-sonnet-5-5` | $2 / $10; cache read $0.20 | Nothing: §Routing moves every `sonnet` dispatch and Sonnet launch spelling. |
+| `fable` | `claude-fable-5-2` | $8 / $40; cache read $0.20 | Where §Routing sends it — see also §Code review's model. |
+| `sonnet` | `claude-sonnet-5-5` | $2 / $10; cache read $0.20 | Where §Routing sends it. |
 | `opusplan` | resolves to `sonnet` outside plan mode | as `sonnet` | Interactive terminal sessions only — it is inert in a background one, where `scripts/dispatch-sessions.sh` launches it by §Routing's `sonnet` row. See §Claude Code specifics. |
 
 A `[1m]` suffix on any alias selects the 1M-context variant; Haiku 5.5 and Fable 5.2 carry a native 1M window. The `haiku` and `fable` rows, their prices and windows are the CLI 2.1.322 model catalogue's, and a server-side catalogue entry outranks the binary, so re-check after a catalogue change (mantahostels#1112). `sonnet` resolves to Sonnet 5.5 server-side — probed 29 Sep 2026 on CLI 2.1.284. An advisor is accepted only where the session model's catalogue `advisor_rank` does not exceed the advisor's: Haiku 5.5 ranks 4 and Opus 5.5 7, so `--advisor opus` reaches a Haiku session (CLI 2.1.322).
@@ -91,8 +91,8 @@ A `[1m]` suffix on any alias selects the 1M-context variant; Haiku 5.5 and Fable
 
 | Launch as | Model | The check that catches a Haiku error |
 |---|---|---|
-| `/implement` | **plain Opus** | Nothing measures a Haiku 5.5 · xhigh `/implement` against Opus here |
-| `/pick-next` | Haiku · xhigh | `guard-selection-sum.js` at Stop — the repo's only content-shaped gate. A bad selection is visible in the dispatch message and costs one re-run |
+| `/implement` | **plain Opus** | Nothing measures a Haiku `/implement` against Opus here |
+| `/pick-next` | Haiku | `guard-selection-sum.js` at Stop — the repo's only content-shaped gate. A bad selection is visible in the dispatch message and costs one re-run |
 | `/to-tickets` | **plain Opus** | None: the refill loop launches it, so no founder check reads its output (#1920) |
 | `/triage` | **plain Opus** | None: the refill loop launches it, so no founder check reads its output (#1920) |
 | `/card-close` | The host session's model (standalone: **plain Opus**, #360) | Blocks same-session on `check-roadmap-pair.js`, `check-roadmap-valid.js`, `check-digest-version.js` and the `guard-issue-close` core; stops and asks when a card id doesn't resolve |
@@ -159,7 +159,7 @@ A `[1m]` suffix on any alias selects the 1M-context variant; Haiku 5.5 and Fable
 
 **A model change here is two lockstep edits**, plus the tests that pin each: `.claude/agents/code-reviewer.md` and `docs/agents/rules/review-dispatch-shape.txt`, which `scripts/guard-dispatch.js` (its `guard-review-rules` core), `scripts/inject-tracker-docs.sh` and `scripts/concision-backstop.sh`'s code-signal nag all print (#1697). `scripts/inject-tracker-docs.test.ts` asserts neither script spells a reviewer pin of its own; nothing ties the definition to the fragment, so it can still drift apart green (mantahostels#1009, the gap this leaves open). That nag gates on `CODE_THRESHOLD=20` changed lines — churn, added **plus** deleted — **a first guess, never measured**.
 
-**Fable has no standing use; burn mode is its one route** (#4919). Fable 5.1 cost more and recalled less than Opus 5.5 on review (#356); Fable 5.2 has no review measurement here. Two things still bind anything that dispatches it: **the sub-cap** — Fable draws the weekly all-models counter *and* its own weekly sub-cap at ~50% of it, so a workload mostly on Fable exhausts the sub-cap with half the all-models window unspent — and **the alias**: the `Agent` tool takes the bare `fable` only, which resolves to `claude-fable-5-2` on CLI 2.1.322, and a server-side catalogue entry outranks the binary, so re-check after a catalogue change (mantahostels#1112).
+**Fable runs only where §Routing sends it** (#4919). Fable 5.1 cost more and recalled less than Opus 5.5 on review (#356); Fable 5.2 has no review measurement here. Two things still bind anything that dispatches it: **the sub-cap** — Fable draws the weekly all-models counter *and* its own weekly sub-cap at ~50% of it, so a workload mostly on Fable exhausts the sub-cap with half the all-models window unspent — and **the alias**: the `Agent` tool takes the bare `fable` only, which resolves to `claude-fable-5-2` on CLI 2.1.322, and a server-side catalogue entry outranks the binary, so re-check after a catalogue change (mantahostels#1112).
 
 **Where a model pin for a vendored skill goes:** the injector, not the skill file. `.claude/skills/code-review/SKILL.md` is a symlink into the vendored `.agents/skills/` tree, where a local edit is lost on re-vendor. for every future pin.
 
@@ -201,7 +201,7 @@ Chat, Code and Cowork all draw the same weekly window, so choosing between them 
 
 ## Claude Code specifics
 
-- ⚠ **`/model opusplan` is inert in a background session, and silently.** In 2.1.239's resolver the Opus phase is gated on **`permissionMode === "plan"` and nothing else**, and outside plan mode `opusplan` resolves **byte-identically to plain `sonnet`** (mantahostels#1101; `mantahostels:docs/research/opusplan-plan-mode-gate.md`). A background session launched on it runs Sonnet for its whole life, which is why `scripts/dispatch-sessions.sh`'s standing layer launches an `opusplan` spelling as Haiku. Usable in an interactive terminal session; never as a standing default (mantahostels#1089).
+- ⚠ **`/model opusplan` is inert in a background session, and silently.** In 2.1.239's resolver the Opus phase is gated on **`permissionMode === "plan"` and nothing else**, and outside plan mode `opusplan` resolves **byte-identically to plain `sonnet`** (mantahostels#1101; `mantahostels:docs/research/opusplan-plan-mode-gate.md`). A background session launched on it runs Sonnet for its whole life, which is why `scripts/dispatch-sessions.sh` launches an `opusplan` spelling by §Routing's `sonnet` row. Usable in an interactive terminal session; never as a standing default (mantahostels#1089).
   - **Forcing plan mode makes it worse**: with no human to approve the plan and `ExitPlanMode` denied in `~/.claude/settings.json`, the session never leaves — Opus all session with edits blocked.
   - Past 200k tokens on the last assistant turn, an `opusplan` session in plan mode silently drops back to Sonnet. Bites `opusplan[1m]` hardest.
   - **A subagent inherits the gate, not the model**: `model: inherit` spawned in plan mode gets Opus, spawned outside it gets Sonnet.
