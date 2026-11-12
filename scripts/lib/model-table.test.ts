@@ -4,7 +4,9 @@
  * (#5032): a dispatch, a launch and a plan's settings, per mode. The mechanism
  * is tested here on a fixture routing file whose values are unlike the real
  * ones, passed by WFC_MODEL_ROUTING, so a value edit to the real file breaks
- * nothing here; the real file is held to its shape alone, at the end.
+ * nothing here; the real file is held to its shape alone, at the end. Break
+ * it and a dispatch, a launch or a mode switch can run on the wrong model or
+ * effort with no test going red.
  *
  * The fixture's routed-away model is `sonnet`: standard mode moves it, and
  * burn mode runs on it.

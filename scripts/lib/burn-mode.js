@@ -199,10 +199,11 @@ if (require.main === module) {
 				writeFd(2, `burn-mode: ${caught(err).message}\n`);
 				process.exit(2);
 			}
+			const width = Math.max(0, ...rows.map((r) => r.name.length));
 			for (const { name, model, faults } of rows)
 				writeFd(
 					1,
-					`  ${name.padEnd(32)} model=${model || "absent"}${faults.map((f) => `  (${f})`).join("")}\n`,
+					`  ${name.padEnd(width)} model=${model || "absent"}${faults.map((f) => `  (${f})`).join("")}\n`,
 				);
 			process.exit(rows.some((r) => r.faults.length > 0) ? 1 : 0);
 		}

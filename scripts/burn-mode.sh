@@ -114,7 +114,7 @@ case "$1" in
   on)
     settings="$(writes --burn)"
     mkdir -p "$(dirname "$marker")"
-    echo '{}' >"$marker"
+    : >"$marker"
     while IFS= read -r -d '' f; do
       apply "$f" "$settings" || {
         echo "error: could not write the burn settings into $(rel "$f")" >&2
