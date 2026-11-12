@@ -898,8 +898,7 @@ function asWritten(text, spans) {
  * @property {Set<string>} exported names an `export`, `declare -x` or
  *   `typeset -x` put in the environment a `-c` string's shell inherits (#5120)
  * @property {Map<string, number>} recorded how many of the command's words
- *   the harvest read as assigning or exporting each name, which a `-c`
- *   string's read of an exported name checks against its bare mentions
+ *   the harvest read as assigning or exporting each name
  * @property {Record<string, string | undefined>} vars the guard's own
  *   variables, the environment the hook inherited
  * @property {string} subject the whole command, searched for a name's other
@@ -1281,7 +1280,7 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
  * Call `fn` with each segment that is no bracket's SCOPE_MARK line, its words
  * split. A segment of assignments alone is harvested for the commands after
  * it, as `WT=/x && git …` flattens into one (mantahostels#208), and so is an
- * `export`'s (#5120), bar one that runs apart. A command's own leading
+ * `export`'s (#5120), unless the segment runs apart. A command's own leading
  * assignments are not: bash expands its words first and puts them in its
  * environment alone (#5087).
  * @param {Walk} walk
@@ -1297,8 +1296,6 @@ function eachSegment(walk, fn) {
 }
 
 /**
- * Harvest one segment that runs in the walk's own shell: its assignments
- * where it holds them alone, else an `export`'s.
  * @param {Walk} walk accumulator: its scope is moved
  * @param {CommandWords} cw
  * @param {number} segIdx
@@ -1330,10 +1327,7 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/**
- * @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars what a
- *   subshell's assignments move, which its `)` hands back
- */
+/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars */
 
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
@@ -3142,7 +3136,8 @@ const SHELL_SET = ["PWD", "OLDPWD", "_"];
  * value, read itself under the environment alone; any other at the
  * environment the outer command hands down, a name it exported at the value
  * the outer command reads (#5120). Unknown: a name the script changed
- * unfollowed or set to a value that will not resolve, SHELL_SET, and an
+ * unfollowed or set to a value that will not resolve, SHELL_SET, an exported
+ * name the outer command may have changed unseen, and an
  * environment name the outer command names bare without exporting it — it
  * may have set it — or any under a `source`, `.` or `eval`, or behind a
  * wrapper that may replace the environment.
@@ -3173,8 +3168,8 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
 /**
  * The environment a `-c` string's shell inherits from `outer`, as
  * buildScriptScope reads it. An exported name stands at its outer value only
- * where the harvest read every bare mention of it: one it did not, such as a
- * prefix `D=… flock` or a `read D`, may have changed it.
+ * where the harvest read every bare mention of it: one it did not may have
+ * changed it.
  * @param {Scope} outer
  * @returns {Record<string, string | undefined>}
  */
