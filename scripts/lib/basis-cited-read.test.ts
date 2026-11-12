@@ -83,7 +83,7 @@ const one = (basis: string, opts: Omit<Judged, "body"> = {}) => {
 
 /** The no-warrant fault a basis takes where each cited issue faults. */
 const faulted = (basis: string, cited: { ref: string; reason: string }[]) => [
-	{ kind: "no-warrant", text: basis, cited },
+	{ kind: "no-warrant", text: basis, cited, words: basis },
 ];
 
 describe("readBasisFaults follows a cited issue one hop", () => {
@@ -159,9 +159,9 @@ describe("readBasisFaults follows a cited issue one hop", () => {
 		"faults a basis citing only its own issue as %s, reading nothing",
 		(self) => {
 			serving({ "o/r": { 77: { body: Count } } });
-			expect(one(`${self} set a week`, { own: 77 }).faults).toEqual([
-				{ kind: "no-warrant", text: `${self} set a week`, cited: [] },
-			]);
+			expect(one(`${self} set a week`, { own: 77 }).faults).toEqual(
+				faulted(`${self} set a week`, []),
+			);
 			expect(queries()).toHaveLength(0);
 		},
 	);

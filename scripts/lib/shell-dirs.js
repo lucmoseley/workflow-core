@@ -2,9 +2,7 @@
  * shell-dirs.js — the directory model: every directory a command may stand in after the moves
  * made before it, each move handed in already classified and its directory
  * word already resolved (#5074). The walk's `cd`s, a wrapper's directory and a
- * `-c` string's `cd` all step one state through stepDirs. Residual: a `-c`
- * string labels its chained `cd` itself, `always` until its chain ends
- * (#5082).
+ * `-c` string's `cd` all step one state through stepDirs.
  */
 
 /**
@@ -31,6 +29,8 @@
  * @property {boolean} [chained] a `&&` chains the next command off it, so each
  *   directory it may not have moved from waits in `pending` until settleDirs
  *   (#4009)
+ * @property {boolean} [settles] its `&&` chain ends after it, before the next
+ *   move: dirsAfter settles it there (#5082)
  */
 
 /**
@@ -117,16 +117,18 @@ function settleDirs(state) {
 
 /**
  * Every directory a command may stand in after `moves`, made from each of
- * `cwds` in order. A chained move's unmade stay out: the command is in its
- * chain.
+ * `cwds` in order. A chained move's unmade stay out until a move that settles
+ * its chain: past none, the command is in the chain.
  * @param {Dirs} cwds
  * @param {Move[]} moves
  * @param {(path: string) => boolean} isDir
  * @returns {Dirs}
  */
 const dirsAfter = (cwds, moves, isDir) =>
-	moves.reduce((state, move) => stepDirs(state, move, isDir), startDirs(cwds))
-		.dirs;
+	moves.reduce((state, move) => {
+		const next = stepDirs(state, move, isDir);
+		return move.settles ? settleDirs(next) : next;
+	}, startDirs(cwds)).dirs;
 
 /**
  * @param {Move["holds"]} holds
