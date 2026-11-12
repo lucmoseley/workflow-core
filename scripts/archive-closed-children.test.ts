@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WAIT_GRAPH_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -55,6 +56,7 @@ const STATE = () => path.join(dir, "state.json");
 const CALLS = () => path.join(dir, "calls.log");
 
 const STUB = `#!/usr/bin/env node
+${WAIT_GRAPH_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const statePath = process.env.ARCHIVE_STATE;
 const callsPath = process.env.ARCHIVE_CALLS;
@@ -68,6 +70,9 @@ const s0 = state();
 if (s0.fx.unreachable) { ${GH_LOGGED_OUT_NODE} }
 
 const p = argv.find((a) => a.startsWith("repos/")) || "";
+const jq = argv.includes("--jq") ? argv[argv.indexOf("--jq") + 1] : null;
+if (argv[1] === "graphql") serveAnswer(answerWaitGraph(argv, () => ({})));
+if (jq === ".full_name") { process.stdout.write("o/r\\n"); process.exit(0); }
 const fValues = argv.filter((a, i) => argv[i - 1] === "-F");
 const fVal = (name) => {
   const hit = fValues.find((a) => a.startsWith(name + "="));
@@ -131,6 +136,10 @@ if (getMatch && !argv.includes("--method")) {
   const n = Number(getMatch[1]);
   const s = state();
   const rows = s.kids.filter((k) => k.parent === n);
+  if (jq === ".[].number") {
+    process.stdout.write(rows.map((k) => k.number + "\\n").join(""));
+    process.exit(0);
+  }
   process.stdout.write(JSON.stringify([rows.map(({ parent, subIssuesTotal, ...r }) => ({
     ...r,
     ...(subIssuesTotal ? { sub_issues_summary: { total: subIssuesTotal } } : {}),
@@ -143,7 +152,7 @@ if (oneMatch && argv.includes("--jq")) {
   const n = Number(oneMatch[1]);
   const s = state();
   const k = s.kids.find((x) => x.number === n);
-  process.stdout.write(String(k ? k.id : 0) + "\\n");
+  process.stdout.write((jq === ".state" ? (k ? k.state : "open") : String(k ? k.id : 0)) + "\\n");
   process.exit(0);
 }
 
@@ -165,7 +174,12 @@ const stubGh = (fx: Fixture) => {
 	const stub = stubGhScript(dir, STUB);
 	return {
 		...stub,
-		env: { ...stub.env, ARCHIVE_STATE: statePath, ARCHIVE_CALLS: CALLS() },
+		env: {
+			...stub.env,
+			ARCHIVE_STATE: statePath,
+			ARCHIVE_CALLS: CALLS(),
+			WFC_LINK_SLEEP: "0",
+		},
 	};
 };
 

@@ -66,6 +66,7 @@
  */
 
 const { runCheck, brokenError } = require("./lib/check");
+const { runLinkSync } = require("./lib/link-writer.js");
 const {
 	gh,
 	ghJson,
@@ -192,7 +193,7 @@ function runBody(ctx) {
 			containerLikeNote,
 		});
 
-	const { containerNumber, containerId, created } = ensureContainer({
+	const { containerNumber, created } = ensureContainer({
 		ctx,
 		map,
 		title,
@@ -217,7 +218,6 @@ function runBody(ctx) {
 	const needsClose = created || !isClosed(container?.state);
 	const { linked, linkFailed } = linkContainer({
 		...archive,
-		containerId,
 		needsLink,
 		alreadyLinked,
 		movedCount: moved.length,
@@ -455,21 +455,16 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 	const moved = [];
 	const skipped7Layers = [];
 	for (const child of closedDirect) {
-		try {
-			gh([
-				"api",
-				"--method",
-				"POST",
-				`repos/{owner}/{repo}/issues/${containerNumber}/sub_issues`,
-				"-F",
-				`sub_issue_id=${child.id}`,
-				"-F",
-				"replace_parent=true",
-			]);
+		const r = runLinkSync(
+			"sub-issue",
+			[String(containerNumber), String(child.number), "--replace-parent"],
+			{ repo: "{owner}/{repo}" },
+		);
+		if (r.code === 0) {
 			moved.push(child.number);
 			ctx.say(`  moved #${child.number} into #${containerNumber}`);
-		} catch (e) {
-			const line = parseErrLine(e);
+		} else {
+			const line = r.err;
 			if (/7 layers/.test(line)) {
 				skipped7Layers.push(child.number);
 				ctx.say(
@@ -489,14 +484,13 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 
 /**
  * Links the container under the map where it is new or orphaned.
- * @param {ArchiveStep & {containerId: number | null, needsLink: boolean,
- *   alreadyLinked: boolean, movedCount: number}} a
+ * @param {ArchiveStep & {needsLink: boolean, alreadyLinked: boolean,
+ *   movedCount: number}} a
  * @returns {{linked: boolean, linkFailed: boolean}}
  */
 function linkContainer({
 	map,
 	containerNumber,
-	containerId,
 	needsLink,
 	alreadyLinked,
 	movedCount,
@@ -505,21 +499,15 @@ function linkContainer({
 	let linked = alreadyLinked;
 	let linkFailed = false;
 	if (!needsLink) return { linked, linkFailed };
-	try {
-		gh([
-			"api",
-			"--method",
-			"POST",
-			`repos/{owner}/{repo}/issues/${map}/sub_issues`,
-			"-F",
-			`sub_issue_id=${containerId}`,
-		]);
-		linked = true;
-	} catch (e) {
+	const r = runLinkSync("sub-issue", [String(map), String(containerNumber)], {
+		repo: "{owner}/{repo}",
+	});
+	if (r.code === 0) linked = true;
+	else {
 		linkFailed = true;
 		failSay(
 			"ARCHIVE-LINK-FAILED",
-			`#${containerNumber} could not be linked under #${map}: ${parseErrLine(e)} — it holds ${movedCount} moved issue(s) but is not yet part of the map; a re-run will find it by title and retry`,
+			`#${containerNumber} could not be linked under #${map}: ${r.err} — it holds ${movedCount} moved issue(s) but is not yet part of the map; a re-run will find it by title and retry`,
 			{ container: containerNumber, map },
 		);
 	}

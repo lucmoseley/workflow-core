@@ -123,8 +123,8 @@ const judge = (texts: Record<string, string>) => {
 
 const GH_FIX = {
 	"SECOND-VAR":
-		"gh SECOND-VAR Fix: name the binary through WFC_GH, the one var scripts/lib/gh.js reads, as scripts/check-issue-orphans.js and scripts/link-sub-issue.sh do.",
-	"SHELL-BARE": `gh SHELL-BARE Fix: run "${sub("WFC_GH:-gh")}", the var scripts/lib/gh.js reads, as scripts/link-sub-issue.sh does; or mark it \`gh-route-exempt: <why>\` where \`gh\` is only text.`,
+		"gh SECOND-VAR Fix: name the binary through WFC_GH, the one var scripts/lib/gh.js reads, as scripts/check-issue-orphans.js and scripts/park-blocked.sh do.",
+	"SHELL-BARE": `gh SHELL-BARE Fix: run "${sub("WFC_GH:-gh")}", the var scripts/lib/gh.js reads, as scripts/park-blocked.sh does; or mark it \`gh-route-exempt: <why>\` where \`gh\` is only text.`,
 	"PATH-STUB":
 		"gh PATH-STUB Fix: point WFC_GH at the stub executable, never PATH.",
 	"NODE-COPY":

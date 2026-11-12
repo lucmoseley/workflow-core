@@ -126,6 +126,7 @@ const VALIDATION_FAILED = path.join(
 );
 
 const LINK_FIXTURES = {
+	".full_name": path.join(__dirname, "fixtures/gh/repo-full-name.json"),
 	".state": path.join(__dirname, "fixtures/gh/issue-state.json"),
 	".id": path.join(__dirname, "fixtures/gh/issue-id.json"),
 	".[].number": path.join(__dirname, "fixtures/gh/sub-issue-numbers.json"),
@@ -911,10 +912,12 @@ describe("live: computed answers", () => {
 });
 
 /*
- * link-sub-issue.sh is run for real against a recording stub, so the reads sent
- * to the live gh are the ones the script sends, and a read LINK_READS lacks turns
- * this red. Its POST stays in the stub. #2260 (a closed spec) has closed
- * children, of which #2327 is one, so neither answer moves (#3652).
+ * link-sub-issue.sh is run for real against a recording stub, so the `--jq`
+ * reads sent to the live gh are the ones the writer sends, and a read
+ * LINK_READS lacks turns this red. Its POST stays in the stub, and its loop
+ * check's GraphQL walk, which the stub refuses, reads as partial. #2260 (a closed spec) has closed
+ * children, of which #2327 is one, so neither answer moves (#3652); the
+ * stub names the real repo, so every read after it reaches a real issue.
  */
 describe("live: link-sub-issue.sh's reads", () => {
 	it("each answers alike from the real gh, the stub and both fakes", async ({
@@ -923,12 +926,17 @@ describe("live: link-sub-issue.sh's reads", () => {
 		liveSkip ??= { reason: liveSkipReason() };
 		if (liveSkip.reason) return skip(liveSkip.reason);
 		const log = path.join(dir, "link-calls");
+		const home = spawnSync(
+			realGh as string,
+			["api", "repos/{owner}/{repo}", "--jq", ".full_name"],
+			{ encoding: "utf8" },
+		).stdout.trim();
 		const stub = stubGhScript(
 			fs.mkdtempSync(path.join(dir, "link-")),
 			`#!/bin/sh
 printf '%s\\n' "$*" >> ${shellQuote(log)}
 case "$*" in
-${buildLinkReadArms({ children: buildJqLines(2327) })}
+${buildLinkReadArms({ repo: buildJqLines(home), children: buildJqLines(2327) })}
   *"--method POST"*) exit 0 ;;
 esac
 exit 1
@@ -950,15 +958,19 @@ exit 1
 			.readFileSync(log, "utf8")
 			.trim()
 			.split("\n")
-			.filter((call) => !call.includes("--method POST"))
+			.filter((call) => call.includes(" --jq "))
 			.map((call) => call.split(" "));
-		const filters = reads.map((args) => args.at(-1) as string);
+		// A closed parent's child has its state read too, so each shape is once.
+		const filters = [...new Set(reads.map((args) => args.at(-1) as string))];
 		expect(filters).toEqual(Object.values(LINK_READS).map((r) => r.jq));
 		expect(filters.sort()).toEqual(Object.keys(LINK_FIXTURES).sort());
 		// The script's own reader branches on these exact words; shape alone is "text".
 		expect(
-			spawnSync(realGh as string, reads[0] as string[], { encoding: "utf8" })
-				.stdout,
+			spawnSync(
+				realGh as string,
+				reads.find((args) => args.at(-1) === ".state") as string[],
+				{ encoding: "utf8" },
+			).stdout,
 		).toMatch(/^(open|closed)\n$/);
 		for (const args of reads) {
 			const fixture = LINK_FIXTURES[args.at(-1) as keyof typeof LINK_FIXTURES];

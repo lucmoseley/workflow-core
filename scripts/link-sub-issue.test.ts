@@ -3,7 +3,8 @@
  * Pins that linking a child issue under a parent exits 0 only once the parent
  * lists the child, and fails loudly on every other path: `-f` for `-F`, an
  * empty or non-numeric id, a closed or unreadable parent, a 422, a link that
- * never shows.
+ * never shows; and that a link closing a loop of open issues is refused with
+ * exit 3 and nothing POSTed (#5070).
  *
  * link-sub-issue.sh links a child issue under a parent (mantahostels#1150, the build).
  *
@@ -42,6 +43,7 @@ import {
 	LINK_READ_FAKE,
 	LINK_READS,
 	type LinkReadAnswers,
+	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./lib/gh-fake";
 import {
 	type GhStubServer,
@@ -66,8 +68,20 @@ interface Gh {
 	/** Parent-side reads: numbers listed, once `lag` reads have gone by. */
 	children?: string[];
 	lag?: number;
-	/** What `gh api repos/o/r/issues/<parent> --jq .state` prints. */
+	/** What `gh api repos/o/r/issues/<n> --jq .state` prints. */
 	state?: string;
+	/** Per-issue overrides of `state`, by number. */
+	states?: Record<string, string>;
+	/** The wait graph's links, by `owner/name#n`; no links where unset. */
+	graph?: Record<string, { blockedBy?: Row[]; subIssues?: Row[] }>;
+	/** The wait graph's GraphQL read fails. */
+	graphFails?: boolean;
+}
+
+interface Row {
+	number: number;
+	state: "open" | "closed";
+	repo?: string;
 }
 
 const POSTS: Record<NonNullable<Gh["post"]>, GhAnswer> = {
@@ -89,6 +103,7 @@ const READS_FILE = "reads";
  * parent's list stays empty for its first `lag` reads, which READS_FILE counts.
  */
 const HANDLER = `${LINK_READ_FAKE}
+${WAIT_GRAPH_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const at = (name) => path.join(env.GH_STUB_DIR, name);
@@ -96,12 +111,19 @@ fs.appendFileSync(at(${JSON.stringify(CALLS_FILE)}), argv.join(" ") + "\\n");
 const g = JSON.parse(fs.readFileSync(at(${JSON.stringify(ANSWERS_FILE)}), "utf8"));
 const serve = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
 if (argv.join(" ").includes("--method POST")) serve(g.post);
+if (argv[1] === "graphql")
+	serve(g.graphFails
+		? { status: 1, stdout: "", stderr: "gh: Something went wrong (HTTP 502)\\n" }
+		: answerWaitGraph(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
 if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}) {
 	const counter = at(${JSON.stringify(READS_FILE)});
 	const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;
 	fs.writeFileSync(counter, String(n + 1));
 	if (n < g.lag) exit(0);
 }
+const issue = /\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
+if (issue && argv.includes(".state") && g.states[issue[1]] !== undefined)
+	serve(buildJqLines(g.states[issue[1]]));
 const read = answerLinkRead(argv, g.reads);
 if (read) serve(read);
 `;
@@ -121,7 +143,14 @@ const stubGh = (g: Gh) => {
 	};
 	fs.writeFileSync(
 		path.join(dir, ANSWERS_FILE),
-		JSON.stringify({ post: POSTS[g.post ?? "ok"], lag: g.lag ?? 0, reads }),
+		JSON.stringify({
+			post: POSTS[g.post ?? "ok"],
+			lag: g.lag ?? 0,
+			reads,
+			states: g.states ?? {},
+			graph: g.graph ?? {},
+			graphFails: g.graphFails ?? false,
+		}),
 	);
 	return stubGhScript(dir, server.script).env;
 };
@@ -258,13 +287,25 @@ describe("link-sub-issue.sh", () => {
 		expect(readPosts()).toHaveLength(0);
 	});
 
-	it("refuses a closed parent, naming it and the remedy, and POSTs nothing (#3650)", () => {
-		const r = run(["40", "63"], { state: "closed", children: ["63"] });
+	it("refuses a closed parent over an open child, naming it and the remedy, and POSTs nothing (#3650)", () => {
+		const r = run(["40", "63"], {
+			states: { "40": "closed" },
+			children: ["63"],
+		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("#40 is closed");
 		expect(r.stderr).toContain("under an open issue");
 		expect(r.stderr).toContain("--standalone");
 		expect(readPosts()).toHaveLength(0);
+	});
+
+	it("moves a closed child under a closed parent, as into an archival container", () => {
+		const r = run(["40", "63", "--replace-parent"], {
+			state: "closed",
+			children: ["63"],
+		});
+		expect(r.status, r.stderr).toBe(0);
+		expect(readPosts()).toHaveLength(1);
 	});
 
 	it("refuses where the parent's state cannot be read, POSTing nothing", () => {
@@ -315,7 +356,6 @@ describe("link-sub-issue.sh", () => {
 	it.each([
 		[["40"], "usage"],
 		[["40", "sixty-three"], "not an issue number"],
-		[["#40", "#40"], "cannot be its own parent"],
 	])(
 		"refuses bad arguments, saying what is wrong and posting nothing: %s",
 		(args, expected) => {
@@ -326,6 +366,13 @@ describe("link-sub-issue.sh", () => {
 		},
 	);
 
+	it("refuses a self-link with exit 3 before any read", () => {
+		const r = run(["#40", "#40"]);
+		expect(r.status).toBe(3);
+		expect(r.stderr).toContain("cannot be its own parent");
+		expect(readLog()).toEqual([]);
+	});
+
 	it("accepts #-prefixed numbers", () => {
 		const r = run(["#40", "#63"], { children: ["63"], lag: 1 });
 		expect(r.status).toBe(0);
@@ -333,5 +380,84 @@ describe("link-sub-issue.sh", () => {
 			true,
 		);
 		expect(readLog().some((l) => l.includes("issues/63 "))).toBe(true);
+	});
+});
+
+describe("the loop check (#5070)", () => {
+	/* #5055's shape: three open issues across two repos, one sub-issue link
+	 * and two blocker links; the sub-issue link closes it. */
+	const loop: Gh["graph"] = {
+		"owner/repo#63": {
+			blockedBy: [{ number: 3864, state: "open", repo: "other/m" }],
+		},
+		"other/m#3864": {
+			blockedBy: [{ number: 40, state: "open", repo: "owner/repo" }],
+		},
+	};
+
+	it("refuses a link that closes a loop with exit 3, POSTing nothing and naming each link", () => {
+		const r = run(["40", "63"], { graph: loop, children: ["63"] });
+		expect(r.status).toBe(3);
+		expect(readPosts()).toHaveLength(0);
+		const lines = r.stderr.split("\n");
+		const at = (text: string) => lines.findIndex((l) => l.includes(text));
+		expect(at("#40 waits on child #63   (the new link)")).toBeGreaterThan(0);
+		expect(at("#63 is blocked by other/m#3864")).toBeGreaterThan(
+			at("(the new link)"),
+		);
+		expect(at("other/m#3864 is blocked by #40")).toBeGreaterThan(
+			at("#63 is blocked by other/m#3864"),
+		);
+		expect(r.stderr).toContain(
+			"Block on the build unit that does the work, never on a spec or map that stays open for its own follow-ups",
+		);
+		expect(r.stderr).toContain(
+			"docs/agents/issue-tracker.md §Placing a new issue",
+		);
+		expect(r.stderr).toContain("Nothing was changed.");
+	});
+
+	it("posts a link that closes no loop, though the child waits on other issues", () => {
+		const r = run(["40", "63"], {
+			graph: {
+				"owner/repo#63": { blockedBy: [{ number: 7, state: "open" }] },
+				"owner/repo#7": {
+					blockedBy: [{ number: 40, state: "closed" }],
+				},
+			},
+			children: ["63"],
+		});
+		expect(r.status).toBe(0);
+		expect(readPosts()).toHaveLength(1);
+		expect(r.stderr).toBe("");
+	});
+
+	it("links anyway where the graph cannot be read, warning that the check was partial", () => {
+		const r = run(["40", "63"], { graphFails: true, children: ["63"] });
+		expect(r.status).toBe(0);
+		expect(readPosts()).toHaveLength(1);
+		expect(r.stderr).toContain("the loop check was partial");
+		expect(r.stderr).toContain("could not read #63");
+	});
+
+	it("sends replace_parent=true under --replace-parent", () => {
+		const r = run(["40", "63", "--replace-parent"], { children: ["63"] });
+		expect(r.status).toBe(0);
+		expect(readPosts()[0]).toContain("-F replace_parent=true");
+	});
+
+	it("checks a --replace-parent link like a plain one", () => {
+		const r = run(["40", "63", "--replace-parent"], {
+			graph: loop,
+			children: ["63"],
+		});
+		expect(r.status).toBe(3);
+		expect(readPosts()).toHaveLength(0);
+	});
+
+	it("still reads the 422 naming an existing parent as success without --replace-parent", () => {
+		const r = run(["40", "63"], { post: "dup", children: ["63"] });
+		expect(r.status).toBe(0);
+		expect(readPosts()[0]).not.toContain("replace_parent");
 	});
 });

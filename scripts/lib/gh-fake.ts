@@ -51,6 +51,9 @@ import PARENT_NOT_FOUND from "./fixtures/gh/parent-not-found.json" with {
 };
 import PARENT_PAGE from "./fixtures/gh/parent-page.json" with { type: "json" };
 import REPO from "./fixtures/gh/repo.json" with { type: "json" };
+import REPO_FULL_NAME from "./fixtures/gh/repo-full-name.json" with {
+	type: "json",
+};
 import REPO_VIEW from "./fixtures/gh/repo-view.json" with { type: "json" };
 import SUB_ISSUE_NUMBERS from "./fixtures/gh/sub-issue-numbers.json" with {
 	type: "json",
@@ -469,7 +472,8 @@ export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
 }
 
 /*
- * link-sub-issue.sh's reads, each by its `--jq` filter. A new read in the script
+ * lib/link-writer.js's sub-issue reads, each by its `--jq` filter — `repo`
+ * only where the repo is gh's `{owner}/{repo}`. A new read in the script
  * is one row and its fixture here: every stub serving the script answers it
  * from the row, as buildLinkReadArms in shell and answerLinkRead in node. A test
  * passes an answer by the row's key only where the value matters to it (#3652).
@@ -478,6 +482,7 @@ export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
  * A read with no `--jq`, or sharing a row's filter, cannot be a row as it stands.
  */
 export const LINK_READS = {
+	repo: { jq: ".full_name", answer: REPO_FULL_NAME as GhAnswer },
 	state: { jq: ".state", answer: ISSUE_STATE as GhAnswer },
 	id: { jq: ".id", answer: ISSUE_ID as GhAnswer },
 	children: { jq: ".[].number", answer: SUB_ISSUE_NUMBERS as GhAnswer },

@@ -207,7 +207,7 @@ check_gate() {
   status=$?
   if [[ $status -eq 1 ]]; then
     printf '%s\n' "$("$SELF_DIR/lib/rule-text.sh" blocked-ticket-gate 2>/dev/null)" >&2
-    refuse "#${issue} has nothing the shortlist skips on: no open blocked-by edge, no open **Blocked on** issue, no holding **Gated until:** or **Gated on:** line. Write the gate, then rerun: for work an issue will do, gh api --method POST repos/{owner}/{repo}/issues/${issue}/dependencies/blocked_by -F issue_id=<blocker-db-id> (gh api repos/{owner}/{repo}/issues/<n> --jq .id), filing that issue unassigned first through node $SELF_DIR/file-issue.js where none exists; for an event no issue does, node $SELF_DIR/issue-body.js append ${issue} --text \"**Gated on:** <condition> — check: <command> — abandon if: <clause>\" with a **Gate basis:** line beneath it."
+    refuse "#${issue} has nothing the shortlist skips on: no open blocked-by edge, no open **Blocked on** issue, no holding **Gated until:** or **Gated on:** line. Write the gate, then rerun: for work an issue will do, node $SELF_DIR/link-blocker.js ${issue} <blocker> (the blocker as #n or owner/name#n — the build unit that does the work, never a spec or map), filing that issue unassigned first through node $SELF_DIR/file-issue.js where none exists; for an event no issue does, node $SELF_DIR/issue-body.js append ${issue} --text \"**Gated on:** <condition> — check: <command> — abandon if: <clause>\" with a **Gate basis:** line beneath it."
   fi
   [[ $status -eq 0 ]] || refuse "could not read #${issue}'s gate (exit ${status}, see above)."
 }
