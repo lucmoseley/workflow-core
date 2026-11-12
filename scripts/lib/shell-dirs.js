@@ -29,6 +29,9 @@
  * @property {boolean} [chained] a `&&` chains the next command off it, so each
  *   directory it may not have moved from waits in `pending` until settleDirs
  *   (#4009)
+ * @property {boolean} [opensScope] the first move inside a subshell the move
+ *   before stands outside: a chain open outside waits on that move alone, so
+ *   no chain end inside settles it (#5102)
  * @property {boolean} [settles] its `&&` chain ends after it, before the next
  *   move: dirsAfter settles it there (#5082)
  */
@@ -116,6 +119,14 @@ function settleDirs(state) {
 }
 
 /**
+ * A subshell's opening: a `&&` chain open outside waits on what runs before
+ * it, so no chain end inside settles it (#5093).
+ * @param {DirsState} state
+ * @returns {DirsState}
+ */
+const openDirsScope = (state) => ({ ...state, pending: [] });
+
+/**
  * Every directory a command may stand in after `moves`, made from each of
  * `cwds` in order. A chained move's unmade stay out until a move that settles
  * its chain: past none, the command is in the chain.
@@ -126,7 +137,8 @@ function settleDirs(state) {
  */
 const dirsAfter = (cwds, moves, isDir) =>
 	moves.reduce((state, move) => {
-		const next = stepDirs(state, move, isDir);
+		const from = move.opensScope ? openDirsScope(state) : state;
+		const next = stepDirs(from, move, isDir);
 		return move.settles ? settleDirs(next) : next;
 	}, startDirs(cwds)).dirs;
 
@@ -148,4 +160,11 @@ const distinct = (first, rest) => [
 	...new Set(rest.filter((d) => d !== first)),
 ];
 
-module.exports = { startDirs, moveDir, stepDirs, settleDirs, dirsAfter };
+module.exports = {
+	startDirs,
+	moveDir,
+	stepDirs,
+	settleDirs,
+	openDirsScope,
+	dirsAfter,
+};

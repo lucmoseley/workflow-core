@@ -142,4 +142,15 @@ describe("dirsAfter", () => {
 			),
 		).toEqual(["/nope/b", "/h/b", "/nope", "/h"]);
 	});
+
+	it("settles only the chains a subshell's move opened, at a chain end inside it (#5102)", () => {
+		/* `cd /nope && (cd /a && true; git x)`: x runs only where /nope was made. */
+		expect(
+			standAfter(
+				["/h"],
+				to("/nope", "if-dir", { chained: true }),
+				to("/a", "if-dir", { chained: true, opensScope: true, settles: true }),
+			),
+		).toEqual(["/a"]);
+	});
 });
