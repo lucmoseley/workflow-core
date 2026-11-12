@@ -612,7 +612,7 @@ describe("the edges each rule turns on", () => {
 		expect(refusal("yes\t> /dev/null")).toContain(G);
 	});
 
-	it.each(["\\&", "\\|", "\\;", "\\(", "\\)"])(
+	it.each(["\\&", "\\|", "\\;", "\\(", "\\)", "\\$"])(
 		"reads an escaped %s as a word, not a separator (#5114)",
 		(op) => {
 			expect(refusal(`yes ${op} | head`)).toBeNull();

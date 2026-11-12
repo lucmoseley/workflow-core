@@ -61,6 +61,9 @@ const SCOPE_CLOSE = `${SCOPE_MARK})`;
 /** Opens a flattened line with the code of the operator before it (#4009). */
 const OP_MARK = "\x05";
 
+/** The first private-use code point, where escapeShield's stand-ins start. */
+const STAND_IN_BASE = 0xe0_00;
+
 /**
  * A shield for the escaped characters among `chars` while a split runs over
  * text the lexer wrote, where an escape is a `\`-pair: `shield` stands each
@@ -74,7 +77,7 @@ const OP_MARK = "\x05";
  */
 function escapeShield(chars) {
 	/** @param {number} at */
-	const standIn = (at) => String.fromCharCode(0xe0_00 + at);
+	const standIn = (at) => String.fromCharCode(STAND_IN_BASE + at);
 	/** @param {string} text @param {(c: string) => string} swap */
 	const swapPairs = (text, swap) =>
 		text.replace(/\\[\s\S]/g, (pair) => `\\${swap(pair.charAt(1))}`);
@@ -87,7 +90,10 @@ function escapeShield(chars) {
 			}),
 		/** @param {string} text */
 		unshield: (text) =>
-			swapPairs(text, (c) => chars.charAt(c.charCodeAt(0) - 0xe0_00) || c),
+			swapPairs(
+				text,
+				(c) => chars.charAt(c.charCodeAt(0) - STAND_IN_BASE) || c,
+			),
 	};
 }
 
