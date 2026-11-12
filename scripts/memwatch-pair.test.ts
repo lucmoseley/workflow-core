@@ -279,10 +279,13 @@ describe.skipIf(!present).concurrent("memwatch incident block", () => {
  * trigger fires, so a quiet hour still leaves rows.
  */
 describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
-	// Memory no process listing shows, from /proc/meminfo (#4641).
+	// Memory no process listing shows, and page cache and reclaimable slab,
+	// from /proc/meminfo (#4641, #5090).
 	const meminfoFields = [
 		"anon_mb",
+		"file_mb",
 		"shmem_mb",
+		"slab_reclaim_mb",
 		"slab_unreclaim_mb",
 		"kernel_stack_mb",
 		"page_tables_mb",
@@ -324,6 +327,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			"psi_io_full",
 			"mem_avail_mb",
 			...meminfoFields,
+			"loop_peak_mb",
 			"cpu_busy_pct",
 			"cpu_sys_pct",
 			"procs",
@@ -370,7 +374,11 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
 				{
 					AnonPages: 3_145_728,
+					// One field, the sum of the two.
+					Cached: 1_048_000,
+					Buffers: 1048,
 					Shmem: 1_048_576,
+					SReclaimable: 512_000,
 					SUnreclaim: 204_900,
 					KernelStack: 20_480,
 					PageTables: 51_200,
@@ -383,7 +391,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		});
 		const row = JSON.parse(lines[0]);
 		expect(meminfoFields.map((k) => row[k])).toEqual([
-			3072, 1024, 200, 20, 50, 0,
+			3072, 1024, 1024, 500, 200, 20, 50, 0,
 		]);
 		expect(row.mem_avail_mb).toBe(2000);
 	});
@@ -394,21 +402,42 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			meminfo,
 			buildMeminfo(
 				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
-				{ Shmem: 1024 },
+				{ Shmem: 1024, Buffers: 2048 },
 			),
 		);
 		const { lines } = await quietPass("minute-meminfo-sparse", {
 			MEMWATCH_MEMINFO: meminfo,
 		});
 		const row = JSON.parse(lines[0]);
+		// Buffers alone still fills file_mb: null only when every key is absent.
 		expect(meminfoFields.map((k) => row[k])).toEqual([
 			null,
+			2,
 			1,
 			null,
 			null,
 			null,
 			null,
+			null,
 		]);
+	});
+
+	it("carries the refill loop boot unit's memory.peak in whole MB, null where it has none", async () => {
+		const root = path.join(tmp, "minute-loop-peak-root");
+		const unit = path.join(
+			root,
+			`user.slice/user-${os.userInfo().uid}.slice/user@${os.userInfo().uid}.service/app.slice/refill-loop-boot.service`,
+		);
+		fs.mkdirSync(unit, { recursive: true });
+		fs.writeFileSync(path.join(unit, "memory.peak"), "4123561984\n");
+		const [held, none] = await Promise.all([
+			quietPass("minute-loop-peak", { MEMWATCH_CGROUP_ROOT: root }),
+			quietPass("minute-loop-peak-none", {
+				MEMWATCH_CGROUP_ROOT: path.join(tmp, "minute-loop-peak-absent"),
+			}),
+		]);
+		expect(JSON.parse(held.lines[0]).loop_peak_mb).toBe(3932);
+		expect(JSON.parse(none.lines[0]).loop_peak_mb).toBeNull();
 	});
 
 	// A freeze the state line misses recomputes from these (#4081).
