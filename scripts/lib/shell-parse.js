@@ -2446,8 +2446,8 @@ function commandEnd({ segments, joins }, segIdx) {
 
 /**
  * The index of the SCOPE_MARK `)` line closing the `(` line at `openIdx`, or
- * the last segment's where none does: bash refuses an unclosed `(` before
- * it runs anything.
+ * the last segment's where none does: bash reads to the script's end for the
+ * `)` and refuses that command, though the lines before it have run.
  * @param {string[]} segments
  * @param {number} openIdx
  */
