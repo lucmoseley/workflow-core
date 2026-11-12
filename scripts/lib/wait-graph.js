@@ -5,11 +5,8 @@
  * invisible to a read of either alone, so both are read together.
  *
  * Nodes are keyed `owner/name#n` (refKey), so another repo's #3864 is never
- * ours. Each node's open blockers and open sub-issues come from the canonical
- * `blockedBy` and `subIssues` connections in one batched GraphQL call per
- * repo, never `issue_dependencies_summary` (docs/agents/issue-tracker.md, "Two
- * dependency graphs"); a node GraphQL answers null, or with a connection
- * longer than INNER, takes the REST read for itself alone.
+ * ours. Each node's open blockers and open sub-issues come from
+ * lib/link-batch.js's batched read.
  *
  * Every read is per node: edges, or unread with lib/gh.js's reason class.
  * What an unread node means is the caller's policy — the loop checker fails
@@ -19,16 +16,8 @@
  * for every loop reachable from a set of seeds.
  */
 
-const { ghGetRetrying, mapLimit, ISSUE_READ_CONCURRENCY } = require("./gh");
-const { readRepositoryBatch } = require("./blocked-by-batch.js");
-const { parseRepoOfUrl, refKey, refLabel } = require("./issue-ref.js");
-
-/* Issues aliased into one call: 100 x 2 x 100 nodes is 20,000, far under
- * GitHub's 500,000-node cap. */
-const BATCH = 100;
-/* Edges read inline per connection, GitHub's page maximum; one longer takes
- * the REST read. */
-const INNER = 100;
+const { readLinksMany } = require("./link-batch.js");
+const { refKey, refLabel } = require("./issue-ref.js");
 
 /** @typedef {{repo: string, number: number}} Ref */
 /** @typedef {"child" | "blocker"} Kind */
@@ -39,7 +28,6 @@ const INNER = 100;
  *   | {ok: false, error: string, reason: "unreachable"|"broken"}} NodeRead
  */
 /** @typedef {{ref: Ref, error: string, reason: "unreachable"|"broken"}} Unread */
-/** GitHub's JSON as parsed. @typedef {any} GhJson */
 
 /**
  * `v`, which the walk's own bookkeeping guarantees is set; a miss is a bug in
@@ -54,148 +42,45 @@ function must(v) {
 	return v;
 }
 
-const EDGE_FIELDS =
-	"totalCount nodes { number state repository { nameWithOwner } }";
-
-/** @param {number[]} numbers */
-const buildQuery = (numbers) =>
-	"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { nameWithOwner " +
-	numbers
-		.map(
-			(n) =>
-				`i${n}: issue(number: ${n}) { state blockedBy(first: ${INNER}) { ${EDGE_FIELDS} } subIssues(first: ${INNER}) { ${EDGE_FIELDS} } }`,
-		)
-		.join(" ") +
-	" } }";
-
 /**
- * A connection's open edges, or null where it is missing, malformed or
- * truncated.
- * @param {GhJson} conn
+ * Rows' open targets as edges of `kind`, one naming no repo in `self`.
+ * @param {import("./link-batch").LinkRow[]} rows
  * @param {Kind} kind
- * @param {string} self the queried repository's `nameWithOwner`
- * @returns {{to: Ref, kind: Kind}[] | null}
- */
-function edgesOf(conn, kind, self) {
-	if (!conn || typeof conn.totalCount !== "number") return null;
-	if (
-		!Array.isArray(conn.nodes) ||
-		conn.nodes.some((/** @type {GhJson} */ n) => !n)
-	)
-		return null;
-	if (conn.totalCount > conn.nodes.length) return null;
-	return conn.nodes
-		.filter(
-			(/** @type {GhJson} */ n) => String(n.state).toLowerCase() === "open",
-		)
-		.map((/** @type {GhJson} */ n) => ({
-			to: { repo: n.repository?.nameWithOwner ?? self, number: n.number },
-			kind,
-		}));
-}
-
-/**
- * One connection's open edges through REST, followed to its last page.
- * @param {Ref} ref
- * @param {Kind} kind
- * @returns {Promise<{ok: true, edges: {to: Ref, kind: Kind}[]} | {ok: false, error: string, reason: "unreachable"|"broken"}>}
- */
-async function readRestEdges(ref, kind) {
-	const tail = kind === "blocker" ? "dependencies/blocked_by" : "sub_issues";
-	const r = await ghGetRetrying(
-		`repos/${ref.repo}/issues/${ref.number}/${tail}`,
-	);
-	if (!r.ok) return r;
-	return {
-		ok: true,
-		edges: r.out
-			.filter((/** @type {GhJson} */ i) => i.state === "open")
-			.map((/** @type {GhJson} */ i) => ({
-				to: {
-					repo: parseRepoOfUrl(i.repository_url) ?? ref.repo,
-					number: i.number,
-				},
-				kind,
-			})),
-	};
-}
-
-/**
- * A node GraphQL could not answer in full: each connection it left out read
- * through REST.
- * @param {Ref} ref
- * @param {GhJson} alias
  * @param {string} self
- * @returns {Promise<NodeRead>}
+ * @returns {{to: Ref, kind: Kind}[]}
  */
-async function readNodeRest(ref, alias, self) {
-	/** @type {{to: Ref, kind: Kind}[]} */
-	const edges = [];
-	for (const [kind, field] of /** @type {[Kind, string][]} */ ([
-		["blocker", "blockedBy"],
-		["child", "subIssues"],
-	])) {
-		const inline = edgesOf(alias?.[field], kind, self);
-		const read = inline
-			? { ok: true, edges: inline }
-			: await readRestEdges(ref, kind);
-		if (!read.ok) return /** @type {NodeRead} */ (read);
-		edges.push(.../** @type {{edges: {to: Ref, kind: Kind}[]}} */ (read).edges);
-	}
-	const state = alias?.state
-		? /** @type {"open"|"closed"} */ (String(alias.state).toLowerCase())
-		: null;
-	return { ok: true, state, edges };
-}
+const openEdges = (rows, kind, self) =>
+	rows
+		.filter((r) => r.state === "open")
+		.map((r) => ({ to: { repo: r.repo ?? self, number: r.number }, kind }));
 
 /**
- * One repo's nodes, read in batches.
+ * One repo's nodes.
  * @param {string} repo
  * @param {Ref[]} refs
  * @returns {Promise<[string, NodeRead][]>}
  */
 async function readRepoNodes(repo, refs) {
-	/** @type {{ref: Ref, alias: GhJson, self: string, read: NodeRead|null}[]} */
-	const pending = [];
-	/** @type {[string, NodeRead][]} */
-	const out = [];
-	for (let at = 0; at < refs.length; at += BATCH) {
-		const batch = refs.slice(at, at + BATCH);
-		const r = await readRepositoryBatch(
-			repo,
-			buildQuery(batch.map((x) => x.number)),
-		);
-		for (const ref of batch) {
-			if (!r.ok) {
-				out.push([refKey(ref), r]);
-				continue;
-			}
-			const self = r.out.nameWithOwner;
-			const alias = r.out[`i${ref.number}`];
-			const blockers = edgesOf(alias?.blockedBy, "blocker", self);
-			const children = edgesOf(alias?.subIssues, "child", self);
-			pending.push({
-				ref,
-				alias,
-				self,
-				read:
-					blockers && children
-						? {
-								ok: true,
-								state: /** @type {"open"|"closed"} */ (
-									String(alias.state).toLowerCase()
-								),
-								edges: [...blockers, ...children],
-							}
-						: null,
-			});
-		}
-	}
-	const rest = await mapLimit(pending, ISSUE_READ_CONCURRENCY, async (p) => [
-		refKey(p.ref),
-		p.read ?? (await readNodeRest(p.ref, p.alias, p.self)),
-	]);
-	return [...out, .../** @type {[string, NodeRead][]} */ (rest)];
+	const reads = await readLinksMany(
+		repo,
+		refs.map((r) => r.number),
+		{ want: ["blockedBy", "subIssues"] },
+	);
+	return refs.map((ref) => {
+		const r = must(reads.get(ref.number));
+		if (!r.ok) return [refKey(ref), r];
+		return [
+			refKey(ref),
+			{
+				ok: true,
+				state: r.state,
+				edges: [
+					...openEdges(r.links.blockedBy ?? [], "blocker", r.self),
+					...openEdges(r.links.subIssues ?? [], "child", r.self),
+				],
+			},
+		];
+	});
 }
 
 /**

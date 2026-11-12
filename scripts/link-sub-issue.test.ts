@@ -43,8 +43,8 @@ import {
 	type GhAnswer,
 	LINK_READ_FAKE,
 	LINK_READS,
+	LINKS_GRAPHQL_FAKE,
 	type LinkReadAnswers,
-	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./lib/gh-fake";
 import {
 	type GhStubServer,
@@ -106,7 +106,7 @@ const READS_FILE = "reads";
  * parent's list stays empty for its first `lag` reads, which READS_FILE counts.
  */
 const HANDLER = `${LINK_READ_FAKE}
-${WAIT_GRAPH_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const at = (name) => path.join(env.GH_STUB_DIR, name);
@@ -117,7 +117,7 @@ if (argv.join(" ").includes("--method POST")) serve(g.post);
 if (argv[1] === "graphql")
 	serve(g.graphFails
 		? { status: 1, stdout: "", stderr: "gh: Something went wrong (HTTP 502)\\n" }
-		: answerWaitGraph(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
+		: answerLinks(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
 if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}) {
 	const counter = at(${JSON.stringify(READS_FILE)});
 	const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, "utf8")) : 0;

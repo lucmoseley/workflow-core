@@ -18923,22 +18923,17 @@
 			"scripts/measure-outcome-review.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
-		"scripts/lib/fixtures/gh/graphql-blocked-by.json": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/gh.contract.test.ts",
-			"scripts/npm-run-hints-scan.test.ts"
-		],
 		"scripts/lib/fixtures/gh/graphql-issue-states.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
-		"scripts/lib/fixtures/gh/graphql-no-repo.json": [
+		"scripts/lib/fixtures/gh/graphql-links.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
-		"scripts/lib/fixtures/gh/graphql-wait-graph.json": [
+		"scripts/lib/fixtures/gh/graphql-no-repo.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -27257,6 +27252,30 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/line-terminators.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/link-batch.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",

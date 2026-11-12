@@ -21,11 +21,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import {
-	BLOCKED_BY_GRAPHQL_FAKE,
 	GH_GRAPHQL_NO_REPO,
 	GH_LOGGED_OUT,
 	GH_NOT_FOUND,
 	GH_PARENT_NOT_FOUND,
+	LINKS_GRAPHQL_FAKE,
 	RECORDED_SHAPES,
 } from "./gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./gh-stub";
@@ -284,7 +284,7 @@ if (foreign.length && foreign[0] !== "o/r" && /dependencies\\/blocked_by/.test(p
   return page("blockedByPage", edges((fx.foreignDeps || {})[foreign[0] + "#" + foreign[1]] || []));
 // The batched read answers null for an issue whose REST read the fixture
 // fails, so that issue takes the REST path and meets the failure there.
-${BLOCKED_BY_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 ${RECORDED_SHAPES}
 // The embedded serveAnswer calls process.exit, which here ends the server.
 const answer = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
@@ -295,8 +295,8 @@ if (p === "graphql") {
   if (fx.graphqlAnswers === "empty") return;
   if (fx.graphqlAnswers === "noRepo") return answer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
   const failing = [...(fx.failDeps || []), ...(fx.failDepsOnce || [])];
-  return answer(answerBlockedBy(argv, (n) =>
-    failing.includes(n) ? null : (fx.deps || {})[n] || []));
+  return answer(answerLinks(argv, (_repo, n) =>
+    failing.includes(n) ? null : { blockedBy: (fx.deps || {})[n] || [] }));
 }
 if (/dependencies\\/blocked_by/.test(p)) {
   const n = num(/issues\\/(\\d+)\\/dependencies/);

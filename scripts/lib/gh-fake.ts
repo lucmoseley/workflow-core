@@ -18,16 +18,13 @@ import BLOCKED_BY_PAGE from "./fixtures/gh/blocked-by-page.json" with {
 import COMMENTS_PAGE from "./fixtures/gh/comments-page.json" with {
 	type: "json",
 };
-import GRAPHQL_BLOCKED_BY from "./fixtures/gh/graphql-blocked-by.json" with {
-	type: "json",
-};
 import GRAPHQL_ISSUE_STATES from "./fixtures/gh/graphql-issue-states.json" with {
 	type: "json",
 };
-import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
+import GRAPHQL_LINKS from "./fixtures/gh/graphql-links.json" with {
 	type: "json",
 };
-import GRAPHQL_WAIT_GRAPH from "./fixtures/gh/graphql-wait-graph.json" with {
+import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
 	type: "json",
 };
 import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
@@ -291,73 +288,28 @@ function answerCited(argv, issues) {
 }`;
 
 /**
- * The source of `answerBlockedBy(argv, rowsOf)`: lib/blocked-by-batch.js's
- * batched blockers read. `rowsOf(n)` gives issue n's blockers as
- * `{number, state, repo?, title?, body?, labels?}` rows, or null for an
+ * The source of `answerLinks(argv, nodeOf)`: lib/link-batch.js's batched read
+ * of each issue's state, blockers and sub-issues. `nodeOf(repo, n)` gives
+ * issue n of `owner/name` repo as `{state?, blockedBy?, subIssues?}`, each
+ * list `{number, state, repo?, title?, body?, labels?}` rows, or null for an
  * issue GitHub cannot resolve. Each list is cut to the query's own `first:`
  * with the full `totalCount`, as GitHub cuts it, and `{owner}/{repo}`
  * resolves to `o/r`, as gh resolves it to a real name.
  */
-export const BLOCKED_BY_GRAPHQL_FAKE = String.raw`${HELPERS}
-function answerBlockedBy(argv, rowsOf) {
-	const fixture = ${JSON.stringify(GRAPHQL_BLOCKED_BY)};
+export const LINKS_GRAPHQL_FAKE = String.raw`${HELPERS}
+function answerLinks(argv, nodeOf) {
+	const fixture = ${JSON.stringify(GRAPHQL_LINKS)};
 	const page = JSON.parse(fixture.stdout);
 	const issue = Object.values(page.data.repository).find((v) => v && v.blockedBy);
-	const node = issue.blockedBy.nodes[0];
+	const blocker = issue.blockedBy.nodes[0];
+	const child = issue.subIssues.nodes[0];
 	const field = (k) => argv.find((a) => a.startsWith(k + "=")).slice(k.length + 1);
 	const query = field("query");
 	const self = (field("owner") + "/" + field("name")).replace("{owner}/{repo}", "o/r");
-	const first = Number(query.match(/blockedBy\(first: (\d+)\)/)[1]);
-	const repository = { nameWithOwner: self };
-	const errors = [];
-	for (const [, n] of query.matchAll(/i(\d+): issue\(/g)) {
-		const rows = rowsOf(Number(n));
-		if (!rows) {
-			repository["i" + n] = null;
-			errors.push(notFound(page.errors[0], ["repository", "i" + n], n));
-			continue;
-		}
-		repository["i" + n] = shaped(issue, { blockedBy: shaped(issue.blockedBy, {
-			totalCount: rows.length,
-			nodes: rows.slice(0, first).map((r) => shaped(node, {
-				number: r.number,
-				state: r.state.toUpperCase(),
-				title: r.title ?? "issue " + (r.repo ? r.repo + "#" : "") + r.number,
-				url: "http://example/" + r.number,
-				body: r.body ?? "",
-				repository: shaped(node.repository, { nameWithOwner: r.repo ?? self }),
-				labels: shaped(node.labels, { nodes: (r.labels ?? []).map((name) => shaped(node.labels.nodes[0], { name })) }),
-			})),
-		}) });
-	}
-	return answerOf(fixture, { data: { repository } }, errors);
-}`;
-
-/**
- * The source of `answerWaitGraph(argv, nodeOf)`: lib/wait-graph.js's batched
- * read of each issue's blockers and sub-issues together. `nodeOf(repo, n)`
- * gives issue n of `owner/name` repo as `{state?, blockedBy?, subIssues?}`,
- * each list `{number, state, repo?}` rows, or null for an issue GitHub cannot
- * resolve. Each list is cut to the query's own `first:` with the full
- * `totalCount`, and `{owner}/{repo}` resolves to `o/r`.
- */
-export const WAIT_GRAPH_GRAPHQL_FAKE = String.raw`${HELPERS}
-function answerWaitGraph(argv, nodeOf) {
-	const fixture = ${JSON.stringify(GRAPHQL_WAIT_GRAPH)};
-	const page = JSON.parse(fixture.stdout);
-	const issue = Object.values(page.data.repository).find((v) => v && v.subIssues);
-	const node = issue.subIssues.nodes[0];
-	const field = (k) => argv.find((a) => a.startsWith(k + "=")).slice(k.length + 1);
-	const query = field("query");
-	const self = (field("owner") + "/" + field("name")).replace("{owner}/{repo}", "o/r");
-	const first = Number(query.match(/subIssues\(first: (\d+)\)/)[1]);
-	const conn = (template, rows) => shaped(template, {
+	const first = (conn) => Number(query.match(new RegExp(conn + "\\(first: (\\d+)\\)"))[1]);
+	const conn = (key, rows, row) => shaped(issue[key], {
 		totalCount: rows.length,
-		nodes: rows.slice(0, first).map((r) => shaped(node, {
-			number: r.number,
-			state: r.state.toUpperCase(),
-			repository: shaped(node.repository, { nameWithOwner: r.repo ?? self }),
-		})),
+		nodes: rows.slice(0, first(key)).map(row),
 	});
 	const repository = { nameWithOwner: self };
 	const errors = [];
@@ -370,8 +322,20 @@ function answerWaitGraph(argv, nodeOf) {
 		}
 		repository["i" + n] = shaped(issue, {
 			state: (held.state ?? "open").toUpperCase(),
-			blockedBy: conn(issue.blockedBy, held.blockedBy ?? []),
-			subIssues: conn(issue.subIssues, held.subIssues ?? []),
+			blockedBy: conn("blockedBy", held.blockedBy ?? [], (r) => shaped(blocker, {
+				number: r.number,
+				state: r.state.toUpperCase(),
+				title: r.title ?? "issue " + (r.repo ? r.repo + "#" : "") + r.number,
+				url: "http://example/" + r.number,
+				body: r.body ?? "",
+				repository: shaped(blocker.repository, { nameWithOwner: r.repo ?? self }),
+				labels: shaped(blocker.labels, { nodes: (r.labels ?? []).map((name) => shaped(blocker.labels.nodes[0], { name })) }),
+			})),
+			subIssues: conn("subIssues", held.subIssues ?? [], (r) => shaped(child, {
+				number: r.number,
+				state: r.state.toUpperCase(),
+				repository: shaped(child.repository, { nameWithOwner: r.repo ?? self }),
+			})),
 		});
 	}
 	return answerOf(fixture, { data: { repository } }, errors);

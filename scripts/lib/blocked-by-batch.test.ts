@@ -7,7 +7,7 @@
  *
  * In process against a WFC_GH stub served from one long-lived process for the
  * whole file (#2878): the batch's query is answered by gh-fake's
- * answerBlockedBy and each REST page by asRecorded, both held to the real gh
+ * answerLinks and each REST page by asRecorded, both held to the real gh
  * by gh.contract.test.ts.
  *
  * Breaking it lets `/pick-next` launch a blocked issue: a batch failure read
@@ -28,9 +28,9 @@ import {
 	vi,
 } from "vitest";
 import {
-	BLOCKED_BY_GRAPHQL_FAKE,
 	GH_GRAPHQL_NO_REPO,
 	GH_NOT_FOUND,
+	LINKS_GRAPHQL_FAKE,
 	RECORDED_SHAPES,
 } from "./gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./gh-stub";
@@ -65,7 +65,7 @@ const bump = (k) => {
   fs.writeFileSync(file, JSON.stringify(s));
   return s[k];
 };
-${BLOCKED_BY_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 ${RECORDED_SHAPES}
 const answer = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
 const fail = () => answer(${JSON.stringify(GH_NOT_FOUND)});
@@ -74,8 +74,8 @@ if (argv[1] === "graphql") {
   if (fx.failBatch === "once" && bump("graphql") === 1) return fail();
   if (fx.batchAnswers === "empty") return;
   if (fx.batchAnswers === "noRepo") return answer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
-  return answer(answerBlockedBy(argv, (n) =>
-    (fx.nullInBatch || []).includes(n) ? null : (fx.deps || {})[n] || []));
+  return answer(answerLinks(argv, (_repo, n) =>
+    (fx.nullInBatch || []).includes(n) ? null : { blockedBy: (fx.deps || {})[n] || [] }));
 }
 const n = Number(argv[1].match(/issues\/(\d+)\/dependencies\/blocked_by/)[1]);
 if ((fx.failRestOnce || []).includes(n) && bump("rest" + n) === 1) return fail();

@@ -1,5 +1,0 @@
-{
-	"status": 1,
-	"stdout": "{\"data\":{\"repository\":{\"nameWithOwner\":\"o/r\",\"i1\":{\"state\":\"OPEN\",\"blockedBy\":{\"totalCount\":1,\"nodes\":[{\"number\":3,\"state\":\"CLOSED\",\"repository\":{\"nameWithOwner\":\"o/r\"}}]},\"subIssues\":{\"totalCount\":1,\"nodes\":[{\"number\":4,\"state\":\"OPEN\",\"repository\":{\"nameWithOwner\":\"o/r\"}}]}},\"i2\":null}},\"errors\":[{\"type\":\"NOT_FOUND\",\"path\":[\"repository\",\"i2\"],\"locations\":[{\"line\":1,\"column\":1}],\"message\":\"Could not resolve to an Issue with the number of 2.\"}]}",
-	"stderr": "gh: Could not resolve to an Issue with the number of 2.\n"
-}

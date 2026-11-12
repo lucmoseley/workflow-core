@@ -26,7 +26,6 @@ import { caught } from "./caught.js";
 import {
 	answerLinkRead,
 	asRecorded,
-	BLOCKED_BY_GRAPHQL_FAKE,
 	buildCreateAnswer,
 	buildJqLines,
 	CITED_GRAPHQL_FAKE,
@@ -39,9 +38,9 @@ import {
 	ghFakeScript,
 	ghServe,
 	LINK_READS,
+	LINKS_GRAPHQL_FAKE,
 	RECORDED_SHAPES,
 	readGhAnswer,
-	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./gh-fake";
 import { buildLinkReadArms, serveGhStub, stubGhScript } from "./gh-stub";
 import { shellQuote } from "./sh-quote.js";
@@ -60,14 +59,7 @@ const GRAPHQL_ISSUE_STATES = path.join(
 	__dirname,
 	"fixtures/gh/graphql-issue-states.json",
 );
-const GRAPHQL_WAIT_GRAPH = path.join(
-	__dirname,
-	"fixtures/gh/graphql-wait-graph.json",
-);
-const GRAPHQL_BLOCKED_BY = path.join(
-	__dirname,
-	"fixtures/gh/graphql-blocked-by.json",
-);
+const GRAPHQL_LINKS = path.join(__dirname, "fixtures/gh/graphql-links.json");
 const ISSUES_PAGE = path.join(__dirname, "fixtures/gh/issues-page.json");
 const BLOCKED_BY_PAGE = path.join(
 	__dirname,
@@ -571,9 +563,6 @@ describe("live: computed answers", () => {
 			missingRepos: string[],
 		) => GhAnswer
 	>(GRAPHQL_FAKE, "answerGraphql");
-	const answerBlockedBy = ghComputed<
-		(argv: string[], rowsOf: (n: number) => object[] | null) => GhAnswer
-	>(BLOCKED_BY_GRAPHQL_FAKE, "answerBlockedBy");
 
 	/** A WFC_GH stub serving `call` and logging each argv to `log`. */
 	const computedStub = (source: string, call: string, log: string) =>
@@ -602,18 +591,10 @@ describe("live: computed answers", () => {
 		expect(GRAPHQL_FAKE).toContain(
 			JSON.stringify(readGhAnswer(GRAPHQL_NO_REPO).stdout),
 		);
-		expect(BLOCKED_BY_GRAPHQL_FAKE).toContain(
-			JSON.stringify(readGhAnswer(GRAPHQL_BLOCKED_BY)),
-		);
-		expect(WAIT_GRAPH_GRAPHQL_FAKE).toContain(
-			JSON.stringify(readGhAnswer(GRAPHQL_WAIT_GRAPH)),
+		expect(LINKS_GRAPHQL_FAKE).toContain(
+			JSON.stringify(readGhAnswer(GRAPHQL_LINKS)),
 		);
 	});
-
-	const blockers = (n: number) =>
-		n === 2331
-			? [{ number: 2327, state: "closed", labels: ["kind:ticket"] }]
-			: null;
 
 	it.for([
 		{
@@ -673,88 +654,76 @@ describe("live: computed answers", () => {
 		},
 	);
 
-	it("lib/blocked-by-batch.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
-		skip,
-	}) => {
-		liveSkip ??= { reason: liveSkipReason() };
-		if (liveSkip.reason) return skip(liveSkip.reason);
-		const { blockedByMany } = await import("./blocked-by-batch.js");
-		const log = path.join(dir, "blocked-by-calls");
-		const stub = computedStub(
-			BLOCKED_BY_GRAPHQL_FAKE,
-			`argv[1] === "graphql" ? answerBlockedBy(argv, ${blockers}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
-			log,
-		);
-		vi.stubEnv("WFC_GH", stub);
-		await blockedByMany([{ number: 2331 }, { number: 999_999_999 }], {
-			repo: "{owner}/{repo}",
-			home: null,
-		});
-		const args: string[] = fs
-			.readFileSync(log, "utf8")
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line))
-			.find((argv: string[]) => argv[1] === "graphql");
-		const real = await throughSeam(realGh as string, args);
-		expect(real).toMatchObject({ verdict: "broken" });
-		expect(await throughSeam(stub, args)).toEqual(real);
-		expect(
-			await observe(ghServe(answerBlockedBy(args, blockers)), args),
-		).toEqual(real);
-	});
-
-	const answerWaitGraph = ghComputed<
+	const answerLinks = ghComputed<
 		(
 			argv: string[],
 			nodeOf: (repo: string, n: number) => object | null,
 		) => GhAnswer
-	>(WAIT_GRAPH_GRAPHQL_FAKE, "answerWaitGraph");
-	const waitNodes = (_repo: string, n: number) =>
+	>(LINKS_GRAPHQL_FAKE, "answerLinks");
+	const linkNodes = (_repo: string, n: number) =>
 		n === 2331
 			? {
 					state: "closed",
 					blockedBy: [
-						{ number: 2327, state: "closed" },
+						{ number: 2327, state: "closed", labels: ["kind:ticket"] },
 						{ number: 2328, state: "closed" },
 					],
 					subIssues: [],
 				}
 			: null;
 
-	it("lib/wait-graph.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
-		skip,
-	}) => {
-		liveSkip ??= { reason: liveSkipReason() };
-		if (liveSkip.reason) return skip(liveSkip.reason);
-		const { loops } = await import("./wait-graph.js");
-		const log = path.join(dir, "wait-graph-calls");
-		const stub = computedStub(
-			WAIT_GRAPH_GRAPHQL_FAKE,
-			`argv[1] === "graphql" ? answerWaitGraph(argv, ${waitNodes}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
-			log,
-		);
-		vi.stubEnv("WFC_GH", stub);
-		await loops(
-			[
-				{ repo: readTracker(), number: 2331 },
-				{ repo: readTracker(), number: 999_999_999 },
-			],
-			{ home: readTracker() },
-		);
-		const args: string[] = fs
-			.readFileSync(log, "utf8")
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line))
-			.find((argv: string[]) => argv[1] === "graphql");
-		const real = await throughSeam(realGh as string, args);
-		expect(real).toMatchObject({ verdict: "broken" });
-		expect(await throughSeam(stub, args)).toEqual(real);
-		expect(
-			await observe(ghServe(answerWaitGraph(args, waitNodes)), args),
-		).toEqual(real);
-	});
+	/* Both callers send lib/link-batch.js's one query shape. */
+	it.for([
+		{
+			caller: "lib/blocked-by-batch.js",
+			read: async () => {
+				const { blockedByMany } = await import("./blocked-by-batch.js");
+				await blockedByMany([{ number: 2331 }, { number: 999_999_999 }], {
+					repo: "{owner}/{repo}",
+					home: null,
+				});
+			},
+		},
+		{
+			caller: "lib/wait-graph.js",
+			read: async () => {
+				const { loops } = await import("./wait-graph.js");
+				await loops(
+					[
+						{ repo: readTracker(), number: 2331 },
+						{ repo: readTracker(), number: 999_999_999 },
+					],
+					{ home: readTracker() },
+				);
+			},
+		},
+	])(
+		"$caller's batched link read answers alike from the real gh, the stub and the in-process fake",
+		async ({ read }, ctx) => {
+			liveSkip ??= { reason: liveSkipReason() };
+			if (liveSkip.reason) return ctx.skip(liveSkip.reason);
+			const log = path.join(dir, "link-calls");
+			const stub = computedStub(
+				LINKS_GRAPHQL_FAKE,
+				`argv[1] === "graphql" ? answerLinks(argv, ${linkNodes}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
+				log,
+			);
+			vi.stubEnv("WFC_GH", stub);
+			await read();
+			const args: string[] = fs
+				.readFileSync(log, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line))
+				.find((argv: string[]) => argv[1] === "graphql");
+			const real = await throughSeam(realGh as string, args);
+			expect(real).toMatchObject({ verdict: "broken" });
+			expect(await throughSeam(stub, args)).toEqual(real);
+			expect(
+				await observe(ghServe(answerLinks(args, linkNodes)), args),
+			).toEqual(real);
+		},
+	);
 
 	const answerCited = ghComputed<
 		(argv: string[], issues: Record<string, object>) => GhAnswer
@@ -814,7 +783,7 @@ describe("live: computed answers", () => {
 		vi.stubEnv(
 			"WFC_GH",
 			computedStub(
-				BLOCKED_BY_GRAPHQL_FAKE,
+				LINKS_GRAPHQL_FAKE,
 				JSON.stringify(readGhAnswer(ISSUES_PAGE)),
 				log,
 			),
@@ -880,7 +849,7 @@ describe("live: computed answers", () => {
 
 	/* GRAPHQL_NO_REPO is static: verdict and shape only, its repository name
 	 * being synthetic. */
-	it("lib/blocked-by-batch.js's batched read of a missing repository answers alike from the real gh, the stub and the in-process fake", async ({
+	it("lib/link-batch.js's batched read of a missing repository answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
 		liveSkip ??= { reason: liveSkipReason() };
@@ -890,7 +859,7 @@ describe("live: computed answers", () => {
 		vi.stubEnv(
 			"WFC_GH",
 			computedStub(
-				BLOCKED_BY_GRAPHQL_FAKE,
+				LINKS_GRAPHQL_FAKE,
 				JSON.stringify(readGhAnswer(GRAPHQL_NO_REPO)),
 				log,
 			),
