@@ -269,7 +269,12 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 });
 
 describe("the read audit (#4916)", () => {
-	const keys = ["WFC_READ_AUDIT", "WFC_READ_AUDIT_ROOT", "NODE_OPTIONS"];
+	const keys = [
+		"WFC_READ_AUDIT",
+		"WFC_READ_AUDIT_ROOT",
+		"WFC_READ_AUDIT_TMP",
+		"NODE_OPTIONS",
+	];
 	const minted: string[] = [];
 	afterEach(() => {
 		vi.unstubAllEnvs();

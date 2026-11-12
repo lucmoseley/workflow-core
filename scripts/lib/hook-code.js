@@ -1,9 +1,10 @@
 /*
  * hook-code.js — the files a hook runs (#4259): every script a hook
  * registration names, the guard cores and hosts the dispatcher loads from
- * `lib/guard-cores.json`, and every file those reach by code-edges.js's
- * edges: a lib it loads and a script it spawns or runs alike, since a child
- * inherits the session's cwd. Paths are repo-relative, and only those under `scripts/`.
+ * `lib/guard-cores.json`, and every file each one's run reaches
+ * (code-edges.js's `readRunReach`): a lib it loads and a script it spawns or
+ * runs alike, since a child inherits the session's cwd. Paths are
+ * repo-relative, and only those under `scripts/`.
  *
  * The registrations read are the plugin's `hooks/hooks.json`, the
  * self-plugin's and `.claude/settings.json`, each where present at the root.
@@ -23,7 +24,7 @@ const {
 	manifestAt,
 	readDispatchedCores,
 } = require("./guard-cores.js");
-const { edgesOf } = require("./code-edges.js");
+const { readRunReach } = require("./code-edges.js");
 const { requiredGroup } = require("./regex-group.js");
 
 const REGISTRATIONS = ["hooks/hooks.json", SELF_PLUGIN_HOOKS, HOST_SETTINGS];
@@ -32,19 +33,22 @@ const REGISTRATIONS = ["hooks/hooks.json", SELF_PLUGIN_HOOKS, HOST_SETTINGS];
 const COMMAND_SCRIPT = /(?<![\w.-])(scripts\/[\w./-]+\.(?:[cm]?[jt]s|sh|py))/g;
 
 /**
- * The scripts the hook registrations at `root` name.
+ * The scripts the hook registrations at `root` name, for `event` alone
+ * where one is given.
  * @param {string} root
+ * @param {string} [event]
  * @returns {string[]}
  */
-function readEntryScripts(root) {
+function readEntryScripts(root, event) {
 	/** @type {string[]} */
 	const out = [];
 	for (const rel of REGISTRATIONS) {
 		const file = path.join(root, rel);
 		if (!fs.existsSync(file)) continue;
 		const hooks = JSON.parse(fs.readFileSync(file, "utf8"))?.hooks ?? {};
-		for (const { command } of flattenHooks(hooks))
-			out.push(...parseCommandScripts(command));
+		for (const hook of flattenHooks(hooks))
+			if (event === undefined || hook.event === event)
+				out.push(...parseCommandScripts(hook.command));
 	}
 	return out;
 }
@@ -62,39 +66,30 @@ const parseCommandScripts = (command) =>
 		: [];
 
 /**
- * Every file under `scripts/` a hook at `root` runs or loads.
+ * Every file under `scripts/` a hook at `root` runs or loads, of `event`'s
+ * hooks alone where one is given, the dispatcher's every core where it is
+ * among them: the scope is
+ * this filter over each entry's whole run, which may pass through a file
+ * outside `scripts/`. A path no file stands at, as a registration naming a
+ * script this tree lacks, runs nothing.
  * @param {string} root
+ * @param {string} [event]
  * @returns {Set<string>} repo-relative paths
  */
-function readHookCode(root) {
-	const entries = readEntryScripts(root);
+function readHookCode(root, event) {
+	const entries = readEntryScripts(root, event);
 	if (entries.includes(DISPATCH_ENTRY))
 		entries.push(...readDispatchedCores(manifestAt(root)));
-	const scriptsDir = path.join(root, "scripts") + path.sep;
+	const runReach = readRunReach(root);
 	/** @type {Set<string>} */
-	const seen = new Set();
-	const queue = entries.map((rel) => path.join(root, rel));
-	while (queue.length > 0) {
-		const abs = /** @type {string} */ (queue.pop());
-		if (seen.has(abs) || !abs.startsWith(scriptsDir)) continue;
-		let text;
-		try {
-			text = fs.readFileSync(abs, "utf8");
-		} catch (err) {
-			/* An edge names the bare join where no file resolves, and a
-			 * registration may name a script this tree lacks: neither runs. */
-			if (/** @type {NodeJS.ErrnoException} */ (err).code === "ENOENT")
-				continue;
-			throw err;
-		}
-		seen.add(abs);
-		queue.push(
-			...edgesOf(abs, text, () => {
-				/* a foreign Python import is plugin-tree.js's fault to report */
-			}),
-		);
-	}
-	return new Set([...seen].map((abs) => path.relative(root, abs)));
+	const code = new Set();
+	const noFault = () => {
+		/* a foreign Python import is plugin-tree.js's fault to report */
+	};
+	for (const entry of entries)
+		for (const rel of runReach(entry, noFault).files)
+			if (rel.startsWith("scripts/")) code.add(rel);
+	return code;
 }
 
 module.exports = { readHookCode };

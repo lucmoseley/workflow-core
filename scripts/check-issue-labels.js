@@ -68,13 +68,8 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isRouteStep } = require("./lib/decision-labels");
 const { hostRoot } = require("./lib/host-root");
-const {
-	resolveGate,
-	basisFaults,
-	citedSays,
-	judgeOverrideOf,
-} = require("./lib/issue-gate");
-const { readCitedFor, unreadNote } = require("./lib/basis-cited-read");
+const { resolveGate, citedSays, judgeOverrideOf } = require("./lib/issue-gate");
+const { readBasisFaults, unreadNote } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	isHeldWithoutReads,
@@ -480,27 +475,23 @@ function gateMarkerOf(gates) {
 const CITED_STATUS_MS = 60_000;
 
 /**
- * The issues every open gate's basis cites, read in one batched call (#5007),
- * saying which went unread; undefined where no basis's warrant is an issue
- * reference.
+ * Every open gate's basis faults by issue number, the issues their bases
+ * cite read in one batched call (#5007), saying which went unread.
  * @param {any[]} issues GitHub issues as the API returns them
  * @param {Ctx} ctx
- * @returns {import("./lib/issue-gate").Follow|undefined}
+ * @returns {Map<number, import("./lib/issue-gate").BasisFault[]>}
  */
 function readGateCitations(issues, ctx) {
-	const read = readCitedFor(
-		(follow) => {
-			for (const iss of issues)
-				if (
-					!iss.pull_request &&
-					iss.state === "open" &&
-					gateMarkerOf(resolveGate(iss.body))
-				)
-					basisFaults(iss.body, iss.number, follow);
-		},
+	const gated = issues.filter(
+		(iss) =>
+			!iss.pull_request &&
+			iss.state === "open" &&
+			gateMarkerOf(resolveGate(iss.body)),
+	);
+	const read = readBasisFaults(
+		gated.map((iss) => ({ body: iss.body, own: iss.number })),
 		{ timeoutMs: CITED_STATUS_MS },
 	);
-	if (!read) return;
 	if (read.unread.length > 0)
 		ctx.say(
 			`${unreadNote(
@@ -509,14 +500,15 @@ function readGateCitations(issues, ctx) {
 				read.why,
 			)}\n`,
 		);
-	return read.follow;
+	return new Map(gated.map((iss, i) => [iss.number, read.faults[i] ?? []]));
 }
 
 /**
  * @param {any} iss @param {Raise} raise
- * @param {import("./lib/issue-gate").Follow} [follow] the cited issues read
+ * @param {import("./lib/issue-gate").BasisFault[]} faults its basis faults,
+ *   the cited issues followed
  */
-function checkGates(iss, raise, follow) {
+function checkGates(iss, raise, faults) {
 	const gates = resolveGate(iss.body);
 	const typed = FOUNDER_COMMAND_GATE.exec(
 		gates.gateOn?.condition ?? "",
@@ -534,7 +526,6 @@ function checkGates(iss, raise, follow) {
 	const marker = gateMarkerOf(gates);
 	if (!marker) return;
 	// The write routes' own reading (#4946), so a body that skipped them surfaces.
-	const faults = basisFaults(iss.body, iss.number, follow);
 	if (faults.some((f) => f.kind === "no-basis"))
 		raise(
 			"WARN",
@@ -693,8 +684,9 @@ function checkSpeccedBrief(iss, own, specs, raise) {
 /**
  * Every `takes:` and gate fault on one open issue, raised in report order.
  * @param {any} iss @param {string[]} own
- * @param {ChildCounts & {follow?: import("./lib/issue-gate").Follow}} counts
- *   with the cited issues read
+ * @param {ChildCounts & {gateFaults: Map<number,
+ *   import("./lib/issue-gate").BasisFault[]>}} counts with each open gate's
+ *   basis faults
  * @param {Raise} raise
  */
 function checkTakesFaults(iss, own, counts, raise) {
@@ -702,7 +694,7 @@ function checkTakesFaults(iss, own, counts, raise) {
 	checkTakesCount(own, raise);
 	checkContradictions(own, counts.openSteps.get(iss.number) || 0, raise);
 	checkHumanBody(iss, own, raise);
-	checkGates(iss, raise, counts.follow);
+	checkGates(iss, raise, counts.gateFaults.get(iss.number) ?? []);
 	checkJudgeOverride(iss, raise);
 	checkHumanIdle(iss, own, raise);
 	checkAgentStep(iss, own, raise);
@@ -891,7 +883,7 @@ const SPEC = {
 
 		const counts = {
 			...countOpenChildren(issues),
-			follow: readGateCitations(issues, ctx),
+			gateFaults: readGateCitations(issues, ctx),
 		};
 
 		/** @type {Unlabelled[]} */

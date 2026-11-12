@@ -605,109 +605,27 @@ function unwrapArgv(argv) {
  */
 
 /**
- * @typedef {object} Chdir one directory a run moves to before its command
+ * @typedef {ChdirWord & Pick<import("./shell-dirs.js").Move,
+ *   "holds" | "afterFailed" | "chained" | "settles">} Chdir one directory a
+ *   run moves to before its command, its move classified as the directory
+ *   model reads one: a wrapper's holds "always", and only a `-c` string's
+ *   `cd` sets the other three (#5082)
+ */
+
+/**
+ * @typedef {object} ChdirWord a chdir's directory word, and what a `-c`
+ *   string's `cd` reads it under
  * @property {string} dir as written: a wrapper's read through literal, a
  *   `cd`'s masked
  * @property {boolean} read whether `dir` is text literal read whole, to take
  *   as it stands; false for a `cd`'s masked word and a wrapper's word literal
  *   could not fully read or the shell expands
- * @property {"always" | "if-dir" | "maybe"} holds whether the run surely
- *   stands there: "always" for a wrapper's, whose failure runs nothing, and a
- *   `cd` a `&&` chains it off; "if-dir" where the `cd` surely ran had its
- *   directory been there; "maybe" where it may not have run
  * @property {Map<string, string | null>} [vars] a `-c` string's `cd`'s: each
  *   name its script set before it, its assignment word masked, or null where
  *   the script may have changed it in a way not followed
  * @property {boolean} [envReset] a `-c` string's `cd` behind a wrapper that
  *   may replace the environment its script inherits, as resetsEnv reads one
- * @property {true} [afterFailed] a `-c` string's `cd` after `||` whose left
- *   side is the `cd` before it: it runs only where that one did not move
- *   (#5010)
  */
-
-/**
- * Whether a run surely stands where a move put it.
- * @param {Chdir} cd
- * @param {string} dir where it put it; "" where that will not resolve
- * @param {(path: string) => boolean} isDir
- */
-const holdsAt = ({ holds }, dir, isDir) =>
-	holds === "always" || (holds === "if-dir" && dir !== "" && isDir(dir));
-
-/**
- * @typedef {[string, ...string[]]} Dirs the directories a command may stand
- *   in, the first where every move before it was made; each "" where unknown
- */
-
-/**
- * Every directory a run may stand in: each of `cwds` moved through its
- * `chdirs`, an absolute one replacing it, a relative one joined to it and `""`
- * staying put (#4869), each move not sure to hold by holdsAt also left unmade
- * (#4980), as is one an `afterFailed` move makes from where the move before
- * went. Unknown past a directory no word gives whole: a wrapper's word
- * reading a variable or a `~`, a `-c` string's `cd` reading one its script did
- * not set (#4981), a glob, or a `-` flag.
- * @param {Dirs} cwds
- * @param {Chdir[]} chdirs
- * @param {string[] | import("./shell-parse.js").Scope} scope the outer
- *   command's, where the caller holds it, so a wrapper's word reads the
- *   variables the command set; its spans alone otherwise
- * @param {(path: string) => boolean} isDir
- * @returns {Dirs}
- */
-function runCwd(cwds, chdirs, scope, isDir) {
-	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
-	const { buildBareScope } = require("./shell-parse.js");
-	const outer = Array.isArray(scope) ? buildBareScope(scope) : scope;
-	let dirs = cwds;
-	/** @type {Set<string>} where the move before may have gone */
-	let went = new Set();
-	for (const cd of chdirs) {
-		const left = cd.afterFailed ? went : new Set();
-		/* Where the move before went unnamed, this one may run from anywhere. */
-		const unsure = left.has("");
-		/** @param {string} from @returns {Dirs} */
-		const step = (from) => {
-			const to = moveRun(from, cd, outer);
-			return holdsAt(cd, to, isDir) && !unsure && !left.has(from)
-				? [to]
-				: [to, from];
-		};
-		went = new Set(dirs.map((from) => moveRun(from, cd, outer)));
-		const [head, ...tail] = dirs;
-		const [first, ...rest] = [...step(head), ...tail.flatMap(step)];
-		dirs = [first, ...new Set(rest.filter((d) => d !== first))];
-	}
-	return dirs;
-}
-
-/**
- * Where one move puts a run standing at `at`.
- * @param {string} at "" where unknown
- * @param {Chdir} cd
- * @param {import("./shell-parse.js").Scope} scope
- * @returns {string} "" where unknown
- */
-function moveRun(at, cd, scope) {
-	// biome-ignore lint/suspicious/noImportCycles: required at the call, never at load, as shell-parse.js requires this file (#4863).
-	const { chdirArg } = require("./shell-parse.js");
-	return moveDir(at, chdirArg(cd, scope).resolved);
-}
-
-/**
- * Where a move to a directory word, as pathArg read it, puts a run standing
- * at `at`.
- * @param {string} at "" where unknown
- * @param {{ path: string } | { empty: true } | null} resolved null where the
- *   word will not resolve
- * @returns {string} "" where unknown
- */
-function moveDir(at, resolved) {
-	if (!resolved) return "";
-	if ("empty" in resolved) return at;
-	if (resolved.path.startsWith("/")) return resolved.path;
-	return at && `${at}/${resolved.path}`;
-}
 
 /**
  * Strip one run's wrappers.
@@ -1201,6 +1119,32 @@ const GIT_VALUE_OPTIONS = [
 const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
 
 /**
+ * Step git's own options, the words between `git` and its subcommand; the
+ * subcommand's index, or past the end where there is none. A word literal
+ * knows is an option where its text starts with `-`; a word it cannot read,
+ * where its raw word does. A value option also steps over the next word.
+ * @param {string[]} ws masked words, `git` first
+ * @param {string[]} spans
+ * @param {(option: string, next: string | undefined) => void} [onOption]
+ *   handed each option's text and the raw word after it
+ */
+function stepGitOptions(ws, spans, onOption) {
+	/** @param {string | undefined} raw @returns {string | null} */
+	const optionAt = (raw) => {
+		if (raw === undefined) return null;
+		const { known, text } = literal(raw, spans);
+		if (known) return text.startsWith("-") ? text : null;
+		return raw.startsWith("-") ? raw : null;
+	};
+	let i = 1;
+	for (let w = optionAt(ws[i]); w !== null; w = optionAt(ws[i])) {
+		onOption?.(w, ws[i + 1]);
+		i += isGitValueOption(w) ? 2 : 1;
+	}
+	return i;
+}
+
+/**
  * Each `git` subcommand one command's words run, past any launcher wrapper and
  * git's own options: `{ sub, args }`, the subcommand read through literal and
  * the words after it RAW (#2383), one per unwrap run that is `git` with a
@@ -1225,12 +1169,7 @@ function gitRunWords(ws, spans) {
 	const [cmd] = ws;
 	if (cmd === undefined || afterSlash(literal(cmd, spans).text) !== "git")
 		return null;
-	let i = 1;
-	for (let w = ws[i]; w?.startsWith("-"); w = ws[i]) {
-		const step = isGitValueOption(w) ? 2 : 1;
-		if (i + step > ws.length) return null;
-		i += step;
-	}
+	const i = stepGitOptions(ws, spans);
 	const sub = ws[i];
 	if (sub === undefined) return null;
 	return { sub: literal(sub, spans).text, args: ws.slice(i + 1) };
@@ -1243,17 +1182,18 @@ function gitRunWords(ws, spans) {
  * wrapper, a path to the binary, and `gh`'s own flags before the command
  * word, of which only `-R`/`--repo` takes a value.
  *
- * One per unwrap run that is `gh`, `wrapperWords` that run's; none for a run
- * where `--help`/`-h` stands anywhere: usage prints and dispatches nothing.
+ * One per unwrap run that is `gh`, `wrapperWords` and `chdirs` that run's;
+ * none for a run where `--help`/`-h` stands anywhere: usage prints and
+ * dispatches nothing.
  * @param {string[]} words masked
  * @param {string[]} spans accumulator: a `-c` string's spans are appended
- * @returns {(GhCall & { wrapperWords: string[] })[]}
+ * @returns {(GhCall & { wrapperWords: string[], chdirs: Chdir[] })[]}
  */
 const ghWords = (words, spans) =>
-	unwrap(words, spans).flatMap(({ words: ws, wrapperWords }) => {
+	unwrap(words, spans).flatMap(({ words: ws, wrapperWords, chdirs }) => {
 		const gh = ghCall(ws, spans);
 		if (!gh || ws.slice(1).some((w) => isHelpWord(w, spans))) return [];
-		return [{ ...gh, wrapperWords }];
+		return [{ ...gh, wrapperWords, chdirs }];
 	});
 
 /** @param {string} w @param {string[]} spans */
@@ -1692,13 +1632,11 @@ module.exports = {
 	isScriptNext,
 	wrapperScript,
 	runText,
-	runCwd,
-	moveDir,
 	carriesVar,
 	commandName,
 	isGhCommand,
 	programSource,
-	isGitValueOption,
+	stepGitOptions,
 	gitWords,
 	ghCall,
 	ghWords,

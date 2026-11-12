@@ -23,7 +23,6 @@ const {
 	gateOnOf,
 	resolveGate,
 	basisFaults,
-	introducedBasisFaults,
 	basisRefusal,
 	gateRuleHandover,
 	isNewlyGated,
@@ -365,8 +364,6 @@ describe("resolveGate — the shared reading of the pair", () => {
 
 const faultTexts = (body: string, own?: number): string[] =>
 	basisFaults(body, own).map((f: { text: string }) => f.text);
-const introducedTexts = (before: string, after: string): string[] =>
-	introducedBasisFaults(before, after).map((f: { text: string }) => f.text);
 
 describe("basisFaults — a wait with nothing behind it (#672)", () => {
 	it("names a gate line and each prose wait where no basis is written", () => {
@@ -427,14 +424,6 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 			"`a closer after a backslash \\`after a week",
 		])
 			expect(faultTexts(body)).toEqual(["after a week"]);
-	});
-
-	it("counts only what an edit adds, a moved date included", () => {
-		const old = "**Gated until:** 2026-10-05 — x\nafter a week live";
-		expect(introducedTexts(old, `${old}\nnote`)).toEqual([]);
-		expect(introducedTexts(old, old.replace("10-05", "10-12"))).toEqual([
-			"**Gated until:** 2026-10-12 — x",
-		]);
 	});
 });
 
@@ -510,14 +499,6 @@ describe("basisFaults — each window its basis names (#823)", () => {
 			"We spent two weeks right after launch",
 		])
 			expect(faultTexts(body)).toEqual([]);
-	});
-
-	it("refuses only the window an edit adds, naming it, so an old body stays editable", () => {
-		const old = `${gate816}\n**Gate basis:** the vendor answers in 3 days`;
-		expect(introducedTexts(old, `${old}\nnote`)).toEqual([]);
-		expect(introducedTexts(old, `${old}\nre-check it 2 months later`)).toEqual([
-			"2 months",
-		]);
 	});
 });
 
@@ -800,54 +781,6 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 				"**Gated on:** it lands — check: `true` — abandon if: it is dropped\n**Gate basis:** the landing sets it",
 			),
 		).toEqual([]);
-	});
-
-	it("holds an untouched legacy basis through an edit, and judges a rewritten one", () => {
-		const legacy = `${week}\n**Gate basis:** the body sets a week`;
-		expect(introducedBasisFaults(legacy, `${legacy}\nnote`)).toEqual([]);
-		expect(
-			introducedBasisFaults(
-				legacy,
-				legacy.replace(
-					"the body sets a week",
-					"a week is what the ticket asks",
-				),
-			),
-		).toEqual([{ kind: "no-warrant", text: "a week is what the ticket asks" }]);
-		expect(
-			introducedBasisFaults(
-				legacy,
-				legacy.replace("the body sets a week", "#12 ruled a week"),
-			),
-		).toEqual([]);
-	});
-
-	it("judges a legacy basis beneath a gate line the edit moved or added", () => {
-		const legacy =
-			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** the body sets a week";
-		const fault = [{ kind: "no-warrant", text: "the body sets a week" }];
-		expect(
-			introducedBasisFaults(legacy, legacy.replace("2099-01-01", "2099-02-01")),
-		).toEqual(fault);
-		const prose =
-			"Read it a week after it lands.\n**Gate basis:** the body sets a week";
-		expect(
-			introducedBasisFaults(prose, `**Gated until:** 2099-01-01 — x\n${prose}`),
-		).toEqual(fault);
-	});
-
-	it("judges a basis whose text is a window the old body wrote", () => {
-		const bare =
-			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** a week";
-		const fault = [{ kind: "no-warrant", text: "a week" }];
-		expect(
-			introducedBasisFaults(bare, bare.replace("2099-01-01", "2099-02-01")),
-		).toEqual(fault);
-		const wait =
-			"Read it a week after it lands.\n**Gate basis:** #12 ruled a week";
-		expect(
-			introducedBasisFaults(wait, wait.replace("#12 ruled a week", "a week")),
-		).toEqual(fault);
 	});
 
 	it("refuses naming the basis and the template", () => {
@@ -1189,36 +1122,6 @@ describe("basisFaults — a cited issue followed one hop (#5007)", () => {
 		expect(judge(cites("#12 set a week"), 1, new Map()).faults).toEqual([]);
 		expect(
 			reasons(judge(cites("#12 set a week"), 1, at(12, null)).faults),
-		).toEqual([{ ref: "#12", reason: "no-basis" }]);
-	});
-
-	it("follows no basis an edit leaves untouched, and every basis on a re-gate", () => {
-		const legacy = cites("#12 set a week");
-		const trace: unknown[] = [];
-		const follow = { tracker: Tracker, issues: at(12, issue("x")), trace };
-		expect(introducedBasisFaults(legacy, `${legacy}\nnote`, 1, follow)).toEqual(
-			[],
-		);
-		expect(trace).toEqual([]);
-		expect(
-			reasons(
-				introducedBasisFaults(
-					legacy,
-					legacy.replace("2099-01-01", "2099-02-01"),
-					1,
-					follow,
-				),
-			),
-		).toEqual([{ ref: "#12", reason: "no-basis" }]);
-		expect(
-			reasons(
-				introducedBasisFaults(
-					legacy,
-					legacy.replace("set a week", "set the week, a week"),
-					1,
-					follow,
-				),
-			),
 		).toEqual([{ ref: "#12", reason: "no-basis" }]);
 	});
 

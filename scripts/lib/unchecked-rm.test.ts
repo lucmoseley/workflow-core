@@ -192,6 +192,11 @@ describe("the var-slash limb", () => {
 		],
 		["export T; rm -rf $T/x", "an export with no value", "$T/x"],
 		["X=/a; rm -rf $T/$X", "the unset name second", "$T/$X"],
+		[
+			"T=.claude/tmp/x rm -rf $T/*",
+			"a prefix assignment, which the rm's own words never see (#5087)",
+			"$T/*",
+		],
 		["rm -f '$T/x'", "a single-quoted dollar, read as its text", "$T/x"],
 		["rm -rf $T1/x", "a name with a digit", "$T1/x"],
 		[

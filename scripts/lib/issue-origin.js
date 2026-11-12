@@ -29,6 +29,7 @@ const ORIGINS = /** @type {const} */ ([
 	"morning-review-script",
 	"release-bump",
 	"repo-checks-script",
+	"disk-watch-script",
 	"founder",
 ]);
 
@@ -47,6 +48,7 @@ const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 	"morning-review-script",
 	"release-bump",
 	"repo-checks-script",
+	"disk-watch-script",
 ]);
 
 const ORIGIN_PREFIX = "origin:";

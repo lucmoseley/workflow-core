@@ -10,7 +10,8 @@
  * Where the walk splits a command bash would not — a heredoc's terminator
  * followed by `)`, a quote never closed — the message word is cut short and
  * the caller reads it off the command itself, and a later commit in that
- * command is not seen.
+ * command is not seen. A commit spelt through an alias (`git -c alias.ci=commit
+ * ci`) is not seen: gitWords expands no alias, which only walkGit does.
  */
 
 const {

@@ -21,6 +21,7 @@ import {
 	literal,
 	programSource,
 	scanFlags,
+	stepGitOptions,
 	unwrap,
 } from "./shell-words.js";
 
@@ -240,12 +241,47 @@ describe("gitWords (#2383)", () => {
 		expect(read(`git "commit" -m x`)).toEqual(["commit:[-m][x]"]);
 	});
 
+	it.each([
+		`git "-C" /tmp commit -m x`,
+		`git "--no-pager" commit -m x`,
+		`git "-c" k=v commit -m x`,
+	])("steps a quoted option of git's own in %s (#5076)", (command) => {
+		expect(read(command)).toEqual(["commit:[-m][x]"]);
+	});
+
 	it("hands the words after the subcommand over raw, still masked", () => {
 		const args = one(
 			'git commit -m "a b"',
 			(c, spans) => gitWords(c.words, spans)[0]?.args,
 		);
 		expect(args?.[1]).not.toBe("a b");
+	});
+});
+
+describe("stepGitOptions (#5076)", () => {
+	/** The subcommand's index, then each option and its next word read back. */
+	const step = (command: string) =>
+		each(command, (c, spans) => {
+			const seen: string[] = [];
+			const i = stepGitOptions(c.words, spans, (w, next) =>
+				seen.push(
+					`[${w}>${next === undefined ? "" : literal(next, spans).text}]`,
+				),
+			);
+			return `${i}:${seen.join("")}`;
+		});
+
+	it.each([
+		["git commit", "1:"],
+		["git -C /r --no-pager commit", "4:[-C>/r][--no-pager>commit]"],
+		[`git "-c" a=b checkout x`, "3:[-c>a=b]"],
+		["git -c a.b=1 --git-dir x checkout y", "5:[-c>a.b=1][--git-dir>x]"],
+		["git -c checkout x", "3:[-c>checkout]"],
+		["git --git-dir=/g commit", "2:[--git-dir=/g>commit]"],
+		["git -C", "3:[-C>]"],
+		[`git "$O" commit`, "1:"],
+	])("steps %s to %s", (command, answer) => {
+		expect(step(command)).toEqual([answer]);
 	});
 });
 
@@ -666,7 +702,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 	});
 
 	/** Each run's words, env and directories read through literal, `|` apart,
-	 * each directory with how it holds. */
+	 * each directory with how it holds and its chain flags. */
 	const read = (command: string) =>
 		one(command, (c, spans) =>
 			unwrap(c.words, spans).map((r) =>
@@ -674,7 +710,10 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 					bracket(r.words, spans),
 					bracket(r.wrapperWords, spans),
 					r.chdirs
-						.map((d) => `[${literal(d.dir, spans).text} ${d.holds}]`)
+						.map(
+							(d) =>
+								`[${[literal(d.dir, spans).text, d.holds, d.chained && "chained", d.settles && "settles"].filter(Boolean).join(" ")}]`,
+						)
 						.join(""),
 				].join("|"),
 			),
@@ -730,11 +769,14 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		);
 	});
 
-	it("holds a cd as stepCwd does: sure for its && chain, else maybe (#4863)", () => {
+	it("marks a cd its && chain chains off, and settled where the chain ends (#5082)", () => {
 		expect(read(`flock /l -c "cd /a && git x; git y"`).slice(1)).toEqual([
-			"[git][x]||[/a always]",
-			"[git][y]||[/a if-dir]",
+			"[git][x]||[/a if-dir chained]",
+			"[git][y]||[/a if-dir chained settles]",
 		]);
+	});
+
+	it("marks a cd behind an && or inside an if as maybe (#4863)", () => {
 		expect(read(`flock /l -c "true && cd /a; git x"`).at(-1)).toBe(
 			"[git][x]||[/a maybe]",
 		);
