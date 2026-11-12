@@ -87,8 +87,13 @@
  */
 
 const path = require("node:path");
-const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
-const { literal, runCwd, unwrap } = require("./shell-words.js");
+const {
+	parseCommand,
+	runCwd,
+	walkCommands,
+	normAbs,
+} = require("./shell-parse.js");
+const { literal, unwrap } = require("./shell-words.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");

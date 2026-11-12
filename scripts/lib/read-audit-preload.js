@@ -9,8 +9,8 @@
  * `node_modules`: a file's content read through `fs`; a directory's listing,
  * keyed on the names it returned; a probe with what it found; a recursive walk or copy of a tree; and every child
  * process spawned, sync or not, with its program, the file that name runs
- * as found and with links followed, its arguments, working directory and whether it carries this audit on,
- * and any checkout path the test writes down an untraced child's input pipe
+ * as found and with links followed, its arguments, working directory and
+ * what lib/read-audit-provenance.js finds it is, and any checkout path the test writes down an untraced child's input pipe
  * once it runs. Each real git, and the git guard, is handed an event log of
  * the audit's, in which git names every process it starts
  * (lib/read-audit-git-events.js).
@@ -40,6 +40,7 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
@@ -47,20 +48,16 @@ const { listingId } = require("./listing-id.js");
 const { buildHanded } = require("./read-audit-handed.js");
 const { pathKind } = require("./path-kind.js");
 const {
-	buildGuardTest,
 	GIT_EVENTS,
 	GIT_READS,
 	GIT_VALUED,
-	GUARD,
 	EXITED,
-	isNode,
 	PATH_MAX,
 	pairValue,
 	parseStanding,
-	STEERED_BY,
-	readRealTmpdir,
 	repoPath,
 } = require("./read-audit-paths.js");
+const { buildVerdictOf, GUARD } = require("./read-audit-provenance.js");
 const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
@@ -422,19 +419,6 @@ function install() {
 			return false;
 		}
 	};
-	const isGuard = buildGuardTest(realRealpathSync);
-	/* A bare `git` its PATH finds as the host git guard, known by its real
-	 * file, which logs what it reads of this repository where it carries the
-	 * audit. */
-	const isGuardedBy = (
-		/** @type {string} */ file,
-		/** @type {string[]} */ bin,
-		/** @type {boolean} */ audited,
-	) => file === "git" && isGuard(bin[1]) && audited;
-	const isGuarded = (
-		/** @type {Untyped} */ opts,
-		/** @type {string[]} */ bin,
-	) => isGuardedBy(String(opts?.file ?? ""), bin, isAudited(opts?.envPairs));
 	/** Whether the file starts as the kernel runs one: a `#!` line, or ELF. */
 	const isProgram = (/** @type {string} */ abs) => {
 		const head = Buffer.alloc(4);
@@ -458,24 +442,38 @@ function install() {
 		return words.split("\0").some((w) => path.dirname(w) === dir);
 	};
 	let traces = 0;
-	const tmp = readRealTmpdir(realRealpathSync);
-	const isStub = (/** @type {string[]} */ bin) =>
-		bin.some((at) => relativeUnder(tmp, at) !== null);
-	/** A program file in the checkout, outside every `node_modules`. */
-	const isOurs = (/** @type {string[]} */ bin) =>
-		bin.some((at) => rel(at) !== null);
 	const argvOf = (/** @type {Untyped} */ opts) =>
 		Array.isArray(opts?.args) ? opts.args.map(String) : [];
-	/** A Node child that logs its own reads. */
-	const isAuditedNode = (/** @type {Untyped} */ opts) =>
-		isNode(String(opts?.file ?? "")) && isAudited(opts?.envPairs);
+	/* A child a test ran under a TMPDIR of its own still holds the suite's
+	 * stubs (#5072). */
+	const ownTmp = realRealpathSync(os.tmpdir());
+	const verdictOf = buildVerdictOf({
+		root,
+		tmps: [...new Set([process.env.WFC_READ_AUDIT_TMP ?? ownTmp, ownTmp])],
+		realpath: realRealpathSync,
+	});
+	/** @typedef {import("./read-audit-provenance.js").Provenance} Provenance */
+	/**
+	 * What the child the test asked for is, for every test that weighs it
+	 * and for its record.
+	 * @param {Untyped} opts
+	 * @param {string[]} bin
+	 * @returns {Provenance}
+	 */
+	const provenanceOf = (opts, bin) =>
+		verdictOf({
+			file: String(opts?.file ?? ""),
+			bin,
+			args: argvOf(opts).slice(1),
+			envPairs: opts?.envPairs,
+			audited: isAudited(opts?.envPairs),
+			standing,
+		});
 	/* A guarded git is never traced: the guard logs a call on this
 	 * repository, and the reader weighs its hands where it logged none
 	 * (#5015). */
-	const isUntraceable = (
-		/** @type {Untyped} */ opts,
-		/** @type {string[]} */ bin,
-	) => isGuarded(opts, bin) || isAuditedNode(opts);
+	const isUntraceable = (/** @type {Provenance} */ prov) =>
+		prov.guarded || prov.auditedNode;
 	const handed = buildHanded(root);
 	const guardDir = rel(path.dirname(GUARD));
 	/* The environment every child of this run inherits untouched, as the
@@ -503,12 +501,6 @@ function install() {
 			(p) => p !== guardDir && !p.split("/").includes("node_modules"),
 		);
 	};
-	/** The git that is no stub: its file outside the checkout and the tmpdir. */
-	const isRealGit = (/** @type {string} */ file, /** @type {string[]} */ bin) =>
-		path.basename(file) === "git" &&
-		bin.length > 0 &&
-		!bin.some((at) => relativeUnder(root, at) !== null) &&
-		!isStub(bin);
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
 	/** @typedef {ReturnType<ReturnType<typeof buildHanded>["from"]>} Named */
 	/**
@@ -517,12 +509,11 @@ function install() {
 	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
 	 * @param {Named} named
-	 * @param {string[]} bin
+	 * @param {Provenance} prov
 	 * @returns {Hand[]}
 	 */
-	const envHands = (opts, named, bin) => {
-		const file = String(opts?.file ?? "");
-		const gitOnly = isRealGit(file, bin) || isGuard(bin[1]);
+	const envHands = (opts, named, prov) => {
+		const gitOnly = prov.realGit || prov.guard;
 		const pairs = Array.isArray(opts?.envPairs)
 			? opts.envPairs.map(String)
 			: [];
@@ -585,11 +576,11 @@ function install() {
 	 * What hands a child paths in the checkout; none for a Node child that
 	 * logs its own reads.
 	 * @param {Untyped} opts
-	 * @param {string[]} bin
+	 * @param {Provenance} prov
 	 * @returns {Hand[]}
 	 */
-	const handsOf = (opts, bin) => {
-		if (isAuditedNode(opts)) return [];
+	const handsOf = (opts, prov) => {
+		if (prov.auditedNode) return [];
 		const cwd = cwdOf(opts);
 		const words = argvOf(opts).slice(1);
 		const git = isGitFile(opts) ? readGitOptions(words, cwd) : null;
@@ -603,7 +594,7 @@ function install() {
 					return p.length === 0 ? [] : [{ by: "arg", at, p }];
 				},
 			),
-			...envHands(opts, named, bin),
+			...envHands(opts, named, prov),
 			...stdinHands(opts, base),
 			...(git ? repoHands(opts, words, git) : []),
 		];
@@ -613,17 +604,18 @@ function install() {
 	 * a path there.
 	 * @param {string} cwd
 	 * @param {Hand[]} hands
-	 * @param {string[]} bin
+	 * @param {Provenance} prov
 	 */
-	const isInReach = (cwd, hands, bin) =>
-		relativeUnder(root, cwd) !== null || hands.length > 0 || isOurs(bin);
+	const isInReach = (cwd, hands, prov) =>
+		relativeUnder(root, cwd) !== null || hands.length > 0 || prov.ours;
 	/**
 	 * Whether the tracer can run a child in its place: a shell, a stub, or a
 	 * program file of the checkout's own.
 	 * @param {Untyped} opts
 	 * @param {string[]} bin
+	 * @param {Provenance} prov
 	 */
-	const isTraceable = (opts, bin) => {
+	const isTraceable = (opts, bin, prov) => {
 		const file = String(opts?.file ?? "");
 		const argv = argvOf(opts);
 		/* A child launching the tracer on a program of its own would be
@@ -635,7 +627,7 @@ function install() {
 		if (opts?.envPairs?.includes?.("WFC_READ_AUDIT_UNTRACED=1")) return false;
 		if (argv[0] !== file || bin.length === 0 || !isProgram(String(bin[1])))
 			return false;
-		if (!SHELLS.has(path.basename(file)) && !isStub(bin) && !isOurs(bin))
+		if (!SHELLS.has(path.basename(file)) && !prov.stub && !prov.ours)
 			return false;
 		/* The tracer would hold a fourth descriptor, a channel among them,
 		 * open past the child: only the two outputs are kept from it. */
@@ -651,13 +643,14 @@ function install() {
 	 * @param {Untyped} opts
 	 * @param {Hand[]} hands
 	 * @param {string[]} bin
+	 * @param {Provenance} prov
 	 * @returns {Route}
 	 */
-	const routeOf = (opts, hands, bin) => {
+	const routeOf = (opts, hands, bin, prov) => {
 		const cwd = cwdOf(opts);
-		if (!STRACE || !isInReach(cwd, hands, bin) || isUntraceable(opts, bin))
+		if (!STRACE || !isInReach(cwd, hands, prov) || isUntraceable(prov))
 			return null;
-		if (!isTraceable(opts, bin)) return null;
+		if (!isTraceable(opts, bin, prov)) return null;
 		return { trace: `${owner}.${process.pid}.${++traces}.trace` };
 	};
 	let gitLogs = 0;
@@ -670,13 +663,12 @@ function install() {
 	 * it ran goes unlogged. No `events` for a child that is no real git and
 	 * no guard.
 	 * @param {Untyped} opts
-	 * @param {string[]} bin
+	 * @param {Provenance} prov
 	 * @returns {{opts: Untyped, events?: string|null}}
 	 */
-	const gitEventsOf = (opts, bin) => {
-		const file = String(opts?.file ?? "");
+	const gitEventsOf = (opts, prov) => {
 		if (!isGitFile(opts)) return { opts };
-		if (!isRealGit(file, bin) && !isGuard(bin[1])) return { opts };
+		if (!prov.realGit && !prov.guard) return { opts };
 		const pairs = Array.isArray(opts?.envPairs) ? opts.envPairs : [];
 		const target = pairValue(pairs, GIT_EVENTS);
 		if (target !== undefined) {
@@ -688,10 +680,11 @@ function install() {
 		return { opts: { ...opts, envPairs: told }, events };
 	};
 	/**
-	 * `bin` is the spawn's program as `binOf` found it, once, for every test
-	 * that weighs it and for its record.
-	 * @typedef {{opts: Untyped, bin: string[], route: Route, hands: Hand[],
-	 *   events?: string|null}} Spawn
+	 * `bin` is the spawn's program as `binOf` found it, and `prov` what that
+	 * program is, each once, for every test that weighs it and for its
+	 * record; `prov` is null where finding either faulted.
+	 * @typedef {{opts: Untyped, bin: string[], prov: Provenance|null,
+	 *   route: Route, hands: Hand[], events?: string|null}} Spawn
 	 */
 	/**
 	 * @param {Untyped} asked
@@ -702,19 +695,22 @@ function install() {
 		 * record is still kept, in a log the fault marks a doubt (#5009). */
 		/** @type {string[]} */
 		let bin = [];
+		/** @type {Provenance|null} */
+		let prov = null;
 		let within = false;
 		try {
 			/* A tracer already following this process follows the child too,
 			 * and would take the hands' lookups for reads of its own. */
 			within = Boolean(STRACE) && isUnderTracer();
 			bin = binOf(String(asked?.file ?? ""), cwdOf(asked), asked?.envPairs);
+			prov = provenanceOf(asked, bin);
 			if (within)
-				return { opts: asked, bin, route: { within: true }, hands: [] };
-			const hands = handsOf(asked, bin);
-			const route = routeOf(asked, hands, bin);
-			const { opts, events } = gitEventsOf(asked, bin);
+				return { opts: asked, bin, prov, route: { within: true }, hands: [] };
+			const hands = handsOf(asked, prov);
+			const route = routeOf(asked, hands, bin, prov);
+			const { opts, events } = gitEventsOf(asked, prov);
 			if (!route || !("trace" in route))
-				return { opts, bin, route, hands, events };
+				return { opts, bin, prov, route, hands, events };
 			const args = buildTraceArgv(
 				String(STRACE),
 				path.join(dir, route.trace),
@@ -723,6 +719,7 @@ function install() {
 			return {
 				opts: { ...opts, file: args[0], args },
 				bin,
+				prov,
 				route,
 				hands,
 				events,
@@ -734,6 +731,7 @@ function install() {
 			return {
 				opts: asked,
 				bin,
+				prov,
 				route: within ? { within: true } : null,
 				hands: [],
 			};
@@ -781,12 +779,12 @@ function install() {
 	 * audit cannot read: a doubt.
 	 * @param {Untyped} asked
 	 * @param {number|undefined} pid
-	 * @param {Route} route
+	 * @param {Spawn} spawned
 	 */
-	const watchIfUnseen = (asked, pid, route) =>
+	const watchIfUnseen = (asked, pid, { route, prov }) =>
 		guard(() => {
 			const stdio = Array.isArray(asked?.stdio) ? asked.stdio : [];
-			if (typeof pid !== "number" || route || isAuditedNode(asked)) return;
+			if (typeof pid !== "number" || route || prov?.auditedNode) return;
 			const cwd = cwdOf(asked);
 			const base = isGitFile(asked)
 				? readGitOptions(argvOf(asked).slice(1), cwd).moved
@@ -806,13 +804,6 @@ function install() {
 		const isOutput = descriptor === 1 || descriptor === 2;
 		if (entry?.type === "wrap" && !isOutput) add({ k: "piped", pid, p: null });
 	};
-	/**
-	 * The variables steering which program a child runs by name, or with
-	 * what options, that differ from the environment the setup settled.
-	 * @param {unknown} envPairs
-	 */
-	const steeredOf = (envPairs) =>
-		STEERS.filter((name) => pairValue(envPairs, name) !== standing[name]);
 	/**
 	 * Append to a git child's event log, where it wrote one, that the git
 	 * the test killed has exited: a git killed by a signal logs no end of
@@ -875,23 +866,18 @@ function install() {
 	 * @param {number|undefined} pid
 	 * @param {Spawn} spawned
 	 */
-	const logChild = (opts, pid, { bin, route, hands, events }) =>
+	const logChild = (opts, pid, { bin, prov, route, hands, events }) =>
 		guard(() => {
-			const file = String(opts?.file ?? "");
-			const cwd = cwdOf(opts);
-			const steered = steeredOf(opts?.envPairs);
-			const audited = isAudited(opts?.envPairs);
 			add({
 				k: "child",
-				file,
+				file: String(opts?.file ?? ""),
 				bin,
-				args: Array.isArray(opts?.args) ? opts.args.slice(1).map(String) : [],
-				cwd,
-				audited,
-				guarded: isGuardedBy(file, bin, audited),
+				args: argvOf(opts).slice(1),
+				cwd: cwdOf(opts),
+				/* Null where finding it faulted, in a log the fault marks a doubt. */
+				prov,
 				pid: pid ?? null,
 				...(hands.length > 0 ? { hands } : {}),
-				...(steered.length > 0 ? { steered } : {}),
 				...(events === undefined ? {} : { events }),
 				...route,
 			});
@@ -927,7 +913,7 @@ function install() {
 					: [opts, ...args.slice(1)],
 			);
 			logChild(asked, this.pid, spawned);
-			watchIfUnseen(asked, this.pid, spawned.route);
+			watchIfUnseen(asked, this.pid, spawned);
 			markOnKill(this, spawned.events);
 			return err;
 		};
@@ -992,10 +978,6 @@ function sizeOf(file) {
 }
 
 const SHELLS = new Set(["sh", "bash", "dash"]);
-
-/* The variables that steer which program a child runs by name, or with
- * what options (#4997). */
-const STEERS = [...new Set([...STEERED_BY.values()].flat())];
 
 /* A pipe handle's writes, as Node's stream code calls them. */
 const PIPE_WRITES = [

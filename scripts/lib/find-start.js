@@ -39,9 +39,10 @@ const {
 	BASH_SPACE,
 	normAbs,
 	parseCommand,
+	runCwd,
 	walkCommands,
 } = require("./shell-parse.js");
-const { findStarts, literal, runCwd, unwrap } = require("./shell-words.js");
+const { findStarts, literal, unwrap } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**

@@ -21,12 +21,20 @@ Sub KeepWslUp()
 	' is a VM that will not stay up, not one slow boot.
 	Const MAX_STARTS = 3
 	Const WINDOW_S = 1800
-	Dim wmi, fso, logPath, nowS, recent, f, stamp, age, digits
+	' Untraced: past the compaction task's 2-hour limit, with room to spare.
+	Const COMPACT_MAX_MIN = 180
+	Dim marker, wmi, fso, logPath, nowS, recent, f, stamp, age, digits
 	Set wmi = GetObject("winmgmts:\\.\root\cimv2")
 	If wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name = 'vmmemWSL'").Count > 0 Then Exit Sub
 	If wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name = 'wsl.exe'").Count > 0 Then Exit Sub
 
 	Set fso = CreateObject("Scripting.FileSystemObject")
+	' compact-disk.ps1 holds WSL down while this marker is fresh (#5044). A
+	' run killed before it deletes the marker is booted past COMPACT_MAX_MIN.
+	marker = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\wsl-compact.running"
+	If fso.FileExists(marker) Then
+		If DateDiff("n", fso.GetFile(marker).DateLastModified, Now) < COMPACT_MAX_MIN Then Exit Sub
+	End If
 	logPath = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\wsl-keepalive.log"
 	' Any fixed recent epoch works: it keeps the seconds count small.
 	nowS = DateDiff("s", #1/1/2026#, Now)
