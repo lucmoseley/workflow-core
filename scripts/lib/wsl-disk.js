@@ -1,12 +1,11 @@
 /*
  * wsl-disk.js — the core of the monthly WSL disk compaction (#5044): reads
  * win-interop-watchdog/compact-disk.ps1's log, judges when a run is due and
- * when a missed one should warn, and judges the sparse watch. Held apart from
- * its reads, so each verdict is testable with no Windows side and no network.
+ * when a quiet one should warn, judges the sparse watch, and runs one
+ * compaction start. Every read and effect is a port; lib/wsl-disk-host.js and
+ * wsl-disk-compaction.js wire the real ones.
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
 const { compareVersions } = require("./compare-versions.js");
 
 const DAY_MS = 86_400_000;
@@ -23,22 +22,48 @@ const STALE_DAYS = 35;
  */
 const LOW_FREE_GB = 40;
 
-/** The ps1 writes it to %LOCALAPPDATA%; WFC_WSL_COMPACT_LOG names a stand-in. */
-const LOG_NAME = "wsl-compact.log";
+/** The ticket's figure (#5044): two missed weekly fstrim.timer runs. */
+const TRIM_STALE_DAYS = 14;
+
+/** Untraced: one listing read a poll, a few minutes apart. */
+const POLL_MS = 5 * 60_000;
+
+/** Untraced: the timer fires at 02:00, so a wait ends by morning. */
+const MAX_WAIT_MS = 6 * 3_600_000;
+
+/** Untraced: a listing that reads empty once may be a thin read, never twice. */
+const ZERO_READINGS = 2;
+
+/** A run's own result, which the WSL side's `trimfailed` and `watched` lines are not. */
+const RUN_RESULTS = new Set(["ok", "failed", "deferred", "registered"]);
 
 /*
  * microsoft/WSL issues on sparse safety (#5041's research): #41837 is the
- * one whose fix the ruling waits on; the other two are watched for a close.
+ * one whose fix the ruling waits on; the other two are watched for a fix.
  */
 const WATCHED_ISSUES = /** @type {const} */ ([41_837, 42_179, 10_609]);
 const BLOCKING_ISSUE = 41_837;
+
+/** Untraced: enough of a release's sparse lines for the ticket to quote. */
+const QUOTED_LINES = 5;
+
+const RUN_AGAIN = "`node scripts/wsl-disk-compaction.js run --now`";
+const LOG_REMEDY = `read %LOCALAPPDATA%\\wsl-compact.log and \`journalctl --user -u wsl-disk-compaction\`, then ${RUN_AGAIN}`;
 
 /**
  * @typedef {{at: number, result: string, fields: Record<string, string>, line: string}} Entry
  * @typedef {{number: number, state: string, state_reason: string | null}} IssueRow
  * @typedef {{tag_name: string, body: string | null, prerelease: boolean, draft: boolean}} ReleaseRow
  * @typedef {{key: string, title: string, line: string}} Trigger
+ * @typedef {{why: string}} Failed
+ * @typedef {import("./wsl-disk-host.js").LogRead} LogRead
  */
+
+/**
+ * @param {unknown} v
+ * @returns {v is Failed}
+ */
+const isFailed = (v) => typeof v === "object" && v !== null && "why" in v;
 
 /**
  * The log's lines, oldest first: `<local ISO time> <result> key=value…`.
@@ -88,39 +113,120 @@ function isDue(entries, now) {
 }
 
 /**
- * The status check's verdict.
- * @param {{entries: Entry[] | null, now: number, freeGB: number | null}} input
- * `entries` null is no log at all.
- * @returns {{warnings: {tag: string, line: string}[], okLine: string}}
+ * A WSL-side line in the ps1's shape, local time.
+ * @param {number} at
+ * @param {string} rest
  */
-function judgeDisk({ entries, now, freeGB }) {
+function buildLogLine(at, rest) {
+	const d = new Date(at);
+	const p = (/** @type {number} */ n) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${rest}`;
+}
+
+/** @param {string} text */
+const asField = (text) => text.replace(/\s+/g, "_");
+
+/**
+ * The warnings a read log's entries carry.
+ * @param {Entry[]} entries
+ * @param {number} now
+ */
+function entryWarnings(entries, now) {
 	const warnings = [];
-	const free =
-		freeGB === null ? "C: free unread" : `C: free ${freeGB.toFixed(1)} GB`;
-	if (freeGB !== null && freeGB < LOW_FREE_GB)
-		warnings.push({
-			tag: "C-LOW",
-			line: `${free}, under ${LOW_FREE_GB} GB. Run \`node scripts/wsl-disk-compaction.js run --now\`, and look for what is filling it (docs/environment.md §1).`,
-		});
-	if (entries === null) {
-		warnings.push({
-			tag: "COMPACT-UNINSTALLED",
-			line: `no ${LOG_NAME} in %LOCALAPPDATA%, so the monthly compaction is not installed: run \`bash scripts/install-interop-watchdog.sh\`.`,
-		});
-		return { warnings, okLine: "" };
-	}
 	const last = lastSuccess(entries);
-	const newest = entries.at(-1);
+	const newest = entries.findLast((e) => RUN_RESULTS.has(e.result));
+	const watch = entries.findLast((e) =>
+		["watched", "watchfailed"].includes(e.result),
+	);
 	if (last === null || now - last.at > STALE_DAYS * DAY_MS)
 		warnings.push({
 			tag: "COMPACT-STALE",
-			line: `${last === null ? "no compaction has succeeded" : `the last compaction succeeded ${Math.floor((now - last.at) / DAY_MS)} days ago`}, over ${STALE_DAYS}; newest log line: ${newest?.line ?? "none"}.`,
+			line: `${last === null ? "no compaction has succeeded" : `the last compaction succeeded ${Math.floor((now - last.at) / DAY_MS)} days ago`}, over ${STALE_DAYS}; newest log line: ${newest?.line ?? "none"}. A \`deferred\` line means sessions never drained by 08:00, or every live one waited on input; otherwise ${LOG_REMEDY}.`,
 		});
-	if (newest && newest.result === "failed")
+	if (newest?.result === "failed")
 		warnings.push({
 			tag: "COMPACT-FAILED",
-			line: `the last compaction run failed: ${newest.line}`,
+			line: `the last compaction run failed: ${newest.line}. ${LOG_REMEDY}.`,
 		});
+	const lastIndex = last === null ? -1 : entries.indexOf(last);
+	const trim = entries
+		.slice(0, lastIndex)
+		.findLast((e) => e.result === "trimfailed" || RUN_RESULTS.has(e.result));
+	if (last?.result === "ok" && trim?.result === "trimfailed")
+		warnings.push({
+			tag: "TRIM-FAILED",
+			line: `the last compaction ran untrimmed, so it reclaimed little: ${trim.line}. Run \`wsl.exe -u root fstrim -av\` by hand to see why.`,
+		});
+	if (watch?.result === "watchfailed")
+		warnings.push({
+			tag: "WATCH-FAILED",
+			line: `the sparse watch could not finish, so a reason to convert the disk to sparse may go unticketed: ${watch.line}. Read \`journalctl --user -u wsl-disk-compaction\`; the next due run watches again.`,
+		});
+	return warnings;
+}
+
+/**
+ * fstrim.timer's warning: it keeps the disk's free blocks known between
+ * compactions, and the stock unit never fires under WSL.
+ * @param {number | null | Failed} lastTrim
+ * @param {number} now
+ */
+function trimWarnings(lastTrim, now) {
+	const remedy =
+		"run `sudo bash scripts/install-fstrim-wsl.sh`, then `systemctl list-timers fstrim.timer`";
+	if (isFailed(lastTrim))
+		return [
+			{
+				tag: "TRIM-TIMER-UNREAD",
+				line: `fstrim.timer's last run would not read: ${lastTrim.why}.`,
+			},
+		];
+	if (lastTrim !== null && now - lastTrim <= TRIM_STALE_DAYS * DAY_MS)
+		return [];
+	return [
+		{
+			tag: "TRIM-TIMER-IDLE",
+			line: `fstrim.timer ${lastTrim === null ? "has never fired" : `last fired ${Math.floor((now - lastTrim) / DAY_MS)} days ago, over ${TRIM_STALE_DAYS}`}: ${remedy}.`,
+		},
+	];
+}
+
+/**
+ * The status check's verdict.
+ * @param {{log: LogRead, now: number, freeGB: number | Failed,
+ *   lastTrim: number | null | Failed}} input  lastTrim: fstrim.timer's last
+ *   firing, null where it never has
+ * @returns {{warnings: {tag: string, line: string}[], okLine: string}}
+ */
+function judgeDisk({ log, now, freeGB, lastTrim }) {
+	const warnings = [...trimWarnings(lastTrim, now)];
+	const free = isFailed(freeGB)
+		? `C: free unread (${freeGB.why})`
+		: `C: free ${freeGB.toFixed(1)} GB`;
+	if (isFailed(freeGB))
+		warnings.push({ tag: "C-UNREAD", line: `${free}; is C: mounted?` });
+	else if (freeGB < LOW_FREE_GB)
+		warnings.push({
+			tag: "C-LOW",
+			line: `${free}, under ${LOW_FREE_GB} GB. Run ${RUN_AGAIN}, and look for what is filling it (docs/environment.md §1).`,
+		});
+	if (log.state === "unreadable") {
+		warnings.push({
+			tag: "COMPACT-UNREAD",
+			line: `the compaction log would not read, so whether the monthly run happens is unknown: ${log.why}.`,
+		});
+		return { warnings, okLine: "" };
+	}
+	if (log.state === "absent") {
+		warnings.push({
+			tag: "COMPACT-UNINSTALLED",
+			line: "no wsl-compact.log in %LOCALAPPDATA%, so the monthly compaction is not installed: run `bash scripts/install-interop-watchdog.sh`.",
+		});
+		return { warnings, okLine: "" };
+	}
+	const entries = parseLog(log.text);
+	warnings.push(...entryWarnings(entries, now));
+	const last = lastSuccess(entries);
 	const shown =
 		last === null
 			? ""
@@ -168,15 +274,15 @@ function releaseTrigger(r, installed) {
 		{
 			key: `release-${r.tag_name}`,
 			title: `Convert the WSL disk to sparse? WSL ${r.tag_name} names sparse`,
-			line: `WSL ${r.tag_name}'s notes name sparse: ${hits.slice(0, 5).join(" / ")}`,
+			line: `WSL ${r.tag_name}'s notes name sparse: ${hits.slice(0, QUOTED_LINES).join(" / ")}`,
 		},
 	];
 }
 
 /**
- * The sparse watch (#5041 Q1 (B)): what would make converting to sparse worth
- * asking about again. Each trigger's title is unique to it, so a filing is
- * deduped on the title.
+ * The sparse watch's triggers (#5041 Q1 (B)): what would make converting to
+ * sparse worth asking about again. Each title is unique to its trigger, so a
+ * filing is deduped on the title.
  * @param {{issues: IssueRow[], releases: ReleaseRow[], installed: number[]}} input
  * @returns {Trigger[]}
  */
@@ -187,69 +293,212 @@ function judgeSparse({ issues, releases, installed }) {
 	];
 }
 
+/** @param {Trigger} t */
+const buildTicketBody = (t) =>
+	`${t.line}\n\n## Question\n\nShould \`ext4.vhdx\` be converted to sparse now (\`wsl --manage Ubuntu --set-sparse true\`, with \`sparseVhd=true\` in \`.wslconfig\`)? #5041 Q1 ruled (A), monthly compaction, and kept (B) waiting on microsoft/WSL#41837's fix. Re-read #41837, #42179 and #10609, and the release notes, before pricing it.\n\nFiled by \`scripts/wsl-disk-compaction.js\`'s sparse watch (#5044).\n`;
+
 /**
- * The log's path on the Windows side, read with no interop call, since the
- * bridge is what fails: the newest `<user>/AppData/Local/wsl-compact.log`
- * under `usersDir`. Residual: two Windows users with a log each, the newer read.
- * @param {string} [usersDir]
- * @returns {string | null}
+ * @typedef {{
+ *   readInstalled: () => {version: string} | Failed,
+ *   readIssue: (n: number) => IssueRow | Failed,
+ *   readReleases: () => ReleaseRow[] | Failed,
+ *   findFiled: (title: string) => number | null | Failed,
+ *   file: (title: string, body: string) => string | Failed,
+ * }} SparsePorts
  */
-function findLog(usersDir = "/mnt/c/Users") {
-	const named = process.env.WFC_WSL_COMPACT_LOG;
-	if (named) return fs.existsSync(named) ? named : null;
-	let best = null;
-	let bestAt = -1;
-	let names = [];
-	try {
-		names = fs.readdirSync(usersDir);
-	} catch {
-		return null;
-	}
-	for (const name of names) {
-		const p = path.join(usersDir, name, "AppData", "Local", LOG_NAME);
-		const at = fs.statSync(p, { throwIfNoEntry: false })?.mtimeMs ?? -1;
-		if (at > bestAt) [best, bestAt] = [p, at];
-	}
-	return best;
+
+/**
+ * The sparse watch: one line per outcome, filing a ticket per new trigger,
+ * and whether any read or filing failed. A failure never stops the run: the
+ * watch only advises, the next due run reads again, and the log's
+ * `watchfailed` line makes the status check say so.
+ * @param {SparsePorts} ports
+ * @returns {{lines: string[], failed: boolean}}
+ */
+function runSparseWatch(ports) {
+	const installed = ports.readInstalled();
+	if (isFailed(installed))
+		return {
+			lines: [`not read: wsl.exe --version: ${installed.why}`],
+			failed: true,
+		};
+	const issues = WATCHED_ISSUES.map((n) => ports.readIssue(n));
+	const releases = ports.readReleases();
+	const unread = [...issues, releases].filter(isFailed);
+	if (unread.length > 0 || isFailed(releases))
+		return { lines: unread.map((f) => `not read: ${f.why}`), failed: true };
+	const triggers = judgeSparse({
+		issues: /** @type {IssueRow[]} */ (issues),
+		releases,
+		installed: installed.version.split(".").map(Number),
+	});
+	if (triggers.length === 0) return { lines: ["no trigger"], failed: false };
+	const outcomes = triggers.map((t) => fileTrigger(ports, t));
+	return {
+		lines: outcomes.map((o) => o.line),
+		failed: outcomes.some((o) => o.failed),
+	};
 }
 
 /**
- * C:'s free space in GB, read off the drvfs mount, or null.
- * @param {string} [mount]
+ * @param {SparsePorts} ports
+ * @param {Trigger} t
+ * @returns {{line: string, failed: boolean}}
  */
-function readFreeGB(mount = process.env.WFC_WIN_C || "/mnt/c") {
-	try {
-		const s = fs.statfsSync(mount);
-		return (s.bavail * s.bsize) / 1e9;
-	} catch {
-		return null;
+function fileTrigger(ports, t) {
+	const found = ports.findFiled(t.title);
+	if (isFailed(found))
+		return { line: `${t.line} Not filed: ${found.why}`, failed: true };
+	if (found !== null)
+		return { line: `${t.line} Already ticketed: #${found}.`, failed: false };
+	const filed = ports.file(t.title, buildTicketBody(t));
+	return isFailed(filed)
+		? { line: `${t.line} Not filed: ${filed.why}`, failed: true }
+		: { line: `${t.line} Filed: ${filed}`, failed: false };
+}
+
+/**
+ * @typedef {{
+ *   now: () => number,
+ *   readKernelRelease: () => string | Failed,
+ *   readLog: () => LogRead,
+ *   appendLine: (path: string, line: string) => void,
+ *   sparseWatch: () => {lines: string[], failed: boolean},
+ *   readLiveSessions: () => {live: number, waiting: number} | Failed,
+ *   hold: () => string | null,
+ *   release: () => string | null,
+ *   sleep: (ms: number) => void,
+ *   trim: () => {out: string, error: string | null},
+ *   startTask: () => string | null,
+ *   say: (line: string) => void,
+ * }} RunPorts
+ */
+
+/**
+ * One run: 0 started, not due or not WSL; 1 deferred, not installed or a
+ * step failed.
+ * @param {RunPorts} ports
+ * @param {{force: boolean}} opts
+ * @returns {number}
+ */
+function runCompaction(ports, { force }) {
+	const log = readyLog(ports, force);
+	if (typeof log === "number") return log;
+	const append = (/** @type {string} */ rest) =>
+		ports.appendLine(log, buildLogLine(ports.now(), rest));
+	const watch = ports.sparseWatch();
+	for (const line of watch.lines) ports.say(`sparse watch: ${line}`);
+	append(watch.failed ? "watchfailed" : "watched");
+	const drained = drain(ports, append);
+	if (drained !== null) return drained;
+	const trimmed = ports.trim();
+	if (trimmed.error === null)
+		ports.say(`trimmed: ${trimmed.out.replace(/\s+/g, " ")}`);
+	else {
+		// Compacting untrimmed still drops what an earlier trim freed.
+		append(`trimfailed error=${asField(trimmed.error)}`);
+		ports.say(`fstrim failed, compacting untrimmed: ${trimmed.error}`);
+	}
+	const started = ports.startTask();
+	if (started !== null) return fail(ports, append, "schtasks", started);
+	ports.say('started "WSL Disk Compaction"; WSL shuts down now.');
+	return 0;
+}
+
+/**
+ * The log's path where the run goes ahead, else its exit.
+ * @param {RunPorts} ports
+ * @param {boolean} force
+ * @returns {string | number}
+ */
+function readyLog(ports, force) {
+	const kernel = ports.readKernelRelease();
+	if (isFailed(kernel)) {
+		ports.say(`the kernel release would not read: ${kernel.why}.`);
+		return 1;
+	}
+	if (!/microsoft/i.test(kernel)) {
+		ports.say("not WSL; nothing to compact.");
+		return 0;
+	}
+	const log = ports.readLog();
+	if (log.state !== "read") {
+		ports.say(
+			log.state === "absent"
+				? "no wsl-compact.log on the Windows side, so the task is not registered: run `bash scripts/install-interop-watchdog.sh`."
+				: `the compaction log would not read: ${log.why}.`,
+		);
+		return 1;
+	}
+	const entries = parseLog(log.text);
+	if (force || isDue(entries, ports.now())) return log.path;
+	ports.say(`not due: last success ${lastSuccess(entries)?.line}.`);
+	return 0;
+}
+
+/**
+ * Holds launches until no session is live on ZERO_READINGS polls running,
+ * renewing the hold each poll: null once none is, else the exit, the hold
+ * released. A listing that will not read counts as live. Where every live
+ * session waits on input, none will end by morning, so it defers at once.
+ * @param {RunPorts} ports
+ * @param {(rest: string) => void} append
+ * @returns {number | null}
+ */
+function drain(ports, append) {
+	const start = ports.now();
+	let zeros = 0;
+	for (;;) {
+		const held = ports.hold();
+		if (held !== null) return fail(ports, append, "hold", held);
+		const read = ports.readLiveSessions();
+		zeros = !isFailed(read) && read.live === 0 ? zeros + 1 : 0;
+		if (zeros >= ZERO_READINGS) return null;
+		const shown = isFailed(read)
+			? read.why
+			: `${read.live} live, ${read.waiting} waiting on input`;
+		const stuck =
+			!isFailed(read) && read.live > 0 && read.waiting === read.live;
+		if (stuck || ports.now() - start >= MAX_WAIT_MS)
+			return defer(ports, append, shown);
+		ports.say(`waiting: ${shown}; launches held.`);
+		ports.sleep(POLL_MS);
 	}
 }
 
 /**
- * A WSL-side line in the ps1's shape, which a run that never starts the task
- * writes (`deferred`, `failed`).
- * @param {number} at
- * @param {string} rest
+ * @param {RunPorts} ports
+ * @param {(rest: string) => void} append
+ * @param {string} shown
  */
-function buildLogLine(at, rest) {
-	const d = new Date(at);
-	const p = (/** @type {number} */ n) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${rest}`;
+function defer(ports, append, shown) {
+	const released = ports.release();
+	append(`deferred sessions=${asField(shown)}`);
+	ports.say(
+		`deferred: sessions still live (${shown})${released ? `; the hold did not release: ${released}` : ""}. The next night's timer tries again.`,
+	);
+	return 1;
+}
+
+/**
+ * @param {RunPorts} ports
+ * @param {(rest: string) => void} append
+ * @param {string} step
+ * @param {string} why
+ */
+function fail(ports, append, step, why) {
+	const released = ports.release();
+	append(`failed step=${step} error=${asField(why)}`);
+	ports.say(
+		`${step} failed: ${why}${released ? `; release failed: ${released}` : ""}`,
+	);
+	return 1;
 }
 
 module.exports = {
-	BLOCKING_ISSUE,
-	DUE_DAYS,
-	LOW_FREE_GB,
-	STALE_DAYS,
-	WATCHED_ISSUES,
-	buildLogLine,
-	findLog,
-	isDue,
 	judgeDisk,
 	judgeSparse,
-	lastSuccess,
 	parseLog,
-	readFreeGB,
+	runCompaction,
+	runSparseWatch,
 };

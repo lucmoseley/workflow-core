@@ -7205,8 +7205,7 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/file-issue.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -8486,6 +8485,17 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/install-fstrim-wsl.sh": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		"scripts/install-hooks.js": [
 			"scripts/check-husky-shim.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9271,8 +9281,7 @@
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/write-back-routes.test.ts"
 		],
 		"scripts/lib/agent-liveness.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -12780,8 +12789,7 @@
 			"scripts/upgrade.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/write-back-routes.test.ts"
 		],
 		"scripts/lib/caught.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -14291,8 +14299,7 @@
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/write-back-routes.test.ts"
 		],
 		"scripts/lib/cli-args.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -20356,8 +20363,7 @@
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/write-back-routes.test.ts"
 		],
 		"scripts/lib/gh.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -26809,6 +26815,30 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/launch-hold.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -38889,8 +38919,7 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
-			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/run-cost-report.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -39684,8 +39713,7 @@
 			"scripts/start-session.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/write-back-routes.test.ts"
 		],
 		"scripts/lib/script-path.sh": [
 			"scripts/adopter-landing.test.ts",
@@ -47103,8 +47131,7 @@
 			"scripts/statusline.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/write-back-routes.test.ts"
 		],
 		"scripts/lib/write-fd.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -47288,6 +47315,51 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/wsl-disk-host.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/wsl-disk-host.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/wsl-disk-host.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/wsl-disk.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -47311,8 +47383,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/wsl-disk.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -47378,8 +47449,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/wsl-version.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -49328,8 +49398,7 @@
 			"scripts/refill-loop-usage-probe.test.ts",
 			"scripts/refill-loop.test.ts",
 			"scripts/repo-hold.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/wsl-disk-compaction.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/refill-loop.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",

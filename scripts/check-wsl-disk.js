@@ -5,48 +5,51 @@
  * other sign.
  *
  * WARNS where the last success in %LOCALAPPDATA%\wsl-compact.log is over 35
- * days old, the newest run failed, no log exists (the task is not
- * registered), or C: has under 40 GB free (lib/wsl-disk.js's figures).
+ * days old, the newest run failed, the last one ran untrimmed, the last sparse
+ * watch failed, no log exists (the task is not registered), C: has under 40 GB
+ * free, fstrim.timer has not fired in 14 days, or the log, C: or the timer
+ * will not read (lib/wsl-disk.js's verdict).
  *
- * READS NO INTEROP: the log and C:'s free space come off the /mnt/c mount, so
- * a wedged bridge cannot hang it.
+ * READS NO INTEROP (lib/wsl-disk-host.js), so a wedged bridge cannot hang it.
  *
- * SKIPS where the kernel release carries no `microsoft`: not WSL.
+ * SKIPS where the kernel release carries no `microsoft`: not WSL. A kernel
+ * release that will not read is WARN, never SKIP, which `npm run status` files
+ * with the clean ones.
  *
- * WFC_WSL_COMPACT_LOG names the log, WFC_WIN_C the mount, WFC_PROC /proc (§N7).
+ * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_SYSTEMCTL and WFC_NOW inject
+ * each read (§N7).
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
-const { runCheck } = require("./lib/check");
-const { procRoot } = require("./lib/proc-root.js");
-const disk = require("./lib/wsl-disk.js");
-
-function isWsl() {
-	try {
-		return /microsoft/i.test(
-			fs.readFileSync(path.join(procRoot(), "sys/kernel/osrelease"), "utf8"),
-		);
-	} catch {
-		return false;
-	}
-}
+const { now, runCheck } = require("./lib/check");
+const { judgeDisk } = require("./lib/wsl-disk.js");
+const host = require("./lib/wsl-disk-host.js");
 
 runCheck({
 	name: "wsl-disk",
 	usage: "node check-wsl-disk.js [--json]",
 	run(ctx) {
-		if (!isWsl())
+		const kernel = host.readKernelRelease();
+		if (typeof kernel === "string" && !/microsoft/i.test(kernel))
 			ctx.skip("the kernel release carries no `microsoft`: not WSL.");
-		const logPath = disk.findLog();
-		const entries =
-			logPath === null ? null : disk.parseLog(fs.readFileSync(logPath, "utf8"));
-		const { warnings, okLine } = disk.judgeDisk({
-			entries,
-			now: Date.now(),
-			freeGB: disk.readFreeGB(),
+		/** @type {{tag: string, line: string}[]} */
+		const unread =
+			typeof kernel === "string"
+				? []
+				: [
+						{
+							tag: "KERNEL-UNREAD",
+							line: `the kernel release would not read: ${kernel.why}.`,
+						},
+					];
+		const verdict = judgeDisk({
+			log: host.readCompactLog(),
+			now: now(),
+			freeGB: host.readFreeGB(),
+			lastTrim: host.readLastTrim(),
 		});
-		if (warnings.length === 0) return { okLine, data: { okLine } };
+		const warnings = [...unread, ...verdict.warnings];
+		if (warnings.length === 0)
+			return { okLine: verdict.okLine, data: { okLine: verdict.okLine } };
 		for (const w of warnings) {
 			ctx.warn(w.tag, w.line);
 			ctx.say(w.line);
