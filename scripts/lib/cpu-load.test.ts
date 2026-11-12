@@ -620,7 +620,11 @@ describe("the edges each rule turns on", () => {
 		},
 	);
 
-	it("reads an escaped backslash ahead of a separator as no escape of it", () => {
+	it("reads an escaped `>` as no clobbering redirection (#5114)", () => {
+		expect(refusal("yes \\>| head")).toBeNull();
+	});
+
+	it("reads an escaped backslash ahead of a separator as no escape of it (#5114)", () => {
 		expect(refusal("yes \\\\| head")).toBeNull();
 		expect(refusal("yes \\\\& head")).toBe(refused8("yes \\\\ &"));
 	});

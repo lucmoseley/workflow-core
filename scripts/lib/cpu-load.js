@@ -33,8 +33,9 @@
  * NUMBERS READ AS BASH ARITHMETIC READS THEM: 64-bit, wrapping, a leading 0
  * octal and an invalid octal no number at all. The split is this core's own,
  * kept rather than lib/shell-parse.js's segments and joins: it keeps `|&` one
- * separator and a case pattern's `)` apart from a bracket, which the joins
- * do not, and it rewrites shell arithmetic before `;` and `(` split it.
+ * separator, where the joins read a pipe then a background, and it rewrites
+ * shell arithmetic before `;` and `(` split it, which parseCommand's one
+ * masking pass leaves no room for.
  *
  * DENY, NOT WARN (mantahostels#103). NO ESCAPE VARIABLE (mantahostels#109):
  * the capped form is the route.
@@ -203,7 +204,8 @@ function arith(digits) {
 }
 
 /* The characters the split acts on, each shielded behind a private-use
- * stand-in while it is escaped. */
+ * stand-in while it is escaped. RESIDUAL: a raw U+E000–U+E007 in the text
+ * comes back as its character, changing that word and splitting nothing. */
 const SPLIT_CHARS = "&|;()<>$";
 const SHIELD_BASE = 0xe0_00;
 /** @param {string} c */
@@ -213,8 +215,8 @@ const SHIELDED = new RegExp(`[${shieldOf("&")}-${shieldOf("$")}]`, "g");
 
 /**
  * The masked text split one line per segment, each ending
- * `\x05<separator>` but a line's last. An escaped character is a word's, as
- * shell-parse's flatten reads it (#5113, #5114), and a redirection's `&` and
+ * `\x05<separator>` but a line's last. An escaped character is a word's
+ * (#5114), and a redirection's `&` and
  * `|` are no separators; the two arithmetic headers are spelt as
  * `while true`, any other arithmetic as the `let` it is.
  * @param {string} masked
