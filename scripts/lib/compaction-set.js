@@ -29,7 +29,9 @@ const compactionSetFile = (sid) =>
  * Adds `keys` to the session's set, drops every `pending:` key not among them,
  * and returns its size.
  *
- * DROPPED, NOT SETTLED ONE FOR ONE (#1785). A compaction's boundary is in the
+ * DROPPED, NOT SETTLED ONE FOR ONE (#1785). A pending key is a timestamp
+ * (inject-compaction-count.js), sharing nothing with the boundary it stands
+ * for, so no boundary can settle it. A compaction's boundary is in the
  * transcript by the next Stop and by the next compaction, which both pass it,
  * so a dropped key is counted again as its boundary.
  * @param {string} sid

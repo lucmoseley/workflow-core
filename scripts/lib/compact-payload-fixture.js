@@ -3,8 +3,9 @@
  * `SessionStart:compact` payloads harness 2.1.323 sends, read off its
  * hook-input builder (#1785, #1837). A subagent's autocompaction carries its
  * parent's `session_id` and `transcript_path`, and adds `agent_id`;
- * `PreCompact` adds its `agent_type` too. `session_title` is left out, being
- * absent outside a titled session.
+ * `PreCompact` adds its `agent_type` too. `SessionStart`'s `agent_type` and
+ * `session_title` are left out, being absent outside an `--agent` session or
+ * a titled one.
  */
 
 /**

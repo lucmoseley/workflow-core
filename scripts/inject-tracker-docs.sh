@@ -86,7 +86,7 @@ agent_id="" event="" payload_source="" session="" payload_cwd="" prompt=""
 prompt="${prompt%$'\n'}"
 
 # A subagent's payload names its parent's session, whose command is not the
-# subagent's (#1785).
+# subagent's (#1785). lib/subagent-payload.js's test, on the field read above.
 [[ -n "$agent_id" ]] && exit 0
 
 # This script's directory without a `dirname` fork; `.` where run by a bare name.
