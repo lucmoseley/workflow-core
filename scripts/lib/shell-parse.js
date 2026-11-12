@@ -1288,8 +1288,7 @@ function harvest(scope, { conditional }, words, segIdx) {
 /**
  * The scope each of a command's own leading assignments reads its value under,
  * by name, the last of a name winning: the walk's, every assignment before it
- * applied, as bash expands them left to right (measured: `X=/a Y=$X env`
- * prints `Y=/a`).
+ * applied, as bash expands them left to right (#5087).
  * @param {Walk} walk
  * @param {string[]} leading
  * @param {number} segIdx
@@ -2038,7 +2037,7 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
  * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
  *   its words from `git` on, and what its wrappers and its script carried
  * @param {{ leading: string[], scopes: Map<string, Scope> }} prefix the
- *   segment's own leading assignments, and the scope each reads under
+ *   segment's own leading assignments, and leadingScopes' answer
  * @param {(path: string) => boolean} isDir
  * @returns {(GitTarget & { sub: string, args: string[] }) | null}
  */
@@ -2496,7 +2495,7 @@ function stepGitOption(w, next, target, { scope, dirs }) {
  * @param {GitTarget} target
  * @param {{ scope: Scope, dirEnv: Map<string, GitDirWord>,
  *   isDir: (path: string) => boolean }} from `dirEnv` each git-reading
- *   variable's word and the scope it reads under
+ *   variable's word
  */
 function readGitOptions(own, target, { scope, dirEnv, isDir }) {
 	/** @type {GitDirs} */

@@ -171,7 +171,7 @@ function judge(run, cmd) {
 	for (const gh of ghWords(cmd.words, run.parsed.spans)) {
 		/* The run's `env` assignments lead it as the segment's own do, and it
 		 * stands wherever its wrappers' and `-c` string's moves put it.
-		 * RESIDUAL: a wrapper's word reads no variable here, so `env -C "$D"`
+		 * Residual (#5087): a wrapper's word reads no variable here, so `env -C "$D"`
 		 * is unknown whatever `D` holds, until #5075 hands runs the walk's
 		 * scope. */
 		const cwds = runCwd(cmd.cwds, gh.chdirs, run.parsed.spans, run.ctx.isDir);
