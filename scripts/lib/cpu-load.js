@@ -59,7 +59,7 @@
  *    recorded.
  */
 
-const { parseCommand, unmask } = require("./shell-parse.js");
+const { escapeShield, parseCommand, unmask } = require("./shell-parse.js");
 const { literal, unwrap, wrapperScript } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -203,15 +203,8 @@ function arith(digits) {
 	return BigInt.asIntN(64, BigInt(digits));
 }
 
-/* The characters the split acts on, each shielded behind a private-use
- * stand-in while it is escaped. RESIDUAL: a raw U+E000–U+E007 in the text
- * comes back as its character, changing that word and splitting nothing. */
-const SPLIT_CHARS = "&|;()<>$";
-const SHIELD_BASE = 0xe0_00;
-/** @param {string} c */
-const shieldOf = (c) =>
-	String.fromCharCode(SHIELD_BASE + SPLIT_CHARS.indexOf(c));
-const SHIELDED = new RegExp(`[${shieldOf("&")}-${shieldOf("$")}]`, "g");
+/** The split's shield: every character it acts on. */
+const SPLIT_SHIELD = escapeShield("&|;()<>$");
 
 /**
  * The masked text split one line per segment, each ending
@@ -225,12 +218,7 @@ function splitLines(masked) {
 	return masked
 		.split("\n")
 		.map((line) =>
-			line
-				/* The lexer writes an escape as a `\`-pair, so `\\&` is a
-				 * backslash and then a separator. */
-				.replace(/\\[\s\S]/g, (m) =>
-					SPLIT_CHARS.includes(m.charAt(1)) ? `\\${shieldOf(m.charAt(1))}` : m,
-				)
+			SPLIT_SHIELD.shield(line)
 				.replace(/([<>])&/g, "$1\x03")
 				.replace(/&>/g, "\x03>")
 				.replace(/>\|/g, ">\x04")
@@ -248,11 +236,7 @@ function splitLines(masked) {
 		)
 		.join("\n")
 		.split("\n")
-		.map((line) =>
-			line.replace(SHIELDED, (c) =>
-				SPLIT_CHARS.charAt(c.charCodeAt(0) - SHIELD_BASE),
-			),
-		);
+		.map(SPLIT_SHIELD.unshield);
 }
 
 /** A line as `read -ra` splits it: on runs of IFS whitespace. @param {string} s */
