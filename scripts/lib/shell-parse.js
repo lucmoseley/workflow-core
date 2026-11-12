@@ -145,26 +145,39 @@ function flatten(text, mark = false, ops = false) {
 
 /**
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
- * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, "" a newline or
- * nothing. A blank line hands its operator on, as `&&` at a line's end does.
+ * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, ")" the rest of
+ * the line a bracket's `)` closed (#5093), "" a newline or nothing. A blank
+ * line hands its operator on, as `&&` at a line's end does.
  * @param {string} masked
  * @returns {string[]} one per line of flatSegments
  */
 function parseJoins(masked) {
 	let carry = "";
+	let closed = false;
 	return flatten(masked, true, true)
 		.split("\n")
 		.map((line) => {
 			const code = line.startsWith(OP_MARK) ? line.charAt(1) : "";
+			const afterClose = closed && !code;
+			closed = line === `${SCOPE_MARK})`;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
-				return code;
+				return afterClose ? ")" : code;
 			}
-			const joined = code || carry;
+			const joined = code || carry || (afterClose ? ")" : "");
 			carry = "";
 			return joined;
 		});
 }
+
+/**
+ * Whether a `&&` chain ends at the segment: not where `&&` joins it, nor
+ * inside a bracket's line.
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+const isChainEnd = (joins, segIdx) =>
+	!["a", "(", ")"].includes(joins[segIdx] ?? "");
 
 /**
  * @typedef {object} CommandWords
@@ -1261,11 +1274,15 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** A subshell's `(`: stack the state its `)` restores.
- * @param {Walk} walk */
+/** A subshell's `(`: stack the state its `)` restores. A `&&` chain ending
+ * inside leaves the one outside open (#5093), so no move before the `(` waits
+ * in its `pending`.
+ * @param {Walk} walk accumulator: its stack, directories and redirect mode
+ *   are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
+	walk.dirs = { ...dirs, pending: [] };
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
 		walk.arLast = "";
@@ -1576,6 +1593,8 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === `${SCOPE_MARK}(`) {
 			stack.push(state);
+			/* As openScope's: the chain outside stays open (#5093). */
+			state = { ...state, chainOpen: false };
 			return;
 		}
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
@@ -1590,7 +1609,7 @@ function parseScript(script, spans) {
 				};
 			return;
 		}
-		state = settleScriptChain(state, parsed.joins[segIdx]);
+		if (isChainEnd(parsed.joins, segIdx)) state = settleScriptChain(state);
 		const cw = commandWords(segment);
 		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
 		if (cw.ran)
@@ -1609,14 +1628,13 @@ function parseScript(script, spans) {
 }
 
 /**
- * A `&&` chain's end, as settleCwdDoubt reads one: the last `cd` before it
- * settles the chain for every command after (#5082).
+ * The state at a chain end isChainEnd found: the last `cd` before it settles
+ * the chain for every command after (#5082).
  * @param {ScriptState} state
- * @param {string | undefined} join
  * @returns {ScriptState}
  */
-function settleScriptChain(state, join) {
-	if (join === "a" || join === "(" || !state.chainOpen) return state;
+function settleScriptChain(state) {
+	if (!state.chainOpen) return state;
 	const last = state.chdirs.at(-1);
 	if (!last) throw new Error("a -c string's && chain is open with no cd");
 	/** @type {Chdir} */
@@ -2316,7 +2334,8 @@ function isBraceGroupSure(parsed, segIdx) {
 		let prev = from - 1;
 		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
-		const defined = before === "" && segments[prev] === `${SCOPE_MARK})`;
+		const defined =
+			(before === "" || before === ")") && segments[prev] === `${SCOPE_MARK})`;
 		return (
 			!defined &&
 			before !== "a" &&
@@ -2388,8 +2407,7 @@ function classifyCd(parsed, segIdx, own, cdAt) {
  * @param {number} segIdx
  */
 function settleCwdDoubt(walk, segIdx) {
-	const join = walk.parsed.joins[segIdx];
-	if (join !== "a" && join !== "(") walk.dirs = settleDirs(walk.dirs);
+	if (isChainEnd(walk.parsed.joins, segIdx)) walk.dirs = settleDirs(walk.dirs);
 }
 
 /**
