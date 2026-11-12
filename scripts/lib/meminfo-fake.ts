@@ -12,10 +12,14 @@ export const MEMINFO_KEYS = [
 	"SwapFree",
 ] as const;
 
-/* Memory outside every process listing, on memwatch's minute line (#4641). */
+/* Memory outside every process listing, and page cache and reclaimable slab,
+ * on memwatch's minute line (#4641, #5090). */
 export const MEMINFO_BREAKDOWN_KEYS = [
 	"AnonPages",
+	"Cached",
+	"Buffers",
 	"Shmem",
+	"SReclaimable",
 	"SUnreclaim",
 	"KernelStack",
 	"PageTables",
