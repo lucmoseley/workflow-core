@@ -24,9 +24,7 @@
  *  - A 422 naming an existing parent is PROOF THE FIRST CALL WORKED. Never
  *    re-POST on it.
  *  - A closed parent is refused before the POST over a child that is not
- *    closed: the link would hide an open child from every map that walks open
- *    issues (#3650). A closed child may go under a closed parent, as into an
- *    archival container (#5086).
+ *    closed (#3650; assertParentHidesNoOpenChild).
  *
  * A LOOP IS REFUSED. "A is blocked by B" and "P gets child C" each add an
  * edge from the waiting issue to the waited-on one; it closes a loop exactly
@@ -41,8 +39,6 @@
  * set where it is raised, which runLinkSync's callers branch on and never on
  * the message (#5096).
  *
- * WFC_LINK_REPO (owner/name) names the repo a local `#n` is in, else the
- * tracker; runLinkSync sets it for a caller linking in another repo.
  * Test seams: WFC_LINK_RETRIES (verification attempts), WFC_LINK_SLEEP
  * (seconds between them).
  */
@@ -600,7 +596,6 @@ function runLinkSync(kind, args, { repo } = {}) {
 }
 
 /**
- * The child's `--json` outcome, or null where stdout holds none.
  * @param {string} stdout
  * @returns {Outcome|null}
  */
@@ -619,7 +614,6 @@ function parseOutcome(stdout) {
 }
 
 /**
- * The CLI's entry: `sub-issue|blocker <args>`.
  * @returns {Promise<void>}
  */
 function main() {
