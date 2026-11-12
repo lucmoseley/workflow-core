@@ -1101,9 +1101,6 @@ function carriesVar(name, leading, wrapperWords) {
 	);
 }
 
-/** @param {string} w */
-const isGitValueOption = (w) => GIT_VALUED.has(w);
-
 /**
  * Step git's own options, the words between `git` and its subcommand; the
  * subcommand's index, or past the end where there is none. A word literal
@@ -1125,7 +1122,7 @@ function stepGitOptions(ws, spans, onOption) {
 	let i = 1;
 	for (let w = optionAt(ws[i]); w !== null; w = optionAt(ws[i])) {
 		onOption?.(w, ws[i + 1]);
-		i += isGitValueOption(w) ? 2 : 1;
+		i += GIT_VALUED.has(w) ? 2 : 1;
 	}
 	return i;
 }

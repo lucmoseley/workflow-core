@@ -68,7 +68,7 @@ const {
 	SHOWN_MAX,
 	toPosix,
 } = require("./read-audit-paths.js");
-const { parseGitRecords, readGitCalls } = require("./read-audit-git.js");
+const { parseGitRecords, gitCallsOf } = require("./read-audit-git.js");
 const { buildGitEventsReader } = require("./read-audit-git-events.js");
 const { buildHanded } = require("./read-audit-handed.js");
 const { isProvenance } = require("./read-audit-provenance.js");
@@ -302,7 +302,7 @@ function judge({ logs, git, standing }, root, readers) {
 	const recorded = new Set(git.map((record) => record.pid));
 	const { spelt } = buildHanded(root);
 	const scope = { root, isScratch, recorded, spelt };
-	const calls = readGitCalls(git, standing, root);
+	const calls = gitCallsOf(git, standing, root);
 	if (!Array.isArray(calls)) return calls;
 	const reads = buildCollector(logs, scope, readers);
 	for (const entries of logs.values())
@@ -411,7 +411,7 @@ function buildCollector(logs, scope, readers) {
 	return {
 		take,
 		/**
-		 * @param {GitCall[]} git the owner's git calls, `readGitCalls`'
+		 * @param {GitCall[]} git the owner's git calls, `gitCallsOf`'
 		 * @returns {Audit}
 		 */
 		finish(git) {

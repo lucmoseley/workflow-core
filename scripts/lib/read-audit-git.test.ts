@@ -1,8 +1,17 @@
 /**
  * Tests for read-audit-git.js (#5078): the guard's record, git's option
  * walk, the key and answer id, which calls run again, and that run again.
+ *
+ * The bash guard writes the record this module reads, and nothing else ties
+ * the two: the parity cases read the guard's own `case` list and variable
+ * loop, and run the real guard on PATH in a tmp repository, so a list edited
+ * on one side alone fails here rather than voiding pass-store rows unseen.
+ * The judging cases run in-process on built records; the repositories are
+ * read only, so they are built once.
  */
+
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -18,14 +27,16 @@ import {
 } from "vitest";
 
 const require = createRequire(import.meta.url);
+/** The answer id the guard spells: status, then the sha1 of stdout. */
+const answerOf = (status: number, stdout: string | Buffer) =>
+	`${status}:${createHash("sha1").update(stdout).digest("hex")}`;
 const {
-	answerOf,
 	buildGitRunner,
 	GIT_ANSWER_VARS,
 	GIT_VALUED,
 	keyOf,
 	parseGitRecords,
-	readGitCalls,
+	gitCallsOf,
 	stepGitOptions,
 } = require("./read-audit-git.js");
 
@@ -114,11 +125,16 @@ describe("the guard's record is the one this module reads", () => {
 			GIT_AUTHOR_NAME: "ünï",
 		};
 		delete env.WFC_HOST_GIT_GUARD_DEPTH;
-		const out = execFileSync("git", ["ls-files", "-z", "a.txt"], { cwd, env });
-		const [begun, answered, ...rest] = parseGitRecords(
+		const call = spawnSync("git", ["ls-files", "-z", "a.txt"], { cwd, env });
+		const gitDir = { ...env, GIT_DIR: path.join(repo, ".git") };
+		spawnSync("git", ["ls-files", "-z", "a.txt"], { cwd, env: gitDir });
+		const [begun, answered, ...steered] = parseGitRecords(
 			fs.readFileSync(path.join(log, "1.git")),
 		);
-		expect(rest).toEqual([]);
+		expect(steered.map((s: { steered: string }) => s.steered)).toEqual([
+			"1",
+			"1",
+		]);
 		for (const r of [begun, answered]) {
 			expect(r).toMatchObject({
 				steered: "",
@@ -134,8 +150,8 @@ describe("the guard's record is the one this module reads", () => {
 		}
 		expect(begun.at).toBe(0);
 		expect(begun.answer).toBe("");
-		expect(answered.pid).toBe(begun.pid);
-		expect(answered.answer).toBe(answerOf(0, out));
+		expect([begun.pid, answered.pid]).toEqual([call.pid, call.pid]);
+		expect(answered.answer).toBe(answerOf(0, call.stdout));
 		expect(answered.at).toBeGreaterThan(0);
 	});
 
@@ -167,22 +183,18 @@ describe("stepGitOptions", () => {
 	});
 });
 
-describe("keyOf and answerOf", () => {
-	it("spell a row's key and a call's answer", () => {
+describe("keyOf", () => {
+	it("spells a row's key", () => {
 		expect(keyOf({ args: ["log"], cwd: "." })).toBe(
 			'{"cwd":".","args":["log"]}',
-		);
-		expect(answerOf(0, "")).toBe(Answer);
-		expect(answerOf(1, Buffer.from("x"))).toBe(
-			"1:11f6ad8ec52a2984abaafd7c3b516503785c2072",
 		);
 	});
 });
 
-describe("readGitCalls", () => {
+describe("gitCallsOf", () => {
 	it("keeps a read-only call made under the root, repo-relative, with its answer", () => {
 		expect(
-			readGitCalls(
+			gitCallsOf(
 				records(["ls-files", "-z"], { dir: "/r/sub" }),
 				NoStanding,
 				ROOT,
@@ -191,31 +203,34 @@ describe("readGitCalls", () => {
 	});
 
 	it.each([
-		[["status"], {}, /git call \(git status\) read this repository/],
-		[
-			["diff", "--output=/t/d"],
-			{},
-			/git call \(git diff --output=\/t\/d\) wrote its answer to a file/,
-		],
-		[["diff", "--output", "/t/d"], {}, /wrote its answer to a file/],
+		[["status"], {}, "git call (git status) read this repository"],
+		[["diff", "--output=/t/d"], {}, "wrote its answer to a file"],
+		[["diff", "--output", "/t/d"], {}, "wrote its answer to a file"],
 		[
 			["-C", "/r", "ls-files"],
 			{},
-			/^a git call \(git -C \/r ls-files\) named its repository/,
+			"git call (git -C /r ls-files) named its repository",
 		],
-		[["--git-dir=/r/.git", "log"], {}, /named its repository/],
-		[["--work-tree", "/r", "log"], {}, /named its repository/],
-		[["--shallow-file", "s", "status"], {}, /read this repository/],
-		[["log"], { steered: "1" }, /steered by a git-dir variable/],
+		[["--git-dir=/r/.git", "log"], {}, "named its repository"],
+		[["--work-tree", "/r", "log"], {}, "named its repository"],
+		[["--shallow-file", "s", "status"], {}, "read this repository"],
+		[["log"], { steered: "1" }, "steered by a git-dir variable"],
 		[
 			["log"],
 			{ dir: "/elsewhere" },
-			/read another checkout of this repository/,
+			"read another checkout of this repository",
 		],
-	])("doubts %j %j", (args, opts, doubt) => {
-		expect(readGitCalls(records(args, opts), NoStanding, ROOT).doubt).toMatch(
+	])("doubts %j %j: %s", (args, opts, doubt) => {
+		expect(gitCallsOf(records(args, opts), NoStanding, ROOT).doubt).toContain(
 			doubt,
 		);
+	});
+
+	it("keeps a read-only call past --shallow-file's value, which git takes as the next word", () => {
+		const args = ["--shallow-file", "s", "log"];
+		expect(gitCallsOf(records(args), NoStanding, ROOT)).toEqual([
+			{ cwd: ".", args, answer: Answer },
+		]);
 	});
 
 	it.each([
@@ -248,7 +263,7 @@ describe("readGitCalls", () => {
 	])(
 		"doubts a call fed by its standard input or another descriptor, which a run again never has: %j",
 		(words) => {
-			expect(readGitCalls(records(words), NoStanding, ROOT).doubt).toMatch(
+			expect(gitCallsOf(records(words), NoStanding, ROOT).doubt).toMatch(
 				/a git call \(git .*\) read its standard input or another descriptor/,
 			);
 		},
@@ -263,7 +278,7 @@ describe("readGitCalls", () => {
 	])(
 		"keeps a call whose options only resemble one fed by a descriptor: %j",
 		(words) => {
-			expect(readGitCalls(records(words), NoStanding, ROOT)).toEqual([
+			expect(gitCallsOf(records(words), NoStanding, ROOT)).toEqual([
 				{ cwd: ".", args: words, answer: Answer },
 			]);
 		},
@@ -271,18 +286,18 @@ describe("readGitCalls", () => {
 
 	it("doubts a call logged begun and never answered, or answered two ways", () => {
 		const [begun, answered] = records(["ls-files"]);
-		expect(readGitCalls([begun, begun, answered], NoStanding, ROOT).doubt).toBe(
+		expect(gitCallsOf([begun, begun, answered], NoStanding, ROOT).doubt).toBe(
 			"a git call (git ls-files) was logged without its answer",
 		);
-		expect(readGitCalls([begun], NoStanding, ROOT).doubt).toMatch(
+		expect(gitCallsOf([begun], NoStanding, ROOT).doubt).toMatch(
 			/without its answer/,
 		);
 		const other = { ...answered, answer: "0:x" };
 		expect(
-			readGitCalls([begun, answered, begun, other], NoStanding, ROOT).doubt,
+			gitCallsOf([begun, answered, begun, other], NoStanding, ROOT).doubt,
 		).toBe("a git call (git ls-files) answered differently within the run");
 		expect(
-			readGitCalls([begun, answered, begun, answered], NoStanding, ROOT),
+			gitCallsOf([begun, answered, begun, answered], NoStanding, ROOT),
 		).toHaveLength(1);
 	});
 
@@ -292,11 +307,11 @@ describe("readGitCalls", () => {
 			at: 10,
 			env: { HOME: "/o", TZ: "UTC", WFC_X: "1" },
 		});
-		expect(readGitCalls(apart, standing, ROOT).doubt).toBe(
+		expect(gitCallsOf(apart, standing, ROOT).doubt).toBe(
 			"a git call (git log) ran under a variable that steers git (HOME, TZ)",
 		);
 		expect(
-			readGitCalls(
+			gitCallsOf(
 				records(["log"], { at: 9, env: { HOME: "/o" } }),
 				standing,
 				ROOT,
@@ -306,7 +321,7 @@ describe("readGitCalls", () => {
 			at: 10,
 			env: { HOME: "/h", GIT_TRACE2_EVENT: "/b" },
 		});
-		expect(readGitCalls(settled, standing, ROOT)).toHaveLength(1);
+		expect(gitCallsOf(settled, standing, ROOT)).toHaveLength(1);
 	});
 });
 

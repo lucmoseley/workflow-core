@@ -224,6 +224,7 @@ describe("gitWords (#2383)", () => {
 			"git --namespace n --work-tree /w --git-dir /g --exec-path=/e --shallow-file s commit",
 			"commit:",
 		],
+		["git --exec-path commit", "commit:"],
 		["timeout 60 git commit -m x", "commit:[-m][x]"],
 		["env A=1 git commit -m 'a b'", "commit:[-m][a b]"],
 	])("reads %s from its subcommand on", (command, words) => {

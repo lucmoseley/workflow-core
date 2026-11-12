@@ -323,7 +323,7 @@ function answeredCalls(calls) {
  * @param {string} root real path
  * @returns {GitCall[]|{doubt: string}}
  */
-function readGitCalls(records, standing, root) {
+function gitCallsOf(records, standing, root) {
 	/** @type {Map<string, GitRun & {begun: number, answers: string[]}>} */
 	const calls = new Map();
 	for (const record of records) {
@@ -378,7 +378,6 @@ function buildGitRunner(root, spawnGit) {
 }
 
 module.exports = {
-	answerOf,
 	buildGitRunner,
 	GIT_ANSWER_VARS,
 	GIT_DIR_VARS,
@@ -386,6 +385,6 @@ module.exports = {
 	GIT_VALUED,
 	keyOf,
 	parseGitRecords,
-	readGitCalls,
+	gitCallsOf,
 	stepGitOptions,
 };
