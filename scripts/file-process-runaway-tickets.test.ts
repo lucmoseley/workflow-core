@@ -22,10 +22,10 @@ const stub = (name: string) => path.join(sb.dir, "gh", name);
 const logFile = () => path.join(sb.dir, "runaway.jsonl");
 
 const MIN = 60 * 1000;
+/* Read once, so firings meant for one episode share one `since` however long a run takes (#5103). */
+const NOW = Date.now();
 const at = (minutesAgo: number) =>
-	new Date(Date.now() - minutesAgo * MIN)
-		.toISOString()
-		.replace(/\.\d+Z$/, "+0000");
+	new Date(NOW - minutesAgo * MIN).toISOString().replace(/\.\d+Z$/, "+0000");
 const firing = (since: number, ts: number, over: object = {}) =>
 	JSON.stringify({
 		ts: at(ts),
