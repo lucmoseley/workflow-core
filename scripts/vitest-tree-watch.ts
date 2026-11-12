@@ -13,14 +13,8 @@
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const {
-	readTreeSnapshot,
-	drift,
-	format,
-	endOfRunTreeIdentity,
-	markStart,
-	readHandedMark,
-} = require("./lib/tree-drift.js");
+const { format, endOfRunTreeIdentity } = require("./lib/tree-drift.js");
+const { watchRun, unwatchedRun } = require("./lib/run-steadiness.js");
 const {
 	markerFrom,
 	record,
@@ -46,12 +40,8 @@ const { caught } = require("./lib/caught.js");
  */
 let treeRoot = process.cwd();
 
-let before: unknown = null;
-
-/* The mark of the run's start the pass store checks each input's change
- * time against (#5018): the launcher's, taken before vitest read its config,
- * else this setup's own; null where neither was taken. */
-let startMark: bigint | null = null;
+/* The run's watch (lib/run-steadiness.js), null where `setup` never ran. */
+let watch: import("./lib/run-steadiness.js").Watch | null = null;
 
 /* The read audit's log directory (#4916), null where this run is unaudited:
  * a test's nested run, whose reads its owner's audit holds, or the lander's,
@@ -73,12 +63,7 @@ function disarmAudit(recorded: Record<string, unknown> | null) {
 export function setup(project?: { config?: { root?: string } }) {
 	const root = project?.config?.root;
 	if (typeof root === "string" && root) treeRoot = root;
-	startMark = readHandedMark() ?? markStart(treeRoot);
-	if (startMark === null)
-		process.stderr.write(
-			"vitest-tree-watch: no start mark could be taken in this tree, so this run records no pass (#5018)\n",
-		);
-	before = readTreeSnapshot(treeRoot);
+	watch = watchRun(treeRoot);
 	armAudit();
 }
 
@@ -88,24 +73,17 @@ export function teardown() {
 
 /**
  * The run's per-file rows in the pass store (#4790), off the marker's sha,
- * time and tree. A run whose tree drift is unknown, or whose HEAD moved,
- * says nothing of the content each file read, and records none. An
- * untracked path counts as moved: drift watches tracked files alone, so one
- * rewritten mid-run would be recorded with content the run never read.
+ * time and tree, and the run's steadiness.
  */
 function recordFiles(
 	marker: { sha: string; at?: string; treeAtEnd?: string },
 	files: { results: unknown[]; shared: string[]; clean: boolean } | null,
 	{
-		drifted,
-		untracked,
+		steadiness,
 		root,
-		after,
 	}: {
-		drifted: { headMoved: boolean; moved: { path: string }[] } | null;
-		untracked: string[];
+		steadiness: import("./lib/run-steadiness.js").Steadiness;
 		root: string | null;
-		after: ReturnType<typeof readTreeSnapshot>;
 	},
 ) {
 	if (!files || !marker.at) return null;
@@ -117,12 +95,7 @@ function recordFiles(
 		files: files.results,
 		shared: files.shared,
 		clean: files.clean,
-		drifted:
-			before === null || drifted?.headMoved
-				? null
-				: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
-		after,
-		startMark,
+		steadiness,
 	};
 	recordFileResults(
 		{ ...run, audits: readAuditsOrNone() },
@@ -157,11 +130,9 @@ function readAuditsOrNone() {
  * `check-test-marker.js` and the push gate actually read.
  */
 export function runTeardown(rootOverride?: string | null) {
-	const after = readTreeSnapshot(treeRoot);
-	const drifted = drift(before, after);
-	const untracked = [before, after].flatMap(
-		(s) => (s as { untracked?: string[] } | null)?.untracked ?? [],
-	);
+	const { before, after, drifted, steadiness } = (
+		watch ?? unwatchedRun(treeRoot)
+	).close();
 
 	// stderr, so it survives a reporter writing the summary to stdout.
 	const moved = format(drifted);
@@ -204,12 +175,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === true && after && !capped) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		record(marker, { root });
-		recorded = recordFiles(marker, report.files, {
-			drifted,
-			untracked,
-			root,
-			after,
-		});
+		recorded = recordFiles(marker, report.files, { steadiness, root });
 	}
 
 	/*
@@ -224,12 +190,7 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
-		recorded = recordFiles(marker, report.files, {
-			drifted,
-			untracked,
-			root,
-			after,
-		});
+		recorded = recordFiles(marker, report.files, { steadiness, root });
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run

@@ -41,7 +41,13 @@ describe("judgeDisk", () => {
 		text: string,
 		now = NOW,
 		freeGB: number | { why: string } = 210,
-	) => judgeDisk({ log: read(text), now, freeGB, lastTrim: now - DAY });
+	) =>
+		judgeDisk({
+			log: read(text),
+			now,
+			freeGB,
+			trim: { last: now - DAY, fixedAt: null },
+		});
 	const tags = (v: ReturnType<typeof judgeDisk>) =>
 		v.warnings.map((w) => w.tag);
 
@@ -92,16 +98,41 @@ describe("judgeDisk", () => {
 		expect(tags(v)).toEqual(["TRIM-FAILED"]);
 		expect(v.warnings[0]?.line).toContain("error=denied");
 	});
-	it("warns where fstrim.timer has not fired in 14 days, never, or will not read", () => {
-		const trim = (lastTrim: number | null | { why: string }) =>
-			judgeDisk({ log: read(LOG), now: NOW, freeGB: 210, lastTrim });
-		expect(tags(trim(NOW - 14 * DAY))).toEqual([]);
-		const stale = trim(NOW - 15 * DAY);
-		expect(tags(stale)).toEqual(["TRIM-TIMER-IDLE"]);
-		expect(stale.warnings[0]?.line).toContain("15 days ago");
-		expect(stale.warnings[0]?.line).toContain("install-fstrim-wsl.sh");
-		expect(trim(null).warnings[0]?.line).toContain("has never fired:");
-		expect(tags(trim({ why: "no bus" }))).toEqual(["TRIM-TIMER-UNREAD"]);
+	describe("fstrim.timer", () => {
+		const trim = (
+			last: number | null | { why: string },
+			fixedAt: number | null = NOW - 30 * DAY,
+		) =>
+			judgeDisk({
+				log: read(LOG),
+				now: NOW,
+				freeGB: 210,
+				trim: { last, fixedAt },
+			});
+		const line = (v: ReturnType<typeof judgeDisk>) => v.warnings[0]?.line;
+		it("is quiet within 14 days of its last firing", () => {
+			expect(tags(trim(NOW - 14 * DAY))).toEqual([]);
+		});
+		it("warns past 14 days, pointing at its status where the fix is in", () => {
+			const stale = trim(NOW - 15 * DAY);
+			expect(tags(stale)).toEqual(["TRIM-TIMER-IDLE"]);
+			expect(line(stale)).toContain("15 days ago");
+			expect(line(stale)).toContain("systemctl status fstrim.timer");
+		});
+		it("counts a timer that has not fired yet from its fix's install", () => {
+			expect(tags(trim(null, NOW - 3 * DAY))).toEqual([]);
+			expect(line(trim(null, NOW - 20 * DAY))).toContain(
+				"has not fired in the 20 days since its WSL fix was installed",
+			);
+		});
+		it("names the installer where the fix is not in", () => {
+			const v = trim(null, null);
+			expect(line(v)).toContain("its WSL fix is not installed");
+			expect(line(v)).toContain("install-fstrim-wsl.sh");
+		});
+		it("warns where its last run will not read", () => {
+			expect(tags(trim({ why: "no bus" }))).toEqual(["TRIM-TIMER-UNREAD"]);
+		});
 	});
 	it("warns with no log, an unreadable one, C: under 40 GB, and C: unread", () => {
 		expect(
@@ -110,7 +141,7 @@ describe("judgeDisk", () => {
 					log: { state: "absent" },
 					now: NOW,
 					freeGB: 39.9,
-					lastTrim: NOW,
+					trim: { last: NOW, fixedAt: null },
 				}),
 			),
 		).toEqual(["C-LOW", "COMPACT-UNINSTALLED"]);
@@ -120,7 +151,7 @@ describe("judgeDisk", () => {
 					log: { state: "unreadable", why: "EIO" },
 					now: NOW,
 					freeGB: { why: "ENOENT" },
-					lastTrim: NOW,
+					trim: { last: NOW, fixedAt: null },
 				}),
 			),
 		).toEqual(["C-UNREAD", "COMPACT-UNREAD"]);

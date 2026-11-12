@@ -164,7 +164,7 @@ cat <<EOF
 Installed. It checks every 2 minutes and stays silent unless a wedge is found.
 
   Activity log : %LOCALAPPDATA%\\wsl-interop-watchdog.log  (only written on a detection)
-  Compaction   : %LOCALAPPDATA%\\wsl-compact.log; check with: node ${SRC_DIR%/win-interop-watchdog}/check-wsl-disk.js
+  Compaction   : %LOCALAPPDATA%\\wsl-compact.log; check with: node $repo/scripts/check-wsl-disk.js
   Remove with  : schtasks.exe /Delete /TN "$TASK_NAME" /F
                  schtasks.exe /Delete /TN "$COMPACT_TASK" /F
                  systemctl --user disable --now wsl-disk-compaction.timer
