@@ -87,14 +87,44 @@ const JOIN_CODES = Object.values(JOIN);
  */
 const isJoin = (code) => JOIN_CODES.includes(code);
 
-/** The characters an escape makes a word's, each with the shield the flatten
- * stands it behind while it splits (#5113): control bytes no other mark here
- * uses, and no whitespace the word split reads.
- * Residual: a raw shield byte typed after a `\` outside quotes comes back as
- * the escaped operator; it changes that word and splits nothing. */
-const ESCAPED_OPS = "()&|;<>";
-const SHIELDS = "\x06\x07\x0e\x0f\x10\x11\x12";
-const SHIELDED_RE = new RegExp(`\\\\([${SHIELDS}])`, "g");
+/** The first private-use code point, where escapeShield's stand-ins start. */
+const STAND_IN_BASE = 0xe0_00;
+
+/**
+ * A shield for the escaped characters among `chars` while a split runs over
+ * text the lexer wrote, where an escape is a `\`-pair: `shield` stands each
+ * such pair's character behind a private-use stand-in, no whitespace and no
+ * mark of these modules, and `unshield` restores each stand-in a pair holds
+ * (#5113, #5114, #5116).
+ *
+ * Residual: a raw stand-in typed after a `\` outside quotes comes back as the
+ * escaped character; it changes that word and splits nothing.
+ * @param {string} chars
+ */
+function escapeShield(chars) {
+	/** @param {number} at */
+	const standIn = (at) => String.fromCharCode(STAND_IN_BASE + at);
+	/** @param {string} text @param {(c: string) => string} swap */
+	const swapPairs = (text, swap) =>
+		text.replace(/\\[\s\S]/g, (pair) => `\\${swap(pair.charAt(1))}`);
+	return {
+		/** @param {string} text */
+		shield: (text) =>
+			swapPairs(text, (c) => {
+				const at = chars.indexOf(c);
+				return at < 0 ? c : standIn(at);
+			}),
+		/** @param {string} text */
+		unshield: (text) =>
+			swapPairs(
+				text,
+				(c) => chars.charAt(c.charCodeAt(0) - STAND_IN_BASE) || c,
+			),
+	};
+}
+
+/** The flatten's shield: every character its splits act on. */
+const FLATTEN_SHIELD = escapeShield("()&|;<>");
 
 /**
  * The command names whose line the logical-line join refuses to absorb.
@@ -156,12 +186,10 @@ function flatten(text, mark = false, ops = false) {
 	let inBackticks = false;
 	/** @param {Join} code */
 	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
-	return `${text
-		/* The lexer writes an escape as a `\`-pair, so a pair is never a
-		 * backtick of its own: its operator is shielded until the splits are
-		 * done (#5113). */
+	const flat = FLATTEN_SHIELD.shield(text)
+		/* A `\`-pair is never a backtick of its own. */
 		.replace(/\\[\s\S]|`/g, (m) => {
-			if (m !== "`") return shieldEscape(m);
+			if (m !== "`") return m;
 			inBackticks = !inBackticks;
 			return inBackticks ? "$(" : ")";
 		})
@@ -179,18 +207,9 @@ function flatten(text, mark = false, ops = false) {
 		.replace(/\|&?/g, join(JOIN.PIPE))
 		.replace(/&/g, join(JOIN.BACKGROUND))
 		.replaceAll("\x03", "&")
-		.replaceAll("\x04", "|")
-		.replace(
-			SHIELDED_RE,
-			(_m, c) => `\\${ESCAPED_OPS.charAt(SHIELDS.indexOf(c))}`,
-		)}\n`;
+		.replaceAll("\x04", "|");
+	return `${FLATTEN_SHIELD.unshield(flat)}\n`;
 }
-
-/** @param {string} pair */
-const shieldEscape = (pair) => {
-	const at = ESCAPED_OPS.indexOf(pair.charAt(1));
-	return at < 0 ? pair : `\\${SHIELDS.charAt(at)}`;
-};
 
 /** Where `masked`'s first `||` outside an escape starts, or -1.
  * @param {string} masked */
@@ -3645,6 +3664,7 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 
 module.exports = {
 	parseCommand,
+	escapeShield,
 	parseScript,
 	walkCommands,
 	TEXT_ONLY_PORTS,

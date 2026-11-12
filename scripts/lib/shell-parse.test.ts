@@ -26,6 +26,7 @@ import type {
 } from "./shell-parse.js";
 import {
 	asWritten,
+	escapeShield,
 	normAbs,
 	parseCommand,
 	parseScript,
@@ -827,6 +828,23 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && echo \\| & gh y")).toEqual(both);
 		/* `\\` escapes itself, so the bracket after it is one. */
 		expect(last("(cd /usr; echo \\\\); gh y")).toEqual(["/start"]);
+	});
+});
+
+describe("escapeShield — one shield for every escape-aware split (#5116)", () => {
+	const { shield, unshield } = escapeShield(";$");
+
+	it("hides an escaped character of its set and restores it", () => {
+		const shielded = shield("a\\; b; \\$x \\&");
+		expect(shielded).not.toMatch(/\\[;$]/);
+		expect(shielded).toContain("b;");
+		expect(shielded).toContain("\\&");
+		expect(unshield(shielded)).toBe("a\\; b; \\$x \\&");
+	});
+
+	it("leaves a stand-in no escape holds as it was typed", () => {
+		const raw = "\ue000 \\\\\ue000";
+		expect(unshield(shield(raw))).toBe(raw);
 	});
 });
 
