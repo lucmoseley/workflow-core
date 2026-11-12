@@ -1165,6 +1165,7 @@ plan's config dir links it. Edit it at
 - measurement-and-experiment-design: sizing an observation window, a soak or a before/after measurement; sample size, stopping rules and confidence bounds for a rate or a change.
 - capacity-planning-and-admission: sizing and admitting concurrent jobs or sessions against memory and CPU, and reading out utilisation and why work waits.
 - process-supervision-and-oom: keeping long-running processes alive on one machine: systemd units and timers, restart policy, graceful upgrades, and OOM ranking and recovery.
+- crash-and-os-incident-diagnosis: reading why a machine crashed, hung or reset: bug checks and crash-dump analysis, event-log and trace forensics, hardware-watchdog and unclean-shutdown resets, and pinning a cause across repeated incidents.
 - ci-and-repo-quality-gates: linters, pre-commit/CI gates, repo health checks, coding-standards enforcement.
 - dependency-and-release-management: npm/pip dependencies, plugin packaging, version pins, releases.
 - code-refactoring-and-architecture: restructuring code, module design, software architecture.
