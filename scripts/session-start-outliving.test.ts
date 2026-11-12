@@ -6,9 +6,9 @@
  * session's scope under its id, and a short session's end kills it mid-run —
  * or, outside the scope by some other route, it runs unbounded.
  *
- * The walk starts at every script a SessionStart registration names and
- * follows lib/code-edges.js's edges, plus the launcher's `"$here/<script>"`
- * launches. It reads each file lexically, comment lines skipped:
+ * The walk is each SessionStart-registered script's run, as
+ * lib/code-edges.js's `readRunReach` reads it. It reads each file
+ * lexically, comment lines skipped:
  *   JS — a `detached: true` spawn whose child is `.unref()`ed within
  *     UNREF_REACH lines;
  *   shell — `setsid`, `nohup`, `disown`, lib/detach.sh's `detach`, or a
@@ -27,9 +27,8 @@ import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { flattenHooks } = require("./lib/core-hooks.js");
-const { edgesOf } = require("./lib/code-edges.js");
+const { readRunReach } = require("./lib/code-edges.js");
 const { readText } = require("./lib/file-read.js");
-const { isUnder } = require("./lib/is-under.js");
 
 const ROOT = path.join(__dirname, "..");
 const REGISTRATIONS = [
@@ -38,7 +37,6 @@ const REGISTRATIONS = [
 	".claude/settings.json",
 ];
 const COMMAND_SCRIPT = /(?<![\w.-])(scripts\/[\w./-]+\.(?:[cm]?[jt]s|sh|py))/g;
-const HERE_LAUNCH = /"\$here\/([\w./-]+\.(?:sh|js|py))"/g;
 const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 const SHELL_DETACH =
 	/(?:^|[;&|]\s*|\|\|\s*|then\s+)(?:setsid|nohup|disown|detach)\b|(?<![&>|])&\s*(?:$|[;)#])/;
@@ -86,25 +84,13 @@ function readSessionStartEntries(): string[] {
 
 /** Every file under scripts/ a session start runs or loads, repo-relative. */
 function readSessionStartCode(): string[] {
-	const scripts = path.join(ROOT, "scripts");
-	const seen = new Set<string>();
-	const queue = readSessionStartEntries().map((rel) => path.join(ROOT, rel));
-	for (let abs = queue.pop(); abs !== undefined; abs = queue.pop()) {
-		if (seen.has(abs) || !isUnder(abs, [scripts], path.sep)) continue;
-		const got = readText(abs);
-		if (got.state !== "read") continue;
-		seen.add(abs);
-		const text = got.data;
-		queue.push(
-			...edgesOf(abs, text, () => {
-				/* a foreign Python import is plugin-tree.js's fault to report */
-			}),
-		);
-		if (abs.endsWith(".sh"))
-			for (const m of text.matchAll(HERE_LAUNCH))
-				queue.push(path.join(path.dirname(abs), m[1] as string));
-	}
-	return [...seen].map((abs) => path.relative(ROOT, abs)).sort();
+	const runReach = readRunReach(ROOT);
+	const code = new Set<string>();
+	/* a foreign Python import is plugin-tree.js's fault to report */
+	for (const entry of readSessionStartEntries())
+		for (const rel of runReach(entry).files)
+			if (rel.startsWith("scripts/")) code.add(rel);
+	return [...code].sort();
 }
 
 /** Each launch in `rel` that detaches a child nothing waits on. */

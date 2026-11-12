@@ -33839,6 +33839,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/code-edges.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -33848,6 +33849,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts",
 			"vitest.setup.test.ts"
 		],
 		"scripts/lib/read-audit-preload.js": [

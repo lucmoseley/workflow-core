@@ -1,11 +1,12 @@
 /*
- * code-edges.js — the files one script reaches, read lexically, for
- * surface-closure.js's and hook-code.js's walks (#4259) and the pass store's
- * reach, which also reads the paths each specifier tried before its target
- * (`reachOf`'s shadows, #4814), the data files a script reads off its own
- * directory (`reads`), each load the walk cannot read (`unread`, #4790) and
- * each join off its own directory naming a file it cannot tell (`unknown`),
- * on which the store records no row:
+ * code-edges.js — the files a script reaches, read lexically: one file's
+ * own (`reachOf`), and everything its run reaches, transitively
+ * (`readRunReach`), for the pass store, hook-code.js, surface-closure.js and
+ * the session-start test (#4259, #5071). Each reach also names the paths a
+ * specifier tried before its target (`shadows`, #4814), the data files a
+ * script reads off its own directory (`reads`), each load the walk cannot
+ * read (`unread`, #4790) and each join off its own directory naming a file
+ * it cannot tell (`unknown`), on which the store records no row:
  *   JS and TypeScript, comment lines skipped — a relative
  *     `require`/`from`/`import()` specifier, resolved as node resolves it, or
  *     as vitest does an extensionless `.ts`;
@@ -82,17 +83,15 @@
  * is handed to the caller's `fault`, as is a JSX or TSX file.
  *
  * AN IMPORTED MODULE (#4870) resolves its imports on the sys.path of the
- * script that imported it, not on its own directory. `reachOf` hands back
- * sys.path as a Python file leaves it (`pySearch`); a caller walking the
- * files of one script's run, as pass-store.js does, hands each the path the
- * others left, and each import is then placed on both paths, faulting only
- * where neither places it. An import may run before any one of those edits,
- * so on the handed path each entry a file added is one that may never have
- * run: a module found there settles nothing. Residual: that over-reaches, so a file
- * on an added entry that CPython never loads is an edge, and a change to it
- * voids a pass it could not have moved. hook-code.js and surface-closure.js,
- * walking no one script's run, place a module on its own directory and
- * edits alone.
+ * script that imported it, not on its own directory. `readRunReach` walks
+ * the files of one script's run handing each the path the others left, and
+ * each import is then placed on both paths, faulting only where neither
+ * places it. An import may run before any one of those edits, so on the
+ * handed path each entry a file added is one that may never have run: a
+ * module found there settles nothing. Residual: that over-reaches, so a
+ * file on an added entry that CPython never loads is an edge, and a change
+ * to it voids a pass it could not have moved. `reachOf` alone places a
+ * module on its own directory and edits.
  *
  * WHOLE PATHS: a join of a parameter is one the walk declines to read, by
  * design (#4790), so a module whose files a test's reach must hold spells
@@ -123,6 +122,7 @@ const {
 	JS_COMMENT_LINE,
 } = require("./qualify-citations.js");
 const { readText } = require("./file-read.js");
+const { repoPath } = require("./read-audit-paths.js");
 const { closeOf, inertSpans, topLevelArgs } = require("./js-lex.js");
 const { escapeRe, requiredGroup } = require("./regex-group.js");
 const {
@@ -410,24 +410,38 @@ const pythonVersion = () => readPython().version;
  * @typedef {{edges: string[], shadows: string[]}} Found absolute: the files
  *   reached, and the paths tried on the way before the file each resolved to
  * @typedef {{edges: string[], shadows: string[], reads: string[],
- *   unread: string[], unknown: string[], python: boolean,
- *   pySearch: PyEntry[] | null}} Reach absolute:
+ *   unread: string[], unknown: string[], python: boolean}} Reach absolute:
  *   the files reached, the paths tried on the way before the file each
  *   resolved to, the data files it reads off its own directory, each load
  *   the walk cannot read, each join off its own directory naming a file the
- *   walk cannot tell (`jsReach`), whether the file runs an inline Python
- *   program, and sys.path as a Python file leaves it, null for any other
+ *   walk cannot tell (`jsReach`), and whether the file runs an inline
+ *   Python program
+ * @typedef {Reach & {pySearch: PyEntry[] | null}} FileReach with sys.path
+ *   as a Python file leaves it, null for any other
  */
+
+/**
+ * One file's own reach, a Python file's read on its own directory and edits
+ * alone, as a script run on its own.
+ * @param {string} file absolute
+ * @param {string} text
+ * @param {(msg: string) => void} fault
+ * @returns {Reach}
+ */
+function reachOf(file, text, fault) {
+	const { pySearch: _, ...own } = fileReach(file, text, fault, null);
+	return own;
+}
 
 /**
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
- * @param {PyEntry[] | null} [importerSearch] for a Python file, the
+ * @param {PyEntry[] | null} importerSearch for a Python file, the
  *   `pySearch` the other files of its script's run left
- * @returns {Reach}
+ * @returns {FileReach}
  */
-function reachOf(file, text, fault, importerSearch = null) {
+function fileReach(file, text, fault, importerSearch) {
 	const language = scriptLanguage(file, text);
 	if (language === "sh") return shReach(file, text);
 	if (language === "jsx")
@@ -465,12 +479,266 @@ function reachOf(file, text, fault, importerSearch = null) {
 }
 
 /**
- * @param {string} file absolute
- * @param {string} text
- * @param {(msg: string) => void} fault
- * @returns {string[]} absolute paths the file reaches
+ * @typedef {{file: string, from: string | null}} Missing a path the run
+ *   names where no file stands, and the file naming it, null for the start
+ * @typedef {{files: string[], missing: Missing[], unread: string[],
+ *   unknown: string[], shadows: string[], python: boolean}} RunReach
+ *   root-relative: every file the run reaches, its start included; each
+ *   path it names where no file stands; the files holding a load the walk
+ *   cannot read, or whose sys.path settles nowhere it can tell; the files
+ *   joining a path off their own directory the walk cannot tell; the paths
+ *   tried before the files they resolved to; and whether a file on the way
+ *   runs inline Python
+ * @typedef {{edges: string[], missing: string[], shadows: string[],
+ *   python: boolean, unread: boolean, unknown: boolean, faults: string[],
+ *   pySearch: PyEntry[] | null}} Visit one file's own reach, root-relative,
+ *   on the sys.path its run handed it, and the faults it met
+ * @typedef {(rel: string, pySearch: PyEntry[] | null) => Visit} VisitOf
  */
-const edgesOf = (file, text, fault) => reachOf(file, text, fault).edges;
+
+/**
+ * Everything the run of a file under `root` reaches, transitively: each
+ * file it loads, spawns or reads, and each one those reach. A file spawned
+ * or loaded as a script of its own is a run of its own; the Python modules
+ * one run imports share its one sys.path, so a module's edit moves what its
+ * importer and every other module import (#4870), and the run's files are
+ * walked again, each on the path they all left, until a pass leaves that
+ * path as it found it. A path outside `root` or inside a `node_modules` is
+ * none of the run's. Each file is read once per sys.path it is handed,
+ * across every start of one `readRunReach`.
+ *
+ * What the caller does with a fault, a missing path, an unread load or an
+ * unknown join is its own: the reach only names each. A file that will not
+ * read throws.
+ * @param {string} root absolute
+ * @returns {(start: string, fault?: (file: string, msg: string) => void) =>
+ *   RunReach} `start` root-relative; `fault` hears each fault once, by the
+ *   root-relative file meeting it
+ */
+function readRunReach(root) {
+	/** @type {Map<string, Visit>} */
+	const memo = new Map();
+	/** @type {VisitOf} */
+	const visitOf = (rel, pySearch) => {
+		const key = JSON.stringify([rel, pySearch]);
+		const known = memo.get(key);
+		if (known) return known;
+		const found = readVisit(root, rel, pySearch);
+		memo.set(key, found);
+		return found;
+	};
+	return (start, fault = () => undefined) => {
+		if (!isFile(path.join(root, start)))
+			return { ...NO_RUN, missing: [{ file: start, from: null }] };
+		/** @type {Set<string>} */
+		const heard = new Set();
+		const hear = (/** @type {string} */ rel, /** @type {string} */ msg) => {
+			const key = JSON.stringify([rel, msg]);
+			if (!heard.has(key)) fault(rel, msg);
+			heard.add(key);
+		};
+		const run = {
+			files: new Set([start]),
+			/** @type {Map<string, string>} */
+			missing: new Map(),
+			unread: new Set(),
+			unknown: new Set(),
+			shadows: new Set(),
+			python: false,
+		};
+		const scripts = [start];
+		const seen = new Set(scripts);
+		for (const script of scripts)
+			for (const next of runScript(script, visitOf, run, hear))
+				if (!seen.has(next)) {
+					seen.add(next);
+					scripts.push(next);
+				}
+		return {
+			files: [...run.files],
+			missing: [...run.missing].map(([file, from]) => ({ file, from })),
+			unread: [...run.unread],
+			unknown: [...run.unknown],
+			shadows: [...run.shadows],
+			python: run.python,
+		};
+	};
+}
+
+/** @type {RunReach} */
+const NO_RUN = {
+	files: [],
+	missing: [],
+	unread: [],
+	unknown: [],
+	shadows: [],
+	python: false,
+};
+
+/**
+ * @typedef {{files: Set<string>, missing: Map<string, string>,
+ *   unread: Set<string>, unknown: Set<string>, shadows: Set<string>,
+ *   python: boolean}} RunSoFar
+ * @typedef {{visits: {rel: string, found: Visit}[], spawned: Set<string>,
+ *   pySearch: PyEntry[] | null}} Pass one pass over a script and the
+ *   modules it imports: each file's visit, the files among their edges it
+ *   does not import but runs or loads as scripts of their own, and sys.path
+ *   as its files leave it
+ */
+
+/**
+ * Adds to `run` what the run of `script` reaches, sys.path settled, and
+ * hands back the files it spawns or loads as scripts of their own. Every
+ * pass's unread loads and faults are the run's; what it reaches is the last
+ * pass's.
+ * @param {string} script
+ * @param {VisitOf} visitOf
+ * @param {RunSoFar} run
+ * @param {(rel: string, msg: string) => void} hear
+ * @returns {Set<string>}
+ */
+function runScript(script, visitOf, run, hear) {
+	/** @type {PyEntry[] | null} */
+	let pySearch = null;
+	for (;;) {
+		const pass = scriptPass(script, pySearch, visitOf);
+		hearPass(pass, run, hear);
+		/* Ends: settledPySearch hands the path back in one order whatever
+		 * order the files were walked in, so a pass can only add an entry,
+		 * and the entries its files' edits name are a finite set. A pass that
+		 * moves the path without lengthening it is one the walk cannot tell. */
+		const settled = JSON.stringify(pass.pySearch) === JSON.stringify(pySearch);
+		const stuck =
+			!settled && (pass.pySearch?.length ?? 0) <= (pySearch?.length ?? -1);
+		if (stuck) run.unread.add(script);
+		if (settled || stuck) {
+			addPass(pass, run);
+			return pass.spawned;
+		}
+		pySearch = pass.pySearch;
+	}
+}
+
+/**
+ * Adds to `run` a pass's unread loads, unknown joins and faults.
+ * @param {Pass} pass
+ * @param {RunSoFar} run
+ * @param {(rel: string, msg: string) => void} hear
+ */
+function hearPass(pass, run, hear) {
+	for (const { rel, found } of pass.visits) {
+		if (found.unread) run.unread.add(rel);
+		if (found.unknown) run.unknown.add(rel);
+		for (const msg of found.faults) hear(rel, msg);
+	}
+}
+
+/**
+ * Adds to `run` what a pass reaches.
+ * @param {Pass} pass
+ * @param {RunSoFar} run
+ */
+function addPass(pass, run) {
+	for (const { rel, found } of pass.visits) {
+		run.python ||= found.python;
+		for (const p of found.shadows) run.shadows.add(p);
+		for (const p of found.edges) run.files.add(p);
+		for (const p of found.missing)
+			if (!run.missing.has(p)) run.missing.set(p, rel);
+	}
+}
+
+/**
+ * One pass over `script` and the modules it imports, each handed sys.path
+ * as the file before it left it, the script `pySearch` as the last pass
+ * left it. A Python file's edge to a Python file is an import; any other
+ * edge is a file spawned or loaded.
+ * @param {string} script
+ * @param {PyEntry[] | null} pySearch
+ * @param {VisitOf} visitOf
+ * @returns {Pass}
+ */
+function scriptPass(script, pySearch, visitOf) {
+	const files = [script];
+	const loaded = new Set(files);
+	/** @type {Pass} */
+	const pass = { visits: [], spawned: new Set(), pySearch };
+	for (const rel of files) {
+		const found = visitOf(rel, pass.pySearch);
+		pass.visits.push({ rel, found });
+		pass.pySearch = found.pySearch ?? pass.pySearch;
+		for (const next of found.edges)
+			if (!found.pySearch || languageOf(next) !== "python")
+				pass.spawned.add(next);
+			else if (!loaded.has(next)) {
+				loaded.add(next);
+				files.push(next);
+			}
+	}
+	return pass;
+}
+
+/** @type {Visit} */
+const NO_VISIT = {
+	edges: [],
+	missing: [],
+	shadows: [],
+	python: false,
+	unread: false,
+	unknown: false,
+	faults: [],
+	pySearch: null,
+};
+
+/**
+ * `rel`'s own reach on the sys.path `pySearch` its run handed it: none for
+ * a file no script.
+ * @param {string} root
+ * @param {string} rel
+ * @param {PyEntry[] | null} pySearch
+ * @returns {Visit}
+ */
+function readVisit(root, rel, pySearch) {
+	const abs = path.join(root, rel);
+	if (!isScript(abs)) return NO_VISIT;
+	const read = readText(abs);
+	if (read.state !== "read")
+		throw new Error(
+			`${rel} will not read: ${read.state === "absent" ? "it is gone" : read.message}`,
+		);
+	/** @type {string[]} */
+	const faults = [];
+	const reach = fileReach(abs, read.data, (m) => faults.push(m), pySearch);
+	/** @type {string[]} */
+	const edges = [];
+	/** @type {string[]} */
+	const missing = [];
+	for (const e of [...reach.edges, ...reach.reads]) {
+		const at = runPath(root, e);
+		if (at !== null) (isFile(e) ? edges : missing).push(at);
+	}
+	return {
+		edges,
+		missing,
+		shadows: reach.shadows.flatMap((p) => runPath(root, p) ?? []),
+		python: reach.python,
+		unread: reach.unread.length > 0,
+		unknown: reach.unknown.length > 0,
+		faults,
+		pySearch: reach.pySearch,
+	};
+}
+
+/**
+ * `abs` root-relative, or null where it is none of a run's: outside
+ * `root`, `root` itself, or inside a `node_modules`.
+ * @param {string} root
+ * @param {string} abs
+ */
+function runPath(root, abs) {
+	const rel = repoPath(root, abs);
+	return rel === null || rel === "." ? null : rel;
+}
 
 /**
  * Each relative `require`, import or `createRequire(…)(…)` specifier in
@@ -1751,12 +2019,12 @@ const SH_DEFAULTED = /^\$\{(\w+):?-/;
  * read as a path is unread.
  * @param {string} file absolute
  * @param {string} code
- * @returns {Reach}
+ * @returns {FileReach}
  */
 function shReach(file, code) {
 	const commands = shCommands(code);
 	const scope = shScope(file, commands, code);
-	/** @type {Reach} */
+	/** @type {FileReach} */
 	const reach = {
 		edges: [],
 		shadows: [],
@@ -2343,13 +2611,13 @@ function shInlineProgram(run, kind, words) {
 }
 
 module.exports = {
-	edgesOf,
 	languageOf,
 	isFile,
 	isScript,
 	parseShebang,
 	pythonVersion,
 	reachOf,
+	readRunReach,
 	scriptLanguage,
 	JS_SPEC,
 	jsSpecifier,

@@ -142,6 +142,9 @@ describe("the render's helper-surface closure", () => {
 				"import os; from pkg.sub import y",
 			].join("\n"),
 		);
+		/* A regular package: a run's relative import from a namespace one
+		 * faults, its other directories unknown. */
+		write("scripts/lib/__init__.py", "");
 		write("scripts/lib/sib.py", "import sys\n");
 		write("scripts/lib/pkg/__init__.py", "import yaml\n");
 		write("scripts/lib/pkg/sub.py", "");
