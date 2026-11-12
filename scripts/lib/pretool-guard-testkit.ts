@@ -136,7 +136,7 @@ export function nodeGuardOutput(
 const CHECKOUT = path.resolve(__dirname, "..", "..");
 
 /* The plugin's hooks file and the self-plugin's, each spelled whole
- * (lib/code-edges.js's WHOLE PATHS). */
+ * (lib/file-reach.js's WHOLE PATHS). */
 const HOOKS_FILES = {
 	"hooks/hooks.json": path.join(CHECKOUT, "hooks", "hooks.json"),
 	"self-plugin/hooks/hooks.json": path.join(

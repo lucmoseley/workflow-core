@@ -102,7 +102,7 @@ const {
 	baseLinePinFault,
 	parseLinePins,
 } = require("./standards-pins.js");
-const { JS_SPEC, jsSpecifier } = require("./code-edges.js");
+const { JS_SPEC, jsSpecifier } = require("./file-reach.js");
 const { surfaceClosureFaults } = require("./surface-closure.js");
 const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
