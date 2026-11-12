@@ -225,7 +225,7 @@ describe("a routed-away session with burn mode off (#4992)", () => {
 		expect(v).not.toHaveProperty("updatedInput");
 	});
 
-	it("refuses a fork, whose model no field moves, with the rule", () => {
+	it("refuses a fork, whose model no field moves, with the rule and the model to name instead", () => {
 		const out = decide(
 			"",
 			kitContextFake({
@@ -240,7 +240,9 @@ describe("a routed-away session with burn mode off (#4992)", () => {
 				ruleText: (id: string) => `rule ${id}`,
 			}),
 		);
-		expect(out).toEqual({ deny: "rule dispatch-fable-fork" });
+		expect(out).toEqual({
+			deny: 'rule dispatch-fable-fork\n\nFor this session: `model: "opus"`.\n',
+		});
 	});
 
 	it("lets a fork through from a session not routed away", () => {

@@ -234,6 +234,21 @@ function isBurnApplied(table, ctx) {
 }
 
 /**
+ * The fork refusal, naming the model the general-purpose dispatch it asks for
+ * should name: the standard row for the session's model.
+ * @param {ModelTable} table
+ * @param {string} inherited
+ * @param {{ruleText: (id: string) => string}} ctx
+ */
+function forkDeny(table, inherited, ctx) {
+	const to = table.remapModel({}, false, inherited)?.input.model;
+	const rule = ctx.ruleText("dispatch-fable-fork");
+	return to
+		? `${rule.trimEnd()}\n\nFor this session: \`model: "${to}"\`.\n`
+		: rule;
+}
+
+/**
  * @param {string} _prompt the dispatch's prompt; the whole call is ctx.input
  * @param {RewriteContext} ctx
  * @returns {import("./guard-entry.js").Deny
@@ -256,7 +271,7 @@ function decide(_prompt, ctx) {
 			table?.isRoutedAway(inherited) &&
 			String(ctx.input.subagent_type ?? "").trim() === "fork"
 		)
-			return { deny: ctx.corePaths(ctx.ruleText("dispatch-fable-fork")) };
+			return { deny: ctx.corePaths(forkDeny(table, inherited, ctx)) };
 		out = rewrite(ctx.input, {
 			file: ctx.artefactFile(ctx.input.description),
 			burn,
