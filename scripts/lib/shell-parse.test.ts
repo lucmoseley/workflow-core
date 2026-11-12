@@ -632,6 +632,19 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr || true & gh x")).toEqual(["/usr", "/start"]);
 		expect(last("cd /usr || true; gh x")).toEqual(["/usr"]);
 	});
+
+	it("reads a cd's join past the substitutions lifted from the next command (#5098)", () => {
+		expect(last('cd /missing && gh x "$(true)"')).toEqual(["/missing"]);
+		expect(last('cd /missing && gh "$(a "$(b)")" "$(c)" && gh z')).toEqual([
+			"/missing",
+		]);
+		expect(last('cd /usr | gh x "$(true)"; gh y')).toEqual(["/start"]);
+		expect(last('cd /usr && gh x "$(true)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last('{ cd /usr; } | gh "$(x)"; gh y')).toEqual(["/usr", "/start"]);
+	});
 });
 
 describe("Command.runs — each run with every directory it may stand in (#5075)", () => {

@@ -1687,7 +1687,7 @@ const changedNames = (inner, outer) => [
  * @param {Pick<ScriptAt, "parsed" | "segIdx">} where
  */
 const isSureAssignment = ({ parsed, segIdx }) =>
-	isSureMove(parsed, segIdx, []) && !runsApart(parsed.joins, segIdx);
+	isSureMove(parsed, segIdx, []) && !runsApart(parsed, segIdx);
 
 /**
  * `lost` after `names` are assigned: followed where the assignment surely
@@ -1713,7 +1713,7 @@ function stepScript(state, cw, where) {
 	const { spans } = where;
 	const own = cw.words.slice(cw.wi);
 	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
-	const apart = runsApart(where.parsed.joins, where.segIdx);
+	const apart = runsApart(where.parsed, where.segIdx);
 	const kind = exportKind(head, rest);
 	if (kind !== null)
 		return apart
@@ -2159,14 +2159,33 @@ const COMPOUND_START =
 	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
 
 /**
- * Whether the segment runs in a subshell of its own, in a pipeline or behind
- * `&`, so a `cd` or `export` in it moves nothing after it (measured).
- * @param {string[]} joins
+ * The index of the segment after `segIdx`'s, past the substitutions lifted
+ * ahead of it, whose joins are all "(" (#5098).
+ * @param {Pick<Parsed, "joins" | "segments">} parsed
  * @param {number} segIdx
  */
-function runsApart(joins, segIdx) {
-	const after = joins[segIdx + 1];
-	return joins[segIdx] === "p" || after === "p" || after === "b";
+function nextOwn({ joins, segments }, segIdx) {
+	let i = segIdx + 1;
+	while (segments[i] === `${SCOPE_MARK}(` && joins[i] === "(") {
+		let depth = 0;
+		do {
+			if (segments[i] === `${SCOPE_MARK}(`) depth++;
+			else if (segments[i] === `${SCOPE_MARK})`) depth--;
+			i++;
+		} while (depth > 0 && i < segments.length);
+	}
+	return i;
+}
+
+/**
+ * Whether the segment runs in a subshell of its own, in a pipeline or behind
+ * `&`, so a `cd` or `export` in it moves nothing after it (measured).
+ * @param {Pick<Parsed, "joins" | "segments">} parsed
+ * @param {number} segIdx
+ */
+function runsApart(parsed, segIdx) {
+	const after = parsed.joins[nextOwn(parsed, segIdx)];
+	return parsed.joins[segIdx] === "p" || after === "p" || after === "b";
 }
 
 /**
@@ -2213,19 +2232,20 @@ function isNegated(segments, segIdx) {
  * @param {number} segIdx
  */
 const isChainedOff = ({ joins, segments }, segIdx) =>
-	joins[segIdx + 1] === "a" &&
+	joins[nextOwn({ joins, segments }, segIdx)] === "a" &&
 	joins[segIdx] !== "o" &&
 	!isNegated(segments, segIdx);
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
  * backgrounds all of it (measured, #5010).
- * @param {string[]} joins
+ * @param {Pick<Parsed, "joins" | "segments">} parsed
  * @param {number} segIdx
  */
-function isListBackgrounded(joins, segIdx) {
-	let end = segIdx + 1;
-	while (joins[end] === "a" || joins[end] === "o") end++;
+function isListBackgrounded(parsed, segIdx) {
+	const { joins } = parsed;
+	let end = nextOwn(parsed, segIdx);
+	while (joins[end] === "a" || joins[end] === "o") end = nextOwn(parsed, end);
 	return joins[end] === "b";
 }
 
@@ -2267,8 +2287,8 @@ function isBraceGroupSure({ joins, segments }, segIdx) {
 			before !== "a" &&
 			before !== "o" &&
 			before !== "p" &&
-			joins[to + 1] !== "p" &&
-			!isListBackgrounded(joins, to)
+			joins[nextOwn({ joins, segments }, to)] !== "p" &&
+			!isListBackgrounded({ joins, segments }, to)
 		);
 	});
 }
@@ -2283,7 +2303,7 @@ function isBraceGroupSure({ joins, segments }, segIdx) {
  * @param {string[]} own its words
  */
 const isSureOnceReached = (parsed, segIdx, own) =>
-	!isListBackgrounded(parsed.joins, segIdx) &&
+	!isListBackgrounded(parsed, segIdx) &&
 	own.length <= 2 &&
 	!parsed.segments.some((s) => COMPOUND_START.test(s)) &&
 	isBraceGroupSure(parsed, segIdx);
@@ -2352,7 +2372,7 @@ function stepCwd(walk, own, segIdx, isDir) {
 	if (!movesCwd(head, arg)) return false;
 	const { cwdNames, cwdLost } = walk;
 	const resolved = moveCwd(walk, own);
-	if (runsApart(walk.parsed.joins, segIdx)) {
+	if (runsApart(walk.parsed, segIdx)) {
 		Object.assign(walk, { cwdNames, cwdLost });
 		return true;
 	}
