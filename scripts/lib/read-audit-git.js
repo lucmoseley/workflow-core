@@ -10,11 +10,7 @@
  * with no `-C`, `--git-dir`, `--work-tree`, git-dir variable or `--output`
  * steering it and nothing fed to it on standard input, is kept word for word
  * with the answer the guard saw it give: the store keys it on its output run
- * again, and only where that equals what the test got (#4993). A call the
- * guard logged begun and never answered, or that answered the same words two
- * ways, is a doubt. So is one made after the suite's setup settled under a
- * variable changing git's answer (`GIT_ANSWER_VARS`) set otherwise than it
- * was settled (#5017).
+ * again, and only where that equals what the test got (#4993).
  *
  * The guard is the one writer and is bash, for speed; read-audit-git.test.ts
  * pins its option list, its variable loop and its record to this module.
@@ -29,8 +25,7 @@ const { isUnder } = require("./is-under.js");
 const { GIT_EVENTS, SHOWN_MAX, toPosix } = require("./read-audit-paths.js");
 
 /* git's options before the subcommand that take the next word as a value
- * (git.c's `handle_options`). `--exec-path` takes one only after `=`: alone
- * it prints git's exec path and exits. */
+ * (git.c's `handle_options`). `--exec-path` takes one only after `=`. */
 const GIT_VALUED = new Set([
 	"-C",
 	"-c",
@@ -44,8 +39,7 @@ const GIT_VALUED = new Set([
 
 /**
  * Step git's own options, the words before its subcommand: the
- * subcommand's index, or the words' length where none stands. A value
- * option also steps over the next word.
+ * subcommand's index, or the words' length where none stands.
  * @param {readonly unknown[]} words the call's words after `git`
  * @param {(option: string, at: number) => void} [onOption] handed each
  *   option and its index
@@ -75,7 +69,7 @@ const GIT_ANSWER_VARS = new RegExp(
 );
 
 /* The variables that point git at a repository. vitest.setup.ts deletes each
- * in every test worker, so a run again goes without them too. */
+ * in every test worker. */
 const GIT_DIR_VARS = [
 	"GIT_DIR",
 	"GIT_WORK_TREE",
@@ -316,8 +310,8 @@ function answeredCalls(calls) {
 }
 
 /**
- * One owner's guard records as the git calls to run again, each with its
- * one answer, or the doubt the first that cannot be leaves.
+ * One owner's guard records as the git calls to run again, or the doubt the
+ * first that cannot be leaves.
  * @param {GitRecord[]} records
  * @param {Standing} standing the environment the suite's setup settled
  * @param {string} root real path
@@ -348,7 +342,7 @@ function gitCallsOf(records, standing, root) {
 
 /**
  * A git call run again at `root`, by its key: its answer, `answerOf`'s.
- * Memoised, as many rows rest on one call. Null where its key will not
+ * Memoised. Null where its key will not
  * parse or the call will not run. A test's call ran with none of
  * `GIT_DIR_VARS` set (vitest.setup.ts), so its run again does too.
  * @param {string} root

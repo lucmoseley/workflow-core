@@ -6,8 +6,6 @@
  * the two: the parity cases read the guard's own `case` list and variable
  * loop, and run the real guard on PATH in a tmp repository, so a list edited
  * on one side alone fails here rather than voiding pass-store rows unseen.
- * The judging cases run in-process on built records; the repositories are
- * read only, so they are built once.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -59,7 +57,7 @@ const scratch = (prefix: string) => {
 	return d;
 };
 
-/** A repository whose one commit holds `sub/<file>`, at its real path. */
+/** A repository whose one commit holds `sub/<file>`. */
 function repository(file: string) {
 	const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rag-")));
 	const git = (...args: string[]) =>
@@ -72,7 +70,7 @@ function repository(file: string) {
 	return d;
 }
 
-/* Read-only repositories, built once: no case writes to them. */
+/* Read-only repositories, built once. */
 let repo: string;
 let elsewhere: string;
 beforeAll(() => {
@@ -203,26 +201,22 @@ describe("gitCallsOf", () => {
 	});
 
 	it.each([
-		[["status"], {}, "git call (git status) read this repository"],
+		[["status"], {}, "read this repository"],
 		[["diff", "--output=/t/d"], {}, "wrote its answer to a file"],
 		[["diff", "--output", "/t/d"], {}, "wrote its answer to a file"],
-		[
-			["-C", "/r", "ls-files"],
-			{},
-			"git call (git -C /r ls-files) named its repository",
-		],
+		[["-C", "/r", "ls-files"], {}, "named its repository"],
 		[["--git-dir=/r/.git", "log"], {}, "named its repository"],
 		[["--work-tree", "/r", "log"], {}, "named its repository"],
 		[["--shallow-file", "s", "status"], {}, "read this repository"],
-		[["log"], { steered: "1" }, "steered by a git-dir variable"],
+		[["log"], { steered: "1" }, "was steered by a git-dir variable"],
 		[
 			["log"],
 			{ dir: "/elsewhere" },
 			"read another checkout of this repository",
 		],
 	])("doubts %j %j: %s", (args, opts, doubt) => {
-		expect(gitCallsOf(records(args, opts), NoStanding, ROOT).doubt).toContain(
-			doubt,
+		expect(gitCallsOf(records(args, opts), NoStanding, ROOT).doubt).toBe(
+			`a git call (git ${args.join(" ")}) ${doubt}`,
 		);
 	});
 
