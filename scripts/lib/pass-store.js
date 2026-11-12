@@ -92,11 +92,10 @@ const {
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
 const {
-	isFile,
 	isScript,
 	languageOf,
 	pythonVersion,
-	reachOf,
+	readRunReach,
 } = require("./code-edges.js");
 const {
 	ARCHIVE_MS,
@@ -107,7 +106,6 @@ const {
 const { readWorkingTree } = require("./test-read-edges.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
-const { repoPath } = require("./read-audit-paths.js");
 const idSeam = require("./session-id.js");
 
 const STORE = ".test-file-results";
@@ -133,7 +131,7 @@ const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never caches (#4814),
  * though its red still voids an older pass (#4995). */
-const FORMAT = 18;
+const FORMAT = 19;
 
 /* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -282,232 +280,57 @@ function snapshotOf(root, file) {
 	return fs.existsSync(path.join(root, snap)) ? [snap] : [];
 }
 
-/* A Python import code-edges.js cannot place, such as a third-party package
- * or one found after a sys.path edit it cannot read, leaves the reach
- * unknown: the file records no row (#4790, #4864). Residual: a test spawning
- * such a script is never cached, and no notice says so. */
-const refuseFault = (/** @type {string} */ why) => {
-	throw new Error(why);
-};
-
 /**
  * @typedef {{edges: string[], shadows: string[], python: boolean}} Reach
  *   repo-relative: the files reached, the paths a specifier on the way tried
  *   before the file it resolved to, and whether a file on the way runs inline
  *   Python
- * @typedef {Reach & {unknown: boolean, pySearch: PySearch}} FileReach one
- *   file's own: with whether it joins a path off its directory the walk
- *   cannot tell (lib/code-edges.js's `unknown`), and sys.path as a Python
- *   file leaves it (its `pySearch`), null for any other
- * @typedef {import("./code-edges.js").Reach["pySearch"]} PySearch
  */
 
 /**
- * Every in-repo file `file` reaches through relative `require`s, imports and
- * `__dirname`-spelled spawns, transitively, read lexically off the working
- * tree at `root` (lib/code-edges.js): the edges vitest's module graph never
- * records, since this repo's tests reach their subjects through
- * `createRequire` and spawns. A Python file is read on the sys.path its
- * script's run builds, so once for each such path (#4870). Memoised
- * across the files of one run. Null
- * where any file on the way will not read, or joins a path off its own
- * directory the walk cannot tell: an input left unknown records no row. A
- * test file's own such join is excused (`ownReadsJudged`): the read audit
- * saw its reads.
+ * Every in-repo file `file` reaches, transitively, read lexically off the
+ * working tree at `root` (lib/code-edges.js's `readRunReach`): the edges
+ * vitest's module graph never records, since this repo's tests reach their
+ * subjects through `createRequire` and spawns. Memoised across the files of
+ * one run. Null where the reach is unknown, which records no row (#4790,
+ * #4864): a file on the way will not read, faults, holds a load the walk
+ * cannot read or joins a path off its own directory it cannot tell, or
+ * `file` is a script that is gone. A test file's own such join is excused
+ * (`ownReadsJudged`): the read audit saw its reads. Residual: a test
+ * spawning a script with such a Python import, as a third-party package, is
+ * never cached, and no notice says so.
  * @param {string} root
  * @returns {(file: string, ownReadsJudged?: boolean) => Reach|null} `file`
  *   left out of `edges`
  */
 function lexicalReach(root) {
-	/** @type {Map<string, FileReach|null>} */
-	const memo = new Map();
-	/** @param {Visit} visit */
-	const readFrom = (visit) => {
-		const key = visitKey(visit);
-		if (memo.has(key)) return memo.get(key) ?? null;
-		const found = isScript(path.join(root, visit.rel))
-			? readEdges(root, visit)
-			: NO_REACH;
-		memo.set(key, found);
-		return found;
-	};
-	/**
-	 * A visit's own reach, null where its file will not read or, its reads
-	 * not `judged` by the selector, it joins a path the walk cannot tell.
-	 * @param {Visit} visit
-	 * @param {boolean} judged
-	 */
-	const reachFrom = (visit, judged) => {
-		const found = readFrom(visit);
-		return found?.unknown && !judged ? null : found;
-	};
-	return (file, ownReadsJudged = false) =>
-		walkReach(file, (visit) =>
-			reachFrom(visit, ownReadsJudged && visit.rel === file),
-		);
-}
-
-/** @type {FileReach} */
-const NO_REACH = {
-	edges: [],
-	shadows: [],
-	python: false,
-	unknown: false,
-	pySearch: null,
-};
-
-/**
- * @typedef {{rel: string, pySearch: PySearch}} Visit one file as the walk
- *   meets it: with sys.path as the files of its script's run have left it,
- *   or none
- * @typedef {{edges: Set<string>, shadows: Set<string>, spawned: Set<string>,
- *   python: boolean, pySearch: PySearch}} ScriptReach what one script's run
- *   reaches: every file, the paths tried first, the files among them it does
- *   not import but runs or loads as scripts of their own, whether one runs
- *   inline Python, and sys.path as its files leave it
- */
-
-/** @param {Visit} visit */
-const visitKey = ({ rel, pySearch }) => JSON.stringify([rel, pySearch]);
-
-/**
- * The files `file` reaches, each visit's own reach read by `reachOne`; null
- * where any is null. `file` itself, and each file another's run spawns or
- * loads, is a script run on its own (`scriptReach`).
- * @param {string} file
- * @param {(visit: Visit) => FileReach|null} reachOne
- * @returns {Reach|null} `file` left out of `edges`
- */
-function walkReach(file, reachOne) {
-	const scripts = [file];
-	const seen = new Set(scripts);
-	/** @type {Set<string>} */
-	const edges = new Set();
-	/** @type {Set<string>} */
-	const shadows = new Set();
-	let python = false;
-	for (const script of scripts) {
-		const found = scriptReach(script, reachOne);
-		if (!found) return null;
-		python ||= found.python;
-		for (const p of found.shadows) shadows.add(p);
-		for (const rel of found.edges) edges.add(rel);
-		for (const next of found.spawned)
-			if (!seen.has(next)) {
-				seen.add(next);
-				scripts.push(next);
-			}
-	}
-	edges.delete(file);
-	return { edges: [...edges], shadows: [...shadows], python };
-}
-
-/**
- * What the run of `script` reaches. A Python process holds one sys.path, so
- * a module's edit moves what its importer and every other module import
- * (#4870): its files are walked again, each on the path they all left, until
- * a pass leaves that path as it found it.
- * @param {string} script
- * @param {(visit: Visit) => FileReach|null} reachOne
- * @returns {ScriptReach|null}
- */
-function scriptReach(script, reachOne) {
-	/** @type {PySearch} */
-	let pySearch = null;
-	/* Ends: code-edges.js hands the path back in one order whatever order
-	 * the files were walked in, so a pass can only add an entry, and the
-	 * entries its files' edits name are a finite set. A pass that moves the
-	 * path without lengthening it is one the walk cannot tell: no row. */
-	for (;;) {
-		const pass = scriptPass({ rel: script, pySearch }, reachOne);
-		if (!pass) return null;
-		if (JSON.stringify(pass.pySearch) === JSON.stringify(pySearch)) return pass;
-		if ((pass.pySearch?.length ?? 0) <= (pySearch?.length ?? -1)) return null;
-		pySearch = pass.pySearch;
-	}
-}
-
-/**
- * One pass over a script and the modules it imports, each handed sys.path
- * as the file before it left it. A Python file's edge to a Python file is
- * an import; any other edge is a file spawned or loaded.
- * @param {Visit} start the script, and the path the last pass left
- * @param {(visit: Visit) => FileReach|null} reachOne
- * @returns {ScriptReach|null}
- */
-function scriptPass(start, reachOne) {
-	const files = [start.rel];
-	const loaded = new Set(files);
-	/** @type {ScriptReach} */
-	const pass = {
-		edges: new Set(),
-		shadows: new Set(),
-		spawned: new Set(),
-		python: false,
-		pySearch: start.pySearch,
-	};
-	for (const rel of files) {
-		const found = reachOne({ rel, pySearch: pass.pySearch });
-		if (!found) return null;
-		pass.python ||= found.python;
-		pass.pySearch = found.pySearch ?? pass.pySearch;
-		for (const p of found.shadows) pass.shadows.add(p);
-		for (const next of found.edges) {
-			pass.edges.add(next);
-			if (!found.pySearch || languageOf(next) !== "python")
-				pass.spawned.add(next);
-			else if (!loaded.has(next)) {
-				loaded.add(next);
-				files.push(next);
-			}
+	const runReach = readRunReach(root);
+	return (file, ownReadsJudged = false) => {
+		let faulted = false;
+		let reach;
+		try {
+			reach = runReach(file, () => {
+				faulted = true;
+			});
+		} catch {
+			// A file on the way that will not read leaves the reach unknown:
+			// no row is recorded for a file reaching it (#4790).
+			return null;
 		}
-	}
-	return pass;
-}
-
-/**
- * The in-repo files `rel` names lexically, the paths its specifiers tried
- * before them, whether it runs inline Python and whether it joins a path
- * the walk cannot tell; or null where it will not read, faults, or holds a
- * load the walk cannot read.
- * @param {string} root
- * @param {Visit} visit
- * @returns {FileReach|null}
- */
-function readEdges(root, { rel, pySearch }) {
-	const abs = path.join(root, rel);
-	const read = readText(abs);
-	if (read.state !== "read") return null;
-	try {
-		const reach = reachOf(abs, read.data, refuseFault, pySearch);
-		if (reach.unread.length > 0) return null;
+		const unknown = reach.unknown.some(
+			(rel) => !(ownReadsJudged && rel === file),
+		);
+		const gone = reach.missing.some(
+			(m) => m.from === null && isScript(path.join(root, file)),
+		);
+		if (faulted || unknown || gone || reach.unread.length > 0) return null;
 		return {
-			edges: repoRelative(
-				root,
-				[...reach.edges, ...reach.reads].filter(isFile),
-			),
-			shadows: repoRelative(root, reach.shadows),
+			edges: reach.files.filter((rel) => rel !== file),
+			shadows: reach.shadows,
 			python: reach.python,
-			unknown: reach.unknown.length > 0,
-			pySearch: reach.pySearch,
 		};
-	} catch {
-		// A walk that faults leaves the file's reach unknown: no row is
-		// recorded for a file reaching it (#4790).
-		return null;
-	}
+	};
 }
-
-/**
- * `paths` beneath `root` and outside every `node_modules`, repo-relative.
- * @param {string} root
- * @param {string[]} paths absolute
- */
-const repoRelative = (root, paths) =>
-	paths.flatMap((e) => {
-		const rel = repoPath(root, e);
-		return rel === null || rel === "." ? [] : [rel];
-	});
 
 /**
  * The input paths beside every file's own: the run's shared inputs and the

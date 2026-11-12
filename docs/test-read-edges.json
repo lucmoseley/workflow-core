@@ -209,7 +209,6 @@
 			"scripts/score-session-breaches.test.ts",
 			"scripts/session-checkout-reap.test.ts",
 			"scripts/session-checkout.test.ts",
-			"scripts/session-start-outliving.test.ts",
 			"scripts/upgrade.test.ts"
 		],
 		".claude/skills/THIRD-PARTY-NOTICES.md": [
@@ -3300,7 +3299,6 @@
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
 			"scripts/session-checkout.test.ts",
-			"scripts/session-start-outliving.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"hooks/register.ts": [
@@ -14542,7 +14540,6 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/session-start-outliving.test.ts",
 			"vitest.setup.test.ts"
 		],
 		"scripts/lib/code-edges.live.test.ts": [
@@ -15974,7 +15971,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts",
-			"scripts/session-start-outliving.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts"
 		],
@@ -18468,7 +18464,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts",
-			"scripts/session-start-outliving.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
 			"vitest.setup.test.ts"
 		],
@@ -23101,7 +23096,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-start-outliving.test.ts"
 		],
 		"scripts/lib/hook-deadline-testkit.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -25649,8 +25645,7 @@
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/session-start-outliving.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/js-lex.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -33914,6 +33909,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/code-edges.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -41456,8 +41452,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/session-start-outliving.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/shell-tokens.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -51826,7 +51821,6 @@
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
 			"scripts/session-checkout.test.ts",
-			"scripts/session-start-outliving.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"skills-lock.json": [
