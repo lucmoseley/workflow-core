@@ -2175,8 +2175,8 @@ const COMPOUND_START =
 
 /**
  * The index of the segment that follows `segIdx`'s in its list: past the
- * substitutions lifted out of the next command, which run ahead of it (#5098).
- * Inside a lifted run, the next segment.
+ * substitutions lifted out of the next command (#5098). Inside a lifted run,
+ * the next segment.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
