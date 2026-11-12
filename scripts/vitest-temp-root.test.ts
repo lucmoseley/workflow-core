@@ -27,11 +27,14 @@ describe("this worker", () => {
 		expect(defaultQueueDir()).toBe(path.join(root, "wfc-suite-queue"));
 	});
 
-	/* Only a run run-vitest.js launched hands these over. */
+	/* Only a run run-vitest.js launched hands these over, and that run's
+	 * vitest process sits in the wrapper's own root (#5108). */
 	it.runIf(process.env[INFLIGHT_ENV])(
 		"reads the wrapper's hand-off files under the real temp root",
 		() => {
-			const real = path.dirname(inject("wfcTempRoot"));
+			const wrapperRoot = path.dirname(inject("wfcTempRoot"));
+			expect(path.basename(wrapperRoot)).toMatch(/^wfc-vitest-\d+-/);
+			const real = path.dirname(wrapperRoot);
 			expect(path.dirname(String(process.env[INFLIGHT_ENV]))).toBe(real);
 			expect(path.dirname(String(process.env[TIMINGS_ENV]))).toBe(real);
 		},
