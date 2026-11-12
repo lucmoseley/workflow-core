@@ -1316,24 +1316,24 @@ describe("the routes still open after #4982 (#4997)", () => {
 	});
 
 	describe("a relative path glued behind a prefix", () => {
-		it("doubts a link glued to an option with no slash before it, with or without a path after", () => {
+		it("doubts a link glued to a short option or an @file with no slash before it, with or without a path after", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			fs.symlinkSync(root, path.join(cwd, "in"));
 			const spawns = (args: string[]) =>
 				`try { require("node:child_process").execFileSync("ls", ${quoted(args)}, { cwd: ${quoted(cwd)}, stdio: "ignore" }); } catch {}`;
-			for (const word of ["-Iin/.claude", "-Iin"])
+			for (const word of ["-Iin/.claude", "-Iin", "@in/.claude"])
 				expect(untraced(root, spawns([word])).doubt).toMatch(
 					/a child \(ls .*\) was handed a path in the checkout$/,
 				);
 			expect(untraced(root, spawns(["-Ino-such/x"]))).toHaveProperty("reads");
 		});
 
-		it("keeps the reads of a child handed a plain value whose tail is a name its directory holds (#5049)", () => {
+		it("keeps the reads of a child handed a plain value or long option whose tail is a name its directory holds (#5049)", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			fs.symlinkSync(root, path.join(cwd, "in"));
-			const body = `try { require("node:child_process").execFileSync("ls", ["main"], { cwd: ${quoted(cwd)}, env: { ...process.env, BRANCH: "admin" }, stdio: "ignore" }); } catch {}`;
+			const body = `try { require("node:child_process").execFileSync("ls", ["main", "--login", "--ref=main"], { cwd: ${quoted(cwd)}, env: { ...process.env, BRANCH: "admin" }, stdio: "ignore" }); } catch {}`;
 			const log = audited(root, T, body, {
 				env: { REF: "main" },
 				trace: false,
