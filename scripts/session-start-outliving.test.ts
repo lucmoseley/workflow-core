@@ -7,8 +7,7 @@
  * or, outside the scope by some other route, it runs unbounded.
  *
  * The walk is lib/hook-code.js's over the SessionStart registrations. It
- * reads each file
- * lexically, comment lines skipped:
+ * reads each file lexically, comment lines skipped:
  *   JS — a `detached: true` spawn whose child is `.unref()`ed within
  *     UNREF_REACH lines;
  *   shell — `setsid`, `nohup`, `disown`, lib/detach.sh's `detach`, or a

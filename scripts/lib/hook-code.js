@@ -67,7 +67,8 @@ const parseCommandScripts = (command) =>
 
 /**
  * Every file under `scripts/` a hook at `root` runs or loads, of `event`'s
- * hooks alone where one is given, as the session-start test's: the scope is
+ * hooks alone where one is given, the dispatcher's every core where it is
+ * among them: the scope is
  * this filter over each entry's whole run, which may pass through a file
  * outside `scripts/`. A path no file stands at, as a registration naming a
  * script this tree lacks, runs nothing.

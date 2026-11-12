@@ -1,8 +1,7 @@
 /*
  * code-edges.js — the files a script reaches, read lexically: one file's
  * own (`reachOf`), and everything its run reaches, transitively
- * (`readRunReach`), for the pass store, hook-code.js, surface-closure.js and
- * the session-start test (#4259, #5071). Each reach also names the paths a
+ * (`readRunReach`) (#4259, #5071). Each reach also names the paths a
  * specifier tried before its target (`shadows`, #4814), the data files a
  * script reads off its own directory (`reads`), each load the walk cannot
  * read (`unread`, #4790) and each join off its own directory naming a file
@@ -72,7 +71,6 @@
  *     sys.path edit may never have run, so a module found on its entry
  *     settles nothing, and an indented import, or one on a one-line compound
  *     statement's body, is placed again on the file's final search path.
- * A JSX or TSX file is code the walk cannot read.
  *
  * FOREIGN: a Python import the walk cannot place — a module neither stdlib
  * (python3's own sys.stdlib_module_names, so 3.10 or later) nor on that
@@ -83,15 +81,11 @@
  * is handed to the caller's `fault`, as is a JSX or TSX file.
  *
  * AN IMPORTED MODULE (#4870) resolves its imports on the sys.path of the
- * script that imported it, not on its own directory. `readRunReach` walks
- * the files of one script's run handing each the path the others left, and
- * each import is then placed on both paths, faulting only where neither
- * places it. An import may run before any one of those edits, so on the
- * handed path each entry a file added is one that may never have run: a
- * module found there settles nothing. Residual: that over-reaches, so a
- * file on an added entry that CPython never loads is an edge, and a change
- * to it voids a pass it could not have moved. `reachOf` alone places a
- * module on its own directory and edits.
+ * script that imported it, not on its own directory. `readRunReach` places
+ * each import on both, faulting only where neither places it. Residual: an
+ * entry another file added may never have run, so a file on it that
+ * CPython never loads is an edge, and a change to it voids a pass it could
+ * not have moved.
  *
  * WHOLE PATHS: a join of a parameter is one the walk declines to read, by
  * design (#4790), so a module whose files a test's reach must hold spells
@@ -508,10 +502,7 @@ function fileReach(file, text, fault, importerSearch) {
  * walked again, each on the path they all left, until a pass leaves that
  * path as it found it. Each file is read once per sys.path it is handed,
  * across every start of one `readRunReach`.
- *
- * What the caller does with a fault, a missing path, an unread load or an
- * unknown join is its own: the reach only names each. A file that will not
- * read throws.
+ * A file that will not read throws.
  * @param {string} root absolute
  * @returns {(start: string, fault?: (file: string, msg: string) => void) =>
  *   RunReach} `start` root-relative; `fault` hears each fault once, by the
@@ -626,7 +617,6 @@ function runScript(script, visitOf, run, hear) {
 }
 
 /**
- * Adds to `run` what a pass reaches, the faults it met told to `hear`.
  * @param {Pass} pass
  * @param {RunSoFar} run accumulator: gains the pass's findings
  * @param {(rel: string, msg: string) => void} hear
@@ -636,7 +626,6 @@ function addPass(pass, run, hear) {
 }
 
 /**
- * Adds to `run` what one file of a pass reaches.
  * @param {string} rel
  * @param {Visit} found
  * @param {RunSoFar} run accumulator: gains the file's findings
@@ -646,13 +635,22 @@ function addVisit(rel, found, run, hear) {
 	if (found.unread) run.unread.add(rel);
 	if (found.unknown) run.unknown.add(rel);
 	for (const msg of found.faults) hear(rel, msg);
-	for (const p of found.outside)
-		if (!run.outside.has(p)) run.outside.set(p, rel);
+	nameFirst(run.outside, found.outside, rel);
 	run.python ||= found.python;
 	for (const p of found.shadows) run.shadows.add(p);
 	for (const p of found.edges) run.files.add(p);
-	for (const p of found.missing)
-		if (!run.missing.has(p)) run.missing.set(p, rel);
+	nameFirst(run.missing, found.missing, rel);
+}
+
+/**
+ * Records `rel` as the file naming each of `paths` that `named` holds no
+ * namer for yet.
+ * @param {Map<string, string>} named accumulator: path to its first namer
+ * @param {string[]} paths
+ * @param {string} rel
+ */
+function nameFirst(named, paths, rel) {
+	for (const p of paths) if (!named.has(p)) named.set(p, rel);
 }
 
 /**
@@ -699,8 +697,7 @@ const NO_VISIT = {
 };
 
 /**
- * `rel`'s own reach on the sys.path `pySearch` its run handed it: none for
- * a file no script.
+ * None for a file no script.
  * @param {string} root
  * @param {string} rel
  * @param {PyEntry[] | null} pySearch

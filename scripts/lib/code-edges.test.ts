@@ -509,9 +509,6 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 		});
 	});
 
-	/* The case a walk of each file on its own directory missed (#5071):
-	 * `b` finds `x` only on the entry its sibling `a` adds, earlier in the
-	 * run. */
 	it("reaches a module found only on the entry another module of the run adds", () => {
 		writeTree({
 			"tool/t.py": `${putFirst("lib")}\nimport a\nimport b\n`,
@@ -528,7 +525,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 
 	/* Walked first, `b` meets `x` before `a` has added its entry: only the
 	 * settled pass judges it. */
-	it("reaches a module found only on the entry a module imported after it adds, faulting nothing", () => {
+	it("reaches a module found only on the entry a module imported after it adds, faulting nothing (#5071)", () => {
 		writeTree({
 			"tool/t.py": `${putFirst("lib")}\nimport b\nimport a\n`,
 			"lib/a.py": putFirst("extra"),
