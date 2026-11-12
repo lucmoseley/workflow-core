@@ -436,7 +436,9 @@ async function linkBlocker(args, warn) {
 	const blocker = await parseRef(b, home);
 	if (!blocker) fail("other", `blocker '${b}' is not a number or owner/name#n`);
 	// Labels read from the session's own tracker, so its own issues print as
-	// `#n`; where none resolves, from the blocked issue's repo.
+	// `#n` (#5070 story 4). A tracker that cannot be resolved changes only
+	// which repo's issues print bare, so it falls back to the blocked issue's
+	// repo rather than failing a link both of whose refs are qualified.
 	const view = await home().catch(() => blocked.repo);
 	if (refKey(blocked) === refKey(blocker))
 		refuse("self", `an issue cannot block itself (${refLabel(blocked, view)})`);
@@ -607,8 +609,8 @@ function parseOutcome(stdout) {
 		const o = JSON.parse(stdout);
 		return o &&
 			typeof o === "object" &&
-			typeof o.code === "number" &&
-			typeof o.err === "string"
+			[0, 1, 3].includes(o.code) &&
+			["out", "err", "warning", "reason"].every((k) => typeof o[k] === "string")
 			? /** @type {Outcome} */ (o)
 			: null;
 	} catch {

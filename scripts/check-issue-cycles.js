@@ -162,7 +162,7 @@ const SPEC = {
 					`could hide the link that closes a loop. ${CONCLUSION}`,
 			);
 
-		const scope = `${seeds.length} open issue(s) across ${read.length} tracker(s)${hidden.length > 0 ? ` (${hidden.length} not read)` : ""}`;
+		const scope = `${seeds.length} open issue(s) across ${read.length} tracker(s)${hidden.length > 0 ? `, ${hidden.length} more not read` : ""}`;
 		ctx.say(`Checked ${scope}.\n`);
 		reportCycles(ctx, walk.cycles, home);
 

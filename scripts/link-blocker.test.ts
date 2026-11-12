@@ -190,6 +190,14 @@ describe("link-blocker.js", () => {
 		expect(r.stdout).toBe("linked m/t#20 as blocked by #10\n");
 	});
 
+	it("names a blocked issue in another repo by its full reference when the edge never lists", async () => {
+		const r = await run(["m/t#20", "#10"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"m/t#20's blocked_by list still does not name #10",
+		);
+	});
+
 	it("does not read another repo's issue of the same number as the blocker", async () => {
 		const r = await run(["#10", "m/t#20"], {
 			listed: [{ number: 20, repo: "o/r" }],
