@@ -55,6 +55,8 @@ const {
 /** The flatten's subshell marker, standing a bracket on a line of its own so a
  * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
 const SCOPE_MARK = "\x02";
+const SCOPE_OPEN = `${SCOPE_MARK}(`;
+const SCOPE_CLOSE = `${SCOPE_MARK})`;
 
 /** Opens a flattened line with the code of the operator before it (#4009). */
 const OP_MARK = "\x05";
@@ -161,7 +163,7 @@ function parseJoins(masked) {
 		.map((line) => {
 			const code = line.startsWith(OP_MARK) ? line.charAt(1) : "";
 			const afterClose = closed && !code;
-			closed = line === `${SCOPE_MARK})`;
+			closed = line === SCOPE_CLOSE;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
 				return afterClose ? ")" : carry;
@@ -452,6 +454,8 @@ const isWriteRedirect = (kind) =>
  *   subject's first `||` outside a quoted span, or -1 where it has none (#328)
  * @property {string[]} joins parseJoins's code for each segment (#4009); a lifted
  *   substitution's is "("
+ * @property {boolean[]} lifted whether each segment was lifted out of a
+ *   substitution (#5098)
  */
 
 /**
@@ -491,18 +495,31 @@ function parseCommand(subject, spans = []) {
 	const segments = [];
 	/** @type {string[]} */
 	const joins = [];
+	/** @type {boolean[]} */
+	const lifted = [];
 	const lineJoins = parseJoins(masked);
 	let conditional = -1;
 	flatSegments(masked).forEach((segment, i) => {
 		if (i === before) conditional = segments.length;
-		const lifted = withLifted(segment, spans);
-		segments.push(...lifted);
+		const own = withLifted(segment, spans);
+		segments.push(...own);
 		const join = lineJoins[i];
 		if (join === undefined) throw new Error("a segment with no join");
-		joins.push(...lifted.slice(1).map(() => "("), join);
+		const ahead = own.slice(1);
+		joins.push(...ahead.map(() => "("), join);
+		lifted.push(...ahead.map(() => true), false);
 	});
 	if (before >= 0 && conditional < 0) conditional = segments.length;
-	return { subject, spans, masked, heredocLines, segments, conditional, joins };
+	return {
+		subject,
+		spans,
+		masked,
+		heredocLines,
+		segments,
+		conditional,
+		joins,
+		lifted,
+	};
 }
 
 /**
@@ -553,10 +570,10 @@ function liftSubstitutions(segment, spans) {
 		if (span === undefined) return { text: "", stepPast: true };
 		for (const inner of quotedSubstitutions(span)) {
 			const { masked } = maskSubject(inner, spans);
-			lifted.push(`${SCOPE_MARK}(`);
+			lifted.push(SCOPE_OPEN);
 			for (const seg of flatSegments(masked))
 				lifted.push(...withLifted(seg, spans));
-			lifted.push(`${SCOPE_MARK})`);
+			lifted.push(SCOPE_CLOSE);
 		}
 		return { text: "", stepPast: true };
 	});
@@ -1251,8 +1268,8 @@ function eachSegment(walk, fn) {
  * @param {string} segment
  */
 function arithScope(walk, segment) {
-	const isOpen = segment === `${SCOPE_MARK}(`;
-	const isClose = segment === `${SCOPE_MARK})`;
+	const isOpen = segment === SCOPE_OPEN;
+	const isClose = segment === SCOPE_CLOSE;
 	if (isOpen) openScope(walk);
 	else if (isClose) closeScope(walk);
 	else if (segment !== "") walk.arLast = "";
@@ -1583,7 +1600,7 @@ function parseScript(script, spans) {
 	/** @type {ScriptState[]} */
 	const stack = [];
 	parsed.segments.forEach((segment, segIdx) => {
-		if (segment === `${SCOPE_MARK}(`) {
+		if (segment === SCOPE_OPEN) {
 			stack.push(state);
 			/* As openScope's: the chain outside stays open (#5093, #5102). */
 			state = { ...state, openChains: [], subshellOpened: true };
@@ -1592,7 +1609,7 @@ function parseScript(script, spans) {
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
 		 * `((…))` or `$((…))` parses as brackets too, and its assignments
 		 * stand, so each name the brackets changed is lost. */
-		if (segment === `${SCOPE_MARK})`) {
+		if (segment === SCOPE_CLOSE) {
 			const outer = stack.pop();
 			if (outer)
 				state = {
@@ -1718,7 +1735,7 @@ const changedNames = (inner, outer) => [
  * @param {Pick<ScriptAt, "parsed" | "segIdx">} where
  */
 const isSureAssignment = ({ parsed, segIdx }) =>
-	isSureMove(parsed, segIdx, []) && !runsApart(parsed.joins, segIdx);
+	isSureMove(parsed, segIdx, []) && !runsApart(parsed, segIdx);
 
 /**
  * `lost` after `names` are assigned: followed where the assignment surely
@@ -1744,7 +1761,7 @@ function stepScript(state, cw, where) {
 	const { spans } = where;
 	const own = cw.words.slice(cw.wi);
 	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
-	const apart = runsApart(where.parsed.joins, where.segIdx);
+	const apart = runsApart(where.parsed, where.segIdx);
 	const kind = exportKind(head, rest);
 	if (kind !== null)
 		return apart
@@ -2192,14 +2209,48 @@ const COMPOUND_START =
 	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
 
 /**
- * Whether the segment runs in a subshell of its own, in a pipeline or behind
- * `&`, so a `cd` or `export` in it moves nothing after it (measured).
- * @param {string[]} joins
+ * The index of the segment that follows `segIdx`'s in its list: past the
+ * substitutions lifted out of the next command (#5098). Inside a lifted run,
+ * the next segment.
+ * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function runsApart(joins, segIdx) {
-	const after = joins[segIdx + 1];
-	return joins[segIdx] === "p" || after === "p" || after === "b";
+function nextInList({ lifted }, segIdx) {
+	let i = segIdx + 1;
+	if (lifted[segIdx]) return i;
+	while (lifted[i]) i++;
+	return i;
+}
+
+/**
+ * The index of the segment ahead of `segIdx`'s in its list, as nextInList
+ * reads one: past the substitutions lifted out of this command.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function prevInList({ lifted }, segIdx) {
+	let i = segIdx - 1;
+	if (lifted[segIdx]) return i;
+	while (lifted[i]) i--;
+	return i;
+}
+
+/**
+ * The join between the segment and the one that follows it in its list.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const joinAfter = (parsed, segIdx) => parsed.joins[nextInList(parsed, segIdx)];
+
+/**
+ * Whether the segment runs in a subshell of its own, in a pipeline or behind
+ * `&`, so a `cd` or `export` in it moves nothing after it (measured).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function runsApart(parsed, segIdx) {
+	const after = joinAfter(parsed, segIdx);
+	return parsed.joins[segIdx] === "p" || after === "p" || after === "b";
 }
 
 /**
@@ -2214,12 +2265,12 @@ const opensList = (joins, segIdx) =>
  * Whether the segment is a `cd` after `||` whose left side is the `cd` that
  * opened the list at `cdAt`, unnegated: it runs only where that one failed
  * (#5010).
- * @param {string[]} joins
+ * @param {Parsed} parsed
  * @param {number} segIdx
  * @param {number} cdAt -1 where no such `cd` stands
  */
-const isAfterCd = (joins, segIdx, cdAt) =>
-	joins[segIdx] === "o" && cdAt === segIdx - 1;
+const isAfterCd = (parsed, segIdx, cdAt) =>
+	parsed.joins[segIdx] === "o" && cdAt === prevInList(parsed, segIdx);
 
 /**
  * Whether the segment's command is negated by `!`, past any `{` opening it.
@@ -2245,20 +2296,22 @@ function isNegated(segments, segIdx) {
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
-const isChainedOff = ({ joins, segments }, segIdx) =>
-	joins[segIdx + 1] === "a" &&
-	joins[segIdx] !== "o" &&
-	!isNegated(segments, segIdx);
+const isChainedOff = (parsed, segIdx) =>
+	joinAfter(parsed, segIdx) === "a" &&
+	parsed.joins[segIdx] !== "o" &&
+	!isNegated(parsed.segments, segIdx);
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
- * backgrounds all of it (measured, #5010).
- * @param {string[]} joins
+ * backgrounds all of it, a pipeline in it included (measured, #5010, #5107).
+ * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function isListBackgrounded(joins, segIdx) {
-	let end = segIdx + 1;
-	while (joins[end] === "a" || joins[end] === "o") end++;
+function isListBackgrounded(parsed, segIdx) {
+	const { joins } = parsed;
+	let end = nextInList(parsed, segIdx);
+	while (joins[end] === "a" || joins[end] === "o" || joins[end] === "p")
+		end = nextInList(parsed, commandEnd(parsed, end));
 	return joins[end] === "b";
 }
 
@@ -2340,6 +2393,45 @@ function chainEndDepth(parsed, segIdx) {
 }
 
 /**
+ * The last segment of the command a list member starts at `segIdx`: past a
+ * `( … )` it opens, the words after its `)`, and each `$(…)` or `<(…)` mid-word
+ * (#5107). A bracket opening on a blank line is another command's.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function commandEnd({ segments, joins }, segIdx) {
+	let end =
+		segments[segIdx] === SCOPE_OPEN ? closingBracket(segments, segIdx) : segIdx;
+	for (;;) {
+		const next = end + 1;
+		if (joins[next] === ")") end = next;
+		else if (
+			segments[next] === SCOPE_OPEN &&
+			joins[next] === "" &&
+			segments[end]?.trim()
+		)
+			end = closingBracket(segments, next);
+		else return end;
+	}
+}
+
+/**
+ * The index of the SCOPE_MARK `)` line closing the `(` line at `openIdx`, or
+ * the last segment's where none does: bash refuses an unclosed `(` before
+ * it runs anything.
+ * @param {string[]} segments
+ * @param {number} openIdx
+ */
+function closingBracket(segments, openIdx) {
+	let depth = 0;
+	for (let i = openIdx; i < segments.length; i++) {
+		if (segments[i] === SCOPE_OPEN) depth++;
+		else if (segments[i] === SCOPE_CLOSE && --depth === 0) return i;
+	}
+	return segments.length - 1;
+}
+
+/**
  * Whether every `{ …; }` group holding the segment surely runs in this shell:
  * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
  * not a function's body. A group left unclosed holds none.
@@ -2357,14 +2449,14 @@ function isBraceGroupSure(parsed, segIdx) {
 		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
 		const defined =
-			(before === "" || before === ")") && segments[prev] === `${SCOPE_MARK})`;
+			(before === "" || before === ")") && segments[prev] === SCOPE_CLOSE;
 		return (
 			!defined &&
 			before !== "a" &&
 			before !== "o" &&
 			before !== "p" &&
-			joins[to + 1] !== "p" &&
-			!isListBackgrounded(joins, to)
+			joinAfter(parsed, to) !== "p" &&
+			!isListBackgrounded(parsed, to)
 		);
 	});
 }
@@ -2379,7 +2471,7 @@ function isBraceGroupSure(parsed, segIdx) {
  * @param {string[]} own its words
  */
 const isSureOnceReached = (parsed, segIdx, own) =>
-	!isListBackgrounded(parsed.joins, segIdx) &&
+	!isListBackgrounded(parsed, segIdx) &&
 	own.length <= 2 &&
 	!parsed.segments.some((s) => COMPOUND_START.test(s)) &&
 	isBraceGroupSure(parsed, segIdx);
@@ -2411,7 +2503,7 @@ function isSureMove(parsed, segIdx, own) {
  */
 function classifyCd(parsed, segIdx, own, cdAt) {
 	const opens = opensList(parsed.joins, segIdx);
-	const afterFailed = isAfterCd(parsed.joins, segIdx, cdAt);
+	const afterFailed = isAfterCd(parsed, segIdx, cdAt);
 	return {
 		holds:
 			(opens || afterFailed) && isSureOnceReached(parsed, segIdx, own)
@@ -2449,7 +2541,7 @@ function stepCwd(walk, own, segIdx, isDir) {
 	if (!movesCwd(head, arg)) return false;
 	const { cwdNames, cwdLost } = walk;
 	const resolved = moveCwd(walk, own);
-	if (runsApart(walk.parsed.joins, segIdx)) {
+	if (runsApart(walk.parsed, segIdx)) {
 		Object.assign(walk, { cwdNames, cwdLost });
 		return true;
 	}
