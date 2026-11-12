@@ -1,6 +1,11 @@
 /*
  * held-unit.js — an unfinished build unit: an open `kind:ticket` with an
- * unticked, unwaived criterion (lib/ticket-criteria.js) and no `parked` label.
+ * unticked, unwaived criterion (lib/ticket-criteria.js), no `parked` label and
+ * no holding `**Gated until:**` or `**Gated on:**` line (lib/issue-gate.js,
+ * #4991): a holding gate waits on data, not on the session, and pick-next
+ * already holds the ticket out of the shortlist. Residual: a far-future date
+ * or any well-formed `**Gated on:**` line releases an unfinished ticket
+ * without one of the four exits.
  * session-arbiter.js's `release-issue` refuses to drop the claim on one, and
  * guard-held-ticket.js refuses a session-ending turn while one is claimed.
  *
@@ -19,12 +24,17 @@
 const { readCommitsBy } = require("./arbiter-store");
 const { gitIn } = require("./arbiter-core");
 const { ghJson } = require("./gh");
+const { isGateHolding } = require("./issue-gate");
 const { PARKED_LABEL } = require("./parked");
 const { scriptPath } = require("./script-path");
 const { TRIPWIRE } = require("./session-tripwire");
 const { unmetCriteria } = require("./ticket-criteria");
 
 const KIND_TICKET = "kind:ticket";
+
+/* The definition both refusals print. */
+const UNFINISHED =
+	"an open `kind:ticket` with an unticked, unwaived acceptance criterion, no `parked` label and no holding gate line";
 
 const EXITS = `\`${scriptPath("park-blocked.sh")} <n> takes:wayfinder|waiting:external|keep "<why>"\` for a ticket blocked on the founder or an outside party; a \`needs input:\` park with its \`**Hand-off:**\` block; the ${TRIPWIRE.toLocaleString("en-GB")} tripwire; or the compaction backstop's hand-off`;
 
@@ -36,12 +46,14 @@ function isUnfinishedUnit(issue) {
 	const labels = (issue.labels ?? []).map((l) =>
 		typeof l === "string" ? l : l.name,
 	);
-	return (
-		issue.state === "open" &&
-		labels.includes(KIND_TICKET) &&
-		!labels.includes(PARKED_LABEL) &&
-		unmetCriteria(issue.body).length > 0
-	);
+	if (
+		issue.state !== "open" ||
+		!labels.includes(KIND_TICKET) ||
+		labels.includes(PARKED_LABEL) ||
+		unmetCriteria(issue.body).length === 0
+	)
+		return false;
+	return !isGateHolding(issue.body ?? "");
 }
 
 /**
@@ -76,6 +88,7 @@ function isCitedByOwnCommit(sid, n) {
 
 module.exports = {
 	EXITS,
+	UNFINISHED,
 	isCitedByOwnCommit,
 	isUnfinishedUnit,
 	isUnfinishedUnitIn,

@@ -52,8 +52,8 @@ What each alias runs on in each mode, rendered from `scripts/lib/model-routing.j
 
 | Asked for | Runs on | At effort |
 |---|---|---|
-| `haiku` | `opus` · `claude-opus-5-5` | `medium` |
-| `sonnet` | `opus` · `claude-opus-5-5` | `medium` |
+| `haiku` | `haiku` · `claude-haiku-5-5` | `xhigh` |
+| `sonnet` | `haiku` · `claude-haiku-5-5` | `xhigh` |
 | `opus` | `fable` · `claude-fable-5-2` | `low` |
 | `fable` | `fable` · `claude-fable-5-2` | as asked |
 

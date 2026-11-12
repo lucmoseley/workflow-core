@@ -155,11 +155,11 @@ describe("lib/windows-memory.js", () => {
 		expect(readWindowsMemory({ file, now: NOW })).toMatchObject({ mb: 1500 });
 	});
 
-	/* The floor is 1,000 MB and the paging line 100,000 pages (#4850). */
+	/* The floor is 750 MB and the paging line 100,000 pages (#4850, #4852). */
 	it("holds a launch while Windows is under its floor, and admits one at it (#4850)", () => {
 		const at = (mb: number): WindowsRead => ({ state: "fresh", mb, ageS: 30 });
-		expect(windowsShortfall(at(999))).toEqual({ mb: 999 });
-		expect(windowsShortfall(at(1000))).toBeNull();
+		expect(windowsShortfall(at(749))).toEqual({ mb: 749 });
+		expect(windowsShortfall(at(750))).toBeNull();
 	});
 
 	it("admits a launch at a median day's 1,700 MB free with Windows not paging (#4850)", () => {
@@ -184,10 +184,10 @@ describe("lib/windows-memory.js", () => {
 
 	it("prices the guest free memory Windows cannot back above its floor (#4956)", () => {
 		const read: WindowsRead = { state: "fresh", mb: 1400, ageS: 30 };
-		expect(windowsUnbackedMb(read, 1000)).toBe(600);
+		expect(windowsUnbackedMb(read, 1000)).toBe(350);
 		expect(windowsUnbackedMb(read, 400)).toBe(0);
-		expect(windowsUnbackedMb({ ...read, mb: 900 }, 300)).toBe(300);
-		expect(windowsUnbackedMb({ ...read, mb: 900 }, 0)).toBe(0);
+		expect(windowsUnbackedMb({ ...read, mb: 700 }, 300)).toBe(300);
+		expect(windowsUnbackedMb({ ...read, mb: 700 }, 0)).toBe(0);
 		expect(windowsUnbackedMb(read, null)).toBe(0);
 		expect(windowsUnbackedMb({ state: "absent" }, 1000)).toBe(0);
 		expect(windowsUnbackedMb({ state: "stale", why: "old" }, 1000)).toBe(0);

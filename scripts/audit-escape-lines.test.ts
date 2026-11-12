@@ -128,8 +128,8 @@ async function gateway(answers: (number | { status: number })[]) {
 				res.end(
 					JSON.stringify({
 						answers: {
-							[body.includes("move_supported")
-								? "move_supported"
+							[body.includes("top_reason_found")
+								? "top_reason_found"
 								: "bears_on_separator"]: { type: "boolean", probability: a },
 						},
 					}),
@@ -201,7 +201,7 @@ describe("the batch", () => {
 		expect(g.calls()).toBe(2);
 	});
 
-	it("asks of a re-send whether the calls since its refusal support its move, sending all three", async () => {
+	it("asks of a re-send whether its top option's reason is a fact the calls since its refusal found, sending the refused block, the trail and the whole re-sent message", async () => {
 		refusedSession(
 			"s1",
 			"2026-10-20T12:00:00Z",
@@ -214,11 +214,27 @@ describe("the batch", () => {
 		expect(await run()).toMatchObject({ items: 1, answered: 1 });
 		expect(readOutcomes()).toEqual(["misses"]);
 		const [body] = g.bodies;
-		expect(body).toContain("move_supported");
+		expect(body).toContain("top_reason_found");
 		expect(body).not.toContain("bears_on_separator");
 		expect(body).toMatch(/REFUSED SEND:[\s\S]*55% \(45% - 65%\)/);
 		expect(body).toContain("→ Bash: grep -c hit log");
-		expect(body).toMatch(/RE-SEND:[\s\S]*80% \(75% - 85%\)/);
+		expect(body).toMatch(/RE-SEND \(the whole message[\s\S]*80% \(75% - 85%\)/);
+	});
+
+	it("asks again a re-send whose verdict another question gave", async () => {
+		refusedSession("s1", "2026-10-20T12:00:00Z", round(1, "Checked: 7 hits"));
+		const g = await callable([0.9]);
+		await run();
+		const [item] = audit.readItems(dir)?.items ?? [];
+		fs.writeFileSync(
+			audit.verdictsPath(dir),
+			`${JSON.stringify({ key: item?.key, at: "earlier", outcome: "misses" })}\n`,
+		);
+		await run();
+		expect(g.calls()).toBe(2);
+		expect(readOutcomes()).toEqual(["bears"]);
+		await run();
+		expect(g.calls()).toBe(2);
 	});
 
 	it("records an outage and retries it on the next run", async () => {
@@ -304,16 +320,16 @@ describe("the report", () => {
 		expect(out).not.toContain("671 first");
 		expect(out).toContain("1061 refuses every close question once again");
 		expect(out).toContain("unmeasured (#667)");
-		expect(out).toContain("the unsupported share over-counts");
+		expect(out).toContain("so the row shows no share (#5003, #5035)");
 	});
 
-	it("gives an after-refusal row the share judged unsupported", async () => {
+	it("gives an after-refusal row the judge's held-out rates in place of a share", async () => {
 		refusedSession("s1", "2026-10-20T12:00:00Z", round(1, "Checked: 7 hits"));
 		refusedSession("s2", "2026-10-20T12:00:00Z", round(1, "Checked: 9 hits"));
 		await callable([0.9, 0.1]);
 		await run();
 		expect(outOf(await report())).toMatch(
-			/1061 after-refusal\s+2 judged,\s+50% unsupported; 0 pending/,
+			/1061 after-refusal\s+2 judged, judge TPR 8%, TNR 91% held out; 0 pending$/m,
 		);
 	});
 

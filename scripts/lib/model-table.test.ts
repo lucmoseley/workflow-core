@@ -137,6 +137,25 @@ describe("remapModel — the table's transform over one Agent call", () => {
 		);
 	});
 
+	it("credits burn mode only with a move its rows make that the standard rows do not (#5006)", () => {
+		const routing = JSON.parse(fs.readFileSync(FIXTURE, "utf8"));
+		routing.modes.burn.route.opus = routing.modes.standard.route.opus;
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routing-same-"));
+		const file = path.join(dir, "routing.json");
+		fs.writeFileSync(file, JSON.stringify(routing));
+		vi.stubEnv("WFC_MODEL_ROUTING", file);
+		try {
+			const out = remapModel({ model: "opus", effort: "low" }, true);
+			expect(out?.input.effort).toBe("high");
+			expect(out?.note).toContain(
+				"The standing model table moved this dispatch",
+			);
+			expect(out?.note).not.toContain("Burn mode");
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it.each([
 		["no model named", { prompt: "x" }],
 		["an empty model", { model: "  ", prompt: "x" }],

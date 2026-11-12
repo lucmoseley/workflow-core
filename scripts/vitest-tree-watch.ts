@@ -35,6 +35,7 @@ const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 const { readAlreadyRedLines } = require("./lib/already-red.js");
 const { record: recordFileResults } = require("./lib/pass-store.js");
 const readAudit = require("./lib/read-audit.js");
+const { keepRun } = require("./lib/row-measure.js");
 const { isLanderRun } = require("./lib/session-id.js");
 const { caught } = require("./lib/caught.js");
 
@@ -61,7 +62,10 @@ function armAudit() {
 	auditDir = isLanderRun() ? null : readAudit.install(treeRoot);
 }
 
-function disarmAudit() {
+/* `recorded`, the run this teardown handed the pass store, is kept beside
+ * the logs under lib/row-measure.js's switch (#5029). */
+function disarmAudit(recorded: Record<string, unknown> | null) {
+	keepRun(auditDir, recorded);
 	readAudit.remove(auditDir);
 	auditDir = null;
 }
@@ -104,26 +108,27 @@ function recordFiles(
 		after: ReturnType<typeof readTreeSnapshot>;
 	},
 ) {
-	if (!files || !marker.at) return;
+	if (!files || !marker.at) return null;
+	const run = {
+		sha: marker.sha,
+		at: marker.at,
+		tree: marker.treeAtEnd ?? null,
+		root: treeRoot,
+		files: files.results,
+		shared: files.shared,
+		clean: files.clean,
+		drifted:
+			before === null || drifted?.headMoved
+				? null
+				: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
+		after,
+		startMark,
+	};
 	recordFileResults(
-		{
-			sha: marker.sha,
-			at: marker.at,
-			tree: marker.treeAtEnd ?? null,
-			root: treeRoot,
-			files: files.results,
-			shared: files.shared,
-			clean: files.clean,
-			drifted:
-				before === null || drifted?.headMoved
-					? null
-					: [...(drifted?.moved ?? []).map((e) => e.path), ...untracked],
-			after,
-			startMark,
-			audits: readAuditsOrNone(),
-		},
+		{ ...run, audits: readAuditsOrNone() },
 		{ storeRoot: root },
 	);
+	return run;
 }
 
 /**
@@ -191,6 +196,7 @@ export function runTeardown(rootOverride?: string | null) {
 	// sandbox instead of this checkout's own store.
 	const root = rootOverride ?? repoRoot(treeRoot);
 
+	let recorded: Record<string, unknown> | null = null;
 	/* A run that hit its scope's task cap fails, however green (#3401); the
 	 * wrapper names the cap. Read here, inside the scope, which the manager
 	 * collects once the run's last process exits. */
@@ -198,7 +204,12 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === true && after && !capped) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		record(marker, { root });
-		recordFiles(marker, report.files, { drifted, untracked, root, after });
+		recorded = recordFiles(marker, report.files, {
+			drifted,
+			untracked,
+			root,
+			after,
+		});
 	}
 
 	/*
@@ -213,7 +224,12 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
-		recordFiles(marker, report.files, { drifted, untracked, root, after });
+		recorded = recordFiles(marker, report.files, {
+			drifted,
+			untracked,
+			root,
+			after,
+		});
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run
@@ -235,5 +251,5 @@ export function runTeardown(rootOverride?: string | null) {
 		const owners = readAlreadyRedLines(marker, root);
 		if (owners.length > 0) process.stderr.write(`\n${owners.join("\n")}\n`);
 	}
-	disarmAudit();
+	disarmAudit(recorded);
 }

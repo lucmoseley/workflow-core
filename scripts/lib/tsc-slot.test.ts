@@ -290,13 +290,13 @@ describe("lib/tsc-slot.js", () => {
 	it("holds a `tsc` the guest admits while Windows is under its floor (#4557, #4850)", () => {
 		const windows = (mb: number) => ({ state: "fresh" as const, mb, ageS: 30 });
 		expect(
-			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(999) }),
+			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(749) }),
 		).toEqual({
 			limb: "windows",
-			mb: 999,
+			mb: 749,
 		});
 		expect(
-			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(1000) }),
+			tscDenial(rows("bash -l"), 9000, 100, { windows: windows(750) }),
 		).toBeNull();
 		// The guest rung is named first.
 		expect(

@@ -1169,6 +1169,7 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		const lines: string[] = [];
 		const outcome = await tsc.seat.wait({
 			gate: () => null,
+			clock: () => 0,
 			traceLimbs: true,
 			label: "q",
 			waiting: "waiting",
@@ -1183,8 +1184,8 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 			"q: waiting\n",
 			"q: after 0s, held on a launch admitted and not yet up, PID 11 in wfc-suite-queue\n",
 		]);
-		expect(lines[2]).toMatch(
-			/^q: gate opened after \d+s — held \d+s on a launch admitted and not yet up\n$/,
+		expect(lines[2]).toBe(
+			"q: gate opened after 0s — held 0s on a launch admitted and not yet up\n",
 		);
 	});
 
@@ -1196,6 +1197,7 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		let polls = 0;
 		await tsc.seat.wait({
 			gate: () => null,
+			clock: () => 0,
 			traceLimbs: true,
 			label: "q",
 			waiting: "waiting",
@@ -2761,8 +2763,11 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	const waitOn = async (
 		first: number,
 		frees: number[],
-		timeoutMs = 60_000,
-		turnShutAt?: number,
+		{
+			timeoutMs = 60_000,
+			turnShutAt,
+			pollMs,
+		}: { timeoutMs?: number; turnShutAt?: number; pollMs?: number } = {},
 	) => {
 		const dir = qdir();
 		const meminfo = path.join(dir, "meminfo");
@@ -2795,6 +2800,7 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 				),
 			admit: noQueue,
 			timeoutMs,
+			pollMs,
 			...(turnShutAt === undefined ? {} : { turn: () => last !== turnShutAt }),
 			clock: () => clock,
 			sleepFn: (ms: number) => {
@@ -2813,10 +2819,10 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	};
 
 	it("holds a suite launch while Windows is under its floor, and admits it once Windows clears", async () => {
-		const { outcome, said } = await waitOn(900, [999, 1000]);
+		const { outcome, said } = await waitOn(700, [749, 750]);
 		expect(outcome).toBe("run");
 		expect(said).toContain(
-			"held on the Windows-memory hold, Windows itself has 900 MB free (memwatch's win_avail_mb), under its 1000 MB floor",
+			"held on the Windows-memory hold, Windows itself has 700 MB free (memwatch's win_avail_mb), under its 750 MB floor",
 		);
 		expect(said).toMatch(
 			/gate opened after 20s — held 20s on the Windows-memory hold/,
@@ -2824,33 +2830,42 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	});
 
 	it("refuses at a bound short of the maximum hold, not run, where Windows never clears", async () => {
-		const { outcome, said } = await waitOn(900, [900, 900], 20_000);
+		const { outcome, said } = await waitOn(700, [700, 700], {
+			timeoutMs: 20_000,
+		});
 		expect(outcome).toBe("refused");
 		expect(said).toContain(
-			"the Windows-memory hold still holds after 20s (Windows itself has 900 MB free (memwatch's win_avail_mb), under its 1000 MB floor) — refused, not run.",
+			"the Windows-memory hold still holds after 20s (Windows itself has 700 MB free (memwatch's win_avail_mb), under its 750 MB floor) — refused, not run.",
 		);
 	});
 
+	/* The two cases below poll a minute apart, not the queue's 10 s: each
+	 * poll spawns the gate's `ps`, which the read audit weighs at ~100 ms a
+	 * spawn, and the hold's spell is timed by the clock, not by polls (#5036). */
+	const minutePolls = 60_000;
+
 	it("runs a wait one spell of the hold has held for its 10-minute maximum, saying so and logging it (#4850)", async () => {
-		const { outcome, said, exitHeld } = await waitOn(900, [], 30 * 60_000);
+		const { outcome, said, exitHeld } = await waitOn(700, [], {
+			timeoutMs: 30 * 60_000,
+			pollMs: minutePolls,
+		});
 		expect(outcome).toBe("run");
 		expect(exitHeld).toMatchObject({ windowsReleased: true });
 		expect(said.match(/released this wait/g)).toHaveLength(1);
 		expect(said).toContain(
-			"the Windows-memory hold released this wait after 600s, its 10-minute maximum (Windows itself has 900 MB free (memwatch's win_avail_mb), under its 1000 MB floor) (#4850)",
+			"the Windows-memory hold released this wait after 600s, its 10-minute maximum (Windows itself has 700 MB free (memwatch's win_avail_mb), under its 750 MB floor) (#4850)",
 		);
 	});
 
 	it("starts the maximum afresh once Windows clears between spells (#4850)", async () => {
-		/* Held 54 polls of 10 s, then Windows clears for one poll while the
-		 * queue's turn stays shut, three times: no spell reaches 10 minutes,
-		 * so the wait is refused at its 20-minute bound. */
-		const spell = new Array(53).fill(900);
+		/* Held up to 480 s, then Windows clears for one poll while the queue's
+		 * turn stays shut, twice before the 20-minute bound: no spell reaches
+		 * 10 minutes, so the wait is refused there. */
+		const spell = new Array(480_000 / minutePolls).fill(700);
 		const { outcome, said, exitHeld } = await waitOn(
-			900,
+			700,
 			[...spell, 1500, ...spell, 1500, ...spell],
-			20 * 60_000,
-			1500,
+			{ timeoutMs: 20 * 60_000, turnShutAt: 1500, pollMs: minutePolls },
 		);
 		expect(said).not.toContain("released this wait");
 		expect(outcome).toBe("refused");

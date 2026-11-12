@@ -513,9 +513,12 @@ function routeNamed(call, from, burn) {
 	const effort = row.effort ?? asked;
 	if (to === from && effort === asked) return null;
 	const what = `\`${from}\`${atEffort(asked)} to \`${to}\`${atEffort(effort)}`;
+	const standing = modeOf(false).route[alias ?? ""];
+	const burned =
+		burn && (standing?.to !== to || (standing?.effort ?? asked) !== effort);
 	return {
 		input: { ...call, model: to, ...(effort ? { effort } : {}) },
-		note: burn
+		note: burned
 			? `Burn mode moved this dispatch from ${what} (scripts/burn-mode.sh; \`${scriptPath("burn-mode.sh")} off\` ends it).`
 			: `The standing model table moved this dispatch from ${what} (${scriptPath("lib/model-routing.json")}; ${docPath("effort-guide.md")} §Which model each subagent dispatch runs on).`,
 	};

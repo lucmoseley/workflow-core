@@ -6,9 +6,10 @@
 #   C:\Users\<you>\wsl-interop-watchdog\{watchdog.ps1,launcher.vbs,task.xml}
 #   Scheduled task "WSL Interop Watchdog" - at logon + every 2 minutes.
 #
-# The task DETECTS AND NOTIFIES ONLY. It never runs `wsl --shutdown`: a false
-# positive would kill live background Claude sessions, which is worse than the
-# fault it guards. See docs/environment.md for the incident and the recovery.
+# The task never runs `wsl --shutdown`: a false positive would kill live
+# background Claude sessions, which is worse than the fault it guards. It does
+# boot the default distro when the VM is down (launcher.vbs). See
+# docs/environment.md §9 for the incident, the recovery and the keep-alive.
 #
 # The companion shell-side guard is scripts/claude-interop-guard.sh, sourced
 # from ~/.bashrc. That one stops a doomed launch; this one catches a wedge that

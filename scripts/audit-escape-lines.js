@@ -20,8 +20,8 @@
  * THE JUDGE is Jev over the Vercel AI Gateway, the route, key and gitleaks
  * sweep `guard-jev-advisory.js` exports — nothing leaves unswept, and each
  * tool result an after-refusal item sends is cut to a head (#4945). ITS
- * FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT DOES NOT DISCRIMINATE,
- * so its unsupported share over-counts (#4945, #5003). An outage or
+ * FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT DOES NOT DISCRIMINATE
+ * (#5003). An outage or
  * malformed reply is logged and the item retried on a later run.
  *
  * `--judge` scans every seat's transcripts for this repo (`lib/escape-audit.js`
@@ -30,8 +30,8 @@
  * capped at `RUN_MS` and held by a lock file so two never overlap.
  *
  * The report (the default, read on `npm run status`) prints, per window and
- * first-sight/after-refusal, how many were judged, the share judged to bear or
- * unsupported, and how many wait.
+ * first-sight/after-refusal, how many were judged and how many wait; first
+ * sight the share judged to bear, after refusal the judge's held-out rates.
  * `--notify`, at session start, prints nothing (#2038).
  *
  * IN NO FAMILY (code-standards §N3, §G4): the report is a `check-*` in all
@@ -39,7 +39,7 @@
  * one JSON line and exits 1 on a thrown error, which no family's contract
  * covers.
  *
- * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, and each re-send of a refused question with its refused block and the tool calls between, gitleaks-swept, to the Vercel AI Gateway.
+ * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, and each re-send of a refused question as its whole message, with its refused block and the tool calls and session text between, gitleaks-swept, to the Vercel AI Gateway.
  * JUSTIFIED: fail-safe — it refuses nothing, a missing key, SDK or gitleaks sends nothing, and a store that will not read reports that rather than zeros; #671 made the loosening reversible on this evidence.
  * DEFEAT:    `WFC_ESCAPE_AUDIT=0` for a session stops the batch starting.
  * TREE:      host — judges escape lines in transcripts filed under the host root's project slug
@@ -79,53 +79,81 @@ const BEARS_AT = 0.5;
 const LOCK_NAME = ".escape-audit-lock";
 const KICK_NAME = ".escape-audit-kicked";
 
-const QUESTION_KEY = "bears_on_separator";
-const MOVE_KEY = "move_supported";
-const QUESTIONS = {
-	[QUESTION_KEY]: {
-		type: "boolean",
-		instructions:
-			"This is a question an assistant put to a project founder, offering lettered options priced as rivals, the top two close enough that the recommendation could flip. It carries a `Checked:` line (what the assistant ran to separate the options, and what it showed) or an `Unmeasured:` line (the fact that would separate them, and why no cheap check reaches it). Does that line bear on the fact that actually separates the two highest-priced options — would what it reports or names tell you which of those two is right?",
-		criteria: {
-			true: "the line reports a check, or names a fact, that would change which of the top two options is right",
-			false:
-				"the line reports a check or names a fact that does not separate the top two options, restates the options, gives a generic reason, or reports only a search of past rulings or of what the code or a tool does today, which separates options only where they are otherwise equal (#1457)",
-		},
-	},
-};
+/**
+ * @typedef {{ caught: number, of: number }} Rate
+ * @typedef {{ unsupported: Rate, genuine: Rate, partial: Rate }} HeldOut
+ *   on a held-out set: `unsupported` caught, `genuine` and `partial` passed
+ */
 
-/** @type {Record<import("./lib/escape-audit").Item["sight"], Record<string, unknown>>} */
-const QUESTIONS_BY_SIGHT = {
-	first: QUESTIONS,
-	"after-refusal": {
-		[MOVE_KEY]: {
+/**
+ * What each sight is asked and sent. `key` names the question, and a verdict
+ * row keyed to another is asked again; `heldOut` is its measured accuracy,
+ * where one was measured.
+ * @type {Record<import("./lib/escape-audit").Item["sight"], {key: string,
+ *   question: Record<string, unknown>,
+ *   message: (item: import("./lib/escape-audit").Item) => string,
+ *   heldOut: HeldOut | null}>}
+ */
+const SIGHTS = {
+	first: {
+		key: "bears_on_separator",
+		question: {
 			type: "boolean",
 			instructions:
-				"An assistant put a question to a project founder, offering lettered options each priced with a confidence figure. A guard refused it once because its top two options sat close or no option was priced likely right, telling the assistant to find the fact that decides it. Below are the REFUSED SEND, the TOOL CALLS the assistant made after the refusal with the start of each result, and the RE-SEND that passed. Did what those calls found support each figure's move from the refused send to the re-send — every raise, every cut and every dropped option?",
+				"This is a question an assistant put to a project founder, offering lettered options priced as rivals, the top two close enough that the recommendation could flip. It carries a `Checked:` line (what the assistant ran to separate the options, and what it showed) or an `Unmeasured:` line (the fact that would separate them, and why no cheap check reaches it). Does that line bear on the fact that actually separates the two highest-priced options — would what it reports or names tell you which of those two is right?",
 			criteria: {
-				true: "each changed figure moves the way a fact the calls found points, by an amount that fact can carry, or the re-send re-frames the question because of what the calls found",
+				true: "the line reports a check, or names a fact, that would change which of the top two options is right",
 				false:
-					"a figure rose or a rival was dropped on no new fact, on a fact the refused send already rested on, on a fact the calls found that argues the other way or does not tell the options apart, or on argument alone with no finding behind it",
+					"the line reports a check or names a fact that does not separate the top two options, restates the options, gives a generic reason, or reports only a search of past rulings or of what the code or a tool does today, which separates options only where they are otherwise equal (#1457)",
 			},
+		},
+		message: (item) => item.text,
+		heldOut: null,
+	},
+	"after-refusal": {
+		key: "top_reason_found",
+		question: {
+			type: "boolean",
+			instructions:
+				"An assistant re-sent a refused question to a founder with changed confidence figures. Below are the REFUSED SEND, what the session did after the refusal (tool calls, results, its own text), and the RE-SEND. Look at the reason the RE-SEND gives for its top option. Is that reason a specific fact (a number, a file's content, a log line, a found ruling's words) that appears in a tool result after the refusal and did not appear in the REFUSED SEND?",
+			criteria: {
+				true: "the re-send's reason for its top option is a specific fact visible in a tool result after the refusal, new since the refused send",
+				false:
+					"the reason is argument, re-wording, a fact the refused send already gave, or a claim no tool result shows",
+			},
+		},
+		message: (item) =>
+			[
+				"REFUSED SEND:",
+				item.refusedText ?? "",
+				"",
+				"WHAT THE SESSION DID AFTER THE REFUSAL (its tool calls, the start of each result, and its own text):",
+				item.calls ?? "",
+				"",
+				"RE-SEND (the whole message it went in):",
+				item.message ?? item.text,
+			].join("\n"),
+		/* Measured once, the prompt frozen (#5003). */
+		heldOut: {
+			unsupported: { caught: 1, of: 12 },
+			genuine: { caught: 58, of: 64 },
+			partial: { caught: 34, of: 38 },
 		},
 	},
 };
 
 /**
- * @param {import("./lib/escape-audit").Item} item
+ * A verdict's outcome where it answers the question its item's sight is asked
+ * now, else undefined. A row naming no question answers the first-sight one.
+ * @param {import("./lib/escape-audit").Verdict | undefined} v
+ * @param {import("./lib/escape-audit").Item["sight"]} sight
  */
-function messageOf(item) {
-	if (item.sight === "first") return item.text;
-	return [
-		"REFUSED SEND:",
-		item.refusedText ?? "",
-		"",
-		"TOOL CALLS BETWEEN:",
-		item.calls ?? "",
-		"",
-		"RE-SEND:",
-		item.text,
-	].join("\n");
+function currentOutcome(v, sight) {
+	return v &&
+		audit.ANSWERED.has(v.outcome) &&
+		(v.question ?? SIGHTS.first.key) === SIGHTS[sight].key
+		? v.outcome
+		: undefined;
 }
 
 /**
@@ -155,11 +183,12 @@ function readTranscripts(dirs) {
  * @returns {Promise<{outcome: "bears" | "misses", probability: number}>}
  */
 async function ask(key, { text, sight }, gw) {
+	const { key: questionKey, question } = SIGHTS[sight];
 	const { probability: p } = await gw.askJev({
 		key,
 		message: text,
-		questions: QUESTIONS_BY_SIGHT[sight],
-		questionKey: sight === "first" ? QUESTION_KEY : MOVE_KEY,
+		questions: { [questionKey]: question },
+		questionKey,
 		abortMs: ABORT_MS,
 	});
 	return {
@@ -211,12 +240,14 @@ function scanItems(dirs, deps) {
  * @param {import("./lib/escape-audit").Item} item
  */
 async function judgeItem(run, item) {
-	const text = messageOf(item);
+	const text = SIGHTS[item.sight].message(item);
+	const question = SIGHTS[item.sight].key;
 	const swept = run.gw.sweepRefusal({ message: text });
 	if (swept) {
 		audit.appendVerdict(run.root, {
 			key: item.key,
 			at: new Date().toISOString(),
+			question,
 			outcome: swept,
 		});
 		return;
@@ -230,6 +261,7 @@ async function judgeItem(run, item) {
 	audit.appendVerdict(run.root, {
 		key: item.key,
 		at: new Date().toISOString(),
+		question,
 		outcome,
 		...(probability === undefined ? {} : { probability }),
 	});
@@ -304,7 +336,7 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 			counts: { asked: 0, answered: 0, failed: 0 },
 		};
 		for (const item of unique) {
-			if (audit.ANSWERED.has(verdicts.get(item.key)?.outcome ?? "")) continue;
+			if (currentOutcome(verdicts.get(item.key), item.sight)) continue;
 			if (Date.now() - started > RUN_MS) break;
 			await judgeItem(run, item);
 		}
@@ -346,7 +378,7 @@ function kick(root) {
  * @param {Map<string, import("./lib/escape-audit").Verdict>} verdicts
  */
 function tally(items, verdicts) {
-	/** @type {Map<string, {sight: import("./lib/escape-audit").Item["sight"], judged: number, bears: number, pending: number, withheld: number}>} */
+	/** @type {Map<string, {sight: import("./lib/escape-audit").Item["sight"], judged: number, bears: number, pending: number, withheld: number, heldOut: HeldOut | null}>} */
 	const rows = new Map();
 	for (const window of audit.WINDOWS)
 		for (const sight of /** @type {const} */ (["first", "after-refusal"]))
@@ -356,11 +388,12 @@ function tally(items, verdicts) {
 				bears: 0,
 				pending: 0,
 				withheld: 0,
+				heldOut: SIGHTS[sight].heldOut,
 			});
 	for (const item of items) {
 		const row = rows.get(`${item.window} ${item.sight}`);
 		if (!row) continue;
-		const v = verdicts.get(item.key)?.outcome;
+		const v = currentOutcome(verdicts.get(item.key), item.sight);
 		if (v === "bears" || v === "misses") {
 			row.judged++;
 			if (v === "bears") row.bears++;
@@ -401,6 +434,9 @@ async function main() {
 	process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
+/** @param {Rate} r */
+const pct = (r) => `${Math.round((100 * r.caught) / r.of)}%`;
+
 /**
  * One line per window and sight that holds anything.
  * @param {import("./lib/check").Ctx} ctx
@@ -409,11 +445,12 @@ async function main() {
 function sayRows(ctx, rows) {
 	for (const [name, r] of rows) {
 		if (!r.judged && !r.pending && !r.withheld) continue;
-		const after = r.sight === "after-refusal";
-		const count = after ? r.judged - r.bears : r.bears;
-		const share = r.judged ? `${Math.round((100 * count) / r.judged)}%` : "—";
+		const share = r.judged ? `${Math.round((100 * r.bears) / r.judged)}%` : "—";
+		const verdict = r.heldOut
+			? `judge TPR ${pct(r.heldOut.unsupported)}, TNR ${pct(r.heldOut.genuine)} held out`
+			: `${share.padStart(4)} bore`;
 		ctx.say(
-			`  ${name.padEnd(22)} ${String(r.judged).padStart(3)} judged, ${share.padStart(4)} ${after ? "unsupported" : "bore"}; ${r.pending} pending${r.withheld ? `, ${r.withheld} withheld by gitleaks` : ""}`,
+			`  ${name.padEnd(22)} ${String(r.judged).padStart(3)} judged, ${verdict}; ${r.pending} pending${r.withheld ? `, ${r.withheld} withheld by gitleaks` : ""}`,
 		);
 	}
 }
@@ -446,16 +483,17 @@ function reportRun(ctx) {
 
 	const rows = tally(index.items, verdicts);
 	ctx.say(
-		"ESCAPE-AUDIT — judged by Jev: first sight, close questions let past on a Checked:/Unmeasured: line, on whether the line bore on the fact separating the top two options (#671); after refusal, every re-send of a refused question, on whether what the calls since found supports each figure's move (#4945):\n",
+		"ESCAPE-AUDIT — judged by Jev: first sight, close questions let past on a Checked:/Unmeasured: line, on whether the line bore on the fact separating the top two options (#671); after refusal, every re-send of a refused question, on whether its reason for its top option is a new fact a tool result since the refusal shows (#5003):\n",
 	);
 	sayRows(ctx, rows);
 	ctx.say(
 		"\n  pre-660 is the baseline: first-sight lines not yet refused (#660).\n" +
 			"  660 refused every close question once; 671 refused only a missing or\n" +
 			"  unchanged line; 1061 refuses every close question once again.\n" +
-			"  The judge's first-sight accuracy is unmeasured (#667). After refusal it\n" +
-			"  judged 1 of 14 hand-classified genuine re-sends supported (#4945), so\n" +
-			"  the unsupported share over-counts.\n" +
+			"  The judge's first-sight accuracy is unmeasured (#667). After refusal,\n" +
+			"  on 122 held-out hand-classified re-sends, it caught 1 of 12 unsupported\n" +
+			"  (TPR) and passed 58 of 64 genuine (TNR) and 34 of 38 partly supported,\n" +
+			"  so the row shows no share (#5003, #5035).\n" +
 			(index.unreadable
 				? `  ${index.unreadable} transcript(s) would not read, so these counts are short.\n`
 				: "") +
