@@ -620,6 +620,9 @@ function unwrapArgv(argv) {
  *   the script may have changed it in a way not followed
  * @property {boolean} [envReset] a `-c` string's `cd` behind a wrapper that
  *   may replace the environment its script inherits, as resetsEnv reads one
+ * @property {true} [afterFailed] a `-c` string's `cd` after `||` whose left
+ *   side is the `cd` before it: it runs only where that one did not move
+ *   (#5010)
  */
 
 /**
@@ -640,7 +643,8 @@ const holdsAt = ({ holds }, dir, isDir) =>
  * Every directory a run may stand in: each of `cwds` moved through its
  * `chdirs`, an absolute one replacing it, a relative one joined to it and `""`
  * staying put (#4869), each move not sure to hold by holdsAt also left unmade
- * (#4980). Unknown past a directory no word gives whole: a wrapper's word
+ * (#4980), as is one an `afterFailed` move makes from where the move before
+ * went. Unknown past a directory no word gives whole: a wrapper's word
  * reading a variable or a `~`, a `-c` string's `cd` reading one its script did
  * not set (#4981), a glob, or a `-` flag.
  * @param {Dirs} cwds
@@ -656,12 +660,20 @@ function runCwd(cwds, chdirs, scope, isDir) {
 	const { buildBareScope } = require("./shell-parse.js");
 	const outer = Array.isArray(scope) ? buildBareScope(scope) : scope;
 	let dirs = cwds;
+	/** @type {Set<string>} where the move before may have gone */
+	let went = new Set();
 	for (const cd of chdirs) {
+		const left = cd.afterFailed ? went : new Set();
+		/* Where the move before went unnamed, this one may run from anywhere. */
+		const unsure = left.has("");
 		/** @param {string} from @returns {Dirs} */
 		const step = (from) => {
 			const to = moveRun(from, cd, outer);
-			return holdsAt(cd, to, isDir) ? [to] : [to, from];
+			return holdsAt(cd, to, isDir) && !unsure && !left.has(from)
+				? [to]
+				: [to, from];
 		};
+		went = new Set(dirs.map((from) => moveRun(from, cd, outer)));
 		const [head, ...tail] = dirs;
 		const [first, ...rest] = [...step(head), ...tail.flatMap(step)];
 		dirs = [first, ...new Set(rest.filter((d) => d !== first))];
