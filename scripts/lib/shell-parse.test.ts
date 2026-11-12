@@ -580,6 +580,48 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /missing && (true)\ngh x")).toEqual(["/missing", "/start"]);
 	});
 
+	it("is not settled outside a { …; } group by a chain ending inside it (#5095)", () => {
+		expect(last("cd /missing && { true; } && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true\n} && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("{ cd /missing && true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("cd /missing && { cd /missing2 && true; gh x; }")).toEqual([
+			"/missing2",
+			"/missing",
+		]);
+		expect(
+			last("cd /missing && true && { cd /missing2 && true; }; gh x"),
+		).toEqual(["/missing2", "/missing", "/start"]);
+	});
+
+	it.each([
+		"cd /missing && { for i in 1; do true; done }; gh x; if true; then { true; }; fi",
+		"cd /missing && { { true; } }; gh x",
+		"cd /missing && { if true; then true; fi }; gh x",
+	])(
+		"pairs a } after a closing word and a { after a reserved one, %s (#5095)",
+		(command) => {
+			const runs = walkMap(
+				command,
+				(c) => ({ head: c.words[0], cwds: c.cwds }),
+				{
+					cwd: "/start",
+					isDir,
+				},
+			);
+			expect(runs.find((r) => r.head === "gh")?.cwds).toEqual([
+				"/missing",
+				"/start",
+			]);
+		},
+	);
+
 	it("moves each doubted directory through a later cd", () => {
 		expect(last("cd /missing/y; cd ../..; gh x", "/a/b")).toEqual([
 			"/missing/y/../..",
@@ -2141,8 +2183,11 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && (true; git checkout x)`, []],
 			[`cd ${WORKTREE} && (true) && git checkout x`, []],
 			[`cd ${WORKTREE} && (true); git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { true; } && git checkout x`, []],
+			[`cd ${WORKTREE} && { true; }; git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { { true; } }; git checkout x`, [SHARED]],
 		])(
-			"doubts the tree a chain left only once it ends outside a subshell, %s (#5093)",
+			"doubts the tree a chain left only once it ends outside a subshell or group, %s (#5093, #5095)",
 			(bare, trees) => {
 				for (const command of [bare, `flock /l -c "${bare}"`])
 					expect(judged(command, SHARED, false).trees).toEqual(trees);
