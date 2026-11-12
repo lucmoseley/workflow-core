@@ -51318,6 +51318,11 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		"scripts/win-interop-watchdog/rebuild-disk.ps1": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		"scripts/win-interop-watchdog/task.xml.template": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",

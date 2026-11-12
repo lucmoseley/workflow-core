@@ -69,12 +69,13 @@ const WINDOWS_EXTENSIONS = /\.(ps1|psm1|vbs|cmd|bat)\b/i;
 describe("Windows-side script tooling is declined (mantahostels#1131)", () => {
 	it("still covers exactly the surface the decline measured", () => {
 		/*
-		 * A fourth Windows file, or one outside this directory, is a different
+		 * A fifth Windows file, or one outside this directory, is a different
 		 * surface and re-opens the question. `task.xml.template` is pinned with
-		 * the other two because §W prices the decline on all three.
+		 * the others because §W prices the decline on all four.
 		 */
 		expect(readTracked("scripts/win-interop-watchdog/*")).toEqual([
 			"scripts/win-interop-watchdog/launcher.vbs",
+			"scripts/win-interop-watchdog/rebuild-disk.ps1",
 			"scripts/win-interop-watchdog/task.xml.template",
 			"scripts/win-interop-watchdog/watchdog.ps1",
 		]);
