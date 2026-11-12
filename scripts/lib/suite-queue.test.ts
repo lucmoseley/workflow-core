@@ -1184,8 +1184,8 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 			"q: waiting\n",
 			"q: after 0s, held on a launch admitted and not yet up, PID 11 in wfc-suite-queue\n",
 		]);
-		expect(lines[2]).toMatch(
-			/^q: gate opened after \d+s — held \d+s on a launch admitted and not yet up\n$/,
+		expect(lines[2]).toBe(
+			"q: gate opened after 0s — held 0s on a launch admitted and not yet up\n",
 		);
 	});
 
@@ -2766,7 +2766,7 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 		{
 			timeoutMs = 60_000,
 			turnShutAt,
-			pollMs = 10_000,
+			pollMs,
 		}: { timeoutMs?: number; turnShutAt?: number; pollMs?: number } = {},
 	) => {
 		const dir = qdir();
@@ -2858,10 +2858,10 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 	});
 
 	it("starts the maximum afresh once Windows clears between spells (#4850)", async () => {
-		/* Held 9 polls, 480 s, then Windows clears for one poll while the
-		 * queue's turn stays shut, three times: no spell reaches 10 minutes,
-		 * so the wait is refused at its 20-minute bound. */
-		const spell = new Array(8).fill(900);
+		/* Held up to 480 s, then Windows clears for one poll while the queue's
+		 * turn stays shut, twice before the 20-minute bound: no spell reaches
+		 * 10 minutes, so the wait is refused there. */
+		const spell = new Array(480_000 / minutePolls).fill(900);
 		const { outcome, said, exitHeld } = await waitOn(
 			900,
 			[...spell, 1500, ...spell, 1500, ...spell],
