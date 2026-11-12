@@ -2612,7 +2612,6 @@ function shInlineProgram(run, kind, words) {
 
 module.exports = {
 	languageOf,
-	isFile,
 	isScript,
 	parseShebang,
 	pythonVersion,
