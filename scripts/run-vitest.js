@@ -121,6 +121,7 @@ const {
 	sweepAtStart,
 } = require("./lib/suite-ceiling.js");
 const { caught } = require("./lib/caught.js");
+const readAudit = require("./lib/read-audit.js");
 const {
 	makeRunRoot,
 	removeRunRoot,
@@ -1082,15 +1083,17 @@ function dropRunRoot(root, err) {
 	try {
 		removeRunRoot(root);
 	} catch (error) {
+		/* Reported, never thrown: the run's verdict stands without it, and
+		 * `sweepDeadRunRoots` takes the root once this wrapper is dead (#5108). */
 		err.write(
-			`run-vitest: ${root} would not go (${caught(error).message}); a later wrapper start removes it\n`,
+			`run-vitest: ${root} would not go (${caught(error).message}); a wrapper start removes it an hour after this wrapper exits\n`,
 		);
 	}
 }
 
 /**
  * What a signal to this process takes down before its queue seats leave:
- * each live run's carriers and each isolated worktree. Each removal is best
+ * each live run's carriers, temp root and isolated worktree. Each removal is best
  * effort, and one that throws must not strand the rest.
  *
  * @returns {void}
@@ -1106,7 +1109,15 @@ function releaseRunsAndWorktrees() {
 		}
 	}
 	for (const root of heldRoots)
-		dropRunRoot(root, { write: (s) => writeFd(2, s) });
+		dropRunRoot(root, {
+			write: (s) => {
+				try {
+					writeFd(2, s);
+				} catch {
+					/* A lost line must not strand the removals below (#3585). */
+				}
+			},
+		});
 	for (const held of heldWorktrees) {
 		try {
 			removeIsolated(held.root, held.dir);
@@ -2795,6 +2806,10 @@ if (require.main === module) {
 	} else {
 		sweepAtStart();
 		sweepDeadRunRoots("vitest");
+		/* vitest's process, where the audit sweeps at install, now sits in
+		 * this run's own root, so a dead run's audit logs on the real temp
+		 * root are swept here (#5108). */
+		readAudit.sweep(os.tmpdir());
 		holdForLoad()
 			.then((go) =>
 				go

@@ -173,6 +173,8 @@ interface FakeChildOptions {
 	code?: number | null;
 	/* Emitted before close, as Node does for a child that never spawns. */
 	error?: Error;
+	/* A child killed by it: `exit` carries it, and `close` a null code. */
+	signal?: NodeJS.Signals;
 }
 
 /** An `err` or `out` that keeps what is written to it. */
@@ -187,6 +189,7 @@ function fakeChild({
 	stderrChunks = [],
 	code = 0,
 	error,
+	signal,
 }: FakeChildOptions = {}) {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: PassThrough;
@@ -200,7 +203,8 @@ function fakeChild({
 		for (const c of stderrChunks) child.stderr.write(c);
 		child.stdout.end();
 		child.stderr.end();
-		child.emit("close", code);
+		if (signal) child.emit("exit", null, signal);
+		child.emit("close", signal ? null : code);
 	});
 	return child;
 }
@@ -1892,6 +1896,13 @@ describe("a reparented worker with no user scope", {
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
 	});
 
+	/** The temp dir `launchWrapper`'s wrapper runs on. */
+	function wrapperTmp(root: string) {
+		const at = path.join(root, "wrapper-tmp");
+		fs.mkdirSync(at, { recursive: true });
+		return at;
+	}
+
 	/** The wrapper in a process of its own over the stand-in, with
 	 * `killCarrierSource` as its carrier kill where given, resolved once the
 	 * worker has started; `stderr` collects what the wrapper writes there. */
@@ -1915,7 +1926,10 @@ describe("a reparented worker with no user scope", {
 					},
 				);`,
 			],
-			{ stdio: ["ignore", "ignore", "pipe"] },
+			{
+				stdio: ["ignore", "ignore", "pipe"],
+				env: { ...process.env, TMPDIR: wrapperTmp(root) },
+			},
 		);
 		let stderr = "";
 		wrapper.stderr?.on("data", (chunk) => {
@@ -1943,6 +1957,12 @@ describe("a reparented worker with no user scope", {
 		const root = repo();
 		await (await launchWrapper(root)).kill("SIGTERM");
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
+		/* The run's temp root, vitest's cache dir in it, goes too (#5108). */
+		expect(
+			fs
+				.readdirSync(wrapperTmp(root))
+				.filter((n) => n.startsWith("wfc-vitest-")),
+		).toEqual([]);
 	});
 
 	it("names a carrier kill that fails on a SIGTERM (#3528)", async () => {
@@ -2088,20 +2108,8 @@ describe("vitest's own temp dir (#5108)", () => {
 					cacheDir = path.join(opts.env.TMPDIR, "V1StGXR8_Z5jdHi6B-myT");
 					fs.mkdirSync(path.join(cacheDir, "client"), { recursive: true });
 					fs.mkdirSync(path.join(cacheDir, "ssr"));
-					const child = new EventEmitter() as EventEmitter & {
-						stdout: PassThrough;
-						stderr: PassThrough;
-					};
-					child.stdout = new PassThrough();
-					child.stderr = new PassThrough();
 					/* SIGKILLed mid-suite: no `close()` of vitest's ran. */
-					queueMicrotask(() => {
-						child.stdout.end();
-						child.stderr.end();
-						child.emit("exit", null, "SIGKILL");
-						child.emit("close", null);
-					});
-					return child;
+					return fakeChild({ signal: "SIGKILL" });
 				},
 				root,
 				killCarrier: () => true,
