@@ -5,6 +5,12 @@
 # WHAT IT INSTALLS
 #   C:\Users\<you>\wsl-interop-watchdog\{watchdog.ps1,launcher.vbs,task.xml}
 #   Scheduled task "WSL Interop Watchdog" - at logon + every 2 minutes.
+#   C:\Users\<you>\wsl-interop-watchdog\compact-disk.ps1
+#   Scheduled task "WSL Disk Compaction" - elevated, no trigger (#5044):
+#     registered with one UAC prompt where it is absent.
+#   User timer wsl-disk-compaction.timer - daily at 02:00, runs
+#     scripts/wsl-disk-compaction.js run, which starts that task once due and
+#     no session is live.
 #
 # The task never runs `wsl --shutdown`: a false positive would kill live
 # background Claude sessions, which is worse than the fault it guards. It does
@@ -48,7 +54,7 @@ echo "Windows user : $win_user"
 echo "Install dir  : $install_win"
 
 mkdir -p "$install_wsl"
-cp "$SRC_DIR/watchdog.ps1" "$SRC_DIR/launcher.vbs" "$install_wsl/"
+cp "$SRC_DIR/watchdog.ps1" "$SRC_DIR/launcher.vbs" "$SRC_DIR/compact-disk.ps1" "$install_wsl/"
 
 # Fill the task template with this machine's identity and install path.
 tmp_xml="$(mktemp)"
@@ -76,10 +82,56 @@ echo
 	'NextRunTime : ' + \$i.NextRunTime
 " | tr -d '\r'
 
+# --- the monthly disk compaction (#5044) ------------------------------------
+
+COMPACT_TASK='WSL Disk Compaction'
+# The main checkout, never a linked worktree a prune would delete.
+repo="$(cd "$SRC_DIR/../.." && git rev-parse --path-format=absolute --git-common-dir)"
+repo="${repo%/.git}"
+if ! "$SCHTASKS" /Query /TN "$COMPACT_TASK" >/dev/null 2>&1; then
+  echo "Registering '$COMPACT_TASK' elevated: accept the UAC prompt on the Windows desktop."
+  "$PS" -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${install_win}\\compact-disk.ps1','-Register','-WslUser','$USER','-Repo','$repo'"
+  "$SCHTASKS" /Query /TN "$COMPACT_TASK" >/dev/null 2>&1 || {
+    echo "error: '$COMPACT_TASK' is not registered - was the UAC prompt declined?" >&2
+    exit 1
+  }
+fi
+
+node_bin="$(command -v node)"
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+mkdir -p "$unit_dir"
+cat >"$unit_dir/wsl-disk-compaction.service" <<UNIT
+[Unit]
+Description=Start the monthly WSL disk compaction once due and no session is live (workflow-core #5044)
+
+[Service]
+Type=oneshot
+ExecStart=$node_bin $repo/scripts/wsl-disk-compaction.js run
+# It may wait up to 6 h for live sessions to end.
+TimeoutStartSec=7h
+UNIT
+cat >"$unit_dir/wsl-disk-compaction.timer" <<UNIT
+[Unit]
+Description=Daily check whether the WSL disk compaction is due (workflow-core #5044)
+
+[Timer]
+# Untraced: 02:00 is when sessions are likeliest to have drained.
+OnCalendar=*-*-* 02:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable --now wsl-disk-compaction.timer
+systemctl --user is-active wsl-disk-compaction.timer
+
 cat <<EOF
 
 Installed. It checks every 2 minutes and stays silent unless a wedge is found.
 
   Activity log : %LOCALAPPDATA%\\wsl-interop-watchdog.log  (only written on a detection)
+  Compaction   : %LOCALAPPDATA%\\wsl-compact.log; check with: npm run check:wsl-disk
   Remove with  : schtasks.exe /Delete /TN "$TASK_NAME" /F
 EOF
