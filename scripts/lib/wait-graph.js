@@ -41,6 +41,19 @@ const INNER = 100;
 /** @typedef {{ref: Ref, error: string, reason: "unreachable"|"broken"}} Unread */
 /** GitHub's JSON as parsed. @typedef {any} GhJson */
 
+/**
+ * `v`, which the walk's own bookkeeping guarantees is set; a miss is a bug in
+ * this file, never in the graph read.
+ * @template T
+ * @param {T|undefined} v
+ * @returns {T}
+ */
+function must(v) {
+	if (v === undefined)
+		throw new Error("wait-graph: a node the walk recorded is missing");
+	return v;
+}
+
 const EDGE_FIELDS =
 	"totalCount nodes { number state repository { nameWithOwner } }";
 
@@ -200,7 +213,7 @@ async function readNodes(refs) {
 	/** @type {Map<string, NodeRead>} */
 	const reads = new Map();
 	for (const group of byRepo.values()) {
-		const first = /** @type {Ref} */ (group[0]);
+		const first = must(group[0]);
 		for (const [k, r] of await readRepoNodes(first.repo, group))
 			reads.set(k, r);
 	}
@@ -236,7 +249,7 @@ async function readLevel(g, frontier, seen) {
 	const next = new Map();
 	for (const ref of frontier) {
 		const k = refKey(ref);
-		const r = /** @type {NodeRead} */ (reads.get(k));
+		const r = must(reads.get(k));
 		if (!r.ok) {
 			g.unread.push({ ref, error: r.error, reason: r.reason });
 			continue;
@@ -312,10 +325,10 @@ function traceBack(g, via, from, target) {
 	/** @type {Link[]} */
 	const path = [];
 	for (let k = target; k !== refKey(from); ) {
-		const step = /** @type {{from: Ref, kind: Kind}} */ (via.get(k));
+		const step = must(via.get(k));
 		path.unshift({
 			from: step.from,
-			to: /** @type {Ref} */ (g.refs.get(k)),
+			to: must(g.refs.get(k)),
 			kind: step.kind,
 		});
 		k = refKey(step.from);
@@ -356,7 +369,7 @@ function popComponent(st, v) {
 	const comp = [];
 	let w;
 	do {
-		w = /** @type {string} */ (st.stack.pop());
+		w = must(st.stack.pop());
 		st.onStack.delete(w);
 		comp.push(w);
 	} while (w !== v);
@@ -455,12 +468,12 @@ const byRef = (home) => (a, b) => {
  */
 function examplePath(members, g) {
 	const inComp = new Set(members);
-	const start = /** @type {string} */ (members[0]);
+	const start = must(members[0]);
 	/** @type {Map<string, {from: string, kind: Kind}>} */
 	const via = new Map();
 	const queue = [start];
 	while (queue.length > 0) {
-		const v = /** @type {string} */ (queue.shift());
+		const v = must(queue.shift());
 		for (const e of g.edges.get(v) ?? []) {
 			const k = refKey(e.to);
 			if (!inComp.has(k) || via.has(k)) continue;
@@ -473,10 +486,10 @@ function examplePath(members, g) {
 	const path = [];
 	let at = start;
 	do {
-		const step = /** @type {{from: string, kind: Kind}} */ (via.get(at));
+		const step = must(via.get(at));
 		path.unshift({
-			from: /** @type {Ref} */ (g.refs.get(step.from)),
-			to: /** @type {Ref} */ (g.refs.get(at)),
+			from: must(g.refs.get(step.from)),
+			to: must(g.refs.get(at)),
 			kind: step.kind,
 		});
 		at = step.from;
@@ -515,17 +528,10 @@ async function loops(seeds, { home }) {
 	const order = byRef(home);
 	const cycles = components([...g.refs.keys()], next)
 		.map((comp) => {
-			const members = comp
-				.map((k) => /** @type {Ref} */ (g.refs.get(k)))
-				.sort(order);
+			const members = comp.map((k) => must(g.refs.get(k))).sort(order);
 			return { members, path: examplePath(members.map(refKey), g) };
 		})
-		.sort((a, b) =>
-			order(
-				/** @type {Ref} */ (a.members[0]),
-				/** @type {Ref} */ (b.members[0]),
-			),
-		);
+		.sort((a, b) => order(must(a.members[0]), must(b.members[0])));
 	return { cycles, nodes: g.refs.size, unread: g.unread };
 }
 
@@ -539,4 +545,4 @@ const linkText = (l, home) =>
 		? `${refLabel(l.from, home)} waits on child ${refLabel(l.to, home)}`
 		: `${refLabel(l.from, home)} is blocked by ${refLabel(l.to, home)}`;
 
-module.exports = { pathTo, loops, linkText, readNodes };
+module.exports = { pathTo, loops, linkText };

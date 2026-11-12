@@ -18,7 +18,7 @@
  * closes a loop, so any read failing twice is BROKEN, never OK — save a corpus
  * tracker whose open-issue list answers not-found or forbidden, which is
  * named on its own line and left out of the seeds, so a token that cannot see
- * one tracker still checks the rest.
+ * one tracker still checks the rest; where it can see none, that is BROKEN.
  *
  * WARN, never FAIL: world state, not a commit property. THIS SCRIPT NEVER
  * WRITES — which link is wrong is a judgement about the tickets. The link
@@ -38,6 +38,7 @@ const {
 	raiseGhFailure,
 	unreachableRemedy,
 } = require("./lib/gh");
+const { caught } = require("./lib/caught.js");
 const { loops, linkText } = require("./lib/wait-graph.js");
 const { refLabel } = require("./lib/issue-ref.js");
 const { resolveCorpus, resolveKey } = require("./lib/workflow-core-config.js");
@@ -51,7 +52,7 @@ const CONCLUSION = "No issue-cycle conclusion drawn.";
  * and then held to the repo's own count, as lib/gh.js ghOpenIssues reads the
  * default repo's.
  * @param {string} repo
- * @returns {any[]}
+ * @returns {{number: number, pull_request?: unknown}[]}
  */
 function readOpen(repo) {
 	const read = () =>
@@ -69,8 +70,7 @@ function readOpen(repo) {
 }
 
 /** @param {unknown} e */
-const isForbidden = (e) =>
-	/\(HTTP 403\)/.test(String(/** @type {any} */ (e)?.stderr ?? ""));
+const isForbidden = (e) => /\(HTTP 403\)/.test(String(caught(e).stderr ?? ""));
 
 /**
  * Each tracker's open issues as seeds, and the trackers whose list GitHub
@@ -145,6 +145,10 @@ const SPEC = {
 		for (const h of hidden)
 			ctx.say(
 				`Not read: ${h.repo} — GitHub would not list its open issues to this token (${h.error}); it is left out of the seeds.`,
+			);
+		if (read.length === 0)
+			throw brokenError(
+				`GitHub would list the open issues of none of the ${trackers.length} corpus tracker(s) to this token — check its scopes with \`gh auth status\`. ${CONCLUSION}`,
 			);
 
 		const walk = await loops(seeds, { home });

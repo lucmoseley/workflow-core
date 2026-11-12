@@ -544,12 +544,12 @@ function fileBumpIssues(repos, tag) {
 	const block = (repo, blocked, blocker) => {
 		const args = [`${repo}#${blocked}`, `${repo}#${blocker}`];
 		const r = runLinkSync("blocker", args);
-		if (r.code === 0 && r.err) writeFd(2, `${r.err}\n`);
+		if (r.warning) writeFd(2, `${r.warning}\n`);
 		if (r.code !== 0)
 			failed.push({
 				repo,
-				reason: r.err.split("\n").at(-1) ?? "",
-				retry: `node ${scriptPath("link-blocker.js")} ${args.join(" ")}`,
+				reason: r.err,
+				retry: `node ${shellQuote(scriptPath("link-blocker.js"))} ${args.map(shellQuote).join(" ")}`,
 			});
 	};
 	for (const repo of repos) {

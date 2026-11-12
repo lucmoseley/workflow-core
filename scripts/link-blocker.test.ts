@@ -5,7 +5,9 @@
  * with nothing POSTed, naming each link, a foreign one by its full
  * reference; a link that closes none resolves the blocker's id itself, POSTs
  * it with -F and verifies in a separate read; a self-link is refused before
- * any read; an unread graph links anyway, warning.
+ * any read; an unread graph links anyway, warning. Broken, it lets a
+ * loop-closing blocker link through, and every issue in that loop stays open
+ * for good.
  *
  * The oracle is a stubbed `gh` at WFC_GH logging each argv; the program runs
  * in-process.
@@ -23,6 +25,7 @@ import {
 	expect,
 	it,
 } from "vitest";
+import { readText } from "./lib/file-read.js";
 import {
 	asRecorded,
 	LINK_READ_FAKE,
@@ -108,10 +111,9 @@ const run = (args: string[], g: Gh = {}) => {
 };
 
 const readLog = () => {
-	const log = path.join(dir, "calls.log");
-	return fs.existsSync(log)
-		? fs.readFileSync(log, "utf8").split("\n").filter(Boolean)
-		: [];
+	const read = readText(path.join(dir, "calls.log"));
+	if (read.state === "unreadable") throw read.error;
+	return read.state === "read" ? read.data.split("\n").filter(Boolean) : [];
 };
 const readPosts = () => readLog().filter((l) => l.includes("--method POST"));
 
@@ -218,7 +220,7 @@ describe("link-blocker.js", () => {
 
 	it.each([
 		[["#10"], "usage"],
-		[["ten", "#20"], "is not #n or owner/name#n"],
+		[["ten", "#20"], "is not a number or owner/name#n"],
 	])(
 		"refuses bad arguments with exit 1, reading nothing: %s",
 		async (args, text) => {

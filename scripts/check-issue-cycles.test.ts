@@ -339,6 +339,17 @@ describe("across trackers (#5070)", () => {
 			expect(r.out).not.toContain("BROKEN");
 		},
 	);
+
+	it("is BROKEN (exit 2) when GitHub would list no corpus tracker, never OK over none", async () => {
+		const r = await run({
+			issues: [],
+			corpus: ["o/r", "o/hidden"],
+			failList: { "o/r": GH_NOT_FOUND, "o/hidden": readGhAnswer(FORBIDDEN) },
+		});
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("BROKEN");
+		expect(r.out).toContain("none of the 2 corpus tracker(s)");
+	});
 });
 
 describe("never gates, never writes", () => {

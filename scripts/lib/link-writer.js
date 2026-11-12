@@ -53,12 +53,18 @@ const {
 } = require("./issue-ref.js");
 const { resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
+const { docPath } = require("./script-path.js");
 
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
 /** @typedef {{code: 0|1|3, out: string, err: string}} Outcome */
+/**
+ * A spawned command's outcome: `warning` the partial-check lines, `err` the
+ * failure or refusal itself, empty where linked.
+ * @typedef {Outcome & {warning: string}} SyncOutcome
+ */
 
-const PLACING = "docs/agents/issue-tracker.md §Placing a new issue";
+const PLACING = `${docPath("agents/issue-tracker.md")} §Placing a new issue`;
 
 /** A failure carrying its exit code and stderr line. */
 class LinkExit extends Error {
@@ -81,7 +87,7 @@ function refuse(message) {
 /** @param {number} ms */
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The verification reads' count and spacing. */
+/** The verification reads' count, and their spacing: 2 s, a first guess, unmeasured. */
 const timing = () => ({
 	retries: Number(process.env.WFC_LINK_RETRIES ?? 4),
 	sleepMs: Number(process.env.WFC_LINK_SLEEP ?? 2) * 1000,
@@ -229,7 +235,7 @@ async function linkSubIssue(args) {
 		return listed?.split("\n").includes(String(child)) ?? false;
 	};
 
-	await assertOpenParent(repo, parent, child);
+	await assertParentHidesNoOpenChild(repo, parent, child);
 	const id = await readDatabaseId({ repo, number: child }, repo);
 	const warning = await checkLoop(
 		{
@@ -271,7 +277,7 @@ const readState = (repo, n) =>
  * @param {number} parent
  * @param {number} child
  */
-async function assertOpenParent(repo, parent, child) {
+async function assertParentHidesNoOpenChild(repo, parent, child) {
 	const state = await readState(repo, parent);
 	if (state === "closed" && (await readState(repo, child)) !== "closed")
 		fail(
@@ -326,7 +332,7 @@ async function postSubIssue({
 		}
 		if (out.includes("7 layers"))
 			fail(
-				`#${parent} is 7 layers deep — give #${child} the SAME parent as #${parent} instead, and say in its body why it is a peer (docs/agents/issue-tracker.md)`,
+				`#${parent} is 7 layers deep — give #${child} the SAME parent as #${parent} instead, and say in its body why it is a peer (${docPath("agents/issue-tracker.md")})`,
 			);
 		return fail(`POST failed: ${out.trim() || parseErrLine(e)}`);
 	}
@@ -358,7 +364,7 @@ async function listsBlocker(blocked, blocker) {
 			"--paginate",
 			"--slurp",
 		]);
-		/** @type {any[]} */
+		/** @type {{number: number, repository_url?: string}[]} */
 		const rows = out.trim() ? JSON.parse(out).flat() : [];
 		return rows.some(
 			(r) =>
@@ -374,7 +380,7 @@ async function listsBlocker(blocked, blocker) {
 
 /**
  * Makes `blocker` block `blocked`, in any repos.
- * @param {string[]} args `<blocked> <blocker>`, each `#n` or `owner/name#n`
+ * @param {string[]} args `<blocked> <blocker>`, each `n`, `#n` or `owner/name#n`
  * @returns {Promise<string>} stdout
  */
 async function linkBlocker(args) {
@@ -387,9 +393,9 @@ async function linkBlocker(args) {
 	};
 	const [a = "", b = ""] = args;
 	const blocked = await parseRef(a, home);
-	if (!blocked) fail(`blocked issue '${a}' is not #n or owner/name#n`);
+	if (!blocked) fail(`blocked issue '${a}' is not a number or owner/name#n`);
 	const blocker = await parseRef(b, home);
-	if (!blocker) fail(`blocker '${b}' is not #n or owner/name#n`);
+	if (!blocker) fail(`blocker '${b}' is not a number or owner/name#n`);
 	const view = blocked.repo;
 	if (refKey(blocked) === refKey(blocker))
 		refuse(`an issue cannot block itself (${refLabel(blocked, view)})`);
@@ -444,7 +450,7 @@ async function runLink(kind, args) {
 
 const USAGE = {
 	blocker:
-		"usage: link-blocker.js <blocked> <blocker> — each #n or owner/name#n",
+		"usage: link-blocker.js <blocked> <blocker> — each a bare number or owner/name#n",
 	"sub-issue": "usage: link-sub-issue.sh <parent> <child> [--replace-parent]",
 };
 
@@ -499,11 +505,11 @@ function runCli(kind, argv) {
 
 /**
  * runLink for a synchronous caller: the CLI in a child process, `repo` the
- * repo a local `#n` names, the stderr line without the command's prefix.
+ * repo a local `#n` names, stderr without the command's prefix.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} args
  * @param {{repo?: string}} [opts]
- * @returns {Outcome}
+ * @returns {SyncOutcome}
  */
 function runLinkSync(kind, args, { repo } = {}) {
 	const r = spawnSync(process.execPath, [__filename, kind, ...args], {
@@ -511,24 +517,35 @@ function runLinkSync(kind, args, { repo } = {}) {
 		env: repo ? { ...process.env, WFC_LINK_REPO: repo } : process.env,
 	});
 	const code = r.status === 0 || r.status === 3 ? r.status : 1;
+	const lines = (r.stderr || r.error?.message || "")
+		.trim()
+		.replace(/^link-(?:sub-issue|blocker): /gm, "")
+		.split("\n");
+	/** @param {string} l */
+	const isWarning = (l) => l.startsWith("warning — ");
 	return {
 		code,
 		out: r.stdout ?? "",
-		err: (r.stderr || r.error?.message || "")
-			.trim()
-			.replace(/^link-(?:sub-issue|blocker): /gm, ""),
+		warning: lines.filter(isWarning).join("\n"),
+		err: lines.filter((l) => l && !isWarning(l)).join("\n"),
 	};
 }
 
-module.exports = { runLink, runLinkSync, runCli };
-if (require.main === module) {
+/**
+ * The CLI's entry: `sub-issue|blocker <args>`.
+ * @returns {Promise<void>}
+ */
+function main() {
 	const [kind, ...args] = process.argv.slice(2);
-	if (kind !== "sub-issue" && kind !== "blocker") {
-		process.stderr.write("usage: link-writer.js sub-issue|blocker <args>\n");
-		process.exitCode = 1;
-	} else
-		runCli(kind, args).catch((e) => {
-			process.stderr.write(`link-writer: ${e}\n`);
-			process.exitCode = 1;
-		});
+	if (kind === "sub-issue" || kind === "blocker") return runCli(kind, args);
+	process.stderr.write("usage: link-writer.js sub-issue|blocker <args>\n");
+	process.exitCode = 1;
+	return Promise.resolve();
 }
+
+module.exports = { runLinkSync, runCli, main };
+if (require.main === module)
+	main().catch((e) => {
+		process.stderr.write(`link-writer: ${e}\n`);
+		process.exitCode = 1;
+	});

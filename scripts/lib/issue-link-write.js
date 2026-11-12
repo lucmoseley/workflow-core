@@ -28,12 +28,12 @@
  *
  * LIMITS
  *  - Lexical: a method, endpoint or query the parser cannot read passes.
- *  - A link made in the web UI, or by a `gh` a script shells out to, never
- *    reaches a PreToolUse core; scripts/check-issue-cycles.js reports the loop
- *    after the fact.
+ *  - The web UI, and a `gh` a script shells out to, are out of any
+ *    PreToolUse core's sight; the cycle checker is the backstop for both.
  *  - Its manifest row runs it only on a command `Bash(gh *)` admits, so a
  *    path-spelled `/usr/bin/gh` is unjudged, as for guard-issue-body.
- *  - It FAILS CLOSED on a throw of its own.
+ *  - It FAILS CLOSED on a throw of its own: a link write it cannot judge
+ *    may close a loop that only the after-the-fact check would see.
  */
 
 const {
@@ -101,7 +101,7 @@ function judgeApi(parsed, ctx, cmd) {
 		deny(
 			ctx,
 			cmd.segment,
-			`This adds a link through GraphQL's ${mutation}: @CMD@\n\n${WHY}\nMake it with ${mutation === "addBlockedBy" ? blockerForm("<blocked>") : subIssueForm("<parent>", false)}.`,
+			`This adds a link through GraphQL's ${mutation}: @CMD@\n\n${WHY}\nMake it with ${mutation === "addBlockedBy" ? blockerForm(ctx, "<blocked>") : subIssueForm(ctx, "<parent>", false)}.`,
 		);
 	const method = literal(call.method, parsed.spans).text.toUpperCase();
 	if (method ? method !== "POST" : !defaultsToPost(call)) return;
@@ -114,7 +114,7 @@ function judgeApi(parsed, ctx, cmd) {
 		deny(
 			ctx,
 			cmd.segment,
-			`This POSTs a blocker link by raw gh api: @CMD@\n\n${WHY}\nMake it with ${blockerForm(qualified(repo, blocked))}.`,
+			`This POSTs a blocker link by raw gh api: @CMD@\n\n${WHY}\nMake it with ${blockerForm(ctx, qualified(repo, blocked))}.`,
 		);
 	const parent = SUB_ISSUE.exec(endpoint)?.[1];
 	if (parent) {
@@ -124,7 +124,7 @@ function judgeApi(parsed, ctx, cmd) {
 		deny(
 			ctx,
 			cmd.segment,
-			`This POSTs a sub-issue link by raw gh api: @CMD@\n\n${WHY}\nMake it with ${repo ? `WFC_LINK_REPO=${repo} ` : ""}${subIssueForm(parent, replace)}.`,
+			`This POSTs a sub-issue link by raw gh api: @CMD@\n\n${WHY}\nMake it with ${repo ? `WFC_LINK_REPO=${repo} ` : ""}${subIssueForm(ctx, parent, replace)}.`,
 		);
 	}
 }
@@ -153,45 +153,52 @@ function judgeIssueFlags(ctx, cmd, verb) {
 	deny(
 		ctx,
 		cmd.segment,
-		`This makes a link through gh issue ${verb} ${flag}: @CMD@\n\n${WHY}\nMake it with ${issueFlagForm(verb, flag, n)}.`,
+		`This makes a link through gh issue ${verb} ${flag}: @CMD@\n\n${WHY}\nMake it with ${issueFlagForm(ctx, verb, flag, n)}.`,
 	);
 }
 
+/* A bare number, since an unquoted `#n` starts a shell comment. */
+const REF_FORMS =
+	"each issue as a bare number or owner/name#n, never a database id";
+
 /**
  * The link command standing in for one gh issue link flag.
+ * @param {LinkContext} ctx
  * @param {"edit" | "create"} verb
  * @param {string} flag
  * @param {string} n the edited issue, `<n>` where unread
  */
-function issueFlagForm(verb, flag, n) {
+function issueFlagForm(ctx, verb, flag, n) {
+	const filer = `node ${ctx.scriptPath("file-issue.js")}`;
 	if (verb === "create")
 		return flag === "--parent"
-			? "node scripts/file-issue.js --parent <parent> …, which files and links in one call"
-			: `node scripts/file-issue.js …, then ${blockerForm(flag === "--blocked-by" ? "<new>" : "<blocked>")}`;
-	if (flag === "--add-blocked-by") return blockerForm(`#${n}`);
+			? `${filer} --parent <parent> …, which files and links in one call`
+			: `${filer} …, then ${blockerForm(ctx, flag === "--blocked-by" ? "<new>" : "<blocked>")}`;
+	if (flag === "--add-blocked-by") return blockerForm(ctx, n);
 	if (flag === "--add-blocking")
-		return `node scripts/link-blocker.js <blocked> #${n} — each issue as #n or owner/name#n; it resolves the id and verifies the edge in a separate read`;
-	if (flag === "--add-sub-issue") return subIssueForm(n, false);
-	return `scripts/link-sub-issue.sh <parent> ${n} --replace-parent — --replace-parent only where #${n} already has a parent`;
+		return `node ${ctx.scriptPath("link-blocker.js")} <blocked> ${n} — ${REF_FORMS}; it resolves the id and verifies the edge in a separate read`;
+	if (flag === "--add-sub-issue") return subIssueForm(ctx, n, false);
+	return `${ctx.scriptPath("link-sub-issue.sh")} <parent> ${n} --replace-parent — --replace-parent only where #${n} already has a parent`;
 }
 
 /**
- * `#n` where the endpoint names gh's placeholders, `owner/name#n` where it
- * names a repo, as link-blocker.js reads either.
+ * The bare number where the endpoint names gh's placeholders, `owner/name#n`
+ * where it names a repo, as link-blocker.js reads either.
  * @param {string | null} repo
  * @param {string} n
  */
-const qualified = (repo, n) => (repo ? `${repo}#${n}` : `#${n}`);
+const qualified = (repo, n) => (repo ? `${repo}#${n}` : n);
 
-/** @param {string} blocked */
-const blockerForm = (blocked) =>
-	`node scripts/link-blocker.js ${blocked} <blocker> — each issue as #n or owner/name#n, never a database id; it resolves the id and verifies the edge in a separate read`;
+/** @param {LinkContext} ctx @param {string} blocked */
+const blockerForm = (ctx, blocked) =>
+	`node ${ctx.scriptPath("link-blocker.js")} ${blocked} <blocker> — ${REF_FORMS}; it resolves the id and verifies the edge in a separate read`;
 
 /**
+ * @param {LinkContext} ctx
  * @param {string} parent
  * @param {boolean} replace
  */
-const subIssueForm = (parent, replace) =>
-	`scripts/link-sub-issue.sh ${parent} <child>${replace ? " --replace-parent" : ""} — the child's #number, never its database id${replace ? "" : "; add --replace-parent to move a child that already has a parent"}`;
+const subIssueForm = (ctx, parent, replace) =>
+	`${ctx.scriptPath("link-sub-issue.sh")} ${parent} <child>${replace ? " --replace-parent" : ""} — the child's bare number, never its database id${replace ? "" : "; add --replace-parent to move a child that already has a parent"}`;
 
 module.exports = { field: "command", noun: "command", decide };

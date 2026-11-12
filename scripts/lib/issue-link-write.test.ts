@@ -46,13 +46,13 @@ const said = (command: string) => {
 const WHY =
 	"A raw link write skips the loop check: the link commands walk every open blocker and sub-issue, in any repo, and refuse a link that would close a loop of issues that can never close (#5055).";
 const BLOCKER_FORM = (blocked: string) =>
-	`node scripts/link-blocker.js ${blocked} <blocker> — each issue as #n or owner/name#n, never a database id; it resolves the id and verifies the edge in a separate read`;
+	`node scripts/link-blocker.js ${blocked} <blocker> — each issue as a bare number or owner/name#n, never a database id; it resolves the id and verifies the edge in a separate read`;
 
 describe("a raw blocker link write is refused, naming the blocker link command", () => {
 	it.each([
 		[
 			"gh api --method POST repos/{owner}/{repo}/issues/12/dependencies/blocked_by -F issue_id=99",
-			"#12",
+			"12",
 		],
 		[
 			"gh api -X POST repos/o/r/issues/12/dependencies/blocked_by -F issue_id=99",
@@ -90,7 +90,7 @@ describe("a raw sub-issue link write is refused, naming the sub-issue link comma
 				"gh api --method POST repos/{owner}/{repo}/issues/40/sub_issues -F sub_issue_id=987",
 			),
 		).toBe(
-			`This POSTs a sub-issue link by raw gh api: gh api --method POST repos/{owner}/{repo}/issues/40/sub_issues -F sub_issue_id=987\n\n${WHY}\nMake it with scripts/link-sub-issue.sh 40 <child> — the child's #number, never its database id; add --replace-parent to move a child that already has a parent.`,
+			`This POSTs a sub-issue link by raw gh api: gh api --method POST repos/{owner}/{repo}/issues/40/sub_issues -F sub_issue_id=987\n\n${WHY}\nMake it with scripts/link-sub-issue.sh 40 <child> — the child's bare number, never its database id; add --replace-parent to move a child that already has a parent.`,
 		);
 	});
 
@@ -122,12 +122,12 @@ describe("gh's own issue link flags are refused", () => {
 		[
 			"gh issue edit 12 --add-blocked-by 99",
 			"gh issue edit --add-blocked-by",
-			"node scripts/link-blocker.js #12 <blocker>",
+			"node scripts/link-blocker.js 12 <blocker>",
 		],
 		[
 			"gh issue edit 12 --add-blocking=99",
 			"gh issue edit --add-blocking",
-			"node scripts/link-blocker.js <blocked> #12",
+			"node scripts/link-blocker.js <blocked> 12",
 		],
 		[
 			"gh issue edit 40 --add-sub-issue 63,64",

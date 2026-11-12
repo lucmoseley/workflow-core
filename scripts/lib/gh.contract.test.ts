@@ -727,7 +727,7 @@ describe("live: computed answers", () => {
 	}) => {
 		liveSkip ??= { reason: liveSkipReason() };
 		if (liveSkip.reason) return skip(liveSkip.reason);
-		const { readNodes } = await import("./wait-graph.js");
+		const { loops } = await import("./wait-graph.js");
 		const log = path.join(dir, "wait-graph-calls");
 		const stub = computedStub(
 			WAIT_GRAPH_GRAPHQL_FAKE,
@@ -735,10 +735,13 @@ describe("live: computed answers", () => {
 			log,
 		);
 		vi.stubEnv("WFC_GH", stub);
-		await readNodes([
-			{ repo: readTracker(), number: 2331 },
-			{ repo: readTracker(), number: 999_999_999 },
-		]);
+		await loops(
+			[
+				{ repo: readTracker(), number: 2331 },
+				{ repo: readTracker(), number: 999_999_999 },
+			],
+			{ home: readTracker() },
+		);
 		const args: string[] = fs
 			.readFileSync(log, "utf8")
 			.trim()

@@ -460,6 +460,7 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 			[String(containerNumber), String(child.number), "--replace-parent"],
 			{ repo: "{owner}/{repo}" },
 		);
+		if (r.warning) ctx.say(`  ${r.warning}`);
 		if (r.code === 0) {
 			moved.push(child.number);
 			ctx.say(`  moved #${child.number} into #${containerNumber}`);
@@ -489,6 +490,7 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
  * @returns {{linked: boolean, linkFailed: boolean}}
  */
 function linkContainer({
+	ctx,
 	map,
 	containerNumber,
 	needsLink,
@@ -502,6 +504,7 @@ function linkContainer({
 	const r = runLinkSync("sub-issue", [String(map), String(containerNumber)], {
 		repo: "{owner}/{repo}",
 	});
+	if (r.warning) ctx.say(`  ${r.warning}`);
 	if (r.code === 0) linked = true;
 	else {
 		linkFailed = true;

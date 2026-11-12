@@ -225,14 +225,14 @@ function readPriorSpecOrFail(at, mapKids) {
 
 /**
  * What a move the writer did not make means, and what to do.
- * @param {import("./lib/link-writer.js").Outcome} r
+ * @param {import("./lib/link-writer.js").SyncOutcome} r
  * @param {number} spec
  * @param {number} mapNumber
  * @param {number} n
  * @returns {string}
  */
 function moveRefusal(r, spec, mapNumber, n) {
-	const line = r.err.split("\n").at(-1) ?? "";
+	const line = r.err;
 	if (r.code === 3)
 		return `moving #${spec} under #${mapNumber} was refused:\n${r.err}\n#${n} left open.`;
 	if (/still does not list/.test(line))
@@ -259,7 +259,7 @@ function moveSpecOrFail(repo, n, map, held) {
 		{ repo },
 	);
 	if (r.code !== 0) io.fail(moveRefusal(r, spec, map.number, n), 1);
-	if (r.err) io.warn(r.err);
+	if (r.warning) io.warn(r.warning);
 	io.out(`#${spec}: moved under #${map.number}.\n`);
 }
 

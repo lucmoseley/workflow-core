@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * link-blocker.js <blocked> <blocker> — make <blocker> block <blocked>, each
- * `#n` or `owner/name#n`, refusing a link that would close a loop of open
+ * a bare number or `owner/name#n`, refusing a link that would close a loop of open
  * issues waiting on each other (#5070). It resolves the blocker's database id
  * itself and verifies the edge in a separate read of the blocked issue's
  * canonical list.

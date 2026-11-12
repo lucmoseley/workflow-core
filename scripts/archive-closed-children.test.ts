@@ -8,7 +8,10 @@
  * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
  * dependence on this repo's own tracker state. The harness itself runs
  * in-process (scripts/lib/run-in-process.js, §X3) — only the stub `gh` the
- * script shells out to is a real subprocess.
+ * script shells out to is a real subprocess, and each link it makes spawns
+ * lib/link-writer.js through runLinkSync, as in production, so a case pays a
+ * node start per link; stubbing the writer would leave the link route the
+ * script now takes untested (#5086).
  *
  * file-issue.js, promote-spec.js and check-open-maps.js send a session here
  * when a map reaches GitHub's 100-child cap: loosen a case and a run can move

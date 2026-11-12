@@ -256,7 +256,7 @@ function link(repo, parent, child) {
 	const r = runLinkSync("sub-issue", [String(parent), String(child)], {
 		repo,
 	});
-	if (r.code === 0) return { ok: r.out.trim(), warning: r.err };
+	if (r.code === 0) return { ok: r.out.trim(), warning: r.warning };
 	return { error: r.err || "no output" };
 }
 
