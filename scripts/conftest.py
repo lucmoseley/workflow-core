@@ -8,7 +8,6 @@ dirs by the env it reads, never a patched module global (#1275). `corpus` and
 `unkeyed` are the transcript scanners' tests' own, written once (#1297).
 """
 
-import atexit
 import json
 import os
 import shutil
@@ -61,11 +60,46 @@ os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
 # as vitest.setup.ts blanks it (#4862).
 os.environ["WFC_MEMORY_HOLD"] = ""
 
+# Every fixture a test makes goes with the run (#5083): the session's temp root
+# is a private one, `wfc-pytest-<pid>-XXXXXX`, which pytest_sessionfinish removes,
+# pytest's own `tmp_path` base inside it. An xdist worker, or a pytest a test
+# runs, whose `TMPDIR` is still that root shares it and leaves its removal to
+# the process that made it; one whose `TMPDIR` a test set makes its own there.
+# run-pytest.js removes a root whose pid is dead.
+_RUN_ROOT_ENV = "WFC_PYTEST_TMP_ROOT"
+_inherited_root = os.environ.get(_RUN_ROOT_ENV)
+_owns_run_root = not (
+    _inherited_root
+    and _inherited_root == os.environ.get("TMPDIR")
+    and os.path.isdir(_inherited_root)
+)
+if _owns_run_root:
+    _run_root = tempfile.mkdtemp(prefix=f"wfc-pytest-{os.getpid()}-")
+    os.environ[_RUN_ROOT_ENV] = _run_root
+else:
+    _run_root = _inherited_root
+os.environ["TMPDIR"] = _run_root
+tempfile.tempdir = _run_root
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    if not _owns_run_root:
+        return
+    try:
+        shutil.rmtree(_run_root)
+    except OSError:
+        # A fixture left without write or search permission, opened up first.
+        for _dir, _subdirs, _files in os.walk(_run_root):
+            for _sub in _subdirs:
+                os.chmod(os.path.join(_dir, _sub), 0o700)
+        shutil.rmtree(_run_root, ignore_errors=True)
+
+
 # No test reaches the session's host through CLAUDE_PROJECT_DIR (#3334): an
 # empty dir that is no repository, as vitest.setup.ts points it at.
 _test_host_dir = tempfile.mkdtemp(prefix="wfc-test-host-")
 os.environ["CLAUDE_PROJECT_DIR"] = _test_host_dir
-atexit.register(shutil.rmtree, _test_host_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
