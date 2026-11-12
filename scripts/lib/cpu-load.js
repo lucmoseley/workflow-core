@@ -216,9 +216,9 @@ const SHIELDED = new RegExp(`[${shieldOf("&")}-${shieldOf("$")}]`, "g");
 /**
  * The masked text split one line per segment, each ending
  * `\x05<separator>` but a line's last. An escaped character is a word's
- * (#5114), and a redirection's `&` and
- * `|` are no separators; the two arithmetic headers are spelt as
- * `while true`, any other arithmetic as the `let` it is.
+ * (#5114), and a redirection's `&` and `|` are no separators; the two
+ * arithmetic headers are spelt as `while true`, any other arithmetic as the
+ * `let` it is.
  * @param {string} masked
  */
 function splitLines(masked) {
