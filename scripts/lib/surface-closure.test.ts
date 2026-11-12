@@ -116,6 +116,17 @@ describe("the render's helper-surface closure", () => {
 		);
 	});
 
+	it("refuses a file the closure reaches outside the render or in a node_modules, naming each and the file that reached it (#5071)", () => {
+		surface("scripts/lib/h.js");
+		write(
+			"scripts/lib/h.js",
+			'require("../../../outside.js");\nrequire("../../node_modules/pkg/x.js");\n',
+		);
+		expect(() => buildTree(root, out)).toThrow(
+			/^helper surface: \.\.\/outside\.js, reached from scripts\/lib\/h\.js, lies outside the render\nhelper surface: node_modules\/pkg\/x\.js, reached from scripts\/lib\/h\.js, lies outside the render$/,
+		);
+	});
+
 	it("follows no edge written on a comment line", () => {
 		surface("scripts/lib/h.js", "scripts/lib/g.sh");
 		write("scripts/lib/h.js", '// require("./gone");\n');
@@ -142,6 +153,9 @@ describe("the render's helper-surface closure", () => {
 				"import os; from pkg.sub import y",
 			].join("\n"),
 		);
+		/* A regular package: a run's relative import from a namespace one
+		 * faults, its other directories unknown. */
+		write("scripts/lib/__init__.py", "");
 		write("scripts/lib/sib.py", "import sys\n");
 		write("scripts/lib/pkg/__init__.py", "import yaml\n");
 		write("scripts/lib/pkg/sub.py", "");
