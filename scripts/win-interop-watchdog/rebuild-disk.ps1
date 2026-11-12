@@ -84,7 +84,7 @@ function Finish($code) {
 function Keep($why) { L "STOPPED, archive and old disk kept: $why. Before a re-run, look at $tar and delete it."; Finish 3 }
 function Abort($why) {
 	L "ABORT: $why"
-	# Killing wsl.exe leaves tar and zstd running inside the distro.
+	# Killing cmd.exe leaves wsl.exe, tar and zstd running.
 	if ($Rehearsal) { wsl.exe --terminate $From } else { wsl.exe --shutdown }
 	Start-Sleep 5
 	if (Test-Path $tar) { Remove-Item $tar -Force }
@@ -110,14 +110,17 @@ if ($admin -and -not $Rehearsal) {
 # A run cut off by a closed window, a sleep or a restart leaves these to undo.
 L "IF THIS RUN IS CUT OFF: Enable-ScheduledTask -TaskName '$task'; Remove-MpPreference -ExclusionPath $($added -join ','); then, if wsl -l lists $Distro, start it and run in it: . ~/.nvm/nvm.sh && cd $repo && node scripts/refill-loop.js set --resume (skip that if the loop was paused before). If wsl -l lists nothing, run: wsl --import $Distro $Base $tar --version 2"
 
-# GNU tar into zstd on 6 of the 8 cores. tar exit 1 means a file changed while
-# read, which the paused loop leaves to logs; exit 2 or a zstd failure is fatal.
+# GNU tar into zstd on all 8 cores, nothing else running. The archive leaves on
+# stdout, which wsl.exe carries to Windows 3 times faster than writing it over
+# /mnt/c (3 GB in 8.3 s against 25.3 s, 12 Nov 2026). tar exit 1 means a file
+# changed while read, which the paused loop leaves to logs; exit 2 or a zstd
+# failure is fatal. $2 names the archive, for the status and error files.
 $sh = @'
 #!/bin/bash
 set -u
 tar --one-file-system --numeric-owner --xattrs --xattrs-include='*' --acls \
 	--warning=no-file-changed --warning=no-file-removed --warning=no-file-ignored \
-	-cpf - -C "$1" . 2>"$2.tar-err" | /home/lucmo/miniforge3/bin/zstd -T6 -3 -q -c > "$2"
+	-cpf - -C "$1" . 2>"$2.tar-err" | /home/lucmo/miniforge3/bin/zstd -T8 -3 -q -c
 s=("${PIPESTATUS[@]}")
 echo "tar=${s[0]} zstd=${s[1]}" > "$2.status"
 [ "${s[0]}" -le 1 ] && [ "${s[1]}" -eq 0 ]
@@ -141,7 +144,7 @@ if (-not $Rehearsal) {
 }
 
 L "archiving $Source from $From"
-$p = Start-Process wsl.exe -ArgumentList '-d', $From, '-u', $User, '--', 'bash', (& $guest $maker), $Source, (& $guest $tar) -PassThru -WindowStyle Hidden
+$p = Start-Process cmd.exe -ArgumentList '/c', "wsl.exe -d $From -u $User -- bash $(& $guest $maker) $Source $(& $guest $tar) > `"$tar`"" -WorkingDirectory $Dir -PassThru -WindowStyle Hidden
 $null = $p.Handle
 $checked = $false; $tick = 0
 while (-not $p.HasExited) {
