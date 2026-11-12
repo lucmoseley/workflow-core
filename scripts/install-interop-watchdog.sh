@@ -87,15 +87,19 @@ COMPACT_TASK='WSL Disk Compaction'
 # The main checkout, never a linked worktree a prune would delete.
 repo="$(cd "$SRC_DIR/../.." && git rev-parse --path-format=absolute --git-common-dir)"
 repo="${repo%/.git}"
+# The registered task's arguments, empty where it is absent.
+registered_args() {
+  "$PS" -NoProfile -Command "\$t = Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue; if (\$t) { \$t.Actions[0].Arguments }" | tr -d '\r'
+}
 compact_ps1="${install_win}\\compact-disk.ps1"
 compact_args=(-WslUser "$USER" -Repo "$repo")
 want="$("$PS" -NoProfile -ExecutionPolicy Bypass -File "$compact_ps1" -PrintArgs "${compact_args[@]}" | tr -d '\r')"
-have="$("$PS" -NoProfile -Command "(Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue).Actions[0].Arguments" | tr -d '\r')"
+have="$(registered_args)"
 if [[ "$have" != "$want" ]]; then
   echo "Registering '$COMPACT_TASK' elevated: accept the UAC prompt on the Windows desktop."
   # A declined prompt fails Start-Process; the check below says so.
   "$PS" -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${compact_ps1}','-Register','-WslUser','$USER','-Repo','$repo'" || true
-  have="$("$PS" -NoProfile -Command "(Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue).Actions[0].Arguments" | tr -d '\r')"
+  have="$(registered_args)"
   [[ "$have" == "$want" ]] || {
     echo "error: '$COMPACT_TASK' is not registered - was the UAC prompt declined?" >&2
     exit 1
