@@ -4,12 +4,17 @@
  */
 
 const {
+	judgedFaultsAdded,
 	isEitherHeld,
-	mergeFaults,
 	parseReading,
 	readingFaults,
 } = require("./gate-judge.js");
-const { basisFaults, gateFacts, otherIssueRefs } = require("./issue-gate.js");
+const {
+	basisFaults,
+	gateFacts,
+	otherIssueRefs,
+	wordedBasisFaults,
+} = require("./issue-gate.js");
 
 /**
  * @typedef {import("./gate-judge.js").JudgedFault} JudgedFault
@@ -42,9 +47,10 @@ function judgeRow(body, own, row) {
 		waits: judged.waits.map((w) => w.sentence),
 		bases: judged.bases,
 		model: judged.faults,
-		added: mergeFaults(
-			basisFaults(body, own ?? undefined),
+		added: judgedFaultsAdded(
+			wordedBasisFaults(body, own ?? undefined),
 			judged.faults,
+			{ body },
 		).filter((f) => f.by === "model"),
 	};
 }

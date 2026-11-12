@@ -101,7 +101,7 @@ function sweepLeftovers() {
  * The reader `against` names, as a `scripts/lib` directory under `into`: a
  * directory's `scripts/` copied, or a revision's archived. Its git guard is
  * this checkout's, linked in: the audit tells the guard by its real path
- * beside the reader (lib/read-audit-paths.js's `GUARD`), and the logs name
+ * beside the reader (lib/read-audit-provenance.js's `GUARD`), and the logs name
  * the guard that ran.
  * @param {string} against
  * @param {string} into

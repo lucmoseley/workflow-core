@@ -251,7 +251,7 @@ function answerGraphql(argv, closed, missing, missingRepos = []) {
  * The source of `answerCited(argv, issues)`: lib/basis-cited-read.js's
  * batched read of the issues a basis cites, each page of comments cut at the
  * query's own `first:` from its `after:` cursor (#5007). `issues` maps
- * `owner/name` to that repo's issues by number, `{state, body, comments}`;
+ * `owner/name` to that repo's issues by number, `{body, comments}`;
  * a repo it does not name answers null, as a number its repo lacks does.
  */
 export const CITED_GRAPHQL_FAKE = String.raw`${GRAPHQL_FAKE}
@@ -267,7 +267,7 @@ function answerCited(argv, issues) {
 			continue;
 		}
 		data[alias] = {};
-		const pages = /n(\d+): issueOrPullRequest\(number: \d+\) \{ __typename \.\.\. on Issue \{ (state body )?comments\(first: (\d+)(?:, after: "(\d+)")?\)/g;
+		const pages = /n(\d+): issueOrPullRequest\(number: \d+\) \{ __typename \.\.\. on Issue \{ (body )?comments\(first: (\d+)(?:, after: "(\d+)")?\)/g;
 		for (const [, n, first, size, after] of chunk.matchAll(pages)) {
 			const issue = held[n];
 			if (!issue) {
@@ -279,7 +279,7 @@ function answerCited(argv, issues) {
 			const to = from + Number(size);
 			data[alias]["n" + n] = {
 				__typename: "Issue",
-				...(first ? { state: issue.state ?? "OPEN", body: issue.body ?? "" } : {}),
+				...(first ? { body: issue.body ?? "" } : {}),
 				comments: {
 					pageInfo: { hasNextPage: to < comments.length, endCursor: String(to) },
 					nodes: comments.slice(from, to).map((body) => ({ body })),

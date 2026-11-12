@@ -390,6 +390,7 @@ const isCause = (u) => {
 	const o = asObject(u);
 	if (typeof o?.name !== "string") return false;
 	const marksValid =
+		(o.noRun === undefined || o.noRun === true) &&
 		(o.typecheck === undefined || isStringList(o.typecheck)) &&
 		(o.runs === undefined || isNumberList(o.runs)) &&
 		(o.failures === undefined || isQuotedFailureList(o.failures));

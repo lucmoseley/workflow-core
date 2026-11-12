@@ -22,14 +22,19 @@ const {
 	readSentinels,
 	literal,
 	unwrap,
-	runCwd,
-	moveDir,
 	commandName,
 	stepGitOptions,
 	isGlobPattern,
 	ASSIGNMENT_RE,
 } = shellWords;
 const { expandTildeWord } = require("./home-path.js");
+const {
+	dirsAfter,
+	moveDir,
+	settleDirs,
+	startDirs,
+	stepDirs,
+} = require("./shell-dirs.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 // biome-ignore lint/suspicious/noImportCycles: shell-lexer.js requires shell-words.js, which requires this file only inside runScript (#4863).
 const { Lexer, SPACE } = require("./shell-lexer.js");
@@ -1085,7 +1090,7 @@ function resolveWord(word, scope) {
  * @property {string} cwd the directory it runs in, every `cd` before it taken
  *   as made; "" where the walk cannot know it, which the caller records before
  *   it fails open (mantahostels#3453)
- * @property {import("./shell-words.js").Dirs} cwds every directory it may
+ * @property {import("./shell-dirs.js").Dirs} cwds every directory it may
  *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
@@ -1134,25 +1139,22 @@ const TEXT_ONLY_PORTS = Object.freeze({
  *   its own, so a walk from inside a callback disturbs nothing.
  * @property {Parsed} parsed
  * @property {Scope} scope
- * @property {string} cwd "" where the walk cannot know it
+ * @property {import("./shell-dirs.js").DirsState} dirs where the command may
+ *   stand through `cd`, its first "" where the walk cannot know it, the others
+ *   where a `cd` may not have run or failed (#4009)
+ * @property {number} cdAt the segment of the last `cd` that opened its `&&` or
+ *   `||` list, unnegated, -1 where none has, for a `cd` after `||` (#5010)
  * @property {string[]} cwdNames the unset names read as empty on the way to
  *   the cwd (#325)
  * @property {string} cwdLost the words of the command that made the cwd
  *   unknown, for the unresolved-tree record (#320)
- * @property {string[]} cwdDoubt where the command may still stand, a `cd` having
- *   perhaps not run or failed (#4009)
- * @property {string[]} cwdPending the same, held while a `&&` chain off that
- *   `cd` runs only if it worked
- * @property {{ segIdx: number, dirs: Set<string> } | null} cdTargets where the
- *   last `cd` that opened its `&&` or `||` list may have gone, for a `||` after
- *   it (#5010)
  * @property {boolean} aliasWritten a `git config` earlier in the command touched
  *   an alias (#4009)
  * @property {GitEnv} gitEnv the git-reading variables an `export` has put in
  *   the environment (#3997)
- * @property {{ cwd: string, names: string[], noRedirects: boolean,
- *   gitEnv: GitEnv, cwdDoubt: string[], cwdPending: string[] }[]} stack what
- *   each open `(` restores at its `)`
+ * @property {{ dirs: import("./shell-dirs.js").DirsState, names: string[],
+ *   noRedirects: boolean, gitEnv: GitEnv }[]} stack what each open `(`
+ *   restores at its `)`
  * @property {boolean} noRedirects inside arithmetic, whose `>` and `<`
  *   compare (#1488)
  * @property {string} arPrev the segment before
@@ -1179,12 +1181,10 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 		emptyUnset,
 		emptyNames: [],
 	},
-	cwd,
+	dirs: startDirs([cwd]),
+	cdAt: -1,
 	cwdNames: [],
 	cwdLost: "",
-	cwdDoubt: [],
-	cwdPending: [],
-	cdTargets: null,
 	aliasWritten: false,
 	gitEnv: new Map(),
 	stack: [],
@@ -1195,9 +1195,10 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 
 /**
  * Call `fn` with each segment that is no bracket's SCOPE_MARK line, its words
- * split and its leading assignments harvested — even where it runs nothing,
- * because `WT=/x && git …` flattens the assignment into a segment of its own
- * (mantahostels#208).
+ * split. A segment of assignments alone is harvested for the commands after
+ * it, as `WT=/x && git …` flattens into one (mantahostels#208). A command's
+ * own leading assignments are not: bash expands its words first and puts
+ * them in its environment alone (#5087).
  * @param {Walk} walk
  * @param {(segment: string, cw: CommandWords, segIdx: number) => void} fn
  */
@@ -1205,7 +1206,8 @@ function eachSegment(walk, fn) {
 	walk.parsed.segments.forEach((segment, segIdx) => {
 		if (arithScope(walk, segment)) return;
 		const cw = commandWords(segment, { noRedirects: walk.noRedirects });
-		harvest(walk, cw.words.slice(0, cw.assignEnd), segIdx);
+		if (!cw.ran)
+			harvest(walk.scope, walk.parsed, cw.words.slice(0, cw.assignEnd), segIdx);
 		fn(segment, cw, segIdx);
 	});
 }
@@ -1233,9 +1235,8 @@ function arithScope(walk, segment) {
 /** A subshell's `(`: stack the state its `)` restores.
  * @param {Walk} walk */
 function openScope(walk) {
-	const { cwd, cwdNames: names, noRedirects, gitEnv } = walk;
-	const { cwdDoubt, cwdPending } = walk;
-	walk.stack.push({ cwd, names, noRedirects, gitEnv, cwdDoubt, cwdPending });
+	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
+	walk.stack.push({ dirs, names, noRedirects, gitEnv });
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
 		walk.arLast = "";
@@ -1251,74 +1252,102 @@ function openScope(walk) {
 function closeScope(walk) {
 	const back = walk.stack.pop();
 	if (back) {
-		walk.cwd = back.cwd;
+		walk.dirs = back.dirs;
 		walk.cwdNames = back.names;
 		walk.noRedirects = back.noRedirects;
 		walk.gitEnv = back.gitEnv;
-		walk.cwdDoubt = back.cwdDoubt;
-		walk.cwdPending = back.cwdPending;
 	}
 	walk.arLast = "";
 }
 
+/** A `NAME=value` word: the name, then the value. */
+const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+
 /**
- * Record the literal assignments in `words` (mantahostels#208), each visible to the
- * commands after it alone. A name lands in `dead` — every later use
- * unresolvable — on an assignment at or after the first `||` (#328), which a
- * `||` may skip; on a value this file will not resolve; and on a second
- * assignment of a different value, as the flatten loses which arm ran.
- * @param {Walk} walk
+ * Record the literal assignments in `words` (mantahostels#208) into `scope`,
+ * each visible to what reads after it alone. A name lands in `dead` — every
+ * later use unresolvable — on an assignment at or after the first `||`
+ * (#328), which a `||` may skip; on a value this file will not resolve; and
+ * on a second assignment of a different value, as the flatten loses which arm
+ * ran.
+ * @param {Scope} scope accumulator
+ * @param {Parsed} parsed
  * @param {string[]} words
  * @param {number} segIdx
  */
-function harvest(walk, words, segIdx) {
-	const { conditional } = walk.parsed;
+function harvest(scope, { conditional }, words, segIdx) {
 	const skipped = conditional >= 0 && segIdx >= conditional;
 	for (const w of words) {
-		const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(w);
+		const m = ASSIGNMENT.exec(w);
 		if (!m) continue;
-		const val = skipped ? null : assignedValue(m[2] ?? "", walk.scope);
-		recordAssignment(walk.scope, m[1] ?? "", val);
+		const val = skipped ? null : assignedValue(m[2] ?? "", scope);
+		recordAssignment(scope, m[1] ?? "", val);
 	}
 }
 
 /**
- * Move the cwd for one command's words; whether the command is one that moves
- * it. Followed: `cd <path>`, and `cd ""`, which stays put (#301). Made
- * unknown: `cd -` and any other flag, a bare `cd`, `pushd`, `popd`,
- * `builtin cd` and `command cd`. A relative move from an unknown directory
- * stays unknown.
+ * The scope each of a command's own leading assignments reads its value under,
+ * by name, the last of a name winning: the walk's, every assignment before it
+ * applied, as bash expands them left to right (#5087).
  * @param {Walk} walk
+ * @param {string[]} leading
+ * @param {number} segIdx
+ * @returns {Map<string, Scope>}
+ */
+function leadingScopes(walk, leading, segIdx) {
+	/** @type {Map<string, Scope>} */
+	const out = new Map();
+	leading.forEach((w, i) => {
+		const name = ASSIGNMENT.exec(w)?.[1];
+		if (name === undefined) return;
+		const scope = {
+			...walk.scope,
+			locals: new Map(walk.scope.locals),
+			dead: new Set(walk.scope.dead),
+		};
+		harvest(scope, walk.parsed, leading.slice(0, i), segIdx);
+		out.set(name, scope);
+	});
+	return out;
+}
+
+/**
+ * Read where a `cd`, or a command that losesCwd, moves the cwd, keeping the
+ * names and words that record it. Followed: `cd <path>`, and `cd ""`, which
+ * stays put (#301). Made unknown: `cd -` and any other flag, a bare `cd`,
+ * `pushd`, `popd`, `builtin cd` and `command cd`.
+ * @param {Walk} walk accumulator: its cwd names and lost words are moved
  * @param {string[]} words
- * @returns {((dir: string) => string) | null} the move, from any directory to
- *   where it lands, "" where unknown; null where the command moves nothing
+ * @returns {import("./shell-dirs.js").Resolved}
  */
 function moveCwd(walk, words) {
 	const [head = "", arg] = words;
 	if (losesCwd(head, arg)) {
 		loseCwd(walk, words);
-		return () => "";
+		return null;
 	}
-	if (head !== "cd") return null;
 	const r = pathArg(arg ?? "", walk.scope);
 	const names = walk.scope.emptyNames;
 	if (r && "empty" in r) {
 		walk.cwdNames = [...walk.cwdNames, ...names];
-		return (dir) => dir;
+		return r;
 	}
 	if (!r || r.path.startsWith("-")) {
 		loseCwd(walk, words);
-		return () => "";
+		return null;
 	}
-	const { path: to } = r;
-	/** @param {string} dir */
-	const move = (dir) => (to.startsWith("/") ? to : dir && `${dir}/${to}`);
-	walk.cwdNames = to.startsWith("/")
+	walk.cwdNames = r.path.startsWith("/")
 		? [...names]
 		: [...walk.cwdNames, ...names];
-	walk.cwd = move(walk.cwd);
-	return move;
+	return r;
 }
+
+/**
+ * Whether a command moves the cwd: a `cd`, or one losesCwd names.
+ * @param {string} head
+ * @param {string | undefined} arg the word after it
+ */
+const movesCwd = (head, arg) => head === "cd" || losesCwd(head, arg);
 
 /**
  * Whether a command moves the cwd where no word of it says.
@@ -1331,14 +1360,13 @@ const losesCwd = (head, arg) =>
 	((head === "builtin" || head === "command") && arg === "cd");
 
 /**
- * Make the cwd unknown, keeping the command that did it. RESIDUAL: not
- * stacked, so a subshell's `)` handing back an unknown cwd leaves the words of
- * a `cd` inside it.
+ * Keep the command that made the cwd unknown. RESIDUAL: not stacked, so a
+ * subshell's `)` handing back an unknown cwd leaves the words of a `cd`
+ * inside it.
  * @param {Walk} walk
  * @param {string[]} words
  */
 function loseCwd(walk, words) {
-	walk.cwd = "";
 	walk.cwdNames = [];
 	walk.cwdLost = words.join(" ");
 }
@@ -1350,7 +1378,7 @@ function loseCwd(walk, words) {
  * @param {string} word
  */
 function absolutePath(walk, word) {
-	return absoluteIn(walk.cwd, word, walk.scope);
+	return absoluteIn(cwdOf(walk), word, walk.scope);
 }
 
 /**
@@ -1399,10 +1427,10 @@ function walkCommands(parsed, fn, ports) {
 				segment,
 				words: own,
 				leading: words.slice(0, assignEnd),
-				cwd: walk.cwd,
-				cwds: [walk.cwd, ...walk.cwdDoubt],
+				cwd: cwdOf(walk),
+				cwds: walk.dirs.dirs,
 				redirects,
-				writeTargets: (w = own, cwd = walk.cwd) =>
+				writeTargets: (w = own, cwd = cwdOf(walk)) =>
 					writeTargets(w, redirects(), {
 						spans: scope.spans,
 						resolveAbs: (word) => absoluteIn(cwd, word, scope),
@@ -1442,9 +1470,7 @@ function walkCommands(parsed, fn, ports) {
 /**
  * @typedef {object} ScriptState what a script's next command runs under
  * @property {Chdir[]} chdirs
- * @property {{ at: number, holds: Chdir["holds"] }[]} pending each `cd` a
- *   `&&` chain is sure of until it ends: its index in `chdirs`, and how it
- *   holds after
+ * @property {boolean} chainOpen a `&&` chain a `cd` opened has not yet ended
  * @property {string[]} exports
  * @property {Map<string, string>} locals each name an assignment alone set,
  *   its word
@@ -1474,7 +1500,7 @@ function parseScript(script, spans) {
 	/** @type {ScriptState} */
 	let state = {
 		chdirs: [],
-		pending: [],
+		chainOpen: false,
 		exports: [],
 		locals: new Map(),
 		lost: [],
@@ -1519,20 +1545,23 @@ function parseScript(script, spans) {
 }
 
 /**
- * A `&&` chain's end, as settleCwdDoubt reads one: each `cd` it was sure of
- * now holds as it would alone.
+ * A `&&` chain's end, as settleCwdDoubt reads one: the last `cd` before it
+ * settles the chain for every command after (#5082).
  * @param {ScriptState} state
  * @param {string | undefined} join
  * @returns {ScriptState}
  */
 function settleScriptChain(state, join) {
-	if (join === "a" || join === "(" || state.pending.length === 0) return state;
-	const chdirs = [...state.chdirs];
-	for (const { at, holds } of state.pending) {
-		const cd = chdirs[at];
-		if (cd) chdirs[at] = { ...cd, holds };
-	}
-	return { ...state, chdirs, pending: [] };
+	if (join === "a" || join === "(" || !state.chainOpen) return state;
+	const last = state.chdirs.at(-1);
+	if (!last) throw new Error("a -c string's && chain is open with no cd");
+	/** @type {Chdir} */
+	const settled = { ...last, settles: true };
+	return {
+		...state,
+		chdirs: [...state.chdirs.slice(0, -1), settled],
+		chainOpen: false,
+	};
 }
 
 /**
@@ -1644,7 +1673,7 @@ function stepScript(state, cw, where) {
 		return apart
 			? state
 			: exportInScript(state, { head, kind }, own.slice(1), where);
-	if (head === "cd" || losesCwd(head, rest[0]))
+	if (movesCwd(head, rest[0]))
 		return apart ? state : cdInScript(state, own, where);
 	const runs = unwrap(own, spans);
 	if (runs.every((run) => commandName(run.words[0] ?? "") === "git"))
@@ -1715,7 +1744,7 @@ function exportWords(state, { head, kind }, args, spans) {
 
 /**
  * The state after a `cd`: one whose target no word gives goes where nothing
- * resolves; one a `&&` chains a command off holds always for that chain.
+ * resolves; one a `&&` chains a command off opens a chain.
  * @param {ScriptState} state
  * @param {string[]} own its words, masked
  * @param {ScriptAt} where
@@ -1727,31 +1756,25 @@ function cdInScript(state, own, where) {
 	const known =
 		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
 	const dir = known || `$(${texts.join(" ")})`;
-	const { parsed, segIdx } = where;
-	const opens = opensList(parsed.joins, segIdx);
-	const afterCd = isAfterCd(parsed.joins, segIdx, state.cdAt);
-	/** @type {Chdir["holds"]} */
-	const holds =
-		(opens || afterCd) && isSureOnceReached(parsed, segIdx, own)
-			? "if-dir"
-			: "maybe";
-	const chained = isChainedOff(parsed, segIdx);
-	const pending = chained
-		? [...state.pending, { at: state.chdirs.length, holds }]
-		: state.pending;
+	const { holds, afterFailed, chained, cdAt } = classifyCd(
+		where.parsed,
+		where.segIdx,
+		own,
+		state.cdAt,
+	);
 	/** @type {Map<string, string | null>} */
 	const vars = new Map(state.locals);
 	for (const name of state.lost) vars.set(name, null);
 	/** @type {Chdir} */
-	const cd = {
-		dir,
-		read: false,
-		holds: chained ? "always" : holds,
-		vars,
+	const cd = { dir, read: false, holds, vars };
+	if (afterFailed) cd.afterFailed = true;
+	if (chained) cd.chained = true;
+	return {
+		...state,
+		chdirs: [...state.chdirs, cd],
+		chainOpen: state.chainOpen || chained,
+		cdAt,
 	};
-	if (afterCd) cd.afterFailed = true;
-	const cdAt = opens && !isNegated(parsed.segments, segIdx) ? segIdx : -1;
-	return { ...state, chdirs: [...state.chdirs, cd], pending, cdAt };
 }
 
 /**
@@ -1983,6 +2006,7 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 	if (stepCwd(walk, own, segIdx, how.isDir)) return [];
 	if (trackExport(walk, own)) return [];
 	const leading = words.slice(0, assignEnd);
+	const scopes = leadingScopes(walk, leading, segIdx);
 	const unwrapped = unwrap(own, walk.scope.spans);
 	const runs = how.unwrapped
 		? unwrapped
@@ -1994,7 +2018,7 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 		(run) => commandName(run.words[0] ?? "") === "git",
 	);
 	const gits = gitRuns.flatMap((run) => {
-		const git = readGitRun(walk, run, leading, how.isDir);
+		const git = readGitRun(walk, run, { leading, scopes }, how.isDir);
 		return git ? [git] : [];
 	});
 	/* After the git runs, which a later run's mention of a variable cannot
@@ -2004,28 +2028,38 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 }
 
 /**
- * One `git` command's subcommand and the tree it runs against. Every other
- * directory its run may stand in, by runCwd from the walk's doubted cwds, is
- * moved by its `-C`s into `doubted`; runCwd reads a wrapper's word under the
- * walk's scope, as the tree's own move does.
+ * One `git` command's subcommand and the tree it runs against. Its moves, a
+ * wrapper's and a script's read under the walk's scope and then its `-C`s, are
+ * made once from every directory the walk may stand in: the first is the tree,
+ * the others `doubted`.
  * @param {Walk} walk
  * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
  *   its words from `git` on, and what its wrappers and its script carried
- * @param {string[]} leading the segment's own leading assignments
+ * @param {{ leading: string[], scopes: Map<string, Scope> }} prefix the
+ *   segment's own leading assignments, and leadingScopes' answer
  * @param {(path: string) => boolean} isDir
  * @returns {(GitTarget & { sub: string, args: string[] }) | null}
  */
-function readGitRun(walk, run, leading, isDir) {
+function readGitRun(walk, run, { leading, scopes }, isDir) {
 	const { words: own, chdirs } = run;
-	const carried = [...leading, ...run.wrapperWords];
-	const env = new Map(walk.gitEnv);
-	for (const [name, value] of carried.flatMap(parseGitEnvWord))
-		env.set(name, value);
-	for (const name of run.unread) env.set(name, null);
+	/** @type {Map<string, GitDirWord>} */
+	const dirEnv = new Map();
+	for (const [name, word] of walk.gitEnv)
+		dirEnv.set(name, { word, scope: walk.scope });
+	for (const [name, word] of leading.flatMap(parseGitEnvWord))
+		dirEnv.set(name, { word, scope: scopes.get(name) ?? walk.scope });
+	/* A wrapper's words were expanded before it ran, under the walk's scope
+	 * (#5087). */
+	for (const [name, word] of run.wrapperWords.flatMap(parseGitEnvWord))
+		dirEnv.set(name, { word, scope: walk.scope });
+	for (const name of run.unread)
+		dirEnv.set(name, { word: null, scope: walk.scope });
+	/** @type {GitEnv} */
+	const env = new Map([...dirEnv].map(([name, dir]) => [name, dir.word]));
 	const { spans } = walk.scope;
 	/** @type {GitTarget} */
 	const target = {
-		tree: walk.cwd,
+		tree: cwdOf(walk),
 		named: null,
 		workTree: null,
 		doubted: [],
@@ -2036,21 +2070,28 @@ function readGitRun(walk, run, leading, isDir) {
 	};
 	target.aliases.anyUnread = walk.aliasWritten;
 	defineFromEnv(target.aliases, env, spans);
-	for (const cd of chdirs) {
+	const moves = chdirs.map((cd) => {
 		const { resolved, emptyNames } = chdirArg(cd, walk.scope);
 		moveGitTarget(target, resolved, cd.dir, emptyNames);
-	}
-	const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
+		return chdirMove(cd, resolved);
+	});
+	const i = readGitOptions(own, target, {
+		scope: walk.scope,
+		dirEnv,
+		isDir,
+	});
 	const word = own[i];
 	if (word === undefined) return null;
-	const [, ...doubted] = runCwd(
-		[walk.cwd, ...walk.cwdDoubt],
-		chdirs,
-		walk.scope,
+	/** @type {import("./shell-dirs.js").Move[]} */
+	const dashC = target.dirMoves.map((resolved) => ({
+		resolved,
+		holds: "always",
+	}));
+	[, ...target.doubted] = dirsAfter(
+		walk.dirs.dirs,
+		[...moves, ...dashC],
 		isDir,
 	);
-	const moved = doubted.map((d) => target.dirMoves.reduce(moveDir, d));
-	target.doubted = [...new Set(moved)].filter((d) => d !== target.tree);
 	/* The config read follows `tree`, which the doubt says it may not stand in. */
 	target.aliases.anyUnread ||= target.doubted.length > 0;
 	const args = own.slice(i + 1);
@@ -2215,72 +2256,100 @@ function isSureMove(parsed, segIdx, own) {
 }
 
 /**
+ * How a `cd` holds, as both the walk and a `-c` string read one: "if-dir"
+ * where it surely ran had its directory been there — opening its `&&` or `||`
+ * list, or after `||` whose left side is the `cd` before it — else "maybe";
+ * and the `cdAt` the next `cd` reads.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {string[]} own its words
+ * @param {number} cdAt the last `cd` that opened its list, -1 where none has
+ * @returns {{ holds: "if-dir" | "maybe", afterFailed: boolean,
+ *   chained: boolean, cdAt: number }}
+ */
+function classifyCd(parsed, segIdx, own, cdAt) {
+	const opens = opensList(parsed.joins, segIdx);
+	const afterFailed = isAfterCd(parsed.joins, segIdx, cdAt);
+	return {
+		holds:
+			(opens || afterFailed) && isSureOnceReached(parsed, segIdx, own)
+				? "if-dir"
+				: "maybe",
+		afterFailed,
+		chained: isChainedOff(parsed, segIdx),
+		cdAt: opens && !isNegated(parsed.segments, segIdx) ? segIdx : -1,
+	};
+}
+
+/**
  * A `&&` chain's end: from here on, a `cd` that opened it may not have worked.
- * @param {Walk} walk accumulator: its doubts are replaced
+ * @param {Walk} walk accumulator: its directories are replaced
  * @param {number} segIdx
  */
 function settleCwdDoubt(walk, segIdx) {
 	const join = walk.parsed.joins[segIdx];
-	if (join === "a" || join === "(" || walk.cwdPending.length === 0) return;
-	walk.cwdDoubt = [...walk.cwdDoubt, ...walk.cwdPending];
-	walk.cwdPending = [];
+	if (join !== "a" && join !== "(") walk.dirs = settleDirs(walk.dirs);
 }
 
 /**
- * Move the cwd for one command's words, as moveCwd does, and keep where the
- * command may still stand; whether the command is one that moves it. In a
- * pipeline or behind `&` it runs in a subshell and moves nothing (measured). A
- * move sticks where the `cd` always runs and its directory is there now; failing
- * that, only what a `&&` chains off it is sure of it (#4009), unless `||` stands
- * before it. A `&` closing its list backgrounds the `cd` with it. Each directory already doubted moves the
- * same way, as runCwd moves a run's (#4980); one a `&&` chain holds stays
- * put, as nothing in that chain runs there.
- * @param {Walk} walk accumulator: its cwd and doubts are moved, its
- *   `cdTargets` replaced
+ * Move the cwd for one command's words, as moveCwd reads them, through
+ * stepDirs; whether the command is one that moves it. In a pipeline or behind
+ * `&` it runs in a subshell and moves nothing (measured). How the `cd` holds
+ * is classifyCd's.
+ * @param {Walk} walk accumulator: its directories and `cdAt` are moved
  * @param {string[]} own
  * @param {number} segIdx
  * @param {(path: string) => boolean} isDir
  */
 function stepCwd(walk, own, segIdx, isDir) {
-	const { cwd, cwdNames, cwdLost } = walk;
-	const move = moveCwd(walk, own);
-	if (!move) return false;
+	const [head = "", arg] = own;
+	if (!movesCwd(head, arg)) return false;
+	const { cwdNames, cwdLost } = walk;
+	const resolved = moveCwd(walk, own);
 	if (runsApart(walk.parsed.joins, segIdx)) {
-		Object.assign(walk, { cwd, cwdNames, cwdLost });
+		Object.assign(walk, { cwdNames, cwdLost });
 		return true;
 	}
-	const { joins } = walk.parsed;
-	const left = walk.cdTargets;
-	/* A `cd` after `||` runs only where the `cd` before it failed, so it holds
-	 * from every directory but where that one may have gone, where the walk
-	 * can name each (#5010). */
-	const afterCd =
-		isAfterCd(joins, segIdx, left?.segIdx ?? -1) && !left?.dirs.has("");
-	const surely =
-		(opensList(joins, segIdx) || afterCd) &&
-		isSureOnceReached(walk.parsed, segIdx, own);
-	/** @param {string} from @param {string} to */
-	const held = (from, to) =>
-		to === from ||
-		(surely && to !== "" && isDir(to) && !(afterCd && left?.dirs.has(from)));
-	/** @type {string[]} where a move may not have been made */
-	const unmade = held(cwd, walk.cwd) ? [] : [cwd];
-	const moved = walk.cwdDoubt.map((from) => {
-		const to = move(from);
-		if (!held(from, to)) unmade.push(from);
-		return to;
-	});
-	if (isChainedOff(walk.parsed, segIdx)) {
-		walk.cwdDoubt = moved;
-		walk.cwdPending = [...walk.cwdPending, ...unmade];
-	} else walk.cwdDoubt = [...moved, ...unmade];
-	walk.cwdDoubt = [...new Set(walk.cwdDoubt)].filter((d) => d !== walk.cwd);
-	walk.cdTargets =
-		opensList(joins, segIdx) && !isNegated(walk.parsed.segments, segIdx)
-			? { segIdx, dirs: new Set([walk.cwd, ...moved]) }
-			: null;
+	const { cdAt, ...move } = classifyCd(walk.parsed, segIdx, own, walk.cdAt);
+	walk.dirs = stepDirs(walk.dirs, { resolved, ...move }, isDir);
+	walk.cdAt = cdAt;
 	return true;
 }
+
+/**
+ * The walk's cwd: where it stands if every move before was made.
+ * @param {Walk} walk
+ */
+const cwdOf = (walk) => walk.dirs.dirs[0];
+
+/**
+ * Every directory a run may stand in: each of `cwds` moved through its
+ * `chdirs` by dirsAfter. Unknown past a directory no word gives whole: a
+ * wrapper's word reading a variable or a `~`, a `-c` string's `cd` reading one
+ * its script did not set (#4981), a glob, or a `-` flag.
+ * @param {import("./shell-dirs.js").Dirs} cwds
+ * @param {Chdir[]} chdirs
+ * @param {string[] | Scope} scope the outer command's, where the caller holds
+ *   it, so a wrapper's word reads the variables the command set; its spans
+ *   alone otherwise
+ * @param {(path: string) => boolean} isDir
+ * @returns {import("./shell-dirs.js").Dirs}
+ */
+function runCwd(cwds, chdirs, scope, isDir) {
+	const outer = Array.isArray(scope) ? buildBareScope(scope) : scope;
+	const moves = chdirs.map((cd) => chdirMove(cd, chdirArg(cd, outer).resolved));
+	return dirsAfter(cwds, moves, isDir);
+}
+
+/**
+ * @param {Chdir} cd
+ * @param {import("./shell-dirs.js").Resolved} resolved its directory
+ * @returns {import("./shell-dirs.js").Move}
+ */
+const chdirMove = ({ dir, read, vars, envReset, ...move }, resolved) => ({
+	resolved,
+	...move,
+});
 
 const CONFIG_READ = /^(?:--get|--list$|-l$)/;
 
@@ -2392,18 +2461,17 @@ function trackExport(walk, [head = "", ...rest]) {
  * @param {string} w
  * @param {string} next
  * @param {GitTarget} target accumulator: its tree and aliases are moved
- * @param {{ scope: Scope, dirs: { gitDir?: string | null,
- *   workTree?: string | null } }} from `dirs`, an accumulator, holds the
- *   directories read after the `-C`s end
+ * @param {{ scope: Scope, dirs: GitDirs }} from `dirs`, an accumulator,
+ *   holds the directories read after the `-C`s end
  */
 function stepGitOption(w, next, target, { scope, dirs }) {
 	const { spans } = scope;
-	if (w === "--git-dir") dirs.gitDir = next;
+	if (w === "--git-dir") dirs.gitDir = { word: next, scope };
 	else if (w.startsWith("--git-dir="))
-		dirs.gitDir = w.slice("--git-dir=".length);
-	else if (w === "--work-tree") dirs.workTree = next;
+		dirs.gitDir = { word: w.slice("--git-dir=".length), scope };
+	else if (w === "--work-tree") dirs.workTree = { word: next, scope };
 	else if (w.startsWith("--work-tree="))
-		dirs.workTree = w.slice("--work-tree=".length);
+		dirs.workTree = { word: w.slice("--work-tree=".length), scope };
 	else if (w === "-C") readGitDir(next, target, scope);
 	else if (w === "-c") defineFromConfigWord(target.aliases, next, spans);
 	else if (w === "--config-env")
@@ -2423,24 +2491,29 @@ function stepGitOption(w, next, target, { scope, dirs }) {
  * end.
  * @param {string[]} own the command's words, `git` first
  * @param {GitTarget} target
- * @param {{ scope: Scope, env: GitEnv, isDir: (path: string) => boolean }} from
+ * @param {{ scope: Scope, dirEnv: Map<string, GitDirWord>,
+ *   isDir: (path: string) => boolean }} from `dirEnv` each git-reading
+ *   variable's word
  */
-function readGitOptions(own, target, { scope, env, isDir }) {
-	/** @type {{ gitDir?: string | null, workTree?: string | null }} */
+function readGitOptions(own, target, { scope, dirEnv, isDir }) {
+	/** @type {GitDirs} */
 	const dirs = {
-		gitDir: env.get("GIT_DIR"),
-		workTree: env.get("GIT_WORK_TREE"),
+		gitDir: dirEnv.get("GIT_DIR"),
+		workTree: dirEnv.get("GIT_WORK_TREE"),
 	};
 	const i = stepGitOptions(own, scope.spans, (w, next) =>
 		stepGitOption(w, next ?? "", target, { scope, dirs }),
 	);
-	nameRepoTree(dirs.gitDir, env.get("GIT_COMMON_DIR"), target, {
-		scope,
-		isDir,
-	});
-	nameWorkTree(dirs.workTree, target, scope);
+	nameRepoTree(dirs.gitDir, dirEnv.get("GIT_COMMON_DIR"), target, isDir);
+	nameWorkTree(dirs.workTree, target);
 	return i;
 }
+
+/**
+ * @typedef {{ word: string | null, scope: Scope }} GitDirWord a directory
+ *   word, null where it cannot be read, and the scope it reads under
+ * @typedef {{ gitDir?: GitDirWord, workTree?: GitDirWord }} GitDirs
+ */
 
 /**
  * A directory word as an absolute path from `target`'s tree; "" where it will not
@@ -2460,12 +2533,12 @@ function absFromTree(word, target, scope) {
 }
 
 /**
- * @param {string | null | undefined} word
+ * @param {GitDirWord | undefined} named
  * @param {GitTarget} target accumulator: its `workTree` and `written` are set
- * @param {Scope} scope
  */
-function nameWorkTree(word, target, scope) {
-	if (word === undefined) return;
+function nameWorkTree(named, target) {
+	if (named === undefined) return;
+	const { word, scope } = named;
 	const abs = word === null ? "" : absFromTree(word, target, scope);
 	target.workTree = abs && normAbs(abs);
 	if (!abs) target.written = `--work-tree ${word}`;
@@ -2476,14 +2549,15 @@ function nameWorkTree(word, target, scope) {
  * named, as the refs and the HEAD can live apart; where it is empty, which git
  * refuses (measured); and where it is a file not called `.git`, a gitfile that
  * could point anywhere.
- * @param {string | null | undefined} gitDir
- * @param {string | null | undefined} commonDir
+ * @param {GitDirWord | undefined} gitDir
+ * @param {GitDirWord | undefined} commonDir
  * @param {GitTarget} target accumulator: its `named` and `written` are set
- * @param {{ scope: Scope, isDir: (path: string) => boolean }} from
+ * @param {(path: string) => boolean} isDir
  */
-function nameRepoTree(gitDir, commonDir, target, { scope, isDir }) {
-	const word = gitDir === undefined ? commonDir : gitDir;
-	if (word === undefined) return;
+function nameRepoTree(gitDir, commonDir, target, isDir) {
+	const named = gitDir === undefined ? commonDir : gitDir;
+	if (named === undefined) return;
+	const { word, scope } = named;
 	const both = gitDir !== undefined && commonDir !== undefined;
 	const abs = both || word === null ? "" : absFromTree(word, target, scope);
 	const tree = abs ? treeOfGitDir(abs) : "";
@@ -2523,21 +2597,14 @@ function readGitDir(word, target, scope) {
  * @param {string[]} emptyNames the unset names `r` read as empty
  */
 function moveGitTarget(target, r, word, emptyNames) {
-	if (r && "empty" in r) {
-		target.names = [...target.names, ...emptyNames];
-		return;
-	}
-	if (!r) {
-		target.tree = "";
-		target.written = `-C ${word}`;
-	} else if (r.path.startsWith("/")) {
-		target.tree = r.path;
+	const from = target.tree;
+	target.tree = moveDir(from, r);
+	if (!r) target.written = `-C ${word}`;
+	else if ("path" in r && r.path.startsWith("/")) {
 		target.names = [...emptyNames];
 		target.written = "";
-	} else if (target.tree) {
-		target.tree = `${target.tree}/${r.path}`;
+	} else if ("empty" in r || from)
 		target.names = [...target.names, ...emptyNames];
-	}
 }
 
 /**
@@ -2629,7 +2696,7 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
 function unresolvedDetail(git, walk, pwd) {
 	const t = git.written || git.tree || walk.cwdLost;
 	const typed = asWritten(t || "<unknown>", walk.scope.spans);
-	return `target=${typed} pwd=${pwd} cwd=${walk.cwd || "<unknown>"}`;
+	return `target=${typed} pwd=${pwd} cwd=${cwdOf(walk) || "<unknown>"}`;
 }
 
 /**
@@ -3020,8 +3087,7 @@ module.exports = {
 	asWritten,
 	normAbs,
 	walkGit,
-	chdirArg,
-	buildBareScope,
+	runCwd,
 	unsetText,
 	BASH_SPACE: SPACE,
 };

@@ -161,7 +161,6 @@ const blockerRow = (r: {
 
 /** One issue a basis cites, as gh-fake's `answerCited` serves it. */
 export interface CitedFixture {
-	state?: "OPEN" | "CLOSED";
 	body?: string;
 	comments?: string[];
 }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The live tree's `code-edges loads:` and `code-edges caller:` lines
- * (lib/code-edges.js, #4790): each is a file's word for what a load the walk
+ * (lib/file-reach.js, #4790): each is a file's word for what a load the walk
  * cannot read loads, which a later edit may leave stale. Each one in the repo
  * must be a line the walk reads, name files that exist, and explain what it
  * declares; break one and the pass store caches a test on an input it never
