@@ -30,7 +30,7 @@ const {
 	walkVerdict,
 } = require("./guard-verdict.js");
 const { parseCommand } = require("./shell-parse.js");
-const { ghWords, literal } = require("./shell-words.js");
+const { ghWords, literal, runCwd } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -155,8 +155,13 @@ function urlRepo(word) {
 function judge(run, cmd) {
 	if (cmd.words[0] === "export") noteExport(run, cmd.words);
 	for (const gh of ghWords(cmd.words, run.parsed.spans)) {
-		/* The run's `env` assignments lead it as the segment's own do. */
-		const at = { ...cmd, leading: [...cmd.leading, ...gh.wrapperWords] };
+		/* The run's `env` assignments lead it as the segment's own do, and it
+		 * stands wherever its wrappers' and `-c` string's moves put it. */
+		const at = {
+			...cmd,
+			leading: [...cmd.leading, ...gh.wrapperWords],
+			cwds: runCwd(cmd.cwds, gh.chdirs, run.parsed.spans, run.ctx.isDir),
+		};
 		const group = captured(run, gh.args[0] ?? "");
 		if (group === "issue" || group === "pr") judgeFlagForm(run, at, group, gh);
 		else if (group === "api") judgeApi(run, at, gh.args.slice(1));
@@ -301,22 +306,27 @@ function ghRepoEnv(run, cmd) {
 }
 
 /**
- * The anthropics repo the clone the command runs in has a remote on; null
- * where it has none. ANY remote counts, gh choosing among them by rules the
- * command does not show.
+ * The anthropics repo a clone the command may run in has a remote on, each
+ * directory in `cmd.cwds` its run's moves put it in; null where none has
+ * one. ANY remote counts, gh choosing among them by rules the command does
+ * not show. A directory it cannot name fails open, once every one it can has
+ * been read.
  * @param {Run} run
  * @param {Command} cmd
  */
 function cloneRepo(run, cmd) {
-	if (!cmd.cwd)
+	for (const cwd of cmd.cwds) {
+		if (!cwd) continue;
+		for (const line of run.ctx.remotes(cwd).split("\n")) {
+			const url = line.trim().split(/[ \t]+/)[1] ?? "";
+			if (anthropicRepo(url)) return repoSlug(url);
+		}
+	}
+	if (cmd.cwds.includes(""))
 		return open(
 			run.ctx,
 			"could not tell which directory a gh write runs in — its clone's remotes unchecked for an Anthropic repo",
 		);
-	for (const line of run.ctx.remotes(cmd.cwd).split("\n")) {
-		const url = line.trim().split(/[ \t]+/)[1] ?? "";
-		if (anthropicRepo(url)) return repoSlug(url);
-	}
 	return null;
 }
 

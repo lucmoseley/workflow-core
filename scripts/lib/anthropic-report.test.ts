@@ -247,6 +247,50 @@ describe("a write naming no repo, run inside a clone", () => {
 	});
 });
 
+/* Only /srv/cc has an Anthropic remote; no path is a directory, so a move
+ * that holds only where its directory exists may not have been made. */
+describe("a write naming no repo, from a directory a wrapper moves it to (#5067)", () => {
+	const stub = (command: string) =>
+		decide(
+			command,
+			kitContextFake({
+				cwd: "/srv/tool",
+				vars: ENV,
+				log: (what: string) => faults.push(what),
+				remotes: (cwd: string) =>
+					cwd === "/srv/cc"
+						? "upstream\thttps://github.com/anthropics/claude-code.git (push)\n"
+						: "origin\thttps://github.com/someone/tool.git (push)\n",
+			}),
+		)
+			? "deny"
+			: "allow";
+
+	it.each([
+		'cd /srv/cc && gh issue create --title "x" --body "y"',
+		'env -C /srv/cc gh issue create --title "x" --body "y"',
+		'sudo -D /srv/cc gh issue create --title "x" --body "y"',
+		`flock /tmp/l -c 'cd /srv/cc && gh issue create --title "x" --body "y"'`,
+		`flock /tmp/l -c 'cd /srv/cc; gh issue create --title "x" --body "y"'`,
+		`flock /tmp/l -c 'cd /srv/cc; cd /srv/other; gh issue create --title "x"'`,
+	])("refuses %s", (command) => {
+		expect(stub(command)).toBe("deny");
+	});
+
+	it("allows it where every directory it may stand in is another repo's clone", () => {
+		expect(stub('gh issue create --title "x" --body "y"')).toBe("allow");
+		expect(stub('env -C /srv/other gh issue create --title "x"')).toBe("allow");
+		expect(faults).toEqual([]);
+	});
+
+	it("fails open, recorded, on a move to a directory it cannot read", () => {
+		expect(stub('env -C "$D" gh issue create --title "x"')).toBe("allow");
+		expect(faults).toEqual([
+			"could not tell which directory a gh write runs in — its clone's remotes unchecked for an Anthropic repo",
+		]);
+	});
+});
+
 describe("what it lets through", () => {
 	it.each([
 		"gh issue view 5 --repo anthropics/claude-code",
