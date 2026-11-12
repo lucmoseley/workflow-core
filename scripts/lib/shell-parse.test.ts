@@ -739,6 +739,36 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && echo $(a)\ngh b & gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && true\n(a) & gh y")).toEqual(["/usr"]);
 	});
+
+	it("reads an escaped operator as a word, not a bracket or a split (#5113)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && echo \\) & gh y")).toEqual(both);
+		expect(last("cd /usr && echo \\( & gh y")).toEqual(both);
+		expect(last("(cd /usr; echo \\)); gh y")).toEqual(["/start"]);
+		expect(last("(cd /usr; echo \\(); gh y")).toEqual(["/start"]);
+		expect(last("(cd /usr; echo \\) \\(; gh y)")).toEqual(["/usr"]);
+		expect(last("cd /usr && echo \\& & gh y")).toEqual(both);
+		expect(last("cd /usr && echo \\; & gh y")).toEqual(both);
+		expect(last("cd /usr && echo \\| & gh y")).toEqual(both);
+		/* `\\` escapes itself, so the bracket after it is one. */
+		expect(last("(cd /usr; echo \\\\); gh y")).toEqual(["/start"]);
+	});
+});
+
+describe("parseCommand — an escaped operator stays in its word (#5113)", () => {
+	it.each([
+		["echo \\( \\) x", ["echo \\( \\) x"]],
+		["echo a\\&b", ["echo a\\&b"]],
+		["echo a\\|b", ["echo a\\|b"]],
+		["find . -exec rm {} \\; ; gh y", ["find . -exec rm {} \\; ", " gh y"]],
+	])("%s", (command, segments) => {
+		expect(parseCommand(command).segments).toEqual(segments);
+	});
+
+	it("sets the conditional at the first unescaped ||", () => {
+		expect(parseCommand("echo \\|| gh y || gh z").conditional).toBe(2);
+		expect(parseCommand("echo \\| gh y").conditional).toBe(-1);
+	});
 });
 
 describe("Command.runs — each run with every directory it may stand in (#5075)", () => {

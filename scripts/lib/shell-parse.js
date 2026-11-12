@@ -123,9 +123,10 @@ function flatten(text, mark = false, ops = false) {
 	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
 	return `${text
 		/* The lexer writes an escape as a `\`-pair, so a pair is never a
-		 * backtick of its own. */
+		 * backtick or an operator of its own: its operator is shielded until
+		 * the splits are done (#5113). */
 		.replace(/\\[\s\S]|`/g, (m) => {
-			if (m !== "`") return m;
+			if (m !== "`") return shieldEscape(m);
 			inBackticks = !inBackticks;
 			return inBackticks ? "$(" : ")";
 		})
@@ -143,8 +144,33 @@ function flatten(text, mark = false, ops = false) {
 		.replace(/\|/g, join("p"))
 		.replace(/&/g, join("b"))
 		.replaceAll("\x03", "&")
-		.replaceAll("\x04", "|")}\n`;
+		.replaceAll("\x04", "|")
+		.replace(
+			SHIELDED_RE,
+			(_m, c) => `\\${ESCAPED_OPS.charAt(SHIELDS.indexOf(c))}`,
+		)}\n`;
 }
+
+/** The characters an escape makes a word's, each with the shield the flatten
+ * stands it behind while it splits (#5113). */
+const ESCAPED_OPS = "()&|;";
+const SHIELDS = "\x06\x07\x0e\x0f\x10";
+const SHIELDED_RE = new RegExp(`\\\\([${SHIELDS}])`, "g");
+
+/** An escape `\`-pair, its operator shielded from the flatten's splits.
+ * @param {string} pair */
+const shieldEscape = (pair) => {
+	const at = ESCAPED_OPS.indexOf(pair.charAt(1));
+	return at < 0 ? pair : `\\${SHIELDS.charAt(at)}`;
+};
+
+/** Where `masked`'s first `||` outside an escape starts, or -1.
+ * @param {string} masked */
+const firstOr = (masked) => {
+	for (const m of masked.matchAll(/\\[\s\S]|\|\|/g))
+		if (m[0] === "||") return m.index;
+	return -1;
+};
 
 /**
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
@@ -487,10 +513,11 @@ function parseCommand(subject, spans = []) {
 	const { masked, heredocLines } = maskSubject(subject, spans);
 	/* Read BEFORE the flatten turns every `||` into a newline. The text before
 	 * the first one flattens to exactly the segments ahead of it. */
-	const before = masked.includes("||")
-		? (flatten(masked.slice(0, masked.indexOf("||")), true).match(/\n/g)
-				?.length ?? 0)
-		: -1;
+	const orAt = firstOr(masked);
+	const before =
+		orAt >= 0
+			? (flatten(masked.slice(0, orAt), true).match(/\n/g)?.length ?? 0)
+			: -1;
 	/** @type {string[]} */
 	const segments = [];
 	/** @type {string[]} */
