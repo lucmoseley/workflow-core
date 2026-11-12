@@ -895,6 +895,8 @@ function asWritten(text, spans) {
  *   resolved (mantahostels#208)
  * @property {Set<string>} dead names it assigned a value this file will not
  *   resolve, or two different values
+ * @property {Set<string>} exported names an `export`, `declare -x` or
+ *   `typeset -x` put in the environment a `-c` string's shell inherits (#5120)
  * @property {Record<string, string | undefined>} vars the guard's own
  *   variables, the environment the hook inherited
  * @property {string} subject the whole command, searched for a name's other
@@ -1250,6 +1252,7 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 		spans: parsed.spans,
 		locals: new Map(),
 		dead: new Set(),
+		exported: new Set(),
 		vars,
 		subject: parsed.subject,
 		conditional: parsed.conditional,
@@ -1271,9 +1274,9 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 /**
  * Call `fn` with each segment that is no bracket's SCOPE_MARK line, its words
  * split. A segment of assignments alone is harvested for the commands after
- * it, as `WT=/x && git …` flattens into one (mantahostels#208). A command's
- * own leading assignments are not: bash expands its words first and puts
- * them in its environment alone (#5087).
+ * it, as `WT=/x && git …` flattens into one (mantahostels#208), and so is an
+ * `export`'s (#5120). A command's own leading assignments are not: bash
+ * expands its words first and puts them in its environment alone (#5087).
  * @param {Walk} walk
  * @param {(segment: string, cw: CommandWords, segIdx: number) => void} fn
  */
@@ -1281,7 +1284,9 @@ function eachSegment(walk, fn) {
 	walk.parsed.segments.forEach((segment, segIdx) => {
 		if (arithScope(walk, segment)) return;
 		const cw = commandWords(segment, { noRedirects: walk.noRedirects });
-		if (!cw.ran)
+		if (cw.ran)
+			harvestExport(walk.scope, walk.parsed, cw.words.slice(cw.wi), segIdx);
+		else
 			harvest(walk.scope, walk.parsed, cw.words.slice(0, cw.assignEnd), segIdx);
 		fn(segment, cw, segIdx);
 	});
@@ -1360,6 +1365,31 @@ function harvest(scope, { conditional }, words, segIdx) {
 		if (!m) continue;
 		const val = skipped ? null : assignedValue(m[2] ?? "", scope);
 		recordAssignment(scope, m[1] ?? "", val);
+	}
+}
+
+/**
+ * Record what one `export`, `declare -x`, `typeset -x`, `export -n` or `unset`
+ * does to `scope`: its assignments as harvest records a bare one's, and each
+ * name it exports or drops from the environment. An `unset` name, or an
+ * assignment word whose name is quoted, is unresolvable after it.
+ * @param {Scope} scope accumulator
+ * @param {Parsed} parsed
+ * @param {string[]} own the command's words, its command word first
+ * @param {number} segIdx
+ */
+function harvestExport(scope, parsed, [head = "", ...rest], segIdx) {
+	const kind = exportKind(head, rest);
+	if (kind === null) return;
+	for (const w of rest) {
+		const name = assignedName(w, parsed.spans);
+		if (w.startsWith("-") || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+		if (head === "unset") recordAssignment(scope, name, null);
+		else if (ASSIGNMENT.exec(w)?.[1] === name)
+			harvest(scope, parsed, [w], segIdx);
+		else if (w !== name) recordAssignment(scope, name, null);
+		if (kind === "export") scope.exported.add(name);
+		else scope.exported.delete(name);
 	}
 }
 
@@ -3007,6 +3037,7 @@ const buildBareScope = (spans) => ({
 	spans,
 	locals: new Map(),
 	dead: new Set(),
+	exported: new Set(),
 	vars: {},
 	subject: "",
 	conditional: -1,
@@ -3020,27 +3051,23 @@ const SHELL_SET = ["PWD", "OLDPWD", "_"];
 /**
  * What a `-c` string's word reads under: each name its script set at that
  * value, read itself under the environment alone; any other at the
- * environment the outer command hands down. Unknown: a name the script
- * changed unfollowed or set to a value that will not resolve, SHELL_SET, and
- * an environment name the outer command names bare — it
- * may have set it, exported or not — or any under a `source`, `.` or `eval`,
- * or behind a wrapper that may replace the environment.
+ * environment the outer command hands down, a name it exported at the value
+ * the outer command reads (#5120). Unknown: a name the script changed
+ * unfollowed or set to a value that will not resolve, SHELL_SET, and an
+ * environment name the outer command names bare without exporting it — it
+ * may have set it — or any under a `source`, `.` or `eval`, or behind a
+ * wrapper that may replace the environment.
  * @param {Chdir} cd a `-c` string's `cd`
  * @param {Scope} outer
  * @returns {Scope}
  */
 function buildScriptScope({ vars = new Map(), envReset }, outer) {
-	const { subject } = outer;
-	const inherits = !envReset && !SOURCING_RE.test(subject);
-	/** @type {Record<string, string | undefined>} */
-	const env = {};
-	for (const [name, value] of Object.entries(outer.vars))
-		if (inherits && bareMentions(name, subject) === 0) env[name] = value;
+	const inherits = !envReset && !SOURCING_RE.test(outer.subject);
 	/** @type {Scope} */
 	const scope = {
 		...buildBareScope(outer.spans),
 		dead: new Set([...SHELL_SET, ...vars.keys()]),
-		vars: env,
+		vars: inherits ? inheritedEnv(outer) : {},
 	};
 	/** @type {Map<string, string>} */
 	const locals = new Map();
@@ -3052,6 +3079,25 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
 		else dead.add(name);
 	}
 	return { ...scope, locals, dead, emptyNames: [] };
+}
+
+/**
+ * The environment a `-c` string's shell inherits from `outer`, as
+ * buildScriptScope reads it.
+ * @param {Scope} outer
+ * @returns {Record<string, string | undefined>}
+ */
+function inheritedEnv(outer) {
+	/** @type {Record<string, string | undefined>} */
+	const env = {};
+	for (const [name, value] of Object.entries(outer.vars))
+		if (bareMentions(name, outer.subject) === 0) env[name] = value;
+	for (const name of outer.exported) {
+		const value = lookupVar(name, outer);
+		if (value === null) delete env[name];
+		else env[name] = value;
+	}
+	return env;
 }
 
 /**
