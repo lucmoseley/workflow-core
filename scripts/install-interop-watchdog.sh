@@ -5,8 +5,14 @@
 # WHAT IT INSTALLS
 #   C:\Users\<you>\wsl-interop-watchdog\{watchdog.ps1,launcher.vbs,task.xml}
 #   Scheduled task "WSL Interop Watchdog" - at logon + every 2 minutes.
+#   C:\Users\<you>\wsl-interop-watchdog\compact-disk.ps1
+#   Scheduled task "WSL Disk Compaction" - elevated, no trigger (#5044):
+#     registered with one UAC prompt where it is absent or its arguments moved.
+#   User timer wsl-disk-compaction.timer - daily at 02:00, runs
+#     scripts/wsl-disk-compaction.js run, which starts that task once due and
+#     no session is live.
 #
-# The task never runs `wsl --shutdown`: a false positive would kill live
+# The watchdog task never runs `wsl --shutdown`: a false positive would kill live
 # background Claude sessions, which is worse than the fault it guards. It does
 # boot the default distro when the VM is down (launcher.vbs). See
 # docs/environment.md §9 for the incident, the recovery and the keep-alive.
@@ -48,9 +54,8 @@ echo "Windows user : $win_user"
 echo "Install dir  : $install_win"
 
 mkdir -p "$install_wsl"
-cp "$SRC_DIR/watchdog.ps1" "$SRC_DIR/launcher.vbs" "$install_wsl/"
+cp "$SRC_DIR/watchdog.ps1" "$SRC_DIR/launcher.vbs" "$SRC_DIR/compact-disk.ps1" "$install_wsl/"
 
-# Fill the task template with this machine's identity and install path.
 tmp_xml="$(mktemp)"
 trap 'rm -f "$tmp_xml"' EXIT
 # Backslashes must be doubled in a sed replacement, or GNU sed reads DOMAIN\user
@@ -76,10 +81,86 @@ echo
 	'NextRunTime : ' + \$i.NextRunTime
 " | tr -d '\r'
 
+# --- the monthly disk compaction (#5044) ------------------------------------
+
+COMPACT_TASK='WSL Disk Compaction'
+# The main checkout, never a linked worktree a prune would delete.
+repo="$(cd "$SRC_DIR/../.." && git rev-parse --path-format=absolute --git-common-dir)"
+repo="${repo%/.git}"
+compact_ps1="${install_win}\\compact-disk.ps1"
+compact_args=(-WslUser "$USER" -Repo "$repo")
+want="$("$PS" -NoProfile -ExecutionPolicy Bypass -File "$compact_ps1" -PrintArgs "${compact_args[@]}" | tr -d '\r')"
+have="$("$PS" -NoProfile -Command "(Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue).Actions[0].Arguments" | tr -d '\r')"
+if [[ "$have" != "$want" ]]; then
+  echo "Registering '$COMPACT_TASK' elevated: accept the UAC prompt on the Windows desktop."
+  # A declined prompt fails Start-Process; the check below says so.
+  "$PS" -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${compact_ps1}','-Register','-WslUser','$USER','-Repo','$repo'" || true
+  have="$("$PS" -NoProfile -Command "(Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue).Actions[0].Arguments" | tr -d '\r')"
+  [[ "$have" == "$want" ]] || {
+    echo "error: '$COMPACT_TASK' is not registered - was the UAC prompt declined?" >&2
+    exit 1
+  }
+fi
+
+node_bin="$(command -v node)"
+# The unit's own PATH lacks ~/.local/bin and nvm's, where claude (session
+# liveness) and node live; gh is the sparse watch's.
+unit_path=""
+for bin in node claude gh; do
+  found="$(command -v "$bin")" || {
+    echo "error: $bin is not on PATH; the compaction run needs it." >&2
+    exit 1
+  }
+  unit_path+="${found%/*}:"
+done
+unit_path+="/usr/local/bin:/usr/bin:/bin"
+# The units take these unquoted, so a space or quote would split them.
+for p in "$node_bin" "$repo" "$unit_path"; do
+  [[ "$p" =~ ^[A-Za-z0-9_./@+:-]+$ ]] || {
+    echo "error: cannot write a unit naming '$p': only plain path characters are taken." >&2
+    exit 1
+  }
+done
+SYSTEMCTL="${WFC_SYSTEMCTL:-systemctl}"
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+mkdir -p "$unit_dir"
+cat >"$unit_dir/wsl-disk-compaction.service" <<UNIT
+[Unit]
+Description=Start the monthly WSL disk compaction once due and no session is live (workflow-core #5044)
+
+[Service]
+Type=oneshot
+Environment=PATH=$unit_path
+WorkingDirectory=$repo
+ExecStart=$node_bin $repo/scripts/wsl-disk-compaction.js run
+# It may wait up to 6 h for live sessions to end.
+TimeoutStartSec=7h
+UNIT
+cat >"$unit_dir/wsl-disk-compaction.timer" <<UNIT
+[Unit]
+Description=Daily check whether the WSL disk compaction is due (workflow-core #5044)
+
+[Timer]
+# Untraced: 02:00 is when sessions are likeliest to have drained.
+OnCalendar=*-*-* 02:00
+Persistent=true
+# Untraced: a run waits up to 6 h anyway, so minutes of slip cost nothing.
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
+"$SYSTEMCTL" --user daemon-reload
+"$SYSTEMCTL" --user enable --now wsl-disk-compaction.timer
+"$SYSTEMCTL" --user is-active wsl-disk-compaction.timer
+
 cat <<EOF
 
 Installed. It checks every 2 minutes and stays silent unless a wedge is found.
 
   Activity log : %LOCALAPPDATA%\\wsl-interop-watchdog.log  (only written on a detection)
+  Compaction   : %LOCALAPPDATA%\\wsl-compact.log; check with: node ${SRC_DIR%/win-interop-watchdog}/check-wsl-disk.js
   Remove with  : schtasks.exe /Delete /TN "$TASK_NAME" /F
+                 schtasks.exe /Delete /TN "$COMPACT_TASK" /F
+                 systemctl --user disable --now wsl-disk-compaction.timer
 EOF
