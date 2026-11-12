@@ -145,26 +145,39 @@ function flatten(text, mark = false, ops = false) {
 
 /**
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
- * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, "" a newline or
- * nothing. A blank line hands its operator on, as `&&` at a line's end does.
+ * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, ")" the rest of
+ * the line a bracket's `)` closed (#5093), "" a newline or nothing. A blank
+ * line hands its operator on, as `&&` at a line's end does.
  * @param {string} masked
  * @returns {string[]} one per line of flatSegments
  */
 function parseJoins(masked) {
 	let carry = "";
+	let closed = false;
 	return flatten(masked, true, true)
 		.split("\n")
 		.map((line) => {
 			const code = line.startsWith(OP_MARK) ? line.charAt(1) : "";
+			const rest = closed && !code;
+			closed = line === `${SCOPE_MARK})`;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
-				return code;
+				return rest ? ")" : code;
 			}
-			const joined = code || carry;
+			const joined = code || carry || (rest ? ")" : "");
 			carry = "";
 			return joined;
 		});
 }
+
+/**
+ * Whether a `&&` chain ends at the segment: not where `&&` joins it, nor
+ * inside a bracket's line.
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+const endsChain = (joins, segIdx) =>
+	!["a", "(", ")"].includes(joins[segIdx] ?? "");
 
 /**
  * @typedef {object} CommandWords
@@ -1230,11 +1243,14 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** A subshell's `(`: stack the state its `)` restores.
+/** A subshell's `(`: stack the state its `)` restores. A `&&` chain ending
+ * inside leaves the one outside open (#5093), so no move before the `(` waits
+ * in its `pending`.
  * @param {Walk} walk */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
+	walk.dirs = { ...dirs, pending: [] };
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
 		walk.arLast = "";
@@ -1482,6 +1498,7 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === `${SCOPE_MARK}(`) {
 			stack.push(state);
+			state = { ...state, pending: [] };
 			return;
 		}
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
@@ -1496,7 +1513,7 @@ function parseScript(script, spans) {
 				};
 			return;
 		}
-		state = settleScriptChain(state, parsed.joins[segIdx]);
+		state = settleScriptChain(state, parsed.joins, segIdx);
 		const cw = commandWords(segment);
 		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
 		if (cw.ran)
@@ -1518,11 +1535,12 @@ function parseScript(script, spans) {
  * A `&&` chain's end, as settleCwdDoubt reads one: each `cd` it was sure of
  * now holds as it would alone.
  * @param {ScriptState} state
- * @param {string | undefined} join
+ * @param {string[]} joins
+ * @param {number} segIdx
  * @returns {ScriptState}
  */
-function settleScriptChain(state, join) {
-	if (join === "a" || join === "(" || state.pending.length === 0) return state;
+function settleScriptChain(state, joins, segIdx) {
+	if (!endsChain(joins, segIdx) || state.pending.length === 0) return state;
 	const chdirs = [...state.chdirs];
 	for (const { at, holds } of state.pending) {
 		const cd = chdirs[at];
@@ -2169,7 +2187,8 @@ function isBraceGroupSure({ joins, segments }, segIdx) {
 		let prev = from - 1;
 		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
-		const defined = before === "" && segments[prev] === `${SCOPE_MARK})`;
+		const defined =
+			(before === "" || before === ")") && segments[prev] === `${SCOPE_MARK})`;
 		return (
 			!defined &&
 			before !== "a" &&
@@ -2241,8 +2260,7 @@ function classifyCd(parsed, segIdx, own, cdAt) {
  * @param {number} segIdx
  */
 function settleCwdDoubt(walk, segIdx) {
-	const join = walk.parsed.joins[segIdx];
-	if (join !== "a" && join !== "(") walk.dirs = settleDirs(walk.dirs);
+	if (endsChain(walk.parsed.joins, segIdx)) walk.dirs = settleDirs(walk.dirs);
 }
 
 /**
