@@ -686,7 +686,6 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && true | cat & gh y")).toEqual(both);
 		expect(last("cd /usr && (true) | cat & gh y")).toEqual(both);
 		expect(last("cd /usr && true | cat; gh y")).toEqual(["/usr"]);
-		/* A list the subshell ends, by `;` or a newline, is not the one `&` closes. */
 		expect(last("cd /usr && (true); gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && (true)\n(a) & gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && echo $(a)\ngh b & gh y")).toEqual(["/usr"]);
