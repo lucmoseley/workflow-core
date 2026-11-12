@@ -3,8 +3,8 @@
  * builder its fix ticket's body and the owning session's landing status both
  * read (#4950, spec #4947), so the two never say different things of a drop;
  * the few words a fix ticket's comment gives for it; and what that ticket's
- * change must do. Every word said of a cause is here, so a new cause kind is
- * this file's edit alone (#5077).
+ * change must do. Every word said of a cause is here, so a new cause kind's
+ * words are this file's edit alone (#5077).
  */
 
 const { short } = require("./lander-git.js");
@@ -151,18 +151,26 @@ function buildOwedPass({ files, typecheck }) {
  * @param {Pick<import("./lander-records.js").Drop, "sha" | "name" | "cause">} d
  */
 function buildDropAcceptance({ sha, name, cause }) {
-	const queued = `\`${queueBranch(name)}\``;
+	return `${short(sha)}'s change${buildOwed(cause)} and is pushed to \`${queueBranch(name)}\` again.`;
+}
+
+/**
+ * What the change must do, after "<sha>'s change".
+ * @param {import("./lander-records.js").Drop["cause"]} cause
+ */
+function buildOwed(cause) {
 	switch (cause.kind) {
 		case "conflict":
-			return `${short(sha)}'s change merges onto \`main\`, each file above settled, and is pushed to ${queued} again.`;
+			return " merges onto `main`, each file above settled,";
 		case "refused":
-			return `${short(sha)}'s change merges onto \`main\` and is pushed to ${queued} again.`;
+			return " merges onto `main`";
 		case "unrecorded":
-			return `${short(sha)}'s change merges onto \`main\`, passes the whole suite there, and is pushed to ${queued} again.`;
-		default:
+			return " merges onto `main`, passes the whole suite there,";
+		case "red":
+		case "collision":
 			return cause.noRun
-				? `${short(sha)}'s change, merged onto \`main\`, fires a CI run on the lander's refs that passes the whole suite, and is pushed to ${queued} again.`
-				: `${short(sha)}'s change passes ${buildOwedPass(cause)} merged onto \`main\`, and is pushed to ${queued} again.`;
+				? ", merged onto `main`, fires a CI run on the lander's refs that passes the whole suite,"
+				: ` passes ${buildOwedPass(cause)} merged onto \`main\`,`;
 	}
 }
 

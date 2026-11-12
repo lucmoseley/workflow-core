@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Cause, Drop, QuotedFailure } from "./lander-records.js";
+import type { Cause, Drop, QuotedFailure, RedMarks } from "./lander-records.js";
 import {
 	dropRecord,
 	parseVerdict,
@@ -303,7 +303,7 @@ describe("every field a verdict or a cause holds", () => {
 		typecheck: ["a.js(1,1): error TS1: x"],
 		runs: [31, 32],
 		failures: [quoted],
-	} as const;
+	} satisfies Required<RedMarks>;
 	const causes = {
 		conflict: {
 			kind: "conflict",
@@ -357,9 +357,19 @@ describe("every field a verdict or a cause holds", () => {
 	it.each(Object.values(causes))(
 		"skips a $kind cause any one of whose fields is ill-typed",
 		(cause) => {
-			for (const key of Object.keys(cause)) {
-				dropRecord(file).write([dropOf({ ...cause, [key]: { ill: true } })]);
-				expect(dropRecord(file).read(), key).toEqual([]);
+			const ill = [
+				...Object.keys(cause).map((key) => [
+					key,
+					{ ...cause, [key]: { ill: true } },
+				]),
+				...("failures" in cause ? Object.keys(quoted) : []).map((key) => [
+					`failures[0].${key}`,
+					{ ...cause, failures: [{ ...quoted, [key]: { ill: true } }] },
+				]),
+			];
+			for (const [key, bad] of ill) {
+				dropRecord(file).write([dropOf(bad)]);
+				expect(dropRecord(file).read(), String(key)).toEqual([]);
 			}
 		},
 	);
