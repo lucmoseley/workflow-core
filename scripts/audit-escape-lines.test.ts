@@ -320,16 +320,16 @@ describe("the report", () => {
 		expect(out).not.toContain("671 first");
 		expect(out).toContain("1061 refuses every close question once again");
 		expect(out).toContain("unmeasured (#667)");
-		expect(out).toContain("so it under-counts (#5003)");
+		expect(out).toContain("so the row shows no share (#5003, #5035)");
 	});
 
-	it("gives an after-refusal row the share judged unsupported", async () => {
+	it("gives an after-refusal row the judge's held-out rates in place of a share", async () => {
 		refusedSession("s1", "2026-10-20T12:00:00Z", round(1, "Checked: 7 hits"));
 		refusedSession("s2", "2026-10-20T12:00:00Z", round(1, "Checked: 9 hits"));
 		await callable([0.9, 0.1]);
 		await run();
 		expect(outOf(await report())).toMatch(
-			/1061 after-refusal\s+2 judged,\s+50% unsupported; 0 pending; judge TPR 8%, TNR 91% held out/,
+			/1061 after-refusal\s+2 judged, judge TPR 8%, TNR 91% held out; 0 pending$/m,
 		);
 	});
 
