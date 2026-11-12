@@ -712,7 +712,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 					r.chdirs
 						.map(
 							(d) =>
-								`[${[literal(d.dir, spans).text, d.holds, d.chained && "chained", d.depth && `depth ${d.depth}`, d.settles !== undefined && `settles ${d.settles}`].filter(Boolean).join(" ")}]`,
+								`[${[literal(d.dir, spans).text, d.holds, d.chained && "chained", d.opensScope && "opens", d.depth && `depth ${d.depth}`, d.settles !== undefined && `settles ${d.settles}`].filter(Boolean).join(" ")}]`,
 						)
 						.join(""),
 				].join("|"),
@@ -756,7 +756,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 			"[cd][/s]||",
 			"[git][a]||[/s if-dir]",
 			"[cd][/t]||[/s if-dir]",
-			"[git][b]||[/s if-dir][/t if-dir]",
+			"[git][b]||[/s if-dir][/t if-dir opens]",
 			"[cd][/u]||[/s if-dir]",
 			"[true]||[/s if-dir]",
 			"[git][c]||[/s if-dir]",
@@ -780,6 +780,12 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(
 			read(`flock /l -c "cd /a && { cd /b && true; git x; }"`).at(-2),
 		).toBe("[git][x]||[/a if-dir chained][/b maybe chained depth 1 settles 1]");
+	});
+
+	it("marks the first cd a subshell's command stands behind as opening it (#5102)", () => {
+		expect(
+			read(`flock /l -c "cd /a && ( (cd /x); cd /b && true; git x)"`).at(-1),
+		).toBe("[git][x]||[/a if-dir chained][/b if-dir chained opens settles 0]");
 	});
 
 	it("marks a cd behind an && or inside an if as maybe (#4863)", () => {
