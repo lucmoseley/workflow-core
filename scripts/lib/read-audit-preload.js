@@ -209,6 +209,12 @@ function install() {
 	const realReadFileSync = fs.readFileSync;
 	const realOpenSync = fs.openSync;
 
+	/** @type {import("./read-audit-handed.js").Settled} */
+	const settled = new Map();
+	/* A path this process links, moves or removes may move where a settled
+	 * one lands; a child's go unseen (#5050). */
+	const unsettle = () => settled.clear();
+
 	/**
 	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
 	 * with no result where it threw or failed.
@@ -335,6 +341,11 @@ function install() {
 	wrap(fs.promises, "glob", glob, "sync");
 	wrap(fs, "watch", probeFirst, "sync");
 	wrap(fs, "watchFile", probeFirst, "sync");
+	for (const name of ["symlink", "rename", "unlink", "rm", "rmdir", "cp"]) {
+		wrap(fs, `${name}Sync`, unsettle, "sync");
+		wrap(fs, name, unsettle, "callback");
+		wrap(fs.promises, name, unsettle, "promise");
+	}
 	const threads = require("node:worker_threads");
 	threads.Worker = class Worker extends threads.Worker {
 		/** @param {ConstructorParameters<typeof threads.Worker>} args */
@@ -479,12 +490,13 @@ function install() {
 	 * its own reads, and every `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
-	 * @param {(word: string) => string[]} named
+	 * @param {Named} named
 	 */
 	const envPaths = (name, value, named) => {
 		if (name === "WFC_READ_AUDIT_ROOT") return [];
 		const paths = named(
 			name === "NODE_OPTIONS" ? value.split(SELF).join("") : value,
+			standing[name] === value ? settled : undefined,
 		);
 		if (name !== "PATH") return paths;
 		return paths.filter(
@@ -498,12 +510,13 @@ function install() {
 		!bin.some((at) => relativeUnder(root, at) !== null) &&
 		!isStub(bin);
 	/** @typedef {import("./read-audit-handed.js").Hand} Hand */
+	/** @typedef {ReturnType<ReturnType<typeof buildHanded>["from"]>} Named */
 	/**
 	 * Real git, and the guard that runs it, is weighed only on the variables
 	 * git reads a path from itself (#4982, #5015): what it runs, which
 	 * inherits the rest, its own event log names (`gitEventsOf`).
 	 * @param {Untyped} opts
-	 * @param {(word: string) => string[]} named
+	 * @param {Named} named
 	 * @param {string[]} bin
 	 * @returns {Hand[]}
 	 */
@@ -940,6 +953,7 @@ function install() {
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
+				settled.clear();
 				if (!isOwner) return;
 				const file = path.join(dir, `${owner}.standing.json`);
 				const gitAt = sizeOf(path.join(dir, `${owner}.git`));

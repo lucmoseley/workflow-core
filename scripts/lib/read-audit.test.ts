@@ -11,7 +11,11 @@
  * run are what is under test, which no seeded log reaches.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import {
+	execFileSync,
+	spawn as spawnAsync,
+	spawnSync,
+} from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -738,6 +742,44 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 				env: { RULES: path.join(root, ".claude") },
 			});
 			expect(untraced(root, body).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("weighs afresh a variable whose value moved off the standing one, though its path was looked up before (#5050)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			/* Linked by a child, which leaves this process's lookups standing. */
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				spawns("cat", [], cwd, { env: { RULES: `${link}/` } }),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("weighs afresh a standing variable's path once the process made a link (#5050)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)});`,
+				spawns("cat", [], cwd),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
 				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
 			);
 		});
@@ -2160,6 +2202,63 @@ describe("arming", () => {
 		expect(install(root, { WFC_READ_AUDIT_OWNER: "1" })).toBeNull();
 		remove(dir);
 		expect(fs.existsSync(dir)).toBe(false);
+	});
+
+	it("removes the directory a run killed mid-audit left, once stale, and never a live run's (#5046)", async () => {
+		const root = checkout();
+		/* A run that arms the audit, names its directory and waits. */
+		const arm = () => {
+			// spawn-kept: the run must be a process of its own to be killed.
+			const child = spawnAsync(
+				process.execPath,
+				[
+					"-e",
+					`const d = require(${quoted(path.join(__dirname, "read-audit.js"))}).install(${quoted(root)}, {}, { write: () => true }); process.stdout.write(d + "\\n"); setInterval(() => {}, 1000);`,
+				],
+				{ stdio: ["ignore", "pipe", "inherit"] },
+			);
+			return new Promise<{ dir: string; child: typeof child }>((done) => {
+				let out = "";
+				child.stdout.on("data", (b) => {
+					out += b;
+					if (out.endsWith("\n")) done({ dir: out.trim(), child });
+				});
+			});
+		};
+		const killed = await arm();
+		dirs.push(killed.dir);
+		const live = await arm();
+		dirs.push(live.dir);
+		try {
+			const ended = new Promise((done) => killed.child.once("exit", done));
+			killed.child.kill("SIGKILL");
+			await ended;
+			const fresh = fs.mkdtempSync(
+				path.join(os.tmpdir(), `wfc-read-audit-${killed.child.pid}-`),
+			);
+			dirs.push(fresh);
+			const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+			fs.utimesSync(killed.dir, old, old);
+			fs.utimesSync(live.dir, old, old);
+			expect(fs.existsSync(killed.dir)).toBe(true);
+			const next = install(root, {}, { write: () => true });
+			dirs.push(next);
+			expect(fs.existsSync(killed.dir)).toBe(false);
+			expect(fs.existsSync(live.dir)).toBe(true);
+			expect(fs.existsSync(fresh)).toBe(true);
+			expect(fs.existsSync(next)).toBe(true);
+		} finally {
+			live.child.kill("SIGKILL");
+		}
+	});
+
+	it("leaves a stale directory naming no pid (#5046)", () => {
+		const other = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-read-audit-"));
+		dirs.push(other);
+		const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+		fs.utimesSync(other, old, old);
+		dirs.push(install(checkout(), {}, { write: () => true }));
+		expect(fs.existsSync(other)).toBe(true);
 	});
 
 	it("names no tracer where the run's PATH holds none", () => {

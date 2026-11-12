@@ -35,6 +35,13 @@ const { PATH_MAX, toPosix } = require("./read-audit-paths.js");
  *   | {by: "repo", p: string[]}} Hand
  */
 
+/**
+ * An absolute path's real path, as first looked up, for a variable the
+ * standing environment holds unchanged: its paths are looked up once until
+ * the process links, moves or removes a path (#5050).
+ * @typedef {Map<string, string|null>} Settled
+ */
+
 /* What ends a path inside a word. */
 const STOPS = /[\s"';:]/;
 
@@ -127,18 +134,35 @@ function buildHanded(root) {
 		/**
 		 * The repo-relative paths `word` names, spelt or resolved.
 		 * @param {string} word
+		 * @param {Settled} [settled] accumulator: where `word` is one whose
+		 *   absolute paths may be answered from an earlier lookup
 		 * @returns {string[]}
 		 */
-		return (word) => {
+		return (word, settled) => {
 			const out = new Set(spelt(word));
 			for (const tried of candidates(word, gluedBy)) {
-				const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
-				const real = realOf(path.resolve(cwd, tried), isBare);
+				const real = realOfTried(cwd, tried, settled);
 				const r = real === null ? null : relOf(real);
 				if (r !== null) out.add(r);
 			}
 			return [...out];
 		};
+	};
+	/**
+	 * `tried` read against `cwd` as `realOf` answers it, an absolute one off
+	 * `settled` where given.
+	 * @param {string} cwd
+	 * @param {string} tried
+	 * @param {Settled} [settled] accumulator: filled with what is looked up
+	 */
+	const realOfTried = (cwd, tried, settled) => {
+		const abs = path.resolve(cwd, tried);
+		if (settled && path.isAbsolute(tried)) {
+			if (!settled.has(abs)) settled.set(abs, realOf(abs, false));
+			return settled.get(abs) ?? null;
+		}
+		const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
+		return realOf(abs, isBare);
 	};
 	return { spelt, from };
 }

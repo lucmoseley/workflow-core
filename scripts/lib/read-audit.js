@@ -51,13 +51,19 @@
  * - a process an untraced git child started that is not git again — a
  *   hook, an alias, a helper — off the event log git kept for it
  *   (lib/read-audit-git-events.js, #4997);
- * - a symlink, socket or other non-file, non-directory path.
+ * - a symlink, socket or other non-file, non-directory path;
+ * - a link a child process makes on an absolute path a variable left at
+ *   its settled value names, once a child was spawned with it: the preload
+ *   looks those up again only after its own process links, moves or
+ *   removes a path (#5050).
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { pidAlive } = require("./arbiter-proc.js");
+const { escapeRe } = require("./regex-group.js");
 const { parseShebang, scriptLanguage } = require("./code-edges.js");
 const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
@@ -180,7 +186,10 @@ function isDescriptorFed(word) {
  */
 function install(root, env = process.env, err = process.stderr) {
 	if (env.WFC_READ_AUDIT_OWNER) return null;
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-read-audit-"));
+	sweep(os.tmpdir());
+	const dir = fs.mkdtempSync(
+		path.join(os.tmpdir(), `${PREFIX}${process.pid}-`),
+	);
 	env.WFC_READ_AUDIT = dir;
 	env.WFC_READ_AUDIT_ROOT = fs.realpathSync(root);
 	const strace = findStrace(dir, env);
@@ -209,7 +218,43 @@ function remove(dir) {
 	try {
 		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
-		// A leftover directory in the tmpdir costs only disk (#4916).
+		// What will not go now goes at a later run's sweep, once stale (#5046).
+	}
+}
+
+/* A log directory's name: the prefix, the pid of the run that made it, and
+ * mkdtemp's suffix. */
+const PREFIX = "wfc-read-audit-";
+const LOG_DIR_NAME = new RegExp(`^${escapeRe(PREFIX)}(\\d+)-`);
+
+/* How long a dead run's directory stands untouched before it is stale: a pid
+ * from another pid namespace sharing the tmpdir reads as dead here. The hour
+ * #5046 named, a guess, unmeasured. */
+const STALE_MS = 60 * 60 * 1000;
+
+/**
+ * Remove each log directory in `tmp` a killed run left: its pid dead and
+ * the directory untouched for `STALE_MS` (#5046). Never throws.
+ * @param {string} tmp
+ * @param {number} [now]
+ */
+function sweep(tmp, now = Date.now()) {
+	let names;
+	try {
+		names = fs.readdirSync(tmp);
+	} catch {
+		// No tmpdir listing, nothing to sweep: the run arms as before.
+		return;
+	}
+	for (const name of names) {
+		const pid = LOG_DIR_NAME.exec(name)?.[1];
+		if (pid === undefined || pidAlive(Number(pid))) continue;
+		const dir = path.join(tmp, name);
+		try {
+			if (now - fs.lstatSync(dir).mtimeMs > STALE_MS) remove(dir);
+		} catch {
+			// Gone already: another run's sweep took it.
+		}
 	}
 }
 
