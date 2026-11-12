@@ -2355,8 +2355,7 @@ function closingBracket(segments, openIdx) {
 
 /**
  * Each `{ …; }` group's opening and closing segment, inner groups first, or
- * null where a `{` or `}` is left unpaired: bash refuses the script before it
- * runs anything.
+ * null where a `{` or `}` is left unpaired.
  * @param {string[]} segments
  * @returns {[number, number][] | null}
  */
@@ -2398,7 +2397,7 @@ function closingBrace(segments, segIdx) {
 /**
  * Whether every `{ …; }` group holding the segment surely runs in this shell:
  * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
- * not a function's body. Unpaired braces hold none.
+ * not a function's body. False where the braces are unpaired.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
