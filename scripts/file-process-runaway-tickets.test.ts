@@ -22,10 +22,10 @@ const stub = (name: string) => path.join(sb.dir, "gh", name);
 const logFile = () => path.join(sb.dir, "runaway.jsonl");
 
 const MIN = 60 * 1000;
+/* Read once, so firings meant for one episode share one `since` however long a run takes; handed to the program as WFC_NOW, so its lookback reads the same instant (#5103). */
+const NOW = Date.now();
 const at = (minutesAgo: number) =>
-	new Date(Date.now() - minutesAgo * MIN)
-		.toISOString()
-		.replace(/\.\d+Z$/, "+0000");
+	new Date(NOW - minutesAgo * MIN).toISOString().replace(/\.\d+Z$/, "+0000");
 const firing = (since: number, ts: number, over: object = {}) =>
 	JSON.stringify({
 		ts: at(ts),
@@ -59,6 +59,7 @@ const run = (argv: string[] = []) =>
 			CLAUDE_PROJECT_DIR: repo(),
 			STUB_DIR: path.join(sb.dir, "gh"),
 			WFC_RUNAWAY_LOG: logFile(),
+			WFC_NOW: new Date(NOW).toISOString(),
 		},
 	});
 

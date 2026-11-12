@@ -16,15 +16,13 @@
  * link-sub-issue.sh does (#3651), and does what release-issue-claim.js does
  * after it.
  *
- * ORDER: every refusal, then re-parent, read-back, comment, close, release.
- * Nothing is written on the spec, and the brief is never closed before the
- * read-back shows the spec under the map.
+ * ORDER: every refusal, then re-parent, comment, close, release. Nothing is
+ * written on the spec, and the brief is never closed before the map lists the
+ * spec.
  *
- * THE READ-BACK IS FROM THE MAP'S SIDE, in a separate call after a pause: the
- * spec's own `parent_issue_url` lags a move by minutes, and a list read in the
- * same breath as the POST comes back empty (link-sub-issue.sh's header).
- * WFC_PROMOTE_SLEEP (seconds) is the pause and the test seam; its default is
- * link-sub-issue.sh's, an unmeasured guess there too.
+ * THE RE-PARENT GOES THROUGH lib/link-writer.js (link-sub-issue.sh
+ * --replace-parent), which refuses a move that would close a loop of open
+ * issues and verifies it from the map's side (#5070).
  *
  * RE-RUN FINISHES ONLY WHAT IS MISSING. Once the move lands the spec is no
  * longer the brief's child, so a brief with no open spec child is looked up in
@@ -49,7 +47,7 @@ const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { openChildrenRefusal } = require("./lib/open-children.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { sleepSync } = require("./lib/sleep-sync.js");
+const { runLinkSync } = require("./lib/link-writer.js");
 const {
 	alreadyCommented,
 	isCardOwnIssue,
@@ -64,8 +62,6 @@ const USAGE = `usage: node ${scriptPath("promote-spec.js")} <brief>`;
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("promote-spec");
-
-const PAUSE_S = 2;
 
 /** @typedef {{number: number, id: number, state: string, title?: string, html_url?: string, labels?: Array<string|{name: string}>}} SubIssue */
 
@@ -88,11 +84,6 @@ const readRemovedSubIssues = (repo, brief) =>
 	ghApiSlurp([`repos/${repo}/issues/${brief}/timeline`])
 		.filter((e) => e.event === "sub_issue_removed" && e.sub_issue?.number)
 		.map((e) => /** @type {number} */ (e.sub_issue.number));
-
-const pause = () => {
-	const s = Number(process.env.WFC_PROMOTE_SLEEP ?? PAUSE_S);
-	if (s > 0) sleepSync(s * 1000);
-};
 
 /** @typedef {import("./lib/tracker-ops.js").Issue} Issue */
 
@@ -154,7 +145,7 @@ function readMapOrFail(brief, n) {
 		);
 	if (!map.labels.includes("wayfinder:map"))
 		io.fail(
-			`#${n}'s parent #${map.number} is not a wayfinder:map, so its spec has nowhere to go — a brief hangs directly under its map: move it there (the sub-issues POST with -F replace_parent=true), then re-run. Nothing written.`,
+			`#${n}'s parent #${map.number} is not a wayfinder:map, so its spec has nowhere to go — a brief hangs directly under its map: move it there (${scriptPath("link-sub-issue.sh")} <map> ${n} --replace-parent), then re-run. Nothing written.`,
 			2,
 		);
 	return map;
@@ -233,13 +224,19 @@ function readPriorSpecOrFail(at, mapKids) {
 }
 
 /**
- * @param {string} line
+ * What a move the writer did not make means, and what to do.
+ * @param {import("./lib/link-writer.js").SyncOutcome} r
  * @param {number} spec
  * @param {number} mapNumber
  * @param {number} n
  * @returns {string}
  */
-function moveRefusal(line, spec, mapNumber, n) {
+function moveRefusal(r, spec, mapNumber, n) {
+	const line = r.err;
+	if (r.code === 3)
+		return `moving #${spec} under #${mapNumber} was refused:\n${r.err}\n#${n} left open.`;
+	if (/still does not list/.test(line))
+		return `gh moved #${spec} without error, but #${mapNumber} does not list it. #${n} left open — re-run.`;
 	if (/100 sub-issues/.test(line))
 		return `moving #${spec} under #${mapNumber} was refused (${line}) — #${mapNumber} is at GitHub's 100-child cap: node ${scriptPath("archive-closed-children.js")} ${mapNumber}, then re-run. #${n} left open.`;
 	if (/422/.test(line))
@@ -248,7 +245,7 @@ function moveRefusal(line, spec, mapNumber, n) {
 }
 
 /**
- * Moves the held spec under the map and reads the move back.
+ * Moves the held spec under the map, verified from the map's side.
  * @param {string} repo
  * @param {number} n
  * @param {Issue} map
@@ -256,35 +253,13 @@ function moveRefusal(line, spec, mapNumber, n) {
  */
 function moveSpecOrFail(repo, n, map, held) {
 	const spec = held.number;
-	try {
-		gh([
-			"api",
-			"--method",
-			"POST",
-			`repos/${repo}/issues/${map.number}/sub_issues`,
-			"-F",
-			`sub_issue_id=${held.id}`,
-			"-F",
-			"replace_parent=true",
-		]);
-	} catch (e) {
-		io.fail(moveRefusal(parseErrLine(e), spec, map.number, n), 1);
-	}
-	pause();
-	let listed;
-	try {
-		listed = readSubIssues(repo, map.number).some((k) => k.number === spec);
-	} catch (e) {
-		io.fail(
-			`moved #${spec}, but #${map.number}'s sub-issues could not be read back (${parseErrLine(e)}). #${n} left open — re-run.`,
-			1,
-		);
-	}
-	if (!listed)
-		io.fail(
-			`gh moved #${spec} without error, but #${map.number} does not list it. #${n} left open — re-run.`,
-			1,
-		);
+	const r = runLinkSync(
+		"sub-issue",
+		[String(map.number), String(spec), "--replace-parent"],
+		{ repo },
+	);
+	if (r.code !== 0) io.fail(moveRefusal(r, spec, map.number, n), 1);
+	if (r.warning) io.warn(r.warning);
 	io.out(`#${spec}: moved under #${map.number}.\n`);
 }
 
@@ -370,7 +345,7 @@ function main() {
 	if (held !== undefined) {
 		if (map.state !== "open")
 			io.fail(
-				`#${n}'s map #${map.number} is ${map.state}, so moving #${held.number} there would hide an open spec under a closed map — move #${n} under an open map (the sub-issues POST with -F replace_parent=true), then re-run. Nothing written.`,
+				`#${n}'s map #${map.number} is ${map.state}, so moving #${held.number} there would hide an open spec under a closed map — move #${n} under an open map (${scriptPath("link-sub-issue.sh")} <map> ${n} --replace-parent), then re-run. Nothing written.`,
 				2,
 			);
 		moveSpecOrFail(repo, n, map, held);

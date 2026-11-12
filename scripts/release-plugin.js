@@ -96,6 +96,8 @@ const { validateNote, parseNote } = require("./lib/migration-note.js");
 const { upgrade } = require("./lib/upgrade-walk.js");
 const { gh, ghApiSlurp, parseErrLine } = require("./lib/gh.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { runLinkSync } = require("./lib/link-writer.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { originLabel } = require("./lib/issue-origin.js");
 const { takesLabel } = require("./lib/takes-label.js");
@@ -533,23 +535,23 @@ function fileBumpIssues(repos, tag) {
 		}
 	};
 	/**
+	 * The link, through lib/link-writer.js, which refuses a loop and verifies
+	 * the edge in a separate read.
 	 * @param {string} repo
 	 * @param {number} blocked
-	 * @param {number} blockerId
+	 * @param {number} blocker
 	 */
-	const block = (repo, blocked, blockerId) =>
-		ghStep(
-			repo,
-			[
-				"api",
-				"--method",
-				"POST",
-				`repos/${repo}/issues/${blocked}/dependencies/blocked_by`,
-				"-F",
-				`issue_id=${blockerId}`,
-			],
-			gh,
-		);
+	const block = (repo, blocked, blocker) => {
+		const args = [`${repo}#${blocked}`, `${repo}#${blocker}`];
+		const r = runLinkSync("blocker", args);
+		if (r.warning) writeFd(2, `${r.warning}\n`);
+		if (r.code !== 0)
+			failed.push({
+				repo,
+				reason: r.err,
+				retry: `node ${shellQuote(scriptPath("link-blocker.js"))} ${args.map(shellQuote).join(" ")}`,
+			});
+	};
 	for (const repo of repos) {
 		/** @type {{number: number, id: number, title: string, assignees: unknown[]}[]|null} */
 		const older = ghStep(
@@ -594,8 +596,8 @@ function fileBumpIssues(repos, tag) {
 		);
 		if (created === null) continue;
 		filed.push(repo);
-		for (const i of covered) block(repo, i.number, created.id);
-		for (const i of walking) block(repo, created.number, i.id);
+		for (const i of covered) block(repo, i.number, created.number);
+		for (const i of walking) block(repo, created.number, i.number);
 	}
 	return { filed, failed };
 }

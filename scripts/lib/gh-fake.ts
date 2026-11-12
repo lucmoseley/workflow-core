@@ -27,6 +27,9 @@ import GRAPHQL_ISSUE_STATES from "./fixtures/gh/graphql-issue-states.json" with 
 import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
 	type: "json",
 };
+import GRAPHQL_WAIT_GRAPH from "./fixtures/gh/graphql-wait-graph.json" with {
+	type: "json",
+};
 import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
 	type: "json",
 };
@@ -48,6 +51,9 @@ import PARENT_NOT_FOUND from "./fixtures/gh/parent-not-found.json" with {
 };
 import PARENT_PAGE from "./fixtures/gh/parent-page.json" with { type: "json" };
 import REPO from "./fixtures/gh/repo.json" with { type: "json" };
+import REPO_FULL_NAME from "./fixtures/gh/repo-full-name.json" with {
+	type: "json",
+};
 import REPO_VIEW from "./fixtures/gh/repo-view.json" with { type: "json" };
 import SUB_ISSUE_NUMBERS from "./fixtures/gh/sub-issue-numbers.json" with {
 	type: "json",
@@ -328,6 +334,50 @@ function answerBlockedBy(argv, rowsOf) {
 }`;
 
 /**
+ * The source of `answerWaitGraph(argv, nodeOf)`: lib/wait-graph.js's batched
+ * read of each issue's blockers and sub-issues together. `nodeOf(repo, n)`
+ * gives issue n of `owner/name` repo as `{state?, blockedBy?, subIssues?}`,
+ * each list `{number, state, repo?}` rows, or null for an issue GitHub cannot
+ * resolve. Each list is cut to the query's own `first:` with the full
+ * `totalCount`, and `{owner}/{repo}` resolves to `o/r`.
+ */
+export const WAIT_GRAPH_GRAPHQL_FAKE = String.raw`${HELPERS}
+function answerWaitGraph(argv, nodeOf) {
+	const fixture = ${JSON.stringify(GRAPHQL_WAIT_GRAPH)};
+	const page = JSON.parse(fixture.stdout);
+	const issue = Object.values(page.data.repository).find((v) => v && v.subIssues);
+	const node = issue.subIssues.nodes[0];
+	const field = (k) => argv.find((a) => a.startsWith(k + "=")).slice(k.length + 1);
+	const query = field("query");
+	const self = (field("owner") + "/" + field("name")).replace("{owner}/{repo}", "o/r");
+	const first = Number(query.match(/subIssues\(first: (\d+)\)/)[1]);
+	const conn = (template, rows) => shaped(template, {
+		totalCount: rows.length,
+		nodes: rows.slice(0, first).map((r) => shaped(node, {
+			number: r.number,
+			state: r.state.toUpperCase(),
+			repository: shaped(node.repository, { nameWithOwner: r.repo ?? self }),
+		})),
+	});
+	const repository = { nameWithOwner: self };
+	const errors = [];
+	for (const [, n] of query.matchAll(/i(\d+): issue\(/g)) {
+		const held = nodeOf(self, Number(n));
+		if (!held) {
+			repository["i" + n] = null;
+			errors.push(notFound(page.errors[0], ["repository", "i" + n], n));
+			continue;
+		}
+		repository["i" + n] = shaped(issue, {
+			state: (held.state ?? "open").toUpperCase(),
+			blockedBy: conn(issue.blockedBy, held.blockedBy ?? []),
+			subIssues: conn(issue.subIssues, held.subIssues ?? []),
+		});
+	}
+	return answerOf(fixture, { data: { repository } }, errors);
+}`;
+
+/**
  * The source of `asRecorded(kind, value)`: `value`'s JSON text, refused where
  * it carries a key the recorded answer of `kind` lacks or a type it does not
  * have, for a stub that builds its own JSON answers (#2895). A subset is
@@ -422,7 +472,8 @@ export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
 }
 
 /*
- * link-sub-issue.sh's reads, each by its `--jq` filter. A new read in the script
+ * lib/link-writer.js's sub-issue reads, each by its `--jq` filter — `repo`
+ * only where the repo is gh's `{owner}/{repo}`. A new read in the script
  * is one row and its fixture here: every stub serving the script answers it
  * from the row, as buildLinkReadArms in shell and answerLinkRead in node. A test
  * passes an answer by the row's key only where the value matters to it (#3652).
@@ -431,6 +482,7 @@ export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
  * A read with no `--jq`, or sharing a row's filter, cannot be a row as it stands.
  */
 export const LINK_READS = {
+	repo: { jq: ".full_name", answer: REPO_FULL_NAME as GhAnswer },
 	state: { jq: ".state", answer: ISSUE_STATE as GhAnswer },
 	id: { jq: ".id", answer: ISSUE_ID as GhAnswer },
 	children: { jq: ".[].number", answer: SUB_ISSUE_NUMBERS as GhAnswer },
