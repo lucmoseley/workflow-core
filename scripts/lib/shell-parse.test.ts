@@ -575,6 +575,17 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /a &&\n\ntrue & gh x")).toEqual(["/a", "/start"]);
 	});
 
+	it("is not settled outside a subshell by a chain ending inside it (#5093)", () => {
+		expect(last("cd /missing && (true; gh x)")).toEqual(["/missing"]);
+		expect(last("cd /missing && (true; true) && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && (true) >o && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && (true; true); gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("cd /missing && (true)\ngh x")).toEqual(["/missing", "/start"]);
+	});
+
 	it("moves each doubted directory through a later cd", () => {
 		expect(last("cd /missing/y; cd ../..; gh x", "/a/b")).toEqual([
 			"/missing/y/../..",
@@ -682,6 +693,12 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		expect(runDirs("flock /l -c 'cd /missing && gh x'")?.at(-1)).toEqual([
 			"/missing",
 		]);
+		expect(
+			runDirs("flock /l -c 'cd /missing && true &&\n\ngh x'")?.at(-1),
+		).toEqual(["/missing"]);
+		expect(
+			runDirs("flock /l -c 'cd /missing && true\n\ngh x'")?.at(-1),
+		).toEqual(["/missing", "/start"]);
 		expect(
 			runDirs("flock /l -c 'cd /missing || cd /usr; gh x'")?.at(-1),
 		).toEqual(["/usr", "/missing"]);
@@ -2031,6 +2048,11 @@ describe('walkGit, scope "shared"', () => {
 		expect(parseCommand("a\n\n b").joins).toEqual(["", "", ""]);
 	});
 
+	it('codes the rest of a line a `)` closed as ")" (#5093)', () => {
+		expect(parseCommand("(a) >o && b").joins.slice(-2)).toEqual([")", "a"]);
+		expect(parseCommand("(a)\nb").joins.slice(-2)).toEqual([")", ""]);
+	});
+
 	it("hands the arguments over raw, still masked", () => {
 		const [call] = walkGitRun('git checkout -m "a b"').calls;
 		expect(call?.args[1]).toContain(QUOTED);
@@ -2131,6 +2153,18 @@ describe('walkGit, scope "shared"', () => {
 					.trees,
 			).toEqual([SHARED]);
 		});
+
+		it.each([
+			[`cd ${WORKTREE} && (true; git checkout x)`, []],
+			[`cd ${WORKTREE} && (true) && git checkout x`, []],
+			[`cd ${WORKTREE} && (true); git checkout x`, [SHARED]],
+		])(
+			"doubts the tree a chain left only once it ends outside a subshell, %s (#5093)",
+			(bare, trees) => {
+				for (const command of [bare, `flock /l -c "${bare}"`])
+					expect(judged(command, SHARED, false).trees).toEqual(trees);
+			},
+		);
 
 		it("judges the tree two failed cds in the string leave it in (#5013)", () => {
 			const command = `flock /l -c "cd ${WORKTREE} || true; cd ${ELSEWHERE} || true; git checkout x"`;

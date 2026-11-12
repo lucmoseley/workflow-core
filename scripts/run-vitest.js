@@ -120,6 +120,7 @@ const {
 	killPid,
 	sweepAtStart,
 } = require("./lib/suite-ceiling.js");
+const { sweepDeadRunRoots } = require("./lib/run-temp-root.js");
 const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
@@ -2737,6 +2738,7 @@ if (require.main === module) {
 		process.exitCode = 1;
 	} else {
 		sweepAtStart();
+		sweepDeadRunRoots("vitest");
 		holdForLoad()
 			.then((go) =>
 				go
