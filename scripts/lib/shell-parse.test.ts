@@ -718,6 +718,42 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 	});
 });
 
+describe("Command.runs — a -c string's cds stand its commands where the walk would (#5082)", () => {
+	const isDir = (p: string) => p === "/h" || p === "/a";
+	const eachRun = (command: string) => {
+		const parsed = parseCommand(command);
+		const out: string[][] = [];
+		walkCommands(
+			parsed,
+			(cmd) => {
+				for (const run of cmd.runs()) out.push(run.dirs());
+			},
+			ports({ cwd: "/h", isDir }),
+		);
+		return out;
+	};
+
+	it.each([
+		"cd /nope && cd b; git x",
+		"cd /nope && cd b && git x",
+		"cd /nope && true; cd b; git x",
+		"cd /nope && (cd b); git x",
+		"cd /nope && (true; git x); git y",
+		"cd /nope && cd /a || git x",
+	])("stands each command of %s", (script) => {
+		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir });
+		expect(eachRun(`flock /l -c "${script}"`)).toEqual(bare);
+	});
+
+	it("leaves out a directory a cd chained off a failed one never ran in", () => {
+		expect(eachRun(`flock /l -c "cd /nope && cd b; git x"`).at(-1)).toEqual([
+			"/nope/b",
+			"/nope",
+			"/h",
+		]);
+	});
+});
+
 describe("Command.redirects — redirections out of the words and into a lookup (#1488)", () => {
 	/** Per command: its words, then one `fd kind target path` line per
 	 * redirection, the target read back through literal. */

@@ -12,7 +12,11 @@
 
 const { gh } = require("./gh.js");
 const { caught } = require("./caught.js");
-const { basisWriteFaults, citedKey } = require("./issue-gate.js");
+const {
+	citedKey,
+	untouchedBases,
+	wordedBasisFaults,
+} = require("./issue-gate.js");
 
 /* Comments read per page, GitHub's own ceiling for one connection. */
 const COMMENTS_PAGE = 100;
@@ -22,7 +26,7 @@ const REPO_PART_RE = /^[\w.-]+$/;
 /**
  * @typedef {import("./issue-gate.js").CitedIssue} CitedIssue
  * @typedef {{repo: string, number: number}} Wanted
- * @typedef {import("./issue-gate.js").BasisFault} BasisFault
+ * @typedef {import("./issue-gate.js").WordedFault} WordedFault
  * @typedef {import("./issue-gate.js").Follow} Follow
  * @typedef {import("./issue-gate.js").FollowRecord} FollowRecord
  * @typedef {import("./issue-gate.js").BasisWrite} BasisWrite
@@ -251,15 +255,16 @@ const CITED_BOUND_MS = 10_000;
  * @param {BasisWrite[]} bodies
  * @param {{timeoutMs: number, root?: string, env?: NodeJS.ProcessEnv}} opts
  *   `root`, the project whose config names the tracker
- * @returns {{faults: BasisFault[][], traces: FollowRecord[][],
+ * @returns {{faults: WordedFault[][], traces: FollowRecord[][],
  *   unread: Unread[], why: string|null, ms: number}} by body, in order:
- *   `faults`, and `traces`, each followed basis with its cited issues'
+ *   `faults`, the whole body's, which an edit's caller holds by
+ *   lib/issue-gate.js faultsAdded; `traces`, each followed basis with its cited issues'
  *   verdicts; `unread`, the citations judged on form alone, `why` saying
  *   what left them; `ms`, the read's wall time
  */
 function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
 	const formOnly = (/** @type {Follow} */ follow) => ({
-		faults: bodies.map((w) => basisWriteFaults(w, follow)),
+		faults: bodies.map((w) => faultsOf(w, follow)),
 		traces: bodies.map(() => []),
 		unread: [],
 		why: null,
@@ -292,7 +297,7 @@ function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
 	const traces = bodies.map(() => []);
 	return {
 		faults: bodies.map((w, i) =>
-			basisWriteFaults(w, {
+			faultsOf(w, {
 				tracker: tracker ?? NO_TRACKER,
 				issues: read.issues,
 				trace: traces[i],
@@ -304,6 +309,21 @@ function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
 		ms: read.ms,
 	};
 }
+
+/**
+ * A body's faults, whole: an edit's untouched bases are judged on their form.
+ *
+ * @param {BasisWrite} write
+ * @param {Follow} follow
+ */
+const faultsOf = ({ body, own, before }, follow) =>
+	wordedBasisFaults(
+		body,
+		own,
+		before === undefined
+			? follow
+			: { ...follow, skip: untouchedBases(before, String(body || "")) },
+	);
 
 /**
  * The note naming the citations left unread.

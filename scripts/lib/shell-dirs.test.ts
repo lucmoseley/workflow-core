@@ -123,4 +123,23 @@ describe("dirsAfter", () => {
 		/* `true && cd /a; git x`, or one inside `if`: it may not have run. */
 		expect(standAfter(["/h"], to("/a", "maybe"))).toEqual(["/a", "/h"]);
 	});
+
+	it("settles a chain where a move ends it, out of reach of the moves after (#5082)", () => {
+		/* `cd /nope && cd b; git x`: b ran only where /nope was made. */
+		expect(
+			standAfter(
+				["/h"],
+				to("/nope", "if-dir", { chained: true }),
+				to("b", "if-dir", { settles: true }),
+			),
+		).toEqual(["/nope/b", "/nope", "/h"]);
+		/* `cd /nope && true; cd b; git x`: b ran wherever the chain left it. */
+		expect(
+			standAfter(
+				["/h"],
+				to("/nope", "if-dir", { chained: true, settles: true }),
+				to("b", "if-dir"),
+			),
+		).toEqual(["/nope/b", "/h/b", "/nope", "/h"]);
+	});
 });

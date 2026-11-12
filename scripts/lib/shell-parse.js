@@ -1496,9 +1496,7 @@ function commandRuns(words, leading, cwds, { scope, isDir }) {
 /**
  * @typedef {object} ScriptState what a script's next command runs under
  * @property {Chdir[]} chdirs
- * @property {{ at: number, holds: Chdir["holds"] }[]} pending each `cd` a
- *   `&&` chain is sure of until it ends: its index in `chdirs`, and how it
- *   holds after
+ * @property {boolean} chainOpen a `&&` chain a `cd` opened has not yet ended
  * @property {string[]} exports
  * @property {Map<string, string>} locals each name an assignment alone set,
  *   its word
@@ -1528,7 +1526,7 @@ function parseScript(script, spans) {
 	/** @type {ScriptState} */
 	let state = {
 		chdirs: [],
-		pending: [],
+		chainOpen: false,
 		exports: [],
 		locals: new Map(),
 		lost: [],
@@ -1573,20 +1571,23 @@ function parseScript(script, spans) {
 }
 
 /**
- * A `&&` chain's end, as settleCwdDoubt reads one: each `cd` it was sure of
- * now holds as it would alone.
+ * A `&&` chain's end, as settleCwdDoubt reads one: the last `cd` before it
+ * settles the chain for every command after (#5082).
  * @param {ScriptState} state
  * @param {string | undefined} join
  * @returns {ScriptState}
  */
 function settleScriptChain(state, join) {
-	if (join === "a" || join === "(" || state.pending.length === 0) return state;
-	const chdirs = [...state.chdirs];
-	for (const { at, holds } of state.pending) {
-		const cd = chdirs[at];
-		if (cd) chdirs[at] = { ...cd, holds };
-	}
-	return { ...state, chdirs, pending: [] };
+	if (join === "a" || join === "(" || !state.chainOpen) return state;
+	const last = state.chdirs.at(-1);
+	if (!last) throw new Error("a -c string's && chain is open with no cd");
+	/** @type {Chdir} */
+	const settled = { ...last, settles: true };
+	return {
+		...state,
+		chdirs: [...state.chdirs.slice(0, -1), settled],
+		chainOpen: false,
+	};
 }
 
 /**
@@ -1769,7 +1770,7 @@ function exportWords(state, { head, kind }, args, spans) {
 
 /**
  * The state after a `cd`: one whose target no word gives goes where nothing
- * resolves; one a `&&` chains a command off holds always for that chain.
+ * resolves; one a `&&` chains a command off opens a chain.
  * @param {ScriptState} state
  * @param {string[]} own its words, masked
  * @param {ScriptAt} where
@@ -1787,21 +1788,19 @@ function cdInScript(state, own, where) {
 		own,
 		state.cdAt,
 	);
-	const pending = chained
-		? [...state.pending, { at: state.chdirs.length, holds }]
-		: state.pending;
 	/** @type {Map<string, string | null>} */
 	const vars = new Map(state.locals);
 	for (const name of state.lost) vars.set(name, null);
 	/** @type {Chdir} */
-	const cd = {
-		dir,
-		read: false,
-		holds: chained ? "always" : holds,
-		vars,
-	};
+	const cd = { dir, read: false, holds, vars };
 	if (afterFailed) cd.afterFailed = true;
-	return { ...state, chdirs: [...state.chdirs, cd], pending, cdAt };
+	if (chained) cd.chained = true;
+	return {
+		...state,
+		chdirs: [...state.chdirs, cd],
+		chainOpen: state.chainOpen || chained,
+		cdAt,
+	};
 }
 
 /**
@@ -2356,10 +2355,9 @@ function runCwd(cwds, chdirs, scope, isDir) {
  * @param {import("./shell-dirs.js").Resolved} resolved its directory
  * @returns {import("./shell-dirs.js").Move}
  */
-const chdirMove = ({ holds, afterFailed }, resolved) => ({
+const chdirMove = ({ dir, read, vars, envReset, ...move }, resolved) => ({
 	resolved,
-	holds,
-	afterFailed,
+	...move,
 });
 
 const CONFIG_READ = /^(?:--get|--list$|-l$)/;
