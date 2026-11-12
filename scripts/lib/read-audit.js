@@ -14,16 +14,8 @@
  * no read under it is a read of the checkout.
  *
  * A GIT CALL ON THIS REPOSITORY is a read `fs` never sees, from a test's
- * scratch as from anywhere else under the root. One of the read-only
- * subcommands in `RERUN`, made from a directory under the root with no `-C`,
- * `--git-dir`, `--work-tree`, git-dir variable or `--output` steering it and
- * nothing fed to it on standard input, is kept word for word with the answer
- * the guard saw it give: the store keys it on its output run again, and only
- * where that equals what the test got (#4993). A call the guard logged begun
- * and never answered, or that answered the same words two ways, is a doubt.
- * So is one made after the suite's setup settled under a variable changing
- * git's answer (`GIT_ANSWER_VARS`) set otherwise than it was settled
- * (#5017).
+ * scratch as from anywhere else under the root: lib/read-audit-git.js keeps
+ * it to run again or doubts it.
  *
  * EVERY DOUBT IS NO ROW: a file whose audit is missing, faulted, shared with
  * another file, or holds a read the audit cannot see, reads as `doubt`. What
@@ -71,14 +63,12 @@ const { isUnder, relativeUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
 const {
-	GIT_ANSWER_VARS,
-	GIT_EVENTS,
-	GIT_VALUED,
 	isNode,
 	parseStanding,
 	SHOWN_MAX,
 	toPosix,
 } = require("./read-audit-paths.js");
+const { parseGitRecords, readGitCalls } = require("./read-audit-git.js");
 const { buildGitEventsReader } = require("./read-audit-git-events.js");
 const { buildHanded } = require("./read-audit-handed.js");
 const { isProvenance } = require("./read-audit-provenance.js");
@@ -89,79 +79,8 @@ const PRELOAD = path.join(__dirname, "read-audit-preload.js");
 const NO_TRACER =
 	"read audit: no working strace on PATH, so a test file that runs a stub, a shell or a checkout program records no pass-store row (#4966).\n";
 
-/* Subcommands that read and never write, so the store may run one again.
- * `status` is left out: it refreshes the index. */
-const RERUN = new Set([
-	"rev-parse",
-	"ls-files",
-	"ls-tree",
-	"cat-file",
-	"show",
-	"log",
-	"rev-list",
-	"diff",
-	"diff-tree",
-	"diff-index",
-	"diff-files",
-	"merge-base",
-	"for-each-ref",
-	"show-ref",
-	"describe",
-	"name-rev",
-	"check-ignore",
-	"grep",
-]);
-
-/* The long options that feed a `RERUN` subcommand its standard input, which
- * a run again never has: an object list, a path list, a revision list. */
-const STDIN_OPTIONS = [
-	"--stdin",
-	"--annotate-stdin",
-	"--parseopt",
-	"--batch",
-	"--exclude-existing",
-];
-
-/* A file named `-`, which git reads its standard input for: a word of its
- * own, the value stuck to a short option (`-f-`) or given to a long one
- * (`--exclude-from=-`). */
-const STDIN_FILE = /^(?:-|-[^-].*-|--.+=-)$/;
-
-/* A path naming a descriptor of the process that opens it, its standard
- * input among them, closing a word however the word spells it: bare, stuck
- * to a short option, or the value of a long one. A run again holds none of
- * the test's descriptors, so any of them counts, not standard input alone. */
-const DESCRIPTOR_PATH =
-	/\/(?:dev\/(?:stdin|stdout|stderr|fd\/\d+)|proc\/[^/]+\/(?:task\/[^/]+\/)?fd\/\d+)$/;
-
 /**
- * Whether a word of a git call may feed it its standard input, or hand it
- * another descriptor of the test's by path. git takes
- * any prefix of a long option that names no other, so every prefix of one
- * in `STDIN_OPTIONS` counts, whichever subcommand it is handed to and
- * whether or not another option there shares it: a call kept is run again
- * with no input, so the doubt goes to not keeping it (#4790). A word
- * naming a descriptor by path counts however it is spelt, `.`, `..` and
- * doubled slashes folded away below a root of the word's own, so a `..`
- * folds away no more than the option the path is stuck to.
- * @param {string} word
- */
-function isDescriptorFed(word) {
-	if (STDIN_FILE.test(word)) return true;
-	if (DESCRIPTOR_PATH.test(path.posix.normalize(`/${word}`))) return true;
-	const valueAt = word.indexOf("=");
-	const name = valueAt < 0 ? word : word.slice(0, valueAt);
-	if (!name.startsWith("--") || name === "--") return false;
-	return (
-		name.startsWith("--batch") ||
-		STDIN_OPTIONS.some((option) => option.startsWith(name))
-	);
-}
-
-/**
- * @typedef {{cwd: string, args: string[], answer: string}} GitCall
- *   a git call to run again: its directory, repo-relative, its words, and
- *   the answer the test got, `<status>:<sha1 of stdout>`
+ * @typedef {import("./read-audit-git.js").GitCall} GitCall
  * @typedef {{files: string[], absent: string[], dirs: string[],
  *   lists: Record<string, string>, trees: string[], scripts: string[],
  *   git: GitCall[]}} Reads
@@ -363,67 +282,7 @@ function readOwners(dir) {
 	return owners;
 }
 
-/**
- * @typedef {{at: number, steered: string, dir: string, pid: number,
- *   answer: string, env: Record<string, string>, args: string[]}} GitRecord
- *   one guard record, at its byte offset in the log; `answer` is empty on
- *   the record made before git ran; `env` the variables changing git's
- *   answer
- */
-
-/**
- * The guard's records: each its field count, then that many NUL-ended
- * fields — the git-dir flag, the directory, the pid, the answer, the count
- * of `env`'s pairs and each as `name=value`, the words. Read as Latin-1,
- * one character a byte, so each record's offset is its byte's; each field
- * is then decoded as UTF-8.
- * @param {Buffer} bytes
- * @returns {GitRecord[]}
- */
-function parseGitRecords(bytes) {
-	const fields = bytes.toString("latin1").split("\0");
-	const utf8 = (/** @type {string} */ f) =>
-		Buffer.from(f, "latin1").toString("utf8");
-	/** @type {GitRecord[]} */
-	const out = [];
-	for (let i = 0, at = 0; i < fields.length - 1; ) {
-		const n = Number(fields[i]);
-		const pairs = Number(fields[i + 5]);
-		if (!Number.isInteger(n) || n < 5) throw new Error("a git record is torn");
-		if (!Number.isInteger(pairs) || pairs < 0 || pairs > n - 5)
-			throw new Error("a git record is torn");
-		const [steered = "", dir = "", pid = "", answer = "", , ...rest] = fields
-			.slice(i + 1, i + 1 + n)
-			.map(utf8);
-		out.push({
-			at,
-			steered,
-			dir,
-			pid: Number(pid),
-			answer,
-			env: parseEnvPairs(rest.slice(0, pairs)),
-			args: rest.slice(pairs),
-		});
-		for (const f of fields.slice(i, i + n + 1)) at += f.length + 1;
-		i += n + 1;
-	}
-	return out;
-}
-
-/**
- * `name=value` pairs as a record.
- * @param {string[]} pairs
- * @returns {Record<string, string>}
- */
-function parseEnvPairs(pairs) {
-	/** @type {Record<string, string>} */
-	const env = {};
-	for (const pair of pairs) {
-		const eq = pair.indexOf("=");
-		env[pair.slice(0, eq)] = pair.slice(eq + 1);
-	}
-	return env;
-}
+/** @typedef {import("./read-audit-git.js").GitRecord} GitRecord */
 
 /**
  * One owner's reads, or the doubt that voids them.
@@ -443,17 +302,15 @@ function judge({ logs, git, standing }, root, readers) {
 	const recorded = new Set(git.map((record) => record.pid));
 	const { spelt } = buildHanded(root);
 	const scope = { root, isScratch, recorded, spelt };
+	const calls = readGitCalls(git, standing, root);
+	if (!Array.isArray(calls)) return calls;
 	const reads = buildCollector(logs, scope, readers);
-	for (const record of git) {
-		const why = setApart(record, standing) ?? reads.takeGit(record);
-		if (why) return { doubt: why };
-	}
 	for (const entries of logs.values())
 		for (const e of entries) {
 			const why = reads.take(e);
 			if (why) return { doubt: why };
 		}
-	return reads.finish();
+	return reads.finish(calls);
 }
 
 /**
@@ -486,9 +343,6 @@ function buildCollector(logs, scope, readers) {
 	const trees = new Set();
 	/** @type {Set<string>} */
 	const scripts = new Set();
-	/** @type {Map<string, {cwd: string, args: string[], begun: number,
-	 *   answers: string[]}>} */
-	const calls = new Map();
 	/** @type {Map<number, ChildEntry>} */
 	const children = new Map();
 	/* What `judge` weighs before it takes any line. */
@@ -557,24 +411,10 @@ function buildCollector(logs, scope, readers) {
 	return {
 		take,
 		/**
-		 * @param {GitRecord} record
-		 * @returns {string|null}
+		 * @param {GitCall[]} git the owner's git calls, `readGitCalls`'
+		 * @returns {Audit}
 		 */
-		takeGit(record) {
-			const { answer } = record;
-			const call = rerunnable(record, root);
-			if (typeof call === "string") return call;
-			const key = JSON.stringify(call);
-			const at = calls.get(key) ?? { ...call, begun: 0, answers: [] };
-			if (answer === "") at.begun += 1;
-			else at.answers.push(answer);
-			calls.set(key, at);
-			return null;
-		},
-		/** @returns {Audit} */
-		finish() {
-			const git = answeredCalls(calls.values());
-			if (!Array.isArray(git)) return git;
+		finish(git) {
 			/** @type {Record<string, string>} */
 			const listed = {};
 			for (const [p, ids] of lists) {
@@ -598,84 +438,6 @@ function buildCollector(logs, scope, readers) {
 			};
 		},
 	};
-}
-
-/**
- * Each git call with the one answer the test got, or the doubt where one has
- * none or two.
- * @param {Iterable<{cwd: string, args: string[], begun: number,
- *   answers: string[]}>} calls
- * @returns {GitCall[]|{doubt: string}}
- */
-function answeredCalls(calls) {
-	/** @type {GitCall[]} */
-	const git = [];
-	for (const { cwd, args, begun, answers } of calls) {
-		const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
-		const [answer, ...rest] = answers;
-		if (answer === undefined || answers.length !== begun)
-			return { doubt: `a git call (${shown}) was logged without its answer` };
-		if (rest.some((a) => a !== answer))
-			return {
-				doubt: `a git call (${shown}) answered differently within the run`,
-			};
-		git.push({ cwd, args, answer });
-	}
-	return git;
-}
-
-/**
- * The doubt a git call made after the setup settled leaves where a variable
- * changing git's answer was set, or unset, otherwise than settled; null
- * where none was, or the call was made before, as the setup's own. The
- * audit's own event target is no test's. The setup's own `GIT_CONFIG_*`
- * (vitest.setup.ts) stands in the settled environment but not in the
- * store's run again; neither changes a read-only answer.
- * @param {GitRecord} record
- * @param {Standing} standing
- * @returns {string|null}
- */
-function setApart({ at, env, args }, { env: settled, gitAt }) {
-	if (at < gitAt) return null;
-	const names = new Set([...Object.keys(env), ...Object.keys(settled)]);
-	const apart = [...names]
-		.filter((v) => GIT_ANSWER_VARS.test(v) && v !== GIT_EVENTS)
-		.filter((v) => env[v] !== settled[v])
-		.sort();
-	if (apart.length === 0) return null;
-	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
-	return `a git call (${shown}) ran under a variable that steers git (${apart.join(", ")})`;
-}
-
-/**
- * A guard record as a git call to run again, or the doubt it leaves where it
- * cannot be run again.
- * @param {GitRecord} record
- * @param {string} root real path
- * @returns {{cwd: string, args: string[]}|string}
- */
-function rerunnable({ steered, dir, args }, root) {
-	const shown = `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
-	if (!isUnder(dir, [root], path.sep))
-		return `a git call (${shown}) read another checkout of this repository`;
-	const cwd = toPosix(path.relative(root, dir)) || ".";
-	if (steered) return `a git call (${shown}) was steered by a git-dir variable`;
-	let i = 0;
-	while (i < args.length && String(args[i]).startsWith("-")) {
-		const a = String(args[i]);
-		if (a === "-C" || a.startsWith("--git-dir") || a.startsWith("--work-tree"))
-			return `a git call (${shown}) named its repository`;
-		i += GIT_VALUED.has(a) ? 2 : 1;
-	}
-	if (!RERUN.has(String(args[i])))
-		return `a git call (${shown}) read this repository`;
-	/* `--output` sends the answer to a file, so stdout, which the answer is
-	 * hashed off, holds none of it (#4993). */
-	if (args.some((a) => a === "--output" || String(a).startsWith("--output=")))
-		return `a git call (${shown}) wrote its answer to a file`;
-	if (args.slice(i + 1).some(isDescriptorFed))
-		return `a git call (${shown}) read its standard input or another descriptor`;
-	return { cwd, args };
 }
 
 /* Programs that run their first non-option argument as a script. */

@@ -13,6 +13,7 @@
  * that parses a `-c` string (#4863), never at load.
  */
 
+const { GIT_VALUED } = require("./read-audit-git.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -1100,21 +1101,8 @@ function carriesVar(name, leading, wrapperWords) {
 	);
 }
 
-/** git's own options, before the subcommand, that take the next word. */
-const GIT_VALUE_OPTIONS = [
-	"-C",
-	"-c",
-	"--config-env",
-	"--namespace",
-	"--work-tree",
-	"--git-dir",
-	"--exec-path",
-	"--attr-source",
-	"--shallow-file",
-];
-
 /** @param {string} w */
-const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
+const isGitValueOption = (w) => GIT_VALUED.has(w);
 
 /**
  * Step git's own options, the words between `git` and its subcommand; the

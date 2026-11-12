@@ -76,12 +76,7 @@ const { readJsonl } = require("./jsonl.js");
 const { readText } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
 const { isSteadyUnder, readSteady } = require("./run-steadiness.js");
-const {
-	execGit,
-	spawnGitSync,
-	GIT_DIR_VARS,
-	GIT_TIMEOUT_MS,
-} = require("./git.js");
+const { execGit, spawnGitSync, GIT_TIMEOUT_MS } = require("./git.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const {
 	ABSENT,
@@ -107,6 +102,7 @@ const {
 const { readWorkingTree } = require("./test-read-edges.js");
 const { listingId } = require("./listing-id.js");
 const { pathKind } = require("./path-kind.js");
+const { buildGitRunner, keyOf } = require("./read-audit-git.js");
 const { repoPath } = require("./read-audit-paths.js");
 const idSeam = require("./session-id.js");
 
@@ -527,46 +523,10 @@ const sharedInputs = (root, shared) => [
  *   isDir: (dir: string) => boolean,
  *   git: (key: string) => string|null}} TreeAt
  *   what a tree answers beyond its files: each directory's listing id, null
- *   where none stands; whether one stands; and a git call's output id, by its
- *   key (lib/read-audit.js's `GitCall` as JSON, the key a row stores), null
- *   where it cannot run
+ *   where none stands; whether one stands; and a git call's answer, by the
+ *   key a row stores it under (lib/read-audit-git.js), null where it cannot
+ *   run
  */
-
-/**
- * A git call run again at `root`: the id of its exit status and output.
- * Memoised, as many rows rest on one call. Null where its key will not
- * parse or the call will not run.
- * @param {string} root
- * @returns {(key: string) => string|null}
- */
-function buildGitRunner(root) {
-	/** @type {Map<string, string|null>} */
-	const memo = new Map();
-	/* A test's call ran with no variable pointing git at a repository
-	 * (vitest.setup.ts), so its run again does too. */
-	const env = { ...process.env };
-	for (const v of GIT_DIR_VARS) delete env[v];
-	return (key) => {
-		if (memo.has(key)) return memo.get(key) ?? null;
-		let id = null;
-		try {
-			const { cwd, args } = JSON.parse(key);
-			const r = spawnGitSync(args, {
-				cwd: path.join(root, cwd),
-				env,
-				timeout: GIT_TIMEOUT_MS,
-			});
-			if (!r.error && r.status !== null)
-				id = `${r.status}:${crypto.createHash("sha1").update(r.stdout).digest("hex")}`;
-		} catch {
-			// A key that will not parse is a call that cannot run: no id, so
-			// the row resting on it is not recorded and never holds (#4916).
-			id = null;
-		}
-		memo.set(key, id);
-		return id;
-	};
-}
 
 /**
  * The working tree at `root`, beyond its files.
@@ -575,7 +535,9 @@ function buildGitRunner(root) {
  */
 function buildWorkingAt(root) {
 	return {
-		git: buildGitRunner(root),
+		git: buildGitRunner(root, (args, opts) =>
+			spawnGitSync(args, { ...opts, timeout: GIT_TIMEOUT_MS }),
+		),
 		listing: (dir) => {
 			try {
 				return listingId(fs.readdirSync(path.join(root, dir)));
@@ -701,7 +663,7 @@ function auditInputs(reads, listings, working, steadyUnder) {
 	/** @type {Record<string, string>} */
 	const git = {};
 	for (const { cwd, args, answer } of reads.git) {
-		const key = JSON.stringify({ cwd, args });
+		const key = keyOf({ cwd, args });
 		const id = working.git(key);
 		if (id !== answer) return null;
 		git[key] = id;

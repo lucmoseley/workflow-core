@@ -359,22 +359,8 @@ async function execGitAsync(args, opts = {}) {
 	return { stdout: String(stdout), stderr: String(stderr) };
 }
 
-/* The variables that point git at a repository. vitest.setup.ts deletes each
- * in every test worker; the pass store runs a test's git call again without
- * them (lib/pass-store.js). */
-const GIT_DIR_VARS = [
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_PREFIX",
-];
-
 module.exports = {
 	SHORT_SHA,
-	GIT_DIR_VARS,
 	gitBinary,
 	gitSpawnOptions,
 	execGit,

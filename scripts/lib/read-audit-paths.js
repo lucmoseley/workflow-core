@@ -1,6 +1,6 @@
 /*
- * read-audit-paths.js — the path tests, limits and git and environment
- * readings the read audit's modules share (#4916).
+ * read-audit-paths.js — the path tests, limits and environment readings
+ * the read audit's modules share (#4916).
  * lib/read-audit-preload.js loads it into every audited process, so it
  * requires nothing beside Node's own modules and lib/is-under.js, which the
  * preload loads already.
@@ -59,29 +59,6 @@ function pairValue(envPairs, name) {
 	return pair === undefined ? undefined : String(pair).slice(name.length + 1);
 }
 
-/* git's options before the subcommand that take the next word as a value. */
-const GIT_VALUED = new Set([
-	"-C",
-	"-c",
-	"--git-dir",
-	"--work-tree",
-	"--namespace",
-	"--config-env",
-	"--attr-source",
-]);
-
-/* The variables git reads a path from: its own, and where its configuration
- * lives (git(1), ENVIRONMENT VARIABLES; git-config(1), FILES). */
-const GIT_READ_NAMES = "GIT_.*|HOME|XDG_CONFIG_HOME";
-const GIT_READS = new RegExp(`^(${GIT_READ_NAMES})$`);
-
-/* The variables changing what a git call answers: those, and the locale
- * and zone its messages and dates follow (#5017). The git guard's loop
- * spells the same set. */
-const GIT_ANSWER_VARS = new RegExp(
-	`^(${GIT_READ_NAMES}|TZ|LANG|LANGUAGE|LC_.*)$`,
-);
-
 /**
  * @typedef {{env: Record<string, string>, gitAt: number}} Standing
  *   the environment a suite's setup settled, and how many bytes the owner's
@@ -111,9 +88,6 @@ const GIT_EVENTS = "GIT_TRACE2_EVENT";
 module.exports = {
 	parseStanding,
 	GIT_EVENTS,
-	GIT_READS,
-	GIT_ANSWER_VARS,
-	GIT_VALUED,
 	EXITED,
 	isNode,
 	PATH_MAX,

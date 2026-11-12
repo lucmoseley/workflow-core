@@ -317,7 +317,7 @@ describe("what a test file reads, as the audit sees it", () => {
 		expect(readAudits(log, root).get(T).doubt).toMatch(/without the audit/);
 	});
 
-	it("keeps a read-only git call on the checkout's repository to run again, and doubts any other", () => {
+	it("keeps a read-only git call on the checkout's repository to run again, and doubts one moved onto it by -C", () => {
 		const root = checkout();
 		const env = guarded(root);
 		const call = (cwd: string, args: string[]) =>
@@ -345,54 +345,11 @@ describe("what a test file reads, as the audit sees it", () => {
 				answer: `0:${createHash("sha1").update(listing).digest("hex")}`,
 			},
 		]);
-		const output = audited(
-			root,
-			T,
-			call(root, ["diff", `--output=${path.join(fixture, "d")}`]),
-			{ env },
-		);
-		expect(readAudits(output, root).get(T).doubt).toMatch(
-			/git call \(git diff --output=.*\) wrote its answer to a file/,
-		);
-		const status = audited(root, T, call(root, ["status"]), { env });
-		expect(readAudits(status, root).get(T).doubt).toMatch(
-			/git call \(git status\) read this repository/,
-		);
 		const steered = audited(root, T, call(fixture, ["-C", root, "ls-files"]), {
 			env,
 		});
 		expect(readAudits(steered, root).get(T).doubt).toMatch(
 			/^a git call \(git -C /,
-		);
-	});
-
-	it("doubts a git call the guard logged begun and never answered, or answered two ways", () => {
-		const root = checkout();
-		const env = guarded(root);
-		const body = `require("node:child_process").execFileSync("git", ["ls-files"], { cwd: ${JSON.stringify(root)} });`;
-		const gitLog = (dir: string) =>
-			path.join(
-				dir,
-				fs.readdirSync(dir).find((n) => n.endsWith(".git")) as string,
-			);
-		/** The guard's first record in `log` again, answered `answer`. */
-		const logged = (log: string, answer: string) => {
-			const fields = fs.readFileSync(log, "latin1").split("\0");
-			const n = Number(fields[0]);
-			return [...fields.slice(0, 4), answer, ...fields.slice(5, n + 1)]
-				.map((f) => `${f}\0`)
-				.join("");
-		};
-		const killed = audited(root, T, body, { env });
-		fs.appendFileSync(gitLog(killed), logged(gitLog(killed), ""), "latin1");
-		expect(readAudits(killed, root).get(T).doubt).toMatch(
-			/git call \(git ls-files\) was logged without its answer/,
-		);
-		const twice = audited(root, T, body, { env });
-		const again = logged(gitLog(twice), "") + logged(gitLog(twice), "0:x");
-		fs.appendFileSync(gitLog(twice), again, "latin1");
-		expect(readAudits(twice, root).get(T).doubt).toMatch(
-			/git call \(git ls-files\) answered differently within the run/,
 		);
 	});
 
@@ -1980,64 +1937,6 @@ describe("the reads a row must not rest on unseen (#4790 pass 3)", () => {
 		);
 		expect(judged(root, [call(["status"])], [])).toHaveProperty("reads");
 	});
-
-	it.each([
-		[["cat-file", "--batch"]],
-		[["cat-file", "--batch-check=%(objectname)"]],
-		[["check-ignore", "--stdin"]],
-		[["rev-list", "--stdin"]],
-		[["diff", "--no-index", "-", "scripts/lib/hooks.js"]],
-		[["grep", "-l", "-f-"]],
-		[["ls-files", "-o", "--exclude-from=-"]],
-		[["check-ignore", "--stdi", "-v"]],
-		[["rev-list", "--std"]],
-		[["name-rev", "--annotate-std"]],
-		[["show-ref", "--exclude-e"]],
-		[["show-ref", "--exclude-e=refs/heads/"]],
-		[["cat-file", "--b"]],
-		[["grep", "-l", "-f", "/dev/stdin"]],
-		[["grep", "-lf/dev/stdin"]],
-		[["grep", "-f", "/proc/self/fd/0"]],
-		[["grep", "-f", "/proc/4242/fd/0"]],
-		[["grep", "-l", "-f", "/dev/fd/3"]],
-		[["ls-files", "-o", "--exclude-from=/dev/stdin"]],
-		[["ls-files", "-o", "--exclude-from=/dev/./fd//0"]],
-		[["diff", "--no-index", "/dev/stdin", "scripts/lib/hooks.js"]],
-		[["diff", "--no-index", "../../dev/fd/0", "scripts/lib/hooks.js"]],
-		[["grep", "-l", "--file=/../dev/stdin"]],
-		[["grep", "-l", "-F/../dev/stdin"]],
-		[["grep", "-l", "--file=/dev/stdout"]],
-		[["grep", "-lf/dev/stderr"]],
-	])(
-		"doubts a git call fed by its standard input or another descriptor, which a run again never has: %j",
-		(words) => {
-			const root = checkout();
-			expect(judged(root, [], [[root, words]]).doubt).toMatch(
-				/a git call \(git .*\) read its standard input or another descriptor/,
-			);
-			expect(
-				judged(root, [], [[root, ["cat-file", "-p", "HEAD"]]]).reads.git,
-			).toEqual([
-				{ cwd: ".", args: ["cat-file", "-p", "HEAD"], answer: Answer },
-			]);
-		},
-	);
-
-	it.each([
-		[["diff", "--no-index", "/dev/null", "scripts/lib/hooks.js"]],
-		[["ls-files", "-o", "--exclude-from=dev/stdin.txt"]],
-		[["ls-files", "--stage", "--exclude-standard"]],
-		[["log", "--stat", "--all", "--branches", "--parents"]],
-		[["rev-parse", "--abbrev-ref", "HEAD", "--"]],
-	])(
-		"keeps a git call whose options only resemble one fed by a descriptor: %j",
-		(words) => {
-			const root = checkout();
-			expect(judged(root, [], [[root, words]]).reads.git).toEqual([
-				{ cwd: ".", args: words, answer: Answer },
-			]);
-		},
-	);
 
 	it("doubts a `git` a test wrote in a directory of the guard's name, which is not the guard (#4790 pass 3)", () => {
 		const root = checkout();
