@@ -69,9 +69,8 @@ const POOL_WIDTH = 4;
  * built for this surface. `primitives` (#3451) runs at commit with
  * `--paths-only`, and here prints the count line.
  * `throttling` is a 10-19 s live sweep. `harness-canary` (#2037)'s start hook
- * prints only a red verdict, and the agent_id probe's "fixed" (#2819): here it
- * also shows a version not yet probed, a probe that could not run, and the
- * agent_id verdict. `concurrency` (#3317) prints a standing, never a fault.
+ * prints only a red verdict: here it also shows a version not yet probed and
+ * a probe that could not run. `concurrency` (#3317) prints a standing, never a fault.
  * `interop-latency` (#3564) also runs at SessionStart, which prints only a
  * degraded bridge: here a healthy one prints its latency. `kernel-stall` (#4092)
  * also runs at SessionStart, silent on a clock it cannot read: here that is a WARN.

@@ -16,7 +16,7 @@
 	"scripts/check-doc-map.js": "29f9df1da7a04110",
 	"scripts/check-gate-switches.js": "4d9bdbbe9c5199af",
 	"scripts/check-guard-registry.js": "e5349abbfad599da",
-	"scripts/check-harness-canary.js": "d0aebe43ac924b2b",
+	"scripts/check-harness-canary.js": "98d04b30853fd3c6",
 	"scripts/check-idle-efforts.js": "d7e1c6a888eae6d2",
 	"scripts/check-interop-latency.js": "ad111643ed75c961",
 	"scripts/check-issue-cycles.js": "f2160098287202f3",

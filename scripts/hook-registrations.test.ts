@@ -442,7 +442,7 @@ const REGISTRATIONS: Registration[] = [
 		/* Silent unless the installed Claude Code's probe went red; a version
 		 * neither passed nor probed launches the probe detached (#2037). */
 		event: "SessionStart",
-		id: "scripts/check-harness-canary.js --notify --write",
+		id: "scripts/check-harness-canary.js --notify",
 		matcher: null,
 		covers: [],
 	},
