@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Detects a wedged WSL Windows-interop bridge (stuck reg.exe calls launched from inside WSL) and raises a toast naming the fix. Detect and notify only - never runs wsl --shutdown, because a false positive would kill live background sessions.</Description>
+    <Description>Detects a wedged WSL Windows-interop bridge (stuck reg.exe calls launched from inside WSL) and raises a toast naming the fix. Never runs wsl --shutdown, because a false positive would kill live background sessions. Also boots the default WSL distro when no vmmemWSL process exists, so an unattended reboot or VM death costs minutes.</Description>
     <URI>\WSL Interop Watchdog</URI>
   </RegistrationInfo>
   <Triggers>

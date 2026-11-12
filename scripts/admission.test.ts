@@ -1576,7 +1576,7 @@ describe("admissionFrom's own fallback and wording", () => {
 		const charged = admissionFrom(roomy, one, {
 			host,
 			typecheckChargeMb: 1497,
-			windows: { state: "fresh", mb: 1500, ageS: 30 },
+			windows: { state: "fresh", mb: 1250, ageS: 30 },
 			guestFreeMb: 900,
 		});
 		expect(charged.reason).toMatch(
@@ -1646,13 +1646,13 @@ describe("the Windows limbs, read off the machine (#4956)", () => {
 	const GuestFree = 541;
 
 	it("charges the guest free memory a fresh Windows reading cannot back, and prints it", () => {
-		const m = { mb: 4000, windowsMb: 1200 };
+		const m = { mb: 4000, windowsMb: 950 };
 		const { json } = run(m);
 		expect(json.windowsChargeMb).toBe(GuestFree - 200);
 		expect(json.guestFreeMb).toBe(GuestFree);
 		expect(json.budgetMb).toBe(run({ mb: 4000 }).json.budgetMb - 341);
 		expect(run({ ...m, json: false }).stdout).toMatch(
-			/windows memory {5}1200 MB free on Windows \(memwatch, \d+ s old\), 200 MB above its 1000 MB floor, against 541 MB free in the guest that it does not yet back, so 341 MB comes off the budget \(#4956\)/,
+			/windows memory {5}950 MB free on Windows \(memwatch, \d+ s old\), 200 MB above its 750 MB floor, against 541 MB free in the guest that it does not yet back, so 341 MB comes off the budget \(#4956\)/,
 		);
 	});
 
@@ -1678,7 +1678,7 @@ describe("the Windows limbs, read off the machine (#4956)", () => {
 });
 
 describe("buildWindowsLine (#4956)", () => {
-	const fresh = { state: "fresh" as const, mb: 800, ageS: 30 };
+	const fresh = { state: "fresh" as const, mb: 550, ageS: 30 };
 
 	it("words Windows under its floor as a shortfall", () => {
 		expect(
@@ -1688,7 +1688,7 @@ describe("buildWindowsLine (#4956)", () => {
 				windowsChargeMb: 300,
 			}),
 		).toBe(
-			"800 MB free on Windows (memwatch, 30 s old), 200 MB under its 1000 MB floor, against 300 MB free in the guest that it does not yet back, so 300 MB comes off the budget (#4956)",
+			"550 MB free on Windows (memwatch, 30 s old), 200 MB under its 750 MB floor, against 300 MB free in the guest that it does not yet back, so 300 MB comes off the budget (#4956)",
 		);
 	});
 
@@ -1700,7 +1700,7 @@ describe("buildWindowsLine (#4956)", () => {
 				windowsChargeMb: 0,
 			}),
 		).toBe(
-			"800 MB free on Windows, the guest's free memory unread, so nothing is charged against it",
+			"550 MB free on Windows, the guest's free memory unread, so nothing is charged against it",
 		);
 		expect(
 			buildWindowsLine({

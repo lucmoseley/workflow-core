@@ -172,6 +172,17 @@ describe("a find started at / is refused (#1006)", () => {
 		'flock /l -c "false && cd /usr; find . -x"',
 		'flock /l -c "cd /missing || true; find . -x"',
 		'flock /l -c "cd -; find . -x"',
+		"cd /usr || true & find . -x",
+		"false && { cd /usr; }; find . -x",
+		"f() { cd /usr; }; find . -x",
+		"cd / || cd /usr && find . -x",
+		'flock /l -c "cd / || cd /usr && find . -x"',
+		"! cd /missing || cd /usr; find . -x",
+		'flock /l -c "! cd /missing || cd /usr; find . -x"',
+		"cd -P /tmp/.. || cd /usr; find . -x",
+		'flock /l -c "cd -P /tmp/.. || cd /usr; find . -x"',
+		'cd "$Q" || cd /usr; find . -x',
+		"! cd /missing && find . -x",
 	])(
 		"judges too where a cd may not have moved it: %s from / (#4980)",
 		(command) => {
@@ -188,8 +199,12 @@ describe("a find started at / is refused (#1006)", () => {
 		'flock /l -c "cd /usr; find . -x"',
 		'flock /l -c "cd /missing && find . -x"',
 		"cd /missing; cd /usr; find . -x",
+		"cd /missing || cd /usr; find . -x",
+		"{ cd /usr; }; find . -x",
+		'flock /l -c "cd /missing || cd /usr; find . -x"',
+		'flock /l -c "{ cd /usr; }; find . -x"',
 	])(
-		"takes a cd that surely ran, or chains the find: %s from / (#4980)",
+		"takes a cd that surely ran, or chains the find: %s from / (#4980, #5010)",
 		(command) => {
 			expect(judge(command, { cwd: "/", isDir: missing })).toBeNull();
 		},
