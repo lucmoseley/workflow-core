@@ -40,7 +40,6 @@
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { unwrap } = require("./shell-words.js");
 
 const ESCAPE_NAMES = "WFC_ALLOW_BRANCH|WFC_ALLOW_GATE_INPUT_DELETE";
 
@@ -81,9 +80,8 @@ function decide(command, ctx) {
 	let refused = null;
 	walkCommands(
 		parsed,
-		({ segment, words, leading }) => {
-			if (refused === null && setsEscape(leading, words, parsed.spans))
-				refused = segment;
+		(cmd) => {
+			if (refused === null && setsEscape(cmd)) refused = cmd.segment;
 		},
 		ctx,
 	);
@@ -112,13 +110,11 @@ function unquotedText(s) {
  * NAME=1 cmd`) and on one inside `env` whose value holds a `/` (`env
  * PATH=/usr/bin NAME=1 cmd`), reading it by basename; or as an
  * `export`/`declare -x` argument.
- * @param {string[]} leading
- * @param {string[]} words
- * @param {string[]} spans
+ * @param {import("./shell-parse.js").Command} cmd
  */
-function setsEscape(leading, words, spans) {
+function setsEscape({ leading, runs }) {
 	if (leading.some((w) => ASSIGNS_RE.test(w))) return true;
-	return unwrap(words, spans).some(
+	return runs().some(
 		({ words: run, wrapperWords }) =>
 			leadingSets(wrapperWords) ||
 			(run.length > 0 && (leadingSets(run) || exportsEscape(run))),

@@ -47,7 +47,7 @@
 const { refuseOnce } = require("./refuse-once.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { literal, unwrap } = require("./shell-words.js");
+const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /* A target opening on a variable, then a slash. */
@@ -126,9 +126,8 @@ function scan(subject, ctx) {
 	};
 	walkCommands(
 		parsed,
-		({ words, assigned }) => {
-			for (const run of unwrap(words, parsed.spans))
-				judgeRun(run.words, { seen, lit, assigned });
+		({ runs, assigned }) => {
+			for (const run of runs()) judgeRun(run.words, { seen, lit, assigned });
 		},
 		ctx,
 	);

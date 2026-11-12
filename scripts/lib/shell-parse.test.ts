@@ -29,7 +29,6 @@ import {
 	normAbs,
 	parseCommand,
 	parseScript,
-	runCwd,
 	unmask,
 	unsetText,
 	walkCommands,
@@ -635,7 +634,107 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 	});
 });
 
-describe("runCwd — a -c string's cds stand its commands where the walk would (#5082)", () => {
+describe("Command.runs — each run with every directory it may stand in (#5075)", () => {
+	const isDir = (p: string) => !p.startsWith("/missing");
+	/** Each run's directories, for the last command the walk hands over. */
+	const runDirs = (command: string, vars: Record<string, string> = {}) =>
+		walkMap(command, (c) => c.runs().map((r) => r.dirs()), {
+			vars,
+			isDir,
+		}).at(-1);
+
+	it.each([
+		["env -C / find . -x", [["/"]]],
+		["sudo -D / find -x", [["/"]]],
+		["env --chdir=/ find . -x", [["/"]]],
+		['env -C "/" find . -x', [["/"]]],
+		["env -C /tmp env -C .. find . -x", [["/tmp/.."]]],
+		["env -C / env -C . find . -x", [["//."]]],
+		['env -C /tmp flock /l -c "cd ..; find . -x"', [["/tmp"], ["/tmp/.."]]],
+	])("moves a run through its wrapper's directory: %s", (command, dirs) => {
+		expect(runDirs(command)).toEqual(dirs);
+	});
+
+	it.each([
+		['flock /l -c "cd /; find . -x"', [["/start"], ["/"]]],
+		['flock /l -c "cd / && find -x"', [["/start"], ["/"]]],
+		['watch "cd /tmp; cd ..; find . -x"', [["/start"], ["/tmp"], ["/tmp/.."]]],
+		[`flock /l -c 'cd "/"; find . -x'`, [["/start"], ["/"]]],
+		["flock /l -c 'X=/; cd $X; find . -x'", [["/start"], ["/"]]],
+	])("moves a -c string's later run through its cd: %s", (command, dirs) => {
+		expect(runDirs(command)).toEqual(dirs);
+	});
+
+	it("keeps the command's doubted directories, and a -c string's own doubts", () => {
+		expect(runDirs("cd /missing; env -C a gh x")).toEqual([
+			["/missing/a", "/start/a"],
+		]);
+		expect(runDirs("flock /l -c 'cd /missing; gh x'")?.at(-1)).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(runDirs("flock /l -c 'cd /missing && gh x'")?.at(-1)).toEqual([
+			"/missing",
+		]);
+		expect(
+			runDirs("flock /l -c 'cd /missing || cd /usr; gh x'")?.at(-1),
+		).toEqual(["/usr", "/missing"]);
+	});
+
+	/* A wrapper's word reads the environment and the assignments before its
+	 * command as a `cd` does. */
+	it.each([
+		["env -C $X find . -x", [["/x"]]],
+		["env -C ~ find . -x", [["/h"]]],
+		["sudo -D ~ find -x", [["/h"]]],
+		["env -C ~/.. find . -x", [["/h/.."]]],
+		["flock /l -c 'cd $X; find . -x'", [["/start"], ["/x"]]],
+		["flock /l -c 'cd ~; find . -x'", [["/start"], ["/h"]]],
+		['D=/d; env -C "$D" gh x', [["/d"]]],
+	])("reads a wrapper's word under the walk's scope: %s", (command, dirs) => {
+		expect(runDirs(command, { X: "/x", HOME: "/h", PWD: "/p" })).toEqual(dirs);
+	});
+
+	it("reads a wrapper's word before the command's own prefix assignment, as bash expands first (#5087)", () => {
+		expect(runDirs("X=/y env -C $X gh x", { X: "/x" })).toEqual([["/x"]]);
+		expect(runDirs('D=/a; D=/d env -C "$D" gh x')).toEqual([["/a"]]);
+	});
+
+	it.each([
+		["env -C $X find . -x", {}],
+		["flock /l -c 'X=$X; cd $X; find . -x'", { X: "/x" }],
+		["flock /l -c 'X=/; read X; cd $X; find . -x'", {}],
+		["X=/; flock /l -c 'cd $X; find . -x'", { X: "/x" }],
+		["flock /l -c 'cd /usr; cd $PWD; find . -x'", { PWD: "/p" }],
+		["sudo flock /l -c 'cd $X; find . -x'", { X: "/x" }],
+	])("names no directory a word does not give whole: %s", (command, vars) => {
+		expect(runDirs(command, vars)?.at(-1)?.[0]).toBe("");
+	});
+
+	it.each([
+		["env -C '$X' find . -x", "/start/$X"],
+		["env -C '~' find . -x", "/start/~"],
+		["env -C \\~ find . -x", "/start/~"],
+	])("takes a quoted directory as written: %s", (command, dir) => {
+		expect(runDirs(command, { X: "/x", HOME: "/h" })).toEqual([[dir]]);
+	});
+
+	it("unwraps the words once, however often it is asked", () => {
+		const parsed = parseCommand(`flock /l -c 'cd /a; gh x'`);
+		walkCommands(
+			parsed,
+			(cmd) => {
+				const first = cmd.runs();
+				const spans = parsed.spans.length;
+				expect(cmd.runs()).toBe(first);
+				expect(parsed.spans.length).toBe(spans);
+			},
+			ports(),
+		);
+	});
+});
+
+describe("Command.runs — a -c string's cds stand its commands where the walk would (#5082)", () => {
 	const isDir = (p: string) => p === "/h" || p === "/a";
 	const eachRun = (command: string) => {
 		const parsed = parseCommand(command);
@@ -643,8 +742,7 @@ describe("runCwd — a -c string's cds stand its commands where the walk would (
 		walkCommands(
 			parsed,
 			(cmd) => {
-				for (const run of unwrap(cmd.words, parsed.spans))
-					out.push(runCwd(cmd.cwds, run.chdirs, parsed.spans, isDir));
+				for (const run of cmd.runs()) out.push(run.dirs());
 			},
 			ports({ cwd: "/h", isDir }),
 		);

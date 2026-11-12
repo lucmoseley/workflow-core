@@ -180,14 +180,8 @@ const {
 	ruleOrFallback,
 	walkVerdict,
 } = require("./guard-verdict.js");
-const { parseCommand, runCwd, unmask } = require("./shell-parse.js");
-const {
-	ghCall,
-	literal,
-	runText,
-	scanFlags,
-	unwrap,
-} = require("./shell-words.js");
+const { parseCommand, unmask } = require("./shell-parse.js");
+const { ghCall, literal, runText, scanFlags } = require("./shell-words.js");
 const {
 	CLOSE_WHEN_LINE,
 	TAKES_VALUES,
@@ -321,14 +315,14 @@ const readActsLine = (ctx) =>
  */
 function judge(run, cmd) {
 	const { spans } = run.parsed;
-	for (const unwrapped of unwrap(cmd.words, spans)) {
+	for (const unwrapped of cmd.runs()) {
 		const gh = ghCall(unwrapped.words, spans);
 		if (!gh) continue;
 		const [sub, verb] = gh.args;
 		const ghCmd = {
 			...cmd,
 			segment: runText(unwrapped, cmd.segment),
-			cwd: runCwd(cmd.cwds, unwrapped.chdirs, spans, run.ctx.isDir)[0],
+			cwd: unwrapped.dirs()[0],
 		};
 		if (sub === "issue" && verb === "create")
 			judgeCreate(run, ghCmd, gh.args.slice(2), gh.repo);

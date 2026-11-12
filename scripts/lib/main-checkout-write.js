@@ -21,8 +21,8 @@
  * directory in
  * that tree whose program is no existing file — `python3 -`, `node -e`,
  * `bash -c`, a piped or heredoc-fed program, through any wrapper lib/
- * shell-words.js's unwrap strips, in any directory the walk and its runCwd
- * say it may stand in (a `cd` that may not have run or failed, `env -C`, a
+ * shell-words.js's unwrap strips, in any directory the walk says its run
+ * may stand in (a `cd` that may not have run or failed, `env -C`, a
  * `flock -c` string's `cd`) — since what it writes lives in another
  * language's strings and cannot be read (#4469). That refusal is a guess
  * that the program writes, taken because its way out — `cd` into the
@@ -38,7 +38,7 @@
  *    on the session's behalf, an inline interpreter run from outside the
  *    main checkout naming a path in it — or one it cannot resolve is not
  *    seen; so is a command run outside Claude Code; an interpreter whose cwd
- *    the walk or runCwd loses (`cd "$X"`, `pushd`, `env -C $X`), recorded;
+ *    the walk loses (`cd "$X"`, `pushd`, `env -C $X`), recorded;
  *    one run from a gitignored
  *    directory under the main checkout, which may still write `../` into
  *    its tree; and one behind a launcher unwrap does not strip (`uv run`).
@@ -60,18 +60,8 @@ const { buildCutCommand, readCutOver } = require("./cutover.js");
 const { denyText } = require("./guard-verdict.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const { lastLineTerminator } = require("./line-terminators.js");
-const {
-	absolute,
-	literal,
-	programSource,
-	unwrap,
-} = require("./shell-words.js");
-const {
-	parseCommand,
-	runCwd,
-	walkCommands,
-	walkGit,
-} = require("./shell-parse.js");
+const { absolute, literal, programSource } = require("./shell-words.js");
+const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /* git verbs that write a work tree's index, HEAD or files. */
@@ -260,9 +250,9 @@ function refusedPath(p, ctx, dir = false) {
  * @returns {string | null}
  */
 function interpreterDir(cmd, spans, ctx) {
-	for (const run of unwrap(cmd.words, spans)) {
+	for (const run of cmd.runs()) {
 		const words = run.words.map((w) => literal(w, spans).text);
-		for (const cwd of runCwd(cmd.cwds, run.chdirs, spans, ctx.isDir)) {
+		for (const cwd of run.dirs()) {
 			const dir = runDir(words, cwd, ctx);
 			if (dir !== null) return dir;
 		}
