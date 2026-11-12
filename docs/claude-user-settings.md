@@ -37,7 +37,7 @@ tool if a deny ever matters.
 
 ```json
 {
-  "cleanupPeriodDays": 365,
+  "cleanupPeriodDays": 35,
   "env": {
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
     "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS": "60000",
@@ -369,7 +369,7 @@ fi
 # every checkout once #127 moved the marker out of it (workflow-core#131).
 #
 # The marker is read live and the flip is HALF live: scripts/lib/dispatch-rewrite.js
-# moves the next `haiku` Agent dispatch to `opus` and `opus` to `fable` at once, while the `model`
+# moves the next `opus` Agent dispatch to `fable` at once, while the `model`
 # key the toggle also writes is read at startup, so this session keeps the
 # model it booted on. Hence `(restart: model)` and not the design segment's
 # bare `(restart)`: the badge names the half that is still waiting. Only this
@@ -1165,6 +1165,7 @@ plan's config dir links it. Edit it at
 - measurement-and-experiment-design: sizing an observation window, a soak or a before/after measurement; sample size, stopping rules and confidence bounds for a rate or a change.
 - capacity-planning-and-admission: sizing and admitting concurrent jobs or sessions against memory and CPU, and reading out utilisation and why work waits.
 - process-supervision-and-oom: keeping long-running processes alive on one machine: systemd units and timers, restart policy, graceful upgrades, and OOM ranking and recovery.
+- crash-and-os-incident-diagnosis: reading why a machine crashed, hung or reset: bug checks and crash-dump analysis, event-log and trace forensics, hardware-watchdog and unclean-shutdown resets, and pinning a cause across repeated incidents.
 - ci-and-repo-quality-gates: linters, pre-commit/CI gates, repo health checks, coding-standards enforcement.
 - dependency-and-release-management: npm/pip dependencies, plugin packaging, version pins, releases.
 - code-refactoring-and-architecture: restructuring code, module design, software architecture.
@@ -1229,10 +1230,15 @@ The founder only clicks Authorize; a session does the rest.
   back. The drift check ignores it (`VOLATILE_KEYS` in
   `scripts/check-user-settings-drift.js`, which says why), so this block's value
   may be stale. Read the model in use off the session, never off this file.
-- `cleanupPeriodDays: 365` — transcripts are kept a year, so a job whose
+- `cleanupPeriodDays: 35` — transcripts are kept 35 days. The longest
+  readers look back 30 days (`scripts/report-cost-per-unit.js`,
+  `scripts/lib/heresy-sweep.js`, `scripts/check-compaction-backstop.js`), the
+  outcome review counts a baseline its run record lacks from transcripts
+  starting 2 weeks before filing, so that reading must come within 3 weeks of
+  filing, and a job whose
   worktree the reaper removed can still be reopened with
-  `node scripts/session-checkout.js reopen <job-id>`. Every seat carries the
-  same value (#4366, #4368).
+  `node scripts/session-checkout.js reopen <job-id>`. A reader that looks back
+  further needs this raised. Every seat carries the same value (#5045).
 - `defaultMode: auto` — tools run without per-call prompting, so the deny list
   and the auto-mode classifier's rules (`autoMode`), rather than the prompt,
   constrain the agent.

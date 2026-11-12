@@ -30,8 +30,8 @@
  * capped at `RUN_MS` and held by a lock file so two never overlap.
  *
  * The report (the default, read on `npm run status`) prints, per window and
- * first-sight/after-refusal, how many were judged, the share judged to bear or
- * unsupported, and how many wait.
+ * first-sight/after-refusal, how many were judged and how many wait; first
+ * sight the share judged to bear, after refusal the judge's held-out rates.
  * `--notify`, at session start, prints nothing (#2038).
  *
  * IN NO FAMILY (code-standards §N3, §G4): the report is a `check-*` in all
@@ -445,14 +445,12 @@ const pct = (r) => `${Math.round((100 * r.caught) / r.of)}%`;
 function sayRows(ctx, rows) {
 	for (const [name, r] of rows) {
 		if (!r.judged && !r.pending && !r.withheld) continue;
-		const after = r.sight === "after-refusal";
-		const count = after ? r.judged - r.bears : r.bears;
-		const share = r.judged ? `${Math.round((100 * count) / r.judged)}%` : "—";
-		const rates = r.heldOut
-			? `; judge TPR ${pct(r.heldOut.unsupported)}, TNR ${pct(r.heldOut.genuine)} held out`
-			: "";
+		const share = r.judged ? `${Math.round((100 * r.bears) / r.judged)}%` : "—";
+		const verdict = r.heldOut
+			? `judge TPR ${pct(r.heldOut.unsupported)}, TNR ${pct(r.heldOut.genuine)} held out`
+			: `${share.padStart(4)} bore`;
 		ctx.say(
-			`  ${name.padEnd(22)} ${String(r.judged).padStart(3)} judged, ${share.padStart(4)} ${after ? "unsupported" : "bore"}; ${r.pending} pending${r.withheld ? `, ${r.withheld} withheld by gitleaks` : ""}${rates}`,
+			`  ${name.padEnd(22)} ${String(r.judged).padStart(3)} judged, ${verdict}; ${r.pending} pending${r.withheld ? `, ${r.withheld} withheld by gitleaks` : ""}`,
 		);
 	}
 }
@@ -495,7 +493,7 @@ function reportRun(ctx) {
 			"  The judge's first-sight accuracy is unmeasured (#667). After refusal,\n" +
 			"  on 122 held-out hand-classified re-sends, it caught 1 of 12 unsupported\n" +
 			"  (TPR) and passed 58 of 64 genuine (TNR) and 34 of 38 partly supported,\n" +
-			"  which the share counts as judged; so it under-counts (#5003).\n" +
+			"  so the row shows no share (#5003, #5035).\n" +
 			(index.unreadable
 				? `  ${index.unreadable} transcript(s) would not read, so these counts are short.\n`
 				: "") +

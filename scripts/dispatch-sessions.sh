@@ -232,13 +232,13 @@ ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 
 # Every member's model goes through lib/model-table.js's table before any gate
 # reads it (#4919): the standing layer moves a Sonnet spelling to
-# `claude-haiku-5-5[1m]`, and while burn mode is on its layer moves Haiku to
-# `claude-opus-5-5[1m]` and Opus to `claude-fable-5-2[1m]`. An overflow seat
+# `claude-haiku-5-5[1m]`, and while burn mode is on its layer moves Opus to
+# `claude-fable-5-2[1m]`. An overflow seat
 # never runs burn mode, so it takes the standing layer alone. The effort each
 # runs at is settings.json's per-model `modelSettings`. The per-member line
 # names each remap; a spelling the exact-match table does not know launches as
 # written. The advisor is judged on the remapped spelling, so it attaches to a
-# Haiku launch and never to one burn mode moved to Opus.
+# Haiku launch alone.
 MODEL_TABLE="$here/lib/model-table.js"
 
 dry_run=0
@@ -495,16 +495,16 @@ esac
 
 # Burn mode never reaches an overflow seat (#4919).
 [[ $overflow -eq 1 ]] && burn=0
-burn_flag=()
-[[ $burn -eq 1 ]] && burn_flag=(--burn)
 
 remapped=()
 for ((i = 1; i <= $#; i += 2)); do
   j=$((i + 1))
   m="${!i}"
-  to="$(node "$MODEL_TABLE" launch "$m" "${burn_flag[@]}")"
+  standing="$(node "$MODEL_TABLE" launch "$m")"
+  to="$standing"
+  [[ $burn -eq 1 ]] && to="$(node "$MODEL_TABLE" launch "$m" --burn)"
   [[ "$to" != "$m" ]] && printf '%s: %s -> %s\n' \
-    "$([[ $burn -eq 1 ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
+    "$([[ "$to" != "$standing" ]] && echo 'burn mode' || echo 'model table')" "$m" "$to" >&2
   remapped+=("$to" "${!j}")
 done
 set -- "${remapped[@]}"

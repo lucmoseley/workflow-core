@@ -47,7 +47,7 @@ from memwatch_minute import (  # noqa: E402
 
 MIB = 1 << 20
 # Guesses until a day of passes is read (#4791). The trigger sits above the
-# Windows hold's 1,000 MB floor (#4850), so the hold never waits on a reading
+# Windows hold's 750 MB floor (#4852), so the hold never waits on a reading
 # this ignores.
 TRIGGER_MB = 2000
 STEP_BYTES = 256 * MIB
