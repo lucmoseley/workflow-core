@@ -16,6 +16,10 @@ _Avoid_: covers, proves, certifies
 The set of paths a run's verdict depends on: the tests it ran, everything they import, the documents they read, and the roots that invalidate all of them. A full run's closure is every tracked path.
 _Avoid_: coverage (a per-line figure, not a path set), scope (how much of the suite ran)
 
+**Steady**:
+Of a path a run read: the path holds now the content the run read, as far as the run's own watch can tell. A path the watch could not see, or saw move, is not steady. Where the watch saw nothing, no path is.
+_Avoid_: settled (the whole tree, at the end snapshot), clean (a run that did not err outside its files)
+
 **Orphaned edit**:
 An uncommitted change in the main checkout or a linked worktree that no live session holds, claims, wrote or owns the worktree of. Nobody may have abandoned it: its last writer can believe it belongs to someone else.
 _Avoid_: stray dirt, abandoned work, neighbour's dirt (a live session's uncommitted edit, which has an owner)

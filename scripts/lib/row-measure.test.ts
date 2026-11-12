@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { watched } from "./pass-store-testkit";
 
 const {
 	KEEP_ENV,
@@ -27,7 +28,6 @@ const {
 	runKey,
 	summarise,
 } = require("./row-measure.js");
-const { readTreeSnapshot } = require("./tree-drift.js");
 
 let tmp = "";
 beforeEach(() => {
@@ -206,10 +206,7 @@ describe("summarise", () => {
 	});
 });
 
-const recordedRun = (
-	root: string,
-	after: object = { head: "h", files: {} },
-) => ({
+const recordedRun = (root: string, steadiness = watched(root)) => ({
 	sha: "s",
 	at: "2026-11-12T00:00:00Z",
 	tree: null,
@@ -217,9 +214,7 @@ const recordedRun = (
 	files: [{ file: "a.test.ts", outcome: "pass", imports: [] }],
 	shared: [],
 	clean: true,
-	drifted: [],
-	after,
-	startMark: BigInt("123456789012345678901"),
+	steadiness,
 });
 
 function logDir() {
@@ -235,13 +230,14 @@ describe("keepRun and readKept", () => {
 		const keep = path.join(tmp, "keep");
 		fs.mkdirSync(root);
 		fs.mkdirSync(keep);
-		keepRun(logDir(), recordedRun(root), {
+		const recorded = recordedRun(root);
+		keepRun(logDir(), recorded, {
 			env: { [KEEP_ENV]: keep },
 			err: quiet,
 		});
 		const [kept] = readKept(keep);
 		const { keptMark, ...run } = kept.run;
-		expect(run).toEqual(recordedRun(root));
+		expect(run).toEqual(recorded);
 		expect(typeof keptMark).toBe("bigint");
 		expect(fs.readFileSync(path.join(kept.dir, "owner.1.jsonl"), "utf8")).toBe(
 			'{"k":"claim"}\n',
@@ -289,7 +285,7 @@ describe("movedSince", () => {
 		fs.writeFileSync(path.join(repo, "x.txt"), "x\n");
 		git("add", "x.txt");
 		git("commit", "-qm", "x");
-		keepRun(logDir(), recordedRun(repo, readTreeSnapshot(repo)), {
+		keepRun(logDir(), recordedRun(repo), {
 			env: { [KEEP_ENV]: keep },
 			err: quiet,
 		});

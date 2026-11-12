@@ -30,12 +30,8 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { execGit } = require("./git.js");
-const {
-	drift,
-	markStart,
-	readChangedSince,
-	readTreeSnapshot,
-} = require("./tree-drift.js");
+const { markStart, readChangedSince } = require("./tree-drift.js");
+const { readMovedSinceEnd } = require("./run-steadiness.js");
 const { isUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 
@@ -57,10 +53,10 @@ const WINDOW_DAYS = 14;
  *   with why, and what its pass store said
  */
 
-/** A mark, as JSON carries it. @param {bigint|null} mark */
+/** The kept mark, as JSON carries it. @param {bigint|null} mark */
 const markOut = (mark) => (mark === null ? null : String(mark));
 
-/** A mark JSON carried. @param {unknown} mark */
+/** The kept mark JSON carried. @param {unknown} mark */
 const markIn = (mark) => (typeof mark === "string" ? BigInt(mark) : null);
 
 /**
@@ -86,7 +82,6 @@ function keepRun(dir, run, { env = process.env, err = process.stderr } = {}) {
 			path.join(to, RUN_FILE),
 			JSON.stringify({
 				...run,
-				startMark: markOut(run.startMark),
 				keptMark: markOut(markStart(run.root)),
 			}),
 		);
@@ -116,7 +111,6 @@ function readKept(keep) {
 					dir,
 					run: {
 						...run,
-						startMark: markIn(run.startMark),
 						keptMark: markIn(run.keptMark),
 					},
 				},
@@ -133,9 +127,11 @@ function readKept(keep) {
  * @returns {string[]|null}
  */
 function movedSince(run) {
-	const now = readTreeSnapshot(run.root);
-	if (run.after == null || now === null) return ["(the tree will not read)"];
-	const moved = drift(run.after, now);
+	const moved =
+		run.steadiness === null
+			? "unknown"
+			: readMovedSinceEnd(run.steadiness, run.root);
+	if (moved === "unknown") return ["(the tree will not read)"];
 	if (moved?.headMoved) return ["HEAD"];
 	if (moved) return moved.moved.map((m) => m.path);
 	const tracked = String(
