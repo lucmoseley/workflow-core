@@ -15,28 +15,20 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { edgesOf, reachOf } = require("./code-edges.js");
+const { reachOf, readRunReach } = require("./code-edges.js");
 
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-/** The reach of `file` under `root`, reading `text`: as a script run on its
- * own, or, handed the `search` its importer left, as that file's module. */
-function walk(file: string, text: string, search?: unknown) {
+/** The reach of `file` under `root`, reading `text`, as a script run on
+ * its own. */
+function walk(file: string, text: string) {
 	const faults: string[] = [];
 	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-	const found = reachOf(
-		path.join(root, file),
-		text,
-		(m: string) => faults.push(m),
-		search,
+	const found = reachOf(path.join(root, file), text, (m: string) =>
+		faults.push(m),
 	);
-	return {
-		edges: rel(found.edges),
-		shadows: rel(found.shadows),
-		faults,
-		pySearch: found.pySearch,
-	};
+	return { edges: rel(found.edges), shadows: rel(found.shadows), faults };
 }
 
 /** A tree holding `files`, and the importer `tool/t.py` reading `code`. */
@@ -343,16 +335,41 @@ describe("a sys.path entry the file adds", () => {
 	});
 });
 
+/** The run of `start` under `root`, read off the disk (`readRunReach`):
+ * every file it reaches bar `start`, sorted, its shadows and its faults. */
+function runOf(start: string) {
+	const faults: string[] = [];
+	const found = readRunReach(root)(start, (_file: string, m: string) =>
+		faults.push(m),
+	);
+	return {
+		edges: found.files.filter((f: string) => f !== start).sort(),
+		shadows: found.shadows,
+		unread: found.unread,
+		faults,
+	};
+}
+
+/** A tree under a fresh `root` holding each of `files`, path to text. */
+function writeTree(files: Record<string, string>) {
+	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ce-")));
+	for (const [rel, text] of Object.entries(files)) {
+		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+		fs.writeFileSync(path.join(root, rel), text);
+	}
+}
+
 describe("a module walked on its importer's sys.path (#4870)", () => {
-	/** `lib/m.py`'s reach, reading `code`, alone and as the module the script
-	 * `tool/t.py`, reading `script`, imports; `files` stand beside them. */
+	/** `lib/m.py`'s own reach, reading `code`, and the run of the script
+	 * `tool/t.py`, reading `script`, that imports it; `files` stand beside
+	 * them, empty. */
 	function moduleTree(script: string, code: string, files: string[]) {
-		tree(script, [...files, "lib/m.py"]);
-		const { pySearch } = walk("tool/t.py", script);
-		return {
-			alone: walk("lib/m.py", code),
-			imported: walk("lib/m.py", code, pySearch),
-		};
+		writeTree({
+			...Object.fromEntries(files.map((f) => [f, ""])),
+			"lib/m.py": code,
+			"tool/t.py": script,
+		});
+		return { alone: walk("lib/m.py", code), imported: runOf("tool/t.py") };
 	}
 	/* list_shape.py's shape: `lib`, then its own directory ahead of it. */
 	const listShape = [
@@ -380,8 +397,9 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			"tool/helper.py",
 		]);
 		expect(alone.edges).toEqual(["lib/helper.py"]);
-		expect([...imported.edges].sort()).toEqual([
+		expect(imported.edges).toEqual([
 			"lib/helper.py",
+			"lib/m.py",
 			"tool/helper.py",
 		]);
 	});
@@ -398,7 +416,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			"late/helper.py",
 		]);
 		expect(imported).toMatchObject({
-			edges: ["late/helper.py", "tool/helper.py"],
+			edges: ["late/helper.py", "lib/m.py", "tool/helper.py"],
 			faults: [],
 		});
 	});
@@ -416,7 +434,10 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 		expect(alone.faults).toEqual([
 			"imports beside, which is neither stdlib nor found beside it or on a sys.path entry it adds",
 		]);
-		expect(imported).toMatchObject({ edges: ["tool/beside.py"], faults: [] });
+		expect(imported).toMatchObject({
+			edges: ["lib/m.py", "tool/beside.py"],
+			faults: [],
+		});
 	});
 
 	/* A package may rewrite its own __path__, so one lacking the submodule
@@ -446,7 +467,7 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			"lib/__init__.py",
 		]);
 		expect(regular.imported).toMatchObject({
-			edges: ["lib/__init__.py", "lib/sub.py"],
+			edges: ["lib/__init__.py", "lib/m.py", "lib/sub.py"],
 			faults: [],
 		});
 	});
@@ -460,36 +481,200 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 
 	it("faults the module's import where the importer's sys.path holds an entry the walk cannot read", () => {
 		const { alone, imported } = moduleTree(
-			"sys.path.insert(0, sys.argv[1])\n",
+			`import os, sys\n${putFirst("lib")}\nimport m\nsys.path.insert(0, sys.argv[1])\n`,
 			"import sys\nimport helper\n",
 			["lib/helper.py"],
 		);
 		expect(alone.faults).toEqual([]);
+		/* The script's own imports too: the settled pass walks it on the path
+		 * it left, the unread entry first. */
 		expect(imported.faults).toEqual([
+			"imports os after a sys.path edit the walk cannot read",
+			"imports m after a sys.path edit the walk cannot read",
 			"imports helper after a sys.path edit the walk cannot read",
 		]);
 	});
 
 	it("hands the module's own edits on, atop its importer's, to what it imports", () => {
-		const code = `${putFirst("deep")}\nimport n\n`;
-		const { imported } = moduleTree(listShape, code, [
-			"deep/n.py",
-			"deep/x.py",
-			"tool/y.py",
-		]);
-		const below = walk("deep/n.py", "import x\nimport y\n", imported.pySearch);
-		expect(below).toMatchObject({
-			edges: ["deep/x.py", "tool/y.py"],
+		writeTree({
+			"tool/t.py": listShape,
+			"lib/m.py": `${putFirst("deep")}\nimport n\n`,
+			"deep/n.py": "import x\nimport y\n",
+			"deep/x.py": "",
+			"tool/y.py": "",
+		});
+		expect(runOf("tool/t.py")).toMatchObject({
+			edges: ["deep/n.py", "deep/x.py", "lib/m.py", "tool/y.py"],
 			faults: [],
 		});
 	});
 
-	it("hands on a path that walking the module on it again leaves as it was", () => {
-		const code = `${putFirst("deep")}\n`;
-		const { imported } = moduleTree(listShape, code, []);
-		expect(walk("lib/m.py", code, imported.pySearch).pySearch).toEqual(
-			imported.pySearch,
-		);
+	it("reaches a module found only on the entry another module of the run adds", () => {
+		writeTree({
+			"tool/t.py": `${putFirst("lib")}\nimport a\nimport b\n`,
+			"lib/a.py": putFirst("extra"),
+			"lib/b.py": "import x\n",
+			"extra/x.py": "",
+		});
+		expect(runOf("tool/t.py")).toMatchObject({
+			edges: ["extra/x.py", "lib/a.py", "lib/b.py"],
+			faults: [],
+			unread: [],
+		});
+	});
+
+	/* Walked first, `b` meets `x` before `a` has added its entry: only the
+	 * settled pass judges it. */
+	it("reaches a module found only on the entry a module imported after it adds, faulting nothing (#5071)", () => {
+		writeTree({
+			"tool/t.py": `${putFirst("lib")}\nimport b\nimport a\n`,
+			"lib/a.py": putFirst("extra"),
+			"lib/b.py": "def run():\n    import x\n",
+			"extra/x.py": "",
+		});
+		expect(runOf("tool/t.py")).toMatchObject({
+			edges: ["extra/x.py", "lib/a.py", "lib/b.py"],
+			faults: [],
+			unread: [],
+		});
+	});
+
+	it("settles on a path that walking its modules on it again leaves as it was", () => {
+		writeTree({ "tool/t.py": listShape, "lib/m.py": `${putFirst("deep")}\n` });
+		expect(runOf("tool/t.py")).toMatchObject({ unread: [], faults: [] });
+	});
+});
+
+/* #4864, #4870: what a spawned Python script's run reaches, each a change
+ * the pass store must see. */
+describe("a Python script's run", () => {
+	/** Python putting `name`, beside the file that reads it, first on sys.path. */
+	const insert = (name: string) =>
+		`import os, sys\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "${name}"))\n`;
+	/** `tool.py` putting `lib` and then its own directory first on sys.path,
+	 * as list_shape.py does, and importing `lib/mod.py`. */
+	const listShaped = [
+		"import os, sys",
+		"HERE = os.path.dirname(os.path.abspath(__file__))",
+		'sys.path.insert(0, os.path.join(HERE, "lib"))',
+		"sys.path.insert(0, HERE)",
+		"import mod  # noqa: E402",
+	].join("\n");
+
+	it("names a module's place on an earlier sys.path entry a shadow", () => {
+		writeTree({
+			"s/tool.py": [
+				"import sys",
+				"from pathlib import Path",
+				'sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))',
+				"import helper",
+			].join("\n"),
+			"s/helper.py": "",
+		});
+		expect(runOf("s/tool.py")).toMatchObject({
+			edges: ["s/helper.py"],
+			faults: [],
+		});
+		expect(runOf("s/tool.py").shadows).toContain("s/lib/helper.py");
+	});
+
+	it("names where the script's sys.path shadows its module's import a shadow", () => {
+		writeTree({
+			"s/tool.py": listShaped,
+			"s/lib/mod.py": "import helper\n",
+			"s/lib/helper.py": "",
+		});
+		expect(runOf("s/tool.py").shadows).toContain("s/helper.py");
+	});
+
+	it("reaches a module's import found only on the script's sys.path", () => {
+		writeTree({
+			"s/tool.py": listShaped,
+			"s/lib/mod.py": "import beside\n",
+			"s/beside.py": "",
+		});
+		expect(runOf("s/tool.py")).toMatchObject({
+			edges: ["s/beside.py", "s/lib/mod.py"],
+			faults: [],
+		});
+	});
+
+	it("names the entry one module adds ahead of another module's import a shadow", () => {
+		writeTree({
+			"s/tool.py": listShaped,
+			"s/lib/mod.py": `${insert("../x")}import other\n`,
+			"s/lib/other.py": "import helper\n",
+			"s/lib/helper.py": "",
+		});
+		expect(runOf("s/tool.py").shadows).toContain("s/x/helper.py");
+	});
+
+	it("names the entry a module adds ahead of its importer's later import a shadow", () => {
+		writeTree({
+			"s/tool.py": "import mod\nimport helper\n",
+			"s/mod.py": insert("x"),
+			"s/helper.py": "",
+		});
+		expect(runOf("s/tool.py").shadows).toContain("s/x/helper.py");
+	});
+
+	it("names the entry an imported module adds ahead of its importer's own a shadow", () => {
+		writeTree({
+			"s/tool.py": `${insert("x")}import mod\nimport helper\n`,
+			"s/mod.py": insert("y"),
+			"s/x/helper.py": "",
+		});
+		expect(runOf("s/tool.py").shadows).toContain("s/y/helper.py");
+	});
+
+	/* The second pair differs by a soft hyphen, which a locale's collation
+	 * ignores. */
+	it.each([
+		["x", "y"],
+		["x", "x\u00ad"],
+	])(
+		"settles where the entries two same-named modules add, %j and %j, decide which of them loads",
+		(one, other) => {
+			writeTree({
+				"s/tool.py": "import setup\nimport mod\n",
+				"s/setup.py": `${insert(one)}${insert(other)}`,
+				"s/mod.py": "",
+				[`s/${one}/mod.py`]: insert("."),
+				[`s/${other}/mod.py`]: insert("."),
+			});
+			expect(runOf("s/tool.py")).toMatchObject({ unread: [], faults: [] });
+		},
+	);
+
+	it("reaches a namespace package's module on the entry a module added last", () => {
+		writeTree({
+			"s/tool.py": "import setup\nimport ns.sub\n",
+			"s/setup.py": `${insert("a")}${insert("b")}`,
+			"s/ns/sub.py": "",
+			"s/a/ns/sub.py": "",
+			"s/b/ns/sub.py": "",
+		});
+		expect(runOf("s/tool.py").edges).toContain("s/b/ns/sub.py");
+	});
+
+	it("settles where two modules import each other, each adding to sys.path", () => {
+		writeTree({
+			"s/tool.py": listShaped,
+			"s/lib/mod.py": `${insert("a")}import other\n`,
+			"s/lib/other.py": `${insert("b")}import mod\n`,
+		});
+		expect(runOf("s/tool.py")).toMatchObject({ unread: [], faults: [] });
+	});
+
+	it("faults an import that follows a sys.path edit the walk cannot read", () => {
+		writeTree({
+			"s/tool.py":
+				"import sys\nsys.path.insert(0, sys.argv[1])\nimport placed\n",
+			"s/placed.py": "",
+		});
+		expect(runOf("s/tool.py").faults).toEqual([
+			"imports placed after a sys.path edit the walk cannot read",
+		]);
 	});
 });
 
@@ -556,7 +741,6 @@ describe("a file the walk cannot read", () => {
 			unread: [],
 			unknown: [],
 			python: false,
-			pySearch: null,
 		});
 		expect(faults).toEqual([]);
 	});
@@ -894,7 +1078,7 @@ describe("a shell script's loads", () => {
 		const probe = path.join(root, "probe.js");
 		fs.writeFileSync(
 			probe,
-			`const { edgesOf } = require(${JSON.stringify(require.resolve("./code-edges.js"))});\nprocess.stdout.write(JSON.stringify(edgesOf("/x/s/a.sh", "python3 -c 'import sys'\\n", () => {})));\n`,
+			`const { reachOf } = require(${JSON.stringify(require.resolve("./code-edges.js"))});\nprocess.stdout.write(JSON.stringify(reachOf("/x/s/a.sh", "python3 -c 'import sys'\\n", () => {}).edges));\n`,
 		);
 		/* spawn-kept: python3's version is read once per process, so a walk
 		 * with no python3 on PATH needs a process that never read it. */
@@ -904,12 +1088,6 @@ describe("a shell script's loads", () => {
 		});
 		expect(r.stderr).toBe("");
 		expect(JSON.parse(r.stdout)).toEqual([]);
-	});
-
-	it("hands edgesOf's callers the edges alone", () => {
-		expect(
-			edgesOf("/x/s/a.sh", 'node "$UNSET/x.js"\n', () => undefined),
-		).toEqual([]);
 	});
 });
 
