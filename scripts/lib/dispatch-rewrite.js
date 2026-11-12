@@ -27,8 +27,7 @@
  *     turn;
  *   * the model and effort move through lib/model-table.js's table: always
  *     `sonnet` to Haiku, every Haiku call at xhigh, and while burn mode is on
- *     Haiku to Opus at medium and Opus to Fable at low, an overflow seat's
- *     session excepted (#4919);
+ *     Opus to Fable at low, an overflow seat's session excepted (#4919);
  *   * a named model the effort guide routes away from (lib/dispatch-rules.js)
  *     gets rule:dispatch-tier, and a "search the repo" prompt naming no tracker
  *     rule:dispatch-search-tracker, each fragment once a session;
@@ -46,7 +45,7 @@
  * The subject is the dispatch's `prompt`, a field the harness requires of
  * every `Agent` and `Task` call; the core judges the whole `tool_input`.
  *
- * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a `sonnet` dispatch to `haiku` and runs every `haiku` one at xhigh; while burn mode is on moves `haiku` to `opus` at medium and `opus` to `fable` at low, and while it is off moves `fable`, named or inherited, to `opus` — none asked for by the session dispatching; denies a dispatch made from inside a subagent, and a fork from a Fable session with burn mode off.
+ * IMPLICIT:  adds an `Artefact:` line to a dispatch prompt naming no usable one; moves a `sonnet` dispatch to `haiku` and runs every `haiku` one at xhigh; while burn mode is on moves `opus` to `fable` at low, and while it is off moves `fable`, named or inherited, to `opus` — none asked for by the session dispatching; denies a dispatch made from inside a subagent, and a fork from a Fable session with burn mode off.
  * JUSTIFIED: convenience — the session would have added the line itself after a refusal, at the cost of re-issuing the whole prompt (#482); the model table is the founder's own ruling, and burn mode his own switch (#4919).
  * DEFEAT:    none for the line — name a real path in the prompt and it is left alone; `scripts/burn-mode.sh off` ends the burn remap; none for the subagent deny short of dispatching from the parent.
  *

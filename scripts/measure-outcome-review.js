@@ -79,12 +79,20 @@
  * closed in the MISS_DAYS to `now` that landed a commit on its code repo's main
  * citing them, carry
  * `bug` or a FAULT_SHAPE title or closing-commit subject, have no line in
- * either record, and carry no origin a script files under (lib/issue-origin.js
- * SCRIPT_ORIGINS): a ticket filed past
- * file-issue.js's declarations, or a session's `--no-fault` on a fault, so no
- * fault ticket escapes review by omission. Every other ticket with an
- * `origin:*` label and no line closed in the same days and carrying `bug` is
- * listed apart, as the declaration to doubt.
+ * either record, and carry no `origin:*` label: a ticket filed past
+ * file-issue.js, which declares on every filing (#4640). A ticket with an
+ * origin label, no line and `bug`, closed in the same days, is listed apart
+ * as the `--no-fault` declaration to doubt, unless its origin is one a script
+ * files under (lib/issue-origin.js SCRIPT_ORIGINS).
+ *
+ * Both lists start at the tracker's ROLLOUT, the earliest `filedAt` among its
+ * lines in either record: a ticket created before it could not declare. A
+ * tracker with no line yet lists neither, and the report notes it.
+ *
+ * THE CONFIRM LIST is both lists ranked, misses first, each oldest close
+ * first, cut to CONFIRM_CAP: what the step's budget confirms. The rest is
+ * over the cap, listed by issue only and never carried to a later run: a
+ * carried list would grow faster than runs drain it (#5031).
  *
  * LOST LINES: a closed ticket carrying lib/signature-label.js's label, closed
  * at any date, owes a line; one with none in either record is listed every run
@@ -157,8 +165,8 @@ const { canonicalJson } = require("./lib/canonical-json");
 const DAY_MS = 86_400_000;
 /** The trigger week, never part of the baseline. */
 const TRIGGER_DAYS = 7;
-/** The baseline's span before the trigger week (#4796: 4 weeks). */
-const BASELINE_WEEKS = 4;
+/** The baseline's span before the trigger week (#5045 Q1: 1 week). */
+const BASELINE_WEEKS = 1;
 /** Days after the fix's commit before the first reading (#4796). */
 const INTERVAL_DAYS = 7;
 /** Expected recurrences the window grows to (#4796: 3). */
@@ -169,6 +177,12 @@ const KEEP_P = 0.05;
 const UNWIND_CAP = 5;
 /** The miss backstop's look-back. */
 const MISS_DAYS = 7;
+/** Tickets the retro confirms a run (#5031): 15k, half TOKEN_BUDGET, over
+ * ~2.2k a ticket gives 6. The ~2.2k is a measured ~1.7k to read a ticket and
+ * its closing commit (1720, 1477, 1959 tokens on #4856, #4894, #4978) plus
+ * ~0.5k for a late signature on about one in three. The half left to the
+ * step's other work is a guess; the run line's `overCap` and `tokens` test it. */
+const CONFIRM_CAP = 6;
 /** Words that make a closed ticket's title or closing subject fault-shaped. */
 const FAULT_SHAPE =
 	/\b(?:fix(?:es|ed|ing)?|stop(?:s|ped|ping)?|prevent(?:s|ed|ing)?|fail(?:s|ed|ing|ure|ures)?|broke|broken|crash(?:es|ed|ing)?|stall(?:s|ed|ing)?|drop(?:s|ped|ping)?|leak(?:s|ed|ing)?|wrong(?:ly)?|regress(?:es|ed|ion|ions)?|bug(?:s|gy)?|hang(?:s|ing)?|stuck|misses|missed|race)\b/i;
@@ -675,6 +689,8 @@ function collectFindings(sigLines, weekly, registry, failures) {
 	const findings = new Map();
 	/** @type {Set<string>} */
 	const signed = new Set();
+	/** @type {Map<string, number>} each tracker's earliest line */
+	const rollout = new Map();
 	/** @type {Map<string, Set<string>>} each issue's distinct log lines */
 	const logged = new Map();
 	for (const l of sigLines)
@@ -690,6 +706,12 @@ function collectFindings(sigLines, weekly, registry, failures) {
 			lines: [...lines].map((l) => JSON.parse(l)),
 		}));
 	const conflicted = new Set(conflicts.map((c) => c.issue));
+	/** @param {string} issue @param {number} filedAt */
+	const noteRollout = (issue, filedAt) => {
+		const tracker = parseQualifiedRef(issue)?.repo;
+		if (tracker && !Number.isNaN(filedAt))
+			rollout.set(tracker, Math.min(rollout.get(tracker) ?? filedAt, filedAt));
+	};
 	/**
 	 * @param {Row} entry  a log line or a `findings[]` entry
 	 * @param {number} filedAt
@@ -699,6 +721,7 @@ function collectFindings(sigLines, weekly, registry, failures) {
 		const issue = entry.issue;
 		if (typeof issue !== "string") return;
 		signed.add(issue);
+		noteRollout(issue, filedAt);
 		if (!entry.signature || conflicted.has(issue)) return;
 		const named = `${where} ${JSON.stringify(issue)}`;
 		const ref = parseQualifiedRef(issue);
@@ -736,7 +759,7 @@ function collectFindings(sigLines, weekly, registry, failures) {
 				dateMs(asObject(line.week)?.end ?? line.date),
 				`run line ${String(line.date)} finding`,
 			);
-	return { findings, signed, conflicts };
+	return { findings, signed, conflicts, rollout };
 }
 
 /**
@@ -1148,18 +1171,33 @@ function closedThisWeek(i, nowMs) {
 }
 
 /**
- * The week's closed tickets that could be misses: no
- * line in either record, no SCRIPT_ORIGINS label and no SIGNATURE_LABEL.
- * @param {IssueRow[]} closed
- * @param {{signed: Set<string>, tracker: string, nowMs: number}} at
+ * Whether a ticket closed in the MISS_DAYS to `nowMs`, created at or after its
+ * tracker's rollout, owes a line neither record holds. A `createdAt` that will
+ * not parse is kept, for windowStart to name.
+ * @param {IssueRow} i
+ * @param {{signed: Set<string>, tracker: string, nowMs: number,
+ *   since: number | undefined}} at  `since` the tracker's rollout, unset
+ *   where it has no line yet
  */
-function missCandidates(closed, { signed, tracker, nowMs }) {
+function isUnsigned(i, { signed, tracker, nowMs, since }) {
+	return (
+		since !== undefined &&
+		!(Date.parse(i.createdAt ?? "") < since) &&
+		closedThisWeek(i, nowMs) &&
+		!signed.has(`${tracker}#${i.number}`) &&
+		!labelsOf(i).includes(SIGNATURE_LABEL)
+	);
+}
+
+/**
+ * The week's unsigned closed tickets that could be misses: no `origin:*`
+ * label.
+ * @param {IssueRow[]} closed
+ * @param {Parameters<typeof isUnsigned>[1]} at
+ */
+function missCandidates(closed, at) {
 	return closed.filter(
-		(i) =>
-			closedThisWeek(i, nowMs) &&
-			!signed.has(`${tracker}#${i.number}`) &&
-			!isScriptOrigin(originOfLabels(labelsOf(i))) &&
-			!labelsOf(i).includes(SIGNATURE_LABEL),
+		(i) => isUnsigned(i, at) && !originOfLabels(labelsOf(i)),
 	);
 }
 
@@ -1186,23 +1224,19 @@ function missesOf(candidates, { commits, tracker }) {
 }
 
 /**
- * The week's closed `bug` tickets carrying an `origin:*` label and no
- * signature line, declared `--no-fault`, that are not already misses.
+ * The week's unsigned closed `bug` tickets declared `--no-fault` by a session:
+ * an `origin:*` label outside SCRIPT_ORIGINS.
  * @param {IssueRow[]} closed
- * @param {{signed: Set<string>, missed: Set<string>, tracker: string,
- *   nowMs: number}} at
+ * @param {Parameters<typeof isUnsigned>[1]} at
  */
-function noFaultBugsOf(closed, { signed, missed, tracker, nowMs }) {
+function noFaultBugsOf(closed, at) {
 	return closed.flatMap((i) => {
 		const origin = originOfLabels(labelsOf(i));
-		const ref = `${tracker}#${i.number}`;
 		return origin &&
+			!isScriptOrigin(origin) &&
 			labelsOf(i).includes("bug") &&
-			!labelsOf(i).includes(SIGNATURE_LABEL) &&
-			closedThisWeek(i, nowMs) &&
-			!signed.has(ref) &&
-			!missed.has(ref)
-			? [{ issue: ref, title: i.title, origin }]
+			isUnsigned(i, at)
+			? [{ issue: `${at.tracker}#${i.number}`, title: i.title, origin }]
 			: [];
 	});
 }
@@ -1317,16 +1351,21 @@ function buildText(r) {
 		ts.length > 0 ? ` (UNREAD in ${ts.join(", ")})` : "";
 	out.push(
 		"",
-		`Missed signatures (closed ${MISS_DAYS} days to now, landed, fault-shaped, no signature line): ${r.misses.length}${unread(r.missesUnread)}`,
+		`To confirm: ${r.misses.length + r.noFaultBug.length} of ${r.listed} listed (at most ${CONFIRM_CAP}, misses first, oldest close first)${unread(r.missesUnread)}`,
+		"",
+		`Missed signatures (closed ${MISS_DAYS} days to now, landed, fault-shaped, no signature line, no origin label): ${r.misses.length}`,
 		...r.misses.map(
 			(m) =>
 				`  ${m.issue} ${JSON.stringify(m.title)} — ${m.why.join(", ")}; fix ${m.fixSha.slice(0, 9)}`,
 		),
 		"",
-		`Declared --no-fault yet carrying bug (closed ${MISS_DAYS} days to now): ${r.noFaultBug.length}${unread(r.noFaultBugUnread)}`,
+		`Declared --no-fault yet carrying bug (closed ${MISS_DAYS} days to now): ${r.noFaultBug.length}`,
 		...r.noFaultBug.map(
 			(m) => `  ${m.issue} ${JSON.stringify(m.title)} — origin:${m.origin}`,
 		),
+		"",
+		`Over the cap, not confirmed this run: ${r.overCap.length}`,
+		...(r.overCap.length > 0 ? [`  ${r.overCap.join(" ")}`] : []),
 		"",
 		`Signature declared, line missing on main (closed, any date): ${r.lostLines.length}${unread(r.lostLinesUnread)}`,
 		...r.lostLines.map(
@@ -1460,16 +1499,22 @@ function readRows(root, rel, failures) {
 }
 
 /**
- * The backstops' lists over every tracker read: the week's misses, its
- * `--no-fault` bugs, and the lines lost on main, each with the trackers it
- * could not read.
+ * The backstops' lists over every tracker read: the week's misses and its
+ * `--no-fault` bugs, ranked and cut to CONFIRM_CAP, the issues over the cap,
+ * and the lines lost on main, each with the trackers it could not read.
  * @param {Array<{repo: Repo, closed: IssueRow[] | string,
  *   candidates: IssueRow[] | string, owing: IssueRow[] | string}>} reads
- * @param {{signed: Set<string>, nowMs: number}} at
+ * @param {{signed: Set<string>, rollout: Map<string, number>, nowMs: number,
+ *   notes: string[]}} at  accumulator: `notes` takes each tracker with no line
+ *   yet
  */
-function backstopsOf(reads, { signed, nowMs }) {
-	const misses = [];
-	const noFaultBug = [];
+function backstopsOf(reads, { signed, rollout, nowMs, notes }) {
+	/** @type {ReturnType<typeof missesOf>} */
+	const listedMisses = [];
+	/** @type {ReturnType<typeof noFaultBugsOf>} */
+	const listedNoFault = [];
+	/** @type {Map<string, number>} each listed issue's close */
+	const closedAt = new Map();
 	/** @type {string[]} */
 	const missesUnread = [];
 	/** @type {string[]} */
@@ -1478,7 +1523,12 @@ function backstopsOf(reads, { signed, nowMs }) {
 	/** @type {string[]} */
 	const lostLinesUnread = [];
 	for (const { repo, closed, candidates, owing } of reads) {
-		const at = { signed, tracker: repo.tracker, nowMs };
+		const since = rollout.get(repo.tracker);
+		const at = { signed, tracker: repo.tracker, nowMs, since };
+		if (since === undefined)
+			notes.push(
+				`${repo.tracker}: no signature line in either record yet, so no ticket there is a miss or a no-fault bug`,
+			);
 		/* A log that will not read leaves its lines unsigned, so every ticket
 		 * they cover would read as a miss or a lost line. */
 		const logUnread = typeof repo.sigRows === "string";
@@ -1500,19 +1550,37 @@ function backstopsOf(reads, { signed, nowMs }) {
 			noFaultBugUnread.push(repo.tracker);
 			continue;
 		}
-		const repoMisses = missesOf(candidates, {
-			tracker: repo.tracker,
-			commits: repo.commits,
-		});
-		misses.push(...repoMisses);
-		const missed = new Set(repoMisses.map((m) => m.issue));
-		noFaultBug.push(...noFaultBugsOf(closed, { ...at, missed }));
+		for (const i of closed)
+			closedAt.set(`${repo.tracker}#${i.number}`, Date.parse(i.closedAt ?? ""));
+		listedMisses.push(
+			...missesOf(candidates, { tracker: repo.tracker, commits: repo.commits }),
+		);
+		listedNoFault.push(...noFaultBugsOf(closed, at));
 	}
+	const oldestFirst = (
+		/** @type {{issue: string}} */ a,
+		/** @type {{issue: string}} */ b,
+	) =>
+		Number(closedAt.get(a.issue)) - Number(closedAt.get(b.issue)) ||
+		(a.issue < b.issue ? -1 : 1);
+	listedMisses.sort(oldestFirst);
+	listedNoFault.sort(oldestFirst);
+	const misses = listedMisses.slice(0, CONFIRM_CAP);
+	const noFaultBug = listedNoFault.slice(
+		0,
+		Math.max(0, CONFIRM_CAP - listedMisses.length),
+	);
+	const overCap = [
+		...listedMisses.slice(misses.length),
+		...listedNoFault.slice(noFaultBug.length),
+	].map((m) => m.issue);
 	return {
 		misses,
 		missesUnread,
 		noFaultBug,
 		noFaultBugUnread,
+		listed: listedMisses.length + listedNoFault.length,
+		overCap,
 		lostLines,
 		lostLinesUnread,
 	};
@@ -1559,7 +1627,7 @@ function review({ root, seats, nowMs, tracker }) {
 		(l) => l.mode === "weekly",
 	);
 	const registry = readNeedles(root).needles;
-	const { findings, signed, conflicts } = collectFindings(
+	const { findings, signed, conflicts, rollout } = collectFindings(
 		sigLines,
 		weekly,
 		registry,
@@ -1588,6 +1656,7 @@ function review({ root, seats, nowMs, tracker }) {
 						signed,
 						tracker: tracked.tracker,
 						nowMs,
+						since: rollout.get(tracked.tracker),
 					});
 		return { tracked, candidates, ...issueLists };
 	});
@@ -1613,7 +1682,7 @@ function review({ root, seats, nowMs, tracker }) {
 	});
 	outcomes.push(...unreadLogFindings(trackers, prior, findings));
 	const unwinds = rankUnwinds(outcomes, carriedIn, prior);
-	const backstop = backstopsOf(reads, { signed, nowMs });
+	const backstop = backstopsOf(reads, { signed, rollout, nowMs, notes });
 	/** @type {Record<string, Signature>} */
 	const signatures = {};
 	for (const f of findings.values()) signatures[f.ref] = f.signature;
@@ -1630,7 +1699,13 @@ function review({ root, seats, nowMs, tracker }) {
 		outcomes,
 		unwinds,
 		outcomeStep: {
-			misses: backstop.missesUnread.length > 0 ? null : backstop.misses.length,
+			...(backstop.missesUnread.length > 0
+				? { misses: null, listed: null, overCap: null }
+				: {
+						misses: backstop.misses.length,
+						listed: backstop.listed,
+						overCap: backstop.overCap.length,
+					}),
 			backlog,
 		},
 		settled,
