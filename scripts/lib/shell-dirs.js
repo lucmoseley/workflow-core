@@ -1,9 +1,9 @@
 /**
- * The directory model: every directory a command may stand in after the moves
+ * shell-dirs.js — the directory model: every directory a command may stand in after the moves
  * made before it, each move handed in already classified and its directory
  * word already resolved (#5074). The walk's `cd`s, a wrapper's directory and a
- * `-c` string's `cd` all step one state through stepDirs, so whether a move
- * holds is decided here alone.
+ * `-c` string's `cd` all step one state through stepDirs. A `-c` string still
+ * labels its chained `cd` itself, `always` until its chain ends (#5082).
  */
 
 /**
@@ -74,15 +74,17 @@ function moveDir(at, resolved) {
 function stepDirs(state, move, isDir) {
 	const left = move.afterFailed ? state.went : new Set();
 	const unsure = left.has("");
-	const moved = state.dirs.map((from) => moveDir(from, move.resolved));
-	const unmade = state.dirs.filter((from, i) => {
-		const to = moved[i] ?? "";
-		const held =
-			to === from ||
-			(holdsAt(move.holds, to, isDir) && !unsure && !left.has(from));
-		return !held;
-	});
-	const [first = "", ...rest] = moved;
+	const [head, ...tail] = state.dirs;
+	/** @param {string} from */
+	const to = (from) => moveDir(from, move.resolved);
+	/** @param {string} from */
+	const held = (from) =>
+		to(from) === from ||
+		(!unsure && !left.has(from) && holdsAt(move.holds, to(from), isDir));
+	/** @type {Dirs} */
+	const moved = [to(head), ...tail.map(to)];
+	const unmade = state.dirs.filter((from) => !held(from));
+	const [first, ...rest] = moved;
 	return {
 		dirs: distinct(first, move.chained ? rest : [...rest, ...unmade]),
 		pending: move.chained ? [...state.pending, ...unmade] : state.pending,

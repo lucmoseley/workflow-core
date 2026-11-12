@@ -30,6 +30,7 @@ const {
 const { expandTildeWord } = require("./home-path.js");
 const {
 	dirsAfter,
+	moveDir,
 	settleDirs,
 	startDirs,
 	stepDirs,
@@ -1279,14 +1280,14 @@ function harvest(walk, words, segIdx) {
 }
 
 /**
- * Read where one command's words move the cwd, keeping the names and words
- * that record it; undefined where the command moves nothing. Followed:
+ * Read where a `cd`, or a command that losesCwd, moves the cwd, keeping the names and
+ * words that record it. Followed:
  * `cd <path>`, and `cd ""`, which stays put (#301). Made unknown: `cd -` and
  * any other flag, a bare `cd`, `pushd`, `popd`, `builtin cd` and
  * `command cd`.
  * @param {Walk} walk accumulator: its cwd names and lost words are moved
  * @param {string[]} words
- * @returns {import("./shell-dirs.js").Resolved | undefined}
+ * @returns {import("./shell-dirs.js").Resolved}
  */
 function moveCwd(walk, words) {
 	const [head = "", arg] = words;
@@ -1294,7 +1295,6 @@ function moveCwd(walk, words) {
 		loseCwd(walk, words);
 		return null;
 	}
-	if (head !== "cd") return;
 	const r = pathArg(arg ?? "", walk.scope);
 	const names = walk.scope.emptyNames;
 	if (r && "empty" in r) {
@@ -1310,6 +1310,13 @@ function moveCwd(walk, words) {
 		: [...walk.cwdNames, ...names];
 	return r;
 }
+
+/**
+ * Whether a command moves the cwd: a `cd`, or one losesCwd names.
+ * @param {string} head
+ * @param {string | undefined} arg the word after it
+ */
+const movesCwd = (head, arg) => head === "cd" || losesCwd(head, arg);
 
 /**
  * Whether a command moves the cwd where no word of it says.
@@ -1634,7 +1641,7 @@ function stepScript(state, cw, where) {
 		return apart
 			? state
 			: exportInScript(state, { head, kind }, own.slice(1), where);
-	if (head === "cd" || losesCwd(head, rest[0]))
+	if (movesCwd(head, rest[0]))
 		return apart ? state : cdInScript(state, own, where);
 	const runs = unwrap(own, spans);
 	if (runs.every((run) => commandName(run.words[0] ?? "") === "git"))
@@ -2250,9 +2257,10 @@ function settleCwdDoubt(walk, segIdx) {
  * @param {(path: string) => boolean} isDir
  */
 function stepCwd(walk, own, segIdx, isDir) {
+	const [head = "", arg] = own;
+	if (!movesCwd(head, arg)) return false;
 	const { cwdNames, cwdLost } = walk;
 	const resolved = moveCwd(walk, own);
-	if (resolved === undefined) return false;
 	if (runsApart(walk.parsed.joins, segIdx)) {
 		Object.assign(walk, { cwdNames, cwdLost });
 		return true;
@@ -2549,21 +2557,14 @@ function readGitDir(word, target, scope) {
  * @param {string[]} emptyNames the unset names `r` read as empty
  */
 function moveGitTarget(target, r, word, emptyNames) {
-	if (r && "empty" in r) {
-		target.names = [...target.names, ...emptyNames];
-		return;
-	}
-	if (!r) {
-		target.tree = "";
-		target.written = `-C ${word}`;
-	} else if (r.path.startsWith("/")) {
-		target.tree = r.path;
+	const from = target.tree;
+	target.tree = moveDir(from, r);
+	if (!r) target.written = `-C ${word}`;
+	else if ("path" in r && r.path.startsWith("/")) {
 		target.names = [...emptyNames];
 		target.written = "";
-	} else if (target.tree) {
-		target.tree = `${target.tree}/${r.path}`;
+	} else if ("empty" in r || from)
 		target.names = [...target.names, ...emptyNames];
-	}
 }
 
 /**

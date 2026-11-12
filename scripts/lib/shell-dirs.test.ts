@@ -2,18 +2,14 @@
 /*
  * Cases for scripts/lib/shell-dirs.js, the directory model the walk's `cd`s
  * and a run's chdirs both step (#5074), at its own interface: moves handed in
- * classified and resolved.
+ * classified and resolved. Every guard core that follows a `cd`, a wrapper's
+ * directory or a `-c` string's `cd` reads this model, so a case broken here
+ * misplaces each of their checks.
  */
 
 import { describe, expect, it } from "vitest";
 import type { Dirs, Move } from "./shell-dirs.js";
-import {
-	dirsAfter,
-	moveDir,
-	settleDirs,
-	startDirs,
-	stepDirs,
-} from "./shell-dirs.js";
+import { dirsAfter, settleDirs, startDirs, stepDirs } from "./shell-dirs.js";
 
 const there = new Set(["/h", "/a", "/a/b"]);
 const isDir = (p: string) => there.has(p);
@@ -22,7 +18,7 @@ const to = (path: string, holds: Move["holds"], more: Partial<Move> = {}) =>
 const standAfter = (cwds: Dirs, ...moves: Move[]) =>
 	dirsAfter(cwds, moves, isDir);
 
-describe("moveDir", () => {
+describe("a move's directory", () => {
 	it.each([
 		["/h", { path: "/a" }, "/a"],
 		["/h", { path: "b" }, "/h/b"],
@@ -30,7 +26,9 @@ describe("moveDir", () => {
 		["", { path: "b" }, ""],
 		["/h", null, ""],
 	])("moves %s by %j to %s (#4869)", (at, resolved, want) => {
-		expect(moveDir(at, resolved)).toBe(want);
+		expect(dirsAfter([at], [{ resolved, holds: "always" }], isDir)).toEqual([
+			want,
+		]);
 	});
 });
 
@@ -77,6 +75,15 @@ describe("stepDirs", () => {
 			dirs: ["/nope", "/h"],
 			pending: [],
 		});
+	});
+
+	it("settles a chain's unmade once, off the first", () => {
+		const twice = [
+			to("/nope", "if-dir", { chained: true }),
+			to("/h", "maybe", { chained: true }),
+		].reduce((state, move) => stepDirs(state, move, isDir), startDirs(["/h"]));
+		expect(twice).toMatchObject({ dirs: ["/h"], pending: ["/h", "/nope"] });
+		expect(settleDirs(twice).dirs).toEqual(["/h", "/nope"]);
 	});
 
 	it("holds a move after a failed one from all but where that one went (#5010)", () => {
