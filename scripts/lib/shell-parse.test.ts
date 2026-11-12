@@ -827,6 +827,7 @@ describe("Command.runs — a -c string's cds stand its commands where the walk w
 		"cd /nope && (cd b); git x",
 		"cd /nope && (true; git x); git y",
 		"cd /nope && cd /a || git x",
+		"cd /nope && (cd /a && true; git x); git y",
 	])("stands each command of %s", (script) => {
 		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir });
 		expect(eachRun(`flock /l -c "${script}"`)).toEqual(bare);
@@ -838,6 +839,18 @@ describe("Command.runs — a -c string's cds stand its commands where the walk w
 			"/nope",
 			"/h",
 		]);
+	});
+
+	it("leaves a chain open outside a subshell where one opened inside it ends (#5102)", () => {
+		expect(
+			eachRun(`flock /l -c "cd /nope && (cd /a && true; git x)"`).at(-1),
+		).toEqual(["/a"]);
+	});
+
+	it("stands a command substitution's command where the walk would (#5102)", () => {
+		const script = "cd /nope && echo $(cd /a && true; git x)";
+		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir });
+		expect(eachRun(`flock /l -c '${script}'`)).toEqual(bare);
 	});
 });
 
