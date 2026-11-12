@@ -437,6 +437,8 @@ const isWriteRedirect = (kind) =>
  *   subject's first `||` outside a quoted span, or -1 where it has none (#328)
  * @property {string[]} joins parseJoins's code for each segment (#4009); a lifted
  *   substitution's is "("
+ * @property {boolean[]} lifted whether each segment was lifted out of a
+ *   substitution (#5098)
  */
 
 /**
@@ -476,18 +478,31 @@ function parseCommand(subject, spans = []) {
 	const segments = [];
 	/** @type {string[]} */
 	const joins = [];
+	/** @type {boolean[]} */
+	const lifted = [];
 	const lineJoins = parseJoins(masked);
 	let conditional = -1;
 	flatSegments(masked).forEach((segment, i) => {
 		if (i === before) conditional = segments.length;
-		const lifted = withLifted(segment, spans);
-		segments.push(...lifted);
+		const own = withLifted(segment, spans);
+		segments.push(...own);
 		const join = lineJoins[i];
 		if (join === undefined) throw new Error("a segment with no join");
-		joins.push(...lifted.slice(1).map(() => "("), join);
+		const ahead = own.slice(1);
+		joins.push(...ahead.map(() => "("), join);
+		lifted.push(...ahead.map(() => true), false);
 	});
 	if (before >= 0 && conditional < 0) conditional = segments.length;
-	return { subject, spans, masked, heredocLines, segments, conditional, joins };
+	return {
+		subject,
+		spans,
+		masked,
+		heredocLines,
+		segments,
+		conditional,
+		joins,
+		lifted,
+	};
 }
 
 /**
@@ -2159,32 +2174,47 @@ const COMPOUND_START =
 	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
 
 /**
- * The index of the segment after `segIdx`'s, past the substitutions lifted
- * ahead of it, whose joins are all "(" (#5098).
- * @param {Pick<Parsed, "joins" | "segments">} parsed
+ * The index of the segment that follows `segIdx`'s in its list: past the
+ * substitutions lifted out of the next command, which run ahead of it (#5098).
+ * Inside a lifted run, the next segment.
+ * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function nextOwn({ joins, segments }, segIdx) {
+function nextInList({ lifted }, segIdx) {
 	let i = segIdx + 1;
-	while (segments[i] === `${SCOPE_MARK}(` && joins[i] === "(") {
-		let depth = 0;
-		do {
-			if (segments[i] === `${SCOPE_MARK}(`) depth++;
-			else if (segments[i] === `${SCOPE_MARK})`) depth--;
-			i++;
-		} while (depth > 0 && i < segments.length);
-	}
+	if (lifted[segIdx]) return i;
+	while (lifted[i]) i++;
 	return i;
 }
 
 /**
+ * The index of the segment ahead of `segIdx`'s in its list, as nextInList
+ * reads one: past the substitutions lifted out of this command.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function prevInList({ lifted }, segIdx) {
+	let i = segIdx - 1;
+	if (lifted[segIdx]) return i;
+	while (lifted[i]) i--;
+	return i;
+}
+
+/**
+ * The join between the segment and the one that follows it in its list.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const joinAfter = (parsed, segIdx) => parsed.joins[nextInList(parsed, segIdx)];
+
+/**
  * Whether the segment runs in a subshell of its own, in a pipeline or behind
  * `&`, so a `cd` or `export` in it moves nothing after it (measured).
- * @param {Pick<Parsed, "joins" | "segments">} parsed
+ * @param {Parsed} parsed
  * @param {number} segIdx
  */
 function runsApart(parsed, segIdx) {
-	const after = parsed.joins[nextOwn(parsed, segIdx)];
+	const after = joinAfter(parsed, segIdx);
 	return parsed.joins[segIdx] === "p" || after === "p" || after === "b";
 }
 
@@ -2200,12 +2230,12 @@ const opensList = (joins, segIdx) =>
  * Whether the segment is a `cd` after `||` whose left side is the `cd` that
  * opened the list at `cdAt`, unnegated: it runs only where that one failed
  * (#5010).
- * @param {string[]} joins
+ * @param {Parsed} parsed
  * @param {number} segIdx
  * @param {number} cdAt -1 where no such `cd` stands
  */
-const isAfterCd = (joins, segIdx, cdAt) =>
-	joins[segIdx] === "o" && cdAt === segIdx - 1;
+const isAfterCd = (parsed, segIdx, cdAt) =>
+	parsed.joins[segIdx] === "o" && cdAt === prevInList(parsed, segIdx);
 
 /**
  * Whether the segment's command is negated by `!`, past any `{` opening it.
@@ -2231,21 +2261,22 @@ function isNegated(segments, segIdx) {
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
-const isChainedOff = ({ joins, segments }, segIdx) =>
-	joins[nextOwn({ joins, segments }, segIdx)] === "a" &&
-	joins[segIdx] !== "o" &&
-	!isNegated(segments, segIdx);
+const isChainedOff = (parsed, segIdx) =>
+	joinAfter(parsed, segIdx) === "a" &&
+	parsed.joins[segIdx] !== "o" &&
+	!isNegated(parsed.segments, segIdx);
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
  * backgrounds all of it (measured, #5010).
- * @param {Pick<Parsed, "joins" | "segments">} parsed
+ * @param {Parsed} parsed
  * @param {number} segIdx
  */
 function isListBackgrounded(parsed, segIdx) {
 	const { joins } = parsed;
-	let end = nextOwn(parsed, segIdx);
-	while (joins[end] === "a" || joins[end] === "o") end = nextOwn(parsed, end);
+	let end = nextInList(parsed, segIdx);
+	while (joins[end] === "a" || joins[end] === "o")
+		end = nextInList(parsed, end);
 	return joins[end] === "b";
 }
 
@@ -2256,7 +2287,8 @@ function isListBackgrounded(parsed, segIdx) {
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function isBraceGroupSure({ joins, segments }, segIdx) {
+function isBraceGroupSure(parsed, segIdx) {
+	const { joins, segments } = parsed;
 	/** @type {number[]} */
 	const open = [];
 	/** @type {[number, number][]} */
@@ -2287,8 +2319,8 @@ function isBraceGroupSure({ joins, segments }, segIdx) {
 			before !== "a" &&
 			before !== "o" &&
 			before !== "p" &&
-			joins[nextOwn({ joins, segments }, to)] !== "p" &&
-			!isListBackgrounded({ joins, segments }, to)
+			joinAfter(parsed, to) !== "p" &&
+			!isListBackgrounded(parsed, to)
 		);
 	});
 }
@@ -2335,7 +2367,7 @@ function isSureMove(parsed, segIdx, own) {
  */
 function classifyCd(parsed, segIdx, own, cdAt) {
 	const opens = opensList(parsed.joins, segIdx);
-	const afterFailed = isAfterCd(parsed.joins, segIdx, cdAt);
+	const afterFailed = isAfterCd(parsed, segIdx, cdAt);
 	return {
 		holds:
 			(opens || afterFailed) && isSureOnceReached(parsed, segIdx, own)

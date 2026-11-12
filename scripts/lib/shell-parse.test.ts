@@ -644,6 +644,20 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 			"/start",
 		]);
 		expect(last('{ cd /usr; } | gh "$(x)"; gh y')).toEqual(["/usr", "/start"]);
+		/* An escaped `)` is no bracket ending the lifted run. */
+		expect(last('cd /usr | gh "$(echo a\\))"; gh y')).toEqual(["/start"]);
+		expect(last('cd /usr && gh "$(a)" && gh "$(b)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last('cd /usr && gh "$(a)" || gh "$(b)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		/* The list `&` closes holds no cd. */
+		expect(last('cd /usr; gh "$(x)" & gh y')).toEqual(["/usr"]);
+		/* A cd in a substitution reads its own run's joins, not the outer list's. */
+		expect(last('true && gh "$(cd /usr; x)" && gh y')).toEqual(["/start"]);
 	});
 });
 
