@@ -776,7 +776,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		]);
 	});
 
-	it("labels a cd by classifyCd (#4863)", () => {
+	it("marks a cd behind an && or inside an if as maybe (#4863)", () => {
 		expect(read(`flock /l -c "true && cd /a; git x"`).at(-1)).toBe(
 			"[git][x]||[/a maybe]",
 		);
