@@ -58,6 +58,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { caught } = require("./caught.js");
 const { parseShebang, scriptLanguage } = require("./code-edges.js");
 const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
@@ -180,7 +181,10 @@ function isDescriptorFed(word) {
  */
 function install(root, env = process.env, err = process.stderr) {
 	if (env.WFC_READ_AUDIT_OWNER) return null;
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-read-audit-"));
+	sweep(os.tmpdir());
+	const dir = fs.mkdtempSync(
+		path.join(os.tmpdir(), `${PREFIX}${process.pid}-`),
+	);
 	env.WFC_READ_AUDIT = dir;
 	env.WFC_READ_AUDIT_ROOT = fs.realpathSync(root);
 	const strace = findStrace(dir, env);
@@ -209,7 +213,53 @@ function remove(dir) {
 	try {
 		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
-		// A leftover directory in the tmpdir costs only disk (#4916).
+		// What will not go now goes at a later run's sweep, once stale.
+	}
+}
+
+/* A log directory's name: the prefix, the pid of the run that made it, and
+ * mkdtemp's suffix. */
+const PREFIX = "wfc-read-audit-";
+const NAMED = /^wfc-read-audit-(\d+)-/;
+
+/* How long a dead run's directory stands untouched before it is stale: a pid
+ * from another pid namespace sharing the tmpdir reads as dead here. */
+const STALE_MS = 60 * 60 * 1000;
+
+/** @param {number} pid */
+function isAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (e) {
+		return caught(e).code !== "ESRCH";
+	}
+}
+
+/**
+ * Remove each log directory in `tmp` a killed run left: its pid dead and
+ * the directory untouched for `STALE_MS`. A killed run's directory holds
+ * every log it wrote, gigabytes a day at this machine's runs (#5046).
+ * Never throws.
+ * @param {string} tmp
+ * @param {number} [now]
+ */
+function sweep(tmp, now = Date.now()) {
+	let names;
+	try {
+		names = fs.readdirSync(tmp);
+	} catch {
+		return;
+	}
+	for (const name of names) {
+		const pid = NAMED.exec(name)?.[1];
+		if (pid === undefined || isAlive(Number(pid))) continue;
+		const dir = path.join(tmp, name);
+		try {
+			if (now - fs.lstatSync(dir).mtimeMs > STALE_MS) remove(dir);
+		} catch {
+			// Gone already: another run's sweep took it.
+		}
 	}
 }
 
@@ -987,4 +1037,4 @@ function childReads(e, program, root) {
 	];
 }
 
-module.exports = { install, readAudits, remove };
+module.exports = { install, readAudits, remove, sweep };

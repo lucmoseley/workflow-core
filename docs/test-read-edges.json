@@ -12695,6 +12695,7 @@
 			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/queue-issue.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
+			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/refill-batch.test.ts",
 			"scripts/lib/refill-loop.test.ts",
 			"scripts/lib/refill-panel-topic.test.ts",
@@ -12777,7 +12778,8 @@
 			"scripts/upgrade.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
-			"scripts/write-back-routes.test.ts"
+			"scripts/write-back-routes.test.ts",
+			"vitest.setup.test.ts"
 		],
 		"scripts/lib/caught.test.ts": [
 			"scripts/check-guard-errors.test.ts",
