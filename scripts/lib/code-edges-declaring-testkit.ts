@@ -1,7 +1,7 @@
 /*
  * The live tree's `code-edges loads:` and `code-edges caller:` lines
- * (lib/code-edges.js, #4790), for code-edges' two live-repo tests: the files
- * holding one, and each line naming the marker, read by `reachOf` itself
+ * (lib/file-reach.js, #4790), for code-edges' two live-repo tests: the files
+ * holding one, and each line naming the marker, read by `fileReach` itself
  * rather than by a copy of its pragmas.
  */
 
@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 const require = createRequire(import.meta.url);
-const { reachOf } = require("./code-edges.js");
+const { fileReach } = require("./file-reach.js");
 
 export const ROOT = path.resolve(__dirname, "..", "..");
 
@@ -34,11 +34,11 @@ export const DECLARING: Record<string, string> = {
 
 /** The walk's answer for the file at `at` holding `text`. */
 export const reach = (at: string, text: string) =>
-	reachOf(at, text, () => undefined);
+	fileReach(at, text, () => undefined, null);
 
 /**
  * One line naming the marker: its kind, the words after the marker, the
- * file's text without it, and whether `reachOf` reads it as a declaration,
+ * file's text without it, and whether `fileReach` reads it as a declaration,
  * its answer for the file changing when the line goes.
  */
 export interface MarkerLine {

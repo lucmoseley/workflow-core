@@ -40,7 +40,7 @@
  * that errored outside its files, was interrupted or filtered by name
  * records its failures alone; a spawned Python import the reach cannot
  * place, a JSX or TSX file on the reach, or a load on it the walk cannot
- * read (lib/code-edges.js's `unread`: an inline program's, a JS load of no
+ * read (lib/file-reach.js's `unread`: an inline program's, a JS load of no
  * literal, or a shell load spelled off anything but the script's own
  * directory), or a join off a file's own directory naming a file the walk
  * cannot tell (its `unknown`), records no row for the files it reaches,
@@ -91,12 +91,8 @@ const {
 	isSameContent,
 } = require("./content-ids.js");
 const { caught } = require("./caught.js");
-const {
-	isScript,
-	languageOf,
-	pythonVersion,
-	readRunReach,
-} = require("./code-edges.js");
+const { readRunReach } = require("./code-edges.js");
+const { isScript, languageOf, pythonVersion } = require("./file-reach.js");
 const {
 	ARCHIVE_MS,
 	FRESH_HINT,
