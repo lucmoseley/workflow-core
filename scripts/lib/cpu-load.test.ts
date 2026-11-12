@@ -612,6 +612,24 @@ describe("the edges each rule turns on", () => {
 		expect(refusal("yes\t> /dev/null")).toContain(G);
 	});
 
+	it.each(["\\&", "\\|", "\\;", "\\(", "\\)"])(
+		"reads an escaped %s as a word, not a separator (#5114)",
+		(op) => {
+			expect(refusal(`yes ${op} | head`)).toBeNull();
+			expect(refusal(`yes ${op} head`)).toBe(refused8(`yes ${op} head`));
+		},
+	);
+
+	it("reads an escaped `>` as no clobbering redirection (#5114)", () => {
+		expect(refusal("yes \\>| head")).toBeNull();
+		expect(refusal("yes >| head")).toBe(refused8("yes >| head"));
+	});
+
+	it("reads an escaped backslash ahead of a separator as no escape of it (#5114)", () => {
+		expect(refusal("yes \\\\| head")).toBeNull();
+		expect(refusal("yes \\\\& head")).toBe(refused8("yes \\\\ &"));
+	});
+
 	it("reads systemd-run's flags to the command they run", () => {
 		expect(refusal("systemd-run -p CPUQuota=900% -- yes &")).toContain(G);
 		expect(refusal("systemd-run --property CPUQuota=900% yes &")).toContain(G);

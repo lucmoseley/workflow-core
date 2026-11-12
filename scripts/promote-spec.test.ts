@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, issueClaims } from "./lib/arbiter-testkit";
-import { WAIT_GRAPH_GRAPHQL_FAKE } from "./lib/gh-fake";
+import { LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -51,7 +51,7 @@ const get = (name: string) => JSON.parse(fs.readFileSync(state(name), "utf8"));
  * listing omits the moved spec.
  */
 const STUB = `#!/usr/bin/env node
-${WAIT_GRAPH_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const S = process.env.STUB_DIR;
@@ -69,7 +69,7 @@ const save = () => fs.writeFileSync(f("issues.json"), JSON.stringify(issues));
 const rest = (i) => ({ ...i, id: i.number * 1000, html_url: "https://github.com/acme/widgets/issues/" + i.number, labels: i.labels.map((name) => ({ name })),
 	parent_issue_url: i.parent ? "https://api.github.com/repos/acme/widgets/issues/" + i.parent : null });
 let m;
-if (a[0] === "api" && a[1] === "graphql") serveAnswer(answerWaitGraph(a, () => ({})));
+if (a[0] === "api" && a[1] === "graphql") serveAnswer(answerLinks(a, () => ({})));
 if (a[0] === "api" && a[1] === "--method") {
 	if (fs.existsSync(f("post-422"))) no("gh: Validation Failed (HTTP 422)");
 	const parent = Number(a[3].match(/issues\\/(\\d+)\\/sub_issues/)[1]);

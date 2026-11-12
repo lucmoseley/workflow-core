@@ -35,7 +35,7 @@ if (runTempRoot) process.env.TMPDIR = runTempRoot;
  * the tree-watch globalSetup still reads a hook's private index.
  */
 const { GIT_DIR_VARS } = createRequire(import.meta.url)(
-	"./scripts/lib/git.js",
+	"./scripts/lib/read-audit-git.js",
 ) as { GIT_DIR_VARS: string[] };
 for (const name of GIT_DIR_VARS) delete process.env[name];
 
