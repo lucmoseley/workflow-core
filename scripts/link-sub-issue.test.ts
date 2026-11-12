@@ -66,8 +66,8 @@ interface Gh {
 	dbId?: string;
 	/** The db-id lookup fails. */
 	idFails?: boolean;
-	/** How the POST answers: ok | dup (422, one parent) | layers (422) | err. */
-	post?: "ok" | "dup" | "layers" | "err";
+	/** How the POST answers: ok | dup (422, one parent) | layers (422) | cap (422) | invalid (422) | err. */
+	post?: "ok" | "dup" | "layers" | "cap" | "invalid" | "err";
 	/** Parent-side reads: numbers listed, once `lag` reads have gone by. */
 	children?: string[];
 	lag?: number;
@@ -93,6 +93,8 @@ const POSTS: Record<NonNullable<Gh["post"]>, GhAnswer> = {
 	layers: refused(
 		"gh: You can't add more than 7 layers of sub-issues (HTTP 422)",
 	),
+	cap: refused("gh: Parent cannot have more than 100 sub-issues (HTTP 422)"),
+	invalid: refused("gh: Validation Failed (HTTP 422)"),
 	err: refused("gh: Bad credentials (HTTP 401)"),
 };
 
@@ -421,6 +423,45 @@ describe("link-sub-issue.sh", () => {
 	});
 });
 
+describe("the --json outcome (#5096)", () => {
+	it.each([
+		["self", ["40", "40"], {}, 3],
+		["layers", ["40", "63"], { post: "layers" }, 1],
+		["cap", ["40", "63"], { post: "cap" }, 1],
+		["rejected", ["40", "63"], { post: "invalid" }, 1],
+		["other", ["40", "63"], { post: "err" }, 1],
+		["unlisted", ["40", "63"], { children: [] }, 1],
+		["closed-parent", ["40", "63"], { states: { "40": "closed" } }, 1],
+	] as const)(
+		"names the reason %s, printing one JSON object and nothing on stderr",
+		async (reason, args, g, code) => {
+			const r = await run([...args, "--json"], g as Gh);
+			expect(r.status).toBe(code);
+			expect(r.stderr).toBe("");
+			const o = JSON.parse(r.stdout);
+			expect(o).toMatchObject({ code, reason, out: "" });
+			expect(o.err).not.toBe("");
+		},
+	);
+
+	it("carries the success line and the partial-check warning, with no reason", async () => {
+		const r = await run(["40", "63", "--json"], {
+			children: ["63"],
+			graphFails: true,
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+		const o = JSON.parse(r.stdout);
+		expect(o).toMatchObject({
+			code: 0,
+			reason: "",
+			err: "",
+			out: "linked #63 as a sub-issue of #40\n",
+		});
+		expect(o.warning).toMatch(/^warning — the loop check was partial/);
+	});
+});
+
 describe("the loop check (#5070)", () => {
 	/* #5055's shape: three open issues across two repos, one sub-issue link
 	 * and two blocker links; the sub-issue link closes it. */
@@ -453,6 +494,12 @@ describe("the loop check (#5070)", () => {
 			"docs/agents/issue-tracker.md §Placing a new issue",
 		);
 		expect(r.stderr).toContain("Nothing was changed.");
+	});
+
+	it("names the reason loop under --json", async () => {
+		const r = await run(["40", "63", "--json"], { graph: loop });
+		expect(r.status).toBe(3);
+		expect(JSON.parse(r.stdout)).toMatchObject({ code: 3, reason: "loop" });
 	});
 
 	it("posts a link that closes no loop, though the child waits on other issues", async () => {

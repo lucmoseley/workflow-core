@@ -465,8 +465,7 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 			moved.push(child.number);
 			ctx.say(`  moved #${child.number} into #${containerNumber}`);
 		} else {
-			const line = r.err;
-			if (/7 layers/.test(line)) {
+			if (r.reason === "layers") {
 				skipped7Layers.push(child.number);
 				ctx.say(
 					`  left #${child.number} as a direct child of #${map} — its own subtree is already 7 layers deep`,
@@ -475,7 +474,7 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 			}
 			failSay(
 				"ARCHIVE-MOVE-FAILED",
-				`#${child.number} could not be moved into #${containerNumber}: ${line}`,
+				`#${child.number} could not be moved into #${containerNumber}: ${r.err}`,
 				{ child: child.number, container: containerNumber },
 			);
 		}

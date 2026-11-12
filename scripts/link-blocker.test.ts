@@ -219,6 +219,21 @@ describe("link-blocker.js", () => {
 	});
 
 	it.each([
+		["self", ["#10", "#10"], {}, 3],
+		["loop", ["m/t#4893", "o/r#3864"], { graph: loop }, 3],
+		["other", ["#10", "#20"], { postFails: true }, 1],
+		["unlisted", ["#10", "#20"], {}, 1],
+	] as const)(
+		"names the reason %s under --json, printing nothing on stderr (#5096)",
+		async (reason, args, g, code) => {
+			const r = await run([...args, "--json"], g as Gh);
+			expect(r.status).toBe(code);
+			expect(r.stderr).toBe("");
+			expect(JSON.parse(r.stdout)).toMatchObject({ code, reason });
+		},
+	);
+
+	it.each([
 		[["#10"], "usage"],
 		[["ten", "#20"], "is not a number or owner/name#n"],
 	])(
