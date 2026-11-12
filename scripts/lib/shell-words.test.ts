@@ -21,6 +21,7 @@ import {
 	literal,
 	programSource,
 	scanFlags,
+	stepGitOptions,
 	unwrap,
 } from "./shell-words.js";
 
@@ -240,12 +241,47 @@ describe("gitWords (#2383)", () => {
 		expect(read(`git "commit" -m x`)).toEqual(["commit:[-m][x]"]);
 	});
 
+	it.each([
+		`git "-C" /tmp commit -m x`,
+		`git "--no-pager" commit -m x`,
+		`git "-c" k=v commit -m x`,
+	])("steps a quoted option of git's own in %s (#5076)", (command) => {
+		expect(read(command)).toEqual(["commit:[-m][x]"]);
+	});
+
 	it("hands the words after the subcommand over raw, still masked", () => {
 		const args = one(
 			'git commit -m "a b"',
 			(c, spans) => gitWords(c.words, spans)[0]?.args,
 		);
 		expect(args?.[1]).not.toBe("a b");
+	});
+});
+
+describe("stepGitOptions (#5076)", () => {
+	/** The subcommand's index, then each option and its next word read back. */
+	const step = (command: string) =>
+		each(command, (c, spans) => {
+			const seen: string[] = [];
+			const i = stepGitOptions(c.words, spans, (w, next) =>
+				seen.push(
+					`[${w}>${next === undefined ? "" : literal(next, spans).text}]`,
+				),
+			);
+			return `${i}:${seen.join("")}`;
+		});
+
+	it.each([
+		["git commit", "1:"],
+		["git -C /r --no-pager commit", "4:[-C>/r][--no-pager>commit]"],
+		[`git "-c" a=b checkout x`, "3:[-c>a=b]"],
+		["git -c a.b=1 --git-dir x checkout y", "5:[-c>a.b=1][--git-dir>x]"],
+		["git -c checkout x", "3:[-c>checkout]"],
+		["git --git-dir=/g commit", "2:[--git-dir=/g>commit]"],
+		["git -C", "3:[-C>]"],
+		[`git "$O" commit`, "1:"],
+	])("steps %s to %s", (command, answer) => {
+		expect(step(command)).toEqual([answer]);
 	});
 });
 
