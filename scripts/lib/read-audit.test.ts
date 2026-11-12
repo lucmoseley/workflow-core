@@ -44,6 +44,17 @@ const STRACE = (() => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 })();
+// Without strace the tracer blocks skip and stay green; CI fails instead.
+// Residual: a local run, or a CI runner with no CI variable, still skips them.
+it.runIf(process.env.CI)(
+	"fails in CI where strace is missing, naming the install step (#5068)",
+	() => {
+		expect(
+			STRACE,
+			"strace was not found on PATH or failed its trial: install it in the workflow's test job",
+		).not.toBeNull();
+	},
+);
 const quoted = JSON.stringify;
 
 const dirs: string[] = [];
@@ -496,14 +507,6 @@ const runsTool = (root: string, stub: string) =>
 	`require("node:child_process").execFileSync("tool", ["api", "user"], { cwd: ${quoted(root)}, env: { ...process.env, PATH: ${quoted(stub + path.delimiter)} + process.env.PATH } });`;
 
 const READS_SETTINGS = "#!/bin/sh\ncat .claude/settings.json\n";
-
-// CI keeps the tracer blocks below running: without strace they would skip and stay green (#5068).
-it.runIf(process.env.CI)("finds strace in CI", () => {
-	expect(
-		STRACE,
-		"strace was not found on PATH or failed its trial: install it in the workflow's test job",
-	).not.toBeNull();
-});
 
 describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 	const reads = (root: string, body: string) =>
