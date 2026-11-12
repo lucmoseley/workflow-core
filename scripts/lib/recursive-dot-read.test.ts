@@ -84,8 +84,7 @@ afterEach(() => {
 });
 
 /*
- * #2060: the no-recursive-search-over-heavy-trees rule left the always-loaded
- * CLAUDE.md for this guard, so its whole text must arrive on the trigger.
+ * #2060: the rule's whole text must arrive on the trigger.
  */
 const ruleText = fs
 	.readFileSync(
@@ -189,7 +188,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"ls; grep -rn PAT <EXP>",
 			"a search in a later segment",
 		],
-		/* #4978: the search a -c string runs, rewritten as itself. */
 		[
 			'flock /l -c "grep -rn gp_begin ."',
 			"grep -rn gp_begin <EXP>",
@@ -220,7 +218,6 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 			"grep -rn @CMD@ <EXP>",
 			"a literal @CMD@, which the splice must not eat",
 		],
-		/* mantahostels#2717: allowed in silence, pattern eaten. */
 		[
 			"grep -r --color PAT .",
 			"grep -r --color PAT <EXP>",
@@ -333,12 +330,9 @@ describe("a recursive search rooted at . is warned on, led by the fix", () => {
 
 	it("drops what no search wants and keeps what a shorter rewrite would lose", () => {
 		const fix = replacement(warning("grep -rn PAT ."));
-		// Gitignored, and out without being named.
 		expect(fix).not.toContain("node_modules");
-		// Untracked tooling state, and untracked root scratch.
 		expect(fix).not.toContain(".mypy_cache");
 		expect(fix).not.toContain(".scratch.out");
-		// The two classes the rejected rewrites lost: dot-dirs, and new dirs.
 		expect(fix).toContain(".claude");
 		expect(fix).toContain("newdir");
 	});
@@ -469,6 +463,7 @@ describe("a search over a heavy tree is handed the rule", () => {
 	beforeEach(() => {
 		fs.mkdirSync(path.join(repo, "dist"));
 		fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\ndist/\n");
+		fs.mkdirSync(path.join(repo, "node_modules", "pkg"));
 	});
 
 	it.each([
@@ -485,9 +480,25 @@ describe("a search over a heavy tree is handed the rule", () => {
 		["watch find . -name x", "watch, its command in several words"],
 		["watch grep -r PAT .", "a grep at the root under watch"],
 		["grep -r PAT", "a grep naming no path, standing at the root"],
+		["cd node_modules && grep -rn PAT .", "a . reached by cd (#5119)"],
+		["env -C node_modules grep -rn PAT .", "a . reached by env -C"],
+		["cd node_modules/pkg && grep -rn PAT .", "a . below one"],
+		["cd node_modules && rg PAT", "a search naming no path, moved into one"],
+		["cd dist && grep -rn PAT ./", "a . inside build output git ignores"],
 	])("%s — %s", (command) => {
 		expect(warning(command)).toContain(ruleText);
 		expect(logs).toEqual([]);
+	});
+
+	it("reaches a . searched where the shell already stands in node_modules", () => {
+		const cwd = path.join(repo, "node_modules");
+		expect(warning("grep -rn PAT .", { cwd })).toContain(ruleText);
+	});
+
+	it("reaches a . searched in a node_modules outside any tree", () => {
+		const cwd = path.join(dir, "node_modules");
+		fs.mkdirSync(cwd);
+		expect(warning("grep -rn PAT .", { cwd })).toContain(ruleText);
 	});
 
 	it("rides beside the dot-root warning in one envelope", () => {
@@ -518,6 +529,7 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 			"find from the root, pruned",
 		],
 		["cd app && find . -name x", "find from a subdirectory"],
+		["cd node_modules && grep -rn PAT ../app", "a root leaving one"],
 		['echo "grep -rn PAT node_modules"', "a search inside a quoted string"],
 	])("%s — %s", (command) => {
 		expect(emission(command)).toBeNull();
@@ -532,6 +544,22 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 	it("reaches a grep at the root spelled from a subdirectory", () => {
 		const cwd = path.join(repo, "app");
 		expect(warning("grep -rn PAT ..", { cwd })).toContain(ruleText);
+	});
+
+	it("passes a . in a tree that itself sits under a node_modules", () => {
+		const nested = path.join(dir, "node_modules", "proj");
+		fs.mkdirSync(path.join(nested, "src"), { recursive: true });
+		spawnSync("git", ["-C", nested, "init", "-q"]);
+		const cwd = path.join(nested, "src");
+		expect(emission("grep -rn PAT .", { cwd })).toBeNull();
+		expect(logs).toEqual([]);
+	});
+
+	it("passes a . in a build directory outside any tree", () => {
+		const cwd = path.join(dir, "build");
+		fs.mkdirSync(cwd);
+		expect(emission("grep -rn PAT .", { cwd })).toBeNull();
+		expect(logs).toEqual([]);
 	});
 
 	it("passes a find from the root while the shell stands elsewhere", () => {
