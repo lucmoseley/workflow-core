@@ -1330,26 +1330,19 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** The scope fields a subshell's `)` hands back, the one list copyVars and
- * restoreVars walk. `harvested` is left out: bareMentions counts the whole
- * command's words, so the count must span a subshell's `)` too. */
-const VAR_KEYS = /** @type {const} */ (["locals", "dead", "exported"]);
-
-/** @typedef {Pick<Scope, (typeof VAR_KEYS)[number]>} ScopeVars */
+/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars
+ * `harvested` is left out: bareMentions counts the whole command's words, so
+ * the count must span a subshell's `)` too. */
 
 /**
  * @param {Scope} scope
  * @returns {ScopeVars} a copy of its variables
  */
-const copyVars = (scope) =>
-	/** @type {ScopeVars} */ (
-		Object.fromEntries(
-			VAR_KEYS.map((key) => {
-				const held = scope[key];
-				return [key, held instanceof Map ? new Map(held) : new Set(held)];
-			}),
-		)
-	);
+const copyVars = (scope) => ({
+	locals: new Map(scope.locals),
+	dead: new Set(scope.dead),
+	exported: new Set(scope.exported),
+});
 
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
@@ -1380,27 +1373,10 @@ function closeScope(walk) {
 		walk.cwdNames = back.names;
 		walk.noRedirects = back.noRedirects;
 		walk.gitEnv = back.gitEnv;
-		restoreVars(walk.scope, back.vars);
+		/* Onto the scope object itself: a Command and dirEnv hold it. */
+		Object.assign(walk.scope, back.vars);
 	}
 	walk.arLast = "";
-}
-
-/**
- * Hand back the variables a subshell's `(` saw, in place, as a Command's
- * runs read the scope they were handed.
- * @param {Scope} scope accumulator: its locals, dead and exported are moved
- * @param {ScopeVars} back
- */
-function restoreVars(scope, back) {
-	for (const key of VAR_KEYS) {
-		const into = scope[key];
-		const from = back[key];
-		into.clear();
-		if (into instanceof Map && from instanceof Map)
-			for (const [name, val] of from) into.set(name, val);
-		else if (into instanceof Set)
-			for (const name of from.keys()) into.add(name);
-	}
 }
 
 /** A `NAME=value` word: the name, then the value. */
