@@ -173,7 +173,6 @@ interface FakeChildOptions {
 	code?: number | null;
 	/* Emitted before close, as Node does for a child that never spawns. */
 	error?: Error;
-	/* A child killed by it: `exit` carries it, and `close` a null code. */
 	signal?: NodeJS.Signals;
 }
 
@@ -2108,7 +2107,6 @@ describe("vitest's own temp dir (#5108)", () => {
 					cacheDir = path.join(opts.env.TMPDIR, "V1StGXR8_Z5jdHi6B-myT");
 					fs.mkdirSync(path.join(cacheDir, "client"), { recursive: true });
 					fs.mkdirSync(path.join(cacheDir, "ssr"));
-					/* SIGKILLed mid-suite: no `close()` of vitest's ran. */
 					return fakeChild({ signal: "SIGKILL" });
 				},
 				root,

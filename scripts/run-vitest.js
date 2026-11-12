@@ -456,8 +456,7 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
  * `cached` is the pass store's hand-off (#4790): this run's alone, so an
  * inherited one never reaches a run that looked nothing up.
  * `startMark` the run's start on the change-time clock (lib/tree-drift.js's
- * `markStart`), null where none was taken. `tmpRoot` the run's `TMPDIR`,
- * null where it keeps the parent's.
+ * `markStart`), null where none was taken. `tmpRoot` the run's `TMPDIR`.
  * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null }} run
  */
 function vitestEnv({
@@ -1055,8 +1054,7 @@ const heldRoots = new Set();
  * its cache dir at `<tmpdir>/<nanoid>` and removes it only in `close()`, which
  * a killed run never reaches (#5108); under this root, the wrapper removes it
  * however the run ends, and the next wrapper start sweeps a SIGKILLed
- * wrapper's. Null where the root will not make: vitest then runs on the real
- * temp root.
+ * wrapper's. Null where the root will not make.
  * @param {Writer} err
  * @returns {string|null}
  */
@@ -1074,7 +1072,7 @@ function openRunRoot(err) {
 }
 
 /**
- * @param {string|null} root `openRunRoot`'s, null where it made none
+ * @param {string|null} root `openRunRoot`'s
  * @param {Writer} err
  */
 function dropRunRoot(root, err) {
@@ -2806,7 +2804,7 @@ if (require.main === module) {
 	} else {
 		sweepAtStart();
 		sweepDeadRunRoots("vitest");
-		/* vitest's process, where the audit sweeps at install, now sits in
+		/* The audit's install-time sweep, in vitest's process, reaches only
 		 * this run's own root, so a dead run's audit logs on the real temp
 		 * root are swept here (#5108). */
 		readAudit.sweep(os.tmpdir());
@@ -2830,8 +2828,7 @@ if (require.main === module) {
 			// writes to it are queued rather than synchronous, and exit() tears the
 			// process down before a piped `| head` or `| grep` has drained that
 			// queue — losing exactly the failure text this wrapper exists to keep
-			// (mantahostels#1943 review). Setting the code and returning lets Node exit once its
-			// own streams are actually flushed.
+			// (mantahostels#1943 review).
 			.then((code) => {
 				process.exitCode = code;
 			})
