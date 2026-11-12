@@ -422,7 +422,6 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		]);
 	});
 
-	// The refill loop's first tick is the suspect reader at boot (#5090).
 	it("carries the refill loop boot unit's memory.peak in whole MB, null where it has none", async () => {
 		const root = path.join(tmp, "minute-loop-peak-root");
 		const unit = path.join(
