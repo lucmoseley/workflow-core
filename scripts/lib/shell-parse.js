@@ -145,26 +145,39 @@ function flatten(text, mark = false, ops = false) {
 
 /**
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
- * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, "" a newline or
- * nothing. A blank line hands its operator on, as `&&` at a line's end does.
+ * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, ")" the rest of
+ * the line a bracket's `)` closed (#5093), "" a newline or nothing. A blank
+ * line hands its operator on, as `&&` at a line's end does.
  * @param {string} masked
  * @returns {string[]} one per line of flatSegments
  */
 function parseJoins(masked) {
 	let carry = "";
+	let closed = false;
 	return flatten(masked, true, true)
 		.split("\n")
 		.map((line) => {
 			const code = line.startsWith(OP_MARK) ? line.charAt(1) : "";
+			const afterClose = closed && !code;
+			closed = line === `${SCOPE_MARK})`;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
-				return code;
+				return afterClose ? ")" : code;
 			}
-			const joined = code || carry;
+			const joined = code || carry || (afterClose ? ")" : "");
 			carry = "";
 			return joined;
 		});
 }
+
+/**
+ * Whether a `&&` chain ends at the segment: not where `&&` joins it, nor
+ * inside a bracket's line.
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+const isChainEnd = (joins, segIdx) =>
+	!["a", "(", ")"].includes(joins[segIdx] ?? "");
 
 /**
  * @typedef {object} CommandWords
@@ -680,8 +693,11 @@ function parseHeredocTerm(mask, line) {
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
  * line outside a message argument (mantahostels#232) or a script unwrap reads
- * (#4978). A `sh -c` script is not among them: no git guard reads one. Residual: three cores read no unwrap run, so such a
- * script's later `gh` or text line passes them (#5012).
+ * (#4978). A bare `sh -c` script is not among them: unwrap leaves it standing
+ * as the command word (mantahostels#2629), so its later lines are judged only
+ * as lines of their own, which the abandoned join keeps.
+ * Residual: three cores read no unwrap run, so a later `gh` or text line of a
+ * script unwrap reads passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -1097,9 +1113,9 @@ function resolveWord(word, scope) {
  *   read inside the callback
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
- *   `words` the command's own by default; `cwd` the directory a word target
- *   resolves in, the walk's by default, "" where unknown (#5012) — the
- *   redirects always resolve in the walk's
+ *   `words` the command's own by default; `cwd` the directory a target, a
+ *   redirect's included, resolves in, the walk's by default, "" where unknown
+ *   (#5012, #5105)
  * @property {(word: string) => string | null} resolveWord
  * @property {(name: string) => boolean} assigned whether the command assigned
  *   `name`, before this point, a value the walk resolves (#2436)
@@ -1243,11 +1259,15 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** A subshell's `(`: stack the state its `)` restores.
- * @param {Walk} walk */
+/** A subshell's `(`: stack the state its `)` restores. A `&&` chain ending
+ * inside leaves the one outside open (#5093), so no move before the `(` waits
+ * in its `pending`.
+ * @param {Walk} walk accumulator: its stack, directories and redirect mode
+ *   are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
+	walk.dirs = { ...dirs, pending: [] };
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
 		walk.arLast = "";
@@ -1435,6 +1455,9 @@ function walkCommands(parsed, fn, ports) {
 			const own = ran ? words.slice(wi) : [];
 			const leading = words.slice(0, assignEnd);
 			const redirects = () => readRedirects(redirs, scope, abs);
+			/** @param {string} cwd */
+			const at = (cwd) => (/** @type {string} */ word) =>
+				absoluteIn(cwd, word, scope);
 			fn({
 				segment,
 				words: own,
@@ -1447,9 +1470,9 @@ function walkCommands(parsed, fn, ports) {
 				}),
 				redirects,
 				writeTargets: (w = own, cwd = cwdOf(walk)) =>
-					writeTargets(w, redirects(), {
+					writeTargets(w, readRedirects(redirs, scope, at(cwd)), {
 						spans: scope.spans,
-						resolveAbs: (word) => absoluteIn(cwd, word, scope),
+						resolveAbs: at(cwd),
 						resolve: (word) => resolveWord(word, scope),
 						isDir: ports.isDir,
 					}),
@@ -1558,6 +1581,8 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === `${SCOPE_MARK}(`) {
 			stack.push(state);
+			/* As openScope's: the chain outside stays open (#5093). */
+			state = { ...state, chainOpen: false };
 			return;
 		}
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
@@ -1572,7 +1597,7 @@ function parseScript(script, spans) {
 				};
 			return;
 		}
-		state = settleScriptChain(state, parsed.joins[segIdx]);
+		if (isChainEnd(parsed.joins, segIdx)) state = settleScriptChain(state);
 		const cw = commandWords(segment);
 		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
 		if (cw.ran)
@@ -1591,14 +1616,13 @@ function parseScript(script, spans) {
 }
 
 /**
- * A `&&` chain's end, as settleCwdDoubt reads one: the last `cd` before it
- * settles the chain for every command after (#5082).
+ * The state at a chain end isChainEnd found: the last `cd` before it settles
+ * the chain for every command after (#5082).
  * @param {ScriptState} state
- * @param {string | undefined} join
  * @returns {ScriptState}
  */
-function settleScriptChain(state, join) {
-	if (join === "a" || join === "(" || !state.chainOpen) return state;
+function settleScriptChain(state) {
+	if (!state.chainOpen) return state;
 	const last = state.chdirs.at(-1);
 	if (!last) throw new Error("a -c string's && chain is open with no cd");
 	/** @type {Chdir} */
@@ -2261,7 +2285,8 @@ function isBraceGroupSure({ joins, segments }, segIdx) {
 		let prev = from - 1;
 		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
-		const defined = before === "" && segments[prev] === `${SCOPE_MARK})`;
+		const defined =
+			(before === "" || before === ")") && segments[prev] === `${SCOPE_MARK})`;
 		return (
 			!defined &&
 			before !== "a" &&
@@ -2333,8 +2358,7 @@ function classifyCd(parsed, segIdx, own, cdAt) {
  * @param {number} segIdx
  */
 function settleCwdDoubt(walk, segIdx) {
-	const join = walk.parsed.joins[segIdx];
-	if (join !== "a" && join !== "(") walk.dirs = settleDirs(walk.dirs);
+	if (isChainEnd(walk.parsed.joins, segIdx)) walk.dirs = settleDirs(walk.dirs);
 }
 
 /**

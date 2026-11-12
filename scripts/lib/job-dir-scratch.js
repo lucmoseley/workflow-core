@@ -26,8 +26,8 @@
  *   A write target is first resolved as the shell would land it (#1030): its
  *   `$VAR`s expanded from the command's own earlier assignments, then the
  *   environment (`T=$CLAUDE_JOB_DIR/tmp; cat > $T/x`), and a relative result
- *   joined to the directory a `cd` earlier in the command moved to
- *   (`cd <job dir>/tmp && python3 - > x.py`).
+ *   joined to each directory the command may stand in after its earlier
+ *   `cd`s (`cd <job dir>/tmp && python3 - > x.py`, #5105).
  *
  *   A target is under the job directory on lib/job-dir.js's three limbs: its
  *   text names `CLAUDE_JOB_DIR` at all, or it sits under `$CLAUDE_JOB_DIR` as
@@ -158,14 +158,13 @@ function decide(subject, ctx) {
 		walkCommands(
 			parsed,
 			(cmd) => {
-				for (const run of cmd.runs())
-					for (const t of cmd.writeTargets(run.words, run.dirs()[0]))
-						if (t.mode === "write" && !found.flat)
-							considerTarget(t.target, t.path, {
-								spans: parsed.spans,
-								where: { pwd: ctx.fallbackCwd, jobDir },
-								classify,
-							});
+				for (const t of writesFromEveryDir(cmd))
+					if (!found.flat)
+						considerTarget(t.target, t.path, {
+							spans: parsed.spans,
+							where: { pwd: ctx.fallbackCwd, jobDir },
+							classify,
+						});
 			},
 			{
 				...ctx,
@@ -194,6 +193,22 @@ function decide(subject, ctx) {
 		),
 		latchAfter: RULE,
 	};
+}
+
+/**
+ * Every write target of each run, resolved from each directory the run may
+ * stand in (#5105). An unknown directory is read only where it is the first: a relative target
+ * there is judged against the session's own directory, which a later one
+ * cannot stand in.
+ * @param {import("./shell-parse.js").Command} cmd
+ */
+function* writesFromEveryDir(cmd) {
+	for (const run of cmd.runs()) {
+		const [first, ...rest] = run.dirs();
+		for (const cwd of [first, ...rest.filter(Boolean)])
+			for (const t of cmd.writeTargets(run.words, cwd))
+				if (t.mode === "write") yield t;
+	}
 }
 
 /**
