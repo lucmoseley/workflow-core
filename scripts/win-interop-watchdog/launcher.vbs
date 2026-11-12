@@ -12,11 +12,10 @@ KeepWslUp
 ' stays up on its own (.wslconfig instanceIdleTimeout=-1) and systemd's
 ' refill-loop-boot.service resumes the loop. While any wsl.exe runs without a
 ' vmmemWSL a boot is pending, and none is started beside it, so a hung WSL
-' service cannot pile up wsl.exe processes; and after MAX_STARTS starts inside
-' WINDOW_S seconds it stops starting until the oldest leaves the window.
-' Residual: a capped or failing start is visible only in wsl-keepalive.log,
-' which nothing surfaces, and the log is never trimmed (at most 144 lines a day
-' while the VM will not stay up).
+' service cannot pile up wsl.exe processes.
+' Residual: a failing start is visible only in wsl-keepalive.log, which nothing
+' surfaces; a capped tick writes nothing; and the log is never trimmed (at most
+' 144 lines a day while the VM will not stay up).
 Sub KeepWslUp()
 	' A first guess, unmeasured: 3 starts across 15 ticks of the 2-minute task
 	' is a VM that will not stay up, not one slow boot.
