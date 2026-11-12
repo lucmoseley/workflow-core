@@ -42,6 +42,7 @@
 const { runCheck } = require("./lib/check");
 const { ghAllIssues, raiseGhFailure } = require("./lib/gh");
 const { hasStandaloneLine } = require("./lib/standalone-line");
+const { scriptPath } = require("./lib/script-path.js");
 
 /*
  * Phrases that assert descent, not mere reference. Tuned against the whole
@@ -110,9 +111,8 @@ runCheck({
 				);
 			ctx.say(
 				"\n  Decide whether the named issue is really the parent, then link it:\n" +
-					"    gh api --method POST repos/{owner}/{repo}/issues/<parent>/sub_issues \\\n" +
-					"      -F sub_issue_id=$(gh api repos/{owner}/{repo}/issues/<child> --jq .id)\n" +
-					"  sub_issue_id is the numeric database id, not the #number. Where the phrase\n" +
+					`    ${scriptPath("link-sub-issue.sh")} <parent> <child>\n` +
+					"  It refuses a link that would close a loop of open issues. Where the phrase\n" +
 					"  points at a symptom rather than an owner, add a `Standalone: <why>` line to\n" +
 					"  its body instead — that clears the finding.\n",
 			);

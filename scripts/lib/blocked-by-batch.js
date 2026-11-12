@@ -121,13 +121,15 @@ function repositoryIn(out) {
 }
 
 /**
- * One batch's `repository` object. gh exits 1 on a partly errored response
- * yet prints the data, which still answers every issue it holds; any other
- * failure keeps gh's own error, whose stderr says whether GitHub was reachable.
+ * One batched query's `repository` object, `query` taking `$owner` and
+ * `$name` and selecting `nameWithOwner`. gh exits 1 on a partly errored
+ * response yet prints the data, which still answers every issue it holds; any
+ * other failure keeps gh's own error, whose stderr says whether GitHub was
+ * reachable. lib/wait-graph.js reads through it too.
  * @param {string} repo `owner/name` or `{owner}/{repo}`
- * @param {number[]} numbers
+ * @param {string} query
  */
-function batchRead(repo, numbers) {
+function readRepositoryBatch(repo, query) {
 	const [owner = "", name = ""] = repo.split("/");
 	const args = [
 		"api",
@@ -135,7 +137,7 @@ function batchRead(repo, numbers) {
 		...fieldArgs("owner", owner),
 		...fieldArgs("name", name),
 		"-f",
-		`query=${buildQuery(numbers)}`,
+		`query=${query}`,
 	];
 	return retryingOnce(async () => {
 		/** @type {string} */
@@ -213,9 +215,9 @@ async function blockedByMany(issues, { repo, home, strict = false }) {
 	let self;
 	for (let at = 0; at < issues.length; at += BATCH) {
 		const batch = issues.slice(at, at + BATCH);
-		const r = await batchRead(
+		const r = await readRepositoryBatch(
 			repo,
-			batch.map((i) => i.number),
+			buildQuery(batch.map((i) => i.number)),
 		);
 		for (const issue of batch) {
 			if (!r.ok) {
@@ -241,4 +243,9 @@ async function blockedByMany(issues, { repo, home, strict = false }) {
 	}));
 }
 
-module.exports = { blockedByMany, readBlockedByOne, edgeOf };
+module.exports = {
+	blockedByMany,
+	readBlockedByOne,
+	readRepositoryBatch,
+	edgeOf,
+};

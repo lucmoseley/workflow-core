@@ -20,8 +20,8 @@
  *  - A RELATIVE start point, or none at all (`find` defaults to `.`), is
  *    resolved against every directory the find may stand in — the payload's
  *    cwd, moved by any `cd` before it and by each directory its launchers move
- *    to (`env -C /`, a `flock -c` string's `cd`), as lib/shell-words.js's
- *    runCwd reads them, and each of those left unmade where it may not have
+ *    to (`env -C /`, a `flock -c` string's `cd`), as the walk's runs hand
+ *    them, and each of those left unmade where it may not have
  *    run or failed. So `cd / && find . -name x` is refused, and a session
  *    standing in `/` is refused `find . -name x` and
  *    `cd /missing; find . -name x`. A directory unknown to the walk is no `/`.
@@ -39,10 +39,9 @@ const {
 	BASH_SPACE,
 	normAbs,
 	parseCommand,
-	runCwd,
 	walkCommands,
 } = require("./shell-parse.js");
-const { findStarts, literal, unwrap } = require("./shell-words.js");
+const { findStarts, literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -78,7 +77,7 @@ function decide(command, ctx) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			if (refused === null && startsAtRoot(cmd, parsed.spans, ctx.isDir))
+			if (refused === null && startsAtRoot(cmd, parsed.spans))
 				refused = cmd.segment;
 		},
 		ctx,
@@ -104,13 +103,12 @@ function decide(command, ctx) {
 /**
  * @param {import("./shell-parse.js").Command} cmd
  * @param {string[]} spans
- * @param {(path: string) => boolean} isDir
  */
-function startsAtRoot(cmd, spans, isDir) {
-	return unwrap(cmd.words, spans).some(({ words: [head, ...rest], chdirs }) => {
+function startsAtRoot(cmd, spans) {
+	return cmd.runs().some(({ words: [head, ...rest], dirs }) => {
 		if (head === undefined || head.slice(head.lastIndexOf("/") + 1) !== "find")
 			return false;
-		const cwds = runCwd(cmd.cwds, chdirs, spans, isDir);
+		const cwds = dirs();
 		const starts = findStarts(rest, spans);
 		return (starts.length > 0 ? starts : ["."]).some((start) =>
 			cwds.some((cwd) => isRoot(start, cwd, spans)),

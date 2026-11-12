@@ -281,6 +281,14 @@
 			"if": ["Bash(gh *)"]
 		},
 		{
+			"name": "guard-issue-link",
+			"core": "issue-link-write.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"tree": "host",
+			"if": ["Bash(gh *)"]
+		},
+		{
 			"name": "guard-issue-close",
 			"core": "issue-close.js",
 			"tools": "Bash",

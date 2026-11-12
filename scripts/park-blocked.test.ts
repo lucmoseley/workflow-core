@@ -404,7 +404,7 @@ describe("waiting:external needs a gate", () => {
 			expect(r.stderr).toContain(
 				"no open blocked-by edge, no open **Blocked on** issue, no holding **Gated until:** or **Gated on:** line",
 			);
-			expect(r.stderr).toContain("dependencies/blocked_by -F issue_id=");
+			expect(r.stderr).toContain("link-blocker.js 9 <blocker>");
 			expect(r.stderr).toContain("issue-body.js append 9");
 			expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(
 				false,
