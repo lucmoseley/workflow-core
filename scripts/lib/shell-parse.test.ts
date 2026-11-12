@@ -610,6 +610,7 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		"cd /missing && case x in x) true;; esac && gh x",
 		"cd /missing && { if true; then true; fi } && gh x",
 		"cd /missing && true | true && gh x",
+		"cd /missing && true |& true && gh x",
 	])(
 		"is not settled outside a compound command or pipeline by a chain ending inside it, %s (#5109)",
 		(command) => {
@@ -623,6 +624,11 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		"cd /missing && while false; do true; done; gh x",
 		"cd /missing && case x in x) true;; esac; gh x",
 		"cd /missing && true | true; gh x",
+		"cd /missing && echo $(a) for x\ngh x\necho $(b) done",
+		"cd /missing && echo `a` if x\ngh x\necho `b` fi",
+		"cd /missing && echo $((1)) case x\ngh x\necho $((2)) esac",
+		"cd /missing && a=(while x)\ngh x\nb=(done)",
+		"cd /missing && f() { true; }; gh x",
 	])(
 		"is settled by a chain ending outside a compound command or pipeline, %s (#5109)",
 		(command) => {
@@ -2218,6 +2224,10 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && { { true; } }; git checkout x`, [SHARED]],
 			[`cd ${WORKTREE} && if true; then true; fi && git checkout x`, []],
 			[`cd ${WORKTREE} && for i in 1; do true; done; git checkout x`, [SHARED]],
+			[
+				`cd ${WORKTREE} && echo $(a) for x; git checkout x; echo $(b) done`,
+				[SHARED],
+			],
 		])(
 			"doubts the tree a chain left only once it ends outside a subshell, group or compound command, %s (#5093, #5095, #5109)",
 			(bare, trees) => {

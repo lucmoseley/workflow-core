@@ -137,7 +137,7 @@ function flatten(text, mark = false, ops = false) {
 				: "\n",
 		)
 		.replace(/;/g, join("s"))
-		.replace(/\|/g, join("p"))
+		.replace(/\|&?/g, join("p"))
 		.replace(/&/g, join("b"))
 		.replaceAll("\x03", "&")
 		.replaceAll("\x04", "|")}\n`;
@@ -2254,11 +2254,11 @@ function isListBackgrounded(joins, segIdx) {
 	return joins[end] === "b";
 }
 
-/** @type {WeakMap<Parsed, Group[] | null>} */
-const groupMemo = new WeakMap();
+/** @type {WeakMap<Parsed, Compound[] | null>} */
+const compoundMemo = new WeakMap();
 
 /**
- * @typedef {[from: number, to: number, opener: string]} Group a compound
+ * @typedef {[from: number, to: number, opener: string]} Compound a compound
  *   command's opening and closing segment, and the word that opened it
  */
 
@@ -2270,50 +2270,111 @@ const CLOSERS = new Map([
 	["esac", ["case"]],
 ]);
 
-/** A word that closes a compound command, and so may come before a `}`. */
-const CLOSER_RE = /^(?:\}(?=$|[<>])|done$|fi$|esac$)/;
-
-/** The reserved words that open a compound command. */
-const OPENER_RE = /^(?:\{|if|while|until)$/;
-
-/** The words that open a compound command and take a word after them, so no
- * reserved word follows. */
-const NAMED_OPENER_RE = /^(?:for|select|case)$/;
+const OPENERS = new Set([...CLOSERS.values()].flat());
 
 /**
- * The words a segment opens with that close a compound command, a `}` read
- * bare, and those that open one among the reserved words after them (#5095,
+ * The closer a word is, a `}` read with any redirection straight after it;
+ * undefined where it is none.
+ * @param {string} word
+ */
+function closerOf(word) {
+	if (/^\}(?=$|[<>])/.test(word)) return "}";
+	return CLOSERS.has(word) ? word : undefined;
+}
+
+/**
+ * The words a segment opens with that close a compound command, and those
+ * that open one: among the reserved words after them, or the word after
+ * those, which takes a word of its own, so no reserved word follows (#5095,
  * #5109).
  * @param {string} segment
  */
-function groupWords(segment) {
+function compoundWords(segment) {
 	const words = segment.trim().split(/\s+/);
+	/** @type {string[]} */
+	const closes = [];
 	let wi = 0;
-	while (CLOSER_RE.test(words[wi] ?? "")) wi++;
-	const closes = words.slice(0, wi).map((w) => (w.startsWith("}") ? "}" : w));
+	for (let c = closerOf(words[wi] ?? ""); c; c = closerOf(words[wi] ?? "")) {
+		closes.push(c);
+		wi++;
+	}
 	const end = skipReserved(words, wi);
-	const opens = words.slice(wi, end).filter((w) => OPENER_RE.test(w));
-	if (NAMED_OPENER_RE.test(words[end] ?? "")) opens.push(words[end] ?? "");
+	const opens = words.slice(wi, end).filter((w) => OPENERS.has(w));
+	const next = words[end];
+	if (next !== undefined && OPENERS.has(next) && !RESERVED_WORDS.includes(next))
+		opens.push(next);
 	return { closes, opens };
 }
 
 /**
- * Each compound command's opening and closing segment, paired by segment:
- * `{ …; }`, `if … fi`, `while`, `until`, `for` or `select … done` and
- * `case … esac`; null where an opener or closer is left over or a closer
- * meets another's opener.
- * @param {Parsed} parsed
- * @returns {Group[] | null}
+ * Whether a bracket's `(` at `at` holds commands: not an array's, after `=`,
+ * nor the inner one of `((`, which holds arithmetic.
+ * @param {string[]} segments
+ * @param {number} at
  */
-function compoundGroups(parsed) {
-	const known = groupMemo.get(parsed);
+function holdsCommands(segments, at) {
+	const before = segments[at - 1] ?? "";
+	if (/[=]\s*$/.test(before)) return false;
+	return !(before.trim() === "" && segments[at - 2] === `${SCOPE_MARK}(`);
+}
+
+/**
+ * Whether the brackets `from` to `to` are a function's `()`: empty, after a
+ * name alone, so a `{` straight after opens its body.
+ * @param {string[]} segments
+ * @param {number} from
+ * @param {number} to
+ */
+const isFunctionParens = (segments, from, to) =>
+	to === from + 2 &&
+	segments[from + 1]?.trim() === "" &&
+	/^\s*(?:function\s+)?[^\s$=<>|&;`'"]+\s*$/.test(segments[from - 1] ?? "");
+
+/**
+ * Whether each segment opens where a command starts: not inside an array's or
+ * arithmetic's brackets, nor the rest of a line after a `)` that closed a `(`
+ * other than a function's (#5109). A `)` that closed none is a `case`
+ * pattern's.
+ * @param {Parsed} parsed
+ * @returns {boolean[]}
+ */
+function commandStarts({ segments, joins }) {
+	/** @type {{ from: number, holds: boolean }[]} */
+	const brackets = [];
+	let afterBracket = false;
+	return segments.map((segment, i) => {
+		if (segment === `${SCOPE_MARK}(`) {
+			brackets.push({ from: i, holds: holdsCommands(segments, i) });
+			return false;
+		}
+		if (segment === `${SCOPE_MARK})`) {
+			const closed = brackets.pop();
+			afterBracket =
+				closed !== undefined && !isFunctionParens(segments, closed.from, i);
+			return false;
+		}
+		const rest = joins[i] === ")" && afterBracket;
+		return !rest && brackets.every((b) => b.holds);
+	});
+}
+
+/**
+ * Each compound command, paired by segment; null where an opener or closer is
+ * left over or a closer meets another's opener.
+ * @param {Parsed} parsed
+ * @returns {Compound[] | null}
+ */
+function compoundSpans(parsed) {
+	const known = compoundMemo.get(parsed);
 	if (known !== undefined) return known;
+	const starts = commandStarts(parsed);
 	/** @type {[number, string][]} */
 	const open = [];
-	/** @type {Group[] | null} */
+	/** @type {Compound[] | null} */
 	let groups = [];
 	scan: for (const [i, segment] of parsed.segments.entries()) {
-		const { closes, opens } = groupWords(segment);
+		if (!starts[i]) continue;
+		const { closes, opens } = compoundWords(segment);
 		for (const closer of closes) {
 			const top = open.pop();
 			if (!top || !CLOSERS.get(closer)?.includes(top[1])) {
@@ -2325,7 +2386,7 @@ function compoundGroups(parsed) {
 		for (const opener of opens) open.push([i, opener]);
 	}
 	if (open.length > 0) groups = null;
-	groupMemo.set(parsed, groups);
+	compoundMemo.set(parsed, groups);
 	return groups;
 }
 
@@ -2336,7 +2397,7 @@ function compoundGroups(parsed) {
  * @param {number} segIdx
  */
 const runDepth = (parsed, segIdx) =>
-	(compoundGroups(parsed) ?? []).filter(
+	(compoundSpans(parsed) ?? []).filter(
 		([from, to]) => from <= segIdx && segIdx < to,
 	).length;
 
@@ -2350,7 +2411,7 @@ const runDepth = (parsed, segIdx) =>
  */
 function chainEndDepth(parsed, segIdx) {
 	if (!isChainEnd(parsed.joins, segIdx)) return;
-	return (compoundGroups(parsed) ?? []).filter(
+	return (compoundSpans(parsed) ?? []).filter(
 		([from, to]) => from < segIdx && segIdx <= to,
 	).length;
 }
@@ -2364,7 +2425,7 @@ function chainEndDepth(parsed, segIdx) {
  */
 function isBraceGroupSure(parsed, segIdx) {
 	const { joins, segments } = parsed;
-	const groups = compoundGroups(parsed);
+	const groups = compoundSpans(parsed);
 	if (!groups) return false;
 	return groups.every(([from, to, opener]) => {
 		if (opener !== "{" || segIdx < from || segIdx > to) return true;
