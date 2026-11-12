@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
+CONFTEST = SCRIPTS / "conftest.py"
 
 PROBE = """
 import json, os, tempfile
@@ -50,7 +51,7 @@ def test_the_root_goes_when_the_session_finishes(tmp_path):
             "pytest",
             "-q",
             "-p",
-            "conftest",
+            CONFTEST.stem,
             "-p",
             "no:cacheprovider",
             "test_probe.py",

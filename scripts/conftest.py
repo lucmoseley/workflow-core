@@ -8,10 +8,12 @@ dirs by the env it reads, never a patched module global (#1275). `corpus` and
 `unkeyed` are the transcript scanners' tests' own, written once (#1297).
 """
 
+import atexit
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -60,12 +62,13 @@ os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
 # as vitest.setup.ts blanks it (#4862).
 os.environ["WFC_MEMORY_HOLD"] = ""
 
-# Every fixture a test makes goes with the run (#5083): the session's temp root
-# is a private one, `wfc-pytest-<pid>-XXXXXX`, which pytest_sessionfinish removes,
+# The session's temp root is a private one (#5083), `wfc-pytest-<pid>-XXXXXX`,
+# which pytest_sessionfinish removes with every fixture a test left in it,
 # pytest's own `tmp_path` base inside it. An xdist worker, or a pytest a test
 # runs, whose `TMPDIR` is still that root shares it and leaves its removal to
 # the process that made it; one whose `TMPDIR` a test set makes its own there.
-# run-pytest.js removes a root whose pid is dead.
+# run-pytest.js removes a root whose pid is dead, once it stood an hour. Set
+# before any dir below is made, so each lands in the root.
 _RUN_ROOT_ENV = "WFC_PYTEST_TMP_ROOT"
 _inherited_root = os.environ.get(_RUN_ROOT_ENV)
 _owns_run_root = not (
@@ -73,8 +76,9 @@ _owns_run_root = not (
     and _inherited_root == os.environ.get("TMPDIR")
     and os.path.isdir(_inherited_root)
 )
+_owner_pid = os.getpid()
 if _owns_run_root:
-    _run_root = tempfile.mkdtemp(prefix=f"wfc-pytest-{os.getpid()}-")
+    _run_root = tempfile.mkdtemp(prefix=f"wfc-pytest-{_owner_pid}-")
     os.environ[_RUN_ROOT_ENV] = _run_root
 else:
     _run_root = _inherited_root
@@ -82,9 +86,9 @@ os.environ["TMPDIR"] = _run_root
 tempfile.tempdir = _run_root
 
 
-@pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session):
-    if not _owns_run_root:
+def _remove_run_root():
+    # Never from a child a test forked, whose exit would take the live root.
+    if os.getpid() != _owner_pid or not os.path.exists(_run_root):
         return
     try:
         shutil.rmtree(_run_root)
@@ -94,6 +98,24 @@ def pytest_sessionfinish(session):
             for _sub in _subdirs:
                 os.chmod(os.path.join(_dir, _sub), 0o700)
         shutil.rmtree(_run_root, ignore_errors=True)
+    if os.path.exists(_run_root):
+        print(
+            f"conftest: {_run_root} would not go; a later run-pytest.js removes it",
+            file=sys.stderr,
+        )
+
+
+# A session that ends before pytest_sessionfinish, on a usage error or a
+# signal pytest handles, still removes its root.
+if _owns_run_root:
+    atexit.register(_remove_run_root)
+
+
+# trylast: after every other plugin's finish, xdist's and tmp_path's among them.
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    if _owns_run_root:
+        _remove_run_root()
 
 
 # No test reaches the session's host through CLAUDE_PROJECT_DIR (#3334): an

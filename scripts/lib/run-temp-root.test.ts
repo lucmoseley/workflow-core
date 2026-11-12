@@ -5,13 +5,14 @@
  * that pid is dead. Loosen a case and a killed run's fixtures stay in `/tmp`,
  * or a live run loses its root mid-run.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const {
+	STALE_MS,
 	makeRunRoot,
 	removeRunRoot,
 	sweepDeadRunRoots,
@@ -50,25 +51,34 @@ describe("removeRunRoot", () => {
 	});
 });
 
+/* Above Linux's pid_max ceiling of 2^22, so no process holds it. */
+const DEAD_PID = 999_999_999;
+
+function staleRoot(dir: string, ageMs = STALE_MS + 1000) {
+	fs.mkdirSync(path.join(dir, "fixture"), { recursive: true });
+	const at = (Date.now() - ageMs) / 1000;
+	fs.utimesSync(dir, at, at);
+	return dir;
+}
+
 describe("sweepDeadRunRoots", () => {
-	it("removes a dead pid's root, keeping a live one, the other kind's and any other name", () => {
+	it("removes a dead pid's stale root, keeping a live one, a fresh one, the other kind's and any other name", () => {
 		const at = tmp();
-		const dead = path.join(at, "wfc-vitest-111-abcdef");
-		const live = path.join(at, "wfc-vitest-222-abcdef");
-		const pytest = path.join(at, "wfc-pytest-111-abcdef");
-		const other = path.join(at, "wfc-vitest-cache");
-		for (const dir of [dead, live, pytest, other])
-			fs.mkdirSync(path.join(dir, "fixture"), { recursive: true });
-		const err = { write: () => true };
+		const dead = staleRoot(path.join(at, "wfc-vitest-111-abcdef"));
+		staleRoot(path.join(at, "wfc-vitest-222-abcdef"));
+		staleRoot(path.join(at, "wfc-vitest-333-abcdef"), STALE_MS - 60_000);
+		staleRoot(path.join(at, "wfc-pytest-111-abcdef"));
+		staleRoot(path.join(at, "wfc-vitest-cache"));
 		const removed = sweepDeadRunRoots("vitest", {
 			tmp: at,
 			alive: (pid: number) => pid === 222,
-			err,
+			err: { write: () => true },
 		});
 		expect(removed).toEqual([dead]);
 		expect(fs.readdirSync(at).sort()).toEqual([
 			"wfc-pytest-111-abcdef",
 			"wfc-vitest-222-abcdef",
+			"wfc-vitest-333-abcdef",
 			"wfc-vitest-cache",
 		]);
 	});
@@ -79,24 +89,61 @@ describe("sweepDeadRunRoots", () => {
 		).toEqual([]);
 	});
 
-	it("runs at run-pytest.js's start", () => {
+	it("removes a dead pid's root and keeps a live one when run-pytest.js starts", () => {
 		const at = tmp();
-		const dead = path.join(at, "wfc-pytest-999999999-abcdef");
-		const live = path.join(at, `wfc-pytest-${process.pid}-abcdef`);
-		fs.mkdirSync(dead);
-		fs.mkdirSync(live);
+		const dead = staleRoot(path.join(at, `wfc-pytest-${DEAD_PID}-abcdef`));
+		const live = staleRoot(path.join(at, `wfc-pytest-${process.pid}-abcdef`));
 		/* A path that is no test file: the wrapper runs no test, and returns
 		 * in under a second. spawn-kept: the sweep sits in the entry, whose
 		 * `main()` starts a pytest child an in-process call would outlive. */
-		spawnSync(
+		const r = spawnSync(
 			process.execPath,
 			[
 				path.join(__dirname, "..", "run-pytest.js"),
 				path.join(at, "test_none.py"),
 			],
-			{ env: { ...process.env, TMPDIR: at }, stdio: "ignore" },
+			{ env: { ...process.env, TMPDIR: at }, encoding: "utf8" },
 		);
+		/* The wrapper's exit for a path that holds no test; a crash would
+		 * print `run-pytest:` with its stack. */
+		expect(r.status).toBe(1);
+		expect(r.stderr).not.toMatch(/run-pytest:|run-temp-root:/);
 		expect(fs.existsSync(dead)).toBe(false);
+		expect(fs.existsSync(live)).toBe(true);
+	});
+
+	it("removes a dead pid's root and keeps a live one when run-vitest.js starts", async () => {
+		const at = tmp();
+		const dead = staleRoot(path.join(at, `wfc-vitest-${DEAD_PID}-abcdef`));
+		const live = staleRoot(path.join(at, `wfc-vitest-${process.pid}-abcdef`));
+		const host = fs.mkdtempSync(path.join(at, "host-"));
+		/* spawn-kept: the sweep sits in the entry, before a load hold that
+		 * may wait on this machine's memory, so the child is killed once the
+		 * sweep is seen. `--shared` and the stub bin as run-vitest.test.ts's
+		 * real-child case takes them. */
+		const child = spawn(
+			process.execPath,
+			[path.join(__dirname, "..", "run-vitest.js"), "--shared"],
+			{
+				env: {
+					...process.env,
+					TMPDIR: at,
+					CLAUDE_PROJECT_DIR: host,
+					WFC_RUN_VITEST_BIN: "/bin/true",
+				},
+				stdio: "ignore",
+			},
+		);
+		const closed = new Promise((resolve) => child.on("close", resolve));
+		try {
+			await vi.waitFor(() => expect(fs.existsSync(dead)).toBe(false), {
+				timeout: 30_000,
+				interval: 50,
+			});
+		} finally {
+			child.kill("SIGKILL");
+			await closed;
+		}
 		expect(fs.existsSync(live)).toBe(true);
 	});
 });

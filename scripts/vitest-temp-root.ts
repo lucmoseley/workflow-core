@@ -1,5 +1,5 @@
 /*
- * A vitest globalSetup that gives the run one private temp root (#5083).
+ * vitest-temp-root.ts — a vitest globalSetup that gives the run one private temp root (#5083).
  *
  * IMPLICIT:  on every suite run, makes `<os.tmpdir()>/wfc-vitest-<pid>-XXXXXX`,
  *            hands it to the workers, whose setup file points `TMPDIR` at it,

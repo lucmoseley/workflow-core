@@ -50499,6 +50499,7 @@
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/host-root.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/run-temp-root.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/vitest-wrapper.test.ts",
