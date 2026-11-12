@@ -61,6 +61,15 @@ const SCOPE_CLOSE = `${SCOPE_MARK})`;
 /** Opens a flattened line with the code of the operator before it (#4009). */
 const OP_MARK = "\x05";
 
+/** The characters an escape makes a word's, each with the shield the flatten
+ * stands it behind while it splits (#5113): control bytes no other mark here
+ * uses, and no whitespace the word split reads.
+ * Residual: a raw shield byte typed after a `\` outside quotes comes back as
+ * the escaped operator; it changes that word and splits nothing. */
+const ESCAPED_OPS = "()&|;<>";
+const SHIELDS = "\x06\x07\x0e\x0f\x10\x11\x12";
+const SHIELDED_RE = new RegExp(`\\\\([${SHIELDS}])`, "g");
+
 /**
  * The command names whose line the logical-line join refuses to absorb.
  *
@@ -151,12 +160,6 @@ function flatten(text, mark = false, ops = false) {
 		)}\n`;
 }
 
-/** The characters an escape makes a word's, each with the shield the flatten
- * stands it behind while it splits (#5113). */
-const ESCAPED_OPS = "()&|;";
-const SHIELDS = "\x06\x07\x0e\x0f\x10";
-const SHIELDED_RE = new RegExp(`\\\\([${SHIELDS}])`, "g");
-
 /** An escape `\`-pair, its operator shielded from the flatten's splits.
  * @param {string} pair */
 const shieldEscape = (pair) => {
@@ -166,7 +169,7 @@ const shieldEscape = (pair) => {
 
 /** Where `masked`'s first `||` outside an escape starts, or -1.
  * @param {string} masked */
-const firstOr = (masked) => {
+const indexOfFirstOr = (masked) => {
 	for (const m of masked.matchAll(/\\[\s\S]|\|\|/g))
 		if (m[0] === "||") return m.index;
 	return -1;
@@ -513,7 +516,7 @@ function parseCommand(subject, spans = []) {
 	const { masked, heredocLines } = maskSubject(subject, spans);
 	/* Read BEFORE the flatten turns every `||` into a newline. The text before
 	 * the first one flattens to exactly the segments ahead of it. */
-	const orAt = firstOr(masked);
+	const orAt = indexOfFirstOr(masked);
 	const before =
 		orAt >= 0
 			? (flatten(masked.slice(0, orAt), true).match(/\n/g)?.length ?? 0)
@@ -800,7 +803,7 @@ function joinLogicalLines(commandLines, lx, spans) {
  */
 function isCommandAbsorbed(line, spans) {
 	const masked = maskText(new Lexer(spans), line);
-	for (const seg of masked.replace(/[;&|()]/g, "\n").split("\n")) {
+	for (const seg of flatten(masked).split("\n")) {
 		const { words, wi, ran } = commandWords(seg, { bare: true });
 		if (ran && GUARDED_HEADS.includes(basename(words[wi] ?? ""))) return true;
 	}

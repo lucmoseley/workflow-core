@@ -761,9 +761,16 @@ describe("parseCommand — an escaped operator stays in its word (#5113)", () =>
 		["echo a\\&b", ["echo a\\&b"]],
 		["echo a\\|b", ["echo a\\|b"]],
 		["find . -exec rm {} \\; ; gh y", ["find . -exec rm {} \\; ", " gh y"]],
-	])("%s", (command, segments) => {
-		expect(parseCommand(command).segments).toEqual(segments);
-	});
+		["echo \\>& gh y", ["echo \\>", " gh y"]],
+		["echo \\>| gh y", ["echo \\>", " gh y"]],
+		["echo \\<& gh y", ["echo \\<", " gh y"]],
+		["echo >&2 x", ["echo >&2 x"]],
+	])(
+		"keeps the escaped operators of %s in their words",
+		(command, segments) => {
+			expect(parseCommand(command).segments).toEqual(segments);
+		},
+	);
 
 	it("sets the conditional at the first unescaped ||", () => {
 		expect(parseCommand("echo \\|| gh y || gh z").conditional).toBe(2);
@@ -1488,6 +1495,12 @@ describe("logical lines (mantahostels#182)", () => {
 		expect(
 			seesEvil("echo it's fine\nfoo; git checkout -b evil\necho that's all"),
 		).toBe(true);
+	});
+
+	it("reads an escaped ; on a joined line as a word, not a git segment (#5113)", () => {
+		expect(
+			lines("echo it's fine\necho \\; git checkout x\necho that's all"),
+		).toHaveLength(1);
 	});
 
 	it("keeps the join through a message body that reads as a command (mantahostels#232)", () => {
