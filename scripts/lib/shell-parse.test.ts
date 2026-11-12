@@ -765,12 +765,9 @@ describe("parseCommand — an escaped operator stays in its word (#5113)", () =>
 		["echo \\>| gh y", ["echo \\>", " gh y"]],
 		["echo \\<& gh y", ["echo \\<", " gh y"]],
 		["echo >&2 x", ["echo >&2 x"]],
-	])(
-		"keeps the escaped operators of %s in their words",
-		(command, segments) => {
-			expect(parseCommand(command).segments).toEqual(segments);
-		},
-	);
+	])("splits %s at its unescaped operators alone", (command, segments) => {
+		expect(parseCommand(command).segments).toEqual(segments);
+	});
 
 	it("sets the conditional at the first unescaped ||", () => {
 		expect(parseCommand("echo \\|| gh y || gh z").conditional).toBe(2);

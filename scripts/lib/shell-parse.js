@@ -132,8 +132,8 @@ function flatten(text, mark = false, ops = false) {
 	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
 	return `${text
 		/* The lexer writes an escape as a `\`-pair, so a pair is never a
-		 * backtick or an operator of its own: its operator is shielded until
-		 * the splits are done (#5113). */
+		 * backtick of its own: its operator is shielded until the splits are
+		 * done (#5113). */
 		.replace(/\\[\s\S]|`/g, (m) => {
 			if (m !== "`") return shieldEscape(m);
 			inBackticks = !inBackticks;
@@ -160,8 +160,7 @@ function flatten(text, mark = false, ops = false) {
 		)}\n`;
 }
 
-/** An escape `\`-pair, its operator shielded from the flatten's splits.
- * @param {string} pair */
+/** @param {string} pair */
 const shieldEscape = (pair) => {
 	const at = ESCAPED_OPS.indexOf(pair.charAt(1));
 	return at < 0 ? pair : `\\${SHIELDS.charAt(at)}`;
