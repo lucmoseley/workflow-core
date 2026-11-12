@@ -571,6 +571,51 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /a & gh x")).toEqual(["/start"]);
 		expect(last("cd /a | true; gh x")).toEqual(["/start"]);
 	});
+
+	it("runs a cd after || only where the cd before it failed (#5010)", () => {
+		expect(last("cd /missing || cd /usr; gh x")).toEqual(["/usr", "/missing"]);
+		expect(last("cd /a || cd /missing; gh x")).toEqual(["/missing", "/a"]);
+		expect(last("(cd /missing || cd /usr; gh x)")).toEqual([
+			"/usr",
+			"/missing",
+		]);
+		expect(last("true && cd /missing || cd /usr; gh x")).toContain("/start");
+		expect(last("cd /missing || cd /usr || cd /b; gh x")).toContain("/missing");
+		expect(last("cd /missing || cd /usr & gh x")).toContain("/start");
+		expect(last("cd /a || cd /b && gh x")).toEqual(["/b", "/a"]);
+		expect(last("! cd /missing || cd /usr; gh x")).toContain("/start");
+		expect(last("cd -P /a || cd /usr; gh x")).toContain("/start");
+		expect(last("! cd /missing && gh x")).toEqual(["/missing", "/start"]);
+	});
+
+	it("holds a cd in a { …; } group that surely runs (#5010)", () => {
+		expect(last("{ cd /usr; }; gh x")).toEqual(["/usr"]);
+		expect(last("{ true; { cd /usr; }; }; gh x")).toEqual(["/usr"]);
+		expect(last("false && { true; cd /usr; }; gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last("false || { true; cd /usr; }; gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last("{ true; cd /usr; } && true & gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last("{ true; cd /usr; } | cat; gh x")).toEqual(["/usr", "/start"]);
+		expect(last("true | { true; cd /usr; }; gh x")).toEqual(["/usr", "/start"]);
+		expect(last("f() { cd /usr; }; gh x")).toEqual(["/usr", "/start"]);
+		expect(last("{ cd /usr; }; if true; then true; fi; gh x")).toEqual([
+			"/usr",
+			"/start",
+		]);
+	});
+
+	it("backgrounds a cd with the && or || list & closes (#5010)", () => {
+		expect(last("cd /usr || true & gh x")).toEqual(["/usr", "/start"]);
+		expect(last("cd /usr || true; gh x")).toEqual(["/usr"]);
+	});
 });
 
 describe("Command.redirects — redirections out of the words and into a lookup (#1488)", () => {
@@ -1877,6 +1922,27 @@ describe('walkGit, scope "shared"', () => {
 				judged(`flock /l -c "cd ${SHARED}; git checkout x"`, WORKTREE, true)
 					.trees,
 			).toEqual([SHARED]);
+		});
+
+		it("judges the tree two failed cds in the string leave it in (#5013)", () => {
+			const command = `flock /l -c "cd ${WORKTREE} || true; cd ${ELSEWHERE} || true; git checkout x"`;
+			expect(judged(command, SHARED, false).trees).toEqual([SHARED]);
+			expect(judged(command, SHARED, true).trees).toEqual([]);
+		});
+
+		it("moves a doubted cwd by a wrapper's word reading a variable the command set (#5013)", () => {
+			const command = `D=shared; cd ${ELSEWHERE} || true; env -C "$D" git checkout x`;
+			expect(judged(command, DIR, false).trees).toEqual([SHARED]);
+		});
+
+		it("moves a doubted cwd by a relative -C after a cd that will not resolve (#5013)", () => {
+			const command = `flock /l -c 'cd $NOPE || true; git -C shared checkout x'`;
+			expect(judged(command, DIR, true).trees).toContain(SHARED);
+		});
+
+		it("leaves a doubted cwd unknown past a -C that will not resolve (#5013)", () => {
+			const command = `flock /l -c 'cd ${WORKTREE} || true; git -C $Q checkout x'`;
+			expect(judged(command, SHARED, false).trees).not.toContain(SHARED);
 		});
 	});
 

@@ -22,7 +22,8 @@ const {
 	readSentinels,
 	literal,
 	unwrap,
-	holdsAt,
+	runCwd,
+	moveDir,
 	commandName,
 	isGitValueOption,
 	isGlobPattern,
@@ -838,7 +839,7 @@ function asWritten(text, spans) {
 
 /**
  * `$VAR` and `${VAR}` in `s` expanded, the command's own assignments winning
- * over the environment as in shell (mantahostels#208, correcting mantahostels#183); null where the text
+ * over the environment as in shell (mantahostels#208); null where the text
  * cannot be resolved.
  *
  * DELIBERATELY NARROW. It refuses, rather than guessing, on command
@@ -1142,6 +1143,9 @@ const TEXT_ONLY_PORTS = Object.freeze({
  *   perhaps not run or failed (#4009)
  * @property {string[]} cwdPending the same, held while a `&&` chain off that
  *   `cd` runs only if it worked
+ * @property {{ segIdx: number, dirs: Set<string> } | null} cdTargets where the
+ *   last `cd` that opened its `&&` or `||` list may have gone, for a `||` after
+ *   it (#5010)
  * @property {boolean} aliasWritten a `git config` earlier in the command touched
  *   an alias (#4009)
  * @property {GitEnv} gitEnv the git-reading variables an `export` has put in
@@ -1180,6 +1184,7 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 	cwdLost: "",
 	cwdDoubt: [],
 	cwdPending: [],
+	cdTargets: null,
 	aliasWritten: false,
 	gitEnv: new Map(),
 	stack: [],
@@ -1447,6 +1452,8 @@ function walkCommands(parsed, fn, ports) {
  *   not followed: an assignment that may not have run, an `unset`, or any
  *   other command naming it bare (`read X`, `for X in`)
  * @property {string[]} unread
+ * @property {number} cdAt the segment of the last `cd` that opened its `&&` or
+ *   `||` list, -1 where none has
  */
 
 /**
@@ -1472,6 +1479,7 @@ function parseScript(script, spans) {
 		locals: new Map(),
 		lost: [],
 		unread: [],
+		cdAt: -1,
 	};
 	/** @type {ScriptState[]} */
 	const stack = [];
@@ -1719,24 +1727,31 @@ function cdInScript(state, own, where) {
 	const known =
 		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
 	const dir = known || `$(${texts.join(" ")})`;
+	const { parsed, segIdx } = where;
+	const opens = opensList(parsed.joins, segIdx);
+	const afterCd = isAfterCd(parsed.joins, segIdx, state.cdAt);
 	/** @type {Chdir["holds"]} */
-	const holds = isSureMove(where.parsed, where.segIdx, own)
-		? "if-dir"
-		: "maybe";
-	const chained = where.parsed.joins[where.segIdx + 1] === "a";
+	const holds =
+		(opens || afterCd) && isSureOnceReached(parsed, segIdx, own)
+			? "if-dir"
+			: "maybe";
+	const chained = isChainedOff(parsed, segIdx);
 	const pending = chained
 		? [...state.pending, { at: state.chdirs.length, holds }]
 		: state.pending;
 	/** @type {Map<string, string | null>} */
 	const vars = new Map(state.locals);
 	for (const name of state.lost) vars.set(name, null);
+	/** @type {Chdir} */
 	const cd = {
 		dir,
 		read: false,
-		holds: chained ? /** @type {const} */ ("always") : holds,
+		holds: chained ? "always" : holds,
 		vars,
 	};
-	return { ...state, chdirs: [...state.chdirs, cd], pending };
+	if (afterCd) cd.afterFailed = true;
+	const cdAt = opens && !isNegated(parsed.segments, segIdx) ? segIdx : -1;
+	return { ...state, chdirs: [...state.chdirs, cd], pending, cdAt };
 }
 
 /**
@@ -1936,8 +1951,8 @@ function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
  * @property {string | null} workTree the tree `--work-tree` or `GIT_WORK_TREE`
  *   names, "" where it will not resolve; null where none does
  * @property {string[]} doubted where the command may stand instead of `tree`
- * @property {string | null} fromCwd the relative moves its `-C`s made off the
- *   cwd, each `/`-led; null where an absolute one ended the cwd's say
+ * @property {ReturnType<typeof pathArg>[]} dirMoves each `-C`'s directory
+ *   as pathArg read it, in order
  * @property {string[]} names the unset names read as empty on the way (#325)
  * @property {string} written an unresolved `-C` as typed, for the record
  * @property {import("./git-alias.js").AliasTable} aliases what the command
@@ -1989,7 +2004,10 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
 }
 
 /**
- * One `git` command's subcommand and the tree it runs against.
+ * One `git` command's subcommand and the tree it runs against. Every other
+ * directory its run may stand in, by runCwd from the walk's doubted cwds, is
+ * moved by its `-C`s into `doubted`; runCwd reads a wrapper's word under the
+ * walk's scope, as the tree's own move does.
  * @param {Walk} walk
  * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
  *   its words from `git` on, and what its wrappers and its script carried
@@ -2005,40 +2023,34 @@ function readGitRun(walk, run, leading, isDir) {
 		env.set(name, value);
 	for (const name of run.unread) env.set(name, null);
 	const { spans } = walk.scope;
-	/** @param {Chdir[]} dirs */
-	const through = (dirs) => {
-		/** @type {GitTarget} */
-		const target = {
-			tree: walk.cwd,
-			named: null,
-			workTree: null,
-			doubted: [],
-			fromCwd: "",
-			names: walk.cwdNames,
-			written: "",
-			aliases: emptyAliasTable(),
-		};
-		target.aliases.anyUnread = walk.aliasWritten;
-		defineFromEnv(target.aliases, env, spans);
-		/** @type {number[]} */
-		const unsure = [];
-		dirs.forEach((cd, at) => {
-			const { resolved, emptyNames } = chdirArg(cd, walk.scope);
-			moveGitTarget(target, resolved, cd.dir, emptyNames);
-			if (!holdsAt(cd, target.tree, isDir)) unsure.push(at);
-		});
-		const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
-		return { target, i, unsure };
+	/** @type {GitTarget} */
+	const target = {
+		tree: walk.cwd,
+		named: null,
+		workTree: null,
+		doubted: [],
+		dirMoves: [],
+		names: walk.cwdNames,
+		written: "",
+		aliases: emptyAliasTable(),
 	};
-	const { target, i, unsure } = through(chdirs);
+	target.aliases.anyUnread = walk.aliasWritten;
+	defineFromEnv(target.aliases, env, spans);
+	for (const cd of chdirs) {
+		const { resolved, emptyNames } = chdirArg(cd, walk.scope);
+		moveGitTarget(target, resolved, cd.dir, emptyNames);
+	}
+	const i = readGitOptions(own, target, { scope: walk.scope, env, isDir });
 	const word = own[i];
 	if (word === undefined) return null;
-	/* An absolute `-C` says where it stands whatever a `cd` did. */
-	if (target.fromCwd !== null)
-		target.doubted = walk.cwdDoubt.map((d) => `${d}${target.fromCwd}`);
-	/* A `cd` that may not have run leaves it where the rest of its moves do. */
-	for (const at of unsure)
-		target.doubted.push(through(chdirs.filter((_, j) => j !== at)).target.tree);
+	const [, ...doubted] = runCwd(
+		[walk.cwd, ...walk.cwdDoubt],
+		chdirs,
+		walk.scope,
+		isDir,
+	);
+	const moved = doubted.map((d) => target.dirMoves.reduce(moveDir, d));
+	target.doubted = [...new Set(moved)].filter((d) => d !== target.tree);
 	/* The config read follows `tree`, which the doubt says it may not stand in. */
 	target.aliases.anyUnread ||= target.doubted.length > 0;
 	const args = own.slice(i + 1);
@@ -2055,9 +2067,9 @@ function readGitRun(walk, run, leading, isDir) {
 }
 
 /* A segment opening a compound command, whose parts a `cd` may run in any order
- * or not at all. */
+ * or not at all. A `{ …; }` group runs its parts in order: isBraceGroupSure. */
 const COMPOUND_START =
-	/^\s*(?:if|while|until|for|select|case|function|\{)(?:\s|$)/;
+	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
 
 /**
  * Whether the segment runs in a subshell of its own, in a pipeline or behind
@@ -2071,23 +2083,134 @@ function runsApart(joins, segIdx) {
 }
 
 /**
- * Whether a `cd` surely runs, where its directory is there: no `&&` or `||`
- * before it, none of the command's segments opening a compound command, its
- * `&&` chain not closed by `&`, and no word after its target.
+ * Whether the segment opens its `&&` or `||` list: no `&&` or `||` before it.
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+const opensList = (joins, segIdx) =>
+	joins[segIdx] !== "a" && joins[segIdx] !== "o";
+
+/**
+ * Whether the segment is a `cd` after `||` whose left side is the `cd` that
+ * opened the list at `cdAt`, unnegated: it runs only where that one failed
+ * (#5010).
+ * @param {string[]} joins
+ * @param {number} segIdx
+ * @param {number} cdAt -1 where no such `cd` stands
+ */
+const isAfterCd = (joins, segIdx, cdAt) =>
+	joins[segIdx] === "o" && cdAt === segIdx - 1;
+
+/**
+ * Whether the segment's command is negated by `!`, past any `{` opening it.
+ * @param {string[]} segments
+ * @param {number} segIdx
+ */
+function isNegated(segments, segIdx) {
+	const segment = segments[segIdx];
+	if (segment === undefined) return false;
+	return (
+		segment
+			.trim()
+			.split(/\s+/)
+			.find((w) => w !== "{") === "!"
+	);
+}
+
+/**
+ * Whether a `&&` chains the next command off the segment alone, so it runs only
+ * where the segment's command worked: not where `||` stands before it, whose
+ * left side working runs that command too, nor where `!` reverses its status
+ * (measured, #5010).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const isChainedOff = ({ joins, segments }, segIdx) =>
+	joins[segIdx + 1] === "a" &&
+	joins[segIdx] !== "o" &&
+	!isNegated(segments, segIdx);
+
+/**
+ * Whether the `&&` and `||` list the segment ends is closed by `&`, which
+ * backgrounds all of it (measured, #5010).
+ * @param {string[]} joins
+ * @param {number} segIdx
+ */
+function isListBackgrounded(joins, segIdx) {
+	let end = segIdx + 1;
+	while (joins[end] === "a" || joins[end] === "o") end++;
+	return joins[end] === "b";
+}
+
+/**
+ * Whether every `{ …; }` group holding the segment surely runs in this shell:
+ * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
+ * not a function's body. A group left unclosed holds none.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function isBraceGroupSure({ joins, segments }, segIdx) {
+	/** @type {number[]} */
+	const open = [];
+	/** @type {[number, number][]} */
+	const groups = [];
+	for (const [i, segment] of segments.entries()) {
+		const words = segment.trim().split(/\s+/);
+		const [head] = words;
+		if (head !== undefined && /^\}(?=$|[<>])/.test(head)) {
+			const from = open.pop();
+			if (from === undefined) return false;
+			groups.push([from, i]);
+		}
+		for (const word of words) {
+			if (word !== "{") break;
+			open.push(i);
+		}
+	}
+	if (open.length > 0) return false;
+	return groups.every(([from, to]) => {
+		if (segIdx < from || segIdx > to) return true;
+		const before = joins[from];
+		let prev = from - 1;
+		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
+		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
+		const defined = before === "" && segments[prev] === `${SCOPE_MARK})`;
+		return (
+			!defined &&
+			before !== "a" &&
+			before !== "o" &&
+			before !== "p" &&
+			joins[to + 1] !== "p" &&
+			!isListBackgrounded(joins, to)
+		);
+	});
+}
+
+/**
+ * Whether a `cd` surely runs where its directory is there, from where the
+ * segment before it left the walk: none of the command's segments opening a
+ * compound command, any `{ …; }` group holding it surely running, its `&&` or
+ * `||` list not closed by `&`, and no word after its target.
  * @param {Parsed} parsed
  * @param {number} segIdx
  * @param {string[]} own its words
  */
-function isSureMove({ joins, segments }, segIdx, own) {
-	const before = joins[segIdx];
-	let end = segIdx + 1;
-	while (joins[end] === "a") end++;
+const isSureOnceReached = (parsed, segIdx, own) =>
+	!isListBackgrounded(parsed.joins, segIdx) &&
+	own.length <= 2 &&
+	!parsed.segments.some((s) => COMPOUND_START.test(s)) &&
+	isBraceGroupSure(parsed, segIdx);
+
+/**
+ * Whether a `cd` surely runs, where its directory is there: as
+ * isSureOnceReached, with no `&&` or `||` before it.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {string[]} own its words
+ */
+function isSureMove(parsed, segIdx, own) {
 	return (
-		joins[end] !== "b" &&
-		own.length <= 2 &&
-		!segments.some((s) => COMPOUND_START.test(s)) &&
-		before !== "a" &&
-		before !== "o"
+		opensList(parsed.joins, segIdx) && isSureOnceReached(parsed, segIdx, own)
 	);
 }
 
@@ -2108,11 +2231,12 @@ function settleCwdDoubt(walk, segIdx) {
  * command may still stand; whether the command is one that moves it. In a
  * pipeline or behind `&` it runs in a subshell and moves nothing (measured). A
  * move sticks where the `cd` always runs and its directory is there now; failing
- * that, only what a `&&` chains off it is sure of it (#4009). A `&` closing that
- * chain backgrounds the `cd` with it. Each directory already doubted moves the
+ * that, only what a `&&` chains off it is sure of it (#4009), unless `||` stands
+ * before it. A `&` closing its list backgrounds the `cd` with it. Each directory already doubted moves the
  * same way, as runCwd moves a run's (#4980); one a `&&` chain holds stays
  * put, as nothing in that chain runs there.
- * @param {Walk} walk accumulator: its cwd and doubts are moved
+ * @param {Walk} walk accumulator: its cwd and doubts are moved, its
+ *   `cdTargets` replaced
  * @param {string[]} own
  * @param {number} segIdx
  * @param {(path: string) => boolean} isDir
@@ -2125,9 +2249,20 @@ function stepCwd(walk, own, segIdx, isDir) {
 		Object.assign(walk, { cwd, cwdNames, cwdLost });
 		return true;
 	}
-	const surely = isSureMove(walk.parsed, segIdx, own);
+	const { joins } = walk.parsed;
+	const left = walk.cdTargets;
+	/* A `cd` after `||` runs only where the `cd` before it failed, so it holds
+	 * from every directory but where that one may have gone, where the walk
+	 * can name each (#5010). */
+	const afterCd =
+		isAfterCd(joins, segIdx, left?.segIdx ?? -1) && !left?.dirs.has("");
+	const surely =
+		(opensList(joins, segIdx) || afterCd) &&
+		isSureOnceReached(walk.parsed, segIdx, own);
 	/** @param {string} from @param {string} to */
-	const held = (from, to) => to === from || (surely && to !== "" && isDir(to));
+	const held = (from, to) =>
+		to === from ||
+		(surely && to !== "" && isDir(to) && !(afterCd && left?.dirs.has(from)));
 	/** @type {string[]} where a move may not have been made */
 	const unmade = held(cwd, walk.cwd) ? [] : [cwd];
 	const moved = walk.cwdDoubt.map((from) => {
@@ -2135,11 +2270,15 @@ function stepCwd(walk, own, segIdx, isDir) {
 		if (!held(from, to)) unmade.push(from);
 		return to;
 	});
-	if (walk.parsed.joins[segIdx + 1] === "a") {
+	if (isChainedOff(walk.parsed, segIdx)) {
 		walk.cwdDoubt = moved;
 		walk.cwdPending = [...walk.cwdPending, ...unmade];
 	} else walk.cwdDoubt = [...moved, ...unmade];
 	walk.cwdDoubt = [...new Set(walk.cwdDoubt)].filter((d) => d !== walk.cwd);
+	walk.cdTargets =
+		opensList(joins, segIdx) && !isNegated(walk.parsed.segments, segIdx)
+			? { segIdx, dirs: new Set([walk.cwd, ...moved]) }
+			: null;
 	return true;
 }
 
@@ -2379,12 +2518,14 @@ const treeOfGitDir = (dir) => normAbs(dir).replace(/\/\.git$/, "") || "/";
  * @param {Scope} scope
  */
 function readGitDir(word, target, scope) {
-	moveGitTarget(target, pathArg(word, scope), word, scope.emptyNames);
+	const r = pathArg(word, scope);
+	target.dirMoves.push(r);
+	moveGitTarget(target, r, word, scope.emptyNames);
 }
 
 /**
  * Move `target` to a directory as pathArg answered it.
- * @param {GitTarget} target accumulator: its tree, fromCwd, names and written
+ * @param {GitTarget} target accumulator: its tree, names and written
  *   are moved
  * @param {ReturnType<typeof pathArg>} r
  * @param {string} word as written, for the unresolved record
@@ -2400,12 +2541,10 @@ function moveGitTarget(target, r, word, emptyNames) {
 		target.written = `-C ${word}`;
 	} else if (r.path.startsWith("/")) {
 		target.tree = r.path;
-		target.fromCwd = null;
 		target.names = [...emptyNames];
 		target.written = "";
 	} else if (target.tree) {
 		target.tree = `${target.tree}/${r.path}`;
-		if (target.fromCwd !== null) target.fromCwd += `/${r.path}`;
 		target.names = [...target.names, ...emptyNames];
 	}
 }

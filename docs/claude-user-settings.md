@@ -369,7 +369,7 @@ fi
 # every checkout once #127 moved the marker out of it (workflow-core#131).
 #
 # The marker is read live and the flip is HALF live: scripts/lib/dispatch-rewrite.js
-# moves the next `haiku` Agent dispatch to `opus` and `opus` to `fable` at once, while the `model`
+# moves the next `opus` Agent dispatch to `fable` at once, while the `model`
 # key the toggle also writes is read at startup, so this session keeps the
 # model it booted on. Hence `(restart: model)` and not the design segment's
 # bare `(restart)`: the badge names the half that is still waiting. Only this

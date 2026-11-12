@@ -7,9 +7,9 @@
  *   standing — always on. Work the effort guide once routed to Sonnet 5.5
  *              runs on Haiku 5.5 at xhigh, so a `sonnet` dispatch or launch
  *              spelling is moved to Haiku.
- *   burn     — only while burn mode's marker exists (lib/burn-mode.js). Haiku
- *              work runs on Opus 5.5 at medium, and Opus work, the code
- *              reviewer's included, on Fable 5.2 at low (#5004).
+ *   burn     — only while burn mode's marker exists (lib/burn-mode.js). Opus
+ *              work, the code reviewer's included, runs on Fable 5.2 at low
+ *              (#5004).
  *   off      — only while it does not: a Fable dispatch or launch spelling
  *              is moved to Opus, so Fable runs under burn mode alone (#4992).
  *
@@ -80,10 +80,7 @@ const DISPATCH_FABLE = "fable";
 
 /** The effort each layer's target runs at on a dispatch: the founder's rulings (#4919, #5004). */
 const STANDING_EFFORT = "xhigh";
-const BURN_EFFORT = new Map([
-	[DISPATCH_OPUS, "medium"],
-	[DISPATCH_FABLE, "low"],
-]);
+const BURN_EFFORT = "low";
 
 /*
  * The same Fable level for a session or launch under burn mode: the model id
@@ -93,17 +90,14 @@ const BURN_EFFORT = new Map([
  */
 const BURN_SESSION_EFFORT = {
 	model: "claude-fable-5-2",
-	burn: BURN_EFFORT.get(DISPATCH_FABLE),
+	burn: BURN_EFFORT,
 	standing: "medium",
 };
 
 const DISPATCH = {
 	standing: new Map([["sonnet", DISPATCH_HAIKU]]),
 	off: new Map([["fable", DISPATCH_OPUS]]),
-	burn: new Map([
-		[DISPATCH_HAIKU, DISPATCH_OPUS],
-		[DISPATCH_OPUS, DISPATCH_FABLE],
-	]),
+	burn: new Map([[DISPATCH_OPUS, DISPATCH_FABLE]]),
 };
 
 /** Every Fable spelling a launch, a settings `model` or a transcript carries. */
@@ -149,11 +143,8 @@ const LAUNCH = {
 			(m) => /** @type {[string, string]} */ ([m, LAUNCH_OPUS]),
 		),
 	),
-	burn: new Map([
-		...["haiku", "haiku[1m]", "claude-haiku-5-5", "claude-haiku-5-5[1m]"].map(
-			(m) => /** @type {[string, string]} */ ([m, LAUNCH_OPUS]),
-		),
-		...[
+	burn: new Map(
+		[
 			"opus",
 			"opus[1m]",
 			"claude-opus-5",
@@ -161,7 +152,7 @@ const LAUNCH = {
 			"claude-opus-5-5",
 			"claude-opus-5-5[1m]",
 		].map((m) => /** @type {[string, string]} */ ([m, LAUNCH_FABLE])),
-	]),
+	),
 };
 
 /**
@@ -262,15 +253,15 @@ function dispatchedModel(call) {
  * @param {string} from
  * @param {string} asked the effort the call named, "" for none
  * @param {boolean} burn
- * @returns {{to: string, effort: string}}
+ * @returns {{to: string, effort: string, burned: boolean}}
  */
 function translate(from, asked, burn) {
 	const to = mapModel(DISPATCH, from, burn);
 	const standing = DISPATCH.standing.get(from) ?? from;
-	const burnEffort = BURN_EFFORT.get(to);
-	if (burn && to !== standing && burnEffort) return { to, effort: burnEffort };
-	if (to === DISPATCH_HAIKU) return { to, effort: STANDING_EFFORT };
-	return { to, effort: asked };
+	const burned = burn && to !== standing;
+	if (burned) return { to, effort: BURN_EFFORT, burned };
+	if (to === DISPATCH_HAIKU) return { to, effort: STANDING_EFFORT, burned };
+	return { to, effort: asked, burned };
 }
 
 /**
@@ -304,13 +295,13 @@ function remapModel(input, burn, inherited = "") {
 		};
 	}
 	const asked = trimmed(call.effort);
-	const { to, effort } = translate(from, asked, burn);
+	const { to, effort, burned } = translate(from, asked, burn);
 	if (to === from && effort === asked) return null;
 	const moved = { ...call, model: to, ...(effort ? { effort } : {}) };
 	const what = `\`${from}\`${asked ? ` at \`${asked}\`` : ""} to \`${to}\` at \`${effort}\``;
 	return {
 		input: moved,
-		note: burn
+		note: burned
 			? `Burn mode moved this dispatch from ${what} (scripts/burn-mode.sh; \`${scriptPath("burn-mode.sh")} off\` ends it).`
 			: `The standing model table moved this dispatch from ${what} (${scriptPath("lib/model-table.js")}; ${docPath("effort-guide.md")} §Which model each subagent dispatch runs on).`,
 	};

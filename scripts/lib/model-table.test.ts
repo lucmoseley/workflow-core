@@ -2,8 +2,8 @@
 /*
  * lib/model-table.js is the one table every model choice is translated through
  * (#4919): a standing layer, always on, that sends Sonnet work to Haiku at
- * xhigh; burn mode's layer, that sends Haiku work to Opus and Opus work to
- * Fable, at medium and low; and the off layer, that sends Fable to Opus (#4992).
+ * xhigh; burn mode's layer, that sends Opus work to Fable at low and leaves
+ * Haiku work at xhigh; and the off layer, that sends Fable to Opus (#4992).
  * An unknown spelling is left alone. Burn mode's marker and plan state are
  * ./burn-mode.test.ts's.
  *
@@ -55,15 +55,15 @@ describe("the dispatch table, exact match", () => {
 	});
 
 	it.each([
-		["sonnet", "opus · medium"],
-		["haiku", "opus · medium"],
+		["sonnet", "haiku · xhigh"],
+		["haiku", "haiku · xhigh"],
 		["opus", "fable · low"],
 		["fable", "fable"],
 	])("on: %s -> %s", (from, to) => {
 		expect(dispatched({ model: from }, true)).toBe(to);
 	});
 
-	it("runs every haiku call at xhigh off, whatever it asked, and sets burn's level on whatever it moves", () => {
+	it("runs every haiku call at xhigh, on or off, whatever it asked, and sets burn's level on whatever it moves", () => {
 		expect(dispatched({ model: "haiku", effort: "low" }, false)).toBe(
 			"haiku · xhigh",
 		);
@@ -73,8 +73,11 @@ describe("the dispatch table, exact match", () => {
 		expect(dispatched({ model: "opus", effort: "high" }, true)).toBe(
 			"fable · low",
 		);
-		expect(dispatched({ model: "haiku", effort: "xhigh" }, true)).toBe(
-			"opus · medium",
+		expect(dispatched({ model: "haiku", effort: "low" }, true)).toBe(
+			"haiku · xhigh",
+		);
+		expect(dispatched({ model: "sonnet", effort: "medium" }, true)).toBe(
+			"haiku · xhigh",
 		);
 	});
 
@@ -122,9 +125,7 @@ describe("the launch table", () => {
 	);
 
 	it.each([
-		["sonnet", "claude-opus-5-5[1m]"],
-		["haiku", "claude-opus-5-5[1m]"],
-		["claude-haiku-5-5[1m]", "claude-opus-5-5[1m]"],
+		["sonnet", "claude-haiku-5-5[1m]"],
 		["opus", "claude-fable-5-2[1m]"],
 		["opus[1m]", "claude-fable-5-2[1m]"],
 		["claude-opus-5-5[1m]", "claude-fable-5-2[1m]"],
@@ -132,19 +133,22 @@ describe("the launch table", () => {
 		expect(launched(from, true)).toBe(to);
 	});
 
-	it.each(["fable", "claude-fable-5-1[1m]", "claude-fable-5-2[1m]"])(
-		"on: leaves %s alone",
-		(model) => {
-			expect(launched(model, true)).toBe(model);
-		},
-	);
+	it.each([
+		"fable",
+		"claude-fable-5-1[1m]",
+		"claude-fable-5-2[1m]",
+		"haiku",
+		"claude-haiku-5-5[1m]",
+	])("on: leaves %s alone", (model) => {
+		expect(launched(model, true)).toBe(model);
+	});
 });
 
 describe("remapModel — the table's transform over one Agent call", () => {
 	it("moves the model and effort and carries every other field through", () => {
 		const out = remapModel(
 			{
-				model: "sonnet",
+				model: "opus",
 				prompt: "Do it.",
 				description: "d",
 				subagent_type: "general-purpose",
@@ -152,16 +156,17 @@ describe("remapModel — the table's transform over one Agent call", () => {
 			true,
 		);
 		expect(out?.input).toEqual({
-			model: "opus",
-			effort: "medium",
+			model: "fable",
+			effort: "low",
 			prompt: "Do it.",
 			description: "d",
 			subagent_type: "general-purpose",
 		});
-		expect(out?.note).toContain("Burn mode moved this dispatch from `sonnet`");
-		expect(remapModel({ model: "sonnet" }, false)?.note).toContain(
-			"The standing model table moved this dispatch",
-		);
+		expect(out?.note).toContain("Burn mode moved this dispatch from `opus`");
+		for (const burn of [false, true])
+			expect(remapModel({ model: "sonnet" }, burn)?.note).toContain(
+				"The standing model table moved this dispatch",
+			);
 	});
 
 	it.each([
@@ -255,11 +260,9 @@ describe("isOverflowSession — burn mode never reaches an overflow seat", () =>
 
 describe("the CLI half", () => {
 	it("launch prints the remapped spelling, the burn layer only with --burn", () => {
-		expect(cli(["launch", "sonnet"]).stdout.trim()).toBe(
-			"claude-haiku-5-5[1m]",
-		);
-		expect(cli(["launch", "sonnet", "--burn"]).stdout.trim()).toBe(
-			"claude-opus-5-5[1m]",
+		expect(cli(["launch", "opus"]).stdout.trim()).toBe("opus");
+		expect(cli(["launch", "opus", "--burn"]).stdout.trim()).toBe(
+			"claude-fable-5-2[1m]",
 		);
 	});
 
@@ -276,8 +279,8 @@ describe("the CLI half", () => {
 	});
 
 	it("reads --burn wherever it stands, and refuses an unknown flag", () => {
-		expect(cli(["launch", "--burn", "sonnet"]).stdout.trim()).toBe(
-			"claude-opus-5-5[1m]",
+		expect(cli(["launch", "--burn", "opus"]).stdout.trim()).toBe(
+			"claude-fable-5-2[1m]",
 		);
 		expect(cli(["launch", "sonnet", "--brun"]).status).toBe(2);
 	});

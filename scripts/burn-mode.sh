@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Toggle burn mode: spend allowance on purpose. Haiku work runs on Opus 5.5
-# at medium, and Opus work on Fable 5.2 at low. Off by default;
+# Toggle burn mode: spend allowance on purpose. Opus work runs on Fable 5.2
+# at low. Off by default;
 # docs/effort-guide.md §Burn mode is the rule, lib/model-table.js the table, and lib/burn-mode.js the marker.
 #
 #   scripts/burn-mode.sh on | off | status
@@ -108,7 +108,7 @@ show_status() {
     model="$(model_of "$f")"
     shown="${model:-absent}"
     if [[ $on -eq 1 ]]; then
-      # Judged against what `on` found there, so a Haiku plan it moved to Opus reads in step.
+      # Judged against what `on` found there, so an Opus plan it moved to Fable reads in step.
       basis="$model"
       if jq -e --arg f "$f" '.model | has($f)' "$marker" >/dev/null 2>&1; then
         basis="$(jq -r --arg f "$f" '.model[$f]' "$marker")"
