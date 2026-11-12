@@ -22,7 +22,7 @@ const stub = (name: string) => path.join(sb.dir, "gh", name);
 const logFile = () => path.join(sb.dir, "runaway.jsonl");
 
 const MIN = 60 * 1000;
-/* Read once, and handed to the program as WFC_NOW, so firings meant for one episode share one `since` however long a run takes (#5103). */
+/* Read once, so firings meant for one episode share one `since` however long a run takes; handed to the program as WFC_NOW, so its lookback reads the same instant (#5103). */
 const NOW = Date.now();
 const at = (minutesAgo: number) =>
 	new Date(NOW - minutesAgo * MIN).toISOString().replace(/\.\d+Z$/, "+0000");
