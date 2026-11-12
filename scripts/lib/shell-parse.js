@@ -897,7 +897,7 @@ function asWritten(text, spans) {
  *   resolve, or two different values
  * @property {Set<string>} exported names an `export`, `declare -x` or
  *   `typeset -x` put in the environment a `-c` string's shell inherits (#5120)
- * @property {Map<string, number>} recorded how many of the command's words
+ * @property {Map<string, number>} harvested how many of the command's words
  *   the harvest read as assigning or exporting each name
  * @property {Record<string, string | undefined>} vars the guard's own
  *   variables, the environment the hook inherited
@@ -952,13 +952,16 @@ function parseVarRef(s) {
 		if (close < 0) return null;
 		return { name: s.slice(1, close), rest: s.slice(close + 1) };
 	}
-	const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s);
+	const m = NAME_PREFIX_RE.exec(s);
 	if (!m) return null;
 	return { name: m[0], rest: s.slice(m[0].length) };
 }
 
-/** A shell variable's name. */
-const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** A shell variable's name, the source NAME_RE, NAME_PREFIX_RE and
+ * ASSIGNMENT build on. */
+const NAME = "[A-Za-z_][A-Za-z0-9_]*";
+const NAME_RE = new RegExp(`^${NAME}$`);
+const NAME_PREFIX_RE = new RegExp(`^${NAME}`);
 
 /**
  * The value `name` expands to, the command's own assignments winning; null
@@ -1257,7 +1260,7 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 		locals: new Map(),
 		dead: new Set(),
 		exported: new Set(),
-		recorded: new Map(),
+		harvested: new Map(),
 		vars,
 		subject: parsed.subject,
 		conditional: parsed.conditional,
@@ -1328,7 +1331,19 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars */
+/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars
+ * `harvested` is left out: bareMentions counts the whole command's words, so
+ * the count must span a subshell's `)` too. */
+
+/**
+ * @param {Scope} scope
+ * @returns {ScopeVars} a copy of its variables
+ */
+const copyVars = (scope) => ({
+	locals: new Map(scope.locals),
+	dead: new Set(scope.dead),
+	exported: new Set(scope.exported),
+});
 
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
@@ -1336,12 +1351,7 @@ function arithScope(walk, segment) {
  *   `arLast` are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv, scope } = walk;
-	const vars = {
-		locals: new Map(scope.locals),
-		dead: new Set(scope.dead),
-		exported: new Set(scope.exported),
-	};
-	walk.stack.push({ dirs, names, noRedirects, gitEnv, vars });
+	walk.stack.push({ dirs, names, noRedirects, gitEnv, vars: copyVars(scope) });
 	walk.dirs = openDirsScope(dirs);
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
@@ -1355,7 +1365,8 @@ function openScope(walk) {
 /** A `)` with no `(` open is a `case` pattern, which moves nothing.
  * RESIDUAL: one inside a subshell closes that subshell early.
  * @param {Walk} walk accumulator: its stack, directories, cwd names, redirect
- *   mode, `gitEnv` and `arLast` are moved */
+ *   mode, `gitEnv`, the scope's locals, dead and exported, and `arLast` are
+ *   moved */
 function closeScope(walk) {
 	const back = walk.stack.pop();
 	if (back) {
@@ -1384,7 +1395,7 @@ function restoreVars(scope, back) {
 }
 
 /** A `NAME=value` word: the name, then the value. */
-const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+const ASSIGNMENT = new RegExp(`^(${NAME})=(.*)$`, "s");
 
 /**
  * Record the literal assignments in `words` (mantahostels#208) into `scope`,
@@ -1405,23 +1416,23 @@ function harvest(scope, { conditional }, words, segIdx) {
 		if (!m) continue;
 		const val = skipped ? null : assignedValue(m[2] ?? "", scope);
 		recordAssignment(scope, m[1] ?? "", val);
-		countRecorded(scope, m[1] ?? "");
+		countHarvested(scope, m[1] ?? "");
 	}
 }
 
 /**
- * @param {Scope} scope accumulator: its recorded is moved
+ * @param {Scope} scope accumulator: its harvested is moved
  * @param {string} name
  */
-const countRecorded = (scope, name) =>
-	scope.recorded.set(name, (scope.recorded.get(name) ?? 0) + 1);
+const countHarvested = (scope, name) =>
+	scope.harvested.set(name, (scope.harvested.get(name) ?? 0) + 1);
 
 /**
  * Record what one `export`, `declare -x`, `typeset -x`, `export -n` or `unset`
  * does to `scope`: its assignments as harvest records a bare one's, and each
  * name it exports or drops from the environment. An `unset` name, or an
  * assignment word whose name is quoted, is unresolvable after it.
- * @param {Scope} scope accumulator: its locals, dead, exported and recorded
+ * @param {Scope} scope accumulator: its locals, dead, exported and harvested
  *   are moved
  * @param {Parsed} parsed
  * @param {string[]} own the command's words, its command word first
@@ -1437,7 +1448,7 @@ function harvestExport(scope, parsed, [head = "", ...rest], segIdx) {
 		else {
 			if (head === "unset" || text !== name)
 				recordAssignment(scope, name, null);
-			countRecorded(scope, name);
+			countHarvested(scope, name);
 		}
 		if (kind === "export") scope.exported.add(name);
 		else scope.exported.delete(name);
@@ -1461,9 +1472,8 @@ function leadingScopes(walk, leading, segIdx) {
 		if (name === undefined) return;
 		const scope = {
 			...walk.scope,
-			locals: new Map(walk.scope.locals),
-			dead: new Set(walk.scope.dead),
-			recorded: new Map(walk.scope.recorded),
+			...copyVars(walk.scope),
+			harvested: new Map(walk.scope.harvested),
 		};
 		harvest(scope, walk.parsed, leading.slice(0, i), segIdx);
 		out.set(name, scope);
@@ -3122,7 +3132,7 @@ const buildBareScope = (spans) => ({
 	locals: new Map(),
 	dead: new Set(),
 	exported: new Set(),
-	recorded: new Map(),
+	harvested: new Map(),
 	vars: {},
 	subject: "",
 	conditional: -1,
@@ -3153,7 +3163,7 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
 	const scope = {
 		...buildBareScope(outer.spans),
 		dead: new Set([...SHELL_SET, ...vars.keys()]),
-		vars: inherits ? inheritedEnv(outer) : {},
+		vars: inherits ? buildInheritedEnv(outer) : {},
 	};
 	/** @type {Map<string, string>} */
 	const locals = new Map();
@@ -3175,13 +3185,13 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
  * @param {Scope} outer
  * @returns {Record<string, string | undefined>}
  */
-function inheritedEnv(outer) {
+function buildInheritedEnv(outer) {
 	/** @type {Record<string, string | undefined>} */
 	const env = {};
 	for (const [name, value] of Object.entries(outer.vars))
 		if (bareMentions(name, outer.subject) === 0) env[name] = value;
 	for (const name of outer.exported) {
-		const seen = outer.recorded.get(name) ?? 0;
+		const seen = outer.harvested.get(name) ?? 0;
 		const value =
 			bareMentions(name, outer.subject) === seen
 				? lookupVar(name, outer)
