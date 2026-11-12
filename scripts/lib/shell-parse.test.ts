@@ -633,6 +633,7 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		["env --chdir=/ find . -x", [["/"]]],
 		['env -C "/" find . -x', [["/"]]],
 		["env -C /tmp env -C .. find . -x", [["/tmp/.."]]],
+		["env -C / env -C . find . -x", [["//."]]],
 		['env -C /tmp flock /l -c "cd ..; find . -x"', [["/tmp"], ["/tmp/.."]]],
 	])("moves a run through its wrapper's directory: %s", (command, dirs) => {
 		expect(runDirs(command)).toEqual(dirs);
@@ -676,6 +677,11 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		['D=/d; env -C "$D" gh x', [["/d"]]],
 	])("reads a wrapper's word under the walk's scope: %s", (command, dirs) => {
 		expect(runDirs(command, { X: "/x", HOME: "/h", PWD: "/p" })).toEqual(dirs);
+	});
+
+	it("reads a name the command's own leading assignment sets as unknown, as bash expands first", () => {
+		expect(runDirs('D=/d env -C "$D" gh x')).toEqual([[""]]);
+		expect(runDirs("X=/y env -C $X gh x", { X: "/x" })).toEqual([[""]]);
 	});
 
 	it.each([

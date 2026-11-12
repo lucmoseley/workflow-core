@@ -1180,7 +1180,7 @@ function gitRunWords(ws, spans) {
  * wrapper, a path to the binary, and `gh`'s own flags before the command
  * word, of which only `-R`/`--repo` takes a value.
  *
- * One per unwrap run that is `gh`, as ghRun reads it, with that run's
+ * One per unwrap run that is `gh`, as dispatchingGhCall reads it, with that run's
  * `wrapperWords`.
  * @param {string[]} words masked
  * @param {string[]} spans accumulator: a `-c` string's spans are appended
@@ -1188,7 +1188,7 @@ function gitRunWords(ws, spans) {
  */
 const ghWords = (words, spans) =>
 	unwrap(words, spans).flatMap(({ words: ws, wrapperWords }) => {
-		const gh = ghRun(ws, spans);
+		const gh = dispatchingGhCall(ws, spans);
 		return gh ? [{ ...gh, wrapperWords }] : [];
 	});
 
@@ -1200,7 +1200,7 @@ const ghWords = (words, spans) =>
  * @param {string[]} spans
  * @returns {GhCall | null}
  */
-function ghRun(ws, spans) {
+function dispatchingGhCall(ws, spans) {
 	const gh = ghCall(ws, spans);
 	return gh && !ws.slice(1).some((w) => isHelpWord(w, spans)) ? gh : null;
 }
@@ -1648,7 +1648,7 @@ module.exports = {
 	stepGitOptions,
 	gitWords,
 	ghCall,
-	ghRun,
+	dispatchingGhCall,
 	ghWords,
 	stepGhFlags,
 	valueAfter,

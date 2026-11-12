@@ -483,6 +483,7 @@ function judge(scene, { segment, words, runs }) {
 		const { words: w, watched, scripted } = run;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
+		/* Residual: the run's first directory alone, every move taken as made. */
 		const [cwd] = run.dirs();
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);

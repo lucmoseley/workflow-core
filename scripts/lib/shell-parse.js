@@ -1093,7 +1093,8 @@ function resolveWord(word, scope) {
  * @property {import("./shell-dirs.js").Dirs} cwds every directory it may
  *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
  * @property {() => [CommandRun, ...CommandRun[]]} runs the runs its words
- *   make, as unwrap strips them, in the order they run; unwrapped once
+ *   make, as unwrap strips them, in the order they run; unwrapped once, and
+ *   read inside the callback, as `resolveWord` is
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
  *   `words` the command's own by default; `cwd` the directory a word target
@@ -1109,7 +1110,8 @@ function resolveWord(word, scope) {
  *   dirs: () => import("./shell-dirs.js").Dirs }} CommandRun one run a
  *   command's words make: `dirs` every directory it may stand in, the
  *   command's `cwds` moved through its own chdirs, its words read under the
- *   walk's scope as it stands (#5075)
+ *   walk's scope as it stands (#5075), bar a name the command's own leading
+ *   assignments set, unknown: bash expands its words before it assigns
  */
 
 /**
@@ -1407,7 +1409,10 @@ function walkCommands(parsed, fn, ports) {
 				leading: words.slice(0, assignEnd),
 				cwd: cwdOf(walk),
 				cwds: walk.dirs.dirs,
-				runs: commandRuns(own, walk.dirs.dirs, scope, ports.isDir),
+				runs: commandRuns(own, words.slice(0, assignEnd), walk.dirs.dirs, {
+					scope,
+					isDir: ports.isDir,
+				}),
 				redirects,
 				writeTargets: (w = own, cwd = cwdOf(walk)) =>
 					writeTargets(w, redirects(), {
@@ -1428,12 +1433,20 @@ function walkCommands(parsed, fn, ports) {
  * A Command's `runs`: `words` unwrapped on the first call, each run's `dirs`
  * read on its first.
  * @param {string[]} words the command's own
+ * @param {string[]} leading its leading assignments
  * @param {import("./shell-dirs.js").Dirs} cwds
- * @param {Scope} scope
- * @param {(path: string) => boolean} isDir
+ * @param {{ scope: Scope, isDir: (path: string) => boolean }} at
  * @returns {() => [CommandRun, ...CommandRun[]]}
  */
-function commandRuns(words, cwds, scope, isDir) {
+function commandRuns(words, leading, cwds, { scope, isDir }) {
+	const own = leading.flatMap(
+		(w) => /^([A-Za-z_][A-Za-z0-9_]*)\+?=/.exec(w)?.[1] ?? [],
+	);
+	/** @type {Scope} */
+	const outer =
+		own.length > 0
+			? { ...scope, dead: new Set([...scope.dead, ...own]) }
+			: scope;
 	/** @type {[CommandRun, ...CommandRun[]] | undefined} */
 	let runs;
 	/** @param {import("./shell-words.js").Unwrapped} run @returns {CommandRun} */
@@ -1443,7 +1456,7 @@ function commandRuns(words, cwds, scope, isDir) {
 		return {
 			...run,
 			dirs: () => {
-				dirs ??= runCwd(cwds, run.chdirs, scope, isDir);
+				dirs ??= runCwd(cwds, run.chdirs, outer, isDir);
 				return dirs;
 			},
 		};

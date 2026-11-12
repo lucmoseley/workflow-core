@@ -32,7 +32,7 @@ const {
 	walkVerdict,
 } = require("./guard-verdict.js");
 const { parseCommand } = require("./shell-parse.js");
-const { ghRun, literal } = require("./shell-words.js");
+const { dispatchingGhCall, literal } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -169,7 +169,7 @@ function urlRepo(word) {
 function judge(run, cmd) {
 	if (cmd.words[0] === "export") noteExport(run, cmd.words);
 	for (const { words, wrapperWords, dirs } of cmd.runs()) {
-		const gh = ghRun(words, run.parsed.spans);
+		const gh = dispatchingGhCall(words, run.parsed.spans);
 		if (!gh) continue;
 		/* The run's `env` assignments lead it as the segment's own do, and it
 		 * stands wherever its wrappers' and `-c` string's moves put it. */
@@ -202,7 +202,7 @@ function noteExport(run, words) {
  * @param {Command} cmd
  * @param {string} group
  * @param {GhCall} gh
- *   ghRun's answer: `repo` the `-R` before `group`, which one after it
+ *   dispatchingGhCall's answer: `repo` the `-R` before `group`, which one after it
  *   overrides
  */
 function judgeFlagForm(run, cmd, group, { args: words, repo: before }) {

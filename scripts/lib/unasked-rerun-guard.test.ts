@@ -140,6 +140,11 @@ describe("a bare test run is judged", () => {
 		expect(calls).toHaveLength(1);
 	});
 
+	it("in the directory its launcher moves to (#5075)", () => {
+		expect(run("env -C /work/sub npm run test")).toEqual(REFUSED);
+		expect(calls.map((c) => c.cwd)).toEqual(["/work/sub"]);
+	});
+
 	it("in the directory a leading cd moves to", () => {
 		expect(run("cd /work/sub && npm run test")).toEqual(REFUSED);
 		expect(calls).toEqual([

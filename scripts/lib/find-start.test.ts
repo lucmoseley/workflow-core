@@ -116,6 +116,12 @@ describe("a find started at / is refused (#1006)", () => {
 		},
 	);
 
+	it("takes a launcher's quoted directory as written (#4869)", () => {
+		const at = { cwd: "/", vars: { X: "/usr" } };
+		expect(judge("env -C '$X' find . -x", at)).toBeNull();
+		expect(judge("env -C '$X' find .. -x", at)?.deny).toBeDefined();
+	});
+
 	it("allows a find whose launcher moves it to a directory the walk cannot name (#4869)", () => {
 		expect(judge("env -C $X find . -x", { cwd: "/" })).toBeNull();
 	});
