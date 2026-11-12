@@ -665,8 +665,8 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		).toEqual(["/usr", "/missing"]);
 	});
 
-	/* The walk's scope, not a bare one: a wrapper's word reads the
-	 * environment and the command's own assignments as a `cd` does. */
+	/* A wrapper's word reads the environment and the assignments before its
+	 * command as a `cd` does. */
 	it.each([
 		["env -C $X find . -x", [["/x"]]],
 		["env -C ~ find . -x", [["/h"]]],

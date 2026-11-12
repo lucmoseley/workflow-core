@@ -56,9 +56,10 @@
  *    each directory its launchers move to (`env -C dir`, a `flock -c`
  *    string's `cd`). Residual: that directory takes every move as made, so a
  *    `cd` that failed has a relative path measured where it would have led;
- *    the run's other directories are not measured (#4980). Where that cwd is unknown a relative path is not measured. The
- *    file must EXIST to be measured, which makes a wrong cwd a silent
- *    failure rather than a false warning.
+ *    the run's other directories are not measured (#4980). Where that cwd is
+ *    unknown a relative path is not measured. The file must EXIST to be
+ *    measured, which makes a wrong cwd a silent failure rather than a false
+ *    warning.
  *  - `sed` is judged on its LINE span, never on the bytes those lines hold, so
  *    a 150-line slice of a minified file passes.
  *  - A word literal cannot fully read — `cat "$doc"`, a command substitution —

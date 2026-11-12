@@ -1094,7 +1094,7 @@ function resolveWord(word, scope) {
  *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
  * @property {() => [CommandRun, ...CommandRun[]]} runs the runs its words
  *   make, as unwrap strips them, in the order they run; unwrapped once, and
- *   read inside the callback, as `resolveWord` is
+ *   read inside the callback
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
  *   `words` the command's own by default; `cwd` the directory a word target
@@ -1433,8 +1433,7 @@ function walkCommands(parsed, fn, ports) {
 }
 
 /**
- * A Command's `runs`: `words` unwrapped on the first call, each run's `dirs`
- * read on its first.
+ * A Command's `runs`: each run's `dirs` read on its first call.
  * @param {string[]} words the command's own
  * @param {string[]} leading its leading assignments
  * @param {import("./shell-dirs.js").Dirs} cwds

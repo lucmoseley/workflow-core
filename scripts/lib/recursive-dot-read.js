@@ -507,8 +507,8 @@ function judge(scene, { segment, words, runs }) {
  * @property {string[]} words the command's words, wrappers and all
  * @property {string} base the text holding it, which a rewrite substitutes in
  * @property {string} cwd where it runs
- * @property {boolean} launched whether a launcher moved it: `env -C`, a `-c`
- *   string's `cd`
+ * @property {boolean} launched whether a launcher's chdir comes before it —
+ *   `env -C`, a `-c` string's `cd` — even one that stays put
  * @property {string} head its command word
  * @property {SearchKind} kind
  * @property {string[]} args its own arguments
@@ -516,8 +516,9 @@ function judge(scene, { segment, words, runs }) {
 
 /**
  * Whether this search may earn the dot rewrite: nothing fired yet, no `cd`
- * before it and no launcher moving it, the shell at the root and no `watch` around it — and for `rg`,
- * whose only cost at the root is the prompt, a mode that can show one.
+ * before it and no launcher moving it, the shell at the root and no `watch`
+ * around it — and for `rg`, whose only cost at the root is the prompt, a mode
+ * that can show one.
  * @param {Scene} scene
  * @param {Search} search
  */
