@@ -5,7 +5,8 @@
  * with nothing POSTed, naming each link, a foreign one by its full
  * reference; a link that closes none resolves the blocker's id itself, POSTs
  * it with -F and verifies in a separate read; a self-link is refused before
- * any read; an unread graph links anyway, warning. Broken, it lets a
+ * any read; an unread graph links anyway, warning; `--json` names each
+ * failure's reason (#5096). Broken, it lets a
  * loop-closing blocker link through, and every issue in that loop stays open
  * for good.
  *

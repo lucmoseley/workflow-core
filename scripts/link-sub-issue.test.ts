@@ -4,7 +4,9 @@
  * lists the child, and fails loudly on every other path: `-f` for `-F`, an
  * empty or non-numeric id, a closed or unreadable parent, a 422, a link that
  * never shows; and that a link closing a loop of open issues is refused with
- * exit 3 and nothing POSTed (#5070).
+ * exit 3 and nothing POSTed (#5070); and that `--json` prints the outcome as
+ * one JSON object, its reason from the writer's closed set, with nothing on
+ * stderr (#5096).
  *
  * link-sub-issue.sh links a child issue under a parent (mantahostels#1150, the build).
  *
@@ -66,7 +68,7 @@ interface Gh {
 	dbId?: string;
 	/** The db-id lookup fails. */
 	idFails?: boolean;
-	/** How the POST answers: ok | dup (422, one parent) | layers (422) | cap (422) | invalid (422) | err. */
+	/** How the POST answers, as POSTS spells each out. */
 	post?: "ok" | "dup" | "layers" | "cap" | "invalid" | "err";
 	/** Parent-side reads: numbers listed, once `lag` reads have gone by. */
 	children?: string[];
@@ -443,6 +445,25 @@ describe("the --json outcome (#5096)", () => {
 			expect(o.err).not.toBe("");
 		},
 	);
+
+	it("keeps the partial-check warning on a link that then fails, in text and --json alike", async () => {
+		const g: Gh = { graphFails: true, post: "layers" };
+		const text = await run(["40", "63"], g);
+		expect(text.status).toBe(1);
+		expect(text.stderr).toMatch(
+			/^link-sub-issue: warning — the loop check was partial.*\nlink-sub-issue: #40 is 7 layers deep/,
+		);
+		const o = JSON.parse((await run(["40", "63", "--json"], g)).stdout);
+		expect(o).toMatchObject({ code: 1, reason: "layers" });
+		expect(o.warning).toMatch(/^warning — the loop check was partial/);
+	});
+
+	it("prints a bad command line as an other outcome under --json", async () => {
+		const r = await run(["40", "--json", "--bogus"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe("");
+		expect(JSON.parse(r.stdout)).toMatchObject({ code: 1, reason: "other" });
+	});
 
 	it("carries the success line and the partial-check warning, with no reason", async () => {
 		const r = await run(["40", "63", "--json"], {

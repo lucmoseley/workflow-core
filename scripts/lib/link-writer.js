@@ -36,9 +36,8 @@
  * EXIT 0 only where the link is in place; 3 refused with nothing changed (a
  * self-link, or a loop), as park-blocked.sh's precondition refusal; 1 any
  * other failure, with a message on stderr. Each failure also names a Reason,
- * set where it is raised; `--json` prints the whole Outcome as one JSON object
- * on stdout in place of the text, which is how runLinkSync's callers branch on
- * the reason and never on the message (#5096).
+ * set where it is raised, which runLinkSync's callers branch on and never on
+ * the message (#5096).
  *
  * Test seams: WFC_LINK_RETRIES (verification attempts), WFC_LINK_SLEEP
  * (seconds between them), WFC_LINK_REPO (owner/name, else the tracker).
@@ -61,7 +60,7 @@ const { docPath } = require("./script-path.js");
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
 /**
- * Why a link was not made: `self` and `loop` refusals (exit 3); `unlisted`, a
+ * Why a link was not made: `self` and `loop` refusals; `unlisted`, a
  * POST that succeeded but whose link no read shows; `cap`, a parent at
  * GitHub's 100-child limit; `layers`, a parent 7 layers deep; `closed-parent`;
  * `rejected`, any other 422; `other`, everything else.
@@ -74,7 +73,7 @@ const { docPath } = require("./script-path.js");
  * @typedef {{code: 0|1|3, out: string, err: string, warning: string,
  *   reason: Reason|""}} Outcome
  */
-/** @typedef {{out: string, warning: string}} Linked */
+/** @typedef {(line: string) => void} Warn takes each partial-check line, kept on success and failure alike */
 
 const PLACING = `${docPath("agents/issue-tracker.md")} §Placing a new issue`;
 
@@ -98,7 +97,9 @@ function refuse(reason, message) {
 }
 
 /**
- * A failed POST's reason, read from gh's text where the writer first sees it.
+ * A failed POST's reason, read from gh's text.
+ * KNOWN RESIDUAL: `cap` is matched on gh's prose, so a reword of GitHub's
+ * 100-child message demotes it to `rejected`.
  * @param {string} text
  * @returns {Reason}
  */
@@ -244,9 +245,10 @@ function parseSubIssueArgs(args) {
 /**
  * Makes `child` a sub-issue of `parent`, in one repo.
  * @param {string[]} args `<parent> <child> [--replace-parent]`
- * @returns {Promise<Linked>}
+ * @param {Warn} warn
+ * @returns {Promise<string>} stdout
  */
-async function linkSubIssue(args) {
+async function linkSubIssue(args, warn) {
 	const { parent, child, replaceParent } = parseSubIssueArgs(args);
 	const repo = await resolveLocalRepo();
 	const t = timing();
@@ -271,6 +273,7 @@ async function linkSubIssue(args) {
 		},
 		repo,
 	);
+	if (warning) warn(warning);
 	const already = await postSubIssue({
 		repo,
 		parent,
@@ -280,9 +283,9 @@ async function linkSubIssue(args) {
 		listsChild,
 		t,
 	});
-	if (already) return { out: already, warning };
+	if (already) return already;
 	if (await waitFor(listsChild, t))
-		return { out: `linked #${child} as a sub-issue of #${parent}\n`, warning };
+		return `linked #${child} as a sub-issue of #${parent}\n`;
 	return fail(
 		"unlisted",
 		`POST returned success but #${parent} still does not list #${child} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
@@ -411,9 +414,10 @@ async function listsBlocker(blocked, blocker) {
 /**
  * Makes `blocker` block `blocked`, in any repos.
  * @param {string[]} args `<blocked> <blocker>`, each `n`, `#n` or `owner/name#n`
- * @returns {Promise<Linked>}
+ * @param {Warn} warn
+ * @returns {Promise<string>} stdout
  */
-async function linkBlocker(args) {
+async function linkBlocker(args, warn) {
 	if (args.length !== 2) fail("other", USAGE.blocker);
 	/** @type {string|undefined} */
 	let local;
@@ -436,6 +440,7 @@ async function linkBlocker(args) {
 		{ from: blocked, to: blocker, kind: "blocker" },
 		view,
 	);
+	if (warning) warn(warning);
 
 	const t = timing();
 	const listed = () => listsBlocker(blocked, blocker);
@@ -450,23 +455,31 @@ async function linkBlocker(args) {
 		]);
 	} catch (e) {
 		if (await waitFor(listed, { ...t, retries: 1, first: true }))
-			return {
-				out: `#${blocked.number} was already blocked by ${label}\n`,
-				warning,
-			};
+			return `#${blocked.number} was already blocked by ${label}\n`;
 		const text = parseErrLine(e);
 		fail(postReason(text), `POST failed: ${text}`);
 	}
 	if (await waitFor(listed, { ...t, first: true }))
-		return {
-			out: `linked #${blocked.number} as blocked by ${label}\n`,
-			warning,
-		};
+		return `linked #${blocked.number} as blocked by ${label}\n`;
 	return fail(
 		"unlisted",
 		`POST returned success but #${blocked.number}'s blocked_by list still does not name ${label} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
 	);
 }
+
+/**
+ * A failure no link step raised, a bad command line among them.
+ * @param {string} err
+ * @param {string} [warning]
+ * @returns {Outcome}
+ */
+const otherFailure = (err, warning = "") => ({
+	code: 1,
+	out: "",
+	err,
+	warning,
+	reason: "other",
+});
 
 /**
  * Runs one link command, never throwing.
@@ -475,20 +488,19 @@ async function linkBlocker(args) {
  * @returns {Promise<Outcome>}
  */
 async function runLink(kind, args) {
+	/** @type {string[]} */
+	const warnings = [];
+	/** @type {Warn} */
+	const warn = (line) => warnings.push(line);
 	try {
-		const { out, warning } = await (kind === "blocker"
-			? linkBlocker(args)
-			: linkSubIssue(args));
-		return { code: 0, out, err: "", warning, reason: "" };
+		const out = await (kind === "blocker"
+			? linkBlocker(args, warn)
+			: linkSubIssue(args, warn));
+		return { code: 0, out, err: "", warning: warnings.join("\n"), reason: "" };
 	} catch (e) {
-		const failed = e instanceof LinkExit;
-		return {
-			code: failed ? e.code : 1,
-			out: "",
-			err: failed ? e.message : parseErrLine(e),
-			warning: "",
-			reason: failed ? e.reason : "other",
-		};
+		const warning = warnings.join("\n");
+		if (!(e instanceof LinkExit)) return otherFailure(parseErrLine(e), warning);
+		return { code: e.code, out: "", err: e.message, warning, reason: e.reason };
 	}
 }
 
@@ -501,17 +513,27 @@ const USAGE = {
 
 /**
  * The CLI: reads the command line strictly, prints the outcome under the
- * command's name, or as one JSON object on stdout with `--json`, and exits
- * with its code.
+ * command's name, or as one JSON object on stdout where `--json` is anywhere
+ * in argv, and exits with its code.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} argv
  * @returns {Promise<void>}
  */
 function runCli(kind, argv) {
 	const name = kind === "blocker" ? "link-blocker" : "link-sub-issue";
+	const json = argv.includes("--json");
+	/** @param {Outcome} r */
+	const print = (r) => {
+		if (json) process.stdout.write(`${JSON.stringify(r)}\n`);
+		else {
+			if (r.warning) process.stderr.write(`${name}: ${r.warning}\n`);
+			process.stdout.write(r.out);
+			if (r.err) process.stderr.write(`${name}: ${r.err}\n`);
+		}
+		process.exitCode = r.code;
+	};
 	/** @type {string[]} */
 	let args;
-	let json = false;
 	try {
 		const { values, positionals } = parseArgs({
 			args: argv,
@@ -529,30 +551,16 @@ function runCli(kind, argv) {
 			process.stdout.write(`${USAGE[kind]}\n`);
 			return Promise.resolve();
 		}
-		json = values.json === true;
 		args = [
 			...positionals,
 			...(values["replace-parent"] ? ["--replace-parent"] : []),
 		];
 	} catch (e) {
-		process.stderr.write(`${name}: ${parseErrLine(e)} — ${USAGE[kind]}\n`);
-		process.exitCode = 1;
+		print(otherFailure(`${parseErrLine(e)} — ${USAGE[kind]}`));
 		return Promise.resolve();
 	}
-	return runLink(kind, args).then(
-		(r) => {
-			if (json) process.stdout.write(`${JSON.stringify(r)}\n`);
-			else {
-				if (r.warning) process.stderr.write(`${name}: ${r.warning}\n`);
-				process.stdout.write(r.out);
-				if (r.err) process.stderr.write(`${name}: ${r.err}\n`);
-			}
-			process.exitCode = r.code;
-		},
-		(e) => {
-			process.stderr.write(`${name}: ${parseErrLine(e)}\n`);
-			process.exitCode = 1;
-		},
+	return runLink(kind, args).then(print, (e) =>
+		print(otherFailure(parseErrLine(e))),
 	);
 }
 
@@ -573,17 +581,12 @@ function runLinkSync(kind, args, { repo } = {}) {
 	try {
 		return /** @type {Outcome} */ (JSON.parse(r.stdout ?? ""));
 	} catch {
-		return {
-			code: 1,
-			out: "",
-			err:
-				(r.stderr || r.error?.message || "")
-					.trim()
-					.replace(/^link-(?:sub-issue|blocker|writer): /gm, "") ||
+		return otherFailure(
+			(r.stderr || r.error?.message || "")
+				.trim()
+				.replace(/^link-(?:sub-issue|blocker|writer): /gm, "") ||
 				`the link command exited ${r.status ?? r.signal} without an outcome`,
-			warning: "",
-			reason: "other",
-		};
+		);
 	}
 }
 
