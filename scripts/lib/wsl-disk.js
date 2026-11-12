@@ -169,37 +169,44 @@ function entryWarnings(entries, now) {
 /**
  * fstrim.timer's warning: it keeps the disk's free blocks known between
  * compactions, and the stock unit never fires under WSL.
- * @param {number | null | Failed} lastTrim
+ * @param {{last: number | null | Failed, fixedAt: number | null}} trim
+ *   last: its last firing, null where it never has; fixedAt: when
+ *   install-fstrim-wsl.sh wrote its drop-in, null where it has not
  * @param {number} now
  */
-function trimWarnings(lastTrim, now) {
-	const remedy = `run \`sudo bash ${scriptPath("install-fstrim-wsl.sh")}\`, then \`systemctl list-timers fstrim.timer\``;
-	if (isFailed(lastTrim))
+function trimWarnings({ last, fixedAt }, now) {
+	if (isFailed(last))
 		return [
 			{
 				tag: "TRIM-TIMER-UNREAD",
-				line: `fstrim.timer's last run would not read: ${lastTrim.why}.`,
+				line: `fstrim.timer's last run would not read: ${last.why}.`,
 			},
 		];
-	if (lastTrim !== null && now - lastTrim <= TRIM_STALE_DAYS * DAY_MS)
-		return [];
-	return [
-		{
-			tag: "TRIM-TIMER-IDLE",
-			line: `fstrim.timer ${lastTrim === null ? "has never fired" : `last fired ${Math.floor((now - lastTrim) / DAY_MS)} days ago, over ${TRIM_STALE_DAYS}`}: ${remedy}.`,
-		},
-	];
+	// A timer that has not fired yet since its fix counts from the fix.
+	const since = last ?? fixedAt;
+	if (since !== null && now - since <= TRIM_STALE_DAYS * DAY_MS) return [];
+	const days = (/** @type {number} */ at) => Math.floor((now - at) / DAY_MS);
+	let idle = "has never fired, and its WSL fix is not installed";
+	if (last !== null)
+		idle = `last fired ${days(last)} days ago, over ${TRIM_STALE_DAYS}`;
+	else if (fixedAt !== null)
+		idle = `has not fired in the ${days(fixedAt)} days since its WSL fix was installed`;
+	const remedy =
+		fixedAt === null
+			? `run \`sudo bash ${scriptPath("install-fstrim-wsl.sh")}\`, then \`systemctl list-timers fstrim.timer\``
+			: "read `systemctl status fstrim.timer fstrim.service`";
+	return [{ tag: "TRIM-TIMER-IDLE", line: `fstrim.timer ${idle}: ${remedy}.` }];
 }
 
 /**
  * The status check's verdict.
  * @param {{log: LogRead, now: number, freeGB: number | Failed,
- *   lastTrim: number | null | Failed}} input  lastTrim: fstrim.timer's last
- *   firing, null where it never has
+ *   trim: {last: number | null | Failed, fixedAt: number | null}}} input
+ *   trim: fstrim.timer's, as trimWarnings takes it
  * @returns {{warnings: {tag: string, line: string}[], okLine: string}}
  */
-function judgeDisk({ log, now, freeGB, lastTrim }) {
-	const warnings = [...trimWarnings(lastTrim, now)];
+function judgeDisk({ log, now, freeGB, trim }) {
+	const warnings = [...trimWarnings(trim, now)];
 	const free = isFailed(freeGB)
 		? `C: free unread (${freeGB.why})`
 		: `C: free ${freeGB.toFixed(1)} GB`;

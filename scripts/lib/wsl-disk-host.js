@@ -4,7 +4,8 @@
  * one of the faults the check must still report through.
  *
  * WFC_PROC names /proc, WFC_WSL_COMPACT_LOG the log, WFC_WIN_C the mount and
- * WFC_SYSTEMCTL the systemctl (§N7).
+ * WFC_SYSTEMCTL the systemctl and WFC_FSTRIM_DROPIN install-fstrim-wsl.sh's
+ * drop-in (§N7).
  */
 
 const fs = require("node:fs");
@@ -108,6 +109,18 @@ function readLastTrim() {
 }
 
 /**
+ * When install-fstrim-wsl.sh wrote fstrim.timer's drop-in, or null where it
+ * has not.
+ * @returns {number | null}
+ */
+function readTrimFixedAt() {
+	const file =
+		process.env.WFC_FSTRIM_DROPIN ||
+		"/etc/systemd/system/fstrim.timer.d/wsl.conf";
+	return fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? null;
+}
+
+/**
  * Appends one line in the ps1's CRLF.
  * @param {string} file
  * @param {string} line
@@ -122,4 +135,5 @@ module.exports = {
 	readFreeGB,
 	readKernelRelease,
 	readLastTrim,
+	readTrimFixedAt,
 };

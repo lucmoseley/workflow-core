@@ -14,6 +14,7 @@ import {
 	readFreeGB,
 	readKernelRelease,
 	readLastTrim,
+	readTrimFixedAt,
 } from "./wsl-disk-host.js";
 import { WSL_KERNEL, writeOsrelease } from "./wsl-fake";
 
@@ -64,6 +65,16 @@ describe("readLastTrim", () => {
 		expect(readLastTrim()).toEqual({
 			why: expect.stringContaining("exited 1"),
 		});
+	});
+});
+
+describe("readTrimFixedAt", () => {
+	it("is the drop-in's mtime, or null where it is absent", () => {
+		const dropIn = path.join(dir, "wsl.conf");
+		vi.stubEnv("WFC_FSTRIM_DROPIN", dropIn);
+		expect(readTrimFixedAt()).toBeNull();
+		fs.writeFileSync(dropIn, "[Unit]\n");
+		expect(readTrimFixedAt()).toBe(fs.statSync(dropIn).mtimeMs);
 	});
 });
 
