@@ -202,8 +202,7 @@ const indexOfFirstOr = (masked) => {
 
 /**
  * What joins each of `masked`'s flattened lines to the one before. A blank
- * line takes the operator carried to it, and hands it on, as `&&` at a line's
- * end does (#5099).
+ * line takes the operator carried to it, and hands it on (#5099).
  * @param {string} masked
  * @returns {Join[]} one per line of flatSegments
  */
@@ -229,9 +228,10 @@ function parseJoins(masked) {
 }
 
 /** The join code an OP_MARK line opens with.
- * Residual: a raw OP_MARK byte typed at a line's start, outside quotes, opens
- * no operator; the character after it reads as `;`, which every reader takes
- * as it took an unknown code.
+ * Residual: a raw OP_MARK byte typed at a line's start, outside quotes, reads
+ * as the operator the next character codes, or as `;` for any other, and
+ * stays in the command word, so the command it opens goes unseen; bash would
+ * not run it either.
  * @param {string} line
  * @returns {Join} */
 function parseOpCode(line) {
@@ -239,8 +239,7 @@ function parseOpCode(line) {
 	return isJoin(code) ? code : JOIN.SEMI;
 }
 
-/** The joins that keep a `&&` chain open across the segment.
- * @type {readonly Join[]} */
+/** @type {readonly Join[]} */
 const CHAIN_HELD = [JOIN.AND, JOIN.PIPE, JOIN.OPEN, JOIN.AFTER_CLOSE];
 
 /**
@@ -2380,7 +2379,7 @@ const isChainedOff = (parsed, segIdx) =>
 const IN_LIST = [JOIN.AND, JOIN.OR, JOIN.PIPE];
 
 /** @param {Join | undefined} join undefined past the last segment */
-const inList = (join) => join !== undefined && IN_LIST.includes(join);
+const isInList = (join) => join !== undefined && IN_LIST.includes(join);
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
@@ -2391,7 +2390,8 @@ const inList = (join) => join !== undefined && IN_LIST.includes(join);
 function isListBackgrounded(parsed, segIdx) {
 	const { joins } = parsed;
 	let end = nextInList(parsed, segIdx);
-	while (inList(joins[end])) end = nextInList(parsed, commandEnd(parsed, end));
+	while (isInList(joins[end]))
+		end = nextInList(parsed, commandEnd(parsed, end));
 	return joins[end] === JOIN.BACKGROUND;
 }
 
@@ -2662,7 +2662,7 @@ function isBraceGroupSure(parsed, segIdx) {
 			segments[prev] === SCOPE_CLOSE;
 		return (
 			!defined &&
-			!inList(before) &&
+			!isInList(before) &&
 			joinAfter(parsed, to) !== JOIN.PIPE &&
 			!isListBackgrounded(parsed, to)
 		);
