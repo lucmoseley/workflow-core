@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **11 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **12 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
