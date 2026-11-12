@@ -680,12 +680,12 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 	it("hands back the rewritten input on an allow, the artefact's directory made and burn mode read from the env's marker", () => {
 		const marker = path.join(dir, "burn-mode");
 		fs.writeFileSync(marker, "");
-		const out = emission(agent({ prompt: "Do the work.", model: "sonnet" }), {
+		const out = emission(agent({ prompt: "Do the work.", model: "opus" }), {
 			...quiet,
 			WFC_BURN_MARKER: marker,
 		});
 		expect(out.permissionDecision).toBe("allow");
-		expect(out.updatedInput.model).toBe("opus");
+		expect(out.updatedInput.model).toBe("fable");
 		const file = /^Artefact: (\S+)$/m.exec(out.updatedInput.prompt)?.[1];
 		expect(file?.startsWith(`${dir}/.claude/tmp/agents/do-a-thing-`)).toBe(
 			true,

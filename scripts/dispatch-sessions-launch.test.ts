@@ -233,16 +233,22 @@ describe("the model table (lib/model-table.js, #4919)", () => {
 		expect(launch).toContain("--advisor");
 	});
 
-	it("launches a sonnet member as Opus 5.5 under burn mode, with no advisor", () => {
-		stubClaude({});
-		burnOn();
-		const r = run(["sonnet", "/implement 341"]);
-		expect(r.code).toBe(0);
-		expect(r.stderr).toContain("burn mode: sonnet -> claude-opus-5-5[1m]");
-		const launch = launchArgv();
-		expect(launch).toContain("--model claude-opus-5-5[1m]");
-		expect(launch).not.toContain("--advisor");
-	});
+	it.each([
+		["sonnet", "claude-haiku-5-5[1m]"],
+		["haiku", "haiku"],
+	])(
+		"launches a %s member as Haiku 5.5 under burn mode, with an advisor",
+		(model, spelling) => {
+			stubClaude({});
+			burnOn();
+			const r = run([model, "/implement 341"]);
+			expect(r.code).toBe(0);
+			expect(r.stderr).not.toContain("burn mode:");
+			const launch = launchArgv();
+			expect(launch).toContain(`--model ${spelling} `);
+			expect(launch).toContain("--advisor");
+		},
+	);
 
 	it("launches a bare opus as Fable 5.2 under burn mode, with no advisor", () => {
 		stubClaude({});

@@ -112,12 +112,18 @@ describe("on", () => {
 		});
 	});
 
-	it("leaves a plan on a model the burn layer does not move as it was", () => {
-		write(".claude2", withModel("fable"));
-		expect(run("on").status).toBe(0);
-		expect(modelOf(".claude2")).toBe("fable");
-		expect(modelOf(".claude")).toBe(FABLE);
-	});
+	it.each(["fable", "haiku", "claude-haiku-5-5[1m]"])(
+		"leaves a plan on %s, which the burn layer does not move, as it was",
+		(model) => {
+			write(".claude2", withModel(model));
+			expect(run("on").status).toBe(0);
+			expect(modelOf(".claude2")).toBe(model);
+			expect(modelOf(".claude")).toBe(FABLE);
+			expect(run("status").stdout).not.toMatch(
+				/\.claude2\/settings\.json.*not the/,
+			);
+		},
+	);
 
 	it("on over a marker with no effort record records and lowers the Fable effort", () => {
 		run("on");

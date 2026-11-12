@@ -121,17 +121,20 @@ describe("readBurnState — what the switch left on the machine", () => {
 
 	it("reads a plan in step on the burn target of what on found there", () => {
 		plan(".claude", offModel);
-		plan(".claude2", "claude-opus-5-5[1m]");
+		plan(".claude2", "claude-haiku-5-5[1m]");
 		const real = (name: string) =>
 			fs.realpathSync(path.join(home, name, "settings.json"));
 		fs.writeFileSync(
 			env().WFC_BURN_MARKER,
 			JSON.stringify({
-				model: { [real(".claude")]: offModel, [real(".claude2")]: "haiku" },
+				model: {
+					[real(".claude")]: offModel,
+					[real(".claude2")]: "claude-haiku-5-5[1m]",
+				},
 			}),
 		);
 		plan(".claude", onModel, "low");
-		plan(".claude2", "claude-opus-5-5[1m]", "low");
+		plan(".claude2", "claude-haiku-5-5[1m]", "low");
 		expect(readBurnState(env()).disagreeing).toEqual([]);
 	});
 
