@@ -702,7 +702,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 	});
 
 	/** Each run's words, env and directories read through literal, `|` apart,
-	 * each directory with how it holds. */
+	 * each directory with how it holds and its chain flags. */
 	const read = (command: string) =>
 		one(command, (c, spans) =>
 			unwrap(c.words, spans).map((r) =>
@@ -710,7 +710,10 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 					bracket(r.words, spans),
 					bracket(r.wrapperWords, spans),
 					r.chdirs
-						.map((d) => `[${literal(d.dir, spans).text} ${d.holds}]`)
+						.map(
+							(d) =>
+								`[${[literal(d.dir, spans).text, d.holds, d.chained && "chained", d.settles && "settles"].filter(Boolean).join(" ")}]`,
+						)
 						.join(""),
 				].join("|"),
 			),
@@ -766,11 +769,14 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		);
 	});
 
-	it("labels a cd always for its && chain, else by classifyCd (#4863)", () => {
+	it("marks a cd its && chain chains off, and settled where the chain ends (#5082)", () => {
 		expect(read(`flock /l -c "cd /a && git x; git y"`).slice(1)).toEqual([
-			"[git][x]||[/a always]",
-			"[git][y]||[/a if-dir]",
+			"[git][x]||[/a if-dir chained]",
+			"[git][y]||[/a if-dir chained settles]",
 		]);
+	});
+
+	it("marks a cd behind an && or inside an if as maybe (#4863)", () => {
 		expect(read(`flock /l -c "true && cd /a; git x"`).at(-1)).toBe(
 			"[git][x]||[/a maybe]",
 		);
