@@ -1,7 +1,3 @@
-/*
- * cap-ms.js — a millisecond ceiling an environment knob may lift or lower.
- */
-
 /**
  * A positive millisecond cap from `env`, else `fallback` — a garbled knob must
  * not disable the ceiling.
