@@ -41,6 +41,7 @@ import {
 	LINK_READS,
 	RECORDED_SHAPES,
 	readGhAnswer,
+	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./gh-fake";
 import { buildLinkReadArms, serveGhStub, stubGhScript } from "./gh-stub";
 import { shellQuote } from "./sh-quote.js";
@@ -58,6 +59,10 @@ const SUB_ISSUES_NOT_FOUND = path.join(
 const GRAPHQL_ISSUE_STATES = path.join(
 	__dirname,
 	"fixtures/gh/graphql-issue-states.json",
+);
+const GRAPHQL_WAIT_GRAPH = path.join(
+	__dirname,
+	"fixtures/gh/graphql-wait-graph.json",
 );
 const GRAPHQL_BLOCKED_BY = path.join(
 	__dirname,
@@ -121,6 +126,7 @@ const VALIDATION_FAILED = path.join(
 );
 
 const LINK_FIXTURES = {
+	".full_name": path.join(__dirname, "fixtures/gh/repo-full-name.json"),
 	".state": path.join(__dirname, "fixtures/gh/issue-state.json"),
 	".id": path.join(__dirname, "fixtures/gh/issue-id.json"),
 	".[].number": path.join(__dirname, "fixtures/gh/sub-issue-numbers.json"),
@@ -599,6 +605,9 @@ describe("live: computed answers", () => {
 		expect(BLOCKED_BY_GRAPHQL_FAKE).toContain(
 			JSON.stringify(readGhAnswer(GRAPHQL_BLOCKED_BY)),
 		);
+		expect(WAIT_GRAPH_GRAPHQL_FAKE).toContain(
+			JSON.stringify(readGhAnswer(GRAPHQL_WAIT_GRAPH)),
+		);
 	});
 
 	const blockers = (n: number) =>
@@ -692,6 +701,58 @@ describe("live: computed answers", () => {
 		expect(await throughSeam(stub, args)).toEqual(real);
 		expect(
 			await observe(ghServe(answerBlockedBy(args, blockers)), args),
+		).toEqual(real);
+	});
+
+	const answerWaitGraph = ghComputed<
+		(
+			argv: string[],
+			nodeOf: (repo: string, n: number) => object | null,
+		) => GhAnswer
+	>(WAIT_GRAPH_GRAPHQL_FAKE, "answerWaitGraph");
+	const waitNodes = (_repo: string, n: number) =>
+		n === 2331
+			? {
+					state: "closed",
+					blockedBy: [
+						{ number: 2327, state: "closed" },
+						{ number: 2328, state: "closed" },
+					],
+					subIssues: [],
+				}
+			: null;
+
+	it("lib/wait-graph.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
+		skip,
+	}) => {
+		liveSkip ??= { reason: liveSkipReason() };
+		if (liveSkip.reason) return skip(liveSkip.reason);
+		const { loops } = await import("./wait-graph.js");
+		const log = path.join(dir, "wait-graph-calls");
+		const stub = computedStub(
+			WAIT_GRAPH_GRAPHQL_FAKE,
+			`argv[1] === "graphql" ? answerWaitGraph(argv, ${waitNodes}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
+			log,
+		);
+		vi.stubEnv("WFC_GH", stub);
+		await loops(
+			[
+				{ repo: readTracker(), number: 2331 },
+				{ repo: readTracker(), number: 999_999_999 },
+			],
+			{ home: readTracker() },
+		);
+		const args: string[] = fs
+			.readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line))
+			.find((argv: string[]) => argv[1] === "graphql");
+		const real = await throughSeam(realGh as string, args);
+		expect(real).toMatchObject({ verdict: "broken" });
+		expect(await throughSeam(stub, args)).toEqual(real);
+		expect(
+			await observe(ghServe(answerWaitGraph(args, waitNodes)), args),
 		).toEqual(real);
 	});
 
@@ -854,10 +915,12 @@ describe("live: computed answers", () => {
 });
 
 /*
- * link-sub-issue.sh is run for real against a recording stub, so the reads sent
- * to the live gh are the ones the script sends, and a read LINK_READS lacks turns
- * this red. Its POST stays in the stub. #2260 (a closed spec) has closed
- * children, of which #2327 is one, so neither answer moves (#3652).
+ * link-sub-issue.sh is run for real against a recording stub, so the `--jq`
+ * reads sent to the live gh are the ones the writer sends, and a read
+ * LINK_READS lacks turns this red. Its POST stays in the stub, and its loop
+ * check's GraphQL walk, which the stub refuses, reads as partial. #2260 (a closed spec) has closed
+ * children, of which #2327 is one, so neither answer moves (#3652); the
+ * stub names the real repo, so every read after it reaches a real issue.
  */
 describe("live: link-sub-issue.sh's reads", () => {
 	it("each answers alike from the real gh, the stub and both fakes", async ({
@@ -866,12 +929,17 @@ describe("live: link-sub-issue.sh's reads", () => {
 		liveSkip ??= { reason: liveSkipReason() };
 		if (liveSkip.reason) return skip(liveSkip.reason);
 		const log = path.join(dir, "link-calls");
+		const home = spawnSync(
+			realGh as string,
+			["api", "repos/{owner}/{repo}", "--jq", ".full_name"],
+			{ encoding: "utf8" },
+		).stdout.trim();
 		const stub = stubGhScript(
 			fs.mkdtempSync(path.join(dir, "link-")),
 			`#!/bin/sh
 printf '%s\\n' "$*" >> ${shellQuote(log)}
 case "$*" in
-${buildLinkReadArms({ children: buildJqLines(2327) })}
+${buildLinkReadArms({ repo: buildJqLines(home), children: buildJqLines(2327) })}
   *"--method POST"*) exit 0 ;;
 esac
 exit 1
@@ -893,15 +961,19 @@ exit 1
 			.readFileSync(log, "utf8")
 			.trim()
 			.split("\n")
-			.filter((call) => !call.includes("--method POST"))
+			.filter((call) => call.includes(" --jq "))
 			.map((call) => call.split(" "));
-		const filters = reads.map((args) => args.at(-1) as string);
+		// A closed parent's child has its state read too, so each shape is once.
+		const filters = [...new Set(reads.map((args) => args.at(-1) as string))];
 		expect(filters).toEqual(Object.values(LINK_READS).map((r) => r.jq));
 		expect(filters.sort()).toEqual(Object.keys(LINK_FIXTURES).sort());
 		// The script's own reader branches on these exact words; shape alone is "text".
 		expect(
-			spawnSync(realGh as string, reads[0] as string[], { encoding: "utf8" })
-				.stdout,
+			spawnSync(
+				realGh as string,
+				reads.find((args) => args.at(-1) === ".state") as string[],
+				{ encoding: "utf8" },
+			).stdout,
 		).toMatch(/^(open|closed)\n$/);
 		for (const args of reads) {
 			const fixture = LINK_FIXTURES[args.at(-1) as keyof typeof LINK_FIXTURES];

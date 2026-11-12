@@ -87,13 +87,8 @@
  */
 
 const path = require("node:path");
-const {
-	parseCommand,
-	runCwd,
-	walkCommands,
-	normAbs,
-} = require("./shell-parse.js");
-const { literal, unwrap } = require("./shell-words.js");
+const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
+const { literal } = require("./shell-words.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");
@@ -163,11 +158,8 @@ function decide(subject, ctx) {
 		walkCommands(
 			parsed,
 			(cmd) => {
-				for (const run of unwrap(cmd.words, parsed.spans))
-					for (const t of cmd.writeTargets(
-						run.words,
-						runCwd(cmd.cwds, run.chdirs, parsed.spans, ctx.isDir)[0],
-					))
+				for (const run of cmd.runs())
+					for (const t of cmd.writeTargets(run.words, run.dirs()[0]))
 						if (t.mode === "write" && !found.flat)
 							considerTarget(t.target, t.path, {
 								spans: parsed.spans,

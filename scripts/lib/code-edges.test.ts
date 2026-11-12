@@ -1,10 +1,12 @@
 // @vitest-environment node
 /*
- * code-edges.js's Python reach (#4864): the files an import loads, the paths
- * it tried first, and the imports it cannot place. Loosen a case and the pass
- * store caches a test whose spawned script's module changed. Each case builds
- * a real temporary tree, since the walk resolves a module by reading the
- * disk.
+ * What one file reaches (file-reach.js) and what its run does (code-edges.js,
+ * #4864): the files an import loads, the paths it tried first, and the
+ * imports it cannot place. Loosen a case and the pass store caches a test
+ * whose spawned script's module changed. Each case builds a real temporary
+ * tree, since the walk resolves a module by reading the disk. Both modules'
+ * cases share this file: "a module walked on its importer's sys.path" holds
+ * a module read alone against the run importing it.
  */
 
 import { spawnSync } from "node:child_process";
@@ -15,7 +17,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { reachOf, readRunReach } = require("./code-edges.js");
+const { readRunReach } = require("./code-edges.js");
+const { fileReach } = require("./file-reach.js");
 
 let root = "";
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -25,8 +28,11 @@ afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 function walk(file: string, text: string) {
 	const faults: string[] = [];
 	const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-	const found = reachOf(path.join(root, file), text, (m: string) =>
-		faults.push(m),
+	const found = fileReach(
+		path.join(root, file),
+		text,
+		(m: string) => faults.push(m),
+		null,
 	);
 	return { edges: rel(found.edges), shadows: rel(found.shadows), faults };
 }
@@ -728,19 +734,27 @@ describe("a statement the parse may miss", () => {
 describe("a file the walk cannot read", () => {
 	it("faults JSX or TSX code rather than answering no edges", () => {
 		const faults: string[] = [];
-		reachOf("/x/a.tsx", 'import "./b.js";\n', (m: string) => faults.push(m));
+		fileReach(
+			"/x/a.tsx",
+			'import "./b.js";\n',
+			(m: string) => faults.push(m),
+			null,
+		);
 		expect(faults).toEqual(["is .tsx code, whose loads the walk cannot read"]);
 	});
 
 	it("answers a data file no edges and no fault", () => {
 		const faults: string[] = [];
-		expect(reachOf("/x/a.json", "{}", (m: string) => faults.push(m))).toEqual({
+		expect(
+			fileReach("/x/a.json", "{}", (m: string) => faults.push(m), null),
+		).toEqual({
 			edges: [],
 			shadows: [],
 			reads: [],
 			unread: [],
 			unknown: [],
 			python: false,
+			pySearch: null,
 		});
 		expect(faults).toEqual([]);
 	});
@@ -751,7 +765,7 @@ describe("a file the walk cannot read", () => {
  * cached. */
 describe("an interpreter handed its program inline", () => {
 	const unseen = (code: string, file = "/x/a.test.ts") =>
-		reachOf(file, code, () => undefined).unread;
+		fileReach(file, code, () => undefined, null).unread;
 
 	it.each([
 		[
@@ -795,10 +809,11 @@ describe("an interpreter handed its program inline", () => {
 	 * python must still rest on python3. */
 	it("marks the reach of a Python spawn it lets pass as running python3", () => {
 		expect(
-			reachOf(
+			fileReach(
 				"/x/a.test.ts",
 				'spawnSync("python3", ["-c", "import sys"]);',
 				() => undefined,
+				null,
 			).python,
 		).toBe(true);
 	});
@@ -822,7 +837,8 @@ describe("a shell script's inline program", () => {
 		`[[ "$SELF_DIR" == "\${BASH_SOURCE[0]}" ]] && SELF_DIR=.`,
 		'SELF_DIR="$(cd "$SELF_DIR" && pwd)"',
 	].join("\n");
-	const sh = (code: string) => reachOf("/x/s/park.sh", code, () => undefined);
+	const sh = (code: string) =>
+		fileReach("/x/s/park.sh", code, () => undefined, null);
 
 	it("reaches the file a node program requires off an argument read as a path, as park-blocked.sh's", () => {
 		const { unread, edges } = sh(
@@ -899,7 +915,7 @@ describe("a shell script's loads", () => {
 	const dirOf = (v: string) =>
 		`${v}="\${BASH_SOURCE[0]%/*}"\n[[ "$${v}" == "\${BASH_SOURCE[0]}" ]] && ${v}=.`;
 	const sh = (code: string, file = "/x/s/a.sh") =>
-		reachOf(file, code, () => undefined);
+		fileReach(file, code, () => undefined, null);
 
 	it.each([
 		[
@@ -1038,10 +1054,11 @@ describe("a shell script's loads", () => {
 	/* #4790: one interpreter table, so a versioned python3 is Python. */
 	it("walks a script whose #! line names a versioned python3 as Python", () => {
 		const faults: string[] = [];
-		reachOf(
+		fileReach(
 			"/x/hooks/run",
 			"#!/usr/bin/env python3.12\nimport nosuchmod\n",
 			(m: string) => faults.push(m),
+			null,
 		);
 		expect(faults).toHaveLength(1);
 	});
@@ -1078,7 +1095,7 @@ describe("a shell script's loads", () => {
 		const probe = path.join(root, "probe.js");
 		fs.writeFileSync(
 			probe,
-			`const { reachOf } = require(${JSON.stringify(require.resolve("./code-edges.js"))});\nprocess.stdout.write(JSON.stringify(reachOf("/x/s/a.sh", "python3 -c 'import sys'\\n", () => {}).edges));\n`,
+			`const { fileReach } = require(${JSON.stringify(require.resolve("./file-reach.js"))});\nprocess.stdout.write(JSON.stringify(fileReach("/x/s/a.sh", "python3 -c 'import sys'\\n", () => {}, null).edges));\n`,
 		);
 		/* spawn-kept: python3's version is read once per process, so a walk
 		 * with no python3 on PATH needs a process that never read it. */
@@ -1100,7 +1117,12 @@ describe("a JS file's loads and reads (#4790 round 4)", () => {
 			fs.writeFileSync(path.join(root, rel), text);
 		}
 		const rel = (ps: string[]) => ps.map((p) => path.relative(root, p));
-		const r = reachOf(path.join(root, "lib/l.js"), code, () => undefined);
+		const r = fileReach(
+			path.join(root, "lib/l.js"),
+			code,
+			() => undefined,
+			null,
+		);
 		return {
 			edges: rel(r.edges),
 			reads: rel(r.reads),

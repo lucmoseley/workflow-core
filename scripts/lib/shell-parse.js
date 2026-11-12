@@ -693,8 +693,11 @@ function parseHeredocTerm(mask, line) {
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
  * line outside a message argument (mantahostels#232) or a script unwrap reads
- * (#4978). A `sh -c` script is not among them: no git guard reads one. Residual: three cores read no unwrap run, so such a
- * script's later `gh` or text line passes them (#5012).
+ * (#4978). A bare `sh -c` script is not among them: unwrap leaves it standing
+ * as the command word (mantahostels#2629), so its later lines are judged only
+ * as lines of their own, which the abandoned join keeps.
+ * Residual: three cores read no unwrap run, so a later `gh` or text line of a
+ * script unwrap reads passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans
@@ -1105,6 +1108,9 @@ function resolveWord(word, scope) {
  *   it fails open (mantahostels#3453)
  * @property {import("./shell-dirs.js").Dirs} cwds every directory it may
  *   stand in, `cwd` first: a `cd` may not have run or have failed (#4980)
+ * @property {() => [CommandRun, ...CommandRun[]]} runs the runs its words
+ *   make, as unwrap strips them, in the order they run; unwrapped once, and
+ *   read inside the callback
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
  *   `words` the command's own by default; `cwd` the directory a word target
@@ -1113,6 +1119,14 @@ function resolveWord(word, scope) {
  * @property {(word: string) => string | null} resolveWord
  * @property {(name: string) => boolean} assigned whether the command assigned
  *   `name`, before this point, a value the walk resolves (#2436)
+ */
+
+/**
+ * @typedef {import("./shell-words.js").Unwrapped & {
+ *   dirs: () => import("./shell-dirs.js").Dirs }} CommandRun one run a
+ *   command's words make: `dirs` every directory it may stand in, the
+ *   command's `cwds` moved through its own chdirs, its words read under the
+ *   walk's scope as it stands (#5075)
  */
 
 /**
@@ -1439,13 +1453,18 @@ function walkCommands(parsed, fn, ports) {
 			settleCwdDoubt(walk, segIdx);
 			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
 			const own = ran ? words.slice(wi) : [];
+			const leading = words.slice(0, assignEnd);
 			const redirects = () => readRedirects(redirs, scope, abs);
 			fn({
 				segment,
 				words: own,
-				leading: words.slice(0, assignEnd),
+				leading,
 				cwd: cwdOf(walk),
 				cwds: walk.dirs.dirs,
+				runs: commandRuns(own, walk.dirs.dirs, {
+					scope,
+					isDir: ports.isDir,
+				}),
 				redirects,
 				writeTargets: (w = own, cwd = cwdOf(walk)) =>
 					writeTargets(w, redirects(), {
@@ -1460,6 +1479,36 @@ function walkCommands(parsed, fn, ports) {
 			if (ran) stepCwd(walk, own, segIdx, ports.isDir);
 		},
 	);
+}
+
+/**
+ * A Command's `runs`: each run's `dirs` read on its first call.
+ * @param {string[]} words the command's own
+ * @param {import("./shell-dirs.js").Dirs} cwds
+ * @param {{ scope: Scope, isDir: (path: string) => boolean }} at
+ * @returns {() => [CommandRun, ...CommandRun[]]}
+ */
+function commandRuns(words, cwds, { scope, isDir }) {
+	/** @type {[CommandRun, ...CommandRun[]] | undefined} */
+	let runs;
+	/** @param {import("./shell-words.js").Unwrapped} run @returns {CommandRun} */
+	const withDirs = (run) => {
+		/** @type {import("./shell-dirs.js").Dirs | undefined} */
+		let dirs;
+		return {
+			...run,
+			dirs: () => {
+				dirs ??= runCwd(cwds, run.chdirs, scope, isDir);
+				return dirs;
+			},
+		};
+	};
+	return () => {
+		if (runs) return runs;
+		const [first, ...later] = unwrap(words, scope.spans);
+		runs = [withDirs(first), ...later.map(withDirs)];
+		return runs;
+	};
 }
 
 /**
@@ -2415,15 +2464,13 @@ const cwdOf = (walk) => walk.dirs.dirs[0];
  * its script did not set (#4981), a glob, or a `-` flag.
  * @param {import("./shell-dirs.js").Dirs} cwds
  * @param {Chdir[]} chdirs
- * @param {string[] | Scope} scope the outer command's, where the caller holds
- *   it, so a wrapper's word reads the variables the command set; its spans
- *   alone otherwise
+ * @param {Scope} scope the outer command's, so a wrapper's word reads the
+ *   variables the command set
  * @param {(path: string) => boolean} isDir
  * @returns {import("./shell-dirs.js").Dirs}
  */
 function runCwd(cwds, chdirs, scope, isDir) {
-	const outer = Array.isArray(scope) ? buildBareScope(scope) : scope;
-	const moves = chdirs.map((cd) => chdirMove(cd, chdirArg(cd, outer).resolved));
+	const moves = chdirs.map((cd) => chdirMove(cd, chdirArg(cd, scope).resolved));
 	return dirsAfter(cwds, moves, isDir);
 }
 
@@ -3173,7 +3220,6 @@ module.exports = {
 	asWritten,
 	normAbs,
 	walkGit,
-	runCwd,
 	unsetText,
 	BASH_SPACE: SPACE,
 };

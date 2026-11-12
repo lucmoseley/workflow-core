@@ -87,8 +87,8 @@ const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { expandHome } = require("./home-path.js");
 const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
-const { parseCommand, runCwd, walkCommands } = require("./shell-parse.js");
-const { ghCall, literal, scanFlags, unwrap } = require("./shell-words.js");
+const { parseCommand, walkCommands } = require("./shell-parse.js");
+const { ghCall, literal, scanFlags } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 
@@ -415,8 +415,8 @@ function scanJobDir(parsed, ctx) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			for (const run of unwrap(cmd.words, parsed.spans)) {
-				const cwd = runCwd(cmd.cwds, run.chdirs, parsed.spans, ctx.isDir)[0];
+			for (const run of cmd.runs()) {
+				const [cwd] = run.dirs();
 				const where = { pwd: cwd || ctx.fallbackCwd, jobDir };
 				seen ||= bodyPathWords(run.words, parsed.spans).some((text) => {
 					if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
@@ -438,11 +438,11 @@ function scanJobDir(parsed, ctx) {
  */
 function judge(cmd, matched, call) {
 	const { spans } = call.parsed;
-	for (const { words, chdirs } of unwrap(cmd.words, spans)) {
+	for (const { words, dirs } of cmd.runs()) {
 		if (runsIssueBody(words, spans)) matched.add("issue-body-success-signal");
 		const gh = ghCall(words, spans);
 		if (!gh) continue;
-		const cwd = runCwd(cmd.cwds, chdirs, spans, call.ctx.isDir)[0];
+		const [cwd] = dirs();
 		matchRows(gh.args, { ...call, cmd: { ...cmd, cwd } }, matched);
 	}
 }
