@@ -21,8 +21,7 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const require_ = createRequire(__filename);
 const { markersDir } = require_("./lib/marker-root.js");
-const { compactPayloads, compactTranscripts, SUBAGENT_JUST_COMPACTED } =
-	require_("./lib/compact-payload-fixture.js");
+const { compactPayloads } = require_("./lib/compact-payload-fixture.js");
 
 const HOOK = path.join(__dirname, "inject-compaction-count.js");
 const GUARD = path.join(__dirname, "guard-session-ceiling.js");
@@ -137,19 +136,18 @@ describe("after an autocompaction", () => {
 	});
 });
 
-/* Harness 2.1.301 sends a subagent's compaction with its parent's session id and
- * no agent_id, so the hook counts it as the parent's (#1785). */
+/* A subagent's compaction carries its parent's session id, and its agent_id
+ * (#1785, #1837). */
 describe("a subagent's compaction leaves the parent's count as it was", () => {
-	const subagent = () =>
-		compactPayloads({
+	const subagentCompacts = () => {
+		const { preCompact: pre, sessionStart: start } = compactPayloads({
 			sessionId: sid,
 			transcriptPath: transcriptFile(),
 			cwd: dir,
+			agentId: "a1b2c3d4e5f6a7b8c",
 		});
-	const subagentCompacts = () => {
-		const { preCompact: pre, sessionStart: start } = subagent();
 		exec(HOOK, pre);
-		exec(HOOK, start);
+		return exec(HOOK, start);
 	};
 
 	it("leaves the parent's count unchanged once the parent's next Stop has run", () => {
@@ -170,28 +168,10 @@ describe("a subagent's compaction leaves the parent's count as it was", () => {
 		expect(setKeys()).toHaveLength(2);
 	});
 
-	it("leaves the set as it was where the payload carries agent_id", () => {
+	it("tells the subagent nothing and leaves the set as it was", () => {
 		writeTranscript([boundary("c1"), usage]);
 		exec(GUARD, { hook_event_name: "Stop", last_assistant_message: "x" });
-		const { preCompact: pre, sessionStart: start } = compactPayloads({
-			sessionId: sid,
-			transcriptPath: transcriptFile(),
-			cwd: dir,
-			agentId: "a1b2c3d4e5f6a7b8c",
-		});
-		exec(HOOK, pre);
-		expect(exec(HOOK, start)).toBe("");
-		expect(setKeys()).toEqual(["c1"]);
-	});
-
-	// Until the harness sends agent_id there (#1837).
-	it("says nothing and leaves the set where a subagent's transcript is fresher than the parent's stale one", () => {
-		writeTranscript([boundary("c1"), usage]);
-		exec(GUARD, { hook_event_name: "Stop", last_assistant_message: "x" });
-		compactTranscripts(dir, { sessionId: sid, ...SUBAGENT_JUST_COMPACTED });
-		const { preCompact: pre, sessionStart: start } = subagent();
-		exec(HOOK, pre);
-		expect(exec(HOOK, start)).toBe("");
+		expect(subagentCompacts()).toBe("");
 		expect(setKeys()).toEqual(["c1"]);
 	});
 });

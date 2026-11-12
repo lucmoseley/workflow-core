@@ -935,6 +935,41 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		expect(runDirs(command, { X: "/x", HOME: "/h", PWD: "/p" })).toEqual(dirs);
 	});
 
+	/* An `export` assigns as a bare assignment does, and puts the name in the
+	 * environment a -c string's shell inherits. */
+	it.each([
+		["export D=/d; env -C $D gh x", [["/d"]]],
+		["export D=/d && env -C $D gh x", [["/d"]]],
+		["declare -x D=/d; env -C $D gh x", [["/d"]]],
+		["export D=/d; flock /l -c 'cd $D; gh x'", [["/start"], ["/d"]]],
+		[`export D=/d; flock /l -c 'cd "$D" && gh x'`, [["/start"], ["/d"]]],
+		["export D; D=/d; flock /l -c 'cd $D; gh x'", [["/start"], ["/d"]]],
+		["export X; flock /l -c 'cd $X; gh x'", [["/start"], ["/x"]]],
+	])(
+		"reads an exported assignment before a wrapper's word or a -c string's cd (#5120): %s",
+		(command, dirs) => {
+			expect(runDirs(command, { X: "/x" })).toEqual(dirs);
+		},
+	);
+
+	it.each([
+		"export D=/d; unset D; env -C $D gh x",
+		"export D=/d; export -n D; flock /l -c 'cd $D; gh x'",
+		"export D=/d; D=/e; flock /l -c 'cd $D; gh x'",
+		"true || export D=/d; flock /l -c 'cd $D; gh x'",
+		"export D=/d; env -i flock /l -c 'cd $D; gh x'",
+		"export D=/d; D=/e flock /l -c 'cd $D; gh x'",
+		"export D=/d; read D; flock /l -c 'cd $D; gh x'",
+		"(export D=/d); flock /l -c 'cd $D; gh x'",
+		"export D=/d & flock /l -c 'cd $D; gh x'",
+		"export D=/d | true; flock /l -c 'cd $D; gh x'",
+		"(D=/d); env -C $D gh x",
+		"(export D=/d); env -C $D gh x",
+		"D=/d | true; env -C $D gh x",
+	])("names no directory an export may not have set (#5120): %s", (command) => {
+		expect(runDirs(command)?.at(-1)?.[0]).toBe("");
+	});
+
 	it("reads a wrapper's word before the command's own prefix assignment, as bash expands first (#5087)", () => {
 		expect(runDirs("X=/y env -C $X gh x", { X: "/x" })).toEqual([["/x"]]);
 		expect(runDirs('D=/a; D=/d env -C "$D" gh x')).toEqual([["/a"]]);
@@ -2487,11 +2522,18 @@ describe('walkGit, scope "shared"', () => {
 			).toEqual([SHARED]);
 		});
 
+		it("reads a name the outer command exported at its value (#5120)", () => {
+			const X = { ...ENV, X: ELSEWHERE };
+			expect(
+				trees(`export X=${SHARED}; flock /l -c 'cd $X; git checkout x'`, DIR, X)
+					.trees,
+			).toEqual([SHARED]);
+		});
+
 		it("loses the tree at a name its shell may hold otherwise", () => {
 			const X = { ...ENV, X: ELSEWHERE, _: ELSEWHERE };
 			for (const command of [
 				`X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
-				`export X=${SHARED}; flock /l -c 'cd $X; git checkout x'`,
 				`flock /l -c 'X=${ELSEWHERE}; read X; cd $X; git checkout x'`,
 				`flock /l -c 'X=${ELSEWHERE}; unset X; cd $X; git checkout x'`,
 				`flock /l -c 'true || X=${ELSEWHERE}; cd $X; git checkout x'`,
@@ -2890,10 +2932,10 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 		["a command substitution", 'cd "$(pwd)" && git checkout x'],
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, and the operator inside them is what must not be expanded.
 		["an operator form", 'git -C "${UNSET_325:-/x}" checkout x'],
-		// The harvest sees leading `NAME=` words alone.
+		// The harvest sees leading `NAME=` words and an export's, never a plain `declare`'s.
 		[
 			"an assignment it cannot harvest",
-			'export UNSET_325=/x; git -C "$UNSET_325" checkout x',
+			'declare UNSET_325=/x; git -C "$UNSET_325" checkout x',
 		],
 		[
 			"a name `read` assigns",

@@ -1704,19 +1704,6 @@
 						"needle": "400 B"
 					}
 				]
-			},
-			{
-				"path": "scripts/lib/agent-id-probe.js",
-				"anchors": [
-					{
-						"anchor": "Both 2.1.310 literals fit in 400 bytes, and",
-						"needle": "400 bytes"
-					},
-					{
-						"anchor": "`Vu`'s `agent_id` sits 400 bytes into its body; a guess.",
-						"needle": "400 bytes"
-					}
-				]
 			}
 		]
 	},

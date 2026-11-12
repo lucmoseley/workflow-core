@@ -26,15 +26,13 @@
  * wrote the boundary before these hooks ran would count it twice, as a
  * boundary and as a pending key, until the guard's next Stop drops the key.
  *
- * A SUBAGENT'S COMPACTION IS TOLD APART ONLY IN PART (#1785, #1837). Harness
- * 2.1.302 sends both events without `agent_id`, with the parent's session id.
- * `lib/subagent-payload.js` reads most of them on `SessionStart:compact` by
- * transcript freshness; the rest are told the parent's count and to end, and
- * `lib/compaction-set.js` drops the pending key they leave.
+ * A SUBAGENT'S COMPACTION IS NOT COUNTED (#1785, #1837). Both events carry its
+ * parent's session id and its own `agent_id`, which `lib/subagent-payload.js`
+ * reads, so the hook stays silent on it.
  *
- * IMPLICIT:  at every compaction, writes a trigger marker; after one, reads
- *            and deletes it, reads the transcript tail and the issue-claim
- *            store, and writes the compaction set.
+ * IMPLICIT:  at every compaction but a subagent's, writes a trigger marker;
+ *            after one, reads and deletes it, reads the transcript tail
+ *            and the issue-claim store, and writes the compaction set.
  * JUSTIFIED: fail-safe — refuses nothing (#1142).
  * DEFEAT:    none; silent on every failure path. A payload that does not
  *            parse or names no session, and a missing trigger marker, are

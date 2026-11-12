@@ -4,7 +4,7 @@
  * description-less plugin skill back into the start listing, or stops the
  * Skill tool loading it (#2037).
  *
- * Usage:  node scripts/check-harness-canary.js [--notify | --probe | --probe-agent-id] [--write] [--json]
+ * Usage:  node scripts/check-harness-canary.js [--notify | --probe] [--json]
  *
  * WHAT IT GUARDS. A workflow-core skill shipped with no `description` costs
  * no adopter start a listing line and still loads by name (#1958, #2036).
@@ -34,17 +34,10 @@
  * Unprobed, or a version not yet probed, is WARN rather than SKIP, so `npm run
  * status` still shows a canary that is not guarding (#2037).
  *
- * THE AGENT_ID PROBE (`--probe-agent-id`, and part of `--probe`) runs in the
- * core's checkout alone, as #1837 is the core's ticket (#2819). It reads the
- * binary for `agent_id` on a subagent's `PreCompact` and `SessionStart`
- * payloads (lib/agent-id-probe.js). It edits no label (mantahostels#136), and
- * comments only under `--write`, which the hook passes and the probe it
- * launches inherits (#4449).
- *
- * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches, as no session's process in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 (the hook passing --write) and prints it at each start.
- * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block. The agent_id probe replaces #1837's hand re-check per release (#2819).
- * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false; `--probe-agent-id` re-reads the binary for a fixed suspected false.
- * TREE:      host — probes the harness from a scratch directory and asks whether the host root is the core
+ * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches, as no session's process in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436).
+ * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block.
+ * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false.
+ * TREE:      host — probes the harness from a scratch directory
  */
 
 const { spawnSync } = require("node:child_process");
@@ -54,7 +47,6 @@ const os = require("node:os");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { runCheck } = require("./lib/check");
-const { probeAgentId } = require("./lib/agent-id-probe.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { claudeBin } = require("./lib/claude-bin.js");
@@ -62,8 +54,6 @@ const { parseJsonl } = require("./lib/jsonl.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
 const { configDir } = require("./lib/config-dir.js");
-const { isCoreRoot } = require("./lib/core-hooks.js");
-const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { spawnOutliving } = require("./lib/user-scope.js");
@@ -80,9 +70,7 @@ const RETRY_MS = 6 * 3_600_000;
 
 const statePath = () => path.join(configDir(), "wfc-harness-canary.json");
 const lockPath = () => path.join(configDir(), "wfc-harness-canary.lock");
-const rerun = (flag = "--probe") =>
-	`node ${scriptPath("check-harness-canary.js")} ${flag}`;
-const isInCore = () => isCoreRoot(hostRoot());
+const rerun = () => `node ${scriptPath("check-harness-canary.js")} --probe`;
 
 /**
  * @template {{ version: string }} T
@@ -92,14 +80,10 @@ const isInCore = () => isCoreRoot(hostRoot());
 const forVersion = (record, version) =>
 	record?.version === version ? record : undefined;
 
-const GAP_ISSUE = 1837;
-
 /**
  * @typedef {{ version: string, verdict: "green" | "red" | "unprobed",
  *   reasons: string[], at: string }} Verdict
- * @typedef {{ version: string, verdict: "fixed" | "not fixed" | "unprobed",
- *   reasons: string[], at: string, commented?: boolean }} AgentIdVerdict
- * @typedef {{ passed?: string, last?: Verdict, agentId?: AgentIdVerdict }} State
+ * @typedef {{ passed?: string, last?: Verdict }} State
  */
 
 /**
@@ -312,97 +296,31 @@ function probe(version) {
 }
 
 /**
- * Comment on #1837 that `v` found the gap closed; true once posted. The core's
- * own tracker, named, since a detached probe's cwd is no promise.
- * @param {AgentIdVerdict} v
- */
-function commentFixed(v) {
-	const { gh } = require("./lib/gh");
-	const { UPSTREAM_TRACKER } = require("./lib/workflow-core-config.js");
-	const body = [
-		`**Harness canary (#2819):** Claude Code ${v.version} looks to send \`agent_id\` on a subagent's compaction payloads:`,
-		"",
-		...v.reasons.map((r) => `- ${r}`),
-		"",
-		"Read statically from the binary. Confirm with one live subagent compaction (the triage comment's method) before building on it.",
-	].join("\n");
-	try {
-		gh([
-			"issue",
-			"comment",
-			String(GAP_ISSUE),
-			"--repo",
-			UPSTREAM_TRACKER,
-			"--body",
-			body,
-		]);
-		return true;
-	} catch {
-		/* Fail-open (#2819): a hand run reports it unposted, and the next
-		 * start's detached probe retries after RETRY_MS. */
-		return false;
-	}
-}
-
-/**
- * Run the agent_id probe on `version`, comment where it is newly fixed, and
- * record it. The caller holds the lock.
+ * Probe under the lock and record the verdict; null where a probe holds it.
  * @param {string} version
- * @param {AgentIdVerdict | undefined} prior
- * @param {boolean} write whether a fixed verdict may comment (#4449)
  */
-function probeAgentIdAndRecord(version, prior, write) {
-	/** @type {AgentIdVerdict} */
-	const v = {
-		version,
-		...probeAgentId(claudeBin()),
-		at: new Date().toISOString(),
-	};
-	if (v.verdict === "fixed")
-		v.commented =
-			(prior?.version === version && prior.commented === true) ||
-			(write && commentFixed(v));
-	writeState({ agentId: v });
-	return v;
-}
-
-/**
- * Probe under the lock and record the verdicts; null where a probe holds it.
- * @param {string} version
- * @param {{ listing: boolean, agentId: boolean, write: boolean }} which
- */
-function probeAndRecord(version, which) {
+function probeAndRecord(version) {
 	fs.mkdirSync(configDir(), { recursive: true });
 	/* Held while the probe lives; `PROBE_TIMEOUT_MS` ends a hung one (#4016). */
 	const lock = pidLock(lockPath(), path.basename(__filename));
 	if (!lock.acquire()) return null;
 	try {
-		/** @type {Verdict | undefined} */
-		let last;
-		if (which.listing) {
-			last = probe(version);
-			writeState({ last });
-		}
-		if (which.agentId)
-			probeAgentIdAndRecord(version, readState().agentId, which.write);
-		return { last };
+		const last = probe(version);
+		writeState({ last });
+		return last;
 	} finally {
 		lock.release();
 	}
 }
 
-/** Launch `flag` through the outliving launch (#4706): in a session of its
- * own, so a harness killing the hook's group spares it, and outside this
- * session's scope, so the session's end does too.
- * @param {"--probe" | "--probe-agent-id"} flag
- * @param {boolean} write passed on, so the probe may comment (#4449) */
-function detachProbe(flag, write) {
+/** Launch the probe through the outliving launch (#4706): in a session of
+ * its own, so a harness killing the hook's group spares it, and outside this
+ * session's scope, so the session's end does too. */
+function detachProbe() {
 	try {
-		spawnOutliving(
-			process.execPath,
-			[__filename, flag, ...(write ? ["--write"] : [])],
-			{ stdio: "ignore" },
-		).unref();
+		spawnOutliving(process.execPath, [__filename, "--probe"], {
+			stdio: "ignore",
+		}).unref();
 	} catch {
 		/* The next session start retries (#2037). */
 	}
@@ -416,52 +334,23 @@ const buildRedText = (last) =>
 	"  This repeats at each start until a later version passes. Suspect a false red? Re-probe:\n" +
 	`    ${rerun()}\n`;
 
-/** @param {AgentIdVerdict} a */
-const buildFixedText = (a) =>
-	`AGENT-ID-FIXED — Claude Code ${a.version} looks to send agent_id on a subagent's compaction payloads, which #${GAP_ISSUE} (a subagent's compaction gets its parent's prelude, count line and rename) waits on (#2819):\n` +
-	a.reasons.map((r) => `  - ${r}\n`).join("") +
-	`  Read from the binary; #${GAP_ISSUE}'s close owes one live subagent compaction to confirm it.` +
-	(a.commented
-		? ` Commented on #${GAP_ISSUE}.\n`
-		: ` The comment on #${GAP_ISSUE} is not posted yet; a session start retries it after ${RETRY_MS / 3_600_000} h.\n`);
-
 /**
- * Whether the agent_id probe is owed on `version`: never run on it, or an
- * unprobed verdict or an unposted comment past RETRY_MS.
- * @param {State} state
- * @param {string} version
- */
-function isAgentIdOwed(state, version) {
-	const a = state.agentId;
-	if (a?.version !== version) return true;
-	const retry =
-		a.verdict === "unprobed" || (a.verdict === "fixed" && !a.commented);
-	return retry && Date.now() - Date.parse(a.at) >= RETRY_MS;
-}
-
-/**
- * The session-start run: a red or fixed verdict for this version, else
- * silence, after launching the probe where it is owed.
+ * The session-start run: a red verdict for this version, else silence, after
+ * launching the probe where it is owed.
  * @param {import("./lib/check").Ctx} ctx
  * @param {State} state
  * @param {string} version
- * @param {{ okLine: string, core: boolean }} opts
+ * @param {string} okLine
  */
-function atStart(ctx, state, version, { okLine, core }) {
-	const agent = forVersion(state.agentId, version);
-	if (core && agent?.verdict === "fixed") ctx.say(buildFixedText(agent));
-	const agentOwed = core && isAgentIdOwed(state, version);
-	const write = ctx.has("--write");
+function atStart(ctx, state, version, okLine) {
 	const seen = forVersion(state.last, version);
 	if (seen?.verdict === "red") {
 		reportRed(ctx, seen);
-		if (agentOwed) detachProbe("--probe-agent-id", write);
 		return {};
 	}
 	const retrying =
 		seen?.verdict === "unprobed" && Date.now() - Date.parse(seen.at) < RETRY_MS;
-	if (state.passed !== version && !retrying) detachProbe("--probe", write);
-	else if (agentOwed) detachProbe("--probe-agent-id", write);
+	if (state.passed !== version && !retrying) detachProbe();
 	if (state.passed === version) return { okLine };
 	return { okLine: `probing Claude Code ${version} in the background.` };
 }
@@ -489,35 +378,21 @@ function warnSaying(ctx, tag, msg, data) {
 }
 
 /**
- * @typedef {{ prefix: string, name: string, flag: "--probe" | "--probe-agent-id" }} ProbeKind
- * @type {ProbeKind}
- */
-const LISTING_PROBE = { prefix: "", name: "the probe", flag: "--probe" };
-/** @type {ProbeKind} */
-const AGENT_ID_PROBE = {
-	prefix: "AGENT-ID-",
-	name: "the agent_id probe",
-	flag: "--probe-agent-id",
-};
-
-/**
  * The warning on a probe that has not run on `version`, or could not.
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} version
- * @param {{ verdict: string, reasons: string[] } | undefined} last
- * @param {ProbeKind} which
+ * @param {Verdict | undefined} last
  */
-function warnUnprobed(ctx, version, last, { prefix, name, flag }) {
-	const again = rerun(flag);
+function warnUnprobed(ctx, version, last) {
 	const [tag, msg] =
 		last?.verdict === "unprobed"
 			? [
-					`${prefix}UNPROBED`,
-					`${name} could not run on Claude Code ${version}: ${last.reasons.join("; ")}. Re-run: \`${again}\`.`,
+					"UNPROBED",
+					`the probe could not run on Claude Code ${version}: ${last.reasons.join("; ")}. Re-run: \`${rerun()}\`.`,
 				]
 			: [
-					`${prefix}NOT-PROBED`,
-					`${name} has not run on Claude Code ${version}; the next session start launches it, or run \`${again}\`.`,
+					"NOT-PROBED",
+					`the probe has not run on Claude Code ${version}; the next session start launches it, or run \`${rerun()}\`.`,
 				];
 	warnSaying(ctx, tag, msg, last);
 }
@@ -531,56 +406,13 @@ function warnUnprobed(ctx, version, last, { prefix, name, flag }) {
  */
 function report(ctx, version, last) {
 	if (last?.verdict === "red") reportRed(ctx, last);
-	else warnUnprobed(ctx, version, last, LISTING_PROBE);
-}
-
-/**
- * A hand run's agent_id finding: a warning on anything but "not fixed", which
- * returns the sentence the OK line carries.
- * @param {import("./lib/check").Ctx} ctx
- * @param {string} version
- * @param {AgentIdVerdict | undefined} a
- */
-function reportAgentId(ctx, version, a) {
-	if (a?.verdict === "not fixed")
-		return ` A subagent's compaction payloads still carry no agent_id (#${GAP_ISSUE}).`;
-	if (a?.verdict === "fixed") {
-		ctx.warn("AGENT-ID-FIXED", a.reasons.join("; "), a);
-		ctx.say(buildFixedText(a));
-	} else warnUnprobed(ctx, version, a, AGENT_ID_PROBE);
-	return "";
-}
-
-/**
- * A hand-run `--probe` or `--probe-agent-id`: the listing verdict it leaves.
- * @param {import("./lib/check").Ctx} ctx
- * @param {string} version
- * @param {boolean} core
- */
-function runProbes(ctx, version, core) {
-	const listing = ctx.has("--probe");
-	if (!(listing || core))
-		return ctx.skip(
-			`the agent_id probe runs in workflow-core's own checkout alone, for #${GAP_ISSUE}.`,
-		);
-	const ran = probeAndRecord(version, {
-		listing,
-		agentId: core,
-		write: ctx.has("--write"),
-	});
-	if (ran === null)
-		return ctx.skip(
-			`another probe holds ${lockPath()}; its verdict lands in ${statePath()}.`,
-		);
-	const state = readState();
-	return listing || state.last?.version !== version ? ran.last : state.last;
+	else warnUnprobed(ctx, version, last);
 }
 
 runCheck({
 	name: "harness-canary",
-	usage:
-		"node check-harness-canary.js [--notify | --probe | --probe-agent-id] [--write] [--json]",
-	flags: ["--probe", "--probe-agent-id", "--write"],
+	usage: "node check-harness-canary.js [--notify | --probe] [--json]",
+	flags: ["--probe"],
 	run(ctx) {
 		const version = readClaudeVersion(claudeBin());
 		if (!version)
@@ -588,7 +420,6 @@ runCheck({
 				`\`${claudeBin()} --version\` gave no version, so nothing was probed.`,
 			);
 
-		const core = isInCore();
 		const { state, fault } = loadState();
 		if (fault)
 			warnSaying(
@@ -598,23 +429,25 @@ runCheck({
 			);
 		const seen = forVersion(state.last, version);
 		const okLine = `a description-less plugin skill is unlisted and loads on Claude Code ${version}.`;
-		const probing = ctx.has("--probe") || ctx.has("--probe-agent-id");
+		const probing = ctx.has("--probe");
 
-		if (ctx.notify && !probing)
-			return atStart(ctx, state, version, { okLine, core });
+		if (ctx.notify && !probing) return atStart(ctx, state, version, okLine);
 
-		const last = probing ? runProbes(ctx, version, core) : seen;
+		let last = seen;
+		if (probing) {
+			last = probeAndRecord(version) ?? undefined;
+			if (last === undefined)
+				return ctx.skip(
+					`another probe holds ${lockPath()}; its verdict lands in ${statePath()}.`,
+				);
+		}
 		const fresh = readState();
-		const agentNote = core
-			? reportAgentId(ctx, version, forVersion(fresh.agentId, version))
-			: "";
 		if (
 			last?.verdict === "green" ||
 			(fresh.passed === version && last?.verdict !== "red")
 		)
-			return { okLine: okLine + agentNote };
+			return { okLine };
 		report(ctx, version, last);
-		if (agentNote) ctx.say(`AGENT-ID —${agentNote}`);
 		return { okLine, data: { version, passed: fresh.passed ?? null } };
 	},
 });

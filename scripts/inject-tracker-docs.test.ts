@@ -36,7 +36,7 @@ const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.sh");
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
-const { compactPayloads, compactTranscripts, SUBAGENT_JUST_COMPACTED } =
+const { compactPayloads } =
 	require("./lib/compact-payload-fixture") as typeof import("./lib/compact-payload-fixture.js");
 const { TAKES_VALUES } = require("./lib/takes-label") as {
 	TAKES_VALUES: string[];
@@ -211,10 +211,7 @@ describe("the priced-options rule (mantahostels#186)", () => {
 	// A subagent's compaction fires SessionStart:compact under its parent's
 	// session id; the prelude names the parent's command and issue (#1785).
 	describe("after a compaction, read off the job's intent", () => {
-		const atCompaction = (
-			agentId?: string,
-			ages?: { parentAgeS: number; subagentAgesS: number[] },
-		) => {
+		const atCompaction = (agentId?: string) => {
 			const job = fs.mkdtempSync(path.join(os.tmpdir(), "inject-hook-"));
 			try {
 				fs.writeFileSync(
@@ -224,9 +221,7 @@ describe("the priced-options rule (mantahostels#186)", () => {
 				const sessionId = `compact-${agentId ?? "parent"}`;
 				const { sessionStart } = compactPayloads({
 					sessionId,
-					transcriptPath: ages
-						? compactTranscripts(job, { sessionId, ...ages })
-						: path.join(job, "t.jsonl"),
+					transcriptPath: path.join(job, "t.jsonl"),
 					cwd: ROOT,
 					agentId,
 				});
@@ -242,11 +237,6 @@ describe("the priced-options rule (mantahostels#186)", () => {
 
 		it("injects nothing where the payload carries a subagent's agent_id", () => {
 			expect(atCompaction("a21cf96dcd1d42038")).toBe("");
-		});
-
-		// Until the harness sends agent_id there (#1837).
-		it("injects nothing where a subagent's transcript is fresher than the parent's stale one", () => {
-			expect(atCompaction(undefined, SUBAGENT_JUST_COMPACTED)).toBe("");
 		});
 	});
 
