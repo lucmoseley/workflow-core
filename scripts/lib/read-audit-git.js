@@ -144,7 +144,8 @@ const keyOf = ({ cwd, args }) => JSON.stringify({ cwd, args });
 
 /**
  * A git call's answer: its exit status and the sha1 of its stdout, as the
- * guard's `sha1sum` spells it.
+ * guard's `sha1sum` spells it. node:crypto loads here, not at the top, so
+ * the preload's traced children never load it (#5078).
  * @param {number} status
  * @param {Buffer|string} stdout
  */
