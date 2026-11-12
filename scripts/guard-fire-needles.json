@@ -939,6 +939,12 @@
 					"text": "If it writes the body, it writes it whole and erases any parallel session"
 				},
 				{
+					"id": "raw-link-write",
+					"core": "guard-issue-link",
+					"kind": "deny",
+					"text": "A raw link write skips the loop check"
+				},
+				{
 					"id": "card-not-done",
 					"core": "guard-issue-close",
 					"kind": "deny",

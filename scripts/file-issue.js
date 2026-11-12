@@ -64,7 +64,7 @@
  * did not land), 2 fix the input (a usage error or a refusal).
  */
 
-const { spawnSync } = require("node:child_process");
+const { runLinkSync } = require("./lib/link-writer.js");
 const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -245,20 +245,19 @@ function readBody(file) {
 }
 
 /**
- * The link, through link-sub-issue.sh, which verifies from the parent side.
- * `{ok}` carrying its stdout, or `{error}` carrying its stderr.
+ * The link, through lib/link-writer.js, which refuses a loop and verifies
+ * from the parent side. `{ok}` carrying its stdout and any warning, or
+ * `{error}` carrying its stderr.
  * @param {string} repo
  * @param {number} parent
  * @param {number} child
  */
 function link(repo, parent, child) {
-	const r = spawnSync(
-		"bash",
-		[path.join(__dirname, "link-sub-issue.sh"), String(parent), String(child)],
-		{ encoding: "utf8", env: { ...process.env, WFC_LINK_REPO: repo } },
-	);
-	if (r.status === 0) return { ok: r.stdout.trim() };
-	return { error: (r.stderr || r.error?.message || "no output").trim() };
+	const r = runLinkSync("sub-issue", [String(parent), String(child)], {
+		repo,
+	});
+	if (r.code === 0) return { ok: r.out.trim(), warning: r.warning };
+	return { error: r.err || "no output" };
 }
 
 /**
@@ -760,6 +759,7 @@ function linkFiled({ repo, parent, n, claimLater }) {
 			`#${n} was filed but not linked under #${parent.number}: ${linked.error}\n${linkRemedy(linked.error, parent, n)} Do NOT file it again.${claimLater}`,
 			1,
 		);
+	if (linked.warning) io.warn(linked.warning);
 	io.out(`${linked.ok}\n`);
 }
 
