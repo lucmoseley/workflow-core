@@ -127,6 +127,13 @@ const isNotFound = (raw) =>
 	/\(HTTP 404\)/.test(String(asExecError(raw).stderr ?? ""));
 
 /**
+ * Whether a failed call was GitHub's 403, by gh's `(HTTP 403)`, as isNotFound.
+ * @param {unknown} raw
+ */
+const isForbidden = (raw) =>
+	/\(HTTP 403\)/.test(String(asExecError(raw).stderr ?? ""));
+
+/**
  * Run gh synchronously; return stdout. Throws execFileSync's error, with
  * stderr captured on `e.stderr` rather than echoed to the terminal.
  * @param {string[]} args
@@ -657,6 +664,7 @@ module.exports = {
 	mapLimit,
 	ISSUE_READ_CONCURRENCY,
 	parseErrLine,
+	isForbidden,
 	isNotFound,
 	parseGhFailureReason,
 	raiseGhFailure,

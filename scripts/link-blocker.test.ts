@@ -134,9 +134,9 @@ describe("link-blocker.js", () => {
 		expect(r.status).toBe(3);
 		expect(readPosts()).toEqual([]);
 		for (const link of [
-			"#4893 is blocked by o/r#3864   (the new link)",
-			"o/r#3864 is blocked by #4891",
-			"#4891 waits on child #4893",
+			"m/t#4893 is blocked by #3864   (the new link)",
+			"#3864 is blocked by m/t#4891",
+			"m/t#4891 waits on child m/t#4893",
 		])
 			expect(r.stderr).toContain(link);
 		expect(r.stderr).toContain(
@@ -147,7 +147,7 @@ describe("link-blocker.js", () => {
 		);
 	});
 
-	it("names a local issue as #n and the other repo's as owner/name#n, from the blocked issue's repo", async () => {
+	it("names the session's own issue as #n and the other repo's as owner/name#n", async () => {
 		const r = await run(["#3864", "m/t#4893"], {
 			graph: {
 				"m/t#4893": {
@@ -180,6 +180,22 @@ describe("link-blocker.js", () => {
 		);
 		expect(verify).toBeGreaterThan(post);
 		expect(r.stderr).toBe("");
+	});
+
+	it("names a blocked issue in another repo by its full reference on success", async () => {
+		const r = await run(["m/t#20", "#10"], {
+			listed: [{ number: 10, repo: "o/r" }],
+		});
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toBe("linked m/t#20 as blocked by #10\n");
+	});
+
+	it("names a blocked issue in another repo by its full reference when the edge never lists", async () => {
+		const r = await run(["m/t#20", "#10"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"m/t#20's blocked_by list still does not name #10",
+		);
 	});
 
 	it("does not read another repo's issue of the same number as the blocker", async () => {

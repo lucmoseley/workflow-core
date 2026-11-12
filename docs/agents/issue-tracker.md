@@ -53,7 +53,7 @@ Fourteen days governs dated gates alone — a judgement, not a measurement. A da
 **One gate line per issue.** An issue carrying both gates nothing and is reported, matching how `scripts/lib/issue-gate.js` fails open on an unreadable date. Migrating a dated ticket to a condition deletes the date line rather than adding beside it.
 
 <!-- rule:blocked-ticket-gate:begin -->
-**A ticket you find not ready gets its gate written before you end** (#2309): a native blocked-by edge to the issue whose work it waits on, filed unassigned first if missing; else a `**Gated on:**` line with its `**Gate basis:**`, the table's middle row. A comment opening `**Blocked` or `**Refused attempt`, or `waiting:external`, gates nothing, so the next launch takes it again.
+**A ticket you find not ready gets its gate written before you end** (#2309): a native blocked-by edge to the issue whose work it waits on (`node scripts/link-blocker.js <n> <blocker>`), filed unassigned first if missing; else a `**Gated on:**` line with its `**Gate basis:**`, the table's middle row. A comment opening `**Blocked` or `**Refused attempt`, or `waiting:external`, gates nothing, so the next launch takes it again.
 <!-- rule:blocked-ticket-gate:end -->
 
 `scripts/check-issue-labels.js` reports an open issue whose latest comment opens `**Blocked` or `**Refused attempt` and that has no open blocker and no gate line as PROSE-BLOCKED (#2309, ruled at #2212; #3111).
