@@ -1,9 +1,5 @@
 // @vitest-environment node
 /*
- * Pins that `model` and `modelSettings` are judged against the routing file's
- * current mode, never the snapshot, while every other key is judged against
- * the snapshot, and where the snapshot is found when no path is given.
- *
  * check-user-settings-drift.js compares a doc snapshot against a live settings
  * file, exercised against fixtures in a temp directory rather than against this
  * machine's real ~/.claude.
@@ -11,8 +7,7 @@
  * Scope: the routed keys (#5032), against the fixture routing file by
  * WFC_MODEL_ROUTING — and where the snapshot is found with no argument (#447) — and that
  * the browser-profile guard's copy is held to the live hook (#1547), and the
- * user-level CLAUDE.md's to the live file through its own fence (#2174). The
- * ordinary match/drift paths are covered incidentally.
+ * user-level CLAUDE.md's to the live file through its own fence (#2174).
  *
  * It warns from `.husky/pre-commit` on every commit, so a loosened case either
  * fires on every mode switch or lets real drift go unsaid.
@@ -30,7 +25,7 @@ const FIXTURE = path.resolve(__dirname, "fixtures/model-routing/fixture.json");
 /**
  * The fixture routing file's writes for each mode (lib/model-table.test.ts
  * names its rows). Every live file below holds the standard ones unless a case
- * says otherwise, so no other case reads routed drift.
+ * says otherwise.
  */
 const STANDARD = {
 	model: "test-haiku-1[1m]",

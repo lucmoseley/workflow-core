@@ -5,10 +5,6 @@
  * routing file lib/model-table.js loads (#5033). Everything outside the
  * markers is the guide's own prose and is kept byte for byte.
  *
- * Usage:
- *   node scripts/generate-effort-guide-routing.js [--check] [--guide <path>]
- *     [--no-claim]
- *
  * --check     render and compare without writing; exit 1 on drift.
  * --guide     the guide to render into; the session's own docs/effort-guide.md
  *             by default. WFC_MODEL_ROUTING names another routing file.
@@ -116,7 +112,7 @@ function main(argv) {
 	const rendered = renderGuide(text, block);
 	if (rendered === null) {
 		console.error(
-			`${guide} carries no routing:begin / routing:end marker pair, so there is nowhere to render the routing. Nothing was written.`,
+			`${guide} carries no routing:begin / routing:end marker pair. Nothing was written.`,
 		);
 		return 2;
 	}

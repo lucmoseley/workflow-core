@@ -1,8 +1,8 @@
 /*
  * model-table.js — the one table every model choice is translated through:
  * which model and effort a dispatch, a launch or a plan's session runs on.
- * The values are the routing file's, lib/model-routing.json, beside this one;
- * this module holds only the mechanism (#5032).
+ * The values are the routing file's, lib/model-routing.json, beside this one
+ * (#5032).
  *
  * THE ROUTING FILE holds each `Agent`-tool alias's current model id and its
  * other names, and per mode (`standard`, `burn`) a row per alias naming the
@@ -12,16 +12,15 @@
  * `WFC_MODEL_ROUTING` names another file, so a test never reads the real one.
  *
  * ONE SPELLING RULE. A spelling is an alias where it equals the alias, its
- * `id` or one of its `also` names, with or without a `[1m]` suffix. Nothing
- * else is recognised, and an unrecognised spelling passes through unchanged
- * rather than being guessed at. A launch target is its alias's full id with
+ * `id` or one of its `also` names, with or without a `[1m]` suffix. Any other
+ * spelling passes through unchanged. A launch target is its alias's full id with
  * `[1m]`, since an alias has moved under this repo once already (#353); a
  * dispatch target is the bare alias, all the `Agent` tool takes.
  *
  * A dispatch naming no model inherits its session's, so a session launched
  * under burn mode would go on handing its model to subagents after `off`: in
  * standard mode a call inheriting a model the standard rows route away from
- * is pinned to that row (#4992). Burn mode pins nothing.
+ * is pinned to that row (#4992).
  *
  * Effort rides with the dispatch remap on the call's own `effort` field, which
  * replaces an agent definition's `effort:` (forks excepted). A launch's effort
@@ -266,9 +265,8 @@ function launchSpelling(alias) {
 
 /**
  * Whether a spelling is a model only burn mode puts work on: one the standard
- * rows route to another alias, and some burn row or the burn session runs on.
- * That is the model a session, a saved launch or an inheriting dispatch
- * carries past `off` (#4992).
+ * rows route to another alias, and some burn row or the burn session runs on
+ * (#4992).
  * @param {string} spelling
  * @returns {boolean}
  */
@@ -340,7 +338,7 @@ function mapLaunch(model, burn) {
 
 /**
  * The model a plan's session runs on, its settings `model` read through the
- * launch table; "" or none meaning the mode's session model.
+ * mode's rows; "" or none meaning the mode's session model.
  * @param {string | undefined} model
  * @param {boolean} burn
  * @returns {string}

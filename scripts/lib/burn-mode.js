@@ -4,7 +4,7 @@
  * through lib/model-table.js's modeSettings.
  *
  * The state is one marker file per MACHINE, beside the settings files it
- * governs. Its presence is the state; it holds no record.
+ * governs. Its presence is the state.
  */
 
 const fs = require("node:fs");

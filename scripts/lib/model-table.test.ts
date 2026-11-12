@@ -6,11 +6,8 @@
  * ones, passed by WFC_MODEL_ROUTING, so a value edit to the real file breaks
  * nothing here; the real file is held to its shape alone, at the end.
  *
- * In the fixture, standard mode sends `sonnet` to `opus` at the call's
- * effort, keeps `opus` at high and `fable` at max; burn mode sends `haiku` to
- * `fable` at high, keeps `sonnet` at max, and sends `opus` to `sonnet` and
- * `fable` to `haiku` at the call's effort. Its routed-away model is therefore
- * `sonnet`: standard mode moves it, and burn mode runs on it.
+ * The fixture's routed-away model is `sonnet`: standard mode moves it, and
+ * burn mode runs on it.
  *
  * The hook's shell half is tested in ../guard-dispatch-rewrite.test.ts,
  * the launcher's in ../dispatch-sessions-launch.test.ts, the toggle's in

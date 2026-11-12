@@ -164,9 +164,7 @@ function diff(a, b, at = "", out = { side: "doc", lines: [] }) {
 	return out.lines;
 }
 
-// The keys the routing file owns: burn mode writes them into every plan on each
-// switch, so they are judged against its current mode, and the snapshot leaves
-// them out.
+// The keys the routing file owns (see the header).
 const ROUTED_KEYS = ["model", "modelSettings"];
 
 /**

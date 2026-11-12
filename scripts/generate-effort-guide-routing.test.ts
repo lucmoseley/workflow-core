@@ -1,10 +1,7 @@
 // @vitest-environment node
 /*
- * Pins the effort guide's routing generator (#5033): a fresh render passes
- * `--check`, an edited block fails it, a write restores it leaving the prose
- * around the markers alone, and a guide with no markers or a routing file that
- * will not load exits 2. The routing is the fixture's (lib/model-table.test.ts
- * names its rows), so a value edit to the real file breaks nothing here; the
+ * Pins the effort guide's routing generator (#5033). The routing is the
+ * fixture's (lib/model-table.test.ts names its rows), so a value edit to the real file breaks nothing here; the
  * last case checks the real guide against the real file.
  */
 
