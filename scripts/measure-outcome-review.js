@@ -91,7 +91,8 @@
  *
  * THE CONFIRM LIST is both lists ranked, misses first, each oldest close
  * first, cut to CONFIRM_CAP: what the step's budget confirms. The rest is
- * over the cap, listed by issue only and never carried to a later run.
+ * over the cap, listed by issue only and never carried to a later run: a
+ * carried list would grow faster than runs drain it (#5031).
  *
  * LOST LINES: a closed ticket carrying lib/signature-label.js's label, closed
  * at any date, owes a line; one with none in either record is listed every run
@@ -176,9 +177,11 @@ const KEEP_P = 0.05;
 const UNWIND_CAP = 5;
 /** The miss backstop's look-back. */
 const MISS_DAYS = 7;
-/** Tickets the retro confirms a run: half TOKEN_BUDGET, the rest left to the
- * step's other work, over a measured ~1.7k to read a ticket and its closing
- * commit plus a late signature for about one in three (#5031). */
+/** Tickets the retro confirms a run (#5031): 15k, half TOKEN_BUDGET, over
+ * ~2.2k a ticket gives 6. The ~2.2k is a measured ~1.7k to read a ticket and
+ * its closing commit (1720, 1477, 1959 tokens on #4856, #4894, #4978) plus
+ * ~0.5k for a late signature on about one in three. The half left to the
+ * step's other work is a guess; the run line's `overCap` and `tokens` test it. */
 const CONFIRM_CAP = 6;
 /** Words that make a closed ticket's title or closing subject fault-shaped. */
 const FAULT_SHAPE =
@@ -1176,7 +1179,7 @@ function closedThisWeek(i, nowMs) {
  *   since: number | undefined}} at  `since` the tracker's rollout, unset
  *   where it has no line yet
  */
-function unsigned(i, { signed, tracker, nowMs, since }) {
+function isUnsigned(i, { signed, tracker, nowMs, since }) {
 	return (
 		since !== undefined &&
 		!(Date.parse(i.createdAt ?? "") < since) &&
@@ -1188,12 +1191,14 @@ function unsigned(i, { signed, tracker, nowMs, since }) {
 
 /**
  * The week's unsigned closed tickets that could be misses: no `origin:*`
- * label, so filed past file-issue.js.
+ * label.
  * @param {IssueRow[]} closed
- * @param {Parameters<typeof unsigned>[1]} at
+ * @param {Parameters<typeof isUnsigned>[1]} at
  */
 function missCandidates(closed, at) {
-	return closed.filter((i) => unsigned(i, at) && !originOfLabels(labelsOf(i)));
+	return closed.filter(
+		(i) => isUnsigned(i, at) && !originOfLabels(labelsOf(i)),
+	);
 }
 
 /**
@@ -1222,7 +1227,7 @@ function missesOf(candidates, { commits, tracker }) {
  * The week's unsigned closed `bug` tickets declared `--no-fault` by a session:
  * an `origin:*` label outside SCRIPT_ORIGINS.
  * @param {IssueRow[]} closed
- * @param {Parameters<typeof unsigned>[1]} at
+ * @param {Parameters<typeof isUnsigned>[1]} at
  */
 function noFaultBugsOf(closed, at) {
 	return closed.flatMap((i) => {
@@ -1230,7 +1235,7 @@ function noFaultBugsOf(closed, at) {
 		return origin &&
 			!isScriptOrigin(origin) &&
 			labelsOf(i).includes("bug") &&
-			unsigned(i, at)
+			isUnsigned(i, at)
 			? [{ issue: `${at.tracker}#${i.number}`, title: i.title, origin }]
 			: [];
 	});
@@ -1500,7 +1505,8 @@ function readRows(root, rel, failures) {
  * @param {Array<{repo: Repo, closed: IssueRow[] | string,
  *   candidates: IssueRow[] | string, owing: IssueRow[] | string}>} reads
  * @param {{signed: Set<string>, rollout: Map<string, number>, nowMs: number,
- *   notes: string[]}} at
+ *   notes: string[]}} at  accumulator: `notes` takes each tracker with no line
+ *   yet
  */
 function backstopsOf(reads, { signed, rollout, nowMs, notes }) {
 	/** @type {ReturnType<typeof missesOf>} */

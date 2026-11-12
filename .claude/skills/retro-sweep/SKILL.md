@@ -234,7 +234,8 @@ not take stays `waiting`. The close's `**Bound:**` line names each repo in
    prediction. `.unwinds.carried` goes to `outcomeStep.backlog` unfiled.
 3. **Confirm each miss** in `.misses` and each `.noFaultBug` ticket against its
    body and closing commit: the script's cap already fits them to the budget,
-   so leave `.overCap` unread. For each confirmed miss, write its signature as
+   so leave `.overCap` unread, and copy `.outcomeStep.listed` and
+   `.outcomeStep.overCap` into the record's `outcomeStep` (§7). For each confirmed miss, write its signature as
    in §6, its `case` the record that triggered it, and log it late, checked
    against that case as a filing is:
 

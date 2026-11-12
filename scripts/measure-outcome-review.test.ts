@@ -657,14 +657,20 @@ describe("measure-outcome-review.js", () => {
 	});
 
 	describe("the miss backstop and its confirm list (#5031)", () => {
-		/** A ticket created on day 50, past the rollout, and closed on `day`. */
+		/** A ticket closed on `day`, created on `createdOn`: by default day 50,
+		 * past the rollout. */
 		const closer =
 			(f: Fixture) =>
-			(n: number, title: string, day: number, labels: string[] = []) =>
+			(
+				n: number,
+				title: string,
+				day: number,
+				{ labels = [] as string[], createdOn = 50 } = {},
+			) =>
 				f.issues.push({
 					number: n,
 					title,
-					createdAt: d(50),
+					createdAt: d(createdOn),
 					closedAt: d(day),
 					labels,
 				});
@@ -674,21 +680,36 @@ describe("measure-outcome-review.js", () => {
 			const f = scratch();
 			f.commit("Initial", 1);
 			const closed = closer(f);
-			closed(20, "Lander loses a ref", 56, ["bug"]);
+			closed(20, "Lander loses a ref", 56, { labels: ["bug"] });
 			closed(21, "Add a lander dashboard", 57);
 			closed(22, "Add a panel", 57);
-			closed(23, "No commit for this", 57, ["bug"]);
-			closed(24, "Signed already", 57, ["bug"]);
-			closed(25, "Closed too long ago", 49, ["bug"]);
-			closed(26, "Fix the dropped queue ref", 57, ["origin:lander-script"]);
-			closed(27, "Lander drops a ref", 57, ["bug", "origin:triage"]);
-			closed(28, "Fix the bump's stale pin", 57, ["origin:release-bump"]);
-			closed(30, "Fix the spec's stale field", 57, ["origin:to-spec"]);
-			closed(31, "Lander crashes on a ref", 57, ["bug"]);
-			closed(32, "Lander hangs", 57, ["bug", "origin:triage"]);
-			for (const i of f.issues.slice(-2)) i.createdAt = d(10);
+			closed(23, "No commit for this", 57, { labels: ["bug"] });
+			closed(24, "Signed already", 57, { labels: ["bug"] });
+			closed(25, "Closed too long ago", 49, { labels: ["bug"] });
+			closed(26, "Fix the dropped queue ref", 57, {
+				labels: ["origin:lander-script"],
+			});
+			closed(27, "Lander drops a ref", 57, {
+				labels: ["bug", "origin:triage"],
+			});
+			closed(28, "Fix the bump's stale pin", 57, {
+				labels: ["origin:release-bump"],
+			});
+			closed(30, "Fix the spec's stale field", 57, {
+				labels: ["origin:to-spec"],
+			});
+			closed(31, "Lander crashes on a ref", 57, {
+				labels: ["bug"],
+				createdOn: 10,
+			});
+			closed(32, "Lander hangs", 57, {
+				labels: ["bug", "origin:triage"],
+				createdOn: 10,
+			});
 			closed(33, "Lander stalls", 57);
-			closed(34, "Queue ref stuck", 57, ["bug", "origin:lander-script"]);
+			closed(34, "Queue ref stuck", 57, {
+				labels: ["bug", "origin:lander-script"],
+			});
 			f.commit("Read refs once (#20)", 55);
 			f.commit("Stop the dashboard stalling (#21)", 56);
 			f.commit("Add the panel (#22)", 56);
@@ -703,11 +724,13 @@ describe("measure-outcome-review.js", () => {
 			f.commit("Free the ref (#34)", 56);
 			/* Day 35: the tracker's rollout. */
 			f.signatureLine(24, { signature: null, why: "no trace" });
-			closed(40, "no-fault bug", 57, ["bug", "origin:triage"]);
-			closed(41, "signed bug", 57, ["bug", "origin:audit"]);
-			closed(42, "hand-filed bug", 57, ["bug"]);
-			closed(43, "no-fault bug closed long ago", 40, ["bug", "origin:triage"]);
-			closed(44, "no-fault non-bug", 57, ["origin:triage"]);
+			closed(40, "no-fault bug", 57, { labels: ["bug", "origin:triage"] });
+			closed(41, "signed bug", 57, { labels: ["bug", "origin:audit"] });
+			closed(42, "hand-filed bug", 57, { labels: ["bug"] });
+			closed(43, "no-fault bug closed long ago", 40, {
+				labels: ["bug", "origin:triage"],
+			});
+			closed(44, "no-fault non-bug", 57, { labels: ["origin:triage"] });
 			f.issues.push({
 				number: 45,
 				title: "open no-fault bug",
@@ -752,7 +775,7 @@ describe("measure-outcome-review.js", () => {
 				[11, 54],
 				[12, 56],
 			]) {
-				closed(n, "Lander loses a ref", day, ["bug"]);
+				closed(n, "Lander loses a ref", day, { labels: ["bug"] });
 				f.commit(`Keep the ref (#${n})`, day - 1);
 			}
 			for (const [n, day] of [
@@ -762,7 +785,7 @@ describe("measure-outcome-review.js", () => {
 				[16, 54],
 				[17, 56],
 			])
-				closed(n, "no-fault bug", day, ["bug", "origin:triage"]);
+				closed(n, "no-fault bug", day, { labels: ["bug", "origin:triage"] });
 			const { out } = f.run();
 			expect(issues(out.misses)).toEqual([
 				`${TRACKER}#11`,
@@ -782,11 +805,34 @@ describe("measure-outcome-review.js", () => {
 			});
 		});
 
+		it("fills the cap with misses alone where there are more than 6, ranking them first over it", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.signatureLine(90, { signature: null, why: "no trace" });
+			const closed = closer(f);
+			for (let n = 10; n < 17; n++) {
+				closed(n, "Lander loses a ref", 53 + (n - 10), { labels: ["bug"] });
+				f.commit(`Keep the ref (#${n})`, 52);
+			}
+			closed(20, "no-fault bug", 53, { labels: ["bug", "origin:triage"] });
+			const { out } = f.run();
+			expect(issues(out.misses)).toEqual(
+				[10, 11, 12, 13, 14, 15].map((n) => `${TRACKER}#${n}`),
+			);
+			expect(out.noFaultBug).toEqual([]);
+			expect(out.overCap).toEqual([`${TRACKER}#16`, `${TRACKER}#20`]);
+			expect(out.outcomeStep).toMatchObject({
+				misses: 6,
+				listed: 8,
+				overCap: 2,
+			});
+		});
+
 		it("lists neither for a tracker with no signature line yet, and notes it", () => {
 			const f = scratch();
 			f.commit("Initial", 1);
-			closer(f)(20, "Lander loses a ref", 56, ["bug"]);
-			closer(f)(21, "no-fault bug", 57, ["bug", "origin:triage"]);
+			closer(f)(20, "Lander loses a ref", 56, { labels: ["bug"] });
+			closer(f)(21, "no-fault bug", 57, { labels: ["bug", "origin:triage"] });
 			f.commit("Keep the ref (#20)", 55);
 			const { out } = f.run();
 			expect(out.misses).toEqual([]);
@@ -1111,7 +1157,11 @@ describe("measure-outcome-review.js", () => {
 			expect(outcomeOf(out, 5)?.why).toMatch(/^o\/m main unread: .*HTTP 404/);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.noFaultBugUnread).toEqual([ADOPTER_TRACKER]);
-			expect(out.outcomeStep.misses).toBeNull();
+			expect(out.outcomeStep).toMatchObject({
+				misses: null,
+				listed: null,
+				overCap: null,
+			});
 		});
 
 		it("reads each main from the earliest createdAt of a closed finding or a miss candidate (#4872)", () => {
