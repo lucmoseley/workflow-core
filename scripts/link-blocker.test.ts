@@ -27,11 +27,7 @@ import {
 	it,
 } from "vitest";
 import { readText } from "./lib/file-read.js";
-import {
-	asRecorded,
-	LINK_READ_FAKE,
-	WAIT_GRAPH_GRAPHQL_FAKE,
-} from "./lib/gh-fake";
+import { asRecorded, LINK_READ_FAKE, LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
 import { runInProcessAsync } from "./lib/run-in-process";
 
@@ -56,7 +52,7 @@ interface Gh {
 let dir: string;
 
 const HANDLER = `${LINK_READ_FAKE}
-${WAIT_GRAPH_GRAPHQL_FAKE}
+${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const at = (name) => path.join(env.GH_STUB_DIR, name);
@@ -69,7 +65,7 @@ if (joined.includes("--method POST"))
 if (argv[1] === "graphql")
 	serve(g.graphFails
 		? { status: 1, stdout: "", stderr: "gh: Something went wrong (HTTP 502)\\n" }
-		: answerWaitGraph(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
+		: answerLinks(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
 if (joined.includes("/dependencies/blocked_by --paginate --slurp")) serve({ status: 0, stdout: g.listed, stderr: "" });
 const id = /^repos\\/([^/]+\\/[^/]+)\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
 if (id && argv.includes(".id")) serve(buildJqLines(9000 + Number(id[2])));

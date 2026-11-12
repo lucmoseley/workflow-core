@@ -56,7 +56,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const IDLE_DAYS = 2;
 const IDLE_MS = IDLE_DAYS * DAY_MS;
 const HUMAN_LABEL = takesLabel("human");
-/* Blockers read inline per issue, lib/blocked-by-batch.js's INNER: 50 issues
+/* Blockers read inline per issue, lib/link-batch.js's BLOCKERS: 50 issues
  * of 100 labels, 25 blockers and 100 sub-issues stays far under GitHub's
  * 500,000-node cap. A
  * parent holds at most 100 sub-issues, closed ones counted. */
