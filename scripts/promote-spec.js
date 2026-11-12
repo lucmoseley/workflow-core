@@ -225,7 +225,7 @@ function readPriorSpecOrFail(at, mapKids) {
 
 /**
  * What a move the writer did not make means, and what to do.
- * @param {import("./lib/link-writer.js").SyncOutcome} r
+ * @param {import("./lib/link-writer.js").Outcome} r
  * @param {number} spec
  * @param {number} mapNumber
  * @param {number} n
@@ -233,15 +233,19 @@ function readPriorSpecOrFail(at, mapKids) {
  */
 function moveRefusal(r, spec, mapNumber, n) {
 	const line = r.err;
-	if (r.code === 3)
-		return `moving #${spec} under #${mapNumber} was refused:\n${r.err}\n#${n} left open.`;
-	if (/still does not list/.test(line))
-		return `gh moved #${spec} without error, but #${mapNumber} does not list it. #${n} left open — re-run.`;
-	if (/100 sub-issues/.test(line))
-		return `moving #${spec} under #${mapNumber} was refused (${line}) — #${mapNumber} is at GitHub's 100-child cap: node ${scriptPath("archive-closed-children.js")} ${mapNumber}, then re-run. #${n} left open.`;
-	if (/422/.test(line))
-		return `moving #${spec} under #${mapNumber} was refused (${line}). If #${mapNumber} is at GitHub's 100-child cap, node ${scriptPath("archive-closed-children.js")} ${mapNumber}, then re-run. #${n} left open.`;
-	return `moving #${spec} under #${mapNumber} failed (${line}). #${n} left open — re-run.`;
+	switch (r.reason) {
+		case "loop":
+		case "self":
+			return `moving #${spec} under #${mapNumber} was refused:\n${line}\n#${n} left open.`;
+		case "unlisted":
+			return `gh moved #${spec} without error, but #${mapNumber} does not list it. #${n} left open — re-run.`;
+		case "cap":
+			return `moving #${spec} under #${mapNumber} was refused (${line}) — #${mapNumber} is at GitHub's 100-child cap: node ${scriptPath("archive-closed-children.js")} ${mapNumber}, then re-run. #${n} left open.`;
+		case "rejected":
+			return `moving #${spec} under #${mapNumber} was refused (${line}). If #${mapNumber} is at GitHub's 100-child cap, node ${scriptPath("archive-closed-children.js")} ${mapNumber}, then re-run. #${n} left open.`;
+		default:
+			return `moving #${spec} under #${mapNumber} failed (${line}). #${n} left open — re-run.`;
+	}
 }
 
 /**

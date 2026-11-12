@@ -112,11 +112,8 @@ const {
 	readWorktreeFiling,
 	stateTag,
 } = require("./lib/orphan-filings.js");
-const {
-	capMs,
-	isListedLive,
-	sweepSessionIds,
-} = require("./lib/agent-liveness");
+const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
+const { capMs } = require("./lib/cap-ms.js");
 const core = require("./lib/arbiter-core");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
