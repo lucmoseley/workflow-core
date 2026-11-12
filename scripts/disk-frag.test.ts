@@ -98,7 +98,7 @@ describe("a live mount", () => {
 		.some((l) => l.split(" ")[4] === "/" && / - ext4 /.test(l));
 	it.skipIf(!ext4Root)("reads the machine's own table", () => {
 		const r = runInProcess(SCRIPT, ["--json"], { cwd: dir });
-		expect(r.status).toBe(0);
+		expect(r.status, r.stderr).toBe(0);
 		expect(JSON.parse(r.stdout).groups).toBeGreaterThan(0);
 	});
 });
