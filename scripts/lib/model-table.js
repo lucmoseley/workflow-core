@@ -305,7 +305,7 @@ function isRoutedAway(spelling) {
 	const alias = aliasOf(spelling);
 	if (!alias) return false;
 	if (rowOf(false, alias).to === alias) return false;
-	const { burn } = loadRouting().modes;
+	const burn = modeOf(true);
 	return (
 		burn.session === alias ||
 		Object.values(burn.route).some((row) => row.to === alias)
@@ -648,12 +648,7 @@ function runCli(argv) {
 	const burn = values.burn === true;
 	const spec = Object.hasOwn(CLI, mode) ? CLI[mode] : undefined;
 	if (!spec || args.length !== spec.arity || (burn && !spec.burn)) return 2;
-	try {
-		loadRouting();
-	} catch (e) {
-		writeFd(2, `model-table: ${caught(e).message}\n`);
-		return 2;
-	}
+	loadRouting();
 	return spec.run(args, burn, (line) => writeFd(1, `${line}\n`));
 }
 
