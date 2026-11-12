@@ -32,11 +32,11 @@
  * @property {boolean} [opensScope] the first move inside a subshell: a chain
  *   opened before its `(` waits on that move alone, so no chain end inside
  *   settles it (#5102)
- * @property {number} [depth] how many `{ … }` groups it runs inside, 0 where
- *   none (#5095)
+ * @property {number} [depth] how many compound commands it runs inside, 0 where
+ *   none (#5095, #5109)
  * @property {number} [settles] a `&&` chain ends after it, before the next
- *   move, this many groups deep, 0 outside every group: dirsAfter settles
- *   there each move as deep or deeper (#5082, #5095)
+ *   move, this many compound commands deep, 0 outside every one: dirsAfter
+ *   settles there each move as deep or deeper (#5082, #5095, #5109)
  */
 
 /**
@@ -111,10 +111,10 @@ function stepDirs(state, move, isDir) {
 }
 
 /**
- * A `&&` chain's end `depth` groups deep: from here on, a move as deep or
- * deeper that opened a chain may not have been made, the deepest settled
- * first, as one chain end per group would settle them. A chain a shallower
- * move opened runs on past the group's `}` (#5095).
+ * A `&&` chain's end `depth` compound commands deep: from here on, a move as
+ * deep or deeper that opened a chain may not have been made, the deepest
+ * settled first, as one chain end per compound command would settle them. A
+ * chain a shallower move opened runs on past its closer (#5095, #5109).
  * @param {DirsState} state
  * @param {number} [depth]
  * @returns {DirsState}
