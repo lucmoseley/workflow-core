@@ -27,8 +27,7 @@
  *   `$VAR`s expanded from the command's own earlier assignments, then the
  *   environment (`T=$CLAUDE_JOB_DIR/tmp; cat > $T/x`), and a relative result
  *   joined to each directory the command may stand in after its earlier
- *   `cd`s (`cd <job dir>/tmp && python3 - > x.py`), so a later `cd` that may
- *   fail hides nothing (#5105).
+ *   `cd`s (`cd <job dir>/tmp && python3 - > x.py`, #5105).
  *
  *   A target is under the job directory on lib/job-dir.js's three limbs: its
  *   text names `CLAUDE_JOB_DIR` at all, or it sits under `$CLAUDE_JOB_DIR` as
@@ -198,14 +197,18 @@ function decide(subject, ctx) {
 
 /**
  * Every write target of each run, resolved from each directory the run may
- * stand in, since a `cd` that may have failed can leave it in any (#5105).
+ * stand in (#5105). An unknown directory is read only where it is the first: a relative target
+ * there is judged against the session's own directory, which a later one
+ * cannot stand in.
  * @param {import("./shell-parse.js").Command} cmd
  */
 function* writesFromEveryDir(cmd) {
-	for (const run of cmd.runs())
-		for (const cwd of run.dirs())
+	for (const run of cmd.runs()) {
+		const [first, ...rest] = run.dirs();
+		for (const cwd of [first, ...rest.filter(Boolean)])
 			for (const t of cmd.writeTargets(run.words, cwd))
 				if (t.mode === "write") yield t;
+	}
 }
 
 /**

@@ -326,14 +326,34 @@ describe("a redirect target resolved as the shell lands it", () => {
 	});
 
 	// #5105
-	it("refuses a relative target where a later cd may not have moved off the job directory", () => {
+	it.each([
+		"cd $CLAUDE_JOB_DIR && cd /nonexistent; tee tmp/x.out",
+		"cd $CLAUDE_JOB_DIR && cd /nonexistent; echo hi > tmp/x.out",
+	])(
+		"refuses %s, where the later cd may not have moved off the job directory, naming where the write lands",
+		(command) => {
+			expect(refused(bash(command, { jobDir: JOB_DIR }))).toContain(
+				`lands at ${JOB_DIR}/tmp/x.out`,
+			);
+		},
+	);
+
+	it("warns on a subfolder target where the later cd may not have moved off the job directory", () => {
 		expect(
-			refused(
-				bash("cd $CLAUDE_JOB_DIR && cd /nonexistent; tee tmp/x.out", {
+			warned(
+				bash("cd $CLAUDE_JOB_DIR && cd /nonexistent; tee tmp/fx/x.out", {
 					jobDir: JOB_DIR,
 				}),
 			),
-		).toContain(`lands at ${JOB_DIR}/tmp/x.out`);
+		).toContain(`lands at ${JOB_DIR}/tmp/fx/x.out`);
+	});
+
+	it("is silent where the write runs only once the later cd has moved", () => {
+		expect(
+			bash("cd $CLAUDE_JOB_DIR && cd /nonexistent && tee tmp/x.out", {
+				jobDir: JOB_DIR,
+			}),
+		).toBeNull();
 	});
 
 	it("refuses after a cd through the variable, against the live variable, naming where the write lands", () => {
