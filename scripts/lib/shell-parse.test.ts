@@ -769,6 +769,8 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && f() ( a ); gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && echo $()\n(a) & gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && a=()\n(a) & gh y")).toEqual(["/usr"]);
+		for (const mark of ["<", ">", "@", "!", "+", "?", "*"])
+			expect(last(`cd /usr && b ${mark}()\n(a) & gh y`)).toEqual(["/usr"]);
 	});
 
 	it("reads an escaped operator as a word, not a bracket or a split (#5113)", () => {
