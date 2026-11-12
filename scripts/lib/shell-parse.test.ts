@@ -1831,6 +1831,9 @@ describe('walkGit, scope "shared"', () => {
 		expect(parseCommand("a &&\n b").joins).toEqual(["", "a", "a"]);
 		const { segments, joins } = parseCommand("(a) && (b)");
 		expect(joins).toHaveLength(segments.length);
+	});
+
+	it('codes the rest of a line a `)` closed as ")" (#5093)', () => {
 		expect(parseCommand("(a) >o && b").joins.slice(-2)).toEqual([")", "a"]);
 		expect(parseCommand("(a)\nb").joins.slice(-2)).toEqual([")", ""]);
 	});

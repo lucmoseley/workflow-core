@@ -158,13 +158,13 @@ function parseJoins(masked) {
 		.split("\n")
 		.map((line) => {
 			const code = line.startsWith(OP_MARK) ? line.charAt(1) : "";
-			const rest = closed && !code;
+			const afterClose = closed && !code;
 			closed = line === `${SCOPE_MARK})`;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
-				return rest ? ")" : code;
+				return afterClose ? ")" : code;
 			}
-			const joined = code || carry || (rest ? ")" : "");
+			const joined = code || carry || (afterClose ? ")" : "");
 			carry = "";
 			return joined;
 		});
@@ -176,7 +176,7 @@ function parseJoins(masked) {
  * @param {string[]} joins
  * @param {number} segIdx
  */
-const endsChain = (joins, segIdx) =>
+const isChainEnd = (joins, segIdx) =>
 	!["a", "(", ")"].includes(joins[segIdx] ?? "");
 
 /**
@@ -1246,7 +1246,8 @@ function arithScope(walk, segment) {
 /** A subshell's `(`: stack the state its `)` restores. A `&&` chain ending
  * inside leaves the one outside open (#5093), so no move before the `(` waits
  * in its `pending`.
- * @param {Walk} walk */
+ * @param {Walk} walk accumulator: its stack, directories and redirect mode
+ *   are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
@@ -1498,6 +1499,7 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === `${SCOPE_MARK}(`) {
 			stack.push(state);
+			/* As openScope's: the chain outside stays open (#5093). */
 			state = { ...state, pending: [] };
 			return;
 		}
@@ -1513,7 +1515,7 @@ function parseScript(script, spans) {
 				};
 			return;
 		}
-		state = settleScriptChain(state, parsed.joins, segIdx);
+		if (isChainEnd(parsed.joins, segIdx)) state = settleScriptChain(state);
 		const cw = commandWords(segment);
 		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
 		if (cw.ran)
@@ -1535,12 +1537,10 @@ function parseScript(script, spans) {
  * A `&&` chain's end, as settleCwdDoubt reads one: each `cd` it was sure of
  * now holds as it would alone.
  * @param {ScriptState} state
- * @param {string[]} joins
- * @param {number} segIdx
  * @returns {ScriptState}
  */
-function settleScriptChain(state, joins, segIdx) {
-	if (!endsChain(joins, segIdx) || state.pending.length === 0) return state;
+function settleScriptChain(state) {
+	if (state.pending.length === 0) return state;
 	const chdirs = [...state.chdirs];
 	for (const { at, holds } of state.pending) {
 		const cd = chdirs[at];
@@ -2260,7 +2260,7 @@ function classifyCd(parsed, segIdx, own, cdAt) {
  * @param {number} segIdx
  */
 function settleCwdDoubt(walk, segIdx) {
-	if (endsChain(walk.parsed.joins, segIdx)) walk.dirs = settleDirs(walk.dirs);
+	if (isChainEnd(walk.parsed.joins, segIdx)) walk.dirs = settleDirs(walk.dirs);
 }
 
 /**
