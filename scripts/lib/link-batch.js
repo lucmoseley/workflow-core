@@ -1,8 +1,7 @@
 /*
- * link-batch.js — many issues' native links in a few GraphQL calls, not one
- * REST call per issue per link kind (#2685, #5097). One query shape reads each
- * issue's state, its blockers and its sub-issues; lib/blocked-by-batch.js and
- * lib/wait-graph.js both read through it.
+ * link-batch.js — many issues' native links in a few GraphQL calls (#2685,
+ * #5097). One query shape reads each issue's state, its blockers and its
+ * sub-issues.
  *
  * It reads the canonical `blockedBy` and `subIssues` connections, never
  * `issue_dependencies_summary` (mantahostels#105's staleness trap).
@@ -26,15 +25,16 @@ const { parseRepoOfUrl } = require("./issue-ref.js");
 
 /*
  * Node budget, per GitHub's count of each connection's `first:` times its
- * parent's: per issue, BLOCKERS x (1 + LABELS) + CHILDREN = 2,625; at BATCH
- * 100 that is 262,500, about half the 500,000 cap, leaving room for a field
- * added later. BLOCKERS at 50 would put it at 515,000, refused.
+ * parent's: BATCH x (BLOCKERS x (1 + LABELS) + CHILDREN), under GitHub's
+ * 500,000 cap. BLOCKERS at 50 would put it at 515,000, refused.
  */
 const BATCH = 100;
-/* Blockers read inline per issue, each with its title, body and labels. */
+/* Blockers read inline per issue, each with its title, body and labels.
+ * Residual (#5097): one query serves both callers, so lib/wait-graph.js
+ * reads fields it drops, and a node with over 25 blockers takes the REST
+ * read. */
 const BLOCKERS = 25;
-/* Sub-issues read inline per issue, GitHub's page maximum; their number,
- * state and repo only, which no caller needs more of. */
+/* Sub-issues read inline per issue, GitHub's page maximum. */
 const CHILDREN = 100;
 /* An issue carries at most 100 labels, so this connection never truncates. */
 const LABELS = 100;
@@ -56,7 +56,7 @@ const LABELS = 100;
  */
 /**
  * GitHub's JSON as parsed, its shape the query's or the endpoint's and never
- * checked field by field: every reader below defaults a missing one.
+ * checked field by field: every reader below defaults each optional one.
  * @typedef {any} GhJson
  */
 
@@ -205,11 +205,12 @@ async function readRestLinks(repo, n, connection, { strict = false } = {}) {
  * One issue's alias completed: each wanted connection GraphQL left out read
  * through REST.
  * @param {string} repo
- * @param {{n: number, alias: GhJson, self: string}} answered
+ * @param {{item: {number: number}, alias: GhJson, self: string}} answered
  * @param {{want: Connection[], strict: boolean}} opts
  * @returns {Promise<LinksRead>}
  */
-async function completeRead(repo, { n, alias, self }, { want, strict }) {
+async function completeRead(repo, { item, alias, self }, { want, strict }) {
+	const n = item.number;
 	/** @type {Partial<Record<Connection, LinkRow[]>>} */
 	const links = {};
 	for (const connection of want) {
@@ -229,38 +230,38 @@ async function completeRead(repo, { n, alias, self }, { want, strict }) {
 }
 
 /**
- * Each of `numbers`' links of the kinds `want` names, by number.
+ * Each of `items`' links of the kinds `want` names, paired with it in input
+ * order.
+ * @template {{number: number}} T
  * @param {string} repo `owner/name` or `{owner}/{repo}`
- * @param {number[]} numbers issues in `repo`
- * @param {{want: Connection[], strict?: boolean}} opts `strict` refuses a
- *   REST fallback that answers empty (lib/gh.js)
- * @returns {Promise<Map<number, LinksRead>>}
+ * @param {T[]} items issues in `repo`
+ * @param {{want: Connection[], strict?: boolean}} opts
+ * @returns {Promise<{item: T, read: LinksRead}[]>}
  */
-async function readLinksMany(repo, numbers, { want, strict = false }) {
-	/** @type {Map<number, LinksRead>} */
-	const reads = new Map();
-	/** @type {{n: number, alias: GhJson, self: string}[]} */
-	const answered = [];
-	for (let at = 0; at < numbers.length; at += BATCH) {
-		const batch = numbers.slice(at, at + BATCH);
-		const r = await readRepositoryBatch(repo, batch);
-		for (const n of batch) {
-			if (r.ok)
-				answered.push({ n, alias: r.out[`i${n}`], self: r.out.nameWithOwner });
-			else reads.set(n, r);
-		}
+async function readLinksMany(repo, items, { want, strict = false }) {
+	/** @type {({item: T, read: LinksRead} | {item: T, alias: GhJson, self: string})[]} */
+	const batched = [];
+	for (let at = 0; at < items.length; at += BATCH) {
+		const batch = items.slice(at, at + BATCH);
+		const r = await readRepositoryBatch(
+			repo,
+			batch.map((i) => i.number),
+		);
+		for (const item of batch)
+			batched.push(
+				r.ok
+					? { item, alias: r.out[`i${item.number}`], self: r.out.nameWithOwner }
+					: { item, read: r },
+			);
 	}
-	const completed = await mapLimit(
-		answered,
-		ISSUE_READ_CONCURRENCY,
-		async (a) =>
-			/** @type {[number, LinksRead]} */ ([
-				a.n,
-				await completeRead(repo, a, { want, strict }),
-			]),
+	return mapLimit(batched, ISSUE_READ_CONCURRENCY, async (b) =>
+		"read" in b
+			? b
+			: {
+					item: b.item,
+					read: await completeRead(repo, b, { want, strict }),
+				},
 	);
-	for (const [n, read] of completed) reads.set(n, read);
-	return reads;
 }
 
 module.exports = { readLinksMany, readRestLinks, restRow };

@@ -61,26 +61,22 @@ const openEdges = (rows, kind, self) =>
  * @returns {Promise<[string, NodeRead][]>}
  */
 async function readRepoNodes(repo, refs) {
-	const reads = await readLinksMany(
-		repo,
-		refs.map((r) => r.number),
-		{ want: ["blockedBy", "subIssues"] },
-	);
-	return refs.map((ref) => {
-		const r = must(reads.get(ref.number));
-		if (!r.ok) return [refKey(ref), r];
-		return [
-			refKey(ref),
-			{
-				ok: true,
-				state: r.state,
-				edges: [
-					...openEdges(r.links.blockedBy ?? [], "blocker", r.self),
-					...openEdges(r.links.subIssues ?? [], "child", r.self),
-				],
-			},
-		];
+	const reads = await readLinksMany(repo, refs, {
+		want: ["blockedBy", "subIssues"],
 	});
+	return reads.map(({ item, read }) => [
+		refKey(item),
+		read.ok
+			? {
+					ok: true,
+					state: read.state,
+					edges: [
+						...openEdges(read.links.blockedBy ?? [], "blocker", read.self),
+						...openEdges(read.links.subIssues ?? [], "child", read.self),
+					],
+				}
+			: read,
+	]);
 }
 
 /**

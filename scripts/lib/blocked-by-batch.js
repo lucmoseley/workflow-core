@@ -61,27 +61,21 @@ async function readBlockedByOne(repo, n, { home }) {
  * @returns {Promise<{issue: T, read: EdgesRead}[]>}
  */
 async function blockedByMany(issues, { repo, home, strict = false }) {
-	const reads = await readLinksMany(
-		repo,
-		issues.map((i) => i.number),
-		{ want: ["blockedBy"], strict },
-	);
-	return issues.map((issue) => {
-		const r = /** @type {import("./link-batch").LinksRead} */ (
-			reads.get(issue.number)
-		);
-		return {
-			issue,
-			read: r.ok
-				? {
-						ok: true,
-						edges: (r.links.blockedBy ?? []).map((row) =>
-							rowEdge(row, home, r.self),
-						),
-					}
-				: r,
-		};
+	const reads = await readLinksMany(repo, issues, {
+		want: ["blockedBy"],
+		strict,
 	});
+	return reads.map(({ item, read }) => ({
+		issue: item,
+		read: read.ok
+			? {
+					ok: true,
+					edges: (read.links.blockedBy ?? []).map((row) =>
+						rowEdge(row, home, read.self),
+					),
+				}
+			: read,
+	}));
 }
 
 module.exports = { blockedByMany, readBlockedByOne, edgeOf };
