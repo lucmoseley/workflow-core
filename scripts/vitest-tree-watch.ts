@@ -58,17 +58,14 @@ let startMark: bigint | null = null;
  * which records no row. */
 let auditDir: string | null = null;
 
-/* The run this teardown handed the pass store, which lib/row-measure.js's
- * `keepRun` keeps beside the logs under its switch (#5029). */
-let recordedRun: Record<string, unknown> | null = null;
-
 function armAudit() {
 	auditDir = isLanderRun() ? null : readAudit.install(treeRoot);
-	recordedRun = null;
 }
 
-function disarmAudit() {
-	keepRun(auditDir, recordedRun);
+/* `recorded`, the run this teardown handed the pass store, is kept beside
+ * the logs under lib/row-measure.js's switch (#5029). */
+function disarmAudit(recorded: Record<string, unknown> | null) {
+	keepRun(auditDir, recorded);
 	readAudit.remove(auditDir);
 	auditDir = null;
 }
@@ -111,8 +108,8 @@ function recordFiles(
 		after: ReturnType<typeof readTreeSnapshot>;
 	},
 ) {
-	if (!files || !marker.at) return;
-	recordedRun = {
+	if (!files || !marker.at) return null;
+	const run = {
 		sha: marker.sha,
 		at: marker.at,
 		tree: marker.treeAtEnd ?? null,
@@ -128,9 +125,10 @@ function recordFiles(
 		startMark,
 	};
 	recordFileResults(
-		{ ...recordedRun, audits: readAuditsOrNone() },
+		{ ...run, audits: readAuditsOrNone() },
 		{ storeRoot: root },
 	);
+	return run;
 }
 
 /**
@@ -198,6 +196,8 @@ export function runTeardown(rootOverride?: string | null) {
 	// sandbox instead of this checkout's own store.
 	const root = rootOverride ?? repoRoot(treeRoot);
 
+	/* The run handed the pass store, where one was. */
+	let recorded: Record<string, unknown> | null = null;
 	/* A run that hit its scope's task cap fails, however green (#3401); the
 	 * wrapper names the cap. Read here, inside the scope, which the manager
 	 * collects once the run's last process exits. */
@@ -205,7 +205,12 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === true && after && !capped) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		record(marker, { root });
-		recordFiles(marker, report.files, { drifted, untracked, root, after });
+		recorded = recordFiles(marker, report.files, {
+			drifted,
+			untracked,
+			root,
+			after,
+		});
 	}
 
 	/*
@@ -220,7 +225,12 @@ export function runTeardown(rootOverride?: string | null) {
 	if (outcome === false && after) {
 		const marker = markerFrom(before, after, drifted, buildMarkerRun());
 		const written = recordFailure(marker, { root });
-		recordFiles(marker, report.files, { drifted, untracked, root, after });
+		recorded = recordFiles(marker, report.files, {
+			drifted,
+			untracked,
+			root,
+			after,
+		});
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run
@@ -242,5 +252,5 @@ export function runTeardown(rootOverride?: string | null) {
 		const owners = readAlreadyRedLines(marker, root);
 		if (owners.length > 0) process.stderr.write(`\n${owners.join("\n")}\n`);
 	}
-	disarmAudit();
+	disarmAudit(recorded);
 }
