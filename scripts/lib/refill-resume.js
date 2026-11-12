@@ -22,7 +22,7 @@ const { buildErrorText } = require("./caught.js");
 const { movedOnto } = require("./refill-limits.js");
 const { buildLaunchRecordReader } = require("./launch-record.js");
 const { buildCarriedNote } = require("./carry-job-files.js");
-const { modelFlag, relaunchFlags } = require("./model-table.js");
+const { parseModelFlag, relaunchFlags } = require("./model-table.js");
 
 /** @typedef {import("./refill-blocks.js").Resumed} Resumed */
 /** @typedef {import("./refill-blocks.js").Adopted} Adopted */
@@ -552,8 +552,8 @@ function resumeSteps(io) {
 		if (!saved) return [];
 		const moved = relaunchFlags(saved, io.burnOn());
 		if (moved === saved) return [];
-		const found = modelFlag(moved);
-		if (!found) return [];
+		const found = parseModelFlag(moved);
+		if (!found) throw new Error("relaunchFlags moved a --model it then lost");
 		log(
 			`${sessionId} wakes on ${found.model}, not its saved routed-away model (#4992)`,
 		);

@@ -427,7 +427,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.stderr).not.toContain("burn mode");
 	});
 
-	it.each(["opus", "test-opus-2[1m]", "opus[1m]"])(
+	it.each(["opus", "test-opus-2", "test-opus-2[1m]", "opus[1m]"])(
 		"admits %s, a spelling of the overflow alias's current model",
 		(spelling) => {
 			stub();
@@ -440,7 +440,7 @@ describe("an overflow seat (#2610)", () => {
 		},
 	);
 
-	it.each(["haiku", "test-opus-1", "test-opus-2"])(
+	it.each(["haiku", "test-opus-1", "opusish"])(
 		"refuses %s before the duplicate and budget gates, exit 2",
 		(spelling) => {
 			stub();

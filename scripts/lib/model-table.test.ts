@@ -297,16 +297,10 @@ describe("the CLI half", () => {
 		expect(none.stdout).toBe("\n");
 	});
 
-	it("admits on an overflow seat only the overflow alias and its current model's 1M spelling", () => {
-		for (const s of ["opus", "opus[1m]", "test-opus-2[1m]"])
+	it("admits on an overflow seat only the overflow alias and its current id, bare or 1M", () => {
+		for (const s of ["opus", "opus[1m]", "test-opus-2", "test-opus-2[1m]"])
 			expect(cli(["admits", s]).status, s).toBe(0);
-		for (const s of [
-			"test-opus-2",
-			"test-opus-1",
-			"opusish",
-			"haiku",
-			"opus[200k]",
-		])
+		for (const s of ["test-opus-1", "opusish", "haiku", "opus[200k]"])
 			expect(cli(["admits", s]).status, s).toBe(1);
 	});
 

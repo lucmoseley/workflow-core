@@ -297,17 +297,15 @@ const OVERFLOW_SESSION_VAR = "WFC_OVERFLOW_SESSION";
 const OVERFLOW_PREFIX = "Overflow · ";
 
 /**
- * Whether a spelling may launch on an overflow seat: the overflow alias, its
- * `[1m]` form, or its current id's `[1m]` form. The bare id is not among them,
- * as it runs in the 200K window, nor is a retired id.
+ * Whether a spelling may launch on an overflow seat: the overflow alias or
+ * its current id, each bare or `[1m]`. A retired id is refused.
  * @param {string} spelling
  */
 function isOverflowAdmitted(spelling) {
-	return [
-		OVERFLOW_ALIAS,
-		`${OVERFLOW_ALIAS}${LONG_CONTEXT}`,
-		launchSpelling(OVERFLOW_ALIAS),
-	].includes(spelling);
+	const id = modelId(OVERFLOW_ALIAS);
+	return [OVERFLOW_ALIAS, id]
+		.flatMap((s) => [s, `${s}${LONG_CONTEXT}`])
+		.includes(spelling);
 }
 
 /** The overflow seat's launch spelling. */
@@ -384,7 +382,7 @@ function modeSettings(burn) {
  */
 function relaunchFlags(flags, burn) {
 	if (burn) return flags;
-	const found = modelFlag(flags);
+	const found = parseModelFlag(flags);
 	if (!found || !isRoutedAway(found.model)) return flags;
 	const to = mapLaunch(found.model, false);
 	const moved = found.width === 1 ? [`--model=${to}`] : ["--model", to];
@@ -401,7 +399,7 @@ function relaunchFlags(flags, burn) {
  * @param {string[]} flags
  * @returns {{at: number, width: 1 | 2, model: string} | null}
  */
-function modelFlag(flags) {
+function parseModelFlag(flags) {
 	const at = flags.findIndex(
 		(f) => f === "--model" || f.startsWith("--model="),
 	);
@@ -529,7 +527,7 @@ module.exports = {
 	isOverflowSession,
 	isRoutedAway,
 	loadRouting,
-	modelFlag,
+	parseModelFlag,
 	modelId,
 	modeSettings,
 	OVERFLOW_PREFIX,

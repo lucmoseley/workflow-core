@@ -40,11 +40,6 @@ const DEFAULT_GUIDE = "docs/effort-guide.md";
 const BEGIN =
 	"<!-- routing:begin — rendered from scripts/lib/model-routing.json by scripts/generate-effort-guide-routing.js; edit the file and re-run it, never this block -->";
 const END = "<!-- routing:end -->";
-const MODES = /** @type {const} */ ([
-	["standard", "Standard mode"],
-	["burn", "Burn mode"],
-]);
-
 const code = (/** @type {string} */ s) => `\`${s}\``;
 
 /** @returns {string} */
@@ -60,8 +55,8 @@ function renderBlock() {
 				`| ${code(alias)} | ${code(m.id)} | ${m.also.length > 0 ? m.also.map(code).join(", ") : "—"} |`,
 		),
 	];
-	for (const [mode, title] of MODES) {
-		const m = modes[mode];
+	for (const [mode, m] of Object.entries(modes)) {
+		const title = `${mode[0]?.toUpperCase()}${mode.slice(1)} mode`;
 		const efforts = Object.entries(m.modelSettings)
 			.map(([alias, level]) => `${code(modelId(alias))} ${code(level)}`)
 			.join(", ");
