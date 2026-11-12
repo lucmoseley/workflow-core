@@ -325,6 +325,17 @@ describe("a redirect target resolved as the shell lands it", () => {
 		expect(r).toContain("lands at /home/u/.claude3/jobs/abc/tmp/li_max.py");
 	});
 
+	// #5105
+	it("refuses a relative target where a later cd may not have moved off the job directory", () => {
+		expect(
+			refused(
+				bash("cd $CLAUDE_JOB_DIR && cd /nonexistent; tee tmp/x.out", {
+					jobDir: JOB_DIR,
+				}),
+			),
+		).toContain(`lands at ${JOB_DIR}/tmp/x.out`);
+	});
+
 	it("refuses after a cd through the variable, against the live variable, naming where the write lands", () => {
 		expect(
 			refused(
