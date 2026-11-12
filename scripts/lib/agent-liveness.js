@@ -85,6 +85,7 @@ const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { killGroup } = require("./grouped-child.js");
 const { budgetMs } = require("./hook-deadline.js");
+const { capMs } = require("./cap-ms.js");
 const { buildSeatEnv } = require("./seat-claude.js");
 const headless = require("./headless-runs.js");
 
@@ -164,19 +165,6 @@ const oracleCall = () => `\`${claudeBin()} agents --json\``;
  */
 const oracleTimeoutMs = () => capMs("WFC_ORACLE_TIMEOUT_MS", 10_000);
 const oracleRetryTimeoutMs = () => capMs("WFC_ORACLE_RETRY_TIMEOUT_MS", 20_000);
-
-/**
- * A positive millisecond cap from `env`, else `fallback` — a garbled knob must
- * not disable the ceiling.
- *
- * @param {string} env
- * @param {number} fallback
- * @returns {number}
- */
-function capMs(env, fallback) {
-	const n = Number(process.env[env]);
-	return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 /*
  * Every dir's read, all at once, as background jobs of one shell: each stdout
@@ -1042,7 +1030,6 @@ function sweepSessionIds(opts, starter) {
 
 module.exports = {
 	DISPLAY_MAX_AGE_MS,
-	capMs,
 	claudeBin,
 	isFinishedAgent,
 	isListedLive,

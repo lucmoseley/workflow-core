@@ -35,7 +35,9 @@
  *
  * EXIT 0 only where the link is in place; 3 refused with nothing changed (a
  * self-link, or a loop), as park-blocked.sh's precondition refusal; 1 any
- * other failure, with a message on stderr.
+ * other failure, with a message on stderr. Each failure also names a Reason,
+ * set where it is raised, which runLinkSync's callers branch on and never on
+ * the message (#5096).
  *
  * Test seams: WFC_LINK_RETRIES (verification attempts), WFC_LINK_SLEEP
  * (seconds between them), WFC_LINK_REPO (owner/name, else the tracker).
@@ -57,31 +59,53 @@ const { docPath } = require("./script-path.js");
 
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
-/** @typedef {{code: 0|1|3, out: string, err: string}} Outcome */
 /**
- * A spawned command's outcome: `warning` the partial-check lines, `err` the
- * failure or refusal itself, empty where linked.
- * @typedef {Outcome & {warning: string}} SyncOutcome
+ * Why a link was not made: `self` and `loop` refusals; `unlisted`, a
+ * POST that succeeded but whose link no read shows; `cap`, a parent at
+ * GitHub's 100-child limit; `layers`, a parent 7 layers deep; `closed-parent`;
+ * `rejected`, any other 422; `other`, everything else.
+ * @typedef {"self"|"loop"|"unlisted"|"cap"|"layers"|"closed-parent"|"rejected"|"other"} Reason
  */
+/**
+ * A link command's outcome: `out` the success line, `warning` the
+ * partial-check lines, `err` the failure or refusal itself and `reason` its
+ * kind, each empty where linked.
+ * @typedef {{code: 0|1|3, out: string, err: string, warning: string,
+ *   reason: Reason|""}} Outcome
+ */
+/** @typedef {(line: string) => void} Warn takes each partial-check line, kept on success and failure alike */
 
 const PLACING = `${docPath("agents/issue-tracker.md")} §Placing a new issue`;
 
-/** A failure carrying its exit code and stderr line. */
+/** A failure carrying its exit code, its reason and its stderr line. */
 class LinkExit extends Error {
-	/** @param {1|3} code @param {string} message */
-	constructor(code, message) {
+	/** @param {1|3} code @param {Reason} reason @param {string} message */
+	constructor(code, reason, message) {
 		super(message);
 		this.code = code;
+		this.reason = reason;
 	}
 }
 
-/** @param {string} message @returns {never} */
-function fail(message) {
-	throw new LinkExit(1, message);
+/** @param {Reason} reason @param {string} message @returns {never} */
+function fail(reason, message) {
+	throw new LinkExit(1, reason, message);
 }
-/** @param {string} message @returns {never} */
-function refuse(message) {
-	throw new LinkExit(3, message);
+/** @param {"self"|"loop"} reason @param {string} message @returns {never} */
+function refuse(reason, message) {
+	throw new LinkExit(3, reason, message);
+}
+
+/**
+ * A failed POST's reason, read from gh's text.
+ * KNOWN RESIDUAL: `cap` is matched on gh's prose, so a reword of GitHub's
+ * 100-child message demotes it to `rejected`.
+ * @param {string} text
+ * @returns {Reason}
+ */
+function postReason(text) {
+	if (text.includes("100 sub-issues")) return "cap";
+	return /\b422\b/.test(text) ? "rejected" : "other";
 }
 
 /** @param {number} ms */
@@ -115,6 +139,7 @@ async function resolveLocalRepo() {
 	let repo = process.env.WFC_LINK_REPO || resolveKey("tracker");
 	if (typeof repo !== "string" || !repo)
 		fail(
+			"other",
 			'could not resolve the tracker — declare "tracker" in .claude/workflow-core.json or pass WFC_LINK_REPO',
 		);
 	if (repo.includes("{owner}")) {
@@ -126,6 +151,7 @@ async function resolveLocalRepo() {
 		]);
 		if (!named || !/^[\w.-]+\/[\w.-]+$/.test(named))
 			fail(
+				"other",
 				`could not resolve ${repo} to its owner/name (got '${named ?? ""}') — nothing was POSTed`,
 			);
 		repo = named;
@@ -151,15 +177,15 @@ const buildLoopRefusal = (link, path, home) =>
 
 /**
  * Refuses `link` where its target already reaches its source; otherwise
- * returns the warning owed where the walk could not read every node.
+ * returns the warning owed where the walk could not read every node, else "".
  * @param {Link} link
  * @param {string} home
- * @returns {Promise<string|null>}
+ * @returns {Promise<string>}
  */
 async function checkLoop(link, home) {
 	const { path, unread } = await pathTo(link.to, link.from);
-	if (path) refuse(buildLoopRefusal(link, path, home));
-	if (unread.length === 0) return null;
+	if (path) refuse("loop", buildLoopRefusal(link, path, home));
+	if (unread.length === 0) return "";
 	return `warning — the loop check was partial: could not read ${unread
 		.map((u) => `${refLabel(u.ref, home)} (${u.error})`)
 		.join(", ")}; linking anyway, and check-issue-cycles.js is the backstop.`;
@@ -179,6 +205,7 @@ async function readDatabaseId(ref, home) {
 	]);
 	if (!id || !/^[0-9]+$/.test(id))
 		fail(
+			"other",
 			`could not resolve the database id of ${refLabel(ref, home)} (got '${id ?? ""}') — nothing was POSTed`,
 		);
 	return id;
@@ -205,22 +232,23 @@ async function waitFor(listed, { retries, sleepMs, first = false }) {
 function parseSubIssueArgs(args) {
 	const replaceParent = args.includes("--replace-parent");
 	const rest = args.filter((a) => a !== "--replace-parent");
-	if (rest.length !== 2) fail(USAGE["sub-issue"]);
+	if (rest.length !== 2) fail("other", USAGE["sub-issue"]);
 	const [p = "", c = ""] = rest.map((a) => a.replace(/^#/, ""));
 	if (!/^[0-9]{1,9}$/.test(p))
-		fail(`parent '${rest[0]}' is not an issue number`);
+		fail("other", `parent '${rest[0]}' is not an issue number`);
 	if (!/^[0-9]{1,9}$/.test(c))
-		fail(`child '${rest[1]}' is not an issue number`);
-	if (p === c) refuse(`an issue cannot be its own parent (#${p})`);
+		fail("other", `child '${rest[1]}' is not an issue number`);
+	if (p === c) refuse("self", `an issue cannot be its own parent (#${p})`);
 	return { parent: Number(p), child: Number(c), replaceParent };
 }
 
 /**
  * Makes `child` a sub-issue of `parent`, in one repo.
  * @param {string[]} args `<parent> <child> [--replace-parent]`
+ * @param {Warn} warn
  * @returns {Promise<string>} stdout
  */
-async function linkSubIssue(args) {
+async function linkSubIssue(args, warn) {
 	const { parent, child, replaceParent } = parseSubIssueArgs(args);
 	const repo = await resolveLocalRepo();
 	const t = timing();
@@ -245,8 +273,7 @@ async function linkSubIssue(args) {
 		},
 		repo,
 	);
-	if (warning) process.stderr.write(`link-sub-issue: ${warning}\n`);
-
+	if (warning) warn(warning);
 	const already = await postSubIssue({
 		repo,
 		parent,
@@ -260,6 +287,7 @@ async function linkSubIssue(args) {
 	if (await waitFor(listsChild, t))
 		return `linked #${child} as a sub-issue of #${parent}\n`;
 	return fail(
+		"unlisted",
 		`POST returned success but #${parent} still does not list #${child} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
 	);
 }
@@ -281,10 +309,12 @@ async function assertParentHidesNoOpenChild(repo, parent, child) {
 	const state = await readState(repo, parent);
 	if (state === "closed" && (await readState(repo, child)) !== "closed")
 		fail(
+			"closed-parent",
 			`#${parent} is closed — link #${child} under an open issue, or file it with file-issue.js --standalone "<why>"; nothing was POSTed`,
 		);
 	if (state !== "open" && state !== "closed")
 		fail(
+			"other",
 			`could not read the state of #${parent} (got '${state ?? ""}') — nothing was POSTed; check \`gh auth status\` and re-run`,
 		);
 }
@@ -327,14 +357,17 @@ async function postSubIssue({
 			if (await waitFor(listsChild, t))
 				return `#${child} was already a sub-issue of #${parent}\n`;
 			fail(
+				"other",
 				`#${child} already has a different parent — re-root it with link-sub-issue.sh ${parent} ${child} --replace-parent, or detach it first: gh api --method DELETE repos/${repo}/issues/<parent>/sub_issue -F sub_issue_id=${id}`,
 			);
 		}
 		if (out.includes("7 layers"))
 			fail(
+				"layers",
 				`#${parent} is 7 layers deep — give #${child} the SAME parent as #${parent} instead, and say in its body why it is a peer (${docPath("agents/issue-tracker.md")})`,
 			);
-		return fail(`POST failed: ${out.trim() || parseErrLine(e)}`);
+		const text = out.trim() || parseErrLine(e);
+		return fail(postReason(text), `POST failed: ${text}`);
 	}
 }
 
@@ -381,10 +414,11 @@ async function listsBlocker(blocked, blocker) {
 /**
  * Makes `blocker` block `blocked`, in any repos.
  * @param {string[]} args `<blocked> <blocker>`, each `n`, `#n` or `owner/name#n`
+ * @param {Warn} warn
  * @returns {Promise<string>} stdout
  */
-async function linkBlocker(args) {
-	if (args.length !== 2) fail(USAGE.blocker);
+async function linkBlocker(args, warn) {
+	if (args.length !== 2) fail("other", USAGE.blocker);
 	/** @type {string|undefined} */
 	let local;
 	const home = async () => {
@@ -393,19 +427,20 @@ async function linkBlocker(args) {
 	};
 	const [a = "", b = ""] = args;
 	const blocked = await parseRef(a, home);
-	if (!blocked) fail(`blocked issue '${a}' is not a number or owner/name#n`);
+	if (!blocked)
+		fail("other", `blocked issue '${a}' is not a number or owner/name#n`);
 	const blocker = await parseRef(b, home);
-	if (!blocker) fail(`blocker '${b}' is not a number or owner/name#n`);
+	if (!blocker) fail("other", `blocker '${b}' is not a number or owner/name#n`);
 	const view = blocked.repo;
 	if (refKey(blocked) === refKey(blocker))
-		refuse(`an issue cannot block itself (${refLabel(blocked, view)})`);
+		refuse("self", `an issue cannot block itself (${refLabel(blocked, view)})`);
 	const label = refLabel(blocker, view);
 	const id = await readDatabaseId(blocker, view);
 	const warning = await checkLoop(
 		{ from: blocked, to: blocker, kind: "blocker" },
 		view,
 	);
-	if (warning) process.stderr.write(`link-blocker: ${warning}\n`);
+	if (warning) warn(warning);
 
 	const t = timing();
 	const listed = () => listsBlocker(blocked, blocker);
@@ -421,14 +456,30 @@ async function linkBlocker(args) {
 	} catch (e) {
 		if (await waitFor(listed, { ...t, retries: 1, first: true }))
 			return `#${blocked.number} was already blocked by ${label}\n`;
-		fail(`POST failed: ${parseErrLine(e)}`);
+		const text = parseErrLine(e);
+		fail(postReason(text), `POST failed: ${text}`);
 	}
 	if (await waitFor(listed, { ...t, first: true }))
 		return `linked #${blocked.number} as blocked by ${label}\n`;
 	return fail(
+		"unlisted",
 		`POST returned success but #${blocked.number}'s blocked_by list still does not name ${label} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,
 	);
 }
+
+/**
+ * A failure no link step raised, a bad command line among them.
+ * @param {string} err
+ * @param {string} [warning]
+ * @returns {Outcome}
+ */
+const otherFailure = (err, warning = "") => ({
+	code: 1,
+	out: "",
+	err,
+	warning,
+	reason: "other",
+});
 
 /**
  * Runs one link command, never throwing.
@@ -437,32 +488,50 @@ async function linkBlocker(args) {
  * @returns {Promise<Outcome>}
  */
 async function runLink(kind, args) {
+	/** @type {string[]} */
+	const warnings = [];
+	/** @type {Warn} */
+	const warn = (line) => warnings.push(line);
 	try {
 		const out = await (kind === "blocker"
-			? linkBlocker(args)
-			: linkSubIssue(args));
-		return { code: 0, out, err: "" };
+			? linkBlocker(args, warn)
+			: linkSubIssue(args, warn));
+		return { code: 0, out, err: "", warning: warnings.join("\n"), reason: "" };
 	} catch (e) {
-		if (e instanceof LinkExit) return { code: e.code, out: "", err: e.message };
-		return { code: 1, out: "", err: parseErrLine(e) };
+		const warning = warnings.join("\n");
+		if (!(e instanceof LinkExit)) return otherFailure(parseErrLine(e), warning);
+		return { code: e.code, out: "", err: e.message, warning, reason: e.reason };
 	}
 }
 
 const USAGE = {
 	blocker:
-		"usage: link-blocker.js <blocked> <blocker> — each a bare number or owner/name#n",
-	"sub-issue": "usage: link-sub-issue.sh <parent> <child> [--replace-parent]",
+		"usage: link-blocker.js <blocked> <blocker> [--json] — each a bare number or owner/name#n",
+	"sub-issue":
+		"usage: link-sub-issue.sh <parent> <child> [--replace-parent] [--json]",
 };
 
 /**
  * The CLI: reads the command line strictly, prints the outcome under the
- * command's name and exits with its code.
+ * command's name, or as one JSON object on stdout where `--json` is anywhere
+ * in argv, and exits with its code.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} argv
  * @returns {Promise<void>}
  */
 function runCli(kind, argv) {
 	const name = kind === "blocker" ? "link-blocker" : "link-sub-issue";
+	const json = argv.includes("--json");
+	/** @param {Outcome} r */
+	const print = (r) => {
+		if (json) process.stdout.write(`${JSON.stringify(r)}\n`);
+		else {
+			if (r.warning) process.stderr.write(`${name}: ${r.warning}\n`);
+			process.stdout.write(r.out);
+			if (r.err) process.stderr.write(`${name}: ${r.err}\n`);
+		}
+		process.exitCode = r.code;
+	};
 	/** @type {string[]} */
 	let args;
 	try {
@@ -472,6 +541,7 @@ function runCli(kind, argv) {
 			strict: true,
 			options: {
 				help: { type: "boolean" },
+				json: { type: "boolean" },
 				...(kind === "sub-issue"
 					? { "replace-parent": { type: "boolean" } }
 					: {}),
@@ -486,49 +556,38 @@ function runCli(kind, argv) {
 			...(values["replace-parent"] ? ["--replace-parent"] : []),
 		];
 	} catch (e) {
-		process.stderr.write(`${name}: ${parseErrLine(e)} — ${USAGE[kind]}\n`);
-		process.exitCode = 1;
+		print(otherFailure(`${parseErrLine(e)} — ${USAGE[kind]}`));
 		return Promise.resolve();
 	}
-	return runLink(kind, args).then(
-		(r) => {
-			process.stdout.write(r.out);
-			if (r.err) process.stderr.write(`${name}: ${r.err}\n`);
-			process.exitCode = r.code;
-		},
-		(e) => {
-			process.stderr.write(`${name}: ${parseErrLine(e)}\n`);
-			process.exitCode = 1;
-		},
+	return runLink(kind, args).then(print, (e) =>
+		print(otherFailure(parseErrLine(e))),
 	);
 }
 
 /**
- * runLink for a synchronous caller: the CLI in a child process, `repo` the
- * repo a local `#n` names, stderr without the command's prefix.
+ * runLink for a synchronous caller: the CLI in a child process with `--json`,
+ * `repo` the repo a local `#n` names. A child that died before printing its
+ * outcome reads as `other`, its stderr the error.
  * @param {"sub-issue"|"blocker"} kind
  * @param {string[]} args
  * @param {{repo?: string}} [opts]
- * @returns {SyncOutcome}
+ * @returns {Outcome}
  */
 function runLinkSync(kind, args, { repo } = {}) {
-	const r = spawnSync(process.execPath, [__filename, kind, ...args], {
+	const r = spawnSync(process.execPath, [__filename, kind, ...args, "--json"], {
 		encoding: "utf8",
 		env: repo ? { ...process.env, WFC_LINK_REPO: repo } : process.env,
 	});
-	const code = r.status === 0 || r.status === 3 ? r.status : 1;
-	const lines = (r.stderr || r.error?.message || "")
-		.trim()
-		.replace(/^link-(?:sub-issue|blocker): /gm, "")
-		.split("\n");
-	/** @param {string} l */
-	const isWarning = (l) => l.startsWith("warning — ");
-	return {
-		code,
-		out: r.stdout ?? "",
-		warning: lines.filter(isWarning).join("\n"),
-		err: lines.filter((l) => l && !isWarning(l)).join("\n"),
-	};
+	try {
+		return /** @type {Outcome} */ (JSON.parse(r.stdout ?? ""));
+	} catch {
+		return otherFailure(
+			(r.stderr || r.error?.message || "")
+				.trim()
+				.replace(/^link-(?:sub-issue|blocker|writer): /gm, "") ||
+				`the link command exited ${r.status ?? r.signal} without an outcome`,
+		);
+	}
 }
 
 /**

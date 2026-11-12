@@ -586,6 +586,48 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /missing && (true)\ngh x")).toEqual(["/missing", "/start"]);
 	});
 
+	it("is not settled outside a { …; } group by a chain ending inside it (#5095)", () => {
+		expect(last("cd /missing && { true; } && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true\n} && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("{ cd /missing && true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("cd /missing && { cd /missing2 && true; gh x; }")).toEqual([
+			"/missing2",
+			"/missing",
+		]);
+		expect(
+			last("cd /missing && true && { cd /missing2 && true; }; gh x"),
+		).toEqual(["/missing2", "/missing", "/start"]);
+	});
+
+	it.each([
+		"cd /missing && { for i in 1; do true; done }; gh x; if true; then { true; }; fi",
+		"cd /missing && { { true; } }; gh x",
+		"cd /missing && { if true; then true; fi }; gh x",
+	])(
+		"pairs a } after a closing word and a { after a reserved one, %s (#5095)",
+		(command) => {
+			const runs = walkMap(
+				command,
+				(c) => ({ head: c.words[0], cwds: c.cwds }),
+				{
+					cwd: "/start",
+					isDir,
+				},
+			);
+			expect(runs.find((r) => r.head === "gh")?.cwds).toEqual([
+				"/missing",
+				"/start",
+			]);
+		},
+	);
+
 	it("moves each doubted directory through a later cd", () => {
 		expect(last("cd /missing/y; cd ../..; gh x", "/a/b")).toEqual([
 			"/missing/y/../..",
@@ -648,6 +690,93 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 	it("backgrounds a cd with the && or || list & closes (#5010)", () => {
 		expect(last("cd /usr || true & gh x")).toEqual(["/usr", "/start"]);
 		expect(last("cd /usr || true; gh x")).toEqual(["/usr"]);
+	});
+
+	it("reads a cd's join past the substitutions lifted from the next command (#5098)", () => {
+		expect(last('cd /missing && gh x "$(true)"')).toEqual(["/missing"]);
+		expect(last('cd /missing && gh "$(a "$(b)")" "$(c)" && gh z')).toEqual([
+			"/missing",
+		]);
+		expect(last('cd /usr | gh x "$(true)"; gh y')).toEqual(["/start"]);
+		expect(last('cd /usr && gh x "$(true)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last('{ cd /usr; } | gh "$(x)"; gh y')).toEqual(["/usr", "/start"]);
+		expect(last('{ gh "$(x)"; cd /usr; }; gh y')).toEqual(["/usr"]);
+		expect(last('cd /missing || X="$(y)" cd /a; gh x')).toEqual([
+			"/a",
+			"/missing",
+		]);
+		/* An escaped `)` is no bracket ending the lifted run. */
+		expect(last('cd /usr | gh "$(echo a\\))"; gh y')).toEqual(["/start"]);
+		expect(last('cd /usr && gh "$(a)" && gh "$(b)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		expect(last('cd /usr && gh "$(a)" || gh "$(b)" & gh y')).toEqual([
+			"/usr",
+			"/start",
+		]);
+		/* The list `&` closes holds no cd. */
+		expect(last('cd /usr; gh "$(x)" & gh y')).toEqual(["/usr"]);
+		/* A cd in a substitution reads its own run's joins, not the outer list's. */
+		expect(last('true && gh "$(cd /usr; x)" && gh y')).toEqual(["/start"]);
+	});
+
+	it("backgrounds a cd's list past the ( … ) in it (#5107)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && (true) & gh y")).toEqual(both);
+		expect(last("cd /usr && ( (true) ) & gh y")).toEqual(both);
+		expect(last("cd /usr && (true)& gh y")).toEqual(both);
+		expect(last("cd /usr && (true) >o & gh y")).toEqual(both);
+		expect(last("cd /usr && (true) || (false) & gh y")).toEqual(both);
+		expect(last('cd /usr && (a "$(b)") & gh y')).toEqual(both);
+		expect(last("cd /usr && echo $(a) & gh y")).toEqual(both);
+		expect(last("cd /usr && echo $(a)$(b) & gh y")).toEqual(both);
+		expect(last("cd /usr && diff <(a) b & gh y")).toEqual(both);
+		expect(last("{ true; cd /usr; } && (true) & gh y")).toEqual(both);
+		expect(last("cd /usr && true | cat & gh y")).toEqual(both);
+		expect(last("cd /usr && (true) | cat & gh y")).toEqual(both);
+		expect(last("cd /usr && true | cat; gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && (true); gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && (true)\n(a) & gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && echo $(a)\ngh b & gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && true\n(a) & gh y")).toEqual(["/usr"]);
+	});
+
+	it("reads an escaped operator as a word, not a bracket or a split (#5113)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && echo \\) & gh y")).toEqual(both);
+		expect(last("cd /usr && echo \\( & gh y")).toEqual(both);
+		expect(last("(cd /usr; echo \\)); gh y")).toEqual(["/start"]);
+		expect(last("(cd /usr; echo \\(); gh y")).toEqual(["/start"]);
+		expect(last("(cd /usr; echo \\) \\(; gh y)")).toEqual(["/usr"]);
+		expect(last("cd /usr && echo \\& & gh y")).toEqual(both);
+		expect(last("cd /usr && echo \\; & gh y")).toEqual(both);
+		expect(last("cd /usr && echo \\| & gh y")).toEqual(both);
+		/* `\\` escapes itself, so the bracket after it is one. */
+		expect(last("(cd /usr; echo \\\\); gh y")).toEqual(["/start"]);
+	});
+});
+
+describe("parseCommand — an escaped operator stays in its word (#5113)", () => {
+	it.each([
+		["echo \\( \\) x", ["echo \\( \\) x"]],
+		["echo a\\&b", ["echo a\\&b"]],
+		["echo a\\|b", ["echo a\\|b"]],
+		["find . -exec rm {} \\; ; gh y", ["find . -exec rm {} \\; ", " gh y"]],
+		["echo \\>& gh y", ["echo \\>", " gh y"]],
+		["echo \\>| gh y", ["echo \\>", " gh y"]],
+		["echo \\<& gh y", ["echo \\<", " gh y"]],
+		["echo >&2 x", ["echo >&2 x"]],
+	])("splits %s at its unescaped operators alone", (command, segments) => {
+		expect(parseCommand(command).segments).toEqual(segments);
+	});
+
+	it("sets the conditional at the first unescaped ||", () => {
+		expect(parseCommand("echo \\|| gh y || gh z").conditional).toBe(2);
+		expect(parseCommand("echo \\| gh y").conditional).toBe(-1);
 	});
 });
 
@@ -1368,6 +1497,12 @@ describe("logical lines (mantahostels#182)", () => {
 		expect(
 			seesEvil("echo it's fine\nfoo; git checkout -b evil\necho that's all"),
 		).toBe(true);
+	});
+
+	it("reads an escaped ; on a joined line as a word, not a git segment (#5113)", () => {
+		expect(
+			lines("echo it's fine\necho \\; git checkout x\necho that's all"),
+		).toHaveLength(1);
 	});
 
 	it("keeps the join through a message body that reads as a command (mantahostels#232)", () => {
@@ -2171,8 +2306,11 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && (true; git checkout x)`, []],
 			[`cd ${WORKTREE} && (true) && git checkout x`, []],
 			[`cd ${WORKTREE} && (true); git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { true; } && git checkout x`, []],
+			[`cd ${WORKTREE} && { true; }; git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { { true; } }; git checkout x`, [SHARED]],
 		])(
-			"doubts the tree a chain left only once it ends outside a subshell, %s (#5093)",
+			"doubts the tree a chain left only once it ends outside a subshell or group, %s (#5093, #5095)",
 			(bare, trees) => {
 				for (const command of [bare, `flock /l -c "${bare}"`])
 					expect(judged(command, SHARED, false).trees).toEqual(trees);

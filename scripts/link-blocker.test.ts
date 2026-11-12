@@ -5,7 +5,8 @@
  * with nothing POSTed, naming each link, a foreign one by its full
  * reference; a link that closes none resolves the blocker's id itself, POSTs
  * it with -F and verifies in a separate read; a self-link is refused before
- * any read; an unread graph links anyway, warning. Broken, it lets a
+ * any read; an unread graph links anyway, warning; `--json` names each
+ * failure's reason (#5096). Broken, it lets a
  * loop-closing blocker link through, and every issue in that loop stays open
  * for good.
  *
@@ -213,6 +214,21 @@ describe("link-blocker.js", () => {
 		expect(r.stderr).toContain("POST failed");
 		expect(r.stderr).toContain("401");
 	});
+
+	it.each([
+		["self", ["#10", "#10"], {}, 3],
+		["loop", ["m/t#4893", "o/r#3864"], { graph: loop }, 3],
+		["other", ["#10", "#20"], { postFails: true }, 1],
+		["unlisted", ["#10", "#20"], {}, 1],
+	] as const)(
+		"names the reason %s under --json, printing nothing on stderr (#5096)",
+		async (reason, args, g, code) => {
+			const r = await run([...args, "--json"], g as Gh);
+			expect(r.status).toBe(code);
+			expect(r.stderr).toBe("");
+			expect(JSON.parse(r.stdout)).toMatchObject({ code, reason });
+		},
+	);
 
 	it.each([
 		[["#10"], "usage"],
