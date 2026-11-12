@@ -6,8 +6,8 @@
  *
  * A PRESENCE CLOSURE, NOT A LOAD CLOSURE: a file loaded lazily, or run rather
  * than imported, still has to ship. The reach is code-edges.js's
- * `readRunReach`, a data file a script reads off its directory included, and
- * leaves out a path outside the tree or in a `node_modules`. A Python
+ * `readRunReach`, a data file a script reads off its directory included; a
+ * path it reaches outside the tree, or in a `node_modules`, is a fault. A Python
  * module code-edges.js cannot place is a fault. A JS file's npm
  * package is not judged here: plugin-tree.js's scan already faults one in
  * every shipped file.
@@ -63,6 +63,10 @@ function surfaceClosureFaults(root, out) {
 			);
 			continue;
 		}
+		for (const { file, from } of reach.outside)
+			faults.add(
+				`helper surface: ${file}, reached from ${from}, lies outside the render`,
+			);
 		for (const { file, from } of reach.missing)
 			faults.add(
 				from === null

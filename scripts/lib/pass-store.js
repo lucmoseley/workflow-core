@@ -135,7 +135,7 @@ const PRAGMA_REASON = /^\s*\w/;
 
 /* The row layout: a run line of another, or none, never caches (#4814),
  * though its red still voids an older pass (#4995). */
-const FORMAT = 18;
+const FORMAT = 19;
 
 /* A content id as every layout since #4814 writes it: a mode and a blob id. */
 const BLOB_ID = /^\d{6} ([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -349,6 +349,8 @@ function lexicalReach(root) {
 				faulted = true;
 			});
 		} catch {
+			// A file on the way that will not read leaves the reach unknown:
+			// no row is recorded for a file reaching it (#4790).
 			return null;
 		}
 		const unknown = reach.unknown.some(

@@ -480,16 +480,19 @@ function fileReach(file, text, fault, importerSearch) {
 
 /**
  * @typedef {{file: string, from: string | null}} Missing a path the run
- *   names where no file stands, and the file naming it, null for the start
- * @typedef {{files: string[], missing: Missing[], unread: string[],
+ *   names, and the file naming it, null for the start
+ * @typedef {{files: string[], missing: Missing[], outside: Missing[],
+ *   unread: string[],
  *   unknown: string[], shadows: string[], python: boolean}} RunReach
  *   root-relative: every file the run reaches, its start included; each
- *   path it names where no file stands; the files holding a load the walk
+ *   path it names where no file stands; each it names outside `root` or in
+ *   a `node_modules`, none of the run's to walk; the files holding a load the walk
  *   cannot read, or whose sys.path settles nowhere it can tell; the files
  *   joining a path off their own directory the walk cannot tell; the paths
  *   tried before the files they resolved to; and whether a file on the way
  *   runs inline Python
- * @typedef {{edges: string[], missing: string[], shadows: string[],
+ * @typedef {{edges: string[], missing: string[], outside: string[],
+ *   shadows: string[],
  *   python: boolean, unread: boolean, unknown: boolean, faults: string[],
  *   pySearch: PyEntry[] | null}} Visit one file's own reach, root-relative,
  *   on the sys.path its run handed it, and the faults it met
@@ -503,8 +506,7 @@ function fileReach(file, text, fault, importerSearch) {
  * one run imports share its one sys.path, so a module's edit moves what its
  * importer and every other module import (#4870), and the run's files are
  * walked again, each on the path they all left, until a pass leaves that
- * path as it found it. A path outside `root` or inside a `node_modules` is
- * none of the run's. Each file is read once per sys.path it is handed,
+ * path as it found it. Each file is read once per sys.path it is handed,
  * across every start of one `readRunReach`.
  *
  * What the caller does with a fault, a missing path, an unread load or an
@@ -541,6 +543,8 @@ function readRunReach(root) {
 			files: new Set([start]),
 			/** @type {Map<string, string>} */
 			missing: new Map(),
+			/** @type {Map<string, string>} */
+			outside: new Map(),
 			unread: new Set(),
 			unknown: new Set(),
 			shadows: new Set(),
@@ -557,6 +561,7 @@ function readRunReach(root) {
 		return {
 			files: [...run.files],
 			missing: [...run.missing].map(([file, from]) => ({ file, from })),
+			outside: [...run.outside].map(([file, from]) => ({ file, from })),
 			unread: [...run.unread],
 			unknown: [...run.unknown],
 			shadows: [...run.shadows],
@@ -569,6 +574,7 @@ function readRunReach(root) {
 const NO_RUN = {
 	files: [],
 	missing: [],
+	outside: [],
 	unread: [],
 	unknown: [],
 	shadows: [],
@@ -577,6 +583,7 @@ const NO_RUN = {
 
 /**
  * @typedef {{files: Set<string>, missing: Map<string, string>,
+ *   outside: Map<string, string>,
  *   unread: Set<string>, unknown: Set<string>, shadows: Set<string>,
  *   python: boolean}} RunSoFar
  * @typedef {{visits: {rel: string, found: Visit}[], spawned: Set<string>,
@@ -588,12 +595,12 @@ const NO_RUN = {
 
 /**
  * Adds to `run` what the run of `script` reaches, sys.path settled, and
- * hands back the files it spawns or loads as scripts of their own. Every
- * pass's unread loads and faults are the run's; what it reaches is the last
- * pass's.
+ * hands back the files it spawns or loads as scripts of their own: all of
+ * it the last pass's, since an earlier pass placed a module on a path the
+ * run had not yet settled.
  * @param {string} script
  * @param {VisitOf} visitOf
- * @param {RunSoFar} run
+ * @param {RunSoFar} run accumulator: gains the pass's findings
  * @param {(rel: string, msg: string) => void} hear
  * @returns {Set<string>}
  */
@@ -602,7 +609,6 @@ function runScript(script, visitOf, run, hear) {
 	let pySearch = null;
 	for (;;) {
 		const pass = scriptPass(script, pySearch, visitOf);
-		hearPass(pass, run, hear);
 		/* Ends: settledPySearch hands the path back in one order whatever
 		 * order the files were walked in, so a pass can only add an entry,
 		 * and the entries its files' edits name are a finite set. A pass that
@@ -612,7 +618,7 @@ function runScript(script, visitOf, run, hear) {
 			!settled && (pass.pySearch?.length ?? 0) <= (pySearch?.length ?? -1);
 		if (stuck) run.unread.add(script);
 		if (settled || stuck) {
-			addPass(pass, run);
+			addPass(pass, run, hear);
 			return pass.spawned;
 		}
 		pySearch = pass.pySearch;
@@ -620,32 +626,33 @@ function runScript(script, visitOf, run, hear) {
 }
 
 /**
- * Adds to `run` a pass's unread loads, unknown joins and faults.
+ * Adds to `run` what a pass reaches, the faults it met told to `hear`.
  * @param {Pass} pass
- * @param {RunSoFar} run
+ * @param {RunSoFar} run accumulator: gains the pass's findings
  * @param {(rel: string, msg: string) => void} hear
  */
-function hearPass(pass, run, hear) {
-	for (const { rel, found } of pass.visits) {
-		if (found.unread) run.unread.add(rel);
-		if (found.unknown) run.unknown.add(rel);
-		for (const msg of found.faults) hear(rel, msg);
-	}
+function addPass(pass, run, hear) {
+	for (const { rel, found } of pass.visits) addVisit(rel, found, run, hear);
 }
 
 /**
- * Adds to `run` what a pass reaches.
- * @param {Pass} pass
- * @param {RunSoFar} run
+ * Adds to `run` what one file of a pass reaches.
+ * @param {string} rel
+ * @param {Visit} found
+ * @param {RunSoFar} run accumulator: gains the file's findings
+ * @param {(rel: string, msg: string) => void} hear
  */
-function addPass(pass, run) {
-	for (const { rel, found } of pass.visits) {
-		run.python ||= found.python;
-		for (const p of found.shadows) run.shadows.add(p);
-		for (const p of found.edges) run.files.add(p);
-		for (const p of found.missing)
-			if (!run.missing.has(p)) run.missing.set(p, rel);
-	}
+function addVisit(rel, found, run, hear) {
+	if (found.unread) run.unread.add(rel);
+	if (found.unknown) run.unknown.add(rel);
+	for (const msg of found.faults) hear(rel, msg);
+	for (const p of found.outside)
+		if (!run.outside.has(p)) run.outside.set(p, rel);
+	run.python ||= found.python;
+	for (const p of found.shadows) run.shadows.add(p);
+	for (const p of found.edges) run.files.add(p);
+	for (const p of found.missing)
+		if (!run.missing.has(p)) run.missing.set(p, rel);
 }
 
 /**
@@ -682,6 +689,7 @@ function scriptPass(script, pySearch, visitOf) {
 const NO_VISIT = {
 	edges: [],
 	missing: [],
+	outside: [],
 	shadows: [],
 	python: false,
 	unread: false,
@@ -713,13 +721,17 @@ function readVisit(root, rel, pySearch) {
 	const edges = [];
 	/** @type {string[]} */
 	const missing = [];
+	/** @type {string[]} */
+	const outside = [];
 	for (const e of [...reach.edges, ...reach.reads]) {
 		const at = runPath(root, e);
 		if (at !== null) (isFile(e) ? edges : missing).push(at);
+		else if (e !== root) outside.push(toPosixRel(root, e));
 	}
 	return {
 		edges,
 		missing,
+		outside,
 		shadows: reach.shadows.flatMap((p) => runPath(root, p) ?? []),
 		python: reach.python,
 		unread: reach.unread.length > 0,
@@ -728,6 +740,14 @@ function readVisit(root, rel, pySearch) {
 		pySearch: reach.pySearch,
 	};
 }
+
+/**
+ * `abs` relative to `root`, `/`-separated, `..` leading where it is outside.
+ * @param {string} root
+ * @param {string} abs
+ */
+const toPosixRel = (root, abs) =>
+	path.relative(root, abs).split(path.sep).join("/");
 
 /**
  * `abs` root-relative, or null where it is none of a run's: outside

@@ -6,8 +6,8 @@
  * session's scope under its id, and a short session's end kills it mid-run —
  * or, outside the scope by some other route, it runs unbounded.
  *
- * The walk is each SessionStart-registered script's run, as
- * lib/code-edges.js's `readRunReach` reads it. It reads each file
+ * The walk is lib/hook-code.js's over the SessionStart registrations. It
+ * reads each file
  * lexically, comment lines skipped:
  *   JS — a `detached: true` spawn whose child is `.unref()`ed within
  *     UNREF_REACH lines;
@@ -26,17 +26,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { flattenHooks } = require("./lib/core-hooks.js");
-const { readRunReach } = require("./lib/code-edges.js");
-const { readText } = require("./lib/file-read.js");
+const { readHookCode } = require("./lib/hook-code.js");
 
 const ROOT = path.join(__dirname, "..");
-const REGISTRATIONS = [
-	"hooks/hooks.json",
-	"self-plugin/hooks/hooks.json",
-	".claude/settings.json",
-];
-const COMMAND_SCRIPT = /(?<![\w.-])(scripts\/[\w./-]+\.(?:[cm]?[jt]s|sh|py))/g;
 const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 const SHELL_DETACH =
 	/(?:^|[;&|]\s*|\|\|\s*|then\s+)(?:setsid|nohup|disown|detach)\b|(?<![&>|])&\s*(?:$|[;)#])/;
@@ -68,31 +60,6 @@ const NOT_AT_SESSION_START: Record<string, { why: string; sites: number }> = {
 	},
 };
 
-function readSessionStartEntries(): string[] {
-	const out: string[] = [];
-	for (const rel of REGISTRATIONS) {
-		const got = readText(path.join(ROOT, rel));
-		if (got.state !== "read") continue;
-		const hooks = JSON.parse(got.data)?.hooks ?? {};
-		for (const h of flattenHooks(hooks))
-			if (h.event === "SessionStart" && typeof h.command === "string")
-				for (const m of h.command.matchAll(COMMAND_SCRIPT))
-					out.push(m[1] as string);
-	}
-	return out;
-}
-
-/** Every file under scripts/ a session start runs or loads, repo-relative. */
-function readSessionStartCode(): string[] {
-	const runReach = readRunReach(ROOT);
-	const code = new Set<string>();
-	/* a foreign Python import is plugin-tree.js's fault to report */
-	for (const entry of readSessionStartEntries())
-		for (const rel of runReach(entry).files)
-			if (rel.startsWith("scripts/")) code.add(rel);
-	return [...code].sort();
-}
-
 /** Each launch in `rel` that detaches a child nothing waits on. */
 function readDetachSites(rel: string): string[] {
 	const lines = fs.readFileSync(path.join(ROOT, rel), "utf8").split("\n");
@@ -109,7 +76,7 @@ function readDetachSites(rel: string): string[] {
 }
 
 describe("a session start's outliving children", () => {
-	const code = readSessionStartCode();
+	const code = [...readHookCode(ROOT, "SessionStart")].sort();
 
 	it("reaches the launcher's jobs, so the walk is not vacuous", () => {
 		expect(code).toEqual(

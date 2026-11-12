@@ -486,9 +486,13 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			["lib/helper.py"],
 		);
 		expect(alone.faults).toEqual([]);
-		expect(imported.faults).toContain(
+		/* The script's own imports too: the settled pass walks it on the path
+		 * it left, the unread entry first. */
+		expect(imported.faults).toEqual([
+			"imports os after a sys.path edit the walk cannot read",
+			"imports m after a sys.path edit the walk cannot read",
 			"imports helper after a sys.path edit the walk cannot read",
-		);
+		]);
 	});
 
 	it("hands the module's own edits on, atop its importer's, to what it imports", () => {
@@ -513,6 +517,22 @@ describe("a module walked on its importer's sys.path (#4870)", () => {
 			"tool/t.py": `${putFirst("lib")}\nimport a\nimport b\n`,
 			"lib/a.py": putFirst("extra"),
 			"lib/b.py": "import x\n",
+			"extra/x.py": "",
+		});
+		expect(runOf("tool/t.py")).toMatchObject({
+			edges: ["extra/x.py", "lib/a.py", "lib/b.py"],
+			faults: [],
+			unread: [],
+		});
+	});
+
+	/* Walked first, `b` meets `x` before `a` has added its entry: only the
+	 * settled pass judges it. */
+	it("reaches a module found only on the entry a module imported after it adds, faulting nothing", () => {
+		writeTree({
+			"tool/t.py": `${putFirst("lib")}\nimport b\nimport a\n`,
+			"lib/a.py": putFirst("extra"),
+			"lib/b.py": "def run():\n    import x\n",
 			"extra/x.py": "",
 		});
 		expect(runOf("tool/t.py")).toMatchObject({
@@ -614,7 +634,7 @@ describe("a Python script's run", () => {
 	 * ignores. */
 	it.each([
 		["x", "y"],
-		["x", "x­"],
+		["x", "x\u00ad"],
 	])(
 		"settles where the entries two same-named modules add, %j and %j, decide which of them loads",
 		(one, other) => {
