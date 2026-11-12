@@ -18,7 +18,8 @@
  * closes a loop, so any read failing twice is BROKEN, never OK — save a corpus
  * tracker whose open-issue list answers not-found or forbidden, which is
  * named on its own line and left out of the seeds, so a token that cannot see
- * one tracker still checks the rest; where it can see none, that is BROKEN.
+ * one tracker still checks the rest (#5086); where it can see none, that is
+ * BROKEN, since an OK over no tracker would be a false clean.
  *
  * WARN, never FAIL: world state, not a commit property. THIS SCRIPT NEVER
  * WRITES — which link is wrong is a judgement about the tickets. The link
@@ -32,13 +33,13 @@ const { runCheck, brokenError, skipError } = require("./lib/check");
 const {
 	assertOpenRead,
 	ghApiSlurp,
+	isForbidden,
 	isNotFound,
 	parseErrLine,
 	parseGhFailureReason,
 	raiseGhFailure,
 	unreachableRemedy,
 } = require("./lib/gh");
-const { caught } = require("./lib/caught.js");
 const { loops, linkText } = require("./lib/wait-graph.js");
 const { refLabel } = require("./lib/issue-ref.js");
 const { resolveCorpus, resolveKey } = require("./lib/workflow-core-config.js");
@@ -68,9 +69,6 @@ function readOpen(repo) {
 	const rows = read();
 	return rows.length > 0 ? rows : assertOpenRead(read(), repo);
 }
-
-/** @param {unknown} e */
-const isForbidden = (e) => /\(HTTP 403\)/.test(String(caught(e).stderr ?? ""));
 
 /**
  * Each tracker's open issues as seeds, and the trackers whose list GitHub
@@ -164,7 +162,7 @@ const SPEC = {
 					`could hide the link that closes a loop. ${CONCLUSION}`,
 			);
 
-		const scope = `${seeds.length} open issue(s) across ${read.length} tracker(s)`;
+		const scope = `${seeds.length} open issue(s) across ${read.length} tracker(s)${hidden.length > 0 ? ` (${hidden.length} not read)` : ""}`;
 		ctx.say(`Checked ${scope}.\n`);
 		reportCycles(ctx, walk.cycles, home);
 

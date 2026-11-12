@@ -845,7 +845,7 @@ async function proseBlockedFault(iss, openNumbers) {
 		"WARN",
 		"PROSE-BLOCKED",
 		`latest comment opens **${opening}, but no open blocker and no holding gate line — the shortlist offers it again`,
-		"add a native blocked-by edge to the issue whose work it waits on, filing that issue unassigned first where none exists; or, for an event no issue does, a `**Gated on:** <condition> — check: <command> — abandon if: <clause>` line with `**Gate basis:**` beneath it (waiting:external is not a gate)",
+		`add a native blocked-by edge to the issue whose work it waits on (\`node ${scriptPath("link-blocker.js")} <n> <blocker>\`), filing that issue unassigned first where none exists; or, for an event no issue does, a \`**Gated on:** <condition> — check: <command> — abandon if: <clause>\` line with \`**Gate basis:**\` beneath it (waiting:external is not a gate)`,
 	];
 }
 
