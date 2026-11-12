@@ -712,7 +712,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 					r.chdirs
 						.map(
 							(d) =>
-								`[${[literal(d.dir, spans).text, d.holds, d.chained && "chained", d.settles && "settles"].filter(Boolean).join(" ")}]`,
+								`[${[literal(d.dir, spans).text, d.holds, d.chained && "chained", d.settles !== undefined && "settles"].filter(Boolean).join(" ")}]`,
 						)
 						.join(""),
 				].join("|"),

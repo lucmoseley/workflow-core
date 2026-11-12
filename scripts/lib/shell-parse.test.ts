@@ -581,6 +581,23 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /missing && (true)\ngh x")).toEqual(["/missing", "/start"]);
 	});
 
+	it("is not settled outside a { …; } group by a chain ending inside it (#5095)", () => {
+		expect(last("cd /missing && { true; } && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true\n} && gh x")).toEqual(["/missing"]);
+		expect(last("cd /missing && { true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("{ cd /missing && true; }; gh x")).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(last("cd /missing && { cd /missing2 && true; gh x; }")).toEqual([
+			"/missing2",
+			"/missing",
+		]);
+	});
+
 	it("moves each doubted directory through a later cd", () => {
 		expect(last("cd /missing/y; cd ../..; gh x", "/a/b")).toEqual([
 			"/missing/y/../..",
@@ -2043,8 +2060,10 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && (true; git checkout x)`, []],
 			[`cd ${WORKTREE} && (true) && git checkout x`, []],
 			[`cd ${WORKTREE} && (true); git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && { true; } && git checkout x`, []],
+			[`cd ${WORKTREE} && { true; }; git checkout x`, [SHARED]],
 		])(
-			"doubts the tree a chain left only once it ends outside a subshell, %s (#5093)",
+			"doubts the tree a chain left only once it ends outside a subshell or group, %s (#5093, #5095)",
 			(bare, trees) => {
 				for (const command of [bare, `flock /l -c "${bare}"`])
 					expect(judged(command, SHARED, false).trees).toEqual(trees);
