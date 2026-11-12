@@ -300,7 +300,7 @@ if (api && api[2] === "commits") {
 type Fixture = ReturnType<typeof scratch>;
 
 function baselineOfOne(f: Fixture) {
-	for (const [i, day] of [2, 9, 16, 23].entries()) f.session(`b${i}`, day, 1);
+	for (const [i, day] of [21, 23, 25, 27].entries()) f.session(`b${i}`, day, 1);
 }
 
 function fixedFinding(f: Fixture) {
@@ -481,7 +481,7 @@ describe("measure-outcome-review.js", () => {
 	it("grows the window until the baseline predicts 3", () => {
 		const f = scratch();
 		/* Two hits over four sessions: half a hit each, so six sessions. */
-		for (const [i, day] of [2, 9, 16, 23].entries())
+		for (const [i, day] of [21, 23, 25, 27].entries())
 			f.session(`b${i}`, day, i < 2 ? 1 : 0);
 		fixedFinding(f);
 		afterFix(f, 8, 0);
@@ -517,8 +517,8 @@ describe("measure-outcome-review.js", () => {
 	it("counts a session in two seats once, with its subagents folded in", () => {
 		const f = scratch();
 		baselineOfOne(f);
-		f.session("b0", 2, 1, { seat: 1 });
-		f.session("b4", 20, 0, { subHits: 2 });
+		f.session("b0", 21, 1, { seat: 1 });
+		f.session("b4", 26, 0, { subHits: 2 });
 		fixedFinding(f);
 		afterFix(f, 5, 0);
 		const { out } = f.run();
@@ -1292,7 +1292,7 @@ describe("--baseline, a finding's baseline at filing", () => {
 		case: { session: "trig", line: 2 },
 	};
 
-	it("counts the four weeks before the trigger week as a per-session rate", () => {
+	it("counts the week before the trigger week as a per-session rate", () => {
 		const f = scratch();
 		baselineOfOne(f);
 		f.session("trig", 30, 5);
@@ -1300,7 +1300,7 @@ describe("--baseline, a finding's baseline at filing", () => {
 		expect(status).toBe(0);
 		expect(out).toMatchObject({
 			filedAt: d(FILED),
-			window: { start: d(0), end: d(28) },
+			window: { start: d(21), end: d(28) },
 			baseline: { count: 4, sessions: 4 },
 			failures: [],
 		});
