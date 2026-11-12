@@ -104,10 +104,13 @@
  *    `find … -exec grep` are unjudged.
  *  - For `rg` the rewrite WIDENS the search. `rg PAT .` skips hidden
  *    directories by default, so naming `.claude` and `.github` explicitly makes
- *    rg read them. That is the same set grep already had.
- *  - The heavy-tree limb reads a root's last component, so a search inside one
- *    — `grep -rn PAT node_modules/vitest` — passes, as does a `find` from the
- *    repo root bounded by `-prune` or `-maxdepth`. `dist`, `build`, `out` and
+ *    rg read them.
+ *  - The heavy-tree limb reads a root's last component, resolved against
+ *    where the search runs (#5119), so a search inside one — `grep -rn PAT
+ *    node_modules/vitest`, or a `..` reaching it — passes; only a `.` is
+ *    judged by every directory it stands in. A root behind a `cd` it cannot
+ *    resolve passes, as does a `find` from the repo root bounded by `-prune`
+ *    or `-maxdepth`. `dist`, `build`, `out` and
  *    `coverage` count only where git ignores them. A watcher other than `watch`
  *    — `inotifywait`, a bundler's `--watch` — is unjudged, and a single-word
  *    `watch` command is split on blanks, its own quoting unread.
@@ -115,6 +118,7 @@
  *    through the dispatcher's log (mantahostels#147).
  */
 
+const path = require("node:path");
 const {
 	BASH_SPACE,
 	asWritten,
@@ -126,6 +130,7 @@ const { escapeRe } = require("./regex-group.js");
 const { findStarts, literal, runText, scanFlags } = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {object} DotReadPorts
@@ -192,8 +197,6 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(raw, ctx) {
-	/* Cheap pre-test before any of the machinery below: a command naming no
-	 * search cannot be one. */
 	if (!/grep|rg|find/.test(raw)) return null;
 	const mode = ctx.permissionMode ?? "";
 	if (!ctx.cwd) {
@@ -373,31 +376,49 @@ function expand(tree, ctx) {
 /** @param {string} w */
 const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
+const HEAVY_TREES = ["node_modules", ".next", ".git"];
+const BUILD_OUTPUT = ["dist", "build", "out", "coverage"];
+
+/**
+ * Whether a directory stands inside node_modules, .next or .git, counting only
+ * the components below the session tree's root where it is inside that tree.
+ * @param {string} dir
+ * @param {string} root "" where the shell stands in no tree
+ */
+function isInHeavyTree(dir, root) {
+	const below = (root === "" ? null : relativeUnder(root, dir)) ?? dir;
+	return below.split("/").some((c) => HEAVY_TREES.includes(c));
+}
+
 /**
  * Whether a search root is node_modules, .next or .git by its last component,
  * or dist, build, out or coverage where git ignores it.
  * @param {Scene} scene
  * @param {string} word
- * @param {string} cwd
+ * @param {string} cwd "" where unknown
  */
-function namesTree({ spans, ctx, tree }, word, cwd) {
+function namesTree({ spans, ctx, tree, root }, word, cwd) {
 	const { text, known } = literal(word, spans);
 	if (!known) return false;
 	let lit = text;
 	while (lit.endsWith("/") && lit !== "/") lit = lit.slice(0, -1);
-	const base = afterSlash(lit);
-	if (base === "node_modules" || base === ".next" || base === ".git")
-		return true;
-	if (!["dist", "build", "out", "coverage"].includes(base)) return false;
+	const resolved =
+		cwd && !lit.startsWith("/") ? path.posix.join(cwd, lit) : lit;
+	const base = afterSlash(resolved);
+	if (HEAVY_TREES.includes(base)) return true;
+	const isDot = path.posix.normalize(lit) === ".";
+	if (isDot && isInHeavyTree(resolved, root)) return true;
+	/* A `.` outside any tree has no git to ask. */
+	if (!BUILD_OUTPUT.includes(base) || (isDot && tree === null)) return false;
 	/* `-C cwd` names where the search runs; outside any tree the host's git
 	 * carries it. */
 	const r = (tree ?? ctx).git(
-		[...(cwd ? ["-C", cwd] : []), "check-ignore", "--", `${lit}/`],
+		[...(cwd ? ["-C", cwd] : []), "check-ignore", "--", `${resolved}/`],
 		[1],
 	);
 	if (!r.ok) {
 		ctx.log(
-			`git check-ignore failed — a recursive search of ${lit} was judged not build output`,
+			`git check-ignore failed — a recursive search of ${resolved} was judged not build output`,
 			r.why,
 		);
 		return false;
@@ -541,9 +562,12 @@ function judgeSearch(scene, search) {
 	const found = scan(scene, search, dotOk);
 	if (!found.recursive || found.inert) return;
 	const bareCount = found.patternByFlag ? 0 : 1;
-	/* A grep naming no path searches where it stands, the repo root included. */
-	if (kind.grepLike && found.bareWords === bareCount)
-		found.heavy ||= isProjectRoot(scene, ".", cwd);
+	/* A search naming no path searches where it stands: a heavy tree, or, for
+	 * a grep, the repo root. */
+	if (found.bareWords === bareCount) {
+		found.heavy ||= namesTree(scene, ".", cwd);
+		if (kind.grepLike) found.heavy ||= isProjectRoot(scene, ".", cwd);
+	}
 	if (found.heavy) judgement.heavyTree = true;
 	if (!dotOk) return;
 	if (found.dotRoot) {

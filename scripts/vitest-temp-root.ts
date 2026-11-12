@@ -6,8 +6,8 @@
  *            and removes it at teardown, with every fixture a test left in it.
  * JUSTIFIED: fail-safe — a test that never removes its fixture otherwise
  *            leaves it in the machine's `/tmp` for good (#5081).
- * DEFEAT:    none — vitest's own process keeps the real temp root, so the
- *            suite queue and the wrapper's hand-off files never move.
+ * DEFEAT:    none — the wrapper keeps the real temp root, so the suite
+ *            queue and its hand-off files never move.
  */
 
 import { createRequire } from "node:module";
