@@ -37,7 +37,7 @@ tool if a deny ever matters.
 
 ```json
 {
-  "cleanupPeriodDays": 365,
+  "cleanupPeriodDays": 35,
   "env": {
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
     "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS": "60000",
@@ -1229,10 +1229,13 @@ The founder only clicks Authorize; a session does the rest.
   back. The drift check ignores it (`VOLATILE_KEYS` in
   `scripts/check-user-settings-drift.js`, which says why), so this block's value
   may be stale. Read the model in use off the session, never off this file.
-- `cleanupPeriodDays: 365` — transcripts are kept a year, so a job whose
+- `cleanupPeriodDays: 35` — transcripts are kept 35 days. The longest
+  readers look back 30 days (`scripts/report-cost-per-unit.js`,
+  `scripts/lib/heresy-sweep.js`, `scripts/check-compaction-backstop.js`), the
+  outcome review's 1-week baseline needs about 3 weeks, and a job whose
   worktree the reaper removed can still be reopened with
-  `node scripts/session-checkout.js reopen <job-id>`. Every seat carries the
-  same value (#4366, #4368).
+  `node scripts/session-checkout.js reopen <job-id>`. A reader that looks back
+  further needs this raised. Every seat carries the same value (#5045).
 - `defaultMode: auto` — tools run without per-call prompting, so the deny list
   and the auto-mode classifier's rules (`autoMode`), rather than the prompt,
   constrain the agent.

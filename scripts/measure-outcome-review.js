@@ -157,8 +157,8 @@ const { canonicalJson } = require("./lib/canonical-json");
 const DAY_MS = 86_400_000;
 /** The trigger week, never part of the baseline. */
 const TRIGGER_DAYS = 7;
-/** The baseline's span before the trigger week (#4796: 4 weeks). */
-const BASELINE_WEEKS = 4;
+/** The baseline's span before the trigger week (#5045 Q1: 1 week). */
+const BASELINE_WEEKS = 1;
 /** Days after the fix's commit before the first reading (#4796). */
 const INTERVAL_DAYS = 7;
 /** Expected recurrences the window grows to (#4796: 3). */
