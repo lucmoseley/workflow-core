@@ -716,8 +716,7 @@ function followCited(text, m, own, follow) {
  *   each one's reason.
  * @typedef {BasisFault & {words: string, window?: string}} WordedFault a
  *   fault with the body words a reading read it in — the gate line, wait or
- *   basis — and, for an unnamed window, the window as written; what
- *   `faultsAdded` holds an edit's faults by
+ *   basis — and, for an unnamed window, the window as written
  */
 
 /**
@@ -1014,21 +1013,18 @@ function parseBacktickRuns(block, from) {
  */
 
 /**
- * The faults a write adds, either reading's, so an edit is refused only for
- * what it brings and an old body stays editable: a create's every fault, and
- * of an edit's, each `before` does not hold. `before` holds a fault where its
+ * The faults a write adds, either reading's: a create's every fault, and of
+ * an edit's, each `before` does not hold. `before` holds a fault where its
  * words were live there and its basis state gave the same kind:
  *
- * - a missing basis, where `before` had no basis either — deleting the basis
- *   under an old wait is refused;
+ * - a missing basis, where `before` had no basis either;
  * - an unnamed window, whatever basis `before` had, so adding a basis beside
  *   an old wait is not refused for the wait (#823);
  * - a basis with no warrant, where `before` held that basis live and owed
  *   it a warrant — it wrote a window, or the edit adds none the patterns
  *   read — bar on a re-gate, where every basis meets today's bar (#4946).
  *
- * A gate line whose date changed is new words: a moved window needs its basis
- * as much as a new one.
+ * A gate line whose date changed is new words.
  *
  * @template {WordedFault} F
  * @param {F[]} faults the faults the readings raise on the whole body
@@ -1373,7 +1369,6 @@ module.exports = {
 	citedKey,
 	isNewlyGated,
 	isLiveQuote,
-	isRegate,
 	untouchedBases,
 	wordedBasisFaults,
 	parseAddedGateLines,
