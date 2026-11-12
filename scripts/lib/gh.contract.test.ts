@@ -699,7 +699,7 @@ describe("live: computed answers", () => {
 		(argv: string[], issues: Record<string, object>) => GhAnswer
 	>(CITED_GRAPHQL_FAKE, "answerCited");
 
-	/* #2331 is closed, its comments on one page, so the answer's shape holds. */
+	/* #2331's comments fit one page, so the answer's shape holds. */
 	it("lib/basis-cited-read.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
@@ -714,7 +714,7 @@ describe("live: computed answers", () => {
 		);
 		const issues = {
 			[readTracker().toLowerCase()]: {
-				2331: { state: "CLOSED", body: "x", comments: ["y"] },
+				2331: { body: "x", comments: ["y"] },
 			},
 		};
 		const log = path.join(dir, "cited-calls");

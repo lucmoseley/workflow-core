@@ -1,11 +1,8 @@
 /*
  * basis-cited-read.test.ts — pins readBasisFaults, the one call answering
  * bodies' basis faults with the issues their bases cite followed one hop
- * (#5007, #5008, #5079): which citations it reads and in how many calls,
- * how a cited issue stands or faults, and how gh's answers turn into issues
- * read, null or unread — comment paging, one call across repositories, a
- * partly errored answer, an unreadable repository, an unsendable name, and
- * the failure wording, which must never repeat the whole query.
+ * (#5007, #5008, #5079), and how gh's answers turn into issues read, null
+ * or unread.
  *
  * Each case drives the entry through the shared gh fake (gh-stub's `cited`,
  * gh-fake's `answerCited`), so the real lib/gh.js call runs. Breaking this
@@ -66,11 +63,7 @@ const cites = (basis: string) => `${Week}\n**Gate basis:** ${basis}\n`;
 const Count =
 	"**Gate basis:** a week: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
 
-interface Judged {
-	body: string;
-	own?: number;
-	before?: string;
-}
+type Judged = Parameters<typeof readBasisFaults>[0][number];
 
 /** readBasisFaults over `bodies`, the suites' seam opened. */
 const judge = (
@@ -83,7 +76,6 @@ const judge = (
 		env: { ...process.env, WFC_GATE_CITED: "", ...env },
 	});
 
-/** The entry over one body gated a week whose basis is `basis`. */
 const one = (basis: string, opts: Omit<Judged, "body"> = {}) => {
 	const got = judge([{ body: cites(basis), ...opts }]);
 	return { ...got, faults: got.faults[0], trace: got.traces[0] };
@@ -110,7 +102,7 @@ describe("readBasisFaults follows a cited issue one hop", () => {
 	it("stands where a cited issue's comment derives the window, reading four issues in one call", () => {
 		serving({
 			"o/r": {
-				2821: { state: "CLOSED", body: "Ruled." },
+				2821: { body: "Ruled." },
 				2826: { body: "x" },
 				2823: { body: "x" },
 				2824: { body: "x", comments: ["Plain.", Count] },
@@ -261,7 +253,7 @@ describe("readBasisFaults's read", () => {
 		const [first, second] = queries();
 		expect(first).toContain("comments(first: 100)");
 		expect(second).toContain('after: "100"');
-		expect(second).not.toContain("state body");
+		expect(second).not.toContain("Issue { body ");
 	});
 
 	it("reads every repository in one call, each number once", () => {

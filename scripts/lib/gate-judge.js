@@ -33,11 +33,10 @@ const {
 	unreadNote,
 } = require("./basis-cited-read.js");
 const {
-	basisFaults,
 	basisRefusal,
 	basisRule,
+	basisWriteFaults,
 	gateFacts,
-	introducedBasisFaults,
 	judgeOverrideOf,
 	otherIssueRefs,
 	isRegate,
@@ -385,18 +384,6 @@ function mergeFaults(patterns, model, edit) {
 }
 
 /**
- * A body's pattern faults, every cited issue judged on its form.
- *
- * @param {string} body
- * @param {number} [own]
- * @param {string} [before]
- */
-const patternFaults = (body, own, before) =>
-	before === undefined
-		? basisFaults(body, own)
-		: introducedBasisFaults(before, body, own);
-
-/**
  * A body's gate faults by both readings. With `before`, the body an edit
  * replaces, a fault is raised only where the edit brought it: a pattern fault
  * by lib/issue-gate.js's own edit rule, a model fault unless `before` already
@@ -421,7 +408,7 @@ function judgedBasisFaults(
 	{ own, before, boundMs = JUDGE_BOUND_MS, env, patterns: given } = {},
 ) {
 	const text = String(body || "");
-	const patterns = given ?? patternFaults(text, own, before);
+	const patterns = given ?? basisWriteFaults({ body: text, own, before });
 	const startedAt = Date.now();
 	const read = readJudge(text, { boundMs, env });
 	const ms = Date.now() - startedAt;
@@ -522,7 +509,7 @@ const MIN_BOUND_MS = 5000;
  * @param {{own?: number, before?: string, timeoutMs: number,
  *   env: NodeJS.ProcessEnv}} opts
  */
-function citedPatterns(body, { own, before, timeoutMs, env }) {
+function readCitedPatterns(body, { own, before, timeoutMs, env }) {
 	const read = readBasisFaults([{ body, own, before }], {
 		timeoutMs,
 		root: env.CLAUDE_PROJECT_DIR,
@@ -626,7 +613,7 @@ function readGateWrite(
 	if (before !== undefined && before === body)
 		return { refusal: null, advice: "" };
 	const startedAt = Date.now();
-	const cited = citedPatterns(body, {
+	const cited = readCitedPatterns(body, {
 		own,
 		before,
 		timeoutMs: Math.min(CITED_BOUND_MS, leftMs),
@@ -679,7 +666,6 @@ function readGateWrite(
 }
 
 module.exports = {
-	JUDGE_BOUND_MS,
 	LAUNCHER_GRACE_MS,
 	WRITE_BOUND_MS,
 	buildPrompt,

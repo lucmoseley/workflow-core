@@ -683,6 +683,13 @@ describe("a write route words the cited follow (#5007)", () => {
 		expect(graphqlCalls()).toBe(1);
 	});
 
+	it("words a cited question round it cannot find", () => {
+		serving({ "o/r": { 1556: { body: "x" } } });
+		expect(write(cites("a week is #1556 Q9 (A)'s ruling")).refusal).toContain(
+			"(it cites #1556 Q9, where that question round is not found)",
+		);
+	});
+
 	it("judges on form, with one note naming the unread issues, where the read fails", () => {
 		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
 		const r = write(cites("#12 and #13 set a week"));

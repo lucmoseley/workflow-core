@@ -1,7 +1,7 @@
 /*
  * basis-cited-read.js — bodies' basis faults with the issues a `**Gate
  * basis:**` cites followed one hop (#5007): every cited issue read whole in
- * one batched GraphQL call, its state, body and every comment, and judged by
+ * one batched GraphQL call, its body and every comment, and judged by
  * lib/issue-gate.js, which reads no gh.
  *
  * FAILURE IS THE WHOLE READ, OR ONE REPOSITORY'S — NEVER "NO BASIS". A call
@@ -12,11 +12,7 @@
 
 const { gh } = require("./gh.js");
 const { caught } = require("./caught.js");
-const {
-	basisFaults,
-	citedKey,
-	introducedBasisFaults,
-} = require("./issue-gate.js");
+const { basisWriteFaults, citedKey } = require("./issue-gate.js");
 
 /* Comments read per page, GitHub's own ceiling for one connection. */
 const COMMENTS_PAGE = 100;
@@ -29,9 +25,7 @@ const REPO_PART_RE = /^[\w.-]+$/;
  * @typedef {import("./issue-gate.js").BasisFault} BasisFault
  * @typedef {import("./issue-gate.js").Follow} Follow
  * @typedef {import("./issue-gate.js").FollowRecord} FollowRecord
- * @typedef {{body: string, own?: number, before?: string}} Judged a body,
- *   its issue's number where known, and with `before`, the body an edit
- *   replaces, judged by lib/issue-gate.js's edit rule
+ * @typedef {import("./issue-gate.js").BasisWrite} BasisWrite
  * @typedef {Wanted & {key: string, ref: string}} Unread a citation left
  *   unread: `key` lower-cased `owner/name#N`, `ref` as the basis wrote it
  * @typedef {any} GhJson GitHub's answer as parsed, every reader defaulting a
@@ -44,7 +38,7 @@ const commentsField = (after) =>
 
 /**
  * One GraphQL document reading `pages`, aliased by index so any repo
- * spelling is a legal alias. The first page carries state and body too.
+ * spelling is a legal alias. The first page carries the body too.
  *
  * @param {string[]} repos `owner/name`, in alias order
  * @param {{repo: string, number: number, after: string|null}[]} pages
@@ -56,7 +50,7 @@ function buildQuery(repos, pages) {
 			.filter((p) => p.repo === repo)
 			.map(
 				(p) =>
-					`n${p.number}: issueOrPullRequest(number: ${p.number}) { __typename ... on Issue { ${p.after ? "" : "state body "}${commentsField(p.after)} } }`,
+					`n${p.number}: issueOrPullRequest(number: ${p.number}) { __typename ... on Issue { ${p.after ? "" : "body "}${commentsField(p.after)} } }`,
 			);
 		return `r${r}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${issues.join(" ")} }`;
 	});
@@ -107,7 +101,7 @@ function runQuery(query, timeoutMs) {
 
 /**
  * @typedef {{repo: string, number: number, after: string|null}} Page one
- *   issue's next page of comments, its first carrying state and body
+ *   issue's next page of comments, its first carrying the body
  * @typedef {{issues: Map<string, CitedIssue|null>,
  *   building: Map<string, CitedIssue>}} Into the issues read so far, and
  *   those with comments still to read
@@ -138,7 +132,6 @@ function takePage(data, repos, p, into) {
 		return {};
 	}
 	const issue = into.building.get(key) ?? {
-		state: String(node.state ?? "").toLowerCase(),
 		texts: [String(node.body ?? "")],
 	};
 	const conn = node.comments ?? {};
@@ -154,7 +147,7 @@ function takePage(data, repos, p, into) {
 }
 
 /**
- * Each wanted issue's state, body and every comment, by `owner/name#N`
+ * Each wanted issue's body and every comment, by `owner/name#N`
  * lower-cased: null for a number its readable repository holds no issue
  * under, absent where it was not read.
  *
@@ -247,25 +240,15 @@ const MIN_CITED_MS = 3000;
 const CITED_BOUND_MS = 10_000;
 
 /**
- * @param {Judged} j
- * @param {Follow} follow
- */
-const faultsOf = ({ body, own, before }, follow) =>
-	before === undefined
-		? basisFaults(body, own, follow)
-		: introducedBasisFaults(before, body, own, follow);
-
-/**
  * Each body's basis faults, a basis whose only warrant is a cited issue
- * followed one hop (#5007): the issues every body's bases cite are read in
- * one batched call within `timeoutMs`. A basis an edit leaves untouched, an
+ * followed one hop (#5007), read within `timeoutMs`. A basis an edit leaves untouched, an
  * event anchor and the body's own number cite nothing.
  *
  * `WFC_GATE_CITED=off` is the suites' seam (vitest.setup.ts): nothing read,
  * every basis judged on its form. It holds only beside VITEST_WORKER_ID
  * (#5011), so a command cannot switch the read off in a hook's environment.
  *
- * @param {Judged[]} bodies
+ * @param {BasisWrite[]} bodies
  * @param {{timeoutMs: number, root?: string, env?: NodeJS.ProcessEnv}} opts
  *   `root`, the project whose config names the tracker
  * @returns {{faults: BasisFault[][], traces: FollowRecord[][],
@@ -276,7 +259,7 @@ const faultsOf = ({ body, own, before }, follow) =>
  */
 function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
 	const formOnly = (/** @type {Follow} */ follow) => ({
-		faults: bodies.map((j) => faultsOf(j, follow)),
+		faults: bodies.map((w) => basisWriteFaults(w, follow)),
 		traces: bodies.map(() => []),
 		unread: [],
 		why: null,
@@ -308,8 +291,8 @@ function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
 	/** @type {FollowRecord[][]} */
 	const traces = bodies.map(() => []);
 	return {
-		faults: bodies.map((j, i) =>
-			faultsOf(j, {
+		faults: bodies.map((w, i) =>
+			basisWriteFaults(w, {
 				tracker: tracker ?? NO_TRACKER,
 				issues: read.issues,
 				trace: traces[i],
