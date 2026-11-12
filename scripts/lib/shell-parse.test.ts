@@ -940,6 +940,14 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		"export D=/d; D=/e; flock /l -c 'cd $D; gh x'",
 		"true || export D=/d; flock /l -c 'cd $D; gh x'",
 		"export D=/d; env -i flock /l -c 'cd $D; gh x'",
+		"export D=/d; D=/e flock /l -c 'cd $D; gh x'",
+		"export D=/d; read D; flock /l -c 'cd $D; gh x'",
+		"(export D=/d); flock /l -c 'cd $D; gh x'",
+		"export D=/d & flock /l -c 'cd $D; gh x'",
+		"export D=/d | true; flock /l -c 'cd $D; gh x'",
+		"(D=/d); env -C $D gh x",
+		"(export D=/d); env -C $D gh x",
+		"D=/d | true; env -C $D gh x",
 	])("names no directory an export may not have set (#5120): %s", (command) => {
 		expect(runDirs(command)?.at(-1)?.[0]).toBe("");
 	});
@@ -2906,7 +2914,7 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 		["a command substitution", 'cd "$(pwd)" && git checkout x'],
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: bash braces, and the operator inside them is what must not be expanded.
 		["an operator form", 'git -C "${UNSET_325:-/x}" checkout x'],
-		// The harvest sees leading `NAME=` words alone.
+		// The harvest sees leading `NAME=` words and an export's, never a plain `declare`'s.
 		[
 			"an assignment it cannot harvest",
 			'declare UNSET_325=/x; git -C "$UNSET_325" checkout x',

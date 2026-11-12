@@ -897,6 +897,9 @@ function asWritten(text, spans) {
  *   resolve, or two different values
  * @property {Set<string>} exported names an `export`, `declare -x` or
  *   `typeset -x` put in the environment a `-c` string's shell inherits (#5120)
+ * @property {Map<string, number>} recorded how many of the command's words
+ *   the harvest read as assigning or exporting each name, which a `-c`
+ *   string's read of an exported name checks against its bare mentions
  * @property {Record<string, string | undefined>} vars the guard's own
  *   variables, the environment the hook inherited
  * @property {string} subject the whole command, searched for a name's other
@@ -955,6 +958,9 @@ function parseVarRef(s) {
 	return { name: m[0], rest: s.slice(m[0].length) };
 }
 
+/** A shell variable's name. */
+const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
  * The value `name` expands to, the command's own assignments winning; null
  * where it is refused.
@@ -964,8 +970,7 @@ function parseVarRef(s) {
 function lookupVar(name, scope) {
 	/* Anything but a bare name — ${VAR:-x}, ${#VAR}, ${!VAR}, $1 — is
 	 * refused. */
-	if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || scope.dead.has(name))
-		return null;
+	if (!NAME_RE.test(name) || scope.dead.has(name)) return null;
 	let val = scope.locals.get(name);
 	if (val === "" && isProvablyEmpty(name, 1, scope)) return "";
 	if (!scope.locals.has(name)) {
@@ -987,8 +992,8 @@ const SOURCING_RE =
  * so lookupVar substitutes it rather than refusing? The caller has already
  * found the name unset in the environment and unharvested (`allowed` 0), or
  * harvested as empty (`allowed` 1). Either is certain only where the command
- * assigns it NOWHERE ELSE: the harvest sees leading `NAME=` words alone, so an
- * `export W=…`, `read W` or `for W in` must stop it. Any bare-word mention past
+ * assigns it NOWHERE ELSE: the harvest sees leading `NAME=` words and an
+ * `export`'s alone, so a `read W` or `for W in` must stop it. Any bare-word mention past
  * the count refuses — a heredoc or a quoted string naming it included, which
  * fails open where it need not. A command carrying `||` may skip an assignment
  * the count cannot tell from a use, and one running `source`, `.` or `eval`
@@ -1230,8 +1235,8 @@ const TEXT_ONLY_PORTS = Object.freeze({
  * @property {GitEnv} gitEnv the git-reading variables an `export` has put in
  *   the environment (#3997)
  * @property {{ dirs: import("./shell-dirs.js").DirsState, names: string[],
- *   noRedirects: boolean, gitEnv: GitEnv }[]} stack what each open `(`
- *   restores at its `)`
+ *   noRedirects: boolean, gitEnv: GitEnv, vars: ScopeVars }[]} stack what
+ *   each open `(` restores at its `)`
  * @property {boolean} noRedirects inside arithmetic, whose `>` and `<`
  *   compare (#1488)
  * @property {string} arPrev the segment before
@@ -1253,6 +1258,7 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
 		locals: new Map(),
 		dead: new Set(),
 		exported: new Set(),
+		recorded: new Map(),
 		vars,
 		subject: parsed.subject,
 		conditional: parsed.conditional,
@@ -1275,8 +1281,9 @@ const newWalk = (parsed, vars, cwd, emptyUnset) => ({
  * Call `fn` with each segment that is no bracket's SCOPE_MARK line, its words
  * split. A segment of assignments alone is harvested for the commands after
  * it, as `WT=/x && git …` flattens into one (mantahostels#208), and so is an
- * `export`'s (#5120). A command's own leading assignments are not: bash
- * expands its words first and puts them in its environment alone (#5087).
+ * `export`'s (#5120), bar one that runs apart. A command's own leading
+ * assignments are not: bash expands its words first and puts them in its
+ * environment alone (#5087).
  * @param {Walk} walk
  * @param {(segment: string, cw: CommandWords, segIdx: number) => void} fn
  */
@@ -1284,12 +1291,23 @@ function eachSegment(walk, fn) {
 	walk.parsed.segments.forEach((segment, segIdx) => {
 		if (arithScope(walk, segment)) return;
 		const cw = commandWords(segment, { noRedirects: walk.noRedirects });
-		if (cw.ran)
-			harvestExport(walk.scope, walk.parsed, cw.words.slice(cw.wi), segIdx);
-		else
-			harvest(walk.scope, walk.parsed, cw.words.slice(0, cw.assignEnd), segIdx);
+		if (!runsApart(walk.parsed, segIdx)) harvestSegment(walk, cw, segIdx);
 		fn(segment, cw, segIdx);
 	});
+}
+
+/**
+ * Harvest one segment that runs in the walk's own shell: its assignments
+ * where it holds them alone, else an `export`'s.
+ * @param {Walk} walk accumulator: its scope is moved
+ * @param {CommandWords} cw
+ * @param {number} segIdx
+ */
+function harvestSegment(walk, cw, segIdx) {
+	if (cw.ran)
+		harvestExport(walk.scope, walk.parsed, cw.words.slice(cw.wi), segIdx);
+	else
+		harvest(walk.scope, walk.parsed, cw.words.slice(0, cw.assignEnd), segIdx);
 }
 
 /**
@@ -1312,13 +1330,23 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
+/**
+ * @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars what a
+ *   subshell's assignments move, which its `)` hands back
+ */
+
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
  * @param {Walk} walk accumulator: its stack, directories and redirect mode
  *   are moved */
 function openScope(walk) {
-	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
-	walk.stack.push({ dirs, names, noRedirects, gitEnv });
+	const { dirs, cwdNames: names, noRedirects, gitEnv, scope } = walk;
+	const vars = {
+		locals: new Map(scope.locals),
+		dead: new Set(scope.dead),
+		exported: new Set(scope.exported),
+	};
+	walk.stack.push({ dirs, names, noRedirects, gitEnv, vars });
 	walk.dirs = openDirsScope(dirs);
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
@@ -1339,8 +1367,24 @@ function closeScope(walk) {
 		walk.cwdNames = back.names;
 		walk.noRedirects = back.noRedirects;
 		walk.gitEnv = back.gitEnv;
+		restoreVars(walk.scope, back.vars);
 	}
 	walk.arLast = "";
+}
+
+/**
+ * Hand back the variables a subshell's `(` saw, in place, as a Command's
+ * runs read the scope they were handed.
+ * @param {Scope} scope accumulator: its locals, dead and exported are moved
+ * @param {ScopeVars} back
+ */
+function restoreVars(scope, back) {
+	scope.locals.clear();
+	for (const [name, val] of back.locals) scope.locals.set(name, val);
+	scope.dead.clear();
+	for (const name of back.dead) scope.dead.add(name);
+	scope.exported.clear();
+	for (const name of back.exported) scope.exported.add(name);
 }
 
 /** A `NAME=value` word: the name, then the value. */
@@ -1365,15 +1409,24 @@ function harvest(scope, { conditional }, words, segIdx) {
 		if (!m) continue;
 		const val = skipped ? null : assignedValue(m[2] ?? "", scope);
 		recordAssignment(scope, m[1] ?? "", val);
+		countRecorded(scope, m[1] ?? "");
 	}
 }
+
+/**
+ * @param {Scope} scope accumulator: its recorded is moved
+ * @param {string} name
+ */
+const countRecorded = (scope, name) =>
+	scope.recorded.set(name, (scope.recorded.get(name) ?? 0) + 1);
 
 /**
  * Record what one `export`, `declare -x`, `typeset -x`, `export -n` or `unset`
  * does to `scope`: its assignments as harvest records a bare one's, and each
  * name it exports or drops from the environment. An `unset` name, or an
  * assignment word whose name is quoted, is unresolvable after it.
- * @param {Scope} scope accumulator
+ * @param {Scope} scope accumulator: its locals, dead, exported and recorded
+ *   are moved
  * @param {Parsed} parsed
  * @param {string[]} own the command's words, its command word first
  * @param {number} segIdx
@@ -1381,13 +1434,15 @@ function harvest(scope, { conditional }, words, segIdx) {
 function harvestExport(scope, parsed, [head = "", ...rest], segIdx) {
 	const kind = exportKind(head, rest);
 	if (kind === null) return;
-	for (const w of rest) {
-		const name = assignedName(w, parsed.spans);
-		if (w.startsWith("-") || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
-		if (head === "unset") recordAssignment(scope, name, null);
-		else if (ASSIGNMENT.exec(w)?.[1] === name)
+	for (const { w, text, name } of exportArgs(rest, parsed.spans)) {
+		if (!NAME_RE.test(name)) continue;
+		if (ASSIGNMENT.exec(w)?.[1] === name && head !== "unset")
 			harvest(scope, parsed, [w], segIdx);
-		else if (w !== name) recordAssignment(scope, name, null);
+		else {
+			if (head === "unset" || text !== name)
+				recordAssignment(scope, name, null);
+			countRecorded(scope, name);
+		}
 		if (kind === "export") scope.exported.add(name);
 		else scope.exported.delete(name);
 	}
@@ -1412,6 +1467,7 @@ function leadingScopes(walk, leading, segIdx) {
 			...walk.scope,
 			locals: new Map(walk.scope.locals),
 			dead: new Set(walk.scope.dead),
+			recorded: new Map(walk.scope.recorded),
 		};
 		harvest(scope, walk.parsed, leading.slice(0, i), segIdx);
 		out.set(name, scope);
@@ -1850,9 +1906,7 @@ function stepScript(state, cw, where) {
  */
 function exportInScript(state, command, args, where) {
 	const { spans } = where;
-	const texts = args
-		.map((w) => literal(w, spans).text)
-		.filter((t) => !t.startsWith("-"));
+	const texts = exportArgs(args, spans).map((a) => a.text);
 	const { set, lostTo } =
 		command.kind === "export"
 			? assignedNames(texts, false)
@@ -1875,10 +1929,7 @@ function exportInScript(state, command, args, where) {
 function exportWords(state, { head, kind }, args, spans) {
 	let { exports, unread } = state;
 	const locals = new Map(state.locals);
-	for (const w of args) {
-		const text = literal(w, spans).text;
-		if (text.startsWith("-")) continue;
-		const name = assignedName(w, spans);
+	for (const { w, text, name } of exportArgs(args, spans)) {
 		unread = unread.filter((n) => n !== name);
 		if (kind === "drop") {
 			exports = withoutName(exports, name, spans);
@@ -1947,6 +1998,21 @@ function markScriptUnread(state, words, assigning, spans) {
 		? state
 		: { ...state, unread: [...state.unread, ...named] };
 }
+
+/**
+ * The words an `export`, `declare`, `typeset` or `unset` names, its flags
+ * left out: each masked, read through literal, and the name it sets.
+ * @param {string[]} args the words after its command word
+ * @param {string[]} spans
+ * @returns {{ w: string, text: string, name: string }[]}
+ */
+const exportArgs = (args, spans) =>
+	args.flatMap((w) => {
+		const text = literal(w, spans).text;
+		return text.startsWith("-")
+			? []
+			: [{ w, text, name: assignedName(w, spans) }];
+	});
 
 /**
  * @param {string} w an assignment or a name, masked
@@ -2864,8 +2930,7 @@ function trackExport(walk, [head = "", ...rest]) {
 	const kind = exportKind(head, rest);
 	if (kind === null) return false;
 	const env = new Map(walk.gitEnv);
-	for (const w of rest) {
-		const text = literal(w, walk.scope.spans).text;
+	for (const { text } of exportArgs(rest, walk.scope.spans)) {
 		const [name = ""] = text.split("=", 1);
 		if (!GIT_ENV_NAME.test(name)) continue;
 		if (kind === "drop") env.delete(name);
@@ -3061,6 +3126,7 @@ const buildBareScope = (spans) => ({
 	locals: new Map(),
 	dead: new Set(),
 	exported: new Set(),
+	recorded: new Map(),
 	vars: {},
 	subject: "",
 	conditional: -1,
@@ -3106,7 +3172,9 @@ function buildScriptScope({ vars = new Map(), envReset }, outer) {
 
 /**
  * The environment a `-c` string's shell inherits from `outer`, as
- * buildScriptScope reads it.
+ * buildScriptScope reads it. An exported name stands at its outer value only
+ * where the harvest read every bare mention of it: one it did not, such as a
+ * prefix `D=… flock` or a `read D`, may have changed it.
  * @param {Scope} outer
  * @returns {Record<string, string | undefined>}
  */
@@ -3116,7 +3184,11 @@ function inheritedEnv(outer) {
 	for (const [name, value] of Object.entries(outer.vars))
 		if (bareMentions(name, outer.subject) === 0) env[name] = value;
 	for (const name of outer.exported) {
-		const value = lookupVar(name, outer);
+		const seen = outer.recorded.get(name) ?? 0;
+		const value =
+			bareMentions(name, outer.subject) === seen
+				? lookupVar(name, outer)
+				: null;
 		if (value === null) delete env[name];
 		else env[name] = value;
 	}
