@@ -567,6 +567,7 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 	it("is sure of a cd for what a && chains off it, not after", () => {
 		expect(last("cd /missing && gh x")).toEqual(["/missing"]);
 		expect(last("cd /missing && true; gh x")).toEqual(["/missing", "/start"]);
+		expect(last("cd /missing && true &&\n\ngh x")).toEqual(["/missing"]);
 	});
 
 	it("moves each doubted directory through a later cd", () => {
@@ -585,6 +586,9 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 
 	it("is not moved by a cd in a pipeline or behind &", () => {
 		expect(last("cd /a & gh x")).toEqual(["/start"]);
+		expect(last("cd /a &&\n\ntrue & gh x")).toEqual(
+			last("cd /a && true & gh x"),
+		);
 		expect(last("cd /a | true; gh x")).toEqual(["/start"]);
 	});
 
@@ -2016,6 +2020,7 @@ describe('walkGit, scope "shared"', () => {
 			"",
 		]);
 		expect(parseCommand("a &&\n b").joins).toEqual(["", "a", "a"]);
+		expect(parseCommand("a &&\n\n b").joins).toEqual(["", "a", "a", "a"]);
 		const { segments, joins } = parseCommand("(a) && (b)");
 		expect(joins).toHaveLength(segments.length);
 	});
