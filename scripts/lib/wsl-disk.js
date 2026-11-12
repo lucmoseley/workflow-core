@@ -6,6 +6,7 @@
  */
 
 const { compareVersions } = require("./compare-versions.js");
+const { docPath, scriptPath } = require("./script-path.js");
 
 const DAY_MS = 86_400_000;
 
@@ -46,7 +47,8 @@ const BLOCKING_ISSUE = 41_837;
 /** Untraced: enough of a release's sparse lines for the ticket to quote. */
 const QUOTED_LINES = 5;
 
-const RUN_AGAIN = "`node scripts/wsl-disk-compaction.js run --now`";
+const RUN_AGAIN = `\`node ${scriptPath("wsl-disk-compaction.js")} run --now\``;
+const INSTALL = `\`bash ${scriptPath("install-interop-watchdog.sh")}\``;
 const LOG_REMEDY = `read %LOCALAPPDATA%\\wsl-compact.log and \`journalctl --user -u wsl-disk-compaction\`, then ${RUN_AGAIN}`;
 
 /**
@@ -171,8 +173,7 @@ function entryWarnings(entries, now) {
  * @param {number} now
  */
 function trimWarnings(lastTrim, now) {
-	const remedy =
-		"run `sudo bash scripts/install-fstrim-wsl.sh`, then `systemctl list-timers fstrim.timer`";
+	const remedy = `run \`sudo bash ${scriptPath("install-fstrim-wsl.sh")}\`, then \`systemctl list-timers fstrim.timer\``;
 	if (isFailed(lastTrim))
 		return [
 			{
@@ -207,7 +208,7 @@ function judgeDisk({ log, now, freeGB, lastTrim }) {
 	else if (freeGB < LOW_FREE_GB)
 		warnings.push({
 			tag: "C-LOW",
-			line: `${free}, under ${LOW_FREE_GB} GB. Run ${RUN_AGAIN}, and look for what is filling it (docs/environment.md §1).`,
+			line: `${free}, under ${LOW_FREE_GB} GB. Run ${RUN_AGAIN}, and look for what is filling it (${docPath("environment.md")} §1).`,
 		});
 	if (log.state === "unreadable") {
 		warnings.push({
@@ -219,7 +220,7 @@ function judgeDisk({ log, now, freeGB, lastTrim }) {
 	if (log.state === "absent") {
 		warnings.push({
 			tag: "COMPACT-UNINSTALLED",
-			line: "no wsl-compact.log in %LOCALAPPDATA%, so the monthly compaction is not installed: run `bash scripts/install-interop-watchdog.sh`.",
+			line: `no wsl-compact.log in %LOCALAPPDATA%, so the monthly compaction is not installed: run ${INSTALL}.`,
 		});
 		return { warnings, okLine: "" };
 	}
@@ -422,7 +423,7 @@ function readyLog(ports, force) {
 	if (log.state !== "read") {
 		ports.say(
 			log.state === "absent"
-				? "no wsl-compact.log on the Windows side, so the task is not registered: run `bash scripts/install-interop-watchdog.sh`."
+				? `no wsl-compact.log on the Windows side, so the task is not registered: run ${INSTALL}.`
 				: `the compaction log would not read: ${log.why}.`,
 		);
 		return 1;
