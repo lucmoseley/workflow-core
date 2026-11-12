@@ -4,7 +4,9 @@
  * #4864): the files an import loads, the paths it tried first, and the
  * imports it cannot place. Loosen a case and the pass store caches a test
  * whose spawned script's module changed. Each case builds a real temporary
- * tree, since the walk resolves a module by reading the disk.
+ * tree, since the walk resolves a module by reading the disk. Both modules'
+ * cases share this file: the #4870 cases hold a module read alone against
+ * the run importing it.
  */
 
 import { spawnSync } from "node:child_process";

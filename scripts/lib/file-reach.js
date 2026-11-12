@@ -407,15 +407,19 @@ const pythonVersion = () => readPython().version;
  *   walk cannot tell (`jsReach`), and whether the file runs an inline
  *   Python program
  * @typedef {Reach & {pySearch: PyEntry[] | null}} FileReach with sys.path
- *   as a Python file leaves it, null for any other
+ *   as a Python file leaves it, settled: one order whatever order a run's
+ *   files were read in, so a path handed round them only ever gains
+ *   entries; null for any other file
  */
 
 /**
+ * What the script at `file`, holding `text`, reaches.
  * @param {string} file absolute
  * @param {string} text
  * @param {(msg: string) => void} fault
  * @param {PyEntry[] | null} importerSearch for a Python file, the
- *   `pySearch` the other files of its script's run left
+ *   `pySearch` the other files of its script's run left; null reads it on
+ *   its own directory and edits alone, as a script run on its own
  * @returns {FileReach}
  */
 function fileReach(file, text, fault, importerSearch) {

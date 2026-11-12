@@ -147,10 +147,10 @@ function runScript(script, visitOf, run, hear) {
 	let pySearch = null;
 	for (;;) {
 		const pass = scriptPass(script, pySearch, visitOf);
-		/* Ends: settledPySearch hands the path back in one order whatever
-		 * order the files were walked in, so a pass can only add an entry,
-		 * and the entries its files' edits name are a finite set. A pass that
-		 * moves the path without lengthening it is one the walk cannot tell. */
+		/* Ends: fileReach hands the path back settled (its FileReach), so a
+		 * pass can only add an entry, and the entries its files' edits name
+		 * are a finite set. A pass that moves the path without lengthening it
+		 * is one the walk cannot tell. */
 		const settled = JSON.stringify(pass.pySearch) === JSON.stringify(pySearch);
 		const stuck =
 			!settled && (pass.pySearch?.length ?? 0) <= (pySearch?.length ?? -1);
