@@ -81,6 +81,16 @@ function checkout() {
 	return dir;
 }
 
+/* The variables vitest.setup.ts sets and the few a child needs to run: the
+ * runner's own (`GITHUB_REF_NAME=main`) would hand the audit values no test
+ * chose (#5049). */
+const HARNESS_VAR =
+	/^(PATH|HOME|TMPDIR|LANG|LC_\w+)$|^(WFC_|GIT_|CLAUDE_|MEMWATCH_)/;
+const harnessEnv = () =>
+	Object.fromEntries(
+		Object.entries(process.env).filter(([name]) => HARNESS_VAR.test(name)),
+	);
+
 /**
  * Run `body` as the test file `file` in a process under the audit armed over
  * `root`; returns the audit's log dir. `trace: false` arms it as on a machine
@@ -93,7 +103,7 @@ function audited(
 	body: string,
 	{ env = {} as Record<string, string>, trace = true, settle = true } = {},
 ) {
-	const scope: NodeJS.ProcessEnv = { ...process.env, ...env };
+	const scope: NodeJS.ProcessEnv = { ...harnessEnv(), ...env };
 	delete scope.WFC_READ_AUDIT_OWNER;
 	delete scope.NODE_OPTIONS;
 	const log = install(root, scope, { write: () => true });
@@ -1317,6 +1327,18 @@ describe("the routes still open after #4982 (#4997)", () => {
 					/a child \(ls .*\) was handed a path in the checkout$/,
 				);
 			expect(untraced(root, spawns(["-Ino-such/x"]))).toHaveProperty("reads");
+		});
+
+		it("keeps the reads of a child handed a plain value whose tail is a name its directory holds (#5049)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			fs.symlinkSync(root, path.join(cwd, "in"));
+			const body = `try { require("node:child_process").execFileSync("ls", ["main"], { cwd: ${quoted(cwd)}, env: { ...process.env, BRANCH: "admin" }, stdio: "ignore" }); } catch {}`;
+			const log = audited(root, T, body, {
+				env: { REF: "main" },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T)).toHaveProperty("reads");
 		});
 
 		it("doubts `..` stuck to a short-option cluster from a scratch directory, which names the checkout", () => {

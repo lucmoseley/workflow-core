@@ -10,10 +10,11 @@
  * working directory with every link followed, lands under the root —
  * `../../<root>/x` from outside, or a link to the checkout. A candidate
  * holding no `/` is a path only where it stands in that directory. Glued,
- * in a word but not in input text: a piece from any later point of its
- * first part, where that part's rest is a name the directory holds
- * (`-Iin/x`, `-Iin`, `in` a link), or `.` or `..` stuck to a short option
- * (`-I..`) (#4997).
+ * in a word but not in input text: from an option (a piece opening `-`),
+ * the piece from any later point of its first part, where that part's rest
+ * is a name the directory holds (`-Iin/x`, `-Iin`, `in` a link), or `.` or
+ * `..` stuck to a short option (`-I..`) (#4997). A plain value's tail is no
+ * glued path: `main` does not hand a child `in` (#5049).
  */
 
 const fs = require("node:fs");
@@ -193,6 +194,7 @@ function candidates(word, isHeld) {
  * @returns {string[]}
  */
 function glued(piece, isHeld) {
+	if (piece[0] !== "-") return [];
 	const slash = piece.indexOf("/");
 	const end = slash < 0 ? piece.length : slash;
 	/** @type {string[]} */
@@ -200,7 +202,7 @@ function glued(piece, isHeld) {
 	for (let at = Math.max(1, end - NAME_MAX); at < end; at++) {
 		const name = piece.slice(at, end);
 		const isDots = name === "." || name === "..";
-		const isCluster = piece[0] === "-" && piece[1] !== "-" && at >= 2;
+		const isCluster = piece[1] !== "-" && at >= 2;
 		if (isDots ? isCluster : isHeld(name)) out.push(piece.slice(at));
 	}
 	return out;
