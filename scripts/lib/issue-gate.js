@@ -554,7 +554,7 @@ const ROUND_AFTER_REF_RE = /^\s+(Q\d+)\b/;
  *   written: string}} CitedRef `repo`: `owner/name`, lower-cased; `round`:
  *   `Qk` where the citation names a question round; `written`: as the basis
  *   spells it
- * @typedef {{state: string, texts: string[]}} CitedIssue its body, then each
+ * @typedef {{texts: string[]}} CitedIssue its body, then each
  *   comment
  * @typedef {"no-basis"|"no-window"|"no-own-warrant"|"no-round"} CitedReason
  * @typedef {{basis: string, cited: {ref: string, key: string, repo: string,
@@ -1005,6 +1005,25 @@ function introducedBasisFaults(before, after, own, follow) {
 }
 
 /**
+ * @typedef {{body: string, own?: number, before?: string}} BasisWrite a body,
+ *   its issue's number where known, and with `before`, the body an edit
+ *   replaces
+ */
+
+/**
+ * A write's basis faults: the whole body's, or with `before`, only those the
+ * edit brought.
+ *
+ * @param {BasisWrite} write
+ * @param {Follow} [follow] as basisFaults takes it
+ * @returns {BasisFault[]}
+ */
+const basisWriteFaults = ({ body, own, before }, follow) =>
+	before === undefined
+		? basisFaults(body, own, follow)
+		: introducedBasisFaults(before, body, own, follow);
+
+/**
  * Whether an edit adds or changes a gate line, so every basis beneath a window
  * meets today's bar (#4946), on either reading.
  * @param {string} before
@@ -1260,6 +1279,7 @@ module.exports = {
 	resolveGate,
 	isGateHolding,
 	basisFaults,
+	basisWriteFaults,
 	introducedBasisFaults,
 	basisRefusal,
 	citedSays,

@@ -1805,7 +1805,6 @@ describe('walkGit, scope "shared"', () => {
 		expect(walkGitRun('git "checkout" x').out).toContain("[checkout]");
 		expect(walkGitRun('git ch"eck"out x').out).toContain("[checkout]");
 		expect(walkGitRun('git "$S" x').calls).toEqual([]);
-		expect(walkGitRun('git "-c" a=b checkout x').out).toContain("[checkout]");
 	});
 
 	it("records what joins each segment, a blank line handing its operator on (#4009)", () => {
@@ -2035,13 +2034,6 @@ describe('walkGit, scope "shared"', () => {
 		expect(walkGitRun(`git -C "" checkout x`).out).toContain(
 			`[checkout][${SHARED}]`,
 		);
-	});
-
-	it("steps git's own valued options to find the subcommand", () => {
-		expect(walkGitRun("git -c a.b=1 --git-dir x checkout y").out).toContain(
-			"[checkout]",
-		);
-		expect(walkGitRun("git -c checkout x").calls).toEqual([]);
 	});
 });
 

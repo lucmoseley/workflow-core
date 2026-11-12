@@ -148,11 +148,7 @@
  *    create (#668) and on a relabel (#669), refused above.
  */
 
-const {
-	CITED_BOUND_MS,
-	JUDGE_BOUND_MS,
-	readGateWrite,
-} = require("./gate-judge.js");
+const { WRITE_BOUND_MS, readGateWrite } = require("./gate-judge.js");
 const {
 	MAP_LABEL,
 	openMapsArgs,
@@ -275,11 +271,9 @@ const API_FORM_COST =
  * @property {string[]} checkNotes the check limb's warnings and the model
  *   reading's notes
  * @property {boolean} humanApplied a `takes:human` passed every limb
- * @property {number} judgeLeftMs what the model readings of this call's
- *   bodies may still spend: one bound for them all, so two creates in one
- *   command stay inside the hook's 60 s
- * @property {number} citedLeftMs what the reads of the issues those bodies'
- *   bases cite may still spend, a bound of their own beside it
+ * @property {number} leftMs what the gate readings of this call's bodies may
+ *   still spend: one bound for them all, so two creates in one command stay
+ *   inside the hook's 60 s
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./shell-words.js").GhRepo} GhRepo
  */
@@ -297,8 +291,7 @@ function decide(command, ctx) {
 		warning: "",
 		checkNotes: [],
 		humanApplied: false,
-		judgeLeftMs: JUDGE_BOUND_MS,
-		citedLeftMs: CITED_BOUND_MS,
+		leftMs: WRITE_BOUND_MS,
 	};
 	const stopped = walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx);
 	if (stopped !== undefined) return stopped;
@@ -544,21 +537,19 @@ ${route.blank}`,
  * (lib/gate-judge.js `readGateWrite`), which file-issue.js and issue-body.js
  * share, so the three routes cannot disagree. Only a body this guard read is
  * judged — the GraphQL route, and a hidden body, pass it unjudged.
- * @param {Run} run accumulator: spends `judgeLeftMs` and `citedLeftMs`,
+ * @param {Run} run accumulator: spends `leftMs`,
  *   pushes to `checkNotes`
  * @param {string} segment
  * @param {string} text
  */
 function judgeBasis(run, segment, text) {
 	const startedAt = run.ctx.now();
-	const { refusal, advice, citedMs } = readGateWrite(text, {
+	const { refusal, advice } = readGateWrite(text, {
 		route: "create-guard",
-		boundMs: Math.min(JUDGE_BOUND_MS, run.judgeLeftMs),
-		citedBoundMs: run.citedLeftMs,
+		leftMs: run.leftMs,
 		env: run.ctx.vars,
 	});
-	run.citedLeftMs -= citedMs;
-	run.judgeLeftMs -= run.ctx.now() - startedAt - citedMs;
+	run.leftMs -= run.ctx.now() - startedAt;
 	if (!refusal) {
 		if (advice) run.checkNotes.push(advice);
 		return;
