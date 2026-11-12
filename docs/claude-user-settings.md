@@ -1232,7 +1232,9 @@ The founder only clicks Authorize; a session does the rest.
 - `cleanupPeriodDays: 35` — transcripts are kept 35 days. The longest
   readers look back 30 days (`scripts/report-cost-per-unit.js`,
   `scripts/lib/heresy-sweep.js`, `scripts/check-compaction-backstop.js`), the
-  outcome review's 1-week baseline needs about 3 weeks, and a job whose
+  outcome review counts a baseline its run record lacks from transcripts
+  starting 2 weeks before filing, so that reading must come within 3 weeks of
+  filing, and a job whose
   worktree the reaper removed can still be reopened with
   `node scripts/session-checkout.js reopen <job-id>`. A reader that looks back
   further needs this raised. Every seat carries the same value (#5045).

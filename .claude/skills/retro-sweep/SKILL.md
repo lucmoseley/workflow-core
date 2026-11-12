@@ -322,7 +322,7 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   filed `<owner/name>#<n>` or `null`; `class` its §6 class (`NEW`, `OPEN`, …);
   `cites` the earlier issue or commit it pointed at; `signature` (or `null`
   and `why`) and `prediction` as filed; `baseline` the signature's count and
-  sessions over the 4 weeks before filing, the trigger week excluded: `.baseline` of `node scripts/measure-outcome-review.js
+  sessions over the week before filing, the trigger week excluded: `.baseline` of `node scripts/measure-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
 - `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
