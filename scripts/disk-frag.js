@@ -3,8 +3,6 @@
  * disk-frag.js — how much of the WSL disk's free space sits in small aligned
  * chunks, and where on the disk its used blocks sit, without root (#5054).
  *
- * Usage:  node scripts/disk-frag.js [--mount <path>] [--table <file>] [--json]
- *
  * In no family (§N3): a readout run by hand while the disk is being measured,
  * neither a check, a guard nor a report the sweeps run.
  *
