@@ -196,7 +196,6 @@ export function runTeardown(rootOverride?: string | null) {
 	// sandbox instead of this checkout's own store.
 	const root = rootOverride ?? repoRoot(treeRoot);
 
-	/* The run handed the pass store, where one was. */
 	let recorded: Record<string, unknown> | null = null;
 	/* A run that hit its scope's task cap fails, however green (#3401); the
 	 * wrapper names the cap. Read here, inside the scope, which the manager

@@ -3,13 +3,10 @@
  * lib/row-measure.js (#5029): the row counts the read-audit measurement
  * prints, against a hand count on seeded stores and markers, and the
  * kept-run hand-off between the tree watch and the measurement. A wrong
- * count here misreports what a read-audit change costs the pass store, which
- * is the figure such a change is judged on.
+ * count here misreports what a read-audit change costs the pass store.
  *
  * The judge is crossed with a stand-in reader, whose pass store writes the
- * lines a case seeds: the real reader needs a whole audited suite run, which
- * is the command's own run and no unit case's. `movedSince` crosses real git
- * and real change times in the case's own repository.
+ * lines a case seeds: the real reader needs a whole audited suite run.
  */
 
 import { execFileSync } from "node:child_process";
@@ -274,7 +271,6 @@ describe("keepRun and readKept", () => {
 });
 
 describe("movedSince", () => {
-	/** A committed repository holding `x.txt`, kept as a run would be. */
 	function keptRepo() {
 		const repo = path.join(tmp, "repo");
 		const keep = path.join(tmp, "keep");

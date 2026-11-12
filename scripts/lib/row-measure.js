@@ -4,8 +4,8 @@
  *
  * KEEPING A RUN. Where `KEEP_ENV` names a directory, vitest-tree-watch.ts
  * hands `keepRun` its audit log directory and the run it gave the pass
- * store's `record`, and both are copied there before the logs are removed,
- * with a mark of the time they were kept. The directory must lie outside the
+ * store's `record`, and both are copied there before the logs are removed.
+ * The directory must lie outside the
  * checkout: every child inherits the variable, and one naming a checkout
  * path is a hand the audit weighs, which skews the very rows being counted.
  * The kept logs hold the run's environment, keys included, so
@@ -65,8 +65,7 @@ const markIn = (mark) => (typeof mark === "string" ? BigInt(mark) : null);
 
 /**
  * Copy the audit logs in `dir` and `run` into the directory `KEEP_ENV`
- * names, where it names one. Never throws: a run that cannot be kept costs
- * the measurement, never the run.
+ * names, where it names one. Never throws.
  * @param {string|null} dir
  * @param {RecordedRun|null} run
  * @param {{env?: NodeJS.ProcessEnv, err?: Sink}} [options]
@@ -247,7 +246,7 @@ function batchesOf(files, max) {
 
 /**
  * A judge over the reader at `lib`, recording each kept run handed to `add`
- * into one scratch store, as the tree watch would have recorded it.
+ * into one scratch store.
  * `dispose` removes the store.
  * @param {string} lib the reader's `scripts/lib`
  */

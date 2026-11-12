@@ -77,7 +77,6 @@ const CLI = {
 	},
 };
 
-/** Every third tracked `*.test.ts`, the first included (#4916). */
 function drawSample() {
 	return String(
 		execGit(["ls-files", "*.test.ts"], { cwd: ROOT, encoding: "utf8" }),
@@ -87,7 +86,6 @@ function drawSample() {
 		.filter((_, i) => i % 3 === 0);
 }
 
-/** Delete the kept logs a run of this command killed outright left. */
 function sweepLeftovers() {
 	const tmp = os.tmpdir();
 	for (const name of fs.readdirSync(tmp)) {
@@ -186,8 +184,7 @@ const movedRefusal = ({ dir, moved }) =>
 	`the tree moved since ${path.basename(dir)} was kept (${moved.slice(0, MOVED_SHOWN).join(", ")}), which drops rows on both sides; rerun on a still tree\n`;
 
 /**
- * Run each batch and judge it as it ends. Resolves with the exit code where
- * a moved tree stops the run, else null.
+ * Resolves with the exit code where a moved tree stops the run, else null.
  * @param {string[][]} batches
  * @param {{keep: string, done: Set<string>, own: Set<string>,
  *   judges: ReturnType<typeof buildJudge>[], retain: boolean}} ctx
@@ -219,7 +216,6 @@ async function runAndJudge(batches, { keep, done, own, judges, retain }) {
 }
 
 /**
- * Print the comparison of the two sides' judgements.
  * @typedef {{name: string, judge: ReturnType<typeof buildJudge>}} Side
  * @param {Side} before the `--against` reader's
  * @param {Side} after this tree's
