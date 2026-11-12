@@ -1169,6 +1169,7 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		const lines: string[] = [];
 		const outcome = await tsc.seat.wait({
 			gate: () => null,
+			clock: () => 0,
 			traceLimbs: true,
 			label: "q",
 			waiting: "waiting",
@@ -1196,6 +1197,7 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		let polls = 0;
 		await tsc.seat.wait({
 			gate: () => null,
+			clock: () => 0,
 			traceLimbs: true,
 			label: "q",
 			waiting: "waiting",
