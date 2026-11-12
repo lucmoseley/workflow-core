@@ -1611,6 +1611,9 @@ describe("a gate line with no basis (#577)", () => {
 	});
 
 	describe("whose basis only cites another issue (#5007)", () => {
+		/* The suites' seam shuts the cited read (vitest.setup.ts); these cases
+		 * test it. */
+		const CitedOn = { WFC_GATE_CITED: "" };
 		const Count =
 			"**Gate basis:** 4 weeks: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
 		beforeEach(() => {
@@ -1636,7 +1639,7 @@ describe("a gate line with no basis (#577)", () => {
 					cited: { "o/r": { 12: { body: "No basis." }, 13: { body: Count } } },
 				},
 			);
-			const r = await run([], stub);
+			const r = await run([], stub, CitedOn);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				`\`**Gate basis:**\` with no warrant — "${basis.replace("**Gate basis:** ", "")}" (it cites #12, which has no \`**Gate basis:**\` line)`,
@@ -1651,6 +1654,7 @@ describe("a gate line with no basis (#577)", () => {
 			const r = await run(
 				[],
 				stubGh([{ number: 450, body: `${on}\n${basis}` }]),
+				CitedOn,
 			);
 			expect(r.out).toContain("Unread: the issues open gates' bases cite (");
 			expect(r.out).toContain(

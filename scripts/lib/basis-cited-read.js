@@ -1,7 +1,8 @@
 /*
- * basis-cited-read.js — the issues a `**Gate basis:**` cites, read whole in one
- * batched GraphQL call (#5007): each one's state, body and every comment, so
- * lib/issue-gate.js can follow the citation one hop.
+ * basis-cited-read.js — bodies' basis faults with the issues a `**Gate
+ * basis:**` cites followed one hop (#5007): every cited issue read whole in
+ * one batched GraphQL call, its body and every comment, and judged by
+ * lib/issue-gate.js, which reads no gh.
  *
  * FAILURE IS THE WHOLE READ, OR ONE REPOSITORY'S — NEVER "NO BASIS". A call
  * that fails, or a repository the answer holds no node for, leaves its
@@ -11,7 +12,7 @@
 
 const { gh } = require("./gh.js");
 const { caught } = require("./caught.js");
-const { citedKey } = require("./issue-gate.js");
+const { basisWriteFaults, citedKey } = require("./issue-gate.js");
 
 /* Comments read per page, GitHub's own ceiling for one connection. */
 const COMMENTS_PAGE = 100;
@@ -21,6 +22,12 @@ const REPO_PART_RE = /^[\w.-]+$/;
 /**
  * @typedef {import("./issue-gate.js").CitedIssue} CitedIssue
  * @typedef {{repo: string, number: number}} Wanted
+ * @typedef {import("./issue-gate.js").BasisFault} BasisFault
+ * @typedef {import("./issue-gate.js").Follow} Follow
+ * @typedef {import("./issue-gate.js").FollowRecord} FollowRecord
+ * @typedef {import("./issue-gate.js").BasisWrite} BasisWrite
+ * @typedef {Wanted & {key: string, ref: string}} Unread a citation left
+ *   unread: `key` lower-cased `owner/name#N`, `ref` as the basis wrote it
  * @typedef {any} GhJson GitHub's answer as parsed, every reader defaulting a
  *   missing field
  */
@@ -31,7 +38,7 @@ const commentsField = (after) =>
 
 /**
  * One GraphQL document reading `pages`, aliased by index so any repo
- * spelling is a legal alias. The first page carries state and body too.
+ * spelling is a legal alias. The first page carries the body too.
  *
  * @param {string[]} repos `owner/name`, in alias order
  * @param {{repo: string, number: number, after: string|null}[]} pages
@@ -43,7 +50,7 @@ function buildQuery(repos, pages) {
 			.filter((p) => p.repo === repo)
 			.map(
 				(p) =>
-					`n${p.number}: issueOrPullRequest(number: ${p.number}) { __typename ... on Issue { ${p.after ? "" : "state body "}${commentsField(p.after)} } }`,
+					`n${p.number}: issueOrPullRequest(number: ${p.number}) { __typename ... on Issue { ${p.after ? "" : "body "}${commentsField(p.after)} } }`,
 			);
 		return `r${r}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${issues.join(" ")} }`;
 	});
@@ -94,7 +101,7 @@ function runQuery(query, timeoutMs) {
 
 /**
  * @typedef {{repo: string, number: number, after: string|null}} Page one
- *   issue's next page of comments, its first carrying state and body
+ *   issue's next page of comments, its first carrying the body
  * @typedef {{issues: Map<string, CitedIssue|null>,
  *   building: Map<string, CitedIssue>}} Into the issues read so far, and
  *   those with comments still to read
@@ -125,7 +132,6 @@ function takePage(data, repos, p, into) {
 		return {};
 	}
 	const issue = into.building.get(key) ?? {
-		state: String(node.state ?? "").toLowerCase(),
 		texts: [String(node.body ?? "")],
 	};
 	const conn = node.comments ?? {};
@@ -141,7 +147,7 @@ function takePage(data, repos, p, into) {
 }
 
 /**
- * Each wanted issue's state, body and every comment, by `owner/name#N`
+ * Each wanted issue's body and every comment, by `owner/name#N`
  * lower-cased: null for a number its readable repository holds no issue
  * under, absent where it was not read.
  *
@@ -190,8 +196,8 @@ function readCitedIssues(wanted, { timeoutMs }) {
 /**
  * The issues a trace of followed bases cites, once each.
  *
- * @param {import("./issue-gate.js").FollowRecord[]} trace
- * @returns {(Wanted & {key: string, ref: string})[]}
+ * @param {FollowRecord[]} trace
+ * @returns {Unread[]}
  */
 const wantedIn = (trace) => [
 	...new Map(
@@ -227,26 +233,50 @@ function readTracker(root) {
 	}
 }
 
+/* The cited read's floor, below which nothing is read, and the write
+ * routes' bound for it: one batched read of four issues with their comments
+ * took 1,633 ms (#5007). Both first guesses. */
+const MIN_CITED_MS = 3000;
+const CITED_BOUND_MS = 10_000;
+
 /**
- * Reads the issues the bases `collect` judges cite, in one batched call:
- * undefined where no basis's warrant is an issue reference.
+ * Each body's basis faults, a basis whose only warrant is a cited issue
+ * followed one hop (#5007), read within `timeoutMs`. A basis an edit leaves untouched, an
+ * event anchor and the body's own number cite nothing.
  *
- * @param {(follow: import("./issue-gate.js").Follow) => void} collect runs
- *   the judgement over an empty read with the `follow` it is handed, whose
- *   trace gathers what the bases cite
- * @param {{root?: string, timeoutMs: number, minMs?: number}} opts
- *   below `minMs` nothing is read, the hook's time being too short
- * @returns {{follow: import("./issue-gate.js").Follow,
- *   unread: (Wanted & {key: string, ref: string})[], why: string|null,
- *   ms: number}|undefined} `follow` carries the issues read; `why`, what
- *   left any unread
+ * `WFC_GATE_CITED=off` is the suites' seam (vitest.setup.ts): nothing read,
+ * every basis judged on its form. It holds only beside VITEST_WORKER_ID
+ * (#5011), so a command cannot switch the read off in a hook's environment.
+ *
+ * @param {BasisWrite[]} bodies
+ * @param {{timeoutMs: number, root?: string, env?: NodeJS.ProcessEnv}} opts
+ *   `root`, the project whose config names the tracker
+ * @returns {{faults: BasisFault[][], traces: FollowRecord[][],
+ *   unread: Unread[], why: string|null, ms: number}} by body, in order:
+ *   `faults`, and `traces`, each followed basis with its cited issues'
+ *   verdicts; `unread`, the citations judged on form alone, `why` saying
+ *   what left them; `ms`, the read's wall time
  */
-function readCitedFor(collect, { root, timeoutMs, minMs = 0 }) {
+function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
+	const formOnly = (/** @type {Follow} */ follow) => ({
+		faults: bodies.map((w) => basisWriteFaults(w, follow)),
+		traces: bodies.map(() => []),
+		unread: [],
+		why: null,
+		ms: 0,
+	});
+	if (env.WFC_GATE_CITED === "off" && env.VITEST_WORKER_ID)
+		return formOnly({ tracker: NO_TRACKER, issues: new Map() });
 	const tracker = readTracker(root);
-	/** @type {import("./issue-gate.js").FollowRecord[]} */
+	/** @type {FollowRecord[]} */
 	const trace = [];
-	collect({ tracker: tracker ?? NO_TRACKER, issues: new Map(), trace });
-	if (trace.length === 0) return;
+	const collected = formOnly({
+		tracker: tracker ?? NO_TRACKER,
+		issues: new Map(),
+		trace,
+	});
+	/* No basis's warrant is an issue reference: an empty read judges alike. */
+	if (trace.length === 0) return collected;
 	const wanted = wantedIn(trace);
 	/** @param {string|null} why */
 	const unreadAll = (why) => ({ issues: new Map(), why, ms: 0 });
@@ -255,11 +285,20 @@ function readCitedFor(collect, { root, timeoutMs, minMs = 0 }) {
 	if (wanted.length === 0) read = unreadAll(null);
 	else if (!tracker)
 		read = unreadAll("no tracker resolves from `.claude/workflow-core.json`");
-	else if (timeoutMs < minMs)
+	else if (timeoutMs < MIN_CITED_MS)
 		read = unreadAll("too little of the hook's time was left for it");
 	else read = readCitedIssues(wanted, { timeoutMs });
+	/** @type {FollowRecord[][]} */
+	const traces = bodies.map(() => []);
 	return {
-		follow: { tracker: tracker ?? NO_TRACKER, issues: read.issues, trace: [] },
+		faults: bodies.map((w, i) =>
+			basisWriteFaults(w, {
+				tracker: tracker ?? NO_TRACKER,
+				issues: read.issues,
+				trace: traces[i],
+			}),
+		),
+		traces,
 		unread: wanted.filter((w) => !read.issues.has(w.key)),
 		why: read.why,
 		ms: read.ms,
@@ -276,4 +315,4 @@ function readCitedFor(collect, { root, timeoutMs, minMs = 0 }) {
 const unreadNote = (lead, names, why) =>
 	`${lead} (${why ?? "GitHub did not answer for them"}): ${names.join(", ")}, so a basis whose only warrant is one of them was judged on its form alone.`;
 
-module.exports = { readCitedFor, unreadNote };
+module.exports = { CITED_BOUND_MS, readBasisFaults, unreadNote };

@@ -25,7 +25,7 @@ const {
 	runCwd,
 	moveDir,
 	commandName,
-	isGitValueOption,
+	stepGitOptions,
 	isGlobPattern,
 	ASSIGNMENT_RE,
 } = shellWords;
@@ -2420,29 +2420,20 @@ function stepGitOption(w, next, target, { scope, dirs }) {
  * Step git's own options; the index of the subcommand, or past the end where
  * there is none. The directories `--git-dir`, `--work-tree` or the environment
  * name are read last, since git reads a relative one from wherever the `-C`s
- * end. A quoted option is an option, and a word it cannot read ends the options.
+ * end.
  * @param {string[]} own the command's words, `git` first
  * @param {GitTarget} target
  * @param {{ scope: Scope, env: GitEnv, isDir: (path: string) => boolean }} from
  */
 function readGitOptions(own, target, { scope, env, isDir }) {
-	let i = 1;
 	/** @type {{ gitDir?: string | null, workTree?: string | null }} */
 	const dirs = {
 		gitDir: env.get("GIT_DIR"),
 		workTree: env.get("GIT_WORK_TREE"),
 	};
-	/** @param {string | undefined} raw @returns {string | null} */
-	const optionAt = (raw) => {
-		if (raw === undefined) return null;
-		const { known, text } = literal(raw, scope.spans);
-		if (known) return text.startsWith("-") ? text : null;
-		return raw.startsWith("-") ? raw : null;
-	};
-	for (let w = optionAt(own[1]); w !== null; w = optionAt(own[i])) {
-		stepGitOption(w, own[i + 1] ?? "", target, { scope, dirs });
-		i += isGitValueOption(w) ? 2 : 1;
-	}
+	const i = stepGitOptions(own, scope.spans, (w, next) =>
+		stepGitOption(w, next ?? "", target, { scope, dirs }),
+	);
 	nameRepoTree(dirs.gitDir, env.get("GIT_COMMON_DIR"), target, {
 		scope,
 		isDir,

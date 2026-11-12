@@ -2314,11 +2314,11 @@ describe("the model reading's one bound for a call (#4969)", () => {
 		fs.mkdirSync(config);
 		const fake = judgeFakeEnv(dir, found, config);
 		for (const [k, v] of Object.entries(fake.env)) vi.stubEnv(k, v);
-		/* Each clock read 26 s on: the first reading spends past 25 s of the
-		 * 30 s bound, whatever number of reads it takes. */
+		/* Each clock read 36 s on: the first reading spends past 35 s of the
+		 * 40 s bound, whatever number of reads it takes. */
 		let t = Date.parse("2026-11-11T00:00:00Z");
 		const clock = () => {
-			t += 26_000;
+			t += 36_000;
 			return t;
 		};
 		const create = `gh issue create --title t --label takes:implement --body '${Wait}\n${OVERRIDE_LINE}'`;
