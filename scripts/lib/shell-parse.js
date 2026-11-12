@@ -31,6 +31,7 @@ const { expandTildeWord } = require("./home-path.js");
 const {
 	dirsAfter,
 	moveDir,
+	openDirsScope,
 	settleDirs,
 	startDirs,
 	stepDirs,
@@ -1260,15 +1261,14 @@ function arithScope(walk, segment) {
 	return isOpen || isClose;
 }
 
-/** A subshell's `(`: stack the state its `)` restores. A `&&` chain ending
- * inside leaves the one outside open (#5093), so no move before the `(` waits
- * in its `pending`.
+/** A subshell's `(`: stack the state its `)` restores, and open the
+ * directories' scope.
  * @param {Walk} walk accumulator: its stack, directories and redirect mode
  *   are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
-	walk.dirs = { ...dirs, pending: [] };
+	walk.dirs = openDirsScope(dirs);
 	if (walk.arLast === "open-empty") {
 		walk.noRedirects = true;
 		walk.arLast = "";
@@ -1542,6 +1542,7 @@ function commandRuns(words, cwds, { scope, isDir }) {
  * @property {Chdir[]} chdirs
  * @property {number[]} openChains the depth of each `cd` whose `&&` chain
  *   has not yet ended, as stepDirs tags its pending (#5095)
+ * @property {boolean} subshellOpened a subshell has opened since the last `cd`
  * @property {string[]} exports
  * @property {Map<string, string>} locals each name an assignment alone set,
  *   its word
@@ -1572,6 +1573,7 @@ function parseScript(script, spans) {
 	let state = {
 		chdirs: [],
 		openChains: [],
+		subshellOpened: false,
 		exports: [],
 		locals: new Map(),
 		lost: [],
@@ -1583,8 +1585,8 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === `${SCOPE_MARK}(`) {
 			stack.push(state);
-			/* As openScope's: the chain outside stays open (#5093). */
-			state = { ...state, openChains: [] };
+			/* As openScope's: the chain outside stays open (#5093, #5102). */
+			state = { ...state, openChains: [], subshellOpened: true };
 			return;
 		}
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
@@ -1844,10 +1846,12 @@ function cdInScript(state, own, where) {
 	const cd = { dir, read: false, holds, vars, depth };
 	if (afterFailed) cd.afterFailed = true;
 	if (chained) cd.chained = true;
+	if (state.subshellOpened) cd.opensScope = true;
 	return {
 		...state,
 		chdirs: [...state.chdirs, cd],
 		openChains: chained ? [...state.openChains, depth] : state.openChains,
+		subshellOpened: false,
 		cdAt,
 	};
 }
