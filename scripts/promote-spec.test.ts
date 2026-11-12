@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, issueClaims } from "./lib/arbiter-testkit";
+import { WAIT_GRAPH_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -50,13 +51,17 @@ const get = (name: string) => JSON.parse(fs.readFileSync(state(name), "utf8"));
  * listing omits the moved spec.
  */
 const STUB = `#!/usr/bin/env node
+${WAIT_GRAPH_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const S = process.env.STUB_DIR;
 const f = (n) => path.join(S, n);
 const a = process.argv.slice(2);
 fs.appendFileSync(f("calls"), a.join(" ") + "\\n");
-const say = (o) => { process.stdout.write(typeof o === "string" ? o : JSON.stringify(o)); process.exit(0); };
+const jq = a.includes("--jq") ? a[a.indexOf("--jq") + 1] : null;
+const project = (o) =>
+	jq === ".[].number" ? o.flat().map((i) => i.number + "\\n").join("") : jq ? o[jq.slice(1)] + "\\n" : o;
+const say = (o) => { o = project(o); process.stdout.write(typeof o === "string" ? o : JSON.stringify(o)); process.exit(0); };
 const no = (m) => { process.stderr.write(m + "\\n"); process.exit(1); };
 const load = (n, d) => fs.existsSync(f(n)) ? JSON.parse(fs.readFileSync(f(n), "utf8")) : d;
 const issues = load("issues.json", {});
@@ -64,6 +69,7 @@ const save = () => fs.writeFileSync(f("issues.json"), JSON.stringify(issues));
 const rest = (i) => ({ ...i, id: i.number * 1000, html_url: "https://github.com/acme/widgets/issues/" + i.number, labels: i.labels.map((name) => ({ name })),
 	parent_issue_url: i.parent ? "https://api.github.com/repos/acme/widgets/issues/" + i.parent : null });
 let m;
+if (a[0] === "api" && a[1] === "graphql") serveAnswer(answerWaitGraph(a, () => ({})));
 if (a[0] === "api" && a[1] === "--method") {
 	if (fs.existsSync(f("post-422"))) no("gh: Validation Failed (HTTP 422)");
 	const parent = Number(a[3].match(/issues\\/(\\d+)\\/sub_issues/)[1]);
@@ -139,7 +145,7 @@ const run = () =>
 			CLAUDE_CODE_SESSION_ID: ME,
 			CLAUDE_JOB_DIR: sb.dir,
 			STUB_DIR: path.join(sb.dir, "gh"),
-			WFC_PROMOTE_SLEEP: "0",
+			WFC_LINK_SLEEP: "0",
 		},
 	});
 
@@ -266,21 +272,21 @@ describe("refusals, all before any write", () => {
 		untouched();
 	});
 
-	it("refuses a brief whose parent is not a map, offering replace_parent=true as the way out, and writes nothing", () => {
+	it("refuses a brief whose parent is not a map, offering link-sub-issue.sh --replace-parent as the way out, and writes nothing", () => {
 		setUp({ mapLabels: ["kind:spec"] });
 		const r = run();
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("is not a wayfinder:map");
-		expect(r.stderr).toContain("replace_parent=true");
+		expect(r.stderr).toContain("--replace-parent");
 		untouched();
 	});
 
-	it("refuses a closed map, naming it and the replace_parent=true re-parent, and writes nothing (#3651)", () => {
+	it("refuses a closed map, naming it and the link-sub-issue.sh --replace-parent re-parent, and writes nothing (#3651)", () => {
 		setUp({ mapState: "closed" });
 		const r = run();
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`map #${MAP} is closed`);
-		expect(r.stderr).toContain("replace_parent=true");
+		expect(r.stderr).toContain("--replace-parent");
 		untouched();
 	});
 

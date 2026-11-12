@@ -13,7 +13,10 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { withIgnoreBlock } from "../../../../scripts/lib/adopter-skeleton.js";
 import { commandPath } from "../../../../scripts/lib/command-path-testkit";
-import { LINK_READ_FAKE } from "../../../../scripts/lib/gh-fake";
+import {
+	LINK_READ_FAKE,
+	WAIT_GRAPH_GRAPHQL_FAKE,
+} from "../../../../scripts/lib/gh-fake";
 import {
 	type GhStubServer,
 	serveGhStub,
@@ -71,6 +74,7 @@ export const RUN_TIMEOUT_MS = 170_000;
  */
 const STUB = String.raw`
 ${LINK_READ_FAKE}
+${WAIT_GRAPH_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -90,6 +94,16 @@ const need = (r) => read(r) ?? die("GraphQL: Could not resolve to a Repository w
 const shape = (i, fields) => Object.fromEntries(fields.split(",").map((f) => [f, f === "labels" ? i.labels.map((name) => ({ name })) : i[f]]));
 
 if (joined === "auth status") failing("auth") ? die("You are not logged into any GitHub hosts.") : print("Logged in");
+if (a[0] === "api" && a[1] === "graphql") {
+	const graph = answerWaitGraph(a, (repo, n) => {
+		const s = read(repo);
+		const issue = s?.issues.find((x) => x.number === n);
+		if (!issue) return null;
+		const kids = s.issues.filter((x) => x.parent === n);
+		return { state: issue.state, subIssues: kids.map((k) => ({ number: k.number, state: k.state.toLowerCase() })) };
+	});
+	out(graph.stdout); err(graph.stderr); exit(graph.status);
+}
 if (a[0] === "api") {
 	const p = a.find((x) => x.startsWith("repos/"));
 	const m = /^repos\/([^/]+\/[^/]+)\/(tags|labels)$/.exec(p);

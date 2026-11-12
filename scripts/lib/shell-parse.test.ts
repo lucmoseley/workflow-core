@@ -29,7 +29,6 @@ import {
 	normAbs,
 	parseCommand,
 	parseScript,
-	runCwd,
 	unmask,
 	unsetText,
 	walkCommands,
@@ -351,9 +350,9 @@ describe("walkCommands", () => {
 			const out = walkMap(
 				command,
 				(c) =>
-					`${bracket(c.words)}\n${c.words[0] === "gh" && c.resolveWord("$FOO") === "1" ? "HARVESTED\n" : ""}`,
+					`${bracket(c.words)}\n${c.words[0] === "gh" && c.leading.includes("FOO=1") ? "LEADING\n" : ""}`,
 			).join("");
-			expect(out).toContain("[gh][x]\nHARVESTED\n");
+			expect(out).toContain("[gh][x]\nLEADING\n");
 		},
 	);
 
@@ -462,6 +461,22 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 			"cd=/a",
 			"gh=/a/b/c",
 		]);
+	});
+
+	it("reads a cd's word before its own prefix assignment (#5087)", () => {
+		expect(cwds('D=/d cd "$D"; gh x')).toEqual(["cd=/start", "gh="]);
+		expect(cwds('D=/d cd "$D"; gh x', "/start", { D: "/e" })).toEqual([
+			"cd=/start",
+			"gh=/e",
+		]);
+	});
+
+	it("reads a wrapper's word before the command's prefix assignment (#5087)", () => {
+		expect(
+			walkMap('D=/d env -C "$D" gh x', (c) => c.resolveWord("$D"), {
+				vars: { D: "/e" },
+			}),
+		).toEqual(["/e"]);
 	});
 
 	it("resolves a target through the command's own assignment, and a leading ~", () => {
@@ -619,7 +634,107 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 	});
 });
 
-describe("runCwd — a -c string's cds stand its commands where the walk would (#5082)", () => {
+describe("Command.runs — each run with every directory it may stand in (#5075)", () => {
+	const isDir = (p: string) => !p.startsWith("/missing");
+	/** Each run's directories, for the last command the walk hands over. */
+	const runDirs = (command: string, vars: Record<string, string> = {}) =>
+		walkMap(command, (c) => c.runs().map((r) => r.dirs()), {
+			vars,
+			isDir,
+		}).at(-1);
+
+	it.each([
+		["env -C / find . -x", [["/"]]],
+		["sudo -D / find -x", [["/"]]],
+		["env --chdir=/ find . -x", [["/"]]],
+		['env -C "/" find . -x', [["/"]]],
+		["env -C /tmp env -C .. find . -x", [["/tmp/.."]]],
+		["env -C / env -C . find . -x", [["//."]]],
+		['env -C /tmp flock /l -c "cd ..; find . -x"', [["/tmp"], ["/tmp/.."]]],
+	])("moves a run through its wrapper's directory: %s", (command, dirs) => {
+		expect(runDirs(command)).toEqual(dirs);
+	});
+
+	it.each([
+		['flock /l -c "cd /; find . -x"', [["/start"], ["/"]]],
+		['flock /l -c "cd / && find -x"', [["/start"], ["/"]]],
+		['watch "cd /tmp; cd ..; find . -x"', [["/start"], ["/tmp"], ["/tmp/.."]]],
+		[`flock /l -c 'cd "/"; find . -x'`, [["/start"], ["/"]]],
+		["flock /l -c 'X=/; cd $X; find . -x'", [["/start"], ["/"]]],
+	])("moves a -c string's later run through its cd: %s", (command, dirs) => {
+		expect(runDirs(command)).toEqual(dirs);
+	});
+
+	it("keeps the command's doubted directories, and a -c string's own doubts", () => {
+		expect(runDirs("cd /missing; env -C a gh x")).toEqual([
+			["/missing/a", "/start/a"],
+		]);
+		expect(runDirs("flock /l -c 'cd /missing; gh x'")?.at(-1)).toEqual([
+			"/missing",
+			"/start",
+		]);
+		expect(runDirs("flock /l -c 'cd /missing && gh x'")?.at(-1)).toEqual([
+			"/missing",
+		]);
+		expect(
+			runDirs("flock /l -c 'cd /missing || cd /usr; gh x'")?.at(-1),
+		).toEqual(["/usr", "/missing"]);
+	});
+
+	/* A wrapper's word reads the environment and the assignments before its
+	 * command as a `cd` does. */
+	it.each([
+		["env -C $X find . -x", [["/x"]]],
+		["env -C ~ find . -x", [["/h"]]],
+		["sudo -D ~ find -x", [["/h"]]],
+		["env -C ~/.. find . -x", [["/h/.."]]],
+		["flock /l -c 'cd $X; find . -x'", [["/start"], ["/x"]]],
+		["flock /l -c 'cd ~; find . -x'", [["/start"], ["/h"]]],
+		['D=/d; env -C "$D" gh x', [["/d"]]],
+	])("reads a wrapper's word under the walk's scope: %s", (command, dirs) => {
+		expect(runDirs(command, { X: "/x", HOME: "/h", PWD: "/p" })).toEqual(dirs);
+	});
+
+	it("reads a wrapper's word before the command's own prefix assignment, as bash expands first (#5087)", () => {
+		expect(runDirs("X=/y env -C $X gh x", { X: "/x" })).toEqual([["/x"]]);
+		expect(runDirs('D=/a; D=/d env -C "$D" gh x')).toEqual([["/a"]]);
+	});
+
+	it.each([
+		["env -C $X find . -x", {}],
+		["flock /l -c 'X=$X; cd $X; find . -x'", { X: "/x" }],
+		["flock /l -c 'X=/; read X; cd $X; find . -x'", {}],
+		["X=/; flock /l -c 'cd $X; find . -x'", { X: "/x" }],
+		["flock /l -c 'cd /usr; cd $PWD; find . -x'", { PWD: "/p" }],
+		["sudo flock /l -c 'cd $X; find . -x'", { X: "/x" }],
+	])("names no directory a word does not give whole: %s", (command, vars) => {
+		expect(runDirs(command, vars)?.at(-1)?.[0]).toBe("");
+	});
+
+	it.each([
+		["env -C '$X' find . -x", "/start/$X"],
+		["env -C '~' find . -x", "/start/~"],
+		["env -C \\~ find . -x", "/start/~"],
+	])("takes a quoted directory as written: %s", (command, dir) => {
+		expect(runDirs(command, { X: "/x", HOME: "/h" })).toEqual([[dir]]);
+	});
+
+	it("unwraps the words once, however often it is asked", () => {
+		const parsed = parseCommand(`flock /l -c 'cd /a; gh x'`);
+		walkCommands(
+			parsed,
+			(cmd) => {
+				const first = cmd.runs();
+				const spans = parsed.spans.length;
+				expect(cmd.runs()).toBe(first);
+				expect(parsed.spans.length).toBe(spans);
+			},
+			ports(),
+		);
+	});
+});
+
+describe("Command.runs — a -c string's cds stand its commands where the walk would (#5082)", () => {
 	const isDir = (p: string) => p === "/h" || p === "/a";
 	const eachRun = (command: string) => {
 		const parsed = parseCommand(command);
@@ -627,8 +742,7 @@ describe("runCwd — a -c string's cds stand its commands where the walk would (
 		walkCommands(
 			parsed,
 			(cmd) => {
-				for (const run of unwrap(cmd.words, parsed.spans))
-					out.push(runCwd(cmd.cwds, run.chdirs, parsed.spans, isDir));
+				for (const run of cmd.runs()) out.push(run.dirs());
 			},
 			ports({ cwd: "/h", isDir }),
 		);
@@ -975,8 +1089,23 @@ describe("path resolution", () => {
 		).toBe(SHARED);
 	});
 
-	it("reads an assignment prefixed onto the command itself", () => {
-		expect(tree(`WT=${SHARED} git -C "$WT" checkout x`)).toBe(SHARED);
+	it("reads a command's own words before its prefix assignment, as bash expands them (#5087)", () => {
+		expect(tree(`WT=${SHARED} git -C "$WT" checkout x`)).toBeNull();
+		expect(
+			tree(`WT=${SHARED} git -C "$WT" checkout x`, { ...ENV, WT: WORKTREE }),
+		).toBe(WORKTREE);
+		expect(
+			walkMap('D=/d git -C "$D" status', (c) => c.resolveWord("$D")),
+		).toEqual([null]);
+	});
+
+	it("carries a prefix assignment to no later command (#5087)", () => {
+		expect(
+			trees(`WT=${SHARED} true; git -C "$WT" checkout x`, {
+				...ENV,
+				WT: WORKTREE,
+			}),
+		).toEqual([WORKTREE]);
 	});
 
 	it("sees an assignment only from the commands after it", () => {
@@ -1620,6 +1749,37 @@ describe("walkGit reads the repository and the subcommand git will use (#3997)",
 		expect([call?.sub, ...(call?.args ?? [])]).toEqual(["checkout", "-q", "x"]);
 	});
 
+	it("reads a prefix git variable's value under the prefixes before it, its words under none (#5087)", () => {
+		expect(
+			trees(
+				walkGitRun(`R=${SHARED} GIT_DIR=$R/.git git checkout x`, {}, WORKTREE),
+			),
+		).toEqual([SHARED]);
+		expect(
+			trees(
+				walkGitRun(
+					`GIT_DIR=$R/.git R=${SHARED} git checkout x`,
+					{ strict: true },
+					WORKTREE,
+				),
+			),
+		).toEqual([""]);
+	});
+
+	it("reads a wrapper's directory before the command's prefix assignment (#5087)", () => {
+		const run = (vars: Record<string, string>) =>
+			walkGitRun(
+				`D=${WORKTREE} env -C "$D" git checkout x`,
+				{ unwrap: true },
+				ELSEWHERE,
+				vars,
+			);
+		expect(trees(run({ ...ENV, D: SHARED }))).toEqual([SHARED]);
+		const unset = run(ENV);
+		expect(trees(unset)).toEqual([]);
+		expect(unset.logged).toEqual([FAIL_OPEN]);
+	});
+
 	it("reads git's own options through a wrapper the walk unwraps", () => {
 		expect(
 			walkGitRun(
@@ -2113,10 +2273,6 @@ describe("path resolution through the git walk", () => {
 			`WT=${SHARED} && cd "$WT" && git checkout x`,
 		],
 		[
-			"an assignment prefixed onto the command",
-			`WT=${SHARED} git -C "$WT" checkout x`,
-		],
-		[
 			"an assignment before the first || (#328)",
 			`WT=${SHARED} && [ -d "$WT" ] || exit 1; git -C "$WT" checkout x`,
 		],
@@ -2198,6 +2354,10 @@ describe("path resolution through the git walk", () => {
 		[
 			"refuses command substitution rather than resolving it",
 			'cd "$(mktemp -d)" && git checkout x',
+		],
+		[
+			"reads a -C word before the command's own prefix assignment (#5087)",
+			`WT=${SHARED} git -C "$WT" checkout x`,
 		],
 		[
 			"refuses a brace-operator form even when the variable is set",

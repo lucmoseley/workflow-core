@@ -1,6 +1,6 @@
 /*
  * shell-script-lexer.js — a whole shell script cut into its simple commands,
- * for lib/code-edges.js's shell reach (#4790): each command's words as
+ * for lib/file-reach.js's shell reach (#4790): each command's words as
  * written, with their offsets, redirections left out; the commands inside
  * `$(…)`, backticks and `<(…)` as commands of their own; an array's literal
  * elements as a command marked `array`. Comments, heredoc bodies, `case`
