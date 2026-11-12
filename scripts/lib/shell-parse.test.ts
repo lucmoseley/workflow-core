@@ -703,6 +703,11 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 			"/start",
 		]);
 		expect(last('{ cd /usr; } | gh "$(x)"; gh y')).toEqual(["/usr", "/start"]);
+		expect(last('{ gh "$(x)"; cd /usr; }; gh y')).toEqual(["/usr"]);
+		expect(last('cd /missing || X="$(y)" cd /a; gh x')).toEqual([
+			"/a",
+			"/missing",
+		]);
 		/* An escaped `)` is no bracket ending the lifted run. */
 		expect(last('cd /usr | gh "$(echo a\\))"; gh y')).toEqual(["/start"]);
 		expect(last('cd /usr && gh "$(a)" && gh "$(b)" & gh y')).toEqual([
