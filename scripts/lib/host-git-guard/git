@@ -78,7 +78,7 @@ done
 }
 
 # git's own options before the subcommand; these take their value as the next
-# word.
+# word, lib/read-audit-git.js's `GIT_VALUED`.
 i=0
 sub=
 takes=
@@ -89,7 +89,7 @@ for a in "$@"; do
     continue
   fi
   case "$a" in
-    -C | -c | --git-dir | --work-tree | --namespace | --config-env | --attr-source) takes=1 ;;
+    -C | -c | --git-dir | --work-tree | --namespace | --config-env | --attr-source | --shallow-file) takes=1 ;;
     -*) ;;
     *)
       sub="$a"
@@ -103,17 +103,18 @@ args=("${@:i+1}")
 # on this repository — any worktree of it — reads what `fs` never sees, so it
 # is logged against the test that made it, twice: once before git runs, its
 # answer empty, so a call killed mid-way still shows, and once after, with its
-# answer — git's status and the sha1 of its stdout, `<status>:<sha1>` — which
-# the pass store requires its own rerun to equal (#4993). Each record carries
-# the variables changing what git answers, lib/read-audit-paths.js's
-# `GIT_ANSWER_VARS` spelt again in the loop below, which the audit weighs
-# against the environment the suite's setup settled (#5017). A call whose
+# answer — git's status and the sha1 of its stdout, `<status>:<sha1>`, as
+# `answerOf` spells it — which the pass store requires its own rerun to equal
+# (#4993). Each record carries the variables changing what git answers,
+# lib/read-audit-git.js's `GIT_ANSWER_VARS` spelt again in the loop below,
+# which the audit weighs against the environment the suite's setup settled
+# (#5017). A call whose
 # directory, `-C` and git-dir variables all lie outside the repository's
 # checkouts asks git nothing more; `init` and `clone` make a repository of
 # their own. Only the outermost call: a nested one runs inside a call already
 # judged.
 audit_log=
-# log_call <answer> <word>… — one record, as lib/read-audit.js's
+# log_call <answer> <word>… — one record, as lib/read-audit-git.js's
 # `parseGitRecords` reads it. `$$` is the pid the test spawned, which tells
 # the audit this call is in a record (#5015).
 log_call() {
