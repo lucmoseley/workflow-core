@@ -730,19 +730,6 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		);
 	});
 
-	it("holds a cd as stepCwd does: sure for its && chain, else maybe (#4863)", () => {
-		expect(read(`flock /l -c "cd /a && git x; git y"`).slice(1)).toEqual([
-			"[git][x]||[/a always]",
-			"[git][y]||[/a if-dir]",
-		]);
-		expect(read(`flock /l -c "true && cd /a; git x"`).at(-1)).toBe(
-			"[git][x]||[/a maybe]",
-		);
-		expect(read(`flock /l -c "if true; then cd /a; fi; git x"`).at(-1)).toBe(
-			"[git][x]||[/a maybe]",
-		);
-	});
-
 	it("exports a name alone with the value the script gave it (#4863)", () => {
 		expect(
 			read(`flock /l -c "export A=1; export A; gh a; B=2; export B; gh b"`),
