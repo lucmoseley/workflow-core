@@ -22,13 +22,16 @@ const path = require("node:path");
 const { readTail } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
 
-/* The free memory under which Windows holds every launch. A first guess, and
- * stated as one: the line under which heavy paging was about five times as
- * common over one day (#4850), to be re-measured over a week. */
-const WINDOWS_FLOOR_MB = 1000;
+/* The free memory under which Windows holds every launch. Over the 24 h after
+ * the AI host went (#4852), heavy paging came in 26% of 42 minutes under
+ * 750 MB and 4.2% of 95 at 750-1,000, within the interval of the 3.6% over
+ * 1,000 MB. One day's reading: the 750-1,000 band's 95% interval runs
+ * 1.6-10.3%. */
+const WINDOWS_FLOOR_MB = 750;
 /* The pages Windows reads in from disk since memwatch's previous reading,
- * about a minute, at and over which it holds every launch: the heavy-paging
- * line #4850 counted, a first guess. */
+ * about a minute, at and over which it holds every launch. A first guess,
+ * kept over the 24 h #4852 read: a minute at it was followed by another in 46%
+ * of 52, against 2.4% for one under it. */
 const WINDOWS_PAGING_LINE = 100_000;
 
 /* How old a reading may be and still hold a launch: memwatch's minute line
