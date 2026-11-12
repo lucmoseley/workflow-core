@@ -61,6 +61,15 @@ const SCOPE_CLOSE = `${SCOPE_MARK})`;
 /** Opens a flattened line with the code of the operator before it (#4009). */
 const OP_MARK = "\x05";
 
+/** The characters an escape makes a word's, each with the shield the flatten
+ * stands it behind while it splits (#5113): control bytes no other mark here
+ * uses, and no whitespace the word split reads.
+ * Residual: a raw shield byte typed after a `\` outside quotes comes back as
+ * the escaped operator; it changes that word and splits nothing. */
+const ESCAPED_OPS = "()&|;<>";
+const SHIELDS = "\x06\x07\x0e\x0f\x10\x11\x12";
+const SHIELDED_RE = new RegExp(`\\\\([${SHIELDS}])`, "g");
+
 /**
  * The command names whose line the logical-line join refuses to absorb.
  *
@@ -123,9 +132,10 @@ function flatten(text, mark = false, ops = false) {
 	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
 	return `${text
 		/* The lexer writes an escape as a `\`-pair, so a pair is never a
-		 * backtick of its own. */
+		 * backtick of its own: its operator is shielded until the splits are
+		 * done (#5113). */
 		.replace(/\\[\s\S]|`/g, (m) => {
-			if (m !== "`") return m;
+			if (m !== "`") return shieldEscape(m);
 			inBackticks = !inBackticks;
 			return inBackticks ? "$(" : ")";
 		})
@@ -143,8 +153,26 @@ function flatten(text, mark = false, ops = false) {
 		.replace(/\|/g, join("p"))
 		.replace(/&/g, join("b"))
 		.replaceAll("\x03", "&")
-		.replaceAll("\x04", "|")}\n`;
+		.replaceAll("\x04", "|")
+		.replace(
+			SHIELDED_RE,
+			(_m, c) => `\\${ESCAPED_OPS.charAt(SHIELDS.indexOf(c))}`,
+		)}\n`;
 }
+
+/** @param {string} pair */
+const shieldEscape = (pair) => {
+	const at = ESCAPED_OPS.indexOf(pair.charAt(1));
+	return at < 0 ? pair : `\\${SHIELDS.charAt(at)}`;
+};
+
+/** Where `masked`'s first `||` outside an escape starts, or -1.
+ * @param {string} masked */
+const indexOfFirstOr = (masked) => {
+	for (const m of masked.matchAll(/\\[\s\S]|\|\|/g))
+		if (m[0] === "||") return m.index;
+	return -1;
+};
 
 /**
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
@@ -487,10 +515,11 @@ function parseCommand(subject, spans = []) {
 	const { masked, heredocLines } = maskSubject(subject, spans);
 	/* Read BEFORE the flatten turns every `||` into a newline. The text before
 	 * the first one flattens to exactly the segments ahead of it. */
-	const before = masked.includes("||")
-		? (flatten(masked.slice(0, masked.indexOf("||")), true).match(/\n/g)
-				?.length ?? 0)
-		: -1;
+	const orAt = indexOfFirstOr(masked);
+	const before =
+		orAt >= 0
+			? (flatten(masked.slice(0, orAt), true).match(/\n/g)?.length ?? 0)
+			: -1;
 	/** @type {string[]} */
 	const segments = [];
 	/** @type {string[]} */
@@ -505,9 +534,9 @@ function parseCommand(subject, spans = []) {
 		segments.push(...own);
 		const join = lineJoins[i];
 		if (join === undefined) throw new Error("a segment with no join");
-		const ahead = own.slice(1);
-		joins.push(...ahead.map(() => "("), join);
-		lifted.push(...ahead.map(() => true), false);
+		const subs = own.slice(0, -1);
+		joins.push(...subs.map(() => "("), join);
+		lifted.push(...subs.map(() => true), false);
 	});
 	if (before >= 0 && conditional < 0) conditional = segments.length;
 	return {
@@ -773,7 +802,7 @@ function joinLogicalLines(commandLines, lx, spans) {
  */
 function isCommandAbsorbed(line, spans) {
 	const masked = maskText(new Lexer(spans), line);
-	for (const seg of masked.replace(/[;&|()]/g, "\n").split("\n")) {
+	for (const seg of flatten(masked).split("\n")) {
 		const { words, wi, ran } = commandWords(seg, { bare: true });
 		if (ran && GUARDED_HEADS.includes(basename(words[wi] ?? ""))) return true;
 	}
@@ -2445,8 +2474,9 @@ function isBraceGroupSure(parsed, segIdx) {
 	return groups.every(([from, to]) => {
 		if (segIdx < from || segIdx > to) return true;
 		const before = joins[from];
-		let prev = from - 1;
-		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
+		let prev = prevInList(parsed, from);
+		while (prev >= 0 && segments[prev]?.trim() === "")
+			prev = prevInList(parsed, prev);
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
 		const defined =
 			(before === "" || before === ")") && segments[prev] === SCOPE_CLOSE;
