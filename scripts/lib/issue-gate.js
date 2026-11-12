@@ -714,6 +714,10 @@ function followCited(text, m, own, follow) {
  *   wait with no basis, a window no basis names, or a basis with no warrant;
  *   `cited`, for a basis whose cited issues stand for none of its windows,
  *   each one's reason.
+ * @typedef {BasisFault & {words: string, window?: string}} WordedFault a
+ *   fault with the body words a reading read it in — the gate line, wait or
+ *   basis — and, for an unnamed window, the window as written; what
+ *   `faultsAdded` holds an edit's faults by
  */
 
 /**
@@ -734,6 +738,18 @@ function followCited(text, m, own, follow) {
  * @returns {BasisFault[]}
  */
 function basisFaults(body, own, follow) {
+	return wordedBasisFaults(body, own, follow).map(bareFault);
+}
+
+/**
+ * basisFaults with each fault's words.
+ *
+ * @param {string} body
+ * @param {number} [own]
+ * @param {Follow} [follow]
+ * @returns {WordedFault[]}
+ */
+function wordedBasisFaults(body, own, follow) {
 	const text = String(body || "");
 	const bases = liveBases(text);
 	if (bases.length === 0) {
@@ -742,7 +758,7 @@ function basisFaults(body, own, follow) {
 		return [
 			...(gate ? [gate[0].trim()] : []),
 			...liveWaits(text).map((m) => m[0]),
-		].map((t) => ({ kind: "no-basis", text: t }));
+		].map((t) => ({ kind: "no-basis", text: t, words: t }));
 	}
 	const named = new Set(
 		bases.flatMap((m) =>
@@ -750,13 +766,15 @@ function basisFaults(body, own, follow) {
 		),
 	);
 	const windows = windowsOf(text);
-	/** @type {Map<string, BasisFault>} */
+	/** @type {Map<string, WordedFault>} */
 	const faults = new Map();
 	for (const d of windows)
 		if (!named.has(d.key) && !faults.has(d.written.toLowerCase()))
 			faults.set(d.written.toLowerCase(), {
 				kind: "unnamed-window",
 				text: d.written,
+				words: d.words,
+				window: d.written,
 			});
 	if (windows.length > 0)
 		for (const m of bases) {
@@ -773,16 +791,18 @@ function basisFaults(body, own, follow) {
  * @param {RegExpMatchArray} m the basis's match in it
  * @param {number|undefined} own
  * @param {Follow|undefined} follow
- * @returns {BasisFault|null}
+ * @returns {WordedFault|null}
  */
 function warrantFault(text, m, own, follow) {
 	const basis = requiredGroup(m, 1, BASIS_RE);
 	const warrant = warrantOf(basis, own);
-	if (!warrant) return { kind: "no-warrant", text: basis };
+	if (!warrant) return { kind: "no-warrant", text: basis, words: basis };
 	if (warrant !== "issue" || !follow || follow.skip?.has(basis.toLowerCase()))
 		return null;
 	const cited = followCited(text, m, own, follow);
-	return cited ? { kind: "no-warrant", text: basis, cited } : null;
+	return cited
+		? { kind: "no-warrant", text: basis, cited, words: basis }
+		: null;
 }
 
 /**
@@ -796,17 +816,20 @@ function liveWaits(text) {
 }
 
 /**
- * The windows a body's live gate lines and prose waits write.
+ * The windows a body's live gate lines and prose waits write, each with the
+ * line or wait that writes it.
  *
  * @param {string} text
- * @returns {{written: string, key: string}[]}
+ * @returns {{written: string, key: string, words: string}[]}
  */
 function windowsOf(text) {
+	const writing = (
+		/** @type {RegExpMatchArray} */ m,
+		/** @type {{determined?: boolean}} */ opts,
+	) => durationsIn(text, m, opts).map((d) => ({ ...d, words: m[0].trim() }));
 	return [
-		...parseLiveGateLines(text).flatMap((m) => durationsIn(text, m)),
-		...liveWaits(text).flatMap((m) =>
-			durationsIn(text, m, { determined: true }),
-		),
+		...parseLiveGateLines(text).flatMap((m) => writing(m, {})),
+		...liveWaits(text).flatMap((m) => writing(m, { determined: true })),
 	];
 }
 
@@ -957,71 +980,102 @@ function parseBacktickRuns(block, from) {
 }
 
 /**
- * The faults `after` has that `before` did not, so an edit is refused only for
- * what it adds and an old body stays editable. A gate line whose date changed
- * counts as added: a moved window needs its basis as much as a new one. A
- * window `before` already wrote is held too, so adding a basis beside an old
- * wait is not refused for the wait (#823). A warrant fault is its basis text,
- * so an untouched legacy basis is held and a rewritten one is judged; where
- * the edit adds or changes a gate line every basis is judged, a re-gate
- * meeting today's bar (#4946).
- *
- * A basis `before` already held live is followed only on a re-gate.
- *
- * @param {string} before
- * @param {string} after
- * @param {number} [own] the issue's number
- * @param {Follow} [follow] as basisFaults takes it
- * @returns {BasisFault[]}
- */
-function introducedBasisFaults(before, after, own, follow) {
-	const b = String(before || "");
-	const regated = isRegate(b, after);
-	const untouched = new Set(
-		regated
-			? []
-			: liveBases(b).map((m) => requiredGroup(m, 1, BASIS_RE).toLowerCase()),
-	);
-	/** @param {BasisFault["kind"]} kind @param {string} text */
-	const keyOf = (kind, text) => `${kind}\n${text.toLowerCase()}`;
-	const held = new Set([
-		...basisFaults(b, own)
-			.filter((f) => !(regated && f.kind === "no-warrant"))
-			.map((f) => keyOf(f.kind, f.text)),
-		// A window the old body wrote excuses the wait, never a basis.
-		...windowsOf(b).flatMap((d) => [
-			keyOf("no-basis", d.written),
-			keyOf("unnamed-window", d.written),
-		]),
-	]);
-	return basisFaults(
-		after,
-		own,
-		follow && {
-			...follow,
-			skip: new Set([...(follow.skip ?? []), ...untouched]),
-		},
-	).filter((f) => !held.has(keyOf(f.kind, f.text)));
-}
-
-/**
  * @typedef {{body: string, own?: number, before?: string}} BasisWrite a body,
  *   its issue's number where known, and with `before`, the body an edit
  *   replaces
  */
 
 /**
- * A write's basis faults: the whole body's, or with `before`, only those the
- * edit brought.
+ * The faults a write adds, either reading's, so an edit is refused only for
+ * what it brings and an old body stays editable: a create's every fault, and
+ * of an edit's, each `before` does not hold. `before` holds a fault where its
+ * words were live there and its basis state gave the same kind:
  *
+ * - a missing basis, where `before` had no basis either — deleting the basis
+ *   under an old wait is refused;
+ * - an unnamed window, whatever basis `before` had, so adding a basis beside
+ *   an old wait is not refused for the wait (#823);
+ * - a basis with no warrant, where `before` held that basis live, bar on a
+ *   re-gate, where every basis meets today's bar (#4946).
+ *
+ * A gate line whose date changed is new words: a moved window needs its basis
+ * as much as a new one.
+ *
+ * @template {WordedFault} F
+ * @param {F[]} faults the faults the readings raise on the whole body
  * @param {BasisWrite} write
- * @param {Follow} [follow] as basisFaults takes it
- * @returns {BasisFault[]}
+ * @returns {Omit<F, "words"|"window">[]}
  */
-const basisWriteFaults = ({ body, own, before }, follow) =>
-	before === undefined
-		? basisFaults(body, own, follow)
-		: introducedBasisFaults(before, body, own, follow);
+function faultsAdded(faults, { body, before }) {
+	if (before === undefined) return faults.map(bareFault);
+	const b = String(before);
+	const facts = gateFacts(b);
+	const bases = new Set(facts.bases.map((t) => t.toLowerCase()));
+	const regated = isRegate(b, body);
+	const isHeld = (/** @type {F} */ f) => {
+		if (f.kind === "no-warrant")
+			return !regated && bases.has(f.words.toLowerCase());
+		return (
+			isLiveQuote(b, f.words, f.window ?? "", facts.isLiveAt) &&
+			(f.kind === "unnamed-window" || bases.size === 0)
+		);
+	};
+	return faults.filter((f) => !isHeld(f)).map(bareFault);
+}
+
+/**
+ * @template {WordedFault} F
+ * @param {F} f
+ * @returns {Omit<F, "words"|"window">}
+ */
+const bareFault = ({ words: _words, window: _window, ...f }) => f;
+
+/**
+ * The bases a reading need not follow to their cited issues for an edit:
+ * those `before` held live, none on a re-gate (#5007).
+ *
+ * @param {string} before
+ * @param {string} after
+ * @returns {Set<string>} lower-cased, as Follow's `skip` takes them
+ */
+const untouchedBases = (before, after) =>
+	new Set(
+		isRegate(before, after)
+			? []
+			: liveBases(before).map((m) =>
+					requiredGroup(m, 1, BASIS_RE).toLowerCase(),
+				),
+	);
+
+/**
+ * Whether `quote` is the body's own words: a verbatim substring with an
+ * occurrence that starts and ends outside a fence and a code span, `inner`
+ * within it too.
+ *
+ * @param {string} body
+ * @param {string} quote
+ * @param {string} inner words of `quote` that must be live as well, or ""
+ * @param {(index: number) => boolean} isLiveAt
+ */
+function isLiveQuote(body, quote, inner, isLiveAt) {
+	if (quote.trim() === "") return false;
+	/* The end is read just past the last character: a closing backtick reads
+	 * as inside its own span. */
+	const isLive = (/** @type {number} */ from, /** @type {number} */ length) =>
+		isLiveAt(from) && isLiveAt(from + length);
+	const innerAt = inner ? quote.indexOf(inner) : -1;
+	for (
+		let at = body.indexOf(quote);
+		at !== -1;
+		at = body.indexOf(quote, at + 1)
+	)
+		if (
+			isLive(at, quote.length) &&
+			(innerAt === -1 || isLive(at + innerAt, inner.length))
+		)
+			return true;
+	return false;
+}
 
 /**
  * Whether an edit adds or changes a gate line, so every basis beneath a window
@@ -1105,7 +1159,7 @@ const FAULT_SAYS = {
 /**
  * The refusal every write route gives, completing "<the body> carries …".
  *
- * @param {BasisFault[]} faults from basisFaults or introducedBasisFaults
+ * @param {BasisFault[]} faults from basisFaults or faultsAdded
  * @param {string} [reading] what read them, named where another reading
  *   also speaks (lib/gate-judge.js)
  * @returns {string}
@@ -1279,8 +1333,7 @@ module.exports = {
 	resolveGate,
 	isGateHolding,
 	basisFaults,
-	basisWriteFaults,
-	introducedBasisFaults,
+	faultsAdded,
 	basisRefusal,
 	citedSays,
 	basisRule,
@@ -1290,7 +1343,10 @@ module.exports = {
 	gateRuleHandover,
 	citedKey,
 	isNewlyGated,
+	isLiveQuote,
 	isRegate,
+	untouchedBases,
+	wordedBasisFaults,
 	parseAddedGateLines,
 	MAP_LABEL,
 	UNFILLED_DESTINATION,

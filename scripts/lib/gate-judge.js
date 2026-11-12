@@ -35,11 +35,12 @@ const {
 const {
 	basisRefusal,
 	basisRule,
-	basisWriteFaults,
+	faultsAdded,
 	gateFacts,
+	isLiveQuote,
 	judgeOverrideOf,
 	otherIssueRefs,
-	isRegate,
+	wordedBasisFaults,
 } = require("./issue-gate.js");
 
 const LAUNCHER = path.join(__dirname, "..", "claude-child.js");
@@ -116,8 +117,10 @@ const buildPrompt = (body) =>
  * @typedef {import("./issue-gate.js").BasisFault & {by: "patterns"|"model",
  *   on?: JudgedWait["on"], class?: JudgedBasis["class"]}} JudgedFault `on`:
  *   what a model-read wait waits on; `class`: how the model classed a basis
- * @typedef {JudgedFault & {quote: string}} ModelFault `quote`: the body's
- *   words the fault was read in, the wait's sentence or the basis
+ * @typedef {JudgedFault & {words: string, window?: string}} ModelFault
+ *   `words`: the body's words the fault was read in, the wait's sentence or
+ *   the basis; `window`, a wait's window as the model gave it
+ * @typedef {import("./issue-gate.js").WordedFault} WordedFault
  */
 
 /**
@@ -212,36 +215,6 @@ function readJudge(body, { boundMs, env = process.env }) {
 		: { why: "the judge's reply did not fit its schema" };
 }
 
-/**
- * Whether `quote` is the body's own words: a verbatim substring with an
- * occurrence that starts and ends outside a fence and a code span, `inner`
- * within it too.
- *
- * @param {string} body
- * @param {string} quote
- * @param {string} inner words of `quote` that must be live as well, or ""
- * @param {(index: number) => boolean} isLiveAt
- */
-function isLiveQuote(body, quote, inner, isLiveAt) {
-	if (quote.trim() === "") return false;
-	/* The end is read just past the last character: a closing backtick reads
-	 * as inside its own span. */
-	const isLive = (/** @type {number} */ from, /** @type {number} */ length) =>
-		isLiveAt(from) && isLiveAt(from + length);
-	const innerAt = inner ? quote.indexOf(inner) : -1;
-	for (
-		let at = body.indexOf(quote);
-		at !== -1;
-		at = body.indexOf(quote, at + 1)
-	)
-		if (
-			isLive(at, quote.length) &&
-			(innerAt === -1 || isLive(at + innerAt, inner.length))
-		)
-			return true;
-	return false;
-}
-
 const BASIS_MARKER = /^\s*\*\*Gate basis:\*\*\s*/i;
 
 /**
@@ -318,7 +291,8 @@ function readingFaults(body, reading, own) {
 						text: hasBasis ? windowText(w) : w.sentence.trim(),
 						by: "model",
 						on: w.on,
-						quote: w.sentence,
+						words: w.sentence,
+						window: w.window.trim(),
 					}),
 			),
 		...(facts.writesWindow || waits.length > 0 ? bases : [])
@@ -330,7 +304,7 @@ function readingFaults(body, reading, own) {
 						text: b.basis,
 						by: "model",
 						class: b.class,
-						quote: b.basis,
+						words: b.basis,
 					}),
 			),
 	];
@@ -354,50 +328,50 @@ function isEitherHeld(a, b) {
 }
 
 /**
- * The patterns' faults, whole, then what the model adds to them: a model
- * fault the patterns already raise is theirs, and one whose sentence or basis
- * `before` held verbatim, outside code, is not the edit's — bar a basis under
- * a gate line the edit adds or moves, judged afresh as the patterns' edit rule
- * judges it (#4946).
+ * The faults a write adds by both readings: each reading's faults on the
+ * whole body, those `before` holds dropped by the one edit rule
+ * (lib/issue-gate.js faultsAdded), then each model fault a remaining pattern
+ * fault already raises.
  *
- * @param {import("./issue-gate.js").BasisFault[]} patterns
+ * @param {WordedFault[]} patterns
  * @param {ModelFault[]} model
- * @param {{before: string, after: string}} [edit] where the write replaces a body
+ * @param {import("./issue-gate.js").BasisWrite} write
  * @returns {JudgedFault[]}
  */
-function mergeFaults(patterns, model, edit) {
-	/** @type {JudgedFault[]} */
-	const faults = patterns.map((f) => ({ ...f, by: "patterns" }));
-	const wasLiveAt = edit ? gateFacts(edit.before).isLiveAt : null;
-	const regated = edit !== undefined && isRegate(edit.before, edit.after);
-	const isHeld = (/** @type {ModelFault} */ f) =>
-		edit !== undefined &&
-		wasLiveAt !== null &&
-		!(regated && f.kind === "no-warrant") &&
-		isLiveQuote(edit.before, f.quote, "", wasLiveAt);
-	const added = model.filter(
-		(f) =>
-			!isHeld(f) &&
-			!faults.some((p) => p.kind === f.kind && isEitherHeld(p.text, f.text)),
+function addedFaults(patterns, model, write) {
+	const faults = faultsAdded(
+		[
+			.../** @type {(WordedFault & {by: "patterns"})[]} */ (
+				patterns.map((f) => ({ ...f, by: "patterns" }))
+			),
+			...model,
+		],
+		write,
 	);
-	return [...faults, ...added.map(({ quote: _quote, ...f }) => f)];
+	const raised = faults.filter((f) => f.by === "patterns");
+	return [
+		...raised,
+		...faults.filter(
+			(f) =>
+				f.by === "model" &&
+				!raised.some((p) => p.kind === f.kind && isEitherHeld(p.text, f.text)),
+		),
+	];
 }
 
 /**
  * A body's gate faults by both readings. With `before`, the body an edit
- * replaces, a fault is raised only where the edit brought it: a pattern fault
- * by lib/issue-gate.js's own edit rule, a model fault unless `before` already
- * held its sentence or basis verbatim.
+ * replaces, a fault is raised only where the edit brought it (addedFaults).
  *
  * `fallback` is why the model reading did not run, the faults then being the
  * patterns' alone; null where it ran.
  *
  * @param {string} body the body written
  * @param {{own?: number, before?: string, boundMs?: number, env?: NodeJS.ProcessEnv,
- *   patterns?: import("./issue-gate.js").BasisFault[]}} opts
+ *   patterns?: WordedFault[]}} opts
  *   `boundMs`: the child is killed once it has passed, JUDGE_BOUND_MS by
- *   default; `patterns`, the pattern faults where the caller read them with
- *   the cited issues followed
+ *   default; `patterns`, the whole body's pattern faults where the caller
+ *   read them with the cited issues followed
  * @returns {{faults: JudgedFault[], fallback: string|null, reading: Reading|null,
  *   dropped: number, ms: number}} `reading` as the model gave it, null with
  *   `fallback`; `dropped`, its quotes the code dropped; `ms`, the call's wall
@@ -408,13 +382,14 @@ function judgedBasisFaults(
 	{ own, before, boundMs = JUDGE_BOUND_MS, env, patterns: given } = {},
 ) {
 	const text = String(body || "");
-	const patterns = given ?? basisWriteFaults({ body: text, own, before });
+	const write = { body: text, before };
+	const patterns = given ?? wordedBasisFaults(text, own);
 	const startedAt = Date.now();
 	const read = readJudge(text, { boundMs, env });
 	const ms = Date.now() - startedAt;
 	if ("why" in read)
 		return {
-			faults: mergeFaults(patterns, []),
+			faults: addedFaults(patterns, [], write),
 			fallback: read.why,
 			reading: null,
 			dropped: 0,
@@ -422,11 +397,7 @@ function judgedBasisFaults(
 		};
 	const judged = readingFaults(text, read.reading, own);
 	return {
-		faults: mergeFaults(
-			patterns,
-			judged.faults,
-			before === undefined ? undefined : { before, after: text },
-		),
+		faults: addedFaults(patterns, judged.faults, write),
 		fallback: null,
 		reading: read.reading,
 		dropped: judged.dropped,
@@ -620,6 +591,7 @@ function readGateWrite(
 		env,
 	});
 	const { patterns } = cited;
+	const patternsAdded = faultsAdded(patterns, { body, before });
 	const boundMs = Math.min(JUDGE_BOUND_MS, leftMs - (Date.now() - startedAt));
 	const answered = (
 		/** @type {Parameters<typeof answer>[0]} */ faults,
@@ -627,7 +599,7 @@ function readGateWrite(
 		/** @type {Parameters<typeof answer>[2]} */ overrideLine,
 	) => answer(faults, reading, overrideLine, cited.note);
 	if (env.WFC_GATE_JUDGE === "off" && env.VITEST_WORKER_ID)
-		return answered(patterns, null, null);
+		return answered(patternsAdded, null, null);
 	const override = judgeOverrideOf(body);
 	const log = (/** @type {Record<string, unknown>} */ record) =>
 		logCall({
@@ -639,8 +611,8 @@ function readGateWrite(
 		});
 	if (boundMs < MIN_BOUND_MS) {
 		const fallback = "too little of the hook's time was left for it";
-		log({ patterns, model: [], ms: 0, dropped: 0, fallback });
-		return answered(patterns, { fallback }, override);
+		log({ patterns: patternsAdded, model: [], ms: 0, dropped: 0, fallback });
+		return answered(patternsAdded, { fallback }, override);
 	}
 	const r = judgedBasisFaults(body, {
 		own,
@@ -669,9 +641,9 @@ module.exports = {
 	LAUNCHER_GRACE_MS,
 	WRITE_BOUND_MS,
 	buildPrompt,
+	addedFaults,
 	isEitherHeld,
 	judgedBasisFaults,
-	mergeFaults,
 	parseReading,
 	readGateWrite,
 	readingFaults,

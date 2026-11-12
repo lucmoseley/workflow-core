@@ -452,6 +452,106 @@ describe("an edit", () => {
 	});
 });
 
+describe("the edit rule, one for both readings", () => {
+	/* A wait the patterns read, and a basis deriving its window. */
+	const Read = "Read it a week after it lands.";
+	const Derived =
+		"**Gate basis:** a week: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
+	/* A wait only the model reads. */
+	const Modelled = "Wait a week before starting.";
+
+	it("refuses deleting the basis under an old wait, as a create would", () => {
+		const modelled = judge(
+			`${Modelled}\n`,
+			reading([wait(Modelled, "a week")]),
+			{ before: `${Modelled}\n\n${Derived}\n` },
+		);
+		expect(modelled.faults).toEqual([
+			{ kind: "no-basis", text: Modelled, by: "model", on: "data" },
+		]);
+		expect(
+			judge(`${Read}\n`, NOTHING, { before: `${Read}\n\n${Derived}\n` }).faults,
+		).toEqual([{ kind: "no-basis", text: "a week after", by: "patterns" }]);
+	});
+
+	it("holds an old wait's window where the edit adds a basis beside it, and refuses a window it adds (#823)", () => {
+		const unnamed = "12 ticks an hour (#7), so 90 ticks a shift.";
+		expect(
+			judge(
+				`${WAIT}\n\n**Gate basis:** ${unnamed}\n`,
+				reading(
+					[wait(WAIT, "500 ticks")],
+					[{ basis: unnamed, class: "derived" }],
+				),
+				{ before: `${WAIT}\n` },
+			).faults,
+		).toEqual([]);
+		const before = `${Read}\n\n${Derived}\n`;
+		expect(judge(`${before}\nnote\n`, NOTHING, { before }).faults).toEqual([]);
+		expect(
+			judge(`${before}\nRe-check it 2 months later.\n`, NOTHING, { before })
+				.faults,
+		).toEqual([{ kind: "unnamed-window", text: "2 months", by: "patterns" }]);
+	});
+
+	it("counts a gate line whose date moved as added", () => {
+		const old = "**Gated until:** 2026-10-05 — x\nafter a week live";
+		expect(judge(`${old}\nnote`, NOTHING, { before: old }).faults).toEqual([]);
+		expect(
+			judge(old.replace("10-05", "10-12"), NOTHING, { before: old }).faults,
+		).toEqual([
+			{
+				kind: "no-basis",
+				text: "**Gated until:** 2026-10-12 — x",
+				by: "patterns",
+			},
+		]);
+	});
+
+	it("holds an untouched legacy basis, and judges a rewritten one or any under a moved or added gate", () => {
+		const fault = (text: string) => [
+			{ kind: "no-warrant", text, by: "patterns" },
+		];
+		const legacy =
+			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** the body sets a week";
+		expect(
+			judge(`${legacy}\nnote`, NOTHING, { before: legacy }).faults,
+		).toEqual([]);
+		expect(
+			judge(legacy.replace("the body sets", "the ticket asks for"), NOTHING, {
+				before: legacy,
+			}).faults,
+		).toEqual(fault("the ticket asks for a week"));
+		expect(
+			judge(legacy.replace("2099-01-01", "2099-02-01"), NOTHING, {
+				before: legacy,
+			}).faults,
+		).toEqual(fault("the body sets a week"));
+		const prose = `${Read}\n**Gate basis:** the body sets a week`;
+		expect(
+			judge(`**Gated until:** 2099-01-01 — x\n${prose}`, NOTHING, {
+				before: prose,
+			}).faults,
+		).toEqual(fault("the body sets a week"));
+	});
+
+	it("judges a basis whose text is a window the old body wrote", () => {
+		const bare =
+			"**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** a week";
+		const fault = [{ kind: "no-warrant", text: "a week", by: "patterns" }];
+		expect(
+			judge(bare.replace("2099-01-01", "2099-02-01"), NOTHING, { before: bare })
+				.faults,
+		).toEqual(fault);
+		const cited = `${Read}\n**Gate basis:** #12 ruled a week`;
+		expect(
+			judge(cited.replace("#12 ruled a week", "a week"), NOTHING, {
+				before: cited,
+			}).faults,
+		).toEqual(fault);
+	});
+});
+
 describe("a write route's reading", () => {
 	const write = (
 		body: string,
@@ -710,6 +810,23 @@ describe("a write route words the cited follow (#5007)", () => {
 			`The issues a basis cites were not read (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
 		);
 		expect(graphqlCalls()).toBe(0);
+	});
+
+	it("follows no basis an edit leaves untouched, and every basis on a re-gate or rewrite", () => {
+		serving({ "o/r": { 12: { body: "x" } } });
+		const legacy = cites("#12 set a week");
+		expect(write(`${legacy}\nnote\n`, { before: legacy, own: 1 })).toEqual({
+			refusal: null,
+			advice: "",
+		});
+		expect(graphqlCalls()).toBe(0);
+		const Says = "(it cites #12, which has no `**Gate basis:**` line)";
+		for (const after of [
+			legacy.replace("2099-01-01", "2099-02-01"),
+			legacy.replace("set a week", "set the week, a week"),
+		])
+			expect(write(after, { before: legacy, own: 1 }).refusal).toContain(Says);
+		expect(graphqlCalls()).toBe(2);
 	});
 
 	it("logs the cited issues, their verdicts, the read's wall time and any fallback", () => {
