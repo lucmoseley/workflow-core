@@ -147,7 +147,8 @@ function flatten(text, mark = false, ops = false) {
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
  * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, ")" the rest of
  * the line a bracket's `)` closed (#5093), "" a newline or nothing. A blank
- * line hands its operator on, as `&&` at a line's end does.
+ * line takes the operator carried to it, and hands it on, as `&&` at a line's
+ * end does (#5099).
  * @param {string} masked
  * @returns {string[]} one per line of flatSegments
  */
@@ -162,7 +163,7 @@ function parseJoins(masked) {
 			closed = line === `${SCOPE_MARK})`;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
-				return afterClose ? ")" : code;
+				return afterClose ? ")" : carry;
 			}
 			const joined = code || carry || (afterClose ? ")" : "");
 			carry = "";

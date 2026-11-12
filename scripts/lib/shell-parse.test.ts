@@ -569,6 +569,12 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /missing && true; gh x")).toEqual(["/missing", "/start"]);
 	});
 
+	it("keeps a carried && across a blank line, which ends no chain of its own (#5099)", () => {
+		expect(last("cd /missing && true &&\n\ngh x")).toEqual(["/missing"]);
+		expect(last("cd /missing\n\ngh x")).toEqual(["/missing", "/start"]);
+		expect(last("cd /a &&\n\ntrue & gh x")).toEqual(["/a", "/start"]);
+	});
+
 	it("is not settled outside a subshell by a chain ending inside it (#5093)", () => {
 		expect(last("cd /missing && (true; gh x)")).toEqual(["/missing"]);
 		expect(last("cd /missing && (true; true) && gh x")).toEqual(["/missing"]);
@@ -729,6 +735,12 @@ describe("Command.runs — each run with every directory it may stand in (#5075)
 		expect(runDirs("flock /l -c 'cd /missing && gh x'")?.at(-1)).toEqual([
 			"/missing",
 		]);
+		expect(
+			runDirs("flock /l -c 'cd /missing && true &&\n\ngh x'")?.at(-1),
+		).toEqual(["/missing"]);
+		expect(
+			runDirs("flock /l -c 'cd /missing && true\n\ngh x'")?.at(-1),
+		).toEqual(["/missing", "/start"]);
 		expect(
 			runDirs("flock /l -c 'cd /missing || cd /usr; gh x'")?.at(-1),
 		).toEqual(["/usr", "/missing"]);
@@ -2071,6 +2083,11 @@ describe('walkGit, scope "shared"', () => {
 		expect(parseCommand("a &&\n b").joins).toEqual(["", "a", "a"]);
 		const { segments, joins } = parseCommand("(a) && (b)");
 		expect(joins).toHaveLength(segments.length);
+	});
+
+	it("hands a carried operator across a blank line, and none where nothing is carried (#5099)", () => {
+		expect(parseCommand("a &&\n\n b").joins).toEqual(["", "a", "a", "a"]);
+		expect(parseCommand("a\n\n b").joins).toEqual(["", "", ""]);
 	});
 
 	it('codes the rest of a line a `)` closed as ")" (#5093)', () => {
