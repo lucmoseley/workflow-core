@@ -502,9 +502,9 @@ function parseCommand(subject, spans = []) {
 		segments.push(...own);
 		const join = lineJoins[i];
 		if (join === undefined) throw new Error("a segment with no join");
-		const ahead = own.slice(1);
-		joins.push(...ahead.map(() => "("), join);
-		lifted.push(...ahead.map(() => true), false);
+		const subs = own.slice(0, -1);
+		joins.push(...subs.map(() => "("), join);
+		lifted.push(...subs.map(() => true), false);
 	});
 	if (before >= 0 && conditional < 0) conditional = segments.length;
 	return {
@@ -2335,8 +2335,9 @@ function isBraceGroupSure(parsed, segIdx) {
 	return groups.every(([from, to]) => {
 		if (segIdx < from || segIdx > to) return true;
 		const before = joins[from];
-		let prev = from - 1;
-		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
+		let prev = prevInList(parsed, from);
+		while (prev >= 0 && segments[prev]?.trim() === "")
+			prev = prevInList(parsed, prev);
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
 		const defined =
 			(before === "" || before === ")") && segments[prev] === `${SCOPE_MARK})`;
