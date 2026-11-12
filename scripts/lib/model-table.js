@@ -250,9 +250,40 @@ function aliasOf(spelling) {
  * @throws where the routing file names no such alias
  */
 function modelId(alias) {
+	return modelOf(alias).id;
+}
+
+/**
+ * An alias's entry in the routing file's models.
+ * @param {string} alias
+ * @throws where the routing file names no such alias
+ */
+function modelOf(alias) {
 	const m = loadRouting().models[alias];
 	if (!m) throw new Error(`${routingPath()}: no model \`${alias}\``);
-	return m.id;
+	return m;
+}
+
+/**
+ * A mode's row for an alias; the load check gives every alias one.
+ * @param {boolean} burn
+ * @param {string} alias
+ * @throws where the mode has no row for the alias
+ */
+function rowOf(burn, alias) {
+	const row = modeOf(burn).route[alias];
+	if (!row) throw new Error(`${routingPath()}: no route for \`${alias}\``);
+	return row;
+}
+
+/**
+ * The standard row for the alias a spelling runs as; null where the file
+ * does not recognise it.
+ * @param {string} spelling
+ */
+function standardRoute(spelling) {
+	const alias = aliasOf(spelling);
+	return alias ? rowOf(false, alias) : null;
 }
 
 /**
@@ -273,8 +304,8 @@ function launchSpelling(alias) {
 function isRoutedAway(spelling) {
 	const alias = aliasOf(spelling);
 	if (!alias) return false;
-	const { standard, burn } = loadRouting().modes;
-	if (standard.route[alias]?.to === alias) return false;
+	if (rowOf(false, alias).to === alias) return false;
+	const { burn } = loadRouting().modes;
 	return (
 		burn.session === alias ||
 		Object.values(burn.route).some((row) => row.to === alias)
@@ -332,7 +363,7 @@ function isOverflowSession(env, session) {
 function mapLaunch(model, burn) {
 	const alias = aliasOf(model);
 	if (!alias) return model;
-	const to = modeOf(burn).route[alias]?.to ?? alias;
+	const { to } = rowOf(burn, alias);
 	return to === alias ? model : launchSpelling(to);
 }
 
@@ -355,14 +386,12 @@ function mapSessionModel(model, burn) {
  * @returns {{model: string, modelSettings: Record<string, {effortLevel: string}>}}
  */
 function modeSettings(burn) {
-	const { models } = loadRouting();
 	const mode = modeOf(burn);
 	/** @type {Record<string, {effortLevel: string}>} */
 	const modelSettings = {};
 	for (const [alias, effortLevel] of Object.entries(mode.modelSettings)) {
-		const m = models[alias];
-		for (const id of m ? [m.id, ...m.also] : [])
-			modelSettings[id] = { effortLevel };
+		const m = modelOf(alias);
+		for (const id of [m.id, ...m.also]) modelSettings[id] = { effortLevel };
 	}
 	return { model: launchSpelling(mode.session), modelSettings };
 }
@@ -488,8 +517,7 @@ const atEffort = (effort) => (effort ? ` at \`${effort}\`` : "");
 function pinInherited(call, burn, inherited) {
 	if (burn || trimmed(call.subagent_type) === "fork") return null;
 	if (!isRoutedAway(inherited)) return null;
-	const row = modeOf(false).route[aliasOf(inherited)];
-	if (!row) return null;
+	const row = rowOf(false, aliasOf(inherited));
 	const effort = row.effort ?? trimmed(call.effort);
 	return {
 		input: { ...call, model: row.to, ...(effort ? { effort } : {}) },
@@ -507,15 +535,15 @@ function pinInherited(call, burn, inherited) {
 function routeNamed(call, from, burn) {
 	const asked = trimmed(call.effort);
 	const alias = aliasOf(from);
-	const row = alias ? modeOf(burn).route[alias] : undefined;
-	if (!row) return null;
+	if (!alias) return null;
+	const row = rowOf(burn, alias);
 	const { to } = row;
 	const effort = row.effort ?? asked;
 	if (to === from && effort === asked) return null;
 	const what = `\`${from}\`${atEffort(asked)} to \`${to}\`${atEffort(effort)}`;
-	const standing = modeOf(false).route[alias ?? ""];
+	const standing = rowOf(false, alias);
 	const burned =
-		burn && (standing?.to !== to || (standing?.effort ?? asked) !== effort);
+		burn && (standing.to !== to || (standing.effort ?? asked) !== effort);
 	return {
 		input: { ...call, model: to, ...(effort ? { effort } : {}) },
 		note: burned
@@ -537,6 +565,7 @@ module.exports = {
 	relaunchFlags,
 	remapModel,
 	routingPath,
+	standardRoute,
 };
 
 /*
@@ -632,7 +661,8 @@ if (require.main === module) {
 	let code = 2;
 	try {
 		code = runCli(process.argv.slice(2));
-	} catch {
+	} catch (e) {
+		writeFd(2, `model-table: ${caught(e).message}\n`);
 		code = 2;
 	}
 	process.exit(code);
