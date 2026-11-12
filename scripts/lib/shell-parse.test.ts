@@ -2035,13 +2035,6 @@ describe('walkGit, scope "shared"', () => {
 			`[checkout][${SHARED}]`,
 		);
 	});
-
-	it("steps git's own valued options to find the subcommand", () => {
-		expect(walkGitRun("git -c a.b=1 --git-dir x checkout y").out).toContain(
-			"[checkout]",
-		);
-		expect(walkGitRun("git -c checkout x").calls).toEqual([]);
-	});
 });
 
 describe("path resolution through the git walk", () => {

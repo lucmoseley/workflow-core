@@ -2420,7 +2420,7 @@ function stepGitOption(w, next, target, { scope, dirs }) {
  * Step git's own options; the index of the subcommand, or past the end where
  * there is none. The directories `--git-dir`, `--work-tree` or the environment
  * name are read last, since git reads a relative one from wherever the `-C`s
- * end. stepGitOptions steps the options.
+ * end.
  * @param {string[]} own the command's words, `git` first
  * @param {GitTarget} target
  * @param {{ scope: Scope, env: GitEnv, isDir: (path: string) => boolean }} from

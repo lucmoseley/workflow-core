@@ -275,6 +275,8 @@ describe("stepGitOptions (#5076)", () => {
 		["git commit", "1:"],
 		["git -C /r --no-pager commit", "4:[-C>/r][--no-pager>commit]"],
 		[`git "-c" a=b checkout x`, "3:[-c>a=b]"],
+		["git -c a.b=1 --git-dir x checkout y", "5:[-c>a.b=1][--git-dir>x]"],
+		["git -c checkout x", "3:[-c>checkout]"],
 		["git --git-dir=/g commit", "2:[--git-dir=/g>commit]"],
 		["git -C", "3:[-C>]"],
 		[`git "$O" commit`, "1:"],

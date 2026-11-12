@@ -1203,9 +1203,8 @@ const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
 /**
  * Step git's own options, the words between `git` and its subcommand; the
  * subcommand's index, or past the end where there is none. A word literal
- * knows is an option where its text starts with `-`, so a quoted option is
- * one; a word it cannot read is one where its raw word starts with `-`. A
- * value option also steps over the next word.
+ * knows is an option where its text starts with `-`; a word it cannot read,
+ * where its raw word does. A value option also steps over the next word.
  * @param {string[]} ws masked words, `git` first
  * @param {string[]} spans
  * @param {(option: string, next: string | undefined) => void} [onOption]
