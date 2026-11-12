@@ -2566,7 +2566,8 @@ function closingCompound(parsed, segIdx) {
 /**
  * Whether every `{ …; }` group holding the segment surely runs in this shell:
  * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
- * not a function's body. False where the braces are unpaired.
+ * not a function's body. False where any compound command's opener or closer
+ * is unpaired.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */

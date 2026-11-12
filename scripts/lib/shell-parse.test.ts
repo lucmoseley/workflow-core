@@ -796,6 +796,14 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && { true; }\n{ a; } & gh y")).toEqual(["/usr"]);
 	});
 
+	it("backgrounds a cd's list past an if, loop or case in it (#5117)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && ! if a; then b; fi & gh y")).toEqual(both);
+		expect(last("cd /usr && time while a; do b; done & gh y")).toEqual(both);
+		expect(last("cd /usr && ! for i in a; do b; done & gh y")).toEqual(both);
+		expect(last("cd /usr && ! case a in a) b;; esac & gh y")).toEqual(both);
+	});
+
 	it("reads an escaped operator as a word, not a bracket or a split (#5113)", () => {
 		const both = ["/usr", "/start"];
 		expect(last("cd /usr && echo \\) & gh y")).toEqual(both);
