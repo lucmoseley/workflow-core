@@ -97,6 +97,11 @@ describe("a write to the host repository", () => {
 			"",
 		],
 		[
+			"a commit behind --shallow-file",
+			["--shallow-file", "s", "commit", "-q", "--allow-empty", "-m", "A"],
+			"",
+		],
+		[
 			"a config value that looks like an option",
 			["config", "core.foo", "-1"],
 			"",
