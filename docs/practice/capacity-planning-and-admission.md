@@ -87,7 +87,7 @@ Researched: 2026-10-23
 - Back the reclaim off on the guest's own pressure signals, PSI memory stall and file refaults, so it stops before it evicts what is still in use. Weiner et al., "TMO: Transparent Memory Offloading in Datacenters", ASPLOS 2022, and Meta's senpai README (a PSI feedback loop applying "just enough memory pressure … to page out the cold and unused" memory) [named expert]. No source gives thresholds for a desktop VM guest, so this sets no figure.
 - A cgroup `memory.high` on the guest's workload is a cap in another form: over it, tasks are throttled and "put under heavy reclaim pressure". `cgroup-v2.rst` [standard or field body]; commit 94968384dde1, "Why memory.high is not enough?" [named expert]
 - Freed guest pages reach the host only through free page reporting, in blocks of at least `page_reporting_order`, about 2 s after the free; a page left in the guest's cache is never reported. Linux `mm/page_reporting.c` [standard or field body]
-- Research: #4784, its 2026-11-09 research comment.
+- Research: #4784, its 2026-11-09 research comment. Its day's trial on this host, and why the repo runs none: #4791's close.
 
 ## Passing a queue head that cannot fit
 
