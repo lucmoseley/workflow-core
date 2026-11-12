@@ -52,7 +52,7 @@ const PROVENANCE_HEADING = "## Plugin provenance";
  * `rewriteRuleCommands` re-points at the plugin root. */
 const RUNNER = /\b(node|bash|sh|python3) scripts\//g;
 
-/* Each template by its name, its path spelled whole (lib/code-edges.js's
+/* Each template by its name, its path spelled whole (lib/file-reach.js's
  * WHOLE PATHS). */
 const TEMPLATE_FILES = {
 	"AGENTS.md": path.join(TEMPLATES, "AGENTS.md"),

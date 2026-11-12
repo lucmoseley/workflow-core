@@ -373,7 +373,7 @@ function writeLatches({ root, payload, log }, latches) {
  * lib/detach.sh's setsid does, so no hook's process-group kill reaches it.
  * The spawn sets no cwd, so a script given by any but an absolute path
  * would resolve against the session's; it throws, logged as the guard's
- * (#4790; code-edges.js WHOLE PATHS).
+ * (#4790; file-reach.js's WHOLE PATHS).
  * @param {Launch["launch"]} launch
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log

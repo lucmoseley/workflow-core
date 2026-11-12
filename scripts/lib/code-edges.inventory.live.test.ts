@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
  * Which files in the live tree hold a `code-edges loads:` or
- * `code-edges caller:` line (lib/code-edges.js, #4790): every one must be in
+ * `code-edges caller:` line (lib/file-reach.js, #4790): every one must be in
  * the testkit's DECLARING, so code-edges.live.test.ts holds its lines to
- * what they declare. A line is a declaration where `reachOf` reads it as
+ * what they declare. A line is a declaration where `fileReach` reads it as
  * one, its answer for the file changing when the line goes; each file is
  * read as it stands in the working tree, an unstaged edit included.
  *
