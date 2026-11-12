@@ -85,14 +85,13 @@ agent_id="" event="" payload_source="" session="" payload_cwd="" prompt=""
   IFS=$'\x1f' read -r -d '' agent_id event payload_source session payload_cwd prompt <<<"$fields"
 prompt="${prompt%$'\n'}"
 
+# A subagent's payload names its parent's session, whose command is not the
+# subagent's (#1785).
+[[ -n "$agent_id" ]] && exit 0
+
 # This script's directory without a `dirname` fork; `.` where run by a bare name.
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
-# A subagent's payload names its parent's session, whose command is not the
-# subagent's (#1785).
-# shellcheck source=scripts/lib/subagent-payload.sh
-source "$here/lib/subagent-payload.sh" 2>/dev/null &&
-  is_subagent_fields "$agent_id" "$event" "$payload_source" "$payload" && exit 0
 
 # SessionStart carries no prompt. A background job's opening prompt is recorded
 # on the job as `intent`, which is where the command will be if this is one of

@@ -29,16 +29,9 @@ const compactionSetFile = (sid) =>
  * Adds `keys` to the session's set, drops every `pending:` key not among them,
  * and returns its size.
  *
- * DROPPED, NOT SETTLED ONE FOR ONE (#1785). A subagent's compaction fires both
- * hooks with its parent's session id and no `agent_id` (harness 2.1.301), so it
- * leaves a pending key no main-tier boundary will ever settle. A main
- * compaction's boundary is in the transcript by the next Stop and by the next
- * compaction, which both pass it, so a dropped key is counted again as its
- * boundary or was never the main session's.
- *
- * RESIDUAL: a subagent's `SessionStart:compact` landing between its parent's
- * own compaction hooks and that boundary's write drops the parent's key early,
- * so the set reads one low until the parent's next Stop.
+ * DROPPED, NOT SETTLED ONE FOR ONE (#1785). A compaction's boundary is in the
+ * transcript by the next Stop and by the next compaction, which both pass it,
+ * so a dropped key is counted again as its boundary.
  * @param {string} sid
  * @param {string[]} keys
  * @returns {number}
