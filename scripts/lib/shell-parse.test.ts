@@ -621,8 +621,8 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 
 describe("runCwd — a -c string's cds stand its commands where the walk would (#5082)", () => {
 	const isDir = (p: string) => p === "/h" || p === "/a";
-	/** Where the last run stands, the command read through the walk and unwrap. */
-	const lastRun = (command: string) => {
+	/** Where each run stands, the command read through the walk and unwrap. */
+	const eachRun = (command: string) => {
 		const parsed = parseCommand(command);
 		const out: string[][] = [];
 		walkCommands(
@@ -633,7 +633,7 @@ describe("runCwd — a -c string's cds stand its commands where the walk would (
 			},
 			ports({ cwd: "/h", isDir }),
 		);
-		return out.at(-1);
+		return out;
 	};
 
 	it.each([
@@ -643,13 +643,13 @@ describe("runCwd — a -c string's cds stand its commands where the walk would (
 		"cd /nope && (cd b); git x",
 		"cd /nope && (true; git x); git y",
 		"cd /nope && cd /a || git x",
-	])("stands %s as the walk does", (script) => {
-		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir }).at(-1);
-		expect(lastRun(`flock /l -c "${script}"`)).toEqual(bare);
+	])("stands each command of %s as the walk does", (script) => {
+		const bare = walkMap(script, (c) => c.cwds, { cwd: "/h", isDir });
+		expect(eachRun(`flock /l -c "${script}"`)).toEqual(bare);
 	});
 
 	it("leaves out a directory a cd chained off a failed one never ran in", () => {
-		expect(lastRun(`flock /l -c "cd /nope && cd b; git x"`)).toEqual([
+		expect(eachRun(`flock /l -c "cd /nope && cd b; git x"`).at(-1)).toEqual([
 			"/nope/b",
 			"/nope",
 			"/h",

@@ -1514,7 +1514,7 @@ function parseScript(script, spans) {
 
 /**
  * A `&&` chain's end, as settleCwdDoubt reads one: the last `cd` before it
- * settles the chain for every command after.
+ * settles the chain for every command after (#5082).
  * @param {ScriptState} state
  * @param {string | undefined} join
  * @returns {ScriptState}
@@ -1522,7 +1522,7 @@ function parseScript(script, spans) {
 function settleScriptChain(state, join) {
 	if (join === "a" || join === "(" || !state.chainOpen) return state;
 	const last = state.chdirs.at(-1);
-	if (!last) return { ...state, chainOpen: false };
+	if (!last) throw new Error("a -c string's && chain is open with no cd");
 	/** @type {Chdir} */
 	const settled = { ...last, settles: true };
 	return {

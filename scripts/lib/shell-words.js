@@ -605,28 +605,25 @@ function unwrapArgv(argv) {
  */
 
 /**
- * @typedef {object} Chdir one directory a run moves to before its command
+ * @typedef {ChdirWord & Pick<import("./shell-dirs.js").Move,
+ *   "holds" | "afterFailed" | "chained" | "settles">} Chdir one directory a
+ *   run moves to before its command, its move classified as the directory
+ *   model reads one: a wrapper's holds "always", and only a `-c` string's
+ *   `cd` sets the other three (#5082)
+ */
+
+/**
+ * @typedef {object} ChdirWord
  * @property {string} dir as written: a wrapper's read through literal, a
  *   `cd`'s masked
  * @property {boolean} read whether `dir` is text literal read whole, to take
  *   as it stands; false for a `cd`'s masked word and a wrapper's word literal
  *   could not fully read or the shell expands
- * @property {"always" | "if-dir" | "maybe"} holds whether the run surely
- *   stands there: "always" for a wrapper's, whose failure runs nothing;
- *   "if-dir" where the `cd` surely ran had its directory been there; "maybe"
- *   where it may not have run
  * @property {Map<string, string | null>} [vars] a `-c` string's `cd`'s: each
  *   name its script set before it, its assignment word masked, or null where
  *   the script may have changed it in a way not followed
  * @property {boolean} [envReset] a `-c` string's `cd` behind a wrapper that
  *   may replace the environment its script inherits, as resetsEnv reads one
- * @property {true} [afterFailed] a `-c` string's `cd` after `||` whose left
- *   side is the `cd` before it: it runs only where that one did not move
- *   (#5010)
- * @property {true} [chained] a `-c` string's `cd` a `&&` chains a command off,
- *   as the directory model's Move reads one (#5082)
- * @property {true} [settles] a `-c` string's `cd` its script's `&&` chain ends
- *   after, before the next `cd`
  */
 
 /**
