@@ -8,8 +8,9 @@
  * lib/recursive-dot-read-host.js.
  *
  * A SECOND LIMB, ON THE HEAVY TREES (#2060): a recursive `grep` or `rg`, a
- * `find`, or either under `watch`, whose root is `node_modules`, `.next`, `.git`
- * or ignored build output, or a `find` or `grep` from the repo root, hands over
+ * `find`, or either under `watch`, whose root — resolved against where it runs,
+ * past a `cd` or `env -C` (#5119) — is `node_modules`, `.next`, `.git` or
+ * ignored build output, or a `find` or `grep` from the repo root, hands over
  * `rule:heavy-tree-search` once a session, beside any warning below. It never
  * refuses.
  *
@@ -107,7 +108,8 @@
  *    rg read them. That is the same set grep already had.
  *  - The heavy-tree limb reads a root's last component, resolved against
  *    where the search runs, so a search inside one — `grep -rn PAT
- *    node_modules/vitest` — passes, unless it is a `.` standing there; so does
+ *    node_modules/vitest` — passes, unless it is a `.` standing there; a `..`
+ *    is judged by its last component alone; so does
  *    a root behind a `cd` it cannot resolve, and a `find` from the
  *    repo root bounded by `-prune` or `-maxdepth`. `dist`, `build`, `out` and
  *    `coverage` count only where git ignores them. A watcher other than `watch`
@@ -129,6 +131,7 @@ const { escapeRe } = require("./regex-group.js");
 const { findStarts, literal, runText, scanFlags } = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
+const { relativeUnder } = require("./is-under.js");
 
 /**
  * @typedef {object} DotReadPorts
@@ -376,18 +379,19 @@ function expand(tree, ctx) {
 /** @param {string} w */
 const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
-const HEAVY = ["node_modules", ".next", ".git"];
+const HEAVY_TREES = ["node_modules", ".next", ".git"];
+/* Heavy only where git ignores them. */
+const BUILD_OUTPUT = ["dist", "build", "out", "coverage"];
 
 /**
- * Whether a directory stands below node_modules, .next or .git, counting only
+ * Whether a directory stands inside node_modules, .next or .git, counting only
  * the components below the session tree's root where it is inside that tree.
  * @param {string} dir
  * @param {string} root "" where the shell stands in no tree
  */
-function standsInHeavy(dir, root) {
-	const inTree = root !== "" && `${dir}/`.startsWith(`${root}/`);
-	const below = inTree ? dir.slice(root.length) : dir;
-	return below.split("/").some((c) => HEAVY.includes(c));
+function isInHeavyTree(dir, root) {
+	const below = (root === "" ? null : relativeUnder(root, dir)) ?? dir;
+	return below.split("/").some((c) => HEAVY_TREES.includes(c));
 }
 
 /**
@@ -407,11 +411,12 @@ function namesTree({ spans, ctx, tree, root }, word, cwd) {
 	while (lit.endsWith("/") && lit !== "/") lit = lit.slice(0, -1);
 	const resolved =
 		cwd && !lit.startsWith("/") ? path.posix.join(cwd, lit) : lit;
-	if (HEAVY.includes(afterSlash(resolved))) return true;
-	if (path.posix.normalize(lit) === "." && standsInHeavy(resolved, root))
-		return true;
-	if (!["dist", "build", "out", "coverage"].includes(afterSlash(resolved)))
-		return false;
+	const base = afterSlash(resolved);
+	if (HEAVY_TREES.includes(base)) return true;
+	const isDot = path.posix.normalize(lit) === ".";
+	if (isDot && isInHeavyTree(resolved, root)) return true;
+	/* A `.` outside any tree has no git to ask. */
+	if (!BUILD_OUTPUT.includes(base) || (isDot && tree === null)) return false;
 	/* `-C cwd` names where the search runs; outside any tree the host's git
 	 * carries it. */
 	const r = (tree ?? ctx).git(
