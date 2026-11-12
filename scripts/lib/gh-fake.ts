@@ -27,6 +27,9 @@ import GRAPHQL_ISSUE_STATES from "./fixtures/gh/graphql-issue-states.json" with 
 import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
 	type: "json",
 };
+import GRAPHQL_WAIT_GRAPH from "./fixtures/gh/graphql-wait-graph.json" with {
+	type: "json",
+};
 import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
 	type: "json",
 };
@@ -323,6 +326,50 @@ function answerBlockedBy(argv, rowsOf) {
 				labels: shaped(node.labels, { nodes: (r.labels ?? []).map((name) => shaped(node.labels.nodes[0], { name })) }),
 			})),
 		}) });
+	}
+	return answerOf(fixture, { data: { repository } }, errors);
+}`;
+
+/**
+ * The source of `answerWaitGraph(argv, nodeOf)`: lib/wait-graph.js's batched
+ * read of each issue's blockers and sub-issues together. `nodeOf(repo, n)`
+ * gives issue n of `owner/name` repo as `{state?, blockedBy?, subIssues?}`,
+ * each list `{number, state, repo?}` rows, or null for an issue GitHub cannot
+ * resolve. Each list is cut to the query's own `first:` with the full
+ * `totalCount`, and `{owner}/{repo}` resolves to `o/r`.
+ */
+export const WAIT_GRAPH_GRAPHQL_FAKE = String.raw`${HELPERS}
+function answerWaitGraph(argv, nodeOf) {
+	const fixture = ${JSON.stringify(GRAPHQL_WAIT_GRAPH)};
+	const page = JSON.parse(fixture.stdout);
+	const issue = Object.values(page.data.repository).find((v) => v && v.subIssues);
+	const node = issue.subIssues.nodes[0];
+	const field = (k) => argv.find((a) => a.startsWith(k + "=")).slice(k.length + 1);
+	const query = field("query");
+	const self = (field("owner") + "/" + field("name")).replace("{owner}/{repo}", "o/r");
+	const first = Number(query.match(/subIssues\(first: (\d+)\)/)[1]);
+	const conn = (template, rows) => shaped(template, {
+		totalCount: rows.length,
+		nodes: rows.slice(0, first).map((r) => shaped(node, {
+			number: r.number,
+			state: r.state.toUpperCase(),
+			repository: shaped(node.repository, { nameWithOwner: r.repo ?? self }),
+		})),
+	});
+	const repository = { nameWithOwner: self };
+	const errors = [];
+	for (const [, n] of query.matchAll(/i(\d+): issue\(/g)) {
+		const held = nodeOf(self, Number(n));
+		if (!held) {
+			repository["i" + n] = null;
+			errors.push(notFound(page.errors[0], ["repository", "i" + n], n));
+			continue;
+		}
+		repository["i" + n] = shaped(issue, {
+			state: (held.state ?? "open").toUpperCase(),
+			blockedBy: conn(issue.blockedBy, held.blockedBy ?? []),
+			subIssues: conn(issue.subIssues, held.subIssues ?? []),
+		});
 	}
 	return answerOf(fixture, { data: { repository } }, errors);
 }`;

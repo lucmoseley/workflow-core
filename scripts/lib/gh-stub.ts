@@ -26,6 +26,7 @@ import {
 	readGhAnswer,
 	type SubIssuesAnswer,
 	subIssuesAnswer,
+	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./gh-fake";
 import { buildServerClient } from "./gh-stub-server.js";
 import { shellQuote } from "./sh-quote.js";
@@ -115,6 +116,33 @@ const casePattern = (key: string) => key.split("*").map(shellQuote).join("*");
 
 const BLOCKED_BY_ROUTE = /^[^*]*\/issues\/(\d+)\/dependencies\/blocked_by$/;
 
+/* A link list's route, its repo `o/r` where gh's placeholder names it. */
+const LINK_LIST_ROUTE =
+	/^repos\/([^/*]+\/[^/*]+)\/issues\/(\d+)\/(dependencies\/blocked_by|sub_issues)$/;
+
+type WaitNode = { blockedBy?: unknown[]; subIssues?: unknown[] } | null;
+
+/** Each issue's link lists, as lib/wait-graph.js's batched read answers them. */
+function buildWaitNodes(routes: Record<string, RouteAnswer>) {
+	const nodes: Record<string, WaitNode> = {};
+	for (const [key, a] of Object.entries(routes)) {
+		const m = key.match(LINK_LIST_ROUTE);
+		if (!m) continue;
+		const at = `${(m[1] as string).replace("{owner}/{repo}", "o/r").toLowerCase()}#${m[2]}`;
+		if ("status" in a) {
+			if (a.status !== 0) nodes[at] = null;
+			continue;
+		}
+		if (nodes[at] === null) continue;
+		const rows = (a.value as Parameters<typeof blockerRow>[0][][])
+			.flat()
+			.map(blockerRow);
+		const field = m[3] === "sub_issues" ? "subIssues" : "blockedBy";
+		nodes[at] = { ...nodes[at], [field]: rows };
+	}
+	return nodes;
+}
+
 const blockerRow = (r: {
 	number: number;
 	state: string;
@@ -152,7 +180,10 @@ const lowerKeys = <T>(o: Record<string, T>) =>
  * `gh api graphql` is lib/blocked-by-batch.js's batched read, answering issue
  * n from the rows of its `blockedByPage` route keyed exactly
  * `…/issues/n/dependencies/blocked_by`, and null — sending n to that REST
- * path — where that route fails or there is none; a read of the issues a
+ * path — where that route fails or there is none; lib/wait-graph.js's read
+ * answers each issue from its `…/dependencies/blocked_by` and `…/sub_issues`
+ * page routes, null where either fails, and no links where it has none; a
+ * read of the issues a
  * basis cites is answered from `cited`, gh-fake's `answerCited` shape, every
  * repo it leaves out answering null. `failing` is stubGhScript's.
  * `bodies` takes the body a call pipes to `--body-file -`, read as gh reads
@@ -191,12 +222,20 @@ export function stubGhRoutes(
 			file,
 			`${BLOCKED_BY_GRAPHQL_FAKE}
 ${CITED_GRAPHQL_FAKE}
+${WAIT_GRAPH_GRAPHQL_FAKE}
 const argv = process.argv.slice(2);
 const blockers = ${JSON.stringify(blockers)};
+const waits = ${JSON.stringify(buildWaitNodes(routes))};
+const query = argv.find((a) => a.startsWith("query=")) ?? "";
 serveAnswer(
-	argv.some((a) => a.startsWith("query=") && a.includes("issueOrPullRequest") && a.includes("comments(first: "))
+	query.includes("issueOrPullRequest") && query.includes("comments(first: ")
 		? answerCited(argv, ${JSON.stringify(lowerKeys(cited))})
-		: answerBlockedBy(argv, (n) => blockers[n] ?? null),
+		: query.includes("subIssues(first: ")
+			? answerWaitGraph(argv, (repo, n) => {
+				const at = repo.toLowerCase() + "#" + n;
+				return at in waits ? waits[at] : {};
+			})
+			: answerBlockedBy(argv, (n) => blockers[n] ?? null),
 );
 `,
 		);

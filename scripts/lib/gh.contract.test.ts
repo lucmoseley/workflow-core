@@ -41,6 +41,7 @@ import {
 	LINK_READS,
 	RECORDED_SHAPES,
 	readGhAnswer,
+	WAIT_GRAPH_GRAPHQL_FAKE,
 } from "./gh-fake";
 import { buildLinkReadArms, serveGhStub, stubGhScript } from "./gh-stub";
 import { shellQuote } from "./sh-quote.js";
@@ -58,6 +59,10 @@ const SUB_ISSUES_NOT_FOUND = path.join(
 const GRAPHQL_ISSUE_STATES = path.join(
 	__dirname,
 	"fixtures/gh/graphql-issue-states.json",
+);
+const GRAPHQL_WAIT_GRAPH = path.join(
+	__dirname,
+	"fixtures/gh/graphql-wait-graph.json",
 );
 const GRAPHQL_BLOCKED_BY = path.join(
 	__dirname,
@@ -599,6 +604,9 @@ describe("live: computed answers", () => {
 		expect(BLOCKED_BY_GRAPHQL_FAKE).toContain(
 			JSON.stringify(readGhAnswer(GRAPHQL_BLOCKED_BY)),
 		);
+		expect(WAIT_GRAPH_GRAPHQL_FAKE).toContain(
+			JSON.stringify(readGhAnswer(GRAPHQL_WAIT_GRAPH)),
+		);
 	});
 
 	const blockers = (n: number) =>
@@ -692,6 +700,55 @@ describe("live: computed answers", () => {
 		expect(await throughSeam(stub, args)).toEqual(real);
 		expect(
 			await observe(ghServe(answerBlockedBy(args, blockers)), args),
+		).toEqual(real);
+	});
+
+	const answerWaitGraph = ghComputed<
+		(
+			argv: string[],
+			nodeOf: (repo: string, n: number) => object | null,
+		) => GhAnswer
+	>(WAIT_GRAPH_GRAPHQL_FAKE, "answerWaitGraph");
+	const waitNodes = (_repo: string, n: number) =>
+		n === 2331
+			? {
+					state: "closed",
+					blockedBy: [
+						{ number: 2327, state: "closed" },
+						{ number: 2328, state: "closed" },
+					],
+					subIssues: [],
+				}
+			: null;
+
+	it("lib/wait-graph.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
+		skip,
+	}) => {
+		liveSkip ??= { reason: liveSkipReason() };
+		if (liveSkip.reason) return skip(liveSkip.reason);
+		const { readNodes } = await import("./wait-graph.js");
+		const log = path.join(dir, "wait-graph-calls");
+		const stub = computedStub(
+			WAIT_GRAPH_GRAPHQL_FAKE,
+			`argv[1] === "graphql" ? answerWaitGraph(argv, ${waitNodes}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
+			log,
+		);
+		vi.stubEnv("WFC_GH", stub);
+		await readNodes([
+			{ repo: readTracker(), number: 2331 },
+			{ repo: readTracker(), number: 999_999_999 },
+		]);
+		const args: string[] = fs
+			.readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line))
+			.find((argv: string[]) => argv[1] === "graphql");
+		const real = await throughSeam(realGh as string, args);
+		expect(real).toMatchObject({ verdict: "broken" });
+		expect(await throughSeam(stub, args)).toEqual(real);
+		expect(
+			await observe(ghServe(answerWaitGraph(args, waitNodes)), args),
 		).toEqual(real);
 	});
 
