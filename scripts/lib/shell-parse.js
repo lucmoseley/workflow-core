@@ -693,8 +693,11 @@ function parseHeredocTerm(mask, line) {
  * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
  * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
  * line outside a message argument (mantahostels#232) or a script unwrap reads
- * (#4978). A `sh -c` script is not among them: no git guard reads one. Residual: three cores read no unwrap run, so such a
- * script's later `gh` or text line passes them (#5012).
+ * (#4978). A bare `sh -c` script is not among them: unwrap leaves it standing
+ * as the command word (mantahostels#2629), so its later lines are judged only
+ * as lines of their own, which the abandoned join keeps.
+ * Residual: three cores read no unwrap run, so a later `gh` or text line of a
+ * script unwrap reads passes them (#5012).
  * @param {string[]} commandLines
  * @param {InstanceType<typeof Lexer>} lx
  * @param {string[]} spans

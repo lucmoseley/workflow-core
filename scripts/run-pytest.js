@@ -71,6 +71,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
 const { monotonicMs } = require("./lib/suite-ceiling.js");
+const { sweepDeadRunRoots } = require("./lib/run-temp-root.js");
 const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 
 /* Resolved through the host-root seam (#1), never `__dirname`: the pytest suite,
@@ -289,8 +290,10 @@ module.exports = { main };
 
 /* exitCode, never process.exit: an exit straight after a write to a pipe
  * can drop it (mantahostels#1943). */
-if (require.main === module)
+if (require.main === module) {
+	sweepDeadRunRoots("pytest");
 	main().catch((e) => {
 		writeFd(2, `run-pytest: ${e?.stack ?? e}\n`);
 		process.exitCode = 1;
 	});
+}
