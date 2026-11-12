@@ -63,7 +63,7 @@ const OP_MARK = "\x05";
 
 /** What joins a flattened line to the one before, as parseJoins codes it. */
 const JOIN = Object.freeze({
-	/** a newline, or nothing */
+	/** a newline, or nothing; falsy, as parseJoins reads it */
 	NONE: "",
 	AND: "a",
 	OR: "o",
@@ -214,7 +214,7 @@ function parseJoins(masked) {
 	return flatten(masked, true, true)
 		.split("\n")
 		.map((line) => {
-			const code = line.startsWith(OP_MARK) ? opCode(line) : JOIN.NONE;
+			const code = line.startsWith(OP_MARK) ? parseOpCode(line) : JOIN.NONE;
 			const afterClose = closed && !code;
 			const lineEnd = afterClose ? JOIN.AFTER_CLOSE : JOIN.NONE;
 			closed = line === SCOPE_CLOSE;
@@ -229,15 +229,18 @@ function parseJoins(masked) {
 }
 
 /** The join code an OP_MARK line opens with.
+ * Residual: a raw OP_MARK byte typed at a line's start, outside quotes, opens
+ * no operator; the character after it reads as `;`, which every reader takes
+ * as it took an unknown code.
  * @param {string} line
  * @returns {Join} */
-function opCode(line) {
+function parseOpCode(line) {
 	const code = line.charAt(1);
-	if (!isJoin(code)) throw new Error(`an unknown join code ${code}`);
-	return code;
+	return isJoin(code) ? code : JOIN.SEMI;
 }
 
-/** @type {readonly Join[]} */
+/** The joins that keep a `&&` chain open across the segment.
+ * @type {readonly Join[]} */
 const CHAIN_HELD = [JOIN.AND, JOIN.PIPE, JOIN.OPEN, JOIN.AFTER_CLOSE];
 
 /**
@@ -1669,6 +1672,7 @@ function parseScript(script, spans) {
 	parsed.segments.forEach((segment, segIdx) => {
 		if (segment === SCOPE_OPEN) {
 			stack.push(state);
+			/* As openScope's: the chain outside stays open (#5093, #5102). */
 			state = { ...openChainScope(state), subshellOpened: true };
 			return;
 		}
@@ -2371,9 +2375,12 @@ const isChainedOff = (parsed, segIdx) =>
 	parsed.joins[segIdx] !== JOIN.OR &&
 	!isNegated(parsed.segments, segIdx);
 
-/** The joins that keep a segment in the list or pipeline before it. */
-/** @type {readonly Join[]} */
+/** The joins that keep a segment in the list or pipeline before it.
+ * @type {readonly Join[]} */
 const IN_LIST = [JOIN.AND, JOIN.OR, JOIN.PIPE];
+
+/** @param {Join | undefined} join undefined past the last segment */
+const inList = (join) => join !== undefined && IN_LIST.includes(join);
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
@@ -2384,8 +2391,7 @@ const IN_LIST = [JOIN.AND, JOIN.OR, JOIN.PIPE];
 function isListBackgrounded(parsed, segIdx) {
 	const { joins } = parsed;
 	let end = nextInList(parsed, segIdx);
-	while (IN_LIST.includes(joins[end] ?? JOIN.NONE))
-		end = nextInList(parsed, commandEnd(parsed, end));
+	while (inList(joins[end])) end = nextInList(parsed, commandEnd(parsed, end));
 	return joins[end] === JOIN.BACKGROUND;
 }
 
@@ -2656,7 +2662,7 @@ function isBraceGroupSure(parsed, segIdx) {
 			segments[prev] === SCOPE_CLOSE;
 		return (
 			!defined &&
-			!IN_LIST.includes(before ?? JOIN.NONE) &&
+			!inList(before) &&
 			joinAfter(parsed, to) !== JOIN.PIPE &&
 			!isListBackgrounded(parsed, to)
 		);
