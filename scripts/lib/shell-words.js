@@ -613,7 +613,8 @@ function unwrapArgv(argv) {
  */
 
 /**
- * @typedef {object} ChdirWord
+ * @typedef {object} ChdirWord a chdir's directory word, and what a `-c`
+ *   string's `cd` reads it under
  * @property {string} dir as written: a wrapper's read through literal, a
  *   `cd`'s masked
  * @property {boolean} read whether `dir` is text literal read whole, to take

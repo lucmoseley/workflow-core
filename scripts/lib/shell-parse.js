@@ -2299,12 +2299,9 @@ function runCwd(cwds, chdirs, scope, isDir) {
  * @param {import("./shell-dirs.js").Resolved} resolved its directory
  * @returns {import("./shell-dirs.js").Move}
  */
-const chdirMove = ({ holds, afterFailed, chained, settles }, resolved) => ({
+const chdirMove = ({ dir, read, vars, envReset, ...move }, resolved) => ({
 	resolved,
-	holds,
-	afterFailed,
-	chained,
-	settles,
+	...move,
 });
 
 const CONFIG_READ = /^(?:--get|--list$|-l$)/;
