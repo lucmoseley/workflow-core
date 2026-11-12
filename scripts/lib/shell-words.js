@@ -1201,6 +1201,33 @@ const GIT_VALUE_OPTIONS = [
 const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
 
 /**
+ * Step git's own options, the words between `git` and its subcommand; the
+ * subcommand's index, or past the end where there is none. A word literal
+ * knows is an option where its text starts with `-`, so a quoted option is
+ * one; a word it cannot read is one where its raw word starts with `-`. A
+ * value option also steps over the next word.
+ * @param {string[]} ws masked words, `git` first
+ * @param {string[]} spans
+ * @param {(option: string, next: string | undefined) => void} [onOption]
+ *   handed each option's text and the raw word after it
+ */
+function stepGitOptions(ws, spans, onOption) {
+	/** @param {string | undefined} raw @returns {string | null} */
+	const optionAt = (raw) => {
+		if (raw === undefined) return null;
+		const { known, text } = literal(raw, spans);
+		if (known) return text.startsWith("-") ? text : null;
+		return raw.startsWith("-") ? raw : null;
+	};
+	let i = 1;
+	for (let w = optionAt(ws[i]); w !== null; w = optionAt(ws[i])) {
+		onOption?.(w, ws[i + 1]);
+		i += isGitValueOption(w) ? 2 : 1;
+	}
+	return i;
+}
+
+/**
  * Each `git` subcommand one command's words run, past any launcher wrapper and
  * git's own options: `{ sub, args }`, the subcommand read through literal and
  * the words after it RAW (#2383), one per unwrap run that is `git` with a
@@ -1225,12 +1252,7 @@ function gitRunWords(ws, spans) {
 	const [cmd] = ws;
 	if (cmd === undefined || afterSlash(literal(cmd, spans).text) !== "git")
 		return null;
-	let i = 1;
-	for (let w = ws[i]; w?.startsWith("-"); w = ws[i]) {
-		const step = isGitValueOption(w) ? 2 : 1;
-		if (i + step > ws.length) return null;
-		i += step;
-	}
+	const i = stepGitOptions(ws, spans);
 	const sub = ws[i];
 	if (sub === undefined) return null;
 	return { sub: literal(sub, spans).text, args: ws.slice(i + 1) };
@@ -1698,7 +1720,7 @@ module.exports = {
 	commandName,
 	isGhCommand,
 	programSource,
-	isGitValueOption,
+	stepGitOptions,
 	gitWords,
 	ghCall,
 	ghWords,

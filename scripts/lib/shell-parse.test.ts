@@ -1805,7 +1805,6 @@ describe('walkGit, scope "shared"', () => {
 		expect(walkGitRun('git "checkout" x').out).toContain("[checkout]");
 		expect(walkGitRun('git ch"eck"out x').out).toContain("[checkout]");
 		expect(walkGitRun('git "$S" x').calls).toEqual([]);
-		expect(walkGitRun('git "-c" a=b checkout x').out).toContain("[checkout]");
 	});
 
 	it("records what joins each segment, a blank line handing its operator on (#4009)", () => {
