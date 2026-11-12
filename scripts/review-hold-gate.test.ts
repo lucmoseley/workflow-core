@@ -24,6 +24,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
 import { reviewSuffix } from "./lib/review-suffix";
 import { runInProcess } from "./lib/run-in-process";
@@ -1037,9 +1038,13 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 				tool_name: "Bash",
 				tool_input: { command: "git push origin main" },
 			}),
-			// Lifted to what the dispatcher's entry budget allows: an overrun of
-			// the live 6 s answers no warning, which the assertions would misread.
-			env: { ...hookEnv(), WFC_PUSH_REVIEW_TIMEOUT_MS: "30000" },
+			// Lifted to the dispatcher's entry budget, which still cuts it: an
+			// overrun of the live 6 s answers no warning, which the assertions
+			// would misread.
+			env: {
+				...hookEnv(),
+				WFC_PUSH_REVIEW_TIMEOUT_MS: String(ENTRY_BUDGET_MS.PreToolUse),
+			},
 		});
 		return r.stdout.trim()
 			? (JSON.parse(r.stdout).hookSpecificOutput?.additionalContext ?? "")
