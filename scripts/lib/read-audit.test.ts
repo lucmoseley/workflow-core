@@ -23,9 +23,9 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
-const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
 const { buildVerdictOf } = require("./read-audit-provenance.js");
@@ -1531,9 +1531,7 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				files: [{ file: T, outcome: "pass", imports: [] }],
 				shared: ["vitest.config.ts", "vitest.setup.ts"],
 				clean: true,
-				drifted: [],
-				after: readTreeSnapshot(root),
-				startMark: markStart(root),
+				steadiness: watched(root),
 				audits: readAudits(log, root),
 			},
 			{ storeRoot: root, lander: false, values: Values },
