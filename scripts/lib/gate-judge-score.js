@@ -4,7 +4,7 @@
  */
 
 const {
-	addedFaults,
+	judgedFaultsAdded,
 	isEitherHeld,
 	parseReading,
 	readingFaults,
@@ -47,7 +47,7 @@ function judgeRow(body, own, row) {
 		waits: judged.waits.map((w) => w.sentence),
 		bases: judged.bases,
 		model: judged.faults,
-		added: addedFaults(
+		added: judgedFaultsAdded(
 			wordedBasisFaults(body, own ?? undefined),
 			judged.faults,
 			{ body },

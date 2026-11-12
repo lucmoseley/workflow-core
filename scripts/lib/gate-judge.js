@@ -338,7 +338,7 @@ function isEitherHeld(a, b) {
  * @param {import("./issue-gate.js").BasisWrite} write
  * @returns {JudgedFault[]}
  */
-function addedFaults(patterns, model, write) {
+function judgedFaultsAdded(patterns, model, write) {
 	const faults = faultsAdded(
 		[
 			.../** @type {(WordedFault & {by: "patterns"})[]} */ (
@@ -361,7 +361,7 @@ function addedFaults(patterns, model, write) {
 
 /**
  * A body's gate faults by both readings. With `before`, the body an edit
- * replaces, a fault is raised only where the edit brought it (addedFaults).
+ * replaces, a fault is raised only where the edit brought it (judgedFaultsAdded).
  *
  * `fallback` is why the model reading did not run, the faults then being the
  * patterns' alone; null where it ran.
@@ -389,7 +389,7 @@ function judgedBasisFaults(
 	const ms = Date.now() - startedAt;
 	if ("why" in read)
 		return {
-			faults: addedFaults(patterns, [], write),
+			faults: judgedFaultsAdded(patterns, [], write),
 			fallback: read.why,
 			reading: null,
 			dropped: 0,
@@ -397,7 +397,7 @@ function judgedBasisFaults(
 		};
 	const judged = readingFaults(text, read.reading, own);
 	return {
-		faults: addedFaults(patterns, judged.faults, write),
+		faults: judgedFaultsAdded(patterns, judged.faults, write),
 		fallback: null,
 		reading: read.reading,
 		dropped: judged.dropped,
@@ -641,7 +641,7 @@ module.exports = {
 	LAUNCHER_GRACE_MS,
 	WRITE_BOUND_MS,
 	buildPrompt,
-	addedFaults,
+	judgedFaultsAdded,
 	isEitherHeld,
 	judgedBasisFaults,
 	parseReading,

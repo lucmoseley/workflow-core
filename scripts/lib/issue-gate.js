@@ -755,10 +755,14 @@ function wordedBasisFaults(body, own, follow) {
 	if (bases.length === 0) {
 		const gate =
 			firstLiveMatch(GATE_RE, text) || firstLiveMatch(GATE_ON_RE, text);
+		const line = gate?.[0].trim();
 		return [
-			...(gate ? [gate[0].trim()] : []),
-			...liveWaits(text).map((m) => m[0]),
-		].map((t) => ({ kind: "no-basis", text: t, words: t }));
+			...(line ? [{ text: line, words: line }] : []),
+			...liveWaits(text).map((m) => ({
+				text: m[0],
+				words: sentenceOf(text, m),
+			})),
+		].map((f) => ({ kind: "no-basis", ...f }));
 	}
 	const named = new Set(
 		bases.flatMap((m) =>
@@ -823,14 +827,38 @@ function liveWaits(text) {
  * @returns {{written: string, key: string, words: string}[]}
  */
 function windowsOf(text) {
-	const writing = (
-		/** @type {RegExpMatchArray} */ m,
-		/** @type {{determined?: boolean}} */ opts,
-	) => durationsIn(text, m, opts).map((d) => ({ ...d, words: m[0].trim() }));
 	return [
-		...parseLiveGateLines(text).flatMap((m) => writing(m, {})),
-		...liveWaits(text).flatMap((m) => writing(m, { determined: true })),
+		...parseLiveGateLines(text).flatMap((m) =>
+			durationsIn(text, m).map((d) => ({ ...d, words: m[0].trim() })),
+		),
+		...liveWaits(text).flatMap((m) =>
+			durationsIn(text, m, { determined: true }).map((d) => ({
+				...d,
+				words: sentenceOf(text, m),
+			})),
+		),
 	];
+}
+
+/* A sentence ends at `.`, `!` or `?` before a blank, or at a line's end. */
+const SENTENCE_END_RE = /[.!?](?=\s)|\n/g;
+
+/**
+ * The sentence a prose wait's match stands in, as the body writes it: what
+ * the edit rule holds the wait by, so a new wait repeating an old one's
+ * phrase is still new.
+ *
+ * @param {string} text
+ * @param {RegExpMatchArray} m
+ */
+function sentenceOf(text, m) {
+	const at = m.index ?? 0;
+	const end = at + m[0].length;
+	let from = 0;
+	for (const e of text.slice(0, at).matchAll(SENTENCE_END_RE))
+		from = (e.index ?? 0) + 1;
+	const stop = text.slice(end).search(/[.!?](?=\s|$)|\n/);
+	return text.slice(from, stop === -1 ? text.length : end + stop + 1).trim();
 }
 
 /**
@@ -995,8 +1023,9 @@ function parseBacktickRuns(block, from) {
  *   under an old wait is refused;
  * - an unnamed window, whatever basis `before` had, so adding a basis beside
  *   an old wait is not refused for the wait (#823);
- * - a basis with no warrant, where `before` held that basis live, bar on a
- *   re-gate, where every basis meets today's bar (#4946).
+ * - a basis with no warrant, where `before` held that basis live and owed
+ *   it a warrant — it wrote a window, or the edit adds none the patterns
+ *   read — bar on a re-gate, where every basis meets today's bar (#4946).
  *
  * A gate line whose date changed is new words: a moved window needs its basis
  * as much as a new one.
@@ -1010,14 +1039,14 @@ function faultsAdded(faults, { body, before }) {
 	if (before === undefined) return faults.map(bareFault);
 	const b = String(before);
 	const facts = gateFacts(b);
-	const bases = new Set(facts.bases.map((t) => t.toLowerCase()));
-	const regated = isRegate(b, body);
+	const untouched = untouchedBases(b, body);
+	const owedWarrant = facts.writesWindow || !gateFacts(body).writesWindow;
 	const isHeld = (/** @type {F} */ f) => {
 		if (f.kind === "no-warrant")
-			return !regated && bases.has(f.words.toLowerCase());
+			return owedWarrant && untouched.has(f.words.toLowerCase());
 		return (
 			isLiveQuote(b, f.words, f.window ?? "", facts.isLiveAt) &&
-			(f.kind === "unnamed-window" || bases.size === 0)
+			(f.kind === "unnamed-window" || facts.bases.length === 0)
 		);
 	};
 	return faults.filter((f) => !isHeld(f)).map(bareFault);

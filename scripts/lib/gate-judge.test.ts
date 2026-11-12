@@ -452,7 +452,7 @@ describe("an edit", () => {
 	});
 });
 
-describe("the edit rule, one for both readings", () => {
+describe("the edit rule, one for both readings (#5080)", () => {
 	/* A wait the patterns read, and a basis deriving its window. */
 	const Read = "Read it a week after it lands.";
 	const Derived =
@@ -494,6 +494,28 @@ describe("the edit rule, one for both readings", () => {
 		).toEqual([{ kind: "unnamed-window", text: "2 months", by: "patterns" }]);
 	});
 
+	it("holds a wait by its whole sentence, so one repeating an old wait's phrase is new on the patterns alone", () => {
+		const old = "Re-check it 2 months later.\n";
+		const r = judge(
+			`${old}Re-check the payments 2 months later.\n`,
+			{ exit: 3 },
+			{
+				before: old,
+			},
+		);
+		expect(r.fallback).toContain("the judge exited 3");
+		expect(r.faults).toEqual([
+			{ kind: "no-basis", text: "2 months later", by: "patterns" },
+		]);
+	});
+
+	it("refuses an old unwarranted basis once the edit writes the first window it owes a warrant for", () => {
+		const before = "Build it.\n**Gate basis:** the body sets a week";
+		expect(judge(`${before}\n${Read}`, NOTHING, { before }).faults).toEqual([
+			{ kind: "no-warrant", text: "the body sets a week", by: "patterns" },
+		]);
+	});
+
 	it("counts a gate line whose date moved as added", () => {
 		const old = "**Gated until:** 2026-10-05 — x\nafter a week live";
 		expect(judge(`${old}\nnote`, NOTHING, { before: old }).faults).toEqual([]);
@@ -522,6 +544,11 @@ describe("the edit rule, one for both readings", () => {
 				before: legacy,
 			}).faults,
 		).toEqual(fault("the ticket asks for a week"));
+		expect(
+			judge(legacy.replace("the body sets", "#12 ruled"), NOTHING, {
+				before: legacy,
+			}).faults,
+		).toEqual([]);
 		expect(
 			judge(legacy.replace("2099-01-01", "2099-02-01"), NOTHING, {
 				before: legacy,
