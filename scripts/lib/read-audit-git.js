@@ -19,23 +19,10 @@
  * the preload loads already.
  */
 
-const crypto = require("node:crypto");
 const path = require("node:path");
+const { GIT_VALUED } = require("./git-options.js");
 const { isUnder } = require("./is-under.js");
 const { GIT_EVENTS, SHOWN_MAX, toPosix } = require("./read-audit-paths.js");
-
-/* git's options before the subcommand that take the next word as a value
- * (git.c's `handle_options`). `--exec-path` takes one only after `=`. */
-const GIT_VALUED = new Set([
-	"-C",
-	"-c",
-	"--git-dir",
-	"--work-tree",
-	"--namespace",
-	"--config-env",
-	"--attr-source",
-	"--shallow-file",
-]);
 
 /**
  * Step git's own options, the words before its subcommand: the
@@ -90,6 +77,8 @@ const GIT_DIR_VARS = [
  *   a git call to run again: its directory, repo-relative, and its words
  * @typedef {GitRun & {answer: string}} GitCall
  *   one with the answer the test got, `answerOf`'s
+ * @typedef {GitRun & {begun: number, answers: string[]}} GitTally
+ *   one as its records are counted: how many began, and each answer
  * @typedef {import("./read-audit-paths.js").Standing} Standing
  */
 
@@ -160,7 +149,7 @@ const keyOf = ({ cwd, args }) => JSON.stringify({ cwd, args });
  * @param {Buffer|string} stdout
  */
 const answerOf = (status, stdout) =>
-	`${status}:${crypto.createHash("sha1").update(stdout).digest("hex")}`;
+	`${status}:${require("node:crypto").createHash("sha1").update(stdout).digest("hex")}`;
 
 /** @param {string[]} args */
 const shownCall = (args) => `git ${args.join(" ")}`.slice(0, SHOWN_MAX);
@@ -289,7 +278,7 @@ function rerunnable({ steered, dir, args }, root) {
 /**
  * Each git call with the one answer the test got, or the doubt where one has
  * none or two.
- * @param {Iterable<GitRun & {begun: number, answers: string[]}>} calls
+ * @param {Iterable<GitTally>} calls
  * @returns {GitCall[]|{doubt: string}}
  */
 function answeredCalls(calls) {
@@ -318,7 +307,7 @@ function answeredCalls(calls) {
  * @returns {GitCall[]|{doubt: string}}
  */
 function gitCallsOf(records, standing, root) {
-	/** @type {Map<string, GitRun & {begun: number, answers: string[]}>} */
+	/** @type {Map<string, GitTally>} */
 	const calls = new Map();
 	for (const record of records) {
 		const apart = setApart(record, standing);
@@ -376,7 +365,6 @@ module.exports = {
 	GIT_ANSWER_VARS,
 	GIT_DIR_VARS,
 	GIT_READS,
-	GIT_VALUED,
 	keyOf,
 	parseGitRecords,
 	gitCallsOf,

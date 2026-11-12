@@ -13,7 +13,7 @@
  * that parses a `-c` string (#4863), never at load.
  */
 
-const { GIT_VALUED } = require("./read-audit-git.js");
+const { GIT_VALUED } = require("./git-options.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**

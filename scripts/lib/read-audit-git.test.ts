@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Tests for read-audit-git.js (#5078): the guard's record, git's option
  * walk, the key and answer id, which calls run again, and that run again.
@@ -31,12 +32,12 @@ const answerOf = (status: number, stdout: string | Buffer) =>
 const {
 	buildGitRunner,
 	GIT_ANSWER_VARS,
-	GIT_VALUED,
 	keyOf,
 	parseGitRecords,
 	gitCallsOf,
 	stepGitOptions,
 } = require("./read-audit-git.js");
+const { GIT_VALUED } = require("./git-options.js");
 
 const GUARD_DIR = path.join(__dirname, "host-git-guard");
 const GUARD = fs.readFileSync(
@@ -48,7 +49,6 @@ const dirs: string[] = [];
 afterEach(() => {
 	for (const d of dirs.splice(0))
 		fs.rmSync(d, { recursive: true, force: true });
-	vi.unstubAllEnvs();
 });
 
 const scratch = (prefix: string) => {

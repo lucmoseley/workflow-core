@@ -78,7 +78,7 @@ done
 }
 
 # git's own options before the subcommand; these take their value as the next
-# word, lib/read-audit-git.js's `GIT_VALUED`.
+# word, lib/git-options.js's `GIT_VALUED`.
 i=0
 sub=
 takes=
