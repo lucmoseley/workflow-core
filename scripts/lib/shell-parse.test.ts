@@ -601,6 +601,36 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 	});
 
 	it.each([
+		"cd /missing && if true; then true; fi && gh x",
+		"cd /missing && if true; then true; else true; fi && gh x",
+		"cd /missing && while false; do true; done && gh x",
+		"cd /missing && until true; do true; done && gh x",
+		"cd /missing && for i in 1; do true; done && gh x",
+		"cd /missing && select i in 1; do break; done && gh x",
+		"cd /missing && case x in x) true;; esac && gh x",
+		"cd /missing && { if true; then true; fi } && gh x",
+		"cd /missing && true | true && gh x",
+	])(
+		"is not settled outside a compound command or pipeline by a chain ending inside it, %s (#5109)",
+		(command) => {
+			expect(last(command)).toEqual(["/missing"]);
+		},
+	);
+
+	it.each([
+		"cd /missing && if true; then true; fi; gh x",
+		"if cd /missing && true; then true; fi; gh x",
+		"cd /missing && while false; do true; done; gh x",
+		"cd /missing && case x in x) true;; esac; gh x",
+		"cd /missing && true | true; gh x",
+	])(
+		"is settled by a chain ending outside a compound command or pipeline, %s (#5109)",
+		(command) => {
+			expect(last(command)).toEqual(["/missing", "/start"]);
+		},
+	);
+
+	it.each([
 		"cd /missing && { for i in 1; do true; done }; gh x; if true; then { true; }; fi",
 		"cd /missing && { { true; } }; gh x",
 		"cd /missing && { if true; then true; fi }; gh x",
@@ -2186,8 +2216,10 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && { true; } && git checkout x`, []],
 			[`cd ${WORKTREE} && { true; }; git checkout x`, [SHARED]],
 			[`cd ${WORKTREE} && { { true; } }; git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && if true; then true; fi && git checkout x`, []],
+			[`cd ${WORKTREE} && for i in 1; do true; done; git checkout x`, [SHARED]],
 		])(
-			"doubts the tree a chain left only once it ends outside a subshell or group, %s (#5093, #5095)",
+			"doubts the tree a chain left only once it ends outside a subshell, group or compound command, %s (#5093, #5095, #5109)",
 			(bare, trees) => {
 				for (const command of [bare, `flock /l -c "${bare}"`])
 					expect(judged(command, SHARED, false).trees).toEqual(trees);

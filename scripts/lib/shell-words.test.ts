@@ -787,7 +787,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 			"[git][x]||[/a maybe]",
 		);
 		expect(read(`flock /l -c "if true; then cd /a; fi; git x"`).at(-1)).toBe(
-			"[git][x]||[/a maybe]",
+			"[git][x]||[/a maybe depth 1]",
 		);
 	});
 
