@@ -40,7 +40,7 @@ const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 4, 1);
 const d = (n: number) => new Date(T0 + n * DAY).toISOString();
 /* The finding is filed on day 35: its trigger week is days 28-35 and its
- * baseline days 0-28. The fix lands on day 40; the run reads on day 60. */
+ * baseline days 21-28. The fix lands on day 40; the run reads on day 60. */
 const FILED = 35;
 const FIXED = 40;
 const NOW = d(60);
@@ -367,6 +367,17 @@ describe("measure-outcome-review.js", () => {
 			unwindIssue: null,
 			late: false,
 		});
+	});
+
+	it("leaves a session before the baseline week out of the baseline", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		f.session("early", 20, 3);
+		fixedFinding(f);
+		afterFix(f, 5, 0);
+		const { status, out } = f.run();
+		expect(status).toBe(0);
+		expect(outcome(out)).toMatchObject({ baseline: { count: 4, sessions: 4 } });
 	});
 
 	it("unwinds a fix whose count did not fall", () => {
