@@ -149,7 +149,8 @@ function flatten(text, mark = false, ops = false) {
  * What joins each of `masked`'s flattened lines to the one before: "a" `&&`, "o"
  * `||`, "s" `;`, "p" `|`, "b" `&`, "(" a bracket's opening, ")" the rest of
  * the line a bracket's `)` closed (#5093), "" a newline or nothing. A blank
- * line hands its operator on, as `&&` at a line's end does.
+ * line takes the operator carried to it, and hands it on, as `&&` at a line's
+ * end does (#5099).
  * @param {string} masked
  * @returns {string[]} one per line of flatSegments
  */
@@ -164,7 +165,7 @@ function parseJoins(masked) {
 			closed = line === SCOPE_CLOSE;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
-				return afterClose ? ")" : code;
+				return afterClose ? ")" : carry;
 			}
 			const joined = code || carry || (afterClose ? ")" : "");
 			carry = "";
@@ -1130,9 +1131,9 @@ function resolveWord(word, scope) {
  *   read inside the callback
  * @property {() => Redirect[]} redirects
  * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
- *   `words` the command's own by default; `cwd` the directory a word target
- *   resolves in, the walk's by default, "" where unknown (#5012) — the
- *   redirects always resolve in the walk's
+ *   `words` the command's own by default; `cwd` the directory a target, a
+ *   redirect's included, resolves in, the walk's by default, "" where unknown
+ *   (#5012, #5105)
  * @property {(word: string) => string | null} resolveWord
  * @property {(name: string) => boolean} assigned whether the command assigned
  *   `name`, before this point, a value the walk resolves (#2436)
@@ -1472,6 +1473,9 @@ function walkCommands(parsed, fn, ports) {
 			const own = ran ? words.slice(wi) : [];
 			const leading = words.slice(0, assignEnd);
 			const redirects = () => readRedirects(redirs, scope, abs);
+			/** @param {string} cwd */
+			const at = (cwd) => (/** @type {string} */ word) =>
+				absoluteIn(cwd, word, scope);
 			fn({
 				segment,
 				words: own,
@@ -1484,9 +1488,9 @@ function walkCommands(parsed, fn, ports) {
 				}),
 				redirects,
 				writeTargets: (w = own, cwd = cwdOf(walk)) =>
-					writeTargets(w, redirects(), {
+					writeTargets(w, readRedirects(redirs, scope, at(cwd)), {
 						spans: scope.spans,
-						resolveAbs: (word) => absoluteIn(cwd, word, scope),
+						resolveAbs: at(cwd),
 						resolve: (word) => resolveWord(word, scope),
 						isDir: ports.isDir,
 					}),
