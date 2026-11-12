@@ -2195,8 +2195,6 @@ describe('walkGit, scope "shared"', () => {
 	});
 
 	it("records nothing for a tree judged as no repo of this one (mantahostels#253, mantahostels#208)", () => {
-		// git-tree.test.ts proves a directory in no repository and a path with
-		// nothing at it both class `other`; the walk records neither.
 		const r = walkGitRun(`cd ${DIR}/not-a-repo && git checkout x`);
 		expect(r.out).toBe("");
 		expect(r.logged).toEqual([]);
@@ -2508,7 +2506,6 @@ describe('walkGit, scope "shared"', () => {
 });
 
 describe("path resolution through the git walk", () => {
-	/** Judged from an unrelated repo, so only the cd/-C can reach the shared tree. */
 	const judged = (command: string, vars: Record<string, string> = ENV) =>
 		walkGitRun(command, { subs: ["checkout"] }, ELSEWHERE, vars);
 
@@ -2690,7 +2687,7 @@ describe("path resolution through the git walk", () => {
 			expect(r.logged).toEqual([]);
 		});
 
-		it("leaves the ordinary walker failing open and recording, as before", () => {
+		it("leaves the ordinary walker failing open and recording", () => {
 			const r = walkGitRun('git -C "$UNSET_301" checkout x');
 			expect(r.out).toBe("");
 			expect(r.logged).toEqual([FAIL_OPEN]);
@@ -2914,7 +2911,7 @@ describe("--empty-unset reads a provably empty target as the cwd (#310, #325)", 
 		expect(r.logged).toEqual([FAIL_OPEN]);
 	});
 
-	it("leaves a walk without the opt-in failing open, as before", () => {
+	it("leaves a walk without the opt-in failing open", () => {
 		const r = walkGitRun('git -C "$UNSET_325" checkout x');
 		expect(r.out).toBe("");
 		expect(r.logged).toEqual([FAIL_OPEN]);
