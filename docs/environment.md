@@ -33,7 +33,7 @@ instanceIdleTimeout=-1
 
 `debugConsoleLogFile`: the guest kernel's console in a Windows file, the one record a VM freeze leaves where the journal cannot flush (#5041).
 
-**`sparseVhd=true` reaches only a disk created after it was set.** Here `%LOCALAPPDATA%\wsl\Ubuntu\ext4.vhdx` is not sparse (`fsutil sparse queryflag`), so it never shrinks: on 12 Nov it held 305.4 GB on C: for 151 GB used in the guest, and C: free fell from 71 GB to 7.7 GB in 15 days. Its size against `df -h /` is the check (#5041).
+**`sparseVhd=true` reaches only a disk created after it was set.** Here `%LOCALAPPDATA%\wsl\Ubuntu\ext4.vhdx` is not sparse (`fsutil sparse queryflag`), so it never shrinks: on 12 Nov it held 305.4 GB on C: for 151 GB used in the guest, and C: free fell from 71 GB to 7.7 GB in 15 days. Its size against `df -h /` is the check (#5041). **To shrink it, trim first, then compact**: `wsl.exe -u root fstrim -av` (the `discard` mount option and the enabled `fstrim.timer` had never told the VHDX which blocks are free), then, in an administrator PowerShell, disable the §9 task, `wsl --shutdown`, run diskpart `select vdisk file=…`, `attach vdisk readonly`, `compact vdisk` and `detach vdisk`, and re-enable the task. On 12 Nov, compacting alone took it from 305.4 to 302.7 GB, and trimming then compacting took it to 278.3 GB. Monthly runs are #5044. Converting it to sparse stays off while microsoft/WSL#41837, corruption after the host disk filled, is open (#5041 Q1).
 
 `instanceIdleTimeout=-1`: background sessions and the refill loop are not WSL clients, so the distro must not idle-stop when the last terminal closes (#3196, #3199).
 
