@@ -546,7 +546,7 @@ dmesg | grep -i "killed process"
 
 A build or test that dies with no error of its own was most likely killed by earlyoom — check before hunting a code bug. A backgrounded Bash job is the exception: §5's bg-shell pressure reaper is the lead, and it arms in a headless session too (mantahostels#2694). It is switched off repo-wide, so for a session started here neither it nor `earlyoom` (mantahostels#2689) explains a dead job — §5.
 
-**A freeze leaving no `~/memwatch.log` block and no `earlyoom` kill is not a guest memory fault, and no journal line can show its cause** (#5043). Known cases: a host suspend (§7, 27 Aug), a Windows hang ended by the watchdog with cause unknown (4 Nov), and a freeze with Windows short of memory whose cause is unsettled, the interop bridge (§9) and firmware CPU limiting being the other leads (6 Nov). Read `win_avail_mb` and `win_pages_in` in `~/memwatch-minute.jsonl` (§4) for Windows short, then ask Windows:
+**A freeze leaving no `~/memwatch.log` memory block and no `earlyoom` kill is not a guest memory fault, and no guest memory figure shows its cause** (#5043). Known cases: a host suspend (§7, 27 Aug), a Windows hang ended by the watchdog with cause unknown (3, 4 and 9 Nov), and a freeze with Windows short of memory whose cause is unsettled, the interop bridge (§9) and firmware CPU limiting being the other leads (6 Nov). Read `win_avail_mb` and `win_pages_in` in `~/memwatch-minute.jsonl` (§4) for Windows short, then ask Windows:
 
 ```sh
 powershell.exe -NoProfile -Command "Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'} -MaxEvents 20 | Select-Object TimeCreated,Id,Message | Format-List"
