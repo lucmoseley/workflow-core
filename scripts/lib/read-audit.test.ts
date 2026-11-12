@@ -26,7 +26,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { markStart, readTreeSnapshot } = require("./tree-drift.js");
-const { install, readAudits, remove, sweep } = require("./read-audit.js");
+const { install, readAudits, remove } = require("./read-audit.js");
 const { findStrace } = require("./read-audit-trace.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
@@ -746,14 +746,34 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
-		it("weighs afresh a variable whose value moved off the standing one, though its path was looked up before", () => {
+		it("weighs afresh a variable whose value moved off the standing one, though its path was looked up before (#5050)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			/* Linked by a child, which leaves this process's lookups standing. */
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				spawns("cat", [], cwd, { env: { RULES: `${link}/` } }),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("weighs afresh a standing variable's path once the process made a link (#5050)", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			const link = path.join(cwd, "in");
 			const body = [
 				spawns("cat", [], cwd),
 				`require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)});`,
-				spawns("cat", [], cwd, { env: { RULES: `${link}/` } }),
+				spawns("cat", [], cwd),
 			].join("\n");
 			const log = audited(root, T, body, {
 				env: { RULES: link },
@@ -2184,7 +2204,7 @@ describe("arming", () => {
 		expect(fs.existsSync(dir)).toBe(false);
 	});
 
-	it("removes the directory a run killed mid-audit left, once stale, and never a live run's", async () => {
+	it("removes the directory a run killed mid-audit left, once stale, and never a live run's (#5046)", async () => {
 		const root = checkout();
 		/* A run that arms the audit, names its directory and waits. */
 		const arm = () => {
@@ -2232,14 +2252,13 @@ describe("arming", () => {
 		}
 	});
 
-	it("leaves a directory naming no pid, and takes a tmpdir that will not read", () => {
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rda-sweep-"));
-		dirs.push(tmp);
-		const other = path.join(tmp, "wfc-read-audit-x");
-		fs.mkdirSync(other);
-		sweep(tmp, Date.now() + 24 * 60 * 60 * 1000);
+	it("leaves a stale directory naming no pid (#5046)", () => {
+		const other = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-read-audit-"));
+		dirs.push(other);
+		const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+		fs.utimesSync(other, old, old);
+		dirs.push(install(checkout(), {}, { write: () => true }));
 		expect(fs.existsSync(other)).toBe(true);
-		expect(() => sweep(path.join(tmp, "nowhere"))).not.toThrow();
 	});
 
 	it("names no tracer where the run's PATH holds none", () => {

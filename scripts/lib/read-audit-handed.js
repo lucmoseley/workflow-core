@@ -36,10 +36,9 @@ const { PATH_MAX, toPosix } = require("./read-audit-paths.js");
  */
 
 /**
- * An absolute path's real path, as first looked up. A variable the standing
- * environment holds unchanged names what the run stood on before any test
- * ran, which no test re-links, so its paths are looked up once a process:
- * PATH's on a Windows drive cost ~15 ms a lookup (#5050).
+ * An absolute path's real path, as first looked up, for a variable the
+ * standing environment holds unchanged: its paths are looked up once until
+ * the process links, moves or removes a path (#5050).
  * @typedef {Map<string, string|null>} Settled
  */
 
@@ -135,8 +134,8 @@ function buildHanded(root) {
 		/**
 		 * The repo-relative paths `word` names, spelt or resolved.
 		 * @param {string} word
-		 * @param {Settled} [settled] where `word` is one whose absolute paths
-		 *   may be answered from an earlier lookup
+		 * @param {Settled} [settled] accumulator: where `word` is one whose
+		 *   absolute paths may be answered from an earlier lookup
 		 * @returns {string[]}
 		 */
 		return (word, settled) => {
@@ -154,7 +153,7 @@ function buildHanded(root) {
 	 * `settled` where given.
 	 * @param {string} cwd
 	 * @param {string} tried
-	 * @param {Settled} [settled]
+	 * @param {Settled} [settled] accumulator: filled with what is looked up
 	 */
 	const realOfTried = (cwd, tried, settled) => {
 		const abs = path.resolve(cwd, tried);

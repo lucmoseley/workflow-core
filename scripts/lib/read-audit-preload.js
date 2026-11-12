@@ -209,6 +209,12 @@ function install() {
 	const realReadFileSync = fs.readFileSync;
 	const realOpenSync = fs.openSync;
 
+	/** @type {import("./read-audit-handed.js").Settled} */
+	const settled = new Map();
+	/* A path this process links, moves or removes may move where a settled
+	 * one lands; a child's go unseen (#5050). */
+	const unsettle = () => settled.clear();
+
 	/**
 	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
 	 * with no result where it threw or failed.
@@ -335,6 +341,11 @@ function install() {
 	wrap(fs.promises, "glob", glob, "sync");
 	wrap(fs, "watch", probeFirst, "sync");
 	wrap(fs, "watchFile", probeFirst, "sync");
+	for (const name of ["symlink", "rename", "unlink", "rm", "rmdir", "cp"]) {
+		wrap(fs, `${name}Sync`, unsettle, "sync");
+		wrap(fs, name, unsettle, "callback");
+		wrap(fs.promises, name, unsettle, "promise");
+	}
 	const threads = require("node:worker_threads");
 	threads.Worker = class Worker extends threads.Worker {
 		/** @param {ConstructorParameters<typeof threads.Worker>} args */
@@ -471,8 +482,6 @@ function install() {
 	 * suite's setup left it: `settle` writes it down and names the file for
 	 * the processes below. */
 	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
-	/** @type {import("./read-audit-handed.js").Settled} */
-	let settled = new Map();
 	const isOwner = owner === String(process.pid);
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
@@ -944,7 +953,7 @@ function install() {
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
-				settled = new Map();
+				settled.clear();
 				if (!isOwner) return;
 				const file = path.join(dir, `${owner}.standing.json`);
 				const gitAt = sizeOf(path.join(dir, `${owner}.git`));

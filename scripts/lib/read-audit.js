@@ -52,16 +52,18 @@
  *   hook, an alias, a helper — off the event log git kept for it
  *   (lib/read-audit-git-events.js, #4997);
  * - a symlink, socket or other non-file, non-directory path;
- * - a link a test makes on an absolute path a variable it left as settled
- *   names, once a child was spawned with it: the preload looks those up
- *   once a process (#5050).
+ * - a link a child process makes on an absolute path a variable left at
+ *   its settled value names, once a child was spawned with it: the preload
+ *   looks those up again only after its own process links, moves or
+ *   removes a path (#5050).
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { caught } = require("./caught.js");
+const { pidAlive } = require("./arbiter-proc.js");
+const { escapeRe } = require("./regex-group.js");
 const { parseShebang, scriptLanguage } = require("./code-edges.js");
 const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
@@ -216,34 +218,23 @@ function remove(dir) {
 	try {
 		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
-		// What will not go now goes at a later run's sweep, once stale.
+		// What will not go now goes at a later run's sweep, once stale (#5046).
 	}
 }
 
 /* A log directory's name: the prefix, the pid of the run that made it, and
  * mkdtemp's suffix. */
 const PREFIX = "wfc-read-audit-";
-const NAMED = /^wfc-read-audit-(\d+)-/;
+const LOG_DIR_NAME = new RegExp(`^${escapeRe(PREFIX)}(\\d+)-`);
 
 /* How long a dead run's directory stands untouched before it is stale: a pid
- * from another pid namespace sharing the tmpdir reads as dead here. */
+ * from another pid namespace sharing the tmpdir reads as dead here. The hour
+ * #5046 named, a guess, unmeasured. */
 const STALE_MS = 60 * 60 * 1000;
-
-/** @param {number} pid */
-function isAlive(pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (e) {
-		return caught(e).code !== "ESRCH";
-	}
-}
 
 /**
  * Remove each log directory in `tmp` a killed run left: its pid dead and
- * the directory untouched for `STALE_MS`. A killed run's directory holds
- * every log it wrote, gigabytes a day at this machine's runs (#5046).
- * Never throws.
+ * the directory untouched for `STALE_MS` (#5046). Never throws.
  * @param {string} tmp
  * @param {number} [now]
  */
@@ -252,11 +243,12 @@ function sweep(tmp, now = Date.now()) {
 	try {
 		names = fs.readdirSync(tmp);
 	} catch {
+		// No tmpdir listing, nothing to sweep: the run arms as before.
 		return;
 	}
 	for (const name of names) {
-		const pid = NAMED.exec(name)?.[1];
-		if (pid === undefined || isAlive(Number(pid))) continue;
+		const pid = LOG_DIR_NAME.exec(name)?.[1];
+		if (pid === undefined || pidAlive(Number(pid))) continue;
 		const dir = path.join(tmp, name);
 		try {
 			if (now - fs.lstatSync(dir).mtimeMs > STALE_MS) remove(dir);
@@ -1040,4 +1032,4 @@ function childReads(e, program, root) {
 	];
 }
 
-module.exports = { install, readAudits, remove, sweep };
+module.exports = { install, readAudits, remove };
