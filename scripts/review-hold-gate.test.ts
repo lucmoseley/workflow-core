@@ -1037,7 +1037,9 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 				tool_name: "Bash",
 				tool_input: { command: "git push origin main" },
 			}),
-			env: hookEnv(),
+			// Lifted to what the dispatcher's entry budget allows: an overrun of
+			// the live 6 s answers no warning, which the assertions would misread.
+			env: { ...hookEnv(), WFC_PUSH_REVIEW_TIMEOUT_MS: "30000" },
 		});
 		return r.stdout.trim()
 			? (JSON.parse(r.stdout).hookSpecificOutput?.additionalContext ?? "")

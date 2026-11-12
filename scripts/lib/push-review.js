@@ -17,8 +17,14 @@ const SCRIPT = path.join(__dirname, "..", "push-review-owed.sh");
 
 /* A ceiling, not a measurement, cut to what the dispatcher's entry budget
  * leaves (hook-deadline.js): the adapter answered in 0.5-1.3 s a call at
- * load1 20 (#2785's baseline). */
+ * load1 20 (#2785's baseline). WFC_PUSH_REVIEW_TIMEOUT_MS lifts it for a test
+ * asserting the answer, which an overrun on a loaded machine would drop
+ * (#5104); a value that is not a positive number leaves the ceiling. */
 const REVIEW_TIMEOUT_MS = 6000;
+const reviewTimeoutMs = () => {
+	const n = Number(process.env.WFC_PUSH_REVIEW_TIMEOUT_MS);
+	return Number.isFinite(n) && n > 0 ? n : REVIEW_TIMEOUT_MS;
+};
 
 /**
  * @typedef {object} ReviewOwed
@@ -75,7 +81,7 @@ function readOwed(out) {
 function reviewOwed({ sessionId, tree, log }) {
 	const r = spawnSync("bash", [SCRIPT, sessionId, tree], {
 		encoding: "utf8",
-		timeout: budgetMs(REVIEW_TIMEOUT_MS),
+		timeout: budgetMs(reviewTimeoutMs()),
 		stdio: ["ignore", "pipe", "ignore"],
 	});
 	if (r.error || r.status !== 0) {
