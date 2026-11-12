@@ -1333,7 +1333,8 @@ function eachSegment(walk, fn) {
  * stacks the state its `)` restores. A `$(` opens a command, a `(` inside
  * arithmetic groups, and a second `(` straight after a first — the flatten
  * leaves exactly an empty line between — opens arithmetic.
- * @param {Walk} walk
+ * @param {Walk} walk accumulator: its `arLast` and `arPrev` are moved, and
+ *   at a bracket what openScope or closeScope moves
  * @param {string} segment
  */
 function arithScope(walk, segment) {
@@ -1349,8 +1350,8 @@ function arithScope(walk, segment) {
 
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
- * @param {Walk} walk accumulator: its stack, directories and redirect mode
- *   are moved */
+ * @param {Walk} walk accumulator: its stack, directories, redirect mode and
+ *   `arLast` are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
@@ -1366,7 +1367,8 @@ function openScope(walk) {
 
 /** A `)` with no `(` open is a `case` pattern, which moves nothing.
  * RESIDUAL: one inside a subshell closes that subshell early.
- * @param {Walk} walk */
+ * @param {Walk} walk accumulator: its stack, directories, cwd names, redirect
+ *   mode, `gitEnv` and `arLast` are moved */
 function closeScope(walk) {
 	const back = walk.stack.pop();
 	if (back) {

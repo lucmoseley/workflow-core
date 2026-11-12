@@ -3,8 +3,10 @@
  *
  * A run makes one root under the real temp dir and points its workers'
  * `TMPDIR` at it, so every fixture a test makes, cleaned up or not, goes when
- * the run removes the root. The name carries the pid of the process that owns
- * it, so a wrapper's start removes the root a SIGKILLed run left.
+ * the run removes the root. run-vitest.js makes one for each vitest child as
+ * well, as its own process's `TMPDIR`, so vitest's cache dir goes with it
+ * (#5108). The name carries the pid of the process that owns it, so a
+ * wrapper's start removes the root a SIGKILLed run left.
  */
 
 const fs = require("node:fs");

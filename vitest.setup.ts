@@ -10,8 +10,8 @@ import "@testing-library/jest-dom/vitest";
 /* EVERY FIXTURE A TEST MAKES GOES WITH THE RUN (#5083): the worker's temp
  * root is the run's private one, which scripts/vitest-temp-root.ts removes at
  * teardown. First, so the dirs below land in it too. Set in the worker, so
- * vitest's own process and the wrapper keep the real temp root. A child's own
- * `TMPDIR` still wins. */
+ * vitest's own process keeps the one the wrapper gave it (#5108). A child's
+ * own `TMPDIR` still wins. */
 const runTempRoot = inject("wfcTempRoot");
 if (runTempRoot) process.env.TMPDIR = runTempRoot;
 
