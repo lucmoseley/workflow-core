@@ -2313,8 +2313,8 @@ function isListBackgrounded(parsed, segIdx) {
 
 /**
  * The last segment of the command a list member starts at `segIdx`: past a
- * `( … )` or `{ …; }` it opens, the words after its `)` or `}`, and each `$(…)`
- * or `<(…)` mid-word (#5107, #5112). A bracket opening on a blank line is
+ * `( … )` or `{ …; }` it opens, the words after its `)` or `}` and any function
+ * body they open, and each `$(…)` or `<(…)` mid-word (#5107, #5112). A bracket opening on a blank line is
  * another command's.
  * @param {Parsed} parsed
  * @param {number} segIdx
@@ -2326,7 +2326,7 @@ function commandEnd({ segments, joins }, segIdx) {
 			: closingBrace(segments, segIdx);
 	for (;;) {
 		const next = end + 1;
-		if (joins[next] === ")") end = next;
+		if (joins[next] === ")") end = closingBrace(segments, next);
 		else if (
 			segments[next] === SCOPE_OPEN &&
 			joins[next] === "" &&
@@ -2383,14 +2383,13 @@ function braceGroups(segments) {
 
 /**
  * The segment closing the outermost `{ …; }` group the segment at `segIdx`
- * opens, `segIdx` where it opens none, or the last segment's where the
- * braces are unpaired.
+ * opens, or `segIdx` where it opens none or the braces are unpaired.
  * @param {string[]} segments
  * @param {number} segIdx
  */
 function closingBrace(segments, segIdx) {
 	const groups = braceGroups(segments);
-	if (groups === null) return segments.length - 1;
+	if (groups === null) return segIdx;
 	let end = segIdx;
 	for (const [from, to] of groups) if (from === segIdx && to > end) end = to;
 	return end;

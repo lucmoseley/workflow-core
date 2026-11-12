@@ -706,7 +706,10 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && { a; } | b & gh y")).toEqual(both);
 		expect(last("cd /usr && { (a); } & gh y")).toEqual(both);
 		expect(last("cd /usr && { a; } || { b; } & gh y")).toEqual(both);
+		expect(last("cd /usr && f() { a; } & gh y")).toEqual(both);
+		expect(last("cd /usr && f() { a; } >o & gh y")).toEqual(both);
 		expect(last("cd /usr && { true; }; gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && f() { a; }; gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && { true; }\n{ a; } & gh y")).toEqual(["/usr"]);
 	});
 });
