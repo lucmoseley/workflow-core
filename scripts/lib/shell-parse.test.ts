@@ -670,6 +670,25 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		/* A cd in a substitution reads its own run's joins, not the outer list's. */
 		expect(last('true && gh "$(cd /usr; x)" && gh y')).toEqual(["/start"]);
 	});
+
+	it("backgrounds a cd's list past the ( … ) in it (#5107)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && (true) & gh y")).toEqual(both);
+		expect(last("cd /usr && ( (true) ) & gh y")).toEqual(both);
+		expect(last("cd /usr && (true)& gh y")).toEqual(both);
+		expect(last("cd /usr && (true) >o & gh y")).toEqual(both);
+		expect(last("cd /usr && (true) || (false) & gh y")).toEqual(both);
+		expect(last('cd /usr && (a "$(b)") & gh y')).toEqual(both);
+		expect(last("cd /usr && echo $(a) & gh y")).toEqual(both);
+		expect(last("cd /usr && echo $(a)$(b) & gh y")).toEqual(both);
+		expect(last("cd /usr && diff <(a) b & gh y")).toEqual(both);
+		expect(last("{ true; cd /usr; } && (true) & gh y")).toEqual(both);
+		/* A list the subshell ends, by `;` or a newline, is not the one `&` closes. */
+		expect(last("cd /usr && (true); gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && (true)\n(a) & gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && echo $(a)\ngh b & gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && true\n(a) & gh y")).toEqual(["/usr"]);
+	});
 });
 
 describe("Command.runs — each run with every directory it may stand in (#5075)", () => {

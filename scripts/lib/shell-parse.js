@@ -2297,8 +2297,47 @@ function isListBackgrounded(parsed, segIdx) {
 	const { joins } = parsed;
 	let end = nextInList(parsed, segIdx);
 	while (joins[end] === "a" || joins[end] === "o")
-		end = nextInList(parsed, end);
+		end = nextInList(parsed, commandEnd(parsed, end));
 	return joins[end] === "b";
+}
+
+/**
+ * The last segment of the command a list member starts at `segIdx`: past a
+ * `( … )` it opens, the words after its `)`, and each `$(…)` or `<(…)` mid-word
+ * (#5107). A bracket opening on a blank line is another command's.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function commandEnd({ segments, joins }, segIdx) {
+	const open = `${SCOPE_MARK}(`;
+	let end =
+		segments[segIdx] === open ? closingBracket(segments, segIdx) : segIdx;
+	for (;;) {
+		const next = end + 1;
+		if (joins[next] === ")") end = next;
+		else if (
+			segments[next] === open &&
+			joins[next] === "" &&
+			segments[end]?.trim()
+		)
+			end = closingBracket(segments, next);
+		else return end;
+	}
+}
+
+/**
+ * The index of the SCOPE_MARK `)` line closing the `(` line at `openIdx`, or
+ * the last segment's where none does.
+ * @param {string[]} segments
+ * @param {number} openIdx
+ */
+function closingBracket(segments, openIdx) {
+	let depth = 0;
+	for (let i = openIdx; i < segments.length; i++) {
+		if (segments[i] === `${SCOPE_MARK}(`) depth++;
+		else if (segments[i] === `${SCOPE_MARK})` && --depth === 0) return i;
+	}
+	return segments.length - 1;
 }
 
 /**
