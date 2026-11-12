@@ -1111,7 +1111,9 @@ function resolveWord(word, scope) {
  *   command's words make: `dirs` every directory it may stand in, the
  *   command's `cwds` moved through its own chdirs, its words read under the
  *   walk's scope as it stands (#5075), bar a name the command's own leading
- *   assignments set, unknown: bash expands its words before it assigns
+ *   assignments set, unknown: bash expands its words before it assigns.
+ *   Residual: unknown, not the value it held before, and the walk's own `cd`
+ *   and resolveWord still read the new one (#5087)
  */
 
 /**
@@ -1402,14 +1404,15 @@ function walkCommands(parsed, fn, ports) {
 			settleCwdDoubt(walk, segIdx);
 			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
 			const own = ran ? words.slice(wi) : [];
+			const leading = words.slice(0, assignEnd);
 			const redirects = () => readRedirects(redirs, scope, abs);
 			fn({
 				segment,
 				words: own,
-				leading: words.slice(0, assignEnd),
+				leading,
 				cwd: cwdOf(walk),
 				cwds: walk.dirs.dirs,
-				runs: commandRuns(own, words.slice(0, assignEnd), walk.dirs.dirs, {
+				runs: commandRuns(own, leading, walk.dirs.dirs, {
 					scope,
 					isDir: ports.isDir,
 				}),
@@ -1439,13 +1442,13 @@ function walkCommands(parsed, fn, ports) {
  * @returns {() => [CommandRun, ...CommandRun[]]}
  */
 function commandRuns(words, leading, cwds, { scope, isDir }) {
-	const own = leading.flatMap(
-		(w) => /^([A-Za-z_][A-Za-z0-9_]*)\+?=/.exec(w)?.[1] ?? [],
-	);
+	const prefixNames = leading
+		.filter((w) => w.includes("="))
+		.map((w) => assignedName(w, scope.spans));
 	/** @type {Scope} */
-	const outer =
-		own.length > 0
-			? { ...scope, dead: new Set([...scope.dead, ...own]) }
+	const runScope =
+		prefixNames.length > 0
+			? { ...scope, dead: new Set([...scope.dead, ...prefixNames]) }
 			: scope;
 	/** @type {[CommandRun, ...CommandRun[]] | undefined} */
 	let runs;
@@ -1456,7 +1459,7 @@ function commandRuns(words, leading, cwds, { scope, isDir }) {
 		return {
 			...run,
 			dirs: () => {
-				dirs ??= runCwd(cwds, run.chdirs, outer, isDir);
+				dirs ??= runCwd(cwds, run.chdirs, runScope, isDir);
 				return dirs;
 			},
 		};

@@ -483,7 +483,8 @@ function judge(scene, { segment, words, runs }) {
 		const { words: w, watched, scripted } = run;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
-		/* Residual: the run's first directory alone, every move taken as made. */
+		/* Residual: the run's first directory alone, every move taken as made
+		 * (#5075). */
 		const [cwd] = run.dirs();
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
@@ -491,7 +492,9 @@ function judge(scene, { segment, words, runs }) {
 		const base = scripted
 			? trimRun(asWritten(own.segment, scene.spans), BASH_SPACE)
 			: scene.raw;
-		if (kind) judgeSearch(scene, { ...own, base, cwd, head, kind, args });
+		const launched = run.chdirs.length > 0;
+		if (kind)
+			judgeSearch(scene, { ...own, base, cwd, launched, head, kind, args });
 		else if (head === "cd" || head === "pushd" || head === "popd")
 			scene.judgement.moved = true;
 		else if (head === "find") judgeFind(scene, args, cwd);
@@ -504,6 +507,8 @@ function judge(scene, { segment, words, runs }) {
  * @property {string[]} words the command's words, wrappers and all
  * @property {string} base the text holding it, which a rewrite substitutes in
  * @property {string} cwd where it runs
+ * @property {boolean} launched whether a launcher moved it: `env -C`, a `-c`
+ *   string's `cd`
  * @property {string} head its command word
  * @property {SearchKind} kind
  * @property {string[]} args its own arguments
@@ -511,13 +516,14 @@ function judge(scene, { segment, words, runs }) {
 
 /**
  * Whether this search may earn the dot rewrite: nothing fired yet, no `cd`
- * before it, the shell at the root and no `watch` around it — and for `rg`,
+ * before it and no launcher moving it, the shell at the root and no `watch` around it — and for `rg`,
  * whose only cost at the root is the prompt, a mode that can show one.
  * @param {Scene} scene
- * @param {string} head
+ * @param {Search} search
  */
-const dotAllowed = ({ judgement, atRoot, showsPrompt }, head) =>
+const dotAllowed = ({ judgement, atRoot, showsPrompt }, { head, launched }) =>
 	(head !== "rg" || showsPrompt) &&
+	!launched &&
 	!judgement.fires &&
 	!judgement.moved &&
 	atRoot &&
@@ -530,7 +536,7 @@ const dotAllowed = ({ judgement, atRoot, showsPrompt }, head) =>
 function judgeSearch(scene, search) {
 	const { judgement } = scene;
 	const { kind, head, cwd } = search;
-	const dotOk = dotAllowed(scene, head);
+	const dotOk = dotAllowed(scene, search);
 	const found = scan(scene, search, dotOk);
 	if (!found.recursive || found.inert) return;
 	const bareCount = found.patternByFlag ? 0 : 1;

@@ -100,7 +100,8 @@ function bareSegment(command, ports) {
 					.slice(launch.taken)
 					.some((w) => w !== "--" && literal(w, spans).text !== "--queue");
 			});
-			/* Residual: the run's first directory alone, every move taken as made. */
+			/* Residual: the run's first directory alone, every move taken as made
+			 * (#5075). */
 			if (bare) found = { segment: cmd.segment, cwd: bare.dirs()[0] };
 		},
 		ports,
