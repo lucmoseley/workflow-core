@@ -1693,7 +1693,7 @@
 				}
 			]
 		},
-		"check-harness-canary.js --notify --write": {
+		"check-harness-canary.js --notify": {
 			"needles": [
 				{
 					"id": "harness-canary",

@@ -26,7 +26,7 @@ import { GH_LOGGED_OUT } from "./lib/gh-fake";
 import { printed, stubGhRoutes, stubGhScript } from "./lib/gh-stub";
 
 const HOOK = path.resolve(__dirname, "name-issue-session.sh");
-const { compactPayloads, compactTranscripts, SUBAGENT_JUST_COMPACTED } =
+const { compactPayloads } =
 	require("./lib/compact-payload-fixture") as typeof import("./lib/compact-payload-fixture.js");
 const TITLE = "seed-listings — measure first-party source coverage";
 
@@ -329,15 +329,10 @@ describe("a resume is named from the job record's intent", () => {
 // A subagent's compaction fires SessionStart:compact under its parent's
 // session id, and would rename the parent from inside the subagent (#1785).
 describe("a compaction renames from the job's intent", () => {
-	const atCompaction = (
-		agentId?: string,
-		ages?: { parentAgeS: number; subagentAgesS: number[] },
-	) => {
+	const atCompaction = (agentId?: string) => {
 		const { sessionStart } = compactPayloads({
 			sessionId: "s1",
-			transcriptPath: ages
-				? compactTranscripts(dir, { sessionId: "s1", ...ages })
-				: path.join(dir, "t.jsonl"),
+			transcriptPath: path.join(dir, "t.jsonl"),
 			cwd: process.cwd(),
 			agentId,
 		});
@@ -350,12 +345,6 @@ describe("a compaction renames from the job's intent", () => {
 
 	it("renames nothing where the payload carries a subagent's agent_id", () => {
 		const r = atCompaction("a21cf96dcd1d42038");
-		expect([r.name, r.stdout, r.status]).toEqual([undefined, "", 0]);
-	});
-
-	// Until the harness sends agent_id there (#1837).
-	it("renames nothing where a subagent's transcript is fresher than the parent's stale one", () => {
-		const r = atCompaction(undefined, SUBAGENT_JUST_COMPACTED);
 		expect([r.name, r.stdout, r.status]).toEqual([undefined, "", 0]);
 	});
 });
