@@ -5,7 +5,7 @@
 # launches, waits until no session is live, trims, then starts it, since
 # `wsl --shutdown` kills every session.
 # -Register registers that task. It must be run elevated, which
-# scripts/install-interop-watchdog.sh asks for with one UAC prompt. Where no
+# scripts/install-interop-watchdog.sh asks for. Where no
 # log exists yet, it writes the `registered` line the 30-day count starts from.
 # Every run appends one result line to %LOCALAPPDATA%\wsl-compact.log, which
 # check-wsl-disk.js reads: `ok` or `failed`, or from the WSL side `deferred`,
@@ -107,7 +107,7 @@ finally {
 			Start-Sleep 30
 			$null = wsl.exe -d $Distro -u $WslUser --cd $Repo -- bash -c $release
 		}
-		# The hold lapses on its own within the hour; the exit is logged.
+		# The hold lapses on its own within the hour.
 		$result = "$result release_exit=$LASTEXITCODE"
 	}
 	Write-CompactLog $result

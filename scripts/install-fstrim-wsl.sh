@@ -4,8 +4,7 @@
 #   sudo bash scripts/install-fstrim-wsl.sh
 #
 # Both fstrim units carry `ConditionVirtualization=!container`, and systemd
-# counts WSL as a container (`systemd-detect-virt -c` prints `wsl`), so the
-# timer never fires and the guest never tells the VHDX which blocks are free.
+# counts WSL as a container.
 # A drop-in setting the condition empty resets it, per systemd.unit(5).
 #
 # The weekly trim keeps the disk's free blocks known between the monthly

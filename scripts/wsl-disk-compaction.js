@@ -20,11 +20,6 @@
  *      (win-interop-watchdog/compact-disk.ps1), whose `wsl --shutdown` ends
  *      this process. It releases the hold once WSL is back.
  *
- * check-wsl-disk.js, on `npm run status`, is what makes a missed run loud.
- *
- * THE SPARSE WATCH FILES through file-issue.js, not a `report-*` program: it
- * fires at most once a trigger, with no standing finding to keep current.
- *
  * Every line goes to stderr, which the timer's journal keeps.
  *
  * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C (lib/wsl-disk-host.js), WFC_WSL_EXE,

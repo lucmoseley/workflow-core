@@ -2,8 +2,7 @@
  * wsl-disk.js — the core of the monthly WSL disk compaction (#5044): reads
  * win-interop-watchdog/compact-disk.ps1's log, judges when a run is due and
  * when a quiet one should warn, judges the sparse watch, and runs one
- * compaction start. Every read and effect is a port; lib/wsl-disk-host.js and
- * wsl-disk-compaction.js wire the real ones.
+ * compaction start. Every read and effect is a port.
  */
 
 const { compareVersions } = require("./compare-versions.js");
@@ -309,9 +308,7 @@ const buildTicketBody = (t) =>
 
 /**
  * The sparse watch: one line per outcome, filing a ticket per new trigger,
- * and whether any read or filing failed. A failure never stops the run: the
- * watch only advises, the next due run reads again, and the log's
- * `watchfailed` line makes the status check say so.
+ * and whether any read or filing failed. A failure never stops the run.
  * @param {SparsePorts} ports
  * @returns {{lines: string[], failed: boolean}}
  */

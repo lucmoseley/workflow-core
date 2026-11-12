@@ -56,7 +56,6 @@ echo "Install dir  : $install_win"
 mkdir -p "$install_wsl"
 cp "$SRC_DIR/watchdog.ps1" "$SRC_DIR/launcher.vbs" "$SRC_DIR/compact-disk.ps1" "$install_wsl/"
 
-# Fill the task template with this machine's identity and install path.
 tmp_xml="$(mktemp)"
 trap 'rm -f "$tmp_xml"' EXIT
 # Backslashes must be doubled in a sed replacement, or GNU sed reads DOMAIN\user
@@ -92,8 +91,6 @@ compact_ps1="${install_win}\\compact-disk.ps1"
 compact_args=(-WslUser "$USER" -Repo "$repo")
 want="$("$PS" -NoProfile -ExecutionPolicy Bypass -File "$compact_ps1" -PrintArgs "${compact_args[@]}" | tr -d '\r')"
 have="$("$PS" -NoProfile -Command "(Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue).Actions[0].Arguments" | tr -d '\r')"
-# Re-registered where absent or its arguments moved: a new user, checkout or
-# install dir.
 if [[ "$have" != "$want" ]]; then
   echo "Registering '$COMPACT_TASK' elevated: accept the UAC prompt on the Windows desktop."
   # A declined prompt fails Start-Process; the check below says so.

@@ -1,9 +1,7 @@
 /*
  * wsl-disk-host.js — the reads and the append lib/wsl-disk.js's verdicts are
  * fed by (#5044). None crosses the interop bridge, since a wedged bridge is
- * one of the faults the check must still report through: the log and C:'s
- * free space come off the /mnt/c mount, and fstrim.timer's last run off the
- * guest's own systemctl.
+ * one of the faults the check must still report through.
  *
  * WFC_PROC names /proc, WFC_WSL_COMPACT_LOG the log, WFC_WIN_C the mount and
  * WFC_SYSTEMCTL the systemctl (§N7).
