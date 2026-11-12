@@ -2,9 +2,12 @@
  * drop-evidence.js — why the queue lander dropped a member, as text: the one
  * builder its fix ticket's body and the owning session's landing status both
  * read (#4950, spec #4947), so the two never say different things of a drop;
- * and the few words a fix ticket's comment gives for it.
+ * the few words a fix ticket's comment gives for it; and what that ticket's
+ * change must do. Every word said of a cause is here, so a new cause kind's
+ * words are this file's edit alone (#5077).
  */
 
+const { short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 
 /** @param {readonly string[]} files */
@@ -131,4 +134,48 @@ function buildCauseLine(cause) {
 	}
 }
 
-module.exports = { buildCauseLine, buildDropEvidence, buildFileList };
+/**
+ * What a red drop's change must pass: what it failed.
+ * @param {{files: readonly string[], typecheck?: readonly string[]}} cause
+ */
+function buildOwedPass({ files, typecheck }) {
+	const failed = [
+		...(files.length > 0 ? ["each file above"] : []),
+		...(typecheck ? ["the type-check"] : []),
+	];
+	return failed.length > 0 ? failed.join(" and ") : "the whole suite";
+}
+
+/**
+ * @param {Pick<import("./lander-records.js").Drop, "sha" | "name" | "cause">} d
+ */
+function buildDropAcceptance({ sha, name, cause }) {
+	return `${short(sha)}'s change${buildOwedClause(cause)} and is pushed to \`${queueBranch(name)}\` again.`;
+}
+
+/**
+ * The clause after "<sha>'s change", carrying its own leading space or comma.
+ * @param {import("./lander-records.js").Drop["cause"]} cause
+ */
+function buildOwedClause(cause) {
+	switch (cause.kind) {
+		case "conflict":
+			return " merges onto `main`, each file above settled,";
+		case "refused":
+			return " merges onto `main`";
+		case "unrecorded":
+			return " merges onto `main`, passes the whole suite there,";
+		case "red":
+		case "collision":
+			return cause.noRun
+				? ", merged onto `main`, fires a CI run on the lander's refs that passes the whole suite,"
+				: ` passes ${buildOwedPass(cause)} merged onto \`main\`,`;
+	}
+}
+
+module.exports = {
+	buildCauseLine,
+	buildDropAcceptance,
+	buildDropEvidence,
+	buildFileList,
+};

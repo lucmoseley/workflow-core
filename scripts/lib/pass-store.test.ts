@@ -13,10 +13,15 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type Audit, NO_READS, type Reads } from "./pass-store-testkit";
+import {
+	type Audit,
+	NO_READS,
+	type Reads,
+	type Steadiness,
+	watched,
+} from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
-const { markStart, readTreeSnapshot } = require("./tree-drift.js");
 const {
 	heldAtSha,
 	lookup,
@@ -81,6 +86,10 @@ function write(dir: string, file: string, text: string) {
 	fs.writeFileSync(path.join(dir, file), text);
 }
 
+/** `file` written again with the bytes it holds: its change time moves. */
+const rewrite = (dir: string, file: string) =>
+	write(dir, file, fs.readFileSync(path.join(dir, file), "utf8"));
+
 const DAY = 24 * 60 * 60 * 1000;
 /* A day back, so every row sits inside the retention whenever this runs. */
 let clock = Date.now() - DAY;
@@ -92,7 +101,8 @@ const nextAt = () => {
 /**
  * A run of `files` at `dir`, each passing unless named in `failing`, each
  * audited as reading nothing unless `audits` names it; `audits: null` is a
- * run nothing audited. `startMark` defaults to a mark taken now.
+ * run nothing audited. Its steadiness is a watch's over `during`, unless
+ * `steadiness` hands one; null is a run nothing watched.
  */
 function run(
 	dir: string,
@@ -100,9 +110,8 @@ function run(
 	{
 		failing = [] as string[],
 		clean = true,
-		drifted = [] as string[] | null,
-		after = undefined as ReturnType<typeof readTreeSnapshot> | undefined,
-		startMark = undefined as bigint | null | undefined,
+		during = undefined as (() => void) | undefined,
+		steadiness = undefined as Steadiness | null | undefined,
 		values = VALUES,
 		storeRoot = dir,
 		at = nextAt(),
@@ -122,9 +131,7 @@ function run(
 			})),
 			shared: ["vitest.config.ts", "vitest.setup.ts"],
 			clean,
-			drifted,
-			after: after === undefined ? readTreeSnapshot(dir) : after,
-			startMark: startMark === undefined ? markStart(dir) : startMark,
+			steadiness: steadiness === undefined ? watched(dir, during) : steadiness,
 			audits:
 				audits === null
 					? null
@@ -258,6 +265,7 @@ describe("a change to any input voids the pass", () => {
 			const dir = repo();
 			write(dir, A, text);
 			write(dir, module, "v0\n");
+			git(dir, "add", "-A");
 			run(dir, [A]);
 			expect(cachedOf(dir, [A])).toEqual([A]);
 			write(dir, module, "v1\n");
@@ -269,6 +277,7 @@ describe("a change to any input voids the pass", () => {
 		const dir = repo();
 		write(dir, "lib.js", 'require("./far.js");\n');
 		write(dir, "far.js", "v0\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "far.js", "v1\n");
@@ -280,6 +289,7 @@ describe("a change to any input voids the pass", () => {
 		write(dir, A, 'const { x } = require("../lib.js");\n');
 		write(dir, "lib.js", 'module.exports = require("./deep");\n');
 		write(dir, "deep.js", "module.exports = { x: 1 };\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "deep.js", "module.exports = { x: 2 };\n");
@@ -292,6 +302,7 @@ describe("a change to any input voids the pass", () => {
 		const dir = repo();
 		write(dir, "vitest.setup.ts", "// code-edges loads: shim\n");
 		write(dir, "shim", "#!/bin/bash\nexit 0\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "shim", "#!/bin/bash\nexit 1\n");
@@ -308,6 +319,7 @@ describe("a change to any input voids the pass", () => {
 		);
 		write(dir, "cores.json", '{"Pre": [{"core": "core.js"}]}\n');
 		write(dir, "core.js", "v0\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "core.js", "v1\n");
@@ -319,6 +331,7 @@ describe("a change to any input voids the pass", () => {
 		const dir = repo();
 		write(dir, "lib.js", 'const M = nodePath.join(__dirname, "m.json");\n');
 		write(dir, "m.json", "{}\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "m.json", '{"x": 1}\n');
@@ -335,6 +348,7 @@ describe("a change to any input voids the pass", () => {
 			'const ROOT = path.resolve(__dirname, "scripts");\nconst D = path.join(ROOT, "d.js");\n',
 		);
 		write(dir, "scripts/d.js", "v0\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "scripts/d.js", "v1\n");
@@ -391,6 +405,7 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		write(dir, "lib.js", lib);
 		fs.mkdirSync(path.join(dir, path.dirname(target)), { recursive: true });
 		write(dir, target, "v0\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, shadow, "v0\n");
@@ -402,6 +417,7 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		write(dir, "lib.js", 'require("./mid.js");\n');
 		write(dir, "mid.js", 'require("./deep");\n');
 		write(dir, "deep.ts", "v0\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "deep.js", "v0\n");
@@ -412,6 +428,7 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		const dir = repo();
 		write(dir, A, 'require("../data");\n');
 		write(dir, "data.json", "{}\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		write(dir, "data.js", "v0\n");
@@ -455,16 +472,19 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 	});
 
 	it.each([
-		["the drift watch saw while the run ran", { drifted: ["data.js"] }, ""],
-		["git ignores, which the drift watch never sees", {}, "data.js\n"],
+		["the drift watch saw while the run ran", ""],
+		["git ignores, which the drift watch never sees", "data.js\n"],
 	])(
 		"records no row over a shadowing path, gone once the run ended, that %s (#4790 pass 3)",
-		(_which, how, ignore) => {
+		(_which, ignore) => {
 			const dir = repo();
 			write(dir, "lib.js", 'require("./data");\n');
 			write(dir, "data.json", "{}\n");
 			fs.appendFileSync(path.join(dir, ".gitignore"), ignore);
-			expect(run(dir, [A], how)).toBe(0);
+			git(dir, "add", "-A");
+			write(dir, "data.js", "v0\n");
+			const during = () => fs.rmSync(path.join(dir, "data.js"));
+			expect(run(dir, [A], { during })).toBe(0);
 			expect(cachedOf(dir, [A])).toEqual([]);
 		},
 	);
@@ -473,6 +493,7 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 		const dir = repo();
 		write(dir, "lib.js", 'require("./data");\n');
 		write(dir, "data.json", "{}\n");
+		git(dir, "add", "-A");
 		run(dir, [A]);
 		const [hit] = lookup([A], {
 			root: dir,
@@ -543,8 +564,8 @@ describe("the newest result on the same content decides", () => {
 		it("voids the older pass over an input rewritten while the red run ran, whose content then nothing tells", () => {
 			const dir = repo();
 			run(dir, [A]);
-			write(dir, "lib.js", "left behind by the run\n");
-			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
+			const during = () => write(dir, "lib.js", "left behind by the run\n");
+			expect(run(dir, [A], { failing: [A], during })).toBe(1);
 			git(dir, "checkout", "-q", "lib.js");
 			expect(cachedOf(dir, [A])).toEqual([]);
 		});
@@ -558,8 +579,8 @@ describe("the newest result on the same content decides", () => {
 			git(dir, "commit", "-q", "-m", "data");
 			run(dir, [A]);
 			expect(cachedOf(dir, [A])).toEqual([A]);
-			fs.rmSync(path.join(dir, "data.js"));
-			expect(run(dir, [A], { failing: [A], drifted: ["data.js"] })).toBe(1);
+			const during = () => fs.rmSync(path.join(dir, "data.js"));
+			expect(run(dir, [A], { failing: [A], during })).toBe(1);
 			git(dir, "checkout", "-q", "data.js");
 			expect(cachedOf(dir, [A])).toEqual([]);
 		});
@@ -570,22 +591,25 @@ describe("the newest result on the same content decides", () => {
 			git(dir, "add", "-A");
 			git(dir, "commit", "-q", "-m", "far");
 			run(dir, [A]);
-			write(dir, "lib.js", 'require("./far.js");\n');
 			write(dir, "far.js", "far.js v1\n");
-			expect(run(dir, [A], { failing: [A], drifted: ["lib.js"] })).toBe(1);
+			const during = () => write(dir, "lib.js", 'require("./far.js");\n');
+			expect(run(dir, [A], { failing: [A], during })).toBe(1);
 			git(dir, "checkout", "-q", "lib.js", "far.js");
 			expect(cachedOf(dir, [A])).toEqual([]);
 		});
 
 		it.each([
-			["was rewritten while its red run ran", { drifted: [A] }],
-			["may have been, the tree's drift being unknown", { drifted: null }],
+			["was rewritten while its red run ran", false],
+			["may have been, nothing having watched the run", true],
 		])(
 			"voids the older pass at any content of a test file that %s",
-			(_why, how) => {
+			(_why, unwatched) => {
 				const dir = repo();
 				run(dir, [A]);
 				write(dir, A, "left behind by the run\n");
+				const how = unwatched
+					? { steadiness: null }
+					: { during: () => rewrite(dir, A) };
 				expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
 				git(dir, "checkout", "-q", A);
 				expect(cachedOf(dir, [A])).toEqual([]);
@@ -613,7 +637,7 @@ describe("the newest result on the same content decides", () => {
 
 			git(dir, "commit", "-q", "--allow-empty", "-m", "two");
 			git(dir, "update-ref", "refs/heads/other", "HEAD");
-			const red = { failing: [A], drifted: ["lib.js"] };
+			const red = { failing: [A], during: () => rewrite(dir, "lib.js") };
 			expect(run(dir, [A], { ...red, audits: { [A]: askedGit } })).toBe(1);
 			git(dir, "update-ref", "refs/heads/other", seen);
 			expect(cachedOf(dir, [A])).toEqual([]);
@@ -628,9 +652,12 @@ describe("the newest result on the same content decides", () => {
 			run(dir, [A], { audits: { [A]: walked } });
 			expect(cachedOf(dir, [A])).toEqual([A]);
 
-			write(dir, "docs/late.md", "late\n");
-			git(dir, "add", "docs/late.md");
-			const red = { failing: [A], drifted: ["lib.js", "docs/late.md"] };
+			const during = () => {
+				write(dir, "docs/late.md", "late\n");
+				git(dir, "add", "docs/late.md");
+				rewrite(dir, "lib.js");
+			};
+			const red = { failing: [A], during };
 			expect(run(dir, [A], { ...red, audits: { [A]: walked } })).toBe(1);
 			git(dir, "rm", "-q", "-f", "docs/late.md");
 			expect(cachedOf(dir, [A])).toEqual([]);
@@ -651,7 +678,7 @@ describe("the newest result on the same content decides", () => {
 
 			write(dir, "docs/two.md", "two\n");
 			git(dir, "add", "docs/two.md");
-			const red = { failing: [A], drifted: ["lib.js"] };
+			const red = { failing: [A], during: () => rewrite(dir, "lib.js") };
 			expect(run(dir, [A], { ...red, audits: { [A]: listed() } })).toBe(1);
 			expect(cachedOf(dir, [A])).toEqual([]);
 			git(dir, "rm", "-q", "-f", "docs/two.md");
@@ -668,12 +695,18 @@ describe("the newest result on the same content decides", () => {
 		});
 
 		it.each([
-			["nothing audited the run", { audits: null }],
-			["the tree's drift is unknown", { drifted: null }],
+			["nothing audited the run", () => ({ audits: null })],
+			["nothing watched the run", () => ({ steadiness: null })],
+			[
+				"HEAD moved while the run ran, the tree settled",
+				(dir: string) => ({
+					during: () => git(dir, "commit", "-q", "--allow-empty", "-m", "mid"),
+				}),
+			],
 		])("voids the older pass where %s", (_why, how) => {
 			const dir = repo();
 			run(dir, [A]);
-			expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
+			expect(run(dir, [A], { failing: [A], ...how(dir) })).toBe(1);
 			expect(cachedOf(dir, [A])).toEqual([]);
 		});
 
@@ -863,9 +896,9 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(cachedOf(dir, [A, B])).toEqual([A]);
 	});
 
-	it("records nothing of a run whose tree drift is unknown", () => {
+	it("records nothing of a run nothing watched", () => {
 		const dir = repo();
-		expect(run(dir, [A], { drifted: null })).toBe(0);
+		expect(run(dir, [A], { steadiness: null })).toBe(0);
 	});
 
 	it("records no row for a file reaching a module that will not read", () => {
@@ -914,28 +947,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 
 	it("records no row for a file whose input was rewritten mid-run", () => {
 		const dir = repo();
-		expect(run(dir, [A, B], { drifted: ["doc.md"] })).toBe(1);
-		expect(cachedOf(dir, [A, B])).toEqual([B]);
-	});
-
-	it("records no row for a file reaching a gitignored input, which no drift watch sees rewritten (#4819)", () => {
-		const dir = repo();
-		fs.appendFileSync(path.join(dir, ".gitignore"), "gen.json\n");
-		write(dir, "gen.json", "{}\n");
-		write(dir, A, 'require("../gen.json");\n');
-		expect(run(dir, [A, B])).toBe(1);
-		expect(cachedOf(dir, [A, B])).toEqual([B]);
-	});
-
-	it("costs only the rows reaching a path through a tracked symlink, which git will not judge for ignores (#4819)", () => {
-		const dir = repo();
-		fs.mkdirSync(path.join(dir, "real"));
-		write(dir, "real/x.js", "module.exports = 1;\n");
-		fs.symlinkSync("real", path.join(dir, "link"));
-		write(dir, A, 'require("../link/x.js");\n');
-		git(dir, "add", "-A");
-		git(dir, "commit", "-q", "-m", "link");
-		expect(run(dir, [A, B])).toBe(1);
+		expect(run(dir, [A, B], { during: () => rewrite(dir, "doc.md") })).toBe(1);
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
@@ -950,9 +962,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			files,
 			shared: [],
 			clean: true,
-			drifted: [],
-			after: readTreeSnapshot(dir),
-			startMark: markStart(dir),
+			steadiness: watched(dir),
 			audits: new Map([[A, { reads: NO_READS }]]),
 		};
 		expect(record(base, { storeRoot: dir, lander: true })).toBe(0);
@@ -1059,80 +1069,41 @@ describe("the reads the audit saw", () => {
 		git(dir, "add", "-A");
 		git(dir, "commit", "-q", "-m", "two");
 		const gone = `${Skills}/one/SKILL.md`;
-		git(dir, "rm", "-q", gone);
 		expect(
 			run(dir, [A, B], {
-				drifted: [gone],
+				during: () => git(dir, "rm", "-q", gone),
 				audits: { [A]: audited({ trees: [".claude/skills"] }) },
 			}),
 		).toBe(1);
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	it("records no row where the tree moved after the run's end snapshot, or that snapshot is missing (#4993)", () => {
+	/* #5018: two snapshots see no change put back between them. The walked
+	 * files must reach the paths the steadiness query is asked about. */
+	it("records no pass row for a tree walked while a file under it was removed, then restored", () => {
 		const dir = repo();
-		const end = readTreeSnapshot(dir);
-		write(dir, "lib.js", "lib.js v1\n");
-		expect(run(dir, [A], { after: end })).toBe(0);
-		expect(run(dir, [A], { after: null })).toBe(0);
-		expect(run(dir, [A])).toBe(1);
-	});
-
-	/* Two snapshots see no change put back between them: each file's change
-	 * time does (#5018). */
-	describe("an input changed and put back while the run ran (#5018)", () => {
-		const readsOther = { [A]: audited({ files: ["other.md"] }) };
-
-		it("records no pass row for a test that read a file while it stood edited", () => {
-			const dir = repo();
-			const startMark = markStart(dir);
-			write(dir, "other.md", "other.md edited\n");
-			write(dir, "other.md", "other.md v0\n");
-			expect(run(dir, [A, B], { startMark, audits: readsOther })).toBe(1);
-			expect(cachedOf(dir, [A, B])).toEqual([B]);
-		});
-
-		it("records no pass row for a tree walked while a file under it was removed, then restored", () => {
-			const dir = repo();
-			withSkill(dir);
-			const startMark = markStart(dir);
-			const skill = path.join(dir, Skills, "one/SKILL.md");
-			const text = fs.readFileSync(skill);
+		withSkill(dir);
+		const skill = path.join(dir, Skills, "one/SKILL.md");
+		const text = fs.readFileSync(skill);
+		const during = () => {
 			fs.rmSync(skill);
 			fs.writeFileSync(skill, text);
-			expect(
-				run(dir, [A, B], {
-					startMark,
-					audits: { [A]: audited({ trees: [Skills] }) },
-				}),
-			).toBe(1);
-			expect(cachedOf(dir, [A, B])).toEqual([B]);
-		});
+		};
+		expect(
+			run(dir, [A, B], {
+				during,
+				audits: { [A]: audited({ trees: [Skills] }) },
+			}),
+		).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
 
-		it("records no pass row where a file changed after the end snapshot is put back before the record reads it", () => {
-			const dir = repo();
-			const startMark = markStart(dir);
-			const end = readTreeSnapshot(dir);
-			write(dir, "other.md", "other.md late\n");
-			write(dir, "other.md", "other.md v0\n");
-			expect(
-				run(dir, [A, B], { startMark, after: end, audits: readsOther }),
-			).toBe(1);
-			expect(cachedOf(dir, [A, B])).toEqual([B]);
-		});
-
-		it("still records the pass of a test whose inputs stood untouched since the run began", () => {
-			const dir = repo();
-			write(dir, "other.md", "other.md v1\n");
-			const startMark = markStart(dir);
-			expect(run(dir, [A, B], { startMark, audits: readsOther })).toBe(2);
-			expect(cachedOf(dir, [A, B])).toEqual([A, B]);
-		});
-
-		it("records no pass row where the run's start was never marked", () => {
-			const dir = repo();
-			expect(run(dir, [A, B], { startMark: null })).toBe(0);
-		});
+	it("records no row where the tree moved after the run's end snapshot (#4993)", () => {
+		const dir = repo();
+		const steadiness = watched(dir);
+		write(dir, "lib.js", "lib.js v1\n");
+		expect(run(dir, [A], { steadiness })).toBe(0);
+		expect(run(dir, [A])).toBe(1);
 	});
 
 	it("voids an older pass with a red recorded after the tree moved past the run's end snapshot, once the move is undone (#4790)", () => {
@@ -1140,9 +1111,9 @@ describe("the reads the audit saw", () => {
 		run(dir, [A]);
 		expect(cachedOf(dir, [A])).toEqual([A]);
 		const ran = fs.readFileSync(path.join(dir, "lib.js"), "utf8");
-		const end = readTreeSnapshot(dir);
+		const steadiness = watched(dir);
 		write(dir, "lib.js", "lib.js edited after the end snapshot\n");
-		expect(run(dir, [A], { failing: [A], after: end })).toBe(1);
+		expect(run(dir, [A], { failing: [A], steadiness })).toBe(1);
 		write(dir, "lib.js", ran);
 		expect(cachedOf(dir, [A])).toEqual([]);
 	});

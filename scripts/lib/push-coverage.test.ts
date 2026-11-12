@@ -15,12 +15,11 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { NO_READS } from "./pass-store-testkit";
+import { NO_READS, watched } from "./pass-store-testkit";
 import { buildCoverageWarning, readUncovered } from "./push-coverage.js";
 
 const require = createRequire(import.meta.url);
 const { record } = require("./pass-store.js");
-const { readTreeSnapshot } = require("./tree-drift.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
 
 type Look = NonNullable<
@@ -178,8 +177,7 @@ describe("over the real pass store", () => {
 				files: [{ file: A, outcome: "pass", imports: ["lib.js"] }],
 				shared: ["vitest.config.ts", "vitest.setup.ts"],
 				clean: true,
-				drifted: [],
-				after: readTreeSnapshot(dir),
+				steadiness: watched(dir),
 				audits: new Map([[A, { reads: NO_READS }]]),
 			},
 			{ storeRoot: dir, lander: false },

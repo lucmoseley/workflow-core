@@ -766,6 +766,17 @@ function readAgentsForCutover() {
 	});
 }
 
+/**
+ * `listedAgents` for the monthly disk compaction (scripts/wsl-disk-compaction.js,
+ * #5044), waiting until no session is live before `wsl --shutdown` ends them
+ * all. It runs from a timer, outside any session, so an empty listing reads as
+ * none live. Its residual is `admissionSessionIds`'s.
+ * @returns {Listing}
+ */
+function readAgentsForCompaction() {
+	return readAgentsAllowingEmpty();
+}
+
 /*
  * HOW OLD A SHOWN LISTING MAY BE (#4169, #4821): one refresh of every plan's
  * listing cost ~2.5 CPU-s (4 Nov 2026, load ~13) and a cached
@@ -1039,6 +1050,7 @@ module.exports = {
 	listedAgents,
 	readAgentsAfterBoot,
 	readAgentsForBudget,
+	readAgentsForCompaction,
 	readAgentsForCutover,
 	readAgentsForLevelling,
 	readAgentsForDisplay,

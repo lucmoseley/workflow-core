@@ -27,16 +27,20 @@ const {
 	WAIT_ON,
 } = require("./gate-judge-mode.js");
 const { now } = require("./check.js");
-const { readCitedFor, unreadNote } = require("./basis-cited-read.js");
 const {
-	basisFaults,
+	CITED_BOUND_MS,
+	readBasisFaults,
+	unreadNote,
+} = require("./basis-cited-read.js");
+const {
 	basisRefusal,
 	basisRule,
+	faultsAdded,
 	gateFacts,
-	introducedBasisFaults,
+	isLiveQuote,
 	judgeOverrideOf,
 	otherIssueRefs,
-	isRegate,
+	wordedBasisFaults,
 } = require("./issue-gate.js");
 
 const LAUNCHER = path.join(__dirname, "..", "claude-child.js");
@@ -48,10 +52,14 @@ const LAUNCHER_GRACE_MS = 5000;
 /* The child's kill bound where a caller gives none. Measured (#4968): of
  * 4,973 corpus bodies read four at once the slowest took 52.1 s, 6 passed
  * 30 s and the 99th centile was 16.5 s. At 30 s about 1 call in 800 falls
- * back to the patterns, and bound plus grace, with the cited read's
- * 10 s (CITED_BOUND_MS), leave 15 s of the create guard's 60 s hook limit
- * (hooks/hooks.json). */
+ * back to the patterns. */
 const JUDGE_BOUND_MS = 30_000;
+
+/* What one write's gate reading may spend by default: the
+ * cited read's 10 s (CITED_BOUND_MS) and the judge's 30 s. With the
+ * launcher's 5 s grace it leaves 15 s of the create guard's 60 s hook limit
+ * (hooks/hooks.json), which spends it across every body one command files. */
+const WRITE_BOUND_MS = CITED_BOUND_MS + JUDGE_BOUND_MS;
 
 const BODY_OPEN = "<issue-body>";
 const BODY_CLOSE = "</issue-body>";
@@ -109,8 +117,10 @@ const buildPrompt = (body) =>
  * @typedef {import("./issue-gate.js").BasisFault & {by: "patterns"|"model",
  *   on?: JudgedWait["on"], class?: JudgedBasis["class"]}} JudgedFault `on`:
  *   what a model-read wait waits on; `class`: how the model classed a basis
- * @typedef {JudgedFault & {quote: string}} ModelFault `quote`: the body's
- *   words the fault was read in, the wait's sentence or the basis
+ * @typedef {JudgedFault & {words: string, window?: string}} ModelFault
+ *   `words`: the body's words the fault was read in, the wait's sentence or
+ *   the basis; `window`, a wait's window as the model gave it
+ * @typedef {import("./issue-gate.js").WordedFault} WordedFault
  */
 
 /**
@@ -205,36 +215,6 @@ function readJudge(body, { boundMs, env = process.env }) {
 		: { why: "the judge's reply did not fit its schema" };
 }
 
-/**
- * Whether `quote` is the body's own words: a verbatim substring with an
- * occurrence that starts and ends outside a fence and a code span, `inner`
- * within it too.
- *
- * @param {string} body
- * @param {string} quote
- * @param {string} inner words of `quote` that must be live as well, or ""
- * @param {(index: number) => boolean} isLiveAt
- */
-function isLiveQuote(body, quote, inner, isLiveAt) {
-	if (quote.trim() === "") return false;
-	/* The end is read just past the last character: a closing backtick reads
-	 * as inside its own span. */
-	const isLive = (/** @type {number} */ from, /** @type {number} */ length) =>
-		isLiveAt(from) && isLiveAt(from + length);
-	const innerAt = inner ? quote.indexOf(inner) : -1;
-	for (
-		let at = body.indexOf(quote);
-		at !== -1;
-		at = body.indexOf(quote, at + 1)
-	)
-		if (
-			isLive(at, quote.length) &&
-			(innerAt === -1 || isLive(at + innerAt, inner.length))
-		)
-			return true;
-	return false;
-}
-
 const BASIS_MARKER = /^\s*\*\*Gate basis:\*\*\s*/i;
 
 /**
@@ -311,7 +291,8 @@ function readingFaults(body, reading, own) {
 						text: hasBasis ? windowText(w) : w.sentence.trim(),
 						by: "model",
 						on: w.on,
-						quote: w.sentence,
+						words: w.sentence,
+						window: w.window.trim(),
 					}),
 			),
 		...(facts.writesWindow || waits.length > 0 ? bases : [])
@@ -323,7 +304,7 @@ function readingFaults(body, reading, own) {
 						text: b.basis,
 						by: "model",
 						class: b.class,
-						quote: b.basis,
+						words: b.basis,
 					}),
 			),
 	];
@@ -347,60 +328,50 @@ function isEitherHeld(a, b) {
 }
 
 /**
- * The patterns' faults, whole, then what the model adds to them: a model
- * fault the patterns already raise is theirs, and one whose sentence or basis
- * `before` held verbatim, outside code, is not the edit's — bar a basis under
- * a gate line the edit adds or moves, judged afresh as the patterns' edit rule
- * judges it (#4946).
+ * The faults a write adds by both readings: each reading's faults on the
+ * whole body, those `before` holds dropped by the one edit rule
+ * (lib/issue-gate.js faultsAdded), then each model fault a remaining pattern
+ * fault already raises.
  *
- * @param {import("./issue-gate.js").BasisFault[]} patterns
+ * @param {WordedFault[]} patterns
  * @param {ModelFault[]} model
- * @param {{before: string, after: string}} [edit] where the write replaces a body
+ * @param {import("./issue-gate.js").BasisWrite} write
  * @returns {JudgedFault[]}
  */
-function mergeFaults(patterns, model, edit) {
-	/** @type {JudgedFault[]} */
-	const faults = patterns.map((f) => ({ ...f, by: "patterns" }));
-	const wasLiveAt = edit ? gateFacts(edit.before).isLiveAt : null;
-	const regated = edit !== undefined && isRegate(edit.before, edit.after);
-	const isHeld = (/** @type {ModelFault} */ f) =>
-		edit !== undefined &&
-		wasLiveAt !== null &&
-		!(regated && f.kind === "no-warrant") &&
-		isLiveQuote(edit.before, f.quote, "", wasLiveAt);
-	const added = model.filter(
-		(f) =>
-			!isHeld(f) &&
-			!faults.some((p) => p.kind === f.kind && isEitherHeld(p.text, f.text)),
+function judgedFaultsAdded(patterns, model, write) {
+	const faults = faultsAdded(
+		[
+			.../** @type {(WordedFault & {by: "patterns"})[]} */ (
+				patterns.map((f) => ({ ...f, by: "patterns" }))
+			),
+			...model,
+		],
+		write,
 	);
-	return [...faults, ...added.map(({ quote: _quote, ...f }) => f)];
+	const raised = faults.filter((f) => f.by === "patterns");
+	return [
+		...raised,
+		...faults.filter(
+			(f) =>
+				f.by === "model" &&
+				!raised.some((p) => p.kind === f.kind && isEitherHeld(p.text, f.text)),
+		),
+	];
 }
 
 /**
- * @param {string} body
- * @param {number} [own]
- * @param {string} [before]
- * @param {import("./issue-gate.js").Follow} [follow]
- */
-const patternFaults = (body, own, before, follow) =>
-	before === undefined
-		? basisFaults(body, own, follow)
-		: introducedBasisFaults(before, body, own, follow);
-
-/**
  * A body's gate faults by both readings. With `before`, the body an edit
- * replaces, a fault is raised only where the edit brought it: a pattern fault
- * by lib/issue-gate.js's own edit rule, a model fault unless `before` already
- * held its sentence or basis verbatim.
+ * replaces, a fault is raised only where the edit brought it (judgedFaultsAdded).
  *
  * `fallback` is why the model reading did not run, the faults then being the
  * patterns' alone; null where it ran.
  *
  * @param {string} body the body written
  * @param {{own?: number, before?: string, boundMs?: number, env?: NodeJS.ProcessEnv,
- *   follow?: import("./issue-gate.js").Follow}} opts
+ *   patterns?: WordedFault[]}} opts
  *   `boundMs`: the child is killed once it has passed, JUDGE_BOUND_MS by
- *   default; `follow`, the cited issues read
+ *   default; `patterns`, the whole body's pattern faults where the caller
+ *   read them with the cited issues followed
  * @returns {{faults: JudgedFault[], fallback: string|null, reading: Reading|null,
  *   dropped: number, ms: number}} `reading` as the model gave it, null with
  *   `fallback`; `dropped`, its quotes the code dropped; `ms`, the call's wall
@@ -408,16 +379,17 @@ const patternFaults = (body, own, before, follow) =>
  */
 function judgedBasisFaults(
 	body,
-	{ own, before, boundMs = JUDGE_BOUND_MS, env, follow } = {},
+	{ own, before, boundMs = JUDGE_BOUND_MS, env, patterns: given } = {},
 ) {
 	const text = String(body || "");
-	const patterns = patternFaults(text, own, before, follow);
+	const write = { body: text, before };
+	const patterns = given ?? wordedBasisFaults(text, own);
 	const startedAt = Date.now();
 	const read = readJudge(text, { boundMs, env });
 	const ms = Date.now() - startedAt;
 	if ("why" in read)
 		return {
-			faults: mergeFaults(patterns, []),
+			faults: judgedFaultsAdded(patterns, [], write),
 			fallback: read.why,
 			reading: null,
 			dropped: 0,
@@ -425,11 +397,7 @@ function judgedBasisFaults(
 		};
 	const judged = readingFaults(text, read.reading, own);
 	return {
-		faults: mergeFaults(
-			patterns,
-			judged.faults,
-			before === undefined ? undefined : { before, after: text },
-		),
+		faults: judgedFaultsAdded(patterns, judged.faults, write),
 		fallback: null,
 		reading: read.reading,
 		dropped: judged.dropped,
@@ -503,72 +471,39 @@ const unmarked = ({ by: _by, ...f }) => f;
  * calls, was fastest 2.9 s, median 4.2 s, so 5 s is past half of them. */
 const MIN_BOUND_MS = 5000;
 
-/* The cited read's floor and its bound, a budget of its own beside the
- * judge's: one batched read of four issues with their comments took 1,633 ms
- * (#5007). Both first guesses. */
-const MIN_CITED_MS = 3000;
-const CITED_BOUND_MS = 10_000;
-
-/** The cited read where nothing is read and no note is owed. */
-const NOTHING_CITED = Object.freeze({
-	follow: undefined,
-	note: "",
-	ms: 0,
-	fallback: null,
-});
-
 /**
- * The issues the bases a write would judge cite, read in one batched call
- * (#5007), and the note where any went unread. A basis an edit leaves
- * untouched, an event anchor and the body's own number cite nothing.
- *
- * `WFC_GATE_CITED=off` is the suites' seam (vitest.setup.ts): no read, every
- * basis judged on its form. Like `WFC_GATE_JUDGE=off`, it holds only beside
- * VITEST_WORKER_ID (#5011).
+ * A write's pattern faults with the issues its bases cite followed
+ * (lib/basis-cited-read.js), the note where any went unread, and the write
+ * log's record of the read, empty where no basis was followed.
  *
  * @param {string} body
- * @param {{own?: number, before?: string, citedBoundMs: number,
+ * @param {{own?: number, before?: string, timeoutMs: number,
  *   env: NodeJS.ProcessEnv}} opts
- * @returns {{follow: import("./issue-gate.js").Follow|undefined, note: string,
- *   ms: number, fallback: string|null}}
  */
-function readCited(body, { own, before, citedBoundMs, env }) {
-	if (env.WFC_GATE_CITED === "off" && env.VITEST_WORKER_ID)
-		return NOTHING_CITED;
-	const read = readCitedFor(
-		(follow) => patternFaults(body, own, before, follow),
-		{
-			root: env.CLAUDE_PROJECT_DIR,
-			timeoutMs: Math.min(CITED_BOUND_MS, citedBoundMs),
-			minMs: MIN_CITED_MS,
-		},
-	);
-	if (!read) return NOTHING_CITED;
+function readCitedPatterns(body, { own, before, timeoutMs, env }) {
+	const read = readBasisFaults([{ body, own, before }], {
+		timeoutMs,
+		root: env.CLAUDE_PROJECT_DIR,
+		env,
+	});
+	const trace = read.traces[0] ?? [];
 	const unread = read.unread.map((w) => w.ref);
 	return {
-		follow: read.follow,
+		patterns: read.faults[0] ?? [],
 		note:
 			unread.length > 0
 				? unreadNote("The issues a basis cites were not read", unread, read.why)
 				: "",
-		ms: read.ms,
-		fallback: unread.length > 0 ? read.why : null,
+		record:
+			trace.length > 0
+				? {
+						cited: trace,
+						citedMs: read.ms,
+						citedFallback: unread.length > 0 ? read.why : null,
+					}
+				: {},
 	};
 }
-
-/**
- * The write log's record of the cited read.
- *
- * @param {ReturnType<typeof readCited>} cited
- */
-const citedRecord = (cited) =>
-	cited.follow
-		? {
-				cited: cited.follow.trace ?? [],
-				citedMs: cited.ms,
-				citedFallback: cited.fallback,
-			}
-		: {};
 
 /**
  * The refusal's model part: the faults, then the rule, with its template and
@@ -636,83 +571,79 @@ function answer(patterns, read, override, citedNote = "") {
  *
  * @param {string} body the body written
  * @param {{route: "create-guard"|"file-issue"|"issue-body", own?: number,
- *   before?: string, boundMs?: number, citedBoundMs?: number,
- *   env?: NodeJS.ProcessEnv}} opts `boundMs` bounds the model reading,
- *   `citedBoundMs` the cited read, each a budget of its own
- * @returns {{refusal: string|null, advice: string, citedMs: number}}
- *   `citedMs`: what the cited read took, out of `citedBoundMs`
+ *   before?: string, leftMs?: number, env?: NodeJS.ProcessEnv}} opts
+ *   `leftMs`, what the reading may spend, WRITE_BOUND_MS by default: the
+ *   cited read takes up to CITED_BOUND_MS of it, the model reading what is
+ *   left, up to JUDGE_BOUND_MS
+ * @returns {{refusal: string|null, advice: string}}
  */
 function readGateWrite(
 	body,
-	{
-		route,
-		own,
-		before,
-		boundMs = JUDGE_BOUND_MS,
-		citedBoundMs = CITED_BOUND_MS,
-		env = process.env,
-	},
+	{ route, own, before, leftMs = WRITE_BOUND_MS, env = process.env },
 ) {
 	if (before !== undefined && before === body)
-		return { refusal: null, advice: "", citedMs: 0 };
-	const cited = readCited(body, { own, before, citedBoundMs, env });
-	const { follow } = cited;
+		return { refusal: null, advice: "" };
+	const startedAt = Date.now();
+	const cited = readCitedPatterns(body, {
+		own,
+		before,
+		timeoutMs: Math.min(CITED_BOUND_MS, leftMs),
+		env,
+	});
+	const { patterns } = cited;
+	const patternsAdded = faultsAdded(patterns, { body, before });
+	const boundMs = Math.min(JUDGE_BOUND_MS, leftMs - (Date.now() - startedAt));
 	const answered = (
 		/** @type {Parameters<typeof answer>[0]} */ faults,
 		/** @type {Parameters<typeof answer>[1]} */ reading,
 		/** @type {Parameters<typeof answer>[2]} */ overrideLine,
-	) => ({
-		...answer(faults, reading, overrideLine, cited.note),
-		citedMs: cited.ms,
-	});
+	) => answer(faults, reading, overrideLine, cited.note);
 	if (env.WFC_GATE_JUDGE === "off" && env.VITEST_WORKER_ID)
-		return answered(patternFaults(body, own, before, follow), null, null);
+		return answered(patternsAdded, null, null);
 	const override = judgeOverrideOf(body);
 	const log = (/** @type {Record<string, unknown>} */ record) =>
 		logCall({
 			route,
 			issue: own ?? null,
 			...record,
-			...citedRecord(cited),
+			...cited.record,
 			override: override?.reason || null,
 		});
 	if (boundMs < MIN_BOUND_MS) {
-		const patterns = patternFaults(body, own, before, follow);
 		const fallback = "too little of the hook's time was left for it";
-		log({ patterns, model: [], ms: 0, dropped: 0, fallback });
-		return answered(patterns, { fallback }, override);
+		log({ patterns: patternsAdded, model: [], ms: 0, dropped: 0, fallback });
+		return answered(patternsAdded, { fallback }, override);
 	}
 	const r = judgedBasisFaults(body, {
 		own,
 		before,
 		boundMs,
 		env,
-		follow,
+		patterns,
 	});
-	const patterns = r.faults.filter((f) => f.by === "patterns").map(unmarked);
+	const judged = r.faults.filter((f) => f.by === "patterns").map(unmarked);
 	const model = r.faults.filter((f) => f.by === "model");
 	log({
-		patterns,
+		patterns: judged,
 		model: model.map(unmarked),
 		ms: r.ms,
 		dropped: r.dropped,
 		fallback: r.fallback,
 	});
 	return answered(
-		patterns,
+		judged,
 		r.fallback ? { fallback: r.fallback } : { model },
 		override,
 	);
 }
 
 module.exports = {
-	CITED_BOUND_MS,
-	JUDGE_BOUND_MS,
 	LAUNCHER_GRACE_MS,
+	WRITE_BOUND_MS,
 	buildPrompt,
+	judgedFaultsAdded,
 	isEitherHeld,
 	judgedBasisFaults,
-	mergeFaults,
 	parseReading,
 	readGateWrite,
 	readingFaults,

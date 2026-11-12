@@ -31,8 +31,8 @@ const {
 	ruleOrFallback,
 	walkVerdict,
 } = require("./guard-verdict.js");
-const { parseCommand } = require("./shell-parse.js");
-const { ghWords, literal, runCwd } = require("./shell-words.js");
+const { parseCommand, runCwd } = require("./shell-parse.js");
+const { ghWords, literal } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { trimEndRun } = require("./trim-run.js");
