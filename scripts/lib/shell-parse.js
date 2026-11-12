@@ -1309,8 +1309,8 @@ function arithScope(walk, segment) {
 
 /** A subshell's `(`: stack the state its `)` restores, and open the
  * directories' scope.
- * @param {Walk} walk accumulator: its stack, directories and redirect mode
- *   are moved */
+ * @param {Walk} walk accumulator: its stack, directories, redirect mode and
+ *   `arLast` are moved */
 function openScope(walk) {
 	const { dirs, cwdNames: names, noRedirects, gitEnv } = walk;
 	walk.stack.push({ dirs, names, noRedirects, gitEnv });
