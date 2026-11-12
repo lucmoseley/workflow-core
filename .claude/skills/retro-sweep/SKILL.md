@@ -233,7 +233,9 @@ not take stays `waiting`. The close's `**Bound:**` line names each repo in
    an unwind plus a new finding filed as in §6, with its own signature and
    prediction. `.unwinds.carried` goes to `outcomeStep.backlog` unfiled.
 3. **Confirm each miss** in `.misses` and each `.noFaultBug` ticket against its
-   body and closing commit. For each confirmed miss, write its signature as
+   body and closing commit: the script's cap already fits them to the budget,
+   so leave `.overCap` unread, and copy `.outcomeStep.listed` and
+   `.outcomeStep.overCap` into the record's `outcomeStep` (§7). For each confirmed miss, write its signature as
    in §6, its `case` the record that triggered it, and log it late, checked
    against that case as a filing is:
 
@@ -312,7 +314,7 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
    "ticketWorthy","tokens","model","stalled","dropped"}],
  "findings":[{"issue","class","cites","signature","why","baseline","prediction"}],
  "lowValue":["<one line each>"],
- "outcomes":[…],"outcomeStep":{"tokens","misses","backlog"},
+ "outcomes":[…],"outcomeStep":{"tokens","misses","listed","overCap","backlog"},
  "kinds":{"<kind id>":{"count","share"}},
  "ticketMixStep":{"tokens","total","filed","watch"},
  "tokenMeasure":"final-context","medianTokens"}
@@ -325,8 +327,9 @@ Build one compact JSON line (`jq -c`) in `$R/record.json`:
   sessions over the week before filing, the trigger week excluded: `.baseline` of `node scripts/measure-outcome-review.js
   --baseline "$R/sig-<k>.json" --filed-at <its createdAt> --json`, `null` for
   a null signature.
-- `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses
-  (`null` where `.outcomeStep.misses` is: a tracker went unread) and
+- `outcomes` is §6a's copy; `outcomeStep` its token cost, confirmed misses,
+  `.outcomeStep.listed` and `.outcomeStep.overCap` as the script gives them
+  (all three `null` where `.outcomeStep.misses` is: a tracker went unread) and
   `.unwinds.carried` refs. `kinds` is §6b's `.triggers.runLine.kinds`;
   `ticketMixStep` its cost, the week's total, the issues it filed and the
   watch kinds. A calibrate line carries none of the four.
@@ -372,7 +375,7 @@ first.
 **weekly** adds each pick's class tally, the filed issues and the low-value
 count; from §6a, the verdict table (finding, fix sha, observed against
 expected, verdict), late verdicts listed apart, the unwinds filed, the carried
-backlog and the miss count; from §6b, the tickets filed and the kinds on
+backlog, the miss count and the over-cap count; from §6b, the tickets filed and the kinds on
 watch; and each new step's token cost against its budget.
 
 **Flip check:** where the line just appended is the **fourth** `weekly` line

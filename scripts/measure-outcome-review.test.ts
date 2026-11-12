@@ -5,7 +5,7 @@
  * or unwound on the wrong count, the baseline reads the trigger week, a
  * session resumed on two seats counts twice, an unwind past the cap is
  * dropped, a missed signature or a line lost with its worktree goes
- * unlisted, or a finding filed in an adopter's tracker is never judged (#4858)
+ * unlisted, the confirm list outgrows the step's budget (#5031), or a finding filed in an adopter's tracker is never judged (#4858)
  * or is read from a stale local ref that misses an upstream revert (#4872).
  */
 
@@ -667,65 +667,191 @@ describe("measure-outcome-review.js", () => {
 		expect(out.flipDue.why).toMatch(/carried backlog 12 is over 10/);
 	});
 
-	it("lists the week's landed fault-shaped closes with no signature, a session's no-fault among them, and the week's other bug closes declared no-fault", () => {
-		const f = scratch();
-		f.commit("Initial", 1);
-		const closed = (
-			n: number,
-			title: string,
-			day: number,
-			labels: string[] = [],
-		) => f.issues.push({ number: n, title, closedAt: d(day), labels });
-		closed(20, "Lander loses a ref", 56, ["bug"]);
-		closed(21, "Add a lander dashboard", 57);
-		closed(22, "Add a panel", 57);
-		closed(23, "No commit for this", 57, ["bug"]);
-		closed(24, "Signed already", 57, ["bug"]);
-		closed(25, "Closed too long ago", 49, ["bug"]);
-		closed(26, "Fix the dropped queue ref", 57, ["origin:lander-script"]);
-		closed(27, "Lander drops a ref", 57, ["bug", "origin:triage"]);
-		closed(28, "Fix the bump's stale pin", 57, ["origin:release-bump"]);
-		closed(29, "Fix the broken check", 57, ["origin:repo-checks-script"]);
-		f.commit("Read refs once (#20)", 55);
-		f.commit("Stop the dashboard stalling (#21)", 56);
-		f.commit("Add the panel (#22)", 56);
-		f.commit("Sign it (#24)", 56);
-		f.commit("Old (#25)", 48);
-		f.commit("Fix the dropped ref (#26)", 56);
-		f.commit("Keep the ref (#27)", 56);
-		f.commit("Fix the stale pin (#28)", 56);
-		f.commit("Fix the broken check (#29)", 56);
-		f.signatureLine(24, { signature: null, why: "no trace" });
-		closed(40, "no-fault bug", 57, ["bug", "origin:triage"]);
-		closed(41, "signed bug", 57, ["bug", "origin:audit"]);
-		closed(42, "hand-filed bug", 57, ["bug"]);
-		closed(43, "no-fault bug closed long ago", 40, ["bug", "origin:triage"]);
-		closed(44, "no-fault non-bug", 57, ["origin:triage"]);
-		f.issues.push({
-			number: 45,
-			title: "open no-fault bug",
-			labels: ["bug", "origin:triage"],
+	describe("the miss backstop and its confirm list (#5031)", () => {
+		/** A ticket closed on `day`, created on `createdOn`: by default day 50,
+		 * past the rollout. */
+		const closer =
+			(f: Fixture) =>
+			(
+				n: number,
+				title: string,
+				day: number,
+				{ labels = [] as string[], createdOn = 50 } = {},
+			) =>
+				f.issues.push({
+					number: n,
+					title,
+					createdAt: d(createdOn),
+					closedAt: d(day),
+					labels,
+				});
+		const issues = (list: { issue: string }[]) => list.map((m) => m.issue);
+
+		it("lists undeclared landed fault-shaped closes as misses, and session-declared bug closes as no-fault bugs", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			const closed = closer(f);
+			closed(20, "Lander loses a ref", 56, { labels: ["bug"] });
+			closed(21, "Add a lander dashboard", 57);
+			closed(22, "Add a panel", 57);
+			closed(23, "No commit for this", 57, { labels: ["bug"] });
+			closed(24, "Signed already", 57, { labels: ["bug"] });
+			closed(25, "Closed too long ago", 49, { labels: ["bug"] });
+			closed(26, "Fix the dropped queue ref", 57, {
+				labels: ["origin:lander-script"],
+			});
+			closed(27, "Lander drops a ref", 57, {
+				labels: ["bug", "origin:triage"],
+			});
+			closed(28, "Fix the bump's stale pin", 57, {
+				labels: ["origin:release-bump"],
+			});
+			closed(30, "Fix the spec's stale field", 57, {
+				labels: ["origin:to-spec"],
+			});
+			closed(31, "Lander crashes on a ref", 57, {
+				labels: ["bug"],
+				createdOn: 10,
+			});
+			closed(32, "Lander hangs", 57, {
+				labels: ["bug", "origin:triage"],
+				createdOn: 10,
+			});
+			closed(33, "Lander stalls", 57);
+			closed(34, "Queue ref stuck", 57, {
+				labels: ["bug", "origin:lander-script"],
+			});
+			f.commit("Read refs once (#20)", 55);
+			f.commit("Stop the dashboard stalling (#21)", 56);
+			f.commit("Add the panel (#22)", 56);
+			f.commit("Sign it (#24)", 56);
+			f.commit("Old (#25)", 48);
+			f.commit("Fix the dropped ref (#26)", 56);
+			f.commit("Keep the ref (#27)", 56);
+			f.commit("Fix the stale pin (#28)", 56);
+			f.commit("Fix the stale field (#30)", 56);
+			f.commit("Keep the ref (#31)", 56);
+			f.commit("Read once (#33)", 56);
+			f.commit("Free the ref (#34)", 56);
+			/* Day 35: the tracker's rollout. */
+			f.signatureLine(24, { signature: null, why: "no trace" });
+			closed(40, "no-fault bug", 57, { labels: ["bug", "origin:triage"] });
+			closed(41, "signed bug", 57, { labels: ["bug", "origin:audit"] });
+			closed(42, "hand-filed bug", 57, { labels: ["bug"] });
+			closed(43, "no-fault bug closed long ago", 40, {
+				labels: ["bug", "origin:triage"],
+			});
+			closed(44, "no-fault non-bug", 57, { labels: ["origin:triage"] });
+			f.issues.push({
+				number: 45,
+				title: "open no-fault bug",
+				createdAt: d(50),
+				labels: ["bug", "origin:triage"],
+			});
+			f.signatureLine(41, { signature: null, why: "no trace" });
+			const { status, out } = f.run();
+			expect(status).toBe(0);
+			/* #31 and #32 predate the rollout; #30 declared --no-fault and
+			 * carries no bug; #34's origin is a script's. */
+			expect(out.misses).toEqual([
+				expect.objectContaining({ issue: `${TRACKER}#20`, why: ["bug"] }),
+				expect.objectContaining({
+					issue: `${TRACKER}#21`,
+					why: ["fault-shaped commit subject"],
+				}),
+				expect.objectContaining({
+					issue: `${TRACKER}#33`,
+					why: ["fault-shaped title"],
+				}),
+			]);
+			expect(issues(out.noFaultBug)).toEqual([
+				`${TRACKER}#27`,
+				`${TRACKER}#40`,
+			]);
+			expect(out.overCap).toEqual([]);
+			expect(out.outcomeStep).toMatchObject({
+				misses: 3,
+				listed: 5,
+				overCap: 0,
+			});
 		});
-		f.signatureLine(41, { signature: null, why: "no trace" });
-		const { status, out } = f.run();
-		expect(status).toBe(0);
-		expect(out.misses).toEqual([
-			expect.objectContaining({ issue: `${TRACKER}#20`, why: ["bug"] }),
-			expect.objectContaining({
-				issue: `${TRACKER}#21`,
-				why: ["fault-shaped commit subject"],
-			}),
-			expect.objectContaining({
-				issue: `${TRACKER}#27`,
-				why: ["bug", "fault-shaped title"],
-			}),
-		]);
-		expect(out.outcomeStep.misses).toBe(3);
-		/* Only the week's closes: #43 closed long ago and #45 is open; #27 is
-		 * a miss already. */
-		expect(out.noFaultBug.map((m: { issue: string }) => m.issue)).toEqual([
-			`${TRACKER}#40`,
-		]);
+
+		it("confirms at most 6, misses first and each oldest close first, and counts the rest over the cap", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.signatureLine(90, { signature: null, why: "no trace" });
+			const closed = closer(f);
+			for (const [n, day] of [
+				[10, 58],
+				[11, 54],
+				[12, 56],
+			]) {
+				closed(n, "Lander loses a ref", day, { labels: ["bug"] });
+				f.commit(`Keep the ref (#${n})`, day - 1);
+			}
+			for (const [n, day] of [
+				[13, 59],
+				[14, 55],
+				[15, 57],
+				[16, 54],
+				[17, 56],
+			])
+				closed(n, "no-fault bug", day, { labels: ["bug", "origin:triage"] });
+			const { out } = f.run();
+			expect(issues(out.misses)).toEqual([
+				`${TRACKER}#11`,
+				`${TRACKER}#12`,
+				`${TRACKER}#10`,
+			]);
+			expect(issues(out.noFaultBug)).toEqual([
+				`${TRACKER}#16`,
+				`${TRACKER}#14`,
+				`${TRACKER}#17`,
+			]);
+			expect(out.overCap).toEqual([`${TRACKER}#15`, `${TRACKER}#13`]);
+			expect(out.outcomeStep).toMatchObject({
+				misses: 3,
+				listed: 8,
+				overCap: 2,
+			});
+		});
+
+		it("fills the cap with misses alone where there are more than 6, ranking them first over it", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			f.signatureLine(90, { signature: null, why: "no trace" });
+			const closed = closer(f);
+			for (let n = 10; n < 17; n++) {
+				closed(n, "Lander loses a ref", 53 + (n - 10), { labels: ["bug"] });
+				f.commit(`Keep the ref (#${n})`, 52);
+			}
+			closed(20, "no-fault bug", 53, { labels: ["bug", "origin:triage"] });
+			const { out } = f.run();
+			expect(issues(out.misses)).toEqual(
+				[10, 11, 12, 13, 14, 15].map((n) => `${TRACKER}#${n}`),
+			);
+			expect(out.noFaultBug).toEqual([]);
+			expect(out.overCap).toEqual([`${TRACKER}#16`, `${TRACKER}#20`]);
+			expect(out.outcomeStep).toMatchObject({
+				misses: 6,
+				listed: 8,
+				overCap: 2,
+			});
+		});
+
+		it("lists neither for a tracker with no signature line yet, and notes it", () => {
+			const f = scratch();
+			f.commit("Initial", 1);
+			closer(f)(20, "Lander loses a ref", 56, { labels: ["bug"] });
+			closer(f)(21, "no-fault bug", 57, { labels: ["bug", "origin:triage"] });
+			f.commit("Keep the ref (#20)", 55);
+			const { out } = f.run();
+			expect(out.misses).toEqual([]);
+			expect(out.noFaultBug).toEqual([]);
+			expect(out.notes).toContain(
+				`${TRACKER}: no signature line in either record yet, so no ticket there is a miss or a no-fault bug`,
+			);
+		});
 	});
 
 	describe("a declared line lost with its worktree (#4861)", () => {
@@ -955,6 +1081,7 @@ describe("measure-outcome-review.js", () => {
 					number: 20,
 					repo: ADOPTER_TRACKER,
 					title: "Lander loses a ref",
+					createdAt: d(50),
 					closedAt: d(57),
 					labels: ["bug"],
 				},
@@ -1041,7 +1168,11 @@ describe("measure-outcome-review.js", () => {
 			expect(outcomeOf(out, 5)?.why).toMatch(/^o\/m main unread: .*HTTP 404/);
 			expect(out.missesUnread).toEqual([ADOPTER_TRACKER]);
 			expect(out.noFaultBugUnread).toEqual([ADOPTER_TRACKER]);
-			expect(out.outcomeStep.misses).toBeNull();
+			expect(out.outcomeStep).toMatchObject({
+				misses: null,
+				listed: null,
+				overCap: null,
+			});
 		});
 
 		it("reads each main from the earliest createdAt of a closed finding or a miss candidate (#4872)", () => {
