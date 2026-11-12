@@ -23,12 +23,17 @@ maxCrashDumpCount=2
 memory=10GB
 swap=2GB
 processors=8
+debugConsoleLogFile=C:\\diag\\wsl-kernel-console.log
 [experimental]
 autoMemoryReclaim=disabled
 sparseVhd=true
 [general]
 instanceIdleTimeout=-1
 ```
+
+`debugConsoleLogFile`: the guest kernel's console in a Windows file, the one record a VM freeze leaves where the journal cannot flush (#5041).
+
+**`sparseVhd=true` reaches only a disk created after it was set.** Here `%LOCALAPPDATA%\wsl\Ubuntu\ext4.vhdx` is not sparse (`fsutil sparse queryflag`), so it never shrinks: on 12 Nov it held 305.4 GB on C: for 151 GB used in the guest, and C: free fell from 71 GB to 7.7 GB in 15 days. Its size against `df -h /` is the check (#5041).
 
 `instanceIdleTimeout=-1`: background sessions and the refill loop are not WSL clients, so the distro must not idle-stop when the last terminal closes (#3196, #3199).
 
@@ -632,11 +637,11 @@ Guard 1 can't help once a session is already frozen. Scheduled task **"WSL Inter
 
 Interop-spawned `reg.exe` is parented to `wsl.exe`, which excludes ordinary Windows registry use. Toasts when such a process exceeds **60s** *and* either matches `Policies\ClaudeCode` or three-plus are stuck at once — age alone would trip on a slow recursive query. Max one toast per 30 min.
 
-> **Never make it run `wsl --shutdown` automatically.** A false positive would kill live background sessions — worse than the fault. On the bridge it detects and notifies only.
+> **Never make it run `wsl --shutdown` automatically.** A false positive would kill live background sessions — worse than the fault.
 
 Logs to `%LOCALAPPDATA%\wsl-interop-watchdog.log` only on detection; empty is healthy.
 
-**The same task keeps the VM up** (`launcher.vbs`, #4057). Where no `vmmemWSL` process exists it runs `wsl.exe --exec /bin/true`, hidden, booting the default distro, which `instanceIdleTimeout=-1` (§1) keeps up and whose `refill-loop-boot.service` (§4) resumes the loop. So a VM death costs at most 2 minutes, and a reboot costs only until a sign-in, which Windows makes itself after an update restart where **Settings → Accounts → Sign-in options → "Use my sign-in info to automatically finish setting up after an update"** (ARSO) is on; it signs in only if BitLocker is on and nobody signed out first. A start still pending is never doubled, and after 3 starts in 30 minutes it starts nothing more until the oldest ages out. Each start is a line in `%LOCALAPPDATA%\wsl-keepalive.log`, so three lines close together are a VM that will not stay up. **To keep WSL down on purpose, disable the task first**: `schtasks.exe /Change /TN "WSL Interop Watchdog" /Disable`, and `/Enable` after. Re-run the installer to deploy a change; remove with `schtasks.exe /Delete /TN "WSL Interop Watchdog" /F`.
+**The same task keeps the VM up** (`launcher.vbs`, #4057). Where no `vmmemWSL` process exists it runs `wsl.exe --exec /bin/true`, hidden, booting the default distro, which `instanceIdleTimeout=-1` (§1) keeps up and whose `refill-loop-boot.service` (§4) resumes the loop. So a VM death costs at most 2 minutes, and a reboot costs only until a sign-in, which Windows makes itself after an update restart where **Settings → Accounts → Sign-in options → "Use my sign-in info to automatically finish setting up after an update"** (ARSO) is on; it signs in only if BitLocker is on and nobody signed out first. After 3 starts in 30 minutes it starts nothing more until the oldest ages out. Each start is a line in `%LOCALAPPDATA%\wsl-keepalive.log`, so three lines close together are a VM that will not stay up. **To keep WSL down on purpose, disable the task first**: `schtasks.exe /Change /TN "WSL Interop Watchdog" /Disable`, and `/Enable` after. Re-run the installer to deploy a change; remove with `schtasks.exe /Delete /TN "WSL Interop Watchdog" /F`.
 
 ### Guard 3 — the dispatch launcher
 

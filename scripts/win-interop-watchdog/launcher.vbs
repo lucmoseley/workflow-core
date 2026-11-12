@@ -1,6 +1,5 @@
 ' Runs watchdog.ps1 with no console window at all, then boots the WSL VM if it
-' is down, so an unattended reboot or a VM death costs minutes, not the hours
-' until someone opens a terminal (#4057).
+' is down (#4057).
 ' Task Scheduler's "hidden" option still flashes a console briefly; wscript
 ' does not, so a check every 2 minutes stays genuinely invisible.
 Dim shell, here
