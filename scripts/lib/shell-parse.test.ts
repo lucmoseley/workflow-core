@@ -1630,6 +1630,20 @@ describe("walkGit reads the repository and the subcommand git will use (#3997)",
 		).toEqual([""]);
 	});
 
+	it("reads a wrapper's directory before the command's prefix assignment (#5087)", () => {
+		const run = (vars: Record<string, string>) =>
+			walkGitRun(
+				`D=${WORKTREE} env -C "$D" git checkout x`,
+				{ unwrap: true },
+				ELSEWHERE,
+				vars,
+			);
+		expect(trees(run({ ...ENV, D: SHARED }))).toEqual([SHARED]);
+		const unset = run(ENV);
+		expect(trees(unset)).toEqual([]);
+		expect(unset.logged).toEqual([FAIL_OPEN]);
+	});
+
 	it("reads git's own options through a wrapper the walk unwraps", () => {
 		expect(
 			walkGitRun(
@@ -2204,6 +2218,10 @@ describe("path resolution through the git walk", () => {
 		[
 			"refuses command substitution rather than resolving it",
 			'cd "$(mktemp -d)" && git checkout x',
+		],
+		[
+			"reads a -C word before the command's own prefix assignment (#5087)",
+			`WT=${SHARED} git -C "$WT" checkout x`,
 		],
 		[
 			"refuses a brace-operator form even when the variable is set",

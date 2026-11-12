@@ -1260,6 +1260,9 @@ function closeScope(walk) {
 	walk.arLast = "";
 }
 
+/** A `NAME=value` word: the name, then the value. */
+const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+
 /**
  * Record the literal assignments in `words` (mantahostels#208) into `scope`,
  * each visible to what reads after it alone. A name lands in `dead` — every
@@ -1275,7 +1278,7 @@ function closeScope(walk) {
 function harvest(scope, { conditional }, words, segIdx) {
 	const skipped = conditional >= 0 && segIdx >= conditional;
 	for (const w of words) {
-		const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(w);
+		const m = ASSIGNMENT.exec(w);
 		if (!m) continue;
 		const val = skipped ? null : assignedValue(m[2] ?? "", scope);
 		recordAssignment(scope, m[1] ?? "", val);
@@ -1296,7 +1299,7 @@ function leadingScopes(walk, leading, segIdx) {
 	/** @type {Map<string, Scope>} */
 	const out = new Map();
 	leading.forEach((w, i) => {
-		const name = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(w)?.[1];
+		const name = ASSIGNMENT.exec(w)?.[1];
 		if (name === undefined) return;
 		const scope = {
 			...walk.scope,
@@ -2041,20 +2044,20 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
  */
 function readGitRun(walk, run, { leading, scopes }, isDir) {
 	const { words: own, chdirs } = run;
-	const env = new Map(walk.gitEnv);
-	/** @type {Map<string, Scope>} */
-	const envScopes = new Map();
-	for (const [name, value] of leading.flatMap(parseGitEnvWord)) {
-		env.set(name, value);
-		const scope = scopes.get(name);
-		if (scope) envScopes.set(name, scope);
-	}
-	/* A wrapper's words were expanded before it ran, under the walk's scope. */
-	for (const [name, value] of run.wrapperWords.flatMap(parseGitEnvWord)) {
-		env.set(name, value);
-		envScopes.delete(name);
-	}
-	for (const name of run.unread) env.set(name, null);
+	/** @type {Map<string, GitDirWord>} */
+	const dirEnv = new Map();
+	for (const [name, word] of walk.gitEnv)
+		dirEnv.set(name, { word, scope: walk.scope });
+	for (const [name, word] of leading.flatMap(parseGitEnvWord))
+		dirEnv.set(name, { word, scope: scopes.get(name) ?? walk.scope });
+	/* A wrapper's words were expanded before it ran, under the walk's scope
+	 * (#5087). */
+	for (const [name, word] of run.wrapperWords.flatMap(parseGitEnvWord))
+		dirEnv.set(name, { word, scope: walk.scope });
+	for (const name of run.unread)
+		dirEnv.set(name, { word: null, scope: walk.scope });
+	/** @type {GitEnv} */
+	const env = new Map([...dirEnv].map(([name, dir]) => [name, dir.word]));
 	const { spans } = walk.scope;
 	/** @type {GitTarget} */
 	const target = {
@@ -2076,8 +2079,7 @@ function readGitRun(walk, run, { leading, scopes }, isDir) {
 	});
 	const i = readGitOptions(own, target, {
 		scope: walk.scope,
-		env,
-		envScopes,
+		dirEnv,
 		isDir,
 	});
 	const word = own[i];
@@ -2492,28 +2494,20 @@ function stepGitOption(w, next, target, { scope, dirs }) {
  * end.
  * @param {string[]} own the command's words, `git` first
  * @param {GitTarget} target
- * @param {{ scope: Scope, env: GitEnv, envScopes: Map<string, Scope>,
- *   isDir: (path: string) => boolean }} from `envScopes` the scope a variable
- *   the command's own leading assignment sets reads under, the walk's for any
- *   other
+ * @param {{ scope: Scope, dirEnv: Map<string, GitDirWord>,
+ *   isDir: (path: string) => boolean }} from `dirEnv` each git-reading
+ *   variable's word and the scope it reads under
  */
-function readGitOptions(own, target, { scope, env, envScopes, isDir }) {
-	/** @param {string} name */
-	const fromEnv = (name) => {
-		const word = env.get(name);
-		return word === undefined
-			? undefined
-			: { word, scope: envScopes.get(name) ?? scope };
-	};
+function readGitOptions(own, target, { scope, dirEnv, isDir }) {
 	/** @type {GitDirs} */
 	const dirs = {
-		gitDir: fromEnv("GIT_DIR"),
-		workTree: fromEnv("GIT_WORK_TREE"),
+		gitDir: dirEnv.get("GIT_DIR"),
+		workTree: dirEnv.get("GIT_WORK_TREE"),
 	};
 	const i = stepGitOptions(own, scope.spans, (w, next) =>
 		stepGitOption(w, next ?? "", target, { scope, dirs }),
 	);
-	nameRepoTree(dirs.gitDir, fromEnv("GIT_COMMON_DIR"), target, isDir);
+	nameRepoTree(dirs.gitDir, dirEnv.get("GIT_COMMON_DIR"), target, isDir);
 	nameWorkTree(dirs.workTree, target);
 	return i;
 }
