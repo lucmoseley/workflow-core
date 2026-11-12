@@ -2878,12 +2878,14 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			]);
 			expect(queued.args).toEqual(unqueued.args);
 			// The same child but for the launch's own argv, which names --queue,
-			// and the start mark each launch takes of its own (#5018).
+			// the start mark each launch takes of its own (#5018), and the temp
+			// root each makes of its own (#5108).
 			const readLaunchSansArgv = (env: Record<string, string>) => {
 				const { argv: _argv, ...recorded } = readLaunch(env);
 				const rest = Object.fromEntries(
 					Object.entries(env).filter(
-						([k]) => !(k in launchEnv({})) && k !== START_MARK_ENV,
+						([k]) =>
+							!(k in launchEnv({})) && k !== START_MARK_ENV && k !== "TMPDIR",
 					),
 				);
 				return { launch: recorded, rest };
