@@ -113,8 +113,10 @@ function summarise(text, blockBytes) {
 }
 
 /**
- * Read from /proc/self/mountinfo the device name /proc/fs/ext4 keys the ext4
- * filesystem mounted at `mount` by, or null where none is ext4.
+ * Read the kernel's name for the device of the ext4 filesystem mounted at
+ * `mount`, the name /proc/fs/ext4 keys it by, or null where none is ext4.
+ * The name comes from the row's major:minor through /sys/dev/block, never
+ * from its source field, which can be an alias such as /dev/root.
  * @param {string} mount
  */
 function readExt4Device(mount) {
@@ -123,10 +125,11 @@ function readExt4Device(mount) {
 		.split("\n")) {
 		const [left = "", right] = line.split(" - ");
 		if (!right) continue;
-		const [fstype, source] = right.split(" ");
-		if (left.split(" ")[4] !== mount || fstype !== "ext4") continue;
-		if (!source) throw new Error(`mountinfo row names no source: ${line}`);
-		return path.basename(source);
+		const fields = left.split(" ");
+		if (fields[4] !== mount || right.split(" ")[0] !== "ext4") continue;
+		const devNo = fields[2];
+		if (!devNo) throw new Error(`mountinfo row names no device: ${line}`);
+		return path.basename(fs.realpathSync(`/sys/dev/block/${devNo}`));
 	}
 	return null;
 }
