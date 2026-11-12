@@ -11,13 +11,13 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
 const {
 	isSteadyUnder,
 	readMovedSinceEnd,
 	readSteady,
-	watchRun,
 } = require("./run-steadiness.js");
 
 const dirs: string[] = [];
@@ -28,8 +28,6 @@ afterEach(() => {
 
 const git = (dir: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
-
-const quiet = { write: () => true };
 
 /** A repository holding `a.js`, `b.js` and `docs/one.md`, committed. */
 function repo() {
@@ -49,14 +47,6 @@ function write(dir: string, file: string, text: string) {
 	fs.writeFileSync(path.join(dir, file), text);
 }
 
-/** What a watch on `dir` saw, `during` run while it was open. */
-function watched(dir: string, during?: () => void, opts = {}) {
-	const watch = watchRun(dir, { env: {}, err: quiet, ...opts });
-	during?.();
-	return watch.close().steadiness;
-}
-
-/** Which of `paths` read steady at `dir` under `steadiness`. */
 const steadyOf = (steadiness: unknown, dir: string, paths: string[]) => {
 	const { isSteady } = readSteady(steadiness, dir, paths);
 	return paths.filter(isSteady);
@@ -79,13 +69,13 @@ describe("a path the watch saw hold still", () => {
 });
 
 describe("a path that is not steady", () => {
-	it("a file rewritten mid-run", () => {
+	it("reads a file rewritten mid-run as not steady, its neighbour steady", () => {
 		const dir = repo();
 		const s = watched(dir, () => write(dir, "a.js", "a.js v1\n"));
 		expect(steadyOf(s, dir, ["a.js", "b.js"])).toEqual(["b.js"]);
 	});
 
-	it("a file changed and put back, which no snapshot sees (#5018)", () => {
+	it("reads a file changed and put back, which no snapshot sees, as not steady (#5018)", () => {
 		const dir = repo();
 		const s = watched(dir, () => {
 			write(dir, "a.js", "a.js edited\n");
@@ -95,13 +85,13 @@ describe("a path that is not steady", () => {
 		expect(steadyOf(s, dir, ["a.js", "b.js"])).toEqual(["b.js"]);
 	});
 
-	it("an untracked file, whose content no snapshot holds", () => {
+	it("reads an untracked file, whose content no snapshot holds, as not steady", () => {
 		const dir = repo();
 		write(dir, "new.js", "new\n");
 		expect(steadyOf(watched(dir), dir, ["new.js", "a.js"])).toEqual(["a.js"]);
 	});
 
-	it("an ignored file, which no snapshot lists (#4819)", () => {
+	it("reads an ignored file, which no snapshot lists, as not steady (#4819)", () => {
 		const dir = repo();
 		write(dir, ".gitignore", "gen.json\n");
 		write(dir, "gen.json", "{}\n");
@@ -110,7 +100,7 @@ describe("a path that is not steady", () => {
 		expect(steadyOf(watched(dir), dir, ["gen.json", "a.js"])).toEqual(["a.js"]);
 	});
 
-	it("a path through a tracked symlink, which git will not judge for ignores, and only that one (#4819)", () => {
+	it("reads a path through a tracked symlink, which git will not judge for ignores, as not steady, and only that one (#4819)", () => {
 		const dir = repo();
 		fs.mkdirSync(path.join(dir, "real"));
 		write(dir, "real/x.js", "x\n");
@@ -122,7 +112,7 @@ describe("a path that is not steady", () => {
 		]);
 	});
 
-	it("a file changed after the end snapshot and put back before the query", () => {
+	it("reads a file changed after the end snapshot and put back before the query as not steady, the tree settled", () => {
 		const dir = repo();
 		const s = watched(dir);
 		write(dir, "a.js", "a.js late\n");
@@ -189,7 +179,7 @@ describe("a tree walked whole", () => {
 });
 
 describe("the end snapshot", () => {
-	it("a rewrite after it leaves the tree unsettled", () => {
+	it("reads a rewrite after it as an unsettled tree, naming the file", () => {
 		const dir = repo();
 		const s = watched(dir);
 		write(dir, "a.js", "a.js v1\n");
@@ -201,13 +191,26 @@ describe("the end snapshot", () => {
 	});
 });
 
+describe("an end snapshot that will not read", () => {
+	it("leaves the tree unsettled and what moved since unknown", () => {
+		const dir = repo();
+		const away = path.join(dir, ".git-away");
+		const s = watched(dir, () => fs.renameSync(path.join(dir, ".git"), away));
+		fs.renameSync(away, path.join(dir, ".git"));
+		expect(s.after).toBeNull();
+		expect(readSteady(s, dir, ["a.js"]).settled).toBe(false);
+		expect(readMovedSinceEnd(s, dir)).toBe("unknown");
+	});
+});
+
 describe("the JSON form", () => {
 	it("reads the same after a round trip, its mark whole", () => {
 		const dir = repo();
 		const s = watched(dir, () => write(dir, "a.js", "a.js v1\n"));
 		const back = JSON.parse(JSON.stringify(s));
 		expect(back).toEqual(s);
-		expect(BigInt(back.mark)).toBe(BigInt(s.mark));
+		expect(s.mark).toMatch(/^\d+$/);
+		expect(BigInt(back.mark)).toBe(BigInt(s.mark as string));
 		expect(steadyOf(back, dir, ["a.js", "b.js"])).toEqual(["b.js"]);
 		expect(readMovedSinceEnd(back, dir)).toBeNull();
 	});

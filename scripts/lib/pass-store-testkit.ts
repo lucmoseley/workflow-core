@@ -30,10 +30,19 @@ export type Steadiness = import("./run-steadiness.js").Steadiness;
 /**
  * The steadiness a real watch on `root` saw (lib/run-steadiness.js), with
  * `during` run between its open and its close. It takes its own mark,
- * never one this suite's launcher handed down.
+ * never one this suite's launcher handed down; `options` override the
+ * watch's seams.
  */
-export function watched(root: string, during?: () => void) {
-	const watch = watchRun(root, { env: {}, err: { write: () => true } });
+export function watched(
+	root: string,
+	during?: () => void,
+	options: Record<string, unknown> = {},
+) {
+	const watch = watchRun(root, {
+		env: {},
+		err: { write: () => true },
+		...options,
+	});
 	during?.();
 	return watch.close().steadiness as Steadiness;
 }

@@ -695,12 +695,18 @@ describe("the newest result on the same content decides", () => {
 		});
 
 		it.each([
-			["nothing audited the run", { audits: null }],
-			["nothing watched the run", { steadiness: null }],
+			["nothing audited the run", () => ({ audits: null })],
+			["nothing watched the run", () => ({ steadiness: null })],
+			[
+				"HEAD moved while the run ran, the tree settled",
+				(dir: string) => ({
+					during: () => git(dir, "commit", "-q", "--allow-empty", "-m", "mid"),
+				}),
+			],
 		])("voids the older pass where %s", (_why, how) => {
 			const dir = repo();
 			run(dir, [A]);
-			expect(run(dir, [A], { failing: [A], ...how })).toBe(1);
+			expect(run(dir, [A], { failing: [A], ...how(dir) })).toBe(1);
 			expect(cachedOf(dir, [A])).toEqual([]);
 		});
 
@@ -1241,6 +1247,26 @@ describe("the reads the audit saw", () => {
 			run(dir, [A, B], {
 				during: () => git(dir, "rm", "-q", gone),
 				audits: { [A]: audited({ trees: [".claude/skills"] }) },
+			}),
+		).toBe(1);
+		expect(cachedOf(dir, [A, B])).toEqual([B]);
+	});
+
+	/* #5018: two snapshots see no change put back between them. The walked
+	 * files must reach the paths the steadiness query is asked about. */
+	it("records no pass row for a tree walked while a file under it was removed, then restored", () => {
+		const dir = repo();
+		withSkill(dir);
+		const skill = path.join(dir, Skills, "one/SKILL.md");
+		const text = fs.readFileSync(skill);
+		const during = () => {
+			fs.rmSync(skill);
+			fs.writeFileSync(skill, text);
+		};
+		expect(
+			run(dir, [A, B], {
+				during,
+				audits: { [A]: audited({ trees: [Skills] }) },
 			}),
 		).toBe(1);
 		expect(cachedOf(dir, [A, B])).toEqual([B]);

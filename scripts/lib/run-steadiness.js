@@ -5,8 +5,7 @@
  * ends; what the close returns is one value, a run's `Steadiness`, plain
  * JSON a kept run carries as it is. The pass store asks of it once it has
  * read every content id (#5018): read before them, a change made before
- * they were read would go unseen. So the value holds evidence, and
- * `readSteady` is the question, asked at the moment the reader chooses.
+ * they were read would go unseen.
  *
  * A PATH IS STEADY where the watch saw it hold still: not rewritten between
  * the start and end snapshots (lib/tree-drift.js's `drift`), its change time
@@ -40,11 +39,10 @@ const {
  *   mark: string|null}} Steadiness
  *   built and read here alone: `drifted` the paths the watch saw move, null
  *   where it saw nothing; `after` the end snapshot; `mark` the start mark
- *   in decimal, so the value is JSON as it stands
+ *   in decimal
  * @typedef {{before: Snapshot|null, after: Snapshot|null,
  *   drifted: ReturnType<typeof drift>, steadiness: Steadiness}} Closed
- *   the snapshots and drift the tree watch's warning and marker read, and
- *   the run's steadiness
+ *   the snapshots, their drift and the run's steadiness
  * @typedef {{close: () => Closed}} Watch
  * @typedef {{known: boolean, settled: boolean,
  *   isSteady: (p: string) => boolean}} Steady
@@ -71,8 +69,7 @@ function watchRun(root, { env = process.env, err = process.stderr, fs } = {}) {
 }
 
 /**
- * The watch of a run whose start nothing saw, as where the tree watch's
- * setup never ran.
+ * The watch of a run whose start nothing saw.
  * @param {string} root
  * @returns {Watch}
  */

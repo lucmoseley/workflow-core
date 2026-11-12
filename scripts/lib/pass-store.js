@@ -991,8 +991,8 @@ function buildVoidingRows(failed, inputs, seams) {
 		const absent = [
 			...new Set([...sound.flatMap((r) => r.shadows), ...g.probed]),
 		].filter(isAbsent);
-		/* Where the drift is unknown, nothing says what the audit logged
-		 * beyond files stood so while the run ran. */
+		/* Where the watch did not see the run through, nothing says what the
+		 * audit logged beyond files stood so while the run ran. */
 		const seen = inputs.steady.known ? g.seen : null;
 		return {
 			values,

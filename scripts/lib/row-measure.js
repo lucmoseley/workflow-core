@@ -128,7 +128,7 @@ function readKept(keep) {
  */
 function movedSince(run) {
 	const moved =
-		run.steadiness === null
+		run.steadiness == null
 			? "unknown"
 			: readMovedSinceEnd(run.steadiness, run.root);
 	if (moved === "unknown") return ["(the tree will not read)"];
