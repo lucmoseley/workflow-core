@@ -102,8 +102,8 @@
  */
 
 const path = require("node:path");
-const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { isGlobPattern, literal, runCwd, unwrap } = require("./shell-words.js");
+const { parseCommand, runCwd, walkCommands } = require("./shell-parse.js");
+const { isGlobPattern, literal, unwrap } = require("./shell-words.js");
 
 /**
  * @typedef {object} WideReadPorts

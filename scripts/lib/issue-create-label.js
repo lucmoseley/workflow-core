@@ -180,11 +180,10 @@ const {
 	ruleOrFallback,
 	walkVerdict,
 } = require("./guard-verdict.js");
-const { parseCommand, unmask } = require("./shell-parse.js");
+const { parseCommand, runCwd, unmask } = require("./shell-parse.js");
 const {
 	ghCall,
 	literal,
-	runCwd,
 	runText,
 	scanFlags,
 	unwrap,

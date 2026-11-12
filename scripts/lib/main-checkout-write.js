@@ -64,10 +64,14 @@ const {
 	absolute,
 	literal,
 	programSource,
-	runCwd,
 	unwrap,
 } = require("./shell-words.js");
-const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
+const {
+	parseCommand,
+	runCwd,
+	walkCommands,
+	walkGit,
+} = require("./shell-parse.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /* git verbs that write a work tree's index, HEAD or files. */

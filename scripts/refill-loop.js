@@ -142,6 +142,7 @@ const {
 } = require("./lib/refill-boot.js");
 const { readCurrentBootId, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
+const { HOLD_MAX_MINUTES } = require("./lib/launch-hold.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { systemctl } = require("./lib/systemd-bins.js");
 const {
@@ -172,10 +173,6 @@ const loadTick = () => require("./lib/refill-tick.js");
 
 /* Untraced: the loop's log is cut to its newer half past this. */
 const LOG_MAX_BYTES = 1024 * 1024;
-
-/* Untraced: the longest launch hold `set` takes, so a typo cannot hold the
- * loop for a day; a pause is the tool for longer. */
-const HOLD_MAX_MINUTES = 60;
 
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume | watch

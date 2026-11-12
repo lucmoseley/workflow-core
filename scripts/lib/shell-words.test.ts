@@ -766,7 +766,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		);
 	});
 
-	it("holds a cd as stepCwd does: sure for its && chain, else maybe (#4863)", () => {
+	it("labels a cd always for its && chain, else by classifyCd (#4863)", () => {
 		expect(read(`flock /l -c "cd /a && git x; git y"`).slice(1)).toEqual([
 			"[git][x]||[/a always]",
 			"[git][y]||[/a if-dir]",
