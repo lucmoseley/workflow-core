@@ -123,13 +123,7 @@ const {
 	walkCommands,
 } = require("./shell-parse.js");
 const { escapeRe } = require("./regex-group.js");
-const {
-	findStarts,
-	literal,
-	runText,
-	scanFlags,
-	unwrap,
-} = require("./shell-words.js");
+const { findStarts, literal, runText, scanFlags } = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
 const { treeOr } = require("./tree-or.js");
 
@@ -235,11 +229,7 @@ function decide(raw, ctx) {
 	};
 	/* Through the shared parser rather than the raw string: a `grep` mentioned
 	 * in an echo or a heredoc body is not a search. */
-	walkCommands(
-		parsed,
-		({ segment, words, cwd }) => judge(scene, segment, words, cwd),
-		ctx,
-	);
+	walkCommands(parsed, (cmd) => judge(scene, cmd), ctx);
 	const { judgement } = scene;
 	/* A heavy-tree root with nothing to rewrite gets the rule alone. */
 	if (!judgement.fires)
@@ -486,22 +476,25 @@ const isRootSpelling = (w, root) =>
 /**
  * One command the string runs.
  * @param {Scene} scene accumulator: its `judgement` is advanced here
- * @param {string} segment the flattened segment, masked
- * @param {string[]} words its own words
- * @param {string} cwd where it runs
+ * @param {import("./shell-parse.js").Command} cmd
  */
-function judge(scene, segment, words, cwd) {
-	for (const run of unwrap(words, scene.spans)) {
+function judge(scene, { segment, words, runs }) {
+	for (const run of runs()) {
 		const { words: w, watched, scripted } = run;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
+		/* Residual: the run's first directory alone, every move taken as made
+		 * (#5075). */
+		const [cwd] = run.dirs();
 		scene.judgement.inWatch = watched;
 		const kind = SEARCHES.get(head);
 		const own = { segment: runText(run, segment), words: scripted ? w : words };
 		const base = scripted
 			? trimRun(asWritten(own.segment, scene.spans), BASH_SPACE)
 			: scene.raw;
-		if (kind) judgeSearch(scene, { ...own, base, cwd, head, kind, args });
+		const launched = run.chdirs.length > 0;
+		if (kind)
+			judgeSearch(scene, { ...own, base, cwd, launched, head, kind, args });
 		else if (head === "cd" || head === "pushd" || head === "popd")
 			scene.judgement.moved = true;
 		else if (head === "find") judgeFind(scene, args, cwd);
@@ -514,6 +507,8 @@ function judge(scene, segment, words, cwd) {
  * @property {string[]} words the command's words, wrappers and all
  * @property {string} base the text holding it, which a rewrite substitutes in
  * @property {string} cwd where it runs
+ * @property {boolean} launched whether a launcher's chdir comes before it —
+ *   `env -C`, a `-c` string's `cd` — even one that stays put
  * @property {string} head its command word
  * @property {SearchKind} kind
  * @property {string[]} args its own arguments
@@ -521,13 +516,15 @@ function judge(scene, segment, words, cwd) {
 
 /**
  * Whether this search may earn the dot rewrite: nothing fired yet, no `cd`
- * before it, the shell at the root and no `watch` around it — and for `rg`,
- * whose only cost at the root is the prompt, a mode that can show one.
+ * before it and no launcher moving it, the shell at the root and no `watch`
+ * around it — and for `rg`, whose only cost at the root is the prompt, a mode
+ * that can show one.
  * @param {Scene} scene
- * @param {string} head
+ * @param {Search} search
  */
-const dotAllowed = ({ judgement, atRoot, showsPrompt }, head) =>
+const dotAllowed = ({ judgement, atRoot, showsPrompt }, { head, launched }) =>
 	(head !== "rg" || showsPrompt) &&
+	!launched &&
 	!judgement.fires &&
 	!judgement.moved &&
 	atRoot &&
@@ -540,7 +537,7 @@ const dotAllowed = ({ judgement, atRoot, showsPrompt }, head) =>
 function judgeSearch(scene, search) {
 	const { judgement } = scene;
 	const { kind, head, cwd } = search;
-	const dotOk = dotAllowed(scene, head);
+	const dotOk = dotAllowed(scene, search);
 	const found = scan(scene, search, dotOk);
 	if (!found.recursive || found.inert) return;
 	const bareCount = found.patternByFlag ? 0 : 1;

@@ -384,6 +384,7 @@ describe("a search that does not read the whole project directory passes untouch
 		],
 		["cd app; grep -rn PAT .", "the same with a plain separator"],
 		["pushd app; grep -rn PAT .", "pushd moves it too"],
+		["env -C app grep -rn PAT .", "a launcher's directory too (#5075)"],
 	])("%s — %s", (command) => {
 		/* Firing here would hand back a rewrite naming the ROOT's entries while
 		 * the shell stands in app/, so every path in it is wrong and the
