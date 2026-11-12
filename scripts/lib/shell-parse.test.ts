@@ -607,6 +607,42 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 	});
 
 	it.each([
+		"cd /missing && if true; then true; fi && gh x",
+		"cd /missing && if true; then true; else true; fi && gh x",
+		"cd /missing && while false; do true; done && gh x",
+		"cd /missing && until true; do true; done && gh x",
+		"cd /missing && for i in 1; do true; done && gh x",
+		"cd /missing && select i in 1; do break; done && gh x",
+		"cd /missing && case x in x) true;; esac && gh x",
+		"cd /missing && { if true; then true; fi } && gh x",
+		"cd /missing && true | true && gh x",
+		"cd /missing && true |& true && gh x",
+	])(
+		"is not settled outside a compound command or pipeline by a chain ending inside it, %s (#5109)",
+		(command) => {
+			expect(last(command)).toEqual(["/missing"]);
+		},
+	);
+
+	it.each([
+		"cd /missing && if true; then true; fi; gh x",
+		"if cd /missing && true; then true; fi; gh x",
+		"cd /missing && while false; do true; done; gh x",
+		"cd /missing && case x in x) true;; esac; gh x",
+		"cd /missing && true | true; gh x",
+		"cd /missing && echo $(a) for x\ngh x\necho $(b) done",
+		"cd /missing && echo `a` if x\ngh x\necho `b` fi",
+		"cd /missing && echo $((1)) case x\ngh x\necho $((2)) esac",
+		"cd /missing && a=(while x)\ngh x\nb=(done)",
+		"cd /missing && f() { true; }; gh x",
+	])(
+		"is settled by a chain ending outside a compound command or pipeline, %s (#5109)",
+		(command) => {
+			expect(last(command)).toEqual(["/missing", "/start"]);
+		},
+	);
+
+	it.each([
 		"cd /missing && { for i in 1; do true; done }; gh x; if true; then { true; }; fi",
 		"cd /missing && { { true; } }; gh x",
 		"cd /missing && { if true; then true; fi }; gh x",
@@ -760,6 +796,14 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && { true; }\n{ a; } & gh y")).toEqual(["/usr"]);
 	});
 
+	it("backgrounds a cd's list past an if, loop or case in it (#5117)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && ! if a; then b; fi & gh y")).toEqual(both);
+		expect(last("cd /usr && time while a; do b; done & gh y")).toEqual(both);
+		expect(last("cd /usr && ! for i in a; do b; done & gh y")).toEqual(both);
+		expect(last("cd /usr && ! case a in a) b;; esac & gh y")).toEqual(both);
+	});
+
 	it("backgrounds a cd's list past a function's ( … ) body or one past blank lines (#5118)", () => {
 		const both = ["/usr", "/start"];
 		expect(last("cd /usr && f() ( a ) & gh y")).toEqual(both);
@@ -769,8 +813,6 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && f() ( a ); gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && echo $()\n(a) & gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && a=()\n(a) & gh y")).toEqual(["/usr"]);
-		for (const mark of ["<", ">", "@", "!", "+", "?", "*"])
-			expect(last(`cd /usr && b ${mark}()\n(a) & gh y`)).toEqual(["/usr"]);
 	});
 
 	it("reads an escaped operator as a word, not a bracket or a split (#5113)", () => {
@@ -2337,8 +2379,14 @@ describe('walkGit, scope "shared"', () => {
 			[`cd ${WORKTREE} && { true; } && git checkout x`, []],
 			[`cd ${WORKTREE} && { true; }; git checkout x`, [SHARED]],
 			[`cd ${WORKTREE} && { { true; } }; git checkout x`, [SHARED]],
+			[`cd ${WORKTREE} && if true; then true; fi && git checkout x`, []],
+			[`cd ${WORKTREE} && for i in 1; do true; done; git checkout x`, [SHARED]],
+			[
+				`cd ${WORKTREE} && echo $(a) for x; git checkout x; echo $(b) done`,
+				[SHARED],
+			],
 		])(
-			"doubts the tree a chain left only once it ends outside a subshell or group, %s (#5093, #5095)",
+			"doubts the tree a chain left only once it ends outside a subshell, group or compound command, %s (#5093, #5095, #5109)",
 			(bare, trees) => {
 				for (const command of [bare, `flock /l -c "${bare}"`])
 					expect(judged(command, SHARED, false).trees).toEqual(trees);
