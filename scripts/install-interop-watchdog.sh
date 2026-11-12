@@ -87,9 +87,10 @@ COMPACT_TASK='WSL Disk Compaction'
 # The main checkout, never a linked worktree a prune would delete.
 repo="$(cd "$SRC_DIR/../.." && git rev-parse --path-format=absolute --git-common-dir)"
 repo="${repo%/.git}"
-# The registered task's arguments, empty where it is absent.
+# The registered task's arguments, empty where it is absent. A missing task
+# exits PowerShell 1 even with its error silenced, hence the exit 0.
 registered_args() {
-  "$PS" -NoProfile -Command "\$t = Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue; if (\$t) { \$t.Actions[0].Arguments }" | tr -d '\r'
+  "$PS" -NoProfile -Command "\$t = Get-ScheduledTask -TaskName '$COMPACT_TASK' -ErrorAction SilentlyContinue; if (\$t) { \$t.Actions[0].Arguments }; exit 0" | tr -d '\r'
 }
 compact_ps1="${install_win}\\compact-disk.ps1"
 compact_args=(-WslUser "$USER" -Repo "$repo")
