@@ -350,9 +350,9 @@ describe("walkCommands", () => {
 			const out = walkMap(
 				command,
 				(c) =>
-					`${bracket(c.words)}\n${c.words[0] === "gh" && c.resolveWord("$FOO") === "1" ? "HARVESTED\n" : ""}`,
+					`${bracket(c.words)}\n${c.words[0] === "gh" && c.leading.includes("FOO=1") ? "LEADING\n" : ""}`,
 			).join("");
-			expect(out).toContain("[gh][x]\nHARVESTED\n");
+			expect(out).toContain("[gh][x]\nLEADING\n");
 		},
 	);
 
@@ -461,6 +461,22 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 			"cd=/a",
 			"gh=/a/b/c",
 		]);
+	});
+
+	it("reads a cd's word before its own prefix assignment (#5087)", () => {
+		expect(cwds('D=/d cd "$D"; gh x')).toEqual(["cd=/start", "gh="]);
+		expect(cwds('D=/d cd "$D"; gh x', "/start", { D: "/e" })).toEqual([
+			"cd=/start",
+			"gh=/e",
+		]);
+	});
+
+	it("reads a wrapper's word before the command's prefix assignment (#5087)", () => {
+		expect(
+			walkMap('D=/d env -C "$D" gh x', (c) => c.resolveWord("$D"), {
+				vars: { D: "/e" },
+			}),
+		).toEqual(["/e"]);
 	});
 
 	it("resolves a target through the command's own assignment, and a leading ~", () => {
@@ -937,8 +953,23 @@ describe("path resolution", () => {
 		).toBe(SHARED);
 	});
 
-	it("reads an assignment prefixed onto the command itself", () => {
-		expect(tree(`WT=${SHARED} git -C "$WT" checkout x`)).toBe(SHARED);
+	it("reads a command's own words before its prefix assignment, as bash expands them (#5087)", () => {
+		expect(tree(`WT=${SHARED} git -C "$WT" checkout x`)).toBeNull();
+		expect(
+			tree(`WT=${SHARED} git -C "$WT" checkout x`, { ...ENV, WT: WORKTREE }),
+		).toBe(WORKTREE);
+		expect(
+			walkMap('D=/d git -C "$D" status', (c) => c.resolveWord("$D")),
+		).toEqual([null]);
+	});
+
+	it("carries a prefix assignment to no later command (#5087)", () => {
+		expect(
+			trees(`WT=${SHARED} true; git -C "$WT" checkout x`, {
+				...ENV,
+				WT: WORKTREE,
+			}),
+		).toEqual([WORKTREE]);
 	});
 
 	it("sees an assignment only from the commands after it", () => {
@@ -1582,6 +1613,23 @@ describe("walkGit reads the repository and the subcommand git will use (#3997)",
 		expect([call?.sub, ...(call?.args ?? [])]).toEqual(["checkout", "-q", "x"]);
 	});
 
+	it("reads a prefix git variable's value under the prefixes before it, its words under none (#5087)", () => {
+		expect(
+			trees(
+				walkGitRun(`R=${SHARED} GIT_DIR=$R/.git git checkout x`, {}, WORKTREE),
+			),
+		).toEqual([SHARED]);
+		expect(
+			trees(
+				walkGitRun(
+					`GIT_DIR=$R/.git R=${SHARED} git checkout x`,
+					{ strict: true },
+					WORKTREE,
+				),
+			),
+		).toEqual([""]);
+	});
+
 	it("reads git's own options through a wrapper the walk unwraps", () => {
 		expect(
 			walkGitRun(
@@ -2073,10 +2121,6 @@ describe("path resolution through the git walk", () => {
 		[
 			"an assignment reached through a cd",
 			`WT=${SHARED} && cd "$WT" && git checkout x`,
-		],
-		[
-			"an assignment prefixed onto the command",
-			`WT=${SHARED} git -C "$WT" checkout x`,
 		],
 		[
 			"an assignment before the first || (#328)",

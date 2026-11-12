@@ -249,12 +249,12 @@ describe("a write naming no repo, run inside a clone", () => {
 /* No path is a directory, so a move that holds only where its directory
  * exists may not have been made. */
 describe("a write naming no repo, from a directory a wrapper moves it to (#5067)", () => {
-	const movedVerdict = (command: string) =>
+	const movedVerdict = (command: string, vars: Record<string, string> = {}) =>
 		decide(
 			command,
 			kitContextFake({
 				cwd: "/srv/tool",
-				vars: ENV,
+				vars: { ...ENV, ...vars },
 				log: (what: string) => faults.push(what),
 				remotes: (cwd: string) =>
 					cwd === "/srv/cc"
@@ -275,6 +275,14 @@ describe("a write naming no repo, from a directory a wrapper moves it to (#5067)
 		`flock /tmp/l -c 'cd "$D" || cd /srv/cc; gh issue create --title "x"'`,
 	])("refuses %s, from the clone its wrapper moves it to", (command) => {
 		expect(movedVerdict(command)).toBe("deny");
+	});
+
+	it("refuses a move its own prefix assignment seems to redirect, read at the variable's old value (#5087)", () => {
+		expect(
+			movedVerdict('D=/srv/other env -C "$D" gh issue create --title "x"', {
+				D: "/srv/cc",
+			}),
+		).toBe("deny");
 	});
 
 	it.each([
