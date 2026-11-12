@@ -497,6 +497,14 @@ const runsTool = (root: string, stub: string) =>
 
 const READS_SETTINGS = "#!/bin/sh\ncat .claude/settings.json\n";
 
+// CI keeps the tracer blocks below running: without strace they would skip and stay green (#5068).
+it.runIf(process.env.CI)("finds strace in CI", () => {
+	expect(
+		STRACE,
+		"strace was not found on PATH or failed its trial: install it in the workflow's test job",
+	).not.toBeNull();
+});
+
 describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 	const reads = (root: string, body: string) =>
 		readAudits(audited(root, T, body), root).get(T);
