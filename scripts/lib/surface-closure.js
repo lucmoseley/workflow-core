@@ -8,7 +8,7 @@
  * than imported, still has to ship. The reach is code-edges.js's
  * `readRunReach`, a data file a script reads off its directory included; a
  * path it reaches outside the tree, or in a `node_modules`, is a fault. A Python
- * module code-edges.js cannot place is a fault. A JS file's npm
+ * module file-reach.js cannot place is a fault. A JS file's npm
  * package is not judged here: plugin-tree.js's scan already faults one in
  * every shipped file.
  */
