@@ -32,6 +32,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const MIB = 2 ** 20;
@@ -45,8 +46,7 @@ const REBUILD_BYTES = 4 * MIB;
 const BAND_GIB = 64;
 /* mke2fs.conf's default block size for any filesystem over 512 MiB. */
 const TABLE_BLOCK_BYTES = 4096;
-const USAGE =
-	"Usage: node scripts/disk-frag.js [--mount <path>] [--table <file>] [--json]";
+const USAGE = `Usage: node ${scriptPath("disk-frag.js")} [--mount <path>] [--table <file>] [--json]`;
 /* One group: `#<n> : <free> <frags> <first> [ <chunks by order> ]`. */
 const ROW = /^#(\d+)\s*:\s*(\d+)\s+\d+\s+\d+\s*\[([\d\s]*)\]/;
 
