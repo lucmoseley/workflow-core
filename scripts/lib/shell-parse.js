@@ -54,6 +54,8 @@ const {
 /** The flatten's subshell marker, standing a bracket on a line of its own so a
  * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
 const SCOPE_MARK = "\x02";
+const SCOPE_OPEN = `${SCOPE_MARK}(`;
+const SCOPE_CLOSE = `${SCOPE_MARK})`;
 
 /** Opens a flattened line with the code of the operator before it (#4009). */
 const OP_MARK = "\x05";
@@ -159,7 +161,7 @@ function parseJoins(masked) {
 		.map((line) => {
 			const code = line.startsWith(OP_MARK) ? line.charAt(1) : "";
 			const afterClose = closed && !code;
-			closed = line === `${SCOPE_MARK})`;
+			closed = line === SCOPE_CLOSE;
 			if (line.slice(code ? 2 : 0).trim() === "") {
 				carry ||= code;
 				return afterClose ? ")" : code;
@@ -566,10 +568,10 @@ function liftSubstitutions(segment, spans) {
 		if (span === undefined) return { text: "", stepPast: true };
 		for (const inner of quotedSubstitutions(span)) {
 			const { masked } = maskSubject(inner, spans);
-			lifted.push(`${SCOPE_MARK}(`);
+			lifted.push(SCOPE_OPEN);
 			for (const seg of flatSegments(masked))
 				lifted.push(...withLifted(seg, spans));
-			lifted.push(`${SCOPE_MARK})`);
+			lifted.push(SCOPE_CLOSE);
 		}
 		return { text: "", stepPast: true };
 	});
@@ -1264,8 +1266,8 @@ function eachSegment(walk, fn) {
  * @param {string} segment
  */
 function arithScope(walk, segment) {
-	const isOpen = segment === `${SCOPE_MARK}(`;
-	const isClose = segment === `${SCOPE_MARK})`;
+	const isOpen = segment === SCOPE_OPEN;
+	const isClose = segment === SCOPE_CLOSE;
 	if (isOpen) openScope(walk);
 	else if (isClose) closeScope(walk);
 	else if (segment !== "") walk.arLast = "";
@@ -1591,7 +1593,7 @@ function parseScript(script, spans) {
 	/** @type {ScriptState[]} */
 	const stack = [];
 	parsed.segments.forEach((segment, segIdx) => {
-		if (segment === `${SCOPE_MARK}(`) {
+		if (segment === SCOPE_OPEN) {
 			stack.push(state);
 			/* As openScope's: the chain outside stays open (#5093). */
 			state = { ...state, chainOpen: false };
@@ -1600,7 +1602,7 @@ function parseScript(script, spans) {
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
 		 * `((…))` or `$((…))` parses as brackets too, and its assignments
 		 * stand, so each name the brackets changed is lost. */
-		if (segment === `${SCOPE_MARK})`) {
+		if (segment === SCOPE_CLOSE) {
 			const outer = stack.pop();
 			if (outer)
 				state = {
@@ -2289,14 +2291,14 @@ const isChainedOff = (parsed, segIdx) =>
 
 /**
  * Whether the `&&` and `||` list the segment ends is closed by `&`, which
- * backgrounds all of it (measured, #5010).
+ * backgrounds all of it, a pipeline in it included (measured, #5010, #5107).
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
 function isListBackgrounded(parsed, segIdx) {
 	const { joins } = parsed;
 	let end = nextInList(parsed, segIdx);
-	while (joins[end] === "a" || joins[end] === "o")
+	while (joins[end] === "a" || joins[end] === "o" || joins[end] === "p")
 		end = nextInList(parsed, commandEnd(parsed, end));
 	return joins[end] === "b";
 }
@@ -2309,14 +2311,13 @@ function isListBackgrounded(parsed, segIdx) {
  * @param {number} segIdx
  */
 function commandEnd({ segments, joins }, segIdx) {
-	const open = `${SCOPE_MARK}(`;
 	let end =
-		segments[segIdx] === open ? closingBracket(segments, segIdx) : segIdx;
+		segments[segIdx] === SCOPE_OPEN ? closingBracket(segments, segIdx) : segIdx;
 	for (;;) {
 		const next = end + 1;
 		if (joins[next] === ")") end = next;
 		else if (
-			segments[next] === open &&
+			segments[next] === SCOPE_OPEN &&
 			joins[next] === "" &&
 			segments[end]?.trim()
 		)
@@ -2327,15 +2328,16 @@ function commandEnd({ segments, joins }, segIdx) {
 
 /**
  * The index of the SCOPE_MARK `)` line closing the `(` line at `openIdx`, or
- * the last segment's where none does.
+ * the last segment's where none does: bash refuses an unclosed `(` before
+ * it runs anything.
  * @param {string[]} segments
  * @param {number} openIdx
  */
 function closingBracket(segments, openIdx) {
 	let depth = 0;
 	for (let i = openIdx; i < segments.length; i++) {
-		if (segments[i] === `${SCOPE_MARK}(`) depth++;
-		else if (segments[i] === `${SCOPE_MARK})` && --depth === 0) return i;
+		if (segments[i] === SCOPE_OPEN) depth++;
+		else if (segments[i] === SCOPE_CLOSE && --depth === 0) return i;
 	}
 	return segments.length - 1;
 }
@@ -2374,7 +2376,7 @@ function isBraceGroupSure(parsed, segIdx) {
 		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
 		const defined =
-			(before === "" || before === ")") && segments[prev] === `${SCOPE_MARK})`;
+			(before === "" || before === ")") && segments[prev] === SCOPE_CLOSE;
 		return (
 			!defined &&
 			before !== "a" &&
