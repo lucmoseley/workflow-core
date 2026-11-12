@@ -79,7 +79,7 @@ const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
  *   same command, which the walk's own assignment harvest does not see: ""
  *   where none, null where one was set but cannot be read
  * @property {boolean} unsettled a gh write may run in a directory the guard
- *   cannot name, its fail-open held until the walk ends with no deny
+ *   cannot name
  */
 
 const UNSETTLED =
@@ -325,8 +325,7 @@ function ghRepoEnv(run, cmd) {
  * The anthropics repo a clone the command may run in has a remote on, each
  * directory in `cmd.cwds` its run's moves put it in; null where none has
  * one. ANY remote counts, gh choosing among them by rules the command does
- * not show. A directory it cannot name marks the run unsettled, for decide to
- * fail open on once no command is refused (#5067).
+ * not show. A directory it cannot name marks the run unsettled (#5067).
  * @param {Run} run
  * @param {Command} cmd
  */

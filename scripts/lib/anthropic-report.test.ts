@@ -7,9 +7,9 @@
  * Do not thin the refusal or allow cases.
  *
  * The clone's remotes are read by the host's own port, real git over a temp
- * clone, bar the wrapper-move cases (#5067), whose port is faked: their
- * directories need not exist, so each move stays in doubt. The entry's own cases — the JSON it prints, the hook line, the
- * failure policy — are guard-anthropic-report.test.ts's.
+ * clone, bar the wrapper-move cases (#5067), whose port is faked. The
+ * entry's own cases — the JSON it prints, the hook line, the failure policy —
+ * are guard-anthropic-report.test.ts's.
  */
 
 import { spawnSync } from "node:child_process";
@@ -80,14 +80,12 @@ const verdict = (
 	vars: Record<string, string> = {},
 ) => (run(command, cwd, vars) ? "deny" : "allow");
 
-/** The refusal's text, asserting it was a refusal. */
 const readDenyReason = (command: string, cwd = shared) => {
 	const d = run(command, cwd);
 	if (!d) throw new Error(`expected a deny for: ${command}`);
 	return d.deny;
 };
 
-/** A real clone with one remote. */
 const clone = (url: string) => {
 	const at = path.join(dir, "clone");
 	fs.mkdirSync(at);
@@ -248,8 +246,8 @@ describe("a write naming no repo, run inside a clone", () => {
 	});
 });
 
-/* Only /srv/cc has an Anthropic remote; no path is a directory, so a move
- * that holds only where its directory exists may not have been made. */
+/* No path is a directory, so a move that holds only where its directory
+ * exists may not have been made. */
 describe("a write naming no repo, from a directory a wrapper moves it to (#5067)", () => {
 	const movedVerdict = (command: string) =>
 		decide(
