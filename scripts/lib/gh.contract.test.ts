@@ -699,14 +699,13 @@ describe("live: computed answers", () => {
 		(argv: string[], issues: Record<string, object>) => GhAnswer
 	>(CITED_GRAPHQL_FAKE, "answerCited");
 
-	/* #2331 is closed, its comments on one page, so the answer's shape holds. */
+	/* #2331's comments fit one page, so the answer's shape holds. */
 	it("lib/basis-cited-read.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({
 		skip,
 	}) => {
 		liveSkip ??= { reason: liveSkipReason() };
 		if (liveSkip.reason) return skip(liveSkip.reason);
-		const { readCitedFor } = await import("./basis-cited-read.js");
-		const { basisFaults } = await import("./issue-gate.js");
+		const { readBasisFaults } = await import("./basis-cited-read.js");
 		const root = fs.mkdtempSync(path.join(dir, "cited-root-"));
 		fs.mkdirSync(path.join(root, ".claude"));
 		fs.writeFileSync(
@@ -715,7 +714,7 @@ describe("live: computed answers", () => {
 		);
 		const issues = {
 			[readTracker().toLowerCase()]: {
-				2331: { state: "CLOSED", body: "x", comments: ["y"] },
+				2331: { body: "x", comments: ["y"] },
 			},
 		};
 		const log = path.join(dir, "cited-calls");
@@ -726,9 +725,10 @@ describe("live: computed answers", () => {
 		);
 		vi.stubEnv("WFC_GH", stub);
 		const body = `**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** #2331, #999999999 and ${noRepo}#3 set a week\n`;
-		readCitedFor((follow) => basisFaults(body, undefined, follow), {
+		readBasisFaults([{ body }], {
 			root,
 			timeoutMs: 20_000,
+			env: { ...process.env, WFC_GATE_CITED: "" },
 		});
 		const args: string[] = JSON.parse(
 			fs.readFileSync(log, "utf8").trim().split("\n")[0] as string,

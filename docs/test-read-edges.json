@@ -444,7 +444,6 @@
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/founder-wording.test.ts",
-			"scripts/lib/gate-judge.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/pass-store.test.ts",
 			"scripts/lib/python-routes.test.ts",
