@@ -44,6 +44,17 @@ const STRACE = (() => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 })();
+// Without strace the tracer blocks skip and stay green; CI fails instead.
+// Residual: a local run, or a CI runner with no CI variable, still skips them.
+it.runIf(process.env.CI)(
+	"fails in CI where strace is missing, naming the install step (#5068)",
+	() => {
+		expect(
+			STRACE,
+			"strace was not found on PATH or failed its trial: install it in the workflow's test job",
+		).not.toBeNull();
+	},
+);
 const quoted = JSON.stringify;
 
 const dirs: string[] = [];
