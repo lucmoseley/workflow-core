@@ -10,12 +10,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Cause, Drop, QuotedFailure } from "./lander-records.js";
 import {
 	dropRecord,
+	parseVerdict,
 	pipelineRecord,
 	readDropFile,
 	readOwedDrops,
 } from "./lander-records.js";
+import type { Failure, Verdict } from "./queue-lander.js";
 
 let dir: string;
 let file: string;
@@ -253,4 +256,111 @@ describe("the drop record", () => {
 		expect(readDropFile(file)).toEqual({ kind: "torn" });
 		expect(dropRecord(file).read()).toEqual([]);
 	});
+});
+
+/*
+ * Every field each type holds, set, so a field the type gains fails the
+ * type-check until it is here, then the round trip until the reader keeps it
+ * (#5077): the verdict ledger once lost `run` and `failures` on read unseen.
+ */
+describe("every field a verdict or a cause holds", () => {
+	const failure = {
+		file: "x.ts",
+		test: "a > b",
+		message: "expected 1",
+		signature: "expected <n>",
+	} satisfies Required<Failure>;
+	const verdicts = {
+		green: {
+			kind: "green",
+			run: 3,
+			named: 4,
+			cleared: ["y.ts"],
+		} satisfies Required<Extract<Verdict, { kind: "green" }>>,
+		red: {
+			kind: "red",
+			files: ["x.ts"],
+			run: 5,
+			jobs: ["Tests"],
+			failures: [failure],
+			retried: true,
+			noRun: true,
+			typecheck: ["a.js(1,1): error TS1: x"],
+		} satisfies Required<Extract<Verdict, { kind: "red" }>>,
+	} satisfies Record<Exclude<Verdict["kind"], "unknown">, Verdict>;
+
+	it.each(Object.values(verdicts))("reads a $kind verdict back whole", (v) => {
+		expect(parseVerdict(JSON.parse(JSON.stringify(v)))).toEqual(v);
+	});
+
+	const quoted = {
+		file: "x.ts",
+		test: "a > b",
+		message: "expected 1",
+	} satisfies Required<QuotedFailure>;
+	const marks = {
+		noRun: true,
+		typecheck: ["a.js(1,1): error TS1: x"],
+		runs: [31, 32],
+		failures: [quoted],
+	} as const;
+	const causes = {
+		conflict: {
+			kind: "conflict",
+			name: "a",
+			files: ["x.txt"],
+		} satisfies Required<Extract<Cause, { kind: "conflict" }>>,
+		refused: {
+			kind: "refused",
+			name: "a",
+			reason: "rule:x refused it",
+		} satisfies Required<Extract<Cause, { kind: "refused" }>>,
+		red: {
+			kind: "red",
+			name: "a",
+			files: ["x.ts"],
+			iso: "i0",
+			mainRun: 7,
+			...marks,
+		} satisfies Required<Extract<Cause, { kind: "red" }>>,
+		collision: {
+			kind: "collision",
+			name: "a",
+			files: ["x.ts"],
+			step: "t0",
+			after: ["b"],
+			...marks,
+		} satisfies Required<Extract<Cause, { kind: "collision" }>>,
+		unrecorded: { kind: "unrecorded", name: "a" } satisfies Required<
+			Extract<Cause, { kind: "unrecorded" }>
+		>,
+	} satisfies Record<Cause["kind"], Cause>;
+
+	const dropOf = (cause: unknown) =>
+		({
+			name: "a",
+			sha: "s0",
+			ref: "dropped/a",
+			onto: "m0",
+			cause,
+			ticket: null,
+			at: 1,
+			state: "open",
+			decidedAt: 1,
+		}) as Drop;
+
+	it.each(Object.values(causes))("reads a $kind cause back whole", (cause) => {
+		dropRecord(file).write([dropOf(cause)]);
+		expect(dropRecord(file).read()).toEqual([dropOf(cause)]);
+	});
+
+	it.each(Object.values(causes))(
+		"skips a $kind cause any one of whose fields is ill-typed",
+		(cause) => {
+			for (const key of Object.keys(cause)) {
+				dropRecord(file).write([dropOf({ ...cause, [key]: { ill: true } })]);
+				expect(dropRecord(file).read(), key).toEqual([]);
+			}
+		},
+	);
 });

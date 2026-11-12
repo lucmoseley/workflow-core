@@ -14,7 +14,11 @@
  */
 
 const { citedIssues } = require("./cited-issues.js");
-const { buildCauseLine, buildDropEvidence } = require("./drop-evidence.js");
+const {
+	buildCauseLine,
+	buildDropAcceptance,
+	buildDropEvidence,
+} = require("./drop-evidence.js");
 const { parseFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { FilingRefusedError } = require("./filing-refused.js");
@@ -80,35 +84,6 @@ const quoteSubject = (/** @type {string} */ subject) =>
  */
 const citedByAny = (subjects) =>
 	subjects.map(citedTicket).find((n) => n !== null) ?? null;
-
-/**
- * What a red drop's change must pass: what it failed.
- * @param {{files: readonly string[], typecheck?: readonly string[]}} cause
- */
-function buildOwedPass({ files, typecheck }) {
-	const failed = [
-		...(files.length > 0 ? ["each file above"] : []),
-		...(typecheck ? ["the type-check"] : []),
-	];
-	return failed.length > 0 ? failed.join(" and ") : "the whole suite";
-}
-
-/** @param {Drop} d */
-function buildDropAcceptance({ sha, name, cause }) {
-	const queued = `\`${queueBranch(name)}\``;
-	switch (cause.kind) {
-		case "conflict":
-			return `${short(sha)}'s change merges onto \`main\`, each file above settled, and is pushed to ${queued} again.`;
-		case "refused":
-			return `${short(sha)}'s change merges onto \`main\` and is pushed to ${queued} again.`;
-		case "unrecorded":
-			return `${short(sha)}'s change merges onto \`main\`, passes the whole suite there, and is pushed to ${queued} again.`;
-		default:
-			return cause.noRun
-				? `${short(sha)}'s change, merged onto \`main\`, fires a CI run on the lander's refs that passes the whole suite, and is pushed to ${queued} again.`
-				: `${short(sha)}'s change passes ${buildOwedPass(cause)} merged onto \`main\`, and is pushed to ${queued} again.`;
-	}
-}
 
 /**
  * The title prefix of a branch's fix ticket, closed by its comma, so no
