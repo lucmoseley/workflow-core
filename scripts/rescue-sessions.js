@@ -36,11 +36,11 @@ const { scriptPath } = require("./lib/script-path.js");
 const os = require("node:os");
 const path = require("node:path");
 const {
-	capMs,
 	isTerminalAgent,
 	listedAgents,
 	readSeatListing,
 } = require("./lib/agent-liveness");
+const { capMs } = require("./lib/cap-ms.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
 const { expandHome } = require("./lib/home-path.js");

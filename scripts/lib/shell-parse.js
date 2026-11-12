@@ -505,9 +505,9 @@ function parseCommand(subject, spans = []) {
 		segments.push(...own);
 		const join = lineJoins[i];
 		if (join === undefined) throw new Error("a segment with no join");
-		const ahead = own.slice(1);
-		joins.push(...ahead.map(() => "("), join);
-		lifted.push(...ahead.map(() => true), false);
+		const subs = own.slice(0, -1);
+		joins.push(...subs.map(() => "("), join);
+		lifted.push(...subs.map(() => true), false);
 	});
 	if (before >= 0 && conditional < 0) conditional = segments.length;
 	return {
@@ -1557,7 +1557,8 @@ function commandRuns(words, cwds, { scope, isDir }) {
 /**
  * @typedef {object} ScriptState what a script's next command runs under
  * @property {Chdir[]} chdirs
- * @property {boolean} chainOpen a `&&` chain a `cd` opened has not yet ended
+ * @property {number[]} openChains the depth of each `cd` whose `&&` chain
+ *   has not yet ended, as stepDirs tags its pending (#5095)
  * @property {boolean} subshellOpened a subshell has opened since the last `cd`
  * @property {string[]} exports
  * @property {Map<string, string>} locals each name an assignment alone set,
@@ -1588,7 +1589,7 @@ function parseScript(script, spans) {
 	/** @type {ScriptState} */
 	let state = {
 		chdirs: [],
-		chainOpen: false,
+		openChains: [],
 		subshellOpened: false,
 		exports: [],
 		locals: new Map(),
@@ -1602,7 +1603,7 @@ function parseScript(script, spans) {
 		if (segment === SCOPE_OPEN) {
 			stack.push(state);
 			/* As openScope's: the chain outside stays open (#5093, #5102). */
-			state = { ...state, chainOpen: false, subshellOpened: true };
+			state = { ...state, openChains: [], subshellOpened: true };
 			return;
 		}
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
@@ -1617,7 +1618,8 @@ function parseScript(script, spans) {
 				};
 			return;
 		}
-		if (isChainEnd(parsed.joins, segIdx)) state = settleScriptChain(state);
+		const ends = chainEndDepth(parsed, segIdx);
+		if (ends !== undefined) state = settleScriptChain(state, ends);
 		const cw = commandWords(segment);
 		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
 		if (cw.ran)
@@ -1636,21 +1638,23 @@ function parseScript(script, spans) {
 }
 
 /**
- * The state at a chain end isChainEnd found: the last `cd` before it settles
- * the chain for every command after (#5082).
+ * The state at a chain end `depth` groups deep: the last `cd`
+ * before it settles, for every command after, each chain a `cd` as deep or
+ * deeper opened (#5082, #5095).
  * @param {ScriptState} state
+ * @param {number} depth
  * @returns {ScriptState}
  */
-function settleScriptChain(state) {
-	if (!state.chainOpen) return state;
+function settleScriptChain(state, depth) {
+	if (!state.openChains.some((d) => d >= depth)) return state;
 	const last = state.chdirs.at(-1);
 	if (!last) throw new Error("a -c string's && chain is open with no cd");
 	/** @type {Chdir} */
-	const settled = { ...last, settles: true };
+	const settled = { ...last, settles: Math.min(last.settles ?? depth, depth) };
 	return {
 		...state,
 		chdirs: [...state.chdirs.slice(0, -1), settled],
-		chainOpen: false,
+		openChains: state.openChains.filter((d) => d < depth),
 	};
 }
 
@@ -1846,7 +1850,7 @@ function cdInScript(state, own, where) {
 	const known =
 		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
 	const dir = known || `$(${texts.join(" ")})`;
-	const { holds, afterFailed, chained, cdAt } = classifyCd(
+	const { holds, afterFailed, chained, depth, cdAt } = classifyCd(
 		where.parsed,
 		where.segIdx,
 		own,
@@ -1856,14 +1860,14 @@ function cdInScript(state, own, where) {
 	const vars = new Map(state.locals);
 	for (const name of state.lost) vars.set(name, null);
 	/** @type {Chdir} */
-	const cd = { dir, read: false, holds, vars };
+	const cd = { dir, read: false, holds, vars, depth };
 	if (afterFailed) cd.afterFailed = true;
 	if (chained) cd.chained = true;
 	if (state.subshellOpened) cd.opensScope = true;
 	return {
 		...state,
 		chdirs: [...state.chdirs, cd],
-		chainOpen: state.chainOpen || chained,
+		openChains: chained ? [...state.openChains, depth] : state.openChains,
 		subshellOpened: false,
 		cdAt,
 	};
@@ -2311,22 +2315,100 @@ function isListBackgrounded(parsed, segIdx) {
 	return joins[end] === "b";
 }
 
+/** @type {WeakMap<Parsed, [number, number][] | null>} */
+const braceMemo = new WeakMap();
+
+/** A word that closes a compound command, and so may come before a `}`. */
+const CLOSER_RE = /^(?:\}(?=$|[<>])|done$|fi$|esac$)/;
+
 /**
- * The last segment of the command a list member starts at `segIdx`: past a
- * `( … )` or `{ …; }` it opens, the words after its `)` or `}` and any function
- * body they open, and each `$(…)` or `<(…)` mid-word (#5107, #5112). A bracket opening on a blank line is
- * another command's.
+ * How many `}` a segment opens with, among the words that close a compound
+ * command, and how many `{` stand among the reserved words after them
+ * (#5095).
+ * @param {string} segment
+ */
+function braceWords(segment) {
+	const words = segment.trim().split(/\s+/);
+	let wi = 0;
+	while (CLOSER_RE.test(words[wi] ?? "")) wi++;
+	const closes = words.slice(0, wi).filter((w) => w.startsWith("}")).length;
+	const opens = words
+		.slice(wi, skipReserved(words, wi))
+		.filter((w) => w === "{").length;
+	return { closes, opens };
+}
+
+/**
+ * Each `{ …; }` group's `{` and `}` segment, paired by segment; null where a
+ * `{` or a `}` is left over.
+ * @param {Parsed} parsed
+ * @returns {[number, number][] | null}
+ */
+function braceGroups(parsed) {
+	const known = braceMemo.get(parsed);
+	if (known !== undefined) return known;
+	/** @type {number[]} */
+	const open = [];
+	/** @type {[number, number][] | null} */
+	let groups = [];
+	for (const [i, segment] of parsed.segments.entries()) {
+		const { closes, opens } = braceWords(segment);
+		if (closes > open.length) {
+			groups = null;
+			break;
+		}
+		for (const from of open.splice(open.length - closes))
+			groups.push([from, i]);
+		for (let n = 0; n < opens; n++) open.push(i);
+	}
+	if (open.length > 0) groups = null;
+	braceMemo.set(parsed, groups);
+	return groups;
+}
+
+/**
+ * How many `{ …; }` groups the segment's command runs inside, a `{`'s own
+ * counted (#5095).
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function commandEnd({ segments, joins }, segIdx) {
+const runDepth = (parsed, segIdx) =>
+	(braceGroups(parsed) ?? []).filter(
+		([from, to]) => from <= segIdx && segIdx < to,
+	).length;
+
+/**
+ * The depth of the `&&` chain end at the segment, or undefined where none ends
+ * there: the groups holding its join, a `}`'s own counted, as the `;` before a
+ * `}` sits inside (#5095). Where a `{` or `}` is left over, every chain end
+ * settles.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function chainEndDepth(parsed, segIdx) {
+	if (!isChainEnd(parsed.joins, segIdx)) return;
+	return (braceGroups(parsed) ?? []).filter(
+		([from, to]) => from < segIdx && segIdx <= to,
+	).length;
+}
+
+/**
+ * The last segment of the command a list member starts at `segIdx`: past a
+ * `( … )` or `{ …; }` it opens, the words after its `)` or `}` and any function
+ * body they open, and each `$(…)` or `<(…)` mid-word (#5107, #5112). A
+ * bracket opening on a blank line is another command's.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function commandEnd(parsed, segIdx) {
+	const { segments, joins } = parsed;
 	let end =
 		segments[segIdx] === SCOPE_OPEN
 			? closingBracket(segments, segIdx)
-			: closingBrace(segments, segIdx);
+			: closingBrace(parsed, segIdx);
 	for (;;) {
 		const next = end + 1;
-		if (joins[next] === ")") end = closingBrace(segments, next);
+		if (joins[next] === ")") end = closingBrace(parsed, next);
 		else if (
 			segments[next] === SCOPE_OPEN &&
 			joins[next] === "" &&
@@ -2354,43 +2436,15 @@ function closingBracket(segments, openIdx) {
 }
 
 /**
- * Each `{ …; }` group's opening and closing segment, inner groups first, or
- * null where a `{` or `}` is left unpaired.
- * @param {string[]} segments
- * @returns {[number, number][] | null}
- */
-function braceGroups(segments) {
-	/** @type {number[]} */
-	const open = [];
-	/** @type {[number, number][]} */
-	const groups = [];
-	for (const [i, segment] of segments.entries()) {
-		const words = segment.trim().split(/\s+/);
-		const [head] = words;
-		if (head !== undefined && /^\}(?=$|[<>])/.test(head)) {
-			const from = open.pop();
-			if (from === undefined) return null;
-			groups.push([from, i]);
-		}
-		for (const word of words) {
-			if (word !== "{") break;
-			open.push(i);
-		}
-	}
-	return open.length > 0 ? null : groups;
-}
-
-/**
  * The segment closing the outermost `{ …; }` group the segment at `segIdx`
  * opens, or `segIdx` where it opens none or the braces are unpaired.
- * @param {string[]} segments
+ * @param {Parsed} parsed
  * @param {number} segIdx
  */
-function closingBrace(segments, segIdx) {
-	const groups = braceGroups(segments);
-	if (groups === null) return segIdx;
+function closingBrace(parsed, segIdx) {
 	let end = segIdx;
-	for (const [from, to] of groups) if (from === segIdx && to > end) end = to;
+	for (const [from, to] of braceGroups(parsed) ?? [])
+		if (from === segIdx && to > end) end = to;
 	return end;
 }
 
@@ -2403,13 +2457,14 @@ function closingBrace(segments, segIdx) {
  */
 function isBraceGroupSure(parsed, segIdx) {
 	const { joins, segments } = parsed;
-	const groups = braceGroups(segments);
-	if (groups === null) return false;
+	const groups = braceGroups(parsed);
+	if (!groups) return false;
 	return groups.every(([from, to]) => {
 		if (segIdx < from || segIdx > to) return true;
 		const before = joins[from];
-		let prev = from - 1;
-		while (prev >= 0 && segments[prev]?.trim() === "") prev--;
+		let prev = prevInList(parsed, from);
+		while (prev >= 0 && segments[prev]?.trim() === "")
+			prev = prevInList(parsed, prev);
 		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
 		const defined =
 			(before === "" || before === ")") && segments[prev] === SCOPE_CLOSE;
@@ -2456,13 +2511,13 @@ function isSureMove(parsed, segIdx, own) {
  * How a `cd` holds, as both the walk and a `-c` string read one: "if-dir"
  * where it surely ran had its directory been there — opening its `&&` or `||`
  * list, or after `||` whose left side is the `cd` before it — else "maybe";
- * and the `cdAt` the next `cd` reads.
+ * the `{ …; }` groups it runs inside; and the `cdAt` the next `cd` reads.
  * @param {Parsed} parsed
  * @param {number} segIdx
  * @param {string[]} own its words
  * @param {number} cdAt the last `cd` that opened its list, -1 where none has
  * @returns {{ holds: "if-dir" | "maybe", afterFailed: boolean,
- *   chained: boolean, cdAt: number }}
+ *   chained: boolean, depth: number, cdAt: number }}
  */
 function classifyCd(parsed, segIdx, own, cdAt) {
 	const opens = opensList(parsed.joins, segIdx);
@@ -2474,6 +2529,7 @@ function classifyCd(parsed, segIdx, own, cdAt) {
 				: "maybe",
 		afterFailed,
 		chained: isChainedOff(parsed, segIdx),
+		depth: runDepth(parsed, segIdx),
 		cdAt: opens && !isNegated(parsed.segments, segIdx) ? segIdx : -1,
 	};
 }
@@ -2484,14 +2540,15 @@ function classifyCd(parsed, segIdx, own, cdAt) {
  * @param {number} segIdx
  */
 function settleCwdDoubt(walk, segIdx) {
-	if (isChainEnd(walk.parsed.joins, segIdx)) walk.dirs = settleDirs(walk.dirs);
+	const { parsed } = walk;
+	const ends = chainEndDepth(parsed, segIdx);
+	if (ends !== undefined) walk.dirs = settleDirs(walk.dirs, ends);
 }
 
 /**
  * Move the cwd for one command's words, as moveCwd reads them, through
  * stepDirs; whether the command is one that moves it. In a pipeline or behind
- * `&` it runs in a subshell and moves nothing (measured). How the `cd` holds
- * is classifyCd's.
+ * `&` it runs in a subshell and moves nothing (measured).
  * @param {Walk} walk accumulator: its directories and `cdAt` are moved
  * @param {string[]} own
  * @param {number} segIdx

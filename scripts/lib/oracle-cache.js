@@ -34,6 +34,7 @@ const { storeConfigDir } = require("./arbiter-core.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught } = require("./caught.js");
 const { budgetMs } = require("./hook-deadline.js");
+const { capMs } = require("./cap-ms.js");
 
 /*
  * EVERY PATH IS KEYED TO THE ORACLE BINARY AND THE DIRS IT READS
@@ -64,20 +65,6 @@ const cachePath = (key) =>
 /** @param {string} key */
 const lockPath = (key) =>
 	path.join(storeConfigDir(), `wfc-oracle-cache-${keyOf(key)}.lock`);
-
-/**
- * A positive millisecond knob from `env`, else `fallback` — a garbled value must
- * not disable the bound it carries. Mirrors agent-liveness.js's `capMs`; the two
- * are not shared because importing that module from here would be a cycle.
- *
- * @param {string} env
- * @param {number} fallback
- * @returns {number}
- */
-function capMs(env, fallback) {
-	const n = Number(process.env[env]);
-	return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 /*
  * HOW LONG A LISTING STAYS GOOD for `wait`'s shared read (#3561).

@@ -70,7 +70,7 @@ describe("stepDirs", () => {
 			isDir,
 		);
 		expect(chained.dirs).toEqual(["/nope"]);
-		expect(chained.pending).toEqual(["/h"]);
+		expect(chained.pending).toEqual([{ dir: "/h", depth: 0 }]);
 		expect(settleDirs(chained)).toMatchObject({
 			dirs: ["/nope", "/h"],
 			pending: [],
@@ -82,8 +82,29 @@ describe("stepDirs", () => {
 			to("/nope", "if-dir", { chained: true }),
 			to("/h", "maybe", { chained: true }),
 		].reduce((state, move) => stepDirs(state, move, isDir), startDirs(["/h"]));
-		expect(twice).toMatchObject({ dirs: ["/h"], pending: ["/h", "/nope"] });
+		expect(twice).toMatchObject({
+			dirs: ["/h"],
+			pending: [
+				{ dir: "/h", depth: 0 },
+				{ dir: "/nope", depth: 0 },
+			],
+		});
 		expect(settleDirs(twice).dirs).toEqual(["/h", "/nope"]);
+	});
+
+	it("settles only a chain opened as deep as its end or deeper (#5095)", () => {
+		/* `cd /nope && { cd /no2 && true; git x; }`: x runs only where /nope
+		 * was made, maybe where /no2 was not. */
+		const nested = [
+			to("/nope", "if-dir", { chained: true }),
+			to("/no2", "if-dir", { chained: true, depth: 1 }),
+		].reduce((state, move) => stepDirs(state, move, isDir), startDirs(["/h"]));
+		const inner = settleDirs(nested, 1);
+		expect(inner).toMatchObject({
+			dirs: ["/no2", "/nope"],
+			pending: [{ dir: "/h", depth: 0 }],
+		});
+		expect(settleDirs(inner).dirs).toEqual(["/no2", "/nope", "/h"]);
 	});
 
 	it("holds a move after a failed one from all but where that one went (#5010)", () => {
@@ -130,14 +151,14 @@ describe("dirsAfter", () => {
 			standAfter(
 				["/h"],
 				to("/nope", "if-dir", { chained: true }),
-				to("b", "if-dir", { settles: true }),
+				to("b", "if-dir", { settles: 0 }),
 			),
 		).toEqual(["/nope/b", "/nope", "/h"]);
 		/* `cd /nope && true; cd b; git x`: b ran wherever the chain left it. */
 		expect(
 			standAfter(
 				["/h"],
-				to("/nope", "if-dir", { chained: true, settles: true }),
+				to("/nope", "if-dir", { chained: true, settles: 0 }),
 				to("b", "if-dir"),
 			),
 		).toEqual(["/nope/b", "/h/b", "/nope", "/h"]);
@@ -149,7 +170,7 @@ describe("dirsAfter", () => {
 			standAfter(
 				["/h"],
 				to("/nope", "if-dir", { chained: true }),
-				to("/a", "if-dir", { chained: true, opensScope: true, settles: true }),
+				to("/a", "if-dir", { chained: true, opensScope: true, settles: 0 }),
 			),
 		).toEqual(["/a"]);
 	});
