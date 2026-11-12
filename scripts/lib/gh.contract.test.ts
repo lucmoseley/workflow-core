@@ -705,8 +705,7 @@ describe("live: computed answers", () => {
 	}) => {
 		liveSkip ??= { reason: liveSkipReason() };
 		if (liveSkip.reason) return skip(liveSkip.reason);
-		const { readCitedFor } = await import("./basis-cited-read.js");
-		const { basisFaults } = await import("./issue-gate.js");
+		const { readBasisFaults } = await import("./basis-cited-read.js");
 		const root = fs.mkdtempSync(path.join(dir, "cited-root-"));
 		fs.mkdirSync(path.join(root, ".claude"));
 		fs.writeFileSync(
@@ -726,9 +725,10 @@ describe("live: computed answers", () => {
 		);
 		vi.stubEnv("WFC_GH", stub);
 		const body = `**Gated until:** 2099-01-01 — a week after it lands\n**Gate basis:** #2331, #999999999 and ${noRepo}#3 set a week\n`;
-		readCitedFor((follow) => basisFaults(body, undefined, follow), {
+		readBasisFaults([{ body }], {
 			root,
 			timeoutMs: 20_000,
+			env: { ...process.env, WFC_GATE_CITED: "" },
 		});
 		const args: string[] = JSON.parse(
 			fs.readFileSync(log, "utf8").trim().split("\n")[0] as string,

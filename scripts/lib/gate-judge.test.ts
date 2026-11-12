@@ -15,10 +15,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	JUDGE_BOUND_MS,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
 	readGateWrite,
+	WRITE_BOUND_MS,
 } from "./gate-judge.js";
 import {
 	callLogPath,
@@ -321,7 +321,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
 	});
 
-	it("the default bound and its grace end inside the guard's hook limit", () => {
+	it("a write's bound and the judge's grace end inside the guard's hook limit", () => {
 		const hooks = JSON.parse(
 			fs.readFileSync(
 				path.join(__dirname, "..", "..", "hooks", "hooks.json"),
@@ -329,7 +329,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 			),
 		);
 		const limitMs = hooks.hooks.PreToolUse[0].hooks[0].timeout * 1000;
-		expect(JUDGE_BOUND_MS + LAUNCHER_GRACE_MS).toBeLessThan(limitMs);
+		expect(WRITE_BOUND_MS + LAUNCHER_GRACE_MS).toBeLessThan(limitMs);
 	});
 
 	it("a launch that would not bill the subscription, launching nothing", () => {
@@ -456,12 +456,11 @@ describe("a write route's reading", () => {
 	const write = (
 		body: string,
 		plan: JudgeFakePlan,
-		opts: { before?: string; own?: number; boundMs?: number } = {},
+		opts: { before?: string; own?: number; leftMs?: number } = {},
 		extraEnv: Record<string, string> = {},
 	) =>
 		readGateWrite(body, {
 			route: "file-issue",
-			boundMs: BOUND_MS,
 			...opts,
 			env: {
 				...process.env,
@@ -583,7 +582,7 @@ describe("a write route's reading", () => {
 
 	it("falls back without a call where too little of the bound is left", () => {
 		const r = write(`${WAIT}\n`, reading([wait(WAIT, "500 ticks")]), {
-			boundMs: 1000,
+			leftMs: 1000,
 		});
 		expect(r.advice).toContain(
 			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
@@ -614,12 +613,10 @@ describe("a write route's reading", () => {
 		expect(write(`${WAIT}\n`, NOTHING, { before: `${WAIT}\n` })).toEqual({
 			refusal: null,
 			advice: "",
-			citedMs: 0,
 		});
 		expect(write(`${Gate}\n`, NOTHING, {}, { WFC_GATE_JUDGE: "off" })).toEqual({
 			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
 			advice: "",
-			citedMs: 0,
 		});
 		expect(readJudgeCalls(log)).toEqual([]);
 	});
@@ -636,11 +633,9 @@ describe("a write route's reading", () => {
 	});
 });
 
-describe("a write route follows a cited issue one hop (#5007)", () => {
+describe("a write route words the cited follow (#5007)", () => {
 	const Week = "**Gated until:** 2099-01-01 — a week after it lands";
 	const cites = (basis: string) => `${Week}\n**Gate basis:** ${basis}\n`;
-	const Count =
-		"**Gate basis:** a week: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
 	let ghLog = "";
 
 	beforeEach(() => {
@@ -663,17 +658,11 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 			: 0;
 	const write = (
 		body: string,
-		opts: {
-			before?: string;
-			own?: number;
-			boundMs?: number;
-			citedBoundMs?: number;
-		} = {},
+		opts: { before?: string; own?: number; leftMs?: number } = {},
 		extraEnv: Record<string, string> = {},
 	) =>
 		readGateWrite(body, {
 			route: "file-issue",
-			boundMs: BOUND_MS,
 			...opts,
 			env: {
 				...process.env,
@@ -694,88 +683,6 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		expect(graphqlCalls()).toBe(1);
 	});
 
-	it("passes where a cited issue's comment derives the window, reading four issues in one call", () => {
-		serving({
-			"o/r": {
-				2821: { state: "CLOSED", body: "Ruled." },
-				2826: { body: "x" },
-				2823: { body: "x" },
-				2824: { body: "x", comments: ["Plain.", Count] },
-			},
-		});
-		const r = write(cites("#2821, #2826, #2823 and #2824 set a week"));
-		expect(r).toEqual({
-			refusal: null,
-			advice: "",
-			citedMs: expect.any(Number),
-		});
-		expect(graphqlCalls()).toBe(1);
-	});
-
-	it("reads a basis past a cited issue's first 100 comments", () => {
-		const comments = [...Array.from({ length: 150 }, (_, i) => `c${i}`), Count];
-		serving({ "o/r": { 12: { body: "x", comments } } });
-		expect(write(cites("#12 set a week")).refusal).toBeNull();
-		expect(graphqlCalls()).toBe(2);
-	});
-
-	it("passes a question round the cited issue holds, and refuses one it does not", () => {
-		serving({
-			"o/r": { 1556: { body: "x", comments: ["❓ **Q4** - **The count**"] } },
-		});
-		expect(write(cites("a week is #1556 Q4 (A)'s ruling")).refusal).toBeNull();
-		expect(write(cites("a week is #1556 Q9 (A)'s ruling")).refusal).toContain(
-			"(it cites #1556 Q9, where that question round is not found)",
-		);
-	});
-
-	it("reads `name#N` under the tracker's owner and `owner/name#N` in that repo", () => {
-		serving({
-			"o/lib": { 5: { body: Count } },
-			"acme/x": { 6: { body: Count } },
-		});
-		expect(write(cites("lib#5 set a week")).refusal).toBeNull();
-		expect(write(cites("acme/x#6 set a week")).refusal).toBeNull();
-	});
-
-	it("makes no read for an own warrant, an event anchor, its own number or an untouched legacy basis", () => {
-		serving({});
-		expect(
-			write(cites(`${Count.replace("**Gate basis:** ", "")} (#12)`)).refusal,
-		).toBeNull();
-		write(cites("#12 landed on 5 Nov, and the body asks for a week"));
-		write(cites("#77 ruled a week"), { own: 77 });
-		const legacy = cites("#12 set a week");
-		expect(write(`${legacy}note\n`, { before: legacy, own: 1 })).toEqual({
-			refusal: null,
-			advice: "",
-			citedMs: 0,
-		});
-		expect(graphqlCalls()).toBe(0);
-	});
-
-	it.each(["o/r#77", "r#77"])(
-		"refuses a basis citing only its own issue as %s, reading nothing",
-		(self) => {
-			serving({ "o/r": { 77: { body: Count } } });
-			const r = write(cites(`${self} set a week`), { own: 77 });
-			expect(r.refusal).toContain(
-				`"${self} set a week", which carries no warrant, as the wording patterns read it.`,
-			);
-			expect(graphqlCalls()).toBe(0);
-		},
-	);
-
-	it("follows only the other issue where a basis cites itself beside it", () => {
-		serving({ "o/r": { 77: { body: Count }, 12: { body: "No basis." } } });
-		const r = write(cites("o/r#77 and #12 set a week"), { own: 77 });
-		expect(r.refusal).toContain(
-			"(it cites #12, which has no `**Gate basis:**` line)",
-		);
-		expect(r.refusal).not.toContain("it cites o/r#77");
-		expect(graphqlCalls()).toBe(1);
-	});
-
 	it("judges on form, with one note naming the unread issues, where the read fails", () => {
 		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
 		const r = write(cites("#12 and #13 set a week"));
@@ -788,9 +695,9 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		);
 	});
 
-	it("judges on form, with the same note, where too little of the cited read's budget is left", () => {
+	it("judges on form, with the same note, where too little of the write's bound is left for the cited read", () => {
 		serving({ "o/r": { 12: { body: "x" } } });
-		const r = write(cites("#12 set a week"), { citedBoundMs: 1000 });
+		const r = write(cites("#12 set a week"), { leftMs: 1000 });
 		expect(r.refusal).toBeNull();
 		expect(r.advice).toBe(
 			`The issues a basis cites were not read (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
@@ -798,30 +705,11 @@ describe("a write route follows a cited issue one hop (#5007)", () => {
 		expect(graphqlCalls()).toBe(0);
 	});
 
-	it("says no tracker resolves, judging on form, where the config names none", () => {
-		const bare = fs.mkdtempSync(path.join(os.tmpdir(), "gate-judge-bare-"));
-		try {
-			const r = write(
-				cites("#12 set a week"),
-				{},
-				{ CLAUDE_PROJECT_DIR: bare },
-			);
-			expect(r.refusal).toBeNull();
-			expect(r.advice).toBe(
-				"The issues a basis cites were not read (no tracker resolves from `.claude/workflow-core.json`): #12, so a basis whose only warrant is one of them was judged on its form alone.",
-			);
-			expect(graphqlCalls()).toBe(0);
-		} finally {
-			fs.rmSync(bare, { recursive: true, force: true });
-		}
-	});
-
 	it("logs the cited issues, their verdicts, the read's wall time and any fallback", () => {
 		serving({ "o/r": { 12: { body: "x" } } });
 		fs.rmSync(callLogPath(), { force: true });
 		const r = readGateWrite(cites("#12 set a week"), {
 			route: "file-issue",
-			boundMs: BOUND_MS,
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: dir,
