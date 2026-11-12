@@ -697,6 +697,18 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 		expect(last("cd /usr && echo $(a)\ngh b & gh y")).toEqual(["/usr"]);
 		expect(last("cd /usr && true\n(a) & gh y")).toEqual(["/usr"]);
 	});
+
+	it("backgrounds a cd's list past the { …; } group in it (#5112)", () => {
+		const both = ["/usr", "/start"];
+		expect(last("cd /usr && { true; } & gh y")).toEqual(both);
+		expect(last("cd /usr && { { a; }; b; } & gh y")).toEqual(both);
+		expect(last("cd /usr && { true; } >o & gh y")).toEqual(both);
+		expect(last("cd /usr && { a; } | b & gh y")).toEqual(both);
+		expect(last("cd /usr && { (a); } & gh y")).toEqual(both);
+		expect(last("cd /usr && { a; } || { b; } & gh y")).toEqual(both);
+		expect(last("cd /usr && { true; }; gh y")).toEqual(["/usr"]);
+		expect(last("cd /usr && { true; }\n{ a; } & gh y")).toEqual(["/usr"]);
+	});
 });
 
 describe("Command.runs — each run with every directory it may stand in (#5075)", () => {

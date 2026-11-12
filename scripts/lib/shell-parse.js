@@ -2313,14 +2313,17 @@ function isListBackgrounded(parsed, segIdx) {
 
 /**
  * The last segment of the command a list member starts at `segIdx`: past a
- * `( … )` it opens, the words after its `)`, and each `$(…)` or `<(…)` mid-word
- * (#5107). A bracket opening on a blank line is another command's.
+ * `( … )` or `{ …; }` it opens, the words after its `)` or `}`, and each `$(…)`
+ * or `<(…)` mid-word (#5107, #5112). A bracket opening on a blank line is
+ * another command's.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
 function commandEnd({ segments, joins }, segIdx) {
 	let end =
-		segments[segIdx] === SCOPE_OPEN ? closingBracket(segments, segIdx) : segIdx;
+		segments[segIdx] === SCOPE_OPEN
+			? closingBracket(segments, segIdx)
+			: closingBrace(segments, segIdx);
 	for (;;) {
 		const next = end + 1;
 		if (joins[next] === ")") end = next;
@@ -2351,14 +2354,13 @@ function closingBracket(segments, openIdx) {
 }
 
 /**
- * Whether every `{ …; }` group holding the segment surely runs in this shell:
- * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
- * not a function's body. A group left unclosed holds none.
- * @param {Parsed} parsed
- * @param {number} segIdx
+ * Each `{ …; }` group's opening and closing segment, inner groups first, or
+ * null where a `{` or `}` is left unpaired: bash refuses the script before it
+ * runs anything.
+ * @param {string[]} segments
+ * @returns {[number, number][] | null}
  */
-function isBraceGroupSure(parsed, segIdx) {
-	const { joins, segments } = parsed;
+function braceGroups(segments) {
 	/** @type {number[]} */
 	const open = [];
 	/** @type {[number, number][]} */
@@ -2368,7 +2370,7 @@ function isBraceGroupSure(parsed, segIdx) {
 		const [head] = words;
 		if (head !== undefined && /^\}(?=$|[<>])/.test(head)) {
 			const from = open.pop();
-			if (from === undefined) return false;
+			if (from === undefined) return null;
 			groups.push([from, i]);
 		}
 		for (const word of words) {
@@ -2376,7 +2378,35 @@ function isBraceGroupSure(parsed, segIdx) {
 			open.push(i);
 		}
 	}
-	if (open.length > 0) return false;
+	return open.length > 0 ? null : groups;
+}
+
+/**
+ * The segment closing the outermost `{ …; }` group the segment at `segIdx`
+ * opens, `segIdx` where it opens none, or the last segment's where the
+ * braces are unpaired.
+ * @param {string[]} segments
+ * @param {number} segIdx
+ */
+function closingBrace(segments, segIdx) {
+	const groups = braceGroups(segments);
+	if (groups === null) return segments.length - 1;
+	let end = segIdx;
+	for (const [from, to] of groups) if (from === segIdx && to > end) end = to;
+	return end;
+}
+
+/**
+ * Whether every `{ …; }` group holding the segment surely runs in this shell:
+ * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
+ * not a function's body. Unpaired braces hold none.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function isBraceGroupSure(parsed, segIdx) {
+	const { joins, segments } = parsed;
+	const groups = braceGroups(segments);
+	if (groups === null) return false;
 	return groups.every(([from, to]) => {
 		if (segIdx < from || segIdx > to) return true;
 		const before = joins[from];
