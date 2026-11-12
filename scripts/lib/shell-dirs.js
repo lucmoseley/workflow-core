@@ -29,9 +29,9 @@
  * @property {boolean} [chained] a `&&` chains the next command off it, so each
  *   directory it may not have moved from waits in `pending` until settleDirs
  *   (#4009)
- * @property {boolean} [opensScope] the first move inside a subshell the move
- *   before stands outside: a chain open outside waits on that move alone, so
- *   no chain end inside settles it (#5102)
+ * @property {boolean} [opensScope] the first move inside a subshell: a chain
+ *   opened before its `(` waits on that move alone, so no chain end inside
+ *   settles it (#5102)
  * @property {boolean} [settles] its `&&` chain ends after it, before the next
  *   move: dirsAfter settles it there (#5082)
  */

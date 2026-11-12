@@ -609,7 +609,7 @@ function unwrapArgv(argv) {
  *   "holds" | "afterFailed" | "chained" | "opensScope" | "settles">} Chdir
  *   one directory a run moves to before its command, its move classified as
  *   the directory model reads one: a wrapper's holds "always", and only a
- *   `-c` string's `cd` sets the other four (#5082)
+ *   `-c` string's `cd` sets the other four (#5082, #5102)
  */
 
 /**

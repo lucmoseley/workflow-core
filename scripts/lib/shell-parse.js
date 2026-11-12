@@ -1537,7 +1537,7 @@ function commandRuns(words, cwds, { scope, isDir }) {
  * @typedef {object} ScriptState what a script's next command runs under
  * @property {Chdir[]} chdirs
  * @property {boolean} chainOpen a `&&` chain a `cd` opened has not yet ended
- * @property {boolean} scopeOpen a subshell has opened since the last `cd`
+ * @property {boolean} subshellOpened a subshell has opened since the last `cd`
  * @property {string[]} exports
  * @property {Map<string, string>} locals each name an assignment alone set,
  *   its word
@@ -1568,7 +1568,7 @@ function parseScript(script, spans) {
 	let state = {
 		chdirs: [],
 		chainOpen: false,
-		scopeOpen: false,
+		subshellOpened: false,
 		exports: [],
 		locals: new Map(),
 		lost: [],
@@ -1581,7 +1581,7 @@ function parseScript(script, spans) {
 		if (segment === `${SCOPE_MARK}(`) {
 			stack.push(state);
 			/* As openScope's: the chain outside stays open (#5093, #5102). */
-			state = { ...state, chainOpen: false, scopeOpen: true };
+			state = { ...state, chainOpen: false, subshellOpened: true };
 			return;
 		}
 		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
@@ -1838,12 +1838,12 @@ function cdInScript(state, own, where) {
 	const cd = { dir, read: false, holds, vars };
 	if (afterFailed) cd.afterFailed = true;
 	if (chained) cd.chained = true;
-	if (state.scopeOpen) cd.opensScope = true;
+	if (state.subshellOpened) cd.opensScope = true;
 	return {
 		...state,
 		chdirs: [...state.chdirs, cd],
 		chainOpen: state.chainOpen || chained,
-		scopeOpen: false,
+		subshellOpened: false,
 		cdAt,
 	};
 }
