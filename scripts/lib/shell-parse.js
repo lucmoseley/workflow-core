@@ -2508,29 +2508,52 @@ function chainEndDepth(parsed, segIdx) {
 
 /**
  * The last segment of the command a list member starts at `segIdx`: past a
- * `( … )` or compound command it opens, the words after its `)` or closer and
- * any function body they open, and each `$(…)` or `<(…)` mid-word (#5107,
- * #5112, #5117). A bracket opening on a blank line is another command's.
+ * `( … )` or compound command it opens, the words after its `)` or closer, a
+ * function's `( … )` or compound body past blank lines, and each `$(…)` or
+ * `<(…)` mid-word (#5107, #5112, #5117, #5118). Any other bracket opening on a
+ * blank line is another command's.
  * @param {Parsed} parsed
  * @param {number} segIdx
  */
 function commandEnd(parsed, segIdx) {
+	let end = groupEnd(parsed, segIdx);
+	for (
+		let next = stepPast(parsed, end);
+		next !== end;
+		next = stepPast(parsed, end)
+	)
+		end = next;
+	return end;
+}
+
+/**
+ * The last segment of the `( … )` or compound command the segment at `segIdx`
+ * opens, or `segIdx` where it opens neither.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const groupEnd = (parsed, segIdx) =>
+	parsed.segments[segIdx] === SCOPE_OPEN
+		? closingBracket(parsed.segments, segIdx)
+		: closingCompound(parsed, segIdx);
+
+/**
+ * The command's last segment so far once the words or bracket after `end` are
+ * taken in, or `end` where nothing after it is the command's.
+ * @param {Parsed} parsed
+ * @param {number} end
+ */
+function stepPast(parsed, end) {
 	const { segments, joins } = parsed;
-	let end =
-		segments[segIdx] === SCOPE_OPEN
-			? closingBracket(segments, segIdx)
-			: closingCompound(parsed, segIdx);
-	for (;;) {
-		const next = end + 1;
-		if (joins[next] === ")") end = closingCompound(parsed, next);
-		else if (
-			segments[next] === SCOPE_OPEN &&
-			joins[next] === "" &&
-			segments[end]?.trim()
-		)
-			end = closingBracket(segments, next);
-		else return end;
-	}
+	const next = end + 1;
+	if (joins[next] === ")") return closingCompound(parsed, next);
+	if (segments[next] !== SCOPE_OPEN || joins[next] !== "") return end;
+	const close = closingBracket(segments, next);
+	if (!isFunctionParens(segments, next, close))
+		return segments[end]?.trim() ? close : end;
+	let body = close + 1;
+	while (body < segments.length - 1 && !segments[body]?.trim()) body++;
+	return groupEnd(parsed, body);
 }
 
 /**

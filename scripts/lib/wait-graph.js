@@ -271,10 +271,7 @@ function followEdge(st, work, top, w) {
 		discover(st, w);
 		work.push({ v: w, i: 0 });
 	} else if (st.onStack.has(w))
-		st.low.set(
-			top.v,
-			Math.min(Number(st.low.get(top.v)), Number(st.index.get(w))),
-		);
+		st.low.set(top.v, Math.min(must(st.low.get(top.v)), must(st.index.get(w))));
 }
 
 /**
@@ -290,7 +287,7 @@ function finishNode(st, work, top) {
 	if (parent)
 		st.low.set(
 			parent.v,
-			Math.min(Number(st.low.get(parent.v)), Number(st.low.get(top.v))),
+			Math.min(must(st.low.get(parent.v)), must(st.low.get(top.v))),
 		);
 	if (st.low.get(top.v) === st.index.get(top.v)) popComponent(st, top.v);
 }

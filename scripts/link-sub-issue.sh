@@ -8,8 +8,8 @@
 # self-link or a loop), 1 any other failure. --replace-parent re-roots a child
 # that already has a parent.
 #
-# Test seams: WFC_LINK_RETRIES, WFC_LINK_SLEEP, WFC_LINK_REPO (owner/name,
-# else the tracker), WFC_GH.
+# WFC_LINK_REPO (owner/name) names the repo, else the tracker. Test seams:
+# WFC_LINK_RETRIES, WFC_LINK_SLEEP, WFC_GH.
 
 set -euo pipefail
 

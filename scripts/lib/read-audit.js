@@ -688,4 +688,4 @@ function childReads(e, program, root) {
 	];
 }
 
-module.exports = { install, readAudits, remove };
+module.exports = { install, readAudits, remove, sweep };
