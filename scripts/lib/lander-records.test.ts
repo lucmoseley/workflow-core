@@ -261,7 +261,7 @@ describe("the drop record", () => {
 /*
  * Every field each type holds, set, so a field the type gains fails the
  * type-check until it is here, then the round trip until the reader keeps it
- * (#5077): the verdict ledger once lost `run` and `failures` on read unseen.
+ * (#5077).
  */
 describe("every field a verdict or a cause holds", () => {
 	const failure = {
@@ -358,18 +358,20 @@ describe("every field a verdict or a cause holds", () => {
 		"skips a $kind cause any one of whose fields is ill-typed",
 		(cause) => {
 			const ill = [
-				...Object.keys(cause).map((key) => [
+				...Object.keys(cause).map((key): [string, unknown] => [
 					key,
 					{ ...cause, [key]: { ill: true } },
 				]),
-				...("failures" in cause ? Object.keys(quoted) : []).map((key) => [
-					`failures[0].${key}`,
-					{ ...cause, failures: [{ ...quoted, [key]: { ill: true } }] },
-				]),
+				...("failures" in cause ? Object.keys(quoted) : []).map(
+					(key): [string, unknown] => [
+						`failures[0].${key}`,
+						{ ...cause, failures: [{ ...quoted, [key]: { ill: true } }] },
+					],
+				),
 			];
 			for (const [key, bad] of ill) {
 				dropRecord(file).write([dropOf(bad)]);
-				expect(dropRecord(file).read(), String(key)).toEqual([]);
+				expect(dropRecord(file).read(), key).toEqual([]);
 			}
 		},
 	);

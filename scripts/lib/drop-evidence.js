@@ -147,18 +147,17 @@ function buildOwedPass({ files, typecheck }) {
 }
 
 /**
- * What a fix ticket's change must do for its drop: its acceptance line.
  * @param {Pick<import("./lander-records.js").Drop, "sha" | "name" | "cause">} d
  */
 function buildDropAcceptance({ sha, name, cause }) {
-	return `${short(sha)}'s change${buildOwed(cause)} and is pushed to \`${queueBranch(name)}\` again.`;
+	return `${short(sha)}'s change${buildOwedClause(cause)} and is pushed to \`${queueBranch(name)}\` again.`;
 }
 
 /**
- * What the change must do, after "<sha>'s change".
+ * The clause after "<sha>'s change", carrying its own leading space or comma.
  * @param {import("./lander-records.js").Drop["cause"]} cause
  */
-function buildOwed(cause) {
+function buildOwedClause(cause) {
 	switch (cause.kind) {
 		case "conflict":
 			return " merges onto `main`, each file above settled,";
