@@ -485,7 +485,13 @@ describe("a search over a heavy tree is handed the rule", () => {
 		["watch find . -name x", "watch, its command in several words"],
 		["watch grep -r PAT .", "a grep at the root under watch"],
 		["grep -r PAT", "a grep naming no path, standing at the root"],
+		["cd node_modules && grep -rn PAT .", "a . reached by cd (#5119)"],
+		["env -C node_modules grep -rn PAT .", "a . reached by env -C"],
+		["cd node_modules/pkg && grep -rn PAT .", "a . below one"],
+		["cd node_modules && rg PAT", "a search naming no path, moved into one"],
+		["cd dist && grep -rn PAT ./", "a . inside build output git ignores"],
 	])("%s — %s", (command) => {
+		fs.mkdirSync(path.join(repo, "node_modules", "pkg"));
 		expect(warning(command)).toContain(ruleText);
 		expect(logs).toEqual([]);
 	});
@@ -518,6 +524,8 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 			"find from the root, pruned",
 		],
 		["cd app && find . -name x", "find from a subdirectory"],
+		["cd app && grep -rn PAT .", "a . reached by cd into source"],
+		["cd node_modules && grep -rn PAT ../app", "a root leaving one"],
 		['echo "grep -rn PAT node_modules"', "a search inside a quoted string"],
 	])("%s — %s", (command) => {
 		expect(emission(command)).toBeNull();
@@ -527,6 +535,11 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 	it("rg PAT . — rg at the root, which skips what git ignores", () => {
 		expect(saidIn("rg PAT .", "auto")).toBe("");
 		expect(logs).toEqual([]);
+	});
+
+	it("reaches a . searched where the shell already stands in node_modules", () => {
+		const cwd = path.join(repo, "node_modules");
+		expect(warning("grep -rn PAT .", { cwd })).toContain(ruleText);
 	});
 
 	it("reaches a grep at the root spelled from a subdirectory", () => {
