@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import vitestConfig from "../vitest.config";
+import { defineTemplate } from "./lib/git-fixture";
 import { isUnder } from "./lib/is-under.js";
 import {
 	buildBashPayload,
@@ -131,8 +132,34 @@ const holdLanderLock = () => {
 	return landerHolder.pid;
 };
 
+/* The bare origin and its clone, one commit behind origin's `main`, are the
+ * same tree in every case, so they are built once and copied (#5144).
+ * git-identity-exempt: the bare origin takes no commit; the clone sets one. */
+const template = defineTemplate((dir) => {
+	const bare = path.join(dir, "origin.git");
+	const clone = path.join(dir, "main");
+	git(dir, "init", "-q", "--bare", "-b", "main", bare);
+	git(dir, "clone", "-q", bare, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+	commitIn(
+		clone,
+		{
+			".gitignore": "/node_modules\n.claude/worktrees/\n",
+			"package.json": "{}\n",
+			"package-lock.json": "lock-1\n",
+		},
+		"seed",
+	);
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	commitIn(clone, { "landed.txt": "x" }, "landed");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	git(clone, "reset", "-q", "--hard", "HEAD~1");
+});
+
 beforeEach(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-")));
+	template.instantiate(tmp);
 	origin = path.join(tmp, "origin.git");
 	main = path.join(tmp, "main");
 	npmCalls = path.join(tmp, "npm-calls");
@@ -142,23 +169,6 @@ beforeEach(() => {
 		`#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock && pwd >> ${shellQuote(npmCalls)}\n`,
 	);
 	fs.chmodSync(npmStub, 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	commitIn(
-		main,
-		{
-			".gitignore": "/node_modules\n.claude/worktrees/\n",
-			"package.json": "{}\n",
-			"package-lock.json": "lock-1\n",
-		},
-		"seed",
-	);
-	git(main, "push", "-q", "origin", "HEAD:main");
-	commitIn(main, { "landed.txt": "x" }, "landed");
-	git(main, "push", "-q", "origin", "HEAD:main");
-	git(main, "reset", "-q", "--hard", "HEAD~1");
 	holdLanderLock();
 });
 

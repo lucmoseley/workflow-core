@@ -90,12 +90,8 @@ const renderFails = () => {
 	throw new Error("render failed");
 };
 
-/** A git repo with one commit, so `readHeadSha` and `repoRoot` both answer. */
-function repo() {
-	const dir = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-")),
-	);
-	dirs.push(dir);
+/* The one-commit repo every `repo()` hands out, built once and copied (#5144). */
+const repoTemplate = defineTemplate((dir) => {
 	for (const args of [
 		["init", "-q"],
 		["config", "user.email", "t@example.com"],
@@ -103,7 +99,15 @@ function repo() {
 		["commit", "-q", "--allow-empty", "-m", "root"],
 	])
 		require("node:child_process").spawnSync("git", args, { cwd: dir });
-	return dir;
+});
+
+/** A git repo with one commit, so `readHeadSha` and `repoRoot` both answer. */
+function repo() {
+	const dir = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-")),
+	);
+	dirs.push(dir);
+	return repoTemplate.instantiate(dir);
 }
 
 /** `dir` declaring `commands`, which a message naming one reads off the root
