@@ -290,7 +290,7 @@ const leaveArtefacts = (dir = path.join(repo, ".claude", "tmp")) => {
 
 /** A refusal in `cwd` naming `areas`, its HEAD still `before` commits deep. */
 const refusedIn = (
-	r: ReturnType<typeof hookedGit>,
+	r: { status: number | null; stderr: string },
 	cwd: string,
 	before: string,
 	areas = "secrets",
