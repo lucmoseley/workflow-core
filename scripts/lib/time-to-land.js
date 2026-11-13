@@ -492,6 +492,7 @@ module.exports = {
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
 	memberStays,
+	overCountNeeded,
 	parseLanderLog,
 	readLogSince,
 	judgeTimeToLand,
