@@ -35,13 +35,13 @@
  * it, so it is no `generate-*` a gate may run.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { cutAt } = require("./lib/cut-at.js");
+const { execGit } = require("./lib/git.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { run } = require("./lib/materialise-plugin.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -122,7 +122,7 @@ function main() {
 	try {
 		fs.mkdirSync(at.config);
 		fs.mkdirSync(at.project);
-		execFileSync("git", ["init", "-q", at.project]);
+		execGit(["init", "-q", at.project]);
 		const harness = claude(at, ["--version"]).stdout.split(" ")[0];
 		const marketplaceAdd = mustSucceed(
 			"marketplace add",
