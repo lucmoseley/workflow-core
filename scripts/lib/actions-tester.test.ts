@@ -1587,3 +1587,32 @@ it("cancels every unfinished run on a batch ref but those at the sha kept, namin
 	expect(queueOf(all).cancel?.(BATCH0, null)).toEqual([SHA]);
 	expect(all.cancelled).toEqual([2]);
 });
+
+/* ci.yml's own spelling of each step that readies a runner, so renaming one
+ * there without the tester fails here (#5138). */
+it.each(["Install test tools", "Full history"])(
+	"reads a failure at ci.yml's %s step as the runner's",
+	async (step) => {
+		const ci = fs.readFileSync(
+			path.join(import.meta.dirname, "../../.github/workflows/ci.yml"),
+			"utf8",
+		);
+		const vitest = ci.slice(
+			ci.indexOf("\n  vitest:\n"),
+			ci.indexOf("\n  python:\n"),
+		);
+		expect(vitest).toContain(`- name: ${step}\n`);
+		const r = reads(
+			[
+				() => [run(5, "failure")],
+				() => [run(5, "failure", { attempt: 2 })],
+				() => [run(5, "failure", { attempt: 3 })],
+			],
+			unreadied(step),
+		);
+		expect(await verdictOf(r)).toMatchObject({
+			kind: "unknown",
+			reason: expect.stringContaining(`'${step}' step, which judges no code`),
+		});
+	},
+);
