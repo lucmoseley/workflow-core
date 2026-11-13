@@ -357,12 +357,20 @@ const isNoteShowing = (note, now) =>
 const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
 
 /**
- * Line 1 of a launching loop's block: an unread count reads `?`, as unknown is never
- * calm.
+ * The non-negative gap between two figures, or `?` where either is unread.
+ * @param {number|null} from
+ * @param {number|null} less
+ */
+const gapOf = (from, less) =>
+	from === null || less === null ? "?" : Math.max(0, from - less);
+
+/**
+ * Line 1 of a launching loop's block: sessions mid-turn, live sessions not mid-turn,
+ * and the sessions that fit now. An unread count reads `?`, as unknown is never calm.
  * @param {PanelStatus} status
  */
 const buildCountText = ({ concurrency: { stateWorking, working, ceiling } }) =>
-	`${stateWorking ?? "?"} working · ${working ?? "?"} of ${ceiling ?? "?"} slots taken`;
+	`${stateWorking ?? "?"} working · ${gapOf(working, stateWorking)} idle · room for ${gapOf(ceiling, working)}`;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
