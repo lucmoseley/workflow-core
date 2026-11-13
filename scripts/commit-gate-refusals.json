@@ -172,24 +172,20 @@
 			"lines": [
 				{
 					"text": "the doc-map fault(s) below are NOT in HEAD",
-					"from": "the $gd_noun fault(s) below are NOT in HEAD",
-					"via": "gate_direction"
+					"from": "the ${noun} fault(s) below are NOT in HEAD"
 				},
 				{
 					"text": "could not tell inherited doc-map faults from new ones",
-					"from": "could not tell inherited $gd_noun faults from new ones",
-					"via": "gate_direction"
+					"from": "could not tell inherited ${noun} faults from new ones"
 				},
 				{
 					"text": "no readable HEAD baseline for the doc-map check",
-					"from": "no readable HEAD baseline for the $1 check",
-					"via": "gate_no_baseline"
+					"from": "no readable HEAD baseline for the ${label} check"
 				},
 				"this commit adds the doc-map ",
 				{
 					"text": "the doc-map check reads ",
-					"from": "the $1 check reads ",
-					"via": "gate_check_deleted"
+					"from": "the ${label} check reads "
 				}
 			]
 		},

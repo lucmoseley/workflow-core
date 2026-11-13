@@ -652,8 +652,8 @@ describe("checker-new-faults, context-budget", () => {
 describe("checker-new-faults fails closed", () => {
 	/*
 	 * A WRITE that fails is the one place a partial list could escape (mantahostels#2314):
-	 * an uncaught throw from the write exits 1, which gate_direction reads as a
-	 * complete fault list.
+	 * an uncaught throw from the write exits 1, which the direction verdict
+	 * (lib/precommit-gate-verdicts.js) reads as a complete fault list.
 	 *
 	 * stdout goes to /dev/full, whose every write returns ENOSPC. Closing the fd
 	 * instead (`>&-`) does NOT work — node reopens 0, 1 and 2 on /dev/null when

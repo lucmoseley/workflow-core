@@ -349,8 +349,8 @@
  * check-guard-test-isolation.js: --against re-execs this file forwarding
  * POSITIONALS alone, and this checker's caller has a flag to pass —
  * --map-dirty, which asks about the real docs/doc-map.md and so cannot be
- * answered from any materialised tree. So .husky/pre-commit keeps comparing the
- * two sides through gate_direction. The residual is that its baseline extraction
+ * answered from any materialised tree. So scripts/precommit-doc-map-gate.js
+ * keeps comparing the two sides itself. The residual is that its baseline extraction
  * and check.js's `tree` materialiser are now two spellings of one idea, free to
  * drift (mantahostels#1922).
  */

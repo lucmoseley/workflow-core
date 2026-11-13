@@ -264,7 +264,10 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"skill-body-size": ["scripts/check-skill-body-size.js"],
 	"workflow-permissions": ["scripts/check-workflow-permissions.js"],
 	primitives: ["scripts/check-primitives.js"],
-	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
+	"doc-map": [
+		"scripts/lib/precommit-gate-verdicts.js",
+		"scripts/lib/doc-map-gate-report.js",
+	],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.sh"],
 	"superseded-needle": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
@@ -309,7 +312,8 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
 				const found = sources.reduce((n, s) => n + occurrences(s, spelt), 0);
 				expect(found, `${spelt} in ${GATE_SOURCES[id]}`).toBe(row.sites ?? 1);
 				if (!row.from) continue;
-				expect(row.from.replace(/\$\w+/, id)).toBe(row.text);
+				expect(row.from.replace(/\$(?:\w+|\{\w+\})/, id)).toBe(row.text);
+				if (!row.via) continue;
 				expect(PRE_COMMIT).toMatch(
 					new RegExp(`^\\s*${row.via} ${id}(\\s|$)`, "m"),
 				);
@@ -342,8 +346,7 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	...Object.fromEntries(PRECOMMIT_GATES.map((g) => [g.script, [g.id]])),
 	"scripts/lib/workflow-core-config.js": [null, null, null],
 	"scripts/check-digest-render.js": ["digest-render"],
-	"scripts/check-doc-map.js": ["doc-map", "doc-map", "doc-map"],
-	"scripts/checker-new-faults.js": ["doc-map"],
+	"scripts/precommit-doc-map-gate.js": ["doc-map"],
 	"scripts/check-user-settings-drift.js": [null],
 	"scripts/check-code-standards.js": [null],
 	"scripts/lib/always-loaded-pool.js": [null],
@@ -362,7 +365,6 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 };
 /** The hook's inline `pre-commit:` heads that refuse nothing. */
 const HOOK_NOTICES = [
-	"left as they are, the $dm_noun above reach the scheduled sweeps as DEAD",
 	"is RED — reporting only, this commit is NOT blocked.",
 	"skipped, not waited for, as this commit holds .git/index.lock",
 	"in the lock — no pre-lock green stands it down",

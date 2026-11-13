@@ -171,9 +171,9 @@ describe("checker registrations", () => {
 	 */
 	it("every checker with a fault-diff profile takes --against", () => {
 		const shellDirectionGated: Record<string, string> = {
-			// Spelled out in .husky/pre-commit for its --map-dirty flag, temp index
-			// and untracked-entry replay (mantahostels#1793).
-			"doc-map": "gated in .husky/pre-commit via gate_direction (#1793, #1801)",
+			// Its own entry, for its --map-dirty flag, temp index and
+			// untracked-entry replay (mantahostels#1793).
+			"doc-map": "gated by scripts/precommit-doc-map-gate.js (#1793, #5155)",
 		};
 		const heresyScan = stripComments(
 			fs.readFileSync(path.join(SCRIPTS, "lib/heresy-scan.js"), "utf8"),

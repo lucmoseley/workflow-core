@@ -178,13 +178,14 @@ const newFaults = (staged, baseline, profile) =>
 /**
  * Routes a crash to exit 2 instead of node's default 1 (mantahostels#2314).
  *
- * EXIT 1 MEANS A COMPLETE FAULT LIST. gate_direction reads a 1 with anything on
- * stdout as "this commit adds the lines above" (lib/precommit-gate.sh), so a
+ * EXIT 1 MEANS A COMPLETE FAULT LIST. The direction verdict reads a 1 with
+ * anything on stdout as "this commit adds the lines above"
+ * (lib/precommit-gate-verdicts.js), so a
  * crash that exits 1 having already printed part of a list is reported as the
  * session's own new faults, with the list silently truncated.
  *
  * A REQUIRE-TIME THROW IS BEFORE THIS and still exits 1 — but with an EMPTY
- * stdout, which gate_direction already routes to its "could not answer" limb
+ * stdout, which the verdict already routes to its "could not answer" limb
  * (mantahostels#2247).
  *
  * @param {string} name

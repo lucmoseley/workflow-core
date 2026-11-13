@@ -27,7 +27,7 @@ import {
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { coreCall, HOOK, ROOT } from "./lib/precommit-gate-testkit";
 import { FLAG_ARGS, GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -250,15 +250,6 @@ describe("the pre-commit's precommit-gates region gate", () => {
 
 	it("passes a commit staging the registry's render", () => {
 		expect(run(HOOK).code).toBe(0);
-	});
-});
-
-describe("the shell's direction gate (mantahostels#1793)", () => {
-	it("keeps gate_direction for its one caller, the doc map", () => {
-		// Spelled out deliberately, for its --map-dirty flag, temp index and
-		// untracked-entry replay (mantahostels#1793).
-		expect(LIB).toContain("gate_direction() {");
-		expect(HOOK).toContain("gate_direction doc-map");
 	});
 });
 

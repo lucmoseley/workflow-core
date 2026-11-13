@@ -20,12 +20,11 @@
 #   exit. The exit CODE does vary between gates, so that one IS a parameter.
 # - A `*-new-faults` PROFILE NAME. The whole-repo direction gate is
 #   `--against <rev>` inside scripts/lib/check.js, which owns the profile, both
-#   materialisations and the fail-closed rule (mantahostels#1801, mantahostels#1833); gate_direction
-#   stays for its ONE remaining caller, the doc-map gate.
+#   materialisations and the fail-closed rule (mantahostels#1801, mantahostels#1833).
 # - THE REVISION gate_stage_out STAGED FROM, so a gate could take a HEAD
 #   baseline as well as the index. The hook's one HEAD read is the doc-map
-#   gate's own `git cat-file -p HEAD:docs/doc-map.md`, spelled out where it is
-#   used — so re-add it only for a SECOND such gate (mantahostels#2032).
+#   gate's, in its own entry (scripts/lib/doc-map-gate-ports.js) — so re-add it
+#   only for a SECOND such gate (mantahostels#2032).
 
 # --- arming ------------------------------------------------------------------
 #
@@ -418,89 +417,6 @@ staged_gate() {
     fi
     exit "$sg_exit"
   fi
-}
-
-# --- the direction gate ------------------------------------------------------
-#
-# A fault already in HEAD warns and passes; one this commit adds refuses
-# (mantahostels#1688, mantahostels#1753).
-
-# gate_no_baseline <noun> — no readable HEAD to compare against. FAILS CLOSED.
-gate_no_baseline() {
-  echo "pre-commit: no readable HEAD baseline for the $1 check — refusing." >&2
-}
-
-# gate_diagnostics <noun> <stderr file> — replays what the comparison wrote to
-# STDERR.
-#
-# A crash's stack trace is apparatus noise, not a finding, and merged into the
-# indented fault list it read as one (mantahostels#2026).
-gate_diagnostics() {
-  if [ -s "$2" ]; then
-    echo "" >&2
-    echo "pre-commit: the $1 comparison also wrote to stderr — diagnostics, not findings:" >&2
-    sed 's/^/  | /' "$2" >&2
-  fi
-}
-
-# gate_direction <noun> <ticket> <comparison command>...
-#
-# Runs the comparison and turns its exit status into a verdict. Returns 0 to
-# pass the commit, 1 to refuse it.
-#
-# THE VERDICT IS THE EXIT STATUS, NEVER THE TEXT ON A PASS: a *-new-faults
-# script is free to print on a clean run — so a `-n` test on its stdout refuses
-# every commit it should pass.
-#
-# EXIT 1 OBLIGES A FAULT LIST ON STDOUT: a 1 with nothing there has named
-# nothing, and takes the same limb as a 2 (mantahostels#2026). That is where an absent
-# script, a syntax error and a require-time throw land — the shell and node
-# report those on stderr and exit 1.
-#
-# FAILS CLOSED. 0 is inherited; everything else is a failure to ANSWER, which
-# must not read as inherited.
-#
-# NOTE: this REBINDS $GATE_DIR, taking a gate_tmpdir directory for the
-# comparison's stderr — a caller wanting its own must call gate_tmpdir again.
-#
-# EXIT 1 OBLIGES A COMPLETE LIST, and that is the COMPARISON's half of the
-# contract, unenforced here (mantahostels#2314). This gate cannot tell a crash mid-list from
-# a comparison that legitimately printed faults and also wrote to stderr, so it
-# does not try: a 1 with anything on stdout is read as an answer. The one caller
-# holds up its end — lib/fault-diff.js composes the whole list before it writes,
-# and routes an uncaught throw ONCE RUNNING to exit 2 rather than node's default
-# 1. A throw at REQUIRE time is before that and still exits 1, but with an empty
-# stdout, which the limb below already catches. A future caller that streams its
-# list must install the same handler; a write catch alone is not enough.
-gate_direction() {
-  gd_noun="$1"
-  gd_ticket="$2"
-  shift 2
-
-  gate_tmpdir
-  gd_err="$GATE_DIR/stderr"
-
-  gd_cmp=0
-  gd_new="$("$@" 2>"$gd_err")" || gd_cmp=$?
-
-  if [ "$gd_cmp" -eq 0 ]; then
-    echo "pre-commit: every FAIL finding the $gd_noun check reported above is already in HEAD, so this commit did not cause one — passing ($gd_ticket)." >&2
-    echo "  They still FAIL the scheduled sweeps, which run a clean checkout, and block nothing here only because they are inherited." >&2
-    gate_diagnostics "$gd_noun" "$gd_err"
-    return 0
-  fi
-
-  if [ "$gd_cmp" -eq 1 ] && [ -n "$gd_new" ]; then
-    echo "pre-commit: the $gd_noun fault(s) below are NOT in HEAD — this commit adds them:" >&2
-    printf '%s\n' "$gd_new" | sed 's/^/  /' >&2
-  else
-    echo "pre-commit: could not tell inherited $gd_noun faults from new ones — refusing." >&2
-    if [ -n "$gd_new" ]; then
-      printf '%s\n' "$gd_new" >&2
-    fi
-  fi
-  gate_diagnostics "$gd_noun" "$gd_err"
-  return 1
 }
 
 # Whether the hook runs the queue lander's batch gate set (#4545), the

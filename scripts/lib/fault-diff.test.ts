@@ -287,8 +287,8 @@ describe("newFaultItems, the item behind the line", () => {
 
 /*
  * A crash mid-list (mantahostels#2314) — runCli routes it to exit 2, never node's
- * default 1, which gate_direction reads with a non-empty stdout as "this commit
- * adds them".
+ * default 1, which the direction verdict (lib/precommit-gate-verdicts.js) reads
+ * with a non-empty stdout as "this commit adds them".
  *
  * PROVOKED BY WRAPPING fs.writeSync, as the short write below is: fd 1 takes
  * part of the list then throws, and the first fd 2 write throws too, so the
