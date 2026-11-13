@@ -22,12 +22,14 @@ const path = require("node:path");
 const { readTail } = require("./file-read.js");
 const { parseJsonl } = require("./jsonl.js");
 
-/* The free memory under which Windows holds every launch. Two days after the
- * AI host went gave the 750-1,000 band heavy paging in 4.2% of its minutes:
- * 4 of 95 on #4852's, within the 3.6% over 1,000 MB, and 5 of 119 over an
- * unbroken day at this floor's load (#5034), above the 0.8% over 1,000 MB.
- * Kept on the absolute rate, under the 6.5% #4850's floor admitted at
- * 1,000-1,500; the second day's excess over the bands above is the hedge. */
+/* The free memory under which Windows holds every launch. Over #4852's day
+ * and an unbroken day at this floor's load (#5034), a non-paging minute at
+ * 750-1,000 MB was followed by heavy paging within 5 minutes in 7.8% of 205
+ * (95% interval 4.9-12.3%), level with the 8.0% at 1,000-1,500 the floor
+ * admits and under the 14.8% of 61 under 750. Residual: two days' reading,
+ * and they disagree on the minute itself. The band paged in 4.2% of its
+ * minutes on both, within the interval of the bands above on #4852's day and
+ * over it on #5034's (1.8-9.5% against 0.4-2.5% at 1,000-1,500). */
 const WINDOWS_FLOOR_MB = 750;
 /* The pages Windows reads in from disk since memwatch's previous reading,
  * about a minute, at and over which it holds every launch. A first guess,
