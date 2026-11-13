@@ -9,14 +9,15 @@
  * silently, or one whose script has gone missing passes every commit.
  *
  * Each case commits through the real hook in a throwaway repo, run from the
- * plugin root as an adopter's shim runs it.
+ * plugin root as an adopter's shim runs it. The scan's own cases are
+ * scripts/precommit-local-gate.test.ts's, over scripts/lib/local-hook.sh.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { installCommitMsgHook } from "./lib/commit-msg-testkit";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
 
@@ -42,6 +43,10 @@ const commit = (message: string) => {
 	return git(["commit", "-q", "-m", message]);
 };
 
+/** The refusal's way out, which every missing-script case must print. */
+const WAY_OUT =
+	"Every commit is refused until it exists or the local file stops naming it";
+
 const writeLocal = (body: string) =>
 	fs.writeFileSync(path.join(dir, ".husky", "commit-msg.local"), body);
 
@@ -50,11 +55,7 @@ beforeEach(() => {
 	hooks = mkScratchDir("commit-msg-local-hooks-");
 	initGitRepo(dir, hooks);
 	fs.mkdirSync(path.join(dir, ".husky"));
-	fs.writeFileSync(
-		path.join(hooks, "commit-msg"),
-		`#!/bin/sh\nexec sh ${shellQuote(path.join(ROOT, ".husky", "commit-msg"))} "$1"\n`,
-		{ mode: 0o755 },
-	);
+	installCommitMsgHook(hooks);
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -81,7 +82,7 @@ describe(".husky/commit-msg's commit-msg.local seam (#5142)", () => {
 	it("refuses on a bare failing command, the hook being `sh -e`", () => {
 		writeLocal("false\necho after >&2\n");
 		const r = commit("Add a line");
-		expect(r.status).not.toBe(0);
+		expect(r.status).toBe(1);
 		expect(r.out).not.toContain("after");
 	});
 
@@ -101,5 +102,30 @@ describe(".husky/commit-msg's commit-msg.local seam (#5142)", () => {
 			"commit-msg: .husky/commit-msg.local calls a script this repo does not have:",
 		);
 		expect(r.out).toContain("  scripts/gone.js");
+		expect(r.out).toContain(WAY_OUT);
+	});
+
+	it("passes a script the repo has, and skips one under $WFC_PLUGIN_ROOT", () => {
+		fs.mkdirSync(path.join(dir, "scripts"));
+		fs.writeFileSync(path.join(dir, "scripts", "mine.sh"), "exit 0\n");
+		writeLocal(
+			'sh scripts/mine.sh "$1"\n[ -e "$WFC_PLUGIN_ROOT"/scripts/absent.sh ] || :\n',
+		);
+		const r = commit("Add a line");
+		expect(r.out).not.toContain(WAY_OUT);
+		expect(r.status).toBe(0);
+	});
+
+	it("runs on a replay with $route naming it, while the core's checks stay stood down", () => {
+		writeLocal('echo "local route=$route" >&2\n');
+		/* A cherry-pick's `--continue`: CHERRY_PICK_HEAD at commit-msg (scripts/lib/commit-route.sh). */
+		fs.writeFileSync(
+			path.join(dir, ".git", "CHERRY_PICK_HEAD"),
+			`${readHead()}\n`,
+		);
+		const r = commit(`Add ${"x".repeat(80)}`);
+		expect(r.out).toContain("local route=cherry-pick");
+		expect(r.out).not.toContain("over the 72-character limit");
+		expect(r.status).toBe(0);
 	});
 });

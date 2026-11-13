@@ -88,6 +88,13 @@ export const LIB = fs.readFileSync(
 	"utf8",
 );
 
+/** `scripts/lib/local-hook.sh`, the missing-script check the
+ * `.husky/pre-commit.local` block calls (#5142). */
+export const LOCAL_HOOK_LIB = fs.readFileSync(
+	path.join(ROOT, "scripts", "lib", "local-hook.sh"),
+	"utf8",
+);
+
 /** `scripts/lib/hook-bound.sh`, which the hook sources ahead of every gate
  * that opens `hook_bound` (#4187). */
 export const HOOK_BOUND_LIB = fs.readFileSync(

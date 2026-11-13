@@ -44,9 +44,9 @@ JS_TEST_ERE='\.(test|spec)\.[cm]?[jt]sx?$'
 # an older detached one does not, and every commit there aborts on the missing
 # source until it is moved forward.
 #
-# COMMIT THE TWO TOGETHER. This file and the library are one unit: a pathspec
-# commit naming only one of them lands a hook that cannot source what it needs,
-# which aborts every commit in the repo until the other half follows.
+# COMMIT THEM TOGETHER. This file and the two libraries below are one unit: a
+# pathspec commit naming only one of them lands a hook that cannot source what
+# it needs, which aborts every commit in the repo until the other half follows.
 # shellcheck source=scripts/lib/precommit-gate.sh
 . "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
 # shellcheck source=scripts/lib/local-hook.sh
@@ -1175,7 +1175,8 @@ fi
 # prepare-commit-msg runs every gate again: slow, never a skipped gate.
 # `.husky/commit-msg.local` is the one other local file (#5142).
 if [ -f .husky/pre-commit.local ]; then
-  wfc_local_hook_check pre-commit
+  wfc_local_hook_refuse_missing .husky/pre-commit.local \
+    "pre-commit: .husky/pre-commit.local calls a script this repo does not have:"
   # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
   . ./.husky/pre-commit.local
 fi

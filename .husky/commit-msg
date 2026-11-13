@@ -14,8 +14,9 @@
 #            but a replay. A missing scanner, subject check or
 #            scripts/lib/commit-route.sh refuses every commit. Then, but on a merge, refuses a commit whose
 #            staged diff weakens a check its message names on no `Weakens:`
-#            line (scripts/check-weakens-line.js). Last, sources the
-#            adopter's own `.husky/commit-msg.local` where it exists, after
+#            line (scripts/check-weakens-line.js). Last, on every route a
+#            replay included, sources the adopter's own
+#            `.husky/commit-msg.local` where it exists, after
 #            refusing every commit on a script it names that the repo lacks
 #            (scripts/lib/local-hook.sh).
 # JUSTIFIED: fail-safe — the keyword closes the issue server-side on the push,
@@ -67,32 +68,33 @@ require "$local_lib" ".husky/commit-msg.local cannot be checked" "running the ad
 # shellcheck source=scripts/lib/local-hook.sh
 . "$local_lib"
 
-# THE REPLAY STAND-DOWN (#138): the replay routes that reach this hook stand down
-# here as in `.husky/prepare-commit-msg`, for the reasons its own header gives.
+# THE REPLAY STAND-DOWN (#138): on the replay routes that reach this hook the
+# core's checks stand down as in `.husky/prepare-commit-msg`, for the reasons
+# its own header gives. `.husky/commit-msg.local` still runs below.
 gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
 route="$(wfc_commit_route commit-msg "$gitdir")"
-if wfc_commit_route_replays "$route"; then
-  exit 0
-fi
+if ! wfc_commit_route_replays "$route"; then
+  bash "$scanner" "$1" commit-msg
+  bash "$subject_check" "$1" commit-msg
 
-bash "$scanner" "$1" commit-msg
-bash "$subject_check" "$1" commit-msg
-
-# A commit that weakens a check names each weakening on a `Weakens:` line
-# (#2235). This is the one hook holding both the finished message and the
-# commit's index. A merge stands down: the lines it joins were judged at their
-# own commits.
-if [ "$route" != merge ]; then
-  node "${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-weakens-line.js" "$1"
+  # A commit that weakens a check names each weakening on a `Weakens:` line
+  # (#2235). This is the one hook holding both the finished message and the
+  # commit's index. A merge stands down: the lines it joins were judged at
+  # their own commits.
+  if [ "$route" != merge ]; then
+    node "${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-weakens-line.js" "$1"
+  fi
 fi
 
 # THE ADOPTER'S OWN REFUSALS: `.husky/commit-msg.local` (#5142), on
 # `.husky/pre-commit.local`'s contract (#437): last, only where it exists,
 # SOURCED in this `sh -e` shell, so `$1` is the message file and any failing
 # command or `exit 1` refuses the commit; core never writes it; and a script it
-# names that the repo lacks refuses every commit. A replay never reaches it.
+# names that the repo lacks refuses every commit. It runs on every route, a
+# replay included: `$route` names it, and the adopter stands down for itself.
 if [ -f .husky/commit-msg.local ]; then
-  wfc_local_hook_check commit-msg
+  wfc_local_hook_refuse_missing .husky/commit-msg.local \
+    "commit-msg: .husky/commit-msg.local calls a script this repo does not have:"
   # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
   . ./.husky/commit-msg.local
 fi
