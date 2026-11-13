@@ -102,7 +102,7 @@ if (a[0] === "api" && a[1] === "graphql") {
 		const kids = s.issues.filter((x) => x.parent === n);
 		return { state: issue.state, subIssues: kids.map((k) => ({ number: k.number, state: k.state.toLowerCase() })) };
 	});
-	out(graph.stdout); err(graph.stderr); exit(graph.status);
+	serveHandlerAnswer(graph);
 }
 if (a[0] === "api") {
 	const p = a.find((x) => x.startsWith("repos/"));
