@@ -58,7 +58,9 @@ const path = require("node:path");
 const { readPluginRecord } = require("./plugin-record.js");
 const { claudeBin: resolveClaudeBin } = require("./claude-bin.js");
 const {
+	run,
 	installFailure: reason,
+	materialisePlugin,
 	fixByHand,
 } = require("./materialise-plugin.js");
 const {
@@ -86,7 +88,9 @@ const {
 	isTagRef,
 	sameRelease,
 } = require("./plugin-state.js");
-const { COST_TABLE } = require("./core-context-cost.js");
+const { COST_TABLE, measurerFor } = require("./core-context-cost.js");
+const { ghBinary } = require("./gh.js");
+const { worktreeRoot } = require("./host-root.js");
 const {
 	ciStatusCommand,
 	describePluginRecord,
@@ -338,8 +342,8 @@ function sameDir(a, b) {
 }
 
 /** The date an adopter's documents are stamped with, in the roadmap's format. */
-/** @param {Date} now */
-function stamp(now) {
+function stamp() {
+	const now = new Date();
 	/* THE MACHINE'S OWN ZONE, not UTC. The roadmap validator compares the stamp
 	 * against the local day, so a UTC stamp WARNs `STAMP MISDATED` on the
 	 * bootstrap's own first commit wherever the machine is far enough east
@@ -487,20 +491,19 @@ function readManifestMarketplaceName(pluginRoot) {
 /** @typedef {import("./plugin-record.js").PluginSource} PluginSource */
 
 /**
- * What the core reaches the world through (§T7). The filesystem and git are
- * used in place: #2733's boundary table gives the filesystem no fake and runs
- * git real in a test's temp directory.
+ * The core's ports (§T7): its two streams, and the plugin scripts it runs
+ * against the adopter (the registry anchoring, the digest and the doc-map
+ * section A generators), the children a module case runs in-process. The
+ * lines stream as they are made rather than returning at the end, since the
+ * install before them can take two minutes and a stopped run should show how
+ * far it got. Everything else is used in place, as #2733's boundary table
+ * gives it: the filesystem, real git, env and cwd, gh at WFC_GH, `claude` at
+ * WFC_CLAUDE_BIN, and the libraries' own children.
  * @typedef {{
  *   out: (text: string) => void,
  *   err: (text: string) => void,
- *   env: NodeJS.ProcessEnv,
- *   now: () => Date,
- *   defaultRoot: () => string,
  *   runNode: (root: string, script: string, args: string[],
  *     opts?: {quiet?: boolean}) => string,
- *   gh: (root: string, args: string[]) => string,
- *   materialise: typeof import("./materialise-plugin.js").materialisePlugin,
- *   measurerFor: typeof import("./core-context-cost.js").measurerFor,
  * }} Ports
  */
 
@@ -622,7 +625,7 @@ function init(at) {
 	const w = new Writer({ root, dryRun, out });
 	reportCommands({ sourced, kept, out });
 	reportCorpus({ corpus, kept, out });
-	const when = stamp(at.ports.now());
+	const when = stamp();
 	const version = readCoreVersion(givenRoot, at.marketplaceRef);
 	const roadmap = modules.includes("roadmap");
 
@@ -674,7 +677,7 @@ function init(at) {
 	 * no-ops there without re-fetching, #103). Non-fatal: a session with no
 	 * `claude` on PATH, or a source it can't reach, leaves
 	 * the repo usable, one hand-run command short of loading. */
-	const claudeBin = resolveClaudeBin(at.ports.env);
+	const claudeBin = resolveClaudeBin();
 	const pluginId = `workflow-core@${at.marketplace}`;
 	const result = materialiseStep({ at, source, claudeBin, pluginId });
 
@@ -768,11 +771,11 @@ function init(at) {
 
 	/* 9. The tracker: gh pointed at origin and features probed, nothing
 	 * toggled. Its labels are step 4's. */
-	if (at.tracker) tracker({ root, dryRun, out, ports });
+	if (at.tracker) tracker({ root, dryRun, out });
 	else out("skipped the tracker — --no-tracker");
 
 	/* 10. The tools no package install supplies. */
-	reportTools(out, ports.env);
+	reportTools(out);
 
 	out("");
 	out(
@@ -812,7 +815,7 @@ function init(at) {
  *   dryRun: boolean, configDir?: string, out: Out, ports: Ports},
  *   source: PluginSource,
  *   claudeBin: string, pluginId: string}} step
- * @returns {ReturnType<Ports["materialise"]> | null}
+ * @returns {ReturnType<typeof materialisePlugin> | null}
  */
 function materialiseStep({ at, source, claudeBin, pluginId }) {
 	if (at.dryRun) {
@@ -830,7 +833,7 @@ function materialiseStep({ at, source, claudeBin, pluginId }) {
 	 * whatever `ref` settingsKeys() goes on to declare. */
 	const addSource =
 		source.source === "url" ? `${source.url}#${source.ref}` : source.path;
-	return at.ports.materialise({
+	return materialisePlugin({
 		root: at.root,
 		claudeBin,
 		addSource,
@@ -870,7 +873,7 @@ function resolvePluginRoot({ at, source }) {
 
 /**
  * What the install did, and the hand-run command where it fell short.
- * @param {{result: ReturnType<Ports["materialise"]>, pluginId: string,
+ * @param {{result: ReturnType<typeof materialisePlugin>, pluginId: string,
  *   record: ReturnType<typeof readPluginRecord>, out: Out}} at
  */
 function reportInstall({ result, pluginId, record, out }) {
@@ -892,15 +895,11 @@ function reportInstall({ result, pluginId, record, out }) {
 
 /**
  * @param {{at: {root: string, configDir?: string, ports: Ports},
- *   result: ReturnType<Ports["materialise"]> | null, claudeBin: string}} step
+ *   result: ReturnType<typeof materialisePlugin> | null, claudeBin: string}} step
  */
 function costMeasurer({ at, result, claudeBin }) {
 	return result?.ok
-		? at.ports.measurerFor({
-				root: at.root,
-				claudeBin,
-				configDir: at.configDir,
-			})
+		? measurerFor({ root: at.root, claudeBin, configDir: at.configDir })
 		: () => ({ reason: "the plugin was not materialised this run" });
 }
 
@@ -1071,10 +1070,9 @@ function renderSectionA({ root, pluginRoot, dryRun, out, ports }) {
 
 /**
  * @param {Out} out
- * @param {NodeJS.ProcessEnv} env
  */
-function reportTools(out, env) {
-	const missing = TOOLS.filter((tool) => !which(tool, env));
+function reportTools(out) {
+	const missing = TOOLS.filter((tool) => !which(tool));
 	if (missing.length === 0) {
 		out(`tools    all present: ${TOOLS.join(", ")}`);
 		return;
@@ -1101,28 +1099,27 @@ function reportTools(out, env) {
  * it. Untested; the shape isn't ruled out, just unhandled.
  *
  * @param {string} tool
- * @param {NodeJS.ProcessEnv} env
  */
-function which(tool, env) {
-	const target = tool === "gitleaks" ? env.WFC_GITLEAKS || "gitleaks" : tool;
+function which(tool) {
+	const target =
+		tool === "gitleaks" ? process.env.WFC_GITLEAKS || "gitleaks" : tool;
 	if (path.isAbsolute(target)) return fs.existsSync(target);
-	for (const dir of (env.PATH ?? "").split(path.delimiter)) {
+	for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
 		if (dir && fs.existsSync(path.join(dir, target))) return true;
 	}
 	return false;
 }
 
 /**
- * @param {{root: string, dryRun: boolean, out: Out, ports: Ports}} at
+ * @param {{root: string, dryRun: boolean, out: Out}} at
  */
-function tracker({ root, dryRun, out, ports }) {
+function tracker({ root, dryRun, out }) {
 	const repo = resolveKey("tracker", { root });
 	setGhDefaultRepo({
 		root,
 		repo: typeof repo === "string" ? repo : undefined,
 		dryRun,
 		out,
-		gh: ports.gh,
 	});
 	if (typeof repo !== "string") {
 		out(
@@ -1136,7 +1133,6 @@ function tracker({ root, dryRun, out, ports }) {
 		codeRepo: requireKey("codeRepo", { root }),
 		dryRun,
 		out,
-		gh: ports.gh,
 	});
 	if (
 		gitOrNull(["config", "--get-regexp", "^credential"], {
@@ -1154,9 +1150,9 @@ function tracker({ root, dryRun, out, ports }) {
  * defaulting to the one it came from (design-vault#1, #692), and a bare
  * `gh issue` call reaches the issues where the code repo is apart (#1957).
  * @param {{root: string, repo: string|undefined, dryRun: boolean,
- *   out: Out, gh: Ports["gh"]}} at
+ *   out: Out}} at
  */
-function setGhDefaultRepo({ root, repo, dryRun, out, gh }) {
+function setGhDefaultRepo({ root, repo, dryRun, out }) {
 	if (repo === undefined) {
 		out("skipped gh repo set-default — no tracker resolves");
 		return;
@@ -1166,7 +1162,7 @@ function setGhDefaultRepo({ root, repo, dryRun, out, gh }) {
 		return;
 	}
 	try {
-		gh(root, ["repo", "set-default", repo]);
+		run(root, [ghBinary(), "repo", "set-default", repo]);
 		out(`gh       default repo set to ${repo}`);
 	} catch (err) {
 		out(`FAILED gh repo set-default ${repo}: ${reason(err)}`);
@@ -1180,9 +1176,9 @@ function setGhDefaultRepo({ root, repo, dryRun, out, gh }) {
  * exists, since a brand-new tracker has no #1. The Actions and pulls probes
  * read the code repo, the issue probes the tracker (#1957).
  * @param {{root: string, trackerRepo: string, codeRepo: string, dryRun: boolean,
- *   out: Out, gh: Ports["gh"]}} at
+ *   out: Out}} at
  */
-function probeFeatures({ root, trackerRepo, codeRepo, dryRun, out, gh }) {
+function probeFeatures({ root, trackerRepo, codeRepo, dryRun, out }) {
 	const endpoints = [
 		`repos/${codeRepo}/actions/runs?per_page=1`,
 		`repos/${codeRepo}/pulls?per_page=1`,
@@ -1194,7 +1190,8 @@ function probeFeatures({ root, trackerRepo, codeRepo, dryRun, out, gh }) {
 	}
 	let issue;
 	try {
-		issue = gh(root, [
+		issue = run(root, [
+			ghBinary(),
 			"issue",
 			"list",
 			"--repo",
@@ -1222,7 +1219,7 @@ function probeFeatures({ root, trackerRepo, codeRepo, dryRun, out, gh }) {
 		);
 	for (const probe of endpoints) {
 		try {
-			gh(root, ["api", probe]);
+			run(root, [ghBinary(), "api", probe]);
 			out(`probe    ${probe}: reachable`);
 		} catch (err) {
 			const stderr = String(caught(err).stderr);
@@ -1371,10 +1368,10 @@ function readDeclared(root) {
  * @returns {number}
  */
 function settle({ values, flags, categories, commands }, ports) {
-	const root = path.resolve(values.root ?? ports.defaultRoot());
+	const root = path.resolve(values.root ?? worktreeRoot());
 	const pluginRoot = path.resolve(
 		values["plugin-root"] ??
-			ports.env.CLAUDE_PLUGIN_ROOT ??
+			process.env.CLAUDE_PLUGIN_ROOT ??
 			path.join(__dirname, "../.."),
 	);
 	const declared = readDeclared(root);

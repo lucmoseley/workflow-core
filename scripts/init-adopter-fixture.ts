@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, expect, vi } from "vitest";
-import { PORTS } from "./init-adopter.js";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { adopt } from "./lib/init-adopter-core.js";
@@ -100,8 +99,8 @@ function runNodeInProcess(
 /**
  * init's core called in-process, in runInProcess's argument and result shape:
  * `env`, where given, replaces the environment and `cwd` is the working
- * directory for the call, as a spawn's would be, and every port but the two streams and
- * runNode is the shell's own.
+ * directory for the call, as a spawn's would be. The streams are collected,
+ * and runNode runs each plugin script in-process.
  */
 export function adoptWith(
 	args: string[],
@@ -116,14 +115,12 @@ export function adoptWith(
 	process.chdir(cwd);
 	try {
 		const status = adopt(args, {
-			...PORTS,
 			out: (text) => {
 				stdout += text;
 			},
 			err: (text) => {
 				stderr += text;
 			},
-			env: process.env,
 			runNode: runNodeInProcess,
 		});
 		return { status, stdout, stderr };

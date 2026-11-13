@@ -127,7 +127,7 @@ describe("new-repo.js copying a source repo", () => {
 		);
 		expect(before).toMatch(/^::\tscripts\/browse\.py$/m);
 		const init = runInProcess(
-			path.resolve(__dirname, "../../../../scripts/lib/init-adopter-core.js"),
+			path.resolve(__dirname, "../../../../scripts/init-adopter.js"),
 			[
 				"--root",
 				repo,
@@ -155,6 +155,7 @@ describe("new-repo.js copying a source repo", () => {
 		const all = [...new Set(`${written}${untracked}`.split("\n"))].filter(
 			Boolean,
 		);
+		expect(all).toContain(".claude/workflow-core.json");
 		expect(all.filter((f) => !paths.includes(f))).toEqual([]);
 	}, 60_000);
 

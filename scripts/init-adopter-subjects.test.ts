@@ -5,8 +5,7 @@
  * commit on (#1506). Were the two to read the tree differently, a copied repo
  * would start with a commit gate its own setup cannot satisfy.
  *
- * init runs as a process, as init-adopter.test.ts runs it, because what it
- * promises is a repo that commits (#5); the checker runs in-process.
+ * init's core and the checker both run in-process, on a real repository.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
