@@ -89,7 +89,10 @@ describe("the meminfo fake against the real file (#3093)", () => {
 				}),
 			);
 			vi.stubEnv("WFC_MEMINFO", path.join(dir, "meminfo"));
-			expect(readMeminfoKb()).toMatchObject({ freeKb: 300 * 1024 });
+			expect(readMeminfoKb()).toMatchObject({
+				availableKb: 1024 * 1024,
+				freeKb: 300 * 1024,
+			});
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
 		}
