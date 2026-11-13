@@ -1,7 +1,7 @@
 /*
  * commit-route.js — which git operation made the commit a hook is asked
- * about: its commit route (GLOSSARY.md), for Node callers. The one copy for
- * them; scripts/lib/commit-route.sh is the shell callers' copy, and
+ * about: its commit route (GLOSSARY.md), for Node callers.
+ * scripts/lib/commit-route.sh is the shell callers' copy, and
  * lib/commit-route.test.ts holds the two to the same answer on every row of
  * that file's marker table. Change the two together.
  *
@@ -112,11 +112,4 @@ function sequencing(hook, dir) {
 	return r.status === 0 && String(r.stdout).trim() === safety;
 }
 
-/**
- * The routes that replay commits already made and reach no pre-commit.
- * @param {string} route
- */
-const commitRouteReplays = (route) =>
-	["rebase", "rebase-apply", "am", "cherry-pick"].includes(route);
-
-module.exports = { commitRoute, commitRouteReplays };
+module.exports = { commitRoute };

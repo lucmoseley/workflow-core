@@ -3,11 +3,14 @@
  * committing repo in `cwd`, the review-tier stamp in its git directory, the
  * session's marker under the host root, the rule-text store and the
  * fail-open log. Every git read runs under `env`, which carries the
- * GIT_INDEX_FILE and GIT_REFLOG_ACTION git hands the hook.
+ * GIT_INDEX_FILE and GIT_REFLOG_ACTION git hands the hook. A ports file of
+ * its own, so the core's module cases cross these adapters over real git in
+ * a temp repo (#5153, #2733).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readText } = require("./file-read.js");
 const { spawnGitSync } = require("./git.js");
 const { commitRoute } = require("./commit-route.js");
 const {
@@ -17,13 +20,11 @@ const {
 const { heldAreas } = require("./sensitive-paths.js");
 const { readConfig } = require("./workflow-core-config.js");
 
-const LOG_LABEL = "review-hold-gate.js";
-
 /**
- * @param {{ cwd: string, env: NodeJS.ProcessEnv, now?: () => number }} opts
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv }} opts
  * @returns {import("./review-hold.js").HoldPorts}
  */
-function buildHoldPorts({ cwd, env, now = Date.now }) {
+function buildHoldPorts({ cwd, env }) {
 	const gitEnv = { ...env };
 	/* git hands a plain commit's hook `.git/index`, relative to this cwd. */
 	if (gitEnv.GIT_INDEX_FILE && !path.isAbsolute(gitEnv.GIT_INDEX_FILE))
@@ -85,7 +86,7 @@ function buildHoldPorts({ cwd, env, now = Date.now }) {
 		route: (gitDir) => commitRoute("pre-commit", gitDir, { env: gitEnv }),
 		stampPath: (gitDir) => reviewTierStamp(gitDir, env.CLAUDE_CODE_SESSION_ID),
 		removeStamp: (stamp) => fs.rmSync(stamp, { force: true }),
-		sweepStamps: (gitDir) => sweepReviewTierStamps(gitDir, now()),
+		sweepStamps: (gitDir) => sweepReviewTierStamps(gitDir, Date.now()),
 		stagedPaths: () =>
 			read([
 				"-c",
@@ -128,15 +129,21 @@ function buildHoldPorts({ cwd, env, now = Date.now }) {
 				`.codereview-pass-${env.CLAUDE_CODE_SESSION_ID}`,
 			);
 		},
+		/* An unreadable marker reads as empty, so its fault is its first
+		 * missing line, as concision-marker.sh's marker_field reads it. */
 		readMarker: (marker) => {
-			try {
-				return fs.readFileSync(marker, "utf8");
-			} catch {
-				return null;
-			}
+			const found = readText(marker);
+			if (found.state === "absent") return null;
+			return found.state === "read" ? found.data : "";
 		},
 		writeStamp: (stamp, text) => fs.writeFileSync(stamp, text),
-		dropStamp: (stamp) => fs.rmSync(stamp, { force: true }),
+		dropStamp: (stamp) => {
+			try {
+				fs.rmSync(stamp, { force: true });
+			} catch {
+				/* What a failed write left: the trailer reads it as unreadable. */
+			}
+		},
 		ruleText: () => {
 			let root;
 			try {
@@ -148,14 +155,14 @@ function buildHoldPorts({ cwd, env, now = Date.now }) {
 			return require("./rule-text.js").readRuleTextOr(
 				"review-hold",
 				"A commit on a declared sensitive path is held until its pre-commit review is recorded",
-				LOG_LABEL,
+				"review-hold-gate.js",
 				root,
 			);
 		},
 		log: (what, detail) => {
 			try {
 				require("./arbiter-core.js").logError(
-					LOG_LABEL,
+					"review-hold-gate.js",
 					what,
 					detail || undefined,
 				);
@@ -199,11 +206,10 @@ function buildHoldPorts({ cwd, env, now = Date.now }) {
 		} catch {
 			return null;
 		}
-		if (fs.existsSync(file))
-			return fs
-				.readFileSync(file, "utf8")
-				.split("\n")
-				.filter((l) => l !== "");
+		const heads = readText(file);
+		if (heads.state === "unreadable") return null;
+		if (heads.state === "read")
+			return heads.data.split("\n").filter((l) => l !== "");
 		const action = gitEnv.GIT_REFLOG_ACTION ?? "";
 		if (
 			!(

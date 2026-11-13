@@ -48,7 +48,7 @@
  *
  * A COMMIT CARRYING A `Review-Tier:` TRAILER, whose value the review hold
  * builds from its marker (scripts/review-hold-gate.js) and
- * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.sh), is
+ * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.js), is
  * counted by it where no counted record covers it, and once where one does (#3664).
  * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
  * line names it, and its tree is the one the commit was made with, which a

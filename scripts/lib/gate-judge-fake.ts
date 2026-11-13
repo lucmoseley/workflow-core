@@ -4,8 +4,9 @@
  * recorded harness lacks (lib/headless-argv-fake.js), logs the call, then
  * prints the recorded `result` row (scripts/fixtures/gate-judge-reply.json,
  * re-recorded by `node scripts/record-gate-judge-reply.js`) carrying the
- * canned reading, or fails as told. lib/gate-judge.contract.test.ts holds its
- * row to the recording.
+ * canned reading, or fails as told; and `judgeServe`, the same plan as
+ * lib/gate-judge.js's in-process `judge` port. lib/gate-judge.contract.test.ts
+ * holds its row to the recording and `judgeServe` to the launched fake.
  *
  * Beside lib/headless-run-fake.ts, not in it: that fake's run holds a session
  * open and logs no stdin or working directory.
@@ -27,6 +28,9 @@ export const OVERRIDE_LEAD = "Gate judge override honoured";
 export const OVERRIDE_REASON = "the records build up on demand";
 export const OVERRIDE_LINE = `**Gate judge override:** ${OVERRIDE_REASON}`;
 export const FALLBACK_LEAD = "The model reading of this body did not run";
+
+/** A judge bound far over a launched call, which is three Node starts. */
+export const LAUNCHED_BOUND_MS = 60_000;
 
 /** Where lib/gate-judge.js logs each write route's model call. */
 export const callLogPath = () =>
@@ -69,11 +73,35 @@ export interface JudgeCall {
 	configDir: string | null;
 }
 
+/** What the fake prints on `plan`. */
+function planStdout(plan: JudgeFakePlan) {
+	if ("reading" in plan) return JSON.stringify(buildReplyRow(plan.reading));
+	return "stdout" in plan ? plan.stdout : "";
+}
+
+/**
+ * The in-process `judge` port: the run the launcher hands back once the fake
+ * has answered `plan`, each prompt pushed to `prompts`. A hang stays a
+ * launched fake's, for the launcher's real kill.
+ */
+export function judgeServe(
+	plan: Exclude<JudgeFakePlan, { hang: true }>,
+	prompts: string[] = [],
+) {
+	return (prompt: string) => {
+		prompts.push(prompt);
+		return {
+			status: "exit" in plan ? plan.exit : 0,
+			signal: null,
+			stdout: planStdout(plan),
+			stderr: "",
+		};
+	};
+}
+
 /** Write the fake at `file`, logging each launch to `log`. */
 export function writeJudgeFake(file: string, log: string, plan: JudgeFakePlan) {
-	let stdout = "";
-	if ("reading" in plan) stdout = JSON.stringify(buildReplyRow(plan.reading));
-	else if ("stdout" in plan) stdout = plan.stdout;
+	const stdout = planStdout(plan);
 	const program = `#!/usr/bin/env node
 ${buildAuthStatusNodeBranch()}
 const fs = require("node:fs");

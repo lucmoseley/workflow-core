@@ -476,6 +476,11 @@ export const buildJqLines = ghComputed<(...values: unknown[]) => GhAnswer>(
 	"buildJqLines",
 );
 
+/** CITED_GRAPHQL_FAKE in-process, for lib/basis-cited-read.js's gh port. */
+export const answerCited = ghComputed<
+	(argv: string[], issues: Record<string, object>) => GhAnswer
+>(CITED_GRAPHQL_FAKE, "answerCited");
+
 export const answerLinkRead = ghComputed<
 	(argv: string[], answers?: LinkReadAnswers) => GhAnswer | undefined
 >(LINK_READ_FAKE, "answerLinkRead");

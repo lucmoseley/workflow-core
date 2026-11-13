@@ -12,7 +12,7 @@
  * as check-issue-cycles.js does. GitHub's REST issue rows always carry it.
  */
 
-const { ghApiSlurp } = require("./gh");
+const { gh, ghApiSlurp } = require("./gh");
 
 /**
  * @typedef {{ state?: string, pull_request?: object }} SubIssue
@@ -35,10 +35,11 @@ function localParentOf(iss) {
  * @param {number} n
  * @param {string} [repo] owner/name, gh's default repo where omitted
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @param {import("./gh.js").GhRun} [run]
  * @returns {any[]}
  */
-const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}) =>
-	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`], opts);
+const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}, run = gh) =>
+	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`], opts, run);
 
 /** The title that marks `map`'s archival container, which holds no work of its
  *  own: scripts/archive-closed-children.js finds it by this, never by a label.

@@ -85,6 +85,9 @@ const DIR = process.env.WFC_READ_AUDIT;
 const ROOT = process.env.WFC_READ_AUDIT_ROOT;
 const STRACE = process.env.WFC_READ_AUDIT_STRACE;
 
+/* The variable naming the lookups a spawner hands its child (#5160). */
+const SETTLED = "WFC_READ_AUDIT_SETTLED";
+
 /* The global the audit's api hangs on, for vitest.setup.ts to claim with. */
 const scope =
 	/** @type {{ __wfcReadAudit?: { claim: (file: string) => void, settle: () => void } }} */ (
@@ -211,7 +214,7 @@ function install() {
 	const realOpenSync = fs.openSync;
 
 	/** @type {import("./read-audit-handed.js").Settled} */
-	const settled = new Map();
+	const settled = readSettled(process.env[SETTLED]);
 	/* A path this process links, moves or removes moves where a settled one
 	 * lands only where it is that path or beneath it, as spelt or with its
 	 * links followed, or where its own lookup followed a link, whose hops
@@ -231,8 +234,6 @@ function install() {
 	};
 	/** @type {Map<string, import("./read-audit-handed.js").Settling>} */
 	const settlings = new Map();
-	/* A new standing environment: every lookup, and what each variable's
-	 * standing value spells. */
 	const resettle = () => {
 		settled.clear();
 		settlings.clear();
@@ -473,11 +474,8 @@ function install() {
 	/* A child a test ran under a TMPDIR of its own still holds the suite's
 	 * stubs (#5072). */
 	const ownTmp = realRealpathSync(os.tmpdir());
-	const verdictOf = buildVerdictOf({
-		root,
-		tmps: [...new Set([process.env.WFC_READ_AUDIT_TMP ?? ownTmp, ownTmp])],
-		realpath: realRealpathSync,
-	});
+	const tmps = [...new Set([process.env.WFC_READ_AUDIT_TMP ?? ownTmp, ownTmp])];
+	const verdictOf = buildVerdictOf({ root, tmps, realpath: realRealpathSync });
 	/** @typedef {import("./read-audit-provenance.js").Provenance} Provenance */
 	/**
 	 * What the child the test asked for is, for every test that weighs it
@@ -528,14 +526,15 @@ function install() {
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
 	 * the program lookup put there themselves: the root this audit was told,
-	 * this preload on `NODE_OPTIONS`, and on `PATH` the git guard, which logs
-	 * its own reads, and every `node_modules`, which the audit leaves out.
+	 * the lookups it hands a child, this preload on `NODE_OPTIONS`, and on
+	 * `PATH` the git guard, which logs its own reads, and every
+	 * `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
 	 * @param {Named} named
 	 */
 	const envPaths = (name, value, named) => {
-		if (name === "WFC_READ_AUDIT_ROOT") return [];
+		if (name === "WFC_READ_AUDIT_ROOT" || name === SETTLED) return [];
 		const paths = named(namedText(name, value), settlingOf(name));
 		if (name !== "PATH") return paths;
 		return paths.filter(
@@ -720,6 +719,43 @@ function install() {
 		const told = [...pairs, `${GIT_EVENTS}=${path.join(dir, events)}`];
 		return { opts: { ...opts, envPairs: told }, events };
 	};
+	let handings = 0;
+	let handedText = "";
+	let handedFile = "";
+	/** Whether a test may write at `at`: under the checkout or a temporary
+	 * directory, as lib/read-audit-provenance.js has it. */
+	const isWritable = (/** @type {string} */ at) =>
+		[root, ...tmps].some((under) => relativeUnder(under, at) !== null);
+	/**
+	 * Hand an audited child this process's settled lookups of paths no test
+	 * may write (#5160). A lookup a test can move, by a link another
+	 * process makes, the child makes afresh. The file this process was
+	 * handed is never passed on: its lookups may be ones this process
+	 * dropped since.
+	 * @param {Untyped} opts
+	 * @returns {Untyped}
+	 */
+	const withSettled = (opts) => {
+		if (!isAudited(opts?.envPairs)) return opts;
+		const pairs = opts.envPairs.filter(
+			(/** @type {string} */ p) => !String(p).startsWith(`${SETTLED}=`),
+		);
+		const kept = [...settled].filter(
+			([abs, real]) => !isWritable(abs) && (real === null || !isWritable(real)),
+		);
+		if (kept.length === 0) return { ...opts, envPairs: pairs };
+		const text = JSON.stringify(kept);
+		if (text !== handedText) {
+			const file = path.join(
+				dir,
+				`${owner}.${process.pid}.${++handings}.settled.json`,
+			);
+			fs.writeFileSync(file, text);
+			handedText = text;
+			handedFile = file;
+		}
+		return { ...opts, envPairs: [...pairs, `${SETTLED}=${handedFile}`] };
+	};
 	/**
 	 * `bin` is the spawn's program as `binOf` found it, and `prov` what that
 	 * program is, each once, for every test that weighs it and for its
@@ -749,7 +785,9 @@ function install() {
 				return { opts: asked, bin, prov, route: { within: true }, hands: [] };
 			const hands = handsOf(asked, prov);
 			const route = routeOf(asked, hands, bin, prov);
-			const { opts, events } = gitEventsOf(asked, prov);
+			const told = gitEventsOf(asked, prov);
+			const { events } = told;
+			const opts = withSettled(told.opts);
 			if (!route || !("trace" in route))
 				return { opts, bin, prov, route, hands, events };
 			const args = buildTraceArgv(
@@ -1005,6 +1043,30 @@ function readStanding(file) {
 	} catch {
 		// No file to read is no settled environment (#4982).
 		return {};
+	}
+}
+
+/**
+ * The lookups a spawner handed this process, off the file it wrote; none
+ * where it handed none or the file will not read.
+ * @param {string|undefined} file
+ * @returns {import("./read-audit-handed.js").Settled}
+ */
+function readSettled(file) {
+	if (!file) return new Map();
+	try {
+		const pairs = JSON.parse(fs.readFileSync(file, "utf8"));
+		return new Map(
+			pairs.filter(
+				(/** @type {unknown} */ p) =>
+					Array.isArray(p) &&
+					typeof p[0] === "string" &&
+					(typeof p[1] === "string" || p[1] === null),
+			),
+		);
+	} catch {
+		// Nothing handed is every lookup made afresh (#5160).
+		return new Map();
 	}
 }
 
