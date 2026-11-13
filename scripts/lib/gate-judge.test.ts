@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type CitedPort,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
 	readGateWrite,
@@ -34,7 +35,14 @@ import {
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
-import { type CitedFixture, stubGhRoutes, stubGhScript } from "./gh-stub";
+import {
+	CITED_GRAPHQL_FAKE,
+	GH_LOGGED_OUT,
+	type GhAnswer,
+	ghComputed,
+	ghServe,
+} from "./gh-fake";
+import { type CitedFixture, stubGhRoutes } from "./gh-stub";
 import { basisFaults, basisRefusal } from "./issue-gate.js";
 import { readJsonl } from "./jsonl.js";
 
@@ -100,6 +108,10 @@ const wait = (sentence: string, window: string, basisNamesWindow = false) => ({
 	window,
 	basisNamesWindow,
 });
+
+const answerCited = ghComputed<
+	(argv: string[], issues: Record<string, object>) => GhAnswer
+>(CITED_GRAPHQL_FAKE, "answerCited");
 
 const WAIT = "Re-measure once those records hold 500 ticks.";
 const NOTHING = reading();
@@ -784,63 +796,83 @@ describe("a write route's reading", () => {
 describe("a write route words the cited follow (#5007)", () => {
 	const Week = "**Gated until:** 2099-01-01 — a week after it lands";
 	const cites = (basis: string) => `${Week}\n**Gate basis:** ${basis}\n`;
-	let ghLog = "";
+	let ghCalls: string[][] = [];
 
 	beforeEach(() => {
 		fs.writeFileSync(
 			path.join(dir, ".claude", "workflow-core.json"),
 			JSON.stringify({ contract: 1, tracker: "o/r" }),
 		);
-		ghLog = path.join(dir, "gh.log");
+		ghCalls = [];
 	});
 	afterEach(() => vi.unstubAllEnvs());
 
-	const serving = (cited: Record<string, Record<number, CitedFixture>>) =>
-		vi.stubEnv("WFC_GH", stubGhRoutes(dir, {}, { log: ghLog, cited }).gh);
+	/* The cited read's gh call in-process: the shared gh fake's answerCited,
+	 * which gh.contract.test.ts holds to the real gh and to the stub. */
+	const serving =
+		(cited: Record<string, Record<number, CitedFixture>>) =>
+		(args: string[]) => {
+			ghCalls.push(args);
+			return ghServe(answerCited(args, cited))(args);
+		};
 	const graphqlCalls = () =>
-		fs.existsSync(ghLog)
-			? fs
-					.readFileSync(ghLog, "utf8")
-					.split("\n")
-					.filter((l) => l.startsWith("api graphql")).length
-			: 0;
+		ghCalls.filter(([cmd, sub]) => cmd === "api" && sub === "graphql").length;
+	/* `cited` omitted, the read is lib/gh.js's own, for the boundary case. */
 	const write = (
 		body: string,
+		cited: CitedPort | undefined,
 		opts: { before?: string; own?: number; leftMs?: number } = {},
-		extraEnv: Record<string, string> = {},
 	) =>
-		readGateWrite(body, {
-			route: "file-issue",
-			...opts,
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				WFC_GATE_CITED: "",
-				WFC_GATE_JUDGE: "off",
-				...extraEnv,
+		readGateWrite(
+			body,
+			{
+				route: "file-issue",
+				...opts,
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					WFC_GATE_CITED: "",
+					WFC_GATE_JUDGE: "off",
+				},
 			},
-		});
+			{ cited },
+		);
 
-	it("refuses a basis whose cited issue has no basis, quoting it, naming the issue and its reason, then the rule", () => {
-		serving({ "o/r": { 4884: { body: "A baseline, read over 24 h." } } });
-		const r = write(cites("#4884 read the baseline over a week"));
+	it("refuses a basis whose cited issue has no basis, quoting it, naming the issue and its reason, then the rule, through the gh stub", () => {
+		const ghLog = path.join(dir, "gh.log");
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhRoutes(
+				dir,
+				{},
+				{
+					log: ghLog,
+					cited: { "o/r": { 4884: { body: "A baseline, read over 24 h." } } },
+				},
+			).gh,
+		);
+		const r = write(cites("#4884 read the baseline over a week"), undefined);
 		expect(r.refusal).toContain(
 			'"#4884 read the baseline over a week" (it cites #4884, which has no `**Gate basis:**` line), which carries no warrant, as the wording patterns read it.',
 		);
 		expect(r.refusal).toContain("Rule: ");
-		expect(graphqlCalls()).toBe(1);
+		expect(
+			fs
+				.readFileSync(ghLog, "utf8")
+				.split("\n")
+				.filter((l) => l.startsWith("api graphql")),
+		).toHaveLength(1);
 	});
 
 	it("words a cited question round it cannot find", () => {
-		serving({ "o/r": { 1556: { body: "x" } } });
-		expect(write(cites("a week is #1556 Q9 (A)'s ruling")).refusal).toContain(
-			"(it cites #1556 Q9, where that question round is not found)",
-		);
+		const cited = serving({ "o/r": { 1556: { body: "x" } } });
+		expect(
+			write(cites("a week is #1556 Q9 (A)'s ruling"), cited).refusal,
+		).toContain("(it cites #1556 Q9, where that question round is not found)");
 	});
 
 	it("judges on form, with one note naming the unread issues, where the read fails", () => {
-		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
-		const r = write(cites("#12 and #13 set a week"));
+		const r = write(cites("#12 and #13 set a week"), ghServe(GH_LOGGED_OUT));
 		expect(r.refusal).toBeNull();
 		expect(
 			r.advice.startsWith("The issues a basis cites were not read ("),
@@ -851,8 +883,13 @@ describe("a write route words the cited follow (#5007)", () => {
 	});
 
 	it("judges on form, with the same note, where too little of the write's bound is left for the cited read", () => {
-		serving({ "o/r": { 12: { body: "x" } } });
-		const r = write(cites("#12 set a week"), { leftMs: 1000 });
+		const r = write(
+			cites("#12 set a week"),
+			serving({ "o/r": { 12: { body: "x" } } }),
+			{
+				leftMs: 1000,
+			},
+		);
 		expect(r.refusal).toBeNull();
 		expect(r.advice).toBe(
 			`The issues a basis cites were not read (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
@@ -861,9 +898,11 @@ describe("a write route words the cited follow (#5007)", () => {
 	});
 
 	it("follows no basis an edit leaves untouched, and every basis on a re-gate or rewrite", () => {
-		serving({ "o/r": { 12: { body: "x" } } });
+		const cited = serving({ "o/r": { 12: { body: "x" } } });
 		const legacy = cites("#12 set a week");
-		expect(write(`${legacy}\nnote\n`, { before: legacy, own: 1 })).toEqual({
+		expect(
+			write(`${legacy}\nnote\n`, cited, { before: legacy, own: 1 }),
+		).toEqual({
 			refusal: null,
 			advice: "",
 		});
@@ -873,25 +912,30 @@ describe("a write route words the cited follow (#5007)", () => {
 			legacy.replace("2099-01-01", "2099-02-01"),
 			legacy.replace("set a week", "set the week, a week"),
 		])
-			expect(write(after, { before: legacy, own: 1 }).refusal).toContain(Says);
+			expect(write(after, cited, { before: legacy, own: 1 }).refusal).toContain(
+				Says,
+			);
 		expect(graphqlCalls()).toBe(2);
 	});
 
 	it("logs the cited issues, their verdicts, the read's wall time and any fallback", () => {
-		serving({ "o/r": { 12: { body: "x" } } });
 		fs.rmSync(callLogPath(), { force: true });
-		const r = readGateWrite(cites("#12 set a week"), {
-			route: "file-issue",
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
-				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
-				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, NOTHING),
-				WFC_GATE_CITED: "",
-				WFC_GATE_JUDGE: "",
+		const r = readGateWrite(
+			cites("#12 set a week"),
+			{
+				route: "file-issue",
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					WFC_GATE_CITED: "",
+					WFC_GATE_JUDGE: "",
+				},
 			},
-		});
+			{
+				judge: judgeServe(NOTHING, prompts),
+				cited: serving({ "o/r": { 12: { body: "x" } } }),
+			},
+		);
 		expect(r.refusal).toContain(
 			"(it cites #12, which has no `**Gate basis:**` line)",
 		);
