@@ -36147,6 +36147,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/rescue-jobs.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -48920,7 +48921,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/rescue-sessions.test.ts": [
-			"scripts/arm-tasks.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
