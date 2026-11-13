@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { GATES as PRECOMMIT_GATES } from "./precommit-gates.js";
+import { PROFILE_GATES as PRECOMMIT_GATES } from "./precommit-gates.js";
 
 const { secondaryOf, summariseSecondary } = require("./arm-secondary.js");
 const { readRegisteredGuardSubjects } = require("./guard-fires.js");

@@ -79,7 +79,8 @@ const TEST_SWITCH = {
 const switchOf = (s) =>
 	s.subject === "tests" ? TEST_SWITCH : moduleSwitch(s.module);
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "gate-switches",
 	usage: "node check-gate-switches.js [--json] [--warn]",
 	run(/** @type {Ctx} */ ctx) {
@@ -111,4 +112,7 @@ runCheck({
 			noun: "gate(s) switched off over a subject the tree holds",
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

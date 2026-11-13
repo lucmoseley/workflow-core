@@ -52,10 +52,6 @@ JS_TEST_ERE='\.(test|spec)\.[cm]?[jt]sx?$'
 # shellcheck source=scripts/lib/local-hook.sh
 . "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/local-hook.sh
 
-# Once the main checkout is cut over to the worktree model (#4248), it takes no
-# commit at all: its main moves by the levelling step's fast-forward alone.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-main-checkout-commit.js || exit "$?"
-
 # Layer two of mantahostels#100's shared-tree pin, and the one that actually holds: the
 # PreToolUse guard (the guard-branch core of scripts/guard-dispatch.js) reads a command string and fails
 # open, and sees nothing at all in a plain terminal. A linked worktree is exempt
@@ -151,10 +147,6 @@ hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 # exactly its staged tree (#1622). The script owns its skips.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.js || exit "$?"
 
-# The roadmap HTML and its digest are only correct together; refuse the
-# half-staged pair here rather than leaving it to CI.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit "$?"
-
 # The staged roadmap is structurally valid, or it does not get committed (mantahostels#698).
 # Scoped to commits that stage the roadmap, so a commit touching nothing else
 # pays nothing. The checker judges the STAGED blob against HEAD's, so an
@@ -169,31 +161,6 @@ if ! lander_batch && armed '^docs/reference-roadmap\.html$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-valid.js || exit "$?"
 fi
 
-# A citation of this repo's tracker is bare `#N`; `mantahostels#N` names the
-# inherited tracker (#162).
-#
-# Unarmed by path: the fault landed in shell, JS, TS, JSON and markdown alike,
-# so there is no directory to narrow on.
-#
-# Not content-armed (`grep -q 'mantahostels#'` on the diff first):
-# a pre-filter that fails leaves the gate green, which contradicts the
-# checker's own fail-safe annotation.
-#
-# DEFEAT:    a `citation-exempt: <why>` comment drops one line, and
-#            WFC_CITATION_TRACKER_OFF=1 stands the gate down for one commit.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-citation-tracker.js || exit "$?"
-
-# A gate's subject tracked while its switch is off — a test file with no
-# commands.test, the roadmap, manual or §B with its module off, the brand sheet
-# and app/ with `site` off (#1506). Unarmed, as it judges the whole index: a
-# subject that landed before this shipped is refused at the next commit.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gate-switches.js || exit "$?"
-
-# A staged lockfile out of step with the staged package.json (#2029). The
-# refusal prints the lockfile rule, whose only delivery this is. Unarmed here:
-# the checker arms itself on the paths it reads, so the two cannot drift (#3434).
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-lockfile-sync.js || exit "$?"
-
 # A file added under docs/research/ (#2356): research is posted on its issue,
 # never landed in the tree. The refusal prints the rule.
 if armed '^docs/research/'; then
@@ -201,8 +168,8 @@ if armed '^docs/research/'; then
 fi
 
 # The roadmap HTML and its digest must agree on their version line (mantahostels#910).
-# check-roadmap-pair.js above catches the half-staged PAIR; this catches the pair
-# staged together with drifted versions.
+# The dispatcher's roadmap-pair row catches the half-staged PAIR; this catches
+# the pair staged together with drifted versions.
 #
 # Fed from the INDEX, not the worktree: reading the files in place would judge
 # a half-written digest the commit does not carry.
@@ -215,8 +182,8 @@ fi
 
 # The digest's bytes are what its generator renders, not merely a matching
 # version line (mantahostels#2890). docs/roadmap-digest.md is `derived` in docs/doc-map.md
-# §A — only gen-roadmap-digest.js may write it. check-roadmap-pair.js above
-# catches the half-staged pair,
+# §A — only gen-roadmap-digest.js may write it. The dispatcher's roadmap-pair
+# row catches the half-staged pair,
 # check-digest-version.js catches a drifted stamp, and a hand-edit that keeps
 # the stamp passed both.
 #
@@ -365,13 +332,6 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-user-settings-drift.js --warn
 # surface on it — accepted because WARN-only means it never blocks (check-code-
 # standards.js:405,433).
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-code-standards.js --touching HEAD --warn
-
-# A primitives row naming a path or § id that does not resolve, or a local
-# row taking a base row's job (#3451). Every commit, since a renamed exemplar
-# can sit anywhere; --paths-only keeps it to stat calls, the count line being
-# `npm run status`'s. It reads the worktree, so an unstaged rename the commit
-# does not carry can surface here; a base row's fault only warns in an adopter.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-primitives.js --paths-only || exit "$?"
 
 # An own skill body this commit grows past the size its re-reading pays for
 # (mantahostels#3136), report-only by ruling; and a skill or command body

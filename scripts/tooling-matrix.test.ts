@@ -46,7 +46,7 @@ import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
+import { PROFILE_GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { testGate } from "./lib/test-gate.js";
 

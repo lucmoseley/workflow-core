@@ -4,12 +4,13 @@
  *
  * - scripts/precommit-dispatch.js, which runs the rows in this order in one
  *   process (#5172), lib/precommit-dispatch.js's header holding the contract.
- * - lib/fault-profiles.js's PROFILES, from `identity`.
- * - lib/shared-fault-notices.js's NOTICES, from `notice`.
- * - lib/arm-secondary.js's refusal table, from `refusals`.
+ * - lib/fault-profiles.js's PROFILES, from a profile row's `identity`.
+ * - lib/shared-fault-notices.js's NOTICES, from its `notice`.
+ * - lib/arm-secondary.js's refusal table, from its `refusals`; a member with
+ *   no profile keeps its lines in scripts/commit-gate-refusals.json.
  * - The row test (precommit-whole-repo-gates.test.ts), the refusal-source
  *   test (lib/arm-secondary.test.ts) and base §0's floor test
- *   (tooling-matrix.test.ts), which iterate GATES.
+ *   (tooling-matrix.test.ts), which iterate PROFILE_GATES.
  *
  * Base §0's floor table is the one edit a new code gate still owes beside its
  * row: that table mixes these gates with gates of other shapes in one curated
@@ -42,8 +43,9 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
 
 /**
  * @typedef {string | { text: string, sites?: number }} RefusalLine
- * @typedef {object} PrecommitGate
- * @property {string} id the fault profile and refusal-table id
+ * @typedef {object} MemberGate
+ * @property {string} id the gate's refusal-table id, and its fault profile's
+ *   where it has one
  * @property {string} script the checker, from the repo root
  * @property {import("./precommit-dispatch.js").Lander} lander the queue
  *   lander's gate sets that run it beside a plain commit (#4545): `every`
@@ -56,6 +58,8 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  * @property {"checker"} kind a lib/check.js checker exporting its SPEC
  * @property {string} [side] why its `--against`/`--index` sides spawn the
  *   checker rather than run in-process, where they do
+ * @typedef {object} ProfileFields a whole-repo checker's, its faults
+ *   attributed to the commit that adds them
  * @property {string} staged a path whose staging arms it
  * @property {RefusalLine[]} refusals the lines any one of which names the gate
  * @property {string[]} [sources] the files printing `refusals`, where not the
@@ -66,10 +70,26 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  *   post-commit fault notice's row
  * @property {boolean} floor whether base §0's floor table names it, it being
  *   a gate that judges code
+ * @typedef {MemberGate & ProfileFields} ProfileGate
+ * @typedef {MemberGate | ProfileGate} PrecommitGate
  */
 
 /** @type {PrecommitGate[]} */
 const GATES = [
+	/*
+	 * Once the main checkout is cut over to the worktree model (#4248), it takes
+	 * no commit at all: its main moves by the levelling step's fast-forward
+	 * alone. Every set runs it, a lander's merge and batch included.
+	 */
+	{
+		id: "main-checkout-commit",
+		script: "scripts/check-main-checkout-commit.js",
+		lander: "every",
+		args: [],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
 	/*
 	 * Every parallel-safety rule in CLAUDE.md's guard-registry region states a
 	 * backing that holds — an **Enforced** claim naming a guard that exists and
@@ -117,6 +137,69 @@ const GATES = [
 				"or AGENTS.md, refusing only one that adds a fault of its own",
 		},
 		floor: false,
+	},
+	/*
+	 * The roadmap HTML and its digest are only correct together; refuse the
+	 * half-staged pair here rather than leaving it to CI.
+	 */
+	{
+		id: "roadmap-pair",
+		script: "scripts/check-roadmap-pair.js",
+		lander: "batch",
+		args: [],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * A citation of this repo's tracker is bare `#N`; `mantahostels#N` names
+	 * the inherited tracker (#162). Unarmed by path: the fault landed in
+	 * shell, JS, TS, JSON and markdown alike, so there is no directory to
+	 * narrow on. Not content-armed either: a pre-filter that fails leaves the
+	 * gate green, which contradicts the checker's own fail-safe annotation.
+	 *
+	 * DEFEAT:    a `citation-exempt: <why>` comment drops one line, and
+	 *            WFC_CITATION_TRACKER_OFF=1 stands the gate down for one commit.
+	 */
+	{
+		id: "citation-tracker",
+		script: "scripts/check-citation-tracker.js",
+		lander: "batch",
+		args: [],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * A gate's subject tracked while its switch is off — a test file with no
+	 * commands.test, the roadmap, manual or §B with its module off, the brand
+	 * sheet and app/ with `site` off (#1506). Unarmed, as it judges the whole
+	 * index: a subject that landed before this shipped is refused at the next
+	 * commit.
+	 */
+	{
+		id: "gate-switches",
+		script: "scripts/check-gate-switches.js",
+		lander: "batch",
+		args: [],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * A staged lockfile out of step with the staged package.json (#2029). The
+	 * refusal prints the lockfile rule, whose only delivery this is. Unarmed
+	 * here: the checker arms itself on the paths it reads, so the two cannot
+	 * drift (#3434).
+	 */
+	{
+		id: "lockfile-sync",
+		script: "scripts/check-lockfile-sync.js",
+		lander: "batch",
+		args: [],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
 	},
 	/*
 	 * A scripts/ test that spawns a guard sourcing lib/guard-log.sh must
@@ -597,7 +680,33 @@ const GATES = [
 		},
 		floor: true,
 	},
+	/*
+	 * A primitives row naming a path or § id that does not resolve, or a local
+	 * row taking a base row's job (#3451). Every commit, since a renamed
+	 * exemplar can sit anywhere; --paths-only keeps it to stat calls, the count
+	 * line being `npm run status`'s. It reads the worktree, so an unstaged
+	 * rename the commit does not carry can surface here; a base row's fault
+	 * only warns in an adopter.
+	 */
+	{
+		id: "primitives",
+		script: "scripts/check-primitives.js",
+		lander: "batch",
+		args: ["--paths-only"],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
 ];
+
+/**
+ * @param {PrecommitGate} g
+ * @returns {g is ProfileGate}
+ */
+const isProfileGate = (g) => "notice" in g;
+
+/** The rows whose checker has a fault profile, in order. */
+const PROFILE_GATES = GATES.filter(isProfileGate);
 
 /**
  * A path from the core root, absolute, in the core the running code sits in:
@@ -607,4 +716,4 @@ const GATES = [
  */
 const fromCoreRoot = (rel) => path.join(coreRoot(), rel);
 
-module.exports = { GATES, fromCoreRoot, SITE_IDENTITY };
+module.exports = { GATES, fromCoreRoot, PROFILE_GATES, SITE_IDENTITY };

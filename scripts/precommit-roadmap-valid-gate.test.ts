@@ -38,9 +38,11 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-roadmap-valid.js";
 const PAIR = "scripts/check-roadmap-pair.js";
+const DISPATCH = "scripts/precommit-dispatch.js";
 
 const gateFragment = () => cutGateFragment(CHECKER);
 
@@ -118,7 +120,7 @@ describe("the pre-commit roadmap-validity gate", () => {
 		expectFixtureSupplies(CHECKER, [CHECKER]);
 	});
 
-	it("runs after the roadmap-pair check", () => {
+	it("runs after the roadmap-pair check, a dispatcher row (#5172)", () => {
 		// Both positions are of the CALL line, never of a comment naming the
 		// checker: `indexOf` on the raw text would happily compare one gate's
 		// commentary against the other gate's call and still read as ordered.
@@ -127,8 +129,9 @@ describe("the pre-commit roadmap-validity gate", () => {
 			lines.findIndex(
 				(l) => l.includes(checker) && !l.trimStart().startsWith("#"),
 			);
-		expect(callOf(PAIR)).toBeGreaterThan(-1);
-		expect(callOf(CHECKER)).toBeGreaterThan(callOf(PAIR));
+		expect(GATES.map((g) => g.script)).toContain(PAIR);
+		expect(callOf(DISPATCH)).toBeGreaterThan(-1);
+		expect(callOf(CHECKER)).toBeGreaterThan(callOf(DISPATCH));
 	});
 
 	it("arms on exactly the path the checker judges", () => {

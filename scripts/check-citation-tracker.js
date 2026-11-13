@@ -171,7 +171,8 @@ function failLine(ctx, at, inherited) {
 	return judged;
 }
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "citation-tracker",
 	usage: "node check-citation-tracker.js [--json] [--warn] [--all]",
 	flags: ["--all"],
@@ -217,4 +218,7 @@ runCheck({
 			data: { citations, numbers: [...found].sort((a, b) => a - b) },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

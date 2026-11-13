@@ -15,7 +15,7 @@ const {
 } = require("./context-budget-tags");
 
 const { REFUSES_COMMIT } = require("./refuses-commit.js");
-const { GATES, SITE_IDENTITY } = require("./precommit-gates.js");
+const { PROFILE_GATES: GATES, SITE_IDENTITY } = require("./precommit-gates.js");
 
 /** A finding's identity as the named fields, in the order given. */
 const on =

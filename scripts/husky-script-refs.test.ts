@@ -62,7 +62,7 @@ describe("husky hook script references", () => {
 	it.each(HOOKS)("%s calls only scripts that exist", (hook) => {
 		const text = readHook(hook);
 		if (hook === "pre-commit")
-			expect(scriptRefs(text)).toContain("scripts/check-citation-tracker.js");
+			expect(scriptRefs(text)).toContain("scripts/precommit-dispatch.js");
 		expect(missing(text)).toEqual([]);
 	});
 });

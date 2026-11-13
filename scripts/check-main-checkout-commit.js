@@ -63,10 +63,11 @@ function run(ctx) {
 	return { noun: "commit(s) in the main checkout", count: 1 };
 }
 
-if (require.main === module) {
-	runCheck({
-		name: "main-checkout-commit",
-		usage: "node check-main-checkout-commit.js [--json] [--warn]",
-		run,
-	});
-}
+const SPEC = {
+	name: "main-checkout-commit",
+	usage: "node check-main-checkout-commit.js [--json] [--warn]",
+	run,
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

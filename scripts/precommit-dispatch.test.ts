@@ -46,6 +46,7 @@ if (act === "signal") process.kill(process.pid, "SIGTERM");
 const SPEC = {
 	name: id,
 	usage: id,
+	flags: ${JSON.stringify([...new Set(GATES.flatMap((g) => g.args.filter((a) => a.startsWith("--") && a !== "--against" && a !== "--index")))])},
 	against: { profile: "jsonl-reads", materialise: "tree" },
 	run(ctx) {
 		if (act === "broken") ctx.broken(id + " is broken");
@@ -106,12 +107,13 @@ function hook(
 	return { code: r.status, out: r.stdout, err: r.stderr, loaded };
 }
 
-/** Staged `scripts/a.js` arms these rows, by each row's own arm. */
+/** Staged `p` arms these rows, by each row's own arm. */
 const SCRIPT = { "scripts/a.js": "x\n" };
 const armedBy = (p: string, sets: string[]) =>
 	GATES.filter(
 		(g) =>
-			sets.includes(g.lander) && "pattern" in g.arm && g.arm.pattern.test(p),
+			sets.includes(g.lander) &&
+			("always" in g.arm || ("pattern" in g.arm && g.arm.pattern.test(p))),
 	).map((g) => path.basename(g.script, ".js"));
 const ALL = armedBy("scripts/a.js", ["every", "merge", "batch", "none"]);
 
@@ -127,18 +129,28 @@ describe("the hook's dispatcher line", () => {
 		expect(r.loaded).toEqual(ALL);
 	});
 
-	it("exits 0 where nothing is armed, loading no row", () => {
+	it("loads only the always rows where no path arms one", () => {
 		const r = hook({ "lib/page.tsx": "x\n" });
 		expect(r.code).toBe(0);
-		expect(r.loaded).toEqual([]);
+		expect(r.loaded).toEqual(
+			armedBy("lib/page.tsx", ["every", "merge", "batch", "none"]),
+		);
+		expect(r.loaded.length).toBeGreaterThan(0);
 	});
 
 	it("exits 1 on a member's FAIL, its report on stderr, and loads nothing after", () => {
-		const red = ALL[2] ?? "";
+		/* An --against row, whose report names each fault the commit adds. */
+		const at = ALL.findIndex((id) =>
+			GATES.some(
+				(g) => g.script === `scripts/${id}.js` && g.args[0] === "--against",
+			),
+		);
+		const red = ALL[at] ?? "";
 		const r = hook({ ...SCRIPT, red: "x\n" }, { act: `${red}:fail` });
+		expect(at).toBeGreaterThan(0);
 		expect(r.code).toBe(1);
 		expect(r.err).toContain(`${red} fault`);
-		expect(r.loaded).toEqual(ALL.slice(0, 3));
+		expect(r.loaded).toEqual(ALL.slice(0, at + 1));
 	});
 
 	it("exits 2 on a member's BROKEN", () => {

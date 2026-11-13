@@ -182,13 +182,15 @@ const settled = (r: {
  * row's arming path and whose index changes it. */
 describe.each(GATES)("the $id dispatcher row", (row) => {
 	it("runs in-process exactly as spawned over a change to its arming path", async () => {
+		/* An always-armed row has no arming path: any change arms it. */
+		const at = "staged" in row ? row.staged : "notes.txt";
 		const repo = fixture({
-			name: row.staged,
+			name: at,
 			build: (r) => {
-				const json = row.staged.endsWith(".json");
-				stage(r, row.staged, json ? '{ "v": 1 }\n' : "one\n");
+				const json = at.endsWith(".json");
+				stage(r, at, json ? '{ "v": 1 }\n' : "one\n");
 				git(r, "commit", "-qm", "init");
-				stage(r, row.staged, json ? '{ "v": 2 }\n' : "two\n");
+				stage(r, at, json ? '{ "v": 2 }\n' : "two\n");
 			},
 		});
 		const file = path.join(SCRIPTS, path.basename(row.script));

@@ -14,14 +14,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { GATES } from "./lib/precommit-gates.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const CHECKER = "scripts/check-lockfile-sync.js";
 const SCRIPT = path.join(__dirname, "check-lockfile-sync.js");
-const HOOK = fs.readFileSync(
-	path.join(__dirname, "..", ".husky", "pre-commit"),
-	"utf8",
-);
 const RULE = fs
 	.readFileSync(
 		path.join(__dirname, "..", "docs", "agents", "rules", "lockfile-sync.txt"),
@@ -178,16 +175,11 @@ describe("check-lockfile-sync", () => {
 		},
 	);
 
-	/* The checker arms itself on what it reads; an `armed` pattern in the hook
+	/* The checker arms itself on what it reads; an arm pattern on its row
 	 * would be a second list free to drift from it (#3434). */
-	it("runs on every commit in .husky/pre-commit, outside any armed block", () => {
-		const code = HOOK.split("\n").filter(
-			(l) => l.trim() !== "" && !l.trimStart().startsWith("#"),
-		);
-		const at = code.flatMap((l, n) => (l.includes(CHECKER) ? [n] : []));
-		expect(at).toHaveLength(1);
-		const [i] = at as [number];
-		expect(code[i]).toMatch(/^node /);
-		expect(code[i - 1]).not.toMatch(/(&&|\|\||\\|\bthen|\bdo|\belse)\s*$/);
+	it("runs on every commit, an always-armed dispatcher row (#5172)", () => {
+		const row = GATES.find((g) => g.script === CHECKER);
+		expect(row?.arm).toEqual({ always: true });
+		expect(row?.policy).toBe("gate");
 	});
 });

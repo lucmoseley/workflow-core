@@ -26,7 +26,7 @@ import {
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
-import { GATES } from "./lib/precommit-gates.js";
+import { GATES, PROFILE_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
 
@@ -35,7 +35,7 @@ const temps = registerTempCleanup();
 /** A path no gate's condition holds, and where a rename of it goes. */
 const OUTSIDE = "lib/page.tsx";
 
-type Gate = (typeof GATES)[number];
+type Gate = (typeof PROFILE_GATES)[number];
 
 /** Whether the dispatcher runs `gate` on what is staged in `root`. */
 async function arms(gate: Gate, root: string): Promise<boolean> {
@@ -71,16 +71,7 @@ function renamed(from: string, to: string): string {
 	return root;
 }
 
-describe.each(GATES)("the pre-commit $id gate", (gate) => {
-	it("names a profile lib/fault-profiles.js actually carries", () => {
-		const { PROFILES } = require("./lib/fault-profiles.js");
-		expect(Object.keys(PROFILES)).toContain(gate.id);
-	});
-
-	it("hands its checker --against HEAD or --index, and nothing else", () => {
-		expect([["--against", "HEAD"], ["--index"]]).toContainEqual(gate.args);
-	});
-
+describe.each(GATES)("the dispatcher's $id row", (gate) => {
 	/* The dispatcher requires the checker: one that ran at load would exit the
 	 * dispatcher's own process. */
 	it("loads as a SPEC without running", () => {
@@ -99,6 +90,17 @@ describe.each(GATES)("the pre-commit $id gate", (gate) => {
 			stdout: "loaded",
 			stderr: "",
 		});
+	});
+});
+
+describe.each(PROFILE_GATES)("the pre-commit $id gate", (gate) => {
+	it("names a profile lib/fault-profiles.js actually carries", () => {
+		const { PROFILES } = require("./lib/fault-profiles.js");
+		expect(Object.keys(PROFILES)).toContain(gate.id);
+	});
+
+	it("hands its checker --against HEAD or --index, and nothing else", () => {
+		expect([["--against", "HEAD"], ["--index"]]).toContainEqual(gate.args);
 	});
 
 	it("arms on a path in its condition", async () => {
@@ -165,7 +167,7 @@ const HOOK_ERE: Record<string, string> = {
 const JS_TEST_ERE = JS_TEST_FILE.source.replaceAll("(?:", "(");
 
 const PATHS = [
-	...GATES.map((g) => g.staged),
+	...PROFILE_GATES.map((g) => g.staged),
 	...siblingTests("scripts/a"),
 	...siblingTests("scripts/lib/a"),
 	...siblingTests(".claude/skills/x/scripts/a"),
@@ -206,11 +208,11 @@ const PATHS = [
 describe("each row's arm, against the hook ERE it replaced", () => {
 	it("covers every row", () => {
 		expect(Object.keys(HOOK_ERE).sort()).toEqual(
-			GATES.map((g) => g.script).sort(),
+			PROFILE_GATES.map((g) => g.script).sort(),
 		);
 	});
 
-	it.each(GATES)("$id takes the paths grep -E took", (gate) => {
+	it.each(PROFILE_GATES)("$id takes the paths grep -E took", (gate) => {
 		const ere = (HOOK_ERE[gate.script] ?? "").replaceAll(
 			"$JS_TEST_ERE",
 			JS_TEST_ERE,

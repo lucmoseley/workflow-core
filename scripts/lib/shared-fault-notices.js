@@ -16,7 +16,7 @@
 
 const path = require("node:path");
 const { scriptPath } = require("./script-path.js");
-const { fromCoreRoot, GATES } = require("./precommit-gates.js");
+const { fromCoreRoot, PROFILE_GATES: GATES } = require("./precommit-gates.js");
 
 /** @typedef {"against" | "index"} Gate */
 

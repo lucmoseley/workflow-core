@@ -212,10 +212,11 @@ function run(ctx) {
 	return { noun: "lockfile disagreement(s)", count: found.length };
 }
 
-if (require.main === module) {
-	runCheck({
-		name: "lockfile-sync",
-		usage: "node check-lockfile-sync.js [--json] [--warn]",
-		run,
-	});
-}
+const SPEC = {
+	name: "lockfile-sync",
+	usage: "node check-lockfile-sync.js [--json] [--warn]",
+	run,
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

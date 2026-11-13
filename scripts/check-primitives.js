@@ -107,71 +107,73 @@ function readNewHeresies(root) {
 	}
 }
 
-const main = () =>
-	runCheck({
-		name: "primitives",
-		usage: `node ${scriptPath("check-primitives.js")} [--root <dir>] [--paths-only] [--json] [--warn]`,
-		valueFlags: ["--root"],
-		flags: ["--paths-only"],
-		run(/** @type {Ctx} */ ctx) {
-			const root = path.resolve(ctx.value("--root") ?? hostRoot());
-			const plugin = coreRoot();
-			/** @type {Record<Side, string>} */
-			const roots = { base: plugin, local: root };
-			const inAdopter = !isCoreRoot(root, { core: plugin });
-			const result = judgePrimitives({
-				read: (side) => {
-					const at = path.join(roots[side], DOCS[side]);
-					try {
-						return fs.readFileSync(at, "utf8");
-					} catch (e) {
-						/* Absent is no table; any other failure is the reading
-						 * apparatus's, never "no table" (base §N5). */
-						if (caught(e).code === "ENOENT") return null;
-						return ctx.broken(
-							`${at} could not be read (${caught(e).message}) — nothing was judged`,
-						);
-					}
-				},
-				exists: (side, rel) => fs.existsSync(path.join(roots[side], rel)),
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
+	name: "primitives",
+	usage: `node ${scriptPath("check-primitives.js")} [--root <dir>] [--paths-only] [--json] [--warn]`,
+	valueFlags: ["--root"],
+	flags: ["--paths-only"],
+	run(/** @type {Ctx} */ ctx) {
+		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const plugin = coreRoot();
+		/** @type {Record<Side, string>} */
+		const roots = { base: plugin, local: root };
+		const inAdopter = !isCoreRoot(root, { core: plugin });
+		const result = judgePrimitives({
+			read: (side) => {
+				const at = path.join(roots[side], DOCS[side]);
+				try {
+					return fs.readFileSync(at, "utf8");
+				} catch (e) {
+					/* Absent is no table; any other failure is the reading
+					 * apparatus's, never "no table" (base §N5). */
+					if (caught(e).code === "ENOENT") return null;
+					return ctx.broken(
+						`${at} could not be read (${caught(e).message}) — nothing was judged`,
+					);
+				}
+			},
+			exists: (side, rel) => fs.existsSync(path.join(roots[side], rel)),
+		});
+		if (result.broken)
+			return ctx.broken(
+				`${result.broken} (${path.join(plugin, DOCS.base)}) — nothing was judged`,
+			);
+		for (const { message, file, gates } of buildFindingReports(
+			result.findings,
+			inAdopter,
+		)) {
+			ctx.say(`  ${message}`);
+			if (gates) ctx.fail("PRIMITIVES", message, { file });
+			else ctx.warn("PRIMITIVES", message, { file });
+		}
+		/** @param {string | null} countLine */
+		const outcome = (countLine) => {
+			const { okLine, extraLine } = primitivesOutcome({
+				rows: result.rows.length,
+				line: countLine,
+				findings: ctx.findings.length,
 			});
-			if (result.broken)
-				return ctx.broken(
-					`${result.broken} (${path.join(plugin, DOCS.base)}) — nothing was judged`,
-				);
-			for (const { message, file, gates } of buildFindingReports(
-				result.findings,
-				inAdopter,
-			)) {
-				ctx.say(`  ${message}`);
-				if (gates) ctx.fail("PRIMITIVES", message, { file });
-				else ctx.warn("PRIMITIVES", message, { file });
-			}
-			/** @param {string | null} countLine */
-			const outcome = (countLine) => {
-				const { okLine, extraLine } = primitivesOutcome({
-					rows: result.rows.length,
-					line: countLine,
-					findings: ctx.findings.length,
-				});
-				if (extraLine) ctx.say(`  ${extraLine}`);
-				return {
-					okLine,
-					noun: "primitives table fault(s)",
-					count: ctx.findings.length,
-					data: { rows: result.rows.length, countLine },
-				};
+			if (extraLine) ctx.say(`  ${extraLine}`);
+			return {
+				okLine,
+				noun: "primitives table fault(s)",
+				count: ctx.findings.length,
+				data: { rows: result.rows.length, countLine },
 			};
-			if (ctx.has("--paths-only")) return outcome(null);
-			return countPrimitives(result, {
-				countBreaches: (checks) =>
-					pool(checks, COUNT_WIDTH, ({ side, rel }) =>
-						countBreaches(path.join(roots[side], rel), root),
-					),
-				readNewHeresies: () => readNewHeresies(root),
-			}).then(outcome);
-		},
-	});
+		};
+		if (ctx.has("--paths-only")) return outcome(null);
+		return countPrimitives(result, {
+			countBreaches: (checks) =>
+				pool(checks, COUNT_WIDTH, ({ side, rel }) =>
+					countBreaches(path.join(roots[side], rel), root),
+				),
+			readNewHeresies: () => readNewHeresies(root),
+		}).then(outcome);
+	},
+};
 
-module.exports = { main };
+const main = () => runCheck(SPEC);
+
+module.exports = { main, SPEC };
 if (require.main === module) main();

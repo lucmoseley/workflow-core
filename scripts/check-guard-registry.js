@@ -754,7 +754,38 @@ function readWiringCorpus() {
 	parts.push(...readPackageScriptValues());
 	for (const dir of [".husky", ".github/workflows"])
 		parts.push(...readDirFiles(dir));
+	parts.push(...dispatcherRowScripts(parts.join("\n")));
 	return parts.join("\n");
+}
+
+const PRECOMMIT_DISPATCH = "scripts/precommit-dispatch.js";
+
+/**
+ * The script of every pre-commit dispatcher row, where a hook runs the
+ * dispatcher (#5172): the hook runs each in-process, so it is triggered as
+ * surely as a hook line naming it. The rows are read from the root's own
+ * registry where the root is a core tree, else the core's, which an
+ * adopter's hook reaches through WFC_PLUGIN_ROOT — none where neither loads.
+ *
+ * @param {string} corpus the wiring read so far
+ * @returns {string[]}
+ */
+function dispatcherRowScripts(corpus) {
+	if (!corpus.includes(PRECOMMIT_DISPATCH)) return [];
+	const registry = path.join(
+		rootIsCore() ? root : CORE_ROOT,
+		"scripts",
+		"lib",
+		"precommit-gates.js",
+	);
+	try {
+		/** @type {{ GATES: { script: string }[] }} */
+		const { GATES } = require(registry);
+		return GATES.map((g) => g.script);
+	} catch {
+		/* absent or unloadable wires nothing; an Enforced claim then reports UNWIRED */
+		return [];
+	}
 }
 
 /** package.json's string `scripts` values — none where it is absent or malformed. */

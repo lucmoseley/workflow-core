@@ -15,7 +15,7 @@ const {
 	PRICED,
 	CONFIDENCE_ANY,
 } = require("./round-marker.js");
-const { GATES } = require("./precommit-gates.js");
+const { PROFILE_GATES: GATES } = require("./precommit-gates.js");
 
 /** The line husky prints whenever any pre-commit gate exits non-zero. */
 const HUSKY_REFUSAL = "husky - pre-commit script failed";
