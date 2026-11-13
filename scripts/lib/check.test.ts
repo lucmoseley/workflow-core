@@ -1483,7 +1483,6 @@ runCheck({
  * actually taken.
  */
 describe("--against with the blobs materialisation", () => {
-	/** A fresh repo under `dir`, with a committer identity, and git run in it. */
 	const gitRepo = (prefix: string) => {
 		const root = fs.mkdtempSync(path.join(dir, prefix));
 		const git = (...args: string[]) =>
@@ -1660,7 +1659,6 @@ runCheck({
 		const { root, git } = blobRepo(blobSpec);
 		seed(root, git);
 		const r = gateBlobs(root, ["elsewhere", "--against", "HEAD"]);
-		// The pathspec side: only what the positional named was materialised.
 		expect(r.out).toContain("elsewhere/huge.txt");
 		expect(r.out).not.toContain("wanted/a.txt");
 		// The re-exec side, which a checker deriving its own scope from ctx.args
@@ -1753,8 +1751,8 @@ runCheck({
 	/*
 	 * `baselineCode: "rev"` over a pathspec that holds none of the checker's
 	 * code (#5178): a commit renaming the module's export and the checker's
-	 * read of it together. The working checker reads HEAD's module in the old
-	 * shape as BROKEN; HEAD's own copy, fetched with its run reach, measures it.
+	 * read of it together. HEAD's own copy, fetched with its run reach,
+	 * measures HEAD's module in the old shape.
 	 * HEAD's copy also requires a lib the commit deletes, which only the walk
 	 * over the fetched tree finds.
 	 */

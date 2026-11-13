@@ -76,8 +76,7 @@
  * pass the commit that made them (#4807); one that reads its revision's code
  * (check-context-budget.js's text module) would read a baseline in the old
  * shape as BROKEN, so a commit changing the code and its reader together could
- * not land as one merge (#5178). A `blobs` side fetches the checker's run
- * reach for it — baselineChecker().
+ * not land as one merge (#5178).
  *
  * FAIL-CLOSED ON THE BASELINE. A <rev> reading that cannot answer —
  * unreadable, unparseable, BROKEN or SKIP — is BROKEN here, never "inherited",
@@ -90,7 +89,7 @@ const { spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-/* PERSIST MODE (mantahostels#1974, the seam mantahostels#1949's persist-and-replay hangs off) — the
+/* PERSIST MODE (mantahostels#1974) — the
  * `WFC_NOTIFY_PERSIST` gate, shared with `reap-finished-sessions.js` since
  * mantahostels#2252 so the two cannot drift. What the mode is and why the gate is spelled
  * as it is: lib/persist-mode.js's header. */
@@ -1111,7 +1110,7 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
  * a message spells a script path, so a copy rooted in the tree would render
  * the text it measures longer than the index side does. Every other file the
  * copy finds through coreRoot(), corePath() or docPath() is therefore read off
- * this process's core too, as the working checker read it before.
+ * this process's core too.
  *
  * @param {string} rev
  * @param {string} dir
