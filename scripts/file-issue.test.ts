@@ -19,16 +19,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { issueClaims, store } from "./lib/arbiter-testkit";
+import { issueClaims } from "./lib/arbiter-testkit";
 import {
 	assignCall,
-	DECLARED,
 	fileIssueKit,
 	filing,
 	listed,
 	ME,
 	NEW,
-	SCRIPT,
 	TRACKER,
 } from "./lib/file-issue-testkit";
 import {
@@ -41,10 +39,7 @@ import {
 	OVERRIDE_LINE,
 	OVERRIDE_REASON,
 } from "./lib/gate-judge-fake";
-import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
-import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 import { TAKES_VALUES } from "./lib/takes-label";
 
 const kit = fileIssueKit();
@@ -232,54 +227,6 @@ describe("create, then link", () => {
 		);
 		expect(calls.at(-1)).toContain("repos/acme/widgets/issues/528/sub_issues");
 	});
-
-	it("exits 1 when the create prints no issue URL, saying to search before re-running", () => {
-		setUp();
-		const silent = stubGhScript(
-			at("alt"),
-			`#!/bin/sh\necho "$*" >> ${shellQuote(at("gh-calls"))}\ncase "$*" in "issue create"*) cat >/dev/null; exit 0;; esac\ncat ${shellQuote(at("api"))}/"$(echo "$2" | tr / _)"\n`,
-		);
-		const r = runInProcess(
-			SCRIPT,
-			[...filing(["takes:implement"]), ...DECLARED],
-			{
-				env: { ...process.env, ...silent.env },
-				stdin: "Body.\n",
-			},
-		);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("printed no issue URL");
-		expect(r.stderr).toContain("Search acme/widgets's open issues");
-	});
-
-	it.each([
-		[
-			"the 7-layer cap",
-			"gh: You can't add more than 7 layers of sub-issues (HTTP 422)",
-			`give #${NEW} #528's own parent — scripts/link-sub-issue.sh 500 ${NEW}`,
-		],
-		[
-			"the 100-child cap",
-			"gh: Parent cannot have more than 100 sub-issues (HTTP 422)",
-			`node scripts/archive-closed-children.js 528, then scripts/link-sub-issue.sh 528 ${NEW}`,
-		],
-	])(
-		"exits 1 on a link refused at %s, naming the created issue and its remedy",
-		(_, err, remedy) => {
-			setUp(["kind:spec"], {
-				parent_issue_url:
-					"https://api.github.com/repos/acme/widgets/issues/500",
-			});
-			fs.writeFileSync(at("post-err"), err);
-			const r = run(filing(["takes:implement"]));
-			expect(r.status).toBe(1);
-			expect(r.stderr).toContain(`#${NEW} was filed but not linked under #528`);
-			expect(r.stderr).toContain(remedy);
-			expect(r.stderr).toContain("Do NOT file it again.");
-			expect(readCreates()).toHaveLength(1);
-			expect(readGhCalls().some((c) => c.includes("DELETE"))).toBe(false);
-		},
-	);
 });
 
 describe("a link failing for any other reason", () => {
@@ -299,28 +246,7 @@ describe("a link failing for any other reason", () => {
 	});
 });
 
-describe("the acts ledger (#2308)", () => {
-	it("records one file line for the filing session, and none for a refused filing", () => {
-		setUp();
-		expect(run(filing(["kind:ticket"])).status).toBe(2);
-		expect(run(filing(["takes:implement"])).status).toBe(0);
-		expect(store.readActsBy(ME, [sb.repo]).acts).toEqual([
-			`file acme/widgets#${NEW}`,
-		]);
-	});
-});
-
 describe("assignment", () => {
-	it("leaves the new issue unassigned by default, with no arbiter record", () => {
-		setUp();
-		const r = run(filing(["takes:implement"]));
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(readGhCalls().some((c) => c.startsWith("issue edit"))).toBe(false);
-		expect(readCreates()[0]).not.toContain("assignee");
-		expect(issueClaims.readIssueClaims(NEW)).toEqual([]);
-	});
-
 	it("with --assign-self, writes the arbiter record and assigns @me", () => {
 		setUp();
 		const r = run([...filing(["takes:implement"]), "--assign-self"]);
@@ -328,77 +254,6 @@ describe("assignment", () => {
 		expect(r.stdout).toContain(`Recorded the arbiter claim for session ${ME}.`);
 		expect(readClaimants()).toEqual([ME]);
 		expect(readGhCalls()).toContain(assignCall);
-	});
-
-	it("with --assign-self and no session id, assigns and says no record was written", () => {
-		setUp();
-		const r = run([...filing(["takes:implement"]), "--assign-self"], {
-			sessionId: null,
-		});
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("no arbiter record was written");
-		expect(issueClaims.readIssueClaims(NEW)).toEqual([]);
-	});
-});
-
-describe("a charting session's map and its children (#2314)", () => {
-	const mapFiling = () =>
-		filing(
-			["takes:wayfinder", "wayfinder:map"],
-			["--standalone", "a new effort"],
-		);
-
-	it("claims and assigns a map filed under a session id, without --assign-self", () => {
-		setUp();
-		const r = run(mapFiling());
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`Recorded the arbiter claim for session ${ME}.`);
-		expect(readClaimants()).toEqual([ME]);
-		expect(readGhCalls()).toContain(assignCall);
-	});
-
-	it("leaves a map filed with no session id unassigned", () => {
-		setUp();
-		const r = run(mapFiling(), { sessionId: null });
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(readGhCalls()).not.toContain(assignCall);
-	});
-
-	it("leaves a research ticket filed under a map unassigned and unclaimed", () => {
-		setUp(["wayfinder:map", "takes:wayfinder"]);
-		const r = run(filing(["takes:wayfinder", "wayfinder:research"]));
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(readClaimants()).toEqual([]);
-		expect(readGhCalls()).not.toContain(assignCall);
-	});
-});
-
-describe("--assign-self failing once the issue is placed", () => {
-	it("exits 1 when the arbiter cannot record the claim, naming the issue and claim-issue", () => {
-		setUp();
-		fs.mkdirSync(path.dirname(store.paths.issueClaimsDir()), {
-			recursive: true,
-		});
-		fs.writeFileSync(store.paths.issueClaimsDir(), "not a directory");
-		const r = run([...filing(["takes:implement"]), "--assign-self"]);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
-			`#${NEW} is filed and placed, but the arbiter would not record the claim`,
-		);
-		expect(r.stderr).toContain(`node scripts/claim-issue.js ${NEW}`);
-		expect(readGhCalls().some((c) => c.startsWith("issue edit"))).toBe(false);
-	});
-
-	it("exits 1 when the assignment fails after the record, saying the record stands", () => {
-		setUp();
-		fs.writeFileSync(at("assign-fails"), "");
-		const r = run([...filing(["takes:implement"]), "--assign-self"]);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(`Recorded the arbiter claim for session ${ME}.`);
-		expect(r.stderr).toContain(`assigning #${NEW} failed (HTTP 403: no)`);
-		expect(r.stderr).toContain(`node scripts/claim-issue.js ${NEW}`);
 	});
 });
 

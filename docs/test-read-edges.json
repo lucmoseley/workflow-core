@@ -19130,7 +19130,6 @@
 			"scripts/check-wsl-currency.test.ts",
 			"scripts/claim-issue.test.ts",
 			"scripts/deliver-to-session-ci.test.ts",
-			"scripts/file-issue.test.ts",
 			"scripts/file-memory-kill-tickets.test.ts",
 			"scripts/file-process-runaway-tickets.test.ts",
 			"scripts/guard-exhausted-map.test.ts",
