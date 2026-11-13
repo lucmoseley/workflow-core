@@ -6,8 +6,7 @@
  * precommit-injector-margin-gate.test.ts's.
  *
  * A fake module is any CommonJS source exporting the composers the measure
- * calls, so a case can choose the exact payload length either side of the
- * threshold. The real module's own figures are asserted by
+ * calls. The real module's own figures are asserted by
  * lib/inject-tracker-docs.test.ts, which owns that ground; pinning one here
  * would go red on every ordinary rule edit.
  *
@@ -38,7 +37,6 @@ const write = (rel: string, body: string) => {
 	fs.writeFileSync(path.join(root, rel), body);
 };
 
-/** A stand-in module whose every command's payload is `body`. */
 const moduleOf = (commands: string[], body: string) =>
 	[
 		`const COMMANDS = ${JSON.stringify(commands)};`,
@@ -52,11 +50,9 @@ const moduleOf = (commands: string[], body: string) =>
 		"",
 	].join("\n");
 
-/** A stand-in module emitting `size` characters for every command named. */
 const fakeModule = (commands: string[], size: number) =>
 	moduleOf(commands, "x".repeat(size));
 
-/** `root` holding `text` as the module, beside the live hook-limits.js. */
 const seed = (text: string) => {
 	write(HOOK_LIMITS, fs.readFileSync(path.join(ROOT, HOOK_LIMITS), "utf8"));
 	write(TEXT, text);
@@ -105,9 +101,8 @@ describe("check-injector-margin.js", () => {
 		expect(run().code).toBe(0);
 	});
 
-	// TIGHT_HEADROOM_CHARS is a strict `<`, so exactly one rule of headroom is
-	// not yet tight. The note rides on the SAME LINE as the margin, so a case
-	// asserting only the margin passes either way.
+	// The tight note rides on the SAME LINE as the margin, so a case asserting
+	// only the margin passes either way.
 	it("does not mark exactly one rule of headroom as tight", () => {
 		seed(fakeModule(["alpha"], 9000));
 
@@ -249,9 +244,6 @@ describe("--index: the commit's bytes", () => {
 		git("commit", "-qm", "seed");
 	});
 
-	// The whole reason the gate reads the index rather than the disk: the tree
-	// is repo-global and a neighbour may be mid-save on the module
-	// (mantahostels#250).
 	it("measures the staged blob, not the working tree", () => {
 		write(TEXT, fakeModule(["alpha"], 10_500));
 

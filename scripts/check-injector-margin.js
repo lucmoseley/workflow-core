@@ -63,7 +63,7 @@ runCheck({
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 		/* The root's own fragments and no other layer, so --index never reads a
-		 * fragment off the working tree, as check-guard-registry.js pins its store. */
+		 * fragment off the working tree. */
 		process.env.WFC_RULES_DIR = path.join(root, RULES_DIR);
 		process.env.WFC_RULES_FALLBACK_DIR = "";
 		const { limit, sizes, fallbacks } = readMargins(root);
