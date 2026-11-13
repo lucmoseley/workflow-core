@@ -357,7 +357,11 @@ const isNoteShowing = (note, now) =>
 const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
 
 /**
- * The non-negative gap between two figures, or `?` where either is unread.
+ * The non-negative gap between two figures, or `?` where either is unread (#5158).
+ * The figures are read at different moments, so they can cross: the listing can
+ * count more mid-turn sessions than admission counts live, and the tick's own
+ * launches can take live past the ceiling.
+ * Residual: a crossing reads 0, never named.
  * @param {number|null} from
  * @param {number|null} less
  */

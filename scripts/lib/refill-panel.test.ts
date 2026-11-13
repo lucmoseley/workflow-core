@@ -268,8 +268,11 @@ describe("the panel's rows", () => {
 		expect(line1({ working: 3, ceiling: 2, stateWorking: 4 })).toBe(
 			"4 working · 0 idle · room for 0",
 		);
-		expect(line1({ working: 7, ceiling: null, stateWorking: null })).toBe(
-			"? working · ? idle · room for ?",
+		expect(line1({ working: 7, ceiling: 9, stateWorking: null })).toBe(
+			"? working · ? idle · room for 2",
+		);
+		expect(line1({ working: 7, ceiling: null, stateWorking: 2 })).toBe(
+			"2 working · 5 idle · room for ?",
 		);
 		expect(line1({ working: null, ceiling: null, stateWorking: null })).toBe(
 			"? working · ? idle · room for ?",
