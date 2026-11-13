@@ -123,15 +123,18 @@ const NOT_RUNNING = buildNotice(
  *   running; `warning`, what it changed but no process takes yet
  */
 
-/* Set on the panel's presses, so the loop log names it as their source (#5126). */
 const PANEL_SOURCE_ENV = "REFILL_SET_FROM_PANEL";
 
 /**
- * Who sent a `set`, as the loop log names it: the panel, a session, or a
- * command run outside any session, which is one typed by hand.
+ * The env a loop run the panel makes carries, so a `set` it sends logs the
+ * panel as its source (#5126).
  * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
  */
-const readSetSource = (env) => {
+const withPanelSource = (env) => ({ ...env, [PANEL_SOURCE_ENV]: "1" });
+
+/** @param {NodeJS.ProcessEnv} env */
+const buildSetSource = (env) => {
 	if (env[PANEL_SOURCE_ENV] === "1") return "the panel";
 	const session = env.CLAUDE_CODE_SESSION_ID;
 	return session
@@ -140,12 +143,12 @@ const readSetSource = (env) => {
 };
 
 /**
- * The loop log's line for the pause a `set` wrote, null where it wrote none.
+ * The loop log's line for the pause a `set` wrote.
  * @param {SetPlan} plan
  * @param {NodeJS.ProcessEnv} env
  */
 const buildSetPauseLogLine = ({ pauseSet }, env) =>
-	pauseSet === null ? null : buildPauseLogLine(pauseSet, readSetSource(env));
+	pauseSet === null ? null : buildPauseLogLine(pauseSet, buildSetSource(env));
 
 /** @param {SetAsk} ask */
 const asksRepos = ({ repos, tick, untick }) => Boolean(repos || tick || untick);
@@ -220,7 +223,9 @@ function changeFields(control, ask, context) {
 			: [
 					(/** @type {Control} */ c) => {
 						const change = buildPauseChange(c, pause, context);
-						if (change.write) pauseSet = pause;
+						/* A resume of an unpaused loop is a restart, not a lifted pause. */
+						if (change.write && (pause || c.paused !== undefined))
+							pauseSet = pause;
 						return change;
 					},
 				]),
@@ -1227,8 +1232,8 @@ module.exports = {
 	buildFreshControl,
 	buildUntickedLines,
 	planSet,
-	PANEL_SOURCE_ENV,
 	buildSetPauseLogLine,
+	withPanelSource,
 	buildSetJson,
 	buildSetPlanJson,
 };

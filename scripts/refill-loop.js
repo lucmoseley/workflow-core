@@ -682,6 +682,19 @@ function stop() {
 }
 
 /**
+ * Logs who sent a pause or resume; a failed log write warns rather than fails
+ * the `set`, whose control is already written.
+ * @param {string} line
+ */
+function noteSetSource(line) {
+	try {
+		appendLoopLog(line);
+	} catch (e) {
+		writeFd(2, `refill loop: not logged: ${line}: ${buildErrorText(e)}\n`);
+	}
+}
+
+/**
  * `set`: the named fields changed on a fresh read under the control lock, then
  * the wake touched, and where a resume found no process, one started.
  * @param {import("./lib/cli-args").Parsed} parsed
@@ -708,7 +721,7 @@ function set(parsed) {
 		if ("write" in plan && plan.write) {
 			writeControlFile(plan.write);
 			const line = commands.buildSetPauseLogLine(plan, process.env);
-			if (line !== null) appendLoopLog(line);
+			if (line !== null) noteSetSource(line);
 		}
 		if ("startFrom" in plan && plan.startFrom) updateState(runForgotten(), log);
 		return plan;

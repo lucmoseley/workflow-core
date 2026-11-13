@@ -43,7 +43,7 @@ const {
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { resolveTopic } = require("./lib/refill-panel-topic.js");
 const { readViewEnv } = require("./lib/refill-panel-view-env.js");
-const { PANEL_SOURCE_ENV } = require("./lib/refill-commands.js");
+const { withPanelSource } = require("./lib/refill-commands.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { FETCH_TIMEOUT_MS } = require("./lib/pinned-code.js");
@@ -91,8 +91,7 @@ const runCommand = (file, argv, timeout, env) =>
 	});
 
 /**
- * Run the loop's `args`, as the panel: a `set` it sends logs the panel as its
- * source.
+ * Run the loop's `args`, as the panel.
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} env
  */
@@ -101,7 +100,7 @@ const runLoop = (args, env) =>
 		process.execPath,
 		[LOOP_PROGRAM, ...args],
 		args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
-		{ ...env, [PANEL_SOURCE_ENV]: "1" },
+		withPanelSource(env),
 	);
 
 /** @param {unknown} err */
@@ -240,7 +239,7 @@ function main(argv = process.argv.slice(2)) {
 	return null;
 }
 
-module.exports = { main, runLoop };
+module.exports = { main };
 
 if (require.main === module) {
 	const code = main();

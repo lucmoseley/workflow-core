@@ -1126,8 +1126,7 @@ const buildPauseIdle = ({ by, at, issues = [], why }) =>
 const buildPauseText = (pause) => buildIdleText(buildPauseIdle(pause));
 
 /**
- * The loop log's line for a pause written or lifted, naming who sent it, so a
- * pause lifted with no explanation can be traced (#5126).
+ * The loop log's line for a pause written or lifted, naming who sent it (#5126).
  * @param {boolean} paused the state written
  * @param {string} source
  */

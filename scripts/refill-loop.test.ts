@@ -21,7 +21,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAgentsBranch, buildJobRow } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { writeCostTable } from "./lib/cost-table-testkit";
+import { readText } from "./lib/file-read.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { withPanelSource } from "./lib/refill-commands.js";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { ceilingsOf } from "./lib/seat-reading.js";
@@ -924,8 +926,8 @@ describe("set (#3856)", () => {
 
 	describe("logs who sent a pause or resume (#5126)", () => {
 		const readLog = () => {
-			const file = path.join(dir, ".refill-loop.log");
-			return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+			const read = readText(path.join(dir, ".refill-loop.log"));
+			return read.state === "read" ? read.data : "";
 		};
 
 		it("names a command typed by hand, and a session's", async () => {
@@ -940,10 +942,19 @@ describe("set (#3856)", () => {
 		it("names the panel on its press", async () => {
 			writeControl({ paused });
 			holdPidfile();
-			const { runLoop } = await import("./refill-panel.js");
-			const r = await runLoop(["set", "--resume"], commandEnv());
-			expect(r.code).toBe(0);
+			const r = await runEnv(
+				withPanelSource({}) as Record<string, string>,
+				"set",
+				"--resume",
+			);
+			expect(r.status).toBe(0);
 			expect(readLog()).toMatch(/Z resumed by the panel\n$/);
+		});
+
+		it("logs no resume for a restart of an unpaused, stopped loop", async () => {
+			writeControl({ stopRequested: true, stopRequestedAt: 6 });
+			await run("set", "--resume");
+			expect(readLog()).not.toContain("resumed by");
 		});
 
 		it("logs nothing for a repeat that changes nothing", async () => {

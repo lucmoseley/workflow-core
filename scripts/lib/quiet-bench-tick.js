@@ -120,7 +120,12 @@ function stopRunner() {
 	}
 }
 
-const BENCH_SOURCE = "the quiet bench route";
+/**
+ * @param {boolean} paused
+ * @param {(line: string) => void} log
+ */
+const logHold = (paused, log) =>
+	log(`quiet bench: ${buildPauseLogLine(paused, "the quiet bench route")}`);
 
 /**
  * The control with the pause `kind` asks for, written against a fresh read, or
@@ -140,7 +145,7 @@ function writeHold(kind, now, log) {
 			const paused = { by: QUIET_BENCH_PAUSE, at: now, why: HOLD_DRAINING };
 			const next = { ...control, paused };
 			writeControlFile(next);
-			log(`quiet bench: ${buildPauseLogLine(true, BENCH_SOURCE)}`);
+			logHold(true, log);
 			return next;
 		}
 		if (control.paused?.by !== QUIET_BENCH_PAUSE) return control;
@@ -150,8 +155,7 @@ function writeHold(kind, now, log) {
 				? { ...control, paused: { ...control.paused, why: HOLD_RUNNING } }
 				: (({ paused: _lifted, ...rest }) => rest)(control);
 		writeControlFile(next);
-		if (kind === "lift")
-			log(`quiet bench: ${buildPauseLogLine(false, BENCH_SOURCE)}`);
+		if (kind === "lift") logHold(false, log);
 		return next;
 	}, HOLD_LOCK_WAIT_MS);
 	if ("busy" in written) {
