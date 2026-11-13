@@ -3,8 +3,7 @@
  * The admission gate (#2033, #2056): `check-context-budget.js --against HEAD`
  * refuses a commit adding a top-level pool rule — a list item or a bold-led
  * paragraph — that docs/pool-admission-ledger.json does not admit, behind
- * `.claude/workflow-core.json`'s `admissionGate`, and looks ticket states up
- * on the index side alone.
+ * `.claude/workflow-core.json`'s `admissionGate`.
  */
 
 import { spawnSync } from "node:child_process";
@@ -119,7 +118,6 @@ function report() {
 	return { status: r.status, text: r.stdout + r.stderr };
 }
 
-/* The refusal a session reads: exit 1, the rule it adds, and the way out. */
 function expectUnadmitted(
 	r: ReturnType<typeof gate>,
 	line: number,
@@ -211,7 +209,7 @@ describe("the admission gate at --against HEAD", () => {
 		expectUnadmitted(gate(), 4, rendered);
 	});
 
-	it("reads a rule unadmitted at <rev> as inherited where only its plugin root moved (#5140)", () => {
+	it("passes a rule unadmitted at <rev> whose plugin root alone moved (#5140)", () => {
 		const rule = (version: string) =>
 			`**Wait with \`node /home/u/.claude/plugins/cache/workflow-core/workflow-core/${version}/scripts/landing-status.js --wait\`.** Then land.`;
 		claude(KEPT, rule("2.2.0"));
