@@ -11,13 +11,13 @@
  * THE POOL (`stays`): each main checkout under $HOME whose
  * `.claude/workflow-core.json` lists `landing` and that runs `<sha>`:
  * workflow-core where `<sha>` is on its `origin/main`, an adopter where its
- * pin is a release tag carrying it (release-contains.js's test). An adopter
+ * pin is a release tag carrying it (lib/release-tags.js readTagCarry). An adopter
  * counts from the time its pin first carried `<sha>` without break: the
  * committer time of the oldest `.claude/settings.json` revision in the
  * unbroken run of carrying pins ending at HEAD, or the file's mtime where only
  * its uncommitted pin carries it. Residual: a lander the refill loop starts
  * runs the loop's own code, so an adopter pinned below `<sha>` may run it
- * too; it is left out.
+ * too; it is left out until the lander logs its code (#5174).
  *
  * Pool only what adopters' own runs can show: a gate on a workflow-core
  * test file reads workflow-core's batches alone, as no adopter suite holds it.
@@ -45,7 +45,13 @@ const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { now } = require("./lib/clock.js");
 const { commitSha } = require("./lib/commit-sha.js");
-const { execGit, gitCommonDir, spawnGitSync } = require("./lib/git.js");
+const {
+	SHORT_SHA,
+	execGit,
+	gitCommonDir,
+	gitOrNull,
+	spawnGitSync,
+} = require("./lib/git.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { landerLog } = require("./lib/lander-start.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
@@ -55,6 +61,7 @@ const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
 	ISO_TIME_RE,
 	TARGET_MULTIPLE,
+	buildIsoRefusal,
 	greenSuiteSpans,
 	memberStays,
 	overCountNeeded,
@@ -96,58 +103,45 @@ const CLI = {
 const iso = (t) => new Date(t).toISOString();
 
 /**
- * @param {string} cwd
- * @param {string[]} args
- * @returns {string|null} stdout, null where git refuses
- */
-function gitOut(cwd, args) {
-	try {
-		return String(
-			execGit(args, {
-				cwd,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			}),
-		);
-	} catch {
-		return null;
-	}
-}
-
-/**
+ * Whether `ancestor` is in `rev`'s history.
  * @param {string} cwd
  * @param {string} ancestor
  * @param {string} rev
  */
-const isAncestor = (cwd, ancestor, rev) =>
-	spawnGitSync(["merge-base", "--is-ancestor", ancestor, rev], {
+function isAncestor(cwd, ancestor, rev) {
+	const r = spawnGitSync(["merge-base", "--is-ancestor", ancestor, rev], {
 		cwd,
 		stdio: "ignore",
-	}).status === 0;
+	});
+	if (r.status === 0 || r.status === 1) return r.status === 0;
+	throw new Error(`git merge-base failed on ${rev} in ${cwd}`);
+}
 
 /**
- * Whether release tag `tag` carries `sha`, as release-contains.js reads it:
- * its commit message names the source it was rendered from.
+ * @typedef {{carries: boolean} | {unread: string}} Carry
+ */
+
+/**
+ * Whether a pin's ref carries `sha`, memoised: lib/release-tags.js
+ * readTagCarry, a ref this clone lacks read as unread.
  * @param {string} core workflow-core's checkout
  * @param {string} sha
- * @returns {(tag: string) => boolean}
+ * @returns {(ref: string) => Carry}
  */
-function tagCarrier(core, sha) {
+function buildTagCarrier(core, sha) {
 	/* Required here, past the core check: the release leaves it behind. */
-	const { RENDERED_FROM } = require("./lib/release-tags.js");
-	/** @type {Map<string, boolean>} */
+	const { readTagCarry } = require("./lib/release-tags.js");
+	/** @type {Map<string, Carry>} */
 	const seen = new Map();
-	return (tag) => {
-		const known = seen.get(tag);
-		if (known !== undefined) return known;
-		const message = gitOut(core, ["log", "-1", "--format=%B", tag]) ?? "";
-		const source = RENDERED_FROM.exec(message)?.[1];
-		const carries =
-			source !== undefined &&
-			commitSha(core, source) !== null &&
-			isAncestor(core, sha, source);
-		seen.set(tag, carries);
-		return carries;
+	return (ref) => {
+		const known = seen.get(ref);
+		if (known) return known;
+		const carry =
+			commitSha(core, ref) === null
+				? { unread: `${ref} is not in ${core}` }
+				: readTagCarry(core, ref, sha);
+		seen.set(ref, carry);
+		return carry;
 	};
 }
 
@@ -168,32 +162,45 @@ function parseJsonOrNull(text) {
 }
 
 /**
- * Since when adopter `root`'s pin has carried the sha without break, or null
- * where its current pin does not.
+ * Since when adopter `root`'s pin has carried the sha without break, or why
+ * it is left out. A revision whose pin is absent, unreadable or not carrying
+ * ends the run.
  * @param {string} root
- * @param {(tag: string) => boolean} carries
- * @returns {number|null} ms
+ * @param {(ref: string) => Carry} carry
+ * @returns {{from: number, pin: string} | {why: string}} `from` in ms
  */
-function carriedSince(root, carries) {
+function readCarriedSince(root, carry) {
 	const file = path.join(root, SETTINGS);
-	const current = pinRef(readJsonSafe(file));
-	if (current === null || !carries(current)) return null;
+	const pin = pinRef(readJsonSafe(file));
+	if (pin === null) return { why: "it has no workflow-core pin" };
+	const current = carry(pin);
+	if ("unread" in current)
+		return { why: `its pin is unread: ${current.unread}` };
+	if (!current.carries) return { why: `its pin ${pin} does not carry the sha` };
 	/** @type {number|null} */
-	let since = null;
-	const log = gitOut(root, ["log", "--format=%H %ct", "--", SETTINGS]) ?? "";
+	let from = null;
+	const log = String(
+		execGit(["log", "--format=%H %ct", "--", SETTINGS], {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		}),
+	);
 	for (const line of log.split("\n").filter(Boolean)) {
 		const [rev, ct] = line.split(" ");
+		/* null where the revision deleted the file, which ends the run too. */
 		const ref = pinRef(
-			parseJsonOrNull(gitOut(root, ["show", `${rev}:${SETTINGS}`])),
+			parseJsonOrNull(gitOrNull(["show", `${rev}:${SETTINGS}`], { cwd: root })),
 		);
-		if (ref === null || !carries(ref)) break;
-		since = Number(ct) * 1000;
+		const then = ref === null ? null : carry(ref);
+		if (then === null || !("carries" in then) || !then.carries) break;
+		from = Number(ct) * 1000;
 	}
-	return since ?? fs.statSync(file).mtimeMs;
+	return { from: from ?? fs.statSync(file).mtimeMs, pin };
 }
 
 /** @param {string} root */
-function listsLanding(root) {
+function hasLanding(root) {
 	const cfg = /** @type {{modules?: unknown}|null} */ (
 		readJsonSafe(path.join(root, ".claude", "workflow-core.json"))
 	);
@@ -209,32 +216,21 @@ function listsLanding(root) {
  * @returns {{members: Member[], left: LeftOut[]}}
  */
 function readPool(home, core, sha) {
-	const carries = tagCarrier(core, sha);
+	const carry = buildTagCarrier(core, sha);
 	/** @type {Member[]} */
 	const members = [];
 	/** @type {LeftOut[]} */
 	const left = [];
-	const short = sha.slice(0, 9);
 	for (const root of readAdopterCheckouts(home).included) {
 		const name = path.basename(root);
-		if (!listsLanding(root)) {
-			left.push({ name, why: "landing is off" });
-			continue;
-		}
-		if (isCoreHost(root)) {
-			if (isAncestor(root, sha, "origin/main"))
-				members.push({ name, root, from: null, pin: null });
-			else left.push({ name, why: `${short} is not on its origin/main` });
-			continue;
-		}
-		const pin = pinRef(readJsonSafe(path.join(root, SETTINGS)));
-		const from = carriedSince(root, carries);
-		if (from === null)
-			left.push({
-				name,
-				why: `its pin ${pin ?? "(none)"} does not carry ${short}`,
-			});
-		else members.push({ name, root, from, pin });
+		if (!hasLanding(root)) left.push({ name, why: "landing is off" });
+		else if (!isCoreHost(root)) {
+			const r = readCarriedSince(root, carry);
+			if ("why" in r) left.push({ name, why: r.why });
+			else members.push({ name, root, from: r.from, pin: r.pin });
+		} else if (isAncestor(root, sha, "origin/main"))
+			members.push({ name, root, from: null, pin: null });
+		else left.push({ name, why: "the sha is not on its origin/main" });
 	}
 	return { members, left };
 }
@@ -304,7 +300,7 @@ function poolStays(pool, w, sha) {
 			left: pool.left,
 		},
 		lines: [
-			`queue stays taken and landed or dropped since ${iso(w.since)}, every landing checkout running ${sha.slice(0, 9)}, each against its own target:`,
+			`queue stays taken and landed or dropped since ${iso(w.since)}, every landing checkout running ${sha.slice(0, SHORT_SHA)}, each against its own target:`,
 			...repos.map((r) => `  ${r.name}: ${r.line}`),
 			...leftLine(pool.left),
 			`pooled: ${overTarget} of ${stays} stay(s) over their checkout's target; ${overNeeded} would call it over`,
@@ -340,8 +336,8 @@ function countReaps(home, since) {
 }
 
 /**
- * The reaps reading. A `--since` still ahead reads 0: a gate is set before
- * the reaps it counts begin.
+ * The reaps reading. A `--since` still ahead reads 0: #5054's gate is set
+ * before the reaps it counts begin.
  * @param {string} home
  * @param {string} since
  * @returns {{data: object, lines: string[]}|string}
@@ -349,7 +345,7 @@ function countReaps(home, since) {
 const readReaps = (home, since) =>
 	ISO_TIME_RE.test(since)
 		? countReaps(home, Date.parse(since))
-		: `--since takes an ISO time with its zone, such as 2026-11-15T13:00:00Z: ${since}`;
+		: buildIsoRefusal("since", since);
 
 /** @param {string} text */
 const refuse = (text) => {

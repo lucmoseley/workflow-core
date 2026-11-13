@@ -202,7 +202,7 @@ it("pools every landing checkout running the sha, an adopter only from when its 
 	expect(d.left).toEqual([
 		{
 			name: "behind",
-			why: `its pin v2.2.0 does not carry ${measured.slice(0, 9)}`,
+			why: "its pin v2.2.0 does not carry the sha",
 		},
 		{ name: "quiet", why: "landing is off" },
 	]);
