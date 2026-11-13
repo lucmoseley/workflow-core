@@ -378,9 +378,9 @@ Three sub-rules a reviewer may cite directly against a program reporting in the 
 
 - **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-23`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
 - **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:25-28`).
-- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:342` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
+- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:358` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
 
-*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:203-205`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:213-215`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
 
 ```
 OK      ran, found nothing                            exit 0
@@ -400,7 +400,7 @@ The `guard-*` family swallows every error and exits 0 — *"breaking a session i
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
-Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: `scripts/lib/check.js:372-373` *"node buffers writes to a PIPE and drops whatever is still buffered at process.exit — and a hook's stdout is always a pipe."* The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
+Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: `scripts/lib/check.js:388-389` *"node buffers writes to a PIPE and drops whatever is still buffered at process.exit — and a hook's stdout is always a pipe."* The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
@@ -408,7 +408,7 @@ A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops
 
 *House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` stays only where a comment says why. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
-Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1955-1958`).
+Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:2062-2065`).
 
 ### §N7 · An export nothing consumes is a breach, and a binary a test stubs or a machine may lack is injected at one named var — **judgement**
 

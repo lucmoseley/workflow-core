@@ -2118,7 +2118,6 @@ const { now } = require("./clock.js");
 module.exports = {
 	runCheck,
 	checkInProcess,
-	BufferSink,
 	now,
 	skipError,
 	brokenError,
