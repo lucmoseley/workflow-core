@@ -178,7 +178,9 @@ const limitParksOf = (l) =>
  * it tried. The ledger is read after every exit: a non-zero one can follow
  * earlier members' launches, and exit 0 covers a dropped member too.
  * After a non-zero exit only the launched members count as tried, as the
- * rest may never have been reached and the next tick retries them.
+ * rest may never have been reached and the next tick retries them. A member
+ * refused on admission's HOLD is never tried: the refusal took no slot, so
+ * the next tick with one free launches it (#5125).
  * A headless launch's session id is fixed at launch, so its record carries it
  * from the start (#2611): a run ending before any listing shows it still has
  * its acts read.
@@ -201,8 +203,17 @@ function launchBatch(batch, io) {
 		launch: l,
 		reason: parseRefusalReason(r.out, l.prompt, r.failed),
 	}));
-	return { launched, refused, tried: r.failed ? reached : batch, ...r };
+	const held = new Set(
+		refused.filter((f) => isAdmissionHold(f.reason)).map((f) => f.launch),
+	);
+	const tried = (r.failed ? reached : batch).filter((l) => !held.has(l));
+	return { launched, refused, tried, ...r };
 }
+
+/* admission.js's `slots` line, as parseRefusalReason gives it. */
+const ADMISSION_HOLD = /^slots \d+ — HOLD\b/;
+/** @param {string} reason one of parseRefusalReason's */
+const isAdmissionHold = (reason) => ADMISSION_HOLD.test(reason);
 
 /**
  * The members of `batch` the dispatch ledger shows launched by a call made at

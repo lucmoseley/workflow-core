@@ -25,6 +25,7 @@ const {
 	runCheckGates,
 } = require("./gate-sweep.js");
 const { decideTick } = require("./refill-decide.js");
+const { launchBatch } = require("./refill-batch.js");
 
 const WFC = "/home/u/workflow-core";
 const NOW = Date.parse("2026-10-21T17:00:00Z");
@@ -348,5 +349,56 @@ describe("the decision core launches a queued judgement", () => {
 	it("launches none while a session runs on its issue", () => {
 		const d = tick({ running: [{ root: WFC, issues: [2046] }] });
 		expect(d.launches).toEqual([]);
+	});
+});
+
+describe("a judgement refused on admission stays queued (#5125)", () => {
+	const judgement = { root: WFC, number: 4962, prompt: "/triage 4962 — judge" };
+	const tick = (freeSlots: number) =>
+		decideTick({
+			now: NOW,
+			noProgressFrom: NOW - 1000,
+			stopRequested: false,
+			frontier: [],
+			retroBundles: [],
+			running: [],
+			freeSlots,
+			seats: [{ seat: "~/.claude3", week: 40, session: 20, fits: 9 }],
+			ceilings: { week: 90, session: 90 },
+			history: [],
+			judgements: readGateStore(file, throwOnLog).pending,
+		}).launches;
+	/** One dispatcher call that launches nothing, printing `out`; dropTried
+	 * then runs on what it tried, as the tick does. */
+	const refuse = (launches: unknown[], out: string) => {
+		const r = launchBatch(launches, {
+			dispatcher: "/unused",
+			env: {},
+			run: () => ({ failed: null, out }),
+			entriesOf: () => [],
+			sessionOf: () => undefined,
+			now: () => NOW,
+		});
+		dropTried(file, r.tried, throwOnLog);
+	};
+
+	it("launches on the next tick with a free slot after a HOLD", () => {
+		seed({ pending: [judgement] });
+		refuse(
+			tick(1),
+			`REFUSED: ${judgement.prompt} — not launching this member.\n  slots              0 — HOLD: 1869 MB available`,
+		);
+		expect(tick(1)).toEqual([
+			expect.objectContaining({ issues: [4962], prompt: judgement.prompt }),
+		]);
+	});
+
+	it("drops one refused for any other reason", () => {
+		seed({ pending: [judgement] });
+		refuse(
+			tick(1),
+			`DROPPING 1 issue(s) in this set are already dispatched or claimed:\n  dropped: ${judgement.prompt}`,
+		);
+		expect(tick(1)).toEqual([]);
 	});
 });

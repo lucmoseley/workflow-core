@@ -330,8 +330,15 @@ done
 			a: "launch,die",
 		});
 		expect(failed.tried).toEqual(["/implement 1"]);
-		const passed = settle([pick("b", 4), pick("b", 5)], { b: "launch,refuse" });
+		const passed = settle([pick("b", 4), pick("b", 5)], { b: "launch,drop" });
 		expect(passed.tried).toEqual(["/implement 4", "/implement 5"]);
+	});
+
+	it("never counts a member refused on admission's HOLD as tried (#5125)", () => {
+		const r = settle([pick("a", 1), pick("a", 2), pick("a", 3)], {
+			a: "launch,refuse,drop",
+		});
+		expect(r.tried).toEqual(["/implement 1", "/implement 3"]);
 	});
 
 	it("splits one repo's picks on two seats into a call per seat", () => {

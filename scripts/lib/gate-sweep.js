@@ -223,7 +223,8 @@ function withSweep(store, root, rows, now) {
 /**
  * Take each judgement the tick tried off the queue, launched or refused: a
  * refused one would otherwise take a slot every tick. The next changed
- * reading queues it again.
+ * reading queues it again. One refused on admission's HOLD took no slot, so
+ * the tick does not count it tried and it stays queued (#5125).
  * @param {string} file
  * @param {{root: string, issues: number[]}[]} tried
  * @param {(line: string) => void} log
