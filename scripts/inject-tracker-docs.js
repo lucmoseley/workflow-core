@@ -15,20 +15,18 @@
  * TREE:      both — the injection from the host root's config and rule texts; the review-tier diff from the payload's cwd
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./lib/read-fd.js");
+const { writeFd } = require("./lib/write-fd.js");
 const { injectTrackerDocs } = require("./lib/inject-tracker-docs.js");
-
-let stdin = "";
-try {
-	stdin = fs.readFileSync(0, "utf8");
-} catch {
-	/* no stdin: read as an empty payload */
-}
+const host = require("./lib/inject-tracker-docs-host.js");
 
 try {
-	const host = require("./lib/inject-tracker-docs-host.js");
-	const out = injectTrackerDocs(stdin, host.buildHostPorts(host.logFailOpen));
-	if (out) fs.writeSync(1, out);
-} catch {
-	/* fail open: the session runs without the payload */
+	const out = injectTrackerDocs(
+		readFdAll(0).toString("utf8"),
+		host.buildHostPorts(host.logFailOpen),
+	);
+	if (out) writeFd(1, out);
+} catch (e) {
+	/* fail open: the session runs without the payload, recorded (#5151) */
+	host.logFailOpen("inject-tracker-docs threw", String(e));
 }

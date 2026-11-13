@@ -67,10 +67,13 @@ type Ports = import("./inject-tracker-docs.js").Ports;
 /* The fakes every case starts from: a `takes:` read that finds no label, as
  * the production adapter answers a failing `gh` (the contract test holds it
  * there), and no review tier, as the adapter answers with no tier hook. */
+/* The module cases' clock (§X9): every marker is stamped and judged by it. */
+const NOW = 1_800_000_000;
+
 const FAKE_PORTS: Ports = {
 	takesLabel: () => "",
 	reviewTier: () => "",
-	now: () => Math.floor(Date.now() / 1000),
+	now: () => NOW,
 	log: logFailOpen,
 };
 
@@ -1313,7 +1316,7 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 
 	/** Move a marker's mtime back by `seconds`. */
 	const age = (file: string, seconds: number) => {
-		const t = Date.now() / 1000 - seconds;
+		const t = NOW - seconds;
 		fs.utimesSync(file, t, t);
 	};
 
@@ -1403,6 +1406,29 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 	});
 
 	describe("every failure path injects rather than withholding", () => {
+		// A firing that builds no text takes no marker, so the next one injects.
+		it("leaves the marker free where a firing fails before its text exists", () => {
+			const payload = {
+				prompt: "/implement 1117",
+				hook_event_name: "SessionStart",
+				session_id: "fail-before-text",
+			};
+			expect(() =>
+				run(
+					payload,
+					{},
+					{
+						takesLabel: () => {
+							throw new Error("the read broke");
+						},
+					},
+				),
+			).toThrow("the read broke");
+			expect(
+				run({ ...payload, hook_event_name: "UserPromptSubmit" }),
+			).toContain("PRICED OPTIONS");
+		});
+
 		const twice = (session: string, env: Record<string, string> = {}) => [
 			fire(session, "/implement 1117", "SessionStart", { env }),
 			fire(session, "/implement 1117", "UserPromptSubmit", { env }),

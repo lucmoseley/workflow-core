@@ -8,7 +8,7 @@
  * each a `const NAME = <n>;` line at column zero.
  */
 
-const fs = require("node:fs");
+const { escapeRe } = require("./regex-group.js");
 
 /* additionalContext over this many characters is persisted to a file and the
  * session handed a ~2 KB preview (mantahostels#1762). Read out of the shipped
@@ -30,23 +30,11 @@ const RULE_CAP = 4000;
  * @returns {number | null}
  */
 function limitIn(source, name) {
-	const found = new RegExp(`^const ${name} = (\\d[\\d_]*);$`, "m").exec(
-		source,
-	)?.[1];
+	const found = new RegExp(
+		`^const ${escapeRe(name)} = (\\d[\\d_]*);$`,
+		"m",
+	).exec(source)?.[1];
 	return found === undefined ? null : Number(found.replaceAll("_", ""));
 }
 
-/**
- * limitIn over a file. Throws where the file cannot be read or names no such
- * line, so a renamed constant fails loudly rather than as NaN.
- * @param {string} file
- * @param {string} name
- * @returns {number}
- */
-function readLimit(file, name) {
-	const n = limitIn(fs.readFileSync(file, "utf8"), name);
-	if (n === null) throw new Error(`no const ${name} = <n>; line in ${file}`);
-	return n;
-}
-
-module.exports = { HOOK_PERSIST_CHARS, RULE_CAP, limitIn, readLimit };
+module.exports = { HOOK_PERSIST_CHARS, RULE_CAP, limitIn };

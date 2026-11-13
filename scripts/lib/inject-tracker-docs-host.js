@@ -64,6 +64,7 @@ function buildHostPorts(log) {
 					"\n",
 				);
 			} catch {
+				/* a failed, absent or outrun gh adds no line, by design (#1164) */
 				return "";
 			}
 		},
@@ -99,10 +100,13 @@ function buildHostPorts(log) {
 					?.additionalContext;
 				return typeof c === "string" ? c : "";
 			} catch {
+				/* a tier core that printed no hook output owes no tier line; its own
+				 * fail-open record is the tier core's (#1697) */
 				return "";
 			}
 		},
-		now: () => Math.floor(Date.now() / 1000),
+		/* WFC_NOW pins it (lib/check.js now()), loaded only once a command matched. */
+		now: () => Math.floor(require("./check.js").now() / 1000),
 		log,
 	};
 }
@@ -119,7 +123,6 @@ function logFailOpen(what, detail) {
 
 module.exports = {
 	TAKES_GH_TIMEOUT_S,
-	TIER_HOOK_TIMEOUT_S,
 	buildHostPorts,
 	logFailOpen,
 };

@@ -40,11 +40,17 @@ export const tierPort =
 
 /**
  * The `takes:` port answering `label`, recording each read as the `gh`
- * argument line the adapter builds from it, up to `--json labels`.
+ * argument line the adapter builds from it, up to `--json labels`. A cwd that
+ * is not a directory is asked nothing, as the adapter asks nothing.
  */
 export function takesPort(label: () => string) {
 	const calls: string[] = [];
-	const port: Ports["takesLabel"] = ({ issue, repo }) => {
+	const port: Ports["takesLabel"] = ({ issue, repo, cwd }) => {
+		if (
+			cwd !== "" &&
+			!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()
+		)
+			return "";
 		calls.push(
 			`issue view ${issue}${repo ? ` --repo ${repo}` : ""} --json labels`,
 		);

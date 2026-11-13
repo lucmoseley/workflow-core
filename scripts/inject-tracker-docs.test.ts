@@ -5,7 +5,8 @@
  * payload, another event's bare stdout, and the two cases only real processes
  * show — the concurrent pair and the hung-`gh` kill. Every routing, rule-text
  * and de-duplication branch is a module case on the core,
- * scripts/lib/inject-tracker-docs.test.ts.
+ * scripts/lib/inject-tracker-docs.test.ts. Broken, every tracker command a
+ * session types may arrive without its rules, or twice, or hang its prompt.
  */
 
 import { execFile } from "node:child_process";
@@ -102,6 +103,7 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 			["SessionStart", "UserPromptSubmit"].map(
 				(event) =>
 					new Promise<string>((resolve) => {
+						// spawn-kept: two processes at once — only real processes can race the marker (§X3).
 						execFile(HOOK, { env: ENV }, (_err, stdout) =>
 							resolve(stdout),
 						).stdin?.end(
@@ -126,6 +128,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 		);
 		const fire = (env: Record<string, string>) =>
 			new Promise<string>((resolve) => {
+				// spawn-kept: the kill of a real hung gh child, which only a process shows.
 				execFile(HOOK, { env: { ...ENV, ...env } }, (_err, stdout) =>
 					resolve(stdout),
 				).stdin?.end(

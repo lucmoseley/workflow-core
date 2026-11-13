@@ -86,6 +86,9 @@ describe("the `takes:` read", () => {
 		const q = { issue: "7", repo: "", cwd: path.join(dir, "gone") };
 		expect(withEnv(recording.env, () => production().takesLabel(q))).toBe("");
 		expect(fs.existsSync(log)).toBe(false);
+		const fake = takesPort(() => "takes:implement");
+		expect(fake.port(q)).toBe("");
+		expect(fake.calls).toEqual([]);
 	});
 });
 

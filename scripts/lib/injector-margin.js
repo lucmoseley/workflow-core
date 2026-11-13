@@ -53,7 +53,7 @@ const PROBE_ISSUE = "1";
  * A rule fragment's text in `dir`, or null where it is absent.
  * @param {string} dir @param {string} id
  */
-function fragment(dir, id) {
+function readFragment(dir, id) {
 	try {
 		return trimEndRun(
 			fs.readFileSync(path.join(dir, `${id}.txt`), "utf8"),
@@ -66,7 +66,7 @@ function fragment(dir, id) {
 
 /**
  * Each command and its payload's length.
- * @param {Record<string, any>} t the evaluated text module
+ * @param {typeof import("./tracker-inject-text.js")} t the evaluated text module
  * @param {string} rulesDir
  * @param {number} ruleCap
  * @param {string} root the host whose own values are read
@@ -109,14 +109,14 @@ function measure(t, rulesDir, ruleCap, root) {
 			dispatch: t.dispatchText(
 				reviewAgentType(root),
 				reviewSuffix(PROBE_SESSION_ID),
-				fragment(rulesDir, "review-dispatch-shape") ??
+				readFragment(rulesDir, "review-dispatch-shape") ??
 					t.DISPATCH_SHAPE_FALLBACK,
 			),
 			deviationsRead:
-				fragment(rulesDir, "review-deviations-read") ??
+				readFragment(rulesDir, "review-deviations-read") ??
 				t.DEVIATIONS_READ_FALLBACK,
 			disposition:
-				fragment(rulesDir, "review-finding-destination") ??
+				readFragment(rulesDir, "review-finding-destination") ??
 				t.DISPOSITION_FALLBACK,
 			pricedOptions,
 		});
@@ -134,7 +134,9 @@ if (require.main === module) {
 		process.exit(2);
 	}
 	try {
-		const t = loadTextModule(fs.readFileSync(file, "utf8"), file);
+		const t = /** @type {typeof import("./tracker-inject-text.js")} */ (
+			loadTextModule(fs.readFileSync(file, "utf8"), file)
+		);
 		writeFd(
 			1,
 			measure(t, rulesDir, Number(cap), process.cwd())
@@ -146,5 +148,3 @@ if (require.main === module) {
 		process.exit(2);
 	}
 }
-
-module.exports = { measure };

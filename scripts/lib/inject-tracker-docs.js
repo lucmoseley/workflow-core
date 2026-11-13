@@ -28,6 +28,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const text = require("./tracker-inject-text.js");
 const { trimEndRun, trimStartRun } = require("./trim-run.js");
+const { escapeRe } = require("./regex-group.js");
 
 /* What ends a `takes:` reference, and what leads one. */
 const TOKEN_SEPARATORS = " \t\n\v\f\r,&+";
@@ -48,7 +49,7 @@ const TOKEN_SEPARATORS = " \t\n\v\f\r,&+";
  * JSON object reads as all empty, so it reads as the parent's below.
  * @param {string} stdin
  */
-function readFields(stdin) {
+function parseFields(stdin) {
 	/** @type {unknown} */
 	let p = null;
 	try {
@@ -121,7 +122,7 @@ const SPACE = "[ \\t\\n\\v\\f\\r]";
 function matchCommand(prompt) {
 	for (const cmd of text.COMMANDS) {
 		const m = new RegExp(
-			`(^|${SPACE})/([A-Za-z0-9_-]+:)?${cmd}(${SPACE}|$)`,
+			`(^|${SPACE})/([A-Za-z0-9_-]+:)?${escapeRe(cmd)}(${SPACE}|$)`,
 		).exec(prompt);
 		if (m)
 			return {
@@ -169,7 +170,8 @@ function takesReference(arg) {
  * Residuals. (1) Two session ids differing only in a character the sanitiser
  * strips share one marker. Unobserved: the ids are uuids. (2) Only the window
  * discriminates within a source, so a session that really does re-invoke the
- * same command inside 60 s gets no second copy. */
+ * same command inside 60 s gets no second copy. 60 is a guess, carried from
+ * the bash hook: wide of the pair's observed gap, narrow of a re-typed command. */
 const DEDUPE_WINDOW_S = 60;
 
 /* Markers would otherwise accumulate for the life of the host. Any threshold
@@ -222,7 +224,7 @@ function markerFor(session, matched) {
  * @param {{dir: string, file: string}} marker @param {string} takesIssue @param {number} now
  * @returns {"duplicate" | "clear" | "off"}
  */
-function readMarker(marker, takesIssue, now) {
+function settleMarker(marker, takesIssue, now) {
 	const st = fs.statSync(marker.file, { throwIfNoEntry: false });
 	if (!st?.isFile()) return "clear";
 	const stamp = Math.floor(st.mtimeMs / 1000);
@@ -257,6 +259,8 @@ function reserve(marker, takesIssue, now) {
 		return false;
 	}
 	try {
+		/* Stamped by the port's clock, which the window is read against. */
+		fs.utimesSync(marker.file, now, now);
 		for (const name of fs.readdirSync(marker.dir)) {
 			const f = path.join(marker.dir, name);
 			const st = fs.statSync(f, { throwIfNoEntry: false });
@@ -401,7 +405,7 @@ function openMarker({ source, session, matched, takesIssue, now }) {
 	if (["compact", "clear", "resume"].includes(source)) return null;
 	const marker = markerFor(session, matched);
 	if (!marker) return null;
-	const state = readMarker(marker, takesIssue, now);
+	const state = settleMarker(marker, takesIssue, now);
 	if (state === "duplicate") return "duplicate";
 	return state === "off" ? null : marker;
 }
@@ -412,7 +416,7 @@ function openMarker({ source, session, matched, takesIssue, now }) {
  * @param {string} stdin @param {Ports} ports
  */
 function injectTrackerDocs(stdin, ports) {
-	const f = readFields(stdin);
+	const f = parseFields(stdin);
 	// A subagent's payload names its parent's session, whose command is not
 	// the subagent's (#1785).
 	if (f.agentId) return "";
@@ -497,10 +501,4 @@ function injectTrackerDocs(stdin, ports) {
 	);
 }
 
-module.exports = {
-	DEDUPE_WINDOW_S,
-	readFields,
-	matchCommand,
-	takesReference,
-	injectTrackerDocs,
-};
+module.exports = { injectTrackerDocs };

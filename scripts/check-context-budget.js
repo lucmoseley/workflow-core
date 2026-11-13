@@ -794,7 +794,7 @@ function readInjection(ctx, root) {
  * the working tree is executed.
  */
 
-/** @typedef {Record<string, any>} TextModule */
+/** @typedef {typeof import("./lib/tracker-inject-text.js")} TextModule */
 
 /* What the union reads off the text module. A copy lacking one is BROKEN,
  * never a part read as zero. */
@@ -823,7 +823,12 @@ const UNION_EXPORTS = {
  * longer than a host's own `code-reviewer`. */
 const MEASURED_ISSUE = "1";
 const MEASURED_REVIEW_TYPE = "workflow-core:code-reviewer";
-const STANDARDS_STATES = ["base", "local", "neither", "both"];
+const STANDARDS_STATES = /** @type {const} */ ([
+	"base",
+	"local",
+	"neither",
+	"both",
+]);
 const CORE_DIR = require("./lib/script-path.js").coreRoot();
 const STANDARDS_SHOWN = standardsShown(standardsBase(CORE_DIR), CORE_DIR);
 const GLOSSARY_SHOWN = "GLOSSARY.md";
@@ -909,11 +914,12 @@ function readRuleFragment(root, id) {
  * @returns {number}
  */
 function injectorBytes(ctx, t, fragment) {
+	const loose = /** @type {Record<string, unknown>} */ (t);
 	const missing = Object.entries(UNION_EXPORTS)
 		.filter(([name, kind]) =>
 			kind === "array"
-				? !Array.isArray(t[name])
-				: typeof t[name] !== kind || t[name] === null,
+				? !Array.isArray(loose[name])
+				: typeof loose[name] !== kind || loose[name] === null,
 		)
 		.map(
 			([name, kind]) =>
