@@ -138,7 +138,8 @@ describe("startSampler (#5183)", () => {
 		fs.mkdirSync(store);
 		const old = path.join(store, "1-1.json");
 		fs.writeFileSync(old, "{}");
-		const past = (Date.now() - memory.RETAIN_MS - 60_000) / 1000;
+		/* Past any retention a run file could need: a month. */
+		const past = (Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000;
 		fs.utimesSync(old, past, past);
 		memory
 			.startSampler(

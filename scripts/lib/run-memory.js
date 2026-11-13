@@ -327,7 +327,6 @@ function readRunFiles(dir = storeDir()) {
 
 module.exports = {
 	MEMORY_ENV,
-	RETAIN_MS,
 	claimFile,
 	readRunFiles,
 	readRunMemory,
