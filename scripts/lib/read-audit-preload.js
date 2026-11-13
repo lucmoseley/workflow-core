@@ -133,20 +133,25 @@ function install() {
 		}
 	};
 	/**
+	 * @param {unknown} p
+	 * @returns {string|null}
+	 */
+	const absOf = (p) => {
+		if (typeof p === "string") return path.resolve(p);
+		if (Buffer.isBuffer(p)) return path.resolve(p.toString());
+		if (p instanceof URL && p.protocol === "file:")
+			return path.resolve(decodeURIComponent(p.pathname));
+		return null;
+	};
+	/**
 	 * `p` repo-relative where it names a path under the root outside every
 	 * `node_modules`, as spelt or, standing outside the root, with its links
 	 * followed; else null.
 	 * @param {unknown} p
 	 */
 	const rel = (p) => {
-		let s;
-		if (typeof p === "string") s = p;
-		else if (Buffer.isBuffer(p)) s = p.toString();
-		else if (p instanceof URL) {
-			if (p.protocol !== "file:") return null;
-			s = decodeURIComponent(p.pathname);
-		} else return null;
-		const abs = path.resolve(s);
+		const abs = absOf(p);
+		if (abs === null) return null;
 		return repoPath(
 			root,
 			relativeUnder(root, abs) === null
@@ -207,9 +212,23 @@ function install() {
 
 	/** @type {import("./read-audit-handed.js").Settled} */
 	const settled = new Map();
-	/* A path this process links, moves or removes may move where a settled
-	 * one lands; a child's go unseen (#5050). */
-	const unsettle = () => settled.clear();
+	/* A path this process links, moves or removes moves where a settled one
+	 * lands only where it is that path or beneath it, as spelt or with its
+	 * links followed, or where its own lookup followed a link, whose hops
+	 * the lookup does not keep (#5050); a child's go unseen. Every other
+	 * lookup stands (#5132). The paths are the call's first two words,
+	 * which over-counts a link's target and a copy's source. */
+	const unsettle = (/** @type {Untyped[]} */ args) => {
+		const changed = args.slice(0, 2).flatMap((arg) => {
+			const abs = absOf(arg);
+			if (abs === null) return [];
+			const real = realOf(abs, realRealpathSync.native);
+			return real === null || real === abs ? [abs] : [abs, real];
+		});
+		for (const [abs, real] of settled)
+			if (real !== abs || changed.some((at) => relativeUnder(at, abs) !== null))
+				settled.delete(abs);
+	};
 	/** @type {Map<string, import("./read-audit-handed.js").Settling>} */
 	const settlings = new Map();
 	/* A new standing environment: every lookup, and what each variable's

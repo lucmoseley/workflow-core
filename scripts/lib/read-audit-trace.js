@@ -7,7 +7,8 @@
  *
  * THE TRACER IS A DETACHED GRANDCHILD (`-DD`), in a process group of its own:
  * the program stays the direct child the test spawned, under the pid, exit
- * status and signals it would have had.
+ * status and signals it would have had; its CPU affinity narrows to one
+ * (#5132).
  *
  * EVERY PATH A FILE CALL NAMES IS A READ, a write's target included: as the
  * call spelt it, with its links followed, and as the descriptor the call
@@ -51,6 +52,46 @@ const FLAGS = [
  * one is missing the trial in `findStrace` fails, and nothing is traced. */
 const SH = "/bin/sh";
 
+/* THE TRACER AND ITS TRACEE SHARE ONE CPU (#5132): every stop wakes the
+ * other side, which costs most across CPUs. The CPU is the one the spawning
+ * process last ran on. So a traced child and all it starts share one CPU: `nproc` and
+ * `os.availableParallelism()` read 1 there, and work it fans out runs in
+ * turn. */
+const TASKSET = "/usr/bin/taskset";
+
+/** @type {boolean|undefined} */
+let canPin;
+
+/**
+ * The CPU to pin a traced child to: the one this process last ran on, field
+ * 39 of `/proc/self/stat`, where `taskset` runs here; else null. That CPU is
+ * in this process's own affinity, which the child inherits, so `taskset`
+ * cannot refuse it. Checked, not tried: a trial spawn here would be the
+ * test's own child to the audit.
+ * @returns {string|null}
+ */
+function readPinCpu() {
+	canPin ??= isRunnable(TASKSET);
+	if (!canPin) return null;
+	try {
+		const stat = fs.readFileSync("/proc/self/stat", "utf8");
+		const cpu = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[36];
+		return cpu !== undefined && /^\d+$/.test(cpu) ? cpu : null;
+	} catch {
+		return null;
+	}
+}
+
+/** @param {string} file */
+function isRunnable(file) {
+	try {
+		fs.accessSync(file, fs.constants.X_OK);
+		return pathKind(file) === "file";
+	} catch {
+		return false;
+	}
+}
+
 /* The traced side, `$1` and `$2` the pipes its output goes down, either
  * empty: it opens them by name, so the tracer never holds them. */
 const INNER =
@@ -63,10 +104,10 @@ const INNER =
  * a named pipe a `cat` copies from, started before the tracer and so not
  * followed; the tracer itself gets /dev/null. No other child is started
  * first: the tracer waits on one of its own before it runs the program,
- * and a stray one ending answers that wait early. `$1` the tracer, `$2`
- * the trace, the rest the child's words. */
+ * and a stray one ending answers that wait early. `$1` the CPU to pin to
+ * or empty, `$2` the tracer, `$3` the trace, the rest the child's words. */
 const OUTER = [
-	"s=$1 o=$2; shift 2; a= b=",
+	"c=$1 s=$2 o=$3; shift 3; a= b=",
 	"if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then a=$o.1; fi",
 	"if [ -p /dev/fd/2 ] || [ -S /dev/fd/2 ]; then b=$o.2; fi",
 	'[ -z "$a" ] || /usr/bin/mkfifo "$a" || exit 127',
@@ -75,7 +116,9 @@ const OUTER = [
 	'if [ -n "$b" ]; then /bin/cat <"$b" 1>&2 & fi',
 	'[ -z "$a" ] || exec >/dev/null',
 	'[ -z "$b" ] || exec 2>/dev/null',
-	`exec "$s" ${FLAGS.join(" ")} -o "$o" -- ${SH} -c '${INNER}' sh "$a" "$b" "$@"`,
+	`set -- "$s" ${FLAGS.join(" ")} -o "$o" -- ${SH} -c '${INNER}' sh "$a" "$b" "$@"`,
+	`if [ -n "$c" ]; then exec ${TASKSET} -c "$c" "$@"; fi`,
+	'exec "$@"',
 ].join("\n");
 
 /**
@@ -89,6 +132,7 @@ const buildTraceArgv = (strace, out, argv) => [
 	"-c",
 	OUTER,
 	"sh",
+	readPinCpu() ?? "",
 	strace,
 	out,
 	...argv,
