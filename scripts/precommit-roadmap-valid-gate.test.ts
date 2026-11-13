@@ -125,3 +125,63 @@ describe("the pre-commit roadmap-validity row", () => {
 		expect(await arms(root)).toBe(true);
 	});
 });
+
+/*
+ * The CI half (mantahostels#974). Not a second gate on the commit — it runs after
+ * the push — but it is the only thing that ever sees a break arriving by
+ * a route the hook cannot, such as a commit made under `HUSKY=0`.
+ *
+ * Pinned statically because a workflow cannot be run from here. Index mode in a
+ * scheduled run has no commit in flight and SKIPs, so a step without `--tree`
+ * would be green and vacuous.
+ */
+describe("the scheduled roadmap-validity check", () => {
+	const ciWorkflow = fs.readFileSync(
+		path.join(ROOT, ".github/workflows/roadmap-digest.yml"),
+		"utf8",
+	);
+
+	/**
+	 * The whole step block that runs `checker`, comments stripped, bounded by the
+	 * `- name:` markers either side rather than by a line count.
+	 */
+	function stepBlockFor(workflow: string, checker: string): string[] | null {
+		const lines = workflow
+			.split("\n")
+			.filter((l) => !l.trimStart().startsWith("#"));
+		const at = lines.findIndex((l) => l.includes(checker));
+		if (at === -1) return null;
+
+		const isStepStart = (l: string) => /^\s*- (name|uses):/.test(l);
+		let from = at;
+		while (from > 0 && !isStepStart(lines[from])) from--;
+		let to = at + 1;
+		while (to < lines.length && !isStepStart(lines[to])) to++;
+		return lines.slice(from, to);
+	}
+
+	const step = stepBlockFor(ciWorkflow, CHECKER);
+
+	it("runs the checker in the Document guards job", () => {
+		expect(step).not.toBeNull();
+	});
+
+	it("asks for tree mode, index mode having nothing to judge on a schedule", () => {
+		expect(step?.join("\n")).toContain(`node ${CHECKER} --tree`);
+	});
+
+	it("runs even after an earlier guard has failed", () => {
+		expect(step?.join("\n")).toContain("!cancelled()");
+	});
+
+	/* scripts/bisect-step.sh replays this job locally, commit by commit, so a
+	 * step missing there makes a bisect over a documents-red walk past the very
+	 * commit that caused it. */
+	it("is replayed by bisect-step.sh, which mirrors the job", () => {
+		const bisect = fs.readFileSync(
+			path.join(ROOT, "scripts/bisect-step.sh"),
+			"utf8",
+		);
+		expect(bisect).toContain(`"$node_bin" ${CHECKER} --tree`);
+	});
+});
