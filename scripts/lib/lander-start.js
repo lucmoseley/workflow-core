@@ -6,8 +6,11 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { gitOrNull } = require("./git.js");
 const { markersDir } = require("./marker-root.js");
+const { readJsonSafe } = require("./plugin-state.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
+const { coreRoot } = require("./script-path.js");
 const { reportOwner } = require("./session-id.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { probeUserScope, spawnOutliving } = require("./user-scope.js");
@@ -44,16 +47,47 @@ function startLander({ holder, waiting, owed, spawnRun }) {
 }
 
 /**
+ * The commit the lander's code is from (#5174): the HEAD sha where `root` is
+ * a git checkout, as the refill loop's code worktree is, else the release
+ * tag of the plugin install it is; "unread" where neither reads. A lander
+ * runs the code of what started it, not the checkout's pin.
+ * @param {string} [root] the code's root, by default lib/script-path.js
+ *   coreRoot's
+ * @returns {string}
+ */
+function readCodeRef(root = coreRoot()) {
+	if (fs.existsSync(path.join(root, ".git")))
+		return gitOrNull(["rev-parse", "HEAD"], { cwd: root })?.trim() || "unread";
+	const manifest = /** @type {{version?: unknown}|null} */ (
+		readJsonSafe(path.join(root, ".claude-plugin", "plugin.json"))
+	);
+	return typeof manifest?.version === "string"
+		? `v${manifest.version}`
+		: "unread";
+}
+
+/**
  * The line a start prints and the lander's log opens its run with.
  * @param {{started: number, waiting: string[], owed: string[]}} result
- * @param {{at: string, by: string, log: string}} o `at` the start's ISO
- *   time, `by` its launcher, `log` the run's output file
+ * @param {{at: string, by: string, log: string, code: string}} o `at` the
+ *   start's ISO time, `by` its launcher, `log` the run's output file, `code`
+ *   readCodeRef's commit
  */
-function buildStartedLine({ started, waiting, owed }, { at, by, log }) {
+function buildStartedLine({ started, waiting, owed }, { at, by, log, code }) {
 	/** @param {string[]} refs */
 	const named = (refs) => (refs.length > 0 ? `: ${refs.join(", ")}` : "");
-	return `${at} started the queue lander, ${waiting.length} queue ref(s) waiting${named(waiting)}, ${owed.length} drop(s) owed a decision${named(owed)} (launched by ${by}; pid ${started}); its output: ${log}`;
+	return `${at} started the queue lander, ${waiting.length} queue ref(s) waiting${named(waiting)}, ${owed.length} drop(s) owed a decision${named(owed)} (launched by ${by}; pid ${started}; code ${code}); its output: ${log}`;
 }
+
+const CODE_OF = /; pid \d+; code (\S+)\); its output: /;
+
+/**
+ * The commit a started line's code is from, or null on a line older than
+ * #5174 or none at all.
+ * @param {string} line
+ * @returns {string|null}
+ */
+const readStartedCode = (line) => CODE_OF.exec(line)?.[1] ?? null;
 
 /* A guess: a session-start launch can read the oracle before its session is
  * listed, so an unlisted id is asked again this many times, this far apart. */
@@ -175,6 +209,8 @@ function spawnDetachedRun({
 module.exports = {
 	startLander,
 	buildStartedLine,
+	readCodeRef,
+	readStartedCode,
 	launcherName,
 	spawnDetachedRun,
 	landerLog,

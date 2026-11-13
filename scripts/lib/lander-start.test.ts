@@ -10,14 +10,22 @@
  * owning session stopped waits unticketed for an unrelated push; drop the scope and the lander's suite
  * competes process by process with every session beside it. The cgroup case
  * runs only where `systemd-run --user --scope` works, which CI's runner
- * lacks.
+ * lacks. readCodeRef names the commit the lander's code is from (#5174):
+ * drop it and the pool cannot tell a loop-started lander from a pinned one.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { launcherName, spawnDetachedRun, startLander } from "./lander-start.js";
+import {
+	buildStartedLine,
+	launcherName,
+	readCodeRef,
+	readStartedCode,
+	spawnDetachedRun,
+	startLander,
+} from "./lander-start.js";
 
 const start = (
 	holder: number | null,
@@ -193,5 +201,56 @@ describe("spawnDetachedRun", () => {
 			"const e = process.env; console.log(JSON.stringify([e.CLAUDE_PROJECT_DIR, e.CLAUDE_CODE_SESSION_ID ?? null, e.CLAUDE_JOB_DIR ?? null, e.WFC_REPORT_OWNER ?? null]));",
 		);
 		expect(logged).toEqual([tmp, null, null, null]);
+	});
+});
+
+describe("readCodeRef (#5174)", () => {
+	it("names a git checkout's HEAD, a plugin install's release tag, and neither as unread", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "code-ref-"));
+		try {
+			const checkout = path.join(tmp, "checkout");
+			fs.mkdirSync(checkout);
+			const git = (...args: string[]) =>
+				spawnSync("git", args, { cwd: checkout, encoding: "utf8" });
+			git("init", "-q");
+			git(
+				"-c",
+				"user.name=t",
+				"-c",
+				"user.email=t@t",
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"x",
+			);
+			expect(readCodeRef(checkout)).toBe(
+				git("rev-parse", "HEAD").stdout.trim(),
+			);
+			const plugin = path.join(tmp, "plugin");
+			fs.mkdirSync(path.join(plugin, ".claude-plugin"), { recursive: true });
+			fs.writeFileSync(
+				path.join(plugin, ".claude-plugin", "plugin.json"),
+				JSON.stringify({ name: "workflow-core", version: "2.2.0" }),
+			);
+			expect(readCodeRef(plugin)).toBe("v2.2.0");
+			expect(readCodeRef(path.join(tmp, "neither"))).toBe("unread");
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
+	it("reads back the code a started line names, and none from an older line", () => {
+		const line = buildStartedLine(
+			{ started: 7, waiting: ["queue/a"], owed: [] },
+			{
+				at: "2026-11-13T00:00:00.000Z",
+				by: "the refill loop",
+				log: "x",
+				code: "v2.3.0",
+			},
+		);
+		expect(readStartedCode(line)).toBe("v2.3.0");
+		expect(readStartedCode(line.replace("; code v2.3.0", ""))).toBeNull();
 	});
 });

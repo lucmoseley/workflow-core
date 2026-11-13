@@ -9,15 +9,18 @@
  *   node scripts/measure-landing-pool.js reaps --since <ISO> [--json]
  *
  * THE POOL (`stays`): each main checkout under $HOME whose
- * `.claude/workflow-core.json` lists `landing` and that runs `<sha>`:
- * workflow-core where `<sha>` is on its `origin/main`, an adopter where its
- * pin is a release tag carrying it (lib/release-tags.js readTagCarry). An adopter
- * counts from the time its pin first carried `<sha>` without break: the
- * committer time of the oldest `.claude/settings.json` revision in the
- * unbroken run of carrying pins ending at HEAD, or the file's mtime where only
- * its uncommitted pin carries it. Residual: a lander the refill loop starts
- * runs the loop's own code, so an adopter pinned below `<sha>` may run it
- * too; it is left out until the lander logs its code (#5174).
+ * `.claude/workflow-core.json` lists `landing`, its stays and green runs
+ * counted under each lander run that ran `<sha>` (#5174). A lander runs the
+ * code of what started it, so a run whose started line names its code
+ * (lib/lander-start.js readStartedCode) counts where that code carries
+ * `<sha>`: a commit that has it as an ancestor, or a release tag carrying it
+ * (lib/release-tags.js readTagCarry). A run whose line names none, older than
+ * #5174 or begun before the log's window, falls back on the checkout's own:
+ * workflow-core where `<sha>` is on its `origin/main`, an adopter from the
+ * time its pin first carried `<sha>` without break: the committer time of the
+ * oldest `.claude/settings.json` revision in the unbroken run of carrying pins
+ * ending at HEAD, or the file's mtime where only its uncommitted pin carries
+ * it. A stay or green run counts only where every run it spans counts.
  *
  * Pool only what adopters' own runs can show: a gate on a workflow-core
  * test file reads workflow-core's batches alone, as no adopter suite holds it.
@@ -53,7 +56,7 @@ const {
 	spawnGitSync,
 } = require("./lib/git.js");
 const { readJsonl } = require("./lib/jsonl.js");
-const { landerLog } = require("./lib/lander-start.js");
+const { landerLog, readStartedCode } = require("./lib/lander-start.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
@@ -93,9 +96,11 @@ const CLI = {
 };
 
 /**
- * @typedef {{name: string, root: string, from: number|null, pin: string|null}}
- *   Member `from` the time it began running the sha, null for workflow-core,
- *   whose `--since` is the sha's arrival on its own `main`
+ * @typedef {{from: number|null, pin: string|null} | {why: string}} Fallback
+ *   what a lander run naming no code is judged by: `from` the time the
+ *   checkout began running the sha, null for workflow-core, whose `--since`
+ *   is the sha's arrival on its own `main`; `why` it did not
+ * @typedef {{name: string, root: string, fallback: Fallback}} Member
  * @typedef {{name: string, why: string}} LeftOut
  */
 
@@ -141,6 +146,33 @@ function buildTagCarrier(core, sha) {
 				: readTagCarry(core, ref, sha);
 		seen.set(ref, carry);
 		return carry;
+	};
+}
+
+/**
+ * Whether the code a lander's started line names carries `sha`, memoised: a
+ * release tag through `carry`, a commit where `sha` is its ancestor. A code
+ * this clone lacks, "unread" among them, does not.
+ * @param {string} core
+ * @param {string} sha
+ * @param {(ref: string) => Carry} carry
+ * @returns {(code: string) => boolean}
+ */
+function buildCodeCarrier(core, sha, carry) {
+	const { TAG_RE } = require("./lib/release-tags.js");
+	/** @type {Map<string, boolean>} */
+	const seen = new Map();
+	return (code) => {
+		const known = seen.get(code);
+		if (known !== undefined) return known;
+		let carries = false;
+		if (TAG_RE.test(code)) {
+			const c = carry(code);
+			carries = "carries" in c && c.carries;
+		} else if (commitSha(core, code) !== null)
+			carries = isAncestor(core, sha, code);
+		seen.set(code, carries);
+		return carries;
 	};
 }
 
@@ -207,15 +239,14 @@ function hasLanding(root) {
 }
 
 /**
- * The checkouts under `home` that run `sha` with `landing` on, and each one
- * left out with why.
+ * The checkouts under `home` with `landing` on, each with its fallback, and
+ * each one left out with why.
  * @param {string} home
- * @param {string} core
+ * @param {(ref: string) => Carry} carry
  * @param {string} sha full
  * @returns {{members: Member[], left: LeftOut[]}}
  */
-function readPool(home, core, sha) {
-	const carry = buildTagCarrier(core, sha);
+function readPool(home, carry, sha) {
 	/** @type {Member[]} */
 	const members = [];
 	/** @type {LeftOut[]} */
@@ -223,28 +254,62 @@ function readPool(home, core, sha) {
 	for (const root of readAdopterCheckouts(home).included) {
 		const name = path.basename(root);
 		if (!hasLanding(root)) left.push({ name, why: "landing is off" });
-		else if (!isCoreHost(root)) {
-			const r = readCarriedSince(root, carry);
-			if ("why" in r) left.push({ name, why: r.why });
-			else members.push({ name, root, from: r.from, pin: r.pin });
-		} else if (isAncestor(root, sha, "origin/main"))
-			members.push({ name, root, from: null, pin: null });
-		else left.push({ name, why: "the sha is not on its origin/main" });
+		else if (isCoreHost(root))
+			members.push({
+				name,
+				root,
+				fallback: isAncestor(root, sha, "origin/main")
+					? { from: null, pin: null }
+					: { why: "the sha is not on its origin/main" },
+			});
+		else members.push({ name, root, fallback: readCarriedSince(root, carry) });
 	}
 	return { members, left };
 }
 
 /**
- * @param {Member} m
+ * Whether a span of a checkout's log ran the sha: every lander run it spans
+ * does, by its named code or else the checkout's fallback.
+ * @param {import("./lib/time-to-land.js").LanderEvent[]} events
+ * @param {Fallback} fallback
+ * @param {(code: string) => boolean} codeCarries
+ * @returns {{admit: (from: number, to: number) => boolean, carried: number}}
+ *   `carried` the runs whose named code carries the sha
+ */
+function buildAdmission(events, fallback, codeCarries) {
+	const runs = events
+		.filter((e) => e.kind === "started")
+		.map((e) => ({ t: e.t, code: readStartedCode(e.rest) }));
+	/** @param {string|null} code @param {number} t */
+	const ran = (code, t) =>
+		code === null
+			? "from" in fallback && t >= (fallback.from ?? t)
+			: codeCarries(code);
+	/** @param {number} t */
+	const codeAt = (t) => runs.findLast((r) => r.t <= t)?.code ?? null;
+	return {
+		admit: (from, to) =>
+			ran(codeAt(from), from) &&
+			runs.every((r) => r.t <= from || r.t > to || ran(r.code, r.t)),
+		carried: runs.filter((r) => r.code !== null && codeCarries(r.code)).length,
+	};
+}
+
+/**
+ * @param {Fallback} f
  * @param {number} since
  */
-const startOf = (m, since) => Math.max(since, m.from ?? since);
+const startOf = (f, since) =>
+	"from" in f ? Math.max(since, f.from ?? since) : since;
 
-/** @param {Member} m @param {number} since */
-const fromLine = (m, since) =>
-	m.from !== null && m.from > since
-		? `from ${iso(m.from)}, when its pin ${m.pin} first carried it`
+/** @param {Fallback} f @param {number} since */
+const fromLine = (f, since) => {
+	if (!("from" in f))
+		return `from ${iso(since)}, only under lander runs whose code carries it, as ${f.why}`;
+	return f.from !== null && f.from > since
+		? `from ${iso(f.from)}, when its pin ${f.pin} first carried it`
 		: `from ${iso(since)}`;
+};
 
 /** @param {LeftOut[]} left */
 const leftLine = (left) =>
@@ -256,15 +321,31 @@ const leftLine = (left) =>
  * @param {{members: Member[], left: LeftOut[]}} pool
  * @param {{since: number, until: number}} w
  * @param {string} sha
+ * @param {(code: string) => boolean} codeCarries
  */
-function poolStays(pool, w, sha) {
-	const repos = pool.members.map((m) => {
-		const since = startOf(m, w.since);
-		const mine = { since, until: w.until, label: "" };
+function poolStays(pool, w, sha, codeCarries) {
+	const left = [...pool.left];
+	const ran = pool.members.flatMap((m) => {
+		const events = parseLanderLog(readLogSince(landerLog(m.root), w.since));
+		const { admit, carried } = buildAdmission(events, m.fallback, codeCarries);
+		if ("why" in m.fallback && carried === 0) {
+			left.push({
+				name: m.name,
+				why: `${m.fallback.why}, and no lander run names code carrying it`,
+			});
+			return [];
+		}
+		return [{ m, events, admit }];
+	});
+	left.sort((a, b) => a.name.localeCompare(b.name));
+	const repos = ran.map(({ m, events, admit }) => {
+		const since = startOf(m.fallback, w.since);
 		const r = judgeTimeToLand(
-			memberStays(readQueueRows(queueLogFile(m.root))),
-			greenSuiteSpans(parseLanderLog(readLogSince(landerLog(m.root), since))),
-			mine,
+			memberStays(readQueueRows(queueLogFile(m.root))).filter((s) =>
+				admit(s.take, s.at),
+			),
+			greenSuiteSpans(events).filter((g) => admit(g.from, g.at)),
+			{ since: w.since, until: w.until, label: "" },
 		);
 		const reading = r.judged
 			? `${r.stays} stay(s), ${r.overTarget} over its target of ${secs(r.targetMs)} s (${TARGET_MULTIPLE} times its green p50 of ${secs(r.greenP50Ms)} s over ${r.greens} run(s))`
@@ -278,7 +359,7 @@ function poolStays(pool, w, sha) {
 			targetMs: r.targetMs,
 			greenP50Ms: r.greenP50Ms,
 			greens: r.greens,
-			line: `${reading}, ${fromLine(m, w.since)}`,
+			line: `${reading}, ${fromLine(m.fallback, w.since)}`,
 		};
 	});
 	const judged = repos.filter((r) => r.judged);
@@ -296,12 +377,12 @@ function poolStays(pool, w, sha) {
 			overNeeded,
 			over,
 			repos,
-			left: pool.left,
+			left,
 		},
 		lines: [
 			`queue stays taken and landed or dropped since ${iso(w.since)}, every landing checkout running ${sha.slice(0, SHORT_SHA)}, each against its own target:`,
 			...repos.map((r) => `  ${r.name}: ${r.line}`),
-			...leftLine(pool.left),
+			...leftLine(left),
 			`pooled: ${overTarget} of ${stays} stay(s) over their checkout's target; ${overNeeded} would call it over`,
 		],
 	};
@@ -371,7 +452,13 @@ function readPooled(command, ref, home, since) {
 		return `${command} needs --carrying <sha>\n\n${USAGE}`;
 	const sha = commitSha(core, ref);
 	if (sha === null) return `${ref} names no commit in ${core}`;
-	return poolStays(readPool(home, core, sha), w, sha);
+	const carry = buildTagCarrier(core, sha);
+	return poolStays(
+		readPool(home, carry, sha),
+		w,
+		sha,
+		buildCodeCarrier(core, sha, carry),
+	);
 }
 
 /** @param {string[]} argv @returns {number} */
