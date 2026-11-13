@@ -27,6 +27,7 @@ import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
 import { reviewSuffix } from "./lib/review-suffix";
+import { reviewTierStamp } from "./lib/review-tier-stamp.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readShellConst } from "./lib/shell-const-testkit";
@@ -1265,8 +1266,8 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 	});
 });
 
-describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)", () => {
-	const Trailer = path.resolve(__dirname, "review-tier-trailer.sh");
+describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)", () => {
+	const Trailer = path.resolve(__dirname, "review-tier-trailer.js");
 	const Prepare = fs.readFileSync(
 		path.resolve(__dirname, "..", ".husky", "prepare-commit-msg"),
 		"utf8",
@@ -1279,7 +1280,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 	beforeEach(() => {
 		fs.writeFileSync(
 			path.join(hooks, "prepare-commit-msg"),
-			`#!/bin/sh\nexec bash ${shellQuote(Trailer)} "$1"\n`,
+			`#!/bin/sh\nexec node ${shellQuote(Trailer)} "$1"\n`,
 			{ mode: 0o755 },
 		);
 	});
@@ -1348,7 +1349,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 
 	it("is run by .husky/prepare-commit-msg on each of a passing commit's exits, through the plugin root", () => {
 		expect(Prepare).toMatch(
-			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.sh"$/m,
+			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.js"$/m,
 		);
 		expect(Prepare.match(/^ +review_tier_trailer "\$\{1-\}"$/gm)).toHaveLength(
 			3,
@@ -1511,9 +1512,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
 		const msg = path.join(scratch, "msg");
 		fs.writeFileSync(msg, "land\n");
-		const r = spawnSync("bash", [Trailer, msg], {
+		const r = runInProcess(Trailer, [msg], {
 			cwd: repo,
-			encoding: "utf8",
 			env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
 		});
 		expect(r.stderr).toContain("could not be read");
@@ -1561,9 +1561,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		const trailerOn = (text: string, sid = SID) => {
 			const msg = path.join(scratch, "msg");
 			fs.writeFileSync(msg, text);
-			const r = spawnSync("bash", [Trailer, msg], {
+			const r = runInProcess(Trailer, [msg], {
 				cwd: repo,
-				encoding: "utf8",
 				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
 			});
 			return { ...r, text: () => fs.readFileSync(msg, "utf8") };
@@ -1625,9 +1624,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		});
 
 		it("says a line stands unvouched where it cannot read the message, and goes on", () => {
-			const r = spawnSync("bash", [Trailer, path.join(scratch, "absent")], {
+			const r = runInProcess(Trailer, [path.join(scratch, "absent")], {
 				cwd: repo,
-				encoding: "utf8",
 				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
 			});
 			expect(r.status).toBe(0);
@@ -1737,9 +1735,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			expect(fs.readFileSync(stamp(), "utf8")).toBe(before);
 			const msg = path.join(scratch, "msg");
 			fs.writeFileSync(msg, "land\n");
-			const r = spawnSync("bash", [Trailer, msg], {
+			const r = runInProcess(Trailer, [msg], {
 				cwd: repo,
-				encoding: "utf8",
 				env: privateEnv(),
 			});
 			expect(r.stderr).toBe("");
@@ -1752,9 +1749,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			holdAsSession();
 			const msg = path.join(scratch, "msg");
 			fs.writeFileSync(msg, "theirs\n");
-			const r = spawnSync("bash", [Trailer, msg], {
+			const r = runInProcess(Trailer, [msg], {
 				cwd: repo,
-				encoding: "utf8",
 				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: Neighbour },
 			});
 			expect(r.status).toBe(0);
@@ -1775,25 +1771,13 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		});
 
 		it("keeps a session id out of the stamp's path", () => {
-			const r = spawnSync(
-				"bash",
-				[
-					"-c",
-					`source ${shellQuote(path.join(path.dirname(GATE), "lib", "review-tier-stamp.sh"))} && review_tier_stamp /g`,
-				],
-				{
-					encoding: "utf8",
-					env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: "../a b" },
-				},
-			);
-			expect(r.stdout.trim()).toBe("/g/wfc-review-tier-___a_b");
+			expect(reviewTierStamp("/g", "../a b")).toBe("/g/wfc-review-tier-___a_b");
 		});
 	});
 
 	const runTrailer = (msg: string, env: Record<string, string> = {}) =>
-		spawnSync("bash", [Trailer, msg], {
+		runInProcess(Trailer, [msg], {
 			cwd: repo,
-			encoding: "utf8",
 			env: { ...quietEnv(), ...env },
 		});
 

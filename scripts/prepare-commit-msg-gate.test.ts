@@ -158,8 +158,6 @@ const buildTemplate = (root: string) => {
 		"scripts/lib/commit-route.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
-		"scripts/review-tier-trailer.sh",
-		"scripts/lib/review-tier-stamp.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",
@@ -173,13 +171,15 @@ const buildTemplate = (root: string) => {
 		0o755,
 	);
 	// The scanner the launcher runs, commit-msg's Weakens: gate (#2235) and the
-	// message reader the subject check spawns (#3075), linked rather than
+	// message reader the subject check spawns (#3075) and the review-tier
+	// trailer (#3664), linked rather than
 	// copied: node resolves their requires from the link's target, so their lib
 	// closure comes with them.
 	for (const rel of [
 		"scripts/check-commit-message-closes.js",
 		"scripts/check-weakens-line.js",
 		"scripts/lib/commit-message.js",
+		"scripts/review-tier-trailer.js",
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
 
@@ -1157,7 +1157,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 
 	it("passes where the trailer script is missing, saying so and logging it (#4051)", () => {
 		const p = probe();
-		fs.rmSync(path.join(p.root, "scripts", "review-tier-trailer.sh"));
+		fs.rmSync(path.join(p.root, "scripts", "review-tier-trailer.js"));
 		const config = loggingTo(p);
 		fs.writeFileSync(path.join(p.root, "f.txt"), "new\n");
 		p.git("add", "--", "f.txt");
@@ -1165,7 +1165,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		expect(r.code).toBe(0);
 		expect(r.output).toContain("lands with no Review-Tier: trailer");
 		expect(readGuardErrorsLog(config)).toMatch(
-			/\tprepare-commit-msg\treview-tier-trailer\.sh is missing — this commit lands with no Review-Tier: trailer and no check that its tree stayed put\n$/,
+			/\tprepare-commit-msg\treview-tier-trailer\.js is missing — this commit lands with no Review-Tier: trailer and no check that its tree stayed put\n$/,
 		);
 	});
 
@@ -1196,9 +1196,11 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		(_, flags) => {
 			const p = probe();
 			p.precommitBody(precommitStub(path.join(p.root, LOG), 0));
+			const trailer = path.join(p.root, "scripts", "review-tier-trailer.js");
+			fs.rmSync(trailer);
 			fs.writeFileSync(
-				path.join(p.root, "scripts", "review-tier-trailer.sh"),
-				'echo "the hold refused the moved tree" >&2\nexit 1\n',
+				trailer,
+				'process.stderr.write("the hold refused the moved tree\\n");\nprocess.exit(1);\n',
 			);
 			fs.writeFileSync(path.join(p.root, "f.txt"), "held\n");
 			p.git("add", "--", "f.txt");

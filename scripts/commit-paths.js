@@ -150,6 +150,7 @@ const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const { readText } = require("./lib/file-read.js");
+const { reviewTierStamp } = require("./lib/review-tier-stamp.js");
 
 const NAME = "commit-paths";
 const USAGE = `usage: node scripts/${NAME}.js (-m <message> | -F <file|->) -- <path>...
@@ -206,9 +207,6 @@ let commitsNothing = false;
 /** Set by --check, whose refusals say nothing was committed. */
 let checkOnly = false;
 
-/** The review hold's stamp names, one per session (#3906). */
-const REVIEW_TIER_STAMP = path.join(__dirname, "lib", "review-tier-stamp.sh");
-
 /**
  * --check's private index and git directory, set by armStampRemoval once its
  * hooks may run.
@@ -246,23 +244,8 @@ function removeHookStamps() {
 			`git could not write the checked tree: ${(tree.stderr ?? "").trim()}`,
 		);
 	const stamps = [path.join(gitDir, "wfc-precommit-stamp")];
-	const review = spawnSync(
-		"bash",
-		[
-			"-c",
-			'. "$1" && review_tier_stamp "$2"',
-			"bash",
-			REVIEW_TIER_STAMP,
-			gitDir,
-		],
-		{ encoding: "utf8" },
-	);
-	if (review.status !== 0)
-		leftBehind(
-			"this session's review-hold stamp",
-			`${REVIEW_TIER_STAMP} would not name it`,
-		);
-	else if (review.stdout.trim()) stamps.push(review.stdout.trim());
+	const review = reviewTierStamp(gitDir, process.env.CLAUDE_CODE_SESSION_ID);
+	if (review !== null) stamps.push(review);
 	for (const stamp of stamps) {
 		const read = readText(stamp);
 		if (read.state === "unreadable") leftBehind(stamp, read.message);

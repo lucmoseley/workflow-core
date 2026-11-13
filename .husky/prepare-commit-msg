@@ -21,7 +21,7 @@
 #            on, per hook: scripts/lib/commit-route.sh, whose absence
 #            refuses every commit. On a commit that passes, writes the review
 #            hold's `Review-Tier:` trailer through
-#            scripts/review-tier-trailer.sh (#3664), which refuses a tree that
+#            scripts/review-tier-trailer.js (#3664), which refuses a tree that
 #            moved after the hold passed and fails the hold on re-reading it
 #            (#3905).
 # JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
@@ -151,10 +151,10 @@ unchecked() {
 # commit takes: the hold wrote its stamp in whichever run passed, `pre-commit`'s,
 # this hook's own or the replay path's.
 review_tier_trailer() {
-  trailer="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-tier-trailer.sh"
+  trailer="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-tier-trailer.js"
   if [ -r "$trailer" ]; then
     status=0
-    bash "$trailer" "$1" || status=$?
+    node "$trailer" "$1" || status=$?
     [ "$status" -eq 0 ] || refused_in_progress "$status"
   else
     unchecked "$trailer" "this commit lands with no Review-Tier: trailer and no check that its tree stayed put"
