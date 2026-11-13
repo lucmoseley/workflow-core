@@ -394,7 +394,7 @@ describe("the lander sets (#4545)", () => {
 });
 
 describe("a staged list git will not name", () => {
-	it("refuses with exit 1 and git's reason, running no row", async () => {
+	it("refuses with exit 1 and the staged port's message, running no row", async () => {
 		const r = await run([row("a")], { stagedFails: "git" });
 		expect(r.exit).toBe(1);
 		expect(r.ran).toEqual([]);

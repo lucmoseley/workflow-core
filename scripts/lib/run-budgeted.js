@@ -57,7 +57,9 @@ const FORWARDED = /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]);
  * ARM64 WSL2 machine at load average 12-15 (#4187 close comment): post-commit's
  * report-new-shared-faults.js took 24.8 s. Pre-commit's one bounded run of
  * its Node gates, scripts/precommit-dispatch.js, took 21.8-22.8 s on a
- * scripts/*.js commit at load 2 (2026-11-14, #5171). The factor is UNTRACED:
+ * scripts/*.js commit at load 2 (2026-11-14, #5171): a lighter load than
+ * the 24.8 s figure's, so at load 12-15 it may be the slowest run, and
+ * HOOK_SLOWEST_MS is a guess until it is re-measured there. The factor is UNTRACED:
  * headroom for a slower adopter machine or a heavier load. Re-measure where a
  * hook gains a run of whole-repo checkers. */
 const HOOK_SLOWEST_MS = 25_000;
