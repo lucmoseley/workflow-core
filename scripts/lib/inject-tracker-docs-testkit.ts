@@ -20,7 +20,7 @@ const CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "tier-port-"));
 
 /**
  * The review-tier port on the real dispatcher, run in-process rather than
- * spawned: the adapter's answer for the same payload, at no process start.
+ * spawned: the adapter's answer for the same payload.
  */
 export const tierPort =
 	(hook = TIER_HOOK): Ports["reviewTier"] =>
@@ -40,8 +40,7 @@ export const tierPort =
 
 /**
  * The `takes:` port answering `label`, recording each read as the `gh`
- * argument line the adapter builds from it, up to `--json labels`. A cwd that
- * is not a directory is asked nothing, as the adapter asks nothing.
+ * argument line the adapter builds from it.
  */
 export function takesPort(label: () => string) {
 	const calls: string[] = [];

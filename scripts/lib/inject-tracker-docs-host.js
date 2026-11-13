@@ -1,7 +1,6 @@
 /*
  * inject-tracker-docs-host.js — the production ports lib/inject-tracker-docs.js
- * reads (#5151): the `gh` read of an issue's `takes:` label, the review-tier
- * core run on a typed /code-review, the clock and the fail-open log.
+ * reads (#5151).
  *
  * The `gh` read runs through lib/gh.js, killed at its give-up; `gh` is one
  * process, so the kill frees the pipe. The tier read runs under coreutils
@@ -14,9 +13,8 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { trimEndRun } = require("./trim-run.js");
 
-/* The `gh` give-up. No reference, no `takes:` label, or a `gh` that fails or
- * outruns it adds nothing; past the hook's 10 s the harness would drop the
- * whole payload. 4 is a guess, leaving the rest of the hook 6 s;
+/* The `gh` give-up: past the hook's 10 s the harness would drop the whole
+ * payload. 4 is a guess, leaving the rest of the hook 6 s;
  * WFC_TAKES_GH_TIMEOUT_S shortens it for a test only (#2268). */
 const TAKES_GH_TIMEOUT_S = 4;
 
@@ -68,8 +66,6 @@ function buildHostPorts(log) {
 				return "";
 			}
 		},
-		/* WFC_REVIEW_TIER_HOOK, the entry the tier core is run through, is the
-		 * test seam, as WFC_GH is for the `takes:` read. */
 		reviewTier: ({ payload, cwd }) => {
 			const hook =
 				process.env.WFC_REVIEW_TIER_HOOK ||
@@ -100,8 +96,7 @@ function buildHostPorts(log) {
 					?.additionalContext;
 				return typeof c === "string" ? c : "";
 			} catch {
-				/* a tier core that printed no hook output owes no tier line; its own
-				 * fail-open record is the tier core's (#1697) */
+				/* its own fail-open record is the tier core's (#1697) */
 				return "";
 			}
 		},

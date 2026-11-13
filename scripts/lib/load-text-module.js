@@ -10,7 +10,7 @@
 
 const vm = require("node:vm");
 
-/* A hung copy is BROKEN, not a stalled commit. */
+/* A hung copy is BROKEN. */
 const EVAL_TIMEOUT_MS = 2000;
 
 /**

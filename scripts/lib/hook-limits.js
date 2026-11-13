@@ -12,7 +12,7 @@ const { escapeRe } = require("./regex-group.js");
 
 /* additionalContext over this many characters is persisted to a file and the
  * session handed a ~2 KB preview (mantahostels#1762). Read out of the shipped
- * binary by mantahostels#1868 (`V5n=1e4`), so it models a consumer the repo
+ * binary by mantahostels#1868, so it models a consumer the repo
  * does not own and can move unnoticed. */
 const HOOK_PERSIST_CHARS = 10_000;
 

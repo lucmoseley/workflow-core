@@ -19,8 +19,7 @@
  * Never blocks: an unreadable payload or no command matched returns nothing.
  *
  * THE NO-MATCH PATH REQUIRES NOTHING BEYOND THE TEXT MODULE. It runs on every
- * prompt, and the latency gate (#2733, bench.py --paired) reads it against the
- * bash hook it replaced; the config, rule and review libraries load only once
+ * prompt, and the latency gate (#2733, bench.py --paired) reads it; the config, rule and review libraries load only once
  * a command has matched.
  */
 
@@ -46,7 +45,7 @@ const TOKEN_SEPARATORS = " \t\n\v\f\r,&+";
 /**
  * Every payload field this hook reads. NULs and trailing newlines are dropped;
  * the unit separator from every field but the prompt. A payload that is not a
- * JSON object reads as all empty, so it reads as the parent's below.
+ * JSON object reads as all empty.
  * @param {string} stdin
  */
 function parseFields(stdin) {
@@ -79,8 +78,8 @@ function parseFields(stdin) {
 }
 
 /**
- * A JSON value as jq's `// ""` then `tostring` reads it: null, false and
- * absent are "", a string is itself, anything else its JSON.
+ * A JSON value as text: null, false and absent are "", a string is itself,
+ * anything else its JSON.
  * @param {unknown} v
  */
 function asText(v) {
@@ -170,8 +169,7 @@ function takesReference(arg) {
  * Residuals. (1) Two session ids differing only in a character the sanitiser
  * strips share one marker. Unobserved: the ids are uuids. (2) Only the window
  * discriminates within a source, so a session that really does re-invoke the
- * same command inside 60 s gets no second copy. 60 is a guess, carried from
- * the bash hook: wide of the pair's observed gap, narrow of a re-typed command. */
+ * same command inside 60 s gets no second copy. 60 is a guess: wide of the pair's observed gap, narrow of a re-typed command. */
 const DEDUPE_WINDOW_S = 60;
 
 /* Markers would otherwise accumulate for the life of the host. Any threshold
@@ -216,8 +214,7 @@ function markerFor(session, matched) {
 
 /**
  * Whether a live marker says this firing is the second half of the pair. A
- * marker dated AHEAD of now — a WSL2 guest clock stepping back after a host
- * suspend — is no duplicate, which an unsigned reading of the window would
+ * marker dated AHEAD of now is no duplicate, which an unsigned reading of the window would
  * treat as recent forever. A stale or unreadable one is removed, and where it
  * cannot be, the de-duplication is off for this firing: left in place it
  * would win the reservation and the session would get nothing.
@@ -333,9 +330,7 @@ function readTier(ports, session, ns, cwd) {
 }
 
 /**
- * /code-review's rules: the Standards axis's files, the dispatch shape with
- * this session's Artefact paths, the deviations and disposition rules and the
- * priced-options rule.
+ * /code-review's rules.
  * @param {Ports} ports @param {string} session @param {string} pricedOptions
  */
 function codeReviewRules(ports, session, pricedOptions) {

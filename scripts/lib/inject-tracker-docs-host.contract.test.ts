@@ -2,10 +2,8 @@
 /*
  * Contract of lib/inject-tracker-docs-host.js's two reads against the fakes
  * the core's module cases use (lib/inject-tracker-docs-testkit.ts, §G7): each
- * fixture is answered by the production adapter, spawning `gh` at WFC_GH and
- * the dispatcher under `timeout`, and by the fake, and the answers must agree.
- * A fake that drifts from its adapter fails here before a module case can pass
- * on it.
+ * fixture is answered by the production adapter and by the fake, and the
+ * answers must agree.
  */
 
 import { execFileSync } from "node:child_process";

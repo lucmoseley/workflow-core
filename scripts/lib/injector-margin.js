@@ -4,9 +4,6 @@
  * given copy of lib/tracker-inject-text.js through its own composers, for
  * scripts/check-injector-margin.sh (mantahostels#1915).
  *
- * Usage:
- *   node scripts/lib/injector-margin.js <text-module> <rules-dir> <rule-cap>
- *
  * Prints one `<command> <length>` line per command, in COMMANDS order, the
  * length in UTF-16 units: the harness slices with String.prototype.length.
  * Exits 2 with the reason on stderr where the copy will not evaluate or
@@ -14,9 +11,8 @@
  *
  * The copy is evaluated, never required (lib/load-text-module.js), so the
  * staged blob is measured without running anything else of the index. The
- * host's own values — the output style path, the standards files, the
- * glossary, the reviewer type — are read off the working tree at the current
- * directory, as the hook reads them off its host.
+ * host's own values are read off the working tree at the current directory,
+ * as the hook reads them off its host.
  *
  * Every input sits at the value that makes its payload longest:
  *   - each takes-reading command is handed an issue whose `takes:` label is
@@ -44,8 +40,7 @@ const { reviewAgentType } = require("./review-agent-type.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { trimEndRun } = require("./trim-run.js");
 
-/* rendered-injection.js renders with its own probe id; any id mints a suffix
- * of the same length. */
+/* Any id mints a suffix of the same length. */
 const PROBE_SESSION_ID = "check-injector-margin-probe-00000000";
 const PROBE_ISSUE = "1";
 

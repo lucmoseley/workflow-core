@@ -1,9 +1,7 @@
 // @vitest-environment node
 /*
  * The boundary set of scripts/inject-tracker-docs.js, the UserPromptSubmit
- * and SessionStart hook entry (#5151): its two input channels, an unreadable
- * payload, another event's bare stdout, and the two cases only real processes
- * show — the concurrent pair and the hung-`gh` kill. Every routing, rule-text
+ * and SessionStart hook entry (#5151). Every routing, rule-text
  * and de-duplication branch is a module case on the core,
  * scripts/lib/inject-tracker-docs.test.ts. Broken, every tracker command a
  * session types may arrive without its rules, or twice, or hang its prompt.
@@ -26,9 +24,7 @@ const { TAKES_GH_TIMEOUT_S } =
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-entry-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
-/* Each variable is pinned for the reason the module cases' runner gives
- * beside it; `gh` and the tier hook are pointed at nothing unless a case sets
- * them. */
+/* `gh` and the tier hook are pointed at nothing unless a case sets them. */
 const ENV = {
 	...process.env,
 	CLAUDE_PROJECT_DIR: ROOT,
@@ -92,11 +88,6 @@ describe("the entry's input channels", () => {
 	});
 });
 
-/*
- * mantahostels#1117 — the pair's gap is inside one hook process's own runtime,
- * so a check-then-write with no atomic step loses the race and both firings
- * inject. Two real processes, as only they can race (§X3).
- */
 describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", () => {
 	it("lets exactly one of two concurrent firings through", async () => {
 		const both = await Promise.all(
@@ -145,7 +136,6 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 		expect(contextOf(hung)).toBe(contextOf(await fire({})));
 	}, 15_000);
 
-	// The gh give-up alone, not the whole hook run, against each registration.
 	it("gives up on gh inside every timeout the self-plugin and the plugin manifest register", () => {
 		for (const file of [
 			path.join(ROOT, "self-plugin", "hooks", "hooks.json"),

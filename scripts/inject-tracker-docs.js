@@ -2,9 +2,7 @@
 /*
  * inject-tracker-docs.js — the UserPromptSubmit and SessionStart hook that
  * hands a tracker command the project rules its vendored skill does not carry
- * (#5151): the composition root that wires lib/inject-tracker-docs-host.js's
- * ports into lib/inject-tracker-docs.js and prints what it returns. Why, what
- * it injects, and its limits: the core's header.
+ * (#5151).
  *
  * Both events read plain stdout as context too, so any other event gets the
  * text bare. Never blocks: every path exits 0.

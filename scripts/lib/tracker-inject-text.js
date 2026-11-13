@@ -6,15 +6,11 @@
  * (check-injector-margin.sh's measure) evaluate a revision's copy of this file
  * out of git, where its siblings are not beside it (lib/load-text-module.js);
  * a require here breaks both reads.
- * The values a payload depends on — the output style, the standards files, the
- * rule fragments, the review tier — are passed in by the core.
  *
  * WHAT IT HOLDS IS RULES, NOT DOCUMENTS: prose held here, so a renamed or
  * unreadable document cannot empty the payload. What stays pasted is
  * mantahostels#1870's rule-by-rule call: pasted where the vendored skill's own
- * default is actively wrong — the header's three overrides, the
- * research-dispatch clause, the priced-options shape, the per-command blocks;
- * indexed (mantahostels#2499) where a miss is uninformed and has no observable
+ * default is actively wrong; indexed (mantahostels#2499) where a miss is uninformed and has no observable
  * `gh` shape. Every command lands as ONE payload: mantahostels#1869 ruled
  * against splitting one across several hook entries.
  *
@@ -173,8 +169,7 @@ const codeReviewRules = ({
  * (mantahostels#3205), the research-dispatch clause (mantahostels#918) — to
  * /wayfinder ALONE, /implement indexing `rule:research-artefact-scratch`
  * instead (mantahostels#2499) — and the charting terminal condition
- * (mantahostels#2585, ruled at mantahostels#2577 §1-2), pasted because a
- * session that misses it charts on past done (mantahostels#2564). It cannot
+ * (mantahostels#2585, ruled at mantahostels#2577 §1-2). It cannot
  * live in the wayfinder SKILL.md, whose doc-map §A route is Vendored. */
 const WAYFINDER_CLAUSES =
 	"\n\nA RESOLUTION THAT DISPOSES OF A FINDING WRITES BACK TO THE SOURCE THAT DECLARED IT OPEN — a gap ledger, a `Disposition: worth a ticket` row, a \"no card covers this\" line, a \"parked — revisit as a card\" note. An editable source has its declaring line edited in place or deleted; a generated one at its generator's input; an aged `docs/doc-map-classes.json` `role` declaration is cleared there; a file that merely mentions the area takes nothing. Ruled at mantahostels#3205.\n\n### Research artefacts — the dispatch half, which binds however the research was dispatched. The subagent NEVER writes into `docs/research/`. Paste this into its prompt verbatim:\n\n> Artefact: .claude/tmp/research-<name>.md\n>\n> Write your findings to `.claude/tmp/research-<name>.md`, appending each the moment it lands rather than holding them back for your final report. Do NOT write anywhere under `docs/`, and do NOT commit anything. Report the absolute path of the file back to me when you finish. Write the artefact in ASD-STE100 Simplified Technical English.\n\nFrom a throwaway worktree hand the absolute path instead. Posting is the dispatching session's, never the subagent's, and its order is in `docs/agents/issue-tracker.md` §Research artefacts.\n\n**Size a reading agent's job to its context window:** split a large source family across agents, and have each save fetched text to disk and search it rather than read it whole (#1789).\n\n### A charting run is DONE when four things are true, and not one ticket later. The map body is written; every ticket you can specify now exists as a child issue; their blocking edges are wired AND read back (`rule:wayfinder-ops-shapes` carries the shape; wiring one is not evidence it took); and every `wayfinder:research` ticket this run created is resolved and closed. Then nothing further is owed — end the session on `result:`. The one-ticket-per-session rule grants charting an exception for research tickets; SPENDING that exception is not a licence to carry on past it (mantahostels#2564, mantahostels#2577).\n\n**What runs next across sessions belongs to `/pick-next` and the frontier query — never to you, and never to the founder as a question.** Which ticket THIS session resolves is still yours to choose; what is not yours is what runs after it or beside it. Naming the next ticket in order is reporting and is welcome. Asking him which ticket to run, in what order, or in which parallel batch, puts him a scheduling choice.";
