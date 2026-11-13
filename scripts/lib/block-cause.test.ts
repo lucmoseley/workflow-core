@@ -354,6 +354,14 @@ describe("an API error", () => {
 		expect(
 			cause(row(), job({ detail: page, needs: "login required — run /login" })),
 		).toEqual(transient);
+		expect(
+			cause(row(), job({ detail: null, needs: null }), [
+				apiErrorRow(
+					"authentication_failed",
+					"API Error: 403 <html>\n<title>Attention Required! | Cloudflare</title>",
+				),
+			]),
+		).toEqual(transient);
 	});
 
 	it("reads transient off an API Error detail or a server_error row (rule 7)", () => {
