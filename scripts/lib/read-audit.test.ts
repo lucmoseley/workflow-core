@@ -505,7 +505,7 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		expect(audit.reads.files).toContain(".claude/settings.json");
 	});
 
-	it("runs a traced shell on the one CPU its spawner last ran on (#5132)", () => {
+	it("runs a traced shell on the one CPU its spawner last ran on, where taskset is here (#5132)", () => {
 		const root = checkout();
 		const out = path.join(
 			fs.mkdtempSync(path.join(os.tmpdir(), "rda-cpu-")),
@@ -516,7 +516,10 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			root,
 			`require("node:child_process").execSync(${quoted(`nproc >${out}`)}, { cwd: ${quoted(root)} });`,
 		);
-		expect(fs.readFileSync(out, "utf8")).toBe("1\n");
+		const cpus = fs.existsSync("/usr/bin/taskset")
+			? 1
+			: os.availableParallelism();
+		expect(fs.readFileSync(out, "utf8")).toBe(`${cpus}\n`);
 	});
 
 	it("doubts a file a child read and then removed, which nothing is left to key", () => {
@@ -792,6 +795,53 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			].join("\n");
 			const log = audited(root, T, body, {
 				env: { RULES: path.join(cwd, "sub", "in") },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("keeps a standing variable's lookup once the process removes a path apart from it (#5132)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const apart = outsideDir();
+			/* Linked by a child, unseen: a lookup kept from before it misses
+			 * the link, which a removal apart from the path leaves standing. */
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				`require("node:fs").rmSync(${quoted(apart)}, { recursive: true });`,
+				spawns("cat", [], cwd),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt ?? "").not.toMatch(
+				/by its environment \(RULES\)/,
+			);
+		});
+
+		it("weighs afresh a standing variable's lookup that followed a link, once the process removes any path (#5132)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const target = outsideDir();
+			fs.symlinkSync(target, path.join(cwd, "hop"));
+			const apart = outsideDir();
+			/* The hop is not kept: a child linking under its target moves the
+			 * lookup, so any removal drops it. */
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(path.join(target, "in"))})`;
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				`require("node:fs").rmSync(${quoted(apart)}, { recursive: true });`,
+				spawns("cat", [], cwd),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: path.join(cwd, "hop", "in") },
 				trace: false,
 			});
 			expect(readAudits(log, root).get(T).doubt).toMatch(

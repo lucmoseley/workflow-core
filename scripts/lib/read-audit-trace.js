@@ -7,7 +7,7 @@
  *
  * THE TRACER IS A DETACHED GRANDCHILD (`-DD`), in a process group of its own:
  * the program stays the direct child the test spawned, under the pid, exit
- * status and signals it would have had.
+ * status and signals it would have had, on one CPU (#5132).
  *
  * EVERY PATH A FILE CALL NAMES IS A READ, a write's target included: as the
  * call spelt it, with its links followed, and as the descriptor the call
@@ -55,24 +55,41 @@ const SH = "/bin/sh";
  * of the other side, and on this WSL2 VM one that crosses CPUs costs ~0.25
  * ms: a `wfc-config.sh` call, ~870 stops, took 270 ms traced unpinned, 71
  * ms pinned, 34 ms untraced. The CPU is the one the spawning process last
- * ran on. So a traced child and all it starts see one CPU in their
- * affinity, and `nproc` reads 1 there. With no `taskset` here, the trace
- * runs unpinned. */
+ * ran on. So a traced child and all it starts share one CPU: `nproc` and
+ * `os.availableParallelism()` read 1 there, and work it fans out runs in
+ * turn. Where `taskset` will not run, the trace runs unpinned. */
 const TASKSET = "/usr/bin/taskset";
-const PIN = pathKind(TASKSET) === "file";
+
+/** @type {boolean|undefined} */
+let canPin;
 
 /**
- * The CPU this process last ran on, field 39 of `/proc/self/stat`; null
- * where that cannot be read.
+ * The CPU to pin a traced child to: the one this process last ran on, field
+ * 39 of `/proc/self/stat`, where `taskset` runs here; else null. That CPU is
+ * in this process's own affinity, which the child inherits, so `taskset`
+ * cannot refuse it. Checked, not tried: a trial spawn here would be the
+ * test's own child to the audit.
  * @returns {string|null}
  */
-function currentCpu() {
+function readPinCpu() {
+	canPin ??= isRunnable(TASKSET);
+	if (!canPin) return null;
 	try {
 		const stat = fs.readFileSync("/proc/self/stat", "utf8");
 		const cpu = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[36];
 		return cpu !== undefined && /^\d+$/.test(cpu) ? cpu : null;
 	} catch {
 		return null;
+	}
+}
+
+/** @param {string} file */
+function isRunnable(file) {
+	try {
+		fs.accessSync(file, fs.constants.X_OK);
+		return pathKind(file) === "file";
+	} catch {
+		return false;
 	}
 }
 
@@ -116,7 +133,7 @@ const buildTraceArgv = (strace, out, argv) => [
 	"-c",
 	OUTER,
 	"sh",
-	(PIN && currentCpu()) || "",
+	readPinCpu() ?? "",
 	strace,
 	out,
 	...argv,
