@@ -47,7 +47,7 @@ const readEnvelope = (file) => {
  * @property {(item: unknown, key: string, envelope: Record<string, unknown>) => number | undefined} [measure]  the number this fault carries, read out of EITHER envelope — see newFaultItems()
  * @property {string} [unit]  what `measure` counts, printed after the figure and a space — `B`, `ms`
  * @property {(key: string) => boolean} [newOnly]  keys whose items are faults only as this commit's addition: one the baseline already carries is no fault, so lib/check.js never reports it inherited
- * @property {(item: unknown, key: string) => boolean} [indexOnly]  items the baseline side never computes (lib/check.js isBaselineSide()), so never compared: the index side's own report prints them
+ * @property {(item: unknown, key: string) => boolean} [indexOnly]  items the baseline side never computes (lib/check.js ctx.isBaselineSide()), so never compared: the index side's own report prints them
  */
 
 /** @type {(item: unknown) => string} */

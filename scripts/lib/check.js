@@ -154,8 +154,31 @@ const AGAINST_FLAGS = ["--root"];
  */
 const SAY_FD_ENV = "WFC_CHECK_SAY_FD";
 
-/** @returns {boolean} whether this run reads a fault diff's older revision */
-const isBaselineSide = () => process.env[SIDE_ENV] === "baseline";
+/**
+ * The fd a spawned side run's parent named for its human report, by
+ * SAY_FD_ENV; a non-numeric or absent value leaves say() alone.
+ * @returns {number | null}
+ */
+function sayFdFromEnv() {
+	const fd = Number(process.env[SAY_FD_ENV]);
+	return Number.isInteger(fd) && fd > 0 ? fd : null;
+}
+
+/**
+ * The side a spawned side run was told it reads, by its parent's SIDE_ENV.
+ * @returns {"index" | "baseline" | undefined}
+ */
+function sideFromEnv() {
+	const side = process.env[SIDE_ENV];
+	return side === "index" || side === "baseline" ? side : undefined;
+}
+
+/**
+ * How a run reads its `--against`/`--index` sides: `spawn` re-runs the
+ * checker's file as a child, as a process run always has; `in-process` runs
+ * its spec in this process over the same materialised tree (#5172).
+ * @typedef {"spawn" | "in-process"} SideRun
+ */
 
 /*
  * The checker name a persist-mode run opened its record under, so the crash
@@ -275,14 +298,22 @@ class CheckContext {
 	 * @param {string[]} argv
 	 * @param {{ usage: string, valueFlags?: string[], capture?: string[],
 	 *   screen?: string[], persisting?: boolean, sink?: Sink,
-	 *   script?: string }} opts `script` is the checker's own file, which an
-	 *   `--against`/`--index` side re-runs; `sink` takes every byte the run
-	 *   writes
+	 *   script?: string, spec?: CheckSpec, sides?: SideRun,
+	 *   side?: "index" | "baseline", sayFd?: number | null }} opts `script`
+	 *   is the checker's own file, which a spawned `--against`/`--index` side
+	 *   re-runs; `sink` takes every byte the run writes; `sides` says how
+	 *   this run reads its sides; `side` and `sayFd` are a side run's own,
+	 *   in place of SIDE_ENV and SAY_FD_ENV
 	 */
 	constructor(argv, opts) {
 		this.argv = argv;
 		this.sink = opts.sink ?? FD_SINK;
 		this.script = opts.script;
+		this._spec = opts.spec;
+		/** @type {SideRun} */
+		this.sides = opts.sides ?? "spawn";
+		/** Which side of a fault diff this run reads, where it is one. */
+		this.side = opts.side ?? sideFromEnv();
 		this.warnOnly = argv.includes("--warn");
 		this.asJson = argv.includes("--json");
 		/* Whether the envelope also carries say()'s text, as `text` — opt-in,
@@ -312,12 +343,16 @@ class CheckContext {
 		/** say()'s text under --json-text, which the envelope carries as `text`. */
 		this._jsonLines = /** @type {string[]} */ ([]);
 		/* See SAY_FD_ENV. A non-numeric or absent value leaves say() alone. */
-		const fd = Number(process.env[SAY_FD_ENV]);
-		this._sayFd = Number.isInteger(fd) && fd > 0 ? fd : null;
+		this._sayFd = opts.sayFd === undefined ? sayFdFromEnv() : opts.sayFd;
 		/* Bare arguments, in order. Flag VALUES are pulled by name via value()
 		 * before this is read, so a checker that takes `--ref main` must declare it
 		 * in `valueFlags` or `main` shows up here as a positional. */
 		this.args = positionals(argv, opts.valueFlags || []);
+	}
+
+	/** @returns {boolean} whether this run reads a fault diff's older revision */
+	isBaselineSide() {
+		return this.side === "baseline";
 	}
 
 	/** @param {string} flag */
@@ -806,12 +841,23 @@ function reread(dir, label, { stream, side, code, sink }, args) {
 		throw brokenError(
 			`could not re-run this check over ${label}: ${r.error.message}`,
 		);
+	return envelopeOf(r.stdout, label, r.status);
+}
+
+/**
+ * A side's `--json` stdout read as its envelope, BROKEN where it is none.
+ * @param {string} stdout
+ * @param {string} label
+ * @param {number | null} exit
+ * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
+ */
+function envelopeOf(stdout, label, exit) {
 	let envelope;
 	try {
-		envelope = JSON.parse(r.stdout);
+		envelope = JSON.parse(stdout);
 	} catch (e) {
 		throw brokenError(
-			`this check produced no readable --json envelope over ${label} (exit ${r.status}).`,
+			`this check produced no readable --json envelope over ${label} (exit ${exit}).`,
 			{ cause: e },
 		);
 	}
@@ -1075,21 +1121,55 @@ function materialisedSpec(spec, ctx, flag, absent) {
 function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	const dir = fs.mkdtempSync(path.join(work, "tree-"));
 	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
-	const code =
-		which === "baseline" && against.baselineCode === "rev"
-			? (checkerCopyIn(dir, ctx.script) ?? ctx.script)
-			: ctx.script;
+	const revCode = which === "baseline" && against.baselineCode === "rev";
+	const stream = which === "index" && !ctx.asJson;
+	/* A rev's own code is a file in that rev, so only a spawn can run it. */
+	if (ctx.sides === "in-process" && !revCode && ctx._spec)
+		return readInProcess(ctx, ctx._spec, dir, { label, which, stream });
+	const code = revCode
+		? (checkerCopyIn(dir, ctx.script) ?? ctx.script)
+		: ctx.script;
 	return reread(
 		dir,
 		label,
-		{
-			stream: which === "index" && !ctx.asJson,
-			side: which,
-			code,
-			sink: ctx.sink,
-		},
+		{ stream, side: which, code, sink: ctx.sink },
 		ctx.args,
 	);
+}
+
+/**
+ * reread()'s in-process twin: the same spec run over `dir` as
+ * `--root <dir> --json <args>`, its side named in its ctx, its envelope read
+ * from its own stdout, and its human report put on this run's stderr where
+ * streamed, as SAY_FD_ENV puts a child's.
+ *
+ * @param {CheckContext} ctx
+ * @param {CheckSpec} spec
+ * @param {string} dir
+ * @param {{ label: string, which: "index" | "baseline", stream: boolean }} side
+ * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
+ */
+function readInProcess(ctx, spec, dir, { label, which, stream }) {
+	let stdout = "";
+	/** @type {Sink} */
+	const sink = {
+		write(fd, text) {
+			if (fd === 1) stdout += text;
+			else if (stream) ctx.sink.write(2, text);
+		},
+	};
+	const started = startRun(spec, ["--root", dir, "--json", ...ctx.args], {
+		sink,
+		script: ctx.script,
+		persist: null,
+		sides: "in-process",
+		side: which,
+		sayFd: stream ? 2 : null,
+	});
+	if (started.help || isThenable(started.run))
+		throw brokenError(`this check ran no side over ${label}.`);
+	const exit = finish(started.ctx, spec, started.run, null);
+	return envelopeOf(stdout, label, exit);
 }
 
 /**
@@ -1620,16 +1700,27 @@ function runCheck(spec) {
  * Run a checker inside this process: `argv` in, its exit code and both
  * streams out, byte for byte as runCheck's process would have written them.
  * It reads no `process.argv`, sets no exit code and never exits; `script` is
- * the checker's own file, which an `--against`/`--index` side re-runs.
- * Persist mode is a process run's alone.
+ * the checker's own file. Its `--against`/`--index` sides run in-process too,
+ * bar a `baselineCode: "rev"` baseline and a caller's `sides: "spawn"`, which
+ * re-run `script` as a child. Persist mode is a process run's alone.
  *
  * @param {CheckSpec} spec
  * @param {string[]} argv
- * @param {{ script: string, sink?: InstanceType<typeof BufferSink> }} opts
+ * @param {{ script: string, sink?: InstanceType<typeof BufferSink>,
+ *   sides?: SideRun }} opts
  * @returns {Promise<{ exit: number, stdout: string, stderr: string }>}
  */
-async function checkInProcess(spec, argv, { script, sink = new BufferSink() }) {
-	const started = startRun(spec, argv, { sink, script, persist: null });
+async function checkInProcess(
+	spec,
+	argv,
+	{ script, sink = new BufferSink(), sides = "in-process" },
+) {
+	const started = startRun(spec, argv, {
+		sink,
+		script,
+		persist: null,
+		sides,
+	});
 	const exit = started.help
 		? 0
 		: finish(started.ctx, spec, await started.run, null);
@@ -1652,10 +1743,11 @@ const helpAsked = (argv) => {
  *
  * @param {CheckSpec} spec
  * @param {string[]} argv
- * @param {{ sink: Sink, script: string | undefined, persist: Persist | null }} opts
+ * @param {{ sink: Sink, script: string | undefined, persist: Persist | null,
+ *   sides?: SideRun, side?: "index" | "baseline", sayFd?: number | null }} opts
  * @returns {{ help: true } | { help: false, ctx: CheckContext, run: Ran | Promise<Ran> }}
  */
-function startRun(spec, argv, { sink, script, persist }) {
+function startRun(spec, argv, { sink, script, persist, sides, side, sayFd }) {
 	/* Before any work, as lib/cli-args.js answers it (#920). */
 	if (helpAsked(argv)) {
 		sink.write(1, `usage: ${spec.usage}\n`);
@@ -1689,6 +1781,10 @@ function startRun(spec, argv, { sink, script, persist }) {
 		persisting: Boolean(persist),
 		sink,
 		script,
+		spec,
+		sides,
+		side,
+		sayFd,
 	});
 	if (persist) persist.notify.openRun(spec.name);
 	const run = runBody(spec, ctx, () =>
@@ -2131,6 +2227,5 @@ module.exports = {
 	indexTree,
 	extractTree,
 	baselineOf,
-	isBaselineSide,
 	againstRevs,
 };

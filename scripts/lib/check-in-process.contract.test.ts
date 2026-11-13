@@ -46,7 +46,46 @@ const roadmapBase = (repo: string) => {
 	git(repo, "commit", "-qm", "init");
 };
 
+/* A plugin root, so check-host-root.js judges rather than SKIPs (#83). */
+const pluginBase = (repo: string) => {
+	stage(repo, ".claude-plugin/plugin.json", '{ "name": "fixture" }\n');
+	stage(repo, "scripts/ok.js", 'require("node:path");\n');
+	git(repo, "commit", "-qm", "init");
+};
+const CLIMB = 'const ROOT = path.resolve(__dirname, "..");\n';
+const HOST_ROOT_TREES: Tree[] = [
+	{
+		name: "a clean change staged",
+		build: (repo) => {
+			pluginBase(repo);
+			stage(repo, "scripts/ok.js", 'require("node:path"); // two\n');
+		},
+	},
+	{
+		name: "a climb out of scripts/ staged",
+		build: (repo) => {
+			pluginBase(repo);
+			stage(repo, "scripts/bad.js", CLIMB);
+		},
+	},
+	{
+		name: "a climb HEAD already carries",
+		build: (repo) => {
+			pluginBase(repo);
+			stage(repo, "scripts/bad.js", CLIMB);
+			git(repo, "commit", "-qm", "inherit");
+			stage(repo, "scripts/ok.js", 'require("node:path"); // two\n');
+		},
+	},
+];
+
 const ROWS: Row[] = [
+	{
+		script: "check-host-root.js",
+		args: ["--against", "HEAD"],
+		trees: HOST_ROOT_TREES,
+	},
+	{ script: "check-host-root.js", args: ["--index"], trees: HOST_ROOT_TREES },
 	{
 		script: "check-roadmap-pair.js",
 		args: [],

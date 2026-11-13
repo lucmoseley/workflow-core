@@ -99,7 +99,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
-const { runCheck, errMessage, isBaselineSide } = require("./lib/check");
+const { runCheck, errMessage } = require("./lib/check");
 const { SELF_PLUGIN_COST } = require("./lib/core-context-cost.js");
 const {
 	SETTINGS_FILE,
@@ -1752,7 +1752,7 @@ function poolRuleAdmission(ctx, root) {
 	/* The baseline side's CLOSED_TRIGGER warns are never compared, so the
 	 * lookup is spent on the index side alone (#2056). */
 	const states =
-		tickets.length === 0 || isBaselineSide()
+		tickets.length === 0 || ctx.isBaselineSide()
 			? new Map()
 			: readTicketStates(tickets);
 	const closed =
@@ -1862,7 +1862,7 @@ const SPEC = {
 		 * and the index side's envelope show it: the baseline side is silent and
 		 * its profile compares no rendered figure (#4296). */
 		const rendered =
-			fromCore && !isBaselineSide() ? renderedFor(text, root) : null;
+			fromCore && !ctx.isBaselineSide() ? renderedFor(text, root) : null;
 		const injTotal = sum(injected, (f) => f.bytes);
 		const injHeadroom = INJECTION_CAP_BYTES - injTotal;
 

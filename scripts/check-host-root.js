@@ -981,4 +981,4 @@ function exemptingCtx(ctx, tags, seen) {
 
 if (require.main === module) runCheck(SPEC);
 
-module.exports = { fileFaults, shipsPlugin };
+module.exports = { SPEC, fileFaults, shipsPlugin };
