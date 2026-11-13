@@ -134,11 +134,14 @@ function settleDirs(state, depth = 0) {
 
 /**
  * A subshell's opening: a `&&` chain open outside waits on what runs before
- * it, so no chain end inside settles it (#5093).
- * @param {DirsState} state
- * @returns {DirsState}
+ * it, so no chain end inside settles it (#5093). The walk's directories and a
+ * `-c` string's state each keep their open chains in `pending`, so both open
+ * a subshell here (#5100).
+ * @template {{ pending: unknown[] }} T
+ * @param {T} state
+ * @returns {T}
  */
-const openDirsScope = (state) => ({ ...state, pending: [] });
+const openChainScope = (state) => ({ ...state, pending: [] });
 
 /**
  * Every directory a command may stand in after `moves`, made from each of
@@ -151,7 +154,7 @@ const openDirsScope = (state) => ({ ...state, pending: [] });
  */
 const dirsAfter = (cwds, moves, isDir) =>
 	moves.reduce((state, move) => {
-		const from = move.opensScope ? openDirsScope(state) : state;
+		const from = move.opensScope ? openChainScope(state) : state;
 		const next = stepDirs(from, move, isDir);
 		return move.settles === undefined ? next : settleDirs(next, move.settles);
 	}, startDirs(cwds)).dirs;
@@ -179,6 +182,6 @@ module.exports = {
 	moveDir,
 	stepDirs,
 	settleDirs,
-	openDirsScope,
+	openChainScope,
 	dirsAfter,
 };
