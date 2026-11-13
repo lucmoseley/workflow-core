@@ -26,8 +26,9 @@ const { parseJsonl } = require("./jsonl.js");
  * and an unbroken day at this floor's load (#5034), a non-paging minute at
  * 750-1,000 MB was followed by heavy paging within 5 minutes in 7.8% of 205
  * (95% interval 4.9-12.3%), level with the 8.0% at 1,000-1,500 the floor
- * admits and under the 14.8% of 61 under 750. Residual: two days' reading,
- * and they disagree on the minute itself. The band paged in 4.2% of its
+ * admits and under the 14.8% of 61 (8.0-25.7%) under 750, the intervals
+ * overlapping. Residual: two days' reading, and they disagree on
+ * same-minute paging. The band paged in 4.2% of its
  * minutes on both, within the interval of the bands above on #4852's day and
  * over it on #5034's (1.8-9.5% against 0.4-2.5% at 1,000-1,500). */
 const WINDOWS_FLOOR_MB = 750;
