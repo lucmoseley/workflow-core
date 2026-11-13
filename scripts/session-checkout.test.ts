@@ -78,6 +78,14 @@ const ENV = () => ({
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });
 
+/** A cut worktree's directory. Asserted first: a failed cut prints nothing, and
+ * a write joined onto "" lands in the test's own working directory. */
+const cutDir = (name: string) => {
+	const r = run(main, "cut", name);
+	expect(r.status, r.stderr).toBe(0);
+	return r.stdout.trim();
+};
+
 const readInstalls = () =>
 	fs.existsSync(npmCalls)
 		? fs.readFileSync(npmCalls, "utf8").split("\n").filter(Boolean)
@@ -212,7 +220,7 @@ it("gives a launch a worktree named for its prompt where the repository lands th
 });
 
 it("gives a launch --into an existing session worktree that worktree, uncut and its work kept (#4385)", () => {
-	const dead = run(main, "cut", "dead-one").stdout.trim();
+	const dead = cutDir("dead-one");
 	fs.writeFileSync(path.join(dead, "half-done.txt"), "uncommitted");
 
 	const r = run(main, "launch-dir", "--into", dead, "/implement 4385");
@@ -226,7 +234,7 @@ it("gives a launch --into an existing session worktree that worktree, uncut and 
 });
 
 it("refuses a launch --into a worktree a live process still works in, naming its pid (#4385)", () => {
-	const dead = run(main, "cut", "still-held").stdout.trim();
+	const dead = cutDir("still-held");
 	/* 60 s outlives the case; `finally` kills it. */
 	const holder = spawn("sh", ["-c", "sleep 60"], {
 		cwd: dead,
@@ -250,7 +258,7 @@ it("refuses a launch --into a worktree whose own canary line cannot start, namin
 	git(main, "add", ...seedCanary(main));
 	git(main, "commit", "-qm", "canary");
 	git(main, "push", "-q", "origin", "HEAD:main");
-	const dead = run(main, "cut", "broke-its-canary").stdout.trim();
+	const dead = cutDir("broke-its-canary");
 	editSettings(dead, breakCanaryPath);
 
 	const r = run(main, "launch-dir", "--into", dead, "/implement 4752");
