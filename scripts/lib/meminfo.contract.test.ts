@@ -76,7 +76,7 @@ describe("the meminfo fake against the real file (#3093)", () => {
 		).toEqual({ held: false });
 	});
 
-	it("reads back the guest free memory it was built with (#4956)", () => {
+	it("reads back the MemAvailable and guest free memory it was built with, unadjusted (#4956, #5182)", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meminfo-contract-"));
 		try {
 			fs.writeFileSync(
