@@ -251,6 +251,10 @@ jobs:
     permissions:
       actions: read
       contents: read
+    # No pass-store row and no read audit: the store goes with the runner
+    # unread (#5138, lib/pass-store.js's `isRowlessRun`).
+    env:
+      WFC_ROWLESS_RUN: "1"
     strategy:
       fail-fast: false
       matrix:

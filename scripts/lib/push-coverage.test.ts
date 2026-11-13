@@ -180,7 +180,7 @@ describe("over the real pass store", () => {
 				steadiness: watched(dir),
 				audits: new Map([[A, { reads: NO_READS }]]),
 			},
-			{ storeRoot: dir, lander: false },
+			{ storeRoot: dir, rowless: false },
 		);
 		return dir;
 	}

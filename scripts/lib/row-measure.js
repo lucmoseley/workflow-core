@@ -268,7 +268,7 @@ function buildJudge(lib) {
 				judged.audited.add(f);
 				if (typeof a.doubt === "string") judged.doubts.set(f, a.doubt);
 			}
-			record({ ...recorded, audits }, { storeRoot, err, lander: false });
+			record({ ...recorded, audits }, { storeRoot, err, rowless: false });
 		},
 		/** @returns {Judged} */
 		read: () => ({ ...judged, rows: readCachingRows(storeRoot) }),

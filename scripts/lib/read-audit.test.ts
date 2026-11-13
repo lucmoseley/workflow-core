@@ -1543,11 +1543,11 @@ describe("from a real audited run to a cached row (#4916)", () => {
 				steadiness: watched(root),
 				audits: readAudits(log, root),
 			},
-			{ storeRoot: root, lander: false, values: Values },
+			{ storeRoot: root, rowless: false, values: Values },
 		);
 	const isCached = (root: string) =>
-		lookup([T], { root, storeRoot: root, values: Values, lander: false }).cached
-			.length === 1;
+		lookup([T], { root, storeRoot: root, values: Values, rowless: false })
+			.cached.length === 1;
 
 	/** A checkout holding what a row keys on; `commit` once the run is in. */
 	const keyed = () => {

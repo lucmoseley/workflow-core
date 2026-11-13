@@ -77,7 +77,7 @@ function passed(dir: string, files: string[]) {
 			steadiness: watched(dir),
 			audits: new Map(files.map((file) => [file, { reads: NO_READS }])),
 		},
-		{ storeRoot: dir, lander: false },
+		{ storeRoot: dir, rowless: false },
 	);
 }
 

@@ -27,6 +27,7 @@ const {
 	lookup,
 	readCachedHandoff,
 	record,
+	isRowlessRun,
 	writeCachedHandoff,
 } = require("./pass-store.js");
 const { markersDir } = require("./marker-root.js");
@@ -139,7 +140,7 @@ function run(
 							files.map((file) => [file, audits[file] ?? { reads: NO_READS }]),
 						),
 		},
-		{ storeRoot, values, lander: false },
+		{ storeRoot, values, rowless: false },
 	);
 }
 
@@ -159,7 +160,7 @@ const cachedOf = (
 	files: string[],
 	{ values = VALUES, storeRoot = dir } = {},
 ) =>
-	lookup(files, { root: dir, storeRoot, values, lander: false }).cached.map(
+	lookup(files, { root: dir, storeRoot, values, rowless: false }).cached.map(
 		(c: { file: string }) => c.file,
 	);
 
@@ -171,7 +172,7 @@ describe("a recorded pass on identical inputs", () => {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		});
 		expect(found.run).toEqual([]);
 		expect(found.cached[0]).toMatchObject({
@@ -499,7 +500,7 @@ describe("a new file that takes over an import's resolution voids the pass (#481
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		}).cached;
 		expect(hit.reads).toContain("data.json");
 		expect(hit.reads).not.toContain("data.js");
@@ -951,7 +952,7 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 		expect(cachedOf(dir, [A, B])).toEqual([B]);
 	});
 
-	it("neither writes nor reads the store from the lander's tester", () => {
+	it("neither writes nor reads the store on a rowless run", () => {
 		const dir = repo();
 		const files = [{ file: A, outcome: "pass", imports: [] }];
 		const base = {
@@ -965,12 +966,21 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 			steadiness: watched(dir),
 			audits: new Map([[A, { reads: NO_READS }]]),
 		};
-		expect(record(base, { storeRoot: dir, lander: true })).toBe(0);
+		expect(record(base, { storeRoot: dir, rowless: true })).toBe(0);
 		run(dir, [A]);
 		expect(
-			lookup([A], { root: dir, storeRoot: dir, values: VALUES, lander: true })
+			lookup([A], { root: dir, storeRoot: dir, values: VALUES, rowless: true })
 				.cached,
 		).toEqual([]);
+	});
+});
+
+describe("which runs keep no rows (#5138)", () => {
+	it("calls the lander's run and ci.yml's rowless, and nothing else", () => {
+		expect(isRowlessRun({ WFC_LANDER_RUN: "1" })).toBe(true);
+		expect(isRowlessRun({ WFC_ROWLESS_RUN: "1" })).toBe(true);
+		expect(isRowlessRun({ GITHUB_ACTIONS: "true" })).toBe(false);
+		expect(isRowlessRun({})).toBe(false);
 	});
 });
 
@@ -1187,7 +1197,7 @@ describe("the uncached pragma", () => {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		});
 		expect(found.cached.map((c: { file: string }) => c.file)).toEqual([B]);
 		expect(found.run).toEqual([A]);
@@ -1201,7 +1211,7 @@ describe("the uncached pragma", () => {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		});
 		expect(found.refused).toEqual([A]);
 		expect(found.cached).toEqual([]);
@@ -1395,7 +1405,7 @@ describe("a store it cannot trust runs every file", () => {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		});
 		expect(found).toMatchObject({ cached: [], run: [A], notice: null });
 	});
@@ -1407,7 +1417,7 @@ describe("a store it cannot trust runs every file", () => {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		});
 		expect(found.run).toEqual([A]);
 		expect(found.notice).toMatch(/could not be read/);
@@ -1421,7 +1431,7 @@ describe("a store it cannot trust runs every file", () => {
 			root: dir,
 			storeRoot: dir,
 			values: VALUES,
-			lander: false,
+			rowless: false,
 		});
 		expect(found.run).toEqual([A]);
 		expect(found.notice).toMatch(/would not parse names scripts\/a\.test\.ts/);
