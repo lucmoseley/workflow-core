@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { dispatchFixture } from "./lib/dispatch-sessions-testkit";
+import { readText } from "./lib/file-read.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const fx = dispatchFixture();
@@ -26,26 +27,17 @@ const { stubClaude, regWedged, run } = fx;
 /** docs/environment.md §9: the time the dispatcher's caller reports in by. */
 const REPORT_IN_S = 45;
 
-/** Seconds in one `timeout` duration, as GNU timeout reads it. */
-function seconds(raw: string): number {
-	const m = /^(\d+(?:\.\d+)?)([smhd]?)$/.exec(raw);
-	if (!m) throw new Error(`unparsed timeout duration ${JSON.stringify(raw)}`);
-	const unit = { "": 1, s: 1, m: 60, h: 3600, d: 86_400 }[m[2] ?? ""] ?? 1;
-	return Number(m[1]) * unit;
+/** Seconds in one duration as the probe spells it: a whole number. */
+function seconds(raw: string | undefined): number {
+	if (!/^\d+$/.test(raw ?? ""))
+		throw new Error(`unparsed duration ${JSON.stringify(raw)}`);
+	return Number(raw);
 }
 
-/** One recorded probe call's worst case: its budget plus its kill grace. */
+/** One recorded probe call's worst case: its budget plus its `-k` grace. */
 function worstCase(argv: string[]): number {
-	let grace = 0;
-	let i = 0;
-	for (; i < argv.length && argv[i]?.startsWith("-"); i++) {
-		const arg = argv[i] ?? "";
-		if (arg === "-k" || arg === "--kill-after")
-			grace = seconds(argv[++i] ?? "");
-		else if (arg.startsWith("--kill-after=")) grace = seconds(arg.slice(13));
-		else if (arg.startsWith("-k")) grace = seconds(arg.slice(2));
-	}
-	return seconds(argv[i] ?? "") + grace;
+	const graced = argv[0] === "-k";
+	return seconds(argv[graced ? 2 : 0]) + (graced ? seconds(argv[1]) : 0);
 }
 
 describe("the interop-bridge probe's shipped budget (mantahostels#3111)", () => {
@@ -55,8 +47,12 @@ describe("the interop-bridge probe's shipped budget (mantahostels#3111)", () => 
 		const log = path.join(fx.dir, "probe-calls");
 		const bin = path.join(fx.dir, "timeout-bin");
 		fs.mkdirSync(bin, { recursive: true });
-		/* Only a call on the probe's reg.exe is recorded and expired; any other
-		 * `timeout` the dispatcher runs goes to the real one. */
+		/* `timeout` and `sleep` on PATH, as the testkit's stubSleep: #146 forbids
+		 * a seam added to the dispatcher for a test, and the shell's command
+		 * resolution is one already there. Only a `timeout` on the probe's
+		 * reg.exe is recorded and expired; any other goes to the real one. Every
+		 * `sleep` is recorded and returns at once, so a wait between attempts
+		 * counts toward the sum too. */
 		const realTimeout = execFileSync("bash", ["-c", "command -v timeout"], {
 			encoding: "utf8",
 		}).trim();
@@ -67,6 +63,12 @@ describe("the interop-bridge probe's shipped budget (mantahostels#3111)", () => 
 				`for a in "$@"; do [[ "$a" == ${shellQuote(reg)} ]] && { printf '%s\\n' "$*" >> ${shellQuote(log)}; exit 124; }; done`,
 				`exec ${shellQuote(realTimeout)} "$@"`,
 			].join("\n"),
+			{ mode: 0o755 },
+		);
+		const sleeps = path.join(fx.dir, "sleeps");
+		fs.writeFileSync(
+			path.join(bin, "sleep"),
+			`#!/bin/bash\nprintf '%s\\n' "$1" >> ${shellQuote(sleeps)}\n`,
 			{ mode: 0o755 },
 		);
 		const r = run(["sonnet", "/implement 341"], {
@@ -84,7 +86,13 @@ describe("the interop-bridge probe's shipped budget (mantahostels#3111)", () => 
 			.filter(Boolean)
 			.map((line) => line.split(" "));
 		expect(calls.length).toBeGreaterThan(0);
-		const total = calls.reduce((sum, argv) => sum + worstCase(argv), 0);
+		const read = readText(sleeps);
+		if (read.state === "unreadable") throw read.error;
+		const slept =
+			read.state === "read" ? read.data.split("\n").filter(Boolean) : [];
+		const total =
+			calls.reduce((sum, argv) => sum + worstCase(argv), 0) +
+			slept.reduce((sum, s) => sum + Number(s), 0);
 		expect(total).toBeLessThan(REPORT_IN_S);
 	});
 });

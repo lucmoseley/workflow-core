@@ -44,7 +44,8 @@ export const FAST = {
 
 /* A sub-second heartbeat (#5143), for a case whose wait is a watcher pass or
  * the toucher's death, both one heartbeat apart: each idles a quarter of
- * FAST's second instead. Not FAST itself: the kill record states heartbeat_s
+ * FAST's second instead, a guess that still leaves each wait several
+ * scheduler slices wide. Not FAST itself: the kill record states heartbeat_s
  * only for a whole-second beat (record_kill), and each beat's memory sample
  * walks all of /proc, so only a short-lived run takes it. */
 export const QUICK_BEAT = { WFC_BG_HEARTBEAT_S: "0.25" };

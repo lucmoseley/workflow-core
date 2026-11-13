@@ -55,6 +55,7 @@ import {
 	WIDE_MISSING,
 	waitFor,
 } from "./lib/bg-run-testkit";
+import { readText } from "./lib/file-read.js";
 import { isDead } from "./lib/process-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -693,11 +694,13 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	/* The watcher's passes as polls.log records them: a `nap` line per pass
 	 * that read a deadline, a `mono-unread` per pass that could not read the
 	 * clock to judge it. */
-	const pollLines = (line: RegExp) =>
-		(existsSync(join(root, "polls.log"))
-			? readFileSync(join(root, "polls.log"), "utf8").split("\n")
-			: []
-		).filter((l) => line.test(l));
+	const pollLines = (line: RegExp) => {
+		const read = readText(join(root, "polls.log"));
+		if (read.state === "unreadable") throw read.error;
+		return read.state === "read"
+			? read.data.split("\n").filter((l) => line.test(l))
+			: [];
+	};
 
 	/* A command line that holds until the watcher has logged three passes
 	 * matching `line`, so a case asserts what three passes did rather than

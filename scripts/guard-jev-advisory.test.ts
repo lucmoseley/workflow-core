@@ -575,7 +575,9 @@ describe("a machine with no gitleaks", () => {
 		const hang = path.join(dir, "gitleaks-hang");
 		fs.writeFileSync(hang, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
 		/* The sweep's budget shortened through its own knob: the hang is what
-		 * this case names, not the length of `SWEEP_MS`. */
+		 * this case names, not the length of `SWEEP_MS`. 500 ms matches
+		 * SHORT_ABORT_MS: a guess, not a measurement, long enough that a sweep
+		 * that does return under load is not cut off. */
 		const { res, asks } = await ask(PLAIN, 0.99, {
 			WFC_GITLEAKS: hang,
 			WFC_JEV_SWEEP_MS: "500",

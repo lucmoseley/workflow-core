@@ -208,7 +208,7 @@ describe("inline output", () => {
  * otherwise pass a `toContain` check that never looked at the verdict. */
 describe("wait", () => {
 	/* A fifth of FAST's poll, for a case whose wait is the next poll after
-	 * the run's verdict changes (#5143). */
+	 * the run's verdict changes (#5143): a guess, not a measurement. */
 	const quickPoll = { WFC_BG_WAIT_POLL_S: "0.2" };
 
 	function wait(
