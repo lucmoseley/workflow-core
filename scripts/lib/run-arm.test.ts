@@ -38,7 +38,8 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const BUILDER = path.join(ROOT, "scripts", "lib", "fixtures", "arm-build.js");
 /** `run` reads its clock once a pass; a case past this many reads is a loop
  * that never ends, failed rather than left spinning, since a synchronous
- * loop outlasts vitest's timeout. */
+ * loop outlasts vitest's timeout. A guess at headroom: the longest case
+ * read it 107 times (#5149). */
 const MAX_CLOCK_READS = 10_000;
 /** The wall clock every module case reads. */
 const NOW = Date.parse("2026-11-13T00:00:00.000Z");
