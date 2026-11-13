@@ -490,7 +490,7 @@ Both halves are asserted: the exit code, against §N4 where the program is a che
 
 Tests of any extension. A `#N` reference names the regression the case pins (mantahostels#991) — e.g. a title ending *mantahostels#137 (the hook reads the exit status)*.
 
-Every regression case is paired with a positive case proving the signal still fires.
+Every regression case is paired with a positive case proving the signal still fires. A case already in the file that proves the signal fires on the same path is that pair: the regression case names it in its title or a comment, and no new positive case is written (#5181).
 
 ### §X5 · A test builder says what an absent argument means — **judgement**
 

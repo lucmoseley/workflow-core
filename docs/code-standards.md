@@ -25,6 +25,7 @@ The core's own primitives, beside the base's table.
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
 | Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
 | Escaping a literal into a regex | `escapeRe` in `scripts/lib/regex-group.js` | `scripts/lib/run-cost-report.js` | §LG5 | Standards axis criterion |
+| Building a git repo for a test | `defineTemplate` in `scripts/lib/git-fixture.ts` at describe scope, building the repo once per worker; `instantiate` copies it into the directory each `beforeEach` mints | `scripts/review-hold-gate.test.ts` | §X8 | Standards axis criterion |
 | Setting an environment variable in a test | `vi.stubEnv`, `undefined` to unset, undone before each test by `unstubEnvs: true` in `vitest.config.ts` | `scripts/lib/wait-loop.test.ts` | §X2 | `scripts/check-test-env-writes.js` |
 
 ## Local rules
