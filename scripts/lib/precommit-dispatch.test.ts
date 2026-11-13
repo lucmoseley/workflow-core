@@ -96,17 +96,24 @@ async function run(
 		gates?: "all" | "merge" | "batch";
 		computed?: Record<string, string[] | Error>;
 		signalIn?: string;
+		/** Git will not name the staged paths, killed by a signal where "signal". */
+		stagedFails?: "git" | "signal";
 	} = {},
 ) {
 	const dir = opts.dir ?? repo({}, { "a.txt": "a\n" });
 	const ran: string[] = [];
-	let caught: number | null = null;
+	let caught: number | null = opts.stagedFails === "signal" ? 128 + 15 : null;
 	let out = "";
 	let err = "";
 	const exit = await dispatch({
 		rows,
 		gates: opts.gates ?? "all",
 		ports: buildRepoPorts(dir, {
+			...(opts.stagedFails && {
+				staged: () => {
+					throw new Error("git will not list them");
+				},
+			}),
 			computed: (name: string) => {
 				const list = opts.computed?.[name] ?? [];
 				if (list instanceof Error) throw list;
@@ -383,5 +390,21 @@ describe("the lander sets (#4545)", () => {
 		["other", "all"],
 	] as const)("reads --gates=%s as the %s set", (value, set) => {
 		expect(gateSetOf(value)).toBe(set);
+	});
+});
+
+describe("a staged list git will not name", () => {
+	it("refuses with exit 1 and git's reason, running no row", async () => {
+		const r = await run([row("a")], { stagedFails: "git" });
+		expect(r.exit).toBe(1);
+		expect(r.ran).toEqual([]);
+		expect(r.err).toBe("pre-commit: git will not list them\n");
+	});
+
+	it("exits 128 + n, saying a signal stopped it, where one killed git", async () => {
+		const r = await run([row("a")], { stagedFails: "signal" });
+		expect(r.exit).toBe(128 + 15);
+		expect(r.ran).toEqual([]);
+		expect(r.err).toBe(STOPPED_LINE);
 	});
 });

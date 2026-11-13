@@ -16,11 +16,8 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import {
-	type dispatch,
-	existsUnder,
-	readStaged,
-} from "./precommit-dispatch.js";
+import type { dispatch } from "./precommit-dispatch.js";
+import { existsUnder, readStaged } from "./precommit-dispatch-ports.js";
 import { shellQuote } from "./sh-quote.js";
 
 /** The repository root, for a suite reading a checker it compares the hook against. */

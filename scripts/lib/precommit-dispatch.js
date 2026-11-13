@@ -5,9 +5,10 @@
  *
  * THE EXIT CONTRACT. Rows run in order, and the first gating red ends the
  * run with that row's code: 1 for FAIL, 2 for BROKEN, a program's own code.
- * 0 means every armed row passed, skipped or only warned. Each row's stdout
- * and stderr reach fds 1 and 2 when it finishes, before the next starts —
- * except a `quietPass` row's pass with no WARN in it, whose output is dropped.
+ * 0 means every armed row passed, skipped or only warned; 1 where git will
+ * not name the staged paths. Each row's stdout and stderr reach fds 1 and 2
+ * when it finishes, before the next starts — except a `quietPass` row's pass
+ * with no WARN in it, whose output is dropped.
  *
  * THE FAILURE POLICY, per row (#5171). A `gate` row fails closed: a throw
  * while its module loads, while the list it arms on is computed or while it
@@ -24,10 +25,7 @@
  * exits with it, saying so on fd 2.
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
 const { caught } = require("./caught.js");
-const { spawnGitSync } = require("./git.js");
 
 /**
  * @typedef {"all" | "merge" | "batch"} GateSet
@@ -51,8 +49,8 @@ const { spawnGitSync } = require("./git.js");
  *   load: (row: R) => () => RowResult | Promise<RowResult>,
  *   write: (fd: number, text: string) => void,
  *   interrupted: () => Promise<number | null>,
- * }} Ports `interrupted` answers the code a caught signal owes, 128 + n,
- *   else null
+ * }} Ports `staged` throws where git will not name the staged paths;
+ *   `interrupted` answers the code a caught signal owes, 128 + n, else null
  */
 
 const STOPPED_LINE =
@@ -65,29 +63,6 @@ const SETS = {
 	batch: ["all", "batch"],
 	none: ["all"],
 };
-
-/**
- * The commit's staged entries, by staged_names' call: `--no-renames` so a
- * rename is its `D` and its `A`, `-z` so a non-ASCII path is not quoted.
- * @param {string} cwd
- * @returns {StagedEntry[]}
- */
-function readStaged(cwd) {
-	const r = spawnGitSync(
-		["diff", "--cached", "--name-status", "--no-renames", "-z"],
-		{ cwd, encoding: "utf8" },
-	);
-	if (r.status !== 0 || r.error)
-		throw new Error(
-			"could not read this commit's staged paths from git — refusing, since no gate could arm.",
-		);
-	const fields = String(r.stdout).split("\0");
-	/** @type {StagedEntry[]} */
-	const entries = [];
-	for (let i = 0; i + 1 < fields.length; i += 2)
-		entries.push({ status: fields[i] ?? "", path: fields[i + 1] ?? "" });
-	return entries;
-}
 
 /**
  * Whether `arm` arms on `staged`, `list` being its computed list's paths.
@@ -146,7 +121,21 @@ const crashLine = (row, at, e) =>
  * @returns {Promise<number>}
  */
 async function dispatch({ rows, gates, ports }) {
-	const staged = ports.staged();
+	const staged = await stagedOrExit(ports);
+	return typeof staged === "number"
+		? staged
+		: runRows(rows, gates, staged, ports);
+}
+
+/**
+ * @template {Row} R
+ * @param {R[]} rows
+ * @param {GateSet} gates
+ * @param {StagedEntry[]} staged
+ * @param {Ports<R>} ports
+ * @returns {Promise<number>}
+ */
+async function runRows(rows, gates, staged, ports) {
 	const stopped = async () => {
 		const code = await ports.interrupted();
 		if (code !== null) ports.write(2, STOPPED_LINE);
@@ -165,6 +154,26 @@ async function dispatch({ rows, gates, ports }) {
 		return result.exit;
 	}
 	return (await stopped()) ?? 0;
+}
+
+/**
+ * The commit's staged entries, else the exit where git will not name them:
+ * 1, or the 128 + n of a caught signal, which kills git too.
+ * @template {Row} R
+ * @param {Ports<R>} ports
+ * @returns {Promise<StagedEntry[] | number>}
+ */
+async function stagedOrExit(ports) {
+	try {
+		return ports.staged();
+	} catch (e) {
+		const code = await ports.interrupted();
+		ports.write(
+			2,
+			code === null ? `pre-commit: ${caught(e).message}\n` : STOPPED_LINE,
+		);
+		return code ?? 1;
+	}
 }
 
 /**
@@ -202,16 +211,8 @@ function gateSetOf(value) {
 	return "all";
 }
 
-/**
- * @param {string} cwd
- * @returns {(rel: string) => boolean}
- */
-const existsUnder = (cwd) => (rel) => fs.existsSync(path.join(cwd, rel));
-
 module.exports = {
 	dispatch,
-	existsUnder,
 	gateSetOf,
-	readStaged,
 	STOPPED_LINE,
 };

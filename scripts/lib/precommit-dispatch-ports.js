@@ -1,13 +1,16 @@
 /*
- * precommit-dispatch-ports.js — the pre-commit dispatcher's real `load` and
- * `computed` ports (#5172): what runs a row in this process, and the lists a
- * computed arm reads.
+ * precommit-dispatch-ports.js — the pre-commit dispatcher's real ports
+ * (#5172): the staged paths, what runs a row in this process, the lists a
+ * computed arm reads, and whether a path is on disk.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
 const v8 = require("node:v8");
 const vm = require("node:vm");
 const { getPoolFiles } = require("./always-loaded-pool.js");
 const { checkInProcess } = require("./check.js");
+const { spawnGitSync } = require("./git.js");
 const { fromCoreRoot } = require("./precommit-gates.js");
 
 /*
@@ -74,4 +77,37 @@ function computed(name) {
 	return list();
 }
 
-module.exports = { computed, load };
+/**
+ * The commit's staged entries, by staged_names' call: `--no-renames` so a
+ * rename is its `D` and its `A`, `-z` so a non-ASCII path is not quoted.
+ * @param {string} cwd
+ * @returns {import("./precommit-dispatch.js").StagedEntry[]}
+ */
+function readStaged(cwd) {
+	const r = spawnGitSync(
+		["diff", "--cached", "--name-status", "--no-renames", "-z"],
+		{ cwd, encoding: "utf8" },
+	);
+	if (r.status !== 0 || r.error)
+		throw new Error(
+			"could not read this commit's staged paths from git — refusing, since no gate could arm.",
+		);
+	const fields = String(r.stdout).split("\0");
+	const entries = [];
+	for (let i = 0; i + 1 < fields.length; i += 2) {
+		const status = fields[i];
+		const rel = fields[i + 1];
+		if (status === undefined || rel === undefined)
+			throw new Error(`git's staged list broke off at field ${i}.`);
+		entries.push({ status, path: rel });
+	}
+	return entries;
+}
+
+/**
+ * @param {string} cwd
+ * @returns {(rel: string) => boolean}
+ */
+const existsUnder = (cwd) => (rel) => fs.existsSync(path.join(cwd, rel));
+
+module.exports = { computed, existsUnder, load, readStaged };

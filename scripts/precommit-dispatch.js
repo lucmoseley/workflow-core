@@ -20,14 +20,13 @@
 const { constants } = require("node:os");
 const { caught } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { dispatch, gateSetOf } = require("./lib/precommit-dispatch.js");
 const {
-	dispatch,
+	computed,
 	existsUnder,
-	gateSetOf,
+	load,
 	readStaged,
-	STOPPED_LINE,
-} = require("./lib/precommit-dispatch.js");
-const { computed, load } = require("./lib/precommit-dispatch-ports.js");
+} = require("./lib/precommit-dispatch-ports.js");
 const { GATES } = require("./lib/precommit-gates.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -61,24 +60,11 @@ async function main() {
 	});
 	if (typeof parsed === "number") return parsed;
 	const cwd = process.cwd();
-	/** @type {import("./lib/precommit-dispatch.js").StagedEntry[]} */
-	let staged;
-	try {
-		staged = readStaged(cwd);
-	} catch (e) {
-		/* A signal kills git too, and is the cause where one was caught. */
-		const code = await interrupted();
-		writeFd(
-			2,
-			code === null ? `pre-commit: ${caught(e).message}\n` : STOPPED_LINE,
-		);
-		return code ?? 1;
-	}
 	return dispatch({
 		rows: GATES,
 		gates: gateSetOf(flagValue(parsed.flags, "--gates")),
 		ports: {
-			staged: () => staged,
+			staged: () => readStaged(cwd),
 			computed,
 			exists: existsUnder(cwd),
 			load,
