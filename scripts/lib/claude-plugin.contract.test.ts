@@ -6,11 +6,15 @@
  * `node scripts/record-claude-plugin.js`) (#5146). One case list, each run
  * against the recording and the fake, read through the production readers:
  * each verb's exit as lib/materialise-plugin.js's `run` takes it, the
- * `details` figure through lib/core-context-cost.js's parser, the refusal
- * through materialise-plugin.js's installFailure, and the two side effects'
- * keys and types. No case runs the real `claude`: each call writes a plugin
- * registry, so the recording is the real side (§G7.2). A url source's
- * `marketplace add` is unheld, being unrecorded.
+ * `details` figure through lib/core-context-cost.js's measurerFor, the
+ * refusal through materialise-plugin.js's installFailure, and the two side
+ * effects' keys and types. Where `claude` is on PATH, the live cases run the
+ * free, offline calls against it in a scratch config dir and project (§G7.2):
+ * the refusal, a directory source's `marketplace add`, and `details` through
+ * `--plugin-dir`, since `details` of an installed plugin needs `install`,
+ * which clones the plugin's url source from GitHub. Unheld, being
+ * unrecorded: a url source's `marketplace add`, and the clone `install`
+ * lands at the row's installPath (the fake's `place`).
  *
  * Breaking it lets init-adopter.test.ts pass on a `claude` the core misreads:
  * a cost row seeded from a line the harness never prints, a failure message
@@ -25,14 +29,35 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	alwaysOnLine,
 	type PluginFake,
+	REFUSED_PATH,
 	recorded,
+	refusalOf,
 	writeClaudePluginFake,
 } from "./claude-plugin-fake";
-import { parseAlwaysOn } from "./core-context-cost.js";
-import { installFailure, materialisePlugin } from "./materialise-plugin.js";
+import { measurerFor } from "./core-context-cost.js";
+import {
+	installFailure,
+	materialisePlugin,
+	run,
+} from "./materialise-plugin.js";
 import { findInstallRecord } from "./plugin-state.js";
+import { shellQuote } from "./sh-quote.js";
 
 const PLUGIN_ID = "workflow-core@workflow-core";
+/* This checkout: a directory marketplace and a plugin, as init adds it. */
+const CHECKOUT = path.resolve(__dirname, "../..");
+
+const realClaude = (process.env.PATH ?? "")
+	.split(path.delimiter)
+	.map((d) => path.join(d, "claude"))
+	.find((f) => {
+		try {
+			fs.accessSync(f, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	});
 
 let dir: string;
 let project: string;
@@ -64,6 +89,16 @@ const call = (bin: string, args: string[]) =>
 			CLAUDE_CONFIG_DIR: config,
 		},
 	});
+
+/** The `details` figure as the cost measurer reads it from `bin`. */
+const measure = (bin: string, pluginId = PLUGIN_ID) =>
+	measurerFor({ root: project, claudeBin: bin, configDir: config })(pluginId);
+
+/** The source `marketplace add` wrote into the project's settings. */
+const addedSource = () =>
+	JSON.parse(
+		fs.readFileSync(path.join(project, ".claude/settings.json"), "utf8"),
+	).extraKnownMarketplaces["workflow-core"].source;
 
 /** A JSON value's shape: its keys and each value's type, not its values. */
 const shape = (value: Record<string, unknown>) =>
@@ -110,18 +145,11 @@ it("materialises, update included, in the recording and from the fake", () => {
 	expect(result).not.toHaveProperty("updateFailed");
 });
 
-describe("`details`' Always-on figure, through the cost parser", () => {
-	it("reads as a figure in the recording", () => {
-		expect(parseAlwaysOn(recorded.responses.details.alwaysOn)).toEqual(
-			expect.any(Number),
-		);
-	});
-
-	it("reads as the recording's figure from the fake", () => {
+describe("`details`' Always-on figure, through the cost measurer", () => {
+	it("reads as a figure in the recording, which the fake prints unchanged", () => {
 		const out = call(fake(), ["plugin", "details", PLUGIN_ID]).stdout;
-		expect(parseAlwaysOn(out)).toBe(
-			parseAlwaysOn(recorded.responses.details.alwaysOn),
-		);
+		expect(out.trimEnd()).toBe(recorded.responses.details.alwaysOn);
+		expect(measure(fake())).toEqual({ tokens: expect.any(Number) });
 	});
 
 	it("reads as a case's own figure, in the recorded line, from the fake", () => {
@@ -130,7 +158,7 @@ describe("`details`' Always-on figure, through the cost parser", () => {
 			"details",
 			PLUGIN_ID,
 		]).stdout;
-		expect(parseAlwaysOn(out)).toBe(2273);
+		expect(measure(fake({ alwaysOn: "2,273" }))).toEqual({ tokens: 2273 });
 		expect(out.trimEnd()).toBe(alwaysOnLine("2,273"));
 	});
 });
@@ -140,12 +168,12 @@ describe("a refusal, through installFailure", () => {
 		stderr: recorded.responses.refusal.stderr,
 	});
 
-	it("exits nonzero with a reason in the recording", () => {
+	it("exits nonzero with a reason naming the absent path in the recording", () => {
 		expect(recorded.responses.refusal.status).not.toBe(0);
-		expect(recordedReason).not.toBe("");
+		expect(recordedReason).toContain(REFUSED_PATH);
 	});
 
-	it("exits as recorded from the fake, giving the recorded reason", () => {
+	it("exits as recorded from the fake, giving the recorded reason for the path it was given", () => {
 		const r = call(fake({ refuse: true }), verbs[0].args);
 		expect(r.status).toBe(recorded.responses.refusal.status);
 		const result = materialisePlugin({
@@ -155,16 +183,16 @@ describe("a refusal, through installFailure", () => {
 			pluginId: PLUGIN_ID,
 			configDir: config,
 		});
-		expect(result).toMatchObject({ ok: false, reason: recordedReason });
+		const reason = installFailure({ stderr: refusalOf("/a/checkout") });
+		expect(reason).toBe(recordedReason.replace(REFUSED_PATH, "/a/checkout"));
+		expect(result).toMatchObject({ ok: false, reason });
 	});
 });
 
 describe("the side effects' shapes", () => {
 	it("`marketplace add` writes the recorded source shape at the added path", () => {
-		call(fake({ marketplaceSource: true }), verbs[0].args);
-		const source = JSON.parse(
-			fs.readFileSync(path.join(project, ".claude/settings.json"), "utf8"),
-		).extraKnownMarketplaces["workflow-core"].source;
+		call(fake(), verbs[0].args);
+		const source = addedSource();
 		expect(shape(source)).toEqual(
 			shape(recorded.sideEffects.marketplaceSource),
 		);
@@ -207,6 +235,20 @@ describe("the side effects' shapes", () => {
 		});
 	});
 
+	it("`install` writes the recorded row with no value given, as the real binary always does", () => {
+		call(fake(), verbs[1].args);
+		expect(
+			findInstallRecord(
+				path.join(config, "plugins"),
+				"workflow-core",
+				"workflow-core",
+				project,
+			),
+		).toMatchObject({
+			version: recorded.sideEffects.installedPlugins.row.version,
+		});
+	});
+
 	it("the recorded row sits at the cache path the recorded config dir names", () => {
 		const { row } = recorded.sideEffects.installedPlugins;
 		expect(row.installPath).toBe(
@@ -223,4 +265,60 @@ it("logs each call's argv, one line per call, its config dir first where asked",
 	expect(fs.readFileSync(log, "utf8")).toBe(
 		`${config} ${verbs[2].args.join(" ")}\n${config} ${verbs[3].args.join(" ")}\n`,
 	);
+});
+
+describe.skipIf(!realClaude)("against the installed claude", () => {
+	const real = realClaude as string;
+	/* On a red here, re-record (the header's command) and re-read the fake. */
+	const stale = () =>
+		`recorded on ${recorded.harness}, run on ${run(project, [real, "--version"]).trim()}`;
+
+	it("refuses an absent path as the fake does, through installFailure", () => {
+		const at = {
+			root: project,
+			addSource: path.join(dir, "absent"),
+			pluginId: PLUGIN_ID,
+			configDir: config,
+		};
+		/* The verdict and reason, not the argv, which names each binary. */
+		const verdict = (claudeBin: string) => {
+			const r = materialisePlugin({ ...at, claudeBin });
+			return { ok: r.ok, reason: "reason" in r ? r.reason : undefined };
+		};
+		const live = verdict(real);
+		expect(live).toMatchObject({ ok: false, reason: expect.any(String) });
+		expect(verdict(fake({ refuse: true })), stale()).toEqual(live);
+	}, 60_000);
+
+	it("adds a directory source in the recorded shape, as the fake writes it", () => {
+		const args = [
+			"plugin",
+			"marketplace",
+			"add",
+			CHECKOUT,
+			"--scope",
+			"project",
+		];
+		run(project, [real, ...args], { configDir: config });
+		const live = addedSource();
+		expect(shape(live), stale()).toEqual(
+			shape(recorded.sideEffects.marketplaceSource),
+		);
+		fs.rmSync(path.join(project, ".claude"), { recursive: true });
+		call(fake(), args);
+		expect(addedSource()).toEqual(live);
+	}, 60_000);
+
+	it("prints a `details` line the cost measurer reads as a figure, as the fake's", () => {
+		const wrapper = path.join(dir, "claude-plugin-dir");
+		fs.writeFileSync(
+			wrapper,
+			`#!/bin/sh\nexec ${shellQuote(real)} --plugin-dir ${shellQuote(CHECKOUT)} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		expect(measure(wrapper, "workflow-core"), stale()).toEqual({
+			tokens: expect.any(Number),
+		});
+		expect(measure(fake())).toEqual({ tokens: expect.any(Number) });
+	}, 60_000);
 });

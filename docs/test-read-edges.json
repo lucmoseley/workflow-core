@@ -182,6 +182,7 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
+			"scripts/lib/claude-plugin.contract.test.ts",
 			"scripts/lib/core-hooks.test.ts",
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/guard-fires.test.ts",
@@ -18959,6 +18960,7 @@
 		],
 		"scripts/lib/fixtures/gh/checks-forbidden.json": [
 			"scripts/check-issue-cycles.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",

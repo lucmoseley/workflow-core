@@ -7,8 +7,10 @@
  * repo that COMMITS (#5). The branch cases call its core in-process
  * (`adoptWith`, `init`). The program cases are its boundary set (§X11): each
  * exit with its stream (--help, an unknown flag, a settings file that does not
- * parse), the env it reads (WFC_GITLEAKS and PATH, WFC_CLAUDE_BIN, WFC_GH, the
- * cwd as the default root), and each production adapter crossed once (the
+ * parse), the env it reads (WFC_GITLEAKS and PATH, WFC_CLAUDE_BIN, WFC_GH,
+ * CLAUDE_PLUGIN_ROOT as the plugin root's fallback, CLAUDE_CONFIG_DIR as the
+ * plugin registry's, the cwd as the default root), and each production
+ * adapter crossed once (the
  * `claude plugin` install, the cost measurer, the gh probes, and the plugin
  * scripts run as children, which init-adopter-commit.test.ts's program runs
  * cross).
@@ -45,12 +47,18 @@ import {
 import { HOOKS, renderHookShim, TOOLS } from "./lib/adopter-skeleton.js";
 import {
 	type PluginFake,
-	recorded,
+	refusalOf,
 	writeClaudePluginFake,
 } from "./lib/claude-plugin-fake";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { RUFF_INSTALL } from "./lib/formatters.js";
-import { stubGhScript } from "./lib/gh-stub";
+import {
+	GH_LOGGED_OUT,
+	GH_NOT_FOUND,
+	type GhAnswer,
+	readGhAnswer,
+} from "./lib/gh-fake";
+import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
 import { initPaths } from "./lib/init-adopter-core.js";
 import { installPathFor } from "./lib/plugin-state.js";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -294,11 +302,12 @@ describe("init in a fresh repository", () => {
 
 		it("keeps `ref` in the final settings.json on a url source, despite the install's own rewrite", () => {
 			const { dir } = repo();
-			/* Simulates the real CLI's own side effect: `marketplace add` rewrites
-			 * the marketplace's settings.json entry, and a caller that did not
-			 * pass `ref` via the source URL's `#ref` syntax loses it. The
-			 * rewritten url source's shape is unrecorded: a url source's add
-			 * needs the network (record-claude-plugin.js). */
+			/* The real CLI's own side effect: `marketplace add` rewrites the
+			 * marketplace's settings.json entry, and a caller that did not pass
+			 * `ref` via the source URL's `#ref` syntax loses it. The fake writes
+			 * the recorded directory shape, with no `ref`, in place of the url
+			 * shape, which is unheld: recording a url source's add clones a
+			 * published marketplace (record-claude-plugin.js). */
 			/* An empty CLAUDE_CONFIG_DIR, so #258's own cross-scope check reads no
 			 * real user-scope settings.json this machine happens to carry. */
 			const configDir = fs.mkdtempSync(
@@ -306,13 +315,7 @@ describe("init in a fresh repository", () => {
 			);
 			made.push(configDir);
 			const log = path.join(dir, "claude-calls.log");
-			const claude = fakeClaude({
-				log,
-				marketplaceSource: {
-					source: "git",
-					url: "https://example.invalid/x.git",
-				},
-			});
+			const claude = fakeClaude({ log });
 			const r = adoptWith(
 				[
 					"--root",
@@ -405,7 +408,7 @@ describe("init in a fresh repository", () => {
 			);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
-				`FAILED materialising the plugin: ${recorded.responses.refusal.stderr}`,
+				`FAILED materialising the plugin: ${refusalOf(CORE)}`,
 			);
 			expect(r.stdout).toContain(
 				`claude plugin marketplace add ${CORE} --scope project && ` +
@@ -1975,6 +1978,8 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			"workflow-core",
 			"7.8.0",
 		);
+		/* Unheld: `place` stands in for the clone a url source's install lands
+		 * at the row's installPath, a network fetch the recording does not hold. */
 		const claude = fakeClaude({ install: { version: "7.8.0", place: CORE } });
 		const r = bare(
 			{ ...env, WFC_CLAUDE_BIN: claude },
@@ -1993,6 +1998,32 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			).roadmapMajorPin,
 		).toBe(7);
 		expect(hooks(dir)).toEqual(HOOKS.map((h) => renderHookShim(h)));
+	});
+
+	it("runs from CLAUDE_PLUGIN_ROOT where no --plugin-root is given, as the program", () => {
+		const { dir } = repo();
+		const { env } = pinEnv();
+		/* A path of its own, not this checkout's, which is also the default. */
+		const link = path.join(
+			fs.mkdtempSync(path.join(os.tmpdir(), "adopter-root-")),
+			"plugin",
+		);
+		made.push(path.dirname(link));
+		fs.symlinkSync(CORE, link);
+		const r = runInProcess(
+			SCRIPT,
+			["--root", dir, "--founder", "A", "--no-tracker", "--no-plugin-install"],
+			{ cwd: dir, env: { ...env, CLAUDE_PLUGIN_ROOT: link } },
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(readRules(dir)).toContain(
+			`\`${link}/scripts/bg-run.sh check <name>\``,
+		);
+		expect(
+			JSON.parse(
+				fs.readFileSync(path.join(dir, ".claude/settings.json"), "utf8"),
+			).extraKnownMarketplaces["workflow-core"].source,
+		).toEqual({ source: "directory", path: link });
 	});
 
 	it("refuses a --plugin-root that still does not exist once the install is past, naming the path and the way out, and writes no hooks", () => {
@@ -2017,40 +2048,51 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 });
 
 describe("the tracker step on a brand-new tracker (#716)", () => {
-	/* GH_ISSUE is the newest issue's number (empty for none), and
-	 * GH_SUB/GH_DEPS/GH_LIST/GH_DEFAULT are the stderr a failing call prints. */
-	const ghStub = `#!/bin/sh
-echo "$*" >> "$GH_LOG"
-case "$*" in
-"repo set-default"*) [ -z "$GH_DEFAULT" ] || { echo "$GH_DEFAULT" >&2; exit 1; } ;;
-"issue list"*) [ -z "$GH_LIST" ] || { echo "$GH_LIST" >&2; exit 1; }; echo "$GH_ISSUE" ;;
-"api "*sub_issues*) [ -z "$GH_SUB" ] || { echo "$GH_SUB" >&2; exit 1; } ;;
-"api "*blocked_by*) [ -z "$GH_DEPS" ] || { echo "$GH_DEPS" >&2; exit 1; } ;;
-esac
-exit 0
-`;
+	/* Each failure is a recorded answer gh.contract.test.ts holds: a logged-out
+	 * gh for set-default and the issue list, the founder's token refused (HTTP
+	 * 403), a missing issue (HTTP 404) for any other error, since a 5xx cannot
+	 * be recorded on demand. */
+	const forbidden = readGhAnswer(
+		path.join(__dirname, "lib/fixtures/gh/checks-forbidden.json"),
+	);
+	const firstLine = (a: GhAnswer) => a.stderr.split("\n")[0];
 
-	function adoptFrom(
-		origin: string,
-		env: Record<string, string>,
-		...args: string[]
-	) {
-		return adoptFromWith(initIn, origin, env, ...args);
+	interface Tracker {
+		/** The newest issue's number, empty for none. */
+		issue?: string;
+		setDefault?: GhAnswer;
+		list?: GhAnswer;
+		sub?: GhAnswer;
+		deps?: GhAnswer;
+	}
+
+	function adoptFrom(origin: string, tracker: Tracker, ...args: string[]) {
+		return adoptFromWith(initIn, origin, tracker, ...args);
 	}
 
 	function adoptFromWith(
 		run: typeof initIn,
 		origin: string,
-		env: Record<string, string>,
+		{ issue = "7", setDefault, list, sub, deps }: Tracker,
 		...args: string[]
 	) {
 		const { dir, git } = repo();
 		git("remote", "add", "origin", origin);
 		const log = path.join(dir, "gh-calls.log");
 		fs.writeFileSync(log, "");
-		const stub = stubGhScript(dir, ghStub);
+		const stub = stubGhRoutes(
+			dir,
+			{
+				"repo set-default *": setDefault ?? printed(),
+				"issue list *": list ?? printed(issue && `${issue}\n`),
+				"*/sub_issues": sub ?? printed(),
+				"*/dependencies/blocked_by": deps ?? printed(),
+				"repos/*": printed(),
+			},
+			{ log },
+		);
 		const r = run(
-			{ ...process.env, ...stub.env, GH_LOG: log, ...env },
+			{ ...process.env, ...stub.env },
 			dir,
 			"--founder",
 			"A Founder",
@@ -2060,14 +2102,14 @@ exit 0
 		return { r, calls };
 	}
 
-	const adopt = (env: Record<string, string>, ...args: string[]) =>
-		adoptFrom("https://github.com/acme/widget.git", env, ...args);
+	const adopt = (tracker: Tracker, ...args: string[]) =>
+		adoptFrom("https://github.com/acme/widget.git", tracker, ...args);
 
 	it("points gh at the origin and probes the newest issue, never a hard-coded #1", () => {
 		const { r, calls } = adoptFromWith(
 			initProgramIn,
 			"https://github.com/acme/widget.git",
-			{ GH_ISSUE: "7" },
+			{ issue: "7" },
 		);
 		expect(r.status).toBe(0);
 		expect(calls).toContain("repo set-default acme/widget");
@@ -2082,7 +2124,7 @@ exit 0
 	});
 
 	it("prints one not-probed line where the tracker has no issue yet", () => {
-		const { r, calls } = adopt({ GH_ISSUE: "" });
+		const { r, calls } = adopt({ issue: "" });
 		expect(r.status).toBe(0);
 		expect(r.stdout.split("\n").filter((l) => /sub.issues/.test(l))).toEqual([
 			"probe    sub-issues, dependencies: not probed — the tracker has no issue yet",
@@ -2094,21 +2136,18 @@ exit 0
 	});
 
 	it.each([
-		["403", "gh: Resource not accessible by integration (HTTP 403)"],
-		["410", "gh: Sub-issues are disabled (HTTP 410)"],
+		["403", forbidden],
+		/* Unheld: no call GitHub answers 410 can be made on demand to record. */
+		["410", refused("gh: Sub-issues are disabled (HTTP 410)")],
 	])(
 		"reads a %s as off for this owner, and any other error as gh's own message",
 		(_, off) => {
-			const { r } = adopt({
-				GH_ISSUE: "7",
-				GH_SUB: off,
-				GH_DEPS: "gh: Server Error (HTTP 500)",
-			});
+			const { r } = adopt({ issue: "7", sub: off, deps: GH_NOT_FOUND });
 			expect(r.stdout).toContain(
 				"probe    repos/acme/widget/issues/7/sub_issues: off for this owner",
 			);
 			expect(r.stdout).toContain(
-				"probe    repos/acme/widget/issues/7/dependencies/blocked_by: gh: Server Error (HTTP 500)",
+				`probe    repos/acme/widget/issues/7/dependencies/blocked_by: ${firstLine(GH_NOT_FOUND)}`,
 			);
 		},
 	);
@@ -2117,29 +2156,26 @@ exit 0
 		["--dry-run", "would  gh repo set-default acme/widget"],
 		["--no-tracker", "skipped the tracker — --no-tracker"],
 	])("calls gh not at all under %s", (flag, line) => {
-		const { r, calls } = adopt({ GH_ISSUE: "7" }, flag);
+		const { r, calls } = adopt({ issue: "7" }, flag);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(line);
 		expect(calls).toEqual([]);
 	});
 
 	it("prints gh's own message where set-default or the issue list fails", () => {
-		const { r } = adopt({
-			GH_DEFAULT: "gh: no such repo",
-			GH_LIST: "gh: the repository has disabled issues",
-		});
+		const { r } = adopt({ setDefault: GH_LOGGED_OUT, list: GH_LOGGED_OUT });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			"FAILED gh repo set-default acme/widget: gh: no such repo",
+			`FAILED gh repo set-default acme/widget: ${firstLine(GH_LOGGED_OUT)}`,
 		);
 		expect(r.stdout).toContain(
-			"probe    sub-issues, dependencies: gh: the repository has disabled issues",
+			`probe    sub-issues, dependencies: ${firstLine(GH_LOGGED_OUT)}`,
 		);
 	});
 
 	it("skips set-default where no tracker resolves", () => {
 		const { r, calls } = adoptFrom("https://gitlab.com/acme/widget.git", {
-			GH_ISSUE: "7",
+			issue: "7",
 		});
 		expect(r.stdout).toContain(
 			"skipped gh repo set-default — no tracker resolves",

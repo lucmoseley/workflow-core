@@ -7,8 +7,9 @@
  *
  * A node stub, not lib/claude-stub.ts's bash one: its side effects are JSON
  * edits, and it is asked no `auth status`. It logs each call's argv, one line
- * per call, and answers as the recording does. The side effects are opt-in,
- * since a case's environment may name the developer's own config dir.
+ * per call, and answers as the recording does, side effects included, as the
+ * real binary always writes them: vitest.setup.ts points every file at a
+ * scratch CLAUDE_CONFIG_DIR (#838), and `install` refuses where none is set.
  */
 
 import fs from "node:fs";
@@ -41,19 +42,15 @@ export interface PluginFake {
 	log?: string;
 	/** Opens each logged line with the call's CLAUDE_CONFIG_DIR and a space. */
 	logConfigDir?: boolean;
-	/** Every call answers as the recorded refusal. */
+	/** Every call answers as the recorded refusal, `marketplace add` naming
+	 * its own source where the recording names its absent path. */
 	refuse?: boolean;
 	/** The figure `details` prints in place of the recorded one, as `2,273`. */
 	alwaysOn?: string;
-	/** `marketplace add` writes its source into the project's
-	 * .claude/settings.json: `true` the recorded directory shape at the added
-	 * path, an object that source as given. A url source's shape is
-	 * unrecorded (record-claude-plugin.js says why). */
-	marketplaceSource?: true | Row;
-	/** `install` writes its row into `<CLAUDE_CONFIG_DIR>/plugins/
-	 * installed_plugins.json`, the recorded row's keys with these values;
-	 * `place`, where given, is linked at the row's installPath, as the
-	 * install's own copy would sit there. */
+	/** Values for the row `install` writes. `place`, where given, is linked at
+	 * the row's installPath, standing in for the clone the install lands
+	 * there; that clone is unheld, being a network fetch of the marketplace's
+	 * url plugin source. */
 	install?: { version?: string; gitCommitSha?: string; place?: string };
 }
 
@@ -67,56 +64,54 @@ const env = process.env;
 if (fake.log)
 	fs.appendFileSync(fake.log, (fake.logConfigDir ? (env.CLAUDE_CONFIG_DIR || "") + " " : "") + args.join(" ") + "\\n");
 const answer = (r) => process.exit(r.status);
-if (fake.refuse) {
-	process.stderr.write(fake.responses.refusal.stderr + "\\n");
-	answer(fake.responses.refusal);
-}
 const project = env.CLAUDE_PROJECT_DIR || process.cwd();
 const verb = args[0] !== "plugin" ? null : args[1] === "marketplace" ? "marketplace " + args[2] : args[1];
+if (fake.refuse) {
+	const { stderr } = fake.responses.refusal;
+	process.stderr.write((verb === "marketplace add" ? stderr.replace(fake.absent, args[3]) : stderr) + "\\n");
+	answer(fake.responses.refusal);
+}
 if (verb === "marketplace add") {
-	if (fake.marketplaceSource) {
-		const at = path.join(project, ".claude", "settings.json");
-		const settings = fs.existsSync(at) ? JSON.parse(fs.readFileSync(at, "utf8")) : {};
-		settings.extraKnownMarketplaces = settings.extraKnownMarketplaces || {};
-		settings.extraKnownMarketplaces[fake.marketplace] = {
-			source: fake.marketplaceSource === true ? { ...fake.sideEffects.marketplaceSource, path: args[3] } : fake.marketplaceSource,
-		};
-		fs.mkdirSync(path.dirname(at), { recursive: true });
-		fs.writeFileSync(at, JSON.stringify(settings, null, 2) + "\\n");
-	}
+	const at = path.join(project, ".claude", "settings.json");
+	const settings = fs.existsSync(at) ? JSON.parse(fs.readFileSync(at, "utf8")) : {};
+	settings.extraKnownMarketplaces = settings.extraKnownMarketplaces || {};
+	settings.extraKnownMarketplaces[fake.marketplace] = {
+		source: { ...fake.sideEffects.marketplaceSource, path: args[3] },
+	};
+	fs.mkdirSync(path.dirname(at), { recursive: true });
+	fs.writeFileSync(at, JSON.stringify(settings, null, 2) + "\\n");
 	answer(fake.responses.marketplaceAdd);
 }
 if (verb === "install") {
-	if (fake.install) {
-		if (!env.CLAUDE_CONFIG_DIR) {
-			process.stderr.write("claude-plugin-fake: install with no CLAUDE_CONFIG_DIR\\n");
-			process.exit(1);
-		}
-		const [plugin, marketplace] = args[2].split("@");
-		const recordedRow = fake.sideEffects.installedPlugins.row;
-		const version = fake.install.version || recordedRow.version;
-		const installPath = path.join(env.CLAUDE_CONFIG_DIR, "plugins", "cache", marketplace, plugin, version);
-		const now = new Date().toISOString();
-		const row = {
-			...recordedRow,
-			installPath,
-			version,
-			installedAt: now,
-			lastUpdated: now,
-			gitCommitSha: fake.install.gitCommitSha || recordedRow.gitCommitSha,
-			projectPath: project,
-		};
-		const at = path.join(env.CLAUDE_CONFIG_DIR, "plugins", "installed_plugins.json");
-		const doc = fs.existsSync(at)
-			? JSON.parse(fs.readFileSync(at, "utf8"))
-			: { version: fake.sideEffects.installedPlugins.version, plugins: {} };
-		doc.plugins[args[2]] = (doc.plugins[args[2]] || []).filter((r) => r.projectPath !== project).concat([row]);
-		fs.mkdirSync(path.dirname(at), { recursive: true });
-		fs.writeFileSync(at, JSON.stringify(doc, null, 2));
-		if (fake.install.place) {
-			fs.mkdirSync(path.dirname(installPath), { recursive: true });
-			fs.symlinkSync(fake.install.place, installPath);
-		}
+	if (!env.CLAUDE_CONFIG_DIR) {
+		process.stderr.write("claude-plugin-fake: install with no CLAUDE_CONFIG_DIR\\n");
+		process.exit(1);
+	}
+	const given = fake.install || {};
+	const [plugin, marketplace] = args[2].split("@");
+	const recordedRow = fake.sideEffects.installedPlugins.row;
+	const version = given.version || recordedRow.version;
+	const installPath = path.join(env.CLAUDE_CONFIG_DIR, "plugins", "cache", marketplace, plugin, version);
+	const now = new Date().toISOString();
+	const row = {
+		...recordedRow,
+		installPath,
+		version,
+		installedAt: now,
+		lastUpdated: now,
+		gitCommitSha: given.gitCommitSha || recordedRow.gitCommitSha,
+		projectPath: project,
+	};
+	const at = path.join(env.CLAUDE_CONFIG_DIR, "plugins", "installed_plugins.json");
+	const doc = fs.existsSync(at)
+		? JSON.parse(fs.readFileSync(at, "utf8"))
+		: { version: fake.sideEffects.installedPlugins.version, plugins: {} };
+	doc.plugins[args[2]] = (doc.plugins[args[2]] || []).filter((r) => r.projectPath !== project).concat([row]);
+	fs.mkdirSync(path.dirname(at), { recursive: true });
+	fs.writeFileSync(at, JSON.stringify(doc, null, 2));
+	if (given.place) {
+		fs.mkdirSync(path.dirname(installPath), { recursive: true });
+		fs.symlinkSync(given.place, installPath);
 	}
 	answer(fake.responses.install);
 }
@@ -128,6 +123,13 @@ if (verb === "details") {
 process.stderr.write("claude-plugin-fake: unfaked call: " + args.join(" ") + "\\n");
 process.exit(1);
 `;
+
+/** The absent path the recorded refusal names, record-claude-plugin.js's. */
+export const REFUSED_PATH = "/synthetic/absent";
+
+/** The recorded refusal as `marketplace add` of `source` prints it. */
+export const refusalOf = (source: string) =>
+	recorded.responses.refusal.stderr.replace(REFUSED_PATH, source);
 
 /** The recorded Always-on line, its figure swapped for `figure` where given. */
 export const alwaysOnLine = (figure?: string) =>
@@ -144,6 +146,7 @@ export function writeClaudePluginFake(dir: string, fake: PluginFake = {}) {
 			...rest,
 			alwaysOn: alwaysOnLine(alwaysOn),
 			marketplace: "workflow-core",
+			absent: REFUSED_PATH,
 			responses: recorded.responses,
 			sideEffects: recorded.sideEffects,
 		}),

@@ -20,21 +20,23 @@
  * synthetic values (§G7.3).
  *
  * Unrecorded: a url source's `marketplace add` (`<url>#<ref>`). The CLI
- * takes only owner/repo, https:// or a path, refusing file://, so a url
- * source is a network clone, which a recorder held offline cannot make.
+ * takes only owner/repo, https:// or a path, refusing file://, so recording
+ * one clones a published marketplace, which this recorder does not yet do.
  *
  * Kept apart from record-claude-responses.js because it spends no model
- * turn: every call is a local plugin-registry write. Each runs in a
+ * turn: the calls write a plugin registry, and `install` clones the plugin's
+ * url source (.claude-plugin/marketplace.json) from GitHub. Each runs in a
  * throwaway CLAUDE_CONFIG_DIR and a throwaway git project, never the
- * developer's own registry, with stdin closed as materialise-plugin.js runs
- * it (`update` with stdin open waits on it). Run it by hand after a harness
- * upgrade, then `npm run test -- scripts/lib/claude-plugin.contract.test.ts`.
+ * developer's own registry, through materialise-plugin.js's own `run`, so
+ * stdin is closed (`update` with stdin open waits on it). Run it by hand
+ * after a harness upgrade, then
+ * `npm run test -- scripts/lib/claude-plugin.contract.test.ts`.
  *
  * In no family (§N3): it writes a fixture, but runs the real `claude` to do
  * it, so it is no `generate-*` a gate may run.
  */
 
-const { execFileSync, spawnSync } = require("node:child_process");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -42,15 +44,13 @@ const { caught } = require("./lib/caught.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { cutAt } = require("./lib/cut-at.js");
 const { sessionTree } = require("./lib/host-root.js");
+const { run } = require("./lib/materialise-plugin.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const FIXTURE = path.join(__dirname, "fixtures", "claude-plugin.json");
 const RECORDED_BY = "node scripts/record-claude-plugin.js";
 const PLUGIN_ID = "workflow-core@workflow-core";
 const MARKETPLACE = "workflow-core";
-/* A guess, materialise-plugin.js's own ceiling: a directory source needs no
- * network, so each call has finished in seconds here. */
-const TIMEOUT_MS = 120_000;
 
 const SYNTHETIC = {
 	config: "/synthetic/config",
@@ -63,23 +63,22 @@ const SYNTHETIC = {
 };
 
 /**
+ * One call as materialise-plugin.js runs it; a refusal's status and stderr
+ * read off `run`'s throw, any other throw (a timeout, no binary) rethrown.
  * @param {{config: string, project: string}} at
  * @param {string[]} args
  */
 function claude(at, args) {
-	const r = spawnSync(claudeBin(), args, {
-		cwd: at.project,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		timeout: TIMEOUT_MS,
-		env: {
-			...process.env,
-			CLAUDE_CONFIG_DIR: at.config,
-			CLAUDE_PROJECT_DIR: at.project,
-		},
-	});
-	if (r.error) throw r.error;
-	return { status: r.status ?? 1, stdout: r.stdout, stderr: r.stderr };
+	try {
+		const stdout = run(at.project, [claudeBin(), ...args], {
+			configDir: at.config,
+		});
+		return { status: 0, stdout, stderr: "" };
+	} catch (err) {
+		const { status, stderr } = caught(err);
+		if (typeof status !== "number") throw err;
+		return { status, stdout: "", stderr: String(stderr) };
+	}
 }
 
 /**
