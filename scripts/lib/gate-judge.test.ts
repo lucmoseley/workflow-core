@@ -1,13 +1,15 @@
 // @vitest-environment node
 /*
  * lib/gate-judge.js's judgedBasisFaults and readGateWrite, the three write
- * routes' one entry, driven with a body and a fake in place of the `claude`
- * binary (lib/gate-judge-fake.ts), through the real launcher (#4964). Broken,
- * a wait or basis the model faults files unrefused, or a write the model
- * cannot read is refused.
+ * routes' one entry, driven with a body and the in-process `judge` fake
+ * (lib/gate-judge-fake.ts `judgeServe`, held to the launched fake by
+ * lib/gate-judge.contract.test.ts). Broken, a wait or basis the model faults
+ * files unrefused, or a write the model cannot read is refused.
  *
- * spawn-kept: a real fd (§X3) — the judge pipes its prompt to the launcher,
- * which hands the child its own stdin.
+ * spawn-kept: the boundary set runs the fake `claude` binary through the real
+ * launcher — a real fd (§X3), the judge piping its prompt to the launcher,
+ * which hands the child its own stdin; the launcher's kill of a hang (a
+ * timeout); and its refusal to launch on an API key.
  */
 
 import fs from "node:fs";
@@ -24,6 +26,7 @@ import {
 	callLogPath,
 	FALLBACK_LEAD,
 	type JudgeFakePlan,
+	judgeServe,
 	MODEL_LEAD,
 	OVERRIDE_LEAD,
 	OVERRIDE_LINE,
@@ -35,21 +38,39 @@ import { type CitedFixture, stubGhRoutes, stubGhScript } from "./gh-stub";
 import { basisFaults, basisRefusal } from "./issue-gate.js";
 import { readJsonl } from "./jsonl.js";
 
-/* Far over a faked call, which is three Node starts. */
+/* Far over a launched call, which is three Node starts. */
 const BOUND_MS = 60_000;
+
+type Plan = Exclude<JudgeFakePlan, { hang: true }>;
 
 let dir = "";
 let log = "";
+/* Each prompt the in-process fake was sent. */
+let prompts: string[] = [];
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-judge-"));
 	fs.mkdirSync(path.join(dir, ".claude"));
 	log = path.join(dir, "calls.jsonl");
+	prompts = [];
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 function judge(
+	body: string,
+	plan: Plan,
+	opts: { own?: number; before?: string; boundMs?: number } = {},
+) {
+	return judgedBasisFaults(body, {
+		boundMs: BOUND_MS,
+		...opts,
+		judge: judgeServe(plan, prompts),
+	});
+}
+
+/* The fake `claude` launched through the real launcher, for the boundary set. */
+function launch(
 	body: string,
 	plan: JudgeFakePlan,
 	opts: { own?: number; before?: string; boundMs?: number } = {},
@@ -84,8 +105,8 @@ const WAIT = "Re-measure once those records hold 500 ticks.";
 const NOTHING = reading();
 
 describe("a judged wait", () => {
-	it("in a body with no basis is a missing-basis fault, marked as the model's", () => {
-		const r = judge(
+	it("in a body with no basis is a missing-basis fault, marked as the model's, through the real launcher", () => {
+		const r = launch(
 			`Build it.\n\n${WAIT}\n`,
 			reading([wait(WAIT, "500 ticks")]),
 		);
@@ -93,6 +114,9 @@ describe("a judged wait", () => {
 			{ kind: "no-basis", text: WAIT, by: "model", on: "data" },
 		]);
 		expect(r.fallback).toBeNull();
+		expect(readJudgeCalls(log).map((c) => c.stdin)).toEqual([
+			expect.stringContaining(WAIT),
+		]);
 	});
 
 	it("whose window the basis does not name is an unnamed-window fault", () => {
@@ -278,7 +302,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	const Body = `Read the counters a week after landing.\n\n${WAIT}\n`;
 	const Patterns = [{ kind: "no-basis", text: "a week after", by: "patterns" }];
 
-	it.each<[string, JudgeFakePlan, string]>([
+	it.each<[string, Plan, string]>([
 		["a non-zero exit", { exit: 3 }, "the judge exited 3"],
 		[
 			"a reply that is not JSON",
@@ -316,7 +340,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	it("falls back on a hang past the bound", () => {
 		/* The launcher's real kill, not a faked one: the fallback reason is read
 		 * off its timeout exit. */
-		const r = judge(Body, { hang: true }, { boundMs: 500 });
+		const r = launch(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
 	});
@@ -333,7 +357,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	});
 
 	it("a launch that would not bill the subscription, launching nothing", () => {
-		const r = judge(
+		const r = launch(
 			Body,
 			reading([wait(WAIT, "500 ticks")]),
 			{},
@@ -440,9 +464,9 @@ describe("an edit", () => {
 
 	it("never sends the body before it to the model", () => {
 		judge("The new body.\n", NOTHING, { before: "The old body, kept back.\n" });
-		const [call] = readJudgeCalls(log);
-		expect(call?.stdin).toContain("The new body.");
-		expect(call?.stdin).not.toContain("kept back");
+		const [prompt] = prompts;
+		expect(prompt).toContain("The new body.");
+		expect(prompt).not.toContain("kept back");
 	});
 
 	it("with no body before it is judged whole", () => {
@@ -582,22 +606,19 @@ describe("the edit rule, one for both readings (#5080)", () => {
 describe("a write route's reading", () => {
 	const write = (
 		body: string,
-		plan: JudgeFakePlan,
+		plan: Plan,
 		opts: { before?: string; own?: number; leftMs?: number } = {},
 		extraEnv: Record<string, string> = {},
 	) =>
-		readGateWrite(body, {
-			route: "file-issue",
-			...opts,
-			env: {
-				...process.env,
-				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
-				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
-				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
-				WFC_GATE_JUDGE: "",
-				...extraEnv,
+		readGateWrite(
+			body,
+			{
+				route: "file-issue",
+				...opts,
+				env: { ...process.env, WFC_GATE_JUDGE: "", ...extraEnv },
 			},
-		});
+			{ judge: judgeServe(plan, prompts) },
+		);
 	const Gate = "**Gated until:** 2026-10-05 — a week live";
 	const PatternSays = [
 		"with no `**Gate basis:**` line",
@@ -714,7 +735,7 @@ describe("a write route's reading", () => {
 		expect(r.advice).toContain(
 			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
 		);
-		expect(readJudgeCalls(log)).toEqual([]);
+		expect(prompts).toEqual([]);
 	});
 
 	it("appends one record a call to the log", () => {
@@ -745,7 +766,7 @@ describe("a write route's reading", () => {
 			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
 			advice: "",
 		});
-		expect(readJudgeCalls(log)).toEqual([]);
+		expect(prompts).toEqual([]);
 	});
 
 	it("reads the body with the judge switched off outside a test worker", () => {
@@ -756,7 +777,7 @@ describe("a write route's reading", () => {
 			{ WFC_GATE_JUDGE: "off", VITEST_WORKER_ID: "" },
 		);
 		expect(r.refusal).toContain(MODEL_LEAD);
-		expect(readJudgeCalls(log)).toHaveLength(1);
+		expect(prompts).toHaveLength(1);
 	});
 });
 
