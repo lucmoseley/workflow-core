@@ -1588,13 +1588,14 @@ it("cancels every unfinished run on a batch ref but those at the sha kept, namin
 	expect(all.cancelled).toEqual([2]);
 });
 
-/* ci.yml's own spelling of each step that readies a runner, so renaming one
- * there without the tester fails here (#5138). */
+/* ci.yml's own spelling of each step it names that readies a runner, so
+ * renaming one there without the tester fails here (#5138). The generated
+ * names, "Set up job" and "Run <action>", are not checked. */
 it.each(["Install test tools", "Full history"])(
 	"reads a failure at ci.yml's %s step as the runner's",
 	async (step) => {
 		const ci = fs.readFileSync(
-			path.join(import.meta.dirname, "../../.github/workflows/ci.yml"),
+			path.join(__dirname, "..", "..", ".github", "workflows", "ci.yml"),
 			"utf8",
 		);
 		const vitest = ci.slice(
