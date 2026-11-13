@@ -146,10 +146,8 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			republished("reused", firstToken),
 		);
 
-		/* The old watcher's exit ends every chance it had to record: it
-		 * leaves only on a `status`, on recording, at the run-token guard or
-		 * on the ceiling kill, and its parent is dead, so its next pass takes
-		 * one of the middle two (#5143). */
+		/* Its parent is dead, so the old watcher's next pass records or meets
+		 * the run-token guard, and either exits it (#5143). */
 		await waitFor("the old watcher to exit", () => !watcherAlive(firstToken));
 
 		/* Filtering by NAME alone read the old run's own kill — perfectly
@@ -703,8 +701,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	};
 
 	/* A command line that holds until the watcher has logged three passes
-	 * matching `line`, so a case asserts what three passes did rather than
-	 * what a guessed span of them did (#5143). */
+	 * matching `line`. */
 	const untilThreePasses = (line: string) =>
 		shWaitFor(
 			`[ "$(cat ${shellQuote(`${root}/polls.log`)} 2>/dev/null | grep -c ${shellQuote(line)})" -ge 3 ]`,
@@ -766,9 +763,8 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("spares a group whose leader started before the launch, a recycled pid", async () => {
-		/* Started 3 s before the launch, through the launch clock's WFC_BG_NOW
-		 * seam rather than 2 s of real wait (#5143): past the one second the
-		 * start-time check allows for rounding. */
+		/* Started 3 s before the launch: past the one second the start-time
+		 * check allows for rounding. */
 		const elder = spawn("sleep", [KILLED_LIFETIME_S], {
 			detached: true,
 			stdio: "ignore",
@@ -907,8 +903,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("never kills a command that writes no deadline file", () => {
-		/* Three passes at a quarter-second beat: a pass with no deadline
-		 * leaves no polls.log line to count. */
+		/* A pass with no deadline leaves no polls.log line to count. */
 		const got = run(
 			[
 				"run",

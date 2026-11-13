@@ -985,7 +985,7 @@ describe("the abort budget's override (#1024)", () => {
 	 * Each row's stub answers past every budget a loose parse could make of its
 	 * value (`Number`, `parseInt`, `parseFloat`, an absolute value: 1000 for
 	 * "1e3", at most 250 for the rest), so honouring the value is an outage and
-	 * keeping `ABORT_MS` is `clear`. Only "1e3" needs the full `slowMs`.
+	 * keeping `ABORT_MS` is `clear`.
 	 */
 	const pastAnyMisread = 500;
 
@@ -1017,10 +1017,8 @@ describe("the abort budget's override (#1024)", () => {
 	});
 
 	it("caps a value above `ABORT_MS` at it", async () => {
-		/* The first ask is answered past `ABORT_MS` but well inside the 60 s
-		 * asked for, the re-ask at once. A capped budget aborts the first and
-		 * logs the re-ask's answer; the 60 s budget would wait it out and log
-		 * no re-ask at all. The count proves the cap, not a clock. */
+		/* A capped budget aborts the first ask and logs the re-ask's answer;
+		 * the 60 s budget would wait it out and log no re-ask at all. */
 		const pastTheCapMs = ABORT_MS + 1500;
 		let asked = 0;
 		const base = await stub((_body, res) => {
