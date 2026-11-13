@@ -18,6 +18,12 @@
  * met after it reached its ticket (#4202's ruling), a call passed before any
  * other resume included. A session the loop resumed off a hold reads from that
  * resume only, so it meets its new fault, not the old.
+ *
+ * EDGE_BLOCK IS TESTED BEFORE AUTH (#5164): Cloudflare's WAF or IP block page
+ * is a 403 the CLI tags `authentication_failed` and words "Please run /login"
+ * though the login is good, so it reads transient and the loop's capped
+ * resumes take it up. Residual: a block that outlasts the cap parks as any
+ * spent transient error does.
  */
 
 const { isLockoutText } = require("./core-fault.js");
@@ -51,6 +57,7 @@ const AUTH_DETAIL =
 	/^(Login expired|Could not refresh your login|Invalid API key|Your organization has disabled)/;
 const AUTH_NEEDS = /^(login required|org disabled OAuth)/;
 const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed"]);
+const EDGE_BLOCK = /API Error: 403\b.*\bCloudflare\b/s;
 /* The `needs` a dialog writes to the job record, the one mark a parked row
  * keeps of it: 2.1.311's `dialog open` table, its managed-settings emit and
  * its startup-wedge watchdog, read from the binary (#3252). A dialog the
@@ -297,6 +304,12 @@ const RULES = [
 			);
 			return hit ? { cause: "LIMIT", bar: hit[1] } : { cause: "LIMIT" };
 		},
+	],
+	[
+		(f) =>
+			EDGE_BLOCK.test(f.detail) ||
+			(isApiError(f) && EDGE_BLOCK.test(textOf(f.said))),
+		{ cause: "API_ERROR", sub: "transient" },
 	],
 	[
 		(f) =>

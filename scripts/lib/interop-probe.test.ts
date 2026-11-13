@@ -5,7 +5,7 @@
  * is dispatch-sessions-bridge-budget.test.ts's (mantahostels#3535). It sources the real
  * library in bash, since the reset is shell arithmetic no in-process call runs.
  *
- * dispatch-sessions.sh and the interactive `claude` guard both source this
+ * dispatch-sessions.js and the interactive `claude` guard both run this
  * library before every launch, so a loosened case lets a non-integer override
  * set the probe's budget, against the 12s docs/environment.md §9 derives for a
  * wedged interop bridge.

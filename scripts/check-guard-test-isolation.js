@@ -180,7 +180,7 @@ function hasLoggingDependency(rel, text, kind, { root, cache, seen }) {
 }
 
 /**
- * `review-hold-gate.sh` → `scripts/review-hold-gate.sh`, or null where
+ * `concision-backstop.sh` → `scripts/concision-backstop.sh`, or null where
  * no such file. A `….js` resolves only to a top-level entry: a name with a
  * directory other than scripts/ is a library, required rather than run.
  */

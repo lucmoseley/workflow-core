@@ -18,6 +18,13 @@ describe("a parked session's resume, by the block its marker names (#3949)", () 
 		expect(parkedPromptOf(cause)).toContain("continue your task");
 	});
 
+	it("names its own cause and not the other (#5164)", () => {
+		expect(parkedPromptOf("API_ERROR")).toContain("on an API error");
+		expect(parkedPromptOf("API_ERROR")).not.toContain("usage limit");
+		expect(parkedPromptOf("LIMIT")).toContain("usage limit");
+		expect(parkedPromptOf("LIMIT")).not.toContain("API error");
+	});
+
 	it("a permission park is told to repeat its call", () => {
 		expect(hasNothingToRepeat("PERMISSION")).toBe(false);
 		expect(parkedPromptOf("PERMISSION")).toContain(

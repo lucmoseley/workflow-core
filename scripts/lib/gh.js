@@ -183,7 +183,32 @@ async function ghAsync(args, opts = {}) {
  * @returns {any}
  */
 function ghJson(args, opts = {}, run = gh) {
-	return JSON.parse(run(args, opts));
+	return buildGhReaders(run).ghJson(args, opts);
+}
+
+/**
+ * The JSON readers over `run`, a core's gh port (§T7): `gh` above in
+ * production, gh-stub-server.js's `buildHandlerPort` in a module test (#5148).
+ * @param {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string} run
+ */
+function buildGhReaders(run) {
+	/** @type {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any} */
+	const json = (args, opts = {}) => JSON.parse(run(args, opts));
+	return {
+		ghJson: json,
+		/** @type {(apiArgs: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any[]} */
+		ghApiSlurp: (apiArgs, opts = {}) =>
+			json(["api", ...apiArgs, "--paginate", "--slurp"], opts).flat(),
+		/** @type {(what: string, args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any[]} */
+		ghIssueListAll: (what, args, opts = {}) =>
+			assertWholeTracker(
+				json(
+					["issue", "list", ...args, "--limit", String(ISSUE_LIST_LIMIT)],
+					opts,
+				),
+				what,
+			),
+	};
 }
 
 /**
@@ -204,7 +229,7 @@ const ghDefaultRepo = (opts = {}) =>
  * @returns {any[]}
  */
 function ghApiSlurp(apiArgs, opts = {}, run = gh) {
-	return ghJson(["api", ...apiArgs, "--paginate", "--slurp"], opts, run).flat();
+	return buildGhReaders(run).ghApiSlurp(apiArgs, opts);
 }
 
 /**
@@ -654,14 +679,7 @@ function ghIssuesUpdatedSince(repo, since, run = gh) {
  * @returns {any[]}
  */
 function ghIssueListAll(what, args, opts = {}, run = gh) {
-	return assertWholeTracker(
-		ghJson(
-			["issue", "list", ...args, "--limit", String(ISSUE_LIST_LIMIT)],
-			opts,
-			run,
-		),
-		what,
-	);
+	return buildGhReaders(run).ghIssueListAll(what, args, opts);
 }
 
 module.exports = {
@@ -693,6 +711,7 @@ module.exports = {
 	assertWholeTracker,
 	assertOpenRead,
 	ghIssueListAll,
+	buildGhReaders,
 	ghAllIssues,
 	ghOpenIssues,
 	ghOpenIssuesWithLabel,

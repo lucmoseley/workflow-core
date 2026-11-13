@@ -360,10 +360,11 @@ Why admission let memory run out. Start from \`journalctl -u earlyoom --since @$
  * The incident tickets on `repo`, open or closed, by title; throws where the
  * tracker cannot be read.
  * @param {string} repo
+ * @param {Parameters<typeof readTicketsByPrefix>[3]} [run] the gh port
  * @returns {Map<string, number>}
  */
-function readIncidentTickets(repo) {
-	return readTicketsByPrefix(repo, "memory kill tickets", TITLE_PREFIX);
+function readIncidentTickets(repo, run) {
+	return readTicketsByPrefix(repo, "memory kill tickets", TITLE_PREFIX, run);
 }
 
 module.exports = {

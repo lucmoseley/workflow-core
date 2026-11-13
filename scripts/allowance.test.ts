@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The thin CLI over lib/allowance.js — argv parsing, the stdin fallback and
- * the exit-code contract `dispatch-sessions.sh` reads. The reader's own
+ * the exit-code contract `dispatch-sessions.js` reads. The reader's own
  * arithmetic (staleness, kind matching, JSON-vs-text priority) is
  * lib/allowance.test.ts's. The contract is #293's and #294's; `--cap` is
  * #371's.
@@ -10,7 +10,7 @@
  * directory holding a fabricated usage cache, so the founder's live allowance
  * is never read and the bars are figures this suite chose.
  *
- * Loosen a case and dispatch-sessions.sh can size a launch off an
+ * Loosen a case and dispatch-sessions.js can size a launch off an
  * untrustworthy bar, starting sessions the allowance cannot carry.
  */
 import fs from "node:fs";

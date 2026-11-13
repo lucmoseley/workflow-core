@@ -4,7 +4,7 @@
 # so it silently inherited `~/.claude/settings.json`'s default model).
 #
 # Delegates the advisor attachment, the allowance ceiling and the duplicate
-# check to scripts/dispatch-sessions.sh rather than re-implementing them.
+# check to scripts/dispatch-sessions.js rather than re-implementing them.
 #
 # Usage:
 #   scripts/launch.sh [--dry-run] [--force] [--no-advisor] [--model <alias>] \
@@ -27,7 +27,7 @@
 # Known residual (mantahostels#1334): the founder still has to remember to run this
 # rather than launching from the agents view by hand.
 #
-# Exit codes: 2 usage error; otherwise whatever dispatch-sessions.sh returns,
+# Exit codes: 2 usage error; otherwise whatever dispatch-sessions.js returns,
 # propagated verbatim (0 launched/dry-run, 3 refused on allowance, 4 refused
 # as already dispatched).
 
@@ -44,7 +44,7 @@ usage() {
 }
 
 # Flags ahead of <command> are either consumed here (--model) or forwarded
-# verbatim to dispatch-sessions.sh, whose own flags must precede its
+# verbatim to dispatch-sessions.js, whose own flags must precede its
 # <model> <prompt> pair — this script's <command> [args...] plays that role.
 # `--into` goes with its worktree.
 flags=()
@@ -105,4 +105,4 @@ fi
 prompt="/$command"
 [[ -n "$args" ]] && prompt="$prompt $args"
 
-exec "$here/dispatch-sessions.sh" "${flags[@]}" "$model" "$prompt"
+exec "$here/dispatch-sessions.js" "${flags[@]}" "$model" "$prompt"

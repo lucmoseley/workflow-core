@@ -615,7 +615,7 @@ function claimedIssues(listed) {
 /** @typedef {import("./lib/dispatch-ledger").DispatchRecord} DispatchRecord */
 
 /**
- * The issues `scripts/dispatch-sessions.sh` has already launched or the refill
+ * The issues `scripts/dispatch-sessions.js` has already launched or the refill
  * loop resumed (#3704), read off the ledger both write (`.pick-next/dispatched.jsonl`) — the same file,
  * on the same window, that `check-duplicate-dispatch.js` drops a member on.
  *
@@ -641,7 +641,7 @@ function claimedIssues(listed) {
  * finished or not, because the launcher would still drop it. An entry whose
  * prompt has no readable `/<skill>` holds, and so does an issue carrying no
  * `takes:`.
- * `scripts/dispatch-sessions.sh --force` is the way past a stale entry, and the
+ * `scripts/dispatch-sessions.js --force` is the way past a stale entry, and the
  * block this feeds prints that.
  *
  * IT FAILS OPEN, like the gate it reads with: an unreadable ledger excludes
@@ -2069,10 +2069,10 @@ function renderDispatched(state) {
 		}
 		writeFd(
 			1,
-			"\n  scripts/dispatch-sessions.sh drops any set member running the same command on one of these\n" +
+			"\n  scripts/dispatch-sessions.js drops any set member running the same command on one of these\n" +
 				`  for ${DISPATCH_WINDOW_HOURS}h after launching it (mantahostels#1337, #752), alive or not, so a set built on one loses\n` +
 				"  that member and gains nothing back. A relabelled issue is not held. Past a stale entry:\n" +
-				`    ${scriptPath("dispatch-sessions.sh")} --force ...\n`,
+				`    ${scriptPath("dispatch-sessions.js")} --force ...\n`,
 		);
 	}
 	if (dispatched.why)

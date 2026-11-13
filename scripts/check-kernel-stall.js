@@ -50,7 +50,7 @@
  * a session or a launch is held up.
  *
  * A STALL OR A FREEZE IS FAIL, so a plain run exits 1 — the exit
- * `scripts/dispatch-sessions.sh` refuses a launch on (exit 5, beside the wedged
+ * `scripts/dispatch-sessions.js` refuses a launch on (exit 5, beside the wedged
  * bridge). Under --notify it exits 0 like every session-start reporter and
  * prints the warning.
  *

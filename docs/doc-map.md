@@ -146,7 +146,7 @@ npm run gen:doc-map-section-a
 | `.claude/skills/pick-next/references/measured-figures.md` | Measured figures — skill | `source-of-truth` | Direct — a re-measurement supersedes the paragraph it lands in, condition and all; never quote a figure without it | `scripts/pick-next.js` · `scripts/measure-bundle-cost.js` (mantahostels#1094's measurement — the two the figures are read off) |
 | `.claude/skills/pressure-test/SKILL.md` | Pressure test — skill | `source-of-truth` | Direct | `.agents/skills/writing-for-agents/SKILL.md` (the prose levers) · `CLAUDE.md` (§Subagent dispatch: the stall fallback) |
 | `.claude/skills/prototype` | Prototype — skill | `source-of-truth` | Vendored | `mantahostels:docs/inspiration/catalogue.json` (`UI.md` §2 reads the surface's group before drafting variants) |
-| `.claude/skills/rescue-sessions/SKILL.md` | Rescue sessions — skill | `source-of-truth` | Direct | `scripts/rescue-sessions.js` (the engine it drives — list, snapshot, stop, probe, takeover) · `scripts/dispatch-sessions.sh` (how the successor sessions are launched) |
+| `.claude/skills/rescue-sessions/SKILL.md` | Rescue sessions — skill | `source-of-truth` | Direct | `scripts/rescue-sessions.js` (the engine it drives — list, snapshot, stop, probe, takeover) · `scripts/dispatch-sessions.js` (how the successor sessions are launched) |
 | `.claude/skills/rescue-sessions/references/RESUMPTION.md` | RESUMPTION.md — skill | `source-of-truth` | Direct | — |
 | `.claude/skills/research` | Research — skill | `source-of-truth` | Vendored | — |
 | `.claude/skills/retire-to-roadmap/SKILL.md` | Retire to roadmap — skill | `source-of-truth` | Direct | `roadmap-edit/SKILL.md` (the loop it defers to) · `docs/called-cards.md` (which cards are open for work) |

@@ -20,16 +20,11 @@
  * Over the run-cost budget (base §X8 (5)): its cases are pre-existing and
  * unchanged by #4299's split, each a real dispatcher run (#2413).
  */
-import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import {
-	dispatchFixture,
-	ROUTING,
-	SCRIPT,
-} from "./lib/dispatch-sessions-testkit";
+import { dispatchFixture, ROUTING } from "./lib/dispatch-sessions-testkit";
 
 const fx = dispatchFixture();
-const { stubClaude, baseEnv, launchArgv, readArgvLines, run } = fx;
+const { stubClaude, launchArgv, readArgvLines, run } = fx;
 
 describe("the advisor flag", () => {
 	it("attaches an Opus advisor to a launch the routing runs as Haiku (mantahostels#1102, #4919)", () => {
@@ -74,13 +69,13 @@ describe("the advisor flag", () => {
 		expect(launch).not.toContain("--advisor");
 	});
 
-	it("takes the advisor model from WFC_DISPATCH_ADVISOR", () => {
+	it("takes the advisor model from WFC_DISPATCH_ADVISOR", async () => {
 		stubClaude({});
-		execFileSync("bash", [SCRIPT, "--dry-run", "haiku", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
-			env: baseEnv({ ...ROUTING, WFC_DISPATCH_ADVISOR: "fable" }),
+		const r = await fx.runCore(["--dry-run", "haiku", "/implement 341"], {
+			...ROUTING,
+			WFC_DISPATCH_ADVISOR: "fable",
 		});
+		expect(r.code).toBe(0);
 		const probe = readArgvLines().find((l) => l.includes("--debug-file"));
 		expect(probe).toContain("--advisor fable");
 	});

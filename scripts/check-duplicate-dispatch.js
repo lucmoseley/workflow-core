@@ -26,7 +26,7 @@
  * IT FAILS OPEN, DELIBERATELY, AND THE TWO HALVES FAIL DIFFERENTLY. An
  * unreadable ledger or an unreadable oracle WARNS and permits the launch. That
  * is the opposite of the allowance gate's fail-closed stance in
- * `dispatch-sessions.sh`: allowance failure strands half-finished sessions,
+ * `dispatch-sessions.js`: allowance failure strands half-finished sessions,
  * whereas a missed duplicate is visible and killable.
  *
  * THE LEDGER, ITS PATH AND ITS WINDOW LIVE IN `lib/dispatch-ledger.js`

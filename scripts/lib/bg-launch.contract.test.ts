@@ -2,15 +2,16 @@
 /*
  * Holds the readers of a fresh `claude --bg <flags> -- <prompt>` and of
  * `claude rm <id>` (#4343) — lib/seat-claude.js's verdict, which
- * guard-main-checkout-job.js acts on, and lib/bg-launch-id.sh's job id, which
- * start-session.sh attaches to and dispatch-sessions.sh records — to one case list, run against the installed
+ * guard-main-checkout-job.js acts on, and the job id lib/bg-launch-id.sh reads
+ * for start-session.sh to attach to and lib/bg-launch-id.js for
+ * dispatch-sessions.js to record — to one case list, run against the installed
  * harness's recorded answers (scripts/fixtures/bg-launch.json, re-recorded by
  * `node scripts/record-claude-responses.js`), against lib/bg-launch-fake.ts,
  * which those programs' and run-arm-test.js's suites' `claude` stubs print, and, on the
  * founder's machine, against the real `claude` where a call is free. Breaking
  * it costs the relaunch out of the main checkout: an answer the guard
  * misreads leaves two jobs on one prompt, or the original unremoved, an id
- * start-session.sh misreads attaches to no job, and one dispatch-sessions.sh
+ * start-session.sh misreads attaches to no job, and one dispatch-sessions.js
  * misreads records a launch pick-next.js cannot find alive.
  */
 import { spawnSync } from "node:child_process";
@@ -27,6 +28,7 @@ import {
 	recorded,
 	writeLaunchAnswer,
 } from "./bg-launch-fake";
+import { bgLaunchId } from "./bg-launch-id.js";
 import {
 	buildBgBranch,
 	claudeLiveSkipReason,
@@ -54,12 +56,17 @@ const runOn = (args: string[], lines: string[], bin?: string) =>
 		bin: bin ?? writeClaudeStub(path.join(dir, "claude"), lines, 9),
 	});
 
-/** The job id start-session.sh reads off a launch's stdout. */
-const readLaunchId = (stdout: string) =>
-	spawnSync("bash", ["-c", `source ${shellQuote(ID_READER)}; bg_launch_id`], {
-		input: `${stdout}\n`,
-		encoding: "utf8",
-	}).stdout.trim();
+/** The job id start-session.sh reads off a launch's stdout, held equal to
+ * the one the dispatcher's lib/bg-launch-id.js reads. */
+const readLaunchId = (stdout: string) => {
+	const id = spawnSync(
+		"bash",
+		["-c", `source ${shellQuote(ID_READER)}; bg_launch_id`],
+		{ input: `${stdout}\n`, encoding: "utf8" },
+	).stdout.trim();
+	expect(bgLaunchId(stdout)).toBe(id);
+	return id;
+};
 
 /* Each kind's marking flag and, where its program fixes it, the flag's
  * place; `positional` carries none. */

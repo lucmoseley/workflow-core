@@ -18,8 +18,8 @@
  *   - scripts/fixtures/bg-launch.json: the answers of a fresh `claude --bg
  *     <flags> -- <prompt>` launch, which guard-main-checkout-job.js reads, of a
  *     promptless named one, which start-session.sh reads, of one whose prompt
- *     follows its flags, as dispatch-sessions.sh and run-arm-test.js launch,
- *     and of a named one of those, dispatch-sessions.sh's overflow launch,
+ *     follows its flags, as dispatch-sessions.js and run-arm-test.js launch,
+ *     and of a named one of those, dispatch-sessions.js's overflow launch,
  *     and `claude rm`'s answers to a live job and to an id no daemon
  *     holds, which guard-main-checkout-job.js reads (#4343);
  *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a

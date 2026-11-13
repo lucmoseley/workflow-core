@@ -31,31 +31,41 @@ const { trimEndRun } = require("./trim-run.js");
 const { shellQuote } = require("./sh-quote.js");
 const { relativeUnder } = require("./is-under.js");
 
-/** @returns {string} absolute path of the core root the running code sits in */
-function coreRoot() {
-	return process.env.WFC_SCRIPT_ROOT || path.resolve(__dirname, "..", "..");
+/**
+ * @param {NodeJS.ProcessEnv} [env] the environment the message is built under
+ * @returns {string} absolute path of the core root the running code sits in
+ */
+function coreRoot(env = process.env) {
+	return env.WFC_SCRIPT_ROOT || path.resolve(__dirname, "..", "..");
 }
 
-/** @returns {boolean} the core runs from a source checkout rather than an install */
-function inCheckout() {
-	return fs.existsSync(path.join(coreRoot(), "package.json"));
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean} the core runs from a source checkout rather than an install
+ */
+function inCheckout(env = process.env) {
+	return fs.existsSync(path.join(coreRoot(env), "package.json"));
 }
 
 /**
  * @param {string} name a path under scripts/, e.g. `session-arbiter.js`
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string} how a session should spell it on a command line
  */
-function scriptPath(name) {
-	return inCheckout() ? `scripts/${name}` : absoluteScriptPath(name);
+function scriptPath(name, env = process.env) {
+	return inCheckout(env) ? `scripts/${name}` : absoluteScriptPath(name, env);
 }
 
 /**
  * A doc the release does not ship spells an install path that does not exist.
  * @param {string} name a path under docs/, e.g. `agents/issue-tracker.md`
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string} how a session should spell it to read it
  */
-function docPath(name) {
-	return inCheckout() ? `docs/${name}` : absoluteCorePath(`docs/${name}`);
+function docPath(name, env = process.env) {
+	return inCheckout(env)
+		? `docs/${name}`
+		: absoluteCorePath(`docs/${name}`, env);
 }
 
 /**
@@ -75,19 +85,21 @@ function corePath(rel) {
 
 /**
  * @param {string} rel a path from the core root
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string} its absolute spelling, checkout or install
  */
-function absoluteCorePath(rel) {
+function absoluteCorePath(rel, env = process.env) {
 	/* Concatenated, never path.join: the bash twin cannot normalise `..`. */
-	return shellQuote(`${coreRoot()}/${rel}`);
+	return shellQuote(`${coreRoot(env)}/${rel}`);
 }
 
 /**
  * @param {string} name a path under scripts/
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string} the script's absolute spelling, checkout or install
  */
-function absoluteScriptPath(name) {
-	return absoluteCorePath(`scripts/${name}`);
+function absoluteScriptPath(name, env = process.env) {
+	return absoluteCorePath(`scripts/${name}`, env);
 }
 
 /**

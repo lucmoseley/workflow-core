@@ -112,7 +112,7 @@ const CHILDREN_LABEL = takesLabel("children");
 /*
  * A `**Gated on:**` whose condition is the founder typing a slash command
  * (#411). The premise is false — `disable-model-invocation` bars the Skill
- * tool only, and scripts/dispatch-sessions.sh types the prompt — yet
+ * tool only, and scripts/dispatch-sessions.js types the prompt — yet
  * pick-next.js holds a gated issue out of the frontier and no judge can read
  * that condition met, so the one sentence silently stops dispatch. No part of the
  * match may cross a sentence. Read on a well-formed condition only: a
