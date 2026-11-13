@@ -518,36 +518,37 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		expect(r.code).toBe(0);
 	});
 
+	/* In a repo, git's listing never names a socket, so only a tree git cannot
+	 * list sends one through walk() and the emitter walk. The signal still
+	 * fires on those paths: "scans an untracked file that is not ignored" in a
+	 * repo, "skips the filter on a --root tree outside any repo" for walk(), and
+	 * check-guard-registry-rule-text.test.ts's "passes when the fragment, the
+	 * wired emitter and the trigger all agree" for the emitter walk. */
+	const inRepo = (ignore: string) => () => gitRepo({ claude, ignore, files });
+	const outsideRepo = () => build({ claude, files });
 	it.each([
-		["gitignored", ".claude/tmp/\n", ".claude/tmp/s/systemd/private"],
-		["gitignored, named like a document", ".claude/tmp/\n", ".claude/tmp/s.md"],
-		["not gitignored, named like an emitter", "", ".claude/tmp/s.sh"],
-		["standing as a scan root", "", "AGENTS.md"],
+		["gitignored", inRepo(".claude/tmp/\n"), ".claude/tmp/s/systemd/private"],
+		[
+			"gitignored, named like a document",
+			inRepo(".claude/tmp/\n"),
+			".claude/tmp/s.md",
+		],
+		["not gitignored, named like an emitter", inRepo(""), ".claude/tmp/s.sh"],
+		["standing as a scan root", inRepo(""), "AGENTS.md"],
+		["outside a repo, nested", outsideRepo, ".claude/tmp/s/systemd/private"],
+		["outside a repo, named like an emitter", outsideRepo, ".claude/tmp/s.sh"],
+		["outside a repo, standing as a scan root", outsideRepo, "AGENTS.md"],
 	])(
 		"leaves the verdict clean over a socket: %s (#3974)",
-		(_name, ignore, rel) => {
-			const root = gitRepo({ claude, ignore, files });
+		(name, makeRoot, rel) => {
+			const root = makeRoot();
 			plantSocket(path.join(root, rel));
 			const r = run(root);
 			expect(r.code).toBe(0);
 			expect(r.kinds).toEqual([]);
-		},
-	);
-
-	/* In a repo, git's listing never names a socket, so only a tree git cannot
-	 * list sends one through walk() and the emitter walk. */
-	it.each([
-		["nested", ".claude/tmp/s/systemd/private"],
-		["named like an emitter", ".claude/tmp/s.sh"],
-		["standing as a scan root", "AGENTS.md"],
-	])(
-		"leaves the verdict clean over a socket outside a repo: %s (#3974)",
-		(_name, rel) => {
-			const root = build({ claude, files });
-			plantSocket(path.join(root, rel));
-			const r = run(root);
-			expect(r.code).toBe(0);
-			expect(r.kinds).toEqual([]);
+			// The outside rows pin the walks only while git cannot list the root.
+			if (name.startsWith("outside"))
+				expect(r.report).not.toContain("listed by git");
 		},
 	);
 
