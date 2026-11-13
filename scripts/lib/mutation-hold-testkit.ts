@@ -160,8 +160,9 @@ const TOOLS = [
 	"@stryker-mutator/vitest-runner",
 	"vitest",
 ];
-/** The Stryker version the hold verifies against. */
+/** The Stryker version the hold verifies against, and its install line. */
 export const STRYKER_AT = "10.1.1";
+export const INSTALL = `npm install --save-dev @stryker-mutator/core@${STRYKER_AT} @stryker-mutator/vitest-runner@${STRYKER_AT}`;
 /**
  * Install each named package, empty, in `root`'s node_modules, a Stryker one at
  * `version`; with Stryker's core, its instrumenter beside it, whose Babel core
@@ -347,9 +348,6 @@ export const expectRuleAppended = (r: ReturnType<typeof commit>) => {
 		`${RULE.trim()}\n\npre-commit: the mutation hold refused this commit (rule:mutation-hold). Nothing was committed.`,
 	);
 };
-
-export const INSTALL =
-	"npm install --save-dev @stryker-mutator/core@10.1.1 @stryker-mutator/vitest-runner@10.1.1";
 
 export const changeLine2 = () =>
 	write(MONEY, SEED.replace("amount > 100", "amount >= 100"));

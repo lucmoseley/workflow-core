@@ -219,7 +219,11 @@ describe("mutation-hold-gate.js — a missing tool (#1911)", () => {
 	});
 
 	it("runs a Stryker later than the verified one", () => {
-		install(["@stryker-mutator/vitest-runner"], repo, "11.0.0");
+		install(
+			["@stryker-mutator/core", "@stryker-mutator/vitest-runner"],
+			repo,
+			"11.0.0",
+		);
 		changeLine2();
 		report([]);
 		expectLanded(commit([MONEY]));
@@ -278,8 +282,6 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 			concurrency: 2,
 			incremental: true,
 			thresholds: { high: 0, low: 0, break: null },
-			vitest: { pool: "forks" },
-			disableTypeChecks: false,
 		});
 		const config = run.config as {
 			incrementalFile: string;
@@ -337,6 +339,16 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 			expect(git("status", "--porcelain")).toBe("");
 		},
 	);
+
+	it("runs vitest's forks pool with no type-check rewrite by default, as a test calling process.chdir() or running an executable needs (#5180)", () => {
+		changeLine2();
+		report([]);
+		expectLanded(commit([MONEY]));
+		expect(readRuns()[0].config).toMatchObject({
+			vitest: { pool: "forks" },
+			disableTypeChecks: false,
+		});
+	});
 
 	it("keeps the pool and type-check rewrite a host config names (#5180)", () => {
 		write(
@@ -1072,9 +1084,7 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 		});
 		const r = seed();
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
-			"npm install --save-dev @stryker-mutator/core@10.1.1",
-		);
+		expect(r.stderr).toContain(INSTALL);
 		expect(r.stderr).toContain("nothing was seeded");
 		expect(readRuns()).toEqual([]);
 	});
@@ -1113,12 +1123,14 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 	it("prints a fault of no gate's own as 'failed', so nothing was seeded (#2250)", () => {
 		// A spy, as no fixture or stub reaches a plain error inside seed's run:
 		// every fault its own reads raise is a HoldFaultError.
-		const tool = path.join("@stryker-mutator", "core");
-		const real = fs.existsSync;
-		const spy = vi.spyOn(fs, "existsSync").mockImplementation((p) => {
-			if (String(p).includes(tool)) throw new TypeError("planted");
-			return real(p);
-		});
+		const real = fs.writeFileSync;
+		const spy = vi
+			.spyOn(fs, "writeFileSync")
+			.mockImplementation((p, ...rest) => {
+				if (String(p).endsWith("stryker.wfc-hold.mjs"))
+					throw new TypeError("planted");
+				return real(p, ...rest);
+			});
 		try {
 			const r = seed();
 			expect(r.status).toBe(1);

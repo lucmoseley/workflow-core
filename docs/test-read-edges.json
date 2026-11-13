@@ -3522,6 +3522,9 @@
 		"migrations/v2.3.0.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
+		"migrations/v2.3.1.md": [
+			"scripts/lib/migration-note.test.ts"
+		],
 		"package-lock.json": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
