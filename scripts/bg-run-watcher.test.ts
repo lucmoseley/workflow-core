@@ -814,10 +814,6 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("holds the grace at 60 s when the environment asks for more", async () => {
-		/* The watcher's clock is pinned 61 s past the deadline rather than the
-		 * deadline written 61 s back: a freshly booted CI runner's monotonic
-		 * clock can read under 61, and a negative deadline is never read
-		 * (#5138). */
 		const graceCapS = 60; // bg-run.sh's CEILING_GRACE_S
 		const child = spawn(SCRIPT, wedged("stretched", 0), {
 			env: env({
