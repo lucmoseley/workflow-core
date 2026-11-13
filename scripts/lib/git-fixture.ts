@@ -1,5 +1,5 @@
 /*
- * git-fixture.ts — a git-repository template built once per worker process
+ * git-fixture.ts — a git-repository template built once per test file
  * and handed out as relinked, leak-checked copies (mantahostels#2068, spec mantahostels#2048).
  *
  * FOR TESTS ONLY. Nothing under scripts/ that runs in a hook, a gate or CI
@@ -652,7 +652,7 @@ export function cutWorktree(root: string, name = "s1"): string {
  * on its own first use — for a file whose tests need several pre-built
  * states rather than one (mantahostels#2048 finding 2).
  *
- * Call this at describe scope, not inside a `beforeEach`/`it` body: it
+ * Call this at module or describe scope, never inside a hook or `it` body: it
  * registers an `afterAll` for template teardown, and vitest only honours a
  * hook registered while a suite is being collected (mantahostels#2068 review).
  */
