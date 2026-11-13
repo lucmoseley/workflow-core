@@ -7,7 +7,8 @@
  *
  * THE TRACER IS A DETACHED GRANDCHILD (`-DD`), in a process group of its own:
  * the program stays the direct child the test spawned, under the pid, exit
- * status and signals it would have had, on one CPU (#5132).
+ * status and signals it would have had; its CPU affinity narrows to one
+ * (#5132).
  *
  * EVERY PATH A FILE CALL NAMES IS A READ, a write's target included: as the
  * call spelt it, with its links followed, and as the descriptor the call
@@ -51,13 +52,11 @@ const FLAGS = [
  * one is missing the trial in `findStrace` fails, and nothing is traced. */
 const SH = "/bin/sh";
 
-/* THE TRACER AND ITS TRACEE SHARE ONE CPU (#5132). Every stop is a wake-up
- * of the other side, and on this WSL2 VM one that crosses CPUs costs ~0.25
- * ms: a `wfc-config.sh` call, ~870 stops, took 270 ms traced unpinned, 71
- * ms pinned, 34 ms untraced. The CPU is the one the spawning process last
- * ran on. So a traced child and all it starts share one CPU: `nproc` and
+/* THE TRACER AND ITS TRACEE SHARE ONE CPU (#5132): every stop wakes the
+ * other side, which costs most across CPUs. The CPU is the one the spawning
+ * process last ran on. So a traced child and all it starts share one CPU: `nproc` and
  * `os.availableParallelism()` read 1 there, and work it fans out runs in
- * turn. Where `taskset` will not run, the trace runs unpinned. */
+ * turn. */
 const TASKSET = "/usr/bin/taskset";
 
 /** @type {boolean|undefined} */

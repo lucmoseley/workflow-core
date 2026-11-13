@@ -133,8 +133,6 @@ function install() {
 		}
 	};
 	/**
-	 * `p` as an absolute path, where it is one an `fs` call takes: a string,
-	 * a buffer or a `file:` URL; else null.
 	 * @param {unknown} p
 	 * @returns {string|null}
 	 */
@@ -218,9 +216,7 @@ function install() {
 	 * lands only where it is that path or beneath it, as spelt or with its
 	 * links followed, or where its own lookup followed a link, whose hops
 	 * the lookup does not keep (#5050); a child's go unseen. Every other
-	 * lookup stands (#5132): a test removing its own fixture would otherwise
-	 * look every `PATH` entry up again at its next spawn, ~90 ms where some
-	 * are on a Windows drive. The paths are the call's first two words,
+	 * lookup stands (#5132). The paths are the call's first two words,
 	 * which over-counts a link's target and a copy's source. */
 	const unsettle = (/** @type {Untyped[]} */ args) => {
 		const changed = args.slice(0, 2).flatMap((arg) => {
