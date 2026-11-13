@@ -120,7 +120,7 @@ if (a[0] === "api") {
 		const issue = find(Number(is[2]));
 		const kids = s.issues.filter((x) => x.parent === issue.number).map(rest);
 		const linkRead = answerLinkRead(a, { state: buildJqLines(rest(issue).state), id: buildJqLines(1000 + issue.number), children: buildJqLines(...kids.map((k) => k.number)) });
-		if (linkRead) { out(linkRead.stdout); err(linkRead.stderr); exit(linkRead.status); }
+		if (linkRead) serveHandlerAnswer(linkRead);
 		if (!is[3]) print(rest(issue));
 		if (flag("--method") === "POST") {
 			const child = find(Number(flag("-F").split("=")[1]) - 1000);
