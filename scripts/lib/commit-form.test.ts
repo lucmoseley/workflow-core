@@ -54,7 +54,7 @@ import {
 	scratchBase,
 	trioTemplate,
 } from "./git-fixture";
-import { armingPattern } from "./precommit-gate-harness";
+import { GATES } from "./precommit-gates.js";
 import { buildBashPayload } from "./pretool-guard-testkit";
 
 type Decision =
@@ -2738,12 +2738,14 @@ describe("the warns a pathspec commit is owed (mantahostels#3280)", () => {
 });
 
 describe("the doc-map rule's scope", () => {
-	it("is the pattern .husky/pre-commit arms check-doc-map.js on", () => {
+	it("is the pattern the doc-map pre-commit row arms on", () => {
 		const own = /const DOC_MAP_SCOPE =\s*\/(.+)\/;/.exec(
 			fs.readFileSync(path.resolve(__dirname, "commit-form.js"), "utf8"),
 		);
+		const row = GATES.find((g) => g.id === "doc-map");
+		expect(row && "pattern" in row.arm).toBe(true);
 		expect(own?.[1]).toBe(
-			new RegExp(armingPattern("scripts/check-doc-map.js")).source,
+			row && "pattern" in row.arm ? row.arm.pattern.source : "",
 		);
 	});
 });
