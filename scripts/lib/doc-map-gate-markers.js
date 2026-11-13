@@ -1,12 +1,10 @@
 /*
  * doc-map-gate-markers.js — the lines of check-doc-map.js's report that open
- * each block the pre-commit doc-map gate replays (#5155). Its caller is
- * lib/doc-map-gate-report.js; doc-map-gate-report.test.ts pins every marker on
- * wording the checker still emits.
+ * each block the pre-commit doc-map gate replays (#5155).
  *
  * THE MARKERS MATCH check-doc-map.js's OWN WORDING. Each untracked block has
  * its own marker: one matching both would slice whichever came first and judge
- * a route's `C36 → path` item against Section A's wording.
+ * a route's item against Section A's wording.
  */
 
 /** The WARN blocks replayed alone, in replay order: assertions 22, 23, 24. */

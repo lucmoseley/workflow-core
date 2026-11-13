@@ -2,8 +2,7 @@
 /*
  * precommit-doc-map-gate.js — the doc map's own coverage, checked at commit as
  * well as in roadmap-digest.yml (mantahostels#390). The shell of lib/doc-map-gate.js,
- * whose header holds the gate's rules; .husky/pre-commit calls it when the
- * commit touches the map's scope.
+ * whose header holds the gate's rules.
  *
  * Usage: node precommit-doc-map-gate.js   (no arguments; run by the hook, its
  * cwd the repo's top)
@@ -11,8 +10,7 @@
  * It runs the checker at "${WFC_PLUGIN_ROOT:-.}"/scripts/, as the hook spells
  * every core script, so an adopter's shim reaches the plugin's copy (#1839).
  *
- * Not a `check-*` (base §N3): it runs check-doc-map.js and judges that run's
- * direction against HEAD, so its exit is a commit's verdict, not runCheck's
+ * Not a `check-*` (base §N3): it runs check-doc-map.js, so its exit is a commit's verdict, not runCheck's
  * outcome alphabet. Its `precommit-` prefix names the hook that runs it.
  *
  * IMPLICIT:  on a commit touching the doc map's scope, refuses one adding a doc-map fault HEAD does not carry, deleting the map, or adding a register row or Section C route for a file the commit does not carry.
@@ -42,8 +40,7 @@ function cleanup() {
 }
 
 /*
- * A hook signal makes 128 + n the exit, as sh's trap did, and the `finally`
- * removes the scratch either way. One sent to the gate alone waits for the
+ * A hook signal makes 128 + n the exit. One sent to the gate alone waits for the
  * synchronous run and then sets the code; one sent to the process group ends
  * the child, which the ports throw as Interrupted.
  */

@@ -11,8 +11,7 @@
  * worktree's index, so there every staged doc counts.
  *
  * THE WHOLE INDEX IS EXTRACTED AND THE CHECKER POINTED AT IT WITH --root
- * (mantahostels#1922), so the whole reading sits on one tree and no list of the map's data
- * files has to be kept in step with DATA_FILES (mantahostels#1595). Partial staging is no
+ * (mantahostels#1922), so the whole reading sits on one tree. Partial staging is no
  * gap: the index carries every tracked file, so the extraction holds HEAD's
  * blob for one this commit does not stage (mantahostels#1202). What --root deliberately
  * does NOT move is the two untracked-file softeners, which only ever turn a
@@ -83,8 +82,6 @@ const LABEL = "doc-map";
  */
 
 /**
- * The verdict where the index will not give up the map: a staged deletion of
- * it refuses unless escaped, and anything else warns and passes.
  * @param {DocMapGatePorts} ports
  * @param {string} dir
  * @param {{ allowDelete: boolean }} env

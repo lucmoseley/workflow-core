@@ -29,14 +29,12 @@ export interface GateScene {
 	headMap?: string;
 }
 
-/** One checker call: its arguments, and the index it ran under. */
 export interface CheckCall {
 	args: string[];
 	json: boolean;
 	indexFile: string | undefined;
 }
 
-/** The fake ports over `scene`, and the checker calls they received. */
 export function fakeGatePorts(scene: GateScene): {
 	ports: DocMapGatePorts;
 	calls: CheckCall[];

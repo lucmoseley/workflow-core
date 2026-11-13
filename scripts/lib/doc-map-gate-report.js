@@ -62,8 +62,7 @@ const itemsOf = (block) =>
  * only its path is asked of HEAD: the id is this commit's own invention as
  * often as not, so matching the whole item would read every route as new.
  * Inherited means the path appears anywhere in HEAD's map, so anything
- * ambiguous reads as inherited and warns rather than blocking a commit that did
- * not create it. An empty map (none in HEAD, or unreadable) names nothing new.
+ * ambiguous reads as inherited. An empty map (none in HEAD, or unreadable) names nothing new.
  * @param {string[]} items
  * @param {string} headMap
  */
@@ -107,8 +106,7 @@ function untrackedVerdict(report, block, headMap) {
 }
 
 /**
- * Everything the gate prints from a held report it let through: the three WARN
- * blocks, then the two untracked blocks, stopping at the first refusal.
+ * The WARN blocks, then the untracked blocks, stopping at the first refusal.
  * @param {string} report the checker's combined output, trailing newlines cut
  * @param {string} headMap HEAD's docs/doc-map.md, or "" where unreadable
  * @returns {{ text: string, exit: number }}
@@ -129,7 +127,7 @@ function greenReport(report, headMap) {
 
 /**
  * Whether `report` holds an untracked block, the one thing HEAD's map is read
- * to judge: a report without one costs no HEAD read.
+ * to judge.
  * @param {string} report
  */
 const hasUntrackedBlock = (report) =>

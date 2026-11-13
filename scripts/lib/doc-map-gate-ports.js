@@ -39,7 +39,7 @@ const shellStatus = (run, otherwise) =>
 	run.status ??
 	(run.signal ? 128 + os.constants.signals[run.signal] : otherwise);
 
-/** The signals sh's trap caught: one that ends a child ends the gate. */
+/** The signals sh's trap caught. */
 const HOOK_SIGNALS = new Set(["SIGHUP", "SIGINT", "SIGTERM"]);
 
 /**
@@ -68,7 +68,6 @@ function uninterrupted(run) {
 }
 
 /**
- * The ports, running scripts out of `scripts`.
  * @param {string} scripts
  * @param {string[]} made accumulator: each scratch directory made, for the
  *   caller to remove

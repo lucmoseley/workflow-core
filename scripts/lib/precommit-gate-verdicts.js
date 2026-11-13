@@ -117,9 +117,9 @@ const diagnostics = (noun, stderr) =>
  *
  * A COMPLETE LIST is the comparison's half of the contract, unenforced here
  * (mantahostels#2314): a crash mid-list cannot be told from a list printed beside
- * stderr, so a 1 with anything on stdout is read as an answer. lib/fault-diff.js
- * composes the whole list before it writes and routes a throw once running to
- * exit 2; a comparison that streams its list must do the same.
+ * stderr. lib/fault-diff.js composes the whole list before it writes and
+ * routes a throw once running to exit 2; a comparison that streams its list
+ * must do the same.
  * @param {string} noun
  * @param {string} ticket
  * @param {{ status: number, stdout: string, stderr: string }} run
