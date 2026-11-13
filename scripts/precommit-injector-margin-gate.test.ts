@@ -27,17 +27,20 @@ import {
 import { coreCall, HOOK, LIB } from "./lib/precommit-gate-testkit";
 
 const CHECKER = "scripts/check-injector-margin.js";
-const INJECTOR = "scripts/lib/tracker-inject-text.js";
-const { REVIEW_RULES: RULE_IDS } =
+const { TRACKER_TEXT } =
+	require("./lib/load-text-module.js") as typeof import("./lib/load-text-module.js");
+const { MARGIN_INPUTS } =
 	require("./lib/injector-margin.js") as typeof import("./lib/injector-margin.js");
-const REVIEW_RULES = RULE_IDS.map((id) => `docs/agents/rules/${id}.txt`);
+const REVIEW_RULES = MARGIN_INPUTS.filter((rel) =>
+	rel.startsWith("docs/agents/rules/"),
+);
 const BUDGET = "scripts/check-context-budget.js";
 
 const gateFragment = () => cutGateFragment(CHECKER);
 
 const temps = registerTempCleanup();
 
-const STUB_MARKER = "STUB-INJECTOR-MARGIN-RAN";
+const STUB_MARKER = "STUB-TRACKER_TEXT-MARGIN-RAN";
 
 /**
  * A git repo with one commit, plus a stubbed checker whose exit code is ours to
@@ -105,12 +108,10 @@ describe("the pre-commit injector-margin gate", () => {
 	it("arms on exactly the files the checker measures", () => {
 		// Each path, two spellings. Renaming one in the checker alone would leave
 		// a gate that silently never fires on it.
-		const { MARGIN_INPUTS } =
-			require("./lib/injector-margin.js") as typeof import("./lib/injector-margin.js");
-		for (const rel of [INJECTOR, ...REVIEW_RULES])
-			expect(MARGIN_INPUTS).toContain(rel);
+		expect(MARGIN_INPUTS).toContain(TRACKER_TEXT);
+		expect(REVIEW_RULES).toHaveLength(3);
 		const pattern = new RegExp(armingPattern(CHECKER));
-		for (const rel of [INJECTOR, ...REVIEW_RULES])
+		for (const rel of [TRACKER_TEXT, ...REVIEW_RULES])
 			expect(pattern.test(rel), rel).toBe(true);
 	});
 
@@ -126,7 +127,10 @@ describe("the pre-commit injector-margin gate", () => {
 	});
 
 	it("runs the checker for a commit staging the injector", () => {
-		const { root } = fixture({ staged: { [INJECTOR]: "x\n" }, checkerExit: 0 });
+		const { root } = fixture({
+			staged: { [TRACKER_TEXT]: "x\n" },
+			checkerExit: 0,
+		});
 
 		const { code, output } = runGate(root);
 		expect(code).toBe(0);
@@ -134,7 +138,10 @@ describe("the pre-commit injector-margin gate", () => {
 	});
 
 	it("fails the commit when a payload is over the threshold", () => {
-		const { root } = fixture({ staged: { [INJECTOR]: "x\n" }, checkerExit: 1 });
+		const { root } = fixture({
+			staged: { [TRACKER_TEXT]: "x\n" },
+			checkerExit: 1,
+		});
 
 		const { code, output } = runGate(root);
 		expect(code).not.toBe(0);
@@ -145,7 +152,10 @@ describe("the pre-commit injector-margin gate", () => {
 	// a module that will not evaluate — and must block the commit just as an
 	// over-threshold payload does, rather than passing vacuously.
 	it("fails the commit when the checker reports BROKEN", () => {
-		const { root } = fixture({ staged: { [INJECTOR]: "x\n" }, checkerExit: 2 });
+		const { root } = fixture({
+			staged: { [TRACKER_TEXT]: "x\n" },
+			checkerExit: 2,
+		});
 
 		const { code, output } = runGate(root);
 		expect(code).not.toBe(0);
@@ -173,8 +183,8 @@ describe("the pre-commit injector-margin gate", () => {
 	it("does not fire on a path that only resembles the text module", () => {
 		const { root } = fixture({
 			staged: {
-				[`vendor/${INJECTOR}`]: "x\n",
-				[`${INJECTOR}.bak`]: "x\n",
+				[`vendor/${TRACKER_TEXT}`]: "x\n",
+				[`${TRACKER_TEXT}.bak`]: "x\n",
 			},
 			checkerExit: 1,
 		});
@@ -198,7 +208,10 @@ describe("mutations of the gate are caught by the cases above", () => {
 	};
 
 	it('stops failing the commit when `|| exit "$?"` is dropped', () => {
-		const { root } = fixture({ staged: { [INJECTOR]: "x\n" }, checkerExit: 1 });
+		const { root } = fixture({
+			staged: { [TRACKER_TEXT]: "x\n" },
+			checkerExit: 1,
+		});
 
 		expect(runGate(root, mutate(' || exit "$?"', "")).code).toBe(0);
 	});
@@ -217,7 +230,7 @@ describe("mutations of the gate are caught by the cases above", () => {
 
 	it("fires on a look-alike path when the pattern loses its leading anchor", () => {
 		const { root } = fixture({
-			staged: { [`vendor/${INJECTOR}`]: "x\n" },
+			staged: { [`vendor/${TRACKER_TEXT}`]: "x\n" },
 			checkerExit: 1,
 		});
 
@@ -230,7 +243,10 @@ describe("mutations of the gate are caught by the cases above", () => {
 	});
 
 	it("stops firing at all when the grep names another file", () => {
-		const { root } = fixture({ staged: { [INJECTOR]: "x\n" }, checkerExit: 1 });
+		const { root } = fixture({
+			staged: { [TRACKER_TEXT]: "x\n" },
+			checkerExit: 1,
+		});
 
 		expect(
 			runGate(

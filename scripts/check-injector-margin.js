@@ -10,7 +10,9 @@
  * `--index` is the .husky/pre-commit path: it measures the commit's bytes, the
  * text module, lib/hook-limits.js, the rule fragments and the host values
  * read beside them, never a neighbour's half-saved working copy
- * (mantahostels#250). A bare run measures the working tree.
+ * (mantahostels#250). A bare run measures the working tree. Either way the
+ * fragments are the measured root's alone; one it lacks is measured as the
+ * text module's fallback, and named.
  *
  * WHY THIS EXISTS SEPARATELY FROM check-context-budget.js. That checker's
  * injection cap is a union of every payload part the text module holds,
@@ -35,6 +37,7 @@
 
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
+const { RULES_DIR } = require("./lib/rule-text.js");
 const {
 	MARGIN_INPUTS,
 	TIGHT_HEADROOM_CHARS,
@@ -59,7 +62,11 @@ runCheck({
 	},
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
-		const { limit, sizes } = readMargins(root);
+		/* The root's own fragments and no other layer, so --index never reads a
+		 * fragment off the working tree, as check-guard-registry.js pins its store. */
+		process.env.WFC_RULES_DIR = path.join(root, RULES_DIR);
+		process.env.WFC_RULES_FALLBACK_DIR = "";
+		const { limit, sizes, fallbacks } = readMargins(root);
 		ctx.say(
 			`Payload per command, against the harness ${limit}-character persistence threshold:`,
 		);
@@ -81,10 +88,15 @@ runCheck({
 				`  /${cmd.padEnd(12)} ${String(n).padStart(5)} chars, ${String(left).padStart(5)} left${note}`,
 			);
 		}
-		if (ctx.findings.length > 0) ctx.say(`\n${REMEDY}`);
+		for (const id of fallbacks) {
+			const message = `/code-review measured with the text module's fallback for unreadable fragment ${id}.`;
+			ctx.say(message);
+			ctx.warn("FRAGMENT-FALLBACK", message, { id }, id);
+		}
+		if (ctx.findings.some((f) => f.severity === "FAIL")) ctx.say(`\n${REMEDY}`);
 		return {
 			okLine: `${sizes.length} command payload(s), each under the ${limit}-character threshold.`,
-			noun: "payload(s) at or over the persistence threshold",
+			noun: "payload(s) at or over the threshold or measured on a fallback",
 			count: ctx.findings.length,
 			data: { limit, sizes: Object.fromEntries(sizes) },
 		};

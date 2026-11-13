@@ -794,6 +794,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-host-root-test-isolation.test.ts",
+			"scripts/check-injector-margin.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
@@ -2243,6 +2244,7 @@
 		"docs/agents/rules/review-dispatch-shape.txt": [
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-context-budget.test.ts",
+			"scripts/check-injector-margin.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",

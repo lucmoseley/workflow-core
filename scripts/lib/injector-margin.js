@@ -24,10 +24,11 @@
  * threshold; the hook then puts the tier first, inside the preview.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const { brokenError, skipError } = require("./outcome-error.js");
+const { errMessage } = require("./check.js");
+const { readText } = require("./file-read.js");
 const { limitIn } = require("./hook-limits.js");
 const { TRACKER_TEXT, loadTextModule } = require("./load-text-module.js");
 const {
@@ -35,7 +36,7 @@ const {
 	CONFIG_PATH,
 } = require("./workflow-core-config.js");
 const rs = require("./review-standards.js");
-const { reviewAgentType } = require("./review-agent-type.js");
+const { OWN_AGENT_REL, reviewAgentType } = require("./review-agent-type.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { fragmentLookup, RULES_DIR } = require("./rule-text.js");
 const { PROBE_SESSION_ID } = require("./rendered-injection.js");
@@ -47,7 +48,7 @@ const TIGHT_HEADROOM_CHARS = 1000;
 
 const PROBE_ISSUE = "1";
 
-/* The fragments /code-review's rules read; a commit staging one arms the gate. */
+/* The fragments /code-review's rules read. */
 const REVIEW_RULES = [
 	"review-dispatch-shape",
 	"review-deviations-read",
@@ -60,18 +61,19 @@ const MARGIN_INPUTS = [
 	CAP_SOURCE,
 	...REVIEW_RULES.map((id) => path.posix.join(RULES_DIR, `${id}.txt`)),
 	CONFIG_PATH,
-	"docs/code-standards-base.md",
-	"docs/code-standards.md",
-	"GLOSSARY.md",
-	".claude/agents/code-reviewer.md",
+	rs.BASE_REL,
+	rs.LOCAL_REL,
+	rs.GLOSSARY_REL,
+	OWN_AGENT_REL,
 ];
 
 /**
- * Each command and its payload's length.
+ * Each command and its payload's length, and the fragments whose fallback
+ * stood in.
  * @param {typeof import("./tracker-inject-text.js")} t the evaluated text module
  * @param {number} ruleCap
  * @param {string} root the host whose own values are read
- * @returns {[string, number][]}
+ * @returns {{ sizes: [string, number][], fallbacks: string[] }}
  */
 function measure(t, ruleCap, root) {
 	/** @type {string[]} */
@@ -85,7 +87,11 @@ function measure(t, ruleCap, root) {
 			},
 		}),
 	);
-	return commands.map((matched) => {
+	const read = fragmentLookup(root);
+	/** @type {Set<string>} */
+	const fallbacks = new Set();
+	/** @type {[string, number][]} */
+	const sizes = commands.map((matched) => {
 		if (matched !== "code-review") {
 			const takesIssue = t.TAKES_READ.includes(matched) ? PROBE_ISSUE : "";
 			const otherTakes = takesIssue && longest !== matched ? longest : "";
@@ -106,33 +112,39 @@ function measure(t, ruleCap, root) {
 				glossary: glossary === null ? null : rs.standardsShown(glossary, root),
 				reviewType: reviewAgentType(root),
 				sidSuffix: reviewSuffix(PROBE_SESSION_ID),
-				fragment: fragmentLookup(root),
+				fragment: (id) => {
+					const body = read(id);
+					if (body === "") fallbacks.add(id);
+					return body;
+				},
 			},
 			pricedOptions,
 		);
 		return [matched, rules.length + 2 + ruleCap];
 	});
+	return { sizes, fallbacks: [...fallbacks] };
 }
 
 /**
- * The threshold and each command's payload length, read at `root`. An absent
- * text module is a SKIP: a commit deleting or renaming it has nothing to
- * measure. Anything else unreadable is BROKEN.
+ * The threshold, each command's payload length and the fragments whose
+ * fallback stood in, read at `root`. An absent text module is a SKIP: a commit
+ * deleting or renaming it has nothing to measure. Anything else unreadable is
+ * BROKEN.
  * @param {string} root
- * @returns {{ limit: number, sizes: [string, number][] }}
+ * @returns {{ limit: number } & ReturnType<typeof measure>}
  */
 function readMargins(root) {
-	const file = path.join(root, TRACKER_TEXT);
-	if (!fs.existsSync(file))
-		throw skipError(`no ${TRACKER_TEXT} to measure — gate SKIPPED.`);
 	/** @param {string} rel */
 	const read = (rel) => {
-		try {
-			return fs.readFileSync(path.join(root, rel), "utf8");
-		} catch (e) {
-			throw brokenError(`cannot read ${rel}: ${errText(e)}`);
-		}
+		const r = readText(path.join(root, rel));
+		if (r.state === "read") return r.data;
+		if (r.state === "absent" && rel === TRACKER_TEXT)
+			throw skipError(`no ${TRACKER_TEXT} to measure — gate SKIPPED.`);
+		throw brokenError(
+			`cannot read ${rel}: ${r.state === "absent" ? "no such file" : r.message}`,
+		);
 	};
+	const source = read(TRACKER_TEXT);
 	const limits = read(CAP_SOURCE);
 	/** @param {string} name */
 	const limit = (name) => {
@@ -143,25 +155,24 @@ function readMargins(root) {
 	};
 	const persist = limit("HOOK_PERSIST_CHARS");
 	const ruleCap = limit("RULE_CAP");
-	let sizes;
+	let measured;
 	try {
 		const t = /** @type {typeof import("./tracker-inject-text.js")} */ (
-			loadTextModule(read(TRACKER_TEXT), file)
+			loadTextModule(source, path.join(root, TRACKER_TEXT))
 		);
-		sizes = measure(t, ruleCap, root);
+		measured = measure(t, ruleCap, root);
 	} catch (e) {
-		throw brokenError(`${TRACKER_TEXT} could not be measured: ${errText(e)}`);
+		throw brokenError(
+			`${TRACKER_TEXT} could not be measured: ${errMessage(e)}`,
+		);
 	}
-	if (sizes.length === 0) throw brokenError(`${TRACKER_TEXT} names no command`);
-	return { limit: persist, sizes };
+	if (measured.sizes.length === 0)
+		throw brokenError(`${TRACKER_TEXT} names no command`);
+	return { limit: persist, ...measured };
 }
-
-/** @param {unknown} e */
-const errText = (e) => (e instanceof Error ? e.message : String(e));
 
 module.exports = {
 	TIGHT_HEADROOM_CHARS,
-	REVIEW_RULES,
 	MARGIN_INPUTS,
 	readMargins,
 };

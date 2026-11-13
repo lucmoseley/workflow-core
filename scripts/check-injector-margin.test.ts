@@ -13,6 +13,10 @@
  *
  * WHAT STAYS UNVERIFIED: that 10,000 is still the harness's threshold
  * (mantahostels#1868).
+ *
+ * It is a hard gate in `.husky/pre-commit`: loosen a case and a text module
+ * whose payload crosses the threshold lands, and the tracker commands silently
+ * get a ~2 KB preview of their rules instead of the rules.
  */
 
 import { execFileSync } from "node:child_process";
@@ -204,6 +208,23 @@ describe("check-injector-margin.js", () => {
 		expect(output).toContain("/alpha        10000 chars");
 	});
 
+	it("names each fragment whose fallback stood in for /code-review", () => {
+		seed(
+			moduleOf(["code-review"], "").replace(
+				"module.exports = {",
+				'const codeReviewRules = (h) => ["review-dispatch-shape", "review-deviations-read"].map(h.fragment).join("");\nmodule.exports = {\n\tcodeReviewRules,',
+			),
+		);
+		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
+
+		const { code, output } = run();
+		expect(code).toBe(0);
+		expect(output).toContain(
+			"/code-review measured with the text module's fallback for unreadable fragment review-deviations-read.",
+		);
+		expect(output).not.toContain("fragment review-dispatch-shape");
+	});
+
 	it("measures exactly the commands the live module names", () => {
 		seed(fs.readFileSync(path.join(ROOT, TEXT), "utf8"));
 		const { COMMANDS } = require(path.join(ROOT, TEXT)) as {
@@ -253,6 +274,26 @@ describe("--index: the commit's bytes", () => {
 		const { code, output } = run("--index");
 		expect(code).toBe(2);
 		expect(output).toContain("no const HOOK_PERSIST_CHARS = <n>; line");
+	});
+
+	it("measures a fragment the index lacks as its fallback, never the working copy", () => {
+		write(
+			TEXT,
+			moduleOf(["code-review"], "").replace(
+				"module.exports = {",
+				'const codeReviewRules = (h) => h.fragment("review-dispatch-shape");\nmodule.exports = {\n\tcodeReviewRules,',
+			),
+		);
+		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
+		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
+		git("rm", "-q", "--cached", "docs/agents/rules/review-dispatch-shape.txt");
+
+		const { code, output } = run("--index", "--json");
+		expect(code).toBe(0);
+		expect(JSON.parse(output).findings).toMatchObject([
+			{ tag: "FRAGMENT-FALLBACK", id: "review-dispatch-shape" },
+		]);
+		expect(JSON.parse(run("--json").output).findings).toEqual([]);
 	});
 
 	/* The routes on which this gate must NOT refuse a commit (mantahostels#1915). */

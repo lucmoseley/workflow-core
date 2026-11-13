@@ -16,17 +16,20 @@
 
 const fs = require("node:fs");
 
+/** The host's own definition, under its root. */
+const OWN_AGENT_REL = ".claude/agents/code-reviewer.md";
+
 /**
  * @param {string} hostRoot symlinks dereferenced, as lib/host-root.js gives it
  * @returns {"code-reviewer" | "workflow-core:code-reviewer"}
  */
 function reviewAgentType(hostRoot) {
 	const own = fs
-		.statSync(`${hostRoot}/.claude/agents/code-reviewer.md`, {
+		.statSync(`${hostRoot}/${OWN_AGENT_REL}`, {
 			throwIfNoEntry: false,
 		})
 		?.isFile();
 	return own ? "code-reviewer" : "workflow-core:code-reviewer";
 }
 
-module.exports = { reviewAgentType };
+module.exports = { OWN_AGENT_REL, reviewAgentType };

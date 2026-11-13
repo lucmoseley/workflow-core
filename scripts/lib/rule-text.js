@@ -374,7 +374,9 @@ function rulePointer(id) {
 
 /**
  * A rule-fragment lookup over `root`, as lib/tracker-inject-text.js's
- * codeReviewParts takes one: readRuleText's answer, or "" where it throws.
+ * codeReviewParts takes one: readRuleText's answer, or "" where it throws, so
+ * the text module's fallback stands in (#3514). Each caller says when one did:
+ * the hook logs it, check-injector-margin.js prints it.
  * @param {string} root
  * @returns {(id: string) => string}
  */
