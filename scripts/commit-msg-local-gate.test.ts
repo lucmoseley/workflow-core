@@ -1,9 +1,7 @@
 // @vitest-environment node
 /*
  * .husky/commit-msg sources the adopter's own `.husky/commit-msg.local` last
- * (#5142): handed the message file as `$1`, a failing command refuses the
- * commit, it runs only after the core's own refusals pass, and a script it
- * names that the repo lacks refuses every commit.
+ * (#5142).
  *
  * Breaking it costs every adopter's own commit-msg refusals: they stop firing
  * silently, or one whose script has gone missing passes every commit.

@@ -70,7 +70,7 @@ require "$local_lib" ".husky/commit-msg.local cannot be checked" "running the ad
 
 # THE REPLAY STAND-DOWN (#138): on the replay routes that reach this hook the
 # core's checks stand down as in `.husky/prepare-commit-msg`, for the reasons
-# its own header gives. `.husky/commit-msg.local` still runs below.
+# its own header gives.
 gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
 route="$(wfc_commit_route commit-msg "$gitdir")"
 if ! wfc_commit_route_replays "$route"; then
