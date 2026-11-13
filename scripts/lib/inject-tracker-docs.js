@@ -339,45 +339,29 @@ function codeReviewRules(ports, session, pricedOptions) {
 	const rs = require("./review-standards.js");
 	const { reviewSuffix } = require("./review-suffix.js");
 	const { reviewAgentType } = require("./review-agent-type.js");
-	const { readRuleText } = require("./rule-text.js");
+	const { fragmentLookup } = require("./rule-text.js");
 	const host = hostRoot();
 	const core = coreRoot();
-	let standards = text.standardsText(
-		rs.standardsState(core, host),
-		rs.standardsShown(rs.standardsBase(core), host),
-	);
 	const glossary = rs.standardsGlossary(host);
-	if (glossary !== null)
-		standards = text.withGlossary(standards, rs.standardsShown(glossary, host));
-	/** A fragment's text, or "" where it cannot be read.
-	 * @param {string} id */
-	const rule = (id) => {
-		try {
-			return readRuleText(id, host);
-		} catch {
-			return "";
-		}
-	};
-	let shape = rule("review-dispatch-shape");
-	if (shape === "") {
-		ports.log(
-			"rule:review-dispatch-shape unreadable — /code-review named its path instead",
-		);
-		shape = text.DISPATCH_SHAPE_FALLBACK;
-	}
-	return text.codeReviewRules({
-		standards,
-		dispatch: text.dispatchText(
-			reviewAgentType(host),
-			session ? reviewSuffix(session) : "",
-			shape,
-		),
-		deviationsRead:
-			rule("review-deviations-read") || text.DEVIATIONS_READ_FALLBACK,
-		disposition:
-			rule("review-finding-destination") || text.DISPOSITION_FALLBACK,
+	const read = fragmentLookup(host);
+	return text.codeReviewRules(
+		{
+			standardsState: rs.standardsState(core, host),
+			standardsBase: rs.standardsShown(rs.standardsBase(core), host),
+			glossary: glossary === null ? null : rs.standardsShown(glossary, host),
+			reviewType: reviewAgentType(host),
+			sidSuffix: session ? reviewSuffix(session) : "",
+			fragment: (id) => {
+				const body = read(id);
+				if (body === "" && id === "review-dispatch-shape")
+					ports.log(
+						"rule:review-dispatch-shape unreadable — /code-review named its path instead",
+					);
+				return body;
+			},
+		},
 		pricedOptions,
-	});
+	);
 }
 
 /** A missing standards base is logged, and only a missing one (#965).

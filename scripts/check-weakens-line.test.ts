@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { installCommitMsgHook } from "./lib/commit-msg-testkit";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -442,12 +443,7 @@ describe("check-weakens-line (#2235)", () => {
 
 describe(".husky/commit-msg runs check-weakens-line.js (#2235)", () => {
 	beforeEach(() => {
-		/* Husky runs its hook files through sh; git's own copy is not executable. */
-		fs.writeFileSync(
-			path.join(hooks, "commit-msg"),
-			`#!/bin/sh\nexec sh ${shellQuote(path.join(ROOT, ".husky", "commit-msg"))} "$1"\n`,
-			{ mode: 0o755 },
-		);
+		installCommitMsgHook(hooks);
 	});
 
 	it("refuses an unnamed weakening on an ordinary commit", () => {

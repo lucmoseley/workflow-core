@@ -24,7 +24,7 @@ import {
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { HOOK, LIB, LOCAL_HOOK_LIB, ROOT } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
 
@@ -107,6 +107,10 @@ function buildAdopter(opts: { local?: string; errexit?: boolean }) {
 		);
 	}
 	fs.writeFileSync(path.join(plugin, "scripts/lib/precommit-gate.sh"), LIB);
+	fs.writeFileSync(
+		path.join(plugin, "scripts/lib/local-hook.sh"),
+		LOCAL_HOOK_LIB,
+	);
 	fs.mkdirSync(path.join(plugin, ".husky"));
 	fs.writeFileSync(path.join(plugin, ".husky", "pre-commit"), hook);
 

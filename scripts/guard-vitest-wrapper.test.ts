@@ -195,7 +195,8 @@ describe("the context-budget scan against this guard as it stands", () => {
 		const root = path.resolve(__dirname, "..");
 		const r = runInProcess(
 			path.join(root, "scripts", "check-context-budget.js"),
-			["--json"],
+			// --root, as hostRoot() maps a linked worktree to its main checkout.
+			["--root", root, "--json"],
 			{ cwd: root, env: { ...process.env, CLAUDE_PROJECT_DIR: root } },
 		);
 		/* Its exit is the repo's whole budget verdict, not this guard's. */
