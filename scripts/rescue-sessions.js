@@ -2503,24 +2503,31 @@ function readUncommittedDiff(io, root, file) {
 	return diff;
 }
 
-function main() {
-	const args = parseArgs(process.argv.slice(2));
+/** @param {string[]} [argv] */
+async function main(argv = process.argv.slice(2)) {
+	const args = parseArgs(argv);
 	const cmd = args._[0];
 	if (cmd === "list") cmdList(args);
 	else if (cmd === "snapshot") cmdSnapshot(args);
 	else if (cmd === "stop") cmdStop(args);
 	else if (cmd === "probe")
-		cmdProbe(args).catch((e) => {
+		await cmdProbe(args).catch((e) => {
 			// A throw is doubt, never a bad invocation.
 			writeFd(2, `UNKNOWN  probe failed: ${e?.message ?? e}\n`);
 			process.exit(PROBE_EXIT.UNKNOWN);
 		});
 	else if (cmd === "takeover")
-		cmdTakeover(args).catch((e) => {
+		await cmdTakeover(args).catch((e) => {
 			writeFd(2, `rescue-sessions takeover: failed: ${e?.stack ?? e}\n`);
 			process.exit(1);
 		});
 	else if (cmd === "hand-off") cmdHandOff(args);
 }
 
-if (require.main === module) main();
+module.exports = { main };
+
+if (require.main === module)
+	main().catch((e) => {
+		writeFd(2, `rescue-sessions: ${e?.stack ?? e}\n`);
+		process.exit(1);
+	});

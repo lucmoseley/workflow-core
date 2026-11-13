@@ -14,11 +14,11 @@
  * the sandbox; `gh-fails` there fails every call.
  */
 
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { Sandbox } from "./arbiter-testkit";
 import { stubGhScript } from "./gh-stub";
+import { runInProcessAsync } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
 export const SCRIPT = path.join(__dirname, "..", "rescue-sessions.js");
@@ -207,8 +207,7 @@ export function rescueKit(sb: Sandbox) {
 
 	/**
 	 * `rescue-sessions.js <sub> …args` at a 0.05 s probe interval, against the
-	 * fake oracle, /proc and `gh`. SPAWNED, not runInProcess (§X3): the script
-	 * exports no `main` to await.
+	 * fake oracle, /proc and `gh`, through `runInProcessAsync`.
 	 */
 	const run = (
 		sub: string,
@@ -218,23 +217,14 @@ export function rescueKit(sb: Sandbox) {
 			ghBefore = [],
 		}: { onStop?: string[]; ghBefore?: string[] } = {},
 	): Promise<Run> =>
-		new Promise((resolve) => {
-			execFile(
-				process.execPath,
-				[SCRIPT, sub, ...args, "--interval", "0.05"],
-				{
-					env: {
-						...process.env,
-						...fakeGh(ghBefore),
-						CLAUDE_PROJECT_DIR: sb.repo,
-						WFC_CLAUDE_BIN: fakeClaude(onStop),
-						WFC_PROC: procRoot(),
-					},
-					encoding: "utf8",
-				},
-				(err, stdout, stderr) =>
-					resolve({ status: err ? Number(err.code) : 0, stdout, stderr }),
-			);
+		runInProcessAsync(SCRIPT, [sub, ...args, "--interval", "0.05"], {
+			env: {
+				...process.env,
+				...fakeGh(ghBefore),
+				CLAUDE_PROJECT_DIR: sb.repo,
+				WFC_CLAUDE_BIN: fakeClaude(onStop),
+				WFC_PROC: procRoot(),
+			},
 		});
 
 	return {
