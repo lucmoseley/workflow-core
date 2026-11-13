@@ -238,7 +238,6 @@ describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 		const store = sandbox();
 		const sampler = runMemory.startSampler(
 			{
-				main: process.ppid,
 				session: "s-1",
 				kind: "named",
 				argv: [],
@@ -248,6 +247,8 @@ describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 			},
 			{ dir: store, intervalMs: 60_000, bootId: null },
 		);
+		sampler.setMain(process.ppid);
+		sampler.sample();
 		const memory = runMemory.readRunMemory({
 			[runMemory.MEMORY_ENV]: sampler.file,
 		});

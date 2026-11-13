@@ -2,21 +2,27 @@
  * run-memory.js — what one test run's processes drew (#5183): the wrapper's
  * pid, vitest's main pid and every worker pid it forked, the peak resident
  * memory of each role and of the three summed, and the test file the largest
- * worker ran at its peak.
+ * worker ran.
  *
  * THE RUN FILE is one JSON file a run, under the refill loop's directory
  * (lib/refill-dir.js), so the memory-kill filer reads every repo's runs from
- * one place. The wrapper writes it at spawn, before any process can be
- * killed, and rewrites it whenever a pid appears or a peak rises; a run whose
- * wrapper was killed leaves it at its last reading, with no `endedAt`.
- * lib/earlyoom-kills.js matches a killed pid against these files; the marker
- * a finished run writes carries `memoryOf`'s block into `.test-runs.jsonl`
- * (lib/run-ledger.js).
+ * one place. The wrapper opens it as it starts, before its queue wait or its
+ * selection, and rewrites it every sample with `sampledAt`; a run whose
+ * wrapper was killed leaves it at its last sample, with no `endedAt`. The
+ * marker a finished run writes carries `memoryOf`'s block into
+ * `.test-runs.jsonl` (lib/run-ledger.js).
  *
- * A WORKER is a direct child of vitest's main process. RSS is
- * `/proc/<pid>/status`'s VmRSS, the figure earlyoom prints. The sum is
- * wrapper, main and every worker, read in one sample. A sample a second
- * misses a spike shorter than that: untraced, and cheap at ~200 stat reads.
+ * A PID IS THE RUN'S ONLY WHILE SEEN: `lastSeenAt` gives the time a pid was
+ * last seen in its role, the wrapper's and main's being the last sample, so
+ * lib/earlyoom-kills.js never names a run for a later process reusing a pid.
+ *
+ * A WORKER is a direct child of vitest's main process, or a process that
+ * claimed a file (below): one forked and gone between two samples still
+ * claims. Each role's peak is the kernel's own high-water mark, VmHWM in
+ * `/proc/<pid>/status`, which no sampling gap misses. The sum spans processes
+ * no one cgroup holds — the wrapper runs outside vitest's scope, which may not
+ * exist (lib/user-scope.js) — so it is VmRSS summed in one sample, and a spike
+ * shorter than SAMPLE_MS escapes it.
  *
  * THE WORKER'S FILE: vitest names no worker per file, so each worker claims
  * the file it runs (`claimFile`, from vitest.setup.ts) as `<pid>` in the run
@@ -30,18 +36,24 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { procRoot } = require("./proc-root.js");
-const { FIELD, parseStatFields } = require("./proc-stat.js");
+const { readParentOf } = require("./proc-stat.js");
 const { refillPath } = require("./refill-dir.js");
 
 /** The run file's path, set on vitest's environment. */
 const MEMORY_ENV = "WFC_RUN_MEMORY";
 const STORE_DIR = ".test-run-memory";
-/* Untraced, see the header. */
+/* Untraced: about 200 stat reads a sample. */
 const SAMPLE_MS = 1000;
+/* How long past its last sighting a pid stays its run's: two samples, so one
+ * late tick on a loaded machine does not drop a live run. */
+const SEEN_SLACK_MS = 2 * SAMPLE_MS;
 /* Covers lib/incident-tickets.js's 72 h lookback and the incident gap. */
 const RETAIN_MS = 4 * 24 * 60 * 60 * 1000;
-/* What a run file names of its selection; the count says the rest. */
+/* A guess: room for a named run's files; a wider selection is named by its
+ * count. */
 const FILES_KEPT = 10;
 
 /**
@@ -51,7 +63,9 @@ const FILES_KEPT = 10;
  * @typedef {{ session: string|null, kind: string, argv: string[],
  *   files: string[], fileCount: number, repo: string }} RunLaunch
  * @typedef {RunLaunch & RunMemory & { at: string, bootId: string|null,
+ *   sampledAt: string, workersSeenAt: Record<string, string>,
  *   endedAt?: string }} RunFile
+ * @typedef {"wrapper"|"vitest main"|"worker"} Role
  */
 
 const storeDir = () => refillPath(STORE_DIR);
@@ -63,18 +77,18 @@ const claimsDir = (file) => `${file}.files`;
 const toMiB = (kb) => Math.round(kb / 1024);
 
 /**
- * VmRSS in kB, or null where the process is gone or the line is missing.
+ * VmRSS and VmHWM in kB, or null where the process is gone.
  * @param {string} proc @param {number} pid
  */
-function readRssKb(proc, pid) {
-	try {
-		const m = fs
-			.readFileSync(path.join(proc, String(pid), "status"), "utf8")
-			.match(/^VmRSS:\s+(\d+) kB$/m);
-		return m ? Number(m[1]) : null;
-	} catch {
-		return null;
-	}
+function readMemKb(proc, pid) {
+	const status = readText(path.join(proc, String(pid), "status"));
+	if (status.state !== "read") return null;
+	const kb = (/** @type {string} */ key) =>
+		Number(status.data.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"))?.[1]);
+	const rss = kb("VmRSS");
+	if (!Number.isFinite(rss)) return null;
+	const hwm = kb("VmHWM");
+	return { rss, hwm: Number.isFinite(hwm) ? hwm : rss };
 }
 
 /**
@@ -89,52 +103,77 @@ function readChildren(proc, parent) {
 	} catch {
 		return [];
 	}
-	return names.flatMap((name) => {
-		if (!/^\d+$/.test(name)) return [];
-		try {
-			const fields = parseStatFields(
-				fs.readFileSync(path.join(proc, name, "stat"), "utf8"),
-			);
-			return Number(fields?.[FIELD.ppid]) === parent ? [Number(name)] : [];
-		} catch {
-			return [];
-		}
-	});
+	return names.flatMap((name) =>
+		/^\d+$/.test(name) && readParentOf(name, proc) === parent
+			? [Number(name)]
+			: [],
+	);
 }
 
 /**
- * One sample of the run's processes.
- * @param {string} proc @param {number} wrapper @param {number|null} main
- * @returns {{ wrapperKb: number, mainKb: number, workers: Map<number, number> }}
+ * The pids that claimed a file, by pid.
+ * @param {string} file the run file
+ * @returns {Map<number, string>}
  */
-function sampleRun(proc, wrapper, main) {
-	/** @type {Map<number, number>} */
-	const workers = new Map();
-	if (main !== null)
-		for (const pid of readChildren(proc, main)) {
-			const kb = readRssKb(proc, pid);
-			if (kb !== null) workers.set(pid, kb);
-		}
+function readClaims(file) {
+	let names;
+	try {
+		names = fs.readdirSync(claimsDir(file));
+	} catch {
+		return new Map();
+	}
+	return new Map(
+		names.flatMap((name) => {
+			const claim = readText(path.join(claimsDir(file), name));
+			return claim.state === "read" && /^\d+$/.test(name)
+				? [[Number(name), claim.data.trim()]]
+				: [];
+		}),
+	);
+}
+
+/**
+ * The wrapper's and main's VmHWM, and their VmRSS summed, kB; 0 for one gone.
+ * @param {string} proc @param {number} wrapper @param {number|null} main
+ */
+function sampleOwn(proc, wrapper, main) {
+	const w = readMemKb(proc, wrapper);
+	const m = main === null ? null : readMemKb(proc, main);
 	return {
-		wrapperKb: readRssKb(proc, wrapper) ?? 0,
-		mainKb: main === null ? 0 : (readRssKb(proc, main) ?? 0),
-		workers,
+		wrapperHwm: w?.hwm ?? 0,
+		mainHwm: m?.hwm ?? 0,
+		rss: (w?.rss ?? 0) + (m?.rss ?? 0),
 	};
 }
 
 /**
- * @param {string} file the run file
- * @param {number} pid
+ * Lists and stamps the run's workers — main's children and every claimant —
+ * folding each live one's VmHWM into `workerHwm`; their VmRSS summed, kB.
+ * @param {string} proc
+ * @param {RunFile} run
+ * @param {{ at: string, claims: Map<number, string>, workerHwm: Map<number, number> }} sampling
  */
-function readClaim(file, pid) {
-	try {
-		return (
-			fs.readFileSync(path.join(claimsDir(file), String(pid)), "utf8").trim() ||
-			null
-		);
-	} catch {
-		return null;
+function sampleWorkers(proc, run, { at, claims, workerHwm }) {
+	const main = run.pids.main;
+	const workers = new Set([
+		...(main === null ? [] : readChildren(proc, main)),
+		...claims.keys(),
+	]);
+	let rss = 0;
+	for (const pid of workers) {
+		if (!run.pids.workers.includes(pid)) run.pids.workers.push(pid);
+		const mem = readMemKb(proc, pid);
+		/* A claim outlives its worker: one gone by its first sample is seen
+		 * once, now. */
+		if (mem === null) {
+			run.workersSeenAt[pid] ??= at;
+			continue;
+		}
+		run.workersSeenAt[pid] = at;
+		rss += mem.rss;
+		workerHwm.set(pid, Math.max(workerHwm.get(pid) ?? 0, mem.hwm));
 	}
+	return rss;
 }
 
 /** @param {RunFile} run @returns {RunMemory} */
@@ -153,6 +192,15 @@ function writeRun(file, run) {
 	}
 }
 
+/** @param {string} target */
+function removeQuietly(target) {
+	try {
+		fs.rmSync(target, { recursive: true, force: true });
+	} catch {
+		/* the sweep takes it */
+	}
+}
+
 /**
  * Removes run files, and their claims, older than RETAIN_MS.
  * @param {string} dir @param {number} now
@@ -167,8 +215,7 @@ function sweep(dir, now) {
 	for (const name of names) {
 		const full = path.join(dir, name);
 		try {
-			if (now - fs.statSync(full).mtimeMs > RETAIN_MS)
-				fs.rmSync(full, { recursive: true, force: true });
+			if (now - fs.statSync(full).mtimeMs > RETAIN_MS) removeQuietly(full);
 		} catch {
 			/* a neighbour's sweep took it first */
 		}
@@ -176,15 +223,20 @@ function sweep(dir, now) {
 }
 
 /**
+ * @typedef {{ file: string, sample: () => void,
+ *   setLaunch: (launch: RunLaunch) => void, setMain: (pid: number|null) => void,
+ *   current: () => RunMemory, stop: () => RunMemory, discard: () => void }} Sampler
+ */
+
+/**
  * Starts sampling one run, writing its file at once.
- * @param {RunLaunch & { main: number|null }} launch
+ * @param {RunLaunch} launch
  * @param {{ wrapper?: number, proc?: string, dir?: string, intervalMs?: number,
  *   now?: () => number, bootId?: string|null }} [options]
- * @returns {{ file: string, sample: () => void, setMain: (pid: number|null) => void,
- *   current: () => RunMemory, stop: () => RunMemory }}
+ * @returns {Sampler}
  */
 function startSampler(
-	{ main: launchedMain, ...launch },
+	launch,
 	{
 		wrapper = process.pid,
 		proc = procRoot(),
@@ -194,72 +246,73 @@ function startSampler(
 		bootId = readCurrentBootId(),
 	} = {},
 ) {
-	let main = launchedMain;
 	const startedAt = now();
 	sweep(dir, startedAt);
 	const file = path.join(dir, `${wrapper}-${startedAt}.json`);
+	const stamp = () => new Date(now()).toISOString();
 	/** @type {RunFile} */
 	const run = {
 		at: new Date(startedAt).toISOString(),
 		bootId,
 		...launch,
 		files: launch.files.slice(0, FILES_KEPT),
-		pids: { wrapper, main, workers: [] },
+		pids: { wrapper, main: null, workers: [] },
 		peaksMiB: { wrapper: 0, main: 0, worker: 0, sum: 0 },
 		workerFile: null,
+		sampledAt: stamp(),
+		workersSeenAt: {},
 	};
-	writeRun(file, run);
-	/** @type {number|null} */
-	let peakWorker = null;
+	/** @type {Map<number, number>} each worker's VmHWM, kB, at its last read */
+	const workerHwm = new Map();
 	const sample = () => {
-		const before = JSON.stringify(run);
-		const s = sampleRun(proc, wrapper, main);
+		const at = stamp();
 		const peaks = run.peaksMiB;
-		for (const pid of s.workers.keys())
-			if (!run.pids.workers.includes(pid)) run.pids.workers.push(pid);
-		peaks.wrapper = Math.max(peaks.wrapper, toMiB(s.wrapperKb));
-		peaks.main = Math.max(peaks.main, toMiB(s.mainKb));
-		const [largest] = [...s.workers].sort((a, b) => b[1] - a[1]);
-		if (largest && toMiB(largest[1]) > peaks.worker) {
-			peaks.worker = toMiB(largest[1]);
-			peakWorker = largest[0];
-			run.workerFile = null;
+		const claims = readClaims(file);
+		const own = sampleOwn(proc, wrapper, run.pids.main);
+		peaks.wrapper = Math.max(peaks.wrapper, toMiB(own.wrapperHwm));
+		peaks.main = Math.max(peaks.main, toMiB(own.mainHwm));
+		const workersRss = sampleWorkers(proc, run, { at, claims, workerHwm });
+		const [largest] = [...workerHwm].sort((a, b) => b[1] - a[1]);
+		if (largest) {
+			peaks.worker = Math.max(peaks.worker, toMiB(largest[1]));
+			run.workerFile = claims.get(largest[0]) ?? run.workerFile;
 		}
-		/* A worker claims its file once loaded, which can follow its first
-		 * sample. */
-		if (peakWorker !== null && run.workerFile === null)
-			run.workerFile = readClaim(file, peakWorker);
-		const sumKb =
-			s.wrapperKb +
-			s.mainKb +
-			[...s.workers.values()].reduce((a, b) => a + b, 0);
-		peaks.sum = Math.max(peaks.sum, toMiB(sumKb));
-		if (JSON.stringify(run) !== before) writeRun(file, run);
+		peaks.sum = Math.max(peaks.sum, toMiB(own.rss + workersRss));
+		run.sampledAt = at;
+		writeRun(file, run);
 	};
 	sample();
 	const timer = setInterval(sample, intervalMs);
 	timer.unref?.();
+	const end = () => {
+		clearInterval(timer);
+		removeQuietly(claimsDir(file));
+	};
 	return {
 		file,
 		sample,
+		/* What the run selected, known once the wrapper has planned it. */
+		setLaunch: (next) => {
+			Object.assign(run, next, { files: next.files.slice(0, FILES_KEPT) });
+			writeRun(file, run);
+		},
 		/* vitest's pid, known only once the run file's path is in its env. */
 		setMain: (pid) => {
-			main = pid;
 			run.pids.main = pid;
 			writeRun(file, run);
 		},
 		current: () => memoryOf(run),
 		stop: () => {
-			clearInterval(timer);
 			sample();
-			run.endedAt = new Date(now()).toISOString();
+			end();
+			run.endedAt = stamp();
 			writeRun(file, run);
-			try {
-				fs.rmSync(claimsDir(file), { recursive: true, force: true });
-			} catch {
-				/* the sweep takes it */
-			}
 			return memoryOf(run);
+		},
+		/* A wrapper that spawned nothing leaves no run. */
+		discard: () => {
+			end();
+			removeQuietly(file);
 		},
 	};
 }
@@ -304,30 +357,57 @@ function claimFile(
 }
 
 /**
- * Every run file in the store; one that will not parse is skipped.
+ * Every run file in the store, or why the store would not read: a directory
+ * that will not list or a file that will not parse.
  * @param {string} [dir]
- * @returns {RunFile[]}
+ * @returns {{ runs: RunFile[], why: string|null }}
  */
 function readRunFiles(dir = storeDir()) {
 	let names;
 	try {
 		names = fs.readdirSync(dir);
-	} catch {
-		return [];
+	} catch (error) {
+		return caught(error).code === "ENOENT"
+			? { runs: [], why: null }
+			: { runs: [], why: `the test run store: ${caught(error).message}` };
 	}
-	return names.flatMap((name) => {
-		if (!name.endsWith(".json")) return [];
+	/** @type {RunFile[]} */
+	const runs = [];
+	for (const name of names.filter((n) => n.endsWith(".json")))
 		try {
-			return [JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"))];
-		} catch {
-			return [];
+			runs.push(JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")));
+		} catch (error) {
+			return {
+				runs: [],
+				why: `the test run store: ${name}: ${caught(error).message}`,
+			};
 		}
-	});
+	return { runs, why: null };
+}
+
+/**
+ * The role `pid` held in `run` and when it was last seen there, ms, or null
+ * where it held none. The wrapper and main are seen at each sample until the
+ * run ends.
+ * @param {RunFile} run
+ * @param {number} pid
+ * @returns {{ role: Role, seenUntil: number }|null}
+ */
+function lastSeenAt(run, pid) {
+	const lastSample = Date.parse(run.endedAt ?? run.sampledAt);
+	/** @type {[Role, number]|null} */
+	let held = null;
+	if (run.pids.wrapper === pid) held = ["wrapper", lastSample];
+	else if (run.pids.main === pid) held = ["vitest main", lastSample];
+	else if (run.workersSeenAt[pid])
+		held = ["worker", Math.min(Date.parse(run.workersSeenAt[pid]), lastSample)];
+	return held && { role: held[0], seenUntil: held[1] + SEEN_SLACK_MS };
 }
 
 module.exports = {
 	MEMORY_ENV,
 	claimFile,
+	lastSeenAt,
 	readRunFiles,
 	readRunMemory,
 	startSampler,

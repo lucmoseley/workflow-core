@@ -24,10 +24,11 @@
  * run where two share them. A killed run records no end, so a pid reused
  * after it in the same boot still matches.
  *
- * A TEST RUN is a kill whose pid is a run's wrapper, vitest main or worker
- * in lib/run-memory.js's run files (#5183): same boot, the run started at or
- * before the kill and not ended before it, the latest such run where two
- * share them. The ticket names its launch: session, kind and files.
+ * A TEST RUN is a node kill whose pid was a run's wrapper, vitest main or
+ * worker in lib/run-memory.js's run files when it died (#5183): same boot,
+ * the run started at or before the kill, the pid seen in its role up to it
+ * (`lastSeenAt`), the latest such run where two share them. The ticket names
+ * its launch: session, kind and files.
  *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
@@ -39,7 +40,8 @@
 
 const { caught } = require("./caught.js");
 const { readStoredRuns } = require("./headless-runs.js");
-const { readRunFiles } = require("./run-memory.js");
+const { lastSeenAt, readRunFiles } = require("./run-memory.js");
+const { shortJobId } = require("./job-paths.js");
 const {
 	buildProcessSpan,
 	localMinute,
@@ -96,8 +98,8 @@ const KINDS = /** @type {const} */ ([
  * @property {number|null} availMiB MemAvailable before the first signal
  * @property {number|null} swapFreeMiB SwapFree then
  * @property {number} signals
- * @typedef {{role: "wrapper"|"vitest main"|"worker", session: string|null,
- *   kind: string, files: string[], fileCount: number, repo: string}} TestRun
+ * @typedef {Pick<import("./run-memory.js").RunLaunch, "session"|"kind"|"argv"|"files"|"fileCount"|"repo">
+ *   & {role: import("./run-memory.js").Role}} TestRun
  * @typedef {{kills: Kill[], first: string, last: string,
  *   unjoined: string|null}} Incident
  */
@@ -202,43 +204,44 @@ function readJournal(sinceMs) {
 }
 
 /**
- * The test run `k`'s pid belongs to in `boot`, or null.
+ * The test run `k`'s pid was part of when it died in `boot`, and the runs on
+ * its pid that recorded no boot, by file time.
  * @param {Kill} k
  * @param {import("./journalctl.js").Boot|undefined} boot
  * @param {import("./run-memory.js").RunFile[]} runs
- * @returns {TestRun|null}
+ * @returns {{testRun: TestRun|null, bootless: string[]}}
  */
 function findTestRun(k, boot, runs) {
-	if (boot === undefined) return null;
+	if (k.kind !== "node or python process")
+		return { testRun: null, bootless: [] };
 	const at = Date.parse(k.at);
-	/** @param {import("./run-memory.js").RunFile} r */
-	const roleOf = (r) => {
-		if (r.pids.wrapper === k.pid) return "wrapper";
-		if (r.pids.main === k.pid) return "vitest main";
-		return r.pids.workers.includes(k.pid) ? "worker" : null;
-	};
-	const run = runs
+	const held = runs.flatMap((r) => {
+		const seen = lastSeenAt(r, k.pid);
+		return seen !== null &&
+			toSecond(Date.parse(r.at)) <= at &&
+			at <= seen.seenUntil
+			? [{ run: r, role: seen.role }]
+			: [];
+	});
+	const latest = held
 		.filter(
-			(r) =>
-				r.bootId !== null &&
-				bootKey(r.bootId) === boot.id &&
-				roleOf(r) !== null &&
-				toSecond(Date.parse(r.at)) <= at &&
-				(r.endedAt === undefined || Date.parse(r.endedAt) >= at),
+			({ run }) =>
+				boot !== undefined &&
+				run.bootId !== null &&
+				bootKey(run.bootId) === boot.id,
 		)
 		.reduce(
-			(a, r) => (a === null || r.at > a.at ? r : a),
-			/** @type {import("./run-memory.js").RunFile|null} */ (null),
+			(a, h) => (a === null || h.run.at > a.run.at ? h : a),
+			/** @type {(typeof held)[number]|null} */ (null),
 		);
-	if (run === null) return null;
-	const { session, kind, files, fileCount, repo } = run;
+	const bootless = held.flatMap(({ run }) =>
+		run.bootId === null ? [`test run from ${run.at}`] : [],
+	);
+	if (latest === null) return { testRun: null, bootless };
+	const { session, kind, argv, files, fileCount, repo } = latest.run;
 	return {
-		role: /** @type {TestRun["role"]} */ (roleOf(run)),
-		session,
-		kind,
-		files,
-		fileCount,
-		repo,
+		testRun: { role: latest.role, session, kind, argv, files, fileCount, repo },
+		bootless,
 	};
 }
 
@@ -262,6 +265,8 @@ function joinRuns(incidents) {
 	return incidents.map((i) => {
 		/** @type {string[]} */
 		const bootless = [];
+		/** @type {string[]} */
+		const bootlessTests = [];
 		const kills = i.kills.map((k) => {
 			const at = Date.parse(k.at);
 			const boot = boots.find((b) => b.from <= at && at <= b.to);
@@ -286,18 +291,28 @@ function joinRuns(incidents) {
 					kind: /** @type {Kind} */ ("headless run"),
 					jobId: run.jobId,
 				};
-			const testRun = findTestRun(k, boot, testRuns);
+			const found = findTestRun(k, boot, testRuns.runs);
+			bootlessTests.push(...found.bootless);
+			const { testRun } = found;
 			return testRun === null
 				? k
 				: { ...k, kind: /** @type {Kind} */ ("test run"), testRun };
 		});
+		const unjoined = [
+			...(bootless.length === 0
+				? []
+				: [
+						`headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")} on a victim's pid recorded no boot`,
+					]),
+			...(bootlessTests.length === 0
+				? []
+				: [`${bootlessTests.join(", ")} on a victim's pid recorded no boot`]),
+			...(testRuns.why === null ? [] : [testRuns.why]),
+		];
 		return {
 			...i,
 			kills,
-			unjoined:
-				bootless.length === 0
-					? null
-					: `headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")} on a victim's pid recorded no boot`,
+			unjoined: unjoined.length === 0 ? null : unjoined.join("; "),
 		};
 	});
 }
@@ -363,7 +378,8 @@ const byKind = (kills) =>
 
 /** @param {TestRun} t */
 const filesOf = (t) => {
-	if (t.fileCount === 0) return "no files";
+	if (t.fileCount === 0)
+		return t.argv.length === 0 ? "no files" : `argv \`${t.argv.join(" ")}\``;
 	if (t.fileCount > t.files.length) return `${t.fileCount} files`;
 	return t.files.map((f) => `\`${f}\``).join(", ");
 };
@@ -371,7 +387,7 @@ const filesOf = (t) => {
 /** @param {TestRun} t `worker of a named run by \`abcd1234\` in workflow-core: \`a.test.ts\`` */
 const testRunCell = (t) => {
 	const files = filesOf(t);
-	const by = t.session === null ? "" : ` by \`${t.session.slice(0, 8)}\``;
+	const by = t.session === null ? "" : ` by \`${shortJobId(t.session)}\``;
 	return `${t.role} of a ${t.kind} run${by} in ${t.repo}: ${files}`;
 };
 

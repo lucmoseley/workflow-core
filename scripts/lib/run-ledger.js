@@ -44,7 +44,7 @@ const RETAIN_MS = 30 * DAY_MS;
 /** @typedef {import("./test-pass-marker.js").Marker} Marker */
 
 /**
- * @param {Pick<Marker, "scope"> | { scope?: Partial<import("./test-pass-marker.js").Scope> }} m
+ * @param {Marker} m
  * @param {boolean} fullFlag
  */
 function ranFull({ scope }, fullFlag) {
@@ -56,26 +56,57 @@ function ranFull({ scope }, fullFlag) {
 	);
 }
 
+/** @param {string[]|null|undefined} argv */
+const hasFullFlag = (argv) =>
+	argv?.some((a) => a.startsWith("--full")) ?? false;
+
 /**
- * @param {Pick<Marker, "argv"|"suite"|"lander"> & { scope?: Partial<import("./test-pass-marker.js").Scope> }} m
+ * A launch's kind, before any marker: what `kindOf` reads off one, and what
+ * the run's memory record names (lib/run-memory.js, #5183).
+ * @param {{ argv: string[]|null|undefined, touched: boolean, full: boolean,
+ *   lander: boolean, suite?: string, viaChanged?: boolean,
+ *   fileFilters?: boolean }} launch `full` whether it ran or asked for the
+ *   whole suite
  * @returns {string}
  */
-function kindOf(m) {
-	const { argv, scope } = m;
-	if (scope?.touched) return "touched";
-	if (m.suite === "pytest") return "pytest";
-	const fullFlag = argv?.some((a) => a.startsWith("--full")) ?? false;
-	if (m.lander && fullFlag) return "lander";
-	if (ranFull(m, fullFlag)) return "full";
+function kindOfLaunch({
+	argv,
+	touched,
+	full,
+	lander,
+	suite = "vitest",
+	viaChanged = false,
+	fileFilters = false,
+}) {
+	if (touched) return "touched";
+	if (suite === "pytest") return "pytest";
+	const fullFlag = hasFullFlag(argv);
+	if (lander && fullFlag) return "lander";
+	if (full || fullFlag) return "full";
 	if (argv?.includes("--adopt")) return "adopt";
-	if (argv?.includes("--changed") || scope?.viaChanged) return "changed";
-	if (!argv) return scope?.fileFilters?.length ? "named" : "bare";
+	if (argv?.includes("--changed") || viaChanged) return "changed";
+	if (!argv) return fileFilters ? "named" : "bare";
 	const named =
 		argv.includes("--retest") ||
 		argv.includes("-t") ||
 		argv.some((a) => !a.startsWith("-"));
 	return named ? "named" : "bare";
 }
+
+/**
+ * @param {Marker} m
+ * @returns {string}
+ */
+const kindOf = (m) =>
+	kindOfLaunch({
+		argv: m.argv,
+		touched: Boolean(m.scope?.touched),
+		full: ranFull(m, hasFullFlag(m.argv)),
+		lander: Boolean(m.lander),
+		suite: m.suite,
+		viaChanged: Boolean(m.scope?.viaChanged),
+		fileFilters: Boolean(m.scope?.fileFilters?.length),
+	});
 
 /**
  * @param {Marker} m
@@ -195,5 +226,5 @@ module.exports = {
 	RUN_LEDGER,
 	appendEmptyTouchedLine,
 	appendLedgerLine,
-	kindOf,
+	kindOfLaunch,
 };

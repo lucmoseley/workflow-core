@@ -75,14 +75,27 @@ const launch = {
 	repo: "workflow-core",
 };
 
+/* A clock a test moves by hand: run files stamp `sampledAt` off it. */
+const clock = (start = Date.parse("2026-11-14T00:00:00Z")) => {
+	let t = start;
+	return {
+		now: () => t,
+		step: (ms: number) => {
+			t += ms;
+		},
+	};
+};
+
 describe("startSampler (#5183)", () => {
 	it("records the wrapper, main and worker pids, the four peaks and the largest worker's file", async () => {
 		const tree = await startTree();
 		const store = path.join(dir, "store");
-		const sampler = memory.startSampler(
-			{ ...launch, main: tree.main },
-			{ dir: store, intervalMs: 60_000, bootId: "b-1" },
-		);
+		const sampler = memory.startSampler(launch, {
+			dir: store,
+			intervalMs: 60_000,
+			bootId: "b-1",
+		});
+		sampler.setMain(tree.main);
 		memory.claimFile(path.join(dir, "scripts/big.test.ts"), {
 			cwd: dir,
 			env: { [memory.MEMORY_ENV]: sampler.file },
@@ -104,8 +117,9 @@ describe("startSampler (#5183)", () => {
 		);
 		expect(got.workerFile).toBe("scripts/big.test.ts");
 
-		const [file] = memory.readRunFiles(store);
-		expect(file).toMatchObject({
+		const { runs, why } = memory.readRunFiles(store);
+		expect(why).toBeNull();
+		expect(runs[0]).toMatchObject({
 			...launch,
 			bootId: "b-1",
 			pids: got.pids,
@@ -117,20 +131,46 @@ describe("startSampler (#5183)", () => {
 		);
 	});
 
-	it("writes the run's pids at the start, before any sample a kill could cut short", () => {
+	it("writes the wrapper's pid at the start, before any spawn a kill could cut short, and the launch once planned", () => {
 		const store = path.join(dir, "store");
 		const sampler = memory.startSampler(
-			{ ...launch, main: 999_999_999 },
+			{ ...launch, kind: "queued", files: [], fileCount: 0 },
 			{ dir: store, intervalMs: 60_000, bootId: null },
 		);
-		const [file] = memory.readRunFiles(store);
-		expect(file.pids).toEqual({
+		const read = () => memory.readRunFiles(store).runs[0];
+		expect(read().pids).toEqual({
 			wrapper: process.pid,
-			main: 999_999_999,
+			main: null,
 			workers: [],
 		});
-		expect(file.endedAt).toBeUndefined();
+		expect(read().endedAt).toBeUndefined();
+		sampler.setLaunch(launch);
+		expect(read()).toMatchObject(launch);
 		sampler.stop();
+	});
+
+	it("lists a worker gone between two samples off its claim, seen once", () => {
+		const store = path.join(dir, "store");
+		const sampler = memory.startSampler(launch, {
+			dir: store,
+			intervalMs: 60_000,
+		});
+		memory.claimFile(path.join(dir, "a.test.ts"), {
+			cwd: dir,
+			env: { [memory.MEMORY_ENV]: sampler.file },
+			pid: 999_999_998,
+		});
+		sampler.sample();
+		const { runs } = memory.readRunFiles(store);
+		expect(runs[0].pids.workers).toEqual([999_999_998]);
+		expect(memory.lastSeenAt(runs[0], 999_999_998)?.role).toBe("worker");
+		sampler.stop();
+	});
+
+	it("discards the file of a wrapper that spawned nothing", () => {
+		const store = path.join(dir, "store");
+		memory.startSampler(launch, { dir: store, intervalMs: 60_000 }).discard();
+		expect(memory.readRunFiles(store).runs).toEqual([]);
 	});
 
 	it("sweeps a run file older than the retention on the next start", () => {
@@ -141,13 +181,41 @@ describe("startSampler (#5183)", () => {
 		/* Past any retention a run file could need: a month. */
 		const past = (Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000;
 		fs.utimesSync(old, past, past);
-		memory
-			.startSampler(
-				{ ...launch, main: null },
-				{ dir: store, intervalMs: 60_000 },
-			)
-			.stop();
+		memory.startSampler(launch, { dir: store, intervalMs: 60_000 }).stop();
 		expect(fs.existsSync(old)).toBe(false);
-		expect(memory.readRunFiles(store)).toHaveLength(1);
+		expect(memory.readRunFiles(store).runs).toHaveLength(1);
+	});
+
+	it("says why where a run file will not parse, never dropping it silently", () => {
+		const store = path.join(dir, "store");
+		fs.mkdirSync(store);
+		fs.writeFileSync(path.join(store, "1-1.json"), "{");
+		expect(memory.readRunFiles(store).why).toMatch(
+			/^the test run store: 1-1\.json: /,
+		);
+	});
+});
+
+describe("lastSeenAt (#5183)", () => {
+	it("holds the wrapper and main to the last sample, and a worker to its own last sighting", () => {
+		const store = path.join(dir, "store");
+		const c = clock();
+		const sampler = memory.startSampler(launch, {
+			dir: store,
+			intervalMs: 60_000,
+			now: c.now,
+		});
+		sampler.setMain(999_999_997);
+		const start = c.now();
+		c.step(30_000);
+		sampler.sample();
+		const [run] = memory.readRunFiles(store).runs;
+		expect(memory.lastSeenAt(run, process.pid)).toEqual({
+			role: "wrapper",
+			seenUntil: start + 30_000 + 2000,
+		});
+		expect(memory.lastSeenAt(run, 999_999_997)?.role).toBe("vitest main");
+		expect(memory.lastSeenAt(run, 4)).toBeNull();
+		sampler.discard();
 	});
 });

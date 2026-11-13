@@ -276,13 +276,15 @@ describe("test runs among the kills (#5183)", () => {
 		/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
 		"$1-$2-$3-$4-$5",
 	);
-	/** A kill of a node worker on Worker at T0, and `runs` in the run files. */
-	function seed(runs: Record<string, unknown>[]) {
+	const iso = (ms: number) => new Date(ms).toISOString();
+	/** A kill of a process named `comm` on Worker at T0, and `runs` in the
+	 * run files, each last sampled a second before the kill. */
+	function seed(runs: Record<string, unknown>[], comm = "MainThread") {
 		vi.stubEnv(
 			"WFC_JOURNALCTL",
 			writeJournalctl(path.join(dir, "join"), [
 				buildEarlyoomReadingLine(T0),
-				buildEarlyoomSignalLine(T0, Worker, "MainThread", { rss: 2176 }),
+				buildEarlyoomSignalLine(T0, Worker, comm, { rss: 2176 }),
 			]),
 		);
 		const store = path.join(dir, "refill", ".test-run-memory");
@@ -291,7 +293,7 @@ describe("test runs among the kills (#5183)", () => {
 			fs.writeFileSync(
 				path.join(store, `${n}.json`),
 				JSON.stringify({
-					at: new Date(T0 - 5 * MIN).toISOString(),
+					at: iso(T0 - 5 * MIN),
 					bootId: dashed,
 					session: "abcd1234-ffff-0000",
 					kind: "named",
@@ -302,11 +304,14 @@ describe("test runs among the kills (#5183)", () => {
 					pids: { wrapper: 10, main: 11, workers: [12, Worker] },
 					peaksMiB: { wrapper: 400, main: 600, worker: 2176, sum: 3200 },
 					workerFile: "scripts/a.test.ts",
+					sampledAt: iso(T0 - 1000),
+					workersSeenAt: { 12: iso(T0 - 1000), [Worker]: iso(T0 - 1000) },
 					...r,
 				}),
 			);
 		});
 	}
+	const readOne = () => kills.readIncidents(T0 - 60 * MIN).incidents[0];
 	const kinds = () =>
 		kills
 			.readIncidents(T0 - 60 * MIN)
@@ -316,15 +321,17 @@ describe("test runs among the kills (#5183)", () => {
 
 	it("names a killed worker's launch from the pid match: session, kind and files, in the ticket's table", () => {
 		seed([{}]);
-		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
+		const i = readOne();
 		expect(i.kills[0].testRun).toEqual({
 			role: "worker",
 			session: "abcd1234-ffff-0000",
 			kind: "named",
+			argv: ["scripts/a.test.ts", "scripts/b.test.ts"],
 			files: ["scripts/a.test.ts", "scripts/b.test.ts"],
 			fileCount: 2,
 			repo: "workflow-core",
 		});
+		expect(i.unjoined).toBeNull();
 		const body = kills.buildIncidentBody(i);
 		expect(body).toContain("By kind: test run 1.");
 		expect(body).toContain(
@@ -333,7 +340,7 @@ describe("test runs among the kills (#5183)", () => {
 		expect(basisFaults(body)).toEqual([]);
 	});
 
-	it("names the wrapper itself, and counts a large selection rather than listing it", () => {
+	it("names the wrapper itself, counting a large selection, and a queued wrapper by its argv", () => {
 		seed([
 			{
 				pids: { wrapper: Worker, main: 11, workers: [] },
@@ -341,29 +348,64 @@ describe("test runs among the kills (#5183)", () => {
 				fileCount: 32,
 			},
 		]);
-		const body = kills.buildIncidentBody(
-			kills.readIncidents(T0 - 60 * MIN).incidents[0],
-		);
-		expect(body).toContain(
+		expect(kills.buildIncidentBody(readOne())).toContain(
 			"| test run: wrapper of a touched run by `abcd1234` in workflow-core: 32 files |",
+		);
+		seed([
+			{
+				pids: { wrapper: Worker, main: null, workers: [] },
+				kind: "queued",
+				argv: ["--queue"],
+				files: [],
+				fileCount: 0,
+			},
+		]);
+		expect(kills.buildIncidentBody(readOne())).toContain(
+			"| test run: wrapper of a queued run by `abcd1234` in workflow-core: argv `--queue` |",
 		);
 	});
 
-	it("leaves a reused pid unmatched: a run that ended before the kill, started after it, or ran in another boot", () => {
+	it("leaves a reused pid unmatched: a run ended, last sampled or its worker last seen before the kill, started after it, or in another boot", () => {
 		seed([
-			{ endedAt: new Date(T0 - MIN).toISOString() },
-			{ at: new Date(T0 + MIN).toISOString() },
+			{ endedAt: iso(T0 - MIN) },
+			/* A killed wrapper's file: no end, its last sample long past. */
+			{ sampledAt: iso(T0 - 10 * MIN) },
+			/* A live run whose worker on the pid exited minutes ago. */
+			{ workersSeenAt: { [Worker]: iso(T0 - 3 * MIN) } },
+			{ at: iso(T0 + MIN) },
 			{ bootId: "fedcba98-7654-3210-fedc-ba9876543210" },
 		]);
 		expect(kinds()).toEqual(["node or python process"]);
 	});
 
+	it("never relabels a kill that is no node process", () => {
+		seed([{}], "2.1.310");
+		expect(kinds()).toEqual(["Claude host"]);
+	});
+
 	it("takes the run started latest where two share the pid", () => {
 		seed([
-			{ at: new Date(T0 - 50 * MIN).toISOString(), kind: "full" },
-			{ at: new Date(T0 - 5 * MIN).toISOString(), kind: "named" },
+			{ at: iso(T0 - 50 * MIN), kind: "full" },
+			{ at: iso(T0 - 5 * MIN), kind: "named" },
 		]);
-		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
-		expect(i.kills[0].testRun.kind).toBe("named");
+		expect(readOne().kills[0].testRun.kind).toBe("named");
+	});
+
+	it("says the kills were not joined where a run on the victim's pid recorded no boot, or the store will not read", () => {
+		seed([{ bootId: null }]);
+		const i = readOne();
+		expect(i.kills[0].kind).toBe("node or python process");
+		expect(i.unjoined).toBe(
+			`test run from ${iso(T0 - 5 * MIN)} on a victim's pid recorded no boot`,
+		);
+
+		seed([{}]);
+		fs.writeFileSync(
+			path.join(dir, "refill", ".test-run-memory", "9.json"),
+			"{",
+		);
+		const j = readOne();
+		expect(j.kills[0].kind).toBe("node or python process");
+		expect(j.unjoined).toMatch(/^the test run store: 9\.json: /);
 	});
 });

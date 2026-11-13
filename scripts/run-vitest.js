@@ -162,7 +162,7 @@ const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { pushGateState } = require("./lib/test-gate.js");
 const { selectTouched } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
-const { appendEmptyTouchedLine, kindOf } = require("./lib/run-ledger.js");
+const { appendEmptyTouchedLine, kindOfLaunch } = require("./lib/run-ledger.js");
 const runMemory = require("./lib/run-memory.js");
 const { lookupLaunch, recordAllCached } = require("./lib/cached-plan.js");
 const {
@@ -657,7 +657,7 @@ function withLaunch(options, fields) {
  *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
  *   escalationRequeues?: boolean, session?: string|null,
  *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown,
- *   killCarrier?: typeof killPid, sampleMemory?: typeof runMemory.startSampler }} [options]
+ *   killCarrier?: typeof killPid }} [options]
  * @returns {Promise<number>}
  */
 function runOnce(
@@ -696,8 +696,6 @@ function runOnce(
 		err = process.stderr,
 		/* What SIGKILLs the run's carriers, here and in `releaseRunsAndWorktrees`. */
 		killCarrier = killPid,
-		/* What samples the run's memory and records its pids (#5183). */
-		sampleMemory = runMemory.startSampler,
 		...expandOptions
 	} = {},
 ) {
@@ -795,23 +793,21 @@ function runOnce(
 		heldRuns.set(inflightFile, killCarrier);
 		const tmpRoot = openRunRoot(err);
 		/* Its pids are on disk before vitest can draw anything (#5183). */
-		const memory = sampleMemory({
-			main: null,
+		const runLaunch = {
 			session,
-			kind: kindOf({
-				argv: launch.argv ?? undefined,
-				/* `kindOf` reads `full` for its truth alone. */
-				scope: {
-					touched: launch.touched === true,
-					full: weighed.full ? "flag" : undefined,
-				},
+			kind: kindOfLaunch({
+				argv: launch.argv ?? null,
+				touched: launch.touched === true,
+				full: Boolean(weighed.full),
 				lander: idSeam.isLanderRun(),
 			}),
 			argv: launch.argv ?? [],
 			files: plan?.files ?? [],
 			fileCount: plan?.files.length ?? 0,
 			repo: path.basename(target),
-		});
+		};
+		const memory = takeWrapperMemory() ?? runMemory.startSampler(runLaunch);
+		memory.setLaunch(runLaunch);
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
 			bin,
@@ -1061,6 +1057,30 @@ function runOnce(
 		};
 		child.on("close", settle);
 	});
+}
+
+/* The memory record the wrapper opened as it started, before its queue wait
+ * and its selection, so a wrapper killed there still leaves its pid (#5183).
+ * The first run takes it; a wrapper that spawned nothing discards it. */
+/** @type {import("./lib/run-memory.js").Sampler|null} */
+let wrapperMemory = null;
+
+/** @param {string[]} argv */
+function openWrapperMemory(argv) {
+	wrapperMemory = runMemory.startSampler({
+		session: idSeam.fromEnv(),
+		kind: "queued",
+		argv,
+		files: [],
+		fileCount: 0,
+		repo: path.basename(repoRoot(TREE_ROOT) || TREE_ROOT),
+	});
+}
+
+function takeWrapperMemory() {
+	const taken = wrapperMemory;
+	wrapperMemory = null;
+	return taken;
 }
 
 /* Isolated worktrees `releaseRunsAndWorktrees` removes on a signal, since a `.finally()`
@@ -2836,6 +2856,7 @@ if (require.main === module) {
 		 * this run's own root, so a dead run's audit logs on the real temp
 		 * root are swept here (#5108). */
 		readAudit.sweep(os.tmpdir());
+		openWrapperMemory(argv);
 		holdForLoad()
 			.then((go) =>
 				go
@@ -2858,6 +2879,7 @@ if (require.main === module) {
 			// queue — losing exactly the failure text this wrapper exists to keep
 			// (mantahostels#1943 review).
 			.then((code) => {
+				takeWrapperMemory()?.discard();
 				process.exitCode = code;
 			})
 			.catch((error) => {
